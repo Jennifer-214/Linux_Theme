@@ -188,22 +188,33 @@ if [[ ! -f "$SCRIPT_DIR/src/fox-intel/json.hpp" ]]; then
         -o "$SCRIPT_DIR/src/fox-intel/json.hpp"
 fi
 
+_first_build=0
 if [[ ! -x "$FOX_INSTALL_BIN" ]]; then
+    _first_build=1
     echo ":: Building native orchestrator (fox-install + libfox-intel + ~10 fox-* tools)"
-    echo "   First-time compile: ~30-90s. Terminal stays quiet while make runs."
 elif [[ "${FOXML_UPDATED:-0}" == "1" ]]; then
     echo ":: Recompiling after self-update"
 fi
-# Silent build with loud-on-failure rerun. Earlier attempts at a bash-side
-# progress bar (commits 6fc790f / da8b111) tripped set -e / pipefail in
-# subtle ways depending on which subshell context the script was running
-# under; reverted to the simple pattern. The module-level progress bar
-# inside the C++ orchestrator (ui::module_progress) handles the per-step
-# pretty output once make hands off to fox-install.
-if ! make -C "$SCRIPT_DIR" install >/dev/null 2>&1; then
+# Silent build with loud-on-failure rerun. Earlier attempts at a
+# spinning-cursor progress bar (commits 6fc790f / da8b111) tripped
+# set -e / pipefail in subtle ways depending on which subshell context
+# the script was running under, and the dot-printer backgrounding
+# raced on the trap. So we stick with the simple foreground pattern,
+# but pass -jN for a real parallel speedup and time the wall clock so
+# the user gets ONE line at the end telling them the build is done.
+# The module-level progress bar inside the C++ orchestrator
+# (ui::module_progress) handles the per-step pretty output once make
+# hands off to fox-install.
+_jobs=$(nproc 2>/dev/null || echo 2)
+_start=$SECONDS
+if ! make -j"$_jobs" -C "$SCRIPT_DIR" install >/dev/null 2>&1; then
     echo "error: native orchestrator build failed; rerunning loudly:" >&2
-    make -C "$SCRIPT_DIR" install
+    make -j"$_jobs" -C "$SCRIPT_DIR" install
     exit 1
+fi
+_elapsed=$(( SECONDS - _start ))
+if (( _first_build )) || [[ "${FOXML_UPDATED:-0}" == "1" ]]; then
+    echo "   built in ${_elapsed}s (${_jobs} parallel jobs)"
 fi
 
 # ─────────────────────────────────────────
