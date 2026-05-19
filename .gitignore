@@ -25,9 +25,12 @@ claude-skills/
 # from descending into the dir, making negation patterns silently ineffective.
 plans/*
 plans/*/
-# Public exception: the active architecture-refactor plan is intentionally
-# shared so the project's direction is visible to anyone reading the repo.
+# Public exception: the active architecture-refactor plan + its per-slice
+# subplans are intentionally shared so the project's direction is visible
+# to anyone reading the repo.
 !plans/architecture-refactor.md
+!plans/refactor/
+!plans/refactor/**
 
 # Editor backups — local safety nets, not for the repo
 *.bak
