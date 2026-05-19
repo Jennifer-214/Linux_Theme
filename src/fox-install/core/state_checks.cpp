@@ -3,6 +3,8 @@
 #include "../../fox-common/shell.hpp"
 
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -222,6 +224,68 @@ Classification check_catppuccin_cursor(const Context& ctx, const Manifest& manif
     }
     if (present) return {Status::Noop, "cursor theme directory present"};
     return {Status::Update, theme_dir.string() + " missing, re-run needed"};
+}
+
+Classification check_gpg_agent_cache(const Context& ctx, const Manifest& manifest) {
+    const fs::path conf = ctx.home / ".gnupg" / "gpg-agent.conf";
+    const bool present = fs::exists(conf);
+    const auto it = manifest.modules.find("gpg_agent_cache");
+    const bool tracked = (it != manifest.modules.end());
+    if (!tracked) {
+        if (present) return {Status::Noop, conf.string() + " already present (untracked)"};
+        return {Status::Fresh, "gpg_agent_cache has not run yet"};
+    }
+    if (present) return {Status::Noop, conf.string() + " present"};
+    return {Status::Update, conf.string() + " missing, re-run needed"};
+}
+
+Classification check_keyring_full(const Context& /*ctx*/, const Manifest& manifest) {
+    // The install masks four units; we probe the canonical one
+    // (gnome-keyring-daemon.service). If it's masked, the install
+    // ran successfully. Probing all four would be more thorough but
+    // also more expensive — one sentinel is enough.
+    const std::string state = systemctl_is_enabled(
+        "gnome-keyring-daemon.service", /*user=*/true);
+    const auto it = manifest.modules.find("keyring_full");
+    const bool tracked = (it != manifest.modules.end());
+    if (!tracked) {
+        return {Status::Fresh, "keyring_full has not run yet"};
+    }
+    if (state == "masked") return {Status::Noop, "gnome-keyring-daemon.service masked"};
+    return {Status::Update,
+            "gnome-keyring-daemon.service state is '"
+            + (state.empty() ? "unknown" : state)
+            + "', re-run needed to re-mask"};
+}
+
+Classification check_noexec_tmp(const Context& /*ctx*/, const Manifest& manifest) {
+    // The install edits /etc/fstab to add noexec,nosuid,nodev to the
+    // /tmp tmpfs line. A non-tmpfs /tmp (e.g., a separate disk
+    // mount) means the user has a non-stock setup and the install
+    // module would skip — classify Noop in that case too.
+    const auto it = manifest.modules.find("noexec_tmp");
+    const bool tracked = (it != manifest.modules.end());
+    std::string fstab_contents;
+    try {
+        std::ifstream f("/etc/fstab");
+        std::stringstream ss; ss << f.rdbuf();
+        fstab_contents = ss.str();
+    } catch (...) {
+        // unreadable /etc/fstab → can't classify, default to Fresh
+        // so the install attempts again if tracked-but-unverifiable.
+        if (tracked) return {Status::Update, "/etc/fstab unreadable, re-run to be safe"};
+        return {Status::Fresh, "/etc/fstab unreadable"};
+    }
+
+    const bool locked_down =
+        fstab_contents.find("noexec") != std::string::npos &&
+        fstab_contents.find("/tmp") != std::string::npos;
+    if (!tracked) {
+        if (locked_down) return {Status::Noop, "/tmp already has lockdown options (untracked)"};
+        return {Status::Fresh, "noexec_tmp has not run yet"};
+    }
+    if (locked_down) return {Status::Noop, "/tmp fstab line has noexec/nosuid/nodev"};
+    return {Status::Update, "/tmp fstab line missing lockdown options, re-run needed"};
 }
 
 Classification check_mac_random(const Context& /*ctx*/, const Manifest& manifest) {

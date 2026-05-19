@@ -67,4 +67,18 @@ Classification check_papirus_icons(const Context& ctx, const Manifest& manifest)
 // = Noop; missing + tracked = Update; either + untracked = Fresh.
 Classification check_catppuccin_cursor(const Context& ctx, const Manifest& manifest);
 
+// gpg_agent_cache — writes ~/.gnupg/gpg-agent.conf with extended
+// passphrase cache TTL. File existence is the sentinel.
+Classification check_gpg_agent_cache(const Context& ctx, const Manifest& manifest);
+
+// keyring_full — masks four gnome-keyring autostart units so the
+// SSH + GPG components fully take over. State check: is the
+// canonical sentinel unit masked?
+Classification check_keyring_full(const Context& ctx, const Manifest& manifest);
+
+// noexec_tmp — adds noexec/nosuid/nodev mount options to /tmp +
+// /dev/shm via /etc/fstab. State check: does fstab already have a
+// locked-down /tmp tmpfs line?
+Classification check_noexec_tmp(const Context& ctx, const Manifest& manifest);
+
 }  // namespace fox_install::state

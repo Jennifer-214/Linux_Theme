@@ -213,7 +213,9 @@ FOX_MODULE_FULL( foo, run_foo, "--foo", "What foo does", false,
                  state::check_foo )
 ```
 
-The wizard immediately reports real Classification for that module instead of the "no state_check — assumed fresh" placeholder. If the check can produce `Status::Conflict`, also add a sentinel path entry to `conflict_sentinel()` in `wizard.cpp` so `BackupThenTakeNew` / `KeepMine` resolve to file-IO; without an entry, the user's conflict_decision is recorded in the manifest but not yet applied.
+The wizard immediately reports real Classification for that module instead of the "no state_check — assumed fresh" placeholder.
+
+**If the state_check is hash-based** (compares a deployed file against `manifest.modules[slug].source_hash` — see `check_render` or `check_mac_random`), you ALSO need a sentinel-path entry in `wizard::conflict_sentinel()` in `core/wizard.cpp`. The dispatcher uses that same lookup *twice*: once to apply `BackupThenTakeNew`/`KeepMine` conflict decisions, and once to compute the new `source_hash` after a successful module run (so the next install can compare hashes and report Noop). Forgetting the sentinel won't break anything immediately, but every subsequent install will re-classify the module as Conflict (deployed hash exists, stored hash is empty → conflict per the three-hash classifier). Unit-based and package-based state_checks (`check_ufw`, `check_papirus_icons`, …) don't need a sentinel — their classification doesn't depend on `source_hash`.
 
 ## AI integration (worked examples)
 

@@ -58,7 +58,8 @@ int main() {
             (slug == "deps"               || slug == "render"     || slug == "etckeeper"  ||
              slug == "vault"              || slug == "arch_audit" || slug == "mac_random" ||
              slug == "ufw"                || slug == "endlessh"   || slug == "greetd"     ||
-             slug == "papirus_icons"      || slug == "catppuccin_cursor");
+             slug == "papirus_icons"      || slug == "catppuccin_cursor" ||
+             slug == "gpg_agent_cache"    || slug == "keyring_full" || slug == "noexec_tmp");
         if (!is_full_form) {
             if (m.requires_root || m.requires_graphical || m.requires_network) {
                 std::fprintf(stderr,
@@ -218,4 +219,7 @@ Classification check_endlessh          (const Context&, const Manifest&) { retur
 Classification check_greetd            (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
 Classification check_papirus_icons     (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
 Classification check_catppuccin_cursor (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
+Classification check_gpg_agent_cache   (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
+Classification check_keyring_full      (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
+Classification check_noexec_tmp        (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
 }  // namespace fox_install::state

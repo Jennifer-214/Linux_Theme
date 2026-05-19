@@ -35,7 +35,10 @@ FOX_MODULE_FULL( arch_audit, run_arch_audit,    "--arch-audit",   "Daily arch-au
                  state::check_arch_audit )
 FOX_MODULE( no_coredumps,    run_no_coredumps,     "--no-coredumps", "Disable core dumps (systemd + limits.d)",          true  )
 FOX_MODULE( hidepid,         run_hidepid,          "--hidepid",      "/proc hidepid=2 (hide other users' processes)",    true  )
-FOX_MODULE( noexec_tmp,      run_noexec_tmp,       "--noexec-tmp",   "noexec/nosuid/nodev on /tmp + /dev/shm (opt-in)",  false )
+//   noexec_tmp — edits /etc/fstab. Root for the sudo write, no network.
+FOX_MODULE_FULL( noexec_tmp,  run_noexec_tmp,       "--noexec-tmp",   "noexec/nosuid/nodev on /tmp + /dev/shm (opt-in)",  false,
+                 /*root*/ true, /*gfx*/ false, /*net*/ false,
+                 state::check_noexec_tmp )
 FOX_MODULE( iommu,           run_iommu,            "--iommu",        "IOMMU + lockdown=integrity kernel cmdline",        false )
 FOX_MODULE( makepkg_harden,  run_makepkg_hardening,"--makepkg-harden","Hardened CFLAGS/LDFLAGS for AUR builds",          true  )
 //   etckeeper — installs a package + writes user systemd units. Root for
@@ -50,7 +53,10 @@ FOX_MODULE_FULL( etckeeper,   run_etckeeper,    "--etckeeper",    "git-track /et
 FOX_MODULE_FULL( mac_random, run_mac_random,    "--mac-random",   "NetworkManager MAC randomization (opt-in)",        false,
                  /*root*/ true, /*gfx*/ false, /*net*/ false,
                  state::check_mac_random )
-FOX_MODULE( gpg_agent_cache, run_gpg_agent_cache,  "--gpg-cache",    "Extend gpg-agent passphrase cache TTL",            true  )
+//   gpg_agent_cache — writes ~/.gnupg/gpg-agent.conf. No root, no network.
+FOX_MODULE_FULL( gpg_agent_cache, run_gpg_agent_cache, "--gpg-cache", "Extend gpg-agent passphrase cache TTL",            true,
+                 /*root*/ false, /*gfx*/ false, /*net*/ false,
+                 state::check_gpg_agent_cache )
 //   catppuccin_cursor — downloads + extracts to ~/.icons/. Needs network.
 FOX_MODULE_FULL( catppuccin_cursor, run_catppuccin_cursor, "--cursor-theme", "Catppuccin Mocha Peach cursor theme (download)", true,
                  /*root*/ false, /*gfx*/ false, /*net*/ true,
@@ -60,7 +66,10 @@ FOX_MODULE_FULL( papirus_icons, run_papirus_icons, "--icon-theme",  "Papirus ico
                  /*root*/ true, /*gfx*/ false, /*net*/ true,
                  state::check_papirus_icons )
 FOX_MODULE( zsh_plugins,     run_zsh_plugins,      "--zsh-plugins",  "Clone oh-my-zsh syntax/autosuggestions/completions", true )
-FOX_MODULE( keyring_full,      run_keyring_full,       "--keyring-full",     "Mask gnome-keyring limited autostart (ssh+gpg full)",         true )
+//   keyring_full — masks user systemd units. No root (user-scope), no network.
+FOX_MODULE_FULL( keyring_full,  run_keyring_full,       "--keyring-full",     "Mask gnome-keyring limited autostart (ssh+gpg full)",         true,
+                 /*root*/ false, /*gfx*/ false, /*net*/ false,
+                 state::check_keyring_full )
 //   endlessh — AUR install + system systemd unit. Both root + network.
 FOX_MODULE_FULL( endlessh,      run_endlessh,           "--endlessh",         "SSH tarpit on port 22 (after --ssh-harden moves real sshd)",  false,
                  /*root*/ true, /*gfx*/ false, /*net*/ true,
