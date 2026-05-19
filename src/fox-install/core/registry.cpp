@@ -1,20 +1,30 @@
 #include "module.hpp"
 
-// Forward-declare every module function from the X-macro list. The
-// FOX_MODULE macro is redefined twice in this file: once to emit
-// forward declarations, once to emit the static MODULES array.
+// The FOX_MODULE / FOX_MODULE_FULL X-macros are redefined twice in this
+// file: once to emit forward declarations of every module function,
+// once to emit the Module table. FOX_MODULE is a thin shim that
+// delegates to FOX_MODULE_FULL with all prereqs defaulted to false, so
+// legacy entries in modules.def keep working unchanged.
 
 namespace fox_install {
 
-#define FOX_MODULE(slug, fn, flag, desc, def_on)  void fn(Context&);
+#define FOX_MODULE_FULL(slug, fn, flag, desc, def_on, req_root, req_gfx, req_net)  \
+    void fn(Context&);
+#define FOX_MODULE(slug, fn, flag, desc, def_on)  \
+    FOX_MODULE_FULL(slug, fn, flag, desc, def_on, false, false, false)
 #include "modules.def"
 #undef  FOX_MODULE
+#undef  FOX_MODULE_FULL
 
-#define FOX_MODULE(slug, fn, flag, desc, def_on)  { #slug, &fn, flag, desc, def_on },
+#define FOX_MODULE_FULL(slug, fn, flag, desc, def_on, req_root, req_gfx, req_net)  \
+    { #slug, &fn, flag, desc, def_on, req_root, req_gfx, req_net },
+#define FOX_MODULE(slug, fn, flag, desc, def_on)  \
+    FOX_MODULE_FULL(slug, fn, flag, desc, def_on, false, false, false)
 const Module MODULES[] = {
 #include "modules.def"
 };
 #undef  FOX_MODULE
+#undef  FOX_MODULE_FULL
 
 const std::size_t MODULES_COUNT = sizeof(MODULES) / sizeof(MODULES[0]);
 

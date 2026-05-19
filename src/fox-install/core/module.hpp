@@ -19,6 +19,19 @@
 //   flag         CLI flag, e.g. "--foo"
 //   description  one-line description shown in --help
 //   default_on   if true, module runs unless explicitly disabled with --no-<slug>
+//
+// FOX_MODULE_FULL — extended form (Phase 6 Step 5). Same shape plus three
+// trailing prereq booleans, consumed by the state classifier in Session B
+// Step 7 to short-circuit modules whose requirements can't be met:
+//
+//     FOX_MODULE_FULL(foo, run_foo, "--foo", "...", false,
+//                     /*requires_root*/      true,
+//                     /*requires_graphical*/ false,
+//                     /*requires_network*/   true)
+//
+// FOX_MODULE(...) is a backward-compat shim that defaults all three
+// prereq fields to false — existing entries in modules.def keep working
+// unchanged.
 
 #include "context.hpp"
 
@@ -32,6 +45,9 @@ struct Module {
     const char* flag;
     const char* description;
     bool        default_on;
+    bool        requires_root;
+    bool        requires_graphical;
+    bool        requires_network;
 };
 
 // Defined in registry.cpp via X-macro expansion of modules.def.

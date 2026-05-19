@@ -8,6 +8,12 @@
 #include <cstdio>
 #include <cstring>
 
+namespace {
+// Used by the FOX_MODULE_FULL fixture below to give the function pointer
+// a real target. Never called.
+void test_stub(fox_install::Context&) {}
+}  // namespace
+
 int main() {
     int failed = 0;
     using namespace fox_install;
@@ -36,6 +42,18 @@ int main() {
             std::fprintf(stderr, "FAIL [%zu]: missing description\n", i);
             ++failed;
         }
+        // Every entry in modules.def currently uses the legacy FOX_MODULE
+        // form, which routes through the FOX_MODULE_FULL shim with all
+        // prereqs defaulted to false. Lock that in so a future field-order
+        // shuffle that flips a bool by accident shows up immediately.
+        if (m.requires_root || m.requires_graphical || m.requires_network) {
+            std::fprintf(stderr,
+                "FAIL [%zu] %s: legacy entry has a non-false prereq "
+                "(root=%d gfx=%d net=%d) — backfill via FOX_MODULE_FULL only\n",
+                i, m.slug,
+                m.requires_root, m.requires_graphical, m.requires_network);
+            ++failed;
+        }
         // Slugs must be unique across the registry.
         for (std::size_t j = i + 1; j < MODULES_COUNT; ++j) {
             if (std::strcmp(MODULES[i].slug, MODULES[j].slug) == 0) {
@@ -43,6 +61,30 @@ int main() {
                     MODULES[i].slug, i, j);
                 ++failed;
             }
+        }
+    }
+
+    // FOX_MODULE_FULL inline fixture — exercises the macro outside
+    // modules.def so the prereq fields don't only get test coverage on
+    // the day a real module starts using them.
+    {
+#define FOX_MODULE_FULL(slug, fn, flag, desc, def_on, req_root, req_gfx, req_net)  \
+        { #slug, &fn, flag, desc, def_on, req_root, req_gfx, req_net },
+        const Module fixture[] = {
+            FOX_MODULE_FULL(probe_root, test_stub, "--probe-root", "needs root",      true,  true,  false, false)
+            FOX_MODULE_FULL(probe_gfx,  test_stub, "--probe-gfx",  "needs Wayland",   false, false, true,  false)
+            FOX_MODULE_FULL(probe_net,  test_stub, "--probe-net",  "downloads stuff", false, false, false, true)
+        };
+#undef FOX_MODULE_FULL
+        if (std::strcmp(fixture[0].slug, "probe_root") != 0 ||
+                !fixture[0].requires_root || fixture[0].requires_graphical || fixture[0].requires_network) {
+            std::fprintf(stderr, "FAIL: FOX_MODULE_FULL row 0 fields wrong\n"); ++failed;
+        }
+        if (!fixture[1].requires_graphical || fixture[1].requires_root || fixture[1].requires_network) {
+            std::fprintf(stderr, "FAIL: FOX_MODULE_FULL row 1 fields wrong\n"); ++failed;
+        }
+        if (!fixture[2].requires_network || fixture[2].requires_root || fixture[2].requires_graphical) {
+            std::fprintf(stderr, "FAIL: FOX_MODULE_FULL row 2 fields wrong\n"); ++failed;
         }
     }
 
