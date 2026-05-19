@@ -3,6 +3,9 @@
 // nlohmann/json — vendored under src/fox-intel/.
 #include "../../fox-intel/json.hpp"
 
+#include <openssl/evp.h>
+
+#include <array>
 #include <chrono>
 #include <cstdlib>
 #include <ctime>
@@ -110,6 +113,58 @@ void write(const fs::path& path, const Manifest& m) {
         fs::remove(tmp);  // best effort cleanup
         throw std::runtime_error("state_manifest: rename failed: " + ec.message());
     }
+}
+
+// SHA256 implementation using OpenSSL's EVP interface (the legacy
+// SHA256_* functions are deprecated since OpenSSL 3.0).
+namespace {
+
+std::string sha256_hex(const unsigned char* data, std::size_t len) {
+    std::array<unsigned char, EVP_MAX_MD_SIZE> digest{};
+    unsigned int digest_len = 0;
+
+    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+    if (!ctx) throw std::runtime_error("state_manifest: EVP_MD_CTX_new failed");
+
+    if (EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr) != 1
+            || EVP_DigestUpdate(ctx, data, len) != 1
+            || EVP_DigestFinal_ex(ctx, digest.data(), &digest_len) != 1) {
+        EVP_MD_CTX_free(ctx);
+        throw std::runtime_error("state_manifest: SHA256 computation failed");
+    }
+    EVP_MD_CTX_free(ctx);
+
+    std::ostringstream oss;
+    oss << std::hex << std::setfill('0');
+    for (unsigned int i = 0; i < digest_len; ++i) {
+        oss << std::setw(2) << static_cast<int>(digest[i]);
+    }
+    return oss.str();
+}
+
+}  // namespace
+
+std::string hash_file(const fs::path& path) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) throw std::runtime_error("hash_file: cannot open " + path.string());
+
+    // Read whole file into memory. install-time files are configs
+    // (kB range, not GB), so this is fine. If a gigantic file ever
+    // shows up, switch to streaming via EVP_DigestUpdate in chunks.
+    std::ostringstream buf;
+    buf << f.rdbuf();
+    const std::string contents = buf.str();
+    return sha256_hex(
+        reinterpret_cast<const unsigned char*>(contents.data()),
+        contents.size()
+    );
+}
+
+std::string hash_string(const std::string& s) {
+    return sha256_hex(
+        reinterpret_cast<const unsigned char*>(s.data()),
+        s.size()
+    );
 }
 
 }  // namespace fox_install::state

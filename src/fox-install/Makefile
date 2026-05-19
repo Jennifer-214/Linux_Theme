@@ -26,7 +26,7 @@ BIN := fox-install
 all: $(BIN)
 
 $(BIN): $(MAIN_OBJ) $(CORE_OBJ) $(MODULE_OBJ) $(FOX_COMMON_LIB)
-	$(CXX) $(CXXFLAGS) -o $@ $(MAIN_OBJ) $(CORE_OBJ) $(MODULE_OBJ) -L$(FOX_COMMON_DIR) -lfox-common
+	$(CXX) $(CXXFLAGS) -o $@ $(MAIN_OBJ) $(CORE_OBJ) $(MODULE_OBJ) -L$(FOX_COMMON_DIR) -lfox-common -lcrypto
 
 # Ensure libfox-common.a is built before linking.
 $(FOX_COMMON_LIB):
@@ -63,7 +63,7 @@ tests/test_registry: tests/test_registry.cpp core/registry.o
 	$(CXX) $(CXXFLAGS) tests/test_registry.cpp core/registry.o -o $@
 
 tests/test_state_manifest: tests/test_state_manifest.cpp core/state_manifest.o
-	$(CXX) $(CXXFLAGS) tests/test_state_manifest.cpp core/state_manifest.o -o $@
+	$(CXX) $(CXXFLAGS) tests/test_state_manifest.cpp core/state_manifest.o -o $@ -lcrypto
 
 clean:
 	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest

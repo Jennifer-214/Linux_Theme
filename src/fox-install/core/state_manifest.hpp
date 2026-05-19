@@ -56,4 +56,17 @@ void write(const std::filesystem::path& path, const Manifest& m);
 // Helper: current UTC time as ISO 8601 string (for ModuleState::deployed_at).
 std::string now_iso8601();
 
+// SHA256 of file contents, hex-encoded (64-char lowercase string).
+// Throws std::runtime_error if the file can't be opened.
+// Used to detect drift: hash(deployed file) vs hash(source template)
+// vs stored ModuleState::source_hash → classify as noop / update /
+// conflict / fresh (logic lands in Session B).
+std::string hash_file(const std::filesystem::path& path);
+
+// SHA256 of an arbitrary string buffer, hex-encoded. Useful for
+// modules whose "state" isn't a file (package version strings,
+// systemctl unit lists, etc.) — caller serializes the relevant
+// state into a string and hashes that.
+std::string hash_string(const std::string& s);
+
 }  // namespace fox_install::state

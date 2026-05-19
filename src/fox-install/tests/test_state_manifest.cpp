@@ -111,6 +111,45 @@ int main() {
         EXPECT(p.parent_path().filename() == "foxml");
     }
 
+    // T7: hash_string returns the known SHA256 of "abc".
+    // (sha256("abc") = ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad)
+    {
+        const std::string expected = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
+        EXPECT(hash_string("abc") == expected);
+    }
+
+    // T8: hash_string on empty input returns SHA256 of empty (well-known value).
+    {
+        const std::string expected = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+        EXPECT(hash_string("") == expected);
+    }
+
+    // T9: hash_file matches hash_string of file contents.
+    {
+        fs::path p = make_tmp_path();
+        {
+            std::ofstream f(p);
+            f << "abc";
+        }
+        const std::string from_file = hash_file(p);
+        const std::string from_string = hash_string("abc");
+        EXPECT(from_file == from_string);
+        EXPECT(from_file.size() == 64);  // sha256 = 32 bytes = 64 hex chars
+        fs::remove(p);
+    }
+
+    // T10: hash_file throws if the file doesn't exist.
+    {
+        fs::path p = fs::temp_directory_path() / ("definitely-does-not-exist-" + std::to_string(::getpid()));
+        bool threw = false;
+        try {
+            (void)hash_file(p);
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        EXPECT(threw);
+    }
+
     if (failures == 0) {
         std::cout << "state_manifest tests: OK\n";
         return 0;
