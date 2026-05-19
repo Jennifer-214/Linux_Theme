@@ -16,14 +16,15 @@ Current tools:
 | ----------------- | ------------------------------------------------------------------- |
 | `fox-common`      | Library (`libfox-common.a`) — shared pacman-style UI, subprocess helpers (`sh::run`/`pacman`/`systemctl_*`), and the namespace dispatcher (`fox_common::dispatch`). Every fox-* tool that needs these links against it. |
 | `fox`             | Top-level CLI dispatcher. Entry for `fox <namespace> <subcommand> [args]`. Namespaces live in `src/fox/dispatch.def`. As of Phase 2: `ai` namespace wired in. |
-| `fox-ai`          | Namespace dispatcher for AI-augmented tools — first live example of the dispatcher pattern. 23 subcommands registered via `src/fox-ai/dispatch.def`, leaves are the existing `fox-ai-*` binaries (7 C++ + 16 bash). Reachable as `fox ai <sub>` or `fox-ai <sub>` directly. |
+| `fox-ai`          | Namespace dispatcher for AI-augmented tools. 23 subcommands registered via `src/fox-ai/dispatch.def`, leaves are the existing `fox-ai-*` binaries (7 C++ + 16 bash). Reachable as `fox ai <sub>` or `fox-ai <sub>` directly. |
+| `fox-sec`         | Namespace dispatcher for security tools. 30 subcommands (firewall, vpn, audit, snitch, harden, jail, ...) via `src/fox-sec/dispatch.def`. The standalone `fox-sec` dashboard was renamed to `fox-sec-dashboard` to free up the namespace name; same dashboard now reachable as `fox sec dashboard`. |
 | `fox-intel`       | Library (`libfox-intel.a`) — Ollama client, embeddings, helpers. The AI primitive every other tool links against. |
 | `fox-render-fast` | Concurrent template engine. Drop-in for `render.sh`, byte-for-byte match. |
 | `fox-pulse`       | Single-epoll daemon multiplexing Hyprland IPC + inotify + debouncers. Replaces `focus-pulse.sh` and `fox-monitor-watch.sh`. |
 | `fox-vault`       | `mlock()`'d in-RAM secret store with Unix-socket CLI.               |
 | `fox-install`     | C++ orchestrator with X-macro module registry. Mid-port; `install.sh` is still the active install path until wave 2 lands. |
 
-The architecture is in mid-refactor — see `plans/architecture-refactor.md` for the master plan. Phases complete: 1 (`fox-common/` extraction + `src/fox/` skeleton) and 2 (`fox ai *` namespace migration). Next: Phase 3 (`fox sec *` namespace migration, ~29 subcommands).
+The architecture is in mid-refactor — see `plans/architecture-refactor.md` for the master plan. Phases complete: 1 (`fox-common/` extraction + `src/fox/` skeleton), 2 (`fox ai *` namespace, 23 subcommands), 3 (`fox sec *` namespace, 30 subcommands). Next: Phase 4 (`fox theme`, `fox dev`, `fox sys` namespaces).
 
 ## Adding a new tool
 
