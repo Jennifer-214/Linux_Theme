@@ -84,7 +84,7 @@ if [[ -f "$STATE" ]]; then
     # with the same key as before resets them back to config defaults
     # on the next hyprctl reload, but we can also unbind the override
     # explicitly by re-issuing the original config values.
-    hyprctl --batch "keyword decoration:blur:enabled true ; keyword decoration:active_opacity 0.95 ; keyword decoration:inactive_opacity 0.85" >/dev/null 2>&1 || true
+    hyprctl --batch "keyword decoration:blur:enabled true ; keyword decoration:blur:size 3 ; keyword decoration:blur:passes 2 ; keyword decoration:active_opacity 0.95 ; keyword decoration:inactive_opacity 0.85" >/dev/null 2>&1 || true
 
     notify-send -t 1500 "👻 Ghost Mode" "Off" 2>/dev/null || true
     exit 0
