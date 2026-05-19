@@ -52,12 +52,13 @@ install: all
 	@cd ../.. && pwd > $(HOME)/.local/share/foxml/repo-dir
 	@echo "  + repo path recorded: $$(cat $(HOME)/.local/share/foxml/repo-dir)"
 
-test: tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve
+test: tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard
 	@./tests/test_registry
 	@./tests/test_state_manifest
 	@./tests/test_classifier
 	@./tests/test_state_checks
 	@./tests/test_conflict_resolve
+	@./tests/test_wizard
 
 # Test binary links only core/registry.o (the X-macro table); modules
 # are stubbed inside the test file so we don't drag in their real
@@ -83,7 +84,14 @@ tests/test_state_checks: tests/test_state_checks.cpp core/state_checks.o core/st
 tests/test_conflict_resolve: tests/test_conflict_resolve.cpp core/conflict_resolve.o $(FOX_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) tests/test_conflict_resolve.cpp core/conflict_resolve.o -L$(FOX_COMMON_DIR) -lfox-common -o $@
 
+# wizard tests the data types + default_plan (pure logic). Step 9
+# adds the interactive run() body, which isn't unit-tested. The link
+# pulls classifier + conflict_resolve in because wizard's structs
+# embed their types.
+tests/test_wizard: tests/test_wizard.cpp core/wizard.o core/classifier.o core/conflict_resolve.o $(FOX_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_wizard.cpp core/wizard.o core/classifier.o core/conflict_resolve.o -L$(FOX_COMMON_DIR) -lfox-common -o $@
+
 clean:
-	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve
+	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard
 
 .PHONY: all install clean test
