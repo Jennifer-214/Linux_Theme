@@ -25,7 +25,11 @@ FOX_MODULE( perf,            run_perf,             "--perf",         "Performanc
 FOX_MODULE( clock_sync,      run_clock_sync,       "--clock-sync",   "One-shot NTP correction at install time",          true  )
 FOX_MODULE( ufw,             run_ufw,              "--ufw",          "Default-deny inbound firewall (runs even when --no-secure)", true  )
 FOX_MODULE( security,        run_security,         "--secure",       "Kernel sysctls + USBGuard + AppArmor + polkit + fail2ban + auditd", true )
-FOX_MODULE( arch_audit,      run_arch_audit,       "--arch-audit",   "Daily arch-audit systemd-user timer",              true  )
+//   arch_audit — deploys a user systemd timer. No root (user-scope unit),
+//   no network at install time (CVE feed only fetched when the timer fires).
+FOX_MODULE_FULL( arch_audit, run_arch_audit,    "--arch-audit",   "Daily arch-audit systemd-user timer",              true,
+                 /*root*/ false, /*gfx*/ false, /*net*/ false,
+                 state::check_arch_audit )
 FOX_MODULE( no_coredumps,    run_no_coredumps,     "--no-coredumps", "Disable core dumps (systemd + limits.d)",          true  )
 FOX_MODULE( hidepid,         run_hidepid,          "--hidepid",      "/proc hidepid=2 (hide other users' processes)",    true  )
 FOX_MODULE( noexec_tmp,      run_noexec_tmp,       "--noexec-tmp",   "noexec/nosuid/nodev on /tmp + /dev/shm (opt-in)",  false )
@@ -38,7 +42,11 @@ FOX_MODULE( makepkg_harden,  run_makepkg_hardening,"--makepkg-harden","Hardened 
 FOX_MODULE_FULL( etckeeper,   run_etckeeper,    "--etckeeper",    "git-track /etc + drift watcher",                   true,
                  /*root*/ true, /*gfx*/ false, /*net*/ true,
                  state::check_etckeeper )
-FOX_MODULE( mac_random,      run_mac_random,       "--mac-random",   "NetworkManager MAC randomization (opt-in)",        false )
+//   mac_random — writes a system NetworkManager conf via sudo, then
+//   reload. requires_root for the install path.
+FOX_MODULE_FULL( mac_random, run_mac_random,    "--mac-random",   "NetworkManager MAC randomization (opt-in)",        false,
+                 /*root*/ true, /*gfx*/ false, /*net*/ false,
+                 state::check_mac_random )
 FOX_MODULE( gpg_agent_cache, run_gpg_agent_cache,  "--gpg-cache",    "Extend gpg-agent passphrase cache TTL",            true  )
 FOX_MODULE( catppuccin_cursor,run_catppuccin_cursor,"--cursor-theme","Catppuccin Mocha Peach cursor theme (download)",   true  )
 FOX_MODULE( papirus_icons,    run_papirus_icons,     "--icon-theme",  "Papirus icon theme + Catppuccin folder palette",   true  )
@@ -65,7 +73,10 @@ FOX_MODULE( symlinks,    run_symlinks,      "--symlinks",    "Deploy rendered + 
 FOX_MODULE( specials,    run_specials,      "--specials",    "Firefox + Cursor + Bat + Gemini + Claude + bulk dirs", true )
 
 // ── Phase 3: opt-in services ──────────────────────────────────────
-FOX_MODULE( vault,       run_vault,         "--vault",       "Install fox-vault systemd user service",           false )
+//   vault — writes a user systemd unit. No root, no network.
+FOX_MODULE_FULL( vault,     run_vault,         "--vault",        "Install fox-vault systemd user service",           false,
+                 /*root*/ false, /*gfx*/ false, /*net*/ false,
+                 state::check_vault )
 FOX_MODULE( ai,              run_ai,                "--ai",              "Install Ollama + OpenCode + aider + embedding model", false )
 FOX_MODULE( ollama_hardening,run_ollama_hardening,  "--ollama-harden",   "systemd sandbox drop-in for ollama.service",       true  )
 FOX_MODULE( models,          run_models,            "--models",          "Pull tier-appropriate Ollama chat/coder stack",    false )

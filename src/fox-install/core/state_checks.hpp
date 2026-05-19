@@ -34,4 +34,16 @@ Classification check_render   (const Context& ctx, const Manifest& manifest);
 // without a manual `systemctl --user unmask` first.
 Classification check_etckeeper(const Context& ctx, const Manifest& manifest);
 
+// arch_audit — foxml-arch-audit.timer (user systemd). Same masked-
+// state hazard pattern as etckeeper.
+Classification check_arch_audit(const Context& ctx, const Manifest& manifest);
+
+// vault — fox-vault.service (user systemd). Same masked-state pattern.
+Classification check_vault(const Context& ctx, const Manifest& manifest);
+
+// mac_random — /etc/NetworkManager/conf.d/00-foxml-mac-random.conf
+// (system file). Hashes the deployed copy and compares to the
+// manifest-stored hash. No systemd unit, so no Blocked state.
+Classification check_mac_random(const Context& ctx, const Manifest& manifest);
+
 }  // namespace fox_install::state

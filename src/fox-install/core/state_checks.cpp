@@ -126,4 +126,76 @@ Classification check_etckeeper(const Context& /*ctx*/, const Manifest& manifest)
             "fox-etcwatch.path state is '" + (state.empty() ? "unknown" : state) + "', re-run needed"};
 }
 
+namespace {
+
+// Shared shape for user-systemd-unit modules: masked → Blocked;
+// untracked → Fresh; enabled → Noop; anything else with manifest entry
+// → Update. The slug is what we look up in the manifest, the unit is
+// the systemctl --user is-enabled target, the unmask_hint is the line
+// surfaced when Blocked.
+Classification user_unit_check(
+    const Manifest& manifest,
+    const std::string& slug,
+    const std::string& unit
+) {
+    const std::string state = systemctl_is_enabled(unit, /*user=*/true);
+    if (state == "masked") {
+        return {Status::Blocked,
+                unit + " is masked — `systemctl --user unmask " + unit + "` first"};
+    }
+    const auto it = manifest.modules.find(slug);
+    if (it == manifest.modules.end()) {
+        return {Status::Fresh, slug + " has not run yet"};
+    }
+    if (state == "enabled") {
+        return {Status::Noop, unit + " enabled"};
+    }
+    return {Status::Update,
+            unit + " state is '" + (state.empty() ? "unknown" : state) + "', re-run needed"};
+}
+
+}  // namespace
+
+Classification check_arch_audit(const Context& /*ctx*/, const Manifest& manifest) {
+    return user_unit_check(manifest, "arch_audit", "foxml-arch-audit.timer");
+}
+
+Classification check_vault(const Context& /*ctx*/, const Manifest& manifest) {
+    return user_unit_check(manifest, "vault", "fox-vault.service");
+}
+
+Classification check_mac_random(const Context& /*ctx*/, const Manifest& manifest) {
+    // System-file module (not a unit). Hash the deployed conf against
+    // the manifest's stored hash — the same pattern check_render uses.
+    const fs::path deployed = "/etc/NetworkManager/conf.d/00-foxml-mac-random.conf";
+    const auto it = manifest.modules.find("mac_random");
+    const bool tracked = (it != manifest.modules.end());
+
+    if (!fs::exists(deployed)) {
+        if (!tracked) return {Status::Fresh, "no manifest entry, conf absent"};
+        return {Status::Conflict,
+                "manifest says mac_random ran, but " + deployed.string() + " is missing"};
+    }
+    if (!tracked) {
+        return {Status::Conflict,
+                deployed.string() + " exists but is not tracked in the manifest"};
+    }
+
+    std::string deployed_hash;
+    try {
+        deployed_hash = hash_file(deployed);
+    } catch (const std::exception& e) {
+        // Permission-denied is common here — the conf lives under
+        // /etc and is root-owned 0644 so we expect to be able to
+        // read it, but a non-standard chmod could trip us up. Treat
+        // as a soft Conflict rather than crashing.
+        return {Status::Conflict, std::string("cannot hash deployed file: ") + e.what()};
+    }
+
+    if (deployed_hash == it->second.source_hash) {
+        return {Status::Noop, "macrand conf matches stored hash"};
+    }
+    return {Status::Update, "macrand conf diverged from stored manifest value"};
+}
+
 }  // namespace fox_install::state
