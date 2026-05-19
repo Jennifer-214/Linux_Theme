@@ -25,9 +25,9 @@ Current tools:
 | `fox-render-fast` | Concurrent template engine. Drop-in for `render.sh`, byte-for-byte match. |
 | `fox-pulse`       | Single-epoll daemon multiplexing Hyprland IPC + inotify + debouncers. Replaces `focus-pulse.sh` and `fox-monitor-watch.sh`. |
 | `fox-vault`       | `mlock()`'d in-RAM secret store with Unix-socket CLI.               |
-| `fox-install`     | C++ orchestrator with X-macro module registry. Active install path. Two flows: legacy flag-driven (default) and state-driven (`FOX_INSTALL_STATE_DRIVEN=1`) which adds a wizard + manifest-preview + per-run install log. See `## State-driven install path` below. |
+| `fox-install`     | C++ orchestrator with X-macro module registry. Active install path. Default flow: state-driven wizard + manifest-preview + per-run install log. Legacy inline-prompt flow lives behind `FOX_INSTALL_LEGACY=1` as an escape hatch. See `## State-driven install path` below. |
 
-The architecture is in mid-refactor — see `plans/architecture-refactor.md` for the master plan. Phases complete: 1 (`fox-common/` extraction + `src/fox/` skeleton), 2 (`fox ai *`, 23 subcommands), 3 (`fox sec *`, 30 subcommands), 4 (`fox theme` + `fox dev` + `fox sys`, 23 more subcommands), 6 (state-driven installer through Step 18; default cutover pending). All 5 intended namespaces are now live (76 subcommands total under `fox <ns> <sub>`). Next: Phase 5 (new `fox sys font` tool) or Phase 6 cutover (flip state-driven to default).
+The architecture is in mid-refactor — see `plans/architecture-refactor.md` for the master plan. Phases complete: 1 (`fox-common/` extraction + `src/fox/` skeleton), 2 (`fox ai *`, 23 subcommands), 3 (`fox sec *`, 30 subcommands), 4 (`fox theme` + `fox dev` + `fox sys`, 23 more subcommands), 6 (state-driven installer — cutover landed 2026-05-19, legacy path retained as `FOX_INSTALL_LEGACY=1` escape hatch). All 5 intended namespaces are now live (76 subcommands total under `fox <ns> <sub>`). Next: Phase 5 (new `fox sys font` tool).
 
 ## Adding a new tool
 
@@ -173,16 +173,18 @@ There is no AI framework, no plugin system, no "AI module" class to derive from.
 
 ## State-driven install path
 
-Phase 6 added a parallel install flow behind `FOX_INSTALL_STATE_DRIVEN=1`. The legacy flag-driven path remains the default — the cutover is pending real-install miles. Both paths run the same module set; the difference is in how the user picks which modules and how errors surface.
+Phase 6 made the state-driven path the **default** install flow. Wizard + preview + manifest + per-run install log fire on every interactive run. The legacy inline-prompt flow is preserved behind `FOX_INSTALL_LEGACY=1` as an escape hatch for users hitting a regression we haven't caught yet. Both paths run the same module set; the difference is in how the user picks which modules and how errors surface.
 
 ```bash
-# legacy: --full / --only / --no-X / inline y/n prompts per module
-./install.sh --full
+# default: state-driven (wizard → preview → run, with per-run install log)
+./install.sh --full       # repair mode (non-interactive — wizard + preview short-circuit)
+./install.sh              # interactive wizard
 
-# state-driven: wizard → preview → run, with per-run install log
-FOX_INSTALL_STATE_DRIVEN=1 ./install.sh --full   # repair mode (non-interactive)
-FOX_INSTALL_STATE_DRIVEN=1 ./install.sh           # interactive wizard
-./src/fox-install/fox-install --wizard-demo       # wizard UI only, no install
+# escape hatch (legacy --full / --only / --no-X / inline y/n prompts per module)
+FOX_INSTALL_LEGACY=1 ./install.sh --full
+
+# wizard UI only, no install — useful for "what would happen if I ran this?"
+./src/fox-install/fox-install --wizard-demo
 ```
 
 What the state-driven path adds:

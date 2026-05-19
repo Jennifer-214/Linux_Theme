@@ -70,7 +70,9 @@ void print_help(const char* argv0) {
         "      --no-update   skip install.sh's git self-update (handled by the\n"
         "                    bash wrapper; equivalent to FOXML_NO_UPDATE=1)\n"
         "      --wizard-demo render the state-driven wizard against the live\n"
-        "                    registry + exit; nothing is installed (Phase 6 WIP)\n"
+        "                    registry + exit; nothing is installed\n"
+        "      (env)         FOX_INSTALL_LEGACY=1 forces the legacy inline-prompt\n"
+        "                    flow (escape hatch; state-driven is the default)\n"
         "  -h, --help        show this help and exit\n"
         "      --version     print version and exit\n\n"
         "Modules (default-on shown with *):\n",

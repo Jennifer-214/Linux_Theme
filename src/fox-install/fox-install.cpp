@@ -256,18 +256,18 @@ int main(int argc, char** argv) {
                     + "' (index " + std::to_string(found) + ")");
     }
 
-    // Phase 6 Step 11: state-driven dispatch gate. When
-    // FOX_INSTALL_STATE_DRIVEN=1 the install runs through the wizard +
-    // preview before the main loop instead of via the inline
-    // per-module prompt path. The legacy flag-driven path (the else
-    // branch on `state_driven` below) keeps working unchanged until
-    // Session E's cutover flips the default. The env-var gate is
-    // intentional: the new path needs more real-world miles before
-    // becoming the install for everyone on a fresh Arch ISO.
-    bool state_driven = false;
-    if (const char* env = std::getenv("FOX_INSTALL_STATE_DRIVEN");
+    // Phase 6 Step 20: state-driven is now the DEFAULT install path.
+    // The wizard + preview + manifest fire on every interactive run;
+    // the legacy inline-prompt path lives behind FOX_INSTALL_LEGACY=1
+    // as an escape hatch for users hitting a regression we haven't
+    // caught yet. FOX_INSTALL_STATE_DRIVEN=1 is still recognized but
+    // is now a no-op (kept so existing shell aliases don't break).
+    bool state_driven = true;
+    if (const char* env = std::getenv("FOX_INSTALL_LEGACY");
             env && std::string(env) == "1") {
-        state_driven = true;
+        state_driven = false;
+        ui::warn("FOX_INSTALL_LEGACY=1: running the legacy inline-prompt "
+                 "path. Drop the env var to use the state-driven flow.");
     }
 
     if (state_driven) {
