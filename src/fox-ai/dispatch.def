@@ -8,4 +8,47 @@
 //   binary      — leaf binary on $PATH that fox-ai execvp's to (fox-ai-doctor)
 //   description — one-line description shown in `fox ai help`
 //
-// Empty for Step 2 of the subplan — Step 3 populates the 23 subcommands.
+// Conventions:
+//   - Names are short, lowercase, hyphenless where possible.
+//   - Binaries are the existing fox-ai-* names — leaves are NOT renamed
+//     in this slice per D4 (language-agnostic leaves). Phase 5+ may
+//     rename if/when we hard-cutover the direct-call surface.
+//   - Descriptions are <80 chars, no trailing period (matches the help
+//     formatter's expectations).
+
+// — Diagnostics & introspection —
+FOX_SUBCMD( doctor,        fox-ai-doctor,        "Diagnose systemd / Hyprland / Waybar config breakage, suggest fixes" )
+FOX_SUBCMD( oracle,        fox-ai-oracle,        "Natural-language Q&A over your config (KEYBINDS, README, installed tools)" )
+FOX_SUBCMD( explain,       fox-ai-explain,       "Plain-English explanation of code, logs, or errors" )
+FOX_SUBCMD( trace,         fox-ai-trace,         "Diagnose a C++/Python backtrace with local AI" )
+FOX_SUBCMD( log,           fox-ai-log,           "Analyze logs or errors using local Ollama" )
+FOX_SUBCMD( watch,         fox-ai-watch,         "Tail a log file with on-demand AI commentary" )
+
+// — Security & egress —
+FOX_SUBCMD( snitch,        fox-ai-snitch,        "Flag suspicious outbound network connections via AI" )
+FOX_SUBCMD( audit,         fox-ai-audit,         "Rank top actionable security findings (arch-audit + lynis + AI ranking)" )
+FOX_SUBCMD( bouncer,       fox-ai-bouncer,       "Classify blocked USB devices via AI (BENIGN/SUSPICIOUS/HOSTILE)" )
+
+// — Code & development —
+FOX_SUBCMD( review,        fox-ai-review,        "AI pre-commit review of staged changes (emits BLOCK/WARN/OK)" )
+FOX_SUBCMD( commit,        fox-ai-commit,        "Generate git commit messages using local Ollama" )
+FOX_SUBCMD( test,          fox-ai-test,          "Generate unit tests for a function or file" )
+FOX_SUBCMD( find,          fox-ai-find,          "Semantic-ish code search using local Ollama" )
+
+// — Shell & interactive —
+FOX_SUBCMD( cmd,           fox-ai-cmd,           "Natural language → shell command via local Ollama" )
+FOX_SUBCMD( history,       fox-ai-history,       "Natural-language query over your shell history" )
+FOX_SUBCMD( quick,         fox-ai-quick,         "Rofi-based quick AI chat" )
+
+// — Model & runtime management —
+FOX_SUBCMD( swap,          fox-ai-swap,          "Swap the default Ollama model" )
+FOX_SUBCMD( default,       fox-ai-default,       "Set / inspect the default model used by AI-native tools" )
+FOX_SUBCMD( bench,         fox-ai-bench,         "Benchmark local Ollama models" )
+FOX_SUBCMD( purge,         fox-ai-purge,         "Free up VRAM/RAM by stopping Ollama" )
+FOX_SUBCMD( status,        fox-ai-status,        "Print AI/Ollama status (also used as a Waybar module)" )
+
+// — Domain-specific —
+FOX_SUBCMD( strategy,      fox-ai-strategy,      "Plain-English explanation of a trading strategy config" )
+
+// — Workspace setup —
+FOX_SUBCMD( setup-project, fox-ai-setup-project, "Plug high-discipline AI skills into any workspace" )
