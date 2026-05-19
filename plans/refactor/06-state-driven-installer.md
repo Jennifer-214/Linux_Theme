@@ -63,22 +63,27 @@ Each session ends at a shippable checkpoint. The installer keeps working at ever
    - Interactive prompt UI (using fox-common/ui.hpp for now, ftxui in Session C)
    - Options: keep mine / take new / save .foxml-bak then take new / view diff
 
-### TUI (Session C)
+### Wizard + execution (Session C)
 
-8. **ftxui dependency** — add as a Makefile-level header-only dep
-   - Vendored under `src/fox-common/vendored/ftxui/` (simplest), or git submodule, or pacman dep (`pacman -S ftxui`)
-   - Pick simplest: pacman dep. ftxui is in extra.
-9. **Wizard config phase**
-   - One-screen-per-module UI (description, current state, options)
-   - h/l navigation, q to abort
-   - Per Caramel ask: forward-only auto-advance once selections made
+ftxui was the original plan but dropped 2026-05-19 after the bootstrap question — adding a new pacman dependency to the fresh-Arch install path is real risk for marginal UX gain, and the minimalist aesthetic (rofi+hjkl-style modals) doesn't actually want declarative components. The wizard uses pure printf + ANSI redraw + the existing `ui::ask_choice`/`ask_yn` primitives. D17 / D18 work in Session E shrinks correspondingly — no fallback path is needed because the only path is ASCII.
+
+8. **Wizard data types + classification pass** (`core/wizard.{hpp,cpp}`)
+   - `wizard::Action { Skip, Run, Conflict }`, `wizard::ModulePlan`, `wizard::Plan` structs.
+   - `wizard::default_action_for(Status)` — the rule for "what would the wizard pick if the user just hit Enter through everything?".
+   - `wizard::classify_all(modules, ctx, manifest)` — walks the registry, calls each module's `state_check` callback (or defaults to `Fresh` if `nullptr`), returns the pairs the wizard consumes.
+   - Unit tests for the helpers. No interactive UI.
+9. **Interactive ASCII wizard** (`wizard::run()`)
+   - Pure printf + ANSI redraw. hjkl navigation; SPACE to toggle action; q to abort; Enter/l advances forward (with auto-advance once selection settled, per Caramel ask).
+   - Conflict-module screen reuses `conflict_resolve::Decision` so the 4 options (keep-mine / take-new / backup-then-take-new / view-diff) stay consistent with the helper from Step 7.
+   - Prereq indicators rendered read-only (root[✓] graphical[—] network[✓] style). Actual prereq-based gating is Session D — Step 9 just surfaces the flags.
+   - No unit tests (interactive UI); verify by `fox-install --wizard` inspection.
 10. **Manifest preview screen**
-    - Aggregate all selections, show full plan
-    - One y/n to commit
-11. **Execution phase**
-    - Live TUI: current module, progress bar, log tail
-    - No prompts during execution (errors get queued for end-of-run review)
-    - Final summary screen (preserve existing fox-install summary format per Caramel feedback)
+    - Aggregate the `wizard::Plan` into a scrollable text summary, one row per module showing slug + action + reason.
+    - One `ui::ask_yn` to commit the plan.
+11. **Execution phase + dispatcher integration**
+    - Main loop in `fox-install.cpp` consumes a `Plan`, runs only modules whose action is `Run`, applies `conflict::apply` for conflict-decision modules, skips the rest.
+    - Errors get queued (no mid-run prompts); final summary aggregates them per the existing fox-install end-of-install format.
+    - Gated behind `FOX_INSTALL_STATE_DRIVEN=1` until Session E cutover.
 
 ### Polish & integration (Session D)
 
@@ -97,8 +102,8 @@ Each session ends at a shippable checkpoint. The installer keeps working at ever
 15. **R4a — Firefox install gap**: port `install_specials` from bash to `src/fox-install/modules/specials.cpp`
 16. **R14 — Preflight math fix**: audit `preflight.cpp`, fix the boot-partition free-space calc
 17. **R15 — Bootstrap compile feedback**: add progress echo to `install.sh` wrapper for the make stage
-18. **TTY fallback path** (per D17)
-19. **No-graphical-session mode** (skip Wayland-tagged modules with explanation per D18)
+18. **TTY fallback path** (per D17) — *resolved implicitly* by the ftxui drop in Session C. The wizard already uses pure printf/ANSI, so non-TTY (pipe/redirect) callers hit the same `ui::tty()` guard that `ask_choice`/`ask_yn` already honor. Keep this item open until the Step 11 gate is verified against `fox-install < /dev/null`.
+19. **No-graphical-session mode** (skip Wayland-tagged modules with explanation per D18). Reads `Module::requires_graphical` (already in the registry as of Step 5) + `$XDG_SESSION_TYPE`.
 
 ### Final (Session E)
 
@@ -136,11 +141,13 @@ Each session ends at a shippable checkpoint. The installer keeps working at ever
 | **JSON dependency creep** | Use the json.hpp already vendored in fox-intel/ — no new deps. |
 | **Atomicity of manifest writes** | Per CLAUDE.md: tmp + rename. Standard pattern. Mitigation = follow the pattern, test the round-trip. |
 | **Going too fast tonight** | Hard cap at end of Session A scope. If I hit Step 3 and quality is degrading, I stop and we resume tomorrow. |
+| **New dependency on bootstrap path (ftxui)** | Dropped. The wizard uses pure printf/ANSI + existing `ui::ask_choice`/`ask_yn` primitives. No new pacman package required to build fox-install on a fresh Arch ISO. Decision logged 2026-05-19 after the TTY-bootstrap question. |
 
 ## Status
 
 - **Subplan authored:** 2026-05-19
 - **Session A scope (shipped 2026-05-19):** Steps 1-4 (state manifest schema/IO + SHA256 helpers + integration + classifier). Step 4 was an overflow from the Session A plan — landed cleanly.
 - **Session B scope (shipped 2026-05-19):** Steps 5-7 (FOX_MODULE_FULL prereq + state_check fields; `state_checks::check_{deps,render,etckeeper}`; `conflict_resolve::{prompt,apply,Decision}`). All additive — no dispatcher wiring yet.
+- **Session C scope (in progress 2026-05-19):** Steps 8-9 first (wizard data types + interactive ASCII wizard). Steps 10-11 deferred to a later session. ftxui dropped in favour of pure printf/ANSI — see §"Wizard + execution".
 - **Steps complete:** 7 / 22
-- **Slice complete:** *pending (Session C next: ftxui scaffold + wizard config + manifest preview + execution view)*
+- **Slice complete:** *pending*
