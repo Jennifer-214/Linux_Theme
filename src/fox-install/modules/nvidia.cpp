@@ -23,8 +23,8 @@
 //   6. Append nvidia_drm.modeset=1 to systemd-boot entry kernel cmdline.
 
 #include "../core/context.hpp"
-#include "../core/shell.hpp"
-#include "../core/ui.hpp"
+#include "../../fox-common/shell.hpp"
+#include "../../fox-common/ui.hpp"
 
 #include <algorithm>
 #include <filesystem>

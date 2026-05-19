@@ -10,8 +10,8 @@
 // theme. Registered with default_on=true so it's part of every install.
 
 #include "../core/context.hpp"
-#include "../core/shell.hpp"
-#include "../core/ui.hpp"
+#include "../../fox-common/shell.hpp"
+#include "../../fox-common/ui.hpp"
 
 #include <algorithm>
 #include <filesystem>

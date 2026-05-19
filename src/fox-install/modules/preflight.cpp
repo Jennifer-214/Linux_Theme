@@ -5,8 +5,8 @@
 // Soft warnings only — never aborts; the user can override by re-running.
 
 #include "../core/context.hpp"
-#include "../core/shell.hpp"
-#include "../core/ui.hpp"
+#include "../../fox-common/shell.hpp"
+#include "../../fox-common/ui.hpp"
 
 #include <cstdlib>
 #include <filesystem>

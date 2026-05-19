@@ -8,6 +8,11 @@ CXX      ?= g++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 PREFIX   ?= $(HOME)/.local/bin
 
+# Shared core library — produces libfox-common.a (ui/shell helpers, and
+# in future slices the dispatcher). Linked into our binary.
+FOX_COMMON_DIR := ../fox-common
+FOX_COMMON_LIB := $(FOX_COMMON_DIR)/libfox-common.a
+
 CORE_SRC    := $(wildcard core/*.cpp)
 MODULE_SRC  := $(wildcard modules/*.cpp)
 MAIN_SRC    := fox-install.cpp
@@ -20,8 +25,12 @@ BIN := fox-install
 
 all: $(BIN)
 
-$(BIN): $(MAIN_OBJ) $(CORE_OBJ) $(MODULE_OBJ)
-	$(CXX) $(CXXFLAGS) -o $@ $^
+$(BIN): $(MAIN_OBJ) $(CORE_OBJ) $(MODULE_OBJ) $(FOX_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $(MAIN_OBJ) $(CORE_OBJ) $(MODULE_OBJ) -L$(FOX_COMMON_DIR) -lfox-common
+
+# Ensure libfox-common.a is built before linking.
+$(FOX_COMMON_LIB):
+	$(MAKE) --no-print-directory -C $(FOX_COMMON_DIR)
 
 # Generic rule covers everything; registry.cpp picks up modules.def
 # automatically via #include in registry.cpp.

@@ -12,9 +12,9 @@
 //   6. Calls personalize::apply_all() (same trio configure_monitors did).
 
 #include "../core/context.hpp"
-#include "../core/shell.hpp"
+#include "../../fox-common/shell.hpp"
 #include "../core/sidecar.hpp"
-#include "../core/ui.hpp"
+#include "../../fox-common/ui.hpp"
 #include "personalize.hpp"
 
 #include "../../fox-intel/json.hpp"

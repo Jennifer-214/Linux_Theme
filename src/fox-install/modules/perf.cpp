@@ -5,8 +5,8 @@
 // cheap no-ops once chronyd is already active.
 
 #include "../core/context.hpp"
-#include "../core/shell.hpp"
-#include "../core/ui.hpp"
+#include "../../fox-common/shell.hpp"
+#include "../../fox-common/ui.hpp"
 
 namespace fox_install {
 

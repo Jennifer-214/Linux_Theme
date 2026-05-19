@@ -11,8 +11,8 @@
 //   * dest under .oh-my-zsh  → skip when ~/.oh-my-zsh doesn't exist (caramel zsh theme)
 
 #include "../core/context.hpp"
-#include "../core/shell.hpp"
-#include "../core/ui.hpp"
+#include "../../fox-common/shell.hpp"
+#include "../../fox-common/ui.hpp"
 #include "symlinks_data.hpp"
 
 #include <cstring>

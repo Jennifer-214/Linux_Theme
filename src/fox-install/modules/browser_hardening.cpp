@@ -13,8 +13,8 @@
 //      can bypass the --privacy module's DoH config.
 
 #include "../core/context.hpp"
-#include "../core/shell.hpp"
-#include "../core/ui.hpp"
+#include "../../fox-common/shell.hpp"
+#include "../../fox-common/ui.hpp"
 
 #include <chrono>
 #include <filesystem>

@@ -5,8 +5,8 @@
 // build entirely. Clone path matches install.sh's $XGB_DIR=~/code/xgboost.
 
 #include "../core/context.hpp"
-#include "../core/shell.hpp"
-#include "../core/ui.hpp"
+#include "../../fox-common/shell.hpp"
+#include "../../fox-common/ui.hpp"
 
 #include <filesystem>
 #include <string>

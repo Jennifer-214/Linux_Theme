@@ -5,8 +5,8 @@
 // Other modules (nvidia/amd/intel/fprint/laptop) gate on these.
 
 #include "../core/context.hpp"
-#include "../core/shell.hpp"
-#include "../core/ui.hpp"
+#include "../../fox-common/shell.hpp"
+#include "../../fox-common/ui.hpp"
 
 #include <cctype>
 #include <filesystem>

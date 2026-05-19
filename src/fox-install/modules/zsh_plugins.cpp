@@ -6,8 +6,8 @@
 // depends on it). Idempotent.
 
 #include "../core/context.hpp"
-#include "../core/shell.hpp"
-#include "../core/ui.hpp"
+#include "../../fox-common/shell.hpp"
+#include "../../fox-common/ui.hpp"
 
 #include <filesystem>
 #include <string>

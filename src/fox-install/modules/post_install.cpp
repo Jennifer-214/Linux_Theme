@@ -10,8 +10,8 @@
 // breaking portrait monitor configurations during install testing).
 
 #include "../core/context.hpp"
-#include "../core/shell.hpp"
-#include "../core/ui.hpp"
+#include "../../fox-common/shell.hpp"
+#include "../../fox-common/ui.hpp"
 
 #include "../../fox-intel/json.hpp"
 
