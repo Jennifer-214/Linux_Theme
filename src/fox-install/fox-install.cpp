@@ -188,6 +188,59 @@ int main(int argc, char** argv) {
 
     fs::path state_file = ctx.home / ".local/share/foxml/install_state";
 
+    // Phase 6 Step 11: state-driven dispatch gate. When
+    // FOX_INSTALL_STATE_DRIVEN=1 the install runs through the wizard +
+    // preview before the main loop instead of via the inline
+    // per-module prompt path. The legacy flag-driven path (the else
+    // branch on `state_driven` below) keeps working unchanged until
+    // Session E's cutover flips the default. The env-var gate is
+    // intentional: the new path needs more real-world miles before
+    // becoming the install for everyone on a fresh Arch ISO.
+    bool state_driven = false;
+    if (const char* env = std::getenv("FOX_INSTALL_STATE_DRIVEN");
+            env && std::string(env) == "1") {
+        state_driven = true;
+    }
+
+    if (state_driven) {
+        std::vector<const Module*> mods;
+        mods.reserve(MODULES_COUNT);
+        for (std::size_t i = 0; i < MODULES_COUNT; ++i) mods.push_back(&MODULES[i]);
+
+        wizard::Plan plan = wizard::default_plan(mods, ctx, manifest);
+
+        // Respect the CLI flag layer (--full, --no-X, --only, --quick,
+        // detect's hardware gates). If the legacy path would have
+        // skipped a module, the wizard starts with that module on
+        // Skip — user can flip it back if they really want.
+        for (std::size_t i = 0; i < plan.modules.size() && i < MODULES_COUNT; ++i) {
+            if (!parsed.module_enabled[i]) {
+                plan.modules[i].action = wizard::Action::Skip;
+            }
+        }
+
+        plan = wizard::run(std::move(plan), ctx);
+        if (plan.aborted) {
+            ui::warn("install aborted at wizard — no modules will run");
+            return 1;
+        }
+        if (!wizard::preview(plan, ctx)) {
+            ui::warn("install plan declined at preview — no modules will run");
+            return 0;
+        }
+
+        // Translate the (possibly user-edited) plan back into the
+        // per-index module_enabled array the main loop already
+        // understands. Action::Conflict is treated as Run for now —
+        // the conflict_decision is recorded in the plan but not yet
+        // threaded into modules' file-deploy paths. That bridge is
+        // its own follow-up step (see HANDOFF for the open design
+        // question on per-module deploy_paths vs in-module dispatch).
+        for (std::size_t i = 0; i < plan.modules.size() && i < MODULES_COUNT; ++i) {
+            parsed.module_enabled[i] = (plan.modules[i].action != wizard::Action::Skip);
+        }
+    }
+
     // Pre-install marker detect. Bash printed a nudge about --quick on
     // every invocation when ~/.local/share/foxml/.installed-version
     // existed. We do the same — silent first install, nudge thereafter.
@@ -210,7 +263,10 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (ctx.dry_run) {
+    if (ctx.dry_run && !state_driven) {
+        // state_driven runs already showed the user the full plan via
+        // wizard::preview — skip this legacy summary to avoid printing
+        // the same module list twice.
         ui::section("Dry-run plan (baseline)");
         for (std::size_t i = 0; i < MODULES_COUNT; ++i) {
             std::string status = parsed.module_enabled[i] ? "will run" : "skipped";
@@ -241,7 +297,11 @@ int main(int argc, char** argv) {
         bool should_run = parsed.module_enabled[i];
 
         // --- Inline Interactive Decision ---
-        if (!ctx.assume_yes && ui::tty()) {
+        // Suppressed when state_driven is on: the wizard already
+        // collected per-module decisions ahead of the main loop, and
+        // re-prompting here would be redundant + would let the user
+        // un-do their wizard choices module-by-module.
+        if (!ctx.assume_yes && !state_driven && ui::tty()) {
             if (parsed.only && !should_run) {
                 // In --only mode, we don't prompt for things that aren't 
                 // in the allow-list. 
