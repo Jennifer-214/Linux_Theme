@@ -148,21 +148,6 @@ void cycle_conflict(ModulePlan& mp) {
     }
 }
 
-void print_summary(const Plan& plan) {
-    std::size_t run = 0, skip = 0, conflict = 0;
-    for (const auto& mp : plan.modules) {
-        switch (mp.action) {
-            case Action::Run:      ++run;      break;
-            case Action::Skip:     ++skip;     break;
-            case Action::Conflict: ++conflict; break;
-        }
-    }
-    ui::section("Wizard plan");
-    ui::summary_row("modules to run",  std::to_string(run));
-    ui::summary_row("modules to skip", std::to_string(skip));
-    ui::summary_row("conflicts queued", std::to_string(conflict));
-}
-
 }  // namespace
 
 Plan run(Plan plan, const Context& ctx) {
@@ -215,10 +200,57 @@ Plan run(Plan plan, const Context& ctx) {
     if (plan.aborted) {
         ui::section("Wizard aborted");
         ui::warn("install plan abandoned — no modules will run");
-    } else {
-        print_summary(plan);
     }
+    // Successful exit: leave the screen cleared; the caller (preview()
+    // in normal flow) prints the next thing the user should look at.
     return plan;
+}
+
+bool preview(const Plan& plan, const Context& ctx) {
+    std::size_t run = 0, skip = 0, conflict = 0;
+    for (const auto& mp : plan.modules) {
+        switch (mp.action) {
+            case Action::Run:      ++run;      break;
+            case Action::Skip:     ++skip;     break;
+            case Action::Conflict: ++conflict; break;
+        }
+    }
+
+    std::string header = "Install plan — "
+        + std::to_string(run) + " to run, "
+        + std::to_string(skip) + " to skip";
+    if (conflict > 0) header += ", " + std::to_string(conflict) + " conflict";
+    if (conflict > 1) header += "s";
+    ui::section(header);
+
+    // One row per module so the user sees the entire plan ahead of
+    // commit. For Skip, the reason field carries the "why this is a
+    // no-op" string from the classifier (already current / user
+    // customized / blocked) which is the bit the user is verifying.
+    for (const auto& mp : plan.modules) {
+        const char* marker = "?";
+        std::string tail;
+        switch (mp.action) {
+            case Action::Run:
+                marker = "+";
+                break;
+            case Action::Skip:
+                marker = "-";
+                if (!mp.classification.reason.empty()) {
+                    tail = "  (" + mp.classification.reason + ")";
+                }
+                break;
+            case Action::Conflict:
+                marker = "!";
+                tail = "  [" + std::string(conflict::decision_name(mp.conflict_decision)) + "]";
+                break;
+        }
+        std::printf("  %s %-20s %s%s\n",
+                    marker, mp.module->slug, mp.module->description, tail.c_str());
+    }
+    std::printf("\n");
+
+    return ui::ask_yn("Apply this plan?", /*default_yes=*/true, ctx.assume_yes);
 }
 
 }  // namespace fox_install::wizard

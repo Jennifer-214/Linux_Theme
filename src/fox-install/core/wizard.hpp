@@ -76,9 +76,15 @@ Plan default_plan(
 // Step 9 (interactive). Walks the user through `plan`, lets them
 // toggle Run/Skip and pick conflict_decision values, returns the
 // edited Plan. Under assume_yes or no-TTY returns `plan` unchanged.
-//
-// Implementation is in Step 9's commit — declared here so the API
-// is stable and tests can mock around it.
 Plan run(Plan plan, const Context& ctx);
+
+// Step 10 — manifest preview. Prints the Plan as a per-module list
+// with +/-/! markers (run / skip / conflict), then asks the user to
+// commit via `ui::ask_yn`. Returns true on commit, false on decline.
+// Under assume_yes or no-TTY returns true — the dispatcher proceeds
+// with the plan as-configured, which is the safe default for
+// non-interactive contexts (the wizard already returned a Plan with
+// conservative defaults).
+bool preview(const Plan& plan, const Context& ctx);
 
 }  // namespace fox_install::wizard

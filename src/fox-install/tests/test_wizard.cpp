@@ -136,6 +136,36 @@ int main() {
         EXPECT(p.modules[2].action == Action::Skip);
     }
 
+    // preview() — under assume_yes / no-TTY it must return true so the
+    // dispatcher runs the plan as configured rather than stalling on
+    // a y/n prompt that no one's there to answer.
+    {
+        Plan p;
+        Context ctx;
+        // No TTY in the test runner → ask_yn returns default_yes=true.
+        EXPECT(preview(p, ctx) == true);
+    }
+    {
+        Context ctx;
+        ctx.assume_yes = true;
+        state::Manifest manifest;
+        Module mods[] = {
+            make_module("a_fresh",    &check_fresh),
+            make_module("b_noop",     &check_noop),
+            make_module("c_conflict", &check_conflict),
+        };
+        std::vector<const Module*> ptrs;
+        for (auto& m : mods) ptrs.push_back(&m);
+        Plan p = default_plan(ptrs, ctx, manifest);
+        // Sanity: the plan is what we expect before preview.
+        EXPECT(p.modules.size() == 3);
+        EXPECT(p.modules[0].action == Action::Run);
+        EXPECT(p.modules[1].action == Action::Skip);
+        EXPECT(p.modules[2].action == Action::Conflict);
+        // preview proceeds non-interactively → true.
+        EXPECT(preview(p, ctx) == true);
+    }
+
     if (failures == 0) {
         std::cout << "wizard tests: OK\n";
         return 0;

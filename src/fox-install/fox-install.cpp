@@ -131,18 +131,20 @@ int main(int argc, char** argv) {
                  + " (treating as empty)");
     }
 
-    // Phase 6 Step 9: --wizard-demo renders the wizard against the live
-    // registry + the manifest we just loaded, then exits without
-    // installing anything. This is the manual-verification entry point
-    // for the wizard while it's being built; Session C Step 11 wires
-    // the wizard into the install flow proper.
+    // Phase 6 Step 9/10: --wizard-demo renders the wizard + preview
+    // screen against the live registry + the manifest we just loaded,
+    // then exits without installing anything. This is the manual-
+    // verification entry point while the state-driven flow is being
+    // built; Step 11 wires it into the install flow proper.
     if (parsed.wizard_demo) {
         std::vector<const Module*> modules;
         modules.reserve(MODULES_COUNT);
         for (std::size_t i = 0; i < MODULES_COUNT; ++i) modules.push_back(&MODULES[i]);
         wizard::Plan plan = wizard::default_plan(modules, ctx, manifest);
         plan = wizard::run(std::move(plan), ctx);
-        return plan.aborted ? 1 : 0;
+        if (plan.aborted) return 1;
+        const bool committed = wizard::preview(plan, ctx);
+        return committed ? 0 : 2;  // 2 = declined at preview
     }
 
     // Run `detect` upfront so the dry-run plan, interactive wizards,
