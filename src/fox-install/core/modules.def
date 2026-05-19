@@ -23,7 +23,10 @@ FOX_MODULE_FULL( deps,    run_deps,          "--deps",        "Install pacman ba
 FOX_MODULE( privacy,     run_privacy,       "--privacy",     "DNS-over-HTTPS via systemd-resolved",              true  )
 FOX_MODULE( perf,            run_perf,             "--perf",         "Performance tuning (chrony over timesyncd)",       false )
 FOX_MODULE( clock_sync,      run_clock_sync,       "--clock-sync",   "One-shot NTP correction at install time",          true  )
-FOX_MODULE( ufw,             run_ufw,              "--ufw",          "Default-deny inbound firewall (runs even when --no-secure)", true  )
+//   ufw — installs+enables a system systemd unit. Needs root.
+FOX_MODULE_FULL( ufw,        run_ufw,              "--ufw",          "Default-deny inbound firewall (runs even when --no-secure)", true,
+                 /*root*/ true, /*gfx*/ false, /*net*/ false,
+                 state::check_ufw )
 FOX_MODULE( security,        run_security,         "--secure",       "Kernel sysctls + USBGuard + AppArmor + polkit + fail2ban + auditd", true )
 //   arch_audit — deploys a user systemd timer. No root (user-scope unit),
 //   no network at install time (CVE feed only fetched when the timer fires).
@@ -48,15 +51,27 @@ FOX_MODULE_FULL( mac_random, run_mac_random,    "--mac-random",   "NetworkManage
                  /*root*/ true, /*gfx*/ false, /*net*/ false,
                  state::check_mac_random )
 FOX_MODULE( gpg_agent_cache, run_gpg_agent_cache,  "--gpg-cache",    "Extend gpg-agent passphrase cache TTL",            true  )
-FOX_MODULE( catppuccin_cursor,run_catppuccin_cursor,"--cursor-theme","Catppuccin Mocha Peach cursor theme (download)",   true  )
-FOX_MODULE( papirus_icons,    run_papirus_icons,     "--icon-theme",  "Papirus icon theme + Catppuccin folder palette",   true  )
+//   catppuccin_cursor — downloads + extracts to ~/.icons/. Needs network.
+FOX_MODULE_FULL( catppuccin_cursor, run_catppuccin_cursor, "--cursor-theme", "Catppuccin Mocha Peach cursor theme (download)", true,
+                 /*root*/ false, /*gfx*/ false, /*net*/ true,
+                 state::check_catppuccin_cursor )
+//   papirus_icons — pacman package + git clone for folder colors. Both root + network.
+FOX_MODULE_FULL( papirus_icons, run_papirus_icons, "--icon-theme",  "Papirus icon theme + Catppuccin folder palette",   true,
+                 /*root*/ true, /*gfx*/ false, /*net*/ true,
+                 state::check_papirus_icons )
 FOX_MODULE( zsh_plugins,     run_zsh_plugins,      "--zsh-plugins",  "Clone oh-my-zsh syntax/autosuggestions/completions", true )
 FOX_MODULE( keyring_full,      run_keyring_full,       "--keyring-full",     "Mask gnome-keyring limited autostart (ssh+gpg full)",         true )
-FOX_MODULE( endlessh,          run_endlessh,           "--endlessh",         "SSH tarpit on port 22 (after --ssh-harden moves real sshd)",  false )
+//   endlessh — AUR install + system systemd unit. Both root + network.
+FOX_MODULE_FULL( endlessh,      run_endlessh,           "--endlessh",         "SSH tarpit on port 22 (after --ssh-harden moves real sshd)",  false,
+                 /*root*/ true, /*gfx*/ false, /*net*/ true,
+                 state::check_endlessh )
 FOX_MODULE( browser_hardening, run_browser_hardening,  "--browser-harden",   "arkenfox user.js + firejail Firefox wrapping",                true )
 FOX_MODULE( dispatch_hooks,    run_dispatch_hooks,     "--dispatch-hooks",   "Phone alerts: fail2ban + fox-bouncer + fox-sentry-audit",     true )
 FOX_MODULE( throttling,        run_throttling,         "--throttling",       "Interactive CPU throttling / power wizard (TTY only)",        false )
-FOX_MODULE( greetd,            run_greetd,             "--greetd",           "Themed regreet login screen deploy to /etc/greetd/",          true )
+//   greetd — installs+enables a system systemd unit, writes /etc/greetd/.
+FOX_MODULE_FULL( greetd,        run_greetd,             "--greetd",           "Themed regreet login screen deploy to /etc/greetd/",          true,
+                 /*root*/ true, /*gfx*/ false, /*net*/ false,
+                 state::check_greetd )
 FOX_MODULE( greetd_fingerprint,run_greetd_fingerprint, "--greetd-fingerprint","pam_fprintd in /etc/pam.d/greetd ONLY (NOT sudo)",          false )
 
 // ── Phase 2: rendering + deploy ───────────────────────────────────

@@ -46,4 +46,25 @@ Classification check_vault(const Context& ctx, const Manifest& manifest);
 // manifest-stored hash. No systemd unit, so no Blocked state.
 Classification check_mac_random(const Context& ctx, const Manifest& manifest);
 
+// ufw — system systemd unit. Masked → Blocked. Same shape as
+// check_etckeeper except the unit is system-scope.
+Classification check_ufw(const Context& ctx, const Manifest& manifest);
+
+// endlessh — system systemd unit. Checks endlessh.service (the AUR
+// build is endlessh-go.service; close enough for v1 — the install
+// module re-runs either way if the primary unit isn't enabled).
+Classification check_endlessh(const Context& ctx, const Manifest& manifest);
+
+// greetd — system systemd unit. Themed login manager.
+Classification check_greetd(const Context& ctx, const Manifest& manifest);
+
+// papirus_icons — pacman package `papirus-icon-theme`. Installed
+// flips to Noop when manifest tracked; missing flips to Update.
+Classification check_papirus_icons(const Context& ctx, const Manifest& manifest);
+
+// catppuccin_cursor — checks for the cursor theme directory
+// (~/.icons/catppuccin-mocha-peach-cursors/cursors). Present + tracked
+// = Noop; missing + tracked = Update; either + untracked = Fresh.
+Classification check_catppuccin_cursor(const Context& ctx, const Manifest& manifest);
+
 }  // namespace fox_install::state

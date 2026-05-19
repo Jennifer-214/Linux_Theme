@@ -128,20 +128,21 @@ Classification check_etckeeper(const Context& /*ctx*/, const Manifest& manifest)
 
 namespace {
 
-// Shared shape for user-systemd-unit modules: masked → Blocked;
+// Shared shape for any systemd-unit module: masked → Blocked;
 // untracked → Fresh; enabled → Noop; anything else with manifest entry
-// → Update. The slug is what we look up in the manifest, the unit is
-// the systemctl --user is-enabled target, the unmask_hint is the line
-// surfaced when Blocked.
-Classification user_unit_check(
+// → Update. The user flag picks between --user and system scope; the
+// rest of the wording is uniform.
+Classification unit_check(
     const Manifest& manifest,
     const std::string& slug,
-    const std::string& unit
+    const std::string& unit,
+    bool user
 ) {
-    const std::string state = systemctl_is_enabled(unit, /*user=*/true);
+    const std::string state = systemctl_is_enabled(unit, user);
+    const char* scope = user ? " --user" : "";
     if (state == "masked") {
         return {Status::Blocked,
-                unit + " is masked — `systemctl --user unmask " + unit + "` first"};
+                unit + " is masked — `systemctl" + scope + " unmask " + unit + "` first"};
     }
     const auto it = manifest.modules.find(slug);
     if (it == manifest.modules.end()) {
@@ -154,14 +155,73 @@ Classification user_unit_check(
             unit + " state is '" + (state.empty() ? "unknown" : state) + "', re-run needed"};
 }
 
+// Pacman-package existence check. Used by modules whose entire "did
+// it run?" question reduces to "is package X installed?".
+Classification package_check(
+    const Manifest& manifest,
+    const std::string& slug,
+    const std::string& pkg
+) {
+    const bool present = pacman_installed(pkg);
+    const auto it = manifest.modules.find(slug);
+    const bool tracked = (it != manifest.modules.end());
+    if (!tracked) {
+        if (present) return {Status::Noop, pkg + " already installed (untracked, treated as already-done)"};
+        return {Status::Fresh, slug + " has not run yet"};
+    }
+    if (present) return {Status::Noop, pkg + " installed"};
+    return {Status::Update, pkg + " missing, re-run needed"};
+}
+
 }  // namespace
 
 Classification check_arch_audit(const Context& /*ctx*/, const Manifest& manifest) {
-    return user_unit_check(manifest, "arch_audit", "foxml-arch-audit.timer");
+    return unit_check(manifest, "arch_audit", "foxml-arch-audit.timer", /*user=*/true);
 }
 
 Classification check_vault(const Context& /*ctx*/, const Manifest& manifest) {
-    return user_unit_check(manifest, "vault", "fox-vault.service");
+    return unit_check(manifest, "vault", "fox-vault.service", /*user=*/true);
+}
+
+Classification check_ufw(const Context& /*ctx*/, const Manifest& manifest) {
+    return unit_check(manifest, "ufw", "ufw.service", /*user=*/false);
+}
+
+Classification check_endlessh(const Context& /*ctx*/, const Manifest& manifest) {
+    // endlessh installs as either endlessh.service (C build) or
+    // endlessh-go.service (Go AUR build). Probe the canonical name;
+    // if it's not enabled but endlessh-go.service is, classify Noop
+    // anyway so we don't insist on re-running just to swap units.
+    Classification primary = unit_check(manifest, "endlessh", "endlessh.service", /*user=*/false);
+    if (primary.status == Status::Noop || primary.status == Status::Blocked) return primary;
+    const auto it = manifest.modules.find("endlessh");
+    if (it != manifest.modules.end()
+        && systemctl_is_enabled("endlessh-go.service", /*user=*/false) == "enabled") {
+        return {Status::Noop, "endlessh-go.service enabled (AUR build)"};
+    }
+    return primary;
+}
+
+Classification check_greetd(const Context& /*ctx*/, const Manifest& manifest) {
+    return unit_check(manifest, "greetd", "greetd.service", /*user=*/false);
+}
+
+Classification check_papirus_icons(const Context& /*ctx*/, const Manifest& manifest) {
+    return package_check(manifest, "papirus_icons", "papirus-icon-theme");
+}
+
+Classification check_catppuccin_cursor(const Context& ctx, const Manifest& manifest) {
+    const fs::path theme_dir = ctx.home / ".icons"
+        / "catppuccin-mocha-peach-cursors" / "cursors";
+    const bool present = fs::is_directory(theme_dir);
+    const auto it = manifest.modules.find("catppuccin_cursor");
+    const bool tracked = (it != manifest.modules.end());
+    if (!tracked) {
+        if (present) return {Status::Noop, theme_dir.string() + " already present (untracked)"};
+        return {Status::Fresh, "catppuccin_cursor has not run yet"};
+    }
+    if (present) return {Status::Noop, "cursor theme directory present"};
+    return {Status::Update, theme_dir.string() + " missing, re-run needed"};
 }
 
 Classification check_mac_random(const Context& /*ctx*/, const Manifest& manifest) {

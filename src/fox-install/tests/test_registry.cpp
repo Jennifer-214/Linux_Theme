@@ -55,8 +55,10 @@ int main() {
         // are exempted explicitly.
         const std::string slug = m.slug;
         const bool is_full_form =
-            (slug == "deps"   || slug == "render"     || slug == "etckeeper" ||
-             slug == "vault"  || slug == "arch_audit" || slug == "mac_random");
+            (slug == "deps"               || slug == "render"     || slug == "etckeeper"  ||
+             slug == "vault"              || slug == "arch_audit" || slug == "mac_random" ||
+             slug == "ufw"                || slug == "endlessh"   || slug == "greetd"     ||
+             slug == "papirus_icons"      || slug == "catppuccin_cursor");
         if (!is_full_form) {
             if (m.requires_root || m.requires_graphical || m.requires_network) {
                 std::fprintf(stderr,
@@ -205,10 +207,15 @@ void run_summary     (Context&) {}
 // state_check in modules.def. Same rationale as the run_* stubs: the
 // test only inspects the table layout and never invokes these.
 namespace fox_install::state {
-Classification check_deps      (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
-Classification check_render    (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
-Classification check_etckeeper (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
-Classification check_arch_audit(const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
-Classification check_vault     (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
-Classification check_mac_random(const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
+Classification check_deps              (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
+Classification check_render            (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
+Classification check_etckeeper         (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
+Classification check_arch_audit        (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
+Classification check_vault             (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
+Classification check_mac_random        (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
+Classification check_ufw               (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
+Classification check_endlessh          (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
+Classification check_greetd            (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
+Classification check_papirus_icons     (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
+Classification check_catppuccin_cursor (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
 }  // namespace fox_install::state
