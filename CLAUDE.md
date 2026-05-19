@@ -25,9 +25,9 @@ Current tools:
 | `fox-render-fast` | Concurrent template engine. Drop-in for `render.sh`, byte-for-byte match. |
 | `fox-pulse`       | Single-epoll daemon multiplexing Hyprland IPC + inotify + debouncers. Replaces `focus-pulse.sh` and `fox-monitor-watch.sh`. |
 | `fox-vault`       | `mlock()`'d in-RAM secret store with Unix-socket CLI.               |
-| `fox-install`     | C++ orchestrator with X-macro module registry. Mid-port; `install.sh` is still the active install path until wave 2 lands. |
+| `fox-install`     | C++ orchestrator with X-macro module registry. Active install path. Two flows: legacy flag-driven (default) and state-driven (`FOX_INSTALL_STATE_DRIVEN=1`) which adds a wizard + manifest-preview + per-run install log. See `## State-driven install path` below. |
 
-The architecture is in mid-refactor — see `plans/architecture-refactor.md` for the master plan. Phases complete: 1 (`fox-common/` extraction + `src/fox/` skeleton), 2 (`fox ai *`, 23 subcommands), 3 (`fox sec *`, 30 subcommands), 4 (`fox theme` + `fox dev` + `fox sys`, 23 more subcommands). All 5 intended namespaces are now live (76 subcommands total under `fox <ns> <sub>`). Next: Phase 5 (new `fox sys font` tool).
+The architecture is in mid-refactor — see `plans/architecture-refactor.md` for the master plan. Phases complete: 1 (`fox-common/` extraction + `src/fox/` skeleton), 2 (`fox ai *`, 23 subcommands), 3 (`fox sec *`, 30 subcommands), 4 (`fox theme` + `fox dev` + `fox sys`, 23 more subcommands), 6 (state-driven installer through Step 18; default cutover pending). All 5 intended namespaces are now live (76 subcommands total under `fox <ns> <sub>`). Next: Phase 5 (new `fox sys font` tool) or Phase 6 cutover (flip state-driven to default).
 
 ## Adding a new tool
 
@@ -170,6 +170,50 @@ There is no AI framework, no plugin system, no "AI module" class to derive from.
 - `update.sh` (separate tool) sources `mappings.sh` for its template-capture logic.
 
 **Don't add new install steps to `install.sh` or `mappings.sh`** — write a `fox-install` module instead. The X-macro registry is the single source of truth.
+
+## State-driven install path
+
+Phase 6 added a parallel install flow behind `FOX_INSTALL_STATE_DRIVEN=1`. The legacy flag-driven path remains the default — the cutover is pending real-install miles. Both paths run the same module set; the difference is in how the user picks which modules and how errors surface.
+
+```bash
+# legacy: --full / --only / --no-X / inline y/n prompts per module
+./install.sh --full
+
+# state-driven: wizard → preview → run, with per-run install log
+FOX_INSTALL_STATE_DRIVEN=1 ./install.sh --full   # repair mode (non-interactive)
+FOX_INSTALL_STATE_DRIVEN=1 ./install.sh           # interactive wizard
+./src/fox-install/fox-install --wizard-demo       # wizard UI only, no install
+```
+
+What the state-driven path adds:
+- **Manifest** at `$XDG_CONFIG_HOME/foxml/install-state.json` records which modules last ran + their source hashes.
+- **State classifier**: each module that opts in (via a `check_X_state` callback in `core/state_checks.cpp` + FOX_MODULE_FULL line) reports Fresh / Noop / Update / Conflict / Blocked. Currently wired: `deps`, `render`, `etckeeper`, `arch_audit`, `vault`, `mac_random`. Legacy `FOX_MODULE` entries default to Fresh.
+- **Wizard** (`core/wizard.{hpp,cpp}`): per-module hjkl screen, SPACE toggle (binary) or cycle (Conflict). Pure printf + ANSI redraw — no ftxui dep, works in any TTY including bare Linux console.
+- **Preview**: aggregated plan with `+`/`-`/`!` markers, single y/n commit.
+- **Conflict resolution** (`core/conflict_resolve.{hpp,cpp}` + `wizard::apply_conflict_decisions`): user picks per-module — KeepMine (skip the module), TakeNew (overwrite normally), or BackupThenTakeNew (write `.foxml-bak` then overwrite). Sentinel paths live in a small per-slug lookup in `wizard.cpp`.
+- **Repair mode**: `--full` under state-driven promotes Conflict to BackupThenTakeNew and short-circuits the wizard/preview prompts.
+- **Install lockfile** (`core/install_lock.{hpp,cpp}`): per-uid flock at `$XDG_RUNTIME_DIR/foxml-install-<uid>.lock`. Two concurrent installs report the holding PID + exit 1; dry-runs and `--wizard-demo` are exempt.
+- **Subprocess log** (`sh::set_stderr_log` + `sh::log_section`): forked-child stderr redirected to `$XDG_STATE_HOME/foxml/install-<ts>.log` per run, with section markers per module. The dispatcher tails the log on module failure so errors don't scroll past.
+
+### Adding a state_check to a module
+
+```cpp
+// 1. Add to src/fox-install/core/state_checks.hpp:
+Classification check_foo(const Context& ctx, const Manifest& manifest);
+
+// 2. Implement in src/fox-install/core/state_checks.cpp using either
+//    user_unit_check (for systemd units), the file-hash compare
+//    pattern in check_render / check_mac_random, or a custom probe
+//    (check_deps reads pacman -Qi for sentinel packages).
+
+// 3. Update src/fox-install/core/modules.def — change FOX_MODULE to
+//    FOX_MODULE_FULL with the prereq booleans + the state_check fn:
+FOX_MODULE_FULL( foo, run_foo, "--foo", "What foo does", false,
+                 /*root*/ true, /*gfx*/ false, /*net*/ false,
+                 state::check_foo )
+```
+
+The wizard immediately reports real Classification for that module instead of the "no state_check — assumed fresh" placeholder. If the check can produce `Status::Conflict`, also add a sentinel path entry to `conflict_sentinel()` in `wizard.cpp` so `BackupThenTakeNew` / `KeepMine` resolve to file-IO; without an entry, the user's conflict_decision is recorded in the manifest but not yet applied.
 
 ## AI integration (worked examples)
 
