@@ -1,0 +1,25 @@
+// X-macro registry for fox-dev subcommands.
+
+// — Project scaffolding —
+FOX_SUBCMD( new-project,     fox-new-project,     "Bootstrap a new high-discipline coding workspace" )
+FOX_SUBCMD( init,            fox-init,            "One-touch project onboarding" )
+
+// — Build / verify —
+FOX_SUBCMD( build-verify,    fox-build-verify,    "Reproducible-build helper for foxml C++ projects" )
+FOX_SUBCMD( test,            fox-test,            "Health gate for a FoxML checkout" )
+
+// — Code / repo introspection —
+FOX_SUBCMD( word-count,      fox-word-count,      "Word count utility for the current workspace" )
+FOX_SUBCMD( tail,            fox-tail,            "Context Injector: gather local repo + system state for AI agents" )
+
+// — Distribution / packaging —
+FOX_SUBCMD( distro-build,    fox-distro-build,    "Build a custom FoxML Arch ISO" )
+FOX_SUBCMD( distro-flash,    fox-distro-flash,    "Safe flashing utility for the FoxML ISO" )
+FOX_SUBCMD( distro-guide,    fox-distro-guide,    "Walkthrough for the FoxML distro build/flash flow" )
+
+// — Refactor / template tooling —
+FOX_SUBCMD( generate-module, fox-generate-module, "Scaffold a new fox-install module from a template" )
+FOX_SUBCMD( template-lint,   fox-template-lint,   "Lint templates/* for palette-token and rendering issues" )
+
+// — Editor integrations —
+FOX_SUBCMD( aider,           fox-aider,           "aider wrapper that stays in sync with the global model choice" )
