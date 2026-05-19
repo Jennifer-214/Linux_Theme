@@ -1,0 +1,17 @@
+// X-macro registry for fox-sys subcommands.
+
+// — Install lifecycle —
+FOX_SUBCMD( install,    fox-install,    "Run the FoxML installer (state-driven; --full / --dry-run)" )
+FOX_SUBCMD( uninstall,  fox-uninstall,  "Remove FoxML binaries + state from $HOME" )
+FOX_SUBCMD( rollback,   fox-rollback,   "Restore configuration from a prior install backup" )
+
+// — Diagnostics —
+FOX_SUBCMD( doctor,     fox-doctor,     "Diagnose nvim / Hyprland / Waybar config breakage" )
+FOX_SUBCMD( hw-info,    fox-hw-info,    "Hardware detection helper (GPU / chassis / fingerprint)" )
+
+// — Active state —
+FOX_SUBCMD( lock,       fox-lock,       "Pre-check wrapper around hyprlock" )
+
+// — Discovery —
+FOX_SUBCMD( menu,       fox-menu,       "Rofi launcher for fox-* CLI commands" )
+FOX_SUBCMD( cheatsheet, fox-cheatsheet, "Searchable keybind reference via rofi" )
