@@ -1,6 +1,6 @@
-# Handoff — Architecture Refactor, mid-Phase 6
+# Handoff — Architecture Refactor, Phase 6 ✅ closed
 
-Resume point for the next session of the FoxML workstation architecture refactor. Originally written 2026-05-19 after Phases 0-4 and Phase 6 Session A. **Latest update 2026-05-19 after Sessions B-E shipped through Step 21.** Phase 6 is at 19/22 — only Step 19 (deferred; no-op today), Step 20 (cutover), and Step 22 (master-plan close-out) remain, and all three are gated on real-install miles + the cutover decision.
+Resume point for the next session of the FoxML workstation architecture refactor. **Phase 6 is done.** Cutover landed 2026-05-19 (commit `3598930`); the state-driven install path (wizard + preview + manifest + per-run log) is now the default, with `FOX_INSTALL_LEGACY=1` as the escape hatch. 21 of 22 steps shipped; Step 19 (no-graphical-session gate) is deferred because no module currently declares `requires_graphical=true`.
 
 ## Read these first, in this order
 
@@ -31,25 +31,25 @@ Resume point for the next session of the FoxML workstation architecture refactor
 
 **state_check coverage (11/52 modules):** `deps`, `render`, `etckeeper`, `arch_audit`, `vault`, `mac_random`, `ufw`, `endlessh`, `greetd`, `papirus_icons`, `catppuccin_cursor`. Legacy `FOX_MODULE` entries default to `Status::Fresh` and run unconditionally — adding more state_checks is incremental and the pattern is documented in CLAUDE.md.
 
-## What's next — Phase 6 closing items + Phase 7
+## What's next — post-Phase-6
 
-Phase 6 is functionally complete behind the `FOX_INSTALL_STATE_DRIVEN=1` env-var gate. The remaining three steps are all gated on the cutover decision:
+Three natural follow-ups, no particular ordering:
 
-**Step 19 — No-graphical-session mode.** Currently a *no-op* because no module in `modules.def` sets `requires_graphical=true` — most install-time work is writing config files, which works without a graphical session. Revisit if/when a module surfaces that genuinely needs Hyprland running at install time (e.g., a future module that calls `hyprctl` to apply settings live). The plumbing is already in place: `Module::requires_graphical` is in the registry and the wizard displays the flag; the wizard would just need to consult `$XDG_SESSION_TYPE` to gate Run/Skip.
+**(a) Real-install pass.** The state-driven path has end-to-end dry-run miles but hasn't been used for a real install yet. A `./install.sh` run from a fresh checkout (or a fresh VM) is the only thing that exercises actual pacman / systemctl / sudo side effects and catches anything `--dry-run` can't. After it passes, the legacy code path can be deleted (currently kept as the `FOX_INSTALL_LEGACY=1` escape hatch); that's a ~50-line deletion in `fox-install.cpp` plus the `!state_driven` guards.
 
-**Step 20 — Cutover.** Flip the default from legacy flag-driven to state-driven by removing the `FOX_INSTALL_STATE_DRIVEN` env-var gate from `fox-install.cpp::main()`. **Hold off until the state-driven path has been used end-to-end on a real install at least once** (not just dry-runs). The risk of regressing the install path for everyone outweighs the tidiness win of removing the gate. Once cutover lands, the legacy inline-prompt block in main() can also be deleted, saving ~50 lines.
+**(b) Step 19 follow-up (no-graphical-session gate).** Currently a no-op since no module in `modules.def` declares `requires_graphical=true`. Revisit if/when a module surfaces that genuinely needs Hyprland live at install time (e.g., a `hyprctl reload` step). Plumbing is in place: read `$XDG_SESSION_TYPE`, gate `parsed.module_enabled[i] = false` for graphical-required modules under a TTY session.
 
-**Step 22 — Master plan close-out.** Update `plans/architecture-refactor.md` phase table to mark Phase 6 ✅ done. Trivial doc edit, do alongside Step 20.
+**(c) Phase 5 — new `fox sys font` tool.** Maple Mono + Monaspace alongside Hack. Subplan at `plans/refactor/05-font-tool.md`. Independent of Phase 6 — this is its own slice with its own design call.
 
-**Other open work outside Phase 6:**
-- **Phase 5** in the master plan: new `fox sys font` tool (Maple Mono + Monaspace alongside Hack). Still pending.
-- **D18 audit**: which modules really should declare `requires_graphical=true`? Probably none, but worth a deliberate pass once a real graphical-session-dependent module ships.
+**Incremental quality wins** (no slice required):
+- More `state_check` callbacks. Coverage is 14 / 52 modules; the remaining 38 are mostly small system-config touches that re-run rarely, so marginal value drops. Pattern documented in CLAUDE.md.
+- More entries in `wizard::conflict_sentinel` if future state_checks produce Conflict status involving files.
 
 **Manual verification paths available right now:**
 - `./src/fox-install/fox-install --wizard-demo` — wizard + preview against live registry, no install.
-- `FOX_INSTALL_STATE_DRIVEN=1 ./src/fox-install/fox-install --dry-run --yes` — full state-driven flow.
-- `FOX_INSTALL_STATE_DRIVEN=1 ./src/fox-install/fox-install --dry-run --full` — repair mode.
-- `FOX_INSTALL_STATE_DRIVEN=1 ./src/fox-install/fox-install --dry-run --only render` — interactive wizard against a small subset.
+- `./src/fox-install/fox-install --dry-run --yes` — full state-driven flow (default path now).
+- `./src/fox-install/fox-install --dry-run --full` — repair mode.
+- `FOX_INSTALL_LEGACY=1 ./src/fox-install/fox-install --dry-run --yes --only render` — escape hatch (legacy path).
 - `(./src/fox-install/fox-install --yes &) && ./src/fox-install/fox-install --yes` — second instance reports holding PID + exits 1.
 - `cat $XDG_STATE_HOME/foxml/install-*.log` — per-run install log with section markers + captured child stderr.
 
@@ -77,7 +77,7 @@ Phase 6 is functionally complete behind the `FOX_INSTALL_STATE_DRIVEN=1` env-var
 - **gitignore exceptions.** `plans/architecture-refactor.md` AND `plans/refactor/**` are explicitly excepted from `plans/*` in `.gitignore`. Other plan files in `plans/` (e.g., `fox-intel-modernization.md`) stay local-only per existing convention.
 - **C++ build dependency chain.** Each namespace dispatcher's Makefile links `../fox-common/libfox-common.a`. The fox-install Makefile also links `-lcrypto` (OpenSSL, for SHA256 in state_manifest).
 - **JSON dependency.** Use the vendored `src/fox-intel/json.hpp` (nlohmann/json 3.12.0). Don't add a new JSON dep.
-- **Caramel push-back pattern.** Caramel will often push past explicit "this is a good stopping point" recommendations to ship more. Recent cadence kept compounding: Session B 3 steps; Session C first half 2 steps; Session C second half 2 steps; round 4 added 3 (state-checks expansion + Step 14 + conflict bridge); round 5 closed out the rest of Sessions D + most of E (Steps 12, 13, 15-18, 21) for 6 commits. **Real install needed before Step 20 (cutover).** The state-driven path has been exercised only in dry-run + wizard-demo so far; the only path to confidence is a real install on this dev box (or a fresh VM) with the env-var set.
+- **Caramel push-back pattern.** Recent cadence kept compounding: Session B 3 steps; Session C first half 2 steps; Session C second half 2 steps; polish round added 3 (state-checks expansion + Step 14 + conflict bridge); the next round closed out the rest of Sessions D + most of E (Steps 12, 13, 15-18, 21) for 6 commits; the final round shipped the cutover + Step 22 close-out. **Phase 6 is closed without real-install miles** — at Caramel's explicit "finish this off" request, the cutover landed with the legacy code path retained as an escape hatch (`FOX_INSTALL_LEGACY=1`). Mitigation: if anything regresses, drop into legacy mode and file a bug. The legacy code-path deletion is held back as a separate commit until real-install passes confirm no regressions.
 
 ## Reference: session counts
 
@@ -96,9 +96,8 @@ Phase 6 is functionally complete behind the `FOX_INSTALL_STATE_DRIVEN=1` env-var
 cd /home/caramel/code/Linux_Theme
 git log --oneline c33e27c..HEAD     # see everything shipped
 cat plans/architecture-refactor.md  # TOC at top, scan structure
-cat plans/refactor/06-state-driven-installer.md  # Phase 6 detail
 ./src/fox-install/fox-install --wizard-demo                          # wizard + preview UI
-FOX_INSTALL_STATE_DRIVEN=1 ./src/fox-install/fox-install --dry-run   # state-driven full flow
+./src/fox-install/fox-install --dry-run --yes                        # full state-driven dry-run
 ```
 
-Then: do a real-install pass with `FOX_INSTALL_STATE_DRIVEN=1 ./install.sh` (or the same with `--full` for repair mode), confirm everything works, THEN run Step 20 (cutover) + Step 22 (master plan close-out). Phase 6 is otherwise done.
+Then pick a follow-up from §"What's next" — real-install pass, Phase 5 (`fox sys font`), or adding state_checks for more modules. None is blocking; Phase 6 is closed.
