@@ -105,15 +105,35 @@ int main() {
         EXPECT(p.modules[5].classification.reason.find("no state_check") != std::string::npos);
     }
 
-    // Step 9's run() is currently a passthrough. Lock that in so the
-    // dispatcher integration tomorrow can rely on it being safe to
-    // call even when the interactive body isn't done.
+    // run() honors the assume_yes / non-TTY short-circuit: returns the
+    // input plan unchanged without touching termios or rendering. The
+    // contract that "this is safe to call from any context" is what
+    // lets the dispatcher invoke it unconditionally.
     {
         Plan p;
         Context ctx;
         Plan q = run(p, ctx);
         EXPECT(q.modules.empty());
         EXPECT(!q.aborted);
+    }
+    {
+        // Non-empty plan with assume_yes set: defaults preserved.
+        Context ctx;
+        ctx.assume_yes = true;
+        state::Manifest manifest;
+        Module mods[] = {
+            make_module("a_fresh",   &check_fresh),
+            make_module("b_noop",    &check_noop),
+            make_module("c_blocked", &check_blocked),
+        };
+        std::vector<const Module*> ptrs;
+        for (auto& m : mods) ptrs.push_back(&m);
+        Plan p = run(default_plan(ptrs, ctx, manifest), ctx);
+        EXPECT(p.modules.size() == 3);
+        EXPECT(!p.aborted);
+        EXPECT(p.modules[0].action == Action::Run);
+        EXPECT(p.modules[1].action == Action::Skip);
+        EXPECT(p.modules[2].action == Action::Skip);
     }
 
     if (failures == 0) {

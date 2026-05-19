@@ -1,5 +1,12 @@
 #include "wizard.hpp"
 
+#include "../../fox-common/ui.hpp"
+
+#include <cstdio>
+#include <cstdlib>
+#include <string>
+#include <termios.h>
+#include <unistd.h>
 #include <utility>
 
 namespace fox_install::wizard {
@@ -37,9 +44,6 @@ Plan default_plan(
         if (m->state_check) {
             mp.classification = m->state_check(ctx, manifest);
         } else {
-            // Legacy FOX_MODULE entries: no introspection callback.
-            // Until each one gets a check_X, the wizard treats them
-            // as Fresh (run by default — current behavior).
             mp.classification = {state::Status::Fresh,
                                  "no state_check — assumed fresh"};
         }
@@ -50,10 +54,170 @@ Plan default_plan(
     return p;
 }
 
-// run() body lives in Step 9's commit. Until then this is a no-op
-// passthrough so callers can wire the data flow now and visualize the
-// interactive UI in the next step.
-Plan run(Plan plan, const Context& /*ctx*/) {
+namespace {
+
+// Read one key in cbreak mode. Mirrors fox-common/ui.cpp's private
+// CbreakMode + read_one_char pair — kept local here because the
+// wizard wants its own ownership over the termios lifetime (and
+// ui's helpers are intentionally private to that translation unit).
+char read_key() {
+    struct termios old{};
+    if (::tcgetattr(STDIN_FILENO, &old) != 0) return 0;
+    struct termios n = old;
+    n.c_lflag &= ~(ICANON | ECHO);
+    n.c_cc[VMIN]  = 1;
+    n.c_cc[VTIME] = 0;
+    if (::tcsetattr(STDIN_FILENO, TCSANOW, &n) != 0) return 0;
+    char c = 0;
+    ssize_t r = ::read(STDIN_FILENO, &c, 1);
+    ::tcsetattr(STDIN_FILENO, TCSANOW, &old);
+    return r == 1 ? c : 0;
+}
+
+void clear_screen() {
+    // ED 2 = erase the entire screen; CUP 1,1 = move cursor to home.
+    // Standard VT100 sequences, supported by every terminal we care
+    // about including TERM=linux on the bare console.
+    std::printf("\033[2J\033[H");
+}
+
+const char* prereq_mark(bool needed) {
+    // ASCII-only — TERM=linux can't render Unicode checkmarks reliably.
+    return needed ? "needed" : "—";
+}
+
+void render_screen(const ModulePlan& mp, std::size_t idx, std::size_t total) {
+    const Module& m = *mp.module;
+
+    ui::section("fox-install wizard (" + std::to_string(idx + 1)
+                + "/" + std::to_string(total) + ")");
+    std::printf("\n");
+    std::printf("  module       : %s\n", m.slug);
+    std::printf("  description  : %s\n", m.description);
+    std::printf("  state        : %s — %s\n",
+                state::status_name(mp.classification.status),
+                mp.classification.reason.c_str());
+    std::printf("  prereqs      : root[%s]  graphical[%s]  network[%s]\n",
+                prereq_mark(m.requires_root),
+                prereq_mark(m.requires_graphical),
+                prereq_mark(m.requires_network));
+    std::printf("\n");
+
+    switch (mp.classification.status) {
+        case state::Status::Conflict: {
+            using D = conflict::Decision;
+            std::printf("  Conflict resolution:\n");
+            std::printf("    [%s] keep my version\n",
+                        mp.conflict_decision == D::KeepMine ? "*" : " ");
+            std::printf("    [%s] take new version\n",
+                        mp.conflict_decision == D::TakeNew ? "*" : " ");
+            std::printf("    [%s] save .foxml-bak then take new\n",
+                        mp.conflict_decision == D::BackupThenTakeNew ? "*" : " ");
+            std::printf("\n");
+            std::printf("  [SPACE] cycle   [l/Enter] next   [h] prev   [q] quit\n");
+            break;
+        }
+        case state::Status::Blocked: {
+            std::printf("  Action       : skip (blocked — cannot run)\n");
+            std::printf("\n");
+            std::printf("  [l/Enter] next   [h] prev   [q] quit\n");
+            break;
+        }
+        default: {
+            std::printf("  Action:\n");
+            std::printf("    [%s] run\n",  mp.action == Action::Run  ? "*" : " ");
+            std::printf("    [%s] skip\n", mp.action == Action::Skip ? "*" : " ");
+            std::printf("\n");
+            std::printf("  [SPACE] toggle   [l/Enter] next   [h] prev   [q] quit\n");
+            break;
+        }
+    }
+    std::fflush(stdout);
+}
+
+void toggle_binary(ModulePlan& mp) {
+    mp.action = (mp.action == Action::Run) ? Action::Skip : Action::Run;
+}
+
+void cycle_conflict(ModulePlan& mp) {
+    using D = conflict::Decision;
+    switch (mp.conflict_decision) {
+        case D::KeepMine:          mp.conflict_decision = D::TakeNew;          break;
+        case D::TakeNew:           mp.conflict_decision = D::BackupThenTakeNew; break;
+        case D::BackupThenTakeNew: mp.conflict_decision = D::KeepMine;         break;
+    }
+}
+
+void print_summary(const Plan& plan) {
+    std::size_t run = 0, skip = 0, conflict = 0;
+    for (const auto& mp : plan.modules) {
+        switch (mp.action) {
+            case Action::Run:      ++run;      break;
+            case Action::Skip:     ++skip;     break;
+            case Action::Conflict: ++conflict; break;
+        }
+    }
+    ui::section("Wizard plan");
+    ui::summary_row("modules to run",  std::to_string(run));
+    ui::summary_row("modules to skip", std::to_string(skip));
+    ui::summary_row("conflicts queued", std::to_string(conflict));
+}
+
+}  // namespace
+
+Plan run(Plan plan, const Context& ctx) {
+    // Non-interactive contexts: hand the plan straight back. The default
+    // actions populated by default_plan are already the conservative
+    // pick for an unattended run (Noop/Blocked → Skip; Conflict default
+    // is KeepMine — never silently overwrite).
+    if (ctx.assume_yes || !ui::tty()) return plan;
+    if (plan.modules.empty())          return plan;
+
+    std::size_t cursor = 0;
+    while (cursor < plan.modules.size()) {
+        ModulePlan& mp = plan.modules[cursor];
+
+        clear_screen();
+        render_screen(mp, cursor, plan.modules.size());
+
+        char key = read_key();
+        if (key == 0) break;                              // EOF — non-TTY surprise; bail
+        if (key == 'q' || key == 3 /* Ctrl-C */) {
+            plan.aborted = true;
+            break;
+        }
+
+        const bool is_conflict = (mp.classification.status == state::Status::Conflict);
+        const bool is_blocked  = (mp.classification.status == state::Status::Blocked);
+
+        if (key == 'h' || key == 'k') {
+            if (cursor > 0) --cursor;
+            continue;
+        }
+        if (key == 'l' || key == 'j' || key == '\n' || key == '\r') {
+            ++cursor;
+            continue;
+        }
+        if (key == ' ') {
+            if (is_blocked) continue;                     // no toggle when forced-skip
+            if (is_conflict) {
+                cycle_conflict(mp);                       // stay on this screen for further cycling
+            } else {
+                toggle_binary(mp);
+                ++cursor;                                  // auto-advance on binary toggle
+            }
+            continue;
+        }
+        // Anything else: ignore, redraw next iteration.
+    }
+
+    clear_screen();
+    if (plan.aborted) {
+        ui::section("Wizard aborted");
+        ui::warn("install plan abandoned — no modules will run");
+    } else {
+        print_summary(plan);
+    }
     return plan;
 }
 

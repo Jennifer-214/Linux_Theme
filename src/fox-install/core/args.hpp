@@ -16,6 +16,7 @@ struct Parsed {
     bool full         = false;            // alias for "enable every default + every major opt-in"
     bool only         = false;            // --only <list> was used
     bool resume       = false;            // --resume
+    bool wizard_demo  = false;            // --wizard-demo: render the wizard against the live registry + exit
     std::string phase;                    // --phase <slug>
 };
 
