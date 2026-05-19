@@ -52,7 +52,7 @@ install: all
 	@cd ../.. && pwd > $(HOME)/.local/share/foxml/repo-dir
 	@echo "  + repo path recorded: $$(cat $(HOME)/.local/share/foxml/repo-dir)"
 
-test: tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock
+test: tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log
 	@./tests/test_registry
 	@./tests/test_state_manifest
 	@./tests/test_classifier
@@ -60,6 +60,7 @@ test: tests/test_registry tests/test_state_manifest tests/test_classifier tests/
 	@./tests/test_conflict_resolve
 	@./tests/test_wizard
 	@./tests/test_install_lock
+	@./tests/test_subprocess_log
 
 # Test binary links only core/registry.o (the X-macro table); modules
 # are stubbed inside the test file so we don't drag in their real
@@ -97,7 +98,13 @@ tests/test_wizard: tests/test_wizard.cpp core/wizard.o core/classifier.o core/co
 tests/test_install_lock: tests/test_install_lock.cpp core/install_lock.o
 	$(CXX) $(CXXFLAGS) tests/test_install_lock.cpp core/install_lock.o -o $@
 
+# subprocess_log — fox-common's stderr-log sink, exercised end-to-end
+# through sh::run/capture. Links libfox-common because that's where
+# the implementation now lives.
+tests/test_subprocess_log: tests/test_subprocess_log.cpp $(FOX_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_subprocess_log.cpp -L$(FOX_COMMON_DIR) -lfox-common -o $@
+
 clean:
-	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock
+	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log
 
 .PHONY: all install clean test

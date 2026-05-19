@@ -6,6 +6,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <deque>
+#include <fcntl.h>
+#include <fstream>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -14,14 +17,44 @@ namespace fox_install::sh {
 namespace {
 
 bool g_dry_run = false;
+std::filesystem::path g_stderr_log;
+
+// Open the configured stderr log for append. Returns -1 if unset or
+// the open fails (which we treat as "fall through to terminal stderr"
+// rather than aborting the run — losing some logs is preferable to
+// the install crashing).
+int open_stderr_log() {
+    if (g_stderr_log.empty()) return -1;
+    return ::open(g_stderr_log.c_str(),
+                  O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC,
+                  0600);
+}
 
 int do_run(const std::vector<const char*>& argv_c) {
+    // Pre-open the log in the parent so a failure to open (permissions,
+    // missing parent dir, …) doesn't poison the child silently. -1
+    // means "no redirection" which leaves the child's stderr at the
+    // inherited terminal — the current behavior.
+    int log_fd = open_stderr_log();
+
     pid_t pid = ::fork();
-    if (pid < 0) return -1;
+    if (pid < 0) {
+        if (log_fd >= 0) ::close(log_fd);
+        return -1;
+    }
     if (pid == 0) {
+        if (log_fd >= 0) {
+            // Redirect ONLY the child's stderr. The child's stdout is
+            // intentionally left attached to the terminal so progress
+            // output from pacman / git / make stays visible — the goal
+            // is to absorb errors, not silence the install.
+            ::dup2(log_fd, STDERR_FILENO);
+            ::close(log_fd);
+        }
         ::execvp(argv_c[0], const_cast<char* const*>(argv_c.data()));
         ::_exit(127);
     }
+    if (log_fd >= 0) ::close(log_fd);  // parent's copy
     int status = 0;
     while (::waitpid(pid, &status, 0) < 0) {
         if (errno != EINTR) return -1;
@@ -45,6 +78,40 @@ void log_invocation(const std::vector<const char*>& argv_c) {
 void set_dry_run(bool on) { g_dry_run = on; }
 bool dry_run() { return g_dry_run; }
 
+void set_stderr_log(const std::filesystem::path& path) {
+    g_stderr_log = path;
+    if (path.empty()) return;
+    // Create the parent dir up front so the per-child open() doesn't
+    // race on the same mkdir N times. The actual file is created on
+    // first append.
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+}
+
+const std::filesystem::path& stderr_log() { return g_stderr_log; }
+
+void log_section(const std::string& title) {
+    if (g_stderr_log.empty()) return;
+    std::ofstream f(g_stderr_log, std::ios::app);
+    if (!f) return;
+    f << "=== " << title << " ===\n";
+}
+
+std::vector<std::string> tail_log(std::size_t lines) {
+    std::vector<std::string> out;
+    if (g_stderr_log.empty() || lines == 0) return out;
+    std::ifstream f(g_stderr_log);
+    if (!f) return out;
+    std::deque<std::string> ring;
+    std::string line;
+    while (std::getline(f, line)) {
+        ring.push_back(std::move(line));
+        if (ring.size() > lines) ring.pop_front();
+    }
+    out.assign(ring.begin(), ring.end());
+    return out;
+}
+
 int run(std::initializer_list<const char*> argv) {
     std::vector<const char*> v(argv.begin(), argv.end());
     v.push_back(nullptr);
@@ -67,12 +134,21 @@ bool capture(const std::vector<std::string>& argv, std::string& out) {
     out.clear();
     int p[2];
     if (::pipe(p) < 0) return false;
+    int log_fd = open_stderr_log();
     pid_t pid = ::fork();
-    if (pid < 0) { ::close(p[0]); ::close(p[1]); return false; }
+    if (pid < 0) {
+        ::close(p[0]); ::close(p[1]);
+        if (log_fd >= 0) ::close(log_fd);
+        return false;
+    }
     if (pid == 0) {
         ::close(p[0]);
         ::dup2(p[1], STDOUT_FILENO);
         ::close(p[1]);
+        if (log_fd >= 0) {
+            ::dup2(log_fd, STDERR_FILENO);
+            ::close(log_fd);
+        }
         std::vector<const char*> v;
         v.reserve(argv.size() + 1);
         for (auto& s : argv) v.push_back(s.c_str());
@@ -81,6 +157,7 @@ bool capture(const std::vector<std::string>& argv, std::string& out) {
         ::_exit(127);
     }
     ::close(p[1]);
+    if (log_fd >= 0) ::close(log_fd);
     char buf[4096];
     for (;;) {
         ssize_t n = ::read(p[0], buf, sizeof(buf));

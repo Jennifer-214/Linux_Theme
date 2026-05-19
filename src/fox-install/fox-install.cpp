@@ -231,6 +231,23 @@ int main(int argc, char** argv) {
     }
 
     if (state_driven) {
+        // Phase 6 Step 12: route child-process stderr into a per-run
+        // log file so failed pacman/systemctl/git output doesn't
+        // scroll past during a long install. The dispatcher tails
+        // this on module failure to surface the most-recent errors.
+        // Path mirrors the XDG convention used by state_manifest.
+        const char* xdg_state = std::getenv("XDG_STATE_HOME");
+        fs::path log_dir = (xdg_state && *xdg_state)
+            ? fs::path(xdg_state) / "foxml"
+            : ctx.home / ".local/state/foxml";
+        char ts[32]{};
+        std::time_t now = std::time(nullptr);
+        std::tm* tm_now = std::localtime(&now);
+        if (tm_now) std::strftime(ts, sizeof(ts), "%Y%m%d-%H%M%S", tm_now);
+        const fs::path install_log = log_dir / (std::string("install-") + ts + ".log");
+        sh::set_stderr_log(install_log);
+        sh::log_section("fox-install start (state-driven)");
+
         std::vector<const Module*> mods;
         mods.reserve(MODULES_COUNT);
         for (std::size_t i = 0; i < MODULES_COUNT; ++i) mods.push_back(&MODULES[i]);
@@ -384,8 +401,10 @@ int main(int argc, char** argv) {
         ++ran_count;
         ui::module_progress(ran_count, total_enabled, m.slug);
 
+        sh::log_section(std::string("module: ") + m.slug);
         try {
             m.fn(ctx);
+            sh::log_section(std::string("/module: ") + m.slug + " (ok)");
 
             // Update resume state after success
             if (!ctx.dry_run) {
@@ -404,11 +423,12 @@ int main(int argc, char** argv) {
                 /* deployed_at*/ state::now_iso8601(),
             };
         } catch (const std::exception& e) {
+            sh::log_section(std::string("/module: ") + m.slug + " (FAILED: " + e.what() + ")");
             ui::err(std::string(m.slug) + ": " + e.what());
             failed_modules.emplace_back(m.slug);
             // On failure, we don't advance the state_file so --resume
             // will retry the failing module.
-            break; 
+            break;
         }
     }
 
@@ -440,11 +460,28 @@ int main(int argc, char** argv) {
     // pacman -Syu" actionable instead of buried.
     if (!failed_modules.empty()) {
         std::printf("\n");
-        ui::err("modules with failures (scroll up for details):");
+        ui::err("modules with failures:");
         for (auto& m : failed_modules) {
             std::printf("    • %s — re-run with: fox-install --only %s\n",
                         m.c_str(), m.c_str());
         }
+
+        // Phase 6 Step 12: surface the captured child stderr from the
+        // log file. When state-driven, sh::set_stderr_log was set at
+        // install start; everything that pacman/systemctl/git wrote to
+        // stderr from inside the failing module landed there. Tail it
+        // so the user sees the actual error message without having to
+        // open the log themselves.
+        if (!sh::stderr_log().empty()) {
+            auto tail = sh::tail_log(20);
+            if (!tail.empty()) {
+                std::printf("\n  last 20 lines from %s:\n", sh::stderr_log().c_str());
+                for (const auto& line : tail) {
+                    std::printf("    %s\n", line.c_str());
+                }
+            }
+        }
+
         std::printf("\n  Common fixes:\n"
                     "    • pacman dep-resolution errors → sudo pacman -Syu, then retry\n"
                     "    • systemctl enable failures → sudo -v, then retry\n"
