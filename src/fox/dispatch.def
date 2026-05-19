@@ -8,5 +8,10 @@
 //   binary      — leaf binary that fox execvp's to (e.g., fox-ai, fox-sec)
 //   description — one-line description shown in `fox help`
 //
-// Empty for Phase 1 — namespaces wire in during Phase 2+ as each
-// namespace dispatcher (fox-ai, fox-sec, etc.) lands.
+// Wired in by phase:
+//   Phase 2 → ai
+//   Phase 3 → sec
+//   Phase 4 → theme, dev, sys
+//   Phase 5 → font (under sys)
+
+FOX_NAMESPACE( ai, fox-ai, "AI-augmented tools (doctor, snitch, review, ...)" )
