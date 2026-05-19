@@ -14,11 +14,15 @@ Current tools:
 
 | Tool              | Role                                                                |
 | ----------------- | ------------------------------------------------------------------- |
+| `fox-common`      | Library (`libfox-common.a`) — shared pacman-style UI, subprocess helpers (`sh::run`/`pacman`/`systemctl_*`), and the namespace dispatcher (`fox_common::dispatch`). Every fox-* tool that needs these links against it. |
+| `fox`             | Top-level CLI dispatcher (Phase 1 scaffolding, empty registry). Future entry for `fox <namespace> <subcommand> [args]` — Phase 2+ wires `fox ai *`, `fox sec *`, etc. into its X-macro registry. |
 | `fox-intel`       | Library (`libfox-intel.a`) — Ollama client, embeddings, helpers. The AI primitive every other tool links against. |
 | `fox-render-fast` | Concurrent template engine. Drop-in for `render.sh`, byte-for-byte match. |
 | `fox-pulse`       | Single-epoll daemon multiplexing Hyprland IPC + inotify + debouncers. Replaces `focus-pulse.sh` and `fox-monitor-watch.sh`. |
 | `fox-vault`       | `mlock()`'d in-RAM secret store with Unix-socket CLI.               |
 | `fox-install`     | C++ orchestrator with X-macro module registry. Mid-port; `install.sh` is still the active install path until wave 2 lands. |
+
+The architecture is in mid-refactor — see `plans/architecture-refactor.md` for the master plan. Phase 1 (`fox-common/` extraction + `src/fox/` skeleton) is complete; Phase 2 (`fox ai *` namespace migration) is next.
 
 ## Adding a new tool
 
@@ -38,8 +42,8 @@ The Makefile contract is the only requirement. No central registration, no depen
 # 1. Write src/fox-install/modules/foo.cpp:
 #
 #     #include "../core/context.hpp"
-#     #include "../core/shell.hpp"
-#     #include "../core/ui.hpp"
+#     #include "../../fox-common/shell.hpp"
+#     #include "../../fox-common/ui.hpp"
 #     namespace fox_install {
 #     void run_foo(Context& ctx) {
 #         ui::section("Doing foo");
@@ -58,16 +62,39 @@ The Makefile contract is the only requirement. No central registration, no depen
 
 The X-macro registry in `modules.def` is the single source of truth. The args parser, `--help`, dry-run preview, dispatcher, and registry-validation test all derive from it.
 
+**Header-path note (post-Phase-1):** ui.hpp and shell.hpp moved from `fox-install/core/` to `fox-common/`. Includes from inside fox-install use `../../fox-common/ui.hpp` (from `modules/`) or `../fox-common/ui.hpp` (from `fox-install.cpp`). The fox-install Makefile links `libfox-common.a` so the headers + .a get pulled in automatically.
+
+## Adding a new namespace to the fox dispatcher (Phase 2+)
+
+```
+# 1. Build a namespace dispatcher binary (src/fox-ai/, src/fox-sec/, ...)
+#    that itself uses an X-macro dispatch.def to route subcommands.
+#
+# 2. Add one line to src/fox/dispatch.def:
+#
+#     FOX_NAMESPACE( ai,    fox-ai,    "AI-augmented tools (doctor, snitch, review, ...)" )
+#     FOX_NAMESPACE( sec,   fox-sec,   "Security tools (audit, firewall, vpn, ...)" )
+#     FOX_NAMESPACE( theme, fox-theme, "Theme management (tweak, wallpaper, swap)" )
+#
+# 3. Rebuild fox. `fox help` lists the new namespace, `fox ai <tab>`
+#    completes against fox-ai's own registry, `fox ai doctor` execs
+#    fox-ai-doctor with remaining args.
+```
+
+The pattern mirrors fox-install's X-macro registry — single source of truth per dispatcher, no central registration beyond the one line in dispatch.def. See `plans/architecture-refactor.md` D1-D6 for the full architectural rationale.
+
 ## Reusable headers
 
 Modules and tools share these by `#include`-ing them; never duplicate the functionality.
 
-| Header                       | Provides                                                          |
-| ---------------------------- | ----------------------------------------------------------------- |
-| `src/fox-intel/fox_intel.hpp` | `FoxIntel.ask(prompt)`, embeddings, `cosine_similarity`, Ollama state mgmt. **Every AI-flavored command imports this — there is no separate "AI module" abstraction; AI is a library call.** |
-| `src/fox-install/core/ui.hpp` | Pacman-style `section`/`substep`/`ok`/`warn`/`err`/`progress`/`summary_row`/`ask_yn`. |
-| `src/fox-install/core/shell.hpp` | `sh::run`/`capture`/`pacman`/`systemctl_*`/`sudo_warmup` + `set_dry_run`. Never `system()`/`popen()` directly. |
-| `src/fox-install/core/context.hpp` | Shared install state passed into every module. Hardware flags, paths, theme name, global flags. |
+| Header                            | Provides                                                          |
+| --------------------------------- | ----------------------------------------------------------------- |
+| `src/fox-intel/fox_intel.hpp`     | `FoxIntel.ask(prompt)`, embeddings, `cosine_similarity`, Ollama state mgmt. **Every AI-flavored command imports this — there is no separate "AI module" abstraction; AI is a library call.** |
+| `src/fox-common/ui.hpp`           | Pacman-style `section`/`substep`/`ok`/`warn`/`err`/`progress`/`summary_row`/`ask_yn`. (Moved from `fox-install/core/` in Phase 1 of the architecture refactor — link `libfox-common.a`.) |
+| `src/fox-common/shell.hpp`        | `sh::run`/`capture`/`pacman`/`systemctl_*`/`sudo_warmup` + `set_dry_run`. Never `system()`/`popen()` directly. (Moved from `fox-install/core/` in Phase 1.) |
+| `src/fox-common/dispatch.hpp`     | `fox_common::dispatch::{Entry, print_help, find, exec_leaf}`. The registry → execvp pattern used by `fox` and every namespace dispatcher (`fox-ai`, `fox-sec`, ...) post-Phase 2. |
+| `src/fox-install/core/context.hpp` | Install-specific: state passed into every install module. Hardware flags, paths, theme name, global flags. Stays in `fox-install/` (not promoted) because it's install-scoped. |
+| `src/fox-install/core/module.hpp` | Install-specific: Module interface that every `modules/*.cpp` implements. |
 
 ## When to port shell → C++
 
