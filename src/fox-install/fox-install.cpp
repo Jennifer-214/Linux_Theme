@@ -247,6 +247,23 @@ int main(int argc, char** argv) {
             }
         }
 
+        // Phase 6 Step 13: --full repair-mode semantics. When the user
+        // explicitly asks to re-apply everything, "Keep mine" is the
+        // wrong safe-default — they ARE asking us to overwrite, just
+        // safely. Promote every Conflict to BackupThenTakeNew so the
+        // user's pre-install copy survives as .foxml-bak. Also flip
+        // assume_yes so the wizard + preview short-circuit; --full is
+        // a non-interactive "just do it" gesture.
+        if (parsed.full) {
+            ui::section("Repair mode (--full) — drift-correcting defaults");
+            for (auto& mp : plan.modules) {
+                if (mp.action == wizard::Action::Conflict) {
+                    mp.conflict_decision = conflict::Decision::BackupThenTakeNew;
+                }
+            }
+            ctx.assume_yes = true;
+        }
+
         plan = wizard::run(std::move(plan), ctx);
         if (plan.aborted) {
             ui::warn("install aborted at wizard — no modules will run");
