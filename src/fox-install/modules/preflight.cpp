@@ -27,9 +27,16 @@ struct DiskInfo {
 DiskInfo get_disk_info(const char* path) {
     struct statvfs vfs{};
     if (::statvfs(path, &vfs) != 0) return {-1, -1};
+    // POSIX: f_blocks / f_bfree / f_bavail are counted in units of
+    // f_frsize (the *fundamental* block size). f_bsize is just a
+    // preferred-IO hint and on filesystems with fragments or cluster
+    // sizes (ext4 clusters, ZFS recordsize, …) it's a different
+    // number — using it here gave wrong free-space readings on those
+    // setups. R14.
+    const unsigned long unit = vfs.f_frsize ? vfs.f_frsize : vfs.f_bsize;
     return {
-        static_cast<long>((vfs.f_blocks * vfs.f_bsize) / (1024 * 1024)),
-        static_cast<long>((vfs.f_bavail * vfs.f_bsize) / (1024 * 1024))
+        static_cast<long>((vfs.f_blocks * unit) / (1024 * 1024)),
+        static_cast<long>((vfs.f_bavail * unit) / (1024 * 1024))
     };
 }
 
