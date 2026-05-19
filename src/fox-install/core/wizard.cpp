@@ -4,7 +4,10 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
+#include <optional>
 #include <string>
+#include <system_error>
 #include <termios.h>
 #include <unistd.h>
 #include <utility>
@@ -204,6 +207,79 @@ Plan run(Plan plan, const Context& ctx) {
     // Successful exit: leave the screen cleared; the caller (preview()
     // in normal flow) prints the next thing the user should look at.
     return plan;
+}
+
+namespace {
+
+// Sentinel file for a Conflict-aware module. The dispatcher uses
+// this to apply BackupThenTakeNew (copy current → .foxml-bak before
+// the module runs) and to know whether KeepMine has anywhere to
+// preserve. Modules without a sentinel here keep their
+// conflict_decision recorded but unapplied — surfacing that gap is
+// fine for v1, since the only Conflict-classifying modules we ship
+// today have files we know about.
+std::optional<std::filesystem::path>
+conflict_sentinel(const std::string& slug, const Context& ctx) {
+    if (slug == "render") {
+        return ctx.config_home / "hypr" / "hyprland.conf";
+    }
+    if (slug == "mac_random") {
+        return std::filesystem::path(
+            "/etc/NetworkManager/conf.d/00-foxml-mac-random.conf");
+    }
+    return std::nullopt;
+}
+
+}  // namespace
+
+void apply_conflict_decisions(Plan& plan, const Context& ctx) {
+    for (auto& mp : plan.modules) {
+        if (mp.action != Action::Conflict) continue;
+
+        const auto sentinel = conflict_sentinel(mp.module->slug, ctx);
+        if (!sentinel) {
+            // No known per-module deploy path; we can't act on the
+            // decision yet. Leave the action as Conflict (treated as
+            // Run downstream) so the module still runs and the user's
+            // choice is at least logged via the preview output.
+            continue;
+        }
+
+        switch (mp.conflict_decision) {
+            case conflict::Decision::KeepMine:
+                // The cleanest way to "keep the user's file" with the
+                // tools we have today: skip the module entirely so
+                // nothing tries to overwrite. Trade-off — the rest of
+                // the module's work is also skipped, which is fine for
+                // file-only modules (render, mac_random) but would
+                // surprise someone if applied to a module with side
+                // effects beyond the sentinel. Acceptable v1 scope.
+                mp.action = Action::Skip;
+                break;
+
+            case conflict::Decision::BackupThenTakeNew: {
+                if (!std::filesystem::exists(*sentinel)) break;  // nothing to back up
+                const std::filesystem::path bak =
+                    sentinel->string() + ".foxml-bak";
+                std::error_code ec;
+                std::filesystem::copy_file(*sentinel, bak,
+                    std::filesystem::copy_options::overwrite_existing, ec);
+                if (ec) {
+                    ui::warn("backup of " + sentinel->string()
+                             + " to " + bak.string() + " failed: " + ec.message()
+                             + " — module will run, but no .foxml-bak written");
+                }
+                // Module runs as normal; the deploy step will overwrite.
+                break;
+            }
+
+            case conflict::Decision::TakeNew:
+                // Nothing to do — the module's normal run writes the
+                // new content over the user's file, which is exactly
+                // what the user asked for.
+                break;
+        }
+    }
 }
 
 bool preview(const Plan& plan, const Context& ctx) {

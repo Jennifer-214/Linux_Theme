@@ -87,4 +87,24 @@ Plan run(Plan plan, const Context& ctx);
 // conservative defaults).
 bool preview(const Plan& plan, const Context& ctx);
 
+// Resolve each Action::Conflict ModulePlan into a Run or Skip per
+// the user's conflict_decision. Called by the dispatcher BEFORE
+// translating Plan → module_enabled[] so the right thing happens at
+// the file-overwrite level:
+//
+//   KeepMine          — flipped to Action::Skip; the module doesn't
+//                       run, so its run_X never gets a chance to
+//                       overwrite the user-edited file.
+//   TakeNew           — left as Conflict (treated as Run by the
+//                       caller); the module's normal write proceeds.
+//   BackupThenTakeNew — copies the sentinel file to .foxml-bak
+//                       (best-effort; logs a warning on failure),
+//                       then leaves the module as Conflict/Run.
+//
+// Sentinel paths come from a small per-slug lookup; modules without
+// a known sentinel skip the resolve step entirely (their
+// conflict_decision is recorded in the manifest but not yet applied
+// — finer-grained per-file resolution is its own follow-up).
+void apply_conflict_decisions(Plan& plan, const Context& ctx);
+
 }  // namespace fox_install::wizard

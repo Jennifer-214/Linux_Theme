@@ -257,13 +257,11 @@ int main(int argc, char** argv) {
             return 0;
         }
 
-        // Translate the (possibly user-edited) plan back into the
-        // per-index module_enabled array the main loop already
-        // understands. Action::Conflict is treated as Run for now —
-        // the conflict_decision is recorded in the plan but not yet
-        // threaded into modules' file-deploy paths. That bridge is
-        // its own follow-up step (see HANDOFF for the open design
-        // question on per-module deploy_paths vs in-module dispatch).
+        // Resolve conflict_decision values into Run/Skip + side effects
+        // (e.g., .foxml-bak snapshots) before translating into the
+        // per-index module_enabled array.
+        wizard::apply_conflict_decisions(plan, ctx);
+
         for (std::size_t i = 0; i < plan.modules.size() && i < MODULES_COUNT; ++i) {
             parsed.module_enabled[i] = (plan.modules[i].action != wizard::Action::Skip);
         }
