@@ -1,0 +1,12 @@
+// X-macro registry for fox dispatcher namespaces.
+//
+// Add a namespace by including a line:
+//   FOX_NAMESPACE( name, binary, "description" )
+//
+// Where:
+//   name        — user-facing name typed after `fox` (e.g., ai, sec, theme)
+//   binary      — leaf binary that fox execvp's to (e.g., fox-ai, fox-sec)
+//   description — one-line description shown in `fox help`
+//
+// Empty for Phase 1 — namespaces wire in during Phase 2+ as each
+// namespace dispatcher (fox-ai, fox-sec, etc.) lands.
