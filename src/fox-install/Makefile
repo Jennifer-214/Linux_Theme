@@ -52,8 +52,9 @@ install: all
 	@cd ../.. && pwd > $(HOME)/.local/share/foxml/repo-dir
 	@echo "  + repo path recorded: $$(cat $(HOME)/.local/share/foxml/repo-dir)"
 
-test: tests/test_registry
+test: tests/test_registry tests/test_state_manifest
 	@./tests/test_registry
+	@./tests/test_state_manifest
 
 # Test binary links only core/registry.o (the X-macro table); modules
 # are stubbed inside the test file so we don't drag in their real
@@ -61,7 +62,10 @@ test: tests/test_registry
 tests/test_registry: tests/test_registry.cpp core/registry.o
 	$(CXX) $(CXXFLAGS) tests/test_registry.cpp core/registry.o -o $@
 
+tests/test_state_manifest: tests/test_state_manifest.cpp core/state_manifest.o
+	$(CXX) $(CXXFLAGS) tests/test_state_manifest.cpp core/state_manifest.o -o $@
+
 clean:
-	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry
+	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest
 
 .PHONY: all install clean test
