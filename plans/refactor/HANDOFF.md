@@ -1,6 +1,6 @@
 # Handoff — Architecture Refactor, mid-Phase 6
 
-Resume point for the next session of the FoxML workstation architecture refactor. Written 2026-05-19 at the end of a long working session that shipped Phases 0-4 and Phase 6 Session A.
+Resume point for the next session of the FoxML workstation architecture refactor. Originally written 2026-05-19 after Phases 0-4 and Phase 6 Session A. Updated 2026-05-19 after Phase 6 Session B (Steps 5-7) shipped.
 
 ## Read these first, in this order
 
@@ -18,38 +18,30 @@ Resume point for the next session of the FoxML workstation architecture refactor
 | 3 — fox sec namespace | 5 | `src/fox-sec/` dispatcher, 30 subcommands. **Existing fox-sec dashboard was renamed to fox-sec-dashboard** (`shared/bin/fox-sec-dashboard`) to free up the namespace name. Reachable as `fox sec dashboard`. |
 | 4 — theme/dev/sys namespaces | 4 | `src/fox-theme/` (3), `src/fox-dev/` (12), `src/fox-sys/` (8). All wired into `src/fox/dispatch.def`. |
 | 6 Session A — state-driven installer foundation | 4 | `src/fox-install/core/state_manifest.{hpp,cpp}` + `classifier.{hpp,cpp}` + tests. Manifest read/write integrated into fox-install — fully additive, no behavior change yet. |
+| 6 Session B — classification & prereqs + conflict resolve | 3 | `FOX_MODULE_FULL` X-macro (prereqs + state_check fields, legacy `FOX_MODULE` defaults the new fields to false/nullptr). `state_checks::check_{deps,render,etckeeper}` (only deps/render/etckeeper are converted; the other 47 modules stay legacy). `conflict_resolve::{prompt, apply, Decision}` with file-IO test coverage. **Not wired into the dispatcher yet** — pure plumbing this session. |
 
 **Surface live:** `fox help` lists ai/sec/theme/dev/sys. 76 subcommands accessible as `fox <ns> <sub>`. Direct invocations (`fox-ai-doctor`, `fox-firewall`, etc.) still work unchanged.
 
-**Test suites (9, all green):** fox-install (registry 52 modules + state_manifest 25 assertions + classifier 14 assertions), fox sanity, fox-ai sanity, fox-sec sanity, fox-theme sanity, fox-dev sanity, fox-sys sanity, fox-render, fox-vault.
+**Test suites (11, all green):** fox-install (registry 52 modules + state_manifest 25 assertions + classifier 14 assertions + state_checks 9 assertions + conflict_resolve 26 assertions), fox sanity, fox-ai sanity, fox-sec sanity, fox-theme sanity, fox-dev sanity, fox-sys sanity, fox-render, fox-vault.
 
-## What's next — Phase 6 Session B (Steps 5-7)
+## What's next — Phase 6 Session C (Steps 8-11)
 
-**Step 5 — Extend the FOX_MODULE X-macro for prereqs.** `core/modules.def` currently declares each install module with `FOX_MODULE(name, fn, flag, desc, ...)`. Add prereq fields:
+Now that the foundation (manifest, classifier, state_checks, conflict resolve) is built and tested, the next session wires it into a user-facing flow. From the subplan:
 
-```cpp
-FOX_MODULE_FULL(
-    name,
-    fn,
-    flag,
-    desc,
-    /* requires_root */ true,
-    /* requires_graphical */ false,
-    /* requires_network */ true
-)
-```
+**Step 8 — ftxui dependency.** Pacman has it (`pacman -S ftxui`); add to the deps module's package list and link `-lftxui-screen -lftxui-dom -lftxui-component` from a new `Makefile` target. Don't vendor it — the AUR/extra version is fine.
 
-Backward-compat shim: old `FOX_MODULE(...)` calls default all prereqs to `false`. The args parser, --help generator, and dispatcher should keep working unchanged. Prereqs are read by the classifier in Step 7 to produce `Status::Blocked` when not met.
+**Step 9 — Wizard config phase.** One-screen-per-module ftxui UI showing description, current Classification (Fresh / Noop / Update / Conflict / Blocked), and options. h/l (vim) navigation; q aborts. Caramel asked for forward-only auto-advance once selections are made — implement that.
 
-**Step 6 — Write `state_check` callbacks for 3-5 representative modules.** Each module gets an optional `check_X_state(ctx)` returning a `Classification` (per `core/classifier.hpp`). Suggested starting modules:
+**Step 10 — Manifest preview screen.** Aggregate all selections from Step 9, show the full plan as a single scrollable list, and ask for one y/n commit. This is the "review your plan before I touch anything" gate.
 
-- `deps` (pacman package install — check `pacman -Qi <pkg>` for each tracked package)
-- `render` (file deployment — compare hash of rendered output vs stored)
-- `etckeeper` (systemd unit — check `systemctl is-enabled`, watch for masked state per R6/R5)
+**Step 11 — Execution phase.** Live TUI during run: current module name, progress bar, log tail (last N lines from each module's stdout). No prompts during execution — errors get queued for end-of-run review (Session D Step 12 builds the absorption layer). Preserve the existing fox-install end-of-install summary format per Caramel's earlier feedback.
 
-Modules without a callback default to `Status::Fresh` (current behavior).
+The dispatcher in `fox-install.cpp` is where these get integrated. The existing main loop becomes the "execute" phase from Step 11; Steps 9-10 happen ahead of it (gated on a `FOX_INSTALL_STATE_DRIVEN=1` env var until the cutover in Session E).
 
-**Step 7 — Three-hash conflict diff helper + interactive prompt.** When a module classifies as `Conflict`, prompt the user via `fox-common/ui.hpp` (NOT ftxui yet — that's Session C). Options: keep mine / take new / save as `.foxml-bak` then take new / view diff (use `diff -u` subprocess).
+**Already in place to draw from:**
+- `state::check_{deps,render,etckeeper}` produces Classification for any module that opts in (slot for more state_checks as needed).
+- `Module::requires_{root,graphical,network}` is wired but unused — Session C's wizard should read these and either skip (when prereqs unmet) or show a "Blocked: needs X" indicator.
+- `conflict::prompt()` is the v1 prompt UI; Session C swaps it for an ftxui screen, but the `apply()` function stays as-is.
 
 ## Quality bars (per D19)
 
@@ -67,23 +59,23 @@ Modules without a callback default to `Status::Fresh` (current behavior).
 - **gitignore exceptions.** `plans/architecture-refactor.md` AND `plans/refactor/**` are explicitly excepted from `plans/*` in `.gitignore`. Other plan files in `plans/` (e.g., `fox-intel-modernization.md`) stay local-only per existing convention.
 - **C++ build dependency chain.** Each namespace dispatcher's Makefile links `../fox-common/libfox-common.a`. The fox-install Makefile also links `-lcrypto` (OpenSSL, for SHA256 in state_manifest).
 - **JSON dependency.** Use the vendored `src/fox-intel/json.hpp` (nlohmann/json 3.12.0). Don't add a new JSON dep.
-- **Caramel push-back pattern.** In the prior session, Caramel pushed past several explicit "this is a good stopping point" recommendations to ship more. The Phase 6 subplan has an explicit "Hard cap at end of Session A scope" line for exactly this reason. **For Session B specifically: Steps 6 and 7 involve real design judgment (per-module state semantics, user-facing prompts). If Caramel wants to push past those at 2am, respect engineering judgment over enthusiasm — those are the parts that get rewritten the next day.**
+- **Caramel push-back pattern.** Caramel will often push past explicit "this is a good stopping point" recommendations to ship more. Session B held the line at the planned 3 steps (5-7); Session C is harder to defer mid-step because Steps 9-11 are visibly *the new install UI* and the temptation to "just finish it" is real. **The cleanest checkpoint inside Session C is after Step 9 (wizard config phase) — once that's done, the user has something to look at. Steps 10-11 can run the next session without anything feeling half-finished.**
 
-## Reference: what was tonight's session shape
+## Reference: session counts
 
-- Started ~6pm, ended ~2am
-- 33 commits across 7 phases
-- All commits are atomic (per-step), reviewable, and reversible
-- Each phase had its own subplan in `plans/refactor/0N-<slice>.md`
+- Long Session 1 (Phases 0-4 + Phase 6 Session A): 33 commits.
+- Short Session 2 (Phase 6 Session B): 3 commits — `1d7199b`, `ae42232`, `b9dbdf0`.
+- **Cumulative**: 36 commits past `c3b9b2f` (the pre-refactor tip). All commits atomic, per-step, reversible.
+- Each phase has its own subplan in `plans/refactor/0N-<slice>.md`.
 - Pattern is established: namespace dispatcher = `src/fox-X/{Makefile, main.cpp, dispatch.def, tests/dispatch_test.sh}`. Use `src/fox-ai/` as the canonical template.
 
 ## Start by
 
 ```bash
 cd /home/caramel/code/Linux_Theme
-git log --oneline c33e27c..HEAD     # see what was shipped
+git log --oneline c33e27c..HEAD     # see everything shipped
 cat plans/architecture-refactor.md  # TOC at top, scan structure
 cat plans/refactor/06-state-driven-installer.md  # Phase 6 detail
 ```
 
-Then begin Phase 6 Step 5 (FOX_MODULE_FULL X-macro extension).
+Then begin Phase 6 Step 8 (ftxui dependency wiring).

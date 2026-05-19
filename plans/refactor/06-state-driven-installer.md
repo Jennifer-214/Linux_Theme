@@ -140,6 +140,7 @@ Each session ends at a shippable checkpoint. The installer keeps working at ever
 ## Status
 
 - **Subplan authored:** 2026-05-19
-- **Session A (tonight) scope:** Steps 1-3 only (foundation)
-- **Steps complete:** 0 / 22
-- **Slice complete:** *pending (multi-session)*
+- **Session A scope (shipped 2026-05-19):** Steps 1-4 (state manifest schema/IO + SHA256 helpers + integration + classifier). Step 4 was an overflow from the Session A plan — landed cleanly.
+- **Session B scope (shipped 2026-05-19):** Steps 5-7 (FOX_MODULE_FULL prereq + state_check fields; `state_checks::check_{deps,render,etckeeper}`; `conflict_resolve::{prompt,apply,Decision}`). All additive — no dispatcher wiring yet.
+- **Steps complete:** 7 / 22
+- **Slice complete:** *pending (Session C next: ftxui scaffold + wizard config + manifest preview + execution view)*
