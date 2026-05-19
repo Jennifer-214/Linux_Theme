@@ -216,6 +216,46 @@ int main(int argc, char** argv) {
 
     fs::path state_file = ctx.home / ".local/share/foxml/install_state";
 
+    // --resume: pick up where the last failed install left off. The
+    // dispatcher writes the just-completed module's index to
+    // state_file after each success and clears it on clean exit, so
+    // a non-empty state_file means "previous run failed at this index
+    // — resume at the NEXT module."
+    if (parsed.resume) {
+        if (fs::exists(state_file)) {
+            std::ifstream f(state_file);
+            int last_done = -1;
+            if (f >> last_done && last_done >= 0) {
+                ctx.resume_idx = last_done + 1;
+                ui::section("Resuming from module index " + std::to_string(ctx.resume_idx)
+                            + " (last success: " + std::to_string(last_done) + ")");
+            }
+        } else {
+            ui::warn("--resume: no prior install_state file — running from the top");
+        }
+    }
+
+    // --phase <slug>: skip ahead to a specific module by name. Overrides
+    // --resume if both are passed (explicit slug wins over implicit
+    // last-failure position). Unknown slug = abort to avoid silently
+    // running the whole install with no skip.
+    if (!parsed.phase.empty()) {
+        int found = -1;
+        for (std::size_t k = 0; k < MODULES_COUNT; ++k) {
+            if (parsed.phase == MODULES[k].slug) {
+                found = static_cast<int>(k);
+                break;
+            }
+        }
+        if (found < 0) {
+            ui::err("--phase: unknown module slug '" + parsed.phase + "'");
+            return 2;
+        }
+        ctx.resume_idx = found;
+        ui::section("Skipping ahead to phase '" + parsed.phase
+                    + "' (index " + std::to_string(found) + ")");
+    }
+
     // Phase 6 Step 11: state-driven dispatch gate. When
     // FOX_INSTALL_STATE_DRIVEN=1 the install runs through the wizard +
     // preview before the main loop instead of via the inline
