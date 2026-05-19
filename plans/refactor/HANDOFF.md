@@ -20,37 +20,38 @@ Resume point for the next session of the FoxML workstation architecture refactor
 | 6 Session A — state-driven installer foundation | 4 | `src/fox-install/core/state_manifest.{hpp,cpp}` + `classifier.{hpp,cpp}` + tests. Manifest read/write integrated into fox-install — fully additive, no behavior change yet. |
 | 6 Session B — classification & prereqs + conflict resolve | 3 | `FOX_MODULE_FULL` X-macro (prereqs + state_check fields, legacy `FOX_MODULE` defaults the new fields to false/nullptr). `state_checks::check_{deps,render,etckeeper}` (only deps/render/etckeeper are converted; the other 47 modules stay legacy). `conflict_resolve::{prompt, apply, Decision}` with file-IO test coverage. **Not wired into the dispatcher yet** — pure plumbing this session. |
 | 6 Session C (first half) — wizard data flow + interactive UI | 3 | Decision to drop ftxui (bootstrap-path risk; minimalist aesthetic wants rofi+hjkl-style modals, not declarative components — see subplan §"Wizard + execution"). `wizard::{Action, ModulePlan, Plan, default_plan, run}` in `core/wizard.{hpp,cpp}`. Interactive ASCII wizard: hjkl navigation, SPACE toggle (binary) / cycle (Conflict), q aborts. `--wizard-demo` CLI flag for manual rendering against the live registry. |
-| 6 Session C (second half) — preview + dispatcher integration | 2 | `wizard::preview(plan, ctx)` — section header with counts, per-module list with `+`/`-`/`!` markers, `Apply this plan? [Y/n]` commit prompt. `--wizard-demo` runs wizard + preview together. **Dispatcher integration**: behind `FOX_INSTALL_STATE_DRIVEN=1` the main loop now runs `default_plan → run → preview → translate back to module_enabled`. Legacy flag-driven path is unchanged when the env-var is unset. **Conflict-action modules are run-as-normal**: `conflict_decision` is recorded in the Plan but not yet threaded into modules' file-deploy paths — that's the next session's open design call. |
+| 6 Session C (second half) — preview + dispatcher integration | 2 | `wizard::preview(plan, ctx)` — section header with counts, per-module list with `+`/`-`/`!` markers, `Apply this plan? [Y/n]` commit prompt. `--wizard-demo` runs wizard + preview together. **Dispatcher integration**: behind `FOX_INSTALL_STATE_DRIVEN=1` the main loop now runs `default_plan → run → preview → translate back to module_enabled`. Legacy flag-driven path is unchanged when the env-var is unset. |
+| 6 Session C follow-up + Step 14 + state-checks expansion | 3 | `state::check_{arch_audit, vault, mac_random}` — three more modules graduate from FOX_MODULE to FOX_MODULE_FULL. `lockfile::acquire()` per-uid flock under `$XDG_RUNTIME_DIR` (Step 14 / R17) — two concurrent real installs report PID + exit 1; dry-runs and `--wizard-demo` are exempt. `wizard::apply_conflict_decisions(plan, ctx)` — KeepMine flips Conflict → Skip; BackupThenTakeNew copies the sentinel to `.foxml-bak`; TakeNew runs normally. Sentinels for render + mac_random are wired; others are recorded-but-unapplied. Phase 6 Session C is now end-to-end coherent. |
 
-**Surface live:** `fox help` lists ai/sec/theme/dev/sys. 76 subcommands accessible as `fox <ns> <sub>`. Direct invocations (`fox-ai-doctor`, `fox-firewall`, etc.) still work unchanged. `fox-install --wizard-demo` walks the wizard + preview against the live registry. `FOX_INSTALL_STATE_DRIVEN=1 fox-install --dry-run` runs the state-driven install path end-to-end.
+**Surface live:** `fox help` lists ai/sec/theme/dev/sys. 76 subcommands accessible as `fox <ns> <sub>`. Direct invocations (`fox-ai-doctor`, `fox-firewall`, etc.) still work unchanged. `fox-install --wizard-demo` walks the wizard + preview against the live registry. `FOX_INSTALL_STATE_DRIVEN=1 fox-install --dry-run` runs the state-driven install path end-to-end. Two concurrent real installs are now correctly serialized (second one exits with "another fox-install is running (PID X)").
 
-**Test suites (12, all green):** fox-install (registry 52 modules + state_manifest 25 assertions + classifier 14 assertions + state_checks 9 assertions + conflict_resolve 26 assertions + wizard 31 assertions), fox sanity, fox-ai sanity, fox-sec sanity, fox-theme sanity, fox-dev sanity, fox-sys sanity, fox-render, fox-vault.
+**Test suites (13, all green):** fox-install (registry 52 modules + state_manifest 25 assertions + classifier 14 assertions + state_checks 9 assertions + conflict_resolve 26 assertions + wizard 38 assertions + install_lock 11 assertions), fox sanity, fox-ai sanity, fox-sec sanity, fox-theme sanity, fox-dev sanity, fox-sys sanity, fox-render, fox-vault.
 
-## What's next — open follow-up + Phase 6 Session D (Steps 12-14)
+## What's next — Phase 6 Session D (Steps 12-13)
 
-**Open follow-up (small, before Session D): conflict_decision bridge.** Step 11 ships the state-driven dispatch gate but treats `Action::Conflict` as `Action::Run` for now — the user's `conflict_decision` is recorded in the Plan and rendered in `wizard::preview` but isn't applied to the actual deploy paths. Two viable designs, both noted in Step 11's commit message:
+Session C is fully done (Steps 8-11 + the conflict_decision bridge follow-up). Step 14 (install lockfile) is ALSO done — it's listed under Session D in the master plan but pulled forward because it slotted in cleanly. Session D's remaining items:
 
-1. **Per-module `deploy_paths` callback** in the `Module` struct: a function that returns `vector<DeployPath{deployed_path, source_path}>`. The dispatcher walks these post-run and calls `conflict::apply(decision, deployed, source)` for each. Pro: dispatcher stays clean. Con: every Conflict-aware module needs a callback added.
-2. **In-module dispatch**: each Conflict-aware module reads the active `ModulePlan` (passed via a small thread-local or via expanded `ModuleFn` signature) and calls `conflict::apply` itself during its own deploy step. Pro: no new metadata. Con: spreads the logic across modules; harder to test in isolation.
+**Step 12 — Subprocess error absorption.** `sh::run` currently inherits stdio, so error output scrolls past during install. Extend `fox-common/shell.hpp` so `sh::run`/`capture` return `{exit_code, stdout, stderr, duration}` (or wrap them with a sibling `sh::run_captured()` to avoid touching every call site). Route stderr to a log file (somewhere under `$XDG_STATE_HOME/foxml/install-<timestamp>.log`) + reformat to a single "X failed: see log line Y" line in the UI. This is the biggest refactor remaining in Phase 6 because 50+ modules invoke sh::run; the cleanest approach is the sibling function (run_captured) so old call sites keep working unchanged.
 
-Pick one before starting Session D — the choice shapes which module signatures get touched.
+**Step 13 — Repair-mode `--full` semantics.** With the conflict_decision bridge in place this becomes tractable:
+- When `parsed.full` is set under `state_driven`, override every Conflict module's `conflict_decision` to `BackupThenTakeNew` (safer than KeepMine when the user has explicitly asked to repair drift).
+- Skip wizard + preview under `--full` (treat as non-interactive — set `ctx.assume_yes = true` once parsed).
+- Print a "Repair mode summary" listing what was Update / Conflict-backed-up / Skipped vs what was Noop.
 
-**Step 12 — Subprocess error absorption.** `sh::run` currently inherits stdio, so error output scrolls past during install. Extend `fox-common/shell.hpp` so `sh::run`/`capture` return `{exit_code, stdout, stderr, duration}`. Route stderr to a log file (somewhere under `~/.local/state/foxml/` or `$XDG_STATE_HOME`) + reformat to a single "X failed: see line Y" line in the UI. Existing modules keep their call sites; the wrapper just adds capture.
-
-**Step 13 — Repair-mode `--full` semantics.** Currently `--full` sets `parsed.module_enabled[*] = true`. State-driven repair mode should also: (a) re-run every module that classifies as Update or Conflict, (b) skip Noop modules with a clear log line, (c) preserve user customizations (BackupThenTakeNew by default for Conflicts under `--full`). Wire when the conflict_decision bridge above is ready.
-
-**Step 14 — Install lockfile (R17).** `flock(LOCK_EX)` on `/run/foxml-install.lock` (or `$XDG_RUNTIME_DIR/foxml-install.lock` if unprivileged) at the top of main(). Second invocation prints a clear "another install is running, PID X" error + fast-fails. Atomic, simple, prevents two interactive wizards from racing each other.
+Tiny change, but a real UX win because `--full` becomes "actually repair my install" rather than just "run everything blindly."
 
 **Manual verification paths now available:**
 - `./src/fox-install/fox-install --wizard-demo` — wizard + preview against live registry, no install.
 - `FOX_INSTALL_STATE_DRIVEN=1 ./src/fox-install/fox-install --dry-run --yes` — full state-driven flow, no side effects.
 - `FOX_INSTALL_STATE_DRIVEN=1 ./src/fox-install/fox-install --dry-run --only render` — interactive wizard against a small subset.
+- `(./src/fox-install/fox-install --yes &) && ./src/fox-install/fox-install --yes` — second instance reports holding PID + exits 1 (lockfile working).
 
 **Already in place to draw from:**
-- `wizard::{default_plan, run, preview}` — full Plan lifecycle.
-- `conflict::apply(decision, deployed, source)` — atomic file-IO; ready to be called from wherever the dispatcher bridge lands.
-- `state::check_{deps,render,etckeeper}` — Classification for those three; other state_checks can be added incrementally as need arises.
-- `Module::requires_{root,graphical,network}` — read by the wizard's prereq display, not yet used for gating. D18 in Session E gates on `$XDG_SESSION_TYPE`.
+- `wizard::{default_plan, run, preview, apply_conflict_decisions}` — full Plan lifecycle with file-IO side effects wired.
+- `conflict::{prompt, apply, decision_name}` — atomic file-IO for diverged files.
+- `state::check_{deps, render, etckeeper, arch_audit, vault, mac_random}` — six modules with real introspection; legacy entries still default to Fresh.
+- `lockfile::acquire()` — per-uid flock; second invocation reports holder PID + exits 1.
+- `Module::requires_{root,graphical,network}` — read by the wizard's prereq display, not yet used for gating. D18 in Session E gates on `$XDG_SESSION_TYPE`; revisit which modules actually require_graphical=true at install time (most write config files, which works without a graphical session).
 
 ## Quality bars (per D19)
 
@@ -68,14 +69,15 @@ Pick one before starting Session D — the choice shapes which module signatures
 - **gitignore exceptions.** `plans/architecture-refactor.md` AND `plans/refactor/**` are explicitly excepted from `plans/*` in `.gitignore`. Other plan files in `plans/` (e.g., `fox-intel-modernization.md`) stay local-only per existing convention.
 - **C++ build dependency chain.** Each namespace dispatcher's Makefile links `../fox-common/libfox-common.a`. The fox-install Makefile also links `-lcrypto` (OpenSSL, for SHA256 in state_manifest).
 - **JSON dependency.** Use the vendored `src/fox-intel/json.hpp` (nlohmann/json 3.12.0). Don't add a new JSON dep.
-- **Caramel push-back pattern.** Caramel will often push past explicit "this is a good stopping point" recommendations to ship more. Session B held at 3 steps (5-7); Session C's first half held at 2 steps (8-9); the second half added 2 more (10-11) and reached a real milestone — the state-driven path is end-to-end usable. **The cleanest next checkpoint is after deciding the conflict_decision bridge design (small but load-bearing) AND finishing Step 12 (subprocess error absorption).** That gets us a usable, low-pain `FOX_INSTALL_STATE_DRIVEN=1` install where errors don't scroll past, before tackling Step 13's repair-mode semantics (which need real test runs against drifted state).
+- **Caramel push-back pattern.** Caramel will often push past explicit "this is a good stopping point" recommendations to ship more. Recent cadence: Session B 3 steps; Session C first half 2 steps; Session C second half 2 steps; this round 3 steps (state-checks expansion + Step 14 + conflict bridge). **The cleanest next checkpoint is after Step 13 (`--full` repair-mode semantics)** — it's a small change but completes the "I just want to fix my install" UX story. Step 12 (subprocess error absorption) is bigger and benefits from a focused session of its own.
 
 ## Reference: session counts
 
 - Long Session 1 (Phases 0-4 + Phase 6 Session A): 33 commits.
-- Short Session 2 (Phase 6 Session B): 4 commits including doc — `1d7199b`, `ae42232`, `b9dbdf0`, `a5b7500`.
-- Session 3 (Phase 6 Session C, full): 6 commits including docs — `4d48463`, `8ec0d48`, `00b35e5`, `ae47a1b`, `31f5b0b`, `58a3b94`.
-- **Cumulative**: ~44 commits past `c3b9b2f` (the pre-refactor tip). All commits atomic, per-step, reversible.
+- Short Session 2 (Phase 6 Session B): 4 commits including doc.
+- Session 3 (Phase 6 Session C, full): 7 commits including docs (`c84eb3f` was the closing doc).
+- Session 4 (this round — state_checks expansion + Step 14 + conflict bridge): 3 commits — `fa61095`, `a40f7b5`, `fdb4527`.
+- **Cumulative**: ~48 commits past `c3b9b2f` (the pre-refactor tip). All commits atomic, per-step, reversible.
 - Each phase has its own subplan in `plans/refactor/0N-<slice>.md`.
 - Pattern is established: namespace dispatcher = `src/fox-X/{Makefile, main.cpp, dispatch.def, tests/dispatch_test.sh}`. Use `src/fox-ai/` as the canonical template.
 
@@ -90,4 +92,4 @@ cat plans/refactor/06-state-driven-installer.md  # Phase 6 detail
 FOX_INSTALL_STATE_DRIVEN=1 ./src/fox-install/fox-install --dry-run   # state-driven full flow, no side effects
 ```
 
-Then pick: small follow-up on the conflict_decision bridge (open design question above), or begin Phase 6 Step 12 (subprocess error absorption).
+Then pick: Phase 6 Step 13 (repair-mode `--full` semantics, small) or Step 12 (subprocess error absorption, bigger).
