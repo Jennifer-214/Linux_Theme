@@ -1,0 +1,11 @@
+// X-macro registry for fox-ai subcommands.
+//
+// Add a subcommand by including a line:
+//   FOX_SUBCMD( name, binary, "description" )
+//
+// Where:
+//   name        — user-facing subcommand typed after `fox ai` (e.g., doctor)
+//   binary      — leaf binary on $PATH that fox-ai execvp's to (fox-ai-doctor)
+//   description — one-line description shown in `fox ai help`
+//
+// Empty for Step 2 of the subplan — Step 3 populates the 23 subcommands.

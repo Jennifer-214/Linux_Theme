@@ -58,6 +58,7 @@ src/*/tests/test_*
 !src/*/tests/test_*.hpp
 !src/*/tests/test_*.h
 src/fox/fox
+src/fox-ai/fox-ai
 src/fox-common/libfox-common.a
 src/fox-install/fox-install
 src/fox-render/fox-render-fast
