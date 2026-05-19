@@ -52,13 +52,14 @@ install: all
 	@cd ../.. && pwd > $(HOME)/.local/share/foxml/repo-dir
 	@echo "  + repo path recorded: $$(cat $(HOME)/.local/share/foxml/repo-dir)"
 
-test: tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard
+test: tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock
 	@./tests/test_registry
 	@./tests/test_state_manifest
 	@./tests/test_classifier
 	@./tests/test_state_checks
 	@./tests/test_conflict_resolve
 	@./tests/test_wizard
+	@./tests/test_install_lock
 
 # Test binary links only core/registry.o (the X-macro table); modules
 # are stubbed inside the test file so we don't drag in their real
@@ -91,7 +92,12 @@ tests/test_conflict_resolve: tests/test_conflict_resolve.cpp core/conflict_resol
 tests/test_wizard: tests/test_wizard.cpp core/wizard.o core/classifier.o core/conflict_resolve.o $(FOX_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) tests/test_wizard.cpp core/wizard.o core/classifier.o core/conflict_resolve.o -L$(FOX_COMMON_DIR) -lfox-common -o $@
 
+# install_lock — POSIX flock + lockfile path resolution. No fox-common
+# dependency; pure libc plus filesystem.
+tests/test_install_lock: tests/test_install_lock.cpp core/install_lock.o
+	$(CXX) $(CXXFLAGS) tests/test_install_lock.cpp core/install_lock.o -o $@
+
 clean:
-	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard
+	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock
 
 .PHONY: all install clean test

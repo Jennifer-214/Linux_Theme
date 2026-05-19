@@ -8,6 +8,7 @@
 
 #include "core/args.hpp"
 #include "core/context.hpp"
+#include "core/install_lock.hpp"
 #include "core/module.hpp"
 #include "core/state_manifest.hpp"
 #include "core/wizard.hpp"
@@ -118,6 +119,33 @@ int main(int argc, char** argv) {
 
     fill_paths(ctx, argv[0]);
     sh::set_dry_run(ctx.dry_run);
+
+    // Phase 6 Step 14 / R17: install lockfile. Read-only / informational
+    // invocations are exempt — dry-run + wizard-demo touch no shared
+    // state, so a second concurrent dry-run is harmless. The real
+    // installer path always takes the lock; the second invocation
+    // reports the holding PID + exits non-zero rather than racing on
+    // pacman / sudo / the wizard's terminal state.
+    // fd is kept open for the duration of the process; OS releases the
+    // flock when the fd is closed at exit. The variable is marked
+    // [[maybe_unused]] because every read of it would mean adding an
+    // explicit lockfile::release() call before each `return` site —
+    // not worth the noise when the kernel handles release for us.
+    [[maybe_unused]] int lock_fd = -1;
+    if (!ctx.dry_run && !parsed.wizard_demo) {
+        auto lock = lockfile::acquire();
+        if (lock.fd < 0) {
+            if (lock.holder_pid > 0) {
+                ui::err("another fox-install is running (PID "
+                        + std::to_string(lock.holder_pid)
+                        + ") — abort, or wait for it to finish");
+            } else {
+                ui::err("could not acquire install lock: " + lock.error_msg);
+            }
+            return 1;
+        }
+        lock_fd = lock.fd;
+    }
 
     // Phase 6 Step 3: load the state manifest from the prior install (if
     // any). Read-only for now — Session B wires classification on top.
