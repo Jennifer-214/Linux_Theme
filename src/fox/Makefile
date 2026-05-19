@@ -32,7 +32,10 @@ install: all
 	@install -m 755 $(BIN) $(PREFIX)/$(BIN)
 	@echo "  + $(BIN) installed to $(PREFIX)"
 
+test: $(BIN)
+	@bash tests/help_test.sh
+
 clean:
 	@rm -f $(BIN) main.o
 
-.PHONY: all install clean
+.PHONY: all install clean test
