@@ -148,6 +148,7 @@ ftxui was the original plan but dropped 2026-05-19 after the bootstrap question 
 - **Subplan authored:** 2026-05-19
 - **Session A scope (shipped 2026-05-19):** Steps 1-4 (state manifest schema/IO + SHA256 helpers + integration + classifier). Step 4 was an overflow from the Session A plan — landed cleanly.
 - **Session B scope (shipped 2026-05-19):** Steps 5-7 (FOX_MODULE_FULL prereq + state_check fields; `state_checks::check_{deps,render,etckeeper}`; `conflict_resolve::{prompt,apply,Decision}`). All additive — no dispatcher wiring yet.
-- **Session C scope (first half shipped 2026-05-19):** Steps 8-9 (wizard data types + interactive ASCII wizard + `--wizard-demo` flag). Steps 10-11 deferred to next session. ftxui dropped in favour of pure printf/ANSI — see §"Wizard + execution".
-- **Steps complete:** 9 / 22
-- **Slice complete:** *pending — next session picks up at Step 10 (manifest preview screen)*
+- **Session C scope (shipped 2026-05-19):** Steps 8-11 — wizard data types + interactive ASCII wizard + manifest preview screen + state-driven dispatch gate behind `FOX_INSTALL_STATE_DRIVEN=1`. ftxui dropped in favour of pure printf/ANSI — see §"Wizard + execution". State-driven path is end-to-end usable (verified via `--dry-run` against a real install plan); legacy flag-driven path is the default and unchanged.
+- **Open follow-up before Session D:** `conflict_decision` bridge — Step 11's dispatcher records the user's conflict resolution choice in the Plan but doesn't yet apply it to module deploy paths. Two designs flagged in HANDOFF; pick before starting Session D.
+- **Steps complete:** 11 / 22
+- **Slice complete:** *pending — Session D (Steps 12-14) covers subprocess error absorption, `--full` repair-mode semantics, and the install lockfile*
