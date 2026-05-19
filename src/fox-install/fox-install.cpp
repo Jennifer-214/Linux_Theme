@@ -413,13 +413,30 @@ int main(int argc, char** argv) {
                 f << i << std::endl;
             }
 
-            // Phase 6 Step 3: record per-module success in the state
-            // manifest. Session B will populate version + source_hash;
-            // for now we just stamp the timestamp so we have a record
-            // of "this module ran successfully in this install."
+            // Record per-module success in the state manifest. For
+            // modules with a known sentinel file (the same lookup
+            // apply_conflict_decisions uses), hash the deployed copy
+            // and store it as source_hash so the next install's
+            // classifier can compare hashes properly. Without this,
+            // state_checks that compare against source_hash (render,
+            // mac_random) would see (deployed != "", stored == "")
+            // and report Conflict on every subsequent run, defeating
+            // the whole point of state-driven re-installs.
+            std::string new_source_hash;
+            if (state_driven) {
+                if (auto sentinel = wizard::conflict_sentinel(m.slug, ctx);
+                        sentinel && fs::exists(*sentinel)) {
+                    try {
+                        new_source_hash = state::hash_file(*sentinel);
+                    } catch (const std::exception& e) {
+                        ui::warn(std::string(m.slug) + ": could not hash "
+                                 + sentinel->string() + " for manifest: " + e.what());
+                    }
+                }
+            }
             manifest.modules[m.slug] = state::ModuleState{
                 /* version    */ "",
-                /* source_hash*/ "",
+                /* source_hash*/ new_source_hash,
                 /* deployed_at*/ state::now_iso8601(),
             };
         } catch (const std::exception& e) {

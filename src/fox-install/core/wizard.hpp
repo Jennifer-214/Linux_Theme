@@ -22,6 +22,9 @@
 #include "module.hpp"
 #include "state_manifest.hpp"
 
+#include <filesystem>
+#include <optional>
+#include <string>
 #include <vector>
 
 namespace fox_install::wizard {
@@ -86,6 +89,16 @@ Plan run(Plan plan, const Context& ctx);
 // non-interactive contexts (the wizard already returned a Plan with
 // conservative defaults).
 bool preview(const Plan& plan, const Context& ctx);
+
+// The canonical "deployed file" for a Conflict-aware module, used
+// both by apply_conflict_decisions (for the .foxml-bak snapshot)
+// and by the dispatcher's post-run manifest update (to record what
+// hash was just deployed, so the next install's classifier can
+// compare against it). Modules without a sentinel entry — most of
+// them — return nullopt, and the dispatcher leaves source_hash
+// empty (those modules' state_check falls back to "Fresh" semantics).
+std::optional<std::filesystem::path>
+conflict_sentinel(const std::string& slug, const Context& ctx);
 
 // Resolve each Action::Conflict ModulePlan into a Run or Skip per
 // the user's conflict_decision. Called by the dispatcher BEFORE

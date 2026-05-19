@@ -209,15 +209,11 @@ Plan run(Plan plan, const Context& ctx) {
     return plan;
 }
 
-namespace {
-
-// Sentinel file for a Conflict-aware module. The dispatcher uses
-// this to apply BackupThenTakeNew (copy current → .foxml-bak before
-// the module runs) and to know whether KeepMine has anywhere to
-// preserve. Modules without a sentinel here keep their
-// conflict_decision recorded but unapplied — surfacing that gap is
-// fine for v1, since the only Conflict-classifying modules we ship
-// today have files we know about.
+// Sentinel file for a Conflict-aware module. Used by both
+// apply_conflict_decisions (for the .foxml-bak snapshot) and the
+// dispatcher's post-run manifest update (to populate source_hash so
+// the next install's classifier can detect drift instead of seeing
+// an empty stored_hash and falling through to Conflict).
 std::optional<std::filesystem::path>
 conflict_sentinel(const std::string& slug, const Context& ctx) {
     if (slug == "render") {
@@ -229,8 +225,6 @@ conflict_sentinel(const std::string& slug, const Context& ctx) {
     }
     return std::nullopt;
 }
-
-}  // namespace
 
 void apply_conflict_decisions(Plan& plan, const Context& ctx) {
     for (auto& mp : plan.modules) {
