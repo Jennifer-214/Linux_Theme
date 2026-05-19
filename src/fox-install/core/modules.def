@@ -15,7 +15,11 @@ FOX_MODULE( preflight,   run_preflight,     "--preflight",   "Disk space + conne
 FOX_MODULE( theme,       run_theme,         "--theme",       "Resolve / prompt for the active theme",            true  )
 
 // ── Phase 1: package + system setup ───────────────────────────────
-FOX_MODULE( deps,        run_deps,          "--deps",        "Install pacman base packages",                     false )
+//   deps — requires root (pacman) and network (downloads). state::check_deps
+//   probes a sentinel set of foundational packages; missing any → Update.
+FOX_MODULE_FULL( deps,    run_deps,          "--deps",        "Install pacman base packages",                     false,
+                 /*root*/ true, /*gfx*/ false, /*net*/ true,
+                 state::check_deps )
 FOX_MODULE( privacy,     run_privacy,       "--privacy",     "DNS-over-HTTPS via systemd-resolved",              true  )
 FOX_MODULE( perf,            run_perf,             "--perf",         "Performance tuning (chrony over timesyncd)",       false )
 FOX_MODULE( clock_sync,      run_clock_sync,       "--clock-sync",   "One-shot NTP correction at install time",          true  )
@@ -27,7 +31,13 @@ FOX_MODULE( hidepid,         run_hidepid,          "--hidepid",      "/proc hide
 FOX_MODULE( noexec_tmp,      run_noexec_tmp,       "--noexec-tmp",   "noexec/nosuid/nodev on /tmp + /dev/shm (opt-in)",  false )
 FOX_MODULE( iommu,           run_iommu,            "--iommu",        "IOMMU + lockdown=integrity kernel cmdline",        false )
 FOX_MODULE( makepkg_harden,  run_makepkg_hardening,"--makepkg-harden","Hardened CFLAGS/LDFLAGS for AUR builds",          true  )
-FOX_MODULE( etckeeper,       run_etckeeper,        "--etckeeper",    "git-track /etc + drift watcher",                   true  )
+//   etckeeper — installs a package + writes user systemd units. Root for
+//   pacman, network for AUR fetch. state::check_etckeeper surfaces the
+//   masked-unit hazard explicitly (R5/R6) so the install plan doesn't
+//   promise work the unit will reject.
+FOX_MODULE_FULL( etckeeper,   run_etckeeper,    "--etckeeper",    "git-track /etc + drift watcher",                   true,
+                 /*root*/ true, /*gfx*/ false, /*net*/ true,
+                 state::check_etckeeper )
 FOX_MODULE( mac_random,      run_mac_random,       "--mac-random",   "NetworkManager MAC randomization (opt-in)",        false )
 FOX_MODULE( gpg_agent_cache, run_gpg_agent_cache,  "--gpg-cache",    "Extend gpg-agent passphrase cache TTL",            true  )
 FOX_MODULE( catppuccin_cursor,run_catppuccin_cursor,"--cursor-theme","Catppuccin Mocha Peach cursor theme (download)",   true  )
@@ -43,7 +53,12 @@ FOX_MODULE( greetd_fingerprint,run_greetd_fingerprint, "--greetd-fingerprint","p
 
 // ── Phase 2: rendering + deploy ───────────────────────────────────
 FOX_MODULE( wallpaper,   run_wallpaper,     "--wallpaper",   "Wallpaper rotation toggle (static vs time-of-day)", true )
-FOX_MODULE( render,      run_render,        "--render",      "Render templates with the theme palette",          true  )
+//   render — writes a templated config tree to ~/.config. No root, no
+//   network. state::check_render hashes the canonical hyprland.conf
+//   against the manifest-stored hash to detect drift.
+FOX_MODULE_FULL( render,  run_render,        "--render",       "Render templates with the theme palette",         true,
+                 /*root*/ false, /*gfx*/ false, /*net*/ false,
+                 state::check_render )
 FOX_MODULE( monitors,    run_monitors,      "--monitors",    "Configure Hyprland multi-monitor layout",          true  )
 FOX_MODULE( personalize, run_personalize,   "--personalize", "Per-monitor wallpapers + hyprlock + workspace rules", true  )
 FOX_MODULE( symlinks,    run_symlinks,      "--symlinks",    "Deploy rendered + shared configs (mapping tables)", true  )

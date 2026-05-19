@@ -12,6 +12,11 @@ namespace {
 // Used by the FOX_MODULE_FULL fixture below to give the function pointer
 // a real target. Never called.
 void test_stub(fox_install::Context&) {}
+
+fox_install::state::Classification test_state_stub(
+    const fox_install::Context&, const fox_install::state::Manifest&) {
+    return {fox_install::state::Status::Fresh, "stub"};
+}
 }  // namespace
 
 int main() {
@@ -42,17 +47,39 @@ int main() {
             std::fprintf(stderr, "FAIL [%zu]: missing description\n", i);
             ++failed;
         }
-        // Every entry in modules.def currently uses the legacy FOX_MODULE
+        // Most entries in modules.def are still on the legacy FOX_MODULE
         // form, which routes through the FOX_MODULE_FULL shim with all
-        // prereqs defaulted to false. Lock that in so a future field-order
-        // shuffle that flips a bool by accident shows up immediately.
-        if (m.requires_root || m.requires_graphical || m.requires_network) {
-            std::fprintf(stderr,
-                "FAIL [%zu] %s: legacy entry has a non-false prereq "
-                "(root=%d gfx=%d net=%d) — backfill via FOX_MODULE_FULL only\n",
-                i, m.slug,
-                m.requires_root, m.requires_graphical, m.requires_network);
-            ++failed;
+        // prereqs defaulted to false and state_check defaulted to nullptr.
+        // For those, lock in that the shim still produces the legacy
+        // values. The few FOX_MODULE_FULL entries (deps, render, etckeeper)
+        // are exempted explicitly.
+        const std::string slug = m.slug;
+        const bool is_full_form = (slug == "deps" || slug == "render" || slug == "etckeeper");
+        if (!is_full_form) {
+            if (m.requires_root || m.requires_graphical || m.requires_network) {
+                std::fprintf(stderr,
+                    "FAIL [%zu] %s: legacy entry has a non-false prereq "
+                    "(root=%d gfx=%d net=%d) — backfill via FOX_MODULE_FULL only\n",
+                    i, m.slug,
+                    m.requires_root, m.requires_graphical, m.requires_network);
+                ++failed;
+            }
+            if (m.state_check) {
+                std::fprintf(stderr,
+                    "FAIL [%zu] %s: legacy entry has a non-null state_check "
+                    "— wire via FOX_MODULE_FULL only\n", i, m.slug);
+                ++failed;
+            }
+        } else {
+            // Full-form entries MUST carry a state_check (that's the
+            // whole point of the conversion). If a future edit drops it
+            // back to nullptr, surface that here.
+            if (!m.state_check) {
+                std::fprintf(stderr,
+                    "FAIL [%zu] %s: full-form entry is missing its state_check\n",
+                    i, m.slug);
+                ++failed;
+            }
         }
         // Slugs must be unique across the registry.
         for (std::size_t j = i + 1; j < MODULES_COUNT; ++j) {
@@ -65,15 +92,16 @@ int main() {
     }
 
     // FOX_MODULE_FULL inline fixture — exercises the macro outside
-    // modules.def so the prereq fields don't only get test coverage on
-    // the day a real module starts using them.
+    // modules.def so the prereq + state_check fields don't only get
+    // test coverage on the day a real module starts using them.
     {
-#define FOX_MODULE_FULL(slug, fn, flag, desc, def_on, req_root, req_gfx, req_net)  \
-        { #slug, &fn, flag, desc, def_on, req_root, req_gfx, req_net },
+#define FOX_MODULE_FULL(slug, fn, flag, desc, def_on, req_root, req_gfx, req_net, sc)  \
+        { #slug, &fn, flag, desc, def_on, req_root, req_gfx, req_net, sc },
         const Module fixture[] = {
-            FOX_MODULE_FULL(probe_root, test_stub, "--probe-root", "needs root",      true,  true,  false, false)
-            FOX_MODULE_FULL(probe_gfx,  test_stub, "--probe-gfx",  "needs Wayland",   false, false, true,  false)
-            FOX_MODULE_FULL(probe_net,  test_stub, "--probe-net",  "downloads stuff", false, false, false, true)
+            FOX_MODULE_FULL(probe_root,  test_stub, "--probe-root",  "needs root",      true,  true,  false, false, nullptr)
+            FOX_MODULE_FULL(probe_gfx,   test_stub, "--probe-gfx",   "needs Wayland",   false, false, true,  false, nullptr)
+            FOX_MODULE_FULL(probe_net,   test_stub, "--probe-net",   "downloads stuff", false, false, false, true,  nullptr)
+            FOX_MODULE_FULL(probe_check, test_stub, "--probe-check", "has state check", false, false, false, false, &test_state_stub)
         };
 #undef FOX_MODULE_FULL
         if (std::strcmp(fixture[0].slug, "probe_root") != 0 ||
@@ -85,6 +113,22 @@ int main() {
         }
         if (!fixture[2].requires_network || fixture[2].requires_root || fixture[2].requires_graphical) {
             std::fprintf(stderr, "FAIL: FOX_MODULE_FULL row 2 fields wrong\n"); ++failed;
+        }
+        if (fixture[3].state_check == nullptr) {
+            std::fprintf(stderr, "FAIL: FOX_MODULE_FULL row 3 state_check is nullptr\n"); ++failed;
+        } else {
+            state::Manifest empty;
+            Context         cx;
+            auto cls = fixture[3].state_check(cx, empty);
+            if (cls.status != state::Status::Fresh) {
+                std::fprintf(stderr,
+                    "FAIL: probe_check state_check returned %s, expected fresh\n",
+                    state::status_name(cls.status));
+                ++failed;
+            }
+        }
+        if (fixture[0].state_check != nullptr || fixture[1].state_check != nullptr || fixture[2].state_check != nullptr) {
+            std::fprintf(stderr, "FAIL: nullptr state_check field not preserved\n"); ++failed;
         }
     }
 
@@ -154,3 +198,12 @@ void run_monitors    (Context&) {}
 void run_personalize (Context&) {}
 void run_summary     (Context&) {}
 }  // namespace fox_install
+
+// State-check stubs for the three modules that use FOX_MODULE_FULL +
+// state_check in modules.def. Same rationale as the run_* stubs: the
+// test only inspects the table layout and never invokes these.
+namespace fox_install::state {
+Classification check_deps     (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
+Classification check_render   (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
+Classification check_etckeeper(const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
+}  // namespace fox_install::state

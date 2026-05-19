@@ -52,10 +52,11 @@ install: all
 	@cd ../.. && pwd > $(HOME)/.local/share/foxml/repo-dir
 	@echo "  + repo path recorded: $$(cat $(HOME)/.local/share/foxml/repo-dir)"
 
-test: tests/test_registry tests/test_state_manifest tests/test_classifier
+test: tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks
 	@./tests/test_registry
 	@./tests/test_state_manifest
 	@./tests/test_classifier
+	@./tests/test_state_checks
 
 # Test binary links only core/registry.o (the X-macro table); modules
 # are stubbed inside the test file so we don't drag in their real
@@ -69,7 +70,13 @@ tests/test_state_manifest: tests/test_state_manifest.cpp core/state_manifest.o
 tests/test_classifier: tests/test_classifier.cpp core/classifier.o
 	$(CXX) $(CXXFLAGS) tests/test_classifier.cpp core/classifier.o -o $@
 
+# state_checks links the real implementation (not stubs) so the empty-
+# manifest paths exercise the actual code. That pulls in shell/ui
+# helpers from libfox-common + libcrypto for hash_string.
+tests/test_state_checks: tests/test_state_checks.cpp core/state_checks.o core/state_manifest.o core/classifier.o $(FOX_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_state_checks.cpp core/state_checks.o core/state_manifest.o core/classifier.o -L$(FOX_COMMON_DIR) -lfox-common -lcrypto -o $@
+
 clean:
-	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier
+	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks
 
 .PHONY: all install clean test
