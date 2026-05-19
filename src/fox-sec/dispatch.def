@@ -1,0 +1,51 @@
+// X-macro registry for fox-sec subcommands.
+//
+// Add a subcommand by including a line:
+//   FOX_SUBCMD( name, binary, "description" )
+
+// — Auditing & monitoring —
+FOX_SUBCMD( audit,         fox-audit,            "lynis wrapper for hardening posture" )
+FOX_SUBCMD( audit-timer,   fox-audit-timer,      "Install/manage a weekly fox doctor drift audit" )
+FOX_SUBCMD( snitch,        fox-snitch,           "OpenSnitch (application-layer egress firewall)" )
+FOX_SUBCMD( sentry-audit,  fox-sentry-audit,     "Kernel-level honeypot tailer" )
+FOX_SUBCMD( overwatch,     fox-overwatch,        "Explain what the waybar overwatch widget is alerting on" )
+FOX_SUBCMD( tripwire,      fox-tripwire,         "Honeypot file watcher" )
+FOX_SUBCMD( dispatch,      fox-dispatch,         "Send a notification to your phone / Discord / Telegram" )
+
+// — Network —
+FOX_SUBCMD( firewall,      fox-firewall,         "Egress filtering (default-deny outgoing) + allowlist" )
+FOX_SUBCMD( vpn,           fox-vpn,              "WireGuard wizard with UFW kill-switch" )
+FOX_SUBCMD( dns-shield,    fox-dns-shield,       "Local DNS sinkhole using systemd-resolved" )
+FOX_SUBCMD( dnssec,        fox-dnssec,           "Pick DNSSEC strictness for systemd-resolved" )
+FOX_SUBCMD( ports,         fox-ports,            "Interactive UFW port manager" )
+FOX_SUBCMD( knock,         fox-knock,            "Port-knocking configurator + trigger" )
+FOX_SUBCMD( spa,           fox-spa,              "Single Packet Authorization via fwknop" )
+FOX_SUBCMD( offline,       fox-offline,          "Run a command in a network-namespaced void" )
+
+// — Identity —
+FOX_SUBCMD( fingerprint,   fox-fingerprint,      "fprintd wrapper" )
+FOX_SUBCMD( mac,           fox-mac,              "NetworkManager MAC randomization, per-SSID" )
+
+// — Isolation —
+FOX_SUBCMD( jail,          fox-jail,             "firejail management" )
+FOX_SUBCMD( sandbox,       fox-sandbox,          "Launch a disposable, sandboxed program" )
+FOX_SUBCMD( allowlist,     fox-allowlist,        "fapolicyd wrapper (executable allowlist)" )
+
+// — Devices —
+FOX_SUBCMD( usb,           fox-usb,              "Friendly wrapper around usbguard" )
+FOX_SUBCMD( bouncer,       fox-bouncer,          "Alert when USBGuard blocks a device while the screen is locked" )
+FOX_SUBCMD( deadman,       fox-deadman,          "USB-tethered panic trigger" )
+FOX_SUBCMD( proximity,     fox-proximity,        "Bluetooth proximity auto-lock" )
+
+// — State & posture —
+FOX_SUBCMD( arm,           fox-arm,              "Single-command 'turn everything on' for the opt-in security stack" )
+FOX_SUBCMD( harden,        fox-harden,           "Post-install control for the kernel/userspace hardening profile" )
+FOX_SUBCMD( cafe,          fox-cafe,             "Cafe Mode: auto-tighten security posture on untrusted networks" )
+FOX_SUBCMD( backup,        fox-backup,           "Encrypted backup of all opt-in security config" )
+
+// — Honeypots —
+FOX_SUBCMD( honey,         fox-honey,            "Plant a per-repo honeytoken matched by fox sec sentry-audit" )
+FOX_SUBCMD( honeypot,      fox-honeypot,         "Cowrie SSH honeypot wrapper" )
+
+// — Dashboard (was the standalone fox-sec binary, now a subcommand) —
+FOX_SUBCMD( dashboard,     fox-sec-dashboard,    "Unified security dashboard (formerly the standalone fox-sec command)" )
