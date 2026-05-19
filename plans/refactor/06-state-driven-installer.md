@@ -148,6 +148,6 @@ ftxui was the original plan but dropped 2026-05-19 after the bootstrap question 
 - **Subplan authored:** 2026-05-19
 - **Session A scope (shipped 2026-05-19):** Steps 1-4 (state manifest schema/IO + SHA256 helpers + integration + classifier). Step 4 was an overflow from the Session A plan — landed cleanly.
 - **Session B scope (shipped 2026-05-19):** Steps 5-7 (FOX_MODULE_FULL prereq + state_check fields; `state_checks::check_{deps,render,etckeeper}`; `conflict_resolve::{prompt,apply,Decision}`). All additive — no dispatcher wiring yet.
-- **Session C scope (in progress 2026-05-19):** Steps 8-9 first (wizard data types + interactive ASCII wizard). Steps 10-11 deferred to a later session. ftxui dropped in favour of pure printf/ANSI — see §"Wizard + execution".
-- **Steps complete:** 7 / 22
-- **Slice complete:** *pending*
+- **Session C scope (first half shipped 2026-05-19):** Steps 8-9 (wizard data types + interactive ASCII wizard + `--wizard-demo` flag). Steps 10-11 deferred to next session. ftxui dropped in favour of pure printf/ANSI — see §"Wizard + execution".
+- **Steps complete:** 9 / 22
+- **Slice complete:** *pending — next session picks up at Step 10 (manifest preview screen)*
