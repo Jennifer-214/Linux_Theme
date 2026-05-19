@@ -52,11 +52,12 @@ install: all
 	@cd ../.. && pwd > $(HOME)/.local/share/foxml/repo-dir
 	@echo "  + repo path recorded: $$(cat $(HOME)/.local/share/foxml/repo-dir)"
 
-test: tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks
+test: tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve
 	@./tests/test_registry
 	@./tests/test_state_manifest
 	@./tests/test_classifier
 	@./tests/test_state_checks
+	@./tests/test_conflict_resolve
 
 # Test binary links only core/registry.o (the X-macro table); modules
 # are stubbed inside the test file so we don't drag in their real
@@ -76,7 +77,13 @@ tests/test_classifier: tests/test_classifier.cpp core/classifier.o
 tests/test_state_checks: tests/test_state_checks.cpp core/state_checks.o core/state_manifest.o core/classifier.o $(FOX_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) tests/test_state_checks.cpp core/state_checks.o core/state_manifest.o core/classifier.o -L$(FOX_COMMON_DIR) -lfox-common -lcrypto -o $@
 
+# conflict_resolve exercises real file-IO (the apply() path); the
+# interactive prompt() path is not driven from tests. Links libfox-common
+# because the diff invocation goes through sh::run.
+tests/test_conflict_resolve: tests/test_conflict_resolve.cpp core/conflict_resolve.o $(FOX_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_conflict_resolve.cpp core/conflict_resolve.o -L$(FOX_COMMON_DIR) -lfox-common -o $@
+
 clean:
-	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks
+	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve
 
 .PHONY: all install clean test
