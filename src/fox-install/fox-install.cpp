@@ -9,6 +9,7 @@
 #include "core/args.hpp"
 #include "core/context.hpp"
 #include "core/module.hpp"
+#include "core/state_manifest.hpp"
 #include "../fox-common/shell.hpp"
 #include "../fox-common/ui.hpp"
 
@@ -116,6 +117,18 @@ int main(int argc, char** argv) {
 
     fill_paths(ctx, argv[0]);
     sh::set_dry_run(ctx.dry_run);
+
+    // Phase 6 Step 3: load the state manifest from the prior install (if
+    // any). Read-only for now — Session B wires classification on top.
+    // A read failure is non-fatal: we log a warning and proceed with an
+    // empty manifest, then overwrite it cleanly at end-of-install.
+    state::Manifest manifest;
+    try {
+        manifest = state::read(state::default_path());
+    } catch (const std::exception& e) {
+        ui::warn(std::string("state manifest read failed: ") + e.what()
+                 + " (treating as empty)");
+    }
 
     // Run `detect` upfront so the dry-run plan, interactive wizards,
     // and main loop see the final enable state of hardware-gated
@@ -253,13 +266,23 @@ int main(int argc, char** argv) {
 
         try {
             m.fn(ctx);
-            
+
             // Update resume state after success
             if (!ctx.dry_run) {
                 fs::create_directories(state_file.parent_path());
                 std::ofstream f(state_file);
                 f << i << std::endl;
             }
+
+            // Phase 6 Step 3: record per-module success in the state
+            // manifest. Session B will populate version + source_hash;
+            // for now we just stamp the timestamp so we have a record
+            // of "this module ran successfully in this install."
+            manifest.modules[m.slug] = state::ModuleState{
+                /* version    */ "",
+                /* source_hash*/ "",
+                /* deployed_at*/ state::now_iso8601(),
+            };
         } catch (const std::exception& e) {
             ui::err(std::string(m.slug) + ": " + e.what());
             failed_modules.emplace_back(m.slug);
@@ -272,6 +295,17 @@ int main(int argc, char** argv) {
     // Clear resume state on clean completion
     if (failed_modules.empty() && !ctx.dry_run && fs::exists(state_file)) {
         fs::remove(state_file);
+    }
+
+    // Phase 6 Step 3: persist the updated manifest. Done even on
+    // partial-failure runs so subsequent invocations can see which
+    // modules already succeeded. Write failure is non-fatal.
+    if (!ctx.dry_run) {
+        try {
+            state::write(state::default_path(), manifest);
+        } catch (const std::exception& e) {
+            ui::warn(std::string("state manifest write failed: ") + e.what());
+        }
     }
 
     ui::section("Done");
