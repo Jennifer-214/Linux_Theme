@@ -15,14 +15,15 @@ Current tools:
 | Tool              | Role                                                                |
 | ----------------- | ------------------------------------------------------------------- |
 | `fox-common`      | Library (`libfox-common.a`) — shared pacman-style UI, subprocess helpers (`sh::run`/`pacman`/`systemctl_*`), and the namespace dispatcher (`fox_common::dispatch`). Every fox-* tool that needs these links against it. |
-| `fox`             | Top-level CLI dispatcher (Phase 1 scaffolding, empty registry). Future entry for `fox <namespace> <subcommand> [args]` — Phase 2+ wires `fox ai *`, `fox sec *`, etc. into its X-macro registry. |
+| `fox`             | Top-level CLI dispatcher. Entry for `fox <namespace> <subcommand> [args]`. Namespaces live in `src/fox/dispatch.def`. As of Phase 2: `ai` namespace wired in. |
+| `fox-ai`          | Namespace dispatcher for AI-augmented tools — first live example of the dispatcher pattern. 23 subcommands registered via `src/fox-ai/dispatch.def`, leaves are the existing `fox-ai-*` binaries (7 C++ + 16 bash). Reachable as `fox ai <sub>` or `fox-ai <sub>` directly. |
 | `fox-intel`       | Library (`libfox-intel.a`) — Ollama client, embeddings, helpers. The AI primitive every other tool links against. |
 | `fox-render-fast` | Concurrent template engine. Drop-in for `render.sh`, byte-for-byte match. |
 | `fox-pulse`       | Single-epoll daemon multiplexing Hyprland IPC + inotify + debouncers. Replaces `focus-pulse.sh` and `fox-monitor-watch.sh`. |
 | `fox-vault`       | `mlock()`'d in-RAM secret store with Unix-socket CLI.               |
 | `fox-install`     | C++ orchestrator with X-macro module registry. Mid-port; `install.sh` is still the active install path until wave 2 lands. |
 
-The architecture is in mid-refactor — see `plans/architecture-refactor.md` for the master plan. Phase 1 (`fox-common/` extraction + `src/fox/` skeleton) is complete; Phase 2 (`fox ai *` namespace migration) is next.
+The architecture is in mid-refactor — see `plans/architecture-refactor.md` for the master plan. Phases complete: 1 (`fox-common/` extraction + `src/fox/` skeleton) and 2 (`fox ai *` namespace migration). Next: Phase 3 (`fox sec *` namespace migration, ~29 subcommands).
 
 ## Adding a new tool
 
@@ -82,6 +83,8 @@ The X-macro registry in `modules.def` is the single source of truth. The args pa
 ```
 
 The pattern mirrors fox-install's X-macro registry — single source of truth per dispatcher, no central registration beyond the one line in dispatch.def. See `plans/architecture-refactor.md` D1-D6 for the full architectural rationale.
+
+**Live example:** `src/fox-ai/` is the first namespace dispatcher (Phase 2). Use its `main.cpp`, `dispatch.def`, and `Makefile` as the template when creating a new namespace. Each namespace dispatcher is ~70 lines of C++ + the registry — adding a new namespace is genuinely cheap.
 
 ## Reusable headers
 
