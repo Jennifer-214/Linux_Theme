@@ -11,6 +11,11 @@ POPUP_BG_OPACITY=0.65
 MAKO_ICON_THEME=Papirus-Dark
 VSCODE_UI_THEME=vs-dark
 FONT_FAMILY="Hack Nerd Font"
+# WARNING: SHOW_WELCOME is also the project's literal-true alias used in
+# ~246 template substitutions (vim opts, yazi bold, Firefox CSS selectors,
+# nvim init.lua, etc.). Setting this to false will break far more than
+# the welcome message. Leave as true; gate the welcome message via the
+# `[[ "{{SHOW_WELCOME}}" == "true" ]]` check in templates/zsh/welcome.zsh.
 SHOW_WELCOME=true
 SHOW_BANNER=true
 WALLPAPER=foxml_earthy.jpg

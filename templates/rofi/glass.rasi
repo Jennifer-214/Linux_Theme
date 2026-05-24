@@ -1,6 +1,6 @@
 configuration {
   modi: "drun,run,window";
-  show-icons: {{SHOW_WELCOME}};
+  show-icons: true;
   /* For vim-flavored row nav, use rofi's built-in defaults:
        Ctrl+P / Ctrl+N    row up / row down
      Ctrl+J and Ctrl+K are already taken by readline-style line-edit

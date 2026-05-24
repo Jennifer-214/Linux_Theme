@@ -42,6 +42,6 @@ set recolor-keephue             "false"
 # Appearance
 set font                        "{{FONT_FAMILY}} 11"
 set selection-clipboard         "clipboard"
-set window-title-basename       "{{SHOW_WELCOME}}"
-set statusbar-home-tilde        "{{SHOW_WELCOME}}"
+set window-title-basename       "true"
+set statusbar-home-tilde        "true"
 set guioptions                  "sv"

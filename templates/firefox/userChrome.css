@@ -167,23 +167,23 @@ toolbarbutton.titlebar-button,
   border-radius: 10px !important;
 }
 
-.tabbrowser-tab[selected="{{SHOW_WELCOME}}"],
-.tabbrowser-tab[selected="{{SHOW_WELCOME}}"] .tab-stack,
-.tabbrowser-tab[selected="{{SHOW_WELCOME}}"] .tab-background,
-.tabbrowser-tab[selected="{{SHOW_WELCOME}}"] .tab-content {
+.tabbrowser-tab[selected="true"],
+.tabbrowser-tab[selected="true"] .tab-stack,
+.tabbrowser-tab[selected="true"] .tab-background,
+.tabbrowser-tab[selected="true"] .tab-content {
   background: var(--fox-bg-alt) !important;
   background-color: var(--fox-bg-alt) !important;
   color: var(--fox-pastel) !important;
 }
 
-.tabbrowser-tab[selected="{{SHOW_WELCOME}}"] {
+.tabbrowser-tab[selected="true"] {
   border-bottom: 2px solid var(--fox-blush) !important;
 }
 
-.tabbrowser-tab:hover:not([selected="{{SHOW_WELCOME}}"]),
-.tabbrowser-tab:hover:not([selected="{{SHOW_WELCOME}}"]) .tab-stack,
-.tabbrowser-tab:hover:not([selected="{{SHOW_WELCOME}}"]) .tab-background,
-.tabbrowser-tab:hover:not([selected="{{SHOW_WELCOME}}"]) .tab-content {
+.tabbrowser-tab:hover:not([selected="true"]),
+.tabbrowser-tab:hover:not([selected="true"]) .tab-stack,
+.tabbrowser-tab:hover:not([selected="true"]) .tab-background,
+.tabbrowser-tab:hover:not([selected="true"]) .tab-content {
   background: rgba({{BLUSH_R}},{{BLUSH_G}},{{BLUSH_B}},0.15) !important;
   background-color: rgba({{BLUSH_R}},{{BLUSH_G}},{{BLUSH_B}},0.15) !important;
   color: var(--fox-pastel) !important;
@@ -390,15 +390,15 @@ menu {
 
 menuitem:hover,
 menu:hover,
-menuitem[_moz-menuactive="{{SHOW_WELCOME}}"],
-menu[_moz-menuactive="{{SHOW_WELCOME}}"] {
+menuitem[_moz-menuactive="true"],
+menu[_moz-menuactive="true"] {
   -moz-appearance: none !important;
   background: rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.25) !important;
   color: var(--fox-peach) !important;
 }
 
-menuitem[disabled="{{SHOW_WELCOME}}"],
-menu[disabled="{{SHOW_WELCOME}}"] {
+menuitem[disabled="true"],
+menu[disabled="true"] {
   color: var(--fox-dim) !important;
 }
 
