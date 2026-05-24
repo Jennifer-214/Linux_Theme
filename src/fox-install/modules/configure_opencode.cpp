@@ -31,10 +31,7 @@ namespace fox_install {
 
 namespace {
 
-bool have(const std::string& bin) {
-    std::string out;
-    return sh::capture({"sh", "-c", "command -v " + bin}, out) && !out.empty();
-}
+bool have(const std::string& bin) { return sh::have(bin); }
 
 bool starts_with(const std::string& s, const std::string& p) {
     return s.size() >= p.size() && s.compare(0, p.size(), p) == 0;

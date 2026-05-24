@@ -14,6 +14,8 @@
 // Auto-reverts the drop-in if ollama fails to start after applying
 // (catches misconfigured directives without leaving the service dead).
 
+#include <cstdlib>
+#include <unistd.h>
 #include "../core/context.hpp"
 #include "../core/idempotency.hpp"
 #include "../../fox-common/shell.hpp"
@@ -149,14 +151,24 @@ void run_ollama_hardening(Context& ctx) {
         ui::err("sudo install -d failed");
         return;
     }
-    fs::path tmp = "/tmp/foxin-ollama.conf.tmp";
-    {
-        std::ofstream o(tmp);
-        o << body.str();
+    // mkstemp avoids a /tmp symlink-race against a predictable name.
+    char tmpl[] = "/tmp/foxin-ollama-XXXXXX";
+    int fd = ::mkstemp(tmpl);
+    if (fd < 0) {
+        ui::err("could not create temp file for ollama hardening drop-in");
+        return;
+    }
+    std::string body_s = body.str();
+    ssize_t w = ::write(fd, body_s.data(), body_s.size());
+    ::close(fd);
+    if (w != static_cast<ssize_t>(body_s.size())) {
+        ui::err("short write to ollama hardening tempfile");
+        ::unlink(tmpl);
+        return;
     }
     int rc = sh::run({"sudo", "install", "-m", "0644", "-o", "root", "-g", "root",
-                      tmp.string(), drop_in.string()});
-    fs::remove(tmp);
+                      tmpl, drop_in.string()});
+    ::unlink(tmpl);
     if (rc != 0) {
         ui::err("could not install " + drop_in.string());
         return;

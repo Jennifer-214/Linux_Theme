@@ -4,6 +4,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <csignal>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -58,6 +59,34 @@ Plan default_plan(
 }
 
 namespace {
+
+// Saved at wizard entry so a SIGINT/SIGTERM/SIGHUP during the tiny
+// raw-mode window inside read_key() can restore it from the signal
+// handler. tcsetattr is async-signal-safe per POSIX.
+struct termios g_saved_tty{};
+bool g_saved_tty_valid = false;
+
+extern "C" void wizard_signal_restore(int sig) {
+    if (g_saved_tty_valid) {
+        ::tcsetattr(STDIN_FILENO, TCSANOW, &g_saved_tty);
+    }
+    // Re-raise the signal with the default handler so the process
+    // still terminates with the expected exit status. SA_RESETHAND
+    // restored SIG_DFL before this handler ran.
+    ::raise(sig);
+}
+
+void install_termios_safety_net() {
+    if (::tcgetattr(STDIN_FILENO, &g_saved_tty) != 0) return;
+    g_saved_tty_valid = true;
+    struct sigaction sa{};
+    sa.sa_handler = wizard_signal_restore;
+    sa.sa_flags   = SA_RESETHAND;
+    ::sigemptyset(&sa.sa_mask);
+    ::sigaction(SIGINT,  &sa, nullptr);
+    ::sigaction(SIGTERM, &sa, nullptr);
+    ::sigaction(SIGHUP,  &sa, nullptr);
+}
 
 // Read one key in cbreak mode. Mirrors fox-common/ui.cpp's private
 // CbreakMode + read_one_char pair — kept local here because the
@@ -160,6 +189,8 @@ Plan run(Plan plan, const Context& ctx) {
     // is KeepMine — never silently overwrite).
     if (ctx.assume_yes || !ui::tty()) return plan;
     if (plan.modules.empty())          return plan;
+
+    install_termios_safety_net();
 
     std::size_t cursor = 0;
     while (cursor < plan.modules.size()) {

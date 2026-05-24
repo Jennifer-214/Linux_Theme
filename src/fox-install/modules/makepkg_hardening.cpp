@@ -32,17 +32,7 @@ constexpr const char* BODY =
     "DEBUG_CFLAGS=\"$DEBUG_CFLAGS -fno-omit-frame-pointer\"\n";
 
 bool write_root_file(const fs::path& dst, const std::string& body) {
-    fs::path tmp = "/tmp/foxin-makepkg.tmp";
-    {
-        std::ofstream o(tmp);
-        o << body;
-    }
-    int rc = sh::run({"sudo", "install", "-d", dst.parent_path().string()});
-    if (rc != 0) { fs::remove(tmp); return false; }
-    rc = sh::run({"sudo", "install", "-m", "0644", "-o", "root", "-g", "root",
-                  tmp.string(), dst.string()});
-    fs::remove(tmp);
-    return rc == 0;
+    return sh::write_root_atomic(dst, body);
 }
 
 }  // namespace

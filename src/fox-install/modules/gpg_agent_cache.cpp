@@ -20,10 +20,7 @@ namespace fox_install {
 
 namespace {
 
-bool have(const std::string& bin) {
-    std::string out;
-    return sh::capture({"sh", "-c", "command -v " + bin}, out) && !out.empty();
-}
+bool have(const std::string& bin) { return sh::have(bin); }
 
 std::string git_config(const std::string& key) {
     std::string out;

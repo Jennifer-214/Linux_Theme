@@ -39,6 +39,7 @@ std::string detect_vendor() {
 }  // namespace
 
 void run_iommu(Context& ctx) {
+    (void)ctx;
     ui::section("IOMMU + lockdown=integrity (DMA protection)");
 
     fs::path bootloader_systemd = "/boot/loader/entries/arch.conf";
@@ -77,19 +78,22 @@ void run_iommu(Context& ctx) {
         return;
     }
 
-    // Idempotency: bail if the args are already present (unless --full
-    // wants to force-reapply, in which case appending is a no-op edit
-    // since the matched-substring sed below won't double-add).
+    // Args-already-present is a hard skip regardless of force_reapply —
+    // the sed below is a blind prepend (`s|^options |options <args> |`),
+    // so re-running it stacks another copy of <args> onto the line.
+    // --full means "reapply", not "duplicate".
     if (sh::run({"sh", "-c",
-                 "sudo grep -q \"" + iommu_args + "\" " + cmdline_file.string()}) == 0
-        && !ctx.force_reapply) {
+                 "sudo grep -q \"" + iommu_args + "\" " + cmdline_file.string()}) == 0) {
         ui::skipped("IOMMU already enabled in " + cmdline_file.string());
         return;
     }
 
+    // Only back up if no backup exists — preserves the true pre-FoxML
+    // original across repeat --full runs.
     sh::run({"sh", "-c",
+             "[ -e " + cmdline_file.string() + ".foxml-bak ] || "
              "sudo cp " + cmdline_file.string() + " " +
-             cmdline_file.string() + ".foxml-bak 2>/dev/null"});
+             cmdline_file.string() + ".foxml-bak"});
 
     if (is_systemd_boot) {
         sh::run({"sudo", "sed", "-i",

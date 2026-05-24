@@ -26,10 +26,7 @@ namespace fox_install {
 
 namespace {
 
-bool have(const std::string& bin) {
-    std::string out;
-    return sh::capture({"sh", "-c", "command -v " + bin}, out) && !out.empty();
-}
+bool have(const std::string& bin) { return sh::have(bin); }
 bool tty_in() { return ::isatty(STDIN_FILENO); }
 
 bool systemctl_active (const std::string& u) {
@@ -127,9 +124,13 @@ void run_ufw(Context& ctx) {
         try {
             int p = std::stoi(server_port);
             if (p > 0 && p < 65536) {
-                sh::run({"sh", "-c",
-                         "sudo ufw limit " + server_port + "/tcp >/dev/null 2>&1 || true"});
-                ui::ok("active SSH session on port " + server_port +
+                // Re-stringify from the validated int — stoi accepts trailing
+                // garbage ("22; rm -rf /" → 22) and would otherwise carry that
+                // garbage straight into the shell. SSH_CONNECTION is set by
+                // sshd, but a local malicious shell could still spoof it.
+                std::string safe_port = std::to_string(p);
+                sh::run({"sudo", "ufw", "limit", safe_port + "/tcp"});
+                ui::ok("active SSH session on port " + safe_port +
                        " — rate-limited to avoid lockout");
             }
         } catch (...) {}

@@ -28,18 +28,15 @@ namespace fox_install {
 
 namespace {
 
-bool have(const std::string& bin) {
-    std::string out;
-    return sh::capture({"sh", "-c", "command -v " + bin}, out) && !out.empty();
-}
+bool have(const std::string& bin) { return sh::have(bin); }
 
 bool process_running(const std::string& name) {
-    return sh::run({"sh", "-c", "pgrep -x " + name + " >/dev/null 2>&1"}) == 0;
+    return sh::run({"pgrep", "-x", name}) == 0;
 }
 
 void restart_detached(const std::string& killname, const std::string& spawn_cmd) {
-    sh::run({"sh", "-c", "pkill -x " + killname + " 2>/dev/null || true"});
-    sh::run({"sh", "-c", "setsid -f " + spawn_cmd + " >/dev/null 2>&1 || true"});
+    sh::run({"pkill", "-x", killname});
+    sh::run({"setsid", "-f", spawn_cmd});
 }
 
 void cursor_vscode_set_theme(const Context& ctx) {

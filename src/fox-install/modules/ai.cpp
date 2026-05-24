@@ -27,16 +27,12 @@ namespace fox_install {
 namespace {
 
 std::string aur_helper() {
-    std::string out;
-    if (sh::capture({"sh", "-c", "command -v yay"}, out) && !out.empty())  return "yay";
-    if (sh::capture({"sh", "-c", "command -v paru"}, out) && !out.empty()) return "paru";
+    if (sh::have("yay"))  return "yay";
+    if (sh::have("paru")) return "paru";
     return {};
 }
 
-bool have(const std::string& bin) {
-    std::string out;
-    return sh::capture({"sh", "-c", "command -v " + bin}, out) && !out.empty();
-}
+bool have(const std::string& bin) { return sh::have(bin); }
 
 void install_via_aur_or_script(const std::string& aur_pkg,
                                const std::string& fallback_url,

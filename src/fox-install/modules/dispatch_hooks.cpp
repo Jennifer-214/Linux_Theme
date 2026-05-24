@@ -29,10 +29,7 @@ namespace fox_install {
 
 namespace {
 
-bool have(const std::string& bin) {
-    std::string out;
-    return sh::capture({"sh", "-c", "command -v " + bin}, out) && !out.empty();
-}
+bool have(const std::string& bin) { return sh::have(bin); }
 bool pacman_has(const std::string& pkg) {
     return sh::run({"sh", "-c", "pacman -Qi " + pkg + " &>/dev/null"}) == 0;
 }
@@ -69,14 +66,7 @@ void wire_fail2ban() {
         "actionunban = /bin/true\n"
         "[Init]\n";
 
-    fs::path tmp = "/tmp/foxin-f2b-action.tmp";
-    {
-        std::ofstream o(tmp);
-        o << action_body;
-    }
-    sh::run({"sudo", "install", "-m", "0644", "-o", "root", "-g", "root",
-             tmp.string(), "/etc/fail2ban/action.d/foxml-dispatch.conf"});
-    fs::remove(tmp);
+    sh::write_root_atomic("/etc/fail2ban/action.d/foxml-dispatch.conf", action_body);
     ui::ok("fail2ban action.d/foxml-dispatch.conf written");
 
     // Splice into jail.local: dedupe existing stanzas first (gawk inplace),

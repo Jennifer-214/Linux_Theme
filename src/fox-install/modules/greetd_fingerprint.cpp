@@ -25,16 +25,13 @@ namespace fox_install {
 
 namespace {
 
-bool have(const std::string& bin) {
-    std::string out;
-    return sh::capture({"sh", "-c", "command -v " + bin}, out) && !out.empty();
-}
+bool have(const std::string& bin) { return sh::have(bin); }
 
 // Detect fingerprint reader. fprintd-list "found N devices" — N=0 means
 // no reader on any libfprint-supported bus.
 int fprintd_device_count(const std::string& user) {
     std::string out;
-    sh::capture({"sh", "-c", "fprintd-list \"" + user + "\" 2>/dev/null"}, out);
+    sh::capture({"fprintd-list", user}, out);
     std::istringstream is(out);
     std::string line;
     std::regex pat(R"(found (\d+) devices)");
@@ -121,8 +118,7 @@ void run_greetd_fingerprint(Context& ctx) {
     ui::ok("backup at /etc/pam.d/greetd.foxml-bak");
 
     std::string fp_list;
-    sh::capture({"sh", "-c", "fprintd-list \"" + username() + "\" 2>/dev/null"},
-                fp_list);
+    sh::capture({"fprintd-list", username()}, fp_list);
     if (fp_list.find("\n - #") == std::string::npos) {
         ui::ok("no fingerprints enrolled for " + username() +
                " yet — run: fprintd-enroll");

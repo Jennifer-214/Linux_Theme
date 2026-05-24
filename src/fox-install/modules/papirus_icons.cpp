@@ -10,9 +10,11 @@
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <unistd.h>
 
 namespace fs = std::filesystem;
 
@@ -20,10 +22,7 @@ namespace fox_install {
 
 namespace {
 
-bool have(const std::string& bin) {
-    std::string out;
-    return sh::capture({"sh", "-c", "command -v " + bin}, out) && !out.empty();
-}
+bool have(const std::string& bin) { return sh::have(bin); }
 
 bool pacman_has(const std::string& pkg) {
     return sh::run({"sh", "-c", "pacman -Qi " + pkg + " &>/dev/null"}) == 0;
@@ -61,9 +60,24 @@ void run_papirus_icons(Context& ctx) {
             }
             if (!done) {
                 ui::substep("installing Papirus via upstream script (no AUR helper)");
-                if (sh::run({"sh", "-c",
-                             "curl -fsSL https://raw.githubusercontent.com/PapirusDevelopmentTeam/papirus-icon-theme/master/install.sh | "
-                             "DESTDIR=" + user_icons.string() + " sh"}) == 0) {
+                // mkstemp gives an unpredictable name in /tmp so an
+                // attacker can't pre-symlink the path to a user file
+                // and have curl truncate it to junk.
+                char tmpl[] = "/tmp/foxin-papirus-install-XXXXXX";
+                int fd = ::mkstemp(tmpl);
+                if (fd < 0) {
+                    ui::warn("could not create temp file for Papirus install");
+                    return;
+                }
+                ::close(fd);
+                std::string url = "https://raw.githubusercontent.com/PapirusDevelopmentTeam/papirus-icon-theme/master/install.sh";
+                int rc1 = sh::run({"curl", "-fsSL", "-o", tmpl, url});
+                int rc2 = (rc1 == 0)
+                    ? sh::run({"env", "DESTDIR=" + user_icons.string(),
+                               "sh", tmpl})
+                    : 1;
+                ::unlink(tmpl);
+                if (rc2 == 0) {
                     ui::ok("Papirus icon theme installed to " + user_icons.string());
                     papirus_root = user_icons;
                 } else {
@@ -95,13 +109,16 @@ void run_papirus_icons(Context& ctx) {
             fs::remove_all(tmp);
             if (sh::run({"git", "clone", "--depth", "1", "--quiet",
                          "https://github.com/catppuccin/papirus-folders.git", tmp.string()}) == 0) {
-                // We need sudo to write to /usr/share/icons
-                std::string cmd = "cp -r " + (tmp / "src").string() + "/* " + (papirus_root / "Papirus").string();
+                // `cp -rT src dst` is the no-shell-glob form of "contents of
+                // src into dst" — equivalent to the old `cp -r src/* dst`
+                // but without depending on shell expansion of paths.
+                fs::path src = tmp / "src";
+                fs::path dst = papirus_root / "Papirus";
                 if (papirus_root == sys_icons) {
-                    sh::run({"sudo", "sh", "-c", cmd});
+                    sh::run({"sudo", "cp", "-rT", src.string(), dst.string()});
                     sh::run({"sudo", "touch", cat_marker.string()});
                 } else {
-                    sh::run({"sh", "-c", cmd});
+                    sh::run({"cp", "-rT", src.string(), dst.string()});
                     fs::create_directories(cat_marker.parent_path());
                     std::ofstream(cat_marker) << "injected";
                 }

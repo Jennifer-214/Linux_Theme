@@ -27,10 +27,7 @@ namespace fox_install {
 
 namespace {
 
-bool have(const std::string& bin) {
-    std::string out;
-    return sh::capture({"sh", "-c", "command -v " + bin}, out) && !out.empty();
-}
+bool have(const std::string& bin) { return sh::have(bin); }
 
 bool tty_in() { return ::isatty(STDIN_FILENO); }
 
@@ -125,9 +122,7 @@ void ensure_ssh_key_protected(const Context& ctx, const std::string& gh_user) {
 
     // Path 2: key exists — check passphraseless.
     // `ssh-keygen -y -P "" -f <key>` succeeds only when there's no passphrase.
-    if (sh::run({"sh", "-c",
-                 "ssh-keygen -y -P \"\" -f " + key.string() +
-                 " >/dev/null 2>&1"}) != 0) {
+    if (sh::run({"ssh-keygen", "-y", "-P", "", "-f", key.string()}) != 0) {
         return;   // has passphrase already
     }
 
@@ -145,9 +140,8 @@ void ensure_ssh_key_protected(const Context& ctx, const std::string& gh_user) {
         }
     } else {
         std::string pp = gen_passphrase();
-        if (sh::run({"sh", "-c",
-                     "ssh-keygen -p -P \"\" -N \"" + pp + "\" -f " +
-                     key.string() + " >/dev/null 2>&1"}) == 0) {
+        if (sh::run({"ssh-keygen", "-p", "-P", "", "-N", pp,
+                     "-f", key.string()}) == 0) {
             ui::ok("random passphrase set on " + key.string());
             stash_passphrase(ctx, pp);
         } else {

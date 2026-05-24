@@ -10,6 +10,7 @@
 
 #include <filesystem>
 #include <string>
+#include <unistd.h>
 
 namespace fs = std::filesystem;
 
@@ -17,10 +18,7 @@ namespace fox_install {
 
 namespace {
 
-bool have(const std::string& bin) {
-    std::string out;
-    return sh::capture({"sh", "-c", "command -v " + bin}, out) && !out.empty();
-}
+bool have(const std::string& bin) { return sh::have(bin); }
 
 }  // namespace
 
@@ -53,16 +51,21 @@ void run_xgboost(Context& ctx) {
     fs::path build_dir = xgb_dir / "build";
     fs::create_directories(build_dir);
 
+    // env -C <dir> sets the child's cwd from a positional argv arg, so
+    // build_dir is never shell-parsed even if $HOME contains spaces.
+    long nproc = ::sysconf(_SC_NPROCESSORS_ONLN);
+    if (nproc < 1) nproc = 1;
+    std::string jflag = "-j" + std::to_string(nproc);
+
     ui::substep("cmake configure");
-    if (sh::run({"sh", "-c",
-                 "cd " + build_dir.string() + " && cmake .. -DBUILD_STATIC_LIB=OFF"}) != 0) {
+    if (sh::run({"env", "-C", build_dir.string(),
+                 "cmake", "..", "-DBUILD_STATIC_LIB=OFF"}) != 0) {
         ui::err("cmake configure failed");
         return;
     }
 
-    ui::substep("make -j$(nproc) (this is the slow part)");
-    if (sh::run({"sh", "-c",
-                 "cd " + build_dir.string() + " && make -j$(nproc)"}) != 0) {
+    ui::substep("make " + jflag + " (this is the slow part)");
+    if (sh::run({"env", "-C", build_dir.string(), "make", jflag}) != 0) {
         ui::err("make failed — see output above");
         return;
     }
@@ -71,8 +74,8 @@ void run_xgboost(Context& ctx) {
         ui::err("sudo cache cold for `sudo make install` — `sudo -v` first");
         return;
     }
-    sh::run({"sh", "-c",
-             "cd " + build_dir.string() + " && sudo make install && sudo ldconfig"});
+    sh::run({"sudo", "env", "-C", build_dir.string(), "make", "install"});
+    sh::run({"sudo", "ldconfig"});
     ui::ok("XGBoost installed to /usr/local/");
 }
 

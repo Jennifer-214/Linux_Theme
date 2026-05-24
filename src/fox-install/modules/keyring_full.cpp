@@ -68,9 +68,7 @@ void run_keyring_full(Context& ctx) {
     // --replace makes a running gnome-keyring-daemon hand its socket
     // over to the new full-components one in-place, so SSH agent
     // stays live without re-login.
-    std::string keyring_bin;
-    if (sh::capture({"sh", "-c", "command -v gnome-keyring-daemon"}, keyring_bin) &&
-        !keyring_bin.empty()) {
+    if (sh::have("gnome-keyring-daemon")) {
         sh::run({"sh", "-c",
                  "/usr/bin/gnome-keyring-daemon --start --replace "
                  "--components=pkcs11,secrets,ssh,gpg "

@@ -36,10 +36,35 @@ namespace fox_install {
 namespace {
 
 // ─── shared helpers ─────────────────────────────────────────────────
-bool have(const std::string& bin) {
-    std::string out;
-    return sh::capture({"sh", "-c", "command -v " + bin}, out) && !out.empty();
+// Atomic JSON write: tmp + rename so a crash mid-write can't leave the
+// caller's settings file half-written (parsers would then refuse to
+// load and the IDE/CLI loses prior state). We also explicitly check
+// the stream state after close — without that check a disk-full
+// failure would silently produce an empty/partial tmp, and the
+// subsequent rename would clobber a working config with garbage.
+void write_json_atomic(const fs::path& dst, const json& body) {
+    fs::path tmp = dst;
+    tmp += ".foxin-tmp";
+    std::error_code ec;
+    {
+        std::ofstream o(tmp);
+        o << body.dump(2);
+        o.close();
+        if (!o) {
+            ui::warn("write to " + tmp.string() + " failed mid-stream — "
+                     "leaving " + dst.string() + " untouched");
+            fs::remove(tmp, ec);
+            return;
+        }
+    }
+    fs::rename(tmp, dst, ec);
+    if (ec) {
+        ui::warn("atomic JSON write to " + dst.string() + " failed: " + ec.message());
+        fs::remove(tmp, ec);
+    }
 }
+
+bool have(const std::string& bin) { return sh::have(bin); }
 
 void snapshot_one(const Context& ctx, const fs::path& dest) {
     std::error_code ec;
@@ -278,8 +303,7 @@ void do_gemini(const Context& ctx) {
 
     if (!fs::exists(target)) {
         fs::create_directories(target.parent_path());
-        std::ofstream o(target);
-        o << new_j.dump(2);
+        write_json_atomic(target, new_j);
         ui::substep("Gemini settings installed");
         return;
     }
@@ -299,8 +323,7 @@ void do_gemini(const Context& ctx) {
     if (new_j.contains("hooks")) existing["hooks"] = new_j["hooks"];
     if (new_j.contains("ui"))    existing["ui"]    = new_j["ui"];
 
-    std::ofstream o(target);
-    o << existing.dump(2);
+    write_json_atomic(target, existing);
     ui::substep("Gemini settings (hooks + theme) merged");
 }
 
@@ -334,8 +357,7 @@ void do_claude_hooks(const Context& ctx) {
     if (!fs::exists(settings)) {
         json out = hooks;
         out["theme"] = "dark-ansi";
-        std::ofstream f(settings);
-        f << out.dump(2);
+        write_json_atomic(settings, out);
         ui::substep("Claude settings (hooks + theme) created");
         return;
     }
@@ -350,8 +372,7 @@ void do_claude_hooks(const Context& ctx) {
     }
     existing.merge_patch(hooks);
     existing["theme"] = "dark-ansi";   // force-flip to dark-ansi on every run
-    std::ofstream f(settings);
-    f << existing.dump(2);
+    write_json_atomic(settings, existing);
     ui::substep("Claude settings (hooks + theme) merged");
 }
 

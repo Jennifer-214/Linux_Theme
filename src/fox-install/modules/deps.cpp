@@ -190,8 +190,7 @@ void run_deps(Context& ctx) {
     if (!sh::dry_run()) {
         // Default web browser → Firefox (so CLI auth flows like
         // gcloud / gh / oauth helpers actually spawn a browser).
-        std::string out;
-        if (sh::capture({"sh", "-c", "command -v xdg-settings"}, out) && !out.empty()
+        if (sh::have("xdg-settings")
             && std::ifstream("/usr/share/applications/firefox.desktop")) {
             if (sh::run({"xdg-settings", "set", "default-web-browser",
                          "firefox.desktop"}) == 0) {
@@ -218,10 +217,7 @@ void run_deps(Context& ctx) {
         // ollama-bin, opencode-bin) AUR-install. Bootstrap yay first
         // so those don't all error with "no AUR helper". `paru`
         // works equally well — only install yay if neither is present.
-        auto have_cmd = [](const std::string& bin) {
-            std::string o;
-            return sh::capture({"sh", "-c", "command -v " + bin}, o) && !o.empty();
-        };
+        auto have_cmd = [](const std::string& bin) { return sh::have(bin); };
         if (!have_cmd("yay") && !have_cmd("paru")) {
             ui::substep("installing yay (AUR helper)");
             std::string yay_dir = "/tmp/foxin-yay-build";

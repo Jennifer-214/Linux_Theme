@@ -14,10 +14,7 @@ namespace fox_install {
 
 namespace {
 
-bool have(const std::string& bin) {
-    std::string out;
-    return sh::capture({"sh", "-c", "command -v " + bin}, out) && !out.empty();
-}
+bool have(const std::string& bin) { return sh::have(bin); }
 
 bool systemctl_active(const std::string& u) {
     return sh::run({"systemctl", "is-active", "--quiet", u}) == 0;

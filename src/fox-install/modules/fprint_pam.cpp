@@ -33,10 +33,7 @@ namespace fox_install {
 
 namespace {
 
-bool have(const std::string& bin) {
-    std::string out;
-    return sh::capture({"sh", "-c", "command -v " + bin}, out) && !out.empty();
-}
+bool have(const std::string& bin) { return sh::have(bin); }
 
 std::string username() {
     if (const char* u = std::getenv("USER"); u && *u) return u;
@@ -46,7 +43,7 @@ std::string username() {
 // Returns true if the user has at least one enrolled fingerprint.
 bool has_enrollment() {
     std::string out;
-    sh::capture({"sh", "-c", "fprintd-list \"" + username() + "\" 2>/dev/null"}, out);
+    sh::capture({"fprintd-list", username()}, out);
     // fprintd-list emits lines like "  - #1: right-index-finger" when
     // an enrollment exists, "No fingerprints enrolled" when not.
     if (out.find("No fingerprints enrolled") != std::string::npos) return false;
@@ -158,15 +155,30 @@ void run_fprint_pam(Context& ctx) {
     std::string spliced = splice_pam(body);
 
     // Backup + atomic replace via sudo install.
-    sh::run({"sudo", "cp", pam.string(), pam.string() + ".foxml-bak"});
-    fs::path tmp = "/tmp/foxin-pam-system.tmp";
-    {
-        std::ofstream o(tmp);
-        o << spliced;
+    // Backup is create-if-missing so a second run can't clobber the
+    // pre-foxml original with the already-modified file.
+    sh::run({"sh", "-c",
+             "[ -e " + pam.string() + ".foxml-bak ] || "
+             "sudo cp " + pam.string() + " " + pam.string() + ".foxml-bak"});
+    // mkstemp avoids a /tmp symlink-race against a predictable name.
+    // The 0600 file in /tmp lands at /etc/pam.d/X via `sudo install`,
+    // which sets the final mode/owner.
+    char tmpl[] = "/tmp/foxin-pam-system-XXXXXX";
+    int fd = ::mkstemp(tmpl);
+    if (fd < 0) {
+        ui::err("could not create temp file for PAM splice");
+        return;
+    }
+    ssize_t w = ::write(fd, spliced.data(), spliced.size());
+    ::close(fd);
+    if (w != static_cast<ssize_t>(spliced.size())) {
+        ui::err("short write to PAM splice tempfile");
+        ::unlink(tmpl);
+        return;
     }
     int rc = sh::run({"sudo", "install", "-m", "0644", "-o", "root", "-g", "root",
-                      tmp.string(), pam.string()});
-    fs::remove(tmp);
+                      tmpl, pam.string()});
+    ::unlink(tmpl);
 
     if (rc == 0) {
         ui::ok("pam_fprintd spliced into " + pam.string());

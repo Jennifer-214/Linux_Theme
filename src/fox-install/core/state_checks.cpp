@@ -15,10 +15,17 @@ namespace fox_install::state {
 namespace {
 
 bool pacman_installed(const std::string& pkg) {
-    // pacman -Qi <pkg> exits 0 if the package is installed, 1 otherwise.
-    // We swallow stdout/stderr via the wrapping shell because sh::run
-    // inherits stdio and we don't want the test/output stream cluttered.
-    return sh::run({"sh", "-c", "pacman -Qi " + pkg + " >/dev/null 2>&1"}) == 0;
+    // pacman -Qi <pkg> exits 0 if installed, 1 otherwise. We need to
+    // suppress both stdout AND stderr (pacman writes "error: package
+    // not found" on the negative case — normal for state probes, but
+    // pollutes the install log). Use a shell for the redirection but
+    // pass pkg as a positional argument ($1) so it stays out of shell
+    // parsing — pkg comes from the on-disk manifest which a user could
+    // craft if they edited it by hand.
+    return sh::run({"sh", "-c",
+                    "pacman -Qi \"$1\" >/dev/null 2>&1",
+                    "sh",          // $0
+                    pkg}) == 0;   // $1 — safe positional substitution
 }
 
 // systemctl_is_enabled — returns one of {"enabled","disabled","masked",

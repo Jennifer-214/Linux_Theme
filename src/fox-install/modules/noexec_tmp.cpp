@@ -83,9 +83,13 @@ void run_noexec_tmp(Context& ctx) {
     }
 
     // Only back up /etc/fstab when we're actually about to edit it —
-    // a pure /dev/shm remount needs no fstab change.
+    // a pure /dev/shm remount needs no fstab change. Backup is
+    // create-if-missing: a foxml-modified fstab must never overwrite the
+    // true pre-foxml original on repeat --full runs.
     if (!tmp_locked) {
-        sh::run({"sh", "-c", "sudo cp /etc/fstab /etc/fstab.foxml-bak 2>/dev/null"});
+        sh::run({"sh", "-c",
+                 "[ -e /etc/fstab.foxml-bak ] || "
+                 "sudo cp /etc/fstab /etc/fstab.foxml-bak"});
         if (!has_tmp_tmpfs(body)) {
             sh::run({"sh", "-c",
                      "echo 'tmpfs   /tmp        tmpfs   "

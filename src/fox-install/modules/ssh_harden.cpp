@@ -93,17 +93,44 @@ int count_authorized_keys(const fs::path& path) {
     return n;
 }
 
+// GitHub usernames are `[A-Za-z0-9][A-Za-z0-9-]{0,38}` (1-39 chars,
+// alphanumeric + hyphen, no leading hyphen). Anything else is either a
+// typo or a shell-injection attempt against import_github_keys.
+bool valid_gh_username(const std::string& u) {
+    if (u.empty() || u.size() > 39) return false;
+    if (u.front() == '-') return false;
+    for (char c : u) {
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+              || (c >= '0' && c <= '9') || c == '-')) return false;
+    }
+    return true;
+}
+
 bool import_github_keys(const Context& ctx, const std::string& gh_user) {
+    if (!valid_gh_username(gh_user)) {
+        ui::warn("rejected: '" + gh_user + "' is not a valid GitHub username");
+        return false;
+    }
     fs::path ssh_dir = ctx.home / ".ssh";
     fs::path keys    = ssh_dir / "authorized_keys";
     fs::create_directories(ssh_dir);
     fs::permissions(ssh_dir, fs::perms::owner_all, fs::perm_options::replace);
-    int rc = sh::run({"sh", "-c",
-                      "curl -fsSL https://github.com/" + gh_user +
-                      ".keys >> " + keys.string()});
-    if (rc != 0) {
+
+    std::string fetched;
+    if (!sh::capture({"curl", "-fsSL",
+                      "https://github.com/" + gh_user + ".keys"}, fetched)
+        || fetched.empty()) {
         ui::warn("failed to fetch keys for user: " + gh_user);
         return false;
+    }
+    {
+        std::ofstream o(keys, std::ios::app);
+        if (!o) {
+            ui::warn("could not open " + keys.string() + " for append");
+            return false;
+        }
+        o << fetched;
+        if (!fetched.empty() && fetched.back() != '\n') o << '\n';
     }
     fs::permissions(keys,
         fs::perms::owner_read | fs::perms::owner_write,

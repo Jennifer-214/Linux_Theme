@@ -26,10 +26,7 @@ namespace fox_install {
 
 namespace {
 
-bool have(const std::string& bin) {
-    std::string out;
-    return sh::capture({"sh", "-c", "command -v " + bin}, out) && !out.empty();
-}
+bool have(const std::string& bin) { return sh::have(bin); }
 
 // Discover the active Firefox profile. Prefer *.default-release (the
 // default-named profile on modern Firefox), fall back to *.default
