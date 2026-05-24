@@ -50,6 +50,23 @@ int run(const std::vector<std::string>& argv);
 // Runs argv, capturing stdout. Returns true on exit code 0.
 bool capture(const std::vector<std::string>& argv, std::string& out);
 
+// True if `bin` is an executable file reachable through $PATH. Pure
+// access(X_OK) walk — no shell, no `command -v`, no injection surface
+// even if `bin` somehow comes from untrusted input. An absolute or
+// relative path is checked directly. Empty/invalid names return false.
+bool have(const std::string& bin);
+
+// Atomically write `body` to `dst` as root:root with mode `mode`.
+// Internally uses mkstemp(3) for an unguessable /tmp staging name so
+// a pre-symlinked predictable path can't trick sudo install into
+// copying our content elsewhere (the historical /tmp/foxin-*.tmp
+// TOCTOU class). Creates dst's parent directory if missing. Returns
+// true on success; on failure the staging file is unlinked and dst
+// is left untouched.
+bool write_root_atomic(const std::filesystem::path& dst,
+                       const std::string& body,
+                       const std::string& mode = "0644");
+
 // pacman -S --needed --noconfirm <pkgs...>
 int pacman(std::initializer_list<const char*> pkgs);
 int pacman(const std::vector<std::string>& pkgs);

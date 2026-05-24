@@ -173,6 +173,52 @@ bool capture(const std::vector<std::string>& argv, std::string& out) {
     return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
+bool write_root_atomic(const std::filesystem::path& dst,
+                       const std::string& body,
+                       const std::string& mode) {
+    char tmpl[] = "/tmp/foxin-rootwrite-XXXXXX";
+    int fd = ::mkstemp(tmpl);
+    if (fd < 0) return false;
+    ssize_t w = 0;
+    if (!body.empty()) {
+        w = ::write(fd, body.data(), body.size());
+    }
+    ::close(fd);
+    if (w != static_cast<ssize_t>(body.size())) {
+        ::unlink(tmpl);
+        return false;
+    }
+    int rc = run({"sudo", "install", "-d", dst.parent_path().string()});
+    if (rc == 0) {
+        rc = run({"sudo", "install", "-m", mode, "-o", "root", "-g", "root",
+                  tmpl, dst.string()});
+    }
+    ::unlink(tmpl);
+    return rc == 0;
+}
+
+bool have(const std::string& bin) {
+    if (bin.empty()) return false;
+    // Absolute or relative path: check directly. access() handles it.
+    if (bin.find('/') != std::string::npos) {
+        return ::access(bin.c_str(), X_OK) == 0;
+    }
+    const char* path = std::getenv("PATH");
+    if (!path || !*path) path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin";
+    std::string p = path;
+    std::size_t start = 0;
+    while (start <= p.size()) {
+        std::size_t sep = p.find(':', start);
+        std::string dir = p.substr(start, sep == std::string::npos ? std::string::npos : sep - start);
+        if (dir.empty()) dir = ".";
+        std::string full = dir + "/" + bin;
+        if (::access(full.c_str(), X_OK) == 0) return true;
+        if (sep == std::string::npos) break;
+        start = sep + 1;
+    }
+    return false;
+}
+
 int pacman(std::initializer_list<const char*> pkgs) {
     std::vector<std::string> argv = { "sudo", "pacman", "-S", "--needed", "--noconfirm" };
     for (auto* p : pkgs) argv.emplace_back(p);
