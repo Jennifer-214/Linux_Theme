@@ -61,6 +61,12 @@ struct Context {
 
     // Resumable install state.
     int resume_idx = -1;                  // if >= 0, skip modules before this index
+
+    // Set by preflight when it finds a state no later module can safely
+    // run on (e.g. running kernel's /lib/modules/X tree is gone —
+    // partial-upgrade artifact). Dispatcher aborts before the first
+    // mutating module.
+    bool preflight_failed = false;
 };
 
 }  // namespace fox_install

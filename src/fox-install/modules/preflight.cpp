@@ -118,6 +118,25 @@ void run_preflight(Context& ctx) {
         ui::warn("another desktop / WM installed: " + conflicts);
         ui::substep("configs coexist; Hyprland binds only apply inside a Hyprland session");
     }
+
+    // Partial-upgrade detection. If the *running* kernel's module tree
+    // is missing, the system is in a half-upgraded state (pacman db
+    // says kernel X is installed, but /lib/modules/X never landed) and
+    // most modules will misbehave — including any that touch the
+    // bootloader. The recovery is a kernel reinstall + mkinitcpio -P,
+    // not anything we can fix from here, so we bail loudly.
+    std::string kver;
+    sh::capture({"uname", "-r"}, kver);
+    while (!kver.empty() && (kver.back() == '\n' || kver.back() == ' ')) kver.pop_back();
+    if (!kver.empty()) {
+        fs::path mods = fs::path("/lib/modules") / kver / "modules.dep";
+        if (!fs::exists(mods)) {
+            ui::err("running kernel " + kver + " is missing its module tree (" +
+                    mods.string() + " absent)");
+            ui::substep("partial-upgrade state — reinstall the kernel package and run `sudo mkinitcpio -P` before re-running this installer");
+            ctx.preflight_failed = true;
+        }
+    }
 }
 
 }  // namespace fox_install

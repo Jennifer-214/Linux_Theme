@@ -446,6 +446,17 @@ int main(int argc, char** argv) {
             m.fn(ctx);
             sh::log_section(std::string("/module: ") + m.slug + " (ok)");
 
+            // Preflight is allowed to refuse the run entirely. If it
+            // flipped preflight_failed, no later module is safe — even
+            // the read-only ones — because the running system itself
+            // is in a half-upgraded state. Abort here, before anything
+            // mutates state or writes to the bootloader.
+            if (ctx.preflight_failed) {
+                ui::err("preflight detected a partial-upgrade state — aborting install");
+                ui::substep("fix the underlying problem (typically a kernel reinstall + mkinitcpio -P), then re-run");
+                return 1;
+            }
+
             // Update resume state after success
             if (!ctx.dry_run) {
                 fs::create_directories(state_file.parent_path());
