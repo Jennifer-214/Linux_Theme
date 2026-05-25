@@ -53,7 +53,16 @@ void run_iommu(Context& ctx) {
     } else if (fs::exists(bootloader_grub)) {
         cmdline_file = bootloader_grub;
     } else {
-        ui::warn("no recognised bootloader config — skipping IOMMU enable");
+        // rEFInd / UKI / kernel-install / EFISTUB users get here. Don't
+        // silently no-op — surface a clear "add manually" path so they
+        // know IOMMU wasn't enabled on their system.
+        std::string vendor = detect_vendor();
+        std::string args = (vendor == "intel" ? "intel_iommu=on iommu=pt"
+                          : vendor == "amd"   ? "amd_iommu=on iommu=pt"
+                          : "<vendor>_iommu=on iommu=pt");
+        ui::warn("no systemd-boot / GRUB config detected — IOMMU not auto-enabled");
+        ui::substep("if you use rEFInd / UKI / EFISTUB, add manually to your kernel cmdline:");
+        ui::substep("    " + args + " lockdown=integrity");
         return;
     }
 

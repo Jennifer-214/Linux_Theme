@@ -29,17 +29,29 @@ namespace {
 constexpr const char* ESP_SYNC_SCRIPT =
     "#!/bin/bash\n"
     "# foxml-managed — sync /boot kernels + initramfs to ESP root.\n"
-    "# Noop when /boot and /boot/efi are the same filesystem.\n"
+    "# Auto-detects the ESP mountpoint from `bootctl --print-esp-path`\n"
+    "# (works for systemd-boot's traditional /boot/efi layout AND the\n"
+    "# modern XBOOTLDR layout where the ESP is /efi and /boot holds\n"
+    "# kernels). Noop when /boot and the ESP are the same filesystem.\n"
     "set -eu\n"
     "BOOT=/boot\n"
-    "ESP=/boot/efi\n"
     "[ -d \"$BOOT\" ] || exit 0\n"
-    "[ -d \"$ESP\" ]  || exit 0\n"
-    "# If /boot/efi is in fstab but not currently mounted, the ESP\n"
-    "# silently won't get the new kernels — exactly the failure mode\n"
-    "# this hook exists to prevent. Warn loudly to pacman's output.\n"
+    "# 1. Authoritative source on systemd-boot hosts.\n"
+    "ESP=\"$(bootctl --print-esp-path 2>/dev/null || true)\"\n"
+    "# 2. Fallback: well-known candidate paths.\n"
+    "if [ -z \"$ESP\" ]; then\n"
+    "    for cand in /efi /boot/efi; do\n"
+    "        if findmnt -n \"$cand\" >/dev/null 2>&1; then ESP=\"$cand\"; break; fi\n"
+    "    done\n"
+    "fi\n"
+    "# 3. If still empty, this host has no separate ESP. Nothing to do.\n"
+    "[ -n \"$ESP\" ] && [ -d \"$ESP\" ] || exit 0\n"
+    "# 4. If the candidate path exists but isn't a mountpoint, the ESP\n"
+    "# silently won't get new kernels — the exact failure mode this hook\n"
+    "# exists to prevent. Warn loudly when fstab promises a mount.\n"
     "if ! findmnt -n \"$ESP\" >/dev/null 2>&1; then\n"
-    "    if grep -qE \"^[^#].*[[:space:]]${ESP//\\//\\\\/}[[:space:]]\" /etc/fstab 2>/dev/null; then\n"
+    "    esp_re=$(printf '%s' \"$ESP\" | sed 's|/|\\\\/|g')\n"
+    "    if grep -qE \"^[^#].*[[:space:]]${esp_re}[[:space:]]\" /etc/fstab 2>/dev/null; then\n"
     "        echo \"esp-sync: $ESP is in fstab but NOT currently mounted — kernels were NOT synced to the ESP. Mount it and re-run: sudo /usr/local/lib/foxml/esp-sync\" >&2\n"
     "    fi\n"
     "    exit 0\n"
@@ -87,12 +99,16 @@ void run_boot_sync(Context& ctx) {
     (void)ctx;
     ui::section("Boot path sync (/boot ⇄ ESP root)");
 
-    if (!fs::exists("/boot/loader/entries")) {
-        ui::skipped("no systemd-boot loader entries — skipping (GRUB / other handles this differently)");
-        return;
-    }
-    if (!fs::exists("/boot/efi")) {
-        ui::skipped("/boot/efi not present — assuming /boot is the ESP");
+    // Module installs a pacman hook + helper script that the script
+    // itself decides whether to act on (auto-detects ESP at run time).
+    // Skip only on hosts where systemd-boot loader entries are clearly
+    // absent — GRUB / rEFInd / UKI users have their own mechanisms
+    // (the kernel-install or grub-mkconfig hooks shipped with those).
+    bool has_systemd_boot_entries =
+        fs::exists("/boot/loader/entries") || fs::exists("/efi/loader/entries");
+    if (!has_systemd_boot_entries) {
+        ui::skipped("no systemd-boot loader entries (/boot/loader or /efi/loader) — "
+                    "skipping (GRUB / rEFInd / UKI handle kernel copies via their own hooks)");
         return;
     }
 
