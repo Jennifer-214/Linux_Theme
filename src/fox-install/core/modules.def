@@ -43,6 +43,7 @@ FOX_MODULE( iommu,           run_iommu,            "--iommu",        "IOMMU + lo
 FOX_MODULE( boot_sync,       run_boot_sync,        "--boot-sync",    "Pacman hook keeping ESP root in sync with /boot",  true  )
 FOX_MODULE( foxml_health_hook, run_foxml_health_hook, "--health-hook",  "Pacman hook running foxml-health A+B after every transaction", true )
 FOX_MODULE( foxml_health_boot, run_foxml_health_boot, "--health-boot",  "Per-boot health probe — A-category checks before graphical.target", true )
+FOX_MODULE( foxml_health_timer, run_foxml_health_timer, "--health-timer", "Daily systemd-user timer running the full health-check set", true )
 FOX_MODULE( makepkg_harden,  run_makepkg_hardening,"--makepkg-harden","Hardened CFLAGS/LDFLAGS for AUR builds",          true  )
 //   etckeeper — installs a package + writes user systemd units. Root for
 //   pacman, network for AUR fetch. state::check_etckeeper surfaces the
