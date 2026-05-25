@@ -331,13 +331,31 @@ int main(int argc, char** argv) {
         }
 
         // Reconnect attempt every HYPR_RECONNECT_MS if we lost the socket.
+        // Track how many attempts in a row have failed so the daemon
+        // surfaces a wedged Hyprland (or a wrong $HYPRLAND_INSTANCE_SIGNATURE)
+        // instead of silently sitting disconnected forever.
+        static int reconnect_misses = 0;
         if (!hypr.connected()) {
             auto now = std::chrono::steady_clock::now();
             auto since = std::chrono::duration_cast<std::chrono::milliseconds>(
                 now - last_reconnect).count();
             if (since >= HYPR_RECONNECT_MS) {
-                hypr.connect_now(epoll_fd);
+                bool ok = hypr.connect_now(epoll_fd);
                 last_reconnect = now;
+                if (!ok) {
+                    ++reconnect_misses;
+                    // Log once at 1, then powers of 4 (1, 4, 16, 64, …) to
+                    // make a wedged daemon visible without spamming journald.
+                    if (reconnect_misses == 1
+                        || (reconnect_misses & (reconnect_misses - 1)) == 0) {
+                        std::fprintf(stderr,
+                            "fox-pulse: Hyprland reconnect failed (%d attempts) — "
+                            "check $HYPRLAND_INSTANCE_SIGNATURE and socat\n",
+                            reconnect_misses);
+                    }
+                } else {
+                    reconnect_misses = 0;
+                }
             }
         }
 

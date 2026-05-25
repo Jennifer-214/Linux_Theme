@@ -181,11 +181,11 @@ _run() {
                     # already locked
                     :
                 else
-                    /home/$USER/.local/bin/fox-lock 2>/dev/null \
+                    "/home/${USER}/.local/bin/fox-lock" 2>/dev/null \
                         || hyprlock 2>/dev/null &
                 fi
                 # Optional: dispatch alert.
-                /home/$USER/.local/bin/fox-dispatch "proximity-lock" \
+                "/home/${USER}/.local/bin/fox-dispatch" "proximity-lock" \
                     "$DEVICE_NAME out of range — laptop auto-locked" 2>/dev/null || true
                 fails=0
                 # Wait longer before next check after a trigger.

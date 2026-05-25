@@ -101,9 +101,16 @@ fi
 # ─────────────────────────────────────────
 if [[ "${FOXML_NO_UPDATE:-0}" != "1" && "${FOXML_UPDATED:-0}" != "1" ]] \
     && git -C "$SCRIPT_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    # Verify an `origin` remote exists before attempting fetch; otherwise
+    # `git fetch origin` errors silently into the `2>/dev/null` and the
+    # user has no idea why the self-update check was skipped.
+    if ! git -C "$SCRIPT_DIR" remote get-url origin >/dev/null 2>&1; then
+        echo "  (self-update skipped — no 'origin' remote configured)" >&2
+    fi
     branch="$(git -C "$SCRIPT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo)"
     dirty="$(git -C "$SCRIPT_DIR" status --porcelain 2>/dev/null | head -c 1 || echo)"
-    if [[ "$branch" == "main" && -z "$dirty" ]]; then
+    if [[ "$branch" == "main" && -z "$dirty" ]] \
+        && git -C "$SCRIPT_DIR" remote get-url origin >/dev/null 2>&1; then
         if timeout 15 git -C "$SCRIPT_DIR" fetch --quiet origin main 2>/dev/null; then
             local_sha="$(git -C "$SCRIPT_DIR" rev-parse HEAD)"
             remote_sha="$(git -C "$SCRIPT_DIR" rev-parse origin/main)"
@@ -226,4 +233,14 @@ fi
 # ─────────────────────────────────────────
 # Hand control to the native orchestrator.
 # ─────────────────────────────────────────
+# Guard against the case where the build claimed success but the
+# binary isn't actually executable (silent make target, symlink loop,
+# /tmp on noexec, etc). Better to fail loudly here than to fall
+# through to `exec` and produce a generic "no such file" from the
+# kernel.
+if [[ ! -x "$FOX_INSTALL_BIN" ]]; then
+    echo "error: $FOX_INSTALL_BIN is not executable after build" >&2
+    echo "       try: make -C \"$SCRIPT_DIR\" clean && ./install.sh" >&2
+    exit 1
+fi
 exec "$FOX_INSTALL_BIN" "$@"

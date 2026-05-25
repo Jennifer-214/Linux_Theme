@@ -23,7 +23,12 @@ std::string apply_substitutions(
     const std::unordered_map<std::string, std::string>& table)
 {
     std::string out;
-    out.reserve(src.size() + (src.size() >> 4));
+    // Cap the reserve to avoid a wraparound on size_t near SIZE_MAX,
+    // and avoid pessimistic over-allocation for huge templates.
+    constexpr size_t MAX_RESERVE = static_cast<size_t>(256) << 20;  // 256 MiB
+    size_t hint = src.size() + (src.size() >> 4);
+    if (hint < src.size() || hint > MAX_RESERVE) hint = MAX_RESERVE;
+    out.reserve(hint);
 
     const size_t n = src.size();
     size_t i = 0;
@@ -127,9 +132,17 @@ size_t render_tree(
     fs::path tdir(template_dir);
     fs::path odir(output_dir);
 
+    // skip_permission_denied prevents bailout on an unreadable subdir.
+    // We do NOT pass follow_directory_symlink, so a symlink loop in the
+    // template tree can't trap us in an infinite walk.
     std::vector<fs::path> files;
-    for (auto& entry : fs::recursive_directory_iterator(tdir)) {
-        if (entry.is_regular_file()) files.push_back(entry.path());
+    std::error_code walk_ec;
+    auto opts = fs::directory_options::skip_permission_denied;
+    for (auto it = fs::recursive_directory_iterator(tdir, opts, walk_ec);
+         it != fs::recursive_directory_iterator(); it.increment(walk_ec)) {
+        if (walk_ec) continue;
+        if (it->is_symlink()) continue;            // never follow symlinks
+        if (it->is_regular_file()) files.push_back(it->path());
     }
     if (files.empty()) return 0;
 
@@ -145,7 +158,15 @@ size_t render_tree(
 
             std::string body = slurp(src);
             std::string out  = apply_substitutions(body, table);
-            auto perms = fs::status(src).permissions();
+            std::error_code perm_ec;
+            auto perms = fs::status(src, perm_ec).permissions();
+            if (perm_ec) {
+                // status() failed — don't fall through to umask-default
+                // (which might produce 0644 / world-readable). Pick a
+                // safe user-only mode and let downstream tools relax it
+                // explicitly if they want broader access.
+                perms = fs::perms::owner_read | fs::perms::owner_write;
+            }
             atomic_write(dst, out, perms);
 
             size_t now = done.fetch_add(1, std::memory_order_relaxed) + 1;
