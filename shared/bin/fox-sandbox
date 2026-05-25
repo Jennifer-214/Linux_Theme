@@ -25,11 +25,14 @@ fi
 
 # Discover sandbox tool. firejail first (better defaults, includes
 # bundled profiles for firefox / discord). bwrap as fallback.
-SANDBOX=""
+# Use an ARRAY so word-splitting doesn't drop or merge args — passing
+# unquoted $SANDBOX through setsid only worked by accident with simple
+# flags; profile names with spaces would have broken the sandbox.
+SANDBOX=()
 if command -v firejail >/dev/null 2>&1; then
-    SANDBOX="firejail --private --quiet"
+    SANDBOX=(firejail --private --quiet)
 elif command -v bwrap >/dev/null 2>&1; then
-    SANDBOX="bwrap --dev-bind / / --tmpfs /home --tmpfs /tmp --setenv HOME /home/sandbox"
+    SANDBOX=(bwrap --dev-bind / / --tmpfs /home --tmpfs /tmp --setenv HOME /home/sandbox)
 else
     notify-send -u critical "fox-sandbox" "Neither firejail nor bwrap installed. \`sudo pacman -S firejail\`."
     exit 1
@@ -38,7 +41,7 @@ fi
 # Direct mode — caller passed a command on the CLI.
 if (( $# > 0 )); then
     notify-send -t 2000 "fox-sandbox" "Launching: $*"
-    setsid -f $SANDBOX "$@" >/dev/null 2>&1 < /dev/null &
+    setsid -f "${SANDBOX[@]}" "$@" >/dev/null 2>&1 < /dev/null &
     exit 0
 fi
 
@@ -71,5 +74,8 @@ done
 [[ -z "$cmd" ]] && exit 0
 
 notify-send -t 2000 "fox-sandbox" "$sel"
-# shellcheck disable=SC2086
-setsid -f $SANDBOX $cmd >/dev/null 2>&1 < /dev/null &
+# $cmd is a label-derived command string; word-split it once so the
+# sandbox sees `firefox` separately from `--incognito` etc.
+# shellcheck disable=SC2206
+cmd_argv=($cmd)
+setsid -f "${SANDBOX[@]}" "${cmd_argv[@]}" >/dev/null 2>&1 < /dev/null &

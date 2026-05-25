@@ -109,16 +109,23 @@ _ledger_write() {
     source="${source//$'\t'/ }"
     message="${message//$'\t'/ }"
     message="${message//$'\n'/ }"
-    printf '%s\t%s\t%s\n' "$(date +%s)" "$source" "$message" >>"$LEDGER" 2>/dev/null
-    # Trim if we've crossed the cap. Quick line count + tail rewrite —
-    # the file is small (one line per alert), so this is microseconds.
-    if [[ -f "$LEDGER" ]]; then
-        local nlines
-        nlines=$(wc -l <"$LEDGER" 2>/dev/null || echo 0)
-        if (( nlines > LEDGER_MAX_LINES )); then
-            tail -n "$LEDGER_MAX_LINES" "$LEDGER" > "${LEDGER}.tmp" 2>/dev/null \
-                && mv "${LEDGER}.tmp" "$LEDGER" 2>/dev/null
-        fi
+    # Hold an flock for the entire append+trim sequence. Two concurrent
+    # fox-dispatch invocations (fail2ban firing + USB hot-plug at the
+    # same time) used to race the tail/mv pair and drop the second
+    # caller's entry between the tail read and the rename.
+    if command -v flock >/dev/null 2>&1; then
+        (
+            flock -x 9
+            printf '%s\t%s\t%s\n' "$(date +%s)" "$source" "$message" >>"$LEDGER"
+            local nlines
+            nlines=$(wc -l <"$LEDGER" 2>/dev/null || echo 0)
+            if (( nlines > LEDGER_MAX_LINES )); then
+                tail -n "$LEDGER_MAX_LINES" "$LEDGER" > "${LEDGER}.tmp" 2>/dev/null \
+                    && mv "${LEDGER}.tmp" "$LEDGER" 2>/dev/null
+            fi
+        ) 9>>"$LEDGER"
+    else
+        printf '%s\t%s\t%s\n' "$(date +%s)" "$source" "$message" >>"$LEDGER" 2>/dev/null
     fi
 }
 

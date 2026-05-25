@@ -111,9 +111,16 @@ _import_url() {
     local name
     read -rp "  name to import as (no extension): " name
     name=$(tr -cd 'A-Za-z0-9_-' <<<"$name")
-    mv "$tmp" "/tmp/${name}.conf"
-    _import "/tmp/${name}.conf"
-    rm -f "/tmp/${name}.conf"
+    # _import keys off the basename of the conf file for the new conn
+    # name, so we need the file to live at <something>/<name>.conf.
+    # Use a fresh mktemp DIRECTORY (0700) instead of /tmp/${name}.conf
+    # — the previous code wrote to a predictable path an attacker
+    # could pre-symlink elsewhere.
+    local stage
+    stage=$(mktemp -d)
+    mv "$tmp" "$stage/${name}.conf"
+    _import "$stage/${name}.conf"
+    rm -rf "$stage"
 }
 
 _new() {

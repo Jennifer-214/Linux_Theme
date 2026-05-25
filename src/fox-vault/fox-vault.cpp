@@ -168,12 +168,26 @@ int run_daemon(bool daemonize) {
     ::signal(SIGPIPE, SIG_IGN);
 
     fox_vault::Vault vault;
+    const uid_t my_uid = ::getuid();
     bool running = true;
     while (running) {
         int client = ::accept4(listen_fd, nullptr, nullptr, SOCK_CLOEXEC);
         if (client < 0) {
             if (errno == EINTR) continue;
             break;
+        }
+        // Defense in depth: the socket already has mode 0600 and lives
+        // in $XDG_RUNTIME_DIR which is per-uid 0700, so a different
+        // user can't normally connect. SO_PEERCRED enforces that
+        // boundary at the kernel level too — if the socket path ever
+        // ends up with looser perms or in /tmp, the kernel still
+        // rejects cross-uid connections here.
+        struct ucred peer{};
+        socklen_t peer_len = sizeof(peer);
+        if (::getsockopt(client, SOL_SOCKET, SO_PEERCRED, &peer, &peer_len) != 0
+            || peer.uid != my_uid) {
+            ::close(client);
+            continue;
         }
         std::string cmd;
         while (read_line(client, cmd)) {

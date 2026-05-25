@@ -183,9 +183,15 @@ fi
 # every run.
 if [[ ! -f "$SCRIPT_DIR/src/fox-intel/json.hpp" ]]; then
     echo ":: Fetching nlohmann/json header..."
-    curl -fsSL \
-        https://github.com/nlohmann/json/releases/latest/download/json.hpp \
-        -o "$SCRIPT_DIR/src/fox-intel/json.hpp"
+    if ! curl -fsSL \
+            https://github.com/nlohmann/json/releases/latest/download/json.hpp \
+            -o "$SCRIPT_DIR/src/fox-intel/json.hpp"; then
+        echo "ERROR: failed to fetch nlohmann/json header from GitHub." >&2
+        echo "       Check network connectivity and re-run ./install.sh." >&2
+        echo "       (If you're offline, drop a copy into src/fox-intel/json.hpp manually.)" >&2
+        rm -f "$SCRIPT_DIR/src/fox-intel/json.hpp"   # partial download, if any
+        exit 1
+    fi
 fi
 
 _first_build=0

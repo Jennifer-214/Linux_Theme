@@ -18,6 +18,15 @@
 set -u
 C_GRN=$'\e[38;5;108m'; C_YEL=$'\e[38;5;221m'; C_RED=$'\e[38;5;167m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
 
+# The `enable` path writes a NetworkManager dispatcher that runs as
+# root. We bake $USER into it at generation time, so a poisoned env
+# would have us writing root-executed shell with attacker-chosen text.
+# Refuse to proceed if $USER doesn't look like a real login name.
+if [[ ! "${USER:-}" =~ ^[A-Za-z_][A-Za-z0-9_-]{0,31}$ ]]; then
+    echo "fox-cafe: refusing to run — \$USER='$USER' is not a valid login name" >&2
+    exit 1
+fi
+
 CONF_DIR="$HOME/.config/foxml"
 CONF="$CONF_DIR/cafe.conf"
 DISPATCHER=/etc/NetworkManager/dispatcher.d/99-foxml-cafe

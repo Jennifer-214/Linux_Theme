@@ -99,9 +99,19 @@ int main(int argc, char** argv) {
 
     if (!device_id.empty()) {
         ctx << "=== Target device id ===\n" << device_id << "\n";
+        // Capture full usbguard listing once, then filter in-process —
+        // never let device_id (argv[1], untrusted user input) enter a
+        // shell command line via concatenation.
+        std::string all;
+        capture({"sudo", "usbguard", "list-devices"}, all);
         std::string desc;
-        std::string grep_cmd = "sudo usbguard list-devices | grep " + device_id;
-        capture({"sh", "-c", grep_cmd.c_str()}, desc);
+        std::istringstream is(all);
+        std::string line;
+        while (std::getline(is, line)) {
+            if (line.find(device_id) != std::string::npos) {
+                desc += line + "\n";
+            }
+        }
         if (!desc.empty()) {
             ctx << "=== USBGuard device descriptor ===\n" << desc << "\n";
         }

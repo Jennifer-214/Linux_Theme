@@ -237,6 +237,10 @@ if [[ -f "$hyprlock_conf" && ${#monitor_pick[@]} -gt 0 ]]; then
     pairs="${pairs%,}"
 
     tmp=$(mktemp)
+    # Under `set -e`, any failure between mktemp and mv would leak the
+    # tempfile. Trap covers the success path too — mv removes the inode
+    # so the second rm is a no-op.
+    trap 'rm -f "$tmp"' EXIT
     awk -v pairs="$pairs" '
         BEGIN {
             n = split(pairs, parts, ",")

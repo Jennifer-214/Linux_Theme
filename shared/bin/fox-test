@@ -55,11 +55,16 @@ fi
 # ─── tests/roundtrip.sh ────────────────────────────────────────────
 if [[ -x "$FOXML_DIR/tests/roundtrip.sh" ]]; then
     printf '\n\033[2m── tests/roundtrip.sh ──\033[0m\n'
-    if "$FOXML_DIR/tests/roundtrip.sh" >/tmp/fox-test-roundtrip.log 2>&1; then
+    # mktemp instead of a predictable /tmp/fox-test-roundtrip.log so a
+    # pre-symlinked path can't redirect the log onto /etc/passwd etc.
+    rt_log=$(mktemp -t fox-test-roundtrip.XXXXXX.log)
+    trap 'rm -f "$rt_log"' EXIT
+    if "$FOXML_DIR/tests/roundtrip.sh" >"$rt_log" 2>&1; then
         report 0 "roundtrip (render → deploy → update is a no-op)"
     else
-        tail -20 /tmp/fox-test-roundtrip.log
-        report 1 "roundtrip reported drift (see /tmp/fox-test-roundtrip.log)"
+        tail -20 "$rt_log"
+        report 1 "roundtrip reported drift (see $rt_log)"
+        trap - EXIT   # keep the log around for inspection on failure
     fi
 fi
 

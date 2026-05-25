@@ -223,12 +223,22 @@ int setup_inotify(int epoll_fd, const std::string& dir) {
         // Caller can still poll it; just no inotify events fire.
         return ino;
     }
-    ::inotify_add_watch(ino, dir.c_str(),
-        IN_MODIFY | IN_CREATE | IN_DELETE | IN_MOVED_TO | IN_MOVED_FROM);
+    if (::inotify_add_watch(ino, dir.c_str(),
+            IN_MODIFY | IN_CREATE | IN_DELETE | IN_MOVED_TO | IN_MOVED_FROM) < 0) {
+        // Watch couldn't be added (perm, ENOSPC). Don't leak the fd —
+        // close and signal failure so the daemon either retries or
+        // bails cleanly. Otherwise restart cycles accumulate fds
+        // toward EMFILE.
+        ::close(ino);
+        return -1;
+    }
     epoll_event ev{};
     ev.events  = EPOLLIN;
     ev.data.fd = ino;
-    ::epoll_ctl(epoll_fd, EPOLL_CTL_ADD, ino, &ev);
+    if (::epoll_ctl(epoll_fd, EPOLL_CTL_ADD, ino, &ev) < 0) {
+        ::close(ino);
+        return -1;
+    }
     return ino;
 }
 

@@ -12,6 +12,9 @@
 #include <cstdlib>
 #include <algorithm>
 #include <iomanip>
+#include <fcntl.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 using json = nlohmann::json;
 namespace fs = std::filesystem;
@@ -43,8 +46,20 @@ void unload_model(const std::string& name) {
     // Background the stop — the user doesn't need to wait for the old
     // model's VRAM to drain before getting their prompt back. Ollama
     // handles the unload on its own time; the swap feels instant.
-    std::string cmd = "ollama stop " + name + " >/dev/null 2>&1 &";
-    std::system(cmd.c_str());
+    // Fork+exec instead of system() so the model name never enters
+    // shell parsing — names come from JSON config files which a user
+    // could craft with shell metacharacters.
+    pid_t pid = ::fork();
+    if (pid == 0) {
+        int devnull = ::open("/dev/null", O_WRONLY);
+        if (devnull >= 0) {
+            ::dup2(devnull, STDOUT_FILENO);
+            ::dup2(devnull, STDERR_FILENO);
+            ::close(devnull);
+        }
+        ::execlp("ollama", "ollama", "stop", name.c_str(), nullptr);
+        ::_exit(127);
+    }
 }
 
 std::vector<std::string> get_installed_models() {
