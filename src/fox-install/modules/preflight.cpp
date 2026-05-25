@@ -125,16 +125,32 @@ void run_preflight(Context& ctx) {
     // most modules will misbehave — including any that touch the
     // bootloader. The recovery is a kernel reinstall + mkinitcpio -P,
     // not anything we can fix from here, so we bail loudly.
-    std::string kver;
-    sh::capture({"uname", "-r"}, kver);
-    while (!kver.empty() && (kver.back() == '\n' || kver.back() == ' ')) kver.pop_back();
-    if (!kver.empty()) {
-        fs::path mods = fs::path("/lib/modules") / kver / "modules.dep";
-        if (!fs::exists(mods)) {
-            ui::err("running kernel " + kver + " is missing its module tree (" +
-                    mods.string() + " absent)");
-            ui::substep("partial-upgrade state — reinstall the kernel package and run `sudo mkinitcpio -P` before re-running this installer");
-            ctx.preflight_failed = true;
+    //
+    // Skipped inside containers: the container shares the HOST kernel
+    // (Docker/podman/systemd-nspawn) so /lib/modules/$(uname -r) is
+    // expected to be absent — the container doesn't ship the host's
+    // module tree. Container detection: /.dockerenv (docker),
+    // /run/.containerenv (podman), /run/systemd/container, or the
+    // `container=...` env var (systemd-nspawn).
+    bool in_container =
+        fs::exists("/.dockerenv") ||
+        fs::exists("/run/.containerenv") ||
+        fs::exists("/run/systemd/container") ||
+        std::getenv("container") != nullptr;
+    if (in_container) {
+        ui::ok("running in a container — skipping kernel module tree check");
+    } else {
+        std::string kver;
+        sh::capture({"uname", "-r"}, kver);
+        while (!kver.empty() && (kver.back() == '\n' || kver.back() == ' ')) kver.pop_back();
+        if (!kver.empty()) {
+            fs::path mods = fs::path("/lib/modules") / kver / "modules.dep";
+            if (!fs::exists(mods)) {
+                ui::err("running kernel " + kver + " is missing its module tree (" +
+                        mods.string() + " absent)");
+                ui::substep("partial-upgrade state — reinstall the kernel package and run `sudo mkinitcpio -P` before re-running this installer");
+                ctx.preflight_failed = true;
+            }
         }
     }
 }
