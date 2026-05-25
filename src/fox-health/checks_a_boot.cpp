@@ -139,21 +139,52 @@ fs::path detect_esp_path() {
 }  // namespace
 
 // A1 — `/lib/modules/$(uname -r)/modules.dep` exists. The running
-// kernel's module tree being gone means the system is in a partial-
-// upgrade state (pacman db has the new kernel; the file tree didn't
-// land). All later modules of fox-install are unsafe to run on this.
+// kernel's module tree being gone has two distinct causes that need
+// different fixes:
+//   (a) Stale running kernel: pacman upgraded `linux`, the upgrade
+//       swept /lib/modules/<old>/ as part of the transaction, the
+//       system is still booted on the old kernel until next reboot.
+//       Detected by: at least one OTHER /lib/modules/<X>/modules.dep
+//       exists. Fix: reboot.
+//   (b) Genuine partial upgrade: the kernel package install was
+//       interrupted; no module tree landed for any kernel.
+//       Fix: reinstall + mkinitcpio -P.
 CheckResult a1_kernel_modules_dep() {
     std::string kver = uname_release();
     if (kver.empty()) {
         return skip("A1", "uname() failed — can't determine running kernel version");
     }
     fs::path dep = fs::path("/lib/modules") / kver / "modules.dep";
-    if (!fs::exists(dep)) {
-        return fail("A1",
-            "running kernel " + kver + " is missing its module tree (" + dep.string() + " absent)",
-            "sudo pacman -S linux && sudo mkinitcpio -P");
+    if (fs::exists(dep)) return pass("A1");
+
+    // Distinguish stale-running vs. genuine partial-upgrade by looking
+    // for ANY other module tree that does have its modules.dep.
+    bool other_tree_present = false;
+    std::string other_kver;
+    std::error_code ec;
+    if (fs::is_directory("/lib/modules", ec)) {
+        for (const auto& e : fs::directory_iterator("/lib/modules", ec)) {
+            if (!e.is_directory()) continue;
+            if (e.path().filename().string() == kver) continue;
+            if (fs::exists(e.path() / "modules.dep")) {
+                other_tree_present = true;
+                other_kver = e.path().filename().string();
+                break;
+            }
+        }
     }
-    return pass("A1");
+    if (other_tree_present) {
+        return fail("A1",
+            "running kernel " + kver + " is missing its module tree (" + dep.string() +
+            " absent); installed kernel `" + other_kver + "` has a valid module tree, "
+            "so this is the stale-running-kernel case (pacman upgraded `linux` mid-session)",
+            "reboot — the bootloader will pick up the installed kernel and its modules");
+    }
+    return fail("A1",
+        "running kernel " + kver + " is missing its module tree (" + dep.string() +
+        " absent), and no other installed kernel has a module tree either — "
+        "this is a genuine partial-upgrade state",
+        "sudo pacman -S linux && sudo mkinitcpio -P");
 }
 
 // A2 — `pacman -Qkk linux linux-lts` reports zero missing files.
