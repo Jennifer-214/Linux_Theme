@@ -42,6 +42,7 @@ FOX_SUBCMD( arm,           fox-arm,              "Single-command 'turn everythin
 FOX_SUBCMD( harden,        fox-harden,           "Post-install control for the kernel/userspace hardening profile" )
 FOX_SUBCMD( cafe,          fox-cafe,             "Cafe Mode: auto-tighten security posture on untrusted networks" )
 FOX_SUBCMD( backup,        fox-backup,           "Encrypted backup of all opt-in security config" )
+FOX_SUBCMD( health,        fox-sec-health,       "Run the foxml health-check library (boot path + PAM stack)" )
 
 // — Honeypots —
 FOX_SUBCMD( honey,         fox-honey,            "Plant a per-repo honeytoken matched by fox sec sentry-audit" )
