@@ -18,7 +18,24 @@
 # adding a new src/<tool>/Makefile is picked up on the next `make`.
 TOOLS := $(patsubst src/%/Makefile,%,$(wildcard src/*/Makefile))
 
-all:     $(addprefix build-,$(TOOLS))
+ifeq ($(TOOLS),)
+$(error No src/*/Makefile discovered — is the working tree intact?)
+endif
+
+# fox-install / fox-vault / fox-render link libcrypto for SHA-256 +
+# HMAC. Fail at configure time with a clear hint instead of letting
+# the user discover it via a confusing -lcrypto link error. Skipped
+# when pkg-config is missing because OpenSSL might still be present.
+preflight:
+	@if command -v pkg-config >/dev/null 2>&1; then \
+		pkg-config --exists libcrypto || { \
+			echo "error: libcrypto not found via pkg-config"; \
+			echo "       install with: sudo pacman -S openssl"; \
+			exit 1; }; \
+	fi
+.PHONY: preflight
+
+all:     preflight $(addprefix build-,$(TOOLS))
 install: $(addprefix install-,$(TOOLS))
 clean:   $(addprefix clean-,$(TOOLS))
 
