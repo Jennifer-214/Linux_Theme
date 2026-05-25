@@ -64,7 +64,9 @@ src/fox-theme/fox-theme
 src/fox-dev/fox-dev
 src/fox-sys/fox-sys
 src/fox-common/libfox-common.a
+src/fox-health/libfox-health.a
 src/fox-install/fox-install
+src/fox-sec-health/fox-sec-health
 src/fox-render/fox-render-fast
 src/fox-pulse/fox-pulse
 src/fox-vault/fox-vault
