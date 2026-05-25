@@ -1,0 +1,143 @@
+name: cross-config
+
+# Boot-layout + display-manager matrix for fox-install. Each job spins
+# up an Arch container, fakes the system to look like one of the
+# supported configurations, then runs `./install.sh --dry-run --full`
+# and asserts no critical preflight/health failures.
+#
+# Why this exists: a regression in a module (e.g. boot_sync hard-coding
+# /boot/efi) silently breaks users on other layouts. This catches that
+# at PR time before it ships.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  cross-config:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        bootloader:
+          - systemd-boot-separate    # /boot + separate ESP at /boot/efi
+          - systemd-boot-merged      # /boot IS the ESP
+          - systemd-boot-xbootldr    # /efi is the ESP, /boot is XBOOTLDR
+          - grub                     # /etc/default/grub present
+          - none                     # neither — exotic / rEFInd / UKI
+
+    name: ${{ matrix.bootloader }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build + dry-run dependencies
+        run: |
+          pacman -Sy --noconfirm --needed \
+            base-devel git curl pkgconf openssl \
+            pacman-contrib coreutils sed gawk
+
+      - name: Fetch nlohmann/json header
+        run: |
+          curl -fsSL \
+            https://github.com/nlohmann/json/releases/latest/download/json.hpp \
+            -o src/fox-intel/json.hpp
+
+      - name: Build everything (native orchestrator + leaves + libfox-health)
+        run: make
+
+      - name: Run unit tests
+        run: make test
+
+      - name: Synthesize bootloader layout — ${{ matrix.bootloader }}
+        run: |
+          set -e
+          case "${{ matrix.bootloader }}" in
+            systemd-boot-separate)
+              mkdir -p /boot/loader/entries /boot/efi
+              cat > /boot/loader/entries/arch.conf <<'EOF'
+          title Arch Linux
+          linux /vmlinuz-linux
+          initrd /initramfs-linux.img
+          options root=PARTUUID=00000000-0000-0000-0000-000000000000 rw
+          EOF
+              ;;
+            systemd-boot-merged)
+              mkdir -p /boot/loader/entries
+              # /boot IS the ESP — no /boot/efi.
+              cat > /boot/loader/entries/arch.conf <<'EOF'
+          title Arch Linux
+          linux /vmlinuz-linux
+          initrd /initramfs-linux.img
+          options root=PARTUUID=00000000-0000-0000-0000-000000000000 rw
+          EOF
+              ;;
+            systemd-boot-xbootldr)
+              mkdir -p /efi/loader/entries /boot
+              cat > /efi/loader/entries/arch.conf <<'EOF'
+          title Arch Linux
+          linux /vmlinuz-linux
+          initrd /initramfs-linux.img
+          options root=PARTUUID=00000000-0000-0000-0000-000000000000 rw
+          EOF
+              ;;
+            grub)
+              mkdir -p /etc/default
+              cat > /etc/default/grub <<'EOF'
+          GRUB_DEFAULT=0
+          GRUB_TIMEOUT=5
+          GRUB_DISTRIBUTOR="Arch"
+          GRUB_CMDLINE_LINUX_DEFAULT="quiet"
+          GRUB_CMDLINE_LINUX=""
+          EOF
+              ;;
+            none)
+              # No bootloader config present. Module should skip-with-message
+              # rather than fail. This catches the "silently does nothing on
+              # rEFInd / UKI / EFISTUB" class of regression.
+              true
+              ;;
+          esac
+
+      - name: Dry-run install (all modules, no mutations)
+        run: |
+          # --dry-run prevents any real changes; --full enables every
+          # module and sets force_reapply so idempotency / repeat-apply
+          # bugs surface. --yes skips every interactive prompt.
+          set -o pipefail
+          ./src/fox-install/fox-install --dry-run --full --yes 2>&1 | tee /tmp/install.log
+
+      - name: Assert no critical failures in the dry-run
+        run: |
+          # The dispatcher returns 0 even on warnings; we explicitly
+          # grep for failure / error / abort markers in the captured
+          # log so a regression that "passes" but emits a hard error
+          # still fails CI.
+          if grep -E '(✗|error:|aborting install|fatal:|FAIL)' /tmp/install.log >/tmp/critical.log 2>&1; then
+            echo "Critical markers in dry-run log:"
+            cat /tmp/critical.log
+            exit 1
+          fi
+          echo "Dry-run produced no critical markers under ${{ matrix.bootloader }}."
+
+      - name: Smoke-check fox sec health
+        run: |
+          # The health library should run on every layout without
+          # crashing. Exit code 2 is allowed here — the container's
+          # synthesized boot layout is bare-bones and several
+          # critical checks (kernel modules tree, /etc/pam.d files)
+          # don't apply. We assert the binary returns one of the
+          # well-known exit codes (0,1,2,3) — not 127 or signal.
+          set +e
+          ./src/fox-sec-health/fox-sec-health
+          rc=$?
+          set -e
+          if [ "$rc" -lt 0 ] || [ "$rc" -gt 3 ]; then
+            echo "fox-sec-health exit code $rc is outside the expected [0,3] range"
+            exit 1
+          fi
+          echo "fox-sec-health exit=$rc (within expected range)"
