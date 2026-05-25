@@ -30,6 +30,7 @@
 #include <cstring>
 #include <fcntl.h>
 #include <string>
+#include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/un.h>
@@ -167,7 +168,19 @@ int run_daemon(bool daemonize) {
     }
     ::signal(SIGPIPE, SIG_IGN);
 
+    // Refuse to be a ptrace target or to produce coredumps. The vault
+    // holds mlock'd plaintext stretches inside SecureBuffer XOR ops; a
+    // coredump would expose everything between the encode and decode
+    // microseconds. PR_SET_DUMPABLE(0) blocks both.
+    ::prctl(PR_SET_DUMPABLE, 0, 0, 0, 0);
+
     fox_vault::Vault vault;
+    if (!vault.entropy_ok()) {
+        std::fprintf(stderr,
+            "fox-vault: kernel entropy unavailable (getrandom + /dev/urandom both failed); "
+            "refusing to run with a zeroed session key.\n");
+        return 1;
+    }
     const uid_t my_uid = ::getuid();
     bool running = true;
     while (running) {

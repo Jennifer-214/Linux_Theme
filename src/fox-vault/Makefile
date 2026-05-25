@@ -13,7 +13,7 @@ vault_store.o: vault_store.cpp vault_store.hpp
 	$(CXX) $(CXXFLAGS) -c vault_store.cpp -o $@
 
 $(BIN): fox-vault.cpp $(OBJ)
-	$(CXX) $(CXXFLAGS) fox-vault.cpp $(OBJ) -o $@
+	$(CXX) $(CXXFLAGS) fox-vault.cpp $(OBJ) -o $@ -lcrypto
 
 install: all
 	@mkdir -p $(PREFIX)
@@ -24,7 +24,7 @@ test: tests/test_store
 	@./tests/test_store
 
 tests/test_store: tests/test_store.cpp $(OBJ)
-	$(CXX) $(CXXFLAGS) tests/test_store.cpp $(OBJ) -o $@
+	$(CXX) $(CXXFLAGS) tests/test_store.cpp $(OBJ) -o $@ -lcrypto
 
 clean:
 	@rm -f $(OBJ) $(BIN) tests/test_store

@@ -9,8 +9,10 @@
 namespace fox_vault {
 
 // SecureBuffer: a value held on an mlock()'d, anonymous, MAP_PRIVATE
-// region. Contents are XOR-obfuscated against a per-process session
-// key so a heap dump shows opaque bytes (not plaintext). Destructor
+// region. Contents are XOR-obfuscated against a per-secret keystream
+// derived from the process's session key + a per-secret random salt,
+// so two secrets stored under the same Vault don't share a keystream
+// (no XOR-of-two-ciphertexts plaintext-recovery weakness). Destructor
 // explicit_bzero's the buffer before munmap'ing.
 class SecureBuffer {
 public:
@@ -30,9 +32,10 @@ public:
 private:
     void reset() noexcept;
 
-    void*  page_ = nullptr;   // mmap'd region
-    size_t map_size_ = 0;     // bytes actually mmap'd (page-rounded)
-    size_t len_  = 0;         // logical length (<= map_size_)
+    void*   page_ = nullptr;   // mmap'd region
+    size_t  map_size_ = 0;     // bytes actually mmap'd (page-rounded)
+    size_t  len_  = 0;         // logical length (<= map_size_)
+    uint8_t salt_[16]{};       // per-secret random salt for keystream derivation
 };
 
 class Vault {
@@ -46,9 +49,16 @@ public:
     void clear();
     std::vector<std::string> list() const;
 
+    // True if the session key was sourced from real kernel entropy.
+    // False means getrandom + /dev/urandom both failed and the key
+    // is zeroed — callers should refuse to operate in that state
+    // rather than silently storing unobfuscated secrets.
+    bool entropy_ok() const { return entropy_ok_; }
+
 private:
     std::unordered_map<std::string, SecureBuffer> store_;
     uint8_t session_key_[32]{};
+    bool    entropy_ok_ = false;
 };
 
 }  // namespace fox_vault
