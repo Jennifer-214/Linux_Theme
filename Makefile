@@ -22,6 +22,13 @@ ifeq ($(TOOLS),)
 $(error No src/*/Makefile discovered — is the working tree intact?)
 endif
 
+# Without this, `make` picks the FIRST rule defined as the default
+# goal — which would be `preflight` below. Pin it to `all` so the
+# default invocation actually builds.
+.DEFAULT_GOAL := all
+
+all:     preflight $(addprefix build-,$(TOOLS))
+
 # fox-install / fox-vault / fox-render link libcrypto for SHA-256 +
 # HMAC. Fail at configure time with a clear hint instead of letting
 # the user discover it via a confusing -lcrypto link error. Skipped
@@ -34,8 +41,6 @@ preflight:
 			exit 1; }; \
 	fi
 .PHONY: preflight
-
-all:     preflight $(addprefix build-,$(TOOLS))
 install: $(addprefix install-,$(TOOLS))
 clean:   $(addprefix clean-,$(TOOLS))
 
