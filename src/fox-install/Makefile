@@ -13,6 +13,12 @@ PREFIX   ?= $(HOME)/.local/bin
 FOX_COMMON_DIR := ../fox-common
 FOX_COMMON_LIB := $(FOX_COMMON_DIR)/libfox-common.a
 
+# foxml-health check library — Phase 2 preflight integration. The
+# preflight module calls fox_health::run_all() on the A+B subset and
+# bails on any Critical fail.
+FOX_HEALTH_DIR := ../fox-health
+FOX_HEALTH_LIB := $(FOX_HEALTH_DIR)/libfox-health.a
+
 CORE_SRC    := $(wildcard core/*.cpp)
 MODULE_SRC  := $(wildcard modules/*.cpp)
 MAIN_SRC    := fox-install.cpp
@@ -25,12 +31,18 @@ BIN := fox-install
 
 all: $(BIN)
 
-$(BIN): $(MAIN_OBJ) $(CORE_OBJ) $(MODULE_OBJ) $(FOX_COMMON_LIB)
-	$(CXX) $(CXXFLAGS) -o $@ $(MAIN_OBJ) $(CORE_OBJ) $(MODULE_OBJ) -L$(FOX_COMMON_DIR) -lfox-common -lcrypto
+$(BIN): $(MAIN_OBJ) $(CORE_OBJ) $(MODULE_OBJ) $(FOX_COMMON_LIB) $(FOX_HEALTH_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ $(MAIN_OBJ) $(CORE_OBJ) $(MODULE_OBJ) \
+		-L$(FOX_COMMON_DIR) -lfox-common \
+		-L$(FOX_HEALTH_DIR) -lfox-health \
+		-lcrypto
 
 # Ensure libfox-common.a is built before linking.
 $(FOX_COMMON_LIB):
 	$(MAKE) --no-print-directory -C $(FOX_COMMON_DIR)
+
+$(FOX_HEALTH_LIB):
+	$(MAKE) --no-print-directory -C $(FOX_HEALTH_DIR)
 
 # Generic rule covers everything; registry.cpp picks up modules.def
 # automatically via #include in registry.cpp.

@@ -452,8 +452,8 @@ int main(int argc, char** argv) {
             // is in a half-upgraded state. Abort here, before anything
             // mutates state or writes to the bootloader.
             if (ctx.preflight_failed) {
-                ui::err("preflight detected a partial-upgrade state — aborting install");
-                ui::substep("fix the underlying problem (typically a kernel reinstall + mkinitcpio -P), then re-run");
+                ui::err("preflight reported a critical health failure — aborting install");
+                ui::substep("run `fox sec health --verbose` for full detail + fix hints; resolve and re-run");
                 return 1;
             }
 

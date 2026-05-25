@@ -186,24 +186,6 @@ CheckResult b2_fprintd_safe_placement() {
             "either drop the try_first_pass arg on pam_unix in system-auth, "
             "or move pam_fprintd AFTER pam_unix in the relevant chain");
     }
-    // Pure-debug fallback for chains where one regex didn't match.
-    if (const char* dbg = std::getenv("FOX_HEALTH_DEBUG_B2"); dbg && *dbg) {
-        std::string det;
-        for (auto* svc : SERVICES) {
-            fs::path pam = fs::path("/etc/pam.d") / svc;
-            if (!fs::exists(pam)) continue;
-            auto chain = resolve_pam_chain(pam);
-            int fp = -1, tfp = -1;
-            for (size_t i = 0; i < chain.size(); ++i) {
-                if (fp < 0 && std::regex_search(chain[i], fprintd_sufficient)) fp = (int)i;
-                if (tfp < 0 && std::regex_search(chain[i], pam_unix_tfp)) tfp = (int)i;
-            }
-            det += std::string(svc) + ": chain_len=" + std::to_string(chain.size())
-                + " fprintd_idx=" + std::to_string(fp)
-                + " tfp_idx=" + std::to_string(tfp) + "\n";
-        }
-        CheckResult r; r.id = "B2"; r.status = Status::Pass; r.detail = det; return r;
-    }
     return pass("B2");
 }
 

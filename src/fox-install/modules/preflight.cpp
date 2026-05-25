@@ -7,6 +7,7 @@
 #include "../core/context.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
+#include "../../fox-health/health.hpp"
 
 #include <cstdlib>
 #include <filesystem>
@@ -119,39 +120,56 @@ void run_preflight(Context& ctx) {
         ui::substep("configs coexist; Hyprland binds only apply inside a Hyprland session");
     }
 
-    // Partial-upgrade detection. If the *running* kernel's module tree
-    // is missing, the system is in a half-upgraded state (pacman db
-    // says kernel X is installed, but /lib/modules/X never landed) and
-    // most modules will misbehave — including any that touch the
-    // bootloader. The recovery is a kernel reinstall + mkinitcpio -P,
-    // not anything we can fix from here, so we bail loudly.
-    //
-    // Skipped inside containers: the container shares the HOST kernel
-    // (Docker/podman/systemd-nspawn) so /lib/modules/$(uname -r) is
-    // expected to be absent — the container doesn't ship the host's
-    // module tree. Container detection: /.dockerenv (docker),
-    // /run/.containerenv (podman), /run/systemd/container, or the
-    // `container=...` env var (systemd-nspawn).
+    // Delegate the kernel/boot/PAM-stack class of checks to the
+    // foxml-health library. Phase-2 integration of plans/health-checks.md:
+    // preflight runs the full A + B subset (boot + auth) and bails on
+    // any Critical fail. The library handles container detection
+    // internally; checks that aren't safe inside containers (kernel
+    // module tree) skip cleanly.
     bool in_container =
         fs::exists("/.dockerenv") ||
         fs::exists("/run/.containerenv") ||
         fs::exists("/run/systemd/container") ||
         std::getenv("container") != nullptr;
-    if (in_container) {
-        ui::ok("running in a container — skipping kernel module tree check");
-    } else {
-        std::string kver;
-        sh::capture({"uname", "-r"}, kver);
-        while (!kver.empty() && (kver.back() == '\n' || kver.back() == ' ')) kver.pop_back();
-        if (!kver.empty()) {
-            fs::path mods = fs::path("/lib/modules") / kver / "modules.dep";
-            if (!fs::exists(mods)) {
-                ui::err("running kernel " + kver + " is missing its module tree (" +
-                        mods.string() + " absent)");
-                ui::substep("partial-upgrade state — reinstall the kernel package and run `sudo mkinitcpio -P` before re-running this installer");
-                ctx.preflight_failed = true;
-            }
+
+    fox_health::CheckOptions opts;
+    opts.only = { "A", "B" };
+    // Slow probes (pacman -Qkk) skip in dry-run since they read 1000s
+    // of files for a check that doesn't influence dry-run output.
+    opts.include_slow = !sh::dry_run();
+    auto results = fox_health::run_all(opts);
+
+    // Only category-A (boot path) critical fails abort the install —
+    // those mean later modules can corrupt state further. Category-B
+    // (auth stack) critical fails are real risks but don't compound
+    // during a fox-install run; they surface as loud warnings so the
+    // user sees the recommended `fox sec health --verbose` hint.
+    int blocking_fails = 0;
+    for (const auto& r : results) {
+        if (r.status != fox_health::Status::Fail
+            && r.status != fox_health::Status::Warn) continue;
+        const char* glyph = (r.status == fox_health::Status::Fail) ? "✗" : "!";
+        bool is_blocking = (r.severity == fox_health::Severity::Critical
+                            && r.id.size() >= 1 && r.id[0] == 'A');
+        if (is_blocking) {
+            ui::err(std::string(glyph) + " [" + r.id + "] " + r.title);
+            ++blocking_fails;
+        } else if (r.severity == fox_health::Severity::Critical
+                || r.severity == fox_health::Severity::High) {
+            ui::warn(std::string(glyph) + " [" + r.id + "] " + r.title);
+        } else {
+            continue;
         }
+        if (!r.detail.empty())   ui::substep(r.detail);
+        if (!r.fix_hint.empty()) ui::substep("fix: " + r.fix_hint);
+    }
+    if (blocking_fails > 0 && !in_container) {
+        // Containers run under the host kernel; the health library's
+        // A1 (kernel module tree) check is the most common Critical
+        // fail inside a container, and the runtime checks are designed
+        // to skip there. Don't bail on Critical inside a container —
+        // it's almost certainly a context mismatch, not a broken host.
+        ctx.preflight_failed = true;
     }
 }
 

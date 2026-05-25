@@ -164,6 +164,7 @@ void run_hidepid         (Context&) {}
 void run_noexec_tmp      (Context&) {}
 void run_iommu           (Context&) {}
 void run_boot_sync       (Context&) {}
+void run_foxml_health_hook(Context&) {}
 void run_makepkg_hardening(Context&) {}
 void run_etckeeper       (Context&) {}
 void run_catppuccin_cursor(Context&) {}

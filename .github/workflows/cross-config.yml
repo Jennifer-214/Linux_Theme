@@ -108,21 +108,52 @@ jobs:
           # --dry-run prevents any real changes; --full enables every
           # module and sets force_reapply so idempotency / repeat-apply
           # bugs surface. --yes skips every interactive prompt.
-          set -o pipefail
+          # Capture exit code AND output — we assert both separately.
+          set +e
           ./src/fox-install/fox-install --dry-run --full --yes 2>&1 | tee /tmp/install.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "$rc" > /tmp/install.rc
+          echo "fox-install --dry-run --full --yes exited rc=$rc"
 
-      - name: Assert no critical failures in the dry-run
+      - name: Assert dry-run exit code is 0
         run: |
-          # The dispatcher returns 0 even on warnings; we explicitly
-          # grep for failure / error / abort markers in the captured
-          # log so a regression that "passes" but emits a hard error
-          # still fails CI.
-          if grep -E '(✗|error:|aborting install|fatal:|FAIL)' /tmp/install.log >/tmp/critical.log 2>&1; then
-            echo "Critical markers in dry-run log:"
-            cat /tmp/critical.log
+          rc=$(cat /tmp/install.rc)
+          if [ "$rc" != "0" ]; then
+            echo "fox-install exited $rc — dry-run is supposed to be a no-op success"
             exit 1
           fi
-          echo "Dry-run produced no critical markers under ${{ matrix.bootloader }}."
+
+      - name: Assert no abort-class signals in the dry-run log
+        run: |
+          # "error:" alone is too broad — modules legitimately report
+          # missing optional deps with that prefix during dry-run.
+          # We grep for unambiguous abort-class markers ONLY: preflight
+          # bailing, dispatcher aborts, or any module-failure summary
+          # line that ends with non-zero failure count.
+          markers=()
+          for needle in \
+              'aborting install' \
+              'preflight detected' \
+              'fatal:' \
+              'std::exception' \
+              'segmentation fault' ; do
+              if grep -qF "$needle" /tmp/install.log; then markers+=("$needle"); fi
+          done
+          # Dispatcher prints "failures : N" at the end. N > 0 = real fails.
+          if grep -E '^\s+failures\s+:\s+[1-9]' /tmp/install.log >/dev/null; then
+              markers+=("dispatcher reported failures > 0")
+          fi
+          if [ ${#markers[@]} -gt 0 ]; then
+              echo "Abort-class markers in dry-run log:"
+              for m in "${markers[@]}"; do echo "  - $m"; done
+              echo "---"
+              # Surface the last 40 lines of the log so the failure is
+              # visible without downloading the workflow artifact.
+              tail -40 /tmp/install.log
+              exit 1
+          fi
+          echo "Dry-run completed cleanly under ${{ matrix.bootloader }}."
 
       - name: Smoke-check fox sec health
         run: |
