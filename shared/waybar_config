@@ -14,6 +14,7 @@
   "modules-right": [
     "group/system",
     "group/hardware",
+    "custom/updates",
     "custom/clock",
     "tray"
   ],
@@ -190,6 +191,14 @@
     "exec": "~/.config/waybar/scripts/clock.sh",
     "return-type": "json",
     "interval": 60,
+    "tooltip": true,
+    "on-click": "kitty -e bash -lc 'checkupdates | less; exec zsh' &"
+  },
+
+  "custom/updates": {
+    "exec": "~/.config/waybar/scripts/updates.sh",
+    "return-type": "json",
+    "interval": 300,
     "tooltip": true,
     "on-click": "kitty -e bash -lc 'checkupdates | less; exec zsh' &"
   }

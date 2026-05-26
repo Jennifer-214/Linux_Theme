@@ -54,6 +54,7 @@ window#waybar > box {
    Module Base Style
    ───────────────────────────────────────── */
 #custom-clock,
+#custom-updates,
 #tray,
 #custom-ai_status,
 #custom-media,
@@ -69,6 +70,7 @@ window#waybar > box {
 }
 
 #custom-clock,
+#custom-updates,
 #custom-ai_status {
     padding: __PAD_MOD__;
 }
@@ -264,6 +266,39 @@ window#waybar > box {
     color: @peach;
     font-weight: bold;
     text-shadow: 0 0 8px rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}}, 0.4);
+}
+
+/* Pending-updates pill. Calm `blush` by default; same calm/warning/
+   critical escalation pattern as #custom-battery — the user shouldn't
+   have to remember to `pacman -Syu` because the glow flips on at
+   24h drift and escalates with age. */
+#custom-updates {
+    font-weight: 500;
+    letter-spacing: 0.3px;
+    color: @blush;
+}
+
+#custom-updates.fresh {
+    /* < 24h since last sync — stay calm, no glow. */
+    color: @blush;
+}
+
+#custom-updates.drift {
+    /* 1-7 days since last sync — gentle peach glow, attention without alarm. */
+    color: @peach;
+    text-shadow: 0 0 6px rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}}, 0.35);
+}
+
+#custom-updates.stale {
+    /* 1-4 weeks — amber warning, same severity as battery.warning. */
+    color: #{{YELLOW}};
+    text-shadow: 0 0 6px rgba({{YELLOW_R}},{{YELLOW_G}},{{YELLOW_B}}, 0.4);
+}
+
+#custom-updates.ancient {
+    /* 30+ days — critical, matches battery.critical for "act on this now". */
+    color: #{{RED}};
+    text-shadow: 0 0 8px rgba({{RED_R}},{{RED_G}},{{RED_B}}, 0.5);
 }
 
 /* ─────────────────────────────────────────
