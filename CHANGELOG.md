@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to the Fox ML theme.
+All notable changes to this Arch + Hyprland workstation setup.
 
 ## Unreleased
 
