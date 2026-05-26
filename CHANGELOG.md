@@ -2,6 +2,36 @@
 
 All notable changes to the Fox ML theme.
 
+## Unreleased
+
+### Waybar pending-updates pill
+
+- **New `custom/updates` module** (`shared/waybar_scripts/updates.sh`, wired into both `shared/waybar_config` and `_secondary`). Shows pending pacman updates as a digit with a Nerd Font `󰚰` glyph. Reads the same cache `clock.sh` already maintains (`$XDG_RUNTIME_DIR/foxml-waybar/updates`) so only one process runs `checkupdates` per cycle.
+- **Drift-based glow escalation** — class derives from the `/var/lib/pacman/sync/core.db` mtime (canonical last-`pacman -Sy` timestamp). `.fresh` (< 24h) stays calm in `@blush`. `.drift` (1-7d) shifts to `@peach` with the same soft glow as `#custom-battery`. `.stale` (1-4w) escalates to yellow + glow. `.ancient` (30d+) goes red — same severity ramp as the battery widget. The user no longer has to remember to `pacman -Syu`; the bar nudges them.
+- **Click target** opens kitty with `checkupdates | less` so a drill-down is one click away.
+
+### Readability — tmux inactive panes + nvim/editor comments
+
+Working across multiple tmux panes was forcing focus-switches just to read the non-active ones — `TMUX_INACTIVE_FG` was sitting essentially at the background color (`#3a3a3a` on dark themes), so inactive pane content blended into the wallpaper. Three rounds of tuning landed at ~70% of active luminance — clearly readable, still obviously the inactive pane:
+
+- **FoxML_Classic** `TMUX_INACTIVE_FG` `#3a3a3a` → `#8c8070` (active `#c4b4a0`)
+- **FoxML_Rose** `#3a3a3a` → `#988390` (active `#d4bcc4`)
+- **Cave_Data_Center** `#3a3a4a` → `#828292` (active `#b8b8cc`)
+- **FoxML_Paper** `#bcbcbc` → `#8d8d8d` (light-theme inverse — darker to gain contrast against the light background)
+
+`COMMENT` (the palette var driving nvim's `Comment` highlight, OpenCode's `syntaxComment`, Gemini's `ui.comment`, and bat's syntax-comment color in `foxml.tmTheme`) also bumped on every theme so editor comments come up from "noise" to "muted-but-legible":
+
+- Classic `#5a6270` → `#7a8290`
+- Rose `#6a5a70` → `#8a7a90`
+- Cave `#535461` → `#7a7c8a`
+- Paper `#8e8e8e` → `#6e6e6e` (darker for light-theme contrast)
+
+### Release discipline rule in `AGENT.md`
+
+- **Codified "commits ≠ releases"** in `AGENT.md`'s Core mandates. The earlier v2.8.2 → v2.8.3 → v2.8.4 in-three-days cadence was churn for users tracking tags. Going forward, fixes accumulate on `main` as "next release" content at the top of `CHANGELOG.md`; version numbers and git tags only get assigned at explicit release moments (~every 2-4 weeks, not every PR). This entry sits under an `Unreleased` header until the next tag.
+
+---
+
 ## 2026-05-25 — v2.9.0
 
 ### `fox sec health` — boot path + PAM stack drift detection
