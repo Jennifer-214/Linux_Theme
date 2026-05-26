@@ -4,6 +4,28 @@ All notable changes to this Arch + Hyprland workstation setup.
 
 ## Unreleased
 
+### `fox-wallpaper --add` — seamless image import
+
+- **New subcommand** that imports any image into the wallpaper rotation. Upscales to 4K via Real-ESRGAN (`realesrgan-x4plus`, x4 mode → 5120×2880 → 3840×2160 Lanczos downscale) when the binary's available, falls back to ImageMagick Lanczos otherwise. Names by sanitizing the source basename or accepts an explicit `name` as the second arg. Mirrors into the repo's `shared/wallpapers/` automatically when run from inside the clone.
+- **Per-monitor variants are monitor-agnostic** — `--add` doesn't pre-bake them. `personalize.cpp` / `fox-monitor-watch` already generate variants dynamically for whatever monitors are active, so wallpapers added on the laptop auto-fit when you dock into the office monitor later.
+- **`rotate_wallpaper.sh --cycle` (the Alt+W keybind) is no longer hardcoded to four slots**. It now discovers every non-variant wallpaper in `~/.wallpapers/` and cycles through all of them, so `--add`'d wallpapers appear in the keybind rotation. The time-of-day bucket rotation (the systemd timer) still uses the 4-slot calendar.
+- **`wallpaper` install module auto-installs `realesrgan-ncnn-vulkan-bin`** from the AUR so a fresh setup gets the 4K-upscale path for free. Gracefully falls back to the ImageMagick path when no AUR helper is available.
+- **Two new wallpapers added** to the `foxml_earthy` family: `foxml_earth_2.jpg` (native 4K forest path) and `foxml_earth_3.jpg` (AI-upscaled sunbeam glade, 720p source → 4K via Real-ESRGAN).
+
+### `sudo_fingerprint` — opt-in fingerprint auth for sudo
+
+- **New install module** (`--sudo-fingerprint`, default-off) that wires `pam_fprintd` into `/etc/pam.d/sudo` *safely*. Default-off because the historical lockout pattern came from this exact splice — but the actual cascade trigger (`pam_unix.so try_first_pass` consuming pam_fprintd's empty token) is closed now that the B2 fix removed `try_first_pass` from `system-auth`. Module refuses to run unless three preconditions hold:
+  1. `/etc/pam.d/sudo` line 1 is the `#%PAM-1.0` header (B1's check).
+  2. `system-auth`'s pam_unix has no `try_first_pass` (B2's check).
+  3. `pam_fprintd` isn't already wired into sudo.
+- Tagged as `risky` in the fox-install interactive prompt — gets the `[LOCKOUT RISK]` indicator alongside `fprint_pam` and `greetd_fingerprint`.
+
+### Repo renamed back to `Linux_Theme`
+
+- **GitHub repo renamed** from `FoxML_Workstation` → `Linux_Theme` on 2026-05-25. The "Workstation" suffix read corporate / brand-performative for a personal config repo. `fox-*` CLI binaries stay — the prefix namespaces commands away from system-tool collisions and renaming would touch every dispatch.def + Makefile + systemd unit for cosmetic gain.
+- `CHANGELOG.md` preamble updated from "Fox ML theme" → "this Arch + Hyprland workstation setup" — descriptive, no brand performance.
+- Documentation URLs in `foxml-health-boot.service` and `foxml-health.service` point at the renamed repo.
+
 ### Waybar pending-updates pill
 
 - **New `custom/updates` module** (`shared/waybar_scripts/updates.sh`, wired into both `shared/waybar_config` and `_secondary`). Shows pending pacman updates as a digit with a Nerd Font `󰚰` glyph. Reads the same cache `clock.sh` already maintains (`$XDG_RUNTIME_DIR/foxml-waybar/updates`) so only one process runs `checkupdates` per cycle.

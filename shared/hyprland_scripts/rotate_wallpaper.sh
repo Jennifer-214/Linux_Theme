@@ -75,11 +75,43 @@ slot_index_of_current() {
 
 case "$MODE" in
     --cycle)
-        idx=$(slot_index_of_current)
-        # If .current isn't in the slot table, anchor cycle on the calendar
-        # slot so the first ALT+W press always moves somewhere predictable.
-        (( idx == -1 )) && idx=$(calendar_slot_index)
-        target_idx=$(( (idx + 1) % ${#slots[@]} ))
+        # Cycle through EVERY non-variant wallpaper in $WALL_DIR, not just
+        # the 4 time-of-day slots — so `fox-wallpaper --add`'d images
+        # appear in the rotation. Variants (foo_WxH.jpg, foo_portrait.jpg)
+        # are filtered out so we cycle base wallpapers only.
+        cycle_list=()
+        while IFS= read -r f; do
+            base="$(basename "$f")"
+            [[ "$base" == .* ]] && continue
+            [[ "$base" =~ _[0-9]+x[0-9]+\. ]] && continue
+            [[ "$base" =~ _portrait\. ]] && continue
+            cycle_list+=("$base")
+        done < <(find "$WALL_DIR" -maxdepth 1 -type f \
+                 \( -name "*.jpg" -o -name "*.jpeg" -o -name "*.png" -o -name "*.webp" \) \
+                 | sort)
+
+        if (( ${#cycle_list[@]} == 0 )); then
+            echo "no wallpapers found in $WALL_DIR" >&2
+            exit 1
+        fi
+
+        # Find current position in the discovered list; advance one.
+        cur_link=""
+        [[ -L "$WALL_DIR/.current" ]] && cur_link="$(readlink "$WALL_DIR/.current")"
+        cur_idx=-1
+        for i in "${!cycle_list[@]}"; do
+            [[ "${cycle_list[$i]}" == "$cur_link" ]] && { cur_idx=$i; break; }
+        done
+        next_idx=$(( (cur_idx + 1) % ${#cycle_list[@]} ))
+        target_file="${cycle_list[$next_idx]}"
+        # The downstream logic still expects target_idx into $slots; if the
+        # advance target ALSO appears in the slot table use that, otherwise
+        # fall through to the file-based path below.
+        target_idx=-1
+        for i in "${!slots[@]}"; do
+            read -r _ _ fname <<<"${slots[$i]}"
+            [[ "$fname" == "$target_file" ]] && { target_idx=$i; break; }
+        done
         ;;
     --static)
         # Always use the midday slot (foxml_earthy.jpg).
@@ -94,8 +126,15 @@ case "$MODE" in
         ;;
 esac
 
-read -r _ _ filename <<<"${slots[$target_idx]}"
-pick="${WALL_DIR}/${filename}"
+# If --cycle landed on a wallpaper outside the slot table, target_idx is
+# -1 and target_file holds the bare filename to use directly.
+if (( target_idx == -1 )); then
+    pick="${WALL_DIR}/${target_file}"
+    filename="${target_file}"
+else
+    read -r _ _ filename <<<"${slots[$target_idx]}"
+    pick="${WALL_DIR}/${filename}"
+fi
 [[ ! -f "$pick" ]] && { echo "missing $pick" >&2; exit 1; }
 
 # Load the layout sidecar — MONITOR_RESOLUTIONS drives per-monitor file
