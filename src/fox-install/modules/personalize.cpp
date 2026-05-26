@@ -149,11 +149,18 @@ std::size_t generate_per_monitor_wallpapers(const Context& ctx,
             if (!parse_res(res, w, h)) continue;
             fs::path out = wall_dir / (name + "_" + res + "." + ext);
             if (fs::exists(out)) continue;
+            // Variant pixel size is 2× the monitor's reported resolution.
+            // Filename stays keyed to the monitor res (so rotate_wallpaper.sh's
+            // lookup still works), but the file holds 2× pixels — gives clean
+            // results when the compositor renders at HiDPI scale 2.0 or
+            // when the monitor is later swapped for a higher-DPI panel.
+            // Compositor downsamples for 1× displays with no visible cost.
+            std::string target = std::to_string(2 * w) + "x" + std::to_string(2 * h);
             int rc = sh::run({
                 magick, entry.path().string(),
-                "-resize", res + "^",
+                "-resize", target + "^",
                 "-gravity", "center",
-                "-extent", res,
+                "-extent", target,
                 out.string(),
             });
             if (rc == 0) ++generated;
