@@ -4,6 +4,12 @@ All notable changes to this Arch + Hyprland workstation setup.
 
 ## Unreleased
 
+### Resize / move submap on `ALT+R`
+
+- **New Hyprland submap** for keyboard-driven manipulation of floating ("non-snapped") windows. `ALT+R` enters the mode: bare `h/j/k/l` call `resizeactive` (±40px per step), `SHIFT+h/j/k/l` call `moveactive` (±40px). `binde` repeats on hold so you can glide. `Esc` or `Enter` exits back to the default submap.
+- Floating windows previously needed the mouse — `ALT+drag` to move, `ALT+right-drag` to resize were the only paths. The submap closes that gap without overloading the regular hjkl focus bindings.
+- Lives in `shared/hyprland_modules/keybinds.conf` alongside the existing window-management section. `ALT+R` was the obvious mnemonic and the only single-letter `ALT` slot left free (the heavy hitters — F/B/W/V/G/P/S/hjkl — were already taken).
+
 ### `fox-wallpaper --add` — seamless image import
 
 - **New subcommand** that imports any image into the wallpaper rotation. Upscales to 4K via Real-ESRGAN (`realesrgan-x4plus`, x4 mode → 5120×2880 → 3840×2160 Lanczos downscale) when the binary's available, falls back to ImageMagick Lanczos otherwise. Names by sanitizing the source basename or accepts an explicit `name` as the second arg. Mirrors into the repo's `shared/wallpapers/` automatically when run from inside the clone.
