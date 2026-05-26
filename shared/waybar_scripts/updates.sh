@@ -45,8 +45,9 @@ else                              class="ancient"    # 30+ days — uh oh
 fi
 
 # Always show the count. Tooltip carries the age detail so the user
-# can see why the glow lit up.
-text="  $count"
+# can see why the glow lit up. Nerd Font U+F06A4 (nf-md-update,
+# circular-update glyph) matches the other module icons in the bar.
+text="󰚰  $count"
 if   (( sync_age_h < 1   )); then age_str="< 1 hour ago"
 elif (( sync_age_h < 24  )); then age_str="${sync_age_h}h ago"
 else
