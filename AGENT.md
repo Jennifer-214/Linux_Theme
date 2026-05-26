@@ -18,6 +18,7 @@ Install logic is **not** in `install.sh` — that's a 90-line wrapper. Every ins
 - **Hyprland v0.54+.** Unified `windowrule` keyword and `col.active_border` property only. `windowrulev2` and `bordercolor` will silently break the theme.
 - **No exceptions in hot paths.** Return codes or `std::optional`. Modules that throw won't get the per-module progress bar's failure handling.
 - **Comments explain *why*, not *what*.** No multi-paragraph docstrings; function names already say what. Save sentences for non-obvious invariants and surprising workarounds.
+- **Commits ≠ releases.** Don't bump `CHANGELOG.md` version numbers or cut a git tag just because a fix landed. Push fixes to `main` freely — they accumulate as "next release" content at the top of `CHANGELOG.md`. Tag + release only when there's a meaningful chunk users would benefit from (~every 2-4 weeks, not every PR). The project has thousands of users tracking tags; bumping after every commit batch is churn for them. If you're authoring a CHANGELOG entry, write it as if a release is imminent but do NOT pick a version number or `git tag` unless explicitly asked.
 
 ## Adding a module
 
