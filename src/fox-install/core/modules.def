@@ -86,6 +86,7 @@ FOX_MODULE_FULL( greetd,        run_greetd,             "--greetd",           "T
                  /*root*/ true, /*gfx*/ false, /*net*/ false,
                  state::check_greetd )
 FOX_MODULE( greetd_fingerprint,run_greetd_fingerprint, "--greetd-fingerprint","pam_fprintd in /etc/pam.d/greetd ONLY (NOT sudo)",          false )
+FOX_MODULE( sudo_fingerprint,  run_sudo_fingerprint,   "--sudo-fingerprint", "Fingerprint for sudo prompts (opt-in, refuses if B2 unsafe)", false )
 
 // ── Phase 2: rendering + deploy ───────────────────────────────────
 FOX_MODULE( wallpaper,   run_wallpaper,     "--wallpaper",   "Wallpaper rotation toggle (static vs time-of-day)", true )

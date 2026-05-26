@@ -424,7 +424,8 @@ int main(int argc, char** argv) {
                         should_run = false;
                     } else {
                         bool risky = (std::string(m.slug) == "fprint_pam" ||
-                                      std::string(m.slug) == "greetd_fingerprint");
+                                      std::string(m.slug) == "greetd_fingerprint" ||
+                                      std::string(m.slug) == "sudo_fingerprint");
                         std::string prompt = "Execute module " + std::string(m.slug);
                         if (risky) prompt += " [LOCKOUT RISK]";
                         prompt += " (" + std::string(m.description) + ")?";

@@ -167,6 +167,7 @@ void run_boot_sync       (Context&) {}
 void run_foxml_health_hook(Context&) {}
 void run_foxml_health_boot(Context&) {}
 void run_foxml_health_timer(Context&) {}
+void run_sudo_fingerprint(Context&) {}
 void run_makepkg_hardening(Context&) {}
 void run_etckeeper       (Context&) {}
 void run_catppuccin_cursor(Context&) {}
