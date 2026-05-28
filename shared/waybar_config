@@ -199,7 +199,8 @@
     "exec": "~/.config/waybar/scripts/updates.sh",
     "return-type": "json",
     "interval": 300,
+    "signal": 1,
     "tooltip": true,
-    "on-click": "kitty -e bash -lc 'checkupdates | less; exec zsh' &"
+    "on-click": "~/.config/hypr/scripts/updates_menu.sh"
   }
 }

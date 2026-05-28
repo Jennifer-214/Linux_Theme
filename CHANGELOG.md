@@ -36,9 +36,10 @@ All notable changes to this Arch + Hyprland workstation setup.
 
 ### Waybar pending-updates pill
 
-- **New `custom/updates` module** (`shared/waybar_scripts/updates.sh`, wired into both `shared/waybar_config` and `_secondary`). Shows pending pacman updates as a digit with a Nerd Font `󰚰` glyph. Reads the same cache `clock.sh` already maintains (`$XDG_RUNTIME_DIR/foxml-waybar/updates`) so only one process runs `checkupdates` per cycle.
-- **Drift-based glow escalation** — class derives from the `/var/lib/pacman/sync/core.db` mtime (canonical last-`pacman -Sy` timestamp). `.fresh` (< 24h) stays calm in `@blush`. `.drift` (1-7d) shifts to `@peach` with the same soft glow as `#custom-battery`. `.stale` (1-4w) escalates to yellow + glow. `.ancient` (30d+) goes red — same severity ramp as the battery widget. The user no longer has to remember to `pacman -Syu`; the bar nudges them.
-- **Click target** opens kitty with `checkupdates | less` so a drill-down is one click away.
+- **New `custom/updates` module** (`shared/waybar_scripts/updates.sh`, wired into both `shared/waybar_config` and `_secondary`). Shows pending pacman updates as a digit with a Nerd Font `󰚰` glyph. Reads the same cache `clock.sh` already maintains (`$XDG_RUNTIME_DIR/foxml-waybar/updates`) so only one process runs `checkupdates` per cycle. Cache auto-invalidates when `/var/log/pacman.log` mtime exceeds cache mtime, so a post-`pacman -Syu` refresh happens on the next poll without a system hook.
+- **Severity = max(age, count).** Two orthogonal dimensions — sync-age (`pacman -Sy` recency) and pending count — each classify into a 0-3 ladder; the worse wins and drives a single class. `.calm` (blush) for fresh + empty, `.low` (green) for small backlog or mild drift, `.mid` (yellow + glow) for meaningful backlog or week-old sync, `.high` (red + glow) for large backlog or month-old sync. Same shape as the battery widget's escalation.
+- **Click → rofi menu.** Replaces the old `kitty -e checkupdates | less` terminal. The menu (`shared/hyprland_scripts/updates_menu.sh`) lists every pending update as `pkg curver → newver`; Enter spawns a floating kitty popup running `sudo pacman -Syu` (window class `FoxmlUpdater`). Matches the rest of the FoxML rofi surface — `ne` zone (drops below waybar on the right), hjkl navigation, input bar hidden via `inputbar {enabled: false;}` + `-no-custom` (no typing, no free-form selection).
+- **Instant pill refresh on update.** `"signal": 1` on the module + `pkill -SIGRTMIN+1 waybar` after the kitty popup closes means the count drops to its post-upgrade value the moment the upgrade finishes — no waiting for the 300s poll.
 
 ### Readability — tmux inactive panes + nvim/editor comments
 
