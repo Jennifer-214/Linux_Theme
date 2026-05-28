@@ -34,6 +34,21 @@ All notable changes to this Arch + Hyprland workstation setup.
 - `CHANGELOG.md` preamble updated from "Fox ML theme" → "this Arch + Hyprland workstation setup" — descriptive, no brand performance.
 - Documentation URLs in `foxml-health-boot.service` and `foxml-health.service` point at the renamed repo.
 
+### `hyprpolkitagent` autostart for GUI auth prompts
+
+- **New autostart entry** in `shared/hyprland_modules/autostart.conf` — `exec-once = systemctl --user start hyprpolkitagent`. Without an auth agent, polkit denies any action that needs interactive auth (GNOME Disks, blueman, fprintd verify, etc.) and the failures surface as silent GUI no-ops + "Authorization denied" lines in the journal.
+- **`hyprpolkitagent` added to base pacman deps** so a fresh install gets the agent without a follow-up `pacman -S`.
+
+### `sudo_fingerprint` auto-enables on hardware detection
+
+- **Module flips from opt-in to opt-out when a fingerprint reader is present.** `fox-install`'s post-detect block already auto-enables `nvidia`/`amd_gpu`/`intel_gpu`/`fprint` when the matching hardware lands; `sudo_fingerprint` joins them. The module's existing safety gates (refuses to splice if `/etc/pam.d/sudo`'s header is missing or if `system-auth`'s pam_unix carries `try_first_pass`) mean auto-enable doesn't reopen the lockout cascade — unsafe PAM stacks still get skipped, just with auto-detection of the safe case instead of mandatory opt-in. The original `--sudo-fingerprint` opt-in flag still works.
+
+### Installer robustness — stale-binary preflight, daemon-safe install, surfaced sudo errors
+
+- **`fox-install` startup warns when PATH resolves to an older copy of itself.** Walks PATH for the first `fox-install`; if that binary exists, has a different inode than `/proc/self/exe`, and a different mtime, prints a warning with the path + a hint to refresh. Catches the footgun where `~/.local/bin/fox-install` (last refreshed by `make install`) drifts behind a freshly-built source-tree binary — invoking the wrong one silently uses older module logic.
+- **Atomic-rename install for daemon binaries.** `src/fox-vault/Makefile` and `src/fox-pulse/Makefile` switched from `cp $(BIN) $(PREFIX)/` to `install -m 755 $(BIN) $(PREFIX)/$(BIN).new && mv ... $(BIN)`. Plain `cp` opens the destination with `O_TRUNC` which fails `ETXTBSY` against a running executable; `rename(2)` replaces the directory entry without touching the inode the daemon is still running. Without this, `make install` silently left `~/.local/bin/fox-vault` stale every time the vault daemon was up.
+- **`install.sh` no longer swallows `sudo -v` stderr.** Previously `sudo -v 2>/dev/null` was hiding password-prompt failures, so when fingerprint-for-sudo wasn't wired and the user expected a fingerprint prompt that never came, the warmup just silently exited and every module then reported `sudo cache cold`. Stderr now visible, error message includes the `--sudo-fingerprint` hint.
+
 ### Waybar pending-updates pill
 
 - **New `custom/updates` module** (`shared/waybar_scripts/updates.sh`, wired into both `shared/waybar_config` and `_secondary`). Shows pending pacman updates as a digit with a Nerd Font `󰚰` glyph. Reads the same cache `clock.sh` already maintains (`$XDG_RUNTIME_DIR/foxml-waybar/updates`) so only one process runs `checkupdates` per cycle. Cache auto-invalidates when `/var/log/pacman.log` mtime exceeds cache mtime, so a post-`pacman -Syu` refresh happens on the next poll without a system hook.

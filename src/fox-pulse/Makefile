@@ -20,7 +20,10 @@ $(BIN): fox-pulse.cpp $(OBJ)
 
 install: all
 	@mkdir -p $(PREFIX)
-	@cp $(BIN) $(PREFIX)/
+	@# Atomic-rename pattern — survives ETXTBSY when the daemon is running.
+	@# See src/fox-vault/Makefile for the full rationale.
+	@install -m 755 $(BIN) $(PREFIX)/$(BIN).new
+	@mv $(PREFIX)/$(BIN).new $(PREFIX)/$(BIN)
 	@echo "  + $(BIN) installed to $(PREFIX)"
 
 clean:

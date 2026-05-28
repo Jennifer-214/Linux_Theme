@@ -165,12 +165,19 @@ fi
 # Background loop refreshes the cache every 50s; trap kills it on exit.
 # ─────────────────────────────────────────
 if [[ -t 0 ]] || [[ "${1:-}" == *"--yes"* ]] || [[ "${ASSUME_YES:-0}" == "1" ]]; then
-    if sudo -v 2>/dev/null; then
+    # `sudo -v` prompts on /dev/tty by default; leave stderr visible so
+    # a failed prompt (bad password, no fingerprint configured, etc.)
+    # surfaces immediately. Swallowing stderr here was hiding the cause
+    # of the cascading "sudo cache cold" failures users hit when their
+    # fingerprint-for-sudo wiring wasn't in /etc/pam.d/sudo.
+    if sudo -v; then
         ( while true; do sudo -n true 2>/dev/null || exit; sleep 50; done ) &
         SUDO_KEEPALIVE_PID=$!
         trap 'kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true' EXIT
     else
-        echo "warning: sudo cache cold — privileged steps will prompt or fail." >&2
+        echo "warning: sudo -v failed — privileged steps will prompt or fail." >&2
+        echo "         re-run with a password you can type, or enroll a finger" >&2
+        echo "         and re-run with --sudo-fingerprint to unlock sudo via fprintd." >&2
     fi
 fi
 

@@ -89,7 +89,7 @@ void run_deps(Context& ctx) {
         "noto-fonts", "noto-fonts-cjk", "noto-fonts-emoji",
 
         // Compositor, lock, wallpaper, idle
-        "hyprland", "hyprlock", "awww", "hypridle",
+        "hyprland", "hyprlock", "awww", "hypridle", "hyprpolkitagent",
         // Themed login
         "greetd", "greetd-regreet",
 

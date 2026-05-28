@@ -23,12 +23,59 @@
 #include <string>
 #include <vector>
 #include <unistd.h>
+#include <sys/stat.h>
 
 namespace fs = std::filesystem;
 
 namespace {
 
 constexpr const char* DEFAULT_THEME = "FoxML_Classic";
+
+// Walk PATH for the first `fox-install` it would resolve to; if that's
+// not the binary actually running right now AND mtimes differ, warn.
+// Catches the footgun where `~/.local/bin/fox-install` (last refreshed
+// by `make install`) drifts behind a freshly-built source tree binary
+// — running the stale PATH copy silently uses older module logic.
+void warn_if_stale_on_path() {
+    char self[4096];
+    ssize_t n = ::readlink("/proc/self/exe", self, sizeof(self) - 1);
+    if (n <= 0) return;
+    self[n] = 0;
+    struct stat self_st{};
+    if (::stat(self, &self_st) != 0) return;
+
+    const char* path = std::getenv("PATH");
+    if (!path) return;
+
+    std::string p(path);
+    size_t start = 0;
+    while (start <= p.size()) {
+        size_t end = p.find(':', start);
+        if (end == std::string::npos) end = p.size();
+        std::string dir = p.substr(start, end - start);
+        start = end + 1;
+        if (dir.empty()) continue;
+
+        std::string candidate = dir + "/fox-install";
+        struct stat cst{};
+        if (::stat(candidate.c_str(), &cst) != 0) continue;
+        if (!S_ISREG(cst.st_mode)) continue;
+        if (cst.st_ino == self_st.st_ino && cst.st_dev == self_st.st_dev) {
+            return;  // PATH resolves to self — nothing stale.
+        }
+        if (cst.st_mtime < self_st.st_mtime) {
+            fox_install::ui::warn("stale fox-install at " + candidate
+                     + " is older than this binary");
+            fox_install::ui::substep("`make install` from the source tree to refresh ~/.local/bin");
+        } else if (cst.st_mtime > self_st.st_mtime) {
+            fox_install::ui::warn("newer fox-install at " + candidate
+                     + " — PATH would resolve there, not here");
+            fox_install::ui::substep("you may be running a stale copy; re-run via that path"
+                        " or `cd <source> && ./install.sh`");
+        }
+        return;  // shell stops at first PATH hit; we do too
+    }
+}
 
 fs::path detect_script_dir(const char* argv0) {
     // Resolution order:
@@ -110,6 +157,7 @@ int main(int argc, char** argv) {
     using namespace fox_install;
 
     ui::init();
+    warn_if_stale_on_path();
 
     Context ctx;
     args::Parsed parsed;
@@ -210,7 +258,15 @@ int main(int argc, char** argv) {
             if (ctx.has_nvidia)    enable_slug("nvidia");
             if (ctx.has_amd_gpu)   enable_slug("amd_gpu");
             if (ctx.has_intel_gpu) enable_slug("intel_gpu");
-            if (ctx.has_fprint)    enable_slug("fprint");
+            if (ctx.has_fprint) {
+                enable_slug("fprint");
+                // sudo_fingerprint refuses to splice when /etc/pam.d/sudo's
+                // header is missing or system-auth's pam_unix carries
+                // try_first_pass — both gates are in sudo_fingerprint.cpp.
+                // Safe to auto-enable on hardware presence; the module
+                // self-skips on unenrolled readers and unsafe PAM stacks.
+                enable_slug("sudo_fingerprint");
+            }
         }
     }
 

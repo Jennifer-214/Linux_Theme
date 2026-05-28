@@ -17,7 +17,13 @@ $(BIN): fox-vault.cpp $(OBJ)
 
 install: all
 	@mkdir -p $(PREFIX)
-	@cp $(BIN) $(PREFIX)/
+	@# Atomic-rename pattern: cp/install with O_TRUNC fails ETXTBSY when
+	@# the existing binary is a running daemon (fox-vault start --foreground).
+	@# rename(2) replaces the directory entry without touching the running
+	@# inode, so the live process keeps executing and the next launch
+	@# picks up the new binary.
+	@install -m 755 $(BIN) $(PREFIX)/$(BIN).new
+	@mv $(PREFIX)/$(BIN).new $(PREFIX)/$(BIN)
 	@echo "  + $(BIN) installed to $(PREFIX)"
 
 test: tests/test_store
