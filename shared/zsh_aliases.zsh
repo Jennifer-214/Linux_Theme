@@ -163,5 +163,7 @@ fox-clean() {
     echo -e "\n✨ Cleanup complete! Stay earthy."
 }
 
-# Fingerprint setup helper
-alias fox-fingerprint='~/.config/hypr/scripts/fingerprint_setup.sh'
+# fox-fingerprint lives at ~/.local/bin/fox-fingerprint (deployed from
+# shared/bin) and is also reachable as `fox sec fingerprint`. No alias —
+# one here would shadow that safe wrapper with a PAM-editing script. All
+# PAM wiring (sudo/greetd) is done by fox-install modules, never a helper.
