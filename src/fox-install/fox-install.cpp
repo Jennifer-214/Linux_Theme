@@ -250,21 +250,29 @@ int main(int argc, char** argv) {
             // Default-disable hardware modules; they'll be flipped on only
             // if detected + confirmed during the detect phase.
             int k;
-            if ((k = find_idx("nvidia"))    >= 0) parsed.module_enabled[k] = false;
-            if ((k = find_idx("amd_gpu"))   >= 0) parsed.module_enabled[k] = false;
-            if ((k = find_idx("intel_gpu")) >= 0) parsed.module_enabled[k] = false;
-            if ((k = find_idx("fprint"))    >= 0) parsed.module_enabled[k] = false;
+            if ((k = find_idx("nvidia"))             >= 0) parsed.module_enabled[k] = false;
+            if ((k = find_idx("amd_gpu"))            >= 0) parsed.module_enabled[k] = false;
+            if ((k = find_idx("intel_gpu"))          >= 0) parsed.module_enabled[k] = false;
+            // The fingerprint chain is atomic + hardware-gated: present →
+            // all four on, absent → all four off (even under --full, so we
+            // never wire pam_fprintd on a box with no reader).
+            if ((k = find_idx("fprint"))             >= 0) parsed.module_enabled[k] = false;
+            if ((k = find_idx("fprint_pam"))         >= 0) parsed.module_enabled[k] = false;
+            if ((k = find_idx("greetd_fingerprint")) >= 0) parsed.module_enabled[k] = false;
+            if ((k = find_idx("sudo_fingerprint"))   >= 0) parsed.module_enabled[k] = false;
 
             if (ctx.has_nvidia)    enable_slug("nvidia");
             if (ctx.has_amd_gpu)   enable_slug("amd_gpu");
             if (ctx.has_intel_gpu) enable_slug("intel_gpu");
             if (ctx.has_fprint) {
+                // fprint installs the daemon + enrolls; the three PAM
+                // modules splice pam_fprintd `sufficient` (password always
+                // falls through). Safe to auto-enable: each self-skips on
+                // unenrolled readers / unsafe PAM stacks (B1/B2 gates), and
+                // recovery_entry guarantees a console escape hatch.
                 enable_slug("fprint");
-                // sudo_fingerprint refuses to splice when /etc/pam.d/sudo's
-                // header is missing or system-auth's pam_unix carries
-                // try_first_pass — both gates are in sudo_fingerprint.cpp.
-                // Safe to auto-enable on hardware presence; the module
-                // self-skips on unenrolled readers and unsafe PAM stacks.
+                enable_slug("fprint_pam");
+                enable_slug("greetd_fingerprint");
                 enable_slug("sudo_fingerprint");
             }
         }
@@ -445,6 +453,20 @@ int main(int argc, char** argv) {
     }
     std::size_t ran_count = 0;
 
+    // Warm sudo once, up front, before any module runs. install.sh does
+    // this for its own invocation (+ a keepalive loop); doing it here too
+    // means the bare `fox-install` binary behaves the same when run
+    // directly — otherwise the first root-needing module hits a cold
+    // cache and bails, and because most such modules are plain FOX_MODULE
+    // (requires_root=false in metadata) we can't reliably pre-filter, so
+    // we just warm on any real interactive run. Non-fatal: each module
+    // re-checks sudo itself, so a decline here only defers the prompt.
+    if (!sh::dry_run() && ui::tty() && total_enabled > 0) {
+        if (!sh::sudo_warmup()) {
+            ui::warn("sudo not warmed up front — root-needing steps will prompt or skip");
+        }
+    }
+
     std::vector<std::string> failed_modules;
     for (std::size_t i = 0; i < MODULES_COUNT; ++i) {
         if (ctx.resume_idx > 0 && static_cast<int>(i) < ctx.resume_idx) continue;
@@ -476,7 +498,8 @@ int main(int argc, char** argv) {
 
                 if (!is_backbone(m.slug) && !is_hw(m.slug)) {
                     // Skip laptop-only modules on desktops
-                    if (std::string(m.slug) == "throttling" && !ctx.is_laptop) {
+                    if ((std::string(m.slug) == "throttling" ||
+                         std::string(m.slug) == "battery") && !ctx.is_laptop) {
                         should_run = false;
                     } else {
                         bool risky = (std::string(m.slug) == "fprint_pam" ||

@@ -53,6 +53,31 @@ int fprintd_device_count(const std::string& user) {
     return 0;
 }
 
+// fprintd-list's enrolled-finger listing is polkit-gated and fails with
+// "PermissionDenied" outside an active graphical session — even when a
+// finger IS enrolled (greetd / login still authenticate fine). Treat
+// that denial as "can't tell", NOT as "none enrolled". pam_fprintd is
+// wired `sufficient`, so the worst case (truly no finger) just falls
+// through to the password prompt — never a lockout. Only refuse when a
+// CLEAN read definitively shows zero enrolled fingers.
+enum class Enroll { Yes, None, Unknown };
+
+Enroll enrollment_state(const std::string& user) {
+    std::string out;
+    sh::capture({"fprintd-list", user}, out);
+    if (out.find("\n - #") != std::string::npos
+        || out.find("\t- #") != std::string::npos) {
+        return Enroll::Yes;
+    }
+    static const char* DENIED[] = {
+        "PermissionDenied", "Not Authorized", "ListEnrolledFingers failed",
+        "GDBus.Error", nullptr };
+    for (auto** d = DENIED; *d; ++d) {
+        if (out.find(*d) != std::string::npos) return Enroll::Unknown;
+    }
+    return Enroll::None;  // clean read, no enrolled-finger markers
+}
+
 bool sudo_has_fprintd() {
     std::ifstream f("/etc/pam.d/sudo");
     std::string line;
@@ -110,13 +135,18 @@ void run_sudo_fingerprint(Context& ctx) {
         ui::ok("no fingerprint reader detected — skipping");
         return;
     }
-    std::string fp_list;
-    sh::capture({"fprintd-list", username()}, fp_list);
-    if (fp_list.find("\n - #") == std::string::npos
-        && fp_list.find("\t- #") == std::string::npos) {
-        ui::warn("no fingerprints enrolled for " + username() +
-                 " yet — run `fprintd-enroll` first, then re-run with --sudo-fingerprint");
-        return;
+    switch (enrollment_state(username())) {
+        case Enroll::None:
+            ui::warn("no fingerprints enrolled for " + username() +
+                     " yet — run `fprintd-enroll` first, then re-run with --sudo-fingerprint");
+            return;
+        case Enroll::Unknown:
+            ui::warn("couldn't read enrollment (polkit denies fprintd-list outside an active session)");
+            ui::substep("proceeding anyway — pam_fprintd is `sufficient`, so it safely "
+                        "falls through to the password prompt if no finger matches");
+            break;
+        case Enroll::Yes:
+            break;
     }
 
     if (sudo_has_fprintd()) {

@@ -41,6 +41,10 @@ FOX_MODULE_FULL( noexec_tmp,  run_noexec_tmp,       "--noexec-tmp",   "noexec/no
                  state::check_noexec_tmp )
 FOX_MODULE( iommu,           run_iommu,            "--iommu",        "IOMMU + lockdown=integrity kernel cmdline",        false )
 FOX_MODULE( boot_sync,       run_boot_sync,        "--boot-sync",    "Pacman hook keeping ESP root in sync with /boot",  true  )
+//   recovery_entry — clones the default systemd-boot entry into a
+//   multi-user.target recovery console. The authenticated escape hatch
+//   that makes auto-wiring login/sudo fingerprint safe under `editor no`.
+FOX_MODULE( recovery_entry,  run_recovery_entry,   "--recovery-entry","Recovery boot entry (multi-user.target console fallback)", true )
 FOX_MODULE( foxml_health_hook, run_foxml_health_hook, "--health-hook",  "Pacman hook running foxml-health A+B after every transaction", true )
 FOX_MODULE( foxml_health_boot, run_foxml_health_boot, "--health-boot",  "Per-boot health probe — A-category checks before graphical.target", true )
 FOX_MODULE( foxml_health_timer, run_foxml_health_timer, "--health-timer", "Daily systemd-user timer running the full health-check set", true )
@@ -85,8 +89,8 @@ FOX_MODULE( throttling,        run_throttling,         "--throttling",       "In
 FOX_MODULE_FULL( greetd,        run_greetd,             "--greetd",           "Themed regreet login screen deploy to /etc/greetd/",          true,
                  /*root*/ true, /*gfx*/ false, /*net*/ false,
                  state::check_greetd )
-FOX_MODULE( greetd_fingerprint,run_greetd_fingerprint, "--greetd-fingerprint","pam_fprintd in /etc/pam.d/greetd ONLY (NOT sudo)",          false )
-FOX_MODULE( sudo_fingerprint,  run_sudo_fingerprint,   "--sudo-fingerprint", "Fingerprint for sudo prompts (opt-in, refuses if B2 unsafe)", false )
+// greetd_fingerprint + sudo_fingerprint moved to Phase 5 (after fprint)
+// so the daemon is installed + a finger enrolled BEFORE any PAM wiring.
 
 // ── Phase 2: rendering + deploy ───────────────────────────────────
 FOX_MODULE( wallpaper,   run_wallpaper,     "--wallpaper",   "Wallpaper rotation toggle (static vs time-of-day)", true )
@@ -118,8 +122,19 @@ FOX_MODULE( intel_gpu,   run_intel_gpu,     "--intel",       "Intel GPU userspac
 FOX_MODULE( nvidia,      run_nvidia,        "--nvidia",      "NVIDIA driver + Hyprland Aquamarine + initramfs",  false )
 
 // ── Phase 5: hardware-specific opt-ins ────────────────────────────
-FOX_MODULE( fprint,      run_fprint,        "--fprint",      "Install fprintd (no PAM wiring; sudo lockout risk)", false )
-FOX_MODULE( fprint_pam,  run_fprint_pam,    "--fprint-pam",  "Splice pam_fprintd into /etc/pam.d/system-local-login (TTY login)", false )
+//   battery — laptop-only; self-skips when no battery exposes the
+//   charge-threshold knob. Default-on (opt-out): hardware-conditional
+//   convenience, safety lives in the per-module sysfs gate.
+FOX_MODULE( battery,     run_battery,       "--battery",     "Cap battery charge (start 75 / stop 80) for cell longevity", true )
+// Fingerprint chain — must run in this order: fprint installs the daemon
+// + enrolls a finger, then the three PAM-wiring modules splice it in.
+// detect auto-enables the whole chain (atomically) when a reader is
+// present; all stay `sufficient` so password is always a fallback. The
+// recovery_entry module is the escape hatch that makes this safe.
+FOX_MODULE( fprint,            run_fprint,             "--fprint",           "Install fprintd + enroll a finger",                          false )
+FOX_MODULE( fprint_pam,        run_fprint_pam,         "--fprint-pam",       "Splice pam_fprintd into /etc/pam.d/system-local-login (TTY login)", false )
+FOX_MODULE( greetd_fingerprint,run_greetd_fingerprint, "--greetd-fingerprint","pam_fprintd in /etc/pam.d/greetd (login screen)",            false )
+FOX_MODULE( sudo_fingerprint,  run_sudo_fingerprint,   "--sudo-fingerprint", "Fingerprint for sudo prompts (refuses if B2 unsafe)",        false )
 FOX_MODULE( ssh_harden,  run_ssh_harden,    "--ssh-harden",  "Interactive SSH wizard (custom port + keys-only)", false )
 
 // ── Phase 6: heavy build-from-source / dev extras ─────────────────
