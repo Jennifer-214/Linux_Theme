@@ -115,9 +115,12 @@ void write_json_atomic(const fs::path& dst, const json& body) {
 
 bool have(const std::string& bin) { return sh::have(bin); }
 
-void snapshot_one(const Context& ctx, const fs::path& dest) {
+// Returns false ONLY when a pre-existing dest couldn't be backed up, so
+// the caller can refuse to overwrite it. True when nothing to preserve
+// or the backup succeeded.
+bool snapshot_one(const Context& ctx, const fs::path& dest) {
     std::error_code ec;
-    if (!fs::exists(dest, ec) || ec) return;
+    if (!fs::exists(dest, ec) || ec) return true;
     fs::path rel;
     std::string ds = dest.string(), hs = ctx.home.string();
     if (ds.rfind(hs + "/", 0) == 0) rel = ds.substr(hs.size() + 1);
@@ -127,12 +130,20 @@ void snapshot_one(const Context& ctx, const fs::path& dest) {
     fs::copy(dest, bak,
              fs::copy_options::overwrite_existing |
              fs::copy_options::copy_symlinks, ec);
+    if (ec) {
+        ui::warn("backup of " + dest.string() + " failed: " + ec.message());
+        return false;
+    }
+    return true;
 }
 
 bool deploy_file(const Context& ctx, const fs::path& src, const fs::path& dest) {
     std::error_code ec;
     fs::create_directories(dest.parent_path(), ec);
-    snapshot_one(ctx, dest);
+    if (!snapshot_one(ctx, dest)) {
+        ui::warn("refusing to overwrite " + dest.string() + " — its backup failed");
+        return false;
+    }
     fs::path tmp = dest;
     tmp += ".foxin.tmp";
     fs::copy_file(src, tmp, fs::copy_options::overwrite_existing, ec);

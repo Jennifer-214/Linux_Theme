@@ -16,6 +16,7 @@
 #include <fstream>
 #include <regex>
 #include <sstream>
+#include <stdexcept>
 
 namespace fs = std::filesystem;
 
@@ -72,6 +73,11 @@ void run_noexec_tmp(Context& ctx) {
     fs::path fstab = "/etc/fstab";
     std::string body = read_file(fstab);
 
+    // Snapshot fstab's parse-health BEFORE we touch it, so we only react
+    // to a problem WE introduced (not a pre-existing unrelated warning).
+    bool verify_ok_before =
+        sh::run({"sh", "-c", "findmnt --verify >/dev/null 2>&1"}) == 0;
+
     bool tmp_locked = tmp_fstab_locked_down(body);
     bool tmp_live = sh::run({"sh", "-c",
                              "findmnt /tmp 2>/dev/null | grep -q noexec"}) == 0;
@@ -97,14 +103,38 @@ void run_noexec_tmp(Context& ctx) {
                      "sudo tee -a /etc/fstab >/dev/null"});
             ui::ok("/tmp added to /etc/fstab as tmpfs with noexec,nosuid,nodev");
         } else {
-            // Amend defaults with each missing flag.
+            // Amend each missing flag onto the existing /tmp tmpfs line's
+            // options field. Appending to the captured options column
+            // (the 4th \S+) works whether or not the line uses `defaults`
+            // — the prior `defaults`-only sed silently no-op'd on lines
+            // that spelled out their options.
             sh::run({"sh", "-c",
-                     "sudo sed -i -E '/^\\S+\\s+\\/tmp\\s+tmpfs.*defaults/{"
-                     "/noexec/!s/defaults/defaults,noexec/;"
-                     "/nosuid/!s/defaults/defaults,nosuid/;"
-                     "/nodev/!s/defaults/defaults,nodev/"
+                     "sudo sed -i -E '/^\\S+\\s+\\/tmp\\s+tmpfs/{"
+                     "/\\bnoexec\\b/!s/(\\S+\\s+\\/tmp\\s+tmpfs\\s+\\S+)/\\1,noexec/;"
+                     "/\\bnosuid\\b/!s/(\\S+\\s+\\/tmp\\s+tmpfs\\s+\\S+)/\\1,nosuid/;"
+                     "/\\bnodev\\b/!s/(\\S+\\s+\\/tmp\\s+tmpfs\\s+\\S+)/\\1,nodev/"
                      "}' /etc/fstab"});
             ui::ok("/tmp tmpfs entry amended with noexec,nosuid,nodev");
+        }
+
+        // Validate the edited fstab before the next boot trusts it. A
+        // malformed/duplicate line drops the system to an emergency
+        // shell. If our edit newly broke parsing, revert from the backup
+        // and fail the module rather than leave an unbootable fstab.
+        if (verify_ok_before &&
+            sh::run({"sh", "-c", "findmnt --verify >/dev/null 2>&1"}) != 0) {
+            ui::warn("fstab edit failed `findmnt --verify` — reverting from /etc/fstab.foxml-bak");
+            if (sh::run({"sudo", "cp", "/etc/fstab.foxml-bak", "/etc/fstab"}) != 0) {
+                // Revert failed — fstab may be left in a state that drops the
+                // next boot to an emergency shell. THIS is unsafe; halt loudly.
+                throw std::runtime_error(
+                    "noexec_tmp: fstab failed verification AND the revert failed — "
+                    "inspect /etc/fstab before rebooting");
+            }
+            // Reverted to the known-good fstab → system is safe. Skip the
+            // /tmp hardening (and the live remounts below) and continue.
+            ui::warn("/tmp hardening not applied; fstab reverted to its pre-foxml state");
+            return;
         }
     }
 
