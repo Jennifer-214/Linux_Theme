@@ -124,11 +124,23 @@ void run_recovery_entry(Context& ctx) {
         return;
     }
 
-    if (sh::write_root_atomic(dst, body, "0644")) {
-        ui::ok(dst.filename().string() + " — select it at boot for a console login (no greetd)");
-        ui::substep("recovery use: boot it → log in → fix /etc/pam.d or `faillock --reset`");
-    } else {
+    if (!sh::write_root_atomic(dst, body, "0644")) {
         ui::warn("could not write " + dst.string());
+        return;
+    }
+    ui::ok(dst.filename().string() + " — select it at boot for a console login (no greetd)");
+    ui::substep("recovery use: boot it → log in → fix /etc/pam.d or `faillock --reset`");
+
+    // Confirm systemd-boot actually parsed + registered the entry, so a
+    // typo (e.g. a glued kernel arg) is caught now instead of the next
+    // time you're locked out and reaching for it. `bootctl list` reports
+    // every discovered entry by id.
+    std::string entries;
+    sh::capture({"bootctl", "list"}, entries);
+    if (entries.find(dst.filename().string()) != std::string::npos) {
+        ui::ok("verified: appears in `bootctl list` — it'll show in the boot menu");
+    } else {
+        ui::warn("written but not shown by `bootctl list` — check `bootctl list` by hand");
     }
 }
 
