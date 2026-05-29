@@ -35,6 +35,55 @@ namespace fox_install {
 
 namespace {
 
+// ─── deploy-time safety guard ────────────────────────────────────────
+// Bulk-deployed shell assets (shared/bin, shared/hyprland_scripts, ...)
+// ship to the user verbatim. They must NEVER mutate sensitive system
+// state — PAM, sudoers, the bootloader cmdline, faillock. Those edits
+// are the exclusive job of fox-install modules, which gate, back up, and
+// are covered by the fox-health B1/B2 lockout checks. A shell helper
+// doing `sed -i '1i ... pam_fprintd' /etc/pam.d/sudo` is the canonical
+// lockout footgun (memory: project_pam_fprintd_lockout). We refuse to
+// deploy any such asset.
+//
+// KEEP IN SYNC with src/fox-install/tests/lint_shell_assets.sh — same
+// path list + verb list, enforced at build time there and here at run.
+bool looks_like_shell(const fs::path& p) {
+    if (p.extension() == ".sh") return true;
+    std::ifstream f(p);
+    std::string first;
+    if (!std::getline(f, first)) return false;
+    return first.rfind("#!", 0) == 0 &&
+           (first.find("sh") != std::string::npos);  // bash/sh/zsh shebang
+}
+
+// Returns the offending line (1-based) + text if the asset mutates a
+// sensitive path, else {0, ""}.
+std::pair<int, std::string> sensitive_mutation(const fs::path& p) {
+    static const char* SENSITIVE[] = {
+        "/etc/pam.d", "/etc/sudoers", "/boot/loader", "/efi/loader",
+        "/etc/default/grub", "/etc/security/faillock", nullptr,
+    };
+    static const char* MUTATORS[] = {
+        "sed -i", "tee ", ">", "cp ", "mv ", "install ", "ln ", "dd ",
+        "truncate", "chmod", "chown", "rm ", nullptr,
+    };
+    std::ifstream f(p);
+    std::string line;
+    int n = 0;
+    while (std::getline(f, line)) {
+        ++n;
+        size_t c = line.find_first_not_of(" \t");
+        if (c != std::string::npos && line[c] == '#') continue;  // comment
+        bool hits_path = false;
+        for (auto** s = SENSITIVE; *s; ++s)
+            if (line.find(*s) != std::string::npos) { hits_path = true; break; }
+        if (!hits_path) continue;
+        for (auto** m = MUTATORS; *m; ++m)
+            if (line.find(*m) != std::string::npos) return {n, line};
+    }
+    return {0, ""};
+}
+
 // ─── shared helpers ─────────────────────────────────────────────────
 // Atomic JSON write: tmp + rename so a crash mid-write can't leave the
 // caller's settings file half-written (parsers would then refuse to
@@ -413,6 +462,16 @@ std::size_t deploy_dir_files(const Context& ctx, const BulkSpec& spec) {
         }
         if (name_in_skip_list(e.path().filename().string(), spec.skip_names)) {
             continue;
+        }
+        if (looks_like_shell(e.path())) {
+            auto [ln, text] = sensitive_mutation(e.path());
+            if (ln) {
+                ui::err(e.path().filename().string() +
+                        " mutates a sensitive system path — REFUSING to deploy");
+                ui::substep("line " + std::to_string(ln) + ": " + text);
+                ui::substep("PAM/sudoers/bootloader edits belong in a fox-install module, not a shell asset");
+                continue;  // skip this file, keep deploying the rest
+            }
         }
         files.push_back(e.path());
     }
