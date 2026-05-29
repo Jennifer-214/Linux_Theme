@@ -10,6 +10,9 @@ _check_fprintd() {
         || { echo "${C_RED}fprintd not installed: sudo pacman -S fprintd${C_RST}" >&2; return 1; }
 }
 
+# True if $1 (a /etc/pam.d file) has an active `auth ... pam_fprintd.so` line.
+_pam_has() { grep -qE '^[[:space:]]*auth[[:space:]]+\S+[[:space:]]+pam_fprintd\.so' "$1" 2>/dev/null; }
+
 _status() {
     _check_fprintd || return 1
     if systemctl is-active --quiet fprintd; then
@@ -18,17 +21,33 @@ _status() {
         echo "  service: ${C_YEL}inactive (dbus-activated; fine)${C_RST}"
     fi
     echo "  enrolled fingers:"
-    local out
-    out=$(fprintd-list "$USER" 2>/dev/null)
+    local out rc
+    out=$(fprintd-list "$USER" 2>&1); rc=$?
     if echo "$out" | grep -qE '#[0-9]'; then
         echo "$out" | grep -E '#[0-9]' | sed 's/^/    /'
+    elif [ $rc -ne 0 ] || echo "$out" | grep -qiE 'permission denied|not authorized'; then
+        # fprintd-list errors (polkit) outside an active graphical session.
+        # Don't misreport that as "no fingers enrolled".
+        echo "    ${C_YEL}(can't read from this session — run 'fox fingerprint test' to confirm, or check from your graphical login)${C_RST}"
     else
         echo "    ${C_YEL}(none — enroll with: fox fingerprint enroll <name>)${C_RST}"
     fi
-    if grep -q pam_fprintd /etc/pam.d/system-local-login 2>/dev/null; then
-        echo "  PAM:     ${C_GRN}spliced into system-local-login (fingerprint unlocks sudo)${C_RST}"
-    else
-        echo "  PAM:     ${C_YEL}not spliced (only fprintd CLI works; sudo needs password)${C_RST}"
+    # Per-file PAM truth. Each file governs a DIFFERENT prompt — sudo is
+    # NOT covered by system-local-login (that's console TTY login).
+    echo "  PAM wiring (which prompts accept a fingerprint):"
+    local f p
+    for f in sudo greetd system-local-login hyprlock; do
+        p="/etc/pam.d/$f"
+        [ -f "$p" ] || continue
+        if _pam_has "$p"; then
+            echo "    ${C_GRN}✓${C_RST} $f"
+        else
+            echo "    ${C_DIM}·${C_RST} $f ${C_DIM}(password only)${C_RST}"
+        fi
+    done
+    if ! _pam_has /etc/pam.d/sudo; then
+        echo "  ${C_YEL}sudo is password-only — wire it SAFELY with: fox-install --sudo-fingerprint${C_RST}"
+        echo "  ${C_DIM}(never hand-edit /etc/pam.d/sudo: pam_fprintd above the header locks the account)${C_RST}"
     fi
 }
 

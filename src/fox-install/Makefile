@@ -73,6 +73,7 @@ test: tests/test_registry tests/test_state_manifest tests/test_classifier tests/
 	@./tests/test_wizard
 	@./tests/test_install_lock
 	@./tests/test_subprocess_log
+	@bash ./tests/lint_shell_assets.sh
 
 # Test binary links only core/registry.o (the X-macro table); modules
 # are stubbed inside the test file so we don't drag in their real

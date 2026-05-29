@@ -1,13 +1,14 @@
-// modules/fprint.cpp — fingerprint reader (fprintd) — install only.
+// modules/fprint.cpp — fingerprint reader (fprintd): install + enroll.
 //
-// DELIBERATELY does not touch /etc/pam.d. Reason:
-// pam_fprintd placement in /etc/pam.d/sudo line 1, BEFORE faillock
-// preauth, makes the password get "eaten" by the pam stack and the
-// account locks out via faillock. Recovery requires `su -` and
-// `faillock --reset`. See memory: project_pam_fprintd_lockout.
+// Installs the daemon and enrolls a finger so the PAM-wiring modules
+// that run AFTER this one (fprint_pam, greetd_fingerprint,
+// sudo_fingerprint) have something to authenticate against — without an
+// enrolled finger they all correctly no-op, which on a fresh machine
+// means fingerprint silently never works.
 //
-// We install the daemon + enroll instructions; the user wires PAM
-// manually (or via a future opt-in module that knows the safe order).
+// This module DOES NOT touch /etc/pam.d itself — that stays the job of
+// the dedicated, gated PAM modules (the lockout incident came from a
+// careless sudo splice; see memory: project_pam_fprintd_lockout).
 
 #include "../core/context.hpp"
 #include "../../fox-common/shell.hpp"
@@ -41,12 +42,35 @@ void run_fprint(Context& ctx) {
     }
 
     sh::systemctl_enable("fprintd.service", /*user=*/false);
-
     ui::ok("fprintd installed and enabled");
-    ui::substep("enroll a finger: `fprintd-enroll`");
-    ui::warn("PAM wiring NOT applied — pam_fprintd before faillock can lock sudo");
-    ui::substep("recovery if locked out: `su -`, `faillock --reset`, restore .foxml-bak");
-    ui::substep("safe pam_fprintd integration ships in a follow-up module");
+
+    // Enroll a finger now so the PAM modules downstream have something to
+    // match. fprintd-enroll is inherently interactive (physical touch), so
+    // only prompt in an interactive run — skip cleanly under --yes / CI.
+    if (sh::dry_run()) {
+        ui::substep("[dry-run] would offer to enroll a finger (fprintd-enroll)");
+        return;
+    }
+
+    bool enrolled = sh::run({"sh", "-c",
+        "fprintd-list \"$USER\" 2>/dev/null | grep -q '#[0-9]'"}) == 0;
+    if (enrolled) {
+        ui::ok("a finger is already enrolled");
+        return;
+    }
+
+    if (ctx.assume_yes) {
+        ui::substep("non-interactive run — enroll later: `fox fingerprint enroll`");
+        return;
+    }
+
+    if (ui::ask_yn("Enroll a fingerprint now? (touch the reader when it lights up)",
+                   /*default_yes=*/true, /*assume_yes=*/false)) {
+        sh::run({"fprintd-enroll"});
+        ui::substep("add more fingers anytime: `fox fingerprint enroll <name>`");
+    } else {
+        ui::substep("skipped — the PAM modules will no-op until you run `fox fingerprint enroll`");
+    }
 }
 
 }  // namespace fox_install

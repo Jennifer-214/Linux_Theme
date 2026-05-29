@@ -164,6 +164,8 @@ void run_hidepid         (Context&) {}
 void run_noexec_tmp      (Context&) {}
 void run_iommu           (Context&) {}
 void run_boot_sync       (Context&) {}
+void run_battery         (Context&) {}
+void run_recovery_entry  (Context&) {}
 void run_foxml_health_hook(Context&) {}
 void run_foxml_health_boot(Context&) {}
 void run_foxml_health_timer(Context&) {}
