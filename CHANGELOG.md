@@ -4,6 +4,20 @@ All notable changes to this Arch + Hyprland workstation setup.
 
 ## Unreleased
 
+### Install-breaking failure modes: prevention at the point of mutation
+
+An audit pass over every module that edits the bootloader, initramfs, fstab, PAM, or sudoers. The project already had good *detection* (`fox-health`) and *recovery* (`recovery_entry`, `.foxml-bak`); these add *prevention* where a module could brick or lock out a machine before either kicked in. Guiding rule: a failure halts the whole install only when it leaves the system in a state it couldn't undo — recoverable failures warn, skip the module, and let the run finish (and are reported), matching the existing warn-and-continue convention.
+
+- **`fprint_pam` no longer reopens the documented lockout cascade.** It spliced `pam_fprintd` into `system-local-login` ahead of the included faillock/`pam_unix` block with no check on `try_first_pass` — the exact password-eating cascade `sudo_fingerprint` already guards against. It now refuses when `system-auth`'s `pam_unix` carries `try_first_pass`, mirroring `sudo_fingerprint`'s gate.
+- **`nvidia` won't bake a broken initramfs.** It now skips the `mkinitcpio.conf` MODULES edit unless `modinfo nvidia` confirms the DKMS module actually built (a failed build no longer leaves a MODULES line referencing absent `.ko` files); a failed driver `pacman` warns + skips rather than editing; and if `mkinitcpio -P` fails it restores the pre-edit conf and rebuilds a known-good image, halting the install only if that recovery itself fails. The `nvidia_drm.modeset=1` cmdline arg moved ahead of the initramfs edit so it survives every early-out.
+- **`noexec_tmp` validates the edited `/etc/fstab`.** After editing it runs `findmnt --verify` against a pre-edit baseline and reverts from `fstab.foxml-bak` if our change broke parsing — a malformed/duplicate `/tmp` line otherwise drops the next boot to an emergency shell. Also fixed the amend that silently no-op'd on a `/tmp` line spelled without `defaults`.
+- **waybar sudoers is `visudo`-validated before install.** The `/etc/sudoers.d/99-foxml-waybar` fragment is now built from a validated username and checked with `visudo -cf` on a staged file before landing in `/etc/sudoers.d/` — a malformed fragment there breaks *every* `sudo` invocation system-wide.
+- **AppArmor cmdline edits are backed up.** Each `/boot/loader/entries/*.conf` and `/etc/default/grub` gets a create-if-missing `.foxml-bak` before the kernel-cmdline `sed`, matching the PAM modules.
+- **fail2ban whitelists the remote admin.** When the install is over SSH, the client's source IP is added to the sshd jail's `ignoreip`, so a fumbled password during the install can't ban you off a headless box.
+- **`ssh_harden` validates before it can lock you out.** It runs `sshd -t` before restarting (a bad drop-in would otherwise take sshd down on a headless box) and runs a live `BatchMode` key self-test before offering keys-only, so a present-but-non-working key can't disable passwords into a lockout.
+- **`post_install` stops defeating drift protection.** It no longer deletes `rendered/` (which is gitignored anyway) — that deletion had been making `render`'s drift detection early-out empty, so every subsequent install silently overwrote hand-edited `~/.config` files. Re-runs now warn before clobbering live edits as intended.
+- **Config deploys won't clobber without a backup.** `symlinks`/`specials` refuse to overwrite a file whose backup failed, rather than replacing it with no recoverable copy.
+
 ### Frictionless + safe fingerprint chain
 
 - **The whole fingerprint chain auto-enables when a reader is detected.** `detect` now flips on `fprint` → `fprint_pam` → `greetd_fingerprint` → `sudo_fingerprint` as an atomic, hardware-gated set: reader present → all four; absent → all four off (even under `--full`, so a box with no reader never gets `pam_fprintd` wired). Mirrors the GPU-module pattern and follows the opt-out convention for hardware-conditional modules — safety lives in each module's gates, not in default-off.
