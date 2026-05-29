@@ -4,6 +4,35 @@ All notable changes to this Arch + Hyprland workstation setup.
 
 ## Unreleased
 
+### Frictionless + safe fingerprint chain
+
+- **The whole fingerprint chain auto-enables when a reader is detected.** `detect` now flips on `fprint` → `fprint_pam` → `greetd_fingerprint` → `sudo_fingerprint` as an atomic, hardware-gated set: reader present → all four; absent → all four off (even under `--full`, so a box with no reader never gets `pam_fprintd` wired). Mirrors the GPU-module pattern and follows the opt-out convention for hardware-conditional modules — safety lives in each module's gates, not in default-off.
+- **`fprint` now enrolls a finger during install.** A fresh machine has nothing enrolled, so every PAM-wiring module would correctly no-op and fingerprint would silently never work. `fprint` installs the daemon, then offers an interactive `fprintd-enroll` (touch prompt). Skips cleanly under `--yes`/CI. The three PAM modules were reordered to Phase 5 *after* `fprint` so the daemon + finger exist before any splice.
+- **All targets stay `auth sufficient`** — fingerprint is an accelerator, never a gate. A missed/absent finger falls straight through to the password prompt at greetd, TTY login, and sudo. No `required`, no lockout.
+- **`sudo_fingerprint` enrollment gate hardened against the polkit blind spot.** `fprintd-list`'s enrolled-finger listing is polkit-gated and returns `PermissionDenied` outside an active graphical session — even when a finger *is* enrolled. The gate used to read that as "none enrolled" and refuse. It now distinguishes Yes / None / Unknown and proceeds on Unknown (safe, because `sufficient` falls through to password regardless).
+- Supersedes the earlier "opt-in / default-off" framing for `sudo_fingerprint` below — it's now part of the auto-enabled chain, with the same B1/B2 safety gates.
+
+### `recovery_entry` — authenticated console fallback for systemd-boot
+
+- **New install module** (`--recovery-entry`, default-on) that clones the default systemd-boot loader entry into an `…-recovery.conf` booting straight to `multi-user.target` — a console login, no greetd. Selectable from the boot menu, no editor needed.
+- **Why:** hardened installs set `editor no` in `loader.conf` (stops a keyboard attacker appending `init=/bin/bash`). The side effect is you can't append `systemd.unit=multi-user.target` at boot either, leaving USB-rescue as the only way back into a box with a broken login PAM. This entry is the authenticated escape hatch that makes auto-wiring login/sudo fingerprint safe — reboot → pick "(recovery console)" → fix `/etc/pam.d` or `faillock --reset`.
+- **Still secure:** boots to a normal login (requires credentials), never a root shell — so it does not undo what `editor no` protects against. Builds the options line in C++ (`line + " " + arg`), so it can't glue kernel params the way a hand-`sed` can.
+
+### `battery_charge` — Li-ion charge cap
+
+- **New install module** (`--battery`, default-on, laptop-self-gating) that installs a oneshot `battery-charge-threshold.service` setting charge start 75 / stop 80 on every battery exposing the sysfs knob, and applies it immediately. Caps wear on an always-docked laptop without a usable-reserve hit.
+- **Deliberately not TLP** — TLP also drives the CPU governor / turbo / scaling and would stomp hand-tuned clock settings. This touches only the charge-threshold knobs. Self-skips on desktops / batteries without the feature.
+
+### Hardened deploy: shell assets may not touch PAM / sudoers / bootloader
+
+- **Removed `shared/hyprland_scripts/fingerprint_setup.sh`** — it did `sed -i '1i … pam_fprintd' /etc/pam.d/sudo` (prepend *above* the header — the canonical lockout pattern), was bulk-deployed verbatim on every install, and a `fox-fingerprint` alias in `zsh_aliases.zsh` pointed at it, shadowing the safe `shared/bin/fox-fingerprint` wrapper. Alias removed too.
+- **New guard, two layers:** `specials.cpp` refuses to deploy any shell asset whose content mutates a sensitive system path (PAM / sudoers / `/boot/loader` / `/etc/default/grub` / faillock), and `tests/lint_shell_assets.sh` enforces the same at build time (runs under `make test`, so it's in CI). PAM/bootloader edits stay the exclusive job of the gated fox-install modules.
+- **`fox-fingerprint` status now reports per-PAM-file truth** — it used to claim `system-local-login` "unlocks sudo" (wrong; that's TTY login) and report "(none enrolled)" when it merely couldn't read. Now shows each of sudo/greetd/login separately and distinguishes "can't read" from "none".
+
+### `fox-install` warms sudo up front
+
+- The bare `fox-install` binary now warms sudo once before running modules, matching what `install.sh` already does for its own invocation. Previously, running the binary directly left sudo cold and root-needing modules bailed silently (`failures: 0` but nothing applied). Non-fatal — each module still re-checks sudo itself.
+
 ### Resize / move submap on `ALT+R`
 
 - **New Hyprland submap** for keyboard-driven manipulation of floating ("non-snapped") windows. `ALT+R` enters the mode: bare `h/j/k/l` call `resizeactive` (±40px per step), `SHIFT+h/j/k/l` call `moveactive` (±40px). `binde` repeats on hold so you can glide. `Esc` or `Enter` exits back to the default submap.
