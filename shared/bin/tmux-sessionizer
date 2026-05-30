@@ -1,0 +1,163 @@
+#!/usr/bin/env bash
+# Fuzzy session switcher / project launcher for tmux. Bound to prefix+w,
+# replacing the stock `choose-tree`. Runs inside a `display-popup`, so it
+# does NOT source .zshrc — themed colors arrive via env vars seeded into the
+# tmux global environment from the (templated) .tmux.conf:
+#   FOX_SESH_FZF  — fzf --color/border/pointer flags (whole-popup theming)
+#   FOX_SESH_C1   — accent hex (live-session ◆ marker)
+#   FOX_SESH_C2   — muted  hex (project    ◇ marker)
+#
+# Navigation is modal, vim-style: the list opens in nav mode (hjkl move,
+# l/enter open, h/esc/q back out) and `/` drops into fuzzy-search like less.
+#
+# Menu order: live sessions first (one keystroke to switch), then project
+# roots under ~/code & ~/school not yet open (zoxide frecency, then the rest).
+set -u
+
+SELF="$HOME/.local/bin/tmux-sessionizer"
+TAB=$'\t'
+
+sess_name() { basename "$1" | tr ' .:' '___'; }
+
+# hex (rrggbb) -> "R;G;B"; and -> truecolor SGR (empty arg = no-color).
+rgb() { printf '%d;%d;%d' "0x${1:0:2}" "0x${1:2:2}" "0x${1:4:2}"; }
+fg()  { [ -n "${1:-}" ] && printf '\033[38;2;%sm' "$(rgb "$1")"; }
+
+# Render a path like the zsh prompt: $HOME→~, segments in a peach/pink/mauve
+# gradient with pink slashes (mirrors caramel.zsh-theme's gradient_path, using
+# the same ANSI 256 indices). So the preview header matches your real prompt.
+prompt_path() {
+    local raw="$1" E=$'\033' R=$'\033[0m'
+    [[ "$raw" == "$HOME"/* || "$raw" == "$HOME" ]] && raw="~${raw#"$HOME"}"
+    local a1="${FOX_SESH_A1:-173}" a2="${FOX_SESH_A2:-180}" a3="${FOX_SESH_A3:-138}"
+    local grad=("$a2" "$a1" "$a3") lead="" idx=0 p
+    local -a toks=()
+    if   [[ "$raw" == "~"* ]]; then toks+=("${E}[38;5;${a2}m~"); raw="${raw#\~}"; raw="${raw#/}"
+    elif [[ "$raw" == /*   ]]; then lead="${E}[38;5;${a1}m/";   raw="${raw#/}"
+    fi
+    local IFS='/'; local -a parts=($raw)
+    for p in "${parts[@]}"; do
+        [[ -z "$p" ]] && continue
+        toks+=("${E}[38;5;${grad[idx % 3]}m${p}"); ((idx++))
+    done
+    local sep="${E}[38;5;${a1}m/" joined="" t
+    for t in "${toks[@]}"; do [[ -n "$joined" ]] && joined+="$sep"; joined+="$t"; done
+    printf '%s%s%s' "$lead" "$joined" "$R"
+}
+
+list_all() {
+    local A M R D
+    A="$(fg "${FOX_SESH_C1:-}")"      # accent  (live)
+    M="$(fg "${FOX_SESH_C2:-}")"      # muted   (project)
+    R=$'\033[0m'; D=$'\033[2m'
+
+    # Live sessions: ● = current (you-are-here), ◆ = other, both peach.
+    local cur; cur="$(tmux display-message -p '#S' 2>/dev/null)"
+    tmux list-sessions -F "#{session_name}${TAB}#{session_windows}" 2>/dev/null \
+    | while IFS="$TAB" read -r s w; do
+        [ -n "$s" ] || continue
+        local m='◆'; [ "$s" = "$cur" ] && m='●'
+        printf 's\t%s%s%s %s %s· %sw%s\t%s\n' "$A" "$m" "$R" "$s" "$D" "$w" "$R" "$s"
+    done
+
+    local live; live="$(tmux list-sessions -F '#{session_name}' 2>/dev/null)"
+
+    # Project roots not already open: kind=d, "◇ name", target=path.
+    {
+        zoxide query -l 2>/dev/null | grep -E "^$HOME/(code|school)/[^/]+/?$"
+        ls -d ~/code/*/ ~/school/*/ 2>/dev/null
+    } | sed 's:/\+$::' | awk 'NF && !seen[$0]++' | while IFS= read -r dir; do
+        [ -d "$dir" ] || continue
+        local name; name="$(sess_name "$dir")"
+        printf '%s\n' "$live" | grep -qxF "$name" && continue
+        printf 'd\t%s◇%s %s\t%s\n' "$M" "$R" "$name" "$dir"
+    done
+}
+
+do_preview() {
+    local line="$1" kind tgt
+    kind="${line%%$TAB*}"; tgt="${line##*$TAB}"
+    if [ "$kind" = s ]; then
+        tmux capture-pane -ep -t "$tgt" 2>/dev/null
+        return
+    fi
+    # Prompt-styled header (no eza cyan abs-path) + git branch like the footer,
+    # then a flat themed listing — reads like you cd'd in and ran ls. eza is
+    # recoloured warm (di→peach, ln/ex→mauve), scoped here only.
+    prompt_path "$tgt"
+    if git -C "$tgt" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        local br dot=''
+        br="$(git -C "$tgt" symbolic-ref --quiet --short HEAD 2>/dev/null)" \
+            || br="$(git -C "$tgt" rev-parse --short HEAD 2>/dev/null)"
+        git -C "$tgt" status --porcelain 2>/dev/null | grep -q . && dot=' ●'
+        [ -n "$br" ] && printf '  \033[38;5;%sm⎇ %s%s\033[0m' "${FOX_SESH_A3:-138}" "$br" "$dot"
+    fi
+    printf '\n\n'
+    local di lk
+    di="$(rgb "${FOX_SESH_C1:-d4985a}")"
+    lk="$(rgb "${FOX_SESH_C3:-c49aab}")"
+    EZA_COLORS="di=38;2;${di}:ln=38;2;${lk}:ex=38;2;${lk}:or=38;2;$(rgb "${FOX_SESH_C2:-8c8070}")" \
+        eza -1 --icons=always --color=always --group-directories-first "$tgt" 2>/dev/null \
+        || ls -1 --color=always "$tgt" 2>/dev/null || ls -1 "$tgt"
+}
+
+do_kill() {
+    local line="$1" kind tgt cur
+    kind="${line%%$TAB*}"; tgt="${line##*$TAB}"
+    [ "$kind" = s ] || return 0
+    cur="$(tmux display-message -p '#S' 2>/dev/null)"
+    [ "$tgt" = "$cur" ] && return 0   # never kill the session we're popped over
+    tmux kill-session -t "$tgt" 2>/dev/null
+}
+
+do_rename() {
+    local line="$1" kind tgt new
+    kind="${line%%$TAB*}"; tgt="${line##*$TAB}"
+    [ "$kind" = s ] || return 0
+    printf '\n  rename "%s" → ' "$tgt" > /dev/tty
+    IFS= read -r new < /dev/tty
+    [ -n "$new" ] && tmux rename-session -t "$tgt" "$new" 2>/dev/null
+}
+
+connect() {
+    local line="$1" kind tgt name
+    kind="${line%%$TAB*}"; tgt="${line##*$TAB}"
+    if [ "$kind" = s ]; then
+        tmux switch-client -t "$tgt"
+    else
+        name="$(sess_name "$tgt")"
+        tmux has-session -t "=$name" 2>/dev/null \
+            || tmux new-session -d -s "$name" -c "$tgt"
+        tmux switch-client -t "$name"
+    fi
+}
+
+case "${1:-}" in
+    --list)    list_all;            exit 0 ;;
+    --preview) do_preview "${2:-}"; exit 0 ;;
+    --kill)    do_kill    "${2:-}"; exit 0 ;;
+    --rename)  do_rename  "${2:-}"; exit 0 ;;
+esac
+
+# Keys that navigate in nav mode; unbound on `/` (so they type) and rebound on esc.
+NAV='j,k,g,G,h,l,q'
+
+sel="$(list_all | fzf \
+    --ansi --no-sort --cycle --disabled \
+    --layout=reverse --info=inline-right \
+    --delimiter="$TAB" --with-nth=2 --nth=2 \
+    --border=rounded --border-label=' sessions ' --border-label-pos=3 \
+    --prompt='  ' --pointer='▸' \
+    --preview="$SELF --preview {}" \
+    --preview-window='right:55%:wrap:border-left' --preview-label=' preview ' \
+    --header='j/k move · / search · l open · ^r rename · ^x kill · q quit' \
+    --bind='j:down,k:up,g:first,G:last,l:accept,h:abort,q:abort' \
+    --bind="/:unbind($NAV)+change-prompt(search ❯ )+enable-search" \
+    --bind="esc:rebind($NAV)+change-prompt(  )+disable-search+clear-query" \
+    --bind='ctrl-/:toggle-preview' \
+    --bind='ctrl-d:preview-half-page-down,ctrl-u:preview-half-page-up' \
+    --bind="ctrl-x:execute-silent($SELF --kill {})+reload($SELF --list)" \
+    --bind="ctrl-r:execute($SELF --rename {})+reload($SELF --list)" \
+    ${FOX_SESH_FZF:-})" || exit 0
+
+[ -n "$sel" ] && connect "$sel"

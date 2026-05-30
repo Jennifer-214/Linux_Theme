@@ -4,6 +4,16 @@ All notable changes to this Arch + Hyprland workstation setup.
 
 ## Unreleased
 
+### Tmux: fuzzy session switcher + themed popups
+
+Replaces the stock `prefix + w` (`choose-tree`) with a `display-popup` workflow, plus two more popups. All inherit kitty's opacity and the active palette, so they read as part of the terminal rather than a separate UI — and draw in-terminal, with no rofi/X round-trip.
+
+- **`prefix + w` — session switcher / project launcher** (`shared/bin/tmux-sessionizer`). Lists live sessions first (`◆`, or `●` for the one you're in), then `~/code` & `~/school` project roots not yet open (zoxide frecency, then the rest). Enter switches, or creates a session named after the directory; `^r` rename, `^x` kill, `^d`/`^u` scroll preview. Navigation is modal vim-style: `hjkl` move (`l` open, `h` back out), `/` enters fuzzy search, `esc` returns — which avoids the hjkl-vs-typing clash since most repo names contain those letters. The preview shows a live session's pane, or for a project a prompt-styled path header (`~`-abbreviated, gradient-matched to `caramel.zsh-theme`) + `⎇ branch` + a warm `eza` listing (dirs peach, not eza's default blue).
+- **`prefix + G` — lazygit** on the current pane's repo in a float; matches your themed `~/.config/lazygit` inside and out.
+- **`prefix + a` — ask the local model** (`fox-ai-oracle`) without leaving tmux (`shared/bin/tmux-ai-ask`).
+- **Session naming.** Sessions opened via the switcher — and panes popped out with `prefix + m`/`M` — are named after their directory, so the pane footer reads `Linux_Theme:1` instead of `9:1`, and pop-outs lost the `pop-<cmd>-<pid>` noise.
+- Popup theming (`popup-border-style`, transparent `popup-style`, and the seeded `FOX_SESH_*` env that carries the palette into popups, which don't source `.zshrc`) lives in the templated `.tmux.conf`, so it re-renders on every theme swap. Scripts deploy via the existing `shared/bin` → `~/.local/bin` bulk step — no installer changes.
+
 ### Install-breaking failure modes: prevention at the point of mutation
 
 An audit pass over every module that edits the bootloader, initramfs, fstab, PAM, or sudoers. The project already had good *detection* (`fox-health`) and *recovery* (`recovery_entry`, `.foxml-bak`); these add *prevention* where a module could brick or lock out a machine before either kicked in. Guiding rule: a failure halts the whole install only when it leaves the system in a state it couldn't undo — recoverable failures warn, skip the module, and let the run finish (and are reported), matching the existing warn-and-continue convention.
