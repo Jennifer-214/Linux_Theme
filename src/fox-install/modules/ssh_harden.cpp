@@ -106,6 +106,23 @@ bool valid_gh_username(const std::string& u) {
     return true;
 }
 
+// Confirm key-based login actually authenticates before we disable
+// password auth. BatchMode=yes + PasswordAuthentication=no forbid any
+// password/interactive fallback, so a 0 exit means a key (or hostbased)
+// authenticated against the currently-running sshd. The new drop-in
+// keeps the same keys, so success here predicts success after restart.
+// ANY failure (sshd not running yet, no agent, wrong key) is treated as
+// "can't confirm" → caller keeps passwords on. Errs toward not locking out.
+bool key_login_works() {
+    const char* user = std::getenv("USER");
+    if (!user || !*user) return false;
+    std::string cmd =
+        std::string("ssh -o BatchMode=yes -o PasswordAuthentication=no ")
+        + "-o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new "
+        + user + "@127.0.0.1 true >/dev/null 2>&1";
+    return sh::run({"sh", "-c", cmd.c_str()}) == 0;
+}
+
 bool import_github_keys(const Context& ctx, const std::string& gh_user) {
     if (!valid_gh_username(gh_user)) {
         ui::warn("rejected: '" + gh_user + "' is not a valid GitHub username");
@@ -195,10 +212,22 @@ void run_ssh_harden(Context& ctx) {
             ui::substep("keeping password auth ENABLED to avoid lockout");
             disable_pass = "yes";
         } else {
-            std::cout << "  Detected " << n << " authorized public key(s).\n"
-                         "  Disabling password auth is the recommended secure default.\n";
-            if (ui::ask_yn("  Disable password authentication (keys-only)?", true, ctx.assume_yes)) {
-                disable_pass = "no";          // "PasswordAuthentication no" = keys-only
+            std::cout << "  Detected " << n << " authorized public key(s).\n";
+            // Verify key auth actually works before offering keys-only — a
+            // present-but-non-working key (wrong machine, agent not
+            // forwarding the private half) would otherwise lock the admin
+            // out with no password fallback.
+            if (!key_login_works()) {
+                ui::warn("couldn't confirm key-based login works (ssh self-test to 127.0.0.1 failed)");
+                ui::substep("keeping password auth ENABLED to avoid lockout");
+                ui::substep("verify your key logs in (and that sshd is running), then re-run --ssh-harden");
+                disable_pass = "yes";
+            } else {
+                std::cout << "  Key-based login verified.\n"
+                             "  Disabling password auth is the recommended secure default.\n";
+                if (ui::ask_yn("  Disable password authentication (keys-only)?", true, ctx.assume_yes)) {
+                    disable_pass = "no";      // "PasswordAuthentication no" = keys-only
+                }
             }
         }
     } else {
@@ -236,9 +265,18 @@ void run_ssh_harden(Context& ctx) {
         ui::ok("UFW: allowed " + std::to_string(port) + ", removed allow-22");
     }
 
-    // 6. Restart sshd.
+    // 6. Validate the merged config BEFORE restarting. A bad drop-in
+    // (ours or a pre-existing one) would otherwise take sshd down on
+    // restart, locking out a headless admin. `sshd -t` parses the full
+    // config without touching the running daemon.
+    if (sh::run({"sudo", "sshd", "-t"}) != 0) {
+        ui::err("sshd config failed validation (`sudo sshd -t`) — NOT restarting");
+        ui::substep("the running sshd is untouched (your current session is safe)");
+        ui::substep("our drop-in: " + drop_in.string() + " — remove it if it's the culprit, then restart sshd");
+        return;
+    }
     if (sh::run({"sudo", "systemctl", "restart", "sshd"}) == 0) {
-        ui::ok("sshd restarted");
+        ui::ok("sshd restarted (config validated)");
     } else {
         ui::warn("sshd restart failed — `sudo systemctl status sshd` for details");
     }

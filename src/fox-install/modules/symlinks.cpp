@@ -41,10 +41,12 @@ bool contains(const std::string& s, const char* needle) {
 }
 
 // Snapshot one pre-existing file under ctx.backup_dir, preserving the
-// $HOME-relative path. Silent no-op when src doesn't exist.
-void snapshot_one(const Context& ctx, const fs::path& dest) {
+// $HOME-relative path. Returns false ONLY when a pre-existing dest could
+// not be backed up — the caller must then refuse to overwrite it.
+// Returns true when there was nothing to preserve or the backup landed.
+bool snapshot_one(const Context& ctx, const fs::path& dest) {
     std::error_code ec;
-    if (!fs::exists(dest, ec) || ec) return;
+    if (!fs::exists(dest, ec) || ec) return true;   // nothing to preserve
 
     // Compute path relative to $HOME if possible — matches bash
     // ${dest#$HOME/}. Files outside $HOME (e.g. /etc/...) go under
@@ -62,13 +64,23 @@ void snapshot_one(const Context& ctx, const fs::path& dest) {
     fs::copy(dest, bak,
              fs::copy_options::overwrite_existing |
              fs::copy_options::copy_symlinks, ec);
+    if (ec) {
+        ui::warn("backup of " + dest.string() + " failed: " + ec.message());
+        return false;
+    }
+    return true;
 }
 
-// One file: backup + atomic copy. Preserves source permissions.
+// One file: backup + atomic copy. Preserves source permissions. Refuses
+// to overwrite an existing file whose backup failed (better to leave the
+// user's config intact than clobber it with no recoverable copy).
 bool deploy_file(const Context& ctx, const fs::path& src, const fs::path& dest) {
     std::error_code ec;
     fs::create_directories(dest.parent_path(), ec);
-    snapshot_one(ctx, dest);
+    if (!snapshot_one(ctx, dest)) {
+        ui::warn("refusing to overwrite " + dest.string() + " — its backup failed");
+        return false;
+    }
 
     fs::path tmp = dest;
     tmp += ".foxin.tmp";
@@ -86,10 +98,17 @@ bool deploy_file(const Context& ctx, const fs::path& src, const fs::path& dest) 
 bool deploy_dir(const Context& ctx, const fs::path& src, const fs::path& dest) {
     std::error_code ec;
     fs::create_directories(dest, ec);
+    bool all_backed_up = true;
     for (auto& e : fs::recursive_directory_iterator(src)) {
         if (!e.is_regular_file()) continue;
         fs::path rel = fs::relative(e.path(), src);
-        snapshot_one(ctx, dest / rel);
+        if (!snapshot_one(ctx, dest / rel)) all_backed_up = false;
+    }
+    // Refuse the bulk overwrite if any pre-existing file couldn't be
+    // backed up — the recursive copy below clobbers in place.
+    if (!all_backed_up) {
+        ui::warn("refusing to overwrite " + dest.string() + " — a backup failed");
+        return false;
     }
     // Now copy the tree. fs::copy_options::recursive + overwrite_existing
     // is the std::filesystem analogue of `cp -a src/. dest/`.

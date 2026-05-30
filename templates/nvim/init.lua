@@ -27,6 +27,7 @@ vim.opt.splitbelow = {{SHOW_WELCOME}}
 vim.opt.splitright = {{SHOW_WELCOME}}
 vim.opt.updatetime = 250
 vim.opt.scrolloff = 8
+vim.opt.colorcolumn = "80"        -- visual ruler only; never reflows text
 vim.opt.smoothscroll = {{SHOW_WELCOME}}
 vim.opt.cursorline = {{SHOW_WELCOME}}
 vim.opt.guicursor = "n-v-c:block,i-ci-ve:ver25,r-cr:hor20,o:hor50"

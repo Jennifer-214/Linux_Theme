@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <regex>
 #include <sstream>
 #include <string>
 #include <unistd.h>
@@ -44,6 +45,14 @@ std::string username() {
     if (const char* u = std::getenv("USER"); u && *u) return u;
     if (const char* u = std::getenv("LOGNAME"); u && *u) return u;
     return "user";
+}
+
+// Conservative Linux username check (adduser's NAME_REGEX shape). Used
+// to refuse interpolating a junk/empty/meta-bearing name into a sudoers
+// line, where a malformed entry poisons the entire sudoers parse.
+bool valid_username(const std::string& u) {
+    static const std::regex pat(R"(^[a-z_][a-z0-9_-]*$)");
+    return !u.empty() && u.size() <= 32 && std::regex_match(u, pat);
 }
 
 bool pacman_has(const std::string& pkg) {
@@ -335,13 +344,22 @@ void apparmor_systemd_boot() {
         if (!e.is_regular_file()) continue;
         if (e.path().extension() != ".conf") continue;
         std::string body = read_file(e.path());
+        // Create-if-missing backup before any in-place edit of a boot
+        // entry — a botched kernel cmdline can leave the system
+        // unbootable, and the recovery entry inherits these same args.
+        auto backup_entry = [&] {
+            sh::run({"sh", "-c",
+                     "[ -e " + e.path().string() + ".foxml-bak ] || "
+                     "sudo cp " + e.path().string() + " " + e.path().string() + ".foxml-bak"});
+        };
         if (body.find("\nlsm=") == std::string::npos &&
             body.find(" lsm=") == std::string::npos) {
             // No lsm= yet — append the full recommendation.
+            backup_entry();
             sh::run({"sudo", "sed", "-i", "-E",
                      "s|^options (.*)$|options \\1 lsm=landlock,lockdown,yama,integrity,apparmor,bpf|",
                      e.path().string()});
-            ui::ok(e.path().string() + ": apparmor added to kernel cmdline");
+            ui::ok(e.path().string() + ": apparmor added to kernel cmdline (backup: .foxml-bak)");
             ++modified;
             continue;
         }
@@ -351,10 +369,11 @@ void apparmor_systemd_boot() {
                      "grep -qE \"" + re_check + "\" " + e.path().string()}) == 0) {
             continue;
         }
+        backup_entry();
         sh::run({"sudo", "sed", "-i", "-E",
                  "s|(^options .*\\blsm=)([^[:space:]]*)|\\1\\2,apparmor|",
                  e.path().string()});
-        ui::ok(e.path().string() + ": apparmor added to kernel cmdline");
+        ui::ok(e.path().string() + ": apparmor added to kernel cmdline (backup: .foxml-bak)");
         ++modified;
     }
     if (modified == 0) {
@@ -371,6 +390,10 @@ bool apparmor_grub() {
         ui::skipped("grub cmdline already includes apparmor");
         return true;
     }
+    // Back up /etc/default/grub before editing (create-if-missing).
+    sh::run({"sh", "-c",
+             "[ -e /etc/default/grub.foxml-bak ] || "
+             "sudo cp /etc/default/grub /etc/default/grub.foxml-bak"});
     if (body.find("lsm=") != std::string::npos) {
         sh::run({"sudo", "sed", "-i", "-E",
                  "s|(^GRUB_CMDLINE_LINUX_DEFAULT=.*\\blsm=)([^[:space:]\"]*)|\\1\\2,apparmor|",
@@ -453,21 +476,41 @@ void install_polkit_strict() {
 // ════════════════════════════════════════════════════════════════════
 // fail2ban inline — jail.local with sshd jail
 // ════════════════════════════════════════════════════════════════════
-constexpr const char* FAIL2BAN_JAIL_LOCAL =
-    "# foxml-managed — auto-applied by fox-install --secure.\n"
-    "# Delete this file to revert to the stock fail2ban defaults.\n"
-    "[DEFAULT]\n"
-    "bantime  = 1h\n"
-    "findtime = 10m\n"
-    "maxretry = 5\n"
-    "backend  = systemd\n"
-    "ignoreip = 127.0.0.1/8 ::1\n"
-    "\n"
-    "[sshd]\n"
-    "enabled  = true\n"
-    "port     = ssh\n"
-    "filter   = sshd\n"
-    "journalmatch = _SYSTEMD_UNIT=sshd.service\n";
+// Build jail.local. ignoreip starts at localhost; when we're running
+// over SSH we also whitelist the admin's own source IP, so a fumbled
+// password during the install itself can't ban them out of a headless
+// box (the sshd jail counts failures regardless of port).
+std::string fail2ban_jail_local() {
+    std::string ignore = "127.0.0.1/8 ::1";
+    if (const char* sc = std::getenv("SSH_CONNECTION"); sc && *sc) {
+        std::istringstream is(sc);
+        std::string client_ip;
+        is >> client_ip;  // SSH_CONNECTION = "<clientip> <cport> <srvip> <sport>"
+        // Only accept a plain IPv4/IPv6 literal — never let arbitrary
+        // text reach the config file.
+        if (!client_ip.empty() &&
+            client_ip.find_first_not_of("0123456789abcdefABCDEF.:") == std::string::npos) {
+            ignore += " " + client_ip;
+        }
+    }
+    static const std::string head =
+        "# foxml-managed — auto-applied by fox-install --secure.\n"
+        "# Delete this file to revert to the stock fail2ban defaults.\n"
+        "[DEFAULT]\n"
+        "bantime  = 1h\n"
+        "findtime = 10m\n"
+        "maxretry = 5\n"
+        "backend  = systemd\n"
+        "ignoreip = ";
+    static const std::string tail =
+        "\n\n"
+        "[sshd]\n"
+        "enabled  = true\n"
+        "port     = ssh\n"
+        "filter   = sshd\n"
+        "journalmatch = _SYSTEMD_UNIT=sshd.service\n";
+    return head + ignore + tail;
+}
 
 void install_fail2ban() {
     if (!pacman_has("fail2ban")) {
@@ -477,7 +520,7 @@ void install_fail2ban() {
     fs::path jail = "/etc/fail2ban/jail.local";
     std::string existing = read_file(jail);
     if (existing.find("# foxml-managed") == std::string::npos) {
-        if (!write_root_file(jail, FAIL2BAN_JAIL_LOCAL, "0644")) {
+        if (!write_root_file(jail, fail2ban_jail_local(), "0644")) {
             ui::warn("could not write " + jail.string());
             return;
         }
@@ -551,23 +594,49 @@ void install_waybar_sudoers(const Context& ctx) {
     // /etc/sudoers.d/ is mode 0750 — non-root stat() returns EACCES.
     // The error_code overload swallows the throw and returns false; we
     // then go ahead and call `sudo install` which can read the dir.
-    // Idempotency relies on `install -m 0440 …` overwrite being a no-op
-    // when content matches, which it isn't quite — but the bash version
-    // had the same `! -f` gate and lived with the same race.
     std::error_code ec;
     if (fs::exists(sudoers, ec) && !ec && !ctx.force_reapply) {
         ui::skipped("waybar sudoers already configured");
         return;
     }
     std::string user = username();
+    if (!valid_username(user)) {
+        ui::warn("refusing to write waybar sudoers: '" + user +
+                 "' is not a valid username — a malformed entry would poison the sudoers parse");
+        return;
+    }
     std::string body =
         user + " ALL=(ALL) NOPASSWD: /usr/bin/ufw status\n" +
         user + " ALL=(ALL) NOPASSWD: /usr/bin/fail2ban-client status\n" +
         user + " ALL=(ALL) NOPASSWD: /usr/bin/fail2ban-client status sshd\n";
-    if (write_root_file(sudoers, body, "0440")) {
-        ui::ok("sudoers rule added (ufw + fail2ban-client status for waybar)");
+    if (sh::dry_run()) {
+        ui::substep("[dry-run] would validate (visudo -cf) + install " + sudoers.string());
+        return;
+    }
+    // visudo -cf the fragment in a temp file BEFORE landing it in
+    // /etc/sudoers.d/ — a syntactically-bad file there breaks EVERY sudo
+    // invocation system-wide (you can't sudo to fix it). Stage, validate,
+    // and only `install` on a clean parse.
+    char tmpl[] = "/tmp/foxin-sudoers.XXXXXX";
+    int fd = ::mkstemp(tmpl);
+    if (fd < 0) {
+        ui::warn("sudoers write failed — could not stage temp file");
+        return;
+    }
+    { std::ofstream w(tmpl); w << body; }
+    ::close(fd);
+    if (sh::run({"sudo", "visudo", "-cf", tmpl}) != 0) {
+        fs::remove(tmpl);
+        ui::warn("waybar sudoers failed visudo validation — not installing (overwatch may prompt)");
+        return;
+    }
+    int rc = sh::run({"sudo", "install", "-m", "0440", "-o", "root", "-g", "root",
+                      tmpl, sudoers.string()});
+    fs::remove(tmpl);
+    if (rc == 0) {
+        ui::ok("sudoers rule added (visudo-validated; ufw + fail2ban-client status for waybar)");
     } else {
-        ui::warn("sudoers write failed — waybar overwatch may prompt");
+        ui::warn("sudoers install failed — waybar overwatch may prompt");
     }
 }
 

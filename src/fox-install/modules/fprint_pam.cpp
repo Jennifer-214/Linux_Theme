@@ -50,6 +50,22 @@ bool has_enrollment() {
     return std::regex_search(out, std::regex(R"(#\d+)"));
 }
 
+// The lockout cascade (project_pam_fprintd_lockout): pam_fprintd's empty
+// token is consumed by pam_unix's `try_first_pass` and silently counted
+// as a failed password against faillock. system-local-login pulls in
+// system-auth via `auth include system-login`, so the resolved chain's
+// pam_unix lives in system-auth — check it there, same as sudo_fingerprint.
+bool system_auth_has_try_first_pass() {
+    std::ifstream f("/etc/pam.d/system-auth");
+    std::string line;
+    std::regex pat(
+        R"(^\s*auth\s+(?:\[[^\]]*\]|\S+)\s+pam_unix\.so[^\n]*\btry_first_pass\b)");
+    while (std::getline(f, line)) {
+        if (std::regex_search(line, pat)) return true;
+    }
+    return false;
+}
+
 bool already_spliced(const fs::path& pam) {
     std::ifstream f(pam);
     std::string line;
@@ -125,6 +141,19 @@ void run_fprint_pam(Context& ctx) {
     }
     if (already_spliced(pam)) {
         ui::skipped("pam_fprintd already in " + pam.string() + " — leaving as-is");
+        return;
+    }
+
+    // Lockout guard (mirrors sudo_fingerprint's gate #2). splice_pam
+    // inserts pam_fprintd ahead of the included login block; that's the
+    // correct spot for fingerprint-OR-password ONLY while pam_unix has no
+    // `try_first_pass`. With it, the empty fprintd token is counted as a
+    // failed password and faillock locks the account. Refuse outright.
+    if (system_auth_has_try_first_pass()) {
+        ui::err("/etc/pam.d/system-auth pam_unix carries `try_first_pass`");
+        ui::substep("splicing pam_fprintd into the login stack would re-open the lockout cascade");
+        ui::substep("fix: sudo sed -i 's|\\(pam_unix\\.so.*\\)\\btry_first_pass\\b|\\1|' /etc/pam.d/system-auth");
+        ui::substep("then re-run with --fprint-pam");
         return;
     }
 

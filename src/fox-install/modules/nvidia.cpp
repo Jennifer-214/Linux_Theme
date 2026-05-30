@@ -31,6 +31,7 @@
 #include <fstream>
 #include <regex>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <sys/statvfs.h>
 
@@ -140,8 +141,15 @@ void run_nvidia(Context& ctx) {
                  ">/dev/null 2>&1"}) == 0
         && !ctx.force_reapply) {
         ui::skipped("NVIDIA driver packages already installed");
-    } else {
-        sh::pacman({"nvidia-open-dkms", "linux-headers", "libva-nvidia-driver"});
+    } else if (sh::pacman({"nvidia-open-dkms", "linux-headers",
+                           "libva-nvidia-driver"}) != 0) {
+        // Driver install failed → the nvidia modules won't exist. Skip the
+        // rest of the module (incl. the mkinitcpio edit) so we never bake a
+        // MODULES line referencing absent .ko files. Not fatal to the whole
+        // install — same warn-and-continue posture as every other package
+        // step; re-run --nvidia once the package issue is resolved.
+        ui::warn("NVIDIA driver install failed — skipping setup (re-run --nvidia after resolving)");
+        return;
     }
 
     // 2. PCI / DRM detection.
@@ -198,28 +206,11 @@ void run_nvidia(Context& ctx) {
                  " — Hyprland module not written");
     }
 
-    // 4. mkinitcpio MODULES=(nvidia …). Guard against tiny /boot.
-    fs::path mkinit = "/etc/mkinitcpio.conf";
-    if (fs::exists(mkinit) && !file_contains(mkinit, "nvidia_drm")) {
-        long free = boot_free_mb();
-        if (free >= 0 && free < 80) {
-            ui::warn("/boot has only " + std::to_string(free) +
-                     " MB free (need ~135 MB for nvidia initramfs) — skipping mkinitcpio edit");
-            ui::substep("free space in /boot, then re-run `--nvidia`, or accept udev-load fallback");
-        } else if (sh::dry_run()) {
-            ui::substep("[dry-run] would edit /etc/mkinitcpio.conf MODULES=(nvidia …) and rebuild initramfs");
-        } else {
-            sh::run({"sudo", "sed", "-i.foxml-bak",
-                     "-E", "s/^MODULES=\\([^)]*\\)/MODULES=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)/",
-                     "/etc/mkinitcpio.conf"});
-            ui::ok("mkinitcpio MODULES updated (backup: /etc/mkinitcpio.conf.foxml-bak)");
-            sh::run({"sudo", "mkinitcpio", "-P"});
-        }
-    } else if (file_contains(mkinit, "nvidia_drm")) {
-        ui::skipped("mkinitcpio already has nvidia modules");
-    }
-
-    // 5. systemd-boot kernel cmdline.
+    // 4. systemd-boot kernel cmdline (nvidia_drm.modeset=1). Done BEFORE
+    // the initramfs edit so every early-out below (DKMS-not-built, rebuild
+    // recovery) still leaves modeset in the cmdline. It's a harmless no-op
+    // until the module loads, and means a later DKMS fix picks up KMS on
+    // the next boot without needing another --nvidia run.
     fs::path boot_entry = "/boot/loader/entries/arch.conf";
     if (fs::exists(boot_entry) && !file_contains(boot_entry, "nvidia_drm.modeset=1")) {
         if (sh::dry_run()) {
@@ -232,6 +223,63 @@ void run_nvidia(Context& ctx) {
         }
     } else if (!fs::exists(boot_entry)) {
         ui::warn("not using systemd-boot (no " + boot_entry.string() + ") — add `nvidia_drm.modeset=1` to your bootloader kernel cmdline manually");
+    }
+
+    // 5. mkinitcpio MODULES=(nvidia …). Guard against tiny /boot.
+    fs::path mkinit = "/etc/mkinitcpio.conf";
+    if (fs::exists(mkinit) && !file_contains(mkinit, "nvidia_drm")) {
+        long free = boot_free_mb();
+        if (free >= 0 && free < 80) {
+            ui::warn("/boot has only " + std::to_string(free) +
+                     " MB free (need ~135 MB for nvidia initramfs) — skipping mkinitcpio edit");
+            ui::substep("free space in /boot, then re-run `--nvidia`, or accept udev-load fallback");
+        } else if (sh::dry_run()) {
+            ui::substep("[dry-run] would edit /etc/mkinitcpio.conf MODULES=(nvidia …) and rebuild initramfs");
+        } else if (sh::run({"sh", "-c", "modinfo nvidia >/dev/null 2>&1"}) != 0) {
+            // DKMS build didn't produce a loadable nvidia module for this
+            // kernel. Editing MODULES to early-load it would bake a broken
+            // initramfs. Skip the edit — NOT fatal: the GPU still comes up
+            // via the nvidia_drm.modeset=1 cmdline arg (added above) + udev
+            // late-load.
+            ui::warn("nvidia kernel module not built (DKMS may have failed) — "
+                     "skipping mkinitcpio MODULES edit to avoid a broken initramfs");
+            ui::substep("the GPU still initialises via nvidia_drm.modeset=1 + udev late-load");
+            ui::substep("fix DKMS (`sudo dkms autoinstall`), then re-run `--nvidia`");
+        } else if (sh::run({"sudo", "sed", "-i.foxml-bak",
+                     "-E", "s/^MODULES=\\([^)]*\\)/MODULES=(nvidia nvidia_modeset nvidia_uvm nvidia_drm)/",
+                     "/etc/mkinitcpio.conf"}) != 0) {
+            // sed failed → mkinitcpio.conf is untouched (a safe state), so
+            // don't rebuild and don't halt the install — just skip early-KMS.
+            ui::warn("could not edit /etc/mkinitcpio.conf MODULES — skipping nvidia early-KMS");
+        } else {
+            ui::ok("mkinitcpio MODULES updated (backup: /etc/mkinitcpio.conf.foxml-bak)");
+            // If the rebuild fails the freshly-written initramfs may be
+            // incomplete. Restore the pre-edit conf and regenerate a
+            // known-good initramfs before surfacing the failure, so a
+            // failed run can't strand the user at an unbootable image.
+            if (sh::run({"sudo", "mkinitcpio", "-P"}) != 0) {
+                ui::warn("mkinitcpio -P failed — reverting MODULES edit and rebuilding from backup");
+                sh::run({"sudo", "cp", "/etc/mkinitcpio.conf.foxml-bak",
+                         "/etc/mkinitcpio.conf"});
+                if (sh::run({"sudo", "mkinitcpio", "-P"}) != 0) {
+                    // Couldn't rebuild even the pre-nvidia initramfs — the
+                    // boot image may be incomplete. THIS is unsafe to leave,
+                    // so halt the whole install loudly (dispatcher records +
+                    // tails the log; --resume retries).
+                    throw std::runtime_error(
+                        "mkinitcpio -P failed AND the restore rebuild failed — "
+                        "boot image may be incomplete; fix before rebooting");
+                }
+                // Recovered: initramfs is back to its working pre-nvidia
+                // state (modeset cmdline already added above), so the system
+                // is safe. Skip nvidia early-KMS; let the install finish.
+                ui::warn("nvidia early-KMS skipped; initramfs restored to pre-nvidia state");
+                ui::substep("fix DKMS (`sudo dkms autoinstall`), then re-run --nvidia");
+                return;
+            }
+        }
+    } else if (file_contains(mkinit, "nvidia_drm")) {
+        ui::skipped("mkinitcpio already has nvidia modules");
     }
 
     ui::ok("NVIDIA setup complete — reboot to activate");
