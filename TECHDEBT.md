@@ -24,6 +24,8 @@ This document tracks identified areas for improvement, consolidation, and cleanu
 
 - **Inconsistent Prompts:** While major prompts use `read -n 1`, some deeper configuration wizards might still rely on older `read` patterns.
   - *Goal:* Audit all modules for consistent single-key input usage.
+- **Single-flag runs auto-commit headlessly:** In the state-driven path, passing one module flag (e.g. `fox-install --keybind-docs`) selects that module, but `detect` also auto-enables every detected hardware module (GPU, fprint), and with no TTY the *commit this plan?* prompt defaults to *yes* and proceeds — so a one-module invocation silently runs the whole auto-enabled set. Harmless in practice (interactive runs show the preview/gate; headless, `sudo` blocks the root writes) and hit at most ~once per install. Surfaced 2026-05-31 while testing the `keybind_docs` module.
+  - *Goal:* under no TTY, default the commit prompt to **abort / preview-only** unless `--full` / `--yes` is given; optionally add a true `--only X` that runs strictly the named module(s) without the hardware auto-enable.
 
 ## Maintenance Notes
 
