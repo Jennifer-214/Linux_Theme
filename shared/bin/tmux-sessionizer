@@ -45,22 +45,73 @@ prompt_path() {
     printf '%s%s%s' "$lead" "$joined" "$R"
 }
 
+# Resolve a pane's *real* app, not the runtime: gemini, not node. Strict — only
+# upgrades the label when confident. For interpreter runtimes we read the
+# foreground process's args and take the script basename, but reject internal
+# entrypoints (node_modules, /usr/lib, /usr/share, *.js/.mjs/.cjs/.ts) and fall
+# back to the bare runtime name. Non-interpreters (claude, nvim, zsh) and the
+# common case cost no extra process — they pass straight through.
+pane_app() {
+    local cmd="$1" tty="${2#/dev/}"
+    case "$cmd" in
+        node|nodejs|python|python2|python3|ruby|perl) ;;
+        *) printf '%s' "$cmd"; return ;;
+    esac
+    [ -n "$tty" ] && [ "$tty" != - ] || { printf '%s' "$cmd"; return; }
+    local pgid; pgid="$(ps -t "$tty" -o tpgid= 2>/dev/null | awk 'NF{print $1; exit}')"
+    [ -n "$pgid" ] && [ "$pgid" -gt 0 ] 2>/dev/null || { printf '%s' "$cmd"; return; }
+    local args; args="$(ps -p "$pgid" -o args= 2>/dev/null)"
+    [ -n "$args" ] || { printf '%s' "$cmd"; return; }
+    local -a toks; read -ra toks <<< "$args"
+    local i script=''
+    for ((i=1; i<${#toks[@]}; i++)); do            # skip argv0 (the interpreter)
+        case "${toks[i]}" in -*) continue ;; esac
+        script="${toks[i]}"; break
+    done
+    [ -n "$script" ] || { printf '%s' "$cmd"; return; }
+    case "$script" in */node_modules/*|/usr/lib/*|/usr/share/*) printf '%s' "$cmd"; return ;; esac
+    local base="${script##*/}"
+    case "$base" in *.js|*.mjs|*.cjs|*.ts) printf '%s' "$cmd"; return ;; esac
+    printf '%s' "$base"
+}
+
 list_all() {
     local A M R D
-    A="$(fg "${FOX_SESH_C1:-}")"      # accent  (live)
-    M="$(fg "${FOX_SESH_C2:-}")"      # muted   (project)
+    A="$(fg "${FOX_SESH_C1:-}")"      # accent  (live sessions, active pane)
+    M="$(fg "${FOX_SESH_C2:-}")"      # muted   (projects, tree branches)
     R=$'\033[0m'; D=$'\033[2m'
 
-    # Live sessions: ● = current (you-are-here), ◆ = other, both peach.
     local cur; cur="$(tmux display-message -p '#S' 2>/dev/null)"
-    tmux list-sessions -F "#{session_name}${TAB}#{session_windows}" 2>/dev/null \
-    | while IFS="$TAB" read -r s w; do
-        [ -n "$s" ] || continue
-        local m='◆'; [ "$s" = "$cur" ] && m='●'
-        printf 's\t%s%s%s %s %s· %sw%s\t%s\n' "$A" "$m" "$R" "$s" "$D" "$w" "$R" "$s"
-    done
-
     local live; live="$(tmux list-sessions -F '#{session_name}' 2>/dev/null)"
+
+    # Live sessions as a tree (choose-tree, nicer UI). ● = current session /
+    # active pane, ◆ = other. Single-pane sessions collapse to one row with the
+    # app inline ("0 · claude"); multi-pane sessions list each pane below as a
+    # ├/└ branch you can switch to or ^x-kill on its own. kind=s → session
+    # (target=name), kind=p → pane (target=pane_id).
+    local s='' m='' panes='' npanes='' wp='' pid='' tty='' pa='' cmd='' app='' idx=0 br='' dot=''
+    printf '%s\n' "$live" | while IFS= read -r s; do
+        [ -n "$s" ] || continue
+        m='◆'; [ "$s" = "$cur" ] && m='●'
+        panes="$(tmux list-panes -s -t "$s" \
+            -F "#{window_index}.#{pane_index}${TAB}#{pane_id}${TAB}#{pane_tty}${TAB}#{pane_active}${TAB}#{pane_current_command}" 2>/dev/null)"
+        npanes="$(printf '%s\n' "$panes" | grep -c .)"
+        if [ "${npanes:-0}" -le 1 ]; then
+            IFS="$TAB" read -r wp pid tty pa cmd <<< "$panes"
+            app="$(pane_app "$cmd" "$tty")"
+            printf 's\t%s%s%s %s %s· %s%s\t%s\n' "$A" "$m" "$R" "$s" "$D" "$app" "$R" "$s"
+        else
+            printf 's\t%s%s%s %s %s· %sp%s\t%s\n' "$A" "$m" "$R" "$s" "$D" "$npanes" "$R" "$s"
+            idx=0
+            printf '%s\n' "$panes" | while IFS="$TAB" read -r wp pid tty pa cmd; do
+                [ -n "$wp" ] || continue
+                idx=$((idx+1)); br='├'; [ "$idx" -eq "$npanes" ] && br='└'
+                app="$(pane_app "$cmd" "$tty")"; dot=''
+                [ "$pa" = 1 ] && dot="$(printf ' %s●%s' "$A" "$R")"
+                printf 'p\t   %s%s%s %s%s%s  %s%s\t%s\n' "$M" "$br" "$R" "$D" "$wp" "$R" "$app" "$dot" "$pid"
+            done
+        fi
+    done
 
     # Project roots not already open: kind=d, "◇ name", target=path.
     {
@@ -74,11 +125,121 @@ list_all() {
     done
 }
 
+# visible (column) width of a label that may carry the ● active marker —
+# locale-safe: ● collapses to one char whether the shell is UTF-8 or C.
+vis_len() { local s="${1//●/X}"; printf '%s' "${#s}"; }
+hrule()   { local n="$1" s=''; while [ "$n" -gt 0 ]; do s+='─'; n=$((n-1)); done; printf '%s' "$s"; }
+pad_to()  { local s="$1" w="$2" vl; vl="$(vis_len "$s")"; printf '%s%*s' "$s" "$(( w - vl > 0 ? w - vl : 0 ))" ''; }
+
+# ASCII diagram of ONE window's pane arrangement, drawn above the stacked
+# captures so you can see *where* each pane sits, not just what's in it.
+# Proportional boxes for a single row or single column of panes; a one-line
+# list for nested layouts (2x2, L-shapes — no honest box exists) or when the
+# labels won't fit. Sized to the preview's real width (FZF_PREVIEW_COLUMNS).
+pane_map() {
+    local tw="$1" win="${1##*:}"
+    local C; C="$(printf '\033[38;5;%sm' "${FOX_SESH_A3:-138}")"
+    local D=$'\033[2m' R=$'\033[0m'
+    local cols="${FZF_PREVIEW_COLUMNS:-${COLUMNS:-72}}"
+    [ "$cols" -ge 8 ] 2>/dev/null || cols=72
+
+    local -a T=() L=() W=() LBL=()
+    local pi pl pt pw pa ptty pc m app
+    while IFS="$TAB" read -r pi pl pt pw pa ptty pc; do
+        [ -n "$pi" ] || continue
+        m=''; [ "$pa" = 1 ] && m=' ●'
+        app="$(pane_app "$pc" "$ptty")"
+        T+=("$pt"); L+=("$pl"); W+=("$pw")
+        LBL+=("$(printf '%s.%s %s%s' "$win" "$pi" "$app" "$m")")
+    done < <(tmux list-panes -t "$tw" \
+        -F "#{pane_index}${TAB}#{pane_left}${TAB}#{pane_top}${TAB}#{pane_width}${TAB}#{pane_active}${TAB}#{pane_tty}${TAB}#{pane_current_command}" 2>/dev/null)
+
+    local n="${#LBL[@]}" i
+    [ "$n" -ge 2 ] || return 0          # 0/1 pane: the per-pane header says it all
+
+    local same_top=1 same_left=1
+    for ((i=1; i<n; i++)); do
+        [ "${T[i]}" = "${T[0]}" ] || same_top=0
+        [ "${L[i]}" = "${L[0]}" ] || same_left=0
+    done
+
+    # single row → proportional side-by-side boxes
+    if [ "$same_top" = 1 ]; then
+        local inner=$(( cols - (n + 1) )) sumw=0 c acc=0
+        for ((i=0; i<n; i++)); do sumw=$(( sumw + ${W[i]} )); done
+        [ "$sumw" -gt 0 ] || sumw=1
+        local -a cell=()
+        for ((i=0; i<n; i++)); do c=$(( ${W[i]} * inner / sumw )); cell+=("$c"); acc=$(( acc + c )); done
+        cell[$((n-1))]=$(( ${cell[$((n-1))]} + inner - acc ))
+        local fits=1
+        for ((i=0; i<n; i++)); do [ "${cell[i]}" -ge "$(( $(vis_len "${LBL[i]}") + 2 ))" ] || fits=0; done
+        if [ "$fits" = 1 ]; then
+            local top="$C┌" mid="$C│" bot="$C└"
+            for ((i=0; i<n; i++)); do
+                top+="$(hrule "${cell[i]}")"; mid+=" $(pad_to "${LBL[i]}" "$(( ${cell[i]} - 1 ))")│"; bot+="$(hrule "${cell[i]}")"
+                if [ "$i" -lt "$((n-1))" ]; then top+='┬'; bot+='┴'; else top+='┐'; bot+='┘'; fi
+            done
+            printf '%s\n%s\n%s%s\n' "$top" "$mid" "$bot" "$R"
+            return 0
+        fi
+    # single column → stacked boxes
+    elif [ "$same_left" = 1 ]; then
+        local w=$(( cols - 2 )) fits=1
+        for ((i=0; i<n; i++)); do [ "$w" -ge "$(( $(vis_len "${LBL[i]}") + 1 ))" ] || fits=0; done
+        if [ "$fits" = 1 ]; then
+            printf '%s┌%s┐\n' "$C" "$(hrule "$w")"
+            for ((i=0; i<n; i++)); do
+                printf '%s│%s│\n' "$C" "$(pad_to " ${LBL[i]}" "$w")"
+                [ "$i" -lt "$((n-1))" ] && printf '%s├%s┤\n' "$C" "$(hrule "$w")"
+            done
+            printf '%s└%s┘%s\n' "$C" "$(hrule "$w")" "$R"
+            return 0
+        fi
+    fi
+
+    # nested layout, or labels too wide for boxes → one-line list
+    local line="${D}${n} panes${R}  "
+    for ((i=0; i<n; i++)); do
+        [ "$i" -gt 0 ] && line+="${D} │ ${R}"
+        line+="${C}${LBL[i]}${R}"
+    done
+    printf '%s\n' "$line"
+}
+
 do_preview() {
     local line="$1" kind tgt
     kind="${line%%$TAB*}"; tgt="${line##*$TAB}"
-    if [ "$kind" = s ]; then
+    if [ "$kind" = p ]; then
+        # A single pane row: just that pane's capture, with a context header.
+        local pcmd ptty psess pwin papp
+        pcmd="$(tmux display-message -p -t "$tgt" '#{pane_current_command}' 2>/dev/null)"
+        ptty="$(tmux display-message -p -t "$tgt" '#{pane_tty}' 2>/dev/null)"
+        psess="$(tmux display-message -p -t "$tgt" '#{session_name}' 2>/dev/null)"
+        pwin="$(tmux display-message -p -t "$tgt" '#{window_index}' 2>/dev/null)"
+        papp="$(pane_app "$pcmd" "$ptty")"
+        printf '\033[38;5;%sm── %s · %s · win %s ──\033[0m\n' "${FOX_SESH_A3:-138}" "$papp" "$psess" "$pwin"
         tmux capture-pane -ep -t "$tgt" 2>/dev/null
+        return
+    fi
+    if [ "$kind" = s ]; then
+        # Per window: a layout map (where the panes sit) then each pane's
+        # capture stacked below (what's in them). capture-pane with a bare
+        # session name only ever shows one pane, so split panes / background
+        # work (gemini, builds, ...) were invisible before.
+        local first=1 win wp pid ptty pa cmd app mk
+        while IFS= read -r win; do
+            [ -n "$win" ] || continue
+            [ -n "$first" ] || printf '\n'
+            first=
+            pane_map "${tgt}:${win}"
+            tmux list-panes -t "${tgt}:${win}" \
+                -F "#{window_index}.#{pane_index}${TAB}#{pane_id}${TAB}#{pane_tty}${TAB}#{pane_active}${TAB}#{pane_current_command}" \
+                2>/dev/null | while IFS="$TAB" read -r wp pid ptty pa cmd; do
+                app="$(pane_app "$cmd" "$ptty")"; mk=''; [ "$pa" = 1 ] && mk=' ●'
+                printf '\033[38;5;%sm── %s · %s%s ──\033[0m\n' "${FOX_SESH_A3:-138}" "$wp" "$app" "$mk"
+                tmux capture-pane -ep -t "$pid" 2>/dev/null
+            done
+        done < <(tmux list-windows -t "$tgt" -F "#{window_index}" 2>/dev/null)
         return
     fi
     # Prompt-styled header (no eza cyan abs-path) + git branch like the footer,
@@ -102,12 +263,19 @@ do_preview() {
 }
 
 do_kill() {
-    local line="$1" kind tgt cur
+    local line="$1" kind tgt cur me
     kind="${line%%$TAB*}"; tgt="${line##*$TAB}"
-    [ "$kind" = s ] || return 0
-    cur="$(tmux display-message -p '#S' 2>/dev/null)"
-    [ "$tgt" = "$cur" ] && return 0   # never kill the session we're popped over
-    tmux kill-session -t "$tgt" 2>/dev/null
+    if [ "$kind" = s ]; then
+        cur="$(tmux display-message -p '#S' 2>/dev/null)"
+        [ "$tgt" = "$cur" ] && return 0          # never kill the session we're popped over
+        tmux kill-session -t "$tgt" 2>/dev/null
+    elif [ "$kind" = p ]; then
+        cur="$(tmux display-message -p '#S' 2>/dev/null)"
+        me="$(tmux display-message -p -t "$cur" '#{pane_id}' 2>/dev/null)"
+        [ "$tgt" = "$me" ] && return 0           # never kill the pane we're popped over
+        tmux kill-pane -t "$tgt" 2>/dev/null
+    fi
+    return 0
 }
 
 do_rename() {
@@ -120,10 +288,16 @@ do_rename() {
 }
 
 connect() {
-    local line="$1" kind tgt name
+    local line="$1" kind tgt name sess win
     kind="${line%%$TAB*}"; tgt="${line##*$TAB}"
     if [ "$kind" = s ]; then
         tmux switch-client -t "$tgt"
+    elif [ "$kind" = p ]; then
+        sess="$(tmux display-message -p -t "$tgt" '#{session_name}' 2>/dev/null)"
+        win="$(tmux display-message -p -t "$tgt" '#{window_index}' 2>/dev/null)"
+        [ -n "$sess" ] && tmux switch-client -t "$sess"
+        [ -n "$win" ] && tmux select-window -t "$sess:$win" 2>/dev/null
+        tmux select-pane -t "$tgt" 2>/dev/null
     else
         name="$(sess_name "$tgt")"
         tmux has-session -t "=$name" 2>/dev/null \
@@ -149,8 +323,9 @@ sel="$(list_all | fzf \
     --border=rounded --border-label=' sessions ' --border-label-pos=3 \
     --prompt='  ' --pointer='▸' \
     --preview="$SELF --preview {}" \
-    --preview-window='right:55%:wrap:border-left' --preview-label=' preview ' \
+    --preview-window='right,55%,wrap,border-left' --preview-label=' preview ' \
     --header='j/k move · / search · l open · ^r rename · ^x kill · q quit' \
+    --bind='start,resize:transform:[ $((FZF_LINES*2)) -gt $FZF_COLUMNS ] && echo "change-preview-window(down,55%,wrap,border-top)" || echo "change-preview-window(right,55%,wrap,border-left)"' \
     --bind='j:down,k:up,g:first,G:last,l:accept,h:abort,q:abort' \
     --bind="/:unbind($NAV)+change-prompt(search ❯ )+enable-search" \
     --bind="esc:rebind($NAV)+change-prompt(  )+disable-search+clear-query" \
