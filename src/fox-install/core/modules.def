@@ -146,5 +146,6 @@ FOX_MODULE( personalization_done, run_personalize, "--personalization-done", "In
 
 // ── Phase 8: post-install live-apply + end-of-install report (last) ─
 FOX_MODULE( post_install,run_post_install,  "--post-install","Restart waybar/dunst, Nvim Lazy sync, IDE theme",  true  )
+FOX_MODULE( prune_backups,run_prune_backups, "--prune-backups","Prune ~/.theme_backups to the 10 most recent",     true  )
 FOX_MODULE( summary,     run_summary,       "--summary",     "Print end-of-install summary",                     true  )
 FOX_MODULE( next_steps,  run_next_steps,    "--next-steps",  "End-of-install reminders + optional fox-arm chain", true )

@@ -22,6 +22,7 @@ MODE="interactive"
 KEEP=10
 OLDER_THAN=""
 DRY_RUN=0
+QUIET=0              # --quiet: print only a one-line summary (used by the installer)
 
 while (( $# > 0 )); do
     case "$1" in
@@ -30,6 +31,7 @@ while (( $# > 0 )); do
         --keep)        KEEP="${2:-10}"; shift ;;
         --older-than)  OLDER_THAN="${2:-}"; shift ;;
         --dry-run)     DRY_RUN=1 ;;
+        --quiet|-q)    QUIET=1 ;;
         --help|-h)     sed -n '2,18p' "$0" | sed 's/^# \?//'; exit 0 ;;
         *) echo "unknown arg: $1" >&2; exit 2 ;;
     esac
@@ -115,29 +117,39 @@ cmd_prune() {
     done
 
     if (( ${#to_delete[@]} == 0 )); then
-        echo "Nothing to prune (keep=$KEEP, older_than='${OLDER_THAN:-none}')."
+        (( QUIET )) || echo "Nothing to prune (keep=$KEEP, older_than='${OLDER_THAN:-none}')."
         return
     fi
 
-    if (( DRY_RUN )); then
-        echo "Would delete ${#to_delete[@]} backup(s):"
-    else
-        echo "Deleting ${#to_delete[@]} backup(s):"
+    if (( ! QUIET )); then
+        if (( DRY_RUN )); then
+            echo "Would delete ${#to_delete[@]} backup(s):"
+        else
+            echo "Deleting ${#to_delete[@]} backup(s):"
+        fi
     fi
     local freed=0
     for b in "${to_delete[@]}"; do
         local size_kb
         size_kb=$(du -sk "$b" 2>/dev/null | awk '{print $1}')
         freed=$((freed + ${size_kb:-0}))
-        printf '  %s  (%s)\n' "$(fmt_time "$b")" "$(du -sh "$b" 2>/dev/null | awk '{print $1}')"
+        (( QUIET )) || printf '  %s  (%s)\n' "$(fmt_time "$b")" "$(du -sh "$b" 2>/dev/null | awk '{print $1}')"
         if (( ! DRY_RUN )); then
             rm -rf "$b"
         fi
     done
-    if (( DRY_RUN )); then
-        printf 'Would free: %s\n' "$(numfmt --to=iec --suffix=B $((freed * 1024)))"
+    local human
+    human="$(numfmt --to=iec --suffix=B $((freed * 1024)))"
+    if (( QUIET )); then
+        if (( DRY_RUN )); then
+            printf 'Would prune %d backup(s), free %s\n' "${#to_delete[@]}" "$human"
+        else
+            printf 'Pruned %d backup(s), freed %s\n' "${#to_delete[@]}" "$human"
+        fi
+    elif (( DRY_RUN )); then
+        printf 'Would free: %s\n' "$human"
     else
-        printf 'Freed: %s\n' "$(numfmt --to=iec --suffix=B $((freed * 1024)))"
+        printf 'Freed: %s\n' "$human"
     fi
 }
 
