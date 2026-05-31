@@ -4,6 +4,17 @@ All notable changes to this Arch + Hyprland workstation setup.
 
 ## Unreleased
 
+### `KEYBINDS.md` generated from the configs — no more drift
+
+The keybind reference's tmux and Hyprland sections are now **generated** from the configs that actually define the binds (`templates/tmux/.tmux.conf`, `shared/hyprland_modules/keybinds.conf`) instead of hand-maintained and drifting on every bind change. `KEYBINDS.md` feeds three readers — you, `fox-cheatsheet`, and `fox-ai-oracle` — so a stale doc meant the cheatsheet listed dead binds and the oracle answered with wrong ones.
+
+- **`fox dev gen-keybinds`** (new C++ leaf, `src/fox-gen-keybinds/`) parses the configs and rewrites only the marker-fenced (`<!-- BEGIN/END GENERATED: … -->`) tmux + Hyprland regions. The hand-curated nvim section is spliced through byte-for-byte. Descriptions come from the comment above each bind; Hyprland WM dispatchers (`workspace`, `movefocus`, …) auto-derive a default that a comment can override; consecutive same-action binds collapse (`ALT + 1–9`, `F1–F6`). `--check` reports drift without writing, `--strict` also fails on undocumented binds and collisions, `--verbose` lists them with `file:line`.
+- **Two safety nets so the doc can't go stale.** A CI gate (`.github/workflows/keybinds-sync.yml`) runs `--check --strict` on every push/PR — red build if a bind was added without regenerating. And a `keybind_docs` install module regenerates `KEYBINDS.md` just before `specials` deploys it, so a normal install refreshes it even if someone forgot. Neither `fox-cheatsheet` nor `fox-ai-oracle` changed — they read the same file, now guaranteed current.
+- **The collision lint caught a real conflict.** `ALT + G` was bound twice — `togglegroup` *and* Ghost Mode (boss key). Moved `togglegroup` to **`ALT + T`** so Ghost Mode keeps `ALT + G`. Intentional double-binds (the `ALT + Shift + G` float-then-center pair) are marked with a `# gen-keybinds: allow-dup` directive. The copy-mode binds (`v`/`y`/`r`/`Y`) now also appear in the cheatsheet — the old hand-doc format put their label outside the backticks, which silently failed the cheatsheet parser.
+- Kitty has no generated section: its config only `no_op`-disables a few default chords, so there are no real binds to document.
+
+`fox dev gen-keybinds` installs to `~/.local/bin` via the root `make install` that `install.sh` already runs — no extra packaging step.
+
 ### Firefox: translucent glass via compositor opacity
 
 A `firefox-opacity` window rule in `shared/hyprland_modules/rules.conf` makes Firefox translucent focused and unfocused (`opacity = 0.9 0.85`) — uniform whole-window glass like kitty's `background_opacity`, instead of the old focused-opaque / unfocused-only-dimmed behaviour.
