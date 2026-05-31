@@ -32,6 +32,12 @@ Extends `prefix + w` (`shared/bin/tmux-sessionizer`) from a flat session list in
 
 Deploys via the same `shared/bin` → `~/.local/bin` bulk step — no installer changes.
 
+### Installer: prune old config backups on update
+
+Every install run snapshots pre-existing configs into a timestamped `~/.theme_backups/foxml-backup-<ts>/` before overwriting them — the safety net `fox-rollback` restores from. Nothing rotated them, so they accumulated one-per-run, unbounded (145 dirs / 4.8 GB on the dev box). A new Phase-8 `prune_backups` module runs at the tail of a successful install and keeps the **10 most recent** (all `fox-rollback` ever offers to restore anyway), deleting the rest. Default-on (`--no-prune-backups` to skip); dry-run installs report without deleting.
+
+`fox-rollback --prune` already implemented keep-N / `--older-than` / `--dry-run`; the module just calls it, with a new `--quiet` flag for a one-line install summary instead of a per-dir dump. The inline `.foxml-bak` recovery anchors (PAM/fstab/kernel-cmdline) are a separate mechanism and are left untouched.
+
 ### Install-breaking failure modes: prevention at the point of mutation
 
 An audit pass over every module that edits the bootloader, initramfs, fstab, PAM, or sudoers. The project already had good *detection* (`fox-health`) and *recovery* (`recovery_entry`, `.foxml-bak`); these add *prevention* where a module could brick or lock out a machine before either kicked in. Guiding rule: a failure halts the whole install only when it leaves the system in a state it couldn't undo — recoverable failures warn, skip the module, and let the run finish (and are reported), matching the existing warn-and-continue convention.

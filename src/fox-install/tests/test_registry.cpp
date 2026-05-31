@@ -176,6 +176,7 @@ void run_catppuccin_cursor(Context&) {}
 void run_papirus_icons   (Context&) {}
 void run_zsh_plugins     (Context&) {}
 void run_post_install        (Context&) {}
+void run_prune_backups       (Context&) {}
 void run_next_steps          (Context&) {}
 void run_keyring_full        (Context&) {}
 void run_endlessh            (Context&) {}
