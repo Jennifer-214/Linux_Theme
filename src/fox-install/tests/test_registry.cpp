@@ -193,6 +193,7 @@ void run_ufw         (Context&) {}
 void run_wallpaper   (Context&) {}
 void run_render      (Context&) {}
 void run_symlinks    (Context&) {}
+void run_keybind_docs(Context&) {}
 void run_specials    (Context&) {}
 void run_vault       (Context&) {}
 void run_ai              (Context&) {}
