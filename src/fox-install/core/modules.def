@@ -103,6 +103,7 @@ FOX_MODULE_FULL( render,  run_render,        "--render",       "Render templates
 FOX_MODULE( monitors,    run_monitors,      "--monitors",    "Configure Hyprland multi-monitor layout",          true  )
 FOX_MODULE( personalize, run_personalize,   "--personalize", "Per-monitor wallpapers + hyprlock + workspace rules", true  )
 FOX_MODULE( symlinks,    run_symlinks,      "--symlinks",    "Deploy rendered + shared configs (mapping tables)", true  )
+FOX_MODULE( keybind_docs, run_keybind_docs, "--keybind-docs", "Regenerate KEYBINDS.md from the tmux/Hyprland configs", true )
 FOX_MODULE( specials,    run_specials,      "--specials",    "Firefox + Cursor + Bat + Gemini + Claude + bulk dirs", true )
 
 // ── Phase 3: opt-in services ──────────────────────────────────────
