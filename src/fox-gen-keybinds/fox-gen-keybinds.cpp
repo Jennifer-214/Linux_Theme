@@ -31,6 +31,7 @@ struct Bind {
     std::string suffix;      // " (copy mode)" for copy-mode-vi binds, "" otherwise
     std::string desc;        // empty => undocumented
     std::string subsection;  // ### group (hypr); empty for tmux (flat)
+    bool allow_dup = false;  // intentional double-bind — suppress collision lint
     int line = 0;
     std::string display() const { return prefix + base + suffix; }
     std::string collide_key() const { return prefix + "\x1f" + base + "\x1f" + suffix; }
@@ -467,20 +468,26 @@ ParseResult parse_hypr(const std::vector<std::string>& lines) {
 
     std::vector<std::string> block;
     std::string subsection, pending_desc;
+    bool pending_allow_dup = false;
     int lineno = 0;
     for (const auto& raw : lines) {
         ++lineno;
         std::string t = trim(raw);
-        if (starts_with(t, "#")) { block.push_back(trim(t.substr(1))); continue; }
+        if (starts_with(t, "#")) {
+            std::string c = trim(t.substr(1));
+            if (c == "gen-keybinds: allow-dup") { pending_allow_dup = true; continue; }
+            block.push_back(c);
+            continue;
+        }
         bool just_flushed = false;
         if (!block.empty()) {
             process_hypr_block(block, subsection, pending_desc);
             block.clear();
             just_flushed = true;  // pending_desc came from a comment right above this line
         }
-        if (t.empty()) { pending_desc.clear(); continue; }
+        if (t.empty()) { pending_desc.clear(); pending_allow_dup = false; continue; }
 
-        if (!starts_with(t, "bind")) { pending_desc.clear(); continue; }
+        if (!starts_with(t, "bind")) { pending_desc.clear(); pending_allow_dup = false; continue; }
 
         auto eq = t.find('=');
         if (eq == std::string::npos) { pending_desc.clear(); continue; }
@@ -508,6 +515,8 @@ ParseResult parse_hypr(const std::vector<std::string>& lines) {
         b.base = hypr_key(key);
         b.line = lineno;
         b.subsection = subsection;
+        b.allow_dup = pending_allow_dup;
+        pending_allow_dup = false;
         // Priority: bindd inline desc > comment directly above this bind >
         // dispatcher-derived default > a comment carried from an earlier bind
         // (the carried case only catches binds derive can't describe, e.g. the
@@ -524,7 +533,7 @@ ParseResult parse_hypr(const std::vector<std::string>& lines) {
     for (const auto& b : r.binds) {
         auto it = std::find_if(seen.begin(), seen.end(),
                                [&](auto& p) { return p.first == b.collide_key(); });
-        if (it != seen.end()) r.collisions.push_back({b.display(), it->second, b.line});
+        if (it != seen.end()) { if (!b.allow_dup) r.collisions.push_back({b.display(), it->second, b.line}); }
         else seen.push_back({b.collide_key(), b.line});
     }
     return r;

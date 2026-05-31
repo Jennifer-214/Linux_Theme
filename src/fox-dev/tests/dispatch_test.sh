@@ -20,7 +20,7 @@ run "fox-dev --version       → version" 0 "fox-dev 0"    --version
 run "fox-dev bogus           → unknown" 2 "unknown"      bogus
 
 help_out=$("$FOX_DEV" help 2>&1)
-for expected in new-project init build-verify test tail distro-build aider template-lint; do
+for expected in new-project init build-verify test tail distro-build aider template-lint gen-keybinds; do
     grep -q "^  $expected\b" <<<"$help_out" || { echo "FAIL: missing '$expected'" >&2; exit 1; }
     echo "  ok: registry contains '$expected'"
 done

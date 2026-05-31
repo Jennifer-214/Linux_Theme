@@ -20,6 +20,7 @@ FOX_SUBCMD( distro-guide,    fox-distro-guide,    "Walkthrough for the FoxML dis
 // — Refactor / template tooling —
 FOX_SUBCMD( generate-module, fox-generate-module, "Scaffold a new fox-install module from a template" )
 FOX_SUBCMD( template-lint,   fox-template-lint,   "Lint templates/* for palette-token and rendering issues" )
+FOX_SUBCMD( gen-keybinds,    fox-gen-keybinds,    "Regenerate KEYBINDS.md from the tmux/Hyprland configs" )
 
 // — Editor integrations —
 FOX_SUBCMD( aider,           fox-aider,           "aider wrapper that stays in sync with the global model choice" )
