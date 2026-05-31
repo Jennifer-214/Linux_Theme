@@ -4,6 +4,12 @@ All notable changes to this Arch + Hyprland workstation setup.
 
 ## Unreleased
 
+### Firefox: translucent glass via compositor opacity
+
+A `firefox-opacity` window rule in `shared/hyprland_modules/rules.conf` makes Firefox translucent focused and unfocused (`opacity = 0.9 0.85`) — uniform whole-window glass like kitty's `background_opacity`, instead of the old focused-opaque / unfocused-only-dimmed behaviour.
+
+Chrome-only transparency (translucent toolbar, opaque content) via `userChrome.css` was investigated and rejected. On Wayland it requires `mozilla.widget.use-argb-visuals`, which is inseparable from a video-transparency bug Mozilla can't fix on Wayland ([1568569](https://bugzilla.mozilla.org/show_bug.cgi?id=1568569)), on top of a Hyprland dark-over-wallpaper bug ([#3049](https://github.com/hyprwm/Hyprland/issues/3049)). Compositor opacity sidesteps both, works whether Firefox runs XWayland or Wayland-native, and needs no Firefox-side prefs. Deploys via the existing `do_hyprland_modules` step — no installer change. Tune the two numbers in the rule (first = focused, second = unfocused).
+
 ### Tmux: fuzzy session switcher + themed popups
 
 Replaces the stock `prefix + w` (`choose-tree`) with a `display-popup` workflow, plus two more popups. All inherit kitty's opacity and the active palette, so they read as part of the terminal rather than a separate UI — and draw in-terminal, with no rofi/X round-trip.
