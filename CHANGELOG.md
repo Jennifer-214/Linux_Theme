@@ -20,6 +20,18 @@ Replaces the stock `prefix + w` (`choose-tree`) with a `display-popup` workflow,
 - **Session naming.** Sessions opened via the switcher — and panes popped out with `prefix + m`/`M` — are named after their directory, so the pane footer reads `Linux_Theme:1` instead of `9:1`, and pop-outs lost the `pop-<cmd>-<pid>` noise.
 - Popup theming (`popup-border-style`, transparent `popup-style`, and the seeded `FOX_SESH_*` env that carries the palette into popups, which don't source `.zshrc`) lives in the templated `.tmux.conf`, so it re-renders on every theme swap. Scripts deploy via the existing `shared/bin` → `~/.local/bin` bulk step — no installer changes.
 
+### Tmux session switcher: pane tree, layout-aware preview, portrait support
+
+Extends `prefix + w` (`shared/bin/tmux-sessionizer`) from a flat session list into a `choose-tree`-style pane tree with a richer preview — same theming and modal navigation.
+
+- **The list is now a session → pane tree.** Single-pane sessions stay one row with the running app inline (`0 · claude`); multi-pane sessions expand to `├`/`└` pane rows (`1.1 gemini`, `1.2 claude ●`, where `●` marks the active pane). `l`/enter on a pane switches to its session *and* focuses that pane; `^x` on a pane runs `kill-pane` (one pane, not the whole session), guarded so it can never kill the pane the popup is launched over. `^x` on a session row still kills the session.
+- **App names resolve to the real program, not the runtime** — a pane running `node /usr/bin/gemini` reads `gemini`, not `node`. Strict: only interpreter runtimes (node/python/ruby/perl) are probed via the foreground process on the pane's tty, internal entrypoints (`node_modules`, `/usr/lib`, `*.js`) are rejected, and anything uncertain falls back to the bare runtime name. Non-interpreters (`claude`, `nvim`, `zsh`) pass through untouched at no extra cost.
+- **The session preview shows every pane, not just the active one.** `capture-pane` on a bare session name only ever returns the active pane, so split panes and background work (a running build, a second agent) were invisible. It now walks every window and stacks each pane's capture under a `── win.pane · app ──` header.
+- **A layout map heads each window** — an ASCII diagram of where the panes sit, since stacking the captures loses their arrangement. Proportional side-by-side boxes for a single row of panes, stacked boxes for a column, a one-line list for nested layouts (2×2, L-shapes) where no honest box exists. Sized to the live preview width.
+- **The preview is portrait-aware.** On a landscape popup it sits to the right (55%); on a portrait/narrow popup it moves below the list, re-evaluated live on every resize (`LINES*2 > COLUMNS`), so the list keeps full width when there's no horizontal room. Highlighting a single pane row previews just that pane.
+
+Deploys via the same `shared/bin` → `~/.local/bin` bulk step — no installer changes.
+
 ### Install-breaking failure modes: prevention at the point of mutation
 
 An audit pass over every module that edits the bootloader, initramfs, fstab, PAM, or sudoers. The project already had good *detection* (`fox-health`) and *recovery* (`recovery_entry`, `.foxml-bak`); these add *prevention* where a module could brick or lock out a machine before either kicked in. Guiding rule: a failure halts the whole install only when it leaves the system in a state it couldn't undo — recoverable failures warn, skip the module, and let the run finish (and are reported), matching the existing warn-and-continue convention.
