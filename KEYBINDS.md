@@ -549,21 +549,32 @@ Shows indent guides automatically. No keybinds.
 
 ---
 
+<!-- BEGIN GENERATED: tmux — fox dev gen-keybinds; edit templates/tmux/.tmux.conf, not this -->
+
 ## Tmux (Ctrl+a prefix)
 
 | Key | Action |
 |-----|--------|
-| `Ctrl+a c` | New window |
-| `Ctrl+a Tab` | Last window |
-| `Ctrl+a \|` | Split horizontal |
-| `Ctrl+a -` | Split vertical |
-| `Ctrl+a h/j/k/l` | Navigate panes |
-| `Ctrl+a H/J/K/L` | Resize panes |
-| `Ctrl+a q` | Show pane numbers |
-| `Ctrl+a m` | Move current pane to a new tmux session and auto-switch this client to it |
-| `Ctrl+a M` | Pop current pane into its **own** kitty window (drag to a portrait / second monitor) |
+| `Ctrl+a Ctrl+a` | Send a literal Ctrl+a through to the running program |
+| `Ctrl+a h/j/k/l` | Navigate panes — vim-style hjkl |
+| `Ctrl+a H/J/K/L` | Resize the active pane (repeatable — hold the modifier) |
+| `Ctrl+a \|` | Split the active pane left ↔ right |
+| `Ctrl+a -` | Split the active pane top ↕ bottom |
+| `Ctrl+a c` | New window in the current pane's directory |
+| `Ctrl+a Tab` | Jump back to the last-used window |
+| `Ctrl+a q` | Show pane numbers — flash the overlay, then press a number to jump to that pane |
+| `Ctrl+a w` | Fuzzy session switcher / project launcher (replaces choose-tree) |
+| `Ctrl+a G` | Lazygit on the current pane's repo, in a themed float |
+| `Ctrl+a a` | Ask your local model (fox-ai-oracle) without leaving the terminal |
+| `Ctrl+a e` | Mirror keystrokes to all panes in the current window |
+| `Ctrl+a m` | Move current pane to a brand-new session and switch this client to it |
+| `Ctrl+a M` | Pop current pane into its OWN kitty window (drag to portrait monitor) |
+| `Ctrl+a [` | Enter copy / scrollback mode — vi keys to scroll, search (/), and select |
+| `v (copy mode)` | Begin a selection |
+| `y (copy mode)` | Copy the selection to the system clipboard (wl-copy) |
+| `r (copy mode)` | Block-selection toggle |
+| `Y (copy mode)` | Yank the whole line |
 | `Ctrl+a r` | Reload config |
-| `Ctrl+a [` | Enter copy mode |
-| `v` (copy mode) | Begin selection |
-| `y` (copy mode) | Copy to clipboard |
-| `Ctrl+Shift+a` | Send prefix to nested tmux |
+| `Ctrl+Shift+a` | Send the prefix through to a nested tmux session |
+
+<!-- END GENERATED: tmux -->

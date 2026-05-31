@@ -70,6 +70,7 @@ src/fox-sec-health/fox-sec-health
 src/fox-render/fox-render-fast
 src/fox-pulse/fox-pulse
 src/fox-vault/fox-vault
+src/fox-gen-keybinds/fox-gen-keybinds
 src/fox-ai-*/fox-ai-*
 !src/fox-ai-*/fox-ai-*.cpp
 !src/fox-ai-*/fox-ai-*.hpp
