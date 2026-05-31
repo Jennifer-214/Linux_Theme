@@ -471,81 +471,120 @@ Shows indent guides automatically. No keybinds.
 
 ---
 
+<!-- BEGIN GENERATED: hypr — fox dev gen-keybinds; edit shared/hyprland_modules/keybinds.conf, not this -->
+
 ## Hyprland (ALT = mainMod)
 
-### Core Workflow
-| Key | Action |
-|-----|--------|
-| `ALT + Shift + D` | **FoxML SysHub** (rofi-driven launcher: power, BT, Wi-Fi, wallpapers, themes, apps) |
-| `ALT + /` | **Cheatsheet** — searchable keybind picker (parses this file). Enter copies the combo to clipboard. |
-| `ALT + Tab` | Cycle focus through **floating** windows only |
-| `ALT + Ctrl + Tab` | Cycle focus through **tiled** windows only |
-| `ALT + Shift + Tab` | Cycle focus through **all** windows in reverse |
-| `ALT + Shift + R` | Reload Hyprland |
-| `ALT + Shift + X` | Power Menu (Themed Rofi) |
-| `ALT + Shift + K` | Panic kill — terminate runaway processes |
-| `ALT + V` | Clipboard History — text |
-| `ALT + Shift + V` | Clipboard History — images |
-
 ### Applications
+
 | Key | Action |
 |-----|--------|
-| `ALT + Enter` | Terminal (Kitty + Tmux) |
+| `ALT + Enter` | Terminal (kitty + tmux) |
 | `ALT + F` | Firefox |
-| `ALT + Shift + C` | Cursor (VS Code) |
+| `ALT + Shift + C` | Cursor (code editor) |
+| `ALT + Shift + D` | FoxML SysHub — rofi launcher (power, BT, Wi-Fi, wallpapers, themes, apps) |
 | `ALT + Shift + M` | Steam |
-| `ALT + Shift + Y` | Yazi (file manager) |
-| `ALT + Shift + T` | btop (task manager) |
+| `ALT + Shift + Y` | Yazi file manager (toggle) |
+| `ALT + Shift + T` | Btop system monitor (toggle) |
+| `ALT + Shift + N` | Network / Wi-Fi menu |
+| `ALT + Shift + B` | Bluetooth menu |
+| `ALT + Shift + A` | Audio output switcher |
+| `ALT + Shift + P` | Color picker (hyprpicker) |
 | `ALT + Shift + I` | Discord |
 | `ALT + Shift + O` | Screenshot (GUI editor) |
+| `ALT + Shift + L` | Toggle displays off (DPMS) |
+| `ALT + B` | Toggle Waybar |
+| `ALT + W` | Cycle wallpaper |
+| `ALT + V` | Clipboard history — text |
+| `ALT + Shift + V` | Clipboard history — images |
+| `ALT + Shift + K` | Panic kill — terminate runaway processes |
+| `ALT + Shift + X` | Power menu |
+| `ALT + Shift + E` | AI agent triage — pending Claude/Gemini notifications, hjkl, switches tmux to the originating pane |
 
-### Music & Audio
+### Media Keys
+
 | Key | Action |
 |-----|--------|
-| `ALT + Shift + A` | **Audio output switcher** (rofi device list) |
-| `Media Keys` | Play/Pause, Next, Prev, Stop |
+| `Vol +` | Raise output volume |
+| `Vol −` | Lower output volume |
+| `Mute` | Toggle mute |
+| `Bright +` | Raise screen brightness |
+| `Bright −` | Lower screen brightness |
+| `Play` | Play / pause |
+| `Next` | Next track |
+| `Prev` | Previous track |
+| `Stop` | Stop playback |
 
-### Connectivity
+### Window Management
+
 | Key | Action |
 |-----|--------|
-| `ALT + Shift + B` | Bluetooth manager (rofi) |
-| `ALT + Shift + N` | Network / Wi-Fi manager (rofi) |
+| `ALT + T` | Toggle window group (tabbed stack) |
+| `ALT + [` | Previous window in group |
+| `ALT + ]` | Next window in group |
+| `ALT + P` | Pin window above all workspaces |
+| `ALT + S` | Toggle split direction |
+| `ALT + Shift + Q` | Close the active window |
+| `ALT + Shift + G` | Toggle floating |
+| `ALT + Shift + G` | Center the floating window |
+| `ALT + Shift + R` | Reload Hyprland |
 
-### Tools & Utilities
+### Window Focus
+
 | Key | Action |
 |-----|--------|
-| `ALT + Shift + P` | **Color picker** (copy hex to clipboard) |
-| `ALT + Shift + L` | Toggle DPMS (screen sleep) |
-| `ALT + B` | Toggle waybar visibility |
-| `ALT + W` | Cycle wallpaper (fade transition) |
-| `word-count` | Zsh: Word count for current workspace |
-| `fox-clean` | Zsh: system maintenance utility |
-| `fox-fingerprint` | Zsh: biometric setup automation |
-
-### AI Agents
-| Key | Action |
-|-----|--------|
-| `ALT + Shift + E` | **Agent triage** — pending Claude/Gemini notifications, hjkl, switches tmux to the originating pane. Hooks fire: turn complete (Stop/AfterAgent), subagent done (Claude SubagentStop), input/permission needed (Notification, critical urgency). |
-
-### Windows
-| Key | Action |
-|-----|--------|
-| `ALT + Shift + Q` | Kill window |
-| `ALT + Shift + G` | **Snap and Float** (Center current window) |
-| `ALT + P` | Pin window |
-| `ALT + S` | Toggle split |
-| `ALT + h/j/k/l` | Focus left/down/up/right |
+| `ALT + h` | Move focus left |
+| `ALT + j` | Move focus down |
+| `ALT + k` | Move focus up |
+| `ALT + l` | Move focus right |
+| `ALT + Shift + Tab` | Cycle to previous window |
+| `ALT + Tab` | Jump focus through only floating windows (skip tiled) |
+| `ALT + Ctrl + Tab` | Cycle tiled windows |
+| `ALT + /` | Searchable keybind cheatsheet — fuzzy-find any binding by description |
 
 ### Workspaces
+
 | Key | Action |
 |-----|--------|
-| `ALT + .` | Next workspace |
 | `ALT + ,` | Previous workspace |
-| `ALT + 1-9` | Workspace 1-9 |
-| `ALT + Shift + 1-9` | Move window to workspace |
-| `ALT + Scroll` | Switch workspaces |
-| `ALT + Left drag` | Move window |
-| `ALT + Right drag` | Resize window |
+| `ALT + .` | Next workspace |
+| `ALT + 1–9` | Switch to workspace |
+| `ALT + Shift + 1–9` | Move window to workspace |
+
+### Sandbox launcher
+
+| Key | Action |
+|-----|--------|
+| `ALT + Shift + S` | Rofi-driven picker for one-shot sandboxed apps |
+
+### Ghost Mode (boss key)
+
+| Key | Action |
+|-----|--------|
+| `ALT + G` | Boss key — hide waybar, mute audio, opacify + blur everything |
+
+### Window switcher (rofi)
+
+| Key | Action |
+|-----|--------|
+| `ALT + Grave` | Active-windows picker (rofi) |
+
+### TTY switch (diagnostics)
+
+| Key | Action |
+|-----|--------|
+| `Ctrl + ALT + F1–F6` | CTRL+ALT+F1..F6 switches to a kernel TTY while Hyprland is responsive |
+
+### Resize / move submap
+
+| Key | Action |
+|-----|--------|
+| `ALT + R` | Resize / move mode |
+| `h/j/k/l` | Resize the focused window |
+| `Shift + h/j/k/l` | Move the focused window |
+| `Esc/Enter` | Exit this mode |
+
+<!-- END GENERATED: hypr -->
 
 ---
 
