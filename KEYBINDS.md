@@ -471,99 +471,149 @@ Shows indent guides automatically. No keybinds.
 
 ---
 
+<!-- BEGIN GENERATED: hypr — fox dev gen-keybinds; edit shared/hyprland_modules/keybinds.conf, not this -->
+
 ## Hyprland (ALT = mainMod)
 
-### Core Workflow
-| Key | Action |
-|-----|--------|
-| `ALT + Shift + D` | **FoxML SysHub** (rofi-driven launcher: power, BT, Wi-Fi, wallpapers, themes, apps) |
-| `ALT + /` | **Cheatsheet** — searchable keybind picker (parses this file). Enter copies the combo to clipboard. |
-| `ALT + Tab` | Cycle focus through **floating** windows only |
-| `ALT + Ctrl + Tab` | Cycle focus through **tiled** windows only |
-| `ALT + Shift + Tab` | Cycle focus through **all** windows in reverse |
-| `ALT + Shift + R` | Reload Hyprland |
-| `ALT + Shift + X` | Power Menu (Themed Rofi) |
-| `ALT + Shift + K` | Panic kill — terminate runaway processes |
-| `ALT + V` | Clipboard History — text |
-| `ALT + Shift + V` | Clipboard History — images |
-
 ### Applications
+
 | Key | Action |
 |-----|--------|
-| `ALT + Enter` | Terminal (Kitty + Tmux) |
+| `ALT + Enter` | Terminal (kitty + tmux) |
 | `ALT + F` | Firefox |
-| `ALT + Shift + C` | Cursor (VS Code) |
+| `ALT + Shift + C` | Cursor (code editor) |
+| `ALT + Shift + D` | FoxML SysHub — rofi launcher (power, BT, Wi-Fi, wallpapers, themes, apps) |
 | `ALT + Shift + M` | Steam |
-| `ALT + Shift + Y` | Yazi (file manager) |
-| `ALT + Shift + T` | btop (task manager) |
+| `ALT + Shift + Y` | Yazi file manager (toggle) |
+| `ALT + Shift + T` | Btop system monitor (toggle) |
+| `ALT + Shift + N` | Network / Wi-Fi menu |
+| `ALT + Shift + B` | Bluetooth menu |
+| `ALT + Shift + A` | Audio output switcher |
+| `ALT + Shift + P` | Color picker (hyprpicker) |
 | `ALT + Shift + I` | Discord |
 | `ALT + Shift + O` | Screenshot (GUI editor) |
+| `ALT + Shift + L` | Toggle displays off (DPMS) |
+| `ALT + B` | Toggle Waybar |
+| `ALT + W` | Cycle wallpaper |
+| `ALT + V` | Clipboard history — text |
+| `ALT + Shift + V` | Clipboard history — images |
+| `ALT + Shift + K` | Panic kill — terminate runaway processes |
+| `ALT + Shift + X` | Power menu |
+| `ALT + Shift + E` | AI agent triage — pending Claude/Gemini notifications, hjkl, switches tmux to the originating pane |
 
-### Music & Audio
+### Media Keys
+
 | Key | Action |
 |-----|--------|
-| `ALT + Shift + A` | **Audio output switcher** (rofi device list) |
-| `Media Keys` | Play/Pause, Next, Prev, Stop |
+| `Vol +` | Raise output volume |
+| `Vol −` | Lower output volume |
+| `Mute` | Toggle mute |
+| `Bright +` | Raise screen brightness |
+| `Bright −` | Lower screen brightness |
+| `Play` | Play / pause |
+| `Next` | Next track |
+| `Prev` | Previous track |
+| `Stop` | Stop playback |
 
-### Connectivity
+### Window Management
+
 | Key | Action |
 |-----|--------|
-| `ALT + Shift + B` | Bluetooth manager (rofi) |
-| `ALT + Shift + N` | Network / Wi-Fi manager (rofi) |
+| `ALT + T` | Toggle window group (tabbed stack) |
+| `ALT + [` | Previous window in group |
+| `ALT + ]` | Next window in group |
+| `ALT + P` | Pin window above all workspaces |
+| `ALT + S` | Toggle split direction |
+| `ALT + Shift + Q` | Close the active window |
+| `ALT + Shift + G` | Toggle floating |
+| `ALT + Shift + G` | Center the floating window |
+| `ALT + Shift + R` | Reload Hyprland |
 
-### Tools & Utilities
+### Window Focus
+
 | Key | Action |
 |-----|--------|
-| `ALT + Shift + P` | **Color picker** (copy hex to clipboard) |
-| `ALT + Shift + L` | Toggle DPMS (screen sleep) |
-| `ALT + B` | Toggle waybar visibility |
-| `ALT + W` | Cycle wallpaper (fade transition) |
-| `word-count` | Zsh: Word count for current workspace |
-| `fox-clean` | Zsh: system maintenance utility |
-| `fox-fingerprint` | Zsh: biometric setup automation |
-
-### AI Agents
-| Key | Action |
-|-----|--------|
-| `ALT + Shift + E` | **Agent triage** — pending Claude/Gemini notifications, hjkl, switches tmux to the originating pane. Hooks fire: turn complete (Stop/AfterAgent), subagent done (Claude SubagentStop), input/permission needed (Notification, critical urgency). |
-
-### Windows
-| Key | Action |
-|-----|--------|
-| `ALT + Shift + Q` | Kill window |
-| `ALT + Shift + G` | **Snap and Float** (Center current window) |
-| `ALT + P` | Pin window |
-| `ALT + S` | Toggle split |
-| `ALT + h/j/k/l` | Focus left/down/up/right |
+| `ALT + h` | Move focus left |
+| `ALT + j` | Move focus down |
+| `ALT + k` | Move focus up |
+| `ALT + l` | Move focus right |
+| `ALT + Shift + Tab` | Cycle to previous window |
+| `ALT + Tab` | Jump focus through only floating windows (skip tiled) |
+| `ALT + Ctrl + Tab` | Cycle tiled windows |
+| `ALT + /` | Searchable keybind cheatsheet — fuzzy-find any binding by description |
 
 ### Workspaces
+
 | Key | Action |
 |-----|--------|
-| `ALT + .` | Next workspace |
 | `ALT + ,` | Previous workspace |
-| `ALT + 1-9` | Workspace 1-9 |
-| `ALT + Shift + 1-9` | Move window to workspace |
-| `ALT + Scroll` | Switch workspaces |
-| `ALT + Left drag` | Move window |
-| `ALT + Right drag` | Resize window |
+| `ALT + .` | Next workspace |
+| `ALT + 1–9` | Switch to workspace |
+| `ALT + Shift + 1–9` | Move window to workspace |
+
+### Sandbox launcher
+
+| Key | Action |
+|-----|--------|
+| `ALT + Shift + S` | Rofi-driven picker for one-shot sandboxed apps |
+
+### Ghost Mode (boss key)
+
+| Key | Action |
+|-----|--------|
+| `ALT + G` | Boss key — hide waybar, mute audio, opacify + blur everything |
+
+### Window switcher (rofi)
+
+| Key | Action |
+|-----|--------|
+| `ALT + Grave` | Active-windows picker (rofi) |
+
+### TTY switch (diagnostics)
+
+| Key | Action |
+|-----|--------|
+| `Ctrl + ALT + F1–F6` | CTRL+ALT+F1..F6 switches to a kernel TTY while Hyprland is responsive |
+
+### Resize / move submap
+
+| Key | Action |
+|-----|--------|
+| `ALT + R` | Resize / move mode |
+| `h/j/k/l` | Resize the focused window |
+| `Shift + h/j/k/l` | Move the focused window |
+| `Esc/Enter` | Exit this mode |
+
+<!-- END GENERATED: hypr -->
 
 ---
+
+<!-- BEGIN GENERATED: tmux — fox dev gen-keybinds; edit templates/tmux/.tmux.conf, not this -->
 
 ## Tmux (Ctrl+a prefix)
 
 | Key | Action |
 |-----|--------|
-| `Ctrl+a c` | New window |
-| `Ctrl+a Tab` | Last window |
-| `Ctrl+a \|` | Split horizontal |
-| `Ctrl+a -` | Split vertical |
-| `Ctrl+a h/j/k/l` | Navigate panes |
-| `Ctrl+a H/J/K/L` | Resize panes |
-| `Ctrl+a q` | Show pane numbers |
-| `Ctrl+a m` | Move current pane to a new tmux session and auto-switch this client to it |
-| `Ctrl+a M` | Pop current pane into its **own** kitty window (drag to a portrait / second monitor) |
+| `Ctrl+a Ctrl+a` | Send a literal Ctrl+a through to the running program |
+| `Ctrl+a h/j/k/l` | Navigate panes — vim-style hjkl |
+| `Ctrl+a H/J/K/L` | Resize the active pane (repeatable — hold the modifier) |
+| `Ctrl+a \|` | Split the active pane left ↔ right |
+| `Ctrl+a -` | Split the active pane top ↕ bottom |
+| `Ctrl+a c` | New window in the current pane's directory |
+| `Ctrl+a Tab` | Jump back to the last-used window |
+| `Ctrl+a q` | Show pane numbers — flash the overlay, then press a number to jump to that pane |
+| `Ctrl+a w` | Fuzzy session switcher / project launcher (replaces choose-tree) |
+| `Ctrl+a G` | Lazygit on the current pane's repo, in a themed float |
+| `Ctrl+a a` | Ask your local model (fox-ai-oracle) without leaving the terminal |
+| `Ctrl+a e` | Mirror keystrokes to all panes in the current window |
+| `Ctrl+a m` | Move current pane to a brand-new session and switch this client to it |
+| `Ctrl+a M` | Pop current pane into its OWN kitty window (drag to portrait monitor) |
+| `Ctrl+a [` | Enter copy / scrollback mode — vi keys to scroll, search (/), and select |
+| `v (copy mode)` | Begin a selection |
+| `y (copy mode)` | Copy the selection to the system clipboard (wl-copy) |
+| `r (copy mode)` | Block-selection toggle |
+| `Y (copy mode)` | Yank the whole line |
 | `Ctrl+a r` | Reload config |
-| `Ctrl+a [` | Enter copy mode |
-| `v` (copy mode) | Begin selection |
-| `y` (copy mode) | Copy to clipboard |
-| `Ctrl+Shift+a` | Send prefix to nested tmux |
+| `Ctrl+Shift+a` | Send the prefix through to a nested tmux session |
+
+<!-- END GENERATED: tmux -->
