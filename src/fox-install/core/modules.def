@@ -49,6 +49,10 @@ FOX_MODULE( foxml_health_hook, run_foxml_health_hook, "--health-hook",  "Pacman 
 FOX_MODULE( foxml_health_boot, run_foxml_health_boot, "--health-boot",  "Per-boot health probe — A-category checks before graphical.target", true )
 FOX_MODULE( foxml_health_timer, run_foxml_health_timer, "--health-timer", "Daily systemd-user timer running the full health-check set", true )
 FOX_MODULE( makepkg_harden,  run_makepkg_hardening,"--makepkg-harden","Hardened CFLAGS/LDFLAGS for AUR builds",          true  )
+//   safe_updates — installs `informant` (AUR), the pacman news-gate that
+//   makes the updates pill's no-terminal "Apply silently" path safe.
+//   Opt-in: gates ALL pacman behind reading Arch news.
+FOX_MODULE( safe_updates,    run_safe_updates,     "--safe-updates", "informant news-gate for safe background pacman updates", false )
 //   etckeeper — installs a package + writes user systemd units. Root for
 //   pacman, network for AUR fetch. state::check_etckeeper surfaces the
 //   masked-unit hazard explicitly (R5/R6) so the install plan doesn't
