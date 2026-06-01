@@ -19,6 +19,8 @@ This document tracks identified areas for improvement, consolidation, and cleanu
   - *Goal:* Implement a manifest-based or "sync" style deploy that removes files no longer present in the repository.
 - **Hardcoded Dependencies:** The base package list in `deps.cpp` is a static vector.
   - *Goal:* Move package lists to a sidecar JSON or YAML file to allow updates without recompilation.
+- **Updates-pill list cache is dual-written:** both `clock.sh` and `updates.sh` write `$XDG_RUNTIME_DIR/foxml-waybar/updates.list`, but only `updates.sh`'s `fresh()` consults `pacman.log` mtime — `clock.sh`'s does not. Right after an upgrade the tooltip's cached package list can lag by up to one refresh cycle (the count is correct; the list is stale). The click menu always re-runs `checkupdates`, so it's never stale. Surfaced 2026-05-31 with the updates-pill menu rework.
+  - *Goal:* single writer for the list cache, or make `clock.sh`'s `fresh()` also invalidate on `pacman.log` mtime.
 
 ## UX & Interactivity
 
