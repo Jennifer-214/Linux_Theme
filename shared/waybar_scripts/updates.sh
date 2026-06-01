@@ -10,6 +10,7 @@
 
 CACHE_DIR="${XDG_RUNTIME_DIR:-/tmp}/foxml-waybar"
 CACHE="$CACHE_DIR/updates"
+LIST_CACHE="$CACHE_DIR/updates.list"
 mkdir -p "$CACHE_DIR"
 
 fresh() {
@@ -33,7 +34,16 @@ count=0
 if fresh "$CACHE" 600; then
     count=$(<"$CACHE")
 elif command -v checkupdates >/dev/null 2>&1; then
-    count=$(checkupdates 2>/dev/null | wc -l)
+    # One checkupdates run feeds both the count cache and the package
+    # list cache the tooltip + click menu read.
+    list=$(checkupdates 2>/dev/null)
+    if [[ -n "$list" ]]; then
+        count=$(printf '%s\n' "$list" | wc -l)
+        printf '%s\n' "$list" > "$LIST_CACHE"
+    else
+        count=0
+        : > "$LIST_CACHE"
+    fi
     printf '%s' "$count" > "$CACHE"
 fi
 
@@ -84,6 +94,15 @@ elif (( sync_age_h < 24  )); then age_str="${sync_age_h}h ago"
 else
     age_str="$(( sync_age_h / 24 ))d ago"
 fi
-tooltip="$count pending updates\\nlast sync: $age_str\\nclick to inspect + update"
+tooltip="$count pending updates\\nlast sync: $age_str"
+# List the packages on hover when the cached list still matches the
+# count (i.e. not stale after an apply). Cap to 15 — the click menu
+# shows the full set. Real newlines → literal \n for the JSON string.
+if (( count > 0 )) && [[ -s "$LIST_CACHE" ]] && (( $(wc -l < "$LIST_CACHE") == count )); then
+    shown=$(head -n 15 "$LIST_CACHE" | sed 's/ -> / → /' | sed ':a;N;$!ba;s/\n/\\n/g')
+    tooltip="$tooltip\\n\\n$shown"
+    (( count > 15 )) && tooltip="$tooltip\\n… +$(( count - 15 )) more"
+fi
+tooltip="$tooltip\\nclick to inspect + update"
 
 printf '{"text":"%s","tooltip":"%s","class":"%s"}\n' "$text" "$tooltip" "$class"

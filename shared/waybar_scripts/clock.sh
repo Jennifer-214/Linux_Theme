@@ -36,7 +36,17 @@ updates=0
 if fresh "$UPDATES_CACHE" 600; then
     updates=$(<"$UPDATES_CACHE")
 elif command -v checkupdates >/dev/null 2>&1; then
-    updates=$(checkupdates 2>/dev/null | wc -l)
+    # clock.sh is the primary checkupdates runner on the 600s cycle, so
+    # cache the package list here too (the updates pill tooltip + click
+    # menu read it) rather than running checkupdates a second time.
+    _ul=$(checkupdates 2>/dev/null)
+    if [[ -n "$_ul" ]]; then
+        updates=$(printf '%s\n' "$_ul" | wc -l)
+        printf '%s\n' "$_ul" > "$CACHE_DIR/updates.list"
+    else
+        updates=0
+        : > "$CACHE_DIR/updates.list"
+    fi
     printf '%s' "$updates" > "$UPDATES_CACHE"
 fi
 
