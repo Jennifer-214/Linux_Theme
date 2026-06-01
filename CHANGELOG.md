@@ -4,6 +4,14 @@ All notable changes to this Arch + Hyprland workstation setup.
 
 ## Unreleased
 
+### Updates pill: click opens a menu, not a terminal
+
+Clicking the waybar updates pill used to immediately spawn a kitty terminal running `sudo pacman -Syu` on any row. It now opens one rofi modal: every pending package listed read-only (`pkg cur → new`), then action rows — **Apply in terminal** (default highlight) and **Cancel**. Hovering the pill lists the same packages in the tooltip. A `flock` guard stops a double-click from starting two upgrades. (`shared/hyprland_scripts/updates_menu.sh`)
+
+To avoid a second `checkupdates` run, `clock.sh` (the existing 10-minute poller) and `updates.sh` now cache the package list alongside the count; the tooltip and menu read that cache.
+
+**`--safe-updates` (opt-in install module).** Installs `informant`, the pacman hook that blocks any upgrade while there's unread Arch news. With it present the menu grows a third **Apply silently** row that runs `pkexec pacman -Syu --noconfirm` in the background (progress + result via `notify-send`, no terminal). Any non-zero exit — informant news-gate, stale keyring, file conflict, failing hook — falls back to an interactive terminal rather than leaving the system half-updated. Default-off, since informant gates every pacman call until you run `informant read`. (`src/fox-install/modules/safe_updates.cpp`)
+
 ### `KEYBINDS.md` generated from the configs — no more drift
 
 The keybind reference's tmux and Hyprland sections are now **generated** from the configs that actually define the binds (`templates/tmux/.tmux.conf`, `shared/hyprland_modules/keybinds.conf`) instead of hand-maintained and drifting on every bind change. `KEYBINDS.md` feeds three readers — you, `fox-cheatsheet`, and `fox-ai-oracle` — so a stale doc meant the cheatsheet listed dead binds and the oracle answered with wrong ones.
