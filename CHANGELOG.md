@@ -2,7 +2,7 @@
 
 All notable changes to this Arch + Hyprland workstation setup.
 
-## Unreleased
+## 2026-06-01 — v3.0.0
 
 ### Updates pill: click opens a menu, not a terminal
 
