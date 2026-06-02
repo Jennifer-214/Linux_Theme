@@ -211,6 +211,7 @@ void run_xgboost     (Context&) {}
 void run_cpp_pro     (Context&) {}
 void run_monitors    (Context&) {}
 void run_personalize (Context&) {}
+void run_welcome_banner(Context&) {}
 void run_summary     (Context&) {}
 }  // namespace fox_install
 

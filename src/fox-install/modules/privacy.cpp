@@ -36,7 +36,9 @@ constexpr const char* DOH_BODY =
     "DNS=1.1.1.1#cloudflare-dns.com 1.0.0.1#cloudflare-dns.com "
     "8.8.8.8#dns.google 8.8.4.4#dns.google\n"
     "DNSOverHTTPS=yes\n"
-    "FallbackDNS=1.1.1.1 8.8.8.8\n";
+    "FallbackDNS=1.1.1.1 8.8.8.8\n"
+    "LLMNR=no\n"             // kill the LLMNR responder (:5355 LAN-poisoning surface)
+    "MulticastDNS=no\n";     // kill the mDNS responder (:5353)
 
 constexpr const char* DOH_PATH       = "/etc/systemd/resolved.conf.d/foxml-doh.conf";
 constexpr const char* DNSSEC_PATH    = "/etc/systemd/resolved.conf.d/00-foxml-dnssec.conf";

@@ -27,9 +27,14 @@ vim.opt.splitbelow = {{SHOW_WELCOME}}
 vim.opt.splitright = {{SHOW_WELCOME}}
 vim.opt.updatetime = 250
 vim.opt.scrolloff = 8
-vim.opt.colorcolumn = "80"        -- visual ruler only; never reflows text
+vim.opt.colorcolumn = ""          -- ruler off; soft-wrap below adapts to window width
+vim.opt.wrap = true               -- wrap long lines/comments instead of running off-screen
+vim.opt.linebreak = true          -- break at word boundaries, not mid-word
+vim.opt.breakindent = true        -- wrapped lines keep the code's indent
+vim.opt.showbreak = "↪ "          -- mark wrapped continuation lines
 vim.opt.smoothscroll = {{SHOW_WELCOME}}
 vim.opt.cursorline = {{SHOW_WELCOME}}
+vim.opt.cursorlineopt = "number"  -- current-line cue = the peach line number, no black bar
 vim.opt.guicursor = "n-v-c:block,i-ci-ve:ver25,r-cr:hor20,o:hor50"
 vim.opt.clipboard = "unnamedplus"
 vim.opt.autoread = {{SHOW_WELCOME}}           -- reload files changed outside nvim

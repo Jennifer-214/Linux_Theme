@@ -159,8 +159,12 @@ if [[ -r "$layout" ]]; then
 fi
 
 # Idempotency: skip the fade + notify if we'd be applying what's already up,
-# unless --cycle was passed (cycle should always change the image).
-if [[ "$MODE" != "--cycle" ]]; then
+# unless --cycle was passed (cycle should always change the image). Gate on a
+# live awww-daemon: on cold boot the daemon isn't running yet but the .current
+# symlink persists from last session, so an unconditional early-exit here would
+# skip the daemon-start below entirely and leave a black screen. Only honour
+# what's-already-up when the daemon is actually serving it.
+if [[ "$MODE" != "--cycle" ]] && awww query &>/dev/null; then
     current_target=""
     [[ -L "$WALL_DIR/.current" ]] && current_target="$(readlink "$WALL_DIR/.current")"
     [[ "$current_target" == "$filename" ]] && exit 0

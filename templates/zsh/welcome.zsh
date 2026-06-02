@@ -8,8 +8,18 @@ function _caramel_welcome() {
   local DM='\e[2;38;5;{{ANSI_ACCENT1}}m'  # dim clay
   local O='\e[0m'
 
+  # Name banner — the welcome_banner install module rewrites the block below
+  # from the user's chosen text (default is the hand-tuned FOXML). bw is the
+  # banner's column span, used to right-anchor it next to the cat.
+  # foxml:welcome-banner-begin
+  local bw=27
+  local b1="${c1}█▀▀${O} ${c2}█▀█${O} ${c3}▀▄▀${O} ${c4}█▀▄▀█${O} ${c1}█${O}"
+  local b2="${c1}█▀ ${O} ${c2}█ █${O} ${c3} █ ${O} ${c4}█ ▀ █${O} ${c1}█${O}"
+  local b3="${c1}▀  ${O} ${c2}▀▀▀${O} ${c3}▀ ▀${O} ${c4}▀   ▀${O} ${c1}▀▀▀${O}"
+  # foxml:welcome-banner-end
+
   # Right column position for name banner
-  local rc=$((COLUMNS - 27))
+  local rc=$((COLUMNS - bw))
   (( rc < 50 )) && rc=50
   local drc=$((rc + 4))
 
@@ -37,9 +47,9 @@ function _caramel_welcome() {
 
   echo ""
   if [[ "{{SHOW_WELCOME}}" == "true" ]]; then
-    echo -e "         ${c1}/\\_/\\ ${O}\e[${rc}G${c1}█▀▀${O} ${c2}█▀█${O} ${c3}▀▄▀${O} ${c4}█▀▄▀█${O} ${c1}█${O}"
-    echo -e "        ${c1}(${c3}˚${c1}ˎ ${c3}。${c1}7${O}\e[${dc}G${c1}${dow}${O}\e[${rc}G${c1}█▀ ${O} ${c2}█ █${O} ${c3} █ ${O} ${c4}█ ▀ █${O} ${c1}█${O}"
-    echo -e "         ${c1}|、${c3}^${c1} 〵${O}\e[${dc}G${c2}${mon} ${dom}${O} ${DM}·${O} ${c4}${hr}:${min} ${ap}${O}\e[${rc}G${c1}▀  ${O} ${c2}▀▀▀${O} ${c3}▀ ▀${O} ${c4}▀   ▀${O} ${c1}▀▀▀${O}"
+    echo -e "         ${c1}/\\_/\\ ${O}\e[${rc}G${b1}"
+    echo -e "        ${c1}(${c3}˚${c1}ˎ ${c3}。${c1}7${O}\e[${dc}G${c1}${dow}${O}\e[${rc}G${b2}"
+    echo -e "         ${c1}|、${c3}^${c1} 〵${O}\e[${dc}G${c2}${mon} ${dom}${O} ${DM}·${O} ${c4}${hr}:${min} ${ap}${O}\e[${rc}G${b3}"
     echo -e "         ${c1}じし${c3}ˍ${c1},)ノ${O}${theme_tag}\e[${drc}G${dots}"
   else
     echo -e "         ${c1}/\\_/\\ ${O}"
