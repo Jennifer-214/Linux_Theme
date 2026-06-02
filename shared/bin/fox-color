@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""
+fox-color — derive palette colors via OKLCH (perceptually even), so a theme color is COMPUTED from
+the accent instead of hand-picked. One caller today (the nvim + git-delta selection background);
+promote to a native `src/fox-color/` tool when it derives its 3rd color (no abstraction without callers).
+
+  fox-color sel   <hex>           print the selection-bg hex derived from an accent hex
+  fox-color apply <palette.sh>    rewrite NVIM_SEL in a palette to the value derived from its PRIMARY
+
+Selection derive = same HUE as the accent, chroma muted, lightness dropped to a dark background that
+reads under text. OKLCH (not naive HSL) so the muting + darkening stay perceptually even across hues.
+The static result is written into palette.sh because the C++ render engine parses literals, not $(...).
+"""
+import math
+import re
+import sys
+from pathlib import Path
+
+# OKLCH selection target: dark bg, muted but still on-hue (not gray).
+SEL_L = 0.28      # lightness — dark enough to sit under foreground text
+SEL_C_MUL = 0.4   # chroma ×0.4 — muted toward the accent's hue: clearly warm, quiet under text
+
+
+def _srgb_to_linear(c):
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def _linear_to_srgb(c):
+    c = max(0.0, min(1.0, c))
+    return 12.92 * c if c <= 0.0031308 else 1.055 * (c ** (1 / 2.4)) - 0.055
+
+
+def hex_to_oklch(h):
+    h = h.lstrip("#")
+    r, g, b = (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    r, g, b = _srgb_to_linear(r), _srgb_to_linear(g), _srgb_to_linear(b)
+    l = 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b
+    m = 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b
+    s = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b
+    l_, m_, s_ = l ** (1 / 3), m ** (1 / 3), s ** (1 / 3)
+    L = 0.2104542553 * l_ + 0.7936177850 * m_ - 0.0040720468 * s_
+    a = 1.9779984951 * l_ - 2.4285922050 * m_ + 0.4505937099 * s_
+    bb = 0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_
+    return L, math.hypot(a, bb), math.atan2(bb, a)
+
+
+def oklch_to_hex(L, C, H):
+    a, bb = C * math.cos(H), C * math.sin(H)
+    l_ = L + 0.3963377774 * a + 0.2158037573 * bb
+    m_ = L - 0.1055613458 * a - 0.0638541728 * bb
+    s_ = L - 0.0894841775 * a - 1.2914855480 * bb
+    l, m, s = l_ ** 3, m_ ** 3, s_ ** 3
+    r = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s
+    g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s
+    b = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+    r, g, b = _linear_to_srgb(r), _linear_to_srgb(g), _linear_to_srgb(b)
+    return "{:02x}{:02x}{:02x}".format(round(r * 255), round(g * 255), round(b * 255))
+
+
+def derive_selection(accent_hex):
+    L, C, H = hex_to_oklch(accent_hex)
+    return oklch_to_hex(SEL_L, C * SEL_C_MUL, H)
+
+
+def cmd_sel(args):
+    print(derive_selection(args[0]))
+
+
+def cmd_apply(args):
+    p = Path(args[0])
+    txt = p.read_text()
+    m = re.search(r'^PRIMARY=["\']?([0-9A-Fa-f]{6})', txt, re.M)
+    if not m:
+        sys.exit(f"fox-color: no PRIMARY in {p}")
+    sel = derive_selection(m.group(1))
+    new, n = re.subn(r'(^NVIM_SEL=["\']?)[0-9A-Fa-f]{6}(["\']?)', rf"\g<1>{sel}\g<2>", txt, flags=re.M)
+    if n == 0:
+        new = txt.rstrip("\n") + f"\nNVIM_SEL={sel}\n"
+    if new != txt:
+        p.write_text(new)
+    print(f"{p.parent.name}/{p.name}: NVIM_SEL <- {sel} (derived from PRIMARY {m.group(1)})")
+
+
+def main():
+    if len(sys.argv) < 3 or sys.argv[1] not in ("sel", "apply"):
+        sys.exit(__doc__)
+    {"sel": cmd_sel, "apply": cmd_apply}[sys.argv[1]](sys.argv[2:])
+
+
+if __name__ == "__main__":
+    main()
