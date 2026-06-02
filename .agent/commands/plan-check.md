@@ -1,1 +1,0 @@
-../../shared/ai_skills/plan-check.md

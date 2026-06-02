@@ -53,8 +53,6 @@ EOF
 echo "# $PROJECT_NAME — Code Map" > CODE_MAP.md
 tree -L 2 >> CODE_MAP.md
 
-# Plug in skills
-fox-ai-setup-project
 
 echo ""
 echo "$PROJECT_NAME is ready for high-discipline development."

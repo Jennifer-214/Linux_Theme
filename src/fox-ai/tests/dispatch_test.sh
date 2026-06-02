@@ -51,7 +51,7 @@ run "fox-ai bogus             → unknown"    2 "unknown"      bogus
 # a test edit; spot checks catch "I deleted half the registry by
 # accident" without being brittle.)
 help_out=$("$FOX_AI" help 2>&1)
-for expected in doctor snitch review commit cmd swap status strategy setup-project; do
+for expected in doctor snitch review commit cmd swap status strategy; do
     if ! grep -q "^  $expected\b" <<<"$help_out"; then
         echo "FAIL: 'fox-ai help' output missing expected subcommand '$expected'" >&2
         exit 1

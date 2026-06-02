@@ -1,1 +1,0 @@
-../../shared/ai_skills/gen-cpp.md

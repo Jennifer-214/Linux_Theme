@@ -134,7 +134,6 @@ SHARED_MAPPINGS=(
     "bin/fox-ai-quick|~/.local/bin/fox-ai-quick"
     "bin/fox-ai-find|~/.local/bin/fox-ai-find"
     "bin/fox-ai-bench|~/.local/bin/fox-ai-bench"
-    "bin/fox-ai-setup-project|~/.local/bin/fox-ai-setup-project"
     "bin/fox-new-project|~/.local/bin/fox-new-project"
     "bin/fox-distro-guide|~/.local/bin/fox-distro-guide"
     "bin/fox-distro-build|~/.local/bin/fox-distro-build"

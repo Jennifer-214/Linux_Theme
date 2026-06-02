@@ -51,4 +51,3 @@ FOX_SUBCMD( status,        fox-ai-status,        "Print AI/Ollama status (also u
 FOX_SUBCMD( strategy,      fox-ai-strategy,      "Plain-English explanation of a trading strategy config" )
 
 // — Workspace setup —
-FOX_SUBCMD( setup-project, fox-ai-setup-project, "Plug high-discipline AI skills into any workspace" )
