@@ -147,6 +147,24 @@ if [[ -r "$LAYOUT_FILE" ]]; then
     done < <(grep -E '^(PRIMARY|PORTRAIT_OUTPUTS|SECONDARY_OUTPUTS|MONITOR_RESOLUTIONS)=' "$LAYOUT_FILE")
 fi
 
+# Defensive fallback: if the sidecar is empty/stale but we're live under
+# Hyprland with more than one monitor — e.g. logged in with both already
+# connected, so fox-monitor-watch never saw a monitoradded event to refresh
+# the sidecar — derive the layout straight from hyprctl so the per-monitor
+# merge still forms. Skipped at install time (--render-only runs pre-Hyprland
+# with no IPC socket to query), so it never interferes with the render path.
+if [[ -z "$SECONDARY_OUTPUTS" ]] && command -v hyprctl >/dev/null 2>&1 \
+    && command -v jq >/dev/null 2>&1 \
+    && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" || -d "${XDG_RUNTIME_DIR:-/run/user/$UID}/hypr" ]]; then
+    _mons=$(hyprctl monitors -j 2>/dev/null)
+    if [[ -n "$_mons" ]] && (( $(printf '%s' "$_mons" | jq 'length' 2>/dev/null || echo 0) > 1 )); then
+        [[ -n "$PRIMARY" ]] || PRIMARY=$(printf '%s' "$_mons" | jq -r '.[0].name')
+        SECONDARY_OUTPUTS=$(printf '%s' "$_mons" \
+            | jq -r --arg p "$PRIMARY" '.[] | select(.name != $p) | .name' \
+            | tr '\n' ' ' | sed 's/ *$//')
+    fi
+fi
+
 if [[ -n "$SECONDARY_OUTPUTS" && -f "$CONFIG_OUT" && -f "$CONFIG_SECONDARY_OUT" && -n "$PRIMARY" ]] \
     && command -v jq >/dev/null 2>&1; then
     SEC_JSON=$(printf '%s\n' $SECONDARY_OUTPUTS | jq -R . | jq -s .)

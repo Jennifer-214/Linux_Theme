@@ -136,6 +136,17 @@ apply_changes() {
     if [[ -x "$HOME/.config/hypr/scripts/rotate_wallpaper.sh" ]]; then
         "$HOME/.config/hypr/scripts/rotate_wallpaper.sh" || true
     fi
+
+    # Regenerate the waybar config for the new monitor set. start_waybar
+    # re-reads the sidecar we just re-derived, re-runs the per-monitor merge,
+    # and relaunches the bar. Without this a hot-plugged monitor keeps the
+    # bar layout from login — the secondary inherits the full primary bar
+    # instead of the minimal date+workspaces+model one. setsid detaches the
+    # new waybar from this debounce subshell so the next monitor event (which
+    # kills the pending apply) can't take the bar down with it.
+    if [[ -x "$HOME/.config/hypr/scripts/start_waybar.sh" ]]; then
+        setsid "$HOME/.config/hypr/scripts/start_waybar.sh" >/dev/null 2>&1 &
+    fi
 }
 
 # Coalesce burst events into one re-render. read -t blocks waiting for
