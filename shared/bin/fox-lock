@@ -11,6 +11,34 @@
 
 set -u
 
+# ── Idle auto-lock toggle ──────────────────────────────────────────────
+# `fox-lock --idle on|off|toggle|status` flips the power-state-watcher user
+# service, which runs hypridle (idle-timeout lock + before-sleep lock). Kept
+# on fox-lock so `fox sys lock --idle …` is the single lock surface — no extra
+# binary. Returns before the lock path below.
+if [[ "${1:-}" == "--idle" || "${1:-}" == "idle" ]]; then
+    svc="power-state-watcher.service"
+    action="${2:-status}"
+    if [[ "$action" == "toggle" ]]; then
+        systemctl --user is-enabled --quiet "$svc" 2>/dev/null && action="off" || action="on"
+    fi
+    case "$action" in
+        on)  systemctl --user enable  --now "$svc" && echo "idle auto-lock: on"  ;;
+        off) systemctl --user disable --now "$svc" && echo "idle auto-lock: off" ;;
+        status)
+            if systemctl --user is-enabled --quiet "$svc" 2>/dev/null; then
+                pgrep -x hypridle >/dev/null 2>&1 \
+                    && echo "idle auto-lock: on (hypridle running)" \
+                    || echo "idle auto-lock: on (hypridle down — restarts within ~30s)"
+            else
+                echo "idle auto-lock: off"
+            fi
+            ;;
+        *)   echo "usage: fox-lock --idle {on|off|toggle|status}" >&2; exit 2 ;;
+    esac
+    exit 0
+fi
+
 # Already locked → don't stack hyprlock instances. A second hyprlock
 # would race the first for the seat grab and produce undefined behaviour.
 if pgrep -x hyprlock >/dev/null 2>&1; then
