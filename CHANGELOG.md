@@ -2,6 +2,20 @@
 
 All notable changes to this Arch + Hyprland workstation setup.
 
+## 2026-06-02 — v3.0.1
+
+### Firmware updates via fwupd (`--fwupd`)
+
+New install module: installs `fwupd` and enables the `fwupd-refresh.timer` so firmware/UEFI updates flow through LVFS. Non-destructive — package + timer only; nothing is flashed without an explicit `fwupdmgr update`. Opt-out. (`src/fox-install/modules/fwupd.cpp`)
+
+### Per-monitor waybar regenerates on monitor hotplug
+
+Secondary monitors showed the full primary bar instead of the minimal date + workspaces + model readout. `start_waybar` runs once at login; `fox-monitor-watch` re-personalized wallpaper/hyprlock/workspace-rules on a monitor change but never regenerated the waybar config, so a monitor connected after login never got the per-monitor merge. `apply_changes` now re-runs `start_waybar` on every hotplug, and `start_waybar` gained a `hyprctl` fallback for the login-with-both-connected race. (`shared/hyprland_scripts/{fox-monitor-watch,start_waybar}.sh`)
+
+### Selection color derived from the accent — `fox-color`
+
+The nvim Visual and git-delta selection background (`NVIM_SEL`) was a hand-picked hex per theme. `shared/bin/fox-color` now derives it from each theme's accent via OKLCH color math — same hue, muted chroma, dark lightness — so it's a function of the theme, not a constant: a blue theme gets a blue selection, rose gets rose, peach gets a warm brown. Applied across all themes and unit-tested (`tests/test_fox_color.py`, wired into `make test`).
+
 ## 2026-06-01 — v3.0.0
 
 ### Updates pill: click opens a menu, not a terminal
