@@ -82,3 +82,5 @@ src/fox-ask/fox-ask
 # fetches it on first build. Don't commit a 25k-line vendored copy.
 src/fox-intel/json.hpp
 .aider*
+/CLAUDE.md
+/CLAUDE.local.md
