@@ -49,6 +49,56 @@ int main() {
         ++failed;
     }
 
+    auto has = [&](const char* what, const std::string& hay, const std::string& needle) {
+        if (hay.find(needle) == std::string::npos) {
+            std::fprintf(stderr, "FAIL %s:\n  needle absent: %s\n  in: %s\n",
+                         what, needle.c_str(), hay.c_str());
+            ++failed;
+        }
+    };
+    auto lacks = [&](const char* what, const std::string& hay, const std::string& needle) {
+        if (hay.find(needle) != std::string::npos) {
+            std::fprintf(stderr, "FAIL %s:\n  needle present (should be absent): %s\n  in: %s\n",
+                         what, needle.c_str(), hay.c_str());
+            ++failed;
+        }
+    };
+
+    // ── hyprlock colorizer: exact pango spans, ## escaping, FOX OS cycle ──
+    // F=c1 O=c2 X=c3 (space=c4, uncolored) O=c1 S=c2; 3-space track, 4 at word gap.
+    eq("hyprlock FOX OS", banner_to_hyprlock_text("FOX OS"),
+       "<span foreground='##{{CLAY}}'>F</span>   "
+       "<span foreground='##{{WHEAT}}'>O</span>   "
+       "<span foreground='##{{BLUSH}}'>X</span>    "
+       "<span foreground='##{{CLAY}}'>O</span>   "
+       "<span foreground='##{{WHEAT}}'>S</span>");
+    lacks("hyprlock single-# (must escape as ##)", banner_to_hyprlock_text("FOX OS"), "'#{{");
+    // JANE has no space → the 4th glyph exercises c4/ACCENT (FOX OS never does).
+    has("hyprlock c4=ACCENT on 4th glyph", banner_to_hyprlock_text("JANE"),
+        "<span foreground='##{{ACCENT}}'>E</span>");
+
+    // ── nvim Snacks half-block: SAME glyphs as build_banner (zsh welcome), 3 rows,
+    //    per-glyph C1..4 cycle (F=c1 O=c2 X=c3 space=c4 O=c1 S=c2) ──
+    std::string snk = banner_to_snacks_blocks("FOX OS");
+    has("snacks F r1 c1",         snk, "{ \"█▀▀\", hl = \"FoxBannerC1\" },");
+    has("snacks O r1 c2",         snk, "{ \"█▀█\", hl = \"FoxBannerC2\" },");
+    has("snacks X r1 c3",         snk, "{ \"▀▄▀\", hl = \"FoxBannerC3\" },");
+    has("snacks space glyph c4",  snk, "{ \"  \", hl = \"FoxBannerC4\" },");
+    has("snacks post-space O c1", snk, "{ \"█▀█\", hl = \"FoxBannerC1\" },");
+    has("snacks F r2 c1",         snk, "{ \"█▀ \", hl = \"FoxBannerC1\" },");
+    has("snacks F r3 c1",         snk, "{ \"▀  \", hl = \"FoxBannerC1\" },");
+    has("snacks row break",       snk, "{ \"\\n\" },");
+    has("snacks glyph separator", snk, "{ \" \" },");
+    // cross-check: row1 glyph pieces match build_banner's r1 (one shared source)
+    {
+        BannerBlock z = build_banner("FOX OS");
+        for (const char* piece : {"█▀▀", "█▀█", "▀▄▀", "▄▀▀"})
+            if (z.r1.find(piece) == std::string::npos) {
+                std::fprintf(stderr, "FAIL snacks/zsh glyph mismatch: %s\n", piece);
+                ++failed;
+            }
+    }
+
     if (failed == 0) {
         std::printf("banner_font tests: OK\n");
         return 0;

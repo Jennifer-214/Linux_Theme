@@ -17,6 +17,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <string>
 #include <system_error>
 
@@ -55,6 +56,47 @@ void write_sidecar(const fs::path& p, const std::string& text) {
     if (ec) fs::remove(tmp, ec);
 }
 
+// palette.sh as a KEY=value map (values are bare hex; tolerant of quoted/array
+// lines we don't use). Lets the module resolve render tokens at runtime —
+// welcome_banner runs post-render, so the hyprlock spans need literal hex.
+std::map<std::string, std::string> read_palette(const fs::path& p) {
+    std::map<std::string, std::string> m;
+    std::ifstream in(p);
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.empty() || line[0] == '#') continue;
+        auto eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        std::string k = line.substr(0, eq);
+        std::string v = line.substr(eq + 1);
+        while (!v.empty() && (v.back() == '\r' || v.back() == ' ' || v.back() == '\t'))
+            v.pop_back();
+        if (v.size() >= 2 && v.front() == '"' && v.back() == '"') v = v.substr(1, v.size() - 2);
+        m[k] = v;
+    }
+    return m;
+}
+
+// Replace every {{KEY}} in s from the palette map; unknown tokens left intact.
+std::string resolve_tokens(const std::string& s,
+                           const std::map<std::string, std::string>& pal) {
+    std::string out;
+    for (std::size_t i = 0; i < s.size();) {
+        if (s[i] == '{' && i + 1 < s.size() && s[i + 1] == '{') {
+            auto end = s.find("}}", i + 2);
+            if (end != std::string::npos) {
+                std::string key = s.substr(i + 2, end - (i + 2));
+                auto it = pal.find(key);
+                out += (it != pal.end()) ? it->second : s.substr(i, end + 2 - i);
+                i = end + 2;
+                continue;
+            }
+        }
+        out += s[i++];
+    }
+    return out;
+}
+
 }  // namespace
 
 void run_welcome_banner(Context& ctx) {
@@ -78,7 +120,8 @@ void run_welcome_banner(Context& ctx) {
     std::string text = sanitize_banner_text(chosen);
 
     if (sh::dry_run()) {
-        ui::substep("[dry-run] welcome banner would be \"" + text + "\"");
+        ui::substep("[dry-run] banner \"" + text +
+                    "\" → welcome.zsh + hyprlock.conf + nvim/init.lua");
         return;
     }
 
@@ -98,6 +141,31 @@ void run_welcome_banner(Context& ctx) {
 
     if (ok) ui::ok("welcome banner → \"" + text + "\"");
     else    ui::warn("welcome.zsh missing sentinel — banner unchanged");
+
+    // Same WELCOME_TEXT drives the lock screen + editor dashboard ([I-06]),
+    // each colorised natively from the shared warm cycle. hyprlock embeds
+    // palette hex in pango spans, so resolve the {{TOKEN}}s the colorizer emits
+    // against the active palette (post-render: the deployed/rendered copies
+    // need literal hex). nvim references highlight groups → no resolution.
+    auto pal = read_palette(ctx.palette_path);
+    std::string hypr = "    text = " + resolve_tokens(banner_to_hyprlock_text(text), pal);
+    {
+        const std::string b = "# foxml:hyprlock-brand-begin";
+        const std::string e = "# foxml:hyprlock-brand-end";
+        bool hok = splice_sentinel(ctx.config_home / "hypr/hyprlock.conf", b, e, hypr);
+        splice_sentinel(ctx.rendered_dir / "hyprlock/hyprlock.conf", b, e, hypr);
+        if (hok) ui::ok("hyprlock brand → \"" + text + "\"");
+        else     ui::warn("hyprlock.conf missing sentinel — brand unchanged");
+    }
+    {
+        std::string seg = banner_to_snacks_blocks(text);
+        const std::string b = "-- foxml:nvim-banner-begin";
+        const std::string e = "-- foxml:nvim-banner-end";
+        bool nok = splice_sentinel(ctx.config_home / "nvim/init.lua", b, e, seg);
+        splice_sentinel(ctx.rendered_dir / "nvim/init.lua", b, e, seg);
+        if (nok) ui::ok("nvim banner → \"" + text + "\"");
+        else     ui::warn("init.lua missing sentinel — nvim banner unchanged");
+    }
 }
 
 }  // namespace fox_install

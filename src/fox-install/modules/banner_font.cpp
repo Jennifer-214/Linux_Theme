@@ -60,6 +60,12 @@ const Glyph* glyph_for(char c) {
 
 const char* const COL[4] = {"${c1}", "${c2}", "${c3}", "${c4}"};
 
+// The warm cycle in each surface's native color form (same 4 slots as COL):
+// hyprlock = render tokens inside a pango span (## escapes the hyprlang comment
+// char); nvim = highlight-group names defined in init.lua's colorscheme.
+const char* const HYPR_TOK[4]  = {"{{CLAY}}", "{{WHEAT}}", "{{BLUSH}}", "{{ACCENT}}"};
+const char* const SNACKS_HL[4] = {"FoxBannerC1", "FoxBannerC2", "FoxBannerC3", "FoxBannerC4"};
+
 }  // namespace
 
 BannerBlock build_banner(const std::string& text) {
@@ -95,6 +101,52 @@ std::string sanitize_banner_text(const std::string& in) {
     std::size_t e = out.find_last_not_of(' ');
     out = out.substr(s, e - s + 1);
     return out.empty() ? "FOX OS" : out;
+}
+
+std::string banner_to_hyprlock_text(const std::string& text) {
+    std::string out;
+    bool prev_letter = false;
+    int i = 0;
+    for (char c : text) {
+        if (c == ' ') {
+            out += "    ";                         // word gap (4 spaces)
+        } else {
+            if (prev_letter) out += "   ";         // inter-letter tracking (3)
+            out += "<span foreground='##";
+            out += HYPR_TOK[i % 4];
+            out += "'>";
+            out += c;
+            out += "</span>";
+        }
+        prev_letter = (c != ' ');
+        ++i;                                       // every glyph advances the cycle
+    }
+    return out;
+}
+
+std::string banner_to_snacks_blocks(const std::string& text) {
+    std::vector<const Glyph*> gs;
+    for (char c : text)
+        if (const Glyph* g = glyph_for(c)) gs.push_back(g);
+    if (gs.empty()) gs.push_back(glyph_for(' '));
+
+    // Same shape + cycle as build_banner: one colored segment per glyph piece,
+    // a separator space between glyphs, three rows split by { "\n" }.
+    std::string out;
+    for (int row = 0; row < 3; ++row) {
+        if (row) out += "          { \"\\n\" },\n";
+        for (std::size_t i = 0; i < gs.size(); ++i) {
+            const char* p = row == 0 ? gs[i]->r1 : row == 1 ? gs[i]->r2 : gs[i]->r3;
+            if (i) out += "          { \" \" },\n";
+            out += "          { \"";
+            out += p;
+            out += "\", hl = \"";
+            out += SNACKS_HL[i % 4];
+            out += "\" },\n";
+        }
+    }
+    if (!out.empty() && out.back() == '\n') out.pop_back();
+    return out;
 }
 
 }  // namespace fox_install
