@@ -147,6 +147,10 @@ FOX_MODULE( xgboost,     run_xgboost,       "--xgboost",     "Build XGBoost from
 FOX_MODULE( cpp_pro,     run_cpp_pro,       "--cpp-pro",     "C++ toolchain extras (clang/lldb/mold/valgrind/perf)", false )
 
 // ── Phase 7: per-machine personalization ──────────────────────────
+//   welcome_banner — bakes the user's chosen splash text into welcome.zsh's
+//   half-block banner. Runs after render+symlinks have deployed welcome.zsh;
+//   default FOXML is a no-op (template already carries the art).
+FOX_MODULE( welcome_banner, run_welcome_banner, "--welcome-banner", "Custom welcome-banner text (default FOXML)", true )
 FOX_MODULE( personalization_done, run_personalize, "--personalization-done", "Internal marker (do not use)", false )
 
 // ── Phase 8: post-install live-apply + end-of-install report (last) ─

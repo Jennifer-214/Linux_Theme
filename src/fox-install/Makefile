@@ -64,7 +64,7 @@ install: all
 	@cd ../.. && pwd > $(HOME)/.local/share/foxml/repo-dir
 	@echo "  + repo path recorded: $$(cat $(HOME)/.local/share/foxml/repo-dir)"
 
-test: tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log
+test: tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font
 	@./tests/test_registry
 	@./tests/test_state_manifest
 	@./tests/test_classifier
@@ -73,6 +73,7 @@ test: tests/test_registry tests/test_state_manifest tests/test_classifier tests/
 	@./tests/test_wizard
 	@./tests/test_install_lock
 	@./tests/test_subprocess_log
+	@./tests/test_banner_font
 	@bash ./tests/lint_shell_assets.sh
 
 # Test binary links only core/registry.o (the X-macro table); modules
@@ -117,7 +118,11 @@ tests/test_install_lock: tests/test_install_lock.cpp core/install_lock.o
 tests/test_subprocess_log: tests/test_subprocess_log.cpp $(FOX_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) tests/test_subprocess_log.cpp -L$(FOX_COMMON_DIR) -lfox-common -o $@
 
+# banner_font — pure glyph table + constructor. No deps beyond libstdc++.
+tests/test_banner_font: tests/test_banner_font.cpp modules/banner_font.o
+	$(CXX) $(CXXFLAGS) tests/test_banner_font.cpp modules/banner_font.o -o $@
+
 clean:
-	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log
+	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font
 
 .PHONY: all install clean test
