@@ -172,6 +172,7 @@ void run_foxml_health_timer(Context&) {}
 void run_sudo_fingerprint(Context&) {}
 void run_makepkg_hardening(Context&) {}
 void run_safe_updates    (Context&) {}
+void run_fwupd           (Context&) {}
 void run_etckeeper       (Context&) {}
 void run_catppuccin_cursor(Context&) {}
 void run_papirus_icons   (Context&) {}

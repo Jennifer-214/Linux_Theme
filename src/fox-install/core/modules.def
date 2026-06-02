@@ -53,6 +53,8 @@ FOX_MODULE( makepkg_harden,  run_makepkg_hardening,"--makepkg-harden","Hardened 
 //   makes the updates pill's no-terminal "Apply silently" path safe.
 //   Opt-in: gates ALL pacman behind reading Arch news.
 FOX_MODULE( safe_updates,    run_safe_updates,     "--safe-updates", "informant news-gate for safe background pacman updates", false )
+//   fwupd — firmware/UEFI updates via LVFS. Package + refresh timer; non-destructive.
+FOX_MODULE( fwupd,           run_fwupd,            "--fwupd",        "Firmware/UEFI updates via fwupd + LVFS refresh timer", true )
 //   etckeeper — installs a package + writes user systemd units. Root for
 //   pacman, network for AUR fetch. state::check_etckeeper surfaces the
 //   masked-unit hazard explicitly (R5/R6) so the install plan doesn't
