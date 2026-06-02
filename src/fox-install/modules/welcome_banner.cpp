@@ -1,12 +1,12 @@
 // modules/welcome_banner.cpp — bake a custom name banner into welcome.zsh.
 //
-// The zsh splash draws a half-block banner (default "FOXML") to the right of
+// The zsh splash draws a half-block banner (default "FOX OS") to the right of
 // the cat. This module lets the user pick their own text once, at install:
 // it constructs the three banner rows from banner_font's glyph table and
 // splices them into the `# foxml:welcome-banner` block of the deployed +
 // rendered welcome.zsh. The choice is stored in ~/.config/foxml/welcome.conf
-// so reinstalls stay non-interactive. Default FOXML is left untouched (the
-// template already carries the hand-tuned art).
+// so reinstalls stay non-interactive. Every run re-splices (incl. the default),
+// so the template's baked block is just the pre-install fallback.
 
 #include "banner_font.hpp"
 #include "../core/context.hpp"
@@ -67,12 +67,12 @@ void run_welcome_banner(Context& ctx) {
     if (!stored.empty()) {
         chosen = stored;                          // reinstall: keep prior choice
     } else if (ui::tty() && !ctx.assume_yes && !sh::dry_run()) {
-        std::cout << "  banner text (A-Z 0-9, blank = FOXML): " << std::flush;
+        std::cout << "  banner text (A-Z 0-9, blank = FOX OS): " << std::flush;
         std::string line;
         std::getline(std::cin, line);
-        chosen = line.empty() ? std::string("FOXML") : line;
+        chosen = line.empty() ? std::string("FOX OS") : line;
     } else {
-        chosen = "FOXML";
+        chosen = "FOX OS";
     }
 
     std::string text = sanitize_banner_text(chosen);
@@ -83,11 +83,6 @@ void run_welcome_banner(Context& ctx) {
     }
 
     write_sidecar(sidecar, text);                 // persist for reinstalls
-
-    if (text == "FOXML") {                         // template default already baked
-        ui::skipped("default banner (FOXML)");
-        return;
-    }
 
     BannerBlock b = build_banner(text);
     std::string content =

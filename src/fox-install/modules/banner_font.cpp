@@ -91,10 +91,10 @@ std::string sanitize_banner_text(const std::string& in) {
         if (out.size() >= 12) break;
     }
     std::size_t s = out.find_first_not_of(' ');
-    if (s == std::string::npos) return "FOXML";
+    if (s == std::string::npos) return "FOX OS";
     std::size_t e = out.find_last_not_of(' ');
     out = out.substr(s, e - s + 1);
-    return out.empty() ? "FOXML" : out;
+    return out.empty() ? "FOX OS" : out;
 }
 
 }  // namespace fox_install

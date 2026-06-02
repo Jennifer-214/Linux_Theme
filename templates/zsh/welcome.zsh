@@ -9,13 +9,13 @@ function _caramel_welcome() {
   local O='\e[0m'
 
   # Name banner — the welcome_banner install module rewrites the block below
-  # from the user's chosen text (default is the hand-tuned FOXML). bw is the
+  # from the user's chosen text (default FOX OS). bw is the
   # banner's column span, used to right-anchor it next to the cat.
   # foxml:welcome-banner-begin
-  local bw=27
-  local b1="${c1}█▀▀${O} ${c2}█▀█${O} ${c3}▀▄▀${O} ${c4}█▀▄▀█${O} ${c1}█${O}"
-  local b2="${c1}█▀ ${O} ${c2}█ █${O} ${c3} █ ${O} ${c4}█ ▀ █${O} ${c1}█${O}"
-  local b3="${c1}▀  ${O} ${c2}▀▀▀${O} ${c3}▀ ▀${O} ${c4}▀   ▀${O} ${c1}▀▀▀${O}"
+  local bw=28
+  local b1="${c1}█▀▀${O} ${c2}█▀█${O} ${c3}▀▄▀${O} ${c4}  ${O} ${c1}█▀█${O} ${c2}▄▀▀${O}"
+  local b2="${c1}█▀ ${O} ${c2}█ █${O} ${c3} █ ${O} ${c4}  ${O} ${c1}█ █${O} ${c2} ▀▄${O}"
+  local b3="${c1}▀  ${O} ${c2}▀▀▀${O} ${c3}▀ ▀${O} ${c4}  ${O} ${c1}▀▀▀${O} ${c2}▀▀ ${O}"
   # foxml:welcome-banner-end
 
   # Right column position for name banner

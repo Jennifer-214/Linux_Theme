@@ -1,5 +1,5 @@
 // Unit test for the pure banner constructor (modules/banner_font.cpp).
-// Locks the FOXML output + width and the sanitiser contract.
+// Locks the FOX OS default + the builder output and the sanitiser contract.
 
 #include "../modules/banner_font.hpp"
 
@@ -19,9 +19,9 @@ int main() {
     };
 
     // ── sanitiser ──
-    eq("sanitize lower",     sanitize_banner_text("fox ml"), "FOX ML");
+    eq("sanitize lower",     sanitize_banner_text("fox os"), "FOX OS");
     eq("sanitize strip",     sanitize_banner_text("a@b!c"),  "ABC");
-    eq("sanitize blank",     sanitize_banner_text("   "),    "FOXML");
+    eq("sanitize blank",     sanitize_banner_text("   "),    "FOX OS");
     eq("sanitize trim",      sanitize_banner_text("  hi "),  "HI");
     if (sanitize_banner_text("ABCDEFGHIJKLMNOP").size() != 12) {
         std::fprintf(stderr, "FAIL sanitize cap: len=%zu\n",
@@ -34,6 +34,12 @@ int main() {
     if (b.width != 27) { std::fprintf(stderr, "FAIL width: %d\n", b.width); ++failed; }
     eq("FOXML r1", b.r1,
        "${c1}█▀▀${O} ${c2}█▀█${O} ${c3}▀▄▀${O} ${c4}█▀▄▀█${O} ${c1}█  ${O}");
+
+    // ── FOX OS default: width 28, space glyph (c4, 2-wide blank), cycle continues O→c1 S→c2 ──
+    BannerBlock f = build_banner("FOX OS");
+    if (f.width != 28) { std::fprintf(stderr, "FAIL FOX OS width: %d\n", f.width); ++failed; }
+    eq("FOX OS r1", f.r1,
+       "${c1}█▀▀${O} ${c2}█▀█${O} ${c3}▀▄▀${O} ${c4}  ${O} ${c1}█▀█${O} ${c2}▄▀▀${O}");
 
     // ── colour cycle wraps past 4 (5th glyph back to c1) ──
     BannerBlock e = build_banner("ABCDE");

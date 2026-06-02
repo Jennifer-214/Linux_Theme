@@ -648,7 +648,7 @@ local plugins = {
          |、^ 〵
             じしˍ,)ノ
 
-    ~ F o x M L ~
+    ~ F o x O S ~
           ]],
           keys = {
             { icon = " ", key = "f", desc = "Find File", action = ":Telescope find_files" },
