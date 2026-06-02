@@ -11,6 +11,7 @@
 
 #include "personalize.hpp"
 
+#include "../core/splice.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
@@ -58,46 +59,8 @@ bool parse_entry(const std::string& entry, std::string& name, std::string& res) 
     return !name.empty() && !res.empty();
 }
 
-// Helper to apply the same splice logic to two files (e.g. config and rendered).
-bool splice_file(const fs::path& p, const std::string& begin_sentinel,
-                 const std::string& end_sentinel, const std::string& new_content) {
-    if (!fs::exists(p)) return false;
-    std::ifstream in(p);
-    std::string body((std::istreambuf_iterator<char>(in)),
-                      std::istreambuf_iterator<char>());
-    in.close();
-
-    if (body.find(begin_sentinel) == std::string::npos) return false;
-
-    std::istringstream iss(body);
-    std::ostringstream out;
-    std::string line;
-    bool skip = false;
-    while (std::getline(iss, line)) {
-        if (line.find(begin_sentinel) != std::string::npos) {
-            out << line << "\n" << new_content << "\n";
-            skip = true;
-            continue;
-        }
-        if (line.find(end_sentinel) != std::string::npos) {
-            skip = false;
-            out << line << "\n";
-            continue;
-        }
-        if (!skip) out << line << "\n";
-    }
-
-    fs::path tmp = p;
-    tmp += ".foxin.tmp";
-    {
-        std::ofstream w(tmp);
-        w << out.str();
-    }
-    std::error_code ec;
-    fs::rename(tmp, p, ec);
-    if (ec) { fs::remove(tmp); return false; }
-    return true;
-}
+// The sentinel splice helper now lives in core/splice.hpp (splice_sentinel),
+// shared with the welcome_banner module.
 
 }  // namespace
 
@@ -286,8 +249,8 @@ bool personalize_hyprlock(const Context& ctx, const sidecar::Layout& layout) {
     // it as a manual live edit.
     const std::string b_sentinel = "# foxml:hyprlock-backgrounds-begin";
     const std::string e_sentinel = "# foxml:hyprlock-backgrounds-end";
-    splice_file(hyprlock, b_sentinel, e_sentinel, new_blocks);
-    splice_file(rendered, b_sentinel, e_sentinel, new_blocks);
+    splice_sentinel(hyprlock, b_sentinel, e_sentinel, new_blocks);
+    splice_sentinel(rendered, b_sentinel, e_sentinel, new_blocks);
 
     if (fallbacks > 0) {
         ui::ok("hyprlock personalised for " + std::to_string(mons) +
@@ -314,8 +277,8 @@ bool personalize_workspace_rules(const Context& ctx, const sidecar::Layout& layo
     
     const std::string b_sentinel = "# foxml:workspace-pin-begin";
     const std::string e_sentinel = "# foxml:workspace-pin-end";
-    splice_file(rules, b_sentinel, e_sentinel, new_line);
-    splice_file(rendered, b_sentinel, e_sentinel, new_line);
+    splice_sentinel(rules, b_sentinel, e_sentinel, new_line);
+    splice_sentinel(rendered, b_sentinel, e_sentinel, new_line);
 
     ui::ok("workspace pin → " + layout.primary);
     return true;
