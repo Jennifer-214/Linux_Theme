@@ -86,5 +86,7 @@ __pycache__/
 /CONTRIBUTING.md
 /INVARIANTS.md
 /RECOVERY.md
-/KEYBINDS.md
 /SECURITY.md
+
+# fox-intel embeddings index — regenerated on build; 2.7MB, not for the repo
+.foxml_index.json
