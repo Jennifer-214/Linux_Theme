@@ -43,6 +43,7 @@ inline constexpr Mapping TEMPLATE_MAPPINGS[] = {
     // Zsh
     { "zsh/.zshrc",                   "~/.zshrc" },
     { "zsh/colors.zsh",               "~/.config/zsh/colors.zsh" },
+    { "zsh/fzf-tab.zsh",              "~/.config/zsh/fzf-tab.zsh" },
     { "zsh/welcome.zsh",              "~/.config/zsh/welcome.zsh" },
     { "zsh/caramel.zsh-theme",        "~/.oh-my-zsh/themes/caramel.zsh-theme" },
 
