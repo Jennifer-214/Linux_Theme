@@ -2,6 +2,12 @@
 
 All notable changes to this Arch + Hyprland workstation setup.
 
+## 2026-06-02 — v3.0.2
+
+### Unified entry banner — one source, multicolor across terminal · lock · editor
+
+The name banner now renders from a single source (`WELCOME_TEXT`, default `FOX OS`) on all three entry surfaces — the shell welcome (`welcome.zsh`), the lock screen (`hyprlock`), and the Neovim dashboard (Snacks) — each colorized natively from one warm cycle (clay·wheat·mauve·sage). Previously each surface hardcoded its own copy of the brand and only the terminal honored a custom `WELCOME_TEXT`; a custom name now propagates everywhere. Terminal + editor share the half-block glyph art; the lock screen renders per-letter color via pango `<span>` markup. `welcome_banner` splices each surface from the one source — a new invariant ([I-06]: single source → render, never hand-copied across files). (`src/fox-install/modules/{banner_font,welcome_banner}.cpp`, `templates/{zsh/welcome.zsh,hyprlock/hyprlock.conf,nvim/init.lua}`)
+
 ## 2026-06-02 — v3.0.1
 
 ### Firmware updates via fwupd (`--fwupd`)
