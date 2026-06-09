@@ -27,12 +27,13 @@ constexpr const char* SERVICE_BODY =
     "[Service]\n"
     "Type=oneshot\n"
     "# -uf : upgrades-only — only CVEs with a fix available.\n"
+    "# %% is systemd unit escaping — a bare %s would expand to the user shell.\n"
     "ExecStart=/bin/sh -c 'out=$(arch-audit -uf 2>/dev/null); "
         "if [ -n \"$out\" ]; then "
-        "count=$(printf \"%s\" \"$out\" | wc -l); "
+        "count=$(printf \"%%s\" \"$out\" | wc -l); "
         "notify-send -u critical -t 30000 "
         "\"arch-audit: $count package(s) with available fixes\" "
-        "\"$(printf \"%s\" \"$out\" | head -10)\"; "
+        "\"$(printf \"%%s\" \"$out\" | head -10)\"; "
         "fi'\n";
 
 constexpr const char* TIMER_BODY =

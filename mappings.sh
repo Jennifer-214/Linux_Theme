@@ -1345,7 +1345,7 @@ Type=oneshot
 # avoid \`sudo git log\` here because user systemd units have no TTY
 # for password prompts; stat works on the directory entry without
 # needing read access to the .git contents.
-ExecStart=/bin/sh -c 'head_mtime=\$(stat -c %Y /etc/.git/HEAD 2>/dev/null || echo 0); now=\$(date +%s); age=\$((now - head_mtime)); if [ "\$age" -gt 30 ]; then fox-dispatch "etc-change" "/etc modified outside an etckeeper commit (paths: ssh/sudoers.d/pam.d/ufw/fail2ban/audit/sysctl.d). Run: sudo etckeeper unclean" 2>/dev/null || true; fi'
+ExecStart=/bin/sh -c 'stamp=\$(stat -c %%Y /var/lib/foxml/etc-last-commit 2>/dev/null || echo 0); now=\$(date +%%s); age=\$((now - stamp)); if [ "\$age" -gt 30 ]; then fox-dispatch "etc-change" "/etc modified outside an etckeeper commit (paths: ssh/sudoers.d/pam.d/ufw/fail2ban/audit/sysctl.d). Run: sudo etckeeper unclean" 2>/dev/null || true; fi'
 EOF
         systemctl --user daemon-reload >/dev/null 2>&1
         systemctl --user enable --now fox-etcwatch.path >/dev/null 2>&1
@@ -2981,10 +2981,10 @@ Type=oneshot
 ExecStart=/bin/sh -c '\
     out=$(arch-audit -uf 2>/dev/null); \
     if [ -n "$out" ]; then \
-        count=$(printf "%s" "$out" | wc -l); \
+        count=$(printf "%%s" "$out" | wc -l); \
         notify-send -u critical -t 30000 \
             "arch-audit: $count package(s) with available fixes" \
-            "$(printf "%s" "$out" | head -10)"; \
+            "$(printf "%%s" "$out" | head -10)"; \
     fi'
 EOF
 

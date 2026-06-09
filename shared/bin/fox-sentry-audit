@@ -76,7 +76,10 @@ act_install() {
 
     # Persistent audit rule. Live + survives reboot via augenrules.
     local rules=/etc/audit/rules.d/99-foxml.rules
-    if ! sudo grep -q "key=foxml_honey" "$rules" 2>/dev/null; then
+    # NB: the rule is written with `-k`; auditctl -l prints it back as
+    # `key=`. Grep for what's IN THE FILE or this guard never matches
+    # (the bug that stacked 10 duplicate rules and failed audit-rules.service).
+    if ! sudo grep -q -- "-k foxml_honey" "$rules" 2>/dev/null; then
         echo "-w $path -p r -k foxml_honey" | sudo tee -a "$rules" >/dev/null
         sudo augenrules --load >/dev/null 2>&1 || true
         echo "${C_GRN}✓ auditd rule added: -w $path -p r -k foxml_honey${C_RST}"
@@ -117,7 +120,7 @@ act_uninstall() {
     # Remove audit rule.
     local rules=/etc/audit/rules.d/99-foxml.rules
     if [[ -f "$rules" ]]; then
-        sudo sed -i '/key=foxml_honey/d' "$rules" 2>/dev/null
+        sudo sed -i '/-k foxml_honey/d' "$rules" 2>/dev/null
         sudo augenrules --load >/dev/null 2>&1 || true
     fi
     # Remove honey file.
