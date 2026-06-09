@@ -101,6 +101,7 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
     }
 
     bool provided_explicit_module = false;
+    std::vector<bool> explicitly_disabled(MODULES_COUNT, false);
 
     auto switch_to_exclusive = [&]() {
         if (out.only) return;
@@ -255,6 +256,7 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
         if (idx != SIZE_MAX) {
             // Note: --no-foo doesn't trigger exclusive mode; it just disables.
             out.module_enabled[idx] = false;
+            explicitly_disabled[idx] = true;
             continue;
         }
 
@@ -279,11 +281,15 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
     // If we switched to exclusive mode because of flags like --render,
     // we MUST ensure discovery/theme modules stay on, otherwise the
     // selected module might fail (no palette, no hardware info).
+    // An explicit --no-<slug> outranks this convenience re-enable —
+    // otherwise --no-preflight is accepted but silently ignored.
     if (provided_explicit_module) {
         static const char* REQ[] = { "detect", "preflight", "theme", nullptr };
         for (auto** s = REQ; *s; ++s) {
             std::size_t idx = find_by_slug(*s);
-            if (idx != SIZE_MAX) out.module_enabled[idx] = true;
+            if (idx != SIZE_MAX && !explicitly_disabled[idx]) {
+                out.module_enabled[idx] = true;
+            }
         }
     }
 

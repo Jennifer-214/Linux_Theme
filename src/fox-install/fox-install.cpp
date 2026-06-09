@@ -362,9 +362,20 @@ int main(int argc, char** argv) {
         // detect's hardware gates). If the legacy path would have
         // skipped a module, the wizard starts with that module on
         // Skip — user can flip it back if they really want.
+        // The reverse direction matters just as much: an EXPLICIT module
+        // flag (--secure, --only foo) is an operator demand — a Noop
+        // classification must not silently deselect it (accepted flags
+        // that do nothing are how `--etckeeper` got ignored). Blocked
+        // still wins (a masked unit can't run), and Conflict keeps its
+        // consent flow.
         for (std::size_t i = 0; i < plan.modules.size() && i < MODULES_COUNT; ++i) {
             if (!parsed.module_enabled[i]) {
                 plan.modules[i].action = wizard::Action::Skip;
+            } else if (parsed.only && !parsed.full
+                       && plan.modules[i].action == wizard::Action::Skip
+                       && plan.modules[i].classification.status
+                              != state::Status::Blocked) {
+                plan.modules[i].action = wizard::Action::Run;
             }
         }
 

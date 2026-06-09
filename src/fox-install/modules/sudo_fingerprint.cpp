@@ -141,7 +141,7 @@ void run_sudo_fingerprint(Context& ctx) {
                      " yet — run `fprintd-enroll` first, then re-run with --sudo-fingerprint");
             return;
         case Enroll::Unknown:
-            ui::warn("couldn't read enrollment (polkit denies fprintd-list outside an active session)");
+            ui::warn("couldn't read enrollment — polkit denied fprintd-list (strict mode without an auth agent, or no active session)");
             ui::substep("proceeding anyway — pam_fprintd is `sufficient`, so it safely "
                         "falls through to the password prompt if no finger matches");
             break;
