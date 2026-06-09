@@ -21,6 +21,7 @@
 #include <fstream>
 #include <iostream>
 #include <regex>
+#include <set>
 #include <sstream>
 #include <string>
 #include <unistd.h>
@@ -578,6 +579,36 @@ void install_auditd() {
         }
         sh::run({"sh", "-c", "sudo augenrules --load >/dev/null 2>&1 || true"});
         ui::ok("auditd watch rules written to " + rules.string());
+    } else {
+        // Self-heal exact-duplicate lines. fox-sentry-audit's old append
+        // guard never matched the line it wrote and stacked 10 honey
+        // rules; auditctl rejects the duplicate ("Rule exists") and the
+        // whole audit-rules.service fails at boot.
+        std::set<std::string> seen;
+        std::string dedup;
+        bool changed = false;
+        std::istringstream is(existing);
+        std::string line;
+        while (std::getline(is, line)) {
+            if (!line.empty() && !seen.insert(line).second) {
+                changed = true;
+                continue;
+            }
+            dedup += line;
+            dedup += '\n';
+        }
+        if (changed) {
+            if (write_root_file(rules, dedup, "0640")) {
+                sh::run({"sh", "-c",
+                         "sudo augenrules --load >/dev/null 2>&1 || true"});
+                sh::run({"sh", "-c",
+                         "sudo systemctl restart audit-rules >/dev/null 2>&1 || true"});
+                ui::ok("audit rules deduplicated (duplicates fail audit-rules.service at boot)");
+            } else {
+                ui::warn("audit rules carry duplicate lines but the rewrite failed — "
+                         "dedupe " + rules.string() + " manually");
+            }
+        }
     }
     if (!systemctl_active("auditd")) {
         if (sh::systemctl_enable("auditd", /*user=*/false) == 0) {

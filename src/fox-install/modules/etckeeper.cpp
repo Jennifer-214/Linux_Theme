@@ -10,6 +10,7 @@
 //    stamp, written by a commit.d hook — /etc/.git itself is root-only).
 
 #include "../core/context.hpp"
+#include "../core/idempotency.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
@@ -135,7 +136,12 @@ void run_etckeeper(Context& ctx) {
     fs::path path_unit = units / "fox-etcwatch.path";
     fs::path svc_unit  = units / "fox-etcwatch.service";
 
-    if (!fs::exists(path_unit) || ctx.force_reapply) {
+    // Content-aware (not exists-only) so a fixed unit body converges on
+    // re-run — the %-escaping repair would otherwise never reach a host
+    // that already had the broken unit deployed.
+    bool units_current = idem::up_to_date(path_unit, PATH_UNIT, ctx.force_reapply)
+                      && idem::up_to_date(svc_unit, SERVICE_UNIT, ctx.force_reapply);
+    if (!units_current) {
         fs::create_directories(units);
 
         // 1. Unmask aggressively + flush systemd's cached view BEFORE
