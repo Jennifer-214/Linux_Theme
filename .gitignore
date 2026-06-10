@@ -74,6 +74,7 @@ src/fox-intel/json.hpp
 .aider*
 /CLAUDE.md
 /CLAUDE.local.md
+/NOTE.local.md
 
 # python build artifacts (fox-color + its test)
 __pycache__/

@@ -247,57 +247,56 @@ int main(int argc, char** argv) {
                 int k = find_idx(slug);
                 if (k >= 0) parsed.module_enabled[k] = true;
             };
-            // Capture the pre-gate selection of the hardware modules so a
-            // REQUESTED one that gets gated off is reported, not silently
-            // dropped (an accepted flag doing nothing reads as broken).
-            static const char* HW[] = { "nvidia", "amd_gpu", "intel_gpu",
-                                        "fprint", "fprint_pam",
-                                        "greetd_fingerprint",
-                                        "sudo_fingerprint", nullptr };
-            bool pre_gate[7] = {};
-            for (int h = 0; HW[h]; ++h) {
-                int k2 = find_idx(HW[h]);
-                pre_gate[h] = (k2 >= 0 && parsed.module_enabled[k2]);
-            }
-            // Default-disable hardware modules; they'll be flipped on only
-            // if detected + confirmed during the detect phase.
-            int k;
-            if ((k = find_idx("nvidia"))             >= 0) parsed.module_enabled[k] = false;
-            if ((k = find_idx("amd_gpu"))            >= 0) parsed.module_enabled[k] = false;
-            if ((k = find_idx("intel_gpu"))          >= 0) parsed.module_enabled[k] = false;
-            // The fingerprint chain is atomic + hardware-gated: present →
-            // all four on, absent → all four off (even under --full, so we
-            // never wire pam_fprintd on a box with no reader).
-            if ((k = find_idx("fprint"))             >= 0) parsed.module_enabled[k] = false;
-            if ((k = find_idx("fprint_pam"))         >= 0) parsed.module_enabled[k] = false;
-            if ((k = find_idx("greetd_fingerprint")) >= 0) parsed.module_enabled[k] = false;
-            if ((k = find_idx("sudo_fingerprint"))   >= 0) parsed.module_enabled[k] = false;
 
-            if (ctx.has_nvidia)    enable_slug("nvidia");
-            if (ctx.has_amd_gpu)   enable_slug("amd_gpu");
-            if (ctx.has_intel_gpu) enable_slug("intel_gpu");
-            if (ctx.has_fprint) {
-                // fprint installs the daemon + enrolls; the three PAM
-                // modules splice pam_fprintd `sufficient` (password always
-                // falls through). Safe to auto-enable: each self-skips on
-                // unenrolled readers / unsafe PAM stacks (B1/B2 gates), and
-                // recovery_entry guarantees a console escape hatch.
-                enable_slug("fprint");
-                enable_slug("fprint_pam");
-                enable_slug("greetd_fingerprint");
-                enable_slug("sudo_fingerprint");
-            }
-
-            // Explicit-selection mode only: --full legitimately sweeps in
-            // hardware modules the box doesn't have, and the default flow
-            // never selected them in the first place.
             if (parsed.only && !parsed.full) {
-                for (int h = 0; HW[h]; ++h) {
-                    int k2 = find_idx(HW[h]);
-                    if (k2 >= 0 && pre_gate[h] && !parsed.module_enabled[k2]) {
-                        ui::warn(std::string(MODULES[k2].flag) +
+                // Explicit selection ([I-08]): never ADD hardware modules
+                // the user didn't ask for — detect used to sweep the whole
+                // fprint chain into a `--secure` run. Just gate OFF,
+                // loudly, any requested module the hardware can't support.
+                const struct { const char* slug; bool present; } gates[] = {
+                    {"nvidia",             ctx.has_nvidia},
+                    {"amd_gpu",            ctx.has_amd_gpu},
+                    {"intel_gpu",          ctx.has_intel_gpu},
+                    {"fprint",             ctx.has_fprint},
+                    {"fprint_pam",         ctx.has_fprint},
+                    {"greetd_fingerprint", ctx.has_fprint},
+                    {"sudo_fingerprint",   ctx.has_fprint},
+                };
+                for (const auto& g : gates) {
+                    int k = find_idx(g.slug);
+                    if (k >= 0 && parsed.module_enabled[k] && !g.present) {
+                        parsed.module_enabled[k] = false;
+                        ui::warn(std::string(MODULES[k].flag) +
                                  " requested but the hardware wasn't detected — skipping");
                     }
+                }
+            } else {
+                // Default / --full: hardware modules mirror detection.
+                int k;
+                if ((k = find_idx("nvidia"))             >= 0) parsed.module_enabled[k] = false;
+                if ((k = find_idx("amd_gpu"))            >= 0) parsed.module_enabled[k] = false;
+                if ((k = find_idx("intel_gpu"))          >= 0) parsed.module_enabled[k] = false;
+                // The fingerprint chain is atomic + hardware-gated: present →
+                // all four on, absent → all four off (even under --full, so we
+                // never wire pam_fprintd on a box with no reader).
+                if ((k = find_idx("fprint"))             >= 0) parsed.module_enabled[k] = false;
+                if ((k = find_idx("fprint_pam"))         >= 0) parsed.module_enabled[k] = false;
+                if ((k = find_idx("greetd_fingerprint")) >= 0) parsed.module_enabled[k] = false;
+                if ((k = find_idx("sudo_fingerprint"))   >= 0) parsed.module_enabled[k] = false;
+
+                if (ctx.has_nvidia)    enable_slug("nvidia");
+                if (ctx.has_amd_gpu)   enable_slug("amd_gpu");
+                if (ctx.has_intel_gpu) enable_slug("intel_gpu");
+                if (ctx.has_fprint) {
+                    // fprint installs the daemon + enrolls; the three PAM
+                    // modules splice pam_fprintd `sufficient` (password always
+                    // falls through). Safe to auto-enable: each self-skips on
+                    // unenrolled readers / unsafe PAM stacks (B1/B2 gates), and
+                    // recovery_entry guarantees a console escape hatch.
+                    enable_slug("fprint");
+                    enable_slug("fprint_pam");
+                    enable_slug("greetd_fingerprint");
+                    enable_slug("sudo_fingerprint");
                 }
             }
         }
@@ -486,12 +485,14 @@ int main(int argc, char** argv) {
     // we just warm on any real interactive run. Non-fatal: each module
     // re-checks sudo itself, so a decline here only defers the prompt.
     if (!sh::dry_run() && ui::tty() && total_enabled > 0) {
-        if (!sh::sudo_warmup()) {
-            ui::warn("sudo not warmed up front — root-needing steps will prompt or skip");
+        if (!sh::sudo_warmup_interactive()) {
+            ui::warn("sudo not warmed — root-needing modules will report "
+                     "errors and self-skip (run `sudo -v`, then re-run)");
         }
     }
 
     std::vector<std::string> failed_modules;
+    std::vector<std::string> soft_error_modules;
     for (std::size_t i = 0; i < MODULES_COUNT; ++i) {
         if (ctx.resume_idx > 0 && static_cast<int>(i) < ctx.resume_idx) continue;
 
@@ -546,9 +547,17 @@ int main(int argc, char** argv) {
         ui::module_progress(ran_count, total_enabled, m.slug);
 
         sh::log_section(std::string("module: ") + m.slug);
+        const int errs_before = ui::error_count();
         try {
             m.fn(ctx);
             sh::log_section(std::string("/module: ") + m.slug + " (ok)");
+
+            // A module that printed err() but returned normally (the
+            // cold-sudo self-skip pattern) ran INCOMPLETE — track it so
+            // the end summary can't claim a clean run it didn't have.
+            if (ui::error_count() > errs_before) {
+                soft_error_modules.emplace_back(m.slug);
+            }
 
             // Preflight is allowed to refuse the run entirely. If it
             // flipped preflight_failed, no later module is safe — even
@@ -624,6 +633,19 @@ int main(int argc, char** argv) {
     ui::summary_row("theme",     ctx.theme_name);
     ui::summary_row("modules",   std::to_string(MODULES_COUNT) + " registered");
     ui::summary_row("failures",  std::to_string(failed_modules.size()));
+    ui::summary_row("incomplete", std::to_string(soft_error_modules.size()));
+
+    if (!soft_error_modules.empty()) {
+        std::printf("\n");
+        ui::warn("modules that reported errors (ran, but incomplete):");
+        std::string slugs;
+        for (const auto& s : soft_error_modules) {
+            std::printf("    \xE2\x80\xA2 %s\n", s.c_str());
+            slugs += (slugs.empty() ? "" : ",") + s;
+        }
+        ui::substep("commonly a cold sudo cache — `sudo -v`, then: "
+                    "fox-install --only " + slugs);
+    }
 
     // Mid-install errors (failed pacman calls, missing packages, etc.)
     // can scroll past while the user is watching. Re-list them at the

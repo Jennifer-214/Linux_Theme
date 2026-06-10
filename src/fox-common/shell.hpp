@@ -81,6 +81,12 @@ int systemctl_daemon_reload(bool user);
 // can't silently kill the install mid-section.
 bool sudo_warmup();
 
+// One deliberate PAM prompt (fingerprint/password) when the cache is
+// cold and stdin is a TTY — the install dispatcher's up-front warmup.
+// Modules keep using the non-interactive sudo_warmup(): one prompt per
+// run, never one per module.
+bool sudo_warmup_interactive();
+
 }  // namespace fox_install::sh
 
 #endif
