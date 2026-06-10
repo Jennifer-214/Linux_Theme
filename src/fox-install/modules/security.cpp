@@ -599,11 +599,22 @@ void install_auditd() {
         }
         if (changed) {
             if (write_root_file(rules, dedup, "0640")) {
+                // Flush the kernel ruleset BEFORE reloading. The stale
+                // duplicates loaded at boot are still resident; augenrules
+                // --load can't add a watch that already exists ("Rule
+                // exists" → exit 1), so without the flush the file is fixed
+                // but the live service stays failed until next reboot.
+                // auditctl -D is how auditd itself reloads — the canary is
+                // unwatched only for the instant between flush and reload.
+                sh::run({"sh", "-c", "sudo auditctl -D >/dev/null 2>&1 || true"});
                 sh::run({"sh", "-c",
                          "sudo augenrules --load >/dev/null 2>&1 || true"});
                 sh::run({"sh", "-c",
+                         "sudo systemctl reset-failed audit-rules >/dev/null 2>&1 || true"});
+                sh::run({"sh", "-c",
                          "sudo systemctl restart audit-rules >/dev/null 2>&1 || true"});
-                ui::ok("audit rules deduplicated (duplicates fail audit-rules.service at boot)");
+                ui::ok("audit rules deduplicated + kernel ruleset reloaded "
+                       "(duplicates fail audit-rules.service at boot)");
             } else {
                 ui::warn("audit rules carry duplicate lines but the rewrite failed — "
                          "dedupe " + rules.string() + " manually");
