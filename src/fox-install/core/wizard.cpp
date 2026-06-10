@@ -58,6 +58,27 @@ Plan default_plan(
     return p;
 }
 
+void apply_cli_layer(Plan& plan,
+                     const std::vector<bool>& enabled,
+                     bool exclusive_mode,
+                     bool full,
+                     bool force_reapply) {
+    const bool operator_demand = (exclusive_mode || force_reapply) && !full;
+    for (std::size_t i = 0;
+         i < plan.modules.size() && i < enabled.size(); ++i) {
+        ModulePlan& mp = plan.modules[i];
+        if (!enabled[i]) {
+            mp.action = Action::Skip;
+            continue;
+        }
+        if (operator_demand
+            && mp.action == Action::Skip
+            && mp.classification.status != state::Status::Blocked) {
+            mp.action = Action::Run;
+        }
+    }
+}
+
 namespace {
 
 // Saved at wizard entry so a SIGINT/SIGTERM/SIGHUP during the tiny

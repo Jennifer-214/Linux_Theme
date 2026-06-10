@@ -61,6 +61,9 @@ void print_help(const char* argv0) {
         "      --quick       skip slow + network-heavy parts (deps, github, models)\n"
         "      --monitor     surgical run of the multi-monitor wizard only\n"
         "      --only <slugs> comma-separated allow-list; everything else skipped\n"
+        "                    (resets earlier selection: --full --only X = force-reapply X)\n"
+        "      --reapply     run selected modules even if up-to-date — the\n"
+        "                    single-module reinstall: --vault --reapply\n"
         "      --polkit-strict   add polkit strict mode (every GUI sudo re-prompts)\n"
         "      --rotate-wallpapers enable time-of-day wallpaper rotation (default: static)\n"
         "      --cpp-pro     C++ toolchain extras (clang/lldb/mold/perf/etc)\n"
@@ -101,6 +104,7 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
     }
 
     bool provided_explicit_module = false;
+    bool only_list_mode = false;
     std::vector<bool> explicitly_disabled(MODULES_COUNT, false);
 
     auto switch_to_exclusive = [&]() {
@@ -198,6 +202,16 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
             continue;
         }
 
+        if (a == "--reapply" || a == "--force-reapply") {
+            // Standalone force: run modules as if stale, even where the
+            // idempotency layer says up-to-date. Pairs with a module flag
+            // for a single-module reinstall (`--vault --reapply`); --full
+            // implies it. Selection is unchanged — this only defeats the
+            // "already configured" skips inside the selected modules.
+            ctx.force_reapply = true;
+            continue;
+        }
+
         if (a == "--quick") {
             // Recorded as explicit so a later --full doesn't undo it
             // (`--quick --full` used to silently re-enable all three).
@@ -235,7 +249,17 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
         }
 
         if (a == "--only" && i + 1 < argc) {
-            switch_to_exclusive();
+            // --only is the documented allow-list: it RESETS any earlier
+            // selection — including --full's everything-on, which used to
+            // win silently and turn `--full --only vault` into a full
+            // install. (--full's force_reapply survives, so that spelling
+            // now means "force-reapply exactly these".) A second --only
+            // appends to the first.
+            if (!only_list_mode) {
+                out.only = false;  // let switch_to_exclusive re-clear
+                switch_to_exclusive();
+                only_list_mode = true;
+            }
             std::string list = argv[++i];
             std::size_t pos = 0;
             while (pos <= list.size()) {

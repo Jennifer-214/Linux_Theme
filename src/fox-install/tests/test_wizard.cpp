@@ -221,6 +221,50 @@ int main() {
         fs::remove_all(tmp_cfg);
     }
 
+    // ── apply_cli_layer — [I-08] CLI-vs-classification precedence ──
+    {
+        Module m{"stub", &run_stub, "--stub", "stub", false,
+                 false, false, false, &check_noop};
+        auto mp = [&](state::Status st, Action a) {
+            return ModulePlan{&m, {st, "test"}, a,
+                              conflict::Decision::KeepMine};
+        };
+        Plan base;
+        base.modules = {
+            mp(state::Status::Noop,     Action::Skip),      // 0: flag-disabled
+            mp(state::Status::Noop,     Action::Skip),      // 1: explicit select
+            mp(state::Status::Blocked,  Action::Skip),      // 2: blocked
+            mp(state::Status::Conflict, Action::Conflict),  // 3: consent flow
+        };
+        const std::vector<bool> en = {false, true, true, true};
+
+        // Exclusive mode: enabled Noop promotes; disabled forces Skip;
+        // Blocked refuses; Conflict keeps consent.
+        Plan q = base;
+        apply_cli_layer(q, en, /*exclusive*/true, /*full*/false, /*force*/false);
+        EXPECT(q.modules[0].action == Action::Skip);
+        EXPECT(q.modules[1].action == Action::Run);
+        EXPECT(q.modules[2].action == Action::Skip);
+        EXPECT(q.modules[3].action == Action::Conflict);
+
+        // --reapply without exclusive mode promotes too.
+        q = base;
+        apply_cli_layer(q, en, false, false, /*force*/true);
+        EXPECT(q.modules[1].action == Action::Run);
+
+        // Default flow: Noop stays skipped.
+        q = base;
+        apply_cli_layer(q, en, false, false, false);
+        EXPECT(q.modules[1].action == Action::Skip);
+
+        // --full keeps drift-correcting semantics (Noop stays skipped),
+        // and an explicit --no-X still forces Skip under it.
+        q = base;
+        apply_cli_layer(q, en, true, /*full*/true, /*force*/true);
+        EXPECT(q.modules[1].action == Action::Skip);
+        EXPECT(q.modules[0].action == Action::Skip);
+    }
+
     if (failures == 0) {
         std::cout << "wizard tests: OK\n";
         return 0;

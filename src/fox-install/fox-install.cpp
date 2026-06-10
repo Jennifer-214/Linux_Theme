@@ -383,26 +383,14 @@ int main(int argc, char** argv) {
 
         wizard::Plan plan = wizard::default_plan(mods, ctx, manifest);
 
-        // Respect the CLI flag layer (--full, --no-X, --only, --quick,
-        // detect's hardware gates). If the legacy path would have
-        // skipped a module, the wizard starts with that module on
-        // Skip — user can flip it back if they really want.
-        // The reverse direction matters just as much: an EXPLICIT module
-        // flag (--secure, --only foo) is an operator demand — a Noop
-        // classification must not silently deselect it (accepted flags
-        // that do nothing are how `--etckeeper` got ignored). Blocked
-        // still wins (a masked unit can't run), and Conflict keeps its
-        // consent flow.
-        for (std::size_t i = 0; i < plan.modules.size() && i < MODULES_COUNT; ++i) {
-            if (!parsed.module_enabled[i]) {
-                plan.modules[i].action = wizard::Action::Skip;
-            } else if (parsed.only && !parsed.full
-                       && plan.modules[i].action == wizard::Action::Skip
-                       && plan.modules[i].classification.status
-                              != state::Status::Blocked) {
-                plan.modules[i].action = wizard::Action::Run;
-            }
-        }
+        // CLI layer (--full, --no-X, --only, explicit module flags,
+        // --reapply, detect's hardware gates) — [I-08]: a flag the
+        // parser accepted must take effect; overrides are loud or
+        // impossible. Logic lives in wizard.cpp so test_wizard can
+        // pin the precedence.
+        wizard::apply_cli_layer(plan, parsed.module_enabled,
+                                parsed.only, parsed.full,
+                                ctx.force_reapply);
 
         // Phase 6 Step 13: --full repair-mode semantics. When the user
         // explicitly asks to re-apply everything, "Keep mine" is the

@@ -64,8 +64,9 @@ install: all
 	@cd ../.. && pwd > $(HOME)/.local/share/foxml/repo-dir
 	@echo "  + repo path recorded: $$(cat $(HOME)/.local/share/foxml/repo-dir)"
 
-test: tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font
+test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font
 	@./tests/test_registry
+	@./tests/test_args
 	@./tests/test_state_manifest
 	@./tests/test_classifier
 	@./tests/test_state_checks
@@ -82,6 +83,13 @@ test: tests/test_registry tests/test_state_manifest tests/test_classifier tests/
 # implementations.
 tests/test_registry: tests/test_registry.cpp core/registry.o
 	$(CXX) $(CXXFLAGS) tests/test_registry.cpp core/registry.o -o $@
+
+# [I-08] flag-layer semantics — parse-time precedence (every shipped
+# accepted-but-overridden flag bug is a case here). Links the real
+# state_checks for the registry's check_* symbols; run_* are stubbed
+# inside the test via the modules.def X-macro.
+tests/test_args: tests/test_args.cpp core/args.o core/registry.o core/state_checks.o core/state_manifest.o core/classifier.o $(FOX_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_args.cpp core/args.o core/registry.o core/state_checks.o core/state_manifest.o core/classifier.o -L$(FOX_COMMON_DIR) -lfox-common -lcrypto -o $@
 
 tests/test_state_manifest: tests/test_state_manifest.cpp core/state_manifest.o
 	$(CXX) $(CXXFLAGS) tests/test_state_manifest.cpp core/state_manifest.o -o $@ -lcrypto
