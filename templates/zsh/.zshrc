@@ -88,13 +88,13 @@ export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
 export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
 export FZF_ALT_C_COMMAND='fd --type d --hidden --follow --exclude .git'
 export FZF_DEFAULT_OPTS="
-  --color=bg+:#{{SURFACE}},bg:#{{BG_DUNST}},fg:#{{FG}},fg+:#{{FG}}
+  --color=bg+:#{{SELECTION}},bg:-1,preview-bg:-1,fg:#{{FG}},fg+:#{{FG}}
   --color=hl:#{{FZF_ACCENT1}},hl+:#{{PRIMARY}},info:#{{FZF_ACCENT1}},marker:#{{PRIMARY}}
   --color=prompt:#{{PRIMARY}},spinner:#{{FZF_ACCENT1}},pointer:#{{PRIMARY}},header:#{{FZF_ACCENT1}}
-  --color=border:#{{SURFACE}}
-  --border=sharp --prompt='❯ ' --pointer='▸' --marker='●'
+  --color=border:#{{PRIMARY}}
+  --border=sharp --prompt='❯ ' --pointer='◆' --marker='●'
   --preview='bat --color=always --style=numbers --line-range=:200 {} 2>/dev/null || eza --icons --color=always {}'
-  --preview-window=right:50%:hidden --bind='ctrl-/:toggle-preview'
+  --preview-window=right:50%:hidden --bind='ctrl-/:toggle-preview,ctrl-h:abort,ctrl-j:down,ctrl-k:up,ctrl-l:accept'
 "
 
 # ─── fzf-tab + widget-wrapping plugins (ORDER-SENSITIVE) ──
