@@ -247,6 +247,18 @@ int main(int argc, char** argv) {
                 int k = find_idx(slug);
                 if (k >= 0) parsed.module_enabled[k] = true;
             };
+            // Capture the pre-gate selection of the hardware modules so a
+            // REQUESTED one that gets gated off is reported, not silently
+            // dropped (an accepted flag doing nothing reads as broken).
+            static const char* HW[] = { "nvidia", "amd_gpu", "intel_gpu",
+                                        "fprint", "fprint_pam",
+                                        "greetd_fingerprint",
+                                        "sudo_fingerprint", nullptr };
+            bool pre_gate[7] = {};
+            for (int h = 0; HW[h]; ++h) {
+                int k2 = find_idx(HW[h]);
+                pre_gate[h] = (k2 >= 0 && parsed.module_enabled[k2]);
+            }
             // Default-disable hardware modules; they'll be flipped on only
             // if detected + confirmed during the detect phase.
             int k;
@@ -274,6 +286,19 @@ int main(int argc, char** argv) {
                 enable_slug("fprint_pam");
                 enable_slug("greetd_fingerprint");
                 enable_slug("sudo_fingerprint");
+            }
+
+            // Explicit-selection mode only: --full legitimately sweeps in
+            // hardware modules the box doesn't have, and the default flow
+            // never selected them in the first place.
+            if (parsed.only && !parsed.full) {
+                for (int h = 0; HW[h]; ++h) {
+                    int k2 = find_idx(HW[h]);
+                    if (k2 >= 0 && pre_gate[h] && !parsed.module_enabled[k2]) {
+                        ui::warn(std::string(MODULES[k2].flag) +
+                                 " requested but the hardware wasn't detected — skipping");
+                    }
+                }
             }
         }
     }

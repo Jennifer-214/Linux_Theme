@@ -112,6 +112,24 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
         }
     };
 
+    // Shared by the --<flag> and bare-slug spellings so both behave
+    // identically (positional `render` used to miss --render's implied
+    // modules and deploy nothing visible).
+    auto enable_module = [&](std::size_t idx) {
+        out.module_enabled[idx] = true;
+        // UX: render almost always wants symlinks to deploy the fresh
+        // bits AND post_install to re-render waybar style.css from the
+        // .tmpl and restart waybar/dunst/mako so the changes are
+        // visible. Without post_install, the new .tmpl sits on disk and
+        // the running bars keep their stale CSS until next login.
+        if (std::string(MODULES[idx].slug) == "render") {
+            for (const char* implied : {"symlinks", "post_install"}) {
+                std::size_t s_idx = find_by_slug(implied);
+                if (s_idx != SIZE_MAX) out.module_enabled[s_idx] = true;
+            }
+        }
+    };
+
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
 
@@ -145,8 +163,10 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
         if (a == "--full" || a == "--all") {
             out.full = true;
             out.only = true; // prevents later flags from clearing
+            // An earlier explicit --no-<slug> survives --full; otherwise
+            // `--no-render --full` and `--full --no-render` disagree.
             for (std::size_t k = 0; k < MODULES_COUNT; ++k) {
-                out.module_enabled[k] = true;
+                if (!explicitly_disabled[k]) out.module_enabled[k] = true;
             }
             ctx.install_polkit_strict = true;
             ctx.cpp_pro = true;
@@ -179,10 +199,13 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
         }
 
         if (a == "--quick") {
+            // Recorded as explicit so a later --full doesn't undo it
+            // (`--quick --full` used to silently re-enable all three).
             for (std::size_t k = 0; k < MODULES_COUNT; ++k) {
                 std::string s = MODULES[k].slug;
                 if (s == "deps" || s == "github" || s == "models") {
                     out.module_enabled[k] = false;
+                    explicitly_disabled[k] = true;
                 }
             }
             continue;
@@ -204,7 +227,9 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
             };
             for (auto** s = KEEP; *s; ++s) {
                 std::size_t idx = find_by_slug(*s);
-                if (idx != SIZE_MAX) out.module_enabled[idx] = true;
+                if (idx != SIZE_MAX && !explicitly_disabled[idx]) {
+                    out.module_enabled[idx] = true;
+                }
             }
             continue;
         }
@@ -236,19 +261,7 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
         std::size_t idx = find_by_flag(a);
         if (idx != SIZE_MAX) {
             switch_to_exclusive();
-            out.module_enabled[idx] = true;
-
-            // UX: --render almost always wants --symlinks to deploy the fresh
-            // bits AND --post-install to re-render waybar style.css from the
-            // .tmpl and restart waybar/dunst/mako so the changes are visible.
-            // Without post_install, the new .tmpl sits on disk and the running
-            // bars keep their stale CSS until next login.
-            if (std::string(MODULES[idx].slug) == "render") {
-                for (const char* implied : {"symlinks", "post_install"}) {
-                    std::size_t s_idx = find_by_slug(implied);
-                    if (s_idx != SIZE_MAX) out.module_enabled[s_idx] = true;
-                }
-            }
+            enable_module(idx);
             continue;
         }
 
@@ -264,7 +277,7 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
             std::size_t slug_idx = find_by_slug(a);
             if (slug_idx != SIZE_MAX) {
                 switch_to_exclusive();
-                out.module_enabled[slug_idx] = true;
+                enable_module(slug_idx);
                 continue;
             }
 
