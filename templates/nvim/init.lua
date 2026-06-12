@@ -1933,7 +1933,7 @@ map("n", "<C-3>", function() harpoon:list():select(3) end, { desc = "Harpoon 3" 
 map("n", "<C-4>", function() harpoon:list():select(4) end, { desc = "Harpoon 4" })
 
 -- Copilot: toggle inline ghost-text vs cmp-menu suggestions
-map("n", "<leader>Ci", function()
+map("n", "<leader>tp", function()
   local suggestion = require("copilot.suggestion")
   local cfg = require("copilot.config").suggestion
   if cfg.enabled then
@@ -2004,7 +2004,7 @@ map("n", "<leader>aS", "<cmd>AvanteStop<cr>", { desc = "Avante stop" })
 
 -- AI (CodeCompanion)
 map({ "n", "v" }, "<leader>cc", "<cmd>CodeCompanionActions<cr>", { desc = "AI Actions (CodeCompanion)" })
-map({ "n", "v" }, "<leader>ca", "<cmd>CodeCompanionChat Toggle<cr>", { desc = "AI Chat Toggle" })
+map({ "n", "v" }, "<leader>cC", "<cmd>CodeCompanionChat Toggle<cr>", { desc = "AI Chat Toggle" })
 map("v", "ga", "<cmd>CodeCompanionChat Add<cr>", { desc = "Add selection to AI chat" })
 map("n", "<leader>ci", "<cmd>CodeCompanion<cr>", { desc = "AI Inline (CodeCompanion)" })
 
