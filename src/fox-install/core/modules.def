@@ -35,6 +35,10 @@ FOX_MODULE_FULL( arch_audit, run_arch_audit,    "--arch-audit",   "Daily arch-au
                  state::check_arch_audit )
 FOX_MODULE( no_coredumps,    run_no_coredumps,     "--no-coredumps", "Disable core dumps (systemd + limits.d)",          true  )
 FOX_MODULE( hidepid,         run_hidepid,          "--hidepid",      "/proc hidepid=2 (hide other users' processes)",    true  )
+//   bt_power — disables btusb USB autosuspend (AX210 et al. drop connections
+//   when suspended) + FastConnectable. Writes /etc/modprobe.d via sudo; harmless
+//   when no BT controller is present (the modprobe option only applies if loaded).
+FOX_MODULE( bt_power,        run_bt_power,         "--bt-power",     "Keep Bluetooth controller awake (disable btusb autosuspend)", true  )
 //   noexec_tmp — edits /etc/fstab. Root for the sudo write, no network.
 FOX_MODULE_FULL( noexec_tmp,  run_noexec_tmp,       "--noexec-tmp",   "noexec/nosuid/nodev on /tmp + /dev/shm (opt-in)",  false,
                  /*root*/ true, /*gfx*/ false, /*net*/ false,

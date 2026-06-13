@@ -16,6 +16,7 @@ void run_clock_sync      (Context&) {}
 void run_arch_audit      (Context&) {}
 void run_no_coredumps    (Context&) {}
 void run_hidepid         (Context&) {}
+void run_bt_power        (Context&) {}
 void run_noexec_tmp      (Context&) {}
 void run_iommu           (Context&) {}
 void run_boot_sync       (Context&) {}

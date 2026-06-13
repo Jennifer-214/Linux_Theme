@@ -2,6 +2,20 @@
 
 All notable changes to this Arch + Hyprland workstation setup.
 
+## 2026-06-13 — v3.0.4
+
+### Gaming: tearing, auto-fullscreen, lower input latency
+
+`allow_tearing` is on globally, and a window rule for Steam game windows (`steam_app_<id>` class) makes them opaque, enables `immediate` (tearing → lower input latency), and `fullscreen` so a game auto-fills the screen and Hyprland holds that state across workspace switches. NOTE: the game's own display mode still needs to be "Windowed Fullscreen"/borderless — exclusive fullscreen drops its grab on focus loss (a workspace switch) and no WM rule can prevent that. (`shared/hyprland_modules/{general,rules}.conf`)
+
+### Rofi menus no longer collapse while filtering
+
+Typing a non-hjkl key in an hjkl-navigated rofi menu filtered the list toward empty and folded the popup down to a tiny input bar. `fixed-num-lines: true` keeps the menu at its row count while filtering. (`templates/rofi/glass.rasi`)
+
+### Bluetooth stays awake — `--bt-power` install module
+
+New fox-install module: drops `/etc/modprobe.d/btusb.conf` with `options btusb enable_autosuspend=0` and sets `FastConnectable = true` in `/etc/bluetooth/main.conf`. The Intel AX210 (and many USB combo cards) get USB-autosuspended after ~2s idle — the usual "Bluetooth is really hard to connect"; this keeps the controller awake. Default-on, harmless when no BT controller is present. (`src/fox-install/modules/bt_power.cpp`, `core/modules.def`)
+
 ## 2026-06-12 — v3.0.3
 
 ### Neovim UI: transparent panels, symbol breadcrumb, peach scrollbar
