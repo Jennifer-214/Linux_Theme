@@ -235,24 +235,26 @@ local plugins = {
         show_close_icon = false,
       },
       highlights = {
-        fill = { bg = P.bg_deep },
-        background = { fg = P.comment, bg = P.bg_deep },
-        buffer_selected = { fg = P.fg, bg = P.bg, bold = {{SHOW_WELCOME}} },
-        buffer_visible = { fg = P.comment, bg = P.bg_deep },
-        separator = { fg = P.bg_hl, bg = P.bg_deep },
-        separator_selected = { fg = P.bg_hl, bg = P.bg },
-        separator_visible = { fg = P.bg_hl, bg = P.bg_deep },
-        indicator_selected = { fg = P.peach, bg = P.bg },
-        modified = { fg = P.yellow, bg = P.bg_deep },
-        modified_selected = { fg = P.yellow, bg = P.bg },
-        modified_visible = { fg = P.yellow, bg = P.bg_deep },
-        tab = { fg = P.comment, bg = P.bg_deep },
-        tab_selected = { fg = P.peach, bg = P.bg, bold = {{SHOW_WELCOME}} },
-        tab_separator = { fg = P.bg_hl, bg = P.bg_deep },
-        tab_separator_selected = { fg = P.bg_hl, bg = P.bg },
-        duplicate = { fg = P.comment, bg = P.bg_deep, italic = {{SHOW_WELCOME}} },
-        duplicate_selected = { fg = P.fg, bg = P.bg, italic = {{SHOW_WELCOME}} },
-        duplicate_visible = { fg = P.comment, bg = P.bg_deep, italic = {{SHOW_WELCOME}} },
+        -- transparent bar — inherit kitty opacity like the editor; active buffer
+        -- reads via bold peach text + the peach indicator, not a dark pill
+        fill = { bg = P.none },
+        background = { fg = P.comment, bg = P.none },
+        buffer_selected = { fg = P.fg, bg = P.none, bold = {{SHOW_WELCOME}} },
+        buffer_visible = { fg = P.comment, bg = P.none },
+        separator = { fg = P.bg_hl, bg = P.none },
+        separator_selected = { fg = P.bg_hl, bg = P.none },
+        separator_visible = { fg = P.bg_hl, bg = P.none },
+        indicator_selected = { fg = P.peach, bg = P.none },
+        modified = { fg = P.yellow, bg = P.none },
+        modified_selected = { fg = P.yellow, bg = P.none },
+        modified_visible = { fg = P.yellow, bg = P.none },
+        tab = { fg = P.comment, bg = P.none },
+        tab_selected = { fg = P.peach, bg = P.none, bold = {{SHOW_WELCOME}} },
+        tab_separator = { fg = P.bg_hl, bg = P.none },
+        tab_separator_selected = { fg = P.bg_hl, bg = P.none },
+        duplicate = { fg = P.comment, bg = P.none, italic = {{SHOW_WELCOME}} },
+        duplicate_selected = { fg = P.fg, bg = P.none, italic = {{SHOW_WELCOME}} },
+        duplicate_visible = { fg = P.comment, bg = P.none, italic = {{SHOW_WELCOME}} },
         diagnostic_selected = { bold = {{SHOW_WELCOME}} },
       },
     },
@@ -599,7 +601,7 @@ local plugins = {
     },
     opts = {
       provider = "ollama",
-      vendors = {
+      providers = {
         ollama = {
           __inherited_from = "openai",
           api_key_name = "",
@@ -739,6 +741,23 @@ local plugins = {
   {
     "Bekaboo/dropbar.nvim",
     event = { "BufReadPost", "BufNewFile" },
+    opts = {
+      bar = {
+        -- symbols only — drop the path/filename crumb (filename already lives in
+        -- the bufferline tab + statusline; no need for a third copy up top)
+        sources = function(buf, _)
+          local sources = require("dropbar.sources")
+          local utils = require("dropbar.utils")
+          if vim.bo[buf].ft == "markdown" then
+            return { sources.markdown }
+          end
+          if vim.bo[buf].buftype == "terminal" then
+            return { sources.terminal }
+          end
+          return { utils.source.fallback({ sources.lsp, sources.treesitter }) }
+        end,
+      },
+    },
   },
 
   -- Clangd extensions (inlay hints, AST, type hierarchy for C++)
@@ -912,7 +931,7 @@ local plugins = {
     event = "BufReadPost",
     opts = {
       handle = {
-        color = P.bg_hl,
+        color = P.peach,
         highlight = "ScrollbarHandle",
       },
       marks = {
@@ -1263,10 +1282,10 @@ local function apply_foxml_theme()
   hl("WhichKeyGroup",     { fg = P.pink })
   hl("WhichKeyDesc",      { fg = P.fg })
   hl("WhichKeySeparator", { fg = P.surface })
-  hl("WhichKeyNormal",    { bg = P.bg_deep })
-  hl("WhichKeyFloat",     { bg = P.bg_deep })
-  hl("WhichKeyBorder",    { fg = P.peach, bg = P.bg_deep })
-  hl("WhichKeyTitle",     { fg = P.peach, bg = P.bg_deep })
+  hl("WhichKeyNormal",    { bg = P.none })
+  hl("WhichKeyFloat",     { bg = P.none })
+  hl("WhichKeyBorder",    { fg = P.peach, bg = P.none })
+  hl("WhichKeyTitle",     { fg = P.peach, bg = P.none })
   hl("WhichKeyValue",     { fg = P.comment })
 
   -- Indent blankline
@@ -1282,9 +1301,9 @@ local function apply_foxml_theme()
   hl("RainbowIndent6", { fg = "#402a2a" })  -- muted red
 
   -- Neo-tree
-  hl("NeoTreeNormal",        { bg = P.bg_deep })
-  hl("NeoTreeNormalNC",      { bg = P.bg_deep })
-  hl("NeoTreeEndOfBuffer",   { fg = P.bg_deep, bg = P.bg_deep })
+  hl("NeoTreeNormal",        { bg = P.none })
+  hl("NeoTreeNormalNC",      { bg = P.none })
+  hl("NeoTreeEndOfBuffer",   { fg = P.bg_deep, bg = P.none })
   hl("NeoTreeDirectoryName", { fg = P.peach })
   hl("NeoTreeDirectoryIcon", { fg = P.peach })
   hl("NeoTreeRootName",      { fg = P.pink, bold = {{SHOW_WELCOME}} })
@@ -1296,7 +1315,7 @@ local function apply_foxml_theme()
   hl("NeoTreeGitUntracked",  { fg = "#a06060" })
   hl("NeoTreeGitConflict",   { fg = P.red, bold = {{SHOW_WELCOME}} })
   hl("NeoTreeIndentMarker",  { fg = P.bg_hl })
-  hl("NeoTreeWinSeparator",  { fg = P.bg_deep, bg = P.bg_deep })
+  hl("NeoTreeWinSeparator",  { fg = P.bg_deep, bg = P.none })
   hl("NeoTreeCursorLine",    { bg = P.bg_hl })
   hl("NeoTreeTitleBar",      { fg = P.bg, bg = P.peach, bold = {{SHOW_WELCOME}} })
   hl("NeoTreeFloatBorder",   { fg = P.peach })
@@ -1380,7 +1399,7 @@ local function apply_foxml_theme()
   hl("FidgetTask",  { fg = P.comment })
 
   -- Treesitter context
-  hl("TreesitterContext",           { bg = P.ts_ctx })
+  hl("TreesitterContext",           { bg = P.none })
   hl("TreesitterContextLineNumber", { fg = P.peach })
   hl("TreesitterContextBottom",     { underline = {{SHOW_WELCOME}}, sp = P.bg_hl })
 
@@ -1464,7 +1483,7 @@ local function apply_foxml_theme()
   hl("NotifyBackground",  { bg = P.bg })
 
   -- Scrollbar
-  hl("ScrollbarHandle",          { bg = P.bg_hl })
+  hl("ScrollbarHandle",          { bg = P.peach })
   hl("ScrollbarSearchHandle",    { fg = P.peach, bg = P.bg_hl })
   hl("ScrollbarSearch",          { fg = P.peach })
   hl("ScrollbarErrorHandle",     { fg = P.red, bg = P.bg_hl })
@@ -1584,7 +1603,7 @@ end, 100)
 
 -- Force solid background on sidebar/panel filetypes
 -- (uses vim.schedule so it runs AFTER plugins set their own winhighlight)
-local sidebar_fts = { ["neo-tree"] = {{SHOW_WELCOME}}, ["Avante"] = {{SHOW_WELCOME}}, ["AvanteInput"] = {{SHOW_WELCOME}},
+local sidebar_fts = { ["Avante"] = {{SHOW_WELCOME}}, ["AvanteInput"] = {{SHOW_WELCOME}},
   ["AvantePrompt"] = {{SHOW_WELCOME}}, ["Trouble"] = {{SHOW_WELCOME}}, ["aerial"] = {{SHOW_WELCOME}}, ["markdown"] = false }
 vim.api.nvim_create_autocmd({ "FileType", "BufWinEnter" }, {
   callback = function()
@@ -1705,7 +1724,7 @@ require("nvim-treesitter.configs").setup({
   -- grammar source via tree-sitter-cli, and 0.26.x changed how `--no-bindings`
   -- is passed (now needs `-- --no-bindings`), so the install errors out.
   -- Add it back when nvim-treesitter ships a compatible build script.
-  ensure_installed = { "lua", "python", "c", "cpp", "bash", "json", "yaml", "markdown", "vim", "vimdoc", "java", "javadoc" },
+  ensure_installed = { "lua", "python", "c", "cpp", "asm", "bash", "json", "yaml", "markdown", "vim", "vimdoc", "java", "javadoc" },
   highlight = { enable = {{SHOW_WELCOME}} },
   incremental_selection = { enable = {{SHOW_WELCOME}} },
   indent = { enable = {{SHOW_WELCOME}} },

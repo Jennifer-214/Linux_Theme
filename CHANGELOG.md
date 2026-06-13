@@ -2,6 +2,20 @@
 
 All notable changes to this Arch + Hyprland workstation setup.
 
+## 2026-06-12 — v3.0.3
+
+### Neovim UI: transparent panels, symbol breadcrumb, peach scrollbar
+
+The editor already inherited kitty's `background_opacity`, but several surfaces stayed opaque dark slabs that read as out-of-place black bars over the wallpaper: the neo-tree file sidebar, the which-key popup, the bufferline tab bar, and the treesitter-context sticky line. All four now inherit the same transparency (`bg = none`), so the whole UI reads as one translucent surface — the active buffer is marked by bold peach text + the peach indicator instead of a dark pill, and neo-tree is dropped from the `sidebar_fts` force-solid list. The dropbar breadcrumb is symbols-only now (`Class › method`); the filename was redundant with the bufferline tab and statusline. The nvim-scrollbar handle is the accent peach (`PRIMARY`) instead of a cool dark grey. Authored in the template and rendered down — the rendered output is byte-identical to the live config. (`templates/nvim/init.lua`)
+
+### asm syntax highlighting
+
+Added the `asm` parser to the Treesitter `ensure_installed` list. Viewing compiler output / `.s` files now gets distinct highlighting (directives, registers, labels) instead of falling back to flat builtin syntax, which read as low-contrast tan over the transparent background. (`templates/nvim/init.lua`)
+
+### Avante: `vendors` → `providers`
+
+Migrated the avante.nvim Ollama provider config off the deprecated `vendors` key (avante renamed it to `providers`). Runtime config is unchanged — avante's deprecation path auto-mapped `vendors` to `providers` already — so this only silences the `[DEPRECATED]` notice that showed on nvim startup. (`templates/nvim/init.lua`)
+
 ## 2026-06-02 — v3.0.2
 
 ### Unified entry banner — one source, multicolor across terminal · lock · editor
