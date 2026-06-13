@@ -32,6 +32,17 @@ vim.opt.wrap = true               -- wrap long lines/comments instead of running
 vim.opt.linebreak = true          -- break at word boundaries, not mid-word
 vim.opt.breakindent = true        -- wrapped lines keep the code's indent
 vim.opt.showbreak = "↪ "          -- mark wrapped continuation lines
+
+-- Hard-wrap comment prose at 80 (clean GitHub rendering). A FileType autocmd, not a
+-- global opt, because ftplugins reset textwidth=0 after init.lua runs. Strip 't' so
+-- only comments wrap, never code (python's default formatoptions includes it).
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = { "c", "cpp", "cuda", "python", "lua", "rust", "sh", "zsh" },
+  callback = function()
+    vim.opt_local.textwidth = 80
+    vim.opt_local.formatoptions:remove("t")
+  end,
+})
 vim.opt.smoothscroll = {{SHOW_WELCOME}}
 vim.opt.cursorline = {{SHOW_WELCOME}}
 vim.opt.cursorlineopt = "number"  -- current-line cue = the peach line number, no black bar
