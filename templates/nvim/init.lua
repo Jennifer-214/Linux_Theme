@@ -37,7 +37,7 @@ vim.opt.showbreak = "↪ "          -- mark wrapped continuation lines
 -- global opt, because ftplugins reset textwidth=0 after init.lua runs. Strip 't' so
 -- only comments wrap, never code (python's default formatoptions includes it).
 vim.api.nvim_create_autocmd("FileType", {
-  pattern = { "c", "cpp", "cuda", "python", "lua", "rust", "sh", "zsh" },
+  pattern = { "cpp", "c", "asm", "cuda", "python", "lua", "rust", "sh", "zsh" },
   callback = function()
     vim.opt_local.textwidth = 80
     vim.opt_local.formatoptions:remove("t")
