@@ -2,6 +2,20 @@
 
 All notable changes to this Arch + Hyprland workstation setup.
 
+## 2026-06-15 — v3.0.5
+
+### Steam is now opt-in (`gaming` module)
+
+Steam and the `[multilib]` repo are no longer installed by default. They moved out of the mandatory base-package step into a dedicated **opt-in `gaming` module** (`--gaming`, default-off) — so a fresh install no longer force-enables a 32-bit repo or pulls a game client onto a workstation that may not want one. Enable it with `--gaming`, or via a preset (below). The module reports "already installed" on re-runs (no redundant work) and self-heals if Steam is later removed. Existing installs are unaffected — Steam stays installed if it already is. (`src/fox-install/modules/gaming.cpp`, `core/modules.def`, `core/state_checks.cpp`)
+
+### `--preset` — predefine your install in a file
+
+New `--preset <name|path>` flag: a durable `slug = on|off` file of module overrides layered on top of the defaults (additive, unlike the exclusive `--only`; an `off` line also survives `--full`). Resolves an explicit path, then `~/.config/foxml/presets/<name>.preset`, then the repo's `presets/`. So `./install.sh --preset desktop -y` is a one-command, unattended reinstall — e.g. a personal preset with `gaming = on` brings Steam back without re-ticking it on every machine. Unknown slugs warn and continue (a stored preset survives module churn); a missing preset file is a hard error. Ships `presets/desktop.preset` as an example. (`src/fox-install/core/args.cpp`, `presets/desktop.preset`)
+
+### Internal: the `[multilib]` enable is proven idempotent
+
+The Steam/`[multilib]` enable is now a tested fixed point — `test_gaming` runs the real uncomment twice against a fixture and asserts a no-op — so re-running the installer can never stack duplicate lines into `pacman.conf`. Every system-file edit the installer makes now carries an `// idempotent: <why>` annotation at its call site. (`src/fox-install/modules/gaming.hpp`, `tests/test_gaming.cpp`)
+
 ## 2026-06-13 — v3.0.4
 
 ### Gaming: tearing, auto-fullscreen, lower input latency
