@@ -91,6 +91,8 @@ void persist_cpupower(const std::string& key, const std::string& val) {
                  "s|^" + key + "=.*|" + key + "=" + val + "|",
                  "/etc/default/cpupower"});
     } else {
+        // idempotent: persist_cpupower greps ^key= first (replaces in place when
+        // present); this append only fires when the key is absent.
         sh::run({"sh", "-c",
                  "echo \"" + key + "=" + val + "\" | sudo tee -a /etc/default/cpupower >/dev/null"});
     }

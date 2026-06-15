@@ -64,7 +64,7 @@ install: all
 	@cd ../.. && pwd > $(HOME)/.local/share/foxml/repo-dir
 	@echo "  + repo path recorded: $$(cat $(HOME)/.local/share/foxml/repo-dir)"
 
-test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font
+test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_gaming
 	@./tests/test_registry
 	@./tests/test_args
 	@./tests/test_state_manifest
@@ -75,6 +75,7 @@ test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_c
 	@./tests/test_install_lock
 	@./tests/test_subprocess_log
 	@./tests/test_banner_font
+	@./tests/test_gaming
 	@bash ./tests/lint_shell_assets.sh
 	@bash ./tests/lint_unit_escaping.sh
 
@@ -93,6 +94,13 @@ tests/test_args: tests/test_args.cpp core/args.o core/registry.o core/state_chec
 
 tests/test_state_manifest: tests/test_state_manifest.cpp core/state_manifest.o
 	$(CXX) $(CXXFLAGS) tests/test_state_manifest.cpp core/state_manifest.o -o $@ -lcrypto
+
+# gaming tests the [multilib]-enable IDEMPOTENCY (the fixed-point proof that
+# guards against the iommu boot-corruption class). Runs the real
+# MULTILIB_UNCOMMENT_SED against a temp fixture; links gaming.o for
+# multilib_already_enabled + libfox-common for sh::run.
+tests/test_gaming: tests/test_gaming.cpp modules/gaming.o $(FOX_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_gaming.cpp modules/gaming.o -L$(FOX_COMMON_DIR) -lfox-common -o $@
 
 tests/test_classifier: tests/test_classifier.cpp core/classifier.o
 	$(CXX) $(CXXFLAGS) tests/test_classifier.cpp core/classifier.o -o $@

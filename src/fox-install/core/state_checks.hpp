@@ -14,7 +14,17 @@
 #include "context.hpp"
 #include "state_manifest.hpp"
 
+#include <string>
+
 namespace fox_install::state {
+
+// package_classify — pure "did module X install package P?" logic, the
+// core of package_check, split out so it's unit-testable without invoking
+// pacman. present = is the pkg installed now; tracked = does the manifest
+// have the module's slug. (untracked+present → Noop, untracked+absent →
+// Fresh, tracked+present → Noop, tracked+absent → Update.)
+Classification package_classify(bool present, bool tracked,
+                                const std::string& slug, const std::string& pkg);
 
 // deps — pacman base packages. Probes for a small set of foundational
 // packages (the ones every subsequent module depends on). If the

@@ -105,6 +105,8 @@ void run_iommu(Context& ctx) {
              cmdline_file.string() + ".foxml-bak"});
 
     if (is_systemd_boot) {
+        // idempotent: guarded by the `grep -q "$iommu_args"` hard-skip above —
+        // without it this ^options prepend re-stacks → cmdline corruption.
         sh::run({"sudo", "sed", "-i",
                  "s|^options |options " + iommu_args + " |",
                  cmdline_file.string()});

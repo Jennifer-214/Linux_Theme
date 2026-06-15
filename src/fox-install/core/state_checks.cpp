@@ -179,15 +179,25 @@ Classification unit_check(
 }
 
 // Pacman-package existence check. Used by modules whose entire "did
-// it run?" question reduces to "is package X installed?".
+// it run?" question reduces to "is package X installed?". The pacman
+// probe lives here; the pure decision is package_classify (state_checks.hpp)
+// so it can be unit-tested without a real pacman.
 Classification package_check(
     const Manifest& manifest,
     const std::string& slug,
     const std::string& pkg
 ) {
-    const bool present = pacman_installed(pkg);
-    const auto it = manifest.modules.find(slug);
-    const bool tracked = (it != manifest.modules.end());
+    return package_classify(pacman_installed(pkg),
+                            manifest.modules.find(slug) != manifest.modules.end(),
+                            slug, pkg);
+}
+
+}  // namespace
+
+// Pure (no pacman) — exposed in the header for unit testing. See the
+// header comment for the truth table.
+Classification package_classify(bool present, bool tracked,
+                                const std::string& slug, const std::string& pkg) {
     if (!tracked) {
         if (present) return {Status::Noop, pkg + " already installed (untracked, treated as already-done)"};
         return {Status::Fresh, slug + " has not run yet"};
@@ -195,8 +205,6 @@ Classification package_check(
     if (present) return {Status::Noop, pkg + " installed"};
     return {Status::Update, pkg + " missing, re-run needed"};
 }
-
-}  // namespace
 
 Classification check_arch_audit(const Context& /*ctx*/, const Manifest& manifest) {
     return unit_check(manifest, "arch_audit", "foxml-arch-audit.timer", /*user=*/true);

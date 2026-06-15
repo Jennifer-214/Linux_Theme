@@ -118,6 +118,26 @@ int main() {
 
     fs::remove_all(tmp_cfg);
 
+    // T8: package_classify — the pure core of check_gaming / check_papirus_icons.
+    // Exhaustive over (present × tracked); no pacman invoked.
+    {
+        // untracked + absent → Fresh ("hasn't run yet")
+        EXPECT(state::package_classify(false, false, "gaming", "steam").status
+               == state::Status::Fresh);
+        // untracked + present → Noop ("already installed, treat as done")
+        EXPECT(state::package_classify(true, false, "gaming", "steam").status
+               == state::Status::Noop);
+        // tracked + present → Noop ("installed")
+        EXPECT(state::package_classify(true, true, "gaming", "steam").status
+               == state::Status::Noop);
+        // tracked + absent → Update ("missing, re-run") — the self-heal case
+        // after `pacman -R steam`.
+        EXPECT(state::package_classify(false, true, "gaming", "steam").status
+               == state::Status::Update);
+        // reason is always populated
+        EXPECT(!state::package_classify(false, true, "gaming", "steam").reason.empty());
+    }
+
     if (failures == 0) {
         std::cout << "state_checks tests: OK\n";
         return 0;

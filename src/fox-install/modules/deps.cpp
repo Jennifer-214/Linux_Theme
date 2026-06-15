@@ -35,6 +35,8 @@ bool enable_parallel_downloads() {
         return true;
     }
     // Neither — append a line in the [options] section.
+    // idempotent: only reached when neither ^ParallelDownloads nor
+    // ^#ParallelDownloads matched above — guarded, so the append fires once.
     sh::run({"sh", "-c",
              "sudo sed -i '/^\\[options\\]/a ParallelDownloads = 5' "
              "/etc/pacman.conf"});

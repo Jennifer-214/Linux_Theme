@@ -6,22 +6,33 @@
 // Noop once steam is installed, so updates/re-runs never reinstall and a
 // later `pacman -R steam` self-heals back to Fresh.
 
+#include "gaming.hpp"
+
 #include "../core/context.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
 namespace fox_install {
 
+// The idempotency guard — exposed via gaming.hpp + matched to what the sed
+// writes (an uncommented `[multilib]`). Pass the path as $1 (positional) so
+// it stays out of shell parsing.
+bool multilib_already_enabled(const std::string& conf_path) {
+    return sh::run({"sh", "-c",
+                    "grep -q '^\\[multilib\\]' \"$1\"", "sh", conf_path}) == 0;
+}
+
 // enable_multilib — uncomment the [multilib] block in /etc/pacman.conf
-// (Steam needs 32-bit libs). Idempotent: no-op if already enabled.
-// Returns true on a state change (file was edited).
+// (Steam needs 32-bit libs). Idempotent two ways: the guard short-circuits
+// when already enabled, AND MULTILIB_UNCOMMENT_SED is a fixed point even if
+// the guard is bypassed. Returns true on a state change (file was edited).
 static bool enable_multilib() {
-    if (sh::run({"sh", "-c", "grep -q '^\\[multilib\\]' /etc/pacman.conf"}) == 0) {
+    if (multilib_already_enabled("/etc/pacman.conf")) {
         return false;        // already enabled
     }
-    int rc = sh::run({"sudo", "sed", "-i",
-        "/#\\[multilib\\]/,/#Include = \\/etc\\/pacman.d\\/mirrorlist/ s/^#//",
-        "/etc/pacman.conf"});
+    // idempotent: MULTILIB_UNCOMMENT_SED is trigger-destroying (gaming.hpp)
+    int rc = sh::run({"sudo", "sed", "-i", MULTILIB_UNCOMMENT_SED,
+                      "/etc/pacman.conf"});
     if (rc != 0) return false;
     // Refresh pacman's db so the newly-enabled repo's packages resolve.
     sh::run({"sudo", "pacman", "-Sy"});
