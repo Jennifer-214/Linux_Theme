@@ -233,6 +233,10 @@ Classification check_papirus_icons(const Context& /*ctx*/, const Manifest& manif
     return package_check(manifest, "papirus_icons", "papirus-icon-theme");
 }
 
+Classification check_gaming(const Context& /*ctx*/, const Manifest& manifest) {
+    return package_check(manifest, "gaming", "steam");
+}
+
 Classification check_catppuccin_cursor(const Context& ctx, const Manifest& manifest) {
     const fs::path theme_dir = ctx.home / ".icons"
         / "catppuccin-mocha-peach-cursors" / "cursors";

@@ -7,6 +7,8 @@
 #include "../core/context.hpp"
 #include "../core/module.hpp"
 
+#include <cstdio>
+#include <fstream>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -53,6 +55,17 @@ ParseResult do_parse(const std::vector<std::string>& flags) {
 bool on(const ParseResult& r, const char* slug) {
     std::size_t i = idx_of(slug);
     return i != SIZE_MAX && r.parsed.module_enabled[i];
+}
+
+// Write a throwaway preset file under /tmp (noexec is fine — we only read it,
+// never exec) and return its path. Caller std::remove()s it.
+std::string write_temp_preset(const std::string& body) {
+    static int counter = 0;
+    std::string path =
+        "/tmp/fox-test-preset-" + std::to_string(counter++) + ".preset";
+    std::ofstream f(path);
+    f << body;
+    return path;
 }
 
 }  // namespace
@@ -150,6 +163,46 @@ int main() {
     {
         auto r = do_parse({"--no-render", "--render"});
         EXPECT(on(r, "render"));
+    }
+
+    // --preset: additive overrides on top of defaults (gaming opt-in), with
+    // comments + blank lines + value spellings tolerated.
+    {
+        std::string pf = write_temp_preset(
+            "# my preset\ngaming = on\n\nrender = true\n");
+        auto r = do_parse({"--preset", pf});
+        EXPECT(r.ok);
+        EXPECT(on(r, "gaming"));     // turned on by the preset
+        EXPECT(on(r, "render"));     // default + preset agree
+        EXPECT(on(r, "security"));   // an untouched default stays on
+        std::remove(pf.c_str());
+    }
+
+    // --preset: an `off` line marks explicitly_disabled, so it survives a
+    // LATER --full (the sharp edge the plan called out).
+    {
+        std::string pf = write_temp_preset("render = off\n");
+        auto r = do_parse({"--preset", pf, "--full"});
+        EXPECT(r.ok);
+        EXPECT(!on(r, "render"));    // off survives --full
+        EXPECT(on(r, "deps"));       // --full still enables the rest
+        std::remove(pf.c_str());
+    }
+
+    // --preset: an unknown slug warns but does NOT fail the parse (a stored
+    // preset must outlive registry churn).
+    {
+        std::string pf = write_temp_preset("gaming = on\nbogus_slug = on\n");
+        auto r = do_parse({"--preset", pf});
+        EXPECT(r.ok);               // unknown slug is non-fatal
+        EXPECT(on(r, "gaming"));
+        std::remove(pf.c_str());
+    }
+
+    // --preset: a spec that resolves to no file is FATAL (intent unmet).
+    {
+        auto r = do_parse({"--preset", "/nonexistent/path/to.preset"});
+        EXPECT(!r.ok);
     }
 
     if (failures == 0) {

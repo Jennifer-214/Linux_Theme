@@ -81,4 +81,9 @@ Classification check_keyring_full(const Context& ctx, const Manifest& manifest);
 // locked-down /tmp tmpfs line?
 Classification check_noexec_tmp(const Context& ctx, const Manifest& manifest);
 
+// gaming — pacman package `steam` (opt-in 32-bit gaming module). Present
+// → Noop; tracked + missing → Update (re-install); untracked + present →
+// already-done. Mirrors check_papirus_icons.
+Classification check_gaming(const Context& ctx, const Manifest& manifest);
+
 }  // namespace fox_install::state

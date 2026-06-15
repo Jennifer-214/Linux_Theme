@@ -126,6 +126,13 @@ FOX_MODULE( ollama_hardening,run_ollama_hardening,  "--ollama-harden",   "system
 FOX_MODULE( models,          run_models,            "--models",          "Pull tier-appropriate Ollama chat/coder stack",    false )
 FOX_MODULE( opencode,        run_configure_opencode,"--opencode-config", "Generate ~/.config/opencode/{opencode,tui}.json",  true  )
 FOX_MODULE( github,      run_github,        "--github",      "gh CLI auth + clone workspace repos",              false )
+//   gaming — opt-in Steam + [multilib]. Lifted out of `deps` so the base
+//   install no longer force-enables a 32-bit repo or pulls a game client.
+//   Default-off; needs root (pacman.conf + pacman) and network (download).
+//   check_gaming reports Noop once steam is installed.
+FOX_MODULE_FULL( gaming,  run_gaming,        "--gaming",       "Steam + multilib (32-bit gaming, opt-in)",        false,
+                 /*root*/ true, /*gfx*/ false, /*net*/ true,
+                 state::check_gaming )
 
 // ── Phase 4: GPU userspace ────────────────────────────────────────
 FOX_MODULE( amd_gpu,     run_amd_gpu,       "--amd",         "AMD GPU userspace (vulkan-radeon, VA-API)",        false )

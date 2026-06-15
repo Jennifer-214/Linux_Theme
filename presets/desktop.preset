@@ -1,0 +1,22 @@
+# desktop.preset — example fox-install preset.
+#
+# A preset overrides each module's default on/off. Lines are `slug = on|off`
+# (`#` starts a comment, blank lines ignored). Modules NOT listed keep their
+# built-in default — so a preset never rots when new modules are added upstream.
+#
+# Load it:
+#   ./install.sh --preset desktop -y        # name → presets/desktop.preset
+#   ./install.sh --preset ./my.preset -y    # explicit path
+#
+# A personal preset at ~/.config/foxml/presets/<name>.preset shadows the repo
+# copy of the same name. Pair with -y for a fully unattended reinstall.
+#
+# Slugs are the internal names (underscores): see `fox-install --help`.
+
+# Opt into Steam + the [multilib] repo (off by default on a fresh install).
+gaming = on
+
+# Examples of turning default-on modules OFF (an `off` line also survives
+# a later --full, so it's a hard opt-out):
+# mac_random = off
+# safe_updates = off

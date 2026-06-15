@@ -125,7 +125,10 @@ fs::path detect_script_dir(const char* argv0) {
     return fs::current_path();
 }
 
-void fill_paths(fox_install::Context& ctx, const char* argv0) {
+// Theme-INDEPENDENT paths. Resolved BEFORE arg parsing so flags like
+// --preset can read ctx.script_dir / ctx.config_home (parse() only writes
+// ctx, never reads these, so this ordering is safe).
+void fill_paths_pre(fox_install::Context& ctx, const char* argv0) {
     ctx.script_dir    = detect_script_dir(argv0);
     ctx.templates_dir = ctx.script_dir / "templates";
     ctx.themes_dir    = ctx.script_dir / "themes";
@@ -138,9 +141,6 @@ void fill_paths(fox_install::Context& ctx, const char* argv0) {
     const char* xdg = std::getenv("XDG_CONFIG_HOME");
     ctx.config_home = (xdg && *xdg) ? fs::path(xdg) : (ctx.home / ".config");
 
-    if (ctx.theme_name.empty()) ctx.theme_name = DEFAULT_THEME;
-    ctx.palette_path = ctx.themes_dir / ctx.theme_name / "palette.sh";
-
     // Timestamped backup root (matches bash
     // BACKUP_DIR=$HOME/.theme_backups/foxml-backup-YYYYMMDD-HHMMSS).
     char ts[32]{};
@@ -149,6 +149,14 @@ void fill_paths(fox_install::Context& ctx, const char* argv0) {
     if (tm_now) std::strftime(ts, sizeof(ts), "%Y%m%d-%H%M%S", tm_now);
     ctx.backup_dir = ctx.home / ".theme_backups" /
                      (std::string("foxml-backup-") + ts);
+}
+
+// Theme-DEPENDENT paths. Resolved AFTER parse() has had a chance to set
+// ctx.theme_name from a positional arg (else the default is locked in
+// before the user's choice is seen).
+void fill_paths_post(fox_install::Context& ctx) {
+    if (ctx.theme_name.empty()) ctx.theme_name = DEFAULT_THEME;
+    ctx.palette_path = ctx.themes_dir / ctx.theme_name / "palette.sh";
 }
 
 }  // namespace
@@ -161,11 +169,13 @@ int main(int argc, char** argv) {
 
     Context ctx;
     args::Parsed parsed;
+    fill_paths_pre(ctx, argv[0]);   // before parse so --preset resolves names
+                                    // against script_dir / config_home
     if (!args::parse(argc, argv, parsed, ctx)) return 2;
     if (parsed.show_help)    { args::print_help(argv[0]);    return 0; }
     if (parsed.show_version) { args::print_version();        return 0; }
 
-    fill_paths(ctx, argv[0]);
+    fill_paths_post(ctx);
     sh::set_dry_run(ctx.dry_run);
 
     // Phase 6 Step 14 / R17: install lockfile. Read-only / informational
