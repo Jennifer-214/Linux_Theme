@@ -47,6 +47,7 @@ void run_greetd_fingerprint  (Context&) {}
 void run_mac_random      (Context&) {}
 void run_gpg_agent_cache (Context&) {}
 void run_security    (Context&) {}
+void run_reboot_polkit(Context&) {}
 void run_ufw         (Context&) {}
 void run_wallpaper   (Context&) {}
 void run_render      (Context&) {}

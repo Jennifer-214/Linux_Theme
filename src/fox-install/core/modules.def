@@ -28,6 +28,10 @@ FOX_MODULE_FULL( ufw,        run_ufw,              "--ufw",          "Default-de
                  /*root*/ true, /*gfx*/ false, /*net*/ false,
                  state::check_ufw )
 FOX_MODULE( security,        run_security,         "--secure",       "Kernel sysctls + USBGuard + AppArmor + polkit + fail2ban + auditd", true )
+//   reboot_polkit — grant-only polkit rule so an active local wheel user can
+//   reboot/poweroff without re-auth (logind's per-user manager session makes
+//   it "multiple sessions" → admin auth otherwise). Default-on usability fix.
+FOX_MODULE( reboot_polkit,   run_reboot_polkit,    "--reboot-polkit","Active local wheel users reboot/poweroff without re-auth", true )
 //   arch_audit — deploys a user systemd timer. No root (user-scope unit),
 //   no network at install time (CVE feed only fetched when the timer fires).
 FOX_MODULE_FULL( arch_audit, run_arch_audit,    "--arch-audit",   "Daily arch-audit systemd-user timer",              true,
