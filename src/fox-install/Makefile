@@ -64,7 +64,7 @@ install: all
 	@cd ../.. && pwd > $(HOME)/.local/share/foxml/repo-dir
 	@echo "  + repo path recorded: $$(cat $(HOME)/.local/share/foxml/repo-dir)"
 
-test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_gaming
+test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_gaming tests/test_hyprlock_pin
 	@./tests/test_registry
 	@./tests/test_args
 	@./tests/test_state_manifest
@@ -76,6 +76,7 @@ test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_c
 	@./tests/test_subprocess_log
 	@./tests/test_banner_font
 	@./tests/test_gaming
+	@./tests/test_hyprlock_pin
 	@bash ./tests/lint_shell_assets.sh
 	@bash ./tests/lint_unit_escaping.sh
 
@@ -104,6 +105,12 @@ tests/test_gaming: tests/test_gaming.cpp modules/gaming.o $(FOX_COMMON_LIB)
 
 tests/test_classifier: tests/test_classifier.cpp core/classifier.o
 	$(CXX) $(CXXFLAGS) tests/test_classifier.cpp core/classifier.o -o $@
+
+# hyprlock panel pinner — pure pin_foreground_monitors() guards that the
+# login panel pins to PRIMARY while per-monitor background blocks (inside
+# the sentinels) stay untouched. Links personalize.o + libfox-common (sh::/ui::).
+tests/test_hyprlock_pin: tests/test_hyprlock_pin.cpp modules/personalize.o core/sidecar.o $(FOX_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_hyprlock_pin.cpp modules/personalize.o core/sidecar.o -L$(FOX_COMMON_DIR) -lfox-common -o $@
 
 # state_checks links the real implementation (not stubs) so the empty-
 # manifest paths exercise the actual code. That pulls in shell/ui

@@ -165,6 +165,27 @@ debounce_dispatch() {
     last_apply_pid=$!
 }
 
+# Startup reconcile — the watch loop below only fires on hot-plug events, so a
+# monitor present at LOGIN (the common docked case) never reaches apply_changes
+# and never lands in the sidecar. Compare the live monitor set to the sidecar's
+# recorded set; if they differ (or the sidecar is missing), run one
+# apply_changes before listening. Guarded so a correct sidecar is a no-op (no
+# race with the login wallpaper/waybar setup).
+startup_reconcile() {
+    local live recorded
+    live=$(hyprctl monitors -j 2>/dev/null \
+        | jq -r '[.[].name] | sort | join(",")' 2>/dev/null) || return 0
+    [[ -z "$live" ]] && return 0
+    recorded=""
+    if [[ -f "$SIDECAR" ]]; then
+        recorded=$(awk -F'"' '/^MONITOR_RESOLUTIONS=/{print $2}' "$SIDECAR" 2>/dev/null \
+            | tr ' ' '\n' | sed 's/:.*//' | grep -v '^$' | sort | paste -sd, -)
+    fi
+    [[ "$live" == "$recorded" ]] && return 0
+    apply_changes || true
+}
+startup_reconcile
+
 # socat streams socket2 events line-by-line (event>>payload). We care
 # about monitor enumeration changes only — workspace/focus/etc. firehose
 # past silently.

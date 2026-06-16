@@ -261,6 +261,78 @@ bool personalize_hyprlock(const Context& ctx, const sidecar::Layout& layout) {
     return true;
 }
 
+// ─── hyprlock login panel → PRIMARY ────────────────────────────────
+// The foreground blocks (brand, dots, clock, date, input-field, battery)
+// ship with `monitor =` empty, which hyprlock reads as "draw on every
+// output" — duplicating the whole panel (and the input-field, which spawns
+// one password widget per monitor). Pin them to the primary so the panel
+// lives on one screen and the rest show only their blurred wallpaper.
+std::string pin_foreground_monitors(const std::string& body,
+                                    const std::string& primary) {
+    if (primary.empty()) return body;
+
+    const std::string b_sentinel = "# foxml:hyprlock-backgrounds-begin";
+    const std::string e_sentinel = "# foxml:hyprlock-backgrounds-end";
+
+    std::istringstream iss(body);
+    std::ostringstream out;
+    std::string line;
+    bool in_bg = false;
+    // Preserve the input's final-newline shape (getline drops it).
+    bool trailing_nl = !body.empty() && body.back() == '\n';
+    std::vector<std::string> lines;
+    while (std::getline(iss, line)) lines.push_back(line);
+
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        std::string& l = lines[i];
+        if (l.find(b_sentinel) != std::string::npos)      in_bg = true;
+        else if (l.find(e_sentinel) != std::string::npos) in_bg = false;
+        else if (!in_bg) {
+            // Match a line whose first non-space token is `monitor` then `=`.
+            auto first = l.find_first_not_of(" \t");
+            if (first != std::string::npos &&
+                l.compare(first, 7, "monitor") == 0) {
+                auto after = l.find_first_not_of(" \t", first + 7);
+                if (after != std::string::npos && l[after] == '=') {
+                    l = l.substr(0, first) + "monitor = " + primary;
+                }
+            }
+        }
+        out << l;
+        if (i + 1 < lines.size() || trailing_nl) out << "\n";
+    }
+    return out.str();
+}
+
+bool pin_hyprlock_panel(const Context& ctx, const sidecar::Layout& layout) {
+    if (layout.primary.empty()) return false;
+
+    auto apply = [&](const fs::path& p) -> bool {
+        if (!fs::exists(p)) return false;
+        std::string body;
+        {
+            std::ifstream in(p);
+            body.assign((std::istreambuf_iterator<char>(in)),
+                         std::istreambuf_iterator<char>());
+        }
+        std::string updated = pin_foreground_monitors(body, layout.primary);
+        if (updated == body) return false;
+
+        fs::path tmp = p;
+        tmp += ".foxin.tmp";
+        { std::ofstream w(tmp); w << updated; }
+        std::error_code ec;
+        fs::rename(tmp, p, ec);
+        if (ec) { fs::remove(tmp); return false; }
+        return true;
+    };
+
+    bool live     = apply(ctx.config_home / "hypr/hyprlock.conf");
+    bool rendered = apply(ctx.rendered_dir / "hyprlock/hyprlock.conf");
+    if (live || rendered) ui::ok("hyprlock panel pinned → " + layout.primary);
+    return live || rendered;
+}
+
 // ─── workspace 1 pin → PRIMARY ─────────────────────────────────────
 bool personalize_workspace_rules(const Context& ctx, const sidecar::Layout& layout) {
     fs::path rules = ctx.config_home / "hypr/modules/rules.conf";
@@ -287,6 +359,7 @@ bool personalize_workspace_rules(const Context& ctx, const sidecar::Layout& layo
 void apply_all(const Context& ctx, const sidecar::Layout& layout) {
     generate_per_monitor_wallpapers(ctx, layout);
     personalize_hyprlock(ctx, layout);
+    pin_hyprlock_panel(ctx, layout);
     personalize_workspace_rules(ctx, layout);
 }
 
