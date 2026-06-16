@@ -2,6 +2,16 @@
 
 All notable changes to this Arch + Hyprland workstation setup.
 
+## 2026-06-16 — v3.0.6
+
+### Lock screen: login panel pinned to your primary monitor
+
+On a multi-monitor setup the hyprlock login panel (greeting, clock, date, password field, battery) was drawn on **every** monitor, because each block shipped with an empty `monitor =` — which hyprlock reads as "all outputs." The duplicated password field was the real problem: hyprlock spawns one input widget per monitor, so the password buffer split between them — you had to type the password twice, and a wrong attempt wouldn't clear. The panel now pins to your selected primary (`layout.primary`); every other monitor shows only its blurred wallpaper. `personalize` rewrites every foreground `monitor =` line to the primary in both the live config and the rendered copy, while leaving the per-monitor background blocks untouched, so it stays correct across dock/undock. (`src/fox-install/modules/personalize.{cpp,hpp}`, `tests/test_hyprlock_pin.cpp`)
+
+### Monitors connected at login are now captured
+
+`fox-monitor-watch` only rebuilt the monitor-layout sidecar on hot-plug events, so a monitor already connected at login never made it into the layout — its hyprlock background block was missing and it showed black on the lock screen. The watcher now reconciles once at startup: if the live monitor set differs from the recorded sidecar, it runs the normal monitor fan-out before listening, so a docked-at-boot monitor gets its per-monitor wallpaper without a manual unplug/replug. Guarded so a correct sidecar is a no-op. (`shared/hyprland_scripts/fox-monitor-watch.sh`)
+
 ## 2026-06-15 — v3.0.5
 
 ### Steam is now opt-in (`gaming` module)
