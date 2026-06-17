@@ -24,6 +24,10 @@ An Optiver-inspired dark theme — scarlet (`#FF3300`) on Cello navy (`#1C3255`)
 
 `./swap.sh` now warns up front that it re-renders config files but does **not** restart the live apps (waybar, dunst, GTK/thunar, the wallpaper daemon), so a swap doesn't fully apply until re-login. Each surface (folder icons, cursor, GTK, wallpaper) is themed separately with no unified pipeline; a proper rework is deferred. The reliable path today is a full theme re-install. (`swap.sh`)
 
+### Alternate themes flagged work-in-progress
+
+`FoxML_Classic` is the finished, maintained default. The other themes (`Amsterdam_Orange`, `Cave_Data_Center`, `FoxML_Paper`, `FoxML_Rose`) are work-in-progress — they apply at the palette level but the theming surfaces aren't unified and live-swap doesn't fully realize them. Treat them as experimental. (`themes/README.md`)
+
 ## 2026-06-16 — v3.0.6
 
 ### Lock screen: login panel pinned to your primary monitor
