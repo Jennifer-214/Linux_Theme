@@ -67,6 +67,12 @@ bool confirm_hw(const Context& ctx, const std::string& msg) {
 }
 
 void run_detect(Context& ctx) {
+    // Runs once per process: invoked upfront in main() AND again by the
+    // dispatch loop after the wizard plan re-enables detect. A second pass
+    // would re-fire the GPU/fingerprint prompts and re-detect over the user's
+    // opt-out (resetting has_nvidia/has_fprint to true). First run wins.
+    if (ctx.detect_ran) return;
+
     ui::section("Detecting hardware");
 
     ctx.has_nvidia    = lspci_has("nvidia");
@@ -107,6 +113,8 @@ void run_detect(Context& ctx) {
         ctx.has_fprint = false;
         ui::ok("fingerprint hardware acknowledged but install will skip it");
     }
+
+    ctx.detect_ran = true;
 }
 
 }  // namespace fox_install

@@ -1,5 +1,7 @@
 #!/bin/bash
-# FoxML Classic — full palette
+# Amsterdam Orange — Optiver-inspired palette (scarlet #FF3300 · Cello navy #1C3255 · white)
+# Opt-in alternate theme; intentionally corporate / non-feminine. The fem-forward
+# aesthetic invariant is scoped to the DEFAULT theme (FoxML_Classic), not this one.
 # All hex values are WITHOUT the # prefix
 
 # ─── Theme metadata ───
@@ -18,7 +20,7 @@ FONT_FAMILY="Hack Nerd Font"
 # `[[ "{{SHOW_WELCOME}}" == "true" ]]` check in templates/zsh/welcome.zsh.
 SHOW_WELCOME=true
 SHOW_BANNER=true
-WALLPAPER=foxml_earth_2.jpg
+WALLPAPER=amsterdam_orange.jpg
 
 # ─── Aesthetic controls ───
 ROUNDING=14
@@ -31,107 +33,107 @@ SHADOW_RANGE=35
 SHADOW_ALPHA=0.70
 
 # ─── Core palette ───
-BG=1a1214
-BG_DARK=150f0f
-BG_ALT=2d1a2d
-BG_HIGHLIGHT=2d1f27
-SELECTION=4d2f34
+BG=0e1729
+BG_DARK=090f1c
+BG_ALT=14223c
+BG_HIGHLIGHT=1c3255
+SELECTION=2a4068
 
-FG=d5c4b0
-FG_PASTEL=c4b4a0
-FG_DIM=7a7a7a
-COMMENT=7a8290
+FG=e8edf5
+FG_PASTEL=cfd8e6
+FG_DIM=8492ab
+COMMENT=5a6a85
 
-PRIMARY=d4985a
-SECONDARY=b8967a
-ACCENT=8a9a7a
-SURFACE=3a414b
-BLUSH=c89eb5
-GOLD=e8c989
+PRIMARY=ff3300
+SECONDARY=5b86c9
+ACCENT=ff8a4c
+SURFACE=20345a
+BLUSH=ff6b4a
+GOLD=f2a93b
 
 # ─── ANSI colors ───
-RED=b05555
-RED_BRIGHT=c06868
-GREEN=6b9a7a
-GREEN_BRIGHT=7aab88
-YELLOW=c4b48a
-YELLOW_BRIGHT=b8a87e
-BLUE=7a9ab4
-BLUE_BRIGHT=8a8aab
-CYAN=7a9aab
-CYAN_BRIGHT=7aab9a
-WHITE=d5d5d5
+RED=e5484d
+RED_BRIGHT=ff5c57
+GREEN=3fa66a
+GREEN_BRIGHT=57c882
+YELLOW=e0a33a
+YELLOW_BRIGHT=ffc04d
+BLUE=4c7fd0
+BLUE_BRIGHT=6298e6
+CYAN=3fb0c2
+CYAN_BRIGHT=5fccdb
+WHITE=e8edf5
 
 # ─── Semantic aliases ───
-OK=7aab88
-WARN=c4b48a
+OK=3fa66a
+WARN=e0a33a
 
 # ─── ZSH command highlight color ───
-ZSH_CMD=7aab88
+ZSH_CMD=5b86c9
 
 # ─── Vencord deep background ───
-BG_VENCORD_DEEP=150a15
+BG_VENCORD_DEEP=070c15
 
 # ─── Nvim extra colors ───
-NVIM_BG_HL=1f1519
-NVIM_SEL=372411
-WARM=b0a498
-SAND=a89a7a
-WHEAT=d4b483
-CLAY=b0603a
+NVIM_BG_HL=111c31
+NVIM_SEL=233a5e
+WARM=d99a6c
+SAND=e0a86e
+WHEAT=ffb060
+CLAY=ff5c2e
 
 # ─── Nvim diff colors ───
-DIFF_ADD=1a2e1a
-DIFF_CHANGE=2d2a1a
-DIFF_DELETE=2e1a1a
-DIFF_TEXT=3d3a1a
-TREESITTER_CTX=1f1519
+DIFF_ADD=0f2a1c
+DIFF_CHANGE=152740
+DIFF_DELETE=2e1417
+DIFF_TEXT=233a5e
+TREESITTER_CTX=111c31
 
 # ─── App-specific overrides ───
 # Dunst uses a slightly different bg
-BG_DUNST=1f242b
+BG_DUNST=0e1729
 # Spicetify uses deeper darks
-BG_SPICETIFY=1a0d1a
+BG_SPICETIFY=070c15
 # Vencord secondary-alt
-BG_VENCORD_ALT=241424
+BG_VENCORD_ALT=101a30
 # Spicetify card hover
-CARD_HOVER=3d2a3d
+CARD_HOVER=20345a
 
 # ─── FZF colors (24-bit hex) ───
-FZF_ACCENT1=c49aab
-FZF_ACCENT2=c4956e
+FZF_ACCENT1=ff3300
+FZF_ACCENT2=ff8a4c
 
 # ─── ZSH autosuggestion color ───
-ZSH_SUGGEST=7d5e6b
+ZSH_SUGGEST=46566f
 
 # ─── ANSI 256-color codes ───
-ANSI_ACCENT1=173
-ANSI_ACCENT2=180
-ANSI_ACCENT3=138
-ANSI_ACCENT4=144
-ANSI_ACCENT5=139
+ANSI_ACCENT1=202
+ANSI_ACCENT2=215
+ANSI_ACCENT3=68
+ANSI_ACCENT4=110
+ANSI_ACCENT5=209
 ANSI_TEXT=253
-ANSI_MUTED=240
-ANSI_ERROR=167
-ANSI_OK=108
+ANSI_MUTED=243
+ANSI_ERROR=203
+ANSI_OK=78
 ANSI_STANDOUT_BG=232
-ANSI_PROMPT=173
-ANSI_PROMPT2=139
-ANSI_LOAD=180
+ANSI_PROMPT=202
+ANSI_PROMPT2=68
+ANSI_LOAD=215
 
-# ─── Gradient colors (zsh earthy tones) ───
-GRAD1=173
-GRAD2=180
-GRAD3=138
-GRAD4=144
-GRAD5=139
+# ─── Gradient colors (zsh navy→scarlet tones) ───
+GRAD1=202
+GRAD2=208
+GRAD3=215
+GRAD4=68
+GRAD5=110
 
 # ─── Tmux colors ───
-TMUX_ACTIVE=colour180
-TMUX_INACTIVE=colour240
-TMUX_INACTIVE_FG=8c8070
-TMUX_ACTIVE_FG=d4985a
-TMUX_ACTIVE_BG=1f1519
+TMUX_ACTIVE=colour202
+TMUX_INACTIVE=colour243
+TMUX_INACTIVE_FG=8492ab
+TMUX_ACTIVE_FG=ff3300
+TMUX_ACTIVE_BG=111c31
 
 # ─── Preview swatches (for swap.sh) ───
-PALETTE_LABELS=("bg" "fg" "peach" "pink" "lav" "slate")
+PALETTE_LABELS=("bg" "fg" "scarlet" "navy" "amber" "steel")

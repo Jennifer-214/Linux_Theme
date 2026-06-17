@@ -2,6 +2,28 @@
 
 All notable changes to this Arch + Hyprland workstation setup.
 
+## 2026-06-16 — v3.0.7
+
+### Welcome splash: a random quote per shell
+
+The zsh welcome splash now prints one random line from `~/.config/zsh/quotes.txt`, in the active theme's accent so it re-themes automatically. The file self-seeds on first shell with a set of Lacan quotes — edit it freely (`#` comments and blank lines are ignored; empty the file to disable, deleting re-seeds). Reinstalls never clobber your edits: the splash seeds it on first run, the installer doesn't deploy it. (`templates/zsh/welcome.zsh`)
+
+### Hardware prompts no longer ask twice
+
+An interactive `./install.sh` asked about each detected GPU and the fingerprint reader **twice** — `detect` ran once upfront (to resolve hardware-gated modules for the plan) and again in the dispatch loop, because rebuilding the enabled-module set from the wizard plan re-enabled it. `run_detect` is now idempotent (`ctx.detect_ran`): detection + the confirm prompts run exactly once. This also fixes a latent bug where the second pass re-ran `lspci` and reset a "no" answer back on — for the fingerprint chain, that silently re-armed the PAM modules you'd declined. (`src/fox-install/core/context.hpp`, `modules/detect.cpp`)
+
+### Wallpaper: static by default, `foxml_earth_2`
+
+Time-of-day wallpaper rotation is now off by default — the shipped autostart runs the wallpaper script in `--static` mode, and `FoxML_Classic` defaults to `foxml_earth_2.jpg`. Opt back into cycling with `fox-wallpaper --rotate on`. (`themes/FoxML_Classic/palette.sh`, `shared/hyprland_modules/autostart.conf`)
+
+### New opt-in theme: `Amsterdam_Orange`
+
+An Optiver-inspired dark theme — scarlet (`#FF3300`) on Cello navy (`#1C3255`) with white text. Opt-in only; the default stays `FoxML_Classic`. (`themes/Amsterdam_Orange/`)
+
+### Theme-swapping marked unreliable (rework deferred)
+
+`./swap.sh` now warns up front that it re-renders config files but does **not** restart the live apps (waybar, dunst, GTK/thunar, the wallpaper daemon), so a swap doesn't fully apply until re-login. Each surface (folder icons, cursor, GTK, wallpaper) is themed separately with no unified pipeline; a proper rework is deferred. The reliable path today is a full theme re-install. (`swap.sh`)
+
 ## 2026-06-16 — v3.0.6
 
 ### Lock screen: login panel pinned to your primary monitor

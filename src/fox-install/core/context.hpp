@@ -58,6 +58,11 @@ struct Context {
     bool has_intel_gpu = false;
     bool is_laptop    = false;
     bool has_fprint   = false;
+    // run_detect() is idempotent: it runs upfront in main() AND can be
+    // re-invoked by the dispatch loop (the wizard plan re-enables detect).
+    // Guard so detection + hardware prompts happen exactly once and never
+    // clobber the user's opt-out choices.
+    bool detect_ran   = false;
 
     // Resumable install state.
     int resume_idx = -1;                  // if >= 0, skip modules before this index

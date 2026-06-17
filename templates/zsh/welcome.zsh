@@ -70,6 +70,16 @@ function _caramel_welcome() {
       echo -e "                  ${DM} ◇${O} ${c4}${line}${O}"
     done < ~/.todo
   fi
+
+  # Random quote — blank + # comment lines ignored; empty/missing file prints nothing
+  local qf="$HOME/.config/zsh/quotes.txt"
+  if [[ -r "$qf" ]]; then
+    local -a quotes
+    quotes=("${(@f)$(<$qf)}")     # builtin file read, split on newlines
+    quotes=(${quotes:#})          # drop blank lines
+    quotes=(${quotes:#\#*})       # drop # comment lines
+    (( ${#quotes} )) && echo -e "                  ${c4}${quotes[RANDOM%${#quotes}+1]}${O}"
+  fi
   echo ""
 }
 
@@ -98,5 +108,24 @@ todone() {
 todos() {
   [[ -s ~/.todo ]] && nl -ba ~/.todo || echo "nothing to do"
 }
+
+# ─── Seed quotes on first run — never clobbers; empty the file to disable (deleting re-seeds) ───
+if [[ ! -e "$HOME/.config/zsh/quotes.txt" ]]; then
+  mkdir -p "$HOME/.config/zsh"
+  cat > "$HOME/.config/zsh/quotes.txt" <<'QUOTES'
+The unconscious is structured like a language. — Lacan
+Desire is the desire of the Other. — Lacan
+Love is giving something you don't have to someone who doesn't want it. — Lacan
+There is no sexual relationship. — Lacan
+The woman does not exist. — Lacan
+I always speak the truth — not the whole truth, because there's no way to say it all. — Lacan
+The unconscious is the discourse of the Other. — Lacan
+Anxiety is that which does not deceive. — Lacan
+The real is what resists symbolization absolutely. — Lacan
+The real is the impossible. — Lacan
+The real is that which always returns to the same place. — Lacan
+There is no Other of the Other. — Lacan
+QUOTES
+fi
 
 [[ "{{SHOW_WELCOME}}" == "true" ]] && _caramel_welcome
