@@ -2,6 +2,22 @@
 
 All notable changes to this Arch + Hyprland workstation setup.
 
+## 2026-06-17 — v3.0.8
+
+### Fingerprint for sudo no longer silently falls back to password
+
+`sudo`, `greetd`, and `hyprlock` all share one fingerprint reader through `pam_fprintd`. While the screen is locked hyprlock holds the reader; on some readers (e.g. the Synaptics Prometheus) an interrupted verify leaves the device stuck "already claimed" with a libfprint close timeout, so the next `sudo`'s fingerprint step can't claim it and silently drops to the password prompt — including the installer's own startup `sudo -v`, which read as "fingerprint-for-sudo never works, every install." It's not a lockout (password always works) and not the `pam_fprintd` placement hazard — the PAM config is correct, the reader is just wedged. Diagnose with `journalctl -b -u fprintd` ("already claimed" / "transfer timed out").
+
+The reader now self-heals on unlock. New `fox fingerprint reset` restarts fprintd to drop the stale claim, and both unlock paths call it — `fox-lock` after hyprlock exits (manual locks) and `fox-unlock-hook.sh` (suspend/idle via hypridle). A new grant-only polkit rule (`fprintd_reset_polkit` module, scoped to `fprintd.service`, active local wheel only) makes that restart password-less; the unlock hooks stay dormant until the rule exists, so they never raise an auth prompt. (`src/fox-install/modules/fprintd_reset_polkit.cpp`, `shared/bin/fox-fingerprint`, `shared/bin/fox-lock`, `shared/hyprland_scripts/fox-unlock-hook.sh`)
+
+### USBGuard policy restored after a manual screen-unlock
+
+`fox-lock` switches USBGuard to block-by-default while the screen is locked, but the restore to `apply-policy` lived only in `fox-unlock-hook.sh`, which fires for logind-mediated unlocks (suspend/idle) — not for a manual lock. So after a manual lock+unlock, newly plugged USB devices stayed blocked until the next suspend cycle. The restore now also runs in `fox-lock`'s own post-unlock cleanup, alongside the fingerprint reset. Fail-safe either way — it only ever over-blocked. (`shared/bin/fox-lock`)
+
+### Welcome quotes: branchless + engineering set instead of philosophy
+
+The welcome-splash quote pool now ships with low-level facts and engineering aphorisms — branchless/bit-twiddling tricks (min/abs/sign, `x & (x-1)`, power-of-two, Gray code, popcount), mechanical-sympathy notes (cache latencies, branch misprediction, fixed-point vs float), a little computing history, and lines from Dijkstra, Kernighan, Torvalds, Thompson, and SICP. Same mechanism (`#` comments and blank lines ignored; edit freely). (`templates/zsh/welcome.zsh`)
+
 ## 2026-06-16 — v3.0.7
 
 ### Welcome splash: a random quote per shell

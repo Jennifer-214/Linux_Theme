@@ -69,6 +69,22 @@ _test() {
     fprintd-verify "$USER"
 }
 
+_reset() {
+    _check_fprintd || return 1
+    # Clear a wedged reader: hyprlock/greetd hold pam_fprintd, and a Synaptics
+    # close-timeout can leave the device "already claimed", which silently
+    # breaks fingerprint-for-sudo (the prompt drops to a password). Bouncing
+    # fprintd releases the stale claim and re-opens the device. Password-less
+    # for active wheel users via the fprintd_reset_polkit grant; without it,
+    # polkit prompts (or it fails harmlessly and password still works).
+    if systemctl restart fprintd 2>/dev/null; then
+        echo "  ${C_GRN}✓ fprintd restarted — stale reader claim cleared${C_RST}"
+    else
+        echo "  ${C_RED}fprintd restart failed${C_RST} — needs the fprintd-reset polkit grant, or: sudo systemctl restart fprintd" >&2
+        return 1
+    fi
+}
+
 _list_fingers() {
     echo "Valid finger names for fox fingerprint enroll:"
     for f in "${FINGERS[@]}"; do echo "  $f"; done
@@ -79,6 +95,7 @@ case "${1:-}" in
     enroll)      _enroll "${2:-}" ;;
     delete|del)  _delete ;;
     test|verify) _test ;;
+    reset)       _reset ;;
     fingers)     _list_fingers ;;
     -h|--help|help) cat <<EOF
 fox fingerprint — fprintd wrapper
@@ -87,6 +104,7 @@ fox fingerprint — fprintd wrapper
   fox fingerprint enroll [F]  enroll finger F (default: right-index-finger)
   fox fingerprint delete      delete all enrolled fingers
   fox fingerprint test        verify a finger (Ctrl-C to exit)
+  fox fingerprint reset       restart fprintd to clear a wedged reader
   fox fingerprint fingers     list valid finger names
 EOF
     ;;

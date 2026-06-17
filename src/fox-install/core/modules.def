@@ -157,6 +157,11 @@ FOX_MODULE( fprint,            run_fprint,             "--fprint",           "In
 FOX_MODULE( fprint_pam,        run_fprint_pam,         "--fprint-pam",       "Splice pam_fprintd into /etc/pam.d/system-local-login (TTY login)", false )
 FOX_MODULE( greetd_fingerprint,run_greetd_fingerprint, "--greetd-fingerprint","pam_fprintd in /etc/pam.d/greetd (login screen)",            false )
 FOX_MODULE( sudo_fingerprint,  run_sudo_fingerprint,   "--sudo-fingerprint", "Fingerprint for sudo prompts (refuses if B2 unsafe)",        false )
+//   fprintd_reset_polkit — grant-only polkit rule so the lock/unlock self-heal
+//   (fox-lock + fox-unlock-hook → `fox fingerprint reset`) can bounce fprintd
+//   password-less to clear a wedged reader. Runs AFTER fprint so the daemon
+//   exists; self-skips when fprintd is absent. Scoped to fprintd.service only.
+FOX_MODULE( fprintd_reset_polkit, run_fprintd_reset_polkit, "--fprintd-reset-polkit", "Active wheel users restart fprintd without re-auth (finger self-heal)", true )
 FOX_MODULE( ssh_harden,  run_ssh_harden,    "--ssh-harden",  "Interactive SSH wizard (custom port + keys-only)", false )
 
 // ── Phase 6: heavy build-from-source / dev extras ─────────────────

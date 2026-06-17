@@ -69,10 +69,36 @@ fi
 # USBGuard lock-down — switch any pluggable devices to "block by default"
 # while the screen is locked, so a BadUSB / Rubber Ducky inserted in our
 # absence can't be auto-trusted. install_usbguard adds the running user
-# to IPCAllowedUsers, so no sudo needed. Restored to "apply-policy" on
-# unlock by ~/.config/hypr/scripts/fox-unlock-hook.sh.
+# to IPCAllowedUsers, so no sudo needed. Restored to "apply-policy" in the
+# on-unlock cleanup below (this manual-lock path) AND by fox-unlock-hook.sh
+# (the suspend/idle path that goes through hypridle's unlock_cmd).
 if command -v usbguard >/dev/null 2>&1 && systemctl is-active --quiet usbguard 2>/dev/null; then
     usbguard set-parameter ImplicitPolicyTarget block 2>/dev/null || true
 fi
 
-exec hyprlock "$@"
+# Run the lock screen in the FOREGROUND (no exec) so we regain control the
+# moment hyprlock exits — i.e. when the screen unlocks — and can self-heal.
+hyprlock "$@"
+_rc=$?
+
+# ── On-unlock cleanup (manual-lock path) ───────────────────────────────
+# hypridle's unlock_cmd (fox-unlock-hook.sh) only fires for logind-mediated
+# unlocks (suspend / idle via `loginctl lock-session`). A manual lock comes
+# straight through fox-lock and never touches logind, so the same restores
+# have to run here too:
+#   1. USBGuard → apply-policy (undo the block-on-lock above; no sudo).
+#   2. Bounce fprintd: hyprlock holds pam_fprintd while locked and a
+#      Synaptics close-timeout can leave the reader "already claimed",
+#      silently breaking fingerprint-for-sudo until fprintd is restarted.
+if command -v usbguard >/dev/null 2>&1 && systemctl is-active --quiet usbguard 2>/dev/null; then
+    usbguard set-parameter ImplicitPolicyTarget apply-policy 2>/dev/null || true
+fi
+# Gate on the polkit grant existing — without it the restart would pop an
+# auth dialog on every unlock. The fprintd_reset_polkit install module
+# drops this rule; until then the self-heal stays dormant (password sudo
+# still works, just no auto-clear).
+[ -f /etc/polkit-1/rules.d/49-foxml-fprintd.rules ] \
+    && command -v fox-fingerprint >/dev/null 2>&1 \
+    && fox-fingerprint reset >/dev/null 2>&1 || true
+
+exit "$_rc"
