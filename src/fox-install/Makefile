@@ -64,7 +64,7 @@ install: all
 	@cd ../.. && pwd > $(HOME)/.local/share/foxml/repo-dir
 	@echo "  + repo path recorded: $$(cat $(HOME)/.local/share/foxml/repo-dir)"
 
-test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_gaming tests/test_hyprlock_pin
+test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_gaming tests/test_iommu tests/test_hyprlock_pin
 	@./tests/test_registry
 	@./tests/test_args
 	@./tests/test_state_manifest
@@ -76,6 +76,7 @@ test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_c
 	@./tests/test_subprocess_log
 	@./tests/test_banner_font
 	@./tests/test_gaming
+	@./tests/test_iommu
 	@./tests/test_hyprlock_pin
 	@bash ./tests/lint_shell_assets.sh
 	@bash ./tests/lint_unit_escaping.sh
@@ -105,6 +106,13 @@ tests/test_gaming: tests/test_gaming.cpp modules/gaming.o $(FOX_COMMON_LIB)
 
 tests/test_classifier: tests/test_classifier.cpp core/classifier.o
 	$(CXX) $(CXXFLAGS) tests/test_classifier.cpp core/classifier.o -o $@
+
+# iommu pins the lockdown gate (build_iommu_args) + the self-heal strip
+# (LOCKDOWN_STRIP_SED idempotency) + the post-edit self-check
+# (cmdline_options_sane) against a real boot-entry fixture — no VM, no sudo.
+# Links iommu.o for the real symbols + libfox-common for sh::run.
+tests/test_iommu: tests/test_iommu.cpp modules/iommu.o $(FOX_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_iommu.cpp modules/iommu.o -L$(FOX_COMMON_DIR) -lfox-common -o $@
 
 # hyprlock panel pinner — pure pin_foreground_monitors() guards that the
 # login panel pins to PRIMARY while per-monitor background blocks (inside
@@ -147,6 +155,6 @@ tests/test_banner_font: tests/test_banner_font.cpp modules/banner_font.o
 	$(CXX) $(CXXFLAGS) tests/test_banner_font.cpp modules/banner_font.o -o $@
 
 clean:
-	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font
+	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_iommu tests/test_gaming
 
 .PHONY: all install clean test

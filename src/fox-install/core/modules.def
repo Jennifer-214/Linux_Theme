@@ -47,7 +47,7 @@ FOX_MODULE( bt_power,        run_bt_power,         "--bt-power",     "Keep Bluet
 FOX_MODULE_FULL( noexec_tmp,  run_noexec_tmp,       "--noexec-tmp",   "noexec/nosuid/nodev on /tmp + /dev/shm (opt-in)",  false,
                  /*root*/ true, /*gfx*/ false, /*net*/ false,
                  state::check_noexec_tmp )
-FOX_MODULE( iommu,           run_iommu,            "--iommu",        "IOMMU + lockdown=integrity kernel cmdline",        false )
+FOX_MODULE( iommu,           run_iommu,            "--iommu",        "IOMMU DMA protection + lockdown=integrity (auto-skipped on nvidia/DKMS hosts)", false )
 FOX_MODULE( boot_sync,       run_boot_sync,        "--boot-sync",    "Pacman hook keeping ESP root in sync with /boot",  true  )
 //   recovery_entry — clones the default systemd-boot entry into a
 //   multi-user.target recovery console. The authenticated escape hatch
