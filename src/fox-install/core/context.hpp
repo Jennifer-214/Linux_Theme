@@ -52,6 +52,13 @@ struct Context {
     // pulls) keep their skip-if-present checks regardless.
     bool force_reapply = false;
 
+    // Set by run_render: render_ran once it executes; render_ok only on a
+    // successful render. run_symlinks reads them to refuse a partial deploy
+    // when render failed (a partial config tree → a box with no hyprland.conf,
+    // reported as success — the silent-partial-deploy trap).
+    bool render_ran = false;
+    bool render_ok  = false;
+
     // Hardware detection (filled by the detect module).
     bool has_nvidia   = false;
     bool has_amd_gpu  = false;
