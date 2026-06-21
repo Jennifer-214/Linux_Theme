@@ -1,0 +1,14 @@
+[Unit]
+Description=FoxML — apply pending system updates (pacman -Syu)
+Documentation=man:pacman(8)
+# On-demand ONLY: started by the waybar updates pill's "Apply silently" row via
+# `systemctl start`, which routes auth through the GUI polkit agent (fingerprint/
+# pw dialog) — no terminal. There is deliberately NO [Install]/WantedBy, so this
+# never runs at boot; it only runs when a (polkit-authenticated) user starts it.
+# Fixed ExecStart with no user-controllable arguments: a user can trigger a
+# normal signed-package upgrade, but cannot pass -U/--config/--hookdir etc., so
+# it is not an arbitrary-root-code primitive.
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/pacman -Syu --noconfirm
