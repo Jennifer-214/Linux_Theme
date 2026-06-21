@@ -405,11 +405,17 @@ bool apparmor_grub() {
                  "|GRUB_CMDLINE_LINUX_DEFAULT=\"\\1 lsm=landlock,lockdown,yama,integrity,apparmor,bpf\"|",
                  defaults.string()});
     }
-    ui::ok("grub default cmdline updated; regenerating grub.cfg");
-    if (sh::run({"sh", "-c",
-                 "sudo grub-mkconfig -o /boot/grub/grub.cfg >/dev/null 2>&1"}) == 0) {
-        ui::ok("grub.cfg regenerated");
-    }
+    ui::ok("grub default cmdline updated (/etc/default/grub)");
+    // GRUB regen intentionally LEFT NON-FUNCTIONAL: a naked `grub-mkconfig -o
+    // grub.cfg` truncates grub.cfg before the generator writes, so a failed or
+    // garbled regen bricks boot with no revert. Rather than auto-run it, we leave
+    // it to the user until this is made validate-before-swap (the iommu.cpp
+    // generate→grub_cfg_sane()→atomic-swap→revert pattern) — deferred until a host
+    // here actually uses a GRUB loader. The cmdline edit above is safe + backed up
+    // and takes effect on the next grub.cfg regeneration.
+    ui::warn("GRUB detected — grub.cfg NOT auto-regenerated (avoids an unguarded "
+             "regen that can brick boot)");
+    ui::substep("apply when ready: sudo grub-mkconfig -o /boot/grub/grub.cfg");
     return true;
 }
 
