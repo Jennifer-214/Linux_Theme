@@ -64,7 +64,7 @@ install: all
 	@cd ../.. && pwd > $(HOME)/.local/share/foxml/repo-dir
 	@echo "  + repo path recorded: $$(cat $(HOME)/.local/share/foxml/repo-dir)"
 
-test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_gaming tests/test_iommu tests/test_hyprlock_pin
+test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_gaming tests/test_iommu tests/test_hyprlock_pin tests/test_nvidia_modules
 	@./tests/test_registry
 	@./tests/test_args
 	@./tests/test_state_manifest
@@ -78,6 +78,7 @@ test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_c
 	@./tests/test_gaming
 	@./tests/test_iommu
 	@./tests/test_hyprlock_pin
+	@./tests/test_nvidia_modules
 	@bash ./tests/lint_shell_assets.sh
 	@bash ./tests/lint_unit_escaping.sh
 
@@ -113,6 +114,13 @@ tests/test_classifier: tests/test_classifier.cpp core/classifier.o
 # Links iommu.o for the real symbols + libfox-common for sh::run.
 tests/test_iommu: tests/test_iommu.cpp modules/iommu.o $(FOX_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) tests/test_iommu.cpp modules/iommu.o -L$(FOX_COMMON_DIR) -lfox-common -o $@
+
+# nvidia_modules pins the MERGE that replaced the destructive whole-line
+# MODULES sed (the unbootable-initramfs brick): every existing MODULES entry
+# survives + the nvidia modules are added (dedup, order preserved). Pure
+# header (no .o), so no sudo and no VM — runs the REAL merge against fixtures.
+tests/test_nvidia_modules: tests/test_nvidia_modules.cpp modules/nvidia_modules.hpp
+	$(CXX) $(CXXFLAGS) tests/test_nvidia_modules.cpp -o $@
 
 # hyprlock panel pinner — pure pin_foreground_monitors() guards that the
 # login panel pins to PRIMARY while per-monitor background blocks (inside
@@ -155,6 +163,6 @@ tests/test_banner_font: tests/test_banner_font.cpp modules/banner_font.o
 	$(CXX) $(CXXFLAGS) tests/test_banner_font.cpp modules/banner_font.o -o $@
 
 clean:
-	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_iommu tests/test_gaming
+	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_iommu tests/test_gaming tests/test_nvidia_modules
 
 .PHONY: all install clean test
