@@ -12,6 +12,7 @@
 //      auto-revert: a line that lost root= or rw is rejected.
 
 #include "../modules/iommu.hpp"
+#include "../modules/lockdown_heal.hpp"
 #include "../../fox-common/shell.hpp"
 
 #include <filesystem>
@@ -115,6 +116,12 @@ int main() {
             != std::string::npos);   // args inside the quotes, existing content kept
         fs::remove(g);
     }
+
+    // ── 7. lockdown_heal decision: strip ONLY when it would brick ──────
+    EXPECT( lockdown_is_bricking(/*unsigned_oot=*/true,  /*lockdown_present=*/true));   // nvidia/DKMS + lockdown → heal
+    EXPECT(!lockdown_is_bricking(/*unsigned_oot=*/true,  /*lockdown_present=*/false));  // nvidia/DKMS, no lockdown → nothing
+    EXPECT(!lockdown_is_bricking(/*unsigned_oot=*/false, /*lockdown_present=*/true));   // in-tree + lockdown → leave it (safe hardening)
+    EXPECT(!lockdown_is_bricking(/*unsigned_oot=*/false, /*lockdown_present=*/false));  // nothing
 
     if (failures == 0) {
         std::cout << "iommu tests: OK\n";

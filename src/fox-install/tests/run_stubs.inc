@@ -19,6 +19,7 @@ void run_hidepid         (Context&) {}
 void run_bt_power        (Context&) {}
 void run_noexec_tmp      (Context&) {}
 void run_iommu           (Context&) {}
+void run_lockdown_heal   (Context&) {}
 void run_boot_sync       (Context&) {}
 void run_battery         (Context&) {}
 void run_recovery_entry  (Context&) {}

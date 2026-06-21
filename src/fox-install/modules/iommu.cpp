@@ -39,9 +39,12 @@ std::string detect_vendor() {
     return {};
 }
 
+}  // namespace
+
 // True if any DKMS module is currently registered. These are unsigned
 // out-of-tree modules (zfs, virtualbox, v4l2loopback, …) that lockdown=
 // integrity would refuse to load. Returns false when dkms isn't installed.
+// Exposed in iommu.hpp so the lockdown-heal module reuses the same probe.
 bool dkms_has_modules() {
     if (!sh::have("dkms")) return false;
     std::string out;
@@ -50,8 +53,6 @@ bool dkms_has_modules() {
         if (!std::isspace(static_cast<unsigned char>(c))) return true;
     return false;
 }
-
-}  // namespace
 
 std::string build_iommu_args(const std::string& vendor, bool add_lockdown) {
     std::string base = (vendor == "intel") ? "intel_iommu=on iommu=pt"

@@ -47,7 +47,13 @@ FOX_MODULE( bt_power,        run_bt_power,         "--bt-power",     "Keep Bluet
 FOX_MODULE_FULL( noexec_tmp,  run_noexec_tmp,       "--noexec-tmp",   "noexec/nosuid/nodev on /tmp + /dev/shm (opt-in)",  false,
                  /*root*/ true, /*gfx*/ false, /*net*/ false,
                  state::check_noexec_tmp )
-FOX_MODULE( iommu,           run_iommu,            "--iommu",        "IOMMU DMA protection + lockdown=integrity (auto-skipped on nvidia/DKMS hosts)", false )
+//   lockdown_heal — default-on safety net (distinct from the opt-in `iommu`
+//   hardening below). Strips a BRICK-causing lockdown=integrity from the
+//   cmdline on nvidia/DKMS hosts (strip-only, verify+revert); leaves an
+//   intentional lockdown alone on in-tree hosts. Auto-repairs a machine an
+//   older install bricked. Runs after `detect` so ctx.has_nvidia is set.
+FOX_MODULE( lockdown_heal,   run_lockdown_heal,    "--lockdown-heal","Strip a brick-causing lockdown=integrity (nvidia/DKMS auto-repair)", true )
+FOX_MODULE( iommu,           run_iommu,            "--iommu",        "IOMMU DMA protection + lockdown=integrity hardening (opt-in; auto-skipped on nvidia/DKMS)", false )
 FOX_MODULE( boot_sync,       run_boot_sync,        "--boot-sync",    "Pacman hook keeping ESP root in sync with /boot",  true  )
 //   recovery_entry — clones the default systemd-boot entry into a
 //   multi-user.target recovery console. The authenticated escape hatch

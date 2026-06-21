@@ -42,6 +42,11 @@ bool grub_cfg_sane(const std::string& grub_cfg);
 // fixture — no reimplementation to drift from production.
 std::string grub_prepend_sed(const std::string& args);
 
+// True iff any DKMS module is registered — unsigned out-of-tree modules that
+// lockdown=integrity would block. Exposed so the lockdown-heal module reuses
+// the same probe. False when dkms isn't installed.
+bool dkms_has_modules();
+
 }  // namespace fox_install
 
 #endif
