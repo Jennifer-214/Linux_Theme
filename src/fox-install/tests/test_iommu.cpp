@@ -90,6 +90,32 @@ int main() {
         "options intel_iommu=on iommu=pt root=PARTUUID=abc quiet"));
     EXPECT(!cmdline_options_sane(""));       // line destroyed entirely
 
+    // ── 4. needs_prepend: no double-prepend on a re-run ────────────────
+    EXPECT(needs_prepend(                     // base absent → prepend
+        "options root=PARTUUID=abc rw quiet", "intel_iommu=on iommu=pt"));
+    EXPECT(!needs_prepend(                    // base already present → skip
+        "options intel_iommu=on iommu=pt root=PARTUUID=abc rw",
+        "intel_iommu=on iommu=pt"));
+    EXPECT(needs_prepend("", "amd_iommu=on iommu=pt"));   // empty/malformed → prepend
+
+    // ── 5. grub_cfg_sane: only a real generated cfg passes ─────────────
+    EXPECT(grub_cfg_sane("set timeout=5\nmenuentry 'Arch' { linux /vmlinuz }\n"));
+    EXPECT(!grub_cfg_sane(""));                           // empty regen
+    EXPECT(!grub_cfg_sane("# grub-mkconfig died halfway\nset timeout=5\n")); // no menuentry
+
+    // ── 6. grub_prepend_sed: real sed lands args inside the quotes ─────
+    {
+        fs::path g = fs::temp_directory_path()
+            / ("fox_grub_prepend_test_" + std::to_string(::getpid()) + ".conf");
+        std::ofstream(g) << "GRUB_CMDLINE_LINUX_DEFAULT=\"quiet splash\"\n";
+        sh::run({"sed", "-i", grub_prepend_sed("amd_iommu=on iommu=pt"), g.string()});
+        const std::string after = read_file(g);
+        EXPECT(after.find(
+            "GRUB_CMDLINE_LINUX_DEFAULT=\"amd_iommu=on iommu=pt quiet splash\"")
+            != std::string::npos);   // args inside the quotes, existing content kept
+        fs::remove(g);
+    }
+
     if (failures == 0) {
         std::cout << "iommu tests: OK\n";
         return 0;

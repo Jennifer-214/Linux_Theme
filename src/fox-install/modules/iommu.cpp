@@ -66,6 +66,20 @@ bool cmdline_options_sane(const std::string& options_line) {
     return padded.find(" rw ") != std::string::npos;
 }
 
+bool needs_prepend(const std::string& cmdline_text, const std::string& base_args) {
+    return cmdline_text.find(base_args) == std::string::npos;
+}
+
+bool grub_cfg_sane(const std::string& grub_cfg) {
+    if (grub_cfg.empty()) return false;
+    return grub_cfg.find("menuentry") != std::string::npos;
+}
+
+std::string grub_prepend_sed(const std::string& args) {
+    return "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"|"
+           "GRUB_CMDLINE_LINUX_DEFAULT=\"" + args + " |";
+}
+
 void run_iommu(Context& ctx) {
     ui::section("IOMMU + kernel lockdown (DMA protection)");
 
@@ -141,15 +155,18 @@ void run_iommu(Context& ctx) {
         return;
     }
 
-    // Probe current state. The prepend is guarded on base_args (NOT the
-    // full iommu_args) so a host that already has the IOMMU knobs but a
-    // stale lockdown=integrity still gets the strip below — and so the
-    // ^options prepend never stacks a duplicate on a re-run.
-    bool base_present =
-        sh::run({"sudo", "grep", "-q", base_args.c_str(), cmdline_file.c_str()}) == 0;
+    // Probe the relevant cmdline line. The prepend decision runs through the
+    // pure needs_prepend() (guarded on base_args, NOT the full iommu_args) so a
+    // host that already has the IOMMU knobs but a stale lockdown=integrity still
+    // gets the strip below — and so the prepend never stacks a duplicate on a
+    // re-run. lockdown stays a direct grep.
+    std::string cur_line;
+    sh::capture({"sudo", "grep",
+                 is_systemd_boot ? "^options " : "^GRUB_CMDLINE_LINUX_DEFAULT=",
+                 cmdline_file.string()}, cur_line);
     bool lockdown_present =
         sh::run({"sudo", "grep", "-q", "lockdown=integrity", cmdline_file.c_str()}) == 0;
-    bool need_prepend = !base_present;
+    bool need_prepend = needs_prepend(cur_line, base_args);
     bool need_strip   = !add_lockdown && lockdown_present;
 
     if (!need_prepend && !need_strip) {
@@ -178,9 +195,7 @@ void run_iommu(Context& ctx) {
             sh::run({"sudo", "sed", "-i", LOCKDOWN_STRIP_SED, cmdline_file.string()});
     } else {
         if (need_prepend)
-            sh::run({"sudo", "sed", "-i",
-                     "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"|"
-                     "GRUB_CMDLINE_LINUX_DEFAULT=\"" + iommu_args + " |",
+            sh::run({"sudo", "sed", "-i", grub_prepend_sed(iommu_args),
                      cmdline_file.string()});
         if (need_strip)
             sh::run({"sudo", "sed", "-i", LOCKDOWN_STRIP_SED, cmdline_file.string()});
@@ -204,11 +219,35 @@ void run_iommu(Context& ctx) {
                 "IOMMU left unchanged");
         return;
     }
-    sh::run({"sudo", "rm", "-f", preedit});
 
-    if (!is_systemd_boot)
-        sh::run({"sh", "-c",
-                 "sudo grub-mkconfig -o /boot/grub/grub.cfg >/dev/null 2>&1 || true"});
+    // GRUB needs a grub.cfg regen for the new cmdline to take effect. Generate
+    // to a temp on the same filesystem, validate it, and only atomically swap
+    // it in when it's sane — a failed/garbled regen then leaves the working
+    // grub.cfg untouched (fail-safe by construction; needs no boot test to
+    // trust). On failure, restore /etc/default/grub from this run's preedit so
+    // the change is all-or-nothing and a re-run retries cleanly. systemd-boot
+    // needs no regen, so it just drops the preedit.
+    if (!is_systemd_boot) {
+        const std::string cfg     = "/boot/grub/grub.cfg";
+        const std::string cfg_new = cfg + ".foxml-new";
+        int rc = sh::run({"sh", "-c",
+                          "sudo grub-mkconfig -o " + cfg_new + " 2>/dev/null"});
+        std::string generated;
+        sh::capture({"sudo", "cat", cfg_new}, generated);
+        if (rc == 0 && grub_cfg_sane(generated)) {
+            sh::run({"sudo", "mv", cfg_new, cfg});
+            sh::run({"sudo", "rm", "-f", preedit});
+        } else {
+            sh::run({"sudo", "rm", "-f", cfg_new});
+            sh::run({"sudo", "mv", preedit, cmdline_file.string()});
+            ui::err("grub-mkconfig failed or produced an invalid grub.cfg — kept "
+                    "the existing grub.cfg and reverted /etc/default/grub; "
+                    "IOMMU not applied");
+            return;
+        }
+    } else {
+        sh::run({"sudo", "rm", "-f", preedit});
+    }
 
     ui::ok("IOMMU enabled (" + iommu_args + ")" +
            (need_strip ? " — stripped stale lockdown=integrity" : "") +

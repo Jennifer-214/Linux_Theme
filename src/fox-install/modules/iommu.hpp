@@ -26,6 +26,22 @@ inline constexpr const char* LOCKDOWN_STRIP_SED = "s/ lockdown=integrity//g";
 // auto-revert from the per-run .foxml-preedit copy.
 bool cmdline_options_sane(const std::string& options_line);
 
+// True iff `base_args` is absent from the current cmdline text, i.e. a prepend
+// is needed. Routing the decision through this pure check (instead of an inline
+// grep) means a re-run on an already-configured host never double-prepends.
+// Exposed so test_iommu pins the idempotency without sudo.
+bool needs_prepend(const std::string& cmdline_text, const std::string& base_args);
+
+// True iff `grub_cfg` looks like a real generated grub.cfg (non-empty + carries
+// at least one menuentry). The validate-before-swap gate on the GRUB path: a
+// failed/garbled grub-mkconfig trips this and the working grub.cfg is kept.
+bool grub_cfg_sane(const std::string& grub_cfg);
+
+// Builds the sed program that prepends `args` inside GRUB_CMDLINE_LINUX_DEFAULT.
+// Exposed (like LOCKDOWN_STRIP_SED) so the test runs the REAL program against a
+// fixture — no reimplementation to drift from production.
+std::string grub_prepend_sed(const std::string& args);
+
 }  // namespace fox_install
 
 #endif
