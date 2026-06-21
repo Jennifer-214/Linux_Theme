@@ -159,6 +159,32 @@ int main() {
         EXPECT(t[1] == "lvm2");
     }
 
+    // ── 11. rewrite_aq_line — AQ_DRM_DEVICES active iff the resolve is complete ─
+    {
+        // complete Optimus → active, both cards
+        EXPECT(rewrite_aq_line("env = AQ_DRM_DEVICES, /dev/dri/by-path/x",
+                               "/dev/dri/card1:/dev/dri/card0", true)
+               == "env = AQ_DRM_DEVICES, /dev/dri/card1:/dev/dri/card0");
+        // partial (single card) → COMMENTED so Aquamarine auto-detects (the fix:
+        // a single-card value blacks the iGPU-wired eDP on an Optimus box)
+        EXPECT(rewrite_aq_line("env = AQ_DRM_DEVICES, /dev/dri/by-path/x",
+                               "/dev/dri/card1", false)
+               == "# env = AQ_DRM_DEVICES, /dev/dri/card1");
+        // re-activate an already-commented (inert template) line on a complete resolve
+        EXPECT(rewrite_aq_line("# env = AQ_DRM_DEVICES, /dev/dri/by-path/x",
+                               "/dev/dri/card1:/dev/dri/card0", true)
+               == "env = AQ_DRM_DEVICES, /dev/dri/card1:/dev/dri/card0");
+        // stays commented on a partial resolve
+        EXPECT(rewrite_aq_line("# env = AQ_DRM_DEVICES, /dev/dri/by-path/x",
+                               "/dev/dri/card1", false)
+               == "# env = AQ_DRM_DEVICES, /dev/dri/card1");
+        // other env lines + the doc comment untouched
+        EXPECT(rewrite_aq_line("env = LIBVA_DRIVER_NAME, nvidia", "/dev/dri/card1", false)
+               == "env = LIBVA_DRIVER_NAME, nvidia");
+        EXPECT(rewrite_aq_line("# so AQ_DRM_DEVICES lists BOTH cards", "/dev/dri/card1", true)
+               == "# so AQ_DRM_DEVICES lists BOTH cards");
+    }
+
     if (failures == 0) {
         std::cout << "nvidia_modules tests: OK\n";
         return 0;

@@ -164,6 +164,31 @@ inline std::string merge_modules(const std::string& conf_text) {
            conf_text.substr(close + 1);
 }
 
+// Rewrite a single line of the hypr nvidia.conf template. The AQ_DRM_DEVICES
+// env line is made ACTIVE only when the resolved device set is COMPLETE;
+// otherwise it's left COMMENTED so Aquamarine auto-detects. A partial
+// (single-card) value on an Optimus box blacks the iGPU-wired eDP, so an unset
+// value is safer than a wrong one. Non-AQ lines (LIBVA_*, __GLX_*, WLR_*, the
+// header comments) pass through untouched. Pure → unit-tested.
+inline std::string rewrite_aq_line(const std::string& line,
+                                   const std::string& aq_value, bool complete) {
+    std::size_t i = 0;
+    while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) ++i;
+    std::string rest = line.substr(i);
+    if (!rest.empty() && rest[0] == '#') {                 // re-target an already-commented line
+        rest.erase(0, 1);
+        std::size_t j = 0;
+        while (j < rest.size() && (rest[j] == ' ' || rest[j] == '\t')) ++j;
+        rest.erase(0, j);
+    }
+    if (rest.rfind("env", 0) == 0 &&
+        rest.find("AQ_DRM_DEVICES") != std::string::npos) {
+        return line.substr(0, i) + (complete ? "" : "# ") +
+               "env = AQ_DRM_DEVICES, " + aq_value;
+    }
+    return line;                                            // not the AQ_DRM_DEVICES line
+}
+
 }  // namespace fox_install
 
 #endif  // FOX_INSTALL_NVIDIA_MODULES_HPP

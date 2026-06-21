@@ -30,7 +30,6 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
-#include <regex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -101,15 +100,16 @@ long boot_free_mb() {
 // write atomically to dest. Mirrors the sed in install_nvidia().
 bool write_hypr_nvidia_conf(const fs::path& template_path,
                             const fs::path& dest,
-                            const std::string& aq_value) {
+                            const std::string& aq_value,
+                            bool aq_complete) {
     std::ifstream in(template_path);
     if (!in) return false;
     std::ostringstream ss;
     std::string line;
-    std::regex pat("AQ_DRM_DEVICES,.*");
+    // rewrite_aq_line activates AQ_DRM_DEVICES only when aq_complete; on a
+    // partial resolve it leaves the line commented (auto-detect) — see header.
     while (std::getline(in, line)) {
-        ss << std::regex_replace(line, pat, "AQ_DRM_DEVICES, " + aq_value)
-           << "\n";
+        ss << rewrite_aq_line(line, aq_value, aq_complete) << "\n";
     }
     fs::create_directories(dest.parent_path());
     fs::path tmp = dest;
@@ -205,6 +205,7 @@ void run_nvidia(Context& ctx) {
         return;
     }
     std::string aq_drm = nvidia_drm;
+    bool aq_complete = true;   // single-GPU is complete by definition
     if (!igpu_addr.empty()) {
         std::string igpu_drm = resolve_drm_card(igpu_addr);
         if (!igpu_drm.empty()) {
@@ -212,8 +213,14 @@ void run_nvidia(Context& ctx) {
             ui::ok("NVIDIA at " + nvidia_addr + " (" + nvidia_drm +
                    "), iGPU at " + igpu_addr + " (" + igpu_drm + ")");
         } else {
-            ui::ok("NVIDIA at " + nvidia_addr + " (" + nvidia_drm +
-                   "); iGPU at " + igpu_addr + " but no DRM node yet");
+            // Optimus, but the iGPU's DRM node isn't resolvable yet (driver not
+            // loaded / early boot). A single-card AQ_DRM_DEVICES would black the
+            // iGPU-wired eDP on next start → leave it INERT (auto-detect) rather
+            // than bake a wrong value. The user can re-run --nvidia once both
+            // cards present DRM nodes.
+            aq_complete = false;
+            ui::warn("iGPU DRM node not ready — leaving AQ_DRM_DEVICES unset "
+                     "(auto-detect); re-run --nvidia after a reboot to pin both cards");
         }
     } else {
         ui::ok("NVIDIA at " + nvidia_addr + " (single-GPU)");
@@ -225,9 +232,12 @@ void run_nvidia(Context& ctx) {
     if (fs::exists(tpl)) {
         if (sh::dry_run()) {
             ui::substep("[dry-run] would write " + out.string() +
-                       " with AQ_DRM_DEVICES=" + aq_drm);
-        } else if (write_hypr_nvidia_conf(tpl, out, aq_drm)) {
-            ui::ok("hypr/modules/nvidia.conf → AQ_DRM_DEVICES=" + aq_drm);
+                       (aq_complete ? " with AQ_DRM_DEVICES=" + aq_drm
+                                    : " with AQ_DRM_DEVICES left unset (auto-detect)"));
+        } else if (write_hypr_nvidia_conf(tpl, out, aq_drm, aq_complete)) {
+            ui::ok(aq_complete
+                   ? "hypr/modules/nvidia.conf → AQ_DRM_DEVICES=" + aq_drm
+                   : "hypr/modules/nvidia.conf → AQ_DRM_DEVICES auto-detect (iGPU node not ready)");
         } else {
             ui::warn("could not write " + out.string());
         }
