@@ -4,9 +4,14 @@
 // empty primary is a no-op, and near-misses (comments, `monitorx`) are safe.
 
 #include "../modules/personalize.hpp"
+#include "../core/splice.hpp"
 
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <string>
+#include <unistd.h>
 
 namespace {
 
@@ -79,6 +84,57 @@ int main() {
 
     // No trailing-newline corruption (input ends in '\n').
     check("trailing newline kept", !out.empty() && out.back() == '\n');
+
+    // ── splice_sentinel: deterministic + idempotent (Fix 2 no-regression) ──
+    // personalize_hyprlock/workspace_rules now also splice the RENDERED copy so a
+    // fresh box gets personalized output (not template defaults). Safety proof:
+    // splice_sentinel's output region depends ONLY on new_content, never on the
+    // input's prior block — so on a re-run, splicing the rendered (template) and
+    // the live (already-personalized) with the same layout-derived block converge
+    // to the SAME result → the known-good deployed config cannot change.
+    {
+        namespace fs = std::filesystem;
+        using fox_install::splice_sentinel;
+        const std::string B = "# foxml:hyprlock-backgrounds-begin";
+        const std::string E = "# foxml:hyprlock-backgrounds-end";
+        const std::string NEW =
+            "background {\n    monitor = DP-1\n    path = ~/.wallpapers/new.png\n}";
+        auto wr = [](const fs::path& p, const std::string& s){ std::ofstream o(p); o << s; };
+        auto rd = [](const fs::path& p){
+            std::ifstream i(p);
+            return std::string((std::istreambuf_iterator<char>(i)),
+                                std::istreambuf_iterator<char>());
+        };
+        auto region = [&](const std::string& s){
+            auto i = s.find(B), j = s.find(E);
+            return (i == std::string::npos || j == std::string::npos)
+                       ? std::string() : s.substr(i, j - i);
+        };
+
+        // A: already-personalized (live-style) file with a DIFFERENT prior block.
+        fs::path a = fs::temp_directory_path() /
+                     ("fox_splice_a_" + std::to_string(::getpid()) + ".conf");
+        wr(a, "head\n" + B + "\nbackground {\n    monitor = OLD\n"
+              "    path = ~/.wallpapers/old.png\n}\n" + E + "\ntail\n");
+        check("splice ok", splice_sentinel(a, B, E, NEW));
+        std::string a1 = rd(a);
+        check("splice replaced block", a1.find("monitor = DP-1") != std::string::npos);
+        check("splice dropped old block", a1.find("monitor = OLD") == std::string::npos);
+        check("splice kept head+tail",
+              a1.find("head\n") != std::string::npos && a1.find("\ntail\n") != std::string::npos);
+        splice_sentinel(a, B, E, NEW);
+        check("splice idempotent", rd(a) == a1);
+
+        // B: fresh/template-style file (EMPTY prior block). The same NEW must
+        // yield the SAME sentinel region → rendered & live converge on a re-run.
+        fs::path b = fs::temp_directory_path() /
+                     ("fox_splice_b_" + std::to_string(::getpid()) + ".conf");
+        wr(b, "head\n" + B + "\n" + E + "\ntail\n");
+        splice_sentinel(b, B, E, NEW);
+        check("rendered & live converge", region(rd(b)) == region(a1));
+
+        fs::remove(a); fs::remove(b);
+    }
 
     if (failed == 0) std::printf("test_hyprlock_pin: OK\n");
     return failed ? 1 : 0;

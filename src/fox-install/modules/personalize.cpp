@@ -143,12 +143,18 @@ std::size_t generate_per_monitor_wallpapers(const Context& ctx,
 bool personalize_hyprlock(const Context& ctx, const sidecar::Layout& layout) {
     fs::path hyprlock = ctx.config_home / "hypr/hyprlock.conf";
     fs::path rendered = ctx.rendered_dir / "hyprlock/hyprlock.conf";
-    if (!fs::exists(hyprlock))               return false;
-    if (layout.monitor_resolutions.empty())  return false;
+    // Personalize whichever copies exist. On a FRESH box the live config is not
+    // deployed yet (symlinks runs after personalize), so read + splice the
+    // rendered copy; symlinks then deploys the personalized output. On a re-run
+    // the live copy exists → identical to the prior behaviour (read live, splice
+    // both). Gate on either being present.
+    if (!fs::exists(hyprlock) && !fs::exists(rendered)) return false;
+    if (layout.monitor_resolutions.empty())             return false;
 
+    fs::path src = fs::exists(hyprlock) ? hyprlock : rendered;
     std::string body;
     {
-        std::ifstream in(hyprlock);
+        std::ifstream in(src);
         body.assign((std::istreambuf_iterator<char>(in)),
                      std::istreambuf_iterator<char>());
     }
@@ -243,14 +249,15 @@ bool personalize_hyprlock(const Context& ctx, const sidecar::Layout& layout) {
     std::string new_blocks = blocks.str();
     if (!new_blocks.empty() && new_blocks.back() == '\n') new_blocks.pop_back();
 
-    // Splice into both the live config and the rendered copy. Updating the
-    // rendered copy ensures detect_drift() sees the automated
-    // personalisation as "intended" on the next run, rather than flagging
-    // it as a manual live edit.
+    // Splice into both the live config and the rendered copy (each only if
+    // present). Updating the rendered copy keeps detect_drift() seeing the
+    // automated personalisation as "intended" next run rather than a manual live
+    // edit — and is what personalizes a FRESH box (live not deployed yet, so
+    // symlinks deploys the spliced rendered copy).
     const std::string b_sentinel = "# foxml:hyprlock-backgrounds-begin";
     const std::string e_sentinel = "# foxml:hyprlock-backgrounds-end";
-    splice_sentinel(hyprlock, b_sentinel, e_sentinel, new_blocks);
-    splice_sentinel(rendered, b_sentinel, e_sentinel, new_blocks);
+    if (fs::exists(hyprlock)) splice_sentinel(hyprlock, b_sentinel, e_sentinel, new_blocks);
+    if (fs::exists(rendered)) splice_sentinel(rendered, b_sentinel, e_sentinel, new_blocks);
 
     if (fallbacks > 0) {
         ui::ok("hyprlock personalised for " + std::to_string(mons) +
@@ -336,21 +343,22 @@ bool pin_hyprlock_panel(const Context& ctx, const sidecar::Layout& layout) {
 // ─── workspace 1 pin → PRIMARY ─────────────────────────────────────
 bool personalize_workspace_rules(const Context& ctx, const sidecar::Layout& layout) {
     fs::path rules = ctx.config_home / "hypr/modules/rules.conf";
-    // rules.conf is a shared module, so its rendered copy lives in shared_dir
-    // if not using --render. But wait, it might be in TEMPLATE_MAPPINGS too.
-    // Check rendered_dir first.
     fs::path rendered = ctx.rendered_dir / "hyprland/rules.conf";
 
-    if (!fs::exists(rules))            return false;
-    if (layout.primary.empty())        return false;
+    // Personalize whichever copies exist — on a fresh box the live rules.conf is
+    // not deployed yet (symlinks runs after personalize), so splice the rendered
+    // copy and let symlinks deploy it; on a re-run the live copy exists →
+    // identical to the prior behaviour. Gate on either being present.
+    if (!fs::exists(rules) && !fs::exists(rendered)) return false;
+    if (layout.primary.empty())                      return false;
 
     std::string new_line = "workspace = 1, monitor:" + layout.primary +
                            ", default:true";
-    
+
     const std::string b_sentinel = "# foxml:workspace-pin-begin";
     const std::string e_sentinel = "# foxml:workspace-pin-end";
-    splice_sentinel(rules, b_sentinel, e_sentinel, new_line);
-    splice_sentinel(rendered, b_sentinel, e_sentinel, new_line);
+    if (fs::exists(rules))    splice_sentinel(rules, b_sentinel, e_sentinel, new_line);
+    if (fs::exists(rendered)) splice_sentinel(rendered, b_sentinel, e_sentinel, new_line);
 
     ui::ok("workspace pin → " + layout.primary);
     return true;
