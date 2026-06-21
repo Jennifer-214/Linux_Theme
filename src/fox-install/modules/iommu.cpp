@@ -187,6 +187,7 @@ void run_iommu(Context& ctx) {
     sh::run({"sudo", "cp", cmdline_file.string(), preedit});
 
     if (is_systemd_boot) {
+        // idempotent: prepend gated on need_prepend (needs_prepend greps base_args) — no re-stack on re-run.
         if (need_prepend)
             sh::run({"sudo", "sed", "-i",
                      "s|^options |options " + iommu_args + " |",
@@ -194,6 +195,7 @@ void run_iommu(Context& ctx) {
         if (need_strip)
             sh::run({"sudo", "sed", "-i", LOCKDOWN_STRIP_SED, cmdline_file.string()});
     } else {
+        // idempotent: same prepend under the same need_prepend guard (see grub_prepend_sed).
         if (need_prepend)
             sh::run({"sudo", "sed", "-i", grub_prepend_sed(iommu_args),
                      cmdline_file.string()});
