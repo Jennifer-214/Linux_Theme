@@ -1,16 +1,19 @@
-// modules/iommu.cpp — IOMMU + kernel lockdown=integrity.
+// modules/iommu.cpp — IOMMU DMA protection + conditional kernel lockdown.
 //
-// Adds intel_iommu=on / amd_iommu=on iommu=pt + lockdown=integrity to
-// the kernel cmdline. Bootloader-aware (systemd-boot / GRUB). Reboot
+// Adds intel_iommu=on / amd_iommu=on iommu=pt to the kernel cmdline, and
+// lockdown=integrity ONLY on hosts where it won't brick a module (see the
+// gate in run_iommu). Bootloader-aware (systemd-boot / GRUB). Reboot
 // required for the new cmdline to take effect.
 //
-// Mirrors mappings.sh::install_iommu. Detects CPU vendor from
-// /proc/cpuinfo so Intel and AMD hosts get the right knob.
+// Detects CPU vendor from /proc/cpuinfo so Intel and AMD hosts get the
+// right knob.
 
+#include "iommu.hpp"
 #include "../core/context.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -36,11 +39,55 @@ std::string detect_vendor() {
     return {};
 }
 
+// True if any DKMS module is currently registered. These are unsigned
+// out-of-tree modules (zfs, virtualbox, v4l2loopback, …) that lockdown=
+// integrity would refuse to load. Returns false when dkms isn't installed.
+bool dkms_has_modules() {
+    if (!sh::have("dkms")) return false;
+    std::string out;
+    sh::capture({"dkms", "status"}, out);
+    for (char c : out)
+        if (!std::isspace(static_cast<unsigned char>(c))) return true;
+    return false;
+}
+
 }  // namespace
 
+std::string build_iommu_args(const std::string& vendor, bool add_lockdown) {
+    std::string base = (vendor == "intel") ? "intel_iommu=on iommu=pt"
+                     : (vendor == "amd")   ? "amd_iommu=on iommu=pt"
+                     :                       "<vendor>_iommu=on iommu=pt";
+    return add_lockdown ? base + " lockdown=integrity" : base;
+}
+
+bool cmdline_options_sane(const std::string& options_line) {
+    if (options_line.find("root=") == std::string::npos) return false;
+    const std::string padded = " " + options_line + " ";
+    return padded.find(" rw ") != std::string::npos;
+}
+
 void run_iommu(Context& ctx) {
-    (void)ctx;
-    ui::section("IOMMU + lockdown=integrity (DMA protection)");
+    ui::section("IOMMU + kernel lockdown (DMA protection)");
+
+    // Gate lockdown=integrity on "would it block a module on THIS host?".
+    // It enforces signed-modules-only; an unsigned out-of-tree module then
+    // silently fails to insert, and a GPU that can't load its driver drops
+    // to llvmpipe software rendering → the runaway-CPU storm this module
+    // once shipped on every nvidia box.
+    //   - has_nvidia: set by `detect` in phase 0, BEFORE the driver is
+    //     installed (nvidia is phase 4) — so a `dkms status` probe alone
+    //     misses a fresh nvidia box; the hardware flag is what catches it.
+    //     (Stock Arch doesn't enrol a module-signing key, so even the
+    //     prebuilt `nvidia` package is unsigned w.r.t. lockdown, not just
+    //     -dkms.)
+    //   - dkms_has_modules(): catches already-installed non-nvidia DKMS on
+    //     a re-run.
+    // Intel/AMD use in-tree (signed) drivers → lockdown stays; they get the
+    // hardening and nothing breaks. Per the engineering gradient,
+    // frictionless-reinstall + correctness outrank the lockdown knob when
+    // they conflict — IOMMU/DMA protection is applied either way.
+    bool unsigned_oot = ctx.has_nvidia || dkms_has_modules();
+    bool add_lockdown = !unsigned_oot;
 
     fs::path bootloader_systemd = "/boot/loader/entries/arch.conf";
     fs::path bootloader_grub    = "/etc/default/grub";
@@ -57,12 +104,12 @@ void run_iommu(Context& ctx) {
         // silently no-op — surface a clear "add manually" path so they
         // know IOMMU wasn't enabled on their system.
         std::string vendor = detect_vendor();
-        std::string args = (vendor == "intel" ? "intel_iommu=on iommu=pt"
-                          : vendor == "amd"   ? "amd_iommu=on iommu=pt"
-                          : "<vendor>_iommu=on iommu=pt");
         ui::warn("no systemd-boot / GRUB config detected — IOMMU not auto-enabled");
         ui::substep("if you use rEFInd / UKI / EFISTUB, add manually to your kernel cmdline:");
-        ui::substep("    " + args + " lockdown=integrity");
+        ui::substep("    " + build_iommu_args(vendor, add_lockdown));
+        if (!add_lockdown)
+            ui::substep("    (lockdown=integrity omitted — your nvidia/DKMS modules "
+                        "are unsigned and it would stop them loading)");
         return;
     }
 
@@ -72,13 +119,20 @@ void run_iommu(Context& ctx) {
         return;
     }
 
-    std::string iommu_args =
-        (vendor == "intel" ? "intel_iommu=on iommu=pt" : "amd_iommu=on iommu=pt") +
-        std::string(" lockdown=integrity");
+    std::string iommu_args = build_iommu_args(vendor, add_lockdown);
+    std::string base_args  = build_iommu_args(vendor, /*add_lockdown=*/false);
+
+    if (!add_lockdown)
+        ui::substep("unsigned out-of-tree modules present (nvidia/DKMS) — skipping "
+                    "lockdown=integrity (it would block them → software-render CPU "
+                    "storm); IOMMU still applied");
 
     if (sh::dry_run()) {
-        ui::substep("[dry-run] would append \"" + iommu_args + "\" to " +
-                    cmdline_file.string());
+        ui::substep("[dry-run] would ensure \"" + base_args + "\" on " +
+                    cmdline_file.string() +
+                    (add_lockdown ? " (with lockdown=integrity)" : " (no lockdown)"));
+        if (!add_lockdown)
+            ui::substep("[dry-run] would strip any existing lockdown=integrity (self-heal)");
         return;
     }
 
@@ -87,38 +141,78 @@ void run_iommu(Context& ctx) {
         return;
     }
 
-    // Args-already-present is a hard skip regardless of force_reapply —
-    // the sed below is a blind prepend (`s|^options |options <args> |`),
-    // so re-running it stacks another copy of <args> onto the line.
-    // --full means "reapply", not "duplicate".
-    if (sh::run({"sh", "-c",
-                 "sudo grep -q \"" + iommu_args + "\" " + cmdline_file.string()}) == 0) {
-        ui::skipped("IOMMU already enabled in " + cmdline_file.string());
+    // Probe current state. The prepend is guarded on base_args (NOT the
+    // full iommu_args) so a host that already has the IOMMU knobs but a
+    // stale lockdown=integrity still gets the strip below — and so the
+    // ^options prepend never stacks a duplicate on a re-run.
+    bool base_present =
+        sh::run({"sudo", "grep", "-q", base_args.c_str(), cmdline_file.c_str()}) == 0;
+    bool lockdown_present =
+        sh::run({"sudo", "grep", "-q", "lockdown=integrity", cmdline_file.c_str()}) == 0;
+    bool need_prepend = !base_present;
+    bool need_strip   = !add_lockdown && lockdown_present;
+
+    if (!need_prepend && !need_strip) {
+        ui::skipped("IOMMU already enabled" +
+                    std::string(add_lockdown ? "" : " (lockdown correctly absent)") +
+                    " in " + cmdline_file.string());
         return;
     }
 
-    // Only back up if no backup exists — preserves the true pre-FoxML
-    // original across repeat --full runs.
+    // Two backups, two purposes: .foxml-bak is the pre-FoxML original
+    // (created once, survives repeat --full runs → clean uninstall);
+    // .foxml-preedit is THIS run's revert point for the self-check below.
     sh::run({"sh", "-c",
              "[ -e " + cmdline_file.string() + ".foxml-bak ] || "
              "sudo cp " + cmdline_file.string() + " " +
              cmdline_file.string() + ".foxml-bak"});
+    std::string preedit = cmdline_file.string() + ".foxml-preedit";
+    sh::run({"sudo", "cp", cmdline_file.string(), preedit});
 
     if (is_systemd_boot) {
-        // idempotent: guarded by the `grep -q "$iommu_args"` hard-skip above —
-        // without it this ^options prepend re-stacks → cmdline corruption.
-        sh::run({"sudo", "sed", "-i",
-                 "s|^options |options " + iommu_args + " |",
-                 cmdline_file.string()});
+        if (need_prepend)
+            sh::run({"sudo", "sed", "-i",
+                     "s|^options |options " + iommu_args + " |",
+                     cmdline_file.string()});
+        if (need_strip)
+            sh::run({"sudo", "sed", "-i", LOCKDOWN_STRIP_SED, cmdline_file.string()});
     } else {
-        sh::run({"sudo", "sed", "-i",
-                 "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"|"
-                 "GRUB_CMDLINE_LINUX_DEFAULT=\"" + iommu_args + " |",
-                 cmdline_file.string()});
+        if (need_prepend)
+            sh::run({"sudo", "sed", "-i",
+                     "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"|"
+                     "GRUB_CMDLINE_LINUX_DEFAULT=\"" + iommu_args + " |",
+                     cmdline_file.string()});
+        if (need_strip)
+            sh::run({"sudo", "sed", "-i", LOCKDOWN_STRIP_SED, cmdline_file.string()});
+    }
+
+    // Self-check the edit didn't mangle the boot line; auto-revert if it
+    // did. A boot entry that lost root=/rw is unbootable — never ship one.
+    bool ok = true;
+    if (is_systemd_boot) {
+        std::string line;
+        sh::capture({"sudo", "grep", "^options ", cmdline_file.string()}, line);
+        ok = cmdline_options_sane(line);
+    } else {
+        ok = sh::run({"sudo", "grep", "-q",
+                      "^GRUB_CMDLINE_LINUX_DEFAULT=", cmdline_file.c_str()}) == 0;
+    }
+
+    if (!ok) {
+        sh::run({"sudo", "mv", preedit, cmdline_file.string()});
+        ui::err("cmdline edit failed self-check (root=/rw missing) — reverted; "
+                "IOMMU left unchanged");
+        return;
+    }
+    sh::run({"sudo", "rm", "-f", preedit});
+
+    if (!is_systemd_boot)
         sh::run({"sh", "-c",
                  "sudo grub-mkconfig -o /boot/grub/grub.cfg >/dev/null 2>&1 || true"});
-    }
-    ui::ok("IOMMU enabled (" + iommu_args + ") — REBOOT to activate");
+
+    ui::ok("IOMMU enabled (" + iommu_args + ")" +
+           (need_strip ? " — stripped stale lockdown=integrity" : "") +
+           " — REBOOT to activate");
 }
 
 }  // namespace fox_install
