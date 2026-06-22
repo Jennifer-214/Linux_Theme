@@ -189,32 +189,40 @@ void run_monitors(Context& ctx) {
     }
     std::printf("╰──────────────────────────────────────────────────────────────────╯\n");
 
-    // Primary picker: prefer eDP-* (laptop panel), else prompt, else first.
-    std::string primary;
+    // Primary picker: DEFAULT to the laptop panel (eDP-*) when present, else the
+    // first monitor — but always let an interactive user OVERRIDE. Forcing eDP
+    // gave a docked laptop no way to make an external the primary, and a desktop
+    // has no eDP at all. Under no-TTY (unattended), keep the sane default.
+    std::string default_primary;
     for (auto& m : monitors) {
         std::string n = m.value("name", "");
-        if (n.rfind("eDP", 0) == 0) { primary = n; break; }
+        if (n.rfind("eDP", 0) == 0) { default_primary = n; break; }
     }
+    if (default_primary.empty()) default_primary = monitors[0].value("name", "");
+
+    std::string primary = default_primary;
     const bool tty_in = ::isatty(STDIN_FILENO);
-    if (primary.empty() && tty_in) {
-        std::cout << "\n  No laptop panel detected — pick a primary monitor:\n";
+    if (tty_in) {
+        std::cout << "\n  Pick the PRIMARY monitor (workspace 1 + login/lock panels):\n";
         std::vector<std::string> all_names;
-        int i = 1;
+        int i = 1, default_idx = 1;
         for (auto& m : monitors) {
-            std::string n  = m.value("name", "");
-            int        w  = m.value("width", 0);
-            int        h  = m.value("height", 0);
+            std::string n = m.value("name", "");
+            int w = m.value("width", 0), h = m.value("height", 0);
             all_names.push_back(n);
-            std::printf("    [%d] %s  (%dx%d)\n", i++, n.c_str(), w, h);
+            if (n == default_primary) default_idx = i;
+            std::printf("    [%d] %s  (%dx%d)%s\n", i, n.c_str(), w, h,
+                        n == default_primary ? "  (default)" : "");
+            ++i;
         }
-        std::cout << "    Choice [1]: " << std::flush;
+        std::printf("    Choice [%d]: ", default_idx);
+        std::cout << std::flush;
         std::string line;
         std::getline(std::cin, line);
-        int pick = read_int_or(line, 1);
-        if (pick < 1 || pick > static_cast<int>(all_names.size())) pick = 1;
+        int pick = read_int_or(line, default_idx);
+        if (pick < 1 || pick > static_cast<int>(all_names.size())) pick = default_idx;
         primary = all_names[pick - 1];
     }
-    if (primary.empty()) primary = monitors[0].value("name", "");
 
     // TTY-gated y/n. No sensible auto-default for layout; under no-TTY,
     // bail out so we don't clobber an existing monitors.conf.
