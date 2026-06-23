@@ -24,6 +24,15 @@ grim -g "$geom" - | swappy -f - -o "$file"
 
 # Check if file was actually saved (user may have cancelled in swappy too).
 if [[ -f "$file" ]]; then
-    wl-copy --type image/png < "$file"
+    # The live Wayland clipboard has no size limit, but cliphist (the history
+    # picker) silently drops entries over ~5MB — so large 4K/portrait screenshots
+    # vanish from clipboard history. Keep the full-res PNG file; if it exceeds the
+    # cap, put a compact high-quality JPEG on the clipboard instead so the shot
+    # still lands in history (and pastes fine everywhere). Small shots stay PNG.
+    if (( $(stat -c%s "$file") > 4500000 )) && command -v magick >/dev/null 2>&1; then
+        magick "$file" -quality 92 jpg:- | wl-copy --type image/jpeg
+    else
+        wl-copy --type image/png < "$file"
+    fi
     notify-send -i "$file" "Screenshot saved" "File: $(basename "$file")\nSaved to: ~/Pictures/Screenshots"
 fi
