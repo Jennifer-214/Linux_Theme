@@ -19,3 +19,4 @@ FOX_NAMESPACE( sec,   fox-sec,   "Security tools (firewall, vpn, audit, snitch, 
 FOX_NAMESPACE( theme, fox-theme, "Theme management (tweak, wallpaper, develop)" )
 FOX_NAMESPACE( dev,   fox-dev,   "Developer tools (new-project, build-verify, aider, ...)" )
 FOX_NAMESPACE( sys,   fox-sys,   "System tools (install, uninstall, doctor, lock, ...)" )
+FOX_NAMESPACE( monitor, fox-monitor, "Monitor layout: status / reconcile / rotate (hotplug-safe)" )
