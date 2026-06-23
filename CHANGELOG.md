@@ -2,6 +2,66 @@
 
 All notable changes to this Arch + Hyprland workstation setup.
 
+## 2026-06-23 — v3.1.0
+
+### New `fox monitor` tool — fix your monitor layout + wallpaper in one command
+
+A native `fox-monitor` tool (reachable as `fox monitor <sub>` or directly), built as a reusable `libfox-monitor` library composed of submodules (sidecar I/O · live re-derive · variant generator · apply). `fox monitor status` is a read-only diagnostic — live monitors, the persisted layout sidecar, per-monitor wallpaper-variant coverage, and which hot-swap mechanism is actually live. `fox monitor reconcile` re-derives the layout from live Hyprland state, regenerates the per-monitor wallpaper variants, and re-applies your **current** wallpaper to each output (it never rotates), then refreshes waybar — run it after plugging in or rotating a monitor, no installer and no sudo. `--force` regenerates every variant. The installer auto-discovers and deploys the tool like the other `fox-*` binaries. (commits `cb1cde8`, `a44f06b`, `e96b6e4`; `src/fox-monitor/`, `src/fox/dispatch.def`)
+
+### Per-monitor wallpapers render crisp at native resolution
+
+The per-monitor variant generators had diverged — the installer baked at 2× the monitor resolution, the hot-swap watcher at 1×, and `fox-wallpaper --add` at 2× — same filename, different pixels, never reconciled, so a rotated/HiDPI panel got mis-scaled or wasteful variants. They're unified into one generator at the panel's **native** physical resolution. For an upscaling crop (a landscape source filling a tall portrait monitor) it AI-upscales just the crop-region with Real-ESRGAN (`-s 4`, which stays clean on a low-VRAM card — the full-image `-s 2` path checkerboards on a 4 GB GPU) then downscales with a light sharpen; with no usable GPU it falls back to Lanczos + adaptive-sharpen. A recipe-version stamp (`~/.wallpapers/.variant-recipe`) regenerates variants once when the recipe changes — so the installer/reconcile auto-upgrade existing variants with no manual `--force`, and without re-upscaling on every reinstall. (commits `1705f67`, `5a10007`, `641fe53`; `src/fox-monitor/variants.{hpp,cpp}`, `shared/bin/fox-wallpaper`)
+
+### Monitor hot-swap no longer clobbers your wallpaper
+
+The hot-swap watcher re-applied the time-of-day wallpaper slot on **every** monitor event — even with rotation off — overwriting a manually-set wallpaper with the calendar slot on each dock/rotate. Reconcile re-applies your *current* wallpaper instead; rotation stays a separate, explicit action. The bash→C++ watcher migration is now finished: the `fox-pulse` event daemon runs `fox monitor reconcile` on a monitor event, a new `fox-pulse.service` is deployed + enabled, and the legacy `fox-monitor-watch.service` is retired (one-time migration). The installer's up-front `sudo` warmup is now gated on a selected module actually needing root, so a no-root hot-swap reconcile can never trip the `pam_fprintd` sudo prompt. (commit `8506c36`; `src/fox-pulse/fox-pulse.cpp`, `src/fox-install/modules/specials.cpp`, `fox-install.cpp`, `shared/systemd_user/fox-pulse.service`)
+
+### Fresh installs bake crisp wallpapers automatically
+
+`personalize` runs early (phase 2), before the wallpaper files and live configs are deployed, so on a fresh box it baked no variants — the long-standing ordering gap that left a new install on a fallback-cropped wallpaper. `post_install` (the last phase, after everything is on disk) now finalizes per-monitor personalization, so a fresh box comes up with crisp native variants and a correctly-pointed lock screen. The recipe-stamp makes it a one-time bake; a re-install is a fast no-op. (commit `2fdcd53`; `src/fox-install/modules/post_install.cpp`)
+
+### Waybar: GPU temperature + usage
+
+A GPU readout (icon + usage% + temp) sits next to the CPU module, fed by a single `nvidia-smi` call. It reports `idle` without waking a runtime-suspended dGPU (battery hygiene) and emits nothing when no NVIDIA card is present, so the bar never breaks. Styled to match the CPU module — calm, no glow (soft glow stays reserved for the clock/battery/idle "primary" numbers). (commit `9879a96`; `shared/waybar_config`, `shared/waybar_scripts/gpu-stats.sh`)
+
+### Large screenshots reach the clipboard history again
+
+`cliphist` silently drops clipboard-history entries over ~5 MB, so 4K/portrait screenshots (6–10 MB PNG) never appeared in the image-clipboard picker — though the live clipboard handled them fine. `screenshot.sh` now keeps the full-resolution PNG file but, when it exceeds the cap, puts a compact quality-92 JPEG on the clipboard so the shot still lands in history and pastes everywhere. (commit `dfcf9f5`; `shared/hyprland_scripts/screenshot.sh`)
+
+## 2026-06-21 — v3.0.9
+
+### nvidia: mkinitcpio MODULES merge (no more wiped initramfs modules → unbootable)
+
+The nvidia module rewrote the entire `MODULES=` line in `mkinitcpio.conf`, wiping any user-set LUKS/LVM/vfio modules — an unbootable initramfs (passed the idempotency gate, because idempotent ≠ non-destructive). It now does a read-modify-write **merge**: every existing module survives, the nvidia modules are added (deduped, order preserved), validated against the real consumer's grammar with a refuse-on-degenerate-input guard. (commit `5f7d2eb`; `src/fox-install/modules/nvidia_modules.hpp`, `tests/test_nvidia_modules.cpp`)
+
+### lockdown=integrity brick: gated off nvidia/DKMS + default-on auto-repair
+
+`lockdown=integrity` blocks unsigned nvidia/DKMS kernel modules, which on an affected host falls back to software rendering (the 800%-CPU `llvmpipe` storm) or a broken boot. The opt-in `iommu` hardening now gates `lockdown=integrity` off nvidia/DKMS hosts and self-heals, with a fail-safe GRUB regen (validate-before-swap) and idempotent cmdline edits. A new **default-on `lockdown_heal`** module strips a brick-causing `lockdown=integrity` from the kernel cmdline on nvidia/DKMS hosts (strip-only, verify + auto-revert) — auto-repairing a machine an older install bricked, while leaving an intentional lockdown on an in-tree host alone. (commits `8c20ca9`, `54ef6d4`, `729fd96`, `1cd52c9`; `src/fox-install/modules/iommu.cpp`, `lockdown_heal.cpp`)
+
+### nvidia: AQ_DRM_DEVICES activated only on a complete device resolve
+
+A partial GPU resolve (the nvidia DRM node found but not the iGPU's) wrote a single-card `AQ_DRM_DEVICES` line *active*, which blacked out the iGPU-wired internal panel on an Optimus laptop. It now activates only on a complete, valid resolution and ships inert otherwise — a half-resolved value falls back to safe auto-detect rather than an active-wrong one. (commit `d1fb864`; `src/fox-install/modules/nvidia.cpp`)
+
+### A fresh box is no longer half-themed; no partial deploy on render failure
+
+`personalize` ran before `symlinks` deployed `~/.config`, so on a fresh box the hyprlock/workspace personalization gated on the not-yet-deployed live files and silently no-op'd. The splice helpers now also rewrite the **rendered** copy (which `symlinks` then deploys), so a fresh box gets personalized output instead of template defaults — the operator's known-good re-run path is byte-identical. Separately, a render failure no longer lets `symlinks` deploy a partial config set (which could leave the box with no `hyprland.conf`). (commits `2b6c1d2`, `2bd1ac1`; `src/fox-install/modules/personalize.cpp`, `render.cpp`, `symlinks.cpp`)
+
+### Health check A3: no false-positive on an lts/zen kernel
+
+The A3 boot check compared `uname -r` against the mainline `linux` package, so booting `linux-lts`/`-zen` with mainline also installed read as a stale kernel → `Critical` → the install aborted on a perfectly healthy box. A3 now resolves the **running** kernel's owning package (via the module-tree `pkgbase`) and compares against that, with a fallback that passes if any installed kernel matches. (commits `27587a3`, `e2f7a86`; `src/fox-health/checks_a_boot.cpp`, `tests/test_a3_kernel.cpp`)
+
+### Monitors: primary is user-overridable; workspace-1 pin ships inert
+
+Monitor setup forced the laptop panel (`eDP-*`) as primary, leaving a docked laptop or a desktop no way to choose. It now *defaults* to the internal panel but lets an interactive run pick any monitor as primary (workspace 1 + the login/lock panels). The workspace-1 pin ships inert (no hardcoded `eDP-1`) and is personalized to the chosen primary per-machine. (commits `9b3e05e`, `e281b00`; `src/fox-install/modules/monitors.cpp`, `personalize.cpp`)
+
+### Updates pill: silent apply without spawning a terminal
+
+The waybar updates pill's "apply" path now runs via `systemctl` with a GUI polkit prompt instead of popping a terminal, so a no-terminal silent apply works. (commit `f036369`)
+
+### security: the unguarded GRUB regen left non-functional
+
+The apparmor-GRUB path ran a naked `grub-mkconfig -o /boot/grub/grub.cfg`, which truncates `grub.cfg` before the generator writes — a failed/garbled run leaves an unbootable menu with no revert. It's left non-functional pending the validate-to-temp → sanity-gate → atomic-swap fix (its own red-zone work). (commit `806be9c`; `src/fox-install/modules/security.cpp`)
+
 ## 2026-06-17 — v3.0.8
 
 ### Fingerprint for sudo no longer silently falls back to password
