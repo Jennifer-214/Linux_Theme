@@ -12,8 +12,11 @@
 #include "../fox-common/shell.hpp"
 #include "../fox-common/ui.hpp"
 
+#include <unistd.h>
+
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <regex>
 #include <system_error>
 
@@ -112,10 +115,36 @@ std::vector<VariantAction> plan_variants(
     return actions;
 }
 
+// ─── pure crop geometry ────────────────────────────────────────────
+bool crop_upscales(int sw, int sh, int tw, int th) {
+    if (sw <= 0 || sh <= 0 || tw <= 0 || th <= 0) return false;
+    double sx = static_cast<double>(tw) / sw;
+    double sy = static_cast<double>(th) / sh;
+    return std::max(sx, sy) > 1.0;
+}
+
+void crop_region(int sw, int sh, int tw, int th, int& rw, int& rh) {
+    rw = rh = 0;
+    if (sw <= 0 || sh <= 0 || tw <= 0 || th <= 0) return;
+    double tar_aspect = static_cast<double>(tw) / th;
+    if (static_cast<double>(sw) / sh > tar_aspect) {
+        rh = sh;
+        rw = static_cast<int>(std::lround(sh * tar_aspect));
+    } else {
+        rw = sw;
+        rh = static_cast<int>(std::lround(sw / tar_aspect));
+    }
+}
+
+bool esrgan_available() {
+    return sh::have("realesrgan-ncnn-vulkan");
+}
+
 // ─── per-monitor wallpaper variants ────────────────────────────────
 std::size_t generate(const fs::path& wall_dir,
                      const std::vector<std::string>& monitor_resolutions,
-                     bool dry_run) {
+                     bool dry_run,
+                     bool force) {
     if (!fs::is_directory(wall_dir))  return 0;
     if (monitor_resolutions.empty())  return 0;
 
@@ -162,10 +191,11 @@ std::size_t generate(const fs::path& wall_dir,
 
         if (std::regex_search(stem, variant_suffix)) {
             // Existing variant — probe its real pixel dims for the planner.
-            // Skip the probe (a read-only identify subprocess) under dry-run:
-            // an empty map makes the planner preview every variant as a
-            // Generate, which is the honest "what would happen" output.
-            if (dry_run) continue;
+            // Skip the probe (a read-only identify subprocess) under dry-run
+            // OR force: an empty map makes the planner preview/regenerate every
+            // variant as a Generate (dry-run = honest "what would happen";
+            // force = regenerate all, bypassing the dims-match skip).
+            if (dry_run || force) continue;
             // `magick identify ...` vs the legacy `identify ...` argv.
             std::vector<std::string> argv =
                 (magick == "magick")
@@ -212,16 +242,166 @@ std::size_t generate(const fs::path& wall_dir,
         // NATIVE dims — the variant file matches the monitor's reported
         // resolution exactly. The filename stays keyed to the monitor res so
         // rotate_wallpaper.sh's lookup still works.
-        std::string target =
+        const std::string target =
             std::to_string(act.w) + "x" + std::to_string(act.h);
-        int rc = sh::run({
-            magick, in_path.string(),
-            "-resize", target + "^",
-            "-gravity", "center",
-            "-extent", target,
-            out.string(),
-        });
-        if (rc == 0) ++generated;
+
+        // Plain Lanczos cover-crop+extent. Used directly for DOWNSCALING crops
+        // (byte-identical to the prior behavior) and as the lambda the
+        // upscaling branch falls back to on any ESRGAN/magick failure.
+        auto run_lanczos_downscale = [&]() -> int {
+            return sh::run({
+                magick, in_path.string(),
+                "-resize", target + "^",
+                "-gravity", "center",
+                "-extent", target,
+                out.string(),
+            });
+        };
+
+        // Lanczos cover-crop + sharpen — the GPU-free fallback for an
+        // UPSCALING crop (no ESRGAN, or any ESRGAN/magick step failed).
+        auto run_lanczos_upscale = [&]() -> int {
+            return sh::run({
+                magick, in_path.string(),
+                "-resize", target + "^",
+                "-gravity", "center",
+                "-extent", target,
+                "-adaptive-sharpen", "0x1.4",
+                "-unsharp", "0x0.8+0.6+0.01",
+                out.string(),
+            });
+        };
+
+        // Probe the SOURCE pixel dims (read-only identify — survives dry-run)
+        // to decide upscale vs downscale per the proven recipe.
+        int sw = 0, sh_px = 0;
+        {
+            std::vector<std::string> argv =
+                (magick == "magick")
+                    ? std::vector<std::string>{"magick", "identify", "-format",
+                                               "%wx%h", in_path.string()}
+                    : std::vector<std::string>{"identify", "-format",
+                                               "%wx%h", in_path.string()};
+            std::string dims;
+            if (sh::capture(argv, dims)) {
+                while (!dims.empty() &&
+                       (dims.back() == '\n' || dims.back() == '\r' ||
+                        dims.back() == ' '  || dims.back() == '\t')) {
+                    dims.pop_back();
+                }
+                parse_res(dims, sw, sh_px);  // sw/sh_px stay 0 on parse failure
+            }
+        }
+
+        const bool upscales = crop_upscales(sw, sh_px, act.w, act.h);
+
+        if (!upscales) {
+            // DOWNSCALING (or unprobeable source) crop — unchanged.
+            if (run_lanczos_downscale() == 0) ++generated;
+            continue;
+        }
+
+        // UPSCALING crop. Prefer the Real-ESRGAN region path; fall back to
+        // Lanczos+sharpen when ESRGAN is unavailable or any step fails.
+        const bool use_esrgan = esrgan_available();
+
+        if (dry_run) {
+            // Mirror sh::run's dry-run logging: print the planned command(s)
+            // for the chosen path WITHOUT executing (no GPU, no FS writes).
+            if (use_esrgan) {
+                int rw = 0, rh = 0;
+                crop_region(sw, sh_px, act.w, act.h, rw, rh);
+                const std::string region =
+                    std::to_string(rw) + "x" + std::to_string(rh);
+                ui::substep("would crop region [" + magick + " " +
+                            in_path.string() + " -gravity center -crop " +
+                            region + "+0+0 +repage <tmp_region>]");
+                ui::substep("would upscale [realesrgan-ncnn-vulkan -i "
+                            "<tmp_region> -o <tmp_up> -n realesrgan-x4plus "
+                            "-s 4]");
+                ui::substep("would finalize [" + magick + " <tmp_up> -resize " +
+                            target + " -unsharp 0x0.7+0.5+0.01 " +
+                            out.string() + "]");
+            } else {
+                ui::substep("would Lanczos-upscale [" + magick + " " +
+                            in_path.string() + " -resize " + target +
+                            "^ -gravity center -extent " + target +
+                            " -adaptive-sharpen 0x1.4 -unsharp 0x0.8+0.6+0.01 " +
+                            out.string() + "]");
+            }
+            ++generated;
+            continue;
+        }
+
+        if (!use_esrgan) {
+            if (run_lanczos_upscale() == 0) ++generated;
+            continue;
+        }
+
+        // ── live ESRGAN region path ──────────────────────────────────
+        // 1. crop the centered source region at the target aspect.
+        // 2. realesrgan-ncnn-vulkan -s 4 on the smaller region (the -s 2
+        //    path checkerboards on low-VRAM cards; -s 4 stays clean).
+        // 3. resize the upscaled region to the exact target + a mild unsharp.
+        // Temp files live under the system temp dir with unique names; any
+        // failure (nonzero rc / missing output) falls through to Lanczos.
+        int rw = 0, rh = 0;
+        crop_region(sw, sh_px, act.w, act.h, rw, rh);
+        const std::string region = std::to_string(rw) + "x" + std::to_string(rh);
+
+        std::error_code ec;
+        fs::path tmp_dir = fs::temp_directory_path(ec);
+        std::string ext_lc;
+        {
+            std::string s, e;
+            split_name(act.out_file, s, e);
+            ext_lc = e.empty() ? "png" : e;
+        }
+        const std::string stamp = std::to_string(::getpid()) + "_" +
+                                  std::to_string(generated) + "_" + region;
+        fs::path tmp_region = tmp_dir / ("foxvar_region_" + stamp + "." + ext_lc);
+        fs::path tmp_up     = tmp_dir / ("foxvar_up_" + stamp + ".png");
+
+        bool esrgan_ok = false;
+        if (!ec) {
+            int rc1 = sh::run({
+                magick, in_path.string(),
+                "-gravity", "center",
+                "-crop", region + "+0+0",
+                "+repage", tmp_region.string(),
+            });
+            if (rc1 == 0 && fs::exists(tmp_region)) {
+                int rc2 = sh::run({
+                    "realesrgan-ncnn-vulkan",
+                    "-i", tmp_region.string(),
+                    "-o", tmp_up.string(),
+                    "-n", "realesrgan-x4plus",
+                    "-s", "4",
+                });
+                if (rc2 == 0 && fs::exists(tmp_up)) {
+                    int rc3 = sh::run({
+                        magick, tmp_up.string(),
+                        "-resize", target,
+                        "-unsharp", "0x0.7+0.5+0.01",
+                        out.string(),
+                    });
+                    esrgan_ok = (rc3 == 0 && fs::exists(out));
+                }
+            }
+        }
+
+        // Best-effort temp cleanup regardless of outcome.
+        std::error_code rmec;
+        fs::remove(tmp_region, rmec);
+        fs::remove(tmp_up, rmec);
+
+        if (esrgan_ok) {
+            ++generated;
+        } else {
+            ui::warn("ESRGAN upscale failed for " + act.out_file +
+                     " — falling back to Lanczos+sharpen");
+            if (run_lanczos_upscale() == 0) ++generated;
+        }
     }
     if (generated > 0) {
         ui::ok(std::to_string(generated) + " per-monitor wallpaper variant(s) generated");

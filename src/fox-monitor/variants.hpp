@@ -46,20 +46,47 @@ std::vector<VariantAction> plan_variants(
     const std::vector<std::string>& base_files,
     const std::map<std::string, std::pair<int, int>>& existing_variants);
 
+// ─── pure crop geometry (testable, no I/O) ─────────────────────────
+// True when cropping a <sw>x<sh> source to a <tw>x<th> target requires the
+// cover-scale to UPSCALE (max(tw/sw, th/sh) > 1) — i.e. the target is larger
+// than the source in its limiting dimension. Upscaling crops (e.g. a tall
+// 2160x3840 portrait from a 3840x2160 landscape source) route through the
+// Real-ESRGAN path; a downscaling crop stays plain Lanczos. Zero/invalid
+// dims return false (no upscale claimed → safe Lanczos path).
+bool crop_upscales(int sw, int sh, int tw, int th);
+
+// Centered source REGION matching the target aspect, keeping the limiting
+// source dimension. tar_aspect = tw/th; if sw/sh > tar_aspect the source is
+// wider than the target shape → keep full height (rh=sh, rw=round(sh*aspect)),
+// else keep full width (rw=sw, rh=round(sw/aspect)). The region is already at
+// the target aspect so a later `-resize WxH` fits exactly. Zero/invalid dims
+// leave rw=rh=0.
+void crop_region(int sw, int sh, int tw, int th, int& rw, int& rh);
+
+// True if realesrgan-ncnn-vulkan is reachable on PATH (the GPU upscaler).
+bool esrgan_available();
+
 // Generates pre-cropped per-monitor wallpaper variants under `wall_dir`.
 //
 //   wall_dir            — the wallpaper directory (~/.wallpapers)
 //   monitor_resolutions — entries shaped "<name>:<WxH>" (sidecar field);
 //                         deduped internally to the underlying res set
-//   dry_run             — when true, no magick/remove runs and existing
+//   dry_run             — when true, no magick/esrgan/remove runs and existing
 //                         variants are not probed (planner previews every
 //                         variant as a Generate — the honest "what would
-//                         happen" output)
+//                         happen" output); the per-variant SOURCE dims are
+//                         still probed so the planned upscale/Lanczos path is
+//                         reported accurately.
+//   force               — when true, regenerate ALL variants (bypass the
+//                         dims-match skip): the planner sees an empty
+//                         existing-variants map so every (base,res) is a
+//                         Generate. Default callers pass false.
 //
 // Returns the number of files generated (0 == no-op rerun, not failure).
 std::size_t generate(const std::filesystem::path& wall_dir,
                      const std::vector<std::string>& monitor_resolutions,
-                     bool dry_run);
+                     bool dry_run,
+                     bool force = false);
 
 }  // namespace fox_monitor::variants
 

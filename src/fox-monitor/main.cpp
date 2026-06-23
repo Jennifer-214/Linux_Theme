@@ -206,7 +206,7 @@ int cmd_status() {
 // monitor. Never rotates (the base is the .current symlink, not a clock slot).
 // Composition of the libfox-monitor submodules: rederive → sidecar::write →
 // variants::generate → apply::apply_current → waybar regen.
-int cmd_reconcile(bool dry_run) {
+int cmd_reconcile(bool dry_run, bool force) {
     if (dry_run) sh::set_dry_run(true);
 
     fs::path sidecar_path = home_dir() / ".config/foxml/monitor-layout.conf";
@@ -242,22 +242,25 @@ int cmd_reconcile(bool dry_run) {
     }
 
     ui::section("Per-monitor wallpaper variants");
-    fox_monitor::variants::generate(wall_dir, layout.monitor_resolutions, dry_run);
+    fox_monitor::variants::generate(wall_dir, layout.monitor_resolutions, dry_run, force);
 
     ui::section("Apply current wallpaper");
     std::size_t applied =
         fox_monitor::apply::apply_current(layout, wall_dir, dry_run);
 
     // Regenerate waybar if the start script is deployed (hotplug can add/drop
-    // a bar). setsid + detached so reconcile returns promptly.
+    // a bar). Fire-and-forget: background it INSIDE the shell (`… &`) so we
+    // don't block on the long-lived waybar, and redirect its output off our
+    // terminal. setsid detaches it into its own session so it survives our exit.
     ui::section("Waybar");
     fs::path waybar_start = home_dir() / ".config/hypr/scripts/start_waybar.sh";
     if (fs::exists(waybar_start)) {
         if (dry_run) {
-            ui::substep("would regen waybar -> setsid " + waybar_start.string());
+            ui::substep("would regen waybar -> setsid " + waybar_start.string() + " (detached)");
         } else {
-            sh::run({"setsid", "bash", waybar_start.string()});
-            ui::ok("waybar regen triggered");
+            sh::run({"bash", "-c",
+                     "setsid '" + waybar_start.string() + "' >/dev/null 2>&1 &"});
+            ui::ok("waybar regen triggered (detached)");
         }
     } else {
         ui::substep("start_waybar.sh not deployed — skipping waybar regen");
@@ -273,7 +276,7 @@ void usage() {
     std::cerr <<
         "fox-monitor — monitor layout: status / reconcile / rotate (hotplug-safe)\n"
         "\n"
-        "Usage: fox-monitor <command> [--dry-run]\n"
+        "Usage: fox-monitor <command> [--dry-run] [--force]\n"
         "\n"
         "Commands:\n"
         "  status      Read-only diagnostic: live monitors, persisted layout,\n"
@@ -281,7 +284,12 @@ void usage() {
         "  reconcile   Re-derive the layout from live Hyprland, regenerate\n"
         "              per-monitor variants, and re-apply the CURRENT wallpaper\n"
         "              to each monitor. Never rotates. --dry-run plans only.\n"
-        "  rotate      Rotate wallpaper across outputs (Slice C — not yet implemented).\n";
+        "  rotate      Rotate wallpaper across outputs (Slice C — not yet implemented).\n"
+        "\n"
+        "Flags:\n"
+        "  -n, --dry-run  Plan only — no writes, no magick/esrgan, no GPU.\n"
+        "  -f, --force    Regenerate ALL wallpaper variants (bypass the\n"
+        "                 dims-match skip), e.g. after an ESRGAN upgrade.\n";
 }
 
 }  // namespace
@@ -293,16 +301,18 @@ int main(int argc, char** argv) {
     std::string cmd = argv[1];
 
     bool dry_run = false;
+    bool force   = false;
     for (int i = 2; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "--dry-run" || a == "-n") dry_run = true;
+        else if (a == "--force" || a == "-f") force = true;
     }
 
     if (cmd == "status") {
         return cmd_status();
     }
     if (cmd == "reconcile") {
-        return cmd_reconcile(dry_run);
+        return cmd_reconcile(dry_run, force);
     }
     if (cmd == "rotate") {
         std::cerr << "fox-monitor: 'rotate' not yet implemented "

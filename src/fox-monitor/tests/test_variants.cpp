@@ -169,6 +169,47 @@ int main() {
         check("(x) portrait variant native",  b && b->w == 2160 && b->h == 3840);
     }
 
+    // (g) crop_upscales — the proven recipe's upscale predicate.
+    {
+        // Tall portrait FROM a landscape source → UPSCALES (th/sh > 1).
+        check("(g) portrait-from-landscape upscales",
+              crop_upscales(3840, 2160, 2160, 3840) == true);
+        // A smaller landscape crop FROM a larger landscape → DOWNSCALES.
+        check("(g) landscape-from-larger downscales",
+              crop_upscales(3840, 2160, 1920, 1080) == false);
+        // Equal dims → no upscale (both scales == 1.0, strict > fails).
+        check("(g) equal dims no upscale",
+              crop_upscales(3840, 2160, 3840, 2160) == false);
+        // Zero/invalid dims → false (safe Lanczos path).
+        check("(g) zero source dims → false",
+              crop_upscales(0, 0, 2160, 3840) == false);
+        check("(g) zero target dims → false",
+              crop_upscales(3840, 2160, 0, 3840) == false);
+    }
+
+    // (h) crop_region — centered region at the target aspect, keeping the
+    //     limiting source dimension.
+    {
+        int rw = -1, rh = -1;
+        // 3840x2160 source → 2160x3840 (portrait) target: source is wider than
+        // the target shape, so keep full HEIGHT (rh=2160) and rw=round(2160 *
+        // 2160/3840) = round(1215) = 1215.
+        crop_region(3840, 2160, 2160, 3840, rw, rh);
+        check("(h) portrait region rw==1215", rw == 1215);
+        check("(h) portrait region rh==2160", rh == 2160);
+
+        // Guard against zero dims → region stays {0,0}.
+        rw = -1; rh = -1;
+        crop_region(0, 2160, 2160, 3840, rw, rh);
+        check("(h) zero source dim → rw==0", rw == 0);
+        check("(h) zero source dim → rh==0", rh == 0);
+
+        // A 1920x1080 target from a 3840x2160 source is a DOWNSCALE — the
+        // executor would NOT take the ESRGAN region path at all.
+        check("(h) downscale target → crop_upscales false",
+              crop_upscales(3840, 2160, 1920, 1080) == false);
+    }
+
     if (failed == 0) std::printf("test_variants: OK\n");
     return failed ? 1 : 0;
 }

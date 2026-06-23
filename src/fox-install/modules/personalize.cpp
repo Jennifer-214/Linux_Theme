@@ -53,7 +53,8 @@ bool parse_entry(const std::string& entry, std::string& name, std::string& res) 
 std::size_t generate_per_monitor_wallpapers(const Context& ctx,
                                             const sidecar::Layout& layout) {
     return fox_monitor::variants::generate(
-        ctx.home / ".wallpapers", layout.monitor_resolutions, sh::dry_run());
+        ctx.home / ".wallpapers", layout.monitor_resolutions, sh::dry_run(),
+        /*force=*/false);
 }
 
 // ─── hyprlock per-monitor background blocks ────────────────────────
