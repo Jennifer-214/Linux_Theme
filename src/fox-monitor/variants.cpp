@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <fstream>
 #include <regex>
 #include <system_error>
 
@@ -27,6 +28,13 @@ namespace ui = fox_install::ui;
 namespace fox_monitor::variants {
 
 namespace {
+
+// Bump when the variant RECIPE changes (e.g. Lanczos cover-crop -> ESRGAN region
+// upscale) so the next generate() regenerates every variant ONCE, then stays
+// stable. Persisted in wall_dir/.variant-recipe — this is what lets the installer
+// and `reconcile` auto-upgrade existing variants on a recipe change WITHOUT
+// re-upscaling on every reinstall (which would fight the frictionless-reinstall goal).
+constexpr const char* RECIPE_VERSION = "esrgan-region-s4-v1";
 
 std::string image_magick_bin() {
     if (sh::have("magick"))  return "magick";
@@ -163,6 +171,21 @@ std::size_t generate(const fs::path& wall_dir,
     }
     if (resolutions.empty()) return 0;
 
+    // Recipe-version stamp. If the recipe changed since the last run (or the
+    // stamp is absent — e.g. variants made by an older Lanczos-only build, or a
+    // brand-new box), treat this run as a force: regenerate every variant once so
+    // they all adopt the current recipe, then write the stamp so the NEXT run
+    // skips the full regen. No re-upscaling when the recipe is unchanged.
+    const fs::path recipe_stamp = wall_dir / ".variant-recipe";
+    bool recipe_changed = false;
+    {
+        std::ifstream in(recipe_stamp);
+        std::string prev;
+        if (in) std::getline(in, prev);
+        recipe_changed = (prev != RECIPE_VERSION);
+    }
+    const bool effective_force = force || recipe_changed;
+
     // Regex matching `_WxH` suffix to classify prior-run outputs (variants)
     // vs source images.
     std::regex variant_suffix(R"(_[0-9]+x[0-9]+$)");
@@ -195,7 +218,7 @@ std::size_t generate(const fs::path& wall_dir,
             // OR force: an empty map makes the planner preview/regenerate every
             // variant as a Generate (dry-run = honest "what would happen";
             // force = regenerate all, bypassing the dims-match skip).
-            if (dry_run || force) continue;
+            if (dry_run || effective_force) continue;
             // `magick identify ...` vs the legacy `identify ...` argv.
             std::vector<std::string> argv =
                 (magick == "magick")
@@ -402,6 +425,12 @@ std::size_t generate(const fs::path& wall_dir,
                      " — falling back to Lanczos+sharpen");
             if (run_lanczos_upscale() == 0) ++generated;
         }
+    }
+    // Stamp the current recipe after a real run so the one-time full regen does
+    // not repeat next time (until the recipe changes again). Dry-run never writes.
+    if (!dry_run) {
+        std::ofstream out(recipe_stamp);
+        if (out) out << RECIPE_VERSION << "\n";
     }
     if (generated > 0) {
         ui::ok(std::to_string(generated) + " per-monitor wallpaper variant(s) generated");
