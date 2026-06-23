@@ -590,8 +590,25 @@ void do_systemd_user(const Context& ctx) {
 
     sh::systemctl_daemon_reload(/*user=*/true);
 
-    // Auto-enable core watchers
-    for (const char* svc : { "fox-monitor-watch.service", "foxml-focus-pulse.service" }) {
+    // One-time migration: fox-pulse subsumes the legacy bash watchers
+    // (fox-monitor-watch + focus-pulse) in a single epoll daemon. On a box
+    // that ran an older install, fox-monitor-watch.service may still be
+    // enabled+running and its script still on disk — disable+stop it and
+    // remove the stale script so we don't run both. Idempotent: no-ops when
+    // the unit/script are already gone.
+    sh::run({"systemctl", "--user", "disable", "--now", "fox-monitor-watch.service"});
+    {
+        fs::path stale = ctx.home / ".config/hypr/scripts/fox-monitor-watch.sh";
+        std::error_code rec;
+        if (fs::exists(stale, rec)) {
+            fs::remove(stale, rec);
+            ui::substep("removed stale fox-monitor-watch.sh (superseded by fox-pulse)");
+        }
+    }
+
+    // Auto-enable core daemons. fox-pulse replaces fox-monitor-watch;
+    // foxml-focus-pulse stays for the workspace-switch OSD.
+    for (const char* svc : { "fox-pulse.service", "foxml-focus-pulse.service" }) {
         if (fs::exists(dst_root / svc)) {
             sh::systemctl_enable(svc, /*user=*/true);
         }

@@ -481,20 +481,28 @@ int main(int argc, char** argv) {
     // counting up to the planned total still gives a meaningful sense
     // of "how much of the install is left."
     std::size_t total_enabled = 0;
+    bool any_root_selected = false;
     for (std::size_t k = 0; k < MODULES_COUNT; ++k) {
-        if (parsed.module_enabled[k]) ++total_enabled;
+        if (parsed.module_enabled[k]) {
+            ++total_enabled;
+            if (MODULES[k].requires_root) any_root_selected = true;
+        }
     }
     std::size_t ran_count = 0;
 
     // Warm sudo once, up front, before any module runs. install.sh does
     // this for its own invocation (+ a keepalive loop); doing it here too
     // means the bare `fox-install` binary behaves the same when run
-    // directly — otherwise the first root-needing module hits a cold
-    // cache and bails, and because most such modules are plain FOX_MODULE
-    // (requires_root=false in metadata) we can't reliably pre-filter, so
-    // we just warm on any real interactive run. Non-fatal: each module
-    // re-checks sudo itself, so a decline here only defers the prompt.
-    if (!sh::dry_run() && ui::tty() && total_enabled > 0) {
+    // directly — otherwise the first root-needing module hits a cold cache
+    // and bails. We gate on a selected module actually declaring
+    // requires_root: a no-root run (e.g. fox-pulse's
+    // `--only monitors,personalize` hot-swap handler) then skips the warmup
+    // BY DESIGN, not incidentally — closing the pam_fprintd-lockout-on-
+    // hotplug risk (a sudo prompt at the fingerprint reader during a
+    // dock/undock could eat the password and lock the account). Non-fatal
+    // when it does run: each module re-checks sudo itself, so a decline
+    // here only defers the prompt.
+    if (!sh::dry_run() && ui::tty() && total_enabled > 0 && any_root_selected) {
         if (!sh::sudo_warmup_interactive()) {
             ui::warn("sudo not warmed — root-needing modules will report "
                      "errors and self-skip (run `sudo -v`, then re-run)");
