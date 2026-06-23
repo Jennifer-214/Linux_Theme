@@ -35,6 +35,7 @@
     "modules": [
         "custom/net_speed",
         "custom/cpu",
+        "custom/gpu",
         "memory",
         "custom/disk"
     ]
@@ -93,6 +94,13 @@
 
   "custom/cpu": {
     "exec": "~/.config/waybar/scripts/cpu.sh",
+    "return-type": "json",
+    "interval": 5,
+    "tooltip": true
+  },
+
+  "custom/gpu": {
+    "exec": "~/.config/waybar/scripts/gpu-stats.sh",
     "return-type": "json",
     "interval": 5,
     "tooltip": true
