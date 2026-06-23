@@ -67,6 +67,7 @@ void run_intel_gpu   (Context&) {}
 void run_nvidia      (Context&) {}
 void run_fprint      (Context&) {}
 void run_fprint_pam  (Context&) {}
+void run_hyprlock_pam(Context&) {}
 void run_ssh_harden  (Context&) {}
 void run_xgboost     (Context&) {}
 void run_cpp_pro     (Context&) {}

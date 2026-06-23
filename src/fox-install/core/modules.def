@@ -161,6 +161,12 @@ FOX_MODULE( battery,     run_battery,       "--battery",     "Cap battery charge
 // recovery_entry module is the escape hatch that makes this safe.
 FOX_MODULE( fprint,            run_fprint,             "--fprint",           "Install fprintd + enroll a finger",                          false )
 FOX_MODULE( fprint_pam,        run_fprint_pam,         "--fprint-pam",       "Splice pam_fprintd into /etc/pam.d/system-local-login (TTY login)", false )
+//   hyprlock_pam — rewrites /etc/pam.d/hyprlock to a password-only system-auth
+//   stack so a typed password is never blocked behind pam_fprintd; the lock
+//   screen's fingerprint runs via hyprlock's native concurrent auth block.
+//   Default-on, self-gates on has_fprint + an enrolled finger + the file
+//   existing; backs up + idempotent. A no-fingerprint box is never touched.
+FOX_MODULE( hyprlock_pam,      run_hyprlock_pam,       "--hyprlock-pam",     "hyprlock: password-only PAM + native fingerprint (enrollment-gated)", true )
 FOX_MODULE( greetd_fingerprint,run_greetd_fingerprint, "--greetd-fingerprint","pam_fprintd in /etc/pam.d/greetd (login screen)",            false )
 FOX_MODULE( sudo_fingerprint,  run_sudo_fingerprint,   "--sudo-fingerprint", "Fingerprint for sudo prompts (refuses if B2 unsafe)",        false )
 //   fprintd_reset_polkit — grant-only polkit rule so the lock/unlock self-heal
