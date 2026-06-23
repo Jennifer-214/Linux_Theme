@@ -161,12 +161,13 @@ _add_wallpaper() {
         cp "$src" "$base"
     fi
 
-    # 3. Pre-bake per-monitor variants at 2× target resolution. Filename
-    #    matches the monitor's reported res (so rotate_wallpaper.sh's
-    #    lookup works), file holds 2× pixels — pixel-perfect on HiDPI
-    #    scale 2.0 displays, compositor cleanly downsamples for 1×.
-    #    Reads ~/.config/foxml/monitor-layout.conf (written by
-    #    configure_monitors) to know which resolutions to bake.
+    # 3. Pre-bake per-monitor variants at the monitor's NATIVE physical
+    #    resolution (the post-transform framebuffer size). Filename matches
+    #    the monitor's reported res so rotate_wallpaper.sh's lookup works;
+    #    awww renders into physical pixels, so native = pixel-perfect with no
+    #    runtime rescale. (Was 2× — dropped: it forced the compositor to
+    #    downscale every frame and diverged from the C++ + watcher generators.)
+    #    Reads ~/.config/foxml/monitor-layout.conf to know which resolutions to bake.
     local layout="${HOME}/.config/foxml/monitor-layout.conf"
     if [[ -r "$layout" ]]; then
         local monitor_res=""
@@ -181,11 +182,11 @@ _add_wallpaper() {
             seen[$res]=1
             [[ "$res" =~ ^[0-9]+x[0-9]+$ ]] || continue
             local w="${res%x*}" h="${res#*x}"
-            local target=$((w*2))x$((h*2))
+            local target="${w}x${h}"
             magick "$base" -filter Lanczos -resize "${target}^" \
                 -gravity center -extent "$target" \
                 "${WALLPAPER_DIR}/${name}_${res}.jpg"
-            echo "  → variant ${name}_${res}.jpg (2× = ${target} pixels)"
+            echo "  → variant ${name}_${res}.jpg (native ${target})"
         done
     fi
     # Update .current symlink so the new wallpaper takes effect now.

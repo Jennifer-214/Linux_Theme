@@ -19,10 +19,12 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <regex>
 #include <set>
 #include <sstream>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -59,10 +61,69 @@ bool parse_entry(const std::string& entry, std::string& name, std::string& res) 
     return !name.empty() && !res.empty();
 }
 
+// Split "wall.jpg" → stem="wall", ext="jpg" (no leading dot). A dotless
+// name yields an empty ext. Mirrors fs::path stem()/extension() but works
+// on a plain filename string so the planner stays filesystem-free.
+void split_name(const std::string& file, std::string& stem, std::string& ext) {
+    auto dot = file.find_last_of('.');
+    if (dot == std::string::npos || dot == 0) {  // dotless or dotfile
+        stem = file;
+        ext.clear();
+    } else {
+        stem = file.substr(0, dot);
+        ext  = file.substr(dot + 1);
+    }
+}
+
 // The sentinel splice helper now lives in core/splice.hpp (splice_sentinel),
 // shared with the welcome_banner module.
 
 }  // namespace
+
+// ─── pure variant planner ──────────────────────────────────────────
+std::vector<VariantAction> plan_variants(
+    const std::set<std::string>& resolutions,
+    const std::vector<std::string>& base_files,
+    const std::map<std::string, std::pair<int, int>>& existing_variants) {
+
+    std::vector<VariantAction> actions;
+
+    // Generate (or skip) one variant per (base, res) at NATIVE dims.
+    for (const auto& base : base_files) {
+        std::string stem, ext;
+        split_name(base, stem, ext);
+        for (const auto& res : resolutions) {
+            int w = 0, h = 0;
+            if (!parse_res(res, w, h)) continue;
+            std::string out =
+                ext.empty() ? stem + "_" + res
+                            : stem + "_" + res + "." + ext;
+            auto it = existing_variants.find(out);
+            if (it != existing_variants.end() &&
+                it->second.first == w && it->second.second == h) {
+                continue;  // already at native dims → no action
+            }
+            actions.push_back({VariantAction::Generate, base, out, w, h});
+        }
+    }
+
+    // Prune existing `<base>_<WxH>` variants whose res left the set. We only
+    // prune files that match a known base's `<stem>_<WxH>.<ext>` shape — a
+    // safety net so we never remove an unrelated file.
+    std::regex variant_suffix(R"(_([0-9]+x[0-9]+)$)");
+    for (const auto& kv : existing_variants) {
+        const std::string& fname = kv.first;
+        std::string stem, ext;
+        split_name(fname, stem, ext);
+        std::smatch m;
+        if (!std::regex_search(stem, m, variant_suffix)) continue;
+        const std::string res = m[1].str();
+        if (resolutions.count(res)) continue;  // res still wanted → keep
+        actions.push_back({VariantAction::Prune, {}, fname, 0, 0});
+    }
+
+    return actions;
+}
 
 // ─── per-monitor wallpaper variants ────────────────────────────────
 std::size_t generate_per_monitor_wallpapers(const Context& ctx,
@@ -86,48 +147,94 @@ std::size_t generate_per_monitor_wallpapers(const Context& ctx,
     }
     if (resolutions.empty()) return 0;
 
-    // Regex matching `_WxH` suffix to skip prior-run outputs.
+    // Regex matching `_WxH` suffix to classify prior-run outputs (variants)
+    // vs source images.
     std::regex variant_suffix(R"(_[0-9]+x[0-9]+$)");
 
-    size_t generated = 0;
-    for (auto& entry : fs::directory_iterator(wall_dir)) {
-        if (!entry.is_regular_file()) continue;
-        std::string base = entry.path().filename().string();
-        std::string ext  = entry.path().extension().string();
-        if (ext.size() > 1) ext.erase(0, 1);
-        // Case-fold ext for jpg/jpeg/png comparison (matches `nocaseglob`).
+    auto is_image = [](const std::string& ext) {
         std::string lo = ext;
         std::transform(lo.begin(), lo.end(), lo.begin(),
                        [](unsigned char c){ return std::tolower(c); });
-        if (lo != "jpg" && lo != "jpeg" && lo != "png") continue;
+        return lo == "jpg" || lo == "jpeg" || lo == "png";
+    };
 
-        std::string name = entry.path().stem().string();
-        if (name.size() >= 9 && name.compare(name.size() - 9, 9, "_portrait") == 0)
-            continue;
-        if (std::regex_search(name, variant_suffix))
-            continue;
+    // Two passes over the directory: collect base inputs (filter out
+    // _portrait + _WxH variants) and probe existing-variant dims for the
+    // planner. The planner itself touches neither the FS nor imagemagick.
+    std::vector<std::string> base_files;
+    std::map<std::string, std::pair<int, int>> existing_variants;
 
-        for (auto& res : resolutions) {
-            int w = 0, h = 0;
-            if (!parse_res(res, w, h)) continue;
-            fs::path out = wall_dir / (name + "_" + res + "." + ext);
-            if (fs::exists(out)) continue;
-            // Variant pixel size is 2× the monitor's reported resolution.
-            // Filename stays keyed to the monitor res (so rotate_wallpaper.sh's
-            // lookup still works), but the file holds 2× pixels — gives clean
-            // results when the compositor renders at HiDPI scale 2.0 or
-            // when the monitor is later swapped for a higher-DPI panel.
-            // Compositor downsamples for 1× displays with no visible cost.
-            std::string target = std::to_string(2 * w) + "x" + std::to_string(2 * h);
-            int rc = sh::run({
-                magick, entry.path().string(),
-                "-resize", target + "^",
-                "-gravity", "center",
-                "-extent", target,
-                out.string(),
-            });
-            if (rc == 0) ++generated;
+    for (auto& entry : fs::directory_iterator(wall_dir)) {
+        if (!entry.is_regular_file()) continue;
+        std::string fname = entry.path().filename().string();
+        std::string ext   = entry.path().extension().string();
+        if (ext.size() > 1) ext.erase(0, 1);
+        if (!is_image(ext)) continue;
+
+        std::string stem = entry.path().stem().string();
+
+        if (std::regex_search(stem, variant_suffix)) {
+            // Existing variant — probe its real pixel dims for the planner.
+            // Skip the probe (a read-only identify subprocess) under dry-run:
+            // an empty map makes the planner preview every variant as a
+            // Generate, which is the honest "what would happen" output.
+            if (sh::dry_run()) continue;
+            // `magick identify ...` vs the legacy `identify ...` argv.
+            std::vector<std::string> argv =
+                (magick == "magick")
+                    ? std::vector<std::string>{"magick", "identify", "-format",
+                                               "%wx%h", entry.path().string()}
+                    : std::vector<std::string>{"identify", "-format",
+                                               "%wx%h", entry.path().string()};
+            std::string dims;
+            int vw = 0, vh = 0;
+            if (sh::capture(argv, dims)) {
+                while (!dims.empty() &&
+                       (dims.back() == '\n' || dims.back() == '\r' ||
+                        dims.back() == ' '  || dims.back() == '\t')) {
+                    dims.pop_back();
+                }
+            }
+            // Unprobeable (corrupt/unreadable) → {0,0} sentinel → the planner
+            // force-regenerates it (dims != native target).
+            existing_variants[fname] =
+                parse_res(dims, vw, vh) ? std::make_pair(vw, vh)
+                                        : std::make_pair(0, 0);
+            continue;
         }
+
+        if (stem.size() >= 9 && stem.compare(stem.size() - 9, 9, "_portrait") == 0)
+            continue;
+
+        base_files.push_back(fname);
+    }
+
+    auto actions = plan_variants(resolutions, base_files, existing_variants);
+
+    size_t generated = 0;
+    for (const auto& act : actions) {
+        fs::path out = wall_dir / act.out_file;
+        if (act.kind == VariantAction::Prune) {
+            if (!sh::dry_run()) {
+                std::error_code ec;
+                fs::remove(out, ec);
+            }
+            continue;
+        }
+        fs::path in_path = wall_dir / act.src_base_file;
+        // NATIVE dims — the variant file matches the monitor's reported
+        // resolution exactly. The filename stays keyed to the monitor res so
+        // rotate_wallpaper.sh's lookup still works.
+        std::string target =
+            std::to_string(act.w) + "x" + std::to_string(act.h);
+        int rc = sh::run({
+            magick, in_path.string(),
+            "-resize", target + "^",
+            "-gravity", "center",
+            "-extent", target,
+            out.string(),
+        });
+        if (rc == 0) ++generated;
     }
     if (generated > 0) {
         ui::ok(std::to_string(generated) + " per-monitor wallpaper variant(s) generated");
