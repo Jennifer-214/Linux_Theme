@@ -2,6 +2,12 @@
 
 All notable changes to this Arch + Hyprland workstation setup.
 
+## 2026-06-23 — v3.1.2
+
+### Portability: no hardcoded user paths in shipped files
+
+Two committed files carried a literal `/home/caramel/…`. `fox-theme-tweak` hardcoded its repo dir (`SCRIPT_DIR=/home/caramel/code/Linux_Theme`), which broke `fox theme tweak` for any checkout living elsewhere — it now honors the `FOXML_DIR` override every other tool already uses, with a `-d` existence guard. The hyprlock template shipped `/home/caramel/.wallpapers/…` placeholder paths; they're now `~/.wallpapers/…`, matching `personalize.cpp`'s own install-time output (hyprlock expands `~`, and the personalizer parses the path by basename so the prefix is irrelevant to it). A repo-wide sweep confirmed these were the only two genuine offenders — the `caramel` zsh-theme name, the cowrie/sandbox deliberate fake-`$HOME`s, and a code comment are all intentional. (commit `79a394a`; `shared/bin/fox-theme-tweak`, `templates/hyprlock/hyprlock.conf`)
+
 ## 2026-06-23 — v3.1.1
 
 ### Waybar scales per-monitor across any number of displays
