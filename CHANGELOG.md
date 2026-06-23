@@ -2,6 +2,16 @@
 
 All notable changes to this Arch + Hyprland workstation setup.
 
+## 2026-06-23 — v3.1.1
+
+### Waybar scales per-monitor across any number of displays
+
+A waybar instance has exactly one style, and `start_waybar.sh` picked a single size profile from one monitor and applied that shared style to **every** bar — so on a mixed-DPI setup a 1080p bar got sized for the 4K screen (everything scaled to the largest display). Now each output is sized from its **own** effective width (pixels ÷ scale): outputs are bucketed by size profile and one waybar instance is launched per distinct profile, pinned to exactly its monitors — the primary keeps the full bar, every other output gets the secondary bar at its own size. Two 4K externals share one bar; a 4K + a 1440p get one each. Scales to N monitors, and the single-monitor path is unchanged (the common case). Deployed by the installer alongside the other Hyprland scripts. (commit `e71d5a4`; `shared/hyprland_scripts/start_waybar.sh`)
+
+### Your wallpaper choice survives a reboot
+
+The autostart wallpaper path (`rotate_wallpaper.sh --static`) was hardcoded to the midday slot (`foxml_earthy`), so every login overwrote the palette default — or your last `fox-wallpaper --set` pick — with that one slot. It now re-applies `.current` (the persisted wallpaper), falling back to a slot only when `.current` is unset or points outside the wallpaper dir. Set a wallpaper once and it stays. (commit `88dc78a`; `shared/hyprland_scripts/rotate_wallpaper.sh`)
+
 ## 2026-06-23 — v3.1.0
 
 ### New `fox monitor` tool — fix your monitor layout + wallpaper in one command
