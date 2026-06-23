@@ -13,7 +13,7 @@
 
 #include "../core/context.hpp"
 #include "../../fox-common/shell.hpp"
-#include "../core/sidecar.hpp"
+#include "../../fox-monitor/sidecar.hpp"
 #include "../../fox-common/ui.hpp"
 #include "personalize.hpp"
 
@@ -33,6 +33,8 @@ namespace fs = std::filesystem;
 using json   = nlohmann::json;
 
 namespace fox_install {
+
+namespace sidecar = fox_monitor::sidecar;
 
 namespace {
 

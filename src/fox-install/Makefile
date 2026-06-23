@@ -19,6 +19,12 @@ FOX_COMMON_LIB := $(FOX_COMMON_DIR)/libfox-common.a
 FOX_HEALTH_DIR := ../fox-health
 FOX_HEALTH_LIB := $(FOX_HEALTH_DIR)/libfox-health.a
 
+# monitor library — the single sidecar (monitor-layout.conf) read/write
+# implementation. monitors/personalize/summary modules link this so there
+# is exactly one sidecar code path shared with the fox-monitor binary.
+FOX_MONITOR_DIR := ../fox-monitor
+FOX_MONITOR_LIB := $(FOX_MONITOR_DIR)/libfox-monitor.a
+
 CORE_SRC    := $(wildcard core/*.cpp)
 MODULE_SRC  := $(wildcard modules/*.cpp)
 MAIN_SRC    := fox-install.cpp
@@ -31,8 +37,9 @@ BIN := fox-install
 
 all: $(BIN)
 
-$(BIN): $(MAIN_OBJ) $(CORE_OBJ) $(MODULE_OBJ) $(FOX_COMMON_LIB) $(FOX_HEALTH_LIB)
+$(BIN): $(MAIN_OBJ) $(CORE_OBJ) $(MODULE_OBJ) $(FOX_COMMON_LIB) $(FOX_HEALTH_LIB) $(FOX_MONITOR_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $(MAIN_OBJ) $(CORE_OBJ) $(MODULE_OBJ) \
+		-L$(FOX_MONITOR_DIR) -lfox-monitor \
 		-L$(FOX_COMMON_DIR) -lfox-common \
 		-L$(FOX_HEALTH_DIR) -lfox-health \
 		-lcrypto
@@ -44,6 +51,9 @@ $(FOX_COMMON_LIB):
 $(FOX_HEALTH_LIB):
 	$(MAKE) --no-print-directory -C $(FOX_HEALTH_DIR)
 
+$(FOX_MONITOR_LIB):
+	$(MAKE) --no-print-directory -C $(FOX_MONITOR_DIR)
+
 # Generic rule covers everything; registry.cpp picks up modules.def
 # automatically via #include in registry.cpp.
 %.o: %.cpp
@@ -53,6 +63,14 @@ $(FOX_HEALTH_LIB):
 # core/modules.def transitively. Re-tag registry.cpp explicitly so a
 # modules.def edit triggers a rebuild.
 core/registry.o: core/registry.cpp core/module.hpp core/modules.def
+
+# Sidecar lives in ../fox-monitor now. Re-tag the modules that include it
+# (directly or via personalize.hpp) so a sidecar-header edit triggers a
+# rebuild — the generic %.o rule alone won't see the cross-dir header.
+SIDECAR_HDR := $(FOX_MONITOR_DIR)/sidecar.hpp
+modules/personalize.o: modules/personalize.cpp modules/personalize.hpp $(SIDECAR_HDR)
+modules/monitors.o:    modules/monitors.cpp    $(SIDECAR_HDR)
+modules/summary.o:     modules/summary.cpp     $(SIDECAR_HDR)
 
 install: all
 	@mkdir -p $(PREFIX)
@@ -125,17 +143,18 @@ tests/test_nvidia_modules: tests/test_nvidia_modules.cpp modules/nvidia_modules.
 
 # hyprlock panel pinner — pure pin_foreground_monitors() guards that the
 # login panel pins to PRIMARY while per-monitor background blocks (inside
-# the sentinels) stay untouched. Links personalize.o + libfox-common (sh::/ui::).
-tests/test_hyprlock_pin: tests/test_hyprlock_pin.cpp modules/personalize.o core/sidecar.o $(FOX_COMMON_LIB)
-	$(CXX) $(CXXFLAGS) tests/test_hyprlock_pin.cpp modules/personalize.o core/sidecar.o -L$(FOX_COMMON_DIR) -lfox-common -o $@
+# the sentinels) stay untouched. Links personalize.o + libfox-monitor
+# (sidecar::Layout, the personalize API's parameter type) + libfox-common (sh::/ui::).
+tests/test_hyprlock_pin: tests/test_hyprlock_pin.cpp modules/personalize.o $(FOX_MONITOR_LIB) $(FOX_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_hyprlock_pin.cpp modules/personalize.o -L$(FOX_MONITOR_DIR) -lfox-monitor -L$(FOX_COMMON_DIR) -lfox-common -o $@
 
 # variant_gen — pure plan_variants() characterization. Pins the NATIVE-dims
 # contract (the deleted 2× legacy), dedupe, _portrait/_WxH input exclusion,
 # native-match skip, wrong-dims force-regen, and orphan-res prune. No magick,
-# no filesystem. Links personalize.o (for plan_variants) + sidecar/fox-common
-# (transitive deps of personalize.o).
-tests/test_variant_gen: tests/test_variant_gen.cpp modules/personalize.o core/sidecar.o $(FOX_COMMON_LIB)
-	$(CXX) $(CXXFLAGS) tests/test_variant_gen.cpp modules/personalize.o core/sidecar.o -L$(FOX_COMMON_DIR) -lfox-common -o $@
+# no filesystem. Links personalize.o (for plan_variants) + libfox-monitor/
+# libfox-common (transitive deps of personalize.o).
+tests/test_variant_gen: tests/test_variant_gen.cpp modules/personalize.o $(FOX_MONITOR_LIB) $(FOX_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_variant_gen.cpp modules/personalize.o -L$(FOX_MONITOR_DIR) -lfox-monitor -L$(FOX_COMMON_DIR) -lfox-common -o $@
 
 # state_checks links the real implementation (not stubs) so the empty-
 # manifest paths exercise the actual code. That pulls in shell/ui

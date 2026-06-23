@@ -14,12 +14,12 @@
 
 #include "../fox-common/ui.hpp"
 #include "../fox-common/shell.hpp"
+#include "sidecar.hpp"
 
 #include "../fox-intel/json.hpp"
 
 #include <cstdlib>
 #include <filesystem>
-#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -37,48 +37,14 @@ fs::path home_dir() {
     return h ? fs::path(h) : fs::path();
 }
 
-// Layout sidecar keys we care about. KEY="value" form, one per line.
-struct Sidecar {
-    std::string primary;
-    std::string portrait_outputs;
-    std::string secondary_outputs;
-    std::string monitor_resolutions;
-    bool found = false;
-};
-
-std::string strip_quotes(const std::string& s) {
-    if (s.size() >= 2 && s.front() == '"' && s.back() == '"')
-        return s.substr(1, s.size() - 2);
-    return s;
-}
-
-// TODO(slice-C): replace with fox_common::sidecar::read once sidecar is
-// promoted to fox-common. Small local parser for the four keys only.
-Sidecar read_sidecar(const fs::path& path) {
-    Sidecar sc;
-    std::ifstream in(path);
-    if (!in) return sc;
-    sc.found = true;
-    std::string line;
-    while (std::getline(in, line)) {
-        auto eq = line.find('=');
-        if (eq == std::string::npos) continue;
-        std::string key = line.substr(0, eq);
-        std::string val = strip_quotes(line.substr(eq + 1));
-        if      (key == "PRIMARY")             sc.primary             = val;
-        else if (key == "PORTRAIT_OUTPUTS")    sc.portrait_outputs    = val;
-        else if (key == "SECONDARY_OUTPUTS")   sc.secondary_outputs   = val;
-        else if (key == "MONITOR_RESOLUTIONS") sc.monitor_resolutions = val;
+// Join a vector with single spaces — for displaying the parsed sidecar
+// fields the way they appear on disk.
+std::string join_ws(const std::vector<std::string>& v) {
+    std::string out;
+    for (size_t i = 0; i < v.size(); ++i) {
+        if (i) out += ' ';
+        out += v[i];
     }
-    return sc;
-}
-
-// Split on whitespace.
-std::vector<std::string> split_ws(const std::string& s) {
-    std::vector<std::string> out;
-    std::istringstream is(s);
-    std::string tok;
-    while (is >> tok) out.push_back(tok);
     return out;
 }
 
@@ -131,19 +97,20 @@ void report_live_monitors() {
     }
 }
 
-void report_sidecar(const Sidecar& sc, const fs::path& path) {
+void report_sidecar(const fox_monitor::sidecar::Layout& sc,
+                    bool found, const fs::path& path) {
     ui::section("Persisted layout (sidecar)");
-    if (!sc.found) {
+    if (!found) {
         ui::warn("no sidecar at " + path.string() + " — run a monitor configure first");
         return;
     }
     ui::substep("PRIMARY             = " + sc.primary);
-    ui::substep("PORTRAIT_OUTPUTS    = " + sc.portrait_outputs);
-    ui::substep("SECONDARY_OUTPUTS   = " + sc.secondary_outputs);
-    ui::substep("MONITOR_RESOLUTIONS = " + sc.monitor_resolutions);
+    ui::substep("PORTRAIT_OUTPUTS    = " + join_ws(sc.portrait_outputs));
+    ui::substep("SECONDARY_OUTPUTS   = " + join_ws(sc.secondary_outputs));
+    ui::substep("MONITOR_RESOLUTIONS = " + join_ws(sc.monitor_resolutions));
 }
 
-void report_variant_coverage(const Sidecar& sc) {
+void report_variant_coverage(const fox_monitor::sidecar::Layout& sc) {
     ui::section("Wallpaper variant coverage");
     fs::path wp_dir = home_dir() / ".wallpapers";
     fs::path current = wp_dir / ".current";
@@ -169,7 +136,7 @@ void report_variant_coverage(const Sidecar& sc) {
         ui::warn("MONITOR_RESOLUTIONS empty — nothing to check");
         return;
     }
-    for (const auto& entry : split_ws(sc.monitor_resolutions)) {
+    for (const auto& entry : sc.monitor_resolutions) {
         // entry form: name:WxH
         auto colon = entry.find(':');
         if (colon == std::string::npos) continue;
@@ -220,10 +187,12 @@ void report_deployment_state() {
 
 int cmd_status() {
     fs::path sidecar_path = home_dir() / ".config/foxml/monitor-layout.conf";
-    Sidecar sc = read_sidecar(sidecar_path);
+    std::error_code ec;
+    bool found = fs::exists(sidecar_path, ec) && !ec;
+    fox_monitor::sidecar::Layout sc = fox_monitor::sidecar::read(sidecar_path);
 
     report_live_monitors();
-    report_sidecar(sc, sidecar_path);
+    report_sidecar(sc, found, sidecar_path);
     report_variant_coverage(sc);
     report_deployment_state();
     return 0;

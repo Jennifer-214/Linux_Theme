@@ -1,8 +1,12 @@
 # src/fox-monitor/Makefile — monitor layout status / reconcile / rotate.
 #
-# Slice A: read-only `status` + loud stubs. Links libfox-common for the
-# shared ui:: / sh:: helpers; the nlohmann json.hpp header comes in via
-# the include path (header-only, no link needed).
+# Produces libfox-monitor.a (the reusable monitor library — sidecar
+# read/write today, more submodules as reconcile lands) AND the
+# fox-monitor binary. fox-install also links libfox-monitor.a so there
+# is exactly ONE sidecar implementation across the tree.
+#
+# Links libfox-common for the shared ui:: / sh:: helpers; the nlohmann
+# json.hpp header comes in via the include path (header-only, no link).
 
 CXX      ?= g++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
@@ -11,14 +15,22 @@ PREFIX   ?= $(HOME)/.local/bin
 FOX_COMMON_DIR := ../fox-common
 FOX_COMMON_LIB := $(FOX_COMMON_DIR)/libfox-common.a
 
-BIN := fox-monitor
+LIB     := libfox-monitor.a
+LIB_OBJ := sidecar.o
+BIN     := fox-monitor
 
-all: $(BIN)
+all: $(LIB) $(BIN)
 
-$(BIN): main.o $(FOX_COMMON_LIB)
-	$(CXX) $(CXXFLAGS) -o $@ main.o -L$(FOX_COMMON_DIR) -lfox-common
+$(LIB): $(LIB_OBJ)
+	ar rcs $@ $^
 
-main.o: main.cpp
+sidecar.o: sidecar.cpp sidecar.hpp
+	$(CXX) $(CXXFLAGS) -c sidecar.cpp -o $@
+
+$(BIN): main.o $(LIB) $(FOX_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ main.o -L. -lfox-monitor -L$(FOX_COMMON_DIR) -lfox-common
+
+main.o: main.cpp sidecar.hpp
 	$(CXX) $(CXXFLAGS) -I$(FOX_COMMON_DIR) -c main.cpp -o $@
 
 $(FOX_COMMON_LIB):
@@ -32,6 +44,6 @@ install: all
 	@echo "  + $(BIN) installed to $(PREFIX)"
 
 clean:
-	@rm -f $(BIN) main.o
+	@rm -f $(BIN) $(LIB) $(LIB_OBJ) main.o
 
 .PHONY: all install clean

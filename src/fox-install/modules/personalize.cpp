@@ -483,6 +483,8 @@ void apply_all(const Context& ctx, const sidecar::Layout& layout) {
 // Module entry point (registered in modules.def).
 namespace fox_install {
 
+namespace sidecar = fox_monitor::sidecar;
+
 void run_personalize(Context& ctx) {
     ui::section("Personalizing for this machine");
 

@@ -7,7 +7,7 @@
 // the same sequence — keeping it as a public mini-API here mirrors that.
 
 #include "../core/context.hpp"
-#include "../core/sidecar.hpp"
+#include "../../fox-monitor/sidecar.hpp"
 
 #include <cstddef>
 #include <map>
@@ -16,6 +16,8 @@
 #include <vector>
 
 namespace fox_install::personalize {
+
+namespace sidecar = fox_monitor::sidecar;
 
 // One planned per-monitor wallpaper-variant operation. The planner emits
 // these; generate_per_monitor_wallpapers executes them (magick / fs::remove).
