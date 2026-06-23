@@ -1,5 +1,5 @@
 // Characterization test for the PURE per-monitor variant planner
-// (modules/personalize.cpp:plan_variants).
+// (variants.cpp:plan_variants).
 //
 // Pins the NEW contract (Slice B): variants render at NATIVE w×h (not the
 // retired 2× legacy), resolutions dedupe across monitors, _portrait/_WxH
@@ -8,7 +8,7 @@
 // force-regens, and an orphaned `<base>_<WxH>` variant whose res left the set
 // is pruned. No imagemagick, no filesystem — fixtures are in-memory args.
 
-#include "../modules/personalize.hpp"
+#include "../variants.hpp"
 
 #include <cstdio>
 #include <map>
@@ -17,7 +17,7 @@
 #include <utility>
 #include <vector>
 
-using namespace fox_install::personalize;
+using namespace fox_monitor::variants;
 
 namespace {
 
@@ -169,6 +169,6 @@ int main() {
         check("(x) portrait variant native",  b && b->w == 2160 && b->h == 3840);
     }
 
-    if (failed == 0) std::printf("test_variant_gen: OK\n");
+    if (failed == 0) std::printf("test_variants: OK\n");
     return failed ? 1 : 0;
 }

@@ -15,6 +15,9 @@
 #include "../fox-common/ui.hpp"
 #include "../fox-common/shell.hpp"
 #include "sidecar.hpp"
+#include "rederive.hpp"
+#include "apply.hpp"
+#include "variants.hpp"
 
 #include "../fox-intel/json.hpp"
 
@@ -198,16 +201,86 @@ int cmd_status() {
     return 0;
 }
 
+// reconcile — re-derive the layout from live Hyprland state, regenerate the
+// per-monitor wallpaper variants, and RE-APPLY the CURRENT wallpaper to each
+// monitor. Never rotates (the base is the .current symlink, not a clock slot).
+// Composition of the libfox-monitor submodules: rederive → sidecar::write →
+// variants::generate → apply::apply_current → waybar regen.
+int cmd_reconcile(bool dry_run) {
+    if (dry_run) sh::set_dry_run(true);
+
+    fs::path sidecar_path = home_dir() / ".config/foxml/monitor-layout.conf";
+    fs::path wall_dir     = home_dir() / ".wallpapers";
+
+    ui::section(dry_run ? "Reconcile monitor layout (dry-run — no writes)"
+                        : "Reconcile monitor layout");
+
+    fox_monitor::sidecar::Layout prev = fox_monitor::sidecar::read(sidecar_path);
+
+    fox_monitor::sidecar::Layout layout = fox_monitor::rederive::from_live(prev);
+    if (layout.primary.empty()) {
+        ui::err("could not derive layout from live Hyprland (hyprctl unavailable "
+                "or no monitors) — aborting");
+        return 1;
+    }
+
+    ui::section("Derived layout");
+    ui::substep("PRIMARY             = " + layout.primary);
+    ui::substep("PORTRAIT_OUTPUTS    = " + join_ws(layout.portrait_outputs));
+    ui::substep("SECONDARY_OUTPUTS   = " + join_ws(layout.secondary_outputs));
+    ui::substep("MONITOR_RESOLUTIONS = " + join_ws(layout.monitor_resolutions));
+
+    // Persist the fresh layout. sidecar::write is its own tmp+rename — under
+    // dry-run we skip the write so nothing on disk changes.
+    if (dry_run) {
+        ui::substep("would write sidecar -> " + sidecar_path.string());
+    } else if (fox_monitor::sidecar::write(sidecar_path, layout)) {
+        ui::ok("sidecar updated -> " + sidecar_path.string());
+    } else {
+        ui::err("failed to write sidecar -> " + sidecar_path.string());
+        return 1;
+    }
+
+    ui::section("Per-monitor wallpaper variants");
+    fox_monitor::variants::generate(wall_dir, layout.monitor_resolutions, dry_run);
+
+    ui::section("Apply current wallpaper");
+    std::size_t applied =
+        fox_monitor::apply::apply_current(layout, wall_dir, dry_run);
+
+    // Regenerate waybar if the start script is deployed (hotplug can add/drop
+    // a bar). setsid + detached so reconcile returns promptly.
+    ui::section("Waybar");
+    fs::path waybar_start = home_dir() / ".config/hypr/scripts/start_waybar.sh";
+    if (fs::exists(waybar_start)) {
+        if (dry_run) {
+            ui::substep("would regen waybar -> setsid " + waybar_start.string());
+        } else {
+            sh::run({"setsid", "bash", waybar_start.string()});
+            ui::ok("waybar regen triggered");
+        }
+    } else {
+        ui::substep("start_waybar.sh not deployed — skipping waybar regen");
+    }
+
+    ui::section("Summary");
+    ui::substep((dry_run ? "would apply to " : "applied to ") +
+                std::to_string(applied) + " monitor(s)");
+    return 0;
+}
+
 void usage() {
     std::cerr <<
         "fox-monitor — monitor layout: status / reconcile / rotate (hotplug-safe)\n"
         "\n"
-        "Usage: fox-monitor <command>\n"
+        "Usage: fox-monitor <command> [--dry-run]\n"
         "\n"
         "Commands:\n"
         "  status      Read-only diagnostic: live monitors, persisted layout,\n"
         "              wallpaper-variant coverage, and live hot-swap mechanism.\n"
-        "  reconcile   Re-apply the persisted layout (Slice C — not yet implemented).\n"
+        "  reconcile   Re-derive the layout from live Hyprland, regenerate\n"
+        "              per-monitor variants, and re-apply the CURRENT wallpaper\n"
+        "              to each monitor. Never rotates. --dry-run plans only.\n"
         "  rotate      Rotate wallpaper across outputs (Slice C — not yet implemented).\n";
 }
 
@@ -219,13 +292,17 @@ int main(int argc, char** argv) {
     if (argc < 2) { usage(); return 2; }
     std::string cmd = argv[1];
 
+    bool dry_run = false;
+    for (int i = 2; i < argc; ++i) {
+        std::string a = argv[i];
+        if (a == "--dry-run" || a == "-n") dry_run = true;
+    }
+
     if (cmd == "status") {
         return cmd_status();
     }
     if (cmd == "reconcile") {
-        std::cerr << "fox-monitor: 'reconcile' not yet implemented "
-                     "(Slice C of the monitor-seamless plan)\n";
-        return 2;
+        return cmd_reconcile(dry_run);
     }
     if (cmd == "rotate") {
         std::cerr << "fox-monitor: 'rotate' not yet implemented "
