@@ -114,8 +114,18 @@ case "$MODE" in
         done
         ;;
     --static)
-        # Always use the midday slot (foxml_earthy.jpg).
-        target_idx=1
+        # Re-apply the persisted current wallpaper (the palette default or the
+        # user's last `fox-wallpaper --set` pick) so a reboot keeps the choice
+        # instead of snapping back to a hardcoded slot. Fall back to the midday
+        # slot only when .current is unset/broken or points outside WALL_DIR.
+        _cur=""
+        [[ -L "$WALL_DIR/.current" ]] && _cur="$(readlink "$WALL_DIR/.current")"
+        if [[ -n "$_cur" && "$_cur" != */* && -f "$WALL_DIR/$_cur" ]]; then
+            target_idx=-1
+            target_file="$_cur"
+        else
+            target_idx=1
+        fi
         ;;
     bucket|"")
         target_idx=$(calendar_slot_index)
