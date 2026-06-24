@@ -67,10 +67,11 @@ install: all
 # portrait/secondary derivation, sticky-primary preserve + first-fallback).
 # It links only rederive.o + shell.o (via libfox-common, for the sh:: refs
 # rederive.cpp carries even though the pure fn touches none of them).
-test: tests/test_variants tests/test_sidecar tests/test_rederive
+test: tests/test_variants tests/test_sidecar tests/test_rederive tests/test_apply
 	@./tests/test_variants
 	@./tests/test_sidecar
 	@./tests/test_rederive
+	@./tests/test_apply
 
 tests/test_variants: tests/test_variants.cpp variants.o $(FOX_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) tests/test_variants.cpp variants.o -L$(FOX_COMMON_DIR) -lfox-common -o $@
@@ -81,8 +82,14 @@ tests/test_sidecar: tests/test_sidecar.cpp $(LIB)
 tests/test_rederive: tests/test_rederive.cpp rederive.o sidecar.o $(FOX_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) tests/test_rederive.cpp rederive.o sidecar.o -L$(FOX_COMMON_DIR) -lfox-common -o $@
 
+# test_apply pins the PURE apply helpers — current_base (the .current no-op gate
+# apply_all relies on) + variant_for (the fit/crop decision). Links apply.o +
+# libfox-common (apply.o carries ui::/sh:: refs from apply_current).
+tests/test_apply: tests/test_apply.cpp apply.o $(FOX_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_apply.cpp apply.o -L$(FOX_COMMON_DIR) -lfox-common -o $@
+
 clean:
 	@rm -f $(BIN) $(LIB) $(LIB_OBJ) main.o \
-	       tests/test_variants tests/test_sidecar tests/test_rederive
+	       tests/test_variants tests/test_sidecar tests/test_rederive tests/test_apply
 
 .PHONY: all install clean test

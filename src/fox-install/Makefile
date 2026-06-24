@@ -69,7 +69,8 @@ core/registry.o: core/registry.cpp core/module.hpp core/modules.def
 # rebuild — the generic %.o rule alone won't see the cross-dir header.
 SIDECAR_HDR  := $(FOX_MONITOR_DIR)/sidecar.hpp
 VARIANTS_HDR := $(FOX_MONITOR_DIR)/variants.hpp
-modules/personalize.o: modules/personalize.cpp modules/personalize.hpp $(SIDECAR_HDR) $(VARIANTS_HDR)
+APPLY_HDR    := $(FOX_MONITOR_DIR)/apply.hpp
+modules/personalize.o: modules/personalize.cpp modules/personalize.hpp $(SIDECAR_HDR) $(VARIANTS_HDR) $(APPLY_HDR)
 modules/monitors.o:    modules/monitors.cpp    $(SIDECAR_HDR)
 modules/summary.o:     modules/summary.cpp     $(SIDECAR_HDR)
 

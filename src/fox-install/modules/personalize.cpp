@@ -13,6 +13,7 @@
 
 #include "../core/splice.hpp"
 #include "../../fox-monitor/variants.hpp"
+#include "../../fox-monitor/apply.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
@@ -291,6 +292,18 @@ void apply_all(const Context& ctx, const sidecar::Layout& layout) {
     personalize_hyprlock(ctx, layout);
     pin_hyprlock_panel(ctx, layout);
     personalize_workspace_rules(ctx, layout);
+
+    // W1 (monitor-polish): re-apply the live wallpaper to the (possibly
+    // reconfigured) layout in the SAME run. generate_per_monitor_wallpapers bakes
+    // the variants but never re-applies, so a wizard rotation left the pre-rotation
+    // LANDSCAPE image on a now-portrait output (the black-bar letterbox). Gated on
+    // an existing .current so it targets the live-reconfigure case and stays silent
+    // on a fresh box (no .current until first login's rotate_wallpaper.sh). This is
+    // the reactive-refresh-omission fix: the wizard is a trigger that changes the
+    // layout, so it must re-apply exactly as `fox-monitor reconcile` does.
+    fs::path wall_dir = ctx.home / ".wallpapers";
+    if (!fox_monitor::apply::current_base(wall_dir).empty())
+        fox_monitor::apply::apply_current(layout, wall_dir, sh::dry_run());
 }
 
 }  // namespace fox_install::personalize
