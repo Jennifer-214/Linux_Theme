@@ -281,11 +281,11 @@ local plugins = {
     },
   },
 
-  -- Syntax / Treesitter
-  -- Pin to master: the main branch dropped require("nvim-treesitter.configs") in
-  -- favor of a rewritten setup API. master keeps the legacy configs.setup() shape
-  -- our init.lua below uses. Same pin on textobjects (its main branch broke too).
-  { "nvim-treesitter/nvim-treesitter",  branch = "master", build = ":TSUpdate" },
+  -- Syntax / Treesitter — main branch (required by nvim 0.12; master is frozen and
+  -- hard-errors on 0.12). The rewrite dropped require("nvim-treesitter.configs") for
+  -- setup()/install() + core vim.treesitter APIs (wired near the bottom of this file).
+  -- Compiles parsers locally → needs the tree-sitter CLI + a C compiler on PATH.
+  { "nvim-treesitter/nvim-treesitter",  branch = "main", build = ":TSUpdate" },
 
   -- LSP + Autocomplete
   { "neovim/nvim-lspconfig" },
@@ -459,7 +459,7 @@ local plugins = {
   -- Treesitter textobjects (daf = delete a function, vac = select a class, etc.)
   {
     "nvim-treesitter/nvim-treesitter-textobjects",
-    branch = "master",
+    branch = "main",
     dependencies = { "nvim-treesitter/nvim-treesitter" },
   },
 
@@ -1729,54 +1729,81 @@ require("lualine").setup({
   },
 })
 
--- Treesitter
-require("nvim-treesitter.configs").setup({
-  -- Dropped "latex" — the parser on this nvim-treesitter line generates from
-  -- grammar source via tree-sitter-cli, and 0.26.x changed how `--no-bindings`
-  -- is passed (now needs `-- --no-bindings`), so the install errors out.
-  -- Add it back when nvim-treesitter ships a compatible build script.
-  ensure_installed = { "lua", "python", "c", "cpp", "asm", "bash", "json", "yaml", "markdown", "vim", "vimdoc", "java", "javadoc" },
-  highlight = { enable = {{SHOW_WELCOME}} },
-  incremental_selection = { enable = {{SHOW_WELCOME}} },
-  indent = { enable = {{SHOW_WELCOME}} },
-  textobjects = {
-    select = {
-      enable = {{SHOW_WELCOME}},
-      lookahead = {{SHOW_WELCOME}},
-      keymaps = {
-        ["af"] = "@function.outer",
-        ["if"] = "@function.inner",
-        ["ac"] = "@class.outer",
-        ["ic"] = "@class.inner",
-        ["aa"] = "@parameter.outer",
-        ["ia"] = "@parameter.inner",
-        ["ai"] = "@conditional.outer",
-        ["ii"] = "@conditional.inner",
-        ["al"] = "@loop.outer",
-        ["il"] = "@loop.inner",
-      },
-    },
-    move = {
-      enable = {{SHOW_WELCOME}},
-      set_jumps = {{SHOW_WELCOME}},
-      goto_next_start = {
-        ["]m"] = "@function.outer",
-        ["]]"] = "@class.outer",
-        ["]a"] = "@parameter.inner",
-      },
-      goto_prev_start = {
-        ["[m"] = "@function.outer",
-        ["[["] = "@class.outer",
-        ["[a"] = "@parameter.inner",
-      },
-    },
-    swap = {
-      enable = {{SHOW_WELCOME}},
-      swap_next = { ["<leader>sa"] = "@parameter.inner" },
-      swap_previous = { ["<leader>sA"] = "@parameter.inner" },
-    },
-  },
+-- Treesitter — main branch (nvim 0.12). The legacy require("nvim-treesitter.configs")
+-- module is gone; parsers install via install(), and highlight/indent/textobjects are
+-- wired with core vim.treesitter + the textobjects companion. (Migrated from the master
+-- configs.setup() shape — workspace plan W2, 2026-06-28. UNTESTED until a 0.12 run.)
+local ts_parsers = { "lua", "python", "c", "cpp", "asm", "bash", "json", "yaml", "markdown", "vim", "vimdoc", "java", "javadoc" }
+-- "latex" stays dropped — its parser build still trips the tree-sitter-cli
+-- --no-bindings change; add it back when upstream ships a compatible build script.
+
+require("nvim-treesitter").setup({})
+
+-- Install only the parsers we don't already have (main has NO auto-install).
+-- VERIFY-ON-0.12: get_installed() is the documented listing helper but wasn't
+-- confirmed verbatim from a 2026 source — if it's absent on your build this block
+-- skips silently and you install once with `:TSUpdate` / `:TSInstall <lang>`.
+do
+  local okc, cfg = pcall(require, "nvim-treesitter.config")
+  if okc and cfg.get_installed then
+    local have = {}
+    for _, l in ipairs(cfg.get_installed()) do have[l] = {{SHOW_WELCOME}} end
+    local missing = {}
+    for _, l in ipairs(ts_parsers) do
+      if not have[l] then missing[#missing + 1] = l end
+    end
+    if #missing > 0 then require("nvim-treesitter").install(missing) end
+  end
+end
+
+-- Highlight + indent: master's `highlight`/`indent = { enable = true }` are gone.
+-- Start treesitter per-buffer in a FileType autocmd (core API), only when a parser
+-- exists, and drive indentexpr off the plugin (experimental on main — keep quoting).
+vim.api.nvim_create_autocmd("FileType", {
+  group = vim.api.nvim_create_augroup("foxml_ts", { clear = {{SHOW_WELCOME}} }),
+  callback = function(args)
+    local lang = vim.treesitter.language.get_lang(vim.bo[args.buf].filetype)
+    if lang and pcall(vim.treesitter.language.add, lang) then
+      pcall(vim.treesitter.start, args.buf, lang)
+      vim.bo[args.buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+    end
+  end,
 })
+
+-- Incremental selection: the master module was removed with no main equivalent.
+-- nvim 0.12 ships it in core visual mode — `an` expand to parent node, `in` shrink
+-- to child (VERIFY-ON-0.12: `]n`/`[n` to siblings exist on some builds). No setup
+-- needed; remap here if you want the old gnn/grn feel.
+
+-- Textobjects (companion main branch): setup() + manual keymaps — the module that
+-- auto-wired keymaps on master is gone. Mirrors the old select/move/swap binds.
+require("nvim-treesitter-textobjects").setup({
+  select = { lookahead = {{SHOW_WELCOME}} },
+  move = { set_jumps = {{SHOW_WELCOME}} },
+})
+local ts_select = require("nvim-treesitter-textobjects.select")
+local ts_move   = require("nvim-treesitter-textobjects.move")
+local ts_swap   = require("nvim-treesitter-textobjects.swap")
+for lhs, query in pairs({
+  ["af"] = "@function.outer",    ["if"] = "@function.inner",
+  ["ac"] = "@class.outer",       ["ic"] = "@class.inner",
+  ["aa"] = "@parameter.outer",   ["ia"] = "@parameter.inner",
+  ["ai"] = "@conditional.outer", ["ii"] = "@conditional.inner",
+  ["al"] = "@loop.outer",        ["il"] = "@loop.inner",
+}) do
+  vim.keymap.set({ "x", "o" }, lhs, function()
+    ts_select.select_textobject(query, "textobjects")
+  end, { desc = "TS select " .. query })
+end
+local function ts_goto(fn, query) return function() fn(query, "textobjects") end end
+vim.keymap.set({ "n", "x", "o" }, "]m", ts_goto(ts_move.goto_next_start,     "@function.outer"),  { desc = "TS next fn start" })
+vim.keymap.set({ "n", "x", "o" }, "]]", ts_goto(ts_move.goto_next_start,     "@class.outer"),     { desc = "TS next class start" })
+vim.keymap.set({ "n", "x", "o" }, "]a", ts_goto(ts_move.goto_next_start,     "@parameter.inner"), { desc = "TS next param" })
+vim.keymap.set({ "n", "x", "o" }, "[m", ts_goto(ts_move.goto_previous_start, "@function.outer"),  { desc = "TS prev fn start" })
+vim.keymap.set({ "n", "x", "o" }, "[[", ts_goto(ts_move.goto_previous_start, "@class.outer"),     { desc = "TS prev class start" })
+vim.keymap.set({ "n", "x", "o" }, "[a", ts_goto(ts_move.goto_previous_start, "@parameter.inner"), { desc = "TS prev param" })
+vim.keymap.set("n", "<leader>sa", function() ts_swap.swap_next("@parameter.inner") end,     { desc = "TS swap next param" })
+vim.keymap.set("n", "<leader>sA", function() ts_swap.swap_previous("@parameter.inner") end, { desc = "TS swap prev param" })
 
 -- Mason (LSP installer)
 require("mason").setup()
