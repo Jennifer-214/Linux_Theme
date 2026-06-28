@@ -289,7 +289,7 @@ local plugins = {
 
   -- LSP + Autocomplete
   { "neovim/nvim-lspconfig" },
-  { "williamboman/mason.nvim",          build = ":MasonUpdate" },
+  { "williamboman/mason.nvim" },        -- mason 2.x: :MasonUpdate gone, registry auto-updates
   { "williamboman/mason-lspconfig.nvim" },
   { "hrsh7th/nvim-cmp" },
   { "hrsh7th/cmp-nvim-lsp" },
@@ -1737,7 +1737,12 @@ local ts_parsers = { "lua", "python", "c", "cpp", "asm", "bash", "json", "yaml",
 -- "latex" stays dropped — its parser build still trips the tree-sitter-cli
 -- --no-bindings change; add it back when upstream ships a compatible build script.
 
-require("nvim-treesitter").setup({})
+-- install_dir passed explicitly so nvim-treesitter prepends it to runtimepath
+-- (lazy.nvim resets rtp and drops stdpath('data')/site; main only adds the dir
+-- to rtp when install_dir is set — empty setup() leaves parsers unreachable).
+require("nvim-treesitter").setup({
+  install_dir = vim.fn.stdpath("data") .. "/site",
+})
 
 -- Install only the parsers we don't already have (main has NO auto-install).
 -- VERIFY-ON-0.12: get_installed() is the documented listing helper but wasn't
@@ -1802,8 +1807,8 @@ vim.keymap.set({ "n", "x", "o" }, "]a", ts_goto(ts_move.goto_next_start,     "@p
 vim.keymap.set({ "n", "x", "o" }, "[m", ts_goto(ts_move.goto_previous_start, "@function.outer"),  { desc = "TS prev fn start" })
 vim.keymap.set({ "n", "x", "o" }, "[[", ts_goto(ts_move.goto_previous_start, "@class.outer"),     { desc = "TS prev class start" })
 vim.keymap.set({ "n", "x", "o" }, "[a", ts_goto(ts_move.goto_previous_start, "@parameter.inner"), { desc = "TS prev param" })
-vim.keymap.set("n", "<leader>sa", function() ts_swap.swap_next("@parameter.inner") end,     { desc = "TS swap next param" })
-vim.keymap.set("n", "<leader>sA", function() ts_swap.swap_previous("@parameter.inner") end, { desc = "TS swap prev param" })
+vim.keymap.set("n", "<leader>na", function() ts_swap.swap_next("@parameter.inner") end,     { desc = "TS swap next param" })
+vim.keymap.set("n", "<leader>nA", function() ts_swap.swap_previous("@parameter.inner") end, { desc = "TS swap prev param" })
 
 -- Mason (LSP installer)
 require("mason").setup()
@@ -1862,7 +1867,7 @@ local on_attach    = function(_, bufnr)
   map("n", "<leader>ca", vim.lsp.buf.code_action, "Code Action")
   map("n", "[d", function() vim.diagnostic.jump({ count = -1 }) end, "Prev Diagnostic")
   map("n", "]d", function() vim.diagnostic.jump({ count = 1 }) end, "Next Diagnostic")
-  map("n", "<leader>f", function() vim.lsp.buf.format({ async = {{SHOW_WELCOME}} }) end, "Format")
+  map("n", "<leader>cf", function() vim.lsp.buf.format({ async = {{SHOW_WELCOME}} }) end, "Format")
 
   -- format on save (synchronous so it finishes before write)
   vim.api.nvim_create_autocmd("BufWritePre", {
@@ -2038,7 +2043,7 @@ map("n", "<leader>bh", "<cmd>BufferLineCloseLeft<cr>", { desc = "Close buffers t
 
 -- Window management
 map("n", "<leader>v", "<cmd>vsplit<cr>", { desc = "Vertical split" })
-map("n", "<leader>s", "<cmd>split<cr>", { desc = "Horizontal split" })
+map("n", "<leader>ss", "<cmd>split<cr>", { desc = "Horizontal split" })
 map("n", "<C-Left>", "<cmd>vertical resize -5<cr>", { desc = "Shrink window" })
 map("n", "<C-Right>", "<cmd>vertical resize +5<cr>", { desc = "Grow window" })
 map("n", "<C-Up>", "<cmd>resize +3<cr>", { desc = "Grow window height" })
@@ -2085,7 +2090,7 @@ map("n", "<C-k>", "<C-w>k", { desc = "Focus above split" })
 map("n", "<C-l>", "<C-w>l", { desc = "Focus right split" })
 
 -- Quick close window
-map("n", "<leader>q", function()
+map("n", "<leader>qq", function()
   local wins = vim.iter(vim.api.nvim_tabpage_list_wins(0)):filter(function(w)
     local buf = vim.api.nvim_win_get_buf(w)
     return vim.bo[buf].filetype ~= "neo-tree"

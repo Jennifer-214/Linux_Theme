@@ -69,8 +69,8 @@ Leader: **Space** | Local leader: **Space**
 | `]m` / `[m` | Next / Prev function start |
 | `]]` / `[[` | Next / Prev class start |
 | `]a` / `[a` | Next / Prev parameter |
-| `Space sa` | Swap parameter with next |
-| `Space sA` | Swap parameter with previous |
+| `Space na` | Swap parameter with next |
+| `Space nA` | Swap parameter with previous |
 
 ### Flash (Jump Anywhere)
 | Key | Action |
@@ -109,7 +109,8 @@ Leader: **Space** | Local leader: **Space**
 | Key | Action |
 |-----|--------|
 | `Space v` | Vertical split |
-| `Space s` | Horizontal split |
+| `Space ss` | Horizontal split |
+| `Space qq` | Close window (smart — drops to empty buffer if last) |
 | `Ctrl+w h/j/k/l` | Navigate splits |
 | `Ctrl+w q` | Close split |
 | `Ctrl+w o` | Close all other splits |
@@ -232,7 +233,7 @@ Inside Neo-tree — Other:
 | `Space rn` | Rename symbol |
 | `Space ca` | Code action |
 | `[d` / `]d` | Prev / Next diagnostic |
-| `Space f` | Format buffer |
+| `Space cf` | Format buffer |
 
 ### C/C++ Specific
 | Key | Action |

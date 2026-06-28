@@ -80,8 +80,8 @@ Examples:
 | `]m` / `[m` | Next / Prev function start |
 | `]]` / `[[` | Next / Prev class start |
 | `]a` / `[a` | Next / Prev parameter |
-| `Space sa` | Swap parameter with next |
-| `Space sA` | Swap parameter with previous |
+| `Space na` | Swap parameter with next |
+| `Space nA` | Swap parameter with previous |
 
 ### Search
 | Key | Action |
@@ -114,6 +114,8 @@ Examples:
 ### Windows
 | Key | Action |
 |-----|--------|
+| `Space ss` | Horizontal split (leader) |
+| `Space qq` | Close window (smart — drops to empty buffer if last) |
 | `Ctrl+w s` | Split horizontal |
 | `Ctrl+w v` | Split vertical |
 | `Ctrl+w h/j/k/l` | Navigate splits |
@@ -234,7 +236,7 @@ Pattern: `ys{motion}{char}` = add, `cs{old}{new}` = change, `ds{char}` = delete.
 | `Space rn` | Rename symbol |
 | `Space ca` | Code action |
 | `[d` / `]d` | Prev / Next diagnostic |
-| `Space f` | Format buffer |
+| `Space cf` | Format buffer |
 
 ### C/C++ Specific
 | Key | Action |
@@ -558,8 +560,8 @@ Quick reference of all `Space` binds:
 | `t n` | Test nearest |
 | `t s` | Test summary |
 | `s o` | Symbols outline |
-| `s a` | Swap param next |
-| `s A` | Swap param prev |
+| `n a` | Swap param next |
+| `n A` | Swap param prev |
 | `p p` | Projects |
 | `h a` | Harpoon add |
 | `h h` | Harpoon menu |
@@ -581,7 +583,9 @@ Quick reference of all `Space` binds:
 | `s w` | Search word / selection |
 | `x x` | Diagnostics |
 | `x q` | Quickfix |
-| `f` | Format |
+| `c f` | Format |
+| `s s` | Horizontal split |
+| `q q` | Close window |
 | `/` | Toggle comment |
 | `w` | Save file |
 | `X` | Make file executable |
