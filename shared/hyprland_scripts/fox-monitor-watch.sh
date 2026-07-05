@@ -134,7 +134,11 @@ apply_changes() {
     _personalize_hyprlock            || true
     _personalize_workspace_rules     || true
     if [[ -x "$HOME/.config/hypr/scripts/rotate_wallpaper.sh" ]]; then
-        "$HOME/.config/hypr/scripts/rotate_wallpaper.sh" || true
+        # --static re-applies the persisted .current wallpaper (respecting the
+        # user's pick) instead of the time-of-day slot. Without it, a monitor
+        # event or the login startup_reconcile would bucket-rotate and stomp
+        # .current back to the clock slot.
+        "$HOME/.config/hypr/scripts/rotate_wallpaper.sh" --static || true
     fi
 
     # Regenerate the waybar config for the new monitor set. start_waybar
