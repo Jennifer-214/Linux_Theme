@@ -531,9 +531,10 @@ local plugins = {
     dependencies = { "nvim-lua/plenary.nvim" },
   },
 
-  -- CodeCompanion (Inline AI, Chat, and Agents using local Ollama)
+  -- CodeCompanion (Inline AI, Chat, and Agents) — DISABLED: debloat, only Copilot in regular use.
   {
     "olimorris/codecompanion.nvim",
+    enabled = false,
     dependencies = {
       "nvim-lua/plenary.nvim",
       "nvim-treesitter/nvim-treesitter",
@@ -597,9 +598,10 @@ local plugins = {
     },
   },
 
-  -- Avante (Cursor-style AI panel, using Copilot provider)
+  -- Avante (Cursor-style AI panel) — DISABLED: relying on Copilot for inline suggestions instead.
   {
     "yetone/avante.nvim",
+    enabled = false,
     event = "VeryLazy",
     version = false,
     build = "make",
@@ -728,9 +730,10 @@ local plugins = {
     },
   },
 
-  -- Claude Code (AI terminal integration)
+  -- Claude Code (AI terminal integration) — DISABLED: debloat, not in regular use.
   {
     "coder/claudecode.nvim",
+    enabled = false,
     dependencies = { "folke/snacks.nvim" },
     event = "VeryLazy",
     keys = {
@@ -748,9 +751,10 @@ local plugins = {
     },
   },
 
-  -- Dropbar (breadcrumb navigation)
+  -- Dropbar (breadcrumb navigation) — DISABLED: winbar reserved for the fox-symdeps size-chip.
   {
     "Bekaboo/dropbar.nvim",
+    enabled = false,
     event = { "BufReadPost", "BufNewFile" },
     opts = {
       bar = {
@@ -794,6 +798,23 @@ local plugins = {
           ["template argument"] = "",
         },
       },
+    },
+  },
+
+  -- fox-symdeps.nvim — compiled-reality HUD for C++ (private repo Jennyfirrr/fox-symdeps.nvim).
+  -- <leader>dd float / <leader>dD panel: layout · Uses · Calls · cascade · false-sharing (s) · notes (n).
+  -- HOME: lives in the private trader workspace (tools/plugins/), its own gitignored repo — see the
+  -- plugin's DOCS/DECISIONS.md. `enabled` guards on the dir so this degrades gracefully if absent.
+  {
+    dir = vim.fn.expand("~/code/tick-trader-percore-workspace/tools/plugins/fox-symdeps.nvim"),
+    enabled = function()
+      return vim.fn.isdirectory(vim.fn.expand("~/code/tick-trader-percore-workspace/tools/plugins/fox-symdeps.nvim")) == 1
+    end,
+    name = "fox-symdeps",
+    ft = { "c", "cpp" },
+    opts = {
+      palette = { header = P.peach, title = P.blush, border = P.peach, badge = P.warm, winblend = 0 },
+      doc_dirs = { vim.fn.expand("~/code/tick-trader-percore-workspace") }, -- `n` also greps the private workspace docs
     },
   },
 
