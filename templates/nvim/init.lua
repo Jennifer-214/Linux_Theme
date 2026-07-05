@@ -1584,9 +1584,9 @@ local function apply_foxml_theme()
   hl("ClaudeCodeSeparator", { fg = P.bg_deep, bg = P.bg_deep })
 
   -- vim-illuminate (subtle earthy underline, not distracting)
-  hl("IlluminatedWordText",  { bg = "#4a3528" })
-  hl("IlluminatedWordRead",  { bg = "#4a3528" })
-  hl("IlluminatedWordWrite", { bg = "#4a3528", underline = {{SHOW_WELCOME}} })
+  hl("IlluminatedWordText",  { bg = "#5e4029" })
+  hl("IlluminatedWordRead",  { bg = "#5e4029" })
+  hl("IlluminatedWordWrite", { bg = "#5e4029", underline = {{SHOW_WELCOME}} })
 
   -- nvim-cmp
   hl("CmpItemAbbrMatch",      { fg = P.peach, bold = {{SHOW_WELCOME}} })
