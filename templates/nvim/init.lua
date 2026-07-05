@@ -423,9 +423,10 @@ local plugins = {
     end,
   },
 
-  -- LaTeX
+  -- LaTeX — DISABLED: no LaTeX in use.
   {
     "lervag/vimtex",
+    enabled = false,
     ft = "tex",
     init = function()
       vim.g.vimtex_view_method = "zathura"
