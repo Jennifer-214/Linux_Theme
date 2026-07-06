@@ -93,6 +93,34 @@ int main() {
         check("(e) empty array → empty primary", empty.primary.empty());
     }
 
+    // (f) G1 (reject-zero) — a monitor still mid-modeset reports width=0/height=0
+    // (the NVIDIA-modeset race). It must be SKIPPED entirely, never written as
+    // "NAME:0x0" — downstream that mints a degenerate solid-color wallpaper slab.
+    {
+        const char* zero = R"([
+          {"name":"eDP-1","width":1920,"height":1080,"transform":0},
+          {"name":"HDMI-A-1","width":0,"height":0,"transform":3}
+        ])";
+        sidecar::Layout l = rederive::from_hyprctl_json(zero, "eDP-1");
+        check("(f) 0x0 monitor skipped from MONITOR_RESOLUTIONS",
+              join_ws(l.monitor_resolutions) == "eDP-1:1920x1080");
+        check("(f) 0x0 monitor absent from SECONDARY_OUTPUTS",
+              join_ws(l.secondary_outputs).empty());
+        check("(f) 0x0 monitor absent from PORTRAIT_OUTPUTS",
+              join_ws(l.portrait_outputs).empty());
+    }
+
+    // (g) reject-zero fires on EITHER dimension (a half-initialized mode).
+    {
+        const char* halfzero = R"([
+          {"name":"eDP-1","width":1920,"height":1080,"transform":0},
+          {"name":"DP-2","width":3840,"height":0,"transform":0}
+        ])";
+        sidecar::Layout l = rederive::from_hyprctl_json(halfzero, "eDP-1");
+        check("(g) height-0 monitor skipped",
+              join_ws(l.monitor_resolutions) == "eDP-1:1920x1080");
+    }
+
     if (failed == 0) std::printf("test_rederive: OK\n");
     return failed ? 1 : 0;
 }
