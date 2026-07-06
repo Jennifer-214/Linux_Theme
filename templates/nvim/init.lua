@@ -817,6 +817,14 @@ local plugins = {
       palette = { header = P.peach, title = P.blush, border = P.peach, badge = P.warm, winblend = 0 },
       doc_dirs = { vim.fn.expand("~/code/tick-trader-percore-workspace") }, -- `n` also greps the private workspace docs
     },
+    config = function(_, opts)
+      require("fox-symdeps").setup(opts)
+      -- E.1.2.A: install the codified [TAG]_ grammar adapter → the tags lens + [DERIVED] gen/verify
+      -- light up on tagged C++ units. pcall so an adapter hiccup can never break plugin load.
+      pcall(function()
+        require("fox-symdeps.tagadapter").install(require("fox-symdeps.tag_grammar_adapter"))
+      end)
+    end,
   },
 
   -- Friendly snippets (community snippet collection for LuaSnip)
