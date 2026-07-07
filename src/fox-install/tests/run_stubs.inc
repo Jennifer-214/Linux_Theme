@@ -17,6 +17,7 @@ void run_arch_audit      (Context&) {}
 void run_no_coredumps    (Context&) {}
 void run_hidepid         (Context&) {}
 void run_bt_power        (Context&) {}
+void run_wifi_power      (Context&) {}
 void run_noexec_tmp      (Context&) {}
 void run_iommu           (Context&) {}
 void run_lockdown_heal   (Context&) {}
