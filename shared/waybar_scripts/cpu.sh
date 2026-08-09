@@ -29,26 +29,17 @@ for d in /sys/class/hwmon/hwmon*/; do
     break
 done
 
-# Gather GPU stats for tooltip
-gpu_util=""
-gpu_temp=""
-if command -v nvidia-smi >/dev/null 2>&1; then
-    output=$(nvidia-smi --query-gpu=utilization.gpu,temperature.gpu --format=csv,noheader,nounits 2>/dev/null)
-    if (( $? == 0 )); then
-        read -r gpu_util gpu_temp < <(printf '%s\n' "$output" | head -1 | tr -d ' ' | tr ',' ' ')
-    fi
-fi
+# NO nvidia-smi here: GPU stats live in the GPU bubble (gpu-stats.sh),
+# which skips the query while the dGPU is runtime-suspended. Querying
+# from this module too woke the card every cycle and defeated that
+# battery saving.
 
 cls=""
 if (( usage >= 90 )); then cls=',"class":"critical"'
 elif (( usage >= 70 )); then cls=',"class":"warning"'
 fi
 
-# Build tooltip string
 tooltip="CPU: ${usage}% ${temp}°C"
-if [[ -n "$gpu_util" ]]; then
-    tooltip+="\nGPU: ${gpu_util}% ${gpu_temp}°C"
-fi
 
 if [[ -n "$temp" ]]; then
     printf '{"text":"󰻠 %s%% %s°","tooltip":"%s"%s}\n' "$usage" "$temp" "$tooltip" "$cls"

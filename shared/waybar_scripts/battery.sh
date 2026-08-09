@@ -50,6 +50,25 @@ if (( pw > 500000 )); then
     esac
 fi
 
+# ── Time remaining ────────────────────────────────────────────────
+# energy_now/power_now → time-to-empty; (energy_full−energy_now)/
+# power_now → time-to-full. Skipped when power isn't meaningfully
+# flowing, and on charge_now-only batteries (absence degrades
+# gracefully — the tooltip just omits the estimate).
+eta=""
+en=$(cat "$bat/energy_now" 2>/dev/null)
+ef=$(cat "$bat/energy_full" 2>/dev/null)
+if [[ "$en" =~ ^[0-9]+$ ]] && (( pw > 500000 )); then
+    mins=""
+    case "$status" in
+        Discharging) mins=$(( en * 60 / pw )) ;;
+        Charging)
+            [[ "$ef" =~ ^[0-9]+$ ]] && (( ef > en )) && mins=$(( (ef - en) * 60 / pw ))
+            ;;
+    esac
+    [[ -n "$mins" ]] && eta=$(printf '~%dh %02dm' $(( mins / 60 )) $(( mins % 60 )))
+fi
+
 # ── Icon + state class ────────────────────────────────────────────
 # Discharge icons step every 20% so all six get used. Charging
 # animates a fill from the current level up to full, phased off the
@@ -107,7 +126,7 @@ if command -v brightnessctl >/dev/null 2>&1; then
     fi
 fi
 
-tooltip="Battery: ${cap}% (${status}${watts:+,$watts})\\n   Power: ${src:-battery}\\n  Volume: ${vol}\\n  Brightness: ${bright}"
+tooltip="Battery: ${cap}% (${status}${watts:+,$watts}${eta:+, $eta})\\n   Power: ${src:-battery}\\n  Volume: ${vol}\\n  Brightness: ${bright}"
 
 # Emit a class so the CSS can re-apply the old battery state colors
 # (charging=gold, plugged=lavender, plugged-drain=red pulse,

@@ -36,15 +36,22 @@ if fresh "$CACHE" 600; then
 elif command -v checkupdates >/dev/null 2>&1; then
     # One checkupdates run feeds both the count cache and the package
     # list cache the tooltip + click menu read.
+    # Exit codes: 0 = updates pending, 2 = genuinely none, 1 = error.
+    # An offline blip keeps the stale count rather than caching a
+    # fake zero for the next 10 minutes.
     list=$(checkupdates 2>/dev/null)
-    if [[ -n "$list" ]]; then
+    rc=$?
+    if (( rc == 0 )) && [[ -n "$list" ]]; then
         count=$(printf '%s\n' "$list" | wc -l)
         printf '%s\n' "$list" > "$LIST_CACHE"
-    else
+        printf '%s' "$count" > "$CACHE"
+    elif (( rc == 2 )); then
         count=0
         : > "$LIST_CACHE"
+        printf '%s' "$count" > "$CACHE"
+    elif [[ -f "$CACHE" ]]; then
+        count=$(<"$CACHE")
     fi
-    printf '%s' "$count" > "$CACHE"
 fi
 
 # Drift indicator: how long has it been since `pacman -Sy` last
