@@ -1,25 +1,30 @@
 #!/bin/bash
-# Waybar CPU module — usage % (1s sample) + package temp via coretemp.
+# Waybar CPU module — usage % (tick delta) + package temp via coretemp.
 # Resolved by hwmon "name", so it survives hwmonN renumbering across boots.
 
-read_cpu() {
-    local _cpu user nice system idle iowait irq softirq steal _rest
-    read -r _cpu user nice system idle iowait irq softirq steal _rest < /proc/stat
-    local total=$((user + nice + system + idle + iowait + irq + softirq + steal))
-    local used=$((total - idle - iowait))
-    echo "$used $total"
-}
+# /proc/stat is cumulative since boot — diff against the runtime-cached
+# previous sample instead of sleeping 1s mid-exec, so the module renders
+# instantly and stops holding a process for a fifth of its 5s cycle.
+# First tick after boot reads 0 and warms the cache.
+CACHE_DIR="${XDG_RUNTIME_DIR:-/tmp}/foxml-waybar"
+mkdir -p "$CACHE_DIR"
+PREV="$CACHE_DIR/cpu_prev"
 
-read -r u1 t1 < <(read_cpu)
-sleep 1
-read -r u2 t2 < <(read_cpu)
+read -r _cpu user nice system idle iowait irq softirq steal _rest < /proc/stat
+total=$((user + nice + system + idle + iowait + irq + softirq + steal))
+used=$((total - idle - iowait))
 
-dt=$((t2 - t1))
-if (( dt > 0 )); then
-    usage=$(( 100 * (u2 - u1) / dt ))
-else
-    usage=0
+usage=0
+if [[ -f "$PREV" ]]; then
+    read -r p_used p_total < "$PREV"
+    if [[ "$p_used" =~ ^[0-9]+$ && "$p_total" =~ ^[0-9]+$ ]]; then
+        dt=$(( total - p_total ))
+        (( dt > 0 )) && usage=$(( 100 * (used - p_used) / dt ))
+        (( usage < 0 )) && usage=0
+        (( usage > 100 )) && usage=100
+    fi
 fi
+printf '%s %s' "$used" "$total" > "$PREV"
 
 temp=""
 for d in /sys/class/hwmon/hwmon*/; do

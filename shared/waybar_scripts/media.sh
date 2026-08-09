@@ -4,15 +4,26 @@
 
 status=$(playerctl status 2>/dev/null)
 if [[ -z "$status" ]]; then
-    echo ""
+    echo '{"text":""}'
     exit 0
 fi
 
-icon="󰎆"
-[[ "$status" == "Playing" ]] && icon="󰏤" || icon="󰐊"
+if [[ "$status" == "Playing" ]]; then icon="󰏤"; else icon="󰐊"; fi
 
 artist=$(playerctl metadata artist 2>/dev/null)
 title=$(playerctl metadata title 2>/dev/null)
+
+# Track metadata is free text — titles routinely contain quotes, and
+# one unescaped `"` breaks the hand-built JSON and blanks the module.
+# Escape at emission (backslashes first, then quotes).
+json_escape() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/ }"
+    s="${s//$'\t'/ }"
+    printf '%s' "$s"
+}
 
 # Truncate long titles
 full_text="$icon $artist - $title"
@@ -22,4 +33,5 @@ else
     display_text="$full_text"
 fi
 
-echo "{\"text\": \"$display_text\", \"tooltip\": \"$full_text\", \"class\": \"${status,,}\"}"
+printf '{"text":"%s","tooltip":"%s","class":"%s"}\n' \
+    "$(json_escape "$display_text")" "$(json_escape "$full_text")" "${status,,}"
