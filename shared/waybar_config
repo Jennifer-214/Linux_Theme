@@ -125,10 +125,10 @@
   "power-profiles-daemon": {
     "format": "{icon}",
     "format-icons": {
-      "default": "BAL",
-      "performance": "PERF",
-      "balanced": "BAL",
-      "power-saver": "SAVE"
+      "default": "󰾅",
+      "performance": "󰓅",
+      "balanced": "󰾅",
+      "power-saver": "󰌪"
     },
     "tooltip-format": "Power profile: {profile}\nClick to cycle: balanced → performance → power-saver",
     "on-click": "~/.config/waybar/scripts/ppd_cycle.sh"
@@ -137,7 +137,7 @@
   "idle_inhibitor": {
     "format": "{icon}",
     "format-icons": {
-      "activated": "AWAKE",
+      "activated": "󰅶",
       "deactivated": "○"
     },
     "tooltip-format-activated": "Idle inhibited — click to release",

@@ -54,7 +54,12 @@ warnings=()
 [[ $temp_int -gt $TEMP_THRESHOLD ]] && warnings+=("Temp: ${temp_int}°C")
 
 if [[ ${#warnings[@]} -gt 0 ]]; then
-    text="  HEALTH"
+    # Name the culprit in the bar — the old "HEALTH" chip made you
+    # hover to learn WHAT was stressed. Reads e.g. " CPU 99% 84°".
+    text=""
+    (( cpu_int > CPU_THRESHOLD ))   && text+=" CPU ${cpu_int}%"
+    (( ram_int > RAM_THRESHOLD ))   && text+=" RAM ${ram_int}%"
+    (( temp_int > TEMP_THRESHOLD )) && text+=" ${temp_int}°"
     tooltip="System Stress Detected:\\n"
     for w in "${warnings[@]}"; do
         tooltip+="  • $w\\n"
