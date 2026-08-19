@@ -51,7 +51,7 @@ shopt -u nullglob
 # 2. Systemd user services we install. Covers every service installed
 # by the fox-* tool family — including the security-tool services
 # from the later additions.
-for svc in fox-monitor-watch.service fox-workspace-color-watch.service \
+for svc in fox-pulse.service fox-monitor-watch.service fox-workspace-color-watch.service \
            power-state-watcher.service wallpaper-rotate.service wallpaper-rotate.timer \
            foxml-focus-pulse.service foxml-arch-audit.timer \
            fox-bouncer.service fox-tripwire.service fox-sentry-audit.service \

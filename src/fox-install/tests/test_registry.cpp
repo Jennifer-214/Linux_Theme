@@ -17,6 +17,22 @@ fox_install::state::Classification test_state_stub(
     const fox_install::Context&, const fox_install::state::Manifest&) {
     return {fox_install::state::Status::Fresh, "stub"};
 }
+
+// Derive "is this module declared with the extended FOX_MODULE_FULL
+// form?" straight from modules.def instead of a hand-maintained slug
+// list — so a new full-form module needs zero edits in this test. Both
+// macros MUST be variadic to absorb the differing arities (FOX_MODULE
+// = 5 args, FOX_MODULE_FULL = 9; the trailing state::check_* token is
+// swallowed un-evaluated, so this include creates no symbol references).
+#define FOX_MODULE(...)      false,
+#define FOX_MODULE_FULL(...) true,
+const bool DECLARED_FULL[] = {
+#include "../core/modules.def"
+};
+#undef FOX_MODULE
+#undef FOX_MODULE_FULL
+constexpr std::size_t DECLARED_FULL_COUNT =
+    sizeof(DECLARED_FULL) / sizeof(DECLARED_FULL[0]);
 }  // namespace
 
 int main() {
@@ -25,6 +41,13 @@ int main() {
 
     if (MODULES_COUNT == 0) {
         std::fprintf(stderr, "FAIL: MODULES_COUNT == 0\n");
+        return 1;
+    }
+    if (DECLARED_FULL_COUNT != MODULES_COUNT) {
+        std::fprintf(stderr,
+            "FAIL: DECLARED_FULL_COUNT (%zu) != MODULES_COUNT (%zu) — "
+            "modules.def derivation drifted from the live table\n",
+            DECLARED_FULL_COUNT, MODULES_COUNT);
         return 1;
     }
 
@@ -47,19 +70,13 @@ int main() {
             std::fprintf(stderr, "FAIL [%zu]: missing description\n", i);
             ++failed;
         }
-        // Most entries in modules.def are still on the legacy FOX_MODULE
-        // form, which routes through the FOX_MODULE_FULL shim with all
-        // prereqs defaulted to false and state_check defaulted to nullptr.
-        // For those, lock in that the shim still produces the legacy
-        // values. The few FOX_MODULE_FULL entries (deps, render, etckeeper)
-        // are exempted explicitly.
-        const std::string slug = m.slug;
-        const bool is_full_form =
-            (slug == "deps"               || slug == "render"     || slug == "etckeeper"  ||
-             slug == "vault"              || slug == "arch_audit" || slug == "mac_random" ||
-             slug == "ufw"                || slug == "endlessh"   || slug == "greetd"     ||
-             slug == "papirus_icons"      || slug == "catppuccin_cursor" ||
-             slug == "gpg_agent_cache"    || slug == "keyring_full" || slug == "noexec_tmp");
+        // Legacy FOX_MODULE entries route through the FOX_MODULE_FULL shim
+        // with all prereqs defaulted to false and state_check to nullptr;
+        // lock in that the shim still produces those legacy values. Full-
+        // form entries must carry a state_check. Which form a module uses
+        // is derived from modules.def (DECLARED_FULL above), not a hand-
+        // maintained list — adding a full-form module needs no edit here.
+        const bool is_full_form = DECLARED_FULL[i];
         if (!is_full_form) {
             if (m.requires_root || m.requires_graphical || m.requires_network) {
                 std::fprintf(stderr,
@@ -145,74 +162,11 @@ int main() {
     return 1;
 }
 
-// Stub definitions for every module function referenced by modules.def.
-// The test only inspects the table, never invokes these. Adding a new
-// module = one stub here too. (Failing to add one shows up as a linker
-// error at this site, which is the desired "compile-time enforcement"
-// behaviour for the registry.)
+// Stub definitions for every module function referenced by modules.def —
+// now a shared single source (tests/run_stubs.inc) so test_registry and
+// test_args stay in sync. Adding a new module = one stub line THERE.
 namespace fox_install {
-void run_detect      (Context&) {}
-void run_preflight   (Context&) {}
-void run_theme       (Context&) {}
-void run_deps        (Context&) {}
-void run_privacy     (Context&) {}
-void run_perf            (Context&) {}
-void run_clock_sync      (Context&) {}
-void run_arch_audit      (Context&) {}
-void run_no_coredumps    (Context&) {}
-void run_hidepid         (Context&) {}
-void run_noexec_tmp      (Context&) {}
-void run_iommu           (Context&) {}
-void run_boot_sync       (Context&) {}
-void run_battery         (Context&) {}
-void run_recovery_entry  (Context&) {}
-void run_foxml_health_hook(Context&) {}
-void run_foxml_health_boot(Context&) {}
-void run_foxml_health_timer(Context&) {}
-void run_sudo_fingerprint(Context&) {}
-void run_makepkg_hardening(Context&) {}
-void run_safe_updates    (Context&) {}
-void run_etckeeper       (Context&) {}
-void run_catppuccin_cursor(Context&) {}
-void run_papirus_icons   (Context&) {}
-void run_zsh_plugins     (Context&) {}
-void run_post_install        (Context&) {}
-void run_prune_backups       (Context&) {}
-void run_next_steps          (Context&) {}
-void run_keyring_full        (Context&) {}
-void run_endlessh            (Context&) {}
-void run_configure_opencode  (Context&) {}
-void run_browser_hardening   (Context&) {}
-void run_dispatch_hooks      (Context&) {}
-void run_throttling          (Context&) {}
-void run_greetd              (Context&) {}
-void run_greetd_fingerprint  (Context&) {}
-void run_mac_random      (Context&) {}
-void run_gpg_agent_cache (Context&) {}
-void run_security    (Context&) {}
-void run_ufw         (Context&) {}
-void run_wallpaper   (Context&) {}
-void run_render      (Context&) {}
-void run_symlinks    (Context&) {}
-void run_keybind_docs(Context&) {}
-void run_specials    (Context&) {}
-void run_vault       (Context&) {}
-void run_ai              (Context&) {}
-void run_ollama_hardening(Context&) {}
-void run_models      (Context&) {}
-void run_github      (Context&) {}
-void run_amd_gpu     (Context&) {}
-void run_intel_gpu   (Context&) {}
-void run_nvidia      (Context&) {}
-void run_fprint      (Context&) {}
-void run_fprint_pam  (Context&) {}
-void run_ssh_harden  (Context&) {}
-void run_xgboost     (Context&) {}
-void run_cpp_pro     (Context&) {}
-void run_monitors    (Context&) {}
-void run_personalize (Context&) {}
-void run_welcome_banner(Context&) {}
-void run_summary     (Context&) {}
+#include "run_stubs.inc"
 }  // namespace fox_install
 
 // State-check stubs for the three modules that use FOX_MODULE_FULL +
@@ -229,6 +183,7 @@ Classification check_ufw               (const Context&, const Manifest&) { retur
 Classification check_endlessh          (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
 Classification check_greetd            (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
 Classification check_papirus_icons     (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
+Classification check_gaming            (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
 Classification check_catppuccin_cursor (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
 Classification check_gpg_agent_cache   (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
 Classification check_keyring_full      (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }

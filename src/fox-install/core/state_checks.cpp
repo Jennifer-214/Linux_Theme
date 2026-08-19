@@ -109,7 +109,7 @@ Classification check_render(const Context& ctx, const Manifest& manifest) {
             "hyprland.conf hash diverged from stored manifest value"};
 }
 
-Classification check_etckeeper(const Context& /*ctx*/, const Manifest& manifest) {
+Classification check_etckeeper(const Context& ctx, const Manifest& manifest) {
     // Masked is a sticky failure state — even after the file gets
     // written and the unit installed, it'll refuse to start. Surface
     // this before anything else so the install plan doesn't promise
@@ -126,7 +126,21 @@ Classification check_etckeeper(const Context& /*ctx*/, const Manifest& manifest)
     }
 
     if (state == "enabled") {
-        return {Status::Noop, "fox-etcwatch.path enabled"};
+        // Enabled isn't the whole story: the module also owns the
+        // commit-stamp hook and the service-unit BODY (the %-escaping
+        // repair changed it) — report Update so a re-run converges them.
+        if (!fs::exists("/etc/etckeeper/commit.d/60foxml-stamp")) {
+            return {Status::Update,
+                    "commit-stamp hook missing — re-run installs /etc/etckeeper/commit.d/60foxml-stamp"};
+        }
+        std::ifstream svc(ctx.config_home / "systemd/user/fox-etcwatch.service");
+        std::ostringstream body;
+        body << svc.rdbuf();
+        if (body.str().find("/var/lib/foxml/etc-last-commit") == std::string::npos) {
+            return {Status::Update,
+                    "fox-etcwatch.service predates stamp-based suppression — re-run redeploys it"};
+        }
+        return {Status::Noop, "fox-etcwatch.path enabled + stamp hook present"};
     }
     // disabled, not-found, or any other state at this point means we
     // tracked a successful etckeeper run but the unit no longer
@@ -165,15 +179,25 @@ Classification unit_check(
 }
 
 // Pacman-package existence check. Used by modules whose entire "did
-// it run?" question reduces to "is package X installed?".
+// it run?" question reduces to "is package X installed?". The pacman
+// probe lives here; the pure decision is package_classify (state_checks.hpp)
+// so it can be unit-tested without a real pacman.
 Classification package_check(
     const Manifest& manifest,
     const std::string& slug,
     const std::string& pkg
 ) {
-    const bool present = pacman_installed(pkg);
-    const auto it = manifest.modules.find(slug);
-    const bool tracked = (it != manifest.modules.end());
+    return package_classify(pacman_installed(pkg),
+                            manifest.modules.find(slug) != manifest.modules.end(),
+                            slug, pkg);
+}
+
+}  // namespace
+
+// Pure (no pacman) — exposed in the header for unit testing. See the
+// header comment for the truth table.
+Classification package_classify(bool present, bool tracked,
+                                const std::string& slug, const std::string& pkg) {
     if (!tracked) {
         if (present) return {Status::Noop, pkg + " already installed (untracked, treated as already-done)"};
         return {Status::Fresh, slug + " has not run yet"};
@@ -181,8 +205,6 @@ Classification package_check(
     if (present) return {Status::Noop, pkg + " installed"};
     return {Status::Update, pkg + " missing, re-run needed"};
 }
-
-}  // namespace
 
 Classification check_arch_audit(const Context& /*ctx*/, const Manifest& manifest) {
     return unit_check(manifest, "arch_audit", "foxml-arch-audit.timer", /*user=*/true);
@@ -217,6 +239,10 @@ Classification check_greetd(const Context& /*ctx*/, const Manifest& manifest) {
 
 Classification check_papirus_icons(const Context& /*ctx*/, const Manifest& manifest) {
     return package_check(manifest, "papirus_icons", "papirus-icon-theme");
+}
+
+Classification check_gaming(const Context& /*ctx*/, const Manifest& manifest) {
+    return package_check(manifest, "gaming", "steam");
 }
 
 Classification check_catppuccin_cursor(const Context& ctx, const Manifest& manifest) {

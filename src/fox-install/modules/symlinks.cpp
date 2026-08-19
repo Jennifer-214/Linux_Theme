@@ -165,8 +165,23 @@ int deploy_mapping(const Context& ctx,
 void run_symlinks(Context& ctx) {
     ui::section("Deploying rendered + shared configs");
 
+    // Silent-partial-deploy guard: if render ran this session but did NOT
+    // succeed, deploying now ships a partial config tree (no hyprland.conf/
+    // waybar) yet reports "deployed N" success. Refuse rather than half-config.
+    if (ctx.render_ran && !ctx.render_ok) {
+        ui::err("render did not complete this run — refusing to deploy a partial "
+                "config set (would leave the box without hyprland.conf/waybar). "
+                "Resolve the render error and re-run --render --symlinks.");
+        return;
+    }
+
     if (!fs::is_directory(ctx.rendered_dir)) {
-        ui::warn("no rendered dir — did --render run?");
+        if (ctx.render_ran) {
+            ui::err("render reported success but produced no rendered_dir — "
+                    "refusing a partial deploy");
+            return;
+        }
+        ui::warn("no rendered dir — did --render run? (deploying shared configs only)");
     }
     if (!fs::is_directory(ctx.shared_dir)) {
         ui::warn("no shared dir at " + ctx.shared_dir.string());

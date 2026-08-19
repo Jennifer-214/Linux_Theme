@@ -74,7 +74,7 @@ BG_VENCORD_DEEP=f0f0eb
 
 # ─── Nvim extra colors ───
 NVIM_BG_HL=e2e2dc
-NVIM_SEL=d9d9d0
+NVIM_SEL=372411
 WARM=8a7a6e
 SAND=9a8a7a
 WHEAT=b4a483

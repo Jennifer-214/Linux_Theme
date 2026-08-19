@@ -18,7 +18,7 @@ FONT_FAMILY="Hack Nerd Font"
 # `[[ "{{SHOW_WELCOME}}" == "true" ]]` check in templates/zsh/welcome.zsh.
 SHOW_WELCOME=true
 SHOW_BANNER=true
-WALLPAPER=foxml_earthy.jpg
+WALLPAPER=foxml_earth_2.jpg
 
 # ─── Aesthetic controls ───
 ROUNDING=14
@@ -74,7 +74,7 @@ BG_VENCORD_DEEP=150a15
 
 # ─── Nvim extra colors ───
 NVIM_BG_HL=1f1519
-NVIM_SEL=3d2a1e
+NVIM_SEL=372411
 WARM=b0a498
 SAND=a89a7a
 WHEAT=d4b483

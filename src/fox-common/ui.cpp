@@ -71,9 +71,14 @@ void warn(const std::string& msg) {
     std::fprintf(stderr, "%swarning:%s %s\n", c(C_YLW), c(C_RESET), msg.c_str());
 }
 
+namespace { int g_err_count = 0; }
+
 void err(const std::string& msg) {
+    ++g_err_count;
     std::fprintf(stderr, "%serror:%s %s\n", c(C_RED), c(C_RESET), msg.c_str());
 }
+
+int error_count() { return g_err_count; }
 
 void progress(std::size_t current, std::size_t total, const std::string& label) {
     if (total == 0) return;

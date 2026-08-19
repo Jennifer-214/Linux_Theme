@@ -35,7 +35,7 @@ const std::vector<CheckEntry>& all_checks() {
           Severity::Critical, /*runtime*/ false, /*slow*/ false, &checks::a1_kernel_modules_dep },
         { "A2", "linux/linux-lts files match package",
           Severity::Critical, /*runtime*/ false, /*slow*/ true,  &checks::a2_pacman_qkk_linux },
-        { "A3", "/boot vmlinuz matches kernel package version",
+        { "A3", "running kernel is the installed package's kernel",
           Severity::Critical, /*runtime*/ false, /*slow*/ false, &checks::a3_vmlinuz_matches_kver },
         { "A4", "ESP vmlinuz matches /boot vmlinuz",
           Severity::Critical, /*runtime*/ false, /*slow*/ false, &checks::a4_esp_matches_boot },

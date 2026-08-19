@@ -60,13 +60,17 @@ struct HandlerSpec {
     const char* native_cmd;      // native fallback if neither script is present
 };
 
-// Native fallbacks point at fox-install with --only — that orchestrator
-// drives the same logic the bash scripts used to source from mappings.sh.
+// Native fallbacks point at the fox-monitor binary — `fox-monitor
+// reconcile` re-derives the layout from live Hyprland state and re-applies
+// it (the correct, root-free hot-swap path; the old fox-install --only run
+// pulled in the up-front sudo warmup, which is brick-adjacent on a hotplug).
+// Absolute path because the daemon's $PATH may not include ~/.local/bin;
+// $HOME is expanded by /bin/sh -c in spawn_handler.
 // Order of resolution: ~/.config/foxml/pulse.d/<name>.sh override →
 // legacy ~/.config/hypr/scripts/<script> → native command.
 const HandlerSpec FOCUS_HANDLER   = { "focus",   "focus-pulse.sh",       nullptr };
 const HandlerSpec MONITOR_HANDLER = { "monitor", "fox-monitor-watch.sh",
-    "fox-install --only monitors,personalize --yes" };
+    "\"$HOME/.local/bin/fox-monitor\" reconcile" };
 const HandlerSpec CONFIG_HANDLER  = { "config",  nullptr, nullptr };
 
 std::string env_or(const char* k, const std::string& fallback) {

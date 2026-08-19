@@ -6,9 +6,11 @@
 // 4. Catch-up commit (silent if clean).
 // 5. fox-etcwatch.path systemd-user unit — alerts when sensitive /etc
 //    subdirs change OUTSIDE etckeeper commits (skips alerts within 30s
-//    of an etckeeper commit by checking /etc/.git/HEAD mtime).
+//    of an etckeeper commit by checking the /var/lib/foxml/etc-last-commit
+//    stamp, written by a commit.d hook — /etc/.git itself is root-only).
 
 #include "../core/context.hpp"
+#include "../core/idempotency.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
@@ -34,6 +36,17 @@ void install_via_pkg() {
     }
 }
 
+// Runs from /etc/etckeeper/commit.d/ (run-parts: 50vcs-commit performs the
+// commit, so 60 fires just after it). Writes a world-readable stamp the
+// fox-etcwatch user unit can stat — /etc/.git/HEAD is root-only.
+constexpr const char* STAMP_HOOK =
+    "#!/bin/sh\n"
+    "# foxml-managed — last etckeeper commit stamp (fox-etcwatch reads it).\n"
+    "mkdir -p /var/lib/foxml\n"
+    "date +%s > /var/lib/foxml/etc-last-commit\n"
+    "chmod 644 /var/lib/foxml/etc-last-commit\n"
+    "exit 0\n";
+
 constexpr const char* PATH_UNIT =
     "[Unit]\n"
     "Description=fox-etcwatch — alert on changes to sensitive /etc subdirs\n"
@@ -56,12 +69,13 @@ constexpr const char* SERVICE_UNIT =
     "\n"
     "[Service]\n"
     "Type=oneshot\n"
-    "# Suppress alerts that fire from etckeeper's own commits — if\n"
-    "# /etc/.git/HEAD was touched in the last 30s, it's almost certainly\n"
-    "# etckeeper rather than an out-of-band edit. user systemd units have\n"
-    "# no TTY for sudo prompts, so we stat the dir entry instead of git-logging.\n"
-    "ExecStart=/bin/sh -c 'head_mtime=$(stat -c %Y /etc/.git/HEAD 2>/dev/null || echo 0); "
-        "now=$(date +%s); age=$((now - head_mtime)); "
+    "# Suppress alerts that fire from etckeeper's own commits — the commit.d\n"
+    "# stamp hook records every etckeeper commit; a stamp younger than 30s\n"
+    "# means the change is etckeeper's, not an out-of-band edit. We can't\n"
+    "# stat /etc/.git/HEAD here: it's root-only and this is a user unit.\n"
+    "# %% below is systemd unit escaping for a literal % in the command.\n"
+    "ExecStart=/bin/sh -c 'stamp=$(stat -c %%Y /var/lib/foxml/etc-last-commit 2>/dev/null || echo 0); "
+        "now=$(date +%%s); age=$((now - stamp)); "
         "if [ \"$age\" -gt 30 ]; then "
         "fox-dispatch \"etc-change\" "
         "\"/etc modified outside an etckeeper commit (paths: ssh/sudoers.d/pam.d/ufw/fail2ban/audit/sysctl.d). "
@@ -101,6 +115,20 @@ void run_etckeeper(Context& ctx) {
              "sudo git -C /etc config user.email \"etckeeper@$(uname -n)\" 2>/dev/null || true"});
     sh::run({"sh", "-c",
              "sudo git -C /etc config user.name  \"etckeeper\" 2>/dev/null || true"});
+    // Last-commit stamp hook — fox-etcwatch's suppression window reads the
+    // stamp because /etc/.git is root-only. Installed before the catch-up
+    // commit so the hook file itself lands in that commit.
+    if (sh::write_root_atomic("/etc/etckeeper/commit.d/60foxml-stamp",
+                              STAMP_HOOK)) {
+        sh::run({"sh", "-c",
+                 "sudo chmod 755 /etc/etckeeper/commit.d/60foxml-stamp"});
+        sh::run({"sh", "-c", "sudo /etc/etckeeper/commit.d/60foxml-stamp"});
+        ui::ok("etckeeper commit-stamp hook installed (fox-etcwatch suppression)");
+    } else {
+        ui::warn("could not write /etc/etckeeper/commit.d/60foxml-stamp — "
+                 "fox-etcwatch will also alert on etckeeper's own commits");
+    }
+
     sh::run({"sh", "-c",
              "sudo etckeeper commit \"foxml: /etc snapshot\" >/dev/null 2>&1 || true"});
 
@@ -108,7 +136,12 @@ void run_etckeeper(Context& ctx) {
     fs::path path_unit = units / "fox-etcwatch.path";
     fs::path svc_unit  = units / "fox-etcwatch.service";
 
-    if (!fs::exists(path_unit) || ctx.force_reapply) {
+    // Content-aware (not exists-only) so a fixed unit body converges on
+    // re-run — the %-escaping repair would otherwise never reach a host
+    // that already had the broken unit deployed.
+    bool units_current = idem::up_to_date(path_unit, PATH_UNIT, ctx.force_reapply)
+                      && idem::up_to_date(svc_unit, SERVICE_UNIT, ctx.force_reapply);
+    if (!units_current) {
         fs::create_directories(units);
 
         // 1. Unmask aggressively + flush systemd's cached view BEFORE

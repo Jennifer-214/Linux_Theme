@@ -56,7 +56,11 @@ $(addprefix clean-,$(TOOLS)): clean-%:
 # `make test` invokes each subdir's `test` target if it has one; subdirs
 # without a test target print "no tests" and exit 0 so the umbrella
 # target stays green.
-test: $(addprefix test-,$(TOOLS))
+test: $(addprefix test-,$(TOOLS)) test-scripts
+
+# Python script tests (shared/bin tools without their own src/<tool>/ dir).
+test-scripts:
+	@for t in tests/test_*.py; do [ -e "$$t" ] || continue; echo "  - $$t"; python3 "$$t" || exit 1; done
 
 $(addprefix test-,$(TOOLS)): test-%:
 	@if $(MAKE) -n -C src/$* test >/dev/null 2>&1; then \

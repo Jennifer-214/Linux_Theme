@@ -2,9 +2,12 @@
 
 #include "module.hpp"
 
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <string>
 
 namespace fox_install::args {
@@ -61,6 +64,14 @@ void print_help(const char* argv0) {
         "      --quick       skip slow + network-heavy parts (deps, github, models)\n"
         "      --monitor     surgical run of the multi-monitor wizard only\n"
         "      --only <slugs> comma-separated allow-list; everything else skipped\n"
+        "                    (resets earlier selection: --full --only X = force-reapply X)\n"
+        "      --preset <p>  load module on/off choices from a preset file — an\n"
+        "                    explicit path, or a name resolved under\n"
+        "                    ~/.config/foxml/presets/ then the repo presets/.\n"
+        "                    Overrides defaults additively; off-lines survive\n"
+        "                    --full. Pair with -y for an unattended reinstall.\n"
+        "      --reapply     run selected modules even if up-to-date — the\n"
+        "                    single-module reinstall: --vault --reapply\n"
         "      --polkit-strict   add polkit strict mode (every GUI sudo re-prompts)\n"
         "      --rotate-wallpapers enable time-of-day wallpaper rotation (default: static)\n"
         "      --cpp-pro     C++ toolchain extras (clang/lldb/mold/perf/etc)\n"
@@ -101,6 +112,8 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
     }
 
     bool provided_explicit_module = false;
+    bool only_list_mode = false;
+    std::vector<bool> explicitly_disabled(MODULES_COUNT, false);
 
     auto switch_to_exclusive = [&]() {
         if (out.only) return;
@@ -108,6 +121,24 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
         provided_explicit_module = true;
         for (std::size_t k = 0; k < MODULES_COUNT; ++k) {
             out.module_enabled[k] = false;
+        }
+    };
+
+    // Shared by the --<flag> and bare-slug spellings so both behave
+    // identically (positional `render` used to miss --render's implied
+    // modules and deploy nothing visible).
+    auto enable_module = [&](std::size_t idx) {
+        out.module_enabled[idx] = true;
+        // UX: render almost always wants symlinks to deploy the fresh
+        // bits AND post_install to re-render waybar style.css from the
+        // .tmpl and restart waybar/dunst/mako so the changes are
+        // visible. Without post_install, the new .tmpl sits on disk and
+        // the running bars keep their stale CSS until next login.
+        if (std::string(MODULES[idx].slug) == "render") {
+            for (const char* implied : {"symlinks", "post_install"}) {
+                std::size_t s_idx = find_by_slug(implied);
+                if (s_idx != SIZE_MAX) out.module_enabled[s_idx] = true;
+            }
         }
     };
 
@@ -144,8 +175,10 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
         if (a == "--full" || a == "--all") {
             out.full = true;
             out.only = true; // prevents later flags from clearing
+            // An earlier explicit --no-<slug> survives --full; otherwise
+            // `--no-render --full` and `--full --no-render` disagree.
             for (std::size_t k = 0; k < MODULES_COUNT; ++k) {
-                out.module_enabled[k] = true;
+                if (!explicitly_disabled[k]) out.module_enabled[k] = true;
             }
             ctx.install_polkit_strict = true;
             ctx.cpp_pro = true;
@@ -177,11 +210,24 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
             continue;
         }
 
+        if (a == "--reapply" || a == "--force-reapply") {
+            // Standalone force: run modules as if stale, even where the
+            // idempotency layer says up-to-date. Pairs with a module flag
+            // for a single-module reinstall (`--vault --reapply`); --full
+            // implies it. Selection is unchanged — this only defeats the
+            // "already configured" skips inside the selected modules.
+            ctx.force_reapply = true;
+            continue;
+        }
+
         if (a == "--quick") {
+            // Recorded as explicit so a later --full doesn't undo it
+            // (`--quick --full` used to silently re-enable all three).
             for (std::size_t k = 0; k < MODULES_COUNT; ++k) {
                 std::string s = MODULES[k].slug;
                 if (s == "deps" || s == "github" || s == "models") {
                     out.module_enabled[k] = false;
+                    explicitly_disabled[k] = true;
                 }
             }
             continue;
@@ -203,13 +249,25 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
             };
             for (auto** s = KEEP; *s; ++s) {
                 std::size_t idx = find_by_slug(*s);
-                if (idx != SIZE_MAX) out.module_enabled[idx] = true;
+                if (idx != SIZE_MAX && !explicitly_disabled[idx]) {
+                    out.module_enabled[idx] = true;
+                }
             }
             continue;
         }
 
         if (a == "--only" && i + 1 < argc) {
-            switch_to_exclusive();
+            // --only is the documented allow-list: it RESETS any earlier
+            // selection — including --full's everything-on, which used to
+            // win silently and turn `--full --only vault` into a full
+            // install. (--full's force_reapply survives, so that spelling
+            // now means "force-reapply exactly these".) A second --only
+            // appends to the first.
+            if (!only_list_mode) {
+                out.only = false;  // let switch_to_exclusive re-clear
+                switch_to_exclusive();
+                only_list_mode = true;
+            }
             std::string list = argv[++i];
             std::size_t pos = 0;
             while (pos <= list.size()) {
@@ -232,22 +290,90 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
             continue;
         }
 
+        if (a == "--preset" && i + 1 < argc) {
+            // A preset is a durable file of `slug = on|off` overrides on top
+            // of each module's default. Additive (NOT exclusive like --only):
+            // unlisted modules keep their default, so a preset doesn't rot
+            // when new modules are added upstream. An `off` line also marks
+            // explicitly_disabled so a later --full can't silently re-enable
+            // it. Resolution: explicit path, else a name under
+            // ~/.config/foxml/presets/, else the repo presets/ dir.
+            const std::string spec = argv[++i];
+            auto is_file = [](const std::filesystem::path& p) {
+                std::error_code ec;
+                return std::filesystem::is_regular_file(p, ec);
+            };
+            std::filesystem::path path = spec;
+            if (spec.find('/') == std::string::npos && !is_file(path)) {
+                std::filesystem::path xdg =
+                    ctx.config_home / "foxml" / "presets" / (spec + ".preset");
+                std::filesystem::path repo =
+                    ctx.script_dir / "presets" / (spec + ".preset");
+                path = is_file(xdg) ? xdg : (is_file(repo) ? repo : xdg);
+            }
+            std::ifstream in(path);
+            if (!in) {
+                // File-not-found is FATAL: the operator named a preset whose
+                // intent we can't honor — fail loud, don't silently install
+                // defaults. (An unknown slug *inside* a found file only warns.)
+                std::fprintf(stderr,
+                    "fox-install: --preset: no preset file for '%s' "
+                    "(tried explicit path, ~/.config/foxml/presets/, repo presets/)\n",
+                    spec.c_str());
+                return false;
+            }
+            auto trim = [](std::string s) {
+                const char* ws = " \t\r\n";
+                std::size_t b = s.find_first_not_of(ws);
+                if (b == std::string::npos) return std::string();
+                return s.substr(b, s.find_last_not_of(ws) - b + 1);
+            };
+            std::string raw;
+            while (std::getline(in, raw)) {
+                std::size_t hash = raw.find('#');
+                if (hash != std::string::npos) raw = raw.substr(0, hash);
+                std::string line = trim(raw);
+                if (line.empty()) continue;
+                std::size_t eq = line.find('=');
+                if (eq == std::string::npos) {
+                    std::fprintf(stderr,
+                        "fox-install: --preset: ignoring malformed line '%s'\n",
+                        line.c_str());
+                    continue;
+                }
+                std::string slug = trim(line.substr(0, eq));
+                std::string val  = trim(line.substr(eq + 1));
+                for (auto& c : val)
+                    c = static_cast<char>(std::tolower((unsigned char)c));
+                bool want_on;
+                if (val == "on" || val == "true" || val == "yes" || val == "1") {
+                    want_on = true;
+                } else if (val == "off" || val == "false" || val == "no" || val == "0") {
+                    want_on = false;
+                } else {
+                    std::fprintf(stderr,
+                        "fox-install: --preset: '%s' has bad value '%s' (use on/off)\n",
+                        slug.c_str(), val.c_str());
+                    continue;
+                }
+                std::size_t pidx = find_by_slug(slug);
+                if (pidx == SIZE_MAX) {
+                    // Non-fatal: a stored preset must outlive registry churn.
+                    std::fprintf(stderr,
+                        "fox-install: --preset: unknown module '%s' (skipped)\n",
+                        slug.c_str());
+                    continue;
+                }
+                out.module_enabled[pidx] = want_on;
+                if (!want_on) explicitly_disabled[pidx] = true;
+            }
+            continue;
+        }
+
         std::size_t idx = find_by_flag(a);
         if (idx != SIZE_MAX) {
             switch_to_exclusive();
-            out.module_enabled[idx] = true;
-
-            // UX: --render almost always wants --symlinks to deploy the fresh
-            // bits AND --post-install to re-render waybar style.css from the
-            // .tmpl and restart waybar/dunst/mako so the changes are visible.
-            // Without post_install, the new .tmpl sits on disk and the running
-            // bars keep their stale CSS until next login.
-            if (std::string(MODULES[idx].slug) == "render") {
-                for (const char* implied : {"symlinks", "post_install"}) {
-                    std::size_t s_idx = find_by_slug(implied);
-                    if (s_idx != SIZE_MAX) out.module_enabled[s_idx] = true;
-                }
-            }
+            enable_module(idx);
             continue;
         }
 
@@ -255,6 +381,7 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
         if (idx != SIZE_MAX) {
             // Note: --no-foo doesn't trigger exclusive mode; it just disables.
             out.module_enabled[idx] = false;
+            explicitly_disabled[idx] = true;
             continue;
         }
 
@@ -262,7 +389,7 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
             std::size_t slug_idx = find_by_slug(a);
             if (slug_idx != SIZE_MAX) {
                 switch_to_exclusive();
-                out.module_enabled[slug_idx] = true;
+                enable_module(slug_idx);
                 continue;
             }
 
@@ -279,11 +406,15 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
     // If we switched to exclusive mode because of flags like --render,
     // we MUST ensure discovery/theme modules stay on, otherwise the
     // selected module might fail (no palette, no hardware info).
+    // An explicit --no-<slug> outranks this convenience re-enable —
+    // otherwise --no-preflight is accepted but silently ignored.
     if (provided_explicit_module) {
         static const char* REQ[] = { "detect", "preflight", "theme", nullptr };
         for (auto** s = REQ; *s; ++s) {
             std::size_t idx = find_by_slug(*s);
-            if (idx != SIZE_MAX) out.module_enabled[idx] = true;
+            if (idx != SIZE_MAX && !explicitly_disabled[idx]) {
+                out.module_enabled[idx] = true;
+            }
         }
     }
 

@@ -39,15 +39,22 @@ elif command -v checkupdates >/dev/null 2>&1; then
     # clock.sh is the primary checkupdates runner on the 600s cycle, so
     # cache the package list here too (the updates pill tooltip + click
     # menu read it) rather than running checkupdates a second time.
+    # Exit codes: 0 = updates pending, 2 = genuinely none, 1 = error.
+    # A network blip must NOT be recorded as "0 pending" — keep the
+    # stale count instead (same discipline as the weather fallback).
     _ul=$(checkupdates 2>/dev/null)
-    if [[ -n "$_ul" ]]; then
+    _rc=$?
+    if (( _rc == 0 )) && [[ -n "$_ul" ]]; then
         updates=$(printf '%s\n' "$_ul" | wc -l)
         printf '%s\n' "$_ul" > "$CACHE_DIR/updates.list"
-    else
+        printf '%s' "$updates" > "$UPDATES_CACHE"
+    elif (( _rc == 2 )); then
         updates=0
         : > "$CACHE_DIR/updates.list"
+        printf '%s' "$updates" > "$UPDATES_CACHE"
+    elif [[ -f "$UPDATES_CACHE" ]]; then
+        updates=$(<"$UPDATES_CACHE")
     fi
-    printf '%s' "$updates" > "$UPDATES_CACHE"
 fi
 
 # ── Output ────────────────────────────────────────────────────────

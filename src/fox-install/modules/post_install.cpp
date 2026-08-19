@@ -10,6 +10,7 @@
 // breaking portrait monitor configurations during install testing).
 
 #include "../core/context.hpp"
+#include "personalize.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
@@ -93,6 +94,7 @@ void run_post_install(Context& ctx) {
 
     if (sh::dry_run()) {
         ui::substep("[dry-run] would: write .active-theme + install marker, "
+                    "finalize per-monitor wallpaper variants + hyprlock (post-deploy), "
                     "render waybar for current layout, restart waybar+dunst+mako, "
                     "Lazy sync + TSUpdateSync (60s/120s caps), "
                     "Cursor/VS Code workbench.colorTheme=Fox ML, "
@@ -105,6 +107,24 @@ void run_post_install(Context& ctx) {
     // current.
     write_active_theme_and_marker(ctx);
     ui::ok("active-theme + install marker written");
+
+    // Finalize per-monitor personalisation now that `specials` has deployed
+    // ~/.wallpapers and `symlinks` has deployed the live configs. The personalize
+    // module runs back in phase 2 — before either exists on a FRESH install — so it
+    // bakes no wallpaper variants then. Re-running apply_all here closes that
+    // fresh-install gap: variants are generated against the now-present sources
+    // (the crisp ESRGAN recipe — may take a moment when a portrait monitor needs
+    // an upscaling crop) and hyprlock is re-pointed at them. The recipe-version
+    // stamp + the dims-match skip make this a ONE-TIME bake — a re-install where the
+    // variants already match the current recipe is a fast no-op.
+    {
+        fs::path layout_path = ctx.config_home / "foxml/monitor-layout.conf";
+        auto layout = fox_monitor::sidecar::read(layout_path);
+        if (!layout.primary.empty() || !layout.monitor_resolutions.empty()) {
+            ui::substep("finalizing per-monitor wallpapers (post-deploy)");
+            personalize::apply_all(ctx, layout);
+        }
+    }
 
     // Re-render waybar for the just-configured monitor layout. The
     // bash start_waybar.sh script reads ~/.config/foxml/monitor-layout.conf

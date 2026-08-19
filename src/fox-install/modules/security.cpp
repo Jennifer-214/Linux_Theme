@@ -21,6 +21,7 @@
 #include <fstream>
 #include <iostream>
 #include <regex>
+#include <set>
 #include <sstream>
 #include <string>
 #include <unistd.h>
@@ -404,11 +405,17 @@ bool apparmor_grub() {
                  "|GRUB_CMDLINE_LINUX_DEFAULT=\"\\1 lsm=landlock,lockdown,yama,integrity,apparmor,bpf\"|",
                  defaults.string()});
     }
-    ui::ok("grub default cmdline updated; regenerating grub.cfg");
-    if (sh::run({"sh", "-c",
-                 "sudo grub-mkconfig -o /boot/grub/grub.cfg >/dev/null 2>&1"}) == 0) {
-        ui::ok("grub.cfg regenerated");
-    }
+    ui::ok("grub default cmdline updated (/etc/default/grub)");
+    // GRUB regen intentionally LEFT NON-FUNCTIONAL: a naked `grub-mkconfig -o
+    // grub.cfg` truncates grub.cfg before the generator writes, so a failed or
+    // garbled regen bricks boot with no revert. Rather than auto-run it, we leave
+    // it to the user until this is made validate-before-swap (the iommu.cpp
+    // generate→grub_cfg_sane()→atomic-swap→revert pattern) — deferred until a host
+    // here actually uses a GRUB loader. The cmdline edit above is safe + backed up
+    // and takes effect on the next grub.cfg regeneration.
+    ui::warn("GRUB detected — grub.cfg NOT auto-regenerated (avoids an unguarded "
+             "regen that can brick boot)");
+    ui::substep("apply when ready: sudo grub-mkconfig -o /boot/grub/grub.cfg");
     return true;
 }
 
@@ -452,6 +459,14 @@ constexpr const char* POLKIT_STRICT_RULE =
     "        // Exception: switching power profiles is harmless enough to allow\n"
     "        // without a re-prompt (usually allowed for active users anyway).\n"
     "        if (action.id == \"org.freedesktop.UPower.PowerProfiles.switch-profile\") {\n"
+    "            return undefined;\n"
+    "        }\n"
+    "        // Exception: fprintd verify (covers fprintd-list) — the waybar\n"
+    "        // sentry polls enrollment every 15s; strict mode turns that into\n"
+    "        // a denial (no agent) or an auth-dialog storm (agent running).\n"
+    "        // undefined falls through to the implicit policy, which already\n"
+    "        // requires an active session. Enroll/delete stay strict.\n"
+    "        if (action.id == \"net.reactivated.fprint.device.verify\") {\n"
     "            return undefined;\n"
     "        }\n"
     "        return polkit.Result.AUTH_ADMIN;\n"
@@ -570,6 +585,47 @@ void install_auditd() {
         }
         sh::run({"sh", "-c", "sudo augenrules --load >/dev/null 2>&1 || true"});
         ui::ok("auditd watch rules written to " + rules.string());
+    } else {
+        // Self-heal exact-duplicate lines. fox-sentry-audit's old append
+        // guard never matched the line it wrote and stacked 10 honey
+        // rules; auditctl rejects the duplicate ("Rule exists") and the
+        // whole audit-rules.service fails at boot.
+        std::set<std::string> seen;
+        std::string dedup;
+        bool changed = false;
+        std::istringstream is(existing);
+        std::string line;
+        while (std::getline(is, line)) {
+            if (!line.empty() && !seen.insert(line).second) {
+                changed = true;
+                continue;
+            }
+            dedup += line;
+            dedup += '\n';
+        }
+        if (changed) {
+            if (write_root_file(rules, dedup, "0640")) {
+                // Flush the kernel ruleset BEFORE reloading. The stale
+                // duplicates loaded at boot are still resident; augenrules
+                // --load can't add a watch that already exists ("Rule
+                // exists" → exit 1), so without the flush the file is fixed
+                // but the live service stays failed until next reboot.
+                // auditctl -D is how auditd itself reloads — the canary is
+                // unwatched only for the instant between flush and reload.
+                sh::run({"sh", "-c", "sudo auditctl -D >/dev/null 2>&1 || true"});
+                sh::run({"sh", "-c",
+                         "sudo augenrules --load >/dev/null 2>&1 || true"});
+                sh::run({"sh", "-c",
+                         "sudo systemctl reset-failed audit-rules >/dev/null 2>&1 || true"});
+                sh::run({"sh", "-c",
+                         "sudo systemctl restart audit-rules >/dev/null 2>&1 || true"});
+                ui::ok("audit rules deduplicated + kernel ruleset reloaded "
+                       "(duplicates fail audit-rules.service at boot)");
+            } else {
+                ui::warn("audit rules carry duplicate lines but the rewrite failed — "
+                         "dedupe " + rules.string() + " manually");
+            }
+        }
     }
     if (!systemctl_active("auditd")) {
         if (sh::systemctl_enable("auditd", /*user=*/false) == 0) {

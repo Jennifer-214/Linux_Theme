@@ -52,12 +52,24 @@ struct Context {
     // pulls) keep their skip-if-present checks regardless.
     bool force_reapply = false;
 
+    // Set by run_render: render_ran once it executes; render_ok only on a
+    // successful render. run_symlinks reads them to refuse a partial deploy
+    // when render failed (a partial config tree → a box with no hyprland.conf,
+    // reported as success — the silent-partial-deploy trap).
+    bool render_ran = false;
+    bool render_ok  = false;
+
     // Hardware detection (filled by the detect module).
     bool has_nvidia   = false;
     bool has_amd_gpu  = false;
     bool has_intel_gpu = false;
     bool is_laptop    = false;
     bool has_fprint   = false;
+    // run_detect() is idempotent: it runs upfront in main() AND can be
+    // re-invoked by the dispatch loop (the wizard plan re-enables detect).
+    // Guard so detection + hardware prompts happen exactly once and never
+    // clobber the user's opt-out choices.
+    bool detect_ran   = false;
 
     // Resumable install state.
     int resume_idx = -1;                  // if >= 0, skip modules before this index

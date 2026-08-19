@@ -46,7 +46,10 @@ fi
 # ─── Oh My Zsh ────────────────────────────────
 export ZSH="$HOME/.oh-my-zsh"
 ZSH_THEME="caramel"
-plugins=(git zsh-completions zsh-syntax-highlighting zsh-autosuggestions vi-mode)
+# NOTE: zsh-syntax-highlighting + zsh-autosuggestions are intentionally NOT here —
+# they wrap ZLE widgets and must load AFTER fzf-tab, so they're sourced manually
+# near the end of this file (see the fzf-tab section). Order is load-bearing.
+plugins=(git zsh-completions vi-mode)
 source "$ZSH/oh-my-zsh.sh"
 
 # ─── Autosuggestions style ────────────────────
@@ -63,7 +66,7 @@ source "$ZSHCONF/conda.zsh"
 source "$ZSHCONF/welcome.zsh"
 
 # ─── Completion styling ───────────────────────
-zstyle ':completion:*' menu select
+# (no `menu select` — fzf-tab supersedes the built-in completion menu)
 zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
 zstyle ':completion:*' group-name ''
 zstyle ':completion:*:descriptions' format '%F{{{ANSI_ACCENT1}}}── %d ──%f'
@@ -85,14 +88,22 @@ export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
 export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
 export FZF_ALT_C_COMMAND='fd --type d --hidden --follow --exclude .git'
 export FZF_DEFAULT_OPTS="
-  --color=bg+:#{{SURFACE}},bg:#{{BG_DUNST}},fg:#{{FG}},fg+:#{{FG}}
+  --color=bg+:#{{SELECTION}},bg:-1,preview-bg:-1,fg:#{{FG}},fg+:#{{FG}}
   --color=hl:#{{FZF_ACCENT1}},hl+:#{{PRIMARY}},info:#{{FZF_ACCENT1}},marker:#{{PRIMARY}}
   --color=prompt:#{{PRIMARY}},spinner:#{{FZF_ACCENT1}},pointer:#{{PRIMARY}},header:#{{FZF_ACCENT1}}
-  --color=border:#{{SURFACE}}
-  --border=sharp --prompt='❯ ' --pointer='▸' --marker='●'
+  --color=border:#{{PRIMARY}}
+  --border=sharp --prompt='❯ ' --pointer='◆' --marker='●'
   --preview='bat --color=always --style=numbers --line-range=:200 {} 2>/dev/null || eza --icons --color=always {}'
-  --preview-window=right:50%:hidden --bind='ctrl-/:toggle-preview'
+  --preview-window=right:50%:hidden --bind='ctrl-/:toggle-preview,ctrl-h:abort,ctrl-j:down,ctrl-k:up,ctrl-l:accept'
 "
+
+# ─── fzf-tab + widget-wrapping plugins (ORDER-SENSITIVE) ──
+# Must be: compinit (omz) → fzf → fzf-tab → autosuggestions → syntax-highlighting (last).
+# fzf-tab wraps the completion widget; autosuggest/syntax-hl wrap others and must follow.
+source "$ZSH/custom/plugins/fzf-tab/fzf-tab.plugin.zsh"
+source "$ZSHCONF/fzf-tab.zsh"
+source "$ZSH/custom/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh"
+source "$ZSH/custom/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
 
 # ─── zoxide (smarter cd) ──────────────────────
 command -v zoxide >/dev/null && eval "$(zoxide init zsh)"

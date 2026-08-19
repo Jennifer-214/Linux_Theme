@@ -197,6 +197,13 @@ CheckResult b3_faillock_clear() {
     if (!user || !*user) {
         return skip("B3", "$USER unset — can't probe faillock");
     }
+    if (::geteuid() != 0) {
+        // The tally files under /var/run/faillock are root-only; an
+        // unprivileged probe dies with "Permission denied" — which is not
+        // the same thing as faillock being absent.
+        return skip("B3", "faillock tally is root-only — probed from the root "
+                          "contexts (fox-install preflight, pacman hook)");
+    }
     std::string out;
     if (!run_capture({"faillock", "--user", user}, out) || out.empty()) {
         return skip("B3", "faillock command not available");

@@ -7,19 +7,45 @@ CPU_THRESHOLD=80
 RAM_THRESHOLD=85
 TEMP_THRESHOLD=80
 
-# Get CPU Usage
-cpu_usage=$(grep 'cpu ' /proc/stat | awk '{usage=($2+$4)*100/($2+$4+$5)} END {print usage}')
-cpu_int=${cpu_usage%.*}
+# ── CPU usage (delta since last tick) ─────────────────────────────
+# /proc/stat counters are cumulative since boot — a single read gives
+# the boot-long average, which can't see a spike happening NOW. Keep
+# the previous sample in the runtime cache (cleared each boot) and
+# diff against it; first tick after boot reads 0 and warms the cache.
+CACHE_DIR="${XDG_RUNTIME_DIR:-/tmp}/foxml-waybar"
+mkdir -p "$CACHE_DIR"
+PREV="$CACHE_DIR/health_cpu_prev"
+
+read -r _cpu user nice system idle iowait irq softirq steal _rest < /proc/stat
+total=$((user + nice + system + idle + iowait + irq + softirq + steal))
+used=$((total - idle - iowait))
+
+cpu_int=0
+if [[ -f "$PREV" ]]; then
+    read -r p_used p_total < "$PREV"
+    if [[ "$p_used" =~ ^[0-9]+$ && "$p_total" =~ ^[0-9]+$ ]]; then
+        dt=$(( total - p_total ))
+        (( dt > 0 )) && cpu_int=$(( 100 * (used - p_used) / dt ))
+        (( cpu_int < 0 )) && cpu_int=0
+    fi
+fi
+printf '%s %s' "$used" "$total" > "$PREV"
 
 # Get RAM Usage
 ram_usage=$(free | grep Mem | awk '{print $3/$2 * 100.0}')
 ram_int=${ram_usage%.*}
 
-# Get Max Temp (requires lm_sensors)
+# ── Package temp via hwmon coretemp ───────────────────────────────
+# Resolved by hwmon "name" (survives hwmonN renumbering), same as
+# cpu.sh; the old `sensors` text parse needed lm_sensors and broke
+# whenever the output layout shifted.
 temp_int=0
-if command -v sensors >/dev/null 2>&1; then
-    temp_int=$(sensors | grep 'Core 0' | awk '{print $3}' | tr -d '+°C' | cut -d. -f1)
-fi
+for d in /sys/class/hwmon/hwmon*/; do
+    [[ "$(cat "$d/name" 2>/dev/null)" == "coretemp" ]] || continue
+    raw=$(cat "$d/temp1_input" 2>/dev/null)
+    [[ "$raw" =~ ^[0-9]+$ ]] && temp_int=$(( raw / 1000 ))
+    break
+done
 
 # Build warnings
 warnings=()
@@ -28,7 +54,12 @@ warnings=()
 [[ $temp_int -gt $TEMP_THRESHOLD ]] && warnings+=("Temp: ${temp_int}°C")
 
 if [[ ${#warnings[@]} -gt 0 ]]; then
-    text="  HEALTH"
+    # Name the culprit in the bar — the old "HEALTH" chip made you
+    # hover to learn WHAT was stressed. Reads e.g. " CPU 99% 84°".
+    text=""
+    (( cpu_int > CPU_THRESHOLD ))   && text+=" CPU ${cpu_int}%"
+    (( ram_int > RAM_THRESHOLD ))   && text+=" RAM ${ram_int}%"
+    (( temp_int > TEMP_THRESHOLD )) && text+=" ${temp_int}°"
     tooltip="System Stress Detected:\\n"
     for w in "${warnings[@]}"; do
         tooltip+="  • $w\\n"

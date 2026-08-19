@@ -28,6 +28,10 @@ FOX_MODULE_FULL( ufw,        run_ufw,              "--ufw",          "Default-de
                  /*root*/ true, /*gfx*/ false, /*net*/ false,
                  state::check_ufw )
 FOX_MODULE( security,        run_security,         "--secure",       "Kernel sysctls + USBGuard + AppArmor + polkit + fail2ban + auditd", true )
+//   reboot_polkit — grant-only polkit rule so an active local wheel user can
+//   reboot/poweroff without re-auth (logind's per-user manager session makes
+//   it "multiple sessions" → admin auth otherwise). Default-on usability fix.
+FOX_MODULE( reboot_polkit,   run_reboot_polkit,    "--reboot-polkit","Active local wheel users reboot/poweroff without re-auth", true )
 //   arch_audit — deploys a user systemd timer. No root (user-scope unit),
 //   no network at install time (CVE feed only fetched when the timer fires).
 FOX_MODULE_FULL( arch_audit, run_arch_audit,    "--arch-audit",   "Daily arch-audit systemd-user timer",              true,
@@ -35,11 +39,27 @@ FOX_MODULE_FULL( arch_audit, run_arch_audit,    "--arch-audit",   "Daily arch-au
                  state::check_arch_audit )
 FOX_MODULE( no_coredumps,    run_no_coredumps,     "--no-coredumps", "Disable core dumps (systemd + limits.d)",          true  )
 FOX_MODULE( hidepid,         run_hidepid,          "--hidepid",      "/proc hidepid=2 (hide other users' processes)",    true  )
+//   bt_power — disables btusb USB autosuspend (AX210 et al. drop connections
+//   when suspended) + FastConnectable. Writes /etc/modprobe.d via sudo; harmless
+//   when no BT controller is present (the modprobe option only applies if loaded).
+FOX_MODULE( bt_power,        run_bt_power,         "--bt-power",     "Keep Bluetooth controller awake (disable btusb autosuspend)", true  )
+//   wifi_power — sibling of bt_power for the same AX210 family: pins iwlwifi to
+//   an always-active power scheme so the card doesn't fail to exit D3cold on
+//   resume (dead Wi-Fi after suspend). Writes /etc/modprobe.d; harmless with no
+//   iwlwifi present (option only applies once the module loads). Applies at next
+//   boot — no live reload (iwlwifi may carry the install's own network).
+FOX_MODULE( wifi_power,      run_wifi_power,       "--wifi-power",   "Keep Wi-Fi (AX210) awake across suspend (disable D3cold power-save)", true  )
 //   noexec_tmp — edits /etc/fstab. Root for the sudo write, no network.
 FOX_MODULE_FULL( noexec_tmp,  run_noexec_tmp,       "--noexec-tmp",   "noexec/nosuid/nodev on /tmp + /dev/shm (opt-in)",  false,
                  /*root*/ true, /*gfx*/ false, /*net*/ false,
                  state::check_noexec_tmp )
-FOX_MODULE( iommu,           run_iommu,            "--iommu",        "IOMMU + lockdown=integrity kernel cmdline",        false )
+//   lockdown_heal — default-on safety net (distinct from the opt-in `iommu`
+//   hardening below). Strips a BRICK-causing lockdown=integrity from the
+//   cmdline on nvidia/DKMS hosts (strip-only, verify+revert); leaves an
+//   intentional lockdown alone on in-tree hosts. Auto-repairs a machine an
+//   older install bricked. Runs after `detect` so ctx.has_nvidia is set.
+FOX_MODULE( lockdown_heal,   run_lockdown_heal,    "--lockdown-heal","Strip a brick-causing lockdown=integrity (nvidia/DKMS auto-repair)", true )
+FOX_MODULE( iommu,           run_iommu,            "--iommu",        "IOMMU DMA protection + lockdown=integrity hardening (opt-in; auto-skipped on nvidia/DKMS)", false )
 FOX_MODULE( boot_sync,       run_boot_sync,        "--boot-sync",    "Pacman hook keeping ESP root in sync with /boot",  true  )
 //   recovery_entry — clones the default systemd-boot entry into a
 //   multi-user.target recovery console. The authenticated escape hatch
@@ -53,6 +73,8 @@ FOX_MODULE( makepkg_harden,  run_makepkg_hardening,"--makepkg-harden","Hardened 
 //   makes the updates pill's no-terminal "Apply silently" path safe.
 //   Opt-in: gates ALL pacman behind reading Arch news.
 FOX_MODULE( safe_updates,    run_safe_updates,     "--safe-updates", "informant news-gate for safe background pacman updates", false )
+//   fwupd — firmware/UEFI updates via LVFS. Package + refresh timer; non-destructive.
+FOX_MODULE( fwupd,           run_fwupd,            "--fwupd",        "Firmware/UEFI updates via fwupd + LVFS refresh timer", true )
 //   etckeeper — installs a package + writes user systemd units. Root for
 //   pacman, network for AUR fetch. state::check_etckeeper surfaces the
 //   masked-unit hazard explicitly (R5/R6) so the install plan doesn't
@@ -120,6 +142,13 @@ FOX_MODULE( ollama_hardening,run_ollama_hardening,  "--ollama-harden",   "system
 FOX_MODULE( models,          run_models,            "--models",          "Pull tier-appropriate Ollama chat/coder stack",    false )
 FOX_MODULE( opencode,        run_configure_opencode,"--opencode-config", "Generate ~/.config/opencode/{opencode,tui}.json",  true  )
 FOX_MODULE( github,      run_github,        "--github",      "gh CLI auth + clone workspace repos",              false )
+//   gaming — opt-in Steam + [multilib]. Lifted out of `deps` so the base
+//   install no longer force-enables a 32-bit repo or pulls a game client.
+//   Default-off; needs root (pacman.conf + pacman) and network (download).
+//   check_gaming reports Noop once steam is installed.
+FOX_MODULE_FULL( gaming,  run_gaming,        "--gaming",       "Steam + multilib (32-bit gaming, opt-in)",        false,
+                 /*root*/ true, /*gfx*/ false, /*net*/ true,
+                 state::check_gaming )
 
 // ── Phase 4: GPU userspace ────────────────────────────────────────
 FOX_MODULE( amd_gpu,     run_amd_gpu,       "--amd",         "AMD GPU userspace (vulkan-radeon, VA-API)",        false )
@@ -138,8 +167,19 @@ FOX_MODULE( battery,     run_battery,       "--battery",     "Cap battery charge
 // recovery_entry module is the escape hatch that makes this safe.
 FOX_MODULE( fprint,            run_fprint,             "--fprint",           "Install fprintd + enroll a finger",                          false )
 FOX_MODULE( fprint_pam,        run_fprint_pam,         "--fprint-pam",       "Splice pam_fprintd into /etc/pam.d/system-local-login (TTY login)", false )
+//   hyprlock_pam — rewrites /etc/pam.d/hyprlock to a password-only system-auth
+//   stack so a typed password is never blocked behind pam_fprintd; the lock
+//   screen's fingerprint runs via hyprlock's native concurrent auth block.
+//   Default-on, self-gates on has_fprint + an enrolled finger + the file
+//   existing; backs up + idempotent. A no-fingerprint box is never touched.
+FOX_MODULE( hyprlock_pam,      run_hyprlock_pam,       "--hyprlock-pam",     "hyprlock: password-only PAM + native fingerprint (enrollment-gated)", true )
 FOX_MODULE( greetd_fingerprint,run_greetd_fingerprint, "--greetd-fingerprint","pam_fprintd in /etc/pam.d/greetd (login screen)",            false )
 FOX_MODULE( sudo_fingerprint,  run_sudo_fingerprint,   "--sudo-fingerprint", "Fingerprint for sudo prompts (refuses if B2 unsafe)",        false )
+//   fprintd_reset_polkit — grant-only polkit rule so the lock/unlock self-heal
+//   (fox-lock + fox-unlock-hook → `fox fingerprint reset`) can bounce fprintd
+//   password-less to clear a wedged reader. Runs AFTER fprint so the daemon
+//   exists; self-skips when fprintd is absent. Scoped to fprintd.service only.
+FOX_MODULE( fprintd_reset_polkit, run_fprintd_reset_polkit, "--fprintd-reset-polkit", "Active wheel users restart fprintd without re-auth (finger self-heal)", true )
 FOX_MODULE( ssh_harden,  run_ssh_harden,    "--ssh-harden",  "Interactive SSH wizard (custom port + keys-only)", false )
 
 // ── Phase 6: heavy build-from-source / dev extras ─────────────────
@@ -149,8 +189,8 @@ FOX_MODULE( cpp_pro,     run_cpp_pro,       "--cpp-pro",     "C++ toolchain extr
 // ── Phase 7: per-machine personalization ──────────────────────────
 //   welcome_banner — bakes the user's chosen splash text into welcome.zsh's
 //   half-block banner. Runs after render+symlinks have deployed welcome.zsh;
-//   default FOXML is a no-op (template already carries the art).
-FOX_MODULE( welcome_banner, run_welcome_banner, "--welcome-banner", "Custom welcome-banner text (default FOXML)", true )
+//   default FOX OS is generated like any custom text (no special-case).
+FOX_MODULE( welcome_banner, run_welcome_banner, "--welcome-banner", "Custom welcome-banner text (default FOX OS)", true )
 FOX_MODULE( personalization_done, run_personalize, "--personalization-done", "Internal marker (do not use)", false )
 
 // ── Phase 8: post-install live-apply + end-of-install report (last) ─

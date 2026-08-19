@@ -76,6 +76,20 @@ Plan default_plan(
     const state::Manifest& manifest
 );
 
+// CLI-layer overrides, applied between default_plan and run() — [I-08]:
+// a flag the parser accepted must take effect. A disabled module is
+// forced to Skip. In exclusive mode (--<module>, --only) or under
+// --reapply, an enabled module promotes Skip→Run — a Noop
+// classification must not silently override an operator demand.
+// Blocked always wins (prereq unmet); Conflict keeps its consent flow;
+// --full keeps its established drift-correcting semantics (true Noop
+// stays skipped).
+void apply_cli_layer(Plan& plan,
+                     const std::vector<bool>& enabled,
+                     bool exclusive_mode,
+                     bool full,
+                     bool force_reapply);
+
 // Step 9 (interactive). Walks the user through `plan`, lets them
 // toggle Run/Skip and pick conflict_decision values, returns the
 // edited Plan. Under assume_yes or no-TTY returns `plan` unchanged.

@@ -19,18 +19,8 @@ claude-skills/
 # Claude Code session state (claude.ai's local IDE config)
 .claude/
 
-# Plans (Personal design and scratchpad)
-# Exclude individual files (not the directory wholesale) so specific plans
-# can be re-included with ! patterns below. `plans/` alone would block git
-# from descending into the dir, making negation patterns silently ineffective.
-plans/*
-plans/*/
-# Public exception: the active architecture-refactor plan + its per-slice
-# subplans are intentionally shared so the project's direction is visible
-# to anyone reading the repo.
-!plans/architecture-refactor.md
-!plans/refactor/
-!plans/refactor/**
+# Plans — now fully private (operating context, symlinked from the workspace).
+# The /plans rule below ignores the symlink; nothing under plans/ is public.
 
 # Editor backups — local safety nets, not for the repo
 *.bak
@@ -65,6 +55,8 @@ src/fox-dev/fox-dev
 src/fox-sys/fox-sys
 src/fox-common/libfox-common.a
 src/fox-health/libfox-health.a
+src/fox-monitor/fox-monitor
+src/fox-monitor/libfox-monitor.a
 src/fox-install/fox-install
 src/fox-sec-health/fox-sec-health
 src/fox-render/fox-render-fast
@@ -82,3 +74,20 @@ src/fox-ask/fox-ask
 # fetches it on first build. Don't commit a 25k-line vendored copy.
 src/fox-intel/json.hpp
 .aider*
+/CLAUDE.md
+/CLAUDE.local.md
+/NOTE.local.md
+
+# python build artifacts (fox-color + its test)
+__pycache__/
+*.pyc
+
+# private operating/internal docs (symlinked from the workspace)
+/plans
+/AGENT.md
+/TECHDEBT.md
+/CONTRIBUTING.md
+/INVARIANTS.md
+
+# fox-intel embeddings index — regenerated on build; 2.7MB, not for the repo
+.foxml_index.json

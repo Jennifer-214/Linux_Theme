@@ -1,0 +1,16 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  fox-install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y g++ make libssl-dev jq
+      - name: build + test orchestrator
+        run: make -C src/fox-install && make -C src/fox-install test
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y shellcheck
+      - run: shellcheck shared/bin/* shared/hyprland_scripts/*.sh || true

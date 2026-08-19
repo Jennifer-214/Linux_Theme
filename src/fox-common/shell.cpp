@@ -275,4 +275,18 @@ bool sudo_warmup() {
     return run({ "sudo", "-n", "true" }) == 0;
 }
 
+bool sudo_warmup_interactive() {
+    // ONE deliberate PAM prompt (fingerprint/password) at the start of a
+    // run — the wrapper's `sudo -v` equivalent for direct binary
+    // invocations. Without this, a bare `fox-install --secure` in a
+    // terminal warns "sudo cold" and every root module self-skips while
+    // the summary still reads clean. Per-module checks stay the
+    // non-interactive sudo_warmup(): one prompt up front, never one per
+    // module. sudo's timestamp is per-TTY, so this must run on the
+    // user's own terminal — agent shells without a TTY fall through.
+    if (run({ "sudo", "-n", "true" }) == 0) return true;  // already warm
+    if (!::isatty(STDIN_FILENO)) return false;
+    return run({ "sudo", "-v" }) == 0;
+}
+
 }  // namespace fox_install::sh

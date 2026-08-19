@@ -32,6 +32,17 @@ vim.opt.wrap = true               -- wrap long lines/comments instead of running
 vim.opt.linebreak = true          -- break at word boundaries, not mid-word
 vim.opt.breakindent = true        -- wrapped lines keep the code's indent
 vim.opt.showbreak = "↪ "          -- mark wrapped continuation lines
+
+-- Hard-wrap comment prose at 80 (clean GitHub rendering). A FileType autocmd, not a
+-- global opt, because ftplugins reset textwidth=0 after init.lua runs. Strip 't' so
+-- only comments wrap, never code (python's default formatoptions includes it).
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = { "cpp", "c", "asm", "cuda", "python", "lua", "rust", "sh", "zsh" },
+  callback = function()
+    vim.opt_local.textwidth = 80
+    vim.opt_local.formatoptions:remove("t")
+  end,
+})
 vim.opt.smoothscroll = {{SHOW_WELCOME}}
 vim.opt.cursorline = {{SHOW_WELCOME}}
 vim.opt.cursorlineopt = "number"  -- current-line cue = the peach line number, no black bar
@@ -56,6 +67,7 @@ local P = {
   comment   = "#{{COMMENT}}",
   peach     = "#{{PRIMARY}}",
   pink      = "#{{SECONDARY}}",
+  blush     = "#{{BLUSH}}",
   lavender  = "#{{ACCENT}}",
   surface   = "#{{SURFACE}}",
   red       = "#{{RED}}",
@@ -234,24 +246,26 @@ local plugins = {
         show_close_icon = false,
       },
       highlights = {
-        fill = { bg = P.bg_deep },
-        background = { fg = P.comment, bg = P.bg_deep },
-        buffer_selected = { fg = P.fg, bg = P.bg, bold = {{SHOW_WELCOME}} },
-        buffer_visible = { fg = P.comment, bg = P.bg_deep },
-        separator = { fg = P.bg_hl, bg = P.bg_deep },
-        separator_selected = { fg = P.bg_hl, bg = P.bg },
-        separator_visible = { fg = P.bg_hl, bg = P.bg_deep },
-        indicator_selected = { fg = P.peach, bg = P.bg },
-        modified = { fg = P.yellow, bg = P.bg_deep },
-        modified_selected = { fg = P.yellow, bg = P.bg },
-        modified_visible = { fg = P.yellow, bg = P.bg_deep },
-        tab = { fg = P.comment, bg = P.bg_deep },
-        tab_selected = { fg = P.peach, bg = P.bg, bold = {{SHOW_WELCOME}} },
-        tab_separator = { fg = P.bg_hl, bg = P.bg_deep },
-        tab_separator_selected = { fg = P.bg_hl, bg = P.bg },
-        duplicate = { fg = P.comment, bg = P.bg_deep, italic = {{SHOW_WELCOME}} },
-        duplicate_selected = { fg = P.fg, bg = P.bg, italic = {{SHOW_WELCOME}} },
-        duplicate_visible = { fg = P.comment, bg = P.bg_deep, italic = {{SHOW_WELCOME}} },
+        -- transparent bar — inherit kitty opacity like the editor; active buffer
+        -- reads via bold peach text + the peach indicator, not a dark pill
+        fill = { bg = P.none },
+        background = { fg = P.comment, bg = P.none },
+        buffer_selected = { fg = P.fg, bg = P.none, bold = {{SHOW_WELCOME}} },
+        buffer_visible = { fg = P.comment, bg = P.none },
+        separator = { fg = P.bg_hl, bg = P.none },
+        separator_selected = { fg = P.bg_hl, bg = P.none },
+        separator_visible = { fg = P.bg_hl, bg = P.none },
+        indicator_selected = { fg = P.peach, bg = P.none },
+        modified = { fg = P.yellow, bg = P.none },
+        modified_selected = { fg = P.yellow, bg = P.none },
+        modified_visible = { fg = P.yellow, bg = P.none },
+        tab = { fg = P.comment, bg = P.none },
+        tab_selected = { fg = P.peach, bg = P.none, bold = {{SHOW_WELCOME}} },
+        tab_separator = { fg = P.bg_hl, bg = P.none },
+        tab_separator_selected = { fg = P.bg_hl, bg = P.none },
+        duplicate = { fg = P.comment, bg = P.none, italic = {{SHOW_WELCOME}} },
+        duplicate_selected = { fg = P.fg, bg = P.none, italic = {{SHOW_WELCOME}} },
+        duplicate_visible = { fg = P.comment, bg = P.none, italic = {{SHOW_WELCOME}} },
         diagnostic_selected = { bold = {{SHOW_WELCOME}} },
       },
     },
@@ -267,15 +281,15 @@ local plugins = {
     },
   },
 
-  -- Syntax / Treesitter
-  -- Pin to master: the main branch dropped require("nvim-treesitter.configs") in
-  -- favor of a rewritten setup API. master keeps the legacy configs.setup() shape
-  -- our init.lua below uses. Same pin on textobjects (its main branch broke too).
-  { "nvim-treesitter/nvim-treesitter",  branch = "master", build = ":TSUpdate" },
+  -- Syntax / Treesitter — main branch (required by nvim 0.12; master is frozen and
+  -- hard-errors on 0.12). The rewrite dropped require("nvim-treesitter.configs") for
+  -- setup()/install() + core vim.treesitter APIs (wired near the bottom of this file).
+  -- Compiles parsers locally → needs the tree-sitter CLI + a C compiler on PATH.
+  { "nvim-treesitter/nvim-treesitter",  branch = "main", build = ":TSUpdate" },
 
   -- LSP + Autocomplete
   { "neovim/nvim-lspconfig" },
-  { "williamboman/mason.nvim",          build = ":MasonUpdate" },
+  { "williamboman/mason.nvim" },        -- mason 2.x: :MasonUpdate gone, registry auto-updates
   { "williamboman/mason-lspconfig.nvim" },
   { "hrsh7th/nvim-cmp" },
   { "hrsh7th/cmp-nvim-lsp" },
@@ -409,9 +423,10 @@ local plugins = {
     end,
   },
 
-  -- LaTeX
+  -- LaTeX — DISABLED: no LaTeX in use.
   {
     "lervag/vimtex",
+    enabled = false,
     ft = "tex",
     init = function()
       vim.g.vimtex_view_method = "zathura"
@@ -445,7 +460,7 @@ local plugins = {
   -- Treesitter textobjects (daf = delete a function, vac = select a class, etc.)
   {
     "nvim-treesitter/nvim-treesitter-textobjects",
-    branch = "master",
+    branch = "main",
     dependencies = { "nvim-treesitter/nvim-treesitter" },
   },
 
@@ -517,9 +532,10 @@ local plugins = {
     dependencies = { "nvim-lua/plenary.nvim" },
   },
 
-  -- CodeCompanion (Inline AI, Chat, and Agents using local Ollama)
+  -- CodeCompanion (Inline AI, Chat, and Agents) — DISABLED: debloat, only Copilot in regular use.
   {
     "olimorris/codecompanion.nvim",
+    enabled = false,
     dependencies = {
       "nvim-lua/plenary.nvim",
       "nvim-treesitter/nvim-treesitter",
@@ -583,9 +599,10 @@ local plugins = {
     },
   },
 
-  -- Avante (Cursor-style AI panel, using Copilot provider)
+  -- Avante (Cursor-style AI panel) — DISABLED: relying on Copilot for inline suggestions instead.
   {
     "yetone/avante.nvim",
+    enabled = false,
     event = "VeryLazy",
     version = false,
     build = "make",
@@ -598,7 +615,7 @@ local plugins = {
     },
     opts = {
       provider = "ollama",
-      vendors = {
+      providers = {
         ollama = {
           __inherited_from = "openai",
           api_key_name = "",
@@ -643,13 +660,10 @@ local plugins = {
         enabled = {{SHOW_WELCOME}},
         preset = {
           header = [[
-         /\_/\
-        (˚ˎ 。7
-         |、^ 〵
-            じしˍ,)ノ
-
-    ~ F o x M L ~
-          ]],
+ /\_/\
+(˚ˎ 。7
+ |、^ 〵
+    じしˍ,)ノ]],
           keys = {
             { icon = " ", key = "f", desc = "Find File", action = ":Telescope find_files" },
             { icon = " ", key = "g", desc = "Find Text", action = ":Telescope live_grep" },
@@ -660,15 +674,67 @@ local plugins = {
             { icon = " ", key = "q", desc = "Quit", action = ":qa" },
           },
         },
+        -- Brand banner — per-letter multicolor, generated by welcome_banner.cpp
+        -- from WELCOME_TEXT (cycles FoxBannerC1..4). The segments between the
+        -- sentinels are re-spliced on every install; edit there, not here.
+        sections = {
+          { section = "header", align = "center" },
+          {
+            text = {
+              -- foxml:nvim-banner-begin
+          { "█▀▀", hl = "FoxBannerC1" },
+          { " " },
+          { "█▀█", hl = "FoxBannerC2" },
+          { " " },
+          { "▀▄▀", hl = "FoxBannerC3" },
+          { " " },
+          { "  ", hl = "FoxBannerC4" },
+          { " " },
+          { "█▀█", hl = "FoxBannerC1" },
+          { " " },
+          { "▄▀▀", hl = "FoxBannerC2" },
+          { "\n" },
+          { "█▀ ", hl = "FoxBannerC1" },
+          { " " },
+          { "█ █", hl = "FoxBannerC2" },
+          { " " },
+          { " █ ", hl = "FoxBannerC3" },
+          { " " },
+          { "  ", hl = "FoxBannerC4" },
+          { " " },
+          { "█ █", hl = "FoxBannerC1" },
+          { " " },
+          { " ▀▄", hl = "FoxBannerC2" },
+          { "\n" },
+          { "▀  ", hl = "FoxBannerC1" },
+          { " " },
+          { "▀▀▀", hl = "FoxBannerC2" },
+          { " " },
+          { "▀ ▀", hl = "FoxBannerC3" },
+          { " " },
+          { "  ", hl = "FoxBannerC4" },
+          { " " },
+          { "▀▀▀", hl = "FoxBannerC1" },
+          { " " },
+          { "▀▀ ", hl = "FoxBannerC2" },
+              -- foxml:nvim-banner-end
+            },
+            align = "center",
+            padding = 1,
+          },
+          { section = "keys", gap = 1, padding = 1 },
+          { section = "startup" },
+        },
       },
       notifier = { enabled = {{SHOW_WELCOME}}, style = "minimal" },
       indent = { enabled = false },
     },
   },
 
-  -- Claude Code (AI terminal integration)
+  -- Claude Code (AI terminal integration) — DISABLED: debloat, not in regular use.
   {
     "coder/claudecode.nvim",
+    enabled = false,
     dependencies = { "folke/snacks.nvim" },
     event = "VeryLazy",
     keys = {
@@ -686,10 +752,28 @@ local plugins = {
     },
   },
 
-  -- Dropbar (breadcrumb navigation)
+  -- Dropbar (breadcrumb navigation) — DISABLED: winbar reserved for the fox-symdeps size-chip.
   {
     "Bekaboo/dropbar.nvim",
+    enabled = false,
     event = { "BufReadPost", "BufNewFile" },
+    opts = {
+      bar = {
+        -- symbols only — drop the path/filename crumb (filename already lives in
+        -- the bufferline tab + statusline; no need for a third copy up top)
+        sources = function(buf, _)
+          local sources = require("dropbar.sources")
+          local utils = require("dropbar.utils")
+          if vim.bo[buf].ft == "markdown" then
+            return { sources.markdown }
+          end
+          if vim.bo[buf].buftype == "terminal" then
+            return { sources.terminal }
+          end
+          return { utils.source.fallback({ sources.lsp, sources.treesitter }) }
+        end,
+      },
+    },
   },
 
   -- Clangd extensions (inlay hints, AST, type hierarchy for C++)
@@ -716,6 +800,31 @@ local plugins = {
         },
       },
     },
+  },
+
+  -- fox-symdeps.nvim — compiled-reality HUD for C++ (private repo Jennyfirrr/fox-symdeps.nvim).
+  -- <leader>dd float / <leader>dD panel: layout · Uses · Calls · cascade · false-sharing (s) · notes (n).
+  -- HOME: lives in the private trader workspace (tools/plugins/), its own gitignored repo — see the
+  -- plugin's DOCS/DECISIONS.md. `enabled` guards on the dir so this degrades gracefully if absent.
+  {
+    dir = vim.fn.expand("~/code/tick-trader-percore-workspace/tools/plugins/fox-symdeps.nvim"),
+    enabled = function()
+      return vim.fn.isdirectory(vim.fn.expand("~/code/tick-trader-percore-workspace/tools/plugins/fox-symdeps.nvim")) == 1
+    end,
+    name = "fox-symdeps",
+    ft = { "c", "cpp" },
+    opts = {
+      palette = { header = P.peach, title = P.blush, border = P.peach, badge = P.warm, winblend = 0 },
+      doc_dirs = { vim.fn.expand("~/code/tick-trader-percore-workspace") }, -- `n` also greps the private workspace docs
+    },
+    config = function(_, opts)
+      require("fox-symdeps").setup(opts)
+      -- E.1.2.A: install the codified [TAG]_ grammar adapter → the tags lens + [DERIVED] gen/verify
+      -- light up on tagged C++ units. pcall so an adapter hiccup can never break plugin load.
+      pcall(function()
+        require("fox-symdeps.tagadapter").install(require("fox-symdeps.tag_grammar_adapter"))
+      end)
+    end,
   },
 
   -- Friendly snippets (community snippet collection for LuaSnip)
@@ -863,7 +972,7 @@ local plugins = {
     event = "BufReadPost",
     opts = {
       handle = {
-        color = P.bg_hl,
+        color = P.peach,
         highlight = "ScrollbarHandle",
       },
       marks = {
@@ -1178,6 +1287,12 @@ local function apply_foxml_theme()
 
   -- Snacks dashboard
   hl("SnacksDashboardHeader",  { fg = P.pink, bold = {{SHOW_WELCOME}} })
+  -- Banner brand cycle (clay·wheat·mauve·sage) — mirrors welcome.zsh ${c1..c4}
+  -- and hyprlock's pango spans; the one WELCOME_TEXT source colors all three.
+  hl("FoxBannerC1",            { fg = P.clay,     bold = {{SHOW_WELCOME}} })
+  hl("FoxBannerC2",            { fg = P.wheat,    bold = {{SHOW_WELCOME}} })
+  hl("FoxBannerC3",            { fg = P.blush,    bold = {{SHOW_WELCOME}} })
+  hl("FoxBannerC4",            { fg = P.lavender, bold = {{SHOW_WELCOME}} })
   hl("SnacksDashboardKey",     { fg = P.peach, bold = {{SHOW_WELCOME}} })
   hl("SnacksDashboardDesc",    { fg = P.fg })
   hl("SnacksDashboardIcon",    { fg = P.green })
@@ -1208,10 +1323,10 @@ local function apply_foxml_theme()
   hl("WhichKeyGroup",     { fg = P.pink })
   hl("WhichKeyDesc",      { fg = P.fg })
   hl("WhichKeySeparator", { fg = P.surface })
-  hl("WhichKeyNormal",    { bg = P.bg_deep })
-  hl("WhichKeyFloat",     { bg = P.bg_deep })
-  hl("WhichKeyBorder",    { fg = P.peach, bg = P.bg_deep })
-  hl("WhichKeyTitle",     { fg = P.peach, bg = P.bg_deep })
+  hl("WhichKeyNormal",    { bg = P.none })
+  hl("WhichKeyFloat",     { bg = P.none })
+  hl("WhichKeyBorder",    { fg = P.peach, bg = P.none })
+  hl("WhichKeyTitle",     { fg = P.peach, bg = P.none })
   hl("WhichKeyValue",     { fg = P.comment })
 
   -- Indent blankline
@@ -1227,9 +1342,9 @@ local function apply_foxml_theme()
   hl("RainbowIndent6", { fg = "#402a2a" })  -- muted red
 
   -- Neo-tree
-  hl("NeoTreeNormal",        { bg = P.bg_deep })
-  hl("NeoTreeNormalNC",      { bg = P.bg_deep })
-  hl("NeoTreeEndOfBuffer",   { fg = P.bg_deep, bg = P.bg_deep })
+  hl("NeoTreeNormal",        { bg = P.none })
+  hl("NeoTreeNormalNC",      { bg = P.none })
+  hl("NeoTreeEndOfBuffer",   { fg = P.bg_deep, bg = P.none })
   hl("NeoTreeDirectoryName", { fg = P.peach })
   hl("NeoTreeDirectoryIcon", { fg = P.peach })
   hl("NeoTreeRootName",      { fg = P.pink, bold = {{SHOW_WELCOME}} })
@@ -1241,7 +1356,7 @@ local function apply_foxml_theme()
   hl("NeoTreeGitUntracked",  { fg = "#a06060" })
   hl("NeoTreeGitConflict",   { fg = P.red, bold = {{SHOW_WELCOME}} })
   hl("NeoTreeIndentMarker",  { fg = P.bg_hl })
-  hl("NeoTreeWinSeparator",  { fg = P.bg_deep, bg = P.bg_deep })
+  hl("NeoTreeWinSeparator",  { fg = P.bg_deep, bg = P.none })
   hl("NeoTreeCursorLine",    { bg = P.bg_hl })
   hl("NeoTreeTitleBar",      { fg = P.bg, bg = P.peach, bold = {{SHOW_WELCOME}} })
   hl("NeoTreeFloatBorder",   { fg = P.peach })
@@ -1325,7 +1440,7 @@ local function apply_foxml_theme()
   hl("FidgetTask",  { fg = P.comment })
 
   -- Treesitter context
-  hl("TreesitterContext",           { bg = P.ts_ctx })
+  hl("TreesitterContext",           { bg = P.none })
   hl("TreesitterContextLineNumber", { fg = P.peach })
   hl("TreesitterContextBottom",     { underline = {{SHOW_WELCOME}}, sp = P.bg_hl })
 
@@ -1409,7 +1524,7 @@ local function apply_foxml_theme()
   hl("NotifyBackground",  { bg = P.bg })
 
   -- Scrollbar
-  hl("ScrollbarHandle",          { bg = P.bg_hl })
+  hl("ScrollbarHandle",          { bg = P.peach })
   hl("ScrollbarSearchHandle",    { fg = P.peach, bg = P.bg_hl })
   hl("ScrollbarSearch",          { fg = P.peach })
   hl("ScrollbarErrorHandle",     { fg = P.red, bg = P.bg_hl })
@@ -1478,9 +1593,9 @@ local function apply_foxml_theme()
   hl("ClaudeCodeSeparator", { fg = P.bg_deep, bg = P.bg_deep })
 
   -- vim-illuminate (subtle earthy underline, not distracting)
-  hl("IlluminatedWordText",  { bg = "#4a3528" })
-  hl("IlluminatedWordRead",  { bg = "#4a3528" })
-  hl("IlluminatedWordWrite", { bg = "#4a3528", underline = {{SHOW_WELCOME}} })
+  hl("IlluminatedWordText",  { bg = "#5e4029" })
+  hl("IlluminatedWordRead",  { bg = "#5e4029" })
+  hl("IlluminatedWordWrite", { bg = "#5e4029", underline = {{SHOW_WELCOME}} })
 
   -- nvim-cmp
   hl("CmpItemAbbrMatch",      { fg = P.peach, bold = {{SHOW_WELCOME}} })
@@ -1529,7 +1644,7 @@ end, 100)
 
 -- Force solid background on sidebar/panel filetypes
 -- (uses vim.schedule so it runs AFTER plugins set their own winhighlight)
-local sidebar_fts = { ["neo-tree"] = {{SHOW_WELCOME}}, ["Avante"] = {{SHOW_WELCOME}}, ["AvanteInput"] = {{SHOW_WELCOME}},
+local sidebar_fts = { ["Avante"] = {{SHOW_WELCOME}}, ["AvanteInput"] = {{SHOW_WELCOME}},
   ["AvantePrompt"] = {{SHOW_WELCOME}}, ["Trouble"] = {{SHOW_WELCOME}}, ["aerial"] = {{SHOW_WELCOME}}, ["markdown"] = false }
 vim.api.nvim_create_autocmd({ "FileType", "BufWinEnter" }, {
   callback = function()
@@ -1644,54 +1759,86 @@ require("lualine").setup({
   },
 })
 
--- Treesitter
-require("nvim-treesitter.configs").setup({
-  -- Dropped "latex" — the parser on this nvim-treesitter line generates from
-  -- grammar source via tree-sitter-cli, and 0.26.x changed how `--no-bindings`
-  -- is passed (now needs `-- --no-bindings`), so the install errors out.
-  -- Add it back when nvim-treesitter ships a compatible build script.
-  ensure_installed = { "lua", "python", "c", "cpp", "bash", "json", "yaml", "markdown", "vim", "vimdoc", "java", "javadoc" },
-  highlight = { enable = {{SHOW_WELCOME}} },
-  incremental_selection = { enable = {{SHOW_WELCOME}} },
-  indent = { enable = {{SHOW_WELCOME}} },
-  textobjects = {
-    select = {
-      enable = {{SHOW_WELCOME}},
-      lookahead = {{SHOW_WELCOME}},
-      keymaps = {
-        ["af"] = "@function.outer",
-        ["if"] = "@function.inner",
-        ["ac"] = "@class.outer",
-        ["ic"] = "@class.inner",
-        ["aa"] = "@parameter.outer",
-        ["ia"] = "@parameter.inner",
-        ["ai"] = "@conditional.outer",
-        ["ii"] = "@conditional.inner",
-        ["al"] = "@loop.outer",
-        ["il"] = "@loop.inner",
-      },
-    },
-    move = {
-      enable = {{SHOW_WELCOME}},
-      set_jumps = {{SHOW_WELCOME}},
-      goto_next_start = {
-        ["]m"] = "@function.outer",
-        ["]]"] = "@class.outer",
-        ["]a"] = "@parameter.inner",
-      },
-      goto_prev_start = {
-        ["[m"] = "@function.outer",
-        ["[["] = "@class.outer",
-        ["[a"] = "@parameter.inner",
-      },
-    },
-    swap = {
-      enable = {{SHOW_WELCOME}},
-      swap_next = { ["<leader>sa"] = "@parameter.inner" },
-      swap_previous = { ["<leader>sA"] = "@parameter.inner" },
-    },
-  },
+-- Treesitter — main branch (nvim 0.12). The legacy require("nvim-treesitter.configs")
+-- module is gone; parsers install via install(), and highlight/indent/textobjects are
+-- wired with core vim.treesitter + the textobjects companion. (Migrated from the master
+-- configs.setup() shape — workspace plan W2, 2026-06-28. UNTESTED until a 0.12 run.)
+local ts_parsers = { "lua", "python", "c", "cpp", "asm", "bash", "json", "yaml", "markdown", "vim", "vimdoc", "java", "javadoc" }
+-- "latex" stays dropped — its parser build still trips the tree-sitter-cli
+-- --no-bindings change; add it back when upstream ships a compatible build script.
+
+-- install_dir passed explicitly so nvim-treesitter prepends it to runtimepath
+-- (lazy.nvim resets rtp and drops stdpath('data')/site; main only adds the dir
+-- to rtp when install_dir is set — empty setup() leaves parsers unreachable).
+require("nvim-treesitter").setup({
+  install_dir = vim.fn.stdpath("data") .. "/site",
 })
+
+-- Install only the parsers we don't already have (main has NO auto-install).
+-- VERIFY-ON-0.12: get_installed() is the documented listing helper but wasn't
+-- confirmed verbatim from a 2026 source — if it's absent on your build this block
+-- skips silently and you install once with `:TSUpdate` / `:TSInstall <lang>`.
+do
+  local okc, cfg = pcall(require, "nvim-treesitter.config")
+  if okc and cfg.get_installed then
+    local have = {}
+    for _, l in ipairs(cfg.get_installed()) do have[l] = {{SHOW_WELCOME}} end
+    local missing = {}
+    for _, l in ipairs(ts_parsers) do
+      if not have[l] then missing[#missing + 1] = l end
+    end
+    if #missing > 0 then require("nvim-treesitter").install(missing) end
+  end
+end
+
+-- Highlight + indent: master's `highlight`/`indent = { enable = true }` are gone.
+-- Start treesitter per-buffer in a FileType autocmd (core API), only when a parser
+-- exists, and drive indentexpr off the plugin (experimental on main — keep quoting).
+vim.api.nvim_create_autocmd("FileType", {
+  group = vim.api.nvim_create_augroup("foxml_ts", { clear = {{SHOW_WELCOME}} }),
+  callback = function(args)
+    local lang = vim.treesitter.language.get_lang(vim.bo[args.buf].filetype)
+    if lang and pcall(vim.treesitter.language.add, lang) then
+      pcall(vim.treesitter.start, args.buf, lang)
+      vim.bo[args.buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+    end
+  end,
+})
+
+-- Incremental selection: the master module was removed with no main equivalent.
+-- nvim 0.12 ships it in core visual mode — `an` expand to parent node, `in` shrink
+-- to child (VERIFY-ON-0.12: `]n`/`[n` to siblings exist on some builds). No setup
+-- needed; remap here if you want the old gnn/grn feel.
+
+-- Textobjects (companion main branch): setup() + manual keymaps — the module that
+-- auto-wired keymaps on master is gone. Mirrors the old select/move/swap binds.
+require("nvim-treesitter-textobjects").setup({
+  select = { lookahead = {{SHOW_WELCOME}} },
+  move = { set_jumps = {{SHOW_WELCOME}} },
+})
+local ts_select = require("nvim-treesitter-textobjects.select")
+local ts_move   = require("nvim-treesitter-textobjects.move")
+local ts_swap   = require("nvim-treesitter-textobjects.swap")
+for lhs, query in pairs({
+  ["af"] = "@function.outer",    ["if"] = "@function.inner",
+  ["ac"] = "@class.outer",       ["ic"] = "@class.inner",
+  ["aa"] = "@parameter.outer",   ["ia"] = "@parameter.inner",
+  ["ai"] = "@conditional.outer", ["ii"] = "@conditional.inner",
+  ["al"] = "@loop.outer",        ["il"] = "@loop.inner",
+}) do
+  vim.keymap.set({ "x", "o" }, lhs, function()
+    ts_select.select_textobject(query, "textobjects")
+  end, { desc = "TS select " .. query })
+end
+local function ts_goto(fn, query) return function() fn(query, "textobjects") end end
+vim.keymap.set({ "n", "x", "o" }, "]m", ts_goto(ts_move.goto_next_start,     "@function.outer"),  { desc = "TS next fn start" })
+vim.keymap.set({ "n", "x", "o" }, "]]", ts_goto(ts_move.goto_next_start,     "@class.outer"),     { desc = "TS next class start" })
+vim.keymap.set({ "n", "x", "o" }, "]a", ts_goto(ts_move.goto_next_start,     "@parameter.inner"), { desc = "TS next param" })
+vim.keymap.set({ "n", "x", "o" }, "[m", ts_goto(ts_move.goto_previous_start, "@function.outer"),  { desc = "TS prev fn start" })
+vim.keymap.set({ "n", "x", "o" }, "[[", ts_goto(ts_move.goto_previous_start, "@class.outer"),     { desc = "TS prev class start" })
+vim.keymap.set({ "n", "x", "o" }, "[a", ts_goto(ts_move.goto_previous_start, "@parameter.inner"), { desc = "TS prev param" })
+vim.keymap.set("n", "<leader>na", function() ts_swap.swap_next("@parameter.inner") end,     { desc = "TS swap next param" })
+vim.keymap.set("n", "<leader>nA", function() ts_swap.swap_previous("@parameter.inner") end, { desc = "TS swap prev param" })
 
 -- Mason (LSP installer)
 require("mason").setup()
@@ -1750,7 +1897,7 @@ local on_attach    = function(_, bufnr)
   map("n", "<leader>ca", vim.lsp.buf.code_action, "Code Action")
   map("n", "[d", function() vim.diagnostic.jump({ count = -1 }) end, "Prev Diagnostic")
   map("n", "]d", function() vim.diagnostic.jump({ count = 1 }) end, "Next Diagnostic")
-  map("n", "<leader>f", function() vim.lsp.buf.format({ async = {{SHOW_WELCOME}} }) end, "Format")
+  map("n", "<leader>cf", function() vim.lsp.buf.format({ async = {{SHOW_WELCOME}} }) end, "Format")
 
   -- format on save (synchronous so it finishes before write)
   vim.api.nvim_create_autocmd("BufWritePre", {
@@ -1878,7 +2025,7 @@ map("n", "<C-3>", function() harpoon:list():select(3) end, { desc = "Harpoon 3" 
 map("n", "<C-4>", function() harpoon:list():select(4) end, { desc = "Harpoon 4" })
 
 -- Copilot: toggle inline ghost-text vs cmp-menu suggestions
-map("n", "<leader>Ci", function()
+map("n", "<leader>tp", function()
   local suggestion = require("copilot.suggestion")
   local cfg = require("copilot.config").suggestion
   if cfg.enabled then
@@ -1926,7 +2073,7 @@ map("n", "<leader>bh", "<cmd>BufferLineCloseLeft<cr>", { desc = "Close buffers t
 
 -- Window management
 map("n", "<leader>v", "<cmd>vsplit<cr>", { desc = "Vertical split" })
-map("n", "<leader>s", "<cmd>split<cr>", { desc = "Horizontal split" })
+map("n", "<leader>ss", "<cmd>split<cr>", { desc = "Horizontal split" })
 map("n", "<C-Left>", "<cmd>vertical resize -5<cr>", { desc = "Shrink window" })
 map("n", "<C-Right>", "<cmd>vertical resize +5<cr>", { desc = "Grow window" })
 map("n", "<C-Up>", "<cmd>resize +3<cr>", { desc = "Grow window height" })
@@ -1949,7 +2096,7 @@ map("n", "<leader>aS", "<cmd>AvanteStop<cr>", { desc = "Avante stop" })
 
 -- AI (CodeCompanion)
 map({ "n", "v" }, "<leader>cc", "<cmd>CodeCompanionActions<cr>", { desc = "AI Actions (CodeCompanion)" })
-map({ "n", "v" }, "<leader>ca", "<cmd>CodeCompanionChat Toggle<cr>", { desc = "AI Chat Toggle" })
+map({ "n", "v" }, "<leader>cC", "<cmd>CodeCompanionChat Toggle<cr>", { desc = "AI Chat Toggle" })
 map("v", "ga", "<cmd>CodeCompanionChat Add<cr>", { desc = "Add selection to AI chat" })
 map("n", "<leader>ci", "<cmd>CodeCompanion<cr>", { desc = "AI Inline (CodeCompanion)" })
 
@@ -1973,7 +2120,7 @@ map("n", "<C-k>", "<C-w>k", { desc = "Focus above split" })
 map("n", "<C-l>", "<C-w>l", { desc = "Focus right split" })
 
 -- Quick close window
-map("n", "<leader>q", function()
+map("n", "<leader>qq", function()
   local wins = vim.iter(vim.api.nvim_tabpage_list_wins(0)):filter(function(w)
     local buf = vim.api.nvim_win_get_buf(w)
     return vim.bo[buf].filetype ~= "neo-tree"

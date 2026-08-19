@@ -6,13 +6,14 @@
 #   ▶ Apply in terminal   — floating kitty running `sudo pacman -Syu`.
 #                           Default highlight; you see output + answer
 #                           any prompts. Safe choice on rolling Arch.
-#   ▶ Apply silently      — pkexec `pacman -Syu --noconfirm` in the
-#                           background; progress/result via notify-send,
-#                           no terminal. Shown ONLY when `informant` is
-#                           installed (its pacman hook aborts on unread
-#                           Arch news — the safeguard that stops an
-#                           unattended upgrade from applying a breaking
-#                           change). `fox-install --safe-updates` adds it.
+#   ▶ Apply silently      — starts the foxml-apply-updates.service root unit
+#                           via `systemctl start`, so auth routes through the
+#                           GUI polkit agent (fingerprint/pw dialog) — no
+#                           terminal. Shown ONLY when `informant` is installed
+#                           (its pacman hook aborts on unread Arch news — the
+#                           safeguard that stops an unattended upgrade from
+#                           applying a breaking change). `fox-install
+#                           --safe-updates` adds the unit + informant.
 #   ▶ Cancel              — dismiss.
 # Selecting a package row (or the separator) just re-opens the menu —
 # the list is informational; only the ▶ rows do anything.
@@ -78,19 +79,33 @@ apply_terminal() {
 apply_silent() {
     exec 9>"$LOCK"
     flock -n 9 || { notify-send "Updates" "An update is already running."; return; }
-    if command -v pkexec >/dev/null 2>&1; then
-        mkdir -p "$LOG_DIR"
-        notify-send "Updates" "Applying $n updates in the background…"
-        if pkexec pacman -Syu --noconfirm >"$LOG" 2>&1; then
-            notify-send "Updates" "✓ $n packages updated."
-            refresh_pill
-            return
-        fi
-        notify-send -u critical "Updates" "Silent update stopped — opening terminal to finish."
-    else
-        notify-send "Updates" "No polkit agent — opening terminal."
+
+    local unit="foxml-apply-updates.service"
+    # No-terminal path: start a fixed root oneshot unit via systemctl, so auth
+    # routes through the registered GUI polkit agent (fingerprint/pw dialog).
+    # pkexec can't be used here — launched from the bar it finds no agent and
+    # falls back to a textual agent that needs /dev/tty and dies; systemctl
+    # resolves the agent via the logind session instead.
+    if ! systemctl cat "$unit" >/dev/null 2>&1; then
+        notify-send "Updates" "Silent-apply unit missing (run: fox-install --safe-updates) — opening terminal."
+        open_terminal; refresh_pill; return
     fi
-    open_terminal   # interactive fallback; pacman re-runs informant's hook here
+
+    mkdir -p "$LOG_DIR"
+    systemctl reset-failed "$unit" 2>/dev/null
+    notify-send "Updates" "Authenticate to apply $n updates…"
+
+    # On ANY failure — auth unavailable/cancelled OR a real upgrade error
+    # (informant news-gate / conflict) — drop to the interactive terminal so the
+    # user can always still update. The silent path never fails silently.
+    if systemctl start "$unit" >"$LOG" 2>&1; then
+        notify-send "Updates" "✓ $n packages updated."
+        refresh_pill
+        return
+    fi
+    journalctl -u "$unit" -n 40 --no-pager >>"$LOG" 2>&1 || true
+    notify-send -u critical "Updates" "Silent update didn't complete — opening terminal."
+    open_terminal
     refresh_pill
 }
 

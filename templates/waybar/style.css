@@ -385,6 +385,27 @@ window#waybar > box {
     text-shadow: 0 0 6px rgba({{RED_R}},{{RED_G}},{{RED_B}}, 0.5);
 }
 
+/* Plug present but not charging. .plugged = EC holding at the charge
+   threshold (calm). .plugged-drain = a source is attached yet the
+   battery is DRAINING — weak adapter or failed PD handshake; without
+   its own state this looks identical to running on battery, which is
+   exactly when the bar should shout. */
+#custom-battery.plugged {
+    color: @lavender;
+    text-shadow: 0 0 6px rgba({{ACCENT_R}},{{ACCENT_G}},{{ACCENT_B}}, 0.4);
+}
+
+@keyframes battery-plugged-drain-pulse {
+    to { color: #{{YELLOW}}; }
+}
+
+#custom-battery.plugged-drain {
+    color: #{{RED}};
+    font-weight: bold;
+    text-shadow: 0 0 6px rgba({{RED_R}},{{RED_G}},{{RED_B}}, 0.5);
+    animation: battery-plugged-drain-pulse 1.2s ease-in-out infinite alternate;
+}
+
 /* ─────────────────────────────────────────
    Logo
    ───────────────────────────────────────── */

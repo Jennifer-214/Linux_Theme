@@ -35,6 +35,7 @@
     "modules": [
         "custom/net_speed",
         "custom/cpu",
+        "custom/gpu",
         "memory",
         "custom/disk"
     ]
@@ -98,6 +99,13 @@
     "tooltip": true
   },
 
+  "custom/gpu": {
+    "exec": "~/.config/waybar/scripts/gpu-stats.sh",
+    "return-type": "json",
+    "interval": 5,
+    "tooltip": true
+  },
+
   "memory": {
     "format": "󰍛 {used:0.1f}/{total:0.0f}g",
     "interval": 5,
@@ -117,10 +125,10 @@
   "power-profiles-daemon": {
     "format": "{icon}",
     "format-icons": {
-      "default": "BAL",
-      "performance": "PERF",
-      "balanced": "BAL",
-      "power-saver": "SAVE"
+      "default": "󰾅",
+      "performance": "󰓅",
+      "balanced": "󰾅",
+      "power-saver": "󰌪"
     },
     "tooltip-format": "Power profile: {profile}\nClick to cycle: balanced → performance → power-saver",
     "on-click": "~/.config/waybar/scripts/ppd_cycle.sh"
@@ -129,7 +137,7 @@
   "idle_inhibitor": {
     "format": "{icon}",
     "format-icons": {
-      "activated": "AWAKE",
+      "activated": "󰅶",
       "deactivated": "○"
     },
     "tooltip-format-activated": "Idle inhibited — click to release",
@@ -182,7 +190,7 @@
   "custom/battery": {
     "exec": "~/.config/waybar/scripts/battery.sh",
     "return-type": "json",
-    "interval": 5,
+    "interval": 1,
     "tooltip": true,
     "on-click": "pavucontrol"
   },
@@ -192,7 +200,7 @@
     "return-type": "json",
     "interval": 60,
     "tooltip": true,
-    "on-click": "kitty -e bash -lc 'checkupdates | less; exec zsh' &"
+    "on-click": "kitty -e bash -lc 'f=\"${XDG_RUNTIME_DIR:-/tmp}/foxml-waybar/updates.list\"; { [ -s \"$f\" ] && cat \"$f\" || checkupdates; } | less; exec zsh' &"
   },
 
   "custom/updates": {

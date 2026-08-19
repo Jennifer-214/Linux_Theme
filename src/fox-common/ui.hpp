@@ -21,6 +21,9 @@ void ok     (const std::string& msg);         // "  + msg"
 void skipped(const std::string& msg);         // "  - msg" dimmed — "already configured" lines
 void warn   (const std::string& msg);         // "warning: msg"
 void err    (const std::string& msg);         // "error: msg"
+int  error_count();                           // running err() count — the install
+                                              // dispatcher diffs it around each
+                                              // module to surface soft failures
 
 // One-line, right-aligned progress bar. Re-call on the same line until
 // done; finalize() emits the trailing newline.

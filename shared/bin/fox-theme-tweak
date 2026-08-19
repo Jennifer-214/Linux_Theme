@@ -28,7 +28,11 @@
 set -u
 C_GRN=$'\e[38;5;108m'; C_YLW=$'\e[38;5;180m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
 
-SCRIPT_DIR="/home/caramel/code/Linux_Theme"
+SCRIPT_DIR="${FOXML_DIR:-$HOME/code/Linux_Theme}"
+if [[ ! -d "$SCRIPT_DIR/themes" ]]; then
+    echo "error: $SCRIPT_DIR not found (set FOXML_DIR if your checkout lives elsewhere)" >&2
+    exit 1
+fi
 ACTIVE_FILE="$SCRIPT_DIR/.active-theme"
 
 if [[ ! -f "$ACTIVE_FILE" ]]; then

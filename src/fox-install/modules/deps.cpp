@@ -17,24 +17,6 @@ namespace fs = std::filesystem;
 
 namespace fox_install {
 
-// pacman_conf_ensure_uncomment — uncomment the [multilib] block in
-// /etc/pacman.conf. Mirrors bash:
-//   sed -i '/#\[multilib\]/,/#Include = \/etc\/pacman.d\/mirrorlist/ s/^#//'
-// Returns true on a state change (file was edited).
-bool enable_multilib() {
-    if (sh::run({"sh", "-c", "grep -q '^\\[multilib\\]' /etc/pacman.conf"}) == 0) {
-        return false;        // already enabled
-    }
-    int rc = sh::run({"sudo", "sed", "-i",
-        "/#\\[multilib\\]/,/#Include = \\/etc\\/pacman.d\\/mirrorlist/ s/^#//",
-        "/etc/pacman.conf"});
-    if (rc != 0) return false;
-    // After enable, refresh pacman's package db so the new repo's
-    // packages become resolvable.
-    sh::run({"sudo", "pacman", "-Sy"});
-    return true;
-}
-
 // ParallelDownloads in /etc/pacman.conf for faster pacman fetches.
 // Bash mostly assumed Arch's stock 5 was fine; we ensure it's >= 5
 // (uncomment if commented out, leave alone if already set).
@@ -53,6 +35,8 @@ bool enable_parallel_downloads() {
         return true;
     }
     // Neither — append a line in the [options] section.
+    // idempotent: only reached when neither ^ParallelDownloads nor
+    // ^#ParallelDownloads matched above — guarded, so the append fires once.
     sh::run({"sh", "-c",
              "sudo sed -i '/^\\[options\\]/a ParallelDownloads = 5' "
              "/etc/pacman.conf"});
@@ -69,15 +53,12 @@ void run_deps(Context& ctx) {
     }
 
     // ─── pacman.conf prep ─────────────────────────────────────────
-    // Run BEFORE the package install so the [multilib] repo is
-    // queryable when we try to pull `steam`, and so ParallelDownloads
-    // speeds up the rest of this module's pacman call.
+    // ParallelDownloads speeds up this module's pacman call. (The
+    // [multilib] repo + Steam moved to the opt-in `gaming` module so the
+    // base install no longer force-enables a 32-bit repo.)
     if (!sh::dry_run()) {
         if (enable_parallel_downloads()) {
             ui::ok("ParallelDownloads enabled in /etc/pacman.conf");
-        }
-        if (enable_multilib()) {
-            ui::ok("[multilib] enabled in /etc/pacman.conf (Steam install ready)");
         }
     }
 
@@ -129,7 +110,7 @@ void run_deps(Context& ctx) {
         "fprintd",
 
         // Apps + viewers
-        "firefox", "zathura", "zathura-pdf-mupdf", "xdg-utils", "thunar", "steam",
+        "firefox", "zathura", "zathura-pdf-mupdf", "xdg-utils", "thunar",
 
         // Runtime libs commonly pulled by AUR/proprietary packages
         "libutf8proc", "xsimd",

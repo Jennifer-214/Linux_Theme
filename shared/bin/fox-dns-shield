@@ -105,6 +105,8 @@ _apply() {
         echo "# foxml-shield BEGIN"
         awk '{print "0.0.0.0 " $0}' "$BLOCKLIST"
         echo "# foxml-shield END"
+    # idempotent: delete-then-append — the `sed -i '…BEGIN/…END/d'` above strips the
+    # prior foxml-shield sentinel block before we re-append, so re-runs are a fixed point.
     } | sudo tee -a "$hosts" >/dev/null
     echo "${C_GRN}✓ blocklist spliced into /etc/hosts (resolved checks hosts first)${C_RST}"
 }

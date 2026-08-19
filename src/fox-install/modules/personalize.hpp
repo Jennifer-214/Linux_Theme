@@ -7,14 +7,19 @@
 // the same sequence — keeping it as a public mini-API here mirrors that.
 
 #include "../core/context.hpp"
-#include "../core/sidecar.hpp"
+#include "../../fox-monitor/sidecar.hpp"
 
 #include <cstddef>
+#include <string>
 
 namespace fox_install::personalize {
 
+namespace sidecar = fox_monitor::sidecar;
+
 // Generates pre-cropped per-monitor wallpaper variants. Returns the
-// number of files generated (0 == no-op rerun, not failure).
+// number of files generated (0 == no-op rerun, not failure). Thin wrapper
+// over fox_monitor::variants::generate (the pure planner + executor live in
+// libfox-monitor's variants submodule now).
 std::size_t generate_per_monitor_wallpapers(
     const Context& ctx, const sidecar::Layout& layout);
 
@@ -25,6 +30,19 @@ bool personalize_hyprlock(
 
 // Rewrites the workspace 1 pin in rules.conf to bind to layout.primary.
 bool personalize_workspace_rules(
+    const Context& ctx, const sidecar::Layout& layout);
+
+// Pure: rewrite every `monitor =` line OUTSIDE the hyprlock-backgrounds
+// sentinel region to `monitor = <primary>` (indentation preserved). The
+// background blocks inside the sentinels each name their own monitor and
+// are left untouched. Empty primary returns the body unchanged.
+std::string pin_foreground_monitors(
+    const std::string& body, const std::string& primary);
+
+// Pins the hyprlock login panel (brand/clock/input/...) to layout.primary
+// in both the live config and the rendered copy, so it renders on one
+// monitor only. No-op when primary is empty. Returns true if any file changed.
+bool pin_hyprlock_panel(
     const Context& ctx, const sidecar::Layout& layout);
 
 // Runs all three in order. Used by the monitors module after writing

@@ -19,6 +19,12 @@ FOX_COMMON_LIB := $(FOX_COMMON_DIR)/libfox-common.a
 FOX_HEALTH_DIR := ../fox-health
 FOX_HEALTH_LIB := $(FOX_HEALTH_DIR)/libfox-health.a
 
+# monitor library — the single sidecar (monitor-layout.conf) read/write
+# implementation. monitors/personalize/summary modules link this so there
+# is exactly one sidecar code path shared with the fox-monitor binary.
+FOX_MONITOR_DIR := ../fox-monitor
+FOX_MONITOR_LIB := $(FOX_MONITOR_DIR)/libfox-monitor.a
+
 CORE_SRC    := $(wildcard core/*.cpp)
 MODULE_SRC  := $(wildcard modules/*.cpp)
 MAIN_SRC    := fox-install.cpp
@@ -31,8 +37,9 @@ BIN := fox-install
 
 all: $(BIN)
 
-$(BIN): $(MAIN_OBJ) $(CORE_OBJ) $(MODULE_OBJ) $(FOX_COMMON_LIB) $(FOX_HEALTH_LIB)
+$(BIN): $(MAIN_OBJ) $(CORE_OBJ) $(MODULE_OBJ) $(FOX_COMMON_LIB) $(FOX_HEALTH_LIB) $(FOX_MONITOR_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $(MAIN_OBJ) $(CORE_OBJ) $(MODULE_OBJ) \
+		-L$(FOX_MONITOR_DIR) -lfox-monitor \
 		-L$(FOX_COMMON_DIR) -lfox-common \
 		-L$(FOX_HEALTH_DIR) -lfox-health \
 		-lcrypto
@@ -44,6 +51,9 @@ $(FOX_COMMON_LIB):
 $(FOX_HEALTH_LIB):
 	$(MAKE) --no-print-directory -C $(FOX_HEALTH_DIR)
 
+$(FOX_MONITOR_LIB):
+	$(MAKE) --no-print-directory -C $(FOX_MONITOR_DIR)
+
 # Generic rule covers everything; registry.cpp picks up modules.def
 # automatically via #include in registry.cpp.
 %.o: %.cpp
@@ -53,6 +63,16 @@ $(FOX_HEALTH_LIB):
 # core/modules.def transitively. Re-tag registry.cpp explicitly so a
 # modules.def edit triggers a rebuild.
 core/registry.o: core/registry.cpp core/module.hpp core/modules.def
+
+# Sidecar lives in ../fox-monitor now. Re-tag the modules that include it
+# (directly or via personalize.hpp) so a sidecar-header edit triggers a
+# rebuild — the generic %.o rule alone won't see the cross-dir header.
+SIDECAR_HDR  := $(FOX_MONITOR_DIR)/sidecar.hpp
+VARIANTS_HDR := $(FOX_MONITOR_DIR)/variants.hpp
+APPLY_HDR    := $(FOX_MONITOR_DIR)/apply.hpp
+modules/personalize.o: modules/personalize.cpp modules/personalize.hpp $(SIDECAR_HDR) $(VARIANTS_HDR) $(APPLY_HDR)
+modules/monitors.o:    modules/monitors.cpp    $(SIDECAR_HDR)
+modules/summary.o:     modules/summary.cpp     $(SIDECAR_HDR)
 
 install: all
 	@mkdir -p $(PREFIX)
@@ -64,8 +84,9 @@ install: all
 	@cd ../.. && pwd > $(HOME)/.local/share/foxml/repo-dir
 	@echo "  + repo path recorded: $$(cat $(HOME)/.local/share/foxml/repo-dir)"
 
-test: tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font
+test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_gaming tests/test_iommu tests/test_hyprlock_pin tests/test_nvidia_modules
 	@./tests/test_registry
+	@./tests/test_args
 	@./tests/test_state_manifest
 	@./tests/test_classifier
 	@./tests/test_state_checks
@@ -74,7 +95,12 @@ test: tests/test_registry tests/test_state_manifest tests/test_classifier tests/
 	@./tests/test_install_lock
 	@./tests/test_subprocess_log
 	@./tests/test_banner_font
+	@./tests/test_gaming
+	@./tests/test_iommu
+	@./tests/test_hyprlock_pin
+	@./tests/test_nvidia_modules
 	@bash ./tests/lint_shell_assets.sh
+	@bash ./tests/lint_unit_escaping.sh
 
 # Test binary links only core/registry.o (the X-macro table); modules
 # are stubbed inside the test file so we don't drag in their real
@@ -82,11 +108,50 @@ test: tests/test_registry tests/test_state_manifest tests/test_classifier tests/
 tests/test_registry: tests/test_registry.cpp core/registry.o
 	$(CXX) $(CXXFLAGS) tests/test_registry.cpp core/registry.o -o $@
 
+# [I-08] flag-layer semantics — parse-time precedence (every shipped
+# accepted-but-overridden flag bug is a case here). Links the real
+# state_checks for the registry's check_* symbols; run_* are stubbed
+# inside the test via the modules.def X-macro.
+tests/test_args: tests/test_args.cpp core/args.o core/registry.o core/state_checks.o core/state_manifest.o core/classifier.o $(FOX_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_args.cpp core/args.o core/registry.o core/state_checks.o core/state_manifest.o core/classifier.o -L$(FOX_COMMON_DIR) -lfox-common -lcrypto -o $@
+
 tests/test_state_manifest: tests/test_state_manifest.cpp core/state_manifest.o
 	$(CXX) $(CXXFLAGS) tests/test_state_manifest.cpp core/state_manifest.o -o $@ -lcrypto
 
+# gaming tests the [multilib]-enable IDEMPOTENCY (the fixed-point proof that
+# guards against the iommu boot-corruption class). Runs the real
+# MULTILIB_UNCOMMENT_SED against a temp fixture; links gaming.o for
+# multilib_already_enabled + libfox-common for sh::run.
+tests/test_gaming: tests/test_gaming.cpp modules/gaming.o $(FOX_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_gaming.cpp modules/gaming.o -L$(FOX_COMMON_DIR) -lfox-common -o $@
+
 tests/test_classifier: tests/test_classifier.cpp core/classifier.o
 	$(CXX) $(CXXFLAGS) tests/test_classifier.cpp core/classifier.o -o $@
+
+# iommu pins the lockdown gate (build_iommu_args) + the self-heal strip
+# (LOCKDOWN_STRIP_SED idempotency) + the post-edit self-check
+# (cmdline_options_sane) against a real boot-entry fixture — no VM, no sudo.
+# Links iommu.o for the real symbols + libfox-common for sh::run.
+tests/test_iommu: tests/test_iommu.cpp modules/iommu.o $(FOX_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_iommu.cpp modules/iommu.o -L$(FOX_COMMON_DIR) -lfox-common -o $@
+
+# nvidia_modules pins the MERGE that replaced the destructive whole-line
+# MODULES sed (the unbootable-initramfs brick): every existing MODULES entry
+# survives + the nvidia modules are added (dedup, order preserved). Pure
+# header (no .o), so no sudo and no VM — runs the REAL merge against fixtures.
+tests/test_nvidia_modules: tests/test_nvidia_modules.cpp modules/nvidia_modules.hpp
+	$(CXX) $(CXXFLAGS) tests/test_nvidia_modules.cpp -o $@
+
+# hyprlock panel pinner — pure pin_foreground_monitors() guards that the
+# login panel pins to PRIMARY while per-monitor background blocks (inside
+# the sentinels) stay untouched. Links personalize.o + libfox-monitor
+# (sidecar::Layout, the personalize API's parameter type) + libfox-common (sh::/ui::).
+tests/test_hyprlock_pin: tests/test_hyprlock_pin.cpp modules/personalize.o $(FOX_MONITOR_LIB) $(FOX_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_hyprlock_pin.cpp modules/personalize.o -L$(FOX_MONITOR_DIR) -lfox-monitor -L$(FOX_COMMON_DIR) -lfox-common -o $@
+
+# NOTE: the pure plan_variants() characterization moved to fox-monitor's own
+# test target (tests/test_variants there) when the variant generator became
+# the libfox-monitor variants submodule (Slice C2).
 
 # state_checks links the real implementation (not stubs) so the empty-
 # manifest paths exercise the actual code. That pulls in shell/ui
@@ -123,6 +188,6 @@ tests/test_banner_font: tests/test_banner_font.cpp modules/banner_font.o
 	$(CXX) $(CXXFLAGS) tests/test_banner_font.cpp modules/banner_font.o -o $@
 
 clean:
-	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font
+	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_iommu tests/test_gaming tests/test_hyprlock_pin tests/test_nvidia_modules
 
 .PHONY: all install clean test

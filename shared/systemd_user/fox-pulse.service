@@ -1,0 +1,15 @@
+[Unit]
+Description=fox-pulse — event-driven Hyprland/inotify daemon (focus OSD + monitor hot-swap reconcile)
+After=default.target
+# graphical-session.target is RefuseManualStart=yes upstream and Hyprland
+# does not pull it in. WantedBy=default.target activates the unit on user
+# login, which is what we want for a long-running Hyprland-aware daemon.
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/fox-pulse
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

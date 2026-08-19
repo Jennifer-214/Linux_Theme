@@ -100,6 +100,7 @@ void run_noexec_tmp(Context& ctx) {
             sh::run({"sh", "-c",
                      "echo 'tmpfs   /tmp        tmpfs   "
                      "defaults,noexec,nosuid,nodev,size=4G  0 0' | "
+                     // idempotent: guarded by !has_tmp_tmpfs(body) + create-if-missing .foxml-bak above
                      "sudo tee -a /etc/fstab >/dev/null"});
             ui::ok("/tmp added to /etc/fstab as tmpfs with noexec,nosuid,nodev");
         } else {

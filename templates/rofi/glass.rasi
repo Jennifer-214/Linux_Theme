@@ -1,6 +1,9 @@
 configuration {
   modi: "drun,run,window";
   show-icons: true;
+  // keep the menu at its row count while filtering — a non-hjkl keystroke
+  // no longer collapses the popup to a tiny input bar.
+  fixed-num-lines: true;
   /* For vim-flavored row nav, use rofi's built-in defaults:
        Ctrl+P / Ctrl+N    row up / row down
      Ctrl+J and Ctrl+K are already taken by readline-style line-edit

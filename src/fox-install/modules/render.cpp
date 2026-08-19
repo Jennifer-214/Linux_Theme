@@ -60,6 +60,7 @@ std::vector<fs::path> detect_drift(const Context& ctx) {
 
 void run_render(Context& ctx) {
     ui::section("Rendering templates with " + ctx.theme_name + " palette");
+    ctx.render_ran = true;
 
     auto drifted = detect_drift(ctx);
     if (!drifted.empty()) {
@@ -104,8 +105,9 @@ void run_render(Context& ctx) {
     });
     if (rc != 0) {
         ui::err("render failed (exit " + std::to_string(rc) + ")");
-        return;
+        return;   // render_ok stays false → run_symlinks refuses a partial deploy
     }
+    ctx.render_ok = true;
     ui::ok("templates rendered to " + ctx.rendered_dir.string());
 }
 

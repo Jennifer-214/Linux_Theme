@@ -3,6 +3,7 @@
 // the result severity/status combinations.
 
 #include "../health.hpp"
+#include "../checks.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -54,6 +55,19 @@ int main() {
         if (r.status != fh::Status::Skip) ++actually_ran;
     }
     CHECK(actually_ran <= 1, "--only A1 runs at most one check");
+
+    // A3 kernel-currency verdict (pure). The known-good guarantee: a box whose
+    // running kernel's module tree is pacman-owned (mainline OR lts/zen alike)
+    // → PASS. That is exactly the case the old mainline-only version-compare
+    // false-failed on an lts/zen-booted host. Integration (pacman -Qo + the
+    // /usr/lib/modules lookup) is characterized against a real box: running
+    // 7.0.12-arch1-1 owned by `linux` → owned=true → Pass.
+    CHECK(fh::checks::a3_verdict(/*owned=*/true,  /*tree=*/true)  == fh::Status::Pass,
+          "A3 owned → pass (mainline + lts/zen, no false-positive)");
+    CHECK(fh::checks::a3_verdict(/*owned=*/false, /*tree=*/true)  == fh::Status::Skip,
+          "A3 unowned-but-present → skip (custom kernel)");
+    CHECK(fh::checks::a3_verdict(/*owned=*/false, /*tree=*/false) == fh::Status::Fail,
+          "A3 module tree swept → fail (stale running kernel)");
 
     if (g_fail == 0) {
         std::printf("fox-health tests: OK (%d assertions)\n", g_pass);

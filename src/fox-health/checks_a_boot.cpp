@@ -99,16 +99,6 @@ CheckResult skip(const char* id, std::string detail) {
     return r;
 }
 
-std::string read_file(const fs::path& p, size_t cap = 0) {
-    std::ifstream f(p);
-    if (!f) return {};
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    std::string out = ss.str();
-    if (cap && out.size() > cap) out.resize(cap);
-    return out;
-}
-
 std::string uname_release() {
     struct utsname u;
     if (::uname(&u) != 0) return {};
@@ -230,45 +220,50 @@ CheckResult a2_pacman_qkk_linux() {
     return pass("A2");
 }
 
-// A3 — the kernel image in /boot matches the *running* kernel's
-// package version. If /boot/vmlinuz-linux is older than the linux
-// package's current version, the user has booted a stale kernel and
-// the next reboot would jump to a kernel whose module tree might
-// already have been swept (this is the gap that bit the retrospective
-// incident).
+// A3 — the running kernel is a currently-INSTALLED package's kernel, i.e. you
+// haven't upgraded the kernel without rebooting (which jumps versions and leaves
+// the running kernel's module tree swept). Resolved by OWNERSHIP, not a version
+// string: `pacman -Qo /usr/lib/modules/<uname>/pkgbase` succeeds iff the running
+// kernel's exact module tree still belongs to an installed package. This is
+// correct for linux / linux-lts / linux-zen alike. The old check compared uname
+// against a string-munged `pacman -Q linux` (MAINLINE only), so every lts/zen-
+// booted box that also had mainline installed false-failed → preflight aborted a
+// healthy system. (String-munging can't win it anyway: lts pkgver "6.18.36-1"
+// never carries the "-lts" that uname "6.18.36-1-lts" does.)
+
+// Pure verdict from the two facts the check gathers; exposed for unit tests.
+//   owned       = pacman owns /usr/lib/modules/<uname>/pkgbase
+//   tree_exists = /usr/lib/modules/<uname>/ is present at all
+Status a3_verdict(bool owned, bool tree_exists) {
+    if (owned)       return Status::Pass;   // running kernel == an installed package's kernel
+    if (tree_exists) return Status::Skip;   // present but unowned → custom / non-pacman kernel
+    return Status::Fail;                     // tree swept → stale running kernel (reboot pending)
+}
+
 CheckResult a3_vmlinuz_matches_kver() {
-    // We compare the file's `linux` package's pkgver against uname -r.
-    // pkgver as exposed by `pacman -Q linux`:  "linux 7.0.9.arch1-1"
-    std::string out;
-    if (!run_capture({"pacman", "-Q", "linux"}, out) || out.empty()) {
-        return skip("A3", "linux package not installed via pacman");
-    }
-    // Parse "linux X.Y.Z.archN-R"
-    auto sp = out.find(' ');
-    if (sp == std::string::npos) return skip("A3", "unexpected pacman -Q output");
-    std::string pkgver = out.substr(sp + 1);
-    while (!pkgver.empty() && (pkgver.back() == '\n' || pkgver.back() == ' ')) pkgver.pop_back();
-    // Convert pacman pkgver "7.0.9.arch2-1" → uname format "7.0.9-arch2-1"
-    // by replacing the dot before the suffix marker (.arch, .zen, .lts,
-    // .hardened, .rt) with a dash. The -R revision is preserved
-    // because uname includes it on Arch.
-    std::string uname_form = pkgver;
-    static const std::vector<const char*> SUFFIX_MARKERS = {
-        ".arch", ".zen", ".hardened", ".rt", ".lts",
-    };
-    for (auto* marker : SUFFIX_MARKERS) {
-        auto p = uname_form.find(marker);
-        if (p != std::string::npos) { uname_form[p] = '-'; break; }
-    }
     std::string running = uname_release();
     if (running.empty()) return skip("A3", "uname() failed");
-    if (running != uname_form) {
-        return fail("A3",
-            "running kernel " + running + " differs from installed `linux` package "
-            "version " + uname_form + " — a reboot would jump kernels",
-            "reboot, or stay on the running kernel by holding back the upgrade");
+
+    fs::path moddir       = fs::path("/usr/lib/modules") / running;
+    fs::path pkgbase_file = moddir / "pkgbase";
+
+    std::error_code ec;
+    bool tree_exists = fs::is_directory(moddir, ec);
+    std::string out;
+    bool owned = fs::exists(pkgbase_file, ec) &&
+                 run_capture({"pacman", "-Qo", pkgbase_file.string()}, out);
+
+    switch (a3_verdict(owned, tree_exists)) {
+        case Status::Pass: return pass("A3");
+        case Status::Skip:
+            return skip("A3", "running kernel " + running +
+                        " is not pacman-managed (custom kernel) — kernel-currency check skipped");
+        default:
+            return fail("A3",
+                "running kernel " + running + " has no module tree under /usr/lib/modules "
+                "(a kernel upgrade swept it) — the next reboot will jump kernels",
+                "reboot into the installed kernel");
     }
-    return pass("A3");
 }
 
 // A4 — when /boot is a separate filesystem from the ESP, the kernel

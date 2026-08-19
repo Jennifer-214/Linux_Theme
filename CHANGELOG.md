@@ -2,6 +2,196 @@
 
 All notable changes to this Arch + Hyprland workstation setup.
 
+## 2026-06-23 — v3.1.2
+
+### Portability: no hardcoded user paths in shipped files
+
+Two committed files carried a literal `/home/caramel/…`. `fox-theme-tweak` hardcoded its repo dir (`SCRIPT_DIR=/home/caramel/code/Linux_Theme`), which broke `fox theme tweak` for any checkout living elsewhere — it now honors the `FOXML_DIR` override every other tool already uses, with a `-d` existence guard. The hyprlock template shipped `/home/caramel/.wallpapers/…` placeholder paths; they're now `~/.wallpapers/…`, matching `personalize.cpp`'s own install-time output (hyprlock expands `~`, and the personalizer parses the path by basename so the prefix is irrelevant to it). A repo-wide sweep confirmed these were the only two genuine offenders — the `caramel` zsh-theme name, the cowrie/sandbox deliberate fake-`$HOME`s, and a code comment are all intentional. (commit `79a394a`; `shared/bin/fox-theme-tweak`, `templates/hyprlock/hyprlock.conf`)
+
+## 2026-06-23 — v3.1.1
+
+### Waybar scales per-monitor across any number of displays
+
+A waybar instance has exactly one style, and `start_waybar.sh` picked a single size profile from one monitor and applied that shared style to **every** bar — so on a mixed-DPI setup a 1080p bar got sized for the 4K screen (everything scaled to the largest display). Now each output is sized from its **own** effective width (pixels ÷ scale): outputs are bucketed by size profile and one waybar instance is launched per distinct profile, pinned to exactly its monitors — the primary keeps the full bar, every other output gets the secondary bar at its own size. Two 4K externals share one bar; a 4K + a 1440p get one each. Scales to N monitors, and the single-monitor path is unchanged (the common case). Deployed by the installer alongside the other Hyprland scripts. (commit `e71d5a4`; `shared/hyprland_scripts/start_waybar.sh`)
+
+### Your wallpaper choice survives a reboot
+
+The autostart wallpaper path (`rotate_wallpaper.sh --static`) was hardcoded to the midday slot (`foxml_earthy`), so every login overwrote the palette default — or your last `fox-wallpaper --set` pick — with that one slot. It now re-applies `.current` (the persisted wallpaper), falling back to a slot only when `.current` is unset or points outside the wallpaper dir. Set a wallpaper once and it stays. (commit `88dc78a`; `shared/hyprland_scripts/rotate_wallpaper.sh`)
+
+## 2026-06-23 — v3.1.0
+
+### New `fox monitor` tool — fix your monitor layout + wallpaper in one command
+
+A native `fox-monitor` tool (reachable as `fox monitor <sub>` or directly), built as a reusable `libfox-monitor` library composed of submodules (sidecar I/O · live re-derive · variant generator · apply). `fox monitor status` is a read-only diagnostic — live monitors, the persisted layout sidecar, per-monitor wallpaper-variant coverage, and which hot-swap mechanism is actually live. `fox monitor reconcile` re-derives the layout from live Hyprland state, regenerates the per-monitor wallpaper variants, and re-applies your **current** wallpaper to each output (it never rotates), then refreshes waybar — run it after plugging in or rotating a monitor, no installer and no sudo. `--force` regenerates every variant. The installer auto-discovers and deploys the tool like the other `fox-*` binaries. (commits `cb1cde8`, `a44f06b`, `e96b6e4`; `src/fox-monitor/`, `src/fox/dispatch.def`)
+
+### Per-monitor wallpapers render crisp at native resolution
+
+The per-monitor variant generators had diverged — the installer baked at 2× the monitor resolution, the hot-swap watcher at 1×, and `fox-wallpaper --add` at 2× — same filename, different pixels, never reconciled, so a rotated/HiDPI panel got mis-scaled or wasteful variants. They're unified into one generator at the panel's **native** physical resolution. For an upscaling crop (a landscape source filling a tall portrait monitor) it AI-upscales just the crop-region with Real-ESRGAN (`-s 4`, which stays clean on a low-VRAM card — the full-image `-s 2` path checkerboards on a 4 GB GPU) then downscales with a light sharpen; with no usable GPU it falls back to Lanczos + adaptive-sharpen. A recipe-version stamp (`~/.wallpapers/.variant-recipe`) regenerates variants once when the recipe changes — so the installer/reconcile auto-upgrade existing variants with no manual `--force`, and without re-upscaling on every reinstall. (commits `1705f67`, `5a10007`, `641fe53`; `src/fox-monitor/variants.{hpp,cpp}`, `shared/bin/fox-wallpaper`)
+
+### Monitor hot-swap no longer clobbers your wallpaper
+
+The hot-swap watcher re-applied the time-of-day wallpaper slot on **every** monitor event — even with rotation off — overwriting a manually-set wallpaper with the calendar slot on each dock/rotate. Reconcile re-applies your *current* wallpaper instead; rotation stays a separate, explicit action. The bash→C++ watcher migration is now finished: the `fox-pulse` event daemon runs `fox monitor reconcile` on a monitor event, a new `fox-pulse.service` is deployed + enabled, and the legacy `fox-monitor-watch.service` is retired (one-time migration). The installer's up-front `sudo` warmup is now gated on a selected module actually needing root, so a no-root hot-swap reconcile can never trip the `pam_fprintd` sudo prompt. (commit `8506c36`; `src/fox-pulse/fox-pulse.cpp`, `src/fox-install/modules/specials.cpp`, `fox-install.cpp`, `shared/systemd_user/fox-pulse.service`)
+
+### Fresh installs bake crisp wallpapers automatically
+
+`personalize` runs early (phase 2), before the wallpaper files and live configs are deployed, so on a fresh box it baked no variants — the long-standing ordering gap that left a new install on a fallback-cropped wallpaper. `post_install` (the last phase, after everything is on disk) now finalizes per-monitor personalization, so a fresh box comes up with crisp native variants and a correctly-pointed lock screen. The recipe-stamp makes it a one-time bake; a re-install is a fast no-op. (commit `2fdcd53`; `src/fox-install/modules/post_install.cpp`)
+
+### Waybar: GPU temperature + usage
+
+A GPU readout (icon + usage% + temp) sits next to the CPU module, fed by a single `nvidia-smi` call. It reports `idle` without waking a runtime-suspended dGPU (battery hygiene) and emits nothing when no NVIDIA card is present, so the bar never breaks. Styled to match the CPU module — calm, no glow (soft glow stays reserved for the clock/battery/idle "primary" numbers). (commit `9879a96`; `shared/waybar_config`, `shared/waybar_scripts/gpu-stats.sh`)
+
+### Large screenshots reach the clipboard history again
+
+`cliphist` silently drops clipboard-history entries over ~5 MB, so 4K/portrait screenshots (6–10 MB PNG) never appeared in the image-clipboard picker — though the live clipboard handled them fine. `screenshot.sh` now keeps the full-resolution PNG file but, when it exceeds the cap, puts a compact quality-92 JPEG on the clipboard so the shot still lands in history and pastes everywhere. (commit `dfcf9f5`; `shared/hyprland_scripts/screenshot.sh`)
+
+## 2026-06-21 — v3.0.9
+
+### nvidia: mkinitcpio MODULES merge (no more wiped initramfs modules → unbootable)
+
+The nvidia module rewrote the entire `MODULES=` line in `mkinitcpio.conf`, wiping any user-set LUKS/LVM/vfio modules — an unbootable initramfs (passed the idempotency gate, because idempotent ≠ non-destructive). It now does a read-modify-write **merge**: every existing module survives, the nvidia modules are added (deduped, order preserved), validated against the real consumer's grammar with a refuse-on-degenerate-input guard. (commit `5f7d2eb`; `src/fox-install/modules/nvidia_modules.hpp`, `tests/test_nvidia_modules.cpp`)
+
+### lockdown=integrity brick: gated off nvidia/DKMS + default-on auto-repair
+
+`lockdown=integrity` blocks unsigned nvidia/DKMS kernel modules, which on an affected host falls back to software rendering (the 800%-CPU `llvmpipe` storm) or a broken boot. The opt-in `iommu` hardening now gates `lockdown=integrity` off nvidia/DKMS hosts and self-heals, with a fail-safe GRUB regen (validate-before-swap) and idempotent cmdline edits. A new **default-on `lockdown_heal`** module strips a brick-causing `lockdown=integrity` from the kernel cmdline on nvidia/DKMS hosts (strip-only, verify + auto-revert) — auto-repairing a machine an older install bricked, while leaving an intentional lockdown on an in-tree host alone. (commits `8c20ca9`, `54ef6d4`, `729fd96`, `1cd52c9`; `src/fox-install/modules/iommu.cpp`, `lockdown_heal.cpp`)
+
+### nvidia: AQ_DRM_DEVICES activated only on a complete device resolve
+
+A partial GPU resolve (the nvidia DRM node found but not the iGPU's) wrote a single-card `AQ_DRM_DEVICES` line *active*, which blacked out the iGPU-wired internal panel on an Optimus laptop. It now activates only on a complete, valid resolution and ships inert otherwise — a half-resolved value falls back to safe auto-detect rather than an active-wrong one. (commit `d1fb864`; `src/fox-install/modules/nvidia.cpp`)
+
+### A fresh box is no longer half-themed; no partial deploy on render failure
+
+`personalize` ran before `symlinks` deployed `~/.config`, so on a fresh box the hyprlock/workspace personalization gated on the not-yet-deployed live files and silently no-op'd. The splice helpers now also rewrite the **rendered** copy (which `symlinks` then deploys), so a fresh box gets personalized output instead of template defaults — the operator's known-good re-run path is byte-identical. Separately, a render failure no longer lets `symlinks` deploy a partial config set (which could leave the box with no `hyprland.conf`). (commits `2b6c1d2`, `2bd1ac1`; `src/fox-install/modules/personalize.cpp`, `render.cpp`, `symlinks.cpp`)
+
+### Health check A3: no false-positive on an lts/zen kernel
+
+The A3 boot check compared `uname -r` against the mainline `linux` package, so booting `linux-lts`/`-zen` with mainline also installed read as a stale kernel → `Critical` → the install aborted on a perfectly healthy box. A3 now resolves the **running** kernel's owning package (via the module-tree `pkgbase`) and compares against that, with a fallback that passes if any installed kernel matches. (commits `27587a3`, `e2f7a86`; `src/fox-health/checks_a_boot.cpp`, `tests/test_a3_kernel.cpp`)
+
+### Monitors: primary is user-overridable; workspace-1 pin ships inert
+
+Monitor setup forced the laptop panel (`eDP-*`) as primary, leaving a docked laptop or a desktop no way to choose. It now *defaults* to the internal panel but lets an interactive run pick any monitor as primary (workspace 1 + the login/lock panels). The workspace-1 pin ships inert (no hardcoded `eDP-1`) and is personalized to the chosen primary per-machine. (commits `9b3e05e`, `e281b00`; `src/fox-install/modules/monitors.cpp`, `personalize.cpp`)
+
+### Updates pill: silent apply without spawning a terminal
+
+The waybar updates pill's "apply" path now runs via `systemctl` with a GUI polkit prompt instead of popping a terminal, so a no-terminal silent apply works. (commit `f036369`)
+
+### security: the unguarded GRUB regen left non-functional
+
+The apparmor-GRUB path ran a naked `grub-mkconfig -o /boot/grub/grub.cfg`, which truncates `grub.cfg` before the generator writes — a failed/garbled run leaves an unbootable menu with no revert. It's left non-functional pending the validate-to-temp → sanity-gate → atomic-swap fix (its own red-zone work). (commit `806be9c`; `src/fox-install/modules/security.cpp`)
+
+## 2026-06-17 — v3.0.8
+
+### Fingerprint for sudo no longer silently falls back to password
+
+`sudo`, `greetd`, and `hyprlock` all share one fingerprint reader through `pam_fprintd`. While the screen is locked hyprlock holds the reader; on some readers (e.g. the Synaptics Prometheus) an interrupted verify leaves the device stuck "already claimed" with a libfprint close timeout, so the next `sudo`'s fingerprint step can't claim it and silently drops to the password prompt — including the installer's own startup `sudo -v`, which read as "fingerprint-for-sudo never works, every install." It's not a lockout (password always works) and not the `pam_fprintd` placement hazard — the PAM config is correct, the reader is just wedged. Diagnose with `journalctl -b -u fprintd` ("already claimed" / "transfer timed out").
+
+The reader now self-heals on unlock. New `fox fingerprint reset` restarts fprintd to drop the stale claim, and both unlock paths call it — `fox-lock` after hyprlock exits (manual locks) and `fox-unlock-hook.sh` (suspend/idle via hypridle). A new grant-only polkit rule (`fprintd_reset_polkit` module, scoped to `fprintd.service`, active local wheel only) makes that restart password-less; the unlock hooks stay dormant until the rule exists, so they never raise an auth prompt. (`src/fox-install/modules/fprintd_reset_polkit.cpp`, `shared/bin/fox-fingerprint`, `shared/bin/fox-lock`, `shared/hyprland_scripts/fox-unlock-hook.sh`)
+
+### USBGuard policy restored after a manual screen-unlock
+
+`fox-lock` switches USBGuard to block-by-default while the screen is locked, but the restore to `apply-policy` lived only in `fox-unlock-hook.sh`, which fires for logind-mediated unlocks (suspend/idle) — not for a manual lock. So after a manual lock+unlock, newly plugged USB devices stayed blocked until the next suspend cycle. The restore now also runs in `fox-lock`'s own post-unlock cleanup, alongside the fingerprint reset. Fail-safe either way — it only ever over-blocked. (`shared/bin/fox-lock`)
+
+### Welcome quotes: branchless + engineering set instead of philosophy
+
+The welcome-splash quote pool now ships with low-level facts and engineering aphorisms — branchless/bit-twiddling tricks (min/abs/sign, `x & (x-1)`, power-of-two, Gray code, popcount), mechanical-sympathy notes (cache latencies, branch misprediction, fixed-point vs float), a little computing history, and lines from Dijkstra, Kernighan, Torvalds, Thompson, and SICP. Same mechanism (`#` comments and blank lines ignored; edit freely). (`templates/zsh/welcome.zsh`)
+
+## 2026-06-16 — v3.0.7
+
+### Welcome splash: a random quote per shell
+
+The zsh welcome splash now prints one random line from `~/.config/zsh/quotes.txt`, in the active theme's accent so it re-themes automatically. The file self-seeds on first shell with a set of Lacan quotes — edit it freely (`#` comments and blank lines are ignored; empty the file to disable, deleting re-seeds). Reinstalls never clobber your edits: the splash seeds it on first run, the installer doesn't deploy it. (`templates/zsh/welcome.zsh`)
+
+### Hardware prompts no longer ask twice
+
+An interactive `./install.sh` asked about each detected GPU and the fingerprint reader **twice** — `detect` ran once upfront (to resolve hardware-gated modules for the plan) and again in the dispatch loop, because rebuilding the enabled-module set from the wizard plan re-enabled it. `run_detect` is now idempotent (`ctx.detect_ran`): detection + the confirm prompts run exactly once. This also fixes a latent bug where the second pass re-ran `lspci` and reset a "no" answer back on — for the fingerprint chain, that silently re-armed the PAM modules you'd declined. (`src/fox-install/core/context.hpp`, `modules/detect.cpp`)
+
+### Wallpaper: static by default, `foxml_earth_2`
+
+Time-of-day wallpaper rotation is now off by default — the shipped autostart runs the wallpaper script in `--static` mode, and `FoxML_Classic` defaults to `foxml_earth_2.jpg`. Opt back into cycling with `fox-wallpaper --rotate on`. (`themes/FoxML_Classic/palette.sh`, `shared/hyprland_modules/autostart.conf`)
+
+### New opt-in theme: `Amsterdam_Orange`
+
+An Optiver-inspired dark theme — scarlet (`#FF3300`) on Cello navy (`#1C3255`) with white text. Opt-in only; the default stays `FoxML_Classic`. (`themes/Amsterdam_Orange/`)
+
+### Theme-swapping marked unreliable (rework deferred)
+
+`./swap.sh` now warns up front that it re-renders config files but does **not** restart the live apps (waybar, dunst, GTK/thunar, the wallpaper daemon), so a swap doesn't fully apply until re-login. Each surface (folder icons, cursor, GTK, wallpaper) is themed separately with no unified pipeline; a proper rework is deferred. The reliable path today is a full theme re-install. (`swap.sh`)
+
+### Alternate themes flagged work-in-progress
+
+`FoxML_Classic` is the finished, maintained default. The other themes (`Amsterdam_Orange`, `Cave_Data_Center`, `FoxML_Paper`, `FoxML_Rose`) are work-in-progress — they apply at the palette level but the theming surfaces aren't unified and live-swap doesn't fully realize them. Treat them as experimental. (`themes/README.md`)
+
+## 2026-06-16 — v3.0.6
+
+### Lock screen: login panel pinned to your primary monitor
+
+On a multi-monitor setup the hyprlock login panel (greeting, clock, date, password field, battery) was drawn on **every** monitor, because each block shipped with an empty `monitor =` — which hyprlock reads as "all outputs." The duplicated password field was the real problem: hyprlock spawns one input widget per monitor, so the password buffer split between them — you had to type the password twice, and a wrong attempt wouldn't clear. The panel now pins to your selected primary (`layout.primary`); every other monitor shows only its blurred wallpaper. `personalize` rewrites every foreground `monitor =` line to the primary in both the live config and the rendered copy, while leaving the per-monitor background blocks untouched, so it stays correct across dock/undock. (`src/fox-install/modules/personalize.{cpp,hpp}`, `tests/test_hyprlock_pin.cpp`)
+
+### Monitors connected at login are now captured
+
+`fox-monitor-watch` only rebuilt the monitor-layout sidecar on hot-plug events, so a monitor already connected at login never made it into the layout — its hyprlock background block was missing and it showed black on the lock screen. The watcher now reconciles once at startup: if the live monitor set differs from the recorded sidecar, it runs the normal monitor fan-out before listening, so a docked-at-boot monitor gets its per-monitor wallpaper without a manual unplug/replug. Guarded so a correct sidecar is a no-op. (`shared/hyprland_scripts/fox-monitor-watch.sh`)
+
+## 2026-06-15 — v3.0.5
+
+### Steam is now opt-in (`gaming` module)
+
+Steam and the `[multilib]` repo are no longer installed by default. They moved out of the mandatory base-package step into a dedicated **opt-in `gaming` module** (`--gaming`, default-off) — so a fresh install no longer force-enables a 32-bit repo or pulls a game client onto a workstation that may not want one. Enable it with `--gaming`, or via a preset (below). The module reports "already installed" on re-runs (no redundant work) and self-heals if Steam is later removed. Existing installs are unaffected — Steam stays installed if it already is. (`src/fox-install/modules/gaming.cpp`, `core/modules.def`, `core/state_checks.cpp`)
+
+### `--preset` — predefine your install in a file
+
+New `--preset <name|path>` flag: a durable `slug = on|off` file of module overrides layered on top of the defaults (additive, unlike the exclusive `--only`; an `off` line also survives `--full`). Resolves an explicit path, then `~/.config/foxml/presets/<name>.preset`, then the repo's `presets/`. So `./install.sh --preset desktop -y` is a one-command, unattended reinstall — e.g. a personal preset with `gaming = on` brings Steam back without re-ticking it on every machine. Unknown slugs warn and continue (a stored preset survives module churn); a missing preset file is a hard error. Ships `presets/desktop.preset` as an example. (`src/fox-install/core/args.cpp`, `presets/desktop.preset`)
+
+### Internal: the `[multilib]` enable is proven idempotent
+
+The Steam/`[multilib]` enable is now a tested fixed point — `test_gaming` runs the real uncomment twice against a fixture and asserts a no-op — so re-running the installer can never stack duplicate lines into `pacman.conf`. Every system-file edit the installer makes now carries an `// idempotent: <why>` annotation at its call site. (`src/fox-install/modules/gaming.hpp`, `tests/test_gaming.cpp`)
+
+## 2026-06-13 — v3.0.4
+
+### Gaming: tearing, auto-fullscreen, lower input latency
+
+`allow_tearing` is on globally, and a window rule for Steam game windows (`steam_app_<id>` class) makes them opaque, enables `immediate` (tearing → lower input latency), and `fullscreen` so a game auto-fills the screen and Hyprland holds that state across workspace switches. NOTE: the game's own display mode still needs to be "Windowed Fullscreen"/borderless — exclusive fullscreen drops its grab on focus loss (a workspace switch) and no WM rule can prevent that. (`shared/hyprland_modules/{general,rules}.conf`)
+
+### Rofi menus no longer collapse while filtering
+
+Typing a non-hjkl key in an hjkl-navigated rofi menu filtered the list toward empty and folded the popup down to a tiny input bar. `fixed-num-lines: true` keeps the menu at its row count while filtering. (`templates/rofi/glass.rasi`)
+
+### Bluetooth stays awake — `--bt-power` install module
+
+New fox-install module: drops `/etc/modprobe.d/btusb.conf` with `options btusb enable_autosuspend=0` and sets `FastConnectable = true` in `/etc/bluetooth/main.conf`. The Intel AX210 (and many USB combo cards) get USB-autosuspended after ~2s idle — the usual "Bluetooth is really hard to connect"; this keeps the controller awake. Default-on, harmless when no BT controller is present. (`src/fox-install/modules/bt_power.cpp`, `core/modules.def`)
+
+## 2026-06-12 — v3.0.3
+
+### Neovim UI: transparent panels, symbol breadcrumb, peach scrollbar
+
+The editor already inherited kitty's `background_opacity`, but several surfaces stayed opaque dark slabs that read as out-of-place black bars over the wallpaper: the neo-tree file sidebar, the which-key popup, the bufferline tab bar, and the treesitter-context sticky line. All four now inherit the same transparency (`bg = none`), so the whole UI reads as one translucent surface — the active buffer is marked by bold peach text + the peach indicator instead of a dark pill, and neo-tree is dropped from the `sidebar_fts` force-solid list. The dropbar breadcrumb is symbols-only now (`Class › method`); the filename was redundant with the bufferline tab and statusline. The nvim-scrollbar handle is the accent peach (`PRIMARY`) instead of a cool dark grey. Authored in the template and rendered down — the rendered output is byte-identical to the live config. (`templates/nvim/init.lua`)
+
+### asm syntax highlighting
+
+Added the `asm` parser to the Treesitter `ensure_installed` list. Viewing compiler output / `.s` files now gets distinct highlighting (directives, registers, labels) instead of falling back to flat builtin syntax, which read as low-contrast tan over the transparent background. (`templates/nvim/init.lua`)
+
+### Avante: `vendors` → `providers`
+
+Migrated the avante.nvim Ollama provider config off the deprecated `vendors` key (avante renamed it to `providers`). Runtime config is unchanged — avante's deprecation path auto-mapped `vendors` to `providers` already — so this only silences the `[DEPRECATED]` notice that showed on nvim startup. (`templates/nvim/init.lua`)
+
+## 2026-06-02 — v3.0.2
+
+### Unified entry banner — one source, multicolor across terminal · lock · editor
+
+The name banner now renders from a single source (`WELCOME_TEXT`, default `FOX OS`) on all three entry surfaces — the shell welcome (`welcome.zsh`), the lock screen (`hyprlock`), and the Neovim dashboard (Snacks) — each colorized natively from one warm cycle (clay·wheat·mauve·sage). Previously each surface hardcoded its own copy of the brand and only the terminal honored a custom `WELCOME_TEXT`; a custom name now propagates everywhere. Terminal + editor share the half-block glyph art; the lock screen renders per-letter color via pango `<span>` markup. `welcome_banner` splices each surface from the one source — a new invariant ([I-06]: single source → render, never hand-copied across files). (`src/fox-install/modules/{banner_font,welcome_banner}.cpp`, `templates/{zsh/welcome.zsh,hyprlock/hyprlock.conf,nvim/init.lua}`)
+
+## 2026-06-02 — v3.0.1
+
+### Firmware updates via fwupd (`--fwupd`)
+
+New install module: installs `fwupd` and enables the `fwupd-refresh.timer` so firmware/UEFI updates flow through LVFS. Non-destructive — package + timer only; nothing is flashed without an explicit `fwupdmgr update`. Opt-out. (`src/fox-install/modules/fwupd.cpp`)
+
+### Per-monitor waybar regenerates on monitor hotplug
+
+Secondary monitors showed the full primary bar instead of the minimal date + workspaces + model readout. `start_waybar` runs once at login; `fox-monitor-watch` re-personalized wallpaper/hyprlock/workspace-rules on a monitor change but never regenerated the waybar config, so a monitor connected after login never got the per-monitor merge. `apply_changes` now re-runs `start_waybar` on every hotplug, and `start_waybar` gained a `hyprctl` fallback for the login-with-both-connected race. (`shared/hyprland_scripts/{fox-monitor-watch,start_waybar}.sh`)
+
+### Selection color derived from the accent — `fox-color`
+
+The nvim Visual and git-delta selection background (`NVIM_SEL`) was a hand-picked hex per theme. `shared/bin/fox-color` now derives it from each theme's accent via OKLCH color math — same hue, muted chroma, dark lightness — so it's a function of the theme, not a constant: a blue theme gets a blue selection, rose gets rose, peach gets a warm brown. Applied across all themes and unit-tested (`tests/test_fox_color.py`, wired into `make test`).
+
 ## 2026-06-01 — v3.0.0
 
 ### Updates pill: click opens a menu, not a terminal
