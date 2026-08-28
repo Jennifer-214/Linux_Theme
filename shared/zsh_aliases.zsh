@@ -121,9 +121,15 @@ gpp() {
 
   local src="$1"
   local out="${src%.cpp}"
+  local extra=()
+
+  # Auto-link libraries the source actually includes.
+  if grep -qE '#include *<(SDL2/|SDL\.h>)' "$src"; then
+    extra+=(${=$(pkg-config --cflags --libs sdl2)})
+  fi
 
   echo "Compiling your questionable code..."
-  g++ -std=c++17 -Wall -Wextra -O2 "$src" -o "$out"
+  g++ -std=c++17 -Wall -Wextra -O2 "$src" -o "$out" "${extra[@]}"
 }
 
 # ─────────────────────────────────────────
