@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# pob — launch Path of Building (Flatpak build).
+#
+# The Flatpak entrypoint takes a mandatory <GAME> argument, so a bare
+# `flatpak run community.pathofbuilding.PathOfBuilding` exits with a usage
+# error. This wrapper supplies the default and keeps the build-import
+# passthrough that the two .desktop entries expose.
+#
+# Usage:
+#   pob                     Default game (PoE 1; override with $POB_GAME)
+#   pob 1 | pob poe1        Path of Exile 1
+#   pob 2 | pob poe2        Path of Exile 2
+#   pob pob://pobbin/<id>   Import a build into the default game
+#   pob 2 pob://pobbin/<id> Import into an explicit game
+
+set -euo pipefail
+
+APP_ID="community.pathofbuilding.PathOfBuilding"
+DEFAULT_GAME="${POB_GAME:-poe1}"
+
+_show_help() {
+    cat <<EOF
+Usage: pob [game] [pob://<import-url>]
+
+Games:
+  1, poe1                Path of Exile 1
+  2, poe2                Path of Exile 2
+  (omitted)              \$POB_GAME, else poe1
+
+Options:
+  -h, --help             Show this help
+
+Examples:
+  pob                    Launch PoE 1 build planner
+  pob 2                  Launch PoE 2 build planner
+  pob pob://pobbin/abc   Launch default game, importing a build
+EOF
+}
+
+game="$DEFAULT_GAME"
+import_url=""
+
+for arg in "$@"; do
+    case "$arg" in
+        1|poe1|PoE1|POE1)  game="poe1" ;;
+        2|poe2|PoE2|POE2)  game="poe2" ;;
+        pob://*)           import_url="$arg" ;;
+        -h|--help)         _show_help; exit 0 ;;
+        *)
+            echo "pob: unrecognized argument '$arg'" >&2
+            echo "Try 'pob --help'." >&2
+            exit 2
+            ;;
+    esac
+done
+
+if ! command -v flatpak >/dev/null 2>&1; then
+    echo "pob: flatpak is not installed." >&2
+    exit 1
+fi
+
+# `flatpak info` is the cheap existence probe — `flatpak run` on a missing app
+# prints a raw remote-resolution error that reads like a network failure.
+if ! flatpak info "$APP_ID" >/dev/null 2>&1; then
+    echo "pob: $APP_ID is not installed." >&2
+    echo "Install it with: flatpak install --user flathub $APP_ID" >&2
+    exit 1
+fi
+
+exec flatpak run --command=rusty-path-of-building "$APP_ID" "$game" ${import_url:+"$import_url"}
