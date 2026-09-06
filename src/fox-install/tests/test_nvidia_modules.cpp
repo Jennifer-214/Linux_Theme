@@ -185,6 +185,51 @@ int main() {
                == "# so AQ_DRM_DEVICES lists BOTH cards");
     }
 
+    // ── unparsed-but-present MODULES forms (the second brick) ──────────────
+    // The whole-line sed was fix #1. This is fix #2: `MODULES+=(…)` never matched
+    // `compare(s, 8, "MODULES=")`, so the offset came back npos, merge treated
+    // that as ABSENT, and appended a canonical `MODULES=(nvidia …)`. mkinitcpio
+    // sources the conf as bash, so a plain `=` after a `+=` REPLACES the array —
+    // the user's entries vanish from the initramfs. `MODULES+=(nvme dm_crypt)`
+    // on a LUKS box = unbootable. It survived the old suite because every fixture
+    // used the plain `MODULES=(…)` form, and it survived nvidia.cpp's own
+    // self-check because parse_modules() also returns {} here, making
+    // `kept_all = all_of(empty)` vacuously true.
+    {
+        // append-form: refuse, do not "helpfully" add a replacing assignment
+        const std::string plus =
+            "HOOKS=(base udev autodetect)\nMODULES+=(vfio_pci nvme)\n";
+        EXPECT(merge_modules(plus) == plus);
+        EXPECT(nvidia_detail::has_unparsed_modules_form(plus));
+
+        // export-qualified: same refusal
+        const std::string exp = "export MODULES=(encrypt lvm2)\n";
+        EXPECT(merge_modules(exp) == exp);
+        EXPECT(nvidia_detail::has_unparsed_modules_form(exp));
+
+        // leading whitespace must not hide it
+        EXPECT(nvidia_detail::has_unparsed_modules_form("\t  MODULES+=(x)\n"));
+
+        // ── and the false-refusal guard: these must STILL be appended to ──
+        // a merely COMMENTED MODULES line is not an active assignment; appending
+        // is correct and safe there, so a naive "text contains MODULES" predicate
+        // would wrongly skip nvidia early-KMS setup.
+        const std::string commented = "# MODULES=(nvme)\nHOOKS=(base udev)\n";
+        EXPECT(!nvidia_detail::has_unparsed_modules_form(commented));
+        EXPECT(contains(merge_modules(commented), "MODULES=(nvidia"));
+        EXPECT(contains(merge_modules(commented), "# MODULES=(nvme)"));
+
+        EXPECT(!nvidia_detail::has_unparsed_modules_form("HOOKS=(base udev)\n"));
+
+        // a real active line wins — the unparsed check is never consulted, and
+        // the pre-existing entry is preserved by the normal splice path
+        const std::string both = "MODULES=(encrypt)\n# MODULES+=(decoy)\n";
+        EXPECT(!nvidia_detail::has_unparsed_modules_form(both));
+        auto t_both = parse_modules(merge_modules(both));
+        EXPECT(has(t_both, "encrypt"));
+        for (auto& n : NV) EXPECT(has(t_both, n));
+    }
+
     if (failures == 0) {
         std::cout << "nvidia_modules tests: OK\n";
         return 0;

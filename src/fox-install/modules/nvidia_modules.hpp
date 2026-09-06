@@ -44,6 +44,43 @@ inline std::size_t active_modules_offset(const std::string& text) {
     return std::string::npos;
 }
 
+// True when an ACTIVE (non-comment) line carries a MODULES assignment this
+// parser does NOT understand: `MODULES+=(…)` or `export MODULES=(…)`.
+//
+// Critically distinct from "no MODULES line at all". That case is safe to append
+// a canonical `MODULES=(…)` to. This one is NOT: mkinitcpio sources the conf as
+// bash, so a plain `MODULES=` appended AFTER a `+=` REPLACES the array rather
+// than extending it — silently dropping every entry the user accumulated
+// (`MODULES+=(nvme dm_crypt)` on a LUKS box → unbootable). Conflating "unparsed"
+// with "absent" is what let that path through the self-check: parse_modules()
+// also returns {} here, so `kept_all = all_of(empty)` is vacuously true.
+inline bool has_unparsed_modules_form(const std::string& text) {
+    std::size_t i = 0;
+    while (i < text.size()) {
+        std::size_t nl = text.find('\n', i);
+        std::size_t line_end = (nl == std::string::npos) ? text.size() : nl;
+        std::size_t s = i;
+        while (s < line_end && (text[s] == ' ' || text[s] == '\t')) ++s;
+
+        std::size_t t = s;
+        if (text.compare(t, 7, "export ") == 0) {
+            t += 7;
+            while (t < line_end && (text[t] == ' ' || text[t] == '\t')) ++t;
+        }
+        if (t < line_end && text[t] != '#' &&
+            text.compare(t, 7, "MODULES") == 0) {
+            std::size_t c = t + 7;
+            if (c < line_end) {
+                if (text[c] == '+') return true;            // MODULES+=
+                if (text[c] == '=' && t != s) return true;  // export MODULES=
+            }
+        }
+        if (nl == std::string::npos) break;
+        i = nl + 1;
+    }
+    return false;
+}
+
 // Tokenize the inside of MODULES=( … ): whitespace-separated words, `#`
 // comments stripped. Shared by parse and the merge body.
 inline std::vector<std::string> tokenize(const std::string& inner) {
@@ -127,6 +164,13 @@ inline std::string merge_modules(const std::string& conf_text) {
     std::size_t m = nvidia_detail::active_modules_offset(conf_text);
 
     if (m == std::string::npos) {
+        // An unparsed-but-present MODULES form: refuse rather than append. A
+        // canonical `MODULES=(…)` tacked on the end would REPLACE it in bash.
+        // Returning unchanged makes nvidia.cpp's (b) check (`nvidia_ok`) fail,
+        // which surfaces the loud "refusing an unsafe edit" warning — the exact
+        // no-silent-no-op guarantee that check was written for.
+        if (nvidia_detail::has_unparsed_modules_form(conf_text)) return conf_text;
+
         std::string out = conf_text;
         if (!out.empty() && out.back() != '\n') out += '\n';
         out += "MODULES=(";
