@@ -665,13 +665,21 @@ void run_specials(Context& ctx) {
     // fox-monitor-watch.sh has been replaced by fox-pulse + the
     // `fox-install --only monitors,personalize` handler — skip it so
     // the deployed runtime no longer depends on mappings.sh.
-    static const char* HYPR_SKIPS[] = { "fox-monitor-watch.sh", nullptr };
+    // Both are legacy standalone daemons superseded by fox-pulse. Deploying
+    // focus-pulse.sh is actively harmful: fox-pulse prefers
+    // ~/.config/foxml/pulse.d/<handler>.sh and falls back to spawning the
+    // legacy script per event -- and focus-pulse.sh is a socat loop that never
+    // exits, so every focus event leaked another permanent listener and each
+    // listener then fired on every later event.
+    static const char* HYPR_SKIPS[] = { "fox-monitor-watch.sh",
+                                        "focus-pulse.sh", nullptr };
 
     static const BulkSpec BULK[] = {
         { "shared/bin",              ".local/bin",             "",    true,  "bin tools",        nullptr },
         { "shared/hyprland_scripts", ".config/hypr/scripts",   ".sh", true,  "hyprland scripts", HYPR_SKIPS },
         { "shared/waybar_scripts",   ".config/waybar/scripts", ".sh", true,  "waybar scripts",   nullptr },
         { "shared/wallpapers",       ".wallpapers",            "",    false, "wallpapers",       nullptr },
+        { "shared/pulse.d",          ".config/foxml/pulse.d",  ".sh", true,  "pulse handlers",   nullptr },
     };
     for (auto& s : BULK) deploy_dir_files(ctx, s);
 

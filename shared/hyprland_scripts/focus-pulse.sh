@@ -60,7 +60,12 @@ socat -u UNIX-CONNECT:"$SOCKET" - 2>/dev/null | while IFS= read -r line; do
                 proj=$(project_for_active)
                 # Short OSD — 800ms is long enough to register, short
                 # enough not to feel like clutter on rapid switching.
+                # x-canonical-private-synchronous makes each OSD REPLACE the
+                # previous one instead of queueing a new popup per switch.
+                # Without it every workspace change stacks another card and
+                # mako collapses the pile into "(N more)".
                 notify-send -t 800 -a "focus-pulse" \
+                    -h string:x-canonical-private-synchronous:focus-pulse \
                     "Workspace ${ws_id} • ${proj}" "${ws_name}" 2>/dev/null || true
             ) &
             pending_pid=$!

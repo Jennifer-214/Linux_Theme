@@ -33,6 +33,16 @@ text-color=#{{PRIMARY}}
 border-color=#{{RED}}
 default-timeout=15000
 
+# Workspace OSD (focus-pulse). ignore-timeout=1 above discards the sender's
+# own -t 800, so the short lifetime has to be set here. Paired with the
+# synchronous hint in focus-pulse.sh, this shows exactly one transient chip
+# per switch instead of a growing stack.
+[app-name=focus-pulse]
+background-color=#{{BG}}{{POPUP_BG_OPACITY_HEX}}
+text-color=#{{ACCENT}}
+border-color=#{{SECONDARY}}80
+default-timeout=900
+
 [app-name=Spotify]
 border-color=#{{ACCENT}}
 default-timeout=4000
