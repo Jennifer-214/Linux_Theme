@@ -14,7 +14,7 @@
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
-#include "../../fox-intel/json.hpp"
+#include "../../fox-common/json.hpp"
 
 #include <cstdlib>
 #include <ctime>
@@ -97,8 +97,7 @@ void run_post_install(Context& ctx) {
                     "finalize per-monitor wallpaper variants + hyprlock (post-deploy), "
                     "render waybar for current layout, restart waybar+dunst+mako, "
                     "Lazy sync + TSUpdateSync (60s/120s caps), "
-                    "Cursor/VS Code workbench.colorTheme=Fox ML, "
-                    "remove rendered/ dir");
+                    "Cursor/VS Code workbench.colorTheme=Fox ML");
         return;
     }
 
@@ -167,7 +166,14 @@ void run_post_install(Context& ctx) {
         }
     }
 
-    if (have("nvim") && fs::is_directory(ctx.home / ".local/share/nvim/lazy")) {
+    // Plugin maintenance, not theming: a theme swap only needs init.lua
+    // re-rendered, and these two caps add up to 3 minutes to every swap.
+    // swap.sh sets FOXML_SKIP_PLUGIN_SYNC so swapping stays interactive;
+    // a real install leaves it unset and still syncs.
+    const bool skip_plugin_sync = std::getenv("FOXML_SKIP_PLUGIN_SYNC") != nullptr;
+    if (skip_plugin_sync) {
+        ui::substep("plugin sync skipped (theme swap)");
+    } else if (have("nvim") && fs::is_directory(ctx.home / ".local/share/nvim/lazy")) {
         ui::substep("nvim Lazy sync (headless, 60s cap)");
         if (sh::run({"timeout", "60", "nvim", "--headless",
                      "+Lazy! sync", "+qa"}) == 0) {

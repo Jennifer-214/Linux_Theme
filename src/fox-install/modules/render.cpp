@@ -10,7 +10,8 @@
 // (in ctx.rendered_dir) to its deployed copy in ~/.config. If they differ,
 // the user has live-edited their config since the last install and the
 // next render will wipe those changes. Warn + offer to bail; --full
-// (ctx.force_reapply) suppresses the prompt and overwrites.
+// (ctx.force_reapply) suppresses the prompt and overwrites. Files rewritten
+// after deploy (POST_DEPLOY_REWRITTEN) are exempt -- they never match.
 
 #include "../core/context.hpp"
 #include "../core/idempotency.hpp"
@@ -19,6 +20,7 @@
 #include "symlinks_data.hpp"
 
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -36,6 +38,29 @@ fs::path expand_tilde(const std::string& s, const fs::path& home) {
     return fs::path(s);
 }
 
+// Paths that the installer itself -- or a runtime daemon -- rewrites *after*
+// deploy, so their ~/.config copy is guaranteed to differ from rendered/.
+// These are false positives on every install, not user edits:
+//
+//   hyprlock/hyprlock.conf -- personalize.cpp splices the per-monitor background
+//   blocks and pins foreground `monitor =` to primary straight into
+//   ~/.config (personalize_hyprlock, modules/personalize.cpp), and
+//   rotate_wallpaper.sh rewrites the background paths on every rotation.
+//   rendered/ never carries either, so a mismatch here means nothing.
+//
+// Genuine hand-edits to these files still belong in templates/ per I-06 --
+// they would not survive the post-deploy rewrite regardless.
+constexpr const char* POST_DEPLOY_REWRITTEN[] = {
+    "hyprlock/hyprlock.conf",
+};
+
+bool post_deploy_rewritten(const char* src) {
+    for (const char* skip : POST_DEPLOY_REWRITTEN) {
+        if (std::strcmp(src, skip) == 0) return true;
+    }
+    return false;
+}
+
 // Returns paths whose ~/.config copy differs from the previously-rendered
 // version still sitting in ctx.rendered_dir. Empty when there is no
 // previous render (fresh install) or all deployed copies match.
@@ -46,6 +71,7 @@ std::vector<fs::path> detect_drift(const Context& ctx) {
         std::string dest_s = m.dest;
         if (dest_s.find("AGENT_DIR") != std::string::npos ||
             dest_s.find("FIREFOX_PROFILE") != std::string::npos) continue;
+        if (post_deploy_rewritten(m.src)) continue;
         fs::path prior = ctx.rendered_dir / m.src;
         fs::path dest  = expand_tilde(dest_s, ctx.home);
         if (!fs::exists(prior) || !fs::exists(dest)) continue;

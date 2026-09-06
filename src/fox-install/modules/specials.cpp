@@ -544,7 +544,7 @@ void do_regreet_stage(const Context& ctx) {
     fs::create_directories(stage);
     deploy_file(ctx, rendered_css,
                 stage / "regreet.css");
-    deploy_file(ctx, ctx.script_dir / "shared/regreet.toml",
+    deploy_file(ctx, ctx.rendered_dir / "regreet/regreet.toml",
                 stage / "regreet.toml");
     deploy_file(ctx, ctx.script_dir / "shared/greetd_hyprland.conf",
                 stage / "hyprland.conf");

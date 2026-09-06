@@ -11,5 +11,6 @@
 | `FoxML_Rose` | WIP / unfinished |
 | `Cave_Data_Center` | WIP / unfinished |
 | `Amsterdam_Orange` | WIP / unfinished — Optiver-inspired (scarlet on navy) |
+| `FoxML_Bubblegum` | WIP / unfinished — saturated bubblegum pink + orchid |
 
 Reliably switching themes currently means a full re-install of the chosen theme. A unified theming-pipeline rework is deferred.

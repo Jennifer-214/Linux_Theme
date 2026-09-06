@@ -97,9 +97,12 @@ _set_wallpaper() {
     # Disable rotation if it was on
     _set_rotation off
     
-    # Apply via rotate_wallpaper.sh mechanism but force this file
-    # We do this by symlinking .current and calling the script in static mode
-    ln -sf "$full_path" "${WALLPAPER_DIR}/.current"
+    # Apply via rotate_wallpaper.sh mechanism but force this file.
+    # .current MUST hold a BARE filename: rotate_wallpaper.sh --static rejects
+    # any value containing a slash ([[ "$_cur" != */* ]]) and silently falls
+    # back to the midday slot, clobbering the pick we just made. Storing the
+    # basename matches what rotate_wallpaper.sh itself writes.
+    ln -sf "$(basename "$full_path")" "${WALLPAPER_DIR}/.current"
     "$ROTATE_SCRIPT" --static
     echo "Wallpaper set to $(basename "$full_path")"
 }

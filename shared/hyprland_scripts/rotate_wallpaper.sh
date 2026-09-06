@@ -174,10 +174,23 @@ fi
 # symlink persists from last session, so an unconditional early-exit here would
 # skip the daemon-start below entirely and leave a black screen. Only honour
 # what's-already-up when the daemon is actually serving it.
+SKIP_APPLY=false
 if [[ "$MODE" != "--cycle" ]] && awww query &>/dev/null; then
-    current_target=""
-    [[ -L "$WALL_DIR/.current" ]] && current_target="$(readlink "$WALL_DIR/.current")"
-    [[ "$current_target" == "$filename" ]] && exit 0
+    # Compare against what the daemon is ACTUALLY serving, not .current.
+    # `fox-wallpaper --set` uses .current as its REQUEST channel -- it writes
+    # the pick there and then calls us -- so reading .current here compared the
+    # target against itself and made every --set a silent no-op. Match on the
+    # stem so per-monitor variants (<stem>_1920x1080.jpg) count as the same
+    # wallpaper; skip only when every output is already showing it.
+    _stem="${filename%.*}"
+    _shown="$(awww query 2>/dev/null)"
+    if [[ -n "$_shown" ]] && ! grep -qv "/${_stem}\(_[0-9]*x[0-9]*\)\?\." <<<"$_shown"; then
+        # Desktop is already correct -- skip the fade + notify, but DON'T exit:
+        # a `render` pass rewrites hyprlock.conf back to the template's hardcoded
+        # wallpaper, and the hyprlock re-point below is the only thing that fixes
+        # it. Exiting here left the lock screen on the wrong wallpaper forever.
+        SKIP_APPLY=true
+    fi
 fi
 
 ln -sfn "$filename" "$WALL_DIR/.current"
@@ -254,7 +267,7 @@ if command -v hyprctl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
             else
                 resize="fit"
             fi
-            awww img -o "$name" "$mon_pick" \
+            $SKIP_APPLY || awww img -o "$name" "$mon_pick" \
                 --resize "$resize" \
                 --transition-type fade \
                 --transition-duration 1 \
@@ -263,7 +276,7 @@ if command -v hyprctl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
     fi
 fi
 
-if ! $applied_per_monitor; then
+if ! $applied_per_monitor && ! $SKIP_APPLY; then
     awww img "$pick" \
         --transition-type fade \
         --transition-duration 1 \
@@ -320,6 +333,8 @@ if [[ -f "$hyprlock_conf" && ${#monitor_pick[@]} -gt 0 ]]; then
     ' "$hyprlock_conf" > "$tmp" && mv "$tmp" "$hyprlock_conf"
 fi
 
-echo "rotated to $filename"
-command -v notify-send &>/dev/null && \
-    notify-send -t 3000 -i "$pick" "Wallpaper" "${filename%.*}" || true
+if ! $SKIP_APPLY; then
+    echo "rotated to $filename"
+    command -v notify-send &>/dev/null && \
+        notify-send -t 3000 -i "$pick" "Wallpaper" "${filename%.*}" || true
+fi

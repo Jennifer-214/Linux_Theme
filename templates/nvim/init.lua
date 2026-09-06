@@ -816,6 +816,9 @@ local plugins = {
     opts = {
       palette = { header = P.peach, title = P.blush, border = P.peach, badge = P.warm, winblend = 0 },
       doc_dirs = { vim.fn.expand("~/code/tick-trader-percore-workspace") }, -- `n` also greps the private workspace docs
+      -- Engine's canonical instantiation (FPN_Binary<64> — the production F). Sizeof probes on
+      -- dependent spellings (`ExecutionCore<F>` via a variable hover) compile @ F=64, labeled in the HUD.
+      template_args = { F = "64" },
     },
     config = function(_, opts)
       require("fox-symdeps").setup(opts)
@@ -2188,6 +2191,36 @@ map("n", "<leader>tl", function()
   })
   vim.notify("Diagnostic lines: " .. (lsp_lines_enabled and "ON" or "OFF"))
 end, { desc = "Toggle diagnostic lines" })
+
+-- Toggle comment folding: collapse comment blocks (// runs + /* */ walls) so the logic is readable —
+-- the engine's comment walls can eat most of the screen. Treesitter-driven; per-window. A folded
+-- block shows just its first line; zo/za peeks one, zR opens all. Code lines never fold.
+function _G.FoxCommentFoldExpr()
+  local ok, node = pcall(vim.treesitter.get_node, { pos = { vim.v.lnum - 1, 0 } })
+  if ok and node then
+    while node do
+      if node:type():find("comment") then return "1" end
+      node = node:parent()
+    end
+  end
+  return "0"
+end
+map("n", "<leader>tc", function()
+  if vim.w.fox_comment_fold then
+    vim.w.fox_comment_fold = false
+    vim.wo.foldenable = false
+    vim.wo.foldmethod = "manual"
+    vim.notify("Comment folding: OFF")
+  else
+    vim.w.fox_comment_fold = true
+    vim.wo.foldmethod = "expr"
+    vim.wo.foldexpr = "v:lua.FoxCommentFoldExpr()"
+    vim.wo.foldlevel = 0
+    vim.wo.foldenable = true
+    vim.cmd("normal! zx") -- recompute + close folds
+    vim.notify("Comment folding: ON")
+  end
+end, { desc = "Toggle comment folding" })
 
 -- Highlight on yank (brief flash)
 vim.api.nvim_create_autocmd("TextYankPost", {

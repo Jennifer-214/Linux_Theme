@@ -433,7 +433,7 @@ JSON
     if [[ -f "$rendered_dir/regreet/regreet.css" ]]; then
         mkdir -p ~/.config/regreet
         backup_and_copy "$rendered_dir/regreet/regreet.css"            "$HOME/.config/regreet/regreet.css"
-        backup_and_copy "$SCRIPT_DIR/shared/regreet.toml"              "$HOME/.config/regreet/regreet.toml"
+        backup_and_copy "$rendered_dir/regreet/regreet.toml"           "$HOME/.config/regreet/regreet.toml"
         backup_and_copy "$SCRIPT_DIR/shared/greetd_hyprland.conf"      "$HOME/.config/regreet/hyprland.conf"
         backup_and_copy "$SCRIPT_DIR/shared/greetd_select_monitor.sh"  "$HOME/.config/regreet/select-monitor.sh"
         chmod +x ~/.config/regreet/select-monitor.sh

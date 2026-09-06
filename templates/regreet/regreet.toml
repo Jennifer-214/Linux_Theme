@@ -1,5 +1,5 @@
 [background]
-path = "/usr/share/wallpapers/foxml_earthy.jpg"
+path = "/usr/share/wallpapers/{{WALLPAPER}}"
 fit = "Cover"
 
 [env]

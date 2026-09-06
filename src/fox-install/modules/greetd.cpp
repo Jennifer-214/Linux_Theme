@@ -12,9 +12,11 @@
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <regex>
+#include <sstream>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -37,6 +39,31 @@ std::string read_wallpaper_path(const fs::path& toml) {
         if (std::regex_search(line, m, pat)) return m[1];
     }
     return "/usr/share/wallpapers/foxml_earthy.jpg";
+}
+
+// The wallpaper actually on the desktop. fox-wallpaper --set and
+// rotate_wallpaper both persist the pick as a BARE filename in this symlink.
+std::string current_wallpaper_name(const fs::path& home) {
+    fs::path link = home / ".wallpapers/.current";
+    std::error_code ec;
+    if (!fs::is_symlink(link, ec)) return {};
+    fs::path target = fs::read_symlink(link, ec);
+    if (ec) return {};
+    return target.filename().string();
+}
+
+// Rewrite regreet.toml's `path = "..."` so it names the file we actually
+// installed. Line-wise on purpose -- no multiline-regex portability bet.
+std::string retarget_wallpaper(const fs::path& toml, const std::string& newpath) {
+    std::ifstream f(toml);
+    std::regex pat(R"PAT(^path\s*=\s*"[^"]+")PAT");
+    std::ostringstream out;
+    std::string line;
+    while (std::getline(f, line)) {
+        if (std::regex_search(line, pat)) out << "path = \"" << newpath << "\"\n";
+        else                              out << line << "\n";
+    }
+    return out.str();
 }
 
 constexpr const char* CONFIG_TOML_BODY =
@@ -63,6 +90,12 @@ bool write_root_inline(const fs::path& dst, const std::string& body) {
 void run_greetd(Context& ctx) {
     ui::section("greetd + regreet themed login screen");
 
+    // Theme swaps deploy the greeter's LOOK only. /etc/greetd/config.toml
+    // decides whether login works at all, so a recolour must never rewrite it
+    // -- not even via the ctx.force_reapply branch below, which swap.sh's
+    // --full would otherwise trigger on every swap. Set by swap.sh.
+    const bool theme_only = std::getenv("FOXML_THEME_ONLY") != nullptr;
+
     if (!pacman_has("greetd-regreet")) {
         ui::ok("greetd-regreet not installed, skipping login-screen setup");
         return;
@@ -80,6 +113,17 @@ void run_greetd(Context& ctx) {
 
     fs::path wall_path = read_wallpaper_path(staged / "regreet.toml");
     std::string wall_name = fs::path(wall_path).filename().string();
+
+    // Prefer whatever is actually on the desktop, so the login screen matches
+    // what the user is looking at instead of snapping back to the palette's
+    // {{WALLPAPER}} the moment they run `fox-wallpaper --set`. Falls back to
+    // the rendered theme default when .current is unset or dangling.
+    std::string live = current_wallpaper_name(ctx.home);
+    if (!live.empty() && fs::exists(ctx.home / ".wallpapers" / live)) {
+        wall_name = live;
+        wall_path = fs::path("/usr/share/wallpapers") / live;
+    }
+
     fs::path wall_src = ctx.home / ".wallpapers" / wall_name;
 
     if (!fs::exists(wall_src)) {
@@ -89,9 +133,15 @@ void run_greetd(Context& ctx) {
     }
 
     if (sh::dry_run()) {
-        ui::substep("[dry-run] would install regreet files + wallpaper to "
-                    "/etc/greetd/, write /etc/greetd/config.toml if stock, "
-                    "enable greetd");
+        if (theme_only) {
+            ui::substep("[dry-run] would install regreet css/toml/hyprland.conf "
+                        "+ wallpaper to /etc/greetd/; config.toml and greetd "
+                        "service state left untouched (theme-only)");
+        } else {
+            ui::substep("[dry-run] would install regreet files + wallpaper to "
+                        "/etc/greetd/, write /etc/greetd/config.toml if stock, "
+                        "enable greetd");
+        }
         return;
     }
     if (!sh::sudo_warmup()) {
@@ -100,13 +150,20 @@ void run_greetd(Context& ctx) {
     }
 
     write_root_file(staged / "regreet.css",       "/etc/greetd/regreet.css",      "644");
-    write_root_file(staged / "regreet.toml",      "/etc/greetd/regreet.toml",     "644");
+    write_root_inline("/etc/greetd/regreet.toml",
+                      retarget_wallpaper(staged / "regreet.toml", wall_path.string()));
     write_root_file(staged / "hyprland.conf",     "/etc/greetd/hyprland.conf",    "644");
     write_root_file(staged / "select-monitor.sh", "/etc/greetd/select-monitor.sh","755");
     write_root_file(wall_src,                     wall_path,                       "644");
     ui::ok("regreet css/toml/hyprland.conf → /etc/greetd/");
     ui::ok("monitor selector → /etc/greetd/select-monitor.sh");
     ui::ok("login wallpaper → " + wall_path.string());
+
+    if (theme_only) {
+        ui::skipped("/etc/greetd/config.toml untouched (theme-only swap)");
+        ui::skipped("greetd service state untouched (theme-only swap)");
+        return;
+    }
 
     fs::path cfg = "/etc/greetd/config.toml";
     bool stock = !fs::exists(cfg) ||
