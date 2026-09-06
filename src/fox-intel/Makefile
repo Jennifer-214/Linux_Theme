@@ -8,7 +8,7 @@ all: libfox-intel.a findex fask
 libfox-intel.a: fox_intel.o
 	ar rcs $@ $^
 
-fox_intel.o: fox_intel.cpp fox_intel.hpp json.hpp
+fox_intel.o: fox_intel.cpp fox_intel.hpp ../fox-common/json.hpp
 	$(CXX) $(CXXFLAGS) -c fox_intel.cpp -o $@
 
 findex: findex.cpp libfox-intel.a

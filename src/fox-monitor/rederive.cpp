@@ -5,7 +5,7 @@
 #include "rederive.hpp"
 
 #include "../fox-common/shell.hpp"
-#include "../fox-intel/json.hpp"
+#include "../fox-common/json.hpp"
 
 #include <chrono>
 #include <thread>

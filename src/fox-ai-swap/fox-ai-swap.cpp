@@ -3,7 +3,7 @@
 // Detects hardware tier and updates ~/.config/opencode/opencode.json.
 // Now with "Show All Models" and improved hardware detection.
 
-#include "../fox-intel/json.hpp"
+#include "../fox-common/json.hpp"
 #include <iostream>
 #include <fstream>
 #include <string>

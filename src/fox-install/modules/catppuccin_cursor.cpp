@@ -8,7 +8,7 @@
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
-#include "../../fox-intel/json.hpp"
+#include "../../fox-common/json.hpp"
 
 #include <filesystem>
 #include <fstream>

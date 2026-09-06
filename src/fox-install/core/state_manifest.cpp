@@ -1,7 +1,7 @@
 #include "state_manifest.hpp"
 
 // nlohmann/json — vendored under src/fox-intel/.
-#include "../../fox-intel/json.hpp"
+#include "../../fox-common/json.hpp"
 
 #include <openssl/evp.h>
 

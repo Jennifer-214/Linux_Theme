@@ -16,7 +16,7 @@
 #include "../core/context.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
-#include "../../fox-intel/json.hpp"
+#include "../../fox-common/json.hpp"
 
 #include <cstdio>
 #include <cstdlib>

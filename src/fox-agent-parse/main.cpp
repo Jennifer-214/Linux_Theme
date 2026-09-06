@@ -2,7 +2,7 @@
 #include <fstream>
 #include <string>
 #include <vector>
-#include "../fox-intel/json.hpp"
+#include "../fox-common/json.hpp"
 
 using json = nlohmann::json;
 

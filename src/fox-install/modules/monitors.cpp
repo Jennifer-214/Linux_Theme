@@ -17,7 +17,7 @@
 #include "../../fox-common/ui.hpp"
 #include "personalize.hpp"
 
-#include "../../fox-intel/json.hpp"
+#include "../../fox-common/json.hpp"
 
 #include <cstdio>
 #include <filesystem>
