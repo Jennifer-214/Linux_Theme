@@ -143,8 +143,7 @@ local plugins = {
       })
     end },
 
-  -- Core editing
-  { "numToStr/Comment.nvim",               config = {{SHOW_WELCOME}} },
+  -- Core editing (commenting is core gc/gcc since nvim 0.10 — see <leader>/ below)
   { "windwp/nvim-autopairs",               config = {{SHOW_WELCOME}} },
   { "folke/which-key.nvim",                event = "VeryLazy",
     opts = {} },
@@ -306,18 +305,6 @@ local plugins = {
     dependencies = { "nvim-tree/nvim-web-devicons" },
     opts = {},
   },
-  -- Diagnostic lines (multi-line diagnostics below error, toggled with keybind)
-  {
-    "https://git.sr.ht/~whynothugo/lsp_lines.nvim",
-    event = "LspAttach",
-    config = function()
-      local lsp_lines = require("lsp_lines")
-      lsp_lines.setup()
-      -- Start disabled — toggle with <leader>tl
-      vim.diagnostic.config({ virtual_lines = false })
-    end,
-  },
-
   -- TODO highlights
   { "folke/todo-comments.nvim",         dependencies = { "nvim-lua/plenary.nvim" },       opts = {} },
 
@@ -361,7 +348,9 @@ local plugins = {
       cmake_use_preset = {{SHOW_WELCOME}},
       cmake_regenerate_on_save = {{SHOW_WELCOME}},
       cmake_generate_options = { "-DCMAKE_EXPORT_COMPILE_COMMANDS=1" },
-      cmake_compile_commands_options = { action = "soft_link", target = vim.uv.cwd() },
+      -- target is a function so cmake-tools resolves it at generate time; a plain vim.uv.cwd() froze the
+      -- launch dir, and a stray ~/code/compile_commands.json would hijack clangd's root for every project
+      cmake_compile_commands_options = { action = "soft_link", target = function() return vim.uv.cwd() end },
       -- preset DAP integration (we'll install codelldb via Mason)
       cmake_dap_configuration = { name = "cpp", type = "codelldb", request = "launch", runInTerminal = {{SHOW_WELCOME}} },
     },
@@ -536,6 +525,13 @@ local plugins = {
   {
     "olimorris/codecompanion.nvim",
     enabled = false,
+    -- keys live here (not as global maps) so they only exist while the plugin is enabled
+    keys = {
+      { "<leader>cc", "<cmd>CodeCompanionActions<cr>", mode = { "n", "v" }, desc = "AI Actions (CodeCompanion)" },
+      { "<leader>cC", "<cmd>CodeCompanionChat Toggle<cr>", mode = { "n", "v" }, desc = "AI Chat Toggle" },
+      { "ga", "<cmd>CodeCompanionChat Add<cr>", mode = "v", desc = "Add selection to AI chat" },
+      { "<leader>ci", "<cmd>CodeCompanion<cr>", desc = "AI Inline (CodeCompanion)" },
+    },
     dependencies = {
       "nvim-lua/plenary.nvim",
       "nvim-treesitter/nvim-treesitter",
@@ -603,6 +599,15 @@ local plugins = {
   {
     "yetone/avante.nvim",
     enabled = false,
+    -- keys live here (not as global maps) so they only exist while the plugin is enabled
+    keys = {
+      { "<leader>aa", "<cmd>AvanteAsk<cr>", mode = { "n", "v" }, desc = "Avante ask" },
+      { "<leader>at", "<cmd>AvanteToggle<cr>", desc = "Avante toggle" },
+      { "<leader>ac", "<cmd>AvanteChat<cr>", desc = "Avante chat" },
+      { "<leader>ae", "<cmd>AvanteEdit<cr>", mode = "v", desc = "Avante edit (selection)" },
+      { "<leader>ar", "<cmd>AvanteRefresh<cr>", desc = "Avante refresh" },
+      { "<leader>aS", "<cmd>AvanteStop<cr>", desc = "Avante stop" },
+    },
     event = "VeryLazy",
     version = false,
     build = "make",
@@ -802,7 +807,7 @@ local plugins = {
     },
   },
 
-  -- fox-symdeps.nvim — compiled-reality HUD for C++ (private repo Jennyfirrr/fox-symdeps.nvim).
+  -- fox-symdeps.nvim — compiled-reality HUD for C++ (private repo Jennifer-214/fox-symdeps.nvim).
   -- <leader>dd float / <leader>dD panel: layout · Uses · Calls · cascade · false-sharing (s) · notes (n).
   -- HOME: lives in the private trader workspace (tools/plugins/), its own gitignored repo — see the
   -- plugin's DOCS/DECISIONS.md. `enabled` guards on the dir so this degrades gracefully if absent.
@@ -1669,6 +1674,8 @@ local border = "rounded"
 
 -- Diagnostics config
 vim.diagnostic.config({
+  virtual_text = true,    -- 0.11+ defaults this off; <leader>td toggles
+  virtual_lines = false,  -- core handler (replaced lsp_lines.nvim); <leader>tl toggles
   float = { border = border },
   signs = {
     text = {
@@ -1843,10 +1850,13 @@ vim.keymap.set({ "n", "x", "o" }, "[a", ts_goto(ts_move.goto_previous_start, "@p
 vim.keymap.set("n", "<leader>na", function() ts_swap.swap_next("@parameter.inner") end,     { desc = "TS swap next param" })
 vim.keymap.set("n", "<leader>nA", function() ts_swap.swap_previous("@parameter.inner") end, { desc = "TS swap prev param" })
 
--- Mason (LSP installer)
+-- Mason (LSP installer). clangd comes from the system (pacman `clang`, fox-install --cpp-pro) so the
+-- editor matches the clang++/clang-tidy toolchain; Mason installs it only on a machine without one.
+local system_clangd = vim.fn.executable("/usr/bin/clangd") == 1
 require("mason").setup()
 require("mason-lspconfig").setup({
-  ensure_installed = { "lua_ls", "pyright", "clangd", "bashls", "jsonls", "yamlls", "texlab" },
+  ensure_installed = vim.list_extend({ "lua_ls", "pyright", "bashls", "jsonls", "yamlls" },
+    system_clangd and {} or { "clangd" }),
 })
 
 -- format on save
@@ -1886,53 +1896,20 @@ cmp.setup({
 })
 
 -- === LSP (Neovim 0.11+ native API) ===
-local capabilities = require("cmp_nvim_lsp").default_capabilities()
+-- No on_attach in these configs: 0.12 merges per-server configs with tbl_deep_extend("force"), so
+-- one here REPLACES nvim-lspconfig's own (losing :LspClangdSwitchSourceHeader, :LspPyrightOrganizeImports,
+-- ...). Keymaps go in the LspAttach autocmd below; format-on-save is conform's job alone.
+local lsp = vim.lsp
+lsp.config("*", { capabilities = require("cmp_nvim_lsp").default_capabilities() })
 
--- keymaps + format-on-save for all LSP buffers
-local on_attach    = function(_, bufnr)
-  local map = function(mode, lhs, rhs, desc)
-    vim.keymap.set(mode, lhs, rhs, { buffer = bufnr, desc = desc })
-  end
-  map("n", "gd", vim.lsp.buf.definition, "Go to definition")
-  map("n", "gr", vim.lsp.buf.references, "References")
-  map("n", "K", vim.lsp.buf.hover, "Hover")
-  map("n", "<leader>rn", vim.lsp.buf.rename, "Rename")
-  map("n", "<leader>ca", vim.lsp.buf.code_action, "Code Action")
-  map("n", "[d", function() vim.diagnostic.jump({ count = -1 }) end, "Prev Diagnostic")
-  map("n", "]d", function() vim.diagnostic.jump({ count = 1 }) end, "Next Diagnostic")
-  map("n", "<leader>cf", function() vim.lsp.buf.format({ async = {{SHOW_WELCOME}} }) end, "Format")
-
-  -- format on save (synchronous so it finishes before write)
-  vim.api.nvim_create_autocmd("BufWritePre", {
-    buffer = bufnr,
-    callback = function()
-      local ft = vim.bo[bufnr].filetype
-      if ft ~= "c" and ft ~= "cpp" then
-        vim.lsp.buf.format({ async = false })
-      end
-    end,
-  })
-end
-
--- === Native LSP (Neovim 0.11) ===
-local lsp          = vim.lsp
-local caps         = capabilities -- from cmp_nvim_lsp
-
--- Common servers
-lsp.config.pyright = { capabilities = caps, on_attach = on_attach }
 lsp.config.clangd  = {
-  capabilities = caps,
-  on_attach = on_attach,
+  -- absolute path: Mason prepends its bin to PATH, so a bare "clangd" could pick a stale Mason copy
+  cmd = { system_clangd and "/usr/bin/clangd" or "clangd" },
   root_markers = { "compile_commands.json", "CMakeLists.txt", "Makefile", ".clangd" },
 }
-lsp.config.bashls  = { capabilities = caps, on_attach = on_attach }
-lsp.config.jsonls  = { capabilities = caps, on_attach = on_attach }
-lsp.config.yamlls  = { capabilities = caps, on_attach = on_attach }
 
 -- Lua (tweaks)
 lsp.config.lua_ls  = {
-  capabilities = caps,
-  on_attach = on_attach,
   settings = {
     Lua = {
       diagnostics = { globals = { "vim" } },
@@ -1943,21 +1920,24 @@ lsp.config.lua_ls  = {
 }
 
 -- Enable all of them (auto-attach for matching filetypes)
-lsp.config.texlab = {
-  capabilities = caps,
-  on_attach = on_attach,
-  settings = {
-    texlab = {
-      build = {
-        executable = "latexmk",
-        args = { "-pdf", "-interaction=nonstopmode", "-synctex=1", "%f" },
-        onSave = {{SHOW_WELCOME}},
-      },
-    },
-  },
-}
+lsp.enable({ "pyright", "clangd", "bashls", "jsonls", "yamlls", "lua_ls" })
 
-lsp.enable({ "pyright", "clangd", "bashls", "jsonls", "yamlls", "lua_ls", "texlab" })
+-- grr/grn/gra/gri/grt, K and [d/]d are core defaults (0.11+), so only what core lacks is mapped here.
+-- No buffer-local `gr`: it prefixes the core gr* maps, so every press waited out timeoutlen.
+vim.api.nvim_create_autocmd("LspAttach", {
+  group = vim.api.nvim_create_augroup("foxml_lsp_keys", { clear = true }),
+  callback = function(args)
+    local client = vim.lsp.get_client_by_id(args.data.client_id)
+    if not client or client.name == "copilot" then return end
+    local map = function(mode, lhs, rhs, desc)
+      vim.keymap.set(mode, lhs, rhs, { buffer = args.buf, desc = desc })
+    end
+    map("n", "gd", vim.lsp.buf.definition, "Go to definition")
+    map("n", "<leader>rn", vim.lsp.buf.rename, "Rename")
+    map("n", "<leader>ca", vim.lsp.buf.code_action, "Code Action")
+    map("n", "<leader>cf", function() vim.lsp.buf.format({ async = true }) end, "Format")
+  end,
+})
 
 -- Keymaps (global)
 local map = vim.keymap.set
@@ -2014,9 +1994,9 @@ map("n", "-", "<cmd>Neotree reveal<cr>", { desc = "Reveal file in tree" })
 map("n", "<leader>xx", "<cmd>Trouble diagnostics toggle<cr>", { desc = "Diagnostics (Trouble)" })
 map("n", "<leader>xq", "<cmd>Trouble quickfix toggle<cr>", { desc = "Quickfix (Trouble)" })
 
--- Quality of life
-map({ "n", "v" }, "<leader>/", function() require("Comment.api").toggle.linewise.current() end,
-  { desc = "Comment toggle" })
+-- Quality of life — comment toggle rides core gc/gcc (0.10+), so visual mode covers the whole selection
+map("n", "<leader>/", "gcc", { remap = true, desc = "Comment toggle" })
+map("x", "<leader>/", "gc", { remap = true, desc = "Comment toggle (selection)" })
 
 -- Harpoon
 local harpoon = require("harpoon")
@@ -2088,20 +2068,7 @@ map("t", "<C-l>", "<C-\\><C-n><C-w>l", { desc = "Move to right split" })
 map("t", "<C-j>", "<C-\\><C-n><C-w>j", { desc = "Move to lower split" })
 map("t", "<C-k>", "<C-\\><C-n><C-w>k", { desc = "Move to upper split" })
 
--- AI (Avante)
-map("n", "<leader>aa", "<cmd>AvanteAsk<cr>", { desc = "Avante ask" })
-map("v", "<leader>aa", "<cmd>AvanteAsk<cr>", { desc = "Avante ask (selection)" })
-map("n", "<leader>at", "<cmd>AvanteToggle<cr>", { desc = "Avante toggle" })
-map("n", "<leader>ac", "<cmd>AvanteChat<cr>", { desc = "Avante chat" })
-map("v", "<leader>ae", "<cmd>AvanteEdit<cr>", { desc = "Avante edit (selection)" })
-map("n", "<leader>ar", "<cmd>AvanteRefresh<cr>", { desc = "Avante refresh" })
-map("n", "<leader>aS", "<cmd>AvanteStop<cr>", { desc = "Avante stop" })
-
--- AI (CodeCompanion)
-map({ "n", "v" }, "<leader>cc", "<cmd>CodeCompanionActions<cr>", { desc = "AI Actions (CodeCompanion)" })
-map({ "n", "v" }, "<leader>cC", "<cmd>CodeCompanionChat Toggle<cr>", { desc = "AI Chat Toggle" })
-map("v", "ga", "<cmd>CodeCompanionChat Add<cr>", { desc = "Add selection to AI chat" })
-map("n", "<leader>ci", "<cmd>CodeCompanion<cr>", { desc = "AI Inline (CodeCompanion)" })
+-- AI keymaps (Avante / CodeCompanion) live in those plugin specs' `keys`, so they exist only when enabled
 
 -- Lazygit
 map("n", "<leader>gg", "<cmd>LazyGit<cr>", { desc = "LazyGit" })
@@ -2160,9 +2127,6 @@ map("n", "N", "Nzzzv", { desc = "Prev search result (centered)" })
 -- Quick save
 map("n", "<leader>w", "<cmd>w<cr>", { desc = "Save file" })
 
--- Yank to end of line (consistent with D and C)
-map("n", "Y", "y$", { desc = "Yank to end of line" })
-
 -- Select last paste
 map("n", "gp", "`[v`]", { desc = "Select last paste" })
 
@@ -2173,23 +2137,19 @@ map("n", "<A-k>", "<cmd>m .-2<cr>==", { desc = "Move line up" })
 -- Make file executable
 map("n", "<leader>X", "<cmd>!chmod +x %<cr>", { silent = {{SHOW_WELCOME}}, desc = "Make file executable" })
 
--- Toggle diagnostic virtual text
-local diag_vt_enabled = {{SHOW_WELCOME}}
+-- Toggle diagnostic virtual text. Both toggles read state back from vim.diagnostic.config() rather
+-- than shadow booleans, so they can't drift from the real config (or from each other).
 map("n", "<leader>td", function()
-  diag_vt_enabled = not diag_vt_enabled
-  vim.diagnostic.config({ virtual_text = diag_vt_enabled })
-  vim.notify("Diagnostic virtual text: " .. (diag_vt_enabled and "ON" or "OFF"))
+  local on = not vim.diagnostic.config().virtual_text
+  vim.diagnostic.config({ virtual_text = on })
+  vim.notify("Diagnostic virtual text: " .. (on and "ON" or "OFF"))
 end, { desc = "Toggle diagnostic virtual text" })
 
--- Toggle lsp_lines (multi-line diagnostics below error lines)
-local lsp_lines_enabled = false
+-- Toggle diagnostic lines (core virtual_lines: multi-line diagnostics below error lines)
 map("n", "<leader>tl", function()
-  lsp_lines_enabled = not lsp_lines_enabled
-  vim.diagnostic.config({
-    virtual_lines = lsp_lines_enabled,
-    virtual_text = not lsp_lines_enabled,
-  })
-  vim.notify("Diagnostic lines: " .. (lsp_lines_enabled and "ON" or "OFF"))
+  local on = not vim.diagnostic.config().virtual_lines
+  vim.diagnostic.config({ virtual_lines = on, virtual_text = not on })
+  vim.notify("Diagnostic lines: " .. (on and "ON" or "OFF"))
 end, { desc = "Toggle diagnostic lines" })
 
 -- Toggle comment folding: collapse comment blocks (// runs + /* */ walls) so the logic is readable —
