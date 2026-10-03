@@ -2020,7 +2020,8 @@ vim.api.nvim_create_autocmd("LspAttach", {
     map("n", "gd", vim.lsp.buf.definition, "Go to definition")
     map("n", "<leader>rn", vim.lsp.buf.rename, "Rename")
     map("n", "<leader>ca", vim.lsp.buf.code_action, "Code Action")
-    map("n", "<leader>cf", function() vim.lsp.buf.format({ async = true }) end, "Format")
+    -- through conform (LSP as fallback), so manual formats follow the same project rules as format-on-save
+    map("n", "<leader>cf", function() require("conform").format({ async = true, lsp_format = "fallback" }) end, "Format")
   end,
 })
 
@@ -2361,6 +2362,44 @@ vim.api.nvim_create_autocmd("BufEnter", {
     if err then vim.notify(".nvim.lua: " .. tostring(err), vim.log.levels.ERROR) end
   end,
 })
+
+-- Files under a project's shortcut folder (the trader's tests/ tools/ plans/ are symlinks into its workspace
+-- repo) get realpath buffer names: nvim resolves symlinked dirs, so even opening FoxML_Trader_v2/tests/x.cpp
+-- names the buffer .../tick-trader-percore-workspace/tests/x.cpp. clang-format then misses the trader's
+-- .clang-format (DisableFormat) and a save would reflow engine test code (365 lines of test_common.hpp,
+-- measured). Formatting such a file as its project path keeps the project's rules.
+local alias_dirs -- realpath of a symlinked top-level project folder -> the same folder through the project
+local function project_path(file)
+  if not alias_dirs then
+    alias_dirs = {}
+    local code = vim.fn.expand("~/code")
+    for proj, kind in vim.fs.dir(code) do
+      if kind == "directory" then
+        for name, k in vim.fs.dir(code .. "/" .. proj) do
+          local link = code .. "/" .. proj .. "/" .. name
+          local real = k == "link" and vim.uv.fs_realpath(link)
+          local st = real and vim.uv.fs_stat(real)
+          if st and st.type == "directory" then
+            alias_dirs[real] = alias_dirs[real] == nil and link or false -- linked twice: ambiguous, leave it
+          end
+        end
+      end
+    end
+  end
+  for real, link in pairs(alias_dirs) do
+    if link and vim.startswith(file, real .. "/") then return link .. file:sub(#real + 1) end
+  end
+end
+
+-- conform's clang-format args, with the project path standing in for a realpath filename
+local function format_name(ctx) return project_path(ctx.filename) or ctx.filename end
+require("conform").formatters["clang-format"] = {
+  args = function(_, ctx) return { "-assume-filename", format_name(ctx) } end,
+  range_args = function(_, ctx)
+    local from, to = require("conform.util").get_offsets_from_range(ctx.buf, ctx.range)
+    return { "-assume-filename", format_name(ctx), "--offset", tostring(from), "--length", tostring(to - from) }
+  end,
+}
 
 -- Highlight on yank (brief flash)
 vim.api.nvim_create_autocmd("TextYankPost", {
