@@ -13,7 +13,7 @@ MOZ_ENABLE_WAYLAND = "1"
 application_prefer_dark_theme = true
 cursor_theme_name = "catppuccin-mocha-peach-cursors"
 cursor_theme_size = 30
-font_name = "Hack Nerd Font 11"
+font_name = "MonaspiceKr Nerd Font 11"
 icon_theme_name = "Papirus-Dark"
 theme_name = "Adwaita"
 

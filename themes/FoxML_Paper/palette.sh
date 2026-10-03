@@ -10,7 +10,7 @@ KITTY_BG_OPACITY=1.0
 POPUP_BG_OPACITY=0.9
 MAKO_ICON_THEME=Papirus-Light
 VSCODE_UI_THEME=vs-light
-FONT_FAMILY="Hack Nerd Font"
+FONT_FAMILY="MonaspiceKr Nerd Font"
 # WARNING: SHOW_WELCOME is also the project's literal-true alias used in
 # ~246 template substitutions (vim opts, yazi bold, Firefox CSS selectors,
 # nvim init.lua, etc.). Setting this to false will break far more than

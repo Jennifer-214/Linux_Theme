@@ -70,7 +70,7 @@ CYAN="83c092"
 WHITE="d3c6aa"
 
 # Inherit some standard earthy defaults
-FONT_FAMILY="Hack Nerd Font"
+FONT_FAMILY="MonaspiceKr Nerd Font"
 KITTY_BG_OPACITY="0.85"
 EOF
 

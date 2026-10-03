@@ -66,7 +66,7 @@ void run_deps(Context& ctx) {
     // bucket. pacman --needed makes order and duplicates safe.
     const std::vector<std::string> pkgs = {
         // Fonts
-        "ttf-hack-nerd", "ttf-jetbrains-mono-nerd",
+        "otf-monaspace-nerd", "ttf-hack-nerd", "ttf-jetbrains-mono-nerd",
         "noto-fonts", "noto-fonts-cjk", "noto-fonts-emoji",
 
         // Compositor, lock, wallpaper, idle

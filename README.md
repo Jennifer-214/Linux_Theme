@@ -353,7 +353,7 @@ The palette defines ~60 variables across:
 - **ANSI 256** — terminal color indices for zsh prompts
 - **Tmux** — `colour216`-style palette
 - **App overrides** — per-app background tweaks (dunst, spicetify, vencord)
-- **Font** — `FONT_FAMILY` (default `Hack Nerd Font`)
+- **Font** — `FONT_FAMILY` (default `MonaspiceKr Nerd Font`)
 - **Metadata** — NVIM_STYLE, KITTY_BG_OPACITY, POPUP_BG_OPACITY, VSCODE_UI_THEME
 - **Aesthetic knobs** — ROUNDING, BLUR_SIZE, BLUR_PASSES, GAP_IN, GAP_OUT, BORDER_SIZE (live-tunable via `fox-theme-tweak`)
 
@@ -362,7 +362,8 @@ The palette defines ~60 variables across:
 Set `FONT_FAMILY` in `palette.sh` to any installed Nerd Font:
 
 ```bash
-FONT_FAMILY="Hack Nerd Font"           # default — blocky, sturdy
+FONT_FAMILY="MonaspiceKr Nerd Font"    # default — Monaspace Krypton (also Ne / Ar / Xe / Rn)
+FONT_FAMILY="Hack Nerd Font"           # blocky, sturdy
 FONT_FAMILY="JetBrainsMono Nerd Font"  # clean, rounded
 FONT_FAMILY="IBM Plex Mono Nerd Font"  # industrial, wide
 ```
