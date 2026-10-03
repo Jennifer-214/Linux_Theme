@@ -1761,15 +1761,16 @@ local function apply_foxml_theme()
   hl("CmpItemKindFolder",     { fg = P.peach })
   hl("CmpItemMenu",           { fg = P.comment, italic = {{SHOW_WELCOME}} })
 
-  -- Notification toasts (snacks): a plum card; the level colour rides on the border, icon and title
-  for level, c in pairs({ Error = P.red_br, Warn = P.wheat, Info = P.blush, Debug = P.comment, Trace = P.lavender }) do
-    hl("SnacksNotifier" .. level,       { fg = P.fg, bg = P.bg_alt })
-    hl("SnacksNotifierBorder" .. level, { fg = c, bg = P.bg_alt })
-    hl("SnacksNotifierTitle" .. level,  { fg = c, bg = P.bg_alt, bold = {{SHOW_WELCOME}} })
-    hl("SnacksNotifierIcon" .. level,   { fg = c, bg = P.bg_alt })
-    hl("SnacksNotifierFooter" .. level, { fg = P.comment, bg = P.bg_alt })
+  -- Notification toasts (snacks): the dark panel of every other float; the level colour rides on the
+  -- border, icon and title in the theme's own diagnostic colours (info = the peach of every float border)
+  for level, c in pairs({ Error = P.clay, Warn = P.wheat, Info = P.peach, Debug = P.comment, Trace = P.lavender }) do
+    hl("SnacksNotifier" .. level,       { fg = P.fg, bg = P.bg_deep })
+    hl("SnacksNotifierBorder" .. level, { fg = c, bg = P.bg_deep })
+    hl("SnacksNotifierTitle" .. level,  { fg = c, bg = P.bg_deep, bold = {{SHOW_WELCOME}} })
+    hl("SnacksNotifierIcon" .. level,   { fg = c, bg = P.bg_deep })
+    hl("SnacksNotifierFooter" .. level, { fg = P.comment, bg = P.bg_deep })
   end
-  hl("SnacksNotifierBody",            { fg = P.fg, bg = P.bg_alt })
+  hl("SnacksNotifierBody",            { fg = P.fg, bg = P.bg_deep })
   hl("SnacksNotifierHistory",         { fg = P.fg, bg = P.bg_deep })
   hl("SnacksNotifierHistoryTitle",    { fg = P.peach, bold = {{SHOW_WELCOME}} })
   hl("SnacksNotifierHistoryDateTime", { fg = P.comment })
