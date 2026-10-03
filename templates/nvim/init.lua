@@ -146,12 +146,29 @@ local plugins = {
   -- Core editing (commenting is core gc/gcc since nvim 0.10 — see <leader>/ below)
   { "windwp/nvim-autopairs",               config = {{SHOW_WELCOME}} },
   { "folke/which-key.nvim",                event = "VeryLazy",
-    opts = {} },
+    opts = {
+      -- named leader groups (the popup showed a bare "+4 keymaps" for each)
+      spec = {
+        { "<leader>b", group = "buffers" },
+        { "<leader>c", group = "code / cmake" },
+        { "<leader>f", group = "find" },
+        { "<leader>g", group = "git" },
+        { "<leader>h", group = "harpoon" },
+        { "<leader>m", group = "tasks" },
+        { "<leader>n", group = "swap params" },
+        { "<leader>p", group = "projects" },
+        { "<leader>q", group = "session / quit" },
+        { "<leader>r", group = "refactor" },
+        { "<leader>s", group = "search / split" },
+        { "<leader>t", group = "toggle / test" },
+        { "<leader>x", group = "diagnostics" },
+      },
+    } },
 
-  -- Fuzzy finding
+  -- Fuzzy finding (default branch: the pinned 0.1.x (2024) called nvim-treesitter's removed configs
+  -- module, so every file preview errored and lost its syntax colors)
   {
     "nvim-telescope/telescope.nvim",
-    branch = "0.1.x",
     dependencies = { "nvim-lua/plenary.nvim", "nvim-tree/nvim-web-devicons" }
   },
   -- Neo-tree (file tree sidebar)
@@ -332,7 +349,13 @@ local plugins = {
     cmd = { "OverseerRun", "OverseerToggle", "OverseerTaskAction" },
     keys = {
       { "<leader>mm", "<cmd>OverseerRun<cr>", desc = "Run task" },
-      { "<leader>mt", "<cmd>OverseerToggle<cr>", desc = "Task list" },
+      { "<leader>mt", function()
+        if #require("overseer").list_tasks() == 0 then
+          vim.notify("No tasks yet: <leader>mm runs one") -- not an empty "--no task buffer--" panel
+        else
+          vim.cmd("OverseerToggle")
+        end
+      end, desc = "Task list" },
       { "<leader>ml", function()
         local overseer = require("overseer")
         local last = overseer.list_tasks({ sort = function(a, b) return a.id > b.id end })[1]
@@ -1841,9 +1864,14 @@ require("lualine").setup({
       },
       {
         function()
-          local clients = vim.lsp.get_clients({ bufnr = 0 })
-          if #clients == 0 then return "" end
-          return " " .. clients[1].name
+          -- the language server(s) for this buffer; copilot is an LSP client too, and whichever
+          -- attached first used to win the slot
+          local names = {}
+          for _, c in ipairs(vim.lsp.get_clients({ bufnr = 0 })) do
+            if c.name ~= "copilot" then names[#names + 1] = c.name end
+          end
+          if #names == 0 then return "" end
+          return " " .. table.concat(names, " · ")
         end,
         color = { fg = P.peach },
       },
@@ -1934,6 +1962,22 @@ vim.keymap.set({ "n", "x", "o" }, "[[", ts_goto(ts_move.goto_previous_start, "@c
 vim.keymap.set({ "n", "x", "o" }, "[a", ts_goto(ts_move.goto_previous_start, "@parameter.inner"), { desc = "TS prev param" })
 vim.keymap.set("n", "<leader>na", function() ts_swap.swap_next("@parameter.inner") end,     { desc = "TS swap next param" })
 vim.keymap.set("n", "<leader>nA", function() ts_swap.swap_previous("@parameter.inner") end, { desc = "TS swap prev param" })
+
+-- Sticky context skips include guards: a header's whole body sits inside `#ifndef X_HPP`, so the guard was
+-- pinned as the top context line in every header. Other preprocessor blocks (#ifdef MULTICORE_TUI,
+-- #if defined(__AVX512F__)) still show. Patches only that one pattern of nvim-treesitter-context's C query
+-- (C++ inherits it), and only when the patched query parses, so a plugin update can't break context.
+for _, lang in ipairs({ "c", "cpp" }) do
+  local parts = {}
+  for _, f in ipairs(vim.treesitter.query.get_files(lang, "context")) do
+    parts[#parts + 1] = table.concat(vim.fn.readfile(f), "\n")
+  end
+  local src, hits = table.concat(parts, "\n"):gsub("(%(preproc_ifdef%s+name:%s*%(identifier%))",
+    '%1 @_guard (#not-lua-match? @_guard "_H[P]*_*$")', 1)
+  if hits == 1 and pcall(vim.treesitter.query.parse, lang, src) then
+    vim.treesitter.query.set(lang, "context", src)
+  end
+end
 
 -- Mason (LSP installer). clangd comes from the system (pacman `clang`, fox-install --cpp-pro) so the
 -- editor matches the clang++/clang-tidy toolchain; Mason installs it only on a machine without one.
@@ -2027,8 +2071,7 @@ vim.api.nvim_create_autocmd("LspAttach", {
 
 -- Keymaps (global)
 local map = vim.keymap.set
-map("n", "<leader>ff", "<cmd>Telescope find_files<cr>", { desc = "Find files" })
-map("n", "<leader>fg", "<cmd>Telescope live_grep<cr>", { desc = "Grep" })
+-- <leader>ff / <leader>fg are project-scoped: defined with the per-project settings below
 map("n", "<leader>fb", "<cmd>Telescope buffers<cr>", { desc = "Buffers" })
 map("n", "<leader>fh", "<cmd>Telescope help_tags<cr>", { desc = "Help" })
 -- === Projects / CMake / DAP / Tests / Symbols ===
@@ -2340,26 +2383,66 @@ vim.api.nvim_create_autocmd({ "BufReadPost", "BufNewFile" }, {
   end,
 })
 
--- Per-project config: the nearest .nvim.lua above a file runs once per session, after a :trust prompt
--- (vim.secure.read). Core 'exrc' only runs at startup from the launch dir and its parents, so it never
--- sees a project opened later in the session.
-local project_rc_seen = {}
+-- Per-project config: the nearest .nvim.lua above a file runs once per session when trusted. nvim 0.12's
+-- trust prompt has no "allow" for files (only view, then :trust), and every edit revokes trust, so this
+-- replaces that blocking prompt: an untrusted (new or changed) file gets one notice per session,
+-- :ProjectTrust trusts and loads it, and saving a .nvim.lua in nvim trusts it (you just wrote it).
+-- Core 'exrc' only runs at startup from the launch dir, so it never sees a project opened later.
+local project_rc_ran = {} -- rc path -> true (ran) | false (noticed, untrusted)
+local function project_rc(file)
+  return vim.fs.find(".nvim.lua", { upward = true, path = vim.fs.dirname(file), type = "file", stop = vim.env.HOME })[1]
+end
+-- reads nvim's trust db ("<sha256> <path>" or "! <path>" lines); anything unexpected counts as untrusted
+local function rc_trust(rc)
+  local real = vim.uv.fs_realpath(rc)
+  local okd, lines = pcall(vim.fn.readfile, vim.fn.stdpath("state") .. "/trust")
+  local okb, blob = pcall(vim.fn.readblob, rc)
+  if not (real and okd and okb) then return "untrusted" end
+  local hash = vim.fn.sha256(blob)
+  for _, line in ipairs(lines) do
+    if line == hash .. " " .. real then return "trusted" end
+    if line == "! " .. real then return "denied" end
+  end
+  return "untrusted"
+end
+local function run_project_rc(rc)
+  project_rc_ran[rc] = true
+  local chunk, err = loadfile(rc)
+  if chunk then
+    local ok, run_err = pcall(chunk)
+    err = not ok and run_err or nil
+  end
+  if err then vim.notify(".nvim.lua: " .. tostring(err), vim.log.levels.ERROR) end
+end
 vim.api.nvim_create_autocmd("BufEnter", {
   group = vim.api.nvim_create_augroup("foxml_project_rc", { clear = true }),
   callback = function(args)
     local file = vim.api.nvim_buf_get_name(args.buf)
     if vim.bo[args.buf].buftype ~= "" or file == "" then return end
-    local rc = vim.fs.find(".nvim.lua", { upward = true, path = vim.fs.dirname(file), type = "file", stop = vim.env.HOME })[1]
-    if not rc or project_rc_seen[rc] then return end
-    project_rc_seen[rc] = true
-    local src = vim.secure.read(rc) -- nil when not trusted (declined / denied)
-    if not src then return end
-    local chunk, err = load(src, "@" .. rc)
-    if chunk then
-      local ok, run_err = pcall(chunk)
-      err = not ok and run_err or nil
+    local rc = project_rc(file)
+    if not rc or project_rc_ran[rc] ~= nil then return end
+    local state = rc_trust(rc)
+    if state == "trusted" then return run_project_rc(rc) end
+    project_rc_ran[rc] = false
+    if state == "untrusted" then
+      vim.notify(rc .. " is new or changed. Look it over, then :ProjectTrust to load it.", vim.log.levels.WARN)
     end
-    if err then vim.notify(".nvim.lua: " .. tostring(err), vim.log.levels.ERROR) end
+  end,
+})
+vim.api.nvim_create_user_command("ProjectTrust", function()
+  local file = vim.api.nvim_buf_get_name(0)
+  local rc = vim.fs.basename(file) == ".nvim.lua" and file or (file ~= "" and project_rc(file))
+  if not rc then return vim.notify("No .nvim.lua above this file", vim.log.levels.WARN) end
+  vim.secure.trust({ action = "allow", path = rc })
+  run_project_rc(rc)
+  vim.notify("Trusted and loaded " .. rc)
+end, { desc = "Trust and load this project's .nvim.lua" })
+vim.api.nvim_create_autocmd("BufWritePost", {
+  group = "foxml_project_rc",
+  pattern = ".nvim.lua",
+  callback = function(args)
+    vim.secure.trust({ action = "allow", path = args.file })
+    vim.notify("Trusted " .. args.file .. " (you just saved it). :ProjectTrust applies it now.")
   end,
 })
 
@@ -2400,6 +2483,20 @@ require("conform").formatters["clang-format"] = {
     return { "-assume-filename", format_name(ctx), "--offset", tostring(from), "--length", tostring(to - from) }
   end,
 }
+
+-- Find files / grep search the CURRENT file's project (its .git, else a build marker), not nvim's cwd:
+-- `nvim <file>` launched from ~/code searched all of ~/code (9k files incl. old copies), because
+-- project.nvim loads after the first buffer. A file in a project's shortcut folder counts as that project.
+local function file_project()
+  local name = vim.api.nvim_buf_get_name(0)
+  if name == "" or vim.bo.buftype ~= "" then return vim.uv.cwd() end
+  return vim.fs.root(project_path(name) or name, { ".git", "compile_commands.json", "CMakeLists.txt", "Makefile" })
+    or vim.uv.cwd()
+end
+map("n", "<leader>ff", function() require("telescope.builtin").find_files({ cwd = file_project() }) end,
+  { desc = "Find files (this project)" })
+map("n", "<leader>fg", function() require("telescope.builtin").live_grep({ cwd = file_project() }) end,
+  { desc = "Grep (this project)" })
 
 -- Highlight on yank (brief flash)
 vim.api.nvim_create_autocmd("TextYankPost", {
