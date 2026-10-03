@@ -324,10 +324,95 @@ local plugins = {
     end,
   },
 
+  -- Task menu (<leader>m): a project's own build.sh lanes, CMake configure/build/CTest for CMake projects
+  -- without a build.sh, plus overseer's builtin make/npm/cargo/just providers. Compiler errors land in
+  -- quickfix (<leader>xq), which opens by itself when a task fails.
   {
     "stevearc/overseer.nvim",
-    cmd = "OverseerRun",
+    cmd = { "OverseerRun", "OverseerToggle", "OverseerTaskAction" },
+    keys = {
+      { "<leader>mm", "<cmd>OverseerRun<cr>", desc = "Run task" },
+      { "<leader>mt", "<cmd>OverseerToggle<cr>", desc = "Task list" },
+      { "<leader>ml", function()
+        local overseer = require("overseer")
+        local last = overseer.list_tasks({ sort = function(a, b) return a.id > b.id end })[1]
+        if last then overseer.run_action(last, "restart") else vim.notify("No task has run yet") end
+      end, desc = "Rerun last task" },
+    },
     opts = {},
+    config = function(_, opts)
+      local overseer = require("overseer")
+      overseer.setup(opts)
+      -- Raw (non-terminal) output: a terminal buffer hard-wraps long lines at its width, splitting gcc
+      -- diagnostics so the quickfix parser only sees fragments ("warning: no").
+      local function build_task(task)
+        task.strategy = { "jobstart", use_terminal = false }
+        task.components = { { "on_output_quickfix", open_on_exit = "failure", items_only = true }, "default" }
+        return task
+      end
+
+      -- Lanes are the arms of build.sh's first `case "$VAR" in` dispatch: the code is the truth (the
+      -- trader's usage comment lists 10 lanes, its dispatch has 14). Descriptions come from the usage
+      -- block where a lane has one.
+      local function buildsh_lanes(path)
+        local lanes, desc, seen, in_case = {}, {}, {}, false
+        for line in io.lines(path) do
+          local name, text = line:match("^#%s+([%w_-]+)%s%s+(%S.*)$")
+          if name and not desc[name] then desc[name] = text end
+          if not in_case then
+            in_case = line:match('^%s*case%s+"?%${?[%w_]+}?"?%s+in') ~= nil
+          elseif line:match("^%s*esac") then
+            break
+          else
+            for arm in (line:match("^%s*([%w_|-]+)%)") or ""):gmatch("[^|]+") do
+              if not arm:match("^%-") and not seen[arm] then seen[arm] = true; lanes[#lanes + 1] = arm end
+            end
+          end
+        end
+        return lanes, desc
+      end
+
+      overseer.register_template({
+        name = "build.sh",
+        generator = function(search)
+          local script = vim.fs.find("build.sh", { upward = true, path = search.dir, type = "file", stop = vim.env.HOME })[1]
+          if not script then return "no build.sh above " .. search.dir end
+          local root = vim.fs.dirname(script)
+          local lanes, desc = buildsh_lanes(script)
+          return vim.tbl_map(function(lane)
+            return {
+              name = "build.sh " .. lane,
+              desc = desc[lane] or "(not in build.sh's usage text)",
+              builder = function() return build_task({ cmd = { "./build.sh", lane }, cwd = root }) end,
+            }
+          end, lanes)
+        end,
+        cache_key = function(search)
+          return vim.fs.find("build.sh", { upward = true, path = search.dir, type = "file", stop = vim.env.HOME })[1]
+        end,
+      })
+
+      -- CMake projects WITHOUT their own build.sh driver (a driver pins lanes/flags, so it owns the build).
+      overseer.register_template({
+        name = "cmake",
+        generator = function(search)
+          local found = vim.fs.find("CMakeLists.txt", { upward = true, path = search.dir, type = "file", stop = vim.env.HOME, limit = math.huge })
+          if #found == 0 then return "no CMakeLists.txt above " .. search.dir end
+          local root = vim.fs.dirname(found[#found]) -- topmost: nested CMakeLists.txt are subdirectories
+          if vim.uv.fs_stat(root .. "/build.sh") then return "project builds via its own build.sh" end
+          local build = root .. "/build"
+          return {
+            { name = "cmake: configure", builder = function()
+              return build_task({ cmd = { "cmake", "-S", root, "-B", build, "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON" } })
+            end },
+            { name = "cmake: build", builder = function() return build_task({ cmd = { "cmake", "--build", build, "-j" } }) end },
+            { name = "ctest", builder = function()
+              return build_task({ cmd = { "ctest", "--test-dir", build, "--output-on-failure" } })
+            end },
+          }
+        end,
+      })
+    end,
   },
   {
     "akinsho/toggleterm.nvim",
@@ -2181,6 +2266,101 @@ map("n", "<leader>tc", function()
     vim.notify("Comment folding: ON")
   end
 end, { desc = "Toggle comment folding" })
+
+-- === Per-project settings ===
+
+-- Indentation follows each file, not one global default. Precedence: .editorconfig (core) > the file's own
+-- existing indentation > for an empty C/C++ file, the project's clang-format style unless that project
+-- disables formatting > the ftplugin default. (The trader's .clang-format is DisableFormat: true, yet
+-- clang-format still reports a nominal LLVM 2-space style there, so that style must not be applied.)
+local function sniff_indent(buf)
+  local tab_lines, space_lines, deltas, prev = 0, 0, {}, 0
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, math.min(vim.api.nvim_buf_line_count(buf), 2000), false)
+  for _, line in ipairs(lines) do
+    local ws = line:match("^(%s*)%S")
+    -- skip blank lines and " * " block-comment continuations (1-space offsets, not nesting)
+    if ws and not line:match("^%s+%*") then
+      if ws:find("\t", 1, true) then
+        tab_lines = tab_lines + 1
+      else
+        if #ws > 0 then space_lines = space_lines + 1 end
+        local d = #ws - prev
+        if d == 2 or d == 3 or d == 4 or d == 8 then deltas[d] = (deltas[d] or 0) + 1 end
+        prev = #ws
+      end
+    end
+  end
+  if tab_lines >= 3 and tab_lines > space_lines then return { expandtab = false } end
+  local best, n = nil, 2 -- need 3+ indent steps of the same width before trusting it
+  for _, d in ipairs({ 4, 2, 8, 3 }) do
+    if (deltas[d] or 0) > n then best, n = d, deltas[d] end
+  end
+  return best and { expandtab = true, shiftwidth = best } or nil
+end
+
+local clang_format_style = {} -- per directory; false = no usable style (absent tool, error, DisableFormat)
+local function clang_format_indent(file)
+  local dir = vim.fs.dirname(file)
+  if clang_format_style[dir] == nil then
+    clang_format_style[dir] = false
+    if vim.fn.executable("clang-format") == 1 then
+      local res = vim.system({ "clang-format", "--dump-config", "--assume-filename=" .. file }, { text = true }):wait(2000)
+      local cfg = res.code == 0 and res.stdout or ""
+      local width = tonumber(cfg:match("\nIndentWidth:%s*(%d+)"))
+      if width and not cfg:match("\nDisableFormat:%s*true") then
+        clang_format_style[dir] = { expandtab = cfg:match("\nUseTab:%s*Never") ~= nil, shiftwidth = width }
+      end
+    end
+  end
+  return clang_format_style[dir] or nil
+end
+
+vim.api.nvim_create_autocmd({ "BufReadPost", "BufNewFile" }, {
+  group = vim.api.nvim_create_augroup("foxml_indent", { clear = true }),
+  callback = function(args)
+    local buf = args.buf
+    if vim.bo[buf].buftype ~= "" then return end
+    -- scheduled: the ftplugin (FileType) and core editorconfig both run later in this same read
+    vim.schedule(function()
+      if not vim.api.nvim_buf_is_valid(buf) then return end
+      local ec = vim.b[buf].editorconfig
+      if ec and (ec.indent_style or ec.indent_size) then return end
+      local got = sniff_indent(buf)
+      if not got and (vim.bo[buf].filetype == "c" or vim.bo[buf].filetype == "cpp") then
+        got = clang_format_indent(vim.api.nvim_buf_get_name(buf))
+      end
+      if not got then return end
+      vim.bo[buf].expandtab = got.expandtab
+      if got.shiftwidth then
+        vim.bo[buf].shiftwidth = got.shiftwidth
+        vim.bo[buf].tabstop = got.shiftwidth
+      end
+    end)
+  end,
+})
+
+-- Per-project config: the nearest .nvim.lua above a file runs once per session, after a :trust prompt
+-- (vim.secure.read). Core 'exrc' only runs at startup from the launch dir and its parents, so it never
+-- sees a project opened later in the session.
+local project_rc_seen = {}
+vim.api.nvim_create_autocmd("BufEnter", {
+  group = vim.api.nvim_create_augroup("foxml_project_rc", { clear = true }),
+  callback = function(args)
+    local file = vim.api.nvim_buf_get_name(args.buf)
+    if vim.bo[args.buf].buftype ~= "" or file == "" then return end
+    local rc = vim.fs.find(".nvim.lua", { upward = true, path = vim.fs.dirname(file), type = "file", stop = vim.env.HOME })[1]
+    if not rc or project_rc_seen[rc] then return end
+    project_rc_seen[rc] = true
+    local src = vim.secure.read(rc) -- nil when not trusted (declined / denied)
+    if not src then return end
+    local chunk, err = load(src, "@" .. rc)
+    if chunk then
+      local ok, run_err = pcall(chunk)
+      err = not ok and run_err or nil
+    end
+    if err then vim.notify(".nvim.lua: " .. tostring(err), vim.log.levels.ERROR) end
+  end,
+})
 
 -- Highlight on yank (brief flash)
 vim.api.nvim_create_autocmd("TextYankPost", {
