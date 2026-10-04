@@ -36,11 +36,33 @@ vim.opt.showbreak = "↪ "          -- mark wrapped continuation lines
 -- Hard-wrap comment prose at 80 (clean GitHub rendering). A FileType autocmd, not a
 -- global opt, because ftplugins reset textwidth=0 after init.lua runs. Strip 't' so
 -- only comments wrap, never code (python's default formatoptions includes it).
+-- Never a tag line, though ("// [KEY]_[value]", "//   - [KEY]_[...]"): its value must stay on
+-- ONE line or every parser reads it empty, and the tag validator can't tell. 'c' is dropped
+-- while typing on one and put back on the next ordinary line (only if we took it away).
+local function tag_line(line) return line:match("^%s*[/#;%-]+%s*%-?%s*%[%u[%u%d_]*%]") ~= nil end
+local tag_nowrap = vim.api.nvim_create_augroup("foxml_tag_nowrap", { clear = true })
 vim.api.nvim_create_autocmd("FileType", {
   pattern = { "cpp", "c", "asm", "cuda", "python", "lua", "rust", "sh", "zsh" },
-  callback = function()
+  callback = function(args)
     vim.opt_local.textwidth = 80
     vim.opt_local.formatoptions:remove("t")
+    vim.api.nvim_clear_autocmds({ group = tag_nowrap, buffer = args.buf })
+    vim.api.nvim_create_autocmd("InsertCharPre", {
+      group = tag_nowrap,
+      buffer = args.buf,
+      callback = function()
+        local fo = vim.bo.formatoptions
+        if tag_line(vim.api.nvim_get_current_line()) then
+          if fo:find("c", 1, true) then -- checked every key: a reloaded ftplugin may have put it back
+            vim.bo.formatoptions = fo:gsub("c", "")
+            vim.b.foxml_tag_nowrap = true
+          end
+        elseif vim.b.foxml_tag_nowrap then
+          if not fo:find("c", 1, true) then vim.bo.formatoptions = fo .. "c" end
+          vim.b.foxml_tag_nowrap = nil
+        end
+      end,
+    })
   end,
 })
 vim.opt.smoothscroll = {{SHOW_WELCOME}}
