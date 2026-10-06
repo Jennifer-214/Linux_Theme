@@ -52,7 +52,10 @@ TX_F=$(format_speed $TX_SPEED)
 tooltip="Interface: $INTERFACE"
 if [[ "$INTERFACE" == wl* ]] && command -v nmcli >/dev/null 2>&1; then
     # active wifi line is marked with '*' in column 1
-    line=$(nmcli -t -f IN-USE,SSID,SIGNAL device wifi 2>/dev/null \
+    # --rescan no: we only need the AP we are on, and NM's own bgscan keeps
+    # SIGNAL fresh. The default (--rescan auto) forces a scan whenever the
+    # cache is ~30s old, which is a polkit action (wifi.scan) every 2s poll.
+    line=$(nmcli -t -f IN-USE,SSID,SIGNAL device wifi list --rescan no 2>/dev/null \
             | awk -F: '$1=="*"{print; exit}')
     if [[ -n "$line" ]]; then
         ssid=$(awk -F: '{print $2}' <<<"$line")
