@@ -16,8 +16,10 @@ alias ...='cd ../..'
 alias ....='cd ../../..'
 
 # ─── Editors (preserve theme for sudo) ───────
+# sudoedit runs your own nvim on a temp copy: full config + plugins, and no root-owned files in ~
+export SUDO_EDITOR=nvim
 alias svim='sudoedit'
-alias snvim='sudo -E nvim'
+alias snvim='sudoedit'
 
 # ─── Utilities ────────────────────────────────
 alias myip='curl ifconfig.me'
