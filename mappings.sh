@@ -1362,12 +1362,23 @@ EOF
 # trading bots, etc. Systemd mount unit so it survives reboot.
 install_hidepid() {
     local unit=/etc/systemd/system/proc-hidepid.service
-    if [[ -f "$unit" ]] && sudo grep -q '^# foxml-managed' "$unit" 2>/dev/null; then
+    local dropin=/etc/systemd/system/polkit.service.d/hidepid.conf
+    # hidepid hides other users' /proc entries — including from polkitd,
+    # which runs unprivileged (User=polkitd) and must stat the requesting
+    # process to tie it to an active seat session. Without a gid=proc
+    # exemption on the mount AND polkitd in the proc group, every polkit
+    # action from the desktop (Wi-Fi scan, nmcli connect, power) is seen
+    # as "unix-process:unknown", falls back to auth_admin, and pops a
+    # password dialog. Both halves are required; keep them in sync.
+    if [[ -f "$unit" ]] && sudo grep -q '^# foxml-managed' "$unit" 2>/dev/null \
+        && sudo grep -q 'gid=proc' "$unit" 2>/dev/null && [[ -f "$dropin" ]]; then
         echo "  • /proc hidepid already configured"
         return 0
     fi
     sudo tee "$unit" >/dev/null <<'EOF'
 # foxml-managed — apply hidepid=2 to /proc on boot.
+# gid=proc exempts the proc group (polkitd) so polkit can still see and
+# attribute requesting processes to their logind session.
 [Unit]
 Description=Remount /proc with hidepid=2 (foxml)
 DefaultDependencies=no
@@ -1376,17 +1387,29 @@ Before=systemd-user-sessions.service
 
 [Service]
 Type=oneshot
-ExecStart=/bin/mount -o remount,hidepid=2 /proc
+ExecStart=/bin/mount -o remount,hidepid=2,gid=proc /proc
 RemainAfterExit=yes
 
 [Install]
 WantedBy=sysinit.target
 EOF
+    sudo mkdir -p "$(dirname "$dropin")"
+    printf '%s\n' \
+        '# foxml-managed — let polkitd see through hidepid (see proc-hidepid.service).' \
+        '[Service]' \
+        'SupplementaryGroups=proc' | sudo tee "$dropin" >/dev/null
     sudo systemctl daemon-reload >/dev/null 2>&1 || true
     sudo systemctl enable proc-hidepid.service >/dev/null 2>&1 || true
-    # Apply live so the user sees it work without rebooting.
-    sudo mount -o remount,hidepid=2 /proc 2>/dev/null && echo "  + /proc remounted hidepid=2 (other users' processes hidden)" \
-        || echo "  + /proc hidepid=2 enabled on next boot"
+    # Apply live so the user sees it work without rebooting. polkitd only
+    # picks up the new group on restart, and the auth agent must re-register
+    # with the new polkitd, so bounce both.
+    if sudo mount -o remount,hidepid=2,gid=proc /proc 2>/dev/null; then
+        echo "  + /proc remounted hidepid=2,gid=proc (other users' processes hidden; polkitd exempt)"
+        sudo systemctl try-restart polkit.service >/dev/null 2>&1 || true
+        systemctl --user try-restart hyprpolkitagent.service >/dev/null 2>&1 || true
+    else
+        echo "  + /proc hidepid=2,gid=proc enabled on next boot"
+    fi
 }
 
 # noexec / nosuid / nodev on /tmp + /dev/shm. Many Linux malware drop
