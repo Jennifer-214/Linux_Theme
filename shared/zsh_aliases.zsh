@@ -21,6 +21,26 @@ export SUDO_EDITOR=nvim
 alias svim='sudoedit'
 alias snvim='sudoedit'
 
+# `sudo nvim file` → sudoedit; anything with flags or no files falls through to real sudo.
+# sudoedit refuses files in user-writable dirs (e.g. ~), so those open as you, no sudo needed.
+sudo() {
+    if [[ "$1" == (nvim|vim|vi) && $# -gt 1 ]]; then
+        local a in_writable_dir=0 all_mine=1
+        for a in "${@:2}"; do
+            [[ "$a" == [-+]* ]] && { command sudo "$@"; return; }
+            [[ -w "${a:h}" ]] && in_writable_dir=1
+            [[ -w "$a" || ( ! -e "$a" && -w "${a:h}" ) ]] || all_mine=0
+        done
+        if (( in_writable_dir )); then
+            if (( all_mine )); then "$1" "${@:2}"; else command sudo "$@"; fi
+            return
+        fi
+        sudoedit "${@:2}"
+    else
+        command sudo "$@"
+    fi
+}
+
 # ─── Utilities ────────────────────────────────
 alias myip='curl ifconfig.me'
 alias sizeof='du -sh'
