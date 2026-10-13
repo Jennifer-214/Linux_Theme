@@ -88,7 +88,18 @@ opencode() {
   # and dlopen()s them, which noexec /tmp (noexec_tmp module) refuses.
   local tmp="${XDG_CACHE_HOME:-$HOME/.cache}/opencode-tmp"
   mkdir -p "$tmp"
-  TMPDIR="$tmp" command opencode "$@"
+  # Offline-first: no models.dev catalogue fetch or self-update at startup.
+  TMPDIR="$tmp" OPENCODE_DISABLE_MODELS_FETCH=1 OPENCODE_DISABLE_AUTOUPDATE=1 command opencode "$@"
+}
+
+pi() {
+  if ! systemctl is-active --quiet ollama; then
+    echo -e "\033[1;33m[Fox Brain is asleep. Waking up for pi...]\033[0m"
+    sudo systemctl start ollama
+    sleep 2
+  fi
+  # Offline-first: no version check, package check or telemetry at startup.
+  PI_OFFLINE=1 command pi "$@"
 }
 
 # FoxML short-hand
