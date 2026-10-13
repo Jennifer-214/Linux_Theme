@@ -10,15 +10,21 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 
 export default function (pi: ExtensionAPI) {
 	let started = 0;
+	// Read at agent_start, while the session is live: in print mode (pi -p, a subagent's child) the session is torn
+	// down as the answer ends, and touching that ctx at agent_end throws ("This extension ctx is stale…").
+	let hasUI = false;
+	let cwd = "";
 
-	pi.on("agent_start", async () => {
+	pi.on("agent_start", async (_event, ctx) => {
 		started = Date.now();
+		hasUI = ctx.hasUI;
+		cwd = ctx.cwd;
 	});
 
-	pi.on("agent_end", async (_event, ctx) => {
-		if (!ctx.hasUI) return;
+	pi.on("agent_end", async () => {
+		if (!hasUI) return;
 		const secs = Math.round((Date.now() - started) / 1000);
 		if (secs < 15) return; // quick replies don't need a ping
-		await pi.exec("notify-send", ["-a", "pi", "🦊 pi is ready", `${basename(ctx.cwd)} · ${secs}s`]);
+		await pi.exec("notify-send", ["-a", "pi", "🦊 pi is ready", `${basename(cwd)} · ${secs}s`]);
 	});
 }
