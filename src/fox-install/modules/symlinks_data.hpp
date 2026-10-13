@@ -87,6 +87,9 @@ inline constexpr Mapping TEMPLATE_MAPPINGS[] = {
     // OpenCode TUI theme
     { "opencode/foxml.json",          "~/.config/opencode/themes/foxml.json" },
 
+    // pi coding agent TUI theme
+    { "pi/foxml.json",                "~/.pi/agent/themes/foxml.json" },
+
     // Git delta pager — included from ~/.gitconfig
     { "git/delta.gitconfig",          "~/.config/git/delta-foxml.gitconfig" },
 

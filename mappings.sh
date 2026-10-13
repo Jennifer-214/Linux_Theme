@@ -79,6 +79,9 @@ TEMPLATE_MAPPINGS=(
     # opencode.json references via "theme": "foxml".
     "opencode/foxml.json|~/.config/opencode/themes/foxml.json"
 
+    # pi coding agent TUI theme — selected via "theme": "foxml" in ~/.pi/agent/settings.json.
+    "pi/foxml.json|~/.pi/agent/themes/foxml.json"
+
     # Git (delta pager — included from ~/.gitconfig, doesn't touch user identity)
     "git/delta.gitconfig|~/.config/git/delta-foxml.gitconfig"
 
