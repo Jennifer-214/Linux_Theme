@@ -1,0 +1,132 @@
+#!/usr/bin/env python3
+"""fox-llm-discover — find the newest tool-capable Ollama models that fit this machine.
+
+Reads ollama.com's "newest, tools" listing, expands each model's plain size tags
+(26b, 26b-a4b, e4b, latest — not quant/format/cloud variants), sizes each one from
+the registry manifest, and prints the best local fit per model as TSV:
+
+    ref  size_gb  class  abliterated_ref
+
+class: moe   — mixture-of-experts: agent speed on CPU. Detected from the tag (-aNb), the
+               GGUF arch on the tag page (qwen3moe, lfm2moe, gpt-oss, …), or — for arches
+               that hide it (laguna) — a family page that says MoE and has no -aNb tags
+       small — dense, ≤ --small-gb: usable
+       slow  — dense and bigger: fits in RAM but too slow for agent loops
+abliterated_ref is huihui_ai/<name>-abliterated:<tag> when it exists, else "-".
+"""
+import argparse
+import concurrent.futures as cf
+import json
+import re
+import sys
+import urllib.request
+
+MANIFEST = "application/vnd.docker.distribution.manifest.v2+json"
+PLAIN = re.compile(r"^(latest|e?\d+(\.\d+)?[mb](-a\d+(\.\d+)?b)?)$")
+MOE_TAG = re.compile(r"-a\d+(\.\d+)?b$")
+MOE_ARCH = ("gpt-oss",)  # MoE arches without "moe" in the name
+MOE_TEXT = re.compile(r"mixture[- ]of[- ]experts|\bMoE\b|\ba(?:ctiv(?:e|ated))\s+param", re.I)
+
+
+def get(url, accept=None, htmx=False):
+    headers = {"User-Agent": "fox-llm-discover"}
+    if accept:
+        headers["Accept"] = accept
+    if htmx:  # ollama.com serves page 2+ only as an htmx fragment
+        headers["HX-Request"] = "true"
+    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=20) as r:
+        return r.read().decode()
+
+
+def size_gb(ref):
+    name, tag = ref.split(":", 1)
+    if "/" not in name:
+        name = "library/" + name
+    try:
+        d = json.loads(get(f"https://registry.ollama.ai/v2/{name}/manifests/{tag}", MANIFEST))
+    except Exception:
+        return None
+    return sum(l["size"] for l in d.get("layers", [])) / 1e9
+
+
+def newest_models(pages):
+    names = []
+    for p in range(1, pages + 1):
+        html = get(f"https://ollama.com/search?c=tools&o=newest&page={p}", htmx=p > 1)
+        for n in re.findall(r'/library/([a-z0-9._-]+)(?=["\'\s>])', html):
+            if n not in names:
+                names.append(n)
+    return names
+
+
+def plain_tags(name):
+    html = get(f"https://ollama.com/library/{name}/tags")
+    tags = []
+    for t in re.findall(rf'href="/library/{re.escape(name)}:([a-z0-9._-]+)"', html):
+        if PLAIN.match(t) and t not in tags:
+            tags.append(t)
+    return tags
+
+
+def family_is_moe(name):
+    html = get(f"https://ollama.com/library/{name}")
+    text = re.sub(r"<[^>]+>", " ", re.sub(r"<script.*?</script>", "", html, flags=re.S))
+    return bool(MOE_TEXT.search(text))
+
+
+def tag_arch(name, tag):
+    html = get(f"https://ollama.com/library/{name}:{tag}")
+    text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html))
+    m = re.search(r"model arch (\S+)", text)
+    return m.group(1) if m else ""
+
+
+def classify(name, tag, gb, small_gb, moe_family):
+    arch = tag_arch(name, tag)
+    if MOE_TAG.search(tag) or "moe" in arch or arch in MOE_ARCH:
+        return "moe"
+    # Family pages mention sibling MoE models (granite3.1-dense); only trust the text
+    # when the arch is unfamiliar and nothing says dense.
+    if moe_family and "dense" not in name and not re.match(r"(llama|qwen\d*|gemma\d*|granite|mistral|phi\d*)$", arch):
+        return "moe"
+    return "small" if gb <= small_gb else "slow"
+
+
+def best_fit(name, max_gb, small_gb):
+    try:
+        tags = plain_tags(name)
+        # A family that marks its MoE tags (-aNb) has dense siblings: trust the tag.
+        moe_family = not any(MOE_TAG.search(t) for t in tags) and family_is_moe(name)
+    except Exception:
+        return None
+    sized = []
+    for t in tags:
+        gb = size_gb(f"{name}:{t}")
+        if gb is not None and gb <= max_gb:
+            sized.append((t, gb, classify(name, t, gb, small_gb, moe_family)))
+    if not sized:
+        return None
+    rank = {"moe": 2, "small": 1, "slow": 0}
+    # Best class first, then the biggest that still fits; prefer a named size over "latest".
+    t, gb, cls = max(sized, key=lambda s: (rank[s[2]], s[1], s[0] != "latest"))
+    abl = f"huihui_ai/{name}-abliterated:{t}"
+    return f"{name}:{t}", gb, cls, abl if size_gb(abl) is not None else "-"
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--max-gb", type=float, default=24.0, help="largest model that fits RAM (default 24)")
+    ap.add_argument("--small-gb", type=float, default=9.0, help="dense models up to this are usable (default 9)")
+    ap.add_argument("--pages", type=int, default=1, help="listing pages to scan (default 1, ~20 models)")
+    a = ap.parse_args()
+
+    names = newest_models(a.pages)
+    with cf.ThreadPoolExecutor(8) as ex:
+        results = list(ex.map(lambda n: best_fit(n, a.max_gb, a.small_gb), names))
+    for r in results:  # keep ollama.com's newest-first order
+        if r:
+            print(f"{r[0]}\t{r[1]:.1f}\t{r[2]}\t{r[3]}")
+
+
+if __name__ == "__main__":
+    sys.exit(main())

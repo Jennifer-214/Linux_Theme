@@ -45,6 +45,30 @@ inline bool up_to_date(const std::filesystem::path& dst,
     return read_file(dst) == expected;
 }
 
+// tmp + rename in dst's directory, parents created. A reader never sees a
+// half-written file, and a failed write leaves the old one in place.
+inline bool write_atomic(const std::filesystem::path& dst, const std::string& body) {
+    std::error_code ec;
+    std::filesystem::create_directories(dst.parent_path(), ec);
+    std::filesystem::path tmp = dst;
+    tmp += ".foxin-tmp";
+    {
+        std::ofstream o(tmp);
+        o << body;
+        o.close();
+        if (!o) {
+            std::filesystem::remove(tmp, ec);
+            return false;
+        }
+    }
+    std::filesystem::rename(tmp, dst, ec);
+    if (ec) {
+        std::filesystem::remove(tmp, ec);
+        return false;
+    }
+    return true;
+}
+
 }  // namespace fox_install::idem
 
 #endif

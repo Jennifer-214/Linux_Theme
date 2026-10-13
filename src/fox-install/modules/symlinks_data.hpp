@@ -154,6 +154,15 @@ inline constexpr Mapping SHARED_MAPPINGS[] = {
     { "bin/fask",                     "~/.local/bin/fask" },
     { "bin/fhelp",                    "~/.local/bin/fhelp" },
 
+    // Local-LLM stack: daily refresh/sync + discovery, one shared model list,
+    // pi extensions (permission gate, notifications, per-project skills).
+    { "bin/fox-llm-update",           "~/.local/bin/fox-llm-update" },
+    { "bin/fox-llm-discover",         "~/.local/bin/fox-llm-discover" },
+    { "llm/core-models.txt",          "~/.config/foxml/llm/core-models.txt" },
+    { "pi/extensions/fox-guard.ts",   "~/.pi/agent/extensions/fox-guard.ts" },
+    { "pi/extensions/fox-notify.ts",  "~/.pi/agent/extensions/fox-notify.ts" },
+    { "pi/extensions/claude-skills.ts","~/.pi/agent/extensions/claude-skills.ts" },
+
     // Distro profile
     { "foxml-profile.json",           "~/.local/share/foxml/distro/foxml-profile.json" },
 

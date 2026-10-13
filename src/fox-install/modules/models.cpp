@@ -1,11 +1,13 @@
-// modules/models.cpp — pull a tier-appropriate Ollama model stack.
+// modules/models.cpp — pull the RAM-tiered Ollama model stack.
 //
-// install.sh has its own bash hardware tiering in fox-hw-info; we
-// inline a minimal RAM+VRAM tier picker here so the C++ orchestrator
-// doesn't shell out to a bash helper. Logic intentionally matches
-// install.sh's case "$TIER" block so users get the same model set.
+// The list lives in shared/llm/core-models.txt, shared with fox-llm-update's
+// daily refresh so first install and the timer pull the same set. Tier is
+// RAM-only: the agent models are ~3B-active MoE that run on the CPU, so VRAM
+// no longer gates them. Also installs fox-llm-update.timer.
 
 #include "../core/context.hpp"
+#include "../core/hardware.hpp"
+#include "../core/idempotency.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
@@ -22,44 +24,75 @@ namespace fox_install {
 
 namespace {
 
-// MemTotal (KB) → GB, ceiling.
-int read_ram_gb() {
-    std::ifstream f("/proc/meminfo");
-    std::string key;
-    long kb = 0;
-    while (f >> key) {
-        if (key == "MemTotal:") { f >> kb; break; }
-    }
-    return static_cast<int>((kb + 1024L * 1024L - 1) / (1024L * 1024L));
+const char* pick_tier(int ram_gb) {
+    if (ram_gb >= 32) return "large";
+    if (ram_gb >= 16) return "medium";
+    return "small";
 }
 
-// Best-effort: parse `nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits`.
-// Returns 0 when nvidia-smi isn't present (CPU-only / AMD / Intel).
-int read_vram_gb() {
-    std::string out;
-    if (!sh::capture({"nvidia-smi", "--query-gpu=memory.total",
-                      "--format=csv,noheader,nounits"}, out)) return 0;
-    long mb = std::strtol(out.c_str(), nullptr, 10);
-    return static_cast<int>((mb + 1023) / 1024);
+// Free space each tier needs before pulling (largest set + headroom).
+long tier_min_free_gb(const std::string& tier) {
+    if (tier == "large")  return 60;
+    if (tier == "medium") return 30;
+    return 15;
 }
 
-const char* pick_tier(int ram_gb, int vram_gb) {
-    // Same thresholds as install.sh / fox-hw-info.
-    if (ram_gb >= 32 && vram_gb >= 16) return "pro";
-    if (ram_gb >= 16 && vram_gb >= 8)  return "standard";
-    return "lite";
+// Lines under "# tier: <tier>" and "# tier: all" in core-models.txt.
+std::vector<std::string> models_for(const fs::path& list, const std::string& tier) {
+    std::vector<std::string> out;
+    std::ifstream f(list);
+    std::string line, block;
+    while (std::getline(f, line)) {
+        line.erase(0, line.find_first_not_of(" \t\r\n"));
+        auto last = line.find_last_not_of(" \t\r\n");
+        if (last != std::string::npos) line.erase(last + 1);
+        if (line.rfind("# tier:", 0) == 0) {
+            block = line.substr(7);
+            block.erase(0, block.find_first_not_of(' '));
+            continue;
+        }
+        if (line.empty() || line[0] == '#') continue;
+        if (block == tier || block == "all") out.push_back(line);
+    }
+    return out;
 }
 
-std::vector<std::string> models_for(const std::string& tier) {
-    if (tier == "lite") {
-        return {"qwen2.5:3b", "qwen2.5-coder:1.5b",
-                "qwen2.5-coder:3b", "qwen2.5-coder:7b"};
+constexpr const char* UPDATE_SERVICE_BODY =
+    "[Unit]\n"
+    "Description=fox-llm-update — refresh local models, notify on tool updates\n"
+    "After=network-online.target\n"
+    "\n"
+    "[Service]\n"
+    "Type=oneshot\n"
+    "ExecStart=%h/.local/bin/fox-llm-update --auto\n"
+    "Nice=10\n"
+    "IOSchedulingClass=idle\n";
+
+constexpr const char* UPDATE_TIMER_BODY =
+    "[Unit]\n"
+    "Description=Run fox-llm-update daily (downloads wait for a fast network)\n"
+    "\n"
+    "[Timer]\n"
+    "OnCalendar=daily\n"
+    "RandomizedDelaySec=30min\n"
+    "Persistent=true\n"
+    "\n"
+    "[Install]\n"
+    "WantedBy=timers.target\n";
+
+void install_update_timer(const Context& ctx) {
+    fs::path dir = ctx.config_home / "systemd/user";
+    if (!idem::write_atomic(dir / "fox-llm-update.service", UPDATE_SERVICE_BODY) ||
+        !idem::write_atomic(dir / "fox-llm-update.timer", UPDATE_TIMER_BODY)) {
+        ui::warn("could not write fox-llm-update units under " + dir.string());
+        return;
     }
-    if (tier == "standard") {
-        return {"qwen2.5:7b", "qwen2.5-coder:7b",
-                "qwen2.5-coder:14b", "qwen2.5-coder:32b"};
+    sh::run({"systemctl", "--user", "daemon-reload"});
+    if (sh::run({"systemctl", "--user", "enable", "--now", "fox-llm-update.timer"}) == 0) {
+        ui::ok("fox-llm-update.timer enabled (daily model refresh + update notices)");
+    } else {
+        ui::warn("could not enable fox-llm-update.timer via systemctl --user");
     }
-    return {"qwen2.5:14b", "qwen2.5-coder:14b", "qwen2.5-coder:32b"};
 }
 
 std::vector<std::string> discover_custom_models(const Context& ctx) {
@@ -124,21 +157,23 @@ void run_models(Context& ctx) {
     // chat sibling and intermediate sizes). Skip cleanly with a clear
     // message rather than letting `ollama pull` half-finish and leave
     // a partial model on disk.
+    int ram  = hw::ram_gb();
+    std::string tier = pick_tier(ram);
+    ui::ok("RAM: " + std::to_string(ram) + "GB, VRAM: " +
+           std::to_string(hw::vram_gb()) + "GB — tier: " + tier);
+
     long free_gb = home_free_gb(ctx);
-    if (free_gb >= 0 && free_gb < 25) {
-        ui::warn("$HOME has only " + std::to_string(free_gb) +
-                 " GB free — models module needs 25+ GB. Skipping.");
+    long need_gb = tier_min_free_gb(tier);
+    if (free_gb >= 0 && free_gb < need_gb) {
+        ui::warn("$HOME has only " + std::to_string(free_gb) + " GB free — the " + tier +
+                 " tier needs " + std::to_string(need_gb) + "+ GB. Skipping.");
         ui::substep("free space then re-run: fox-install --only models");
         return;
     }
 
-    int ram  = read_ram_gb();
-    int vram = read_vram_gb();
-    std::string tier = pick_tier(ram, vram);
-    ui::ok("RAM: " + std::to_string(ram) + "GB, VRAM: " +
-           std::to_string(vram) + "GB — tier: " + tier);
-
-    auto models = models_for(tier);
+    fs::path list = ctx.shared_dir / "llm/core-models.txt";
+    auto models = models_for(list, tier);
+    if (models.empty()) ui::warn("no models read from " + list.string());
     // Embedding model (mxbai-embed-large) is pulled by the `ai` module —
     // it's a hard dep of fox-intel / findex / fask, so it lives there
     // alongside Ollama itself rather than being duplicated here.
@@ -198,6 +233,12 @@ void run_models(Context& ctx) {
         }
     }
     ui::ok(std::to_string(models.size()) + " models requested");
+
+    if (sh::dry_run()) {
+        ui::substep("[dry-run] would write + enable fox-llm-update.{service,timer}");
+        return;
+    }
+    install_update_timer(ctx);
 }
 
 }  // namespace fox_install

@@ -1,7 +1,15 @@
 #!/bin/bash
 # fox-ai-bench — Benchmark local Ollama models
 
-MODELS=("qwen2.5-coder:7b" "qwen2.5-coder:14b" "qwen2.5-coder:32b")
+# The machine's wanted set (shared/llm/core-models.txt tier + personal extras);
+# models that aren't installed are skipped below. Override: fox-ai-bench m1 m2 …
+if (( $# )); then
+    MODELS=("$@")
+elif command -v fox-llm-update >/dev/null; then
+    mapfile -t MODELS < <(fox-llm-update --wanted)
+else
+    MODELS=("qwen2.5-coder:7b" "qwen2.5-coder:14b")
+fi
 PROMPT="Write a C++ function to merge two JSON objects using nlohmann/json."
 
 echo "🦊 FoxML AI Benchmark"

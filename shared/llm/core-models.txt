@@ -1,0 +1,28 @@
+# core-models.txt — the one model list for the local-LLM stack.
+#
+# Read by fox-install's `models` module (first install) and by `fox-llm-update`
+# (daily timer), so the two never disagree. Blocks are picked by system RAM:
+#   tier: large   ≥ 32 GB   tier: medium  ≥ 16 GB   tier: small   < 16 GB
+#   tier: all     every machine (small helpers other tools depend on)
+#
+# Agent coding needs ~3B-active mixture-of-experts models: with little VRAM
+# they run on the CPU, where a dense 14B+ model manages ~2 tok/s and blocks
+# every other request while it generates. Personal / abliterated extras go in
+# ~/.config/foxml/models.private or ~/code/custom_models/*.txt, not here.
+
+# tier: large
+qwen3-coder:30b
+gpt-oss:20b
+
+# tier: medium
+gpt-oss:20b
+qwen2.5-coder:7b
+
+# tier: small
+qwen2.5-coder:7b
+
+# tier: all
+qwen2.5:3b
+qwen2.5:7b
+qwen2.5-coder:1.5b
+qwen2.5-coder:3b

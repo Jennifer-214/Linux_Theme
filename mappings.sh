@@ -144,6 +144,13 @@ SHARED_MAPPINGS=(
     "bin/findex|~/.local/bin/findex"
     "bin/fask|~/.local/bin/fask"
     "bin/fhelp|~/.local/bin/fhelp"
+    # Local-LLM stack (fox-llm-update, discovery, model list, pi extensions)
+    "bin/fox-llm-update|~/.local/bin/fox-llm-update"
+    "bin/fox-llm-discover|~/.local/bin/fox-llm-discover"
+    "llm/core-models.txt|~/.config/foxml/llm/core-models.txt"
+    "pi/extensions/fox-guard.ts|~/.pi/agent/extensions/fox-guard.ts"
+    "pi/extensions/fox-notify.ts|~/.pi/agent/extensions/fox-notify.ts"
+    "pi/extensions/claude-skills.ts|~/.pi/agent/extensions/claude-skills.ts"
     "bin/fox-word-count|~/.local/bin/fox-word-count"
     "bin/pob|~/.local/bin/pob"
 

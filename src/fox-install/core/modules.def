@@ -138,7 +138,7 @@ FOX_MODULE_FULL( vault,     run_vault,         "--vault",        "Install fox-va
                  /*root*/ false, /*gfx*/ false, /*net*/ false,
                  state::check_vault )
 FOX_MODULE( ai,              run_ai,                "--ai",              "Install Ollama + OpenCode + aider + embedding model", false )
-FOX_MODULE( ollama_hardening,run_ollama_hardening,  "--ollama-harden",   "systemd sandbox drop-in for ollama.service",       true  )
+FOX_MODULE( ollama_hardening,run_ollama_hardening,  "--ollama-harden",   "ollama.service sandbox + context-window drop-ins", true  )
 FOX_MODULE( models,          run_models,            "--models",          "Pull tier-appropriate Ollama chat/coder stack",    false )
 FOX_MODULE( opencode,        run_configure_opencode,"--opencode-config", "Generate ~/.config/opencode/{opencode,tui}.json",  true  )
 FOX_MODULE( github,      run_github,        "--github",      "gh CLI auth + clone workspace repos",              false )

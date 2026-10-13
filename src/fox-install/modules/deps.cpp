@@ -244,20 +244,22 @@ void run_deps(Context& ctx) {
             else           ui::warn("Oh My Zsh install failed — zsh_plugins will skip");
         }
 
-        // ─── NPM globals (Gemini + Claude CLIs) ────────────────────
-        // Idempotent: only installs ones missing from PATH.
+        // ─── NPM globals (Gemini + Claude CLIs, pi coding agent) ──
+        // Idempotent: only installs ones missing from PATH. pi is the local-model
+        // agent; its config comes from `fox-llm-update --sync` (opencode module).
         if (have_cmd("npm")) {
             std::vector<std::string> npm_globals;
             if (!have_cmd("gemini")) npm_globals.push_back("@google/gemini-cli");
             if (!have_cmd("claude")) npm_globals.push_back("@anthropic-ai/claude-code");
+            if (!have_cmd("pi"))     npm_globals.push_back("@mariozechner/pi-coding-agent");
             if (!npm_globals.empty()) {
-                ui::substep("installing CLI tools (npm -g): " +
-                            (npm_globals.size() == 1 ? npm_globals[0] :
-                             npm_globals[0] + " + " + npm_globals[1]));
+                std::string names;
+                for (auto& g : npm_globals) names += (names.empty() ? "" : " + ") + g;
+                ui::substep("installing CLI tools (npm -g): " + names);
                 std::vector<std::string> argv = {"sudo", "npm", "install", "-g"};
                 for (auto& g : npm_globals) argv.push_back(g);
                 if (sh::run(argv) == 0) {
-                    ui::ok("Gemini CLI + Claude Code ready");
+                    ui::ok("CLI tools ready: " + names);
                 } else {
                     ui::warn("npm install failed — see output above");
                 }

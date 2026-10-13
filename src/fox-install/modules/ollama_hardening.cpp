@@ -11,12 +11,19 @@
 //   * PrivateDevices toggles based on GPU presence — true is strongest
 //     but strips /dev/nvidia* and /dev/dri/*, killing GPU inference.
 //
-// Auto-reverts the drop-in if ollama fails to start after applying
+// Second drop-in, foxml-context.conf: OLLAMA_CONTEXT_LENGTH tiered by RAM and
+// OLLAMA_KEEP_ALIVE=10m. Coding agents send ~15k-token prompts (opencode's system
+// prompt + tools alone) that ollama's default window silently truncates, and an
+// agent's dozens of requests per task would otherwise reload the model each time.
+// An existing foxml-context.conf that sets both is left alone — it may be hand-tuned.
+//
+// Auto-reverts what it wrote if ollama fails to start after applying
 // (catches misconfigured directives without leaving the service dead).
 
 #include <cstdlib>
 #include <unistd.h>
 #include "../core/context.hpp"
+#include "../core/hardware.hpp"
 #include "../core/idempotency.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
@@ -28,6 +35,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -50,6 +58,47 @@ bool dir_exists(const fs::path& p) {
     return fs::is_directory(p, ec) && !ec;
 }
 
+std::string context_body(int ram_gb) {
+    int window = ram_gb >= 32 ? 32768 : ram_gb >= 16 ? 16384 : 8192;
+    return "# foxml-managed — model context window + keep-alive for coding agents.\n"
+           "# Revert: sudo rm /etc/systemd/system/ollama.service.d/foxml-context.conf\n"
+           "[Service]\n"
+           "Environment=\"OLLAMA_CONTEXT_LENGTH=" + std::to_string(window) + "\"\n"
+           "Environment=\"OLLAMA_KEEP_ALIVE=10m\"\n";
+}
+
+bool context_configured(const fs::path& p) {
+    std::string body = idem::read_file(p);
+    return body.find("OLLAMA_CONTEXT_LENGTH") != std::string::npos &&
+           body.find("OLLAMA_KEEP_ALIVE") != std::string::npos;
+}
+
+// Root-owned 0644 file via `sudo install`. mkstemp avoids a /tmp symlink-race
+// against a predictable name.
+bool install_root_file(const fs::path& dst, const std::string& body) {
+    char tmpl[] = "/tmp/foxin-ollama-XXXXXX";
+    int fd = ::mkstemp(tmpl);
+    if (fd < 0) {
+        ui::err("could not create temp file for " + dst.filename().string());
+        return false;
+    }
+    ssize_t w = ::write(fd, body.data(), body.size());
+    ::close(fd);
+    if (w != static_cast<ssize_t>(body.size())) {
+        ui::err("short write to tempfile for " + dst.filename().string());
+        ::unlink(tmpl);
+        return false;
+    }
+    int rc = sh::run({"sudo", "install", "-m", "0644", "-o", "root", "-g", "root",
+                      tmpl, dst.string()});
+    ::unlink(tmpl);
+    if (rc != 0) {
+        ui::err("could not install " + dst.string());
+        return false;
+    }
+    return true;
+}
+
 }  // namespace
 
 void run_ollama_hardening(Context& ctx) {
@@ -62,8 +111,8 @@ void run_ollama_hardening(Context& ctx) {
 
     if (sh::dry_run()) {
         ui::substep("[dry-run] would write /etc/systemd/system/ollama.service.d/"
-                    "foxml-hardening.conf, daemon-reload, restart ollama, "
-                    "and auto-revert if restart fails");
+                    "foxml-hardening.conf + foxml-context.conf (unless already set), "
+                    "daemon-reload, restart ollama, and auto-revert if restart fails");
         return;
     }
 
@@ -142,8 +191,12 @@ void run_ollama_hardening(Context& ctx) {
     fs::path drop_in_dir = "/etc/systemd/system/ollama.service.d";
     fs::path drop_in     = drop_in_dir / "foxml-hardening.conf";
 
-    if (idem::up_to_date(drop_in, body.str(), ctx.force_reapply)) {
-        ui::skipped("ollama hardening drop-in already up to date (GPU: " + has_gpu + ")");
+    fs::path context_in  = drop_in_dir / "foxml-context.conf";
+    bool want_hardening  = !idem::up_to_date(drop_in, body.str(), ctx.force_reapply);
+    bool want_context    = !context_configured(context_in);
+
+    if (!want_hardening && !want_context) {
+        ui::skipped("ollama drop-ins already up to date (GPU: " + has_gpu + ")");
         return;
     }
 
@@ -151,48 +204,38 @@ void run_ollama_hardening(Context& ctx) {
         ui::err("sudo install -d failed");
         return;
     }
-    // mkstemp avoids a /tmp symlink-race against a predictable name.
-    char tmpl[] = "/tmp/foxin-ollama-XXXXXX";
-    int fd = ::mkstemp(tmpl);
-    if (fd < 0) {
-        ui::err("could not create temp file for ollama hardening drop-in");
-        return;
+    std::vector<fs::path> written;
+    if (want_hardening) {
+        if (!install_root_file(drop_in, body.str())) return;
+        written.push_back(drop_in);
     }
-    std::string body_s = body.str();
-    ssize_t w = ::write(fd, body_s.data(), body_s.size());
-    ::close(fd);
-    if (w != static_cast<ssize_t>(body_s.size())) {
-        ui::err("short write to ollama hardening tempfile");
-        ::unlink(tmpl);
-        return;
+    if (want_context) {
+        if (install_root_file(context_in, context_body(hw::ram_gb()))) written.push_back(context_in);
     }
-    int rc = sh::run({"sudo", "install", "-m", "0644", "-o", "root", "-g", "root",
-                      tmpl, drop_in.string()});
-    ::unlink(tmpl);
-    if (rc != 0) {
-        ui::err("could not install " + drop_in.string());
-        return;
-    }
+    if (written.empty()) return;
     sh::run({"sh", "-c", "sudo systemctl daemon-reload >/dev/null 2>&1 || true"});
 
     if (!systemctl_active("ollama")) {
-        ui::ok("hardening drop-in installed (will apply on next start; tuned for " +
+        ui::ok("ollama drop-ins installed (will apply on next start; tuned for " +
                has_gpu + " GPU)");
         return;
     }
 
     if (sh::run({"sh", "-c", "sudo systemctl restart ollama >/dev/null 2>&1"}) != 0) {
-        ui::warn("restart failed — leaving drop-in in place");
+        ui::warn("restart failed — leaving drop-ins in place");
         return;
     }
     std::this_thread::sleep_for(std::chrono::seconds(2));
     if (systemctl_active("ollama")) {
-        ui::ok("ollama hardened + restarted (PrivateDevices=" +
-               std::string(private_devices ? "true" : "false") + ", " +
-               (rw_paths.empty() ? "default RW" : rw_paths + " RW") + ")");
+        if (want_hardening) {
+            ui::ok("ollama hardened + restarted (PrivateDevices=" +
+                   std::string(private_devices ? "true" : "false") + ", " +
+                   (rw_paths.empty() ? "default RW" : rw_paths + " RW") + ")");
+        }
+        if (want_context) ui::ok("ollama context window + keep-alive set (foxml-context.conf)");
     } else {
-        ui::warn("ollama failed to start after hardening — auto-reverting drop-in");
-        sh::run({"sudo", "rm", "-f", drop_in.string()});
+        ui::warn("ollama failed to start after the drop-ins — auto-reverting them");
+        for (auto& f : written) sh::run({"sudo", "rm", "-f", f.string()});
         sh::run({"sh", "-c", "sudo systemctl daemon-reload >/dev/null 2>&1 || true"});
         sh::run({"sh", "-c", "sudo systemctl restart ollama >/dev/null 2>&1 || true"});
         ui::substep("investigate with: systemctl status ollama -l");
