@@ -128,7 +128,6 @@ SHARED_MAPPINGS=(
     "zsh_conda.zsh|~/.config/zsh/conda.zsh"
     "zsh_history_scrub.zsh|~/.config/zsh/history-scrub.zsh"
     "bin/fox-aider|~/.local/bin/fox-aider"
-    "bin/fox-ai-swap|~/.local/bin/fox-ai-swap"
     "bin/fox-wallpaper|~/.local/bin/fox-wallpaper"
     "bin/fox-ai-status|~/.local/bin/fox-ai-status"
     "bin/fox-ai-commit|~/.local/bin/fox-ai-commit"
@@ -141,8 +140,6 @@ SHARED_MAPPINGS=(
     "bin/fox-distro-guide|~/.local/bin/fox-distro-guide"
     "bin/fox-distro-build|~/.local/bin/fox-distro-build"
     "bin/fox-distro-flash|~/.local/bin/fox-distro-flash"
-    "bin/findex|~/.local/bin/findex"
-    "bin/fask|~/.local/bin/fask"
     "bin/fhelp|~/.local/bin/fhelp"
     # Local-LLM stack (fox-llm-update, discovery, model list, pi extensions)
     "bin/fox-llm-update|~/.local/bin/fox-llm-update"

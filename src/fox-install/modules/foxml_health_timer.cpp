@@ -14,6 +14,7 @@
 // graphical session (e.g. inside the wizard during a fresh boot).
 
 #include "../core/context.hpp"
+#include "../core/idempotency.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
@@ -63,28 +64,6 @@ constexpr const char* TIMER_BODY =
     "[Install]\n"
     "WantedBy=timers.target\n";
 
-bool write_user_file(const fs::path& dst, const std::string& body) {
-    std::error_code ec;
-    fs::create_directories(dst.parent_path(), ec);
-    fs::path tmp = dst;
-    tmp += ".foxin-tmp";
-    {
-        std::ofstream o(tmp);
-        o << body;
-        o.close();
-        if (!o) {
-            fs::remove(tmp, ec);
-            return false;
-        }
-    }
-    fs::rename(tmp, dst, ec);
-    if (ec) {
-        fs::remove(tmp, ec);
-        return false;
-    }
-    return true;
-}
-
 }  // namespace
 
 void run_foxml_health_timer(Context& ctx) {
@@ -100,13 +79,13 @@ void run_foxml_health_timer(Context& ctx) {
         return;
     }
 
-    if (!write_user_file(svc, SERVICE_BODY)) {
+    if (!idem::write_atomic(svc, SERVICE_BODY)) {
         ui::warn("could not write " + svc.string());
         return;
     }
     ui::ok(svc.string());
 
-    if (!write_user_file(timer, TIMER_BODY)) {
+    if (!idem::write_atomic(timer, TIMER_BODY)) {
         ui::warn("could not write " + timer.string());
         return;
     }

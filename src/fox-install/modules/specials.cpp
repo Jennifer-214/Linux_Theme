@@ -14,6 +14,7 @@
 // mappings.sh::install_specials line-for-line.
 
 #include "../core/context.hpp"
+#include "../core/idempotency.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 #include "../../fox-common/json.hpp"
@@ -85,31 +86,12 @@ std::pair<int, std::string> sensitive_mutation(const fs::path& p) {
 }
 
 // ─── shared helpers ─────────────────────────────────────────────────
-// Atomic JSON write: tmp + rename so a crash mid-write can't leave the
-// caller's settings file half-written (parsers would then refuse to
-// load and the IDE/CLI loses prior state). We also explicitly check
-// the stream state after close — without that check a disk-full
-// failure would silently produce an empty/partial tmp, and the
-// subsequent rename would clobber a working config with garbage.
+// Atomic JSON write (idem::write_atomic: tmp + rename, stream state checked)
+// so a crash or disk-full mid-write can't leave the caller's settings file
+// half-written — parsers would refuse it and the IDE/CLI would lose its state.
 void write_json_atomic(const fs::path& dst, const json& body) {
-    fs::path tmp = dst;
-    tmp += ".foxin-tmp";
-    std::error_code ec;
-    {
-        std::ofstream o(tmp);
-        o << body.dump(2);
-        o.close();
-        if (!o) {
-            ui::warn("write to " + tmp.string() + " failed mid-stream — "
-                     "leaving " + dst.string() + " untouched");
-            fs::remove(tmp, ec);
-            return;
-        }
-    }
-    fs::rename(tmp, dst, ec);
-    if (ec) {
-        ui::warn("atomic JSON write to " + dst.string() + " failed: " + ec.message());
-        fs::remove(tmp, ec);
+    if (!idem::write_atomic(dst, body.dump(2))) {
+        ui::warn("atomic JSON write to " + dst.string() + " failed — left untouched");
     }
 }
 

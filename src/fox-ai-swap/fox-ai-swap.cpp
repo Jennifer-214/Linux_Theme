@@ -19,6 +19,23 @@
 using json = nlohmann::json;
 namespace fs = std::filesystem;
 
+// tmp + rename: opencode never reads a half-written config, and a failed
+// write leaves the old one in place.
+static bool save_config(const fs::path& path, const std::string& body) {
+    fs::path tmp = path;
+    tmp += ".swap-tmp";
+    {
+        std::ofstream o(tmp);
+        o << body;
+        o.close();
+        if (!o) { std::error_code ec; fs::remove(tmp, ec); return false; }
+    }
+    std::error_code ec;
+    fs::rename(tmp, path, ec);
+    if (ec) { fs::remove(tmp, ec); return false; }
+    return true;
+}
+
 struct ModelOption {
     std::string label;
     std::string tag;
@@ -129,7 +146,10 @@ int main(int argc, char** argv) {
         }
         
         config["model"] = target;
-        std::ofstream o(config_path); o << config.dump(2);
+        if (!save_config(config_path, config.dump(2))) {
+            std::cerr << "  ! could not write " << config_path << std::endl;
+            return 1;
+        }
         unload_model(current);
         std::cout << "\033[1;32m  + Global AI model switched to: " << target << "\033[0m" << std::endl;
         return 0;
@@ -190,7 +210,10 @@ int main(int argc, char** argv) {
             target_model = "ollama/" + target_model;
         }
         config["model"] = target_model;
-        std::ofstream o(config_path); o << config.dump(2);
+        if (!save_config(config_path, config.dump(2))) {
+            std::cerr << "  ! could not write " << config_path << std::endl;
+            return 1;
+        }
         unload_model(current);
         std::cout << "\n\033[1;32m  + Global AI model switched to: " << target_model << "\033[0m" << std::endl;
     }

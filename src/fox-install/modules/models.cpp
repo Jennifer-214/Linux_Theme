@@ -217,14 +217,22 @@ void run_models(Context& ctx) {
 
         bool success = false;
         std::string attempted;
-        if (!has_namespace && !has_host) {
-            attempted = pull_target;
-            ui::substep("pulling " + attempted);
-            if (sh::run({"ollama", "pull", attempted}) == 0) success = true;
-        } else {
+        if (has_host) {
             attempted = hf_target;
             ui::substep("pulling from Hugging Face: " + attempted);
             if (sh::run({"ollama", "pull", attempted}) == 0) success = true;
+        } else {
+            attempted = pull_target;
+            ui::substep("pulling " + attempted);
+            if (sh::run({"ollama", "pull", attempted}) == 0) success = true;
+            // A namespaced ref is usually a community model on the Ollama registry
+            // (huihui_ai/…); only when the registry has no such model is it tried
+            // as a Hugging Face GGUF repo.
+            if (!success && has_namespace) {
+                attempted = hf_target;
+                ui::substep("not on the Ollama registry — trying Hugging Face: " + attempted);
+                if (sh::run({"ollama", "pull", attempted}) == 0) success = true;
+            }
         }
 
         if (!success) {
