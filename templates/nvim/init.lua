@@ -740,6 +740,17 @@ local plugins = {
               pi = { cmd = "pi", args = {}, description = "pi — the local coding agent (ollama)" },
             },
           },
+          -- #symdeps in a chat: fox-symdeps' facts for what is under the cursor — a struct's layout (size, padding,
+          -- cache-line straddles), or a function's fields read / written and its callers. Only where the plugin is.
+          shared = vim.fn.isdirectory(vim.fn.expand("~/code/tick-trader-percore-workspace/tools/plugins/fox-symdeps.nvim")) == 1 and {
+            editor_context = {
+              symdeps = {
+                path = "fox-symdeps.codecompanion",
+                description = "fox-symdeps facts for the symbol under the cursor (struct layout · fields touched · callers)",
+                opts = { contains_code = true },
+              },
+            },
+          } or nil,
         },
         display = {
           chat = {
