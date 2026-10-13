@@ -111,13 +111,18 @@ void run_ai(Context& ctx) {
         }
     }
 
-    // 4. OpenCode (chat-style CLI client that uses Ollama)
+    // 4. OpenCode (chat-style CLI client that uses Ollama). The official [extra]
+    // package first: the upstream `curl | bash` installer drops a second copy in
+    // ~/.opencode/bin that shadows pacman's and never updates with the system.
     if (have("opencode")) {
         ui::skipped("OpenCode already installed");
     } else {
         ui::substep("installing OpenCode");
-        install_via_aur_or_script("opencode-bin",
-            "https://opencode.ai/install", "bash");
+        if (sh::pacman({"opencode"}) != 0) {
+            ui::warn("pacman install of opencode failed — trying AUR / upstream script");
+            install_via_aur_or_script("opencode-bin",
+                "https://opencode.ai/install", "bash");
+        }
     }
 
     // 5. aider — git-native pair programmer. Complements OpenCode for

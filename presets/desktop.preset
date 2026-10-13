@@ -20,3 +20,11 @@ gaming = on
 # a later --full, so it's a hard opt-out):
 # mac_random = off
 # safe_updates = off
+
+# The local-AI coding stack: Ollama + OpenCode + aider, the RAM-tiered model set,
+# the GitHub workspace clone, and fox-symdeps.nvim + foxtag + its pi wiring
+# (private repos — skipped quietly without access).
+ai = on
+models = on
+github = on
+fox_symdeps = on

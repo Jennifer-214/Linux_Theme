@@ -142,6 +142,7 @@ FOX_MODULE( ollama_hardening,run_ollama_hardening,  "--ollama-harden",   "ollama
 FOX_MODULE( models,          run_models,            "--models",          "Pull tier-appropriate Ollama chat/coder stack",    false )
 FOX_MODULE( opencode,        run_configure_opencode,"--opencode-config", "Generate ~/.config/opencode/{opencode,tui}.json",  true  )
 FOX_MODULE( github,      run_github,        "--github",      "gh CLI auth + clone workspace repos",              false )
+FOX_MODULE( fox_symdeps, run_fox_symdeps,  "--fox-symdeps",  "fox-symdeps.nvim + foxtag + pi wiring from your private repos (best-effort)", true )
 //   gaming — opt-in Steam + [multilib]. Lifted out of `deps` so the base
 //   install no longer force-enables a 32-bit repo or pulls a game client.
 //   Default-off; needs root (pacman.conf + pacman) and network (download).

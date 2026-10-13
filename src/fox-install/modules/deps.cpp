@@ -89,6 +89,11 @@ void run_deps(Context& ctx) {
         // Build tools
         "cmake", "base-devel",
 
+        // C/C++ intelligence (fox-symdeps.nvim): clangd + clang-format, a compile DB
+        // for Make projects (bear), the plugin's python adapters (yaml), and
+        // perf — `perf c2c` feeds the plugin's measured false-sharing marks.
+        "clang", "bear", "python-yaml", "perf",
+
         // CLI tools
         "zsh", "fzf", "eza", "bat", "yazi", "btop", "fd", "zoxide",
         "jq", "git-delta", "github-cli", "pacman-contrib",
