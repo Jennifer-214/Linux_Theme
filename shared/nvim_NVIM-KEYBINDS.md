@@ -474,11 +474,28 @@ Press **Space** and wait — which-key pops up showing all leader binds and thei
 | `:Copilot auth` | Log in to GitHub |
 | `:Copilot status` | Check connection status |
 
-Ghost-text suggestions appear automatically when inline mode is active. Use `Ctrl+l` to accept the full suggestion, or `Ctrl+;` / `Ctrl+'` to accept partially.
+Ghost-text suggestions appear automatically when inline mode is active. Use `Ctrl+l` to accept the full suggestion, or `Ctrl+;` / `Ctrl+'` to accept partially. The same keys accept the **local** model's suggestions when that is on (below).
 
-| `Space Ci` | Toggle between inline ghost-text and cmp menu mode |
+| `Space tp` | Toggle between inline ghost-text and cmp menu mode |
+| `Space ta` | Completion engine: Copilot ⇄ the local model (one at a time) |
 
-**Modes:** Copilot can run in two modes — **inline** (ghost-text ahead of cursor, accept with `Ctrl+l`) or **cmp menu** (suggestions appear in the autocomplete popup alongside LSP). Toggle with `Space Ci`.
+**Modes:** Copilot can run in two modes — **inline** (ghost-text ahead of cursor, accept with `Ctrl+l`) or **cmp menu** (suggestions appear in the autocomplete popup alongside LSP). Toggle with `Space tp`.
+
+### Local AI (ollama — CodeCompanion · pi · local completion)
+Everything here runs on your machine through ollama; nothing leaves it.
+
+| Key | Action |
+|-----|--------|
+| `Space cc` | AI actions menu (CodeCompanion) |
+| `Space cC` | Toggle the AI chat (qwen2.5-coder:7b) |
+| `ga` (visual) | Add the selection to the chat |
+| `Space ci` | Inline edit — ask for a change to the selection / at the cursor (qwen2.5-coder:3b); it comes back as a diff to accept |
+| `Space cp` | pi — the local coding agent, in a split (multi-file work; pi's own model, `~/.pi/agent/settings.json`) |
+| `Space ta` | Ghost-text completion: Copilot ⇄ local (qwen2.5-coder:1.5b) |
+
+In the chat, `#{buffer}` shares the current file, `#{diagnostics}` its errors; `/file` adds another file.
+The GPU has 4 GB: a 3B model fits whole (fast), a 7B spills a little to the CPU; the 30B-A3B models (pi's) run
+from RAM and are the best at multi-step agent work.
 
 ### Claude Code (AI Terminal)
 | Key | Action |
@@ -589,7 +606,12 @@ Quick reference of all `Space` binds:
 | `g d` | Git diff view |
 | `g h` | Git file history |
 | `g q` | Close diff view |
-| `C i` | Copilot toggle inline/cmp |
+| `t p` | Copilot toggle inline/cmp |
+| `t a` | Completion: Copilot ⇄ local model |
+| `c c` | AI actions (CodeCompanion, local) |
+| `c C` | AI chat (local) |
+| `c i` | AI inline edit (local) |
+| `c p` | pi agent (local) |
 | `C t` | Claude toggle terminal |
 | `C s` | Claude send selection |
 | `a a` | AI ask |

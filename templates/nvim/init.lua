@@ -700,17 +700,21 @@ local plugins = {
     dependencies = { "nvim-lua/plenary.nvim" },
   },
 
-  -- CodeCompanion (Inline AI, Chat, and Agents) — DISABLED: debloat, only Copilot in regular use.
+  -- CodeCompanion — chat, inline edits and agents on the LOCAL models (ollama). The GPU has 4 GB: a 3B model fits whole
+  -- (fast — inline edits), a 7B spills a little to the CPU (chat and refactors); the 14B default was too slow here.
+  -- pi runs as its CLI agent (:CodeCompanionCLI, <leader>cp) — agentic multi-file work on pi's own model (its settings:
+  -- ~/.pi/agent). Edits come back as a diff to accept. Config in the v19 shape (`interactions`, `adapters.http`).
   {
     "olimorris/codecompanion.nvim",
-    enabled = false,
     -- keys live here (not as global maps) so they only exist while the plugin is enabled
     keys = {
       { "<leader>cc", "<cmd>CodeCompanionActions<cr>", mode = { "n", "v" }, desc = "AI Actions (CodeCompanion)" },
       { "<leader>cC", "<cmd>CodeCompanionChat Toggle<cr>", mode = { "n", "v" }, desc = "AI Chat Toggle" },
       { "ga", "<cmd>CodeCompanionChat Add<cr>", mode = "v", desc = "Add selection to AI chat" },
-      { "<leader>ci", "<cmd>CodeCompanion<cr>", desc = "AI Inline (CodeCompanion)" },
+      { "<leader>ci", "<cmd>CodeCompanion<cr>", mode = { "n", "v" }, desc = "AI Inline (CodeCompanion)" },
+      { "<leader>cp", "<cmd>CodeCompanionCLI<cr>", mode = { "n", "v" }, desc = "AI agent: pi (CodeCompanion CLI)" },
     },
+    cmd = { "CodeCompanion", "CodeCompanionChat", "CodeCompanionActions", "CodeCompanionCLI" },
     dependencies = {
       "nvim-lua/plenary.nvim",
       "nvim-treesitter/nvim-treesitter",
@@ -718,20 +722,24 @@ local plugins = {
     config = function()
       require("codecompanion").setup({
         adapters = {
-          ollama = function()
-            return require("codecompanion.adapters").extend("ollama", {
-              schema = {
-                model = {
-                  default = get_global_model("qwen2.5-coder:14b"), -- Use global or smart default
-                },
-              },
-            })
-          end,
+          http = {
+            ollama = function()
+              return require("codecompanion.adapters").extend("ollama", {
+                schema = { model = { default = "qwen2.5-coder:7b" } },
+              })
+            end,
+          },
         },
-        strategies = {
-          chat = { adapter = "ollama" },
-          inline = { adapter = "ollama" },
-          agent = { adapter = "ollama" },
+        interactions = {
+          chat = { adapter = { name = "ollama", model = "qwen2.5-coder:7b" } },
+          inline = { adapter = { name = "ollama", model = "qwen2.5-coder:3b" } },
+          cmd = { adapter = { name = "ollama", model = "qwen2.5-coder:3b" } },
+          cli = {
+            agent = "pi",
+            agents = {
+              pi = { cmd = "pi", args = {}, description = "pi — the local coding agent (ollama)" },
+            },
+          },
         },
         display = {
           chat = {
@@ -755,14 +763,9 @@ local plugins = {
         enabled = {{SHOW_WELCOME}},
         auto_trigger = {{SHOW_WELCOME}},
         debounce = 150,
-        keymap = {
-          accept = "<C-l>",       -- Ctrl+l to accept
-          accept_word = "<C-;>",  -- Ctrl+; to accept word
-          accept_line = "<C-'>",  -- Ctrl+' to accept line
-          next = "<C-]>",
-          prev = "<C-k>",
-          dismiss = "<C-j>",
-        },
+        -- the keys (Ctrl+l accept, Ctrl+; word, Ctrl+' line, Ctrl+] / Ctrl+k cycle, Ctrl+j dismiss) are mapped once, below,
+        -- for whichever engine shows a suggestion — Copilot or the local one (minuet)
+        keymap = { accept = false, accept_word = false, accept_line = false, next = false, prev = false, dismiss = false },
       },
       panel = { enabled = false },
       filetypes = {
@@ -772,6 +775,31 @@ local plugins = {
         ["."] = false,
       },
     },
+  },
+
+  -- Local completion (minuet.nvim) — Copilot-style ghost text from a LOCAL model through ollama's fill-in-the-middle
+  -- endpoint. qwen2.5-coder:1.5b fits the 4 GB GPU with room to spare (fast enough to type against); `:Minuet` can
+  -- point it at 3b. Off until <leader>ta switches from Copilot to it — the two never show at once.
+  {
+    "milanglacier/minuet-ai.nvim",
+    event = "InsertEnter",
+    config = function()
+      require("minuet").setup({
+        provider = "openai_fim_compatible",
+        n_completions = 1,
+        context_window = 1024,
+        provider_options = {
+          openai_fim_compatible = {
+            api_key = "TERM", -- ollama needs no key; minuet wants a set variable's name
+            name = "Ollama",
+            end_point = "http://localhost:11434/v1/completions",
+            model = "qwen2.5-coder:1.5b",
+            optional = { max_tokens = 64, top_p = 0.9 },
+          },
+        },
+        virtualtext = { auto_trigger_ft = {}, keymap = {} }, -- keys: the shared dispatcher below
+      })
+    end,
   },
 
   -- Avante (Cursor-style AI panel) — DISABLED: relying on Copilot for inline suggestions instead.
@@ -2324,6 +2352,52 @@ map("n", "<C-1>", function() harpoon:list():select(1) end, { desc = "Harpoon 1" 
 map("n", "<C-2>", function() harpoon:list():select(2) end, { desc = "Harpoon 2" })
 map("n", "<C-3>", function() harpoon:list():select(3) end, { desc = "Harpoon 3" })
 map("n", "<C-4>", function() harpoon:list():select(4) end, { desc = "Harpoon 4" })
+
+-- Ghost-text completion: ONE set of keys for whichever engine is showing a suggestion — Copilot, or the local model
+-- (minuet). With no suggestion showing, the key does what it would anyway.
+local function ghost(copilot_fn, minuet_fn, key)
+  return function()
+    local okm, mv = pcall(require, "minuet.virtualtext")
+    if okm and mv.action.is_visible() then mv.action[minuet_fn](); return "" end
+    local okc, cs = pcall(require, "copilot.suggestion")
+    if okc and cs.is_visible() then cs[copilot_fn](); return "" end
+    return vim.keycode(key)
+  end
+end
+map("i", "<C-l>", ghost("accept", "accept", "<C-l>"), { expr = true, desc = "Accept the suggestion" })
+map("i", "<C-;>", ghost("accept_word", "accept_line", "<C-;>"), { expr = true, desc = "Accept a word (local: a line)" })
+map("i", "<C-'>", ghost("accept_line", "accept_line", "<C-'>"), { expr = true, desc = "Accept a line" })
+map("i", "<C-]>", ghost("next", "next", "<C-]>"), { expr = true, desc = "Next suggestion" })
+map("i", "<C-k>", ghost("prev", "prev", "<C-k>"), { expr = true, desc = "Previous suggestion" })
+map("i", "<C-j>", ghost("dismiss", "dismiss", "<C-j>"), { expr = true, desc = "Dismiss the suggestion" })
+
+-- Copilot ⇄ local completion: one engine at a time (their ghost text would overlap)
+vim.g.fox_completion = vim.g.fox_completion or "copilot"
+local function local_completion(on, buf)
+  local okm, mv = pcall(require, "minuet.virtualtext")
+  if not okm then return end
+  vim.api.nvim_buf_call(buf or 0, function()
+    if on then mv.action.enable_auto_trigger() else mv.action.disable_auto_trigger() end
+  end)
+end
+vim.api.nvim_create_autocmd("BufEnter", {
+  group = vim.api.nvim_create_augroup("FoxLocalCompletion", { clear = true }),
+  callback = function(ev) if vim.g.fox_completion == "local" then local_completion(true, ev.buf) end end,
+})
+map("n", "<leader>ta", function()
+  require("lazy").load({ plugins = { "minuet-ai.nvim", "copilot.lua" } })
+  if vim.g.fox_completion == "local" then
+    vim.g.fox_completion = "copilot"
+    for _, b in ipairs(vim.api.nvim_list_bufs()) do if vim.api.nvim_buf_is_loaded(b) then local_completion(false, b) end end
+    vim.cmd("Copilot enable")
+    vim.notify("Completion: Copilot", vim.log.levels.INFO)
+  else
+    vim.g.fox_completion = "local"
+    vim.cmd("Copilot disable")
+    for _, b in ipairs(vim.api.nvim_list_bufs()) do if vim.api.nvim_buf_is_loaded(b) then local_completion(true, b) end end
+    vim.notify("Completion: local (qwen2.5-coder:1.5b via ollama)", vim.log.levels.INFO)
+  end
+end, { desc = "Completion: Copilot ⇄ local model" })
 
 -- Copilot: toggle inline ghost-text vs cmp-menu suggestions
 map("n", "<leader>tp", function()

@@ -324,6 +324,22 @@ Inside Trouble:
 
 Everything you type, delete, paste or run (`.`, macros) happens at every cursor.
 
+### Local AI (ollama — CodeCompanion · pi · local completion)
+Everything here runs on your machine through ollama; nothing leaves it.
+
+| Key | Action |
+|-----|--------|
+| `Space cc` | AI actions menu (CodeCompanion) |
+| `Space cC` | Toggle the AI chat (qwen2.5-coder:7b) |
+| `ga` (visual) | Add the selection to the chat |
+| `Space ci` | Inline edit — ask for a change to the selection / at the cursor (qwen2.5-coder:3b); it comes back as a diff to accept |
+| `Space cp` | pi — the local coding agent, in a split (multi-file work; pi's own model, `~/.pi/agent/settings.json`) |
+| `Space ta` | Ghost-text completion: Copilot ⇄ local (qwen2.5-coder:1.5b) |
+
+In the chat, `#{buffer}` shares the current file, `#{diagnostics}` its errors; `/file` adds another file.
+The GPU has 4 GB: a 3B model fits whole (fast), a 7B spills a little to the CPU; the 30B-A3B models (pi's) run
+from RAM and are the best at multi-step agent work.
+
 ### Harpoon (File Bookmarks)
 | Key | Action |
 |-----|--------|
