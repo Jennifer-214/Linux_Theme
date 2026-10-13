@@ -84,7 +84,7 @@ void run_deps(Context& ctx) {
         "nodejs", "npm", "tree-sitter-cli",
 
         // Bar, launcher, notifications
-        "waybar", "rofi-wayland", "mako", "dunst",
+        "waybar", "rofi", "mako", "dunst",   // rofi-wayland was merged into rofi
 
         // Build tools
         "cmake", "base-devel",
@@ -93,6 +93,14 @@ void run_deps(Context& ctx) {
         // for Make projects (bear), the plugin's python adapters (yaml), and
         // perf — `perf c2c` feeds the plugin's measured false-sharing marks.
         "clang", "bear", "python-yaml", "perf",
+
+        // Called by the shipped fox-* commands and scripts, otherwise only ever
+        // present by accident of another package's deps: ssh / ssh-keygen (the
+        // github module, fox-spa), lsusb (fox-usb), bwrap (fox-sandbox), pass
+        // (fox vault), fwknop + qrencode (fox-spa), pactl (waybar battery),
+        // python3 (fox-llm-*, findex helpers), less (fox-sandbox pager).
+        "openssh", "usbutils", "bubblewrap", "pass", "fwknop", "qrencode",
+        "libpulse", "python", "less",
 
         // CLI tools
         "zsh", "fzf", "eza", "bat", "yazi", "btop", "fd", "zoxide",

@@ -1,9 +1,8 @@
 // modules/amd_gpu.cpp — AMD GPU userspace.
 //
-// vulkan-radeon (Vulkan ICD) + libva-mesa-driver (VA-API). mesa-vdpau
-// used to be a separate package but was folded into mesa/libva-mesa-driver
-// upstream — pacman -Ss mesa-vdpau returns nothing on current Arch.
-// Dropped from the install list to avoid a "target not found" failure.
+// vulkan-radeon (Vulkan ICD) + mesa (VA-API). mesa-vdpau and later
+// libva-mesa-driver were both folded into mesa upstream — neither exists
+// on current Arch, and an unknown name fails the whole pacman transaction.
 //
 // Safe to run alongside the Intel and NVIDIA modules — Mesa supports
 // multi-vendor in a single userspace.
@@ -21,7 +20,7 @@ void run_amd_gpu(Context& ctx) {
         return;
     }
     if (sh::run({"sh", "-c",
-                 "pacman -Qi vulkan-radeon libva-mesa-driver >/dev/null 2>&1"}) == 0
+                 "pacman -Qi vulkan-radeon mesa >/dev/null 2>&1"}) == 0
         && !ctx.force_reapply) {
         ui::skipped("AMD userspace stack already installed");
         return;
@@ -30,7 +29,7 @@ void run_amd_gpu(Context& ctx) {
         ui::err("sudo cache cold — `sudo -v` first");
         return;
     }
-    int rc = sh::pacman({"vulkan-radeon", "libva-mesa-driver"});
+    int rc = sh::pacman({"vulkan-radeon", "mesa"});   // libva-mesa-driver was merged into mesa
     if (rc == 0) ui::ok("AMD userspace stack installed");
     else         ui::warn("pacman failed — packages may be partial");
 }
