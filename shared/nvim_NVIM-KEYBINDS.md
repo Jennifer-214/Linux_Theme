@@ -227,6 +227,26 @@ How to use: Mark 3-4 files you're bouncing between. `Space ha` to add, `Ctrl+1-4
 
 Pattern: `ys{motion}{char}` = add, `cs{old}{new}` = change, `ds{char}` = delete.
 
+### Multicursor (multicursor.nvim)
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` | Add a cursor on the line above / below |
+| `Ctrl+n` | Add a cursor at the next match of the word (or the selection) |
+| `Space kn` / `Space kN` | Add at the next / previous match |
+| `Space ks` / `Space kS` | Skip the next / previous match |
+| `Space ka` | Add a cursor at every match in the file |
+| `Space kj` / `Space kk` | Skip the line below / above |
+| `Space kl{motion}` | One cursor per line (`Space klip` = each line of the paragraph; in visual: each selected line) |
+| `Space kr` | Bring back the cursors you just cleared |
+| `Space k=` | Line the cursors up in one column |
+| `Ctrl+q` | Add / remove a cursor here (then move, and add another) |
+| `Ctrl+click` | Add / remove a cursor at the click |
+| `←` / `→` *(with cursors)* | Make the previous / next cursor the main one |
+| `Space kx` *(with cursors)* | Delete the main cursor |
+| `Esc` *(with cursors)* | Clear the cursors (or turn them back on after `Ctrl+q`) |
+
+Everything you type, delete, paste or run (`.`, macros) happens at every cursor.
+
 ### LSP
 | Key | Action |
 |-----|--------|

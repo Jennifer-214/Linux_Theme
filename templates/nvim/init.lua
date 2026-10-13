@@ -176,6 +176,7 @@ local plugins = {
         { "<leader>f", group = "find" },
         { "<leader>g", group = "git" },
         { "<leader>h", group = "harpoon" },
+        { "<leader>k", group = "multicursor" },
         { "<leader>m", group = "tasks" },
         { "<leader>n", group = "swap params" },
         { "<leader>p", group = "projects" },
@@ -596,6 +597,54 @@ local plugins = {
 
   -- Surround (ysiw" to wrap word in quotes, cs"' to change, ds" to delete)
   { "kylechui/nvim-surround", version = "*", event = "VeryLazy", opts = {} },
+
+  -- Multicursor (multicursor.nvim): type on several lines at once. Its own keys sit around the existing ones —
+  -- <leader>n / s / m / a / x, <C-Up> / <C-Down>, <A-j> / <A-k> and visual ga are taken — under <leader>k ("kursors").
+  -- <Left> / <Right> / <leader>kx / <Esc> are a layer: they act only while there are several cursors.
+  {
+    "jake-stewart/multicursor.nvim",
+    branch = "1.0",
+    event = "VeryLazy",
+    config = function()
+      local mc = require("multicursor-nvim")
+      mc.setup()
+      local set = function(mode, lhs, rhs, desc) vim.keymap.set(mode, lhs, rhs, { desc = desc }) end
+      set({ "n", "x" }, "<Up>", function() mc.lineAddCursor(-1) end, "Cursor: add on the line above")
+      set({ "n", "x" }, "<Down>", function() mc.lineAddCursor(1) end, "Cursor: add on the line below")
+      set({ "n", "x" }, "<C-n>", function() mc.matchAddCursor(1) end, "Cursor: add at the next match")
+      set({ "n", "x" }, "<leader>kn", function() mc.matchAddCursor(1) end, "Add at the next match")
+      set({ "n", "x" }, "<leader>kN", function() mc.matchAddCursor(-1) end, "Add at the previous match")
+      set({ "n", "x" }, "<leader>ks", function() mc.matchSkipCursor(1) end, "Skip the next match")
+      set({ "n", "x" }, "<leader>kS", function() mc.matchSkipCursor(-1) end, "Skip the previous match")
+      set({ "n", "x" }, "<leader>ka", mc.matchAllAddCursors, "Add at every match in the file")
+      set({ "n", "x" }, "<leader>kj", function() mc.lineSkipCursor(1) end, "Skip the line below")
+      set({ "n", "x" }, "<leader>kk", function() mc.lineSkipCursor(-1) end, "Skip the line above")
+      set({ "n", "x" }, "<leader>kl", mc.addCursorOperator, "One per line (a motion, or the selection)")
+      set("n", "<leader>kr", mc.restoreCursors, "Bring back the cleared cursors")
+      set("n", "<leader>k=", mc.alignCursors, "Line the cursors up in one column")
+      set({ "n", "x" }, "<C-q>", mc.toggleCursor, "Cursor: add / remove here")
+      set("n", "<C-LeftMouse>", mc.handleMouse, "Cursor: add / remove at the click")
+      set("n", "<C-LeftDrag>", mc.handleMouseDrag, "Cursor: drag")
+      set("n", "<C-LeftRelease>", mc.handleMouseRelease, "Cursor: drop")
+      mc.addKeymapLayer(function(layer)
+        layer({ "n", "x" }, "<Left>", mc.prevCursor)
+        layer({ "n", "x" }, "<Right>", mc.nextCursor)
+        layer({ "n", "x" }, "<leader>kx", mc.deleteCursor)
+        layer("n", "<Esc>", function()
+          if not mc.cursorsEnabled() then mc.enableCursors() else mc.clearCursors() end
+        end)
+      end)
+      local hl = vim.api.nvim_set_hl
+      hl(0, "MultiCursorCursor", { fg = P.bg_deep, bg = P.peach })
+      hl(0, "MultiCursorVisual", { link = "Visual" })
+      hl(0, "MultiCursorSign", { fg = P.peach })
+      hl(0, "MultiCursorMainSign", { fg = P.blush })
+      hl(0, "MultiCursorMatchPreview", { link = "Search" })
+      hl(0, "MultiCursorDisabledCursor", { fg = P.bg_deep, bg = P.surface })
+      hl(0, "MultiCursorDisabledVisual", { link = "Visual" })
+      hl(0, "MultiCursorDisabledSign", { fg = P.surface })
+    end,
+  },
 
   -- Beacon (flash cursor on jump for visual tracking)
   {
@@ -2086,17 +2135,26 @@ vim.keymap.set("n", "<leader>nA", function() ts_swap.swap_previous("@parameter.i
 -- pinned as the top context line in every header. Other preprocessor blocks (#ifdef MULTICORE_TUI,
 -- #if defined(__AVX512F__)) still show. Patches only that one pattern of nvim-treesitter-context's C query
 -- (C++ inherits it), and only when the patched query parses, so a plugin update can't break context.
-for _, lang in ipairs({ "c", "cpp" }) do
-  local parts = {}
-  for _, f in ipairs(vim.treesitter.query.get_files(lang, "context")) do
-    parts[#parts + 1] = table.concat(vim.fn.readfile(f), "\n")
-  end
-  local src, hits = table.concat(parts, "\n"):gsub("(%(preproc_ifdef%s+name:%s*%(identifier%))",
-    '%1 @_guard (#not-lua-match? @_guard "_H[P]*_*$")', 1)
-  if hits == 1 and pcall(vim.treesitter.query.parse, lang, src) then
-    vim.treesitter.query.set(lang, "context", src)
-  end
-end
+-- Run at the first C / C++ buffer, not at startup: compiling the C++ query costs ~80 ms (measured
+-- 2026-10-04), which every launch paid, even for a file that isn't C or C++.
+local context_patched = {}
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = { "c", "cpp" },
+  callback = function(ev)
+    local lang = ev.match
+    if context_patched[lang] then return end
+    context_patched[lang] = true
+    local parts = {}
+    for _, f in ipairs(vim.treesitter.query.get_files(lang, "context")) do
+      parts[#parts + 1] = table.concat(vim.fn.readfile(f), "\n")
+    end
+    local src, hits = table.concat(parts, "\n"):gsub("(%(preproc_ifdef%s+name:%s*%(identifier%))",
+      '%1 @_guard (#not-lua-match? @_guard "_H[P]*_*$")', 1)
+    if hits == 1 and pcall(vim.treesitter.query.parse, lang, src) then
+      vim.treesitter.query.set(lang, "context", src)
+    end
+  end,
+})
 
 -- Mason (LSP installer). clangd comes from the system (pacman `clang`, fox-install --cpp-pro) so the
 -- editor matches the clang++/clang-tidy toolchain; Mason installs it only on a machine without one.
@@ -2140,7 +2198,18 @@ cmp.setup({
     end, { "i", "s" }),
   }),
   sources = cmp.config.sources({ { name = "nvim_lsp" }, { name = "luasnip" } },
-    { { name = "buffer" }, { name = "path" } }),
+    { { name = "buffer" }, {
+      name = "path",
+      -- only where a path is actually being typed: inside quotes (#include "engine/…", "assets/…") or after
+      -- ./ ../ ~/ — never on a bare `/` (division, a `//` comment), which listed /bin /dev /etc … every time
+      entry_filter = function(_, ctx)
+        local before = ctx.cursor_before_line
+        local _, dq = before:gsub('"', "")
+        local _, sq = before:gsub("'", "")
+        if dq % 2 == 1 or sq % 2 == 1 then return true end
+        return before:match("[~%.]+/[^%s]*$") ~= nil
+      end,
+    } }),
 })
 
 -- === LSP (Neovim 0.11+ native API) ===
