@@ -84,7 +84,11 @@ opencode() {
     sudo systemctl start ollama
     sleep 2
   fi
-  command opencode "$@"
+  # opencode is a Bun binary: it unpacks native .so/.node files into $TMPDIR
+  # and dlopen()s them, which noexec /tmp (noexec_tmp module) refuses.
+  local tmp="${XDG_CACHE_HOME:-$HOME/.cache}/opencode-tmp"
+  mkdir -p "$tmp"
+  TMPDIR="$tmp" command opencode "$@"
 }
 
 # FoxML short-hand
