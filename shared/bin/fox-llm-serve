@@ -9,9 +9,10 @@
 # server is `llama`; turbo = the TurboQuant fork (llama_turbo module, ~/.local/opt) on :8081 serving
 # `llama-turbo` roles — its compressed KV cache generates faster deep into a long context.
 #
-# Roles: ~/.config/foxml/llm/roles.conf (this machine only), else ~/code/custom_models/roles.conf (yours —
-# the private custom_models repo a reinstall clones back), else roles.default (deployed from Linux_Theme
-# shared/llm/); the installer never touches the first two. Model files come from Ollama's store — no
+# Roles: ~/.config/foxml/llm/roles.conf, else ~/code/custom_models/roles.conf (yours — the private
+# custom_models repo a reinstall clones back), else roles.default (deployed from Linux_Theme shared/llm/).
+# The installer links the first to the second, so tools that only know the old path read yours too; a
+# real file there overrides it on one machine. Model files come from Ollama's store — no
 # second download — and a preset section is named after the Ollama model, so clients use the same name
 # on either server.
 # Hugging Face GGUFs (llama.cpp's own format; fox-llm-update downloads them from gguf-models.txt)
@@ -123,7 +124,11 @@ role_flags() {
   local role=$1 slots=$2
   case $role in
     fim)   ctx_flags 8192 "${slots:-1}";  echo "load-on-startup = true"; echo "cache-ram = 256" ;;
+    # quick: explain cards, inline edits — short jobs where hidden reasoning only adds minutes on a small
+    # GPU (fask sat 9 min on it). Thinking off at the server, for every client; Qwen's template switch,
+    # ignored by templates without one. The agent role keeps thinking.
     quick) ctx_flags 32768 "${slots:-2}"; echo "cache-ram = 1024"
+           echo 'chat-template-kwargs = {"enable_thinking": false}'
            if (( RAM_GB < 48 )); then echo "sleep-idle-seconds = 600"; fi ;;
     agent) ctx_flags 131072 "${slots:-$(( RAM_GB >= 48 ? 2 : 1 ))}"
            echo "cache-ram = 2048"; echo "sleep-idle-seconds = 3600" ;;

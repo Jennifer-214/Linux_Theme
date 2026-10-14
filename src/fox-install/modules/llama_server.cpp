@@ -106,6 +106,21 @@ void run_llama_server(Context& ctx) {
     }
     ui::ok("llama-cpp installed" + (backend.empty() ? " (CPU backend)" : " with " + backend));
 
+    // Your roles live in your private custom_models repo (cloned by `github`, earlier). Link the old
+    // path to them — tools that read only ~/.config/foxml/llm/roles.conf (the fox-symdeps explain cards)
+    // see yours too. A real file there is a one-machine override: left alone.
+    {
+        fs::path mine = ctx.home / "code/custom_models/roles.conf";
+        fs::path old = ctx.config_home / "foxml/llm/roles.conf";
+        std::error_code ec;
+        if (fs::exists(mine, ec) && !fs::exists(fs::symlink_status(old, ec))) {
+            fs::create_directories(old.parent_path(), ec);
+            fs::create_symlink(mine, old, ec);
+            if (ec) ui::warn("could not link " + old.string() + " → " + mine.string() + ": " + ec.message());
+            else ui::ok("roles: " + old.string() + " → your custom_models/roles.conf");
+        }
+    }
+
     // Before the router's first start, so its first preset already sees the models. Best-effort: the
     // server still installs without it, and the warning carries the two commands to run by hand.
     const std::string user = login_name();
