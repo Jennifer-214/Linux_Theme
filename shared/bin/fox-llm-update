@@ -15,7 +15,7 @@
 #                             across reboots (user service fox-llm-pull), then stop
 #
 # Wanted models = shared/llm/core-models.txt (RAM tier) + ~/.config/foxml/llm/extra-models.txt
-# (personal, Ollama registry refs). Binaries are never auto-upgraded: the timer only notifies.
+# (personal, Ollama registry refs, in priority order; a "-model" line skips a core model). Binaries are never auto-upgraded: the timer only notifies.
 # --sync only ever ADDS: keys you set in opencode.json / ~/.pi/agent/*.json are left alone.
 set -uo pipefail
 
@@ -54,6 +54,11 @@ ram_tier() {
   if (( ram >= 32 )); then echo large; elif (( ram >= 16 )); then echo medium; else echo small; fi
 }
 
+# "-model" lines in extra-models.txt: core models this machine should not pull.
+skipped_models() {
+  [[ -f $EXTRA_LIST ]] && awk '/^[[:space:]]*-/ { sub(/^[[:space:]]*-/, ""); printf "%s ", $1 }' "$EXTRA_LIST"
+}
+
 wanted_models() {
   local tier; tier=$(ram_tier)
   {
@@ -66,7 +71,10 @@ wanted_models() {
     if [[ -f $EXTRA_LIST ]]; then
       awk '!/^[[:space:]]*(#|$)/ { print $1 }' "$EXTRA_LIST"
     fi
-  } | awk '!seen[$0]++'
+  } | awk -v skip="$(skipped_models)" '
+      BEGIN { n = split(skip, s, " "); for (i = 1; i <= n; i++) drop[s[i]] = 1 }
+      /^-/ { next }
+      !($0 in drop) && !seen[$0]++'
 }
 
 # On the registry? Custom `ollama create` models are not, and are skipped.
@@ -350,33 +358,39 @@ EOF
     && log "queue running — progress: tail -f ${XDG_CACHE_HOME:-$HOME/.cache}/fox-llm-update/queue.log"
 }
 
-# The service body. Passes over the wanted list until every model is in: within a pass each
-# model gets QUEUE_TRIES attempts a minute apart, and one that runs out is retried next pass
-# (an update or a better network may be what it needed). An Ollama too old for the registry
-# (HTTP 412) stops the queue with a notice; the next `fox-llm-update` restarts it.
+# The service body. Downloads the first wanted model that is still missing, then re-reads
+# the list — so reordering or parking models in extra-models.txt takes effect at the next
+# model, not after a whole pass. Each model gets QUEUE_TRIES attempts a minute apart; one that
+# runs out is set aside for the rest of the pass and retried in the next one. An Ollama too
+# old for the registry (HTTP 412) stops the queue with a notice; `fox-llm-update` restarts it.
 do_queue_run() {
-  local m try out have missing pass=0
+  local m cand try out have pass=1 set_aside=" "
   while :; do
-    pass=$((pass + 1)) missing=0
-    while read -r m; do
-      have=$(ollama list 2>/dev/null | awk 'NR>1{print $1}')
-      grep -qxF "$m" <<<"$have" && continue
-      echo "=== $(date '+%a %H:%M') $m (pass $pass)"
-      for (( try = 1; try <= QUEUE_TRIES; try++ )); do
-        out=$(pull_quiet "$m") && { echo "  done $(date '+%a %H:%M')"; sync_configs; continue 2; }
-        if grep -q 'newer version of Ollama' <<<"$out"; then
-          local server; server=$(ver_ollama_server)
-          warn "ollama server ${server:-?} is too old for the registry — run: fox-llm-update"
-          command -v notify-send >/dev/null && notify-send -a fox-llm "🦊 Model downloads paused" \
-            "Ollama ${server:-?} is too old for the registry. Run: fox-llm-update"
-          exit 1
-        fi
-        echo "  attempt $try failed: $(tail -1 <<<"$out")"; sleep 60
-      done
-      missing=$((missing + 1))
+    have=$(ollama list 2>/dev/null | awk 'NR>1{print $1}')
+    m=""
+    while read -r cand; do
+      grep -qxF "$cand" <<<"$have" && continue
+      [[ $set_aside == *" $cand "* ]] && continue
+      m=$cand; break
     done < <(wanted_models)
-    (( missing == 0 )) && break
-    echo "--- pass $pass left $missing model(s) missing; next pass in 10 min"; sleep 600
+    if [[ -z $m ]]; then
+      [[ $set_aside == " " ]] && break                  # everything wanted is installed
+      echo "--- pass $pass left missing:$set_aside— next pass in 10 min"; sleep 600
+      set_aside=" " pass=$((pass + 1)); continue
+    fi
+    echo "=== $(date '+%a %H:%M') $m (pass $pass)"
+    for (( try = 1; try <= QUEUE_TRIES; try++ )); do
+      out=$(pull_quiet "$m") && { echo "  done $(date '+%a %H:%M')"; sync_configs; continue 2; }
+      if grep -q 'newer version of Ollama' <<<"$out"; then
+        local server; server=$(ver_ollama_server)
+        warn "ollama server ${server:-?} is too old for the registry — run: fox-llm-update"
+        command -v notify-send >/dev/null && notify-send -a fox-llm "🦊 Model downloads paused" \
+          "Ollama ${server:-?} is too old for the registry. Run: fox-llm-update"
+        exit 1
+      fi
+      echo "  attempt $try failed: $(tail -1 <<<"$out")"; sleep 60
+    done
+    set_aside+="$m "
   done
   echo "ALL_DONE $(date)"
   systemctl --user disable fox-llm-pull.service 2>/dev/null || true

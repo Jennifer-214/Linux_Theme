@@ -185,6 +185,12 @@ class SyncTest(unittest.TestCase):
         both = self.run_script("--wanted", meminfo_gb=32).split()
         self.assertIn("laguna-xs-2.1:latest", both)
         self.assertEqual(len(both), len(set(both)))                # no duplicates
+        extra.write_text("-gpt-oss:20b\nqwen3.6:35b-a3b\n")         # "-x" skips a core model
+        skipped = self.run_script("--wanted", meminfo_gb=32).split()
+        self.assertNotIn("gpt-oss:20b", skipped)
+        self.assertNotIn("-gpt-oss:20b", skipped)
+        self.assertIn("qwen3-coder:30b", skipped)
+        self.assertEqual(skipped[-1], "qwen3.6:35b-a3b")           # extras keep their order, after core
 
 
 if __name__ == "__main__":
