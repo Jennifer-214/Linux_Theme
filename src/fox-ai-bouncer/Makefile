@@ -12,7 +12,9 @@ all: $(BIN)
 $(BIN): fox-ai-bouncer.cpp $(FOX_INTEL_LIB)
 	$(CXX) $(CXXFLAGS) fox-ai-bouncer.cpp -o $@ -L$(FOX_INTEL_DIR) -lfox-intel $(LIBS)
 
-$(FOX_INTEL_LIB):
+# FORCE: fox-intel's own Makefile decides whether the library is stale. Without it, a library that
+# merely exists counts as current, and a fox-intel change never reached the installed tools.
+$(FOX_INTEL_LIB): FORCE
 	$(MAKE) -C $(FOX_INTEL_DIR) libfox-intel.a
 
 install: all
@@ -21,4 +23,6 @@ install: all
 clean:
 	@rm -f $(BIN)
 
-.PHONY: all install clean
+FORCE:
+
+.PHONY: all install clean FORCE
