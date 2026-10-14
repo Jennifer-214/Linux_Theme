@@ -330,9 +330,9 @@ Everything here runs on your machine through llama.cpp's router; nothing leaves 
 | Key | Action |
 |-----|--------|
 | `Space cc` | AI actions menu (CodeCompanion) |
-| `Space cC` | Toggle the AI chat (qwen2.5-coder:7b) |
+| `Space cC` | Toggle the AI chat (the roles file's quick model — qwen3.5:4b) |
 | `ga` (visual) | Add the selection to the chat |
-| `Space ci` | Inline edit — ask for a change to the selection / at the cursor (qwen2.5-coder:3b); it comes back as a diff to accept |
+| `Space ci` | Inline edit — ask for a change to the selection / at the cursor (the quick model); it comes back as a diff to accept |
 | `Space cp` | pi — the local coding agent, in a split (multi-file work; pi's own model, `~/.pi/agent/settings.json`) |
 | `Space ta` | Ghost-text completion: Copilot ⇄ local (qwen2.5-coder:1.5b) |
 

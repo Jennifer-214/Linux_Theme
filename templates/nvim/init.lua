@@ -140,7 +140,30 @@ local function get_global_model(fallback)
   return fallback
 end
 
-local global_model = get_global_model("qwen2.5-coder:7b")
+-- The model a ROLE names in the roles file — the same lookup as fox-llm-serve and fox-llm-run: the FIRST of
+-- $XDG_CONFIG_HOME/foxml/llm/roles.conf, ~/code/custom_models/roles.conf, $XDG_CONFIG_HOME/foxml/llm/roles.default that
+-- exists decides, read whole (no fall-through to the next file); a line is `role model [engine]`, `#` a comment. So a
+-- swap of CodeCompanion's model is one line there.
+local function role_model(role, fallback)
+  local xdg = vim.env.XDG_CONFIG_HOME
+  local llm_dir = ((xdg and xdg ~= "") and xdg or (vim.env.HOME .. "/.config")) .. "/foxml/llm"
+  for _, f in ipairs({ llm_dir .. "/roles.conf", vim.env.HOME .. "/code/custom_models/roles.conf", llm_dir .. "/roles.default" }) do
+    if vim.fn.filereadable(f) == 1 then
+      for _, l in ipairs(vim.fn.readfile(f)) do
+        local r, m = l:match("^%s*(%S+)%s+(%S+)")
+        if r == role and not r:match("^#") then return m end
+      end
+      return fallback
+    end
+  end
+  return fallback
+end
+
+-- the quick role: CodeCompanion's chat, inline edits and commands. Measured on her laptop 2026-10-14 (the same 1.5k-token
+-- C++ prompt + a compile-and-run C++ task): qwen3.5:4b passed and reads 147 tok/s; qwen2.5-coder:3b was faster but got
+-- the task wrong; qwen2.5-coder:7b passed but reads 89 tok/s
+local quick_model = role_model("quick", "qwen3.5:4b")
+local global_model = get_global_model(quick_model)
 
 local plugins = {
   { "nvim-lualine/lualine.nvim",           dependencies = { "nvim-tree/nvim-web-devicons" } },
@@ -701,8 +724,9 @@ local plugins = {
   },
 
   -- CodeCompanion — chat, inline edits and agents on the LOCAL models, through llama.cpp's router (127.0.0.1:8080,
-  -- every chat model it serves, by its name:tag; the downloads are Hugging Face GGUFs). The GPU has 4 GB: a 3B model fits whole
-  -- (fast — inline edits), a 7B spills a little to the CPU (chat and refactors); the 14B default was too slow here.
+  -- every chat model it serves, by its name:tag; the downloads are Hugging Face GGUFs). Chat, inline edits and commands
+  -- all use the roles file's quick model (quick_model above — one line there swaps it; qwen3.5:4b measured best on the
+  -- 4 GB GPU, 2026-10-14); the 14B was too slow here.
   -- pi runs as its CLI agent (:CodeCompanionCLI, <leader>cp) — agentic multi-file work on pi's own model (its settings:
   -- ~/.pi/agent). Edits come back as a diff to accept. Config in the v19 shape (`interactions`, `adapters.http`).
   {
@@ -731,15 +755,15 @@ local plugins = {
                 name = "llamacpp",
                 formatted_name = "llama.cpp",
                 env = { url = "http://127.0.0.1:8080", api_key = "none" },
-                schema = { model = { default = "qwen2.5-coder:7b" } },
+                schema = { model = { default = quick_model } },
               })
             end,
           },
         },
         interactions = {
-          chat = { adapter = { name = "llamacpp", model = "qwen2.5-coder:7b" } },
-          inline = { adapter = { name = "llamacpp", model = "qwen2.5-coder:3b" } },
-          cmd = { adapter = { name = "llamacpp", model = "qwen2.5-coder:3b" } },
+          chat = { adapter = { name = "llamacpp", model = quick_model } },
+          inline = { adapter = { name = "llamacpp", model = quick_model } },
+          cmd = { adapter = { name = "llamacpp", model = quick_model } },
           cli = {
             agent = "pi",
             agents = {
