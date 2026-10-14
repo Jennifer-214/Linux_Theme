@@ -15,7 +15,8 @@
 #                             across reboots (user service fox-llm-pull), then stop
 #
 # Wanted models = shared/llm/core-models.txt (RAM tier) + ~/.config/foxml/llm/extra-models.txt
-# (personal, Ollama registry refs, in priority order; a "-model" line skips a core model). Binaries are never auto-upgraded: the timer only notifies.
+# (personal, Ollama registry refs, in priority order — pulled before the core list;
+# a "-model" line skips a model). Binaries are never auto-upgraded: the timer only notifies.
 # --sync only ever ADDS: keys you set in opencode.json / ~/.pi/agent/*.json are left alone.
 set -uo pipefail
 
@@ -59,17 +60,19 @@ skipped_models() {
   [[ -f $EXTRA_LIST ]] && awk '/^[[:space:]]*-/ { sub(/^[[:space:]]*-/, ""); printf "%s ", $1 }' "$EXTRA_LIST"
 }
 
+# Personal extras first (they are deliberate picks, in priority order), then the
+# RAM-tiered core list; "-model" lines drop a model from both.
 wanted_models() {
   local tier; tier=$(ram_tier)
   {
+    if [[ -f $EXTRA_LIST ]]; then
+      awk '!/^[[:space:]]*(#|$)/ { print $1 }' "$EXTRA_LIST"
+    fi
     if [[ -f $CORE_LIST ]]; then
       awk -v t="$tier" '
         /^# tier:/ { b = $3; next }
         /^[[:space:]]*(#|$)/ { next }
         b == t || b == "all" { print $1 }' "$CORE_LIST"
-    fi
-    if [[ -f $EXTRA_LIST ]]; then
-      awk '!/^[[:space:]]*(#|$)/ { print $1 }' "$EXTRA_LIST"
     fi
   } | awk -v skip="$(skipped_models)" '
       BEGIN { n = split(skip, s, " "); for (i = 1; i <= n; i++) drop[s[i]] = 1 }

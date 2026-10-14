@@ -190,7 +190,7 @@ class SyncTest(unittest.TestCase):
         self.assertNotIn("gpt-oss:20b", skipped)
         self.assertNotIn("-gpt-oss:20b", skipped)
         self.assertIn("qwen3-coder:30b", skipped)
-        self.assertEqual(skipped[-1], "qwen3.6:35b-a3b")           # extras keep their order, after core
+        self.assertEqual(skipped[0], "qwen3.6:35b-a3b")            # extras first, in their order
 
 
 if __name__ == "__main__":
