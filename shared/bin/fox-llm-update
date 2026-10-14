@@ -1,66 +1,56 @@
 #!/usr/bin/env bash
-# fox-llm-update — keep the local-LLM stack (ollama, pi, opencode, models) current.
+# fox-llm-update — keep the local-LLM stack (models, pi, opencode) current.
 #
-#   fox-llm-update            full run: tools (sudo) + ollama context (sudo) + models + sync
+#   fox-llm-update            full run: pi (sudo, only when it has an update) + models + sync
 #   fox-llm-update --auto     what the daily timer runs: --check, --models, and --discover when
 #                             the last scan is over a week old. Downloads wait for a fast link.
-#   fox-llm-update --models   pull missing wanted models, refresh every registry model (no sudo)
+#   fox-llm-update --models   download missing wanted models, and newer uploads of the ones it downloaded
 #   fox-llm-update --check    report tool updates, desktop-notify if any (no sudo)
-#   fox-llm-update --discover find new tool-capable models that fit this box (fox-llm-discover),
-#                             auto-pull up to MAX_AUTO_PULLS new MoE ones + abliterated twins
+#   fox-llm-update --discover find new tool-capable models on Hugging Face that fit this box
+#                             (fox-llm-discover), download up to MAX_AUTO_PULLS new MoE ones + abliterated twins
 #   fox-llm-update --list     show the last discovery report
-#   fox-llm-update --wanted   print the models this machine should have (tiered list + extras)
-#   fox-llm-update --sync     wire installed models into opencode + pi; fill missing defaults;
-#                             have the llama.cpp router (the default server) reload its model list
-#   fox-llm-update --queue    slow link: download wanted models in the background, resuming
-#                             across reboots (user service fox-llm-pull), then stop
+#   fox-llm-update --wanted   the models this machine should have, one "name user/repo/file.gguf" each
+#   fox-llm-update --sync     wire the served models into opencode + pi; fill missing defaults;
+#                             have the llama.cpp router reload its model list
+#   fox-llm-update --queue    download wanted models in the background, resuming across reboots
+#                             (user service fox-llm-pull), then stop
 #
-# Wanted models, in download order: ~/.config/foxml/llm/extra-models.txt (this machine; a "-model"
-# line skips a model everywhere), then your personal lists — the ones fox-install's models step reads:
-# ~/.config/foxml/models.private, ~/code/*/foxml-models.txt, ~/code/custom_models/*.txt — then the RAM
-# tier of shared/llm/core-models.txt. fox-install queues them all here instead of pulling them itself. Binaries are never auto-upgraded: the timer only notifies.
-# Hugging Face GGUFs — llama.cpp's own format, for models whose Ollama copy llama.cpp can't load
-# (a fox-llm-serve load check says so): "name user/repo/file.gguf" lines in
-# ~/.config/foxml/llm/gguf-models.txt or, to survive a reinstall, ~/code/custom_models/gguf-models.conf
-# (not .txt: fox-install's models module reads those as Ollama lists). Downloaded before the Ollama
-# models, resumably, size + sha256 checked against Hugging Face's own record, into
-# ~/.local/share/fox-llm/gguf/<name>.gguf, where fox-llm-serve serves them under that name.
+# Every model is a Hugging Face GGUF in llama.cpp's own format, downloaded resumably — size + sha256
+# checked against Hugging Face's own record — to ~/.local/share/fox-llm/gguf/<name>.gguf, where
+# fox-llm-serve serves it under <name>. Before a download its header goes through this llama.cpp's
+# loader, so a model the build can't run never costs a 20 GB download. The lists: "name user/repo/
+# file.gguf" lines, and "-name" skips a model from every list. In download order: the core list's
+# helpers (shared/llm/core-models.txt, "tier: all" — small, and other tools need them), this machine's
+# ~/.config/foxml/llm/gguf-models.txt, yours in ~/code/custom_models/gguf-models.conf (the private repo
+# a reinstall clones back), then the core list's RAM tier. fox-install's models step queues them all here.
+# Binaries are never auto-upgraded: the timer only notifies.
 # --sync fills in what is missing and never changes keys you set in opencode.json / ~/.pi/agent/*.json,
-# with two exceptions: a local model default follows llama.cpp while its router is enabled, and the
-# local providers' model lists mirror what each server runs — every model once, under the server that
-# serves it (your settings on an entry are kept while the model is there).
+# with two exceptions: a local model default follows the router that serves it, and the local
+# providers' model lists mirror what each router serves (your settings on an entry are kept while the
+# model is there).
 set -uo pipefail
 
 LLM_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/foxml/llm"
 CORE_LIST="$LLM_DIR/core-models.txt"      # deployed from Linux_Theme shared/llm/
-EXTRA_LIST="$LLM_DIR/extra-models.txt"    # personal; never in the repo
-GGUF_LIST="$LLM_DIR/gguf-models.txt"      # personal Hugging Face GGUFs; never in the repo
-GGUF_PRIVATE="$HOME/code/custom_models/gguf-models.conf"   # the same, where a reinstall finds it
+GGUF_LIST="$LLM_DIR/gguf-models.txt"      # this machine's picks + skips; never in a repo
+GGUF_PRIVATE="$HOME/code/custom_models/gguf-models.conf"   # yours, where a reinstall finds it
 GGUF_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/fox-llm/gguf"
-DROPIN=/etc/systemd/system/ollama.service.d/foxml-context.conf
-UNIT=/etc/systemd/system/ollama.service
 WORK="${XDG_CACHE_HOME:-$HOME/.cache}/fox-llm-update"
 STATE="${XDG_STATE_HOME:-$HOME/.local/state}/fox-llm-update"
-MODELS_DIR=/usr/share/ollama/.ollama/models
 MAX_AUTO_PULLS=2     # new base models per discovery run (abliterated twins ride along)
-MIN_FREE_GB=100      # never auto-pull below this much free disk
-MIN_MBPS=2           # timer skips pulls on slow links (guest / hotspot Wi-Fi): 20 GB at 2 MB/s ≈ 3 h
+MIN_FREE_GB=100      # never auto-download below this much free disk
+MIN_MBPS=2           # timer skips downloads on slow links (guest / hotspot Wi-Fi): 20 GB at 2 MB/s ≈ 3 h
 QUEUE_TRIES=30       # --queue: per-model retries, a minute apart, before moving on
 OPENCODE_JSON="${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.json"
 PI_DIR="$HOME/.pi/agent"
-AGENT_DEFAULT=qwen3-coder:30b   # promoted to default once installed
-TITLE_MODEL=qwen2.5:3b          # opencode small_model: fits a 4 GB GPU whole
-# fox-llm-serve deploys beside this script; a timer's PATH need not include ~/.local/bin.
-SERVE_BIN="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/fox-llm-serve"
+# fox-llm-serve and fox-llm-discover deploy beside this script; a timer's PATH need not include ~/.local/bin.
+HERE="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+SERVE_BIN="$HERE/fox-llm-serve"
+DISCOVER_BIN="$HERE/fox-llm-discover"
 
 log()  { printf '\033[1;33m[fox-llm]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;31m[fox-llm]\033[0m %s\n' "$*" >&2; }
 
-ver_ollama()        { ollama -v 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | tail -1; }
-# The running server's version — differs from the client's mid-update.
-ver_ollama_server() { curl -fs --max-time 5 localhost:11434/api/version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'; }
-latest_ollama()     { curl -fsS https://api.github.com/repos/ollama/ollama/releases/latest \
-                        | python3 -I -c 'import json,sys;print(json.load(sys.stdin)["tag_name"].lstrip("v"))'; }
 ver_pi()            { pi --version 2>&1 | grep -oE "[0-9]+\.[0-9]+\.[0-9]+" | head -1; }
 # pi moved to @earendil-works at 1.0; @mariozechner/pi-coding-agent stops at 0.73.1 (deprecated, 2026-10-14)
 PI_PKG=@earendil-works/pi-coding-agent PI_PKG_OLD=@mariozechner/pi-coding-agent
@@ -73,72 +63,180 @@ ram_tier() {
   if (( ram >= 32 )); then echo large; elif (( ram >= 16 )); then echo medium; else echo small; fi
 }
 
-# "-model" lines in extra-models.txt: models this machine should not pull, from any list.
+# "-name" lines in your lists: models this machine should not download, from any list.
 skipped_models() {
-  [[ -f $EXTRA_LIST ]] && awk '/^[[:space:]]*-/ { sub(/^[[:space:]]*-/, ""); printf "%s ", tolower($1) }' "$EXTRA_LIST"
-}
-
-# Your personal model lists — the ones fox-install's models step reads (a local override file, any
-# private repo's foxml-models.txt, the custom_models repo's lists), each once.
-personal_lists() {
-  local f
-  for f in "${XDG_CONFIG_HOME:-$HOME/.config}/foxml/models.private" "$HOME"/code/*/foxml-models.txt \
-           "$HOME"/code/custom_models/*.txt; do
-    if [[ -f $f ]]; then echo "$f"; fi
-  done | awk '!seen[$0]++'
-}
-
-# This machine's extras first (deliberate picks, in priority order), then your personal lists, then
-# the RAM-tiered core list; "-model" lines drop a model from all of them. Lowercase, as Ollama wants.
-wanted_models() {
-  local tier f; tier=$(ram_tier)
-  {
-    if [[ -f $EXTRA_LIST ]]; then
-      awk '!/^[[:space:]]*(#|$)/ { print $1 }' "$EXTRA_LIST"
-    fi
-    while read -r f; do
-      awk '!/^[[:space:]]*(#|$)/ { print $1 }' "$f"
-    done < <(personal_lists)
-    if [[ -f $CORE_LIST ]]; then
-      awk -v t="$tier" '
-        /^# tier:/ { b = $3; next }
-        /^[[:space:]]*(#|$)/ { next }
-        b == t || b == "all" { print $1 }' "$CORE_LIST"
-    fi
-  } | awk -v skip="$(skipped_models)" '
-      BEGIN { n = split(skip, s, " "); for (i = 1; i <= n; i++) drop[s[i]] = 1 }
-      /^-/ { next }
-      { $0 = tolower($0) }
-      !($0 in drop) && !seen[$0]++'
-}
-
-# "name user/repo/file.gguf" rows of the GGUF lists — this machine's first, a name once.
-gguf_wanted() {
   local f
   for f in "$GGUF_LIST" "$GGUF_PRIVATE"; do
-    if [[ -f $f ]]; then awk '!/^[[:space:]]*(#|$)/ && NF >= 2 { print $1, $2 }' "$f"; fi
-  done | awk '!seen[$1]++'
+    if [[ -f $f ]]; then awk '/^[[:space:]]*-/ { sub(/^[[:space:]]*-/, ""); printf "%s ", $1 }' "$f"; fi
+  done
+}
+
+# The core list's "name src" rows for one tier block.
+core_rows() {
+  [[ -f $CORE_LIST ]] || return 0
+  awk -v t="$1" '/^# tier:/ { b = $3; next } /^[[:space:]]*(#|$)/ { next } b == t && NF >= 2 { print $1, $2 }' "$CORE_LIST"
+}
+
+# Every model this machine should have, "name user/repo/file.gguf", each name once (the first list that
+# names it decides its file), in download order.
+wanted_models() {
+  local f
+  {
+    core_rows all
+    for f in "$GGUF_LIST" "$GGUF_PRIVATE"; do
+      if [[ -f $f ]]; then awk '!/^[[:space:]]*(#|-|$)/ && NF >= 2 { print $1, $2 }' "$f"; fi
+    done
+    core_rows "$(ram_tier)"
+  } | awk -v skip="$(skipped_models)" '
+      BEGIN { n = split(skip, s, " "); for (i = 1; i <= n; i++) drop[s[i]] = 1 }
+      !($1 in drop) && !seen[$1]++'
+}
+
+# Lists from before Hugging Face was the only source hold Ollama names — nothing to download them
+# from. Said on interactive runs, so their models get a "name user/repo/file.gguf" line instead.
+legacy_notice() {
+  local f old=()
+  for f in "$LLM_DIR/extra-models.txt" "${XDG_CONFIG_HOME:-$HOME/.config}/foxml/models.private" \
+           "$HOME"/code/*/foxml-models.txt; do
+    if [[ -f $f ]] && grep -qvE '^[[:space:]]*(#|-|$)' "$f"; then old+=("$f"); fi
+  done
+  if (( ${#old[@]} )); then
+    warn "not read any more (Ollama names): ${old[*]} — give each model a 'name user/repo/file.gguf' line in $GGUF_LIST or $GGUF_PRIVATE"
+  fi
+  return 0
+}
+
+# Hugging Face's record of one file: "size sha256", nothing when it has none.
+hf_meta() {
+  local repo=$1 file=$2 dir
+  dir=$(dirname "$file"); [[ $dir == . ]] && dir=""
+  curl -fsS -m 60 "https://huggingface.co/api/models/$repo/tree/main${dir:+/$dir}" | python3 -I -c '
+import json, sys
+f = next((f for f in json.load(sys.stdin) if f.get("path") == sys.argv[1]), {})
+print(f.get("size", ""), (f.get("lfs") or {}).get("oid", ""))' "$file" 2>/dev/null
+}
+
+# llama.cpp's header-only loader: the package's, else a source build's.
+probe_bin() {
+  local c
+  for c in "$(command -v llama-fit-params 2>/dev/null)" \
+           "$HOME"/.local/opt/llama.cpp/build-cuda/bin/llama-fit-params "$HOME"/.local/opt/llama.cpp/build-cpu/bin/llama-fit-params; do
+    if [[ -n $c && -x $c ]]; then echo "$c"; return 0; fi
+  done
+  return 1
+}
+
+# Why this llama.cpp can't load a file, from an earlier check with this same build — nothing when it
+# could, or wasn't checked. "src<TAB>build<TAB>why" lines; a llama.cpp update checks again.
+INCOMPATIBLE="$WORK/incompatible"
+known_incompatible() {
+  local probe line
+  probe=$(probe_bin) || return 1
+  line=$(grep -m1 -F "$1	$probe@$(stat -c %Y "$probe")	" "$INCOMPATIBLE" 2>/dev/null) || return 1
+  echo "${line##*	}"
+}
+
+# Can this llama.cpp load the file? Its header — key-values and the tensor list, the first MBs — goes
+# into a sparse copy of the full size, and llama-fit-params lays the model out from it without reading a
+# weight; "error loading model: <why>" means an architecture or tensor layout this build doesn't know
+# (how Ollama's own GGUF variant of the abliterated Qwen 3.5/3.6 failed, 2026-10-14). Prints why; nothing
+# when it loads, or when it can't be told — no llama.cpp here yet (the first install queues models before
+# its llama_server step; the core list's files were all checked when they went in), or a header past 64 MB.
+header_error() {
+  local name=$1 repo=$2 file=$3 size=$4 probe dir head skel mb end why
+  probe=$(probe_bin) || return 0
+  why=$(known_incompatible "$repo/$file") && { echo "$why"; return 0; }
+  dir="$GGUF_DIR/.probe"; head="$dir/$name.head"; skel="$dir/$name.gguf"
+  mkdir -p "$dir"
+  for mb in 16 64; do
+    curl -fsSL -m 900 -r "0-$(( mb * 1048576 - 1 ))" -o "$head" "https://huggingface.co/$repo/resolve/main/$file" \
+      || { rm -f "$head"; return 0; }
+    end=$(python3 -I - "$head" <<'EOF'
+import struct, sys
+SIZES = {0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8}
+data = open(sys.argv[1], "rb").read()
+pos = 0
+def take(n):
+    global pos
+    if pos + n > len(data):
+        raise EOFError
+    pos += n
+    return data[pos - n:pos]
+def num(fmt):
+    return struct.unpack(fmt, take(struct.calcsize(fmt)))[0]
+try:
+    if take(4) != b"GGUF":
+        raise ValueError
+    num("<I"); n_tensors, n_kv = num("<Q"), num("<Q")
+    for _ in range(n_kv):
+        take(num("<Q")); t = num("<I")
+        if t == 9:
+            et, n = num("<I"), num("<Q")
+            if et == 8:
+                for _ in range(n): take(num("<Q"))
+            else:
+                take(SIZES[et] * n)
+        elif t == 8:
+            take(num("<Q"))
+        else:
+            take(SIZES[t])
+    for _ in range(n_tensors):
+        take(num("<Q")); dims = num("<I"); take(8 * dims + 4 + 8)
+    print("ok")
+except EOFError:
+    print("short")
+except Exception:
+    print("unknown")
+EOF
+)
+    [[ $end == short ]] || break
+  done
+  if [[ $end != ok ]]; then rm -f "$head"; return 0; fi
+  rm -f "$skel"
+  truncate -s "$size" "$skel" && dd if="$head" of="$skel" conv=notrunc status=none
+  why=$(timeout 120 "$probe" -m "$skel" -c 512 -dev none 2>&1 | sed -n 's/.*error loading model: //p' | head -n1)
+  rm -f "$skel" "$head"
+  if [[ -n $why ]]; then
+    mkdir -p "$WORK"
+    printf '%s\t%s\t%s\n' "$repo/$file" "$probe@$(stat -c %Y "$probe")" "$why" >> "$INCOMPATIBLE"
+    echo "$why"
+  fi
 }
 
 # One Hugging Face GGUF into GGUF_DIR/<name>.gguf: resumes a partial file, gives up on a stalled link
 # (the queue retries a minute later, resuming again), and checks size and sha256 against Hugging Face's
-# own record before the file goes live. Exit 0 only when it is in place.
+# own record before the file goes live. A new download first passes header_error. Each download is
+# recorded in .src/<name> ("user/repo/file.gguf sha256") — with $3 = refresh, a recorded file is replaced
+# by Hugging Face's newer upload of the same file (repos fix chat templates in place); a model you put
+# there yourself has no record and is never touched. Exit 0 when the file is in place, 2 when this
+# llama.cpp can't load it (retrying won't help), 1 otherwise.
 fetch_gguf() {
-  local name=$1 src=$2 repo file dir meta size sha part dst have avail
-  if [[ $name == */* || $src != */*/* ]]; then echo "bad GGUF line: $name $src"; return 1; fi
+  local name=$1 src=$2 mode=${3:-} repo file meta size sha part dst rec have avail why
+  if [[ $name == */* || $name == .* || $src != */*/* ]]; then echo "bad GGUF line: $name $src"; return 1; fi
+  # A model split over several files (…-00001-of-00003.gguf) is one model in three downloads, and its
+  # first file alone doesn't load: single-file GGUFs only.
+  if [[ $src =~ -[0-9]{5}-of-[0-9]{5}\.gguf$ ]]; then echo "$name: $src is one part of a split model — pick a single-file GGUF"; return 2; fi
   repo=$(cut -d/ -f1-2 <<<"$src"); file=${src#"$repo/"}
-  dst="$GGUF_DIR/$name.gguf"; part="$dst.part"
-  [[ -f $dst ]] && return 0
-  dir=$(dirname "$file"); [[ $dir == . ]] && dir=""
-  meta=$(curl -fsS -m 60 "https://huggingface.co/api/models/$repo/tree/main${dir:+/$dir}" | python3 -I -c '
-import json, sys
-f = next((f for f in json.load(sys.stdin) if f.get("path") == sys.argv[1]), {})
-print(f.get("size", ""), (f.get("lfs") or {}).get("oid", ""))' "$file" 2>/dev/null)
+  dst="$GGUF_DIR/$name.gguf"; part="$dst.part"; rec="$GGUF_DIR/.src/$name"
+  if [[ $mode == refresh ]]; then
+    [[ -f $dst && -f $rec && $(cut -d' ' -f1 "$rec") == "$src" ]] || return 0
+  elif [[ -f $dst ]]; then
+    return 0
+  fi
+  meta=$(hf_meta "$repo" "$file")
   read -r size sha <<<"$meta"
   [[ -n $size && -n $sha ]] || { echo "no size + sha256 on Hugging Face for $src"; return 1; }
-  mkdir -p "$GGUF_DIR"
+  if [[ $mode == refresh ]]; then
+    [[ $(cut -d' ' -f2 "$rec") == "$sha" ]] && return 0
+    echo "$name: Hugging Face has a newer upload of $file — downloading it (the current file serves until then)"
+  fi
+  mkdir -p "$GGUF_DIR/.src"
   have=$(stat -c %s "$part" 2>/dev/null || echo 0)
   if (( have > size )); then rm -f "$part"; have=0; fi
+  if (( have == 0 )); then
+    why=$(header_error "$name" "$repo" "$file" "$size")
+    if [[ -n $why ]]; then echo "$name: this llama.cpp can't load $src ($why) — not downloaded"; return 2; fi
+  fi
   avail=$(df -B1 --output=avail "$GGUF_DIR" | tail -1)
   (( avail > size - have + 10 * 1024 ** 3 )) || { echo "not enough disk for $name ($(( size / 1024 ** 3 )) GiB)"; return 1; }
   if (( have < size )); then
@@ -151,83 +249,34 @@ print(f.get("size", ""), (f.get("lfs") or {}).get("oid", ""))' "$file" 2>/dev/nu
   if [[ $(sha256sum "$part" | cut -d' ' -f1) != "$sha" ]]; then
     rm -f "$part"; echo "sha256 mismatch for $name — discarded, it downloads again"; return 1
   fi
-  mv "$part" "$dst" && echo "$name: verified, $(( size / 1024 ** 3 )) GiB"
+  mv "$part" "$dst" && echo "$src $sha" > "$rec" && echo "$name: verified, $(( size / 1024 ** 3 )) GiB"
 }
 
-# On the registry? Custom `ollama create` models are not, and are skipped.
-on_registry() {
-  local name=${1%%:*} tag=latest
-  [[ $1 == *:* ]] && tag=${1##*:}
-  [[ $name == */* ]] || name="library/$name"
-  [[ $(curl -s -o /dev/null -w '%{http_code}' \
-        -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
-        "https://registry.ollama.ai/v2/$name/manifests/$tag") == 200 ]]
-}
-
-# Download speed from the Ollama registry in MB/s (12 s sample of a real model blob).
+# Download speed from Hugging Face in MB/s (a 12 s sample of a real model file).
 link_mbps() {
-  local digest
-  digest=$(curl -fs --max-time 10 -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
-             https://registry.ollama.ai/v2/library/gpt-oss/manifests/20b \
-           | python3 -I -c 'import json,sys;print(next(l["digest"] for l in json.load(sys.stdin)["layers"] if l["mediaType"].endswith(".model")))') || { echo 0; return; }
-  curl -sL -o /dev/null --max-time 12 -w '%{speed_download}' \
-    "https://registry.ollama.ai/v2/library/gpt-oss/blobs/$digest" | awk '{printf "%d", $1/1e6}'
+  curl -sL -o /dev/null --max-time 12 -r 0-999999999 -w '%{speed_download}' \
+    https://huggingface.co/ggml-org/gpt-oss-20b-GGUF/resolve/main/gpt-oss-20b-MXFP4.gguf | awk '{printf "%d", $1/1e6}'
 }
 
 fast_link() {
   local mbps; mbps=$(link_mbps)
-  if (( mbps < MIN_MBPS )); then
-    warn "registry link is ~${mbps} MB/s (< ${MIN_MBPS}) — skipping downloads; rerun on a faster network"
+  if (( ${mbps:-0} < MIN_MBPS )); then
+    warn "Hugging Face link is ~${mbps:-0} MB/s (< ${MIN_MBPS}) — skipping downloads; rerun on a faster network"
     warn "or download in the background anyway: fox-llm-update --queue"
     return 1
   fi
 }
 
-ollama_up() { ollama list >/dev/null 2>&1; }
-
-# hf.co refs by huggingface.co: Ollama checks the auth realm against that host (the manifest server
-# redirects there), so the short form fails.
-hf_form() { if [[ $1 == hf.co/* ]]; then echo "huggingface.co/${1#hf.co/}"; else echo "$1"; fi; }
-
-pull_once() {
-  ollama pull "$1" 2>&1 | tr '\r' '\n' | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' \
-    | grep -vE '^pulling [0-9a-f]+: +[0-9]+%' | grep -v '^[[:space:]]*$' | tail -3
-}
-
-# Prints the last status lines; exit 0 only when the pull reported success. Normalised as fox-install's
-# models step always did: lowercase names, hf.co → huggingface.co, and a namespaced ref the Ollama
-# registry doesn't have (user/repo:tag, no host) tried as a Hugging Face repo.
-pull_quiet() {
-  local ref out
-  ref=$(hf_form "${1,,}")
-  out=$(pull_once "$ref")
-  if ! grep -q '^success' <<<"$out" && [[ $ref == */* && $ref != *.*/* ]] \
-     && grep -qiE 'not found|does not exist' <<<"$out"; then
-    out=$(pull_once "huggingface.co/$ref")
-  fi
-  printf '%s\n' "$out"
-  grep -q '^success' <<<"$out"
-}
-
-# Is a wanted ref among the installed ones ($2, `ollama list` names)? A bare name is name:latest, and
-# pull_quiet may have fetched a namespaced ref as its Hugging Face form.
-installed_as() {
-  local ref; ref=$(hf_form "${1,,}")
-  [[ $ref == *:* ]] || ref+=":latest"
-  grep -qxF -e "$ref" -e "huggingface.co/$ref" <<<"$2"
-}
-
-free_gb() { df -BG --output=avail "${MODELS_DIR%/.ollama/models}" 2>/dev/null | tail -1 | tr -dc 0-9; }
+free_gb() { mkdir -p "$GGUF_DIR"; df -BG --output=avail "$GGUF_DIR" 2>/dev/null | tail -1 | tr -dc 0-9; }
 
 do_check() {
-  local msgs=() cur new
-  cur=$(ver_ollama); new=$(latest_ollama || true)
-  [[ -n $new && $cur != "$new" ]] && msgs+=("ollama $cur → $new")
+  local msgs=() cur new pkg old
   cur=$(ver_pi); new=$(latest_pi || true)
   [[ -n $new && $cur != "$new" ]] && msgs+=("pi $cur → $new")
   if command -v checkupdates >/dev/null; then
-    new=$(checkupdates 2>/dev/null | awk '$1=="opencode"{print $2" → "$4}')
-    [[ -n $new ]] && msgs+=("opencode $new (pacman -Syu)")
+    while read -r pkg old _ new; do
+      msgs+=("$pkg $old → $new (pacman -Syu)")
+    done < <(checkupdates 2>/dev/null | awk '$1 ~ /^(opencode|llama-cpp|ggml|ggml-cuda|ggml-vulkan)$/')
   fi
   if ((${#msgs[@]})); then
     log "updates available: ${msgs[*]}"
@@ -235,30 +284,24 @@ do_check() {
       notify-send -a fox-llm "🦊 LLM tool updates" "$(printf '%s\n' "${msgs[@]}")
 Run: fox-llm-update"
   else
-    log "ollama, pi, opencode are current"
+    log "pi, opencode, llama.cpp are current"
   fi
 }
 
-# $1 = "check-link" for the timer path; the interactive full run pulls regardless.
+# $1 = "check-link" for the timer path; the interactive full run downloads regardless.
 do_models() {
   [[ ${1:-} == check-link ]] && { fast_link || return 0; }
-  local m have name src
-  while read -r name src; do                  # Hugging Face GGUFs first: each one listed on purpose
+  [[ ${1:-} == check-link ]] || legacy_notice
+  local name src rec
+  while read -r name src; do
     [[ -f $GGUF_DIR/$name.gguf ]] && continue
-    log "downloading $name from Hugging Face"
+    log "downloading $name ($src)"
     fetch_gguf "$name" "$src" || warn "$name not downloaded — the background queue retries: fox-llm-update --queue"
-  done < <(gguf_wanted)
-  ollama_up || { warn "ollama is not running — skipping model refresh"; return 1; }
-  have=$(ollama list | awk 'NR>1{print $1}')
-  while read -r m; do
-    installed_as "$m" "$have" || { log "pulling missing model $m"; pull_quiet "$m"; }
   done < <(wanted_models)
-  for m in $have; do
-    if on_registry "$m"; then
-      log "refreshing $m"; pull_quiet "$m"
-    else
-      log "skip $m (local/custom model)"
-    fi
+  for rec in "$GGUF_DIR"/.src/*; do
+    [[ -f $rec ]] || continue
+    name=${rec##*/}; read -r src _ < "$rec"
+    fetch_gguf "$name" "$src" refresh || warn "$name: the newer upload didn't download — the current file stays"
   done
 }
 
@@ -287,22 +330,19 @@ sync_pi_resources() {
   done
 }
 
-# Wire installed (non-embedding) models into opencode + pi and fill defaults that are
-# missing. Only adds: an existing key is never changed, except a model default still
-# pointing at a model that is no longer installed, the old stand-in once the agent
-# default lands, or a local default moving onto llama.cpp while its router is enabled
-# (and back to Ollama when it is not). First touch of an existing opencode.json keeps a
-# .foxml-bak copy.
+# Wire the served chat models into opencode + pi and fill defaults that are missing. Only adds: an
+# existing key is never changed, except a local model default the sync itself picked (it moves to the
+# agent once that is served), a default on a model no router serves any more, a default whose router
+# changed, and the Ollama provider entries from before llama.cpp served everything (dropped). First touch
+# of an existing opencode.json keeps a .foxml-bak copy.
 sync_configs() {
-  local installed=""
-  ollama_up && installed=$(ollama list 2>/dev/null | awk 'NR>1 && $1 !~ /embed/ {print $1}')
   [[ -f $OPENCODE_JSON && ! -e $OPENCODE_JSON.foxml-bak ]] && cp -p "$OPENCODE_JSON" "$OPENCODE_JSON.foxml-bak"
   mkdir -p "$PI_DIR"
   sync_pi_resources
   # What each llama.cpp router serves (llama → :8080, llama-turbo → :8081), read back from the preset
   # fox-llm-serve writes — one source of truth for names, roles and contexts. "server model role ctx"
-  # rows; role "-" for the other chat models (llama.cpp is the default server). Plus which of the two
-  # units is enabled ("main turbo" flags).
+  # rows; role "-" for the other models (the main router serves every downloaded one). Plus which of
+  # the two units is enabled ("main turbo" flags).
   local served="" server_on="" engine sv unit
   for engine in main turbo; do
     if [[ $engine == main ]]; then sv=llama unit=fox-llm-server; else sv=llama-turbo unit=fox-llm-server-turbo; fi
@@ -315,49 +355,36 @@ sync_configs() {
       /^(c|kv-unified-per-slot) = / { c = $3 }
       END                           { row() }')$'\n'
   done
-  # Models the roles file gives Ollama — with llama.cpp the one server, the only ones Ollama lists.
-  local roles_f="" pinned="" f
-  for f in "$LLM_DIR/roles.conf" "$HOME/code/custom_models/roles.conf" "$LLM_DIR/roles.default"; do
-    [[ -f $f ]] && { roles_f=$f; break; }
-  done
-  [[ -n $roles_f ]] && pinned=$(awk '!/^[[:space:]]*(#|$)/ && $3 == "ollama" {
-    m = $2; if (m !~ /:/) m = m ":latest"; print m }' "$roles_f")      # Ollama's names: bare = :latest
   mkdir -p "$STATE"
-  # stdin carries the script, so the model list goes in as an argument.
-  python3 -I - "$OPENCODE_JSON" "$PI_DIR" "$installed" "$AGENT_DEFAULT" "$TITLE_MODEL" "$served" "$server_on" \
-    "$pinned" "$STATE/defaults.json" <<'EOF'
+  # stdin carries the script, so the lists go in as arguments.
+  python3 -I - "$OPENCODE_JSON" "$PI_DIR" "$served" "$server_on" "$STATE/defaults.json" <<'EOF'
 import json, os, sys
-oc_path, pi_dir, installed_raw, agent_default, title_model, served_raw, server_on, pinned_raw, state_path = sys.argv[1:10]
-installed = [l.strip() for l in installed_raw.splitlines() if l.strip()]
+oc_path, pi_dir, served_raw, server_on, state_path = sys.argv[1:6]
 # server column → (provider id, display name, URL, unit enabled?)
 ENGINES = {"llama":       ("llamacpp",       "llama.cpp (Local)",            "http://127.0.0.1:8080/v1", server_on[:1] == "1"),
            "llama-turbo": ("llamacpp-turbo", "llama.cpp TurboQuant (Local)", "http://127.0.0.1:8081/v1", server_on[1:2] == "1")}
 # (role, model, server, context) for every model a llama.cpp router serves, from its preset: the roles
-# file's models plus every other chat model llama.cpp can run (role "-").
+# file's models plus every other downloaded one (role "-").
 llama = [(r, m, sv, int(c)) for sv, m, r, c in
          (f for f in (l.split() for l in served_raw.splitlines()) if len(f) == 4)
          if sv in ENGINES and c.isdigit()]
-agent_role = next(((m, sv) for r, m, sv, _ in llama if r == "agent"), None)
-quick_role = next((m for r, m, sv, _ in llama if r == "quick" and ENGINES[sv][3]), None)
-LOCAL = ("ollama/",) + tuple(f"{e[0]}/" for e in ENGINES.values())
-# Where each model runs: a router whose unit is enabled serves its models. With the main router on,
-# llama.cpp is the one server: Ollama only downloads, and lists just what the roles file gives it.
-# Without it, Ollama lists what no router serves. The ghost-text (fim) base model and the embedding
-# models are no chat picker's.
-on_llama = {m for _, m, sv, _ in llama if ENGINES[sv][3]}
+# Chat models on an enabled router — the ghost-text (fim) base model and the embedding models are no
+# chat picker's.
 not_chat = {m for r, m, _, _ in llama if r in ("fim", "embed")}
-pinned = {l.strip() for l in pinned_raw.splitlines() if l.strip()}
-single = ENGINES["llama"][3]
-ollama_list = [m for m in installed if m not in on_llama and m not in not_chat and (not single or m in pinned)]
-def gone_why(m):
-    return ("on llama.cpp" if m in on_llama else "not a chat model" if m in not_chat
-            else "llama.cpp is the one server" if single and m in installed else "not installed")
+chat = [(m, sv) for r, m, sv, _ in llama if ENGINES[sv][3] and m not in not_chat]
+def role(name):
+    return next(((m, sv) for r, m, sv, _ in llama if r == name and ENGINES[sv][3]), None)
+agent_role, quick_role, title_role = role("agent"), role("quick"), role("title")
+# ollama/: defaults written before llama.cpp served everything — moved like any other local default.
+LOCAL = ("ollama/",) + tuple(f"{e[0]}/" for e in ENGINES.values())
+def norm(m):
+    """Ollama's spelling of an untagged name ("name:latest") is the name."""
+    return m[:-len(":latest")] if m.endswith(":latest") else m
 def where(m):
-    """The provider of the local server that runs m now: an enabled router, else Ollama; None: neither."""
-    p = next((ENGINES[sv][0] for _, mm, sv, _ in llama if mm == m and ENGINES[sv][3]), None)
-    return p or ("ollama" if m in installed else None)
-STANDIN = "qwen2.5-coder:14b"   # used while the agent default downloads
-LIMIT = {"context": 32768, "output": 8192}
+    """The provider of the enabled router serving chat model m; None when none does."""
+    return next((ENGINES[sv][0] for mm, sv in chat if mm == norm(m)), None)
+def ref(pair):
+    return f"{ENGINES[pair[1]][0]}/{pair[0]}" if pair else None
 READ_ONLY = ["ls*", "pwd", "cat *", "head *", "tail *", "wc *", "file *", "stat *", "tree*",
              "rg *", "grep *", "fd *", "which *", "type *",   # not find: -delete / -exec write
              "git status*", "git diff*", "git log*", "git show*", "git branch*", "git blame*"]
@@ -374,31 +401,25 @@ def save(p, d):
     with open(p + ".new", "w") as f: f.write(json.dumps(d, indent=2) + "\n")
     os.replace(p + ".new", p)
 
-def pick_default(current):
-    """Keep the current default unless it is gone or is the stand-in that the agent default replaces."""
-    if current and (not installed or current in installed) and not (current == STANDIN and agent_default in installed):
-        return current
-    for cand in (agent_default, STANDIN):
-        if cand in installed: return cand
-    return current or (installed[0] if installed else None)
+def is_local_ollama(url):
+    return any(h in (url or "") for h in ("localhost:11434", "127.0.0.1:11434"))
 
-def llama_default(cur):
-    """Where a local default belongs while a llama.cpp router is enabled: the roles file's agent, else
-    the usual pick (the current model, the agent default, the stand-in) on the router serving it.
-    None when no enabled router serves it — Ollama keeps it."""
-    if agent_role and ENGINES[agent_role[1]][3]:
-        return f"{ENGINES[agent_role[1]][0]}/{agent_role[0]}"
-    # No agent yet: stand in with the roles file's quick model, sized for this machine, instead of
-    # the fixed STANDIN (which the sync picked, so it may move it). Measured 2026-10-14 on the 4 GB
-    # T1200, pi's ~6k-token opening prompt: the 14B read it at ~40 tok/s (~3 min to the first word,
-    # pi gave up), the quick 4B at ~150 tok/s (~1 min), then 1-2 s per turn from the prompt cache.
-    if quick_role and (not cur or cur == STANDIN):
-        cur = quick_role
-    pick = pick_default(cur)
-    return next((f"{ENGINES[sv][0]}/{m}" for _, m, sv, _ in llama if m == pick and ENGINES[sv][3]), None)
+def sync_default(cur):
+    """The sync's own pick: the roles file's agent once it is served; until then the model it picked
+    before while that is still served, else the quick model — the agents' stand-in, sized for this
+    machine (measured 2026-10-14 on the 4 GB T1200, pi's ~6k-token opening prompt: a 14B read it at
+    ~40 tok/s, ~3 min to the first word, and pi gave up; the quick 4B at ~150 tok/s, ~1 min, then 1-2 s
+    per turn from the prompt cache). No roles served: any chat model. None: no router serves one."""
+    if agent_role:
+        return ref(agent_role)
+    if cur and where(cur):
+        return f"{where(cur)}/{norm(cur)}"
+    if quick_role:
+        return ref(quick_role)
+    return ref(chat[0]) if chat else None
 
 # The default the sync set last time, per tool. A model she picked herself (fox-ai-swap, opencode's or
-# pi's own picker) stays hers: only its server follows the stack. One the sync picked may change model
+# pi's own picker) stays hers: only its router follows the stack. One the sync picked may change model
 # too — the stand-in gives way to the agent, a model that's gone is replaced.
 try:
     state = json.load(open(state_path))
@@ -411,42 +432,33 @@ def local_default(cur, auto):
     `auto` on record (first run), `cur` counts as the sync's."""
     model = cur.split("/", 1)[1] if "/" in cur else None
     if cur and auto is not None and cur != auto and model and where(model):
-        return f"{where(model)}/{model}", False
-    want = llama_default(model)
-    if want:
-        return want, True
-    pick = pick_default(model)
-    return (f"{where(pick) or 'ollama'}/{pick}" if pick else cur), True
+        return f"{where(model)}/{norm(model)}", False
+    return (sync_default(model) or cur), True
+
+def drop_ollama(providers, url_key, tool):
+    p = providers.get("ollama")
+    url = ((p or {}).get("options") or {}).get("baseURL") if tool == "opencode" else (p or {}).get(url_key)
+    if p is not None and is_local_ollama(url):
+        del providers["ollama"]; notes.append(f"{tool}: − ollama provider (llama.cpp serves every model)")
 
 # ── opencode ──
 oc = load(oc_path, {"$schema": "https://opencode.ai/config.json"})
-prov = oc.setdefault("provider", {}).setdefault("ollama", {})
-prov.setdefault("name", "Ollama (Local)")
-prov.setdefault("npm", "@ai-sdk/openai-compatible")
-prov.setdefault("options", {"baseURL": "http://localhost:11434/v1"})
-models = prov.setdefault("models", {})
-for m in ollama_list:
-    if m not in models:
-        models[m] = {"name": m}; notes.append(f"opencode: + {m}")
-    models[m].setdefault("limit", dict(LIMIT))
-if installed or single:      # an empty `ollama list` (Ollama down) says nothing — unless llama.cpp serves all
-    for m in [m for m in models if m not in ollama_list]:
-        del models[m]; notes.append(f"opencode: − {m} ({gone_why(m)})")
-if "small_model" not in oc and title_model in installed:
-    oc["small_model"] = f"ollama/{title_model}"
+providers = oc.setdefault("provider", {})
+drop_ollama(providers, "baseURL", "opencode")
 sm = oc.get("small_model") or ""
-if sm.startswith(LOCAL):     # the title model, on whichever local server runs it now
-    m = sm.split("/", 1)[1]
-    p = next((ENGINES[sv][0] for _, mm, sv, _ in llama if mm == m and ENGINES[sv][3]),
-             "ollama" if m in installed else None)
-    if p and sm != f"{p}/{m}":
-        oc["small_model"] = f"{p}/{m}"; notes.append(f"opencode small_model → {p}/{m}")
+if not sm and title_role:
+    oc["small_model"] = ref(title_role); notes.append(f"opencode small_model → {oc['small_model']}")
+elif sm.startswith(LOCAL):     # the title model, on whichever router serves it now
+    p, m = where(sm.split("/", 1)[1]), norm(sm.split("/", 1)[1])
+    want = f"{p}/{m}" if p else ref(title_role)
+    if want and sm != want:
+        oc["small_model"] = want; notes.append(f"opencode small_model → {want}")
 # llama.cpp routers: providers listing what each serves while its unit is enabled.
 for sv, (pid, pname, url, enabled) in ENGINES.items():
     rows = [(r, m, ctx) for r, m, s, ctx in llama if s == sv and enabled and m not in not_chat]
-    if not rows and pid not in oc["provider"]:
+    if not rows and pid not in providers:
         continue
-    lp = oc["provider"].setdefault(pid, {})
+    lp = providers.setdefault(pid, {})
     lp.setdefault("name", pname)
     lp.setdefault("npm", "@ai-sdk/openai-compatible")
     lp.setdefault("options", {"baseURL": url})
@@ -474,26 +486,13 @@ save(oc_path, oc)
 # ── pi ──
 pm_path = os.path.join(pi_dir, "models.json")
 pm = load(pm_path, {})
-pprov = pm.setdefault("providers", {}).setdefault("ollama", {})
-pprov.setdefault("baseUrl", "http://localhost:11434/v1")
-pprov.setdefault("api", "openai-completions")
-pprov.setdefault("apiKey", "ollama")
-pprov.setdefault("compat", {"supportsDeveloperRole": False, "supportsReasoningEffort": False})
-pms = pprov.setdefault("models", [])
-have = {x.get("id") for x in pms}
-for m in ollama_list:
-    if m not in have:
-        pms.append({"id": m, "contextWindow": LIMIT["context"], "maxTokens": LIMIT["output"]})
-        notes.append(f"pi: + {m}")
-if installed or single:
-    for x in [x for x in pms if x.get("id") not in ollama_list]:
-        notes.append(f"pi: − {x.get('id')} ({gone_why(x.get('id'))})")
-    pprov["models"] = [x for x in pms if x.get("id") in ollama_list]
+pproviders = pm.setdefault("providers", {})
+drop_ollama(pproviders, "baseUrl", "pi")
 for sv, (pid, _, url, enabled) in ENGINES.items():
     rows = [(r, m, ctx) for r, m, s, ctx in llama if s == sv and enabled and m not in not_chat]
-    if not rows and pid not in pm["providers"]:
+    if not rows and pid not in pproviders:
         continue
-    lpp = pm["providers"].setdefault(pid, {})
+    lpp = pproviders.setdefault(pid, {})
     lpp.setdefault("baseUrl", url)
     lpp.setdefault("api", "openai-completions")
     lpp.setdefault("apiKey", "none")
@@ -539,32 +538,41 @@ EOF
   if [[ ${server_on:1:1} == 1 ]]; then curl -fs -m 5 -o /dev/null "http://127.0.0.1:8081/models?reload=1" || true; fi
 }
 
+# New models from Hugging Face's newest GGUF uploads (fox-llm-discover: tool-capable, fit this box). The
+# MoE ones download — up to MAX_AUTO_PULLS a run, each with its abliterated twin when one exists, never
+# below MIN_FREE_GB free — the rest stay in the report (--list). A model is considered once: seen-hf.txt.
+# The first scan only notes what is already out, so the switch from Ollama didn't download a backlog.
 do_discover() {
   mkdir -p "$STATE"
-  local report="$STATE/discovered.tsv" seen="$STATE/seen.txt" have ref gb cls abl pulled=0 skipped=()
+  local report="$STATE/discovered.tsv" seen="$STATE/seen-hf.txt" first=0 name src gb cls abl abl_src pulled=0 skipped=()
+  [[ -f $seen ]] || first=1
   touch "$seen"
   fast_link || return 0
-  log "scanning ollama.com for new tool-capable models (takes a few minutes)"
-  fox-llm-discover --pages 6 > "$report.new" || { warn "discovery failed"; return 1; }
+  log "scanning Hugging Face for new tool-capable models (a minute or two)"
+  # what you already have — listed, or downloaded here — from any quantizer, is no news
+  { wanted_models | awk '{print $2}'; cat "$GGUF_DIR"/.src/* 2>/dev/null | awk '{print $1}'; } > "$STATE/have.txt"
+  "$DISCOVER_BIN" --have "$STATE/have.txt" > "$report.new" || { warn "discovery failed"; rm -f "$report.new"; return 1; }
   mv "$report.new" "$report"
-  have=$(ollama list 2>/dev/null | awk 'NR>1{print $1}')
-  while IFS=$'\t' read -r ref gb cls abl; do
-    grep -qxF "${ref%%:*}" "$seen" && continue
-    echo "${ref%%:*}" >> "$seen"
+  while IFS=$'\t' read -r name src gb cls abl abl_src; do
+    grep -qxF "$name" "$seen" && continue
+    echo "$name" >> "$seen"
+    (( first )) && continue
     [[ $cls == moe ]] || continue                       # dense ones stay in the report only
-    grep -qxF "$ref" <<<"$have" && continue
+    [[ -f $GGUF_DIR/$name.gguf ]] && continue
     if (( pulled >= MAX_AUTO_PULLS )) || (( $(free_gb) - ${gb%.*} - 1 < MIN_FREE_GB )); then
-      skipped+=("$ref (${gb} GB)"); continue
+      skipped+=("$name (${gb} GB)"); continue
     fi
-    log "new model: $ref (${gb} GB, MoE) — pulling"; pull_quiet "$ref"; pulled=$((pulled + 1))
+    log "new model: $name (${gb} GB, MoE) — downloading"
+    fetch_gguf "$name" "$src" && pulled=$((pulled + 1))
     if [[ $abl != - ]] && (( $(free_gb) - ${gb%.*} - 1 >= MIN_FREE_GB )); then
-      log "  + abliterated twin $abl"; pull_quiet "$abl"
+      log "  + abliterated twin $abl"; fetch_gguf "$abl" "$abl_src"
     fi
   done < "$report"
   sync_configs
   local msg=""
-  (( pulled )) && msg="Pulled $pulled new model(s)."
-  (( ${#skipped[@]} )) && msg+=$'\n'"Also new, not pulled: ${skipped[*]}"$'\n'"fox-llm-update --list"
+  (( first )) && msg="First Hugging Face scan: $(wc -l < "$report") models noted (fox-llm-update --list). New ones download from the next scan on."
+  (( pulled )) && msg="Downloaded $pulled new model(s)."
+  (( ${#skipped[@]} )) && msg+=$'\n'"Also new, not downloaded: ${skipped[*]}"$'\n'"fox-llm-update --list"
   if [[ -n $msg ]]; then
     log "$msg"; command -v notify-send >/dev/null && notify-send -a fox-llm "🦊 New local models" "$msg"
   else
@@ -572,7 +580,7 @@ do_discover() {
   fi
 }
 
-# Discovery scrapes ~120 ollama.com pages; once a week is plenty.
+# Discovery reads a few hundred Hugging Face API pages; once a week is plenty.
 do_auto() {
   do_check
   do_models check-link && sync_configs
@@ -587,8 +595,10 @@ do_auto() {
 do_list() {
   local report="$STATE/discovered.tsv"
   [[ -f $report ]] || { warn "no report yet — run fox-llm-update --discover"; return 1; }
-  printf 'model\tGB\tclass\tabliterated\n' | cat - "$report" | column -t -s $'\t'
+  printf 'model\tGB\tclass\tabliterated twin\tfile\n' \
+    | cat - <(awk -F'\t' -v OFS='\t' '{ print $1, $3, $4, $5, $2 }' "$report") | column -t -s $'\t'
   echo; echo "class: moe = agent speed here · small = usable · slow = fits RAM, too slow for agents"
+  echo "download one: add its 'model file' line to ~/.config/foxml/llm/gguf-models.txt, then fox-llm-update --models"
 }
 
 do_queue() {
@@ -596,7 +606,7 @@ do_queue() {
   mkdir -p "$dir" "${XDG_CACHE_HOME:-$HOME/.cache}/fox-llm-update"
   cat > "$dir/fox-llm-pull.service.new" <<'EOF'
 [Unit]
-Description=fox-llm pull queue — download wanted local models (resumes after reboot, then disables itself)
+Description=fox-llm download queue — download wanted local models (resumes after reboot, then disables itself)
 After=network-online.target
 
 [Service]
@@ -617,97 +627,42 @@ EOF
     && log "queue running — progress: tail -f ${XDG_CACHE_HOME:-$HOME/.cache}/fox-llm-update/queue.log"
 }
 
-# The service body. Downloads the first wanted model that is still missing — Hugging Face GGUFs
-# before Ollama models — then re-reads the lists, so reordering or parking models in
-# extra-models.txt / gguf-models.txt takes effect at the next model, not after a whole pass. Each model gets QUEUE_TRIES attempts a minute apart; one that
-# runs out is set aside for the rest of the pass and retried in the next one. An Ollama too
-# old for the registry (HTTP 412) stops the queue with a notice; `fox-llm-update` restarts it.
+# The service body. Downloads the first wanted model still missing, then re-reads the lists, so
+# reordering or parking models in your lists takes effect at the next model, not after a whole pass.
+# Each model gets QUEUE_TRIES attempts a minute apart; one that runs out is set aside for the rest of
+# the pass and retried in the next one. One this llama.cpp can't load is left out until llama.cpp updates.
 do_queue_run() {
-  local m cand try out have pass=1 set_aside=" " src=""
+  local name src cand csrc try out rc pass=1 set_aside=" "
   while :; do
-    have=$(ollama list 2>/dev/null | awk 'NR>1{print $1}')
-    m="" src=""
-    while read -r cand src; do
+    name="" src=""
+    while read -r cand csrc; do
       [[ -f $GGUF_DIR/$cand.gguf || $set_aside == *" $cand "* ]] && continue
-      m=$cand; break
-    done < <(gguf_wanted)
-    [[ -n $m ]] || src=""
-    if [[ -z $m ]]; then
-      while read -r cand; do
-        installed_as "$cand" "$have" && continue
-        [[ $set_aside == *" $cand "* ]] && continue
-        m=$cand; break
-      done < <(wanted_models)
-    fi
-    if [[ -z $m ]]; then
-      [[ $set_aside == " " ]] && break                  # everything wanted is installed
+      known_incompatible "$csrc" >/dev/null && continue
+      name=$cand src=$csrc; break
+    done < <(wanted_models)
+    if [[ -z $name ]]; then
+      [[ $set_aside == " " ]] && break                  # everything wanted is downloaded
       echo "--- pass $pass left missing:$set_aside— next pass in 10 min"; sleep 600
       set_aside=" " pass=$((pass + 1)); continue
     fi
-    echo "=== $(date '+%a %H:%M') $m (pass $pass)"
+    echo "=== $(date '+%a %H:%M') $name (pass $pass)"
     for (( try = 1; try <= QUEUE_TRIES; try++ )); do
-      if [[ -n $src ]]; then
-        out=$(fetch_gguf "$m" "$src" 2>&1) && { echo "  done $(date '+%a %H:%M')"; sync_configs; continue 2; }
-      else
-        out=$(pull_quiet "$m") && { echo "  done $(date '+%a %H:%M')"; sync_configs; continue 2; }
-      fi
-      if grep -q 'newer version of Ollama' <<<"$out"; then
-        local server; server=$(ver_ollama_server)
-        warn "ollama server ${server:-?} is too old for the registry — run: fox-llm-update"
-        command -v notify-send >/dev/null && notify-send -a fox-llm "🦊 Model downloads paused" \
-          "Ollama ${server:-?} is too old for the registry. Run: fox-llm-update"
-        exit 1
-      fi
+      out=$(fetch_gguf "$name" "$src" 2>&1); rc=$?
+      if (( rc == 0 )); then echo "  done $(date '+%a %H:%M')"; sync_configs; continue 2; fi
+      if (( rc == 2 )); then echo "  $(tail -1 <<<"$out")"; continue 2; fi
       echo "  attempt $try failed: $(tail -1 <<<"$out")"; sleep 60
     done
-    set_aside+="$m "
+    set_aside+="$name "
   done
   echo "ALL_DONE $(date)"
   systemctl --user disable fox-llm-pull.service 2>/dev/null || true
 }
 
-update_ollama() {
-  local cur new
-  cur=$(ver_ollama); new=$(latest_ollama || true)
-  if [[ -z $new ]]; then warn "could not reach GitHub for the ollama version"; return 1; fi
-  if [[ $cur == "$new" ]]; then log "ollama $cur is current"; return 1; fi
-  log "ollama $cur → $new"
-  mkdir -p "$WORK"
-  curl -fsSL https://ollama.com/install.sh -o "$WORK/install.sh" || return 1
-  # install.sh rewrites the unit file; keep ours (PATH line etc.). Drop-ins are untouched.
-  sudo cp -a "$UNIT" "$WORK/ollama.service.keep"
-  sh "$WORK/install.sh"
-  sudo cp -a "$WORK/ollama.service.keep" "$UNIT"
-  sudo rm -f "$WORK/ollama.service.keep"
-}
-
-# Same file + tiers as fox-install's ollama_hardening; an existing drop-in that already
-# sets both values wins (it may be hand-tuned). Returns 0 only when it wrote something.
-tune_ollama() {
-  if [[ -f $DROPIN ]] && grep -q OLLAMA_CONTEXT_LENGTH "$DROPIN" && grep -q OLLAMA_KEEP_ALIVE "$DROPIN"; then
-    log "ollama context drop-in already in place"; return 1
-  fi
-  local ctx=8192 ram; ram=$(ram_gb)
-  (( ram >= 16 )) && ctx=16384
-  (( ram >= 32 )) && ctx=32768
-  log "writing $DROPIN (context $ctx)"
-  printf '[Service]\nEnvironment="OLLAMA_CONTEXT_LENGTH=%s"\nEnvironment="OLLAMA_KEEP_ALIVE=10m"\n' "$ctx" \
-    | sudo tee "$DROPIN.tmp" >/dev/null && sudo mv "$DROPIN.tmp" "$DROPIN"
-}
-
 do_full() {
-  sudo -v || { warn "sudo needed for the full run"; exit 1; }
-  local changed=0
-  update_ollama && changed=1
-  tune_ollama && changed=1
-  if (( changed )); then
-    log "restarting ollama"
-    sudo systemctl daemon-reload && sudo systemctl restart ollama && sleep 3
-  fi
-
   local cur new
   cur=$(ver_pi); new=$(latest_pi || true)
   if [[ -n $new && $cur != "$new" ]]; then
+    sudo -v || { warn "sudo needed to update pi"; exit 1; }
     log "pi ${cur:-none} → $new"
     # both packages install a `pi` command, so the old one goes first; the example links follow in sync_configs
     if npm ls -g --depth=0 "$PI_PKG_OLD" >/dev/null 2>&1; then sudo npm uninstall -g "$PI_PKG_OLD"; fi
@@ -715,7 +670,7 @@ do_full() {
   else
     log "pi $cur is current"
   fi
-  log "opencode comes from pacman ($(pacman -Q opencode 2>/dev/null)) — updates with pacman -Syu"
+  log "opencode and llama.cpp come from pacman ($(pacman -Q opencode llama-cpp 2>/dev/null | tr '\n' ' ')) — they update with pacman -Syu"
 
   # On a slow link a 20 GB model takes hours: hand the downloads to the background queue.
   if fast_link; then
@@ -725,7 +680,7 @@ do_full() {
     do_queue
   fi
   sync_configs
-  log "done — ollama $(ver_ollama), pi $(ver_pi)"
+  log "done — pi $(ver_pi)"
 }
 
 case "${1:-}" in
@@ -743,6 +698,6 @@ case "${1:-}" in
         *) warn "unknown arg $a"; exit 2 ;;
       esac
     done ;;
-  -h|--help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//' ;;
+  -h|--help) sed -n '2,/^set -uo pipefail$/p' "$0" | sed '$d; s/^# \{0,1\}//' ;;
   *)         warn "unknown arg $1"; exit 2 ;;
 esac

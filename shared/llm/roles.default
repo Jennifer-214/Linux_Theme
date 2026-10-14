@@ -3,14 +3,15 @@
 # installer links roles.conf beside this file to it. A real roles.conf here overrides it on one machine.
 # After an edit: systemctl --user restart fox-llm-server && fox-llm-update --sync
 #
-# Columns: role  model (its Ollama name — the file is read from Ollama's store)  server (llama | ollama)
+# Columns: role  model (a name from the model lists — fox-llm-update downloads it from Hugging Face)
+#          server (llama = llama.cpp's router; llama-turbo = the TurboQuant one)  [slots=N]
 #   agent  pi / opencode / the fox-symdeps explain cards (they follow pi) — long context, tools
 #   quick  short chat, inline edits — small enough for a 4 GB GPU
 #   fim    Copilot-style ghost text — a BASE coder model: instruct ones run past the cursor
 #   title  opencode session titles
 #   embed  embeddings (fask, findex) — what libfox-intel embeds with
 agent  qwen3-coder:30b           llama
-quick  qwen2.5-coder:7b          llama
+quick  qwen3.5:4b                llama
 fim    qwen2.5-coder:1.5b-base   llama
 title  qwen2.5:3b                llama
 embed  mxbai-embed-large         llama

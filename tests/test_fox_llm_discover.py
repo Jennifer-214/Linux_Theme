@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""tests/test_fox_llm_discover.py — fox-llm-discover's tag filter + MoE classifier, offline.
+"""tests/test_fox_llm_discover.py — fox-llm-discover's decisions, offline.
 
-Network calls (ollama.com pages, registry manifests) are replaced with canned values;
-what is tested is the decision logic: which tags count as plain sizes, what is MoE,
-and which tag wins per model.
+Hugging Face's API is replaced with canned answers; what is tested is the logic: one spelling per
+model across quantizers, which file is picked, what is MoE, which uploads are left out (no tools, too
+big, already yours), and the abliterated twin.
 """
+import contextlib
 import importlib.machinery
 import importlib.util
+import io
 import sys
 import unittest
 from pathlib import Path
@@ -17,47 +19,97 @@ spec = importlib.util.spec_from_loader(loader.name, loader)
 d = importlib.util.module_from_spec(spec)
 loader.exec_module(d)
 
+TOOLS = "{% if tools %}…{% endif %}"
+
+
+def upload(repo, base, arch, params, template=TOOLS, created="2026-10-10"):
+    return {"id": repo, "createdAt": created, "cardData": {"base_model": base},
+            "gguf": {"architecture": arch, "total": params, "chat_template": template}}
+
+
+def f(path, gb):
+    return {"type": "file", "path": path, "size": int(gb * 1e9)}
+
 
 class DiscoverTest(unittest.TestCase):
-    def fake(self, tags, sizes, arch, family_moe=False):
-        d.plain_tags = lambda name: [t for t in tags if d.PLAIN.match(t)]
-        d.size_gb = lambda ref: sizes.get(ref.split(":", 1)[1]) if "abliterated" not in ref else None
-        d.tag_arch = lambda name, tag: arch.get(tag, "")
-        d.family_is_moe = lambda name: family_moe
+    def fake(self, uploads, trees, searches=None):
+        """uploads: author → models; trees: repo → files; searches: query → models."""
+        def get(url):
+            if "/tree/main" in url:
+                return trees[url.split("/api/models/", 1)[1].split("/tree/", 1)[0]]
+            if "author=" in url:
+                return uploads.get(url.split("author=", 1)[1].split("&", 1)[0], [])
+            if "search=" in url:
+                q = url.split("search=", 1)[1].split("&", 1)[0]
+                return (searches or {}).get(q, [])
+            raise AssertionError(url)
+        d.get = get
 
-    def test_plain_tags_only(self):
-        for t in ("latest", "30b", "26b-a4b", "e4b", "1.5b", "270m"):
-            self.assertTrue(d.PLAIN.match(t), t)
-        for t in ("26b-a4b-it-q8_0", "12b-mlx", "20b-cloud", "12b-it-qat", "26b-nvfp4"):
-            self.assertFalse(d.PLAIN.match(t), t)
+    def run_main(self, *args):
+        out = io.StringIO()
+        old = sys.argv
+        sys.argv = ["fox-llm-discover", *args]
+        try:
+            with contextlib.redirect_stdout(out):
+                d.main()
+        finally:
+            sys.argv = old
+        return [l.split("\t") for l in out.getvalue().splitlines()]
 
-    def test_moe_from_arch_beats_dense_sibling(self):
-        # qwen3-coder: "30b" has no -aNb tag, but its arch says MoE.
-        self.fake(["30b", "480b-a35b"], {"30b": 18.6, "480b-a35b": 290}, {"30b": "qwen3moe"})
-        ref, gb, cls, _ = d.best_fit("qwen3-coder", 24, 9)
-        self.assertEqual((ref, cls), ("qwen3-coder:30b", "moe"))
+    def test_one_spelling_per_model_across_quantizers(self):
+        for repo in ("unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF", "bartowski/Qwen_Qwen3-Coder-30B-A3B-Instruct-GGUF",
+                     "Qwen/Qwen3-Coder-30B-A3B-Instruct", "ggml-org/Qwen3-Coder-30B-A3B-Instruct-Q8_0-GGUF"):
+            self.assertEqual(d.key(repo), "qwen3-coder-30b-a3b", repo)
+        self.assertEqual(d.key("huihui-ai/Huihui-Qwen3.6-35B-A3B-abliterated-GGUF"), "huihui-qwen3.6-35b-a3b-abliterated")
 
-    def test_moe_tag_preferred_over_bigger_dense(self):
-        # qwen3.6: dense 27b (17 GB) vs MoE 35b-a3b (22.6 GB) — MoE wins, it's agent speed.
-        self.fake(["27b", "35b-a3b"], {"27b": 17.0, "35b-a3b": 22.6}, {"27b": "qwen35", "35b-a3b": "qwen35moe"})
-        ref, _, cls, _ = d.best_fit("qwen3.6", 24, 9)
-        self.assertEqual((ref, cls), ("qwen3.6:35b-a3b", "moe"))
+    def test_file_pick_prefers_q4_k_m_mxfp4_for_gpt_oss_and_skips_parts(self):
+        self.fake({}, {
+            "u/qwen": [f("Q-Q8_0.gguf", 30), f("Q-Q4_K_S.gguf", 17), f("Q-Q4_K_M.gguf", 18),
+                       f("mmproj-F16.gguf", 0.9), f("MTP/mtp-Q4_0.gguf", 0.1)],
+            "u/oss": [f("oss-Q4_K_M.gguf", 11.7), f("oss-MXFP4.gguf", 12.1)],
+            "u/split": [f("S-Q4_K_M-00001-of-00002.gguf", 10)],
+            "u/huge": [f("H-Q4_K_M.gguf", 40)],
+        })
+        self.assertEqual(d.pick_file("u/qwen", "qwen3moe", 24)[0], "Q-Q4_K_M.gguf")
+        self.assertEqual(d.pick_file("u/oss", "gpt-oss", 24)[0], "oss-MXFP4.gguf")
+        self.assertIsNone(d.pick_file("u/split", "qwen3", 24))
+        self.assertIsNone(d.pick_file("u/huge", "qwen3", 24))
 
-    def test_family_text_only_for_unfamiliar_arch(self):
-        # laguna: arch hides MoE, family page says it → moe.
-        self.fake(["latest"], {"latest": 20.3}, {"latest": "laguna"}, family_moe=True)
-        self.assertEqual(d.best_fit("laguna-xs-2.1", 24, 9)[2], "moe")
-        # granite dense: family page mentions MoE siblings, arch is familiar → not moe.
-        self.fake(["8b"], {"8b": 5.0}, {"8b": "granite"}, family_moe=True)
-        self.assertEqual(d.best_fit("granite3.1-dense", 24, 9)[2], "small")
+    def test_classes(self):
+        self.assertEqual(d.classify("qwen3-coder-30b-a3b", "qwen3moe", 18, 9), "moe")
+        self.assertEqual(d.classify("gpt-oss-20b", "gpt-oss", 12, 9), "moe")
+        self.assertEqual(d.classify("lfm2.5-24b-a2b", "lfm2", 15, 9), "moe")          # from the name
+        self.assertEqual(d.classify("qwen3.5-9b", "qwen35", 5.9, 9), "small")
+        self.assertEqual(d.classify("qwen3.6-27b", "qwen35", 17, 9), "slow")
 
-    def test_too_big_dropped_and_dense_classes(self):
-        self.fake(["70b", "27b", "8b"], {"70b": 42, "27b": 17.7, "8b": 5.2}, {})
-        self.assertEqual(d.best_fit("bigdense", 24, 9)[:3], ("bigdense:8b", 5.2, "small"))
-        self.fake(["70b"], {"70b": 42}, {})
-        self.assertIsNone(d.best_fit("bigdense", 24, 9))
-        self.fake(["27b"], {"27b": 17.7}, {"27b": "qwen35"})
-        self.assertEqual(d.best_fit("qwen3.8", 24, 9)[2], "slow")
+    def test_report_newest_first_without_yours_tools_or_misfits(self):
+        self.fake(
+            uploads={
+                "ggml-org": [upload("ggml-org/New-MoE-24B-A2B-GGUF", "lab/New-MoE-24B-A2B", "lfm2moe", 24e9, created="2026-10-13"),
+                             upload("ggml-org/Image-Thing-GGUF", "lab/Image-Thing", "qwen_image", 7e9, template=""),
+                             upload("ggml-org/Giant-GGUF", "lab/Giant", "glm5", 700e9)],
+                "unsloth": [upload("unsloth/New-MoE-24B-A2B-GGUF", "lab/New-MoE-24B-A2B", "lfm2moe", 24e9, created="2026-10-14"),
+                            upload("unsloth/Small-9B-GGUF", "lab/Small-9B", "qwen35", 9e9, created="2026-10-01"),
+                            upload("unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF", "Qwen/Qwen3-Coder-30B-A3B-Instruct", "qwen3moe", 30e9)],
+            },
+            trees={"ggml-org/New-MoE-24B-A2B-GGUF": [f("New-MoE-24B-A2B-Q4_K_M.gguf", 14.9)],
+                   "unsloth/Small-9B-GGUF": [f("Small-9B-Q4_K_M.gguf", 5.9)],
+                   "huihui-ai/Huihui-New-MoE-24B-A2B-abliterated-GGUF": [f("x-Q4_K_M.gguf", 15)]},
+            searches={"New-MoE-24B-A2B-abliterated": [{"id": "random/New-MoE-24B-A2B-abliterated-GGUF"},
+                                                      {"id": "huihui-ai/Huihui-New-MoE-24B-A2B-abliterated-GGUF"}]})
+        have = Path(self._testMethodName + ".have")
+        have.write_text("unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf\n")
+        try:
+            rows = self.run_main("--max-gb", "24", "--have", str(have))
+        finally:
+            have.unlink()
+        self.assertEqual([r[0] for r in rows], ["new-moe-24b-a2b", "small-9b"])        # newest first
+        moe = rows[0]
+        self.assertEqual(moe[1], "ggml-org/New-MoE-24B-A2B-GGUF/New-MoE-24B-A2B-Q4_K_M.gguf")   # llama.cpp's own first
+        self.assertEqual((moe[2], moe[3]), ("14.9", "moe"))
+        self.assertEqual(moe[4:], ["huihui-new-moe-24b-a2b-abliterated",
+                                   "huihui-ai/Huihui-New-MoE-24B-A2B-abliterated-GGUF/x-Q4_K_M.gguf"])  # Huihui's only
+        self.assertEqual(rows[1][3:], ["small", "-", "-"])
 
 
 if __name__ == "__main__":

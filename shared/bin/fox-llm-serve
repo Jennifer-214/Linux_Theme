@@ -12,20 +12,16 @@
 # Roles: ~/.config/foxml/llm/roles.conf, else ~/code/custom_models/roles.conf (yours — the private
 # custom_models repo a reinstall clones back), else roles.default (deployed from Linux_Theme shared/llm/).
 # The installer links the first to the second, so tools that only know the old path read yours too; a
-# real file there overrides it on one machine. Model files come from Ollama's store — no
-# second download — and a preset section is named after the Ollama model, so clients use the same name
-# on either server.
-# Hugging Face GGUFs (llama.cpp's own format; fox-llm-update downloads them from gguf-models.txt)
-# sit in ~/.local/share/fox-llm/gguf/<name>.gguf and are served under <name>, ahead of Ollama.
-# Models not downloaded yet are skipped; `fox-llm-update --sync` (run after every download) rewrites
-# the preset and has the router reload it — no restart. llama.cpp is the default server: the main
-# engine also serves every other chat model in Ollama's store (on demand, ≤3 loaded), except
-#   · models the roles file gives another server (`ollama`, `llama-turbo`) — the server column wins;
-#   · models whose Modelfile bakes in example messages or a LoRA adapter — llama.cpp would silently
-#     drop those, so they stay on Ollama, which runs them as built;
-#   · models this llama.cpp can't load (Ollama's own formats) — checked once per file (load_error).
+# real file there overrides it on one machine.
+# Models are Hugging Face GGUFs in llama.cpp's own format: fox-llm-update downloads each listed one to
+# ~/.local/share/fox-llm/gguf/<name>.gguf, and it is served under <name> — the name the roles file and
+# every client use. Models not downloaded yet are skipped; `fox-llm-update --sync` (run after every
+# download) rewrites the preset and has the router reload it — no restart. The main engine also serves
+# every other model in that folder (on demand), except
+#   · models the roles file gives the turbo engine (`llama-turbo`) — the server column wins;
+#   · models this llama.cpp can't load (an architecture newer than the build) — checked once per file.
 # Embedding models are served too, in embedding mode (/v1/embeddings) — fask/findex use them through
-# libfox-intel, which trims long text exactly as Ollama does. FOX_LLM_ONLY_ROLES=1 limits it to the roles.
+# libfox-intel, which trims text longer than the model takes. FOX_LLM_ONLY_ROLES=1 limits it to the roles.
 #
 # Slots (parallel conversations per model) follow RAM: under 48 GB the agent gets ONE slot — its whole
 # context goes to the one conversation, nothing to fragment or evict (side requests like the plugin's
@@ -39,7 +35,7 @@
 # stand-in until the agent model is downloaded), the title and embedding models after 2 and 5, other
 # models after 5. The router keeps up to 6 loaded, so one stray model never evicts the agent.
 #
-# Env: FOX_LLM_SERVER (llama-server binary override), FOX_LLM_PORT, OLLAMA_MODELS (Ollama's store).
+# Env: FOX_LLM_SERVER (llama-server binary override), FOX_LLM_PORT.
 set -uo pipefail
 
 ENGINE=main
@@ -47,7 +43,6 @@ if [[ ${1:-} == --engine ]]; then ENGINE=${2:-}; shift 2; fi
 [[ $ENGINE == main || $ENGINE == turbo ]] || { echo "fox-llm-serve: --engine is main or turbo" >&2; exit 2; }
 
 LLM_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/foxml/llm"
-STORE="${OLLAMA_MODELS:-/usr/share/ollama/.ollama/models}"
 GGUF_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/fox-llm/gguf"
 if [[ $ENGINE == turbo ]]; then
   PRESET="$LLM_DIR/llama-presets-turbo.ini"; PORT="${FOX_LLM_PORT:-8081}"; SERVES=llama-turbo
@@ -82,23 +77,9 @@ server_bin() {
 # update) while CUDA itself works fine.
 gpu_ok() { "$1" --list-devices 2>/dev/null | grep -Eq '^[[:space:]]+(CUDA|Vulkan|ROCm|SYCL)[0-9]+:'; }
 
-# Model name → its GGUF: a Hugging Face download of that name first, else the Ollama model's
-# weights blob (the manifest layer of type ...image.model).
+# Model name → its GGUF, when it is downloaded. A name never holds a slash: it is a file name.
 gguf_path() {
-  if [[ $1 != */* && -f $GGUF_DIR/$1.gguf ]]; then echo "$GGUF_DIR/$1.gguf"; return; fi
-  python3 -I - "$STORE" "$1" <<'EOF'
-import json, sys, pathlib
-root, ref = pathlib.Path(sys.argv[1]), sys.argv[2]
-name, _, tag = ref.partition(":")
-ns, _, model = name.rpartition("/")
-man = root / "manifests/registry.ollama.ai" / (ns or "library") / model / (tag or "latest")
-try:
-    layers = json.loads(man.read_text())["layers"]
-    digest = next(l["digest"] for l in layers if l["mediaType"].endswith(".model"))
-except (OSError, StopIteration, KeyError, ValueError):
-    sys.exit(1)
-print(root / "blobs" / digest.replace(":", "-"))
-EOF
+  if [[ $1 != */* && -f $GGUF_DIR/$1.gguf ]]; then echo "$GGUF_DIR/$1.gguf"; else return 1; fi
 }
 
 # role → flags. No placement flags at all: llama.cpp's auto-fit places as much as fits in the VRAM
@@ -145,48 +126,37 @@ role_flags() {
   esac
 }
 
-# The models to serve, one "kind<TAB>name<TAB>why it stays on Ollama" row each — kind `chat` or `embed`,
-# always set, first: tab is IFS whitespace to `read`, so an empty middle field would collapse; the reason
-# is empty when llama.cpp can run the model as built. The Hugging Face downloads first (vision projectors
-# aside), then Ollama's store. A SYSTEM layer alone is no reason — the
-# library's Qwen 2.5 models carry their stock default, which the GGUF's own chat template applies too.
+# The downloaded models, one "kind<TAB>name" row each — kind `chat` or `embed` (vision projectors are
+# no model of their own). An embedding model says so in its name or carries a pooling type in its
+# header (<arch>.pooling_type, near the start of the file) — Qwen3-Embedding's architecture is plain
+# qwen3, so the architecture alone can't tell.
 store_models() {
-  python3 -I - "$STORE" "$GGUF_DIR" <<'EOF'
-import json, pathlib, sys
-store = pathlib.Path(sys.argv[1])
-for p in sorted(pathlib.Path(sys.argv[2]).glob("*.gguf")):
-    if "mmproj" not in p.stem:
-        print(("embed" if "embed" in p.stem else "chat") + "\t" + p.stem + "\t")
-reg = store / "manifests/registry.ollama.ai"
-OLLAMA_ONLY = {"messages": "its Modelfile bakes in example messages", "adapter": "its Modelfile adds a LoRA adapter"}
-for tag in sorted(p for p in reg.glob("*/*/*") if p.is_file()) if reg.is_dir() else []:
-    ns, model = tag.parent.parent.name, tag.parent.name
-    name = (model if ns == "library" else f"{ns}/{model}") + ":" + tag.name
+  python3 -I - "$GGUF_DIR" <<'EOF'
+import pathlib, sys
+for p in sorted(pathlib.Path(sys.argv[1]).glob("*.gguf")):
+    if "mmproj" in p.stem.lower():
+        continue
     try:
-        man = json.loads(tag.read_text())
-        kinds = {l["mediaType"].rsplit(".", 1)[-1] for l in man["layers"]}
-    except (OSError, ValueError, KeyError, TypeError):
+        with open(p, "rb") as f:
+            head = f.read(1 << 20)
+    except OSError:
         continue
-    try:   # the config blob names the family: nomic-bert, bert, … are embedding models
-        family = json.loads((store / "blobs" / man["config"]["digest"].replace(":", "-")).read_text())["model_family"]
-    except (OSError, ValueError, KeyError, TypeError):
-        family = ""
-    if "model" not in kinds:
-        continue
-    kind = "embed" if "embed" in name or "bert" in family else "chat"
-    print(kind + "\t" + name + "\t" + next((why for k, why in OLLAMA_ONLY.items() if k in kinds), ""))
+    embed = "embed" in p.stem.lower() or b".pooling_type" in head
+    print(("embed" if embed else "chat") + "\t" + p.stem)
 EOF
 }
 
-# Can this llama.cpp load the blob? llama-fit-params (shipped beside llama-server) lays the model out
+# Can this llama.cpp load the file? llama-fit-params (shipped beside llama-server) lays the model out
 # from the file's header — no weights read, about a second, CPU only — and logs "error loading model:
-# <why>" for an architecture or tensor layout this build doesn't know (Ollama's own formats). Only that
-# counts: it also fails when the model doesn't fit the RAM free right now, which is no reason to drop
-# it (a 19 GB model at 128k failed that way, 2026-10-14). Verdicts are cached per blob, reset when the
-# binary changes. Prints why it can't load; nothing when it can, or when there is no probe.
+# <why>" for an architecture or tensor layout this build doesn't know (Ollama's own GGUF variant was
+# one). Only that counts: it also fails when the model doesn't fit the RAM free right now, which is no
+# reason to drop it (a 19 GB model at 128k failed that way, 2026-10-14). Verdicts are cached per file
+# version (name, size, mtime — a refreshed download is probed again), reset when the binary changes.
+# Prints why it can't load; nothing when it can, or when there is no probe.
 COMPAT="${XDG_CACHE_HOME:-$HOME/.cache}/fox-llm-serve/compat-$ENGINE"
 load_error() {
-  local probe="${1%/*}/llama-fit-params" key=${2##*/} stamp line why
+  local probe="${1%/*}/llama-fit-params" key stamp line why
+  key="${2##*/}@$(stat -c %s-%Y "$2" 2>/dev/null)"; key=${key// /_}
   [[ -x $probe ]] || return 0
   stamp="# $probe $(stat -c %Y "$probe")"
   if [[ -f $COMPAT && $(head -n1 "$COMPAT") == "$stamp" ]]; then
@@ -203,19 +173,19 @@ load_error() {
   if [[ -n $why ]]; then echo "$why"; fi
 }
 
-# Ollama's naming: a bare "name" is "name:latest". Sections use the full name, so a roles line without
-# a tag and the store's own entry are one model, served once; a :latest model also answers to the bare
-# name, as on Ollama (libfox-intel asks for "mxbai-embed-large"). A Hugging Face download keeps its name.
+# A model's name is its file's: "mxbai-embed-large", "qwen3.5:4b". "name:latest" is the bare name — the
+# Ollama spelling older configs, indexes and roles files still carry — and an untagged model answers to
+# it too, so those keep working.
 canon() {
-  if [[ $1 == *:* || -f $GGUF_DIR/$1.gguf ]]; then echo "$1"; else echo "$1:latest"; fi
+  if [[ $1 == *:latest && ! -f $GGUF_DIR/$1.gguf ]]; then echo "${1%:latest}"; else echo "$1"; fi
 }
 aliases() {
-  if [[ $1 == *:latest ]]; then echo "$1,${1%:latest}"; else echo "$1"; fi
+  if [[ $1 == *:* ]]; then echo "$1"; else echo "$1,$1:latest"; fi
 }
 
 write_preset() {
   local bin=$1; shift
-  local roles gpu=0 role model server path why reason kind role_models seen=" "
+  local roles gpu=0 role model server path why kind role_models seen=" "
   local -A kind_of=()
   roles=$(roles_file) || exit 1
   gpu_ok "$bin" && gpu=1
@@ -235,38 +205,40 @@ write_preset() {
     echo "jinja = true"
     # `|| [[ -n … ]]`: a hand-edited roles file may end without a newline, and `read` drops that line.
     while read -r role model server opts || [[ -n ${role:-} ]]; do
-      [[ -z ${role:-} || $role == \#* || ${server:-} != "$SERVES" ]] && continue
+      [[ -z ${role:-} || $role == \#* ]] && continue
+      [[ ${server:-} == ollama ]] && server=llama          # a roles file from before llama.cpp served everything
+      [[ ${server:-} != "$SERVES" ]] && continue
       model=$(canon "$model")
-      path=$(gguf_path "$model") || { echo "; skipped $model ($role): not in Ollama's store yet"; continue; }
+      path=$(gguf_path "$model") || { echo "; skipped $model ($role): not downloaded yet (fox-llm-update)"; continue; }
       why=$(load_error "$bin" "$path")
       if [[ -n $why ]]; then
-        echo "; skipped $model ($role): this llama.cpp can't load it ($why) — give the role server ollama"
+        echo "; skipped $model ($role): this llama.cpp can't load it ($why) — pick another model for the role"
         continue
       fi
       seen+="$model "
       echo; echo "[$model]"; echo "; role: $role"; echo "model = $path"
       # The router rewrites `name:tag` section names like a HF `repo:quant` (qwen2.5-coder:1.5b-base was
-      # served as qwen2.5-coder:BASE); the alias keeps the Ollama name routable for every client.
+      # served as qwen2.5-coder:BASE); the alias keeps the real name routable for every client.
       echo "alias = $(aliases "$model")"
       local slots=""; [[ ${opts:-} =~ slots=([0-9]+) ]] && slots=${BASH_REMATCH[1]}
       role_flags "$role" "$slots"
     done < "$roles"
     local extras=("$@")
     if [[ $ENGINE == main && ${FOX_LLM_ONLY_ROLES:-0} != 1 ]]; then
-      # the default server: every other chat model Ollama holds. A model the roles file names is the
-      # roles loop's (here or on another server), never an extra.
-      while IFS=$'\t' read -r kind model reason; do
+      # the default server: every other downloaded model. A model the roles file names is the roles
+      # loop's (here or on the turbo engine), never an extra.
+      while IFS=$'\t' read -r kind model; do
         grep -qxF -- "$model" <<<"$role_models" && continue
-        if [[ -n $reason ]]; then echo; echo "; on Ollama only: $model — $reason"; continue; fi
         extras+=("$model"); kind_of[$model]=$kind
       done < <(store_models)
     fi
     for model in "${extras[@]}"; do
+      model=$(canon "$model")
       [[ $seen == *" $model "* ]] && continue
       seen+="$model "
-      path=$(gguf_path "$model") || { echo "; skipped $model: not in Ollama's store"; continue; }
+      path=$(gguf_path "$model") || { echo "; skipped $model: not downloaded"; continue; }
       why=$(load_error "$bin" "$path")
-      if [[ -n $why ]]; then echo; echo "; on Ollama only: $model — this llama.cpp can't load it ($why)"; continue; fi
+      if [[ -n $why ]]; then echo; echo "; skipped $model: this llama.cpp can't load it ($why)"; continue; fi
       echo; echo "[$model]"
       if [[ ${kind_of[$model]:-} == embed ]]; then echo "; extra embedding"; else echo "; extra"; fi
       echo "model = $path"; echo "alias = $(aliases "$model")"

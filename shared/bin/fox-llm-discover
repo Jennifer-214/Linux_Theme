@@ -1,131 +1,164 @@
 #!/usr/bin/env python3
-"""fox-llm-discover — find the newest tool-capable Ollama models that fit this machine.
+"""fox-llm-discover — find the newest tool-capable GGUF models on Hugging Face that fit this machine.
 
-Reads ollama.com's "newest, tools" listing, expands each model's plain size tags
-(26b, 26b-a4b, e4b, latest — not quant/format/cloud variants), sizes each one from
-the registry manifest, and prints the best local fit per model as TSV:
+Reads the newest uploads of llama.cpp's own org (ggml-org) and unsloth — both quantize notable
+releases, where bartowski does nearly every community fine-tune; a model once, from the first that
+has it — keeps the chat models whose template takes tools, picks each one's 4-bit single-file GGUF
+that fits (MXFP4 for gpt-oss, its native format; else Q4_K_M), and prints the newest first as TSV:
 
-    ref  size_gb  class  abliterated_ref
+    name  user/repo/file.gguf  size_gb  class  abliterated_name  abliterated_file
 
-class: moe   — mixture-of-experts: agent speed on CPU. Detected from the tag (-aNb), the
-               GGUF arch on the tag page (qwen3moe, lfm2moe, gpt-oss, …), or — for arches
-               that hide it (laguna) — a family page that says MoE and has no -aNb tags
+class: moe   — mixture-of-experts: agent speed on CPU. From the architecture (qwen3moe, lfm2moe,
+               gpt-oss, …) or the name (-A3B: 3B parameters active per token)
        small — dense, ≤ --small-gb: usable
        slow  — dense and bigger: fits in RAM but too slow for agent loops
-abliterated_ref is huihui_ai/<name>-abliterated:<tag> when it exists, else "-".
+The abliterated twin is a Huihui abliteration of the same model in a single file ("-" "-" when there is
+none). A model you already have — the same model from any quantizer, given by --have — is left out.
 """
 import argparse
 import concurrent.futures as cf
 import json
 import re
 import sys
+import urllib.parse
 import urllib.request
 
-MANIFEST = "application/vnd.docker.distribution.manifest.v2+json"
-PLAIN = re.compile(r"^(latest|e?\d+(\.\d+)?[mb](-a\d+(\.\d+)?b)?)$")
-MOE_TAG = re.compile(r"-a\d+(\.\d+)?b$")
-MOE_ARCH = ("gpt-oss",)  # MoE arches without "moe" in the name
-MOE_TEXT = re.compile(r"mixture[- ]of[- ]experts|\bMoE\b|\ba(?:ctiv(?:e|ated))\s+param", re.I)
+API = "https://huggingface.co/api/models"
+AUTHORS = ("ggml-org", "unsloth")                         # first one wins a model both publish
+TWIN_AUTHORS = ("huihui-ai", "bartowski", "mradermacher")
+MOE_ARCH = ("gpt-oss", "deepseek2", "llama4", "mixtral", "dots1", "hunyuan-moe", "ernie4_5-moe")
+MOE_NAME = re.compile(r"-a\d+(\.\d+)?b\b", re.I)
+SPLIT = re.compile(r"-\d{5}-of-\d{5}\.gguf$")
+QUANTS = ("q4_k_m", "q4_k_xl", "q4_k_s", "iq4_xs", "q4_0")  # best first; gpt-oss: mxfp4 before them
 
 
-def get(url, accept=None, htmx=False):
-    headers = {"User-Agent": "fox-llm-discover"}
-    if accept:
-        headers["Accept"] = accept
-    if htmx:  # ollama.com serves page 2+ only as an htmx fragment
-        headers["HX-Request"] = "true"
-    with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=20) as r:
-        return r.read().decode()
+def get(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "fox-llm-discover"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.load(r)
 
 
-def size_gb(ref):
-    name, tag = ref.split(":", 1)
-    if "/" not in name:
-        name = "library/" + name
-    try:
-        d = json.loads(get(f"https://registry.ollama.ai/v2/{name}/manifests/{tag}", MANIFEST))
-    except Exception:
-        return None
-    return sum(l["size"] for l in d.get("layers", [])) / 1e9
+def key(repo):
+    """One spelling per model across quantizers: "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
+    "bartowski/Qwen_Qwen3-Coder-30B-A3B-Instruct-GGUF" and "Qwen/Qwen3-Coder-30B-A3B-Instruct" all
+    give "qwen3-coder-30b-a3b"."""
+    n = repo.rsplit("/", 1)[-1].lower()
+    n = re.sub(r"[-_.](gguf)$", "", n)
+    n = re.sub(r"[-_.](q\d_k(_[a-z]+)?|q\d_\d|iq\d_\w+|f16|bf16|mxfp4)$", "", n)
+    if repo.lower().startswith("bartowski/") and "_" in n:
+        n = n.split("_", 1)[1]                                 # bartowski's "Org_" prefix
+    return re.sub(r"-instruct\b", "", n)
 
 
-def newest_models(pages):
-    names = []
-    for p in range(1, pages + 1):
-        html = get(f"https://ollama.com/search?c=tools&o=newest&page={p}", htmx=p > 1)
-        for n in re.findall(r'/library/([a-z0-9._-]+)(?=["\'\s>])', html):
-            if n not in names:
-                names.append(n)
-    return names
+def base_of(m):
+    b = (m.get("cardData") or {}).get("base_model")
+    b = b[0] if isinstance(b, list) and b else b
+    return b if isinstance(b, str) and "/" in b else m["id"]
 
 
-def plain_tags(name):
-    html = get(f"https://ollama.com/library/{name}/tags")
-    tags = []
-    for t in re.findall(rf'href="/library/{re.escape(name)}:([a-z0-9._-]+)"', html):
-        if PLAIN.match(t) and t not in tags:
-            tags.append(t)
-    return tags
+def newest(author, limit):
+    q = urllib.parse.urlencode([("author", author), ("filter", "gguf"), ("sort", "createdAt"), ("direction", "-1"),
+                                ("limit", str(limit)), ("expand[]", "gguf"), ("expand[]", "createdAt"),
+                                ("expand[]", "cardData")])
+    return get(f"{API}?{q}")
 
 
-def family_is_moe(name):
-    html = get(f"https://ollama.com/library/{name}")
-    text = re.sub(r"<[^>]+>", " ", re.sub(r"<script.*?</script>", "", html, flags=re.S))
-    return bool(MOE_TEXT.search(text))
+def pick_file(repo, arch, max_gb):
+    """(path, GB) of the best single-file 4-bit GGUF in the repo that fits; None when none does."""
+    files = [f for f in get(f"{API}/{repo}/tree/main?recursive=1")
+             if f.get("path", "").lower().endswith(".gguf") and not SPLIT.search(f["path"])
+             and not re.search(r"(^|/)(mmproj|mtp)", f["path"].lower())      # a vision projector, a draft head
+             and f.get("size", 0) / 1e9 <= max_gb]
+    prefs = (("mxfp4",) if arch == "gpt-oss" else ()) + QUANTS
+    for q in prefs:
+        hit = [f for f in files if q in f["path"].rsplit("/", 1)[-1].lower()]
+        if hit:
+            f = min(hit, key=lambda f: len(f["path"]))        # the plain one, not an -imat / -v2 variant
+            return f["path"], f["size"] / 1e9
+    return None
 
 
-def tag_arch(name, tag):
-    html = get(f"https://ollama.com/library/{name}:{tag}")
-    text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html))
-    m = re.search(r"model arch (\S+)", text)
-    return m.group(1) if m else ""
+def twin(base, arch, max_gb, have):
+    """("huihui-<model>-abliterated", "user/repo/file.gguf") for a Huihui abliteration of base you
+    don't have yet."""
+    q = urllib.parse.urlencode([("search", base.rsplit("/", 1)[-1] + "-abliterated"), ("filter", "gguf"),
+                                ("sort", "downloads"), ("direction", "-1"), ("limit", "20")])
+    for m in get(f"{API}?{q}"):
+        repo = m["id"]
+        if repo.split("/")[0] not in TWIN_AUTHORS or "huihui" not in repo.lower():
+            continue
+        if key(repo) in have:
+            return "-", "-"
+        f = pick_file(repo, arch, max_gb)
+        if f:
+            return f"huihui-{key(base)}-abliterated", f"{repo}/{f[0]}"
+    return "-", "-"
 
 
-def classify(name, tag, gb, small_gb, moe_family):
-    arch = tag_arch(name, tag)
-    if MOE_TAG.search(tag) or "moe" in arch or arch in MOE_ARCH:
-        return "moe"
-    # Family pages mention sibling MoE models (granite3.1-dense); only trust the text
-    # when the arch is unfamiliar and nothing says dense.
-    if moe_family and "dense" not in name and not re.match(r"(llama|qwen\d*|gemma\d*|granite|mistral|phi\d*)$", arch):
+def classify(name, arch, gb, small_gb):
+    if "moe" in arch or arch in MOE_ARCH or MOE_NAME.search(name):
         return "moe"
     return "small" if gb <= small_gb else "slow"
 
 
-def best_fit(name, max_gb, small_gb):
+def default_max_gb():
     try:
-        tags = plain_tags(name)
-        # A family that marks its MoE tags (-aNb) has dense siblings: trust the tag.
-        moe_family = not any(MOE_TAG.search(t) for t in tags) and family_is_moe(name)
-    except Exception:
-        return None
-    sized = []
-    for t in tags:
-        gb = size_gb(f"{name}:{t}")
-        if gb is not None and gb <= max_gb:
-            sized.append((t, gb, classify(name, t, gb, small_gb, moe_family)))
-    if not sized:
-        return None
-    rank = {"moe": 2, "small": 1, "slow": 0}
-    # Best class first, then the biggest that still fits; prefer a named size over "latest".
-    t, gb, cls = max(sized, key=lambda s: (rank[s[2]], s[1], s[0] != "latest"))
-    abl = f"huihui_ai/{name}-abliterated:{t}"
-    return f"{name}:{t}", gb, cls, abl if size_gb(abl) is not None else "-"
+        with open("/proc/meminfo") as f:
+            kb = next(int(l.split()[1]) for l in f if l.startswith("MemTotal:"))
+        return max(4.0, kb / 1048576 - 8)                     # leave the desktop + a small model their room
+    except (OSError, StopIteration, ValueError):
+        return 24.0
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--max-gb", type=float, default=24.0, help="largest model that fits RAM (default 24)")
+    ap.add_argument("--max-gb", type=float, default=default_max_gb(), help="largest file that fits (default: RAM − 8 GB)")
     ap.add_argument("--small-gb", type=float, default=9.0, help="dense models up to this are usable (default 9)")
-    ap.add_argument("--pages", type=int, default=1, help="listing pages to scan (default 1, ~20 models)")
+    ap.add_argument("--limit", type=int, default=60, help="newest uploads read per quantizer (default 60)")
+    ap.add_argument("--have", default="", help="file of user/repo/file.gguf lines you already have")
     a = ap.parse_args()
+    have = set()
+    if a.have:
+        with open(a.have) as f:
+            have = {key(l.split()[0].rsplit("/", 1)[0]) for l in f if l.strip() and "/" in l}
 
-    names = newest_models(a.pages)
+    found = {}                                                 # model key → (createdAt, author rank, repo, info)
+    for rank, author in enumerate(AUTHORS):
+        try:
+            models = newest(author, a.limit)
+        except Exception as e:
+            print(f"fox-llm-discover: {author}: {e}", file=sys.stderr)
+            continue
+        for m in models:
+            g = m.get("gguf") or {}
+            if "tools" not in (g.get("chat_template") or "") or not g.get("architecture"):
+                continue                                       # no tool calls, or no chat model at all
+            if (g.get("total") or 0) * 0.55 / 1e9 > a.max_gb:
+                continue                                       # even 4-bit won't fit
+            k = key(base_of(m))
+            if k in have or key(m["id"]) in have:
+                continue
+            if k not in found or rank < found[k][1]:
+                found[k] = (m.get("createdAt", ""), rank, m["id"], g, base_of(m))
+
+    def row(item):
+        created, _, repo, g, base = item
+        try:
+            f = pick_file(repo, g["architecture"], a.max_gb)
+            if not f:
+                return None
+            name = key(base)
+            cls = classify(name, g["architecture"], f[1], a.small_gb)
+            abl = twin(base, g["architecture"], a.max_gb, have)
+            return created, f"{name}\t{repo}/{f[0]}\t{f[1]:.1f}\t{cls}\t{abl[0]}\t{abl[1]}"
+        except Exception as e:
+            print(f"fox-llm-discover: {repo}: {e}", file=sys.stderr)
+            return None
+
     with cf.ThreadPoolExecutor(8) as ex:
-        results = list(ex.map(lambda n: best_fit(n, a.max_gb, a.small_gb), names))
-    for r in results:  # keep ollama.com's newest-first order
-        if r:
-            print(f"{r[0]}\t{r[1]:.1f}\t{r[2]}\t{r[3]}")
+        rows = [r for r in ex.map(row, found.values()) if r]
+    for _, line in sorted(rows, reverse=True):                  # newest first
+        print(line)
 
 
 if __name__ == "__main__":

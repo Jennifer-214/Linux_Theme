@@ -1,32 +1,34 @@
-# core-models.txt — the one model list for the local-LLM stack.
+# core-models.txt — the one model list for the local-LLM stack: Hugging Face GGUFs in llama.cpp's own format.
 #
-# Read by fox-install's `models` module (first install) and by `fox-llm-update`
-# (daily timer), so the two never disagree. Blocks are picked by system RAM:
+# fox-llm-update downloads them — on first install (fox-install's models step queues it), then from its daily
+# timer — into ~/.local/share/fox-llm/gguf/<name>.gguf, where fox-llm-serve serves each under <name>. Blocks
+# are picked by system RAM:
 #   tier: large   ≥ 32 GB   tier: medium  ≥ 16 GB   tier: small   < 16 GB
 #   tier: all     every machine (small helpers other tools depend on)
+# Each line: name  user/repo/file.gguf. Every file passed llama.cpp's loader on its real header before it went
+# in (sparse skeleton through llama-fit-params, 2026-10-14). Personal / abliterated picks: your own list,
+# ~/code/custom_models/gguf-models.conf (same format), not here.
 #
-# Agent coding needs ~3B-active mixture-of-experts models: with little VRAM
-# they run on the CPU, where a dense 14B+ model manages ~2 tok/s and blocks
-# every other request while it generates. Personal / abliterated extras go in
-# ~/.config/foxml/models.private or ~/code/custom_models/*.txt, not here.
-
+# Agent coding needs ~3B-active mixture-of-experts models: with little VRAM they run on the CPU, where a
+# dense 14B+ model manages ~2 tok/s and blocks every other request while it generates.
 # tier: large
-qwen3-coder:30b
-gpt-oss:20b
-
+qwen3-coder:30b          unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf
+gpt-oss:20b              ggml-org/gpt-oss-20b-GGUF/gpt-oss-20b-MXFP4.gguf
 # tier: medium
-gpt-oss:20b
-qwen2.5-coder:7b
-
+gpt-oss:20b              ggml-org/gpt-oss-20b-GGUF/gpt-oss-20b-MXFP4.gguf
+qwen2.5-coder:7b         Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/qwen2.5-coder-7b-instruct-q4_k_m.gguf
 # tier: small
-qwen2.5-coder:7b
-
+qwen2.5-coder:7b         Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/qwen2.5-coder-7b-instruct-q4_k_m.gguf
 # tier: all
-qwen2.5:3b
-qwen2.5:7b
-qwen2.5-coder:1.5b
-qwen2.5-coder:3b
+# the quick role (explain cards, inline edits, the agents' stand-in): a hybrid 4B, fast on a 4 GB GPU
+qwen3.5:4b               unsloth/Qwen3.5-4B-GGUF/Qwen3.5-4B-Q4_K_M.gguf
+qwen2.5:3b               Qwen/Qwen2.5-3B-Instruct-GGUF/qwen2.5-3b-instruct-q4_k_m.gguf
+qwen2.5:7b               bartowski/Qwen2.5-7B-Instruct-GGUF/Qwen2.5-7B-Instruct-Q4_K_M.gguf
+qwen2.5-coder:1.5b       Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf
+qwen2.5-coder:3b         Qwen/Qwen2.5-Coder-3B-Instruct-GGUF/qwen2.5-coder-3b-instruct-q4_k_m.gguf
 # ghost text (nvim's minuet): a BASE coder model — fill-in-the-middle trained, it stops at the gap; the instruct
-# tags above run on past the text after the cursor (measured 2026-10-13: `return ` + suffix `}` → 32 tokens of
-# new functions). Kept beside them, not instead: CodeCompanion's inline edits want the instruct ones.
-qwen2.5-coder:1.5b-base
+# ones above run on past the text after the cursor (measured 2026-10-13). llama.cpp's own FIM build (ggml-org,
+# Q8_0 — what llama.vim / llama.vscode use). Kept beside them, not instead: CodeCompanion wants the instruct ones.
+qwen2.5-coder:1.5b-base  ggml-org/Qwen2.5-Coder-1.5B-Q8_0-GGUF/qwen2.5-coder-1.5b-q8_0.gguf
+# embeddings for fask / findex (the embed role)
+mxbai-embed-large        mixedbread-ai/mxbai-embed-large-v1/gguf/mxbai-embed-large-v1-f16.gguf
