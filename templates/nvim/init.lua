@@ -789,8 +789,12 @@ local plugins = {
   },
 
   -- Local completion (minuet.nvim) — Copilot-style ghost text from a LOCAL model through ollama's fill-in-the-middle
-  -- endpoint. qwen2.5-coder:1.5b fits the 4 GB GPU with room to spare (fast enough to type against); `:Minuet` can
+  -- endpoint. The BASE coder model (fill-in-the-middle trained) fits the 4 GB GPU with room to spare; `:Minuet` can
   -- point it at 3b. Off until <leader>ta switches from Copilot to it — the two never show at once.
+  -- Measured 2026-10-13: these models don't reliably stop at the gap — given `return ` before the cursor and `}`
+  -- after, they wrote `a + b;` and then repeated the `}` and invented new functions. Two settings stop that: `stop` at
+  -- the first blank line (no run-on), and after_cursor_filter_length = 1 (minuet's default is 0 — OFF — for this
+  -- provider; at 1 a suggestion never repeats what is already after the cursor: the `}`, a closing `)`).
   {
     "milanglacier/minuet-ai.nvim",
     event = "InsertEnter",
@@ -799,13 +803,14 @@ local plugins = {
         provider = "openai_fim_compatible",
         n_completions = 1,
         context_window = 1024,
+        after_cursor_filter_length = 1,
         provider_options = {
           openai_fim_compatible = {
             api_key = "TERM", -- ollama needs no key; minuet wants a set variable's name
             name = "Ollama",
             end_point = "http://localhost:11434/v1/completions",
-            model = "qwen2.5-coder:1.5b",
-            optional = { max_tokens = 64, top_p = 0.9 },
+            model = "qwen2.5-coder:1.5b-base",
+            optional = { max_tokens = 64, top_p = 0.9, stop = { "\n\n" } },
           },
         },
         virtualtext = { auto_trigger_ft = {}, keymap = {} }, -- keys: the shared dispatcher below
