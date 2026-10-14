@@ -701,7 +701,7 @@ local plugins = {
   },
 
   -- CodeCompanion — chat, inline edits and agents on the LOCAL models, through llama.cpp's router (127.0.0.1:8080,
-  -- every chat model in Ollama's store under its Ollama name; Ollama keeps the downloads). The GPU has 4 GB: a 3B model fits whole
+  -- every chat model it serves, by its name:tag; the downloads are Hugging Face GGUFs). The GPU has 4 GB: a 3B model fits whole
   -- (fast — inline edits), a 7B spills a little to the CPU (chat and refactors); the 14B default was too slow here.
   -- pi runs as its CLI agent (:CodeCompanionCLI, <leader>cp) — agentic multi-file work on pi's own model (its settings:
   -- ~/.pi/agent). Edits come back as a diff to accept. Config in the v19 shape (`interactions`, `adapters.http`).
@@ -795,7 +795,7 @@ local plugins = {
   },
 
   -- Local completion (minuet.nvim) — Copilot-style ghost text from a LOCAL model through llama.cpp's router, the model
-  -- the router already keeps loaded for this (a second copy in Ollama would double the VRAM). The router's
+  -- the router already keeps loaded for this (a second copy in another server would double the VRAM). The router's
   -- /v1/completions ignores `suffix` (measured 2026-10-14: it rambles), so the gap goes in the prompt with the model's
   -- own fill-in-the-middle tokens. The BASE coder model (fill-in-the-middle trained) fits the 4 GB GPU with room to spare; `:Minuet` can
   -- point it at 3b. Off until <leader>ta switches from Copilot to it — the two never show at once.
@@ -857,9 +857,9 @@ local plugins = {
       "zbirenbaum/copilot.lua",
     },
     opts = {
-      provider = "ollama",
+      provider = "llamacpp",
       providers = {
-        ollama = {
+        llamacpp = {
           __inherited_from = "openai",
           api_key_name = "",
           endpoint = "http://127.0.0.1:8080/v1", -- llama.cpp's router (Avante is disabled; kept right for a re-enable)

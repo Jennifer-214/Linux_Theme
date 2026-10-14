@@ -324,8 +324,8 @@ Inside Trouble:
 
 Everything you type, delete, paste or run (`.`, macros) happens at every cursor.
 
-### Local AI (ollama — CodeCompanion · pi · local completion)
-Everything here runs on your machine through ollama; nothing leaves it.
+### Local AI (llama.cpp — CodeCompanion · pi · local completion)
+Everything here runs on your machine through llama.cpp's router; nothing leaves it.
 
 | Key | Action |
 |-----|--------|

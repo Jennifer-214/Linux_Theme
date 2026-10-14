@@ -481,8 +481,8 @@ Ghost-text suggestions appear automatically when inline mode is active. Use `Ctr
 
 **Modes:** Copilot can run in two modes — **inline** (ghost-text ahead of cursor, accept with `Ctrl+l`) or **cmp menu** (suggestions appear in the autocomplete popup alongside LSP). Toggle with `Space tp`.
 
-### Local AI (ollama — CodeCompanion · pi · local completion)
-Everything here runs on your machine through ollama; nothing leaves it.
+### Local AI (llama.cpp — CodeCompanion · pi · local completion)
+Everything here runs on your machine through llama.cpp's router; nothing leaves it.
 
 | Key | Action |
 |-----|--------|
