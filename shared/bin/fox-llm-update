@@ -611,7 +611,9 @@ WantedBy=default.target
 EOF
   mv "$dir/fox-llm-pull.service.new" "$dir/fox-llm-pull.service"
   systemctl --user daemon-reload
-  systemctl --user enable --now fox-llm-pull.service \
+  # restart, not `enable --now`: a queue already running keeps the code it started with, and after an
+  # update that old code synced pi/opencode the old way (2026-10-14). Downloads resume where they were.
+  systemctl --user enable fox-llm-pull.service && systemctl --user restart fox-llm-pull.service \
     && log "queue running — progress: tail -f ${XDG_CACHE_HOME:-$HOME/.cache}/fox-llm-update/queue.log"
 }
 

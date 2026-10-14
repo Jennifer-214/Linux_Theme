@@ -87,7 +87,7 @@ class SyncTest(unittest.TestCase):
         (self.bin / "npm").write_text(f'#!/bin/sh\n[ "$1" = root ] && echo "{self.npm_root}"\n')
         # Only `is-enabled` matters to sync: the llama.cpp unit's state comes from the test, not the box.
         (self.bin / "systemctl").write_text(
-            '#!/bin/sh\ncase "$*" in *is-enabled*)\n'
+            '#!/bin/sh\necho "$*" >> "$SYSTEMCTL_LOG"\ncase "$*" in *is-enabled*)\n'
             '  for u in $FAKE_UNITS; do case "$*" in *" $u.service"*) exit 0;; esac; done; exit 1;;\n'
             'esac\nexit 0\n')
         # Ollama's store as fox-llm-serve reads it (manifest → GGUF blob) and a llama-server with no GPU:
@@ -130,6 +130,7 @@ class SyncTest(unittest.TestCase):
             "OLLAMA_MODELS": str(self.tmp / "store"),
             "FAKE_OLLAMA_DOWN": "1" if ollama_down else "0",
             "PULL_LOG": str(self.tmp / "pull.log"),
+            "SYSTEMCTL_LOG": str(self.tmp / "systemctl.log"),
             "FAKE_PULL_MISSING": missing,
             "FOX_LLM_SERVER": str(self.bin / "llama-server"),
         }
@@ -483,6 +484,13 @@ class SyncTest(unittest.TestCase):
         i = pulls.index("someone/notonregistry:q4")                                  # the registry first …
         self.assertEqual(pulls[i + 1], "huggingface.co/someone/notonregistry:q4")   # … then Hugging Face
         self.assertIn("upper:1b", pulls)
+
+    def test_queue_restarts_so_an_update_runs_the_new_code(self):
+        self.run_script("--queue")
+        calls = (self.tmp / "systemctl.log").read_text()
+        self.assertIn("--user restart fox-llm-pull.service", calls)        # not `enable --now`: a running
+        self.assertNotIn("--now", calls)                                   # queue would keep its old code
+        self.assertTrue((self.home / ".config/systemd/user/fox-llm-pull.service").exists())
 
     def test_a_bare_name_is_its_latest_tag(self):
         self.install("nomic-embed-text:latest")
