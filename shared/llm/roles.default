@@ -1,5 +1,6 @@
-# roles.default — which local model does which job (deployed by Linux_Theme; copy it to
-# roles.conf beside it to make it yours — roles.conf wins and the installer never touches it).
+# roles.default — which local model does which job (deployed by Linux_Theme). To make it yours, copy it to
+# ~/code/custom_models/roles.conf — your private custom_models repo, which a reinstall clones back — or,
+# for this machine only, to roles.conf beside this file (wins over both). The installer touches neither.
 # After an edit: systemctl --user restart fox-llm-server && fox-llm-update --sync
 #
 # Columns: role  model (its Ollama name — the file is read from Ollama's store)  server (llama | ollama)

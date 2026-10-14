@@ -76,8 +76,10 @@ std::string cuda_arch() {
 }
 
 bool roles_use_turbo(const Context& ctx) {
-    for (const char* name : {"roles.conf", "roles.default"}) {
-        fs::path p = ctx.config_home / "foxml/llm" / name;
+    // The first roles file that exists decides, as in fox-llm-serve: this machine's, then yours in the
+    // private custom_models repo, then the shipped default.
+    for (const fs::path& p : {ctx.config_home / "foxml/llm/roles.conf", ctx.home / "code/custom_models/roles.conf",
+                              ctx.config_home / "foxml/llm/roles.default"}) {
         std::ifstream f(p);
         if (!f) continue;
         std::string line;
@@ -86,7 +88,7 @@ bool roles_use_turbo(const Context& ctx) {
             std::string role, model, server;
             if (ls >> role >> model >> server && role[0] != '#' && server == "llama-turbo") return true;
         }
-        return false;                                   // roles.conf wins over roles.default
+        return false;                                   // the first file found wins
     }
     return false;
 }

@@ -279,7 +279,9 @@ sync_configs() {
   done
   # Models the roles file gives Ollama — with llama.cpp the one server, the only ones Ollama lists.
   local roles_f="" pinned="" f
-  for f in "$LLM_DIR/roles.conf" "$LLM_DIR/roles.default"; do [[ -f $f ]] && { roles_f=$f; break; }; done
+  for f in "$LLM_DIR/roles.conf" "$HOME/code/custom_models/roles.conf" "$LLM_DIR/roles.default"; do
+    [[ -f $f ]] && { roles_f=$f; break; }
+  done
   [[ -n $roles_f ]] && pinned=$(awk '!/^[[:space:]]*(#|$)/ && $3 == "ollama" {
     m = $2; if (m !~ /:/) m = m ":latest"; print m }' "$roles_f")      # Ollama's names: bare = :latest
   mkdir -p "$STATE"

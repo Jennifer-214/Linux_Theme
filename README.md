@@ -130,7 +130,7 @@ Installed via `--ai` + `--models` + `--llama-server` (the desktop preset turns a
 
 | Piece | What it does |
 |-------|--------------|
-| `~/.config/foxml/llm/roles.conf` | Which model fills each role (`agent`, `quick`, `fim`, `title`, `embed`) and on which server (`llama`, `llama-turbo`, `ollama`); `roles.default` ships |
+| `~/code/custom_models/roles.conf` | Your roles: which model fills each role (`agent`, `quick`, `fim`, `title`, `embed`) and on which server (`llama`, `llama-turbo`, `ollama`). Kept in a private `custom_models` repo, so `--github` brings it back on a reinstall; `~/.config/foxml/llm/roles.conf` overrides it on one machine; `roles.default` ships |
 | `fox-llm-serve` | Builds the router's preset from the roles and Ollama's store — chat and embedding models; a once-per-file load check keeps models llama.cpp can't run on Ollama |
 | `fox-llm-update` | Daily timer: update notices, model refresh, discovery. `--queue` downloads in the background on slow links (resumes across reboots); `--sync` wires models into OpenCode + pi |
 | `~/code/custom_models/gguf-models.conf` | Personal Hugging Face GGUFs in llama.cpp's own format, for models whose Ollama copy llama.cpp can't load — downloaded first, sha256-checked |

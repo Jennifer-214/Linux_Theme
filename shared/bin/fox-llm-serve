@@ -9,9 +9,11 @@
 # server is `llama`; turbo = the TurboQuant fork (llama_turbo module, ~/.local/opt) on :8081 serving
 # `llama-turbo` roles — its compressed KV cache generates faster deep into a long context.
 #
-# Roles: ~/.config/foxml/llm/roles.conf (yours; never overwritten), else roles.default (deployed
-# from Linux_Theme shared/llm/). Model files come from Ollama's store — no second download — and a
-# preset section is named after the Ollama model, so clients use the same name on either server.
+# Roles: ~/.config/foxml/llm/roles.conf (this machine only), else ~/code/custom_models/roles.conf (yours —
+# the private custom_models repo a reinstall clones back), else roles.default (deployed from Linux_Theme
+# shared/llm/); the installer never touches the first two. Model files come from Ollama's store — no
+# second download — and a preset section is named after the Ollama model, so clients use the same name
+# on either server.
 # Hugging Face GGUFs (llama.cpp's own format; fox-llm-update downloads them from gguf-models.txt)
 # sit in ~/.local/share/fox-llm/gguf/<name>.gguf and are served under <name>, ahead of Ollama.
 # Models not downloaded yet are skipped; `fox-llm-update --sync` (run after every download) rewrites
@@ -58,10 +60,10 @@ die() { echo "fox-llm-serve: $*" >&2; exit 1; }
 
 roles_file() {
   local f
-  for f in "$LLM_DIR/roles.conf" "$LLM_DIR/roles.default"; do
+  for f in "$LLM_DIR/roles.conf" "$HOME/code/custom_models/roles.conf" "$LLM_DIR/roles.default"; do
     [[ -f $f ]] && { echo "$f"; return; }
   done
-  die "no roles file in $LLM_DIR (roles.conf or roles.default)"
+  die "no roles file (roles.conf in $LLM_DIR or ~/code/custom_models, or $LLM_DIR/roles.default)"
 }
 
 server_bin() {

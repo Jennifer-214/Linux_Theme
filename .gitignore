@@ -35,6 +35,7 @@ rendered/
 
 # Compiled fox-intel binaries — install.sh rebuilds them
 src/fox-intel/fask
+src/fox-agent-parse/fox-agent-parse
 src/fox-intel/findex
 src/fox-intel/libfox-intel.a
 

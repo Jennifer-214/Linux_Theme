@@ -398,6 +398,16 @@ class SyncTest(unittest.TestCase):
         self.assertEqual(sorted(x["id"] for x in pi["ollama"]["models"]), ["qwen2.5:3b"])
         self.assertEqual(sorted(x["id"] for x in pi["llamacpp"]["models"]), ["qwen2.5-coder:14b", "qwen2.5:7b"])
 
+    def test_roles_in_the_custom_models_repo_count(self):
+        self.install("qwen2.5:7b", "qwen2.5-coder:1.5b-base")
+        repo = self.home / "code/custom_models/roles.conf"                 # no ~/.config roles.conf
+        repo.parent.mkdir(parents=True)
+        repo.write_text("fim qwen2.5-coder:1.5b-base llama\nkeep qwen2.5:7b ollama\n")
+        self.run_script("--sync", server_on=True)
+        oc = self.oc()
+        self.assertEqual(sorted(oc["provider"]["ollama"]["models"]), ["qwen2.5:7b"])   # pinned there
+        self.assertFalse(oc["provider"].get("llamacpp", {}).get("models"))
+
     def test_ollama_down_leaves_its_list_alone(self):
         self.install("qwen2.5:7b", "gameproject:latest")
         self.run_script("--sync")

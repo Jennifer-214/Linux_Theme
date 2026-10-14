@@ -68,6 +68,7 @@ class ServeTest(unittest.TestCase):
         # XDG_CACHE_HOME too: the load-check cache must never land in the real ~/.cache.
         env = {**os.environ, "XDG_CONFIG_HOME": str(self.cfg), "OLLAMA_MODELS": str(self.store),
                "XDG_CACHE_HOME": str(self.tmp / "cache"), "XDG_DATA_HOME": str(self.tmp / "data"),
+               "HOME": str(self.tmp / "home"),         # never the real ~/code/custom_models/roles.conf
                "FOX_LLM_SERVER": str(self.server), "FAKE_GPU": "1" if gpu else "0",
                "FOX_LLM_MEMINFO": str(meminfo), **(env or {})}
         r = subprocess.run(["bash", str(SERVE), "preset", *extra], env=env, capture_output=True, text=True)
@@ -142,6 +143,7 @@ class ServeTest(unittest.TestCase):
         self.add_model("qwen2.5-coder:14b")                              # in no role
         env = {**os.environ, "XDG_CONFIG_HOME": str(self.cfg), "OLLAMA_MODELS": str(self.store),
                "XDG_CACHE_HOME": str(self.tmp / "cache"), "XDG_DATA_HOME": str(self.tmp / "data"),
+               "HOME": str(self.tmp / "home"),
                "FOX_LLM_SERVER": str(self.server), "FAKE_GPU": "0"}
         r = subprocess.run(["bash", str(SERVE), "--engine", "turbo", "preset"], env=env, capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -253,6 +255,17 @@ class ServeTest(unittest.TestCase):
         self.add_model("zz-last-dense:7b")
         self.assertIn("[zz-last-dense:7b]", self.preset(gpu=False))
 
+
+    def test_roles_from_the_custom_models_repo_and_a_machine_override(self):
+        self.add_model("qwen2.5:7b")
+        mine = self.tmp / "home/code/custom_models/roles.conf"            # survives a reinstall
+        mine.parent.mkdir(parents=True)
+        mine.write_text("quick qwen2.5:7b llama\n")
+        ini = self.preset()
+        self.assertIn(f"from {mine}", ini)
+        self.assertIn("[qwen2.5:7b]\n; role: quick", ini)
+        (self.cfg / "foxml/llm/roles.conf").write_text("agent qwen2.5:7b llama\n")   # this machine wins
+        self.assertIn("[qwen2.5:7b]\n; role: agent", self.preset())
 
     def test_untagged_role_name_is_the_latest_tag_served_once(self):
         self.add_model("mxbai-embed-large:latest", family="bert")
