@@ -43,5 +43,30 @@ for (const [tool, input, expect] of cases) {
   const ok = got === expect; if (!ok) fail++;
   console.log(`${ok ? "ok  " : "FAIL"} ${tool.padEnd(5)} ${JSON.stringify(input).slice(0, 58).padEnd(58)} expect=${expect} got=${got}`);
 }
+// One dialog per command (2026-10-14): with a gate on pi's event bus, the guard stands down for bash and hands the gate
+// its reasons; with a bus but no gate, it asks as before. A tiny bus with the real one's shape (synchronous emit).
+function bus() {
+  const ls = new Map();
+  return { on: (c, f) => { ls.set(c, [...(ls.get(c) ?? []), f]); }, emit: (c, d) => { for (const f of ls.get(c) ?? []) f(d); } };
+}
+for (const withGate of [true, false]) {
+  const events = bus();
+  if (withGate) events.on("fox:bash-gate?", (p) => { p.gate = true; });
+  let h2;
+  mod.default({ on: (ev, fn) => { if (ev === "tool_call") h2 = fn; }, events });
+  for (const [command, expect, why] of [["git push origin main", withGate ? "pass" : "ask", "git push"],
+                                        ["cat ~/.ssh/known_hosts", withGate ? "pass" : "ask", "touches ~/.ssh/known_hosts"],
+                                        ["git status", "pass", null]]) {
+    let asked = false;
+    const ctx = { cwd, hasUI: true, ui: { notify() {}, select: async () => { asked = true; return "No"; } } };
+    const r = await h2({ toolName: "bash", input: { command } }, ctx);
+    const got = r?.block ? (asked ? "ask" : "block") : "pass";
+    const req = { command, cwd, reasons: [] };
+    events.emit("fox:bash-reasons", req);
+    const gave = why === null ? req.reasons.length === 0 : req.reasons.some((x) => x.includes(why));
+    const ok = got === expect && gave; if (!ok) fail++;
+    console.log(`${ok ? "ok  " : "FAIL"} bus${withGate ? "+gate" : "     "} ${command.padEnd(28)} expect=${expect} got=${got} reasons=${JSON.stringify(req.reasons)}`);
+  }
+}
 console.log(fail ? `${fail} FAILED` : "all passed");
 process.exit(fail ? 1 : 0);

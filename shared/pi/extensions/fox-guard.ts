@@ -9,6 +9,13 @@
  *   - bash matching a destructive pattern         → asks first
  * With no UI (pi -p / RPC) anything that would ask is blocked instead.
  *
+ * One dialog per bash command (2026-10-14, her call): fox-symdeps' pi package carries a gate that asks before any
+ * command that does not only read, so a destructive one used to ask twice. Over pi's event bus (`pi.events`, emitted
+ * synchronously) this guard speaks that gate's protocol — the contract lives in the plugin's DOCS/DECISIONS.md (SD-148):
+ *   fox:bash-reasons   { command, cwd, reasons: [] } — this guard adds its reasons; the gate names them in its dialog
+ *   fox:bash-gate?     { gate: false } — a gate sets it true; then this guard does not ask for bash itself
+ * With no gate loaded (no plugin, an older pi), it asks as it always did.
+ *
  * Based on pi's examples/extensions/{permission-gate,protected-paths}.ts.
  */
 
@@ -62,7 +69,22 @@ function protectedReason(absPath: string, secretsOnly = false): string | undefin
 	return frag ? `matches "${frag}"` : undefined;
 }
 
+// Why a bash command needs a yes: a destructive pattern, or a path token that names a secret (reads too).
+function bashReasons(command: string, cwd: string): string[] {
+	const reasons = DANGEROUS_BASH.filter(([re]) => re.test(command)).map(([, why]) => why);
+	for (const tok of command.match(/(~|\.{0,2}\/)[^\s'";|&<>()]+/g) ?? []) {
+		const why = protectedReason(expand(tok, cwd), true);
+		if (why) reasons.push(`touches ${tok} (${why})`);
+	}
+	return reasons;
+}
+
 export default function (pi: ExtensionAPI) {
+	const events = (pi as any).events as { on: (c: string, f: (d: any) => void) => unknown; emit: (c: string, d: any) => void } | undefined;
+	events?.on("fox:bash-reasons", (req: any) => {
+		if (req && Array.isArray(req.reasons)) req.reasons.push(...bashReasons(String(req.command ?? ""), String(req.cwd ?? process.cwd())));
+	});
+
 	pi.on("tool_call", async (event, ctx) => {
 		if (event.toolName === "write" || event.toolName === "edit") {
 			const abs = expand(event.input.path as string, ctx.cwd);
@@ -84,13 +106,12 @@ export default function (pi: ExtensionAPI) {
 		if (event.toolName !== "bash") return undefined;
 		const command = event.input.command as string;
 
-		const reasons = DANGEROUS_BASH.filter(([re]) => re.test(command)).map(([, why]) => why);
-		// Any path-looking token that names a secret.
-		for (const tok of command.match(/(~|\.{0,2}\/)[^\s'";|&<>()]+/g) ?? []) {
-			const why = protectedReason(expand(tok, ctx.cwd), true);
-			if (why) reasons.push(`touches ${tok} (${why})`);
-		}
+		const reasons = bashReasons(command, ctx.cwd);
 		if (reasons.length === 0) return undefined;
+		// a gate that asks with these reasons in its one dialog (fox:bash-reasons) — then this guard does not ask too
+		const probe = { gate: false };
+		events?.emit("fox:bash-gate?", probe);
+		if (probe.gate) return undefined;
 
 		if (!ctx.hasUI) return { block: true, reason: `Blocked without UI: ${reasons.join("; ")}` };
 		const choice = await ctx.ui.select(`⚠️  ${reasons.join("; ")}\n\n  ${command}\n\nAllow?`, ["No", "Yes"]);
