@@ -111,12 +111,15 @@ write_preset() {
       path=$(gguf_path "$model") || { echo "; skipped $model ($role): not in Ollama's store yet"; continue; }
       seen+="$model "
       echo; echo "[$model]"; echo "; role: $role"; echo "model = $path"
+      # The router rewrites `name:tag` section names like a HF `repo:quant` (qwen2.5-coder:1.5b-base was
+      # served as qwen2.5-coder:BASE); the alias keeps the Ollama name routable for every client.
+      echo "alias = $model"
       role_flags "$role" "$gpu"
     done < "$roles"
     for model in "$@"; do
       [[ $seen == *" $model "* ]] && continue
       path=$(gguf_path "$model") || { echo "; skipped $model: not in Ollama's store"; continue; }
-      echo; echo "[$model]"; echo "; extra"; echo "model = $path"
+      echo; echo "[$model]"; echo "; extra"; echo "model = $path"; echo "alias = $model"
       role_flags extra "$gpu"
     done
   } > "$PRESET.new" && mv "$PRESET.new" "$PRESET"

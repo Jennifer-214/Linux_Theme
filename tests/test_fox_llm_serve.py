@@ -80,6 +80,8 @@ class ServeTest(unittest.TestCase):
         ini = self.preset()
         self.assertIn(f"model = {coder}", self.section(ini, "qwen3-coder:30b"))
         self.assertIn(f"model = {fim}", self.section(ini, "qwen2.5-coder:1.5b-base"))
+        # the router mangles `name:tag` section names; the alias keeps the Ollama name routable
+        self.assertIn("alias = qwen2.5-coder:1.5b-base", self.section(ini, "qwen2.5-coder:1.5b-base"))
         self.assertNotIn("[qwen2.5:3b]", ini)                           # served by ollama, not here
         self.assertIn("; skipped qwen2.5-coder:7b (quick): not in Ollama's store yet", ini)
         self.assertIn("cache-type-k = q8_0", self.section(ini, "*"))
