@@ -264,7 +264,7 @@ void run_deps(Context& ctx) {
             std::vector<std::string> npm_globals;
             if (!have_cmd("gemini")) npm_globals.push_back("@google/gemini-cli");
             if (!have_cmd("claude")) npm_globals.push_back("@anthropic-ai/claude-code");
-            if (!have_cmd("pi"))     npm_globals.push_back("@mariozechner/pi-coding-agent");
+            if (!have_cmd("pi"))     npm_globals.push_back("@earendil-works/pi-coding-agent");  // the old @mariozechner name stops at 0.73.1
             if (!npm_globals.empty()) {
                 std::string names;
                 for (auto& g : npm_globals) names += (names.empty() ? "" : " + ") + g;

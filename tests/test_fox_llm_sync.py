@@ -56,8 +56,12 @@ class SyncTest(unittest.TestCase):
         self.bin.mkdir()
         self.installed = []
         self.modelfile_layers = {}       # model → extra manifest layer kinds (messages, adapter, …)
-        # Fake pi examples tree, as `npm root -g` would expose it.
-        ex = self.npm_root / "@mariozechner/pi-coding-agent/examples/extensions"
+        # Fake pi examples tree, as `npm root -g` would expose it (pi ≥ 1.0's package name).
+        self._examples("@earendil-works/pi-coding-agent")
+        self._write_fakes()
+
+    def _examples(self, pkg):
+        ex = self.npm_root / pkg / "examples/extensions"
         (ex / "plan-mode").mkdir(parents=True)
         (ex / "subagent/agents").mkdir(parents=True)
         (ex / "subagent/prompts").mkdir(parents=True)
@@ -65,7 +69,6 @@ class SyncTest(unittest.TestCase):
             (ex / f).write_text("// stub\n")
         (ex / "subagent/agents/scout.md").write_text("---\nname: scout\nmodel: claude-haiku-4-5\n---\nbody\n")
         (ex / "subagent/prompts/implement.md").write_text("implement\n")
-        self._write_fakes()
 
     def tearDown(self):
         shutil.rmtree(self.tmp)
@@ -172,6 +175,16 @@ class SyncTest(unittest.TestCase):
         self.assertNotIn("model:", scout)
         self.assertIn("name: scout", scout)
         self.assertTrue((agent / "prompts/implement.md").exists())
+        self.assertIn("@earendil-works", os.readlink(agent / "extensions/plan-mode"))
+
+    def test_pi_resources_from_the_old_package_before_the_move(self):
+        # a machine still on pi 0.73.1 (@mariozechner): the links come from there until the update moves it
+        shutil.rmtree(self.npm_root / "@earendil-works")
+        self._examples("@mariozechner/pi-coding-agent")
+        self.install("qwen2.5:3b")
+        self.run_script("--sync")
+        link = os.readlink(self.home / ".pi/agent/extensions/plan-mode")
+        self.assertIn("@mariozechner", link)
 
     def test_user_keys_survive_and_backup_made(self):
         self.install("qwen3-coder:30b")

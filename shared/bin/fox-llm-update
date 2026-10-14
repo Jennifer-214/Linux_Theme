@@ -61,7 +61,9 @@ ver_ollama_server() { curl -fs --max-time 5 localhost:11434/api/version | grep -
 latest_ollama()     { curl -fsS https://api.github.com/repos/ollama/ollama/releases/latest \
                         | python3 -I -c 'import json,sys;print(json.load(sys.stdin)["tag_name"].lstrip("v"))'; }
 ver_pi()            { pi --version 2>&1 | grep -oE "[0-9]+\.[0-9]+\.[0-9]+" | head -1; }
-latest_pi()         { npm view @mariozechner/pi-coding-agent version 2>/dev/null; }
+# pi moved to @earendil-works at 1.0; @mariozechner/pi-coding-agent stops at 0.73.1 (deprecated, 2026-10-14)
+PI_PKG=@earendil-works/pi-coding-agent PI_PKG_OLD=@mariozechner/pi-coding-agent
+latest_pi()         { npm view "$PI_PKG" version 2>/dev/null; }
 ram_gb()            { awk '/^MemTotal:/{printf "%d", ($2 + 1048575) / 1048576}' "${FOX_LLM_MEMINFO:-/proc/meminfo}"; }
 
 # Same tiers as fox-install's models module.
@@ -227,7 +229,9 @@ do_models() {
 # `model:` pins stripped so subagents inherit the local default. Existing files win.
 sync_pi_resources() {
   command -v npm >/dev/null || return 0
-  local ex; ex="$(npm root -g 2>/dev/null)/@mariozechner/pi-coding-agent/examples/extensions"
+  local root ex; root="$(npm root -g 2>/dev/null)"
+  ex="$root/$PI_PKG/examples/extensions"
+  [[ -d $ex ]] || ex="$root/$PI_PKG_OLD/examples/extensions"   # a pi not yet moved to the new name
   [[ -d $ex ]] || return 0
   mkdir -p "$PI_DIR/extensions/subagent" "$PI_DIR/agents" "$PI_DIR/prompts"
   ln -sfn "$ex/git-checkpoint.ts"  "$PI_DIR/extensions/git-checkpoint.ts"
@@ -645,7 +649,10 @@ do_full() {
   local cur new
   cur=$(ver_pi); new=$(latest_pi || true)
   if [[ -n $new && $cur != "$new" ]]; then
-    log "pi ${cur:-none} → $new"; sudo npm install -g "@mariozechner/pi-coding-agent@$new"
+    log "pi ${cur:-none} → $new"
+    # both packages install a `pi` command, so the old one goes first; the example links follow in sync_configs
+    if npm ls -g --depth=0 "$PI_PKG_OLD" >/dev/null 2>&1; then sudo npm uninstall -g "$PI_PKG_OLD"; fi
+    sudo npm install -g "$PI_PKG@$new"
   else
     log "pi $cur is current"
   fi
