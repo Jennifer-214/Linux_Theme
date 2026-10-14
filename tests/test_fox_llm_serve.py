@@ -254,6 +254,18 @@ class ServeTest(unittest.TestCase):
         self.assertIn("[zz-last-dense:7b]", self.preset(gpu=False))
 
 
+    def test_untagged_role_name_is_the_latest_tag_served_once(self):
+        self.add_model("mxbai-embed-large:latest", family="bert")
+        self.add_model("qwen2.5:3b")
+        # no tag on the embed line, and no newline after the last line (a hand edit)
+        (self.cfg / "foxml/llm/roles.conf").write_text("title qwen2.5:3b llama\nembed mxbai-embed-large llama")
+        ini = self.preset()
+        self.assertEqual(ini.count("[mxbai-embed-large:latest]"), 1)            # one model, one section
+        sec = self.section(ini, "mxbai-embed-large:latest")
+        self.assertIn("alias = mxbai-embed-large:latest,mxbai-embed-large", sec)  # both names, as on Ollama
+        self.assertIn("embeddings = true", sec)
+        self.assertIn("[mxbai-embed-large:latest]\n; role: embed", ini)          # the last line was read
+
     # ── Hugging Face GGUFs (fox-llm-update's gguf-models.txt downloads) ──
 
     def hf_model(self, name, content=b"GGUF"):

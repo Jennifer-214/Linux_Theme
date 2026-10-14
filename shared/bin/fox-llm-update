@@ -280,7 +280,8 @@ sync_configs() {
   # Models the roles file gives Ollama — with llama.cpp the one server, the only ones Ollama lists.
   local roles_f="" pinned="" f
   for f in "$LLM_DIR/roles.conf" "$LLM_DIR/roles.default"; do [[ -f $f ]] && { roles_f=$f; break; }; done
-  [[ -n $roles_f ]] && pinned=$(awk '!/^[[:space:]]*(#|$)/ && $3 == "ollama" { print $2 }' "$roles_f")
+  [[ -n $roles_f ]] && pinned=$(awk '!/^[[:space:]]*(#|$)/ && $3 == "ollama" {
+    m = $2; if (m !~ /:/) m = m ":latest"; print m }' "$roles_f")      # Ollama's names: bare = :latest
   mkdir -p "$STATE"
   # stdin carries the script, so the model list goes in as an argument.
   python3 -I - "$OPENCODE_JSON" "$PI_DIR" "$installed" "$AGENT_DEFAULT" "$TITLE_MODEL" "$served" "$server_on" \
