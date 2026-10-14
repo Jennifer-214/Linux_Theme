@@ -79,6 +79,10 @@ class SyncTest(unittest.TestCase):
             "#!/bin/sh\n"
             '[ "$FAKE_OLLAMA_DOWN" = 1 ] && exit 1\n'
             'if [ "$1" = list ]; then printf "NAME\\tID\\tSIZE\\tMODIFIED\\n%s" "$ROWS"; exit 0; fi\n'
+            # pulls are logged; a ref named in FAKE_PULL_MISSING is "not on the registry"
+            'if [ "$1" = pull ]; then echo "$2" >> "$PULL_LOG"\n'
+            '  case " $FAKE_PULL_MISSING " in *" $2 "*) echo "Error: pull model manifest: file does not exist"; exit 1;; esac\n'
+            '  echo success; exit 0; fi\n'
             "exit 1\n")
         (self.bin / "npm").write_text(f'#!/bin/sh\n[ "$1" = root ] && echo "{self.npm_root}"\n')
         # Only `is-enabled` matters to sync: the llama.cpp unit's state comes from the test, not the box.
@@ -108,7 +112,7 @@ class SyncTest(unittest.TestCase):
             (self.bin / f).chmod(0o755)
         self.rows = rows
 
-    def run_script(self, *args, meminfo_gb=32, server_on=False, units=None, ollama_down=False):
+    def run_script(self, *args, meminfo_gb=32, server_on=False, units=None, ollama_down=False, missing=""):
         meminfo = self.tmp / "meminfo"
         meminfo.write_text(f"MemTotal:       {meminfo_gb * 1048576 - 1000} kB\n")
         cfg = self.home / ".config"
@@ -125,6 +129,8 @@ class SyncTest(unittest.TestCase):
             "FAKE_UNITS": units if units is not None else ("fox-llm-server" if server_on else ""),
             "OLLAMA_MODELS": str(self.tmp / "store"),
             "FAKE_OLLAMA_DOWN": "1" if ollama_down else "0",
+            "PULL_LOG": str(self.tmp / "pull.log"),
+            "FAKE_PULL_MISSING": missing,
             "FOX_LLM_SERVER": str(self.bin / "llama-server"),
         }
         r = subprocess.run(["bash", str(SCRIPT), *args], env=env, capture_output=True, text=True)
@@ -446,6 +452,47 @@ class SyncTest(unittest.TestCase):
         for _ in range(2):                                                       # stays hers, sync after sync —
             self.run_script("--sync", server_on=True)                           # only its server follows the stack
             self.assertEqual(self.oc()["model"], "llamacpp/qwen2.5:7b")
+
+    # ── the wanted list fox-install's models step hands to the queue ──
+
+    def test_wanted_list_reads_personal_lists_in_order(self):
+        cfg = self.home / ".config/foxml"
+        (cfg / "llm").mkdir(parents=True, exist_ok=True)
+        (cfg / "llm/extra-models.txt").write_text("extra:3b\n-qwen2.5:3b\n")      # this machine first
+        (cfg / "models.private").write_text("# local\nPriv:2B\n")
+        repo = self.home / "code/custom_models"
+        repo.mkdir(parents=True)
+        (repo / "foxml-models.txt").write_text("mine:7b  # comment\n-ignored\n")
+        (repo / "gguf-models.conf").write_text("not:me x/y/z.gguf\n")            # not an Ollama list
+        (self.home / "code/other").mkdir(parents=True)
+        (self.home / "code/other/foxml-models.txt").write_text("other:1b\nmine:7b\n")
+        out = self.run_script("--wanted").split()
+        self.assertEqual(out[:4], ["extra:3b", "priv:2b", "mine:7b", "other:1b"])  # lowercase, each once
+        self.assertNotIn("qwen2.5:3b", out)                                        # a skip drops it everywhere
+        self.assertNotIn("not:me", out)
+        self.assertNotIn("-ignored", out)
+        self.assertIn("qwen2.5:7b", out)                                           # then the core tier
+
+    def test_pulls_are_normalised_like_the_installer(self):
+        lst = self.home / ".config/foxml/llm/extra-models.txt"
+        lst.parent.mkdir(parents=True, exist_ok=True)
+        lst.write_text("hf.co/Someone/Repo-GGUF:Q4_K_M\nsomeone/notonregistry:q4\nUPPER:1B\n")
+        self.run_script("--models", missing="someone/notonregistry:q4")
+        pulls = (self.tmp / "pull.log").read_text().splitlines()
+        self.assertIn("huggingface.co/someone/repo-gguf:q4_k_m", pulls)             # lowercase, Ollama's auth host
+        i = pulls.index("someone/notonregistry:q4")                                  # the registry first …
+        self.assertEqual(pulls[i + 1], "huggingface.co/someone/notonregistry:q4")   # … then Hugging Face
+        self.assertIn("upper:1b", pulls)
+
+    def test_a_bare_name_is_its_latest_tag(self):
+        self.install("nomic-embed-text:latest")
+        lst = self.home / ".config/foxml/llm/extra-models.txt"
+        lst.parent.mkdir(parents=True, exist_ok=True)
+        lst.write_text("nomic-embed-text\n")
+        self.run_script("--models")
+        log = self.tmp / "pull.log"
+        pulls = log.read_text().splitlines() if log.exists() else []
+        self.assertNotIn("nomic-embed-text", pulls)                                  # installed as :latest
 
     # ── Hugging Face GGUFs (gguf-models.txt / ~/code/custom_models/gguf-models.conf) ──
 

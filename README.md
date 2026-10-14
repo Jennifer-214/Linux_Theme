@@ -42,7 +42,7 @@ Caches sudo, installs git+curl, clones to `~/code/Linux_Theme`, runs the full se
 | `--deps` | Install Arch packages, Oh My Zsh, zsh plugins |
 | --yes | Auto-confirm every prompt |
 | --ai | Install Ollama + OpenCode + aider + mxbai-embed-large (see [AI layer](#ai-layer-optional)) |
-| --models | Pull tier-appropriate Qwen chat/coder stack (1.5B → 32B based on RAM+VRAM) |
+| --models | Queue the RAM-tiered model stack + your personal model lists — downloads in the background, resumes across reboots |
 | --llama-server | llama.cpp router — the default local model server for OpenCode + pi (`127.0.0.1:8080`) |
 | --llama-turbo | TurboQuant llama.cpp fork, built from source — optional second engine for long-context roles |
 | --github | Clone all your repos into ~/code |

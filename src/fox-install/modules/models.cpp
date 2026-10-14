@@ -1,9 +1,11 @@
-// modules/models.cpp — pull the RAM-tiered Ollama model stack.
+// modules/models.cpp — queue the local model stack for background download.
 //
-// The list lives in shared/llm/core-models.txt, shared with fox-llm-update's
-// daily refresh so first install and the timer pull the same set. Tier is
-// RAM-only: the agent models are ~3B-active MoE that run on the CPU, so VRAM
-// no longer gates them. Also installs fox-llm-update.timer.
+// fox-llm-update owns the list — this machine's extras, your personal lists (the custom_models repo, any
+// ~/code/*/foxml-models.txt, ~/.config/foxml/models.private), then the RAM tier of
+// shared/llm/core-models.txt — and downloads it in its background queue: resumable across reboots,
+// retried, Hugging Face GGUFs first, gone when done. Pulling here instead held a slow-Wi-Fi install for
+// days. Tier is RAM-only: the agent models are ~3B-active MoE that run on the CPU, so VRAM no longer
+// gates them. Also installs fox-llm-update.timer.
 
 #include "../core/context.hpp"
 #include "../core/hardware.hpp"
@@ -35,26 +37,6 @@ long tier_min_free_gb(const std::string& tier) {
     if (tier == "large")  return 60;
     if (tier == "medium") return 30;
     return 15;
-}
-
-// Lines under "# tier: <tier>" and "# tier: all" in core-models.txt.
-std::vector<std::string> models_for(const fs::path& list, const std::string& tier) {
-    std::vector<std::string> out;
-    std::ifstream f(list);
-    std::string line, block;
-    while (std::getline(f, line)) {
-        line.erase(0, line.find_first_not_of(" \t\r\n"));
-        auto last = line.find_last_not_of(" \t\r\n");
-        if (last != std::string::npos) line.erase(last + 1);
-        if (line.rfind("# tier:", 0) == 0) {
-            block = line.substr(7);
-            block.erase(0, block.find_first_not_of(' '));
-            continue;
-        }
-        if (line.empty() || line[0] == '#') continue;
-        if (block == tier || block == "all") out.push_back(line);
-    }
-    return out;
 }
 
 constexpr const char* UPDATE_SERVICE_BODY =
@@ -95,51 +77,6 @@ void install_update_timer(const Context& ctx) {
     }
 }
 
-std::vector<std::string> discover_custom_models(const Context& ctx) {
-    std::vector<std::string> out;
-    std::vector<fs::path> candidates;
-
-    // 1. ~/.config/foxml/models.private (one-off local overrides)
-    candidates.push_back(ctx.config_home / "foxml" / "models.private");
-
-    // 2. ~/code/*/foxml-models.txt (private repository discovery)
-    fs::path code_dir = ctx.home / "code";
-    std::error_code ec;
-    if (fs::is_directory(code_dir, ec)) {
-        for (const auto& entry : fs::directory_iterator(code_dir, ec)) {
-            if (entry.is_directory()) {
-                candidates.push_back(entry.path() / "foxml-models.txt");
-            }
-        }
-    }
-
-    // 3. ~/code/custom_models/*.txt (bulk model registration)
-    fs::path custom_dir = code_dir / "custom_models";
-    if (fs::is_directory(custom_dir, ec)) {
-        for (const auto& entry : fs::directory_iterator(custom_dir, ec)) {
-            if (entry.is_regular_file() && entry.path().extension() == ".txt") {
-                candidates.push_back(entry.path());
-            }
-        }
-    }
-
-    for (const auto& p : candidates) {
-        if (!fs::exists(p, ec)) continue;
-        std::ifstream f(p);
-        std::string line;
-        while (std::getline(f, line)) {
-            // Trim whitespace
-            line.erase(0, line.find_first_not_of(" \t\r\n"));
-            auto last = line.find_last_not_of(" \t\r\n");
-            if (last != std::string::npos) line.erase(last + 1);
-
-            if (line.empty() || line[0] == '#') continue;
-            out.push_back(line);
-        }
-    }
-    return out;
-}
-
 }  // namespace
 
 // Returns $HOME free space in GB, or -1 if statvfs fails.
@@ -150,13 +87,9 @@ long home_free_gb(const Context& ctx) {
 }
 
 void run_models(Context& ctx) {
-    ui::section("Pulling Ollama model stack");
+    ui::section("Local model stack — queued for background download");
 
-    // Disk-space gate: bash auto-disabled --models when $HOME had less
-    // than 25 GB free (qwen2.5-coder:32b alone is ~20 GB, plus the
-    // chat sibling and intermediate sizes). Skip cleanly with a clear
-    // message rather than letting `ollama pull` half-finish and leave
-    // a partial model on disk.
+    // Free-space gate first: a queue that can't fit would only leave half-finished models on disk.
     int ram  = hw::ram_gb();
     std::string tier = pick_tier(ram);
     ui::ok("RAM: " + std::to_string(ram) + "GB, VRAM: " +
@@ -171,97 +104,23 @@ void run_models(Context& ctx) {
         return;
     }
 
-    fs::path list = ctx.shared_dir / "llm/core-models.txt";
-    auto models = models_for(list, tier);
-    if (models.empty()) ui::warn("no models read from " + list.string());
-    // Embedding model (mxbai-embed-large) is pulled by the `ai` module —
-    // it's a hard dep of fox-intel / findex / fask, so it lives there
-    // alongside Ollama itself rather than being duplicated here.
-    auto custom = discover_custom_models(ctx);
-    if (!custom.empty()) {
-        ui::ok("discovered " + std::to_string(custom.size()) + " custom models");
-        models.insert(models.end(), custom.begin(), custom.end());
-    }
+    fs::path upd = ctx.home / ".local/bin/fox-llm-update";
+    if (!fs::exists(upd)) upd = ctx.shared_dir / "bin/fox-llm-update";
+    std::string wanted;
+    sh::capture({"bash", upd.string(), "--wanted"}, wanted);
+    const long n = std::count(wanted.begin(), wanted.end(), '\n');
 
-    // Uniquify
-    std::sort(models.begin(), models.end());
-    models.erase(std::unique(models.begin(), models.end()), models.end());
-
-    for (const auto& m : models) {
-        std::string target = m;
-        // Fix common typos/aliases for known community "unlocked" models.
-        if (target == "hermes-3:8b") target = "hermes3:8b";
-
-        // Ollama strictly requires lowercase for model names/tags. Hugging Face
-        // (hf.co/) paths are case-insensitive for the download, so we can
-        // safely lowercase the entire string to satisfy Ollama's regex.
-        std::string pull_target = target;
-        std::transform(pull_target.begin(), pull_target.end(), pull_target.begin(),
-                       [](unsigned char c){ return std::tolower(c); });
-
-        bool has_namespace = (target.find('/') != std::string::npos);
-        bool has_host = (target.find("hf.co/") == 0 || target.find("huggingface.co/") == 0);
-
-        // Ollama's auth realm check rejects `hf.co/...` because the
-        // manifest server redirects to `huggingface.co`. Use the long
-        // form so the original host matches the auth realm.
-        std::string hf_target;
-        if (has_host) {
-            hf_target = pull_target;
-            if (hf_target.rfind("hf.co/", 0) == 0) {
-                hf_target.replace(0, 6, "huggingface.co/");
-            }
-        } else if (has_namespace) {
-            hf_target = "huggingface.co/" + pull_target;
-        }
-
-        bool success = false;
-        std::string attempted;
-        if (has_host) {
-            attempted = hf_target;
-            ui::substep("pulling from Hugging Face: " + attempted);
-            if (sh::run({"ollama", "pull", attempted}) == 0) success = true;
-        } else {
-            attempted = pull_target;
-            ui::substep("pulling " + attempted);
-            if (sh::run({"ollama", "pull", attempted}) == 0) success = true;
-            // A namespaced ref is usually a community model on the Ollama registry
-            // (huihui_ai/…); only when the registry has no such model is it tried
-            // as a Hugging Face GGUF repo.
-            if (!success && has_namespace) {
-                attempted = hf_target;
-                ui::substep("not on the Ollama registry — trying Hugging Face: " + attempted);
-                if (sh::run({"ollama", "pull", attempted}) == 0) success = true;
-            }
-        }
-
-        if (!success) {
-            ui::warn("pull failed: " + target +
-                     " — retry with `ollama pull " + attempted + "`");
-        }
-    }
-    ui::ok(std::to_string(models.size()) + " models requested");
-
-    // Hugging Face GGUFs (llama.cpp's own format, for models whose Ollama upload llama.cpp can't load)
-    // aren't Ollama pulls: fox-llm-update downloads them, first in its background queue — resumable
-    // across reboots, sha256-checked. The daily timer only downloads on a fast link, so on slow Wi-Fi a
-    // reinstall would never fetch them: start the queue whenever a list exists.
-    const bool gguf_list = fs::exists(ctx.home / "code/custom_models/gguf-models.conf") ||
-                           fs::exists(ctx.config_home / "foxml/llm/gguf-models.txt");
     if (sh::dry_run()) {
-        ui::substep(std::string("[dry-run] would write + enable fox-llm-update.{service,timer}") +
-                    (gguf_list ? " and start the download queue for the Hugging Face GGUF list" : ""));
+        ui::substep("[dry-run] would write + enable fox-llm-update.{service,timer} and queue " + std::to_string(n) +
+                    " models (and any Hugging Face GGUF list) for background download");
         return;
     }
     install_update_timer(ctx);
-    if (gguf_list) {
-        fs::path upd = ctx.home / ".local/bin/fox-llm-update";
-        if (!fs::exists(upd)) upd = ctx.shared_dir / "bin/fox-llm-update";
-        if (sh::run({"bash", upd.string(), "--queue"}) == 0) {
-            ui::ok("Hugging Face GGUFs queued — background download, resumes across reboots");
-        } else {
-            ui::warn("could not start the download queue — run: fox-llm-update --queue");
-        }
+    if (sh::run({"bash", upd.string(), "--queue"}) == 0) {
+        ui::ok(std::to_string(n) + " models queued — downloading in the background, resumes across reboots");
+        ui::substep("progress: tail -f ~/.cache/fox-llm-update/queue.log");
+    } else {
+        ui::warn("could not start the download queue — run: fox-llm-update --queue");
     }
 }
 

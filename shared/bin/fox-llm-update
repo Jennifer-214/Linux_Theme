@@ -15,9 +15,10 @@
 #   fox-llm-update --queue    slow link: download wanted models in the background, resuming
 #                             across reboots (user service fox-llm-pull), then stop
 #
-# Wanted models = shared/llm/core-models.txt (RAM tier) + ~/.config/foxml/llm/extra-models.txt
-# (personal, Ollama registry refs, in priority order — pulled before the core list;
-# a "-model" line skips a model). Binaries are never auto-upgraded: the timer only notifies.
+# Wanted models, in download order: ~/.config/foxml/llm/extra-models.txt (this machine; a "-model"
+# line skips a model everywhere), then your personal lists — the ones fox-install's models step reads:
+# ~/.config/foxml/models.private, ~/code/*/foxml-models.txt, ~/code/custom_models/*.txt — then the RAM
+# tier of shared/llm/core-models.txt. fox-install queues them all here instead of pulling them itself. Binaries are never auto-upgraded: the timer only notifies.
 # Hugging Face GGUFs — llama.cpp's own format, for models whose Ollama copy llama.cpp can't load
 # (a fox-llm-serve load check says so): "name user/repo/file.gguf" lines in
 # ~/.config/foxml/llm/gguf-models.txt or, to survive a reinstall, ~/code/custom_models/gguf-models.conf
@@ -72,19 +73,32 @@ ram_tier() {
   if (( ram >= 32 )); then echo large; elif (( ram >= 16 )); then echo medium; else echo small; fi
 }
 
-# "-model" lines in extra-models.txt: core models this machine should not pull.
+# "-model" lines in extra-models.txt: models this machine should not pull, from any list.
 skipped_models() {
-  [[ -f $EXTRA_LIST ]] && awk '/^[[:space:]]*-/ { sub(/^[[:space:]]*-/, ""); printf "%s ", $1 }' "$EXTRA_LIST"
+  [[ -f $EXTRA_LIST ]] && awk '/^[[:space:]]*-/ { sub(/^[[:space:]]*-/, ""); printf "%s ", tolower($1) }' "$EXTRA_LIST"
 }
 
-# Personal extras first (they are deliberate picks, in priority order), then the
-# RAM-tiered core list; "-model" lines drop a model from both.
+# Your personal model lists — the ones fox-install's models step reads (a local override file, any
+# private repo's foxml-models.txt, the custom_models repo's lists), each once.
+personal_lists() {
+  local f
+  for f in "${XDG_CONFIG_HOME:-$HOME/.config}/foxml/models.private" "$HOME"/code/*/foxml-models.txt \
+           "$HOME"/code/custom_models/*.txt; do
+    if [[ -f $f ]]; then echo "$f"; fi
+  done | awk '!seen[$0]++'
+}
+
+# This machine's extras first (deliberate picks, in priority order), then your personal lists, then
+# the RAM-tiered core list; "-model" lines drop a model from all of them. Lowercase, as Ollama wants.
 wanted_models() {
-  local tier; tier=$(ram_tier)
+  local tier f; tier=$(ram_tier)
   {
     if [[ -f $EXTRA_LIST ]]; then
       awk '!/^[[:space:]]*(#|$)/ { print $1 }' "$EXTRA_LIST"
     fi
+    while read -r f; do
+      awk '!/^[[:space:]]*(#|$)/ { print $1 }' "$f"
+    done < <(personal_lists)
     if [[ -f $CORE_LIST ]]; then
       awk -v t="$tier" '
         /^# tier:/ { b = $3; next }
@@ -94,6 +108,7 @@ wanted_models() {
   } | awk -v skip="$(skipped_models)" '
       BEGIN { n = split(skip, s, " "); for (i = 1; i <= n; i++) drop[s[i]] = 1 }
       /^-/ { next }
+      { $0 = tolower($0) }
       !($0 in drop) && !seen[$0]++'
 }
 
@@ -170,13 +185,36 @@ fast_link() {
 
 ollama_up() { ollama list >/dev/null 2>&1; }
 
-# Prints the last status lines; exit 0 only when the pull reported success.
+# hf.co refs by huggingface.co: Ollama checks the auth realm against that host (the manifest server
+# redirects there), so the short form fails.
+hf_form() { if [[ $1 == hf.co/* ]]; then echo "huggingface.co/${1#hf.co/}"; else echo "$1"; fi; }
+
+pull_once() {
+  ollama pull "$1" 2>&1 | tr '\r' '\n' | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' \
+    | grep -vE '^pulling [0-9a-f]+: +[0-9]+%' | grep -v '^[[:space:]]*$' | tail -3
+}
+
+# Prints the last status lines; exit 0 only when the pull reported success. Normalised as fox-install's
+# models step always did: lowercase names, hf.co → huggingface.co, and a namespaced ref the Ollama
+# registry doesn't have (user/repo:tag, no host) tried as a Hugging Face repo.
 pull_quiet() {
-  local out
-  out=$(ollama pull "$1" 2>&1 | tr '\r' '\n' | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' \
-          | grep -vE '^pulling [0-9a-f]+: +[0-9]+%' | grep -v '^[[:space:]]*$' | tail -3)
+  local ref out
+  ref=$(hf_form "${1,,}")
+  out=$(pull_once "$ref")
+  if ! grep -q '^success' <<<"$out" && [[ $ref == */* && $ref != *.*/* ]] \
+     && grep -qiE 'not found|does not exist' <<<"$out"; then
+    out=$(pull_once "huggingface.co/$ref")
+  fi
   printf '%s\n' "$out"
   grep -q '^success' <<<"$out"
+}
+
+# Is a wanted ref among the installed ones ($2, `ollama list` names)? A bare name is name:latest, and
+# pull_quiet may have fetched a namespaced ref as its Hugging Face form.
+installed_as() {
+  local ref; ref=$(hf_form "${1,,}")
+  [[ $ref == *:* ]] || ref+=":latest"
+  grep -qxF -e "$ref" -e "huggingface.co/$ref" <<<"$2"
 }
 
 free_gb() { df -BG --output=avail "${MODELS_DIR%/.ollama/models}" 2>/dev/null | tail -1 | tr -dc 0-9; }
@@ -213,7 +251,7 @@ do_models() {
   ollama_up || { warn "ollama is not running — skipping model refresh"; return 1; }
   have=$(ollama list | awk 'NR>1{print $1}')
   while read -r m; do
-    grep -qxF "$m" <<<"$have" || { log "pulling missing model $m"; pull_quiet "$m"; }
+    installed_as "$m" "$have" || { log "pulling missing model $m"; pull_quiet "$m"; }
   done < <(wanted_models)
   for m in $have; do
     if on_registry "$m"; then
@@ -594,7 +632,7 @@ do_queue_run() {
     [[ -n $m ]] || src=""
     if [[ -z $m ]]; then
       while read -r cand; do
-        grep -qxF "$cand" <<<"$have" && continue
+        installed_as "$cand" "$have" && continue
         [[ $set_aside == *" $cand "* ]] && continue
         m=$cand; break
       done < <(wanted_models)
