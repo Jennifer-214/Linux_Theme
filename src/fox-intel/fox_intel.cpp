@@ -10,6 +10,8 @@
 #include <thread>
 #include <chrono>
 #include <fcntl.h>
+#include <atomic>
+#include <map>
 
 static int g_curl_ref_count = 0;
 static std::mutex g_curl_ref_mu;
@@ -49,6 +51,16 @@ FoxIntel::FoxIntel(std::string model) : default_model(model), accent_color("\033
             }
         }
     }
+
+    // 1b. Embeddings: the router while it serves models (opencode's `llamacpp` list isn't empty), else Ollama.
+    try {
+        const auto& lp = opencode.at("provider").at("llamacpp");
+        if (lp.at("models").is_object() && !lp.at("models").empty()) {
+            embed_base = "http://127.0.0.1:8080/v1";
+            try { embed_base = lp.at("options").at("baseURL").get<std::string>(); } catch (...) {}
+            while (!embed_base.empty() && embed_base.back() == '/') embed_base.pop_back();
+        }
+    } catch (...) {}
 
     // 2. Load theme colors
     if (!home_str.empty()) {
@@ -159,34 +171,106 @@ size_t FoxIntel::SseCallback(void* contents, size_t size, size_t nmemb, void* us
     return size * nmemb;
 }
 
-std::vector<float> FoxIntel::get_embedding(const std::string& text, const std::string& model) {
-    std::string readBuffer;
-    std::vector<float> embedding;
-
-    std::string model_name = model.empty() ? "mxbai-embed-large" : model;
-
+// POST a JSON body; the response body lands in `out`. Returns the HTTP status, or -1 when the request
+// never got an answer.
+static long post_json(const std::string& url, const json& body, std::string& out) {
     CURL* curl = curl_easy_init();
-    if(curl) {
-        json body = {{"model", model_name}, {"prompt", text}};
-        std::string json_str = body.dump();
-        struct curl_slist* headers = curl_slist_append(NULL, "Content-Type: application/json");
+    if (!curl) return -1;
+    std::string json_str = body.dump();
+    struct curl_slist* headers = curl_slist_append(NULL, "Content-Type: application/json");
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_str.c_str());
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,
+                     +[](void* p, size_t s, size_t n, std::string* o) { o->append((char*)p, s * n); return s * n; });
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &out);
+    long code = -1;
+    if (curl_easy_perform(curl) == CURLE_OK) curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    return code;
+}
 
-        curl_easy_setopt(curl, CURLOPT_URL, "http://localhost:11434/api/embeddings");
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_str.c_str());
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
+// One complaint per process: findex embeds hundreds of chunks, and a broken server would say so each time.
+static void embed_failed(const std::string& why) {
+    static std::atomic<bool> said{false};
+    if (!said.exchange(true)) std::cerr << "fox-intel: embeddings failed: " << why << std::endl;
+}
 
-        if(curl_easy_perform(curl) == CURLE_OK) {
-            try {
-                auto j = json::parse(readBuffer);
-                if (j.contains("embedding")) embedding = j["embedding"].get<std::vector<float>>();
-            } catch (...) {}
-        }
-        curl_slist_free_all(headers);
-        curl_easy_cleanup(curl);
+// Most tokens a model embeds at once, learned from the router's "too large … batch size: N" answer —
+// shared by findex's parallel workers.
+static std::mutex g_limit_mu;
+static std::map<std::string, int> g_embed_limit;
+
+std::vector<float> FoxIntel::get_embedding(const std::string& text, const std::string& model) {
+    std::string model_name = model.empty() ? "mxbai-embed-large" : model;
+    return embed_base.empty() ? embed_ollama(text, model_name) : embed_llama(text, model_name);
+}
+
+// Ollama's /api/embed, which cuts text longer than the model takes (the old /api/embeddings returns
+// "input length exceeds the context length" instead — since Ollama 0.40, findex lost every long chunk).
+std::vector<float> FoxIntel::embed_ollama(const std::string& text, const std::string& model) {
+    std::string out;
+    long code = post_json("http://localhost:11434/api/embed", {{"model", model}, {"input", text}}, out);
+    try {
+        auto j = json::parse(out);
+        if (code == 200) return j.at("embeddings").at(0).get<std::vector<float>>();
+        embed_failed(j.value("error", out));
+    } catch (...) { embed_failed(code < 0 ? "Ollama did not answer" : out.substr(0, 200)); }
+    return {};
+}
+
+// The llama.cpp router's /v1/embeddings. It refuses text longer than the model takes, so that text is
+// tokenized (the router's /tokenize, same model) and cut to the first N-1 tokens plus the end token —
+// vectors identical to Ollama's cut (cosine 1.00000 on 100-line chunks, 2026-10-14), so indexes built
+// through Ollama stay valid.
+std::vector<float> FoxIntel::embed_llama(const std::string& text, const std::string& model) {
+    auto vector_of = [](const std::string& body) -> std::vector<float> {
+        auto j = json::parse(body);
+        return j.at("data").at(0).at("embedding").get<std::vector<float>>();
+    };
+    int limit = 0;
+    {
+        std::lock_guard<std::mutex> lk(g_limit_mu);
+        auto it = g_embed_limit.find(model);
+        if (it != g_embed_limit.end()) limit = it->second;
     }
-    return embedding;
+    std::string out;
+    if (limit == 0) {                                  // limit not known yet: try the text as it is
+        long code = post_json(embed_base + "/embeddings", {{"model", model}, {"input", text}}, out);
+        try {
+            if (code == 200) return vector_of(out);
+            std::string msg = json::parse(out).at("error").at("message").get<std::string>();
+            auto at = msg.find("batch size: ");
+            if (at == std::string::npos) { embed_failed(msg); return {}; }
+            limit = std::stoi(msg.substr(at + 12));
+            std::lock_guard<std::mutex> lk(g_limit_mu);
+            g_embed_limit[model] = limit;
+        } catch (...) {
+            embed_failed(code < 0 ? embed_base + " did not answer" : out.substr(0, 200));
+            return {};
+        }
+    }
+    std::string root = embed_base;                     // /tokenize lives beside /v1, not under it
+    if (root.size() >= 3 && root.compare(root.size() - 3, 3, "/v1") == 0) root.resize(root.size() - 3);
+    try {
+        out.clear();
+        if (post_json(root + "/tokenize", {{"model", model}, {"content", text}, {"add_special", true}}, out) != 200) {
+            embed_failed(out.substr(0, 200));
+            return {};
+        }
+        auto tokens = json::parse(out).at("tokens").get<std::vector<long>>();
+        if (limit > 1 && tokens.size() > static_cast<size_t>(limit)) {
+            long end_token = tokens.back();
+            tokens.resize(limit - 1);
+            tokens.push_back(end_token);
+        }
+        out.clear();
+        if (post_json(embed_base + "/embeddings", {{"model", model}, {"input", tokens}}, out) == 200)
+            return vector_of(out);
+        embed_failed(out.substr(0, 200));
+    } catch (...) { embed_failed(out.substr(0, 200)); }
+    return {};
 }
 
 std::string FoxIntel::ask(const std::string& prompt, bool stream) {

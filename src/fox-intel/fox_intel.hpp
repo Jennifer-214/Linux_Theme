@@ -17,7 +17,8 @@ public:
     // Core LLM interaction
     std::string ask(const std::string& prompt, bool stream = false);
     
-    // Embedding generation (uses model name, defaults to mxbai-embed-large)
+    // Embedding generation (uses model name, defaults to mxbai-embed-large). Text longer than the
+    // model takes is cut to its first tokens plus its end token — exactly what Ollama's /api/embed does.
     std::vector<float> get_embedding(const std::string& text, const std::string& model = "");
     
     // Similarity calculation
@@ -38,6 +39,12 @@ private:
     // OpenAI-compatible base URL when the model is on a llama.cpp router (opencode's `llamacpp/…`
     // default — fox-llm-serve, the default local server); empty = Ollama's own API.
     std::string api_base;
+    // Embeddings go where the chat models go: the router's /v1 base when opencode lists llama.cpp
+    // models (fox-llm-update --sync writes that list), else empty = Ollama.
+    std::string embed_base;
+
+    std::vector<float> embed_llama(const std::string& text, const std::string& model);
+    std::vector<float> embed_ollama(const std::string& text, const std::string& model);
 
     bool use_model(std::string ref, const json* opencode);
     std::string ask_openai(const std::string& prompt, bool stream);
