@@ -35,9 +35,16 @@ public:
 private:
     std::string default_model;
     std::string accent_color;
+    // OpenAI-compatible base URL when the model is on a llama.cpp router (opencode's `llamacpp/…`
+    // default — fox-llm-serve, the default local server); empty = Ollama's own API.
+    std::string api_base;
+
+    bool use_model(std::string ref, const json* opencode);
+    std::string ask_openai(const std::string& prompt, bool stream);
 
     static size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp);
     static size_t StreamCallback(void* contents, size_t size, size_t nmemb, void* userp);
+    static size_t SseCallback(void* contents, size_t size, size_t nmemb, void* userp);
 };
 
 // Utilities for safe process execution (no shell)

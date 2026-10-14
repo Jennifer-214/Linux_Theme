@@ -19,22 +19,18 @@ FoxIntel::FoxIntel(std::string model) : default_model(model), accent_color("\033
     std::string home_str = home ? home : "";
 
     // 1. Load active AI model
-    if (const char* env = std::getenv("FOXAI_MODEL"); env && *env) {
-        default_model = env;
-    } else if (!home_str.empty()) {
+    json opencode;
+    if (!home_str.empty()) {
         std::ifstream f_opencode(home_str + "/.config/opencode/opencode.json");
-        bool found = false;
         if (f_opencode.is_open()) {
-            try {
-                json data;
-                f_opencode >> data;
-                if (data.contains("model")) {
-                    std::string m = data["model"].get<std::string>();
-                    if (m.find("ollama/") == 0) m = m.substr(7);
-                    if (!m.empty()) { default_model = m; found = true; }
-                }
-            } catch (...) {}
+            try { f_opencode >> opencode; } catch (...) { opencode = json(); }
         }
+    }
+    if (const char* env = std::getenv("FOXAI_MODEL"); env && *env) {
+        if (!use_model(env, &opencode)) default_model = env;      // a bare name: Ollama's
+    } else if (!home_str.empty()) {
+        bool found = opencode.is_object() && opencode.contains("model") && opencode["model"].is_string()
+                     && use_model(opencode["model"].get<std::string>(), &opencode);
         if (!found) {
             std::ifstream f_legacy(home_str + "/.config/foxml/ai-model.conf");
             std::string line;
@@ -79,6 +75,30 @@ FoxIntel::~FoxIntel() {
     if (g_curl_ref_count == 0) curl_global_cleanup();
 }
 
+// "<provider>/<model>" as opencode writes it. `ollama/…` → Ollama's own API; `llamacpp/…` and
+// `llamacpp-turbo/…` → that llama.cpp router, OpenAI-style, at the baseURL opencode has for it
+// (fox-llm-update --sync writes both). Anything else is a cloud model fox-ai can't run locally:
+// false, and the next source decides.
+bool FoxIntel::use_model(std::string ref, const json* opencode) {
+    auto slash = ref.find('/');
+    if (slash == std::string::npos) return false;
+    std::string provider = ref.substr(0, slash), model = ref.substr(slash + 1);
+    if (model.empty()) return false;
+    if (provider == "ollama") {
+        api_base.clear();
+    } else if (provider == "llamacpp" || provider == "llamacpp-turbo") {
+        api_base = provider == "llamacpp" ? "http://127.0.0.1:8080/v1" : "http://127.0.0.1:8081/v1";
+        try {
+            api_base = opencode->at("provider").at(provider).at("options").at("baseURL").get<std::string>();
+        } catch (...) {}
+        while (!api_base.empty() && api_base.back() == '/') api_base.pop_back();
+    } else {
+        return false;
+    }
+    default_model = model;
+    return true;
+}
+
 std::string FoxIntel::color_accent() { return accent_color; }
 std::string FoxIntel::color_dim() { return "\033[2m"; }
 std::string FoxIntel::color_reset() { return "\033[0m"; }
@@ -96,6 +116,46 @@ size_t FoxIntel::StreamCallback(void* contents, size_t size, size_t nmemb, void*
             std::cout << j["response"].get<std::string>() << std::flush;
         }
     } catch (...) {}
+    return size * nmemb;
+}
+
+// One server-sent-events line from an OpenAI-style stream: print the answer's next piece. A thinking
+// model's reasoning (delta.reasoning_content) is not printed. A line that isn't an event is the
+// server's error body (HTTP 4xx/5xx) — say so instead of printing nothing.
+static void print_sse_line(std::string line) {
+    if (!line.empty() && line.back() == '\r') line.pop_back();
+    if (line.empty()) return;
+    if (line.rfind("data:", 0) != 0) {
+        try {
+            auto j = json::parse(line);
+            if (j.contains("error")) {
+                const auto& e = j["error"];
+                std::cerr << "fox-intel: " << (e.is_object() && e.contains("message") ? e["message"].get<std::string>()
+                                                                                   : e.dump()) << std::endl;
+            }
+        } catch (...) {}
+        return;
+    }
+    std::string payload = line.substr(5);
+    if (!payload.empty() && payload[0] == ' ') payload.erase(0, 1);
+    if (payload == "[DONE]") return;
+    try {
+        auto j = json::parse(payload);
+        if (!j.contains("choices") || j["choices"].empty()) return;
+        const auto& delta = j["choices"][0]["delta"];
+        if (delta.contains("content") && delta["content"].is_string())
+            std::cout << delta["content"].get<std::string>() << std::flush;
+    } catch (...) {}
+}
+
+// A network chunk can end mid-line: keep the tail until its newline arrives.
+size_t FoxIntel::SseCallback(void* contents, size_t size, size_t nmemb, void* userp) {
+    auto* pending = static_cast<std::string*>(userp);
+    pending->append(static_cast<char*>(contents), size * nmemb);
+    for (size_t nl; (nl = pending->find('\n')) != std::string::npos; ) {
+        print_sse_line(pending->substr(0, nl));
+        pending->erase(0, nl + 1);
+    }
     return size * nmemb;
 }
 
@@ -130,6 +190,7 @@ std::vector<float> FoxIntel::get_embedding(const std::string& text, const std::s
 }
 
 std::string FoxIntel::ask(const std::string& prompt, bool stream) {
+    if (!api_base.empty()) return ask_openai(prompt, stream);
     std::string readBuffer;
     CURL* curl = curl_easy_init();
     if(curl) {
@@ -163,6 +224,47 @@ std::string FoxIntel::ask(const std::string& prompt, bool stream) {
     return readBuffer;
 }
 
+// The same question to a llama.cpp router (OpenAI-compatible /chat/completions). Not streaming: the
+// answer, or the raw body when it isn't one (an error stays visible, as on the Ollama path).
+std::string FoxIntel::ask_openai(const std::string& prompt, bool stream) {
+    std::string readBuffer, pending;
+    CURL* curl = curl_easy_init();
+    if (!curl) return "";
+    json body = {{"model", default_model}, {"stream", stream},
+                 {"messages", json::array({{{"role", "user"}, {"content", prompt}}})}};
+    std::string json_str = body.dump();
+    std::string url = api_base + "/chat/completions";
+    struct curl_slist* headers = curl_slist_append(NULL, "Content-Type: application/json");
+
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_str.c_str());
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    if (stream) {
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, SseCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &pending);
+    } else {
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
+    }
+    CURLcode rc = curl_easy_perform(curl);
+    curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+    if (rc != CURLE_OK) {
+        std::cerr << "fox-intel: " << url << ": " << curl_easy_strerror(rc) << std::endl;
+        return "";
+    }
+    if (stream) {
+        print_sse_line(pending);                     // a body without a final newline
+        return "";
+    }
+    try {
+        auto j = json::parse(readBuffer);
+        if (j.contains("choices") && !j["choices"].empty())
+            return j["choices"][0]["message"]["content"].get<std::string>();
+    } catch (...) {}
+    return readBuffer;
+}
+
 double FoxIntel::cosine_similarity(const std::vector<float>& v1, const std::vector<float>& v2) {
     double dot = 0.0, norm_a = 0.0, norm_b = 0.0;
     size_t n = std::min(v1.size(), v2.size());
@@ -186,6 +288,8 @@ bool FoxIntel::ensure_ollama_running() {
 }
 
 bool FoxIntel::ensure_model_present(const std::string& model_name) {
+    // A llama.cpp router serves what is already on disk: nothing to pull for the model it answers with.
+    if (!api_base.empty() && model_name == default_model) return true;
     if (!FoxUtils::has_model(model_name.c_str())) {
         std::cout << "Model " << model_name << " not found. Pulling now..." << std::endl;
         return FoxUtils::run_cmd({"ollama", "pull", model_name.c_str()}) == 0;
