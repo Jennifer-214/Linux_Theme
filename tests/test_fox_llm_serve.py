@@ -88,13 +88,15 @@ class ServeTest(unittest.TestCase):
     def test_sections_from_roles_with_blob_paths(self):
         coder = self.add_model("qwen3-coder:30b")
         fim = self.add_model("qwen2.5-coder:1.5b-base")
-        self.add_model("qwen2.5:3b")                                    # an ollama role
+        self.add_model("qwen2.5:3b")                                    # roles.default: title
         ini = self.preset()
         self.assertIn(f"model = {coder}", self.section(ini, "qwen3-coder:30b"))
         self.assertIn(f"model = {fim}", self.section(ini, "qwen2.5-coder:1.5b-base"))
         # the router mangles `name:tag` section names; the alias keeps the Ollama name routable
         self.assertIn("alias = qwen2.5-coder:1.5b-base", self.section(ini, "qwen2.5-coder:1.5b-base"))
-        self.assertNotIn("[qwen2.5:3b]", ini)                           # served by ollama, not here
+        self.assertIn("[qwen2.5:3b]\n; role: title", ini)               # llama.cpp serves the title model too
+        self.assertIn("c = 8192", self.section(ini, "qwen2.5:3b"))
+        self.assertIn("sleep-idle-seconds = 3600", self.section(ini, "qwen3-coder:30b"))   # the agent: an hour
         self.assertIn("; skipped qwen2.5-coder:7b (quick): not in Ollama's store yet", ini)
         self.assertIn("cache-type-k = q8_0", self.section(ini, "*"))
         self.assertIn("load-on-startup = true", self.section(ini, "qwen2.5-coder:1.5b-base"))
@@ -183,9 +185,9 @@ class ServeTest(unittest.TestCase):
 
     # ── llama.cpp as the default server: every chat model in Ollama's store ──
 
-    def test_every_store_chat_model_served_except_ollama_only_ones(self):
+    def test_every_store_model_served_except_ollama_only_ones(self):
         self.add_model("qwen2.5-coder:14b")                              # in no role: an extra
-        self.add_model("qwen2.5:3b")                                     # roles.default: title → ollama
+        self.add_model("qwen2.5:3b")                                     # roles.default: title
         self.add_model("qwen2.5:7b", "system")                           # the library's stock SYSTEM layer
         self.add_model("nomic-embed-text:latest", family="nomic-bert")   # embedding, by name
         self.add_model("bge-m3:latest", family="bert")                   # embedding, by family only
@@ -195,12 +197,16 @@ class ServeTest(unittest.TestCase):
         self.assertIn("[qwen2.5-coder:14b]\n; extra", ini)
         self.assertIn("c = 32768", self.section(ini, "qwen2.5-coder:14b"))
         self.assertIn("[qwen2.5:7b]\n; extra", ini)
-        for name in ("qwen2.5:3b", "nomic-embed-text:latest", "bge-m3:latest",
-                     "gameproject:latest", "lora-thing:latest"):
+        self.assertIn("[qwen2.5:3b]\n; role: title", ini)
+        for name in ("nomic-embed-text:latest", "bge-m3:latest"):        # embedding models: embedding mode
+            self.assertIn(f"[{name}]\n; extra embedding", ini)
+            emb = self.section(ini, name)
+            self.assertIn("embeddings = true", emb)
+            self.assertFalse(any(l.startswith(("c =", "kv-unified")) for l in emb))   # the model's own context
+        for name in ("gameproject:latest", "lora-thing:latest"):
             self.assertNotIn(f"[{name}]", ini)
         self.assertIn("; on Ollama only: gameproject:latest — its Modelfile bakes in example messages", ini)
         self.assertIn("; on Ollama only: lora-thing:latest — its Modelfile adds a LoRA adapter", ini)
-        self.assertNotIn("nomic-embed-text", ini)                        # not chat: not even a note
         self.assertNotIn("[qwen2.5-coder:14b]", self.preset(env={"FOX_LLM_ONLY_ROLES": "1"}))
 
     def fake_probe(self):

@@ -392,10 +392,10 @@ class SyncTest(unittest.TestCase):
         oc = self.oc()
         on_ollama, on_llama = oc["provider"]["ollama"]["models"], oc["provider"]["llamacpp"]["models"]
         self.assertEqual(sorted(on_llama), ["qwen2.5-coder:14b", "qwen2.5:7b"])
-        self.assertEqual(sorted(on_ollama), ["gameproject:latest", "qwen2.5:3b"])
+        self.assertEqual(sorted(on_ollama), ["qwen2.5:3b"])      # llama.cpp is the one server: only what roles give Ollama
         self.assertEqual(on_ollama["qwen2.5:3b"]["name"], "my title model")    # her settings on a kept entry
         pi = self.pi("models.json")["providers"]
-        self.assertEqual(sorted(x["id"] for x in pi["ollama"]["models"]), ["gameproject:latest", "qwen2.5:3b"])
+        self.assertEqual(sorted(x["id"] for x in pi["ollama"]["models"]), ["qwen2.5:3b"])
         self.assertEqual(sorted(x["id"] for x in pi["llamacpp"]["models"]), ["qwen2.5-coder:14b", "qwen2.5:7b"])
 
     def test_ollama_down_leaves_its_list_alone(self):
@@ -426,12 +426,16 @@ class SyncTest(unittest.TestCase):
         self.assertEqual(self.oc()["model"], "llamacpp/qwen3.5:4b")             # sized for this machine
         st = self.pi("settings.json")
         self.assertEqual((st["defaultProvider"], st["defaultModel"]), ("llamacpp", "qwen3.5:4b"))
-        self.oc_path.write_text(json.dumps({"model": "ollama/qwen2.5:7b"}))     # her own pick stays hers
-        self.run_script("--sync", server_on=True)
-        self.assertEqual(self.oc()["model"], "llamacpp/qwen2.5:7b")
-        self.install(*self.installed, "qwen3-coder:30b")                        # the agent lands
-        self.run_script("--sync", server_on=True)
+        self.install(*self.installed, "qwen3-coder:30b")                        # the agent lands: the
+        self.run_script("--sync", server_on=True)                               # sync's own stand-in gives way
         self.assertEqual(self.oc()["model"], "llamacpp/qwen3-coder:30b")
+        st = self.pi("settings.json")
+        self.assertEqual((st["defaultProvider"], st["defaultModel"]), ("llamacpp", "qwen3-coder:30b"))
+        oc = self.oc(); oc["model"] = "ollama/qwen2.5:7b"                       # her own pick (fox-ai-swap)
+        self.oc_path.write_text(json.dumps(oc))
+        for _ in range(2):                                                       # stays hers, sync after sync —
+            self.run_script("--sync", server_on=True)                           # only its server follows the stack
+            self.assertEqual(self.oc()["model"], "llamacpp/qwen2.5:7b")
 
     # ── Hugging Face GGUFs (gguf-models.txt / ~/code/custom_models/gguf-models.conf) ──
 

@@ -18,10 +18,11 @@
 # the preset and has the router reload it — no restart. llama.cpp is the default server: the main
 # engine also serves every other chat model in Ollama's store (on demand, ≤3 loaded), except
 #   · models the roles file gives another server (`ollama`, `llama-turbo`) — the server column wins;
-#   · embedding models, and models whose Modelfile bakes in example messages or a LoRA adapter —
-#     llama.cpp would silently drop those, so they stay on Ollama, which runs them as built;
+#   · models whose Modelfile bakes in example messages or a LoRA adapter — llama.cpp would silently
+#     drop those, so they stay on Ollama, which runs them as built;
 #   · models this llama.cpp can't load (Ollama's own formats) — checked once per file (load_error).
-# FOX_LLM_ONLY_ROLES=1 limits it to the roles.
+# Embedding models are served too, in embedding mode (/v1/embeddings) — fask/findex use them through
+# libfox-intel, which trims long text exactly as Ollama does. FOX_LLM_ONLY_ROLES=1 limits it to the roles.
 #
 # Slots (parallel conversations per model) follow RAM: under 48 GB the agent gets ONE slot — its whole
 # context goes to the one conversation, nothing to fragment or evict (side requests like the plugin's
@@ -29,9 +30,11 @@
 # a second conversation can never squeeze out the first. Override per role: `slots=N` after the server.
 #
 # Residency, for running ghost text + explain cards + a heavy agent on one laptop: fim stays loaded (tiny,
-# on the GPU); the agent sleeps after 15 min idle; under 48 GB the quick model after 10 — it is also the
-# agents' stand-in until the agent model is downloaded, and a sleeping model loses its prompt cache, so a
-# pause in a conversation would cost a full re-read (~1 min on the 4 GB T1200); other models after 5.
+# on the GPU); the agent sleeps after an hour idle — a sleeping model loses its prompt cache (saving it to
+# disk doesn't help hybrid Qwen 3.5/3.6: a restored slot isn't reused, tested 2026-10-14), and re-reading
+# a long agent conversation takes minutes; under 48 GB the quick model after 10 min (it is the agents'
+# stand-in until the agent model is downloaded), the title and embedding models after 2 and 5, other
+# models after 5. The router keeps up to 6 loaded, so one stray model never evicts the agent.
 #
 # Env: FOX_LLM_SERVER (llama-server binary override), FOX_LLM_PORT, OLLAMA_MODELS (Ollama's store).
 set -uo pipefail
@@ -121,7 +124,13 @@ role_flags() {
     quick) ctx_flags 32768 "${slots:-2}"; echo "cache-ram = 1024"
            if (( RAM_GB < 48 )); then echo "sleep-idle-seconds = 600"; fi ;;
     agent) ctx_flags 131072 "${slots:-$(( RAM_GB >= 48 ? 2 : 1 ))}"
-           echo "cache-ram = 2048"; echo "sleep-idle-seconds = 900" ;;
+           echo "cache-ram = 2048"; echo "sleep-idle-seconds = 3600" ;;
+    title) ctx_flags 8192 "${slots:-1}"; echo "cache-ram = 256"
+           if (( RAM_GB < 48 )); then echo "sleep-idle-seconds = 120"; fi ;;
+    # Embeddings: the model's own context (512 tokens for mxbai-embed-large) — a longer input is an
+    # error here, so libfox-intel trims it first; no prompt cache to keep.
+    embed) echo "embeddings = true"; echo "cache-ram = 0"
+           if (( RAM_GB < 48 )); then echo "sleep-idle-seconds = 300"; fi ;;
     # `if`, not `&&`: a false test as a function's last command is its status, and write_preset's
     # brace group ends in this call — on a CPU-only box the preset was never written.
     *)     ctx_flags 32768 "${slots:-1}"; echo "cache-ram = 1024"
@@ -129,17 +138,18 @@ role_flags() {
   esac
 }
 
-# The chat models to serve, one "name<TAB>why it stays on Ollama" row each (the reason is empty when
-# llama.cpp can run it as built): the Hugging Face downloads first (vision projectors aside), then
-# Ollama's store. Embedding models are left out: they are not chat models. A SYSTEM layer alone is no reason — the
+# The models to serve, one "kind<TAB>name<TAB>why it stays on Ollama" row each — kind `chat` or `embed`,
+# always set, first: tab is IFS whitespace to `read`, so an empty middle field would collapse; the reason
+# is empty when llama.cpp can run the model as built. The Hugging Face downloads first (vision projectors
+# aside), then Ollama's store. A SYSTEM layer alone is no reason — the
 # library's Qwen 2.5 models carry their stock default, which the GGUF's own chat template applies too.
 store_models() {
   python3 -I - "$STORE" "$GGUF_DIR" <<'EOF'
 import json, pathlib, sys
 store = pathlib.Path(sys.argv[1])
 for p in sorted(pathlib.Path(sys.argv[2]).glob("*.gguf")):
-    if "mmproj" not in p.stem and "embed" not in p.stem:
-        print(p.stem + "\t")
+    if "mmproj" not in p.stem:
+        print(("embed" if "embed" in p.stem else "chat") + "\t" + p.stem + "\t")
 reg = store / "manifests/registry.ollama.ai"
 OLLAMA_ONLY = {"messages": "its Modelfile bakes in example messages", "adapter": "its Modelfile adds a LoRA adapter"}
 for tag in sorted(p for p in reg.glob("*/*/*") if p.is_file()) if reg.is_dir() else []:
@@ -154,9 +164,10 @@ for tag in sorted(p for p in reg.glob("*/*/*") if p.is_file()) if reg.is_dir() e
         family = json.loads((store / "blobs" / man["config"]["digest"].replace(":", "-")).read_text())["model_family"]
     except (OSError, ValueError, KeyError, TypeError):
         family = ""
-    if "model" not in kinds or "embed" in name or "bert" in family:
+    if "model" not in kinds:
         continue
-    print(name + "\t" + next((why for k, why in OLLAMA_ONLY.items() if k in kinds), ""))
+    kind = "embed" if "embed" in name or "bert" in family else "chat"
+    print(kind + "\t" + name + "\t" + next((why for k, why in OLLAMA_ONLY.items() if k in kinds), ""))
 EOF
 }
 
@@ -187,7 +198,8 @@ load_error() {
 
 write_preset() {
   local bin=$1; shift
-  local roles gpu=0 role model server path why reason role_models seen=" "
+  local roles gpu=0 role model server path why reason kind role_models seen=" "
+  local -A kind_of=()
   roles=$(roles_file) || exit 1
   gpu_ok "$bin" && gpu=1
   mkdir -p "$LLM_DIR"
@@ -224,10 +236,10 @@ write_preset() {
     if [[ $ENGINE == main && ${FOX_LLM_ONLY_ROLES:-0} != 1 ]]; then
       # the default server: every other chat model Ollama holds. A model the roles file names is the
       # roles loop's (here or on another server), never an extra.
-      while IFS=$'\t' read -r model reason; do
+      while IFS=$'\t' read -r kind model reason; do
         grep -qxF -- "$model" <<<"$role_models" && continue
         if [[ -n $reason ]]; then echo; echo "; on Ollama only: $model — $reason"; continue; fi
-        extras+=("$model")
+        extras+=("$model"); kind_of[$model]=$kind
       done < <(store_models)
     fi
     for model in "${extras[@]}"; do
@@ -236,8 +248,10 @@ write_preset() {
       path=$(gguf_path "$model") || { echo "; skipped $model: not in Ollama's store"; continue; }
       why=$(load_error "$bin" "$path")
       if [[ -n $why ]]; then echo; echo "; on Ollama only: $model — this llama.cpp can't load it ($why)"; continue; fi
-      echo; echo "[$model]"; echo "; extra"; echo "model = $path"; echo "alias = $model"
-      role_flags extra ""
+      echo; echo "[$model]"
+      if [[ ${kind_of[$model]:-} == embed ]]; then echo "; extra embedding"; else echo "; extra"; fi
+      echo "model = $path"; echo "alias = $model"
+      if [[ ${kind_of[$model]:-} == embed ]]; then role_flags embed ""; else role_flags extra ""; fi
     done
   } > "$PRESET.new" && mv "$PRESET.new" "$PRESET"
   echo "fox-llm-serve: wrote $PRESET ($ENGINE engine, GPU: $( (( gpu )) && echo yes || echo no))" >&2
@@ -248,6 +262,6 @@ case "${1:-}" in
   preset) shift; bin=$(server_bin) || exit 1; write_preset "$bin" "$@"; cat "$PRESET" ;;
   run)    shift; bin=$(server_bin) || exit 1; write_preset "$bin" "$@"
           echo "fox-llm-serve: $bin on 127.0.0.1:$PORT" >&2
-          exec "$bin" --models-preset "$PRESET" --models-max 3 --host 127.0.0.1 --port "$PORT" --no-webui ;;
+          exec "$bin" --models-preset "$PRESET" --models-max 6 --host 127.0.0.1 --port "$PORT" --no-webui ;;
   *) sed -n '2,/^# Env:/p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

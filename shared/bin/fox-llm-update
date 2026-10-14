@@ -273,13 +273,20 @@ sync_configs() {
       function row() { if (m != "" && m != "*") print sv, m, r, c }
       /^\[/                         { row(); m = substr($0, 2, length($0) - 2); r = "-"; c = 32768; next }
       /^; role: /                   { r = $3 }
+      /^; extra embedding/          { r = "embed" }
       /^(c|kv-unified-per-slot) = / { c = $3 }
       END                           { row() }')$'\n'
   done
+  # Models the roles file gives Ollama — with llama.cpp the one server, the only ones Ollama lists.
+  local roles_f="" pinned="" f
+  for f in "$LLM_DIR/roles.conf" "$LLM_DIR/roles.default"; do [[ -f $f ]] && { roles_f=$f; break; }; done
+  [[ -n $roles_f ]] && pinned=$(awk '!/^[[:space:]]*(#|$)/ && $3 == "ollama" { print $2 }' "$roles_f")
+  mkdir -p "$STATE"
   # stdin carries the script, so the model list goes in as an argument.
-  python3 -I - "$OPENCODE_JSON" "$PI_DIR" "$installed" "$AGENT_DEFAULT" "$TITLE_MODEL" "$served" "$server_on" <<'EOF'
+  python3 -I - "$OPENCODE_JSON" "$PI_DIR" "$installed" "$AGENT_DEFAULT" "$TITLE_MODEL" "$served" "$server_on" \
+    "$pinned" "$STATE/defaults.json" <<'EOF'
 import json, os, sys
-oc_path, pi_dir, installed_raw, agent_default, title_model, served_raw, server_on = sys.argv[1:8]
+oc_path, pi_dir, installed_raw, agent_default, title_model, served_raw, server_on, pinned_raw, state_path = sys.argv[1:10]
 installed = [l.strip() for l in installed_raw.splitlines() if l.strip()]
 # server column → (provider id, display name, URL, unit enabled?)
 ENGINES = {"llama":       ("llamacpp",       "llama.cpp (Local)",            "http://127.0.0.1:8080/v1", server_on[:1] == "1"),
@@ -292,17 +299,22 @@ llama = [(r, m, sv, int(c)) for sv, m, r, c in
 agent_role = next(((m, sv) for r, m, sv, _ in llama if r == "agent"), None)
 quick_role = next((m for r, m, sv, _ in llama if r == "quick" and ENGINES[sv][3]), None)
 LOCAL = ("ollama/",) + tuple(f"{e[0]}/" for e in ENGINES.values())
-# Where each model runs: a router whose unit is enabled serves its models; Ollama's list is what no
-# enabled router serves. The ghost-text (fim) model is a base model — no chat picker lists it.
+# Where each model runs: a router whose unit is enabled serves its models. With the main router on,
+# llama.cpp is the one server: Ollama only downloads, and lists just what the roles file gives it.
+# Without it, Ollama lists what no router serves. The ghost-text (fim) base model and the embedding
+# models are no chat picker's.
 on_llama = {m for _, m, sv, _ in llama if ENGINES[sv][3]}
-fim_models = {m for r, m, _, _ in llama if r == "fim"}
-ollama_list = [m for m in installed if m not in on_llama and m not in fim_models]
+not_chat = {m for r, m, _, _ in llama if r in ("fim", "embed")}
+pinned = {l.strip() for l in pinned_raw.splitlines() if l.strip()}
+single = ENGINES["llama"][3]
+ollama_list = [m for m in installed if m not in on_llama and m not in not_chat and (not single or m in pinned)]
 def gone_why(m):
-    return "on llama.cpp" if m in on_llama else "fim model" if m in fim_models else "not installed"
-def served_on(ref):
-    """Does a router whose unit is enabled serve this provider/model?"""
-    p, _, m = ref.partition("/")
-    return any(ENGINES[sv][0] == p and ENGINES[sv][3] and mm == m for _, mm, sv, _ in llama)
+    return ("on llama.cpp" if m in on_llama else "not a chat model" if m in not_chat
+            else "llama.cpp is the one server" if single and m in installed else "not installed")
+def where(m):
+    """The provider of the local server that runs m now: an enabled router, else Ollama; None: neither."""
+    p = next((ENGINES[sv][0] for _, mm, sv, _ in llama if mm == m and ENGINES[sv][3]), None)
+    return p or ("ollama" if m in installed else None)
 STANDIN = "qwen2.5-coder:14b"   # used while the agent default downloads
 LIMIT = {"context": 32768, "output": 8192}
 READ_ONLY = ["ls*", "pwd", "cat *", "head *", "tail *", "wc *", "file *", "stat *", "tree*",
@@ -344,6 +356,27 @@ def llama_default(cur):
     pick = pick_default(cur)
     return next((f"{ENGINES[sv][0]}/{m}" for _, m, sv, _ in llama if m == pick and ENGINES[sv][3]), None)
 
+# The default the sync set last time, per tool. A model she picked herself (fox-ai-swap, opencode's or
+# pi's own picker) stays hers: only its server follows the stack. One the sync picked may change model
+# too — the stand-in gives way to the agent, a model that's gone is replaced.
+try:
+    state = json.load(open(state_path))
+except (OSError, ValueError):
+    state = {}
+state_before = dict(state)
+
+def local_default(cur, auto):
+    """(new default, is it the sync's own) for a local default `cur` ("" when there is none). With no
+    `auto` on record (first run), `cur` counts as the sync's."""
+    model = cur.split("/", 1)[1] if "/" in cur else None
+    if cur and auto is not None and cur != auto and model and where(model):
+        return f"{where(model)}/{model}", False
+    want = llama_default(model)
+    if want:
+        return want, True
+    pick = pick_default(model)
+    return (f"{where(pick) or 'ollama'}/{pick}" if pick else cur), True
+
 # ── opencode ──
 oc = load(oc_path, {"$schema": "https://opencode.ai/config.json"})
 prov = oc.setdefault("provider", {}).setdefault("ollama", {})
@@ -355,15 +388,9 @@ for m in ollama_list:
     if m not in models:
         models[m] = {"name": m}; notes.append(f"opencode: + {m}")
     models[m].setdefault("limit", dict(LIMIT))
-if installed:                # Ollama answered; an empty `ollama list` while it is down says nothing
+if installed or single:      # an empty `ollama list` (Ollama down) says nothing — unless llama.cpp serves all
     for m in [m for m in models if m not in ollama_list]:
         del models[m]; notes.append(f"opencode: − {m} ({gone_why(m)})")
-# A default on another provider (anthropic/…, openai/…) is the user's choice: never touched.
-if not oc.get("model") or oc["model"].startswith("ollama/"):
-    cur = (oc.get("model") or "").removeprefix("ollama/") or None
-    new = pick_default(cur)
-    if new and new != cur:
-        oc["model"] = f"ollama/{new}"; notes.append(f"opencode default → {new}")
 if "small_model" not in oc and title_model in installed:
     oc["small_model"] = f"ollama/{title_model}"
 sm = oc.get("small_model") or ""
@@ -373,11 +400,9 @@ if sm.startswith(LOCAL):     # the title model, on whichever local server runs i
              "ollama" if m in installed else None)
     if p and sm != f"{p}/{m}":
         oc["small_model"] = f"{p}/{m}"; notes.append(f"opencode small_model → {p}/{m}")
-# llama.cpp routers: add-only providers listing what each serves. While a router's unit is enabled, a
-# local default moves onto it — the roles file's agent, else the same model on llama.cpp — and back to
-# Ollama once llama.cpp no longer serves it. A cloud default is never touched.
+# llama.cpp routers: providers listing what each serves while its unit is enabled.
 for sv, (pid, pname, url, enabled) in ENGINES.items():
-    rows = [(r, m, ctx) for r, m, s, ctx in llama if s == sv and enabled and m not in fim_models]
+    rows = [(r, m, ctx) for r, m, s, ctx in llama if s == sv and enabled and m not in not_chat]
     if not rows and pid not in oc["provider"]:
         continue
     lp = oc["provider"].setdefault(pid, {})
@@ -393,15 +418,12 @@ for sv, (pid, pname, url, enabled) in ENGINES.items():
     for m in [m for m in lmodels if m not in served]:
         del lmodels[m]; notes.append(f"opencode: − {pid}/{m} ({'server off' if not enabled else 'not served'})")
 cur = oc.get("model") or ""
-if not cur or cur.startswith(LOCAL):
-    model = cur.split("/", 1)[1] if "/" in cur else None
-    want = llama_default(model)
-    if want and cur != want:
-        oc["model"] = want; notes.append(f"opencode default → {want} (llama.cpp)")
-    elif not want and cur.startswith(LOCAL[1:]) and not served_on(cur):
-        back = pick_default(model)            # no enabled router serves it: back to Ollama
-        if back:
-            oc["model"] = f"ollama/{back}"; notes.append(f"opencode default → ollama/{back} (not on llama.cpp)")
+if not cur or cur.startswith(LOCAL):          # a cloud default (anthropic/…, openai/…) is hers: never touched
+    new, ours = local_default(cur, state.get("opencode"))
+    if new and new != cur:
+        oc["model"] = new; notes.append(f"opencode default → {new}")
+    if ours and oc.get("model"):
+        state["opencode"] = oc["model"]
 oc.setdefault("autoupdate", False)          # pacman owns opencode; the timer reports updates
 oc.setdefault("share", "disabled")          # never upload sessions
 oc.setdefault("permission", {"edit": "ask", "webfetch": "ask",
@@ -422,12 +444,12 @@ for m in ollama_list:
     if m not in have:
         pms.append({"id": m, "contextWindow": LIMIT["context"], "maxTokens": LIMIT["output"]})
         notes.append(f"pi: + {m}")
-if installed:
+if installed or single:
     for x in [x for x in pms if x.get("id") not in ollama_list]:
         notes.append(f"pi: − {x.get('id')} ({gone_why(x.get('id'))})")
     pprov["models"] = [x for x in pms if x.get("id") in ollama_list]
 for sv, (pid, _, url, enabled) in ENGINES.items():
-    rows = [(r, m, ctx) for r, m, s, ctx in llama if s == sv and enabled and m not in fim_models]
+    rows = [(r, m, ctx) for r, m, s, ctx in llama if s == sv and enabled and m not in not_chat]
     if not rows and pid not in pm["providers"]:
         continue
     lpp = pm["providers"].setdefault(pid, {})
@@ -448,24 +470,16 @@ save(pm_path, pm)
 
 st_path = os.path.join(pi_dir, "settings.json")
 st = load(st_path, {})
-st.setdefault("defaultProvider", "ollama")
-if st["defaultProvider"] == "ollama":
-    cur = st.get("defaultModel")
-    new = pick_default(cur)
-    if new and new != cur:
-        st["defaultModel"] = new; notes.append(f"pi default → {new}")
 local_providers = ("ollama",) + tuple(e[0] for e in ENGINES.values())
 prov, model = st.get("defaultProvider"), st.get("defaultModel")
-if prov in local_providers:
-    want = llama_default(model)
-    if want and f"{prov}/{model}" != want:
-        st["defaultProvider"], st["defaultModel"] = want.split("/", 1)
-        notes.append(f"pi default → {want} (llama.cpp)")
-    elif not want and prov != "ollama" and not served_on(f"{prov}/{model}"):
-        st["defaultProvider"] = "ollama"
-        back = pick_default(model)
-        if back: st["defaultModel"] = back
-        notes.append("pi default → ollama (not on llama.cpp)")
+if not prov or prov in local_providers:
+    cur = f"{prov}/{model}" if prov and model else ""
+    new, ours = local_default(cur, state.get("pi"))
+    if new and new != cur:
+        st["defaultProvider"], st["defaultModel"] = new.split("/", 1)
+        notes.append(f"pi default → {new}")
+    if ours and st.get("defaultModel"):
+        state["pi"] = f"{st['defaultProvider']}/{st['defaultModel']}"
 st.setdefault("enableInstallTelemetry", False)
 # pi's defaults assume a 200k window; these fit the 32k local context.
 st.setdefault("compaction", {"enabled": True, "reserveTokens": 4096, "keepRecentTokens": 8000})
@@ -474,6 +488,8 @@ if os.path.exists(os.path.join(pi_dir, "themes", "foxml.json")):
     st.setdefault("theme", "foxml")
 save(st_path, st)
 
+if state != state_before:
+    save(state_path, state)
 for n in notes: print(n)
 EOF
   # A download shows up without a restart: the router re-reads the preset fox-llm-serve just
