@@ -53,11 +53,13 @@ class SyncTest(unittest.TestCase):
             'if [ "$1" = list ]; then printf "NAME\\tID\\tSIZE\\tMODIFIED\\n%s" "$ROWS"; exit 0; fi\n'
             "exit 1\n")
         (self.bin / "npm").write_text(f'#!/bin/sh\n[ "$1" = root ] && echo "{self.npm_root}"\n')
-        for f in ("ollama", "npm"):
+        # Only `is-enabled` matters to sync: the llama.cpp unit's state comes from the test, not the box.
+        (self.bin / "systemctl").write_text('#!/bin/sh\ncase "$*" in *is-enabled*) [ "$FAKE_SERVER_ON" = 1 ];; *) exit 0;; esac\n')
+        for f in ("ollama", "npm", "systemctl"):
             (self.bin / f).chmod(0o755)
         self.rows = rows
 
-    def run_script(self, *args, meminfo_gb=32):
+    def run_script(self, *args, meminfo_gb=32, server_on=False):
         meminfo = self.tmp / "meminfo"
         meminfo.write_text(f"MemTotal:       {meminfo_gb * 1048576 - 1000} kB\n")
         cfg = self.home / ".config"
@@ -71,6 +73,7 @@ class SyncTest(unittest.TestCase):
             "PATH": f"{self.bin}:/usr/bin:/bin",
             "FOX_LLM_MEMINFO": str(meminfo),
             "ROWS": self.rows,
+            "FAKE_SERVER_ON": "1" if server_on else "0",
         }
         r = subprocess.run(["bash", str(SCRIPT), *args], env=env, capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -191,6 +194,59 @@ class SyncTest(unittest.TestCase):
         self.assertNotIn("-gpt-oss:20b", skipped)
         self.assertIn("qwen3-coder:30b", skipped)
         self.assertEqual(skipped[0], "qwen3.6:35b-a3b")            # extras first, in their order
+
+
+    # ── llama.cpp router provider (roles file + fox-llm-server.service) ──
+
+    def roles(self, text):
+        f = self.home / ".config/foxml/llm/roles.conf"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(text)
+
+    ROLES = "agent qwen3-coder:30b llama\nfim qwen2.5-coder:1.5b-base llama\ntitle qwen2.5:3b ollama\n"
+
+    def test_llama_provider_and_default_when_server_on(self):
+        self.install("qwen3-coder:30b", "qwen2.5-coder:1.5b-base", "qwen2.5:3b")
+        self.roles(self.ROLES)
+        self.run_script("--sync", server_on=True)
+        oc = self.oc()
+        lp = oc["provider"]["llamacpp"]
+        self.assertEqual(lp["options"]["baseURL"], "http://127.0.0.1:8080/v1")
+        self.assertEqual(lp["models"]["qwen3-coder:30b"]["limit"]["context"], 131072)
+        self.assertEqual(lp["models"]["qwen2.5-coder:1.5b-base"]["limit"]["context"], 8192)
+        self.assertNotIn("qwen2.5:3b", lp["models"])                  # an ollama role stays on ollama
+        self.assertEqual(oc["model"], "llamacpp/qwen3-coder:30b")
+        self.assertEqual(oc["small_model"], "ollama/qwen2.5:3b")
+        st = self.pi("settings.json")
+        self.assertEqual((st["defaultProvider"], st["defaultModel"]), ("llamacpp", "qwen3-coder:30b"))
+        ids = [m["id"] for m in self.pi("models.json")["providers"]["llamacpp"]["models"]]
+        self.assertEqual(sorted(ids), ["qwen2.5-coder:1.5b-base", "qwen3-coder:30b"])
+
+    def test_llama_provider_added_but_defaults_kept_when_server_off(self):
+        self.install("qwen3-coder:30b", "qwen2.5-coder:1.5b-base")
+        self.roles(self.ROLES)
+        self.run_script("--sync", server_on=False)
+        oc = self.oc()
+        self.assertIn("llamacpp", oc["provider"])
+        self.assertEqual(oc["model"], "ollama/qwen3-coder:30b")
+        self.assertEqual(self.pi("settings.json")["defaultProvider"], "ollama")
+
+    def test_defaults_return_to_ollama_when_server_stops(self):
+        self.install("qwen3-coder:30b", "qwen2.5-coder:1.5b-base")
+        self.roles(self.ROLES)
+        self.run_script("--sync", server_on=True)
+        self.run_script("--sync", server_on=False)
+        self.assertEqual(self.oc()["model"], "ollama/qwen3-coder:30b")
+        st = self.pi("settings.json")
+        self.assertEqual((st["defaultProvider"], st["defaultModel"]), ("ollama", "qwen3-coder:30b"))
+
+    def test_cloud_default_untouched_by_llama_roles(self):
+        self.install("qwen3-coder:30b")
+        self.roles(self.ROLES)
+        self.oc_path.parent.mkdir(parents=True)
+        self.oc_path.write_text(json.dumps({"model": "anthropic/claude-x"}))
+        self.run_script("--sync", server_on=True)
+        self.assertEqual(self.oc()["model"], "anthropic/claude-x")
 
 
 if __name__ == "__main__":

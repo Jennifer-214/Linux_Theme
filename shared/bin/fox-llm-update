@@ -193,11 +193,23 @@ sync_configs() {
   [[ -f $OPENCODE_JSON && ! -e $OPENCODE_JSON.foxml-bak ]] && cp -p "$OPENCODE_JSON" "$OPENCODE_JSON.foxml-bak"
   mkdir -p "$PI_DIR"
   sync_pi_resources
+  # Roles served by llama.cpp (fox-llm-serve), and whether its unit is enabled.
+  local roles_f="" llama_roles="" server_on=0 f
+  for f in "$LLM_DIR/roles.conf" "$LLM_DIR/roles.default"; do [[ -f $f ]] && { roles_f=$f; break; }; done
+  [[ -n $roles_f ]] && llama_roles=$(awk '!/^[[:space:]]*(#|$)/ && $3 == "llama" { print $1, $2 }' "$roles_f")
+  systemctl --user is-enabled fox-llm-server.service >/dev/null 2>&1 && server_on=1
   # stdin carries the script, so the model list goes in as an argument.
-  python3 -I - "$OPENCODE_JSON" "$PI_DIR" "$installed" "$AGENT_DEFAULT" "$TITLE_MODEL" <<'EOF'
+  python3 -I - "$OPENCODE_JSON" "$PI_DIR" "$installed" "$AGENT_DEFAULT" "$TITLE_MODEL" "$llama_roles" "$server_on" <<'EOF'
 import json, os, sys
-oc_path, pi_dir, installed_raw, agent_default, title_model = sys.argv[1:6]
+oc_path, pi_dir, installed_raw, agent_default, title_model, llama_raw, server_on = sys.argv[1:8]
 installed = [l.strip() for l in installed_raw.splitlines() if l.strip()]
+server_on = server_on == "1"
+# (role, model) served by the llama.cpp router — only models already in Ollama's store (it reads them there).
+llama = [tuple(l.split()[:2]) for l in llama_raw.splitlines() if len(l.split()) >= 2]
+llama = [(r, m) for r, m in llama if m in installed]
+llama_agent = next((m for r, m in llama if r == "agent"), None)
+LLAMA_URL = "http://127.0.0.1:8080/v1"
+ROLE_CTX = {"agent": 131072, "quick": 32768, "fim": 8192}   # what fox-llm-serve gives each role
 STANDIN = "qwen2.5-coder:14b"   # used while the agent default downloads
 LIMIT = {"context": 32768, "output": 8192}
 READ_ONLY = ["ls*", "pwd", "cat *", "head *", "tail *", "wc *", "file *", "stat *", "tree*",
@@ -243,6 +255,26 @@ if not oc.get("model") or oc["model"].startswith("ollama/"):
         oc["model"] = f"ollama/{new}"; notes.append(f"opencode default → {new}")
 if "small_model" not in oc and title_model in installed:
     oc["small_model"] = f"ollama/{title_model}"
+# llama.cpp router: add-only provider; the roles file's agent becomes the default only while the
+# server is enabled and the current default is local (a cloud default is never touched).
+if llama:
+    lp = oc["provider"].setdefault("llamacpp", {})
+    lp.setdefault("name", "llama.cpp (Local)")
+    lp.setdefault("npm", "@ai-sdk/openai-compatible")
+    lp.setdefault("options", {"baseURL": LLAMA_URL})
+    lmodels = lp.setdefault("models", {})
+    for r, m in llama:
+        if m not in lmodels:
+            lmodels[m] = {"name": f"{m} ({r})", "limit": {"context": ROLE_CTX.get(r, 32768), "output": 8192}}
+            notes.append(f"opencode: + llamacpp/{m}")
+cur = oc.get("model") or ""
+if server_on and llama_agent and (not cur or cur.startswith(("ollama/", "llamacpp/"))):
+    if cur != f"llamacpp/{llama_agent}":
+        oc["model"] = f"llamacpp/{llama_agent}"; notes.append(f"opencode default → llamacpp/{llama_agent} (roles)")
+elif not server_on and cur.startswith("llamacpp/"):
+    back = pick_default(None)                 # the server is gone: point back at Ollama
+    if back:
+        oc["model"] = f"ollama/{back}"; notes.append(f"opencode default → ollama/{back} (llama.cpp server off)")
 oc.setdefault("autoupdate", False)          # pacman owns opencode; the timer reports updates
 oc.setdefault("share", "disabled")          # never upload sessions
 oc.setdefault("permission", {"edit": "ask", "webfetch": "ask",
@@ -263,6 +295,18 @@ for m in installed:
     if m not in have:
         pms.append({"id": m, "contextWindow": LIMIT["context"], "maxTokens": LIMIT["output"]})
         notes.append(f"pi: + {m}")
+if llama:
+    lpp = pm["providers"].setdefault("llamacpp", {})
+    lpp.setdefault("baseUrl", LLAMA_URL)
+    lpp.setdefault("api", "openai-completions")
+    lpp.setdefault("apiKey", "none")
+    lpp.setdefault("compat", {"supportsDeveloperRole": False, "supportsReasoningEffort": False})
+    lms = lpp.setdefault("models", [])
+    lhave = {x["id"] for x in lms}
+    for r, m in llama:
+        if m not in lhave:
+            lms.append({"id": m, "name": f"{m} ({r})", "contextWindow": ROLE_CTX.get(r, 32768), "maxTokens": 8192})
+            notes.append(f"pi: + llamacpp/{m}")
 save(pm_path, pm)
 
 st_path = os.path.join(pi_dir, "settings.json")
@@ -273,6 +317,15 @@ if st["defaultProvider"] == "ollama":
     new = pick_default(cur)
     if new and new != cur:
         st["defaultModel"] = new; notes.append(f"pi default → {new}")
+if server_on and llama_agent and st.get("defaultProvider") in ("ollama", "llamacpp"):
+    if (st.get("defaultProvider"), st.get("defaultModel")) != ("llamacpp", llama_agent):
+        st["defaultProvider"], st["defaultModel"] = "llamacpp", llama_agent
+        notes.append(f"pi default → llamacpp/{llama_agent} (roles)")
+elif not server_on and st.get("defaultProvider") == "llamacpp":
+    st["defaultProvider"] = "ollama"
+    back = pick_default(None)
+    if back: st["defaultModel"] = back
+    notes.append("pi default → ollama (llama.cpp server off)")
 st.setdefault("enableInstallTelemetry", False)
 # pi's defaults assume a 200k window; these fit the 32k local context.
 st.setdefault("compaction", {"enabled": True, "reserveTokens": 4096, "keepRecentTokens": 8000})

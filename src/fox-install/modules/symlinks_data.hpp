@@ -157,6 +157,8 @@ inline constexpr Mapping SHARED_MAPPINGS[] = {
     // pi extensions (permission gate, notifications, per-project skills).
     { "bin/fox-llm-update",           "~/.local/bin/fox-llm-update" },
     { "bin/fox-llm-discover",         "~/.local/bin/fox-llm-discover" },
+    { "bin/fox-llm-serve",            "~/.local/bin/fox-llm-serve" },
+    { "llm/roles.default",            "~/.config/foxml/llm/roles.default" },
     { "llm/core-models.txt",          "~/.config/foxml/llm/core-models.txt" },
     { "pi/extensions/fox-guard.ts",   "~/.pi/agent/extensions/fox-guard.ts" },
     { "pi/extensions/fox-notify.ts",  "~/.pi/agent/extensions/fox-notify.ts" },

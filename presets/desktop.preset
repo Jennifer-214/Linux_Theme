@@ -23,8 +23,9 @@ gaming = on
 
 # The local-AI coding stack: Ollama + OpenCode + aider, the RAM-tiered model set,
 # the GitHub workspace clone, and fox-symdeps.nvim + foxtag + its pi wiring
-# (private repos — skipped quietly without access).
+# (private repos — skipped quietly without access), and llama.cpp's router serving them.
 ai = on
 models = on
 github = on
 fox_symdeps = on
+llama_server = on

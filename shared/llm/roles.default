@@ -1,0 +1,15 @@
+# roles.default — which local model does which job (deployed by Linux_Theme; copy it to
+# roles.conf beside it to make it yours — roles.conf wins and the installer never touches it).
+# After an edit: systemctl --user restart fox-llm-server && fox-llm-update --sync
+#
+# Columns: role  model (its Ollama name — the file is read from Ollama's store)  server (llama | ollama)
+#   agent  pi / opencode / the fox-symdeps explain cards (they follow pi) — long context, tools
+#   quick  short chat, inline edits — small enough for a 4 GB GPU
+#   fim    Copilot-style ghost text — a BASE coder model: instruct ones run past the cursor
+#   title  opencode session titles
+#   embed  embeddings (fask, findex, code search) — stays on Ollama
+agent  qwen3-coder:30b           llama
+quick  qwen2.5-coder:7b          llama
+fim    qwen2.5-coder:1.5b-base   llama
+title  qwen2.5:3b                ollama
+embed  nomic-embed-text          ollama
