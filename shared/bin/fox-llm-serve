@@ -12,7 +12,14 @@
 # Roles: ~/.config/foxml/llm/roles.conf (yours; never overwritten), else roles.default (deployed
 # from Linux_Theme shared/llm/). Model files come from Ollama's store — no second download — and a
 # preset section is named after the Ollama model, so clients use the same name on either server.
-# Models not downloaded yet are skipped and picked up on the next start.
+# Models not downloaded yet are skipped; `fox-llm-update --sync` (run after every download) rewrites
+# the preset and has the router reload it — no restart. llama.cpp is the default server: the main
+# engine also serves every other chat model in Ollama's store (on demand, ≤3 loaded), except
+#   · models the roles file gives another server (`ollama`, `llama-turbo`) — the server column wins;
+#   · embedding models, and models whose Modelfile bakes in example messages or a LoRA adapter —
+#     llama.cpp would silently drop those, so they stay on Ollama, which runs them as built;
+#   · models this llama.cpp can't load (Ollama's own formats) — checked once per file (load_error).
+# FOX_LLM_ONLY_ROLES=1 limits it to the roles.
 #
 # Slots (parallel conversations per model) follow RAM: under 48 GB the agent gets ONE slot — its whole
 # context goes to the one conversation, nothing to fragment or evict (side requests like the plugin's
@@ -82,11 +89,12 @@ print(root / "blobs" / digest.replace(":", "-"))
 EOF
 }
 
-# role → flags. GPU layers are never forced: llama.cpp's auto-fit places as much as fits in the VRAM
-# free at load time — a forced n-gpu-layers disables the fit, and on a 4 GB card shared with the
-# always-loaded fim model (or Ollama) the 4B then failed to allocate (measured 2026-10-14).
-# Agents pin the MoE experts in RAM (cpu-moe; a no-op on dense models) so attention + KV get the
-# GPU, with a small cache there for the hot experts.
+# role → flags. No placement flags at all: llama.cpp's auto-fit places as much as fits in the VRAM
+# free at load time — whole layers of a dense model; for a MoE model everything but the sparse expert
+# weights first, experts to RAM as needed (common/fit.cpp). Any manual placement switches the fit off
+# and the load then tries the whole model on the GPU: a forced n-gpu-layers OOMed the 4B beside the
+# fim model, cpu-moe (a tensor override) every extra model (2026-10-14). And the Arch package
+# (llama-cpp 0.6.0) has no --moe-cache-mib: an agent section asking for it would never start.
 RAM_GB=$(awk '/^MemTotal:/{printf "%d", ($2 + 1048575) / 1048576}' "${FOX_LLM_MEMINFO:-/proc/meminfo}")
 
 # Context per slot. One slot: `c` is that slot's context. Several: the unified KV pool is
@@ -101,24 +109,80 @@ ctx_flags() {
 }
 
 role_flags() {
-  local role=$1 gpu=$2 slots=$3
+  local role=$1 slots=$2
   case $role in
     fim)   ctx_flags 8192 "${slots:-1}";  echo "load-on-startup = true"; echo "cache-ram = 256" ;;
     quick) ctx_flags 32768 "${slots:-2}"; echo "cache-ram = 1024"
-           (( RAM_GB < 48 )) && echo "sleep-idle-seconds = 120" ;;
+           if (( RAM_GB < 48 )); then echo "sleep-idle-seconds = 120"; fi ;;
     agent) ctx_flags 131072 "${slots:-$(( RAM_GB >= 48 ? 2 : 1 ))}"
-           echo "cache-ram = 2048"; echo "sleep-idle-seconds = 900"
-           (( gpu )) && { echo "cpu-moe = true"; echo "moe-cache-mib = 512"; } ;;
-    *)     ctx_flags 32768 "${slots:-1}"; echo "cache-ram = 1024" ;;
+           echo "cache-ram = 2048"; echo "sleep-idle-seconds = 900" ;;
+    # `if`, not `&&`: a false test as a function's last command is its status, and write_preset's
+    # brace group ends in this call — on a CPU-only box the preset was never written.
+    *)     ctx_flags 32768 "${slots:-1}"; echo "cache-ram = 1024"
+           if (( RAM_GB < 48 )); then echo "sleep-idle-seconds = 300"; fi ;;
   esac
+}
+
+# The chat models in Ollama's store, one "name<TAB>why it stays on Ollama" row each (the reason is empty
+# when llama.cpp can run it as built). Embedding models are left out: they are not chat models. A
+# SYSTEM layer alone is no reason — the library's Qwen 2.5 models carry their stock default, which the
+# GGUF's own chat template applies too.
+store_models() {
+  python3 -I - "$STORE" <<'EOF'
+import json, pathlib, sys
+store = pathlib.Path(sys.argv[1])
+reg = store / "manifests/registry.ollama.ai"
+OLLAMA_ONLY = {"messages": "its Modelfile bakes in example messages", "adapter": "its Modelfile adds a LoRA adapter"}
+for tag in sorted(p for p in reg.glob("*/*/*") if p.is_file()) if reg.is_dir() else []:
+    ns, model = tag.parent.parent.name, tag.parent.name
+    name = (model if ns == "library" else f"{ns}/{model}") + ":" + tag.name
+    try:
+        man = json.loads(tag.read_text())
+        kinds = {l["mediaType"].rsplit(".", 1)[-1] for l in man["layers"]}
+    except (OSError, ValueError, KeyError, TypeError):
+        continue
+    try:   # the config blob names the family: nomic-bert, bert, … are embedding models
+        family = json.loads((store / "blobs" / man["config"]["digest"].replace(":", "-")).read_text())["model_family"]
+    except (OSError, ValueError, KeyError, TypeError):
+        family = ""
+    if "model" not in kinds or "embed" in name or "bert" in family:
+        continue
+    print(name + "\t" + next((why for k, why in OLLAMA_ONLY.items() if k in kinds), ""))
+EOF
+}
+
+# Can this llama.cpp load the blob? llama-fit-params (shipped beside llama-server) lays the model out
+# from the file's header — no weights read, about a second, CPU only — and logs "error loading model:
+# <why>" for an architecture or tensor layout this build doesn't know (Ollama's own formats). Only that
+# counts: it also fails when the model doesn't fit the RAM free right now, which is no reason to drop
+# it (a 19 GB model at 128k failed that way, 2026-10-14). Verdicts are cached per blob, reset when the
+# binary changes. Prints why it can't load; nothing when it can, or when there is no probe.
+COMPAT="${XDG_CACHE_HOME:-$HOME/.cache}/fox-llm-serve/compat-$ENGINE"
+load_error() {
+  local probe="${1%/*}/llama-fit-params" key=${2##*/} stamp line why
+  [[ -x $probe ]] || return 0
+  stamp="# $probe $(stat -c %Y "$probe")"
+  if [[ -f $COMPAT && $(head -n1 "$COMPAT") == "$stamp" ]]; then
+    if line=$(grep -m1 "^$key " "$COMPAT"); then
+      why=${line#"$key "}
+      if [[ $why != ok ]]; then echo "$why"; fi
+      return 0
+    fi
+  else
+    mkdir -p "${COMPAT%/*}" && echo "$stamp" > "$COMPAT"
+  fi
+  why=$(timeout 120 "$probe" -m "$2" -c 512 -dev none 2>&1 | sed -n 's/.*error loading model: //p' | head -n1)
+  echo "$key ${why:-ok}" >> "$COMPAT"
+  if [[ -n $why ]]; then echo "$why"; fi
 }
 
 write_preset() {
   local bin=$1; shift
-  local roles gpu=0 role model server path seen=" "
+  local roles gpu=0 role model server path why reason role_models seen=" "
   roles=$(roles_file) || exit 1
   gpu_ok "$bin" && gpu=1
   mkdir -p "$LLM_DIR"
+  role_models=$(awk '!/^[[:space:]]*(#|$)/ {print $2}' "$roles")
   {
     echo "version = 1"
     echo "; generated by fox-llm-serve from $roles — edit the roles file, not this"
@@ -134,19 +198,37 @@ write_preset() {
     while read -r role model server opts; do
       [[ -z ${role:-} || $role == \#* || ${server:-} != "$SERVES" ]] && continue
       path=$(gguf_path "$model") || { echo "; skipped $model ($role): not in Ollama's store yet"; continue; }
+      why=$(load_error "$bin" "$path")
+      if [[ -n $why ]]; then
+        echo "; skipped $model ($role): this llama.cpp can't load it ($why) — give the role server ollama"
+        continue
+      fi
       seen+="$model "
       echo; echo "[$model]"; echo "; role: $role"; echo "model = $path"
       # The router rewrites `name:tag` section names like a HF `repo:quant` (qwen2.5-coder:1.5b-base was
       # served as qwen2.5-coder:BASE); the alias keeps the Ollama name routable for every client.
       echo "alias = $model"
       local slots=""; [[ ${opts:-} =~ slots=([0-9]+) ]] && slots=${BASH_REMATCH[1]}
-      role_flags "$role" "$gpu" "$slots"
+      role_flags "$role" "$slots"
     done < "$roles"
-    for model in "$@"; do
+    local extras=("$@")
+    if [[ $ENGINE == main && ${FOX_LLM_ONLY_ROLES:-0} != 1 ]]; then
+      # the default server: every other chat model Ollama holds. A model the roles file names is the
+      # roles loop's (here or on another server), never an extra.
+      while IFS=$'\t' read -r model reason; do
+        grep -qxF -- "$model" <<<"$role_models" && continue
+        if [[ -n $reason ]]; then echo; echo "; on Ollama only: $model — $reason"; continue; fi
+        extras+=("$model")
+      done < <(store_models)
+    fi
+    for model in "${extras[@]}"; do
       [[ $seen == *" $model "* ]] && continue
+      seen+="$model "
       path=$(gguf_path "$model") || { echo "; skipped $model: not in Ollama's store"; continue; }
+      why=$(load_error "$bin" "$path")
+      if [[ -n $why ]]; then echo; echo "; on Ollama only: $model — this llama.cpp can't load it ($why)"; continue; fi
       echo; echo "[$model]"; echo "; extra"; echo "model = $path"; echo "alias = $model"
-      role_flags extra "$gpu" ""
+      role_flags extra ""
     done
   } > "$PRESET.new" && mv "$PRESET.new" "$PRESET"
   echo "fox-llm-serve: wrote $PRESET ($ENGINE engine, GPU: $( (( gpu )) && echo yes || echo no))" >&2
@@ -158,5 +240,5 @@ case "${1:-}" in
   run)    shift; bin=$(server_bin) || exit 1; write_preset "$bin" "$@"
           echo "fox-llm-serve: $bin on 127.0.0.1:$PORT" >&2
           exec "$bin" --models-preset "$PRESET" --models-max 3 --host 127.0.0.1 --port "$PORT" --no-webui ;;
-  *) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  *) sed -n '2,/^# Env:/p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

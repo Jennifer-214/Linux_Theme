@@ -58,7 +58,24 @@ class SyncTest(unittest.TestCase):
             '#!/bin/sh\ncase "$*" in *is-enabled*)\n'
             '  for u in $FAKE_UNITS; do case "$*" in *" $u.service"*) exit 0;; esac; done; exit 1;;\n'
             'esac\nexit 0\n')
-        for f in ("ollama", "npm", "systemctl"):
+        # Ollama's store as fox-llm-serve reads it (manifest → GGUF blob) and a llama-server with no GPU:
+        # sync reads back the preset the launcher writes from these, as on a real box.
+        store = self.tmp / "store"
+        shutil.rmtree(store, ignore_errors=True)
+        for i, ref in enumerate(self.installed):
+            name, _, tag = ref.partition(":")
+            ns, _, model = name.rpartition("/")
+            digest = f"sha256:{i + 1:064x}"
+            man = store / "manifests/registry.ollama.ai" / (ns or "library") / model / (tag or "latest")
+            man.parent.mkdir(parents=True, exist_ok=True)
+            man.write_text(json.dumps({"layers": [
+                {"mediaType": "application/vnd.ollama.image.model", "digest": digest}]}))
+            (store / "blobs").mkdir(exist_ok=True)
+            (store / "blobs" / digest.replace(":", "-")).write_bytes(b"GGUF")
+        (self.bin / "llama-server").write_text('#!/bin/sh\necho "Available devices:"\n')
+        # The reload sync asks of the router: logged here, never sent to a real one.
+        (self.bin / "curl").write_text(f'#!/bin/sh\necho "$*" >> "{self.tmp}/curl.log"\n')
+        for f in ("ollama", "npm", "systemctl", "llama-server", "curl"):
             (self.bin / f).chmod(0o755)
         self.rows = rows
 
@@ -77,6 +94,8 @@ class SyncTest(unittest.TestCase):
             "FOX_LLM_MEMINFO": str(meminfo),
             "ROWS": self.rows,
             "FAKE_UNITS": units if units is not None else ("fox-llm-server" if server_on else ""),
+            "OLLAMA_MODELS": str(self.tmp / "store"),
+            "FOX_LLM_SERVER": str(self.bin / "llama-server"),
         }
         r = subprocess.run(["bash", str(SCRIPT), *args], env=env, capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -271,6 +290,50 @@ class SyncTest(unittest.TestCase):
         self.run_script("--sync", units="fox-llm-server")              # only the mainline router is on
         self.assertEqual(self.oc()["model"], "ollama/qwen3-coder:30b")
         self.assertEqual(self.pi("settings.json")["defaultProvider"], "ollama")
+
+
+    # ── llama.cpp as the default server ──
+
+    def test_installed_models_move_to_llama_cpp_before_and_after_the_agent_lands(self):
+        self.install("qwen2.5-coder:14b", "qwen2.5-coder:1.5b-base", "qwen2.5:3b", "qwen2.5:7b",
+                     "nomic-embed-text:latest")
+        self.roles(self.ROLES)                                   # its agent, qwen3-coder:30b, not here yet
+        self.run_script("--sync", server_on=True)
+        oc = self.oc()
+        lm = oc["provider"]["llamacpp"]["models"]
+        self.assertEqual(lm["qwen2.5:7b"], {"name": "qwen2.5:7b", "limit": {"context": 32768, "output": 8192}})
+        self.assertIn("qwen2.5-coder:14b", lm)
+        self.assertNotIn("nomic-embed-text:latest", lm)          # embeddings stay on Ollama
+        self.assertNotIn("qwen2.5:3b", lm)                       # the title role is Ollama's
+        self.assertEqual(oc["model"], "llamacpp/qwen2.5-coder:14b")      # the stand-in, on llama.cpp
+        st = self.pi("settings.json")
+        self.assertEqual((st["defaultProvider"], st["defaultModel"]), ("llamacpp", "qwen2.5-coder:14b"))
+        self.install(*self.installed, "qwen3-coder:30b")         # the agent lands
+        self.run_script("--sync", server_on=True)
+        self.assertEqual(self.oc()["model"], "llamacpp/qwen3-coder:30b")
+        st = self.pi("settings.json")
+        self.assertEqual((st["defaultProvider"], st["defaultModel"]), ("llamacpp", "qwen3-coder:30b"))
+
+    def test_default_returns_to_ollama_when_llama_cpp_stops_serving_it(self):
+        self.install("qwen2.5:7b", "qwen2.5-coder:1.5b-base")
+        self.roles("fim qwen2.5-coder:1.5b-base llama\n")
+        self.oc_path.parent.mkdir(parents=True)
+        self.oc_path.write_text(json.dumps({"model": "ollama/qwen2.5:7b"}))           # her pick
+        self.run_script("--sync", server_on=True)
+        self.assertEqual(self.oc()["model"], "llamacpp/qwen2.5:7b")                   # same model, faster server
+        self.roles("fim qwen2.5-coder:1.5b-base llama\nkeep qwen2.5:7b ollama\n")     # the server column wins
+        self.run_script("--sync", server_on=True)
+        self.assertEqual(self.oc()["model"], "ollama/qwen2.5:7b")                     # same model, back on Ollama
+
+    def test_router_reloads_its_model_list_only_while_enabled(self):
+        self.install("qwen2.5:7b")
+        self.roles(self.ROLES)
+        log = self.tmp / "curl.log"
+        self.run_script("--sync", server_on=False)
+        self.assertFalse(log.exists())
+        self.run_script("--sync", server_on=True)
+        self.assertIn("http://127.0.0.1:8080/models?reload=1", log.read_text())
+        self.assertNotIn(":8081", log.read_text())                                     # turbo unit is off
 
 
 if __name__ == "__main__":
