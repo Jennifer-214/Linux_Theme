@@ -26,3 +26,7 @@ qwen2.5:3b
 qwen2.5:7b
 qwen2.5-coder:1.5b
 qwen2.5-coder:3b
+# ghost text (nvim's minuet): a BASE coder model — fill-in-the-middle trained, it stops at the gap; the instruct
+# tags above run on past the text after the cursor (measured 2026-10-13: `return ` + suffix `}` → 32 tokens of
+# new functions). Kept beside them, not instead: CodeCompanion's inline edits want the instruct ones.
+qwen2.5-coder:1.5b-base
