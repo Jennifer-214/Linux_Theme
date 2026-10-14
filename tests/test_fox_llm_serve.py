@@ -91,10 +91,12 @@ class ServeTest(unittest.TestCase):
     def test_gpu_flags_only_when_llama_cpp_sees_a_device(self):
         self.add_model("qwen3-coder:30b")
         cpu = self.section(self.preset(gpu=False), "qwen3-coder:30b")
-        self.assertFalse(any(l.startswith(("n-gpu-layers", "cpu-moe", "moe-cache")) for l in cpu))
+        self.assertFalse(any(l.startswith(("cpu-moe", "moe-cache")) for l in cpu))
         gpu = self.section(self.preset(gpu=True), "qwen3-coder:30b")
-        for flag in ("n-gpu-layers = 99", "cpu-moe = true", "moe-cache-mib = 1024"):
+        for flag in ("cpu-moe = true", "moe-cache-mib = 512"):
             self.assertIn(flag, gpu)
+        # layers are never forced (auto-fit): a forced count OOMed the 4B beside the fim model
+        self.assertFalse(any(l.startswith("n-gpu-layers") for l in self.preset(gpu=True).splitlines()))
 
     def test_roles_conf_beats_roles_default(self):
         self.add_model("qwen3-coder:30b")
