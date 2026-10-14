@@ -1,6 +1,8 @@
 // tests/fox-guard-test.mjs — drives fox-guard's tool_call handler with a fake pi + ctx.
 // Run via tests/test_fox_guard.py (skips when node is missing).
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { homedir } from "node:os";
+import { basename, dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const mod = await import(pathToFileURL(process.argv[2]).href);
@@ -8,7 +10,8 @@ let handler;
 mod.default({ on: (ev, fn) => { if (ev === "tool_call") handler = fn; } });
 const cwd = `${homedir()}/code/project`;
 const cases = [
-  // [tool, input, expect]  expect: "pass" | "ask" | "block"
+  // [tool, input, expect]  expect: "pass" | "ask" | "block" — inputs as pi sends them (an edit carries its edits: pi's own
+  // edit tool refuses one without, and the guard blocks what pi would refuse)
   ["bash", { command: "git status" }, "pass"],
   ["bash", { command: "cat /etc/os-release" }, "pass"],
   ["bash", { command: "ls src/fox-install" }, "pass"],
@@ -24,11 +27,11 @@ const cases = [
   ["bash", { command: "systemctl --user stop fox-pulse" }, "ask"],
   ["bash", { command: "cp x ~/.config/foxml/knock.conf" }, "ask"],
   ["write", { path: "src/new.cpp" }, "pass"],
-  ["edit", { path: "templates/pi/foxml.json" }, "pass"],
+  ["edit", { path: "templates/pi/foxml.json", edits: [{ oldText: "a", newText: "b" }] }, "pass"],
   ["write", { path: "~/.ssh/config" }, "block"],
-  ["edit", { path: "/etc/fstab" }, "block"],
+  ["edit", { path: "/etc/fstab", edits: [{ oldText: "a", newText: "b" }] }, "block"],
   ["write", { path: ".env" }, "block"],
-  ["edit", { path: "../priv/file" }, "block"],
+  ["edit", { path: "../priv/file", edits: [{ oldText: "a", newText: "b" }] }, "block"],
   ["write", { path: ".git/hooks/pre-commit" }, "block"],
   ["read", { path: "~/.ssh/config" }, "ask"],
   ["read", { path: "src/fox-install/Makefile" }, "pass"],
@@ -57,6 +60,40 @@ for (const [tool, input, expect] of cases) {
   const got = r?.block ? (asked ? "ask" : "block") : "pass";
   const ok = got === expect; if (!ok) fail++;
   console.log(`${ok ? "ok  " : "FAIL"} ${tool.padEnd(5)} ${JSON.stringify(input).slice(0, 58).padEnd(58)} expect=${expect} got=${got}`);
+}
+// Where a call lands is pi's OWN tool's answer, then the kernel's walk (2026-10-14, fox-symdeps SD-162/SD-164): real
+// folders with links, and the installed pi's own resolver as the oracle — so each row is right on whichever pi is
+// installed (0.73.1 keeps an absolute path's `..` for the kernel and reads `file:` as a name; 1.2.0 takes `..` out as
+// text and reads `file:` as its path). Only links are made into the real ~/.ssh — nothing is written there.
+const H = homedir();
+const pu = await import(pathToFileURL(join(process.env.FOX_GUARD_PI_ROOT, "dist/core/tools/path-utils.js")).href);
+const kernel = (p) => { try { return join(realpathSync.native(dirname(p)), basename(p)); } catch { return p; } };
+const proj = realpathSync(mkdtempSync(join(process.env.XDG_CACHE_HOME || join(H, ".cache"), "fox-guard-rows-")));
+try {
+  mkdirSync(join(proj, ".git/hooks"), { recursive: true });
+  symlinkSync(join(proj, ".git/hooks"), join(proj, "gitlnk"));
+  symlinkSync(join(H, ".ssh"), join(proj, "sshlink"));
+  const secret = (p) => p === `${H}/.ssh` || p.startsWith(`${H}/.ssh/`);
+  const wrote = (p) => kernel(pu.resolveToCwd(p, proj)), read = (p) => kernel(pu.resolveReadPath(p, proj));
+  const fsCases = [
+    ["write", { path: `${proj}/sshlink/authorized_keys` }, "block"],
+    ["read", { path: `${proj}/sshlink/config` }, "ask"],
+    ["write", { path: `${proj}/gitlnk/../config` }, wrote(`${proj}/gitlnk/../config`).includes("/.git/") ? "block" : "pass"],
+    ["write", { path: `file://${H}/.ssh/x` }, secret(wrote(`file://${H}/.ssh/x`)) ? "block" : "pass"],
+    ["read", { path: `file://${H}/.ssh/config` }, secret(read(`file://${H}/.ssh/config`)) ? "ask" : "pass"],
+    ["read", { path: `@file://${H}/.ssh/config` }, secret(read(`@file://${H}/.ssh/config`)) ? "ask" : "pass"],
+    ["grep", { pattern: "x", path: `file://${H}` }, pu.resolveToCwd(`file://${H}`, proj) === H ? "ask" : "pass"],
+  ];
+  for (const [tool, input, expect] of fsCases) {
+    let asked = false;
+    const ctx = { cwd: proj, hasUI: true, ui: { notify() {}, select: async () => { asked = true; return "No"; } } };
+    const r = await handler({ toolName: tool, input }, ctx);
+    const got = r?.block ? (asked ? "ask" : "block") : "pass";
+    const ok = got === expect; if (!ok) fail++;
+    console.log(`${ok ? "ok  " : "FAIL"} ${tool.padEnd(5)} ${JSON.stringify(input).replaceAll(proj, "<tmp>").replaceAll(H, "~").slice(0, 58).padEnd(58)} expect=${expect} got=${got}`);
+  }
+} finally {
+  rmSync(proj, { recursive: true, force: true });
 }
 // One dialog per command (2026-10-14): with a gate on pi's event bus, the guard stands down for bash and hands the gate
 // its reasons; with a bus but no gate, it asks as before. A tiny bus with the real one's shape (synchronous emit).
