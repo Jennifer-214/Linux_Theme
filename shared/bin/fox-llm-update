@@ -286,6 +286,7 @@ llama = [(r, m, sv, int(c)) for sv, m, r, c in
          (f for f in (l.split() for l in served_raw.splitlines()) if len(f) == 4)
          if sv in ENGINES and c.isdigit()]
 agent_role = next(((m, sv) for r, m, sv, _ in llama if r == "agent"), None)
+quick_role = next((m for r, m, sv, _ in llama if r == "quick" and ENGINES[sv][3]), None)
 LOCAL = ("ollama/",) + tuple(f"{e[0]}/" for e in ENGINES.values())
 # Where each model runs: a router whose unit is enabled serves its models; Ollama's list is what no
 # enabled router serves. The ghost-text (fim) model is a base model — no chat picker lists it.
@@ -330,6 +331,12 @@ def llama_default(cur):
     None when no enabled router serves it — Ollama keeps it."""
     if agent_role and ENGINES[agent_role[1]][3]:
         return f"{ENGINES[agent_role[1]][0]}/{agent_role[0]}"
+    # No agent yet: stand in with the roles file's quick model, sized for this machine, instead of
+    # the fixed STANDIN (which the sync picked, so it may move it). Measured 2026-10-14 on the 4 GB
+    # T1200, pi's ~6k-token opening prompt: the 14B read it at ~40 tok/s (~3 min to the first word,
+    # pi gave up), the quick 4B at ~150 tok/s (~1 min), then 1-2 s per turn from the prompt cache.
+    if quick_role and (not cur or cur == STANDIN):
+        cur = quick_role
     pick = pick_default(cur)
     return next((f"{ENGINES[sv][0]}/{m}" for _, m, sv, _ in llama if m == pick and ENGINES[sv][3]), None)
 

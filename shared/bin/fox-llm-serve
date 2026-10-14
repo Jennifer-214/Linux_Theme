@@ -29,8 +29,9 @@
 # a second conversation can never squeeze out the first. Override per role: `slots=N` after the server.
 #
 # Residency, for running ghost text + explain cards + a heavy agent on one laptop: fim stays loaded (tiny,
-# on the GPU); the agent sleeps after 15 min idle; under 48 GB the quick model sleeps after 2 min, so an
-# explain card borrows RAM from the agent only briefly instead of holding it while you work.
+# on the GPU); the agent sleeps after 15 min idle; under 48 GB the quick model after 10 — it is also the
+# agents' stand-in until the agent model is downloaded, and a sleeping model loses its prompt cache, so a
+# pause in a conversation would cost a full re-read (~1 min on the 4 GB T1200); other models after 5.
 #
 # Env: FOX_LLM_SERVER (llama-server binary override), FOX_LLM_PORT, OLLAMA_MODELS (Ollama's store).
 set -uo pipefail
@@ -118,7 +119,7 @@ role_flags() {
   case $role in
     fim)   ctx_flags 8192 "${slots:-1}";  echo "load-on-startup = true"; echo "cache-ram = 256" ;;
     quick) ctx_flags 32768 "${slots:-2}"; echo "cache-ram = 1024"
-           if (( RAM_GB < 48 )); then echo "sleep-idle-seconds = 120"; fi ;;
+           if (( RAM_GB < 48 )); then echo "sleep-idle-seconds = 600"; fi ;;
     agent) ctx_flags 131072 "${slots:-$(( RAM_GB >= 48 ? 2 : 1 ))}"
            echo "cache-ram = 2048"; echo "sleep-idle-seconds = 900" ;;
     # `if`, not `&&`: a false test as a function's last command is its status, and write_preset's

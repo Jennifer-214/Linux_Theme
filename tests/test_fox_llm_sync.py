@@ -403,6 +403,23 @@ class SyncTest(unittest.TestCase):
         self.assertFalse(oc["provider"]["llamacpp"]["models"])
         self.assertEqual(oc["model"], "ollama/qwen2.5-coder:14b")
 
+    def test_quick_model_stands_in_until_the_agent_lands(self):
+        roles = "agent qwen3-coder:30b llama\nquick qwen3.5:4b llama\nfim qwen2.5-coder:1.5b-base llama\n"
+        self.install("qwen2.5-coder:14b", "qwen3.5:4b", "qwen2.5-coder:1.5b-base", "qwen2.5:7b")
+        self.roles(roles)
+        self.oc_path.parent.mkdir(parents=True)
+        self.oc_path.write_text(json.dumps({"model": "ollama/qwen2.5-coder:14b"}))   # the old stand-in
+        self.run_script("--sync", server_on=True)
+        self.assertEqual(self.oc()["model"], "llamacpp/qwen3.5:4b")             # sized for this machine
+        st = self.pi("settings.json")
+        self.assertEqual((st["defaultProvider"], st["defaultModel"]), ("llamacpp", "qwen3.5:4b"))
+        self.oc_path.write_text(json.dumps({"model": "ollama/qwen2.5:7b"}))     # her own pick stays hers
+        self.run_script("--sync", server_on=True)
+        self.assertEqual(self.oc()["model"], "llamacpp/qwen2.5:7b")
+        self.install(*self.installed, "qwen3-coder:30b")                        # the agent lands
+        self.run_script("--sync", server_on=True)
+        self.assertEqual(self.oc()["model"], "llamacpp/qwen3-coder:30b")
+
     # ── Hugging Face GGUFs (gguf-models.txt / ~/code/custom_models/gguf-models.conf) ──
 
     def hf_setup(self, sha=None, private=False):

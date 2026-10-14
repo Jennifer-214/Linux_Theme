@@ -172,7 +172,7 @@ class ServeTest(unittest.TestCase):
 
     def test_quick_model_sleeps_soon_only_on_small_ram(self):
         self.add_model("qwen2.5-coder:7b")                       # roles.default's quick model
-        self.assertIn("sleep-idle-seconds = 120", self.section(self.preset(ram_gb=32), "qwen2.5-coder:7b"))
+        self.assertIn("sleep-idle-seconds = 600", self.section(self.preset(ram_gb=32), "qwen2.5-coder:7b"))
         self.assertFalse(any(l.startswith("sleep-idle")
                              for l in self.section(self.preset(ram_gb=64), "qwen2.5-coder:7b")))
         fim = self.add_model("qwen2.5-coder:1.5b-base")
