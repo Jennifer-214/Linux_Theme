@@ -314,8 +314,13 @@ std::string FoxIntel::ask_openai(const std::string& prompt, bool stream) {
     std::string readBuffer, pending;
     CURL* curl = curl_easy_init();
     if (!curl) return "";
+    // Thinking off: these are one-shot helpers (fox ask, fask, commit messages, reviews), and a thinking
+    // model (the 4B stand-in, Qwen 3.5/3.6) would reason for minutes at a few tokens a second before the
+    // first word — fask sat 9 min on its own hidden reasoning (2026-10-14). Templates that don't know
+    // the switch ignore it; the agents (pi, opencode) keep thinking.
     json body = {{"model", default_model}, {"stream", stream},
-                 {"messages", json::array({{{"role", "user"}, {"content", prompt}}})}};
+                 {"messages", json::array({{{"role", "user"}, {"content", prompt}}})},
+                 {"chat_template_kwargs", {{"enable_thinking", false}}}};
     std::string json_str = body.dump();
     std::string url = api_base + "/chat/completions";
     struct curl_slist* headers = curl_slist_append(NULL, "Content-Type: application/json");
