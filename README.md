@@ -43,6 +43,8 @@ Caches sudo, installs git+curl, clones to `~/code/Linux_Theme`, runs the full se
 | --yes | Auto-confirm every prompt |
 | --ai | Install Ollama + OpenCode + aider + mxbai-embed-large (see [AI layer](#ai-layer-optional)) |
 | --models | Pull tier-appropriate Qwen chat/coder stack (1.5B → 32B based on RAM+VRAM) |
+| --llama-server | llama.cpp router — the default local model server for OpenCode + pi (`127.0.0.1:8080`) |
+| --llama-turbo | TurboQuant llama.cpp fork, built from source — optional second engine for long-context roles |
 | --github | Clone all your repos into ~/code |
 | --secure | UFW + Fail2ban + Auditd + SSH hardening wizard |
 | --perf | Chrony for high-precision time sync |
@@ -116,12 +118,22 @@ See `fox help` for the full surface (70+ subcommands).
 
 ## AI layer (optional)
 
-Installed via `--ai`. Three local-model surfaces (terminal agent, in-editor, one-shot Q&A) all backed by Ollama. `--ai` installs Ollama, `mxbai-embed-large` embedder, OpenCode (terminal agent), and aider (git-native pair programmer). `--models` pulls the chat/coder stack sized to your RAM+VRAM.
+Installed via `--ai` + `--models` + `--llama-server` (the desktop preset turns all three on). Ollama downloads and stores the models; **llama.cpp's router serves them** as the default server for the terminal agents — one loopback URL (`127.0.0.1:8080`), every chat model in Ollama's store loaded on demand, GPU placement left to llama.cpp's MoE-aware auto-fit, a 128k-context agent role. Ollama keeps the embedder, the in-editor integrations, the `fox-ai-*` tools, and the few models only it runs as built. `--ai` installs Ollama, the `mxbai-embed-large` embedder, OpenCode (terminal agent), and aider (git-native pair programmer). `--models` pulls the chat/coder stack sized to your RAM+VRAM.
 
 ### Agents
 
-- **OpenCode** — Claude-Code-style terminal agent. Multi-provider; in this install pointed at local Ollama. Theme + skill paths + model picker generated from `ollama list` and `~/code/*/claude-skills/`. Auto-wakes the daemon on launch.
+- **OpenCode** — Claude-Code-style terminal agent. Multi-provider; its local default is the llama.cpp router, with Ollama listed as a fallback. Theme and skill paths are generated (skills from `~/code/*/claude-skills/`); `fox-llm-update --sync` fills the model picker from what each server holds. Auto-wakes the daemon on launch.
+- **pi** — minimal terminal coding agent with FoxML extensions (permission gate, desktop notifications, per-project Claude skills); same local default as OpenCode.
 - **aider** — git-native pair programmer. Commits its own edits per change. Useful for surgical "make this change" workflows where OpenCode's multi-turn agent loop is overkill.
+
+### Local models (`fox-llm-*`)
+
+| Piece | What it does |
+|-------|--------------|
+| `~/.config/foxml/llm/roles.conf` | Which model fills each role (`agent`, `quick`, `fim`, `title`, `embed`) and on which server (`llama`, `llama-turbo`, `ollama`); `roles.default` ships |
+| `fox-llm-serve` | Builds the router's preset from the roles and Ollama's store; a once-per-file load check keeps models llama.cpp can't run on Ollama |
+| `fox-llm-update` | Daily timer: update notices, model refresh, discovery. `--queue` downloads in the background on slow links (resumes across reboots); `--sync` wires models into OpenCode + pi |
+| `~/code/custom_models/gguf-models.conf` | Personal Hugging Face GGUFs in llama.cpp's own format, for models whose Ollama copy llama.cpp can't load — downloaded first, sha256-checked |
 
 ### RAG (`fask` / `findex`)
 
