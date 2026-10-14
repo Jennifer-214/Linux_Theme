@@ -42,8 +42,10 @@ constexpr const char* SERVICE_BODY =
     "[Install]\n"
     "WantedBy=default.target\n";
 
-// Ollama's packages, when a machine still has them from before llama.cpp served everything.
-std::string ollama_packages() {
+// How to remove Ollama, when a machine still has it from before llama.cpp served everything: its pacman
+// packages, or the upstream script's install (/usr/local/bin + /usr/local/lib/ollama, a hand-written unit,
+// an ollama user) — the T1200 laptop had the script's. Empty when there is none.
+std::string ollama_removal() {
     std::string out, pkgs;
     sh::capture({"sh", "-c", "pacman -Qq 2>/dev/null | grep -E '^ollama(-|$)'"}, out);
     for (size_t at = 0; at < out.size();) {
@@ -53,7 +55,14 @@ std::string ollama_packages() {
         if (nl == std::string::npos) break;
         at = nl + 1;
     }
-    return pkgs;
+    std::error_code ec;
+    if (!pkgs.empty())
+        return "sudo systemctl disable --now ollama && sudo pacman -Rns " + pkgs + " && sudo rm -rf /usr/share/ollama";
+    if (fs::exists("/usr/local/bin/ollama", ec) || fs::exists("/etc/systemd/system/ollama.service", ec))
+        return "sudo systemctl disable --now ollama && sudo rm -rf /etc/systemd/system/ollama.service "
+               "/etc/systemd/system/ollama.service.d /usr/local/bin/ollama /usr/local/lib/ollama /usr/share/ollama "
+               "&& sudo systemctl daemon-reload && sudo userdel ollama";
+    return {};
 }
 
 std::string gpu_backend(const Context& ctx) {
@@ -106,10 +115,9 @@ void run_llama_server(Context& ctx) {
 
     // Ollama from before llama.cpp served everything: nothing uses it or its models any more. Removing a
     // package and its downloads is the user's call — said, not done.
-    if (std::string pkgs = ollama_packages(); !pkgs.empty()) {
+    if (std::string how = ollama_removal(); !how.empty()) {
         ui::warn("Ollama is still installed, and nothing uses it now (llama.cpp serves every model; downloads "
-                 "come from Hugging Face). To free its disk: sudo systemctl disable --now ollama && sudo pacman -Rns " +
-                 pkgs + " && sudo rm -rf /usr/share/ollama");
+                 "come from Hugging Face). To free its disk: " + how);
     }
 
     if (!idem::write_atomic(unit, SERVICE_BODY)) {
