@@ -151,5 +151,16 @@ class ServeTest(unittest.TestCase):
         self.assertIn("parallel = 3", forced)
 
 
+    def test_quick_model_sleeps_soon_only_on_small_ram(self):
+        self.add_model("qwen2.5-coder:7b")                       # roles.default's quick model
+        self.assertIn("sleep-idle-seconds = 120", self.section(self.preset(ram_gb=32), "qwen2.5-coder:7b"))
+        self.assertFalse(any(l.startswith("sleep-idle")
+                             for l in self.section(self.preset(ram_gb=64), "qwen2.5-coder:7b")))
+        fim = self.add_model("qwen2.5-coder:1.5b-base")
+        fim_sec = self.section(self.preset(ram_gb=32), "qwen2.5-coder:1.5b-base")
+        self.assertIn("load-on-startup = true", fim_sec)          # ghost text never sleeps
+        self.assertFalse(any(l.startswith("sleep-idle") for l in fim_sec))
+
+
 if __name__ == "__main__":
     sys.exit(0 if unittest.main(exit=False, verbosity=1).result.wasSuccessful() else 1)
