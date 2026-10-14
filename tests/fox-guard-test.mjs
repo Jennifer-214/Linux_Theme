@@ -33,6 +33,21 @@ const cases = [
   ["read", { path: "~/.ssh/config" }, "ask"],
   ["read", { path: "src/fox-install/Makefile" }, "pass"],
   ["read", { path: "/etc/os-release" }, "pass"],
+  // pi strips one leading @ from a path before it resolves it (both versions) — so the guard must too (A-6 F3, 2026-10-14)
+  ["read", { path: "@~/.ssh/config" }, "ask"],
+  ["read", { path: `@${homedir()}/.gnupg/gpg.conf` }, "ask"],
+  ["write", { path: "@~/.ssh/authorized_keys" }, "block"],
+  ["write", { path: "@.git/hooks/pre-commit" }, "block"],
+  // grep reads every folder below its root, hidden ones too (pi runs rg --hidden): a root that holds a secret folder asks
+  // (A-6 F8, her call 2026-10-14: grep only — find and ls list names)
+  ["grep", { pattern: "PRIVATE KEY", path: "~" }, "ask"],
+  ["grep", { pattern: "x", path: "@~" }, "ask"],
+  ["grep", { pattern: "x", path: "/" }, "ask"],
+  ["grep", { pattern: "x", path: "~/.config" }, "ask"],
+  ["grep", { pattern: "x", path: "~/code" }, "pass"],
+  ["grep", { pattern: "x", path: "src" }, "pass"],
+  ["grep", { pattern: "x" }, "pass"],
+  ["find", { pattern: "*", path: "~" }, "pass"],
 ];
 let fail = 0;
 for (const [tool, input, expect] of cases) {

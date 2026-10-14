@@ -6,6 +6,7 @@
  *   - write/edit into a protected path            → blocked outright
  *   - bash that names a secret path               → asks first (reads too: cat ~/.ssh/… leaks)
  *   - read/grep/find/ls of a secret path          → asks first (lands in session logs / cloud models)
+ *   - grep from a folder that holds a secret one  → asks first (pi greps hidden folders too)
  *   - bash matching a destructive pattern         → asks first
  * With no UI (pi -p / RPC) anything that would ask is blocked instead.
  *
@@ -55,8 +56,11 @@ const DANGEROUS_BASH: [RegExp, string][] = [
 	[/>\s*\/dev\/(sd|nvme)/, "writes to a block device"],
 ];
 
+// The path as pi's tools take it: one leading "@" dropped first (resolveToCwd / resolveReadPath strip it, both
+// versions) — `@~/.ssh/config` IS ~/.ssh/config to read and write, so it must be to this guard (2026-10-14).
 function expand(p: string, cwd: string): string {
-	const home = p === "~" || p.startsWith("~/") ? HOME + p.slice(1) : p;
+	const s = p.startsWith("@") ? p.slice(1) : p;
+	const home = s === "~" || s.startsWith("~/") ? HOME + s.slice(1) : s;
 	return resolve(cwd, home);
 }
 
@@ -67,6 +71,13 @@ function protectedReason(absPath: string, secretsOnly = false): string | undefin
 	if (prefix) return `inside ${prefix.replace(HOME, "~")}`;
 	const frag = PROTECTED_FRAGMENTS.find((f) => absPath.includes(f) && !(secretsOnly && f === "/.git/"));
 	return frag ? `matches "${frag}"` : undefined;
+}
+
+// grep reads every folder below its root, hidden ones too (pi runs rg --hidden): a root that HOLDS a secret folder
+// reads it — grep from ~ for "PRIVATE KEY" returns key material (2026-10-14, her call: grep only; find/ls list names).
+function holdsSecret(root: string): string | undefined {
+	const p = PROTECTED_PREFIXES.find((x) => !SYSTEM_PREFIXES.has(x) && (root === "/" || x.startsWith(`${root}/`)));
+	return p ? `searches ${root.replace(HOME, "~")}, which holds ${p.replace(HOME, "~")}` : undefined;
 }
 
 // Why a bash command needs a yes: a destructive pattern, or a path token that names a secret (reads too).
@@ -94,9 +105,11 @@ export default function (pi: ExtensionAPI) {
 			return { block: true, reason: `Path "${abs}" is protected (${why}). Do not retry; ask the user.` };
 		}
 
-		if (["read", "grep", "find", "ls"].includes(event.toolName) && typeof event.input.path === "string") {
-			const abs = expand(event.input.path as string, ctx.cwd);
-			const why = protectedReason(abs, true);
+		const grep = event.toolName === "grep";
+		if (["read", "grep", "find", "ls"].includes(event.toolName) && (typeof event.input.path === "string" || grep)) {
+			// grep with no path searches the folder pi runs in
+			const abs = expand(typeof event.input.path === "string" ? event.input.path : ".", ctx.cwd);
+			const why = protectedReason(abs, true) ?? (grep ? holdsSecret(abs) : undefined);
 			if (!why) return undefined;
 			if (!ctx.hasUI) return { block: true, reason: `Blocked without UI: ${event.toolName} ${abs} (${why})` };
 			const choice = await ctx.ui.select(`🔑 ${event.toolName} of a secret path: ${abs} (${why})\n\nAllow?`, ["No", "Yes"]);
