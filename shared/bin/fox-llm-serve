@@ -1,23 +1,35 @@
 #!/usr/bin/env bash
 # fox-llm-serve — the llama.cpp router (one URL, many models) built from the roles file.
 #
-#   fox-llm-serve run    [extra-model ...]   write the preset and run the router on $FOX_LLM_PORT (8080)
-#   fox-llm-serve preset [extra-model ...]   write + print the preset INI only
-#   fox-llm-serve roles                      the effective role → model → server table
+#   fox-llm-serve [--engine main|turbo] run    [extra-model ...]   write the preset, run the router
+#   fox-llm-serve [--engine main|turbo] preset [extra-model ...]   write + print the preset INI only
+#   fox-llm-serve roles                                            the effective role → model → server table
+#
+# Two engines, one router each: main = llama.cpp (the llama-cpp package) on :8080 serving roles whose
+# server is `llama`; turbo = the TurboQuant fork (llama_turbo module, ~/.local/opt) on :8081 serving
+# `llama-turbo` roles — its compressed KV cache generates faster deep into a long context.
 #
 # Roles: ~/.config/foxml/llm/roles.conf (yours; never overwritten), else roles.default (deployed
 # from Linux_Theme shared/llm/). Model files come from Ollama's store — no second download — and a
 # preset section is named after the Ollama model, so clients use the same name on either server.
 # Models not downloaded yet are skipped and picked up on the next start.
 #
-# Env: FOX_LLM_SERVER (llama-server binary; default: the llama-cpp package, else a source build
-# under ~/.local/opt), FOX_LLM_PORT, OLLAMA_MODELS (Ollama's model store).
+# Env: FOX_LLM_SERVER (llama-server binary override), FOX_LLM_PORT, OLLAMA_MODELS (Ollama's store).
 set -uo pipefail
 
+ENGINE=main
+if [[ ${1:-} == --engine ]]; then ENGINE=${2:-}; shift 2; fi
+[[ $ENGINE == main || $ENGINE == turbo ]] || { echo "fox-llm-serve: --engine is main or turbo" >&2; exit 2; }
+
 LLM_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/foxml/llm"
-PRESET="$LLM_DIR/llama-presets.ini"
-PORT="${FOX_LLM_PORT:-8080}"
 STORE="${OLLAMA_MODELS:-/usr/share/ollama/.ollama/models}"
+if [[ $ENGINE == turbo ]]; then
+  PRESET="$LLM_DIR/llama-presets-turbo.ini"; PORT="${FOX_LLM_PORT:-8081}"; SERVES=llama-turbo
+  SRC="$HOME/.local/opt/llama.cpp-turbo"
+else
+  PRESET="$LLM_DIR/llama-presets.ini";       PORT="${FOX_LLM_PORT:-8080}"; SERVES=llama
+  SRC="$HOME/.local/opt/llama.cpp"
+fi
 
 die() { echo "fox-llm-serve: $*" >&2; exit 1; }
 
@@ -31,11 +43,12 @@ roles_file() {
 
 server_bin() {
   local c
-  for c in "${FOX_LLM_SERVER:-}" /usr/bin/llama-server \
-           "$HOME"/.local/opt/llama.cpp/build-cuda/bin/llama-server \
-           "$HOME"/.local/opt/llama.cpp/build-cpu/bin/llama-server; do
+  local pkg=/usr/bin/llama-server
+  [[ $ENGINE == turbo ]] && pkg=""                  # the fork is only ever a source build
+  for c in "${FOX_LLM_SERVER:-}" $pkg "$SRC"/build-cuda/bin/llama-server "$SRC"/build-cpu/bin/llama-server; do
     [[ -n $c && -x $c ]] && { echo "$c"; return; }
   done
+  if [[ $ENGINE == turbo ]]; then die "no TurboQuant build in $SRC (fox-install --only llama_turbo)"; fi
   die "no llama-server — install the llama-cpp package (fox-install --only llama_server)"
 }
 
@@ -87,10 +100,14 @@ write_preset() {
     echo "[*]"
     echo "flash-attn = on"
     echo "cache-type-k = q8_0"     # rotated automatically for quantized caches; free on the GPU
-    echo "cache-type-v = q8_0"
+    if [[ $ENGINE == turbo ]]; then
+      echo "cache-type-v = turbo4" # the fork's advice for 4-bit weights: keep K at q8_0, compress V
+    else
+      echo "cache-type-v = q8_0"
+    fi
     echo "jinja = true"
     while read -r role model server _; do
-      [[ -z ${role:-} || $role == \#* || ${server:-} != llama ]] && continue
+      [[ -z ${role:-} || $role == \#* || ${server:-} != "$SERVES" ]] && continue
       path=$(gguf_path "$model") || { echo "; skipped $model ($role): not in Ollama's store yet"; continue; }
       seen+="$model "
       echo; echo "[$model]"; echo "; role: $role"; echo "model = $path"
@@ -103,7 +120,7 @@ write_preset() {
       role_flags extra "$gpu"
     done
   } > "$PRESET.new" && mv "$PRESET.new" "$PRESET"
-  echo "fox-llm-serve: wrote $PRESET (GPU: $( (( gpu )) && echo yes || echo no))" >&2
+  echo "fox-llm-serve: wrote $PRESET ($ENGINE engine, GPU: $( (( gpu )) && echo yes || echo no))" >&2
 }
 
 case "${1:-}" in
@@ -112,5 +129,5 @@ case "${1:-}" in
   run)    shift; bin=$(server_bin) || exit 1; write_preset "$bin" "$@"
           echo "fox-llm-serve: $bin on 127.0.0.1:$PORT" >&2
           exec "$bin" --models-preset "$PRESET" --models-max 3 --host 127.0.0.1 --port "$PORT" --no-webui ;;
-  *) sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  *) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

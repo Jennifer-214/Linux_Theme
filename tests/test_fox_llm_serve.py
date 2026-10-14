@@ -111,5 +111,24 @@ class ServeTest(unittest.TestCase):
         self.assertIn("; skipped not-downloaded:1b: not in Ollama's store", ini)
 
 
+    def test_turbo_engine_serves_only_turbo_roles_with_turbo_kv(self):
+        self.add_model("qwen3-coder:30b")
+        self.add_model("qwen2.5-coder:1.5b-base")
+        (self.cfg / "foxml/llm/roles.conf").write_text(
+            "agent qwen3-coder:30b llama-turbo\nfim qwen2.5-coder:1.5b-base llama\n")
+        env = {**os.environ, "XDG_CONFIG_HOME": str(self.cfg), "OLLAMA_MODELS": str(self.store),
+               "FOX_LLM_SERVER": str(self.server), "FAKE_GPU": "0"}
+        r = subprocess.run(["bash", str(SERVE), "--engine", "turbo", "preset"], env=env, capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("[qwen3-coder:30b]", r.stdout)
+        self.assertNotIn("[qwen2.5-coder:1.5b-base]", r.stdout)        # a mainline role
+        self.assertIn("cache-type-v = turbo4", self.section(r.stdout, "*"))
+        self.assertTrue((self.cfg / "foxml/llm/llama-presets-turbo.ini").exists())
+        main = self.preset()
+        self.assertIn("[qwen2.5-coder:1.5b-base]", main)
+        self.assertNotIn("[qwen3-coder:30b]", main)
+        self.assertIn("cache-type-v = q8_0", self.section(main, "*"))
+
+
 if __name__ == "__main__":
     sys.exit(0 if unittest.main(exit=False, verbosity=1).result.wasSuccessful() else 1)

@@ -144,6 +144,7 @@ FOX_MODULE( opencode,        run_configure_opencode,"--opencode-config", "Genera
 FOX_MODULE( github,      run_github,        "--github",      "gh CLI auth + clone workspace repos",              false )
 FOX_MODULE( fox_symdeps, run_fox_symdeps,  "--fox-symdeps",  "fox-symdeps.nvim + foxtag + pi wiring from your private repos (best-effort)", true )
 FOX_MODULE( llama_server, run_llama_server, "--llama-server", "llama.cpp router (llama-cpp + GPU backend) serving the local coding models", false )
+FOX_MODULE( llama_turbo, run_llama_turbo, "--llama-turbo", "TurboQuant llama.cpp fork built from source — second engine for llama-turbo roles", false )
 //   gaming — opt-in Steam + [multilib]. Lifted out of `deps` so the base
 //   install no longer force-enables a 32-bit repo or pulls a game client.
 //   Default-off; needs root (pacman.conf + pacman) and network (download).

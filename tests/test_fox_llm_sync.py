@@ -54,12 +54,15 @@ class SyncTest(unittest.TestCase):
             "exit 1\n")
         (self.bin / "npm").write_text(f'#!/bin/sh\n[ "$1" = root ] && echo "{self.npm_root}"\n')
         # Only `is-enabled` matters to sync: the llama.cpp unit's state comes from the test, not the box.
-        (self.bin / "systemctl").write_text('#!/bin/sh\ncase "$*" in *is-enabled*) [ "$FAKE_SERVER_ON" = 1 ];; *) exit 0;; esac\n')
+        (self.bin / "systemctl").write_text(
+            '#!/bin/sh\ncase "$*" in *is-enabled*)\n'
+            '  for u in $FAKE_UNITS; do case "$*" in *" $u.service"*) exit 0;; esac; done; exit 1;;\n'
+            'esac\nexit 0\n')
         for f in ("ollama", "npm", "systemctl"):
             (self.bin / f).chmod(0o755)
         self.rows = rows
 
-    def run_script(self, *args, meminfo_gb=32, server_on=False):
+    def run_script(self, *args, meminfo_gb=32, server_on=False, units=None):
         meminfo = self.tmp / "meminfo"
         meminfo.write_text(f"MemTotal:       {meminfo_gb * 1048576 - 1000} kB\n")
         cfg = self.home / ".config"
@@ -73,7 +76,7 @@ class SyncTest(unittest.TestCase):
             "PATH": f"{self.bin}:/usr/bin:/bin",
             "FOX_LLM_MEMINFO": str(meminfo),
             "ROWS": self.rows,
-            "FAKE_SERVER_ON": "1" if server_on else "0",
+            "FAKE_UNITS": units if units is not None else ("fox-llm-server" if server_on else ""),
         }
         r = subprocess.run(["bash", str(SCRIPT), *args], env=env, capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -247,6 +250,27 @@ class SyncTest(unittest.TestCase):
         self.oc_path.write_text(json.dumps({"model": "anthropic/claude-x"}))
         self.run_script("--sync", server_on=True)
         self.assertEqual(self.oc()["model"], "anthropic/claude-x")
+
+
+    def test_turbo_engine_role_gets_its_own_provider_and_default(self):
+        self.install("qwen3-coder:30b", "qwen2.5-coder:1.5b-base")
+        self.roles("agent qwen3-coder:30b llama-turbo\nfim qwen2.5-coder:1.5b-base llama\n")
+        self.run_script("--sync", units="fox-llm-server fox-llm-server-turbo")
+        oc = self.oc()
+        self.assertEqual(oc["provider"]["llamacpp-turbo"]["options"]["baseURL"], "http://127.0.0.1:8081/v1")
+        self.assertIn("qwen3-coder:30b", oc["provider"]["llamacpp-turbo"]["models"])
+        self.assertIn("qwen2.5-coder:1.5b-base", oc["provider"]["llamacpp"]["models"])
+        self.assertNotIn("qwen3-coder:30b", oc["provider"]["llamacpp"]["models"])
+        self.assertEqual(oc["model"], "llamacpp-turbo/qwen3-coder:30b")
+        st = self.pi("settings.json")
+        self.assertEqual((st["defaultProvider"], st["defaultModel"]), ("llamacpp-turbo", "qwen3-coder:30b"))
+
+    def test_turbo_agent_not_default_while_its_unit_is_off(self):
+        self.install("qwen3-coder:30b")
+        self.roles("agent qwen3-coder:30b llama-turbo\n")
+        self.run_script("--sync", units="fox-llm-server")              # only the mainline router is on
+        self.assertEqual(self.oc()["model"], "ollama/qwen3-coder:30b")
+        self.assertEqual(self.pi("settings.json")["defaultProvider"], "ollama")
 
 
 if __name__ == "__main__":

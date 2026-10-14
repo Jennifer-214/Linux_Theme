@@ -29,3 +29,4 @@ models = on
 github = on
 fox_symdeps = on
 llama_server = on
+llama_turbo = on
