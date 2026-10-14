@@ -16,9 +16,8 @@ qwen3-coder:30b          unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/Qwen3-Coder-3
 gpt-oss:20b              ggml-org/gpt-oss-20b-GGUF/gpt-oss-20b-MXFP4.gguf
 # tier: medium
 gpt-oss:20b              ggml-org/gpt-oss-20b-GGUF/gpt-oss-20b-MXFP4.gguf
-qwen2.5-coder:7b         Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/qwen2.5-coder-7b-instruct-q4_k_m.gguf
 # tier: small
-qwen2.5-coder:7b         Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/qwen2.5-coder-7b-instruct-q4_k_m.gguf
+# (the helpers below are all a small machine gets)
 # tier: all
 # the quick role (explain cards, inline edits, the agents' stand-in): a hybrid 4B, fast on a 4 GB GPU
 qwen3.5:4b               unsloth/Qwen3.5-4B-GGUF/Qwen3.5-4B-Q4_K_M.gguf
@@ -26,6 +25,9 @@ qwen2.5:3b               Qwen/Qwen2.5-3B-Instruct-GGUF/qwen2.5-3b-instruct-q4_k_
 qwen2.5:7b               bartowski/Qwen2.5-7B-Instruct-GGUF/Qwen2.5-7B-Instruct-Q4_K_M.gguf
 qwen2.5-coder:1.5b       Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf
 qwen2.5-coder:3b         Qwen/Qwen2.5-Coder-3B-Instruct-GGUF/qwen2.5-coder-3b-instruct-q4_k_m.gguf
+# nvim's CodeCompanion names these two (templates/nvim/init.lua): chat on the 7B, inline edits + cmd on the 3B —
+# every machine needs them; the 7B sat in the medium/small tiers only, so a large-RAM reinstall had no chat model.
+qwen2.5-coder:7b         Qwen/Qwen2.5-Coder-7B-Instruct-GGUF/qwen2.5-coder-7b-instruct-q4_k_m.gguf
 # ghost text (nvim's minuet): a BASE coder model — fill-in-the-middle trained, it stops at the gap; the instruct
 # ones above run on past the text after the cursor (measured 2026-10-13). llama.cpp's own FIM build (ggml-org,
 # Q8_0 — what llama.vim / llama.vscode use). Kept beside them, not instead: CodeCompanion wants the instruct ones.
