@@ -137,11 +137,14 @@ FOX_MODULE( specials,    run_specials,      "--specials",    "Firefox + Cursor +
 FOX_MODULE_FULL( vault,     run_vault,         "--vault",        "Install fox-vault systemd user service",           false,
                  /*root*/ false, /*gfx*/ false, /*net*/ false,
                  state::check_vault )
+// github first: it clones ~/code, and what follows reads your repos there — models and the router your
+// private custom_models lists and roles, opencode the claude-skills folders. After them, a fresh install
+// found none of it.
+FOX_MODULE( github,      run_github,        "--github",      "gh CLI auth + clone workspace repos",              false )
 FOX_MODULE( ai,              run_ai,                "--ai",              "Install Ollama + OpenCode + aider + embedding model", false )
 FOX_MODULE( ollama_hardening,run_ollama_hardening,  "--ollama-harden",   "ollama.service sandbox + context-window drop-ins", true  )
 FOX_MODULE( models,          run_models,            "--models",          "Pull tier-appropriate Ollama chat/coder stack",    false )
 FOX_MODULE( opencode,        run_configure_opencode,"--opencode-config", "Generate ~/.config/opencode/{opencode,tui}.json",  true  )
-FOX_MODULE( github,      run_github,        "--github",      "gh CLI auth + clone workspace repos",              false )
 FOX_MODULE( fox_symdeps, run_fox_symdeps,  "--fox-symdeps",  "fox-symdeps.nvim + foxtag + pi wiring from your private repos (best-effort)", true )
 FOX_MODULE( llama_server, run_llama_server, "--llama-server", "llama.cpp router — the default local model server for pi + opencode (llama-cpp + GPU backend)", false )
 FOX_MODULE( llama_turbo, run_llama_turbo, "--llama-turbo", "TurboQuant llama.cpp fork built from source — second engine for llama-turbo roles", false )
