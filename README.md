@@ -118,7 +118,7 @@ See `fox help` for the full surface (70+ subcommands).
 
 ## AI layer (optional)
 
-Installed via `--ai` + `--models` + `--llama-server` (the desktop preset turns all three on). Ollama downloads and stores the models; **llama.cpp's router serves them** as the default server for the terminal agents — one loopback URL (`127.0.0.1:8080`), every chat model in Ollama's store loaded on demand, GPU placement left to llama.cpp's MoE-aware auto-fit, a 128k-context agent role. Ollama keeps the embedder, the in-editor integrations, the `fox-ai-*` tools, and the few models only it runs as built. `--ai` installs Ollama, the `mxbai-embed-large` embedder, OpenCode (terminal agent), and aider (git-native pair programmer). `--models` pulls the chat/coder stack sized to your RAM+VRAM.
+Installed via `--ai` + `--models` + `--llama-server` (the desktop preset turns all three on). Ollama downloads and stores the models; **llama.cpp's router serves them** — the one server for the terminal agents, the `fox-ai-*` tools and their embeddings — one loopback URL (`127.0.0.1:8080`), every chat model in Ollama's store loaded on demand, GPU placement left to llama.cpp's MoE-aware auto-fit, a 128k-context agent role. Ollama itself serves only what the roles file gives it and the rare model only it runs as built (a Modelfile with baked-in example chats). `--ai` installs Ollama, the `mxbai-embed-large` embedder, OpenCode (terminal agent), and aider (git-native pair programmer). `--models` pulls the chat/coder stack sized to your RAM+VRAM.
 
 ### Agents
 
@@ -131,7 +131,7 @@ Installed via `--ai` + `--models` + `--llama-server` (the desktop preset turns a
 | Piece | What it does |
 |-------|--------------|
 | `~/.config/foxml/llm/roles.conf` | Which model fills each role (`agent`, `quick`, `fim`, `title`, `embed`) and on which server (`llama`, `llama-turbo`, `ollama`); `roles.default` ships |
-| `fox-llm-serve` | Builds the router's preset from the roles and Ollama's store; a once-per-file load check keeps models llama.cpp can't run on Ollama |
+| `fox-llm-serve` | Builds the router's preset from the roles and Ollama's store — chat and embedding models; a once-per-file load check keeps models llama.cpp can't run on Ollama |
 | `fox-llm-update` | Daily timer: update notices, model refresh, discovery. `--queue` downloads in the background on slow links (resumes across reboots); `--sync` wires models into OpenCode + pi |
 | `~/code/custom_models/gguf-models.conf` | Personal Hugging Face GGUFs in llama.cpp's own format, for models whose Ollama copy llama.cpp can't load — downloaded first, sha256-checked |
 
@@ -146,7 +146,7 @@ Installed via `--ai` + `--models` + `--llama-server` (the desktop preset turns a
 | `fox ask "<question>"` | One-shot terminal Q&A — no index needed; uses the OpenCode-configured model |
 | `fox-ai-commit` | AI-drafted commit message from staged diff |
 | `fox-ai-explain <file>` | Plain-English explanation of code/logs/errors |
-| `fox-ai-swap [tag]` | Switch the default model + free VRAM via `ollama stop` |
+| `fox-ai-swap [tag]` | Switch the default model (OpenCode + the fox-ai tools) and free the old one's memory on whichever server runs it |
 | `fox-ai-doctor` | AI-augmented system diagnostics |
 | `fox-ai-review` | Pre-commit guardrail (`BLOCK:` / `WARN:` lines from local model) |
 | `fhelp` | Full command reference |
