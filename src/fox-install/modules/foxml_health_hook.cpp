@@ -52,8 +52,10 @@ constexpr const char* PACMAN_HOOK =
     "# ~1s); the worst-case install of a kernel triggers boot_sync's\n"
     "# 95- hook AND this 99- hook, total under 200ms on a working host.\n"
     "Exec = /usr/local/bin/fox-sec-health --only A,B --no-slow\n"
-    "Depends = bash\n"
-    "AbortOnFail\n";
+    "Depends = bash\n";
+// No AbortOnFail: alpm-hooks(5) honours it only on PreTransaction hooks — on this
+// PostTransaction one pacman ignored it and warned twice per transaction. Nothing is
+// left to abort after the fact; the probe's findings still print in pacman's output.
 
 }  // namespace
 
