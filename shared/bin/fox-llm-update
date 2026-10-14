@@ -24,8 +24,10 @@
 # (not .txt: fox-install's models module reads those as Ollama lists). Downloaded before the Ollama
 # models, resumably, size + sha256 checked against Hugging Face's own record, into
 # ~/.local/share/fox-llm/gguf/<name>.gguf, where fox-llm-serve serves them under that name.
-# --sync only ever ADDS: keys you set in opencode.json / ~/.pi/agent/*.json are left alone —
-# except a local model default, which follows llama.cpp while its router is enabled.
+# --sync fills in what is missing and never changes keys you set in opencode.json / ~/.pi/agent/*.json,
+# with two exceptions: a local model default follows llama.cpp while its router is enabled, and the
+# local providers' model lists mirror what each server runs — every model once, under the server that
+# serves it (your settings on an entry are kept while the model is there).
 set -uo pipefail
 
 LLM_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/foxml/llm"
@@ -285,6 +287,13 @@ llama = [(r, m, sv, int(c)) for sv, m, r, c in
          if sv in ENGINES and c.isdigit()]
 agent_role = next(((m, sv) for r, m, sv, _ in llama if r == "agent"), None)
 LOCAL = ("ollama/",) + tuple(f"{e[0]}/" for e in ENGINES.values())
+# Where each model runs: a router whose unit is enabled serves its models; Ollama's list is what no
+# enabled router serves. The ghost-text (fim) model is a base model — no chat picker lists it.
+on_llama = {m for _, m, sv, _ in llama if ENGINES[sv][3]}
+fim_models = {m for r, m, _, _ in llama if r == "fim"}
+ollama_list = [m for m in installed if m not in on_llama and m not in fim_models]
+def gone_why(m):
+    return "on llama.cpp" if m in on_llama else "fim model" if m in fim_models else "not installed"
 def served_on(ref):
     """Does a router whose unit is enabled serve this provider/model?"""
     p, _, m = ref.partition("/")
@@ -331,10 +340,13 @@ prov.setdefault("name", "Ollama (Local)")
 prov.setdefault("npm", "@ai-sdk/openai-compatible")
 prov.setdefault("options", {"baseURL": "http://localhost:11434/v1"})
 models = prov.setdefault("models", {})
-for m in installed:
+for m in ollama_list:
     if m not in models:
         models[m] = {"name": m}; notes.append(f"opencode: + {m}")
     models[m].setdefault("limit", dict(LIMIT))
+if installed:                # Ollama answered; an empty `ollama list` while it is down says nothing
+    for m in [m for m in models if m not in ollama_list]:
+        del models[m]; notes.append(f"opencode: − {m} ({gone_why(m)})")
 # A default on another provider (anthropic/…, openai/…) is the user's choice: never touched.
 if not oc.get("model") or oc["model"].startswith("ollama/"):
     cur = (oc.get("model") or "").removeprefix("ollama/") or None
@@ -343,19 +355,32 @@ if not oc.get("model") or oc["model"].startswith("ollama/"):
         oc["model"] = f"ollama/{new}"; notes.append(f"opencode default → {new}")
 if "small_model" not in oc and title_model in installed:
     oc["small_model"] = f"ollama/{title_model}"
+sm = oc.get("small_model") or ""
+if sm.startswith(LOCAL):     # the title model, on whichever local server runs it now
+    m = sm.split("/", 1)[1]
+    p = next((ENGINES[sv][0] for _, mm, sv, _ in llama if mm == m and ENGINES[sv][3]),
+             "ollama" if m in installed else None)
+    if p and sm != f"{p}/{m}":
+        oc["small_model"] = f"{p}/{m}"; notes.append(f"opencode small_model → {p}/{m}")
 # llama.cpp routers: add-only providers listing what each serves. While a router's unit is enabled, a
 # local default moves onto it — the roles file's agent, else the same model on llama.cpp — and back to
 # Ollama once llama.cpp no longer serves it. A cloud default is never touched.
-for r, m, sv, ctx in llama:
-    pid, pname, url, _ = ENGINES[sv]
+for sv, (pid, pname, url, enabled) in ENGINES.items():
+    rows = [(r, m, ctx) for r, m, s, ctx in llama if s == sv and enabled and m not in fim_models]
+    if not rows and pid not in oc["provider"]:
+        continue
     lp = oc["provider"].setdefault(pid, {})
     lp.setdefault("name", pname)
     lp.setdefault("npm", "@ai-sdk/openai-compatible")
     lp.setdefault("options", {"baseURL": url})
     lmodels = lp.setdefault("models", {})
-    if m not in lmodels:
-        lmodels[m] = {"name": m if r == "-" else f"{m} ({r})", "limit": {"context": ctx, "output": 8192}}
-        notes.append(f"opencode: + {pid}/{m}")
+    for r, m, ctx in rows:
+        if m not in lmodels:
+            lmodels[m] = {"name": m if r == "-" else f"{m} ({r})", "limit": {"context": ctx, "output": 8192}}
+            notes.append(f"opencode: + {pid}/{m}")
+    served = {m for _, m, _ in rows}
+    for m in [m for m in lmodels if m not in served]:
+        del lmodels[m]; notes.append(f"opencode: − {pid}/{m} ({'server off' if not enabled else 'not served'})")
 cur = oc.get("model") or ""
 if not cur or cur.startswith(LOCAL):
     model = cur.split("/", 1)[1] if "/" in cur else None
@@ -381,22 +406,33 @@ pprov.setdefault("api", "openai-completions")
 pprov.setdefault("apiKey", "ollama")
 pprov.setdefault("compat", {"supportsDeveloperRole": False, "supportsReasoningEffort": False})
 pms = pprov.setdefault("models", [])
-have = {x["id"] for x in pms}
-for m in installed:
+have = {x.get("id") for x in pms}
+for m in ollama_list:
     if m not in have:
         pms.append({"id": m, "contextWindow": LIMIT["context"], "maxTokens": LIMIT["output"]})
         notes.append(f"pi: + {m}")
-for r, m, sv, ctx in llama:
-    pid, _, url, _ = ENGINES[sv]
+if installed:
+    for x in [x for x in pms if x.get("id") not in ollama_list]:
+        notes.append(f"pi: − {x.get('id')} ({gone_why(x.get('id'))})")
+    pprov["models"] = [x for x in pms if x.get("id") in ollama_list]
+for sv, (pid, _, url, enabled) in ENGINES.items():
+    rows = [(r, m, ctx) for r, m, s, ctx in llama if s == sv and enabled and m not in fim_models]
+    if not rows and pid not in pm["providers"]:
+        continue
     lpp = pm["providers"].setdefault(pid, {})
     lpp.setdefault("baseUrl", url)
     lpp.setdefault("api", "openai-completions")
     lpp.setdefault("apiKey", "none")
     lpp.setdefault("compat", {"supportsDeveloperRole": False, "supportsReasoningEffort": False})
     lms = lpp.setdefault("models", [])
-    if m not in {x["id"] for x in lms}:
-        lms.append({"id": m, "name": m if r == "-" else f"{m} ({r})", "contextWindow": ctx, "maxTokens": 8192})
-        notes.append(f"pi: + {pid}/{m}")
+    for r, m, ctx in rows:
+        if m not in {x.get("id") for x in lms}:
+            lms.append({"id": m, "name": m if r == "-" else f"{m} ({r})", "contextWindow": ctx, "maxTokens": 8192})
+            notes.append(f"pi: + {pid}/{m}")
+    served = {m for _, m, _ in rows}
+    for x in [x for x in lms if x.get("id") not in served]:
+        notes.append(f"pi: − {pid}/{x.get('id')} ({'server off' if not enabled else 'not served'})")
+    lpp["models"] = [x for x in lms if x.get("id") in served]
 save(pm_path, pm)
 
 st_path = os.path.join(pi_dir, "settings.json")

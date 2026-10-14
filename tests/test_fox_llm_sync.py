@@ -55,6 +55,7 @@ class SyncTest(unittest.TestCase):
         self.home.mkdir()
         self.bin.mkdir()
         self.installed = []
+        self.modelfile_layers = {}       # model → extra manifest layer kinds (messages, adapter, …)
         # Fake pi examples tree, as `npm root -g` would expose it.
         ex = self.npm_root / "@mariozechner/pi-coding-agent/examples/extensions"
         (ex / "plan-mode").mkdir(parents=True)
@@ -73,6 +74,7 @@ class SyncTest(unittest.TestCase):
         rows = "".join(f"{m}\tdeadbeef\t1 GB\tnow\n" for m in self.installed)
         (self.bin / "ollama").write_text(
             "#!/bin/sh\n"
+            '[ "$FAKE_OLLAMA_DOWN" = 1 ] && exit 1\n'
             'if [ "$1" = list ]; then printf "NAME\\tID\\tSIZE\\tMODIFIED\\n%s" "$ROWS"; exit 0; fi\n'
             "exit 1\n")
         (self.bin / "npm").write_text(f'#!/bin/sh\n[ "$1" = root ] && echo "{self.npm_root}"\n')
@@ -92,7 +94,9 @@ class SyncTest(unittest.TestCase):
             man = store / "manifests/registry.ollama.ai" / (ns or "library") / model / (tag or "latest")
             man.parent.mkdir(parents=True, exist_ok=True)
             man.write_text(json.dumps({"layers": [
-                {"mediaType": "application/vnd.ollama.image.model", "digest": digest}]}))
+                {"mediaType": "application/vnd.ollama.image.model", "digest": digest}] + [
+                {"mediaType": f"application/vnd.ollama.image.{k}", "digest": "sha256:" + "2" * 64}
+                for k in self.modelfile_layers.get(ref, [])]}))
             (store / "blobs").mkdir(exist_ok=True)
             (store / "blobs" / digest.replace(":", "-")).write_bytes(b"GGUF")
         (self.bin / "llama-server").write_text('#!/bin/sh\necho "Available devices:"\n')
@@ -101,7 +105,7 @@ class SyncTest(unittest.TestCase):
             (self.bin / f).chmod(0o755)
         self.rows = rows
 
-    def run_script(self, *args, meminfo_gb=32, server_on=False, units=None):
+    def run_script(self, *args, meminfo_gb=32, server_on=False, units=None, ollama_down=False):
         meminfo = self.tmp / "meminfo"
         meminfo.write_text(f"MemTotal:       {meminfo_gb * 1048576 - 1000} kB\n")
         cfg = self.home / ".config"
@@ -117,6 +121,7 @@ class SyncTest(unittest.TestCase):
             "ROWS": self.rows,
             "FAKE_UNITS": units if units is not None else ("fox-llm-server" if server_on else ""),
             "OLLAMA_MODELS": str(self.tmp / "store"),
+            "FAKE_OLLAMA_DOWN": "1" if ollama_down else "0",
             "FOX_LLM_SERVER": str(self.bin / "llama-server"),
         }
         r = subprocess.run(["bash", str(SCRIPT), *args], env=env, capture_output=True, text=True)
@@ -257,21 +262,23 @@ class SyncTest(unittest.TestCase):
         lp = oc["provider"]["llamacpp"]
         self.assertEqual(lp["options"]["baseURL"], "http://127.0.0.1:8080/v1")
         self.assertEqual(lp["models"]["qwen3-coder:30b"]["limit"]["context"], 131072)
-        self.assertEqual(lp["models"]["qwen2.5-coder:1.5b-base"]["limit"]["context"], 8192)
+        self.assertNotIn("qwen2.5-coder:1.5b-base", lp["models"])     # the fim base model: no chat picker
         self.assertNotIn("qwen2.5:3b", lp["models"])                  # an ollama role stays on ollama
+        self.assertEqual(sorted(oc["provider"]["ollama"]["models"]), ["qwen2.5:3b"])   # each model once
         self.assertEqual(oc["model"], "llamacpp/qwen3-coder:30b")
         self.assertEqual(oc["small_model"], "ollama/qwen2.5:3b")
         st = self.pi("settings.json")
         self.assertEqual((st["defaultProvider"], st["defaultModel"]), ("llamacpp", "qwen3-coder:30b"))
         ids = [m["id"] for m in self.pi("models.json")["providers"]["llamacpp"]["models"]]
-        self.assertEqual(sorted(ids), ["qwen2.5-coder:1.5b-base", "qwen3-coder:30b"])
+        self.assertEqual(ids, ["qwen3-coder:30b"])
 
-    def test_llama_provider_added_but_defaults_kept_when_server_off(self):
+    def test_router_off_lists_nothing_there_and_defaults_stay_on_ollama(self):
         self.install("qwen3-coder:30b", "qwen2.5-coder:1.5b-base")
         self.roles(self.ROLES)
         self.run_script("--sync", server_on=False)
         oc = self.oc()
-        self.assertIn("llamacpp", oc["provider"])
+        self.assertFalse(oc["provider"].get("llamacpp", {}).get("models"))   # nothing a client could reach
+        self.assertIn("qwen3-coder:30b", oc["provider"]["ollama"]["models"])
         self.assertEqual(oc["model"], "ollama/qwen3-coder:30b")
         self.assertEqual(self.pi("settings.json")["defaultProvider"], "ollama")
 
@@ -300,8 +307,8 @@ class SyncTest(unittest.TestCase):
         oc = self.oc()
         self.assertEqual(oc["provider"]["llamacpp-turbo"]["options"]["baseURL"], "http://127.0.0.1:8081/v1")
         self.assertIn("qwen3-coder:30b", oc["provider"]["llamacpp-turbo"]["models"])
-        self.assertIn("qwen2.5-coder:1.5b-base", oc["provider"]["llamacpp"]["models"])
-        self.assertNotIn("qwen3-coder:30b", oc["provider"]["llamacpp"]["models"])
+        self.assertFalse(oc["provider"].get("llamacpp", {}).get("models"))  # main serves only the fim model
+        self.assertNotIn("qwen3-coder:30b", oc["provider"]["ollama"]["models"])
         self.assertEqual(oc["model"], "llamacpp-turbo/qwen3-coder:30b")
         st = self.pi("settings.json")
         self.assertEqual((st["defaultProvider"], st["defaultModel"]), ("llamacpp-turbo", "qwen3-coder:30b"))
@@ -357,6 +364,44 @@ class SyncTest(unittest.TestCase):
         self.assertIn("http://127.0.0.1:8080/models?reload=1", log.read_text())
         self.assertNotIn(":8081", log.read_text())                                     # turbo unit is off
 
+
+    # ── the model lists mirror the servers: every model once, under the server that runs it ──
+
+    def test_each_model_listed_once_under_the_server_that_runs_it(self):
+        self.modelfile_layers["gameproject:latest"] = ["system", "messages"]   # only Ollama runs it as built
+        self.install("qwen2.5-coder:14b", "qwen2.5:7b", "qwen2.5:3b", "qwen2.5-coder:1.5b-base", "gameproject:latest")
+        self.roles(self.ROLES)
+        self.oc_path.parent.mkdir(parents=True)
+        self.oc_path.write_text(json.dumps({"provider": {"ollama": {"models": {
+            "gone-model:7b": {"name": "gone-model:7b"},                         # deleted from Ollama long ago
+            "qwen2.5:3b": {"name": "my title model", "limit": {"context": 4096, "output": 512}}}}}}))
+        self.run_script("--sync", server_on=True)
+        oc = self.oc()
+        on_ollama, on_llama = oc["provider"]["ollama"]["models"], oc["provider"]["llamacpp"]["models"]
+        self.assertEqual(sorted(on_llama), ["qwen2.5-coder:14b", "qwen2.5:7b"])
+        self.assertEqual(sorted(on_ollama), ["gameproject:latest", "qwen2.5:3b"])
+        self.assertEqual(on_ollama["qwen2.5:3b"]["name"], "my title model")    # her settings on a kept entry
+        pi = self.pi("models.json")["providers"]
+        self.assertEqual(sorted(x["id"] for x in pi["ollama"]["models"]), ["gameproject:latest", "qwen2.5:3b"])
+        self.assertEqual(sorted(x["id"] for x in pi["llamacpp"]["models"]), ["qwen2.5-coder:14b", "qwen2.5:7b"])
+
+    def test_ollama_down_leaves_its_list_alone(self):
+        self.install("qwen2.5:7b", "gameproject:latest")
+        self.run_script("--sync")
+        before = self.oc()["provider"]["ollama"]["models"]
+        self.run_script("--sync", ollama_down=True)                          # `ollama list` fails: says nothing
+        self.assertEqual(self.oc()["provider"]["ollama"]["models"], before)
+
+    def test_router_off_moves_everything_back_to_ollama(self):
+        self.install("qwen2.5-coder:14b", "qwen2.5:7b")
+        self.roles(self.ROLES)
+        self.run_script("--sync", server_on=True)
+        self.assertEqual(self.oc()["model"], "llamacpp/qwen2.5-coder:14b")
+        self.run_script("--sync", server_on=False)
+        oc = self.oc()
+        self.assertEqual(sorted(oc["provider"]["ollama"]["models"]), ["qwen2.5-coder:14b", "qwen2.5:7b"])
+        self.assertFalse(oc["provider"]["llamacpp"]["models"])
+        self.assertEqual(oc["model"], "ollama/qwen2.5-coder:14b")
 
     # ── Hugging Face GGUFs (gguf-models.txt / ~/code/custom_models/gguf-models.conf) ──
 
