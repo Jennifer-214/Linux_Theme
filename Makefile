@@ -47,6 +47,13 @@ clean:   $(addprefix clean-,$(TOOLS))
 $(addprefix build-,$(TOOLS)): build-%:
 	$(MAKE) --no-print-directory -C src/$* all
 
+# Tools that link ../fox-intel/libfox-intel.a build after it. Each one's sub-make (FORCE'd, so a stale
+# library is rebuilt) would otherwise rebuild the same archive at the same moment under -j — install.sh
+# runs `make -j install` — and collide. Discovered like TOOLS: any Makefile naming the library.
+INTEL_USERS := $(filter-out fox-intel,$(patsubst src/%/Makefile,%,$(shell grep -l 'libfox-intel\.a' src/*/Makefile)))
+$(addprefix build-,$(INTEL_USERS)): build-fox-intel
+$(addprefix install-,$(INTEL_USERS)): install-fox-intel
+
 $(addprefix install-,$(TOOLS)): install-%:
 	$(MAKE) --no-print-directory -C src/$* install
 

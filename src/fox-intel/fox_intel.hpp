@@ -24,7 +24,8 @@ public:
     // Similarity calculation
     static double cosine_similarity(const std::vector<float>& v1, const std::vector<float>& v2);
 
-    // Ollama state management
+    // Server state: wakes the local model server — llama.cpp's router when one is configured, else
+    // Ollama (the name is older than the router).
     bool ensure_ollama_running();
     bool ensure_model_present(const std::string& model_name);
 
@@ -42,6 +43,8 @@ private:
     // Embeddings go where the chat models go: the router's /v1 base when opencode lists llama.cpp
     // models (fox-llm-update --sync writes that list), else empty = Ollama.
     std::string embed_base;
+    // The user unit of the router those go to ("fox-llm-server", "-turbo"); empty = Ollama's machine.
+    std::string router_unit;
 
     std::vector<float> embed_llama(const std::string& text, const std::string& model);
     std::vector<float> embed_ollama(const std::string& text, const std::string& model);

@@ -78,12 +78,22 @@ function '??'() {
 }
 
 # FoxML AI Tool Wrappers
-opencode() {
-  if ! systemctl is-active --quiet ollama; then
-    echo -e "\033[1;33m[Fox Brain is asleep. Waking up for OpenCode...]\033[0m"
+# Wake the local model server before an agent starts: llama.cpp's router — a user service, no sudo —
+# while it is enabled (the one server; Ollama only downloads), Ollama on a machine without it.
+_fox_llm_up() {
+  if systemctl --user is-enabled --quiet fox-llm-server.service 2>/dev/null; then
+    systemctl --user is-active --quiet fox-llm-server.service && return
+    echo -e "\033[1;33m[Fox Brain is asleep. Waking up for $1...]\033[0m"
+    systemctl --user start fox-llm-server.service
+  elif ! systemctl is-active --quiet ollama; then
+    echo -e "\033[1;33m[Fox Brain is asleep. Waking up for $1...]\033[0m"
     sudo systemctl start ollama
     sleep 2
   fi
+}
+
+opencode() {
+  _fox_llm_up OpenCode
   # opencode is a Bun binary: it unpacks native .so/.node files into $TMPDIR
   # and dlopen()s them, which noexec /tmp (noexec_tmp module) refuses.
   local tmp="${XDG_CACHE_HOME:-$HOME/.cache}/opencode-tmp"
@@ -93,11 +103,7 @@ opencode() {
 }
 
 pi() {
-  if ! systemctl is-active --quiet ollama; then
-    echo -e "\033[1;33m[Fox Brain is asleep. Waking up for pi...]\033[0m"
-    sudo systemctl start ollama
-    sleep 2
-  fi
+  _fox_llm_up pi
   # Offline-first: no version check, package check or telemetry at startup.
   PI_OFFLINE=1 command pi "$@"
 }

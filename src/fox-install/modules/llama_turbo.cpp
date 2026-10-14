@@ -175,8 +175,13 @@ void run_llama_turbo(Context& ctx) {
     }
     sh::run({"systemctl", "--user", "daemon-reload"});
     if (roles_use_turbo(ctx)) {
+        // An update restarts a running router so the new launcher (and a new build) takes over.
+        const bool was_running =
+            sh::run({"systemctl", "--user", "is-active", "--quiet", "fox-llm-server-turbo.service"}) == 0;
         if (sh::run({"systemctl", "--user", "enable", "--now", "fox-llm-server-turbo.service"}) == 0) {
-            ui::ok("fox-llm-server-turbo.service enabled — router on 127.0.0.1:8081");
+            if (was_running) sh::run({"systemctl", "--user", "restart", "fox-llm-server-turbo.service"});
+            ui::ok(std::string("fox-llm-server-turbo.service ") + (was_running ? "restarted" : "enabled") +
+                   " — router on 127.0.0.1:8081");
         } else {
             ui::warn("could not enable fox-llm-server-turbo.service");
         }

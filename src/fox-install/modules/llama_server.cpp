@@ -128,8 +128,13 @@ void run_llama_server(Context& ctx) {
         return;
     }
     sh::run({"systemctl", "--user", "daemon-reload"});
+    // An update: `enable --now` leaves a running router on the old launcher (its flags, e.g. how many
+    // models it keeps) — restart it so this install's version runs.
+    const bool was_running = sh::run({"systemctl", "--user", "is-active", "--quiet", "fox-llm-server.service"}) == 0;
     if (sh::run({"systemctl", "--user", "enable", "--now", "fox-llm-server.service"}) == 0) {
-        ui::ok("fox-llm-server.service enabled — router on 127.0.0.1:8080 (the default local model server)");
+        if (was_running) sh::run({"systemctl", "--user", "restart", "fox-llm-server.service"});
+        ui::ok(std::string("fox-llm-server.service ") + (was_running ? "restarted" : "enabled") +
+               " — router on 127.0.0.1:8080 (the default local model server)");
     } else {
         ui::warn("could not enable fox-llm-server.service via systemctl --user");
     }

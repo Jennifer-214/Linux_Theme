@@ -59,6 +59,7 @@ FoxIntel::FoxIntel(std::string model) : default_model(model), accent_color("\033
             embed_base = "http://127.0.0.1:8080/v1";
             try { embed_base = lp.at("options").at("baseURL").get<std::string>(); } catch (...) {}
             while (!embed_base.empty() && embed_base.back() == '/') embed_base.pop_back();
+            if (router_unit.empty()) router_unit = "fox-llm-server";
         }
     } catch (...) {}
 
@@ -100,6 +101,7 @@ bool FoxIntel::use_model(std::string ref, const json* opencode) {
         api_base.clear();
     } else if (provider == "llamacpp" || provider == "llamacpp-turbo") {
         api_base = provider == "llamacpp" ? "http://127.0.0.1:8080/v1" : "http://127.0.0.1:8081/v1";
+        router_unit = provider == "llamacpp" ? "fox-llm-server" : "fox-llm-server-turbo";
         try {
             api_base = opencode->at("provider").at(provider).at("options").at("baseURL").get<std::string>();
         } catch (...) {}
@@ -366,6 +368,33 @@ double FoxIntel::cosine_similarity(const std::vector<float>& v1, const std::vect
 }
 
 bool FoxIntel::ensure_ollama_running() {
+    // llama.cpp is the one server once opencode points at it: wake its router — a user service, no
+    // sudo prompt — and leave Ollama (now only the downloader) alone. Ollama only on a machine without one.
+    if (!router_unit.empty()) {
+        std::string unit = router_unit + ".service";
+        if (FoxUtils::run_cmd({"systemctl", "--user", "is-active", "--quiet", unit.c_str()}, true) == 0) return true;
+        std::cout << color_accent() << "[Fox Brain is asleep. Waking up...]" << color_reset() << std::endl;
+        if (FoxUtils::run_cmd({"systemctl", "--user", "start", unit.c_str()}, true) != 0) return false;
+        // systemd calls it active the moment it starts; the router answers /health once it listens.
+        std::string root = api_base.empty() ? embed_base : api_base;
+        if (root.size() >= 3 && root.compare(root.size() - 3, 3, "/v1") == 0) root.resize(root.size() - 3);
+        for (int i = 0; i < 60; ++i) {
+            CURL* curl = curl_easy_init();
+            if (!curl) break;
+            std::string sink;
+            long code = 0;
+            std::string url = root + "/health";
+            curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+            curl_easy_setopt(curl, CURLOPT_TIMEOUT, 2L);
+            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+            curl_easy_setopt(curl, CURLOPT_WRITEDATA, &sink);
+            if (curl_easy_perform(curl) == CURLE_OK) curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
+            curl_easy_cleanup(curl);
+            if (code == 200) return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        }
+        return false;
+    }
     // Silent check (redirect stdout/stderr to /dev/null)
     if (FoxUtils::run_cmd({"ollama", "list"}, true) != 0) {
         std::cout << color_accent() << "[Fox Brain is asleep. Waking up...]" << color_reset() << std::endl;
@@ -377,8 +406,9 @@ bool FoxIntel::ensure_ollama_running() {
 }
 
 bool FoxIntel::ensure_model_present(const std::string& model_name) {
-    // A llama.cpp router serves what is already on disk: nothing to pull for the model it answers with.
-    if (!api_base.empty() && model_name == default_model) return true;
+    // A llama.cpp router serves what is already on disk — chat and embedding models alike; downloads are
+    // fox-llm-update's. Nothing to `ollama pull` here.
+    if (!router_unit.empty()) return true;
     if (!FoxUtils::has_model(model_name.c_str())) {
         std::cout << "Model " << model_name << " not found. Pulling now..." << std::endl;
         return FoxUtils::run_cmd({"ollama", "pull", model_name.c_str()}) == 0;

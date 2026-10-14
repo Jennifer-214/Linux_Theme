@@ -242,11 +242,27 @@ void run_models(Context& ctx) {
     }
     ui::ok(std::to_string(models.size()) + " models requested");
 
+    // Hugging Face GGUFs (llama.cpp's own format, for models whose Ollama upload llama.cpp can't load)
+    // aren't Ollama pulls: fox-llm-update downloads them, first in its background queue — resumable
+    // across reboots, sha256-checked. The daily timer only downloads on a fast link, so on slow Wi-Fi a
+    // reinstall would never fetch them: start the queue whenever a list exists.
+    const bool gguf_list = fs::exists(ctx.home / "code/custom_models/gguf-models.conf") ||
+                           fs::exists(ctx.config_home / "foxml/llm/gguf-models.txt");
     if (sh::dry_run()) {
-        ui::substep("[dry-run] would write + enable fox-llm-update.{service,timer}");
+        ui::substep(std::string("[dry-run] would write + enable fox-llm-update.{service,timer}") +
+                    (gguf_list ? " and start the download queue for the Hugging Face GGUF list" : ""));
         return;
     }
     install_update_timer(ctx);
+    if (gguf_list) {
+        fs::path upd = ctx.home / ".local/bin/fox-llm-update";
+        if (!fs::exists(upd)) upd = ctx.shared_dir / "bin/fox-llm-update";
+        if (sh::run({"bash", upd.string(), "--queue"}) == 0) {
+            ui::ok("Hugging Face GGUFs queued — background download, resumes across reboots");
+        } else {
+            ui::warn("could not start the download queue — run: fox-llm-update --queue");
+        }
+    }
 }
 
 }  // namespace fox_install
