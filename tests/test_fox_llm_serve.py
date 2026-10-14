@@ -67,7 +67,7 @@ class ServeTest(unittest.TestCase):
         meminfo.write_text(f"MemTotal:       {ram_gb * 1048576 - 1000} kB\n")
         # XDG_CACHE_HOME too: the load-check cache must never land in the real ~/.cache.
         env = {**os.environ, "XDG_CONFIG_HOME": str(self.cfg), "OLLAMA_MODELS": str(self.store),
-               "XDG_CACHE_HOME": str(self.tmp / "cache"),
+               "XDG_CACHE_HOME": str(self.tmp / "cache"), "XDG_DATA_HOME": str(self.tmp / "data"),
                "FOX_LLM_SERVER": str(self.server), "FAKE_GPU": "1" if gpu else "0",
                "FOX_LLM_MEMINFO": str(meminfo), **(env or {})}
         r = subprocess.run(["bash", str(SERVE), "preset", *extra], env=env, capture_output=True, text=True)
@@ -139,7 +139,7 @@ class ServeTest(unittest.TestCase):
             "agent qwen3-coder:30b llama-turbo\nfim qwen2.5-coder:1.5b-base llama\n")
         self.add_model("qwen2.5-coder:14b")                              # in no role
         env = {**os.environ, "XDG_CONFIG_HOME": str(self.cfg), "OLLAMA_MODELS": str(self.store),
-               "XDG_CACHE_HOME": str(self.tmp / "cache"),
+               "XDG_CACHE_HOME": str(self.tmp / "cache"), "XDG_DATA_HOME": str(self.tmp / "data"),
                "FOX_LLM_SERVER": str(self.server), "FAKE_GPU": "0"}
         r = subprocess.run(["bash", str(SERVE), "--engine", "turbo", "preset"], env=env, capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -246,6 +246,36 @@ class ServeTest(unittest.TestCase):
         # preset was never written when an extra came last.
         self.add_model("zz-last-dense:7b")
         self.assertIn("[zz-last-dense:7b]", self.preset(gpu=False))
+
+
+    # ── Hugging Face GGUFs (fox-llm-update's gguf-models.txt downloads) ──
+
+    def hf_model(self, name, content=b"GGUF"):
+        d = self.tmp / "data/fox-llm/gguf"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"{name}.gguf").write_bytes(content)
+        return d / f"{name}.gguf"
+
+    def test_hugging_face_ggufs_served_by_name_and_as_roles(self):
+        agent = self.hf_model("huihui-qwen3.6-abliterated:35b-a3b")
+        extra = self.hf_model("huihui-qwen3.5-abliterated:9b")
+        self.hf_model("huihui-qwen3.6-abliterated:35b-a3b.mmproj")    # a vision projector: never a model
+        (self.tmp / "data/fox-llm/gguf/half-done:7b.gguf.part").write_bytes(b"GG")   # still downloading
+        (self.cfg / "foxml/llm/roles.conf").write_text("agent huihui-qwen3.6-abliterated:35b-a3b llama\n")
+        ini = self.preset()
+        self.assertIn("[huihui-qwen3.6-abliterated:35b-a3b]\n; role: agent", ini)
+        self.assertIn(f"model = {agent}", self.section(ini, "huihui-qwen3.6-abliterated:35b-a3b"))
+        self.assertIn("[huihui-qwen3.5-abliterated:9b]\n; extra", ini)
+        self.assertIn(f"model = {extra}", self.section(ini, "huihui-qwen3.5-abliterated:9b"))
+        self.assertNotIn("mmproj", ini)
+        self.assertNotIn("half-done", ini)
+
+    def test_hugging_face_download_wins_over_an_ollama_model_of_the_same_name(self):
+        self.add_model("qwen3.5:9b")
+        mine = self.hf_model("qwen3.5:9b")
+        ini = self.preset()
+        self.assertEqual(ini.count("[qwen3.5:9b]"), 1)
+        self.assertIn(f"model = {mine}", self.section(ini, "qwen3.5:9b"))
 
 
 if __name__ == "__main__":

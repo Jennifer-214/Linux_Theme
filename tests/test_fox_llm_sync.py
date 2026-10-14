@@ -6,6 +6,7 @@ so no network, no ollama server, no pi install is needed. The contract under tes
 sync only ADDS (user keys survive), fills missing defaults, promotes the stand-in
 default once the agent model lands, and is idempotent.
 """
+import hashlib
 import json
 import os
 import shutil
@@ -18,6 +19,28 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "shared/bin/fox-llm-update"
 CORE = ROOT / "shared/llm/core-models.txt"
+
+
+# curl for the tests: Hugging Face's file record and the download (resuming on -C -) come from files the
+# test writes; anything else (the router reload, registry checks) is only logged — never sent anywhere.
+FAKE_CURL = r'''#!/usr/bin/env python3
+import os, sys
+TMP = "@TMP@"
+args = sys.argv[1:]
+with open(TMP + "/curl.log", "a") as log:
+    log.write(" ".join(args) + "\n")
+url = next((a for a in args if a.startswith("http")), "")
+if "/api/models/" in url:
+    sys.stdout.write(open(TMP + "/hf-tree.json").read())
+elif "-o" in args and "/resolve/" in url:
+    out = args[args.index("-o") + 1]
+    blob = open(TMP + "/hf-blob", "rb").read()
+    have = os.path.getsize(out) if "-C" in args and os.path.exists(out) else 0
+    with open(out, "ab" if have else "wb") as f:
+        f.write(blob[have:])
+elif "-w" in args:
+    sys.stdout.write("404")
+'''
 
 
 class SyncTest(unittest.TestCase):
@@ -73,8 +96,7 @@ class SyncTest(unittest.TestCase):
             (store / "blobs").mkdir(exist_ok=True)
             (store / "blobs" / digest.replace(":", "-")).write_bytes(b"GGUF")
         (self.bin / "llama-server").write_text('#!/bin/sh\necho "Available devices:"\n')
-        # The reload sync asks of the router: logged here, never sent to a real one.
-        (self.bin / "curl").write_text(f'#!/bin/sh\necho "$*" >> "{self.tmp}/curl.log"\n')
+        (self.bin / "curl").write_text(FAKE_CURL.replace("@TMP@", str(self.tmp)))
         for f in ("ollama", "npm", "systemctl", "llama-server", "curl"):
             (self.bin / f).chmod(0o755)
         self.rows = rows
@@ -334,6 +356,49 @@ class SyncTest(unittest.TestCase):
         self.run_script("--sync", server_on=True)
         self.assertIn("http://127.0.0.1:8080/models?reload=1", log.read_text())
         self.assertNotIn(":8081", log.read_text())                                     # turbo unit is off
+
+
+    # ── Hugging Face GGUFs (gguf-models.txt / ~/code/custom_models/gguf-models.conf) ──
+
+    def hf_setup(self, sha=None, private=False):
+        """One GGUF on a fake Hugging Face; returns its bytes and where it should land."""
+        name, src_file = "huihui-qwen3.5-abliterated:9b", "Huihui-Qwen3.5-9B-abliterated.Q4_K_M.gguf"
+        blob = b"GGUF" + os.urandom(4096)
+        (self.tmp / "hf-blob").write_bytes(blob)
+        (self.tmp / "hf-tree.json").write_text(json.dumps([{
+            "type": "file", "path": src_file, "size": len(blob),
+            "lfs": {"oid": sha or hashlib.sha256(blob).hexdigest(), "size": len(blob)}}]))
+        lst = (self.home / "code/custom_models/gguf-models.conf" if private
+               else self.home / ".config/foxml/llm/gguf-models.txt")
+        lst.parent.mkdir(parents=True, exist_ok=True)
+        lst.write_text(f"# name  user/repo/file\n{name} mradermacher/Huihui-Qwen3.5-9B-abliterated-GGUF/{src_file}\n")
+        return blob, self.home / ".local/share/fox-llm/gguf" / f"{name}.gguf"
+
+    def test_hugging_face_gguf_downloaded_verified_and_served(self):
+        blob, dst = self.hf_setup(private=True)                  # the list a reinstall finds
+        self.roles(self.ROLES)
+        self.run_script("--models", server_on=True)
+        self.assertEqual(dst.read_bytes(), blob)
+        self.assertFalse(dst.with_name(dst.name + ".part").exists())
+        oc = self.oc()
+        self.assertIn("huihui-qwen3.5-abliterated:9b", oc["provider"]["llamacpp"]["models"])  # served by name
+        self.assertNotIn("huihui-qwen3.5-abliterated:9b", oc["provider"]["ollama"]["models"])
+
+    def test_hugging_face_gguf_download_resumes(self):
+        blob, dst = self.hf_setup()
+        part = dst.with_name(dst.name + ".part")
+        part.parent.mkdir(parents=True, exist_ok=True)
+        part.write_bytes(blob[:1000])                            # an earlier run, cut off
+        self.run_script("--models")
+        self.assertEqual(dst.read_bytes(), blob)
+        self.assertIn("-C -", (self.tmp / "curl.log").read_text())
+
+    def test_hugging_face_gguf_with_wrong_checksum_is_discarded(self):
+        _, dst = self.hf_setup(sha="0" * 64)
+        out = self.run_script("--models")
+        self.assertIn("sha256 mismatch", out)
+        self.assertFalse(dst.exists())
+        self.assertFalse(dst.with_name(dst.name + ".part").exists())   # the next try starts clean
 
 
 if __name__ == "__main__":

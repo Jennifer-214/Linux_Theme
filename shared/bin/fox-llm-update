@@ -18,6 +18,12 @@
 # Wanted models = shared/llm/core-models.txt (RAM tier) + ~/.config/foxml/llm/extra-models.txt
 # (personal, Ollama registry refs, in priority order — pulled before the core list;
 # a "-model" line skips a model). Binaries are never auto-upgraded: the timer only notifies.
+# Hugging Face GGUFs — llama.cpp's own format, for models whose Ollama copy llama.cpp can't load
+# (a fox-llm-serve load check says so): "name user/repo/file.gguf" lines in
+# ~/.config/foxml/llm/gguf-models.txt or, to survive a reinstall, ~/code/custom_models/gguf-models.conf
+# (not .txt: fox-install's models module reads those as Ollama lists). Downloaded before the Ollama
+# models, resumably, size + sha256 checked against Hugging Face's own record, into
+# ~/.local/share/fox-llm/gguf/<name>.gguf, where fox-llm-serve serves them under that name.
 # --sync only ever ADDS: keys you set in opencode.json / ~/.pi/agent/*.json are left alone —
 # except a local model default, which follows llama.cpp while its router is enabled.
 set -uo pipefail
@@ -25,6 +31,9 @@ set -uo pipefail
 LLM_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/foxml/llm"
 CORE_LIST="$LLM_DIR/core-models.txt"      # deployed from Linux_Theme shared/llm/
 EXTRA_LIST="$LLM_DIR/extra-models.txt"    # personal; never in the repo
+GGUF_LIST="$LLM_DIR/gguf-models.txt"      # personal Hugging Face GGUFs; never in the repo
+GGUF_PRIVATE="$HOME/code/custom_models/gguf-models.conf"   # the same, where a reinstall finds it
+GGUF_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/fox-llm/gguf"
 DROPIN=/etc/systemd/system/ollama.service.d/foxml-context.conf
 UNIT=/etc/systemd/system/ollama.service
 WORK="${XDG_CACHE_HOME:-$HOME/.cache}/fox-llm-update"
@@ -82,6 +91,48 @@ wanted_models() {
       BEGIN { n = split(skip, s, " "); for (i = 1; i <= n; i++) drop[s[i]] = 1 }
       /^-/ { next }
       !($0 in drop) && !seen[$0]++'
+}
+
+# "name user/repo/file.gguf" rows of the GGUF lists — this machine's first, a name once.
+gguf_wanted() {
+  local f
+  for f in "$GGUF_LIST" "$GGUF_PRIVATE"; do
+    if [[ -f $f ]]; then awk '!/^[[:space:]]*(#|$)/ && NF >= 2 { print $1, $2 }' "$f"; fi
+  done | awk '!seen[$1]++'
+}
+
+# One Hugging Face GGUF into GGUF_DIR/<name>.gguf: resumes a partial file, gives up on a stalled link
+# (the queue retries a minute later, resuming again), and checks size and sha256 against Hugging Face's
+# own record before the file goes live. Exit 0 only when it is in place.
+fetch_gguf() {
+  local name=$1 src=$2 repo file dir meta size sha part dst have avail
+  if [[ $name == */* || $src != */*/* ]]; then echo "bad GGUF line: $name $src"; return 1; fi
+  repo=$(cut -d/ -f1-2 <<<"$src"); file=${src#"$repo/"}
+  dst="$GGUF_DIR/$name.gguf"; part="$dst.part"
+  [[ -f $dst ]] && return 0
+  dir=$(dirname "$file"); [[ $dir == . ]] && dir=""
+  meta=$(curl -fsS -m 60 "https://huggingface.co/api/models/$repo/tree/main${dir:+/$dir}" | python3 -I -c '
+import json, sys
+f = next((f for f in json.load(sys.stdin) if f.get("path") == sys.argv[1]), {})
+print(f.get("size", ""), (f.get("lfs") or {}).get("oid", ""))' "$file" 2>/dev/null)
+  read -r size sha <<<"$meta"
+  [[ -n $size && -n $sha ]] || { echo "no size + sha256 on Hugging Face for $src"; return 1; }
+  mkdir -p "$GGUF_DIR"
+  have=$(stat -c %s "$part" 2>/dev/null || echo 0)
+  if (( have > size )); then rm -f "$part"; have=0; fi
+  avail=$(df -B1 --output=avail "$GGUF_DIR" | tail -1)
+  (( avail > size - have + 10 * 1024 ** 3 )) || { echo "not enough disk for $name ($(( size / 1024 ** 3 )) GiB)"; return 1; }
+  if (( have < size )); then
+    local show=(-sS); [[ -t 2 ]] && show=(-#)
+    curl -fL "${show[@]}" --retry 5 --retry-delay 30 --speed-limit 1024 --speed-time 300 -C - -o "$part" \
+      "https://huggingface.co/$repo/resolve/main/$file" \
+      || { echo "interrupted at $(( $(stat -c %s "$part" 2>/dev/null || echo 0) / 1024 ** 2 )) of $(( size / 1024 ** 2 )) MiB"; return 1; }
+  fi
+  [[ $(stat -c %s "$part") == "$size" ]] || { echo "size mismatch for $name"; return 1; }
+  if [[ $(sha256sum "$part" | cut -d' ' -f1) != "$sha" ]]; then
+    rm -f "$part"; echo "sha256 mismatch for $name — discarded, it downloads again"; return 1
+  fi
+  mv "$part" "$dst" && echo "$name: verified, $(( size / 1024 ** 3 )) GiB"
 }
 
 # On the registry? Custom `ollama create` models are not, and are skipped.
@@ -148,9 +199,14 @@ Run: fox-llm-update"
 
 # $1 = "check-link" for the timer path; the interactive full run pulls regardless.
 do_models() {
-  ollama_up || { warn "ollama is not running — skipping model refresh"; return 1; }
   [[ ${1:-} == check-link ]] && { fast_link || return 0; }
-  local m have
+  local m have name src
+  while read -r name src; do                  # Hugging Face GGUFs first: each one listed on purpose
+    [[ -f $GGUF_DIR/$name.gguf ]] && continue
+    log "downloading $name from Hugging Face"
+    fetch_gguf "$name" "$src" || warn "$name not downloaded — the background queue retries: fox-llm-update --queue"
+  done < <(gguf_wanted)
+  ollama_up || { warn "ollama is not running — skipping model refresh"; return 1; }
   have=$(ollama list | awk 'NR>1{print $1}')
   while read -r m; do
     grep -qxF "$m" <<<"$have" || { log "pulling missing model $m"; pull_quiet "$m"; }
@@ -455,21 +511,28 @@ EOF
     && log "queue running — progress: tail -f ${XDG_CACHE_HOME:-$HOME/.cache}/fox-llm-update/queue.log"
 }
 
-# The service body. Downloads the first wanted model that is still missing, then re-reads
-# the list — so reordering or parking models in extra-models.txt takes effect at the next
-# model, not after a whole pass. Each model gets QUEUE_TRIES attempts a minute apart; one that
+# The service body. Downloads the first wanted model that is still missing — Hugging Face GGUFs
+# before Ollama models — then re-reads the lists, so reordering or parking models in
+# extra-models.txt / gguf-models.txt takes effect at the next model, not after a whole pass. Each model gets QUEUE_TRIES attempts a minute apart; one that
 # runs out is set aside for the rest of the pass and retried in the next one. An Ollama too
 # old for the registry (HTTP 412) stops the queue with a notice; `fox-llm-update` restarts it.
 do_queue_run() {
-  local m cand try out have pass=1 set_aside=" "
+  local m cand try out have pass=1 set_aside=" " src=""
   while :; do
     have=$(ollama list 2>/dev/null | awk 'NR>1{print $1}')
-    m=""
-    while read -r cand; do
-      grep -qxF "$cand" <<<"$have" && continue
-      [[ $set_aside == *" $cand "* ]] && continue
+    m="" src=""
+    while read -r cand src; do
+      [[ -f $GGUF_DIR/$cand.gguf || $set_aside == *" $cand "* ]] && continue
       m=$cand; break
-    done < <(wanted_models)
+    done < <(gguf_wanted)
+    [[ -n $m ]] || src=""
+    if [[ -z $m ]]; then
+      while read -r cand; do
+        grep -qxF "$cand" <<<"$have" && continue
+        [[ $set_aside == *" $cand "* ]] && continue
+        m=$cand; break
+      done < <(wanted_models)
+    fi
     if [[ -z $m ]]; then
       [[ $set_aside == " " ]] && break                  # everything wanted is installed
       echo "--- pass $pass left missing:$set_aside— next pass in 10 min"; sleep 600
@@ -477,7 +540,11 @@ do_queue_run() {
     fi
     echo "=== $(date '+%a %H:%M') $m (pass $pass)"
     for (( try = 1; try <= QUEUE_TRIES; try++ )); do
-      out=$(pull_quiet "$m") && { echo "  done $(date '+%a %H:%M')"; sync_configs; continue 2; }
+      if [[ -n $src ]]; then
+        out=$(fetch_gguf "$m" "$src" 2>&1) && { echo "  done $(date '+%a %H:%M')"; sync_configs; continue 2; }
+      else
+        out=$(pull_quiet "$m") && { echo "  done $(date '+%a %H:%M')"; sync_configs; continue 2; }
+      fi
       if grep -q 'newer version of Ollama' <<<"$out"; then
         local server; server=$(ver_ollama_server)
         warn "ollama server ${server:-?} is too old for the registry — run: fox-llm-update"

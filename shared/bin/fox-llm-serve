@@ -12,6 +12,8 @@
 # Roles: ~/.config/foxml/llm/roles.conf (yours; never overwritten), else roles.default (deployed
 # from Linux_Theme shared/llm/). Model files come from Ollama's store — no second download — and a
 # preset section is named after the Ollama model, so clients use the same name on either server.
+# Hugging Face GGUFs (llama.cpp's own format; fox-llm-update downloads them from gguf-models.txt)
+# sit in ~/.local/share/fox-llm/gguf/<name>.gguf and are served under <name>, ahead of Ollama.
 # Models not downloaded yet are skipped; `fox-llm-update --sync` (run after every download) rewrites
 # the preset and has the router reload it — no restart. llama.cpp is the default server: the main
 # engine also serves every other chat model in Ollama's store (on demand, ≤3 loaded), except
@@ -39,6 +41,7 @@ if [[ ${1:-} == --engine ]]; then ENGINE=${2:-}; shift 2; fi
 
 LLM_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/foxml/llm"
 STORE="${OLLAMA_MODELS:-/usr/share/ollama/.ollama/models}"
+GGUF_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/fox-llm/gguf"
 if [[ $ENGINE == turbo ]]; then
   PRESET="$LLM_DIR/llama-presets-turbo.ini"; PORT="${FOX_LLM_PORT:-8081}"; SERVES=llama-turbo
   SRC="$HOME/.local/opt/llama.cpp-turbo"
@@ -72,8 +75,10 @@ server_bin() {
 # update) while CUDA itself works fine.
 gpu_ok() { "$1" --list-devices 2>/dev/null | grep -Eq '^[[:space:]]+(CUDA|Vulkan|ROCm|SYCL)[0-9]+:'; }
 
-# Ollama model name → its GGUF weights blob (the manifest layer of type ...image.model).
+# Model name → its GGUF: a Hugging Face download of that name first, else the Ollama model's
+# weights blob (the manifest layer of type ...image.model).
 gguf_path() {
+  if [[ $1 != */* && -f $GGUF_DIR/$1.gguf ]]; then echo "$GGUF_DIR/$1.gguf"; return; fi
   python3 -I - "$STORE" "$1" <<'EOF'
 import json, sys, pathlib
 root, ref = pathlib.Path(sys.argv[1]), sys.argv[2]
@@ -123,14 +128,17 @@ role_flags() {
   esac
 }
 
-# The chat models in Ollama's store, one "name<TAB>why it stays on Ollama" row each (the reason is empty
-# when llama.cpp can run it as built). Embedding models are left out: they are not chat models. A
-# SYSTEM layer alone is no reason — the library's Qwen 2.5 models carry their stock default, which the
-# GGUF's own chat template applies too.
+# The chat models to serve, one "name<TAB>why it stays on Ollama" row each (the reason is empty when
+# llama.cpp can run it as built): the Hugging Face downloads first (vision projectors aside), then
+# Ollama's store. Embedding models are left out: they are not chat models. A SYSTEM layer alone is no reason — the
+# library's Qwen 2.5 models carry their stock default, which the GGUF's own chat template applies too.
 store_models() {
-  python3 -I - "$STORE" <<'EOF'
+  python3 -I - "$STORE" "$GGUF_DIR" <<'EOF'
 import json, pathlib, sys
 store = pathlib.Path(sys.argv[1])
+for p in sorted(pathlib.Path(sys.argv[2]).glob("*.gguf")):
+    if "mmproj" not in p.stem and "embed" not in p.stem:
+        print(p.stem + "\t")
 reg = store / "manifests/registry.ollama.ai"
 OLLAMA_ONLY = {"messages": "its Modelfile bakes in example messages", "adapter": "its Modelfile adds a LoRA adapter"}
 for tag in sorted(p for p in reg.glob("*/*/*") if p.is_file()) if reg.is_dir() else []:
