@@ -69,9 +69,9 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    FoxIntel intel("qwen2.5-coder:7b");
-    if (!intel.ensure_ollama_running()) {
-        std::cerr << "Error: Ollama is not running.\n";
+    FoxIntel intel;
+    if (!intel.ensure_server_running()) {
+        std::cerr << "Error: the local model server is not running.\n";
         return 1;
     }
 

@@ -48,7 +48,7 @@ int main(int argc, char* argv[]) {
     for (int i = 2; i < argc; ++i) { query += ' '; query += argv[i]; }
 
     FoxIntel intel;
-    if (!intel.ensure_ollama_running()) return 1;
+    if (!intel.ensure_server_running()) return 1;
 
     std::filesystem::path idx_dir = std::filesystem::current_path();
     bool found = false;

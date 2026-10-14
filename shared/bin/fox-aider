@@ -3,14 +3,14 @@
 #
 # Reads the current model from ~/.config/opencode/opencode.json (the same
 # file fox-ai-swap edits) so swapping the model once swaps it for OpenCode
-# AND aider in one shot. Also bumps OLLAMA_CONTEXT_LENGTH from 2048
-# (Ollama's default — too small for code) to 8192.
+# AND aider in one shot. aider reaches llama.cpp's router as an
+# OpenAI-compatible server (127.0.0.1:8080, the TurboQuant one on :8081).
 #
 # Usage:
 #   fox-aider                       # interactive REPL in cwd
 #   fox-aider path/to/file          # add file to chat
 #   fox-aider --message "<prompt>"  # one-shot prompt
-#   FOXAI_MODEL=ollama_chat/qwen2.5-coder:14b fox-aider   # explicit override
+#   FOXAI_MODEL=qwen2.5-coder:14b fox-aider   # explicit override (any name fox-llm-run --list shows)
 #
 # Anything passed after the wrapper is forwarded to aider verbatim.
 
@@ -25,22 +25,33 @@ fi
 # Resolve the model:
 #   1. FOXAI_MODEL env wins
 #   2. ~/.config/opencode/opencode.json's "model" field (set by fox-ai-swap)
-#   3. Hardcoded fallback so the command never refuses to launch
+#   3. fox-llm-run's pick: fox-ai-default's, else the roles file's quick model
 MODEL="${FOXAI_MODEL:-}"
 if [[ -z "$MODEL" && -f "$HOME/.config/opencode/opencode.json" ]] && command -v jq >/dev/null 2>&1; then
     MODEL=$(jq -r '.model // empty' "$HOME/.config/opencode/opencode.json" 2>/dev/null)
 fi
-MODEL="${MODEL:-ollama/qwen2.5-coder:7b}"
-
-# aider/litellm requires a provider prefix. Add ollama/ if the model name
-# is bare. (Tags from opencode.json already have it.)
-if [[ "$MODEL" != */* ]]; then
-    MODEL="ollama/$MODEL"
+# A cloud model (anthropic/…, openai/…) goes to aider as it is. A local one — opencode's llamacpp/…,
+# the ollama/… of older configs, or a bare name — is served by llama.cpp's router, which aider
+# (litellm) reaches as an OpenAI-compatible server: openai/<name> at its /v1.
+if [[ -z "$MODEL" ]] && command -v fox-llm-run >/dev/null 2>&1; then
+    MODEL=$(fox-llm-run --model)
 fi
-
-# Ollama's default context is 2048 tokens — too small for code work.
-# 8192 fits most files comfortably; user can override via env.
-export OLLAMA_CONTEXT_LENGTH="${OLLAMA_CONTEXT_LENGTH:-8192}"
+API_BASE=""
+case "$MODEL" in
+    llamacpp-turbo/*) API_BASE=http://127.0.0.1:8081/v1; MODEL="${MODEL#*/}" ;;
+    llamacpp/*|ollama/*|ollama_chat/*) API_BASE=http://127.0.0.1:8080/v1; MODEL="${MODEL#*/}" ;;
+    */*) ;;
+    "") echo "fox-aider: no model — set one with fox-ai-default" >&2; exit 1 ;;
+    *) API_BASE=http://127.0.0.1:8080/v1 ;;
+esac
+LOCAL_ARGS=()
+if [[ -n "$API_BASE" ]]; then
+    systemctl --user start "fox-llm-server$([[ $API_BASE == *8081* ]] && echo -turbo).service" 2>/dev/null
+    MODEL="openai/$MODEL"
+    # the router asks for no key; litellm wants one set. A local model is "unknown" to litellm's price
+    # and context tables — that warning says nothing here.
+    LOCAL_ARGS=(--openai-api-base "$API_BASE" --openai-api-key none --no-show-model-warnings)
+fi
 
 # Theme: --no-pretty drops aider's Rich-rendered chrome (frames, "Warning:"
 # headers, hyperlink underlines) which were leaning on terminal ANSI
@@ -49,6 +60,7 @@ export OLLAMA_CONTEXT_LENGTH="${OLLAMA_CONTEXT_LENGTH:-8192}"
 # Per-call overrides win because they're later in argv.
 exec aider \
     --model "$MODEL" \
+    "${LOCAL_ARGS[@]}" \
     --no-pretty \
     --user-input-color       "#d4985a" \
     --assistant-output-color "#d5c4b0" \

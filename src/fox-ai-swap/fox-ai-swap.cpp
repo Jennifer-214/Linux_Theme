@@ -1,8 +1,8 @@
 // src/fox-ai-swap/fox-ai-swap.cpp — Unified AI model hotswapper.
 //
 // Detects hardware tier and updates ~/.config/opencode/opencode.json — the model opencode and the fox-ai
-// tools use. Models are "provider/model" on the local server that runs them: llama.cpp's router (the
-// default server) or Ollama, read from the lists fox-llm-update --sync keeps in that file.
+// tools use. Models are "provider/model" on the llama.cpp router that serves them (the main one, or the
+// TurboQuant one), read from the lists fox-llm-update --sync keeps in that file.
 
 #include "../fox-common/json.hpp"
 #include <iostream>
@@ -60,7 +60,7 @@ long read_ram_gb() {
 int read_vram_gb() { return 0; }
 
 // The local servers opencode knows, the default one first.
-static const std::vector<std::string> LOCAL_PROVIDERS = {"llamacpp", "llamacpp-turbo", "ollama"};
+static const std::vector<std::string> LOCAL_PROVIDERS = {"llamacpp", "llamacpp-turbo"};
 
 // A router's root URL (its /models/unload lives beside /v1, not under it).
 static std::string router_root(const json& config, const std::string& provider) {
@@ -72,17 +72,17 @@ static std::string router_root(const json& config, const std::string& provider) 
 }
 
 // Free the old model's memory in the background — the user doesn't need to wait for it, the swap feels
-// instant. A llama.cpp model is unloaded through its router (POST /models/unload), an Ollama one with
-// `ollama stop`. Fork+exec instead of system() so the model name never enters shell parsing — names
-// come from JSON config files which a user could craft with shell metacharacters.
+// instant. A model is unloaded through its router (POST /models/unload; an `ollama/…` default from before
+// llama.cpp served everything, through the main one). Fork+exec instead of system() so the model name
+// never enters shell parsing — names come from JSON config files which a user could craft with shell
+// metacharacters.
 void unload_model(const std::string& ref, const json& config) {
     auto slash = ref.find('/');
     if (slash == std::string::npos) return;
     std::string provider = ref.substr(0, slash), model = ref.substr(slash + 1);
     std::vector<std::string> argv;
-    if (provider == "ollama") {
-        argv = {"ollama", "stop", model};
-    } else if (provider == "llamacpp" || provider == "llamacpp-turbo") {
+    if (provider == "ollama") provider = "llamacpp";
+    if (provider == "llamacpp" || provider == "llamacpp-turbo") {
         argv = {"curl", "-s", "-m", "10", "-X", "POST", router_root(config, provider) + "/models/unload",
                 "-H", "Content-Type: application/json", "-d", json{{"model", model}}.dump()};
     } else {
@@ -104,26 +104,24 @@ void unload_model(const std::string& ref, const json& config) {
     }
 }
 
-std::vector<std::string> ollama_list() {
+// The chat models the routers serve, from fox-llm-run --list ("name<TAB>role" lines) — for before the
+// first fox-llm-update --sync has written opencode's lists.
+std::vector<std::string> served_list() {
     std::vector<std::string> models;
-    FILE* pipe = popen("ollama list 2>/dev/null", "r");
+    FILE* pipe = popen("fox-llm-run --list 2>/dev/null", "r");
     if (!pipe) return models;
     char buffer[512];
-    bool first = true;
     while (fgets(buffer, sizeof(buffer), pipe)) {
-        if (first) { first = false; continue; } // skip header
         std::string line = buffer;
-        auto space = line.find(' ');
-        if (space != std::string::npos) {
-            models.push_back(line.substr(0, space));
-        }
+        auto end = line.find_first_of("\t\n");
+        if (end != 0) models.push_back(line.substr(0, end));
     }
     pclose(pipe);
     return models;
 }
 
 // Every local model as "provider/model", llama.cpp's first — the lists fox-llm-update --sync keeps in
-// opencode.json (each model once, under the server that runs it). No lists yet: what Ollama holds.
+// opencode.json (each model once, under the router that serves it). No lists yet: what the router serves.
 std::vector<std::string> local_models(const json& config) {
     std::vector<std::string> out;
     for (const auto& p : LOCAL_PROVIDERS) {
@@ -132,27 +130,26 @@ std::vector<std::string> local_models(const json& config) {
         } catch (...) {}
     }
     if (out.empty()) {
-        for (const auto& m : ollama_list()) out.push_back("ollama/" + m);
+        for (const auto& m : served_list()) out.push_back("llamacpp/" + m);
     }
     return out;
 }
 
-// A name → "provider/name" on the local server that runs it (a bare "name" is "name:latest", as on
-// Ollama). A name no local server lists keeps the old behaviour: Ollama, or a Hugging Face ref as is.
+// A name → "provider/name" on the router that serves it (a bare "name" is also its Ollama-era
+// "name:latest"). A name no router lists goes to the main one — fox-llm-update downloads it to there.
 std::string qualify(const std::string& target, const std::vector<std::string>& local) {
     for (const auto& p : LOCAL_PROVIDERS) if (target.rfind(p + "/", 0) == 0) return target;
+    std::string bare = target.rfind("ollama/", 0) == 0 ? target.substr(7) : target;
     for (const auto& ref : local) {
         std::string model = ref.substr(ref.find('/') + 1);
-        if (model == target || model == target + ":latest") return ref;
+        if (model == bare || model == bare + ":latest" || model + ":latest" == bare) return ref;
     }
-    if (target.rfind("hf.co/", 0) == 0 || target.rfind("huggingface.co/", 0) == 0) return target;
-    return "ollama/" + target;
+    return "llamacpp/" + bare;
 }
 
 static std::string server_of(const std::string& ref) {
     if (ref.rfind("llamacpp-turbo/", 0) == 0) return "llama.cpp TurboQuant";
     if (ref.rfind("llamacpp/", 0) == 0) return "llama.cpp";
-    if (ref.rfind("ollama/", 0) == 0) return "Ollama";
     return "?";
 }
 
@@ -244,7 +241,7 @@ int main(int argc, char** argv) {
     if (choice == "a" || choice == "A") {
         const auto& all = local;
         if (all.empty()) {
-            std::cout << "No models found. Pull some with 'ollama pull' first." << std::endl;
+            std::cout << "No models served yet — fox-llm-update downloads them (fox-llm-run --list)." << std::endl;
             return 0;
         }
         std::cout << "\n\033[1mInstalled Models:\033[0m" << std::endl;

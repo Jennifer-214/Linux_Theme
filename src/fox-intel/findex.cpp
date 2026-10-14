@@ -161,10 +161,10 @@ int main(int argc, char* argv[]) {
     }
 
     auto t0 = std::chrono::steady_clock::now();
-    if (!intel.ensure_ollama_running()) return 1;
+    if (!intel.ensure_server_running()) return 1;
     if (!intel.ensure_model_present(model)) {
         std::cerr << "Embed model '" << model
-                  << "' missing and could not be pulled.\n";
+                  << "' is not downloaded yet.\n";
         return 1;
     }
 

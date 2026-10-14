@@ -70,8 +70,12 @@ fi
     && _bump ok "Firefox firejailed"
 [[ -f "$HOME/.config/firejail/firefox.local" ]] && _bump ok "Firejail DoH pinned"
 
-# Ollama sandbox
-[[ -f /etc/systemd/system/ollama.service.d/foxml-hardening.conf ]] && _bump ok "Ollama sandboxed"
+# Local model server: llama.cpp's router must answer this machine only (127.0.0.1:8080/8081).
+model_ports=$(ss -ltnH 2>/dev/null | awk '$4 ~ /:808[01]$/ {print $4}')
+if [[ -n "$model_ports" ]]; then
+    if grep -qvE '^127\.0\.0\.1:' <<<"$model_ports"; then _bump crit "Model server open to the network"
+    else _bump ok "Model server loopback-only"; fi
+fi
 
 # Keyring components
 [[ "$(systemctl --user is-enabled app-gnome-keyring-pkcs11@autostart.service 2>/dev/null)" == "masked" ]] \

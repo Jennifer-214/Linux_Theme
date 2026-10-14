@@ -6,7 +6,7 @@
 // This binary gathers a small bundle of system state (failed systemd
 // units, recent kernel + service errors from journalctl, basic
 // Hyprland status), shapes it into a prompt, and streams the local
-// Ollama model's diagnosis + suggested remediations to stdout.
+// local model's diagnosis + suggested remediations to stdout.
 //
 // Pattern any future fox-ai-* tool can copy:
 //   1. capture context via execvp'd one-shot tools (journalctl, etc.)
@@ -77,7 +77,7 @@ std::string trim(std::string s, size_t limit = 4000) {
 void usage(const char* a0) {
     std::fprintf(stderr,
         "Usage: %s [--model <name>] [--scope all|services|kernel]\n\n"
-        "Gathers recent system errors and asks the local Ollama model for\n"
+        "Gathers recent system errors and asks the local model for\n"
         "a diagnosis + suggested fixes. Default model: qwen2.5-coder:7b.\n",
         a0);
 }
@@ -98,8 +98,8 @@ int main(int argc, char** argv) {
     }
 
     FoxIntel ai = model.empty() ? FoxIntel{} : FoxIntel{model};
-    if (!ai.ensure_ollama_running()) {
-        std::fprintf(stderr, "fox-ai-doctor: Ollama daemon unavailable\n");
+    if (!ai.ensure_server_running()) {
+        std::fprintf(stderr, "fox-ai-doctor: local model server unavailable\n");
         return 1;
     }
 

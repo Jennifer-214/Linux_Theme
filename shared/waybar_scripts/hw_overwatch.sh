@@ -37,10 +37,10 @@ if command -v nvidia-smi >/dev/null 2>&1; then
     # GPU. Anything outside the known-ok allow-list at >1GB VRAM is a
     # flag candidate (cryptominer / surprise ML workload).
     while IFS=',' read -r pid pname used; do
-        pname="${pname// /}"; used="${used// /}"
+        pname="${pname// /}"; pname="${pname##*/}"; used="${used// /}"   # a path on some drivers
         [[ -z "$pid" || "$used" == "0" ]] && continue
         case "$pname" in
-            ollama|ollama-runner|ollama_llama_server) continue ;;
+            llama-server)                             continue ;;   # the local models (fox-llm-serve)
             firefox|chromium|chrome|kitty|hyprland)   continue ;;
             python|python3|node|java)                 continue ;;
             *) gpu_findings+="GPU: $pname ($used MiB); " ;;

@@ -6,7 +6,7 @@
 # at startup. FOXAI_MODEL=<name> in the env overrides on a per-run basis.
 #
 # Usage:
-#   fox-ai-default              # interactive picker (lists installed models)
+#   fox-ai-default              # interactive picker (the models llama.cpp serves)
 #   fox-ai-default <model>      # set explicitly
 #   fox-ai-default --status     # show current default + installed models
 #   fox-ai-default --unset      # remove the override (back to auto-fallback)
@@ -25,11 +25,11 @@ _current() {
     grep -E '^MODEL=' "$CONF_FILE" 2>/dev/null | head -1 | sed 's/^MODEL=//; s/^"//; s/"$//'
 }
 
-_have_ollama() { command -v ollama >/dev/null 2>&1; }
+_have_server() { command -v fox-llm-run >/dev/null 2>&1; }
 
 _installed_models() {
-    _have_ollama || return 0
-    ollama list 2>/dev/null | awk 'NR>1 && NF>0 {print $1}'
+    _have_server || return 0
+    fox-llm-run --list 2>/dev/null | cut -f1
 }
 
 _write() {
@@ -52,19 +52,19 @@ _status() {
     if [[ -n "$cur" ]]; then
         printf '  current default: %s\n' "$cur"
     else
-        printf '  current default: %s(unset — falls back to qwen2.5-coder:7b)%s\n' "$C_DIM" "$C_RST"
+        printf '  current default: %s(unset — falls back to the opencode default, then the quick role)%s\n' "$C_DIM" "$C_RST"
     fi
     printf '\n  installed models:\n'
-    if _have_ollama; then
+    if _have_server; then
         local out
-        out="$(ollama list 2>/dev/null | awk 'NR>1 && NF>0 {printf "    %s  (%s)\n", $1, $3}')"
+        out="$(fox-llm-run --list 2>/dev/null | awk -F'\t' '{printf "    %s%s\n", $1, ($2 != "" ? "  (" $2 ")" : "")}')"
         if [[ -n "$out" ]]; then
             printf '%s\n' "$out"
         else
-            printf '    %s(none yet — try: fox install --models)%s\n' "$C_DIM" "$C_RST"
+            printf '    %s(none yet — downloading? fox-llm-update --models)%s\n' "$C_DIM" "$C_RST"
         fi
     else
-        printf '    %s(ollama not installed)%s\n' "$C_DIM" "$C_RST"
+        printf '    %s(no local model server — fox-install --only llama_server)%s\n' "$C_DIM" "$C_RST"
     fi
 }
 
@@ -72,16 +72,16 @@ case "${1:-}" in
     --status|-s) _status ;;
     --unset)
         rm -f "$CONF_FILE"
-        printf '  %s+%s default unset — falls back to qwen2.5-coder:7b\n' "$C_GRN" "$C_RST"
+        printf '  %s+%s default unset — falls back to the opencode default, then the quick role\n' "$C_GRN" "$C_RST"
         ;;
     --help|-h)
         sed -n '2,16p' "$0" | sed 's/^# \?//'
         ;;
     "")
-        _have_ollama || { echo "ollama not installed — run: fox install --ai" >&2; exit 1; }
+        _have_server || { echo "no local model server — run: fox-install --only llama_server" >&2; exit 1; }
         mapfile -t models < <(_installed_models)
         if [[ ${#models[@]} -eq 0 ]]; then
-            echo "no models installed — try: fox install --models" >&2
+            echo "no models served yet — downloading? fox-llm-update --models" >&2
             exit 1
         fi
         cur="$(_current || true)"
@@ -109,8 +109,8 @@ case "${1:-}" in
         exit 2
         ;;
     *)
-        if _have_ollama && ! _installed_models | grep -qFx "$1"; then
-            printf '  ! %s not installed locally. Pull first with: ollama pull %s\n' "$1" "$1" >&2
+        if _have_server && ! _installed_models | grep -qFx "$1"; then
+            printf '  ! %s is not served here — give it a "name user/repo/file.gguf" line in\n    ~/.config/foxml/llm/gguf-models.txt, then: fox-llm-update --models\n' "$1" >&2
             read -rp "  Continue anyway? [y/N] " yn
             case "${yn,,}" in
                 y|yes) ;;

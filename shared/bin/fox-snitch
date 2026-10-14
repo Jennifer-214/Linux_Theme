@@ -45,7 +45,6 @@ _seed_rules() {
         "/usr/bin/chronyd"
         "/usr/bin/dhcpcd"
         "/usr/bin/NetworkManager"
-        "/usr/bin/ollama"
     )
     for bin in "${pre_allow[@]}"; do
         [[ -e "$bin" ]] || continue

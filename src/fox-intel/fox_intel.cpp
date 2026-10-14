@@ -12,15 +12,43 @@
 #include <fcntl.h>
 #include <atomic>
 #include <map>
+#include <sstream>
 
 static int g_curl_ref_count = 0;
 static std::mutex g_curl_ref_mu;
 
-FoxIntel::FoxIntel(std::string model) : default_model(model), accent_color("\033[1;32m") {
+// The roles file's model for a role, and whether the TurboQuant router serves it — from the first roles
+// file there is (~/.config/foxml/llm/roles.conf, your custom_models one, the deployed default), as
+// fox-llm-serve reads them.
+static bool role_model(const std::string& home, const std::string& role, std::string& model, bool& turbo) {
+    const char* xdg = std::getenv("XDG_CONFIG_HOME");
+    std::string conf = (xdg && *xdg) ? std::string(xdg) : home + "/.config";
+    for (const std::string& path : {conf + "/foxml/llm/roles.conf", home + "/code/custom_models/roles.conf",
+                                    conf + "/foxml/llm/roles.default"}) {
+        std::ifstream in(path);
+        if (!in.is_open()) continue;
+        std::string line;
+        while (std::getline(in, line)) {
+            std::istringstream fields(line);
+            std::string r, m, server;
+            if (!(fields >> r >> m) || r != role) continue;
+            fields >> server;
+            model = m;
+            turbo = server == "llama-turbo";
+            return true;
+        }
+        return false;                                   // the first roles file there is decides
+    }
+    return false;
+}
+
+FoxIntel::FoxIntel(std::string model) : default_model(""), accent_color("\033[1;32m") {
     const char* home = std::getenv("HOME");
     std::string home_str = home ? home : "";
 
-    // 1. Load active AI model
+    // 1. The model — what fox-llm-run picks: the caller's, else FOXAI_MODEL, else fox-ai-default's
+    //    (~/.config/foxml/ai-model.conf), else opencode's local default (fox-ai-swap), else the roles
+    //    file's quick model. A cloud model (anthropic/…) is no local one: the next source decides.
     json opencode;
     if (!home_str.empty()) {
         std::ifstream f_opencode(home_str + "/.config/opencode/opencode.json");
@@ -28,40 +56,33 @@ FoxIntel::FoxIntel(std::string model) : default_model(model), accent_color("\033
             try { f_opencode >> opencode; } catch (...) { opencode = json(); }
         }
     }
-    if (const char* env = std::getenv("FOXAI_MODEL"); env && *env) {
-        if (!use_model(env, &opencode)) default_model = env;      // a bare name: Ollama's
-    } else if (!home_str.empty()) {
-        bool found = opencode.is_object() && opencode.contains("model") && opencode["model"].is_string()
-                     && use_model(opencode["model"].get<std::string>(), &opencode);
-        if (!found) {
-            std::ifstream f_legacy(home_str + "/.config/foxml/ai-model.conf");
-            std::string line;
-            while (std::getline(f_legacy, line)) {
-                if (line.empty() || line[0] == '#') continue;
-                auto eq = line.find('=');
-                if (eq == std::string::npos) continue;
-                if (line.substr(0, eq) != "MODEL") continue;
-                std::string v = line.substr(eq + 1);
-                while (!v.empty() && (v.front() == ' '  || v.front() == '\t' ||
-                                      v.front() == '"'  || v.front() == '\'')) v.erase(0, 1);
-                while (!v.empty() && (v.back()  == ' '  || v.back()  == '\t' ||
-                                      v.back()  == '\r' || v.back()  == '\n' ||
-                                      v.back()  == '"'  || v.back()  == '\'')) v.pop_back();
-                if (!v.empty()) { default_model = v; break; }
-            }
+    bool found = !model.empty() && use_model(model, &opencode);
+    if (const char* env = std::getenv("FOXAI_MODEL"); !found && env && *env) found = use_model(env, &opencode);
+    if (!found && !home_str.empty()) {
+        std::ifstream f_conf(home_str + "/.config/foxml/ai-model.conf");
+        std::string line;
+        while (!found && std::getline(f_conf, line)) {
+            if (line.rfind("MODEL=", 0) != 0) continue;
+            std::string v = line.substr(6);
+            while (!v.empty() && (v.front() == ' '  || v.front() == '\t' ||
+                                  v.front() == '"'  || v.front() == '\'')) v.erase(0, 1);
+            while (!v.empty() && (v.back()  == ' '  || v.back()  == '\t' ||
+                                  v.back()  == '\r' || v.back()  == '\n' ||
+                                  v.back()  == '"'  || v.back()  == '\'')) v.pop_back();
+            if (!v.empty()) found = use_model(v, &opencode);
         }
     }
+    if (!found && opencode.is_object() && opencode.contains("model") && opencode["model"].is_string())
+        found = use_model(opencode["model"].get<std::string>(), &opencode);
+    if (!found && !home_str.empty()) {
+        std::string m;
+        bool turbo = false;
+        if (role_model(home_str, "quick", m, turbo)) use_model((turbo ? "llamacpp-turbo/" : "llamacpp/") + m, &opencode);
+    }
 
-    // 1b. Embeddings: the router while it serves models (opencode's `llamacpp` list isn't empty), else Ollama.
-    try {
-        const auto& lp = opencode.at("provider").at("llamacpp");
-        if (lp.at("models").is_object() && !lp.at("models").empty()) {
-            embed_base = "http://127.0.0.1:8080/v1";
-            try { embed_base = lp.at("options").at("baseURL").get<std::string>(); } catch (...) {}
-            while (!embed_base.empty() && embed_base.back() == '/') embed_base.pop_back();
-            if (router_unit.empty()) router_unit = "fox-llm-server";
-        }
-    } catch (...) {}
+    // 1b. Embeddings: the main router, at the baseURL opencode has for it (fox-llm-update --sync writes it).
+    try { embed_base = opencode.at("provider").at("llamacpp").at("options").at("baseURL").get<std::string>(); } catch (...) {}
+    while (!embed_base.empty() && embed_base.back() == '/') embed_base.pop_back();
 
     // 2. Load theme colors
     if (!home_str.empty()) {
@@ -88,27 +109,31 @@ FoxIntel::~FoxIntel() {
     if (g_curl_ref_count == 0) curl_global_cleanup();
 }
 
-// "<provider>/<model>" as opencode writes it. `ollama/…` → Ollama's own API; `llamacpp/…` and
-// `llamacpp-turbo/…` → that llama.cpp router, OpenAI-style, at the baseURL opencode has for it
-// (fox-llm-update --sync writes both). Anything else is a cloud model fox-ai can't run locally:
-// false, and the next source decides.
+// "<provider>/<model>" as opencode writes it, or a bare name. `llamacpp-turbo/…` → the TurboQuant router;
+// `llamacpp/…`, the `ollama/…` of configs from before llama.cpp served everything, or a bare name → the
+// main one — each at the baseURL opencode has for it (fox-llm-update --sync writes both). Anything else
+// is a cloud model fox-ai can't run locally: false, and the next source decides.
 bool FoxIntel::use_model(std::string ref, const json* opencode) {
-    auto slash = ref.find('/');
-    if (slash == std::string::npos) return false;
-    std::string provider = ref.substr(0, slash), model = ref.substr(slash + 1);
+    std::string provider, model = ref;
+    if (auto slash = ref.find('/'); slash != std::string::npos) {
+        provider = ref.substr(0, slash);
+        model = ref.substr(slash + 1);
+    }
     if (model.empty()) return false;
-    if (provider == "ollama") {
-        api_base.clear();
-    } else if (provider == "llamacpp" || provider == "llamacpp-turbo") {
-        api_base = provider == "llamacpp" ? "http://127.0.0.1:8080/v1" : "http://127.0.0.1:8081/v1";
-        router_unit = provider == "llamacpp" ? "fox-llm-server" : "fox-llm-server-turbo";
-        try {
-            api_base = opencode->at("provider").at(provider).at("options").at("baseURL").get<std::string>();
-        } catch (...) {}
-        while (!api_base.empty() && api_base.back() == '/') api_base.pop_back();
+    if (provider == "llamacpp-turbo") {
+        api_base = "http://127.0.0.1:8081/v1";
+        router_unit = "fox-llm-server-turbo";
+    } else if (provider.empty() || provider == "llamacpp" || provider == "ollama") {
+        provider = "llamacpp";
+        api_base = "http://127.0.0.1:8080/v1";
+        router_unit = "fox-llm-server";
     } else {
         return false;
     }
+    try {
+        api_base = opencode->at("provider").at(provider).at("options").at("baseURL").get<std::string>();
+    } catch (...) {}
+    while (!api_base.empty() && api_base.back() == '/') api_base.pop_back();
     default_model = model;
     return true;
 }
@@ -119,17 +144,6 @@ std::string FoxIntel::color_reset() { return "\033[0m"; }
 
 size_t FoxIntel::WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
     userp->append((char*)contents, size * nmemb);
-    return size * nmemb;
-}
-
-size_t FoxIntel::StreamCallback(void* contents, size_t size, size_t nmemb, void* userp) {
-    std::string chunk((char*)contents, size * nmemb);
-    try {
-        auto j = json::parse(chunk);
-        if (j.contains("response")) {
-            std::cout << j["response"].get<std::string>() << std::flush;
-        }
-    } catch (...) {}
     return size * nmemb;
 }
 
@@ -205,27 +219,13 @@ static std::mutex g_limit_mu;
 static std::map<std::string, int> g_embed_limit;
 
 std::vector<float> FoxIntel::get_embedding(const std::string& text, const std::string& model) {
-    std::string model_name = model.empty() ? "mxbai-embed-large" : model;
-    return embed_base.empty() ? embed_ollama(text, model_name) : embed_llama(text, model_name);
-}
-
-// Ollama's /api/embed, which cuts text longer than the model takes (the old /api/embeddings returns
-// "input length exceeds the context length" instead — since Ollama 0.40, findex lost every long chunk).
-std::vector<float> FoxIntel::embed_ollama(const std::string& text, const std::string& model) {
-    std::string out;
-    long code = post_json("http://localhost:11434/api/embed", {{"model", model}, {"input", text}}, out);
-    try {
-        auto j = json::parse(out);
-        if (code == 200) return j.at("embeddings").at(0).get<std::vector<float>>();
-        embed_failed(j.value("error", out));
-    } catch (...) { embed_failed(code < 0 ? "Ollama did not answer" : out.substr(0, 200)); }
-    return {};
+    return embed_llama(text, model.empty() ? "mxbai-embed-large" : model);
 }
 
 // The llama.cpp router's /v1/embeddings. It refuses text longer than the model takes, so that text is
 // tokenized (the router's /tokenize, same model) and cut to the first N-1 tokens plus the end token —
-// vectors identical to Ollama's cut (cosine 1.00000 on 100-line chunks, 2026-10-14), so indexes built
-// through Ollama stay valid.
+// vectors identical to Ollama's cut (cosine 1.00000 on 100-line chunks, 2026-10-14), so indexes
+// built while Ollama served the embeddings stay valid.
 std::vector<float> FoxIntel::embed_llama(const std::string& text, const std::string& model) {
     auto vector_of = [](const std::string& body) -> std::vector<float> {
         auto j = json::parse(body);
@@ -276,42 +276,11 @@ std::vector<float> FoxIntel::embed_llama(const std::string& text, const std::str
 }
 
 std::string FoxIntel::ask(const std::string& prompt, bool stream) {
-    if (!api_base.empty()) return ask_openai(prompt, stream);
-    std::string readBuffer;
-    CURL* curl = curl_easy_init();
-    if(curl) {
-        json body = {{"model", default_model}, {"prompt", prompt}, {"stream", stream}};
-        std::string json_str = body.dump();
-        struct curl_slist* headers = curl_slist_append(NULL, "Content-Type: application/json");
-
-        curl_easy_setopt(curl, CURLOPT_URL, "http://localhost:11434/api/generate");
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, json_str.c_str());
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-        
-        if (stream) {
-            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, StreamCallback);
-        } else {
-            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-            curl_easy_setopt(curl, CURLOPT_WRITEDATA, &readBuffer);
-        }
-
-        if(curl_easy_perform(curl) == CURLE_OK && !stream) {
-            try {
-                auto j = json::parse(readBuffer);
-                if (j.contains("response")) {
-                    readBuffer = j["response"].get<std::string>();
-                }
-            } catch (...) {}
-        }
-        curl_slist_free_all(headers);
-        curl_easy_cleanup(curl);
-    }
-    if (stream) return "";
-    return readBuffer;
+    return ask_openai(prompt, stream);
 }
 
-// The same question to a llama.cpp router (OpenAI-compatible /chat/completions). Not streaming: the
-// answer, or the raw body when it isn't one (an error stays visible, as on the Ollama path).
+// The question to the llama.cpp router (OpenAI-compatible /chat/completions). Not streaming: the
+// answer, or the raw body when it isn't one (an error stays visible).
 std::string FoxIntel::ask_openai(const std::string& prompt, bool stream) {
     std::string readBuffer, pending;
     CURL* curl = curl_easy_init();
@@ -367,53 +336,64 @@ double FoxIntel::cosine_similarity(const std::vector<float>& v1, const std::vect
     return (norm_a > 0 && norm_b > 0) ? dot / (sqrt(norm_a) * sqrt(norm_b)) : 0.0;
 }
 
-bool FoxIntel::ensure_ollama_running() {
-    // llama.cpp is the one server once opencode points at it: wake its router — a user service, no
-    // sudo prompt — and leave Ollama (now only the downloader) alone. Ollama only on a machine without one.
-    if (!router_unit.empty()) {
-        std::string unit = router_unit + ".service";
-        if (FoxUtils::run_cmd({"systemctl", "--user", "is-active", "--quiet", unit.c_str()}, true) == 0) return true;
-        std::cout << color_accent() << "[Fox Brain is asleep. Waking up...]" << color_reset() << std::endl;
-        if (FoxUtils::run_cmd({"systemctl", "--user", "start", unit.c_str()}, true) != 0) return false;
-        // systemd calls it active the moment it starts; the router answers /health once it listens.
-        std::string root = api_base.empty() ? embed_base : api_base;
-        if (root.size() >= 3 && root.compare(root.size() - 3, 3, "/v1") == 0) root.resize(root.size() - 3);
-        for (int i = 0; i < 60; ++i) {
-            CURL* curl = curl_easy_init();
-            if (!curl) break;
-            std::string sink;
-            long code = 0;
-            std::string url = root + "/health";
-            curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-            curl_easy_setopt(curl, CURLOPT_TIMEOUT, 2L);
-            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
-            curl_easy_setopt(curl, CURLOPT_WRITEDATA, &sink);
-            if (curl_easy_perform(curl) == CURLE_OK) curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
-            curl_easy_cleanup(curl);
-            if (code == 200) return true;
-            std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        }
+// A GET against the router; the body lands in `out`. Returns the HTTP status, or 0 without an answer.
+static long get_url(const std::string& url, std::string& out, long timeout_s) {
+    CURL* curl = curl_easy_init();
+    if (!curl) return 0;
+    long code = 0;
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, timeout_s);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,
+                     +[](void* p, size_t sz, size_t n, std::string* o) { o->append((char*)p, sz * n); return sz * n; });
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &out);
+    if (curl_easy_perform(curl) == CURLE_OK) curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &code);
+    curl_easy_cleanup(curl);
+    return code;
+}
+
+static std::string router_root(std::string base) {           // /health, /models live beside /v1
+    if (base.size() >= 3 && base.compare(base.size() - 3, 3, "/v1") == 0) base.resize(base.size() - 3);
+    return base;
+}
+
+bool FoxIntel::ensure_server_running() {
+    // llama.cpp's router serves every local model: wake it — a user service, no sudo prompt.
+    std::string sink, root = router_root(api_base);
+    if (get_url(root + "/health", sink, 2) == 200) return true;
+    std::string unit = router_unit + ".service";
+    std::cout << color_accent() << "[Fox Brain is asleep. Waking up...]" << color_reset() << std::endl;
+    if (FoxUtils::run_cmd({"systemctl", "--user", "start", unit.c_str()}, true) != 0) {
+        std::cerr << "fox-intel: the local model server (" << router_unit
+                  << ") isn't installed — fox-install --only llama_server" << std::endl;
         return false;
     }
-    // Silent check (redirect stdout/stderr to /dev/null)
-    if (FoxUtils::run_cmd({"ollama", "list"}, true) != 0) {
-        std::cout << color_accent() << "[Fox Brain is asleep. Waking up...]" << color_reset() << std::endl;
-        FoxUtils::run_cmd({"sudo", "systemctl", "start", "ollama"});
-        std::this_thread::sleep_for(std::chrono::seconds(2));
-        return FoxUtils::run_cmd({"ollama", "list"}, true) == 0;
+    // systemd calls it active the moment it starts; the router answers /health once it listens.
+    for (int i = 0; i < 60; ++i) {
+        sink.clear();
+        if (get_url(root + "/health", sink, 2) == 200) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
-    return true;
+    std::cerr << "fox-intel: " << router_unit << " doesn't answer — journalctl --user -u " << router_unit << std::endl;
+    return false;
 }
 
 bool FoxIntel::ensure_model_present(const std::string& model_name) {
-    // A llama.cpp router serves what is already on disk — chat and embedding models alike; downloads are
-    // fox-llm-update's. Nothing to `ollama pull` here.
-    if (!router_unit.empty()) return true;
-    if (!FoxUtils::has_model(model_name.c_str())) {
-        std::cout << "Model " << model_name << " not found. Pulling now..." << std::endl;
-        return FoxUtils::run_cmd({"ollama", "pull", model_name.c_str()}) == 0;
-    }
-    return true;
+    // The router serves what is downloaded — chat and embedding models alike; downloads are
+    // fox-llm-update's. Its list names each model under its real name too (aliases), which the
+    // router's own ids rewrite for name:tag; a bare name is also its Ollama-era "name:latest".
+    std::string body;
+    if (get_url(router_root(embed_base) + "/v1/models", body, 5) != 200) return true;   // can't tell: let the call say
+    try {
+        for (const auto& m : json::parse(body).at("data")) {
+            std::vector<std::string> names = {m.value("id", "")};
+            if (m.contains("aliases")) for (const auto& a : m["aliases"]) names.push_back(a.get<std::string>());
+            for (const auto& n : names)
+                if (n == model_name || n == model_name + ":latest" || n + ":latest" == model_name) return true;
+        }
+    } catch (...) { return true; }
+    std::cerr << "fox-intel: " << model_name << " isn't downloaded yet — fox-llm-update --models (or see the "
+              << "queue: tail ~/.cache/fox-llm-update/queue.log)" << std::endl;
+    return false;
 }
 
 int FoxUtils::run_cmd(std::initializer_list<const char*> argv, bool silent) {
@@ -436,36 +416,4 @@ int FoxUtils::run_cmd(std::initializer_list<const char*> argv, bool silent) {
     int status = 0;
     if (waitpid(pid, &status, 0) < 0) return -1;
     return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
-}
-
-bool FoxUtils::has_model(const char* pattern) {
-    int pipefd[2];
-    if (pipe(pipefd) < 0) return false;
-    pid_t pid = fork();
-    if (pid < 0) {
-        close(pipefd[0]); close(pipefd[1]);
-        return false;
-    }
-    if (pid == 0) {
-        close(pipefd[0]);
-        dup2(pipefd[1], STDOUT_FILENO);
-        close(pipefd[1]);
-        execlp("ollama", "ollama", "list", (char*)nullptr);
-        _exit(127);
-    }
-    close(pipefd[1]);
-    FILE* f = fdopen(pipefd[0], "r");
-    bool found = false;
-    if (f) {
-        char buf[4096];
-        while (fgets(buf, sizeof(buf), f)) {
-            if (strstr(buf, pattern)) { found = true; break; }
-        }
-        fclose(f);
-    } else {
-        close(pipefd[0]);
-    }
-    int status = 0;
-    waitpid(pid, &status, 0);
-    return found;
 }

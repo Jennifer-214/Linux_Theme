@@ -5,13 +5,10 @@
 ROFI_ZONE="${ROFI_ZONE:-nw}"
 source ~/.config/hypr/scripts/_rofi_zone.sh
 
-# Ensure we have the model switcher logic
-CONFIG_FILE="$HOME/.config/opencode/opencode.json"
-MODEL_TAG="7b"
-if [[ -f "$CONFIG_FILE" ]]; then
-    MODEL_TAG=$(grep '"model"' "$CONFIG_FILE" | cut -d: -f3 | tr -d '", ')
-fi
-MODEL="qwen2.5-coder:$MODEL_TAG"
+# The model fox-llm-run answers with (FOXAI_MODEL, fox-ai-default's, opencode's local default, the quick
+# role); its tag ("4b") labels the prompt.
+MODEL=$(fox-llm-run --model) || { notify-send "  AI" "no local model — fox-install --only llama_server"; exit 1; }
+MODEL_TAG="${MODEL##*:}"
 
 # Get question from Rofi
 QUESTION=$(rofi -dmenu -p "  Ask AI ($MODEL_TAG)" -theme-str "$ROFI_POS_THEME window {width: 40%;} listview {enabled: false;}")
@@ -31,7 +28,7 @@ echo "-----------------------------------" >> "$TMP_FILE"
 echo "Question: $QUESTION" >> "$TMP_FILE"
 echo "" >> "$TMP_FILE"
 
-ollama run "$MODEL" "$QUESTION" >> "$TMP_FILE" 2>&1
+fox-llm-run "$QUESTION" >> "$TMP_FILE" 2>&1
 
 # Display in a floating terminal
 kitty --class="ai_quick" --title="AI Quick Response" \

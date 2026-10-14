@@ -1,19 +1,10 @@
 #!/bin/bash
-# fox-ai-purge — Free up VRAM/RAM by stopping Ollama
-
+# fox-ai-purge — free the RAM / VRAM the local models hold: every model llama.cpp's routers have loaded
+# is unloaded (the next request loads its model again; the ghost-text model too, at its next
+# completion). --stop also stops the routers — the fox-ai tools and the agents start them again.
 echo "🦊 Purging AI models from memory..."
-
-if command -v systemctl &>/dev/null; then
-    sudo systemctl stop ollama
-    echo "+ Ollama service stopped. VRAM cleared."
-    
-    read -p "Restart Ollama? (Needed to run models again) [y/N] " -n 1 -r
-    echo ""
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        sudo systemctl start ollama
-        echo "+ Ollama service restarted (and empty)."
-    fi
-else
-    pkill ollama
-    echo "+ Ollama process killed."
+fox-llm-run --unload
+if [[ ${1:-} == --stop ]]; then
+    systemctl --user stop fox-llm-server.service fox-llm-server-turbo.service 2>/dev/null
+    echo "+ model servers stopped"
 fi

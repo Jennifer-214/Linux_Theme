@@ -697,13 +697,15 @@ check_security() {
         ok "kernel hardening sysctls applied"
     fi
 
-    # Ollama sandbox drop-in
-    if systemctl list-unit-files 2>/dev/null | grep -q '^ollama\.service'; then
-        if [[ -f /etc/systemd/system/ollama.service.d/foxml-hardening.conf ]]; then
-            ok "ollama systemd sandbox drop-in present"
+    # The local model server (llama.cpp's router) answers this machine only
+    local model_ports
+    model_ports=$(ss -ltnH 2>/dev/null | awk '$4 ~ /:808[01]$/ {print $4}')
+    if [[ -n "$model_ports" ]]; then
+        if grep -qvE '^127\.0\.0\.1:' <<<"$model_ports"; then
+            warn "a model server port is open beyond this machine: $(tr '\n' ' ' <<<"$model_ports")"
+            hint "fix: fox-install --only llama_server   (fox-llm-serve binds 127.0.0.1)"
         else
-            warn "ollama.service present but no foxml hardening drop-in"
-            hint "fix: source mappings.sh && install_ollama_hardening"
+            ok "llama.cpp model server on loopback only"
         fi
     fi
 

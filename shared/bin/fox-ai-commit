@@ -1,5 +1,5 @@
 #!/bin/bash
-# fox-ai-commit — Generate git commit messages using local Ollama
+# fox-ai-commit — Generate git commit messages with the local model (llama.cpp)
 
 if ! git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
     echo "Error: Not a git repository."
@@ -13,11 +13,9 @@ if [[ -z "$DIFF" ]]; then
     exit 1
 fi
 
-# Use 14b for reasoning, fall back to 7b if 14b isn't pulled yet
-MODEL="qwen2.5-coder:14b"
-if ! ollama list | grep -q "14b"; then
-    MODEL="qwen2.5-coder:7b"
-fi
+# fox-llm-run picks the model: FOXAI_MODEL, else fox-ai-default's, else opencode's local default,
+# else the roles file's quick model.
+MODEL=$(fox-llm-run --model) || exit 1
 
 echo "Generating commit message with $MODEL..."
 
@@ -26,7 +24,7 @@ PROMPT="You are a senior developer. Write a concise, professional git commit mes
 Diff:
 $DIFF"
 
-MESSAGE=$(ollama run "$MODEL" "$PROMPT")
+MESSAGE=$(fox-llm-run "$PROMPT")
 
 echo -e "\n-- PROPOSED MESSAGE --\n"
 echo "$MESSAGE"

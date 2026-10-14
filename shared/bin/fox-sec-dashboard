@@ -107,9 +107,12 @@ sec_posture() {
     else
         _err "kernel hardening sysctls NOT applied"
     fi
-    # Ollama sandbox
-    if [[ -f /etc/systemd/system/ollama.service.d/foxml-hardening.conf ]]; then
-        _ok "ollama systemd sandbox drop-in present"
+    # Local model server (llama.cpp's router): this machine only
+    local model_ports
+    model_ports=$(ss -ltnH 2>/dev/null | awk '$4 ~ /:808[01]$/ {print $4}')
+    if [[ -n "$model_ports" ]]; then
+        if grep -qvE '^127\.0\.0\.1:' <<<"$model_ports"; then _err "model server open to the network: $model_ports"
+        else _ok "llama.cpp model server on loopback only"; fi
     fi
     # SSH hardening
     if [[ -f /etc/ssh/sshd_config.d/50-foxml-hardening.conf ]]; then

@@ -1,8 +1,8 @@
 #!/bin/bash
 # FoxML AI Status — Waybar module for OpenCode model status.
 # Display reads as a peer of the memory module: "<icon> <size> X/Yg",
-# where X is the loaded model's GPU footprint (from `ollama ps`) and Y
-# is total VRAM. Falls back to "idle" when no model is resident.
+# where X is the default model's resident memory while llama.cpp's router has it loaded (fox-llm-run
+# --ps) and Y is total VRAM. Falls back to "idle" when it isn't loaded.
 
 CONFIG_FILE="$HOME/.config/opencode/opencode.json"
 
@@ -31,30 +31,19 @@ if command -v nvidia-smi &>/dev/null; then
     fi
 fi
 
-# ── Loaded model footprint from `ollama ps` ──────────────────────
-# SIZE column embeds a space ("6.0 GB"), so grep the line for the
-# pattern instead of relying on awk column counts.
+# ── Loaded models from llama.cpp's router (fox-llm-run --ps: name, state, GB) ──
+# The default model's footprint; the always-loaded ghost-text model alone reads as idle.
 loaded_size_gb=""
 loaded_proc=""
 loaded_name=""
-if command -v ollama &>/dev/null; then
-    ps_line=$(ollama ps 2>/dev/null | awk 'NR==2 { print; exit }')
+loaded_all=""
+if command -v fox-llm-run &>/dev/null; then
+    ps_out=$(fox-llm-run --ps 2>/dev/null)
+    loaded_all=$(cut -f1 <<<"$ps_out" | paste -sd, - | sed 's/,/, /g')
+    ps_line=$(awk -F'\t' -v m="$MODEL_NAME" '$1 == m || $1 == m ":latest" { print; exit }' <<<"$ps_out")
     if [[ -n "$ps_line" ]]; then
-        loaded_name=$(awk '{print $1}' <<<"$ps_line")
-        # "6.0 GB" or "512 MB" — normalize to GB with one decimal
-        if [[ "$ps_line" =~ ([0-9]+\.?[0-9]*)[[:space:]]*(GB|MB) ]]; then
-            val="${BASH_REMATCH[1]}"
-            unit="${BASH_REMATCH[2]}"
-            if [[ "$unit" == "MB" ]]; then
-                loaded_size_gb=$(awk -v v="$val" 'BEGIN { printf "%.1f", v/1024 }')
-            else
-                loaded_size_gb=$(awk -v v="$val" 'BEGIN { printf "%.1f", v }')
-            fi
-        fi
-        # PROCESSOR column like "100% GPU" / "50%/50% CPU/GPU"
-        if [[ "$ps_line" =~ ([0-9]+%[[:space:]]*[A-Z/]+) ]]; then
-            loaded_proc="${BASH_REMATCH[1]}"
-        fi
+        IFS=$'\t' read -r loaded_name loaded_proc gb <<<"$ps_line"
+        [[ "$gb" != "-" ]] && loaded_size_gb="$gb"
     fi
 fi
 
@@ -83,11 +72,12 @@ fi
 tip="Model: $MODEL_NAME"
 if [[ -n "$loaded_name" ]]; then
     tip+="\\nLoaded: $loaded_name"
-    [[ -n "$loaded_size_gb" ]] && tip+=" (${loaded_size_gb}g)"
-    [[ -n "$loaded_proc"    ]] && tip+="  $loaded_proc"
+    [[ -n "$loaded_size_gb" ]] && tip+=" (${loaded_size_gb}g RAM)"
+    [[ "$loaded_proc" == loading ]] && tip+="  loading"
 else
     tip+="\\nLoaded: (idle)"
 fi
 [[ -n "$vram_total_gb" ]] && tip+="\\nVRAM total: ${vram_total_gb}g"
+[[ -n "$loaded_all" ]] && tip+="\\nIn memory: $loaded_all"
 
 printf '{"text":"%s","tooltip":"%s","class":"%s"}\n' "$TEXT" "$tip" "$CLASS"

@@ -12,16 +12,9 @@
 
 set -u
 
-if ! command -v ollama >/dev/null 2>&1; then
-    echo "fox-ai-test: ollama not installed" >&2
-    exit 1
-fi
-
-MODEL="${FOXAI_MODEL:-}"
-if [[ -z "$MODEL" ]] && [[ -f "$HOME/.config/opencode/opencode.json" ]] && command -v jq >/dev/null 2>&1; then
-    MODEL=$(jq -r '.model // empty' "$HOME/.config/opencode/opencode.json" 2>/dev/null | sed 's|^ollama/||')
-fi
-MODEL="${MODEL:-qwen2.5-coder:7b}"
+# fox-llm-run asks the local llama.cpp router and picks the model: FOXAI_MODEL, else fox-ai-default's,
+# else opencode's local default, else the roles file's quick model.
+command -v fox-llm-run >/dev/null 2>&1 || { echo "fox-ai-test: fox-llm-run not found — run: fox-install --only llama_server" >&2; exit 1; }
 
 if [[ $# -lt 1 || ! -f "$1" ]]; then
     echo "usage: fox-ai-test <path/to/source-file>" >&2
@@ -49,4 +42,4 @@ Output ONLY the test file content, no commentary, no markdown fences.
 SOURCE (${src}):
 $content"
 
-ollama run "$MODEL" "$prompt" 2>/dev/null
+fox-llm-run "$prompt"

@@ -1,0 +1,249 @@
+#!/usr/bin/env python3
+"""fox-llm-run — one answer from the local llama.cpp router; the shell tools' drop-in for `ollama run`.
+
+  fox-llm-run [-m MODEL] PROMPT...    the answer, streamed to stdout; a "-" argument stands for the
+                                      text piped in (only then is stdin read — a loop's stdin is safe)
+  fox-llm-run --model                 the model a plain run uses
+  fox-llm-run --list                  the chat models the routers serve: name, then its role if any
+  fox-llm-run --ps                    the models loaded now: name, state, resident GB
+  fox-llm-run --unload [MODEL]        free a model's memory — every loaded one when none is named
+
+MODEL: -m, else FOXAI_MODEL, else ~/.config/foxml/ai-model.conf (fox-ai-default), else opencode's local
+default (fox-ai-swap), else the roles file's quick model. "llamacpp-turbo/…" goes to the TurboQuant
+router (:8081); "llamacpp/…", the "ollama/…" of older configs, or a bare name to the main one (:8080).
+Thinking is off — one-shot answers; the agents keep theirs. A router that is down is started first (a
+user service, no sudo).
+"""
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+
+HOME = os.path.expanduser("~")
+CONF = os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config")
+LLM_DIR = os.path.join(CONF, "foxml", "llm")
+ROUTERS = {"main": ("http://127.0.0.1:8080", "fox-llm-server", "llama-presets.ini"),
+           "turbo": ("http://127.0.0.1:8081", "fox-llm-server-turbo", "llama-presets-turbo.ini")}
+
+
+def die(msg):
+    print(f"fox-llm-run: {msg}", file=sys.stderr)
+    sys.exit(1)
+
+
+def roles():
+    """{role: (model, engine)} from the first roles file there is."""
+    for f in (os.path.join(LLM_DIR, "roles.conf"), os.path.join(HOME, "code/custom_models/roles.conf"),
+              os.path.join(LLM_DIR, "roles.default")):
+        try:
+            lines = open(f).read().splitlines()
+        except OSError:
+            continue
+        out = {}
+        for l in lines:
+            p = l.split()
+            if len(p) >= 2 and not p[0].startswith("#"):
+                out[p[0]] = (p[1], "turbo" if len(p) > 2 and p[2] == "llama-turbo" else "main")
+        return out
+    return {}
+
+
+def configured():
+    """(model, engine) per the precedence in the help, or None."""
+    if os.environ.get("FOXAI_MODEL"):
+        return route(os.environ["FOXAI_MODEL"])
+    try:
+        for l in open(os.path.join(CONF, "foxml", "ai-model.conf")):
+            if l.startswith("MODEL="):
+                v = l.split("=", 1)[1].strip().strip("\"'")
+                if v:
+                    return route(v)
+    except OSError:
+        pass
+    try:
+        m = json.load(open(os.path.join(CONF, "opencode", "opencode.json"))).get("model") or ""
+        if m.startswith(("llamacpp/", "llamacpp-turbo/", "ollama/")):
+            return route(m)
+    except (OSError, ValueError, AttributeError):
+        pass
+    return roles().get("quick")
+
+
+def route(ref):
+    """"provider/model" or a bare name → (model, engine)."""
+    provider, _, model = ref.partition("/") if "/" in ref else ("", "", ref)
+    return model, "turbo" if provider == "llamacpp-turbo" else "main"
+
+
+def http(url, body=None, timeout=10):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"} if data else {})
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
+def up(engine):
+    """True once the router answers; starts its user service when it doesn't."""
+    root, unit, _ = ROUTERS[engine]
+    def healthy():
+        try:
+            with http(root + "/health", timeout=2) as r:
+                return r.status == 200
+        except (OSError, urllib.error.URLError):
+            return False
+    if healthy():
+        return True
+    if subprocess.run(["systemctl", "--user", "start", unit + ".service"], capture_output=True).returncode != 0:
+        die(f"the local model server ({unit}) isn't installed — fox-install --only llama_server")
+    for _ in range(120):
+        if healthy():
+            return True
+        time.sleep(0.5)
+    die(f"{unit} started but doesn't answer on {root} — journalctl --user -u {unit}")
+
+
+def served(engine):
+    """[(name, role)] from the router's preset — the names as written, which the router's own list
+    rewrites for name:tag sections. The fim base model and embedding models are no chat model."""
+    try:
+        text = open(os.path.join(LLM_DIR, ROUTERS[engine][2])).read()
+    except OSError:
+        return []
+    out = []
+    for sec in re.split(r"\n(?=\[)", text):
+        m = re.match(r"\[([^\]]+)\]", sec)
+        if not m or m.group(1) == "*" or "; extra embedding" in sec:
+            continue
+        r = re.search(r"^; role: (\S+)", sec, re.M)
+        role = r.group(1) if r else ""
+        if role not in ("fim", "embed"):
+            out.append((m.group(1), role))
+    return out
+
+
+def loaded():
+    """[(engine, name, state, pid-or-None)] for the models a running router has in memory."""
+    out = []
+    for engine, (root, _, _) in ROUTERS.items():
+        try:
+            with http(root + "/models", timeout=3) as r:
+                rows = json.load(r).get("data", [])
+        except (OSError, urllib.error.URLError, ValueError):
+            continue
+        names = {n for n, _ in served(engine)}
+        for row in rows:
+            state = (row.get("status") or {}).get("value", "")
+            if state not in ("loaded", "loading"):
+                continue
+            name = next((a for a in row.get("aliases", []) if a in names), (row.get("aliases") or [row["id"]])[0])
+            args = (row.get("status") or {}).get("args", [])
+            port = args[args.index("--port") + 1] if "--port" in args else None
+            out.append((engine, name, state, pid_on(port)))
+    return out
+
+
+def pid_on(port):
+    """The llama-server child listening on that port (its command line carries it)."""
+    if not port:
+        return None
+    for p in os.listdir("/proc"):
+        if p.isdigit():
+            try:
+                argv = open(f"/proc/{p}/cmdline", "rb").read().split(b"\0")
+            except OSError:
+                continue
+            if argv and argv[0].endswith(b"llama-server") and b"--port" in argv and \
+                    argv[argv.index(b"--port") + 1:argv.index(b"--port") + 2] == [port.encode()]:
+                return int(p)
+    return None
+
+
+def rss_gb(pid):
+    try:
+        for l in open(f"/proc/{pid}/status"):
+            if l.startswith("VmRSS:"):
+                return int(l.split()[1]) / 1048576
+    except (OSError, TypeError):
+        pass
+    return None
+
+
+def ask(model, engine, prompt):
+    up(engine)
+    body = {"model": model, "stream": True, "messages": [{"role": "user", "content": prompt}],
+            "chat_template_kwargs": {"enable_thinking": False}}
+    try:
+        # no read deadline worth having: a big model reads a long prompt for minutes before its first word
+        resp = http(ROUTERS[engine][0] + "/v1/chat/completions", body, timeout=3600)
+    except urllib.error.HTTPError as e:
+        try:
+            msg = json.load(e).get("error", {}).get("message", "")
+        except ValueError:
+            msg = ""
+        die(f"{model}: {msg or e}")
+    except (OSError, urllib.error.URLError) as e:
+        die(f"{ROUTERS[engine][0]}: {e}")
+    last = ""
+    with resp:
+        for raw in resp:
+            line = raw.decode("utf-8", "replace").strip()
+            if not line.startswith("data:") or line == "data: [DONE]":
+                continue
+            try:
+                delta = json.loads(line[5:])["choices"][0].get("delta") or {}
+            except (ValueError, KeyError, IndexError):
+                continue
+            piece = delta.get("content") or ""
+            if piece:
+                sys.stdout.write(piece); sys.stdout.flush(); last = piece
+    if last and not last.endswith("\n"):
+        sys.stdout.write("\n")
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip()); return 0 if argv else 2
+    if argv[0] == "--list":
+        for engine in ROUTERS:
+            for name, role in served(engine):
+                print(f"{name}\t{role}" if role else name)
+        return 0
+    if argv[0] == "--ps":
+        for engine, name, state, pid in loaded():
+            gb = rss_gb(pid)
+            print(f"{name}\t{state}\t{gb:.1f}" if gb is not None else f"{name}\t{state}\t-")
+        return 0
+    if argv[0] == "--unload":
+        targets = [route(argv[1])] if len(argv) > 1 else [(n, e) for e, n, _, _ in loaded()]
+        for model, engine in targets:
+            try:
+                http(ROUTERS[engine][0] + "/models/unload", {"model": model}).close()
+                print(f"unloaded {model}")
+            except (OSError, urllib.error.URLError) as e:
+                print(f"fox-llm-run: {model}: {e}", file=sys.stderr)
+        return 0
+    pick = None
+    if argv[0] == "-m":
+        if len(argv) < 2:
+            die("-m needs a model")
+        pick, argv = route(argv[1]), argv[2:]
+    pick = pick or configured() or die("no model — no roles file and nothing configured (fox-ai-default)")
+    if argv and argv[0] == "--model":
+        print(pick[0]); return 0
+    if not argv:
+        die("no prompt")
+    parts = [sys.stdin.read() if a == "-" else a for a in argv]
+    ask(pick[0], pick[1], " ".join(p for p in parts if p))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except KeyboardInterrupt:
+        sys.exit(130)
+    except BrokenPipeError:                                       # `| head -c 300` stopped reading
+        sys.exit(0)

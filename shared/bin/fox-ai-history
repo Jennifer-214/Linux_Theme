@@ -2,7 +2,7 @@
 # fox-ai-history — natural-language query over your shell history.
 #
 # "How did I deploy that docker container last week?" → returns the
-# matching command. Uses the local LLM (Ollama) — your shell history
+# matching command. Uses the local model (llama.cpp, on this machine) — your shell history
 # never leaves the machine.
 #
 # Mechanics:
@@ -19,18 +19,11 @@
 
 set -u
 
-if ! command -v ollama >/dev/null 2>&1; then
-    echo "fox-ai-history: ollama not installed" >&2
-    exit 1
-fi
+# fox-llm-run asks the local llama.cpp router and picks the model: FOXAI_MODEL, else fox-ai-default's,
+# else opencode's local default, else the roles file's quick model.
+command -v fox-llm-run >/dev/null 2>&1 || { echo "fox-ai-history: fox-llm-run not found — run: fox-install --only llama_server" >&2; exit 1; }
 
 # Pick the model. Honour env, then opencode's default, then fall back.
-MODEL="${FOXAI_MODEL:-}"
-if [[ -z "$MODEL" ]] && [[ -f "$HOME/.config/opencode/opencode.json" ]] && command -v jq >/dev/null 2>&1; then
-    MODEL=$(jq -r '.model // empty' "$HOME/.config/opencode/opencode.json" 2>/dev/null | sed 's|^ollama/||')
-fi
-MODEL="${MODEL:-qwen2.5-coder:7b}"
-
 # Read query from args or stdin.
 if [[ $# -gt 0 ]]; then
     query="$*"
@@ -84,7 +77,7 @@ USER QUERY: $query
 
 MATCHING COMMAND:"
 
-cmd=$(ollama run "$MODEL" "$full" 2>/dev/null \
+cmd=$(fox-llm-run "$full" \
     | sed -E '/^```/d; /^$/d' \
     | head -n 5 \
     | head -c 2000)

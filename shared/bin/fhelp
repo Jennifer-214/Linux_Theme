@@ -83,7 +83,7 @@ case "$CMD" in
         echo -e "\033[1;32mfstatus\033[0m — System & Project Health"
         echo "-----------------------------------"
         echo "Description:"
-        echo "  Reports on the health of the AI stack (Ollama models, VRAM)"
+        echo "  Reports on the health of the AI stack (llama.cpp router, models, VRAM)"
         echo "  and checks for project 'drift' or missing invariants."
         echo ""
         echo "Usage:"

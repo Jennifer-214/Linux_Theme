@@ -7,23 +7,16 @@
 #
 # Tails the input (file or stdin), forwards every line to stdout
 # verbatim, AND when a line matches --pattern, ships a window of
-# context (10 lines around the match) to local Ollama and surfaces the
+# context (10 lines around the match) to the local model and surfaces the
 # AI's commentary via notify-send. Designed for FoxML_Trader_v2
 # headless sessions: you keep the live log in your terminal, get
 # desktop notifications only when something actionable happens.
 
 set -u
 
-if ! command -v ollama >/dev/null 2>&1; then
-    echo "fox-ai-watch: ollama not installed" >&2
-    exit 1
-fi
-
-MODEL="${FOXAI_MODEL:-}"
-if [[ -z "$MODEL" ]] && [[ -f "$HOME/.config/opencode/opencode.json" ]] && command -v jq >/dev/null 2>&1; then
-    MODEL=$(jq -r '.model // empty' "$HOME/.config/opencode/opencode.json" 2>/dev/null | sed 's|^ollama/||')
-fi
-MODEL="${MODEL:-qwen2.5-coder:7b}"
+# fox-llm-run asks the local llama.cpp router and picks the model: FOXAI_MODEL, else fox-ai-default's,
+# else opencode's local default, else the roles file's quick model.
+command -v fox-llm-run >/dev/null 2>&1 || { echo "fox-ai-watch: fox-llm-run not found — run: fox-install --only llama_server" >&2; exit 1; }
 
 PATTERN='\b(ERROR|FATAL|panic|segfault|assert(ion)?(_| )fail|SIGSEGV|SIGABRT)\b'
 SOURCE="-"
@@ -71,7 +64,7 @@ while IFS= read -r -u 3 line; do
             context=$(printf '%s\n' "${buf[@]}")
             # Background the LLM call so we never block the tail.
             (
-                summary=$(ollama run "$MODEL" "Analyse this log excerpt. One sentence: what failed. One sentence: most likely cause. Be terse.
+                summary=$(fox-llm-run "Analyse this log excerpt. One sentence: what failed. One sentence: most likely cause. Be terse.
 
 LOG:
 $context" 2>/dev/null | head -c 300)

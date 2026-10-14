@@ -31,7 +31,7 @@ int main(int argc, char* argv[]) {
     }
 
     FoxIntel intel;
-    if (!intel.ensure_ollama_running()) return 1;
+    if (!intel.ensure_server_running()) return 1;
 
     std::cout << intel.color_accent() << "[Thinking...]" << intel.color_reset() << std::endl;
     intel.ask(prompt, true);

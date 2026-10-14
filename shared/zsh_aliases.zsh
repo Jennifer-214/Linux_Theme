@@ -66,9 +66,8 @@ alias flush='~/.contextai/src/flush_llm_cache.sh'
 # sourcing if it can't be expanded against the cwd.
 function '??'() {
   local prompt="$*"
-  local model="qwen2.5-coder:7b"
   echo "Thinking..."
-  local cmd=$(ollama run "$model" "Return ONLY the linux command (no explanation, no markdown) to do the following: $prompt")
+  local cmd=$(fox-llm-run "Return ONLY the linux command (no explanation, no markdown) to do the following: $prompt")
   echo -e "\n\033[1;32m$cmd\033[0m\n"
   read -p "Run this command? [y/N] " -n 1 -r
   echo ""
@@ -78,18 +77,12 @@ function '??'() {
 }
 
 # FoxML AI Tool Wrappers
-# Wake the local model server before an agent starts: llama.cpp's router — a user service, no sudo —
-# while it is enabled (the one server; Ollama only downloads), Ollama on a machine without it.
+# Wake the local model server before an agent starts: llama.cpp's router, a user service — no sudo.
 _fox_llm_up() {
-  if systemctl --user is-enabled --quiet fox-llm-server.service 2>/dev/null; then
-    systemctl --user is-active --quiet fox-llm-server.service && return
-    echo -e "\033[1;33m[Fox Brain is asleep. Waking up for $1...]\033[0m"
-    systemctl --user start fox-llm-server.service
-  elif ! systemctl is-active --quiet ollama; then
-    echo -e "\033[1;33m[Fox Brain is asleep. Waking up for $1...]\033[0m"
-    sudo systemctl start ollama
-    sleep 2
-  fi
+  systemctl --user is-enabled --quiet fox-llm-server.service 2>/dev/null || return 0
+  systemctl --user is-active --quiet fox-llm-server.service && return 0
+  echo -e "\033[1;33m[Fox Brain is asleep. Waking up for $1...]\033[0m"
+  systemctl --user start fox-llm-server.service
 }
 
 opencode() {
@@ -126,8 +119,8 @@ alias fflash='fox-distro-flash'
 alias fhelp='fhelp'
 alias fwc='fox-word-count'
 alias word-count='fox-word-count'
-alias f-on='sudo systemctl start ollama && echo "🦊 Fox Brain is online."'
-alias f-off='sudo systemctl stop ollama && echo "🦊 Fox Brain is offline."'
+alias f-on='systemctl --user start fox-llm-server.service && echo "🦊 Fox Brain is online."'
+alias f-off='systemctl --user stop fox-llm-server.service && echo "🦊 Fox Brain is offline."'
 
 # ─── Functions ────────────────────────────────
 give() {

@@ -96,8 +96,8 @@ int main(int argc, char** argv) {
     }
 
     FoxIntel ai = model.empty() ? FoxIntel{} : FoxIntel{model};
-    if (!ai.ensure_ollama_running()) {
-        std::fprintf(stderr, "fox-ai-oracle: Ollama daemon unavailable\n");
+    if (!ai.ensure_server_running()) {
+        std::fprintf(stderr, "fox-ai-oracle: local model server unavailable\n");
         return 1;
     }
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# fox-ai-log — Analyze logs or errors using local Ollama
+# fox-ai-log — Analyze logs or errors with the local model (llama.cpp)
 
 if [[ -z "$1" ]] && [[ -t 0 ]]; then
     echo "Usage: some_command 2>&1 | fox-ai-log"
@@ -19,11 +19,9 @@ if [[ -z "$LOG_CONTENT" ]]; then
     exit 1
 fi
 
-# Use 14b for reasoning
-MODEL="qwen2.5-coder:14b"
-if ! ollama list | grep -q "14b"; then
-    MODEL="qwen2.5-coder:7b"
-fi
+# fox-llm-run picks the model: FOXAI_MODEL, else fox-ai-default's, else opencode's local default,
+# else the roles file's quick model.
+MODEL=$(fox-llm-run --model) || exit 1
 
 echo "Analyzing logs with $MODEL..."
 
@@ -35,4 +33,4 @@ PROMPT="You are a senior Linux systems engineer and C++ developer. Analyze the f
 Log Output:
 $LOG_CONTENT"
 
-ollama run "$MODEL" "$PROMPT"
+fox-llm-run "$PROMPT"

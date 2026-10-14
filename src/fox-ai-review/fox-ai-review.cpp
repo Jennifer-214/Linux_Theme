@@ -98,8 +98,8 @@ int main(int argc, char** argv) {
     }
 
     FoxIntel ai = model.empty() ? FoxIntel{} : FoxIntel{model};
-    if (!ai.ensure_ollama_running()) {
-        std::fprintf(stderr, "fox-ai-review: Ollama daemon unavailable — allowing commit\n");
+    if (!ai.ensure_server_running()) {
+        std::fprintf(stderr, "fox-ai-review: local model server unavailable — allowing commit\n");
         return 0;
     }
 

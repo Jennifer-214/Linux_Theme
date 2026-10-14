@@ -11,16 +11,9 @@
 
 set -u
 
-if ! command -v ollama >/dev/null 2>&1; then
-    echo "fox-ai-explain: ollama not installed" >&2
-    exit 1
-fi
-
-MODEL="${FOXAI_MODEL:-}"
-if [[ -z "$MODEL" ]] && [[ -f "$HOME/.config/opencode/opencode.json" ]] && command -v jq >/dev/null 2>&1; then
-    MODEL=$(jq -r '.model // empty' "$HOME/.config/opencode/opencode.json" 2>/dev/null | sed 's|^ollama/||')
-fi
-MODEL="${MODEL:-qwen2.5-coder:7b}"
+# fox-llm-run asks the local llama.cpp router and picks the model: FOXAI_MODEL, else fox-ai-default's,
+# else opencode's local default, else the roles file's quick model.
+command -v fox-llm-run >/dev/null 2>&1 || { echo "fox-ai-explain: fox-llm-run not found — run: fox-install --only llama_server" >&2; exit 1; }
 
 content=""
 about=""
@@ -59,4 +52,4 @@ CONTENT:
 $content"
 fi
 
-ollama run "$MODEL" "$prompt" 2>/dev/null
+fox-llm-run "$prompt"

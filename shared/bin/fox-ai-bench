@@ -1,56 +1,34 @@
 #!/bin/bash
-# fox-ai-bench — Benchmark local Ollama models
-
-# The machine's wanted set (shared/llm/core-models.txt tier + personal extras);
-# models that aren't installed are skipped below. Override: fox-ai-bench m1 m2 …
+# fox-ai-bench — benchmark the local models on llama.cpp's router: generation and prompt-reading speed
+# per model, from the server's own timings (not a guess from the answer's length), plus the RAM the
+# loaded model holds.
+#
+# Models: the arguments, else this machine's wanted set (fox-llm-update --wanted) — the ones the
+# router serves; fox-llm-run --list shows them.
+set -u
+command -v fox-llm-run >/dev/null 2>&1 || { echo "fox-ai-bench: fox-llm-run not found — run: fox-install --only llama_server" >&2; exit 1; }
 if (( $# )); then
     MODELS=("$@")
 elif command -v fox-llm-update >/dev/null; then
-    mapfile -t MODELS < <(fox-llm-update --wanted)
+    mapfile -t MODELS < <(fox-llm-update --wanted | awk '{print $1}')
 else
-    MODELS=("qwen2.5-coder:7b" "qwen2.5-coder:14b")
+    mapfile -t MODELS < <(fox-llm-run --list | cut -f1)
 fi
+SERVED=$(fox-llm-run --list | cut -f1)
 PROMPT="Write a C++ function to merge two JSON objects using nlohmann/json."
 
-echo "🦊 FoxML AI Benchmark"
-echo "------------------------------------------------"
-printf "%-20s | %-15s | %-10s\n" "Model" "Tokens/sec" "VRAM Used"
-echo "------------------------------------------------"
-
+echo "🦊 FoxML AI Benchmark (llama.cpp)"
+echo "------------------------------------------------------------------------"
+printf "%-36s | %-10s | %-12s | %s\n" "Model" "Gen tok/s" "Prompt tok/s" "RAM"
+echo "------------------------------------------------------------------------"
 for model in "${MODELS[@]}"; do
-    if ! ollama list | grep -q "$model"; then
-        continue
-    fi
-
-    # Warm up (load model into memory)
-    ollama run "$model" "hi" > /dev/null 2>&1
-
-    # Get VRAM usage
-    VRAM_START=0
-    if command -v nvidia-smi &>/dev/null; then
-        VRAM_START=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | tr -d ' ')
-    fi
-
-    # Run benchmark
-    START_TIME=$(date +%s%N)
-    # We use verbose mode to get token stats if possible, or just time it
-    RESPONSE=$(ollama run "$model" "$PROMPT" 2>&1)
-    END_TIME=$(date +%s%N)
-
-    # Calculate tokens (very rough estimate: 4 chars per token)
-    CHAR_COUNT=$(echo "$RESPONSE" | wc -c)
-    TOKENS=$(( CHAR_COUNT / 4 ))
-    DURATION_NS=$(( END_TIME - START_TIME ))
-    DURATION_SEC=$(awk "BEGIN {print $DURATION_NS / 1000000000}")
-    TPS=$(awk "BEGIN {print $TOKENS / $DURATION_SEC}")
-
-    VRAM_END=0
-    if command -v nvidia-smi &>/dev/null; then
-        VRAM_END=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | tr -d ' ')
-    fi
-    VRAM_DIFF=$(( VRAM_END - VRAM_START ))
-    [[ $VRAM_DIFF -lt 0 ]] && VRAM_DIFF=0
-
-    printf "%-20s | %-15.2f | %-10d MB\n" "$model" "$TPS" "$VRAM_DIFF"
+    grep -qxF "$model" <<<"$SERVED" || continue
+    fox-llm-run -m "$model" "hi" >/dev/null || continue           # load it (and wake the router)
+    body=$(jq -n --arg m "$model" --arg p "$PROMPT" \
+        '{model: $m, max_tokens: 256, messages: [{role: "user", content: $p}], chat_template_kwargs: {enable_thinking: false}}')
+    read -r gen pp < <(curl -s -m 900 http://127.0.0.1:8080/v1/chat/completions -H 'Content-Type: application/json' -d "$body" \
+        | jq -r '"\(.timings.predicted_per_second // 0) \(.timings.prompt_per_second // 0)"' 2>/dev/null || echo "0 0")
+    ram=$(fox-llm-run --ps | awk -F'\t' -v m="$model" '$1 == m && $3 != "-" {print $3 " GB"}')
+    printf "%-36s | %-10.1f | %-12.1f | %s\n" "$model" "${gen:-0}" "${pp:-0}" "${ram:--}"
 done
-echo "------------------------------------------------"
+echo "------------------------------------------------------------------------"

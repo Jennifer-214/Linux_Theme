@@ -1,5 +1,5 @@
 #!/bin/bash
-# ai-find — Semantic-ish code search using local Ollama
+# ai-find — Semantic-ish code search with the local model (llama.cpp)
 
 if [[ -z "$1" ]]; then
     echo "Usage: ai-find \"your search query\""
@@ -7,14 +7,13 @@ if [[ -z "$1" ]]; then
 fi
 
 QUERY="$1"
-MODEL="qwen2.5-coder:14b"
-if ! ollama list | grep -q "14b"; then
-    MODEL="qwen2.5-coder:7b"
-fi
+# fox-llm-run picks the model: FOXAI_MODEL, else fox-ai-default's, else opencode's local default,
+# else the roles file's quick model.
+MODEL=$(fox-llm-run --model) || exit 1
 
 # Step 1: Generate keywords from the semantic query
 echo "Analyzing search intent..."
-KEYWORDS=$(ollama run "$MODEL" "Given the search query: '$QUERY', return a space-separated list of the 3-5 most important technical keywords or function names that would likely appear in a Linux theme management codebase to satisfy this query. Return ONLY the keywords.")
+KEYWORDS=$(fox-llm-run "Given the search query: '$QUERY', return a space-separated list of the 3-5 most important technical keywords or function names that would likely appear in a Linux theme management codebase to satisfy this query. Return ONLY the keywords.")
 
 echo "Searching for: $KEYWORDS"
 
@@ -38,4 +37,4 @@ $CANDIDATES
 Context:
 $(for f in $CANDIDATES; do echo "--- FILE: $f ---"; head -n 50 "$f"; done)"
 
-ollama run "$MODEL" "$PROMPT"
+fox-llm-run "$PROMPT"

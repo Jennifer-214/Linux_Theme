@@ -1,28 +1,18 @@
 #!/usr/bin/env bash
-# fox-ai-cmd — natural language → shell command via local Ollama.
+# fox-ai-cmd — natural language → shell command via the local model.
 #
 # Usage: fox-ai-cmd "find all .cpp files modified in the last hour and grep
 #                    for trailing whitespace"
 #        echo "..." | fox-ai-cmd
 #
 # Prints the suggested command and prompts before running. Override the
-# model via FOXAI_MODEL=qwen2.5:7b. Defaults to whatever the user-level
-# opencode.json points at, then falls back to qwen2.5-coder:7b.
+# model via FOXAI_MODEL=qwen2.5:7b (fox-llm-run --help has the rest).
 
 set -u
 
-if ! command -v ollama >/dev/null 2>&1; then
-    echo "fox-ai-cmd: ollama not installed" >&2
-    exit 1
-fi
-
-# Pick a model. Honour env, then opencode's chosen default, then a
-# reasonable coder fallback.
-MODEL="${FOXAI_MODEL:-}"
-if [[ -z "$MODEL" ]] && [[ -f "$HOME/.config/opencode/opencode.json" ]] && command -v jq >/dev/null 2>&1; then
-    MODEL=$(jq -r '.model // empty' "$HOME/.config/opencode/opencode.json" 2>/dev/null | sed 's|^ollama/||')
-fi
-MODEL="${MODEL:-qwen2.5-coder:7b}"
+# fox-llm-run asks the local llama.cpp router and picks the model: FOXAI_MODEL, else fox-ai-default's,
+# else opencode's local default, else the roles file's quick model.
+command -v fox-llm-run >/dev/null 2>&1 || { echo "fox-ai-cmd: fox-llm-run not found — run: fox-install --only llama_server" >&2; exit 1; }
 
 # Read prompt from arg or stdin.
 if [[ $# -gt 0 ]]; then
@@ -40,7 +30,7 @@ User request: $prompt
 
 Shell command:"
 
-cmd=$(ollama run "$MODEL" "$full_prompt" 2>/dev/null \
+cmd=$(fox-llm-run "$full_prompt" \
     | sed -E '/^```/d; /^$/d' \
     | head -n 5)
 

@@ -12,16 +12,9 @@
 
 set -u
 
-if ! command -v ollama >/dev/null 2>&1; then
-    echo "fox-ai-review: ollama not installed" >&2
-    exit 1
-fi
-
-MODEL="${FOXAI_MODEL:-}"
-if [[ -z "$MODEL" ]] && [[ -f "$HOME/.config/opencode/opencode.json" ]] && command -v jq >/dev/null 2>&1; then
-    MODEL=$(jq -r '.model // empty' "$HOME/.config/opencode/opencode.json" 2>/dev/null | sed 's|^ollama/||')
-fi
-MODEL="${MODEL:-qwen2.5-coder:7b}"
+# fox-llm-run asks the local llama.cpp router and picks the model: FOXAI_MODEL, else fox-ai-default's,
+# else opencode's local default, else the roles file's quick model.
+command -v fox-llm-run >/dev/null 2>&1 || { echo "fox-ai-review: fox-llm-run not found — run: fox-install --only llama_server" >&2; exit 1; }
 
 mode="staged"
 ref=""
@@ -57,8 +50,8 @@ Project context: this is a high-performance trading codebase. C++17/20, branchle
 
 Output format: short headings, bullet points, line references where possible. Do NOT restate the diff. Do NOT include preamble. If the diff is clean, say so in one line.'
 
-echo "─── fox-ai-review (model: $MODEL) ───"
-ollama run "$MODEL" "$system
+echo "─── fox-ai-review (model: $(fox-llm-run --model)) ───"
+fox-llm-run "$system
 
 DIFF:
-$diff" 2>/dev/null
+$diff"
