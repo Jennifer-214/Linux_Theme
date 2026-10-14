@@ -134,7 +134,7 @@ local function get_global_model(fallback)
     local content = table.concat(vim.fn.readfile(path), "")
     local ok, data = pcall(vim.fn.json_decode, content)
     if ok and data.model then
-      return data.model:gsub("^ollama/", "")
+      return (data.model:gsub("^ollama/", ""):gsub("^llamacpp/", "")) -- a provider prefix opencode adds; the bare name is the server's
     end
   end
   return fallback
@@ -700,7 +700,8 @@ local plugins = {
     dependencies = { "nvim-lua/plenary.nvim" },
   },
 
-  -- CodeCompanion — chat, inline edits and agents on the LOCAL models (ollama). The GPU has 4 GB: a 3B model fits whole
+  -- CodeCompanion — chat, inline edits and agents on the LOCAL models, through llama.cpp's router (127.0.0.1:8080,
+  -- every chat model in Ollama's store under its Ollama name; Ollama keeps the downloads). The GPU has 4 GB: a 3B model fits whole
   -- (fast — inline edits), a 7B spills a little to the CPU (chat and refactors); the 14B default was too slow here.
   -- pi runs as its CLI agent (:CodeCompanionCLI, <leader>cp) — agentic multi-file work on pi's own model (its settings:
   -- ~/.pi/agent). Edits come back as a diff to accept. Config in the v19 shape (`interactions`, `adapters.http`).
@@ -723,21 +724,26 @@ local plugins = {
       require("codecompanion").setup({
         adapters = {
           http = {
-            ollama = function()
-              return require("codecompanion.adapters").extend("ollama", {
+            -- the router speaks OpenAI's API on loopback and needs no key; CodeCompanion sends one anyway, and "none" is
+            -- a literal to it (no variable has that name)
+            llamacpp = function()
+              return require("codecompanion.adapters").extend("openai_compatible", {
+                name = "llamacpp",
+                formatted_name = "llama.cpp",
+                env = { url = "http://127.0.0.1:8080", api_key = "none" },
                 schema = { model = { default = "qwen2.5-coder:7b" } },
               })
             end,
           },
         },
         interactions = {
-          chat = { adapter = { name = "ollama", model = "qwen2.5-coder:7b" } },
-          inline = { adapter = { name = "ollama", model = "qwen2.5-coder:3b" } },
-          cmd = { adapter = { name = "ollama", model = "qwen2.5-coder:3b" } },
+          chat = { adapter = { name = "llamacpp", model = "qwen2.5-coder:7b" } },
+          inline = { adapter = { name = "llamacpp", model = "qwen2.5-coder:3b" } },
+          cmd = { adapter = { name = "llamacpp", model = "qwen2.5-coder:3b" } },
           cli = {
             agent = "pi",
             agents = {
-              pi = { cmd = "pi", args = {}, description = "pi — the local coding agent (ollama)" },
+              pi = { cmd = "pi", args = {}, description = "pi — the local coding agent" },
             },
           },
           -- #symdeps in a chat: fox-symdeps' facts for what is under the cursor — a struct's layout (size, padding,
@@ -788,8 +794,10 @@ local plugins = {
     },
   },
 
-  -- Local completion (minuet.nvim) — Copilot-style ghost text from a LOCAL model through ollama's fill-in-the-middle
-  -- endpoint. The BASE coder model (fill-in-the-middle trained) fits the 4 GB GPU with room to spare; `:Minuet` can
+  -- Local completion (minuet.nvim) — Copilot-style ghost text from a LOCAL model through llama.cpp's router, the model
+  -- the router already keeps loaded for this (a second copy in Ollama would double the VRAM). The router's
+  -- /v1/completions ignores `suffix` (measured 2026-10-14: it rambles), so the gap goes in the prompt with the model's
+  -- own fill-in-the-middle tokens. The BASE coder model (fill-in-the-middle trained) fits the 4 GB GPU with room to spare; `:Minuet` can
   -- point it at 3b. Off until <leader>ta switches from Copilot to it — the two never show at once.
   -- Measured 2026-10-13: these models don't reliably stop at the gap — given `return ` before the cursor and `}`
   -- after, they wrote `a + b;` and then repeated the `}` and invented new functions. Two settings stop that: `stop` at
@@ -806,11 +814,18 @@ local plugins = {
         after_cursor_filter_length = 1,
         provider_options = {
           openai_fim_compatible = {
-            api_key = "TERM", -- ollama needs no key; minuet wants a set variable's name
-            name = "Ollama",
-            end_point = "http://localhost:11434/v1/completions",
+            api_key = "TERM", -- the router needs no key; minuet wants a set variable's name
+            name = "llama.cpp",
+            end_point = "http://127.0.0.1:8080/v1/completions",
             model = "qwen2.5-coder:1.5b-base",
             optional = { max_tokens = 64, top_p = 0.9, stop = { "\n\n" } },
+            -- Qwen2.5-Coder's FIM tokens around the gap, and no `suffix` sent (minuet's documented llama.cpp form)
+            template = {
+              prompt = function(before, after, _)
+                return "<|fim_prefix|>" .. before .. "<|fim_suffix|>" .. after .. "<|fim_middle|>"
+              end,
+              suffix = false,
+            },
           },
         },
         virtualtext = { auto_trigger_ft = {}, keymap = {} }, -- keys: the shared dispatcher below
@@ -847,7 +862,7 @@ local plugins = {
         ollama = {
           __inherited_from = "openai",
           api_key_name = "",
-          endpoint = "http://localhost:11434/v1",
+          endpoint = "http://127.0.0.1:8080/v1", -- llama.cpp's router (Avante is disabled; kept right for a re-enable)
           model = global_model,
         },
       },
@@ -2411,7 +2426,7 @@ map("n", "<leader>ta", function()
     vim.g.fox_completion = "local"
     vim.cmd("Copilot disable")
     for _, b in ipairs(vim.api.nvim_list_bufs()) do if vim.api.nvim_buf_is_loaded(b) then local_completion(true, b) end end
-    vim.notify("Completion: local (qwen2.5-coder:1.5b via ollama)", vim.log.levels.INFO)
+    vim.notify("Completion: local (qwen2.5-coder:1.5b-base via llama.cpp)", vim.log.levels.INFO)
   end
 end, { desc = "Completion: Copilot ⇄ local model" })
 
