@@ -1,7 +1,8 @@
 // src/fox-ai-swap/fox-ai-swap.cpp — Unified AI model hotswapper.
 //
-// Detects hardware tier and updates ~/.config/opencode/opencode.json.
-// Now with "Show All Models" and improved hardware detection.
+// Detects hardware tier and updates ~/.config/opencode/opencode.json — the model opencode and the fox-ai
+// tools use. Models are "provider/model" on the local server that runs them: llama.cpp's router (the
+// default server) or Ollama, read from the lists fox-llm-update --sync keeps in that file.
 
 #include "../fox-common/json.hpp"
 #include <iostream>
@@ -58,14 +59,35 @@ long read_ram_gb() {
 // Stub kept so the existing call sites still compile but never block.
 int read_vram_gb() { return 0; }
 
-void unload_model(const std::string& name) {
-    if (name.empty() || name == "(unset)") return;
-    // Background the stop — the user doesn't need to wait for the old
-    // model's VRAM to drain before getting their prompt back. Ollama
-    // handles the unload on its own time; the swap feels instant.
-    // Fork+exec instead of system() so the model name never enters
-    // shell parsing — names come from JSON config files which a user
-    // could craft with shell metacharacters.
+// The local servers opencode knows, the default one first.
+static const std::vector<std::string> LOCAL_PROVIDERS = {"llamacpp", "llamacpp-turbo", "ollama"};
+
+// A router's root URL (its /models/unload lives beside /v1, not under it).
+static std::string router_root(const json& config, const std::string& provider) {
+    std::string base = provider == "llamacpp" ? "http://127.0.0.1:8080/v1" : "http://127.0.0.1:8081/v1";
+    try { base = config.at("provider").at(provider).at("options").at("baseURL").get<std::string>(); } catch (...) {}
+    while (!base.empty() && base.back() == '/') base.pop_back();
+    if (base.size() >= 3 && base.compare(base.size() - 3, 3, "/v1") == 0) base.resize(base.size() - 3);
+    return base;
+}
+
+// Free the old model's memory in the background — the user doesn't need to wait for it, the swap feels
+// instant. A llama.cpp model is unloaded through its router (POST /models/unload), an Ollama one with
+// `ollama stop`. Fork+exec instead of system() so the model name never enters shell parsing — names
+// come from JSON config files which a user could craft with shell metacharacters.
+void unload_model(const std::string& ref, const json& config) {
+    auto slash = ref.find('/');
+    if (slash == std::string::npos) return;
+    std::string provider = ref.substr(0, slash), model = ref.substr(slash + 1);
+    std::vector<std::string> argv;
+    if (provider == "ollama") {
+        argv = {"ollama", "stop", model};
+    } else if (provider == "llamacpp" || provider == "llamacpp-turbo") {
+        argv = {"curl", "-s", "-m", "10", "-X", "POST", router_root(config, provider) + "/models/unload",
+                "-H", "Content-Type: application/json", "-d", json{{"model", model}}.dump()};
+    } else {
+        return;                                        // a cloud model: nothing local to free
+    }
     pid_t pid = ::fork();
     if (pid == 0) {
         int devnull = ::open("/dev/null", O_WRONLY);
@@ -74,12 +96,15 @@ void unload_model(const std::string& name) {
             ::dup2(devnull, STDERR_FILENO);
             ::close(devnull);
         }
-        ::execlp("ollama", "ollama", "stop", name.c_str(), nullptr);
+        std::vector<char*> args;
+        for (auto& a : argv) args.push_back(a.data());
+        args.push_back(nullptr);
+        ::execvp(args[0], args.data());
         ::_exit(127);
     }
 }
 
-std::vector<std::string> get_installed_models() {
+std::vector<std::string> ollama_list() {
     std::vector<std::string> models;
     FILE* pipe = popen("ollama list 2>/dev/null", "r");
     if (!pipe) return models;
@@ -95,6 +120,53 @@ std::vector<std::string> get_installed_models() {
     }
     pclose(pipe);
     return models;
+}
+
+// Every local model as "provider/model", llama.cpp's first — the lists fox-llm-update --sync keeps in
+// opencode.json (each model once, under the server that runs it). No lists yet: what Ollama holds.
+std::vector<std::string> local_models(const json& config) {
+    std::vector<std::string> out;
+    for (const auto& p : LOCAL_PROVIDERS) {
+        try {
+            for (const auto& el : config.at("provider").at(p).at("models").items()) out.push_back(p + "/" + el.key());
+        } catch (...) {}
+    }
+    if (out.empty()) {
+        for (const auto& m : ollama_list()) out.push_back("ollama/" + m);
+    }
+    return out;
+}
+
+// A name → "provider/name" on the local server that runs it (a bare "name" is "name:latest", as on
+// Ollama). A name no local server lists keeps the old behaviour: Ollama, or a Hugging Face ref as is.
+std::string qualify(const std::string& target, const std::vector<std::string>& local) {
+    for (const auto& p : LOCAL_PROVIDERS) if (target.rfind(p + "/", 0) == 0) return target;
+    for (const auto& ref : local) {
+        std::string model = ref.substr(ref.find('/') + 1);
+        if (model == target || model == target + ":latest") return ref;
+    }
+    if (target.rfind("hf.co/", 0) == 0 || target.rfind("huggingface.co/", 0) == 0) return target;
+    return "ollama/" + target;
+}
+
+static std::string server_of(const std::string& ref) {
+    if (ref.rfind("llamacpp-turbo/", 0) == 0) return "llama.cpp TurboQuant";
+    if (ref.rfind("llamacpp/", 0) == 0) return "llama.cpp";
+    if (ref.rfind("ollama/", 0) == 0) return "Ollama";
+    return "?";
+}
+
+// Write the new default and free the old model's memory (unless it is the same one).
+static int switch_to(const std::string& ref, const std::string& current, json& config, const fs::path& path,
+                     const std::string& lead) {
+    config["model"] = ref;
+    if (!save_config(path, config.dump(2))) {
+        std::cerr << "  ! could not write " << path << std::endl;
+        return 1;
+    }
+    if (current != ref) unload_model(current, config);
+    std::cout << lead << "\033[1;32m  + Global AI model switched to: " << ref << " (" << server_of(ref) << ")\033[0m" << std::endl;
+    return 0;
 }
 
 void print_header() {
@@ -130,7 +202,7 @@ int main(int argc, char** argv) {
     }
 
     std::string current = config.value("model", "(unset)");
-    if (current.find("ollama/") == 0) current = current.substr(7);
+    auto local = local_models(config);
 
     if (argc > 1) {
         std::string target = argv[1];
@@ -138,26 +210,12 @@ int main(int argc, char** argv) {
         if (target == "1.5b" || target == "3b" || target == "7b" || target == "14b" || target == "32b" || target == "70b") {
             target = "qwen2.5-coder:" + target;
         }
-        
-        // Ensure ollama/ prefix if no provider is specified
-        // OpenCode requires provider/model-name. We only support ollama locally.
-        if (target.find("ollama/") != 0 && target.find("hf.co/") != 0 && target.find("huggingface.co/") != 0) {
-            target = "ollama/" + target;
-        }
-        
-        config["model"] = target;
-        if (!save_config(config_path, config.dump(2))) {
-            std::cerr << "  ! could not write " << config_path << std::endl;
-            return 1;
-        }
-        unload_model(current);
-        std::cout << "\033[1;32m  + Global AI model switched to: " << target << "\033[0m" << std::endl;
-        return 0;
+        return switch_to(qualify(target, local), current, config, config_path, "");
     }
 
     print_header();
     std::cout << "Hardware: \033[1m" << ram << "GB RAM\033[0m (Tier: \033[1;33m" << tier << "\033[0m)" << std::endl;
-    std::cout << "Current:  \033[1;32m" << current << "\033[0m\n" << std::endl;
+    std::cout << "Current:  \033[1;32m" << current << "\033[0m (" << server_of(current) << ")\n" << std::endl;
 
     std::vector<ModelOption> tier_options;
     if (tier == "lite") {
@@ -170,7 +228,10 @@ int main(int argc, char** argv) {
 
     std::cout << "\033[1mTier Recommendations:\033[0m" << std::endl;
     for (size_t i = 0; i < tier_options.size(); ++i) {
-        std::cout << "  [" << (i + 1) << "] " << std::left << std::setw(25) << tier_options[i].label << " (" << tier_options[i].tag << ")" << std::endl;
+        std::string ref = qualify(tier_options[i].tag, local);
+        bool have = std::find(local.begin(), local.end(), ref) != local.end();
+        std::cout << "  [" << (i + 1) << "] " << std::left << std::setw(25) << tier_options[i].label << " (" << tier_options[i].tag
+                  << (have ? ", " + server_of(ref) : ", \033[2mnot installed\033[0m") << ")" << std::endl;
     }
     std::cout << "  [a] \033[3mShow all installed models\033[0m" << std::endl;
     std::cout << "  [m] \033[3mEnter model name manually\033[0m" << std::endl;
@@ -181,14 +242,15 @@ int main(int argc, char** argv) {
 
     std::string target_model;
     if (choice == "a" || choice == "A") {
-        auto all = get_installed_models();
+        const auto& all = local;
         if (all.empty()) {
             std::cout << "No models found. Pull some with 'ollama pull' first." << std::endl;
             return 0;
         }
         std::cout << "\n\033[1mInstalled Models:\033[0m" << std::endl;
         for (size_t i = 0; i < all.size(); ++i) {
-            std::cout << "  [" << (i + 1) << "] " << all[i] << std::endl;
+            std::cout << "  [" << (i + 1) << "] " << std::left << std::setw(48) << all[i].substr(all[i].find('/') + 1)
+                      << "\033[2m" << server_of(all[i]) << "\033[0m" << std::endl;
         }
         std::cout << "Choice: ";
         int idx; 
@@ -206,16 +268,7 @@ int main(int argc, char** argv) {
     }
 
     if (!target_model.empty()) {
-        if (target_model.find("ollama/") != 0 && target_model.find("hf.co/") != 0 && target_model.find("huggingface.co/") != 0) {
-            target_model = "ollama/" + target_model;
-        }
-        config["model"] = target_model;
-        if (!save_config(config_path, config.dump(2))) {
-            std::cerr << "  ! could not write " << config_path << std::endl;
-            return 1;
-        }
-        unload_model(current);
-        std::cout << "\n\033[1;32m  + Global AI model switched to: " << target_model << "\033[0m" << std::endl;
+        return switch_to(qualify(target_model, local), current, config, config_path, "\n");
     }
 
     return 0;
