@@ -49,8 +49,7 @@
     ],
     "services": [
         "NetworkManager",
-        "bluetooth",
-        "ollama"
+        "bluetooth"
     ],
     "timezone": "UTC",
     "user_commands": [

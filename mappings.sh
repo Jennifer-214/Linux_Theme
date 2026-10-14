@@ -145,6 +145,7 @@ SHARED_MAPPINGS=(
     "bin/fox-llm-update|~/.local/bin/fox-llm-update"
     "bin/fox-llm-discover|~/.local/bin/fox-llm-discover"
     "bin/fox-llm-serve|~/.local/bin/fox-llm-serve"
+    "bin/fox-llm-run|~/.local/bin/fox-llm-run"
     "llm/roles.default|~/.config/foxml/llm/roles.default"
     "llm/core-models.txt|~/.config/foxml/llm/core-models.txt"
     "pi/extensions/fox-guard.ts|~/.pi/agent/extensions/fox-guard.ts"
@@ -936,24 +937,6 @@ ${block_tail}
     return 0
 }
 
-# Harden the ollama systemd unit with sandboxing directives. The
-# upstream ollama.service doesn't enable any of these by default;
-# without them, ollama runs as user `ollama` but with full filesystem
-# read/write and unrestricted kernel surface. Prompt-injection attacks
-# that trick the model into emitting tool-call shell commands gain less
-# leverage when the process itself is constrained.
-#
-# Conservative tuning — doesn't break the legitimate ollama work flow:
-#   ProtectHome=read-only  — fask can still pass file paths to ollama
-#                            for embedding context; ollama can read them
-#                            but not modify your home.
-#   PrivateTmp=true        — isolated /tmp namespace.
-#   ProtectKernel{Tunables,Modules,Logs}=true — no /proc/sys writes,
-#                            no module load, no /dev/kmsg read.
-#   RestrictNamespaces / LockPersonality / RestrictRealtime — drop
-#                            unused execution paths.
-#   SystemCallArchitectures=native — refuse seccomp's "execute foreign
-#                            arch" trick.
 # Mask the systemd-generated gnome-keyring "limited" autostart units.
 #
 # The gnome-keyring Arch package ships these XDG autostart entries:
@@ -1547,7 +1530,7 @@ EOF
 # with stack protector, FORTIFY_SOURCE, PIE, control-flow-integrity.
 # Doesn't help the system pacman binaries (those are pre-compiled by
 # Arch's builders) but DOES protect every AUR package the user builds
-# after install (knockd, fwknop, ollama-bin builds-from-source paths,
+# after install (knockd, fwknop, endlessh builds-from-source paths,
 # etc.). Drop-in pattern means we don't trample the user's customisations.
 install_makepkg_hardening() {
     local drop=/etc/makepkg.conf.d/99-foxml-hardening.conf
@@ -1565,104 +1548,6 @@ EOF
     else
         echo "  • makepkg hardening already present"
     fi
-}
-
-install_ollama_hardening() {
-    if ! systemctl list-unit-files 2>/dev/null | grep -q '^ollama\.service'; then
-        echo "  • ollama.service not present — skipping ollama hardening"
-        return 0
-    fi
-    # Re-prime sudo BEFORE any sudo command below. install.sh's keepalive
-    # is torn down after the deps phase, and a long AI install (model
-    # pulls, gh clones) can blow past the 5-minute sudo cache. Without
-    # this check, `sudo install -d` would silently fail with "terminal
-    # required for password" / fingerprint timeout, the heredoc would
-    # write nothing, and we'd leave no drop-in. Make the failure loud.
-    if ! sudo -v 2>/dev/null; then
-        echo "  ! ollama hardening needs sudo (cache expired or no TTY)"
-        echo "    re-run: source mappings.sh && install_ollama_hardening"
-        return 1
-    fi
-    local drop_in=/etc/systemd/system/ollama.service.d
-    sudo install -d "$drop_in" || { echo "  ! sudo install -d failed"; return 1; }
-
-    # Build ReadWritePaths dynamically — listing a missing dir causes
-    # systemd to fail mount-namespace setup with status=226/NAMESPACE,
-    # silently bricking ollama. Only include paths that actually exist.
-    local rw_paths=""
-    for p in /usr/share/ollama /var/lib/ollama "${OLLAMA_MODELS:-}"; do
-        [[ -n "$p" && -d "$p" ]] && rw_paths+="$p "
-    done
-    rw_paths="${rw_paths% }"
-
-    # Detect a discrete GPU. PrivateDevices=true is the strongest sandbox
-    # but it strips access to /dev/nvidia* / /dev/dri/*, killing GPU
-    # inference. Auto-relax to PrivateDevices=false on GPU systems and
-    # explicitly DeviceAllow only the device classes ollama needs.
-    local has_gpu="no"
-    local device_allow=""
-    if compgen -G '/dev/nvidia*' >/dev/null 2>&1; then
-        has_gpu="nvidia"
-        device_allow="DeviceAllow=/dev/nvidia0 rw
-DeviceAllow=/dev/nvidiactl rw
-DeviceAllow=/dev/nvidia-modeset rw
-DeviceAllow=/dev/nvidia-uvm rw
-DeviceAllow=/dev/nvidia-uvm-tools rw"
-    elif [[ -d /dev/dri ]]; then
-        has_gpu="amd-or-intel"
-        device_allow="DeviceAllow=char-drm rw"
-    fi
-
-    local private_devices="true"
-    [[ "$has_gpu" != "no" ]] && private_devices="false"
-
-    sudo tee "$drop_in/foxml-hardening.conf" >/dev/null <<EOF
-# foxml-managed — systemd sandbox for ollama.service.
-# Revert: sudo rm /etc/systemd/system/ollama.service.d/foxml-hardening.conf
-#
-# Auto-tuned for this machine:
-#   GPU:              ${has_gpu}
-#   ReadWritePaths:   ${rw_paths:-<none — ollama will use defaults>}
-#   PrivateDevices:   ${private_devices}  (false on GPU systems so /dev/nvidia* are visible)
-[Service]
-NoNewPrivileges=true
-ProtectHome=read-only
-ProtectSystem=strict
-PrivateTmp=true
-PrivateDevices=${private_devices}
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectKernelLogs=true
-ProtectControlGroups=true
-ProtectClock=true
-RestrictNamespaces=true
-RestrictRealtime=true
-LockPersonality=true
-MemoryDenyWriteExecute=false
-SystemCallArchitectures=native
-${device_allow}
-ReadWritePaths=${rw_paths}
-EOF
-    sudo systemctl daemon-reload >/dev/null 2>&1 || true
-    if systemctl is-active --quiet ollama; then
-        if sudo systemctl restart ollama >/dev/null 2>&1; then
-            # Brief wait + sanity check the restart actually stayed up;
-            # status=226/NAMESPACE shows up here if a directive is wrong.
-            sleep 2
-            if systemctl is-active --quiet ollama; then
-                echo "  ollama hardened + restarted (PrivateDevices=${private_devices}, ${rw_paths// /, } RW)"
-            else
-                echo "  ! ollama failed to start after hardening apply — reverting drop-in"
-                sudo rm -f "$drop_in/foxml-hardening.conf"
-                sudo systemctl daemon-reload >/dev/null 2>&1 || true
-                sudo systemctl restart ollama >/dev/null 2>&1 || true
-                echo "    investigate with: systemctl status ollama -l"
-            fi
-        fi
-    else
-        echo "  ollama hardening dropped in (will apply on next start; tuned for ${has_gpu} GPU)"
-    fi
-    return 0
 }
 
 _personalize_workspace_rules() {

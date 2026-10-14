@@ -48,7 +48,7 @@ struct Context {
 
     // Set by --full. Modules that have "already done — skipping" early
     // returns honor this by re-applying their work instead of bailing.
-    // Genuinely expensive ops (Ollama model downloads, big archive
+    // Genuinely expensive ops (model downloads, big archive
     // pulls) keep their skip-if-present checks regardless.
     bool force_reapply = false;
 

@@ -41,8 +41,8 @@ Caches sudo, installs git+curl, clones to `~/code/Linux_Theme`, runs the full se
 | `--monitor` | Surgical run of the multi-monitor layout wizard only |
 | `--deps` | Install Arch packages, Oh My Zsh, zsh plugins |
 | --yes | Auto-confirm every prompt |
-| --ai | Install Ollama + OpenCode + aider + mxbai-embed-large (see [AI layer](#ai-layer-optional)) |
-| --models | Queue the RAM-tiered model stack + your personal model lists — downloads in the background, resumes across reboots |
+| --ai | Install OpenCode + aider (see [AI layer](#ai-layer-optional)) |
+| --models | Queue the RAM-tiered model stack + your personal model lists — Hugging Face GGUFs, downloaded in the background, resuming across reboots |
 | --llama-server | llama.cpp router — the default local model server for OpenCode + pi (`127.0.0.1:8080`) |
 | --llama-turbo | TurboQuant llama.cpp fork, built from source — optional second engine for long-context roles |
 | --github | Clone all your repos into ~/code |
@@ -77,7 +77,7 @@ Native C++ tools under `src/`:
 | Tool | Role |
 |---|---|
 | `fox-install` | Module-registry-driven install orchestrator (51 modules) |
-| `fox-intel` | `libfox-intel.a` — Ollama client + embedding API; linked into every AI tool |
+| `fox-intel` | `libfox-intel.a` — local model client (llama.cpp's router) + embedding API; linked into every AI tool |
 | `fox-render-fast` | Concurrent template engine; drop-in for the old `render.sh` |
 | `fox-pulse` | Single-epoll daemon multiplexing Hyprland IPC + inotify + debouncers |
 | `fox-vault` | `mlock()`-protected in-RAM secret store with Unix-socket CLI |
@@ -118,11 +118,11 @@ See `fox help` for the full surface (70+ subcommands).
 
 ## AI layer (optional)
 
-Installed via `--ai` + `--models` + `--llama-server` (the desktop preset turns all three on). Ollama downloads and stores the models; **llama.cpp's router serves them** — the one server for the terminal agents, the `fox-ai-*` tools and their embeddings — one loopback URL (`127.0.0.1:8080`), every chat model in Ollama's store loaded on demand, GPU placement left to llama.cpp's MoE-aware auto-fit, a 128k-context agent role. Ollama itself serves only what the roles file gives it and the rare model only it runs as built (a Modelfile with baked-in example chats). `--ai` installs Ollama, the `mxbai-embed-large` embedder, OpenCode (terminal agent), and aider (git-native pair programmer). `--models` pulls the chat/coder stack sized to your RAM+VRAM.
+Installed via `--ai` + `--models` + `--llama-server` (the desktop preset turns all three on). Every model is a Hugging Face GGUF in llama.cpp's own format, and **llama.cpp's router serves them all** — the one server for the terminal agents, the `fox-ai-*` tools and their embeddings: one loopback URL (`127.0.0.1:8080`), every downloaded model loaded on demand, GPU placement left to llama.cpp's MoE-aware auto-fit, a 128k-context agent role. `--ai` installs OpenCode (terminal agent) and aider (git-native pair programmer); `--models` queues the chat/coder stack sized to your RAM, plus the `mxbai-embed-large` embedder; `--llama-server` installs llama.cpp and the router.
 
 ### Agents
 
-- **OpenCode** — Claude-Code-style terminal agent. Multi-provider; its local default is the llama.cpp router, with Ollama listed as a fallback. Theme and skill paths are generated (skills from `~/code/*/claude-skills/`); `fox-llm-update --sync` fills the model picker from what each server holds. Auto-wakes the daemon on launch.
+- **OpenCode** — Claude-Code-style terminal agent. Multi-provider; its local default is the llama.cpp router. Theme and skill paths are generated (skills from `~/code/*/claude-skills/`); `fox-llm-update --sync` fills the model picker from what the router serves. Auto-wakes the router on launch.
 - **pi** — minimal terminal coding agent with FoxML extensions (permission gate, desktop notifications, per-project Claude skills); same local default as OpenCode.
 - **aider** — git-native pair programmer. Commits its own edits per change. Useful for surgical "make this change" workflows where OpenCode's multi-turn agent loop is overkill.
 
@@ -130,10 +130,11 @@ Installed via `--ai` + `--models` + `--llama-server` (the desktop preset turns a
 
 | Piece | What it does |
 |-------|--------------|
-| `~/code/custom_models/roles.conf` | Your roles: which model fills each role (`agent`, `quick`, `fim`, `title`, `embed`) and on which server (`llama`, `llama-turbo`, `ollama`). Kept in a private `custom_models` repo, so `--github` brings it back on a reinstall; the installer links `~/.config/foxml/llm/roles.conf` to it (a real file there overrides it on one machine); `roles.default` ships |
-| `fox-llm-serve` | Builds the router's preset from the roles and Ollama's store — chat and embedding models; a once-per-file load check keeps models llama.cpp can't run on Ollama |
-| `fox-llm-update` | Daily timer: update notices, model refresh, discovery. `--queue` downloads in the background on slow links (resumes across reboots); `--sync` wires models into OpenCode + pi |
-| `~/code/custom_models/gguf-models.conf` | Personal Hugging Face GGUFs in llama.cpp's own format, for models whose Ollama copy llama.cpp can't load — downloaded first, sha256-checked |
+| `~/code/custom_models/roles.conf` | Your roles: which model fills each role (`agent`, `quick`, `fim`, `title`, `embed`) and on which router (`llama`, `llama-turbo`). Kept in a private `custom_models` repo, so `--github` brings it back on a reinstall; the installer links `~/.config/foxml/llm/roles.conf` to it (a real file there overrides it on one machine); `roles.default` ships |
+| `~/code/custom_models/gguf-models.conf` | Your models: `name user/repo/file.gguf` lines (Hugging Face, single-file GGUFs); a `-name` line skips one from every list. `~/.config/foxml/llm/gguf-models.txt` is the same for one machine; `core-models.txt` ships the RAM-tiered defaults |
+| `fox-llm-update` | Downloads the lists into `~/.local/share/fox-llm/gguf/` — sha256-checked against Hugging Face's record, and each file's header through llama.cpp's loader before the download, so a model the build can't run never costs one. Daily timer: update notices, newer uploads, discovery of new tool-capable models on Hugging Face (`fox-llm-discover`). `--queue` downloads in the background (resumes across reboots); `--sync` wires the models into OpenCode + pi |
+| `fox-llm-serve` | Builds the router's preset from the roles and the downloaded models — chat and embedding models; a once-per-file load check leaves out a model this llama.cpp can't run |
+| `fox-llm-run` | One answer from the router for scripts — `fox-llm-run "prompt"`, `--list`, `--ps`, `--unload`; what the `fox-ai-*` shell tools use |
 
 ### RAG (`fask` / `findex`)
 

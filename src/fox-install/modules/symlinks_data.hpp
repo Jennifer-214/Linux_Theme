@@ -158,6 +158,7 @@ inline constexpr Mapping SHARED_MAPPINGS[] = {
     { "bin/fox-llm-update",           "~/.local/bin/fox-llm-update" },
     { "bin/fox-llm-discover",         "~/.local/bin/fox-llm-discover" },
     { "bin/fox-llm-serve",            "~/.local/bin/fox-llm-serve" },
+    { "bin/fox-llm-run",              "~/.local/bin/fox-llm-run" },
     { "llm/roles.default",            "~/.config/foxml/llm/roles.default" },
     { "llm/core-models.txt",          "~/.config/foxml/llm/core-models.txt" },
     { "pi/extensions/fox-guard.ts",   "~/.pi/agent/extensions/fox-guard.ts" },

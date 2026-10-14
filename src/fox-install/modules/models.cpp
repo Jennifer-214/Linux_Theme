@@ -1,10 +1,10 @@
 // modules/models.cpp — queue the local model stack for background download.
 //
-// fox-llm-update owns the list — this machine's extras, your personal lists (the custom_models repo, any
-// ~/code/*/foxml-models.txt, ~/.config/foxml/models.private), then the RAM tier of
-// shared/llm/core-models.txt — and downloads it in its background queue: resumable across reboots,
-// retried, Hugging Face GGUFs first, gone when done. Pulling here instead held a slow-Wi-Fi install for
-// days. Tier is RAM-only: the agent models are ~3B-active MoE that run on the CPU, so VRAM no longer
+// fox-llm-update owns the list — the core list's helpers, this machine's gguf-models.txt, your
+// ~/code/custom_models/gguf-models.conf, then the RAM tier of shared/llm/core-models.txt — and downloads
+// it from Hugging Face in its background queue: resumable across reboots, retried, each file checked
+// against its sha256 and against llama.cpp's loader, gone when done. Downloading here instead held a
+// slow-Wi-Fi install for days. Tier is RAM-only: the agent models are ~3B-active MoE that run on the CPU, so VRAM no longer
 // gates them. Also installs fox-llm-update.timer.
 
 #include "../core/context.hpp"
@@ -112,7 +112,7 @@ void run_models(Context& ctx) {
 
     if (sh::dry_run()) {
         ui::substep("[dry-run] would write + enable fox-llm-update.{service,timer} and queue " + std::to_string(n) +
-                    " models (and any Hugging Face GGUF list) for background download");
+                    " models from Hugging Face for background download");
         return;
     }
     install_update_timer(ctx);

@@ -141,9 +141,8 @@ FOX_MODULE_FULL( vault,     run_vault,         "--vault",        "Install fox-va
 // private custom_models lists and roles, opencode the claude-skills folders. After them, a fresh install
 // found none of it.
 FOX_MODULE( github,      run_github,        "--github",      "gh CLI auth + clone workspace repos",              false )
-FOX_MODULE( ai,              run_ai,                "--ai",              "Install Ollama + OpenCode + aider + embedding model", false )
-FOX_MODULE( ollama_hardening,run_ollama_hardening,  "--ollama-harden",   "ollama.service sandbox + context-window drop-ins", true  )
-FOX_MODULE( models,          run_models,            "--models",          "Queue the RAM-tiered models + your lists (background)",    false )
+FOX_MODULE( ai,              run_ai,                "--ai",              "Install OpenCode + aider",                         false )
+FOX_MODULE( models,          run_models,            "--models",          "Queue the RAM-tiered models + your lists — Hugging Face, background", false )
 FOX_MODULE( opencode,        run_configure_opencode,"--opencode-config", "Generate ~/.config/opencode/{opencode,tui}.json",  true  )
 FOX_MODULE( fox_symdeps, run_fox_symdeps,  "--fox-symdeps",  "fox-symdeps.nvim + foxtag + pi wiring from your private repos (best-effort)", true )
 FOX_MODULE( llama_server, run_llama_server, "--llama-server", "llama.cpp router — the default local model server for pi + opencode (llama-cpp + GPU backend)", false )

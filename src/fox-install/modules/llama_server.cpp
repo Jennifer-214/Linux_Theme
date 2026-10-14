@@ -1,29 +1,26 @@
-// modules/llama_server.cpp — llama.cpp's router as the default local model server for coding agents.
+// modules/llama_server.cpp — llama.cpp's router: the one local model server, for the coding agents and
+// every fox-ai tool.
 //
 // Installs Arch's llama-cpp + the ggml backend for the GPU (ggml-cuda on NVIDIA, ggml-vulkan on
-// AMD/Intel, CPU-only otherwise), opens Ollama's model store to you read-only, enables
-// fox-llm-server.service — `fox-llm-serve run`: one URL (127.0.0.1:8080) serving the roles file's
-// models and every other chat model in Ollama's store, read in place — and lets
-// `fox-llm-update --sync` add the `llamacpp` provider to opencode + pi and move their local
-// default onto it. Ollama stays: model downloads, embeddings, the title model, the fox-ai tools,
-// and the models only it runs as built (Modelfile example chats, formats llama.cpp can't load).
+// AMD/Intel, CPU-only otherwise), enables fox-llm-server.service — `fox-llm-serve run`: one URL
+// (127.0.0.1:8080) serving the roles file's models and every other downloaded one, chat and
+// embeddings alike (the models module's queue downloads them from Hugging Face) — and lets
+// `fox-llm-update --sync` add the `llamacpp` provider to opencode + pi and point their local default
+// at it.
 //
-// Why not just Ollama: on the T1200 laptop (2026-10-13) the same 7B generated 54 % faster here on
-// the same GPU, and llama.cpp has the low-VRAM features Ollama lacks (MoE experts in RAM with
-// attention on the GPU, an expert cache, multi-token prediction, a model router).
+// Why llama.cpp: on the T1200 laptop (2026-10-13) the same 7B generated 54 % faster here than on
+// Ollama on the same GPU, and llama.cpp has the low-VRAM features Ollama lacks (MoE experts in RAM
+// with attention on the GPU, multi-token prediction, a model router). Ollama served everything until
+// 2026-10; a machine that still has it is told how to remove it.
 
 #include "../core/context.hpp"
 #include "../core/idempotency.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
-#include <cstdlib>
 #include <filesystem>
 #include <string>
 #include <vector>
-
-#include <pwd.h>
-#include <unistd.h>
 
 namespace fs = std::filesystem;
 
@@ -45,28 +42,18 @@ constexpr const char* SERVICE_BODY =
     "[Install]\n"
     "WantedBy=default.target\n";
 
-std::string login_name() {
-    if (const char* u = std::getenv("USER"); u && *u) return u;
-    if (const passwd* pw = ::getpwuid(::getuid())) return pw->pw_name;
-    return {};
-}
-
-// The router runs as you and reads Ollama's store in place (no second copy of any model), but the
-// ollama package keeps its home 0700. Read-only ACLs open the way down to the store and the store
-// itself, and the default entry carries over to every blob Ollama writes later. (The ollama group
-// would need a re-login.) Only a directory you can't already pass gets an entry. Verified on the
-// T1200 laptop 2026-10-13 (by hand) and 2026-10-14 (the same command on a tree with files).
-bool grant_store_access(const std::string& user, const fs::path& store) {
-    if (user.empty()) return false;
-    fs::path walk;
-    for (const auto& part : store.parent_path()) {      // top down: a child is reachable once its parent is
-        walk /= part;
-        if (::access(walk.c_str(), X_OK) == 0) continue;
-        if (sh::run({"sudo", "setfacl", "-m", "u:" + user + ":x", walk.string()}) != 0) return false;
+// Ollama's packages, when a machine still has them from before llama.cpp served everything.
+std::string ollama_packages() {
+    std::string out, pkgs;
+    sh::capture({"sh", "-c", "pacman -Qq 2>/dev/null | grep -E '^ollama(-|$)'"}, out);
+    for (size_t at = 0; at < out.size();) {
+        size_t nl = out.find('\n', at);
+        std::string pkg = out.substr(at, nl == std::string::npos ? std::string::npos : nl - at);
+        if (!pkg.empty()) pkgs += (pkgs.empty() ? "" : " ") + pkg;
+        if (nl == std::string::npos) break;
+        at = nl + 1;
     }
-    if (sh::run({"sudo", "setfacl", "-R", "-m", "u:" + user + ":rX", "-m", "d:u:" + user + ":rX",
-                 store.string()}) != 0) return false;
-    return ::access((store / "manifests").c_str(), R_OK | X_OK) == 0;
+    return pkgs;
 }
 
 std::string gpu_backend(const Context& ctx) {
@@ -86,15 +73,11 @@ void run_llama_server(Context& ctx) {
     fs::path unit = ctx.config_home / "systemd/user/fox-llm-server.service";
     fs::path sync_bin = ctx.home / ".local/bin/fox-llm-update";
     if (!fs::exists(sync_bin)) sync_bin = ctx.shared_dir / "bin/fox-llm-update";
-    const char* models_env = std::getenv("OLLAMA_MODELS");
-    fs::path store = (models_env && *models_env) ? fs::path(models_env)
-                                                 : fs::path("/usr/share/ollama/.ollama/models");
 
     if (sh::dry_run()) {
         std::string list;
         for (auto& p : pkgs) list += (list.empty() ? "" : " ") + p;
-        ui::substep("[dry-run] would install " + list + ", give " + login_name() + " read access (ACL) to " +
-                    store.string() + ", write + enable " + unit.string() +
+        ui::substep("[dry-run] would install " + list + ", write + enable " + unit.string() +
                     " (fox-llm-serve run on 127.0.0.1:8080), and run fox-llm-update --sync");
         return;
     }
@@ -121,21 +104,12 @@ void run_llama_server(Context& ctx) {
         }
     }
 
-    // Before the router's first start, so its first preset already sees the models. Best-effort: the
-    // server still installs without it, and the warning carries the two commands to run by hand.
-    const std::string user = login_name();
-    const std::string by_hand = "sudo setfacl -m u:" + user + ":x " + store.parent_path().parent_path().string() +
-                                " && sudo setfacl -R -m u:" + user + ":rX -m d:u:" + user + ":rX " + store.string();
-    if (!sh::sudo_warmup()) {
-        ui::warn("sudo cache cold — Ollama's model store not opened to " + user +
-                 "; llama.cpp serves nothing until: " + by_hand);
-    } else if (sh::run({"sudo", "test", "-d", store.string()}) != 0) {
-        ui::substep("no Ollama model store at " + store.string() +
-                    " yet — rerun `fox-install --only llama_server` once the ai module has run");
-    } else if (grant_store_access(user, store)) {
-        ui::ok("Ollama's model store readable for " + user + " (read-only ACL, inherited by new models)");
-    } else {
-        ui::warn("could not open " + store.string() + " to " + user + " — llama.cpp serves nothing until: " + by_hand);
+    // Ollama from before llama.cpp served everything: nothing uses it or its models any more. Removing a
+    // package and its downloads is the user's call — said, not done.
+    if (std::string pkgs = ollama_packages(); !pkgs.empty()) {
+        ui::warn("Ollama is still installed, and nothing uses it now (llama.cpp serves every model; downloads "
+                 "come from Hugging Face). To free its disk: sudo systemctl disable --now ollama && sudo pacman -Rns " +
+                 pkgs + " && sudo rm -rf /usr/share/ollama");
     }
 
     if (!idem::write_atomic(unit, SERVICE_BODY)) {
@@ -156,7 +130,7 @@ void run_llama_server(Context& ctx) {
 
     // Now that the unit is enabled, sync wires the llamacpp provider into opencode + pi.
     if (sh::run({"bash", sync_bin.string(), "--sync"}) == 0) {
-        ui::ok("opencode + pi use the llamacpp provider (Ollama stays listed as a fallback)");
+        ui::ok("opencode + pi use the llamacpp provider");
     } else {
         ui::warn("fox-llm-update --sync failed — run it by hand");
     }

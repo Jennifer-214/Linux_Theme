@@ -59,7 +59,6 @@ void run_keybind_docs(Context&) {}
 void run_specials    (Context&) {}
 void run_vault       (Context&) {}
 void run_ai              (Context&) {}
-void run_ollama_hardening(Context&) {}
 void run_models      (Context&) {}
 void run_github      (Context&) {}
 void run_fox_symdeps (Context&) {}

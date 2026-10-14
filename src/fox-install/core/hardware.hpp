@@ -1,5 +1,4 @@
-// core/hardware.hpp — RAM / VRAM probes shared by the models and
-// ollama_hardening modules (model tier and context length both key off RAM).
+// core/hardware.hpp — RAM / VRAM probes for the models module (the model tier keys off RAM).
 #ifndef FOX_INSTALL_CORE_HARDWARE_HPP
 #define FOX_INSTALL_CORE_HARDWARE_HPP
 

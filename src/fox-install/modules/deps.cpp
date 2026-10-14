@@ -208,7 +208,7 @@ void run_deps(Context& ctx) {
 
         // ─── AUR helper (yay) ──────────────────────────────────────
         // Several downstream modules (endlessh, throttled, apparmor.d,
-        // ollama-bin, opencode-bin) AUR-install. Bootstrap yay first
+        // opencode-bin, aider-chat) AUR-install. Bootstrap yay first
         // so those don't all error with "no AUR helper". `paru`
         // works equally well — only install yay if neither is present.
         auto have_cmd = [](const std::string& bin) { return sh::have(bin); };
