@@ -55,9 +55,12 @@ class ServeTest(unittest.TestCase):
         blob.write_bytes(b"GGUF")
         return blob
 
-    def preset(self, *extra, gpu=False):
+    def preset(self, *extra, gpu=False, ram_gb=32):
+        meminfo = self.tmp / "meminfo"
+        meminfo.write_text(f"MemTotal:       {ram_gb * 1048576 - 1000} kB\n")
         env = {**os.environ, "XDG_CONFIG_HOME": str(self.cfg), "OLLAMA_MODELS": str(self.store),
-               "FOX_LLM_SERVER": str(self.server), "FAKE_GPU": "1" if gpu else "0"}
+               "FOX_LLM_SERVER": str(self.server), "FAKE_GPU": "1" if gpu else "0",
+               "FOX_LLM_MEMINFO": str(meminfo)}
         r = subprocess.run(["bash", str(SERVE), "preset", *extra], env=env, capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
         return r.stdout
@@ -132,6 +135,20 @@ class ServeTest(unittest.TestCase):
         self.assertIn("[qwen2.5-coder:1.5b-base]", main)
         self.assertNotIn("[qwen3-coder:30b]", main)
         self.assertIn("cache-type-v = q8_0", self.section(main, "*"))
+
+
+    def test_agent_slots_follow_ram_and_role_override(self):
+        self.add_model("qwen3-coder:30b")
+        small = self.section(self.preset(ram_gb=32), "qwen3-coder:30b")
+        self.assertIn("parallel = 1", small)                   # one conversation gets the whole context
+        self.assertIn("c = 131072", small)
+        big = self.section(self.preset(ram_gb=64), "qwen3-coder:30b")
+        self.assertIn("parallel = 2", big)                     # two, each capped — none can evict the other
+        self.assertIn("kv-unified-per-slot = 131072", big)
+        self.assertFalse(any(l.startswith("c =") for l in big))
+        (self.cfg / "foxml/llm/roles.conf").write_text("agent qwen3-coder:30b llama slots=3\n")
+        forced = self.section(self.preset(ram_gb=32), "qwen3-coder:30b")
+        self.assertIn("parallel = 3", forced)
 
 
 if __name__ == "__main__":

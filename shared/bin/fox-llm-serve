@@ -14,6 +14,11 @@
 # preset section is named after the Ollama model, so clients use the same name on either server.
 # Models not downloaded yet are skipped and picked up on the next start.
 #
+# Slots (parallel conversations per model) follow RAM: under 48 GB the agent gets ONE slot — its whole
+# context goes to the one conversation, nothing to fragment or evict (side requests like the plugin's
+# explain cards belong on the quick model); from 48 GB it gets two, each capped at the role's context so
+# a second conversation can never squeeze out the first. Override per role: `slots=N` after the server.
+#
 # Env: FOX_LLM_SERVER (llama-server binary override), FOX_LLM_PORT, OLLAMA_MODELS (Ollama's store).
 set -uo pipefail
 
@@ -78,14 +83,28 @@ EOF
 # always-loaded fim model (or Ollama) the 4B then failed to allocate (measured 2026-10-14).
 # Agents pin the MoE experts in RAM (cpu-moe; a no-op on dense models) so attention + KV get the
 # GPU, with a small cache there for the hot experts.
+RAM_GB=$(awk '/^MemTotal:/{printf "%d", ($2 + 1048575) / 1048576}' "${FOX_LLM_MEMINFO:-/proc/meminfo}")
+
+# Context per slot. One slot: `c` is that slot's context. Several: the unified KV pool is
+# slots × per-slot (kv-unified-per-slot), so no conversation can take another's room.
+ctx_flags() {
+  local per=$1 slots=$2
+  if (( slots <= 1 )); then
+    echo "c = $per"; echo "parallel = 1"
+  else
+    echo "parallel = $slots"; echo "kv-unified-per-slot = $per"
+  fi
+}
+
 role_flags() {
-  local role=$1 gpu=$2
+  local role=$1 gpu=$2 slots=$3
   case $role in
-    fim)   echo "c = 8192";   echo "load-on-startup = true"; echo "cache-ram = 256" ;;
-    quick) echo "c = 32768";  echo "cache-ram = 1024" ;;
-    agent) echo "c = 131072"; echo "cache-ram = 2048"; echo "sleep-idle-seconds = 900"
+    fim)   ctx_flags 8192 "${slots:-1}";  echo "load-on-startup = true"; echo "cache-ram = 256" ;;
+    quick) ctx_flags 32768 "${slots:-2}"; echo "cache-ram = 1024" ;;
+    agent) ctx_flags 131072 "${slots:-$(( RAM_GB >= 48 ? 2 : 1 ))}"
+           echo "cache-ram = 2048"; echo "sleep-idle-seconds = 900"
            (( gpu )) && { echo "cpu-moe = true"; echo "moe-cache-mib = 512"; } ;;
-    *)     echo "c = 32768";  echo "cache-ram = 1024" ;;
+    *)     ctx_flags 32768 "${slots:-1}"; echo "cache-ram = 1024" ;;
   esac
 }
 
@@ -107,7 +126,7 @@ write_preset() {
       echo "cache-type-v = q8_0"
     fi
     echo "jinja = true"
-    while read -r role model server _; do
+    while read -r role model server opts; do
       [[ -z ${role:-} || $role == \#* || ${server:-} != "$SERVES" ]] && continue
       path=$(gguf_path "$model") || { echo "; skipped $model ($role): not in Ollama's store yet"; continue; }
       seen+="$model "
@@ -115,13 +134,14 @@ write_preset() {
       # The router rewrites `name:tag` section names like a HF `repo:quant` (qwen2.5-coder:1.5b-base was
       # served as qwen2.5-coder:BASE); the alias keeps the Ollama name routable for every client.
       echo "alias = $model"
-      role_flags "$role" "$gpu"
+      local slots=""; [[ ${opts:-} =~ slots=([0-9]+) ]] && slots=${BASH_REMATCH[1]}
+      role_flags "$role" "$gpu" "$slots"
     done < "$roles"
     for model in "$@"; do
       [[ $seen == *" $model "* ]] && continue
       path=$(gguf_path "$model") || { echo "; skipped $model: not in Ollama's store"; continue; }
       echo; echo "[$model]"; echo "; extra"; echo "model = $path"; echo "alias = $model"
-      role_flags extra "$gpu"
+      role_flags extra "$gpu" ""
     done
   } > "$PRESET.new" && mv "$PRESET.new" "$PRESET"
   echo "fox-llm-serve: wrote $PRESET ($ENGINE engine, GPU: $( (( gpu )) && echo yes || echo no))" >&2
