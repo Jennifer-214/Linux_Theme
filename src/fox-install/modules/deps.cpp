@@ -107,6 +107,9 @@ void run_deps(Context& ctx) {
         "jq", "git-delta", "github-cli", "pacman-contrib",
         "rofi-calc", "rofi-emoji", "lazygit", "ncspot", "cliphist",
         "cloc", "tree", "rsync", "shellcheck", "ripgrep",
+        // reviewing changes, agents' included: difftastic diffs by syntax (GIT_EXTERNAL_DIFF=difft git diff —
+        // git ships no difftastic difftool), git-absorb folds fixups into the commits they belong to
+        "difftastic", "git-absorb",
 
         // Networking, audio, power telemetry
         "networkmanager", "wireplumber", "libnotify", "upower", "lm_sensors",
