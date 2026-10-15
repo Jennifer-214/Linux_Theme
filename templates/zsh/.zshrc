@@ -19,6 +19,7 @@ SAVEHIST=50000
 [[ -r "$HOME/.config/zsh/history-scrub.zsh" ]] && source "$HOME/.config/zsh/history-scrub.zsh"
 
 # ─── Environment ──────────────────────────────
+export SUDO_EDITOR=nvim
 export QT_QPA_PLATFORMTHEME=qt5ct
 
 # Use seahorse's GTK ssh-askpass so the prompt picks up the FoxML GTK theme
@@ -29,7 +30,7 @@ if [[ -x /usr/lib/seahorse/ssh-askpass ]]; then
     export SSH_ASKPASS_REQUIRE=prefer
 fi
 # FoxML SSH Keyring Integration
-# GNOME Keyring usually starts via Hyprland exec-once, but we ensure 
+# GNOME Keyring usually starts via Hyprland exec-once, but we ensure
 # the shell is correctly linked to the socket.
 if [[ -z "$SSH_AUTH_SOCK" ]]; then
     if [[ -S "$XDG_RUNTIME_DIR/keyring/ssh" ]]; then
