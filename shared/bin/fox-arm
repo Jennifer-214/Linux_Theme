@@ -152,7 +152,7 @@ _arm() {
         _ok "already initialised"
     else
         if _yn "Initialise pass vault now? [Y/n]"; then
-            fox-vault init
+            fox-pass init
         else _skip "skipped"; fi
     fi
 

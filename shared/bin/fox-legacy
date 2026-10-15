@@ -1,7 +1,10 @@
 #!/bin/bash
-# Unified FoxML Command Wrapper
+# fox-legacy — the flat fox commands (fox vpn, fox vault init, fox help dispatch, ...), which the compiled fox hands here.
+# Was ~/.local/bin/fox; the compiled fox (src/fox) took that name for its namespaces.
 
-FOXML_DIR="$HOME/code/Linux_Theme"
+# The clone `make install` recorded (src/fox-install), else the default path.
+FOXML_DIR="$(cat "$HOME/.local/share/foxml/repo-dir" 2>/dev/null)"
+[[ -d "$FOXML_DIR" ]] || FOXML_DIR="$HOME/code/Linux_Theme"
 
 if [[ ! -d "$FOXML_DIR" ]]; then
     echo "Error: FoxML directory not found at $FOXML_DIR"
@@ -114,7 +117,7 @@ case "$1" in
         ;;
     vault)
         shift
-        exec fox-vault "$@"
+        exec fox-pass "$@"   # fox-vault is the compiled in-RAM store
         ;;
     fingerprint|fp)
         shift
@@ -350,11 +353,11 @@ case "$1" in
         echo "  sec              Unified security dashboard (alerts, posture, bans, listeners, failed auth)"
         echo "  audit            Run lynis hardening audit — score (0-100) + suggestions"
         echo ""
-        echo "Per-command help: ${0##*/} help <command>   (e.g. fox help dispatch)"
+        echo "Per-command help: fox help <command>   (e.g. fox help dispatch)"
         echo ""
         echo "Custom Tools (found in ~/.local/bin):"
         for cmd in "$HOME/.local/bin/"fox-* "$HOME/.local/bin/"fask "$HOME/.local/bin/"findex "$HOME/.local/bin/"fhelp; do
-            if [[ -x "$cmd" && -f "$cmd" && "$(basename "$cmd")" != "fox-rollback" && "$(basename "$cmd")" != "fox" ]]; then
+            if [[ -x "$cmd" && -f "$cmd" && "$(basename "$cmd")" != "fox-rollback" && "$(basename "$cmd")" != "fox" && "$(basename "$cmd")" != "fox-legacy" ]]; then
                 base="$(basename "$cmd")"
                 desc=""
                 if [[ "$base" == "fask" ]]; then

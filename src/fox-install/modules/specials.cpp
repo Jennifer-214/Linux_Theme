@@ -15,6 +15,7 @@
 
 #include "../core/context.hpp"
 #include "../core/backup.hpp"
+#include "../core/built_tools.hpp"
 #include "claude_wiring.hpp"
 #include "../core/idempotency.hpp"
 #include "../../fox-common/shell.hpp"
@@ -25,6 +26,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <system_error>
@@ -409,6 +411,8 @@ struct BulkSpec {
     // Filenames to skip (nullptr-terminated). Used to exclude legacy
     // bash scripts that have been replaced by native binaries.
     const char* const* skip_names;
+    // Skip any name a src/<tool> builds (core/built_tools.hpp): never a script over a compiled tool.
+    bool skip_built_tools;
 };
 
 bool name_in_skip_list(const std::string& name, const char* const* skips) {
@@ -428,6 +432,7 @@ std::size_t deploy_dir_files(const Context& ctx, const BulkSpec& spec) {
     if (!fs::is_directory(src_root, ec)) return 0;
     fs::create_directories(dst_root);
 
+    const auto built = spec.skip_built_tools ? built_tool_names(ctx.script_dir / "src") : std::set<std::string>{};
     std::vector<fs::path> files;
     for (auto& e : fs::directory_iterator(src_root, ec)) {
         if (!e.is_regular_file()) continue;
@@ -435,6 +440,10 @@ std::size_t deploy_dir_files(const Context& ctx, const BulkSpec& spec) {
             if (e.path().extension() != spec.glob_ext) continue;
         }
         if (name_in_skip_list(e.path().filename().string(), spec.skip_names)) {
+            continue;
+        }
+        if (built.count(e.path().filename().string())) {
+            ui::warn(e.path().filename().string() + " is also a compiled tool (src/) — not copying the script over it");
             continue;
         }
         if (looks_like_shell(e.path())) {
@@ -638,11 +647,11 @@ void run_specials(Context& ctx) {
                                         "focus-pulse.sh", nullptr };
 
     static const BulkSpec BULK[] = {
-        { "shared/bin",              ".local/bin",             "",    true,  "bin tools",        nullptr },
-        { "shared/hyprland_scripts", ".config/hypr/scripts",   ".sh", true,  "hyprland scripts", HYPR_SKIPS },
-        { "shared/waybar_scripts",   ".config/waybar/scripts", ".sh", true,  "waybar scripts",   nullptr },
-        { "shared/wallpapers",       ".wallpapers",            "",    false, "wallpapers",       nullptr },
-        { "shared/pulse.d",          ".config/foxml/pulse.d",  ".sh", true,  "pulse handlers",   nullptr },
+        { "shared/bin",              ".local/bin",             "",    true,  "bin tools",        nullptr,    true  },
+        { "shared/hyprland_scripts", ".config/hypr/scripts",   ".sh", true,  "hyprland scripts", HYPR_SKIPS, false },
+        { "shared/waybar_scripts",   ".config/waybar/scripts", ".sh", true,  "waybar scripts",   nullptr,    false },
+        { "shared/wallpapers",       ".wallpapers",            "",    false, "wallpapers",       nullptr,    false },
+        { "shared/pulse.d",          ".config/foxml/pulse.d",  ".sh", true,  "pulse handlers",   nullptr,    false },
     };
     for (auto& s : BULK) deploy_dir_files(ctx, s);
 
