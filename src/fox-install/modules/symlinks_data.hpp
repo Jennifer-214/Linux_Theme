@@ -167,6 +167,8 @@ inline constexpr Mapping SHARED_MAPPINGS[] = {
     { "pi/extensions/claude-skills.ts","~/.pi/agent/extensions/claude-skills.ts" },
     { "pi/extensions/fox-trim.ts",    "~/.pi/agent/extensions/fox-trim.ts" },
     { "pi/extensions/fox-budget.ts",  "~/.pi/agent/extensions/fox-budget.ts" },
+    { "bin/fox-word-count",           "~/.local/bin/fox-word-count" },
+    { "bin/pob",                      "~/.local/bin/pob" },
 
     // Distro profile
     { "foxml-profile.json",           "~/.local/share/foxml/distro/foxml-profile.json" },
