@@ -200,6 +200,11 @@ def chat_models():
     return out
 
 
+def gradable(model):
+    """A chat model the router serves, or a ghost-text (base / fim) one — not an embedding or reranking model."""
+    return model in chat_models() or model == roles().get("fim") or "base" in model
+
+
 def in_use():
     """Why grading should wait — a chat model is in memory (someone used it within its idle time), or no router —
     or None."""
@@ -453,6 +458,9 @@ def do_pending():
         print("another grade is running"); return 0
     while True:
         names = [n for n in pending() if os.path.exists(os.path.join(GGUF_DIR, n + ".gguf"))]
+        for n in [n for n in names if not gradable(n)]:
+            print(f"{n}: not a chat or ghost-text model — no card")
+            names.remove(n)
         set_pending(names)
         if not names:
             return 0
@@ -506,6 +514,8 @@ def main(argv):
     if why == "the model server isn't running":
         print(f"fox-llm-grade: {why} — systemctl --user start fox-llm-server", file=sys.stderr); return 1
     for model in argv:
+        if not gradable(model):
+            print(f"{model}: not a chat or ghost-text model the router serves — no card"); continue
         print(f"grading {model} (every model is unloaded first — minutes per model)")
         print(grade(model))
     return 0

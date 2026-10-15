@@ -102,7 +102,7 @@ class GradeTest(unittest.TestCase):
         (llm / "roles.conf").write_text("quick qwen3.5:4b llama\nfim qwen2.5-coder:1.5b-base llama\n")
         (llm / "llama-presets.ini").write_text(
             "[*]\nflash-attn = on\n\n[qwen3.5:4b]\n; role: quick\n\n[qwen2.5-coder:1.5b-base]\n; role: fim\n\n"
-            "[qwen3.5:9b]\n; extra\n")
+            "[qwen3.5:9b]\n; extra\n\n[qwen3-reranker:0.6b]\n; extra embedding\nembeddings = true\n")
         gguf = self.home / ".local/share/fox-llm/gguf"
         gguf.mkdir(parents=True)
         for n in ("qwen3.5:9b", "qwen2.5-coder:1.5b-base"):
@@ -162,10 +162,11 @@ class GradeTest(unittest.TestCase):
     def test_pending_waits_while_a_chat_model_is_in_use_then_grades_and_says_so(self):
         state = self.home / ".local/state/fox-llm-update"
         state.mkdir(parents=True)
-        (state / "grade-pending.txt").write_text("qwen3.5:9b\nnot-downloaded:1b\n")
+        (state / "grade-pending.txt").write_text("qwen3.5:9b\nnot-downloaded:1b\nqwen3-reranker:0.6b\n")
+        (self.home / ".local/share/fox-llm/gguf/qwen3-reranker:0.6b.gguf").write_bytes(b"GGUF")      # an extra embedding
         FakeRouter.loaded.add("qwen3.5:4b")                                     # the quick model is in use
         self.assertIn("waiting: qwen3.5:4b is in use", self.run_grade("--pending"))
-        self.assertEqual((state / "grade-pending.txt").read_text(), "qwen3.5:9b\n")   # a model not there: dropped
+        self.assertEqual((state / "grade-pending.txt").read_text(), "qwen3.5:9b\n")   # gone, or no chat model: dropped
         self.assertEqual(self.scores()[1], [])
         FakeRouter.loaded.discard("qwen3.5:4b")
         self.run_grade("--pending")
