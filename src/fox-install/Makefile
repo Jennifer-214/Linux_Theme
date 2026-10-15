@@ -70,6 +70,7 @@ core/state_checks.o:    core/deps_list.hpp
 modules/deps.o:         core/deps_list.hpp
 modules/specials.o:     core/built_tools.hpp modules/nvidia_modules.hpp
 modules/hidepid.o:      modules/hidepid_check.hpp
+modules/foxml_health_boot.o: modules/foxml_health_boot_script.hpp
 
 # Sidecar lives in ../fox-monitor now. Re-tag the modules that include it
 # (directly or via personalize.hpp) so a sidecar-header edit triggers a
@@ -91,7 +92,7 @@ install: all
 	@cd ../.. && pwd > $(HOME)/.local/share/foxml/repo-dir
 	@echo "  + repo path recorded: $$(cat $(HOME)/.local/share/foxml/repo-dir)"
 
-test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_gaming tests/test_iommu tests/test_hyprlock_pin tests/test_nvidia_modules tests/test_claude_wiring tests/test_hw_autoenable tests/test_built_tools tests/test_hidepid
+test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_gaming tests/test_iommu tests/test_hyprlock_pin tests/test_nvidia_modules tests/test_claude_wiring tests/test_hw_autoenable tests/test_built_tools tests/test_hidepid tests/test_health_boot
 	@./tests/test_registry
 	@./tests/test_args
 	@./tests/test_state_manifest
@@ -110,6 +111,7 @@ test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_c
 	@./tests/test_hw_autoenable
 	@./tests/test_built_tools
 	@./tests/test_hidepid
+	@./tests/test_health_boot
 	@bash ./tests/lint_shell_assets.sh
 	@bash ./tests/lint_unit_escaping.sh
 
@@ -200,6 +202,9 @@ tests/test_subprocess_log: tests/test_subprocess_log.cpp $(FOX_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) tests/test_subprocess_log.cpp -L$(FOX_COMMON_DIR) -lfox-common -o $@
 
 # banner_font — pure glyph table + constructor. No deps beyond libstdc++.
+tests/test_health_boot: tests/test_health_boot.cpp modules/foxml_health_boot_script.hpp $(FOX_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) -DBUILD_DIR='"$(CURDIR)/tests"' tests/test_health_boot.cpp -L$(FOX_COMMON_DIR) -lfox-common -o $@
+
 tests/test_hidepid: tests/test_hidepid.cpp modules/hidepid_check.hpp
 	$(CXX) $(CXXFLAGS) tests/test_hidepid.cpp -o $@
 
@@ -213,6 +218,6 @@ tests/test_banner_font: tests/test_banner_font.cpp modules/banner_font.o
 	$(CXX) $(CXXFLAGS) tests/test_banner_font.cpp modules/banner_font.o -o $@
 
 clean:
-	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_iommu tests/test_gaming tests/test_hyprlock_pin tests/test_nvidia_modules tests/test_claude_wiring tests/test_hw_autoenable tests/test_built_tools tests/test_hidepid
+	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_iommu tests/test_gaming tests/test_hyprlock_pin tests/test_nvidia_modules tests/test_claude_wiring tests/test_hw_autoenable tests/test_built_tools tests/test_hidepid tests/test_health_boot
 
 .PHONY: all install clean test
