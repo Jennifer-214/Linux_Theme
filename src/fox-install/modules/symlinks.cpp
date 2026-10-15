@@ -11,6 +11,7 @@
 //   * dest under .oh-my-zsh  → skip when ~/.oh-my-zsh doesn't exist (caramel zsh theme)
 
 #include "../core/context.hpp"
+#include "../core/backup.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 #include "symlinks_data.hpp"
@@ -38,37 +39,6 @@ fs::path expand_tilde(const std::string& s, const fs::path& home) {
 
 bool contains(const std::string& s, const char* needle) {
     return s.find(needle) != std::string::npos;
-}
-
-// Snapshot one pre-existing file under ctx.backup_dir, preserving the
-// $HOME-relative path. Returns false ONLY when a pre-existing dest could
-// not be backed up — the caller must then refuse to overwrite it.
-// Returns true when there was nothing to preserve or the backup landed.
-bool snapshot_one(const Context& ctx, const fs::path& dest) {
-    std::error_code ec;
-    if (!fs::exists(dest, ec) || ec) return true;   // nothing to preserve
-
-    // Compute path relative to $HOME if possible — matches bash
-    // ${dest#$HOME/}. Files outside $HOME (e.g. /etc/...) go under
-    // backup_dir/_abs/ to preserve uniqueness.
-    fs::path rel;
-    std::string ds = dest.string(), hs = ctx.home.string();
-    if (ds.rfind(hs + "/", 0) == 0) {
-        rel = ds.substr(hs.size() + 1);
-    } else {
-        rel = "_abs" + ds;
-    }
-
-    fs::path bak = ctx.backup_dir / rel;
-    fs::create_directories(bak.parent_path(), ec);
-    fs::copy(dest, bak,
-             fs::copy_options::overwrite_existing |
-             fs::copy_options::copy_symlinks, ec);
-    if (ec) {
-        ui::warn("backup of " + dest.string() + " failed: " + ec.message());
-        return false;
-    }
-    return true;
 }
 
 // One file: backup + atomic copy. Preserves source permissions. Refuses

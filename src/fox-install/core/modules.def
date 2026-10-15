@@ -145,6 +145,9 @@ FOX_MODULE( ai,              run_ai,                "--ai",              "Instal
 FOX_MODULE( models,          run_models,            "--models",          "Queue the RAM-tiered models + your lists — Hugging Face, background", false )
 FOX_MODULE( opencode,        run_configure_opencode,"--opencode-config", "Generate ~/.config/opencode/{opencode,tui}.json",  true  )
 FOX_MODULE( fox_symdeps, run_fox_symdeps,  "--fox-symdeps",  "fox-symdeps.nvim + foxtag + pi wiring from your private repos (best-effort)", true )
+// theme_workspace — Linux_Theme's own .claude/ (plan gate, installer guard, skills) is git-ignored, so a fresh clone
+// lacks it; restored from the private linux-theme-workspace that github (above) clones. Best-effort, no root.
+FOX_MODULE( theme_workspace, run_theme_workspace, "--theme-workspace", "Linux_Theme's Claude wiring — plan gate, installer guard, skills — from your private linux-theme-workspace (best-effort)", true )
 FOX_MODULE( llama_server, run_llama_server, "--llama-server", "llama.cpp router — the default local model server for pi + opencode (llama-cpp + GPU backend)", false )
 FOX_MODULE( llama_turbo, run_llama_turbo, "--llama-turbo", "TurboQuant llama.cpp fork built from source — second engine for llama-turbo roles", false )
 //   gaming — opt-in Steam + [multilib]. Lifted out of `deps` so the base

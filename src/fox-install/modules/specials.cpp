@@ -14,6 +14,8 @@
 // mappings.sh::install_specials line-for-line.
 
 #include "../core/context.hpp"
+#include "../core/backup.hpp"
+#include "claude_wiring.hpp"
 #include "../core/idempotency.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
@@ -96,28 +98,6 @@ void write_json_atomic(const fs::path& dst, const json& body) {
 }
 
 bool have(const std::string& bin) { return sh::have(bin); }
-
-// Returns false ONLY when a pre-existing dest couldn't be backed up, so
-// the caller can refuse to overwrite it. True when nothing to preserve
-// or the backup succeeded.
-bool snapshot_one(const Context& ctx, const fs::path& dest) {
-    std::error_code ec;
-    if (!fs::exists(dest, ec) || ec) return true;
-    fs::path rel;
-    std::string ds = dest.string(), hs = ctx.home.string();
-    if (ds.rfind(hs + "/", 0) == 0) rel = ds.substr(hs.size() + 1);
-    else                            rel = "_abs" + ds;
-    fs::path bak = ctx.backup_dir / rel;
-    fs::create_directories(bak.parent_path(), ec);
-    fs::copy(dest, bak,
-             fs::copy_options::overwrite_existing |
-             fs::copy_options::copy_symlinks, ec);
-    if (ec) {
-        ui::warn("backup of " + dest.string() + " failed: " + ec.message());
-        return false;
-    }
-    return true;
-}
 
 bool deploy_file(const Context& ctx, const fs::path& src, const fs::path& dest) {
     std::error_code ec;
@@ -412,8 +392,9 @@ void do_claude_hooks(const Context& ctx) {
         ui::warn("Claude existing settings.json unparseable, skipping merge");
         return;
     }
-    existing.merge_patch(hooks);
-    existing["theme"] = "dark-ansi";   // force-flip to dark-ansi on every run
+    // by command, never merge_patch: a merge-patch REPLACES each hook list, erasing any hook she added herself
+    if (!merge_user_settings(existing, hooks))
+        ui::warn("Claude settings.json: \"hooks\" is not an object — its hooks left untouched");
     write_json_atomic(settings, existing);
     ui::substep("Claude settings (hooks + theme) merged");
 }
