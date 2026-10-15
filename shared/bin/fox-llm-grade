@@ -222,13 +222,16 @@ def in_use():
 
 
 def unload(model=None):
-    """Free one model, or every model in memory."""
+    """Free one model, or every model in memory but the ghost-text one: it stays resident by design (load-on-startup),
+    and with minuet's auto-trigger she may be typing into it while a model is graded."""
     try:
         rows = http("/models", timeout=5).get("data", []) if model is None else [{"aliases": [model]}]
     except (OSError, ValueError):
         return
+    keep = roles().get("fim")
     for row in rows:
-        if model is None and (row.get("status") or {}).get("value") not in ("loaded", "loading"):
+        if model is None and ((row.get("status") or {}).get("value") not in ("loaded", "loading")
+                              or keep in (row.get("aliases") or [])):
             continue
         name = (row.get("aliases") or [row.get("id")])[0]
         try:

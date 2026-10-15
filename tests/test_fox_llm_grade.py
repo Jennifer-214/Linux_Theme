@@ -154,6 +154,8 @@ class GradeTest(unittest.TestCase):
         self.assertEqual(FakeRouter.log[paths.index("/infill")][1], "qwen2.5-coder:1.5b-base")   # ghost text first
         self.assertLess(paths.index("/infill"), paths.index("/v1/chat/completions"))
         self.assertEqual(FakeRouter.log[-1], ("/models/unload", "qwen3.5:9b"))              # and freed after
+        unloaded = [m for p, m in FakeRouter.log if p == "/models/unload"]
+        self.assertNotIn("qwen2.5-coder:1.5b-base", unloaded)            # ghost text stays loaded: she may be typing
         self.assertTrue((self.home / ".cache/fox-llm-grade/qwen3.5:9b/ring-1.md").exists())
 
     def test_a_base_model_is_graded_on_ghost_text(self):
