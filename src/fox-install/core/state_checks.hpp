@@ -15,6 +15,7 @@
 #include "state_manifest.hpp"
 
 #include <string>
+#include <vector>
 
 namespace fox_install::state {
 
@@ -26,11 +27,15 @@ namespace fox_install::state {
 Classification package_classify(bool present, bool tracked,
                                 const std::string& slug, const std::string& pkg);
 
-// deps — pacman base packages. Probes for a small set of foundational
-// packages (the ones every subsequent module depends on). If the
-// manifest has no deps entry, we assume nothing has been installed.
-// If sentinels are all present, Noop; if any are missing, Update.
+// deps — pacman base packages. One `pacman -T` over every package run_deps installs (core/deps_list.hpp). If the
+// manifest has no deps entry, we assume nothing has been installed. All present → Noop; any missing → Update.
 Classification check_deps     (const Context& ctx, const Manifest& manifest);
+
+// check_deps's verdict from one `pacman -T <every deps_packages() name>` (pacman 7.1: prints each missing name, one per
+// line, and exits 127; exits 0 when all are present; a provided name counts as present). Pure, for the test.
+Classification deps_classification(int rc, const std::string& out, std::size_t total);
+// The query itself: pacman -T and every deps_packages() name.
+std::vector<std::string> deps_probe_argv();
 
 // render — templated config deploy. Compares the deployed copy of a
 // sentinel rendered file (~/.config/hypr/hyprland.conf) against the

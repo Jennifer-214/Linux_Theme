@@ -50,6 +50,11 @@ int run(const std::vector<std::string>& argv);
 // Runs argv, capturing stdout. Returns true on exit code 0.
 bool capture(const std::vector<std::string>& argv, std::string& out);
 
+// A read-only query (pacman -T, pacman -Qi, ...): runs even in a dry run, so a state check reports what's really
+// there, and captures stdout like capture() (stderr goes to the install log when one is set). Returns the exit code:
+// 127 when argv[0] couldn't be run, -1 when it couldn't fork. Never for anything that changes the system.
+int probe(const std::vector<std::string>& argv, std::string& out);
+
 // True if `bin` is an executable file reachable through $PATH. Pure
 // access(X_OK) walk — no shell, no `command -v`, no injection surface
 // even if `bin` somehow comes from untrusted input. An absolute or

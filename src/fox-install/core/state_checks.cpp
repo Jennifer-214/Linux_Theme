@@ -1,4 +1,5 @@
 #include "state_checks.hpp"
+#include "deps_list.hpp"
 
 #include "../../fox-common/shell.hpp"
 
@@ -23,10 +24,12 @@ bool pacman_installed(const std::string& pkg) {
     // pass pkg as a positional argument ($1) so it stays out of shell
     // parsing — pkg comes from the on-disk manifest which a user could
     // craft if they edited it by hand.
-    return sh::run({"sh", "-c",
-                    "pacman -Qi \"$1\" >/dev/null 2>&1",
-                    "sh",          // $0
-                    pkg}) == 0;   // $1 — safe positional substitution
+    // sh::probe, not sh::run: a dry run answers from the real system instead of "installed".
+    std::string out;
+    return sh::probe({"sh", "-c",
+                      "pacman -Qi \"$1\" >/dev/null 2>&1",
+                      "sh",          // $0
+                      pkg}, out) == 0;   // $1 — safe positional substitution
 }
 
 // systemctl_is_enabled — returns one of {"enabled","disabled","masked",
@@ -51,23 +54,32 @@ Classification check_deps(const Context& /*ctx*/, const Manifest& manifest) {
         return {Status::Fresh, "deps has not run yet"};
     }
 
-    // Sentinel set: the packages every later module assumes are present.
-    // If any of these is missing, deps' work has been undone (e.g.
-    // pacman -R, a partial uninstall, an Arch downgrade) and we need to
-    // re-run regardless of the stored hash.
-    static const std::vector<std::string> sentinels = {
-        "hyprland", "kitty", "neovim", "waybar", "firefox",
-    };
+    // Every package run_deps installs, in one read-only query (installer audit 2026-10-15: five sentinels meant --full
+    // never installed packages added to the list later). sh::probe runs in a dry run too, so the preview is real.
+    std::string out;
+    return deps_classification(sh::probe(deps_probe_argv(), out), out, deps_packages().size());
+}
+
+std::vector<std::string> deps_probe_argv() {
+    std::vector<std::string> argv = {"pacman", "-T"};
+    argv.insert(argv.end(), deps_packages().begin(), deps_packages().end());
+    return argv;
+}
+
+Classification deps_classification(int rc, const std::string& out, std::size_t total) {
+    if (rc == 0) return {Status::Noop, "all " + std::to_string(total) + " base packages present"};
     std::vector<std::string> missing;
-    for (const auto& p : sentinels) {
-        if (!pacman_installed(p)) missing.push_back(p);
+    std::istringstream lines(out);
+    for (std::string l; std::getline(lines, l);) {
+        if (!l.empty()) missing.push_back(l);
     }
-    if (!missing.empty()) {
-        std::string reason = "missing sentinel packages:";
-        for (const auto& m : missing) { reason += ' '; reason += m; }
-        return {Status::Update, reason};
+    if (rc != 127 || missing.empty()) {
+        return {Status::Update, "couldn't check the base packages (pacman -T exit " + std::to_string(rc) + ")"};
     }
-    return {Status::Noop, "sentinel packages present"};
+    std::string reason = std::to_string(missing.size()) + " of " + std::to_string(total) + " base packages missing:";
+    for (std::size_t i = 0; i < missing.size() && i < 8; ++i) reason += " " + missing[i];
+    if (missing.size() > 8) reason += " …";
+    return {Status::Update, reason};
 }
 
 std::string render_inputs_hash(const Context& ctx) {

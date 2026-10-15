@@ -130,16 +130,16 @@ int run(const std::vector<std::string>& argv) {
     return do_run(v);
 }
 
-bool capture(const std::vector<std::string>& argv, std::string& out) {
+int probe(const std::vector<std::string>& argv, std::string& out) {
     out.clear();
     int p[2];
-    if (::pipe(p) < 0) return false;
+    if (::pipe(p) < 0) return -1;
     int log_fd = open_stderr_log();
     pid_t pid = ::fork();
     if (pid < 0) {
         ::close(p[0]); ::close(p[1]);
         if (log_fd >= 0) ::close(log_fd);
-        return false;
+        return -1;
     }
     if (pid == 0) {
         ::close(p[0]);
@@ -168,9 +168,13 @@ bool capture(const std::vector<std::string>& argv, std::string& out) {
     ::close(p[0]);
     int status = 0;
     while (::waitpid(pid, &status, 0) < 0) {
-        if (errno != EINTR) return false;
+        if (errno != EINTR) return -1;
     }
-    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+
+bool capture(const std::vector<std::string>& argv, std::string& out) {
+    return probe(argv, out) == 0;
 }
 
 bool write_root_atomic(const std::filesystem::path& dst,

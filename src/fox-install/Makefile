@@ -64,6 +64,13 @@ $(FOX_MONITOR_LIB):
 # modules.def edit triggers a rebuild.
 core/registry.o: core/registry.cpp core/module.hpp core/modules.def
 
+# Header-only helpers: re-tag their includers so an edit to one rebuilds them (no -MMD here).
+fox-install.o:          core/hw_autoenable.hpp
+core/state_checks.o:    core/deps_list.hpp
+modules/deps.o:         core/deps_list.hpp
+modules/specials.o:     core/built_tools.hpp modules/nvidia_modules.hpp
+modules/hidepid.o:      modules/hidepid_check.hpp
+
 # Sidecar lives in ../fox-monitor now. Re-tag the modules that include it
 # (directly or via personalize.hpp) so a sidecar-header edit triggers a
 # rebuild — the generic %.o rule alone won't see the cross-dir header.

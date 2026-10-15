@@ -7,7 +7,10 @@
 // covered by integration testing, not here.
 
 #include "../core/state_checks.hpp"
+#include "../core/deps_list.hpp"
+#include "../../fox-common/shell.hpp"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -45,6 +48,38 @@ int main() {
         auto cls = state::check_deps(ctx, empty);
         EXPECT(cls.status == state::Status::Fresh);
         EXPECT(!cls.reason.empty());
+    }
+
+    // T1b–e: deps over its whole list (installer audit 2026-10-15), from pacman -T's output as pacman 7.1 gives it.
+    {
+        auto all = state::deps_classification(0, "", 97);
+        EXPECT(all.status == state::Status::Noop);
+        auto two = state::deps_classification(127, "difftastic\ngit-absorb\n", 97);
+        EXPECT(two.status == state::Status::Update);
+        EXPECT(two.reason.find("2 of 97") != std::string::npos);
+        EXPECT(two.reason.find("difftastic git-absorb") != std::string::npos);
+        auto noexec = state::deps_classification(127, "", 97);   // pacman itself couldn't run
+        EXPECT(noexec.status == state::Status::Update);
+        EXPECT(noexec.reason.find("couldn't check") != std::string::npos);
+        auto other = state::deps_classification(1, "", 97);
+        EXPECT(other.status == state::Status::Update);
+        // the query covers the whole list, not a few sentinels
+        auto argv = state::deps_probe_argv();
+        EXPECT(argv.size() == 2 + deps_packages().size());
+        EXPECT(deps_packages().size() > 50);
+        EXPECT(std::find(argv.begin(), argv.end(), "difftastic") != argv.end());
+    }
+
+    // T1f: sh::probe runs a read-only query even in a dry run, and returns the exit code with stdout;
+    // sh::run, by contrast, only prints there and answers 0.
+    {
+        sh::set_dry_run(true);
+        std::string out;
+        EXPECT(sh::probe({"sh", "-c", "echo hi; exit 3"}, out) == 3);
+        EXPECT(out == "hi\n");
+        EXPECT(sh::probe({"/nonexistent/fox-probe-test"}, out) == 127);
+        EXPECT(sh::run({"sh", "-c", "exit 3"}) == 0);
+        sh::set_dry_run(false);
     }
 
     // T2: render with no manifest entry AND no deployed file → Fresh.
