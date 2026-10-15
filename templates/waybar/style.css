@@ -331,7 +331,8 @@ window#waybar > box {
    alert reads louder than the calm baseline. */
 #custom-cpu.warning,
 #memory.warning,
-#custom-disk.warning {
+#custom-disk.warning,
+#custom-gpu.warning {
     color: #{{YELLOW}};
     font-weight: bold;
     text-shadow: 0 0 6px rgba({{YELLOW_R}},{{YELLOW_G}},{{YELLOW_B}}, 0.4);

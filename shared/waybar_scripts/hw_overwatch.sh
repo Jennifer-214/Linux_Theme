@@ -32,7 +32,9 @@ emit() {
 
 # ─── GPU: NVIDIA pegged by unknown process ────────────────────────
 gpu_findings=""
-if command -v nvidia-smi >/dev/null 2>&1; then
+# NVIDIA updated without a reboot: nvidia-smi can only fail (each call a kernel log entry) — no GPU scan until then
+nv_state=$("${FOX_NVIDIA_STATE:-$HOME/.local/bin/fox-nvidia-state}" 2>/dev/null)
+if command -v nvidia-smi >/dev/null 2>&1 && [[ ${nv_state%% *} != mismatch ]]; then
     # Returns "pid,process_name,used_memory" CSV per process holding the
     # GPU. Anything outside the known-ok allow-list at >1GB VRAM is a
     # flag candidate (cryptominer / surprise ML workload).

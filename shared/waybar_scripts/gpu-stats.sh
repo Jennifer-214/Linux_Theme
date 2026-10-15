@@ -27,6 +27,14 @@ if [[ "$state" != "active" ]]; then
     exit 0
 fi
 
+# NVIDIA updated without a reboot: nvidia-smi can only fail (each call a kernel log entry) — say "reboot" instead,
+# without asking it (fox-nvidia-state asks once per boot or update; shared with the other GPU modules).
+read -r nv_state nv_mod nv_lib < <("${FOX_NVIDIA_STATE:-$HOME/.local/bin/fox-nvidia-state}" 2>/dev/null)
+if [[ ${nv_state:-} == mismatch ]]; then
+    printf '{"text":"%s ⚠ reboot","tooltip":"NVIDIA was updated without a reboot (kernel module %s, driver library %s): GPU tools fail, and windows opened since then draw on the CPU. Reboot to load the new driver.","class":"warning"}\n' "$ICON" "$nv_mod" "$nv_lib"
+    exit 0
+fi
+
 # Single nvidia-smi call. On hybrid setups it can fail with a driver-comms error
 # and print that to stdout, not stderr — so validate exit code AND numeric values.
 output=$(nvidia-smi --query-gpu=temperature.gpu,utilization.gpu --format=csv,noheader,nounits 2>/dev/null)

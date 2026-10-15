@@ -1,0 +1,56 @@
+#!/bin/bash
+# fox-nvidia-state — can nvidia-smi be asked right now? One answer for every bar module that polls it (2026-10-15).
+# Prints one line:
+#   ok                                     no mismatch known (the caller asks nvidia-smi as before)
+#   none                                   no nvidia-smi here
+#   mismatch <kernel module> <driver lib>  NVIDIA was updated without a reboot
+#
+# An NVIDIA update without a reboot leaves the old kernel module loaded under the new driver libraries: every
+# nvidia-smi call then fails ("Driver/library version mismatch") and leaves an entry in the kernel log, and every GL
+# program started since draws on the CPU. The bar's GPU modules polled it every 2-15 s (~2,500 failed calls an hour,
+# 2026-10-13..15) and showed nothing wrong. The answer is kept in the runtime dir, which a reboot empties, keyed by
+# the NVML library's real file: an update replaces that file, so the question is asked again at once; until then a
+# mismatch is never asked again. fox-ai-status keeps the same facts (the same variables) for its own VRAM line.
+#
+# Test overrides: FOX_NVIDIA_SMI, FOX_NVML_LIB, FOX_NVIDIA_VERSION (as fox-ai-status), XDG_RUNTIME_DIR.
+set -u
+
+smi="${FOX_NVIDIA_SMI:-nvidia-smi}"
+if ! command -v "$smi" >/dev/null 2>&1; then
+    echo none
+    exit 0
+fi
+
+cache_dir="${XDG_RUNTIME_DIR:-/tmp}/foxml-waybar"
+state_file="$cache_dir/nvidia-state"             # "ok|<nvml lib>" | "mismatch|<nvml lib>|<module>|<library>"
+lib=$(readlink -f "${FOX_NVML_LIB:-/usr/lib/libnvidia-ml.so.1}" 2>/dev/null)
+
+say() {
+    case "$1" in
+        mismatch) echo "mismatch ${3:-?} ${4:-?}" ;;
+        *) echo ok ;;
+    esac
+}
+
+if [[ -r $state_file ]]; then
+    IFS='|' read -r st cached_lib mod drv < "$state_file"
+    if [[ -n ${st:-} && ${cached_lib:-} == "$lib" ]]; then
+        say "$st" "$cached_lib" "${mod:-}" "${drv:-}"
+        exit 0
+    fi
+fi
+
+# one question per boot, or per update: the cheapest call (it lists the GPUs)
+out=$("$smi" -L 2>&1)
+if grep -q 'version mismatch' <<<"$out"; then
+    mod=$(grep -oP '\b[0-9]{3}\.[0-9]+(\.[0-9]+)?\b' "${FOX_NVIDIA_VERSION:-/proc/driver/nvidia/version}" 2>/dev/null | head -1)
+    drv=$(grep -oP 'NVML library version: \K[0-9.]+' <<<"$out" | head -1)
+    state="mismatch|$lib|${mod:-?}|${drv:-?}"
+else
+    state="ok|$lib"
+fi
+if mkdir -p "$cache_dir" 2>/dev/null; then
+    printf '%s\n' "$state" > "$state_file.$$" && mv -f "$state_file.$$" "$state_file"   # atomic: a reader sees one or the other
+fi
+IFS='|' read -r st cached_lib mod drv <<<"$state"
+say "$st" "$cached_lib" "${mod:-}" "${drv:-}"
