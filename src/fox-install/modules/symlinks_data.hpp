@@ -164,6 +164,8 @@ inline constexpr Mapping SHARED_MAPPINGS[] = {
     { "pi/extensions/fox-guard.ts",   "~/.pi/agent/extensions/fox-guard.ts" },
     { "pi/extensions/fox-notify.ts",  "~/.pi/agent/extensions/fox-notify.ts" },
     { "pi/extensions/claude-skills.ts","~/.pi/agent/extensions/claude-skills.ts" },
+    { "pi/extensions/fox-trim.ts",    "~/.pi/agent/extensions/fox-trim.ts" },
+    { "pi/extensions/fox-budget.ts",  "~/.pi/agent/extensions/fox-budget.ts" },
 
     // Distro profile
     { "foxml-profile.json",           "~/.local/share/foxml/distro/foxml-profile.json" },
