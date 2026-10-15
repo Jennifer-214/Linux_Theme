@@ -84,7 +84,7 @@ install: all
 	@cd ../.. && pwd > $(HOME)/.local/share/foxml/repo-dir
 	@echo "  + repo path recorded: $$(cat $(HOME)/.local/share/foxml/repo-dir)"
 
-test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_gaming tests/test_iommu tests/test_hyprlock_pin tests/test_nvidia_modules tests/test_claude_wiring
+test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_gaming tests/test_iommu tests/test_hyprlock_pin tests/test_nvidia_modules tests/test_claude_wiring tests/test_hw_autoenable
 	@./tests/test_registry
 	@./tests/test_args
 	@./tests/test_state_manifest
@@ -100,6 +100,7 @@ test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_c
 	@./tests/test_hyprlock_pin
 	@./tests/test_nvidia_modules
 	@./tests/test_claude_wiring
+	@./tests/test_hw_autoenable
 	@bash ./tests/lint_shell_assets.sh
 	@bash ./tests/lint_unit_escaping.sh
 
@@ -190,10 +191,13 @@ tests/test_subprocess_log: tests/test_subprocess_log.cpp $(FOX_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) tests/test_subprocess_log.cpp -L$(FOX_COMMON_DIR) -lfox-common -o $@
 
 # banner_font — pure glyph table + constructor. No deps beyond libstdc++.
+tests/test_hw_autoenable: tests/test_hw_autoenable.cpp core/hw_autoenable.hpp
+	$(CXX) $(CXXFLAGS) tests/test_hw_autoenable.cpp -o $@
+
 tests/test_banner_font: tests/test_banner_font.cpp modules/banner_font.o
 	$(CXX) $(CXXFLAGS) tests/test_banner_font.cpp modules/banner_font.o -o $@
 
 clean:
-	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_iommu tests/test_gaming tests/test_hyprlock_pin tests/test_nvidia_modules tests/test_claude_wiring
+	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_iommu tests/test_gaming tests/test_hyprlock_pin tests/test_nvidia_modules tests/test_claude_wiring tests/test_hw_autoenable
 
 .PHONY: all install clean test

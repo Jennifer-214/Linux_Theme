@@ -8,6 +8,7 @@
 
 #include "core/args.hpp"
 #include "core/context.hpp"
+#include "core/hw_autoenable.hpp"
 #include "core/install_lock.hpp"
 #include "core/module.hpp"
 #include "core/state_manifest.hpp"
@@ -281,33 +282,15 @@ int main(int argc, char** argv) {
                     }
                 }
             } else {
-                // Default / --full: hardware modules mirror detection.
-                int k;
-                if ((k = find_idx("nvidia"))             >= 0) parsed.module_enabled[k] = false;
-                if ((k = find_idx("amd_gpu"))            >= 0) parsed.module_enabled[k] = false;
-                if ((k = find_idx("intel_gpu"))          >= 0) parsed.module_enabled[k] = false;
-                // The fingerprint chain is atomic + hardware-gated: present →
-                // all four on, absent → all four off (even under --full, so we
-                // never wire pam_fprintd on a box with no reader).
-                if ((k = find_idx("fprint"))             >= 0) parsed.module_enabled[k] = false;
-                if ((k = find_idx("fprint_pam"))         >= 0) parsed.module_enabled[k] = false;
-                if ((k = find_idx("greetd_fingerprint")) >= 0) parsed.module_enabled[k] = false;
-                if ((k = find_idx("sudo_fingerprint"))   >= 0) parsed.module_enabled[k] = false;
-
-                if (ctx.has_nvidia)    enable_slug("nvidia");
-                if (ctx.has_amd_gpu)   enable_slug("amd_gpu");
-                if (ctx.has_intel_gpu) enable_slug("intel_gpu");
-                if (ctx.has_fprint) {
-                    // fprint installs the daemon + enrolls; the three PAM
-                    // modules splice pam_fprintd `sufficient` (password always
-                    // falls through). Safe to auto-enable: each self-skips on
-                    // unenrolled readers / unsafe PAM stacks (B1/B2 gates), and
-                    // recovery_entry guarantees a console escape hatch.
-                    enable_slug("fprint");
-                    enable_slug("fprint_pam");
-                    enable_slug("greetd_fingerprint");
-                    enable_slug("sudo_fingerprint");
+                // Default / --full: hardware modules mirror detection. Every gated one goes off — even under --full,
+                // so pam_fprintd is never wired on a box with no reader — then core/hw_autoenable.hpp says which the
+                // detected hardware turns back on (not greetd_fingerprint: it lacks its siblings' PAM gates).
+                for (const char* slug : hw_gated_slugs()) {
+                    int k = find_idx(slug);
+                    if (k >= 0) parsed.module_enabled[k] = false;
                 }
+                const HwPresent hw{ctx.has_nvidia, ctx.has_amd_gpu, ctx.has_intel_gpu, ctx.has_fprint};
+                for (const char* slug : auto_enabled(hw)) enable_slug(slug);
             }
         }
     }
