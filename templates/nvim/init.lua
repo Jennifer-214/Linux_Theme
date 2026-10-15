@@ -755,7 +755,10 @@ local plugins = {
                 name = "llamacpp",
                 formatted_name = "llama.cpp",
                 env = { url = "http://127.0.0.1:8080", api_key = "none" },
-                schema = { model = { default = quick_model } },
+                -- the model list is the roles file's, never fetched: CodeCompanion fetches it SYNCHRONOUSLY (plenary
+                -- curl, sync = true), and when the router is down or busy that froze the editor ~20 s, then threw an
+                -- error from a callback its pcall cannot catch (2026-10-14: chat → :q → "it stopped working")
+                schema = { model = { default = quick_model, choices = { quick_model, role_model("agent", quick_model) } } },
               })
             end,
           },
