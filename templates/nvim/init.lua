@@ -2307,7 +2307,9 @@ lsp.config("*", { capabilities = require("cmp_nvim_lsp").default_capabilities() 
 
 lsp.config.clangd  = {
   -- absolute path: Mason prepends its bin to PATH, so a bare "clangd" could pick a stale Mason copy
-  cmd = { system_clangd and "/usr/bin/clangd" or "clangd" },
+  -- --log=error: nvim's LSP log keeps every line clangd writes to its stderr, and at clangd's default level that grew the
+  -- log to 215 MB in a day (2026-10-15); errors are still logged
+  cmd = { system_clangd and "/usr/bin/clangd" or "clangd", "--log=error" },
   root_markers = { "compile_commands.json", "CMakeLists.txt", "Makefile", ".clangd" },
 }
 
