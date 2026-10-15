@@ -1,0 +1,518 @@
+#!/usr/bin/env python3
+"""fox-llm-grade — a model's report card on this machine: how fast it reads and writes, whether its C++ compiles and
+passes a test harness, whether its tool calls parse, and, for a base (ghost-text) model, whether it stops at the gap.
+
+  fox-llm-grade MODEL...       grade now. Every model is unloaded first, then the ghost-text model loads, then the one
+                               graded — each gets the GPU as it would in use. It takes minutes per model.
+  fox-llm-grade --pending      grade the models waiting in the list, one at a time, only while no chat model is in use
+  fox-llm-grade --queue [NAME] put NAME on the list (fox-llm-update does when a download lands) and start --pending
+                               in the background
+  fox-llm-grade --report       the latest card per model, and what each role would get by these numbers
+
+Scores go to ~/.local/state/fox-llm-update/grades.tsv (run, llama.cpp build, model, file, metric, value); the answers it
+graded to ~/.cache/fox-llm-grade/<model>/. It suggests a role change and never makes one. Chat tasks run with thinking
+off, as the quick role and the fox-ai tools use it.
+"""
+import fcntl
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+
+HOME = os.path.expanduser("~")
+CONF = os.environ.get("XDG_CONFIG_HOME") or os.path.join(HOME, ".config")
+LLM_DIR = os.path.join(CONF, "foxml", "llm")
+STATE = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.join(HOME, ".local/state"), "fox-llm-update")
+WORK = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.join(HOME, ".cache"), "fox-llm-grade")   # not /tmp: noexec
+GGUF_DIR = os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.join(HOME, ".local/share"), "fox-llm", "gguf")
+URL = os.environ.get("FOX_LLM_URL", "http://127.0.0.1:8080")
+SCORES, PENDING = os.path.join(STATE, "grades.tsv"), os.path.join(STATE, "grade-pending.txt")
+RUNS = int(os.environ.get("FOX_LLM_GRADE_RUNS") or 3)   # each C++ task: one lucky or unlucky answer decides nothing
+
+# ── the C++ tasks: what the model is asked, and a harness that prints "<passed>/<cases>" and fails on any miss ──
+TAIL = "Include the headers it needs. Output only the code in one ```cpp block, no main()."
+TASKS = {
+    "top_k": ("Write a C++17 function with exactly this signature:\nstd::vector<int> top_k(const std::vector<int>& v, int k);\n"
+              "It returns the k largest values of v in descending order (all of v, sorted descending, when k >= v.size(); "
+              "empty when k <= 0). " + TAIL, r'''
+#include <algorithm>
+#include <cstdio>
+#include <random>
+#include <vector>
+std::vector<int> top_k(const std::vector<int>& v, int k);
+int main() {
+    std::mt19937 rng(7); int bad = 0, n = 0;
+    for (int t = 0; t < 200; ++t, ++n) {
+        std::vector<int> v(rng() % 30); for (auto& x : v) x = int(rng() % 41) - 20;
+        int k = int(rng() % 35) - 3;
+        std::vector<int> want = v; std::sort(want.rbegin(), want.rend());
+        if (k <= 0) want.clear(); else if ((size_t)k < want.size()) want.resize(k);
+        if (top_k(v, k) != want) ++bad;
+    }
+    std::printf("%d/%d\n", n - bad, n); return bad != 0;
+}'''),
+    "next_pow2": ("Write a C++17 function with exactly this signature:\nstd::uint64_t next_pow2(std::uint64_t x);\n"
+                  "It returns the smallest power of two that is greater than or equal to x; next_pow2(0) returns 1. When "
+                  "that power of two does not fit in 64 bits (x > 2^63) it returns 0. " + TAIL, r'''
+#include <cstdint>
+#include <cstdio>
+#include <random>
+std::uint64_t next_pow2(std::uint64_t x);
+static std::uint64_t want(std::uint64_t x) {
+    if (x <= 1) return 1;
+    if (x > (1ULL << 63)) return 0;
+    std::uint64_t p = 1; while (p < x) p <<= 1; return p;
+}
+int main() {
+    const std::uint64_t cases[] = {0, 1, 2, 3, 4, 5, 7, 8, 9, 1023, 1024, 1025, (1ULL << 32) - 1, 1ULL << 32,
+                                   (1ULL << 32) + 1, (1ULL << 63) - 1, 1ULL << 63, (1ULL << 63) + 1, ~0ULL};
+    int bad = 0, n = 0;
+    for (auto x : cases) { ++n; if (next_pow2(x) != want(x)) ++bad; }
+    std::mt19937_64 rng(11);
+    for (int i = 0; i < 1000; ++i) { std::uint64_t x = rng() >> (rng() % 64); ++n; if (next_pow2(x) != want(x)) ++bad; }
+    std::printf("%d/%d\n", n - bad, n); return bad != 0;
+}'''),
+    "parse_price": ("Write a C++17 function with exactly this signature:\nbool parse_price(const char* s, std::int64_t* out);\n"
+                    "It parses a decimal price into integer ticks of 0.0001, so \"12.5\" gives 125000, \"0.0001\" gives 1 and "
+                    "\"-7\" gives -70000. The accepted form is an optional '-', then one or more digits, then optionally a "
+                    "'.' followed by one to four digits, and nothing else. On success it stores the ticks in *out and "
+                    "returns true. For anything else it returns false and leaves *out unchanged: an empty string, a '+' "
+                    "sign, spaces, letters, a '.' without digits on both sides, more than four decimals, or a value whose "
+                    "ticks do not fit in std::int64_t. " + TAIL, r'''
+#include <cstdint>
+#include <cstdio>
+bool parse_price(const char* s, std::int64_t* out);
+struct Case { const char* s; bool ok; std::int64_t ticks; };
+int main() {
+    const std::int64_t MAX = 9223372036854775807LL, SENT = 0x5a5a5a5a5a5a5a5aLL;
+    const Case cases[] = {
+        {"12.5", true, 125000}, {"0.0001", true, 1}, {"-7", true, -70000}, {"7", true, 70000}, {"0", true, 0},
+        {"00012.5000", true, 125000}, {"-0.5", true, -5000}, {"123.4567", true, 1234567}, {"-0", true, 0},
+        {"922337203685477.5807", true, MAX}, {"-922337203685477.5807", true, -MAX},
+        {"", false, 0}, {"-", false, 0}, {"+1", false, 0}, {" 1", false, 0}, {"1 ", false, 0}, {"1.", false, 0},
+        {".5", false, 0}, {"-.5", false, 0}, {"1.23456", false, 0}, {"abc", false, 0}, {"1a", false, 0},
+        {"1..2", false, 0}, {"--1", false, 0}, {"1e5", false, 0}, {"922337203685477.5808", false, 0},
+        {"99999999999999999999", false, 0}, {"1.2.3", false, 0}};
+    int bad = 0, n = 0;
+    for (const Case& c : cases) {
+        ++n; std::int64_t out = SENT; bool ok = parse_price(c.s, &out);
+        if (ok != c.ok || out != (c.ok ? c.ticks : SENT)) ++bad;
+    }
+    std::printf("%d/%d\n", n - bad, n); return bad != 0;
+}'''),
+    "merge_intervals": ("Write a C++17 function with exactly this signature:\n"
+                        "std::vector<std::pair<int, int>> merge_intervals(std::vector<std::pair<int, int>> v);\n"
+                        "Each pair is a closed interval [first, second] with first <= second, in any order. Return their "
+                        "union as non-overlapping intervals sorted by first. Two intervals merge when the later-starting "
+                        "one starts at or before the other's end, so [1,3] and [3,5] become [1,5] while [1,3] and [4,6] "
+                        "stay apart. An empty input gives an empty result. " + TAIL, r'''
+#include <algorithm>
+#include <cstdio>
+#include <random>
+#include <utility>
+#include <vector>
+std::vector<std::pair<int, int>> merge_intervals(std::vector<std::pair<int, int>> v);
+static std::vector<std::pair<int, int>> want(std::vector<std::pair<int, int>> v) {
+    std::sort(v.begin(), v.end()); std::vector<std::pair<int, int>> r;
+    for (auto& p : v) { if (!r.empty() && p.first <= r.back().second) r.back().second = std::max(r.back().second, p.second); else r.push_back(p); }
+    return r;
+}
+int main() {
+    std::mt19937 rng(5); int bad = 0, n = 0;
+    for (int t = 0; t < 300; ++t, ++n) {
+        std::vector<std::pair<int, int>> v(rng() % 20);
+        for (auto& p : v) { int a = int(rng() % 101) - 50, b = a + int(rng() % 12); p = {a, b}; }
+        if (merge_intervals(v) != want(v)) ++bad;
+    }
+    std::printf("%d/%d\n", n - bad, n); return bad != 0;
+}'''),
+    "ring": ("Write a C++17 class template:\ntemplate <typename T, std::size_t N> class Ring;\nA fixed-capacity FIFO queue "
+             "that holds at most N elements (N >= 1, not necessarily a power of two) in a member array, with no heap "
+             "allocation. Public members: bool push(const T& v) adds v at the back, or returns false and changes nothing "
+             "when full; bool pop(T& out) moves the front element into out, or returns false and leaves out unchanged "
+             "when empty; std::size_t size() const; bool empty() const; bool full() const. Single-threaded. " + TAIL, r'''
+#include <cstddef>
+#include <cstdio>
+#include <deque>
+#include <random>
+template <std::size_t N> static int run(unsigned seed, int& n) {
+    Ring<int, N> r; std::deque<int> ref; std::mt19937 rng(seed); int bad = 0;
+    for (int i = 0; i < 2000; ++i, ++n) {
+        if (rng() % 2) {
+            int v = int(rng() % 1000); bool want = ref.size() < N; bool ok = r.push(v);
+            if (want) ref.push_back(v);
+            if (ok != want) { ++bad; continue; }
+        } else {
+            int out = -1; bool want = !ref.empty(); bool ok = r.pop(out);
+            if (ok != want || (want ? out != ref.front() : out != -1)) { ++bad; if (want) ref.pop_front(); continue; }
+            if (want) ref.pop_front();
+        }
+        if (r.size() != ref.size() || r.empty() != ref.empty() || r.full() != (ref.size() == N)) ++bad;
+    }
+    return bad;
+}
+int main() {
+    int n = 0, bad = run<1>(1, n) + run<3>(2, n) + run<8>(3, n) + run<5>(4, n);
+    std::printf("%d/%d\n", n - bad, n); return bad != 0;
+}'''),
+}
+SPEED_PROMPT = "".join(h for _, h in TASKS.values()) + "\n\nExplain what this code does in three sentences."
+FIM = ("int add(int a, int b) {\n    return ", ";\n}\n")
+TOOLS = [{"type": "function", "function": {"name": "read_file", "description": "Read a text file from the project",
+          "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}}}]
+
+
+def http(path, body=None, timeout=1800):
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(URL + path, data, {"Content-Type": "application/json"} if data else {})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return json.load(r)
+
+
+def roles():
+    """{role: model} from the first roles file there is — the lookup fox-llm-serve and fox-llm-run use."""
+    for f in (os.path.join(LLM_DIR, "roles.conf"), os.path.join(HOME, "code/custom_models/roles.conf"),
+              os.path.join(LLM_DIR, "roles.default")):
+        try:
+            lines = open(f).read().splitlines()
+        except OSError:
+            continue
+        return {p[0]: p[1] for p in (l.split() for l in lines) if len(p) >= 2 and not p[0].startswith("#")}
+    return {}
+
+
+def chat_models():
+    """The chat models the main router serves (its preset), the ghost-text and embedding ones left out."""
+    try:
+        text = open(os.path.join(LLM_DIR, "llama-presets.ini")).read()
+    except OSError:
+        return set()
+    out = set()
+    for sec in re.split(r"\n(?=\[)", text):
+        m = re.match(r"\[([^\]]+)\]", sec)
+        if m and m.group(1) != "*" and "embedding" not in sec and not re.search(r"^; role: (fim|embed)\b", sec, re.M):
+            out.add(m.group(1))
+    return out
+
+
+def in_use():
+    """Why grading should wait — a chat model is in memory (someone used it within its idle time), or no router —
+    or None."""
+    try:
+        rows = http("/models", timeout=5).get("data", [])
+    except (OSError, ValueError):
+        return "the model server isn't running"
+    chat = chat_models()
+    for row in rows:
+        if (row.get("status") or {}).get("value") in ("loaded", "loading"):
+            names = set(row.get("aliases") or []) | {row.get("id")}
+            if names & chat:
+                return f"{sorted(names & chat)[0]} is in use"
+    return None
+
+
+def unload(model=None):
+    """Free one model, or every model in memory."""
+    try:
+        rows = http("/models", timeout=5).get("data", []) if model is None else [{"aliases": [model]}]
+    except (OSError, ValueError):
+        return
+    for row in rows:
+        if model is None and (row.get("status") or {}).get("value") not in ("loaded", "loading"):
+            continue
+        name = (row.get("aliases") or [row.get("id")])[0]
+        try:
+            http("/models/unload", {"model": name}, timeout=60)
+        except (OSError, ValueError):
+            pass
+    time.sleep(2)
+
+
+def yield_cpu(model):
+    """Lower the graded model's server process to nice 19, so an editor in use keeps the CPU (2026-10-15: a benchmark at
+    nice 0 lagged her nvim). The router's own model processes are hers; only this one, for this run, and it is unloaded
+    after. Its port is in the router's /models entry; the process listening there carries it on its command line."""
+    try:
+        rows = http("/models", timeout=5).get("data", [])
+        args = next(((r.get("status") or {}).get("args", []) for r in rows if model in (r.get("aliases") or [])), [])
+        port = args[args.index("--port") + 1] if "--port" in args else None
+        for pid in filter(str.isdigit, os.listdir("/proc")) if port else []:
+            try:
+                cmd = open(f"/proc/{pid}/cmdline", "rb").read().split(b"\0")
+            except OSError:
+                continue
+            if cmd and cmd[0].endswith(b"llama-server") and b"--port" in cmd and \
+                    cmd[cmd.index(b"--port") + 1] == port.encode():
+                os.setpriority(os.PRIO_PROCESS, int(pid), 19)
+    except (OSError, ValueError, IndexError):
+        pass
+
+
+def chat(model, prompt, max_tokens, tools=None):
+    body = {"model": model, "max_tokens": max_tokens, "temperature": 0.2, "stream": False,
+            "messages": [{"role": "user", "content": prompt}], "chat_template_kwargs": {"enable_thinking": False}}
+    if tools:
+        body["tools"] = tools
+    return http("/v1/chat/completions", body)
+
+
+def compiler():
+    return shutil.which("g++") or shutil.which("clang++")
+
+
+def run_task(name, answer, outdir, n):
+    """(passed, what) for one answer: its first code block plus the harness, built with sanitizers, then run."""
+    code = (re.findall(r"```(?:cpp|c\+\+|cxx|cc)?[ \t]*\n(.*?)```", answer, re.S) or [answer])[0]
+    src, exe = os.path.join(outdir, f"{name}-{n}.cpp"), os.path.join(outdir, f"{name}-{n}")
+    with open(src, "w") as f:
+        f.write(code + "\n" + TASKS[name][1] + "\n")
+    c = subprocess.run([compiler(), "-std=c++20", "-O1", "-w", "-fsanitize=address,undefined",
+                        "-fno-sanitize-recover=all", "-o", exe, src], capture_output=True, text=True, timeout=120)
+    if c.returncode:
+        with open(src + ".log", "w") as f:
+            f.write(c.stderr[-4000:])
+        return False, "no compile"
+    try:
+        r = subprocess.run([exe], capture_output=True, text=True, timeout=30,
+                           env=dict(os.environ, ASAN_OPTIONS="detect_leaks=0"))
+    except subprocess.TimeoutExpired:
+        return False, "timed out"
+    got = (r.stdout.strip().splitlines() or ["crashed"])[-1]
+    return r.returncode == 0, got if r.returncode in (0, 1) else f"crashed ({got})"
+
+
+def model_file(model):
+    """The graded file: Hugging Face's sha256 when fox-llm-update downloaded it, else its size."""
+    try:
+        return open(os.path.join(GGUF_DIR, ".src", model)).read().split()[1][:12]
+    except (OSError, IndexError):
+        try:
+            return f"size:{os.path.getsize(os.path.join(GGUF_DIR, model + '.gguf'))}"
+        except OSError:
+            return "-"
+
+
+def build():
+    try:
+        out = subprocess.run([os.environ.get("FOX_LLM_SERVER", "llama-server"), "--version"],
+                             capture_output=True, text=True, timeout=30)
+        m = re.search(r"version: (\S+)", out.stdout + out.stderr)
+        return m.group(1) if m else "?"
+    except OSError:
+        return "?"
+
+
+def grade(model, say=print):
+    """Grade one model; append its rows; return its one-line card."""
+    r = roles()
+    base = "base" in model or model == r.get("fim")
+    outdir = os.path.join(WORK, model.replace("/", "_"))
+    os.makedirs(outdir, exist_ok=True)
+    run, rows = time.strftime("%Y-%m-%dT%H:%M"), []
+    add = lambda metric, value: rows.append((metric, str(value)))
+    unload()
+    if r.get("fim") and r["fim"] != model:
+        try:                                           # the ghost-text model takes its share of the GPU first
+            http("/infill", {"model": r["fim"], "input_prefix": "x", "input_suffix": "", "n_predict": 1}, timeout=300)
+        except (OSError, ValueError):
+            pass
+    if base:
+        http("/infill", {"model": model, "input_prefix": "x", "input_suffix": "", "n_predict": 1}, timeout=300)
+        yield_cpu(model)
+        prefix = SPEED_PROMPT + "\n// " + FIM[0]
+        t = http("/infill", {"model": model, "input_prefix": prefix, "input_suffix": FIM[1], "n_predict": 1}).get("timings", {})
+        a = http("/infill", {"model": model, "input_prefix": FIM[0], "input_suffix": FIM[1], "n_predict": 24,
+                             "temperature": 0})
+        stop = bool(re.fullmatch(r"\s*a\s*\+\s*b\s*;?\s*", a.get("content", "")))
+        add("read_tps", round(t.get("prompt_per_second", 0), 1))
+        add("write_tps", round(a.get("timings", {}).get("predicted_per_second", 0), 1))
+        add("fim", "ok" if stop else "fail")
+        card = f"read {rows[0][1]} tok/s · ghost text {'stops at the gap' if stop else 'runs past the gap'}"
+    else:
+        chat(model, "hi", 4)                           # loaded: speed below, not load time
+        yield_cpu(model)
+        t = chat(model, SPEED_PROMPT, 200).get("timings", {})
+        add("read_tps", round(t.get("prompt_per_second", 0), 1))
+        add("write_tps", round(t.get("predicted_per_second", 0), 1))
+        add("prompt_tokens", t.get("prompt_n", 0))
+        passed = total = 0
+        for name, (prompt, _) in TASKS.items():
+            ok_runs = 0
+            for n in range(1, RUNS + 1):
+                answer = chat(model, prompt, 900)["choices"][0]["message"].get("content") or ""
+                with open(os.path.join(outdir, f"{name}-{n}.md"), "w") as f:
+                    f.write(answer)
+                ok, what = run_task(name, answer, outdir, n)
+                ok_runs += ok
+                say(f"  {name} #{n}: {'pass' if ok else 'FAIL'} ({what})")
+            add(f"cxx:{name}", f"{ok_runs}/{RUNS}")
+            passed, total = passed + ok_runs, total + RUNS
+        add("cxx", f"{passed}/{total}")
+        m = chat(model, "What does src/engine/main.cpp do? Read it first.", 300, TOOLS)["choices"][0]["message"]
+        call = (m.get("tool_calls") or [{}])[0].get("function", {})
+        try:
+            ok = call.get("name") == "read_file" and "main.cpp" in json.loads(call.get("arguments") or "{}").get("path", "")
+        except (ValueError, AttributeError):
+            ok = False
+        add("tools", "ok" if ok else "fail")
+        card = (f"C++ {passed}/{total} · read {rows[0][1]} tok/s · write {rows[1][1]} tok/s · "
+                f"tool calls {'ok' if ok else 'fail'}")
+    unload(model)
+    os.makedirs(STATE, exist_ok=True)
+    b, fl = build(), model_file(model)
+    with open(SCORES, "a") as f:
+        for metric, value in rows:
+            f.write("\t".join((run, b, model, fl, metric, value)) + "\n")
+    return f"{model}: {card}"
+
+
+def latest():
+    """{model: {metric: value, "run": run}} — each model's newest run."""
+    out = {}
+    try:
+        lines = open(SCORES).read().splitlines()
+    except OSError:
+        return out
+    for l in lines:
+        p = l.split("\t")
+        if len(p) != 6:
+            continue
+        run, _, model, _, metric, value = p
+        cur = out.get(model)
+        if cur is None or run > cur["run"]:
+            out[model] = cur = {"run": run}
+        if run == cur["run"]:
+            cur[metric] = value
+    return out
+
+
+def frac(s):
+    try:
+        a, b = s.split("/"); return int(a) / int(b)
+    except (ValueError, AttributeError, ZeroDivisionError):
+        return -1.0
+
+
+def report():
+    cards = latest()
+    if not cards:
+        print("no grades yet — fox-llm-grade MODEL"); return 0
+    print(f"{'model':40} {'graded':16} {'read/s':>7} {'write/s':>7}  {'C++':>6}  tools  ghost")
+    for model, c in sorted(cards.items()):
+        print(f"{model:40} {c['run']:16} {c.get('read_tps', '-'):>7} {c.get('write_tps', '-'):>7}  "
+              f"{c.get('cxx', '-'):>6}  {c.get('tools', '-'):5}  {c.get('fim', '-')}")
+    r, f = roles(), lambda m, k: float(cards[m].get(k) or 0)
+    chat_ok = [m for m, c in cards.items() if "cxx" in c]
+    picks = {
+        "quick": max((m for m in chat_ok if frac(cards[m]["cxx"]) >= 0.8), key=lambda m: f(m, "read_tps"), default=None),
+        "agent": max((m for m in chat_ok if cards[m].get("tools") == "ok"),
+                     key=lambda m: (frac(cards[m]["cxx"]), f(m, "read_tps")), default=None),
+        "fim": max((m for m, c in cards.items() if c.get("fim") == "ok"), key=lambda m: f(m, "write_tps"), default=None),
+    }
+    said = False
+    for role, m in picks.items():
+        if m and m != r.get(role):
+            print(f"\nby these numbers the {role} role would be {m} (now {r.get(role, 'unset')}) — "
+                  f"a one-line change in the roles file, if you want it")
+            said = True
+    if not said:
+        print("\nthe roles file already has the best graded model in each role")
+    return 0
+
+
+def notify(title, body):
+    if shutil.which("notify-send"):
+        subprocess.run(["notify-send", "-a", "fox-llm", title, body], capture_output=True)
+
+
+def pending():
+    try:
+        return [l.strip() for l in open(PENDING) if l.strip()]
+    except OSError:
+        return []
+
+
+def set_pending(names):
+    os.makedirs(STATE, exist_ok=True)
+    with open(PENDING + ".new", "w") as f:
+        f.write("".join(n + "\n" for n in names))
+    os.replace(PENDING + ".new", PENDING)
+
+
+def do_pending():
+    os.makedirs(WORK, exist_ok=True)
+    lock = open(os.path.join(WORK, "lock"), "w")
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        print("another grade is running"); return 0
+    while True:
+        names = [n for n in pending() if os.path.exists(os.path.join(GGUF_DIR, n + ".gguf"))]
+        set_pending(names)
+        if not names:
+            return 0
+        why = in_use()
+        if why:
+            print(f"waiting: {why} — the next download or the daily timer tries again"); return 0
+        if not compiler():
+            print("no C++ compiler (g++ or clang++) — nothing graded"); return 1
+        print(f"grading {names[0]}")
+        try:
+            card = grade(names[0])
+        except (OSError, ValueError, KeyError, IndexError) as e:
+            card = None
+            print(f"  {names[0]}: grading failed — {e}")
+        set_pending([n for n in pending() if n != names[0]])
+        if card:
+            print(card); notify("🦊 Model graded", card + "\nfox-llm-grade --report")
+
+
+def do_queue(name):
+    if name:
+        set_pending([n for n in pending() if n != name] + [name])
+    me = os.path.abspath(__file__)
+    log = open(os.path.join(STATE, "grade.log"), "a")
+    if shutil.which("systemd-run") and subprocess.run(
+            ["systemd-run", "--user", "--quiet", "--collect", "--unit=fox-llm-grade", "--nice=19",
+             "--property=IOSchedulingClass=idle",
+             "--description=fox-llm-grade — grade waiting models while none is in use", me, "--pending"],
+            capture_output=True).returncode == 0:
+        return 0
+    subprocess.Popen([me, "--pending"], stdout=log, stderr=log, start_new_session=True,    # no user manager
+                     preexec_fn=lambda: os.nice(19))
+    return 0
+
+
+def main(argv):
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip()); return 0
+    if argv[0] == "--report":
+        return report()
+    if argv[0] == "--pending":
+        os.nice(19 - os.nice(0))                          # compiles and test runs never compete with her editor
+        return do_pending()
+    if argv[0] == "--queue":
+        os.makedirs(STATE, exist_ok=True)
+        return do_queue(argv[1] if len(argv) > 1 else None)
+    if not compiler():
+        print("fox-llm-grade: no C++ compiler (g++ or clang++)", file=sys.stderr); return 1
+    os.nice(19 - os.nice(0))
+    why = in_use()
+    if why == "the model server isn't running":
+        print(f"fox-llm-grade: {why} — systemctl --user start fox-llm-server", file=sys.stderr); return 1
+    for model in argv:
+        print(f"grading {model} (every model is unloaded first — minutes per model)")
+        print(grade(model))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except KeyboardInterrupt:
+        sys.exit(130)
