@@ -90,7 +90,11 @@ class SyncTest(unittest.TestCase):
             'if grep -q gptoss "$2"; then echo "E llama_model_load: error loading model: '
             "unknown model architecture: 'gptoss'\"; exit 1; fi\nexit 0\n")
         (self.bin / "curl").write_text(FAKE_CURL.replace("@TMP@", str(self.tmp)))
-        for f in ("npm", "systemctl", "llama-server", "llama-fit-params", "curl"):
+        # Desktop notices only logged — a test never reaches her real desktop.
+        (self.bin / "notify-send").write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$NOTIFY_LOG"\n')
+        # The report card's background run only logged — a test never starts a job in her user manager.
+        (self.bin / "systemd-run").write_text('#!/bin/sh\nprintf "%s\\n" "$*" >> "$RUN_LOG"\n')
+        for f in ("npm", "systemctl", "llama-server", "llama-fit-params", "curl", "notify-send", "systemd-run"):
             (self.bin / f).chmod(0o755)
 
     def _examples(self, pkg):
@@ -127,6 +131,8 @@ class SyncTest(unittest.TestCase):
             "FAKE_UNITS": units if units is not None else ("fox-llm-server" if server_on else ""),
             "SYSTEMCTL_LOG": str(self.tmp / "systemctl.log"),
             "PROBE_LOG": str(self.tmp / "probe.log"),
+            "NOTIFY_LOG": str(self.tmp / "notify.log"),
+            "RUN_LOG": str(self.tmp / "run.log"),
             "FOX_LLM_SERVER": str(self.bin / "llama-server"),
         }
         r = subprocess.run(["bash", str(SCRIPT), *args], env=env, capture_output=True, text=True, timeout=120)
@@ -171,6 +177,13 @@ class SyncTest(unittest.TestCase):
 
     def pi(self, name):
         return json.loads((self.home / ".pi/agent" / name).read_text())
+
+    def notices(self):
+        """Desktop notices since the last call, one string each ("-a fox-llm TITLE BODY")."""
+        log = self.tmp / "notify.log"
+        text = log.read_text() if log.exists() else ""
+        log.unlink(missing_ok=True)
+        return text
 
     def curl_log(self):
         log = self.tmp / "curl.log"
@@ -228,7 +241,8 @@ class SyncTest(unittest.TestCase):
         oc = self.oc()
         self.assertEqual(oc["model"], "anthropic/claude-x")       # a cloud default: never touched
         self.assertEqual(oc["theme"], "mine")
-        self.assertEqual(oc["permission"], {"edit": "allow"})
+        self.assertEqual(oc["permission"]["edit"], "allow")
+        self.assertNotIn("*", oc["permission"]["bash"])         # only the secret rules join her block
         self.assertEqual(oc["provider"]["ollama"]["options"]["baseURL"], "http://box:11434/v1")   # not this box's
         self.assertIn("qwen3-coder:30b", oc["provider"]["llamacpp"]["models"])
         self.assertEqual(json.loads((self.oc_path.parent / "opencode.json.foxml-bak").read_text()), user)
@@ -256,11 +270,21 @@ class SyncTest(unittest.TestCase):
         self.install("qwen3.5:4b", "qwen2.5-coder:1.5b-base", "qwen2.5:7b")   # roles.default's agent: not yet
         self.run_script("--sync", server_on=True)
         self.assertEqual(self.oc()["model"], "llamacpp/qwen3.5:4b")             # sized for this machine
+        said = self.notices()
+        self.assertIn("Local model default changed", said)
+        self.assertIn("pi default → llamacpp/qwen3.5:4b (standing in for the agent, which isn't served yet)", said)
+        self.assertIn("A role has no model to serve", said)
+        self.assertIn("qwen3-coder:30b (agent)", said)
+        self.run_script("--sync", server_on=True)
+        self.assertEqual(self.notices(), "")                                    # each change said once
         st = self.pi("settings.json")
         self.assertEqual((st["defaultProvider"], st["defaultModel"]), ("llamacpp", "qwen3.5:4b"))
         self.install("qwen3-coder:30b")                                         # the agent lands: the sync's
         self.run_script("--sync", server_on=True)                               # own stand-in gives way
         self.assertEqual(self.oc()["model"], "llamacpp/qwen3-coder:30b")
+        said = self.notices()
+        self.assertIn("opencode default → llamacpp/qwen3-coder:30b (the roles file's agent)", said)
+        self.assertNotIn("no model to serve", said)
         st = self.pi("settings.json")
         self.assertEqual((st["defaultProvider"], st["defaultModel"]), ("llamacpp", "qwen3-coder:30b"))
         oc = self.oc(); oc["model"] = "llamacpp/qwen2.5:7b"                     # her own pick (fox-ai-swap)
@@ -275,6 +299,111 @@ class SyncTest(unittest.TestCase):
         self.oc_path.write_text(json.dumps({"model": "llamacpp/gone:1b"}))
         self.run_script("--sync", server_on=True)
         self.assertEqual(self.oc()["model"], "llamacpp/qwen3-coder:30b")
+
+    def test_opencode_asks_before_a_secret_path_and_those_rules_come_last(self):
+        self.install("qwen2.5:3b")
+        self.run_script("--sync")
+        perm, home = self.oc()["permission"], str(self.home)
+        bash = list(perm["bash"].items())
+        self.assertEqual(bash[0], ("*", "ask"))
+        self.assertEqual(perm["bash"]["cat *"], "allow")
+        first_secret = next(i for i, (k, _) in enumerate(bash) if k == "*~/.ssh*")
+        self.assertTrue(all(v == "ask" for _, v in bash[first_secret:]))          # last: they win over `cat *`
+        self.assertTrue(all(v == "allow" for _, v in bash[1:first_secret]))
+        for pat in ("*$HOME/.gnupg*", f"*{home}/.config/foxml*", "*/priv/*", "*id_ed25519*"):
+            self.assertEqual(perm["bash"][pat], "ask")
+        for tool in ("read", "grep", "glob", "list"):
+            self.assertEqual(perm[tool][f"{home}/.ssh/*"], "ask")
+            self.assertEqual(perm[tool]["*.pem*"], "ask")
+            self.assertNotIn("*", perm[tool])                                       # the rest stays opencode's
+        for root in (home, home + "/", "/"):
+            self.assertEqual(perm["grep"][root], "ask")                            # a search from ~ reads ~/.ssh
+            self.assertNotIn(root, perm["read"])
+
+    def test_opencode_secret_rules_join_her_own_once_and_keep_her_choices(self):
+        self.install("qwen2.5:3b")
+        self.oc_path.parent.mkdir(parents=True)
+        mine = {"bash": {"*": "allow", "npm *": "deny"}, "read": "deny"}
+        self.oc_path.write_text(json.dumps({"permission": mine}))
+        out = self.run_script("--sync")
+        perm = self.oc()["permission"]
+        self.assertEqual(list(perm["bash"].items())[:2], [("*", "allow"), ("npm *", "deny")])
+        self.assertEqual(perm["bash"]["*~/.ssh*"], "ask")
+        self.assertEqual(perm["read"], "deny")                                      # one action for the tool: hers
+        self.assertIn("secret paths ask first", out)
+        before = self.oc_path.read_text()
+        self.assertNotIn("secret paths", self.run_script("--sync"))
+        self.assertEqual(self.oc_path.read_text(), before)
+
+    def test_opencode_secret_list_is_fox_guards(self):
+        import re
+        guard = (ROOT / "shared/pi/extensions/fox-guard.ts").read_text()
+        prefixes = re.search(r"PROTECTED_PREFIXES = \[(.*?)\];", guard, re.S).group(1)
+        dirs = re.findall(r"`\$\{HOME\}/([^`]+)`", prefixes)
+        bits = re.findall(r'"([^"]+)"', re.search(r"PROTECTED_FRAGMENTS = \[(.*?)\];", guard, re.S).group(1))
+        script = SCRIPT.read_text()
+        self.assertEqual(eval(re.search(r"^SECRET_DIRS = (\[.*?\])$", script, re.M).group(1)), dirs)
+        self.assertEqual(eval(re.search(r"^SECRET_BITS = (\[.*?\])$", script, re.M).group(1)),
+                         [b for b in bits if b != "/.git/"])        # .git/ is a write rule in pi, not a secret
+
+    # ── the prompt library → opencode's commands (format 1: ~/.config/foxml/prompts/README.md) ──
+
+    def prompt(self, name, text):
+        d = self.home / ".config/foxml/prompts"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / name).write_text(text)
+        return d / name
+
+    @property
+    def commands(self):
+        return self.home / ".config/opencode/commands"
+
+    def test_prompt_library_becomes_opencode_commands(self):
+        self.install("qwen2.5:3b")
+        self.prompt("README.md", "# The prompt library — format 1\n")
+        self.prompt("_draft.md", "---\ndescription: not yet\n---\nbody\n")
+        src = self.prompt("review-diff.md",
+                          "---\ndescription: Review the staged diff for correctness bugs\nargument-hint: \"[focus]\"\n"
+                          "targets: [pi, opencode]\nopencode:\n  agent: build\n  subtask: false\n"
+                          "codecompanion:\n  interaction: chat\n---\n"
+                          "## system\nYou review C++ for correctness.\n## user\nReview `git diff --cached`, focus: $ARGUMENTS\n")
+        self.prompt("explain-sel.md", "---\ndescription: Explain the selection\n---\nExplain:\n{{selection}}\n")
+        self.prompt("cc-only.md", "---\ndescription: chat\ntargets: [codecompanion]\n---\nHi $1\n")
+        self.prompt("forced.md", "---\ndescription: x\ntargets: [opencode]\n---\nSee {{file}}\n")
+        self.prompt("Bad_Name.md", "---\ndescription: x\n---\nbody\n")
+        self.prompt("nodesc.md", "---\nargument-hint: x\n---\nbody\n")
+        self.prompt("review.md", "---\ndescription: clash\n---\nbody\n")
+        out = self.run_script("--sync")
+        self.assertEqual(sorted(p.name for p in self.commands.iterdir()), ["review-diff.md"])
+        self.assertEqual((self.commands / "review-diff.md").read_text(),
+                         f"---\n# generated by fox-llm-update from {src}\n"
+                         "description: Review the staged diff for correctness bugs\nagent: build\nsubtask: false\n---\n"
+                         "You review C++ for correctness.\n\nReview `git diff --cached`, focus: $ARGUMENTS\n")
+        self.assertIn("/review-diff (from the prompt library)", out)
+        self.assertIn("/forced not made — it uses the editor's context", out)     # an explicit target it can't fit
+        self.assertIn("/Bad_Name not made — a name is lowercase", out)
+        self.assertIn("/nodesc not made — no description", out)
+        self.assertIn("/review not made — /review is opencode's own command", out)
+        for quiet in ("explain-sel", "cc-only", "_draft", "README"):
+            self.assertNotIn(f"/{quiet} ", out)                                  # not opencode's: nothing to say
+
+    def test_prompt_commands_leave_hers_alone_follow_deletions_and_rewrite_nothing_unchanged(self):
+        self.install("qwen2.5:3b")
+        self.commands.mkdir(parents=True)
+        (self.commands / "mine.md").write_text("---\ndescription: hand-written\n---\nmine\n")
+        self.prompt("mine.md", "---\ndescription: from the library\n---\nlibrary\n")
+        gone = self.prompt("gone.md", "---\ndescription: soon gone\n---\nbody\n")
+        out = self.run_script("--sync")
+        self.assertIn("/mine not made", out)
+        self.assertEqual((self.commands / "mine.md").read_text(), "---\ndescription: hand-written\n---\nmine\n")
+        made = self.commands / "gone.md"
+        stamp = made.stat().st_mtime_ns
+        self.assertNotIn("/gone", self.run_script("--sync"))                    # unchanged: not written again
+        self.assertEqual(made.stat().st_mtime_ns, stamp)
+        gone.unlink()
+        self.assertIn("− /gone", self.run_script("--sync"))
+        self.assertFalse(made.exists())
+        self.assertTrue((self.commands / "mine.md").exists())
 
     def test_idempotent(self):
         self.install("qwen3-coder:30b", "qwen2.5:3b")
@@ -462,6 +591,12 @@ class SyncTest(unittest.TestCase):
         self.assertFalse(dst_b.exists())
         self.assertIn("ALL_DONE", out)
         self.assertIn("--user disable fox-llm-pull.service", (self.tmp / "systemctl.log").read_text())
+        said = self.notices()
+        self.assertIn("Model downloaded a:1b: verified", said)
+        self.assertEqual((self.home / ".local/state/fox-llm-update/grade-pending.txt").read_text(), "a:1b\n")
+        self.assertIn("fox-llm-grade --pending", (self.tmp / "run.log").read_text())     # graded once nothing's in use
+        self.assertNotIn("b:1b", said)
+        self.assertIn("Downloads finished", said)
 
 
 if __name__ == "__main__":
