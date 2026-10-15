@@ -50,6 +50,7 @@ ANSWERS = {
 
 class FakeRouter(http.server.BaseHTTPRequestHandler):
     loaded = set()           # names the fake says are in memory
+    fail_chat = False        # answer chat requests with a 500, as a server going away would
     log = []                 # (path, model) of every request
 
     def log_message(self, *a):
@@ -75,6 +76,8 @@ class FakeRouter(http.server.BaseHTTPRequestHandler):
         if self.path == "/models/unload":
             FakeRouter.loaded.discard(body["model"]); return self.reply({"success": True})
         FakeRouter.loaded.add(body.get("model"))
+        if FakeRouter.fail_chat and self.path == "/v1/chat/completions":
+            self.send_response(500); self.send_header("Content-Length", "0"); self.end_headers(); return
         if self.path == "/infill":
             return self.reply({"content": "a + b", "timings": {"prompt_per_second": 900.0, "predicted_per_second": 40.0}})
         if body.get("tools"):
@@ -173,6 +176,25 @@ class GradeTest(unittest.TestCase):
         self.assertEqual((state / "grade-pending.txt").read_text(), "")
         self.assertIn(("qwen3.5:9b", "cxx"), self.scores()[0])
         self.assertIn("Model graded", (self.tmp / "notify.log").read_text())
+
+    def test_a_grade_cut_short_keeps_the_model_listed(self):
+        state = self.home / ".local/state/fox-llm-update"
+        state.mkdir(parents=True)
+        (state / "grade-pending.txt").write_text("qwen3.5:9b\n")
+        FakeRouter.fail_chat = True                                  # the server breaks off mid-grade (a restart)
+        try:
+            r = subprocess.run([sys.executable, str(SCRIPT), "--pending"], capture_output=True, text=True, timeout=120,
+                               env={"HOME": str(self.home), "PATH": f"{self.bin}:/usr/bin:/bin",
+                                    "XDG_CONFIG_HOME": str(self.home / ".config"), "XDG_STATE_HOME": str(state.parent),
+                                    "XDG_CACHE_HOME": str(self.home / ".cache"),
+                                    "XDG_DATA_HOME": str(self.home / ".local/share"),
+                                    "FOX_LLM_URL": f"http://127.0.0.1:{self.server.server_port}"})
+        finally:
+            FakeRouter.fail_chat = False
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertIn("grading stopped", r.stdout)
+        self.assertEqual((state / "grade-pending.txt").read_text(), "qwen3.5:9b\n")   # tried again next time
+        self.assertEqual(self.scores()[1], [])
 
     def test_queue_lists_the_model_and_starts_a_background_run(self):
         self.run_grade("--queue", "qwen3.5:9b")
