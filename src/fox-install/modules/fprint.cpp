@@ -60,16 +60,16 @@ void run_fprint(Context& ctx) {
     }
 
     if (ctx.assume_yes) {
-        ui::substep("non-interactive run — enroll later: `fox fingerprint enroll`");
+        ui::substep("non-interactive run — enroll later: `fox-fingerprint enroll`");
         return;
     }
 
     if (ui::ask_yn("Enroll a fingerprint now? (touch the reader when it lights up)",
                    /*default_yes=*/true, /*assume_yes=*/false)) {
         sh::run({"fprintd-enroll"});
-        ui::substep("add more fingers anytime: `fox fingerprint enroll <name>`");
+        ui::substep("add more fingers anytime: `fox-fingerprint enroll <finger>` (`fox-fingerprint fingers` lists them)");
     } else {
-        ui::substep("skipped — the PAM modules will no-op until you run `fox fingerprint enroll`");
+        ui::substep("skipped — the PAM modules will no-op until you run `fox-fingerprint enroll`");
     }
 }
 
