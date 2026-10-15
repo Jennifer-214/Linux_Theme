@@ -2,6 +2,7 @@
 
 #include "../../fox-common/shell.hpp"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -69,6 +70,35 @@ Classification check_deps(const Context& /*ctx*/, const Manifest& manifest) {
     return {Status::Noop, "sentinel packages present"};
 }
 
+std::string render_inputs_hash(const Context& ctx) {
+    std::vector<fs::path> files;
+    std::error_code ec;
+    for (fs::recursive_directory_iterator it(ctx.templates_dir, ec), end; !ec && it != end; it.increment(ec)) {
+        if (it->is_regular_file(ec)) files.push_back(it->path());
+    }
+    std::sort(files.begin(), files.end());
+    std::string all = "theme:" + ctx.theme_name + "\n";
+    for (const auto& f : files) {
+        all += fs::relative(f, ctx.templates_dir).generic_string() + '\0' + hash_file(f) + '\n';
+    }
+    all += "palette:" + (fs::exists(ctx.palette_path) ? hash_file(ctx.palette_path) : std::string("-")) + '\n';
+    return hash_string(all);
+}
+
+fs::path render_stamp_path(const Context& ctx) { return ctx.rendered_dir / ".render-inputs"; }
+
+bool rendered_is_current(const Context& ctx) {
+    if (ctx.templates_dir.empty() || !fs::is_directory(ctx.templates_dir)) return true;
+    std::ifstream f(render_stamp_path(ctx));
+    std::string stamp;
+    if (!(f >> stamp)) return false;
+    try {
+        return stamp == render_inputs_hash(ctx);
+    } catch (const std::exception&) {
+        return false;   // a template it can't read: call it stale, and let the render report the error
+    }
+}
+
 Classification check_render(const Context& ctx, const Manifest& manifest) {
     const auto it = manifest.modules.find("render");
     const bool tracked = (it != manifest.modules.end());
@@ -96,6 +126,13 @@ Classification check_render(const Context& ctx, const Manifest& manifest) {
         deployed_hash = hash_file(deployed);
     } catch (const std::exception& e) {
         return {Status::Conflict, std::string("cannot hash deployed file: ") + e.what()};
+    }
+
+    // Templates or palette changed since the last render: re-render, whatever the deployed copy says. Without this a
+    // --full run kept render "up to date" (the sentinel matched) and symlinks then shipped a months-old rendered/
+    // over today's configs (installer audit 2026-10-15, finding 3).
+    if (!rendered_is_current(ctx)) {
+        return {Status::Update, "templates or palette changed since the last render (rendered/ is stale)"};
     }
 
     // Two-hash compare: stored vs deployed. The full three-hash dance

@@ -38,6 +38,14 @@ Classification check_deps     (const Context& ctx, const Manifest& manifest);
 // Hash match → Noop. Hash differ → Update. File missing → Conflict.
 Classification check_render   (const Context& ctx, const Manifest& manifest);
 
+// The render's inputs, hashed: every file under templates/ (relative path and contents, in path order), the palette's
+// contents and the theme name. run_render stamps rendered/.render-inputs with it after a real render, so a stamp
+// that differs means rendered/ is older than what it would render now.
+std::string render_inputs_hash(const Context& ctx);
+std::filesystem::path render_stamp_path(const Context& ctx);
+// rendered/ matches today's templates + palette. True when there are no templates to judge by (nothing to compare).
+bool rendered_is_current(const Context& ctx);
+
 // etckeeper — git /etc + fox-etcwatch.path user unit. Surfaces the
 // masked-state hazard explicitly per R5/R6: a masked unit is Blocked,
 // not Conflict, because nothing the installer does will recover it

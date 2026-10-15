@@ -97,6 +97,56 @@ int main() {
         EXPECT(cls.status == state::Status::Conflict);
     }
 
+    // T6b–f: a stale rendered/ (templates or palette changed since its render) → Update, even though the deployed
+    // sentinel still matches the manifest. --full used to keep render "up to date" here and symlinks then shipped a
+    // months-old rendered/ over newer live configs (installer audit 2026-10-15, finding 3).
+    {
+        fs::path repo = tmp_cfg / "repo";
+        fs::create_directories(repo / "templates" / "hypr");
+        fs::create_directories(repo / "rendered");
+        fs::create_directories(repo / "themes" / "Fox");
+        std::ofstream(repo / "templates" / "hypr" / "hyprland.conf") << "bg = {{BG}}\n";
+        std::ofstream(repo / "themes" / "Fox" / "palette.sh") << "BG=111111\n";
+        fs::create_directories(tmp_cfg / "hypr");
+        std::ofstream(tmp_cfg / "hypr" / "hyprland.conf") << "bg = 111111\n";
+        Context c2 = ctx;
+        c2.templates_dir = repo / "templates";
+        c2.rendered_dir  = repo / "rendered";
+        c2.palette_path  = repo / "themes" / "Fox" / "palette.sh";
+        c2.theme_name    = "Fox";
+        state::Manifest m;
+        m.modules["render"] = {"v", state::hash_string("bg = 111111\n"), "ts"};
+
+        // no stamp (a tree rendered before stamps existed) → stale
+        EXPECT(state::check_render(c2, m).status == state::Status::Update);
+        EXPECT(!state::rendered_is_current(c2));
+
+        // stamped from today's inputs → Noop
+        std::ofstream(state::render_stamp_path(c2)) << state::render_inputs_hash(c2) << '\n';
+        EXPECT(state::rendered_is_current(c2));
+        EXPECT(state::check_render(c2, m).status == state::Status::Noop);
+
+        // a template edited since → stale
+        std::ofstream(repo / "templates" / "hypr" / "hyprland.conf") << "bg = {{BG}}\ngaps = 4\n";
+        EXPECT(state::check_render(c2, m).status == state::Status::Update);
+
+        // a new template file → stale
+        std::ofstream(repo / "templates" / "hypr" / "hyprland.conf") << "bg = {{BG}}\n";
+        EXPECT(state::rendered_is_current(c2));
+        std::ofstream(repo / "templates" / "waybar.css") << "x\n";
+        EXPECT(!state::rendered_is_current(c2));
+        fs::remove(repo / "templates" / "waybar.css");
+
+        // the palette changed → stale; another theme → stale
+        std::ofstream(repo / "themes" / "Fox" / "palette.sh") << "BG=222222\n";
+        EXPECT(!state::rendered_is_current(c2));
+        std::ofstream(repo / "themes" / "Fox" / "palette.sh") << "BG=111111\n";
+        EXPECT(state::rendered_is_current(c2));
+        c2.theme_name = "Other";
+        EXPECT(!state::rendered_is_current(c2));
+        fs::remove_all(tmp_cfg / "hypr");
+    }
+
     // T7: etckeeper with no manifest entry → Fresh OR Blocked.
     // Blocked only fires if the running system reports the unit masked,
     // which is environment-dependent. Both outcomes are valid here;

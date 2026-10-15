@@ -13,6 +13,7 @@
 // (ctx.force_reapply) suppresses the prompt and overwrites. Files rewritten
 // after deploy (POST_DEPLOY_REWRITTEN) are exempt -- they never match.
 
+#include "../core/state_checks.hpp"
 #include "../core/context.hpp"
 #include "../core/idempotency.hpp"
 #include "../../fox-common/shell.hpp"
@@ -22,6 +23,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -135,6 +137,20 @@ void run_render(Context& ctx) {
     }
     ctx.render_ok = true;
     ui::ok("templates rendered to " + ctx.rendered_dir.string());
+
+    // Stamp what this render was made from, so a later run knows whether rendered/ is still current
+    // (state::rendered_is_current: --full re-renders and symlinks refuses a stale tree). Not in a dry run: nothing
+    // was rendered there.
+    if (!sh::dry_run()) {
+        try {
+            const fs::path stamp = state::render_stamp_path(ctx);
+            const fs::path tmp = stamp.string() + ".tmp";
+            { std::ofstream(tmp) << state::render_inputs_hash(ctx) << '\n'; }
+            fs::rename(tmp, stamp);
+        } catch (const std::exception& e) {
+            ui::warn(std::string("could not stamp rendered/ (the next run re-renders): ") + e.what());
+        }
+    }
 }
 
 }  // namespace fox_install

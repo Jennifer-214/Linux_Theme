@@ -10,6 +10,7 @@
 //   * dir source             → backup_and_copy_dir (per-file snapshot inside dir, then copy tree)
 //   * dest under .oh-my-zsh  → skip when ~/.oh-my-zsh doesn't exist (caramel zsh theme)
 
+#include "../core/state_checks.hpp"
 #include "../core/context.hpp"
 #include "../core/backup.hpp"
 #include "../../fox-common/shell.hpp"
@@ -164,9 +165,16 @@ void run_symlinks(Context& ctx) {
         else ++failed;
     };
 
-    // TEMPLATE_MAPPINGS — sourced from rendered/<src>.
-    for (std::size_t i = 0; i < symlinks::TEMPLATE_MAPPINGS_COUNT; ++i) {
-        tally(deploy_mapping(ctx, ctx.rendered_dir, symlinks::TEMPLATE_MAPPINGS[i]));
+    // TEMPLATE_MAPPINGS — sourced from rendered/<src>, only when rendered/ is current: rendered this run, or stamped
+    // from today's templates + palette. A stale tree (templates changed since its render) would overwrite newer
+    // live configs with old ones (installer audit 2026-10-15, finding 3).
+    if ((ctx.render_ran && ctx.render_ok) || state::rendered_is_current(ctx)) {
+        for (std::size_t i = 0; i < symlinks::TEMPLATE_MAPPINGS_COUNT; ++i) {
+            tally(deploy_mapping(ctx, ctx.rendered_dir, symlinks::TEMPLATE_MAPPINGS[i]));
+        }
+    } else if (fs::is_directory(ctx.rendered_dir)) {
+        ui::warn("rendered/ is older than templates/ or the palette — not deploying it over your configs");
+        ui::substep("run with --render (or --full) to render first; deploying shared configs only");
     }
     // SHARED_MAPPINGS — sourced from shared/<src>.
     for (std::size_t i = 0; i < symlinks::SHARED_MAPPINGS_COUNT; ++i) {
