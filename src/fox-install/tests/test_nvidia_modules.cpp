@@ -10,7 +10,11 @@
 #include "../modules/nvidia_modules.hpp"
 
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <sstream>
+#include <unistd.h>
 #include <string>
 #include <vector>
 
@@ -228,6 +232,36 @@ int main() {
         auto t_both = parse_modules(merge_modules(both));
         EXPECT(has(t_both, "encrypt"));
         for (auto& n : NV) EXPECT(has(t_both, n));
+    }
+
+    // ── placeholder modules/nvidia.conf (installer audit 2026-10-15) ──
+    {
+        namespace fs = std::filesystem;
+        auto slurp = [](const fs::path& p) { std::ifstream f(p); std::stringstream b; b << f.rdbuf(); return b.str(); };
+        const fs::path dir = fs::temp_directory_path() / ("fox_nvidia_placeholder_" + std::to_string(::getpid()));
+        fs::remove_all(dir);
+
+        // comment-only: every non-blank line is a comment, so Hyprland has nothing to parse
+        std::istringstream lines(nvidia_conf_placeholder());
+        for (std::string l; std::getline(lines, l);) EXPECT(l.empty() || l[0] == '#');
+
+        // nothing there → written (with its parent dir)
+        const fs::path nv = dir / "hypr/modules/nvidia.conf";
+        EXPECT(ensure_nvidia_conf_placeholder(nv));
+        EXPECT(slurp(nv) == nvidia_conf_placeholder());
+        EXPECT(!fs::exists(dir / "hypr/modules/nvidia.conf.foxin.tmp"));
+
+        // an existing file (an NVIDIA machine's real one) → untouched
+        std::ofstream(nv) << "env = LIBVA_DRIVER_NAME, nvidia\n";
+        EXPECT(!ensure_nvidia_conf_placeholder(nv));
+        EXPECT(slurp(nv) == "env = LIBVA_DRIVER_NAME, nvidia\n");
+
+        // a dangling link → untouched too
+        const fs::path link = dir / "link.conf";
+        fs::create_symlink(dir / "gone.conf", link);
+        EXPECT(!ensure_nvidia_conf_placeholder(link));
+        EXPECT(fs::is_symlink(link) && !fs::exists(dir / "gone.conf"));
+        fs::remove_all(dir);
     }
 
     if (failures == 0) {

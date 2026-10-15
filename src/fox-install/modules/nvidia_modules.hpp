@@ -14,7 +14,10 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <filesystem>
+#include <fstream>
 #include <string>
+#include <system_error>
 #include <vector>
 
 namespace fox_install {
@@ -231,6 +234,32 @@ inline std::string rewrite_aq_line(const std::string& line,
                "env = AQ_DRM_DEVICES, " + aq_value;
     }
     return line;                                            // not the AQ_DRM_DEVICES line
+}
+
+// hyprland.conf sources modules/nvidia.conf on every machine, but only --nvidia writes it: on AMD/Intel, Hyprland's
+// error bar said "source= globbing error: found no match" at every login (installer audit 2026-10-15). A comment-only
+// file parses clean (Hyprland 0.56.2 --verify-config), and write_hypr_nvidia_conf replaces it.
+inline const char* nvidia_conf_placeholder() {
+    return "# nvidia.conf: no NVIDIA setup on this machine. hyprland.conf sources this file everywhere, and an empty\n"
+           "# one keeps Hyprland's config check clean. fox-install --nvidia replaces it with the real settings.\n";
+}
+
+// Writes the placeholder at dest only when nothing is there (not even a dangling link). True when it wrote one.
+inline bool ensure_nvidia_conf_placeholder(const std::filesystem::path& dest) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    if (fs::symlink_status(dest, ec).type() != fs::file_type::not_found) return false;
+    fs::create_directories(dest.parent_path(), ec);
+    fs::path tmp = dest;
+    tmp += ".foxin.tmp";
+    {
+        std::ofstream out(tmp);
+        out << nvidia_conf_placeholder();
+        if (!out) return false;
+    }
+    fs::rename(tmp, dest, ec);
+    if (ec) fs::remove(tmp, ec);
+    return !ec;
 }
 
 }  // namespace fox_install

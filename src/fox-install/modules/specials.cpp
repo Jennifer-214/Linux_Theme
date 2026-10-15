@@ -17,6 +17,7 @@
 #include "../core/backup.hpp"
 #include "../core/built_tools.hpp"
 #include "claude_wiring.hpp"
+#include "nvidia_modules.hpp"
 #include "../core/idempotency.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
@@ -493,6 +494,13 @@ void do_hyprland_modules(const Context& ctx) {
         if (deploy_file(ctx, e.path(), dst_root / name)) ++done;
     }
     if (done > 0) ui::ok("hyprland modules: " + std::to_string(done) + " file(s)");
+
+    // hyprland.conf sources modules/nvidia.conf everywhere; without NVIDIA nothing wrote it (nvidia_modules.hpp).
+    const fs::path nv = dst_root / "nvidia.conf";
+    if (fs::symlink_status(nv, ec).type() == fs::file_type::not_found) {
+        if (sh::dry_run()) ui::substep("[dry-run] would write a comment-only " + nv.string());
+        else if (ensure_nvidia_conf_placeholder(nv)) ui::substep("hypr/modules/nvidia.conf: comment-only (no NVIDIA setup)");
+    }
 }
 
 // KEYBINDS.md → ~/.local/share/foxml/  (for fox-cheatsheet).
