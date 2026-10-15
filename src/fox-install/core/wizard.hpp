@@ -124,14 +124,22 @@ conflict_sentinel(const std::string& slug, const Context& ctx);
 //                       overwrite the user-edited file.
 //   TakeNew           — left as Conflict (treated as Run by the
 //                       caller); the module's normal write proceeds.
-//   BackupThenTakeNew — copies the sentinel file to .foxml-bak
-//                       (best-effort; logs a warning on failure),
-//                       then leaves the module as Conflict/Run.
+//   BackupThenTakeNew — copies the sentinel to conflict_backup_path()
+//                       (through sudo when its directory isn't the
+//                       user's), then leaves the module as Conflict/Run.
+//                       If no copy lands, the module is skipped: the
+//                       user's file is never overwritten unbacked. A
+//                       dry run only says what it would copy.
 //
 // Sentinel paths come from a small per-slug lookup; modules without
 // a known sentinel skip the resolve step entirely (their
 // conflict_decision is recorded in the manifest but not yet applied
 // — finer-grained per-file resolution is its own follow-up).
 void apply_conflict_decisions(Plan& plan, const Context& ctx);
+
+// Where BackupThenTakeNew copies the sentinel: <sentinel>.foxml-bak, or, when an earlier run's backup holds that name,
+// <sentinel>.foxml-bak.<stamp>, so neither copy is overwritten (installer audit 2026-10-15). stamp: this run's
+// (ctx.backup_dir's YYYYmmdd-HHMMSS).
+std::filesystem::path conflict_backup_path(const std::filesystem::path& sentinel, const std::string& stamp);
 
 }  // namespace fox_install::wizard

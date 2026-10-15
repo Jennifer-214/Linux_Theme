@@ -2,6 +2,7 @@
 // function is Step 9 work and not unit-testable from a non-TTY test
 // runner; that's verified by inspection during the next session.
 
+#include "../../fox-common/shell.hpp"
 #include "../core/wizard.hpp"
 
 #include <filesystem>
@@ -218,6 +219,65 @@ int main() {
         // Unknown slug — left as Conflict (no sentinel to act on).
         EXPECT(p.modules[3].action == Action::Conflict);
 
+        fs::remove_all(tmp_cfg);
+    }
+
+    // apply_conflict_decisions, BackupThenTakeNew (installer audit 2026-10-15): a dry run writes nothing, an earlier
+    // .foxml-bak is never overwritten (this run's copy gets the run's stamp), and when no copy can land the module is
+    // skipped rather than overwriting the user's file unbacked.
+    {
+        Context ctx;
+        fs::path tmp_cfg = fs::temp_directory_path()
+            / ("fox_wizard_backup_test_" + std::to_string(::getpid()));
+        fs::remove_all(tmp_cfg);
+        fs::create_directories(tmp_cfg / "hypr");
+        const fs::path conf = tmp_cfg / "hypr" / "hyprland.conf";
+        std::ofstream(conf) << "user-edited\n";
+        ctx.config_home = tmp_cfg;
+        ctx.backup_dir = tmp_cfg / ".theme_backups" / "foxml-backup-20261015-120000";
+        Module m{"render", &run_stub, "--render", "stub", false, false, false, false, &check_conflict};
+        auto backup_plan = [&] {
+            Plan p;
+            p.modules = {ModulePlan{&m, {state::Status::Conflict, "test"}, Action::Conflict,
+                                    conflict::Decision::BackupThenTakeNew}};
+            return p;
+        };
+        auto slurp = [](const fs::path& f) {
+            std::ifstream in(f);
+            return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        };
+
+        // the path: plain .foxml-bak first, this run's stamp once that's taken (a dangling link counts as taken)
+        EXPECT(conflict_backup_path(conf, "S") == fs::path(conf.string() + ".foxml-bak"));
+
+        // dry run: nothing written, the module still planned
+        sh::set_dry_run(true);
+        Plan dry = backup_plan();
+        apply_conflict_decisions(dry, ctx);
+        sh::set_dry_run(false);
+        EXPECT(dry.modules[0].action == Action::Conflict);
+        EXPECT(!fs::exists(conf.string() + ".foxml-bak"));
+
+        // an earlier backup stays; this run's lands beside it
+        std::ofstream(conf.string() + ".foxml-bak") << "older original\n";
+        EXPECT(conflict_backup_path(conf, "S") == fs::path(conf.string() + ".foxml-bak.S"));
+        Plan second = backup_plan();
+        apply_conflict_decisions(second, ctx);
+        EXPECT(second.modules[0].action == Action::Conflict);
+        EXPECT(slurp(conf.string() + ".foxml-bak") == "older original\n");
+        EXPECT(slurp(conf.string() + ".foxml-bak.20261015-120000") == "user-edited\n");
+
+        // no copy can land (both names taken) → skipped, the user's file untouched
+        Plan third = backup_plan();
+        apply_conflict_decisions(third, ctx);
+        EXPECT(third.modules[0].action == Action::Skip);
+        EXPECT(slurp(conf) == "user-edited\n");
+        EXPECT(slurp(conf.string() + ".foxml-bak.20261015-120000") == "user-edited\n");
+
+        // a dangling link at .foxml-bak is never followed or replaced
+        fs::remove(conf.string() + ".foxml-bak");
+        fs::create_symlink(tmp_cfg / "gone", conf.string() + ".foxml-bak");
+        EXPECT(conflict_backup_path(conf, "S") == fs::path(conf.string() + ".foxml-bak.S"));
         fs::remove_all(tmp_cfg);
     }
 

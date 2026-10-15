@@ -92,7 +92,7 @@ install: all
 	@cd ../.. && pwd > $(HOME)/.local/share/foxml/repo-dir
 	@echo "  + repo path recorded: $$(cat $(HOME)/.local/share/foxml/repo-dir)"
 
-test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_gaming tests/test_iommu tests/test_hyprlock_pin tests/test_nvidia_modules tests/test_claude_wiring tests/test_hw_autoenable tests/test_built_tools tests/test_hidepid tests/test_health_boot
+test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_gaming tests/test_iommu tests/test_hyprlock_pin tests/test_nvidia_modules tests/test_claude_wiring tests/test_hw_autoenable tests/test_built_tools tests/test_hidepid tests/test_health_boot tests/test_dry_run
 	@./tests/test_registry
 	@./tests/test_args
 	@./tests/test_state_manifest
@@ -112,6 +112,7 @@ test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_c
 	@./tests/test_built_tools
 	@./tests/test_hidepid
 	@./tests/test_health_boot
+	@./tests/test_dry_run
 	@bash ./tests/lint_shell_assets.sh
 	@bash ./tests/lint_unit_escaping.sh
 
@@ -202,6 +203,9 @@ tests/test_subprocess_log: tests/test_subprocess_log.cpp $(FOX_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) tests/test_subprocess_log.cpp -L$(FOX_COMMON_DIR) -lfox-common -o $@
 
 # banner_font — pure glyph table + constructor. No deps beyond libstdc++.
+tests/test_dry_run: tests/test_dry_run.cpp modules/vault.o $(FOX_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_dry_run.cpp modules/vault.o -L$(FOX_COMMON_DIR) -lfox-common -o $@
+
 tests/test_health_boot: tests/test_health_boot.cpp modules/foxml_health_boot_script.hpp $(FOX_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) -DBUILD_DIR='"$(CURDIR)/tests"' tests/test_health_boot.cpp -L$(FOX_COMMON_DIR) -lfox-common -o $@
 
@@ -218,6 +222,6 @@ tests/test_banner_font: tests/test_banner_font.cpp modules/banner_font.o
 	$(CXX) $(CXXFLAGS) tests/test_banner_font.cpp modules/banner_font.o -o $@
 
 clean:
-	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_iommu tests/test_gaming tests/test_hyprlock_pin tests/test_nvidia_modules tests/test_claude_wiring tests/test_hw_autoenable tests/test_built_tools tests/test_hidepid tests/test_health_boot
+	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_iommu tests/test_gaming tests/test_hyprlock_pin tests/test_nvidia_modules tests/test_claude_wiring tests/test_hw_autoenable tests/test_built_tools tests/test_hidepid tests/test_health_boot tests/test_dry_run
 
 .PHONY: all install clean test

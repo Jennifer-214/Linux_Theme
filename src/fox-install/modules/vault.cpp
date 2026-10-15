@@ -25,14 +25,18 @@ namespace {
 
 constexpr const char* UNIT_NAME = "fox-vault.service";
 
+// The unit on disk already says exactly body.
+bool unit_current(const fs::path& unit_path, const std::string& body) {
+    std::ifstream existing(unit_path);
+    if (!existing) return false;
+    std::string current((std::istreambuf_iterator<char>(existing)),
+                         std::istreambuf_iterator<char>());
+    return current == body;
+}
+
 // Idempotent: writes the unit only if missing or different.
 bool write_unit(const fs::path& unit_path, const std::string& body) {
-    if (fs::exists(unit_path)) {
-        std::ifstream existing(unit_path);
-        std::string current((std::istreambuf_iterator<char>(existing)),
-                             std::istreambuf_iterator<char>());
-        if (current == body) return false;
-    }
+    if (unit_current(unit_path, body)) return false;
     fs::create_directories(unit_path.parent_path());
     std::ofstream out(unit_path);
     out << body;
@@ -70,14 +74,17 @@ void run_vault(Context& ctx) {
         "[Install]\n"
         "WantedBy=default.target\n";
 
-    bool wrote = write_unit(unit_path, unit);
-    if (wrote) ui::ok("wrote " + unit_path.string());
-    else       ui::skipped("unit already current");
-
+    // A dry run writes nothing (installer audit 2026-10-15: the unit was written before this check).
     if (sh::dry_run()) {
+        if (unit_current(unit_path, unit)) ui::skipped("unit already current");
+        else ui::substep("[dry-run] would write " + unit_path.string());
         ui::substep("[dry-run] would daemon-reload + enable --now " + std::string(UNIT_NAME));
         return;
     }
+
+    bool wrote = write_unit(unit_path, unit);
+    if (wrote) ui::ok("wrote " + unit_path.string());
+    else       ui::skipped("unit already current");
 
     sh::systemctl_daemon_reload(/*user=*/true);
     if (sh::systemctl_enable(UNIT_NAME, /*user=*/true) == 0) {

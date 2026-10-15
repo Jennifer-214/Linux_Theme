@@ -1,9 +1,11 @@
 #include "wizard.hpp"
 
+#include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <csignal>
 #include <filesystem>
 #include <optional>
@@ -278,6 +280,41 @@ conflict_sentinel(const std::string& slug, const Context& ctx) {
     return std::nullopt;
 }
 
+std::filesystem::path conflict_backup_path(const std::filesystem::path& sentinel, const std::string& stamp) {
+    std::filesystem::path bak = sentinel.string() + ".foxml-bak";
+    std::error_code ec;
+    if (std::filesystem::symlink_status(bak, ec).type() == std::filesystem::file_type::not_found) return bak;
+    return sentinel.string() + ".foxml-bak." + stamp;
+}
+
+namespace {
+
+// This run's stamp: the YYYYmmdd-HHMMSS that ends ctx.backup_dir's name, or now when there is none (tests).
+std::string run_stamp(const Context& ctx) {
+    const std::string name = ctx.backup_dir.filename().string();
+    const auto dash = name.find_last_of('-');
+    if (dash != std::string::npos && dash >= 8) return name.substr(dash - 8);
+    char ts[32] = "now";
+    std::time_t now = std::time(nullptr);
+    if (std::tm* tm_now = std::localtime(&now)) std::strftime(ts, sizeof(ts), "%Y%m%d-%H%M%S", tm_now);
+    return ts;
+}
+
+// Copies src to dst, never over an existing dst: as the user when dst's directory is theirs to write, else through
+// sudo (a root-owned dir such as /etc/NetworkManager/conf.d, whose loader reads only *.conf names). True when the copy
+// landed.
+bool copy_backup(const std::filesystem::path& src, const std::filesystem::path& dst) {
+    std::error_code ec;
+    if (::access(dst.parent_path().c_str(), W_OK) == 0) {
+        std::filesystem::copy_file(src, dst, std::filesystem::copy_options::none, ec);   // none: fail if dst exists
+        return !ec;
+    }
+    if (std::filesystem::exists(dst, ec) || !sh::sudo_warmup()) return false;
+    return sh::run({"sudo", "cp", "-p", "--", src.string(), dst.string()}) == 0;
+}
+
+}  // namespace
+
 void apply_conflict_decisions(Plan& plan, const Context& ctx) {
     for (auto& mp : plan.modules) {
         if (mp.action != Action::Conflict) continue;
@@ -305,16 +342,20 @@ void apply_conflict_decisions(Plan& plan, const Context& ctx) {
 
             case conflict::Decision::BackupThenTakeNew: {
                 if (!std::filesystem::exists(*sentinel)) break;  // nothing to back up
-                const std::filesystem::path bak =
-                    sentinel->string() + ".foxml-bak";
-                std::error_code ec;
-                std::filesystem::copy_file(*sentinel, bak,
-                    std::filesystem::copy_options::overwrite_existing, ec);
-                if (ec) {
-                    ui::warn("backup of " + sentinel->string()
-                             + " to " + bak.string() + " failed: " + ec.message()
-                             + " — module will run, but no .foxml-bak written");
+                // Installer audit 2026-10-15: this copied as the user (failing on /etc, then overwriting unbacked),
+                // over any earlier .foxml-bak, and in a dry run too.
+                const std::filesystem::path bak = conflict_backup_path(*sentinel, run_stamp(ctx));
+                if (sh::dry_run()) {
+                    ui::substep("[dry-run] would back up " + sentinel->string() + " to " + bak.string());
+                    break;
                 }
+                if (!copy_backup(*sentinel, bak)) {
+                    ui::warn("could not back up " + sentinel->string() + " to " + bak.string()
+                             + " — skipping " + mp.module->slug + " so your file stays as it is");
+                    mp.action = Action::Skip;
+                    break;
+                }
+                ui::substep("backed up " + sentinel->string() + " → " + bak.string());
                 // Module runs as normal; the deploy step will overwrite.
                 break;
             }
