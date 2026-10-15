@@ -763,18 +763,6 @@ local plugins = {
     end,
   },
 
-  -- Beacon (flash cursor on jump for visual tracking)
-  {
-    "danilamihailov/beacon.nvim",
-    event = { "BufReadPost", "BufWinEnter" },
-    config = function()
-      vim.g.beacon_size = 30
-      vim.g.beacon_fade = {{SHOW_WELCOME}}
-      vim.g.beacon_shrink = {{SHOW_WELCOME}}
-      vim.g.beacon_minimal_jump = 1
-    end,
-  },
-
   -- Illuminate (highlight other occurrences of word under cursor)
   {
     "RRethy/vim-illuminate",
@@ -1862,8 +1850,6 @@ local function apply_foxml_theme()
   hl("CopilotSuggestion", { fg = P.comment, italic = {{SHOW_WELCOME}} })
   hl("CopilotAnnotation", { fg = P.surface })
 
-  -- Beacon (cursor flash on jump)
-  hl("BeaconDefault", { bg = P.peach })
 
   -- Gitsigns blame
   hl("GitSignsCurrentLineBlame", { fg = P.surface, italic = {{SHOW_WELCOME}} })
