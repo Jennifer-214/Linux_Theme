@@ -255,6 +255,12 @@ window#waybar > box {
     text-shadow: 0 0 8px rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}}, 0.5);
 }
 
+/* The NVIDIA driver was updated without a reboot (fox-ai-status): amber, like the other warnings. */
+#custom-ai_status.warning {
+    color: #{{YELLOW}};
+    text-shadow: 0 0 6px rgba({{YELLOW_R}},{{YELLOW_G}},{{YELLOW_B}}, 0.4);
+}
+
 #custom-net_speed {
     color: @peach;
     font-size: __FONT_STATS__pt;

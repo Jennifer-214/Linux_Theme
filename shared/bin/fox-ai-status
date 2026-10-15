@@ -22,13 +22,36 @@ SIZE=$(echo "$MODEL_NAME" | grep -ioP '\d+[bB]' | head -n1 | tr '[:lower:]' '[:u
 DISPLAY_TAG="${SIZE:-${MODEL_NAME:0:8}}"
 
 # ── Total VRAM (GB, one decimal) ─────────────────────────────────
-vram_total_gb=""
-if command -v nvidia-smi &>/dev/null; then
-    vram_total_mb=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null \
-                    | head -1 | tr -d ' ')
-    if [[ "$vram_total_mb" =~ ^[0-9]+$ ]] && (( vram_total_mb > 0 )); then
-        vram_total_gb=$(awk -v mb="$vram_total_mb" 'BEGIN { printf "%.1f", mb/1024 }')
+# Asked of nvidia-smi once per boot, not every 2 s tick: the total never changes, and an NVIDIA update without a
+# reboot makes every call fail ("Driver/library version mismatch") and leave a kernel log entry — 2026-10-13..15,
+# ~1,800 an hour from this module alone, while windows opened since the update drew on the CPU. Asked again when
+# the NVML library changes (that update), so the mismatch shows here at once: "reboot", until the reboot that
+# fixes it. The answer lives in the runtime dir, which a reboot empties.
+CACHE_DIR="${XDG_RUNTIME_DIR:-/tmp}/foxml-waybar"
+VRAM_CACHE="$CACHE_DIR/vram-total"                # "<MB>|<nvml lib>" | "none|<lib>" | "mismatch|<lib>|<module>|<library>"
+nvml_lib=$(readlink -f "${FOX_NVML_LIB:-/usr/lib/libnvidia-ml.so.1}" 2>/dev/null)
+vram_state="" cached_lib=""
+[[ -r $VRAM_CACHE ]] && IFS='|' read -r vram_state cached_lib drv_mod drv_lib < "$VRAM_CACHE"
+if [[ -z $vram_state || $cached_lib != "$nvml_lib" ]]; then
+    state="none" smi="${FOX_NVIDIA_SMI:-nvidia-smi}"
+    if command -v "$smi" &>/dev/null; then
+        out=$("$smi" --query-gpu=memory.total --format=csv,noheader,nounits 2>&1)
+        first=$(head -1 <<<"$out" | tr -d ' ')
+        if grep -q 'version mismatch' <<<"$out"; then
+            mod=$(grep -oP '\b[0-9]{3}\.[0-9]+(\.[0-9]+)?\b' "${FOX_NVIDIA_VERSION:-/proc/driver/nvidia/version}" 2>/dev/null | head -1)
+            lib=$(grep -oP 'NVML library version: \K[0-9.]+' <<<"$out")
+            state="mismatch|$nvml_lib|${mod:-?}|${lib:-?}"
+        elif [[ $first =~ ^[0-9]+$ ]]; then
+            state="$first|$nvml_lib"
+        fi
     fi
+    [[ $state == mismatch* ]] || state="${state%%|*}|$nvml_lib"
+    mkdir -p "$CACHE_DIR" && printf '%s\n' "$state" > "$VRAM_CACHE"
+    IFS='|' read -r vram_state cached_lib drv_mod drv_lib <<<"$state"
+fi
+vram_total_gb=""
+if [[ $vram_state =~ ^[0-9]+$ ]] && (( vram_state > 0 )); then
+    vram_total_gb=$(awk -v mb="$vram_state" 'BEGIN { printf "%.1f", mb/1024 }')
 fi
 
 # ── Loaded models from llama.cpp's router (fox-llm-run --ps: name, state, GB) ──
@@ -60,7 +83,10 @@ if [[ -n "$SIZE" ]]; then
     fi
 fi
 
-if [[ -n "$loaded_size_gb" && -n "$vram_total_gb" ]]; then
+if [[ $vram_state == mismatch ]]; then
+    TEXT="$ICON ⚠ reboot"
+    CLASS="warning"
+elif [[ -n "$loaded_size_gb" && -n "$vram_total_gb" ]]; then
     TEXT="$ICON $DISPLAY_TAG $loaded_size_gb/${vram_total_gb}g"
 elif [[ -n "$loaded_size_gb" ]]; then
     TEXT="$ICON $DISPLAY_TAG ${loaded_size_gb}g"
@@ -69,7 +95,12 @@ else
 fi
 
 # ── Tooltip ──────────────────────────────────────────────────────
-tip="Model: $MODEL_NAME"
+tip=""
+if [[ $vram_state == mismatch ]]; then
+    tip="NVIDIA was updated without a reboot (kernel module ${drv_mod}, driver library ${drv_lib}):\\n"
+    tip+="GPU tools fail, and windows opened since then draw on the CPU.\\nReboot to load the new driver.\\n\\n"
+fi
+tip+="Model: $MODEL_NAME"
 if [[ -n "$loaded_name" ]]; then
     tip+="\\nLoaded: $loaded_name"
     [[ -n "$loaded_size_gb" ]] && tip+=" (${loaded_size_gb}g RAM)"
