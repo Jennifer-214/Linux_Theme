@@ -51,6 +51,7 @@ ANSWERS = {
 class FakeRouter(http.server.BaseHTTPRequestHandler):
     loaded = set()           # names the fake says are in memory
     fail_chat = False        # answer chat requests with a 500, as a server going away would
+    cut_off = None           # a task whose reply runs out of tokens
     log = []                 # (path, model) of every request
 
     def log_message(self, *a):
@@ -87,8 +88,11 @@ class FakeRouter(http.server.BaseHTTPRequestHandler):
             return self.reply({"choices": [{"message": msg}]})
         prompt = body["messages"][0]["content"]
         task = next((n for n, (p, _) in GRADE.TASKS.items() if prompt == p), None)
+        if task and task == FakeRouter.cut_off:        # a reply that ran out of tokens mid-code
+            return self.reply({"choices": [{"finish_reason": "length",
+                                            "message": {"role": "assistant", "content": "```cpp\n#include <cstdint>\nbool"}}]})
         text = f"Here it is:\n```cpp\n{ANSWERS[task]}\n```\n" if task else "This code tests five functions."
-        self.reply({"choices": [{"message": {"role": "assistant", "content": text}}],
+        self.reply({"choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": text}}],
                     "timings": {"prompt_per_second": 150.5, "predicted_per_second": 6.2, "prompt_n": 1400}})
 
 
@@ -116,6 +120,7 @@ class GradeTest(unittest.TestCase):
         for f in self.bin.iterdir():
             f.chmod(0o755)
         FakeRouter.loaded, FakeRouter.log = {"qwen2.5-coder:1.5b-base"}, []
+        FakeRouter.cut_off = None
         self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FakeRouter)
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
 
@@ -157,6 +162,13 @@ class GradeTest(unittest.TestCase):
         unloaded = [m for p, m in FakeRouter.log if p == "/models/unload"]
         self.assertNotIn("qwen2.5-coder:1.5b-base", unloaded)            # ghost text stays loaded: she may be typing
         self.assertTrue((self.home / ".cache/fox-llm-grade/qwen3.5:9b/ring-1.md").exists())
+
+    def test_an_answer_cut_off_by_the_token_limit_says_so(self):
+        FakeRouter.cut_off = "parse_price"
+        out = self.run_grade("qwen3.5:9b")
+        self.assertIn("parse_price #1: FAIL (cut off at 2048 tokens)", out)
+        self.assertEqual(self.scores()[0][("qwen3.5:9b", "cxx:parse_price")], "0/1")
+        self.assertIn(("/v1/chat/completions", "qwen3.5:9b"), FakeRouter.log)
 
     def test_a_base_model_is_graded_on_ghost_text(self):
         self.run_grade("qwen2.5-coder:1.5b-base")
