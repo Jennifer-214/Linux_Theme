@@ -165,6 +165,100 @@ end
 local quick_model = role_model("quick", "qwen3.5:4b")
 local global_model = get_global_model(quick_model)
 
+-- >>> fox-repo-visibility
+-- Copilot only where the code is public (2026-10-15): Copilot sends what you type to GitHub, so it attaches only to a
+-- buffer whose repo GitHub reports public. Everything else (a private repo, no remote, another host, no `gh`, an
+-- answer not in yet) gets the local model. The answer comes from `gh`, in the background, once a day per repo (cached
+-- in stdpath("cache")); a definite answer is kept, "unknown" is asked again after ten minutes. Nothing here blocks.
+-- tests/test_nvim_repo_visibility.py runs this block on its own: it starts and ends at these two sentinel lines.
+local RepoVis = { ttl = 24 * 3600, retry = 600, cache = nil, asking = {}, unknown = {} }
+RepoVis.path = vim.fn.stdpath("cache") .. "/fox-repo-visibility.json"
+
+-- "owner/name" from a GitHub remote URL (git@…:, https://…, ssh://git@…), or nil for anything else
+function RepoVis.github(url)
+  url = vim.trim(url or "")
+  local o, n = url:match("^git@github%.com:([%w._-]+)/([%w._-]+)$")
+  if not o then o, n = url:match("^https://github%.com/([%w._-]+)/([%w._-]+)/?$") end
+  if not o then o, n = url:match("^ssh://git@github%.com/([%w._-]+)/([%w._-]+)/?$") end
+  if not o then return nil end
+  n = n:gsub("%.git$", "")
+  if n == "" then return nil end
+  return o .. "/" .. n
+end
+
+function RepoVis.load()
+  if RepoVis.cache then return RepoVis.cache end
+  local ok, data = pcall(function()
+    local f = io.open(RepoVis.path, "r")
+    if not f then return {} end
+    local text = f:read("*a")
+    f:close()
+    return vim.json.decode(text)
+  end)
+  RepoVis.cache = (ok and type(data) == "table") and data or {}
+  return RepoVis.cache
+end
+
+function RepoVis.save()
+  vim.fn.mkdir(vim.fs.dirname(RepoVis.path), "p")
+  local tmp = RepoVis.path .. ".tmp" .. vim.fn.getpid()
+  local f = io.open(tmp, "w")
+  if not f then return end
+  f:write(vim.json.encode(RepoVis.cache or {}))
+  f:close()
+  os.rename(tmp, RepoVis.path) -- atomic: a reader sees the old file or the new one
+end
+
+-- a repo's visibility → cb("public" | "private" | "internal" | "unknown"), on the main loop
+function RepoVis.ask(repo, cb)
+  local c = RepoVis.load()[repo]
+  if type(c) == "table" and type(c.t) == "number" and os.time() - c.t < RepoVis.ttl then return cb(c.v) end
+  if RepoVis.unknown[repo] and os.time() - RepoVis.unknown[repo] < RepoVis.retry then return cb("unknown") end
+  if RepoVis.asking[repo] then table.insert(RepoVis.asking[repo], cb); return end
+  RepoVis.asking[repo] = { cb }
+  local function done(v)
+    vim.schedule(function()
+      if v == "public" or v == "private" or v == "internal" then
+        RepoVis.load()[repo] = { v = v, t = os.time() }
+        RepoVis.save()
+        RepoVis.unknown[repo] = nil
+      else
+        v = "unknown"
+        RepoVis.unknown[repo] = os.time()
+      end
+      local cbs = RepoVis.asking[repo] or {}
+      RepoVis.asking[repo] = nil
+      for _, f in ipairs(cbs) do f(v) end
+    end)
+  end
+  -- vim.system throws when gh is not installed: that is "unknown" too
+  local ok = pcall(vim.system, { "gh", "api", "repos/" .. repo, "--jq", ".visibility" }, { text = true, timeout = 15000 },
+    function(r) done(r.code == 0 and vim.trim(r.stdout or "") or "unknown") end)
+  if not ok then done("unknown") end
+end
+
+-- a file's repo visibility → cb(...), as RepoVis.ask; a file outside git, or with no GitHub origin, is "unknown"
+function RepoVis.lookup(file, cb)
+  local dir = vim.fs.dirname(file)
+  if not dir or vim.fn.isdirectory(dir) == 0 then return cb("unknown") end
+  -- `remote get-url` applies the url.insteadOf rewrites, as git itself would when pushing
+  local ok = pcall(vim.system, { "git", "-C", dir, "remote", "get-url", "origin" }, { text = true, timeout = 5000 },
+    function(r)
+      vim.schedule(function()
+        local repo = r.code == 0 and RepoVis.github(r.stdout) or nil
+        if repo then RepoVis.ask(repo, cb) else cb("unknown") end
+      end)
+    end)
+  if not ok then cb("unknown") end
+end
+
+-- a buffer's engine: "copilot" only for a repo GitHub reports public, while the mode is per repo
+function RepoVis.engine(buf)
+  if vim.g.fox_completion == "local" then return "local" end
+  return vim.b[buf].fox_visibility == "public" and "copilot" or "local"
+end
+-- <<< fox-repo-visibility
+
 local plugins = {
   { "nvim-lualine/lualine.nvim",           dependencies = { "nvim-tree/nvim-web-devicons" } },
   { "lukas-reineke/indent-blankline.nvim", main = "ibl",
@@ -812,6 +906,10 @@ local plugins = {
         keymap = { accept = false, accept_word = false, accept_line = false, next = false, prev = false, dismiss = false },
       },
       panel = { enabled = false },
+      -- its own rule (listed, normal buffers) AND a public repo (RepoVis, above the plugin list)
+      should_attach = function(buf, name)
+        return require("copilot.config.should_attach").default(buf, name) and RepoVis.engine(buf) == "copilot"
+      end,
       filetypes = {
         ["*"] = {{SHOW_WELCOME}},
         ["AvanteInput"] = false,
@@ -825,7 +923,8 @@ local plugins = {
   -- the router already keeps loaded for this (a second copy in another server would double the VRAM). The router's
   -- /v1/completions ignores `suffix` (measured 2026-10-14: it rambles), so the gap goes in the prompt with the model's
   -- own fill-in-the-middle tokens. The BASE coder model (fill-in-the-middle trained) fits the 4 GB GPU with room to spare; `:Minuet` can
-  -- point it at 3b. Off until <leader>ta switches from Copilot to it — the two never show at once.
+  -- point it at 3b. On in every buffer whose repo is not public (RepoVis, above the plugin list), and everywhere
+  -- after <leader>ta. One engine per buffer: the two never show at once.
   -- Measured 2026-10-13: these models don't reliably stop at the gap — given `return ` before the cursor and `}`
   -- after, they wrote `a + b;` and then repeated the `}` and invented new functions. Two settings stop that: `stop` at
   -- the first blank line (no run-on), and after_cursor_filter_length = 1 (minuet's default is 0 — OFF — for this
@@ -2098,7 +2197,11 @@ require("lualine").setup({
     lualine_c = { { "filename", path = 1 } },
     lualine_x = {
       {
+        -- this buffer's engine: Copilot's icon only where Copilot is attached (a public repo), else the local model's
         function()
+          if #vim.lsp.get_clients({ name = "copilot", bufnr = 0 }) == 0 then
+            return vim.b.minuet_virtual_text_auto_trigger and "󰚩 " or ""
+          end
           local ok, api = pcall(require, "copilot.api")
           if not ok then return "" end
           local status = api.status.data.status
@@ -2108,6 +2211,7 @@ require("lualine").setup({
           return ""
         end,
         color = function()
+          if #vim.lsp.get_clients({ name = "copilot", bufnr = 0 }) == 0 then return { fg = P.cyan } end
           local ok, api = pcall(require, "copilot.api")
           if not ok then return { fg = P.comment } end
           local status = api.status.data.status
@@ -2431,33 +2535,45 @@ map("i", "<C-]>", ghost("next", "next", "<C-]>"), { expr = true, desc = "Next su
 map("i", "<C-k>", ghost("prev", "prev", "<C-k>"), { expr = true, desc = "Previous suggestion" })
 map("i", "<C-j>", ghost("dismiss", "dismiss", "<C-j>"), { expr = true, desc = "Dismiss the suggestion" })
 
--- Copilot ⇄ local completion: one engine at a time (their ghost text would overlap)
-vim.g.fox_completion = vim.g.fox_completion or "copilot"
-local function local_completion(on, buf)
-  local okm, mv = pcall(require, "minuet.virtualtext")
-  if not okm then return end
-  vim.api.nvim_buf_call(buf or 0, function()
-    if on then mv.action.enable_auto_trigger() else mv.action.disable_auto_trigger() end
-  end)
+-- Copilot ⇄ the local model: one engine per buffer, never both (their ghost text would overlap). "auto" (the default):
+-- Copilot where GitHub reports the repo public, the local model everywhere else (RepoVis, above the plugin list).
+-- "local": the local model everywhere. Neither mode puts Copilot on a private or unknown repo; `:Copilot attach` is
+-- the explicit override.
+if vim.g.fox_completion ~= "local" then vim.g.fox_completion = "auto" end
+local function apply_engine(buf)
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  local copilot = RepoVis.engine(buf) == "copilot"
+  vim.b[buf].minuet_virtual_text_auto_trigger = not copilot
+  if copilot then
+    local ok, client = pcall(require, "copilot.client")
+    if ok and client.buf_attach then pcall(client.buf_attach, false, buf) end -- asks should_attach again
+  else
+    for _, c in ipairs(vim.lsp.get_clients({ name = "copilot", bufnr = buf })) do pcall(vim.lsp.buf_detach_client, buf, c.id) end
+  end
 end
 vim.api.nvim_create_autocmd("BufEnter", {
   group = vim.api.nvim_create_augroup("FoxLocalCompletion", { clear = true }),
-  callback = function(ev) if vim.g.fox_completion == "local" then local_completion(true, ev.buf) end end,
+  callback = function(ev)
+    local buf, name = ev.buf, vim.api.nvim_buf_get_name(ev.buf)
+    if vim.bo[buf].buftype ~= "" or name == "" then return end
+    if vim.b[buf].fox_visibility == nil then
+      vim.b[buf].fox_visibility = "asking" -- the local model until the answer is in
+      RepoVis.lookup(name, function(v)
+        if vim.api.nvim_buf_is_valid(buf) then
+          vim.b[buf].fox_visibility = v
+          apply_engine(buf)
+        end
+      end)
+    end
+    apply_engine(buf)
+  end,
 })
 map("n", "<leader>ta", function()
-  require("lazy").load({ plugins = { "minuet-ai.nvim", "copilot.lua" } })
-  if vim.g.fox_completion == "local" then
-    vim.g.fox_completion = "copilot"
-    for _, b in ipairs(vim.api.nvim_list_bufs()) do if vim.api.nvim_buf_is_loaded(b) then local_completion(false, b) end end
-    vim.cmd("Copilot enable")
-    vim.notify("Completion: Copilot", vim.log.levels.INFO)
-  else
-    vim.g.fox_completion = "local"
-    vim.cmd("Copilot disable")
-    for _, b in ipairs(vim.api.nvim_list_bufs()) do if vim.api.nvim_buf_is_loaded(b) then local_completion(true, b) end end
-    vim.notify("Completion: local (qwen2.5-coder:1.5b-base via llama.cpp)", vim.log.levels.INFO)
-  end
-end, { desc = "Completion: Copilot ⇄ local model" })
+  vim.g.fox_completion = vim.g.fox_completion == "local" and "auto" or "local"
+  for _, b in ipairs(vim.api.nvim_list_bufs()) do if vim.api.nvim_buf_is_loaded(b) then apply_engine(b) end end
+  vim.notify(vim.g.fox_completion == "local" and "Completion: the local model everywhere"
+    or "Completion: Copilot in public repos, the local model elsewhere", vim.log.levels.INFO)
+end, { desc = "Completion: per repo ⇄ the local model everywhere" })
 
 -- Copilot: toggle inline ghost-text vs cmp-menu suggestions
 map("n", "<leader>tp", function()
