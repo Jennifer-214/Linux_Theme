@@ -39,7 +39,11 @@ inline const std::vector<std::string>& deps_packages() {
         // C/C++ intelligence (fox-symdeps.nvim): clangd + clang-format, a compile DB
         // for Make projects (bear), the plugin's python adapters (yaml), and
         // perf — `perf c2c` feeds the plugin's measured false-sharing marks.
+        // capstone + its python bindings decode machine code into structured operands
+        // (spills and branches read as fields, never parsed out of objdump's text), and
+        // python-pyelftools reads the compiler's own debug info (DWARF) as data.
         "clang", "bear", "python-yaml", "perf",
+        "capstone", "python-capstone", "python-pyelftools",
 
         // Called by the shipped fox-* commands and scripts, otherwise only ever
         // present by accident of another package's deps: ssh / ssh-keygen (the
