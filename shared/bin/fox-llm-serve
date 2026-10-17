@@ -135,9 +135,11 @@ role_flags() {
     # agent on a small GPU: auto-fit's default 1 GiB margin left a 35B MoE's dense layers on the CPU of a
     # 3.7 GB T1200 (6.6 tok/s writing, the CPU-only speed). A 512 MiB margin at 64k keeps them on the GPU
     # (14.2) and leaves the desktop, which runs on the same GPU, room for its windows; 128k managed 10.5,
-    # and reading 128k there takes an hour anyway (2026-10-16).
+    # and reading 128k there takes an hour anyway (2026-10-16). Prompts are read in 2048-token chunks: each
+    # chunk copies the experts from RAM to the GPU once, so reading went 58 → 126 tok/s; 4096 read 144 but
+    # its bigger GPU buffer halved the writing.
     agent) if (( SMALL_GPU )); then
-             ctx_flags 65536 "${slots:-$(( RAM_GB >= 48 ? 2 : 1 ))}"; echo "fit-target = 512"
+             ctx_flags 65536 "${slots:-$(( RAM_GB >= 48 ? 2 : 1 ))}"; echo "fit-target = 512"; echo "ubatch-size = 2048"
            else
              ctx_flags 131072 "${slots:-$(( RAM_GB >= 48 ? 2 : 1 ))}"
            fi

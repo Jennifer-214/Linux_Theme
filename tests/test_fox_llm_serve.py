@@ -119,6 +119,7 @@ class ServeTest(unittest.TestCase):
         agent, fim = self.section(ini, "qwen3-coder:30b"), self.section(ini, "qwen2.5-coder:1.5b-base")
         self.assertIn("fit-target = 512", agent)
         self.assertIn("c = 65536", agent)
+        self.assertIn("ubatch-size = 2048", agent)                       # prompt reading 58 → 126 tok/s
         self.assertNotIn("load-on-startup = true", fim)
         self.assertIn("sleep-idle-seconds = 600", fim)
         # the helpers run on the CPU: beside the agent the quick 4B couldn't load, and loaded first it left
@@ -134,7 +135,7 @@ class ServeTest(unittest.TestCase):
             ini = self.preset(gpu=gpu)
             agent, fim = self.section(ini, "qwen3-coder:30b"), self.section(ini, "qwen2.5-coder:1.5b-base")
             self.assertIn("c = 131072", agent)
-            self.assertFalse(any(l.startswith("fit") for l in agent))
+            self.assertFalse(any(l.startswith(("fit", "ubatch")) for l in agent))
             self.assertIn("load-on-startup = true", fim)
             self.assertFalse(any(l.startswith("sleep-idle") for l in fim))
             self.assertNotIn("device = none", ini)
