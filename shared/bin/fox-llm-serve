@@ -29,7 +29,8 @@
 # a second conversation can never squeeze out the first. Override per role: `slots=N` after the server.
 #
 # Residency, for running ghost text + explain cards + a heavy agent on one laptop: fim stays loaded (tiny,
-# on the GPU); the agent sleeps after an hour idle — a sleeping model loses its prompt cache (saving it to
+# on the GPU) — on a GPU of 6 GiB or less it loads when asked instead, its room going to the agent, whose
+# context is then 64k (role_flags); the agent sleeps after an hour idle — a sleeping model loses its prompt cache (saving it to
 # disk doesn't help hybrid Qwen 3.5/3.6: a restored slot isn't reused, tested 2026-10-14), and re-reading
 # a long agent conversation takes minutes; under 48 GB the quick model after 10 min (it is the agents'
 # stand-in until the agent model is downloaded), the title and embedding models after 2 and 5, other
@@ -76,6 +77,14 @@ server_bin() {
 # llama.cpp's own device list, not nvidia-smi: NVML can fail (driver halves mismatched after an
 # update) while CUDA itself works fine.
 gpu_ok() { "$1" --list-devices 2>/dev/null | grep -Eq '^[[:space:]]+(CUDA|Vulkan|ROCm|SYCL)[0-9]+:'; }
+# The first GPU's size in MiB, from the same list ("CUDA0: NVIDIA T1200 Laptop GPU (3722 MiB, 3300 MiB
+# free)"); 0 when there is none or it gives no size.
+gpu_mib() {
+  local mib
+  mib=$("$1" --list-devices 2>/dev/null |
+        sed -nE 's/^[[:space:]]+(CUDA|Vulkan|ROCm|SYCL)[0-9]+:.*\(([0-9]+) MiB.*/\2/p' | head -n1)
+  echo "${mib:-0}"
+}
 
 # Model name → its GGUF, when it is downloaded. A name never holds a slash: it is a file name.
 gguf_path() {
@@ -88,7 +97,10 @@ gguf_path() {
 # and the load then tries the whole model on the GPU: a forced n-gpu-layers OOMed the 4B beside the
 # fim model, cpu-moe (a tensor override) every extra model (2026-10-14). And the Arch package
 # (llama-cpp 0.6.0) has no --moe-cache-mib: an agent section asking for it would never start.
+# `fit-target` is no placement: it is the margin auto-fit leaves free, and the fit stays on.
 RAM_GB=$(awk '/^MemTotal:/{printf "%d", ($2 + 1048575) / 1048576}' "${FOX_LLM_MEMINFO:-/proc/meminfo}")
+# A GPU of 6 GiB or less (set by write_preset): its room goes to the agent.
+SMALL_GPU=0
 
 # Context per slot. One slot: `c` is that slot's context. Several: the unified KV pool is
 # slots × per-slot (kv-unified-per-slot), so no conversation can take another's room.
@@ -101,23 +113,40 @@ ctx_flags() {
   fi
 }
 
+# A small GPU belongs to the agent: the helpers (ghost text, quick, titles, embeddings) run on the CPU.
+# Sharing failed both ways (2026-10-16): beside a loaded agent the quick 4B couldn't load (llama.cpp still
+# wanted a 555 MiB GPU buffer to read its prompts); loaded first, it took 2.3 GB and the agent came up at
+# the CPU-only speed (5.7 tok/s) until it reloaded. On the CPU the 4B reads ~37 tok/s, writes ~5.5.
+helper_gpu_flags() { if (( SMALL_GPU )); then echo "device = none"; fi; }
+
 role_flags() {
   local role=$1 slots=$2
   case $role in
-    fim)   ctx_flags 8192 "${slots:-1}";  echo "load-on-startup = true"; echo "cache-ram = 256" ;;
+    # fim: loaded from the start, except on a small GPU, where its 1.2 GB slowed the agent — there it
+    # loads when asked (the first suggestion takes a few seconds) and sleeps after 10 min.
+    fim)   ctx_flags 8192 "${slots:-1}"; echo "cache-ram = 256"; helper_gpu_flags
+           if (( SMALL_GPU )); then echo "sleep-idle-seconds = 600"; else echo "load-on-startup = true"; fi ;;
     # quick: explain cards, inline edits — short jobs where hidden reasoning only adds minutes on a small
     # GPU (fask sat 9 min on it). Thinking off at the server, for every client; Qwen's template switch,
     # ignored by templates without one. The agent role keeps thinking.
-    quick) ctx_flags 32768 "${slots:-2}"; echo "cache-ram = 1024"
+    quick) ctx_flags 32768 "${slots:-2}"; echo "cache-ram = 1024"; helper_gpu_flags
            echo 'chat-template-kwargs = {"enable_thinking": false}'
            if (( RAM_GB < 48 )); then echo "sleep-idle-seconds = 600"; fi ;;
-    agent) ctx_flags 131072 "${slots:-$(( RAM_GB >= 48 ? 2 : 1 ))}"
+    # agent on a small GPU: auto-fit's default 1 GiB margin left a 35B MoE's dense layers on the CPU of a
+    # 3.7 GB T1200 (6.6 tok/s writing, the CPU-only speed). A 512 MiB margin at 64k keeps them on the GPU
+    # (14.2) and leaves the desktop, which runs on the same GPU, room for its windows; 128k managed 10.5,
+    # and reading 128k there takes an hour anyway (2026-10-16).
+    agent) if (( SMALL_GPU )); then
+             ctx_flags 65536 "${slots:-$(( RAM_GB >= 48 ? 2 : 1 ))}"; echo "fit-target = 512"
+           else
+             ctx_flags 131072 "${slots:-$(( RAM_GB >= 48 ? 2 : 1 ))}"
+           fi
            echo "cache-ram = 2048"; echo "sleep-idle-seconds = 3600" ;;
-    title) ctx_flags 8192 "${slots:-1}"; echo "cache-ram = 256"
+    title) ctx_flags 8192 "${slots:-1}"; echo "cache-ram = 256"; helper_gpu_flags
            if (( RAM_GB < 48 )); then echo "sleep-idle-seconds = 120"; fi ;;
     # Embeddings: the model's own context (512 tokens for mxbai-embed-large) — a longer input is an
     # error here, so libfox-intel trims it first; no prompt cache to keep.
-    embed) echo "embeddings = true"; echo "cache-ram = 0"
+    embed) echo "embeddings = true"; echo "cache-ram = 0"; helper_gpu_flags
            if (( RAM_GB < 48 )); then echo "sleep-idle-seconds = 300"; fi ;;
     # `if`, not `&&`: a false test as a function's last command is its status, and write_preset's
     # brace group ends in this call — on a CPU-only box the preset was never written.
@@ -185,10 +214,12 @@ aliases() {
 
 write_preset() {
   local bin=$1; shift
-  local roles gpu=0 role model server path why kind role_models seen=" "
+  local roles gpu=0 mib role model server path why kind role_models seen=" "
   local -A kind_of=()
   roles=$(roles_file) || exit 1
   gpu_ok "$bin" && gpu=1
+  mib=$(gpu_mib "$bin")
+  if (( mib > 0 && mib <= 6144 )); then SMALL_GPU=1; fi
   mkdir -p "$LLM_DIR"
   role_models=$(awk '!/^[[:space:]]*(#|$)/ {print $2}' "$roles" | while read -r model; do canon "$model"; done)
   {
@@ -245,7 +276,7 @@ write_preset() {
       if [[ ${kind_of[$model]:-} == embed ]]; then role_flags embed ""; else role_flags extra ""; fi
     done
   } > "$PRESET.new" && mv "$PRESET.new" "$PRESET"
-  echo "fox-llm-serve: wrote $PRESET ($ENGINE engine, GPU: $( (( gpu )) && echo yes || echo no))" >&2
+  echo "fox-llm-serve: wrote $PRESET ($ENGINE engine, GPU: $( (( gpu )) && echo "yes, $mib MiB" || echo no))" >&2
 }
 
 case "${1:-}" in

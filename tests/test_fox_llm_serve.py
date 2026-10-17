@@ -36,7 +36,7 @@ class ServeTest(unittest.TestCase):
         self.server = self.tmp / "llama-server"
         self.server.write_text('#!/bin/sh\n[ "$1" = --list-devices ] || exit 1\n'
                                'echo "Available devices:"\n'
-                               'if [ "$FAKE_GPU" = 1 ]; then echo "  CUDA0: NVIDIA T1200 Laptop GPU (3722 MiB, 3300 MiB free)";'
+                               'if [ "$FAKE_GPU" = 1 ]; then echo "  CUDA0: NVIDIA T1200 Laptop GPU ($FAKE_GPU_MIB MiB, 3300 MiB free)";'
                                ' else echo "  (none)"; fi\n')
         self.server.chmod(0o755)
 
@@ -51,6 +51,7 @@ class ServeTest(unittest.TestCase):
         return f
 
     def env(self, gpu=False, ram_gb=32, extra=None):
+        """`gpu`: False for none, True for the 3722 MiB T1200, or a size in MiB."""
         meminfo = self.tmp / "meminfo"
         meminfo.write_text(f"MemTotal:       {ram_gb * 1048576 - 1000} kB\n")
         # XDG_CACHE_HOME too: the load-check cache must never land in the real ~/.cache.
@@ -58,6 +59,7 @@ class ServeTest(unittest.TestCase):
                 "XDG_CACHE_HOME": str(self.tmp / "cache"), "XDG_DATA_HOME": str(self.tmp / "data"),
                 "HOME": str(self.tmp / "home"),         # never the real ~/code/custom_models/roles.conf
                 "FOX_LLM_SERVER": str(self.server), "FAKE_GPU": "1" if gpu else "0",
+                "FAKE_GPU_MIB": str(3722 if gpu is True else int(gpu)),
                 "FOX_LLM_MEMINFO": str(meminfo), **(extra or {})}
 
     def preset(self, *extra, gpu=False, ram_gb=32, env=None, engine="main"):
@@ -98,13 +100,44 @@ class ServeTest(unittest.TestCase):
         # Any manual placement turns llama.cpp's auto-fit off and the load tries the whole model on the
         # GPU: n-gpu-layers OOMed the 4B beside the fim model, cpu-moe OOMed every extra model; and the
         # Arch build has no --moe-cache-mib at all (2026-10-14). GPU or not, roles or extras: none.
+        # `fit-target` (a small GPU's agent) is the margin the fit leaves free; the fit itself is never set.
         self.add_model("qwen3-coder:30b")                                # roles.default's agent (MoE)
         self.add_model("qwen2.5-coder:14b")                              # an extra (dense)
-        for gpu in (False, True):
+        for gpu in (False, True, 12288):
             ini = self.preset(gpu=gpu)
             self.assertIn("[qwen3-coder:30b]", ini)
             self.assertEqual([l for l in ini.splitlines() if l.startswith(
-                ("n-gpu-layers", "ngl", "cpu-moe", "n-cpu-moe", "moe-cache", "override-tensor", "fit"))], [])
+                ("n-gpu-layers", "ngl", "cpu-moe", "n-cpu-moe", "moe-cache", "override-tensor", "fit ", "fit="))], [])
+
+    def test_small_gpu_gives_its_room_to_the_agent(self):
+        # A 3.7 GB T1200: the always-loaded fim model held 1.2 GB and auto-fit's default 1 GiB margin left the
+        # agent's dense layers on the CPU (6.6 tok/s writing). Fim on demand and a 512 MiB margin at 64k: 14.2
+        # (2026-10-16).
+        self.add_model("qwen3-coder:30b")                                # roles.default's agent
+        self.add_model("qwen2.5-coder:1.5b-base")                        # roles.default's fim
+        ini = self.preset(gpu=True)
+        agent, fim = self.section(ini, "qwen3-coder:30b"), self.section(ini, "qwen2.5-coder:1.5b-base")
+        self.assertIn("fit-target = 512", agent)
+        self.assertIn("c = 65536", agent)
+        self.assertNotIn("load-on-startup = true", fim)
+        self.assertIn("sleep-idle-seconds = 600", fim)
+        # the helpers run on the CPU: beside the agent the quick 4B couldn't load, and loaded first it left
+        # the agent at the CPU-only speed
+        self.add_model("qwen3.5:4b")                                     # roles.default's quick
+        ini = self.preset(gpu=True)
+        for helper in ("qwen2.5-coder:1.5b-base", "qwen3.5:4b"):
+            self.assertIn("device = none", self.section(ini, helper))
+        self.assertFalse(any(l.startswith("device") for l in self.section(ini, "qwen3-coder:30b")))
+        big = self.section(self.preset(gpu=True, ram_gb=64), "qwen3-coder:30b")
+        self.assertIn("kv-unified-per-slot = 65536", big)                # slots still follow RAM
+        for gpu in (12288, False):                                       # a bigger GPU, or none: as before
+            ini = self.preset(gpu=gpu)
+            agent, fim = self.section(ini, "qwen3-coder:30b"), self.section(ini, "qwen2.5-coder:1.5b-base")
+            self.assertIn("c = 131072", agent)
+            self.assertFalse(any(l.startswith("fit") for l in agent))
+            self.assertIn("load-on-startup = true", fim)
+            self.assertFalse(any(l.startswith("sleep-idle") for l in fim))
+            self.assertNotIn("device = none", ini)
 
     def test_roles_conf_beats_roles_default(self):
         self.add_model("qwen3-coder:30b")
