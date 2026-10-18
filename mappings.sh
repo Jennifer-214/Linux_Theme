@@ -139,6 +139,7 @@ SHARED_MAPPINGS=(
     "bin/fox-ai-bench|~/.local/bin/fox-ai-bench"
     "bin/fox-new-project|~/.local/bin/fox-new-project"
     "bin/fox-distro-guide|~/.local/bin/fox-distro-guide"
+    "bin/pi|~/.local/bin/pi"
     "bin/fox-distro-build|~/.local/bin/fox-distro-build"
     "bin/fox-distro-flash|~/.local/bin/fox-distro-flash"
     "bin/fhelp|~/.local/bin/fhelp"

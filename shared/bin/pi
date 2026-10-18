@@ -1,0 +1,81 @@
+#!/usr/bin/env node
+// pi — the launcher: pi as installed, with its context files stopping at the project.
+//
+// pi reads a context file (AGENTS.md, CLAUDE.md, …) from the folder it runs in and from every folder above it, up to
+// `/`, and lists them at start; no setting stops that. Its loader takes an `agentsFilesOverride`, but only a program that
+// starts pi itself can give it one. This is that program: it does what pi's own entry does (dist/cli.js) and first gives
+// every loader fox-scope's rule (~/.pi/agent/extensions/fox-scope.ts — the project's own files and pi's global one,
+// nothing from a folder above the project), so pi never reads, lists or uses the rest. fox-scope, the extension, stays as
+// the second net. Anything this relies on missing, or any error before pi starts: one line on stderr, then pi's own
+// entry runs unchanged, in this process — never a pi that does not start.
+// Plan: linux-theme-workspace/plans/2026-10-17-pi-launcher-project-scope.md.
+
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { homedir } from "node:os";
+import { delimiter, dirname, join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+
+const PKG = "@earendil-works/pi-coding-agent";
+
+/** The real pi: the first `pi` on PATH inside pi's own package (this launcher is in none) → its entry and the root. */
+function realPi() {
+	for (const dir of (process.env.PATH || "").split(delimiter)) {
+		const cand = dir && join(dir, "pi");
+		if (!cand || !existsSync(cand)) continue;
+		let entry;
+		try {
+			entry = realpathSync(cand);
+		} catch {
+			continue;
+		}
+		for (let d = dirname(entry); d !== dirname(d); d = dirname(d)) {
+			try {
+				if (JSON.parse(readFileSync(join(d, "package.json"), "utf8")).name === PKG) return { entry, root: d };
+			} catch {}
+		}
+	}
+	return null;
+}
+
+/** pi's own main, every loader given fox-scope's rule first — or an Error naming what is missing. */
+async function scoped(root) {
+	const dist = join(root, "dist");
+	const api = await import(pathToFileURL(join(dist, "index.js")).href);
+	const { setupCli } = await import(pathToFileURL(join(dist, "cli", "setup.js")).href);
+	const agent = resolve(process.env.PI_CODING_AGENT_DIR?.replace(/^~(?=$|\/)/, homedir()) || join(homedir(), ".pi", "agent"));
+	const { scope } = await import(pathToFileURL(join(agent, "extensions", "fox-scope.ts")).href);
+	const L = api.DefaultResourceLoader;
+	if (typeof api.main !== "function") throw new Error("pi exports no main()");
+	if (typeof L?.prototype?.reload !== "function") throw new Error("pi's DefaultResourceLoader has no reload()");
+	if (typeof setupCli !== "function") throw new Error("pi has no setupCli() in dist/cli/setup.js");
+	if (typeof scope !== "function") throw new Error("fox-scope.ts exports no scope()");
+	const reload = L.prototype.reload;
+	L.prototype.reload = function (...args) {
+		if (!this.foxScoped) {
+			const theirs = this.agentsFilesOverride; // an SDK caller's own runs after ours
+			this.agentsFilesOverride = (found) => {
+				const ours = { ...found, agentsFiles: scope(found.agentsFiles, this.cwd).kept };
+				return theirs ? theirs(ours) : ours;
+			};
+			this.foxScoped = true;
+		}
+		return reload.apply(this, args);
+	};
+	setupCli();
+	return api.main;
+}
+
+const pi = realPi();
+if (!pi) {
+	process.stderr.write("pi launcher: no installed pi on PATH (its package, " + PKG + ") — is pi installed?\n");
+	process.exit(127);
+}
+(await import("node:module")).enableCompileCache?.(); // as pi's own entry does
+let main;
+try {
+	main = await scoped(pi.root);
+} catch (err) {
+	process.stderr.write(`pi launcher: ${err instanceof Error ? err.message : String(err)} — running plain pi; fox-scope still trims each request\n`);
+	await import(pathToFileURL(pi.entry).href); // pi's own entry, unchanged: it reads the same arguments
+}
+if (main) await main(process.argv.slice(2));
