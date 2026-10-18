@@ -13,6 +13,12 @@ let fail = 0;
 const check = (ok, what) => { if (!ok) fail++; console.log(`${ok ? "ok  " : "FAIL"} ${what}`); };
 const put = (p, text = "x") => { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, text); };
 const file = (p) => ({ path: p, content: `the instructions in ${p}` });
+// the context pi gives an EVENT handler: no getSystemPromptOptions — that is a /command's (2026-10-17: the startup
+// notice called it and crashed; a fake that had it hid the bug)
+const said = [];
+const ctx = (hasUI) => ({ hasUI, cwd: "/", ui: { notify: (m, t) => said.push([m, t]) } });
+const request = (opts, hasUI = false) =>
+  on.before_agent_start({ type: "before_agent_start", messageType: "user", prompt: "hi", systemPrompt: "", systemPromptOptions: opts }, ctx(hasUI));
 
 // the tree: two context files above a git project, the project's own, a subfolder's, and pi's global one
 const agent = join(H, ".pi/agent/AGENTS.md"), top = join(H, "CLAUDE.md"), code = join(H, "code/CLAUDE.md");
@@ -47,7 +53,7 @@ check(mod.isAbove(H, join(H, "..dots/p")), "a folder named ..dots is not the par
   const tools = ["read", "bash"];
   const opts = { cwd: join(proj, "sub"), contextFiles: [file(agent), file(top), file(code), file(own), file(sub)],
     selectedTools: tools, appendSystemPrompt: "keep me" };
-  on.before_agent_start({ type: "before_agent_start", messageType: "user", prompt: "hi", systemPrompt: "", systemPromptOptions: opts });
+  request(opts);
   const kept = opts.contextFiles.map((f) => f.path);
   check(JSON.stringify(kept) === JSON.stringify([agent, own, sub]),
     "kept: pi's global one, the project's own, its subfolder's — in pi's order: " + kept.map((p) => p.slice(H.length)).join(", "));
@@ -55,7 +61,7 @@ check(mod.isAbove(H, join(H, "..dots/p")), "a folder named ..dots is not the par
 }
 {
   const opts = { cwd: join(H, "code/wt/src"), contextFiles: [file(top), file(code), file(wtOwn)] };
-  on.before_agent_start({ systemPromptOptions: opts });
+  request(opts);
   check(opts.contextFiles.length === 1 && opts.contextFiles[0].path === wtOwn, "a worktree keeps its own, leaves out the folders above it");
 }
 {
@@ -63,31 +69,38 @@ check(mod.isAbove(H, join(H, "..dots/p")), "a folder named ..dots is not the par
   const inAgent = join(H, ".pi/agent/proj");
   mkdirSync(join(inAgent, ".git"), { recursive: true });
   const opts = { cwd: inAgent, contextFiles: [file(agent), file(top)] };
-  on.before_agent_start({ systemPromptOptions: opts });
+  request(opts);
   check(opts.contextFiles.length === 1 && opts.contextFiles[0].path === agent, "pi's global file is kept even above a project (one inside pi's agent folder)");
 }
 {
   const opts = { cwd: H, contextFiles: [file(top)] };
-  on.before_agent_start({ systemPromptOptions: opts });
+  request(opts);
   check(opts.contextFiles.length === 1, "pi run in a folder with no project above: its own file is kept (~/code's CLAUDE.md, in ~/code)");
 }
 
-// ── at session start: what it leaves out, said once, in a line ──
-const said = [];
-const ctx = (hasUI, opts) => ({ hasUI, cwd: opts.cwd, getSystemPromptOptions: () => opts, ui: { notify: (m, t) => said.push([m, t]) } });
+// ── the first request that leaves something out says so, once a session, in a line (her call 2026-10-17: not at
+// session start — no event hands an extension the files pi loaded) ──
+check(said.length === 0, "no UI: the requests above were filtered, nothing said");
+on.session_start({ type: "session_start", reason: "startup" }, ctx(true));
 {
   const opts = { cwd: join(proj, "sub"), contextFiles: [file(agent), file(top), file(code), file(own), file(sub)] };
-  on.session_start({ type: "session_start", reason: "startup" }, ctx(true, opts));
-  check(said.length === 1 && said[0][0] === "fox-scope: left out ~/CLAUDE.md, ~/code/CLAUDE.md (above this project, ~/code/proj)",
-    "the notice names each file left out and the project: " + JSON.stringify(said[0]?.[0]));
-  check(opts.contextFiles.length === 5, "…and only says so: the list pi found is left as it was");
+  request(opts, true);
+  check(said.length === 1 && said[0][0] === "fox-scope: left out ~/CLAUDE.md, ~/code/CLAUDE.md (above this project, ~/code/proj)"
+    && said[0][1] === "info", "the first request: the notice names each file left out and the project — " + JSON.stringify(said[0]));
+  check(opts.contextFiles.length === 3, "…and that request is filtered");
+  request({ cwd: join(proj, "sub"), contextFiles: [file(agent), file(top), file(code), file(own), file(sub)] }, true);
+  check(said.length === 1, "the next request, the same files left out: nothing said again");
+  request({ cwd: join(H, "code/wt/src"), contextFiles: [file(top), file(code), file(wtOwn)] }, true);
+  check(said.length === 2 && said[1][0] === "fox-scope: left out ~/CLAUDE.md, ~/code/CLAUDE.md (above this project, ~/code/wt)",
+    "the same files left out of another project: said again, naming it — " + JSON.stringify(said[1]?.[0]));
+  on.session_start({ type: "session_start", reason: "new" }, ctx(true));
+  request({ cwd: join(H, "code/wt/src"), contextFiles: [file(top), file(code), file(wtOwn)] }, true);
+  check(said.length === 3, "a new session: said again");
 }
 {
   said.length = 0;
-  on.session_start({ type: "session_start", reason: "startup" }, ctx(true, { cwd: proj, contextFiles: [file(agent), file(own)] }));
+  request({ cwd: proj, contextFiles: [file(agent), file(own)] }, true);
   check(said.length === 0, "nothing left out: nothing said");
-  on.session_start({ type: "session_start", reason: "startup" }, ctx(false, { cwd: proj, contextFiles: [file(code), file(own)] }));
-  check(said.length === 0, "no UI: nothing said (the requests are still filtered)");
 }
 
 console.log(fail ? `${fail} FAILED` : "all passed");

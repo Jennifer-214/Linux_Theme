@@ -5,8 +5,10 @@
  * `/`, so a project under ~/code also gets ~/code/CLAUDE.md — instructions written for another scope. Before each
  * request this leaves out every context file from a folder above the project's root: the nearest folder holding a
  * `.git` (a folder, or a file — a linked worktree, a submodule), else the folder pi runs in. Kept: the root's own, those
- * between the root and the working folder (a monorepo's subfolders), and pi's global one in its agent folder. At
- * session start it says what it leaves out, so pi's own list of the files it found never reads as what the model gets.
+ * between the root and the working folder (a monorepo's subfolders), and pi's global one in its agent folder. The first
+ * request that leaves something out says so, once a session (again if that changes), so pi's own startup list of the
+ * files it found never reads as what the model gets. Not at session start: no event hands an extension the files pi
+ * loaded, and the method that reads them is a /command's (the startup notice that called it crashed — 2026-10-17).
  */
 
 import { existsSync } from "node:fs";
@@ -53,17 +55,19 @@ export function scope(files: ContextFile[], cwd: string): { root: string; kept: 
 const tilde = (p: string): string => (p === homedir() || p.startsWith(homedir() + sep) ? "~" + p.slice(homedir().length) : p);
 
 export default function (pi: ExtensionAPI) {
-	pi.on("before_agent_start", (event) => {
-		const opts = event.systemPromptOptions;
-		const { kept, out } = scope(opts.contextFiles, opts.cwd);
-		if (out.length > 0) opts.contextFiles = kept;
+	let told = ""; // what this session was last told: the project and the files left out
+	pi.on("session_start", () => {
+		told = "";
 	});
 
-	pi.on("session_start", (_event, ctx) => {
-		if (!ctx.hasUI) return;
-		const opts = ctx.getSystemPromptOptions();
-		const { root, out } = scope(opts.contextFiles ?? [], opts.cwd ?? ctx.cwd);
+	pi.on("before_agent_start", (event, ctx) => {
+		const opts = event.systemPromptOptions;
+		const { root, kept, out } = scope(opts.contextFiles, opts.cwd);
 		if (out.length === 0) return;
+		opts.contextFiles = kept;
+		const now = [root, ...out.map((f) => f.path)].join("\n");
+		if (!ctx.hasUI || now === told) return;
+		told = now;
 		ctx.ui.notify(`fox-scope: left out ${out.map((f) => tilde(f.path)).join(", ")} (above this project, ${tilde(root)})`, "info");
 	});
 }
