@@ -1196,6 +1196,11 @@ local plugins = {
       -- Engine's canonical instantiation (FPN_Binary<64> — the production F). Sizeof probes on
       -- dependent spellings (`ExecutionCore<F>` via a variable hover) compile @ F=64, labeled in the HUD.
       template_args = { F = "64" },
+      -- Explain cards (`e`) ask the AGENT, not the quick model (her call, 2026-10-18): on a 4 GB GPU the quick 4B runs on
+      -- the CPU (~38 read / 5.6 write tok/s) while the agent reads ~138 and writes ~20 — faster, and better answers. The
+      -- cost she accepted: the agent has one slot, so a card waits while pi answers, and it thinks before it answers.
+      -- role_model follows the roles file, so a new agent model moves the cards too; nil keeps the plugin's own default.
+      explain = { model = role_model("agent") },
     },
     config = function(_, opts)
       require("fox-symdeps").setup(opts)
