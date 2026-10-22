@@ -27,6 +27,8 @@
 # context goes to the one conversation, nothing to fragment or evict (side requests like the plugin's
 # explain cards belong on the quick model); from 48 GB it gets two, each capped at the role's context so
 # a second conversation can never squeeze out the first. Override per role: `slots=N` after the server.
+# Context per slot, per role: `ctx=N` after the server (tokens; e.g. `agent qwen3.6:35b-a3b llama ctx=131072`) —
+# without it the role's default below. Match pi's contextWindow and opencode's limit.context to it.
 #
 # Residency, for running ghost text + explain cards + a heavy agent on one laptop: fim stays loaded (tiny,
 # on the GPU) — on a GPU of 6 GiB or less it loads when asked instead, its room going to the agent, whose
@@ -120,16 +122,16 @@ ctx_flags() {
 helper_gpu_flags() { if (( SMALL_GPU )); then echo "device = none"; fi; }
 
 role_flags() {
-  local role=$1 slots=$2
+  local role=$1 slots=$2 ctx=${3:-}
   case $role in
     # fim: loaded from the start, except on a small GPU, where its 1.2 GB slowed the agent — there it
     # loads when asked (the first suggestion takes a few seconds) and sleeps after 10 min.
-    fim)   ctx_flags 8192 "${slots:-1}"; echo "cache-ram = 256"; helper_gpu_flags
+    fim)   ctx_flags "${ctx:-8192}" "${slots:-1}"; echo "cache-ram = 256"; helper_gpu_flags
            if (( SMALL_GPU )); then echo "sleep-idle-seconds = 600"; else echo "load-on-startup = true"; fi ;;
     # quick: explain cards, inline edits — short jobs where hidden reasoning only adds minutes on a small
     # GPU (fask sat 9 min on it). Thinking off at the server, for every client; Qwen's template switch,
     # ignored by templates without one. The agent role keeps thinking.
-    quick) ctx_flags 32768 "${slots:-2}"; echo "cache-ram = 1024"; helper_gpu_flags
+    quick) ctx_flags "${ctx:-32768}" "${slots:-2}"; echo "cache-ram = 1024"; helper_gpu_flags
            echo 'chat-template-kwargs = {"enable_thinking": false}'
            if (( RAM_GB < 48 )); then echo "sleep-idle-seconds = 600"; fi ;;
     # agent on a small GPU: auto-fit's default 1 GiB margin left a 35B MoE's dense layers on the CPU of a
@@ -139,12 +141,12 @@ role_flags() {
     # chunk copies the experts from RAM to the GPU once, so reading went 58 → 126 tok/s; 4096 read 144 but
     # its bigger GPU buffer halved the writing.
     agent) if (( SMALL_GPU )); then
-             ctx_flags 65536 "${slots:-$(( RAM_GB >= 48 ? 2 : 1 ))}"; echo "fit-target = 512"; echo "ubatch-size = 2048"
+             ctx_flags "${ctx:-65536}" "${slots:-$(( RAM_GB >= 48 ? 2 : 1 ))}"; echo "fit-target = 512"; echo "ubatch-size = 2048"
            else
-             ctx_flags 131072 "${slots:-$(( RAM_GB >= 48 ? 2 : 1 ))}"
+             ctx_flags "${ctx:-131072}" "${slots:-$(( RAM_GB >= 48 ? 2 : 1 ))}"
            fi
            echo "cache-ram = 2048"; echo "sleep-idle-seconds = 3600" ;;
-    title) ctx_flags 8192 "${slots:-1}"; echo "cache-ram = 256"; helper_gpu_flags
+    title) ctx_flags "${ctx:-8192}" "${slots:-1}"; echo "cache-ram = 256"; helper_gpu_flags
            if (( RAM_GB < 48 )); then echo "sleep-idle-seconds = 120"; fi ;;
     # Embeddings: the model's own context (512 tokens for mxbai-embed-large) — a longer input is an
     # error here, so libfox-intel trims it first; no prompt cache to keep.
@@ -152,7 +154,7 @@ role_flags() {
            if (( RAM_GB < 48 )); then echo "sleep-idle-seconds = 300"; fi ;;
     # `if`, not `&&`: a false test as a function's last command is its status, and write_preset's
     # brace group ends in this call — on a CPU-only box the preset was never written.
-    *)     ctx_flags 32768 "${slots:-1}"; echo "cache-ram = 1024"
+    *)     ctx_flags "${ctx:-32768}" "${slots:-1}"; echo "cache-ram = 1024"
            if (( RAM_GB < 48 )); then echo "sleep-idle-seconds = 300"; fi ;;
   esac
 }
@@ -253,8 +255,9 @@ write_preset() {
       # The router rewrites `name:tag` section names like a HF `repo:quant` (qwen2.5-coder:1.5b-base was
       # served as qwen2.5-coder:BASE); the alias keeps the real name routable for every client.
       echo "alias = $(aliases "$model")"
-      local slots=""; [[ ${opts:-} =~ slots=([0-9]+) ]] && slots=${BASH_REMATCH[1]}
-      role_flags "$role" "$slots"
+      local slots="" ctx=""; [[ ${opts:-} =~ slots=([0-9]+) ]] && slots=${BASH_REMATCH[1]}
+      [[ ${opts:-} =~ ctx=([0-9]+) ]] && ctx=${BASH_REMATCH[1]}
+      role_flags "$role" "$slots" "$ctx"
     done < "$roles"
     local extras=("$@")
     if [[ $ENGINE == main && ${FOX_LLM_ONLY_ROLES:-0} != 1 ]]; then

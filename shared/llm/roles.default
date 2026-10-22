@@ -4,7 +4,10 @@
 # After an edit: systemctl --user restart fox-llm-server && fox-llm-update --sync
 #
 # Columns: role  model (a name from the model lists — fox-llm-update downloads it from Hugging Face)
-#          server (llama = llama.cpp's router; llama-turbo = the TurboQuant one)  [slots=N]
+#          server (llama = llama.cpp's router; llama-turbo = the TurboQuant one)  [slots=N] [ctx=N]
+#          slots=N  parallel conversations for the role · ctx=N  context per conversation, in tokens (default: the
+#          role's own — agent 64k on a GPU of 6 GB or less, 128k above; quick 32k; fim/title 8k). Match pi's
+#          contextWindow and opencode's limit.context to it.
 #   agent  pi / opencode / the fox-symdeps explain cards (they follow pi) — long context, tools
 #   quick  short chat, inline edits — small enough for a 4 GB GPU
 #   fim    Copilot-style ghost text — a BASE coder model: instruct ones run past the cursor
