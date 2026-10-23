@@ -92,7 +92,7 @@ install: all
 	@cd ../.. && pwd > $(HOME)/.local/share/foxml/repo-dir
 	@echo "  + repo path recorded: $$(cat $(HOME)/.local/share/foxml/repo-dir)"
 
-test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_gaming tests/test_iommu tests/test_hyprlock_pin tests/test_nvidia_modules tests/test_claude_wiring tests/test_hw_autoenable tests/test_built_tools tests/test_hidepid tests/test_health_boot tests/test_dry_run tests/test_git_clone tests/test_check_ro
+test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_gaming tests/test_iommu tests/test_hyprlock_pin tests/test_nvidia_modules tests/test_claude_wiring tests/test_hw_autoenable tests/test_built_tools tests/test_hidepid tests/test_health_boot tests/test_dry_run tests/test_git_clone tests/test_check_ro tests/test_render_drift
 	@./tests/test_registry
 	@./tests/test_args
 	@./tests/test_state_manifest
@@ -112,6 +112,7 @@ test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_c
 	@./tests/test_built_tools
 	@./tests/test_git_clone
 	@./tests/test_check_ro
+	@./tests/test_render_drift
 	@./tests/test_hidepid
 	@./tests/test_health_boot
 	@./tests/test_dry_run
@@ -216,6 +217,9 @@ tests/test_hidepid: tests/test_hidepid.cpp modules/hidepid_check.hpp
 
 tests/test_built_tools: tests/test_built_tools.cpp core/built_tools.hpp
 	$(CXX) $(CXXFLAGS) -DBUILD_DIR='"$(CURDIR)/tests"' tests/test_built_tools.cpp -o $@
+
+tests/test_render_drift: tests/test_render_drift.cpp modules/render_drift.hpp
+	$(CXX) $(CXXFLAGS) tests/test_render_drift.cpp -o $@
 
 tests/test_check_ro: tests/test_check_ro.cpp $(FOX_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) tests/test_check_ro.cpp -L$(FOX_COMMON_DIR) -lfox-common -o $@

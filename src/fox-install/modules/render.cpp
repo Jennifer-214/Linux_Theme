@@ -19,6 +19,7 @@
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 #include "symlinks_data.hpp"
+#include "render_drift.hpp"
 
 #include <cstdlib>
 #include <cstring>
@@ -63,6 +64,8 @@ bool post_deploy_rewritten(const char* src) {
     return false;
 }
 
+}  // namespace
+
 // Returns paths whose ~/.config copy differs from the previously-rendered
 // version still sitting in ctx.rendered_dir. Empty when there is no
 // previous render (fresh install) or all deployed copies match.
@@ -84,7 +87,6 @@ std::vector<fs::path> detect_drift(const Context& ctx) {
     return drifted;
 }
 
-}  // namespace
 
 void run_render(Context& ctx) {
     ui::section("Rendering templates with " + ctx.theme_name + " palette");
