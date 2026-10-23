@@ -127,7 +127,7 @@ void run_llama_server(Context& ctx) {
     sh::run({"systemctl", "--user", "daemon-reload"});
     // An update: `enable --now` leaves a running router on the old launcher (its flags, e.g. how many
     // models it keeps) — restart it so this install's version runs.
-    const bool was_running = sh::run({"systemctl", "--user", "is-active", "--quiet", "fox-llm-server.service"}) == 0;
+    const bool was_running = sh::check_ro({"systemctl", "--user", "is-active", "--quiet", "fox-llm-server.service"}) == 0;
     if (sh::run({"systemctl", "--user", "enable", "--now", "fox-llm-server.service"}) == 0) {
         if (was_running) sh::run({"systemctl", "--user", "restart", "fox-llm-server.service"});
         ui::ok(std::string("fox-llm-server.service ") + (was_running ? "restarted" : "enabled") +

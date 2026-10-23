@@ -17,7 +17,7 @@ namespace {
 bool have(const std::string& bin) { return sh::have(bin); }
 
 bool systemctl_active(const std::string& u) {
-    return sh::run({"systemctl", "is-active", "--quiet", u}) == 0;
+    return sh::check_ro({"systemctl", "is-active", "--quiet", u}) == 0;
 }
 
 bool one_shot(const std::string& server) {

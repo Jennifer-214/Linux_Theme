@@ -31,7 +31,7 @@ namespace {
 
 bool have(const std::string& bin) { return sh::have(bin); }
 bool pacman_has(const std::string& pkg) {
-    return sh::run({"sh", "-c", "pacman -Qi " + pkg + " &>/dev/null"}) == 0;
+    return sh::pacman_installed(pkg);
 }
 bool tty_in() { return ::isatty(STDIN_FILENO); }
 
@@ -105,8 +105,8 @@ void wire_fox_service(const Context& ctx,
                       const std::string& bin, const std::string& unit_name,
                       const std::string& install_msg) {
     if (!have(bin)) return;
-    if (sh::run({"systemctl", "--user", "is-enabled", "--quiet",
-                 unit_name + ".service"}) == 0
+    if (sh::check_ro({"systemctl", "--user", "is-enabled", "--quiet",
+                      unit_name + ".service"}) == 0
         && !ctx.force_reapply) {
         ui::skipped(bin + " already enabled");
         return;
