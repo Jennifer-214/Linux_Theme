@@ -7,6 +7,16 @@ stack.** Ctrl-Alt-F2 (or F3, F4, F5) drops you to a text console.
 Log in with your local username + password (no fingerprint, no SSH).
 From there you can fix anything below.
 
+If the login itself is broken (a bad PAM edit, a greeter that never
+appears), reboot and pick **Arch Linux (recovery console)** in the
+boot menu. It boots straight to a plain text login
+(`systemd.unit=multi-user.target`): no greeter, no fingerprint. Log in
+with your password, then fix `/etc/pam.d`, or clear a lockout with
+`sudo faillock --user <you> --reset`. The installer's recovery_entry
+step adds this entry because a hardened boot menu has its editor turned
+off (`editor no` in `/boot/loader/loader.conf`), so the option can't be
+typed in at boot.
+
 If you can't even reach a TTY (e.g. SysRq=0 blocks it AND the GUI is
 crashed), boot from a live USB and chroot into your install.
 
