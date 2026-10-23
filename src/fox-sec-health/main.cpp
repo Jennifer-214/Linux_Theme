@@ -11,6 +11,10 @@
 //   1  warnings / low-severity fails
 //   2  one or more critical fails
 //   3  one or more high-severity fails
+//   1  also when the options left NO check to run (every result skipped by --only / --exclude / --no-slow /
+//      --no-runtime): "nothing checked" is not a pass. A check that skips itself (not applicable here) still counts
+//      as checked. (Installer audit 2026-10-15; the library's worst_exit is unchanged — fox-install's preflight
+//      uses it directly.)
 
 #include "../fox-health/health.hpp"
 
@@ -84,6 +88,20 @@ int main(int argc, char** argv) {
 
     auto results = fox_health::run_all(opts);
     int exit_code = fox_health::worst_exit(results);
+    // run_all() records an option-filtered check as a Skip with one of these reasons (health.cpp, run_all)
+    auto filtered_by_options = [](const fox_health::CheckResult& r) {
+        if (r.status != fox_health::Status::Skip) return false;
+        for (const char* why : {"filtered out by --only", "filtered out by --exclude", "runtime check disabled",
+                                "slow check disabled"})
+            if (r.detail == why) return true;
+        return false;
+    };
+    bool any_checked = false;
+    for (const auto& r : results) any_checked = any_checked || !filtered_by_options(r);
+    if (!any_checked) {
+        std::fprintf(stderr, "fox sec health: no checks ran — the options filtered out every check\n");
+        exit_code = 1;
+    }
 
     if (!quiet) {
         for (const auto& r : results) {
