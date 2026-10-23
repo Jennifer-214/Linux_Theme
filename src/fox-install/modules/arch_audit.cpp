@@ -75,8 +75,8 @@ void run_arch_audit(Context& ctx) {
     bool units_up_to_date =
         idem::up_to_date(service_unit, SERVICE_BODY, ctx.force_reapply) &&
         idem::up_to_date(timer_unit,   TIMER_BODY,   ctx.force_reapply);
-    bool timer_enabled = sh::run({"systemctl", "--user", "is-enabled",
-                                  "--quiet", "foxml-arch-audit.timer"}) == 0;
+    bool timer_enabled = sh::check_ro({"systemctl", "--user", "is-enabled",
+                                       "--quiet", "foxml-arch-audit.timer"}) == 0;
     if (units_up_to_date && timer_enabled) {
         ui::skipped("arch-audit daily timer already installed");
         return;

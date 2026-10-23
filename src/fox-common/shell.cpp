@@ -173,6 +173,54 @@ int probe(const std::vector<std::string>& argv, std::string& out) {
     return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 
+bool is_read_only(const std::vector<std::string>& argv) {
+    // The forms the installer's checks use — each queries state and changes nothing (systemctl(1): is-active and
+    // is-enabled only report; grep(1) -q only exits 0/1). Kept to exactly what the call sites need: a new check form is
+    // added here deliberately, with its man page, not by accident.
+    auto flag_only = [](const std::string& a, std::initializer_list<const char*> ok) {
+        for (const char* o : ok) if (a == o) return true;
+        return false;
+    };
+    if (argv.empty()) return false;
+    if (argv[0] == "systemctl") {
+        std::size_t i = 1;
+        if (i < argv.size() && argv[i] == "--user") ++i;
+        if (i >= argv.size() || (argv[i] != "is-active" && argv[i] != "is-enabled")) return false;
+        for (++i; i < argv.size(); ++i)
+            if (!argv[i].empty() && argv[i][0] == '-' && argv[i] != "--quiet") return false;
+        return true;
+    }
+    if (argv[0] == "grep") {
+        bool quiet = false, pattern = false;
+        for (std::size_t i = 1; i < argv.size(); ++i) {
+            if (!argv[i].empty() && argv[i][0] == '-' && !pattern) {
+                if (!flag_only(argv[i], {"-q", "-s", "-E", "-F", "-x"})) return false;
+                if (argv[i] == "-q") quiet = true;
+            } else {
+                pattern = true;
+            }
+        }
+        return quiet && pattern;
+    }
+    return false;
+}
+
+int check_ro(const std::vector<std::string>& argv) {
+    if (!is_read_only(argv)) {
+        std::string line = "check refused (not a read-only form):";
+        for (auto& a : argv) line += " " + a;
+        log_section(line);
+        return -1;
+    }
+    std::string out;
+    return probe(argv, out);
+}
+
+bool pacman_installed(const std::string& pkg) {
+    std::string out;
+    return probe({"sh", "-c", "pacman -Qi \"$1\" >/dev/null 2>&1", "sh", pkg}, out) == 0;
+}
+
 bool capture(const std::vector<std::string>& argv, std::string& out) {
     return probe(argv, out) == 0;
 }

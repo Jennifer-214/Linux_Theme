@@ -117,8 +117,8 @@ void run_deps(Context& ctx) {
         auto enable_if_installed = [](const std::string& pkg,
                                        const std::string& unit,
                                        const std::string& label) {
-            if (sh::run({"sh", "-c", "pacman -Qi " + pkg + " &>/dev/null"}) != 0) return;
-            if (sh::run({"systemctl", "is-active", "--quiet", unit}) == 0) return;
+            if (!sh::pacman_installed(pkg)) return;
+            if (sh::check_ro({"systemctl", "is-active", "--quiet", unit}) == 0) return;
             if (sh::run({"sh", "-c",
                          "sudo systemctl enable --now " + unit + " >/dev/null 2>&1"}) == 0) {
                 ui::ok(label + " enabled");

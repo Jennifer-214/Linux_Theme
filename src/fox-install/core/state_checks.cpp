@@ -16,21 +16,7 @@ namespace fox_install::state {
 
 namespace {
 
-bool pacman_installed(const std::string& pkg) {
-    // pacman -Qi <pkg> exits 0 if installed, 1 otherwise. We need to
-    // suppress both stdout AND stderr (pacman writes "error: package
-    // not found" on the negative case — normal for state probes, but
-    // pollutes the install log). Use a shell for the redirection but
-    // pass pkg as a positional argument ($1) so it stays out of shell
-    // parsing — pkg comes from the on-disk manifest which a user could
-    // craft if they edited it by hand.
-    // sh::probe, not sh::run: a dry run answers from the real system instead of "installed".
-    std::string out;
-    return sh::probe({"sh", "-c",
-                      "pacman -Qi \"$1\" >/dev/null 2>&1",
-                      "sh",          // $0
-                      pkg}, out) == 0;   // $1 — safe positional substitution
-}
+// pacman_installed lives in fox-common (sh::pacman_installed) — the modules' checks use it too.
 
 // systemctl_is_enabled — returns one of {"enabled","disabled","masked",
 // "static","not-found", ""}. Empty means the call itself failed.
@@ -236,7 +222,7 @@ Classification package_check(
     const std::string& slug,
     const std::string& pkg
 ) {
-    return package_classify(pacman_installed(pkg),
+    return package_classify(sh::pacman_installed(pkg),
                             manifest.modules.find(slug) != manifest.modules.end(),
                             slug, pkg);
 }

@@ -55,6 +55,15 @@ bool capture(const std::vector<std::string>& argv, std::string& out);
 // 127 when argv[0] couldn't be run, -1 when it couldn't fork. Never for anything that changes the system.
 int probe(const std::vector<std::string>& argv, std::string& out);
 
+// A state CHECK that must stay read-only: like probe() (runs in a dry run too, so the plan tells the truth), but only
+// for the argv forms is_read_only() accepts — anything else is refused without running and returns -1. probe() and
+// capture() keep no such list (capture() has callers that run other commands), so a check gets this one instead.
+int check_ro(const std::vector<std::string>& argv);
+bool is_read_only(const std::vector<std::string>& argv);
+
+// pacman -Qi PKG, read-only and dry-run-honest (via probe; PKG stays a positional argument, out of shell parsing).
+bool pacman_installed(const std::string& pkg);
+
 // True if `bin` is an executable file reachable through $PATH. Pure
 // access(X_OK) walk — no shell, no `command -v`, no injection surface
 // even if `bin` somehow comes from untrusted input. An absolute or

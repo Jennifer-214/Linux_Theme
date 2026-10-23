@@ -259,7 +259,7 @@ void do_bat_config(const Context& ctx) {
         if (fs::exists(conf)) {
             std::string body;
             sh::capture({"grep", "-q", "^--theme=", conf.string()}, body);
-            if (sh::run({"grep", "-q", "^--theme=", conf.string()}) == 0) {
+            if (sh::check_ro({"grep", "-q", "^--theme=", conf.string()}) == 0) {
                 sh::run({"sed", "-i", "-E", "s|^--theme=.*|" + theme_line + "|", conf.string()});
             } else {
                 std::ofstream o(conf, std::ios::app);

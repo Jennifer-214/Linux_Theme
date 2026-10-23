@@ -31,7 +31,7 @@ namespace {
 bool tty_in() { return ::isatty(STDIN_FILENO); }
 bool have(const std::string& bin) { return sh::have(bin); }
 bool pacman_has(const std::string& pkg) {
-    return sh::run({"sh", "-c", "pacman -Qi " + pkg + " &>/dev/null"}) == 0;
+    return sh::pacman_installed(pkg);
 }
 
 std::string strip(std::string s) {
@@ -203,7 +203,7 @@ void run_throttling(Context& ctx) {
     }
 
     if (pacman_has("cpupower") && fs::exists("/etc/default/cpupower")) {
-        if (sh::run({"systemctl", "is-enabled", "--quiet", "cpupower.service"}) != 0) {
+        if (sh::check_ro({"systemctl", "is-enabled", "--quiet", "cpupower.service"}) != 0) {
             if (sh::run({"sh", "-c",
                          "sudo systemctl enable --now cpupower.service >/dev/null 2>&1"}) == 0) {
                 ui::ok("cpupower.service enabled");
@@ -225,7 +225,7 @@ void run_throttling(Context& ctx) {
                 }
             }
             if (pacman_has("throttled") &&
-                sh::run({"systemctl", "is-active", "--quiet", "throttled.service"}) != 0) {
+                sh::check_ro({"systemctl", "is-active", "--quiet", "throttled.service"}) != 0) {
                 if (sh::run({"sh", "-c",
                              "sudo systemctl enable --now throttled.service >/dev/null 2>&1"}) == 0) {
                     ui::ok("throttled enabled (edit /etc/throttled.conf to tune)");
