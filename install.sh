@@ -109,6 +109,18 @@ if [[ "${FOXML_NO_UPDATE:-0}" != "1" && "${FOXML_UPDATED:-0}" != "1" ]] \
     fi
     branch="$(git -C "$SCRIPT_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo)"
     dirty="$(git -C "$SCRIPT_DIR" status --porcelain 2>/dev/null | head -c 1 || echo)"
+    # >>> self-update skip reason (installer audit 2026-10-15, finding 20: a dirty or off-main checkout skipped the
+    # update without a word). tests/test_self_update_skip.py runs this block on its own.
+    if git -C "$SCRIPT_DIR" remote get-url origin >/dev/null 2>&1; then
+        if [[ -n "$dirty" ]]; then
+            echo "  (self-update skipped — the checkout has local changes; commit or stash them to get updates)" >&2
+        elif [[ "$branch" == "HEAD" || -z "$branch" ]]; then
+            echo "  (self-update skipped — on a detached HEAD, not main)" >&2
+        elif [[ "$branch" != "main" ]]; then
+            echo "  (self-update skipped — on '$branch', not main)" >&2
+        fi
+    fi
+    # <<< self-update skip reason
     if [[ "$branch" == "main" && -z "$dirty" ]] \
         && git -C "$SCRIPT_DIR" remote get-url origin >/dev/null 2>&1; then
         if timeout 15 git -C "$SCRIPT_DIR" fetch --quiet origin main 2>/dev/null; then
