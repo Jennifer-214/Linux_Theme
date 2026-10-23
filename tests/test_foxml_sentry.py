@@ -72,7 +72,14 @@ cases += [
     ("ufw unit stopped → critical, labelled as the service", ON, 'DEFAULT_OUTPUT_POLICY="ACCEPT"\n', IP_NONE, False,
      {"critical": ["UFW service not running"], "not_anywhere": ["Firewall DOWN", "Firewall (UFW)"]}),
 ]
+skipped = 0
 for name, conf, default, ip, unreadable, want in cases:
+    if unreadable and os.geteuid() == 0:
+        # root reads a mode-000 file anyway (CI's cross-config jobs run as root), so "unreadable" can't be staged here;
+        # "config missing → unknown" still covers the unknown path everywhere
+        print(f"  skip {name}: running as root, which ignores file permissions")
+        skipped += 1
+        continue
     out, sudo_called, r = run(conf, default, ip, unreadable, ufw_unit_active=want.get("ufw_unit", False))
     if out is None:
         fails.append(f"{name}: output is not JSON: {r.stdout[:120]!r} {r.stderr[:120]!r}"); continue
@@ -100,5 +107,6 @@ for name, conf, default, ip, unreadable, want in cases:
         fails.append(f"{name}: the UFW service line is counted as an active protection")
 for f in fails:
     print("FAIL", f)
-print("foxml_sentry:", "OK" if not fails else f"{len(fails)} FAILED", f"({len(cases)} scenarios)")
+print("foxml_sentry:", "OK" if not fails else f"{len(fails)} FAILED",
+      f"({len(cases) - skipped} scenarios run" + (f", {skipped} skipped)" if skipped else ")"))
 sys.exit(1 if fails else 0)
