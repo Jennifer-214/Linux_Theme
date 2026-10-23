@@ -24,7 +24,13 @@ LEDGER_WINDOW=300
 declare -a oks=()
 declare -a warns=()
 declare -a crits=()
+declare -a configs=()    # configured, but the live state can't be verified without root — never counted as active
+declare -a unknowns=()   # a probe that failed — shown, never silently "off"
 class="ok"
+
+# The UFW files the egress check reads (overridable for tests/test_foxml_sentry.py).
+UFW_CONF="${FOXML_SENTRY_UFW_CONF:-/etc/ufw/ufw.conf}"
+UFW_DEFAULT="${FOXML_SENTRY_UFW_DEFAULT:-/etc/default/ufw}"
 
 _bump() {
     case "$1" in
@@ -111,16 +117,32 @@ _svc cowrie                                      && _bump ok "SSH honeypot (cowr
 _svc fwknopd                                     && _bump ok "fwknopd (SPA daemon)"
 _svc knockd                                      && _bump ok "knockd"
 
-# Firewall lockdown — needs sudo to read UFW state; only count if we can.
-if sudo -n ufw status verbose 2>/dev/null | grep -q 'deny (outgoing)'; then
-    _bump ok "Egress lockdown"
+# Egress lockdown — from UFW's config, readable without root (no sudo here: the waybar sudoers entry allows only
+# `ufw status`, so `sudo -n ufw status verbose` was refused every 15 s and this never showed). The config is the
+# INTENDED policy; the live ruleset can't be read without root, so it's reported as configured, not active.
+if [[ -r "$UFW_CONF" && -r "$UFW_DEFAULT" ]]; then
+    ufw_enabled=$(sed -n 's/^ENABLED=//p' "$UFW_CONF" | tail -1)
+    ufw_out=$(sed -n 's/^DEFAULT_OUTPUT_POLICY=//p' "$UFW_DEFAULT" | tail -1 | tr -d '"')
+    if [[ -z "$ufw_enabled" || -z "$ufw_out" ]]; then
+        unknowns+=("Egress policy: unknown (UFW config incomplete)")
+    elif [[ "$ufw_enabled" == "yes" && ( "$ufw_out" == "DROP" || "$ufw_out" == "REJECT" ) ]]; then
+        configs+=("Egress deny configured (UFW config; live rules not verified)")
+    fi
+else
+    unknowns+=("Egress policy: unknown (UFW config unreadable)")
 fi
 
 # DNS sinkhole
 grep -q '^# foxml-shield BEGIN' /etc/hosts 2>/dev/null && _bump ok "DNS sinkhole (StevenBlack)"
 
-# WireGuard live
-sudo -n wg 2>/dev/null | grep -q 'interface:' && _bump ok "WireGuard up"
+# WireGuard — an interface listed by `ip` (no root). That it EXISTS isn't proof of a working tunnel (the handshake needs
+# `wg show`, which needs root), so it's "present", never "up" or "connected".
+if wg_ifs=$(ip -br link show type wireguard 2>/dev/null); then
+    wg_names=$(awk '{print $1}' <<<"$wg_ifs" | paste -sd, -)
+    [[ -n "$wg_names" ]] && configs+=("WireGuard interface present: ${wg_names} (tunnel not verified)")
+else
+    unknowns+=("WireGuard: unknown (ip failed)")
+fi
 
 # Fingerprint enrolled
 fprintd-list "$USER" 2>/dev/null | grep -qE '#[0-9]' && _bump ok "Fingerprint enrolled"
@@ -158,6 +180,14 @@ _tooltip() {
     fi
     out+="✓ Active protections (${#oks[@]}):\\n"
     for m in "${oks[@]}"; do out+="  · $m\\n"; done
+    if (( ${#configs[@]} > 0 )); then
+        out+="\\n◇ Configured, not verified live (${#configs[@]}):\\n"
+        for m in "${configs[@]}"; do out+="  · $m\\n"; done
+    fi
+    if (( ${#unknowns[@]} > 0 )); then
+        out+="\\n? Unknown (${#unknowns[@]}):\\n"
+        for m in "${unknowns[@]}"; do out+="  · $m\\n"; done
+    fi
     out+="\\nClick: fox sec --live  •  Detail: fox arm --status"
     # JSON-safe.
     printf '%s' "${out//\"/\\\"}"
