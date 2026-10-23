@@ -13,6 +13,7 @@
 // touched. On a machine without access to these repos the module does nothing.
 
 #include "../core/context.hpp"
+#include "../core/git_clone_sh.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
@@ -67,21 +68,24 @@ bool git_ok(const fs::path& repo, std::initializer_list<const char*> args, std::
 // Clone when absent; fast-forward when clean and tracking an upstream; else leave it.
 void clone_or_update(const std::string& owner, const std::string& repo, const fs::path& dir) {
     std::error_code ec;
-    if (!fs::exists(dir, ec)) {
+    const auto runner = git_clone::sh_runner();
+    if (!fs::exists(dir, ec) || git_clone::partial_clone(runner, dir)) {   // absent, or a clone that dropped part-way
         if (owner.empty()) {
             ui::warn(repo + ": not here and no `gh` login — skipped (gh auth login, then re-run)");
             return;
         }
-        fs::create_directories(dir.parent_path(), ec);
         // Always HTTPS with gh's token: works where port 22 is blocked (guest Wi-Fi) and
         // whatever git_protocol gh login picked. gh auth login doesn't always wire git to
         // that token, so setup-git first (idempotent).
         sh::run({"gh", "auth", "setup-git"});
-        if (sh::run({"env", "GIT_TERMINAL_PROMPT=0", "git", "clone", "--quiet",
-                     "https://github.com/" + owner + "/" + repo + ".git", dir.string()}) == 0) {
+        const auto res = git_clone::ensure(runner, "https://github.com/" + owner + "/" + repo + ".git", dir);
+        if (res.outcome == git_clone::Outcome::Cloned) {
             ui::ok(repo + " cloned → " + dir.string());
+        } else if (res.outcome == git_clone::Outcome::Repaired) {
+            ui::ok(repo + ": " + git_clone::describe(res.outcome) + " → " + dir.string() +
+                   " (the broken one: " + res.moved_aside.string() + ")");
         } else {
-            ui::warn(repo + ": clone failed (private repo — no access or no network?) — skipped");
+            ui::warn(repo + ": clone failed after 3 tries (private repo — no access, or no network?) — skipped; re-run to retry");
         }
         return;
     }

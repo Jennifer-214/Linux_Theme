@@ -13,6 +13,7 @@
 // unless it is at another commit and clean.
 
 #include "../core/context.hpp"
+#include "../core/git_clone_sh.hpp"
 #include "../core/idempotency.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
@@ -125,11 +126,11 @@ void run_llama_turbo(Context& ctx) {
 
     std::error_code ec;
     std::string head;
-    if (!fs::exists(src / ".git", ec)) {
-        fs::create_directories(src.parent_path(), ec);
-        if (sh::run({"git", "clone", "--quiet", "--depth", "1", "--branch", pin["branch"], pin["repo"],
-                     src.string()}) != 0) {
-            ui::warn("clone of " + pin["repo"] + " failed (network?) — skipped");
+    const auto runner = git_clone::sh_runner();
+    if (!git_clone::valid_checkout(runner, src)) {   // absent, or a clone that dropped part-way (core/git_clone.hpp)
+        const auto res = git_clone::ensure(runner, pin["repo"], src, {"--depth", "1", "--branch", pin["branch"]});
+        if (res.outcome == git_clone::Outcome::Failed || res.outcome == git_clone::Outcome::NotARepo) {
+            ui::warn(pin["repo"] + " → " + src.string() + ": " + git_clone::describe(res.outcome) + " — skipped");
             return;
         }
     }

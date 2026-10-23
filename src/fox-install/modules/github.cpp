@@ -5,6 +5,7 @@
 // Every shell-out goes through sh:: so --dry-run logs the plan.
 
 #include "../core/context.hpp"
+#include "../core/git_clone_sh.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
@@ -394,22 +395,41 @@ void run_github(Context& ctx) {
     }
     if (!repos.is_array()) { ui::warn("unexpected gh output"); return; }
 
-    size_t cloned = 0, skipped = 0, failed = 0;
+    // A folder that's already there counts only if it's a real checkout: a clone that dropped part-way is moved
+    // aside and cloned again, and every failure is named (core/git_clone.hpp).
+    const auto runner = git_clone::sh_runner();
+    size_t cloned = 0, skipped = 0;
+    std::vector<std::string> failed, left;
     for (auto& r : repos) {
         std::string name    = r.value("name", "");
         std::string ssh_url = r.value("sshUrl", "");
         if (name.empty() || ssh_url.empty()) continue;
         fs::path target = code_dir / name;
-        if (fs::is_directory(target)) { ++skipped; continue; }
-        ui::substep("↓ cloning " + name);
-        int rc = sh::run({"git", "-C", code_dir.string(), "clone",
-                          ssh_url, name, "--quiet"});
-        if (rc == 0) ++cloned;
-        else         ++failed;
+        if (!git_clone::valid_checkout(runner, target)) ui::substep("↓ cloning " + name);
+        const auto res = git_clone::ensure(runner, ssh_url, target);
+        switch (res.outcome) {
+            case git_clone::Outcome::Present:  ++skipped; break;
+            case git_clone::Outcome::Cloned:   ++cloned; break;
+            case git_clone::Outcome::Repaired:
+                ++cloned;
+                ui::warn(name + ": " + git_clone::describe(res.outcome) + " (the broken one: " + res.moved_aside.string() + ")");
+                break;
+            case git_clone::Outcome::NotARepo:
+                left.push_back(name);
+                ui::warn(target.string() + ": " + git_clone::describe(res.outcome));
+                break;
+            case git_clone::Outcome::Failed:   failed.push_back(name); break;
+        }
     }
     ui::ok("workspace: " + std::to_string(cloned) + " cloned, " +
            std::to_string(skipped) + " already present, " +
-           std::to_string(failed) + " failed");
+           std::to_string(failed.size()) + " failed" +
+           (left.empty() ? "" : ", " + std::to_string(left.size()) + " left alone"));
+    if (!failed.empty()) {
+        std::string names;
+        for (const auto& n : failed) names += (names.empty() ? "" : ", ") + n;
+        ui::warn("not cloned after 3 tries: " + names + " — re-run ./install.sh --github to retry just those");
+    }
 }
 
 }  // namespace fox_install
