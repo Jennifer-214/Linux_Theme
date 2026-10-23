@@ -45,7 +45,9 @@ _usvc() { systemctl --user is-active --quiet "$1" 2>/dev/null; }
 
 # ─── BASELINE (always-on after fox install --full) ────────────────
 # Anything missing here is a real warning — the install would have set it up.
-_svc ufw       && _bump ok "Firewall (UFW)"        || _bump crit "Firewall DOWN"
+# UFW: a running unit is not proof the rules are loaded (that needs root) — so it's listed as configured, outside the
+# active-protection count. A stopped unit is still critical: the install sets it up, and nothing then enforces.
+_svc ufw       && configs+=("UFW service running (rules not verified)") || _bump crit "UFW service not running"
 _svc fail2ban  && _bump ok "Brute-force (fail2ban)" || _bump warn "fail2ban inactive"
 _svc auditd    && _bump ok "Audit logging"          || _bump warn "auditd inactive"
 _svc usbguard  && _bump ok "USB policy"             || _bump warn "usbguard inactive"

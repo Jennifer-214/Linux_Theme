@@ -11,14 +11,14 @@ SCRIPT = pathlib.Path(__file__).resolve().parent.parent / "shared/waybar_scripts
 fails = []
 
 
-def run(ufw_conf, ufw_default, ip_script, unreadable=False):
+def run(ufw_conf, ufw_default, ip_script, unreadable=False, ufw_unit_active=False):
     # the stubs must be executable: /tmp can be noexec (it is on the reference machine), so default to ~/.cache
     tmp_root = os.environ.get("FOX_TEST_TMP") or str(pathlib.Path.home() / ".cache")
     os.makedirs(tmp_root, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=tmp_root) as d:
         d = pathlib.Path(d); b = d / "bin"; b.mkdir()
         marker = d / "sudo-called"
-        stubs = {"systemctl": "exit 3", "findmnt": "exit 1", "fprintd-list": "exit 1", "ip": ip_script,
+        stubs = {"systemctl": ('[[ "$*" == *" ufw" ]] && exit 0; exit 3' if ufw_unit_active else "exit 3"), "findmnt": "exit 1", "fprintd-list": "exit 1", "ip": ip_script,
                  "sudo": f'touch "{marker}"; exit 1'}
         for name, body in stubs.items():
             f = b / name; f.write_text("#!/usr/bin/env bash\n" + body + "\n"); f.chmod(0o755)
@@ -66,8 +66,14 @@ cases = [
      {"configured": ["WireGuard interface present: wg0"], "not_anywhere": ["WireGuard up", "connected"]}),
     ("ip fails → unknown", ON, 'DEFAULT_OUTPUT_POLICY="ACCEPT"\n', IP_FAIL, False, {"unknown": ["WireGuard: unknown"]}),
 ]
+cases += [
+    ("ufw unit running → configured, never an active protection", ON, 'DEFAULT_OUTPUT_POLICY="ACCEPT"\n', IP_NONE, False,
+     {"configured": ["UFW service running (rules not verified)"], "not_anywhere": ["Firewall (UFW)"], "ufw_unit": True}),
+    ("ufw unit stopped → critical, labelled as the service", ON, 'DEFAULT_OUTPUT_POLICY="ACCEPT"\n', IP_NONE, False,
+     {"critical": ["UFW service not running"], "not_anywhere": ["Firewall DOWN", "Firewall (UFW)"]}),
+]
 for name, conf, default, ip, unreadable, want in cases:
-    out, sudo_called, r = run(conf, default, ip, unreadable)
+    out, sudo_called, r = run(conf, default, ip, unreadable, ufw_unit_active=want.get("ufw_unit", False))
     if out is None:
         fails.append(f"{name}: output is not JSON: {r.stdout[:120]!r} {r.stderr[:120]!r}"); continue
     if sudo_called:
@@ -77,6 +83,8 @@ for name, conf, default, ip, unreadable, want in cases:
     for w in want.get("configured", []):
         if not any(w in x for x in configured): fails.append(f"{name}: '{w}' not in the configured section")
         if any(w in x for x in active): fails.append(f"{name}: '{w}' counted as an active protection")
+    for w in want.get("critical", []):
+        if not any(w in x for x in section(tip, "🚨")): fails.append(f"{name}: '{w}' not in the critical section")
     for w in want.get("unknown", []):
         if not any(w in x for x in unknown): fails.append(f"{name}: '{w}' not in the unknown section")
     if "unknown" in want and not want["unknown"] and unknown:
@@ -84,9 +92,12 @@ for name, conf, default, ip, unreadable, want in cases:
     for w in want.get("not_anywhere", []):
         if w in tip:
             fails.append(f"{name}: '{w}' appears in the tooltip")
-    n_active = int(out["text"].rsplit(" ", 1)[-1].split("<")[0]) if out["class"] == "ok" else None
-    if n_active is not None and n_active != len(active):
-        fails.append(f"{name}: shield count {n_active} ≠ {len(active)} active protections")
+    import re as _re
+    shield = _re.findall(r"(?:🛡|󰒃) (\d+)", out["text"])   # the shield count, in every class
+    if not shield or int(shield[-1]) != len(active):
+        fails.append(f"{name}: shield count {shield} ≠ {len(active)} active protections")
+    if any("UFW service running" in x for x in active):
+        fails.append(f"{name}: the UFW service line is counted as an active protection")
 for f in fails:
     print("FAIL", f)
 print("foxml_sentry:", "OK" if not fails else f"{len(fails)} FAILED", f"({len(cases)} scenarios)")
