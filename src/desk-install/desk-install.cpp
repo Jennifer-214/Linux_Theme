@@ -15,6 +15,7 @@
 #include "core/state_manifest.hpp"
 #include "core/theme_choice.hpp"
 #include "core/wizard.hpp"
+#include "modules/render_drift.hpp"
 #include "modules/workflow_update.hpp"
 #include "../desk-common/shell.hpp"
 #include "../desk-common/ui.hpp"
@@ -528,6 +529,28 @@ int main(int argc, char** argv) {
         }
     }
     std::size_t ran_count = 0;
+
+    // -y / no TTY with live ~/.config edits: render would abort in phase 2, after phase-1 root modules already ran.
+    // Ask now, before sudo and before any module, and stop while nothing has changed (installer audit, finding 19).
+    for (std::size_t k = 0; k < MODULES_COUNT; ++k) {
+        if (std::string(MODULES[k].slug) != "render") continue;
+        const bool render_will_run = parsed.module_enabled[k] &&
+                                     !(ctx.resume_idx > 0 && static_cast<int>(k) < ctx.resume_idx);
+        // drift=true asks "would drift stop us?"; the files are read only when the answer can be yes
+        if (drift_stops_before_install(render_will_run, sh::dry_run(), ctx.force_reapply, ctx.assume_yes, ui::tty(),
+                                       /*drift=*/true)) {
+            const auto drifted = detect_drift(ctx);
+            if (!drifted.empty()) {
+                ui::warn("live ~/.config edits detected — a re-render would overwrite them:");
+                for (const auto& p : drifted) ui::substep(p.string());
+                ui::substep("see what they change: ./update.sh (it only shows; move what you keep into templates/)");
+                ui::substep("or pass --full to overwrite them");
+                ui::err("stopped before any module ran — nothing was changed");
+                return 2;
+            }
+        }
+        break;
+    }
 
     // Warm sudo once, up front, before any module runs. install.sh does
     // this for its own invocation (+ a keepalive loop); doing it here too
