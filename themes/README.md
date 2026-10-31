@@ -7,7 +7,7 @@
 | Theme | Status |
 | --- | --- |
 | `FoxML_Classic` | Finished — default, maintained |
-| `FoxML_Paper` | WIP / unfinished |
+| `FoxML_Paper` | WIP — graphite pencil on white paper; monochrome, signatures darkest, light ANSI tints for git / diagnostics |
 | `FoxML_Rose` | WIP / unfinished |
 | `Cave_Data_Center` | WIP / unfinished |
 | `Amsterdam_Orange` | WIP / unfinished — Optiver-inspired (scarlet on navy) |

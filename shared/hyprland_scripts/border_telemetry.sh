@@ -51,6 +51,8 @@ update_border() {
 }
 
 while true; do
+    # Re-read each pass so a theme switch recolors the border without a restart.
+    source "$PALETTE" 2>/dev/null
     # Priority 0: Command Hooks (Zsh)
     if [[ -f "$BUSY_FILE" ]]; then
         update_border "$C_YELLOW_BRIGHT" "$C_PRIMARY"

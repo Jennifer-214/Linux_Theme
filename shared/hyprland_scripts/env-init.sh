@@ -21,7 +21,8 @@ fi
 # by start_waybar.sh after Hyprland is up; pre-launch fallback is 24
 # (1080p default — gets corrected on the first apply-scale pass).
 export XCURSOR_SIZE=24
-export XCURSOR_THEME=catppuccin-mocha-peach-cursors
+# XCURSOR_THEME is inherited from Hyprland (theme.conf, from the palette).
+export XCURSOR_THEME="${XCURSOR_THEME:-catppuccin-mocha-peach-cursors}"
 export XCURSOR_PATH="$HOME/.local/share/icons:$HOME/.icons:/usr/share/icons:/usr/share/pixmaps"
 
 # systemd --user integration. Push Wayland/desktop env vars into the user

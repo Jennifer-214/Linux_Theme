@@ -6,7 +6,7 @@
 
 :root {
   --fox-bg: #{{BG}};
-  --fox-bg-alt: #2a2018;
+  --fox-bg-alt: #{{FIREFOX_CARD_BG}};
   --fox-fg: #{{FG}};
   --fox-dim: #{{FG_DIM}};
   --fox-peach: #{{PRIMARY}};

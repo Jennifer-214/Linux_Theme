@@ -1,10 +1,12 @@
-// modules/catppuccin_cursor.cpp — Catppuccin Mocha Peach cursor theme.
+// modules/catppuccin_cursor.cpp — the palette's Catppuccin cursor theme.
 //
-// Pulled from the upstream catppuccin/cursors GitHub release. The
-// Hyprland env + GTK ini reference this theme; without it cursors fall
-// back to the default Adwaita. Mirrors mappings.sh::install_catppuccin_cursor.
+// Pulled from the upstream catppuccin/cursors GitHub release. The palette's
+// CURSOR_THEME (mocha-peach on the dark themes, latte-dark on Paper) is what
+// the rendered Hyprland env + GTK ini name; without it cursors fall back to
+// the default Adwaita.
 
 #include "../core/context.hpp"
+#include "../core/palette.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
@@ -45,9 +47,9 @@ std::string resolve_asset_url(const std::string& asset) {
 }  // namespace
 
 void run_catppuccin_cursor(Context& ctx) {
-    ui::section("Catppuccin Mocha Peach cursor theme");
-
-    const std::string theme = "catppuccin-mocha-peach-cursors";
+    const std::string theme = palette::get(ctx.palette_path, "CURSOR_THEME",
+                                           "catppuccin-mocha-peach-cursors");
+    ui::section("Cursor theme: " + theme);
     fs::path user_dir = ctx.home / ".local/share/icons";
     fs::path sys_dir  = "/usr/share/icons";
 

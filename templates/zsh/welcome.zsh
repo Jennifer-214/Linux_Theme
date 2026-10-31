@@ -6,6 +6,12 @@ function _caramel_welcome() {
   local c3='\e[38;5;{{ANSI_ACCENT3}}m'    # dusty mauve
   local c4='\e[38;5;{{ANSI_ACCENT4}}m'    # sage
   local DM='\e[2;38;5;{{ANSI_ACCENT1}}m'  # dim clay
+  # Banner ink (letters k1..k4, dots k1..k5) — the accent cycle, or one graphite on Paper
+  local k1='\e[38;5;{{WELCOME_INK1}}m'
+  local k2='\e[38;5;{{WELCOME_INK2}}m'
+  local k3='\e[38;5;{{WELCOME_INK3}}m'
+  local k4='\e[38;5;{{WELCOME_INK4}}m'
+  local k5='\e[38;5;{{WELCOME_INK5}}m'
   local O='\e[0m'
 
   # Name banner — the welcome_banner install module rewrites the block below
@@ -13,9 +19,9 @@ function _caramel_welcome() {
   # banner's column span, used to right-anchor it next to the cat.
   # foxml:welcome-banner-begin
   local bw=28
-  local b1="${c1}█▀▀${O} ${c2}█▀█${O} ${c3}▀▄▀${O} ${c4}  ${O} ${c1}█▀█${O} ${c2}▄▀▀${O}"
-  local b2="${c1}█▀ ${O} ${c2}█ █${O} ${c3} █ ${O} ${c4}  ${O} ${c1}█ █${O} ${c2} ▀▄${O}"
-  local b3="${c1}▀  ${O} ${c2}▀▀▀${O} ${c3}▀ ▀${O} ${c4}  ${O} ${c1}▀▀▀${O} ${c2}▀▀ ${O}"
+  local b1="${k1}█▀▀${O} ${k2}█▀█${O} ${k3}▀▄▀${O} ${k4}  ${O} ${k1}█▀█${O} ${k2}▄▀▀${O}"
+  local b2="${k1}█▀ ${O} ${k2}█ █${O} ${k3} █ ${O} ${k4}  ${O} ${k1}█ █${O} ${k2} ▀▄${O}"
+  local b3="${k1}▀  ${O} ${k2}▀▀▀${O} ${k3}▀ ▀${O} ${k4}  ${O} ${k1}▀▀▀${O} ${k2}▀▀ ${O}"
   # foxml:welcome-banner-end
 
   # Right column position for name banner
@@ -35,7 +41,7 @@ function _caramel_welcome() {
   # CJK + diacritic chars.
   local dc=25
 
-  local dots="\e[38;5;{{ANSI_ACCENT3}}m●${O} \e[38;5;{{ANSI_ACCENT2}}m●${O} \e[38;5;{{ANSI_ACCENT1}}m●${O} \e[38;5;{{ANSI_ACCENT4}}m●${O} \e[38;5;{{ANSI_ACCENT5}}m●${O} \e[38;5;{{ANSI_ACCENT2}}m●${O} \e[38;5;{{ANSI_ACCENT3}}m●${O} \e[38;5;{{ANSI_ACCENT1}}m●${O}"
+  local dots="${k3}●${O} ${k2}●${O} ${k1}●${O} ${k4}●${O} ${k5}●${O} ${k2}●${O} ${k3}●${O} ${k1}●${O}"
 
   # Nicer date/time
   local dow=$(date '+%A')

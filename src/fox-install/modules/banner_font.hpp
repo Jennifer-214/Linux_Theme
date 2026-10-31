@@ -9,10 +9,10 @@ namespace fox_install {
 // span the welcome.zsh splash uses to position it (rc = COLUMNS - width).
 struct BannerBlock {
     int         width;        // visible glyph span + 6 margin (FOXML → 27)
-    std::string r1, r2, r3;   // shell strings carrying ${c1..c4}/${O} colour refs
+    std::string r1, r2, r3;   // shell strings carrying ${k1..k4}/${O} colour refs
 };
 
-// Build the banner for `text` (sanitise first). Each glyph cycles c1..c4.
+// Build the banner for `text` (sanitise first). Each glyph cycles k1..k4.
 BannerBlock build_banner(const std::string& text);
 
 // Uppercase, keep only [A-Z0-9 ], trim ends, cap at 12 chars; ""→"FOX OS".

@@ -9,19 +9,19 @@
   :root,
   body {
     --newtab-background-color: #{{BG}} !important;
-    --newtab-background-color-secondary: #2a2018 !important;
+    --newtab-background-color-secondary: #{{FIREFOX_CARD_BG}} !important;
     --newtab-element-hover-color: rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.1) !important;
     --newtab-element-active-color: rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.2) !important;
     --newtab-text-primary-color: #{{FG}} !important;
     --newtab-text-secondary-color: #{{FG_DIM}} !important;
     --newtab-primary-action-background: #{{PRIMARY}} !important;
-    --newtab-card-background-color: #2a2018 !important;
+    --newtab-card-background-color: #{{FIREFOX_CARD_BG}} !important;
     --newtab-card-placeholder-color: #{{SURFACE}} !important;
     --newtab-link-primary-color: #{{PRIMARY}} !important;
     --newtab-link-secondary-color: #{{ACCENT}} !important;
     --newtab-contextmenu-background-color: #{{BG}} !important;
     --newtab-contextmenu-button-color: #{{FG}} !important;
-    --newtab-button-secondary-color: #2a2018 !important;
+    --newtab-button-secondary-color: #{{FIREFOX_CARD_BG}} !important;
     --newtab-wordmark-color: #{{FG}} !important;
     --newtab-status-success: #{{GREEN_BRIGHT}} !important;
     --newtab-status-warning: #{{YELLOW}} !important;
@@ -30,7 +30,7 @@
     --newtab-overlay-color: rgba({{BG_SPICETIFY_R}},{{BG_SPICETIFY_G}},{{BG_SPICETIFY_B}},0.8) !important;
 
     /* Additional overrides */
-    --newtab-topsites-background-color: #2a2018 !important;
+    --newtab-topsites-background-color: #{{FIREFOX_CARD_BG}} !important;
     --newtab-topsites-label-color: #{{FG}} !important;
     --newtab-section-header-text-color: #{{PRIMARY}} !important;
     --newtab-card-active-outline-color: #{{PRIMARY}} !important;
@@ -39,11 +39,11 @@
     /* Firefox 140+ variables */
     --newtab-background-color-1: #{{BG}} !important;
     --newtab-background-color-2: #{{BG}} !important;
-    --newtab-weather-background-color: #2a2018 !important;
+    --newtab-weather-background-color: #{{FIREFOX_CARD_BG}} !important;
     --newtab-card-first-shadow: 0 1px 4px rgba(0,0,0,0.3) !important;
     --newtab-card-second-shadow: none !important;
     --color-background: #{{BG}} !important;
-    --color-surface: #2a2018 !important;
+    --color-surface: #{{FIREFOX_CARD_BG}} !important;
     --color-surface-variant: #{{SURFACE}} !important;
     --color-text-primary: #{{FG}} !important;
     --color-text-secondary: #{{FG_DIM}} !important;
@@ -63,7 +63,7 @@
   * {
     border-radius: 0 !important;
     --newtab-background-color: #{{BG}} !important;
-    --newtab-card-background-color: #2a2018 !important;
+    --newtab-card-background-color: #{{FIREFOX_CARD_BG}} !important;
   }
 
   /* ===== Page background ===== */
@@ -89,7 +89,7 @@
   .search-wrapper .search-handoff-button,
   .fake-editable,
   .search-handoff-button {
-    background-color: #2a2018 !important;
+    background-color: #{{FIREFOX_CARD_BG}} !important;
     color: #{{FG}} !important;
     border: 2px solid #{{PRIMARY}} !important;
     border-radius: 0 !important;
@@ -113,7 +113,7 @@
   .top-site-inner,
   .tile,
   .top-site-button {
-    background-color: #2a2018 !important;
+    background-color: #{{FIREFOX_CARD_BG}} !important;
     border-radius: 0 !important;
   }
 
@@ -146,7 +146,7 @@
   [data-section-id] .card-outer,
   .story-card,
   .ds-card-grid-include-descriptions .ds-card {
-    background-color: #2a2018 !important;
+    background-color: #{{FIREFOX_CARD_BG}} !important;
     border-radius: 0 !important;
     color: #{{FG}} !important;
     overflow: hidden !important;
@@ -197,7 +197,7 @@
   /* ===== Buttons ===== */
   button,
   .actions button {
-    background-color: #2a2018 !important;
+    background-color: #{{FIREFOX_CARD_BG}} !important;
     color: #{{FG}} !important;
     border: 1px solid #{{SURFACE}} !important;
     border-radius: 0 !important;
@@ -214,7 +214,7 @@
   .section-top-bar button,
   [class*="FollowButton"],
   [class*="follow-button"] {
-    background-color: #2a2018 !important;
+    background-color: #{{FIREFOX_CARD_BG}} !important;
     color: #{{PRIMARY}} !important;
     border: 1px solid #{{PRIMARY}} !important;
     border-radius: 0 !important;
@@ -245,7 +245,7 @@
 
   /* ===== Personalize / customize ===== */
   .personalize-button {
-    background-color: #2a2018 !important;
+    background-color: #{{FIREFOX_CARD_BG}} !important;
     color: #{{FG}} !important;
     border-radius: 0 !important;
   }
@@ -262,7 +262,7 @@
   .weather-card,
   [class*="Weather"],
   [class*="weather"] {
-    background-color: #2a2018 !important;
+    background-color: #{{FIREFOX_CARD_BG}} !important;
     color: #{{FG}} !important;
     border-radius: 0 !important;
   }
@@ -286,7 +286,7 @@
 @-moz-document url-prefix("about:preferences") {
   :root {
     --in-content-page-background: #{{BG}} !important;
-    --in-content-box-background: #2a2018 !important;
+    --in-content-box-background: #{{FIREFOX_CARD_BG}} !important;
     --in-content-text-color: #{{FG}} !important;
     --in-content-primary-button-background: #{{PRIMARY}} !important;
     --in-content-primary-button-text-color: #{{BG}} !important;
@@ -303,7 +303,7 @@
 @-moz-document url-prefix("about:addons") {
   :root {
     --in-content-page-background: #{{BG}} !important;
-    --in-content-box-background: #2a2018 !important;
+    --in-content-box-background: #{{FIREFOX_CARD_BG}} !important;
     --in-content-text-color: #{{FG}} !important;
     --in-content-primary-button-background: #{{PRIMARY}} !important;
     --in-content-border-color: #{{SURFACE}} !important;

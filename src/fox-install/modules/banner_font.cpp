@@ -58,7 +58,7 @@ const Glyph* glyph_for(char c) {
     }
 }
 
-const char* const COL[4] = {"${c1}", "${c2}", "${c3}", "${c4}"};
+const char* const COL[4] = {"${k1}", "${k2}", "${k3}", "${k4}"};
 
 // The warm cycle in each surface's native color form (same 4 slots as COL):
 // hyprlock = render tokens inside a pango span (## escapes the hyprlang comment

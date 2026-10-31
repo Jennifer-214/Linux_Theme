@@ -62,6 +62,8 @@ inline constexpr Mapping TEMPLATE_MAPPINGS[] = {
     // GTK
     { "gtk-3.0/gtk.css",              "~/.config/gtk-3.0/gtk.css" },
     { "gtk-4.0/gtk.css",              "~/.config/gtk-4.0/gtk.css" },
+    { "gtk-3.0/settings.ini",         "~/.config/gtk-3.0/settings.ini" },
+    { "gtk-4.0/settings.ini",         "~/.config/gtk-4.0/settings.ini" },
 
     // btop
     { "btop/foxml.theme",             "~/.config/btop/themes/foxml.theme" },
@@ -123,10 +125,6 @@ inline constexpr Mapping SHARED_MAPPINGS[] = {
 
     // Rofi config
     { "rofi_config.rasi",             "~/.config/rofi/config.rasi" },
-
-    // GTK settings
-    { "gtk-3.0_settings.ini",         "~/.config/gtk-3.0/settings.ini" },
-    { "gtk-4.0_settings.ini",         "~/.config/gtk-4.0/settings.ini" },
 
     // Zsh non-color
     { "zsh_aliases.zsh",              "~/.config/zsh/aliases.zsh" },

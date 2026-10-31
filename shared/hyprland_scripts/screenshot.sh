@@ -12,7 +12,9 @@ file="$out_dir/screenshot-$(date +%Y%m%d-%H%M%S).png"
 # `-g ""` which is interpreted as "capture everything" — i.e. cancelling
 # silently produced a full-screen capture, the opposite of what the user
 # asked for.
-geom=$(slurp -b 00000000 -c c4956eff 2>/dev/null)
+PALETTE="${HOME}/.config/hypr/modules/border_colors.sh"
+[[ -f "$PALETTE" ]] && source "$PALETTE"
+geom=$(slurp -b 00000000 -c "${C_PRIMARY:-c4956e}ff" 2>/dev/null)
 slurp_rc=$?
 if (( slurp_rc != 0 )) || [[ -z "$geom" ]]; then
     notify-send -t 2000 "Screenshot" "Cancelled"

@@ -1,14 +1,17 @@
 #!/bin/bash
-# FoxML Paper — High-readability light theme
+# FoxML Paper — graphite pencil on white paper
+# Monochrome: hierarchy comes from pencil pressure (4B dark → 2H light),
+# not hue. ANSI colors are barely-there colored-pencil tints so git /
+# diagnostics / ls keep their meaning without reading as a rainbow.
 # All hex values are WITHOUT the # prefix
 
 # ─── Theme metadata ───
 THEME_TYPE=light
 NVIM_STYLE=day
 NVIM_BG=light
-KITTY_BG_OPACITY=1.0
-POPUP_BG_OPACITY=0.9
-MAKO_ICON_THEME=Papirus-Light
+KITTY_BG_OPACITY=0.85
+POPUP_BG_OPACITY=0.88
+MAKO_ICON_THEME=Papirus-Light   # also the GTK icon theme
 VSCODE_UI_THEME=vs-light
 FONT_FAMILY="MonaspiceKr Nerd Font"
 # WARNING: SHOW_WELCOME is also the project's literal-true alias used in
@@ -18,120 +21,233 @@ FONT_FAMILY="MonaspiceKr Nerd Font"
 # `[[ "{{SHOW_WELCOME}}" == "true" ]]` check in templates/zsh/welcome.zsh.
 SHOW_WELCOME=true
 SHOW_BANNER=true
-WALLPAPER=foxml_earthy.jpg
+WALLPAPER=foxml_paper.jpg
 
 # ─── Aesthetic controls ───
+# Light blur so the paper grain still shows through translucent windows.
 ROUNDING=10
-BLUR_SIZE=3
-BLUR_PASSES=2
+BLUR_SIZE=2
+BLUR_PASSES=1
 GAP_IN=6
 GAP_OUT=12
 BORDER_SIZE=1
-SHADOW_RANGE=15
-SHADOW_ALPHA=0.10
+SHADOW_RANGE=12
+SHADOW_ALPHA=0.06
+
+# ─── Desktop chrome (GTK settings.ini · cursor · Hyprland window edges · kitty text · banner) ───
+# A drawn hairline separates sheets; inactive windows stay paper, not soot.
+GTK_PREFER_DARK=0
+CURSOR_THEME=catppuccin-latte-dark-cursors
+PAPIRUS_FOLDER_COLOR=grey
+HYPR_BORDER_SIZE=1
+HYPR_BORDER_INACTIVE=9a989488
+HYPR_SHADOW_ALPHA_INACTIVE=0.08
+HYPR_DIM_STRENGTH=0.05
+# Comments (italic) in Monaspace Radon: handwriting beside the typed code.
+KITTY_ITALIC_FONT="MonaspiceRn Nerd Font"
+KITTY_DIM_OPACITY=0.7
+# Name banner (zsh splash + nvim dashboard): one graphite ink, not a grey patchwork
+WELCOME_INK1=237
+WELCOME_INK2=237
+WELCOME_INK3=237
+WELCOME_INK4=237
+WELCOME_INK5=237
+NVIM_BANNER1=3c3c40
+NVIM_BANNER2=3c3c40
+NVIM_BANNER3=3c3c40
+NVIM_BANNER4=3c3c40
 
 # ─── Core palette ───
-BG=f5f5f0
-BG_DARK=e8e8e3
-BG_ALT=dfdfd9
-BG_HIGHLIGHT=e2e2dc
-SELECTION=d9d9d0
+# BG matches the wallpaper's average tone (f0eee8), a hair lighter so a
+# window reads as a sheet laid on the page.
+BG=f4f2ed
+BG_DARK=e9e7e1
+BG_ALT=e2dfd8
+BG_HIGHLIGHT=e6e3dc
+SELECTION=f1d6de
 
-FG=1a1a1a
-FG_PASTEL=3d3d3d
-FG_DIM=6e6e6e
-COMMENT=6e6e6e
+FG=2b2b2d
+FG_PASTEL=48484b
+FG_DIM=6e6d70
+COMMENT=7c7a76
 
-PRIMARY=d4985a
-SECONDARY=b8967a
-ACCENT=8a9a7a
-SURFACE=e8e8e3
-BLUSH=b8607a
-GOLD=b88a3a
+PRIMARY=3c3c40
+SECONDARY=1c1c1e
+ACCENT=5e5e63
+SURFACE=e6e3dc
+BLUSH=55555a
+GOLD=6e6a62
 
 # ─── ANSI colors ───
-RED=b05555
-RED_BRIGHT=c06868
-GREEN=6b9a7a
-GREEN_BRIGHT=7aab88
-YELLOW=c4b48a
-YELLOW_BRIGHT=b8a87e
-BLUE=7a9ab4
-BLUE_BRIGHT=8a8aab
-CYAN=7a9aab
-CYAN_BRIGHT=7aab9a
-WHITE=1a1a1a
+RED=9a5a58
+RED_BRIGHT=a86a66
+GREEN=5b6b5c
+GREEN_BRIGHT=6a7a6a
+YELLOW=7a6d55
+YELLOW_BRIGHT=6b6150
+BLUE=56657a
+BLUE_BRIGHT=66708a
+CYAN=52666b
+CYAN_BRIGHT=5f7676
+WHITE=2b2b2d
+# kitty color8 — "bright black"; Claude Code (dark-ansi) uses it as the
+# user-message / sidebar background, so on paper it is a pencil-highlight grey
+ANSI_BRIGHT_BLACK=d8d5cd
 
 # ─── Semantic aliases ───
-OK=6b9a7a
-WARN=c4b48a
+OK=5b6b5c
+WARN=8a7650
 
 # ─── ZSH command highlight color ───
-ZSH_CMD=6b9a7a
+ZSH_CMD=48484b
 
 # ─── Vencord deep background ───
-BG_VENCORD_DEEP=f0f0eb
+BG_VENCORD_DEEP=efede7
 
 # ─── Nvim extra colors ───
-NVIM_BG_HL=e2e2dc
-NVIM_SEL=372411
-WARM=8a7a6e
-SAND=9a8a7a
-WHEAT=b4a483
-CLAY=b0603a
+NVIM_BG_HL=e6e3dc
+NVIM_SEL=f1d6de
+WARM=6e6c68
+SAND=7a7874
+WHEAT=8a7a5a
+CLAY=9a5a48
 
 # ─── Nvim diff colors ───
-DIFF_ADD=e8f0e8
-DIFF_CHANGE=f0f0e0
-DIFF_DELETE=f0e8e8
-DIFF_TEXT=e0e0d0
-TREESITTER_CTX=e8e8e3
+DIFF_ADD=e3e9e0
+DIFF_CHANGE=ebe8dc
+DIFF_DELETE=efe2e0
+DIFF_TEXT=ddd8c8
+TREESITTER_CTX=e9e7e1
+
+# ─── Nvim rainbow delimiters / indent guides ───
+# Pencil pressure, not hue: dark → mid → light, twice over.
+NVIM_RAINBOW1=1c1c1e
+NVIM_RAINBOW2=5e5e63
+NVIM_RAINBOW3=85837f
+NVIM_RAINBOW4=3c3c40
+NVIM_RAINBOW5=6e6d70
+NVIM_RAINBOW6=8e8c88
+NVIM_INDENT1=dedad2
+NVIM_INDENT2=d6d2ca
+NVIM_INDENT3=dedad2
+NVIM_INDENT4=d6d2ca
+NVIM_INDENT5=dedad2
+NVIM_INDENT6=d6d2ca
+NVIM_IBL_SCOPE=8e8c88
+
+# ─── Nvim state backgrounds (diagnostics / git / conflicts / word highlight) ───
+NVIM_DIAG_ERR_BG=f2e4e2
+NVIM_DIAG_WARN_BG=f0ead9
+NVIM_GIT_MOD=8a7650
+NVIM_GIT_DEL=9a5a58
+NVIM_CONFLICT_CUR=f0e0de
+NVIM_CONFLICT_CUR_LABEL=e8d2cf
+NVIM_CONFLICT_INC=e2eae0
+NVIM_CONFLICT_INC_LABEL=d6e2d3
+NVIM_ILLUMINATE=e2dfd8
+
+# ─── Nvim definition / keyword weight ───
+# A signature is the darkest, boldest line; keywords inside the body stay regular weight.
+NVIM_FN_DEF=1c1c1e
+NVIM_FN_DEF_BOLD=true
+NVIM_KW_BOLD=false
+NVIM_READONLY_BOLD=false
+
+# ─── Nvim syntax roles ───
+# Typed code in dark graphite; comments a lighter handwritten pencil; section banners inked bold.
+NVIM_SYN_VAR=1c1c1e
+NVIM_SYN_MEMBER=3c3c40
+NVIM_SYN_PARAM=3c3c40
+NVIM_SYN_TYPE=48484b
+NVIM_SYN_STRING=55555a
+NVIM_SYN_NUMBER=3c3c40
+NVIM_SYN_CALL=1c1c1e
+NVIM_SYN_OPERATOR=6e6d70
+NVIM_SYN_RETURN=1c1c1e
+NVIM_SYN_COMMENT=9a9894
+NVIM_SYN_HEADER=2b2b2d
+NVIM_SECTION_HEADERS=true
+NVIM_FAINT_FG=a8a6a0
+# Errors in raspberry red pen — the one bright mark on the page
+NVIM_RED_PEN=b8336a
+# Pink highlighter: selection + search wash over the graphite, text stays dark
+NVIM_SEARCH_FG=1c1c1e
+NVIM_SEARCH_BG=ecc6d2
+NVIM_CURSEARCH_FG=1c1c1e
+NVIM_CURSEARCH_BG=e2aec0
+NVIM_INCSEARCH_FG=1c1c1e
+NVIM_INCSEARCH_BG=e2aec0
+KITTY_SELECTION_BG=f1d6de
+TMUX_MODE_FG=1c1c1e
+TMUX_MODE_BG=f1d6de
+# Graphite caret (paper-colored letter under it); blush active-workspace pill in the pen's raspberry. pi: graphite syntax, visible hairlines.
+KITTY_CURSOR=3c3c40
+KITTY_CURSOR_TEXT=f4f2ed
+WAYBAR_WS_ACTIVE=b8336a
+PI_BORDER=c8c5be
+PI_MUTED=7c7a76
+PI_ERROR=b8336a
+PI_MD_CODE=3c3c40
+PI_SYN_KEYWORD=1c1c1e
+PI_SYN_FUNCTION=1c1c1e
+PI_SYN_STRING=55555a
+PI_SYN_NUMBER=3c3c40
+PI_SYN_OPERATOR=6e6d70
+
+# ─── fox-symdeps HUD (selection bar · asm sync band · warn / alarm / ok) ───
+NVIM_SYMDEPS_SEL=f1d6de
+NVIM_SYMDEPS_SYNC=e6e3dc
+NVIM_SYMDEPS_WARN=8a7650
+NVIM_SYMDEPS_ALARM=9a5a48
+NVIM_SYMDEPS_OK=5b6b5c
 
 # ─── App-specific overrides ───
 # Dunst uses a slightly different bg
-BG_DUNST=e8e8e3
+BG_DUNST=e9e7e1
 # Spicetify uses warm paper
-BG_SPICETIFY=f5f5f0
+BG_SPICETIFY=f4f2ed
 # Vencord secondary-alt
-BG_VENCORD_ALT=e8e8e3
+BG_VENCORD_ALT=e9e7e1
 # Spicetify card hover
-CARD_HOVER=e2e2dc
+CARD_HOVER=e2dfd8
+# Firefox new-tab / about: page card surface
+FIREFOX_CARD_BG=e9e7e1
 
 # ─── FZF colors (24-bit hex) ───
-FZF_ACCENT1=d4985a
-FZF_ACCENT2=8a9a7a
+FZF_ACCENT1=3c3c40
+FZF_ACCENT2=6e6d70
 
 # ─── ZSH autosuggestion color ───
-ZSH_SUGGEST=9e9e9e
+ZSH_SUGGEST=9a9894
 
 # ─── ANSI 256-color codes ───
-ANSI_ACCENT1=173
-ANSI_ACCENT2=180
-ANSI_ACCENT3=138
-ANSI_ACCENT4=144
-ANSI_ACCENT5=139
-ANSI_TEXT=234
-ANSI_MUTED=244
-ANSI_ERROR=167
-ANSI_OK=108
+ANSI_ACCENT1=238
+ANSI_ACCENT2=241
+ANSI_ACCENT3=243
+ANSI_ACCENT4=240
+ANSI_ACCENT5=242
+ANSI_TEXT=235
+ANSI_MUTED=245
+ANSI_ERROR=131
+ANSI_OK=65
 ANSI_STANDOUT_BG=255
-ANSI_PROMPT=173
-ANSI_PROMPT2=139
-ANSI_LOAD=180
+ANSI_PROMPT=238
+ANSI_PROMPT2=243
+ANSI_LOAD=245
 
-# ─── Gradient colors (zsh earthy tones) ───
-GRAD1=173
-GRAD2=180
-GRAD3=138
-GRAD4=144
-GRAD5=139
+# ─── Gradient colors (zsh graphite pressure) ───
+GRAD1=236
+GRAD2=238
+GRAD3=240
+GRAD4=242
+GRAD5=244
 
 # ─── Tmux colors ───
-TMUX_ACTIVE=colour173
-TMUX_INACTIVE=colour244
-TMUX_INACTIVE_FG=8d8d8d
-TMUX_ACTIVE_FG=1a1a1a
-TMUX_ACTIVE_BG=e8e8e3
+TMUX_ACTIVE=colour238
+TMUX_INACTIVE=colour246
+TMUX_INACTIVE_FG=858380
+TMUX_ACTIVE_FG=2b2b2d
+TMUX_ACTIVE_BG=e6e3dc
 
 # ─── Preview swatches (for swap.sh) ───
-PALETTE_LABELS=("bg" "fg" "peach" "pink" "lav" "slate")
+PALETTE_LABELS=("paper" "graphite" "4B" "HB" "2H" "smudge")

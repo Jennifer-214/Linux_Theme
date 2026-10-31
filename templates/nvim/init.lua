@@ -112,6 +112,32 @@ local P = {
   diff_del  = "#{{DIFF_DELETE}}",
   diff_txt  = "#{{DIFF_TEXT}}",
   ts_ctx    = "#{{TMUX_ACTIVE_BG}}",
+  rainbow   = { "#{{NVIM_RAINBOW1}}", "#{{NVIM_RAINBOW2}}", "#{{NVIM_RAINBOW3}}",
+                "#{{NVIM_RAINBOW4}}", "#{{NVIM_RAINBOW5}}", "#{{NVIM_RAINBOW6}}" },
+  indent    = { "#{{NVIM_INDENT1}}", "#{{NVIM_INDENT2}}", "#{{NVIM_INDENT3}}",
+                "#{{NVIM_INDENT4}}", "#{{NVIM_INDENT5}}", "#{{NVIM_INDENT6}}" },
+  ibl_scope = "#{{NVIM_IBL_SCOPE}}",
+  diag_err_bg  = "#{{NVIM_DIAG_ERR_BG}}",
+  diag_warn_bg = "#{{NVIM_DIAG_WARN_BG}}",
+  git_mod   = "#{{NVIM_GIT_MOD}}",
+  git_del   = "#{{NVIM_GIT_DEL}}",
+  conflict_cur       = "#{{NVIM_CONFLICT_CUR}}",
+  conflict_cur_label = "#{{NVIM_CONFLICT_CUR_LABEL}}",
+  conflict_inc       = "#{{NVIM_CONFLICT_INC}}",
+  conflict_inc_label = "#{{NVIM_CONFLICT_INC_LABEL}}",
+  illuminate = "#{{NVIM_ILLUMINATE}}",
+  fn_def    = "#{{NVIM_FN_DEF}}",
+  search    = { fg = "#{{NVIM_SEARCH_FG}}", bg = "#{{NVIM_SEARCH_BG}}", cur_fg = "#{{NVIM_CURSEARCH_FG}}",
+                cur_bg = "#{{NVIM_CURSEARCH_BG}}", inc_fg = "#{{NVIM_INCSEARCH_FG}}", inc_bg = "#{{NVIM_INCSEARCH_BG}}" },
+  pen       = "#{{NVIM_RED_PEN}}",     -- errors: the red pen correcting the page (CLAY on dark themes)
+  faint     = "#{{NVIM_FAINT_FG}}",   -- dim text (line numbers, whitespace, blame); SURFACE on dark themes
+  syn       = { var = "#{{NVIM_SYN_VAR}}", member = "#{{NVIM_SYN_MEMBER}}", param = "#{{NVIM_SYN_PARAM}}",
+                type = "#{{NVIM_SYN_TYPE}}", string = "#{{NVIM_SYN_STRING}}", number = "#{{NVIM_SYN_NUMBER}}",
+                call = "#{{NVIM_SYN_CALL}}", operator = "#{{NVIM_SYN_OPERATOR}}", ret = "#{{NVIM_SYN_RETURN}}",
+                comment = "#{{NVIM_SYN_COMMENT}}", header = "#{{NVIM_SYN_HEADER}}" },
+  banner    = { "#{{NVIM_BANNER1}}", "#{{NVIM_BANNER2}}", "#{{NVIM_BANNER3}}", "#{{NVIM_BANNER4}}" },
+  symdeps   = { sel = "#{{NVIM_SYMDEPS_SEL}}", sync = "#{{NVIM_SYMDEPS_SYNC}}", warn = "#{{NVIM_SYMDEPS_WARN}}",
+                alarm = "#{{NVIM_SYMDEPS_ALARM}}", ok = "#{{NVIM_SYMDEPS_OK}}" },
   none      = "none",
 }
 
@@ -265,12 +291,12 @@ local plugins = {
     config = function()
       -- Define highlight groups before ibl.setup so they exist at init time
       local hl = vim.api.nvim_set_hl
-      hl(0, "RainbowIndent1", { fg = "#4d3a2e" })
-      hl(0, "RainbowIndent2", { fg = "#4a3040" })
-      hl(0, "RainbowIndent3", { fg = "#2e3d2e" })
-      hl(0, "RainbowIndent4", { fg = "#3d3a24" })
-      hl(0, "RainbowIndent5", { fg = "#2a3540" })
-      hl(0, "RainbowIndent6", { fg = "#402a2a" })
+      hl(0, "RainbowIndent1", { fg = P.indent[1] })
+      hl(0, "RainbowIndent2", { fg = P.indent[2] })
+      hl(0, "RainbowIndent3", { fg = P.indent[3] })
+      hl(0, "RainbowIndent4", { fg = P.indent[4] })
+      hl(0, "RainbowIndent5", { fg = P.indent[5] })
+      hl(0, "RainbowIndent6", { fg = P.indent[6] })
       require("ibl").setup({
         indent = {
           highlight = {
@@ -290,6 +316,7 @@ local plugins = {
       spec = {
         { "<leader>b", group = "buffers" },
         { "<leader>c", group = "code / cmake" },
+        { "<leader>d", group = "symdeps" },      -- fox-symdeps: labelled before the plugin loads (it loads on first press)
         { "<leader>f", group = "find" },
         { "<leader>g", group = "git" },
         { "<leader>h", group = "harpoon" },
@@ -759,7 +786,7 @@ local plugins = {
       hl(0, "MultiCursorMatchPreview", { link = "Search" })
       hl(0, "MultiCursorDisabledCursor", { fg = P.bg_deep, bg = P.surface })
       hl(0, "MultiCursorDisabledVisual", { link = "Visual" })
-      hl(0, "MultiCursorDisabledSign", { fg = P.surface })
+      hl(0, "MultiCursorDisabledSign", { fg = P.faint })
     end,
   },
 
@@ -1190,8 +1217,17 @@ local plugins = {
     end,
     name = "fox-symdeps",
     ft = { "c", "cpp" },
+    -- the menu and the HUD from ANY buffer (her ask, 2026-10-21: "it would be nice to have everywhere"): lazy maps these
+    -- two keys in every buffer and loads the plugin on the first press, then replays the key — setup maps them for
+    -- real (globally). C/C++ files still load it on open; no other session pays for it until a key is pressed.
+    keys = {
+      { "<leader>dm", desc = "fox-symdeps: menu" },
+      { "<leader>dd", desc = "fox-symdeps: HUD" },
+    },
     opts = {
-      palette = { header = P.peach, title = P.blush, border = P.peach, badge = P.warm, winblend = 0 },
+      palette = { header = P.peach, title = P.blush, border = P.peach, badge = P.warm, winblend = 0,
+                  selection = P.symdeps.sel, sync = P.symdeps.sync, warn = P.symdeps.warn,
+                  alarm = P.symdeps.alarm, ok = P.symdeps.ok, ground = P.bg },
       doc_dirs = { vim.fn.expand("~/code/tick-trader-percore-workspace") }, -- `n` also greps the private workspace docs
       -- Engine's canonical instantiation (FPN_Binary<64> — the production F). Sizeof probes on
       -- dependent spellings (`ExecutionCore<F>` via a variable hover) compile @ F=64, labeled in the HUD.
@@ -1440,9 +1476,9 @@ local function apply_foxml_theme()
   hl("ColorColumn",  { bg = P.bg_hl })
   hl("Visual",       { bg = P.sel })
   hl("VisualNOS",    { bg = P.sel })
-  hl("LineNr",       { fg = P.surface })
+  hl("LineNr",       { fg = P.faint })
   hl("CursorLineNr", { fg = P.peach, bold = {{SHOW_WELCOME}} })
-  hl("SignColumn",   { fg = P.surface, bg = P.none })
+  hl("SignColumn",   { fg = P.faint, bg = P.none })
   hl("EndOfBuffer",  { fg = P.bg })
   hl("VertSplit",    { fg = P.yellow_br, bg = P.none })
   hl("WinSeparator", { fg = P.yellow_br, bg = P.none })
@@ -1452,56 +1488,56 @@ local function apply_foxml_theme()
   hl("PmenuThumb",   { bg = P.comment })
   hl("WildMenu",     { fg = P.bg, bg = P.peach, bold = {{SHOW_WELCOME}} })
   hl("StatusLine",   { fg = P.warm, bg = P.none })
-  hl("StatusLineNC", { fg = P.surface, bg = P.none })
+  hl("StatusLineNC", { fg = P.faint, bg = P.none })
   hl("TabLine",      { fg = P.comment, bg = P.bg_deep })
   hl("TabLineSel",   { fg = P.peach, bg = P.bg_hl, bold = {{SHOW_WELCOME}} })
   hl("TabLineFill",  { bg = P.bg_deep })
   hl("WinBar",       { fg = P.comment, bg = P.none })
-  hl("WinBarNC",     { fg = P.surface, bg = P.none })
+  hl("WinBarNC",     { fg = P.faint, bg = P.none })
   hl("Title",        { fg = P.peach, bold = {{SHOW_WELCOME}} })
   hl("Directory",    { fg = P.cyan })
   hl("Question",     { fg = P.green })
-  hl("SpecialKey",   { fg = P.surface })
-  hl("NonText",      { fg = P.surface })
+  hl("SpecialKey",   { fg = P.faint })
+  hl("NonText",      { fg = P.faint })
   hl("Conceal",      { fg = P.comment })
   hl("Cursor",       { fg = P.bg, bg = P.fg })
   hl("lCursor",      { fg = P.bg, bg = P.fg })
   hl("CursorIM",     { fg = P.bg, bg = P.fg })
 
   -- ── Search & Match ──
-  hl("Search",       { fg = P.bg, bg = P.peach })
-  hl("IncSearch",    { fg = P.bg, bg = P.pink })
-  hl("CurSearch",    { fg = P.bg, bg = P.peach, bold = {{SHOW_WELCOME}} })
+  hl("Search",       { fg = P.search.fg, bg = P.search.bg })
+  hl("IncSearch",    { fg = P.search.inc_fg, bg = P.search.inc_bg })
+  hl("CurSearch",    { fg = P.search.cur_fg, bg = P.search.cur_bg, bold = {{SHOW_WELCOME}} })
   hl("Substitute",   { fg = P.bg, bg = P.red })
   hl("MatchParen",   { fg = P.pink, bold = {{SHOW_WELCOME}}, underline = {{SHOW_WELCOME}} })
 
   -- ── Fold ──
   hl("Folded",       { fg = P.comment, bg = P.bg_hl })
-  hl("FoldColumn",   { fg = P.surface, bg = P.none })
+  hl("FoldColumn",   { fg = P.faint, bg = P.none })
 
   -- ── Messages ──
   hl("MsgArea",      { fg = P.warm, bg = P.bg_deep })
   hl("WarningMsg",   { fg = P.wheat, bold = {{SHOW_WELCOME}} })
-  hl("ErrorMsg",     { fg = P.clay, bold = {{SHOW_WELCOME}} })
+  hl("ErrorMsg",     { fg = P.pen, bold = {{SHOW_WELCOME}} })
   hl("ModeMsg",      { fg = P.peach, bold = {{SHOW_WELCOME}} })
   hl("MoreMsg",      { fg = P.green })
 
   -- ── Built-in syntax groups ──
-  hl("Comment",      { fg = P.comment, italic = {{SHOW_WELCOME}} })
+  hl("Comment",      { fg = P.syn.comment, italic = {{SHOW_WELCOME}} })
   hl("Constant",     { fg = P.peach })
-  hl("String",       { fg = P.green })
-  hl("Character",    { fg = P.green })
-  hl("Number",       { fg = P.yellow, bold = {{SHOW_WELCOME}} })
+  hl("String",       { fg = P.syn.string })
+  hl("Character",    { fg = P.syn.string })
+  hl("Number",       { fg = P.syn.number, bold = {{SHOW_WELCOME}} })
   hl("Boolean",      { fg = P.peach, bold = {{SHOW_WELCOME}} })
-  hl("Float",        { fg = P.yellow, bold = {{SHOW_WELCOME}} })
-  hl("Identifier",   { fg = P.fg })
+  hl("Float",        { fg = P.syn.number, bold = {{SHOW_WELCOME}} })
+  hl("Identifier",   { fg = P.syn.var })
   hl("Function",     { fg = P.peach })
-  hl("Statement",    { fg = P.pink, bold = {{SHOW_WELCOME}} })
-  hl("Conditional",  { fg = P.pink, bold = {{SHOW_WELCOME}} })
-  hl("Repeat",       { fg = P.pink, bold = {{SHOW_WELCOME}} })
+  hl("Statement",    { fg = P.pink, bold = {{NVIM_KW_BOLD}} })
+  hl("Conditional",  { fg = P.pink, bold = {{NVIM_KW_BOLD}} })
+  hl("Repeat",       { fg = P.pink, bold = {{NVIM_KW_BOLD}} })
   hl("Label",        { fg = P.pink })
   hl("Operator",     { fg = P.pink })
-  hl("Keyword",      { fg = P.pink, bold = {{SHOW_WELCOME}} })
+  hl("Keyword",      { fg = P.pink, bold = {{NVIM_KW_BOLD}} })
   hl("Exception",    { fg = P.pink })
   hl("PreProc",      { fg = P.cyan })
   hl("Include",      { fg = P.cyan })
@@ -1526,78 +1562,78 @@ local function apply_foxml_theme()
   hl("Todo",         { fg = P.bg, bg = P.yellow, bold = {{SHOW_WELCOME}} })
 
   -- ── Diagnostics ──
-  hl("DiagnosticError",          { fg = P.clay })
+  hl("DiagnosticError",          { fg = P.pen })
   hl("DiagnosticWarn",           { fg = P.wheat })
   hl("DiagnosticInfo",           { fg = P.peach })
   hl("DiagnosticHint",           { fg = P.green })
   hl("DiagnosticOk",             { fg = P.green })
-  hl("DiagnosticUnderlineError", { undercurl = {{SHOW_WELCOME}}, sp = P.clay })
+  hl("DiagnosticUnderlineError", { undercurl = {{SHOW_WELCOME}}, sp = P.pen })
   hl("DiagnosticUnderlineWarn",  { undercurl = {{SHOW_WELCOME}}, sp = P.wheat })
   hl("DiagnosticUnderlineInfo",  { undercurl = {{SHOW_WELCOME}}, sp = P.peach })
   hl("DiagnosticUnderlineHint",  { undercurl = {{SHOW_WELCOME}}, sp = P.green })
   hl("DiagnosticUnderlineOk",    { undercurl = {{SHOW_WELCOME}}, sp = P.green })
-  hl("DiagnosticVirtualTextError", { fg = P.clay, bg = P.diff_del, bold = {{SHOW_WELCOME}} })
+  hl("DiagnosticVirtualTextError", { fg = P.pen, bg = P.diff_del, bold = {{SHOW_WELCOME}} })
   hl("DiagnosticVirtualTextWarn",  { fg = P.wheat, bg = P.diff_chg })
   hl("DiagnosticVirtualTextInfo",  { fg = P.peach })
   hl("DiagnosticVirtualTextHint",  { fg = P.green })
-  hl("DiagnosticSignError",       { fg = P.clay })
+  hl("DiagnosticSignError",       { fg = P.pen })
   hl("DiagnosticSignWarn",        { fg = P.wheat })
   hl("DiagnosticSignInfo",        { fg = P.peach })
   hl("DiagnosticSignHint",        { fg = P.green })
-  hl("DiagnosticLineNrError",    { fg = P.clay, bold = {{SHOW_WELCOME}} })
+  hl("DiagnosticLineNrError",    { fg = P.pen, bold = {{SHOW_WELCOME}} })
   hl("DiagnosticLineNrWarn",     { fg = P.wheat, bold = {{SHOW_WELCOME}} })
   hl("DiagnosticLineNrInfo",     { fg = P.peach, bold = {{SHOW_WELCOME}} })
   hl("DiagnosticLineNrHint",     { fg = P.green, bold = {{SHOW_WELCOME}} })
-  hl("DiagnosticLineError",     { bg = "#3d1a1a" })
-  hl("DiagnosticLineWarn",      { bg = "#3d2e1a" })
+  hl("DiagnosticLineError",     { bg = P.diag_err_bg })
+  hl("DiagnosticLineWarn",      { bg = P.diag_warn_bg })
   hl("DiagnosticLineInfo",      { bg = P.bg_hl })
   hl("DiagnosticLineHint",      { bg = P.bg_hl })
 
   -- ── Treesitter ──
-  hl("@variable",            { fg = P.fg })
+  hl("@variable",            { fg = P.syn.var })
   hl("@variable.builtin",    { fg = P.pink })
-  hl("@variable.parameter",  { fg = P.yellow_br })
-  hl("@variable.member",     { fg = P.green })
-  hl("@constant",            { fg = P.yellow })
-  hl("@constant.builtin",    { fg = P.yellow, bold = {{SHOW_WELCOME}} })
-  hl("@constant.macro",      { fg = P.yellow })
+  hl("@variable.parameter",  { fg = P.syn.param })
+  hl("@variable.member",     { fg = P.syn.member })
+  hl("@constant",            { fg = P.syn.number })
+  hl("@constant.builtin",    { fg = P.syn.number, bold = {{SHOW_WELCOME}} })
+  hl("@constant.macro",      { fg = P.syn.number })
   hl("@module",              { fg = P.pink })
-  hl("@string",              { fg = P.green })
+  hl("@string",              { fg = P.syn.string })
   hl("@string.escape",       { fg = P.cyan })
   hl("@string.regex",        { fg = P.cyan })
   hl("@string.special",      { fg = P.cyan })
-  hl("@character",           { fg = P.green })
-  hl("@number",              { fg = P.yellow, bold = {{SHOW_WELCOME}} })
-  hl("@number.float",        { fg = P.yellow, bold = {{SHOW_WELCOME}} })
+  hl("@character",           { fg = P.syn.string })
+  hl("@number",              { fg = P.syn.number, bold = {{SHOW_WELCOME}} })
+  hl("@number.float",        { fg = P.syn.number, bold = {{SHOW_WELCOME}} })
   hl("@number.hex",          { fg = P.yellow, bold = {{SHOW_WELCOME}} })
   hl("@boolean",             { fg = P.peach, bold = {{SHOW_WELCOME}} })
-  hl("@type",                { fg = P.cyan })
-  hl("@type.builtin",        { fg = P.cyan })
-  hl("@type.definition",     { fg = P.cyan })
+  hl("@type",                { fg = P.syn.type })
+  hl("@type.builtin",        { fg = P.syn.type })
+  hl("@type.definition",     { fg = P.syn.type })
   hl("@type.qualifier",      { fg = P.pink })
   hl("@attribute",           { fg = P.peach })
-  hl("@property",            { fg = P.green })
-  hl("@function",            { fg = P.peach })
-  hl("@function.call",       { fg = P.peach })
-  hl("@function.builtin",    { fg = P.peach })
+  hl("@property",            { fg = P.syn.member })
+  hl("@function",            { fg = P.fn_def, bold = {{NVIM_FN_DEF_BOLD}} })
+  hl("@function.call",       { fg = P.syn.call })
+  hl("@function.builtin",    { fg = P.syn.call })
   hl("@function.macro",      { fg = P.pink })
-  hl("@function.method",     { fg = P.peach })
-  hl("@function.method.call", { fg = P.peach })
+  hl("@function.method",     { fg = P.fn_def, bold = {{NVIM_FN_DEF_BOLD}} })
+  hl("@function.method.call", { fg = P.syn.call })
   hl("@constructor",         { fg = P.peach })
-  hl("@operator",            { fg = P.lavender })
-  hl("@keyword",             { fg = P.pink, bold = {{SHOW_WELCOME}} })
-  hl("@keyword.function",    { fg = P.pink, bold = {{SHOW_WELCOME}} })
+  hl("@operator",            { fg = P.syn.operator })
+  hl("@keyword",             { fg = P.pink, bold = {{NVIM_KW_BOLD}} })
+  hl("@keyword.function",    { fg = P.pink, bold = {{NVIM_KW_BOLD}} })
   hl("@keyword.operator",    { fg = P.pink })
-  hl("@keyword.return",      { fg = P.lavender, bold = {{SHOW_WELCOME}} })
+  hl("@keyword.return",      { fg = P.syn.ret, bold = {{NVIM_KW_BOLD}} })
   hl("@keyword.import",      { fg = P.cyan })
-  hl("@keyword.conditional", { fg = P.pink, bold = {{SHOW_WELCOME}} })
-  hl("@keyword.repeat",      { fg = P.pink, bold = {{SHOW_WELCOME}} })
+  hl("@keyword.conditional", { fg = P.pink, bold = {{NVIM_KW_BOLD}} })
+  hl("@keyword.repeat",      { fg = P.pink, bold = {{NVIM_KW_BOLD}} })
   hl("@keyword.exception",   { fg = P.pink })
   hl("@punctuation",         { fg = P.fg })
   hl("@punctuation.bracket",  { fg = P.sand })
   hl("@punctuation.delimiter", { fg = P.peach })
   hl("@punctuation.special",  { fg = P.pink })
-  hl("@comment",             { fg = P.comment, italic = {{SHOW_WELCOME}} })
+  hl("@comment",             { fg = P.syn.comment, italic = {{SHOW_WELCOME}} })
   hl("@comment.todo",        { fg = P.bg, bg = P.yellow, bold = {{SHOW_WELCOME}} })
   hl("@comment.note",        { fg = P.bg, bg = P.green, bold = {{SHOW_WELCOME}} })
   hl("@comment.warning",     { fg = P.bg, bg = P.yellow, bold = {{SHOW_WELCOME}} })
@@ -1616,16 +1652,16 @@ local function apply_foxml_theme()
   hl("@markup.list",         { fg = P.pink })
 
   -- ── LSP semantic tokens ──
-  hl("@lsp.type.class",         { fg = P.cyan })
-  hl("@lsp.type.struct",        { fg = P.cyan })
-  hl("@lsp.type.enum",          { fg = P.cyan })
+  hl("@lsp.type.class",         { fg = P.syn.type })
+  hl("@lsp.type.struct",        { fg = P.syn.type })
+  hl("@lsp.type.enum",          { fg = P.syn.type })
   hl("@lsp.type.enumMember",    { fg = P.cyan })
-  hl("@lsp.type.interface",     { fg = P.cyan })
-  hl("@lsp.type.function",      { fg = P.peach })
-  hl("@lsp.type.method",        { fg = P.peach })
+  hl("@lsp.type.interface",     { fg = P.syn.type })
+  hl("@lsp.type.function",      { fg = P.syn.call })
+  hl("@lsp.type.method",        { fg = P.syn.call })
   hl("@lsp.type.macro",         { fg = P.pink })
   hl("@lsp.type.decorator",     { fg = P.pink })
-  hl("@lsp.type.variable",      { fg = P.fg })
+  hl("@lsp.type.variable",      { fg = P.syn.var })
   hl("@lsp.type.parameter",     { fg = P.peach })
   hl("@lsp.type.property",      { link = "@property" })
   hl("@lsp.type.property.c",    { link = "@property" })
@@ -1634,12 +1670,17 @@ local function apply_foxml_theme()
   hl("@lsp.type.member.c",      { link = "@variable.member" })
   hl("@lsp.type.member.cpp",    { link = "@variable.member" })
   hl("@lsp.type.namespace",     { fg = P.pink })
-  hl("@lsp.type.keyword",       { fg = P.pink, bold = {{SHOW_WELCOME}} })
-  hl("@lsp.type.type",          { fg = P.cyan })
-  hl("@lsp.type.typeParameter", { fg = P.cyan })
-  hl("@lsp.type.comment",       { fg = P.comment, italic = {{SHOW_WELCOME}} })
+  hl("@lsp.type.keyword",       { fg = P.pink, bold = {{NVIM_KW_BOLD}} })
+  hl("@lsp.type.type",          { fg = P.syn.type })
+  hl("@lsp.type.typeParameter", { fg = P.syn.type })
+  hl("@lsp.type.comment",       { fg = P.syn.comment, italic = {{SHOW_WELCOME}} })
   hl("@lsp.mod.deprecated",     { strikethrough = {{SHOW_WELCOME}} })
-  hl("@lsp.mod.readonly",       { bold = {{SHOW_WELCOME}} })
+  hl("@lsp.mod.readonly",       { bold = {{NVIM_READONLY_BOLD}} })
+  -- clangd tags the name in a signature declaration/definition; keep it on the @function look, not the call look
+  hl("@lsp.typemod.function.declaration",   { link = "@function" })
+  hl("@lsp.typemod.function.definition",    { link = "@function" })
+  hl("@lsp.typemod.method.declaration",     { link = "@function.method" })
+  hl("@lsp.typemod.method.definition",      { link = "@function.method" })
   hl("@lsp.typemod.function.defaultLibrary", { fg = P.peach })
   hl("@lsp.typemod.variable.defaultLibrary", { fg = P.pink })
   hl("@lsp.typemod.variable.member",         { link = "@variable.member" })
@@ -1674,10 +1715,10 @@ local function apply_foxml_theme()
   hl("SnacksDashboardHeader",  { fg = P.pink, bold = {{SHOW_WELCOME}} })
   -- Banner brand cycle (clay·wheat·mauve·sage) — mirrors welcome.zsh ${c1..c4}
   -- and hyprlock's pango spans; the one WELCOME_TEXT source colors all three.
-  hl("FoxBannerC1",            { fg = P.clay,     bold = {{SHOW_WELCOME}} })
-  hl("FoxBannerC2",            { fg = P.wheat,    bold = {{SHOW_WELCOME}} })
-  hl("FoxBannerC3",            { fg = P.blush,    bold = {{SHOW_WELCOME}} })
-  hl("FoxBannerC4",            { fg = P.lavender, bold = {{SHOW_WELCOME}} })
+  hl("FoxBannerC1",            { fg = P.banner[1], bold = {{SHOW_WELCOME}} })
+  hl("FoxBannerC2",            { fg = P.banner[2], bold = {{SHOW_WELCOME}} })
+  hl("FoxBannerC3",            { fg = P.banner[3], bold = {{SHOW_WELCOME}} })
+  hl("FoxBannerC4",            { fg = P.banner[4], bold = {{SHOW_WELCOME}} })
   hl("SnacksDashboardKey",     { fg = P.peach, bold = {{SHOW_WELCOME}} })
   hl("SnacksDashboardDesc",    { fg = P.fg })
   hl("SnacksDashboardIcon",    { fg = P.green })
@@ -1692,7 +1733,7 @@ local function apply_foxml_theme()
   hl("FlashLabel",    { fg = P.bg, bg = P.peach, bold = {{SHOW_WELCOME}} })
   hl("FlashMatch",    { fg = P.fg, bg = P.bg_hl })
   hl("FlashCurrent",  { fg = P.bg, bg = P.pink, bold = {{SHOW_WELCOME}} })
-  hl("FlashBackdrop", { fg = P.surface })
+  hl("FlashBackdrop", { fg = P.faint })
 
   -- Trouble.nvim
   hl("TroubleNormal",   { bg = P.bg_deep })
@@ -1707,7 +1748,7 @@ local function apply_foxml_theme()
   hl("WhichKey",          { fg = P.peach, bold = {{SHOW_WELCOME}} })
   hl("WhichKeyGroup",     { fg = P.pink })
   hl("WhichKeyDesc",      { fg = P.fg })
-  hl("WhichKeySeparator", { fg = P.surface })
+  hl("WhichKeySeparator", { fg = P.faint })
   hl("WhichKeyNormal",    { bg = P.none })
   hl("WhichKeyFloat",     { bg = P.none })
   hl("WhichKeyBorder",    { fg = P.peach, bg = P.none })
@@ -1716,15 +1757,15 @@ local function apply_foxml_theme()
 
   -- Indent blankline
   hl("IblIndent", { fg = P.bg_hl })
-  hl("IblScope",  { fg = "#e0b878" })
+  hl("IblScope",  { fg = P.ibl_scope })
 
   -- Rainbow indent guides (muted versions of rainbow delimiter colors)
-  hl("RainbowIndent1", { fg = "#4d3a2e" })  -- muted peach
-  hl("RainbowIndent2", { fg = "#4a3040" })  -- muted pink
-  hl("RainbowIndent3", { fg = "#2e3d2e" })  -- muted green
-  hl("RainbowIndent4", { fg = "#3d3a24" })  -- muted yellow
-  hl("RainbowIndent5", { fg = "#2a3540" })  -- muted cyan
-  hl("RainbowIndent6", { fg = "#402a2a" })  -- muted red
+  hl("RainbowIndent1", { fg = P.indent[1] })
+  hl("RainbowIndent2", { fg = P.indent[2] })
+  hl("RainbowIndent3", { fg = P.indent[3] })
+  hl("RainbowIndent4", { fg = P.indent[4] })
+  hl("RainbowIndent5", { fg = P.indent[5] })
+  hl("RainbowIndent6", { fg = P.indent[6] })
 
   -- Neo-tree
   hl("NeoTreeNormal",        { bg = P.none })
@@ -1736,9 +1777,9 @@ local function apply_foxml_theme()
   hl("NeoTreeFileName",      { fg = P.fg })
   hl("NeoTreeFileIcon",      { fg = P.fg })
   hl("NeoTreeGitAdded",      { fg = "#{{GREEN}}" })
-  hl("NeoTreeGitModified",   { fg = "#b8a47a" })
-  hl("NeoTreeGitDeleted",    { fg = "#a06060" })
-  hl("NeoTreeGitUntracked",  { fg = "#a06060" })
+  hl("NeoTreeGitModified",   { fg = P.git_mod })
+  hl("NeoTreeGitDeleted",    { fg = P.git_del })
+  hl("NeoTreeGitUntracked",  { fg = P.git_del })
   hl("NeoTreeGitConflict",   { fg = P.red, bold = {{SHOW_WELCOME}} })
   hl("NeoTreeIndentMarker",  { fg = P.bg_hl })
   hl("NeoTreeWinSeparator",  { fg = P.bg_deep, bg = P.none })
@@ -1760,9 +1801,9 @@ local function apply_foxml_theme()
   hl("DapUIBreakpointsInfo",         { fg = P.cyan })
   hl("DapUIBreakpointsCurrentLine",  { fg = P.green, bold = {{SHOW_WELCOME}} })
   hl("DapUIBreakpointsLine",         { fg = P.peach })
-  hl("DapUIBreakpointsDisabledLine", { fg = P.surface })
+  hl("DapUIBreakpointsDisabledLine", { fg = P.faint })
   hl("DapUIDecoration",              { fg = P.peach })
-  hl("DapUIWatchesEmpty",            { fg = P.surface })
+  hl("DapUIWatchesEmpty",            { fg = P.faint })
   hl("DapUIWatchesValue",            { fg = P.green })
   hl("DapUIWatchesError",            { fg = P.red })
   hl("DapUIModifiedValue",           { fg = P.yellow, bold = {{SHOW_WELCOME}} })
@@ -1799,7 +1840,7 @@ local function apply_foxml_theme()
   hl("NeotestAdapterName",  { fg = P.pink, bold = {{SHOW_WELCOME}} })
   hl("NeotestFocused",      { bold = {{SHOW_WELCOME}}, underline = {{SHOW_WELCOME}} })
   hl("NeotestIndent",       { fg = P.bg_hl })
-  hl("NeotestExpandMarker", { fg = P.surface })
+  hl("NeotestExpandMarker", { fg = P.faint })
   hl("NeotestWinSelect",    { fg = P.peach, bold = {{SHOW_WELCOME}} })
 
   -- Harpoon
@@ -1845,7 +1886,7 @@ local function apply_foxml_theme()
   hl("LazySpecial",       { fg = P.pink })
   hl("LazyComment",       { fg = P.comment })
   hl("LazyProgressDone",  { fg = P.peach })
-  hl("LazyProgressTodo",  { fg = P.surface })
+  hl("LazyProgressTodo",  { fg = P.faint })
   hl("LazyReasonPlugin",  { fg = P.pink })
   hl("LazyReasonEvent",   { fg = P.yellow })
   hl("LazyReasonKeys",    { fg = P.cyan })
@@ -1853,19 +1894,19 @@ local function apply_foxml_theme()
 
   -- Copilot
   hl("CopilotSuggestion", { fg = P.comment, italic = {{SHOW_WELCOME}} })
-  hl("CopilotAnnotation", { fg = P.surface })
+  hl("CopilotAnnotation", { fg = P.faint })
 
 
   -- Gitsigns blame
-  hl("GitSignsCurrentLineBlame", { fg = P.surface, italic = {{SHOW_WELCOME}} })
+  hl("GitSignsCurrentLineBlame", { fg = P.faint, italic = {{SHOW_WELCOME}} })
 
   -- Rainbow delimiters
-  hl("RainbowDelimiterPeach",  { fg = P.peach })
-  hl("RainbowDelimiterPink",   { fg = P.pink })
-  hl("RainbowDelimiterMint",   { fg = P.green })
-  hl("RainbowDelimiterYellow", { fg = P.yellow })
-  hl("RainbowDelimiterCyan",   { fg = P.cyan })
-  hl("RainbowDelimiterRed",    { fg = P.red })
+  hl("RainbowDelimiterPeach",  { fg = P.rainbow[1] })
+  hl("RainbowDelimiterPink",   { fg = P.rainbow[2] })
+  hl("RainbowDelimiterMint",   { fg = P.rainbow[3] })
+  hl("RainbowDelimiterYellow", { fg = P.rainbow[4] })
+  hl("RainbowDelimiterCyan",   { fg = P.rainbow[5] })
+  hl("RainbowDelimiterRed",    { fg = P.rainbow[6] })
 
   -- Noice
   hl("NoiceCmdlinePopup",            { bg = P.bg_deep })
@@ -1951,12 +1992,12 @@ local function apply_foxml_theme()
   hl("AvanteButtonPrimaryHover",          { fg = P.bg, bg = P.peach })
   hl("AvanteButtonDanger",                { fg = P.bg, bg = P.warm })
   hl("AvanteButtonDangerHover",           { fg = P.bg, bg = P.red })
-  hl("AvanteToBeDeleted",                 { bg = "#3d1f23", strikethrough = {{SHOW_WELCOME}} })
-  hl("AvanteToBeDeletedWOStrikethrough",  { bg = "#3d1f23" })
-  hl("AvanteConflictCurrent",             { bg = "#3d1f23", bold = {{SHOW_WELCOME}} })
-  hl("AvanteConflictCurrentLabel",        { bg = "#4d2529" })
-  hl("AvanteConflictIncoming",            { bg = "#1a3328", bold = {{SHOW_WELCOME}} })
-  hl("AvanteConflictIncomingLabel",       { bg = "#1f3d2e" })
+  hl("AvanteToBeDeleted",                 { bg = P.conflict_cur, strikethrough = {{SHOW_WELCOME}} })
+  hl("AvanteToBeDeletedWOStrikethrough",  { bg = P.conflict_cur })
+  hl("AvanteConflictCurrent",             { bg = P.conflict_cur, bold = {{SHOW_WELCOME}} })
+  hl("AvanteConflictCurrentLabel",        { bg = P.conflict_cur_label })
+  hl("AvanteConflictIncoming",            { bg = P.conflict_inc, bold = {{SHOW_WELCOME}} })
+  hl("AvanteConflictIncomingLabel",       { bg = P.conflict_inc_label })
   hl("AvanteStateSpinnerGenerating",      { fg = P.bg, bg = P.pink })
   hl("AvanteStateSpinnerToolCalling",     { fg = P.bg, bg = P.peach })
   hl("AvanteStateSpinnerFailed",          { fg = P.bg, bg = P.red })
@@ -1976,14 +2017,14 @@ local function apply_foxml_theme()
   hl("ClaudeCodeSeparator", { fg = P.bg_deep, bg = P.bg_deep })
 
   -- vim-illuminate (subtle earthy underline, not distracting)
-  hl("IlluminatedWordText",  { bg = "#5e4029" })
-  hl("IlluminatedWordRead",  { bg = "#5e4029" })
-  hl("IlluminatedWordWrite", { bg = "#5e4029", underline = {{SHOW_WELCOME}} })
+  hl("IlluminatedWordText",  { bg = P.illuminate })
+  hl("IlluminatedWordRead",  { bg = P.illuminate })
+  hl("IlluminatedWordWrite", { bg = P.illuminate, underline = {{SHOW_WELCOME}} })
 
   -- nvim-cmp
   hl("CmpItemAbbrMatch",      { fg = P.peach, bold = {{SHOW_WELCOME}} })
   hl("CmpItemAbbrMatchFuzzy", { fg = P.peach })
-  hl("CmpItemAbbrDeprecated", { fg = P.surface, strikethrough = {{SHOW_WELCOME}} })
+  hl("CmpItemAbbrDeprecated", { fg = P.faint, strikethrough = {{SHOW_WELCOME}} })
   hl("CmpItemKindFunction",   { fg = P.peach })
   hl("CmpItemKindMethod",     { fg = P.peach })
   hl("CmpItemKindVariable",   { fg = P.fg })
@@ -2005,7 +2046,7 @@ local function apply_foxml_theme()
 
   -- Notification toasts (snacks): the dark panel of every other float; the level colour rides on the
   -- border, icon and title in the theme's own diagnostic colours (info = the peach of every float border)
-  for level, c in pairs({ Error = P.clay, Warn = P.wheat, Info = P.peach, Debug = P.comment, Trace = P.lavender }) do
+  for level, c in pairs({ Error = P.pen, Warn = P.wheat, Info = P.peach, Debug = P.comment, Trace = P.lavender }) do
     hl("SnacksNotifier" .. level,       { fg = P.fg, bg = P.bg_deep })
     hl("SnacksNotifierBorder" .. level, { fg = c, bg = P.bg_deep })
     hl("SnacksNotifierTitle" .. level,  { fg = c, bg = P.bg_deep, bold = {{SHOW_WELCOME}} })
@@ -2023,6 +2064,8 @@ local function apply_foxml_theme()
   hl("FoxTagSep",   { fg = P.surface })
   hl("FoxTagValue", { fg = P.fg_pastel })
   hl("FoxTagChip",  { fg = P.blush })
+  -- Section banners (//---- rule, title, rule): typed and inked, never the handwritten comment italic
+  hl("FoxSectionRule", { fg = P.syn.header, bold = {{SHOW_WELCOME}}, nocombine = {{SHOW_WELCOME}} })
 end
 
 apply_foxml_theme()
@@ -2050,15 +2093,28 @@ do
   local ns = vim.api.nvim_create_namespace("foxml_tag_markers")
   local tag_fts = { c = true, cpp = true, cuda = true, objc = true, objcpp = true }
   local KEY = "%[[A-Z][A-Z0-9_]+%]"
-  local function paint(buf, row, s, e, group)
-    vim.api.nvim_buf_set_extmark(buf, ns, row, s - 1, { end_col = e, hl_group = group, ephemeral = true, priority = 140 })
+  local function paint(buf, row, s, e, group, prio)
+    vim.api.nvim_buf_set_extmark(buf, ns, row, s - 1, { end_col = e, hl_group = group, ephemeral = true, priority = prio or 140 })
   end
+  -- A section banner is a //---- rule line, or a // title line sandwiched between two of them.
+  local section_headers = {{NVIM_SECTION_HEADERS}}
+  local RULE = "^%s*//%s*[-=]+%s*$"
+  local function is_rule(l) return l ~= nil and #l >= 10 and l:match(RULE) ~= nil end
   vim.api.nvim_set_decoration_provider(ns, {
     on_win = function(_, _, buf) return tag_fts[vim.bo[buf].filetype] == true end,
     on_line = function(_, _, buf, row)
       local line = vim.api.nvim_buf_get_lines(buf, row, row + 1, false)[1]
       local pos = line and line:find("//", 1, true)
-      if not pos or not line:find("[", pos, true) then return end
+      if not pos then return end
+      if section_headers and line:match("^%s*//") then
+        local around = vim.api.nvim_buf_get_lines(buf, math.max(row - 1, 0), row + 2, false)
+        local above = row > 0 and around[1] or nil
+        local below = around[row > 0 and 3 or 2]
+        if is_rule(line) or (is_rule(above) and is_rule(below)) then
+          paint(buf, row, pos, #line, "FoxSectionRule", 139)
+        end
+      end
+      if not line:find("[", pos, true) then return end
       while true do
         local s, e = line:find(KEY, pos)
         if not s then return end
@@ -2177,7 +2233,7 @@ require("lualine").setup({
       visual   = { a = { fg = P.bg, bg = P.pink, gui = "bold" }, b = { fg = P.pink, bg = P.bg_hl } },
       replace  = { a = { fg = P.bg, bg = P.red, gui = "bold" }, b = { fg = P.red, bg = P.bg_hl } },
       command  = { a = { fg = P.bg, bg = P.yellow, gui = "bold" }, b = { fg = P.yellow, bg = P.bg_hl } },
-      inactive = { a = { fg = P.comment, bg = P.bg_deep }, b = { fg = P.surface, bg = P.bg_deep }, c = { fg = P.surface, bg = P.bg_deep } },
+      inactive = { a = { fg = P.comment, bg = P.bg_deep }, b = { fg = P.faint, bg = P.bg_deep }, c = { fg = P.faint, bg = P.bg_deep } },
     },
     section_separators = { left = "", right = "" },
     component_separators = { left = "", right = "" },

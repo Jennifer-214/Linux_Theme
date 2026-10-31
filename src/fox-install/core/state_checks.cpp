@@ -1,4 +1,5 @@
 #include "state_checks.hpp"
+#include "palette.hpp"
 #include "deps_list.hpp"
 
 #include "../../fox-common/shell.hpp"
@@ -295,8 +296,11 @@ Classification check_gaming(const Context& /*ctx*/, const Manifest& manifest) {
 }
 
 Classification check_catppuccin_cursor(const Context& ctx, const Manifest& manifest) {
-    const fs::path theme_dir = ctx.home / ".icons"
-        / "catppuccin-mocha-peach-cursors" / "cursors";
+    const std::string theme = palette::get(ctx.palette_path, "CURSOR_THEME",
+                                           "catppuccin-mocha-peach-cursors");
+    // The module unzips into ~/.local/share/icons; ~/.icons is the older home.
+    fs::path theme_dir = ctx.home / ".local/share/icons" / theme / "cursors";
+    if (!fs::is_directory(theme_dir)) theme_dir = ctx.home / ".icons" / theme / "cursors";
     const bool present = fs::is_directory(theme_dir);
     const auto it = manifest.modules.find("catppuccin_cursor");
     const bool tracked = (it != manifest.modules.end());

@@ -33,18 +33,18 @@ int main() {
     BannerBlock b = build_banner("FOXML");
     if (b.width != 27) { std::fprintf(stderr, "FAIL width: %d\n", b.width); ++failed; }
     eq("FOXML r1", b.r1,
-       "${c1}█▀▀${O} ${c2}█▀█${O} ${c3}▀▄▀${O} ${c4}█▀▄▀█${O} ${c1}█  ${O}");
+       "${k1}█▀▀${O} ${k2}█▀█${O} ${k3}▀▄▀${O} ${k4}█▀▄▀█${O} ${k1}█  ${O}");
 
     // ── FOX OS default: width 28, space glyph (c4, 2-wide blank), cycle continues O→c1 S→c2 ──
     BannerBlock f = build_banner("FOX OS");
     if (f.width != 28) { std::fprintf(stderr, "FAIL FOX OS width: %d\n", f.width); ++failed; }
     eq("FOX OS r1", f.r1,
-       "${c1}█▀▀${O} ${c2}█▀█${O} ${c3}▀▄▀${O} ${c4}  ${O} ${c1}█▀█${O} ${c2}▄▀▀${O}");
+       "${k1}█▀▀${O} ${k2}█▀█${O} ${k3}▀▄▀${O} ${k4}  ${O} ${k1}█▀█${O} ${k2}▄▀▀${O}");
 
     // ── colour cycle wraps past 4 (5th glyph back to c1) ──
     BannerBlock e = build_banner("ABCDE");
     // E is the 5th glyph → c1; its row1 glyph is "█▀▀"
-    if (e.r1.rfind("${c1}█▀▀${O}") == std::string::npos) {
+    if (e.r1.rfind("${k1}█▀▀${O}") == std::string::npos) {
         std::fprintf(stderr, "FAIL colour-cycle wrap (E should be c1)\n");
         ++failed;
     }

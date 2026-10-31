@@ -1,12 +1,14 @@
 // modules/papirus_icons.cpp — Papirus-Dark with Catppuccin Mocha Peach folders.
 //
-// Icon theme — Papirus-Dark with Catppuccin Mocha Peach folders. The
-// GTK ini already references Papirus-Dark; this fetches the theme
-// user-locally (no sudo) and recolors folders to match the cursor.
+// Icon theme — Papirus-Dark with Catppuccin Mocha Peach folders. This
+// fetches the theme user-locally (no sudo) and recolors folders to the
+// palette's PAPIRUS_FOLDER_COLOR. The active variant (Papirus-Dark, or Papirus-Light on Paper)
+// comes from the palette's MAKO_ICON_THEME, same as the rendered GTK ini.
 //
 // Mirrors mappings.sh::install_specials icon/folder section (~487–596).
 
 #include "../core/context.hpp"
+#include "../core/palette.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
@@ -128,13 +130,17 @@ void run_papirus_icons(Context& ctx) {
         }
     }
 
-    // Apply cat-mocha-peach folders
+    // Folder color from the palette (cat-mocha-peach on the dark themes, grey on Paper).
+    // The marker records the color last applied, so a theme change re-runs it.
+    const std::string folder_color = palette::get(ctx.palette_path, "PAPIRUS_FOLDER_COLOR", "cat-mocha-peach");
     fs::path pf_marker = ctx.config_home / "foxml/catppuccin-folders-applied.marker";
-    if (fs::exists(pf_marker)) {
-        ui::skipped("folders already cat-mocha-peach");
+    std::string applied;
+    if (std::ifstream in{pf_marker}) std::getline(in, applied);
+    if (applied == folder_color) {
+        ui::skipped("folders already " + folder_color);
     } else {
         if (sh::dry_run()) {
-            ui::substep("[dry-run] would run papirus-folders -C cat-mocha-peach");
+            ui::substep("[dry-run] would run papirus-folders -C " + folder_color);
         } else {
             std::string pf_cmd = "";
             if (have("papirus-folders")) {
@@ -148,10 +154,10 @@ void run_papirus_icons(Context& ctx) {
             }
 
             if (!pf_cmd.empty()) {
-                if (sh::run({pf_cmd, "-C", "cat-mocha-peach", "-t", "Papirus-Dark"}) == 0) {
-                    ui::ok("folders → cat-mocha-peach");
+                if (sh::run({pf_cmd, "-C", folder_color, "-t", "Papirus-Dark"}) == 0) {
+                    ui::ok("folders → " + folder_color);
                     fs::create_directories(pf_marker.parent_path());
-                    std::ofstream(pf_marker) << "applied";
+                    std::ofstream(pf_marker) << folder_color << "\n";
                 }
                 if (pf_cmd == "/tmp/pf") fs::remove("/tmp/pf");
             }
@@ -159,7 +165,8 @@ void run_papirus_icons(Context& ctx) {
     }
 
     if (have("gsettings")) {
-        sh::run({"sh", "-c", "gsettings set org.gnome.desktop.interface icon-theme \"Papirus-Dark\" 2>/dev/null || true"});
+        const std::string icons = palette::get(ctx.palette_path, "MAKO_ICON_THEME", "Papirus-Dark");
+        sh::run({"gsettings", "set", "org.gnome.desktop.interface", "icon-theme", icons});
     }
 }
 

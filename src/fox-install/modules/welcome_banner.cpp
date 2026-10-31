@@ -10,6 +10,7 @@
 
 #include "banner_font.hpp"
 #include "../core/context.hpp"
+#include "../core/palette.hpp"
 #include "../core/splice.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
@@ -54,27 +55,6 @@ void write_sidecar(const fs::path& p, const std::string& text) {
     }
     fs::rename(tmp, p, ec);
     if (ec) fs::remove(tmp, ec);
-}
-
-// palette.sh as a KEY=value map (values are bare hex; tolerant of quoted/array
-// lines we don't use). Lets the module resolve render tokens at runtime —
-// welcome_banner runs post-render, so the hyprlock spans need literal hex.
-std::map<std::string, std::string> read_palette(const fs::path& p) {
-    std::map<std::string, std::string> m;
-    std::ifstream in(p);
-    std::string line;
-    while (std::getline(in, line)) {
-        if (line.empty() || line[0] == '#') continue;
-        auto eq = line.find('=');
-        if (eq == std::string::npos) continue;
-        std::string k = line.substr(0, eq);
-        std::string v = line.substr(eq + 1);
-        while (!v.empty() && (v.back() == '\r' || v.back() == ' ' || v.back() == '\t'))
-            v.pop_back();
-        if (v.size() >= 2 && v.front() == '"' && v.back() == '"') v = v.substr(1, v.size() - 2);
-        m[k] = v;
-    }
-    return m;
 }
 
 // Replace every {{KEY}} in s from the palette map; unknown tokens left intact.
@@ -147,7 +127,7 @@ void run_welcome_banner(Context& ctx) {
     // palette hex in pango spans, so resolve the {{TOKEN}}s the colorizer emits
     // against the active palette (post-render: the deployed/rendered copies
     // need literal hex). nvim references highlight groups → no resolution.
-    auto pal = read_palette(ctx.palette_path);
+    auto pal = palette::read(ctx.palette_path);
     std::string hypr = "    text = " + resolve_tokens(banner_to_hyprlock_text(text), pal);
     {
         const std::string b = "# foxml:hyprlock-brand-begin";

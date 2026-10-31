@@ -85,8 +85,8 @@ Classification check_greetd(const Context& ctx, const Manifest& manifest);
 // flips to Noop when manifest tracked; missing flips to Update.
 Classification check_papirus_icons(const Context& ctx, const Manifest& manifest);
 
-// catppuccin_cursor — checks for the cursor theme directory
-// (~/.icons/catppuccin-mocha-peach-cursors/cursors). Present + tracked
+// catppuccin_cursor — checks for the palette's CURSOR_THEME directory
+// (~/.local/share/icons/<theme>/cursors, or ~/.icons). Present + tracked
 // = Noop; missing + tracked = Update; either + untracked = Fresh.
 Classification check_catppuccin_cursor(const Context& ctx, const Manifest& manifest);
 

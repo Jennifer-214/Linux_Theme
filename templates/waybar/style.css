@@ -156,7 +156,7 @@ window#waybar > box {
    brighter, and bold weight on the label gives the second tier of
    differentiation. The bar-style underline is gone — pills do the work. */
 #workspaces button.active {
-    background-color: rgba({{BLUSH_R}},{{BLUSH_G}},{{BLUSH_B}}, 0.28);
+    background-color: rgba({{WAYBAR_WS_ACTIVE_R}},{{WAYBAR_WS_ACTIVE_G}},{{WAYBAR_WS_ACTIVE_B}}, 0.28);
     box-shadow: none;
 }
 
