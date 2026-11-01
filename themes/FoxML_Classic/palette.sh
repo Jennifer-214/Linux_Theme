@@ -301,8 +301,15 @@ YAZI_HOVER_BG=d4985a
 NVIM_FLOAT_BG=1a1214
 NVIM_FLOAT_BORDER=d4985a
 
-# ─── Firefox (chrome + new tab / settings / web selection) ───
+# ─── Greeter (regreet) ───
 REGREET_PREFER_DARK=true
+REGREET_EXTRA_SCOPE='window.foxml-off'
+REGREET_LINE=c89eb5
+REGREET_LINE_FOCUS=d4985a
+REGREET_GREETING="F O X M L"
+REGREET_CLOCK_FORMAT="%A · %I:%M %p"
+
+# ─── Firefox (chrome + new tab / settings / web selection) ───
 FF_EXTRA_SCOPE=':not(*)'
 FF_FRAME=d4985a
 FF_FRAME_W=2px

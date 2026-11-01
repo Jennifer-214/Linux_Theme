@@ -22,9 +22,9 @@ reboot = ["systemctl", "reboot"]
 poweroff = ["systemctl", "poweroff"]
 
 [appearance]
-greeting_msg = "F O X M L"
+greeting_msg = "{{REGREET_GREETING}}"
 
 [widget.clock]
-format = "%A · %I:%M %p"
+format = "{{REGREET_CLOCK_FORMAT}}"
 resolution = "1000ms"
 label_width = 220

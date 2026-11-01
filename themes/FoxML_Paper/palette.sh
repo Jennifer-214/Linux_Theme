@@ -321,9 +321,18 @@ YAZI_HOVER_BG=f1d6de
 NVIM_FLOAT_BG=e9e7e1
 NVIM_FLOAT_BORDER=c8c5be
 
+# ─── Greeter (regreet) ───
+# Paper: the lock screen's language. EXTRA_SCOPE switches on regreet.css's Paper section
+# (paper texture, hairline fields, handwritten time and notes); elsewhere it matches nothing.
+REGREET_PREFER_DARK=false
+REGREET_EXTRA_SCOPE='window:not(.foxml-off)'
+REGREET_LINE=c8c5be
+REGREET_LINE_FOCUS=9a9894
+REGREET_GREETING="welcome back"
+REGREET_CLOCK_FORMAT="%-I:%M %P"
+
 # ─── Firefox (chrome + new tab / settings / web selection) ───
 # Paper: hairline frames, 6px corners (Firefox's own radii show through), the highlighter for rows and text.
-REGREET_PREFER_DARK=false
 FF_EXTRA_SCOPE=':root'
 FF_FRAME=c8c5be
 FF_FRAME_W=1px
