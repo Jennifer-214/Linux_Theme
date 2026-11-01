@@ -299,7 +299,8 @@ HYPRLOCK_CLOCK_COLOR=2b2b2dee
 HYPRLOCK_CLOCK_FONT="MonaspiceRn Nerd Font"
 HYPRLOCK_DIM_COLOR=6e6d70cc
 HYPRLOCK_INPUT_BORDER=c8c5beff
-HYPRLOCK_PLACEHOLDER=2b2b2d55
+# Password dots are little outline flowers, pencil-weight like the ♡ below them.
+HYPRLOCK_DOTS_STYLE='dots_text_format = ❀'
 HYPRLOCK_FAIL=9a5a48
 HYPRLOCK_CAPS=1c1c1e
 # Date as a code tag, like the // [SECTION] banners in the code.
