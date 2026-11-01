@@ -20,8 +20,8 @@ fi
 # fprintd is bounced. fox-fingerprint reset does the restart (password-less
 # via the fprintd_reset_polkit grant). The manual-lock path is handled in
 # fox-lock's own post-unlock cleanup.
-# Gated on the polkit grant existing (fprintd_reset_polkit module) — without
-# it the restart would pop an auth dialog on every unlock.
-[ -f /etc/polkit-1/rules.d/49-foxml-fprintd.rules ] \
-    && command -v fox-fingerprint >/dev/null 2>&1 \
-    && fox-fingerprint reset >/dev/null 2>&1 || true
+# --no-ask-password: without the grant the restart fails at once instead of
+# popping an auth dialog on every unlock. No rule-file gate: /etc/polkit-1/
+# rules.d is root-only, so testing for the rule from here is always false.
+command -v fox-fingerprint >/dev/null 2>&1 \
+    && fox-fingerprint reset --no-ask-password >/dev/null 2>&1 || true

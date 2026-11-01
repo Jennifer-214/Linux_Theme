@@ -93,12 +93,12 @@ _rc=$?
 if command -v usbguard >/dev/null 2>&1 && systemctl is-active --quiet usbguard 2>/dev/null; then
     usbguard set-parameter ImplicitPolicyTarget apply-policy 2>/dev/null || true
 fi
-# Gate on the polkit grant existing — without it the restart would pop an
-# auth dialog on every unlock. The fprintd_reset_polkit install module
-# drops this rule; until then the self-heal stays dormant (password sudo
-# still works, just no auto-clear).
-[ -f /etc/polkit-1/rules.d/49-foxml-fprintd.rules ] \
-    && command -v fox-fingerprint >/dev/null 2>&1 \
-    && fox-fingerprint reset >/dev/null 2>&1 || true
+# --no-ask-password: with the fprintd_reset_polkit grant fprintd restarts
+# silently; without it the restart fails at once instead of popping an auth
+# dialog on every unlock (password sudo still works, just no auto-clear).
+# Don't gate on the rule file: /etc/polkit-1/rules.d is root-only, so a
+# test from here is always false and the self-heal never ran.
+command -v fox-fingerprint >/dev/null 2>&1 \
+    && fox-fingerprint reset --no-ask-password >/dev/null 2>&1 || true
 
 exit "$_rc"

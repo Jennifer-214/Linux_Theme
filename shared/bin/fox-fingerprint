@@ -76,8 +76,11 @@ _reset() {
     # breaks fingerprint-for-sudo (the prompt drops to a password). Bouncing
     # fprintd releases the stale claim and re-opens the device. Password-less
     # for active wheel users via the fprintd_reset_polkit grant; without it,
-    # polkit prompts (or it fails harmlessly and password still works).
-    if systemctl restart fprintd 2>/dev/null; then
+    # polkit prompts. The lock/unlock hooks pass --no-ask-password so that
+    # case fails at once instead of popping a dialog (password sudo still works).
+    local ask=()
+    [[ "${1:-}" == --no-ask-password ]] && ask=(--no-ask-password)
+    if systemctl "${ask[@]}" restart fprintd 2>/dev/null; then
         echo "  ${C_GRN}✓ fprintd restarted — stale reader claim cleared${C_RST}"
     else
         echo "  ${C_RED}fprintd restart failed${C_RST} — needs the fprintd-reset polkit grant, or: sudo systemctl restart fprintd" >&2
@@ -95,7 +98,7 @@ case "${1:-}" in
     enroll)      _enroll "${2:-}" ;;
     delete|del)  _delete ;;
     test|verify) _test ;;
-    reset)       _reset ;;
+    reset)       _reset "${2:-}" ;;
     fingers)     _list_fingers ;;
     -h|--help|help) cat <<EOF
 fox fingerprint — fprintd wrapper
