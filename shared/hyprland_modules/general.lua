@@ -1,0 +1,30 @@
+-- ─── General Settings ───────────────────────
+-- layout, gaps, borders, and border colors all live in theme.lua so the
+-- palette can drive them. Keep only settings here that don't belong to
+-- the theme.
+hl.config({ general = {
+    -- tearing is opt-in per window (see the games rule in rules.lua) — the
+    -- global flag just has to be on for those windows to honor `immediate`.
+    allow_tearing = true,
+} })
+-- ─── Cursor ────────────────────────────────
+hl.config({ cursor = {
+    default_monitor = "",
+    no_hardware_cursors = false,
+    no_break_fs_vrr = false,
+    enable_hyprcursor = true,
+    hide_on_key_press = false,
+} })
+
+-- ─── Misc ───────────────────────────────────
+hl.config({ misc = {
+    layers_hog_keyboard_focus = true,
+    animate_manual_resizes = true,
+    animate_mouse_windowdragging = true,
+    key_press_enables_dpms = false,
+    mouse_move_enables_dpms = false,
+    font_family = "MonaspiceKr Nerd Font",
+    force_default_wallpaper = 1,
+    disable_splash_rendering = true,
+    disable_hyprland_logo = true,
+} })

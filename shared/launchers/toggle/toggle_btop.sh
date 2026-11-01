@@ -15,7 +15,7 @@ window_exists=$(hyprctl clients -j 2>/dev/null \
 process_running=$(pgrep -af "$CMD" 2>/dev/null)
 
 if [ -n "$window_exists" ]; then
-    hyprctl dispatch togglespecialworkspace "$CLASS"
+    fox-hl dispatch "hl.dsp.workspace.toggle_special('$CLASS')" "togglespecialworkspace $CLASS"
     exit 0
 elif [ -n "$process_running" ]; then
     pkill -f "$CMD"
@@ -39,7 +39,7 @@ for _ in {1..30}; do
 done
 
 if [ -n "$address" ]; then
-    hyprctl dispatch movetoworkspacesilent "$WORKSPACE,address:$address"
+    fox-hl dispatch "hl.dsp.window.move({ workspace = '$WORKSPACE', follow = false, window = 'address:$address' })" "movetoworkspacesilent $WORKSPACE,address:$address"
     sleep 0.1
-    hyprctl dispatch togglespecialworkspace "$CLASS"
+    fox-hl dispatch "hl.dsp.workspace.toggle_special('$CLASS')" "togglespecialworkspace $CLASS"
 fi

@@ -45,7 +45,8 @@ update_border() {
     local state_key="${color1}-${color2}"
 
     if [[ "$last_state" != "$state_key" ]]; then
-        hyprctl keyword general:col.active_border "rgba(${color1}ff) rgba(${color2}ff) 45deg" > /dev/null
+        fox-hl config "{ general = { col = { active_border = { colors = { 'rgba(${color1}ff)', 'rgba(${color2}ff)' }, angle = 45 } } } }" \
+            "keyword general:col.active_border rgba(${color1}ff) rgba(${color2}ff) 45deg" > /dev/null
         last_state="$state_key"
     fi
 }

@@ -138,7 +138,7 @@ if [[ -n "$target" ]] && command -v tmux >/dev/null 2>&1; then
             fi
 
             if command -v hyprctl >/dev/null 2>&1; then
-                hyprctl dispatch focuswindow "kitty" >/dev/null 2>&1 || true
+                fox-hl dispatch "hl.dsp.focus({ window = 'class:kitty' })" "focuswindow kitty" >/dev/null 2>&1 || true
             fi
         fi
     fi

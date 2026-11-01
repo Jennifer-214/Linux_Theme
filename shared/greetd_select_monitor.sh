@@ -21,7 +21,17 @@ done
 
 [ -z "$internal" ] && exit 0
 
+# Hyprland 0.57+ takes Lua over IPC (no `keyword`); older releases only `keyword`.
+case "$(hyprctl eval 'return 1' 2>&1)" in
+    *"unknown request"*|*"only supported with the lua"*) lua=0 ;;
+    *) lua=1 ;;
+esac
+
 for m in $monitors; do
     [ "$m" = "$internal" ] && continue
-    hyprctl keyword monitor "$m,disable" >/dev/null 2>&1
+    if [ "$lua" = 1 ]; then
+        hyprctl eval "hl.monitor({ output = \"$m\", disabled = true })" >/dev/null 2>&1
+    else
+        hyprctl keyword monitor "$m,disable" >/dev/null 2>&1
+    fi
 done

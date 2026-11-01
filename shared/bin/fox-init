@@ -72,7 +72,7 @@ if command -v hyprctl >/dev/null 2>&1 && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}
     # Already on a workspace named after this project? Just stay there.
     current=$(hyprctl activeworkspace -j 2>/dev/null | jq -r '.name // ""')
     if [[ "$current" != "$NAME" ]]; then
-        hyprctl dispatch workspace "$WS_NAME" >/dev/null 2>&1 || true
+        fox-hl dispatch "hl.dsp.focus({ workspace = '$WS_NAME' })" "workspace $WS_NAME" >/dev/null 2>&1 || true
     fi
 fi
 

@@ -1,0 +1,144 @@
+-- ╭──────────────────────────────────────────────────────────────────╮
+-- │                       Window Rules                               │
+-- ╰──────────────────────────────────────────────────────────────────╯
+
+-- ─────────────────────────────────────────
+-- Workspace Layout
+-- ─────────────────────────────────────────
+-- Workspace 1 pinned to the primary monitor. personalize_workspace_rules
+-- (personalize.cpp / mappings.sh) rewrites the line below to monitor:<PRIMARY>
+-- from monitor-layout.conf after configure_monitors runs. The default ships
+-- WITHOUT a monitor pin (INERT): an un-resolved state — a TTY install with no
+-- Hyprland session, or any box personalize hasn't run on — then has no pin to a
+-- possibly-absent monitor. (A hardcoded eDP-1 mis-pins every desktop; an inert
+-- default is correct everywhere. See RECURRING_BUG_PATTERNS: "an un-finalized
+-- per-machine default must fail inert, not active-wrong".)
+-- foxml:workspace-pin-begin
+hl.workspace_rule({ workspace = "1", default = true })
+-- foxml:workspace-pin-end
+
+-- ─────────────────────────────────────────
+-- Layer Rules
+-- ─────────────────────────────────────────
+-- Blur the launcher + notification bubbles. mako/dunst create a layer
+-- surface larger than the visible popup, so without an alpha threshold
+-- the blur leaks into the transparent margin around the bubble.
+--
+-- Hyprland 0.54.x layerrule syntax gotchas (verified by `hyprctl keyword`
+-- experiments — all the obvious-looking forms parse-error):
+--   - The `layerrule { ... }` block form ONLY accepts blur/xray/unset/
+--     noanim/name/match:*. ignore_alpha inside a block parse-errors.
+--   - The legacy two-token form `layerrule = blur, <regex>` errors with
+--     "missing a value" — `blur` now requires `on`.
+--   - Property is `ignore_alpha` (underscore), NOT `ignorealpha` or
+--     `ignorezero`. The latter two error with "invalid field type".
+--   - Namespace must be `match:namespace <regex>`, not a bare regex.
+-- Working form (single line, comma-separated properties):
+hl.layer_rule({ match = { namespace = "^(rofi|mako|dunst|notifications)$" }, blur = true, ignore_alpha = 0.1 })
+
+-- Waybar uses a higher ignore_alpha so the blur region stops at the
+-- module bubbles (background alpha 0.7) and doesn't extend into the
+-- CSS box-shadow's soft alpha halo — otherwise the threshold cutoff
+-- inside the shadow gradient creates a blocky rectangular blur edge
+-- around each module.
+hl.layer_rule({ match = { namespace = "^(waybar)$" }, blur = true, ignore_alpha = 0.6 })
+
+-- ─────────────────────────────────────────
+-- Thunar (translucent file manager)
+-- ─────────────────────────────────────────
+-- Thunar transparency handled via GTK CSS (compositor opacity causes rubberband trail artifacts)
+
+-- ─────────────────────────────────────────
+-- Discord
+-- ─────────────────────────────────────────
+
+-- ─────────────────────────────────────────
+-- Yazi (Scratchpad)
+-- ─────────────────────────────────────────
+
+-- ─────────────────────────────────────────
+-- ncspot (Scratchpad)
+-- ─────────────────────────────────────────
+
+-- ─────────────────────────────────────────
+-- Steam / Games — translucent client, games stay opaque
+-- (game windows get their own class, so ^(steam)$ only catches
+--  the launcher, library, store, settings, and friends/chat windows)
+-- ─────────────────────────────────────────
+hl.window_rule({
+    name = "steam-opacity",
+    match = { class = "^(steam)$" },
+    opacity = "0.85 0.85",
+})
+
+-- Games — Proton/native titles launched via Steam get a steam_app_<id> class.
+-- opaque (override inherited translucency) + immediate (tearing = lower input
+-- latency; needs allow_tearing=true) + fullscreen so the game auto-fills the
+-- screen and Hyprland KEEPS that state across workspace switches.
+-- NOTE: also set the game's own display mode to "Windowed Fullscreen"/borderless
+-- — exclusive fullscreen drops its grab on focus loss (a workspace switch) and
+-- falls back to a floating window, which no WM rule can prevent.
+hl.window_rule({
+    name = "games-perf",
+    match = { class = "^(steam_app_[0-9]+)$" },
+    opacity = "1.0 1.0",
+    immediate = true,
+    fullscreen = true,
+})
+
+-- ─────────────────────────────────────────
+-- Foxml Suite (trading) — translucent
+-- ─────────────────────────────────────────
+hl.window_rule({
+    name = "foxml-suite-opacity",
+    match = { class = "^(foxml_suite)$" },
+    opacity = "0.85 0.85",
+})
+
+hl.window_rule({
+    name = "engine-gui-opacity",
+    match = { class = "^(engine_gui)$" },
+    opacity = "0.85 0.85",
+})
+
+-- ─────────────────────────────────────────
+-- Firefox — translucent glass, focused AND unfocused (kitty-style).
+-- Compositor opacity works regardless of XWayland/Wayland and avoids
+-- Firefox's ARGB-visual video bug (mozilla #1568569). Tune the values:
+-- first = focused, second = unfocused.
+-- ─────────────────────────────────────────
+hl.window_rule({
+    name = "firefox-opacity",
+    match = { class = "^(firefox)$" },
+    opacity = "0.9 0.85",
+})
+
+-- ─────────────────────────────────────────
+-- Swappy (Screenshot Editor) — float, center, fixed size
+-- ─────────────────────────────────────────
+hl.window_rule({
+    name = "swappy-float",
+    match = { class = "^(swappy)$" },
+    float = true,
+    size = "1200 800",
+    center = true,
+})
+
+-- ─────────────────────────────────────────
+-- Screen-bleed protection (planned, off until Hyprland ships the rule)
+--
+-- Hyprland 0.54.x has the `Screenshare` subsystem internally but does
+-- NOT expose a `noscreenshare` window rule yet. Planned for a future
+-- release. When it ships:
+--
+--   windowrule {
+--       name = noshare-keepass
+--       match:class = ^(keepassxc|KeePassXC|org\.keepassxc\.KeePassXC)$
+--       noscreenshare = true
+--   }
+--   ... etc for bitwarden, 1password, keyring, hyprlock
+--
+-- Until then, use app-level lock-on-idle settings. Re-enabling these
+-- rules on a too-old Hyprland just throws "config option does not
+-- exist" errors and skips the whole rules file, so keep them out.
+-- ─────────────────────────────────────────

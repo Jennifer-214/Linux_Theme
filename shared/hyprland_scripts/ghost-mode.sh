@@ -84,7 +84,8 @@ if [[ -f "$STATE" ]]; then
     # with the same key as before resets them back to config defaults
     # on the next hyprctl reload, but we can also unbind the override
     # explicitly by re-issuing the original config values.
-    hyprctl --batch "keyword decoration:blur:enabled true ; keyword decoration:blur:size 3 ; keyword decoration:blur:passes 2 ; keyword decoration:active_opacity 0.95 ; keyword decoration:inactive_opacity 0.85" >/dev/null 2>&1 || true
+    fox-hl config "{ decoration = { blur = { enabled = true, size = 3, passes = 2 }, active_opacity = 0.95, inactive_opacity = 0.85 } }" \
+        "keyword decoration:blur:enabled true ; keyword decoration:blur:size 3 ; keyword decoration:blur:passes 2 ; keyword decoration:active_opacity 0.95 ; keyword decoration:inactive_opacity 0.85" >/dev/null 2>&1 || true
 
     notify-send -t 1500 "👻 Ghost Mode" "Off" 2>/dev/null || true
     exit 0
@@ -111,6 +112,7 @@ wpctl set-mute @DEFAULT_AUDIO_SINK@ 1 2>/dev/null || true
 # behind the active window doesn't peek through translucency. The
 # active window stays opaque; inactive windows get heavy blur as a
 # "you can't see what's there" indicator.
-hyprctl --batch "keyword decoration:blur:enabled true ; keyword decoration:blur:size 12 ; keyword decoration:blur:passes 4 ; keyword decoration:active_opacity 1.0 ; keyword decoration:inactive_opacity 1.0" >/dev/null 2>&1 || true
+fox-hl config "{ decoration = { blur = { enabled = true, size = 12, passes = 4 }, active_opacity = 1.0, inactive_opacity = 1.0 } }" \
+    "keyword decoration:blur:enabled true ; keyword decoration:blur:size 12 ; keyword decoration:blur:passes 4 ; keyword decoration:active_opacity 1.0 ; keyword decoration:inactive_opacity 1.0" >/dev/null 2>&1 || true
 
 notify-send -t 1500 "👻 Ghost Mode" "On (toggle off with the same keybind)" 2>/dev/null || true

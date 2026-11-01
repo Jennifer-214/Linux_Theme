@@ -93,7 +93,7 @@ case "$action" in
         case "$arg" in
             lock)     ~/.config/hypr/scripts/lock.sh ;;
             suspend)  systemctl suspend ;;
-            logout)   hyprctl dispatch exit ;;
+            logout)   fox-hl dispatch "hl.dsp.exit()" "exit" ;;
             reboot)   systemctl reboot ;;
             shutdown) systemctl poweroff ;;
         esac

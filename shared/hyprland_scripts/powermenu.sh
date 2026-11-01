@@ -18,5 +18,5 @@ case "$chosen" in
     "󰜉  Reboot") systemctl reboot ;;
     "󰤄  Suspend") systemctl suspend ;;
     "  Lock") ~/.config/hypr/scripts/lock.sh ;;
-    "󰗼  Logout") hyprctl dispatch exit ;;
+    "󰗼  Logout") fox-hl dispatch "hl.dsp.exit()" "exit" ;;
 esac

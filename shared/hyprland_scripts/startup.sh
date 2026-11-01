@@ -17,4 +17,4 @@ sleep 1
 
 # Wait a bit then switch to workspace 1
 sleep 2
-hyprctl dispatch workspace 1 &
+fox-hl dispatch "hl.dsp.focus({ workspace = 1 })" "workspace 1" &

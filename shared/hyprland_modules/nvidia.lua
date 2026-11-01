@@ -1,0 +1,17 @@
+-- ╭──────────────────────────────────────────────────────────────────╮
+-- │            Nvidia — Hyprland renders on dGPU, iGPU scans out     │
+-- ╰──────────────────────────────────────────────────────────────────╯
+-- Sourced from hyprland.lua only when install.sh was run with --nvidia.
+-- On Optimus laptops the eDP display is wired to the iGPU at the hardware
+-- level, so AQ_DRM_DEVICES lists BOTH cards: nvidia first (primary render
+-- target), iGPU second (display scanout via DMA-BUF). install_nvidia() in
+-- mappings.sh patches both paths at install time to match the target box.
+
+-- Inert by default — fox-install --nvidia activates this with the resolved card
+-- nodes ONLY when it can resolve the COMPLETE set (both cards on Optimus). If it
+-- can't, the line stays commented and Aquamarine auto-detects (safer than a
+-- wrong single-card value, which blacks the iGPU-wired eDP).
+-- env = AQ_DRM_DEVICES, /dev/dri/by-path/pci-0000:01:00.0-card:/dev/dri/by-path/pci-0000:00:02.0-card
+hl.env("LIBVA_DRIVER_NAME", "nvidia")
+hl.env("__GLX_VENDOR_LIBRARY_NAME", "nvidia")
+hl.env("WLR_NO_HARDWARE_CURSORS", "1")
