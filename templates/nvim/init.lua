@@ -83,11 +83,15 @@ local P = {
   bg_alt    = "#{{BG_ALT}}",
   bg_hl     = "#{{TMUX_ACTIVE_BG}}",
   sel       = "#{{NVIM_SEL}}",
+  list_sel  = "#{{NVIM_LIST_SEL}}",  -- the selected row in lists, trees and pickers
+  menu_sel  = "#{{NVIM_MENU_SEL}}",  -- the selected row in completion / popup menus
   fg        = "#{{FG}}",
   fg_pastel = "#{{FG_PASTEL}}",
   fg_dim    = "#{{FG_DIM}}",
   comment   = "#{{COMMENT}}",
   peach     = "#{{PRIMARY}}",
+  float_border = "#{{NVIM_FLOAT_BORDER}}",  -- popup/float frames (a hairline on Paper)
+  float_bg  = "#{{NVIM_FLOAT_BG}}",  -- hover / signature / completion cards (a shade darker than the page on Paper)
   pink      = "#{{SECONDARY}}",
   blush     = "#{{BLUSH}}",
   lavender  = "#{{ACCENT}}",
@@ -106,6 +110,7 @@ local P = {
   warm      = "#{{WARM}}",
   sand      = "#{{SAND}}",
   wheat     = "#{{WHEAT}}",
+  warn      = "#{{NVIM_WARN}}",   -- warnings everywhere (the darkest ink on Paper)
   clay      = "#{{CLAY}}",
   diff_add  = "#{{DIFF_ADD}}",
   diff_chg  = "#{{DIFF_CHANGE}}",
@@ -1225,7 +1230,7 @@ local plugins = {
       { "<leader>dd", desc = "fox-symdeps: HUD" },
     },
     opts = {
-      palette = { header = P.peach, title = P.blush, border = P.peach, badge = P.warm, winblend = 0,
+      palette = { header = P.peach, title = P.blush, border = P.float_border, badge = P.warm, winblend = 0,
                   selection = P.symdeps.sel, sync = P.symdeps.sync, warn = P.symdeps.warn,
                   alarm = P.symdeps.alarm, ok = P.symdeps.ok, ground = P.bg },
       doc_dirs = { vim.fn.expand("~/code/tick-trader-percore-workspace") }, -- `n` also greps the private workspace docs
@@ -1468,10 +1473,10 @@ local function apply_foxml_theme()
   hl("Normal",        { fg = P.fg, bg = P.none })
   hl("NormalSidebar", { fg = P.fg, bg = P.bg_deep })
   hl("NormalNC",     { fg = P.fg, bg = P.none })
-  hl("NormalFloat",  { fg = P.fg, bg = P.bg })
-  hl("FloatBorder",  { fg = P.peach, bg = P.none })
+  hl("NormalFloat",  { fg = P.fg, bg = P.float_bg })
+  hl("FloatBorder",  { fg = P.float_border, bg = P.none })
   hl("FloatTitle",   { fg = P.peach, bg = P.none, bold = {{SHOW_WELCOME}} })
-  hl("CursorLine",  { bg = P.bg_hl })
+  hl("CursorLine",  { bg = P.list_sel })  -- editor shows only the number (cursorlineopt); plugin lists show the bar
   hl("CursorColumn", { bg = P.bg_hl })
   hl("ColorColumn",  { bg = P.bg_hl })
   hl("Visual",       { bg = P.sel })
@@ -1482,8 +1487,8 @@ local function apply_foxml_theme()
   hl("EndOfBuffer",  { fg = P.bg })
   hl("VertSplit",    { fg = P.yellow_br, bg = P.none })
   hl("WinSeparator", { fg = P.yellow_br, bg = P.none })
-  hl("Pmenu",        { fg = P.fg, bg = P.bg })
-  hl("PmenuSel",     { bg = P.surface })
+  hl("Pmenu",        { fg = P.fg, bg = P.float_bg })
+  hl("PmenuSel",     { bg = P.menu_sel })
   hl("PmenuSbar",    { bg = P.bg_hl })
   hl("PmenuThumb",   { bg = P.comment })
   hl("WildMenu",     { fg = P.bg, bg = P.peach, bold = {{SHOW_WELCOME}} })
@@ -1517,7 +1522,7 @@ local function apply_foxml_theme()
 
   -- ── Messages ──
   hl("MsgArea",      { fg = P.warm, bg = P.bg_deep })
-  hl("WarningMsg",   { fg = P.wheat, bold = {{SHOW_WELCOME}} })
+  hl("WarningMsg",   { fg = P.warn, bold = {{SHOW_WELCOME}} })
   hl("ErrorMsg",     { fg = P.pen, bold = {{SHOW_WELCOME}} })
   hl("ModeMsg",      { fg = P.peach, bold = {{SHOW_WELCOME}} })
   hl("MoreMsg",      { fg = P.green })
@@ -1563,25 +1568,25 @@ local function apply_foxml_theme()
 
   -- ── Diagnostics ──
   hl("DiagnosticError",          { fg = P.pen })
-  hl("DiagnosticWarn",           { fg = P.wheat })
+  hl("DiagnosticWarn",           { fg = P.warn })
   hl("DiagnosticInfo",           { fg = P.peach })
   hl("DiagnosticHint",           { fg = P.green })
   hl("DiagnosticOk",             { fg = P.green })
   hl("DiagnosticUnderlineError", { undercurl = {{SHOW_WELCOME}}, sp = P.pen })
-  hl("DiagnosticUnderlineWarn",  { undercurl = {{SHOW_WELCOME}}, sp = P.wheat })
+  hl("DiagnosticUnderlineWarn",  { undercurl = {{NVIM_WARN_CURL}}, underdashed = {{NVIM_WARN_DASH}}, sp = P.warn })  -- Paper: dashed, so it never reads as the red squiggle
   hl("DiagnosticUnderlineInfo",  { undercurl = {{SHOW_WELCOME}}, sp = P.peach })
   hl("DiagnosticUnderlineHint",  { undercurl = {{SHOW_WELCOME}}, sp = P.green })
   hl("DiagnosticUnderlineOk",    { undercurl = {{SHOW_WELCOME}}, sp = P.green })
   hl("DiagnosticVirtualTextError", { fg = P.pen, bg = P.diff_del, bold = {{SHOW_WELCOME}} })
-  hl("DiagnosticVirtualTextWarn",  { fg = P.wheat, bg = P.diff_chg })
+  hl("DiagnosticVirtualTextWarn",  { fg = P.warn, bg = P.diff_chg })
   hl("DiagnosticVirtualTextInfo",  { fg = P.peach })
   hl("DiagnosticVirtualTextHint",  { fg = P.green })
   hl("DiagnosticSignError",       { fg = P.pen })
-  hl("DiagnosticSignWarn",        { fg = P.wheat })
+  hl("DiagnosticSignWarn",        { fg = P.warn })
   hl("DiagnosticSignInfo",        { fg = P.peach })
   hl("DiagnosticSignHint",        { fg = P.green })
   hl("DiagnosticLineNrError",    { fg = P.pen, bold = {{SHOW_WELCOME}} })
-  hl("DiagnosticLineNrWarn",     { fg = P.wheat, bold = {{SHOW_WELCOME}} })
+  hl("DiagnosticLineNrWarn",     { fg = P.warn, bold = {{SHOW_WELCOME}} })
   hl("DiagnosticLineNrInfo",     { fg = P.peach, bold = {{SHOW_WELCOME}} })
   hl("DiagnosticLineNrHint",     { fg = P.green, bold = {{SHOW_WELCOME}} })
   hl("DiagnosticLineError",     { bg = P.diag_err_bg })
@@ -1700,12 +1705,12 @@ local function apply_foxml_theme()
   -- ── Plugin highlights ──
 
   -- CmpBorder
-  hl("CmpBorder", { fg = P.peach, bg = P.none })
+  hl("CmpBorder", { fg = P.float_border, bg = P.none })
 
   -- Telescope
-  hl("TelescopeBorder",        { fg = P.peach })
+  hl("TelescopeBorder",        { fg = P.float_border })
   hl("TelescopePromptBorder",  { fg = P.pink })
-  hl("TelescopeResultsBorder", { fg = P.peach })
+  hl("TelescopeResultsBorder", { fg = P.float_border })
   hl("TelescopePreviewBorder", { fg = P.green })
   hl("TelescopePromptTitle",   { fg = P.bg, bg = P.pink, bold = {{SHOW_WELCOME}} })
   hl("TelescopeResultsTitle",  { fg = P.bg, bg = P.peach, bold = {{SHOW_WELCOME}} })
@@ -1751,7 +1756,7 @@ local function apply_foxml_theme()
   hl("WhichKeySeparator", { fg = P.faint })
   hl("WhichKeyNormal",    { bg = P.none })
   hl("WhichKeyFloat",     { bg = P.none })
-  hl("WhichKeyBorder",    { fg = P.peach, bg = P.none })
+  hl("WhichKeyBorder",    { fg = P.float_border, bg = P.none })
   hl("WhichKeyTitle",     { fg = P.peach, bg = P.none })
   hl("WhichKeyValue",     { fg = P.comment })
 
@@ -1783,9 +1788,9 @@ local function apply_foxml_theme()
   hl("NeoTreeGitConflict",   { fg = P.red, bold = {{SHOW_WELCOME}} })
   hl("NeoTreeIndentMarker",  { fg = P.bg_hl })
   hl("NeoTreeWinSeparator",  { fg = P.bg_deep, bg = P.none })
-  hl("NeoTreeCursorLine",    { bg = P.bg_hl })
+  hl("NeoTreeCursorLine",    { bg = P.list_sel })
   hl("NeoTreeTitleBar",      { fg = P.bg, bg = P.peach, bold = {{SHOW_WELCOME}} })
-  hl("NeoTreeFloatBorder",   { fg = P.peach })
+  hl("NeoTreeFloatBorder",   { fg = P.float_border })
   hl("NeoTreeFloatTitle",    { fg = P.peach, bold = {{SHOW_WELCOME}} })
 
   -- DAP UI
@@ -1808,7 +1813,7 @@ local function apply_foxml_theme()
   hl("DapUIWatchesError",            { fg = P.red })
   hl("DapUIModifiedValue",           { fg = P.yellow, bold = {{SHOW_WELCOME}} })
   hl("DapUIFloatNormal",             { bg = P.bg_deep })
-  hl("DapUIFloatBorder",             { fg = P.peach })
+  hl("DapUIFloatBorder",             { fg = P.float_border })
 
   -- DAP breakpoint/stopped signs
   hl("DapBreakpoint",          { fg = P.red })
@@ -1845,7 +1850,7 @@ local function apply_foxml_theme()
 
   -- Harpoon
   hl("HarpoonWindow", { bg = P.bg_deep })
-  hl("HarpoonBorder", { fg = P.peach })
+  hl("HarpoonBorder", { fg = P.float_border })
 
   -- TODO comments
   hl("TodoBgTODO", { fg = P.bg, bg = P.peach, bold = {{SHOW_WELCOME}} })
@@ -1910,14 +1915,14 @@ local function apply_foxml_theme()
 
   -- Noice
   hl("NoiceCmdlinePopup",            { bg = P.bg_deep })
-  hl("NoiceCmdlinePopupBorder",      { fg = P.peach })
+  hl("NoiceCmdlinePopupBorder",      { fg = P.float_border })
   hl("NoiceCmdlinePopupTitle",       { fg = P.peach, bold = {{SHOW_WELCOME}} })
   hl("NoiceCmdlinePopupBorderSearch", { fg = P.yellow })
   hl("NoiceCmdlineIcon",             { fg = P.peach })
   hl("NoiceCmdlineIconSearch",       { fg = P.yellow })
   hl("NoicePopupmenu",               { bg = P.bg_deep })
-  hl("NoicePopupmenuBorder",         { fg = P.peach })
-  hl("NoicePopupmenuSelected",       { bg = P.bg_hl })
+  hl("NoicePopupmenuBorder",         { fg = P.float_border })
+  hl("NoicePopupmenuSelected",       { bg = P.list_sel })
   hl("NoicePopupmenuMatch",          { fg = P.peach, bold = {{SHOW_WELCOME}} })
   hl("NoiceMini",                    { bg = P.bg_deep })
   hl("NoiceFormatProgressDone",      { fg = P.bg, bg = P.peach })
@@ -1927,21 +1932,21 @@ local function apply_foxml_theme()
   hl("NoiceConfirmBorder",           { fg = P.pink })
   hl("NoiceVirtualText",             { fg = P.peach })
   hl("NoiceSplit",                   { bg = P.bg_deep })
-  hl("NoiceSplitBorder",             { fg = P.peach, bg = P.bg_deep })
+  hl("NoiceSplitBorder",             { fg = P.float_border, bg = P.bg_deep })
 
   -- Notify
   hl("NotifyERRORBorder", { fg = P.clay })
-  hl("NotifyWARNBorder",  { fg = P.wheat })
-  hl("NotifyINFOBorder",  { fg = P.peach })
+  hl("NotifyWARNBorder",  { fg = P.warn })
+  hl("NotifyINFOBorder",  { fg = P.float_border })
   hl("NotifyDEBUGBorder", { fg = P.comment })
   hl("NotifyTRACEBorder", { fg = P.pink })
   hl("NotifyERRORIcon",   { fg = P.clay })
-  hl("NotifyWARNIcon",    { fg = P.wheat })
+  hl("NotifyWARNIcon",    { fg = P.warn })
   hl("NotifyINFOIcon",    { fg = P.peach })
   hl("NotifyDEBUGIcon",   { fg = P.comment })
   hl("NotifyTRACEIcon",   { fg = P.pink })
   hl("NotifyERRORTitle",  { fg = P.clay })
-  hl("NotifyWARNTitle",   { fg = P.wheat })
+  hl("NotifyWARNTitle",   { fg = P.warn })
   hl("NotifyINFOTitle",   { fg = P.peach })
   hl("NotifyDEBUGTitle",  { fg = P.comment })
   hl("NotifyTRACETitle",  { fg = P.pink })
@@ -1982,7 +1987,7 @@ local function apply_foxml_theme()
   hl("AvanteSidebarWinSeparator",          { fg = P.bg_deep, bg = P.bg_deep })
   hl("AvanteSidebarWinHorizontalSeparator", { fg = P.bg_hl })
   hl("AvantePromptInput",                  { fg = P.fg, bg = P.bg_hl })
-  hl("AvantePromptInputBorder",            { fg = P.peach, bg = P.bg_hl })
+  hl("AvantePromptInputBorder",            { fg = P.float_border, bg = P.bg_hl })
   hl("AvanteInlineHint",                   { fg = P.peach, bg = P.bg_deep, bold = {{SHOW_WELCOME}} })
   hl("AvantePopupHint",                    { fg = P.comment, bg = P.bg_deep })
   hl("AvanteConfirmTitle",                 { fg = P.bg, bg = P.red, bold = {{SHOW_WELCOME}} })
@@ -2012,7 +2017,7 @@ local function apply_foxml_theme()
 
   -- Claude Code
   hl("ClaudeCodeNormal",    { fg = P.fg, bg = P.bg_deep })
-  hl("ClaudeCodeBorder",    { fg = P.peach, bg = P.bg_deep })
+  hl("ClaudeCodeBorder",    { fg = P.float_border, bg = P.bg_deep })
   hl("ClaudeCodeTitle",     { fg = P.bg, bg = P.peach, bold = {{SHOW_WELCOME}} })
   hl("ClaudeCodeSeparator", { fg = P.bg_deep, bg = P.bg_deep })
 
@@ -2046,7 +2051,7 @@ local function apply_foxml_theme()
 
   -- Notification toasts (snacks): the dark panel of every other float; the level colour rides on the
   -- border, icon and title in the theme's own diagnostic colours (info = the peach of every float border)
-  for level, c in pairs({ Error = P.pen, Warn = P.wheat, Info = P.peach, Debug = P.comment, Trace = P.lavender }) do
+  for level, c in pairs({ Error = P.pen, Warn = P.warn, Info = P.peach, Debug = P.comment, Trace = P.lavender }) do
     hl("SnacksNotifier" .. level,       { fg = P.fg, bg = P.bg_deep })
     hl("SnacksNotifierBorder" .. level, { fg = c, bg = P.bg_deep })
     hl("SnacksNotifierTitle" .. level,  { fg = c, bg = P.bg_deep, bold = {{SHOW_WELCOME}} })

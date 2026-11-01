@@ -32,13 +32,13 @@
   },
 
   "custom/logo": {
-    "format": "🦊",
+    "format": "{{WAYBAR_LOGO}}",
     "tooltip": "SysHub",
     "on-click": "~/.config/hypr/scripts/toggle_rofi.sh ~/.config/hypr/scripts/hub.sh"
   },
 
   "hyprland/workspaces": {
-    "format": "{name} {windows}",
+    "format": "{{WAYBAR_WS_FORMAT}}",
     "format-window-separator": " ",
     "window-rewrite-default": "󰘔",
     "window-rewrite": {

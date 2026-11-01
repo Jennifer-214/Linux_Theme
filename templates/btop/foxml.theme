@@ -6,7 +6,7 @@ theme[main_bg]="#{{BG}}"
 theme[main_fg]="#{{FG}}"
 theme[title]="#{{PRIMARY}}"
 theme[hi_fg]="#{{PRIMARY}}"
-theme[selected_bg]="#{{BG_HIGHLIGHT}}"
+theme[selected_bg]="#{{BTOP_SELECTED_BG}}"
 theme[selected_fg]="#{{FG}}"
 theme[inactive_fg]="#{{FG_DIM}}"
 
@@ -17,15 +17,15 @@ theme[proc_misc]="#{{ACCENT}}"
 theme[cpu_box]="#{{PRIMARY}}"
 theme[mem_box]="#{{SECONDARY}}"
 theme[net_box]="#{{ACCENT}}"
-theme[proc_box]="#{{SURFACE}}"
+theme[proc_box]="#{{BTOP_LINE}}"
 
 # Divider line
-theme[div_line]="#{{SURFACE}}"
+theme[div_line]="#{{BTOP_LINE}}"
 
 # Temperature graph
-theme[temp_start]="#{{GREEN}}"
-theme[temp_mid]="#{{YELLOW}}"
-theme[temp_end]="#{{RED}}"
+theme[temp_start]="#{{BTOP_COOL}}"
+theme[temp_mid]="#{{BTOP_WARM}}"
+theme[temp_end]="#{{BTOP_HOT}}"
 
 # CPU graph
 theme[cpu_start]="#{{PRIMARY}}"
@@ -33,18 +33,18 @@ theme[cpu_mid]="#{{SECONDARY}}"
 theme[cpu_end]="#{{ACCENT}}"
 
 # Memory/Disk graph
-theme[free_start]="#{{SURFACE}}"
-theme[free_mid]="#{{SURFACE}}"
-theme[free_end]="#{{SURFACE}}"
+theme[free_start]="#{{BTOP_LINE}}"
+theme[free_mid]="#{{BTOP_LINE}}"
+theme[free_end]="#{{BTOP_LINE}}"
 theme[cached_start]="#{{ACCENT}}"
 theme[cached_mid]="#{{ACCENT}}"
 theme[cached_end]="#{{ACCENT}}"
-theme[available_start]="#{{GREEN}}"
-theme[available_mid]="#{{GREEN}}"
-theme[available_end]="#{{GREEN}}"
+theme[available_start]="#{{BTOP_COOL}}"
+theme[available_mid]="#{{BTOP_COOL}}"
+theme[available_end]="#{{BTOP_COOL}}"
 theme[used_start]="#{{PRIMARY}}"
 theme[used_mid]="#{{SECONDARY}}"
-theme[used_end]="#{{RED}}"
+theme[used_end]="#{{BTOP_HOT}}"
 
 # Network graph
 theme[download_start]="#{{PRIMARY}}"
@@ -52,7 +52,7 @@ theme[download_mid]="#{{PRIMARY}}"
 theme[download_end]="#{{SECONDARY}}"
 theme[upload_start]="#{{ACCENT}}"
 theme[upload_mid]="#{{ACCENT}}"
-theme[upload_end]="#{{BLUE}}"
+theme[upload_end]="#{{BTOP_UPLOAD_END}}"
 
 # Process colors
 theme[process_start]="#{{PRIMARY}}"

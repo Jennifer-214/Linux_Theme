@@ -13,7 +13,7 @@
 cwd = { fg = "#{{PRIMARY}}", bold = {{SHOW_WELCOME}} }
 
 # Hovered
-hovered         = { fg = "#{{BG}}", bg = "#{{PRIMARY}}", bold = {{SHOW_WELCOME}} }
+hovered         = { fg = "#{{YAZI_HOVER_FG}}", bg = "#{{YAZI_HOVER_BG}}", bold = {{SHOW_WELCOME}} }
 preview_hovered = { underline = {{SHOW_WELCOME}} }
 
 # Find

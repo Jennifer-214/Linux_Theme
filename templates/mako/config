@@ -1,7 +1,9 @@
 font={{FONT_FAMILY}} 10
+# Title + body layout (Paper writes the title in the handwriting italic, like a note)
+format={{MAKO_FORMAT}}
 background-color=#{{BG}}{{POPUP_BG_OPACITY_HEX}}
 text-color=#{{PRIMARY}}
-border-color=#{{BLUSH}}
+border-color=#{{MAKO_BORDER}}
 # OSD progress bar (volume / brightness) — mako defaults to blue,
 # which breaks theme cohesion. `over <color>` overlays the bar onto
 # the bubble background using the blush accent at 50% opacity.
@@ -24,13 +26,13 @@ icon-path=/usr/share/icons/{{MAKO_ICON_THEME}}
 [urgency=low]
 background-color=#{{BG}}{{POPUP_BG_OPACITY_HEX}}
 text-color=#{{PRIMARY}}
-border-color=#{{BLUSH}}80
+border-color=#{{MAKO_BORDER}}80
 default-timeout=2000
 
 [urgency=critical]
 background-color=#{{BG}}{{POPUP_BG_OPACITY_HEX}}
 text-color=#{{PRIMARY}}
-border-color=#{{RED}}
+border-color=#{{MAKO_CRIT_BORDER}}
 default-timeout=15000
 
 # Workspace OSD (focus-pulse). ignore-timeout=1 above discards the sender's
@@ -44,11 +46,11 @@ border-color=#{{SECONDARY}}80
 default-timeout=900
 
 [app-name=Spotify]
-border-color=#{{ACCENT}}
+border-color=#{{MAKO_MEDIA_BORDER}}
 default-timeout=4000
 
 [app-name="com.spotify.Client"]
-border-color=#{{ACCENT}}
+border-color=#{{MAKO_MEDIA_BORDER}}
 default-timeout=4000
 
 # AI agents — both Claude and Gemini share the primary peach accent
@@ -57,9 +59,28 @@ default-timeout=4000
 # i.e. permission/input prompts) still gets the red border from the
 # urgency=critical block above.
 [app-name=Claude]
-border-color=#{{PRIMARY}}
+border-color=#{{MAKO_AGENT_BORDER}}
 default-timeout=6000
 
 [app-name=Gemini]
-border-color=#{{PRIMARY}}
+border-color=#{{MAKO_AGENT_BORDER}}
 default-timeout=6000
+
+# Volume / brightness as a pencil stroke: osd.sh sends app-name fox-osd, and a theme
+# opts in by setting MAKO_OSD_APP=fox-osd (others name an app that never exists, so
+# their OSD keeps the regular popup). No text (a zero-width space), no icon, 1pt font:
+# what's left is a 4px line that progress-color fills like a level.
+[app-name={{MAKO_OSD_APP}}]
+format=​
+font={{FONT_FAMILY}} 1
+icons=0
+width=260
+padding=0
+margin=0
+outer-margin=0,0,36,0
+border-size=0
+border-radius=2
+background-color=#{{PRIMARY}}14
+progress-color=source #{{PRIMARY}}d9
+anchor=bottom-center
+default-timeout=1200

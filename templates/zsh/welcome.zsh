@@ -51,6 +51,9 @@ function _caramel_welcome() {
   local min=$(date '+%M')
   local ap=$(date '+%p' | tr '[:upper:]' '[:lower:]')
 
+  # Paper: no name banner — the cat and the date, centered as one group, the quote below.
+  [[ "{{WELCOME_LAYOUT}}" == "centered" ]] && { _caramel_welcome_centered "$dow" "$mon $dom" "$hr:$min $ap"; return; }
+
   echo ""
   if [[ "{{SHOW_WELCOME}}" == "true" ]]; then
     echo -e "         ${c1}/\\_/\\ ${O}\e[${rc}G${b1}"
@@ -87,6 +90,63 @@ function _caramel_welcome() {
     (( ${#quotes} )) && echo -e "                  ${c4}${quotes[RANDOM%${#quotes}+1]}${O}"
   fi
   echo ""
+}
+
+# Centered layout: printf pads by display width (${(m)#…} counts wide glyphs), quotes
+# wrap to a ~88-column measure, and italic draws them in the handwriting face. The cat
+# block is centered as a unit and its date column is placed absolutely (\e[NG), since
+# the cat's full-width glyphs measure differently from font to font.
+function _caramel_welcome_centered() {
+  local ink='\e[38;5;{{WELCOME_INK1}}m' dim='\e[38;5;{{ANSI_MUTED}}m' hand='\e[3;38;5;{{ANSI_MUTED}}m' O='\e[0m'
+  local c1='\e[38;5;{{ANSI_ACCENT1}}m' c3='\e[38;5;{{ANSI_ACCENT3}}m'
+  _wc_line() {  # $1 plain text (for width), $2 the same text with colour codes
+    local pad=$(( (COLUMNS - ${(m)#1}) / 2 ))
+    (( pad < 0 )) && pad=0
+    printf '%*s%b\n' $pad '' "$2"
+  }
+  local when="$2 · $3"
+  local bw=$(( 14 + ${(m)#when} ))
+  local left=$(( (COLUMNS - bw) / 2 ))
+  (( left < 0 )) && left=0
+  local dcol=$(( left + 15 ))
+  echo ""
+  printf '%*s%b\n' $left '' " ${c1}/\\_/\\ ${O}"
+  printf '%*s%b\n' $left '' "${c1}(${c3}˚${c1}ˎ ${c3}。${c1}7${O}\e[${dcol}G${ink}$1${O}"
+  printf '%*s%b\n' $left '' " ${c1}|、${c3}^${c1} 〵${O}\e[${dcol}G${ink}$2${O} ${dim}·${O} ${ink}$3${O}"
+  printf '%*s%b\n' $left '' " ${c1}じし${c3}ˍ${c1},)ノ${O}"
+
+  if [[ -s ~/.todo ]]; then
+    echo ""
+    local i=0 line
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      (( ++i > 3 )) && break
+      _wc_line "◇ $line" "${dim}◇${O} ${ink}${line}${O}"
+    done < ~/.todo
+  fi
+
+  local qf="$HOME/.config/zsh/quotes.txt"
+  if [[ -r "$qf" ]]; then
+    local -a quotes
+    quotes=("${(@f)$(<$qf)}")
+    quotes=(${quotes:#})
+    quotes=(${quotes:#\#*})
+    if (( ${#quotes} )); then
+      local q=${quotes[RANDOM%${#quotes}+1]} max=$(( COLUMNS - 8 )) cur="" w
+      (( max > 88 )) && max=88
+      echo ""
+      for w in ${=q}; do
+        if [[ -n $cur ]] && (( ${(m)#cur} + ${(m)#w} + 1 > max )); then
+          _wc_line "$cur" "${hand}${cur}${O}"; cur=$w
+        else
+          cur=${cur:+$cur }$w
+        fi
+      done
+      [[ -n $cur ]] && _wc_line "$cur" "${hand}${cur}${O}"
+    fi
+  fi
+  echo ""
+  unfunction _wc_line
 }
 
 # ─── Todo helpers ─────────────────────────────

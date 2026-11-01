@@ -25,9 +25,9 @@ HONEY_PREFIX="$CONF_DIR/.tripwire-"
 STATE="$CONF_DIR/tripwire.path"      # records current honeypot location
 SERVICE_NAME="fox-tripwire.service"
 
-C_GRN=$'\e[38;5;108m'
-C_YEL=$'\e[38;5;221m'
-C_RED=$'\e[38;5;167m'
+C_GRN=$'\e[32m'
+C_YEL=$'\e[33m'
+C_RED=$'\e[31m'
 C_RST=$'\e[0m'
 
 # Programs whose accesses we DON'T want to alert on. Add yours below.

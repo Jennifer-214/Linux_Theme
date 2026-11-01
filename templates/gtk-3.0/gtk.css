@@ -3,9 +3,9 @@
 @define-color fg        #{{FG}};                     /* off-white text */
 @define-color accent    #{{PRIMARY}};                     /* peach accent */
 @define-color accent2   #{{SECONDARY}};                     /* pink accent */
-@define-color sel_bg    rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.25);      /* selection bg */
+@define-color sel_bg    {{GTK_SEL_BG}};      /* selection bg */
 @define-color sel_fg    #{{FG}};                     /* selection text */
-@define-color panel     rgba({{BG_R}},{{BG_G}},{{BG_B}},0.95);         /* FoML panel */
+@define-color panel     rgba({{BG_R}},{{BG_G}},{{BG_B}},{{GTK_PANEL_ALPHA}});         /* FoML panel */
 @define-color panel2    rgba({{SURFACE_R}},{{SURFACE_G}},{{SURFACE_B}},0.5);          /* slate glass */
 @define-color border    @accent;
 
@@ -24,7 +24,7 @@ window, dialog, .background {
 /* Transparency via GTK rgba (not compositor opacity — that causes rubberband trail artifacts) */
 window.thunar,
 window.thunar .background {
-  background-color: rgba({{BG_R}},{{BG_G}},{{BG_B}},{{KITTY_BG_OPACITY}}5);
+  background-color: rgba({{BG_R}},{{BG_G}},{{BG_B}},{{GTK_WINDOW_ALPHA}});
 }
 window.thunar .standard-view,
 window.thunar notebook,
@@ -205,15 +205,15 @@ iconview cell {
   border-radius: 0;
   padding: 6px 10px;
   color: @fg;
-  text-shadow: 0 1px 3px rgba(0,0,0,0.85);
+  text-shadow: {{GTK_LABEL_SHADOW}};
 }
 iconview cell:hover {
-  background-color: rgba({{CLAY_R}},{{CLAY_G}},{{CLAY_B}},0.15);
+  background-color: {{GTK_ICON_HOVER}};
   border: none;
 }
 iconview cell:selected,
 iconview cell:focus {
-  background-color: rgba({{CLAY_R}},{{CLAY_G}},{{CLAY_B}},0.35);
+  background-color: {{GTK_ICON_SEL}};
   border: none;
   color: #{{FG}};
 }
@@ -268,14 +268,14 @@ ThunarIconView .rubberband,
 iconview .rubberband,
 .rubberband,
 rubberband {
-  background-color: rgba({{WHEAT_R}},{{WHEAT_G}},{{WHEAT_B}},0.20);
-  border: 2px solid rgba({{WHEAT_R}},{{WHEAT_G}},{{WHEAT_B}},{{KITTY_BG_OPACITY}}5);
+  background-color: {{GTK_RUBBER_BG}};
+  border: {{GTK_RUBBER_BORDER}};
   background-image: none;
   box-shadow: none;
   outline: none;
 }
 
-/* Selected items — warm clay highlight */
+/* Selected items — the theme's selection (warm clay, or the highlighter on Paper) */
 iconview:selected,
 iconview *:selected,
 iconview cell:drop(active),
@@ -283,9 +283,9 @@ iconview.view:selected,
 ThunarIconView.view:selected,
 ThunarIconView.view:selected:focus,
 iconview.view:selected:focus {
-  background-color: rgba({{CLAY_R}},{{CLAY_G}},{{CLAY_B}},0.35);
+  background-color: {{GTK_ICON_SEL}};
   background-image: none;
-  border: 1px solid rgba({{CLAY_R}},{{CLAY_G}},{{CLAY_B}},{{KITTY_BG_OPACITY}});
+  border: {{GTK_ICON_SEL_BORDER}};
   box-shadow: none;
   outline: none;
   color: #{{FG}};

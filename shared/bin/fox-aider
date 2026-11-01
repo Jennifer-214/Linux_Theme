@@ -58,13 +58,16 @@ fi
 # bright-green and clashing with FoxML. The per-color flags still apply
 # to user input and assistant output, so chat itself stays warmly tinted.
 # Per-call overrides win because they're later in argv.
+# Colours follow the active theme (rendered palette), Classic's as the fallback
+_pal="$HOME/.config/hypr/modules/border_colors.sh"
+[[ -r "$_pal" ]] && source "$_pal"
 exec aider \
     --model "$MODEL" \
     "${LOCAL_ARGS[@]}" \
     --no-pretty \
-    --user-input-color       "#d4985a" \
-    --assistant-output-color "#d5c4b0" \
-    --tool-output-color      "#8a9a7a" \
-    --tool-warning-color     "#c4b48a" \
-    --tool-error-color       "#b05555" \
+    --user-input-color       "#${C_PRIMARY:-d4985a}" \
+    --assistant-output-color "#${C_FG:-d5c4b0}" \
+    --tool-output-color      "#${C_OK:-8a9a7a}" \
+    --tool-warning-color     "#${C_WARN:-c4b48a}" \
+    --tool-error-color       "#${C_RED:-b05555}" \
     "$@"

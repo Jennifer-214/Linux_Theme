@@ -15,6 +15,12 @@
   --fox-pastel: #{{FG_PASTEL}};
   --fox-lavender: #{{ACCENT}};
   --fox-slate: #{{SURFACE}};
+  /* Frames, corners and the highlighted row — one set per theme (Paper: hairline · 6px · highlighter) */
+  --fox-frame: #{{FF_FRAME}};
+  --fox-frame-w: {{FF_FRAME_W}};
+  --fox-radius: {{FF_RADIUS}};
+  --fox-radius-sm: {{FF_RADIUS_SM}};
+  --fox-radius-lg: {{FF_RADIUS_LG}};
 
   /* Firefox internal overrides */
   --autocomplete-popup-background: var(--fox-bg) !important;
@@ -79,7 +85,7 @@ toolbarbutton.titlebar-button,
 #urlbar * {
   background-color: var(--fox-bg-alt) !important;
   color: var(--fox-fg) !important;
-  border-radius: 10px !important;
+  border-radius: var(--fox-radius-lg) !important;
 }
 
 #urlbar {
@@ -88,7 +94,7 @@ toolbarbutton.titlebar-button,
 
 #urlbar:focus-within {
   border: none !important;
-  box-shadow: 0 0 8px rgba({{BLUSH_R}},{{BLUSH_G}},{{BLUSH_B}},0.45) !important;
+  box-shadow: {{FF_FOCUS_RING}} !important;
 }
 
 #urlbar-input {
@@ -102,7 +108,7 @@ toolbarbutton.titlebar-button,
 #urlbar-background,
 #urlbar-input-container {
   background: var(--fox-bg-alt) !important;
-  border-radius: 10px !important;
+  border-radius: var(--fox-radius-lg) !important;
 }
 
 /* Firefox 120+ URL bar overrides */
@@ -126,7 +132,7 @@ toolbarbutton.titlebar-button,
   background: var(--fox-bg) !important;
   background-color: var(--fox-bg) !important;
   color: var(--fox-fg) !important;
-  border-radius: 0 0 10px 10px !important;
+  border-radius: 0 0 var(--fox-radius-lg) var(--fox-radius-lg) !important;
   border: none !important;
 }
 
@@ -139,7 +145,7 @@ toolbarbutton.titlebar-button,
 
 .urlbarView-row:hover,
 .urlbarView-row[selected] {
-  background-color: rgba({{BLUSH_R}},{{BLUSH_G}},{{BLUSH_B}},0.25) !important;
+  background-color: {{FF_URL_ROW}} !important;
   color: var(--fox-blush) !important;
 }
 
@@ -164,7 +170,7 @@ toolbarbutton.titlebar-button,
   background: transparent !important;
   background-color: transparent !important;
   color: rgba({{FG_PASTEL_R}},{{FG_PASTEL_G}},{{FG_PASTEL_B}},0.5) !important;
-  border-radius: 10px !important;
+  border-radius: var(--fox-radius-lg) !important;
 }
 
 .tabbrowser-tab[selected="true"],
@@ -191,7 +197,7 @@ toolbarbutton.titlebar-button,
 
 .tab-background,
 .tab-stack {
-  border-radius: 10px !important;
+  border-radius: var(--fox-radius-lg) !important;
 }
 
 .tab-close-button {
@@ -343,7 +349,7 @@ toolbarbutton.titlebar-button,
 }
 
 #sidebar-box treechildren::-moz-tree-row(selected) {
-  background: var(--fox-peach) !important;
+  background: {{FF_TREE_SEL_BG}} !important;
 }
 
 #sidebar-box treechildren::-moz-tree-cell-text {
@@ -351,7 +357,7 @@ toolbarbutton.titlebar-button,
 }
 
 #sidebar-box treechildren::-moz-tree-cell-text(selected) {
-  color: var(--fox-bg) !important;
+  color: {{FF_TREE_SEL_FG}} !important;
 }
 
 #sidebar-box treechildren::-moz-tree-twisty {
@@ -376,8 +382,8 @@ panelmultiview,
   background: var(--fox-bg) !important;
   background-color: var(--fox-bg) !important;
   color: var(--fox-pastel) !important;
-  border: 2px solid var(--fox-peach) !important;
-  border-radius: 0 !important;
+  border: var(--fox-frame-w) solid var(--fox-frame) !important;
+  border-radius: var(--fox-radius) !important;
   padding: 4px !important;
 }
 
@@ -393,7 +399,7 @@ menu:hover,
 menuitem[_moz-menuactive="true"],
 menu[_moz-menuactive="true"] {
   -moz-appearance: none !important;
-  background: rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.25) !important;
+  background: {{FF_MENU_ROW}} !important;
   color: var(--fox-peach) !important;
 }
 
@@ -424,7 +430,7 @@ menuseparator {
 toolbarbutton {
   color: var(--fox-pastel) !important;
   fill: var(--fox-pastel) !important;
-  border-radius: 0 !important;
+  border-radius: var(--fox-radius) !important;
 }
 
 toolbarbutton:hover {
@@ -456,8 +462,8 @@ toolbarbutton:hover {
 #searchbar {
   background: var(--fox-bg-alt) !important;
   color: var(--fox-fg) !important;
-  border: 2px solid var(--fox-peach) !important;
-  border-radius: 0 !important;
+  border: var(--fox-frame-w) solid var(--fox-frame) !important;
+  border-radius: var(--fox-radius) !important;
 }
 
 .search-panel-one-offs {
@@ -476,14 +482,14 @@ toolbarbutton:hover {
 /* ===== Findbar ===== */
 findbar {
   background: var(--fox-bg) !important;
-  border-top: 2px solid var(--fox-peach) !important;
+  border-top: var(--fox-frame-w) solid var(--fox-frame) !important;
 }
 
 .findbar-textbox {
   background: var(--fox-bg-alt) !important;
   color: var(--fox-fg) !important;
-  border: 1px solid var(--fox-peach) !important;
-  border-radius: 0 !important;
+  border: 1px solid var(--fox-frame) !important;
+  border-radius: var(--fox-radius-sm) !important;
 }
 
 /* ===== Scrollbars ===== */
@@ -504,22 +510,22 @@ scrollbar thumb:hover {
 notification {
   background: var(--fox-bg) !important;
   color: var(--fox-fg) !important;
-  border: 2px solid var(--fox-peach) !important;
-  border-radius: 0 !important;
+  border: var(--fox-frame-w) solid var(--fox-frame) !important;
+  border-radius: var(--fox-radius) !important;
 }
 
 .notification-button {
-  background: var(--fox-peach) !important;
-  color: var(--fox-bg) !important;
-  border-radius: 0 !important;
+  background: {{FF_BUTTON_BG}} !important;
+  color: {{FF_BUTTON_FG}} !important;
+  border-radius: var(--fox-radius-sm) !important;
 }
 
 /* ===== Tooltips ===== */
 tooltip {
   background: var(--fox-bg) !important;
   color: var(--fox-fg) !important;
-  border: 1px solid var(--fox-peach) !important;
-  border-radius: 0 !important;
+  border: 1px solid var(--fox-frame) !important;
+  border-radius: var(--fox-radius-sm) !important;
 }
 
 /* ===== Catch-all for remaining elements ===== */
@@ -534,10 +540,66 @@ tooltip {
 
 .autocomplete-richlistitem:hover,
 .autocomplete-richlistitem[selected] {
-  background: var(--fox-bg-alt) !important;
+  background: {{FF_AC_ROW}} !important;
 }
 
-/* Remove all border-radius */
-* {
+/* Remove all border-radius — a theme that wants Firefox's own soft corners sets the
+   selector to :not(*), which matches nothing (FF_SQUARE_SELECTOR) */
+{{FF_SQUARE_SELECTOR}} {
   border-radius: 0 !important;
+}
+
+/* ===== Theme refinements =====
+   Every selector starts with FF_EXTRA_SCOPE: ":root" on themes that opt in (Paper),
+   ":not(*)" — matching nothing — everywhere else, so the rules below are inert there. */
+
+/* Text selection in the URL bar and other chrome fields (else the system blue) */
+{{FF_EXTRA_SCOPE}} ::selection {
+  background-color: #{{SELECTION}} !important;
+  color: #{{SECONDARY}} !important;
+}
+
+/* Checkboxes, radios and toggles in panels */
+{{FF_EXTRA_SCOPE}} {
+  accent-color: #{{PRIMARY}} !important;
+}
+
+/* Tab titles: readable ink when selected, quiet graphite otherwise */
+{{FF_EXTRA_SCOPE}} .tab-label {
+  color: #{{FG_DIM}} !important;
+}
+{{FF_EXTRA_SCOPE}} .tabbrowser-tab[selected] .tab-label {
+  color: #{{FG}} !important;
+}
+
+/* URL bar suggestions: one even card (the field's tone), the highlighter on the chosen row */
+{{FF_EXTRA_SCOPE}} #urlbar .urlbarView,
+{{FF_EXTRA_SCOPE}} #urlbar-background {
+  background-color: var(--fox-bg-alt) !important;
+}
+{{FF_EXTRA_SCOPE}} #urlbar[open] > #urlbar-background {
+  border: 1px solid var(--fox-frame) !important;
+}
+{{FF_EXTRA_SCOPE}} #urlbar .urlbarView * {
+  background-color: transparent !important;
+}
+{{FF_EXTRA_SCOPE}} #urlbar .urlbarView-row:hover,
+{{FF_EXTRA_SCOPE}} #urlbar .urlbarView-row[selected] {
+  background-color: #{{SELECTION}} !important;
+  border-radius: var(--fox-radius-sm) !important;
+}
+{{FF_EXTRA_SCOPE}} #urlbar .urlbarView-row[selected] .urlbarView-title,
+{{FF_EXTRA_SCOPE}} #urlbar .urlbarView-row[selected] .urlbarView-url,
+{{FF_EXTRA_SCOPE}} #urlbar .urlbarView-row[selected] .urlbarView-action {
+  color: #{{SECONDARY}} !important;
+}
+{{FF_EXTRA_SCOPE}} #urlbar .urlbarView-group-aboveheading,
+{{FF_EXTRA_SCOPE}} #urlbar .urlbarView-row[label]::before {
+  color: #{{FG_DIM}} !important;
+}
+/* Bookmark / tab-switch stars and type icons: graphite, not blue */
+{{FF_EXTRA_SCOPE}} #urlbar .urlbarView-type-icon,
+{{FF_EXTRA_SCOPE}} #urlbar .urlbarView-favicon[src^="chrome:"] {
+  fill: #{{PRIMARY}} !important;
+  color: #{{PRIMARY}} !important;
 }

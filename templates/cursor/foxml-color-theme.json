@@ -150,7 +150,7 @@
     {
       "scope": ["comment", "punctuation.definition.comment"],
       "settings": {
-        "foreground": "#{{FG_DIM}}",
+        "foreground": "#{{CURSOR_COMMENT}}",
         "fontStyle": "italic"
       }
     },
@@ -188,7 +188,7 @@
     {
       "scope": ["string", "string.quoted"],
       "settings": {
-        "foreground": "#{{GREEN}}"
+        "foreground": "#{{CURSOR_STRING}}"
       }
     },
     {
@@ -262,7 +262,7 @@
     {
       "scope": ["markup.inline.raw"],
       "settings": {
-        "foreground": "#{{GREEN}}"
+        "foreground": "#{{CURSOR_STRING}}"
       }
     }
   ]

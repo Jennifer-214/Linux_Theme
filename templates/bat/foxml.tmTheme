@@ -36,7 +36,7 @@
       <key>settings</key>
       <dict>
         <key>foreground</key>
-        <string>#{{COMMENT}}</string>
+        <string>#{{BAT_COMMENT}}</string>
         <key>fontStyle</key>
         <string>italic</string>
       </dict>
@@ -51,7 +51,7 @@
       <key>settings</key>
       <dict>
         <key>foreground</key>
-        <string>#{{GREEN}}</string>
+        <string>#{{BAT_STRING}}</string>
       </dict>
     </dict>
     <dict>
@@ -95,7 +95,7 @@
       <key>settings</key>
       <dict>
         <key>foreground</key>
-        <string>#{{GREEN}}</string>
+        <string>#{{BAT_STRING}}</string>
       </dict>
     </dict>
 
@@ -398,7 +398,7 @@
       <key>settings</key>
       <dict>
         <key>foreground</key>
-        <string>#{{GREEN}}</string>
+        <string>#{{BAT_MEMBER}}</string>
       </dict>
     </dict>
 
@@ -422,7 +422,7 @@
       <key>settings</key>
       <dict>
         <key>foreground</key>
-        <string>#{{GREEN}}</string>
+        <string>#{{BAT_STRING}}</string>
       </dict>
     </dict>
     <dict>
@@ -575,7 +575,7 @@
       <key>settings</key>
       <dict>
         <key>foreground</key>
-        <string>#{{GREEN}}</string>
+        <string>#{{BAT_STRING}}</string>
       </dict>
     </dict>
     <dict>
@@ -695,7 +695,7 @@
       <key>settings</key>
       <dict>
         <key>foreground</key>
-        <string>#{{GREEN}}</string>
+        <string>#{{BAT_KEY}}</string>
       </dict>
     </dict>
     <dict>
@@ -706,7 +706,7 @@
       <key>settings</key>
       <dict>
         <key>foreground</key>
-        <string>#{{GREEN}}</string>
+        <string>#{{BAT_KEY}}</string>
       </dict>
     </dict>
     <dict>
@@ -717,7 +717,7 @@
       <key>settings</key>
       <dict>
         <key>foreground</key>
-        <string>#{{GREEN}}</string>
+        <string>#{{BAT_KEY}}</string>
       </dict>
     </dict>
 
@@ -730,7 +730,7 @@
       <key>settings</key>
       <dict>
         <key>foreground</key>
-        <string>#{{GREEN}}</string>
+        <string>#{{BAT_KEY}}</string>
       </dict>
     </dict>
     <dict>

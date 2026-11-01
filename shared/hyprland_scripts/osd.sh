@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Themed OSD popups for Volume and Brightness
-# Uses notify-send with progress bar hints (supported by mako/dunst)
+# Uses notify-send with progress bar hints (supported by mako/dunst). app-name fox-osd
+# lets a theme restyle these in mako (MAKO_OSD_APP), e.g. as a thin level line.
 
 TYPE=$1 # "volume" or "brightness"
 CHANGE=$2 # "up" or "down" or "mute"
@@ -24,7 +25,7 @@ case "$TYPE" in
         ICON="󰕾"
         [[ "$MUTE" == "yes" ]] && ICON="󰝟"
         
-        notify-send -h string:x-canonical-private-synchronous:volume \
+        notify-send -a fox-osd -h string:x-canonical-private-synchronous:volume \
                     -h int:value:"$VOL" \
                     -i audio-volume-high \
                     "$ICON  Volume: $VOL%" \
@@ -40,7 +41,7 @@ case "$TYPE" in
         
         VAL=$(brightnessctl -m | cut -d, -f4 | tr -d '%')
         
-        notify-send -h string:x-canonical-private-synchronous:brightness \
+        notify-send -a fox-osd -h string:x-canonical-private-synchronous:brightness \
                     -h int:value:"$VAL" \
                     -i display-brightness \
                     "󰃟  Brightness: $VAL%" \

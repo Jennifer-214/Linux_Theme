@@ -39,9 +39,9 @@ LEDGER_MAX_LINES=500   # auto-trim cap to keep tail-reads fast
 
 C_BOLD=$'\e[1m'
 C_DIM=$'\e[2m'
-C_GRN=$'\e[38;5;108m'
-C_YEL=$'\e[38;5;221m'
-C_RED=$'\e[38;5;167m'
+C_GRN=$'\e[32m'
+C_YEL=$'\e[33m'
+C_RED=$'\e[31m'
 C_RST=$'\e[0m'
 
 usage() {

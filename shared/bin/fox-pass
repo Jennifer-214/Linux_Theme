@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # fox-pass — pass (password store) wrapper: `fox vault` (was fox-vault; that name is the compiled in-RAM store).
 set -u
-C_GRN=$'\e[38;5;108m'; C_YEL=$'\e[38;5;221m'; C_RED=$'\e[38;5;167m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
+C_GRN=$'\e[32m'; C_YEL=$'\e[33m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
 
 STORE="${PASSWORD_STORE_DIR:-$HOME/.password-store}"
 

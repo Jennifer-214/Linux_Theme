@@ -18,7 +18,7 @@
 set -u
 CONF_DIR="$HOME/.config/foxml"
 CONF_FILE="$CONF_DIR/ai-model.conf"
-C_GRN=$'\e[38;5;108m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
+C_GRN=$'\e[32m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
 
 _current() {
     [[ -f "$CONF_FILE" ]] || return 0

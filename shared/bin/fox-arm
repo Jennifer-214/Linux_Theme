@@ -17,8 +17,8 @@
 #   fox arm --disarm       reverse the lockdown-style ones (best effort)
 
 set -u
-C_BOLD=$'\e[1m'; C_DIM=$'\e[2m'; C_PEACH=$'\e[38;5;215m'
-C_GRN=$'\e[38;5;108m'; C_YEL=$'\e[38;5;221m'; C_RED=$'\e[38;5;167m'; C_RST=$'\e[0m'
+C_BOLD=$'\e[1m'; C_DIM=$'\e[2m'; C_PEACH=$'\e[95m'
+C_GRN=$'\e[32m'; C_YEL=$'\e[33m'; C_RED=$'\e[31m'; C_RST=$'\e[0m'
 
 _step() { printf '\n%s── %s%s\n' "$C_BOLD" "$1" "$C_RST"; }
 _ok()   { printf '  %s✓%s %s\n' "$C_GRN" "$C_RST" "$1"; }

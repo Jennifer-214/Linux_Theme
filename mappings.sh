@@ -22,6 +22,9 @@ TEMPLATE_MAPPINGS=(
     # substitutes at runtime based on detected monitor scale, so we deploy
     # it as .tmpl. The wrapper writes the live style.css on first launch.
     "waybar/style.css|~/.config/waybar/style.css.tmpl"
+    # Bar layouts, same .tmpl runtime finalisation (the logo glyph is per theme)
+    "waybar/config|~/.config/waybar/config.tmpl"
+    "waybar/config_secondary|~/.config/waybar/config_secondary.tmpl"
 
     # Tmux
     "tmux/.tmux.conf|~/.tmux.conf"
@@ -161,9 +164,6 @@ SHARED_MAPPINGS=(
     # Distro profiles
     "foxml-profile.json|~/.local/share/foxml/distro/foxml-profile.json"
 
-    # Waybar config
-    "waybar_config|~/.config/waybar/config.tmpl"
-    "waybar_config_secondary|~/.config/waybar/config_secondary.tmpl"
 
     # ReGreet (login screen — needs sudo to install to /etc/greetd/)
     # "regreet.toml|/etc/greetd/regreet.toml"

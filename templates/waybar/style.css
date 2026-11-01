@@ -21,7 +21,7 @@
 @define-color gold      #{{GOLD}};
 @define-color dim       #{{FG_DIM}};
 
-@define-color bubble       rgba({{BG_R}},{{BG_G}},{{BG_B}}, 0.7);
+@define-color bubble       rgba({{BG_R}},{{BG_G}},{{BG_B}}, {{WAYBAR_BUBBLE_ALPHA}});
 @define-color bubble_hover rgba({{SURFACE_R}},{{SURFACE_G}},{{SURFACE_B}}, {{KITTY_BG_OPACITY}});
 @define-color border       #{{PRIMARY}};
 
@@ -167,12 +167,12 @@ window#waybar > box {
 }
 
 #workspaces button.urgent {
-    background-color: rgba({{RED_R}},{{RED_G}},{{RED_B}}, 0.25);
+    background-color: rgba({{WAYBAR_CRIT_R}},{{WAYBAR_CRIT_G}},{{WAYBAR_CRIT_B}}, 0.25);
     box-shadow: none;
 }
 
 #workspaces button.urgent label {
-    color: #{{RED}};
+    color: #{{WAYBAR_CRIT}};
     font-weight: bold;
 }
 
@@ -203,13 +203,13 @@ window#waybar > box {
 }
 
 #custom-security.warning {
-    color: #{{YELLOW}};
-    text-shadow: 0 0 6px rgba({{YELLOW_R}},{{YELLOW_G}},{{YELLOW_B}}, 0.4);
+    color: #{{WAYBAR_WARN}};
+    text-shadow: 0 0 6px rgba({{WAYBAR_WARN_R}},{{WAYBAR_WARN_G}},{{WAYBAR_WARN_B}}, 0.4);
 }
 
 #custom-security.critical {
-    color: #{{RED}};
-    text-shadow: 0 0 6px rgba({{RED_R}},{{RED_G}},{{RED_B}}, 0.5);
+    color: #{{WAYBAR_CRIT}};
+    text-shadow: 0 0 6px rgba({{WAYBAR_CRIT_R}},{{WAYBAR_CRIT_G}},{{WAYBAR_CRIT_B}}, 0.5);
 }
 
 #custom-overwatch {
@@ -217,8 +217,8 @@ window#waybar > box {
 }
 
 #custom-overwatch.alert {
-    color: #{{YELLOW}};
-    text-shadow: 0 0 6px rgba({{YELLOW_R}},{{YELLOW_G}},{{YELLOW_B}}, 0.4);
+    color: #{{WAYBAR_WARN}};
+    text-shadow: 0 0 6px rgba({{WAYBAR_WARN_R}},{{WAYBAR_WARN_G}},{{WAYBAR_WARN_B}}, 0.4);
 }
 
 /* Sentry: inherit the standard @bubble background + @border from the
@@ -229,11 +229,11 @@ window#waybar > box {
 }
 
 #custom-foxml_sentry.warning {
-    color: #{{YELLOW}};
+    color: #{{WAYBAR_WARN}};
 }
 
 #custom-foxml_sentry.critical {
-    color: #{{RED}};
+    color: #{{WAYBAR_CRIT}};
 }
 
 #custom-ai_status {
@@ -257,8 +257,8 @@ window#waybar > box {
 
 /* The NVIDIA driver was updated without a reboot (fox-ai-status): amber, like the other warnings. */
 #custom-ai_status.warning {
-    color: #{{YELLOW}};
-    text-shadow: 0 0 6px rgba({{YELLOW_R}},{{YELLOW_G}},{{YELLOW_B}}, 0.4);
+    color: #{{WAYBAR_WARN}};
+    text-shadow: 0 0 6px rgba({{WAYBAR_WARN_R}},{{WAYBAR_WARN_G}},{{WAYBAR_WARN_B}}, 0.4);
 }
 
 #custom-net_speed {
@@ -291,19 +291,19 @@ window#waybar > box {
 
 #custom-updates.low {
     /* Small backlog or mild drift — affirmative green, no glow. */
-    color: #{{GREEN}};
+    color: #{{WAYBAR_UPD_LOW}};
 }
 
 #custom-updates.mid {
     /* Meaningful backlog or week-old sync — amber warning. */
-    color: #{{YELLOW}};
-    text-shadow: 0 0 6px rgba({{YELLOW_R}},{{YELLOW_G}},{{YELLOW_B}}, 0.4);
+    color: #{{WAYBAR_UPD_MID}};
+    text-shadow: 0 0 6px rgba({{WAYBAR_UPD_MID_R}},{{WAYBAR_UPD_MID_G}},{{WAYBAR_UPD_MID_B}}, 0.4);
 }
 
 #custom-updates.high {
     /* Large backlog or month-old sync — critical, act now. */
-    color: #{{RED}};
-    text-shadow: 0 0 8px rgba({{RED_R}},{{RED_G}},{{RED_B}}, 0.5);
+    color: #{{WAYBAR_UPD_HIGH}};
+    text-shadow: 0 0 8px rgba({{WAYBAR_UPD_HIGH_R}},{{WAYBAR_UPD_HIGH_G}},{{WAYBAR_UPD_HIGH_B}}, 0.5);
 }
 
 /* ─────────────────────────────────────────
@@ -333,17 +333,17 @@ window#waybar > box {
 #memory.warning,
 #custom-disk.warning,
 #custom-gpu.warning {
-    color: #{{YELLOW}};
+    color: #{{WAYBAR_WARN}};
     font-weight: bold;
-    text-shadow: 0 0 6px rgba({{YELLOW_R}},{{YELLOW_G}},{{YELLOW_B}}, 0.4);
+    text-shadow: 0 0 6px rgba({{WAYBAR_WARN_R}},{{WAYBAR_WARN_G}},{{WAYBAR_WARN_B}}, 0.4);
 }
 
 #custom-cpu.critical,
 #memory.critical,
 #custom-disk.critical {
-    color: #{{RED}};
+    color: #{{WAYBAR_CRIT}};
     font-weight: bold;
-    text-shadow: 0 0 6px rgba({{RED_R}},{{RED_G}},{{RED_B}}, 0.5);
+    text-shadow: 0 0 6px rgba({{WAYBAR_CRIT_R}},{{WAYBAR_CRIT_G}},{{WAYBAR_CRIT_B}}, 0.5);
 }
 
 /* ─────────────────────────────────────────
@@ -355,9 +355,9 @@ window#waybar > box {
     letter-spacing: 0.5px;
 }
 
-#power-profiles-daemon.balanced { color: #{{BLUE_BRIGHT}}; }
+#power-profiles-daemon.balanced { color: #{{WAYBAR_PPD_BALANCED}}; }
 #power-profiles-daemon.performance { color: @peach; }
-#power-profiles-daemon.power-saver { color: #{{GREEN_BRIGHT}}; }
+#power-profiles-daemon.power-saver { color: #{{WAYBAR_PPD_SAVER}}; }
 
 #idle_inhibitor {
     color: @dim;
@@ -383,13 +383,13 @@ window#waybar > box {
 }
 
 #custom-battery.warning {
-    color: #{{YELLOW}};
-    text-shadow: 0 0 6px rgba({{YELLOW_R}},{{YELLOW_G}},{{YELLOW_B}}, 0.4);
+    color: #{{WAYBAR_WARN}};
+    text-shadow: 0 0 6px rgba({{WAYBAR_WARN_R}},{{WAYBAR_WARN_G}},{{WAYBAR_WARN_B}}, 0.4);
 }
 
 #custom-battery.critical {
-    color: #{{RED}};
-    text-shadow: 0 0 6px rgba({{RED_R}},{{RED_G}},{{RED_B}}, 0.5);
+    color: #{{WAYBAR_CRIT}};
+    text-shadow: 0 0 6px rgba({{WAYBAR_CRIT_R}},{{WAYBAR_CRIT_G}},{{WAYBAR_CRIT_B}}, 0.5);
 }
 
 /* Plug present but not charging. .plugged = EC holding at the charge
@@ -403,13 +403,13 @@ window#waybar > box {
 }
 
 @keyframes battery-plugged-drain-pulse {
-    to { color: #{{YELLOW}}; }
+    to { color: #{{WAYBAR_WARN}}; }
 }
 
 #custom-battery.plugged-drain {
-    color: #{{RED}};
+    color: #{{WAYBAR_CRIT}};
     font-weight: bold;
-    text-shadow: 0 0 6px rgba({{RED_R}},{{RED_G}},{{RED_B}}, 0.5);
+    text-shadow: 0 0 6px rgba({{WAYBAR_CRIT_R}},{{WAYBAR_CRIT_G}},{{WAYBAR_CRIT_B}}, 0.5);
     animation: battery-plugged-drain-pulse 1.2s ease-in-out infinite alternate;
 }
 

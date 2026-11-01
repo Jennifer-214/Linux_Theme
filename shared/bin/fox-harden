@@ -2,7 +2,7 @@
 # fox-harden — post-install control for the kernel/userspace hardening
 # layers configured by install.sh. Each can be toggled individually.
 set -u
-C_GRN=$'\e[38;5;108m'; C_YEL=$'\e[38;5;221m'; C_RED=$'\e[38;5;167m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
+C_GRN=$'\e[32m'; C_YEL=$'\e[33m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
 
 _status() {
     echo "${C_DIM}Kernel/userspace hardening layers:${C_RST}"

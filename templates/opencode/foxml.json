@@ -33,7 +33,11 @@
     "diffChange": "#{{DIFF_CHANGE}}",
     "diffText": "#{{DIFF_TEXT}}",
     "wheat": "#{{WHEAT}}",
-    "clay": "#{{CLAY}}"
+    "clay": "#{{CLAY}}",
+    "synKeyword": "#{{OPENCODE_SYN_KEYWORD}}",
+    "synString": "#{{OPENCODE_SYN_STRING}}",
+    "synNumber": "#{{OPENCODE_SYN_NUMBER}}",
+    "synComment": "#{{OPENCODE_SYN_COMMENT}}"
   },
   "theme": {
     "primary":            { "{{THEME_TYPE}}": "primary",      "light": "primary" },
@@ -80,12 +84,12 @@
     "markdownImage":           { "{{THEME_TYPE}}": "blue",       "light": "blue" },
     "markdownImageText":       { "{{THEME_TYPE}}": "blueBright", "light": "blueBright" },
 
-    "syntaxComment":     { "{{THEME_TYPE}}": "comment",     "light": "comment" },
-    "syntaxKeyword":     { "{{THEME_TYPE}}": "primary",     "light": "primary" },
+    "syntaxComment":     { "{{THEME_TYPE}}": "synComment",     "light": "synComment" },
+    "syntaxKeyword":     { "{{THEME_TYPE}}": "synKeyword",     "light": "synKeyword" },
     "syntaxFunction":    { "{{THEME_TYPE}}": "yellow",      "light": "yellow" },
     "syntaxVariable":    { "{{THEME_TYPE}}": "fg",          "light": "fg" },
-    "syntaxString":      { "{{THEME_TYPE}}": "ok",          "light": "ok" },
-    "syntaxNumber":      { "{{THEME_TYPE}}": "clay",        "light": "clay" },
+    "syntaxString":      { "{{THEME_TYPE}}": "synString",          "light": "synString" },
+    "syntaxNumber":      { "{{THEME_TYPE}}": "synNumber",        "light": "synNumber" },
     "syntaxType":        { "{{THEME_TYPE}}": "cyan",        "light": "cyan" },
     "syntaxOperator":    { "{{THEME_TYPE}}": "secondary",   "light": "secondary" },
     "syntaxPunctuation": { "{{THEME_TYPE}}": "fgPastel",    "light": "fgPastel" }

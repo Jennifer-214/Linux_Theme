@@ -10,7 +10,7 @@ THEME_TYPE=light
 NVIM_STYLE=day
 NVIM_BG=light
 KITTY_BG_OPACITY=0.85
-POPUP_BG_OPACITY=0.88
+POPUP_BG_OPACITY=0.92
 MAKO_ICON_THEME=Papirus-Light   # also the GTK icon theme
 VSCODE_UI_THEME=vs-light
 FONT_FAMILY="MonaspiceKr Nerd Font"
@@ -25,11 +25,11 @@ WALLPAPER=foxml_paper.jpg
 
 # ─── Aesthetic controls ───
 # Light blur so the paper grain still shows through translucent windows.
-ROUNDING=10
+ROUNDING=6
 BLUR_SIZE=2
 BLUR_PASSES=1
-GAP_IN=6
-GAP_OUT=12
+GAP_IN=5
+GAP_OUT=10
 BORDER_SIZE=1
 SHADOW_RANGE=12
 SHADOW_ALPHA=0.06
@@ -79,16 +79,16 @@ BLUSH=55555a
 GOLD=6e6a62
 
 # ─── ANSI colors ───
-RED=9a5a58
-RED_BRIGHT=a86a66
+RED=9a5a48
+RED_BRIGHT=ae6551
 GREEN=5b6b5c
 GREEN_BRIGHT=6a7a6a
-YELLOW=7a6d55
-YELLOW_BRIGHT=6b6150
-BLUE=56657a
-BLUE_BRIGHT=66708a
-CYAN=52666b
-CYAN_BRIGHT=5f7676
+YELLOW=1c1c1e
+YELLOW_BRIGHT=3c3c40
+BLUE=55555a
+BLUE_BRIGHT=6e6d70
+CYAN=5e5e63
+CYAN_BRIGHT=7c7a76
 WHITE=2b2b2d
 # kitty color8 — "bright black"; Claude Code (dark-ansi) uses it as the
 # user-message / sidebar background, so on paper it is a pencil-highlight grey
@@ -114,9 +114,9 @@ CLAY=9a5a48
 
 # ─── Nvim diff colors ───
 DIFF_ADD=e3e9e0
-DIFF_CHANGE=ebe8dc
+DIFF_CHANGE=e9e7e1
 DIFF_DELETE=efe2e0
-DIFF_TEXT=ddd8c8
+DIFF_TEXT=dcd9d2
 TREESITTER_CTX=e9e7e1
 
 # ─── Nvim rainbow delimiters / indent guides ───
@@ -137,7 +137,7 @@ NVIM_IBL_SCOPE=8e8c88
 
 # ─── Nvim state backgrounds (diagnostics / git / conflicts / word highlight) ───
 NVIM_DIAG_ERR_BG=f2e4e2
-NVIM_DIAG_WARN_BG=f0ead9
+NVIM_DIAG_WARN_BG=ece9e3
 NVIM_GIT_MOD=8a7650
 NVIM_GIT_DEL=9a5a58
 NVIM_CONFLICT_CUR=f0e0de
@@ -169,7 +169,7 @@ NVIM_SYN_HEADER=2b2b2d
 NVIM_SECTION_HEADERS=true
 NVIM_FAINT_FG=a8a6a0
 # Errors in raspberry red pen — the one bright mark on the page
-NVIM_RED_PEN=b8336a
+NVIM_RED_PEN=9a5a48
 # Pink highlighter: selection + search wash over the graphite, text stays dark
 NVIM_SEARCH_FG=1c1c1e
 NVIM_SEARCH_BG=ecc6d2
@@ -186,7 +186,7 @@ KITTY_CURSOR_TEXT=f4f2ed
 WAYBAR_WS_ACTIVE=b8336a
 PI_BORDER=c8c5be
 PI_MUTED=7c7a76
-PI_ERROR=b8336a
+PI_ERROR=9a5a48
 PI_MD_CODE=3c3c40
 PI_SYN_KEYWORD=1c1c1e
 PI_SYN_FUNCTION=1c1c1e
@@ -197,7 +197,7 @@ PI_SYN_OPERATOR=6e6d70
 # ─── fox-symdeps HUD (selection bar · asm sync band · warn / alarm / ok) ───
 NVIM_SYMDEPS_SEL=f1d6de
 NVIM_SYMDEPS_SYNC=e6e3dc
-NVIM_SYMDEPS_WARN=8a7650
+NVIM_SYMDEPS_WARN=1c1c1e
 NVIM_SYMDEPS_ALARM=9a5a48
 NVIM_SYMDEPS_OK=5b6b5c
 
@@ -248,6 +248,132 @@ TMUX_INACTIVE=colour246
 TMUX_INACTIVE_FG=858380
 TMUX_ACTIVE_FG=2b2b2d
 TMUX_ACTIVE_BG=e6e3dc
+
+# ─── Bar · terminal quiet layer (waybar states · logo · kitty ANSI · tmux footer) ───
+# Paper: state icons stay graphite (warnings in the darkest ink, real failures in the raspberry pen),
+# no logo or window glyphs (bare workspace numbers), lighter prompt rules (ANSI white), neutral ANSI blue, and a faint dotted footer.
+WAYBAR_LOGO='{}'
+WAYBAR_WS_FORMAT='{name}'
+WAYBAR_WARN=1c1c1e
+WAYBAR_CRIT=9a5a48
+WAYBAR_UPD_LOW=3c3c40
+WAYBAR_UPD_MID=3c3c40
+WAYBAR_UPD_HIGH=3c3c40
+WAYBAR_PPD_BALANCED=6e6d70
+WAYBAR_PPD_SAVER=6e6d70
+SENTRY_CRIT=9a5a48
+SENTRY_WARN=1c1c1e
+SENTRY_OK=6e6d70
+SENTRY_DIM=a8a6a0
+KITTY_OPACITY=0.92
+ANSI_WHITE=55555a
+ANSI_BLUE=55555a
+ANSI_BLUE_BRIGHT=6e6d70
+TMUX_FOOTER_ACTIVE=7c7a76
+TMUX_FOOTER_INACTIVE=249
+TMUX_MARK_ACTIVE=·
+TMUX_MARK_INACTIVE=·
+TMUX_SEP=·
+
+WELCOME_LAYOUT=centered
+
+# ─── Cohesive surfaces (lock screen · mako · rofi · btop · lazygit · fzf · nvim floats) ───
+# Paper: one hairline (c8c5be) for every frame, the pink highlighter for every selection,
+# the raspberry pen for every failure, graphite for everything else.
+HYPRLOCK_VIBRANCY=0.0
+HYPRLOCK_BRIGHTNESS=1.0
+HYPRLOCK_CONTRAST=1.0
+HYPRLOCK_BRAND_Y=9999
+HYPRLOCK_DOTS_Y=9999
+HYPRLOCK_CLOCK_TEXT='<i>$TIME</i>'
+HYPRLOCK_CLOCK_COLOR=2b2b2dee
+HYPRLOCK_CLOCK_FONT="MonaspiceRn Nerd Font"
+HYPRLOCK_DIM_COLOR=6e6d70cc
+HYPRLOCK_INPUT_BORDER=c8c5beff
+HYPRLOCK_PLACEHOLDER=2b2b2d55
+HYPRLOCK_FAIL=9a5a48
+HYPRLOCK_CAPS=1c1c1e
+MAKO_BORDER=c8c5be
+MAKO_CRIT_BORDER=9a5a48
+MAKO_AGENT_BORDER=9a9894
+MAKO_MEDIA_BORDER=c8c5be
+MAKO_OSD_APP=fox-osd
+ROFI_RADIUS=8
+ROFI_INPUT_RADIUS=4px
+ROFI_ITEM_RADIUS=4
+ROFI_BORDER=c8c5be
+ROFI_SELECTED=f1d6de
+ROFI_SELECTED_ALPHA=0.9
+BTOP_SELECTED_BG=f1d6de
+BTOP_LINE=c8c5be
+BTOP_COOL=9a9894
+BTOP_WARM=6e6d70
+BTOP_HOT=9a5a48
+BTOP_UPLOAD_END=1c1c1e
+LAZYGIT_INACTIVE_BORDER=c8c5be
+LAZYGIT_UNSTAGED=9a5a48
+FZF_BORDER=c8c5be
+FZF_SESH_SELECTED=f1d6de
+NVIM_LIST_SEL=f1d6de
+NVIM_MENU_SEL=f1d6de
+YAZI_HOVER_FG=1c1c1e
+YAZI_HOVER_BG=f1d6de
+NVIM_FLOAT_BG=e9e7e1
+NVIM_FLOAT_BORDER=c8c5be
+
+# ─── Firefox (chrome + new tab / settings / web selection) ───
+# Paper: hairline frames, 6px corners (Firefox's own radii show through), the highlighter for rows and text.
+REGREET_PREFER_DARK=false
+FF_EXTRA_SCOPE=':root'
+FF_FRAME=c8c5be
+FF_FRAME_W=1px
+FF_RADIUS=6px
+FF_RADIUS_SM=4px
+FF_RADIUS_LG=6px
+FF_CONTENT_RADIUS=6px
+FF_SQUARE_SELECTOR=':not(*)'
+FF_FOCUS_RING="0 0 0 1px rgb(200,197,190)"
+FF_URL_ROW="rgb(241,214,222)"
+FF_MENU_ROW="rgb(241,214,222)"
+FF_AC_ROW="rgb(241,214,222)"
+FF_TREE_SEL_BG="rgb(241,214,222)"
+FF_TREE_SEL_FG="var(--fox-pink)"
+FF_BUTTON_BG="rgb(241,214,222)"
+FF_BUTTON_FG="var(--fox-pink)"
+FF_CARD_HOVER="0 1px 4px rgba(0,0,0,0.10)"
+FF_SELECTION_BG="rgb(241,214,222)"
+FF_SELECTION_FG=1c1c1e
+
+# ─── Errors · warnings · syntax roles · Thunar · one sheet opacity ───
+# Paper: one error red (the symdeps terracotta 9a5a48), warnings in the darkest ink, graphite syntax
+# outside nvim too, the highlighter in Thunar, every sheet at 0.92, handwritten notification titles.
+NVIM_WARN=1c1c1e
+NVIM_WARN_CURL=false
+NVIM_WARN_DASH=true
+ANSI_ERROR_SGR='38;2;154;90;72'
+ZSH_COMMAND=1c1c1e
+BAT_STRING=55555a
+BAT_MEMBER=3c3c40
+BAT_KEY=2b2b2d
+BAT_COMMENT=9a9894
+CURSOR_STRING=55555a
+CURSOR_COMMENT=9a9894
+OPENCODE_SYN_KEYWORD=1c1c1e
+OPENCODE_SYN_STRING=55555a
+OPENCODE_SYN_NUMBER=3c3c40
+OPENCODE_SYN_COMMENT=9a9894
+FZF_BORDER_STYLE=rounded
+GTK_SEL_BG="rgba(241,214,222,0.95)"
+GTK_LABEL_SHADOW=none
+GTK_ICON_HOVER="rgba(60,60,64,0.06)"
+GTK_ICON_SEL="rgba(241,214,222,0.95)"
+GTK_ICON_SEL_BORDER="1px solid rgb(200,197,190)"
+GTK_RUBBER_BG="rgba(241,214,222,0.35)"
+GTK_RUBBER_BORDER="1px solid rgb(200,197,190)"
+GTK_PANEL_ALPHA=0.92
+GTK_WINDOW_ALPHA=0.92
+WAYBAR_BUBBLE_ALPHA=0.92
+MAKO_FORMAT='<span font_family="MonaspiceRn Nerd Font" style="italic" size="large">%s</span>\n%b'
 
 # ─── Preview swatches (for swap.sh) ───
 PALETTE_LABELS=("paper" "graphite" "4B" "HB" "2H" "smudge")

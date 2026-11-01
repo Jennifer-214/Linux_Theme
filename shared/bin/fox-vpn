@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # fox-vpn — WireGuard wizard with UFW kill-switch.
 set -u
-C_GRN=$'\e[38;5;108m'; C_YEL=$'\e[38;5;221m'; C_RED=$'\e[38;5;167m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
+C_GRN=$'\e[32m'; C_YEL=$'\e[33m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
 
 CONF_DIR=/etc/wireguard
 KILLSWITCH_RULE=/etc/ufw/before.rules.d/foxml-vpn-killswitch  # virtual marker; we actually use ufw deny

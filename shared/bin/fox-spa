@@ -19,7 +19,7 @@
 #   fox spa --disable         disable fwknopd + restore UFW SSH allow
 
 set -u
-C_BOLD=$'\e[1m'; C_GRN=$'\e[38;5;108m'; C_YEL=$'\e[38;5;221m'; C_RED=$'\e[38;5;167m'; C_DIM=$'\e[2m'; C_PEACH=$'\e[38;5;215m'; C_RST=$'\e[0m'
+C_BOLD=$'\e[1m'; C_GRN=$'\e[32m'; C_YEL=$'\e[33m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_PEACH=$'\e[95m'; C_RST=$'\e[0m'
 
 CONF_DIR="$HOME/.config/foxml"
 USER_CONF="$CONF_DIR/spa.conf"

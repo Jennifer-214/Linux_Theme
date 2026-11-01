@@ -111,7 +111,9 @@ function fmt_elapsed() {
 
 ZSH_THEME_GIT_PROMPT_PREFIX="%{%F{{{ANSI_ACCENT1}}}%} "
 ZSH_THEME_GIT_PROMPT_SUFFIX="%{%f%}"
-ZSH_THEME_GIT_PROMPT_DIRTY=" %{%F{{{ANSI_ERROR}}}%}%{%f%}"
+# Error ink as a raw SGR (a palette value can't start with '#', so truecolour can't go through %F{})
+_fox_err=$'\e[{{ANSI_ERROR_SGR}}m'
+ZSH_THEME_GIT_PROMPT_DIRTY=" %{${_fox_err}%}%{%f%}"
 ZSH_THEME_GIT_PROMPT_CLEAN=" %{%F{{{ANSI_OK}}}%}%{%f%}"
 
 # ─── Precmd (runs before each prompt) ──────────
@@ -123,7 +125,7 @@ function caramel_precmd() {
   if [[ $exit_code -eq 0 ]]; then
     PROMPT_INDICATOR="%{%F{{{ANSI_ACCENT2}}}%}❯%{%f%}"
   else
-    PROMPT_INDICATOR="%{%F{{{ANSI_ERROR}}}%}❯ %{%F{{{ANSI_ACCENT2}}}%}${exit_code}%{%f%}"
+    PROMPT_INDICATOR="%{${_fox_err}%}❯ %{%F{{{ANSI_ACCENT2}}}%}${exit_code}%{%f%}"
   fi
 
   # ── Command execution time (show if >= 3s) ──

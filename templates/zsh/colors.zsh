@@ -8,8 +8,8 @@ di=38;5;{{ANSI_ACCENT1}};1:\
 ln=38;5;{{ANSI_ACCENT2}}:\
 ex=38;5;{{ANSI_ACCENT4}};1:\
 fi=38;5;{{ANSI_TEXT}}:\
-mi=38;5;{{ANSI_ERROR}}:\
-or=38;5;{{ANSI_ERROR}};9:\
+mi={{ANSI_ERROR_SGR}}:\
+or={{ANSI_ERROR_SGR}};9:\
 pi=38;5;{{ANSI_ACCENT1}}:\
 so=38;5;{{ANSI_ACCENT3}}:\
 bd=38;5;{{ANSI_ACCENT1}}:\
@@ -88,11 +88,11 @@ typeset -A ZSH_HIGHLIGHT_STYLES
 ZSH_HIGHLIGHT_STYLES[default]='fg={{ANSI_TEXT}}'
 ZSH_HIGHLIGHT_STYLES[unknown-token]='fg=#{{RED}}'
 ZSH_HIGHLIGHT_STYLES[reserved-word]='fg={{ANSI_ACCENT3}},bold'
-ZSH_HIGHLIGHT_STYLES[alias]='fg=#{{GREEN_BRIGHT}}'
-ZSH_HIGHLIGHT_STYLES[builtin]='fg=#{{GREEN_BRIGHT}}'
-ZSH_HIGHLIGHT_STYLES[function]='fg=#{{GREEN_BRIGHT}}'
-ZSH_HIGHLIGHT_STYLES[command]='fg=#{{GREEN_BRIGHT}}'
-ZSH_HIGHLIGHT_STYLES[precommand]='fg=#{{GREEN_BRIGHT}},underline'
+ZSH_HIGHLIGHT_STYLES[alias]='fg=#{{ZSH_COMMAND}}'
+ZSH_HIGHLIGHT_STYLES[builtin]='fg=#{{ZSH_COMMAND}}'
+ZSH_HIGHLIGHT_STYLES[function]='fg=#{{ZSH_COMMAND}}'
+ZSH_HIGHLIGHT_STYLES[command]='fg=#{{ZSH_COMMAND}}'
+ZSH_HIGHLIGHT_STYLES[precommand]='fg=#{{ZSH_COMMAND}},underline'
 ZSH_HIGHLIGHT_STYLES[commandseparator]='fg={{ANSI_ACCENT1}}'
 ZSH_HIGHLIGHT_STYLES[path]='fg={{ANSI_ACCENT2}},underline'
 ZSH_HIGHLIGHT_STYLES[path_pathseparator]='fg={{ANSI_ACCENT1}}'
@@ -107,4 +107,4 @@ ZSH_HIGHLIGHT_STYLES[back-double-quoted-argument]='fg={{ANSI_ACCENT3}}'
 ZSH_HIGHLIGHT_STYLES[assign]='fg={{ANSI_TEXT}}'
 ZSH_HIGHLIGHT_STYLES[redirection]='fg={{ANSI_ACCENT3}}'
 ZSH_HIGHLIGHT_STYLES[comment]='fg={{ANSI_MUTED}},italic'
-ZSH_HIGHLIGHT_STYLES[arg0]='fg=#{{GREEN_BRIGHT}}'
+ZSH_HIGHLIGHT_STYLES[arg0]='fg=#{{ZSH_COMMAND}}'

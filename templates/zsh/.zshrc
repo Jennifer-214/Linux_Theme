@@ -92,8 +92,8 @@ export FZF_DEFAULT_OPTS="
   --color=bg+:#{{SELECTION}},bg:-1,preview-bg:-1,fg:#{{FG}},fg+:#{{FG}}
   --color=hl:#{{FZF_ACCENT1}},hl+:#{{PRIMARY}},info:#{{FZF_ACCENT1}},marker:#{{PRIMARY}}
   --color=prompt:#{{PRIMARY}},spinner:#{{FZF_ACCENT1}},pointer:#{{PRIMARY}},header:#{{FZF_ACCENT1}}
-  --color=border:#{{PRIMARY}}
-  --border=sharp --prompt='❯ ' --pointer='◆' --marker='●'
+  --color=border:#{{FZF_BORDER}}
+  --border={{FZF_BORDER_STYLE}} --prompt='❯ ' --pointer='◆' --marker='●'
   --preview='bat --color=always --style=numbers --line-range=:200 {} 2>/dev/null || eza --icons --color=always {}'
   --preview-window=right:50%:hidden --bind='ctrl-/:toggle-preview,ctrl-h:abort,ctrl-j:down,ctrl-k:up,ctrl-l:accept'
 "

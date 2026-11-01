@@ -10,7 +10,7 @@
 # Usage: fox-tail
 
 set -uo pipefail
-C_GRN=$'\e[38;5;108m'; C_YEL=$'\e[38;5;221m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
+C_GRN=$'\e[32m'; C_YEL=$'\e[33m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
 
 OUT=".foxml_context.md"
 

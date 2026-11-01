@@ -36,6 +36,8 @@ inline constexpr Mapping TEMPLATE_MAPPINGS[] = {
     // Waybar — style.css has __SIZE__ tokens; start_waybar.sh substitutes
     // at launch based on monitor scale. Deploy as .tmpl.
     { "waybar/style.css",             "~/.config/waybar/style.css.tmpl" },
+    { "waybar/config",                "~/.config/waybar/config.tmpl" },
+    { "waybar/config_secondary",      "~/.config/waybar/config_secondary.tmpl" },
 
     // Tmux
     { "tmux/.tmux.conf",              "~/.tmux.conf" },
@@ -173,9 +175,6 @@ inline constexpr Mapping SHARED_MAPPINGS[] = {
     // Distro profile
     { "foxml-profile.json",           "~/.local/share/foxml/distro/foxml-profile.json" },
 
-    // Waybar config templates (runtime-finalised by start_waybar.sh)
-    { "waybar_config",                "~/.config/waybar/config.tmpl" },
-    { "waybar_config_secondary",      "~/.config/waybar/config_secondary.tmpl" },
 };
 
 constexpr std::size_t TEMPLATE_MAPPINGS_COUNT =

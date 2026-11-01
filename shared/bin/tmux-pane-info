@@ -66,9 +66,10 @@ elif [[ -n "$VIRTUAL_ENV" ]]; then
 fi
 
 # Build final string with better spacing
-# Format: Path  •  Command  •  [Env]  •  [Git]
-res="$short_path  •  $cmd"
-[[ -n "$env_info" ]] && res="$res  •  $env_info"
-[[ -n "$git_info" ]] && res="$res  •  $git_info"
+# Format: Path  •  Command  •  [Env]  •  [Git]  (separator from the theme's tmux.conf)
+sep="${FOX_TMUX_SEP:-•}"
+res="$short_path  $sep  $cmd"
+[[ -n "$env_info" ]] && res="$res  $sep  $env_info"
+[[ -n "$git_info" ]] && res="$res  $sep  $git_info"
 
 echo " $res "

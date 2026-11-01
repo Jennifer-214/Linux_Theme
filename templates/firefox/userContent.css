@@ -49,19 +49,21 @@
     --color-text-secondary: #{{FG_DIM}} !important;
     --color-action-primary: #{{PRIMARY}} !important;
     --color-border: #{{SURFACE}} !important;
-    --border-radius-small: 0px !important;
-    --border-radius-medium: 0px !important;
-    --border-radius-large: 0px !important;
-    --border-radius-extra-large: 0px !important;
+    --border-radius-small: {{FF_CONTENT_RADIUS}} !important;
+    --border-radius-medium: {{FF_CONTENT_RADIUS}} !important;
+    --border-radius-large: {{FF_CONTENT_RADIUS}} !important;
+    --border-radius-extra-large: {{FF_CONTENT_RADIUS}} !important;
 
     background-color: #{{BG}} !important;
     scrollbar-color: rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.4) #{{BG}} !important;
     scrollbar-width: thin !important;
   }
 
-  /* ===== Kill all rounded corners ===== */
-  * {
+  /* ===== Kill all rounded corners (FF_SQUARE_SELECTOR; :not(*) keeps Firefox's own) ===== */
+  {{FF_SQUARE_SELECTOR}} {
     border-radius: 0 !important;
+  }
+  * {
     --newtab-background-color: #{{BG}} !important;
     --newtab-card-background-color: #{{FIREFOX_CARD_BG}} !important;
   }
@@ -91,8 +93,8 @@
   .search-handoff-button {
     background-color: #{{FIREFOX_CARD_BG}} !important;
     color: #{{FG}} !important;
-    border: 2px solid #{{PRIMARY}} !important;
-    border-radius: 0 !important;
+    border: {{FF_FRAME_W}} solid #{{FF_FRAME}} !important;
+    border-radius: {{FF_RADIUS}} !important;
   }
 
   .search-wrapper .search-handoff-button .fake-caret {
@@ -154,7 +156,7 @@
 
   .ds-card:hover,
   .card-outer:hover {
-    box-shadow: 0 0 8px rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.3) !important;
+    box-shadow: {{FF_CARD_HOVER}} !important;
   }
 
   .ds-card .meta,
@@ -216,8 +218,8 @@
   [class*="follow-button"] {
     background-color: #{{FIREFOX_CARD_BG}} !important;
     color: #{{PRIMARY}} !important;
-    border: 1px solid #{{PRIMARY}} !important;
-    border-radius: 0 !important;
+    border: 1px solid #{{FF_FRAME}} !important;
+    border-radius: {{FF_RADIUS}} !important;
   }
 
   /* ===== Context menus ===== */
@@ -230,12 +232,12 @@
   }
 
   .context-menu {
-    border: 2px solid #{{PRIMARY}} !important;
+    border: {{FF_FRAME_W}} solid #{{FF_FRAME}} !important;
   }
 
   .context-menu-item:hover,
   .context-menu-item:focus {
-    background-color: rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.25) !important;
+    background-color: {{FF_MENU_ROW}} !important;
   }
 
   /* ===== Collapsible sections ===== */
@@ -269,8 +271,8 @@
 
   /* ===== Selection ===== */
   ::selection {
-    background: rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.35) !important;
-    color: #{{BG}} !important;
+    background: {{FF_SELECTION_BG}} !important;
+    color: #{{FF_SELECTION_FG}} !important;
   }
 
   /* ===== Links ===== */
@@ -296,7 +298,7 @@
     --in-content-link-color: #{{PRIMARY}} !important;
   }
 
-  * { border-radius: 0 !important; }
+  {{FF_SQUARE_SELECTOR}} { border-radius: 0 !important; }
 }
 
 /* ===== about:addons ===== */
@@ -310,7 +312,7 @@
     --in-content-accent-color: #{{PRIMARY}} !important;
   }
 
-  * { border-radius: 0 !important; }
+  {{FF_SQUARE_SELECTOR}} { border-radius: 0 !important; }
 }
 
 /* ===== General web content scrollbars and selection ===== */
@@ -321,7 +323,98 @@
   }
 
   ::selection {
-    background: rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.35) !important;
-    color: #{{BG}} !important;
+    background: {{FF_SELECTION_BG}} !important;
+    color: #{{FF_SELECTION_FG}} !important;
+  }
+}
+
+/* ===== Theme refinements (FF_EXTRA_SCOPE: ":root" on Paper, ":not(*)" — inert — elsewhere) ===== */
+
+/* Every page, local files included: highlighter selection, graphite form accents */
+@-moz-document url-prefix("http"), url-prefix("https"), url-prefix("file"), url-prefix("about:") {
+  {{FF_EXTRA_SCOPE}} {
+    accent-color: #{{PRIMARY}} !important;
+  }
+  {{FF_EXTRA_SCOPE}} ::selection {
+    background: #{{SELECTION}} !important;
+    color: #{{SECONDARY}} !important;
+  }
+}
+
+/* Firefox's own pages (settings, add-ons, downloads, …) moved to newer design tokens,
+   which the --in-content-* overrides above no longer reach. */
+@-moz-document url-prefix("about:preferences"), url-prefix("about:settings"), url-prefix("about:addons"),
+  url-prefix("about:downloads"), url-prefix("about:logins"), url-prefix("about:config"),
+  url-prefix("about:profiles"), url-prefix("about:support"), url-prefix("about:privatebrowsing") {
+  {{FF_EXTRA_SCOPE}} {
+    --background-color-canvas: #{{BG}} !important;
+    --background-color-box: #{{BG_DARK}} !important;
+    --text-color: #{{FG}} !important;
+    --text-color-deemphasized: #{{FG_DIM}} !important;
+    --border-color: #{{FF_FRAME}} !important;
+    --border-color-card: #{{FF_FRAME}} !important;
+    --border-color-interactive: #{{FG_DIM}} !important;
+    --focus-outline-color: #{{PRIMARY}} !important;
+    --link-color: #{{PRIMARY}} !important;
+    --link-color-hover: #{{SECONDARY}} !important;
+    --link-color-active: #{{SECONDARY}} !important;
+    --color-accent-primary: #{{PRIMARY}} !important;
+    --color-accent-primary-hover: #{{FG_PASTEL}} !important;
+    --color-accent-primary-active: #{{SECONDARY}} !important;
+    --color-accent-primary-selected: #{{PRIMARY}} !important;
+    --button-background-color: #{{BG_DARK}} !important;
+    --button-background-color-hover: #{{SURFACE}} !important;
+    --button-background-color-active: #{{FF_FRAME}} !important;
+    --button-background-color-primary: #{{PRIMARY}} !important;
+    --button-background-color-primary-hover: #{{FG_PASTEL}} !important;
+    --button-background-color-primary-active: #{{SECONDARY}} !important;
+    --button-text-color-primary: #{{BG}} !important;
+    --card-background-color: #{{BG_DARK}} !important;
+    --in-content-page-background: #{{BG}} !important;
+    --in-content-box-background: #{{BG_DARK}} !important;
+    --in-content-item-selected: #{{SELECTION}} !important;
+    --in-content-item-selected-text: #{{SECONDARY}} !important;
+    --in-content-item-hover: #{{SURFACE}} !important;
+    background-color: #{{BG}} !important;
+  }
+  /* the selected category is the highlighter row, like every other list */
+  {{FF_EXTRA_SCOPE}} .category[selected],
+  {{FF_EXTRA_SCOPE}} .category[selected]:hover,
+  {{FF_EXTRA_SCOPE}} .category[selected="true"],
+  {{FF_EXTRA_SCOPE}} categories-box .category[selected] {
+    background-color: #{{SELECTION}} !important;
+    color: #{{SECONDARY}} !important;
+  }
+  {{FF_EXTRA_SCOPE}} .category[selected] .category-icon,
+  {{FF_EXTRA_SCOPE}} .category[selected] .category-name {
+    color: #{{SECONDARY}} !important;
+    fill: #{{SECONDARY}} !important;
+  }
+  /* the sidebar nav is a sealed component: its look comes only through these
+     variables, which have to be set on the component itself (it declares them on :host) */
+  {{FF_EXTRA_SCOPE}} moz-page-nav,
+  {{FF_EXTRA_SCOPE}} moz-page-nav-button {
+    --page-nav-button-background-color: transparent !important;
+    --page-nav-button-background-color-hover: #{{SURFACE}} !important;
+    --page-nav-button-background-color-active: #{{FF_FRAME}} !important;
+    --page-nav-button-background-color-selected: #{{SELECTION}} !important;
+    --page-nav-button-text-color: #{{FG_PASTEL}} !important;
+    --page-nav-button-text-color-hover: #{{FG}} !important;
+    --page-nav-button-text-color-active: #{{SECONDARY}} !important;
+    --page-nav-button-text-color-selected: #{{SECONDARY}} !important;
+    --page-nav-button-indicator-background-color: transparent !important;
+    --page-nav-border-color: transparent !important;
+  }
+  /* a quieter focus ring than the solid graphite one */
+  {{FF_EXTRA_SCOPE}} {
+    --focus-outline-color: #{{FG_DIM}} !important;
+  }
+  /* Firefox's illustrations (the orange foxes) in pencil, like the rest of the page */
+  {{FF_EXTRA_SCOPE}} img,
+  {{FF_EXTRA_SCOPE}} [class*="llustration"],
+  {{FF_EXTRA_SCOPE}} addons-promo,
+  {{FF_EXTRA_SCOPE}} moz-promo,
+  {{FF_EXTRA_SCOPE}} moz-message-bar[type="promo"] {
+    filter: grayscale(1) !important;
   }
 }

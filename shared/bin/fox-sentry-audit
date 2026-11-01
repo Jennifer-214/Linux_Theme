@@ -24,9 +24,9 @@ HONEY_STATE="$CONF_DIR/sentry-audit.path"
 SERVICE_NAME="fox-sentry-audit.service"
 DEFAULT_HONEY="$HOME/Documents/aws_production_keys.pem"
 
-C_GRN=$'\e[38;5;108m'
-C_YEL=$'\e[38;5;221m'
-C_RED=$'\e[38;5;167m'
+C_GRN=$'\e[32m'
+C_YEL=$'\e[33m'
+C_RED=$'\e[31m'
 C_RST=$'\e[0m'
 
 _make_honey() {

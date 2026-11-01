@@ -200,7 +200,11 @@ _tooltip() {
 # warning triangle stays yellow, the shield stays green, the critical
 # icon stays red, even when the module's overall class is "critical"
 # (which the CSS uses for background tint + outer border colour).
-RED='#b05555'; YEL='#c4b48a'; GRN='#7aab88'; PEACH='#d4985a'; DIM='#8a8a8a'
+# Colours come from the active theme's rendered palette.
+_pal="$HOME/.config/hypr/modules/border_colors.sh"
+[[ -r "$_pal" ]] && source "$_pal"
+RED="#${C_SENTRY_CRIT:-b05555}"; YEL="#${C_SENTRY_WARN:-c4b48a}"
+GRN="#${C_SENTRY_OK:-7aab88}"; DIM="#${C_SENTRY_DIM:-8a8a8a}"
 
 case "$class" in
     critical)

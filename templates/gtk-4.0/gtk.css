@@ -3,9 +3,9 @@
 @define-color fg        #{{FG}};                     /* off-white text */
 @define-color accent    #{{PRIMARY}};                     /* peach accent */
 @define-color accent2   #{{SECONDARY}};                     /* pink accent */
-@define-color sel_bg    rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.25);      /* selection bg */
+@define-color sel_bg    {{GTK_SEL_BG}};      /* selection bg */
 @define-color sel_fg    #{{FG}};                     /* selection text */
-@define-color panel     rgba({{BG_R}},{{BG_G}},{{BG_B}},0.95);         /* FoML panel */
+@define-color panel     rgba({{BG_R}},{{BG_G}},{{BG_B}},{{GTK_PANEL_ALPHA}});         /* FoML panel */
 @define-color panel2    rgba({{SURFACE_R}},{{SURFACE_G}},{{SURFACE_B}},0.5);          /* slate glass */
 @define-color border    @accent;
 

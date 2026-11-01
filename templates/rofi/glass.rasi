@@ -24,9 +24,9 @@ window {
   anchor: north;
   y-offset: 50px;
   width: 480px;
-  border-radius: 18px;
+  border-radius: {{ROFI_RADIUS}}px;
   border: {{BORDER_SIZE}}px;
-  border-color: #{{PRIMARY}};
+  border-color: #{{ROFI_BORDER}};
   background-color: rgba({{BG_R}},{{BG_G}},{{BG_B}},{{POPUP_BG_OPACITY}});
   padding: 12px;
 }
@@ -41,9 +41,9 @@ mainbox {
 inputbar {
   background-color: transparent;
   text-color: #{{FG}};
-  border-radius: 0;
+  border-radius: {{ROFI_INPUT_RADIUS}};
   border: {{BORDER_SIZE}}px;
-  border-color: #{{PRIMARY}};
+  border-color: #{{ROFI_BORDER}};
   padding: 10px;
 }
 
@@ -67,14 +67,14 @@ listview {
 element {
   background-color: transparent;
   text-color: #{{FG}};
-  border-radius: 12px;
+  border-radius: {{ROFI_ITEM_RADIUS}}px;
   padding: 8px 12px;
   border: 0px;
 }
 
 /* selected bubble (ring-ish look) */
 element selected {
-  background-color: rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.25);
+  background-color: rgba({{ROFI_SELECTED_R}},{{ROFI_SELECTED_G}},{{ROFI_SELECTED_B}},{{ROFI_SELECTED_ALPHA}});
   text-color: #{{FG}};
 }
 
