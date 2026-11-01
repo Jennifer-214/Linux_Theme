@@ -10,6 +10,7 @@
 TEMPLATE_MAPPINGS=(
     # Hyprland
     "hyprland/theme.conf|~/.config/hypr/modules/theme.conf"
+    "hyprland/theme.lua|~/.config/hypr/modules/theme.lua"
     "hyprlock/hyprlock.conf|~/.config/hypr/hyprlock.conf"
 
     # Neovim

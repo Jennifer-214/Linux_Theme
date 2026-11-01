@@ -12,6 +12,7 @@
 //   6. Calls personalize::apply_all() (same trio configure_monitors did).
 
 #include "../core/context.hpp"
+#include "hypr_lua.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-monitor/sidecar.hpp"
 #include "../../fox-common/ui.hpp"
@@ -113,6 +114,8 @@ void write_monitors_conf(const fs::path& conf,
          "# Catch-all for any unknown/disconnected displays at runtime\n"
          "monitor = , preferred, auto, 1\n";
     write_atomic(conf, o.str());
+    // Hyprland 0.57+ reads only Lua: the same rules as hl.monitor calls.
+    write_atomic(conf.parent_path() / "monitors.lua", hypr_lua::generated_conf_to_lua(o.str()));
 }
 
 }  // namespace

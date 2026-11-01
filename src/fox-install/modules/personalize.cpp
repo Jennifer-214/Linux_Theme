@@ -10,6 +10,7 @@
 // — missing inputs short-circuit cleanly.
 
 #include "personalize.hpp"
+#include "hypr_lua.hpp"
 
 #include "../core/splice.hpp"
 #include "../../fox-monitor/variants.hpp"
@@ -267,12 +268,13 @@ bool pin_hyprlock_panel(const Context& ctx, const sidecar::Layout& layout) {
 bool personalize_workspace_rules(const Context& ctx, const sidecar::Layout& layout) {
     fs::path rules = ctx.config_home / "hypr/modules/rules.conf";
     fs::path rendered = ctx.rendered_dir / "hyprland/rules.conf";
+    fs::path rules_lua = ctx.config_home / "hypr/modules/rules.lua";   // Hyprland 0.57+
 
     // Personalize whichever copies exist — on a fresh box the live rules.conf is
     // not deployed yet (symlinks runs after personalize), so splice the rendered
     // copy and let symlinks deploy it; on a re-run the live copy exists →
     // identical to the prior behaviour. Gate on either being present.
-    if (!fs::exists(rules) && !fs::exists(rendered)) return false;
+    if (!fs::exists(rules) && !fs::exists(rendered) && !fs::exists(rules_lua)) return false;
     if (layout.primary.empty())                      return false;
 
     std::string new_line = "workspace = 1, monitor:" + layout.primary +
@@ -282,6 +284,9 @@ bool personalize_workspace_rules(const Context& ctx, const sidecar::Layout& layo
     const std::string e_sentinel = "# foxml:workspace-pin-end";
     if (fs::exists(rules))    splice_sentinel(rules, b_sentinel, e_sentinel, new_line);
     if (fs::exists(rendered)) splice_sentinel(rendered, b_sentinel, e_sentinel, new_line);
+    if (fs::exists(rules_lua))
+        splice_sentinel(rules_lua, hypr_lua::PIN_BEGIN, hypr_lua::PIN_END,
+                        hypr_lua::workspace_pin_lua(layout.primary));
 
     ui::ok("workspace pin → " + layout.primary);
     return true;

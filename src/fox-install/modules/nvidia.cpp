@@ -23,6 +23,7 @@
 //   6. Append nvidia_drm.modeset=1 to systemd-boot entry kernel cmdline.
 
 #include "nvidia_modules.hpp"
+#include "hypr_lua.hpp"
 #include "../core/context.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
@@ -231,10 +232,13 @@ void run_nvidia(Context& ctx) {
     fs::path out = ctx.config_home / "hypr/modules/nvidia.conf";
     if (fs::exists(tpl)) {
         if (sh::dry_run()) {
-            ui::substep("[dry-run] would write " + out.string() +
+            ui::substep("[dry-run] would write " + out.string() + " (+ nvidia.lua)" +
                        (aq_complete ? " with AQ_DRM_DEVICES=" + aq_drm
                                     : " with AQ_DRM_DEVICES left unset (auto-detect)"));
         } else if (write_hypr_nvidia_conf(tpl, out, aq_drm, aq_complete)) {
+            // Hyprland 0.57+ reads only Lua: same settings, from the file just written.
+            hypr_lua::write_text_atomic(out.parent_path() / "nvidia.lua",
+                                        hypr_lua::generated_conf_to_lua(hypr_lua::read_text(out)));
             ui::ok(aq_complete
                    ? "hypr/modules/nvidia.conf → AQ_DRM_DEVICES=" + aq_drm
                    : "hypr/modules/nvidia.conf → AQ_DRM_DEVICES auto-detect (iGPU node not ready)");

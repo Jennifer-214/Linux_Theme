@@ -18,6 +18,7 @@
 #include "../core/built_tools.hpp"
 #include "claude_wiring.hpp"
 #include "nvidia_modules.hpp"
+#include "hypr_lua.hpp"
 #include "../core/idempotency.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
@@ -474,9 +475,36 @@ std::size_t deploy_dir_files(const Context& ctx, const BulkSpec& spec) {
     return done;
 }
 
-// Hyprland modules — same shape as bulk dir, but skip theme/nvidia
-// (managed by render + nvidia modules) and skip monitors.conf if it
-// already exists (don't clobber user-edited layout).
+// Lua twin of a per-machine module, written only when missing: convert what
+// this box already has (a --monitors layout, a --nvidia setup) rather than
+// shipping the generic file over it, so 0.57 keeps the same monitors and GPU env.
+void lua_twin(const fs::path& conf, const fs::path& lua, const std::string& fallback) {
+    std::error_code ec;
+    if (fs::symlink_status(lua, ec).type() != fs::file_type::not_found) return;
+    const std::string body = hypr_lua::lua_twin_body(conf, fallback, nvidia_conf_placeholder());
+    if (hypr_lua::write_text_atomic(lua, body))
+        ui::substep("hypr/modules/" + lua.filename().string() + " (from " + conf.filename().string() + ")");
+}
+
+// Hyprland 0.57+ reads only hyprland.lua. Older releases keep hyprland.conf
+// (--symlinks): giving them the Lua entry would move 0.55/0.56 onto a config
+// this repo has only verified on 0.57.
+void do_hyprland_lua_entry(const Context& ctx) {
+    std::string out;
+    sh::capture({"Hyprland", "--version"}, out);
+    const auto v = hypr_lua::parse_version(out);
+    if (!hypr_lua::reads_lua_only(v)) {
+        ui::skipped("hyprland.lua: Hyprland " + std::to_string(v.major) + "." + std::to_string(v.minor) +
+                    " reads hyprland.conf");
+        return;
+    }
+    if (deploy_file(ctx, ctx.script_dir / "shared/hyprland.lua", ctx.home / ".config/hypr/hyprland.lua"))
+        ui::ok("hyprland.lua (Hyprland 0.57+ reads only Lua)");
+}
+
+// Hyprland modules — same shape as bulk dir, in both formats (.conf for 0.56
+// and older, .lua for 0.57+). Skip theme/nvidia (managed by render + nvidia
+// modules) and keep an existing monitors file (don't clobber user layout).
 void do_hyprland_modules(const Context& ctx) {
     fs::path src_root = ctx.script_dir / "shared/hyprland_modules";
     fs::path dst_root = ctx.home       / ".config/hypr/modules";
@@ -487,9 +515,12 @@ void do_hyprland_modules(const Context& ctx) {
     std::size_t done = 0;
     for (auto& e : fs::directory_iterator(src_root, ec)) {
         if (!e.is_regular_file()) continue;
-        if (e.path().extension() != ".conf") continue;
-        std::string name = e.path().filename().string();
-        if (name == "theme.conf" || name == "nvidia.conf") continue;
+        const std::string ext = e.path().extension().string();
+        if (ext != ".conf" && ext != ".lua") continue;
+        const std::string name = e.path().filename().string();
+        const std::string stem = e.path().stem().string();
+        if (stem == "theme" || stem == "nvidia") continue;
+        if (name == "monitors.lua") continue;                      // derived below
         if (name == "monitors.conf" && fs::exists(dst_root / "monitors.conf")) continue;
         if (deploy_file(ctx, e.path(), dst_root / name)) ++done;
     }
@@ -498,9 +529,14 @@ void do_hyprland_modules(const Context& ctx) {
     // hyprland.conf sources modules/nvidia.conf everywhere; without NVIDIA nothing wrote it (nvidia_modules.hpp).
     const fs::path nv = dst_root / "nvidia.conf";
     if (fs::symlink_status(nv, ec).type() == fs::file_type::not_found) {
-        if (sh::dry_run()) ui::substep("[dry-run] would write a comment-only " + nv.string());
-        else if (ensure_nvidia_conf_placeholder(nv)) ui::substep("hypr/modules/nvidia.conf: comment-only (no NVIDIA setup)");
+        if (ensure_nvidia_conf_placeholder(nv)) ui::substep("hypr/modules/nvidia.conf: comment-only (no NVIDIA setup)");
     }
+    // hyprland.lua requires both on every machine.
+    lua_twin(dst_root / "monitors.conf", dst_root / "monitors.lua",
+             hypr_lua::read_text(src_root / "monitors.lua"));
+    lua_twin(nv, dst_root / "nvidia.lua", hypr_lua::nvidia_lua_placeholder());
+
+    do_hyprland_lua_entry(ctx);
 }
 
 // KEYBINDS.md → ~/.local/share/foxml/  (for fox-cheatsheet).
@@ -528,6 +564,10 @@ void do_regreet_stage(const Context& ctx) {
                 stage / "regreet.toml");
     deploy_file(ctx, ctx.script_dir / "shared/greetd_hyprland.conf",
                 stage / "hyprland.conf");
+    deploy_file(ctx, ctx.script_dir / "shared/greetd_hyprland.lua",
+                stage / "hyprland.lua");
+    fs::path launcher_dst = stage / "start-greeter.sh";
+    if (deploy_file(ctx, ctx.script_dir / "shared/greetd_start.sh", launcher_dst)) chmod_exec(launcher_dst);
     fs::path picker_src = ctx.script_dir / "shared/greetd_select_monitor.sh";
     fs::path picker_dst = stage / "select-monitor.sh";
     if (deploy_file(ctx, picker_src, picker_dst)) chmod_exec(picker_dst);
@@ -629,7 +669,8 @@ void run_specials(Context& ctx) {
     if (sh::dry_run()) {
         ui::substep("[dry-run] would: Firefox CSS+user.js, Cursor/VS Code theme, "
                     "Bat cache rebuild, Gemini+Claude settings jq-merge, "
-                    "hyprland_scripts + waybar_scripts + hyprland_modules + wallpapers + bin deploy, "
+                    "hyprland_scripts + waybar_scripts + hyprland_modules (.conf + .lua) + wallpapers + bin deploy, "
+                    "hyprland.lua when Hyprland >= 0.57, "
                     "KEYBINDS.md to ~/.local/share/foxml/, systemd user units");
         return;
     }

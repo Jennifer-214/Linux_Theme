@@ -3,12 +3,15 @@
 // Mirrors mappings.sh::install_greetd. Reads staged files from
 // ~/.config/regreet/ (placed there by `specials.cpp`'s ReGreet block),
 // copies them to /etc/greetd/ with the right perms, deploys the login
-// wallpaper, and writes /etc/greetd/config.toml only if it's still the
-// stock agreety default.
+// wallpaper, and points /etc/greetd/config.toml at start-greeter.sh when it's
+// still stock or holds a command this installer wrote before. The launcher
+// starts Hyprland with hyprland.lua (0.57+) or hyprland.conf (older), picked
+// at every boot, so a Hyprland upgrade can't strand the login screen.
 //
 // Requires greetd-regreet to be installed via --deps first.
 
 #include "../core/context.hpp"
+#include "hypr_lua.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
@@ -70,7 +73,7 @@ constexpr const char* CONFIG_TOML_BODY =
     "[terminal]\n"
     "vt = 1\n"
     "[default_session]\n"
-    "command = \"Hyprland -c /etc/greetd/hyprland.conf\"\n"
+    "command = \"/etc/greetd/start-greeter.sh\"\n"
     "user = \"greeter\"\n";
 
 bool write_root_file(const fs::path& src, const fs::path& dst,
@@ -83,6 +86,23 @@ bool write_root_file(const fs::path& src, const fs::path& dst,
 
 bool write_root_inline(const fs::path& dst, const std::string& body) {
     return sh::write_root_atomic(dst, body);
+}
+
+// The config the launcher will pick must parse with the installed Hyprland
+// before greetd is pointed at it. Always pass -c: without it, 0.57's
+// verify-config writes a stock ~/.config/hypr/hyprland.lua.
+bool greeter_config_parses(const fs::path& staged) {
+    if (!sh::have("Hyprland")) return true;   // nothing to check against yet
+    std::string out;
+    sh::capture({"Hyprland", "--version"}, out);
+    const bool lua = hypr_lua::reads_lua_only(hypr_lua::parse_version(out));
+    const fs::path cfg = staged / (lua ? "hyprland.lua" : "hyprland.conf");
+    std::string res;
+    sh::capture({"Hyprland", "--verify-config", "-c", cfg.string()}, res);
+    if (hypr_lua::verify_output_ok(res)) return true;
+    ui::warn("greeter config " + cfg.string() + " does not parse with the installed Hyprland:");
+    ui::substep(res.substr(res.find("parsing result") == std::string::npos ? 0 : res.find("parsing result")));
+    return false;
 }
 
 }  // namespace
@@ -102,8 +122,8 @@ void run_greetd(Context& ctx) {
     }
 
     fs::path staged = ctx.config_home / "regreet";
-    for (const char* needed : { "regreet.css", "regreet.toml",
-                                 "hyprland.conf", "select-monitor.sh" }) {
+    for (const char* needed : { "regreet.css", "regreet.toml", "hyprland.conf",
+                                 "hyprland.lua", "select-monitor.sh", "start-greeter.sh" }) {
         if (!fs::exists(staged / needed)) {
             ui::ok("staged regreet file missing: " + (staged / needed).string() +
                    " (run --specials first to stage)");
@@ -134,12 +154,14 @@ void run_greetd(Context& ctx) {
 
     if (sh::dry_run()) {
         if (theme_only) {
-            ui::substep("[dry-run] would install regreet css/toml/hyprland.conf "
-                        "+ wallpaper to /etc/greetd/; config.toml and greetd "
-                        "service state left untouched (theme-only)");
+            ui::substep("[dry-run] would install regreet css/toml, hyprland.conf + "
+                        "hyprland.lua, start-greeter.sh + wallpaper to /etc/greetd/; "
+                        "config.toml and greetd service state left untouched (theme-only)");
         } else {
-            ui::substep("[dry-run] would install regreet files + wallpaper to "
-                        "/etc/greetd/, write /etc/greetd/config.toml if stock, "
+            ui::substep("[dry-run] would install regreet files, hyprland.conf + "
+                        "hyprland.lua, start-greeter.sh + wallpaper to /etc/greetd/, "
+                        "point /etc/greetd/config.toml at start-greeter.sh if stock "
+                        "or installer-written (after the greeter config parses), "
                         "enable greetd");
         }
         return;
@@ -153,9 +175,12 @@ void run_greetd(Context& ctx) {
     write_root_inline("/etc/greetd/regreet.toml",
                       retarget_wallpaper(staged / "regreet.toml", wall_path.string()));
     write_root_file(staged / "hyprland.conf",     "/etc/greetd/hyprland.conf",    "644");
+    write_root_file(staged / "hyprland.lua",      "/etc/greetd/hyprland.lua",     "644");
     write_root_file(staged / "select-monitor.sh", "/etc/greetd/select-monitor.sh","755");
+    write_root_file(staged / "start-greeter.sh",  hypr_lua::GREETER_LAUNCHER,     "755");
     write_root_file(wall_src,                     wall_path,                       "644");
-    ui::ok("regreet css/toml/hyprland.conf → /etc/greetd/");
+    ui::ok("regreet css/toml, hyprland.conf + hyprland.lua → /etc/greetd/");
+    ui::ok("greeter launcher → " + std::string(hypr_lua::GREETER_LAUNCHER));
     ui::ok("monitor selector → /etc/greetd/select-monitor.sh");
     ui::ok("login wallpaper → " + wall_path.string());
 
@@ -166,15 +191,19 @@ void run_greetd(Context& ctx) {
     }
 
     fs::path cfg = "/etc/greetd/config.toml";
-    bool stock = !fs::exists(cfg) ||
-                  sh::run({"sh", "-c",
-                           "sudo grep -qE '^command = \"agreety' /etc/greetd/config.toml"}) == 0;
-    if (stock || ctx.force_reapply) {
-        if (write_root_inline(cfg, CONFIG_TOML_BODY)) {
-            ui::ok("/etc/greetd/config.toml (Hyprland greeter session)");
-        }
-    } else {
+    const bool exists = fs::exists(cfg);
+    std::string current;
+    if (exists) sh::capture({"sudo", "cat", cfg.string()}, current);
+    auto action = hypr_lua::greeter_toml_action(current, exists);
+    if (ctx.force_reapply && action == hypr_lua::GreeterToml::Keep) action = hypr_lua::GreeterToml::Write;
+    if (action == hypr_lua::GreeterToml::AlreadyLauncher) {
+        ui::skipped("/etc/greetd/config.toml already starts the greeter launcher");
+    } else if (action == hypr_lua::GreeterToml::Keep) {
         ui::skipped("/etc/greetd/config.toml already customized — leaving as-is");
+    } else if (!greeter_config_parses(staged)) {
+        ui::warn("/etc/greetd/config.toml left as it was — fix the greeter config, then re-run --greetd");
+    } else if (write_root_inline(cfg, CONFIG_TOML_BODY)) {
+        ui::ok("/etc/greetd/config.toml → start-greeter.sh (Hyprland greeter session)");
     }
 
     if (sh::run({"systemctl", "is-enabled", "--quiet", "greetd"}) != 0) {
