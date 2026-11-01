@@ -130,13 +130,19 @@ build_sed_expr() {
         sed_expr+="s|{{${var}_B}}|${b}|g;"
     done
 
-    # String/number variables: just {{VAR}} → value. No escaping needed
-    # now that the delimiter is `|` — values are filenames / palette
-    # strings, none contain `|`.
+    # String/number variables: {{VAR}} → value, copied literally like
+    # fox-render-fast does. sed would otherwise read `\` (MAKO_FORMAT's `\n`
+    # became a real line break), `&` (the matched text) and the `|` delimiter
+    # in a value, so escape those three. Quoted patterns keep bash 5.2's
+    # patsub_replacement from treating `&` specially.
     for var in "${str_vars[@]}"; do
         local val="${!var}"
         [[ -z "$val" ]] && continue
-        sed_expr+="s|{{${var}}}|${val}|g;"
+        local esc=$val
+        esc=${esc//'\'/'\\'}
+        esc=${esc//'&'/'\&'}
+        esc=${esc//'|'/'\|'}
+        sed_expr+="s|{{${var}}}|${esc}|g;"
 
         # Special case: convert *_BG_OPACITY (0.0-1.0) to hex alpha (00-ff).
         # KITTY_BG_OPACITY → {{KITTY_BG_OPACITY_HEX}}  (used by kitty)
