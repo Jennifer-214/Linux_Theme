@@ -5,6 +5,7 @@
 
 # ─── Config ──────────────────────────────────────
 CARAMEL_CMD_THRESHOLD=${CARAMEL_CMD_THRESHOLD:-3}
+CARAMEL_DONE_AFTER=${CARAMEL_DONE_AFTER:-30}   # done note: a command at least this long (s)
 
 # ─── Timer (tracks command execution time) ─────
 
@@ -13,9 +14,42 @@ _caramel_timer_start=0
 function caramel_preexec() {
   zmodload -F zsh/datetime p:EPOCHREALTIME
   _caramel_timer_start=${EPOCHREALTIME}
+  # The command's name for the done note: skip sudo/env-style prefixes, flags, their
+  # numbers and VAR=x assignments, and never keep the arguments (they can hold secrets).
+  # $1 is the typed line; it's empty when history is off, so fall back to $2.
+  local -a w=(${(z)${1:-$2}})
+  while (( $#w )) && [[ $w[1] == (sudo|doas|time|nohup|nice|env|command|builtin|exec|noglob|-*|*=*|<->) ]]; do
+    shift w
+  done
+  _caramel_cmd_name=${w[1]:t}
 }
 
 add-zsh-hook preexec caramel_preexec
+
+# ─── Done note (little details) ─────────────────
+# A ✿ notification when a long command succeeds while you're looking at another
+# window. No note when this terminal (or, in tmux, this pane) is on screen.
+
+function _caramel_done_note() {
+  [[ "{{LITTLE_DETAILS}}" == fox-little-details-on ]] || return
+  [[ -z $SSH_CONNECTION && -n $HYPRLAND_INSTANCE_SIGNATURE ]] || return
+  (( $+commands[notify-send] && $+commands[hyprctl] )) || return
+  [[ $(hyprctl -j activewindow 2>/dev/null) =~ '"pid": ([0-9]+)' ]] || return
+  local apid=$match[1] pid=$$ st
+  if [[ -n $TMUX ]]; then
+    pid=0
+    [[ $(tmux display-message -p -t "$TMUX_PANE" '#{window_active}#{pane_active}' 2>/dev/null) == 11 ]] \
+      && pid=$(tmux display-message -p '#{client_pid}' 2>/dev/null)
+  fi
+  while (( pid > 1 )); do
+    (( pid == apid )) && return
+    [[ -r /proc/$pid/stat ]] || break
+    st=$(</proc/$pid/stat)
+    st=${st##*\) }
+    pid=${${(s: :)st}[2]}
+  done
+  ( notify-send -a fox-done -u low "✿ done" "${_caramel_cmd_name:-command} · $(fmt_elapsed $1)" >/dev/null 2>&1 & )
+}
 
 # ─── Smart path: shorten only when deep (>3 segments) ───
 
@@ -137,6 +171,7 @@ function caramel_precmd() {
     if (( elapsed_int >= CARAMEL_CMD_THRESHOLD )); then
       ELAPSED_PROMPT=" %{%F{{{ANSI_ACCENT1}}}%} $(fmt_elapsed $elapsed_int)%{%f%}"
     fi
+    (( exit_code == 0 && elapsed_int >= CARAMEL_DONE_AFTER )) && _caramel_done_note $elapsed_int
     _caramel_timer_start=0
   fi
 

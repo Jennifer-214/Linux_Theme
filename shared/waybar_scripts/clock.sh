@@ -57,12 +57,43 @@ elif command -v checkupdates >/dev/null 2>&1; then
     fi
 fi
 
+# ── Little details (themes opt in via the rendered palette) ───────
+# The colon becomes a heart when the clock's two halves match (09♡09), and
+# wttr's colour emoji becomes a monochrome glyph that takes the theme's ink.
+_pal="$HOME/.config/hypr/modules/border_colors.sh"
+[[ -r "$_pal" ]] && source "$_pal"
+little=0
+[[ "${C_LITTLE_DETAILS:-}" == fox-little-details-on ]] && little=1
+
+# wttr's condition emoji → glyph + word; anything unrecognised keeps only the
+# temperature, so no colour emoji slips through. VS15 asks for the text form of
+# the glyphs that also exist as emoji.
+ink_weather() {
+    local w="$1" vs=$'\xef\xb8\x8e' glyph word
+    case "$w" in
+        *☀*)       glyph="☼"     word="sunny" ;;
+        *⛅*)      glyph="☁$vs"  word="partly cloudy" ;;
+        *☁*)       glyph="☁$vs"  word="cloudy" ;;
+        *🌫*)      glyph="≋"     word="fog" ;;
+        *⛈*|*🌩*)  glyph="ϟ"     word="storm" ;;
+        *🌧*|*🌦*)  glyph="☂$vs"  word="rain" ;;
+        *❄*|*🌨*)  glyph="❄$vs"  word="snow" ;;
+        *)         printf '%s' "${w##* }"; return ;;
+    esac
+    printf '%s %s, %s' "$glyph" "$word" "${w##* }"
+}
+
 # ── Output ────────────────────────────────────────────────────────
 text=$(date +"  %a %b %d  %I:%M %p")
+if (( little )) && [[ $text =~ ([0-9]{2}):([0-9]{2}) ]] \
+        && [[ ${BASH_REMATCH[1]} == "${BASH_REMATCH[2]}" ]]; then
+    text=${text/"${BASH_REMATCH[0]}"/"${BASH_REMATCH[1]}♡${BASH_REMATCH[2]}"}
+fi
+(( little )) && weather=$(ink_weather "$weather")
 today=$(date +"%A, %B %-d %Y")
 
 # Manual JSON: sources only emit safe chars (digits, ASCII words, weather
-# emoji + temperature). \\n in the tooltip becomes a real newline in
+# emoji or glyph + temperature). \\n in the tooltip becomes a real newline in
 # Waybar's pango-rendered output.
 tooltip="$today\\n\\n  Weather: $weather\\n  Updates: $updates pending"
 

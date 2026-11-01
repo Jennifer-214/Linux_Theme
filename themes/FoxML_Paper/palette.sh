@@ -43,6 +43,8 @@ HYPR_BORDER_SIZE=1
 HYPR_BORDER_INACTIVE=9a989488
 HYPR_SHADOW_ALPHA_INACTIVE=0.08
 HYPR_DIM_STRENGTH=0.05
+# Workspace switch: a short vertical slide-fade, like flipping a top-bound notepad.
+HYPR_WS_ANIM='slidefadevert 20%'
 # Comments (italic) in Monaspace Radon: handwriting beside the typed code.
 KITTY_ITALIC_FONT="MonaspiceRn Nerd Font"
 KITTY_DIM_OPACITY=0.7
@@ -271,11 +273,18 @@ ANSI_BLUE=55555a
 ANSI_BLUE_BRIGHT=6e6d70
 TMUX_FOOTER_ACTIVE=7c7a76
 TMUX_FOOTER_INACTIVE=249
-TMUX_MARK_ACTIVE=·
+TMUX_MARK_ACTIVE=✎
 TMUX_MARK_INACTIVE=·
 TMUX_SEP=·
+# The active pane's footer: a pencil mark on the pink highlighter, like the line you're writing on.
+TMUX_FOOTER_HIGHLIGHT=fox-tmux-hl-on
 
 WELCOME_LAYOUT=centered
+
+# Little hidden touches: the bar clock's colon becomes a heart when its two halves match
+# (09♡09), the weather reads as a monochrome glyph, and a ✿ notification arrives when a
+# long command succeeds while you're looking elsewhere. Other themes: fox-little-details-off.
+LITTLE_DETAILS=fox-little-details-on
 
 # ─── Cohesive surfaces (lock screen · mako · rofi · btop · lazygit · fzf · nvim floats) ───
 # Paper: one hairline (c8c5be) for every frame, the pink highlighter for every selection,
@@ -293,6 +302,11 @@ HYPRLOCK_INPUT_BORDER=c8c5beff
 HYPRLOCK_PLACEHOLDER=2b2b2d55
 HYPRLOCK_FAIL=9a5a48
 HYPRLOCK_CAPS=1c1c1e
+# Date as a code tag, like the // [SECTION] banners in the code.
+HYPRLOCK_DATE_TEXT='cmd[update:60000] date +"// [DATE] [%Y-%m-%d] [%^a]"'
+# A handwritten sign-off under the password field (other themes park it off-screen).
+HYPRLOCK_NOTE='<i>see you soon ♡</i>'
+HYPRLOCK_NOTE_Y=-140
 MAKO_BORDER=c8c5be
 MAKO_CRIT_BORDER=9a5a48
 MAKO_AGENT_BORDER=9a9894
