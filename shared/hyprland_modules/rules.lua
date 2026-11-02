@@ -107,10 +107,12 @@ hl.window_rule({
 -- Firefox's ARGB-visual video bug (mozilla #1568569). Tune the values:
 -- first = focused, second = unfocused.
 -- ─────────────────────────────────────────
+-- Opaque: Hyprland's window opacity also fades Firefox's menus, panels and tooltips (they
+-- draw inside the window), so translucency made them unreadable over busy pages.
 hl.window_rule({
     name = "firefox-opacity",
     match = { class = "^(firefox)$" },
-    opacity = "0.9 0.85",
+    opacity = "1.0 1.0",
 })
 
 -- ─────────────────────────────────────────

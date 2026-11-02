@@ -521,11 +521,20 @@ notification {
 }
 
 /* ===== Tooltips ===== */
+/* appearance: none — with the native GTK look Firefox ignores background and
+   color here, so tooltips came out as a faint, see-through box. */
 tooltip {
+  appearance: none !important;
   background: var(--fox-bg) !important;
   color: var(--fox-fg) !important;
   border: 1px solid var(--fox-frame) !important;
   border-radius: var(--fox-radius-sm) !important;
+  padding: 4px 8px !important;
+}
+tooltip description,
+tooltip label,
+tooltip .tooltip-label {
+  color: var(--fox-fg) !important;
 }
 
 /* ===== Catch-all for remaining elements ===== */
@@ -602,4 +611,59 @@ tooltip {
 {{FF_EXTRA_SCOPE}} #urlbar .urlbarView-favicon[src^="chrome:"] {
   fill: #{{PRIMARY}} !important;
   color: #{{PRIMARY}} !important;
+}
+
+/* One accent: graphite ink for primary buttons, focus rings and links in the
+   chrome, instead of the GTK system blue (AccentColor) Firefox falls back to. */
+{{FF_EXTRA_SCOPE}} {
+  --color-accent-primary: #{{PRIMARY}} !important;
+  --color-accent-primary-hover: #{{FG}} !important;
+  --color-accent-primary-active: #{{FG}} !important;
+  --focus-outline-color: #{{FG_DIM}} !important;
+  --toolbar-field-focus-border-color: #{{FG_DIM}} !important;
+  --button-background-color-primary: #{{FG}} !important;
+  --button-background-color-primary-hover: #{{PRIMARY}} !important;
+  --button-background-color-primary-active: #{{PRIMARY}} !important;
+  --button-text-color-primary: #{{BG}} !important;
+  --button-text-color-primary-hover: #{{BG}} !important;
+  --button-text-color-primary-active: #{{BG}} !important;
+}
+
+/* App menu rows take the same highlighter as every other menu */
+{{FF_EXTRA_SCOPE}} .subviewbutton:not([disabled]):hover,
+{{FF_EXTRA_SCOPE}} .subviewbutton[_moz-menuactive="true"]:not([disabled]) {
+  background: {{FF_MENU_ROW}} !important;
+  color: #{{FG}} !important;
+}
+
+/* Sign-in promo and update banner: a plain paper card, not lavender */
+{{FF_EXTRA_SCOPE}} #appMenu-fxa-sign-in-promo,
+{{FF_EXTRA_SCOPE}} .panel-banner-item {
+  background: #{{BG_ALT}} !important;
+  color: #{{FG}} !important;
+  border: 1px solid var(--fox-frame) !important;
+  border-radius: var(--fox-radius-sm) !important;
+}
+{{FF_EXTRA_SCOPE}} #appMenu-fxa-sign-in-promo * {
+  color: #{{FG}} !important;
+}
+
+/* Extensions panel art in pencil grey, like the about: page illustrations */
+{{FF_EXTRA_SCOPE}} .extensions-onboardingpanel-state {
+  filter: grayscale(1) opacity(0.85) !important;
+}
+
+/* Vertical tabs: the current tab on the highlighter, a quiet hover, and a
+   hairline between the tab strip and the page */
+{{FF_EXTRA_SCOPE}} #tabbrowser-tabs[orient="vertical"] .tabbrowser-tab[selected] .tab-background {
+  background: #{{SELECTION}} !important;
+  box-shadow: none !important;
+  border-radius: var(--fox-radius) !important;
+}
+{{FF_EXTRA_SCOPE}} #tabbrowser-tabs[orient="vertical"] .tabbrowser-tab:not([selected]):hover .tab-background {
+  background: #{{BG_ALT}} !important;
+  border-radius: var(--fox-radius) !important;
+}
+{{FF_EXTRA_SCOPE}} #sidebar-main {
+  border-inline-end: 1px solid var(--fox-frame) !important;
 }

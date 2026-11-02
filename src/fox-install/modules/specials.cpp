@@ -164,48 +164,47 @@ void do_firefox(const Context& ctx) {
             ui::substep(std::string("Firefox ") + css);
         }
     }
-    // Set the legacy stylesheet pref via user.js — read on every launch
-    // and wins over prefs.js, so this stays correct even if Firefox
-    // rewrites prefs.
+    // Prefs user.js enforces — it's read on every launch and wins over
+    // prefs.js, so these stay put even if Firefox rewrites prefs: the legacy
+    // stylesheet switch (userChrome/userContent) and the built-in vertical tabs.
+    static const std::pair<const char*, const char*> PREFS[] = {
+        {"toolkit.legacyUserProfileCustomizations.stylesheets", "true"},
+        {"sidebar.revamp", "true"},
+        {"sidebar.verticalTabs", "true"},
+    };
     fs::path userjs = profile / "user.js";
-    const std::string key = "toolkit.legacyUserProfileCustomizations.stylesheets";
-    const std::string pref = "user_pref(\"" + key + "\", true);";
-    
     std::ifstream existing(userjs);
     std::string body((std::istreambuf_iterator<char>(existing)),
                       std::istreambuf_iterator<char>());
     existing.close();
 
-    bool needs_update = false;
-    size_t pos = body.find(key);
-    if (pos == std::string::npos) {
-        // Missing entirely
-        body += "\n// FoxML theming\n" + pref + "\n";
-        needs_update = true;
-    } else {
-        // Check if it's set to false
-        size_t line_start = body.rfind("\n", pos);
-        if (line_start == std::string::npos) line_start = 0;
-        else line_start++;
-        
-        size_t line_end = body.find("\n", pos);
+    bool changed = false;
+    for (const auto& [key, value] : PREFS) {
+        const std::string pref = std::string("user_pref(\"") + key + "\", " + value + ");";
+        const size_t pos = body.find(std::string("\"") + key + "\"");
+        if (pos == std::string::npos) {
+            if (body.find("// FoxML theming") == std::string::npos) body += "\n// FoxML theming\n";
+            body += pref + "\n";
+            changed = true;
+            continue;
+        }
+        size_t line_start = body.rfind('\n', pos);
+        line_start = (line_start == std::string::npos) ? 0 : line_start + 1;
+        size_t line_end = body.find('\n', pos);
         if (line_end == std::string::npos) line_end = body.size();
-        
-        std::string line = body.substr(line_start, line_end - line_start);
-        if (line.find("false") != std::string::npos) {
+        if (body.compare(line_start, line_end - line_start, pref) != 0) {
             body.replace(line_start, line_end - line_start, pref);
-            needs_update = true;
+            changed = true;
         }
     }
-
-    if (needs_update) {
+    if (changed) {
         fs::path tmp = userjs;
         tmp += ".tmp";
         std::ofstream out(tmp);
         out << body;
         out.close();
         fs::rename(tmp, userjs);
-        ui::substep("Firefox user.js (legacy stylesheet pref forced true)");
+        ui::substep("Firefox user.js (stylesheets on, vertical tabs)");
     }
     // Restart Firefox so the new CSS loads. Session restore brings tabs
     // back on relaunch. Skipped silently if not running.
