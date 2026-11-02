@@ -42,6 +42,8 @@ void run_drawer(Context& ctx) {
         return false;
     };
     if (!deploy(backend / "fox-drawer", ctx.home / ".local/bin/fox-drawer")) return;
+    const auto bar_state = ctx.config_home / "waybar/drawer-state.css";
+    if (!fs::exists(bar_state) && !deploy(ctx.templates_dir / "waybar/drawer-state.css", bar_state)) return;
     bool ok = true;
     std::error_code ec;
     const auto shared = ctx.shared_dir / "quickshell/foxml";

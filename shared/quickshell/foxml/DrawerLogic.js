@@ -47,3 +47,16 @@ function valueText(item, editing, draft) {
     if (item.kind === "page") return "›";
     return "↵";
 }
+
+function barStyle(opened, page, group) {
+    var css = "/* Generated drawer state; no user settings. */\n";
+    if (!opened) return css;
+    var selectors = ["#custom-logo"];
+    if (page === "updates") selectors.push("#custom-updates");
+    else if (page === "power") selectors.push("#power-profiles-daemon");
+    else if (group === "sound" || page === "sound" || page === "audio-outputs") selectors.push("#custom-battery", "#custom-media");
+    else if (group === "connections" || page === "connections" || page === "wifi" || page === "bluetooth") selectors.push("#custom-net_speed");
+    else if (group === "comfort" || page === "comfort") selectors.push("#power-profiles-daemon", "#idle_inhibitor");
+    else if (group === "system" || page === "system") selectors.push("#custom-system_health");
+    return css + selectors.join(", ") + " { box-shadow: inset 0 -1px @peach; }\n";
+}

@@ -20,6 +20,7 @@ class BatteryDoodleTests(unittest.TestCase):
         self.battery.mkdir(parents=True)
         self.adapter.mkdir()
         self.bin = self.base / "bin"
+        self.config = self.base / "config"
         self.bin.mkdir()
         for name, body in {
             "pactl": '#!/bin/sh\ncase "$1" in get-sink-volume) echo "Volume: 50%";; get-sink-mute) echo "Mute: no";; esac\n',
@@ -38,7 +39,7 @@ class BatteryDoodleTests(unittest.TestCase):
             (self.battery / name).write_text(str(value))
         (self.adapter / "type").write_text("Mains")
         (self.adapter / "online").write_text("1" if connected else "0")
-        env = os.environ | {"PATH": str(self.bin) + os.pathsep + os.defpath, "XDG_RUNTIME_DIR": str(self.base)}
+        env = os.environ | {"PATH": str(self.bin) + os.pathsep + os.defpath, "XDG_RUNTIME_DIR": str(self.base), "HOME": str(self.base), "XDG_CONFIG_HOME": str(self.config), "C_DETAIL_ACCENT": ""}
         result = subprocess.run(["/bin/bash",str(self.script)],env=env,capture_output=True,text=True,check=True)
         return json.loads(result.stdout)
 
@@ -53,6 +54,24 @@ class BatteryDoodleTests(unittest.TestCase):
         self.assertNotIn("♡", state["text"])
         self.assertEqual(state["class"], "plugged")
         self.assertIn("holding at 80%", state["tooltip"])
+
+    def test_only_heart_uses_rendered_palette_accent(self):
+        palette = self.config / "hypr/modules/border_colors.sh"
+        palette.parent.mkdir(parents=True)
+        palette.write_text('export C_DETAIL_ACCENT="ab12cd"\n')
+        state = self.read_state("Charging")
+        self.assertTrue(state["text"].startswith("󰚥 <span foreground='#ab12cd'>♡</span> "))
+        self.assertEqual(state["text"].count('<span'), 1)
+        self.assertIn('80% +10W',state['text'])
+        self.assertNotIn('<span',state['tooltip'])
+
+    def test_unusable_palette_accent_keeps_plain_heart(self):
+        palette = self.config / "hypr/modules/border_colors.sh"
+        palette.parent.mkdir(parents=True)
+        palette.write_text('export C_DETAIL_ACCENT="not-a-color"\n')
+        state = self.read_state("Charging")
+        self.assertTrue(state["text"].startswith("󰚥 ♡ "))
+        self.assertNotIn('<span',state['text'])
 
     def test_unplugged_critical_still_has_critical_class(self):
         state = self.read_state("Discharging", capacity=5, connected=False)

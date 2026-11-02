@@ -37,6 +37,7 @@ inline constexpr Mapping TEMPLATE_MAPPINGS[] = {
     // Waybar — style.css has __SIZE__ tokens; start_waybar.sh substitutes
     // at launch based on monitor scale. Deploy as .tmpl.
     { "waybar/style.css",             "~/.config/waybar/style.css.tmpl" },
+    { "waybar/drawer-state.css",      "~/.config/waybar/drawer-state.css" },
     { "waybar/config",                "~/.config/waybar/config.tmpl" },
     { "waybar/config_secondary",      "~/.config/waybar/config_secondary.tmpl" },
 

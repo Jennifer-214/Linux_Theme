@@ -205,16 +205,17 @@ _pal="$HOME/.config/hypr/modules/border_colors.sh"
 [[ -r "$_pal" ]] && source "$_pal"
 RED="#${C_SENTRY_CRIT:-b05555}"; YEL="#${C_SENTRY_WARN:-c4b48a}"
 GRN="#${C_SENTRY_OK:-7aab88}"; DIM="#${C_SENTRY_DIM:-8a8a8a}"
+shield="󰒃"; warning="󰀦"
 
 case "$class" in
     critical)
-        text="<span color='${RED}' weight='bold'>󰀦 ${#crits[@]}</span><span color='${DIM}'> · </span><span color='${GRN}'>🛡 ${#oks[@]}</span>"
+        text="<span color='${RED}' weight='bold'>$warning ${#crits[@]}</span><span color='${DIM}'> · </span><span color='${GRN}'>$shield ${#oks[@]}</span>"
         ;;
     warning)
-        text="<span color='${YEL}' weight='bold'>⚠ ${#warns[@]}</span><span color='${DIM}'> · </span><span color='${GRN}'>🛡 ${#oks[@]}</span>"
+        text="<span color='${YEL}' weight='bold'>$warning ${#warns[@]}</span><span color='${DIM}'> · </span><span color='${GRN}'>$shield ${#oks[@]}</span>"
         ;;
     ok)
-        text="<span color='${GRN}' weight='bold'>󰒃 ${#oks[@]}</span>"
+        text="<span color='${GRN}'>$shield ${#oks[@]}</span>"
         ;;
 esac
 

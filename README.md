@@ -263,6 +263,17 @@ the legacy `update.sh` capture list does not include Codex.
 and System. Existing menu shortcuts and the Waybar launcher open the same drawer;
 `fox-desktop-menu wifi` or `fox-desktop-menu sound` opens a section directly.
 Waybar retains its modules and actions with a continuous palette-colored surface.
+An open drawer puts a thin pencil underline beneath the launcher and its related
+bar module. Quickshell updates `~/.config/waybar/drawer-state.css` only when the
+drawer changes; Waybar's built-in stylesheet watcher applies it without restarting
+the bar or adding a polling process. Closing the drawer clears the marker.
+Hover and press feedback changes only the paper shade or pencil outline; controls
+keep their position and size. The pink active-workspace fill remains visible on hover.
+Drawer surfaces use quiet paper shades, with a faint highlighter wash on focused
+items. Bookmark ribbons, the focus edge and the charging heart follow the existing
+workspace accent; battery numbers stay graphite. The active workspace keeps its
+soft highlighter fill, and warning colors are retained. Control symbols share the existing font,
+size and pencil weight; status glows and the repeating battery pulse are removed.
 Group subtitles show live volume, active connection, notification state, open
 window count and cached updates. They refresh every four seconds while the
 panel is open, with no polling while it is closed.

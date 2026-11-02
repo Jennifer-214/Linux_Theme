@@ -16,3 +16,5 @@ export C_SENTRY_OK="{{SENTRY_OK}}"
 export C_SENTRY_DIM="{{SENTRY_DIM}}"
 # Paper's little details (clock.sh: heart colon + monochrome weather glyph)
 export C_LITTLE_DETAILS="{{LITTLE_DETAILS}}"
+# Small desktop details follow the workspace accent.
+export C_DETAIL_ACCENT="{{WAYBAR_WS_ACTIVE}}"

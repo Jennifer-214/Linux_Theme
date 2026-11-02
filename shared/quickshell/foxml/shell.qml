@@ -35,8 +35,34 @@ ShellRoot {
     property var nextView: null
     property var nextAction: null
     property string backend: Quickshell.env("FOXML_DRAWER_BACKEND") || "fox-drawer"
+    property string barStatePath: Quickshell.env("FOXML_DRAWER_BAR_STATE") || (Quickshell.env("FOXML_DRAWER_PREVIEW") === "1" ? ""
+        : (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/waybar/drawer-state.css")
+    property string lastBarStyle: ""
+
+    onOpenedChanged: barWrite.restart()
+    onPageChanged: barWrite.restart()
+    onGroupIdChanged: barWrite.restart()
+
+    function syncBar(closing) {
+        if (!barStatePath) return;
+        var css = Logic.barStyle(closing ? false : opened, page, groupId);
+        if (css === lastBarStyle) return;
+        barStyle.setText(css);
+        lastBarStyle = css;
+    }
 
     Theme { id: theme }
+
+    FileView {
+        id: barStyle
+        path: root.barStatePath
+        preload: false
+        atomicWrites: true
+        blockWrites: true
+        printErrors: false
+        onSaveFailed: error => console.warn("Could not update the Waybar drawer marker:", error)
+    }
+    Timer { id: barWrite; interval: 40; onTriggered: root.syncBar(false) }
 
     function backendCommand(args) {
         return [backend].concat(["--config", Quickshell.shellPath("menus.json")]).concat(args);
@@ -45,6 +71,10 @@ ShellRoot {
     function note(text, error) {
         message = text;
         failed = error === true;
+    }
+
+    function buttonShade(pressed, hovered) {
+        return pressed ? Qt.alpha(theme.line, .4) : hovered ? Qt.alpha(theme.surface, .6) : "transparent";
     }
 
     function remember() {
@@ -485,9 +515,10 @@ ShellRoot {
                         Item { Layout.fillWidth: true }
                         ToolButton {
                             text: "♡"
+                            implicitWidth: 28; implicitHeight: 28; padding: 0
                             font.family: theme.fontFamily
                             palette.buttonText: theme.ink
-                            background: Item {}
+                            background: Rectangle { color: root.buttonShade(parent.down, parent.hovered); radius: 3 }
                             onClicked: root.show("root")
                             Accessible.name: "Pinned favorites (f)"
                             ToolTip.visible: hovered
@@ -497,9 +528,10 @@ ShellRoot {
                         Text { textFormat: Text.PlainText; text: root.actionBusy ? "WORKING" : root.searching ? "SEARCH" : root.editing ? "ADJUST" : "NORMAL"; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9 }
                         ToolButton {
                             text: "×"
+                            implicitWidth: 28; implicitHeight: 28; padding: 0
                             font.pixelSize: 19
                             palette.buttonText: theme.muted
-                            background: Item {}
+                            background: Rectangle { color: root.buttonShade(parent.down, parent.hovered); radius: 3 }
                             onClicked: root.hide()
                             Accessible.name: "Close drawer"
                         }
@@ -550,14 +582,14 @@ ShellRoot {
                                 width: groupList.width
                                 height: 65
                                 radius: 4
-                                color: index === root.groupIndex && (root.page !== "root" || root.focusArea === "groups") ? Qt.alpha(theme.selection, root.focusArea === "groups" ? theme.selectionOpacity : theme.selectionOpacity * .45) : "transparent"
+                                color: groupMouse.pressed ? Qt.alpha(theme.line, .35) : index === root.groupIndex && (root.page !== "root" || root.focusArea === "groups") ? (root.focusArea === "groups" ? theme.focusFill : Qt.alpha(theme.selection, theme.selectionOpacity * .45)) : root.buttonShade(false, groupMouse.containsMouse)
                                 border.width: index === root.groupIndex && root.focusArea === "groups" ? 1 : 0
                                 border.color: theme.line
                                 RowLayout {
                                     anchors.fill: parent
-                                    anchors.margins: 11
+                                    anchors.margins: 12
                                     spacing: 10
-                                    Text { textFormat: Text.PlainText; text: Logic.symbol(modelData); color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 19; Layout.preferredWidth: 23 }
+                                    Text { textFormat: Text.PlainText; text: Logic.symbol(modelData); color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 16; font.weight: Font.Normal; Layout.preferredWidth: 24 }
                                     ColumnLayout {
                                         Layout.fillWidth: true
                                         spacing: 3
@@ -651,9 +683,9 @@ ShellRoot {
                                         property bool card: modelData.presentation === "project" || modelData.presentation === "library" || modelData.presentation === "download"
                                         height: card ? 94 : modelData.kind === "slider" ? 91 : modelData.image ? 80 : 72
                                         radius: 4
-                                        color: selected ? Qt.alpha(theme.selection, theme.selectionOpacity) : card ? theme.surface : "transparent"
-                                        border.width: selected || card ? 1 : 0
-                                        border.color: theme.line
+                                        color: itemMouse.pressed ? Qt.alpha(theme.line, .35) : selected ? theme.focusFill : card ? theme.surface : root.buttonShade(false, itemMouse.containsMouse)
+                                        border.width: selected || card || itemMouse.containsMouse ? 1 : 0
+                                        border.color: itemMouse.pressed ? theme.muted : theme.line
                                         opacity: modelData.enabled === false ? .48 : 1
                                         Text {
                                             visible: itemRow.card
@@ -668,7 +700,7 @@ ShellRoot {
                                             anchors.bottomMargin: 11; anchors.leftMargin: 48; anchors.rightMargin: 12
                                             height: 1; color: theme.line; opacity: .6
                                         }
-                                        Rectangle { visible: selected; width: 2; anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom; color: theme.accent; radius: 1 }
+                                        Rectangle { visible: selected; width: 2; anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom; color: theme.detailAccent; radius: 1 }
                                         RowLayout {
                                             anchors.fill: parent
                                             anchors.margins: 12
@@ -683,7 +715,7 @@ ShellRoot {
                                                 fillMode: Image.PreserveAspectFit
                                                 asynchronous: true
                                             }
-                                            Text { textFormat: Text.PlainText; visible: !modelData.image && !itemRow.menuIcon; text: Logic.symbol(modelData); color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 19; Layout.preferredWidth: visible ? 24 : 0 }
+                                            Text { textFormat: Text.PlainText; visible: !modelData.image && !itemRow.menuIcon; text: Logic.symbol(modelData); color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 16; font.weight: Font.Normal; Layout.preferredWidth: visible ? 24 : 0 }
                                             ColumnLayout {
                                                 Layout.fillWidth: true
                                                 spacing: 4
@@ -708,12 +740,15 @@ ShellRoot {
                                                     color: "transparent"; border.width: 1; border.color: theme.muted
                                                     Rectangle { width: 8; height: 8; radius: 4; y: 4; x: modelData.checked || modelData.active ? 17 : 4; color: theme.ink; Behavior on x { NumberAnimation { duration: 100 } } }
                                                 }
-                                                Text { textFormat: Text.PlainText; visible: modelData.kind !== "toggle"; text: Logic.valueText(modelData, root.editing && selected, root.draftValue); color: theme.ink; font.family: theme.fontFamily; font.pixelSize: modelData.kind === "page" ? 21 : 11; Layout.alignment: Qt.AlignRight }
+                                                Text { textFormat: Text.PlainText; visible: modelData.kind !== "toggle"; text: Logic.valueText(modelData, root.editing && selected, root.draftValue); color: theme.ink; font.family: theme.fontFamily; font.pixelSize: modelData.kind === "page" ? 18 : 11; Layout.alignment: Qt.AlignRight }
                                                 Text { textFormat: Text.PlainText; visible: modelData.kind === "toggle" || modelData.kind === "slider"; text: modelData.kind === "slider" ? (root.editing && selected ? "h / l" : "edit ↵") : Logic.valueText(modelData, false, 0); color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 8; Layout.alignment: Qt.AlignRight }
                                             }
                                         }
                                         MouseArea {
+                                            id: itemMouse
                                             anchors.fill: parent
+                                            hoverEnabled: true
+                                            enabled: modelData.enabled !== false
                                             cursorShape: modelData.enabled === false ? Qt.ArrowCursor : Qt.PointingHandCursor
                                             onClicked: { root.itemIndex = index; root.focusArea = "items"; root.activate(modelData); keyboard.forceActiveFocus(); }
                                         }
@@ -723,7 +758,7 @@ ShellRoot {
                                             width: 12; height: 23
                                             onPaint: {
                                                 var ctx = getContext("2d"); ctx.clearRect(0, 0, width, height);
-                                                ctx.fillStyle = theme.accent;
+                                                ctx.fillStyle = theme.detailAccent;
                                                 ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(width, 0);
                                                 ctx.lineTo(width, height); ctx.lineTo(width / 2, height - 5);
                                                 ctx.lineTo(0, height); ctx.closePath(); ctx.fill();
@@ -736,8 +771,8 @@ ShellRoot {
                                             width: 23; height: 23
                                             text: modelData.presentation === "library" ? "⏏" : modelData.bookmarked ? "◆" : "◇"
                                             font.pixelSize: 12
-                                            background: Rectangle { color: parent.hovered ? theme.line : "transparent"; radius: 3 }
-                                            contentItem: Text { text: parent.text; color: theme.ink; font: parent.font; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                                            background: Rectangle { color: root.buttonShade(parent.down, parent.hovered); radius: 3 }
+                                            contentItem: Text { text: parent.text; color: modelData.presentation === "project" && modelData.bookmarked ? theme.detailAccent : theme.ink; font: parent.font; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                                             Accessible.name: modelData.presentation === "library" ? "Eject drive (e)" : "Toggle bookmark ribbon (b)"
                                             ToolTip.visible: hovered
                                             ToolTip.text: Accessible.name
@@ -797,6 +832,8 @@ ShellRoot {
     }
 
     Component.onCompleted: {
+        barWrite.restart();
         if (Quickshell.env("FOXML_DRAWER_PREVIEW") === "1") show("sound");
     }
+    Component.onDestruction: syncBar(true)
 }

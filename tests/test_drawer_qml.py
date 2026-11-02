@@ -19,6 +19,7 @@ EXERCISE = r'''
         interval: 700; running: true
         onTriggered: {
             if (root.groups.length !== 5 || root.entries.length !== 3) throw new Error("views missing");
+            if (!barStyle.text().includes("#custom-battery")) throw new Error("sound drawer did not mark the bar");
             root.step(1);
             if (root.itemIndex !== 1) throw new Error("j does not advance");
             root.step(1);
@@ -75,6 +76,7 @@ EXERCISE = r'''
     Timer {
         interval: 2700; running: true
         onTriggered: {
+            if (barStyle.text().includes("#custom-logo")) throw new Error("hidden drawer left its bar marker active");
             root.opened = true;
             root.page = "projects";
             root.focusArea = "items";
@@ -158,6 +160,7 @@ class DrawerQmlTest(unittest.TestCase):
                 "XDG_STATE_HOME": str(directory / "state"), "QS_NO_RELOAD_POPUP": "1",
                 "FOXML_DRAWER_PREVIEW": "1", "FOXML_DRAWER_BACKEND": str(ROOT / "tests/drawer-ui-backend.py"),
                 "FOXML_DRAWER_TEST_LOG": str(actions),
+                "FOXML_DRAWER_BAR_STATE": str(directory / "drawer-state.css"),
             }
             env.pop("WAYLAND_DISPLAY", None)
             result = subprocess.run(["quickshell", "--path", str(directory), "--no-color"],
@@ -167,6 +170,8 @@ class DrawerQmlTest(unittest.TestCase):
             self.assertIn("DRAWER_UI_ASSERTIONS_PASSED", log)
             self.assertNotIn("TypeError", log)
             self.assertNotIn("ReferenceError", log)
+            self.assertNotIn("Could not update the Waybar drawer marker", log)
+            self.assertNotIn("#custom-logo", (directory / "drawer-state.css").read_text())
             self.assertEqual([json.loads(line) for line in actions.read_text().splitlines()],
                              [["run", "volume", "47"], ["run", "project-terminal", "/a literal project"],
                               ["run", "project-bookmark", "/a literal project"], ["run", "drive-eject", "/dev/sda", "--confirm"],

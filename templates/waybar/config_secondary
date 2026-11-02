@@ -1,6 +1,7 @@
 {
   "layer": "top",
   "position": "top",
+  "reload_style_on_change": true,
   "height": __HEIGHT__,
   "margin": "__MARGIN_BAR__",
 

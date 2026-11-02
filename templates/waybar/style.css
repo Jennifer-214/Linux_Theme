@@ -1,3 +1,5 @@
+@import "drawer-state.css";
+
 /* ╭──────────────────────────────────────────────────────────────────╮ */
 /* │                    Fox ML Waybar Theme                          │ */
 /* ╰──────────────────────────────────────────────────────────────────╯ */
@@ -24,7 +26,7 @@
 @define-color bubble       rgba({{BG_R}},{{BG_G}},{{BG_B}}, {{WAYBAR_BUBBLE_ALPHA}});
 @define-color bubble_hover rgba({{SURFACE_R}},{{SURFACE_G}},{{SURFACE_B}}, {{KITTY_BG_OPACITY}});
 @define-color border       #{{ROFI_BORDER}};
-@define-color selection    #{{SELECTION}};
+@define-color selection    #{{BG_HIGHLIGHT}};
 
 /* Size tokens (__FONT_BASE__, __FONT_LOGO__, __FONT_STATS__, __PAD_WIN__,
    __PAD_MOD__, __MARGIN_MOD__) are substituted by start_waybar.sh based on
@@ -84,7 +86,7 @@ window#waybar > box {
    typography is uniform. */
 #custom-ai_status {
     font-size: __FONT_STATS__pt;
-    font-weight: bold;
+    font-weight: normal;
     letter-spacing: 0.5px;
 }
 
@@ -128,7 +130,7 @@ window#waybar > box {
     margin: 0;
 }
 
-/* Workspace tabs share the bar's sheet; the selected tab gets the palette's highlighter.
+/* Workspace tabs share the bar's sheet; the selected tab gets a paper shade and a fine accent.
    Workspace buttons wrap their text in a child GtkLabel,
    and the universal `* { color: @fg }` rule above selects that label
    directly (specificity ties resolve in `*`'s favor for the label
@@ -157,7 +159,7 @@ window#waybar > box {
 }
 
 #workspaces button.active {
-    background-color: @selection;
+    background-color: #{{SELECTION}};
     border-bottom-color: #{{WAYBAR_WS_ACTIVE}};
     box-shadow: none;
 }
@@ -185,6 +187,17 @@ window#waybar > box {
     text-shadow: none;
 }
 
+/* Press feedback changes pencil pressure, without changing the tab's geometry. */
+#workspaces button:active {
+    background-color: @selection;
+    box-shadow: inset 0 0 0 1px @peach;
+}
+
+#workspaces button.active:hover,
+#workspaces button.active:active {
+    background-color: #{{SELECTION}};
+}
+
 /* ─────────────────────────────────────────
    Info Modules
    ───────────────────────────────────────── */
@@ -206,12 +219,12 @@ window#waybar > box {
 
 #custom-security.warning {
     color: #{{WAYBAR_WARN}};
-    text-shadow: 0 0 6px rgba({{WAYBAR_WARN_R}},{{WAYBAR_WARN_G}},{{WAYBAR_WARN_B}}, 0.4);
+    text-shadow: none;
 }
 
 #custom-security.critical {
     color: #{{WAYBAR_CRIT}};
-    text-shadow: 0 0 6px rgba({{WAYBAR_CRIT_R}},{{WAYBAR_CRIT_G}},{{WAYBAR_CRIT_B}}, 0.5);
+    text-shadow: none;
 }
 
 #custom-overwatch {
@@ -220,7 +233,7 @@ window#waybar > box {
 
 #custom-overwatch.alert {
     color: #{{WAYBAR_WARN}};
-    text-shadow: 0 0 6px rgba({{WAYBAR_WARN_R}},{{WAYBAR_WARN_G}},{{WAYBAR_WARN_B}}, 0.4);
+    text-shadow: none;
 }
 
 /* Sentry: inherit the standard @bubble background + @border from the
@@ -244,23 +257,23 @@ window#waybar > box {
 
 #custom-ai_status.fast {
     color: @peach;
-    text-shadow: 0 0 6px rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}}, 0.4);
+    text-shadow: none;
 }
 
 #custom-ai_status.smart {
     color: @peach;
-    text-shadow: 0 0 6px rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}}, 0.45);
+    text-shadow: none;
 }
 
 #custom-ai_status.expert {
     color: @peach;
-    text-shadow: 0 0 8px rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}}, 0.5);
+    text-shadow: none;
 }
 
 /* The NVIDIA driver was updated without a reboot (fox-ai-status): amber, like the other warnings. */
 #custom-ai_status.warning {
     color: #{{WAYBAR_WARN}};
-    text-shadow: 0 0 6px rgba({{WAYBAR_WARN_R}},{{WAYBAR_WARN_G}},{{WAYBAR_WARN_B}}, 0.4);
+    text-shadow: none;
 }
 
 #custom-net_speed {
@@ -275,9 +288,9 @@ window#waybar > box {
     font-family: "{{HYPRLOCK_CLOCK_FONT}}", monospace;
     font-style: italic;
     font-weight: normal;
-    background-color: @selection;
+    background-color: transparent;
     border: 1px solid @border;
-    border-top: 2px solid #{{WAYBAR_WS_ACTIVE}};
+    border-top: 1px solid @border;
     border-radius: 1px 1px 6px 6px;
     text-shadow: none;
 }
@@ -307,13 +320,13 @@ window#waybar > box {
 #custom-updates.mid {
     /* Meaningful backlog or week-old sync — amber warning. */
     color: #{{WAYBAR_UPD_MID}};
-    text-shadow: 0 0 6px rgba({{WAYBAR_UPD_MID_R}},{{WAYBAR_UPD_MID_G}},{{WAYBAR_UPD_MID_B}}, 0.4);
+    text-shadow: none;
 }
 
 #custom-updates.high {
     /* Large backlog or month-old sync — critical, act now. */
     color: #{{WAYBAR_UPD_HIGH}};
-    text-shadow: 0 0 8px rgba({{WAYBAR_UPD_HIGH_R}},{{WAYBAR_UPD_HIGH_G}},{{WAYBAR_UPD_HIGH_B}}, 0.5);
+    text-shadow: none;
 }
 
 /* ─────────────────────────────────────────
@@ -336,7 +349,7 @@ window#waybar > box {
 
 /* Severity states stay borderless so the shared group bubble keeps a
    single outline — a 2px box around one inner module fights the
-   grouped-capsule layout. The color + glow alone reads as the alert.
+   grouped-capsule layout. Ink color and weight identify the alert.
    Normal-state stats are weight-500; warning/critical re-bold so the
    alert reads louder than the calm baseline. */
 #custom-cpu.warning,
@@ -345,7 +358,7 @@ window#waybar > box {
 #custom-gpu.warning {
     color: #{{WAYBAR_WARN}};
     font-weight: bold;
-    text-shadow: 0 0 6px rgba({{WAYBAR_WARN_R}},{{WAYBAR_WARN_G}},{{WAYBAR_WARN_B}}, 0.4);
+    text-shadow: none;
 }
 
 #custom-cpu.critical,
@@ -353,7 +366,7 @@ window#waybar > box {
 #custom-disk.critical {
     color: #{{WAYBAR_CRIT}};
     font-weight: bold;
-    text-shadow: 0 0 6px rgba({{WAYBAR_CRIT_R}},{{WAYBAR_CRIT_G}},{{WAYBAR_CRIT_B}}, 0.5);
+    text-shadow: none;
 }
 
 /* ─────────────────────────────────────────
@@ -374,9 +387,9 @@ window#waybar > box {
 }
 
 #idle_inhibitor.activated {
-    color: @gold;
+    color: @peach;
     font-weight: bold;
-    text-shadow: 0 0 6px rgba({{GOLD_R}},{{GOLD_G}},{{GOLD_B}}, 0.5);
+    text-shadow: none;
 }
 
 /* Composite battery (capacity text + volume/brightness in tooltip).
@@ -388,19 +401,19 @@ window#waybar > box {
 }
 
 #custom-battery.charging {
-    color: #{{WAYBAR_WS_ACTIVE}};
+    color: @peach;
     text-shadow: none;
     border-bottom: 1px dotted @selection;
 }
 
 #custom-battery.warning {
     color: #{{WAYBAR_WARN}};
-    text-shadow: 0 0 6px rgba({{WAYBAR_WARN_R}},{{WAYBAR_WARN_G}},{{WAYBAR_WARN_B}}, 0.4);
+    text-shadow: none;
 }
 
 #custom-battery.critical {
     color: #{{WAYBAR_CRIT}};
-    text-shadow: 0 0 6px rgba({{WAYBAR_CRIT_R}},{{WAYBAR_CRIT_G}},{{WAYBAR_CRIT_B}}, 0.5);
+    text-shadow: none;
 }
 
 /* Plug present but not charging. .plugged = EC holding at the charge
@@ -409,19 +422,15 @@ window#waybar > box {
    its own state this looks identical to running on battery, which is
    exactly when the bar should shout. */
 #custom-battery.plugged {
-    color: @lavender;
-    text-shadow: 0 0 6px rgba({{ACCENT_R}},{{ACCENT_G}},{{ACCENT_B}}, 0.4);
-}
-
-@keyframes battery-plugged-drain-pulse {
-    to { color: #{{WAYBAR_WARN}}; }
+    color: @peach;
+    text-shadow: none;
 }
 
 #custom-battery.plugged-drain {
     color: #{{WAYBAR_CRIT}};
     font-weight: bold;
-    text-shadow: 0 0 6px rgba({{WAYBAR_CRIT_R}},{{WAYBAR_CRIT_G}},{{WAYBAR_CRIT_B}}, 0.5);
-    animation: battery-plugged-drain-pulse 1.2s ease-in-out infinite alternate;
+    text-shadow: none;
+    border-bottom: 1px dotted #{{WAYBAR_CRIT}};
 }
 
 /* ─────────────────────────────────────────
@@ -439,8 +448,13 @@ window#waybar > box {
 }
 
 #custom-logo:hover {
-    background-color: rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}}, 0.2);
+    background-color: rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}}, 0.06);
     text-shadow: none;
+}
+
+#custom-updates:hover, #custom-clock:hover,
+#custom-ai_status:hover, #power-profiles-daemon:hover, #idle_inhibitor:hover {
+    background-color: rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}}, 0.04);
 }
 
 /* Fine notebook dividers separate the information groups without adding widgets. */
@@ -469,4 +483,14 @@ tooltip {
 
 tooltip label {
     color: @peach;
+}
+
+/* Control glyphs and readouts use the same pencil weight and baseline. */
+#custom-updates, #custom-foxml_sentry, #custom-system_health,
+#power-profiles-daemon, #idle_inhibitor, #custom-battery,
+#custom-ai_status, #custom-net_speed, #custom-cpu, #custom-gpu, #memory, #custom-disk {
+    font-family: "{{FONT_FAMILY}}", monospace;
+    font-size: __FONT_STATS__pt;
+    font-weight: normal;
+    letter-spacing: 0.3px;
 }

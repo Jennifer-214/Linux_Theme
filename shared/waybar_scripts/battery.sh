@@ -144,9 +144,18 @@ case "$status" in
         ;;
 esac
 
-# A little plug and heart use the existing charging color; risk classes stay authoritative.
+# Tint the heart alone; the readings and warning classes keep their own ink.
 doodle=""
-[[ "$status" == Charging ]] && doodle="󰚥 ♡ "
+if [[ "$status" == Charging ]]; then
+    heart="♡"
+    _pal="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/modules/border_colors.sh"
+    # shellcheck source=/dev/null
+    [[ -r "$_pal" ]] && source "$_pal"
+    if [[ "${C_DETAIL_ACCENT:-}" =~ ^[[:xdigit:]]{6}$ ]]; then
+        heart="<span foreground='#${C_DETAIL_ACCENT}'>♡</span>"
+    fi
+    doodle="󰚥 $heart "
+fi
 text="$doodle$icon $cap%$watts"
 
 # ── Volume ────────────────────────────────────────────────────────
@@ -181,9 +190,7 @@ fi
 
 tooltip="Battery: ${cap}% (${status}${watts:+,$watts}${eta:+, $eta})\\n   Power: ${power_line}\\n  Volume: ${vol}\\n  Brightness: ${bright}"
 
-# Emit a class so the CSS can re-apply the old battery state colors
-# (charging=gold, plugged=lavender, plugged-drain=red pulse,
-# warning=yellow, critical=red). Waybar reserves the 'class' field on
+# Emit a class so CSS can style charge state and warnings. Waybar reserves the 'class' field on
 # JSON-mode custom modules for exactly this. Field is only included
 # when there's a state — empty class strings tickle a selector edge
 # case in GTK's CSS parser.
