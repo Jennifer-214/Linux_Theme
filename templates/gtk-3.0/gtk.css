@@ -158,7 +158,11 @@ scrollbar slider { background-color: rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_
 scrollbar slider:hover { background-color: rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.5); }
 
 /* ====== Tooltips ====== */
-tooltip { background: @panel2; color: @fg; border: 1px solid @border; }
+/* Solid, and the label gets the colour too: Adwaita paints tooltip text white
+   through `tooltip *`, which left a white label on a half-transparent box
+   (Firefox draws its native tooltips with this). */
+tooltip, tooltip.background { background-color: @bg; color: @fg; border: 1px solid @border; }
+tooltip *, tooltip label { color: @fg; }
 
 /* ====== Infobars ====== */
 .info    { background: alpha(@info, 0.15);   border: 1px solid alpha(@info, {{KITTY_BG_OPACITY}}); }
