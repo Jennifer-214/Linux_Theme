@@ -74,6 +74,11 @@ class DeployListsTest(unittest.TestCase):
             missing = sorted(src for src, _ in hpp_rows(name) | sh_rows(name) if not (ROOT / base / src).exists())
             self.assertEqual(missing, [], f"{name}: rows whose {base}/ source is gone")
 
+    def test_drawer_runtime_state_is_not_captured_as_configuration(self):
+        runtime = ("waybar/drawer-state.css", "~/.config/waybar/drawer-state.css")
+        self.assertNotIn(runtime, sh_rows("TEMPLATE_MAPPINGS"))
+        self.assertNotIn(runtime, hpp_rows("TEMPLATE_MAPPINGS"))
+
     def test_every_pi_extension_has_a_row(self):
         want = {(f"pi/extensions/{p.name}", f"~/.pi/agent/extensions/{p.name}")
                 for p in (ROOT / "shared/pi/extensions").glob("*.ts")}

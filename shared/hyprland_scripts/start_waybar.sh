@@ -32,6 +32,14 @@ STYLE_OUT="${WAYBAR_DIR}/style.css"
 CONFIG_OUT="${WAYBAR_DIR}/config"
 LAYOUT_FILE="${HOME}/.config/foxml/monitor-layout.conf"
 
+# The drawer owns this runtime stylesheet; seed it even when --no-drawer was used.
+# Linking a unique empty file never overwrites a marker published during startup.
+if [[ ! -e "$WAYBAR_DIR/drawer-state.css" && ! -L "$WAYBAR_DIR/drawer-state.css" ]]; then
+    _state_tmp=$(mktemp "$WAYBAR_DIR/.drawer-state.XXXXXX")
+    ln -T -- "$_state_tmp" "$WAYBAR_DIR/drawer-state.css" 2>/dev/null || true
+    rm -f -- "$_state_tmp"
+fi
+
 # Effective width of a named monitor — `width / scale` is what waybar/Hyprland
 # actually lay out against (a 4K panel at scale 2.0 should size like 1080p).
 # With no name, falls back to the first monitor; with no hyprctl/jq, 1920.
