@@ -77,7 +77,7 @@ _do_swap() {
     # greetd warns and skips and the rest of the swap still succeeds.
     FOXML_SKIP_PLUGIN_SYNC=1 FOXML_THEME_ONLY=1 \
     "$fox_install" "$theme" "${force_args[@]}" \
-        --only theme,render,symlinks,specials,personalize,greetd,post_install \
+        --only theme,render,symlinks,specials,drawer,personalize,greetd,post_install \
         --yes --quiet || rc=$?
 
     if (( rc != 0 )); then

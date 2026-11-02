@@ -512,7 +512,7 @@ int main(int argc, char** argv) {
             } else {
                 auto is_backbone = [](const char* s) {
                     static const char* B[] = { "detect", "preflight", "theme", "render",
-                        "symlinks", "specials", "post_install", "summary", "next_steps", nullptr };
+                        "symlinks", "specials", "drawer", "post_install", "summary", "next_steps", nullptr };
                     for (auto** p = B; *p; ++p) if (std::string(*p) == s) return true;
                     return false;
                 };

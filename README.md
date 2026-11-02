@@ -245,9 +245,50 @@ Adding a new theme = writing one `palette.sh` file. All app configs render from 
 | Git delta | `templates/git/delta.gitconfig` | `~/.config/git/delta-foxml.gitconfig` |
 | Gemini CLI | `templates/gemini/settings.json` | `~/.gemini/settings.json` (merged) |
 | OpenCode | `templates/opencode/foxml.json` | `~/.config/opencode/themes/foxml.json` |
+| Codex CLI | `templates/codex/foxml.tmTheme` | `~/.codex/themes/foxml.tmTheme` |
 | ReGreet (login) | `templates/regreet/regreet.css` | `/etc/greetd/regreet.css` (sudo) |
 
+For Codex CLI, select `foxml` once with `/theme` (or set `theme = "foxml"`
+under `[tui]` in `~/.codex/config.toml`). Code blocks use the active palette;
+the surrounding interface inherits the terminal's colors. Restart Codex after
+a theme swap. With a custom `CODEX_HOME`, copy the rendered theme into
+`$CODEX_HOME/themes/foxml.tmTheme`. Edit `templates/codex/foxml.tmTheme` directly;
+the legacy `update.sh` capture list does not include Codex.
+
 ## Shared (non-color) files
+
+### Desktop drawers
+
+`fox-desktop-menu` opens the Quickshell menu: Desk, Sound, Connections, Comfort,
+and System. Existing menu shortcuts and the Waybar launcher open the same drawer;
+`fox-desktop-menu wifi` or `fox-desktop-menu sound` opens a section directly.
+Waybar retains its modules and actions with a continuous palette-colored surface.
+The Hyprland menu shortcuts call the drawer directly, including Wi-Fi, Bluetooth,
+audio outputs, clipboard, windows and agent notes. Paper's bar uses a pencil
+launcher, notebook workspace tabs and a handwritten clock tab. Unused rofi-calc
+and rofi-emoji add-ons are no longer in the default package list; installed
+packages are not removed. Rofi remains for the specialized interfaces below
+and explicit legacy recovery, and does not run as an extra background service.
+
+Use `j/k` to move, `l` or Enter to open, and `h` to go back. Enter on a slider
+starts adjustment with `h/l`; Escape finishes. `/` searches menu actions from a
+group, or filters the current app/device/clipboard list. Escape goes back before
+closing. Shutdown, restart, suspend and logout require confirmation.
+
+The native `--drawer` installer module builds the backend, renders the palette,
+backs up replaced files and deploys the configuration. `--deps` installs
+Quickshell. Rendering and theme swaps include the drawer; `--no-drawer` skips it.
+Install it alone with `./src/fox-install/fox-install FoxML_Paper --only drawer --yes`
+after building the installer.
+
+Edit `~/.config/quickshell/foxml/menus.json` to rearrange groups or items; the
+installer preserves this file and refreshes `menus.default.json` separately.
+The supported item kinds are `page`, `action`, `toggle`, and `slider`; action IDs
+refer to the backend's built-in operations. Palette colors come from
+`templates/quickshell/foxml/Theme.qml`. `FOXML_MENU_LEGACY=1` selects the original
+Rofi paths. The password vault and advanced agent triage retain their existing
+Rofi interfaces; Wi-Fi credentials and privileged updates use their normal
+authentication interfaces. The existing `fox-menu` CLI tool launcher is unchanged.
 
 Copied as-is regardless of theme:
 

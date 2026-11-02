@@ -119,7 +119,17 @@ int main() {
         EXPECT(on(r, "render"));
         EXPECT(on(r, "symlinks"));
         EXPECT(on(r, "post_install"));
+        EXPECT(on(r, "drawer"));
         EXPECT(!on(r, "security"));
+    }
+
+    for (const auto& flags : {std::vector<std::string>{"--no-drawer", "--render"},
+                              std::vector<std::string>{"--render", "--no-drawer"},
+                              std::vector<std::string>{"--no-drawer", "--render-only"}}) {
+        auto r = do_parse(flags);
+        EXPECT(r.ok);
+        EXPECT(on(r, "render"));
+        EXPECT(!on(r, "drawer"));
     }
 
     // --render-only's KEEP list respects an explicit --no-X (both orders).

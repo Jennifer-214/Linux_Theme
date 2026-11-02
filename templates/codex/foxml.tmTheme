@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>name</key>
+  <string>Fox ML</string>
+  <key>settings</key>
+  <array>
+    <dict>
+      <key>settings</key>
+      <dict>
+        <key>background</key><string>#{{BG}}</string>
+        <key>foreground</key><string>#{{FG}}</string>
+        <key>caret</key><string>#{{PRIMARY}}</string>
+        <key>selection</key><string>#{{SELECTION}}</string>
+        <key>selectionForeground</key><string>#{{FG}}</string>
+        <key>lineHighlight</key><string>#{{BG_HIGHLIGHT}}</string>
+        <key>gutter</key><string>#{{BG}}</string>
+        <key>gutterForeground</key><string>#{{FG_DIM}}</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key><string>Comments</string>
+      <key>scope</key><string>comment, punctuation.definition.comment</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key><string>#{{BAT_COMMENT}}</string>
+        <key>fontStyle</key><string>italic</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key><string>Strings</string>
+      <key>scope</key><string>string, constant.character</string>
+      <key>settings</key>
+      <dict><key>foreground</key><string>#{{BAT_STRING}}</string></dict>
+    </dict>
+    <dict>
+      <key>name</key><string>Escapes and regular expressions</string>
+      <key>scope</key><string>constant.character.escape, string.regexp, punctuation.section.embedded</string>
+      <key>settings</key>
+      <dict><key>foreground</key><string>#{{CYAN}}</string></dict>
+    </dict>
+    <dict>
+      <key>name</key><string>Numbers and constants</string>
+      <key>scope</key><string>constant.numeric, constant.language, constant.other</string>
+      <key>settings</key>
+      <dict><key>foreground</key><string>#{{YELLOW}}</string></dict>
+    </dict>
+    <dict>
+      <key>name</key><string>Keywords and storage</string>
+      <key>scope</key><string>keyword, storage</string>
+      <key>settings</key>
+      <dict><key>foreground</key><string>#{{SECONDARY}}</string></dict>
+    </dict>
+    <dict>
+      <key>name</key><string>Operators</string>
+      <key>scope</key><string>keyword.operator</string>
+      <key>settings</key>
+      <dict><key>foreground</key><string>#{{ACCENT}}</string></dict>
+    </dict>
+    <dict>
+      <key>name</key><string>Function definitions</string>
+      <key>scope</key><string>entity.name.function</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key><string>#{{PRIMARY}}</string>
+        <key>fontStyle</key><string>bold</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key><string>Function calls</string>
+      <key>scope</key><string>support.function, variable.function</string>
+      <key>settings</key>
+      <dict><key>foreground</key><string>#{{PRIMARY}}</string></dict>
+    </dict>
+    <dict>
+      <key>name</key><string>Types</string>
+      <key>scope</key><string>entity.name.type, entity.name.class, support.type, support.class, entity.other.inherited-class</string>
+      <key>settings</key>
+      <dict><key>foreground</key><string>#{{CYAN}}</string></dict>
+    </dict>
+    <dict>
+      <key>name</key><string>Variables</string>
+      <key>scope</key><string>variable</string>
+      <key>settings</key>
+      <dict><key>foreground</key><string>#{{FG}}</string></dict>
+    </dict>
+    <dict>
+      <key>name</key><string>Parameters</string>
+      <key>scope</key><string>variable.parameter</string>
+      <key>settings</key>
+      <dict><key>foreground</key><string>#{{YELLOW_BRIGHT}}</string></dict>
+    </dict>
+    <dict>
+      <key>name</key><string>Properties</string>
+      <key>scope</key><string>variable.other.property, variable.other.member, meta.object-literal.key</string>
+      <key>settings</key>
+      <dict><key>foreground</key><string>#{{BAT_MEMBER}}</string></dict>
+    </dict>
+    <dict>
+      <key>name</key><string>Tags and attributes</string>
+      <key>scope</key><string>entity.name.tag, entity.other.attribute-name</string>
+      <key>settings</key>
+      <dict><key>foreground</key><string>#{{SECONDARY}}</string></dict>
+    </dict>
+    <dict>
+      <key>name</key><string>Configuration keys</string>
+      <key>scope</key><string>support.type.property-name, meta.structure.dictionary.key, entity.name.tag.yaml, entity.name.tag.toml, keyword.key.toml</string>
+      <key>settings</key>
+      <dict><key>foreground</key><string>#{{BAT_KEY}}</string></dict>
+    </dict>
+    <dict>
+      <key>name</key><string>Punctuation</string>
+      <key>scope</key><string>punctuation</string>
+      <key>settings</key>
+      <dict><key>foreground</key><string>#{{FG}}</string></dict>
+    </dict>
+    <dict>
+      <key>name</key><string>Headings</string>
+      <key>scope</key><string>markup.heading, punctuation.definition.heading</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key><string>#{{PRIMARY}}</string>
+        <key>fontStyle</key><string>bold</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key><string>Bold</string>
+      <key>scope</key><string>markup.bold</string>
+      <key>settings</key>
+      <dict><key>fontStyle</key><string>bold</string></dict>
+    </dict>
+    <dict>
+      <key>name</key><string>Italic</string>
+      <key>scope</key><string>markup.italic</string>
+      <key>settings</key>
+      <dict><key>fontStyle</key><string>italic</string></dict>
+    </dict>
+    <dict>
+      <key>name</key><string>Links</string>
+      <key>scope</key><string>markup.underline.link, string.other.link</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key><string>#{{PRIMARY}}</string>
+        <key>fontStyle</key><string>underline</string>
+      </dict>
+    </dict>
+    <!-- Explicit diff backgrounds keep Paper's colored-pencil washes readable. -->
+    <dict>
+      <key>name</key><string>Diff additions</string>
+      <key>scope</key><string>markup.inserted</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key><string>#{{GREEN}}</string>
+        <key>background</key><string>#{{DIFF_ADD}}</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key><string>Diff deletions</string>
+      <key>scope</key><string>markup.deleted</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key><string>#{{RED}}</string>
+        <key>background</key><string>#{{DIFF_DELETE}}</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key><string>Diff changes</string>
+      <key>scope</key><string>markup.changed</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key><string>#{{FG}}</string>
+        <key>background</key><string>#{{DIFF_CHANGE}}</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key><string>Diff headers</string>
+      <key>scope</key><string>meta.diff.header, meta.diff.range</string>
+      <key>settings</key>
+      <dict>
+        <key>foreground</key><string>#{{FG_DIM}}</string>
+        <key>fontStyle</key><string>bold</string>
+      </dict>
+    </dict>
+    <dict>
+      <key>name</key><string>Errors</string>
+      <key>scope</key><string>invalid</string>
+      <key>settings</key>
+      <dict><key>foreground</key><string>#{{RED}}</string></dict>
+    </dict>
+  </array>
+</dict>
+</plist>

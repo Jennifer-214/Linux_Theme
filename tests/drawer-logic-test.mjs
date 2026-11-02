@@ -1,0 +1,35 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+
+const file = new URL('../shared/quickshell/foxml/DrawerLogic.js', import.meta.url);
+const context = vm.createContext({});
+vm.runInContext(fs.readFileSync(file, 'utf8').replace(/^\.pragma library\s*/, ''), context);
+const logic = context;
+const plain = value => JSON.parse(JSON.stringify(value));
+
+const rows = [{ id: 'a' }, { id: 'b', enabled: false }, { id: 'c' }];
+assert.equal(logic.nextIndex(rows, 0, 1), 2);
+assert.equal(logic.nextIndex(rows, 2, 1), 0);
+assert.equal(logic.nextIndex(rows, 0, -1), 2);
+assert.equal(logic.nextIndex([], 0, 1), -1);
+assert.equal(logic.nextIndex([{ enabled: false }], 0, 1), -1);
+assert.equal(logic.restoreIndex(rows, logic.identity(rows[2])), 2);
+assert.equal(logic.restoreIndex(rows, logic.identity(rows[1])), 0);
+assert.equal(logic.restoreIndex([], ''), 0);
+assert.notEqual(logic.identity({ id: 'x:y', argument: 'z' }), logic.identity({ id: 'x', argument: 'y:z' }));
+
+const hostile = 'a network; $(touch should-never-run) "quoted"';
+assert.deepEqual(plain(logic.actionArguments({ id: 'wifi-connect', argument: hostile })), ['run', 'wifi-connect', hostile]);
+assert.deepEqual(plain(logic.actionArguments({ id: 'volume' }, 45, false)), ['run', 'volume', '45']);
+assert.deepEqual(plain(logic.actionArguments({ id: 'poweroff' }, undefined, true)), ['run', 'poweroff', '--confirm']);
+assert.deepEqual(plain(logic.actionArguments({ id: 'speaker-1', action: 'set-output', argument: '1' })), ['run', 'set-output', '1']);
+assert.equal(logic.valueText({ kind: 'slider', value: 42 }, true, 47), '47%');
+assert.equal(logic.valueText({ kind: 'toggle', checked: false }, false, 0), 'off');
+assert.equal(logic.valueText({ kind: 'toggle', checked: true }, false, 0), 'on');
+assert.equal(logic.valueText({ kind: 'page' }, false, 0), '›');
+assert.equal(logic.symbol({ icon: 'wifi' }), '⌁');
+assert.equal(logic.symbol({ icon: '☾' }), '☾');
+assert.equal(logic.iconName({ icon: 'firefox' }), 'firefox');
+assert.equal(logic.iconName({ icon: '☾' }), '');
+console.log('drawer navigation, identity, action argv and values: passed');

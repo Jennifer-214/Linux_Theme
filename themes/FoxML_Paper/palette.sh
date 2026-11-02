@@ -255,7 +255,7 @@ TMUX_ACTIVE_BG=e6e3dc
 # ─── Bar · terminal quiet layer (waybar states · logo · kitty ANSI · tmux footer) ───
 # Paper: state icons stay graphite (warnings in the darkest ink, real failures in the raspberry pen),
 # no logo or window glyphs (bare workspace numbers), lighter prompt rules (ANSI white), neutral ANSI blue, and a faint dotted footer.
-WAYBAR_LOGO='{}'
+WAYBAR_LOGO='✎'
 WAYBAR_WS_FORMAT='{name}'
 WAYBAR_WARN=1c1c1e
 WAYBAR_CRIT=9a5a48

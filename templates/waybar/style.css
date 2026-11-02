@@ -23,7 +23,8 @@
 
 @define-color bubble       rgba({{BG_R}},{{BG_G}},{{BG_B}}, {{WAYBAR_BUBBLE_ALPHA}});
 @define-color bubble_hover rgba({{SURFACE_R}},{{SURFACE_G}},{{SURFACE_B}}, {{KITTY_BG_OPACITY}});
-@define-color border       #{{PRIMARY}};
+@define-color border       #{{ROFI_BORDER}};
+@define-color selection    #{{SELECTION}};
 
 /* Size tokens (__FONT_BASE__, __FONT_LOGO__, __FONT_STATS__, __PAD_WIN__,
    __PAD_MOD__, __MARGIN_MOD__) are substituted by start_waybar.sh based on
@@ -40,7 +41,10 @@
    Bar Window
    ───────────────────────────────────────── */
 window#waybar {
-    background-color: transparent;
+    background-color: @bubble;
+    border: 1px solid @border;
+    border-bottom: 2px solid @border;
+    border-radius: 6px;
 }
 
 window#waybar > box {
@@ -61,11 +65,11 @@ window#waybar > box {
 #hardware,
 #system,
 #launcher {
-    background-color: @bubble;
+    background-color: transparent;
     border: none;
     padding: 0;
     margin: __MARGIN_MOD__;
-    border-radius: {{ROUNDING}}px;
+    border-radius: 0;
     color: @peach;
 }
 
@@ -124,18 +128,19 @@ window#waybar > box {
     margin: 0;
 }
 
-/* Workspaces share the peach palette with the rest of the bar.
-   IMPORTANT: workspace buttons wrap their text in a child GtkLabel,
+/* Workspace tabs share the bar's sheet; the selected tab gets the palette's highlighter.
+   Workspace buttons wrap their text in a child GtkLabel,
    and the universal `* { color: @fg }` rule above selects that label
    directly (specificity ties resolve in `*`'s favor for the label
    itself, not the button parent). So per-state color rules MUST
    target the label explicitly to win. */
 #workspaces button {
     background-color: transparent;
-    border: none;
+    border: 1px solid @border;
+    border-bottom: 2px solid transparent;
     padding: 1px 8px;
     margin: 2px 2px;
-    border-radius: 8px;
+    border-radius: 5px 5px 1px 1px;
 }
 
 #workspaces button label,
@@ -144,26 +149,23 @@ window#waybar > box {
 }
 
 #workspaces button:not(.empty) {
-    background-color: rgba({{BLUSH_R}},{{BLUSH_G}},{{BLUSH_B}}, 0.10);
+    background-color: transparent;
 }
 
 #workspaces button:not(.empty) label {
     color: @peach;
 }
 
-/* Active = soft blush pill + bold label. Occupied buttons already get
-   the dim 10%-blush fill; active bumps that to ~28% so it reads
-   brighter, and bold weight on the label gives the second tier of
-   differentiation. The bar-style underline is gone — pills do the work. */
 #workspaces button.active {
-    background-color: rgba({{WAYBAR_WS_ACTIVE_R}},{{WAYBAR_WS_ACTIVE_G}},{{WAYBAR_WS_ACTIVE_B}}, 0.28);
+    background-color: @selection;
+    border-bottom-color: #{{WAYBAR_WS_ACTIVE}};
     box-shadow: none;
 }
 
 #workspaces button.active label {
-    color: @peach;
+    color: @fg;
     font-weight: bold;
-    text-shadow: 0 0 6px rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}}, 0.4);
+    text-shadow: none;
 }
 
 #workspaces button.urgent {
@@ -180,21 +182,21 @@ window#waybar > box {
 #workspaces button:hover {
     background-color: @bubble_hover;
     color: @fg;
-    text-shadow: 0 0 6px rgba({{FG_R}},{{FG_G}},{{FG_B}}, 0.3);
+    text-shadow: none;
 }
 
 /* ─────────────────────────────────────────
    Info Modules
    ───────────────────────────────────────── */
 #custom-media {
-    background-color: rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}}, 0.15);
-    border: 2px solid rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}}, 0.3);
+    background-color: transparent;
+    border: none;
     color: @peach;
 }
 
 #custom-system_health {
-    background-color: rgba({{SURFACE_R}},{{SURFACE_G}},{{SURFACE_B}}, 0.5);
-    border: 2px solid @slate;
+    background-color: transparent;
+    border: none;
     color: @peach;
 }
 
@@ -270,8 +272,14 @@ window#waybar > box {
 
 #custom-clock {
     color: @peach;
-    font-weight: bold;
-    text-shadow: 0 0 8px rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}}, 0.4);
+    font-family: "{{HYPRLOCK_CLOCK_FONT}}", monospace;
+    font-style: italic;
+    font-weight: normal;
+    background-color: @selection;
+    border: 1px solid @border;
+    border-top: 2px solid #{{WAYBAR_WS_ACTIVE}};
+    border-radius: 1px 1px 6px 6px;
+    text-shadow: none;
 }
 
 /* Pending-updates pill. Severity is the worse of (sync-age, pending
@@ -282,6 +290,8 @@ window#waybar > box {
     font-weight: 500;
     letter-spacing: 0.3px;
     color: @blush;
+    border: 1px dashed @border;
+    border-radius: 4px;
 }
 
 #custom-updates.calm {
@@ -374,7 +384,7 @@ window#waybar > box {
    state selectors — same color set as the old built-in battery module. */
 #custom-battery {
     color: @peach;
-    text-shadow: 0 0 6px rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}}, 0.35);
+    text-shadow: none;
 }
 
 #custom-battery.charging {
@@ -418,17 +428,24 @@ window#waybar > box {
    ───────────────────────────────────────── */
 #custom-logo {
     background-color: transparent;
-    border: none;
+    border: 1px solid @border;
+    border-radius: 5px;
     color: @peach;
     font-size: __FONT_LOGO__pt;
     padding: __PAD_MOD__;
-    margin: 0;
-    text-shadow: 0 0 10px rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}}, 0.5);
+    margin: 2px 4px 2px 0;
+    text-shadow: none;
 }
 
 #custom-logo:hover {
     background-color: rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}}, 0.2);
-    text-shadow: 0 0 14px rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}}, 0.7);
+    text-shadow: none;
+}
+
+/* Fine notebook dividers separate the information groups without adding widgets. */
+#hardware, #system, #tray {
+    border-left: 1px dashed @border;
+    padding-left: 4px;
 }
 
 /* ─────────────────────────────────────────
@@ -441,12 +458,10 @@ window#waybar > box {
 /* ─────────────────────────────────────────
    Tooltips
    ───────────────────────────────────────── */
-/* Tooltips inherit the bar's bubble vocabulary: same translucent BG,
-   same corner radius, no border, peach text. Reads as "this popup is
-   part of waybar" rather than a separate GTK chrome layer. */
+/* The same sheet and pencil frame are used by the drawer and its tooltips. */
 tooltip {
     background-color: @bubble;
-    border: none;
+    border: 1px solid @border;
     border-radius: {{ROUNDING}}px;
     padding: 8px 12px;
 }

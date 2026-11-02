@@ -92,6 +92,9 @@ inline constexpr Mapping TEMPLATE_MAPPINGS[] = {
     // OpenCode TUI theme
     { "opencode/foxml.json",          "~/.config/opencode/themes/foxml.json" },
 
+    // Codex CLI syntax theme — select once with /theme; swaps replace its colors.
+    { "codex/foxml.tmTheme",          "~/.codex/themes/foxml.tmTheme" },
+
     // pi coding agent TUI theme
     { "pi/foxml.json",                "~/.pi/agent/themes/foxml.json" },
 

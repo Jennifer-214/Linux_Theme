@@ -18,8 +18,11 @@ ROOT = Path(__file__).resolve().parent.parent
 # The same rule as core/built_tools.hpp: a Makefile's first `BIN = name` / `BIN := name` line.
 BIN_RE = re.compile(r"^[ \t]*BIN[ \t]*:?=[ \t]*([^\s#]+)", re.M)
 
-# Rows one list has on purpose and the other doesn't: {(array, src, dest): why}. None today.
-ONE_SIDED = {}
+# New surfaces deploy through the native installer; AGENT.md freezes mappings.sh.
+ONE_SIDED = {
+    ("TEMPLATE_MAPPINGS", "codex/foxml.tmTheme", "~/.codex/themes/foxml.tmTheme"):
+        "native-only Codex theme; edit templates/codex directly rather than reverse-capturing",
+}
 
 
 def sh_rows(name):

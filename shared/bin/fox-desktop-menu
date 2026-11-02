@@ -1,0 +1,72 @@
+#!/bin/bash
+# fox-desktop-menu — one named Quickshell instance serves the desktop menus.
+
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+config_dir="$config_home/quickshell/foxml"
+
+available() {
+    [[ "${FOXML_MENU_LEGACY:-0}" != 1 ]] &&
+        command -v quickshell >/dev/null 2>&1 &&
+        command -v fox-drawer >/dev/null 2>&1 &&
+        [[ -r "$config_dir/shell.qml" && -r "$config_dir/Theme.qml" && -r "$config_dir/menus.json" ]]
+}
+
+ipc() { quickshell -c foxml ipc call drawer "$@"; }
+
+case "${1:-root}" in
+    --available) available; exit $? ;;
+    --help|-h)
+        printf '%s\n' 'Usage: fox-desktop-menu [PAGE | --open PAGE | --start | --close | --available]' \
+            'Open or toggle the palette-driven desktop drawer. FOXML_MENU_LEGACY=1 keeps Rofi.'
+        exit 0 ;;
+    --close)
+        available || exit 1
+        ipc close >/dev/null 2>&1
+        exit $? ;;
+    --start) action=start; page=root ;;
+    --open) action=open; page="${2:-root}" ;;
+    *) action=toggle; page="${1:-root}" ;;
+esac
+
+if [[ ! "$page" =~ ^[a-z][a-z0-9-]*$ ]]; then
+    printf 'fox-desktop-menu: invalid page name: %s\n' "$page" >&2
+    exit 2
+fi
+if ! available; then
+    if [[ "$action" != start && "${FOXML_MENU_LEGACY:-0}" == 1 ]]; then
+        case "$page" in
+            root|desk|connections|comfort|system) exec /bin/bash "$config_home/hypr/scripts/hub.sh" ;;
+            wifi) exec /bin/bash "$config_home/hypr/scripts/network.sh" ;;
+            bluetooth) exec /bin/bash "$config_home/hypr/scripts/bluetooth.sh" ;;
+            sound|audio-outputs) exec /bin/bash "$config_home/hypr/scripts/audio_switcher.sh" ;;
+            power) exec /bin/bash "$config_home/hypr/scripts/powermenu.sh" ;;
+            agents) exec /bin/bash "$config_home/hypr/scripts/agent_rofi.sh" ;;
+            clipboard-text) exec /bin/bash "$config_home/hypr/scripts/clipmanager.sh" text ;;
+            clipboard-images) exec /bin/bash "$config_home/hypr/scripts/clipmanager.sh" image ;;
+            apps) exec rofi -show drun ;;
+            windows) exec rofi -show window ;;
+            updates) exec /bin/bash "$config_home/hypr/scripts/updates_menu.sh" ;;
+        esac
+    fi
+    printf 'fox-desktop-menu: Quickshell drawer is not installed; use the existing Rofi menus.\n' >&2
+    exit 1
+fi
+
+if ! ipc status >/dev/null 2>&1; then
+    quickshell -c foxml --no-duplicate --daemonize >/dev/null 2>&1 || {
+        printf 'fox-desktop-menu: could not start the FoxML drawer.\n' >&2
+        exit 1
+    }
+    ready=false
+    for (( attempt=0; attempt<30; attempt++ )); do
+        if ipc status >/dev/null 2>&1; then ready=true; break; fi
+        sleep 0.1
+    done
+    if [[ "$ready" != true ]]; then
+        printf 'fox-desktop-menu: the drawer did not become ready; check quickshell -c foxml log.\n' >&2
+        exit 1
+    fi
+fi
+
+[[ "$action" == start ]] && exit 0
+ipc "$action" "$page"

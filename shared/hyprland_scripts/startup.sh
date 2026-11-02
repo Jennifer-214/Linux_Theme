@@ -5,6 +5,10 @@
 # the live waybar style.css/config, then execs waybar.
 ~/.config/hypr/scripts/start_waybar.sh &
 
+if command -v fox-desktop-menu >/dev/null 2>&1 && fox-desktop-menu --available; then
+    fox-desktop-menu --start &
+fi
+
 # Border telemetry (dynamic earthy borders based on system state)
 ~/.config/hypr/scripts/border_telemetry.sh &
 

@@ -1,7 +1,7 @@
 -----App Shortcuts---
 local terminal = "kitty"
 local fileManager = "yazi"
-local menu = "env -u WAYLAND_DISPLAY rofi -show drun"
+local menu = "~/.local/bin/fox-desktop-menu apps"
 local browser = "firefox-nightly"
 local coding = "cursor.sh"
 local music = "spotify"

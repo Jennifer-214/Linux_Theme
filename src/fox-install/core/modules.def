@@ -131,6 +131,7 @@ FOX_MODULE( personalize, run_personalize,   "--personalize", "Per-monitor wallpa
 FOX_MODULE( symlinks,    run_symlinks,      "--symlinks",    "Deploy rendered + shared configs (mapping tables)", true  )
 FOX_MODULE( keybind_docs, run_keybind_docs, "--keybind-docs", "Regenerate KEYBINDS.md from the tmux/Hyprland configs", true )
 FOX_MODULE( specials,    run_specials,      "--specials",    "Firefox + Cursor + Bat + Gemini + Claude + bulk dirs", true )
+FOX_MODULE( drawer,      run_drawer,        "--drawer",      "Quickshell hierarchical menus and active palette", true )
 
 // ── Phase 3: opt-in services ──────────────────────────────────────
 //   vault — writes a user systemd unit. No root, no network.

@@ -1,0 +1,75 @@
+{
+  "title": "The quiet corner",
+  "groups": [
+    {
+      "id": "desk",
+      "label": "Desk",
+      "icon": "✎",
+      "description": "Your apps, papers and little everyday things",
+      "items": [
+        { "id": "apps", "label": "Applications", "detail": "Find something to open", "icon": "⌘", "kind": "page", "page": "apps" },
+        { "id": "windows", "label": "Open windows", "detail": "Pick up where you left off", "icon": "▣", "kind": "page", "page": "windows" },
+        { "id": "clipboard-text", "label": "Clipboard", "detail": "Your collected scraps of text", "icon": "⌇", "kind": "page", "page": "clipboard-text" },
+        { "id": "clipboard-images", "label": "Clipboard images", "detail": "The pictures you saved for later", "icon": "▧", "kind": "page", "page": "clipboard-images" },
+        { "id": "wallpapers", "label": "Wallpapers", "detail": "A different page beneath your windows", "icon": "❀", "kind": "page", "page": "wallpapers" },
+        { "id": "themes", "label": "Themes", "detail": "Choose your paper and ink", "icon": "◐", "kind": "page", "page": "themes" },
+        { "id": "wallpaper-next", "label": "Next wallpaper", "detail": "Turn over a new leaf", "icon": "↝", "kind": "action", "close": true },
+        { "id": "wallpaper-sync", "label": "Colors from wallpaper", "detail": "Use this wallpaper as the palette", "icon": "◇", "kind": "action", "close": true },
+        { "id": "color-picker", "label": "Pick a color", "detail": "Borrow a little ink from the screen", "icon": "✎", "kind": "action", "close": true },
+        { "id": "agents", "label": "Agent notes", "detail": "Your agents are waiting here", "icon": "✉", "kind": "page", "page": "agents" }
+      ]
+    },
+    {
+      "id": "sound",
+      "label": "Sound",
+      "icon": "♫",
+      "description": "A little background sound",
+      "items": [
+        { "id": "volume", "label": "Volume", "detail": "Enter to adjust; h and l turn it down or up", "icon": "♪", "kind": "slider" },
+        { "id": "volume-mute", "label": "Mute speakers", "detail": "A moment of quiet", "icon": "♩", "kind": "toggle" },
+        { "id": "audio-outputs", "label": "Audio output", "detail": "Choose where the sound goes", "icon": "◉", "kind": "page", "page": "audio-outputs" },
+        { "id": "mic-mute", "label": "Mute microphone", "detail": "Keep this thought to yourself", "icon": "○", "kind": "toggle" },
+        { "id": "media-play-pause", "label": "Play / pause", "detail": "Your current music or media", "icon": "▷", "kind": "action" },
+        { "id": "media-previous", "label": "Previous track", "icon": "‹", "kind": "action" },
+        { "id": "media-next", "label": "Next track", "icon": "›", "kind": "action" }
+      ]
+    },
+    {
+      "id": "connections",
+      "label": "Connections",
+      "icon": "⌁",
+      "description": "A few threads to the outside world",
+      "items": [
+        { "id": "wifi", "label": "Wi-Fi", "detail": "Find a network nearby", "icon": "⌁", "kind": "page", "page": "wifi" },
+        { "id": "bluetooth", "label": "Bluetooth", "detail": "Your paired devices", "icon": "⋈", "kind": "page", "page": "bluetooth" }
+      ]
+    },
+    {
+      "id": "comfort",
+      "label": "Comfort",
+      "icon": "☾",
+      "description": "Make yourself at home",
+      "items": [
+        { "id": "brightness", "label": "Brightness", "detail": "A comfortable amount of light", "icon": "☼", "kind": "slider" },
+        { "id": "nightlight", "label": "Night light", "detail": "A warmer glow for tired eyes", "icon": "☾", "kind": "toggle" },
+        { "id": "dnd", "label": "Do not disturb", "detail": "Shh… the world can wait a moment", "icon": "✉", "kind": "toggle" },
+        { "id": "idle", "label": "Stay awake", "detail": "Keep the screens on for a little longer", "icon": "◷", "kind": "toggle" }
+      ]
+    },
+    {
+      "id": "system",
+      "label": "System",
+      "icon": "⚙",
+      "description": "A little care for your machine",
+      "items": [
+        { "id": "updates", "label": "Updates", "detail": "See what is ready to update", "icon": "↻", "kind": "page", "page": "updates" },
+        { "id": "power-profile", "label": "Power profile", "detail": "Cycle performance, balanced and power saver", "icon": "◈", "kind": "action" },
+        { "id": "vault", "label": "Passwords", "detail": "Open your existing password picker", "icon": "⚿", "kind": "action", "close": true },
+        { "id": "security", "label": "Security audit", "detail": "Open the system audit in a terminal", "icon": "◇", "kind": "action", "close": true },
+        { "id": "cleanup", "label": "System cleanup", "detail": "Tidy up in a terminal", "icon": "✎", "kind": "action", "close": true },
+        { "id": "lock", "label": "Lock screen", "detail": "See you soon", "icon": "▢", "kind": "action", "close": true },
+        { "id": "power", "label": "Power", "detail": "Suspend, restart, shut down or sign out", "icon": "⏻", "kind": "page", "page": "power" }
+      ]
+    }
+  ]
+}

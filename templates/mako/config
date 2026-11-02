@@ -35,6 +35,9 @@ text-color=#{{PRIMARY}}
 border-color=#{{MAKO_CRIT_BORDER}}
 default-timeout=15000
 
+[mode=do-not-disturb]
+invisible=1
+
 # Workspace OSD (focus-pulse). ignore-timeout=1 above discards the sender's
 # own -t 800, so the short lifetime has to be set here. Paired with the
 # synchronous hint in focus-pulse.sh, this shows exactly one transient chip

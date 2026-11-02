@@ -151,8 +151,8 @@
 
   "custom/logo": {
     "format": "{{WAYBAR_LOGO}}",
-    "tooltip": "SysHub",
-    "on-click": "~/.config/hypr/scripts/toggle_rofi.sh ~/.config/hypr/scripts/hub.sh"
+    "tooltip": "The quiet corner",
+    "on-click": "~/.local/bin/fox-desktop-menu root"
   },
 
   "custom/ai_status": {
@@ -209,6 +209,6 @@
     "interval": 300,
     "signal": 1,
     "tooltip": true,
-    "on-click": "~/.config/hypr/scripts/updates_menu.sh"
+    "on-click": "~/.local/bin/fox-desktop-menu updates"
   }
 }

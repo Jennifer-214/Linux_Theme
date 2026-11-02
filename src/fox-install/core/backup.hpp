@@ -16,4 +16,8 @@ namespace fox_install {
 // Returns true when there was nothing to preserve or the backup landed.
 bool snapshot_one(const Context& ctx, const std::filesystem::path& dest);
 
+// Snapshot first, then replace one file atomically, preserving its source mode.
+bool deploy_file_atomic(const Context& ctx, const std::filesystem::path& src,
+                        const std::filesystem::path& dest);
+
 }  // namespace fox_install

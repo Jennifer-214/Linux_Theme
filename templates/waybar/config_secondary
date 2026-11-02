@@ -28,13 +28,13 @@
     "return-type": "json",
     "interval": 2,
     "tooltip": true,
-    "on-click": "~/.config/hypr/scripts/toggle_rofi.sh ~/.local/bin/fox-ai-quick"
+    "on-click": "~/.local/bin/fox-ai-quick"
   },
 
   "custom/logo": {
     "format": "{{WAYBAR_LOGO}}",
-    "tooltip": "SysHub",
-    "on-click": "~/.config/hypr/scripts/toggle_rofi.sh ~/.config/hypr/scripts/hub.sh"
+    "tooltip": "The quiet corner",
+    "on-click": "~/.local/bin/fox-desktop-menu root"
   },
 
   "hyprland/workspaces": {

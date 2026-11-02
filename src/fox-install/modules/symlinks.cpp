@@ -46,22 +46,7 @@ bool contains(const std::string& s, const char* needle) {
 // to overwrite an existing file whose backup failed (better to leave the
 // user's config intact than clobber it with no recoverable copy).
 bool deploy_file(const Context& ctx, const fs::path& src, const fs::path& dest) {
-    std::error_code ec;
-    fs::create_directories(dest.parent_path(), ec);
-    if (!snapshot_one(ctx, dest)) {
-        ui::warn("refusing to overwrite " + dest.string() + " — its backup failed");
-        return false;
-    }
-
-    fs::path tmp = dest;
-    tmp += ".foxin.tmp";
-    fs::copy_file(src, tmp, fs::copy_options::overwrite_existing, ec);
-    if (ec) return false;
-    fs::permissions(tmp, fs::status(src).permissions(),
-                    fs::perm_options::replace, ec);
-    fs::rename(tmp, dest, ec);
-    if (ec) { fs::remove(tmp, ec); return false; }
-    return true;
+    return deploy_file_atomic(ctx, src, dest);
 }
 
 // Recursive dir copy with per-file snapshot of any pre-existing files

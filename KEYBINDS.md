@@ -519,7 +519,7 @@ Shows indent guides automatically. No keybinds.
 | `ALT + Enter` | Terminal (kitty + tmux) |
 | `ALT + F` | Firefox |
 | `ALT + Shift + C` | Cursor (code editor) |
-| `ALT + Shift + D` | FoxML SysHub — rofi launcher (power, BT, Wi-Fi, wallpapers, themes, apps) |
+| `ALT + Shift + D` | FoxML drawers — apps, connections, sound, comfort and system |
 | `ALT + Shift + M` | Steam |
 | `ALT + Shift + Y` | Yazi file manager (toggle) |
 | `ALT + Shift + T` | Btop system monitor (toggle) |
@@ -601,11 +601,11 @@ Shows indent guides automatically. No keybinds.
 |-----|--------|
 | `ALT + G` | Boss key — hide waybar, mute audio, opacify + blur everything |
 
-### Window switcher (rofi)
+### Window drawer
 
 | Key | Action |
 |-----|--------|
-| `ALT + Grave` | Active-windows picker (rofi) |
+| `ALT + Grave` | Active windows with the same navigation as the other drawers |
 
 ### TTY switch (diagnostics)
 

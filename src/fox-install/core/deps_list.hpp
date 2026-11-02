@@ -31,7 +31,7 @@ inline const std::vector<std::string>& deps_packages() {
         "nodejs", "npm", "tree-sitter-cli",
 
         // Bar, launcher, notifications
-        "waybar", "rofi", "mako", "dunst",   // rofi-wayland was merged into rofi
+        "waybar", "rofi", "mako", "dunst", "quickshell",   // rofi-wayland was merged into rofi
 
         // Build tools
         "cmake", "base-devel",
@@ -56,7 +56,7 @@ inline const std::vector<std::string>& deps_packages() {
         // CLI tools
         "zsh", "fzf", "eza", "bat", "yazi", "btop", "fd", "zoxide",
         "jq", "git-delta", "github-cli", "pacman-contrib",
-        "rofi-calc", "rofi-emoji", "lazygit", "ncspot", "cliphist",
+        "lazygit", "ncspot", "cliphist",
         "cloc", "tree", "rsync", "shellcheck", "ripgrep",
         // reviewing changes, agents' included: difftastic diffs by syntax (GIT_EXTERNAL_DIFF=difft git diff —
         // git ships no difftastic difftool), git-absorb folds fixups into the commits they belong to

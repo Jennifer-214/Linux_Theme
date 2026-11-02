@@ -8,7 +8,7 @@
 local terminal = "kitty tmux new-session"
 local browser = "env -u MOZ_ENABLE_WAYLAND -u LIBVA_DRIVER_NAME -u GBM_BACKEND -u WLR_NO_HARDWARE_CURSORS firefox"
 local fileManager = "yazi"
-local menu = "~/.config/hypr/scripts/toggle_rofi.sh ~/.config/hypr/scripts/hub.sh"
+local menu = "~/.local/bin/fox-desktop-menu root"
 local coding = "~/.local/bin/cursor"
 local chat = "discord"
 
@@ -23,7 +23,7 @@ hl.bind(mainMod .. " + RETURN", hl.dsp.exec_cmd(terminal))
 hl.bind(mainMod .. " + F", hl.dsp.exec_cmd(browser))
 -- Cursor (code editor).
 hl.bind(mainMod .. " + SHIFT + C", hl.dsp.exec_cmd(coding))
--- FoxML SysHub — rofi launcher (power, BT, Wi-Fi, wallpapers, themes, apps).
+-- FoxML drawers — apps, connections, sound, comfort and system.
 hl.bind(mainMod .. " + SHIFT + D", hl.dsp.exec_cmd(menu))
 -- Steam.
 hl.bind(mainMod .. " + SHIFT + M", hl.dsp.exec_cmd("steam steam://open/main"))
@@ -32,11 +32,11 @@ hl.bind(mainMod .. " + SHIFT + Y", hl.dsp.exec_cmd("~/.config/launchers/toggle/t
 -- btop system monitor (toggle).
 hl.bind(mainMod .. " + SHIFT + T", hl.dsp.exec_cmd("~/.config/launchers/toggle/toggle_btop.sh"))
 -- Network / Wi-Fi menu.
-hl.bind(mainMod .. " + SHIFT + N", hl.dsp.exec_cmd("~/.config/hypr/scripts/toggle_rofi.sh ~/.config/hypr/scripts/network.sh"))
+hl.bind(mainMod .. " + SHIFT + N", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu wifi"))
 -- Bluetooth menu.
-hl.bind(mainMod .. " + SHIFT + B", hl.dsp.exec_cmd("~/.config/hypr/scripts/toggle_rofi.sh ~/.config/hypr/scripts/bluetooth.sh"))
+hl.bind(mainMod .. " + SHIFT + B", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu bluetooth"))
 -- Audio output switcher.
-hl.bind(mainMod .. " + SHIFT + A", hl.dsp.exec_cmd("~/.config/hypr/scripts/toggle_rofi.sh ~/.config/hypr/scripts/audio_switcher.sh"))
+hl.bind(mainMod .. " + SHIFT + A", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu audio-outputs"))
 -- Color picker (hyprpicker).
 hl.bind(mainMod .. " + SHIFT + P", hl.dsp.exec_cmd("hyprpicker -a"))
 -- Discord.
@@ -50,15 +50,15 @@ hl.bind(mainMod .. " + B", hl.dsp.exec_cmd("killall -SIGUSR1 waybar"))
 -- Cycle wallpaper.
 hl.bind(mainMod .. " + W", hl.dsp.exec_cmd("~/.config/hypr/scripts/rotate_wallpaper.sh --cycle"))
 -- Clipboard history — text.
-hl.bind(mainMod .. " + V", hl.dsp.exec_cmd("~/.config/hypr/scripts/toggle_rofi.sh ~/.config/hypr/scripts/clipmanager.sh text"))
+hl.bind(mainMod .. " + V", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu clipboard-text"))
 -- Clipboard history — images.
-hl.bind(mainMod .. " + SHIFT + V", hl.dsp.exec_cmd("~/.config/hypr/scripts/toggle_rofi.sh ~/.config/hypr/scripts/clipmanager.sh image"))
+hl.bind(mainMod .. " + SHIFT + V", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu clipboard-images"))
 -- Panic kill — terminate runaway processes.
 hl.bind(mainMod .. " + SHIFT + K", hl.dsp.exec_cmd("~/.config/hypr/scripts/panic.sh"))
 -- Power menu.
-hl.bind(mainMod .. " + SHIFT + X", hl.dsp.exec_cmd("~/.config/hypr/scripts/toggle_rofi.sh ~/.config/hypr/scripts/powermenu.sh"))
+hl.bind(mainMod .. " + SHIFT + X", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu power"))
 -- AI agent triage — pending Claude/Gemini notifications, hjkl, switches tmux to the originating pane.
-hl.bind(mainMod .. " + SHIFT + E", hl.dsp.exec_cmd("~/.config/hypr/scripts/toggle_rofi.sh ~/.config/hypr/scripts/agent_rofi.sh"))
+hl.bind(mainMod .. " + SHIFT + E", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu agents"))
 -- Path of Building (Flatpak) — build planner; `pob 2` for PoE 2.
 hl.bind(mainMod .. " + CTRL + P", hl.dsp.exec_cmd("~/.local/bin/pob"))
 
@@ -163,13 +163,10 @@ hl.bind(mainMod .. " + SHIFT + S", hl.dsp.exec_cmd("fox-sandbox"))
 hl.bind(mainMod .. " + G", hl.dsp.exec_cmd("~/.config/hypr/scripts/ghost-mode.sh"))
 
 -- ─────────────────────────────────────────
--- Window switcher (rofi)
+-- Window drawer
 -- ─────────────────────────────────────────
--- Active-windows picker (rofi). Direct shortcut to the SysHub "Active
--- Windows" entry — rofi -show window with the inputbar disabled and hjkl
--- navigation, matching the rest of the project's rofi modals. Same flags as
--- hub.sh's Active Windows entry, just bypassing the SysHub menu.
-hl.bind(mainMod .. " + grave", hl.dsp.exec_cmd("~/.config/hypr/scripts/toggle_rofi.sh rofi -show window -kb-row-up \"k,Up\" -kb-row-down \"j,Down\" -kb-accept-entry \"l,Return\" -kb-cancel \"Escape,h\" -theme-str 'inputbar {enabled: false;}'"))
+-- Active windows with the same navigation as the other drawers.
+hl.bind(mainMod .. " + grave", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu windows"))
 
 -- ─────────────────────────────────────────
 -- TTY switch (diagnostics)

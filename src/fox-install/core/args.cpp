@@ -135,9 +135,9 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
         // visible. Without post_install, the new .tmpl sits on disk and
         // the running bars keep their stale CSS until next login.
         if (std::string(MODULES[idx].slug) == "render") {
-            for (const char* implied : {"symlinks", "post_install"}) {
+            for (const char* implied : {"symlinks", "drawer", "post_install"}) {
                 std::size_t s_idx = find_by_slug(implied);
-                if (s_idx != SIZE_MAX) out.module_enabled[s_idx] = true;
+                if (s_idx != SIZE_MAX && !explicitly_disabled[s_idx]) out.module_enabled[s_idx] = true;
             }
         }
     };
@@ -244,7 +244,7 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
             switch_to_exclusive();
             static const char* KEEP[] = {
                 "detect", "preflight", "theme",
-                "render", "symlinks", "specials",
+                "render", "symlinks", "specials", "drawer",
                 "personalize", "post_install", "summary", nullptr,
             };
             for (auto** s = KEEP; *s; ++s) {

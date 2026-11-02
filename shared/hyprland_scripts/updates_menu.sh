@@ -27,11 +27,19 @@
 # the pill refreshes immediately. UX matches the rest of the FoxML rofi
 # surface: ne zone, hjkl nav, no input bar.
 
-# Toggle: clicking the pill while the menu is open closes it.
-if pkill -x rofi; then exit 0; fi
-
-ROFI_ZONE="${ROFI_ZONE:-ne}"
-source ~/.config/hypr/scripts/_rofi_zone.sh
+apply_mode="${1:-}"
+if [[ -n "$apply_mode" && "$apply_mode" != --apply-terminal && "$apply_mode" != --apply-silent ]]; then
+    printf '%s\n' 'Usage: updates_menu.sh [--apply-terminal | --apply-silent]' >&2
+    exit 2
+fi
+if [[ -z "$apply_mode" ]]; then
+    if [[ "${FOXML_MENU_LEGACY:-0}" != 1 ]] && command -v fox-desktop-menu >/dev/null 2>&1 && fox-desktop-menu --available; then
+        if fox-desktop-menu updates; then exit 0; fi
+    fi
+    if pkill -x rofi; then exit 0; fi
+    ROFI_ZONE="${ROFI_ZONE:-ne}"
+    source "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/scripts/_rofi_zone.sh"
+fi
 
 CACHE_DIR="${XDG_RUNTIME_DIR:-/tmp}/foxml-waybar"
 COUNT_CACHE="$CACHE_DIR/updates"
@@ -77,6 +85,11 @@ apply_terminal() {
 }
 
 apply_silent() {
+    if ! command -v informant >/dev/null 2>&1; then
+        notify-send "Updates" "Silent updates require informant — opening terminal."
+        apply_terminal
+        return
+    fi
     exec 9>"$LOCK"
     flock -n 9 || { notify-send "Updates" "An update is already running."; return; }
 
@@ -108,6 +121,11 @@ apply_silent() {
     open_terminal
     refresh_pill
 }
+
+case "$apply_mode" in
+    --apply-terminal) apply_terminal; exit $? ;;
+    --apply-silent) apply_silent; exit $? ;;
+esac
 
 # ▶-prefixed sentinels stay visually distinct from "pkg ver -> ver" rows.
 A_TERM="▶  Apply in terminal"
