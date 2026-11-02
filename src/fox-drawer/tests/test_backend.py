@@ -81,6 +81,13 @@ elif name == 'dunstctl' and args[:1] == ['is-paused']:
     print('false')
 elif name == 'pgrep':
     sys.exit(1)
+elif name == 'lsblk':
+    print(json.dumps(state.get('drives', {'blockdevices': []})))
+elif name == 'xdg-user-dir':
+    print(state.get('download_dir', str(Path.home() / 'Downloads')))
+elif name == 'udisksctl' and args[:1] == ['mount'] and state.get('after_mount'):
+    state['drives'] = state['after_mount']
+    Path(os.environ['DRAWER_TEST_STATE']).write_text(json.dumps(state))
 '''
 
 
@@ -120,7 +127,7 @@ class BackendTests(unittest.TestCase):
             "wpctl", "brightnessctl", "hyprctl", "pactl", "nmcli", "bluetoothctl", "cliphist", "wl-copy",
             "gio", "setsid", "kitty", "systemctl", "loginctl", "pkill", "pgrep", "wlsunset", "makoctl",
             "dunstctl", "powerprofilesctl", "playerctl", "hyprpicker", "awww", "notify-send", "rofi-pass",
-            "checkupdates", "informant", "fox-wallpaper", "fox-lock", "fox-clean", "fox", "hypridle",
+            "checkupdates", "informant", "fox-wallpaper", "fox-lock", "fox-clean", "fox", "hypridle", "lsblk", "udisksctl", "xdg-open", "xdg-user-dir",
         ):
             fake = self.bin / name
             fake.write_text(f"#!{sys.executable}\n" + FAKE_COMMAND)
@@ -252,11 +259,264 @@ class BackendTests(unittest.TestCase):
         self.assertTrue(self.invoke("run", "window-focus", "0xabc123")["ok"])
         self.assertIn(["hyprctl", "dispatch", "focuswindow", "address:0xabc123"], self.calls())
 
+    def test_root_summary_and_favorite_use_live_volume(self):
+        config = json.loads(self.config.read_text())
+        config["favorites"] = ["sound/volume"]
+        self.config.write_text(json.dumps(config))
+        data = self.invoke("view", "root")
+        self.assertEqual(data["items"][0]["summary"], "42% · speakers")
+        self.assertEqual(data["favorites"][0]["id"], "volume")
+        self.assertEqual(data["favorites"][0]["value"], 42)
+        self.assertEqual(data["favorites"][0]["group"], "sound")
+
+    def test_unavailable_summary_does_not_fabricate_zero(self):
+        self.state = {"commands": {"wpctl": {"exit": 1}}}
+        data = self.invoke("view", "root")
+        self.assertEqual(data["items"][0]["summary"], "Audio unavailable")
+        self.assertEqual(data["favorites"], [])
+
+    def test_unknown_or_duplicate_favorites_are_rejected(self):
+        config = json.loads(self.config.read_text())
+        for references in (["missing/action"], ["sound/volume", "sound/volume"], [42]):
+            config["favorites"] = references
+            self.config.write_text(json.dumps(config))
+            self.assertFalse(self.invoke("view", "root", expect=1)["ok"])
+
+    def test_explicit_empty_favorites_remain_empty(self):
+        config = json.loads(self.config.read_text())
+        config["favorites"] = []
+        self.config.write_text(json.dumps(config))
+        self.assertEqual(self.invoke("view", "root")["favorites"], [])
+
+    def test_project_cards_and_opening_preserve_literal_paths(self):
+        project = self.home / "code" / "Paper $(touch injected) project"
+        (project / ".git").mkdir(parents=True)
+        (project / "CMakeLists.txt").write_text("project(Paper)\n")
+        config = json.loads(self.config.read_text())
+        config["project_editor"] = ["kitty", "--title", "Project"]
+        self.config.write_text(json.dumps(config))
+        cards = self.invoke("view", "projects", "paper")["items"]
+        self.assertEqual(len(cards), 1)
+        self.assertEqual(cards[0]["presentation"], "project")
+        self.assertEqual(cards[0]["argument"], str(project.resolve()))
+        self.assertIn("C++", cards[0]["detail"])
+        self.assertTrue(self.invoke("run", "project-open", str(project.resolve()))["ok"])
+        self.assertIn(["setsid", "-f", "kitty", "--title", "Project", str(project.resolve())], self.calls())
+        self.assertTrue(self.invoke("run", "project-terminal", str(project.resolve()))["ok"])
+        self.assertIn(["setsid", "-f", "kitty", "--directory", str(project.resolve())], self.calls())
+        self.assertFalse((self.root / "injected").exists())
+
+    def test_projects_exclude_unmarked_hidden_and_symlink_folders(self):
+        code = self.home / "code"
+        code.mkdir()
+        (code / "unmarked").mkdir()
+        (code / ".hidden" / ".git").mkdir(parents=True)
+        outside = self.root / "outside"
+        (outside / ".git").mkdir(parents=True)
+        (code / "linked").symlink_to(outside, target_is_directory=True)
+        self.assertEqual(self.invoke("view", "projects")["items"], [])
+        self.assertFalse(self.invoke("run", "project-open", str(outside), expect=1)["ok"])
+
+    def test_custom_project_roots_and_invalid_configuration(self):
+        root = self.home / "projects"
+        project = root / "Notes"
+        project.mkdir(parents=True)
+        (project / "pyproject.toml").write_text("[project]\n")
+        config = json.loads(self.config.read_text())
+        config["project_roots"] = ["~/projects", str(root)]
+        self.config.write_text(json.dumps(config))
+        self.assertEqual(len(self.invoke("view", "projects")["items"]), 1)
+        config["project_roots"] = ["relative/path"]
+        self.config.write_text(json.dumps(config))
+        self.assertFalse(self.invoke("view", "projects", expect=1)["ok"])
+
     def test_valid_volume_set_and_json_stdout(self):
         data = self.invoke("run", "volume", "55")
         self.assertTrue(data["ok"])
         calls = self.calls()
         self.assertTrue(any(call[0] == "wpctl" and "set-volume" in call and "55%" in call for call in calls), calls)
+
+    def test_incoming_tray_filters_temporary_files_and_orders_by_modified_time(self):
+        folder = self.home / 'Downloads'
+        folder.mkdir()
+        for name, modified in [('Older.pdf', 100), ('Newer.md', 200), ('.hidden.txt', 400), ('unfinished.crdownload', 500), ('unfinished.part', 600)]:
+            file = folder / name
+            file.write_text('private fixture contents')
+            os.utime(file, (modified, modified))
+        (folder / 'a directory').mkdir()
+        (folder / 'link.txt').symlink_to(folder / 'Newer.md')
+        rows = self.invoke('view','downloads')['items']
+        self.assertEqual([row['label'] for row in rows], ['Newer.md','Older.pdf'])
+        self.assertEqual(rows[0]['presentation'], 'download')
+        self.assertIn('Note', rows[0]['detail'])
+        self.assertIn('PDF', rows[1]['detail'])
+        self.assertTrue(all('stamp' in row for row in rows))
+        self.assertEqual([call[0] for call in self.calls()], ['xdg-user-dir'])
+        self.assertEqual((folder / 'Newer.md').read_text(), 'private fixture contents')
+
+    def test_incoming_tray_opens_literal_file_or_folder_and_refuses_stale_paths(self):
+        folder = self.home / 'Downloads'
+        folder.mkdir()
+        file = folder / 'Notes; $(touch should-not-exist).txt'
+        file.write_text('note')
+        self.assertTrue(self.invoke('run','download-open',str(file))['ok'])
+        self.assertIn(['setsid','-f','xdg-open',str(file)], self.calls())
+        self.assertTrue(self.invoke('run','download-folder',str(file))['ok'])
+        self.assertIn(['setsid','-f','xdg-open',str(folder)], self.calls())
+        self.failed('run','download-open',str(self.home / 'outside.txt'))
+        file.unlink()
+        self.failed('run','download-open',str(file))
+        self.assertEqual(sum(call[0] == 'setsid' for call in self.calls()), 2)
+        self.assertFalse((folder / 'should-not-exist').exists())
+
+    def test_incoming_tray_respects_xdg_override_and_disabled_download_folder(self):
+        folder = self.home / 'Incoming papers'
+        folder.mkdir()
+        (folder / 'hello.txt').write_text('hello')
+        self.state['download_dir'] = str(folder)
+        self.assertEqual(len(self.invoke('view','downloads')['items']), 1)
+        self.state['download_dir'] = str(self.home)
+        self.assertEqual(self.invoke('view','downloads')['items'], [])
+        config = json.loads(self.config.read_text())
+        config['downloads_directory'] = '~/Incoming papers'
+        self.config.write_text(json.dumps(config))
+        self.assertEqual(len(self.invoke('view','downloads')['items']), 1)
+        config['downloads_directory'] = 'relative/folder'
+        self.config.write_text(json.dumps(config))
+        self.failed('view','downloads')
+
+    def test_incoming_tray_limits_recent_files_and_filters_names_and_types(self):
+        self.assertEqual(self.invoke('view','downloads')['items'], [])
+        folder = self.home / 'Downloads'
+        folder.mkdir()
+        for number in range(70):
+            file = folder / f'Note-{number:02d}.txt'
+            file.write_text('note')
+            os.utime(file, (number + 100, number + 100))
+        rows = self.invoke('view','downloads')['items']
+        self.assertEqual(len(rows), 64)
+        self.assertEqual(rows[0]['label'], 'Note-69.txt')
+        self.assertEqual(rows[-1]['label'], 'Note-06.txt')
+        filtered = self.invoke('view','downloads','Note-68')['items']
+        self.assertEqual([row['label'] for row in filtered], ['Note-68.txt'])
+
+    def make_project(self, name="Paper notes"):
+        project = self.home / "code" / name
+        project.mkdir(parents=True)
+        (project / ".git").mkdir()
+        return str(project)
+
+    def test_bookmark_ribbons_persist_and_appear_on_home(self):
+        project = self.make_project('Notes; $(touch nope)')
+        self.assertTrue(self.invoke("run", "project-bookmark", project)["ok"])
+        state = Path(self.env['XDG_STATE_HOME']) / 'foxml/project-bookmarks.json'
+        self.assertEqual(json.loads(state.read_text()), [project])
+        self.assertEqual(state.stat().st_mode & 0o777, 0o600)
+        for page in ("projects", "bookmarks"):
+            row = self.invoke("view", page)["items"][0]
+            self.assertTrue(row['bookmarked'])
+            self.assertEqual(row['argument'], project)
+        self.assertEqual(self.invoke("view", "root")['favorites'][0]['argument'], project)
+        self.assertTrue(self.invoke("run", "project-bookmark", project)["ok"])
+        self.assertEqual(json.loads(state.read_text()), [])
+        self.assertEqual(json.loads(state.with_suffix('.json.bak').read_text()), [project])
+        self.assertEqual(self.invoke("view", "bookmarks")['items'], [])
+        self.assertFalse(any(call[0] in ('setsid','kitty') for call in self.calls()))
+
+    def test_bookmarks_reject_corruption_outside_roots_and_overflow(self):
+        project = self.make_project()
+        self.failed("run", "project-bookmark", str(self.home / "outside"))
+        state = Path(self.env['XDG_STATE_HOME']) / 'foxml/project-bookmarks.json'
+        state.parent.mkdir(parents=True)
+        state.write_text('{broken')
+        self.failed("run", "project-bookmark", project)
+        self.assertEqual(state.read_text(), '{broken')
+        state.write_text(json.dumps([f"/old/{i}" for i in range(16)]))
+        self.failed("run", "project-bookmark", project)
+        self.assertEqual(len(json.loads(state.read_text())), 16)
+
+    def test_removed_project_bookmark_can_be_cleared_without_opening_it(self):
+        project = self.make_project()
+        self.invoke('run','project-bookmark',project)
+        Path(project, '.git').rmdir()
+        Path(project).rmdir()
+        row = self.invoke('view','bookmarks')['items'][0]
+        self.assertIn('Unavailable', row['detail'])
+        self.failed('run','project-open',project)
+        self.assertTrue(self.invoke('run','project-bookmark',project)['ok'])
+        self.assertEqual(self.invoke('view','bookmarks')['items'], [])
+
+    def test_concurrent_bookmark_writes_preserve_both_ribbons(self):
+        paths = [self.make_project(name) for name in ('One','Two')]
+        processes = [subprocess.Popen([str(BINARY),'--config',str(self.config),'run','project-bookmark',path],
+                                     env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE) for path in paths]
+        for process in processes:
+            stdout, stderr = process.communicate(timeout=10)
+            self.assertEqual(process.returncode, 0, stderr)
+            self.assertTrue(json.loads(stdout)['ok'])
+        self.assertEqual({row['argument'] for row in self.invoke('view','bookmarks')['items']}, set(paths))
+
+    def removable_drive(self, mounted=True):
+        return dict(name='sda', path='/dev/sda', type='disk', tran='usb', rm=False,
+                    size=64*1024**3, label=None, fstype=None, mountpoints=[], children=[
+                        dict(name='sda1', path='/dev/sda1', type='part', size=32*1024**3,
+                             label='Notes; $(touch nope)', fstype='exfat', mountpoints=['/run/media/me/Paper notes'] if mounted else [])])
+
+    def test_library_is_read_only_and_only_lists_removable_non_system_volumes(self):
+        usb = self.removable_drive()
+        internal = dict(usb, path='/dev/nvme0n1', tran='nvme')
+        boot = dict(usb, path='/dev/sdb', children=[dict(usb['children'][0], mountpoints=['/'])])
+        swap = dict(usb, path='/dev/sdc', children=[dict(usb['children'][0], fstype='swap', mountpoints=['[SWAP]'])])
+        encrypted = dict(usb, path='/dev/sdd', children=[dict(usb['children'][0], fstype='crypto_LUKS')])
+        self.state['drives'] = {'blockdevices': [internal, usb, boot, swap, encrypted]}
+        rows = self.invoke('view','library')['items']
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['argument'], '/dev/sda1')
+        self.assertEqual(rows[0]['ejectArgument'], '/dev/sda')
+        self.assertTrue(rows[0]['mounted'])
+        self.assertIn('32.0 GiB', rows[0]['detail'])
+        self.assertEqual([call[0] for call in self.calls()], ['lsblk'])
+
+    def test_library_mount_open_and_literal_mountpoint(self):
+        self.state['drives'] = {'blockdevices': [self.removable_drive(False)]}
+        self.state['after_mount'] = {'blockdevices': [self.removable_drive()]}
+        self.assertTrue(self.invoke('run','drive-open','/dev/sda1')['ok'])
+        self.assertIn(['udisksctl','mount','--block-device','/dev/sda1','--no-user-interaction'], self.calls())
+        self.assertIn(['setsid','-f','xdg-open','/run/media/me/Paper notes'], self.calls())
+
+    def test_library_eject_requires_confirmation_and_unmounts_whole_disk(self):
+        drive = self.removable_drive()
+        drive['children'].append(dict(drive['children'][0], path='/dev/sda2'))
+        self.state['drives'] = {'blockdevices':[drive]}
+        self.failed('run','drive-eject','/dev/sda')
+        self.assertFalse(any(call[0] == 'udisksctl' for call in self.calls()))
+        self.assertTrue(self.invoke('run','drive-eject','/dev/sda','--confirm')['ok'])
+        operations = [call for call in self.calls() if call[0] == 'udisksctl']
+        self.assertEqual(operations, [
+            ['udisksctl','unmount','--block-device','/dev/sda1','--no-user-interaction'],
+            ['udisksctl','unmount','--block-device','/dev/sda2','--no-user-interaction'],
+            ['udisksctl','power-off','--block-device','/dev/sda','--no-user-interaction']])
+
+    def test_library_busy_disappeared_or_internal_drive_never_powers_off(self):
+        self.state['drives'] = {'blockdevices':[self.removable_drive()]}
+        self.state['exact'] = {'\x1f'.join(['udisksctl','unmount','--block-device','/dev/sda1','--no-user-interaction']):{'exit':1}}
+        self.failed('run','drive-eject','/dev/sda','--confirm')
+        self.assertFalse(any('power-off' in call for call in self.calls()))
+        self.failed('run','drive-eject','/dev/nvme0n1','--confirm')
+        self.failed('run','drive-open','/dev/sda1; touch nope')
+        self.state['drives'] = {'blockdevices':[]}
+        self.failed('run','drive-eject','/dev/sda','--confirm')
+        self.assertFalse(any('power-off' in call for call in self.calls()))
+
+    def test_library_missing_services_and_mount_failure(self):
+        self.state['drives'] = {'blockdevices':[self.removable_drive(False)]}
+        self.state['commands'] = {'udisksctl':{'exit':1}}
+        self.failed('run','drive-open','/dev/sda1')
+        self.assertFalse(any(call[0] == 'setsid' for call in self.calls()))
+        (self.bin / 'udisksctl').unlink()
+        self.assertFalse(self.invoke('view','library')['items'][0]['enabled'])
+        self.state['commands']['lsblk'] = {'exit':1}
+        self.failed('view','library')
 
     def test_hostile_desktop_filename_stays_one_argument(self):
         directory = self.home / ".local/share/applications"

@@ -144,7 +144,10 @@ case "$status" in
         ;;
 esac
 
-text="$icon $cap%$watts"
+# A little plug and heart use the existing charging color; risk classes stay authoritative.
+doodle=""
+[[ "$status" == Charging ]] && doodle="󰚥 ♡ "
+text="$doodle$icon $cap%$watts"
 
 # ── Volume ────────────────────────────────────────────────────────
 vol="?"

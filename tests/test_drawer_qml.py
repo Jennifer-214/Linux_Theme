@@ -48,6 +48,82 @@ EXERCISE = r'''
             if (root.entries.length !== 2 || !root.failed || root.entries[root.itemIndex].id !== "usable") throw new Error("partial page was discarded");
             root.hide();
             if (root.opened) throw new Error("close did not hide panel");
+            root.show("root");
+        }
+    }
+    Timer {
+        interval: 2000; running: true
+        onTriggered: {
+            if (root.page !== "root" || root.entries.length !== 1 || root.entries[0].value !== 42)
+                throw new Error("home favorites were not populated with live values");
+            if (!itemList.visible) throw new Error("favorite rows are hidden on the home panel");
+            if (root.focusArea !== "items" || root.groups[1].summary !== "42% · speakers")
+                throw new Error("favorite keyboard focus or live summary missing");
+            var tab = {key: Qt.Key_Tab, modifiers: 0, accepted: false}; root.key(tab);
+            if (root.focusArea !== "groups") throw new Error("Tab did not reach groups from favorites");
+            root.page = "projects";
+            root.focusArea = "items";
+            root.entries = [{id: "project-open", argument: "/a literal project", presentation: "project", kind: "action"}];
+            root.itemIndex = 0;
+            root.actionBusy = false;
+            root.key({key: Qt.Key_T, modifiers: 0, accepted: false});
+            if (JSON.stringify(actionProcess.command.slice(-3)) !== JSON.stringify(["run", "project-terminal", "/a literal project"]))
+                throw new Error("project terminal key lost its selected path");
+            root.hide();
+        }
+    }
+    Timer {
+        interval: 2700; running: true
+        onTriggered: {
+            root.opened = true;
+            root.page = "projects";
+            root.focusArea = "items";
+            root.entries = [{id: "project-open", argument: "/a literal project", presentation: "project", kind: "action", close: true, bookmarked: true}];
+            root.itemIndex = 0;
+            root.key({key: Qt.Key_B, modifiers: 0, accepted: false});
+            if (JSON.stringify(actionProcess.command.slice(-3)) !== JSON.stringify(["run", "project-bookmark", "/a literal project"]) || actionProcess.item.close)
+                throw new Error("bookmark key lost the selected project or closes the drawer");
+            root.hide();
+        }
+    }
+    Timer {
+        interval: 3400; running: true
+        onTriggered: {
+            root.opened = true;
+            root.page = "library";
+            root.focusArea = "items";
+            root.entries = [{id: "drive-open", argument: "/dev/sda1", ejectArgument: "/dev/sda", presentation: "library", kind: "action"}];
+            root.itemIndex = 0;
+            root.key({key: Qt.Key_E, modifiers: 0, accepted: false});
+            if (!root.pendingConfirm || root.confirmYes || actionProcess.running)
+                throw new Error("eject did not stop for confirmation");
+            root.goBack();
+            if (root.pendingConfirm || actionProcess.running) throw new Error("cancelled eject started an action");
+            root.key({key: Qt.Key_E, modifiers: 0, accepted: false});
+            root.confirmYes = true;
+            root.key({key: Qt.Key_Return, modifiers: 0, accepted: false});
+            if (JSON.stringify(actionProcess.command.slice(-4)) !== JSON.stringify(["run", "drive-eject", "/dev/sda", "--confirm"]))
+                throw new Error("confirmed eject lost its device or confirmation");
+            root.hide();
+        }
+    }
+    Timer {
+        interval: 4100; running: true
+        onTriggered: {
+            root.opened = true;
+            root.page = "downloads";
+            root.focusArea = "items";
+            root.entries = [{id: "download-open", argument: "/a literal download.txt", presentation: "download", kind: "action"}];
+            root.itemIndex = 0;
+            root.key({key: Qt.Key_R, modifiers: 0, accepted: false});
+            if (JSON.stringify(actionProcess.command.slice(-3)) !== JSON.stringify(["run", "download-folder", "/a literal download.txt"]))
+                throw new Error("folder key lost its selected download path");
+            root.hide();
+        }
+    }
+    Timer {
+        interval: 4800; running: true
+        onTriggered: {
             console.log("DRAWER_UI_ASSERTIONS_PASSED");
             Qt.quit();
         }
@@ -91,7 +167,10 @@ class DrawerQmlTest(unittest.TestCase):
             self.assertIn("DRAWER_UI_ASSERTIONS_PASSED", log)
             self.assertNotIn("TypeError", log)
             self.assertNotIn("ReferenceError", log)
-            self.assertEqual([json.loads(line) for line in actions.read_text().splitlines()], [["run", "volume", "47"]])
+            self.assertEqual([json.loads(line) for line in actions.read_text().splitlines()],
+                             [["run", "volume", "47"], ["run", "project-terminal", "/a literal project"],
+                              ["run", "project-bookmark", "/a literal project"], ["run", "drive-eject", "/dev/sda", "--confirm"],
+                              ["run", "download-folder", "/a literal download.txt"]])
 
 
 if __name__ == "__main__":

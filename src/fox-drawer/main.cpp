@@ -5,6 +5,7 @@
 #include <array>
 #include <cerrno>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <csignal>
 #include <cstdlib>
@@ -21,6 +22,8 @@
 #include <vector>
 #include <fcntl.h>
 #include <sys/wait.h>
+#include <sys/file.h>
+#include <sys/statvfs.h>
 #include <unistd.h>
 
 namespace fs = std::filesystem;
@@ -89,14 +92,14 @@ fs::path repository() {
 }
 const std::set<std::string> pages = {
     "apps", "windows", "audio-outputs", "wifi", "bluetooth", "clipboard-text", "clipboard-images",
-    "wallpapers", "themes", "power", "updates", "agents"
+    "wallpapers", "themes", "power", "updates", "agents", "projects", "bookmarks", "library", "downloads"
 };
 const std::set<std::string> actions = {
     "volume", "volume-mute", "mic-mute", "media-play-pause", "media-next", "media-previous", "brightness",
     "nightlight", "dnd", "idle", "power-profile", "lock", "suspend", "reboot", "poweroff", "logout",
     "wallpaper-next", "wallpaper-sync", "color-picker", "updates-terminal", "updates-silent", "vault",
     "security", "cleanup", "agent-triage", "app-launch", "window-focus", "audio-output", "wifi-connect",
-    "wifi-toggle", "bluetooth-connect", "bluetooth-toggle", "bluetooth-scan", "clipboard-restore", "wallpaper-set", "theme-set"
+    "wifi-toggle", "bluetooth-connect", "bluetooth-toggle", "bluetooth-scan", "clipboard-restore", "wallpaper-set", "theme-set", "project-open", "project-terminal", "project-bookmark", "drive-open", "drive-eject", "download-open", "download-folder"
 };
 Json item(const std::string& id, const std::string& label, const std::string& kind = "action",
           const std::string& detail = {}, const std::string& icon = {}) {
@@ -194,6 +197,43 @@ bool read_config(const fs::path& file, Json& config, std::string& error) {
         if (text(row, "kind") == "page" && !pages.count(text(row, "page")) && !group_ids.count(text(row, "page"))) {
             error = "Unknown menu page"; return false;
         }
+    for (const char* key : {"project_roots", "project_editor"}) {
+        if (!config.contains(key)) continue;
+        if (!config[key].is_array() || config[key].empty() || config[key].size() > 16) {
+            error = std::string(key) + " must be a nonempty string array"; return false;
+        }
+        for (const auto& value : config[key]) {
+            if (!value.is_string() || value.get<std::string>().empty() || !safe_text(value.get<std::string>())) {
+                error = std::string("Invalid ") + key; return false;
+            }
+            if (std::string(key) == "project_roots" && !fs::path(value.get<std::string>()).is_absolute()
+                && value.get<std::string>().rfind("~/", 0) != 0) {
+                error = "Project roots must be absolute or start with ~/"; return false;
+            }
+        }
+    }
+    if (config.contains("downloads_directory")) {
+        const auto path = text(config, "downloads_directory");
+        if (path.empty() || !safe_text(path) || (!fs::path(path).is_absolute() && path.rfind("~/", 0) != 0)) {
+            error = "downloads_directory must be absolute or start with ~/"; return false;
+        }
+    }
+    if (config.contains("favorites")) {
+        if (!config["favorites"].is_array() || config["favorites"].size() > 8) {
+            error = "favorites must be an array of at most eight group/item references"; return false;
+        }
+        std::set<std::string> seen;
+        for (const auto& favorite : config["favorites"]) {
+            if (!favorite.is_string()) { error = "Favorite references must be text"; return false; }
+            const auto reference = favorite.get<std::string>();
+            bool found = false;
+            for (const auto& group : config["groups"]) for (const auto& row : group["items"])
+                if (reference == text(group, "id") + "/" + text(row, "id")) found = true;
+            if (!found || !seen.insert(reference).second) {
+                error = "Unknown or duplicate favorite: " + reference; return false;
+            }
+        }
+    }
     return true;
 }
 
@@ -502,17 +542,281 @@ std::string group_for(const Json& config, const std::string& page) {
     }
     return {};
 }
+struct Project { fs::path path; std::string name, type; };
+fs::path bookmark_file() {
+    return fs::path(env("XDG_STATE_HOME", home() + "/.local/state")) / "foxml/project-bookmarks.json";
+}
+bool bookmarks(std::vector<std::string>& paths) {
+    const auto file = bookmark_file();
+    std::error_code ec;
+    if (!fs::exists(file, ec)) return !ec;
+    const auto data = Json::parse(read(file), nullptr, false);
+    if (!data.is_array() || data.size() > 16) return false;
+    for (const auto& path : data) {
+        if (!path.is_string() || !fs::path(path.get<std::string>()).is_absolute() || !safe_text(path.get<std::string>())) return false;
+        if (std::find(paths.begin(), paths.end(), path.get<std::string>()) != paths.end()) return false;
+        paths.push_back(path.get<std::string>());
+    }
+    return true;
+}
+bool write_atomic(const fs::path& path, const std::string& data) {
+    std::string pattern = path.string() + ".XXXXXX";
+    std::vector<char> name(pattern.begin(), pattern.end()); name.push_back('\0');
+    const int fd = ::mkstemp(name.data());
+    if (fd < 0) return false;
+    size_t offset = 0;
+    while (offset < data.size()) {
+        const auto count = ::write(fd, data.data() + offset, data.size() - offset);
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) break;
+        offset += static_cast<size_t>(count);
+    }
+    bool ok = offset == data.size() && ::fsync(fd) == 0;
+    if (::close(fd) != 0) ok = false;
+    if (ok) ok = ::rename(name.data(), path.c_str()) == 0;
+    if (!ok) ::unlink(name.data());
+    return ok;
+}
+Json toggle_bookmark(const std::string& path) {
+    const auto file = bookmark_file();
+    std::error_code ec;
+    fs::create_directories(file.parent_path(), ec);
+    if (ec) return result(false, "Could not create bookmark storage");
+    const int lock = ::open((file.string() + ".lock").c_str(), O_CREAT | O_RDWR | O_CLOEXEC, 0600);
+    if (lock < 0) return result(false, "Could not lock bookmarks");
+    if (::flock(lock, LOCK_EX) != 0) { ::close(lock); return result(false, "Could not lock bookmarks"); }
+    std::vector<std::string> paths;
+    bool ok = bookmarks(paths);
+    bool adding = false;
+    std::string message = "Bookmark storage is unreadable; it was left untouched";
+    if (ok) {
+        const auto at = std::find(paths.begin(), paths.end(), path);
+        adding = at == paths.end();
+        if (adding && paths.size() >= 16) { ok = false; message = "Your sixteen bookmark ribbons are full"; }
+        else {
+            if (adding) paths.push_back(path); else paths.erase(at);
+            if (fs::exists(file, ec)) ok = write_atomic(file.string() + ".bak", read(file));
+            if (ec) ok = false;
+            if (ok) ok = write_atomic(file, Json(paths).dump(2) + "\n");
+            message = ok ? (adding ? "A bookmark ribbon, saved" : "Bookmark ribbon removed") : "Could not save bookmarks";
+        }
+    }
+    ::close(lock);
+    return result(ok, message);
+}
+std::vector<Project> projects(const Json& config) {
+    const auto roots = config.value("project_roots", Json::array({"~/code"}));
+    std::vector<Project> found;
+    std::set<std::string> seen;
+    for (const auto& value : roots) {
+        std::string root = value.get<std::string>();
+        if (root.rfind("~/", 0) == 0) root = home() + root.substr(1);
+        std::error_code ec;
+        fs::directory_iterator iter(root, fs::directory_options::skip_permission_denied, ec), end;
+        while (!ec && iter != end) {
+            const auto entry = *iter; iter.increment(ec);
+            std::error_code status;
+            if (entry.is_symlink(status) || !entry.is_directory(status)) continue;
+            const auto name = entry.path().filename().string();
+            if (name.empty() || name.front() == '.' || !safe_text(name)) continue;
+            const auto path = fs::canonical(entry.path(), status);
+            if (status || !safe_text(path.string())) continue;
+            std::string type;
+            for (const auto& marker : std::vector<std::pair<std::string,std::string>>{
+                    {"CMakeLists.txt","C++"},{"Cargo.toml","Rust"},{"package.json","JavaScript"},
+                    {"pyproject.toml","Python"},{"Makefile","Make"},{"go.mod","Go"}}) {
+                if (regular(path / marker.first)) { type = marker.second; break; }
+            }
+            const bool git = directory(path / ".git") || regular(path / ".git");
+            if (!git && type.empty()) continue;
+            if (!seen.insert(path.string()).second) continue;
+            found.push_back({path, name, type.empty() ? "Git project" : type + (git ? " · Git" : " project")});
+        }
+    }
+    std::sort(found.begin(), found.end(), [](const auto& a, const auto& b) { return lower(a.name) < lower(b.name); });
+    return found;
+}
+
+Json project_card(const Project& project, bool pinned) {
+    std::string location = project.path.string();
+    if (location.rfind(home() + "/", 0) == 0) location = "~" + location.substr(home().size());
+    auto row = item("project-open", project.name, "action", project.type + " · " + location, "▤");
+    row["argument"] = project.path.string(); row["close"] = true;
+    row["presentation"] = "project"; row["bookmarked"] = pinned;
+    return row;
+}
+
+struct Volume { std::string path, disk, label, mount; uint64_t size = 0; };
+bool device_path(const std::string& path) {
+    return std::regex_match(path, std::regex("/dev/[A-Za-z0-9_-]+"));
+}
+bool volume_nodes(const Json& node, const std::string& disk, std::vector<Volume>& volumes) {
+    if (!node.is_object() || !device_path(text(node, "path"))) return false;
+    const auto type = text(node, "type");
+    if (type != "disk" && type != "part") return false;
+    std::string mount;
+    if (!node.contains("mountpoints") || !node["mountpoints"].is_array()) return false;
+    for (const auto& point : node["mountpoints"]) {
+        if (point.is_null()) continue;
+        if (!point.is_string()) return false;
+        const auto value = point.get<std::string>();
+        // Only user-media mounts belong in the library, including on a USB-booted system.
+        if (!safe_text(value) || (value.rfind("/run/media/", 0) != 0 && value.rfind("/media/", 0) != 0 && value.rfind("/mnt/", 0) != 0)) return false;
+        if (mount.empty()) mount = value;
+    }
+    const auto fs_type = text(node, "fstype");
+    if (!mount.empty() && fs_type.empty()) return false;
+    const std::set<std::string> filesystems{"vfat","exfat","ntfs","ntfs3","ext2","ext3","ext4","btrfs","xfs","f2fs","iso9660","udf"};
+    if (!fs_type.empty() && !filesystems.count(fs_type)) return false;
+    if (filesystems.count(fs_type)) {
+        uint64_t bytes = 0;
+        if (node.contains("size") && node["size"].is_number_unsigned()) bytes = node["size"].get<uint64_t>();
+        volumes.push_back({text(node,"path"), disk, text(node,"label").empty() ? text(node,"name","Removable volume") : text(node,"label"), mount, bytes});
+    }
+    if (node.contains("children")) {
+        if (!node["children"].is_array()) return false;
+        for (const auto& child : node["children"]) if (!volume_nodes(child, disk, volumes)) return false;
+    }
+    return true;
+}
+bool library(std::vector<Volume>& volumes) {
+    Json data;
+    if (!capture_json({"lsblk","--json","--bytes","--tree","--output","NAME,PATH,TYPE,TRAN,RM,SIZE,LABEL,FSTYPE,MOUNTPOINTS"}, data)
+        || !data.is_object() || !data.contains("blockdevices") || !data["blockdevices"].is_array()) return false;
+    for (const auto& disk : data["blockdevices"]) {
+        if (text(disk,"type") != "disk" || (text(disk,"tran") != "usb" && !truth(disk,"rm"))) continue;
+        std::vector<Volume> candidate;
+        if (volume_nodes(disk, text(disk,"path"), candidate)) volumes.insert(volumes.end(), candidate.begin(), candidate.end());
+    }
+    return true;
+}
+std::string capacity(uint64_t bytes) {
+    const std::array<const char*,5> units{{"B","KiB","MiB","GiB","TiB"}};
+    double value = bytes; size_t unit = 0;
+    while (value >= 1024 && unit < units.size()-1) { value /= 1024; ++unit; }
+    std::ostringstream out; out.precision(1); out << std::fixed << value << ' ' << units[unit]; return out.str();
+}
+
+fs::path download_directory(const Json& config) {
+    std::string path = text(config, "downloads_directory");
+    if (path.empty() && sh::have("xdg-user-dir")) {
+        std::string output;
+        if (sh::capture({"xdg-user-dir", "DOWNLOAD"}, output) && fs::path(trim(output)).is_absolute()) path = trim(output);
+        if (path == home()) return {}; // XDG uses HOME to mark a disabled special folder.
+    }
+    if (path.empty()) path = home() + "/Downloads";
+    if (path.rfind("~/", 0) == 0) path = home() + path.substr(1);
+    if (!safe_text(path)) return {};
+    std::error_code ec;
+    const auto canonical = fs::canonical(path, ec);
+    return ec ? fs::path{} : canonical;
+}
+struct Download {
+    fs::path path;
+    std::string name, type, age;
+    uint64_t size;
+    fs::file_time_type modified;
+};
+std::vector<Download> downloads(const Json& config) {
+    std::vector<Download> found;
+    const auto root = download_directory(config);
+    if (root.empty()) return found;
+    std::error_code ec;
+    fs::directory_iterator iter(root, fs::directory_options::skip_permission_denied, ec), end;
+    while (!ec && iter != end) {
+        const auto entry = *iter; iter.increment(ec);
+        std::error_code status;
+        if (entry.is_symlink(status) || !entry.is_regular_file(status)) continue;
+        const auto name = entry.path().filename().string();
+        if (name.empty() || name.front() == '.' || !safe_text(name)) continue;
+        const auto ext = lower(entry.path().extension().string());
+        const std::set<std::string> partial{".part", ".partial", ".crdownload", ".download", ".tmp", ".aria2"};
+        if (partial.count(ext)) continue;
+        const auto modified = entry.last_write_time(status);
+        if (status) continue;
+        const auto size = entry.file_size(status);
+        if (status) continue;
+        const auto seconds = std::max<int64_t>(0, std::chrono::duration_cast<std::chrono::seconds>(fs::file_time_type::clock::now() - modified).count());
+        const auto age = seconds < 60 ? "JUST NOW" : seconds < 3600 ? std::to_string(seconds / 60) + "m AGO"
+            : seconds < 86400 ? std::to_string(seconds / 3600) + "h AGO" : std::to_string(seconds / 86400) + "d AGO";
+        std::string type = "File";
+        if (ext == ".pdf") type = "PDF";
+        else if (ext == ".txt" || ext == ".md" || ext == ".rst") type = "Note";
+        else if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".webp" || ext == ".gif" || ext == ".svg") type = "Picture";
+        else if (ext == ".zip" || ext == ".gz" || ext == ".xz" || ext == ".tar" || ext == ".7z" || ext == ".rar" || ext == ".zst") type = "Archive";
+        else if (ext == ".mp3" || ext == ".wav" || ext == ".flac" || ext == ".ogg") type = "Audio";
+        else if (ext == ".mp4" || ext == ".webm" || ext == ".mkv") type = "Video";
+        found.push_back({entry.path(), name, type, age, size, modified});
+    }
+    std::sort(found.begin(), found.end(), [](const auto& a, const auto& b) {
+        return a.modified != b.modified ? a.modified > b.modified : a.name < b.name;
+    });
+    if (found.size() > 64) found.resize(64);
+    return found;
+}
+
+std::string group_summary(const std::string& group) {
+    if (group == "sound") {
+        const auto state = audio_state();
+        return state.ok ? (state.checked ? "Muted · a little quiet" : state.label + " · speakers") : "Audio unavailable";
+    }
+    if (group == "comfort") {
+        const auto state = dnd_state();
+        return state.ok ? (state.checked ? "shh… notifications paused" : "Notifications on") : "Notification state unavailable";
+    }
+    if (group == "connections") {
+        std::string out;
+        if (!sh::capture({"nmcli", "-t", "-f", "TYPE,NAME", "connection", "show", "--active"}, out)) return "Network unavailable";
+        for (const auto& line : lines(out)) {
+            const auto fields = nm_fields(line);
+            if (fields.size() >= 2 && (fields[0] == "802-11-wireless" || fields[0] == "wifi")) return fields[1];
+        }
+        for (const auto& line : lines(out)) {
+            const auto fields = nm_fields(line);
+            if (fields.size() >= 2 && (fields[0] == "802-3-ethernet" || fields[0] == "ethernet")) return "Ethernet · " + fields[1];
+        }
+        return "No active network";
+    }
+    if (group == "desk") {
+        Json clients;
+        if (!capture_json({"hyprctl", "-j", "clients"}, clients) || !clients.is_array()) return "Window list unavailable";
+        return std::to_string(clients.size()) + (clients.size() == 1 ? " open window" : " open windows");
+    }
+    if (group == "system") {
+        const auto path = runtime() / "foxml-waybar/updates.list";
+        if (!regular(path)) return "Updates not checked";
+        size_t count = 0;
+        for (const auto& line : lines(read(path))) if (!trim(line).empty()) ++count;
+        return std::to_string(count) + " cached updates";
+    }
+    return {};
+}
+
 Json view(const Json& config, const std::string& page, const std::string& query) {
     Json out{{"id", page}, {"title", page}, {"items", Json::array()}, {"ok", true}, {"group", group_for(config, page)}};
     auto& rows = out["items"];
     auto fail = [&](const std::string& message) { out["ok"] = false; out["error"] = message; };
     bool known = false;
     if (page == "root") {
-        known = true; out["title"] = "FoxML";
+        known = true; out["title"] = text(config, "title", "FoxML");
         for (const auto& group : config["groups"]) {
             auto row = item(text(group, "id"), text(group, "label"), "page", text(group, "description"), text(group, "icon"));
+            row["summary"] = group_summary(text(group, "id"));
             row["page"] = text(group, "id"); rows.push_back(row);
         }
+        out["favorites"] = Json::array();
+        if (config.contains("favorites")) for (const auto& reference : config["favorites"]) {
+            for (const auto& group : config["groups"]) for (auto row : group["items"]) {
+                if (reference.get<std::string>() != text(group, "id") + "/" + text(row, "id")) continue;
+                row["group"] = text(group, "id");
+                decorate(row);
+                out["favorites"].push_back(row);
+            }
+        }
+        std::vector<std::string> pinned;
+        if (!bookmarks(pinned)) fail("Bookmarks could not be read");
+        for (const auto& project : projects(config)) if (std::find(pinned.begin(), pinned.end(), project.path.string()) != pinned.end())
+            out["favorites"].push_back(project_card(project, true));
     } else if (page == "search") {
         known = true; out["title"] = "Find a little thing";
         for (const auto& group : config["groups"]) for (auto row : group["items"]) {
@@ -544,7 +848,42 @@ Json view(const Json& config, const std::string& page, const std::string& query)
             rows.push_back(row);
         }
     }
-    if (page == "apps") {
+    if (page == "projects" || page == "bookmarks") {
+        known = true; out["title"] = page == "bookmarks" ? "Bookmarked pages" : "Project index cards";
+        std::vector<std::string> pinned;
+        if (!bookmarks(pinned)) fail("Bookmarks could not be read");
+        for (const auto& project : projects(config)) {
+            const bool saved = std::find(pinned.begin(), pinned.end(), project.path.string()) != pinned.end();
+            if (page == "projects" || saved) rows.push_back(project_card(project, saved));
+        }
+        if (page == "bookmarks") for (const auto& path : pinned) {
+            if (std::none_of(rows.begin(), rows.end(), [&](const auto& row) { return text(row,"argument") == path; }))
+                rows.push_back(project_card({path, fs::path(path).filename().string(), "Unavailable · b removes this ribbon"}, true));
+        }
+        std::stable_sort(rows.begin(), rows.end(), [](const auto& a, const auto& b) { return truth(a,"bookmarked") > truth(b,"bookmarked"); });
+    } else if (page == "library") {
+        known = true; out["title"] = "The little library";
+        std::vector<Volume> volumes;
+        if (!library(volumes)) fail("Removable drives are unavailable");
+        for (const auto& volume : volumes) {
+            std::string detail = capacity(volume.size) + " · " + (volume.mount.empty() ? "On the shelf · Enter to mount" : "Checked out · " + volume.mount);
+            struct statvfs info{};
+            if (!volume.mount.empty() && ::statvfs(volume.mount.c_str(), &info) == 0)
+                detail = capacity(static_cast<uint64_t>(info.f_bavail) * info.f_frsize) + " free of " + capacity(static_cast<uint64_t>(info.f_blocks) * info.f_frsize) + " · " + volume.mount;
+            auto row = item("drive-open", volume.label, "action", detail, "▤");
+            row["argument"] = volume.path; row["ejectArgument"] = volume.disk;
+            row["presentation"] = "library"; row["mounted"] = !volume.mount.empty();
+            row["enabled"] = sh::have("udisksctl") && sh::have("xdg-open"); rows.push_back(row);
+        }
+    } else if (page == "downloads") {
+        known = true; out["title"] = "Incoming paper tray";
+        for (const auto& file : downloads(config)) {
+            auto row = item("download-open", file.name, "action", file.type + " · " + capacity(file.size) + " · modified " + lower(file.age), "✉");
+            row["argument"] = file.path.string(); row["close"] = true;
+            row["presentation"] = "download"; row["stamp"] = file.age;
+            row["enabled"] = sh::have("xdg-open"); rows.push_back(row);
+        }
+    } else if (page == "apps") {
         known = true; out["title"] = "Applications";
         if (!sh::have("gio")) fail("gio is not installed");
         for (const auto& app : desktops()) {
@@ -653,7 +992,7 @@ Json view(const Json& config, const std::string& page, const std::string& query)
     return out;
 }
 
-Json run_action(const std::string& id, const std::string& arg) {
+Json run_action(const Json& config, const std::string& id, const std::string& arg, bool confirmed) {
     if (!actions.count(id)) return result(false, "Unknown drawer action");
     if (!safe_text(arg)) return result(false, "Invalid action argument");
     const bool power = id == "suspend" || id == "reboot" || id == "poweroff" || id == "logout";
@@ -662,7 +1001,7 @@ Json run_action(const std::string& id, const std::string& arg) {
         if (id == "logout") return command({"fox-hl", "dispatch", "hl.dsp.exit()", "exit"}, "Log out", true);
         return command({"systemctl", id}, id == "suspend" ? "Suspend" : id == "reboot" ? "Restart" : "Shut down", true);
     }
-    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","clipboard-restore","wallpaper-set","theme-set"};
+    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder"};
     if (!argument_actions.count(id) && !arg.empty()) return result(false, "This action accepts no argument");
     if (id == "volume" || id == "brightness") {
         int value = 0;
@@ -703,6 +1042,56 @@ Json run_action(const std::string& id, const std::string& arg) {
         }
         if (profile != "balanced" && profile != "performance" && profile != "power-saver") return result(false, "Invalid power profile");
         return command({"powerprofilesctl", "set", profile}, "Power profile: " + profile);
+    }
+    if (id == "download-open" || id == "download-folder") {
+        for (const auto& file : downloads(config)) if (file.path.string() == arg)
+            return launch({"xdg-open", id == "download-open" ? arg : file.path.parent_path().string()}, id == "download-open" ? "Paper opened" : "Downloads folder opened");
+        return result(false, "This file is no longer in the incoming tray");
+    }
+    if (id == "drive-open" || id == "drive-eject") {
+        if (id == "drive-eject" && !confirmed) return result(false, "Confirmation required");
+        std::vector<Volume> volumes;
+        if (!library(volumes)) return result(false, "Removable drives are unavailable");
+        if (id == "drive-open") {
+            auto at = std::find_if(volumes.begin(), volumes.end(), [&](const auto& volume) { return volume.path == arg; });
+            if (at == volumes.end()) return result(false, "This volume is no longer in the library");
+            std::string mount = at->mount;
+            if (mount.empty()) {
+                const auto mounted = command({"udisksctl","mount","--block-device",arg,"--no-user-interaction"}, "Mount volume");
+                if (!truth(mounted,"ok")) return mounted;
+                volumes.clear();
+                if (!library(volumes)) return result(false, "Volume mounted, but its location is unavailable");
+                for (const auto& volume : volumes) if (volume.path == arg) mount = volume.mount;
+            }
+            if (mount.empty()) return result(false, "Volume is not mounted");
+            return launch({"xdg-open", mount}, "Library volume opened");
+        }
+        bool found = false;
+        for (const auto& volume : volumes) if (volume.disk == arg) found = true;
+        if (!found) return result(false, "This drive is no longer in the library");
+        for (const auto& volume : volumes) if (volume.disk == arg && !volume.mount.empty()) {
+            const auto unmounted = command({"udisksctl","unmount","--block-device",volume.path,"--no-user-interaction"}, "Unmount volume");
+            if (!truth(unmounted,"ok")) return result(false, "Drive remains connected: a volume could not be unmounted");
+        }
+        return command({"udisksctl","power-off","--block-device",arg,"--no-user-interaction"}, "Drive safely ejected");
+    }
+    if (id == "project-open" || id == "project-terminal" || id == "project-bookmark") {
+        bool found = false;
+        for (const auto& project : projects(config)) if (project.path.string() == arg) found = true;
+        if (!found && id == "project-bookmark") {
+            std::vector<std::string> pinned;
+            if (bookmarks(pinned) && std::find(pinned.begin(), pinned.end(), arg) != pinned.end()) return toggle_bookmark(arg);
+        }
+        if (!found) return result(false, "Project is no longer in your configured project roots");
+        if (id == "project-bookmark") return toggle_bookmark(arg);
+        if (id == "project-terminal") return launch({"kitty", "--directory", arg}, "Project terminal opened");
+        if (config.contains("project_editor")) {
+            Args editor = config["project_editor"].get<Args>();
+            editor.push_back(arg);
+            return launch(editor, "Project opened in your editor");
+        }
+        if (sh::have("cursor")) return launch({"cursor", arg}, "Project opened in Cursor");
+        return terminal({"nvim", arg}, "Project opened in Neovim");
     }
     if (id == "app-launch") {
         if (!desktops_argument(arg)) return result(false, "Application is not in the desktop catalogue");
@@ -819,7 +1208,8 @@ int main(int argc, char** argv) {
         if (args.size() == 1 && (args[0] == "--help" || args[0] == "help")) {
             std::cout << "fox-drawer [--config PATH] view PAGE [QUERY]\nfox-drawer [--config PATH] run ACTION [ARGUMENT]\n"; return 0;
         }
-        if (args.size() < 2 || args.size() > 3 || (args[0] != "view" && args[0] != "run")) {
+        if (args.size() < 2 || args.size() > 4 || (args[0] != "view" && args[0] != "run")
+            || (args.size() == 4 && (args[0] != "run" || args[1] != "drive-eject" || args[3] != "--confirm"))) {
             std::cout << result(false, "Use view PAGE [QUERY] or run ACTION [ARGUMENT]").dump() << '\n'; return 1;
         }
         Json config; std::string error;
@@ -828,9 +1218,9 @@ int main(int argc, char** argv) {
             if (args[0] == "view") { failure["error"] = error; failure["id"] = args[1]; failure["title"] = "Unavailable"; failure["items"] = Json::array(); }
             std::cout << failure.dump() << '\n'; return 1;
         }
-        const auto argument = args.size() == 3 ? args[2] : "";
+        const auto argument = args.size() >= 3 ? args[2] : "";
         if (!safe_text(argument)) { std::cout << result(false, "Invalid argument").dump() << '\n'; return 1; }
-        const Json response = args[0] == "view" ? view(config, args[1], argument) : run_action(args[1], argument);
+        const Json response = args[0] == "view" ? view(config, args[1], argument) : run_action(config, args[1], argument, args.size() == 4);
         std::cout << response.dump(-1, ' ', false, Json::error_handler_t::replace) << '\n';
         return truth(response, "ok") ? 0 : 1;
     } catch (const std::exception&) {

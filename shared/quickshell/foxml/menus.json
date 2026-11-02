@@ -1,5 +1,7 @@
 {
   "title": "The quiet corner",
+  "favorites": ["desk/apps", "desk/clipboard-text", "comfort/dnd"],
+  "project_roots": ["~/code"],
   "groups": [
     {
       "id": "desk",
@@ -8,6 +10,10 @@
       "description": "Your apps, papers and little everyday things",
       "items": [
         { "id": "apps", "label": "Applications", "detail": "Find something to open", "icon": "⌘", "kind": "page", "page": "apps" },
+        { "id": "projects", "label": "Project index cards", "detail": "A little card for each code project", "icon": "▤", "kind": "page", "page": "projects" },
+        { "id": "bookmarks", "label": "Bookmarks", "detail": "The projects you left a ribbon in", "icon": "◇", "kind": "page", "page": "bookmarks" },
+        { "id": "library", "label": "The little library", "detail": "Removable drives and their checkout cards", "icon": "▤", "kind": "page", "page": "library" },
+        { "id": "downloads", "label": "Incoming paper tray", "detail": "Your newest downloads, in a little pile", "icon": "✉", "kind": "page", "page": "downloads" },
         { "id": "windows", "label": "Open windows", "detail": "Pick up where you left off", "icon": "▣", "kind": "page", "page": "windows" },
         { "id": "clipboard-text", "label": "Clipboard", "detail": "Your collected scraps of text", "icon": "⌇", "kind": "page", "page": "clipboard-text" },
         { "id": "clipboard-images", "label": "Clipboard images", "detail": "The pictures you saved for later", "icon": "▧", "kind": "page", "page": "clipboard-images" },

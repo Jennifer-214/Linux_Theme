@@ -23,6 +23,7 @@ const hostile = 'a network; $(touch should-never-run) "quoted"';
 assert.deepEqual(plain(logic.actionArguments({ id: 'wifi-connect', argument: hostile })), ['run', 'wifi-connect', hostile]);
 assert.deepEqual(plain(logic.actionArguments({ id: 'volume' }, 45, false)), ['run', 'volume', '45']);
 assert.deepEqual(plain(logic.actionArguments({ id: 'poweroff' }, undefined, true)), ['run', 'poweroff', '--confirm']);
+assert.deepEqual(plain(logic.actionArguments({ id: 'drive-eject', argument: '/dev/sda' }, undefined, true)), ['run', 'drive-eject', '/dev/sda', '--confirm']);
 assert.deepEqual(plain(logic.actionArguments({ id: 'speaker-1', action: 'set-output', argument: '1' })), ['run', 'set-output', '1']);
 assert.equal(logic.valueText({ kind: 'slider', value: 42 }, true, 47), '47%');
 assert.equal(logic.valueText({ kind: 'toggle', checked: false }, false, 0), 'off');

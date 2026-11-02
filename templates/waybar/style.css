@@ -388,8 +388,9 @@ window#waybar > box {
 }
 
 #custom-battery.charging {
-    color: @gold;
-    text-shadow: 0 0 6px rgba({{GOLD_R}},{{GOLD_G}},{{GOLD_B}}, 0.45);
+    color: #{{WAYBAR_WS_ACTIVE}};
+    text-shadow: none;
+    border-bottom: 1px dotted @selection;
 }
 
 #custom-battery.warning {

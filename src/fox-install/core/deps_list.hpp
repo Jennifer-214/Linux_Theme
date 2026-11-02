@@ -32,6 +32,7 @@ inline const std::vector<std::string>& deps_packages() {
 
         // Bar, launcher, notifications
         "waybar", "rofi", "mako", "dunst", "quickshell",   // rofi-wayland was merged into rofi
+        "udisks2", "util-linux", // removable-drive library cards (xdg-utils is below)
 
         // Build tools
         "cmake", "base-devel",

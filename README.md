@@ -263,6 +263,50 @@ the legacy `update.sh` capture list does not include Codex.
 and System. Existing menu shortcuts and the Waybar launcher open the same drawer;
 `fox-desktop-menu wifi` or `fox-desktop-menu sound` opens a section directly.
 Waybar retains its modules and actions with a continuous palette-colored surface.
+Group subtitles show live volume, active connection, notification state, open
+window count and cached updates. They refresh every four seconds while the
+panel is open, with no polling while it is closed.
+
+The home panel shows pinned favorites. Use `f` or the heart button to return
+to it, and Tab to switch between favorites and groups. Set `"favorites"` in
+`menus.json` to an ordered list of existing `group/item` references, for example
+`["desk/apps", "desk/clipboard-text", "comfort/dnd"]`. Up to eight are supported;
+`[]` explicitly hides favorites. Existing custom configurations without this
+field keep the group-only home view until favorites are added.
+
+Desk → Project index cards lists immediate project folders under `~/code`,
+recognizing Git repositories and common build manifests without running Git,
+builds or project code. `/` filters cards, Enter opens the project in Cursor
+(or Neovim in Kitty), and `t` opens a terminal in that folder. Configure scan
+folders with `"project_roots": ["~/code", "~/school"]` and optionally choose an
+editor with an argument array such as `"project_editor": ["kitty", "-e", "nvim"]`.
+Hidden folders, symlink folders and unmarked directories are skipped; folders
+are never scanned recursively. Press `b` or click the diamond on a project card
+to pin or unpin it. Pinned cards wear a ribbon, sort first in the project list,
+and appear on Home and Desk → Bookmarks. Up to sixteen ribbons are stored in
+`$XDG_STATE_HOME/foxml/project-bookmarks.json` (default `~/.local/state/foxml/`),
+separately from the menu configuration. Writes are locked and atomic, with the
+previous state retained in `.json.bak`.
+
+Desk → The little library shows removable USB/SD volumes as checkout cards,
+including capacity, mount state and free space when mounted. Enter opens a
+mounted volume, or mounts it through UDisks first. Press `e` or click eject to
+confirm unmounting every volume on the same physical drive and powering it off.
+Busy-volume failures stop ejection. Internal disks, system mounts, encrypted
+containers and unsupported device stacks are excluded. The library uses
+`lsblk`, `udisksctl` and `xdg-open`; `--deps` installs their packages. No drives
+are mounted or ejected by opening the drawer, and no extra watcher is started.
+
+Desk → Incoming paper tray lists the newest 64 regular files in your XDG
+Downloads folder (falling back to `~/Downloads`), with type, size and modification
+age on paper slips. Enter opens the file, `r` opens its containing folder, and
+`/` filters the tray. Hidden files, symlinks, subfolders and common unfinished
+download extensions are skipped. Set `"downloads_directory": "~/Incoming"` in
+`menus.json` to override the folder. A disabled XDG Downloads folder stays empty.
+Listing reads file metadata only; it never reads file contents or moves files.
+
+The existing battery module adds a plug-and-heart
+doodle while charging, keeping its capacity, watts, threshold and failure signals.
 The Hyprland menu shortcuts call the drawer directly, including Wi-Fi, Bluetooth,
 audio outputs, clipboard, windows and agent notes. Paper's bar uses a pencil
 launcher, notebook workspace tabs and a handwritten clock tab. Unused rofi-calc

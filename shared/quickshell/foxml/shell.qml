@@ -57,6 +57,10 @@ ShellRoot {
 
     function requestView() {
         if (!opened || pendingConfirm) return;
+        if (page === "root" && !searching) {
+            if (!groupProcess.running) groupProcess.running = true;
+            return;
+        }
         nextView = { serial: ++viewSerial, page: searching ? searchPage : page,
                      query: searching ? searchInput.text : "", filter: searching };
         startView();
@@ -259,6 +263,17 @@ ShellRoot {
         runAction(item, undefined, confirmed === true);
     }
 
+    function bookmark(item) {
+        if (!item || item.presentation !== "project" || actionBusy || pendingConfirm) return;
+        runAction(Object.assign({}, item, {id: "project-bookmark", action: "project-bookmark", close: false}), undefined, false);
+    }
+
+    function eject(item) {
+        if (!item || item.presentation !== "library" || actionBusy || pendingConfirm) return;
+        activate({id: "drive-eject", argument: item.ejectArgument, label: "Eject drive", kind: "action",
+            confirm: "Eject this drive? All its volumes will be unmounted. Save your open files first."});
+    }
+
     function runAction(item, value, confirmed) {
         nextAction = { item: item, args: Logic.actionArguments(item, value, confirmed) };
         startAction();
@@ -305,6 +320,19 @@ ShellRoot {
             return;
         }
         if (k === Qt.Key_Escape) goBack();
+        else if (k === Qt.Key_R && !editing && !pendingConfirm && !actionBusy && focusArea === "items"
+                 && entries[itemIndex] && entries[itemIndex].presentation === "download") {
+            runAction(Object.assign({}, entries[itemIndex], {id: "download-folder", action: "download-folder"}), undefined, false);
+        }
+        else if (k === Qt.Key_B && !editing && !pendingConfirm && focusArea === "items"
+                 && entries[itemIndex] && entries[itemIndex].presentation === "project") bookmark(entries[itemIndex]);
+        else if (k === Qt.Key_E && !editing && !pendingConfirm && focusArea === "items"
+                 && entries[itemIndex] && entries[itemIndex].presentation === "library") eject(entries[itemIndex]);
+        else if (k === Qt.Key_T && !editing && !pendingConfirm && !actionBusy && focusArea === "items"
+                 && entries[itemIndex] && entries[itemIndex].presentation === "project") {
+            runAction(Object.assign({}, entries[itemIndex], {id: "project-terminal", action: "project-terminal"}), undefined, false);
+        }
+        else if (k === Qt.Key_F && !editing && !pendingConfirm) show("root");
         else if (k === Qt.Key_Q && !editing && !pendingConfirm) hide();
         else if (k === Qt.Key_J || k === Qt.Key_Down) step(1);
         else if (k === Qt.Key_K || k === Qt.Key_Up) step(-1);
@@ -323,7 +351,7 @@ ShellRoot {
             else activate(entries[itemIndex]);
         } else if (k === Qt.Key_Slash) startSearch();
         else if (k === Qt.Key_Tab || k === Qt.Key_Backtab) {
-            if (page !== "root") focusArea = focusArea === "groups" ? "items" : "groups";
+            if (entries.length) focusArea = focusArea === "groups" ? "items" : "groups";
         } else if (k === Qt.Key_Home || (k === Qt.Key_G && !(event.modifiers & Qt.ShiftModifier))) {
             if (focusArea === "groups") groupIndex = 0; else itemIndex = 0;
         } else if (k === Qt.Key_End || (k === Qt.Key_G && (event.modifiers & Qt.ShiftModifier))) {
@@ -350,10 +378,22 @@ ShellRoot {
         stdout: StdioCollector { id: groupOut }
         stderr: StdioCollector { id: groupErr }
         onExited: (code, status) => {
+            if (!root.opened) return;
             try {
                 var data = JSON.parse(groupOut.text);
-                if (code !== 0 || data.error) throw new Error(data.error || "Cannot read menu groups.");
+                if ((code !== 0 || data.error) && !Array.isArray(data.items)) throw new Error(data.error || "Cannot read menu groups.");
+                if (code !== 0 || data.error) root.note(data.error || "Some home cards are unavailable.", true);
                 root.groups = Array.isArray(data.items) ? data.items : [];
+                if (root.page === "root" && !root.searching && !root.editing && !root.pendingConfirm) {
+                    var previous = Logic.identity(root.entries[root.itemIndex]);
+                    var firstLoad = root.entries.length === 0;
+                    root.entries = Array.isArray(data.favorites) ? data.favorites : [];
+                    root.itemIndex = Logic.restoreIndex(root.entries, previous);
+                    root.pageTitle = root.entries.length ? "a few favorites." : "a little room to think.";
+                    root.drawerReady = true;
+                    itemList.viewPage = "root";
+                    if (firstLoad && root.entries.length) root.focusArea = "items";
+                }
                 var gi = root.groups.findIndex(function(g) { return g.page === root.page || g.id === root.groupId; });
                 if (gi >= 0) root.groupIndex = gi;
             } catch (error) { root.note(String(error.message || error), true); }
@@ -398,7 +438,14 @@ ShellRoot {
         onTriggered: { if (item) root.runAction(item, value, false); }
     }
     Timer { id: searchDebounce; interval: 160; onTriggered: root.requestView() }
-    Timer { interval: 4000; repeat: true; running: root.opened && !root.searching && !root.editing && !root.pendingConfirm && !root.actionBusy; onTriggered: root.requestView() }
+    Timer {
+        interval: 4000; repeat: true
+        running: root.opened && !root.searching && !root.editing && !root.pendingConfirm && !root.actionBusy
+        onTriggered: {
+            if (!groupProcess.running) groupProcess.running = true;
+            if (root.page !== "root") root.requestView();
+        }
+    }
 
     PanelWindow {
         id: panel
@@ -436,6 +483,16 @@ ShellRoot {
                         Layout.fillWidth: true
                         Text { textFormat: Text.PlainText; text: "// THE QUIET CORNER"; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10; font.letterSpacing: 1 }
                         Item { Layout.fillWidth: true }
+                        ToolButton {
+                            text: "♡"
+                            font.family: theme.fontFamily
+                            palette.buttonText: theme.ink
+                            background: Item {}
+                            onClicked: root.show("root")
+                            Accessible.name: "Pinned favorites (f)"
+                            ToolTip.visible: hovered
+                            ToolTip.text: "Pinned favorites · f"
+                        }
                         Rectangle { width: 5; height: 5; radius: 3; color: root.failed ? theme.error : theme.success }
                         Text { textFormat: Text.PlainText; text: root.actionBusy ? "WORKING" : root.searching ? "SEARCH" : root.editing ? "ADJUST" : "NORMAL"; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9 }
                         ToolButton {
@@ -493,7 +550,7 @@ ShellRoot {
                                 width: groupList.width
                                 height: 65
                                 radius: 4
-                                color: index === root.groupIndex ? Qt.alpha(theme.selection, root.focusArea === "groups" ? theme.selectionOpacity : theme.selectionOpacity * .45) : "transparent"
+                                color: index === root.groupIndex && (root.page !== "root" || root.focusArea === "groups") ? Qt.alpha(theme.selection, root.focusArea === "groups" ? theme.selectionOpacity : theme.selectionOpacity * .45) : "transparent"
                                 border.width: index === root.groupIndex && root.focusArea === "groups" ? 1 : 0
                                 border.color: theme.line
                                 RowLayout {
@@ -505,11 +562,17 @@ ShellRoot {
                                         Layout.fillWidth: true
                                         spacing: 3
                                         Text { textFormat: Text.PlainText; text: modelData.label || ""; color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true }
-                                        Text { textFormat: Text.PlainText; visible: panel.width >= 580; text: modelData.detail || ""; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9; elide: Text.ElideRight; Layout.fillWidth: true }
+                                        Text { textFormat: Text.PlainText; visible: panel.width >= 580; text: modelData.summary || modelData.detail || ""; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9; elide: Text.ElideRight; Layout.fillWidth: true }
                                     }
                                     Text { textFormat: Text.PlainText; text: "›"; color: theme.muted; font.pixelSize: 18 }
                                 }
-                                MouseArea { anchors.fill: parent; onClicked: root.chooseGroup(index); cursorShape: Qt.PointingHandCursor }
+                                MouseArea {
+                                    id: groupMouse
+                                    anchors.fill: parent; hoverEnabled: true
+                                    onClicked: root.chooseGroup(index); cursorShape: Qt.PointingHandCursor
+                                }
+                                ToolTip.visible: groupMouse.containsMouse
+                                ToolTip.text: modelData.summary || modelData.detail || ""
                             }
                         }
 
@@ -520,7 +583,7 @@ ShellRoot {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             spacing: 10
-                            opacity: !root.drawerReady ? 0 : root.page === "root" ? .65 : 1
+                            opacity: !root.drawerReady ? 0 : root.page === "root" && !root.entries.length ? .65 : 1
                             Behavior on opacity { NumberAnimation { duration: 160 } }
                             transform: Translate {
                                 x: root.drawerReady ? 0 : 28
@@ -571,7 +634,7 @@ ShellRoot {
                                     id: itemList
                                     property string viewPage: ""
                                     anchors.fill: parent
-                                    visible: !root.pendingConfirm && root.page !== "root"
+                                    visible: !root.pendingConfirm && (root.page !== "root" || root.entries.length > 0 || root.searching)
                                     clip: true
                                     spacing: 7
                                     model: root.entries
@@ -585,12 +648,26 @@ ShellRoot {
                                         property bool selected: index === root.itemIndex && root.focusArea === "items"
                                         property string menuIcon: Logic.iconName(modelData) ? Quickshell.iconPath(Logic.iconName(modelData), true) : ""
                                         width: itemList.width
-                                        height: modelData.kind === "slider" ? 91 : modelData.image ? 80 : 72
+                                        property bool card: modelData.presentation === "project" || modelData.presentation === "library" || modelData.presentation === "download"
+                                        height: card ? 94 : modelData.kind === "slider" ? 91 : modelData.image ? 80 : 72
                                         radius: 4
-                                        color: selected ? Qt.alpha(theme.selection, theme.selectionOpacity) : "transparent"
-                                        border.width: selected ? 1 : 0
+                                        color: selected ? Qt.alpha(theme.selection, theme.selectionOpacity) : card ? theme.surface : "transparent"
+                                        border.width: selected || card ? 1 : 0
                                         border.color: theme.line
                                         opacity: modelData.enabled === false ? .48 : 1
+                                        Text {
+                                            visible: itemRow.card
+                                            anchors.top: parent.top; anchors.right: parent.right
+                                            anchors.topMargin: 7; anchors.rightMargin: 10
+                                            text: modelData.presentation === "library" ? (modelData.mounted ? "CHECKED OUT" : "ON THE SHELF") : modelData.presentation === "download" ? (modelData.stamp || "INCOMING") : String(index + 1).padStart(2, "0")
+                                            color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 8
+                                        }
+                                        Rectangle {
+                                            visible: itemRow.card
+                                            anchors.bottom: parent.bottom; anchors.left: parent.left; anchors.right: parent.right
+                                            anchors.bottomMargin: 11; anchors.leftMargin: 48; anchors.rightMargin: 12
+                                            height: 1; color: theme.line; opacity: .6
+                                        }
                                         Rectangle { visible: selected; width: 2; anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom; color: theme.accent; radius: 1 }
                                         RowLayout {
                                             anchors.fill: parent
@@ -640,6 +717,36 @@ ShellRoot {
                                             cursorShape: modelData.enabled === false ? Qt.ArrowCursor : Qt.PointingHandCursor
                                             onClicked: { root.itemIndex = index; root.focusArea = "items"; root.activate(modelData); keyboard.forceActiveFocus(); }
                                         }
+                                        Canvas {
+                                            visible: modelData.presentation === "project" && modelData.bookmarked === true
+                                            anchors.top: parent.top; anchors.right: parent.right; anchors.rightMargin: 30
+                                            width: 12; height: 23
+                                            onPaint: {
+                                                var ctx = getContext("2d"); ctx.clearRect(0, 0, width, height);
+                                                ctx.fillStyle = theme.accent;
+                                                ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(width, 0);
+                                                ctx.lineTo(width, height); ctx.lineTo(width / 2, height - 5);
+                                                ctx.lineTo(0, height); ctx.closePath(); ctx.fill();
+                                            }
+                                        }
+                                        ToolButton {
+                                            visible: modelData.presentation === "project" || modelData.presentation === "library"
+                                            anchors.bottom: parent.bottom; anchors.right: parent.right
+                                            anchors.rightMargin: 8; anchors.bottomMargin: 2
+                                            width: 23; height: 23
+                                            text: modelData.presentation === "library" ? "⏏" : modelData.bookmarked ? "◆" : "◇"
+                                            font.pixelSize: 12
+                                            background: Rectangle { color: parent.hovered ? theme.line : "transparent"; radius: 3 }
+                                            contentItem: Text { text: parent.text; color: theme.ink; font: parent.font; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                                            Accessible.name: modelData.presentation === "library" ? "Eject drive (e)" : "Toggle bookmark ribbon (b)"
+                                            ToolTip.visible: hovered
+                                            ToolTip.text: Accessible.name
+                                            onClicked: {
+                                                root.itemIndex = index; root.focusArea = "items";
+                                                if (modelData.presentation === "library") root.eject(modelData); else root.bookmark(modelData);
+                                                keyboard.forceActiveFocus();
+                                            }
+                                        }
                                     }
                                 }
 
@@ -647,10 +754,10 @@ ShellRoot {
                                     anchors.centerIn: parent
                                     width: parent.width - 28
                                     spacing: 15
-                                    visible: !root.pendingConfirm && (root.page === "root" || (!root.entries.length && !viewProcess.running))
+                                    visible: !root.pendingConfirm && !root.entries.length && !viewProcess.running && !groupProcess.running
                                     Text { textFormat: Text.PlainText; width: parent.width; text: root.page === "root" ? "✎" : "·"; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 34; horizontalAlignment: Text.AlignHCenter }
-                                    Text { textFormat: Text.PlainText; width: parent.width; text: root.page === "root" ? "everything in its little place." : "nothing here just yet."; color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: 18; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap }
-                                    Text { textFormat: Text.PlainText; width: parent.width; text: root.page === "root" ? "choose a group on the left\nor press / to find any action." : "try another search, or h to go back."; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10; horizontalAlignment: Text.AlignHCenter; lineHeight: 1.5; wrapMode: Text.WordWrap }
+                                    Text { textFormat: Text.PlainText; width: parent.width; text: root.page === "root" ? "everything in its little place." : root.page === "library" ? "the shelves are quiet." : root.page === "bookmarks" ? "save your place." : root.page === "downloads" ? "nothing in the post." : "nothing here just yet."; color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: 18; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap }
+                                    Text { textFormat: Text.PlainText; width: parent.width; text: root.page === "root" ? "choose a group on the left\nor press / to find any action." : root.page === "library" ? "plug in a removable drive\nand its library card will appear here." : root.page === "bookmarks" ? "press b on a project card\nto leave a little ribbon here." : root.page === "downloads" ? "your latest downloads will land here.\npress / to filter, or h to go back." : "try another search, or h to go back."; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10; horizontalAlignment: Text.AlignHCenter; lineHeight: 1.5; wrapMode: Text.WordWrap }
                                 }
 
                                 ColumnLayout {
@@ -659,7 +766,7 @@ ShellRoot {
                                     spacing: 20
                                     visible: root.pendingConfirm !== null
                                     Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: root.pendingConfirm ? root.pendingConfirm.label + "?" : ""; color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: 24; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap }
-                                    Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: "one moment before you go.\nthis action needs your confirmation."; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; lineHeight: 1.5 }
+                                    Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: root.pendingConfirm && typeof root.pendingConfirm.confirm === "string" ? root.pendingConfirm.confirm : "one moment before you go.\nthis action needs your confirmation."; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; lineHeight: 1.5 }
                                     RowLayout {
                                         Layout.alignment: Qt.AlignHCenter
                                         spacing: 12
@@ -683,7 +790,7 @@ ShellRoot {
 
                     Text { textFormat: Text.PlainText; text: (root.failed ? "! " : "✿ ") + root.message; color: root.failed ? theme.error : theme.muted; font.family: theme.fontFamily; font.pixelSize: 10; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.role: Accessible.StaticText; Accessible.name: root.message }
                     Rectangle { Layout.fillWidth: true; height: 1; color: theme.line }
-                    Text { textFormat: Text.PlainText; text: root.searching ? "type to find · ↑ ↓ choose · ↵ select · esc back" : root.editing ? "h l adjust · ↵ / esc finish" : "j k move   h back   l / ↵ open   / find   esc close"; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: panel.width < 580 ? 9 : 10; Layout.fillWidth: true; elide: Text.ElideRight }
+                    Text { textFormat: Text.PlainText; text: root.searching ? "type to find · ↑ ↓ choose · ↵ select · esc back" : root.editing ? "h l adjust · ↵ / esc finish" : root.page === "projects" || root.page === "bookmarks" || (root.focusArea === "items" && root.entries[root.itemIndex] && root.entries[root.itemIndex].presentation === "project") ? "j k choose   ↵ editor   t terminal   b bookmark   / filter   h back" : root.page === "library" ? "j k choose   ↵ open / mount   e eject   / filter   h back" : root.page === "downloads" ? "j k choose   ↵ open   r folder   / filter   h back" : "j k move   h back   l / ↵ open   / find   f favorites   esc close"; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: panel.width < 580 ? 9 : 10; Layout.fillWidth: true; elide: Text.ElideRight }
                 }
             }
         }
