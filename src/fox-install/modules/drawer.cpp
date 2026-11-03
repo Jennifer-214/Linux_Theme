@@ -60,15 +60,19 @@ void run_drawer(Context& ctx) {
     }
     if (ec) { ui::warn("could not read drawer configuration: " + ec.message()); return; }
     ok = deploy(output / "Theme.qml", dest / "Theme.qml") && ok;
-    ok = deploy(ctx.shared_dir / "bin/fox-desktop-menu", ctx.home / ".local/bin/fox-desktop-menu") && ok;
-    for (const char* name : {"toggle_rofi.sh", "updates_menu.sh", "startup.sh"}) {
+    for (const char* name : {"fox-desktop-menu", "fox-hl", "fox-picker", "fox-menu", "fox-cheatsheet", "fox-sandbox",
+                            "fox-ai-quick", "fox-wallpaper", "fox-password-copy"})
+        ok = deploy(ctx.shared_dir / "bin" / name, ctx.home / ".local/bin" / name) && ok;
+    for (const char* name : {"toggle_rofi.sh", "hub.sh", "network.sh", "bluetooth.sh", "audio_switcher.sh",
+                            "powermenu.sh", "clipmanager.sh", "updates_menu.sh", "eww_action.sh",
+                            "start_waybar.sh", "startup.sh", "agent_rofi.sh", "panic.sh"}) {
         ok = deploy(ctx.shared_dir / "hyprland_scripts" / name,
                     ctx.config_home / "hypr/scripts" / name) && ok;
     }
     if (!ok) { ui::warn("drawer deployment incomplete; check the paths above before opening it"); return; }
     ui::ok("drawer installed; custom menu hierarchy preserved at " + (dest / "menus.json").string());
     if (!sh::have("quickshell")) {
-        ui::warn("install Quickshell with --deps (or pacman -S quickshell); menus use Rofi until then");
+        ui::warn("install Quickshell with --deps (or pacman -S quickshell) to enable desktop menus");
         return;
     }
     if (std::getenv("WAYLAND_DISPLAY")) {

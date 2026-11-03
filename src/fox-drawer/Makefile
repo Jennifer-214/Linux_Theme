@@ -8,7 +8,7 @@ BIN      := fox-drawer
 all: fox-drawer
 
 fox-drawer: main.o $(COMMON)/libfox-common.a
-	$(CXX) $(CXXFLAGS) -o $@ main.o -L$(COMMON) -lfox-common
+	$(CXX) $(CXXFLAGS) -o $@ main.o -L$(COMMON) -lfox-common -lcrypto
 
 main.o: main.cpp $(COMMON)/shell.hpp $(COMMON)/json.hpp
 	$(CXX) $(CXXFLAGS) -I$(COMMON) -c main.cpp -o $@

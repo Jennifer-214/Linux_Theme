@@ -29,7 +29,7 @@ endif
 
 all:     preflight $(addprefix build-,$(TOOLS))
 
-# fox-install / fox-vault / fox-render link libcrypto for SHA-256 +
+# fox-install / fox-vault / fox-render / fox-drawer link libcrypto for SHA-256 +
 # HMAC. Fail at configure time with a clear hint instead of letting
 # the user discover it via a confusing -lcrypto link error. Skipped
 # when pkg-config is missing because OpenSSL might still be present.

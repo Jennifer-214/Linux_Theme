@@ -45,9 +45,9 @@ hl.on("hyprland.start", function()
     hl.exec_cmd("wl-paste --type image --watch cliphist store")
 
     -- ─────────────────────────────────────────
-    -- Night Light (Earthy filter)
+    -- Night light — start neutral; the drawer toggles Hyprsunset over IPC.
     -- ─────────────────────────────────────────
-    hl.exec_cmd("wlsunset -t 4500 -T 6500")
+    hl.exec_cmd("hyprsunset --identity")
 
     -- ─────────────────────────────────────────
     -- Initial Apps

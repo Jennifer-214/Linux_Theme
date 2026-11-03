@@ -52,8 +52,9 @@ if command -v wl-copy >/dev/null 2>&1; then
     wl-copy --primary --clear 2>/dev/null || true
 fi
 
-# 2. Kill sensitive UI processes by EXACT match (-x) so a substring
-#    collision (e.g. some-rofi-thing) doesn't get nuked.
+# 2. Close sensitive UI, including a pending password selection.
+quickshell -c foxml ipc call drawer close >/dev/null 2>&1 || true
+# Keep covering old manually launched pickers while legacy packages remain.
 pkill -9 -x rofi      2>/dev/null || true
 pkill -9 -x rofi-pass 2>/dev/null || true
 

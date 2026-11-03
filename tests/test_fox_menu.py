@@ -57,7 +57,7 @@ class DrawerEntrypoints(unittest.TestCase):
         self.fake.chmod(0o755)
         for name in ("quickshell", "fox-drawer", "pkill", "rofi", "sleep", "kitty", "notify-send", "checkupdates", "systemctl", "journalctl"):
             (self.bin / name).symlink_to(self.fake)
-        for name in ("mkdir", "rm", "flock"):
+        for name in ("mkdir", "rm", "flock", "bash"):
             (self.bin / name).symlink_to(shutil.which(name))
         shutil.copy(LAUNCHER, self.bin / "fox-desktop-menu")
         self.calls_file = self.base / "calls.jsonl"
@@ -81,16 +81,38 @@ class DrawerEntrypoints(unittest.TestCase):
         rows = [json.loads(line) for line in self.calls_file.read_text().splitlines()] if self.calls_file.exists() else []
         return [r for r in rows if name is None or r[0] == name]
 
+    def test_desktop_shortcut_finds_colocated_backend_without_shell_path(self):
+        result = self.run_script(self.bin / "fox-desktop-menu", "root", PATH="/usr/bin:/bin")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.calls()[-1][-2:], ["toggle", "root"])
+        self.assertEqual(self.calls("rofi"), [])
+
+    @unittest.skipUnless(shutil.which("nvim"), "nvim is needed for the isolated Lua check")
+    def test_lua_session_path_is_added_once(self):
+        script = self.base / "environment-check.lua"
+        script.write_text("local values={HOME='/preview/home',PATH='/usr/bin:/bin',XDG_RUNTIME_DIR='/preview/runtime'}\n"
+                          "local path_calls=0\nos.getenv=function(key)return values[key]end\n"
+                          "hl={env=function(key,value)values[key]=value;if key=='PATH' then path_calls=path_calls+1 end end}\n"
+                          "dofile(" + json.dumps(str(ROOT / "shared/hyprland_modules/environment.lua")) + ")\n"
+                          "assert(values.PATH=='/preview/home/.local/bin:/usr/bin:/bin')\n"
+                          "dofile(" + json.dumps(str(ROOT / "shared/hyprland_modules/environment.lua")) + ")\n"
+                          "assert(path_calls==1,'PATH grew on config reload')\nvim.cmd('qa!')\n")
+        result = subprocess.run([shutil.which("nvim"), "--clean", "--headless", "-l", str(script)],
+                                env=os.environ | {"NVIM_LOG_FILE": str(self.base / "nvim.log")},
+                                text=True,capture_output=True,timeout=5)
+        self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+
     def test_ready_toggle_does_not_start_or_kill_anything(self):
         result = self.run_script(LAUNCHER, "sound")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.calls(), [["quickshell", "-c", "foxml", "ipc", "call", "drawer", "status"],
                                        ["quickshell", "-c", "foxml", "ipc", "call", "drawer", "toggle", "sound"]])
 
-    def test_direct_shortcut_has_explicit_legacy_recovery(self):
+    def test_old_legacy_flag_does_not_restore_retired_desktop_menus(self):
         result = self.run_script(LAUNCHER, "apps", FOXML_MENU_LEGACY="1")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.calls(), [["rofi", "-show", "drun"]])
+        self.assertEqual(self.calls()[-1][-2:], ["toggle", "apps"])
+        self.assertEqual(self.calls("rofi"), [])
 
     def test_start_is_hidden_and_cold_toggle_waits_for_its_own_instance(self):
         self.ready.unlink()
@@ -112,9 +134,9 @@ class DrawerEntrypoints(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.calls(), [["quickshell", "-c", "foxml", "ipc", "call", "drawer", "close"]])
 
-    def test_incomplete_install_and_explicit_legacy_are_unavailable(self):
+    def test_incomplete_install_is_unavailable(self):
         result = self.run_script(LAUNCHER, "--available", FOXML_MENU_LEGACY="1")
-        self.assertEqual(result.returncode, 1)
+        self.assertEqual(result.returncode, 0)
         (self.config / "quickshell/foxml/Theme.qml").unlink()
         self.assertEqual(self.run_script(LAUNCHER, "--available").returncode, 1)
         self.assertEqual(self.calls(), [])
@@ -135,24 +157,48 @@ class DrawerEntrypoints(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(self.calls()[-1][-2:], ["toggle", page])
 
-    def test_legacy_mode_retains_rofi_arguments_and_positioning(self):
+    def test_old_application_shortcuts_use_drawer_even_with_legacy_flag(self):
         result = self.run_script(WRAPPER, "rofi", "-show", "drun", "-filter", "jkl", FOXML_MENU_LEGACY="1")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.calls("quickshell"), [])
-        call = self.calls("rofi")[0]
-        self.assertEqual(call[-4:], ["-show", "drun", "-filter", "jkl"])
-        self.assertEqual(call[1], "-theme-str")
+        self.assertEqual(self.calls()[-1][-2:], ["toggle", "apps"])
+        self.assertEqual(self.calls("rofi"), [])
 
-    def test_unrecognized_rofi_modes_stay_rofi(self):
+    def test_unrecognized_rofi_modes_report_retirement(self):
         result = self.run_script(WRAPPER, "rofi", "-show", "calc", "-modi", "calc")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.calls("quickshell"), [])
-        self.assertEqual(self.calls("rofi")[0][-4:], ["-show", "calc", "-modi", "calc"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("retired", result.stderr)
+        self.assertEqual(self.calls("rofi"), [])
 
-    def test_failed_drawer_falls_back_to_rofi(self):
+    def test_failed_drawer_reports_failure_without_reopening_retired_menu(self):
         result = self.run_script(WRAPPER, "rofi", "-show", "drun", TEST_ACTION_FAIL="1")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(self.calls("rofi")), 1)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(self.calls("rofi"), [])
+
+    def test_retired_menu_scripts_are_compatible_drawer_entrypoints(self):
+        for name,args,page in [("hub.sh", [], "root"), ("network.sh", [], "wifi"),
+                               ("bluetooth.sh", [], "bluetooth"), ("audio_switcher.sh", [], "audio-outputs"),
+                               ("powermenu.sh", [], "power"), ("clipmanager.sh", [], "clipboard-text"),
+                               ("clipmanager.sh", ["image"], "clipboard-images")]:
+            with self.subTest(script=name,args=args):
+                result = subprocess.run([str(ROOT/"shared/hyprland_scripts"/name), *args],
+                                        env=self.env | {"FOXML_MENU_LEGACY":"1"},
+                                        capture_output=True,text=True,timeout=8)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.calls()[-1][-2:], ["toggle",page])
+        self.assertEqual(self.calls("rofi"), [])
+        self.assertEqual(self.calls("pkill"), [])
+
+    def test_missing_drawer_installation_fails_clearly_without_rofi(self):
+        (self.config/"quickshell/foxml/Theme.qml").unlink()
+        result = self.run_script(ROOT/"shared/hyprland_scripts/network.sh")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("drawer unavailable",result.stderr)
+        self.assertEqual(self.calls("rofi"), [])
+
+    def test_retired_clipboard_rejects_unknown_mode_without_any_action(self):
+        result = self.run_script(ROOT/"shared/hyprland_scripts/clipmanager.sh", "unknown")
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(self.calls(), [])
 
     def test_update_click_routes_to_drawer_without_checking_or_applying(self):
         result = self.run_script(UPDATES)

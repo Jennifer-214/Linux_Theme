@@ -2,6 +2,7 @@
 """Exercise the JSON/argv boundary using only disposable, fake desktop services."""
 
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -39,7 +40,38 @@ if response is not None:
     sys.stdout.buffer.write(base64.b64decode(response['base64']) if 'base64' in response else response.get('stdout', '').encode())
     sys.stderr.write(response.get('stderr', ''))
     sys.exit(response.get('exit', 0))
-if name == 'wpctl' and args[:1] == ['get-volume']:
+if name == 'quickshell' and 'pick' in args:
+    request = Path(args[-1])
+    payload = json.loads(request.read_text())
+    import stat
+    assert stat.S_IMODE(request.parent.stat().st_mode) == 0o700
+    assert stat.S_IMODE(request.stat().st_mode) == 0o600
+    assert stat.S_IMODE((request.parent/'response.json').stat().st_mode) == 0o600
+    Path(os.environ['DRAWER_TEST_CLIPBOARD']).write_text(json.dumps(payload))
+    (request.parent/'response.json').write_text(json.dumps(state.get('picker_reply', {'index': 1})))
+if name == 'hyprctl' and args[:1] == ['hyprsunset']:
+    if not state.get('nightlight_running'):
+        print('cannot connect to hyprsunset socket'); sys.exit(1)
+    if args[1:] == ['identity', 'get']:
+        print('true' if state.get('nightlight_identity', True) else 'false')
+    elif state.get('nightlight_reject'):
+        print('invalid command')
+    elif args[1:] == ['identity']:
+        state['nightlight_identity'] = True
+        Path(os.environ['DRAWER_TEST_STATE']).write_text(json.dumps(state)); print('ok')
+    elif args[1:] == ['temperature', '3500']:
+        state['nightlight_identity'] = False
+        state['nightlight_temperature'] = 3500
+        Path(os.environ['DRAWER_TEST_STATE']).write_text(json.dumps(state)); print('ok')
+    else:
+        print('invalid command'); sys.exit(1)
+    sys.exit(0)
+elif name == 'setsid' and args[1:] == ['hyprsunset', '--identity']:
+    if not state.get('nightlight_start_fails'):
+        state['nightlight_running'] = True; state['nightlight_identity'] = True
+        Path(os.environ['DRAWER_TEST_STATE']).write_text(json.dumps(state))
+    sys.exit(0)
+if name == 'wpctl'  and args[:1] == ['get-volume']:
     print('Volume: 0.42')
 elif name == 'brightnessctl':
     if '-m' in args or '--machine-readable' in args:
@@ -50,6 +82,15 @@ elif name == 'brightnessctl':
         print('100')
 elif name == 'hyprctl' and 'clients' in args:
     print(json.dumps(state.get('windows', [{'address':'0xabc123', 'title':'A safe window', 'class':'kitty', 'workspace':{'id':1}}])))
+elif name == 'tmux':
+    if state.get('agent_append') and args[:1] == ['has-session']:
+        queue = Path(os.environ['XDG_RUNTIME_DIR'])/'foxml-agent-queue.jsonl'
+        with queue.open('a') as stream: stream.write(json.dumps(state.pop('agent_append'))+'\n')
+        Path(os.environ['DRAWER_TEST_STATE']).write_text(json.dumps(state))
+    if args[:1] == ['list-clients']:
+        print(state.get('tmux_clients', '123\t/dev/pts/fixture\t99999999'))
+    elif args[:1] == ['display-message']:
+        print('99999999')
 elif name == 'pactl' and 'sinks' in args:
     print(json.dumps([{'index':1, 'name':'desk.output', 'description':'Desk speakers', 'state':'RUNNING', 'mute':False}]))
 elif name == 'pactl' and 'get-default-sink' in args:
@@ -80,7 +121,7 @@ elif name == 'makoctl' and args[:1] == ['mode']:
 elif name == 'dunstctl' and args[:1] == ['is-paused']:
     print('false')
 elif name == 'pgrep':
-    sys.exit(1)
+    sys.exit(0 if args[-1:] == ['hyprsunset'] and state.get('nightlight_running') else 1)
 elif name == 'lsblk':
     print(json.dumps(state.get('drives', {'blockdevices': []})))
 elif name == 'xdg-user-dir':
@@ -125,8 +166,8 @@ class BackendTests(unittest.TestCase):
         Path(self.env["XDG_RUNTIME_DIR"]).mkdir()
         for name in (
             "wpctl", "brightnessctl", "hyprctl", "pactl", "nmcli", "bluetoothctl", "cliphist", "wl-copy",
-            "gio", "setsid", "kitty", "systemctl", "loginctl", "pkill", "pgrep", "wlsunset", "makoctl",
-            "dunstctl", "powerprofilesctl", "playerctl", "hyprpicker", "awww", "notify-send", "rofi-pass",
+            "gio", "setsid", "kitty", "bash", "systemctl", "loginctl", "pkill", "pgrep", "hyprsunset", "makoctl",
+            "dunstctl", "powerprofilesctl", "playerctl", "hyprpicker", "awww", "notify-send", "tmux", "fox-hl", "pass", "fox-password-copy", "quickshell", "fox-desktop-menu",
             "checkupdates", "informant", "fox-wallpaper", "fox-lock", "fox-clean", "fox", "hypridle", "lsblk", "udisksctl", "xdg-open", "xdg-user-dir",
         ):
             fake = self.bin / name
@@ -166,6 +207,129 @@ class BackendTests(unittest.TestCase):
         else:
             self.assertTrue(data.get("error"))
         return data
+
+    def test_picker_literal_selection_index_prompt_and_cancellation(self):
+        for flags, reply, expected in [([], {"index": 1}, "$(literal); two\n"),
+                                        (["--index"], {"index": 1}, "1\n"),
+                                        (["--prompt"], {"text": "hjkl $literal"}, "hjkl $literal\n"),
+                                        ([], {"cancel": True}, ""),
+                                        ([], {"index": 200}, "")]:
+            with self.subTest(flags=flags, reply=reply):
+                self.state_path.write_text(json.dumps({"picker_reply": reply}))
+                result = subprocess.run([str(BINARY), "pick", "--title", "Literal title", *flags],
+                                        input="first\n$(literal); two\n", text=True, capture_output=True, env=self.env, timeout=5)
+                self.assertEqual(result.returncode, 0 if expected else (1 if reply.get("cancel") else 2), result.stderr)
+                self.assertEqual(result.stdout, expected)
+                self.assertEqual(list(Path(self.env["XDG_RUNTIME_DIR"]).glob("foxml-picker-*")), [])
+                payload = json.loads(self.clipboard_path.read_text())
+                self.assertEqual(payload["items"], [] if "--prompt" in flags else ["first", "$(literal); two"])
+
+    def test_password_listing_reads_names_only_and_copy_uses_pass(self):
+        store = self.home / ".password-store"
+        (store / "work").mkdir(parents=True)
+        name = "work/a literal $(entry)"
+        (store / (name + ".gpg")).write_text("ciphertext must never appear in JSON")
+        (store / "alias.gpg").symlink_to(store / (name + ".gpg"))
+        (store / ".hidden.gpg").write_text("hidden")
+        self.assertEqual(self.invoke("run", "vault")["page"], "passwords")
+        page = self.invoke("view", "passwords")
+        self.assertEqual([row["label"] for row in page["items"]], [name])
+        self.assertNotIn("ciphertext", json.dumps(page))
+        self.assertFalse(any(call[0] == "pass" for call in self.calls()))
+        self.assertTrue(self.invoke("run", "password-copy", name)["close"])
+        self.assertIn(["fox-password-copy", name], self.calls())
+        before = len(self.calls())
+        self.failed("run", "password-copy", "../elsewhere")
+        self.assertEqual(len(self.calls()), before)
+
+    def test_nightlight_reads_filter_state_instead_of_daemon_presence(self):
+        self.write_config([{"id":"comfort","label":"Comfort","items":[{"id":"nightlight","label":"Night light","kind":"toggle"}]}])
+        self.state.update(nightlight_running=True, nightlight_identity=True)
+        self.assertFalse(self.invoke("view","comfort")["items"][0]["checked"])
+        self.state["nightlight_identity"]=False
+        self.assertTrue(self.invoke("view","comfort")["items"][0]["checked"])
+        self.state.update(nightlight_running=False)
+        self.assertFalse(self.invoke("view","comfort")["items"][0]["checked"])
+
+    def test_nightlight_cold_start_and_on_off_keep_the_daemon(self):
+        on=self.invoke("run","nightlight")
+        self.assertTrue(on["ok"])
+        self.assertFalse(on["close"])
+        self.assertIn(["setsid","-f","hyprsunset","--identity"],self.calls())
+        self.assertIn(["hyprctl","hyprsunset","temperature","3500"],self.calls())
+        self.state=json.loads(self.state_path.read_text())
+        self.assertFalse(self.state["nightlight_identity"])
+        off=self.invoke("run","nightlight")
+        self.assertTrue(off["ok"])
+        self.assertIn(["hyprctl","hyprsunset","identity"],self.calls())
+        after=json.loads(self.state_path.read_text())
+        self.assertTrue(after["nightlight_identity"] and after["nightlight_running"])
+        self.assertFalse(any(call[0]=="pkill" or 'wlsunset' in call for call in self.calls()))
+
+    def test_nightlight_failed_start_is_reported_without_claiming_enabled(self):
+        self.state["nightlight_start_fails"]=True
+        data=self.failed("run","nightlight")
+        self.assertIn("did not become ready",data["message"])
+        self.assertFalse(any(call[1:]==["hyprsunset","temperature","3500"] for call in self.calls()))
+
+    def test_nightlight_rejected_ipc_change_is_an_error(self):
+        self.state.update(nightlight_running=True,nightlight_identity=True,nightlight_reject=True)
+        data=self.failed("run","nightlight")
+        self.assertIn("rejected",data["message"])
+
+    def test_nightlight_invalid_state_disables_the_switch(self):
+        self.write_config([{"id":"comfort","label":"Comfort","items":[{"id":"nightlight","label":"Night light","kind":"toggle"}]}])
+        self.state.update(nightlight_running=True, exact={"\x1f".join(["hyprctl","hyprsunset","identity","get"]):{"stdout":"not a state\n","exit":0}})
+        row=self.failed("view","comfort")["items"][0]
+        self.assertFalse(row["enabled"])
+        self.assertNotIn("checked",row)
+
+    def test_agent_note_jumps_directly_and_preserves_new_arrivals(self):
+        self.env.pop("TMUX",None)
+        queue=Path(self.env["XDG_RUNTIME_DIR"])/"foxml-agent-queue.jsonl"
+        old={"source":"fixture","project":"paper","tmux":"paper:1.2","message":"older note"}
+        newer=old|{"message":"newer note"}
+        arrival=old|{"message":"arrived while routing"}
+        queue.write_text(json.dumps(old)+"\n"+json.dumps(newer)+"\n")
+        rows=self.invoke("view","agents")["items"]
+        self.assertEqual([row["id"] for row in rows],["agent-jump","agent-jump","agent-clear"])
+        key=rows[1]["argument"]
+        self.assertEqual(key,hashlib.sha256(json.dumps(old).encode()).hexdigest())
+        self.assertNotIn("older note",key)
+        self.state["agent_append"]=arrival
+        self.assertTrue(self.invoke("run","agent-jump",key)["close"])
+        self.assertEqual([json.loads(line) for line in queue.read_text().splitlines()],[newer,arrival])
+        self.assertIn(["tmux","switch-client","-c","/dev/pts/fixture","-t","paper:1.2"],self.calls())
+        self.assertFalse(any(call[0] in ("setsid","fox-picker") for call in self.calls()))
+        before=list(self.calls())
+        self.failed("run","agent-jump",key)
+        self.assertEqual(self.calls(),before)
+
+    def test_agent_focuses_the_client_window_instead_of_an_arbitrary_kitty(self):
+        self.env.pop("TMUX",None)
+        pid=os.getpid()
+        self.state.update(tmux_clients=f"123\t/dev/pts/selected\t{pid}",windows=[
+            {"address":"0x11","pid":99999999,"class":"kitty"},
+            {"address":"0x22","pid":pid,"class":"kitty"}])
+        queue=Path(self.env["XDG_RUNTIME_DIR"])/"foxml-agent-queue.jsonl"
+        queue.write_text(json.dumps({"tmux":"paper:1.2","source":"fixture"})+"\n")
+        key=self.invoke("view","agents")["items"][0]["argument"]
+        self.assertTrue(self.invoke("run","agent-jump",key)["ok"])
+        self.assertIn(["fox-hl","dispatch","hl.dsp.focus({ window = 'address:0x22' })","focuswindow address:0x22"],self.calls())
+        self.assertFalse(any('class:kitty' in argument for call in self.calls() for argument in call))
+
+    def test_agent_failed_route_keeps_note_and_clear_requires_confirmation(self):
+        queue=Path(self.env["XDG_RUNTIME_DIR"])/"foxml-agent-queue.jsonl"
+        note={"source":"fixture","tmux":"paper:1.2","message":"keep this"}
+        raw=json.dumps(note)+"\n";queue.write_text(raw)
+        key=self.invoke("view","agents")["items"][0]["argument"]
+        self.state["exact"]={"\x1f".join(["tmux","has-session","-t","=paper"]):{"exit":1}}
+        self.failed("run","agent-jump",key)
+        self.assertEqual(queue.read_text(),raw)
+        self.failed("run","agent-clear")
+        self.assertEqual(queue.read_text(),raw)
+        self.assertTrue(self.invoke("run","agent-clear","--confirm")["ok"])
+        self.assertEqual(queue.read_text(),"")
 
     def test_config_root_and_group(self):
         root = self.invoke("view", "root")
@@ -257,7 +421,7 @@ class BackendTests(unittest.TestCase):
         data = self.invoke("view", "windows")
         self.assertEqual(data["items"][0]["label"], title)
         self.assertTrue(self.invoke("run", "window-focus", "0xabc123")["ok"])
-        self.assertIn(["hyprctl", "dispatch", "focuswindow", "address:0xabc123"], self.calls())
+        self.assertIn(["fox-hl", "dispatch", "hl.dsp.focus({ window = 'address:0xabc123' })", "focuswindow address:0xabc123"], self.calls())
 
     def test_root_summary_and_favorite_use_live_volume(self):
         config = json.loads(self.config.read_text())
@@ -335,6 +499,15 @@ class BackendTests(unittest.TestCase):
         self.assertTrue(data["ok"])
         calls = self.calls()
         self.assertTrue(any(call[0] == "wpctl" and "set-volume" in call and "55%" in call for call in calls), calls)
+
+    def test_updates_launch_explicit_apply_modes_without_reopening_a_menu(self):
+        helper = self.home / '.config/hypr/scripts/updates_menu.sh'
+        helper.parent.mkdir(parents=True)
+        helper.write_text('#!/bin/bash\nexit 0\n')
+        for action, mode in [('updates-terminal','--apply-terminal'),('updates-silent','--apply-silent')]:
+            self.assertTrue(self.invoke('run',action)['ok'])
+            self.assertIn(['setsid','-f','bash',str(helper),mode],self.calls())
+        self.assertFalse(any(call[0]=='rofi' or 'FOXML_MENU_LEGACY=1' in call for call in self.calls()))
 
     def test_incoming_tray_filters_temporary_files_and_orders_by_modified_time(self):
         folder = self.home / 'Downloads'

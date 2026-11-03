@@ -42,3 +42,12 @@ assert.ok(!logic.barStyle(true, 'root', '').includes('#custom-updates'));
 assert.ok(!logic.barStyle(false, 'updates', 'system').includes('#custom-updates'));
 assert.ok(!logic.barStyle(true, 'x { injected }', '').includes('injected'));
 console.log('drawer navigation, identity, action argv and values: passed');
+
+assert.match(logic.footerHint({focus:'items'}, {kind:'toggle'}), /toggles on or off/);
+assert.match(logic.footerHint({focus:'items'}, {kind:'slider'}), /starts adjustment/);
+assert.match(logic.footerHint({focus:'items',editing:true}, {kind:'slider'}), /h \/ l adjusts/);
+assert.match(logic.footerHint({focus:'items',searching:true}, {kind:'toggle'}), /type to find/);
+assert.match(logic.footerHint({focus:'items',confirming:true}, {}), /Esc cancels/);
+assert.match(logic.footerHint({focus:'items'}, {id:'agent-jump'}), /goes to agent/);
+assert.match(logic.footerHint({focus:'groups'}, {kind:'toggle'}), /opens a drawer/);
+console.log('contextual drawer hints: passed');

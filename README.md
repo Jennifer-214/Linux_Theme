@@ -229,7 +229,7 @@ Adding a new theme = writing one `palette.sh` file. All app configs render from 
 | Waybar | `templates/waybar/style.css` | `~/.config/waybar/style.css` |
 | Tmux | `templates/tmux/.tmux.conf` | `~/.tmux.conf` |
 | Zsh | `templates/zsh/` (7 files) | `~/.zshrc` + `~/.config/zsh/` |
-| Rofi | `templates/rofi/glass.rasi` | `~/.config/rofi/glass.rasi` |
+| Rofi (legacy assets) | `templates/rofi/glass.rasi` | `~/.config/rofi/glass.rasi` |
 | Dunst | `templates/dunst/dunstrc` | `~/.config/dunst/dunstrc` |
 | Mako | `templates/mako/config` | `~/.config/mako/config` |
 | Fastfetch | `templates/fastfetch/config.jsonc` | `~/.config/fastfetch/config.jsonc` |
@@ -319,11 +319,18 @@ Listing reads file metadata only; it never reads file contents or moves files.
 The existing battery module adds a plug-and-heart
 doodle while charging, keeping its capacity, watts, threshold and failure signals.
 The Hyprland menu shortcuts call the drawer directly, including Wi-Fi, Bluetooth,
-audio outputs, clipboard, windows and agent notes. Paper's bar uses a pencil
+audio outputs, clipboard, windows and agent notes. Agent notes jump directly
+to their exact tmux target; a stale or unreachable note stays available for
+review, and clearing all notes asks for confirmation. Paper's bar uses a pencil
 launcher, notebook workspace tabs and a handwritten clock tab. Unused rofi-calc
 and rofi-emoji add-ons are no longer in the default package list; installed
-packages are not removed. Rofi remains for the specialized interfaces below
-and explicit legacy recovery, and does not run as an extra background service.
+packages are not removed. The overlapping Rofi desktop menus are retired;
+their old script names now delegate to Quickshell, preserving custom shortcuts.
+A failed drawer reports an error instead of launching a second menu implementation.
+Desktop launches include `~/.local/bin` in both Hyprland configuration formats;
+the drawer launcher also discovers its co-located backend without relying on zsh.
+The installer selects Lua for Hyprland 0.57+, while an already running session
+keeps its existing compositor version until it is restarted.
 
 Use `j/k` to move, `l` or Enter to open, and `h` to go back. Enter on a slider
 starts adjustment with `h/l`; Escape finishes. `/` searches menu actions from a
@@ -340,10 +347,40 @@ Edit `~/.config/quickshell/foxml/menus.json` to rearrange groups or items; the
 installer preserves this file and refreshes `menus.default.json` separately.
 The supported item kinds are `page`, `action`, `toggle`, and `slider`; action IDs
 refer to the backend's built-in operations. Palette colors come from
-`templates/quickshell/foxml/Theme.qml`. `FOXML_MENU_LEGACY=1` selects the original
-Rofi paths. The password vault and advanced agent triage retain their existing
-Rofi interfaces; Wi-Fi credentials and privileged updates use their normal
-authentication interfaces. The existing `fox-menu` CLI tool launcher is unchanged.
+`templates/quickshell/foxml/Theme.qml`. The old `FOXML_MENU_LEGACY` desktop-menu
+override is retired. The command launcher, shortcut reference, sandbox picker,
+existing local AI prompt and wallpaper rotation menu now share the
+Quickshell picker too. `fox-picker --title TITLE` reads one label per input line;
+`--index` returns its original zero-based index, and `--prompt` accepts free text.
+Escape cancels without an action. These use the existing drawer service, with
+private temporary request files and no additional daemon.
+
+System → Passwords lists encrypted `pass` entry names only. Enter copies the
+first line with `pass show --clip=1`; GPG handles unlocking and `pass` handles
+clipboard expiry. A small wrapper adds Wayland’s sensitive-content hint so
+clipboard history can skip passwords. Passwords are never previewed. Advanced password creation,
+editing and typing remain available through the `pass` CLI. Rofi is no longer a
+default dependency; installed packages and old theme assets are retained for
+rollback. Wi-Fi credentials and privileged updates keep their normal
+authentication interfaces.
+Night light uses Hyprsunset: Enter toggles between a 3500K filter and normal
+colors. Its switch reads the filter’s IPC state, and a failed start reports an
+error. Both Hyprland formats start it with normal colors; `--deps` installs it.
+
+Paper's workspace tabs include monochrome icons for open Hyprland windows; an
+editor inside Kitty/tmux uses the terminal icon. Kitty leaves its own tab row
+hidden, while tmux adds a pink dot to the existing window label on a bell.
+The session switcher also marks sessions with a bell in a background window,
+using the window flags already included in its normal session query.
+
+In Neovim, named `a-z` / `A-Z` marks get pink bookmark ribbons in the existing
+sign gutter, below diagnostic/git/breakpoint priority. `ma` sets mark `a`; `'a`
+returns to it. Ribbons refresh on the existing idle/edit events, without a new
+timer. Unsaved buffers use a graphite pencil marker, and Lualine keeps its data
+on a quiet paper footer. `<leader>tc` toggles comment folds; folded notes show
+the first line and line count, and `zo` opens one. These details skip symdeps
+panels and leave its winbar, annotations and keys intact. No extra plugins are
+required; rendering and the existing installer mappings deploy the changes.
 
 Copied as-is regardless of theme:
 

@@ -1,12 +1,20 @@
 #!/bin/bash
 # fox-desktop-menu — one named Quickshell instance serves the desktop menus.
 
+# Compositor keybinds do not inherit the interactive shell's ~/.local/bin PATH.
+launcher_dir="${BASH_SOURCE[0]%/*}"
+[[ "$launcher_dir" == "${BASH_SOURCE[0]}" ]] && launcher_dir="$HOME/.local/bin"
+launcher_dir="$(cd -- "$launcher_dir" && pwd -P)" || exit 1
+case ":${PATH:-}:" in
+    *":$launcher_dir:"*) ;;
+    *) export PATH="$launcher_dir:${PATH:-/usr/local/bin:/usr/bin:/bin}" ;;
+esac
+
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
 config_dir="$config_home/quickshell/foxml"
 
 available() {
-    [[ "${FOXML_MENU_LEGACY:-0}" != 1 ]] &&
-        command -v quickshell >/dev/null 2>&1 &&
+    command -v quickshell >/dev/null 2>&1 &&
         command -v fox-drawer >/dev/null 2>&1 &&
         [[ -r "$config_dir/shell.qml" && -r "$config_dir/Theme.qml" && -r "$config_dir/menus.json" ]]
 }
@@ -17,7 +25,7 @@ case "${1:-root}" in
     --available) available; exit $? ;;
     --help|-h)
         printf '%s\n' 'Usage: fox-desktop-menu [PAGE | --open PAGE | --start | --close | --available]' \
-            'Open or toggle the palette-driven desktop drawer. FOXML_MENU_LEGACY=1 keeps Rofi.'
+            'Open or toggle the palette-driven desktop drawer.'
         exit 0 ;;
     --close)
         available || exit 1
@@ -33,22 +41,7 @@ if [[ ! "$page" =~ ^[a-z][a-z0-9-]*$ ]]; then
     exit 2
 fi
 if ! available; then
-    if [[ "$action" != start && "${FOXML_MENU_LEGACY:-0}" == 1 ]]; then
-        case "$page" in
-            root|desk|connections|comfort|system) exec /bin/bash "$config_home/hypr/scripts/hub.sh" ;;
-            wifi) exec /bin/bash "$config_home/hypr/scripts/network.sh" ;;
-            bluetooth) exec /bin/bash "$config_home/hypr/scripts/bluetooth.sh" ;;
-            sound|audio-outputs) exec /bin/bash "$config_home/hypr/scripts/audio_switcher.sh" ;;
-            power) exec /bin/bash "$config_home/hypr/scripts/powermenu.sh" ;;
-            agents) exec /bin/bash "$config_home/hypr/scripts/agent_rofi.sh" ;;
-            clipboard-text) exec /bin/bash "$config_home/hypr/scripts/clipmanager.sh" text ;;
-            clipboard-images) exec /bin/bash "$config_home/hypr/scripts/clipmanager.sh" image ;;
-            apps) exec rofi -show drun ;;
-            windows) exec rofi -show window ;;
-            updates) exec /bin/bash "$config_home/hypr/scripts/updates_menu.sh" ;;
-        esac
-    fi
-    printf 'fox-desktop-menu: Quickshell drawer is not installed; use the existing Rofi menus.\n' >&2
+    printf 'fox-desktop-menu: drawer unavailable; install Quickshell and run fox-install --only drawer.\n' >&2
     exit 1
 fi
 

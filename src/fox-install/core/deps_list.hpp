@@ -31,7 +31,7 @@ inline const std::vector<std::string>& deps_packages() {
         "nodejs", "npm", "tree-sitter-cli",
 
         // Bar, launcher, notifications
-        "waybar", "rofi", "mako", "dunst", "quickshell",   // rofi-wayland was merged into rofi
+        "waybar", "mako", "dunst", "quickshell", // One desktop menu service; pass below owns secret handling.
         "udisks2", "util-linux", // removable-drive library cards (xdg-utils is below)
 
         // Build tools
@@ -69,7 +69,7 @@ inline const std::vector<std::string>& deps_packages() {
         // misc utilities install.sh's later sections rely on
         "unzip",
         "grim", "slurp", "wl-clipboard", "playerctl", "brightnessctl",
-        "pavucontrol", "wlsunset", "swappy",
+        "pavucontrol", "hyprsunset", "swappy",
 
         // Bluetooth
         "bluez", "bluez-utils", "blueman",

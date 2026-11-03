@@ -19,9 +19,13 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 #include <fcntl.h>
 #include <sys/wait.h>
+#include <sys/inotify.h>
+#include <poll.h>
+#include <openssl/sha.h>
 #include <sys/file.h>
 #include <sys/statvfs.h>
 #include <unistd.h>
@@ -92,14 +96,14 @@ fs::path repository() {
 }
 const std::set<std::string> pages = {
     "apps", "windows", "audio-outputs", "wifi", "bluetooth", "clipboard-text", "clipboard-images",
-    "wallpapers", "themes", "power", "updates", "agents", "projects", "bookmarks", "library", "downloads"
+    "wallpapers", "themes", "power", "updates", "agents", "projects", "bookmarks", "library", "downloads", "passwords"
 };
 const std::set<std::string> actions = {
     "volume", "volume-mute", "mic-mute", "media-play-pause", "media-next", "media-previous", "brightness",
     "nightlight", "dnd", "idle", "power-profile", "lock", "suspend", "reboot", "poweroff", "logout",
     "wallpaper-next", "wallpaper-sync", "color-picker", "updates-terminal", "updates-silent", "vault",
-    "security", "cleanup", "agent-triage", "app-launch", "window-focus", "audio-output", "wifi-connect",
-    "wifi-toggle", "bluetooth-connect", "bluetooth-toggle", "bluetooth-scan", "clipboard-restore", "wallpaper-set", "theme-set", "project-open", "project-terminal", "project-bookmark", "drive-open", "drive-eject", "download-open", "download-folder"
+    "security", "cleanup", "agent-triage", "agent-jump", "agent-clear", "app-launch", "window-focus", "audio-output", "wifi-connect",
+    "wifi-toggle", "bluetooth-connect", "bluetooth-toggle", "bluetooth-scan", "clipboard-restore", "wallpaper-set", "theme-set", "project-open", "project-terminal", "project-bookmark", "drive-open", "drive-eject", "download-open", "download-folder", "password-copy", "tools", "cheatsheet", "sandbox"
 };
 Json item(const std::string& id, const std::string& label, const std::string& kind = "action",
           const std::string& detail = {}, const std::string& icon = {}) {
@@ -277,14 +281,62 @@ State process_state(const std::string& process) {
     if (status == 0 || status == 1) { state.ok = true; state.checked = status == 0; }
     return state;
 }
+bool nightlight_identity(bool& identity) {
+    std::string output;
+    if (!sh::capture({"hyprctl", "hyprsunset", "identity", "get"}, output)) return false;
+    output = trim(output);
+    if (output != "true" && output != "false") return false;
+    identity = output == "true";
+    return true;
+}
+State nightlight_state() {
+    State state;
+    bool identity = true;
+    if (nightlight_identity(identity)) {
+        state.ok = true; state.checked = !identity;
+        state.label = identity ? "Normal screen colors" : "Warm color filter enabled";
+    } else {
+        const auto process = process_state("hyprsunset");
+        state.ok = process.ok && !process.checked;
+    }
+    return state;
+}
+Json toggle_nightlight() {
+    if (!sh::have("hyprsunset")) return result(false, "Install hyprsunset to use Night light");
+    if (!sh::have("hyprctl")) return result(false, "Hyprland controls are unavailable");
+    bool identity = true;
+    if (!nightlight_identity(identity)) {
+        const auto process = process_state("hyprsunset");
+        if (!process.ok) return result(false, "Night light state is unavailable");
+        if (!process.checked) {
+            const auto started = background({"hyprsunset", "--identity"}, "Starting Night light");
+            if (!truth(started, "ok")) return started;
+        }
+        bool ready = false;
+        for (int attempt = 0; attempt < 25; ++attempt) {
+            if (nightlight_identity(identity)) { ready = true; break; }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        if (!ready) return result(false, "Night light could not connect to Hyprland; Hyprsunset did not become ready");
+    }
+    // Identity is the actual filter state; an idle daemon is not an enabled night light.
+    Args args{"hyprctl", "hyprsunset"};
+    if (identity) { args.push_back("temperature"); args.push_back("3500"); }
+    else args.push_back("identity");
+    std::string output;
+    if (!sh::capture(args, output) || trim(output) != "ok") return result(false, "Night light change was rejected");
+    bool after = identity;
+    if (!nightlight_identity(after) || after == identity) return result(false, "Night light state did not change");
+    return result(true, after ? "Night light disabled" : "Night light enabled (3500K)");
+}
 std::string required(const std::string& id) {
     if (id == "volume" || id == "volume-mute" || id == "mic-mute") return "wpctl";
     if (id.rfind("media-", 0) == 0) return "playerctl";
     if (id == "brightness") return "brightnessctl";
-    if (id == "nightlight") return "wlsunset";
+    if (id == "nightlight") return "hyprsunset";
     if (id == "power-profile") return "powerprofilesctl";
     if (id == "color-picker") return "hyprpicker";
-    if (id == "vault") return "rofi-pass";
+    if (id == "password-copy") return "pass";
     if (id == "security") return "fox";
     if (id == "suspend" || id == "reboot" || id == "poweroff") return "systemctl";
     if (id == "logout") return "fox-hl";
@@ -302,7 +354,7 @@ bool decorate(Json& row) {
     if (id == "volume" || id == "volume-mute" || id == "mic-mute") { state = audio_state(id == "mic-mute"); queried = true; }
     else if (id == "brightness") { state = brightness_state(); queried = true; }
     else if (id == "dnd") { state = dnd_state(); queried = true; }
-    else if (id == "nightlight") { state = process_state("wlsunset"); queried = true; }
+    else if (id == "nightlight") { state = nightlight_state(); queried = true; }
     else if (id == "idle") {
         state = process_state("hypridle");
         const bool paused = regular(runtime() / "hypridle_paused");
@@ -576,6 +628,216 @@ bool write_atomic(const fs::path& path, const std::string& data) {
     if (ok) ok = ::rename(name.data(), path.c_str()) == 0;
     if (!ok) ::unlink(name.data());
     return ok;
+}
+std::string agent_key(const std::string& record) {
+    std::array<unsigned char, SHA256_DIGEST_LENGTH> digest{};
+    ::SHA256(reinterpret_cast<const unsigned char*>(record.data()), record.size(), digest.data());
+    std::string key;
+    for (const auto byte : digest) { key += "0123456789abcdef"[byte >> 4]; key += "0123456789abcdef"[byte & 15]; }
+    return key;
+}
+fs::path agent_queue() {
+    const auto dir = env("XDG_RUNTIME_DIR");
+    return (!dir.empty() && directory(dir) ? fs::path(dir) : fs::path("/tmp") / ("foxml-" + env("USER", std::to_string(::getuid())))) / "foxml-agent-queue.jsonl";
+}
+struct AgentLock {
+    int fd = -1;
+    explicit AgentLock(int mode) {
+        fd = ::open((agent_queue().string() + ".lock").c_str(), O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+        if (fd >= 0 && ::flock(fd, mode) != 0) { ::close(fd); fd = -1; }
+    }
+    ~AgentLock() { if (fd >= 0) ::close(fd); }
+};
+std::vector<std::pair<std::string, Json>> agent_notes() {
+    std::vector<std::pair<std::string, Json>> notes;
+    if (!regular(agent_queue())) return notes;
+    AgentLock lock(LOCK_SH);
+    if (lock.fd < 0) return notes;
+    for (const auto& line : lines(read(agent_queue()))) {
+        auto note = Json::parse(line, nullptr, false);
+        if (note.is_object()) notes.emplace_back(agent_key(line), std::move(note));
+    }
+    return notes;
+}
+bool dismiss_agent(const std::string& key, bool all = false) {
+    AgentLock lock(LOCK_EX);
+    if (lock.fd < 0) return false;
+    std::string remaining;
+    bool removed = false;
+    for (const auto& line : lines(read(agent_queue()))) {
+        if (all || (!removed && agent_key(line) == key)) { removed = true; continue; }
+        remaining += line + "\n";
+    }
+    return write_atomic(agent_queue(), remaining);
+}
+Json focus_address(const std::string& address, bool close = true) {
+    return command({"fox-hl", "dispatch", "hl.dsp.focus({ window = 'address:" + address + "' })",
+                    "focuswindow address:" + address}, "Window selected", close);
+}
+void focus_agent_client(int pid) {
+    std::set<int> ancestors;
+    for (int depth = 0; pid > 1 && depth < 32 && ancestors.insert(pid).second; ++depth) {
+        const auto stat = read(fs::path("/proc") / std::to_string(pid) / "stat");
+        const auto end = stat.rfind(')');
+        if (end == std::string::npos) break;
+        std::istringstream fields(stat.substr(end + 1));
+        char state = 0; int parent = 0;
+        if (!(fields >> state >> parent)) break;
+        pid = parent;
+    }
+    Json clients;
+    if (!capture_json({"hyprctl", "-j", "clients"}, clients) || !clients.is_array()) return;
+    for (const auto& client : clients) {
+        const auto process = client.find("pid");
+        const auto address = text(client, "address");
+        if (process != client.end() && process->is_number_integer() && ancestors.count(process->get<int>())
+            && std::regex_match(address, std::regex("0x[0-9a-fA-F]{1,32}"))) { focus_address(address, false); return; }
+    }
+}
+Json jump_agent(const std::string& key) {
+    if (key.size() != 64 || key.find_first_not_of("0123456789abcdef") != std::string::npos) return result(false, "Invalid agent note");
+    Json note;
+    for (const auto& entry : agent_notes()) if (entry.first == key) { note = entry.second; break; }
+    if (note.is_null()) return result(false, "This agent note has already been dismissed");
+    const auto target = text(note, "tmux");
+    if (!safe_text(target, 256) || !std::regex_match(target, std::regex("[^:\r\n]{1,200}:[0-9]+\\.[0-9]+"))) return result(false, "This note has no reachable tmux pane");
+    if (!sh::have("tmux")) return result(false, "tmux is not installed");
+    const auto colon = target.find(':');
+    const auto session = target.substr(0, colon);
+    const auto window = target.substr(0, target.rfind('.'));
+    std::string output;
+    if (!sh::capture({"tmux", "has-session", "-t", "=" + session}, output)
+        || !sh::capture({"tmux", "select-window", "-t", window}, output)
+        || !sh::capture({"tmux", "select-pane", "-t", target}, output)) return result(false, "The agent terminal is no longer available");
+    std::string client;
+    int client_pid = 0;
+    if (!env("TMUX").empty()) {
+        if (!sh::capture({"tmux", "switch-client", "-t", target}, output)) return result(false, "Could not switch to the agent terminal");
+        if (sh::capture({"tmux", "display-message", "-p", "#{client_pid}"}, output)) {
+            const auto value = trim(output); std::from_chars(value.data(), value.data() + value.size(), client_pid);
+        }
+    } else {
+        if (!sh::capture({"tmux", "list-clients", "-F", "#{client_activity}\t#{client_name}\t#{client_pid}"}, output)) return result(false, "Could not read tmux clients");
+        unsigned long long newest = 0;
+        for (const auto& line : lines(output)) {
+            const auto first = line.find('\t'), last = line.rfind('\t');
+            if (first == std::string::npos || first == last) continue;
+            unsigned long long activity = 0; int process = 0;
+            const auto a = std::from_chars(line.data(), line.data() + first, activity);
+            const auto p = std::from_chars(line.data() + last + 1, line.data() + line.size(), process);
+            if (a.ec != std::errc{} || a.ptr != line.data() + first || p.ec != std::errc{} || p.ptr != line.data() + line.size() || process <= 0) continue;
+            if (client.empty() || activity >= newest) { newest = activity; client = line.substr(first + 1, last - first - 1); client_pid = process; }
+        }
+        if (!client.empty()) {
+            if (!sh::capture({"tmux", "switch-client", "-c", client, "-t", target}, output)) return result(false, "Could not switch to the agent terminal");
+        } else {
+            const auto opened = terminal({"tmux", "attach-session", "-t", "=" + session}, "Agent terminal opened");
+            if (!truth(opened, "ok")) return opened;
+        }
+    }
+    if (client_pid > 0) focus_agent_client(client_pid);
+    if (!dismiss_agent(key)) return result(false, "Terminal selected, but the note could not be dismissed");
+    return result(true, "Agent terminal selected", true);
+}
+
+volatile std::sig_atomic_t picker_stopped = 0;
+void stop_picker(int) { picker_stopped = 1; }
+int pick(const Args& args) {
+    std::string title = "Choose a little thing";
+    bool index = false, prompt = false;
+    for (size_t i = 1; i < args.size(); ++i) {
+        if (args[i] == "--title" && i + 1 < args.size()) title = args[++i];
+        else if (args[i] == "--index") index = true;
+        else if (args[i] == "--prompt") prompt = true;
+        else if (args[i] == "--help") {
+            std::cout << "fox-picker [--title TITLE] [--index | --prompt]\n"
+                         "Reads one label per input line; Escape cancels. / searches; j/k move.\n"; return 0;
+        }
+        else { std::cerr << "Usage: fox-picker [--title TITLE] [--index | --prompt]\n"; return 2; }
+    }
+    if (!safe_text(title, 256) || (index && prompt)) return 2;
+    Args labels;
+    if (!prompt) {
+        std::string line;
+        size_t bytes = 0;
+        while (std::getline(std::cin, line)) {
+            bytes += line.size();
+            if (labels.size() >= 10000 || bytes > 4 * 1024 * 1024 || !safe_text(line)) {
+                std::cerr << "Picker input is too large\n"; return 2;
+            }
+            labels.push_back(line);
+        }
+        if (labels.empty()) return 1;
+    }
+    if (!sh::have("fox-desktop-menu") || !sh::have("quickshell")) {
+        std::cerr << "Install the Quickshell drawer with fox-install --only drawer\n"; return 2;
+    }
+    std::string pattern = (runtime() / "foxml-picker-XXXXXX").string();
+    std::vector<char> name(pattern.begin(), pattern.end()); name.push_back('\0');
+    if (!::mkdtemp(name.data())) return 2;
+    struct Request {
+        fs::path path;
+        int watch = -1;
+        ~Request() { if (watch >= 0) ::close(watch); std::error_code ec; fs::remove_all(path, ec); }
+    } request{fs::path(name.data())};
+    picker_stopped = 0;
+    std::signal(SIGINT, stop_picker); std::signal(SIGTERM, stop_picker);
+    const auto reply = request.path / "response.json";
+    if (!write_atomic(reply, "") || !write_atomic(request.path / "request.json",
+            Json{{"title", title}, {"prompt", prompt}, {"items", labels}}.dump(-1, ' ', false, Json::error_handler_t::replace))) return 2;
+    request.watch = ::inotify_init1(IN_CLOEXEC | IN_NONBLOCK);
+    if (request.watch < 0 || ::inotify_add_watch(request.watch, request.path.c_str(), IN_MOVED_TO | IN_CLOSE_WRITE) < 0) return 2;
+    std::string output;
+    if (!sh::capture({"fox-desktop-menu", "--start"}, output) ||
+        !sh::capture({"quickshell", "-c", "foxml", "ipc", "call", "drawer", "pick",
+                      (request.path / "request.json").string()}, output)) {
+        std::cerr << "Could not open the Quickshell picker\n"; return 2;
+    }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::minutes(15);
+    while (!picker_stopped && std::chrono::steady_clock::now() < deadline) {
+        const auto raw = read(reply);
+        if (!raw.empty()) {
+            const auto response = Json::parse(raw, nullptr, false);
+            if (!response.is_object() || truth(response, "cancel")) return 1;
+            if (prompt) {
+                const auto value = text(response, "text");
+                if (!safe_text(value) || value.empty() || value.find('\n') != std::string::npos) return 1;
+                std::cout << value << '\n'; return 0;
+            }
+            if (!response.contains("index") || !response["index"].is_number_unsigned()) return 2;
+            const auto selected = response["index"].get<size_t>();
+            if (selected >= labels.size()) return 2;
+            if (index) std::cout << selected << '\n'; else std::cout << labels[selected] << '\n';
+            return 0;
+        }
+        pollfd fd{request.watch, POLLIN, 0};
+        const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
+        if (::poll(&fd, 1, static_cast<int>(std::max<int64_t>(1, remaining))) < 0 && errno != EINTR) return 2;
+        char events[4096];
+        while (::read(request.watch, events, sizeof(events)) > 0) {}
+    }
+    sh::capture({"quickshell", "-c", "foxml", "ipc", "call", "drawer", "cancelPicker",
+                 (request.path / "request.json").string()}, output);
+    return 1;
+}
+std::vector<std::string> password_names() {
+    const fs::path store = env("PASSWORD_STORE_DIR", home() + "/.password-store");
+    std::vector<std::string> names;
+    std::error_code ec;
+    fs::recursive_directory_iterator it(store, fs::directory_options::skip_permission_denied, ec), end;
+    size_t visited = 0;
+    for (; !ec && it != end && visited++ < 20000; it.increment(ec)) {
+        const auto path = it->path();
+        if (path.filename().string().front() == '.' || it->is_symlink(ec)) {
+            it.disable_recursion_pending(); continue;
+        }
+        if (!it->is_regular_file(ec) || path.extension() != ".gpg") continue;
+        const auto name = path.lexically_relative(store).replace_extension().generic_string();
+        if (safe_text(name) && name.find('\n') == std::string::npos) names.push_back(name);
+        if (names.size() >= 4000) break;
+    }
+    std::sort(names.begin(), names.end());
+    return names;
 }
 Json toggle_bookmark(const std::string& path) {
     const auto file = bookmark_file();
@@ -974,13 +1236,26 @@ Json view(const Json& config, const std::string& page, const std::string& query)
             if (line.empty()) continue;
             auto row = item("updates-terminal", line, "action", "Pending package", "package"); row["enabled"] = false; rows.push_back(row);
         }
+    } else if (page == "passwords") {
+        known = true; out["title"] = "A little key drawer";
+        for (const auto& name : password_names()) {
+            auto row = item("password-copy", name, "action", "Copy password · pass clears the clipboard after its timeout", "key");
+            row["argument"] = name;
+            row["enabled"] = sh::have("pass");
+            rows.push_back(row);
+        }
+        if (!sh::have("pass")) fail("Install pass to use your existing password store");
     } else if (page == "agents") {
         known = true; out["title"] = "Agent notifications";
-        rows.push_back(item("agent-triage", "Open agent triage", "action", "Jump to a pending agent's terminal", "message"));
-        for (const auto& line : lines(read(runtime() / "foxml-agent-queue.jsonl"))) {
-            const auto entry = Json::parse(line, nullptr, false);
-            if (!entry.is_object()) continue;
-            auto row = item("agent-triage", text(entry, "source", "Agent") + " · " + text(entry, "project", "Project"), "action", text(entry, "message"), "message"); rows.push_back(row);
+        const auto notes = agent_notes();
+        for (auto at = notes.rbegin(); at != notes.rend() && rows.size() < 128; ++at) {
+            const auto& entry = at->second;
+            auto row = item("agent-jump", text(entry, "source", "Agent") + " · " + text(entry, "project", "Project"), "action", text(entry, "message"), "message");
+            row["argument"] = at->first; rows.push_back(row);
+        }
+        if (!notes.empty()) {
+            auto row = item("agent-clear", "Clear agent notes", "action", "Dismiss all pending notes", "message");
+            row["confirm"] = "Clear all agent notes?"; rows.push_back(row);
         }
     }
     if (!known) fail("Unknown drawer page");
@@ -995,13 +1270,18 @@ Json view(const Json& config, const std::string& page, const std::string& query)
 Json run_action(const Json& config, const std::string& id, const std::string& arg, bool confirmed) {
     if (!actions.count(id)) return result(false, "Unknown drawer action");
     if (!safe_text(arg)) return result(false, "Invalid action argument");
+    if (id == "agent-clear") {
+        if (arg != "--confirm") return result(false, "Confirmation required");
+        const bool cleared = dismiss_agent({}, true);
+        return result(cleared, cleared ? "Agent notes cleared" : "Could not clear agent notes");
+    }
     const bool power = id == "suspend" || id == "reboot" || id == "poweroff" || id == "logout";
     if (power) {
         if (arg != "--confirm") return result(false, "Confirmation required");
         if (id == "logout") return command({"fox-hl", "dispatch", "hl.dsp.exit()", "exit"}, "Log out", true);
         return command({"systemctl", id}, id == "suspend" ? "Suspend" : id == "reboot" ? "Restart" : "Shut down", true);
     }
-    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder"};
+    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","password-copy","agent-jump"};
     if (!argument_actions.count(id) && !arg.empty()) return result(false, "This action accepts no argument");
     if (id == "volume" || id == "brightness") {
         int value = 0;
@@ -1018,11 +1298,7 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         return command({"wpctl", "set-mute", id == "mic-mute" ? "@DEFAULT_AUDIO_SOURCE@" : "@DEFAULT_AUDIO_SINK@", "toggle"}, "Mute toggled");
     }
     if (id.rfind("media-", 0) == 0) return command({"playerctl", id.substr(6)}, "Playback updated");
-    if (id == "nightlight") {
-        const auto state = process_state("wlsunset");
-        if (!state.ok) return result(false, "Night light state is unavailable");
-        return state.checked ? command({"pkill", "-x", "wlsunset"}, "Night light disabled") : background({"wlsunset", "-t", "3500", "-T", "6500"}, "Night light enabled");
-    }
+    if (id == "nightlight") return toggle_nightlight();
     if (id == "dnd") {
         const auto state = dnd_state();
         if (!state.ok) return result(false, "Notification service is unavailable");
@@ -1103,7 +1379,7 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         if (!capture_json({"hyprctl", "-j", "clients"}, clients) || !clients.is_array()) return result(false, "Window list is unavailable");
         for (const auto& client : clients) if (text(client, "address") == arg) found = true;
         if (!found) return result(false, "Window no longer exists");
-        return command({"hyprctl", "dispatch", "focuswindow", "address:" + arg}, "Window selected", true);
+        return focus_address(arg);
     }
     if (id == "audio-output") {
         Json sinks; bool found = false;
@@ -1182,14 +1458,20 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
     if (id == "updates-terminal" || id == "updates-silent") {
         const auto updater = script("updates_menu.sh");
         if (!regular(updater)) return result(false, "Update helper is unavailable");
-        return launch({"env", "FOXML_MENU_LEGACY=1", "bash", updater.string(), id == "updates-terminal" ? "--apply-terminal" : "--apply-silent"}, "Updater opened");
+        return launch({"bash", updater.string(), id == "updates-terminal" ? "--apply-terminal" : "--apply-silent"}, "Updater opened");
     }
-    if (id == "agent-triage") {
-        if (!regular(script("agent_rofi.sh"))) return result(false, "Agent triage helper is unavailable");
-        return launch({"env", "FOXML_MENU_LEGACY=1", "bash", script("agent_rofi.sh").string()}, "Agent triage opened");
-    }
+    if (id == "agent-jump") return jump_agent(arg);
+    if (id == "agent-triage") { auto response = result(true, "Choose an agent note"); response["page"] = "agents"; return response; }
     if (id == "color-picker") return launch({"hyprpicker", "-a"}, "Color picker opened");
-    if (id == "vault") return launch({"rofi-pass"}, "Password vault opened");
+    if (id == "vault") { auto response = result(true, "Choose a key"); response["page"] = "passwords"; return response; }
+    if (id == "password-copy") {
+        const auto names = password_names();
+        if (std::find(names.begin(), names.end(), arg) == names.end()) return result(false, "Unknown password entry");
+        return command({"fox-password-copy", arg}, "Password copied", true);
+    }
+    if (id == "tools") return launch({"fox-menu"}, "Tool drawer opened");
+    if (id == "cheatsheet") return launch({"fox-cheatsheet"}, "Shortcut reference opened");
+    if (id == "sandbox") return launch({"fox-sandbox"}, "Sandbox picker opened");
     if (id == "security") return terminal({"fox", "sec", "--live"}, "Security dashboard opened");
     if (id == "cleanup") return terminal({"zsh", "-ic", "fox-clean"}, "System cleanup opened");
     if (id == "lock") return launch({script("lock.sh").string()}, "Screen lock opened");
@@ -1205,8 +1487,9 @@ int main(int argc, char** argv) {
             if (std::string(argv[i]) == "--config" && i + 1 < argc) config_path = argv[++i];
             else args.emplace_back(argv[i]);
         }
+        if (!args.empty() && args[0] == "pick") return pick(args);
         if (args.size() == 1 && (args[0] == "--help" || args[0] == "help")) {
-            std::cout << "fox-drawer [--config PATH] view PAGE [QUERY]\nfox-drawer [--config PATH] run ACTION [ARGUMENT]\n"; return 0;
+            std::cout << "fox-drawer [--config PATH] view PAGE [QUERY]\nfox-drawer [--config PATH] run ACTION [ARGUMENT]\nfox-drawer pick [--title TITLE] [--index | --prompt]\n"; return 0;
         }
         if (args.size() < 2 || args.size() > 4 || (args[0] != "view" && args[0] != "run")
             || (args.size() == 4 && (args[0] != "run" || args[1] != "drive-eject" || args[3] != "--confirm"))) {

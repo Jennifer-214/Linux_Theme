@@ -33,7 +33,7 @@ Commands:
                          whatever monitors are active. Triggers one
                          personalize pass so the variants exist for the
                          current layout immediately.
-  --menu                 Open rofi menu to pick a wallpaper
+  --menu                 Open Quickshell menu to pick a wallpaper
   --status               Show current rotation status and wallpaper
   --help                 Show this help
 EOF
@@ -217,14 +217,6 @@ _add_wallpaper() {
 }
 
 _menu() {
-    if ! command -v rofi &>/dev/null; then
-        echo "Error: rofi is not installed."
-        exit 1
-    fi
-
-    # shellcheck source=/dev/null
-    source ~/.config/hypr/scripts/_rofi_zone.sh
-
     local wallpapers=()
     while IFS= read -r f; do
         # Filter out WxH variants and hidden files
@@ -236,7 +228,7 @@ _menu() {
     done < <(find "$WALLPAPER_DIR" -maxdepth 1 -type f \( -name "*.jpg" -o -name "*.jpeg" -o -name "*.png" -o -name "*.webp" \))
 
     if (( ${#wallpapers[@]} == 0 )); then
-        rofi -e "No wallpapers found in $WALLPAPER_DIR" -theme-str "$ROFI_POS_THEME"
+        notify-send "Wallpapers" "No wallpapers found in $WALLPAPER_DIR"
         exit 0
     fi
 
@@ -253,17 +245,12 @@ _menu() {
     done
 
     local chosen
-    chosen=$(printf '%s\n' "${entries[@]}" | rofi -dmenu -i -p "Wallpapers" -theme-str "$ROFI_POS_THEME window {width: 40%;} listview {lines: 12;}")
-
-    [[ -z "$chosen" ]] && exit 0
-
-    if [[ "$chosen" == *"Enable Rotation"* ]]; then
-        _set_rotation on
-    elif [[ "$chosen" == *"Disable Rotation"* ]]; then
-        _set_rotation off
+    chosen=$(printf '%s\n' "${entries[@]}" | fox-picker --title "A page beneath your windows" --index) || return 0
+    [[ "$chosen" =~ ^[0-9]+$ ]] && (( chosen < ${#entries[@]} )) || return 1
+    if (( chosen == 0 )); then
+        if [[ "${entries[0]}" == *"Enable Rotation"* ]]; then _set_rotation on; else _set_rotation off; fi
     else
-        local wp_name="${chosen#*  }"
-        _set_wallpaper "$wp_name"
+        _set_wallpaper "${wallpapers[$((chosen - 1))]}"
     fi
 }
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fox-menu — rofi launcher for fox-* CLI commands.
+# fox-menu — Quickshell launcher for fox-* CLI commands.
 #
 # Scans ~/.local/bin/fox-* (and fask/findex/fhelp) and presents a fuzzy-
 # searchable menu. Description is the comment immediately after the
@@ -17,7 +17,7 @@ for cmd in "$HOME/.local/bin/"fox-* "$HOME/.local/bin/"fask "$HOME/.local/bin/"f
     [[ -x "$cmd" && -f "$cmd" ]] || continue
     name=$(basename "$cmd")
     case "$name" in
-        fox-menu|fox|fox-rollback) continue ;;
+        fox-menu|fox-picker|fox|fox-rollback) continue ;;
     esac
     # Pull the description line: pattern "# name — description" or
     # "# name -- description". Falls back to "(no description)".
@@ -43,9 +43,7 @@ fi
 IFS=$'\n' sorted=($(sort <<<"${entries[*]}"))
 unset IFS
 
-# Rofi prompt. Match the project's rofi look (theme is picked up from
-# ~/.config/rofi/config.rasi automatically; no extra flags needed).
-sel=$(printf '%s\n' "${sorted[@]}" | rofi -dmenu -i -p "fox" -no-fixed-num-lines)
+sel=$(printf '%s\n' "${sorted[@]}" | fox-picker --title "The little tool drawer") || exit 0
 [[ -z "$sel" ]] && exit 0
 
 # First whitespace-separated token is the command name.
@@ -53,7 +51,7 @@ cmd=$(awk '{print $1}' <<<"$sel")
 [[ -x "$HOME/.local/bin/$cmd" ]] || exit 1
 
 # Spawn in a fresh kitty so the command has a TTY and the user can
-# observe / interact. Detach so rofi closes immediately.
+# observe / interact. Detach after the drawer closes.
 if command -v kitty >/dev/null 2>&1; then
     setsid -f kitty --title "fox: ${cmd}" -- "$cmd" >/dev/null 2>&1 || true
 else

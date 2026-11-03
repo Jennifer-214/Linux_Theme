@@ -9,6 +9,10 @@ import "DrawerLogic.js" as Logic
 ShellRoot {
     id: root
 
+    property bool pickerActive: false
+    property bool pickerPrompt: false
+    property var pickerItems: []
+    property string pickerResponse: ""
     property bool opened: false
     property bool searching: false
     property string searchPage: "search"
@@ -64,6 +68,57 @@ ShellRoot {
     }
     Timer { id: barWrite; interval: 40; onTriggered: root.syncBar(false) }
 
+    FileView { id: pickerRequest; preload: false; blockLoading: true; blockAllReads: true; printErrors: false }
+    FileView { id: pickerReply; preload: false; blockLoading: true; blockAllReads: true; atomicWrites: true; blockWrites: true; printErrors: false }
+
+    function finishPicker(response) {
+        if (!pickerActive) return;
+        pickerReply.path = pickerResponse;
+        pickerReply.reload();
+        pickerReply.text();
+        pickerReply.setText(JSON.stringify(response));
+        pickerActive = false;
+        pickerItems = [];
+        pickerResponse = "";
+    }
+
+    function showPicker(path) {
+        var prefix = (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/foxml-picker-";
+        if (path.indexOf(prefix) !== 0 || !/^[A-Za-z0-9]{6}\/request\.json$/.test(path.slice(prefix.length))) return;
+        pickerRequest.path = path;
+        pickerRequest.reload();
+        var data;
+        try { data = JSON.parse(pickerRequest.text()); } catch (error) { return; }
+        if (!data || typeof data.title !== "string" || !Array.isArray(data.items) || data.items.length > 10000) return;
+        finishPicker({cancel: true});
+        finishEdit();
+        remember();
+        pickerActive = true;
+        pickerPrompt = data.prompt === true;
+        pickerResponse = path.replace(/request\.json$/, "response.json");
+        pickerItems = data.items.map(function(label, index) {
+            return {id: "picker-entry", label: String(label), kind: "action", argument: String(index), pickerIndex: index, enabled: true};
+        });
+        opened = true;
+        searching = pickerPrompt;
+        editing = false;
+        pendingConfirm = null;
+        nextView = null;
+        viewSerial++;
+        navigationSerial++;
+        page = "picker";
+        pageTitle = data.title;
+        groupId = "";
+        trail = [];
+        entries = pickerItems;
+        itemIndex = 0;
+        drawerReady = true;
+        focusArea = "items";
+        searchInput.text = "";
+        note(pickerPrompt ? "type a thought · Enter sends · Esc closes." : "j / k move · Enter chooses · / searches · Esc closes.");
+        Qt.callLater(function() { if (root.pickerPrompt) searchInput.forceActiveFocus(); else keyboard.forceActiveFocus(); });
+    }
+
     function backendCommand(args) {
         return [backend].concat(["--config", Quickshell.shellPath("menus.json")]).concat(args);
     }
@@ -87,6 +142,12 @@ ShellRoot {
 
     function requestView() {
         if (!opened || pendingConfirm) return;
+        if (pickerActive) {
+            var needle = searching ? searchInput.text.toLowerCase() : "";
+            entries = pickerItems.filter(function(row) { return row.label.toLowerCase().indexOf(needle) >= 0; });
+            itemIndex = 0;
+            return;
+        }
         if (page === "root" && !searching) {
             if (!groupProcess.running) groupProcess.running = true;
             return;
@@ -143,6 +204,7 @@ ShellRoot {
     }
 
     function show(pageId) {
+        finishPicker({cancel: true});
         opened = true;
         searching = false;
         editing = false;
@@ -152,7 +214,7 @@ ShellRoot {
         page = pageId || "root";
         navigationSerial++;
         focusArea = page === "root" ? "groups" : "items";
-        note("j / k move · l opens a drawer · / finds a little thing.");
+        note("j / k move · Enter uses the selected control · / searches.");
         if (!groupProcess.running) groupProcess.running = true;
         if (page === "root") {
             entries = [];
@@ -163,6 +225,7 @@ ShellRoot {
     }
 
     function hide() {
+        finishPicker({cancel: true});
         finishEdit();
         remember();
         opened = false;
@@ -175,6 +238,7 @@ ShellRoot {
     }
 
     function chooseGroup(index) {
+        if (pickerActive) return;
         if (!groups[index]) return;
         remember();
         groupIndex = index;
@@ -193,6 +257,7 @@ ShellRoot {
     }
 
     function goBack() {
+        if (pickerActive && (pickerPrompt || !searching)) { hide(); return; }
         if (pendingConfirm) { pendingConfirm = null; return; }
         if (editing) { finishEdit(); return; }
         if (searching) {
@@ -246,6 +311,13 @@ ShellRoot {
     }
 
     function activate(item, confirmed) {
+        if (pickerActive) {
+            if (pickerPrompt) {
+                if (!searchInput.text.trim()) return;
+                finishPicker({text: searchInput.text}); hide();
+            } else if (item && item.enabled !== false) { finishPicker({index: item.pickerIndex}); hide(); }
+            return;
+        }
         if (!item || item.enabled === false || actionBusy) return;
         if (searching && searchPage === "search" && item.group && (item.kind === "slider" || item.kind === "toggle")) {
             searching = false;
@@ -349,6 +421,16 @@ ShellRoot {
             }
             return;
         }
+        if (pickerActive) {
+            if (k === Qt.Key_Escape || k === Qt.Key_H || k === Qt.Key_Left || k === Qt.Key_Q) goBack();
+            else if (k === Qt.Key_J || k === Qt.Key_Down) step(1);
+            else if (k === Qt.Key_K || k === Qt.Key_Up) step(-1);
+            else if (k === Qt.Key_L || k === Qt.Key_Right || k === Qt.Key_Return || k === Qt.Key_Enter || k === Qt.Key_Space) activate(entries[itemIndex]);
+            else if (k === Qt.Key_Slash) startSearch();
+            else return;
+            event.accepted = true;
+            return;
+        }
         if (k === Qt.Key_Escape) goBack();
         else if (k === Qt.Key_R && !editing && !pendingConfirm && !actionBusy && focusArea === "items"
                  && entries[itemIndex] && entries[itemIndex].presentation === "download") {
@@ -395,6 +477,10 @@ ShellRoot {
         function toggle(page: string): void { if (root.opened && (!page || page === root.page)) root.hide(); else root.show(page); }
         function open(page: string): void { root.show(page); }
         function close(): void { root.hide(); }
+        function pick(path: string): void { root.showPicker(path); }
+        function cancelPicker(path: string): void {
+            if (root.pickerActive && root.pickerResponse === path.replace(/request\.json$/, "response.json")) root.hide();
+        }
         function status(): string {
             return JSON.stringify({ open: root.opened, page: root.page, searching: root.searching,
                 editing: root.editing, focus: root.focusArea, selected: Logic.identity(root.entries[root.itemIndex]),
@@ -408,7 +494,7 @@ ShellRoot {
         stdout: StdioCollector { id: groupOut }
         stderr: StdioCollector { id: groupErr }
         onExited: (code, status) => {
-            if (!root.opened) return;
+            if (!root.opened || root.pickerActive) return;
             try {
                 var data = JSON.parse(groupOut.text);
                 if ((code !== 0 || data.error) && !Array.isArray(data.items)) throw new Error(data.error || "Cannot read menu groups.");
@@ -452,8 +538,8 @@ ShellRoot {
                 var result = JSON.parse(actionOut.text);
                 root.note(result.message || (result.ok ? "all set." : "That action did not complete."), !result.ok || code !== 0);
                 if (result.ok && code === 0) {
-                    if (root.opened && location === root.navigationSerial && (result.close || (item && item.close))) root.hide();
-                    else if (root.opened && location === root.navigationSerial && result.page) root.show(result.page);
+                    if (root.opened && location === root.navigationSerial && result.page) root.show(result.page);
+                    else if (root.opened && location === root.navigationSerial && (result.close || (item && item.close))) root.hide();
                     else if (!root.editing) root.requestView();
                 }
             } catch (error) { root.note("That action did not complete. " + actionErr.text.trim().slice(0, 160), true); }
@@ -470,7 +556,7 @@ ShellRoot {
     Timer { id: searchDebounce; interval: 160; onTriggered: root.requestView() }
     Timer {
         interval: 4000; repeat: true
-        running: root.opened && !root.searching && !root.editing && !root.pendingConfirm && !root.actionBusy
+        running: root.opened && !root.pickerActive && !root.searching && !root.editing && !root.pendingConfirm && !root.actionBusy
         onTriggered: {
             if (!groupProcess.running) groupProcess.running = true;
             if (root.page !== "root") root.requestView();
@@ -482,8 +568,8 @@ ShellRoot {
         visible: root.opened
         anchors { top: true; right: true }
         margins { top: 63; right: 20 }
-        implicitWidth: Math.min(790, (screen ? screen.width : 1280) - 32)
-        implicitHeight: Math.min(624, (screen ? screen.height : 800) - 96)
+        implicitWidth: Math.min(root.pickerActive ? 640 : 790, (screen ? screen.width : 1280) - 32)
+        implicitHeight: Math.min(root.pickerActive && root.pickerPrompt ? 310 : 624, (screen ? screen.height : 800) - 96)
         color: "transparent"
         exclusionMode: ExclusionMode.Ignore
         WlrLayershell.namespace: "foxml-drawer"
@@ -525,7 +611,7 @@ ShellRoot {
                             ToolTip.text: "Pinned favorites · f"
                         }
                         Rectangle { width: 5; height: 5; radius: 3; color: root.failed ? theme.error : theme.success }
-                        Text { textFormat: Text.PlainText; text: root.actionBusy ? "WORKING" : root.searching ? "SEARCH" : root.editing ? "ADJUST" : "NORMAL"; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9 }
+                        Text { textFormat: Text.PlainText; text: root.actionBusy ? "WORKING" : root.pickerActive && root.pickerPrompt ? "WRITE" : root.searching ? "SEARCH" : root.editing ? "ADJUST" : "NORMAL"; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9 }
                         ToolButton {
                             text: "×"
                             implicitWidth: 28; implicitHeight: 28; padding: 0
@@ -570,6 +656,7 @@ ShellRoot {
 
                         ListView {
                             id: groupList
+                            visible: !root.pickerActive
                             Layout.preferredWidth: panel.width < 580 ? 125 : 179
                             Layout.fillHeight: true
                             clip: true
@@ -608,7 +695,7 @@ ShellRoot {
                             }
                         }
 
-                        Rectangle { width: 1; Layout.fillHeight: true; color: theme.line }
+                        Rectangle { visible: !root.pickerActive; width: 1; Layout.fillHeight: true; color: theme.line }
 
                         ColumnLayout {
                             id: drawer
@@ -624,8 +711,8 @@ ShellRoot {
 
                             RowLayout {
                                 Layout.fillWidth: true
-                                Text { textFormat: Text.PlainText; text: root.searching ? "find a little thing" : root.pageTitle; color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: 20; Layout.fillWidth: true; elide: Text.ElideRight }
-                                Text { textFormat: Text.PlainText; text: root.page === "root" ? "" : String(root.entries.length).padStart(2, "0"); color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10 }
+                                Text { textFormat: Text.PlainText; text: root.searching && !root.pickerActive ? "find a little thing" : root.pageTitle; color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: 20; Layout.fillWidth: true; elide: Text.ElideRight }
+                                Text { textFormat: Text.PlainText; text: root.page === "root" || (root.pickerActive && root.pickerPrompt) ? "" : String(root.entries.length).padStart(2, "0"); color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10 }
                             }
                             Text { textFormat: Text.PlainText; visible: root.page !== "root" && root.trail.length > 0; text: [root.groupId].concat(root.trail.slice(1)).concat([root.page]).join(" › "); color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9; elide: Text.ElideMiddle; Layout.fillWidth: true }
 
@@ -648,12 +735,20 @@ ShellRoot {
                                         color: theme.ink
                                         font.family: theme.fontFamily
                                         font.pixelSize: 12
-                                        placeholderText: "find a little thing…"
+                                        placeholderText: root.pickerPrompt && root.pickerActive ? "write here…" : "find a little thing…"
                                         placeholderTextColor: theme.muted
                                         selectByMouse: true
                                         background: Item {}
                                         onTextChanged: if (root.searching) searchDebounce.restart()
                                         Keys.onPressed: event => root.key(event)
+                                    }
+                                    ToolButton {
+                                        visible: root.pickerActive && root.pickerPrompt
+                                        text: "↵"
+                                        palette.buttonText: theme.ink
+                                        background: Rectangle { color: root.buttonShade(parent.down, parent.hovered); radius: 3 }
+                                        onClicked: root.activate(null)
+                                        Accessible.name: "Submit text"
                                     }
                                 }
                             }
@@ -789,7 +884,7 @@ ShellRoot {
                                     anchors.centerIn: parent
                                     width: parent.width - 28
                                     spacing: 15
-                                    visible: !root.pendingConfirm && !root.entries.length && !viewProcess.running && !groupProcess.running
+                                    visible: !(root.pickerActive && root.pickerPrompt) && !root.pendingConfirm && !root.entries.length && !viewProcess.running && !groupProcess.running
                                     Text { textFormat: Text.PlainText; width: parent.width; text: root.page === "root" ? "✎" : "·"; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 34; horizontalAlignment: Text.AlignHCenter }
                                     Text { textFormat: Text.PlainText; width: parent.width; text: root.page === "root" ? "everything in its little place." : root.page === "library" ? "the shelves are quiet." : root.page === "bookmarks" ? "save your place." : root.page === "downloads" ? "nothing in the post." : "nothing here just yet."; color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: 18; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap }
                                     Text { textFormat: Text.PlainText; width: parent.width; text: root.page === "root" ? "choose a group on the left\nor press / to find any action." : root.page === "library" ? "plug in a removable drive\nand its library card will appear here." : root.page === "bookmarks" ? "press b on a project card\nto leave a little ribbon here." : root.page === "downloads" ? "your latest downloads will land here.\npress / to filter, or h to go back." : "try another search, or h to go back."; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10; horizontalAlignment: Text.AlignHCenter; lineHeight: 1.5; wrapMode: Text.WordWrap }
@@ -825,7 +920,15 @@ ShellRoot {
 
                     Text { textFormat: Text.PlainText; text: (root.failed ? "! " : "✿ ") + root.message; color: root.failed ? theme.error : theme.muted; font.family: theme.fontFamily; font.pixelSize: 10; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.role: Accessible.StaticText; Accessible.name: root.message }
                     Rectangle { Layout.fillWidth: true; height: 1; color: theme.line }
-                    Text { textFormat: Text.PlainText; text: root.searching ? "type to find · ↑ ↓ choose · ↵ select · esc back" : root.editing ? "h l adjust · ↵ / esc finish" : root.page === "projects" || root.page === "bookmarks" || (root.focusArea === "items" && root.entries[root.itemIndex] && root.entries[root.itemIndex].presentation === "project") ? "j k choose   ↵ editor   t terminal   b bookmark   / filter   h back" : root.page === "library" ? "j k choose   ↵ open / mount   e eject   / filter   h back" : root.page === "downloads" ? "j k choose   ↵ open   r folder   / filter   h back" : "j k move   h back   l / ↵ open   / find   f favorites   esc close"; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: panel.width < 580 ? 9 : 10; Layout.fillWidth: true; elide: Text.ElideRight }
+                    Text {
+                        textFormat: Text.PlainText
+                        text: Logic.footerHint({confirming: root.pendingConfirm !== null, busy: root.actionBusy,
+                            prompt: root.pickerActive && root.pickerPrompt, searching: root.searching,
+                            picker: root.pickerActive, editing: root.editing, focus: root.focusArea}, root.entries[root.itemIndex])
+                        color: theme.muted; font.family: theme.fontFamily
+                        font.pixelSize: panel.width < 580 ? 9 : 10
+                        Layout.fillWidth: true; elide: Text.ElideRight
+                    }
                 }
             }
         }
@@ -835,5 +938,5 @@ ShellRoot {
         barWrite.restart();
         if (Quickshell.env("FOXML_DRAWER_PREVIEW") === "1") show("sound");
     }
-    Component.onDestruction: syncBar(true)
+    Component.onDestruction: { finishPicker({cancel: true}); syncBar(true); }
 }

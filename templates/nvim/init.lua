@@ -94,6 +94,7 @@ local P = {
   float_bg  = "#{{NVIM_FLOAT_BG}}",  -- hover / signature / completion cards (a shade darker than the page on Paper)
   pink      = "#{{SECONDARY}}",
   blush     = "#{{BLUSH}}",
+  bookmark  = "#{{WAYBAR_WS_ACTIVE}}",
   lavender  = "#{{ACCENT}}",
   surface   = "#{{SURFACE}}",
   red       = "#{{RED}}",
@@ -145,6 +146,76 @@ local P = {
                 alarm = "#{{NVIM_SYMDEPS_ALARM}}", ok = "#{{NVIM_SYMDEPS_OK}}" },
   none      = "none",
 }
+
+-- >>> fox-paper-details
+local Paper = { enabled = "{{LITTLE_DETAILS}}" == "fox-little-details-on" }
+Paper.namespace = vim.api.nvim_create_namespace("foxml_paper_bookmarks")
+local paper_signatures, paper_pending, paper_scheduled = {}, {}, false
+
+function Paper.file_buffer(buf)
+  return vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].buftype == "" and vim.bo[buf].buflisted
+    and not vim.bo[buf].filetype:match("^fox%-symdeps")
+end
+
+function Paper.refresh(buf)
+  if not Paper.enabled or not vim.api.nvim_buf_is_valid(buf) then return end
+  if not Paper.file_buffer(buf) then
+    vim.api.nvim_buf_clear_namespace(buf, Paper.namespace, 0, -1)
+    paper_signatures[buf] = nil
+    return
+  end
+  local rows = {}
+  local marks = vim.fn.getmarklist(buf)
+  vim.list_extend(marks, vim.fn.getmarklist())
+  for _, mark in ipairs(marks) do
+    local letter = mark.mark:match("^'([a-zA-Z])$")
+    local pos = mark.pos
+    if letter and pos[1] == buf and pos[2] > 0 and pos[2] <= vim.api.nvim_buf_line_count(buf) then
+      if not rows[pos[2]] or letter < rows[pos[2]] then rows[pos[2]] = letter end
+    end
+  end
+  local signature = {}
+  for row, letter in pairs(rows) do signature[#signature + 1] = row .. ":" .. letter end
+  table.sort(signature)
+  signature = table.concat(signature, ",")
+  if paper_signatures[buf] == signature then return end
+  paper_signatures[buf] = signature
+  vim.api.nvim_buf_clear_namespace(buf, Paper.namespace, 0, -1)
+  for row, letter in pairs(rows) do
+    -- One sign per line, below diagnostic/git/breakpoint priorities; never resize the gutter.
+    vim.api.nvim_buf_set_extmark(buf, Paper.namespace, row - 1, 0,
+      { sign_text = "" .. letter, sign_hl_group = "FoxPaperBookmark", priority = 1 })
+  end
+end
+
+function Paper.queue(buf)
+  paper_pending[buf] = true
+  if paper_scheduled then return end
+  paper_scheduled = true
+  vim.schedule(function()
+    local pending = paper_pending
+    paper_pending, paper_scheduled = {}, false
+    for buffer in pairs(pending) do Paper.refresh(buffer) end
+  end)
+end
+
+function Paper.foldtext()
+  local first = vim.trim(vim.fn.getline(vim.v.foldstart))
+  return { { "▸  " .. first, "FoxPaperFoldText" },
+           { ("  · %d lines"):format(vim.v.foldend - vim.v.foldstart + 1), "FoxPaperFoldCount" } }
+end
+_G.FoxPaperFoldText = Paper.foldtext
+
+if Paper.enabled then
+  local group = vim.api.nvim_create_augroup("foxml_paper_details", { clear = true })
+  vim.api.nvim_create_autocmd({ "BufWinEnter", "CursorHold", "TextChanged", "TextChangedI", "BufWritePost", "CmdlineLeave" }, {
+    group = group, callback = function(args) Paper.queue(args.buf) end,
+  })
+  vim.api.nvim_create_autocmd("BufWipeout", {
+    group = group, callback = function(args) paper_signatures[args.buf], paper_pending[args.buf] = nil, nil end,
+  })
+end
+-- <<< fox-paper-details
 
 -- Bootstrap lazy.nvim
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
@@ -430,6 +501,7 @@ local plugins = {
           { filetype = "neo-tree", text = "  File Explorer", text_align = "left", highlight = "Directory", separator = {{SHOW_WELCOME}} },
         },
         separator_style = "thin",
+        modified_icon = Paper.enabled and "✎" or "●",
         show_buffer_close_icons = false,
         show_close_icon = false,
       },
@@ -444,9 +516,9 @@ local plugins = {
         separator_selected = { fg = P.bg_hl, bg = P.none },
         separator_visible = { fg = P.bg_hl, bg = P.none },
         indicator_selected = { fg = P.peach, bg = P.none },
-        modified = { fg = P.yellow, bg = P.none },
-        modified_selected = { fg = P.yellow, bg = P.none },
-        modified_visible = { fg = P.yellow, bg = P.none },
+        modified = { fg = Paper.enabled and P.comment or P.yellow, bg = P.none },
+        modified_selected = { fg = Paper.enabled and P.comment or P.yellow, bg = P.none },
+        modified_visible = { fg = Paper.enabled and P.comment or P.yellow, bg = P.none },
         tab = { fg = P.comment, bg = P.none },
         tab_selected = { fg = P.peach, bg = P.none, bold = {{SHOW_WELCOME}} },
         tab_separator = { fg = P.bg_hl, bg = P.none },
@@ -1519,6 +1591,9 @@ local function apply_foxml_theme()
   -- ── Fold ──
   hl("Folded",       { fg = P.comment, bg = P.bg_hl })
   hl("FoldColumn",   { fg = P.faint, bg = P.none })
+  hl("FoxPaperBookmark", { fg = P.bookmark })
+  hl("FoxPaperFoldText", { fg = P.comment, bg = P.bg_hl })
+  hl("FoxPaperFoldCount", { fg = P.faint, bg = P.bg_hl })
 
   -- ── Messages ──
   hl("MsgArea",      { fg = P.warm, bg = P.bg_deep })
@@ -2230,9 +2305,17 @@ end
 
 --
 -- Lualine theme sync (noice integration removed)
+local function paper_footer_mode(ink)
+  return { a = { fg = ink, bg = P.bg_deep, gui = "none" },
+           b = { fg = P.comment, bg = P.bg_deep }, c = { fg = P.comment, bg = P.bg_deep } }
+end
 require("lualine").setup({
   options = {
-    theme = {
+    theme = Paper.enabled and {
+      normal = paper_footer_mode(P.fg), insert = paper_footer_mode(P.green),
+      visual = paper_footer_mode(P.pink), replace = paper_footer_mode(P.red),
+      command = paper_footer_mode(P.yellow), inactive = paper_footer_mode(P.faint),
+    } or {
       normal   = { a = { fg = P.bg, bg = P.peach, gui = "bold" }, b = { fg = P.peach, bg = P.bg_hl }, c = { fg = P.comment, bg = P.bg_deep } },
       insert   = { a = { fg = P.bg, bg = P.green, gui = "bold" }, b = { fg = P.green, bg = P.bg_hl } },
       visual   = { a = { fg = P.bg, bg = P.pink, gui = "bold" }, b = { fg = P.pink, bg = P.bg_hl } },
@@ -2776,7 +2859,8 @@ end, { desc = "Toggle diagnostic lines" })
 -- the engine's comment walls can eat most of the screen. Treesitter-driven; per-window. A folded
 -- block shows just its first line; zo/za peeks one, zR opens all. Code lines never fold.
 function _G.FoxCommentFoldExpr()
-  local ok, node = pcall(vim.treesitter.get_node, { pos = { vim.v.lnum - 1, 0 } })
+  local first = (vim.fn.getline(vim.v.lnum):find("%S") or 1) - 1
+  local ok, node = pcall(vim.treesitter.get_node, { pos = { vim.v.lnum - 1, first } })
   if ok and node then
     while node do
       if node:type():find("comment") then return "1" end
@@ -2786,15 +2870,23 @@ function _G.FoxCommentFoldExpr()
   return "0"
 end
 map("n", "<leader>tc", function()
+  if Paper.enabled and not Paper.file_buffer(vim.api.nvim_get_current_buf()) then return end
   if vim.w.fox_comment_fold then
     vim.w.fox_comment_fold = false
     vim.wo.foldenable = false
     vim.wo.foldmethod = "manual"
+    if vim.w.fox_paper_foldtext ~= nil then
+      vim.wo.foldtext, vim.w.fox_paper_foldtext = vim.w.fox_paper_foldtext, nil
+    end
     vim.notify("Comment folding: OFF")
   else
     vim.w.fox_comment_fold = true
     vim.wo.foldmethod = "expr"
     vim.wo.foldexpr = "v:lua.FoxCommentFoldExpr()"
+    if Paper.enabled then
+      vim.w.fox_paper_foldtext = vim.wo.foldtext
+      vim.wo.foldtext = "v:lua.FoxPaperFoldText()"
+    end
     vim.wo.foldlevel = 0
     vim.wo.foldenable = true
     vim.cmd("normal! zx") -- recompute + close folds

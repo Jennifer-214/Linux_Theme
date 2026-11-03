@@ -48,6 +48,7 @@ HYPR_DIM_STRENGTH=0.05
 HYPR_WS_ANIM='slidefadevert 20%'
 # Comments (italic) in Monaspace Radon: handwriting beside the typed code.
 KITTY_ITALIC_FONT="MonaspiceRn Nerd Font"
+KITTY_TAB_BAR_STYLE=hidden
 KITTY_DIM_OPACITY=0.7
 # Name banner (zsh splash + nvim dashboard): one graphite ink, not a grey patchwork
 WELCOME_INK1=237
@@ -254,9 +255,9 @@ TMUX_ACTIVE_BG=e6e3dc
 
 # ─── Bar · terminal quiet layer (waybar states · logo · kitty ANSI · tmux footer) ───
 # Paper: state icons stay graphite (warnings in the darkest ink, real failures in the raspberry pen),
-# no logo or window glyphs (bare workspace numbers), lighter prompt rules (ANSI white), neutral ANSI blue, and a faint dotted footer.
+# a pencil launcher and window glyphs, lighter prompt rules (ANSI white), neutral ANSI blue, and a faint dotted footer.
 WAYBAR_LOGO='✎'
-WAYBAR_WS_FORMAT='{name}'
+WAYBAR_WS_FORMAT='{name} {windows}'
 WAYBAR_WARN=1c1c1e
 WAYBAR_CRIT=9a5a48
 WAYBAR_UPD_LOW=3c3c40

@@ -4,6 +4,42 @@ Leader: **Space** | Local leader: **Space**
 
 ---
 
+## Paper notebook details
+
+Neovim sequences use Normal mode (`Esc` first). The pencil marks and workspace
+icons update automatically; these bindings use the existing plugins and Vim marks.
+
+| Key | Action |
+|-----|--------|
+| `ma` | Set bookmark a; Paper shows a pink ribbon (use another letter for more marks) |
+| `'a` | Return to bookmark a's line |
+| `mA` | Set global bookmark A, usable across files |
+| `'A` | Return to global bookmark A |
+| `:delmarks a` | Remove bookmark a (press Enter after the command) |
+| `Space w` | Save the file and clear its unsaved pencil marker |
+| `Space tc` | Toggle comment folding and folded note slips |
+| `zo` / `zc` / `za` | Open / close / toggle a fold |
+| `zR` / `zM` | Open / close all folds |
+| `H` / `L` | Previous / next file buffer (overrides Vim's screen-position keys) |
+
+### Quickshell drawers
+
+| Key | Action |
+|-----|--------|
+| `ALT + Shift + D` | Open the main Quickshell drawer |
+| `ALT + /` | Open this shortcut reference |
+| `j` / `k` | Move down / up |
+| `l` / `Enter` | Open a drawer, toggle a switch, or run the selected action |
+| `h` | Go back; while adjusting a slider, decrease its value |
+| `/` | Search; h/j/k/l type normally while searching |
+| `Esc` | Leave search or adjustment, go back, then close |
+| `f` | Go to favorites in the main drawer |
+| `Tab` | Switch focus between groups and items |
+
+Press Enter on a slider to adjust it with h/l. Switches such as Night light
+use Enter or l for both on and off; h goes back. The footer shows the keys
+for the currently selected kind of control.
+
 ## Core Vim
 
 ### Movement
@@ -20,7 +56,7 @@ Leader: **Space** | Local leader: **Space**
 | `%` | Jump to matching bracket |
 | `Ctrl+d` / `Ctrl+u` | Half-page down / up |
 | `Ctrl+f` / `Ctrl+b` | Full page down / up |
-| `H` / `M` / `L` | Screen top / middle / bottom |
+| `M` | Middle of screen (H/L switch buffers in this config) |
 | `f{c}` / `F{c}` | Jump to next / prev char |
 | `t{c}` / `T{c}` | Jump before next / prev char |
 | `;` / `,` | Repeat / Reverse last f/t |
@@ -593,7 +629,7 @@ Shows indent guides automatically. No keybinds.
 
 | Key | Action |
 |-----|--------|
-| `ALT + Shift + S` | Rofi-driven picker for one-shot sandboxed apps |
+| `ALT + Shift + S` | Quickshell picker for one-shot sandboxed apps |
 
 ### Ghost Mode (boss key)
 

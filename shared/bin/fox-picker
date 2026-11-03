@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# fox-picker — select a row or enter text in the Paper drawer.
+exec fox-drawer pick "$@"

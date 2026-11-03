@@ -60,3 +60,23 @@ function barStyle(opened, page, group) {
     else if (group === "system" || page === "system") selectors.push("#custom-system_health");
     return css + selectors.join(", ") + " { box-shadow: inset 0 -1px @peach; }\n";
 }
+
+function footerHint(state, item) {
+    if (state.confirming) return "h / l choose · Enter confirms · Esc cancels";
+    if (state.busy) return "working… · Esc goes back";
+    if (state.prompt) return "type normally · Enter sends · Esc closes";
+    if (state.searching) return "type to find · ↑ / ↓ choose · Enter selects · Esc goes back";
+    if (state.picker) return "j / k move · Enter / l chooses · / searches · h / Esc closes";
+    if (state.editing) return "h / l adjusts · Enter or Esc finishes";
+    if (state.focus === "groups") return "j / k move · Enter / l opens a drawer · / searches · Esc closes";
+    if (!item) return "h goes back · / searches · Esc closes";
+    if (item.enabled === false) return "control unavailable · h goes back · / searches";
+    if (item.presentation === "project") return "Enter opens editor · t terminal · b bookmark · h goes back";
+    if (item.presentation === "library") return "Enter opens / mounts · e ejects · / filters · h goes back";
+    if (item.presentation === "download") return "Enter opens · r opens folder · / filters · h goes back";
+    if (item.kind === "toggle") return "Enter / l toggles on or off · j / k move · h goes back";
+    if (item.kind === "slider") return "Enter / l starts adjustment · j / k move · h goes back";
+    if (item.kind === "page") return "Enter / l opens · j / k move · / searches · h goes back";
+    if (item.id === "agent-jump") return "Enter / l goes to agent · j / k move · h goes back";
+    return "Enter / l runs · j / k move · / searches · h goes back";
+}

@@ -2,10 +2,6 @@
 # Eww Control Center action dispatcher.
 # Called by the buttons inside ~/.config/eww/eww.yuck.
 
-# Launcher actions (drun, window list) anchor top-left.
-ROFI_ZONE="${ROFI_ZONE:-nw}"
-source ~/.config/hypr/scripts/_rofi_zone.sh
-
 action="$1"
 arg="$2"
 
@@ -30,23 +26,16 @@ case "$action" in
 
     apps)
         close_hub
-        rofi -show drun -theme-str "$ROFI_POS_THEME" &
+        exec fox-desktop-menu apps
         ;;
 
     windows)
         close_hub
-        rofi -show window \
-            -kb-row-up "k,Up" -kb-row-down "j,Down" -kb-accept-entry "l,Return" \
-            -theme-str "$ROFI_POS_THEME window {width: 50%;}" &
+        exec fox-desktop-menu windows
         ;;
 
     nightlight)
-        if pkill wlsunset 2>/dev/null; then
-            notify-send "Night Light" "Disabled"
-        else
-            wlsunset -t 3500 -T 6500 &
-            notify-send "Night Light" "Enabled (3500K)"
-        fi
+        exec fox-drawer run nightlight
         ;;
 
     idle)

@@ -70,7 +70,10 @@
       "items": [
         { "id": "updates", "label": "Updates", "detail": "See what is ready to update", "icon": "↻", "kind": "page", "page": "updates" },
         { "id": "power-profile", "label": "Power profile", "detail": "Cycle performance, balanced and power saver", "icon": "◈", "kind": "action" },
-        { "id": "vault", "label": "Passwords", "detail": "Open your existing password picker", "icon": "⚿", "kind": "action", "close": true },
+        { "id": "vault", "label": "Passwords", "detail": "Copy from your existing pass store", "icon": "⚿", "kind": "page", "page": "passwords" },
+        { "id": "tools", "label": "Fox tools", "detail": "The command collection", "icon": "▤", "kind": "action" },
+        { "id": "cheatsheet", "label": "Shortcut reference", "detail": "Find a shortcut and copy its keys", "icon": "✎", "kind": "action" },
+        { "id": "sandbox", "label": "Disposable sandbox", "detail": "A fresh space for an app", "icon": "▢", "kind": "action" },
         { "id": "security", "label": "Security audit", "detail": "Open the system audit in a terminal", "icon": "◇", "kind": "action", "close": true },
         { "id": "cleanup", "label": "System cleanup", "detail": "Tidy up in a terminal", "icon": "✎", "kind": "action", "close": true },
         { "id": "lock", "label": "Lock screen", "detail": "See you soon", "icon": "▢", "kind": "action", "close": true },

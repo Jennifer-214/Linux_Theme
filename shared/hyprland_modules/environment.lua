@@ -2,6 +2,12 @@
 -- │                        Environment                               │
 -- ╰──────────────────────────────────────────────────────────────────╯
 
+-- Desktop shortcuts run outside zsh; avoid adding the same path on reload.
+local local_bin = os.getenv("HOME") .. "/.local/bin"
+if not (":" .. (os.getenv("PATH") or "") .. ":"):find(":" .. local_bin .. ":", 1, true) then
+    hl.env("PATH", os.getenv("HOME") .. "/.local/bin:" .. os.getenv("PATH"))
+end
+
 -- Wayland Session
 hl.env("XDG_SESSION_TYPE", "wayland")
 hl.env("XDG_CURRENT_DESKTOP", "Hyprland")

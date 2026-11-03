@@ -148,7 +148,7 @@ hl.bind(mainMod .. " + mouse:273", hl.dsp.window.resize(), { mouse = true })
 -- ─────────────────────────────────────────
 -- Sandbox launcher
 -- ─────────────────────────────────────────
--- Rofi-driven picker for one-shot sandboxed apps. Firejail wraps the
+-- Quickshell picker for one-shot sandboxed apps. Firejail wraps the
 -- target with --private so its tmpfs $HOME evaporates on close. Quick
 -- way to visit a sketchy URL or run an untrusted script without it
 -- touching your real dotfiles.

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# fox-cheatsheet — searchable keybind reference via rofi.
+# fox-cheatsheet — searchable keybind reference in the Paper drawer.
 #
 # Parses KEYBINDS.md tables (which have hand-curated descriptions) and
-# pipes "KEY  →  ACTION" lines into rofi. Fuzzy-search for what you
+# pipes "KEY  →  ACTION" lines into Quickshell. Fuzzy-search for what you
 # need; press Enter and the keybind is copied to your clipboard so you
 # can paste it as a reminder, or just dismiss with Esc.
 #
@@ -70,7 +70,7 @@ parse_keybinds() {
             # Strip markdown emphasis markers from the description
             gsub(/\*\*/, "", desc)
             gsub(/`/, "", desc)
-            printf "%-22s   %s\t%s\n", key, desc, section
+            printf "%s\t%s\t%s\n", key, desc, section
         }
     ' "$KEYBINDS_FILE"
 }
@@ -81,47 +81,11 @@ if [[ -z "$ENTRIES" ]]; then
     exit 1
 fi
 
-# ───── Pipe to rofi — SysHub-style modal (no inputbar, hjkl nav) ──
-# Inputbar hidden so the popup is pure scroll-through reference. Bare
-# j/k/h/l drive nav/cancel/accept exactly like the hub menu — same muscle
-# memory. (Tradeoff: you can't filter by typing letters that contain
-# h/j/k/l, but the section blocks make scrolling fast enough.)
-ROFI_THEME="${HOME}/.config/rofi/glass.rasi"
-
-# Cheatsheet is global reference (no spatial home) — center of screen.
-ROFI_ZONE="${ROFI_ZONE:-center}"
-source ~/.config/hypr/scripts/_rofi_zone.sh
-
-THEME_STR="$ROFI_POS_THEME
-inputbar {enabled: false;}
-window { width: 50%; }
-listview { lines: 20; }"
-
-ROFI_ARGS=(
-    -dmenu -i -no-custom -p "Cheatsheet"
-    -kb-row-up "k,Up"
-    -kb-row-down "j,Down"
-    -kb-accept-entry "l,Return"
-    -kb-cancel "Escape,h"
-    -theme-str "$THEME_STR"
-)
-[[ -f "$ROFI_THEME" ]] && ROFI_ARGS=(-theme "$ROFI_THEME" "${ROFI_ARGS[@]}")
-
-# Display columns: KEY | description (section dropped from view to keep
-# the row clean; you can grep KEYBINDS.md if you need the section context)
-SELECTED="$(printf '%s\n' "$ENTRIES" \
-    | awk -F'\t' '{print $1}' \
-    | rofi "${ROFI_ARGS[@]}" \
-    || true)"
-
-[[ -z "$SELECTED" ]] && exit 0
-
-# Strip the description column to get just the key combo, then trim
-KEY="$(echo "$SELECTED" | awk '{print $1; for(i=2;i<=NF;i++){if($i ~ /^\+$/ || $i=="Shift" || $i=="Ctrl" || $i=="Alt" || $i ~ /^[A-Za-z0-9_+]+$/) printf " %s", $i; else break}}' | xargs)"
-# Fallback if heuristic fails: take the whole left column
-[[ -z "$KEY" ]] && KEY="$(echo "$SELECTED" | sed -E 's/   .*$//' | xargs)"
-
-# Copy to clipboard for paste-as-reminder, plus a notification
+mapfile -t rows <<< "$ENTRIES"
+SELECTED=$(printf '%s\n' "${rows[@]}" | awk -F'\t' '{print $1 "   →   " $2 "   ·   " $3}' \
+    | fox-picker --title "A little shortcut reference" --index) || exit 0
+[[ "$SELECTED" =~ ^[0-9]+$ ]] && (( SELECTED < ${#rows[@]} )) || exit 1
+KEY="${rows[$SELECTED]%%$'\t'*}"
 if command -v wl-copy >/dev/null 2>&1; then
     printf '%s' "$KEY" | wl-copy
     notify-send -t 2500 "fox-cheatsheet" "Copied: $KEY"

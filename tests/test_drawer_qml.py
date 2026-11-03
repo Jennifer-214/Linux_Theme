@@ -126,6 +126,30 @@ EXERCISE = r'''
     Timer {
         interval: 4800; running: true
         onTriggered: {
+            var base = Quickshell.env("XDG_RUNTIME_DIR");
+            root.showPicker(base + "/foxml-picker-abc123/request.json");
+            if (!root.pickerActive || root.entries.length !== 2 || groupList.visible)
+                throw new Error("generic picker did not replace the sidebar");
+            root.startSearch();
+            searchInput.text = "literal";
+            root.requestView();
+            if (root.entries.length !== 1 || root.entries[0].pickerIndex !== 1)
+                throw new Error("picker filtering lost original indexes");
+            root.activate(root.entries[0]);
+            if (root.opened || root.pickerActive || JSON.parse(pickerReply.text()).index !== 1)
+                throw new Error("picker did not submit and close");
+            root.showPicker(base + "/foxml-picker-def456/request.json");
+            var typed = {key: Qt.Key_H, modifiers: 0, accepted: false}; root.key(typed);
+            if (!root.pickerPrompt || typed.accepted) throw new Error("prompt stole a letter");
+            searchInput.text = "hjkl $literal";
+            root.activate(null);
+            if (JSON.parse(pickerReply.text()).text !== "hjkl $literal") throw new Error("prompt text changed");
+            root.showPicker(base + "/foxml-picker-abc123/request.json");
+            root.showPicker(base + "/foxml-picker-def456/request.json");
+            pickerRequest.path = base + "/foxml-picker-abc123/response.json";
+            if (!JSON.parse(pickerRequest.text()).cancel) throw new Error("superseded picker did not cancel");
+            root.hide();
+            if (!JSON.parse(pickerReply.text()).cancel) throw new Error("Escape did not cancel picker");
             console.log("DRAWER_UI_ASSERTIONS_PASSED");
             Qt.quit();
         }
@@ -140,6 +164,11 @@ class DrawerQmlTest(unittest.TestCase):
             directory = Path(tmp)
             for name in ("runtime", "cache", "state"):
                 (directory / name).mkdir(mode=0o700)
+            for suffix, prompt in (("abc123", False), ("def456", True)):
+                request = directory / "runtime" / ("foxml-picker-" + suffix)
+                request.mkdir(mode=0o700)
+                (request / "request.json").write_text(json.dumps({"title": "A little fixture", "prompt": prompt, "items": ["first", "a literal $(label)"]}))
+                (request / "response.json").write_text("")
             source = (ROOT / "shared/quickshell/foxml/shell.qml").read_text()
             source = source.replace("    PanelWindow {", "    FloatingWindow {")
             source = re.sub(r"^        (?:anchors \{.*|margins \{.*|exclusionMode:.*|WlrLayershell\..*)\n", "", source, flags=re.M)
@@ -168,6 +197,9 @@ class DrawerQmlTest(unittest.TestCase):
             log = result.stdout + result.stderr
             self.assertEqual(result.returncode, 0, log)
             self.assertIn("DRAWER_UI_ASSERTIONS_PASSED", log)
+            for suffix in ("abc123", "def456"):
+                response = directory / "runtime" / ("foxml-picker-" + suffix) / "response.json"
+                self.assertTrue(json.loads(response.read_text()).get("cancel"), "Cancellation must reach each caller on disk")
             self.assertNotIn("TypeError", log)
             self.assertNotIn("ReferenceError", log)
             self.assertNotIn("Could not update the Waybar drawer marker", log)

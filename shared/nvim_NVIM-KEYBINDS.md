@@ -2,6 +2,9 @@
 
 Leader: **Space** | Local leader: **Space**
 
+Paper bookmark ribbons and folded-note bindings are listed in the full reference:
+press **Alt+/** and search for **Paper notebook details**.
+
 ---
 
 ## Core Vim
@@ -20,7 +23,7 @@ Leader: **Space** | Local leader: **Space**
 | `%` | Jump to matching bracket |
 | `Ctrl+d` / `Ctrl+u` | Half-page down / up |
 | `Ctrl+f` / `Ctrl+b` | Full page down / up |
-| `H` / `M` / `L` | Screen top / middle / bottom |
+| `M` | Middle of screen (H/L switch buffers in this config) |
 | `f{c}` / `F{c}` | Jump to next / prev char |
 | `t{c}` / `T{c}` | Jump before next / prev char |
 | `;` / `,` | Repeat / Reverse last f/t |

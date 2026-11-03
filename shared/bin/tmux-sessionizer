@@ -76,9 +76,10 @@ pane_app() {
 }
 
 list_all() {
-    local A M R D
+    local A M R D B
     A="$(fg "${FOX_SESH_C1:-}")"      # accent  (live sessions, active pane)
     M="$(fg "${FOX_SESH_C2:-}")"      # muted   (projects, tree branches)
+    B="$(fg "${FOX_SESH_BELL:-}")"
     R=$'\033[0m'; D=$'\033[2m'
 
     local cur; cur="$(tmux display-message -p '#S' 2>/dev/null)"
@@ -89,21 +90,28 @@ list_all() {
     # app inline ("0 · claude"); multi-pane sessions list each pane below as a
     # ├/└ branch you can switch to or ^x-kill on its own. kind=s → session
     # (target=name), kind=p → pane (target=pane_id).
-    local s='' m='' panes='' npanes='' wp='' pid='' tty='' pa='' cmd='' app='' idx=0 br='' dot=''
+    local s='' m='' panes='' npanes='' wp='' pid='' tty='' pa='' cmd='' app='' idx=0 br='' dot='' bell='' flag=''
     printf '%s\n' "$live" | while IFS= read -r s; do
         [ -n "$s" ] || continue
         m='◆'; [ "$s" = "$cur" ] && m='●'
         panes="$(tmux list-panes -s -t "$s" \
-            -F "#{window_index}.#{pane_index}${TAB}#{pane_id}${TAB}#{pane_tty}${TAB}#{pane_active}${TAB}#{pane_current_command}" 2>/dev/null)"
+            -F "#{window_index}.#{pane_index}${TAB}#{pane_id}${TAB}#{pane_tty}${TAB}#{pane_active}${TAB}#{pane_current_command}${TAB}#{window_bell_flag}" 2>/dev/null)"
+        bell=''
+        # Aggregate existing window flags; session rows stay useful while the alerted window is hidden.
+        if [ -n "$B" ]; then
+            while IFS="$TAB" read -r wp pid tty pa cmd flag; do
+                if [ "$flag" = 1 ]; then bell="$(printf ' %s●%s' "$B" "$R")"; break; fi
+            done <<< "$panes"
+        fi
         npanes="$(printf '%s\n' "$panes" | grep -c .)"
         if [ "${npanes:-0}" -le 1 ]; then
-            IFS="$TAB" read -r wp pid tty pa cmd <<< "$panes"
+            IFS="$TAB" read -r wp pid tty pa cmd flag <<< "$panes"
             app="$(pane_app "$cmd" "$tty")"
-            printf 's\t%s%s%s %s %s· %s%s\t%s\n' "$A" "$m" "$R" "$s" "$D" "$app" "$R" "$s"
+            printf 's\t%s%s%s %s%s %s· %s%s\t%s\n' "$A" "$m" "$R" "$s" "$bell" "$D" "$app" "$R" "$s"
         else
-            printf 's\t%s%s%s %s %s· %sp%s\t%s\n' "$A" "$m" "$R" "$s" "$D" "$npanes" "$R" "$s"
+            printf 's\t%s%s%s %s%s %s· %sp%s\t%s\n' "$A" "$m" "$R" "$s" "$bell" "$D" "$npanes" "$R" "$s"
             idx=0
-            printf '%s\n' "$panes" | while IFS="$TAB" read -r wp pid tty pa cmd; do
+            printf '%s\n' "$panes" | while IFS="$TAB" read -r wp pid tty pa cmd flag; do
                 [ -n "$wp" ] || continue
                 idx=$((idx+1)); br='├'; [ "$idx" -eq "$npanes" ] && br='└'
                 app="$(pane_app "$cmd" "$tty")"; dot=''

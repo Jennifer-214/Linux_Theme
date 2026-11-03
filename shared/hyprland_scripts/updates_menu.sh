@@ -1,8 +1,7 @@
 #!/bin/bash
-# updates_menu.sh — rofi action menu for the waybar pending-updates pill.
+# updates_menu.sh — drawer entry point and update execution helpers.
 #
-# Click the pill → one rofi modal: every pending update listed
-# (pkg curver -> newver, read-only), then action rows:
+# Quickshell lists pending updates and offers these actions:
 #   ▶ Apply in terminal   — floating kitty running `sudo pacman -Syu`.
 #                           Default highlight; you see output + answer
 #                           any prompts. Safe choice on rolling Arch.
@@ -14,9 +13,6 @@
 #                           safeguard that stops an unattended upgrade from
 #                           applying a breaking change). `fox-install
 #                           --safe-updates` adds the unit + informant.
-#   ▶ Cancel              — dismiss.
-# Selecting a package row (or the separator) just re-opens the menu —
-# the list is informational; only the ▶ rows do anything.
 #
 # Fail-safe: if the silent upgrade exits non-zero for ANY reason
 # (informant news-gate, stale keyring, file conflict, failing hook) it
@@ -24,8 +20,7 @@
 # leaving the system half-updated silently.
 #
 # After any apply: wipe the count cache + signal waybar (SIGRTMIN+1) so
-# the pill refreshes immediately. UX matches the rest of the FoxML rofi
-# surface: ne zone, hjkl nav, no input bar.
+# the pill refreshes immediately.
 
 apply_mode="${1:-}"
 if [[ -n "$apply_mode" && "$apply_mode" != --apply-terminal && "$apply_mode" != --apply-silent ]]; then
@@ -33,12 +28,7 @@ if [[ -n "$apply_mode" && "$apply_mode" != --apply-terminal && "$apply_mode" != 
     exit 2
 fi
 if [[ -z "$apply_mode" ]]; then
-    if [[ "${FOXML_MENU_LEGACY:-0}" != 1 ]] && command -v fox-desktop-menu >/dev/null 2>&1 && fox-desktop-menu --available; then
-        if fox-desktop-menu updates; then exit 0; fi
-    fi
-    if pkill -x rofi; then exit 0; fi
-    ROFI_ZONE="${ROFI_ZONE:-ne}"
-    source "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/scripts/_rofi_zone.sh"
+    exec fox-desktop-menu updates
 fi
 
 CACHE_DIR="${XDG_RUNTIME_DIR:-/tmp}/foxml-waybar"
@@ -126,40 +116,3 @@ case "$apply_mode" in
     --apply-terminal) apply_terminal; exit $? ;;
     --apply-silent) apply_silent; exit $? ;;
 esac
-
-# ▶-prefixed sentinels stay visually distinct from "pkg ver -> ver" rows.
-A_TERM="▶  Apply in terminal"
-A_SILENT="▶  Apply silently (no terminal)"
-A_CANCEL="▶  Cancel"
-SEP="────────────────────────────────"
-
-# Offer the no-terminal path only when informant guards pacman.
-actions=("$A_TERM")
-command -v informant >/dev/null 2>&1 && actions+=("$A_SILENT")
-actions+=("$A_CANCEL")
-
-# Highlight "Apply in terminal" by default: pkg rows are 0..n-1, the
-# separator is n, A_TERM is n+1.
-default_row=$(( n + 1 ))
-
-while true; do
-    selected=$(
-        { printf '%s\n' "${lines[@]}"
-          printf '%s\n' "$SEP"
-          printf '%s\n' "${actions[@]}"
-        } | rofi -dmenu -i -no-custom \
-            -p "Updates ($n)" \
-            -selected-row "$default_row" \
-            -kb-row-up "k,Up" \
-            -kb-row-down "j,Down" \
-            -kb-accept-entry "l,Return" \
-            -kb-cancel "Escape,h" \
-            -theme-str "$ROFI_POS_THEME inputbar {enabled: false;} listview {lines: 15;} window {width: 42%;}")
-
-    case "$selected" in
-        "$A_TERM")        apply_terminal; break ;;
-        "$A_SILENT")      apply_silent;   break ;;
-        "$A_CANCEL"|"")   break ;;
-        *)                continue ;;  # pkg row / separator → list is read-only
-    esac
-done

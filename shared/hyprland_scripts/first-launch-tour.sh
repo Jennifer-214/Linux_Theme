@@ -14,7 +14,7 @@ set -u
 MARKER="$HOME/.local/share/foxml/.first-launch-shown"
 [[ -f "$MARKER" ]] && exit 0
 
-# Wait for the bar to settle so the tour rofi doesn't fight startup
+# Wait for the bar to settle so the tour drawer doesn't fight startup
 # repaints. ~3 seconds is a comfortable margin.
 sleep 3
 
