@@ -37,8 +37,8 @@ SHADOW_ALPHA=0.06
 # ─── Desktop chrome (GTK settings.ini · cursor · Hyprland window edges · kitty text · banner) ───
 # A drawn hairline separates sheets; inactive windows stay paper, not soot.
 GTK_PREFER_DARK=0
-# The cursor is the highlighter pink (Catppuccin Mocha pink).
-CURSOR_THEME=catppuccin-mocha-pink-cursors
+# Latte pink remains visibly pink against the light paper background.
+CURSOR_THEME=catppuccin-latte-pink-cursors
 PAPIRUS_FOLDER_COLOR=grey
 HYPR_BORDER_SIZE=1
 HYPR_BORDER_INACTIVE=9a989488
@@ -322,6 +322,9 @@ ROFI_BORDER=c8c5be
 ROFI_SELECTED=f1d6de
 ROFI_SELECTED_ALPHA=0.9
 BTOP_SELECTED_BG=f1d6de
+BTOP_HI_FG=b8336a
+BTOP_SELECTED_FG=b8336a
+BTOP_PROC_MISC=b8336a
 BTOP_LINE=c8c5be
 BTOP_COOL=9a9894
 BTOP_WARM=6e6d70

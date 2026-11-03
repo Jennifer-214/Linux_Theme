@@ -19,6 +19,7 @@ hl.env("XDG_SESSION_DESKTOP", "Hyprland")
 -- XCURSOR_SIZE here is the pre-Hyprland fallback; start_waybar.sh overrides
 -- it via `hyprctl setcursor` + `setenv` based on detected monitor scale.
 hl.env("XCURSOR_SIZE", "24")
+hl.env("HYPRCURSOR_SIZE", "24")
 hl.env("XCURSOR_PATH", os.getenv("HOME") .. "/.local/share/icons:" .. os.getenv("HOME") .. "/.icons:/usr/share/icons:/usr/share/pixmaps")
 
 -- Wayland

@@ -381,6 +381,12 @@ on a quiet paper footer. `<leader>tc` toggles comment folds; folded notes show
 the first line and line count, and `zo` opens one. These details skip symdeps
 panels and leave its winbar, annotations and keys intact. No extra plugins are
 required; rendering and the existing installer mappings deploy the changes.
+Paper also uses pink matched-bracket underlines, visible file names, the active
+tmux pane marker, and the current drawer breadcrumb. File labels keep their
+path and lettering when focus moves between Neo-tree and the editor.
+Btop keeps pencil-colored graphs with pink shortcut letters, selected process
+text, and small process details. Paper's mouse pointer uses the brighter Latte
+pink cursor variant in both Xcursor and Hyprcursor; text cursors are unchanged.
 
 Copied as-is regardless of theme:
 

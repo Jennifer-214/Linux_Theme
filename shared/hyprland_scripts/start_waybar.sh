@@ -238,10 +238,20 @@ fi
 # children Hyprland spawns. Skip silently if hyprctl can't reach the IPC
 # socket (we're being called pre-Hyprland from install.sh).
 if command -v hyprctl >/dev/null 2>&1 && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" || -d "${XDG_RUNTIME_DIR:-/run/user/$UID}/hypr" ]]; then
-    hyprctl setcursor "${XCURSOR_THEME:-catppuccin-mocha-peach-cursors}" "$CURSOR_SIZE_USE" >/dev/null 2>&1 || true
-    hyprctl setenv XCURSOR_SIZE "$CURSOR_SIZE_USE" >/dev/null 2>&1 || true
-    hyprctl setenv ROFI_X "$ROFI_X" >/dev/null 2>&1 || true
-    hyprctl setenv ROFI_Y "$ROFI_Y" >/dev/null 2>&1 || true
+    # A theme swap can leave the launcher's inherited environment on the old palette.
+    CURSOR_THEME_USE="${XCURSOR_THEME:-catppuccin-mocha-peach-cursors}"
+    _gtk_settings="${XDG_CONFIG_HOME:-$HOME/.config}/gtk-3.0/settings.ini"
+    if [[ -r "$_gtk_settings" ]]; then
+        _cursor_theme=$(awk -F= '$1 ~ /^[[:space:]]*gtk-cursor-theme-name[[:space:]]*$/ { gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit }' "$_gtk_settings")
+        [[ "$_cursor_theme" =~ ^[a-zA-Z0-9_-]+$ ]] && CURSOR_THEME_USE="$_cursor_theme"
+    fi
+    hyprctl setcursor "$CURSOR_THEME_USE" "$CURSOR_SIZE_USE" >/dev/null 2>&1 || true
+    # `setenv` is not a Hyprland IPC request; update both cursor backends in the active parser.
+    if [[ "$CURSOR_THEME_USE" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        fox-hl eval \
+            "hl.env('XCURSOR_THEME', '$CURSOR_THEME_USE'); hl.env('HYPRCURSOR_THEME', '$CURSOR_THEME_USE'); hl.env('XCURSOR_SIZE', '$CURSOR_SIZE_USE'); hl.env('HYPRCURSOR_SIZE', '$CURSOR_SIZE_USE'); hl.env('ROFI_X', '$ROFI_X'); hl.env('ROFI_Y', '$ROFI_Y')" \
+            "keyword env XCURSOR_THEME,$CURSOR_THEME_USE; keyword env HYPRCURSOR_THEME,$CURSOR_THEME_USE; keyword env XCURSOR_SIZE,$CURSOR_SIZE_USE; keyword env HYPRCURSOR_SIZE,$CURSOR_SIZE_USE; keyword env ROFI_X,$ROFI_X; keyword env ROFI_Y,$ROFI_Y" >/dev/null 2>&1 || true
+    fi
 fi
 
 # `--render-only`: install.sh calls us this way after rendering templates,

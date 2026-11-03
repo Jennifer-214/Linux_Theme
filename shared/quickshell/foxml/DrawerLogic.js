@@ -80,3 +80,22 @@ function footerHint(state, item) {
     if (item.id === "agent-jump") return "Enter / l goes to agent · j / k move · h goes back";
     return "Enter / l runs · j / k move · / searches · h goes back";
 }
+
+function breadcrumbs(page, group, trail, groups, title) {
+    if (page === "root" || page === "picker") return [];
+    var labels = {};
+    (groups || []).forEach(function(section) {
+        labels[section.page || section.id] = section.label;
+        (section.items || []).forEach(function(item) {
+            if (item.kind === "page") labels[item.page || item.id] = item.label;
+        });
+    });
+    var pages = [];
+    [group].concat(trail || []).concat([page]).forEach(function(id) {
+        if (id && id !== "root" && pages[pages.length - 1] !== id) pages.push(id);
+    });
+    return pages.map(function(id, index) {
+        var current = index === pages.length - 1;
+        return { label: labels[id] || (current && title) || id.replace(/-/g, " "), current: current };
+    });
+}

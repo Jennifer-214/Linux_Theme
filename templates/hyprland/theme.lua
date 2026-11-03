@@ -124,3 +124,4 @@ hl.animation({ leaf = "layersOut",   enabled = true, speed = 4,  bezier = "foxEa
 
 -- Cursor theme follows the palette (environment.lua sets the search path + size)
 hl.env("XCURSOR_THEME", "{{CURSOR_THEME}}")
+hl.env("HYPRCURSOR_THEME", "{{CURSOR_THEME}}")

@@ -67,7 +67,7 @@ vim.api.nvim_create_autocmd("FileType", {
 })
 vim.opt.smoothscroll = {{SHOW_WELCOME}}
 vim.opt.cursorline = {{SHOW_WELCOME}}
-vim.opt.cursorlineopt = "number"  -- current-line cue = the peach line number, no black bar
+vim.opt.cursorlineopt = "number"
 vim.opt.guicursor = "n-v-c:block,i-ci-ve:ver25,r-cr:hor20,o:hor50"
 vim.opt.clipboard = "unnamedplus"
 vim.opt.autoread = {{SHOW_WELCOME}}           -- reload files changed outside nvim
@@ -149,6 +149,7 @@ local P = {
 
 -- >>> fox-paper-details
 local Paper = { enabled = "{{LITTLE_DETAILS}}" == "fox-little-details-on" }
+if Paper.enabled then vim.opt.cursorlineopt = "line,number" end
 Paper.namespace = vim.api.nvim_create_namespace("foxml_paper_bookmarks")
 local paper_signatures, paper_pending, paper_scheduled = {}, {}, false
 
@@ -506,12 +507,11 @@ local plugins = {
         show_close_icon = false,
       },
       highlights = {
-        -- transparent bar — inherit kitty opacity like the editor; active buffer
-        -- reads via bold peach text + the peach indicator, not a dark pill
+        -- Keep visible file names steady when focus moves to the sidebar.
         fill = { bg = P.none },
         background = { fg = P.comment, bg = P.none },
-        buffer_selected = { fg = P.fg, bg = P.none, bold = {{SHOW_WELCOME}} },
-        buffer_visible = { fg = P.comment, bg = P.none },
+        buffer_selected = { fg = Paper.enabled and P.bookmark or P.fg, bg = P.none, bold = {{SHOW_WELCOME}}, italic = not Paper.enabled and {{SHOW_WELCOME}} },
+        buffer_visible = { fg = Paper.enabled and P.bookmark or P.comment, bg = P.none, bold = Paper.enabled or nil, italic = false },
         separator = { fg = P.bg_hl, bg = P.none },
         separator_selected = { fg = P.bg_hl, bg = P.none },
         separator_visible = { fg = P.bg_hl, bg = P.none },
@@ -524,8 +524,8 @@ local plugins = {
         tab_separator = { fg = P.bg_hl, bg = P.none },
         tab_separator_selected = { fg = P.bg_hl, bg = P.none },
         duplicate = { fg = P.comment, bg = P.none, italic = {{SHOW_WELCOME}} },
-        duplicate_selected = { fg = P.fg, bg = P.none, italic = {{SHOW_WELCOME}} },
-        duplicate_visible = { fg = P.comment, bg = P.none, italic = {{SHOW_WELCOME}} },
+        duplicate_selected = { fg = Paper.enabled and P.bookmark or P.fg, bg = P.none, bold = Paper.enabled or nil, italic = not Paper.enabled and {{SHOW_WELCOME}} },
+        duplicate_visible = { fg = Paper.enabled and P.bookmark or P.comment, bg = P.none, bold = Paper.enabled or nil, italic = not Paper.enabled and {{SHOW_WELCOME}} },
         diagnostic_selected = { bold = {{SHOW_WELCOME}} },
       },
     },
@@ -1548,7 +1548,7 @@ local function apply_foxml_theme()
   hl("NormalFloat",  { fg = P.fg, bg = P.float_bg })
   hl("FloatBorder",  { fg = P.float_border, bg = P.none })
   hl("FloatTitle",   { fg = P.peach, bg = P.none, bold = {{SHOW_WELCOME}} })
-  hl("CursorLine",  { bg = P.list_sel })  -- editor shows only the number (cursorlineopt); plugin lists show the bar
+  hl("CursorLine",  { bg = P.list_sel })  -- Paper carries the existing pink list selection across the cursor's line.
   hl("CursorColumn", { bg = P.bg_hl })
   hl("ColorColumn",  { bg = P.bg_hl })
   hl("Visual",       { bg = P.sel })
@@ -1586,7 +1586,7 @@ local function apply_foxml_theme()
   hl("IncSearch",    { fg = P.search.inc_fg, bg = P.search.inc_bg })
   hl("CurSearch",    { fg = P.search.cur_fg, bg = P.search.cur_bg, bold = {{SHOW_WELCOME}} })
   hl("Substitute",   { fg = P.bg, bg = P.red })
-  hl("MatchParen",   { fg = P.pink, bold = {{SHOW_WELCOME}}, underline = {{SHOW_WELCOME}} })
+  hl("MatchParen",   { fg = Paper.enabled and P.bookmark or P.pink, bold = not Paper.enabled and {{SHOW_WELCOME}}, underline = {{SHOW_WELCOME}} })
 
   -- ── Fold ──
   hl("Folded",       { fg = P.comment, bg = P.bg_hl })
@@ -2309,8 +2309,12 @@ local function paper_footer_mode(ink)
   return { a = { fg = ink, bg = P.bg_deep, gui = "none" },
            b = { fg = P.comment, bg = P.bg_deep }, c = { fg = P.comment, bg = P.bg_deep } }
 end
+-- Sidebar focus must not shorten the editor path to the tree's narrower width.
+local filename_component = { "filename", path = 1, shorting_target = Paper.enabled and 0 or nil,
+  color = Paper.enabled and { fg = P.bookmark } or nil }
 require("lualine").setup({
   options = {
+    ignore_focus = Paper.enabled and { "neo-tree" } or {},
     theme = Paper.enabled and {
       normal = paper_footer_mode(P.fg), insert = paper_footer_mode(P.green),
       visual = paper_footer_mode(P.pink), replace = paper_footer_mode(P.red),
@@ -2329,7 +2333,7 @@ require("lualine").setup({
   sections = {
     lualine_a = { "mode" },
     lualine_b = { "branch", "diff", "diagnostics" },
-    lualine_c = { { "filename", path = 1 } },
+    lualine_c = { filename_component },
     lualine_x = {
       {
         -- this buffer's engine: Copilot's icon only where Copilot is attached (a public repo), else the local model's
@@ -2373,6 +2377,10 @@ require("lualine").setup({
     lualine_y = { "progress" },
     lualine_z = { "location" },
   },
+  inactive_sections = Paper.enabled and {
+    lualine_a = {}, lualine_b = {}, lualine_c = { filename_component },
+    lualine_x = { "location" }, lualine_y = {}, lualine_z = {},
+  } or nil,
 })
 
 -- Treesitter — main branch (nvim 0.12). The legacy require("nvim-treesitter.configs")

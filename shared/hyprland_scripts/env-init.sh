@@ -23,6 +23,8 @@ fi
 export XCURSOR_SIZE=24
 # XCURSOR_THEME is inherited from Hyprland (theme.conf, from the palette).
 export XCURSOR_THEME="${XCURSOR_THEME:-catppuccin-mocha-peach-cursors}"
+export HYPRCURSOR_THEME="${HYPRCURSOR_THEME:-$XCURSOR_THEME}"
+export HYPRCURSOR_SIZE="${HYPRCURSOR_SIZE:-$XCURSOR_SIZE}"
 export XCURSOR_PATH="$HOME/.local/share/icons:$HOME/.icons:/usr/share/icons:/usr/share/pixmaps"
 
 # systemd --user integration. Push Wayland/desktop env vars into the user
@@ -34,5 +36,5 @@ if command -v systemctl >/dev/null 2>&1; then
     systemctl --user import-environment \
         WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE \
         DISPLAY DBUS_SESSION_BUS_ADDRESS \
-        XCURSOR_THEME XCURSOR_SIZE XCURSOR_PATH 2>/dev/null
+        XCURSOR_THEME XCURSOR_SIZE XCURSOR_PATH HYPRCURSOR_THEME HYPRCURSOR_SIZE 2>/dev/null
 fi

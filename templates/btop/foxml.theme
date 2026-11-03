@@ -5,13 +5,19 @@
 theme[main_bg]="#{{BG}}"
 theme[main_fg]="#{{FG}}"
 theme[title]="#{{PRIMARY}}"
-theme[hi_fg]="#{{PRIMARY}}"
+theme[hi_fg]="#{{BTOP_HI_FG}}"
 theme[selected_bg]="#{{BTOP_SELECTED_BG}}"
-theme[selected_fg]="#{{FG}}"
+theme[selected_fg]="#{{BTOP_SELECTED_FG}}"
 theme[inactive_fg]="#{{FG_DIM}}"
 
 # Process box
-theme[proc_misc]="#{{ACCENT}}"
+theme[proc_misc]="#{{BTOP_PROC_MISC}}"
+theme[proc_pause_bg]="#{{BTOP_SELECTED_BG}}"
+theme[proc_follow_bg]="#{{BTOP_SELECTED_BG}}"
+theme[proc_banner_bg]="#{{BTOP_SELECTED_BG}}"
+theme[proc_banner_fg]="#{{BTOP_SELECTED_FG}}"
+theme[followed_bg]="#{{BTOP_SELECTED_BG}}"
+theme[followed_fg]="#{{BTOP_SELECTED_FG}}"
 
 # Box outlines
 theme[cpu_box]="#{{PRIMARY}}"

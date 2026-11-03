@@ -51,3 +51,15 @@ assert.match(logic.footerHint({focus:'items',confirming:true}, {}), /Esc cancels
 assert.match(logic.footerHint({focus:'items'}, {id:'agent-jump'}), /goes to agent/);
 assert.match(logic.footerHint({focus:'groups'}, {kind:'toggle'}), /opens a drawer/);
 console.log('contextual drawer hints: passed');
+
+const sections = [{id:'desk',page:'desk',label:'Desk',items:[{id:'projects',kind:'page',label:'Projects'}]}];
+assert.deepEqual(plain(logic.breadcrumbs('projects','desk',['root','desk'],sections)), [
+    {label:'Desk',current:false},{label:'Projects',current:true}
+]);
+assert.deepEqual(plain(logic.breadcrumbs('desk','desk',[],sections)), [{label:'Desk',current:true}]);
+assert.deepEqual(plain(logic.breadcrumbs('root','',[],sections)), []);
+assert.deepEqual(plain(logic.breadcrumbs('picker','',[],sections)), []);
+assert.deepEqual(plain(logic.breadcrumbs('audio-outputs','sound',['root'],[])), [
+    {label:'sound',current:false},{label:'audio outputs',current:true}
+]);
+console.log('drawer breadcrumb labels and current section: passed');

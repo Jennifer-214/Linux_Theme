@@ -20,15 +20,15 @@ class WaybarStartupTest(unittest.TestCase):
         self.bin = self.home / "bin"
         self.bin.mkdir()
         # Keep this a headless render: no live compositor tools or desktop processes.
-        for name in ("sed", "awk", "tr", "mktemp", "ln", "rm"):
+        for name in ("bash", "sed", "awk", "tr", "mktemp", "ln", "rm"):
             executable = shutil.which(name)
             self.assertIsNotNone(executable, name)
             (self.bin / name).symlink_to(executable)
         (self.bar / "style.css.tmpl").write_text('@import "drawer-state.css";\n* { font-size: __FONT_BASE__pt; }\n')
         (self.bar / "config.tmpl").write_text('{"height":__HEIGHT__,"margin":"__MARGIN_BAR__"}\n')
 
-    def render(self):
-        env = os.environ | {"HOME": str(self.home), "PATH": str(self.bin)}
+    def render(self, **overrides):
+        env = os.environ | {"HOME": str(self.home), "XDG_CONFIG_HOME": str(self.home / ".config"), "PATH": str(self.bin)} | overrides
         subprocess.run(["/bin/bash", str(ROOT / "shared/hyprland_scripts/start_waybar.sh"), "--render-only"],
                        env=env, capture_output=True, text=True, check=True, timeout=10)
         self.assertEqual(json.loads((self.bar / "config").read_text())["height"], 34)
@@ -54,6 +54,48 @@ class WaybarStartupTest(unittest.TestCase):
         self.render()
         self.assertTrue(path.is_symlink())
         self.assertFalse(target.exists())
+
+    def cursor_calls(self, theme=None, legacy=False):
+        fixture = tempfile.TemporaryDirectory(prefix=".cursor-startup-", dir=ROOT / "tests")
+        self.addCleanup(fixture.cleanup)
+        hyprctl = Path(fixture.name) / "hyprctl"
+        hyprctl.write_text('''#!/usr/bin/python3
+import json, os, sys
+with open(os.environ['CURSOR_CALLS'], 'a') as stream:
+    stream.write(json.dumps(sys.argv[1:]) + '\\n')
+print('[]' if sys.argv[1:2] == ['monitors'] else ('eval is only supported with the lua config manager' if os.environ.get('CURSOR_TEST_LEGACY') == '1' and sys.argv[1:2] == ['eval'] else 'ok'))
+''')
+        hyprctl.chmod(0o755)
+        (self.bin / "hyprctl").symlink_to(hyprctl)
+        (self.bin / "fox-hl").symlink_to(ROOT / "shared/bin/fox-hl")
+        if theme is not None:
+            gtk = self.home / ".config/gtk-3.0"
+            gtk.mkdir()
+            (gtk / "settings.ini").write_text('[Settings]\ngtk-cursor-theme-name=' + theme + '\n')
+        calls = self.home / "cursor-calls"
+        self.render(HYPRLAND_INSTANCE_SIGNATURE="fixture", XCURSOR_THEME="previous-theme", CURSOR_CALLS=str(calls), CURSOR_TEST_LEGACY="1" if legacy else "0")
+        return [json.loads(line) for line in calls.read_text().splitlines()]
+
+    def test_rendered_cursor_theme_overrides_stale_launcher_environment(self):
+        calls = self.cursor_calls("catppuccin-mocha-pink-cursors")
+        self.assertIn(["setcursor", "catppuccin-mocha-pink-cursors", "24"], calls)
+        update = next(row[1] for row in calls if row[0] == "eval" and "hl.env" in row[1])
+        self.assertIn("hl.env('HYPRCURSOR_THEME', 'catppuccin-mocha-pink-cursors')", update)
+        self.assertIn("hl.env('XCURSOR_THEME', 'catppuccin-mocha-pink-cursors')", update)
+
+    def test_cursor_environment_uses_legacy_parser_before_lua_upgrade(self):
+        calls = self.cursor_calls("catppuccin-latte-pink-cursors", legacy=True)
+        update = next(row[1] for row in calls if row[0] == "--batch")
+        self.assertIn("keyword env HYPRCURSOR_THEME,catppuccin-latte-pink-cursors", update)
+        self.assertIn("keyword env XCURSOR_THEME,catppuccin-latte-pink-cursors", update)
+        self.assertIn("keyword env HYPRCURSOR_SIZE,24", update)
+
+    def test_cursor_theme_falls_back_to_environment_without_rendered_settings(self):
+        self.assertIn(["setcursor", "previous-theme", "24"], self.cursor_calls())
+
+    def test_cursor_setting_is_data_and_invalid_value_uses_fallback(self):
+        self.assertIn(["setcursor", "previous-theme", "24"], self.cursor_calls("$(touch should-not-exist)"))
+        self.assertFalse((ROOT / "should-not-exist").exists())
 
 
 if __name__ == "__main__":

@@ -95,6 +95,56 @@ print('PAPER_NOTEBOOK_ASSERTIONS_PASSED')
 vim.cmd('qa!')
 '''
 
+FOCUS_DRIVER = r'''
+vim.opt.termguicolors=true
+vim.o.columns=150
+vim.o.lines=45
+local plugins=vim.env.NOTEBOOK_PLUGINS..'/'
+for _,name in ipairs({'lualine.nvim','bufferline.nvim','neo-tree.nvim','plenary.nvim','nui.nvim','nvim-web-devicons'}) do vim.opt.rtp:append(plugins..name) end
+local source=table.concat(vim.fn.readfile(vim.env.NOTEBOOK_INIT),'\n')
+local palette=assert(source:match('(local P = %b{})'))
+local paper=assert(source:match('%-%- >>> fox%-paper%-details\n(.-)\n%-%- <<< fox%-paper%-details'))
+local footer=assert(source:match('(local function paper_footer_mode.-)\n%-%- Treesitter — main branch'))
+local function options(name)
+  local _,last=assert(source:find('"'..name..'"',1,true))
+  return assert(source:sub(last):match('opts = (%b{})'))
+end
+local highlights=assert(source:match('(local function apply_foxml_theme%(%)\n.-\nend)\n\napply_foxml_theme%(%)'))
+local opts=assert(loadstring(palette..'\n'..paper..'\n'..highlights..'\napply_foxml_theme()\n'..footer..'\nreturn {buffers='..options('akinsho/bufferline.nvim')..',tree='..options('nvim-neo-tree/neo-tree.nvim')..'}'))()
+require('bufferline').setup(opts.buffers)
+require('neo-tree').setup(opts.tree)
+local project=vim.fn.fnamemodify(vim.env.NOTEBOOK_SOURCE,':h:h')
+vim.cmd('cd '..vim.fn.fnameescape(project))
+vim.cmd('edit '..vim.fn.fnameescape(vim.env.NOTEBOOK_SOURCE))
+local editor=vim.api.nvim_get_current_win()
+local file=vim.api.nvim_get_current_buf()
+local function filename()
+  require('lualine').refresh({scope='all',place={'statusline'},force=true})
+  vim.wait(30)
+  return vim.api.nvim_eval_statusline(vim.wo[editor].statusline,{winid=editor,maxwidth=150}).str
+end
+local match=vim.api.nvim_get_hl(0,{name='MatchParen',link=false})
+assert(match.fg==0xb8336a and match.underline and not match.bold)
+local before=filename()
+require('neo-tree.command').execute({action='focus',position='left',dir=project})
+vim.wait(300)
+assert(vim.bo.filetype=='neo-tree','tree did not open')
+local during=filename()
+assert(before:find('nested/note.cpp',1,true),before)
+assert(during:find('nested/note.cpp',1,true),during)
+for _,name in ipairs({'BufferLineBufferSelected','BufferLineBufferVisible'}) do
+ local hl=vim.api.nvim_get_hl(0,{name=name,link=false})
+ assert(hl.fg==0xb8336a and hl.bold and not hl.italic,name..vim.inspect(hl))
+end
+assert(vim.api.nvim_win_get_buf(editor)==file)
+vim.api.nvim_set_current_win(editor)
+local after=filename()
+assert(after:find('nested/note.cpp',1,true),after)
+print('Actual Neo-tree and Lualine: editor filename stays stable across focus; visible tab names retain pink, bold, upright lettering.')
+vim.cmd('qa!')
+'''
+
+
 @unittest.skipUnless(NVIM and RENDER.exists(), 'build fox-render-fast and install nvim')
 class PaperNotebook(unittest.TestCase):
     def test_marks_folds_and_symdeps_panel(self):
@@ -115,6 +165,26 @@ class PaperNotebook(unittest.TestCase):
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
             self.assertIn('PAPER_NOTEBOOK_ASSERTIONS_PASSED',result.stdout+result.stderr)
             if plugin.is_dir():self.assertIn('Actual symdeps panel:',result.stdout+result.stderr)
+            print((result.stdout+result.stderr).strip())
+
+    def test_filename_stays_stable_between_real_tree_and_editor(self):
+        plugins = Path.home()/'.local/share/nvim/lazy'
+        required = ('lualine.nvim','bufferline.nvim','neo-tree.nvim','plenary.nvim','nui.nvim','nvim-web-devicons')
+        if not all((plugins/name).is_dir() for name in required):
+            self.skipTest('local editor UI plugins are not installed')
+        with tempfile.TemporaryDirectory(prefix='foxml-notebook-focus-') as temp:
+            base=Path(temp); rendered=base/'rendered'
+            subprocess.run([str(RENDER),str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates/nvim'),str(rendered)],check=True,capture_output=True)
+            note=base/'project/nested/note.cpp';note.parent.mkdir(parents=True)
+            note.write_text('int main() { return 0; }\n')
+            (base/'data/nvim').mkdir(parents=True)
+            driver=base/'focus.lua';driver.write_text(FOCUS_DRIVER)
+            env=os.environ|{'NOTEBOOK_INIT':str(rendered/'init.lua'),'NOTEBOOK_SOURCE':str(note),'NOTEBOOK_PLUGINS':str(plugins),
+                            'XDG_DATA_HOME':str(base/'data'),'XDG_STATE_HOME':str(base/'state'),
+                            'XDG_CACHE_HOME':str(base/'cache'),'NVIM_LOG_FILE':str(base/'nvim.log')}
+            result=subprocess.run([NVIM,'--clean','--headless','-l',str(driver)],env=env,capture_output=True,text=True,timeout=15)
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            self.assertIn('Actual Neo-tree and Lualine:',result.stdout+result.stderr)
             print((result.stdout+result.stderr).strip())
 
     def test_session_selector_marks_bells_without_changing_targets(self):
@@ -157,6 +227,7 @@ class PaperNotebook(unittest.TestCase):
                     label=tmux('display-message','-p','-F',sample).stdout.strip()
                     self.assertEqual('●' in label,bell)
                     self.assertNotIn('#{',label)
+                    self.assertIn('#[fg=#b8336a] ✎ #[fg=#1c1c1e]',label)
                     if bell:self.assertIn('#b8336a',label)
             finally:
                 tmux('kill-server',check=False)

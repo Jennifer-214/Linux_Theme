@@ -26,6 +26,7 @@ ShellRoot {
     property var groups: []
     property var entries: []
     property var trail: []
+    readonly property var breadcrumbs: Logic.breadcrumbs(page, groupId, trail, groups, pageTitle)
     property var remembered: ({})
     property string focusArea: "groups"
     property int groupIndex: 0
@@ -714,7 +715,27 @@ ShellRoot {
                                 Text { textFormat: Text.PlainText; text: root.searching && !root.pickerActive ? "find a little thing" : root.pageTitle; color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: 20; Layout.fillWidth: true; elide: Text.ElideRight }
                                 Text { textFormat: Text.PlainText; text: root.page === "root" || (root.pickerActive && root.pickerPrompt) ? "" : String(root.entries.length).padStart(2, "0"); color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10 }
                             }
-                            Text { textFormat: Text.PlainText; visible: root.page !== "root" && root.trail.length > 0; text: [root.groupId].concat(root.trail.slice(1)).concat([root.page]).join(" › "); color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9; elide: Text.ElideMiddle; Layout.fillWidth: true }
+                            RowLayout {
+                                id: breadcrumbRow
+                                visible: !root.searching && root.breadcrumbs.length > 0
+                                Layout.fillWidth: true
+                                spacing: 6
+                                Text {
+                                    visible: root.breadcrumbs.length > 1
+                                    textFormat: Text.PlainText
+                                    text: root.breadcrumbs.slice(0, -1).map(function(crumb) { return crumb.label; }).join(" / ") + " /"
+                                    color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9
+                                    elide: Text.ElideMiddle
+                                    Layout.maximumWidth: breadcrumbRow.width * .65
+                                }
+                                Text {
+                                    textFormat: Text.PlainText
+                                    text: root.breadcrumbs.length ? root.breadcrumbs[root.breadcrumbs.length - 1].label : ""
+                                    color: theme.detailAccent; font.family: theme.fontFamily; font.pixelSize: 9
+                                    elide: Text.ElideMiddle
+                                    Layout.fillWidth: true
+                                }
+                            }
 
                             Rectangle {
                                 visible: root.searching

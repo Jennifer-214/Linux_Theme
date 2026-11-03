@@ -1,7 +1,7 @@
 // modules/catppuccin_cursor.cpp — the palette's Catppuccin cursor theme.
 //
 // Pulled from the upstream catppuccin/cursors GitHub release. The palette's
-// CURSOR_THEME (mocha-peach on the dark themes, latte-dark on Paper) is what
+// CURSOR_THEME selected by the palette is what
 // the rendered Hyprland env + GTK ini name; without it cursors fall back to
 // the default Adwaita.
 
