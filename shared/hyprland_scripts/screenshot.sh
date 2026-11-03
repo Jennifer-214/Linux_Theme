@@ -6,7 +6,7 @@ out_dir="$HOME/Pictures/Screenshots"
 mkdir -p "$out_dir"
 file="$out_dir/screenshot-$(date +%Y%m%d-%H%M%S).png"
 
-# Region selection. -b = background (transparent), -c = selection border colour.
+# Paper uses the shared blush, with a light pencil veil outside the selection.
 # slurp exits non-zero AND emits empty output when the user hits Escape;
 # without an explicit guard the script previously fed grim an empty
 # `-g ""` which is interpreted as "capture everything" — i.e. cancelling
@@ -14,7 +14,12 @@ file="$out_dir/screenshot-$(date +%Y%m%d-%H%M%S).png"
 # asked for.
 PALETTE="${HOME}/.config/hypr/modules/border_colors.sh"
 [[ -f "$PALETTE" ]] && source "$PALETTE"
-geom=$(slurp -b 00000000 -c "${C_PRIMARY:-c4956e}ff" 2>/dev/null)
+screenshot_ink="${C_PRIMARY:-c4956e}"
+selection_style=(-b 00000000 -c "${screenshot_ink}ff")
+if [[ "${C_LITTLE_DETAILS:-}" == fox-little-details-on ]]; then
+    selection_style=(-b "${C_FG:-$screenshot_ink}18" -c "${C_SELECTION:-$screenshot_ink}ff" -s 00000000 -w 2)
+fi
+geom=$(slurp "${selection_style[@]}" 2>/dev/null)
 slurp_rc=$?
 if (( slurp_rc != 0 )) || [[ -z "$geom" ]]; then
     notify-send -t 2000 "Screenshot" "Cancelled"

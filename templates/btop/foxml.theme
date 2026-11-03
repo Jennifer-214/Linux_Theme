@@ -34,9 +34,9 @@ theme[temp_mid]="#{{BTOP_WARM}}"
 theme[temp_end]="#{{BTOP_HOT}}"
 
 # CPU graph
-theme[cpu_start]="#{{PRIMARY}}"
-theme[cpu_mid]="#{{SECONDARY}}"
-theme[cpu_end]="#{{ACCENT}}"
+theme[cpu_start]="#{{BTOP_GRAPH_START}}"
+theme[cpu_mid]="#{{BTOP_GRAPH_MID}}"
+theme[cpu_end]="#{{BTOP_GRAPH_END}}"
 
 # Memory/Disk graph
 theme[free_start]="#{{BTOP_LINE}}"
@@ -48,14 +48,14 @@ theme[cached_end]="#{{ACCENT}}"
 theme[available_start]="#{{BTOP_COOL}}"
 theme[available_mid]="#{{BTOP_COOL}}"
 theme[available_end]="#{{BTOP_COOL}}"
-theme[used_start]="#{{PRIMARY}}"
-theme[used_mid]="#{{SECONDARY}}"
+theme[used_start]="#{{BTOP_GRAPH_START}}"
+theme[used_mid]="#{{BTOP_GRAPH_MID}}"
 theme[used_end]="#{{BTOP_HOT}}"
 
 # Network graph
-theme[download_start]="#{{PRIMARY}}"
-theme[download_mid]="#{{PRIMARY}}"
-theme[download_end]="#{{SECONDARY}}"
+theme[download_start]="#{{BTOP_GRAPH_START}}"
+theme[download_mid]="#{{BTOP_GRAPH_START}}"
+theme[download_end]="#{{BTOP_GRAPH_MID}}"
 theme[upload_start]="#{{ACCENT}}"
 theme[upload_mid]="#{{ACCENT}}"
 theme[upload_end]="#{{BTOP_UPLOAD_END}}"

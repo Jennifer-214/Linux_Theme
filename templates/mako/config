@@ -23,6 +23,11 @@ default-timeout=4000
 ignore-timeout=1
 icon-path=/usr/share/icons/{{MAKO_ICON_THEME}}
 
+# Only Paper matches this rule; OSDs keep their own compact formats below.
+[summary~={{MAKO_STAMP_SUMMARIES}}]
+height=124
+format=<span font_family="{{FONT_FAMILY}}" size="x-small" weight="semibold" letter_spacing="1024" foreground="#{{FG}}" background="#{{SELECTION}}"> RECEIVED </span>\n{{MAKO_FORMAT}}
+
 [urgency=low]
 background-color=#{{BG}}{{POPUP_BG_OPACITY_HEX}}
 text-color=#{{PRIMARY}}
@@ -43,6 +48,7 @@ invisible=1
 # synchronous hint in focus-pulse.sh, this shows exactly one transient chip
 # per switch instead of a growing stack.
 [app-name=focus-pulse]
+format={{MAKO_FORMAT}}
 background-color=#{{BG}}{{POPUP_BG_OPACITY_HEX}}
 text-color=#{{ACCENT}}
 border-color=#{{SECONDARY}}80

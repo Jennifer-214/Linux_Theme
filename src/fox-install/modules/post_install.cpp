@@ -11,6 +11,7 @@
 
 #include "../core/context.hpp"
 #include "personalize.hpp"
+#include "gtk_appearance.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
@@ -97,7 +98,7 @@ void run_post_install(Context& ctx) {
                     "finalize per-monitor wallpaper variants + hyprlock (post-deploy), "
                     "render waybar for current layout, restart waybar+dunst+mako, "
                     "Lazy sync + TSUpdateSync (60s/120s caps), "
-                    "Cursor/VS Code workbench.colorTheme=Fox ML");
+                    "GTK desktop font, Cursor/VS Code workbench.colorTheme=Fox ML");
         return;
     }
 
@@ -106,6 +107,8 @@ void run_post_install(Context& ctx) {
     // current.
     write_active_theme_and_marker(ctx);
     ui::ok("active-theme + install marker written");
+
+    sync_gtk_font(ctx);
 
     // Finalize per-monitor personalisation now that `specials` has deployed
     // ~/.wallpapers and `symlinks` has deployed the live configs. The personalize

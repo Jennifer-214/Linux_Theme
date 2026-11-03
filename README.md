@@ -386,7 +386,8 @@ required; rendering and the existing installer mappings deploy the changes.
 Paper also uses pink matched-bracket underlines and the active tmux pane marker.
 File labels use pencil text and keep their path and lettering when focus moves
 between Neo-tree and the editor.
-Btop keeps pencil-colored graphs with pink shortcut letters, selected process
+The active file tab uses blush behind its pencil name.
+Btop keeps pencil text with pink shortcut letters, selected process
 text, and small process details. Paper's mouse pointer uses the soft Mocha pink
 cursor variant in both Xcursor and Hyprcursor; text cursors are unchanged.
 Neovim puts pencil function definitions and numeric/boolean literals on soft blush
@@ -397,10 +398,30 @@ hover titles use rose; copied text briefly flashes blush. Completion labels stay
 pencil on a blush selected row. Markdown headings and checked markers use rose,
 with completed task text softened to gray through the existing syntax highlighting.
 Inline Markdown code uses pencil text on blush without tinting fenced code blocks.
+C/C++ files use native clangd type and parameter hints in readable pencil text;
+these skip special buffers and symdeps panels, with no additional plugin.
+Search matches use pencil underlines with blush on the current match. Git changes
+use thin gutter marks, with quieter dotted marks for staged edits. Markdown quotes
+use a blush opening mark and faint pencil rules; their source returns while typing.
 Small Paper controls use the same pink for checkbox ticks, radio centers, slider
 thumbs, short field-focus underlines, active-tab markers, and dragged scrollbars.
+Text selections in GTK fields use blush with pencil text. The installer synchronizes
+the desktop font override from the deployed GTK settings so apps share the configured font.
 The drawer's volume ruler keeps its pencil ticks and a pink endpoint. Paper's
-sleeping-pencil-cat wallpaper is supplied as a 4K image with its
+confirmation sheet has an attached folded corner and a faint bottom/right shadow;
+cancel stays selected by default. Drawer groups and items sit on paper cards with
+faint pencil edges and bottom/right shadows; focus adds blush and a little more depth.
+The drawer sheet has the same faint outer shadow. Normal Paper windows use a small
+graphite shadow offset toward the bottom/right. Native Hyprtoolkit permission
+dialogs receive Paper colors, fonts, and rounding through the installer.
+Pressing a card softens its shadow without shifting the row.
+The selected sidebar group keeps the same blush as the selected item when focus moves inside.
+Screenshot selection uses a blush edge and a light
+pencil veil. Btop's CPU, memory-use, and download strokes carry blush gradients,
+while process text and window frames retain their existing colors. Thunar filename
+selections use blush with soft pencil edges. Native Mako notes add a small RECEIVED
+stamp, with room for the body; workspace and volume OSDs retain their compact formats.
+Paper's sleeping-pencil-cat wallpaper is supplied as a 4K image with its
 original 1080p source. The cursor installer also repairs desktop preferences and
 fallback-theme inheritance when the cursor assets are already installed.
 Drawer pages show their current name once in the heading; breadcrumbs show only
@@ -447,6 +468,7 @@ quiet pencil text. Commands are bold graphite, suggestions are faint handwriting
 and selections use the shared blush. Fzf and Tab completion share their pointer
 and paperclip marker; Tab previews remain visible. Git uses Oh My Zsh's async
 prompt hook so the branch stays available without adding a prompt framework.
+Multiline commands use a quiet continuation arrow alongside Zsh's quote/loop context.
 
 ### Git workflow functions
 

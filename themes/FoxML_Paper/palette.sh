@@ -31,7 +31,7 @@ BLUR_PASSES=1
 GAP_IN=5
 GAP_OUT=10
 BORDER_SIZE=1
-SHADOW_RANGE=12
+SHADOW_RANGE=6
 SHADOW_ALPHA=0.06
 
 # ─── Desktop chrome (GTK settings.ini · cursor · Hyprland window edges · kitty text · banner) ───
@@ -410,3 +410,14 @@ PALETTE_LABELS=("paper" "graphite" "4B" "HB" "2H" "smudge")
 
 # Small native control accents
 GTK_DETAIL_SCOPE=window
+
+# Graph strokes and the optional paper notification stamp
+BTOP_GRAPH_START=ecc6d2
+BTOP_GRAPH_MID=e2aec0
+BTOP_GRAPH_END=9a5a58
+MAKO_STAMP_SUMMARIES='.*'
+
+# Normal-window shadow color and direction
+HYPR_SHADOW_RGB=2b2b2d
+HYPR_SHADOW_OFFSET_X=2
+HYPR_SHADOW_OFFSET_Y=2

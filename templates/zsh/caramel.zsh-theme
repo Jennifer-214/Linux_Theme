@@ -254,6 +254,7 @@ PROMPT='
 
 RPROMPT='%{%F{{{ANSI_ACCENT1}}}%}%*%{%f%}'
 (( _caramel_paper )) && RPROMPT='%F{#{{COMMENT}}}%*%f'
+(( _caramel_paper )) && PROMPT2=' %F{#{{COMMENT}}}↳ %_%f '
 
 # ─── Transient prompt (collapse after enter) ──
 

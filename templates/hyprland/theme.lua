@@ -78,10 +78,9 @@ hl.config({
             enabled = {{SHOW_WELCOME}},
             range = {{SHADOW_RANGE}},
             render_power = 3,
-            -- Active window: heavy black drop shadow for sleek borderless depth
-            -- Inactive: standard {{THEME_TYPE}} drop-shadow at lower alpha
-            color = "rgba(0,0,0,{{SHADOW_ALPHA}})",
-            color_inactive = "rgba(0,0,0,{{HYPR_SHADOW_ALPHA_INACTIVE}})",
+            offset = { {{HYPR_SHADOW_OFFSET_X}}, {{HYPR_SHADOW_OFFSET_Y}} },
+            color = "rgba({{HYPR_SHADOW_RGB_R}},{{HYPR_SHADOW_RGB_G}},{{HYPR_SHADOW_RGB_B}},{{SHADOW_ALPHA}})",
+            color_inactive = "rgba({{HYPR_SHADOW_RGB_R}},{{HYPR_SHADOW_RGB_G}},{{HYPR_SHADOW_RGB_B}},{{HYPR_SHADOW_ALPHA_INACTIVE}})",
         },
         dim_inactive = {{SHOW_WELCOME}},
         dim_strength = {{HYPR_DIM_STRENGTH}},

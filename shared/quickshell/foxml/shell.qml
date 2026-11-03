@@ -572,6 +572,30 @@ ShellRoot {
         }
     }
 
+    component PaperShadow: Item {
+        id: paperShadow
+        required property color ink
+        property real strength: 0.06
+        Behavior on strength { NumberAnimation { duration: 70 } }
+        anchors.fill: parent
+        z: -1
+        Rectangle {
+            x: parent.width; y: 4; width: 4; height: Math.max(0, parent.height - 4)
+            gradient: Gradient {
+                orientation: Gradient.Horizontal
+                GradientStop { position: 0; color: Qt.alpha(paperShadow.ink, paperShadow.strength) }
+                GradientStop { position: 1; color: "transparent" }
+            }
+        }
+        Rectangle {
+            x: 4; y: parent.height; width: Math.max(0, parent.width - 4); height: 4
+            gradient: Gradient {
+                GradientStop { position: 0; color: Qt.alpha(paperShadow.ink, paperShadow.strength) }
+                GradientStop { position: 1; color: "transparent" }
+            }
+        }
+    }
+
     PanelWindow {
         id: panel
         visible: root.opened
@@ -598,6 +622,7 @@ ShellRoot {
                 radius: Math.max(4, Math.min(theme.radius, 12))
                 border.width: 1
                 border.color: theme.line
+                PaperShadow { visible: theme.paperDetails; ink: theme.ink }
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -670,6 +695,7 @@ ShellRoot {
                             Layout.fillHeight: true
                             clip: true
                             spacing: 7
+                            bottomMargin: theme.paperDetails && contentHeight >= height ? 4 : 0
                             model: root.groups
                             currentIndex: root.groupIndex
                             keyNavigationEnabled: false
@@ -678,12 +704,17 @@ ShellRoot {
                             delegate: Rectangle {
                                 required property var modelData
                                 required property int index
-                                width: groupList.width
+                                width: groupList.width - (theme.paperDetails ? 4 : 0)
                                 height: 65
                                 radius: 4
-                                color: groupMouse.pressed ? Qt.alpha(theme.line, .35) : index === root.groupIndex && (root.page !== "root" || root.focusArea === "groups") ? (root.focusArea === "groups" ? theme.focusFill : Qt.alpha(theme.selection, theme.selectionOpacity * .45)) : root.buttonShade(false, groupMouse.containsMouse)
-                                border.width: index === root.groupIndex && root.focusArea === "groups" ? 1 : 0
-                                border.color: theme.line
+                                color: groupMouse.pressed ? Qt.alpha(theme.line, .35) : index === root.groupIndex && (root.page !== "root" || root.focusArea === "groups") ? (theme.paperDetails || root.focusArea === "groups" ? theme.focusFill : Qt.alpha(theme.selection, theme.selectionOpacity * .45)) : theme.paperDetails ? (groupMouse.containsMouse ? theme.surface : theme.background) : root.buttonShade(false, groupMouse.containsMouse)
+                                border.width: theme.paperDetails || (index === root.groupIndex && root.focusArea === "groups") ? 1 : 0
+                                border.color: theme.paperDetails && !(index === root.groupIndex && root.focusArea === "groups") ? Qt.alpha(theme.line, .6) : theme.line
+                                PaperShadow {
+                                    visible: theme.paperDetails
+                                    ink: theme.ink
+                                    strength: groupMouse.pressed ? .012 : index === root.groupIndex && root.focusArea === "groups" ? .06 : .035
+                                }
                                 RowLayout {
                                     anchors.fill: parent
                                     anchors.margins: 12
@@ -786,6 +817,7 @@ ShellRoot {
                                     visible: !root.pendingConfirm && (root.page !== "root" || root.entries.length > 0 || root.searching)
                                     clip: true
                                     spacing: 7
+                                    bottomMargin: theme.paperDetails && contentHeight >= height ? 4 : 0
                                     model: root.entries
                                     currentIndex: root.itemIndex
                                     keyNavigationEnabled: false
@@ -793,6 +825,7 @@ ShellRoot {
                                     ScrollBar.vertical: ScrollBar {
                                         id: itemScroll
                                         policy: ScrollBar.AsNeeded
+                                        visible: itemList.contentHeight > itemList.height
                                         contentItem: Rectangle { implicitWidth: 4; implicitHeight: 20; radius: 2; color: itemScroll.pressed && theme.paperDetails ? theme.detailAccent : theme.line }
                                     }
                                     delegate: Rectangle {
@@ -801,14 +834,19 @@ ShellRoot {
                                         required property int index
                                         property bool selected: index === root.itemIndex && root.focusArea === "items"
                                         property string menuIcon: Logic.iconName(modelData) ? Quickshell.iconPath(Logic.iconName(modelData), true) : ""
-                                        width: itemList.width
+                                        width: itemList.width - (theme.paperDetails ? 4 : 0)
                                         property bool card: modelData.presentation === "project" || modelData.presentation === "library" || modelData.presentation === "download"
                                         height: card ? 94 : modelData.kind === "slider" ? 91 : modelData.image ? 80 : 72
                                         radius: 4
-                                        color: itemMouse.pressed ? Qt.alpha(theme.line, .35) : selected ? theme.focusFill : card ? theme.surface : root.buttonShade(false, itemMouse.containsMouse)
-                                        border.width: selected || card || itemMouse.containsMouse ? 1 : 0
-                                        border.color: itemMouse.pressed ? theme.muted : theme.line
+                                        color: itemMouse.pressed ? Qt.alpha(theme.line, .35) : selected ? theme.focusFill : theme.paperDetails ? (itemMouse.containsMouse ? theme.surface : theme.background) : card ? theme.surface : root.buttonShade(false, itemMouse.containsMouse)
+                                        border.width: theme.paperDetails || selected || card || itemMouse.containsMouse ? 1 : 0
+                                        border.color: itemMouse.pressed ? theme.muted : theme.paperDetails && !selected ? Qt.alpha(theme.line, .6) : theme.line
                                         opacity: modelData.enabled === false ? .48 : 1
+                                        PaperShadow {
+                                            visible: theme.paperDetails
+                                            ink: theme.ink
+                                            strength: itemMouse.pressed ? .012 : itemRow.selected ? .06 : .035
+                                        }
                                         Text {
                                             visible: itemRow.card
                                             anchors.top: parent.top; anchors.right: parent.right
@@ -923,26 +961,56 @@ ShellRoot {
                                     Text { textFormat: Text.PlainText; width: parent.width; text: root.page === "root" ? "choose a group on the left\nor press / to find any action." : root.page === "library" ? "plug in a removable drive\nand its library card will appear here." : root.page === "bookmarks" ? "press b on a project card\nto leave a little ribbon here." : root.page === "downloads" ? "your latest downloads will land here.\npress / to filter, or h to go back." : "try another search, or h to go back."; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10; horizontalAlignment: Text.AlignHCenter; lineHeight: 1.5; wrapMode: Text.WordWrap }
                                 }
 
-                                ColumnLayout {
+                                Item {
+                                    id: confirmationCard
                                     anchors.centerIn: parent
                                     width: parent.width - 24
-                                    spacing: 20
+                                    height: confirmationContent.implicitHeight + (theme.paperDetails ? 48 : 0)
                                     visible: root.pendingConfirm !== null
-                                    Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: root.pendingConfirm ? root.pendingConfirm.label + "?" : ""; color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: 24; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap }
-                                    Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: root.pendingConfirm && typeof root.pendingConfirm.confirm === "string" ? root.pendingConfirm.confirm : "one moment before you go.\nthis action needs your confirmation."; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; lineHeight: 1.5 }
-                                    RowLayout {
-                                        Layout.alignment: Qt.AlignHCenter
-                                        spacing: 12
-                                        Repeater {
-                                            model: ["stay here", "continue"]
-                                            delegate: Rectangle {
-                                                required property string modelData
-                                                required property int index
-                                                width: 116; height: 42; radius: 4
-                                                color: root.confirmYes === (index === 1) ? Qt.alpha(theme.selection, theme.selectionOpacity) : theme.surface
-                                                border.width: 1; border.color: theme.line
-                                                Text { textFormat: Text.PlainText; anchors.centerIn: parent; text: modelData; color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 11 }
-                                                MouseArea { anchors.fill: parent; onClicked: { var item = root.pendingConfirm; root.pendingConfirm = null; if (index === 1) root.activate(item, true); } }
+                                    PaperShadow {
+                                        visible: theme.paperDetails
+                                        ink: theme.ink
+                                    }
+                                    Canvas {
+                                        visible: theme.paperDetails
+                                        anchors.fill: parent
+                                        onWidthChanged: requestPaint()
+                                        onHeightChanged: requestPaint()
+                                        onPaint: {
+                                            var ctx = getContext("2d"), fold = 18, w = width - .5, h = height - .5;
+                                            ctx.clearRect(0, 0, width, height);
+                                            ctx.fillStyle = theme.background;
+                                            ctx.strokeStyle = Qt.alpha(theme.line, 0.7);
+                                            ctx.lineWidth = 1;
+                                            ctx.beginPath(); ctx.moveTo(.5, .5); ctx.lineTo(w - fold, .5);
+                                            ctx.lineTo(w, fold); ctx.lineTo(w, h); ctx.lineTo(.5, h); ctx.closePath();
+                                            ctx.fill(); ctx.stroke();
+                                            ctx.fillStyle = theme.focusFill;
+                                            ctx.beginPath(); ctx.moveTo(w - fold, .5); ctx.lineTo(w - fold, fold);
+                                            ctx.lineTo(w, fold); ctx.closePath(); ctx.fill(); ctx.stroke();
+                                        }
+                                    }
+                                    ColumnLayout {
+                                        id: confirmationContent
+                                        anchors.top: parent.top; anchors.left: parent.left; anchors.right: parent.right
+                                        anchors.margins: theme.paperDetails ? 24 : 0
+                                        spacing: 20
+                                        Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: root.pendingConfirm ? root.pendingConfirm.label + "?" : ""; color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: 24; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap }
+                                        Text { textFormat: Text.PlainText; Layout.fillWidth: true; text: root.pendingConfirm && typeof root.pendingConfirm.confirm === "string" ? root.pendingConfirm.confirm : "one moment before you go.\nthis action needs your confirmation."; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 11; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap; lineHeight: 1.5 }
+                                        RowLayout {
+                                            Layout.alignment: Qt.AlignHCenter
+                                            spacing: 12
+                                            Repeater {
+                                                model: ["stay here", "continue"]
+                                                delegate: Rectangle {
+                                                    required property string modelData
+                                                    required property int index
+                                                    width: 116; height: 42; radius: 4
+                                                    color: root.confirmYes === (index === 1) ? (theme.paperDetails ? theme.focusFill : Qt.alpha(theme.selection, theme.selectionOpacity)) : theme.surface
+                                                    border.width: 1; border.color: theme.line
+                                                    Text { textFormat: Text.PlainText; anchors.centerIn: parent; text: modelData; color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 11 }
+                                                    MouseArea { anchors.fill: parent; onClicked: { var item = root.pendingConfirm; root.pendingConfirm = null; if (index === 1) root.activate(item, true); } }
+                                                }
                                             }
                                         }
                                     }

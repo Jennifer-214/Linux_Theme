@@ -370,3 +370,14 @@ PALETTE_LABELS=("bg" "fg" "blue" "gold" "teal" "slate")
 
 # Small native control accents
 GTK_DETAIL_SCOPE=.foxml-paper-controls-off
+
+# Graph strokes and the optional paper notification stamp
+BTOP_GRAPH_START=2ea3f2
+BTOP_GRAPH_MID=ffb200
+BTOP_GRAPH_END=29c4a9
+MAKO_STAMP_SUMMARIES='^foxml-paper-stamp-disabled$'
+
+# Normal-window shadow color and direction
+HYPR_SHADOW_RGB=000000
+HYPR_SHADOW_OFFSET_X=0
+HYPR_SHADOW_OFFSET_Y=0

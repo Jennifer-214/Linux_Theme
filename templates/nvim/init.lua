@@ -158,11 +158,21 @@ Paper.completion_icons = {
 }
 if Paper.enabled then vim.opt.cursorlineopt = "line,number" end
 Paper.namespace = vim.api.nvim_create_namespace("foxml_paper_bookmarks")
+Paper.quote_namespace = vim.api.nvim_create_namespace("foxml_paper_quotes")
 local paper_signatures, paper_pending, paper_scheduled = {}, {}, false
+local paper_quote_ticks, paper_quote_query = {}, nil
 
 function Paper.file_buffer(buf)
   return vim.api.nvim_buf_is_valid(buf) and vim.bo[buf].buftype == "" and vim.bo[buf].buflisted
     and not vim.bo[buf].filetype:match("^fox%-symdeps")
+end
+
+function Paper.enable_hints(buf, client)
+  if not Paper.enabled or not Paper.file_buffer(buf) or client.name ~= "clangd" then return end
+  local ft = vim.bo[buf].filetype
+  if (ft == "c" or ft == "cpp") and client:supports_method("textDocument/inlayHint", buf) then
+    vim.lsp.inlay_hint.enable(true, { bufnr = buf })
+  end
 end
 
 function Paper.refresh(buf)
@@ -192,8 +202,39 @@ function Paper.refresh(buf)
   for row, letter in pairs(rows) do
     -- One sign per line, below diagnostic/git/breakpoint priorities; never resize the gutter.
     vim.api.nvim_buf_set_extmark(buf, Paper.namespace, row - 1, 0,
-      { sign_text = "" .. letter, sign_hl_group = "FoxPaperBookmark", priority = 1 })
+      { sign_text = "󰃀" .. letter, sign_hl_group = "FoxPaperBookmark", priority = 1 })
   end
+end
+
+function Paper.refresh_quotes(buf)
+  if not Paper.enabled or not vim.api.nvim_buf_is_valid(buf) then return end
+  if not Paper.file_buffer(buf) or vim.bo[buf].filetype ~= "markdown"
+      or vim.api.nvim_get_mode().mode:sub(1, 1) == "i" then
+    vim.api.nvim_buf_clear_namespace(buf, Paper.quote_namespace, 0, -1)
+    paper_quote_ticks[buf] = nil
+    return
+  end
+  local tick = vim.api.nvim_buf_get_changedtick(buf)
+  if paper_quote_ticks[buf] == tick then return end
+  local ok, parser = pcall(vim.treesitter.get_parser, buf, "markdown")
+  if not ok then return end
+  local tree = parser:parse()[1]
+  if not tree then return end
+  paper_quote_query = paper_quote_query or vim.treesitter.query.parse("markdown",
+    "(block_quote_marker) @opening (block_continuation) @rule")
+  vim.api.nvim_buf_clear_namespace(buf, Paper.quote_namespace, 0, -1)
+  for id, node in paper_quote_query:iter_captures(tree:root(), buf) do
+    local row, col = node:range()
+    local opening = paper_quote_query.captures[id] == "opening"
+    -- Overlay only syntax markers: source, text width, and fenced examples stay intact.
+    for offset in vim.treesitter.get_node_text(node, buf):gmatch("()>") do
+      vim.api.nvim_buf_set_extmark(buf, Paper.quote_namespace, row, col + offset - 1, {
+        virt_text = { { opening and "“" or "│", opening and "FoxPaperQuoteOpen" or "FoxPaperQuoteRule" } },
+        virt_text_pos = "overlay", virt_text_hide = true, hl_mode = "combine", priority = 110,
+      })
+    end
+  end
+  paper_quote_ticks[buf] = tick
 end
 
 function Paper.queue(buf)
@@ -203,7 +244,7 @@ function Paper.queue(buf)
   vim.schedule(function()
     local pending = paper_pending
     paper_pending, paper_scheduled = {}, false
-    for buffer in pairs(pending) do Paper.refresh(buffer) end
+    for buffer in pairs(pending) do Paper.refresh(buffer); Paper.refresh_quotes(buffer) end
   end)
 end
 
@@ -216,11 +257,14 @@ _G.FoxPaperFoldText = Paper.foldtext
 
 if Paper.enabled then
   local group = vim.api.nvim_create_augroup("foxml_paper_details", { clear = true })
-  vim.api.nvim_create_autocmd({ "BufWinEnter", "CursorHold", "TextChanged", "TextChangedI", "BufWritePost", "CmdlineLeave" }, {
+  vim.api.nvim_create_autocmd({ "BufWinEnter", "CursorHold", "TextChanged", "TextChangedI",
+      "BufWritePost", "CmdlineLeave", "FileType", "InsertEnter", "InsertLeave" }, {
     group = group, callback = function(args) Paper.queue(args.buf) end,
   })
   vim.api.nvim_create_autocmd("BufWipeout", {
-    group = group, callback = function(args) paper_signatures[args.buf], paper_pending[args.buf] = nil, nil end,
+    group = group, callback = function(args)
+      paper_signatures[args.buf], paper_pending[args.buf], paper_quote_ticks[args.buf] = nil, nil, nil
+    end,
   })
 end
 -- <<< fox-paper-details
@@ -522,21 +566,21 @@ local plugins = {
         -- Keep visible file names steady when focus moves to the sidebar.
         fill = { bg = P.none },
         background = { fg = P.comment, bg = P.none },
-        buffer_selected = { fg = P.fg, bg = P.none, bold = {{SHOW_WELCOME}}, italic = not Paper.enabled and {{SHOW_WELCOME}} },
+        buffer_selected = { fg = P.fg, bg = Paper.enabled and P.sel or P.none, bold = {{SHOW_WELCOME}}, italic = not Paper.enabled and {{SHOW_WELCOME}} },
         buffer_visible = { fg = Paper.enabled and P.fg or P.comment, bg = P.none, bold = Paper.enabled or nil, italic = false },
         separator = { fg = P.bg_hl, bg = P.none },
-        separator_selected = { fg = P.bg_hl, bg = P.none },
+        separator_selected = { fg = P.bg_hl, bg = Paper.enabled and P.sel or P.none },
         separator_visible = { fg = P.bg_hl, bg = P.none },
-        indicator_selected = { fg = P.peach, bg = P.none },
+        indicator_selected = { fg = P.peach, bg = Paper.enabled and P.sel or P.none },
         modified = { fg = Paper.enabled and P.comment or P.yellow, bg = P.none },
-        modified_selected = { fg = Paper.enabled and P.comment or P.yellow, bg = P.none },
+        modified_selected = { fg = Paper.enabled and P.comment or P.yellow, bg = Paper.enabled and P.sel or P.none },
         modified_visible = { fg = Paper.enabled and P.comment or P.yellow, bg = P.none },
         tab = { fg = P.comment, bg = P.none },
         tab_selected = { fg = P.peach, bg = P.none, bold = {{SHOW_WELCOME}} },
         tab_separator = { fg = P.bg_hl, bg = P.none },
         tab_separator_selected = { fg = P.bg_hl, bg = P.none },
         duplicate = { fg = P.comment, bg = P.none, italic = {{SHOW_WELCOME}} },
-        duplicate_selected = { fg = P.fg, bg = P.none, bold = Paper.enabled or nil, italic = not Paper.enabled and {{SHOW_WELCOME}} },
+        duplicate_selected = { fg = P.fg, bg = Paper.enabled and P.sel or P.none, bold = Paper.enabled or nil, italic = not Paper.enabled and {{SHOW_WELCOME}} },
         duplicate_visible = { fg = Paper.enabled and P.fg or P.comment, bg = P.none, bold = Paper.enabled or nil, italic = false },
         diagnostic_selected = { bold = {{SHOW_WELCOME}} },
       },
@@ -547,6 +591,14 @@ local plugins = {
   {
     "lewis6991/gitsigns.nvim",
     opts = {
+      signs = Paper.enabled and {
+        add = { text = "│" }, change = { text = "│" }, delete = { text = "▁" },
+        topdelete = { text = "▔" }, changedelete = { text = "┆" }, untracked = { text = "┆" },
+      } or nil,
+      signs_staged = Paper.enabled and {
+        add = { text = "┊" }, change = { text = "┊" }, delete = { text = "▁" },
+        topdelete = { text = "▔" }, changedelete = { text = "┊" }, untracked = { text = "┊" },
+      } or nil,
       current_line_blame = {{SHOW_WELCOME}},
       current_line_blame_opts = { delay = 300, virt_text_pos = "eol" },
       current_line_blame_formatter = "  <author>, <author_time:%R> · <summary>",
@@ -1575,6 +1627,7 @@ local function apply_foxml_theme()
   hl("LineNr",       { fg = P.faint })
   hl("CursorLineNr", { fg = Paper.enabled and P.bookmark or P.peach, bold = {{SHOW_WELCOME}} })
   hl("SignColumn",   { fg = P.faint, bg = P.none })
+  if Paper.enabled then hl("LspInlayHint", { fg = P.comment, bg = P.none, italic = false }) end
   hl("EndOfBuffer",  { fg = P.bg })
   hl("VertSplit",    { fg = P.yellow_br, bg = P.none })
   hl("WinSeparator", { fg = P.yellow_br, bg = P.none })
@@ -1604,6 +1657,11 @@ local function apply_foxml_theme()
   hl("Search",       { fg = P.search.fg, bg = P.search.bg })
   hl("IncSearch",    { fg = P.search.inc_fg, bg = P.search.inc_bg })
   hl("CurSearch",    { fg = P.search.cur_fg, bg = P.search.cur_bg, bold = {{SHOW_WELCOME}} })
+  if Paper.enabled then
+    hl("Search", { bg = P.none, underline = true, sp = P.comment })
+    hl("IncSearch", { fg = P.fg, bg = P.sel, bold = true })
+    hl("CurSearch", { fg = P.fg, bg = P.sel, bold = true })
+  end
   hl("Substitute",   { fg = P.bg, bg = P.red })
   hl("MatchParen",   { fg = Paper.enabled and P.bookmark or P.pink, bold = not Paper.enabled and {{SHOW_WELCOME}}, underline = {{SHOW_WELCOME}} })
 
@@ -1753,6 +1811,9 @@ local function apply_foxml_theme()
   hl("@markup.list",         { fg = P.pink })
 
   if Paper.enabled then
+    hl("FoxPaperQuoteOpen", { fg = P.fg, bg = P.sel })
+    hl("FoxPaperQuoteRule", { fg = P.faint })
+    hl("@markup.quote.markdown", { fg = P.fg_dim, italic = true })
     hl("@markup.raw.markdown_inline", { fg = P.fg, bg = P.sel })
     hl("@markup.heading.markdown", { fg = P.bookmark, bold = true })
     for level = 1, 6 do
@@ -1842,6 +1903,15 @@ local function apply_foxml_theme()
   hl("GitSignsAdd",    { fg = P.green })
   hl("GitSignsChange", { fg = P.yellow })
   hl("GitSignsDelete", { fg = P.red })
+  if Paper.enabled then
+    for kind, color in pairs({ Add = P.comment, Change = P.bookmark, Delete = P.git_del,
+        Topdelete = P.git_del, Changedelete = P.bookmark, Untracked = P.faint }) do
+      hl("GitSigns" .. kind, { fg = color, bg = P.none })
+      hl("GitSigns" .. kind .. "Cul", { fg = color, bg = P.none })
+      hl("GitSignsStaged" .. kind, { fg = P.faint, bg = P.none })
+      hl("GitSignsStaged" .. kind .. "Cul", { fg = P.faint, bg = P.none })
+    end
+  end
 
   -- Flash.nvim
   hl("FlashLabel",    { fg = P.bg, bg = P.peach, bold = {{SHOW_WELCOME}} })
@@ -2084,6 +2154,10 @@ local function apply_foxml_theme()
   hl("HlSearchNear",     { fg = P.bg, bg = P.peach, bold = {{SHOW_WELCOME}} })
   hl("HlSearchLens",     { fg = P.comment })
   hl("HlSearchLensNear", { fg = P.bg, bg = P.peach })
+  if Paper.enabled then
+    hl("HlSearchNear", { link = "CurSearch" })
+    hl("HlSearchLensNear", { fg = P.comment })
+  end
 
   -- Avante
   hl("AvanteTitle",                        { fg = P.bg, bg = P.peach, bold = {{SHOW_WELCOME}} })
@@ -2638,6 +2712,7 @@ vim.api.nvim_create_autocmd("LspAttach", {
   callback = function(args)
     local client = vim.lsp.get_client_by_id(args.data.client_id)
     if not client or client.name == "copilot" then return end
+    Paper.enable_hints(args.buf, client)
     local map = function(mode, lhs, rhs, desc)
       vim.keymap.set(mode, lhs, rhs, { buffer = args.buf, desc = desc })
     end

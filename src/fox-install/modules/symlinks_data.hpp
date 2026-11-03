@@ -26,6 +26,7 @@ inline constexpr Mapping TEMPLATE_MAPPINGS[] = {
     // Hyprland
     { "hyprland/theme.conf",          "~/.config/hypr/modules/theme.conf" },
     { "hyprland/theme.lua",           "~/.config/hypr/modules/theme.lua" },   // Hyprland 0.57+ (Lua-only)
+    { "hyprland/hyprtoolkit.conf",     "~/.config/hypr/hyprtoolkit.conf" },
     { "hyprlock/hyprlock.conf",       "~/.config/hypr/hyprlock.conf" },
 
     // Neovim

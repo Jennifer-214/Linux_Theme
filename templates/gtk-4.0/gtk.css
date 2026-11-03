@@ -169,6 +169,11 @@ separator { background-color: @border; }
 
 /* Small control details; window frames retain their existing pencil borders. */
 @define-color detail_ink #{{WAYBAR_WS_ACTIVE}};
+{{GTK_DETAIL_SCOPE}} entry selection,
+{{GTK_DETAIL_SCOPE}} textview text selection,
+{{GTK_DETAIL_SCOPE}} label selection {
+  background-color: @sel_bg; color: @fg; text-shadow: none;
+}
 {{GTK_DETAIL_SCOPE}} checkbutton check:checked, {{GTK_DETAIL_SCOPE}} checkbutton radio:checked {
   color: @detail_ink; background: @bg; border-color: #{{ROFI_BORDER}};
 }

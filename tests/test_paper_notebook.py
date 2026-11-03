@@ -51,7 +51,7 @@ assert(vim.wo.signcolumn == 'yes:2' and vim.wo.winbar == 'existing symdeps size 
 vim.api.nvim_buf_set_lines(buf, 0, 0, false, {'// inserted above'})
 Paper.refresh(buf)
 local arow
-for _, mark in ipairs(marks()) do if mark[4].sign_text == 'a' then arow=mark[2] end end
+for _, mark in ipairs(marks()) do if mark[4].sign_text == '󰃀a' then arow=mark[2] end end
 assert(arow == 2, 'bookmark did not follow the native mark after an edit')
 vim.api.nvim_buf_del_mark(buf,'b'); Paper.refresh(buf)
 assert(#marks() == 2, 'deleted mark left a ribbon behind')

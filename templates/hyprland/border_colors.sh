@@ -18,3 +18,4 @@ export C_SENTRY_DIM="{{SENTRY_DIM}}"
 export C_LITTLE_DETAILS="{{LITTLE_DETAILS}}"
 # Small desktop details follow the workspace accent.
 export C_DETAIL_ACCENT="{{WAYBAR_WS_ACTIVE}}"
+export C_SELECTION="{{SELECTION}}"

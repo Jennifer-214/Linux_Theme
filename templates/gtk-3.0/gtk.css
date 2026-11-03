@@ -339,6 +339,11 @@ window.soffice button:hover {
 
 /* Small control details; window frames retain their existing pencil borders. */
 @define-color detail_ink #{{WAYBAR_WS_ACTIVE}};
+{{GTK_DETAIL_SCOPE}} entry selection,
+{{GTK_DETAIL_SCOPE}} textview text selection,
+{{GTK_DETAIL_SCOPE}} label selection {
+  background-color: @sel_bg; color: @fg; text-shadow: none;
+}
 {{GTK_DETAIL_SCOPE}} check:checked, {{GTK_DETAIL_SCOPE}} radio:checked {
   color: @detail_ink; background-color: @bg; background-image: none;
   border-color: #{{ROFI_BORDER}};
@@ -351,3 +356,12 @@ window.soffice button:hover {
 }
 {{GTK_DETAIL_SCOPE}} notebook tab:checked { border-bottom: 1px solid @detail_ink; }
 {{GTK_DETAIL_SCOPE}} scrollbar slider:active { background-color: @detail_ink; background-image: none; }
+
+/* Thunar cards use the existing icon grid and pencil frame. */
+{{GTK_DETAIL_SCOPE}}.thunar iconview.view:selected,
+{{GTK_DETAIL_SCOPE}}.thunar iconview.view:selected:focus,
+{{GTK_DETAIL_SCOPE}}.thunar .view.cell:selected {
+  background-color: @sel_bg; background-image: none; color: @fg;
+  border: 1px solid alpha(#{{ROFI_BORDER}}, 0.65);
+  border-radius: 4px; box-shadow: none;
+}
