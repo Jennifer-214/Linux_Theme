@@ -55,6 +55,7 @@ source "$ZSH/oh-my-zsh.sh"
 
 # ─── Autosuggestions style ────────────────────
 ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=#{{ZSH_SUGGEST}}'
+[[ "{{LITTLE_DETAILS}}" == fox-little-details-on ]] && ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE+=',italic'
 ZSH_AUTOSUGGEST_STRATEGY=(history completion)
 
 # ─── Config (sourced after omz so plugins are loaded) ─
@@ -71,6 +72,7 @@ source "$ZSHCONF/welcome.zsh"
 zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
 zstyle ':completion:*' group-name ''
 zstyle ':completion:*:descriptions' format '%F{{{ANSI_ACCENT1}}}── %d ──%f'
+[[ "{{LITTLE_DETAILS}}" == fox-little-details-on ]] && zstyle ':completion:*:descriptions' format '%F{#{{COMMENT}}}%B%d%b%f'
 zstyle ':completion:*:warnings' format '%F{{{ANSI_ERROR}}}no matches%f'
 zstyle ':completion:*:default' list-prompt '%F{{{ANSI_ACCENT1}}}%l%f'
 zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}' 'r:|[._-]=* r:|=*'
@@ -83,7 +85,8 @@ export MANPAGER="sh -c 'col -bx | bat -l man -p'"
 
 # ─── fzf ──────────────────────────────────────
 source /usr/share/fzf/key-bindings.zsh
-FZF_COMPLETION_TRIGGER=''
+# Plain Tab belongs to fzf-tab; ** keeps fzf's explicit path completion available.
+FZF_COMPLETION_TRIGGER='**'
 source /usr/share/fzf/completion.zsh
 export FZF_DEFAULT_COMMAND='fd --type f --hidden --follow --exclude .git'
 export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
@@ -93,7 +96,7 @@ export FZF_DEFAULT_OPTS="
   --color=hl:#{{FZF_ACCENT1}},hl+:#{{PRIMARY}},info:#{{FZF_ACCENT1}},marker:#{{PRIMARY}}
   --color=prompt:#{{PRIMARY}},spinner:#{{FZF_ACCENT1}},pointer:#{{PRIMARY}},header:#{{FZF_ACCENT1}}
   --color=border:#{{FZF_BORDER}}
-  --border={{FZF_BORDER_STYLE}} --prompt='❯ ' --pointer='◆' --marker='●'
+  --border={{FZF_BORDER_STYLE}} --prompt='❯ ' --pointer='$FOXML_FZF_POINTER' --marker='$FOXML_FZF_MARKER'
   --preview='bat --color=always --style=numbers --line-range=:200 {} 2>/dev/null || eza --icons --color=always {}'
   --preview-window=right:50%:hidden --bind='ctrl-/:toggle-preview,ctrl-h:abort,ctrl-j:down,ctrl-k:up,ctrl-l:accept'
 "

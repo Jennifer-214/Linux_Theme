@@ -370,6 +370,8 @@ error. Both Hyprland formats start it with normal colors; `--deps` installs it.
 Paper's workspace tabs include monochrome icons for open Hyprland windows; an
 editor inside Kitty/tmux uses the terminal icon. Kitty leaves its own tab row
 hidden, while tmux adds a pink dot to the existing window label on a bell.
+Kitty's background is 80% opaque so the paper wallpaper can show through while
+text stays solid.
 The session switcher also marks sessions with a bell in a background window,
 using the window flags already included in its normal session query.
 
@@ -381,12 +383,31 @@ on a quiet paper footer. `<leader>tc` toggles comment folds; folded notes show
 the first line and line count, and `zo` opens one. These details skip symdeps
 panels and leave its winbar, annotations and keys intact. No extra plugins are
 required; rendering and the existing installer mappings deploy the changes.
-Paper also uses pink matched-bracket underlines, visible file names, the active
-tmux pane marker, and the current drawer breadcrumb. File labels keep their
-path and lettering when focus moves between Neo-tree and the editor.
+Paper also uses pink matched-bracket underlines and the active tmux pane marker.
+File labels use pencil text and keep their path and lettering when focus moves
+between Neo-tree and the editor.
 Btop keeps pencil-colored graphs with pink shortcut letters, selected process
-text, and small process details. Paper's mouse pointer uses the brighter Latte
-pink cursor variant in both Xcursor and Hyprcursor; text cursors are unchanged.
+text, and small process details. Paper's mouse pointer uses the soft Mocha pink
+cursor variant in both Xcursor and Hyprcursor; text cursors are unchanged.
+Neovim puts pencil function definitions and numeric/boolean literals on soft blush
+highlights. Darker typed code contrasts with warm gray handwritten comments.
+TODO, NOTE, and IDEA labels also use pencil text on blush backgrounds.
+Its current line number, fold arrow, active indent guide, completion icons, and
+hover titles use rose; copied text briefly flashes blush. Completion labels stay
+pencil on a blush selected row. Markdown headings and checked markers use rose,
+with completed task text softened to gray through the existing syntax highlighting.
+Inline Markdown code uses pencil text on blush without tinting fenced code blocks.
+Small Paper controls use the same pink for checkbox ticks, radio centers, slider
+thumbs, short field-focus underlines, active-tab markers, and dragged scrollbars.
+The drawer's volume ruler keeps its pencil ticks and a pink endpoint. Paper's
+sleeping-pencil-cat wallpaper is supplied as a 4K image with its
+original 1080p source. The cursor installer also repairs desktop preferences and
+fallback-theme inheritance when the cursor assets are already installed.
+Drawer pages show their current name once in the heading; breadcrumbs show only
+parents. Control details omit repeated labels/values, and keyboard instructions
+live in one contextual footer, with separate messages for errors and action results.
+Background drawer refreshes preserve the group being browsed; group scrolling
+stops at the edges without overscroll.
 
 Copied as-is regardless of theme:
 
@@ -419,6 +440,13 @@ Copied as-is regardless of theme:
 | `welcome.zsh` | Terminal splash with system info and todo list |
 
 Requires Oh My Zsh, zsh-syntax-highlighting, zsh-autosuggestions, eza, bat.
+
+Paper keeps the two-line prompt and its Git, environment, job, duration, and clock
+details. The current folder sits on a blush tab; metadata and command history use
+quiet pencil text. Commands are bold graphite, suggestions are faint handwriting,
+and selections use the shared blush. Fzf and Tab completion share their pointer
+and paperclip marker; Tab previews remain visible. Git uses Oh My Zsh's async
+prompt hook so the branch stays available without adding a prompt framework.
 
 ### Git workflow functions
 

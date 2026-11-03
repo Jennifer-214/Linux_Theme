@@ -657,7 +657,7 @@ tooltip .tooltip-label {
    hairline between the tab strip and the page */
 {{FF_EXTRA_SCOPE}} #tabbrowser-tabs[orient="vertical"] .tabbrowser-tab[selected] .tab-background {
   background: #{{SELECTION}} !important;
-  box-shadow: none !important;
+  box-shadow: inset 0 -1px #{{WAYBAR_WS_ACTIVE}} !important;
   border-radius: var(--fox-radius) !important;
 }
 {{FF_EXTRA_SCOPE}} #tabbrowser-tabs[orient="vertical"] .tabbrowser-tab:not([selected]):hover .tab-background {
@@ -667,3 +667,15 @@ tooltip .tooltip-label {
 {{FF_EXTRA_SCOPE}} #sidebar-main {
   border-inline-end: 1px solid var(--fox-frame) !important;
 }
+
+/* Paper's small focus and selection marks. */
+{{FF_EXTRA_SCOPE}} .tabbrowser-tab[selected] .tab-background { box-shadow: inset 0 -1px #{{WAYBAR_WS_ACTIVE}} !important; }
+{{FF_EXTRA_SCOPE}} #urlbar[focused] > #urlbar-background,
+{{FF_EXTRA_SCOPE}} #searchbar:focus-within {
+  box-shadow: none !important;
+  background-image: linear-gradient(to right, #{{WAYBAR_WS_ACTIVE}}, #{{WAYBAR_WS_ACTIVE}}) !important;
+  background-size: 48px 1px !important; background-position: left bottom !important; background-repeat: no-repeat !important;
+}
+{{FF_EXTRA_SCOPE}} checkbox[checked] .checkbox-check,
+{{FF_EXTRA_SCOPE}} radio[selected] .radio-check { color: #{{WAYBAR_WS_ACTIVE}} !important; fill: #{{WAYBAR_WS_ACTIVE}} !important; }
+{{FF_EXTRA_SCOPE}} scrollbar thumb:active { background-color: #{{WAYBAR_WS_ACTIVE}} !important; }

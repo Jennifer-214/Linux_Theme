@@ -93,7 +93,7 @@ install: all
 	@cd ../.. && pwd > $(HOME)/.local/share/foxml/repo-dir
 	@echo "  + repo path recorded: $$(cat $(HOME)/.local/share/foxml/repo-dir)"
 
-test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_gaming tests/test_iommu tests/test_hyprlock_pin tests/test_nvidia_modules tests/test_claude_wiring tests/test_hw_autoenable tests/test_built_tools tests/test_hidepid tests/test_health_boot tests/test_dry_run tests/test_git_clone tests/test_hypr_lua tests/test_drawer_deploy
+test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_gaming tests/test_iommu tests/test_hyprlock_pin tests/test_nvidia_modules tests/test_claude_wiring tests/test_hw_autoenable tests/test_built_tools tests/test_hidepid tests/test_health_boot tests/test_dry_run tests/test_git_clone tests/test_hypr_lua tests/test_drawer_deploy tests/test_cursor_sync
 	@./tests/test_registry
 	@./tests/test_args
 	@./tests/test_state_manifest
@@ -117,6 +117,7 @@ test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_c
 	@./tests/test_dry_run
 	@./tests/test_hypr_lua
 	@./tests/test_drawer_deploy
+	@./tests/test_cursor_sync
 	@bash ./tests/lint_shell_assets.sh
 	@bash ./tests/lint_unit_escaping.sh
 
@@ -127,6 +128,9 @@ tests/test_registry: tests/test_registry.cpp core/registry.o
 	$(CXX) $(CXXFLAGS) tests/test_registry.cpp core/registry.o -o $@
 
 tests/test_drawer_deploy: tests/test_drawer_deploy.cpp modules/drawer.o core/backup.o $(FOX_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) $^ -o $@
+
+tests/test_cursor_sync: tests/test_cursor_sync.cpp modules/catppuccin_cursor.o core/backup.o $(FOX_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
 # [I-08] flag-layer semantics — parse-time precedence (every shipped

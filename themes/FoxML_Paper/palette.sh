@@ -21,7 +21,7 @@ FONT_FAMILY="MonaspiceKr Nerd Font"
 # `[[ "{{SHOW_WELCOME}}" == "true" ]]` check in templates/zsh/welcome.zsh.
 SHOW_WELCOME=true
 SHOW_BANNER=true
-WALLPAPER=foxml_paper.jpg
+WALLPAPER=foxml_paper_nap.jpg
 
 # ─── Aesthetic controls ───
 # Light blur so the paper grain still shows through translucent windows.
@@ -37,8 +37,8 @@ SHADOW_ALPHA=0.06
 # ─── Desktop chrome (GTK settings.ini · cursor · Hyprland window edges · kitty text · banner) ───
 # A drawn hairline separates sheets; inactive windows stay paper, not soot.
 GTK_PREFER_DARK=0
-# Latte pink remains visibly pink against the light paper background.
-CURSOR_THEME=catppuccin-latte-pink-cursors
+# Soft pink follows Paper's blush selection rather than its stronger rose accents.
+CURSOR_THEME=catppuccin-mocha-pink-cursors
 PAPIRUS_FOLDER_COLOR=grey
 HYPR_BORDER_SIZE=1
 HYPR_BORDER_INACTIVE=9a989488
@@ -151,25 +151,25 @@ NVIM_CONFLICT_INC_LABEL=d6e2d3
 NVIM_ILLUMINATE=e2dfd8
 
 # ─── Nvim definition / keyword weight ───
-# A signature is the darkest, boldest line; keywords inside the body stay regular weight.
+# Soft highlighter behind graphite signatures; calls stay on the plain page.
 NVIM_FN_DEF=1c1c1e
 NVIM_FN_DEF_BOLD=true
 NVIM_KW_BOLD=false
 NVIM_READONLY_BOLD=false
 
 # ─── Nvim syntax roles ───
-# Typed code in dark graphite; comments a lighter handwritten pencil; section banners inked bold.
+# Dark typed code and warm handwritten comments, with blush behind literals.
 NVIM_SYN_VAR=1c1c1e
 NVIM_SYN_MEMBER=3c3c40
 NVIM_SYN_PARAM=3c3c40
-NVIM_SYN_TYPE=48484b
-NVIM_SYN_STRING=55555a
+NVIM_SYN_TYPE=3c3c40
+NVIM_SYN_STRING=3c3c40
 NVIM_SYN_NUMBER=3c3c40
 NVIM_SYN_CALL=1c1c1e
-NVIM_SYN_OPERATOR=6e6d70
+NVIM_SYN_OPERATOR=48484b
 NVIM_SYN_RETURN=1c1c1e
-NVIM_SYN_COMMENT=9a9894
-NVIM_SYN_HEADER=2b2b2d
+NVIM_SYN_COMMENT=7c7a76
+NVIM_SYN_HEADER=7c7a76
 NVIM_SECTION_HEADERS=true
 NVIM_FAINT_FG=a8a6a0
 # Errors in raspberry red pen — the one bright mark on the page
@@ -222,7 +222,7 @@ FZF_ACCENT1=3c3c40
 FZF_ACCENT2=6e6d70
 
 # ─── ZSH autosuggestion color ───
-ZSH_SUGGEST=9a9894
+ZSH_SUGGEST=85837f
 
 # ─── ANSI 256-color codes ───
 ANSI_ACCENT1=238
@@ -269,7 +269,7 @@ SENTRY_CRIT=9a5a48
 SENTRY_WARN=1c1c1e
 SENTRY_OK=6e6d70
 SENTRY_DIM=a8a6a0
-KITTY_OPACITY=0.92
+KITTY_OPACITY=0.80
 ANSI_WHITE=55555a
 ANSI_BLUE=55555a
 ANSI_BLUE_BRIGHT=6e6d70
@@ -375,7 +375,8 @@ FF_SELECTION_FG=1c1c1e
 
 # ─── Errors · warnings · syntax roles · Thunar · one sheet opacity ───
 # Paper: one error red (the symdeps terracotta 9a5a48), warnings in the darkest ink, graphite syntax
-# outside nvim too, the highlighter in Thunar, every sheet at 0.92, handwritten notification titles.
+# outside nvim too, the highlighter in Thunar, and handwritten notification titles.
+# Other sheets stay at 0.92; Kitty uses its own opacity to reveal the wallpaper.
 NVIM_WARN=1c1c1e
 NVIM_WARN_CURL=false
 NVIM_WARN_DASH=true
@@ -406,3 +407,6 @@ MAKO_FORMAT='<span font_family="MonaspiceRn Nerd Font" style="italic" size="larg
 
 # ─── Preview swatches (for swap.sh) ───
 PALETTE_LABELS=("paper" "graphite" "4B" "HB" "2H" "smudge")
+
+# Small native control accents
+GTK_DETAIL_SCOPE=window

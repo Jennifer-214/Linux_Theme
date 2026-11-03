@@ -7,6 +7,7 @@
 
 #include "../core/context.hpp"
 #include "../core/palette.hpp"
+#include "../core/backup.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
@@ -15,6 +16,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <cstdlib>
 
 namespace fs = std::filesystem;
 using json   = nlohmann::json;
@@ -24,6 +26,39 @@ namespace fox_install {
 namespace {
 
 bool have(const std::string& bin) { return sh::have(bin); }
+
+void sync_cursor_settings(const Context& ctx, const std::string& theme) {
+    if (sh::dry_run()) {
+        ui::substep("[dry-run] would synchronize GTK and fallback cursor settings");
+        return;
+    }
+    // Clients without a theme environment still consult the default inheritance.
+    std::string pattern = (fs::temp_directory_path() / "foxml-cursor-XXXXXX").string();
+    if (!::mkdtemp(pattern.data())) {
+        ui::warn("could not stage the default cursor theme");
+        return;
+    }
+    const fs::path stage = fs::path(pattern) / "index.theme";
+    std::ofstream output(stage);
+    output << "[Icon Theme]\nInherits=" << theme << '\n';
+    output.close();
+    if (output) {
+        for (const auto& icons : {ctx.home / ".icons", ctx.home / ".local/share/icons"}) {
+            if (!deploy_file_atomic(ctx, stage, icons / "default/index.theme"))
+                ui::warn("could not synchronize the fallback cursor in " + icons.string());
+        }
+    } else {
+        ui::warn("could not write the default cursor theme");
+    }
+    std::error_code ec;
+    fs::remove_all(pattern, ec);
+    if (have("gsettings")) {
+        if (sh::run({"gsettings", "set", "org.gnome.desktop.interface", "cursor-theme", theme}) != 0)
+            ui::warn("could not update the desktop cursor preference");
+        if (sh::run({"gsettings", "set", "org.gnome.desktop.interface", "cursor-size", "30"}) != 0)
+            ui::warn("could not update the desktop cursor size");
+    }
+}
 
 // Resolve the GitHub release asset URL via the API. Returns empty on
 // any failure (no network, asset renamed, etc.) — caller skips silently.
@@ -55,6 +90,7 @@ void run_catppuccin_cursor(Context& ctx) {
 
     if (fs::is_directory(sys_dir / theme) || fs::is_directory(user_dir / theme)) {
         ui::skipped(theme + " already installed");
+        sync_cursor_settings(ctx, theme);
         return;
     }
     if (sh::dry_run()) {
@@ -97,13 +133,7 @@ void run_catppuccin_cursor(Context& ctx) {
 
     if (fs::is_directory(user_dir / theme)) {
         ui::ok(theme + " → " + user_dir.string());
-        if (have("gsettings")) {
-            sh::run({"sh", "-c",
-                     "gsettings set org.gnome.desktop.interface cursor-theme \"" +
-                     theme + "\" 2>/dev/null || true"});
-            sh::run({"sh", "-c",
-                     "gsettings set org.gnome.desktop.interface cursor-size 30 2>/dev/null || true"});
-        }
+        sync_cursor_settings(ctx, theme);
     } else {
         ui::warn("extraction didn't produce " + (user_dir / theme).string());
     }

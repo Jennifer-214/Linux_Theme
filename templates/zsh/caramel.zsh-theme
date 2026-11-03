@@ -6,6 +6,8 @@
 # ─── Config ──────────────────────────────────────
 CARAMEL_CMD_THRESHOLD=${CARAMEL_CMD_THRESHOLD:-3}
 CARAMEL_DONE_AFTER=${CARAMEL_DONE_AFTER:-30}   # done note: a command at least this long (s)
+typeset -gi _caramel_paper=0
+[[ "{{LITTLE_DETAILS}}" == fox-little-details-on ]] && _caramel_paper=1
 
 # ─── Timer (tracks command execution time) ─────
 
@@ -95,6 +97,18 @@ function smart_path() {
 
 function gradient_path() {
   local raw="$1"
+  if (( _caramel_paper )); then
+    local parent="" leaf="$raw"
+    if [[ "$raw" == */* && "$raw" != / ]]; then
+      parent="${raw%/*}/"
+      leaf="${raw##*/}"
+    fi
+    # Percent signs in directory names are text, never prompt escapes.
+    parent=${parent//\%/%%}
+    leaf=${leaf//\%/%%}
+    print -r -- "%F{#{{COMMENT}}}${parent}%f%K{#{{SELECTION}}}%F{#{{FG}}}%B ${leaf} %b%f%k"
+    return
+  fi
   local -a colors=({{ANSI_ACCENT2}} {{ANSI_ACCENT1}} {{ANSI_ACCENT3}} {{ANSI_ACCENT2}} {{ANSI_ACCENT1}} {{ANSI_ACCENT3}} {{ANSI_ACCENT2}})
   local -a segments
   local result="" idx=0
@@ -149,6 +163,12 @@ ZSH_THEME_GIT_PROMPT_SUFFIX="%{%f%}"
 _fox_err=$'\e[{{ANSI_ERROR_SGR}}m'
 ZSH_THEME_GIT_PROMPT_DIRTY=" %{${_fox_err}%}%{%f%}"
 ZSH_THEME_GIT_PROMPT_CLEAN=" %{%F{{{ANSI_OK}}}%}%{%f%}"
+if (( _caramel_paper )); then
+  ZSH_THEME_GIT_PROMPT_PREFIX=" %F{#{{COMMENT}}} %F{#{{FG}}}"
+  ZSH_THEME_GIT_PROMPT_SUFFIX="%f"
+  ZSH_THEME_GIT_PROMPT_DIRTY=" %F{#{{WARN}}}✎%f"
+  ZSH_THEME_GIT_PROMPT_CLEAN=""
+fi
 
 # ─── Precmd (runs before each prompt) ──────────
 
@@ -199,7 +219,25 @@ function caramel_precmd() {
   # ── Host + Path + Git ──
   CARAMEL_HOST="%{%F{{{ANSI_ACCENT1}}}%}%n%{%F{{{ANSI_ACCENT3}}}%}@%{%F{{{ANSI_ACCENT1}}}%}%m%{%f%}"
   CARAMEL_PATH="$(gradient_path "$(smart_path)")"
-  CARAMEL_GIT="$(git_prompt_info)"
+  if (( _caramel_paper )); then
+    CARAMEL_HOST="%F{#{{FG_DIM}}}%n@%m%f"
+    if (( exit_code == 0 )); then
+      PROMPT_INDICATOR="%F{#{{FG}}}❯%f"
+    else
+      PROMPT_INDICATOR="%{${_fox_err}%}❯ ${exit_code}%f"
+    fi
+    [[ -n "$ELAPSED_PROMPT" ]] && ELAPSED_PROMPT=" %F{#{{COMMENT}}}· $(fmt_elapsed $elapsed_int)%f"
+    VENV_PROMPT=""
+    if [[ -n "$CONDA_DEFAULT_ENV" && "$CONDA_DEFAULT_ENV" != base ]]; then
+      VENV_PROMPT=" %F{#{{COMMENT}}}(${${CONDA_DEFAULT_ENV:t}//\%/%%})%f"
+    elif [[ -n "$VIRTUAL_ENV" ]]; then
+      VENV_PROMPT=" %F{#{{COMMENT}}}(${${VIRTUAL_ENV:t}//\%/%%})%f"
+    fi
+    # user@host already names the remote host; avoid printing it a second time.
+    [[ -n "$SSH_PROMPT" ]] && SSH_PROMPT="%F{#{{COMMENT}}}ssh%f "
+    [[ -n "$JOBS_PROMPT" ]] && JOBS_PROMPT=" %F{#{{COMMENT}}}&${njobs}%f"
+  fi
+  return 0
 }
 
 add-zsh-hook precmd caramel_precmd
@@ -211,10 +249,11 @@ add-zsh-hook precmd caramel_precmd
 
 setopt PROMPT_SUBST
 PROMPT='
- ${SSH_PROMPT}${CARAMEL_HOST} ${CARAMEL_PATH}${CARAMEL_GIT}${VENV_PROMPT}${JOBS_PROMPT}${ELAPSED_PROMPT}
+ ${SSH_PROMPT}${CARAMEL_HOST} ${CARAMEL_PATH}$(git_prompt_info)${VENV_PROMPT}${JOBS_PROMPT}${ELAPSED_PROMPT}
  ${PROMPT_INDICATOR} '
 
 RPROMPT='%{%F{{{ANSI_ACCENT1}}}%}%*%{%f%}'
+(( _caramel_paper )) && RPROMPT='%F{#{{COMMENT}}}%*%f'
 
 # ─── Transient prompt (collapse after enter) ──
 
@@ -223,6 +262,7 @@ function _caramel_accept_line() {
   _caramel_saved_prompt="$PROMPT"
   _caramel_saved_rprompt="$RPROMPT"
   PROMPT=' %{%F{{{ANSI_OK}}}%}•%{%f%} '
+  (( _caramel_paper )) && PROMPT=' %F{#{{COMMENT}}}·%f '
   RPROMPT=''
   zle reset-prompt
   # Restore for next command

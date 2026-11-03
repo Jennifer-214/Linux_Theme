@@ -336,3 +336,18 @@ window.soffice button:hover {
     background-color: rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.15);
     border-color: #{{PRIMARY}};
 }
+
+/* Small control details; window frames retain their existing pencil borders. */
+@define-color detail_ink #{{WAYBAR_WS_ACTIVE}};
+{{GTK_DETAIL_SCOPE}} check:checked, {{GTK_DETAIL_SCOPE}} radio:checked {
+  color: @detail_ink; background-color: @bg; background-image: none;
+  border-color: #{{ROFI_BORDER}};
+}
+{{GTK_DETAIL_SCOPE}} scale slider { background-color: @detail_ink; background-image: none; border-color: @detail_ink; }
+{{GTK_DETAIL_SCOPE}} entry:focus {
+  border-color: #{{ROFI_BORDER}}; box-shadow: none;
+  background-image: linear-gradient(to right, @detail_ink, @detail_ink);
+  background-size: 48px 1px; background-position: left bottom; background-repeat: no-repeat;
+}
+{{GTK_DETAIL_SCOPE}} notebook tab:checked { border-bottom: 1px solid @detail_ink; }
+{{GTK_DETAIL_SCOPE}} scrollbar slider:active { background-color: @detail_ink; background-image: none; }

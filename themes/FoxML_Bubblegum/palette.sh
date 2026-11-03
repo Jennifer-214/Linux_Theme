@@ -375,3 +375,6 @@ MAKO_FORMAT='<b>%s</b>\n%b'
 
 # ─── Preview swatches (for swap.sh) ───
 PALETTE_LABELS=("bg" "fg" "pink" "orchid" "candy" "plum")
+
+# Small native control accents
+GTK_DETAIL_SCOPE=.foxml-paper-controls-off

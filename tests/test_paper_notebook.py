@@ -56,8 +56,9 @@ assert(arow == 2, 'bookmark did not follow the native mark after an edit')
 vim.api.nvim_buf_del_mark(buf,'b'); Paper.refresh(buf)
 assert(#marks() == 2, 'deleted mark left a ribbon behind')
 local old_foldtext = vim.wo.foldtext
-local toggle = vim.fn.maparg('<Space>tc','n',false,true).callback
-assert(type(toggle)=='function')
+local mapping = vim.fn.maparg('<Space>tc','n',false,true)
+assert(type(mapping.callback)=='function' and mapping.desc=='Toggle comment folding')
+local function toggle() vim.api.nvim_feedkeys(vim.keycode('<Space>tc'),'xt',false) end
 local parser = vim.env.NOTEBOOK_CPP_PARSER
 if parser and parser ~= '' then
   vim.treesitter.language.add('cpp',{path=parser})
@@ -68,8 +69,19 @@ if parser and parser ~= '' then
   local text = vim.fn.foldtextresult(4)
   assert(text:find('Keep these notes together',1,true) and text:find('3 lines',1,true),vim.inspect(text))
   assert(vim.fn.foldclosed(3) == -1 and vim.fn.foldclosed(7) == -1, 'fold swallowed code')
+  vim.api.nvim_win_set_cursor(0, {4, 2})
+  for _ = 1, 3 do
+    vim.cmd('normal! zo')
+    assert(vim.fn.foldclosed(4) == -1, 'zo did not open the comment')
+    vim.cmd('normal! zc')
+    assert(vim.fn.foldclosed(4) == 4, 'zc did not close the comment again')
+  end
+  vim.cmd('normal! zo')
   toggle()
   assert(vim.wo.foldtext == old_foldtext, 'toggle did not restore the existing fold text')
+  toggle()
+  assert(vim.fn.foldclosed(4) == 4, 're-enabling comment folds reopened the comment under the cursor')
+  toggle()
 end
 local plugin = vim.env.NOTEBOOK_SYMDEPS
 if plugin and plugin ~= '' then
@@ -134,13 +146,13 @@ assert(before:find('nested/note.cpp',1,true),before)
 assert(during:find('nested/note.cpp',1,true),during)
 for _,name in ipairs({'BufferLineBufferSelected','BufferLineBufferVisible'}) do
  local hl=vim.api.nvim_get_hl(0,{name=name,link=false})
- assert(hl.fg==0xb8336a and hl.bold and not hl.italic,name..vim.inspect(hl))
+ assert(hl.fg==0x2b2b2d and hl.bold and not hl.italic,name..vim.inspect(hl))
 end
 assert(vim.api.nvim_win_get_buf(editor)==file)
 vim.api.nvim_set_current_win(editor)
 local after=filename()
 assert(after:find('nested/note.cpp',1,true),after)
-print('Actual Neo-tree and Lualine: editor filename stays stable across focus; visible tab names retain pink, bold, upright lettering.')
+print('Actual Neo-tree and Lualine: editor filename stays stable across focus; visible tab names retain pencil, bold, upright lettering.')
 vim.cmd('qa!')
 '''
 

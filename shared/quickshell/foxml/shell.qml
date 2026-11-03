@@ -21,7 +21,7 @@ ShellRoot {
     property string page: "root"
     property string pageTitle: "a little room to think."
     property string groupId: ""
-    property string message: "choose a drawer, make yourself at home."
+    property string message: ""
     property bool failed: false
     property var groups: []
     property var entries: []
@@ -37,6 +37,7 @@ ShellRoot {
     property int viewSerial: 0
     property int navigationSerial: 0
     property bool drawerReady: true
+    property bool homeFocusPending: false
     property var nextView: null
     property var nextAction: null
     property string backend: Quickshell.env("FOXML_DRAWER_BACKEND") || "fox-drawer"
@@ -116,7 +117,7 @@ ShellRoot {
         drawerReady = true;
         focusArea = "items";
         searchInput.text = "";
-        note(pickerPrompt ? "type a thought · Enter sends · Esc closes." : "j / k move · Enter chooses · / searches · Esc closes.");
+        note("");
         Qt.callLater(function() { if (root.pickerPrompt) searchInput.forceActiveFocus(); else keyboard.forceActiveFocus(); });
     }
 
@@ -186,7 +187,7 @@ ShellRoot {
             if (data.group && !searching) {
                 groupId = data.group;
                 var gi = groups.findIndex(function(g) { return g.page === groupId || g.id === groupId; });
-                if (gi >= 0) groupIndex = gi;
+                if (gi >= 0 && focusArea !== "groups") groupIndex = gi;
             }
             itemIndex = Logic.restoreIndex(entries, samePage ? oldKey : (saved ? saved.key : ""));
             itemList.viewPage = requestedPage;
@@ -213,9 +214,10 @@ ShellRoot {
         searchInput.text = "";
         trail = [];
         page = pageId || "root";
+        homeFocusPending = page === "root";
         navigationSerial++;
         focusArea = page === "root" ? "groups" : "items";
-        note("j / k move · Enter uses the selected control · / searches.");
+        note("");
         if (!groupProcess.running) groupProcess.running = true;
         if (page === "root") {
             entries = [];
@@ -226,6 +228,7 @@ ShellRoot {
     }
 
     function hide() {
+        homeFocusPending = false;
         finishPicker({cancel: true});
         finishEdit();
         remember();
@@ -241,6 +244,7 @@ ShellRoot {
     function chooseGroup(index) {
         if (pickerActive) return;
         if (!groups[index]) return;
+        homeFocusPending = false;
         remember();
         groupIndex = index;
         groupId = groups[index].page || groups[index].id;
@@ -282,7 +286,7 @@ ShellRoot {
         } else if (focusArea === "items") {
             remember();
             focusArea = "groups";
-            note("choose another little drawer, or Esc to close.");
+            note("");
         } else hide();
     }
 
@@ -296,10 +300,11 @@ ShellRoot {
         searchInput.text = "";
         requestView();
         Qt.callLater(function() { searchInput.forceActiveFocus(); });
-        note("type normally here — even h, j, k and l.");
+        note("");
     }
 
     function step(delta) {
+        homeFocusPending = false;
         if (pendingConfirm) { confirmYes = !confirmYes; return; }
         if (editing) return;
         if (focusArea === "groups") {
@@ -334,7 +339,7 @@ ShellRoot {
             itemList.viewPage = "";
             requestView();
             keyboard.forceActiveFocus();
-            note("found it. Enter to use this little control.");
+            note("");
             return;
         }
         if (item.kind === "page") {
@@ -355,7 +360,7 @@ ShellRoot {
         if (item.kind === "slider") {
             draftValue = Math.round(Number(item.value || 0));
             editing = true;
-            note("h / l adjust · Enter or Esc finishes.");
+            note("");
             return;
         }
         if (item.confirm && !confirmed) {
@@ -413,6 +418,7 @@ ShellRoot {
 
     function key(event) {
         if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)) return;
+        homeFocusPending = false;
         var k = event.key;
         if (searching) {
             if (k === Qt.Key_Escape) { goBack(); event.accepted = true; }
@@ -500,19 +506,21 @@ ShellRoot {
                 var data = JSON.parse(groupOut.text);
                 if ((code !== 0 || data.error) && !Array.isArray(data.items)) throw new Error(data.error || "Cannot read menu groups.");
                 if (code !== 0 || data.error) root.note(data.error || "Some home cards are unavailable.", true);
-                root.groups = Array.isArray(data.items) ? data.items : [];
+                var previousGroup = Logic.identity(root.groups[root.groupIndex]);
+                var refreshedGroups = Array.isArray(data.items) ? data.items : [];
+                if (JSON.stringify(root.groups) !== JSON.stringify(refreshedGroups)) root.groups = refreshedGroups;
                 if (root.page === "root" && !root.searching && !root.editing && !root.pendingConfirm) {
                     var previous = Logic.identity(root.entries[root.itemIndex]);
-                    var firstLoad = root.entries.length === 0;
                     root.entries = Array.isArray(data.favorites) ? data.favorites : [];
                     root.itemIndex = Logic.restoreIndex(root.entries, previous);
                     root.pageTitle = root.entries.length ? "a few favorites." : "a little room to think.";
                     root.drawerReady = true;
                     itemList.viewPage = "root";
-                    if (firstLoad && root.entries.length) root.focusArea = "items";
+                    if (root.homeFocusPending && root.entries.length) root.focusArea = "items";
+                    root.homeFocusPending = false;
                 }
-                var gi = root.groups.findIndex(function(g) { return g.page === root.page || g.id === root.groupId; });
-                if (gi >= 0) root.groupIndex = gi;
+                var gi = root.focusArea === "groups" ? -1 : root.groups.findIndex(function(g) { return g.page === root.page || g.id === root.groupId; });
+                root.groupIndex = gi >= 0 ? gi : Logic.restoreIndex(root.groups, previousGroup);
             } catch (error) { root.note(String(error.message || error), true); }
         }
     }
@@ -664,6 +672,9 @@ ShellRoot {
                             spacing: 7
                             model: root.groups
                             currentIndex: root.groupIndex
+                            keyNavigationEnabled: false
+                            boundsBehavior: Flickable.StopAtBounds
+                            boundsMovement: Flickable.StopAtBounds
                             delegate: Rectangle {
                                 required property var modelData
                                 required property int index
@@ -715,26 +726,14 @@ ShellRoot {
                                 Text { textFormat: Text.PlainText; text: root.searching && !root.pickerActive ? "find a little thing" : root.pageTitle; color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: 20; Layout.fillWidth: true; elide: Text.ElideRight }
                                 Text { textFormat: Text.PlainText; text: root.page === "root" || (root.pickerActive && root.pickerPrompt) ? "" : String(root.entries.length).padStart(2, "0"); color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10 }
                             }
-                            RowLayout {
+                            Text {
                                 id: breadcrumbRow
-                                visible: !root.searching && root.breadcrumbs.length > 0
+                                visible: !root.searching && root.breadcrumbs.length > 1
                                 Layout.fillWidth: true
-                                spacing: 6
-                                Text {
-                                    visible: root.breadcrumbs.length > 1
-                                    textFormat: Text.PlainText
-                                    text: root.breadcrumbs.slice(0, -1).map(function(crumb) { return crumb.label; }).join(" / ") + " /"
-                                    color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9
-                                    elide: Text.ElideMiddle
-                                    Layout.maximumWidth: breadcrumbRow.width * .65
-                                }
-                                Text {
-                                    textFormat: Text.PlainText
-                                    text: root.breadcrumbs.length ? root.breadcrumbs[root.breadcrumbs.length - 1].label : ""
-                                    color: theme.detailAccent; font.family: theme.fontFamily; font.pixelSize: 9
-                                    elide: Text.ElideMiddle
-                                    Layout.fillWidth: true
-                                }
+                                textFormat: Text.PlainText
+                                text: root.breadcrumbs.slice(0, -1).map(function(crumb) { return crumb.label; }).join(" / ")
+                                color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9
+                                elide: Text.ElideMiddle
                             }
 
                             Rectangle {
@@ -759,7 +758,9 @@ ShellRoot {
                                         placeholderText: root.pickerPrompt && root.pickerActive ? "write here…" : "find a little thing…"
                                         placeholderTextColor: theme.muted
                                         selectByMouse: true
-                                        background: Item {}
+                                        background: Item {
+                                            Rectangle { anchors.bottom: parent.bottom; width: theme.paperDetails ? Math.min(48, parent.width) : parent.width; height: 1; visible: searchInput.activeFocus; color: theme.paperDetails ? theme.detailAccent : theme.accent }
+                                        }
                                         onTextChanged: if (root.searching) searchDebounce.restart()
                                         Keys.onPressed: event => root.key(event)
                                     }
@@ -787,8 +788,13 @@ ShellRoot {
                                     spacing: 7
                                     model: root.entries
                                     currentIndex: root.itemIndex
+                                    keyNavigationEnabled: false
                                     boundsBehavior: Flickable.StopAtBounds
-                                    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+                                    ScrollBar.vertical: ScrollBar {
+                                        id: itemScroll
+                                        policy: ScrollBar.AsNeeded
+                                        contentItem: Rectangle { implicitWidth: 4; implicitHeight: 20; radius: 2; color: itemScroll.pressed && theme.paperDetails ? theme.detailAccent : theme.line }
+                                    }
                                     delegate: Rectangle {
                                         id: itemRow
                                         required property var modelData
@@ -836,15 +842,21 @@ ShellRoot {
                                                 Layout.fillWidth: true
                                                 spacing: 4
                                                 Text { textFormat: Text.PlainText; text: modelData.label || ""; color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true }
-                                                Text { textFormat: Text.PlainText; text: modelData.detail || ""; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9; elide: Text.ElideRight; Layout.fillWidth: true }
-                                                Rectangle {
+                                                Text { textFormat: Text.PlainText; text: Logic.detailText(modelData); visible: text.length > 0; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9; elide: Text.ElideRight; Layout.fillWidth: true }
+                                                Item {
+                                                    id: ruler
                                                     visible: modelData.kind === "slider"
                                                     Layout.fillWidth: true
                                                     Layout.topMargin: 6
-                                                    height: 3
-                                                    radius: 2
-                                                    color: theme.line
-                                                    Rectangle { height: 3; radius: 2; width: parent.width * Math.max(0, Math.min(100, root.editing && selected ? root.draftValue : Number(modelData.value || 0))) / 100; color: theme.ink }
+                                                    Layout.preferredHeight: theme.paperDetails ? 14 : 3
+                                                    readonly property real fraction: Math.max(0, Math.min(100, root.editing && selected ? root.draftValue : Number(modelData.value || 0))) / 100
+                                                    Rectangle { width: parent.width; height: 1; y: theme.paperDetails ? 5 : 1; color: theme.line }
+                                                    Rectangle { height: 2; y: theme.paperDetails ? 4 : 0; width: parent.width * ruler.fraction; color: theme.ink }
+                                                    Repeater {
+                                                        model: theme.paperDetails ? 11 : 0
+                                                        Rectangle { required property int index; x: index * (ruler.width - 1) / 10; y: 8; width: 1; height: index % 5 === 0 ? 5 : 3; color: theme.line }
+                                                    }
+                                                    Rectangle { visible: theme.paperDetails; width: 5; height: 9; radius: 2; x: Math.max(0, Math.min(parent.width - width, parent.width * ruler.fraction - width / 2)); color: theme.detailAccent }
                                                 }
                                             }
                                             ColumnLayout {
@@ -854,10 +866,10 @@ ShellRoot {
                                                     visible: modelData.kind === "toggle"
                                                     width: 29; height: 16; radius: 8
                                                     color: "transparent"; border.width: 1; border.color: theme.muted
-                                                    Rectangle { width: 8; height: 8; radius: 4; y: 4; x: modelData.checked || modelData.active ? 17 : 4; color: theme.ink; Behavior on x { NumberAnimation { duration: 100 } } }
+                                                    Rectangle { width: 8; height: 8; radius: 4; y: 4; x: modelData.checked || modelData.active ? 17 : 4; color: theme.paperDetails && (modelData.checked || modelData.active) ? theme.detailAccent : theme.ink; Behavior on x { NumberAnimation { duration: 100 } } }
                                                 }
                                                 Text { textFormat: Text.PlainText; visible: modelData.kind !== "toggle"; text: Logic.valueText(modelData, root.editing && selected, root.draftValue); color: theme.ink; font.family: theme.fontFamily; font.pixelSize: modelData.kind === "page" ? 18 : 11; Layout.alignment: Qt.AlignRight }
-                                                Text { textFormat: Text.PlainText; visible: modelData.kind === "toggle" || modelData.kind === "slider"; text: modelData.kind === "slider" ? (root.editing && selected ? "h / l" : "edit ↵") : Logic.valueText(modelData, false, 0); color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 8; Layout.alignment: Qt.AlignRight }
+                                                Text { textFormat: Text.PlainText; visible: modelData.kind === "toggle"; text: Logic.valueText(modelData, false, 0); color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 8; Layout.alignment: Qt.AlignRight }
                                             }
                                         }
                                         MouseArea {
@@ -939,7 +951,7 @@ ShellRoot {
                         }
                     }
 
-                    Text { textFormat: Text.PlainText; text: (root.failed ? "! " : "✿ ") + root.message; color: root.failed ? theme.error : theme.muted; font.family: theme.fontFamily; font.pixelSize: 10; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.role: Accessible.StaticText; Accessible.name: root.message }
+                    Text { visible: root.message.length > 0; textFormat: Text.PlainText; text: (root.failed ? "! " : "✿ ") + root.message; color: root.failed ? theme.error : theme.muted; font.family: theme.fontFamily; font.pixelSize: 10; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.role: Accessible.StaticText; Accessible.name: root.message }
                     Rectangle { Layout.fillWidth: true; height: 1; color: theme.line }
                     Text {
                         textFormat: Text.PlainText

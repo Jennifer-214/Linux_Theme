@@ -149,6 +149,13 @@ local P = {
 
 -- >>> fox-paper-details
 local Paper = { enabled = "{{LITTLE_DETAILS}}" == "fox-little-details-on" }
+Paper.completion_icons = {
+  Text = "󰉿", Method = "󰆧", Function = "󰊕", Constructor = "", Field = "󰜢",
+  Variable = "󰀫", Class = "󰠱", Interface = "", Module = "", Property = "󰜢",
+  Unit = "󰑭", Value = "󰎠", Enum = "", Keyword = "󰌋", Snippet = "",
+  Color = "󰏘", File = "󰈙", Reference = "󰈇", Folder = "󰉋", EnumMember = "",
+  Constant = "󰏿", Struct = "󰙅", Event = "", Operator = "󰆕", TypeParameter = "󰊄",
+}
 if Paper.enabled then vim.opt.cursorlineopt = "line,number" end
 Paper.namespace = vim.api.nvim_create_namespace("foxml_paper_bookmarks")
 local paper_signatures, paper_pending, paper_scheduled = {}, {}, false
@@ -202,7 +209,7 @@ end
 
 function Paper.foldtext()
   local first = vim.trim(vim.fn.getline(vim.v.foldstart))
-  return { { "▸  " .. first, "FoxPaperFoldText" },
+  return { { "▸  ", "FoxPaperFoldArrow" }, { first, "FoxPaperFoldText" },
            { ("  · %d lines"):format(vim.v.foldend - vim.v.foldstart + 1), "FoxPaperFoldCount" } }
 end
 _G.FoxPaperFoldText = Paper.foldtext
@@ -374,6 +381,7 @@ local plugins = {
       hl(0, "RainbowIndent4", { fg = P.indent[4] })
       hl(0, "RainbowIndent5", { fg = P.indent[5] })
       hl(0, "RainbowIndent6", { fg = P.indent[6] })
+      hl(0, "IblScope", { fg = Paper.enabled and P.bookmark or P.ibl_scope })
       require("ibl").setup({
         indent = {
           highlight = {
@@ -381,8 +389,12 @@ local plugins = {
             "RainbowIndent4", "RainbowIndent5", "RainbowIndent6",
           },
         },
-        scope = { enabled = {{SHOW_WELCOME}}, show_start = false, show_end = false },
+        scope = { enabled = {{SHOW_WELCOME}}, highlight = "IblScope", show_start = false, show_end = false },
       })
+      if Paper.enabled then
+        local hooks = require("ibl.hooks")
+        hooks.register(hooks.type.ACTIVE, Paper.file_buffer)
+      end
     end },
 
   -- Core editing (commenting is core gc/gcc since nvim 0.10 — see <leader>/ below)
@@ -510,8 +522,8 @@ local plugins = {
         -- Keep visible file names steady when focus moves to the sidebar.
         fill = { bg = P.none },
         background = { fg = P.comment, bg = P.none },
-        buffer_selected = { fg = Paper.enabled and P.bookmark or P.fg, bg = P.none, bold = {{SHOW_WELCOME}}, italic = not Paper.enabled and {{SHOW_WELCOME}} },
-        buffer_visible = { fg = Paper.enabled and P.bookmark or P.comment, bg = P.none, bold = Paper.enabled or nil, italic = false },
+        buffer_selected = { fg = P.fg, bg = P.none, bold = {{SHOW_WELCOME}}, italic = not Paper.enabled and {{SHOW_WELCOME}} },
+        buffer_visible = { fg = Paper.enabled and P.fg or P.comment, bg = P.none, bold = Paper.enabled or nil, italic = false },
         separator = { fg = P.bg_hl, bg = P.none },
         separator_selected = { fg = P.bg_hl, bg = P.none },
         separator_visible = { fg = P.bg_hl, bg = P.none },
@@ -524,8 +536,8 @@ local plugins = {
         tab_separator = { fg = P.bg_hl, bg = P.none },
         tab_separator_selected = { fg = P.bg_hl, bg = P.none },
         duplicate = { fg = P.comment, bg = P.none, italic = {{SHOW_WELCOME}} },
-        duplicate_selected = { fg = Paper.enabled and P.bookmark or P.fg, bg = P.none, bold = Paper.enabled or nil, italic = not Paper.enabled and {{SHOW_WELCOME}} },
-        duplicate_visible = { fg = Paper.enabled and P.bookmark or P.comment, bg = P.none, bold = Paper.enabled or nil, italic = not Paper.enabled and {{SHOW_WELCOME}} },
+        duplicate_selected = { fg = P.fg, bg = P.none, bold = Paper.enabled or nil, italic = not Paper.enabled and {{SHOW_WELCOME}} },
+        duplicate_visible = { fg = Paper.enabled and P.fg or P.comment, bg = P.none, bold = Paper.enabled or nil, italic = false },
         diagnostic_selected = { bold = {{SHOW_WELCOME}} },
       },
     },
@@ -567,7 +579,14 @@ local plugins = {
     opts = {},
   },
   -- TODO highlights
-  { "folke/todo-comments.nvim",         dependencies = { "nvim-lua/plenary.nvim" },       opts = {} },
+  {
+    "folke/todo-comments.nvim",
+    dependencies = { "nvim-lua/plenary.nvim" },
+    opts = Paper.enabled and {
+      keywords = { NOTE = { alt = { "INFO", "IDEA" } } },
+      highlight = { keyword = "bg", after = "", multiline = false },
+    } or {},
+  },
 
   -- Projects
   {
@@ -1547,20 +1566,20 @@ local function apply_foxml_theme()
   hl("NormalNC",     { fg = P.fg, bg = P.none })
   hl("NormalFloat",  { fg = P.fg, bg = P.float_bg })
   hl("FloatBorder",  { fg = P.float_border, bg = P.none })
-  hl("FloatTitle",   { fg = P.peach, bg = P.none, bold = {{SHOW_WELCOME}} })
+  hl("FloatTitle",   { fg = Paper.enabled and P.bookmark or P.peach, bg = P.none, bold = {{SHOW_WELCOME}} })
   hl("CursorLine",  { bg = P.list_sel })  -- Paper carries the existing pink list selection across the cursor's line.
   hl("CursorColumn", { bg = P.bg_hl })
   hl("ColorColumn",  { bg = P.bg_hl })
   hl("Visual",       { bg = P.sel })
   hl("VisualNOS",    { bg = P.sel })
   hl("LineNr",       { fg = P.faint })
-  hl("CursorLineNr", { fg = P.peach, bold = {{SHOW_WELCOME}} })
+  hl("CursorLineNr", { fg = Paper.enabled and P.bookmark or P.peach, bold = {{SHOW_WELCOME}} })
   hl("SignColumn",   { fg = P.faint, bg = P.none })
   hl("EndOfBuffer",  { fg = P.bg })
   hl("VertSplit",    { fg = P.yellow_br, bg = P.none })
   hl("WinSeparator", { fg = P.yellow_br, bg = P.none })
   hl("Pmenu",        { fg = P.fg, bg = P.float_bg })
-  hl("PmenuSel",     { bg = P.menu_sel })
+  hl("PmenuSel",     { fg = Paper.enabled and P.fg or nil, bg = P.menu_sel })
   hl("PmenuSbar",    { bg = P.bg_hl })
   hl("PmenuThumb",   { bg = P.comment })
   hl("WildMenu",     { fg = P.bg, bg = P.peach, bold = {{SHOW_WELCOME}} })
@@ -1592,6 +1611,8 @@ local function apply_foxml_theme()
   hl("Folded",       { fg = P.comment, bg = P.bg_hl })
   hl("FoldColumn",   { fg = P.faint, bg = P.none })
   hl("FoxPaperBookmark", { fg = P.bookmark })
+  hl("FoxPaperYank", { fg = P.fg, bg = P.sel })
+  hl("FoxPaperFoldArrow", { fg = P.bookmark, bg = P.bg_hl })
   hl("FoxPaperFoldText", { fg = P.comment, bg = P.bg_hl })
   hl("FoxPaperFoldCount", { fg = P.faint, bg = P.bg_hl })
 
@@ -1607,9 +1628,9 @@ local function apply_foxml_theme()
   hl("Constant",     { fg = P.peach })
   hl("String",       { fg = P.syn.string })
   hl("Character",    { fg = P.syn.string })
-  hl("Number",       { fg = P.syn.number, bold = {{SHOW_WELCOME}} })
-  hl("Boolean",      { fg = P.peach, bold = {{SHOW_WELCOME}} })
-  hl("Float",        { fg = P.syn.number, bold = {{SHOW_WELCOME}} })
+  hl("Number",       { fg = P.syn.number, bg = Paper.enabled and P.sel or nil, bold = {{SHOW_WELCOME}} })
+  hl("Boolean",      { fg = Paper.enabled and P.syn.number or P.peach, bg = Paper.enabled and P.sel or nil, bold = {{SHOW_WELCOME}} })
+  hl("Float",        { fg = P.syn.number, bg = Paper.enabled and P.sel or nil, bold = {{SHOW_WELCOME}} })
   hl("Identifier",   { fg = P.syn.var })
   hl("Function",     { fg = P.peach })
   hl("Statement",    { fg = P.pink, bold = {{NVIM_KW_BOLD}} })
@@ -1639,7 +1660,7 @@ local function apply_foxml_theme()
   hl("Italic",       { italic = {{SHOW_WELCOME}} })
   hl("Ignore",       {})
   hl("Error",        { fg = P.red })
-  hl("Todo",         { fg = P.bg, bg = P.yellow, bold = {{SHOW_WELCOME}} })
+  hl("Todo",         { fg = Paper.enabled and P.fg or P.bg, bg = Paper.enabled and P.sel or P.yellow, bold = {{SHOW_WELCOME}} })
 
   -- ── Diagnostics ──
   hl("DiagnosticError",          { fg = P.pen })
@@ -1683,21 +1704,21 @@ local function apply_foxml_theme()
   hl("@string.regex",        { fg = P.cyan })
   hl("@string.special",      { fg = P.cyan })
   hl("@character",           { fg = P.syn.string })
-  hl("@number",              { fg = P.syn.number, bold = {{SHOW_WELCOME}} })
-  hl("@number.float",        { fg = P.syn.number, bold = {{SHOW_WELCOME}} })
-  hl("@number.hex",          { fg = P.yellow, bold = {{SHOW_WELCOME}} })
-  hl("@boolean",             { fg = P.peach, bold = {{SHOW_WELCOME}} })
+  hl("@number",              { fg = P.syn.number, bg = Paper.enabled and P.sel or nil, bold = {{SHOW_WELCOME}} })
+  hl("@number.float",        { fg = P.syn.number, bg = Paper.enabled and P.sel or nil, bold = {{SHOW_WELCOME}} })
+  hl("@number.hex",          { fg = Paper.enabled and P.syn.number or P.yellow, bg = Paper.enabled and P.sel or nil, bold = {{SHOW_WELCOME}} })
+  hl("@boolean",             { fg = Paper.enabled and P.syn.number or P.peach, bg = Paper.enabled and P.sel or nil, bold = {{SHOW_WELCOME}} })
   hl("@type",                { fg = P.syn.type })
   hl("@type.builtin",        { fg = P.syn.type })
   hl("@type.definition",     { fg = P.syn.type })
   hl("@type.qualifier",      { fg = P.pink })
   hl("@attribute",           { fg = P.peach })
   hl("@property",            { fg = P.syn.member })
-  hl("@function",            { fg = P.fn_def, bold = {{NVIM_FN_DEF_BOLD}} })
+  hl("@function",            { fg = P.fn_def, bg = Paper.enabled and P.sel or nil, bold = {{NVIM_FN_DEF_BOLD}} })
   hl("@function.call",       { fg = P.syn.call })
   hl("@function.builtin",    { fg = P.syn.call })
   hl("@function.macro",      { fg = P.pink })
-  hl("@function.method",     { fg = P.fn_def, bold = {{NVIM_FN_DEF_BOLD}} })
+  hl("@function.method",     { fg = P.fn_def, bg = Paper.enabled and P.sel or nil, bold = {{NVIM_FN_DEF_BOLD}} })
   hl("@function.method.call", { fg = P.syn.call })
   hl("@constructor",         { fg = P.peach })
   hl("@operator",            { fg = P.syn.operator })
@@ -1714,8 +1735,8 @@ local function apply_foxml_theme()
   hl("@punctuation.delimiter", { fg = P.peach })
   hl("@punctuation.special",  { fg = P.pink })
   hl("@comment",             { fg = P.syn.comment, italic = {{SHOW_WELCOME}} })
-  hl("@comment.todo",        { fg = P.bg, bg = P.yellow, bold = {{SHOW_WELCOME}} })
-  hl("@comment.note",        { fg = P.bg, bg = P.green, bold = {{SHOW_WELCOME}} })
+  hl("@comment.todo",        { fg = Paper.enabled and P.fg or P.bg, bg = Paper.enabled and P.sel or P.yellow, bold = {{SHOW_WELCOME}} })
+  hl("@comment.note",        { fg = Paper.enabled and P.fg or P.bg, bg = Paper.enabled and P.sel or P.green, bold = {{SHOW_WELCOME}} })
   hl("@comment.warning",     { fg = P.bg, bg = P.yellow, bold = {{SHOW_WELCOME}} })
   hl("@comment.error",       { fg = P.bg, bg = P.red, bold = {{SHOW_WELCOME}} })
   hl("@tag",                 { fg = P.peach })
@@ -1730,6 +1751,19 @@ local function apply_foxml_theme()
   hl("@markup.link.url",     { fg = P.cyan, underline = {{SHOW_WELCOME}} })
   hl("@markup.raw",          { fg = P.green })
   hl("@markup.list",         { fg = P.pink })
+
+  if Paper.enabled then
+    hl("@markup.raw.markdown_inline", { fg = P.fg, bg = P.sel })
+    hl("@markup.heading.markdown", { fg = P.bookmark, bold = true })
+    for level = 1, 6 do
+      hl("@markup.heading." .. level .. ".markdown", { fg = P.bookmark, bold = true })
+      hl("markdownH" .. level, { fg = P.bookmark, bold = true })
+    end
+    hl("markdownHeadingDelimiter", { fg = P.bookmark })
+    hl("@markup.list.checked.markdown", { fg = P.bookmark })
+    hl("@markup.list.unchecked.markdown", { fg = P.faint })
+    hl("@markup.list.checked.text.markdown", { fg = P.comment })
+  end
 
   -- ── LSP semantic tokens ──
   hl("@lsp.type.class",         { fg = P.syn.type })
@@ -1837,7 +1871,7 @@ local function apply_foxml_theme()
 
   -- Indent blankline
   hl("IblIndent", { fg = P.bg_hl })
-  hl("IblScope",  { fg = P.ibl_scope })
+  hl("IblScope",  { fg = Paper.enabled and P.bookmark or P.ibl_scope })
 
   -- Rainbow indent guides (muted versions of rainbow delimiter colors)
   hl("RainbowIndent1", { fg = P.indent[1] })
@@ -1928,14 +1962,14 @@ local function apply_foxml_theme()
   hl("HarpoonBorder", { fg = P.float_border })
 
   -- TODO comments
-  hl("TodoBgTODO", { fg = P.bg, bg = P.peach, bold = {{SHOW_WELCOME}} })
-  hl("TodoFgTODO", { fg = P.peach })
+  hl("TodoBgTODO", { fg = Paper.enabled and P.fg or P.bg, bg = Paper.enabled and P.sel or P.peach, bold = {{SHOW_WELCOME}} })
+  hl("TodoFgTODO", { fg = Paper.enabled and P.fg or P.peach })
   hl("TodoBgFIX",  { fg = P.bg, bg = P.red, bold = {{SHOW_WELCOME}} })
   hl("TodoFgFIX",  { fg = P.red })
   hl("TodoBgHACK", { fg = P.bg, bg = P.yellow, bold = {{SHOW_WELCOME}} })
   hl("TodoFgHACK", { fg = P.yellow })
-  hl("TodoBgNOTE", { fg = P.bg, bg = P.green, bold = {{SHOW_WELCOME}} })
-  hl("TodoFgNOTE", { fg = P.green })
+  hl("TodoBgNOTE", { fg = Paper.enabled and P.fg or P.bg, bg = Paper.enabled and P.sel or P.green, bold = {{SHOW_WELCOME}} })
+  hl("TodoFgNOTE", { fg = Paper.enabled and P.fg or P.green })
   hl("TodoBgWARN", { fg = P.bg, bg = P.yellow, bold = {{SHOW_WELCOME}} })
   hl("TodoFgWARN", { fg = P.yellow })
   hl("TodoBgPERF", { fg = P.bg, bg = P.pink, bold = {{SHOW_WELCOME}} })
@@ -2123,6 +2157,13 @@ local function apply_foxml_theme()
   hl("CmpItemKindFile",       { fg = P.fg })
   hl("CmpItemKindFolder",     { fg = P.peach })
   hl("CmpItemMenu",           { fg = P.comment, italic = {{SHOW_WELCOME}} })
+  if Paper.enabled then
+    hl("CmpItemAbbr", { fg = P.fg })
+    hl("FoxPaperCompletionIcon", { fg = P.bookmark })
+    for kind in pairs(Paper.completion_icons) do
+      hl("CmpItemKind" .. kind, { fg = P.comment })
+    end
+  end
 
   -- Notification toasts (snacks): the dark panel of every other float; the level colour rides on the
   -- border, icon and title in the theme's own diagnostic colours (info = the peach of every float border)
@@ -2155,13 +2196,13 @@ vim.api.nvim_create_autocmd("ColorScheme", {
   callback = function() apply_foxml_theme() end,
 })
 
--- The cursor's line number wears the mode colour (the same slots as the lualine mode pill)
+-- Paper keeps its rose page number; other palettes follow the mode pill.
 local mode_nr = { n = P.peach, i = P.green, v = P.pink, V = P.pink, ["\22"] = P.pink, s = P.pink, S = P.pink,
   ["\19"] = P.pink, R = P.red, r = P.red, c = P.yellow, t = P.green }
 vim.api.nvim_create_autocmd({ "ModeChanged", "ColorScheme" }, {
   group = vim.api.nvim_create_augroup("foxml_mode_nr", {}),
   callback = function()
-    local fg = mode_nr[vim.api.nvim_get_mode().mode:sub(1, 1)] or P.peach
+    local fg = Paper.enabled and P.bookmark or mode_nr[vim.api.nvim_get_mode().mode:sub(1, 1)] or P.peach
     vim.api.nvim_set_hl(0, "CursorLineNr", { fg = fg, bold = {{SHOW_WELCOME}} })
   end,
 })
@@ -2311,7 +2352,7 @@ local function paper_footer_mode(ink)
 end
 -- Sidebar focus must not shorten the editor path to the tree's narrower width.
 local filename_component = { "filename", path = 1, shorting_target = Paper.enabled and 0 or nil,
-  color = Paper.enabled and { fg = P.bookmark } or nil }
+  color = Paper.enabled and { fg = P.fg } or nil }
 require("lualine").setup({
   options = {
     ignore_focus = Paper.enabled and { "neo-tree" } or {},
@@ -2397,6 +2438,15 @@ local ts_parsers = { "lua", "python", "c", "cpp", "asm", "bash", "json", "yaml",
 require("nvim-treesitter").setup({
   install_dir = vim.fn.stdpath("data") .. "/site",
 })
+
+if Paper.enabled then
+  vim.treesitter.query.set("markdown", "highlights", [[; extends
+    (list_item
+      (task_list_marker_checked)
+      (paragraph) @markup.list.checked.text
+      (#set! priority 110))
+  ]])
+end
 
 -- Install only the parsers we don't already have (main has NO auto-install).
 -- VERIFY-ON-0.12: get_installed() is the documented listing helper but wasn't
@@ -2506,6 +2556,13 @@ local cmp = require("cmp")
 local luasnip = require("luasnip")
 cmp.setup({
   snippet = { expand = function(args) luasnip.lsp_expand(args.body) end },
+  formatting = Paper.enabled and {
+    format = function(_, item)
+      item.icon = Paper.completion_icons[item.kind] or "·"
+      item.icon_hl_group = "FoxPaperCompletionIcon"
+      return item
+    end,
+  } or nil,
   mapping = cmp.mapping.preset.insert({
     ["<C-b>"] = cmp.mapping.scroll_docs(-4),
     ["<C-f>"] = cmp.mapping.scroll_docs(4),
@@ -2897,7 +2954,7 @@ map("n", "<leader>tc", function()
     end
     vim.wo.foldlevel = 0
     vim.wo.foldenable = true
-    vim.cmd("normal! zx") -- recompute + close folds
+    vim.cmd("normal! zX") -- zx would immediately reopen the fold containing the cursor.
     vim.notify("Comment folding: ON")
   end
 end, { desc = "Toggle comment folding" })
@@ -3091,7 +3148,10 @@ map("n", "<leader>fg", function() require("telescope.builtin").live_grep({ cwd =
 
 -- Highlight on yank (brief flash)
 vim.api.nvim_create_autocmd("TextYankPost", {
-  callback = function() vim.highlight.on_yank({ timeout = 200 }) end,
+  callback = function(args)
+    if Paper.enabled and not Paper.file_buffer(args.buf) then return end
+    vim.highlight.on_yank({ higroup = Paper.enabled and "FoxPaperYank" or "IncSearch", timeout = 200 })
+  end,
 })
 
 -- Remember cursor position when reopening files

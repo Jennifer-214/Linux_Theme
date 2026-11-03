@@ -48,6 +48,14 @@ function valueText(item, editing, draft) {
     return "↵";
 }
 
+function detailText(item) {
+    var detail = String(item.detail || "");
+    var normalized = detail.trim().toLowerCase();
+    if (normalized === String(item.label || "").trim().toLowerCase()) return "";
+    if ((item.kind === "slider" || item.kind === "toggle") && normalized === valueText(item, false, 0)) return "";
+    return detail;
+}
+
 function barStyle(opened, page, group) {
     var css = "/* Generated drawer state; no user settings. */\n";
     if (!opened) return css;

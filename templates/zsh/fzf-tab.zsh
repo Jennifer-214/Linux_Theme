@@ -8,15 +8,19 @@
 zstyle ':fzf-tab:*' use-fzf-default-opts yes
 # FZF_DEFAULT_OPTS hides the preview by default (:hidden); the whole point of
 # fzf-tab is the preview, so un-hide it here.
-zstyle ':fzf-tab:*' fzf-flags --preview-window=right:55%:wrap
+zstyle ':fzf-tab:*' fzf-flags --preview-window=right:55%:wrap:nohidden
+if [[ "{{LITTLE_DETAILS}}" == fox-little-details-on ]]; then
+  # The tmux popup already supplies the card's frame.
+  zstyle ':fzf-tab:*' fzf-flags --border=none --preview-window=right:55%:wrap:nohidden:border-left
+fi
 
 # Floating warm popup in tmux (matches the warm transparent-popup aesthetic).
 # Inline alternative ("still in the terminal"): comment out the next line.
 zstyle ':fzf-tab:*' fzf-command ftb-tmux-popup
 zstyle ':fzf-tab:*' popup-min-size 50 8
 
-# Reuse the ◆ marker from the rest of the UI; descend dirs with /, switch groups with [ ].
-zstyle ':fzf-tab:*' prefix '◆ '
+# The selection pointer shares its source with the ordinary fzf menus.
+zstyle ':fzf-tab:*' prefix "$FOXML_FZF_POINTER "
 zstyle ':fzf-tab:*' continuous-trigger '/'
 zstyle ':fzf-tab:*' switch-group '[' ']'
 

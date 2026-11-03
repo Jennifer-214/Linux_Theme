@@ -30,11 +30,21 @@ EXERCISE = r'''
             root.goBack();
             if (root.editing || !root.opened) throw new Error("slider Escape closed panel");
             root.itemIndex = 1;
+            root.focusArea = "groups";
+            root.groupIndex = 3;
+            root.requestView();
+            groupProcess.running = true;
         }
     }
     Timer {
         interval: 1300; running: true
         onTriggered: {
+            if (root.focusArea !== "groups" || root.groupIndex !== 3) {
+                console.error("Background page/group refresh moved the keyboard's group selection");
+                Qt.exit(1);
+                return;
+            }
+            root.focusArea = "items";
             root.activate({id: "poweroff", label: "Power off", kind: "action", confirm: true});
             if (!root.pendingConfirm || root.confirmYes) throw new Error("confirmation must default to cancel");
             root.goBack();
@@ -53,12 +63,31 @@ EXERCISE = r'''
         }
     }
     Timer {
+        interval: 1600; running: true
+        onTriggered: {
+            if (root.page !== "root" || root.focusArea !== "items") {
+                console.error("Home favorites did not receive their normal initial focus");
+                Qt.exit(1);
+                return;
+            }
+            root.show("root");
+            root.groupIndex = 2;
+            root.step(1);
+        }
+    }
+    Timer {
         interval: 2000; running: true
         onTriggered: {
             if (root.page !== "root" || root.entries.length !== 1 || root.entries[0].value !== 42)
                 throw new Error("home favorites were not populated with live values");
             if (!itemList.visible) throw new Error("favorite rows are hidden on the home panel");
-            if (root.focusArea !== "items" || root.groups[1].summary !== "42% · speakers")
+            if (root.focusArea !== "groups" || root.groupIndex !== 3) {
+                console.error("Delayed home favorites stole focus after group navigation started");
+                Qt.exit(1);
+                return;
+            }
+            root.focusArea = "items";
+            if (root.groups[1].summary !== "42% · speakers")
                 throw new Error("favorite keyboard focus or live summary missing");
             var tab = {key: Qt.Key_Tab, modifiers: 0, accepted: false}; root.key(tab);
             if (root.focusArea !== "groups") throw new Error("Tab did not reach groups from favorites");

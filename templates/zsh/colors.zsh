@@ -2,6 +2,16 @@
 # │          Fox ML — terminal colors            │
 # ╰──────────────────────────────────────────────╯
 
+typeset -g FOXML_FZF_POINTER='◆' FOXML_FZF_MARKER='●'
+if [[ "{{LITTLE_DETAILS}}" == fox-little-details-on ]]; then
+  FOXML_FZF_POINTER='›'
+  FOXML_FZF_MARKER=' '
+  zle_highlight=("${(@)zle_highlight:#(region|isearch|paste):*}"
+    'region:fg=#{{FG}},bg=#{{SELECTION}}'
+    'isearch:fg=#{{FG}},bg=#{{SELECTION}}'
+    'paste:fg=#{{FG}},bg=#{{SELECTION}}')
+fi
+
 # ─── LS_COLORS (Semantic FoxML palette) ──────
 export LS_COLORS="\
 di=38;5;{{ANSI_ACCENT1}};1:\
@@ -108,3 +118,19 @@ ZSH_HIGHLIGHT_STYLES[assign]='fg={{ANSI_TEXT}}'
 ZSH_HIGHLIGHT_STYLES[redirection]='fg={{ANSI_ACCENT3}}'
 ZSH_HIGHLIGHT_STYLES[comment]='fg={{ANSI_MUTED}},italic'
 ZSH_HIGHLIGHT_STYLES[arg0]='fg=#{{ZSH_COMMAND}}'
+
+if [[ "{{LITTLE_DETAILS}}" == fox-little-details-on ]]; then
+  for _fox_word in alias builtin function command arg0; do
+    ZSH_HIGHLIGHT_STYLES[$_fox_word]='fg=#{{ZSH_COMMAND}},bold'
+  done
+  for _fox_word in single-hyphen-option double-hyphen-option; do
+    ZSH_HIGHLIGHT_STYLES[$_fox_word]='fg=#{{FG_DIM}}'
+  done
+  for _fox_word in single-quoted-argument double-quoted-argument; do
+    ZSH_HIGHLIGHT_STYLES[$_fox_word]='fg=#{{FG_PASTEL}}'
+  done
+  ZSH_HIGHLIGHT_STYLES[path]='fg=#{{FG}},underline'
+  ZSH_HIGHLIGHT_STYLES[path_pathseparator]='fg=#{{COMMENT}}'
+  ZSH_HIGHLIGHT_STYLES[comment]='fg=#{{COMMENT}},italic'
+  unset _fox_word
+fi
