@@ -175,6 +175,70 @@ function Paper.enable_hints(buf, client)
   end
 end
 
+function Paper.setup_symdeps()
+  if not Paper.enabled then return end
+  local api = vim.api
+  local ns = api.nvim_create_namespace("foxml_paper_symdeps_counts")
+  local pending = false
+  local function owned(win)
+    if not api.nvim_win_is_valid(win) then return false end
+    return vim.wo[win].winhighlight:find("FoxSymdeps", 1, true) ~= nil
+  end
+  local function countable(buf)
+    return vim.b[buf].fox_symdeps_menu or vim.bo[buf].filetype:match("^fox%-symdeps")
+  end
+  local function refresh()
+    pending = false
+    api.nvim_set_hl(0, "FoxSymdepsText", { fg = P.fg, bg = "NONE" })
+    api.nvim_set_hl(0, "FoxSymdepsDim", { fg = P.comment, bg = "NONE", italic = false })
+    api.nvim_set_hl(0, "FoxSymdepsSelection", { fg = P.fg, bg = P.sel, bold = true })
+    api.nvim_set_hl(0, "FoxPaperSymdepsFocusTitle", { fg = P.fg, bg = P.sel, bold = true })
+    local current = api.nvim_get_current_win()
+    for _, win in ipairs(api.nvim_list_wins()) do
+      if owned(win) then
+        local title = win == current and "FoxPaperSymdepsFocusTitle" or "FoxSymdepsTitle"
+        local config = api.nvim_win_get_config(win)
+        if type(config.title) == "table" then
+          local changed = false
+          for _, chunk in ipairs(config.title) do
+            if chunk[2] == "FoxSymdepsTitle" or chunk[2] == "FoxPaperSymdepsFocusTitle" then
+              if chunk[2] ~= title then chunk[2], changed = title, true end
+            end
+          end
+          if changed then api.nvim_win_set_config(win, { title = config.title }) end
+        end
+        local bar = vim.wo[win].winbar:gsub("%%#FoxSymdepsTitle#", "%%#" .. title .. "#")
+          :gsub("%%#FoxPaperSymdepsFocusTitle#", "%%#" .. title .. "#")
+        if bar ~= vim.wo[win].winbar then vim.wo[win].winbar = bar end
+        local buf = api.nvim_win_get_buf(win)
+        -- Source and assembly panes may be large; count accents belong to the UI buffers.
+        if countable(buf) then
+          api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+          for row, line in ipairs(api.nvim_buf_get_lines(buf, 0, -1, false)) do
+            local first, last = line:find("%d+ actions?")
+            if not first then first, last = line:find("%(%d+%)%s*$") end
+            if first then
+              api.nvim_buf_set_extmark(buf, ns, row - 1, first - 1,
+                { end_col = last, hl_group = "FoxSymdepsDim", priority = 150 })
+            end
+          end
+        end
+      end
+    end
+  end
+  local function queue(args)
+    if args and (args.event == "CursorMoved" or args.event == "TextChanged")
+        and not (owned(api.nvim_get_current_win()) and countable(api.nvim_get_current_buf())) then return end
+    if pending then return end
+    pending = true
+    vim.schedule(refresh)
+  end
+  local group = api.nvim_create_augroup("foxml_paper_symdeps", { clear = true })
+  api.nvim_create_autocmd({ "WinEnter", "WinLeave", "BufWinEnter", "ColorScheme", "CursorMoved", "TextChanged" },
+    { group = group, callback = queue })
+  refresh()
+end
+
 function Paper.refresh(buf)
   if not Paper.enabled or not vim.api.nvim_buf_is_valid(buf) then return end
   if not Paper.file_buffer(buf) then
@@ -1373,7 +1437,8 @@ local plugins = {
       { "<leader>dd", desc = "fox-symdeps: HUD" },
     },
     opts = {
-      palette = { header = P.peach, title = P.blush, border = P.float_border, badge = P.warm, winblend = 0,
+      palette = { header = P.peach, title = Paper.enabled and P.fg or P.blush, border = P.float_border,
+                  badge = Paper.enabled and P.fg or P.warm, winblend = 0,
                   selection = P.symdeps.sel, sync = P.symdeps.sync, warn = P.symdeps.warn,
                   alarm = P.symdeps.alarm, ok = P.symdeps.ok, ground = P.bg },
       doc_dirs = { vim.fn.expand("~/code/tick-trader-percore-workspace") }, -- `n` also greps the private workspace docs
@@ -1388,6 +1453,7 @@ local plugins = {
     },
     config = function(_, opts)
       require("fox-symdeps").setup(opts)
+      Paper.setup_symdeps()
       -- E.1.2.A: install the codified [TAG]_ grammar adapter → the tags lens + [DERIVED] gen/verify
       -- light up on tagged C++ units. pcall so an adapter hiccup can never break plugin load.
       pcall(function()

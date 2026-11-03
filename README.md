@@ -400,6 +400,9 @@ with completed task text softened to gray through the existing syntax highlighti
 Inline Markdown code uses pencil text on blush without tinting fenced code blocks.
 C/C++ files use native clangd type and parameter hints in readable pencil text;
 these skip special buffers and symdeps panels, with no additional plugin.
+Symdeps uses pencil body text, readable gray counts and shortcuts, and blush behind
+the focused window's title; inactive titles stay pencil. This is theme-side styling;
+the plugin's menu actions, help, and key bindings are unchanged.
 Search matches use pencil underlines with blush on the current match. Git changes
 use thin gutter marks, with quieter dotted marks for staged edits. Markdown quotes
 use a blush opening mark and faint pencil rules; their source returns while typing.

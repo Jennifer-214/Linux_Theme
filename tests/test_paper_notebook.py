@@ -157,8 +157,102 @@ vim.cmd('qa!')
 '''
 
 
+SYMDEPS_STYLE_DRIVER = r'''
+vim.g.mapleader=' '
+local api=vim.api
+local source=table.concat(vim.fn.readfile(vim.env.NOTEBOOK_INIT),'\n')
+assert(loadstring(source),'rendered init does not parse')
+local palette=assert(source:match('(local P = %b{})'))
+local block=assert(source:match('%-%- >>> fox%-paper%-details\n(.-)\n%-%- <<< fox%-paper%-details'))
+local state=assert(loadstring('local map=vim.keymap.set\n'..palette..'\n'..block..'\nreturn {P=P,Paper=Paper}'))()
+local P,Paper=state.P,state.Paper
+vim.opt.rtp:append(vim.env.NOTEBOOK_SYMDEPS)
+local _,last=assert(source:find('name = "fox-symdeps"',1,true))
+local opts=assert(source:sub(last):match('opts = (%b{})'))
+local settings=assert(loadstring('local P,Paper=...\nlocal role_model=function()return nil end\nreturn '..opts))(P,Paper)
+local plugin=require('fox-symdeps')
+local menu,nav=require('fox-symdeps.menu'),require('fox-symdeps.nav')
+local layout,open,help=menu._layout,menu.open,nav.help
+require('fox-symdeps.config').set(settings)
+plugin._set_highlights(settings.palette)
+require('fox-symdeps.kit').highlights()
+vim.cmd('edit '..vim.fn.fnameescape(vim.env.NOTEBOOK_SOURCE))
+local origin=api.nvim_get_current_win()
+vim.wo.winbar='existing source chip'
+local h=require('fox-symdeps.hud').open({symbol='Note',kind='struct',file=vim.env.NOTEBOOK_SOURCE,bufnr=0},{},{mode='panel'})
+Paper.setup_symdeps();vim.wait(30)
+local function hl(name)return api.nvim_get_hl(0,{name=name,link=false})end
+assert(hl('FoxSymdepsText').fg==tonumber(P.fg:sub(2),16))
+assert(hl('FoxSymdepsDim').fg==tonumber(P.comment:sub(2),16) and not hl('FoxSymdepsDim').italic)
+assert(vim.wo[h.win].winbar:find('FoxPaperSymdepsFocusTitle',1,true))
+assert(hl('FoxPaperSymdepsFocusTitle').bg==tonumber(P.sel:sub(2),16))
+api.nvim_set_current_win(origin);vim.wait(30)
+assert(vim.wo[h.win].winbar:find('FoxSymdepsTitle',1,true))
+assert(not vim.wo[h.win].winbar:find('FoxPaperSymdepsFocusTitle',1,true))
+assert(vim.wo[origin].winbar=='existing source chip')
+api.nvim_set_current_win(h.win);vim.wait(30)
+assert(vim.wo[h.win].winbar:find('FoxPaperSymdepsFocusTitle',1,true))
+h:close();vim.wait(30)
+local actions=0
+menu.open({{name='A group',label='A group',right='18 actions',run=function()actions=actions+1 end}},{title='Settings'})
+local win,buf=api.nvim_get_current_win(),api.nvim_get_current_buf()
+local lines=api.nvim_buf_get_lines(buf,0,-1,false)
+local maps=api.nvim_buf_get_keymap(buf,'n')
+vim.wait(30)
+local title=api.nvim_win_get_config(win).title
+assert(title[1][2]=='FoxPaperSymdepsFocusTitle',vim.inspect(title))
+assert(#api.nvim_buf_get_extmarks(buf,api.nvim_create_namespace('foxml_paper_symdeps_counts'),0,-1,{})==1)
+assert(vim.deep_equal(lines,api.nvim_buf_get_lines(buf,0,-1,false)),'styling changed menu content')
+assert(vim.deep_equal(maps,api.nvim_buf_get_keymap(buf,'n')),'styling changed menu bindings')
+local question=vim.fn.maparg('?','n',false,true).callback
+question();vim.wait(30)
+local child=api.nvim_get_current_win()
+assert(child~=win and api.nvim_win_is_valid(win),'native help no longer preserves its parent menu')
+assert(api.nvim_win_get_config(win).title[1][2]=='FoxSymdepsTitle','unfocused menu still has blush')
+assert(api.nvim_win_get_config(child).title[1][2]=='FoxPaperSymdepsFocusTitle')
+vim.fn.maparg('q','n',false,true).callback();vim.wait(30)
+assert(api.nvim_get_current_win()==win)
+api.nvim_set_hl(0,'FoxSymdepsText',{fg='#ff0000'})
+api.nvim_exec_autocmds('ColorScheme',{});vim.wait(30)
+assert(hl('FoxSymdepsText').fg==tonumber(P.fg:sub(2),16))
+Paper.setup_symdeps()
+assert(menu._layout==layout and menu.open==open and nav.help==help,'theme replaced plugin behavior')
+assert(actions==0,'styling ran an action')
+vim.fn.maparg('q','n',false,true).callback();vim.wait(30)
+local asm=api.nvim_create_buf(false,true)
+vim.bo[asm].filetype='asm'
+api.nvim_win_set_buf(origin,asm)
+vim.wo[origin].winhighlight='Normal:FoxSymdepsText'
+local get_lines,reads=api.nvim_buf_get_lines,0
+api.nvim_buf_get_lines=function(buf,...)
+  if buf==asm then reads=reads+1 end
+  return get_lines(buf,...)
+end
+api.nvim_exec_autocmds('ColorScheme',{});vim.wait(30)
+api.nvim_buf_get_lines=get_lines
+assert(reads==0,'count styling scanned an assembly buffer')
+print('PAPER_SYMDEPS_STYLE_PASSED: focus, colors, counts, native help, bindings and action isolation')
+vim.cmd('qa!')
+'''
+
 @unittest.skipUnless(NVIM and RENDER.exists(), 'build fox-render-fast and install nvim')
 class PaperNotebook(unittest.TestCase):
+    def test_symdeps_style_preserves_plugin_behavior(self):
+        plugin=Path.home()/'code/tick-trader-percore-workspace/tools/plugins/fox-symdeps.nvim'
+        if not plugin.is_dir():
+            self.skipTest('local symdeps plugin is not installed')
+        with tempfile.TemporaryDirectory(prefix='foxml-symdeps-style-') as temp:
+            base=Path(temp);rendered=base/'rendered'
+            subprocess.run([str(RENDER),str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates/nvim'),str(rendered)],check=True,capture_output=True)
+            driver=base/'style.lua';driver.write_text(SYMDEPS_STYLE_DRIVER)
+            note=base/'note.cpp';note.write_text('struct Note { int page; };\n')
+            env=os.environ|{'NOTEBOOK_INIT':str(rendered/'init.lua'),'NOTEBOOK_SOURCE':str(note),
+                            'NOTEBOOK_SYMDEPS':str(plugin),'XDG_STATE_HOME':str(base/'state'),
+                            'XDG_CACHE_HOME':str(base/'cache'),'NVIM_LOG_FILE':str(base/'nvim.log')}
+            result=subprocess.run([NVIM,'--clean','--headless','-l',str(driver)],env=env,capture_output=True,text=True,timeout=15)
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            self.assertIn('PAPER_SYMDEPS_STYLE_PASSED',result.stdout+result.stderr)
+
     def test_marks_folds_and_symdeps_panel(self):
         with tempfile.TemporaryDirectory(prefix='foxml-notebook-test-') as temp:
             base=Path(temp)
