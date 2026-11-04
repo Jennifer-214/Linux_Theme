@@ -31,7 +31,7 @@ namespace {
 constexpr const char* BOOT_HEALTH_UNIT =
     "[Unit]\n"
     "Description=foxml-health A-category check (boot path probe)\n"
-    "Documentation=https://github.com/Jennyfirrr/Linux_Theme/blob/main/plans/health-checks.md\n"
+    "Documentation=https://github.com/Jennifer-214/Linux_Theme/blob/main/plans/health-checks.md\n"
     "# Run after the system is mostly up (filesystems mounted, dbus\n"
     "# active) but before the graphical target spawns a DM. That\n"
     "# window is the sweet spot — late enough to read /etc/pam.d\n"

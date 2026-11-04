@@ -2,7 +2,7 @@
 # Linux_Theme — One-command bootstrap.
 #
 # Usage (run on a fresh Arch + Hyprland laptop):
-#   curl -fsSL https://raw.githubusercontent.com/Jennyfirrr/Linux_Theme/main/bootstrap.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/Jennifer-214/Linux_Theme/main/bootstrap.sh | bash
 #
 # Optional theme arg:
 #   curl -fsSL .../bootstrap.sh | bash -s Cave_Data_Center
@@ -17,7 +17,7 @@
 set -euo pipefail
 
 THEME_NAME="${1:-FoxML_Classic}"
-FOXML_REPO="${FOXML_REPO:-https://github.com/Jennyfirrr/Linux_Theme.git}"
+FOXML_REPO="${FOXML_REPO:-https://github.com/Jennifer-214/Linux_Theme.git}"
 FOXML_DIR="${FOXML_DIR:-$HOME/code/Linux_Theme}"
 
 echo "╭──────────────────────────────────────────────────────────────────╮"

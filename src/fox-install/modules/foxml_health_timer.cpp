@@ -30,7 +30,7 @@ namespace {
 constexpr const char* SERVICE_BODY =
     "[Unit]\n"
     "Description=foxml-health daily drift probe\n"
-    "Documentation=https://github.com/Jennyfirrr/Linux_Theme/blob/main/plans/health-checks.md\n"
+    "Documentation=https://github.com/Jennifer-214/Linux_Theme/blob/main/plans/health-checks.md\n"
     "\n"
     "[Service]\n"
     "Type=oneshot\n"

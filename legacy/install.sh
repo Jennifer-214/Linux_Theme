@@ -157,7 +157,7 @@ foxml_self_update() {
             echo "    if you trust this update, override with:" >&2
             echo "      FOXML_ALLOW_UNSIGNED_UPDATE=1 fox install --full" >&2
             echo "    or import the maintainer's key first:" >&2
-            echo "      gh api /users/Jennyfirrr/gpg_keys --jq '.[].raw_key' | gpg --import" >&2
+            echo "      gh api /users/Jennifer-214/gpg_keys --jq '.[].raw_key' | gpg --import" >&2
             return
         fi
         # Belt + suspenders: when a trust-file exists, require the
