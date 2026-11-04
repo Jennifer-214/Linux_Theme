@@ -7,7 +7,10 @@
   "blush": "#{{SELECTION}}",
   "font": "{{FONT_FAMILY}}",
   "directory": {
-    "glyph": ""
+    "glyph": "",
+    "open_glyph": "",
+    "empty_glyph": "",
+    "empty_open_glyph": ""
   },
   "symlink": {
     "glyph": ""
@@ -400,5 +403,92 @@
       "muted": true
     }
   ],
-  "error": "#{{RED}}"
+  "error": "#{{RED}}",
+  "folders": [
+    {
+      "asset": "folder-documents",
+      "glyph": "",
+      "names": [
+        "Documents"
+      ],
+      "aliases": []
+    },
+    {
+      "asset": "folder-pictures",
+      "glyph": "",
+      "names": [
+        "Pictures"
+      ],
+      "aliases": [
+        "folder-images"
+      ]
+    },
+    {
+      "asset": "folder-download",
+      "glyph": "",
+      "names": [
+        "Downloads"
+      ],
+      "aliases": [
+        "folder-downloads"
+      ]
+    },
+    {
+      "asset": "folder-music",
+      "glyph": "",
+      "names": [
+        "Music"
+      ],
+      "aliases": []
+    },
+    {
+      "asset": "folder-videos",
+      "glyph": "",
+      "names": [
+        "Videos"
+      ],
+      "aliases": [
+        "folder-video"
+      ]
+    },
+    {
+      "asset": "folder-development",
+      "glyph": "",
+      "names": [
+        "Projects"
+      ],
+      "aliases": [
+        "folder-code",
+        "folder-projects"
+      ]
+    },
+    {
+      "asset": "user-desktop",
+      "glyph": "",
+      "names": [
+        "Desktop"
+      ],
+      "aliases": [
+        "folder-desktop"
+      ]
+    },
+    {
+      "asset": "folder-templates",
+      "glyph": "",
+      "names": [
+        "Templates"
+      ],
+      "aliases": []
+    },
+    {
+      "asset": "folder-publicshare",
+      "glyph": "",
+      "names": [
+        "Public"
+      ],
+      "aliases": [
+        "folder-public"
+      ]
+    }
+  ]
 }

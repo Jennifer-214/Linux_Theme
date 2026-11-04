@@ -69,10 +69,10 @@ fox-install.o:          core/hw_autoenable.hpp
 core/state_checks.o:    core/deps_list.hpp
 modules/deps.o:         core/deps_list.hpp
 modules/symlinks.o:     modules/symlinks_data.hpp
-modules/specials.o:     core/built_tools.hpp modules/nvidia_modules.hpp
+modules/specials.o:     core/built_tools.hpp modules/nvidia_modules.hpp modules/firefox_appearance.hpp
 modules/hidepid.o:      modules/hidepid_check.hpp
 modules/foxml_health_boot.o: modules/foxml_health_boot_script.hpp
-modules/post_install.o: modules/gtk_appearance.hpp
+modules/post_install.o: modules/gtk_appearance.hpp modules/firefox_appearance.hpp
 
 # Sidecar lives in ../fox-monitor now. Re-tag the modules that include it
 # (directly or via personalize.hpp) so a sidecar-header edit triggers a
@@ -123,6 +123,7 @@ test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_c
 	@./tests/test_folder_recolor
 	@./tests/test_gtk_appearance
 	@./tests/test_icon_deploy
+	@./tests/test_firefox_appearance
 	@bash ./tests/lint_shell_assets.sh
 	@bash ./tests/lint_unit_escaping.sh
 
@@ -132,6 +133,11 @@ test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_c
 tests/test_registry: tests/test_registry.cpp core/registry.o
 	$(CXX) $(CXXFLAGS) tests/test_registry.cpp core/registry.o -o $@
 
+
+test: tests/test_firefox_appearance
+
+tests/test_firefox_appearance: tests/test_firefox_appearance.cpp modules/firefox_appearance.hpp core/backup.o $(FOX_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) $(filter %.cpp %.o %.a,$^) -o $@
 
 tests/test_icon_deploy: tests/test_icon_deploy.cpp modules/symlinks.o core/backup.o $(FOX_COMMON_LIB) modules/gtk_appearance.hpp
 	$(CXX) $(CXXFLAGS) $(filter %.cpp %.o %.a,$^) -o $@
@@ -259,6 +265,7 @@ tests/test_banner_font: tests/test_banner_font.cpp modules/banner_font.o
 
 clean:
 	@rm -f tests/test_gtk_appearance
+	@rm -f tests/test_firefox_appearance
 	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_iommu tests/test_gaming tests/test_hyprlock_pin tests/test_nvidia_modules tests/test_claude_wiring tests/test_hw_autoenable tests/test_built_tools tests/test_hidepid tests/test_health_boot tests/test_dry_run tests/test_git_clone
 
 .PHONY: all install clean test

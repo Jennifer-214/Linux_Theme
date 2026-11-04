@@ -394,7 +394,29 @@ reverse_render_file() {
     local sed_expr="$3"
 
     mkdir -p "$(dirname "$output")"
-    sed "$sed_expr" "$src" > "$output"
+    local captured
+    captured="$(mktemp "${output}.capture.XXXXXX")" || return 1
+    if ! sed "$sed_expr" "$src" > "$captured"; then rm -f "$captured"; return 1; fi
+    # Preserve the template-owned fallback glyphs: Paper's generated tree icons
+    # come from icon-family.json, including when capturing other editor changes.
+    if [[ -f "$output" ]] && grep -q 'foxml:tree-folders-begin' "$output" && grep -q 'foxml:tree-folders-end' "$output"; then
+        if ! awk '
+            FNR==NR {
+                if (index($0,"foxml:tree-folders-begin")) keep=1
+                if (keep) saved=saved $0 "\n"
+                if (index($0,"foxml:tree-folders-end")) keep=0
+                next
+            }
+            index($0,"foxml:tree-folders-begin") && length(saved) { printf "%s",saved; skip=1; next }
+            skip { if (index($0,"foxml:tree-folders-end")) skip=0; next }
+            { print }
+        ' "$output" "$captured" > "${captured}.owned"; then
+            rm -f "$captured" "${captured}.owned"; return 1
+        fi
+        mv "${captured}.owned" "$captured"
+    fi
+    if [[ -f "$output" ]]; then chmod --reference="$output" "$captured"; else chmod --reference="$src" "$captured"; fi
+    mv "$captured" "$output"
 }
 
 # ─────────────────────────────────────────

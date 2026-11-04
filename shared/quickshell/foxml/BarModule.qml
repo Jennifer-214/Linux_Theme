@@ -21,6 +21,7 @@ Item {
     readonly property string label: BarLogic.format(sample.text, {icon:sample.text})
     readonly property var clockParts: name === "custom/clock" ? label.trim().match(/^(.*?)\s+(\d{1,2}[:♡]\d{2}(?:\s*[AP]M)?)$/) : null
     readonly property bool special: name === "hyprland/workspaces" || name === "tray"
+    readonly property bool interactive: name === "idle_inhibitor" || ["on-click", "on-click-right", "on-click-middle", "on-scroll-up", "on-scroll-down"].some(function(key) { return !!spec[key]; })
     readonly property bool focused: !!(controller && (controller.drawerVisible || controller.opened) && controller.attachment && controller.attachment.moduleName === name && controller.attachment.screenName === panel.screen.name)
     readonly property real labelLimit: compact && name === "custom/ai_status" ? tight ? 42 : 124 : 2000
     implicitWidth: special ? specialContent.implicitWidth : clockParts ? clock.implicitWidth + 14 : label ? Math.min(text.implicitWidth, labelLimit) + 14 : 0
@@ -48,8 +49,16 @@ Item {
     }
     Component { id: tray; BarTray { theme: module.theme; spec: module.spec; panel: module.panel } }
     Component { id: workspaces; BarWorkspaces { theme: module.theme; spec: module.spec; output: module.panel.screen; depth: module.depth; compact: module.compact; tight: module.tight; maxWidth: module.workspaceBudget } }
-    BarRibbon { theme: module.theme; anchors.fill: parent; depth: module.depth; visible: module.name === "custom/logo"; selected: module.focused; holdingPaper: module.focused; pressed: mouse.pressed }
-    Rectangle { anchors.fill: text; anchors.margins: -4; radius: 3; color: module.theme.highlight; visible: !module.special && (module.focused || mouse.pressed) }
+    BarRibbon { theme: module.theme; anchors.fill: parent; depth: module.depth; visible: module.name === "custom/logo"; selected: module.focused; holdingPaper: module.focused; pressed: mouse.pressed; hovered: mouse.containsMouse && module.interactive }
+    Rectangle {
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: module.clockParts ? clock.y - 2 : text.y - 4
+        width: (module.clockParts ? clock.implicitWidth : text.width) + 8
+        height: module.clockParts ? clock.implicitHeight + 4 : text.height + 8
+        radius: 3
+        color: module.focused || mouse.pressed ? module.theme.highlight : module.theme.hoverFill
+        visible: !module.special && module.name !== "custom/logo" && (module.focused || mouse.pressed || (module.theme.paperDetails && module.interactive && mouse.containsMouse))
+    }
     Text {
         id: text
         anchors.horizontalCenter: parent.horizontalCenter

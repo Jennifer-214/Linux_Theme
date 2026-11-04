@@ -64,6 +64,7 @@ Flickable {
                 depth: current ? workspaces.depth + 7 : workspaces.depth
                 selected: current
                 pressed: mouse.pressed
+                hovered: mouse.containsMouse
                 Text {
                     id: label
                     anchors.centerIn: parent

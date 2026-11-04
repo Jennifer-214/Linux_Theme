@@ -129,7 +129,12 @@ int main(int argc, char** argv) {
         // must never gain a link badge because a different directory has a namesake.
         if (style.is_object() && style.contains("icon")) continue;
         auto icon = meta[info.kinds == 1 ? "symlink" : "icon"];
-        if (info.kinds == 4 && meta.contains("directory") && meta["directory"].is_object()) icon = meta["directory"];
+        if (info.kinds == 4 && meta.contains("directory") && meta["directory"].is_object()) {
+            icon = meta["directory"];
+            if (meta.contains("directories") && meta["directories"].is_object()
+                && meta["directories"].contains(name) && meta["directories"][name].is_object())
+                icon = meta["directories"][name];
+        }
         auto extension = fs::path(name).extension().string();
         if (!extension.empty()) extension.erase(0, 1);
         if (info.kinds == 2 && theme.contains("extensions") && theme["extensions"].is_object()) {

@@ -506,6 +506,29 @@ emblems use a small pencil lock; links use a paperclip. GTK and Qt-native file
 pickers inherit these same paper drawings, including at small sizes; they do not
 use a separate pink icon set. The terminal uses the matching pencil glyphs from
 the same definition. Blush stays on selections and small state accents.
+Personal folders keep blush paper bodies and small pencil emblems for documents,
+pictures, downloads, music, videos, projects, desktop, templates and public files.
+The same icon-family definition supplies terminal directory glyphs and Neo-tree
+folder states. Expanded Paper tree folders show an open flap with a small blush
+backing; empty folders keep distinct outline icons, with pencil directory names. Symlinks retain
+their paperclip, and files named like folders retain their file icons.
+Clickable bar items, tray icons and drawer buttons gain a light blush hover wash;
+active selections stay stronger and nothing shifts position. GTK buttons share the
+wash. GTK progress bars and drawer rulers use a thin pencil line with a small blush
+endpoint; slider rulers retain their tick marks. Firefox download meters share the
+pencil rule, and pinned browser tabs keep their favicon with a small pencil clip.
+The drawer's paper grain is drawn once per size/palette change, with no animation
+or polling. Tooltips use a short blush edge stitch across Quickshell, GTK and Firefox.
+LSP symbol-renaming prompts use a correction slip: the old name in readable gray,
+the editable name on blush, Enter to confirm and Escape to cancel. Other input
+prompts keep their existing behavior; narrow terminals or missing NUI use the
+normal prompt. Markdown footnote markers get pencil-on-blush accents while source,
+code spans, and fenced examples stay intact. These details use palette tokens
+and existing widgets, without another service or package.
+Palette-only `--render` also copies Firefox's rendered stylesheets into its
+existing profile, backing up replaced files without changing preferences or
+restarting the browser. Firefox loads them on its next restart; Neovim loads
+its updated configuration on its next launch.
 PDF files use the same folded note with a pencil `PDF` label. File-manager links
 carry a small blush paperclip emblem. Paper's `ls`/`ll`/`lt` use the rendered eza
 theme: pencil filenames and glyphs, readable gray metadata, faint tree branches,

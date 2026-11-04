@@ -37,10 +37,30 @@ class IconFamily(unittest.TestCase):
                 for mime in item['mimes']:
                     icon=mime.replace('/','-')
                     self.assertTrue(icon==item['asset'] or icon in aliases['FoxML Aliases'][item['asset']].split(','),(mime,item['asset']))
+            for folder in family['folders']:
+                vector=dest/'icons/foxml-paper/scalable/places'/(folder['asset']+'.svg')
+                ET.parse(vector)
+                self.assertIn(folder['glyph'],vector.read_text())
+                for name in folder['names']:
+                    self.assertEqual(eza['_foxml']['directories'][name]['glyph'],folder['glyph'])
+                    self.assertIn('['+json.dumps(name)+']', (dest/'yazi/init.lua').read_text())
+                for alias in folder['aliases']:
+                    self.assertIn(alias,aliases['FoxML Aliases'][folder['asset']].split(','))
             self.assertEqual(eza['_foxml']['directory']['glyph'],family['directory']['glyph'])
+            for key in ['glyph','open_glyph','empty_glyph','empty_open_glyph']:
+                self.assertIn(family['directory'][key], (dest/'nvim/init.lua').read_text())
             self.assertIn(family['symlink']['glyph'],(dest/'yazi/init.lua').read_text())
             self.assertEqual(yazi['input']['selected']['bg'],family['blush'])
             self.assertFalse(yazi['help']['hovered'].get('reversed',False))
+
+    def test_editor_capture_preserves_owned_fallback_icons(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);template=root/'template.lua';live=root/'live.lua'
+            owned='-- foxml:tree-folders-begin\nfolder_closed = "fallback"\n-- foxml:tree-folders-end\n'
+            template.write_text('old setting\n'+owned+'old footer\n')
+            live.write_text('new setting\n'+owned.replace('fallback','generated')+'new footer\n')
+            subprocess.run(['bash','-c','source "$1"; reverse_render_file "$2" "$3" ""','capture',str(ROOT/'render.sh'),str(live),str(template)],check=True,capture_output=True)
+            self.assertEqual(template.read_text(),'new setting\n'+owned+'new footer\n')
 
     def test_shell_and_native_renderer_generate_identical_assets(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -48,7 +68,7 @@ class IconFamily(unittest.TestCase):
             args=[str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates'),str(native)]
             subprocess.run([str(RENDER),*args],check=True,capture_output=True)
             subprocess.run(['bash',str(ROOT/'render.sh'),*args[:-1],str(shell)],check=True,capture_output=True)
-            for app in ['eza','yazi','icons']:
+            for app in ['eza','yazi','icons','nvim']:
                 for file in (native/app).rglob('*'):
                     if file.is_file():self.assertEqual(file.read_bytes(),(shell/file.relative_to(native)).read_bytes(),str(file))
 

@@ -679,3 +679,29 @@ tooltip .tooltip-label {
 {{FF_EXTRA_SCOPE}} checkbox[checked] .checkbox-check,
 {{FF_EXTRA_SCOPE}} radio[selected] .radio-check { color: #{{WAYBAR_WS_ACTIVE}} !important; fill: #{{WAYBAR_WS_ACTIVE}} !important; }
 {{FF_EXTRA_SCOPE}} scrollbar thumb:active { background-color: #{{WAYBAR_WS_ACTIVE}} !important; }
+
+/* Paper pin clips supplement the favicon in horizontal and vertical tab layouts. */
+{{FF_EXTRA_SCOPE}} .tabbrowser-tab[pinned] .tab-icon-stack { position:relative !important; overflow:visible !important; }
+{{FF_EXTRA_SCOPE}} .tabbrowser-tab[pinned] .tab-icon-stack::after {
+  content:""; position:absolute; pointer-events:none;
+  width:10px; height:19px; right:-8px; top:-8px;
+  background-image:url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2212%22%20height%3D%2222%22%20viewBox%3D%220%200%2012%2022%22%3E%3Crect%20x%3D%224%22%20y%3D%225%22%20width%3D%225%22%20height%3D%2212%22%20rx%3D%222%22%20fill%3D%22%23{{SELECTION}}%22%2F%3E%3Cpath%20d%3D%22M4%208v8a2.5%202.5%200%200%200%205%200V5a4%204%200%200%200-8%200v12a3%203%200%200%200%206%200V7%22%20fill%3D%22none%22%20stroke%3D%22%23{{FG_DIM}}%22%20stroke-width%3D%221.3%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E");
+  background-size:contain; background-repeat:no-repeat; transform:rotate(15deg);
+}
+
+/* Native download meters use the same pencil rule and blush endpoint. */
+{{FF_EXTRA_SCOPE}} .downloadProgress {
+  appearance:none !important; height:3px !important; min-height:3px !important;
+  border:0 !important; border-radius:2px !important;
+  background:#{{ROFI_BORDER}} !important;
+}
+{{FF_EXTRA_SCOPE}} .downloadProgress::-moz-progress-bar {
+  background:linear-gradient(to right, #{{SELECTION}}, #{{SELECTION}}) right center / 4px 100% no-repeat, #{{FG}} !important;
+  border:0 !important; border-radius:2px !important;
+}
+{{FF_EXTRA_SCOPE}} .downloadProgress:dir(rtl)::-moz-progress-bar { background-position:left center !important; }
+
+{{FF_EXTRA_SCOPE}} tooltip {
+  background-image:linear-gradient(#{{SELECTION}},#{{SELECTION}}) !important;
+  background-size:2px 16px !important; background-position:left center !important; background-repeat:no-repeat !important;
+}

@@ -44,9 +44,10 @@ bool finish_icon_family(const fs::path& templates,const fs::path& output,
     if(family.value("enabled",std::string())!="fox-little-details-on")return true;
     const auto eza=full?output/"eza/theme.yml":templates.filename()=="eza"?output/"theme.yml":fs::path();
     const auto yazi=full?output/"yazi/theme.toml":templates.filename()=="yazi"?output/"theme.toml":fs::path();
+    const auto nvim=full?output/"nvim/init.lua":templates.filename()=="nvim"?output/"init.lua":fs::path();
     const auto init=full?output/"yazi/init.lua":templates.filename()=="yazi"?output/"init.lua":fs::path();
     const auto vectors=full?output/"icons/foxml-paper":icons?output/"foxml-paper":fs::path();
-    json extension_map=json::object(),names=json::object();
+    json extension_map=json::object(),names=json::object(),directories=json::object();
     std::string icon_rules="[icon]\nglobs = []\ndirs = []\nfiles = [\n",ext_rules;
     std::string aliases="[FoxML Aliases]\n";
     const auto accent=family["accent"],ink=family["ink"],muted=family["muted"];
@@ -88,6 +89,30 @@ bool finish_icon_family(const fs::path& templates,const fs::path& output,
             if(!write(vectors/"scalable/mimetypes"/(asset+".svg"),svg))return false;
         }
     }
+    if(family.contains("folders"))for(const auto& folder:family["folders"]) {
+        const auto asset=folder.value("asset",std::string());
+        if(!component(asset)||!folder.contains("glyph")||!folder["glyph"].is_string()
+            ||!folder.contains("names")||!folder["names"].is_array())return false;
+        for(const auto& name:folder["names"]) {
+            if(!name.is_string()||!component(name))return false;
+            directories[name.get<std::string>()]={{"glyph",folder["glyph"]},{"style",{{"foreground",ink}}}};
+        }
+        aliases+=asset+"=";
+        for(const auto& alias:folder["aliases"]) {
+            if(!alias.is_string()||!component(alias))return false;
+            aliases+=alias.get<std::string>()+",";
+        }
+        if(aliases.back()==',')aliases.pop_back();
+        aliases+='\n';
+        if(!vectors.empty()) {
+            auto svg=read(vectors/"scalable/places/folder-paper.svg");
+            const std::string marker="<!-- foxml:folder-badge -->";
+            const auto pos=svg.find(marker);
+            if(pos==std::string::npos)return false;
+            svg.replace(pos,marker.size(),"<text x=\"24\" y=\"34\" text-anchor=\"middle\" font-family=\""+xml(family["font"])+"\" font-size=\"15\" fill=\""+xml(ink)+"\">"+xml(folder["glyph"])+"</text>");
+            if(!write(vectors/"scalable/places"/(asset+".svg"),svg))return false;
+        }
+    }
     const auto note=family["families"][0]["glyph"];
     const auto directory=family["directory"]["glyph"],link=family["symlink"]["glyph"];
     icon_rules+="]\nexts = [\n"+ext_rules+"]\nconds = [\n";
@@ -99,12 +124,27 @@ bool finish_icon_family(const fs::path& templates,const fs::path& output,
         if(!theme.is_object())return false;
         theme["extensions"]=extension_map;theme["filenames"]=names;
         theme["_foxml"]={{"enabled",family["enabled"]},{"icon",{{"style",{{"foreground",accent}}}}},{"directory",{{"glyph",directory},{"style",{{"foreground",accent}}}}},{"symlink",{{"glyph",link},{"style",{{"foreground",accent}}}}}};
+        theme["_foxml"]["directories"]=directories;
         if(!write(eza,theme.dump(2)+'\n'))return false;
+    }
+    if(!nvim.empty()&&fs::exists(nvim)) {
+        std::string rules;
+        for(const auto& pair:std::vector<std::pair<std::string,std::string>>{
+            {"folder_closed","glyph"},{"folder_open","open_glyph"},
+            {"folder_empty","empty_glyph"},{"folder_empty_open","empty_open_glyph"}}) {
+            if(!family["directory"].contains(pair.second)||!family["directory"][pair.second].is_string())return false;
+            rules+="          "+pair.first+" = "+json_string(family["directory"][pair.second])+",\n";
+        }
+        if(!block(nvim,"tree-folders",rules))return false;
     }
     if(!yazi.empty()&&fs::exists(yazi)&&!block(yazi,"icon-family",icon_rules))return false;
     if(!init.empty()&&fs::exists(init)) {
         std::string lua="  local paper_icons = {\n";
         for(const auto& key:{"directory","symlink"})lua+="    "+std::string(key)+" = { text = "+json_string(family[key]["glyph"].get<std::string>()+"  ")+", fg = "+json_string(accent)+" },\n";
+        lua+="    directories = {\n";
+        for(auto it=directories.begin();it!=directories.end();++it)
+            lua+="      ["+json_string(it.key())+"] = { text = "+json_string(it.value()["glyph"].get<std::string>()+"  ")+", fg = "+json_string(ink)+" },\n";
+        lua+="    },\n";
         if(!block(init,"icon-family",lua+"  }\n"))return false;
     }
     if(!vectors.empty()) {

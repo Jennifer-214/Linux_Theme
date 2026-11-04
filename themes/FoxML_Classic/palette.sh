@@ -436,3 +436,10 @@ YAZI_MODE_UNSET_ALT_BG=3a414b
 # Native permission dialogs use the same selection fill and readable links.
 HYPRTOOLKIT_ACCENT=c89eb5
 HYPRTOOLKIT_LINK=c89eb5
+
+# Personal-folder paper and tab, shared with the icon family.
+ICON_FOLDER_FILL=4d2f34
+ICON_FOLDER_TAB=d4985a
+
+# Tooltip root selector; native GTK tooltip windows have no window ancestor.
+GTK_TOOLTIP_SCOPE=":not(*)"

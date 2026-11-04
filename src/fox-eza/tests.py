@@ -68,6 +68,17 @@ sys.exit(int(os.environ.get('FAKE_EXIT','0')))
         theme = json.loads(self.call('.')['theme'])
         self.assertEqual(theme['filenames']['notes.md']['icon']['glyph'], '\uf07b')
 
+    def test_personal_folder_badges_require_actual_directories(self):
+        (self.desk/'Documents').mkdir()
+        (self.desk/'Projects').mkdir()
+        (self.desk/'Pictures').write_text('a file, not a folder')
+        (self.desk/'Downloads').symlink_to('Documents')
+        theme=json.loads(self.call('.')['theme'])
+        self.assertEqual(theme['filenames']['Documents']['icon']['glyph'], '\uf0f6')
+        self.assertEqual(theme['filenames']['Projects']['icon']['glyph'], '\uf121')
+        self.assertEqual(theme['filenames']['Downloads']['icon']['glyph'], '\uf0c6')
+        self.assertNotEqual(theme['filenames']['Pictures']['icon'].get('glyph'), '\uf03e')
+
     def test_depth_and_directory_links_do_not_trigger_extra_walks(self):
         (self.desk/'folder').mkdir()
         (self.desk/'folder/link').symlink_to('missing')

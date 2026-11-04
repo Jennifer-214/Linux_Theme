@@ -365,3 +365,29 @@ window.soffice button:hover {
   border: 1px solid alpha(#{{ROFI_BORDER}}, 0.65);
   border-radius: 4px; box-shadow: none;
 }
+
+/* Paper interaction details: a quiet hover wash and pencil progress with a blush tip. */
+{{GTK_DETAIL_SCOPE}} button:hover:not(:active):not(:checked):not(:disabled),
+{{GTK_DETAIL_SCOPE}} headerbar button:hover:not(:active):not(:checked):not(:disabled) {
+  background-color: alpha(@sel_bg, .45); background-image: none; color: @fg;
+}
+{{GTK_DETAIL_SCOPE}} progressbar trough {
+  min-height: 3px; min-width: 3px; border: none; border-radius: 2px;
+  background-color: alpha(@border, .5); background-image: none; box-shadow: none;
+}
+{{GTK_DETAIL_SCOPE}} progressbar progress {
+  min-height: 3px; min-width: 3px; border: none; border-radius: 2px;
+  background-color: @fg; box-shadow: none;
+  background-image: linear-gradient(to right, @sel_bg, @sel_bg);
+  background-size: 4px 100%; background-position: right center; background-repeat: no-repeat;
+}
+{{GTK_DETAIL_SCOPE}} progressbar.vertical progress {
+  background-size: 100% 4px; background-position: center top;
+}
+{{GTK_DETAIL_SCOPE}} progressbar.horizontal progress:dir(rtl) { background-position: left center; }
+
+/* One short blush stitch; the existing paper tooltip and pencil label stay intact. */
+{{GTK_TOOLTIP_SCOPE}} {
+  background-image: linear-gradient(to bottom, @sel_bg, @sel_bg);
+  background-size: 2px 16px; background-position: left center; background-repeat: no-repeat;
+}

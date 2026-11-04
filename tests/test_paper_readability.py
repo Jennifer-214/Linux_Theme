@@ -15,6 +15,16 @@ RENDER = ROOT / 'src/fox-render/fox-render-fast'
 
 @unittest.skipUnless(RENDER.is_file(), 'build fox-render-fast')
 class PaperReadability(unittest.TestCase):
+    @unittest.skipUnless(shutil.which('nvim') and (Path.home()/'.local/share/nvim/lazy/nui.nvim').is_dir(), 'Neovim/NUI not installed')
+    def test_rename_callback_cancel_and_footnote_code_exclusion(self):
+        with tempfile.TemporaryDirectory(prefix='foxml-correction-') as temp:
+            base=Path(temp)
+            subprocess.run([str(RENDER),str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates/nvim'),str(base/'rendered')],check=True,capture_output=True)
+            env=os.environ|{'PAPER_DETAILS_INIT':str(base/'rendered/init.lua'),'XDG_STATE_HOME':str(base/'state'),'NVIM_LOG_FILE':str(base/'nvim.log')}
+            result=subprocess.run(['nvim','--clean','--headless','-l',str(ROOT/'tests/paper_correction_slips.lua')],env=env,capture_output=True,text=True,timeout=15)
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            self.assertIn('PAPER_CORRECTIONS_AND_FOOTNOTES_OK',result.stdout+result.stderr)
+
     @unittest.skipUnless(shutil.which('tmux') and shutil.which('nvim'), 'tmux/Neovim not installed')
     def test_single_editor_footer_preserves_split_lanes(self):
         with tempfile.TemporaryDirectory(prefix='foxml-footer-') as temp:

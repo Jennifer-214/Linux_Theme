@@ -185,7 +185,7 @@ ShellRoot {
     }
 
     function buttonShade(pressed, hovered) {
-        return pressed ? Qt.alpha(theme.line, .4) : hovered ? Qt.alpha(theme.surface, .6) : "transparent";
+        return pressed ? (theme.paperDetails ? Qt.alpha(theme.highlight, .8) : Qt.alpha(theme.line, .4)) : hovered ? (theme.paperDetails ? theme.hoverFill : Qt.alpha(theme.surface, .6)) : "transparent";
     }
 
     function remember() {
@@ -708,6 +708,7 @@ ShellRoot {
                 border.width: 1
                 border.color: theme.line
                 PaperShadow { visible: theme.paperDetails; ink: theme.ink }
+                PaperGrain { anchors.fill:parent; theme:root.paperTheme }
 
                 ColumnLayout {
                     anchors.fill: parent
@@ -726,8 +727,7 @@ ShellRoot {
                             background: Rectangle { color: root.buttonShade(parent.down, parent.hovered); radius: 3 }
                             onClicked: root.show("root")
                             Accessible.name: "Pinned favorites (f)"
-                            ToolTip.visible: hovered
-                            ToolTip.text: "Pinned favorites · f"
+                            BarHint { theme:root.paperTheme; visible:parent.hovered; text:"Pinned favorites · f" }
                         }
                         Rectangle { width: 5; height: 5; radius: 3; color: root.failed ? theme.error : theme.success }
                         Text { textFormat: Text.PlainText; text: root.actionBusy ? "WORKING" : root.pageLoading ? "OPENING" : root.pickerLayout && root.pickerPrompt ? "WRITE" : root.searching ? "SEARCH" : root.editing ? "ADJUST" : "NORMAL"; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9 }
@@ -793,7 +793,7 @@ ShellRoot {
                                 width: groupList.width - (theme.paperDetails ? 4 : 0)
                                 height: 65
                                 radius: 4
-                                color: groupMouse.pressed ? Qt.alpha(theme.line, .35) : index === root.groupIndex && (root.page !== "root" || root.focusArea === "groups") ? (theme.paperDetails || root.focusArea === "groups" ? theme.focusFill : Qt.alpha(theme.selection, theme.selectionOpacity * .45)) : theme.paperDetails ? (groupMouse.containsMouse ? theme.surface : theme.background) : root.buttonShade(false, groupMouse.containsMouse)
+                                color: groupMouse.pressed ? Qt.alpha(theme.line, .35) : index === root.groupIndex && (root.page !== "root" || root.focusArea === "groups") ? (theme.paperDetails || root.focusArea === "groups" ? theme.focusFill : Qt.alpha(theme.selection, theme.selectionOpacity * .45)) : theme.paperDetails ? (groupMouse.containsMouse ? theme.hoverFill : theme.background) : root.buttonShade(false, groupMouse.containsMouse)
                                 border.width: theme.paperDetails || (index === root.groupIndex && root.focusArea === "groups") ? 1 : 0
                                 border.color: theme.paperDetails && !(index === root.groupIndex && root.focusArea === "groups") ? Qt.alpha(theme.line, .6) : theme.line
                                 PaperShadow {
@@ -819,8 +819,7 @@ ShellRoot {
                                     anchors.fill: parent; hoverEnabled: true
                                     onClicked: root.chooseGroup(index); cursorShape: Qt.PointingHandCursor
                                 }
-                                ToolTip.visible: groupMouse.containsMouse
-                                ToolTip.text: modelData.summary || modelData.detail || ""
+                                BarHint { theme:root.paperTheme; visible:groupMouse.containsMouse; text:modelData.summary || modelData.detail || "" }
                             }
                         }
 
@@ -925,7 +924,7 @@ ShellRoot {
                                         property bool card: modelData.presentation === "project" || modelData.presentation === "library" || modelData.presentation === "download"
                                         height: card ? 94 : modelData.kind === "slider" ? 91 : modelData.image ? 80 : 72
                                         radius: 4
-                                        color: itemMouse.pressed ? Qt.alpha(theme.line, .35) : selected ? theme.focusFill : theme.paperDetails ? (itemMouse.containsMouse ? theme.surface : theme.background) : card ? theme.surface : root.buttonShade(false, itemMouse.containsMouse)
+                                        color: itemMouse.pressed ? Qt.alpha(theme.line, .35) : selected ? theme.focusFill : theme.paperDetails ? (itemMouse.containsMouse && modelData.enabled !== false ? theme.hoverFill : theme.background) : card ? theme.surface : root.buttonShade(false, itemMouse.containsMouse)
                                         border.width: theme.paperDetails || selected || card || itemMouse.containsMouse ? 1 : 0
                                         border.color: itemMouse.pressed ? theme.muted : theme.paperDetails && !selected ? Qt.alpha(theme.line, .6) : theme.line
                                         opacity: modelData.enabled === false ? (theme.paperDetails ? .75 : .48) : 1
@@ -969,20 +968,15 @@ ShellRoot {
                                                 spacing: 4
                                                 Text { id: entryLabel; textFormat: Text.PlainText; text: modelData.label || ""; color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true }
                                                 Text { id: entryDetail; textFormat: Text.PlainText; text: Logic.detailText(modelData); visible: text.length > 0; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9; elide: Text.ElideRight; Layout.fillWidth: true }
-                                                Item {
+                                                PencilProgress {
                                                     id: ruler
+                                                    theme: root.paperTheme
                                                     visible: modelData.kind === "slider"
                                                     Layout.fillWidth: true
                                                     Layout.topMargin: 6
                                                     Layout.preferredHeight: theme.paperDetails ? 14 : 3
-                                                    readonly property real fraction: Math.max(0, Math.min(100, root.editing && selected ? root.draftValue : Number(modelData.value || 0))) / 100
-                                                    Rectangle { width: parent.width; height: 1; y: theme.paperDetails ? 5 : 1; color: theme.line }
-                                                    Rectangle { height: 2; y: theme.paperDetails ? 4 : 0; width: parent.width * ruler.fraction; color: theme.ink }
-                                                    Repeater {
-                                                        model: theme.paperDetails ? 11 : 0
-                                                        Rectangle { required property int index; x: index * (ruler.width - 1) / 10; y: 8; width: 1; height: index % 5 === 0 ? 5 : 3; color: theme.line }
-                                                    }
-                                                    Rectangle { visible: theme.paperDetails; width: 5; height: 9; radius: 2; x: Math.max(0, Math.min(parent.width - width, parent.width * ruler.fraction - width / 2)); color: theme.detailAccent }
+                                                    tickMarks: theme.paperDetails
+                                                    value: root.editing && selected ? root.draftValue : Number(modelData.value || 0)
                                                 }
                                             }
                                             ColumnLayout {
@@ -1012,7 +1006,10 @@ ShellRoot {
                                             timeout: 7000
                                             text: Logic.tooltipText(modelData)
                                             contentItem: Text { text: itemTip.text; textFormat: Text.PlainText; color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 10; wrapMode: Text.WrapAnywhere }
-                                            background: Rectangle { color: theme.background; border.color: theme.line; radius: 4 }
+                                            background: Rectangle {
+                                                color:theme.background; border.color:theme.line; radius:4
+                                                Rectangle { x:0; y:(parent.height-height)/2; width:2; height:Math.min(16,parent.height-8); radius:1; color:theme.highlight; visible:theme.paperDetails }
+                                            }
                                             width: Math.min(implicitWidth, itemRow.width)
                                         }
                                         Canvas {
@@ -1037,8 +1034,7 @@ ShellRoot {
                                             background: Rectangle { color: root.buttonShade(parent.down, parent.hovered); radius: 3 }
                                             contentItem: Text { text: parent.text; color: modelData.presentation === "project" && modelData.bookmarked ? theme.detailAccent : theme.ink; font: parent.font; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                                             Accessible.name: modelData.presentation === "library" ? "Eject drive (e)" : "Toggle bookmark ribbon (b)"
-                                            ToolTip.visible: hovered
-                                            ToolTip.text: Accessible.name
+                                            BarHint { theme:root.paperTheme; visible:parent.hovered; text:parent.Accessible.name }
                                             onClicked: {
                                                 root.itemIndex = index; root.focusArea = "items";
                                                 if (modelData.presentation === "library") root.eject(modelData); else root.bookmark(modelData);

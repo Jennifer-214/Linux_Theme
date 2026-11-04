@@ -445,7 +445,7 @@ function Paper.refresh_quotes(buf)
   if paper_quote_ticks[buf] == tick then return end
   local ok, parser = pcall(vim.treesitter.get_parser, buf, "markdown")
   if not ok then return end
-  local tree = parser:parse()[1]
+  local tree = parser:parse(true)[1]
   if not tree then return end
   paper_quote_query = paper_quote_query or vim.treesitter.query.parse("markdown",
     "(block_quote_marker) @opening (block_continuation) @rule (atx_heading) @heading (setext_heading) @heading")
@@ -477,7 +477,77 @@ function Paper.refresh_quotes(buf)
     end
     end
   end
+  if not Paper.footnote_query then
+    local ok_inline, query = pcall(vim.treesitter.query.parse, "markdown_inline", "(shortcut_link) @reference")
+    if ok_inline then Paper.footnote_query = query end
+  end
+  if Paper.footnote_query then
+    local query = Paper.footnote_query
+    parser:for_each_tree(function(inline_tree, language)
+      if language:lang() ~= "markdown_inline" or language:parent() ~= parser then return end
+      for _, node in query:iter_captures(inline_tree:root(), buf) do
+        local text = vim.treesitter.get_node_text(node, buf)
+        if text:match("^%[%^[^%s%]]+%]$") then
+          local row, col, last_row, last_col = node:range()
+          vim.api.nvim_buf_set_extmark(buf, Paper.quote_namespace, row, col,
+            {end_row=last_row, end_col=last_col, hl_group="FoxPaperFootnote", priority=120})
+        end
+      end
+    end)
+  end
   paper_quote_ticks[buf] = tick
+end
+
+function Paper.correction_slip(opts, on_confirm)
+  local ok_popup, Popup = pcall(require, "nui.popup")
+  local ok_input, Input = pcall(require, "nui.input")
+  if not ok_popup or not ok_input or vim.o.columns < 36 then return false end
+  if Paper.active_correction then Paper.active_correction.finish(nil) end
+  local origin = vim.api.nvim_get_current_win()
+  local width = math.min(49, vim.o.columns - 12)
+  local slip = Popup({relative="editor", position="50%", size={width=width,height=4}, enter=false,
+    border={style="rounded",padding={0,2},text={
+      top={{" ✎ correction ","FoxPaperSlipTitle"}},top_align="left",
+      bottom={{" Enter applies · Esc cancels ","FoxPaperSlipOld"}},bottom_align="left"}},
+    win_options={winhighlight="Normal:FoxPaperSlip,FloatBorder:FoxPaperSlipBorder",winblend=0}})
+  local input, finished
+  local function finish(value)
+    if finished then return end
+    finished = true
+    local restore = input and vim.api.nvim_get_current_win() == input.winid
+    Paper.active_correction = nil
+    -- Let NUI finish its queued mount before tearing a superseded prompt down.
+    vim.schedule(function()
+      if input then input:unmount() end
+      slip:unmount()
+      if restore and vim.api.nvim_win_is_valid(origin) then vim.api.nvim_set_current_win(origin) end
+      on_confirm(value)
+    end)
+  end
+  slip:mount()
+  vim.api.nvim_buf_set_lines(slip.bufnr,0,-1,false,{opts.default or "","","",""})
+  vim.api.nvim_buf_add_highlight(slip.bufnr,-1,"FoxPaperSlipOld",0,0,-1)
+  input = Input({relative={type="win",winid=slip.winid},position={row=2,col=0},
+    size={width=width,height=1},border={style="none"},
+    win_options={winhighlight="Normal:FoxPaperSlipInput,NormalNC:FoxPaperSlipInput",winblend=0}},
+    {prompt="→ ",default_value=opts.default or "",on_submit=finish,on_close=function()finish(nil)end})
+  Paper.active_correction = {input=input,slip=slip,finish=finish}
+  input:mount()
+  for _, mode in ipairs({"i","n"}) do
+    input:map(mode,"<Esc>",function()finish(nil)end,{noremap=true})
+  end
+  vim.api.nvim_create_autocmd("WinClosed",{pattern=tostring(slip.winid),once=true,callback=function()finish(nil)end})
+  return true
+end
+
+function Paper.setup_correction_input()
+  if not Paper.enabled then return end
+  local previous = vim.ui.input
+  vim.ui.input = function(opts, on_confirm)
+    local rename = type(opts.prompt) == "string" and opts.prompt:lower():match("^new name:%s*$")
+    if rename and Paper.correction_slip(opts,on_confirm) then return end
+    return previous(opts,on_confirm)
+  end
 end
 
 function Paper.queue(buf)
@@ -796,9 +866,20 @@ local plugins = {
           last_indent_marker = "└",
         },
         icon = {
+          -- foxml:tree-folders-begin
           folder_closed = "",
           folder_open = "",
           folder_empty = "󰉖",
+          folder_empty_open = "",
+          -- foxml:tree-folders-end
+          provider = Paper.enabled and function(icon, node, state)
+            -- Keep Neo-tree's file/terminal icons; decorate only expanded directories.
+            require("neo-tree.defaults").default_component_configs.icon.provider(icon, node, state)
+            if node.type == "directory" and node:is_expanded() then
+              icon.highlight = "FoxPaperOpenFolder"
+            end
+            return icon
+          end or nil,
         },
         name = {
           trailing_slash = false,
@@ -2126,6 +2207,12 @@ local function apply_foxml_theme()
   if Paper.enabled then
     hl("FoxPaperQuoteOpen", { fg = P.fg, bg = P.sel })
     hl("FoxPaperQuoteRule", { fg = P.faint })
+    hl("FoxPaperFootnote", { fg = P.fg, bg = P.sel })
+    hl("FoxPaperSlip", { fg = P.fg, bg = P.bg })
+    hl("FoxPaperSlipBorder", { fg = P.float_border, bg = P.bg })
+    hl("FoxPaperSlipTitle", { fg = P.fg, bg = P.sel, bold = true })
+    hl("FoxPaperSlipOld", { fg = P.fg_dim, bg = P.bg })
+    hl("FoxPaperSlipInput", { fg = P.fg, bg = P.sel })
     hl("@markup.quote.markdown", { fg = P.fg_dim, italic = true })
     hl("@markup.raw.markdown_inline", { fg = P.fg, bg = P.sel })
     hl("FoxPaperMarkdownTitle", { fg = P.fg, bold = true, underline = true, sp = P.search.cur_bg })
@@ -2307,6 +2394,7 @@ local function apply_foxml_theme()
   hl("NeoTreeEndOfBuffer",   { fg = P.bg_deep, bg = P.none })
   hl("NeoTreeDirectoryName", { fg = P.peach })
   hl("NeoTreeDirectoryIcon", { fg = P.peach })
+  if Paper.enabled then hl("FoxPaperOpenFolder", { fg = P.fg, bg = P.sel }) end
   hl("NeoTreeRootName",      { fg = P.pink, bold = {{SHOW_WELCOME}} })
   hl("NeoTreeFileName",      { fg = P.fg })
   hl("NeoTreeFileIcon",      { fg = P.fg })
@@ -2763,6 +2851,8 @@ vim.diagnostic.config({
     } or {},
   },
 })
+
+Paper.setup_correction_input()
 
 -- Patch the common float helper used by LSP UIs (fallback when noice isn't active)
 do

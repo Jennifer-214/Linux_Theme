@@ -19,6 +19,7 @@
 #include "claude_wiring.hpp"
 #include "nvidia_modules.hpp"
 #include "hypr_lua.hpp"
+#include "firefox_appearance.hpp"
 #include "../core/idempotency.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
@@ -134,19 +135,7 @@ void chmod_exec(const fs::path& p) {
 // ~/.mozilla/firefox. Probe both, return whichever has a *.default-release*
 // profile. Empty string means "no profile found".
 fs::path firefox_profile(const Context& ctx) {
-    for (const char* sub : { ".config/mozilla/firefox", ".mozilla/firefox" }) {
-        fs::path base = ctx.home / sub;
-        std::error_code ec;
-        if (!fs::is_directory(base, ec) || ec) continue;
-        for (auto& e : fs::directory_iterator(base, ec)) {
-            if (!e.is_directory()) continue;
-            std::string name = e.path().filename().string();
-            if (name.find("default-release") != std::string::npos) {
-                return e.path();
-            }
-        }
-    }
-    return {};
+    return firefox_appearance::profile(ctx);
 }
 
 void do_firefox(const Context& ctx) {

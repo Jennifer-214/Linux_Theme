@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+  <path d="M5 17h38v23q0 3-3 3H8q-3 0-3-3Z" fill="#{{FG}}" opacity=".1"/>
+  <path d="M5 17V9q0-3 3-3h8q2 0 4 2l3 3h17q3 0 3 3v21H5Z" fill="#{{ICON_FOLDER_TAB}}"/>
+  <path d="M7 14h34v20H7Z" fill="#{{BG}}"/>
+  <path d="M5 17h38v22q0 3-3 3H8q-3 0-3-3Z" fill="#{{ICON_FOLDER_FILL}}"/>
+  <path d="M7 17h34" stroke="#{{BG}}" stroke-opacity=".35" stroke-width="1"/>
+  <!-- foxml:folder-badge -->
+</svg>

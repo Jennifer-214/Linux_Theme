@@ -10,6 +10,7 @@ QtObject {
     readonly property color line: "#{{ROFI_BORDER}}"
     readonly property color selection: "#{{BG_HIGHLIGHT}}"
     readonly property color highlight: "#{{SELECTION}}"
+    readonly property color hoverFill: Qt.alpha(highlight, .45)
     readonly property color focusFill: Qt.alpha("#{{SELECTION}}", Math.min({{ROFI_SELECTED_ALPHA}}, .55))
     readonly property color detailAccent: "#{{WAYBAR_WS_ACTIVE}}"
     readonly property real selectionOpacity: {{ROFI_SELECTED_ALPHA}}

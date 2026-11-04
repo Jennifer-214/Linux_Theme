@@ -18,6 +18,7 @@ Row {
             required property var modelData
             width: Number(tray.spec["icon-size"] || 16)
             height: 24
+            Rectangle { anchors.fill: parent; anchors.margins: -3; radius: 3; color: tray.theme.hoverFill; visible: tray.theme.paperDetails && mouse.containsMouse }
             Image { anchors.centerIn: parent; width: parent.width; height: width; source: icon.modelData.icon; sourceSize.width: width * Screen.devicePixelRatio; sourceSize.height: height * Screen.devicePixelRatio }
             MouseArea {
                 id: mouse

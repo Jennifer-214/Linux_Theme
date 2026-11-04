@@ -12,6 +12,7 @@
 #include "../core/context.hpp"
 #include "personalize.hpp"
 #include "gtk_appearance.hpp"
+#include "firefox_appearance.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
@@ -111,6 +112,8 @@ void run_post_install(Context& ctx) {
     sync_gtk_font(ctx);
     sync_gtk_icon_theme(ctx);
     refresh_gtk_icon_cache(ctx);
+    if (!firefox_appearance::sync_styles(ctx))
+        ui::warn("Firefox styles were not fully refreshed");
 
     // --render implies post-install but not specials, which normally rebuilds this cache.
     if (have("bat") && sh::run({"bat", "cache", "--build"}) != 0)
