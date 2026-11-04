@@ -40,6 +40,8 @@ ShellRoot {
     property int viewSerial: 0
     property int navigationSerial: 0
     property bool drawerReady: true
+    // A page change is pending. The 4s background refresh never sets this, so it can't blink a page.
+    property bool pageLoading: false
     property bool homeFocusPending: false
     property var nextView: null
     property var nextAction: null
@@ -118,6 +120,7 @@ ShellRoot {
         entries = pickerItems;
         itemIndex = 0;
         drawerReady = true;
+        pageLoading = false;
         focusArea = "items";
         searchInput.text = "";
         note("");
@@ -174,6 +177,7 @@ ShellRoot {
 
     function applyView(serial, requestedPage, output, exitCode, diagnostic) {
         if (serial !== viewSerial || !opened) return;
+        pageLoading = false;
         try {
             var data = JSON.parse(output);
             var partial = exitCode !== 0 || Boolean(data.error);
@@ -217,6 +221,7 @@ ShellRoot {
         searchInput.text = "";
         trail = [];
         page = pageId || "root";
+        pageLoading = true;
         homeFocusPending = page === "root";
         navigationSerial++;
         focusArea = page === "root" ? "groups" : "items";
@@ -255,6 +260,7 @@ ShellRoot {
         page = groupId;
         navigationSerial++;
         drawerReady = false;
+        pageLoading = true;
         entries = [];
         editing = false;
         searching = false;
@@ -283,6 +289,7 @@ ShellRoot {
             page = stack.pop();
             navigationSerial++;
             drawerReady = false;
+            pageLoading = true;
             trail = stack;
             entries = [];
             requestView();
@@ -338,6 +345,7 @@ ShellRoot {
             var saved = Object.assign({}, remembered);
             saved[page] = { key: Logic.identity(item), scroll: 0 };
             remembered = saved;
+            pageLoading = true;
             entries = [];
             itemList.viewPage = "";
             requestView();
@@ -355,6 +363,7 @@ ShellRoot {
             page = item.page || item.id;
             navigationSerial++;
             drawerReady = false;
+            pageLoading = true;
             entries = [];
             requestView();
             keyboard.forceActiveFocus();
@@ -525,6 +534,7 @@ ShellRoot {
                 var gi = root.focusArea === "groups" ? -1 : root.groups.findIndex(function(g) { return g.page === root.page || g.id === root.groupId; });
                 root.groupIndex = gi >= 0 ? gi : Logic.restoreIndex(root.groups, previousGroup);
             } catch (error) { root.note(String(error.message || error), true); }
+            if (root.page === "root") root.pageLoading = false;
         }
     }
     Process {
@@ -964,11 +974,12 @@ ShellRoot {
                                 }
 
                                 Column {
+                                    id: emptyNote
                                     readonly property var note: Logic.emptyState(root.page, root.searching, root.failed)
                                     anchors.centerIn: parent
                                     width: parent.width - 28
                                     spacing: 15
-                                    visible: !(root.pickerActive && root.pickerPrompt) && !root.pendingConfirm && !root.entries.length && !viewProcess.running && !groupProcess.running
+                                    visible: !(root.pickerActive && root.pickerPrompt) && !root.pendingConfirm && !root.entries.length && !root.pageLoading && (root.drawerReady || root.failed)
                                     Image {
                                         visible: theme.paperDetails && !root.failed
                                         anchors.horizontalCenter: parent.horizontalCenter

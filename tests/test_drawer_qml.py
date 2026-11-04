@@ -16,6 +16,28 @@ ROOT = Path(__file__).resolve().parents[1]
 
 EXERCISE = r'''
     Timer {
+        interval: 450; running: true
+        onTriggered: {
+            var entries = root.entries, page = root.page;
+            root.entries = [];
+            root.page = "library";
+            root.pageLoading = false;
+            root.drawerReady = true;
+            if (!emptyNote.visible) throw new Error("empty page is not showing");
+            groupProcess.running = true;
+            if (!emptyNote.visible) {
+                console.error("A background refresh blinked the empty page");
+                Qt.exit(1);
+                return;
+            }
+            root.pageLoading = true;
+            if (emptyNote.visible) throw new Error("a page still loading showed its empty state");
+            root.pageLoading = false;
+            root.page = page;
+            root.entries = entries;
+        }
+    }
+    Timer {
         interval: 700; running: true
         onTriggered: {
             if (root.groups.length !== 5 || root.entries.length !== 3) throw new Error("views missing");
@@ -204,6 +226,7 @@ class DrawerQmlTest(unittest.TestCase):
             source = source.rsplit("\n}", 1)[0] + EXERCISE + "\n}\n"
             (directory / "shell.qml").write_text(source)
             shutil.copyfile(ROOT / "shared/quickshell/foxml/DrawerLogic.js", directory / "DrawerLogic.js")
+            shutil.copyfile(ROOT / "shared/quickshell/foxml/paper-cat.png", directory / "paper-cat.png")
             renderer = ROOT / "src/fox-render/fox-render-fast"
             render = str(renderer) if renderer.exists() else shutil.which("fox-render-fast")
             if not render:
