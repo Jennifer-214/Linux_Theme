@@ -6,6 +6,14 @@ Not just dotfiles. `install.sh` is a 90-line wrapper around `fox-install` — a 
 
 ## Screenshots
 
+FoxML_Paper: the Quickshell drawer over Neovim, the lock screen, and Firefox's new tab.
+
+![FoxML_Paper desktop with the drawer open](shared/screenshots/paper_desktop.png)
+
+![FoxML_Paper lock screen](shared/screenshots/paper_lock.png)
+
+![FoxML_Paper Firefox new tab](shared/screenshots/paper_firefox.png)
+
 ![Terminal](shared/screenshots/terminal.png?v=2)
 
 ![Neovim](shared/screenshots/nvim.png?v=2)
@@ -16,7 +24,7 @@ Not just dotfiles. `install.sh` is a 90-line wrapper around `fox-install` — a 
 
 **Fresh machine, no clone needed:**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Jennyfirrr/Linux_Theme/main/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Jennifer-214/Linux_Theme/main/bootstrap.sh | bash
 ```
 Caches sudo, installs git+curl, clones to `~/code/Linux_Theme`, runs the full setup (theme + deps + AI stack + GitHub workspace clone). One `gh auth login` prompt mid-flow, otherwise hands-off.
 
@@ -63,7 +71,7 @@ Caches sudo, installs git+curl, clones to `~/code/Linux_Theme`, runs the full se
 Boot the Arch ISO and load FoxML directly:
 
 ```bash
-archinstall --config https://raw.githubusercontent.com/Jennyfirrr/Linux_Theme/main/shared/foxml-profile.json
+archinstall --config https://raw.githubusercontent.com/Jennifer-214/Linux_Theme/main/shared/foxml-profile.json
 ```
 
 Installs `linux-zen`, NVIDIA drivers, and runs the bootstrap on first boot.
@@ -318,6 +326,7 @@ Listing reads file metadata only; it never reads file contents or moves files.
 
 The existing battery module adds a plug-and-heart
 doodle while charging, keeping its capacity, watts, threshold and failure signals.
+A filled heart marks a finished charge: `Full`, or holding at a charge limit.
 The Hyprland menu shortcuts call the drawer directly, including Wi-Fi, Bluetooth,
 audio outputs, clipboard, windows and agent notes. Agent notes jump directly
 to their exact tmux target; a stale or unreachable note stays available for
@@ -460,12 +469,28 @@ Drawer confirmations name the action. Focused file cards reveal their full path 
 existing detail line, and tooltips give full labels and exact modification times.
 Download ages appear once on their stamp. Unavailable controls retain readable reasons,
 and a small pencil beside a slider value appears only during adjustment.
+Flash jump labels also use pencil on blush. Markdown links have pencil labels with
+blush underlines and quieter gray URLs. Native spelling marks use blush dots in
+syntax-designated prose (including comments and Markdown); identifiers, code spans
+and URLs keep their existing syntax. Dictionary/language preferences are preserved.
+The drawer's existing shortcut hints use small paper keycaps on Paper, and empty
+lists show a pencil with context-sensitive guidance. Tooltips reveal clipped text
+or extra metadata instead of repeating short labels that already fit.
 Shell and tmux fzf matches share `FZF_MATCH_*`/`FZF_META_FG` palette tokens; Firefox
 find colors use `FF_FIND_BG/FG`, merged into its preferences by the specials module
 (`--render-only` or full install). Firefox reads these preferences on its next launch.
 Paper's sleeping-pencil-cat wallpaper is supplied as a 4K image with its
 original 1080p source. The cursor installer also repairs desktop preferences and
 fallback-theme inheritance when the cursor assets are already installed.
+The wallpaper's cat, cut out with a rising zzz, is `shared/quickshell/foxml/paper-cat.png`.
+It sits on empty drawer pages and under the lock screen note (`HYPRLOCK_CAT_Y`), and
+replaces the logo and wordmark on Firefox's new tab. That page blocks `file:` images, so
+its copy is embedded in `userContent.css`. Pages with their own empty-state line keep it;
+the rest say "nothing here". The `flower` option in `CURSOR_RECOLOR` swaps the busy
+cursors for a turning flower in the pointer's colours. The pointer is size 30 on every
+theme and display. `PAPIRUS_FOLDER_RECOLOR` builds the `foxml-blush` folders from
+Catppuccin's pink to match it, and Zathura search highlights use `ZATHURA_HIGHLIGHT` and
+`ZATHURA_HIGHLIGHT_ACTIVE`.
 Drawer pages show their current name once in the heading; breadcrumbs show only
 parents. Control details omit repeated labels/values, and keyboard instructions
 live in one contextual footer, with separate messages for errors and action results.
