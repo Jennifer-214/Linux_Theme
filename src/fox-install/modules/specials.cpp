@@ -197,14 +197,33 @@ void do_firefox(const Context& ctx) {
             changed = true;
         }
     }
-    if (changed) {
-        fs::path tmp = userjs;
-        tmp += ".tmp";
-        std::ofstream out(tmp);
-        out << body;
-        out.close();
-        fs::rename(tmp, userjs);
-        ui::substep("Firefox user.js (stylesheets on, vertical tabs)");
+    const fs::path find_colors = ctx.rendered_dir / "firefox/find-colors.js";
+    if (fs::exists(find_colors)) {
+        std::ifstream colors_file(find_colors);
+        const std::string colors((std::istreambuf_iterator<char>(colors_file)), std::istreambuf_iterator<char>());
+        const std::string begin = "// >>> FoxML find colors", end = "// <<< FoxML find colors";
+        const auto start = body.find(begin);
+        const auto stop = start == std::string::npos ? std::string::npos : body.find(end, start);
+        if (start != std::string::npos && stop == std::string::npos) {
+            ui::warn("Firefox find-color block is incomplete; leaving user.js untouched");
+            return;
+        }
+        std::string next = body;
+        if (start == std::string::npos) next += "\n" + colors;
+        else {
+            auto length = stop + end.size() - start;
+            if (start + length < next.size() && next[start + length] == '\n') ++length;
+            next.replace(start, length, colors);
+        }
+        changed = changed || next != body;
+        body = std::move(next);
+    }
+    if (changed && snapshot_one(ctx, userjs)) {
+        if (!idem::write_atomic(userjs, body)) {
+            ui::warn("Could not write Firefox preferences; leaving the previous file intact");
+            return;
+        }
+        ui::substep("Firefox user.js (stylesheets, vertical tabs, palette find colors)");
     }
     // Restart Firefox so the new CSS loads. Session restore brings tabs
     // back on relaunch. Skipped silently if not running.

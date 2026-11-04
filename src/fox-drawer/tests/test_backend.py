@@ -524,6 +524,9 @@ class BackendTests(unittest.TestCase):
         self.assertIn('Note', rows[0]['detail'])
         self.assertIn('PDF', rows[1]['detail'])
         self.assertTrue(all('stamp' in row for row in rows))
+        self.assertTrue(all('modifiedAt' in row for row in rows))
+        self.assertRegex(rows[0]['modifiedAt'], r'^\d{4}-\d{2}-\d{2} \d\d:\d\d:\d\d ')
+        self.assertNotIn('ago', rows[0]['detail'].lower())
         self.assertEqual([call[0] for call in self.calls()], ['xdg-user-dir'])
         self.assertEqual((folder / 'Newer.md').read_text(), 'private fixture contents')
 

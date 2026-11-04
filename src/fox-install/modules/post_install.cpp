@@ -98,7 +98,7 @@ void run_post_install(Context& ctx) {
                     "finalize per-monitor wallpaper variants + hyprlock (post-deploy), "
                     "render waybar for current layout, restart waybar+dunst+mako, "
                     "Lazy sync + TSUpdateSync (60s/120s caps), "
-                    "GTK desktop font, Cursor/VS Code workbench.colorTheme=Fox ML");
+                    "GTK desktop font, Bat/delta theme cache, Cursor/VS Code workbench.colorTheme=Fox ML");
         return;
     }
 
@@ -109,6 +109,10 @@ void run_post_install(Context& ctx) {
     ui::ok("active-theme + install marker written");
 
     sync_gtk_font(ctx);
+
+    // --render implies post-install but not specials, which normally rebuilds this cache.
+    if (have("bat") && sh::run({"bat", "cache", "--build"}) != 0)
+        ui::warn("Bat/delta syntax cache could not be refreshed");
 
     // Finalize per-monitor personalisation now that `specials` has deployed
     // ~/.wallpapers and `symlinks` has deployed the live configs. The personalize

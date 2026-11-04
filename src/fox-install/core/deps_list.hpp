@@ -25,7 +25,7 @@ inline const std::vector<std::string>& deps_packages() {
         "gnome-keyring", "libsecret", "seahorse", "gnupg",
 
         // Editor / terminal / multiplexer
-        "neovim", "kitty", "tmux",
+        "neovim", "kitty", "tmux", "ruff", // Python formatting; JSON uses the existing jsonls.
 
         // Neovim runtime deps (Copilot LSP, Mason, tree-sitter latex grammar)
         "nodejs", "npm", "tree-sitter-cli",

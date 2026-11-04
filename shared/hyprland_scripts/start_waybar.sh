@@ -251,6 +251,12 @@ if command -v hyprctl >/dev/null 2>&1 && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}
         fox-hl eval \
             "hl.env('XCURSOR_THEME', '$CURSOR_THEME_USE'); hl.env('HYPRCURSOR_THEME', '$CURSOR_THEME_USE'); hl.env('XCURSOR_SIZE', '$CURSOR_SIZE_USE'); hl.env('HYPRCURSOR_SIZE', '$CURSOR_SIZE_USE'); hl.env('ROFI_X', '$ROFI_X'); hl.env('ROFI_Y', '$ROFI_Y')" \
             "keyword env XCURSOR_THEME,$CURSOR_THEME_USE; keyword env HYPRCURSOR_THEME,$CURSOR_THEME_USE; keyword env XCURSOR_SIZE,$CURSOR_SIZE_USE; keyword env HYPRCURSOR_SIZE,$CURSOR_SIZE_USE; keyword env ROFI_X,$ROFI_X; keyword env ROFI_Y,$ROFI_Y" >/dev/null 2>&1 || true
+        export XCURSOR_THEME="$CURSOR_THEME_USE" HYPRCURSOR_THEME="$CURSOR_THEME_USE"
+        export XCURSOR_SIZE="$CURSOR_SIZE_USE" HYPRCURSOR_SIZE="$CURSOR_SIZE_USE"
+        if command -v dbus-update-activation-environment >/dev/null 2>&1; then
+            dbus-update-activation-environment --systemd \
+                XCURSOR_THEME XCURSOR_SIZE HYPRCURSOR_THEME HYPRCURSOR_SIZE 2>/dev/null || true
+        fi
     fi
 fi
 

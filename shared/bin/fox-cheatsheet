@@ -88,5 +88,11 @@ SELECTED=$(printf '%s\n' "${rows[@]}" | awk -F'\t' '{print $1 "   →   " $2 "  
 KEY="${rows[$SELECTED]%%$'\t'*}"
 if command -v wl-copy >/dev/null 2>&1; then
     printf '%s' "$KEY" | wl-copy
-    notify-send -t 2500 "fox-cheatsheet" "Copied: $KEY"
+    copy_label="Copied: $KEY"
+    palette="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/modules/border_colors.sh"
+    if [[ -r "$palette" ]]; then
+        source "$palette"
+        [[ "${C_LITTLE_DETAILS:-}" == fox-little-details-on ]] && copy_label="$KEY"
+    fi
+    notify-send --category=foxml.copied -t 2500 "fox-cheatsheet" "$copy_label"
 fi

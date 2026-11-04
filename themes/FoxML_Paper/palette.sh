@@ -160,8 +160,8 @@ NVIM_READONLY_BOLD=false
 # ─── Nvim syntax roles ───
 # Dark typed code and warm handwritten comments, with blush behind literals.
 NVIM_SYN_VAR=1c1c1e
-NVIM_SYN_MEMBER=3c3c40
-NVIM_SYN_PARAM=3c3c40
+NVIM_SYN_MEMBER=2b2b2d
+NVIM_SYN_PARAM=6e6d70
 NVIM_SYN_TYPE=3c3c40
 NVIM_SYN_STRING=3c3c40
 NVIM_SYN_NUMBER=3c3c40
@@ -421,3 +421,21 @@ MAKO_STAMP_SUMMARIES='.*'
 HYPR_SHADOW_RGB=2b2b2d
 HYPR_SHADOW_OFFSET_X=2
 HYPR_SHADOW_OFFSET_Y=2
+
+# Reading and notebook labels
+YAZI_TAB_ACTIVE_FG=2b2b2d
+YAZI_TAB_ACTIVE_BG=f1d6de
+NVIM_MEMBER_BOLD=true
+DELTA_LABEL_STYLE=foxml-notebook
+DRAWER_SCROLL_GUTTER=18
+
+# Search result ink and match decoration (shared shell / tmux pickers).
+FZF_MATCH_FG=2b2b2d
+FZF_MATCH_SELECTED_FG=2b2b2d
+FZF_MATCH_ATTR=underline
+FZF_META_FG=7c7a76
+FF_FIND_BG=f1d6de
+FF_FIND_FG=2b2b2d
+
+# Keep Paper compositor and application cursor shapes on the same XCursor backend.
+HYPR_CURSOR_ENABLED=false

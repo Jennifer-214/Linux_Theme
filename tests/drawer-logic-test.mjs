@@ -63,3 +63,12 @@ assert.deepEqual(plain(logic.breadcrumbs('audio-outputs','sound',['root'],[])), 
     {label:'sound',current:false},{label:'audio outputs',current:true}
 ]);
 console.log('drawer breadcrumb labels and current section: passed');
+
+assert.equal(logic.confirmationLabel({id:'drive-eject',label:'USB stick'}), 'Eject drive');
+assert.equal(logic.confirmationLabel({id:'poweroff',label:'Power off'}), 'Power off');
+assert.equal(logic.focusDetail({id:'password-copy',argument:'/private/secret'}), '');
+assert.equal(logic.focusDetail({presentation:'download',argument:'/Downloads/a long name.pdf'}), '/Downloads/a long name.pdf');
+assert.match(logic.tooltipText({label:'Notes',presentation:'download',argument:'/Downloads/Notes',modifiedAt:'2026-11-03 12:00:00 CST'}), /2026-11-03/);
+assert.match(logic.detailText({enabled:false,detail:'PDF',disabledReason:'xdg-open is not installed'}), /not installed/);
+assert.match(logic.footerHint({}, {enabled:false,disabledReason:'Radio state unavailable'}), /Radio state unavailable/);
+console.log('confirmation labels, full paths, exact dates and unavailable reasons: passed');

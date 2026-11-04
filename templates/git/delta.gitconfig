@@ -16,15 +16,13 @@
 	line-numbers = {{SHOW_WELCOME}}
 	side-by-side = false
 	syntax-theme = Fox ML
+	features = {{DELTA_LABEL_STYLE}}
 
 	minus-style                   = syntax "#{{DIFF_DELETE}}"
 	minus-emph-style              = syntax "#{{SELECTION}}"
 	plus-style                    = syntax "#{{DIFF_ADD}}"
 	plus-emph-style               = syntax "#{{NVIM_SEL}}"
 
-	file-style                    = "#{{PRIMARY}}" bold
-	file-decoration-style         = "#{{SURFACE}}" ul
-	hunk-header-style             = "#{{ACCENT}}" bold
 	hunk-header-decoration-style  = "#{{SURFACE}}" box
 
 	line-numbers-minus-style      = "#{{RED}}"
@@ -34,3 +32,14 @@
 	line-numbers-right-style      = "#{{SURFACE}}"
 
 	blame-palette = "#{{BG}}" "#{{BG_HIGHLIGHT}}" "#{{BG_ALT}}" "#{{SURFACE}}"
+
+[delta "foxml-standard"]
+	file-style = "#{{PRIMARY}}" bold
+	file-decoration-style = "#{{SURFACE}}" ul
+	hunk-header-style = "#{{ACCENT}}" bold
+
+[delta "foxml-notebook"]
+	file-style = "#{{FG}}" "#{{SELECTION}}" bold
+	file-decoration-style = "#{{ROFI_BORDER}}" ul
+	hunk-header-style = "#{{FG}}" line-number
+	hunk-header-line-number-style = "#{{COMMENT}}"

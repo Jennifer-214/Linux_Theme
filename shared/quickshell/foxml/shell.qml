@@ -759,10 +759,10 @@ ShellRoot {
                             }
                             Text {
                                 id: breadcrumbRow
-                                visible: !root.searching && root.breadcrumbs.length > 1
+                                visible: !root.searching && (root.breadcrumbs.length > 1 || text.length > 0)
                                 Layout.fillWidth: true
                                 textFormat: Text.PlainText
-                                text: root.breadcrumbs.slice(0, -1).map(function(crumb) { return crumb.label; }).join(" / ")
+                                text: (root.focusArea === "items" ? Logic.focusDetail(root.entries[root.itemIndex]) : "") || root.breadcrumbs.slice(0, -1).map(function(crumb) { return crumb.label; }).join(" / ")
                                 color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9
                                 elide: Text.ElideMiddle
                             }
@@ -834,14 +834,14 @@ ShellRoot {
                                         required property int index
                                         property bool selected: index === root.itemIndex && root.focusArea === "items"
                                         property string menuIcon: Logic.iconName(modelData) ? Quickshell.iconPath(Logic.iconName(modelData), true) : ""
-                                        width: itemList.width - (theme.paperDetails ? 4 : 0)
+                                        width: Math.max(0, itemList.width - theme.scrollGutter)
                                         property bool card: modelData.presentation === "project" || modelData.presentation === "library" || modelData.presentation === "download"
                                         height: card ? 94 : modelData.kind === "slider" ? 91 : modelData.image ? 80 : 72
                                         radius: 4
                                         color: itemMouse.pressed ? Qt.alpha(theme.line, .35) : selected ? theme.focusFill : theme.paperDetails ? (itemMouse.containsMouse ? theme.surface : theme.background) : card ? theme.surface : root.buttonShade(false, itemMouse.containsMouse)
                                         border.width: theme.paperDetails || selected || card || itemMouse.containsMouse ? 1 : 0
                                         border.color: itemMouse.pressed ? theme.muted : theme.paperDetails && !selected ? Qt.alpha(theme.line, .6) : theme.line
-                                        opacity: modelData.enabled === false ? .48 : 1
+                                        opacity: modelData.enabled === false ? (theme.paperDetails ? .75 : .48) : 1
                                         PaperShadow {
                                             visible: theme.paperDetails
                                             ink: theme.ink
@@ -898,7 +898,7 @@ ShellRoot {
                                                 }
                                             }
                                             ColumnLayout {
-                                                Layout.preferredWidth: modelData.kind === "slider" ? 46 : 31
+                                                Layout.preferredWidth: modelData.kind === "slider" ? 58 : 31
                                                 spacing: 5
                                                 Rectangle {
                                                     visible: modelData.kind === "toggle"
@@ -906,7 +906,7 @@ ShellRoot {
                                                     color: "transparent"; border.width: 1; border.color: theme.muted
                                                     Rectangle { width: 8; height: 8; radius: 4; y: 4; x: modelData.checked || modelData.active ? 17 : 4; color: theme.paperDetails && (modelData.checked || modelData.active) ? theme.detailAccent : theme.ink; Behavior on x { NumberAnimation { duration: 100 } } }
                                                 }
-                                                Text { textFormat: Text.PlainText; visible: modelData.kind !== "toggle"; text: Logic.valueText(modelData, root.editing && selected, root.draftValue); color: theme.ink; font.family: theme.fontFamily; font.pixelSize: modelData.kind === "page" ? 18 : 11; Layout.alignment: Qt.AlignRight }
+                                                Text { textFormat: Text.PlainText; visible: modelData.kind !== "toggle"; text: (theme.paperDetails && root.editing && selected && modelData.kind === "slider" ? "✎ " : "") + Logic.valueText(modelData, root.editing && selected, root.draftValue); color: theme.ink; font.family: theme.fontFamily; font.pixelSize: modelData.kind === "page" ? 18 : 11; Layout.alignment: Qt.AlignRight }
                                                 Text { textFormat: Text.PlainText; visible: modelData.kind === "toggle"; text: Logic.valueText(modelData, false, 0); color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 8; Layout.alignment: Qt.AlignRight }
                                             }
                                         }
@@ -914,9 +914,18 @@ ShellRoot {
                                             id: itemMouse
                                             anchors.fill: parent
                                             hoverEnabled: true
-                                            enabled: modelData.enabled !== false
                                             cursorShape: modelData.enabled === false ? Qt.ArrowCursor : Qt.PointingHandCursor
                                             onClicked: { root.itemIndex = index; root.focusArea = "items"; root.activate(modelData); keyboard.forceActiveFocus(); }
+                                        }
+                                        ToolTip {
+                                            id: itemTip
+                                            visible: (itemMouse.containsMouse || itemRow.selected) && text.length > 0
+                                            delay: 900
+                                            timeout: 7000
+                                            text: Logic.tooltipText(modelData)
+                                            contentItem: Text { text: itemTip.text; textFormat: Text.PlainText; color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 10; wrapMode: Text.WrapAnywhere }
+                                            background: Rectangle { color: theme.background; border.color: theme.line; radius: 4 }
+                                            width: Math.min(implicitWidth, itemRow.width)
                                         }
                                         Canvas {
                                             visible: modelData.presentation === "project" && modelData.bookmarked === true
@@ -1001,14 +1010,14 @@ ShellRoot {
                                             Layout.alignment: Qt.AlignHCenter
                                             spacing: 12
                                             Repeater {
-                                                model: ["stay here", "continue"]
+                                                model: ["stay here", Logic.confirmationLabel(root.pendingConfirm)]
                                                 delegate: Rectangle {
                                                     required property string modelData
                                                     required property int index
-                                                    width: 116; height: 42; radius: 4
+                                                    width: Math.max(116, confirmationButtonText.implicitWidth + 28); height: 42; radius: 4
                                                     color: root.confirmYes === (index === 1) ? (theme.paperDetails ? theme.focusFill : Qt.alpha(theme.selection, theme.selectionOpacity)) : theme.surface
                                                     border.width: 1; border.color: theme.line
-                                                    Text { textFormat: Text.PlainText; anchors.centerIn: parent; text: modelData; color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 11 }
+                                                    Text { id: confirmationButtonText; textFormat: Text.PlainText; anchors.centerIn: parent; text: modelData; color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 11 }
                                                     MouseArea { anchors.fill: parent; onClicked: { var item = root.pendingConfirm; root.pendingConfirm = null; if (index === 1) root.activate(item, true); } }
                                                 }
                                             }

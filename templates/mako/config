@@ -28,6 +28,15 @@ icon-path=/usr/share/icons/{{MAKO_ICON_THEME}}
 height=124
 format=<span font_family="{{FONT_FAMILY}}" size="x-small" weight="semibold" letter_spacing="1024" foreground="#{{FG}}" background="#{{SELECTION}}"> RECEIVED </span>\n{{MAKO_FORMAT}}
 
+[summary~={{MAKO_STAMP_SUMMARIES}} category=foxml.saved]
+format=<span font_family="{{FONT_FAMILY}}" size="x-small" weight="semibold" letter_spacing="1024" foreground="#{{FG}}" background="#{{SELECTION}}"> SAVED </span>\n{{MAKO_FORMAT}}
+
+[summary~={{MAKO_STAMP_SUMMARIES}} category=foxml.copied]
+format=<span font_family="{{FONT_FAMILY}}" size="x-small" weight="semibold" letter_spacing="1024" foreground="#{{FG}}" background="#{{SELECTION}}"> COPIED </span>\n{{MAKO_FORMAT}}
+
+[summary~={{MAKO_STAMP_SUMMARIES}} category=foxml.ready]
+format=<span font_family="{{FONT_FAMILY}}" size="x-small" weight="semibold" letter_spacing="1024" foreground="#{{FG}}" background="#{{SELECTION}}"> READY </span>\n{{MAKO_FORMAT}}
+
 [urgency=low]
 background-color=#{{BG}}{{POPUP_BG_OPACITY_HEX}}
 text-color=#{{PRIMARY}}
@@ -39,9 +48,6 @@ background-color=#{{BG}}{{POPUP_BG_OPACITY_HEX}}
 text-color=#{{PRIMARY}}
 border-color=#{{MAKO_CRIT_BORDER}}
 default-timeout=15000
-
-[mode=do-not-disturb]
-invisible=1
 
 # Workspace OSD (focus-pulse). ignore-timeout=1 above discards the sender's
 # own -t 800, so the short lifetime has to be set here. Paired with the
@@ -93,3 +99,7 @@ background-color=#{{PRIMARY}}14
 progress-color=source #{{PRIMARY}}d9
 anchor=bottom-center
 default-timeout=1200
+
+# Last so app-specific styles cannot make a notification visible during DND.
+[mode=do-not-disturb]
+invisible=1

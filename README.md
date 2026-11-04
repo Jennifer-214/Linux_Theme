@@ -238,7 +238,7 @@ Adding a new theme = writing one `palette.sh` file. All app configs render from 
 | btop | `templates/btop/foxml.theme` | `~/.config/btop/themes/foxml.theme` |
 | Yazi | `templates/yazi/theme.toml` | `~/.config/yazi/theme.toml` |
 | Zathura | `templates/zathura/zathurarc` | `~/.config/zathura/zathurarc` |
-| Firefox | `templates/firefox/` (2 files) | `<profile>/chrome/userChrome.css` |
+| Firefox | `templates/firefox/` (CSS + find-color preferences) | `<profile>/chrome/`, managed block in `user.js` |
 | Cursor / VS Code | `templates/cursor/` | `~/.cursor/extensions/foxml-theme/` |
 | Bat | `templates/bat/foxml.tmTheme` | `~/.config/bat/themes/Fox ML.tmTheme` |
 | Lazygit | `templates/lazygit/config.yml` | `~/.config/lazygit/config.yml` |
@@ -387,19 +387,31 @@ Paper also uses pink matched-bracket underlines and the active tmux pane marker.
 File labels use pencil text and keep their path and lettering when focus moves
 between Neo-tree and the editor.
 The active file tab uses blush behind its pencil name.
+Inside tmux, a single Neovim pane uses only its editor footer. Splitting restores
+tmux's lane labels, and leaving Neovim restores the previous footer setting.
 Btop keeps pencil text with pink shortcut letters, selected process
 text, and small process details. Paper's mouse pointer uses the soft Mocha pink
-cursor variant in both Xcursor and Hyprcursor; text cursors are unchanged.
+XCursor assets for both application and restored desktop shapes. Its palette sets
+`HYPR_CURSOR_ENABLED=false`; other palettes retain Hyprcursor. Session startup,
+theme refreshes, D-Bus activation and tmux attachments propagate the chosen cursor.
+Text insertion cursors are unchanged. Hyprland 0.57 loads the Lua configuration;
+the `.conf` templates remain compatibility sources for older Hyprland releases.
 Neovim puts pencil function definitions and numeric/boolean literals on soft blush
 highlights. Darker typed code contrasts with warm gray handwritten comments.
 TODO, NOTE, and IDEA labels also use pencil text on blush backgrounds.
-Its current line number, fold arrow, active indent guide, completion icons, and
-hover titles use rose; copied text briefly flashes blush. Completion labels stay
+Its current line number, fold arrow, active indent guide, and completion icons
+use rose; copied text briefly flashes blush. Completion labels stay
 pencil on a blush selected row. Markdown headings and checked markers use rose,
 with completed task text softened to gray through the existing syntax highlighting.
 Inline Markdown code uses pencil text on blush without tinting fenced code blocks.
 C/C++ files use native clangd type and parameter hints in readable pencil text;
 these skip special buffers and symdeps panels, with no additional plugin.
+Fields use stronger pencil and parameters quieter upright gray. The existing
+Illuminate provider follows a symbol with pencil underlines. Diagnostic messages
+follow the current line; signs and underlines remain, and existing toggles retain
+the quiet mode when switched back on. Trailing-space dots apply to code buffers
+and restore the previous display when moving to prose. Focused native and Noice
+documentation titles use blush with pencil text; inactive titles stay pencil.
 Symdeps uses pencil body text, readable gray counts and shortcuts, and blush behind
 the focused window's title; inactive titles stay pencil. This is theme-side styling;
 the plugin's menu actions, help, and key bindings are unchanged.
@@ -419,11 +431,36 @@ graphite shadow offset toward the bottom/right. Native Hyprtoolkit permission
 dialogs receive Paper colors, fonts, and rounding through the installer.
 Pressing a card softens its shadow without shifting the row.
 The selected sidebar group keeps the same blush as the selected item when focus moves inside.
+The scrollbar has its own reserved gutter (`DRAWER_SCROLL_GUTTER`), leaving a gap
+beside card shadows without changing card width when scrolling appears.
 Screenshot selection uses a blush edge and a light
 pencil veil. Btop's CPU, memory-use, and download strokes carry blush gradients,
 while process text and window frames retain their existing colors. Thunar filename
 selections use blush with soft pencil edges. Native Mako notes add a small RECEIVED
-stamp, with room for the body; workspace and volume OSDs retain their compact formats.
+stamp, with room for the body; explicit saved/copied/ready categories give that stamp
+useful words without repeating them in the title. DND is applied after all app styles.
+Workspace and volume OSDs retain their compact formats. Yazi uses current theme sections
+and palette-driven notebook tabs (`YAZI_TAB_ACTIVE_FG/BG`); Delta file labels use the
+palette-selected `DELTA_LABEL_STYLE`. Post-install rebuilds the Bat/delta syntax cache
+on render-only theme changes as well as full installs.
+Paper's active signature parameter and selected search result use blush with pencil
+text; other matches use underlines. Native puts and bracketed pastes flash briefly
+without changing their undo behavior. A quiet last-edit pencil stays below bookmark
+and diagnostic priority, and hidden zero-width characters in code receive a visible
+clue without editing the file. Read-only files keep a graphite lock in the footer.
+JSON keys are stronger pencil, Python documentation is quieter than code, and JSON
+quotes remain visible. Conform formats Python on save with Ruff (or Black when the
+project explicitly configures it); existing project settings and virtualenv tools win.
+JSON/JSONC use available Prettier or the existing JSON language server. Invalid strict
+JSON is left unformatted on save. `Space c f` also formats manually without requiring
+an attached language server. The installer includes Ruff; no new editor plugin is needed.
+Drawer confirmations name the action. Focused file cards reveal their full path in the
+existing detail line, and tooltips give full labels and exact modification times.
+Download ages appear once on their stamp. Unavailable controls retain readable reasons,
+and a small pencil beside a slider value appears only during adjustment.
+Shell and tmux fzf matches share `FZF_MATCH_*`/`FZF_META_FG` palette tokens; Firefox
+find colors use `FF_FIND_BG/FG`, merged into its preferences by the specials module
+(`--render-only` or full install). Firefox reads these preferences on its next launch.
 Paper's sleeping-pencil-cat wallpaper is supplied as a 4K image with its
 original 1080p source. The cursor installer also repairs desktop preferences and
 fallback-theme inheritance when the cursor assets are already installed.

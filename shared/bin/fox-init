@@ -118,4 +118,10 @@ if command -v findex >/dev/null 2>&1; then
     fi
 fi
 
-notify-send -t 3000 "fox-init" "Workspace '$NAME' ready" 2>/dev/null || true
+ready_label="Workspace '$NAME' ready"
+palette="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/modules/border_colors.sh"
+if [[ -r "$palette" ]]; then
+    source "$palette"
+    [[ "${C_LITTLE_DETAILS:-}" == fox-little-details-on ]] && ready_label="Workspace '$NAME'"
+fi
+notify-send --category=foxml.ready -t 3000 "fox-init" "$ready_label" 2>/dev/null || true

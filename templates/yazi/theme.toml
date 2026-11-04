@@ -9,36 +9,29 @@
 # lavender: #{{ACCENT}}
 # pink:     #{{SECONDARY}}
 
-[manager]
+[mgr]
 cwd = { fg = "#{{PRIMARY}}", bold = {{SHOW_WELCOME}} }
-
-# Hovered
-hovered         = { fg = "#{{YAZI_HOVER_FG}}", bg = "#{{YAZI_HOVER_BG}}", bold = {{SHOW_WELCOME}} }
-preview_hovered = { underline = {{SHOW_WELCOME}} }
-
-# Find
-find_keyword  = { fg = "#{{YELLOW}}", bold = {{SHOW_WELCOME}}, italic = {{SHOW_WELCOME}}, underline = {{SHOW_WELCOME}} }
-find_position = { fg = "#{{ACCENT}}", bg = "reset", italic = {{SHOW_WELCOME}} }
-
-# Marker
-marker_copied   = { fg = "#{{GREEN}}", bg = "#{{GREEN}}" }
-marker_cut      = { fg = "#{{RED}}", bg = "#{{RED}}" }
-marker_marked   = { fg = "#{{ACCENT}}", bg = "#{{ACCENT}}" }
+syntect_theme = "~/.config/bat/themes/Fox ML.tmTheme"
+find_keyword = { fg = "#{{YELLOW}}", underline = {{SHOW_WELCOME}} }
+find_position = { fg = "#{{ACCENT}}" }
+marker_copied = { fg = "#{{GREEN}}", bg = "#{{GREEN}}" }
+marker_cut = { fg = "#{{RED}}", bg = "#{{RED}}" }
+marker_marked = { fg = "#{{ACCENT}}", bg = "#{{ACCENT}}" }
 marker_selected = { fg = "#{{SECONDARY}}", bg = "#{{SECONDARY}}" }
-
-# Tab
-tab_active   = { fg = "#{{BG}}", bg = "#{{PRIMARY}}", bold = {{SHOW_WELCOME}} }
-tab_inactive = { fg = "#{{FG_DIM}}", bg = "#{{SURFACE}}" }
-tab_width    = 1
-
-# Count
-count_copied   = { fg = "#{{BG}}", bg = "#{{GREEN}}" }
-count_cut      = { fg = "#{{BG}}", bg = "#{{RED}}" }
+count_copied = { fg = "#{{BG}}", bg = "#{{GREEN}}" }
+count_cut = { fg = "#{{BG}}", bg = "#{{RED}}" }
 count_selected = { fg = "#{{BG}}", bg = "#{{SECONDARY}}" }
-
-# Border
 border_symbol = "│"
-border_style  = { fg = "#{{TMUX_ACTIVE_BG}}" }
+border_style = { fg = "#{{TMUX_ACTIVE_BG}}" }
+
+[indicator]
+parent = { fg = "#{{FG}}", bg = "#{{BG_HIGHLIGHT}}" }
+current = { fg = "#{{YAZI_HOVER_FG}}", bg = "#{{YAZI_HOVER_BG}}", bold = {{SHOW_WELCOME}} }
+preview = { underline = {{SHOW_WELCOME}} }
+
+[tabs]
+active = { fg = "#{{YAZI_TAB_ACTIVE_FG}}", bg = "#{{YAZI_TAB_ACTIVE_BG}}", bold = {{SHOW_WELCOME}} }
+inactive = { fg = "#{{FG_DIM}}", bg = "#{{SURFACE}}" }
 
 [mode]
 normal_main = { fg = "#{{BG}}", bg = "#{{PRIMARY}}", bold = {{SHOW_WELCOME}} }
@@ -79,7 +72,7 @@ inactive = {}
 [confirm]
 border     = { fg = "#{{PRIMARY}}" }
 title      = { fg = "#{{PRIMARY}}", bold = {{SHOW_WELCOME}} }
-content    = {}
+body       = {}
 list       = {}
 btn_yes    = { bg = "#{{PRIMARY}}", fg = "#{{BG}}" }
 btn_no     = { bg = "#{{SURFACE}}", fg = "#{{FG}}" }
@@ -89,7 +82,7 @@ btn_labels = [ "  Yes  ", "  No  " ]
 border = { fg = "#{{PRIMARY}}" }
 title  = { fg = "#{{PRIMARY}}", bold = {{SHOW_WELCOME}} }
 
-[completion]
+[cmp]
 border   = { fg = "#{{PRIMARY}}" }
 active   = { fg = "#{{SECONDARY}}", bold = {{SHOW_WELCOME}} }
 inactive = {}
@@ -129,11 +122,11 @@ icon_error = ""
 [filetype]
 rules = [
     # Symlinks
-    { is = "link", fg = "#{{CYAN}}", italic = {{SHOW_WELCOME}} },
-    { is = "orphan", fg = "#{{RED}}", italic = {{SHOW_WELCOME}} },
+    { url = "*", is = "link", fg = "#{{CYAN}}", italic = {{SHOW_WELCOME}} },
+    { url = "*", is = "orphan", fg = "#{{RED}}", italic = {{SHOW_WELCOME}} },
 
     # Executables
-    { is = "exec", fg = "#{{GREEN_BRIGHT}}" },
+    { url = "*", is = "exec", fg = "#{{GREEN_BRIGHT}}" },
 
     # Images
     { mime = "image/*", fg = "#{{SECONDARY}}" },
@@ -157,6 +150,10 @@ rules = [
 ]
 
 [icon]
+prepend_conds = [
+    { if = "dir", text = "", fg = "#{{PRIMARY}}" },
+    { if = "!dir", text = "󰈔", fg = "#{{FG_DIM}}" },
+]
 # Default icons
 globs = []
 dirs = []

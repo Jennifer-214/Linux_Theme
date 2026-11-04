@@ -90,6 +90,9 @@ hl.config({
         enabled = true,
     },
 
+    -- Paper uses the same XCursor assets for clients and restored desktop shapes.
+    cursor = { enable_hyprcursor = {{HYPR_CURSOR_ENABLED}} },
+
     -- ─────────────────────────────────────────
     -- Misc
     -- ─────────────────────────────────────────

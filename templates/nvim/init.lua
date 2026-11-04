@@ -157,6 +157,7 @@ Paper.completion_icons = {
   Constant = "󰏿", Struct = "󰙅", Event = "", Operator = "󰆕", TypeParameter = "󰊄",
 }
 if Paper.enabled then vim.opt.cursorlineopt = "line,number" end
+Paper.virtual_text = Paper.enabled and { current_line = true } or true
 Paper.namespace = vim.api.nvim_create_namespace("foxml_paper_bookmarks")
 Paper.quote_namespace = vim.api.nvim_create_namespace("foxml_paper_quotes")
 local paper_signatures, paper_pending, paper_scheduled = {}, {}, false
@@ -175,11 +176,125 @@ function Paper.enable_hints(buf, client)
   end
 end
 
-function Paper.setup_symdeps()
+function Paper.setup_tmux_footer()
+  local pane = vim.env.TMUX_PANE
+  local socket = (vim.env.TMUX or ""):match("^(.*),%d+,%d+$")
+  if not Paper.enabled or not socket or not pane or not pane:match("^%%%d+$") then return end
+  local saved, window
+  local function tmux(args)
+    local ok, result = pcall(function()
+      return vim.system(vim.list_extend({"tmux", "-S", socket}, args), {text = true}):wait(1000)
+    end)
+    if ok and result.code == 0 then return vim.trim(result.stdout or "") end
+  end
+  local function restore()
+    if saved == nil or not window then return end
+    -- Respect a manual option change made while the editor was open.
+    if tmux({"show-options", "-wqv", "-t", window, "pane-border-status"}) == "off" then
+      if saved == "" then tmux({"set-option", "-wu", "-t", window, "pane-border-status"})
+      else tmux({"set-option", "-w", "-t", window, "pane-border-status", saved}) end
+    end
+    saved, window = nil, nil
+  end
+  local function refresh()
+    local info = tmux({"display-message", "-p", "-t", pane, "#{window_id} #{window_panes}"})
+    if not info then return end
+    local id, count = info:match("^(@%d+) (%d+)$")
+    if not id then return end
+    if window and window ~= id then restore() end
+    if tonumber(count) ~= 1 then restore(); return end
+    if saved ~= nil then return end
+    local previous = tmux({"show-options", "-wqv", "-t", id, "pane-border-status"})
+    if previous == nil or previous == "off" then return end
+    saved, window = previous, id
+    if tmux({"set-option", "-w", "-t", id, "pane-border-status", "off"}) == nil then saved, window = nil, nil end
+  end
+  local group = vim.api.nvim_create_augroup("foxml_paper_tmux_footer", {clear = true})
+  vim.api.nvim_create_autocmd({"VimEnter", "VimResized", "FocusGained"}, {
+    group = group, callback = function() vim.schedule(refresh) end,
+  })
+  vim.api.nvim_create_autocmd("VimLeavePre", {group = group, callback = restore})
+  vim.schedule(refresh)
+  return {refresh = refresh, restore = restore}
+end
+
+function Paper.whitespace()
+  if not Paper.enabled then return end
+  local code = { c=true, cpp=true, cuda=true, python=true, lua=true, rust=true, go=true, sh=true, zsh=true,
+    javascript=true, typescript=true, javascriptreact=true, typescriptreact=true, json=true, yaml=true, toml=true }
+  local style = "tab:  ,trail:·,nbsp:␣"
+  if code[vim.bo.filetype] and Paper.file_buffer(vim.api.nvim_get_current_buf()) then
+    if not vim.w.foxml_paper_whitespace then
+      vim.w.foxml_paper_whitespace = { list = vim.wo.list, chars = vim.wo.listchars }
+    end
+    vim.wo.listchars, vim.wo.list = style, true
+  elseif vim.w.foxml_paper_whitespace then
+    local saved = vim.w.foxml_paper_whitespace
+    if vim.wo.listchars == style then vim.wo.listchars = saved.chars end
+    if vim.wo.list then vim.wo.list = saved.list end
+    vim.w.foxml_paper_whitespace = nil
+  end
+end
+
+-- Keep transient marks separate from bookmarks and diagnostics.
+Paper.paste_namespace = vim.api.nvim_create_namespace("foxml_paper_paste")
+Paper.edit_namespace = vim.api.nvim_create_namespace("foxml_paper_last_edit")
+Paper.invisible_namespace = vim.api.nvim_create_namespace("foxml_paper_invisibles")
+local invisible_ticks = {}
+
+function Paper.flash_paste()
+  local buf = vim.api.nvim_get_current_buf()
+  if not Paper.enabled or not Paper.file_buffer(buf) then return end
+  local first, last = vim.fn.getpos("'["), vim.fn.getpos("']")
+  if first[2] < 1 or last[2] < first[2] then return end
+  vim.hl.range(buf, Paper.paste_namespace, "FoxPaperYank",
+    {first[2] - 1, first[3] - 1}, {last[2] - 1, last[3] - 1}, {inclusive = true, timeout = 200})
+end
+_G.FoxPaperPasteFlash = Paper.flash_paste
+
+function Paper.last_edit(buf)
+  if not Paper.file_buffer(buf) then return end
+  local pos = vim.api.nvim_buf_get_mark(buf, ".")
+  vim.api.nvim_buf_clear_namespace(buf, Paper.edit_namespace, 0, -1)
+  if pos[1] > 0 and pos[1] <= vim.api.nvim_buf_line_count(buf) then
+    vim.api.nvim_buf_set_extmark(buf, Paper.edit_namespace, pos[1] - 1, 0,
+      {sign_text = "✎ ", sign_hl_group = "FoxPaperLastEdit", priority = 0})
+  end
+end
+
+function Paper.invisibles(buf)
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  local tick = tostring(vim.api.nvim_buf_get_changedtick(buf)) .. ":" .. vim.bo[buf].filetype
+  if invisible_ticks[buf] == tick then return end
+  invisible_ticks[buf] = tick
+  vim.api.nvim_buf_clear_namespace(buf, Paper.invisible_namespace, 0, -1)
+  if not Paper.file_buffer(buf) or not vim.tbl_contains({"c", "cpp", "cuda", "python", "lua", "rust", "go",
+      "sh", "zsh", "javascript", "typescript", "javascriptreact", "typescriptreact", "json", "jsonc", "yaml", "toml"}, vim.bo[buf].filetype) then return end
+  -- These markers expose hidden bytes without rewriting text or enabling conceal.
+  for row, line in ipairs(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) do
+    if line:find("[\226\239]") then
+      for _, codepoint in ipairs({0x200b, 0x200c, 0x200d, 0x2060, 0xfeff}) do
+        local char = vim.fn.nr2char(codepoint)
+        local from = 1
+        while true do
+          local col = line:find(char, from, true)
+          if not col then break end
+          vim.api.nvim_buf_set_extmark(buf, Paper.invisible_namespace, row - 1, col - 1,
+            {virt_text = {{"⟨zw⟩", "FoxPaperInvisible"}}, virt_text_pos = "inline", priority = 90})
+          from = col + #char
+        end
+      end
+    end
+  end
+end
+
+function Paper.setup_popup_styles()
   if not Paper.enabled then return end
   local api = vim.api
   local ns = api.nvim_create_namespace("foxml_paper_symdeps_counts")
   local pending = false
+  local active_title = api.nvim_create_namespace("foxml_paper_active_title")
+  local inactive_title = api.nvim_create_namespace("foxml_paper_inactive_title")
   local function owned(win)
     if not api.nvim_win_is_valid(win) then return false end
     return vim.wo[win].winhighlight:find("FoxSymdeps", 1, true) ~= nil
@@ -193,8 +308,35 @@ function Paper.setup_symdeps()
     api.nvim_set_hl(0, "FoxSymdepsDim", { fg = P.comment, bg = "NONE", italic = false })
     api.nvim_set_hl(0, "FoxSymdepsSelection", { fg = P.fg, bg = P.sel, bold = true })
     api.nvim_set_hl(0, "FoxPaperSymdepsFocusTitle", { fg = P.fg, bg = P.sel, bold = true })
+    api.nvim_set_hl(active_title, "FloatTitle", { fg = P.fg, bg = P.sel, bold = true })
+    api.nvim_set_hl(inactive_title, "FloatTitle", { fg = P.fg, bg = "NONE", bold = true })
+    api.nvim_set_hl(active_title, "EndOfBuffer", {})
+    api.nvim_set_hl(inactive_title, "EndOfBuffer", {})
     local current = api.nvim_get_current_win()
+    local documents = {}
     for _, win in ipairs(api.nvim_list_wins()) do
+      local config = api.nvim_win_get_config(win)
+      local ft = vim.bo[api.nvim_win_get_buf(win)].filetype
+      if config.relative ~= "" and (vim.w[win].lsp_floating_bufnr or ft == "help" or ft == "markdown" or ft == "noice") then
+        documents[win] = win
+        -- Padded NUI popups draw their title in a separate parent frame.
+        if config.relative == "win" and config.win and api.nvim_win_is_valid(config.win)
+            and api.nvim_win_get_config(config.win).relative ~= "" then documents[config.win] = win end
+      end
+    end
+    for _, win in ipairs(api.nvim_list_wins()) do
+      if documents[win] then
+        local namespace = api.nvim_get_hl_ns({ winid = win })
+        local simple = namespace <= 0 or namespace == active_title or namespace == inactive_title
+        if not simple then
+          -- NUI uses a namespace solely to hide end-of-buffer markers.
+          local groups = api.nvim_get_hl(namespace, {})
+          simple = vim.tbl_count(groups) == 1 and groups.EndOfBuffer ~= nil
+        end
+        if simple then
+          api.nvim_win_set_hl_ns(win, documents[win] == current and active_title or inactive_title)
+        end
+      end
       if owned(win) then
         local title = win == current and "FoxPaperSymdepsFocusTitle" or "FoxSymdepsTitle"
         local config = api.nvim_win_get_config(win)
@@ -238,6 +380,7 @@ function Paper.setup_symdeps()
     { group = group, callback = queue })
   refresh()
 end
+Paper.setup_symdeps = Paper.setup_popup_styles
 
 function Paper.refresh(buf)
   if not Paper.enabled or not vim.api.nvim_buf_is_valid(buf) then return end
@@ -308,7 +451,7 @@ function Paper.queue(buf)
   vim.schedule(function()
     local pending = paper_pending
     paper_pending, paper_scheduled = {}, false
-    for buffer in pairs(pending) do Paper.refresh(buffer); Paper.refresh_quotes(buffer) end
+    for buffer in pairs(pending) do Paper.refresh(buffer); Paper.refresh_quotes(buffer); Paper.invisibles(buffer) end
   end)
 end
 
@@ -321,17 +464,49 @@ _G.FoxPaperFoldText = Paper.foldtext
 
 if Paper.enabled then
   local group = vim.api.nvim_create_augroup("foxml_paper_details", { clear = true })
+  vim.api.nvim_create_autocmd({ "FileType", "BufWinEnter", "WinEnter" }, {
+    group = group,
+    callback = function(args)
+      if args.buf == vim.api.nvim_get_current_buf() then Paper.whitespace() end
+    end,
+  })
   vim.api.nvim_create_autocmd({ "BufWinEnter", "CursorHold", "TextChanged", "TextChangedI",
       "BufWritePost", "CmdlineLeave", "FileType", "InsertEnter", "InsertLeave" }, {
     group = group, callback = function(args) Paper.queue(args.buf) end,
   })
+  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI", "InsertLeave" }, {
+    group = group, callback = function(args) Paper.last_edit(args.buf) end,
+  })
+  -- The native put executes first, preserving registers, counts and dot-repeat.
+  for _, key in ipairs({"p", "P"}) do
+    vim.keymap.set("n", key, key .. "<Cmd>lua FoxPaperPasteFlash()<CR>", {silent = true, desc = "Put with blush flash"})
+  end
+  local native_paste, paste_start, paste_buf = vim.paste, nil, nil
+  vim.paste = function(lines, phase)
+    local result = native_paste(lines, phase)
+    local buf = vim.api.nvim_get_current_buf()
+    if result and Paper.file_buffer(buf) then
+      if phase < 2 then paste_start, paste_buf = vim.fn.getpos("'["), buf end
+      if (phase == -1 or phase == 3) and paste_start and paste_buf == buf then
+        local last = vim.fn.getpos("']")
+        if paste_start[2] > 0 and last[2] >= paste_start[2] then
+          vim.hl.range(buf, Paper.paste_namespace, "FoxPaperYank",
+            {paste_start[2] - 1, paste_start[3] - 1}, {last[2] - 1, last[3] - 1}, {inclusive = true, timeout = 200})
+        end
+      end
+    end
+    if phase == -1 or phase == 3 or not result then paste_start, paste_buf = nil, nil end
+    return result
+  end
   vim.api.nvim_create_autocmd("BufWipeout", {
     group = group, callback = function(args)
-      paper_signatures[args.buf], paper_pending[args.buf], paper_quote_ticks[args.buf] = nil, nil, nil
+      paper_signatures[args.buf], paper_pending[args.buf], paper_quote_ticks[args.buf], invisible_ticks[args.buf] = nil, nil, nil, nil
     end,
   })
 end
 -- <<< fox-paper-details
+
+Paper.setup_tmux_footer()
 
 -- Bootstrap lazy.nvim
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
@@ -883,8 +1058,30 @@ local plugins = {
   {
     "stevearc/conform.nvim",
     opts = {
-      format_on_save = { lsp_format = "fallback", timeout_ms = 500 },
-      formatters_by_ft = { c = { "clang-format" }, cpp = { "clang-format" } },
+      format_on_save = function(buf)
+        local ft = vim.bo[buf].filetype
+        if ft == "json" and not pcall(vim.json.decode, table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")) then return nil end
+        return {lsp_format = "fallback", timeout_ms = (ft == "python" or ft == "json" or ft == "jsonc") and 1500 or 500}
+      end,
+      formatters_by_ft = {
+        c = {"clang-format"}, cpp = {"clang-format"},
+        python = function(buf)
+          local path = vim.api.nvim_buf_get_name(buf)
+          local config = vim.fs.find("pyproject.toml", {path = vim.fs.dirname(path), upward = true})[1]
+          if config then
+            local body = table.concat(vim.fn.readfile(config), "\n")
+            if ("\n" .. body .. "\n"):match("\n%s*%[tool%.black%]%s*[#\n]") then return {"black"} end
+          end
+          if require("conform").get_formatter_info("ruff_format", buf).available then return {"ruff_format"} end
+          return {"black"}
+        end,
+        -- Prettier is used when available; the already-installed JSON LSP is the fallback.
+        json = {"prettier"}, jsonc = {"prettier"},
+      },
+      formatters = {
+        ruff_format = {command = require("conform.util").find_executable({".venv/bin/ruff", "venv/bin/ruff"}, "ruff")},
+        black = {command = require("conform.util").find_executable({".venv/bin/black", "venv/bin/black"}, "black")},
+      },
     },
   },
 
@@ -1008,6 +1205,7 @@ local plugins = {
     event = "BufReadPost",
     opts = {
       delay = 200,
+      providers = Paper.enabled and { "lsp" } or nil,
       filetypes_denylist = { "neo-tree", "Trouble", "aerial", "toggleterm", "lazy", "mason" },
     },
     config = function(_, opts)
@@ -1684,7 +1882,7 @@ local function apply_foxml_theme()
   hl("NormalNC",     { fg = P.fg, bg = P.none })
   hl("NormalFloat",  { fg = P.fg, bg = P.float_bg })
   hl("FloatBorder",  { fg = P.float_border, bg = P.none })
-  hl("FloatTitle",   { fg = Paper.enabled and P.bookmark or P.peach, bg = P.none, bold = {{SHOW_WELCOME}} })
+  hl("FloatTitle",   { fg = Paper.enabled and P.fg or P.peach, bg = P.none, bold = {{SHOW_WELCOME}} })
   hl("CursorLine",  { bg = P.list_sel })  -- Paper carries the existing pink list selection across the cursor's line.
   hl("CursorColumn", { bg = P.bg_hl })
   hl("ColorColumn",  { bg = P.bg_hl })
@@ -1714,6 +1912,7 @@ local function apply_foxml_theme()
   hl("Question",     { fg = P.green })
   hl("SpecialKey",   { fg = P.faint })
   hl("NonText",      { fg = P.faint })
+  if Paper.enabled then hl("Whitespace", { fg = P.faint }) end
   hl("Conceal",      { fg = P.comment })
   hl("Cursor",       { fg = P.bg, bg = P.fg })
   hl("lCursor",      { fg = P.bg, bg = P.fg })
@@ -1736,6 +1935,12 @@ local function apply_foxml_theme()
   hl("FoldColumn",   { fg = P.faint, bg = P.none })
   hl("FoxPaperBookmark", { fg = P.bookmark })
   hl("FoxPaperYank", { fg = P.fg, bg = P.sel })
+  hl("FoxPaperLastEdit", { fg = P.comment })
+  hl("FoxPaperInvisible", { fg = P.warn, bg = P.sel, underline = true })
+  if Paper.enabled then
+    hl("LspSignatureActiveParameter", { fg = P.fg, bg = P.sel, bold = true })
+    hl("NoiceLspSignatureActiveParameter", { link = "LspSignatureActiveParameter" })
+  end
   hl("FoxPaperFoldArrow", { fg = P.bookmark, bg = P.bg_hl })
   hl("FoxPaperFoldText", { fg = P.comment, bg = P.bg_hl })
   hl("FoxPaperFoldCount", { fg = P.faint, bg = P.bg_hl })
@@ -1818,7 +2023,7 @@ local function apply_foxml_theme()
   hl("@variable",            { fg = P.syn.var })
   hl("@variable.builtin",    { fg = P.pink })
   hl("@variable.parameter",  { fg = P.syn.param })
-  hl("@variable.member",     { fg = P.syn.member })
+  hl("@variable.member",     { fg = P.syn.member, bold = {{NVIM_MEMBER_BOLD}} })
   hl("@constant",            { fg = P.syn.number })
   hl("@constant.builtin",    { fg = P.syn.number, bold = {{SHOW_WELCOME}} })
   hl("@constant.macro",      { fg = P.syn.number })
@@ -1837,7 +2042,7 @@ local function apply_foxml_theme()
   hl("@type.definition",     { fg = P.syn.type })
   hl("@type.qualifier",      { fg = P.pink })
   hl("@attribute",           { fg = P.peach })
-  hl("@property",            { fg = P.syn.member })
+  hl("@property",            { fg = P.syn.member, bold = {{NVIM_MEMBER_BOLD}} })
   hl("@function",            { fg = P.fn_def, bg = Paper.enabled and P.sel or nil, bold = {{NVIM_FN_DEF_BOLD}} })
   hl("@function.call",       { fg = P.syn.call })
   hl("@function.builtin",    { fg = P.syn.call })
@@ -1903,7 +2108,7 @@ local function apply_foxml_theme()
   hl("@lsp.type.macro",         { fg = P.pink })
   hl("@lsp.type.decorator",     { fg = P.pink })
   hl("@lsp.type.variable",      { fg = P.syn.var })
-  hl("@lsp.type.parameter",     { fg = P.peach })
+  hl("@lsp.type.parameter",     { fg = Paper.enabled and P.syn.param or P.peach })
   hl("@lsp.type.property",      { link = "@property" })
   hl("@lsp.type.property.c",    { link = "@property" })
   hl("@lsp.type.property.cpp",  { link = "@property" })
@@ -1951,6 +2156,28 @@ local function apply_foxml_theme()
   hl("TelescopePromptTitle",   { fg = P.bg, bg = P.pink, bold = {{SHOW_WELCOME}} })
   hl("TelescopeResultsTitle",  { fg = P.bg, bg = P.peach, bold = {{SHOW_WELCOME}} })
   hl("TelescopePreviewTitle",  { fg = P.bg, bg = P.green, bold = {{SHOW_WELCOME}} })
+
+  if Paper.enabled then
+    hl("TelescopeSelection", { fg = P.fg, bg = P.sel })
+    hl("TelescopeSelectionCaret", { fg = P.bookmark, bg = P.sel })
+    hl("TelescopeMatching", { fg = P.fg, underline = true, sp = P.comment })
+    hl("TelescopeResultsComment", { fg = P.comment })
+    hl("TelescopeResultsLineNr", { fg = P.comment })
+    for _, section in ipairs({"Prompt", "Results", "Preview"}) do
+      hl("Telescope" .. section .. "Border", { fg = P.float_border })
+      hl("Telescope" .. section .. "Title", { fg = P.fg, bg = P.sel })
+    end
+    -- Filetype overrides keep JSON keys and Python decorators distinct from prose.
+    hl("@property.json", { fg = P.syn.member, bold = true })
+    hl("@string.json", { fg = P.syn.string })
+    hl("@constant.builtin.json", { fg = P.syn.param, italic = false })
+    hl("@punctuation.bracket.json", { fg = P.syn.operator })
+    hl("@punctuation.delimiter.json", { fg = P.comment })
+    hl("@attribute.python", { fg = P.fg, underline = true, sp = P.comment })
+    hl("@attribute.builtin.python", { link = "@attribute.python" })
+    hl("@string.documentation.python", { fg = P.syn.comment, italic = true })
+    hl("@lsp.type.decorator.python", { link = "@attribute.python" })
+  end
 
   -- Snacks dashboard
   hl("SnacksDashboardHeader",  { fg = P.pink, bold = {{SHOW_WELCOME}} })
@@ -2274,6 +2501,11 @@ local function apply_foxml_theme()
   hl("IlluminatedWordText",  { bg = P.illuminate })
   hl("IlluminatedWordRead",  { bg = P.illuminate })
   hl("IlluminatedWordWrite", { bg = P.illuminate, underline = {{SHOW_WELCOME}} })
+  if Paper.enabled then
+    for _, name in ipairs({ "IlluminatedWordText", "IlluminatedWordRead", "IlluminatedWordWrite" }) do
+      hl(name, { underline = true, sp = P.comment })
+    end
+  end
 
   -- nvim-cmp
   hl("CmpItemAbbrMatch",      { fg = P.peach, bold = {{SHOW_WELCOME}} })
@@ -2330,6 +2562,7 @@ local function apply_foxml_theme()
 end
 
 apply_foxml_theme()
+Paper.setup_popup_styles()
 
 -- Re-apply theme after any colorscheme event (prevents treesitter/plugin overrides)
 vim.api.nvim_create_autocmd("ColorScheme", {
@@ -2443,7 +2676,7 @@ local border = "rounded"
 
 -- Diagnostics config
 vim.diagnostic.config({
-  virtual_text = true,    -- 0.11+ defaults this off; <leader>td toggles
+  virtual_text = Paper.virtual_text, -- Paper shows messages only on the current line.
   virtual_lines = false,  -- core handler (replaced lsp_lines.nvim); <leader>tl toggles
   float = { border = border },
   signs = {
@@ -2465,12 +2698,12 @@ vim.diagnostic.config({
       [vim.diagnostic.severity.INFO]  = "DiagnosticLineNrInfo",
       [vim.diagnostic.severity.HINT]  = "DiagnosticLineNrHint",
     },
-    linehl = {
+    linehl = not Paper.enabled and {
       [vim.diagnostic.severity.ERROR] = "DiagnosticLineError",
       [vim.diagnostic.severity.WARN]  = "DiagnosticLineWarn",
       [vim.diagnostic.severity.INFO]  = "DiagnosticLineInfo",
       [vim.diagnostic.severity.HINT]  = "DiagnosticLineHint",
-    },
+    } or {},
   },
 })
 
@@ -2492,7 +2725,8 @@ local function paper_footer_mode(ink)
 end
 -- Sidebar focus must not shorten the editor path to the tree's narrower width.
 local filename_component = { "filename", path = 1, shorting_target = Paper.enabled and 0 or nil,
-  color = Paper.enabled and { fg = P.fg } or nil }
+  color = Paper.enabled and { fg = P.fg } or nil,
+  symbols = Paper.enabled and { modified = "✎", readonly = "", unnamed = "[No Name]", newfile = "[New]" } or nil }
 require("lualine").setup({
   options = {
     ignore_focus = Paper.enabled and { "neo-tree" } or {},
@@ -2677,6 +2911,10 @@ vim.api.nvim_create_autocmd("FileType", {
       vim.treesitter.query.set(lang, "context", src)
     end
   end,
+})
+
+vim.api.nvim_create_autocmd("FileType", {
+  pattern = {"json", "jsonc"}, callback = function() vim.wo.conceallevel = 0 end,
 })
 
 -- Mason (LSP installer). clangd comes from the system (pacman `clang`, fox-install --cpp-pro) so the
@@ -3050,14 +3288,14 @@ map("n", "<leader>X", "<cmd>!chmod +x %<cr>", { silent = {{SHOW_WELCOME}}, desc 
 -- than shadow booleans, so they can't drift from the real config (or from each other).
 map("n", "<leader>td", function()
   local on = not vim.diagnostic.config().virtual_text
-  vim.diagnostic.config({ virtual_text = on })
+  vim.diagnostic.config({ virtual_text = on and Paper.virtual_text or false })
   vim.notify("Diagnostic virtual text: " .. (on and "ON" or "OFF"))
 end, { desc = "Toggle diagnostic virtual text" })
 
 -- Toggle diagnostic lines (core virtual_lines: multi-line diagnostics below error lines)
 map("n", "<leader>tl", function()
   local on = not vim.diagnostic.config().virtual_lines
-  vim.diagnostic.config({ virtual_lines = on, virtual_text = not on })
+  vim.diagnostic.config({ virtual_lines = on, virtual_text = not on and Paper.virtual_text or false })
   vim.notify("Diagnostic lines: " .. (on and "ON" or "OFF"))
 end, { desc = "Toggle diagnostic lines" })
 
@@ -3272,6 +3510,10 @@ require("conform").formatters["clang-format"] = {
     return { "-assume-filename", format_name(ctx), "--offset", tostring(from), "--length", tostring(to - from) }
   end,
 }
+
+vim.keymap.set({"n", "v"}, "<leader>cf", function()
+  require("conform").format({async = true, lsp_format = "fallback"})
+end, {desc = "Format"})
 
 -- Find files / grep search the CURRENT file's project (its .git, else a build marker), not nvim's cwd:
 -- `nvim <file>` launched from ~/code searched all of ~/code (9k files incl. old copies), because

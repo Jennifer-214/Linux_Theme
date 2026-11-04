@@ -48,8 +48,26 @@ function valueText(item, editing, draft) {
     return "↵";
 }
 
+function confirmationLabel(item) {
+    if (!item) return "Confirm";
+    var labels = { "drive-eject": "Eject drive", "agent-clear": "Clear notes" };
+    return labels[item.action || item.id] || item.label || "Confirm";
+}
+
+function focusDetail(item) {
+    if (!item) return "";
+    var path = String(item.argument || "");
+    return item.presentation && path.charAt(0) === "/" ? path : "";
+}
+
+function tooltipText(item) {
+    if (!item) return "";
+    var parts = [item.label || "", detailText(item), focusDetail(item), item.modifiedAt || ""];
+    return parts.filter(function(part, index) { return part && parts.indexOf(part) === index; }).join("\n");
+}
+
 function detailText(item) {
-    var detail = String(item.detail || "");
+    var detail = String(item.disabledReason || item.detail || "");
     var normalized = detail.trim().toLowerCase();
     if (normalized === String(item.label || "").trim().toLowerCase()) return "";
     if ((item.kind === "slider" || item.kind === "toggle") && normalized === valueText(item, false, 0)) return "";
@@ -78,7 +96,7 @@ function footerHint(state, item) {
     if (state.editing) return "h / l adjusts · Enter or Esc finishes";
     if (state.focus === "groups") return "j / k move · Enter / l opens a drawer · / searches · Esc closes";
     if (!item) return "h goes back · / searches · Esc closes";
-    if (item.enabled === false) return "control unavailable · h goes back · / searches";
+    if (item.enabled === false) return (item.disabledReason || item.detail || "control unavailable") + " · h goes back · / searches";
     if (item.presentation === "project") return "Enter opens editor · t terminal · b bookmark · h goes back";
     if (item.presentation === "library") return "Enter opens / mounts · e ejects · / filters · h goes back";
     if (item.presentation === "download") return "Enter opens · r opens folder · / filters · h goes back";

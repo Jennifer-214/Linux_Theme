@@ -13,6 +13,8 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iomanip>
+#include <ctime>
 #include <map>
 #include <optional>
 #include <regex>
@@ -368,7 +370,7 @@ bool decorate(Json& row) {
     }
     if (queried) {
         if (!state.ok) {
-            row["enabled"] = false; row["detail"] = "State unavailable"; row.erase("value"); row.erase("checked"); return false;
+            row["enabled"] = false; row["detail"] = "Could not read " + text(row, "label", id) + " state"; row.erase("value"); row.erase("checked"); return false;
         }
         if (text(row, "kind") == "slider") row["value"] = std::min(100.0, state.value);
         if (text(row, "kind") == "toggle") row["checked"] = state.checked;
@@ -975,7 +977,7 @@ fs::path download_directory(const Json& config) {
 }
 struct Download {
     fs::path path;
-    std::string name, type, age;
+    std::string name, type, age, modified_at;
     uint64_t size;
     fs::file_time_type modified;
 };
@@ -1008,7 +1010,13 @@ std::vector<Download> downloads(const Json& config) {
         else if (ext == ".zip" || ext == ".gz" || ext == ".xz" || ext == ".tar" || ext == ".7z" || ext == ".rar" || ext == ".zst") type = "Archive";
         else if (ext == ".mp3" || ext == ".wav" || ext == ".flac" || ext == ".ogg") type = "Audio";
         else if (ext == ".mp4" || ext == ".webm" || ext == ".mkv") type = "Video";
-        found.push_back({entry.path(), name, type, age, size, modified});
+        const auto system_time = std::chrono::system_clock::now() +
+            std::chrono::duration_cast<std::chrono::system_clock::duration>(modified - fs::file_time_type::clock::now());
+        const auto epoch = std::chrono::system_clock::to_time_t(system_time);
+        std::tm local{};
+        std::ostringstream date;
+        if (::localtime_r(&epoch, &local)) date << std::put_time(&local, "%Y-%m-%d %H:%M:%S %Z");
+        found.push_back({entry.path(), name, type, age, date.str(), size, modified});
     }
     std::sort(found.begin(), found.end(), [](const auto& a, const auto& b) {
         return a.modified != b.modified ? a.modified > b.modified : a.name < b.name;
@@ -1135,15 +1143,17 @@ Json view(const Json& config, const std::string& page, const std::string& query)
             auto row = item("drive-open", volume.label, "action", detail, "▤");
             row["argument"] = volume.path; row["ejectArgument"] = volume.disk;
             row["presentation"] = "library"; row["mounted"] = !volume.mount.empty();
-            row["enabled"] = sh::have("udisksctl") && sh::have("xdg-open"); rows.push_back(row);
+            row["enabled"] = sh::have("udisksctl") && sh::have("xdg-open");
+            if (!row["enabled"].get<bool>()) row["disabledReason"] = !sh::have("udisksctl") ? "udisksctl is not installed" : "xdg-open is not installed";
+            rows.push_back(row);
         }
     } else if (page == "downloads") {
         known = true; out["title"] = "Incoming paper tray";
         for (const auto& file : downloads(config)) {
-            auto row = item("download-open", file.name, "action", file.type + " · " + capacity(file.size) + " · modified " + lower(file.age), "✉");
+            auto row = item("download-open", file.name, "action", file.type + " · " + capacity(file.size), "✉");
             row["argument"] = file.path.string(); row["close"] = true;
-            row["presentation"] = "download"; row["stamp"] = file.age;
-            row["enabled"] = sh::have("xdg-open"); rows.push_back(row);
+            row["presentation"] = "download"; row["stamp"] = file.age; row["modifiedAt"] = file.modified_at;
+            row["enabled"] = sh::have("xdg-open"); if (!row["enabled"].get<bool>()) row["disabledReason"] = "xdg-open is not installed"; rows.push_back(row);
         }
     } else if (page == "apps") {
         known = true; out["title"] = "Applications";

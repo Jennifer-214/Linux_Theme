@@ -93,7 +93,7 @@ export FZF_CTRL_T_COMMAND="$FZF_DEFAULT_COMMAND"
 export FZF_ALT_C_COMMAND='fd --type d --hidden --follow --exclude .git'
 export FZF_DEFAULT_OPTS="
   --color=bg+:#{{SELECTION}},bg:-1,preview-bg:-1,fg:#{{FG}},fg+:#{{FG}}
-  --color=hl:#{{FZF_ACCENT1}},hl+:#{{PRIMARY}},info:#{{FZF_ACCENT1}},marker:#{{PRIMARY}}
+  --color=hl:{{FZF_MATCH_ATTR}}:#{{FZF_MATCH_FG}},hl+:{{FZF_MATCH_ATTR}}:#{{FZF_MATCH_SELECTED_FG}},info:#{{FZF_META_FG}},marker:#{{PRIMARY}}
   --color=prompt:#{{PRIMARY}},spinner:#{{FZF_ACCENT1}},pointer:#{{PRIMARY}},header:#{{FZF_ACCENT1}}
   --color=border:#{{FZF_BORDER}}
   --border={{FZF_BORDER_STYLE}} --prompt='❯ ' --pointer='$FOXML_FZF_POINTER' --marker='$FOXML_FZF_MARKER'

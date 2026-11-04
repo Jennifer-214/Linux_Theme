@@ -41,5 +41,7 @@ if [[ -f "$file" ]]; then
     else
         wl-copy --type image/png < "$file"
     fi
-    notify-send -i "$file" "Screenshot saved" "File: $(basename "$file")\nSaved to: ~/Pictures/Screenshots"
+    screenshot_title="Screenshot saved"
+    [[ "${C_LITTLE_DETAILS:-}" == fox-little-details-on ]] && screenshot_title="Screenshot"
+    notify-send --category=foxml.saved -i "$file" "$screenshot_title" "$(basename "$file")\n~/Pictures/Screenshots"
 fi

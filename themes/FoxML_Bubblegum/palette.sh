@@ -389,3 +389,21 @@ MAKO_STAMP_SUMMARIES='^foxml-paper-stamp-disabled$'
 HYPR_SHADOW_RGB=000000
 HYPR_SHADOW_OFFSET_X=0
 HYPR_SHADOW_OFFSET_Y=0
+
+# Reading and notebook labels
+YAZI_TAB_ACTIVE_FG=150a12
+YAZI_TAB_ACTIVE_BG=ff5fa2
+NVIM_MEMBER_BOLD=false
+DELTA_LABEL_STYLE=foxml-standard
+DRAWER_SCROLL_GUTTER=0
+
+# Search result ink and match decoration (shared shell / tmux pickers).
+FZF_MATCH_FG=ff5fa2
+FZF_MATCH_SELECTED_FG=ff5fa2
+FZF_MATCH_ATTR=bold
+FZF_META_FG=ff5fa2
+FF_FIND_BG=ff5fa2
+FF_FIND_FG=150a12
+
+# Keep Paper compositor and application cursor shapes on the same XCursor backend.
+HYPR_CURSOR_ENABLED=true

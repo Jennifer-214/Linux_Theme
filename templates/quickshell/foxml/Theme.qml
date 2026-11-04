@@ -2,6 +2,7 @@ import QtQuick
 
 QtObject {
     readonly property bool paperDetails: "{{LITTLE_DETAILS}}" === "fox-little-details-on"
+    readonly property real scrollGutter: {{DRAWER_SCROLL_GUTTER}}
     readonly property color background: "#{{BG}}"
     readonly property color surface: "#{{BG_DARK}}"
     readonly property color ink: "#{{FG}}"

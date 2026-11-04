@@ -97,6 +97,34 @@ print('[]' if sys.argv[1:2] == ['monitors'] else ('eval is only supported with t
         self.assertIn(["setcursor", "previous-theme", "24"], self.cursor_calls("$(touch should-not-exist)"))
         self.assertFalse((ROOT / "should-not-exist").exists())
 
+    def test_session_exports_cursor_to_both_activation_environments(self):
+        import socket
+        with tempfile.TemporaryDirectory(prefix='.cursor-env-', dir=ROOT/'tests') as directory:
+            base=Path(directory);bins=base/'bin';bins.mkdir()
+            gtk=base/'config/gtk-3.0';gtk.mkdir(parents=True)
+            (gtk/'settings.ini').write_text('[Settings]\ngtk-cursor-theme-name=catppuccin-mocha-pink-cursors\n')
+            runtime=base/'runtime';runtime.mkdir()
+            calls=base/'calls'
+            stub='''#!/usr/bin/python3
+import json,os,sys
+with open(os.environ['CURSOR_ENV_CALLS'],'a') as stream:
+    stream.write(json.dumps([sys.argv[0].split('/')[-1],sys.argv[1:],{key:os.environ.get(key) for key in ['XCURSOR_THEME','HYPRCURSOR_THEME','XCURSOR_SIZE']}])+'\\n')
+'''
+            for name in ['systemctl','dbus-update-activation-environment']:
+                path=bins/name;path.write_text(stub);path.chmod(0o755)
+            (bins/'awk').symlink_to(shutil.which('awk'))
+            with socket.socket(socket.AF_UNIX) as bus:
+                bus.bind(str(runtime/'bus'))
+                env=os.environ|{'PATH':str(bins),'XDG_CONFIG_HOME':str(base/'config'),'XDG_RUNTIME_DIR':str(runtime),
+                    'XCURSOR_THEME':'stale-white','HYPRCURSOR_THEME':'stale-white','XCURSOR_SIZE':'24','CURSOR_ENV_CALLS':str(calls)}
+                subprocess.run(['/bin/bash',str(ROOT/'shared/hyprland_scripts/env-init.sh')],env=env,check=True,capture_output=True,text=True)
+            rows=[json.loads(line)for line in calls.read_text().splitlines()]
+            self.assertEqual([row[0]for row in rows],['systemctl','dbus-update-activation-environment'])
+            for _,args,env in rows:
+                self.assertIn('XCURSOR_THEME',args)
+                self.assertEqual(env['XCURSOR_THEME'],'catppuccin-mocha-pink-cursors')
+                self.assertEqual(env['HYPRCURSOR_THEME'],env['XCURSOR_THEME'])
+
 
 if __name__ == "__main__":
     unittest.main()
