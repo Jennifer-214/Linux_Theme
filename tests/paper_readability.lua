@@ -8,6 +8,20 @@ local state=assert(loadstring('local map=vim.keymap.set\n'..palette..'\n'..block
 local P,Paper=state.P,state.Paper
 Paper.setup_popup_styles()
 local buf=api.nvim_get_current_buf();vim.bo[buf].buflisted=true
+vim.opt.rtp:append(vim.fn.expand('~/.local/share/nvim/site'))
+if pcall(vim.treesitter.language.add,'cpp') then
+  local initial_list, initial_chars=vim.wo.list,vim.wo.listchars
+  api.nvim_buf_set_lines(buf,0,-1,false,{'int qzzidentifier = 1;', '// A misstakke in this comment.', 'const char* path = "qzzidentifier";'})
+  vim.bo.filetype='cpp';vim.treesitter.start(buf,'cpp');Paper.spelling()
+  assert(vim.wo.spell,'native comment spelling was not enabled')
+  vim.cmd('redraw!');api.nvim_win_set_cursor(0,{1,0});vim.cmd('normal! ]s')
+  assert(api.nvim_win_get_cursor(0)[1]==2,'spelling marked a code identifier instead of comment prose')
+  local ui=api.nvim_create_buf(false,true);api.nvim_win_set_buf(0,ui);Paper.spelling()
+  assert(not vim.wo.spell,'spelling leaked into a utility buffer')
+  api.nvim_win_set_buf(0,buf);vim.treesitter.stop(buf);Paper.spelling()
+  vim.wo.list,vim.wo.listchars=initial_list,initial_chars
+  vim.w.foxml_paper_whitespace=nil
+end
 api.nvim_buf_set_lines(buf,0,-1,false,{'int page = 1;  ','int other = 2;'})
 vim.bo.filetype='cpp';assert(vim.wo.list and vim.wo.listchars:find('trail:·',1,true))
 local md=api.nvim_create_buf(true,false);vim.bo[md].filetype='markdown';api.nvim_win_set_buf(0,md)

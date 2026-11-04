@@ -236,6 +236,26 @@ function Paper.whitespace()
   end
 end
 
+function Paper.spelling()
+  if not Paper.enabled then return end
+  local buf = vim.api.nvim_get_current_buf()
+  local prose = vim.bo.filetype == "markdown"
+  local syntax_prose = vim.treesitter.highlighter.active[buf] ~= nil
+  local saved = vim.w.foxml_paper_spelling
+  if Paper.file_buffer(buf) and (prose or syntax_prose) then
+    -- Tree-sitter's @spell / @nospell regions keep identifiers, URLs and code spans clear.
+    if not saved then
+      vim.w.foxml_paper_spelling = {previous = vim.wo.spell}
+      vim.wo.spell = true
+    end
+  elseif saved then
+    vim.wo.spell = saved.previous
+    vim.w.foxml_paper_spelling = nil
+  elseif not Paper.file_buffer(buf) then
+    vim.wo.spell = false
+  end
+end
+
 -- Keep transient marks separate from bookmarks and diagnostics.
 Paper.paste_namespace = vim.api.nvim_create_namespace("foxml_paper_paste")
 Paper.edit_namespace = vim.api.nvim_create_namespace("foxml_paper_last_edit")
@@ -468,6 +488,7 @@ if Paper.enabled then
     group = group,
     callback = function(args)
       if args.buf == vim.api.nvim_get_current_buf() then Paper.whitespace() end
+      vim.schedule(Paper.spelling)
     end,
   })
   vim.api.nvim_create_autocmd({ "BufWinEnter", "CursorHold", "TextChanged", "TextChangedI",
@@ -1079,8 +1100,13 @@ local plugins = {
         json = {"prettier"}, jsonc = {"prettier"},
       },
       formatters = {
-        ruff_format = {command = require("conform.util").find_executable({".venv/bin/ruff", "venv/bin/ruff"}, "ruff")},
-        black = {command = require("conform.util").find_executable({".venv/bin/black", "venv/bin/black"}, "black")},
+        -- Resolved at format time: lazy.nvim reads this spec before conform is on the runtimepath.
+        ruff_format = {command = function(self, ctx)
+          return require("conform.util").find_executable({".venv/bin/ruff", "venv/bin/ruff"}, "ruff")(self, ctx)
+        end},
+        black = {command = function(self, ctx)
+          return require("conform.util").find_executable({".venv/bin/black", "venv/bin/black"}, "black")(self, ctx)
+        end},
       },
     },
   },
@@ -2095,6 +2121,11 @@ local function apply_foxml_theme()
     hl("@markup.list.checked.markdown", { fg = P.bookmark })
     hl("@markup.list.unchecked.markdown", { fg = P.faint })
     hl("@markup.list.checked.text.markdown", { fg = P.comment })
+    hl("@markup.link.markdown_inline", { fg = P.comment })
+    hl("@markup.link.label.markdown_inline", { fg = P.fg, underline = true, sp = P.search.cur_bg })
+    hl("@markup.link.url.markdown_inline", { fg = P.comment })
+    hl("markdownLinkText", { fg = P.fg, underline = true, sp = P.search.cur_bg })
+    hl("markdownUrl", { fg = P.comment })
   end
 
   -- ── LSP semantic tokens ──
@@ -2142,6 +2173,11 @@ local function apply_foxml_theme()
   hl("SpellCap",     { undercurl = {{SHOW_WELCOME}}, sp = P.yellow })
   hl("SpellRare",    { undercurl = {{SHOW_WELCOME}}, sp = P.cyan })
   hl("SpellLocal",   { undercurl = {{SHOW_WELCOME}}, sp = P.green })
+  if Paper.enabled then
+    for _, group in ipairs({"SpellBad", "SpellCap", "SpellRare", "SpellLocal"}) do
+      hl(group, { underdotted = true, sp = P.search.cur_bg })
+    end
+  end
 
   -- ── Plugin highlights ──
 
@@ -2211,6 +2247,10 @@ local function apply_foxml_theme()
   hl("FlashMatch",    { fg = P.fg, bg = P.bg_hl })
   hl("FlashCurrent",  { fg = P.bg, bg = P.pink, bold = {{SHOW_WELCOME}} })
   hl("FlashBackdrop", { fg = P.faint })
+  if Paper.enabled then
+    hl("FlashLabel", { fg = P.fg, bg = P.sel, bold = true })
+    hl("FlashCurrent", { fg = P.fg, bg = P.sel, underline = true, sp = P.search.cur_bg })
+  end
 
   -- Trouble.nvim
   hl("TroubleNormal",   { bg = P.bg_deep })

@@ -26,6 +26,16 @@ class PaperReadability(unittest.TestCase):
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
             self.assertIn('PAPER_TMUX_FOOTER_PASSED',result.stdout+result.stderr)
 
+    @unittest.skipUnless(shutil.which('nvim'), 'Neovim not installed')
+    def test_conform_spec_reads_before_the_plugin_loads(self):
+        with tempfile.TemporaryDirectory(prefix='foxml-conform-spec-') as temp:
+            base=Path(temp)
+            subprocess.run([str(RENDER),str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates/nvim'),str(base/'rendered')],check=True,capture_output=True)
+            env=os.environ|{'PAPER_READING_INIT':str(base/'rendered/init.lua'),'XDG_STATE_HOME':str(base/'state')}
+            result=subprocess.run(['nvim','--clean','--headless','-l',str(ROOT/'tests/paper_conform_spec.lua')],env=env,capture_output=True,text=True,timeout=20)
+            self.assertEqual(result.returncode,0,result.stdout+result.stderr)
+            self.assertIn('PAPER_CONFORM_SPEC_PASSED',result.stdout+result.stderr)
+
     @unittest.skipUnless(shutil.which('ruff') and (Path.home()/'.local/share/nvim/lazy/conform.nvim').is_dir(), 'Ruff/Conform not installed')
     def test_native_python_and_json_format_on_save(self):
         with tempfile.TemporaryDirectory(prefix='foxml-formatting-') as temp:
