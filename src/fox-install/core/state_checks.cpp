@@ -3,6 +3,7 @@
 #include "deps_list.hpp"
 
 #include "../../fox-common/shell.hpp"
+#include "../modules/cursor_recolor.hpp"
 
 #include <algorithm>
 #include <filesystem>
@@ -302,6 +303,10 @@ Classification check_catppuccin_cursor(const Context& ctx, const Manifest& manif
     fs::path theme_dir = ctx.home / ".local/share/icons" / theme / "cursors";
     if (!fs::is_directory(theme_dir)) theme_dir = ctx.home / ".icons" / theme / "cursors";
     const bool present = fs::is_directory(theme_dir);
+    // A palette colour change re-derives the set even though its directory exists.
+    const auto recolor = cursor_recolor::parse_recolor(palette::get(ctx.palette_path, "CURSOR_RECOLOR", "none"));
+    if (present && recolor && !cursor_recolor::is_current(theme_dir.parent_path(), *recolor))
+        return {Status::Update, "cursor colours changed, rebuild needed"};
     const auto it = manifest.modules.find("catppuccin_cursor");
     const bool tracked = (it != manifest.modules.end());
     if (!tracked) {

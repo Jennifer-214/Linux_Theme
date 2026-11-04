@@ -3,11 +3,13 @@
 // Pulled from the upstream catppuccin/cursors GitHub release. The palette's
 // CURSOR_THEME selected by the palette is what
 // the rendered Hyprland env + GTK ini name; without it cursors fall back to
-// the default Adwaita.
+// the default Adwaita. A palette with CURSOR_RECOLOR gets a set built from the
+// download in its own colours (cursor_recolor.hpp).
 
 #include "../core/context.hpp"
 #include "../core/palette.hpp"
 #include "../core/backup.hpp"
+#include "cursor_recolor.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
@@ -79,38 +81,35 @@ std::string resolve_asset_url(const std::string& asset) {
     return {};
 }
 
-}  // namespace
+// The directory holding `theme`, downloading it first if needed. Empty when
+// it isn't there and can't be fetched (or on a dry run, which says so).
+fs::path fetch_theme(const Context& ctx, const std::string& theme) {
+    const fs::path user_dir = ctx.home / ".local/share/icons";
+    const fs::path sys_dir  = "/usr/share/icons";
 
-void run_catppuccin_cursor(Context& ctx) {
-    const std::string theme = palette::get(ctx.palette_path, "CURSOR_THEME",
-                                           "catppuccin-mocha-peach-cursors");
-    ui::section("Cursor theme: " + theme);
-    fs::path user_dir = ctx.home / ".local/share/icons";
-    fs::path sys_dir  = "/usr/share/icons";
-
-    if (fs::is_directory(sys_dir / theme) || fs::is_directory(user_dir / theme)) {
+    if (fs::is_directory(sys_dir / theme)) return sys_dir / theme;
+    if (fs::is_directory(user_dir / theme)) {
         ui::skipped(theme + " already installed");
-        sync_cursor_settings(ctx, theme);
-        return;
+        return user_dir / theme;
     }
     if (sh::dry_run()) {
         ui::substep("[dry-run] would download " + theme + ".zip from catppuccin/cursors GitHub release");
-        return;
+        return {};
     }
     if (!have("curl")) {
         ui::warn("curl missing — install curl or fetch " + theme + " manually");
-        return;
+        return {};
     }
     if (!have("unzip")) {
         ui::warn("unzip missing — pacman -S unzip then re-run --catppuccin-cursor");
-        return;
+        return {};
     }
 
     std::string asset = theme + ".zip";
     std::string url   = resolve_asset_url(asset);
     if (url.empty()) {
         ui::warn("couldn't resolve " + asset + " from catppuccin/cursors API — skipping");
-        return;
+        return {};
     }
 
     fs::path tmp_dir = "/tmp/foxin-cursor";
@@ -120,23 +119,56 @@ void run_catppuccin_cursor(Context& ctx) {
     if (sh::run({"curl", "-fsSL", "-o", zip.string(), url}) != 0) {
         ui::warn("download failed: " + url);
         fs::remove_all(tmp_dir);
-        return;
+        return {};
     }
 
     fs::create_directories(user_dir);
     if (sh::run({"unzip", "-q", "-o", zip.string(), "-d", user_dir.string()}) != 0) {
         ui::warn("unzip failed");
         fs::remove_all(tmp_dir);
-        return;
+        return {};
     }
     fs::remove_all(tmp_dir);
 
-    if (fs::is_directory(user_dir / theme)) {
-        ui::ok(theme + " → " + user_dir.string());
-        sync_cursor_settings(ctx, theme);
-    } else {
+    if (!fs::is_directory(user_dir / theme)) {
         ui::warn("extraction didn't produce " + (user_dir / theme).string());
+        return {};
     }
+    ui::ok(theme + " → " + user_dir.string());
+    return user_dir / theme;
+}
+
+}  // namespace
+
+void run_catppuccin_cursor(Context& ctx) {
+    const std::string theme = palette::get(ctx.palette_path, "CURSOR_THEME",
+                                           "catppuccin-mocha-peach-cursors");
+    const std::string token = palette::get(ctx.palette_path, "CURSOR_RECOLOR", "none");
+    const auto recolor = cursor_recolor::parse_recolor(token);
+    if (!recolor && token != "none") ui::warn("ignoring malformed CURSOR_RECOLOR: " + token);
+
+    ui::section("Cursor theme: " + theme);
+    const fs::path derived = ctx.home / ".local/share/icons" / theme;
+    if (recolor && cursor_recolor::is_current(derived, *recolor)) {
+        ui::skipped(theme + " already built");
+        sync_cursor_settings(ctx, theme);
+        return;
+    }
+
+    const fs::path source = fetch_theme(ctx, recolor ? recolor->base : theme);
+    if (source.empty()) return;
+
+    if (recolor) {
+        if (sh::dry_run()) {
+            ui::substep("[dry-run] would build " + theme + " from " + recolor->base);
+        } else if (cursor_recolor::build_theme(source, derived, theme, *recolor)) {
+            ui::ok(theme + " built from " + recolor->base);
+        } else {
+            ui::warn("could not build " + theme + " — check " + source.string());
+            return;
+        }
+    }
+    sync_cursor_settings(ctx, theme);
 }
 
 }  // namespace fox_install

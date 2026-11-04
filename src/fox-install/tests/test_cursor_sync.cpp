@@ -14,6 +14,14 @@ std::string read(const fs::path& path) {
     return {std::istreambuf_iterator<char>(input), {}};
 }
 
+// A single opaque pixel in the base set's fill.
+std::string one_pixel_cursor() {
+    auto u32 = [](uint32_t v) { return std::string(reinterpret_cast<const char*>(&v), 4); };
+    return "Xcur" + u32(16) + u32(0x10000) + u32(1) + u32(0xfffd0002) + u32(24) + u32(28) +
+           u32(36) + u32(0xfffd0002) + u32(24) + u32(1) + u32(1) + u32(1) + u32(0) + u32(0) + u32(0) +
+           std::string("\xe7\xc2\xf5\xff", 4);
+}
+
 int main() {
     // /tmp can be mounted noexec on machines using FoxML's hardening module.
     std::string pattern = (fs::current_path() / ".fox-cursor-sync-XXXXXX").string();
@@ -59,6 +67,30 @@ int main() {
     expect(read(fallback) == expected, "repeat installation preserves the chosen theme");
     expect(read(ctx.backup_dir / ".icons/default/index.theme").find("Adwaita") != std::string::npos,
            "repeat installation keeps the original backup");
+
+    // A palette recolor builds its own set from the base and selects that set.
+    const std::string derived = "derived-test-cursors", base = "base-test-cursors";
+    const auto base_dir = ctx.home / ".local/share/icons" / base;
+    const auto derived_dir = ctx.home / ".local/share/icons" / derived;
+    fs::create_directories(base_dir / "cursors");
+    std::ofstream(base_dir / "cursors/default", std::ios::binary) << one_pixel_cursor();
+    std::ofstream(ctx.palette_path) << "CURSOR_THEME=" << derived << "\nCURSOR_RECOLOR=" << base
+                                    << ":f5c2e7:1e1e2e:edb0c4:3c3c40\n";
+    fox_install::sh::set_dry_run(true);
+    fox_install::run_catppuccin_cursor(ctx);
+    fox_install::sh::set_dry_run(false);
+    expect(!fs::exists(derived_dir), "dry run builds nothing");
+    fox_install::run_catppuccin_cursor(ctx);
+    const std::string built = read(derived_dir / "cursors/default");
+    expect(built.size() == one_pixel_cursor().size() && built.compare(built.size() - 4, 3, "\xc4\xb0\xed") == 0,
+           "the derived set carries the palette's fill");
+    expect(read(root / "calls").find("cursor-theme " + derived) != std::string::npos,
+           "the derived set, not its base, is selected");
+    expect(read(fallback) == "[Icon Theme]\nInherits=" + derived + '\n', "the fallback names the derived set");
+    fs::remove_all(base_dir);
+    fox_install::run_catppuccin_cursor(ctx);
+    expect(fs::exists(derived_dir / "cursors/default"), "an up-to-date set needs no base to survive a re-run");
+
     ::setenv("PATH", old_path.c_str(), 1);
     ::unsetenv("FOXML_CURSOR_CALLS");
     fs::remove_all(root);

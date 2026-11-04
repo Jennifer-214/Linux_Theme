@@ -33,6 +33,7 @@ SHADOW_ALPHA=0.70
 # ─── Desktop chrome (GTK settings.ini · cursor · Hyprland window edges · kitty text · banner) ───
 GTK_PREFER_DARK=1
 CURSOR_THEME=catppuccin-mocha-peach-cursors
+CURSOR_RECOLOR=none
 PAPIRUS_FOLDER_COLOR=cat-mocha-peach
 HYPR_BORDER_SIZE=0
 HYPR_BORDER_INACTIVE=3d354866
@@ -169,6 +170,7 @@ TMUX_MODE_FG=1a1220
 TMUX_MODE_BG=e8a4b8
 KITTY_CURSOR=e8a4b8
 KITTY_CURSOR_TEXT=111111
+KITTY_POINTER_SHAPE=beam
 WAYBAR_WS_ACTIVE=f0bcd0
 PI_BORDER=3d3548
 PI_MUTED=d4b4c4

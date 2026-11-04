@@ -390,8 +390,10 @@ The active file tab uses blush behind its pencil name.
 Inside tmux, a single Neovim pane uses only its editor footer. Splitting restores
 tmux's lane labels, and leaving Neovim restores the previous footer setting.
 Btop keeps pencil text with pink shortcut letters, selected process
-text, and small process details. Paper's mouse pointer uses the soft Mocha pink
-XCursor assets for both application and restored desktop shapes. Its palette sets
+text, and small process details. Paper's mouse pointer is a pink set the cursor module
+builds from Catppuccin's XCursor assets using the palette's `CURSOR_RECOLOR` colours,
+for both application and restored desktop shapes. Kitty shows it as an arrow
+(`KITTY_POINTER_SHAPE`) rather than its default text beam. Its palette sets
 `HYPR_CURSOR_ENABLED=false`; other palettes retain Hyprcursor. Session startup,
 theme refreshes, D-Bus activation and tmux attachments propagate the chosen cursor.
 Text insertion cursors are unchanged. Hyprland 0.57 loads the Lua configuration;

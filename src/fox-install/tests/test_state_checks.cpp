@@ -43,6 +43,24 @@ int main() {
     fs::create_directories(tmp_cfg);
     ctx.config_home = tmp_cfg;
 
+    // A derived cursor set is stale when the palette's colours move on.
+    {
+        Context c = ctx;
+        c.home = tmp_cfg / "cursor_home";
+        c.palette_path = tmp_cfg / "cursor_palette.sh";
+        const fs::path dir = c.home / ".local/share/icons/derived-cursors";
+        fs::create_directories(dir / "cursors");
+        const std::string token = "base:f5c2e7:1e1e2e:edb0c4:3c3c40";
+        std::ofstream(c.palette_path) << "CURSOR_THEME=derived-cursors\nCURSOR_RECOLOR=" << token << "\n";
+        EXPECT(state::check_catppuccin_cursor(c, empty).status == state::Status::Update);
+        std::ofstream(dir / ".foxml-recolor") << token << "\n";
+        EXPECT(state::check_catppuccin_cursor(c, empty).status == state::Status::Noop);
+        std::ofstream(c.palette_path) << "CURSOR_THEME=derived-cursors\nCURSOR_RECOLOR=base:f5c2e7:1e1e2e:ffffff:3c3c40\n";
+        EXPECT(state::check_catppuccin_cursor(c, empty).status == state::Status::Update);
+        std::ofstream(c.palette_path) << "CURSOR_THEME=derived-cursors\nCURSOR_RECOLOR=none\n";
+        EXPECT(state::check_catppuccin_cursor(c, empty).status == state::Status::Noop);
+    }
+
     // T1: deps with no manifest entry → Fresh, no subprocess call.
     {
         auto cls = state::check_deps(ctx, empty);

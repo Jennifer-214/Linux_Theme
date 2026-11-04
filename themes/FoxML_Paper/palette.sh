@@ -37,8 +37,10 @@ SHADOW_ALPHA=0.06
 # ─── Desktop chrome (GTK settings.ini · cursor · Hyprland window edges · kitty text · banner) ───
 # A drawn hairline separates sheets; inactive windows stay paper, not soot.
 GTK_PREFER_DARK=0
-# Soft pink follows Paper's blush selection rather than its stronger rose accents.
-CURSOR_THEME=catppuccin-mocha-pink-cursors
+# Built by the installer from Catppuccin: the highlighter hue, stronger than SELECTION because
+# f1d6de disappears at cursor size, with a graphite outline. base:src_fill:src_outline:fill:outline
+CURSOR_THEME=foxml-paper-cursors
+CURSOR_RECOLOR=catppuccin-mocha-pink-cursors:f5c2e7:1e1e2e:edb0c4:3c3c40
 PAPIRUS_FOLDER_COLOR=grey
 HYPR_BORDER_SIZE=1
 HYPR_BORDER_INACTIVE=9a989488
@@ -187,6 +189,7 @@ TMUX_MODE_BG=f1d6de
 # Graphite caret (paper-colored letter under it); blush active-workspace pill in the pen's raspberry. pi: graphite syntax, visible hairlines.
 KITTY_CURSOR=3c3c40
 KITTY_CURSOR_TEXT=f4f2ed
+KITTY_POINTER_SHAPE=arrow
 WAYBAR_WS_ACTIVE=b8336a
 PI_BORDER=c8c5be
 PI_MUTED=7c7a76
