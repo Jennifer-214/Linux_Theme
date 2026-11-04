@@ -418,3 +418,36 @@
     filter: grayscale(1) !important;
   }
 }
+
+/* New tab: its moz-buttons and panels read the same tokens from inside shadow DOM, so
+   the rules at the top of this file can't touch them. Primary buttons are the highlighter. */
+@-moz-document url("about:newtab"), url("about:home") {
+  {{FF_EXTRA_SCOPE}} {
+    --color-accent-primary: #{{SELECTION}} !important;
+    --color-accent-primary-hover: color-mix(in srgb, #{{SELECTION}} 88%, #{{SECONDARY}}) !important;
+    --color-accent-primary-active: color-mix(in srgb, #{{SELECTION}} 78%, #{{SECONDARY}}) !important;
+    --color-accent-primary-selected: color-mix(in srgb, #{{SELECTION}} 78%, #{{SECONDARY}}) !important;
+    --button-background-color-primary: #{{SELECTION}} !important;
+    --button-background-color-primary-hover: color-mix(in srgb, #{{SELECTION}} 88%, #{{SECONDARY}}) !important;
+    --button-background-color-primary-active: color-mix(in srgb, #{{SELECTION}} 78%, #{{SECONDARY}}) !important;
+    --button-text-color-primary: #{{SECONDARY}} !important;
+    --button-text-color-primary-hover: #{{SECONDARY}} !important;
+    --button-text-color-primary-active: #{{SECONDARY}} !important;
+    --button-background-color-primary-disabled: #{{SURFACE}} !important;
+    --button-text-color-primary-disabled: #{{FG_DIM}} !important;
+    --text-color: #{{FG}} !important;
+    --panel-text-color: #{{FG}} !important;
+    --focus-outline-color: #{{FG_DIM}} !important;
+    --link-color: #{{PRIMARY}} !important;
+    --link-color-hover: #{{SECONDARY}} !important;
+    --link-color-active: #{{SECONDARY}} !important;
+  }
+  /* a graphite knob marks "on"; moz-toggle declares this on :host, so set it there */
+  {{FF_EXTRA_SCOPE}} moz-toggle {
+    --toggle-dot-background-color-on-pressed: #{{PRIMARY}} !important;
+  }
+  /* the orange fox in pencil, like the illustrations in settings */
+  {{FF_EXTRA_SCOPE}} .logo {
+    filter: grayscale(1) !important;
+  }
+}
