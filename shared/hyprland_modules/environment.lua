@@ -30,7 +30,8 @@ hl.env("NIXOS_OZONE_WL", "1")
 hl.env("SPOTIFY_USE_WAYLAND", "1")
 
 -- Qt Theming
-hl.env("QT_QPA_PLATFORMTHEME", "qt6ct")
+hl.env("QT_QPA_PLATFORMTHEME", "gtk3")
+hl.env("QT_GUI_GTK_JSON", (os.getenv("XDG_CONFIG_HOME") or os.getenv("HOME") .. "/.config") .. "/foxml/qt-palette.json")
 
 -- SSH agent — gnome-keyring-daemon (started in autostart.lua) provides the
 -- socket; SSH_ASKPASS_REQUIRE=prefer forces the GUI dialog even with a TTY.

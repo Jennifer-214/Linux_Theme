@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# start_waybar.sh — apply monitor-scale-dependent settings, then launch waybar.
+# start_waybar.sh — render the shared bar configuration, prefer Quickshell, retain Waybar fallback.
 #
 # Renders waybar style.css + config from .tmpl files (size-token substitution)
 # AND sets cursor size to match — a 1080p panel and a 4K panel need very
@@ -24,13 +24,13 @@
 
 set -euo pipefail
 
-WAYBAR_DIR="${HOME}/.config/waybar"
+WAYBAR_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/waybar"
 STYLE_TMPL="${WAYBAR_DIR}/style.css.tmpl"
 CONFIG_TMPL="${WAYBAR_DIR}/config.tmpl"
 CONFIG_SECONDARY_TMPL="${WAYBAR_DIR}/config_secondary.tmpl"
 STYLE_OUT="${WAYBAR_DIR}/style.css"
 CONFIG_OUT="${WAYBAR_DIR}/config"
-LAYOUT_FILE="${HOME}/.config/foxml/monitor-layout.conf"
+LAYOUT_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/foxml/monitor-layout.conf"
 
 # The drawer owns this runtime stylesheet; seed it even when --no-drawer was used.
 # Linking a unique empty file never overwrites a marker published during startup.
@@ -265,6 +265,12 @@ if [[ "${1:-}" == "--render-only" ]]; then
     else
         echo "  + waybar rendered for ${PROFILE_PRIMARY} (width ${EW_PRIMARY}px, cursor ${CURSOR_SIZE_USE}px)"
     fi
+    exit 0
+fi
+
+# Verify the shared Quickshell bar before retiring the fallback process.
+if command -v fox-bar >/dev/null 2>&1 && fox-bar start; then
+    pkill -x waybar 2>/dev/null || true
     exit 0
 fi
 

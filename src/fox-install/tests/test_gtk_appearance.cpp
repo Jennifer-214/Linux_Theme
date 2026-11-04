@@ -64,6 +64,15 @@ int main() {
     fox_install::sync_gtk_font(ctx);
     expect(fox_install::idem::read_file(root / "calls") == before_failure,
            "backup failure prevents preference overwrite");
+    ctx.backup_dir = root / "icon-backup";
+    std::ofstream(ini) << "[Settings]\ngtk-icon-theme-name=FoxML-Paper\n";
+    ::setenv("FOXML_TEST_GTK_PREVIOUS", "'Papirus-Light'", 1);
+    fox_install::sync_gtk_icon_theme(ctx);
+    expect(fox_install::idem::read_file(root / "calls").find(
+               "set org.gnome.desktop.interface icon-theme FoxML-Paper\n") != std::string::npos,
+           "desktop icon override follows the deployed Settings section");
+    expect(fox_install::idem::read_file(ctx.backup_dir / "gsettings/org.gnome.desktop.interface.icon-theme") == "'Papirus-Light'\n",
+           "original desktop icon preference is backed up");
     ::setenv("PATH", old_path.c_str(), 1);
     ::unsetenv("FOXML_TEST_GTK_PREVIOUS");
     ::unsetenv("FOXML_TEST_GTK_CALLS");

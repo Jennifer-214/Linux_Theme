@@ -20,7 +20,8 @@ SAVEHIST=50000
 
 # ─── Environment ──────────────────────────────
 export SUDO_EDITOR=nvim
-export QT_QPA_PLATFORMTHEME=qt5ct
+export QT_QPA_PLATFORMTHEME=gtk3
+export QT_GUI_GTK_JSON="${XDG_CONFIG_HOME:-$HOME/.config}/foxml/qt-palette.json"
 
 # Use seahorse's GTK ssh-askpass so the prompt picks up the FoxML GTK theme
 # instead of the bright-blue x11-ssh-askpass dialog. SSH_ASKPASS_REQUIRE=prefer

@@ -448,10 +448,25 @@ function Paper.refresh_quotes(buf)
   local tree = parser:parse()[1]
   if not tree then return end
   paper_quote_query = paper_quote_query or vim.treesitter.query.parse("markdown",
-    "(block_quote_marker) @opening (block_continuation) @rule")
+    "(block_quote_marker) @opening (block_continuation) @rule (atx_heading) @heading (setext_heading) @heading")
   vim.api.nvim_buf_clear_namespace(buf, Paper.quote_namespace, 0, -1)
+  local titled = false
   for id, node in paper_quote_query:iter_captures(tree:root(), buf) do
     local row, col = node:range()
+    local capture = paper_quote_query.captures[id]
+    if capture == "heading" then
+      if not titled then
+        local line = vim.api.nvim_buf_get_lines(buf, row, row + 1, false)[1] or ""
+        local first = (line:match("^%s*#+%s+()") or 1) - 1
+        local last = #line:gsub("%s+#+%s*$", "")
+        if last > first then
+          vim.api.nvim_buf_set_extmark(buf, Paper.quote_namespace, row, first, {
+            end_col = last, hl_group = "FoxPaperMarkdownTitle", priority = 120,
+          })
+        end
+        titled = true
+      end
+    else
     local opening = paper_quote_query.captures[id] == "opening"
     -- Overlay only syntax markers: source, text width, and fenced examples stay intact.
     for offset in vim.treesitter.get_node_text(node, buf):gmatch("()>") do
@@ -459,6 +474,7 @@ function Paper.refresh_quotes(buf)
         virt_text = { { opening and "“" or "│", opening and "FoxPaperQuoteOpen" or "FoxPaperQuoteRule" } },
         virt_text_pos = "overlay", virt_text_hide = true, hl_mode = "combine", priority = 110,
       })
+    end
     end
   end
   paper_quote_ticks[buf] = tick
@@ -2112,12 +2128,13 @@ local function apply_foxml_theme()
     hl("FoxPaperQuoteRule", { fg = P.faint })
     hl("@markup.quote.markdown", { fg = P.fg_dim, italic = true })
     hl("@markup.raw.markdown_inline", { fg = P.fg, bg = P.sel })
-    hl("@markup.heading.markdown", { fg = P.bookmark, bold = true })
+    hl("FoxPaperMarkdownTitle", { fg = P.fg, bold = true, underline = true, sp = P.search.cur_bg })
+    hl("@markup.heading.markdown", { fg = P.fg, bold = true })
     for level = 1, 6 do
-      hl("@markup.heading." .. level .. ".markdown", { fg = P.bookmark, bold = true })
-      hl("markdownH" .. level, { fg = P.bookmark, bold = true })
+      hl("@markup.heading." .. level .. ".markdown", { fg = P.fg, bold = true })
+      hl("markdownH" .. level, { fg = P.fg, bold = true })
     end
-    hl("markdownHeadingDelimiter", { fg = P.bookmark })
+    hl("markdownHeadingDelimiter", { fg = P.faint })
     hl("@markup.list.checked.markdown", { fg = P.bookmark })
     hl("@markup.list.unchecked.markdown", { fg = P.faint })
     hl("@markup.list.checked.text.markdown", { fg = P.comment })
@@ -2766,7 +2783,19 @@ end
 -- Sidebar focus must not shorten the editor path to the tree's narrower width.
 local filename_component = { "filename", path = 1, shorting_target = Paper.enabled and 0 or nil,
   color = Paper.enabled and { fg = P.fg } or nil,
+  file_status = not Paper.enabled,
+  fmt = Paper.enabled and function(filename)
+    local buf = vim.api.nvim_get_current_buf()
+    if not Paper.file_buffer(buf) then return filename end
+    local icon = (vim.bo[buf].readonly or not vim.bo[buf].modifiable) and "" or "✎"
+    return icon .. "  " .. filename
+  end or nil,
   symbols = Paper.enabled and { modified = "✎", readonly = "", unnamed = "[No Name]", newfile = "[New]" } or nil }
+local draft_component = {
+  function() return "draft" end,
+  cond = function() return Paper.enabled and Paper.file_buffer(0) and vim.bo.modified end,
+  color = { fg = P.fg, bg = P.sel }, padding = { left = 1, right = 1 },
+}
 require("lualine").setup({
   options = {
     ignore_focus = Paper.enabled and { "neo-tree" } or {},
@@ -2788,7 +2817,7 @@ require("lualine").setup({
   sections = {
     lualine_a = { "mode" },
     lualine_b = { "branch", "diff", "diagnostics" },
-    lualine_c = { filename_component },
+    lualine_c = { filename_component, draft_component },
     lualine_x = {
       {
         -- this buffer's engine: Copilot's icon only where Copilot is attached (a public repo), else the local model's
@@ -2833,7 +2862,7 @@ require("lualine").setup({
     lualine_z = { "location" },
   },
   inactive_sections = Paper.enabled and {
-    lualine_a = {}, lualine_b = {}, lualine_c = { filename_component },
+    lualine_a = {}, lualine_b = {}, lualine_c = { filename_component, draft_component },
     lualine_x = { "location" }, lualine_y = {}, lualine_z = {},
   } or nil,
 })

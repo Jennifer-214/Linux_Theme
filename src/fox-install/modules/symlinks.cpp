@@ -13,6 +13,7 @@
 #include "../core/state_checks.hpp"
 #include "../core/context.hpp"
 #include "../core/backup.hpp"
+#include "../core/palette.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 #include "symlinks_data.hpp"
@@ -20,8 +21,11 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <sstream>
 #include <string>
 #include <system_error>
+#include <vector>
 
 namespace fs = std::filesystem;
 
@@ -156,6 +160,51 @@ void run_symlinks(Context& ctx) {
     if ((ctx.render_ran && ctx.render_ok) || state::rendered_is_current(ctx)) {
         for (std::size_t i = 0; i < symlinks::TEMPLATE_MAPPINGS_COUNT; ++i) {
             tally(deploy_mapping(ctx, ctx.rendered_dir, symlinks::TEMPLATE_MAPPINGS[i]));
+        }
+        if (palette::get(ctx.palette_path, "LITTLE_DETAILS", "") == "fox-little-details-on") {
+            const auto name = palette::get(ctx.palette_path, "GTK_ICON_THEME", "");
+            const auto source = ctx.rendered_dir / "icons/foxml-paper";
+            if (!name.empty() && name.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_") == std::string::npos && fs::is_directory(source)) {
+                std::map<std::string, std::vector<std::string>> aliases;
+                std::ifstream index(source / "index.theme");
+                std::string line;
+                bool in_aliases = false;
+                while (std::getline(index, line)) {
+                    if (!line.empty() && line.front() == '[') in_aliases = line == "[FoxML Aliases]";
+                    const auto equal = line.find('=');
+                    if (!in_aliases || equal == std::string::npos) continue;
+                    std::istringstream values(line.substr(equal + 1));
+                    std::string alias;
+                    while (std::getline(values, alias, ',')) {
+                        if (!alias.empty() && alias.find("..") == std::string::npos && alias.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.+") == std::string::npos)
+                            aliases[line.substr(0, equal)].push_back(alias);
+                    }
+                }
+                for (const auto& entry : fs::recursive_directory_iterator(source)) {
+                    if (!entry.is_regular_file()) continue;
+                    const auto rel = fs::relative(entry.path(), ctx.rendered_dir).string();
+                    const auto dest = (ctx.home / ".local/share/icons" / name / fs::relative(entry.path(), source)).string();
+                    const symlinks::Mapping icon{rel.c_str(), dest.c_str()};
+                    tally(deploy_mapping(ctx, ctx.rendered_dir, icon));
+                    if (entry.path().extension() == ".svg") {
+                        const auto stem=entry.path().stem().string();
+                        if(stem.size()>=9&&stem.substr(stem.size()-9)=="-symbolic")continue;
+                        const auto symbolic_source=entry.path().parent_path()/(stem+"-symbolic.svg");
+                        const auto symbolic_rel=fs::exists(symbolic_source)?fs::relative(symbolic_source,ctx.rendered_dir).string():rel;
+                        const auto symbolic = (fs::path(dest).parent_path() / (entry.path().stem().string() + "-symbolic.svg")).string();
+                        const symlinks::Mapping alias{symbolic_rel.c_str(), symbolic.c_str()};
+                        tally(deploy_mapping(ctx, ctx.rendered_dir, alias));
+                        for (const auto& alias_name : aliases[entry.path().stem().string()]) {
+                            for (const auto& suffix : {".svg", "-symbolic.svg"}) {
+                                const auto alias_dest = (fs::path(dest).parent_path() / (alias_name + suffix)).string();
+                                const auto& alias_source=std::strcmp(suffix,"-symbolic.svg")==0?symbolic_rel:rel;
+                                const symlinks::Mapping mapping{alias_source.c_str(), alias_dest.c_str()};
+                                tally(deploy_mapping(ctx, ctx.rendered_dir, mapping));
+                            }
+                        }
+                    }
+                }
+            }
         }
     } else if (fs::is_directory(ctx.rendered_dir)) {
         ui::warn("rendered/ is older than templates/ or the palette — not deploying it over your configs");

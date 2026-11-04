@@ -20,6 +20,16 @@ BIN_RE = re.compile(r"^[ \t]*BIN[ \t]*:?=[ \t]*([^\s#]+)", re.M)
 
 # New surfaces deploy through the native installer; AGENT.md freezes mappings.sh.
 ONE_SIDED = {
+    ("TEMPLATE_MAPPINGS", "qt/gtk-palette.json", "~/.config/foxml/qt-palette.json"):
+        "native-only Qt GTK bridge palette; generated from the selected palette",
+    ("TEMPLATE_MAPPINGS", "yazi/init.lua", "~/.config/yazi/init.lua"):
+        "native-only icon styling; generated from the shared icon family",
+    ("TEMPLATE_MAPPINGS", "ripgrep/config", "~/.config/ripgrep/config"):
+        "native-only search colors; generated from palette tokens",
+    ("TEMPLATE_MAPPINGS", "eza/theme.yml", "~/.config/eza/theme.yml"):
+        "native-only file-listing theme; generated from palette tokens",
+    ("TEMPLATE_MAPPINGS", "hyprlock/capslock-label.sh", "~/.config/hypr/scripts/capslock-label.sh"):
+        "native-only lock-screen LED label; rendered from the palette",
     ("TEMPLATE_MAPPINGS", "hyprland/hyprtoolkit.conf", "~/.config/hypr/hyprtoolkit.conf"):
         "native-only toolkit theme; edit templates/hyprland directly rather than reverse-capturing",
     ("TEMPLATE_MAPPINGS", "codex/foxml.tmTheme", "~/.codex/themes/foxml.tmTheme"):

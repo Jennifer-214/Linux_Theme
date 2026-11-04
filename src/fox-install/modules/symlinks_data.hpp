@@ -28,6 +28,7 @@ inline constexpr Mapping TEMPLATE_MAPPINGS[] = {
     { "hyprland/theme.lua",           "~/.config/hypr/modules/theme.lua" },   // Hyprland 0.57+ (Lua-only)
     { "hyprland/hyprtoolkit.conf",     "~/.config/hypr/hyprtoolkit.conf" },
     { "hyprlock/hyprlock.conf",       "~/.config/hypr/hyprlock.conf" },
+    { "hyprlock/capslock-label.sh",   "~/.config/hypr/scripts/capslock-label.sh" },
 
     // Neovim
     { "nvim/init.lua",                "~/.config/nvim/init.lua" },
@@ -47,6 +48,9 @@ inline constexpr Mapping TEMPLATE_MAPPINGS[] = {
     // Zsh
     { "zsh/.zshrc",                   "~/.zshrc" },
     { "zsh/colors.zsh",               "~/.config/zsh/colors.zsh" },
+    { "eza/theme.yml",                "~/.config/eza/theme.yml" },
+    { "ripgrep/config",               "~/.config/ripgrep/config" },
+    { "qt/gtk-palette.json",          "~/.config/foxml/qt-palette.json" },
     { "zsh/fzf-tab.zsh",              "~/.config/zsh/fzf-tab.zsh" },
     { "zsh/welcome.zsh",              "~/.config/zsh/welcome.zsh" },
     { "zsh/caramel.zsh-theme",        "~/.oh-my-zsh/themes/caramel.zsh-theme" },
@@ -74,6 +78,7 @@ inline constexpr Mapping TEMPLATE_MAPPINGS[] = {
 
     // Yazi
     { "yazi/theme.toml",              "~/.config/yazi/theme.toml" },
+    { "yazi/init.lua",                "~/.config/yazi/init.lua" },
 
     // Lazygit
     { "lazygit/config.yml",           "~/.config/lazygit/config.yml" },

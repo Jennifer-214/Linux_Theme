@@ -12,10 +12,10 @@ namespace fs = std::filesystem;
 namespace fox_install {
 
 void run_drawer(Context& ctx) {
-    ui::section("Installing palette-driven menu drawers");
+    ui::section("Installing palette-driven bar and menu drawers");
     if (sh::dry_run()) {
         ui::substep("[dry-run] would build fox-drawer, render the active palette, "
-                    "back up and deploy Quickshell, preserve menus.json, and start the hidden drawer service");
+                    "back up and deploy Quickshell, preserve menus.json, and start the shared desktop service");
         return;
     }
     if (ctx.render_ran && !ctx.render_ok) {
@@ -60,7 +60,7 @@ void run_drawer(Context& ctx) {
     }
     if (ec) { ui::warn("could not read drawer configuration: " + ec.message()); return; }
     ok = deploy(output / "Theme.qml", dest / "Theme.qml") && ok;
-    for (const char* name : {"fox-desktop-menu", "fox-hl", "fox-picker", "fox-menu", "fox-cheatsheet", "fox-sandbox",
+    for (const char* name : {"fox-desktop-menu", "fox-bar", "fox-hl", "fox-picker", "fox-menu", "fox-cheatsheet", "fox-sandbox",
                             "fox-ai-quick", "fox-wallpaper", "fox-password-copy"})
         ok = deploy(ctx.shared_dir / "bin" / name, ctx.home / ".local/bin" / name) && ok;
     for (const char* name : {"toggle_rofi.sh", "hub.sh", "network.sh", "bluetooth.sh", "audio_switcher.sh",

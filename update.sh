@@ -159,6 +159,10 @@ for mapping in "${TEMPLATE_MAPPINGS[@]}"; do
     [[ "$dest" == *"GEMINI_DIR"* ]] && continue
     [[ "$dest" == *".oh-my-zsh"* && ! -d "$HOME/.oh-my-zsh" ]] && continue
 
+    # Its generated icon rules come from the shared family, not reverse-capture.
+    # Edit the palette/theme template directly so capture cannot fork that source.
+    [[ "$src" == "yazi/theme.toml" ]] && continue
+
     if [[ -f "$dest" ]]; then
         reverse_render_file "$dest" "$TEMPLATES_DIR/$src" "$REVERSE_SED"
         echo "  ✓ $src"

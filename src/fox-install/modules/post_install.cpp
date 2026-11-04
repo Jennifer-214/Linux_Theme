@@ -109,6 +109,8 @@ void run_post_install(Context& ctx) {
     ui::ok("active-theme + install marker written");
 
     sync_gtk_font(ctx);
+    sync_gtk_icon_theme(ctx);
+    refresh_gtk_icon_cache(ctx);
 
     // --render implies post-install but not specials, which normally rebuilds this cache.
     if (have("bat") && sh::run({"bat", "cache", "--build"}) != 0)
@@ -149,11 +151,9 @@ void run_post_install(Context& ctx) {
         ui::ok("Hyprland reload skipped (run `hyprctl reload` manually if desired)");
     }
 
-    if (process_running("waybar")) {
-        if (fs::exists(start_waybar)) {
-            restart_detached("waybar", start_waybar.string());
-            ui::ok("Waybar restarted");
-        }
+    if (std::getenv("WAYLAND_DISPLAY") && fs::exists(start_waybar)) {
+        sh::run({"setsid", "-f", start_waybar.string()});
+        ui::ok("desktop bar refreshed for current palette and monitors");
     }
 
     if (process_running("dunst")) {

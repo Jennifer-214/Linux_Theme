@@ -268,13 +268,29 @@ the legacy `update.sh` capture list does not include Codex.
 ### Desktop drawers
 
 `fox-desktop-menu` opens the Quickshell menu: Desk, Sound, Connections, Comfort,
-and System. Existing menu shortcuts and the Waybar launcher open the same drawer;
+and System. Existing menu shortcuts and the bar launcher open the same drawer;
 `fox-desktop-menu wifi` or `fox-desktop-menu sound` opens a section directly.
-Waybar retains its modules and actions with a continuous palette-colored surface.
-An open drawer puts a thin pencil underline beneath the launcher and its related
-bar module. Quickshell updates `~/.config/waybar/drawer-state.css` only when the
-drawer changes; Waybar's built-in stylesheet watcher applies it without restarting
-the bar or adding a polling process. Closing the drawer clears the marker.
+The top bar and drawers share one Quickshell process. On Paper, its modules hang
+from the screen edge as little paper banners, with blush active-workspace ribbons.
+It reads the existing rendered Waybar JSON for module order, groups, formats,
+intervals, scripts, tooltips, and click/scroll commands. Telemetry helpers are shared
+across outputs; secondary, portrait, and narrow primary monitors use the compact
+configuration. Workspace icon previews shorten before text scales down, and long
+workspace strips scroll to keep the current page visible. Workspace
+window icons, power profiles, idle inhibition, and the application tray remain available.
+`Alt+B` or `fox-bar toggle` hides/shows the bar; `fox-bar status` reports readiness.
+`start_waybar.sh` retains its compatibility name and rendering/cursor logic: it
+verifies Quickshell before stopping Waybar, and launches Waybar if the new bar fails
+to become ready. Waybar stays installed as a fallback. Palette changes render
+`templates/quickshell/foxml/Theme.qml` and reload both surfaces together.
+The drawer tucks beneath its source bookmark, with a stronger contact shadow
+and a faint second paper edge. The ribbon stays in front during the 160ms reveal.
+Keyboard opens tuck beneath the launcher on the focused monitor; hiding the bar
+leaves a standalone drawer. Closing releases keyboard input immediately. The
+attached sheet shares the bar surface, with its input region restricted to the bar
+and visible paper; the reserved desktop space stays at the normal bar height.
+Fonts remain palette-controlled and unchanged. The drawer retains its Waybar
+marker stylesheet for fallback compatibility.
 Hover and press feedback changes only the paper shade or pencil outline; controls
 keep their position and size. The pink active-workspace fill remains visible on hover.
 Drawer surfaces use quiet paper shades, with a faint highlighter wash on focused
@@ -412,7 +428,8 @@ highlights. Darker typed code contrasts with warm gray handwritten comments.
 TODO, NOTE, and IDEA labels also use pencil text on blush backgrounds.
 Its current line number, fold arrow, active indent guide, and completion icons
 use rose; copied text briefly flashes blush. Completion labels stay
-pencil on a blush selected row. Markdown headings and checked markers use rose,
+pencil on a blush selected row. Markdown headings use pencil, with a blush underline
+on the first real heading; checked markers use rose,
 with completed task text softened to gray through the existing syntax highlighting.
 Inline Markdown code uses pencil text on blush without tinting fenced code blocks.
 C/C++ files use native clangd type and parameter hints in readable pencil text;
@@ -473,7 +490,59 @@ Flash jump labels also use pencil on blush. Markdown links have pencil labels wi
 blush underlines and quieter gray URLs. Native spelling marks use blush dots in
 syntax-designated prose (including comments and Markdown); identifiers, code spans
 and URLs keep their existing syntax. Dictionary/language preferences are preserved.
-The drawer's existing shortcut hints use small paper keycaps on Paper, and empty
+The editor filename uses a pencil for writable files and a lock for read-only or
+non-modifiable files. A small blush `draft` tag marks unsaved changes and disappears
+after saving. The file and tag keep their editor context when Neo-tree has focus.
+Paper's `GTK_ICON_THEME` selects a small user-local icon overlay, inheriting
+Papirus-Light and its existing blush folders. Empty/full Trash icons look like a
+paper wastebasket and a crumpled note; notification and login icons retain their
+base theme. Archives are tied paper parcels, while plain text and Markdown files
+are folded notes. `templates/icons/icon-family.json` owns the glyphs, extensions,
+language badges and MIME aliases shared by eza, Yazi and the Paper vector overlay.
+The native renderer generates all three consumers, including source code, config,
+images, tables, audio/video and quieter log/backup notes. The shell renderer calls
+the same generator, so both render paths produce identical assets. Read-only file
+emblems use a small pencil lock; links use a paperclip. GTK and Qt-native file
+pickers inherit these same paper drawings, including at small sizes; they do not
+use a separate pink icon set. The terminal uses the matching pencil glyphs from
+the same definition. Blush stays on selections and small state accents.
+PDF files use the same folded note with a pencil `PDF` label. File-manager links
+carry a small blush paperclip emblem. Paper's `ls`/`ll`/`lt` use the rendered eza
+theme: pencil filenames and glyphs, readable gray metadata, faint tree branches,
+and pencil-on-blush Git modification marks. The native `fox-eza` helper supplies
+icons for actual filenames and symlinks without parsing terminal output or following
+directory links. Unknown options, custom non-JSON themes, and listings beyond its
+bounded scan pass through to eza. Same-name links and real files across directories
+retain their existing glyph rather than mislabeling the real file. No service or
+additional package is needed. The editor and terminal fonts remain unchanged.
+Ripgrep uses palette-rendered match backgrounds and readable gray line numbers;
+its config changes colors only and preserves an existing custom
+`RIPGREP_CONFIG_PATH`. `gpaper` shows Git history with blush ref labels, pencil
+messages and gray hashes through the named `paper` pretty format. Existing Git
+log layouts remain available. Yazi's copied/selected marks and count badges share
+the blush palette; cut files retain their distinct warning ink. Paper footer mode
+and position labels use pencil on blush, with gray size/percentage text on paper.
+Yazi's rename selection, help rows, completion/pick menus and confirmation button
+also use readable pencil-on-selection colors. A small palette-rendered init hook
+keeps directory/link icons consistent even when a link has a code extension.
+Qt dialogs use the GTK platform theme from `qt6-base`, sharing the GTK font,
+palette, icons and native chooser. Shell and Hyprland use the same `gtk3` setting.
+Its Qt color-map override is rendered into `~/.config/foxml/qt-palette.json`, so
+Qt widgets inherit the exact palette instead of the bridge's stock fallback colors.
+Native permission dialogs use the palette's `HYPRTOOLKIT_ACCENT` and
+`HYPRTOOLKIT_LINK`, with blush fills and readable pencil links on Paper.
+The installer deploys generated vectors and MIME aliases through the same atomic,
+backup-first path as ordinary configs. Icon-cache refreshes also snapshot the old
+cache before replacing it. New files have no older version to back up; rendered
+output is rebuildable from the shared definition and the selected palette.
+The lock screen shows a blush Caps Lock tag only while a readable keyboard LED is
+on; its read-only helper runs only while locked. It sits above the password field,
+clear of the note and sleeping cat; centered anchors preserve this spacing in
+portrait layouts. Connection rows use linked paperclips
+for connected devices and one open clip for disconnected devices. Unknown states
+retain their standard icon. Drawer loading dots wait 220ms before appearing and
+stop when idle; four-second background refreshes do not animate them.
+The drawer's shared shortcut hints use blush-filled keycaps with pencil lettering on Paper, and empty
 lists show a pencil with context-sensitive guidance. Tooltips reveal clipped text
 or extra metadata instead of repeating short labels that already fit.
 Shell and tmux fzf matches share `FZF_MATCH_*`/`FZF_META_FG` palette tokens; Firefox

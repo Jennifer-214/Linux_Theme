@@ -109,5 +109,18 @@ if vim.fn.isdirectory(nui)==1 then
  assert(not api.nvim_get_hl(frame_ns,{name='FloatTitle',link=false}).bg,'inactive NUI title retained blush')
  popup:unmount()
 end
-print('PAPER_READING_PASSED: whitespace scope, semantic contrast, symbol underlines, current-line diagnostics, toggles and native/NUI popup focus')
+if pcall(vim.treesitter.language.add,'markdown') then
+ local notebook=api.nvim_create_buf(true,false);vim.bo[notebook].filetype='markdown';api.nvim_win_set_buf(0,notebook)
+ local lines={'```markdown','# An example, not a title','```','','# A little notebook','','## A quiet section','A line of prose.'}
+ api.nvim_buf_set_lines(notebook,0,-1,false,lines);Paper.refresh_quotes(notebook)
+ local function titles()
+  return vim.tbl_filter(function(mark)return mark[4].hl_group=='FoxPaperMarkdownTitle'end,api.nvim_buf_get_extmarks(notebook,Paper.quote_namespace,0,-1,{details=true}))
+ end
+ local heading=titles();assert(#heading==1 and heading[1][2]==4,'title underline leaked into a fenced example or other headings: '..vim.inspect(heading))
+ assert(api.nvim_get_hl(0,{name='@markup.heading.2.markdown',link=false}).fg==tonumber(P.fg:sub(2),16),'secondary heading is not pencil')
+ api.nvim_buf_set_lines(notebook,0,0,false,{'A small preface.',''});Paper.refresh_quotes(notebook)
+ heading=titles();assert(#heading==1 and heading[1][2]==6,'title underline did not follow edits')
+ assert(api.nvim_get_hl(0,{name='FoxPaperMarkdownTitle',link=false}).sp==tonumber(P.search.cur_bg:sub(2),16),'title underline left the palette')
+end
+print('PAPER_READING_PASSED: whitespace scope, semantic contrast, title underline, symbol underlines, current-line diagnostics, toggles and native/NUI popup focus')
 vim.cmd('qa!')

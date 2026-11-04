@@ -93,6 +93,10 @@ def split_args(s):
 
 def lua_eval_str(expr, env):
     """Evaluate `"a" .. name .. os.getenv("X")` → str ($X for env lookups); None if unknown."""
+    # Compare the default session paths when an optional XDG override is unset.
+    # Keep the required HOME lookup symbolic, just like the legacy $HOME path.
+    expr = re.sub(r'\(os\.getenv\("XDG_CONFIG_HOME"\) or (os\.getenv\("HOME"\) \.\. "/\.config")\)',
+                  lambda match: match.group(1), expr)
     out = ""
     for piece in re.split(r"\s*\.\.\s*", expr.strip()):
         m = re.fullmatch(r'"((?:[^"\\]|\\.)*)"', piece)
@@ -264,6 +268,11 @@ class ModuleParity(unittest.TestCase):
             conf = MODS / (stem + ".conf")
             self.assertTrue(conf.exists(), f"{stem}.lua has no .conf twin")
             yield stem, conf.read_text(), (MODS / (stem + ".lua")).read_text()
+
+    def test_xdg_config_fallback_in_environment_reader(self):
+        expr = '(os.getenv("XDG_CONFIG_HOME") or os.getenv("HOME") .. "/.config") .. "/foxml/qt-palette.json"'
+        self.assertEqual(lua_eval_str(expr, {}), "$HOME/.config/foxml/qt-palette.json")
+        self.assertIsNone(lua_eval_str("unknown_config .. \"/palette.json\"", {}))
 
     def test_binds(self):
         for stem, conf, lua in self.pairs():

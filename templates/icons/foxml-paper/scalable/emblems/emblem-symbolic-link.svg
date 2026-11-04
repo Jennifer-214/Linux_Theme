@@ -1,0 +1,1 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><circle cx="24" cy="24" r="21" fill="#{{SELECTION}}" stroke="#{{BG}}" stroke-width="3"/><path d="m20 28 12-12a5 5 0 0 0-7-7L12 22a9 9 0 0 0 13 13l11-11m-4-8L19 29a3 3 0 0 1-4-4l11-11" fill="none" stroke="#{{FG}}" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg>

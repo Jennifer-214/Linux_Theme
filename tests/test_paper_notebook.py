@@ -152,6 +152,16 @@ assert(vim.api.nvim_win_get_buf(editor)==file)
 vim.api.nvim_set_current_win(editor)
 local after=filename()
 assert(after:find('nested/note.cpp',1,true),after)
+assert(after:find('✎',1,true) and not after:find('draft',1,true),'writable marker or clean state is wrong: '..after)
+vim.bo[file].modified=true
+assert(filename():find('draft',1,true),'unsaved file lost its draft tag')
+require('neo-tree.command').execute({action='focus',position='left',dir=project});vim.wait(100)
+assert(filename():find('draft',1,true),'tree focus hid the editor draft tag')
+vim.api.nvim_set_current_win(editor);vim.bo[file].modified=false;vim.bo[file].readonly=true
+local locked=filename();assert(locked:find('',1,true) and not locked:find('draft',1,true),'read-only marker or saved state is wrong: '..locked)
+vim.bo[file].readonly=false;vim.bo[file].modifiable=false
+assert(filename():find('',1,true),'non-modifiable buffer did not show the lock')
+vim.bo[file].modifiable=true
 print('Actual Neo-tree and Lualine: editor filename stays stable across focus; visible tab names retain pencil, bold, upright lettering.')
 vim.cmd('qa!')
 '''

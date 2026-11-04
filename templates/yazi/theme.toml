@@ -14,13 +14,13 @@ cwd = { fg = "#{{PRIMARY}}", bold = {{SHOW_WELCOME}} }
 syntect_theme = "~/.config/bat/themes/Fox ML.tmTheme"
 find_keyword = { fg = "#{{YELLOW}}", underline = {{SHOW_WELCOME}} }
 find_position = { fg = "#{{ACCENT}}" }
-marker_copied = { fg = "#{{GREEN}}", bg = "#{{GREEN}}" }
+marker_copied = { fg = "#{{YAZI_MARK_COPIED}}", bg = "#{{YAZI_MARK_COPIED}}" }
 marker_cut = { fg = "#{{RED}}", bg = "#{{RED}}" }
-marker_marked = { fg = "#{{ACCENT}}", bg = "#{{ACCENT}}" }
-marker_selected = { fg = "#{{SECONDARY}}", bg = "#{{SECONDARY}}" }
-count_copied = { fg = "#{{BG}}", bg = "#{{GREEN}}" }
+marker_marked = { fg = "#{{YAZI_MARK_MARKED}}", bg = "#{{YAZI_MARK_MARKED}}" }
+marker_selected = { fg = "#{{YAZI_MARK_SELECTED}}", bg = "#{{YAZI_MARK_SELECTED}}" }
+count_copied = { fg = "#{{YAZI_COPIED_FG}}", bg = "#{{YAZI_COPIED_BG}}", bold = {{SHOW_WELCOME}} }
 count_cut = { fg = "#{{BG}}", bg = "#{{RED}}" }
-count_selected = { fg = "#{{BG}}", bg = "#{{SECONDARY}}" }
+count_selected = { fg = "#{{YAZI_SELECTED_FG}}", bg = "#{{YAZI_SELECTED_BG}}", bold = {{SHOW_WELCOME}} }
 border_symbol = "│"
 border_style = { fg = "#{{TMUX_ACTIVE_BG}}" }
 
@@ -34,12 +34,12 @@ active = { fg = "#{{YAZI_TAB_ACTIVE_FG}}", bg = "#{{YAZI_TAB_ACTIVE_BG}}", bold 
 inactive = { fg = "#{{FG_DIM}}", bg = "#{{SURFACE}}" }
 
 [mode]
-normal_main = { fg = "#{{BG}}", bg = "#{{PRIMARY}}", bold = {{SHOW_WELCOME}} }
-normal_alt  = { fg = "#{{BG}}", bg = "#{{SECONDARY}}" }
-select_main = { fg = "#{{BG}}", bg = "#{{SECONDARY}}", bold = {{SHOW_WELCOME}} }
-select_alt  = { fg = "#{{BG}}", bg = "#{{ACCENT}}" }
-unset_main  = { fg = "#{{BG}}", bg = "#{{ACCENT}}", bold = {{SHOW_WELCOME}} }
-unset_alt   = { fg = "#{{BG}}", bg = "#{{SURFACE}}" }
+normal_main = { fg = "#{{YAZI_MODE_FG}}", bg = "#{{YAZI_MODE_NORMAL_BG}}", bold = {{SHOW_WELCOME}} }
+normal_alt = { fg = "#{{YAZI_MODE_ALT_FG}}", bg = "#{{YAZI_MODE_NORMAL_ALT_BG}}" }
+select_main = { fg = "#{{YAZI_MODE_FG}}", bg = "#{{YAZI_MODE_SELECT_BG}}", bold = {{SHOW_WELCOME}} }
+select_alt = { fg = "#{{YAZI_MODE_ALT_FG}}", bg = "#{{YAZI_MODE_SELECT_ALT_BG}}" }
+unset_main = { fg = "#{{YAZI_MODE_FG}}", bg = "#{{YAZI_MODE_UNSET_BG}}", bold = {{SHOW_WELCOME}} }
+unset_alt = { fg = "#{{YAZI_MODE_ALT_FG}}", bg = "#{{YAZI_MODE_UNSET_ALT_BG}}" }
 
 [status]
 overall  = { fg = "#{{PRIMARY}}" }
@@ -62,11 +62,11 @@ perm_sep  = { fg = "#{{FG_DIM}}" }
 border   = { fg = "#{{PRIMARY}}" }
 title    = {}
 value    = {}
-selected = { reversed = {{SHOW_WELCOME}} }
+selected = { fg = "#{{YAZI_SELECTED_FG}}", bg = "#{{YAZI_SELECTED_BG}}" }
 
 [pick]
 border   = { fg = "#{{PRIMARY}}" }
-active   = { fg = "#{{SECONDARY}}", bold = {{SHOW_WELCOME}} }
+active   = { fg = "#{{YAZI_SELECTED_FG}}", bg = "#{{YAZI_SELECTED_BG}}", bold = {{SHOW_WELCOME}} }
 inactive = {}
 
 [confirm]
@@ -74,7 +74,7 @@ border     = { fg = "#{{PRIMARY}}" }
 title      = { fg = "#{{PRIMARY}}", bold = {{SHOW_WELCOME}} }
 body       = {}
 list       = {}
-btn_yes    = { bg = "#{{PRIMARY}}", fg = "#{{BG}}" }
+btn_yes    = { bg = "#{{YAZI_SELECTED_BG}}", fg = "#{{YAZI_SELECTED_FG}}" }
 btn_no     = { bg = "#{{SURFACE}}", fg = "#{{FG}}" }
 btn_labels = [ "  Yes  ", "  No  " ]
 
@@ -84,7 +84,7 @@ title  = { fg = "#{{PRIMARY}}", bold = {{SHOW_WELCOME}} }
 
 [cmp]
 border   = { fg = "#{{PRIMARY}}" }
-active   = { fg = "#{{SECONDARY}}", bold = {{SHOW_WELCOME}} }
+active   = { fg = "#{{YAZI_SELECTED_FG}}", bg = "#{{YAZI_SELECTED_BG}}", bold = {{SHOW_WELCOME}} }
 inactive = {}
 icon_file    = ""
 icon_folder  = ""
@@ -93,7 +93,7 @@ icon_command = ""
 [tasks]
 border  = { fg = "#{{PRIMARY}}" }
 title   = {}
-hovered = { fg = "#{{SECONDARY}}", underline = {{SHOW_WELCOME}} }
+hovered = { fg = "#{{YAZI_SELECTED_FG}}", bg = "#{{YAZI_SELECTED_BG}}" }
 
 [which]
 cols            = 3
@@ -108,7 +108,7 @@ separator_style = { fg = "#{{SURFACE}}" }
 on      = { fg = "#{{ACCENT}}" }
 run     = { fg = "#{{SECONDARY}}" }
 desc    = {}
-hovered = { reversed = {{SHOW_WELCOME}}, bold = {{SHOW_WELCOME}} }
+hovered = { fg = "#{{YAZI_SELECTED_FG}}", bg = "#{{YAZI_SELECTED_BG}}", bold = {{SHOW_WELCOME}} }
 footer  = { fg = "#{{FG_DIM}}", bg = "#{{BG}}" }
 
 [notify]
@@ -119,6 +119,7 @@ icon_info  = ""
 icon_warn  = ""
 icon_error = ""
 
+# foxml:icon-family-begin
 [filetype]
 rules = [
     # Symlinks
@@ -160,3 +161,4 @@ dirs = []
 files = []
 exts = []
 conds = []
+# foxml:icon-family-end

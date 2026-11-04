@@ -2,6 +2,9 @@
 # Complements omz git plugin (simple aliases like gst, ga, gd, gco, gp)
 # These are multi-step workflow functions.
 
+# The named format comes from the palette-rendered Git include.
+alias gpaper='git log --graph --all --pretty=paper'
+
 # Push current branch — auto-sets upstream on first push
 gpush() {
   local branch=$(git branch --show-current 2>/dev/null)

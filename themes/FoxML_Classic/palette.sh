@@ -9,6 +9,7 @@ NVIM_BG=dark
 KITTY_BG_OPACITY=0.6
 POPUP_BG_OPACITY=0.7
 MAKO_ICON_THEME=Papirus-Dark   # also the GTK icon theme
+GTK_ICON_THEME=Papirus-Dark
 VSCODE_UI_THEME=vs-dark
 FONT_FAMILY="MonaspiceKr Nerd Font"
 # WARNING: SHOW_WELCOME is also the project's literal-true alias used in
@@ -409,3 +410,29 @@ FF_FIND_FG=1a1214
 
 # Keep Paper compositor and application cursor shapes on the same XCursor backend.
 HYPR_CURSOR_ENABLED=true
+
+# File-listing glyphs; filenames and metadata retain their own pencil weights.
+EZA_ICON_FG=d4985a
+
+# File-operation marks and count badges.
+YAZI_MARK_COPIED=6b9a7a
+YAZI_MARK_MARKED=8a9a7a
+YAZI_MARK_SELECTED=b8967a
+YAZI_COPIED_FG=1a1214
+YAZI_COPIED_BG=6b9a7a
+YAZI_SELECTED_FG=1a1214
+YAZI_SELECTED_BG=b8967a
+
+# A paper footer: small blush mode labels, quiet metadata.
+YAZI_MODE_FG=1a1214
+YAZI_MODE_ALT_FG=1a1214
+YAZI_MODE_NORMAL_BG=d4985a
+YAZI_MODE_NORMAL_ALT_BG=b8967a
+YAZI_MODE_SELECT_BG=b8967a
+YAZI_MODE_SELECT_ALT_BG=8a9a7a
+YAZI_MODE_UNSET_BG=8a9a7a
+YAZI_MODE_UNSET_ALT_BG=3a414b
+
+# Native permission dialogs use the same selection fill and readable links.
+HYPRTOOLKIT_ACCENT=c89eb5
+HYPRTOOLKIT_LINK=c89eb5

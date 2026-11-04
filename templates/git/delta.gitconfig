@@ -43,3 +43,15 @@
 	file-decoration-style = "#{{ROFI_BORDER}}" ul
 	hunk-header-style = "#{{FG}}" line-number
 	hunk-header-line-number-style = "#{{COMMENT}}"
+
+; Paper history is an opt-in format; existing Git layouts remain available.
+[log]
+    graphColors = "#{{EZA_ICON_FG}},#{{FG_DIM}}"
+[pretty]
+    paper = "%C(#{{FG_DIM}})%h%C(reset)  %C(#{{FG}})%s%C(reset) %C(#{{FG}} #{{SELECTION}})%(decorate:prefix=%x20,suffix=%x20,tag=,separator= · )%C(reset) %C(#{{FG_DIM}})%cr%C(reset)"
+
+[color "decorate"]
+    HEAD = "#{{FG}} #{{SELECTION}}"
+    branch = "#{{FG}} #{{SELECTION}}"
+    remoteBranch = "#{{FG}} #{{SELECTION}}"
+    tag = "#{{FG}} #{{SELECTION}}"

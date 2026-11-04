@@ -1,4 +1,11 @@
 # ─── Modern tool replacements ─────────────────
+eza() {
+    if [[ ${FOXML_PAPER_LISTING:-0} == 1 && -x "$HOME/.local/bin/fox-eza" ]]; then
+        env -u LS_COLORS -u EXA_COLORS EZA_COLORS=reset "$HOME/.local/bin/fox-eza" "$@"
+    else
+        command eza "$@"
+    fi
+}
 alias ls='eza --color=always --icons --group-directories-first'
 alias ll='eza -lh --icons --group-directories-first --git --time-style=relative'
 alias la='eza -lah --icons --group-directories-first --git --time-style=relative'

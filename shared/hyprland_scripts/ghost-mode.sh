@@ -73,7 +73,7 @@ if [[ -f "$STATE" ]]; then
     rm -f "$STATE"
 
     # Show waybar again.
-    pkill -SIGUSR1 waybar 2>/dev/null || true
+    fox-bar show 2>/dev/null || pkill -SIGUSR1 waybar 2>/dev/null || true
 
     # Restore audio mute only if the user wasn't already muted pre-toggle.
     if [[ "${PRE_MUTED:-no}" == "no" ]]; then
@@ -103,7 +103,7 @@ fi
 chmod 600 "$STATE" 2>/dev/null || true
 
 # Hide waybar (SIGUSR1 is its toggle-visibility signal).
-pkill -SIGUSR1 waybar 2>/dev/null || true
+fox-bar hide 2>/dev/null || pkill -SIGUSR1 waybar 2>/dev/null || true
 
 # Mute audio.
 wpctl set-mute @DEFAULT_AUDIO_SINK@ 1 2>/dev/null || true

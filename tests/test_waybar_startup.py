@@ -55,6 +55,38 @@ class WaybarStartupTest(unittest.TestCase):
         self.assertTrue(path.is_symlink())
         self.assertFalse(target.exists())
 
+    def start_with_frontend(self, succeeds, render_only=False):
+        fixture = tempfile.TemporaryDirectory(prefix=".bar-frontend-", dir=ROOT / "tests")
+        self.addCleanup(fixture.cleanup)
+        calls = self.home / "frontend-calls"
+        stubs = {
+            "fox-bar": 'printf "quickshell:%s\\n" "$*" >> "$BAR_CALLS"; exit "$BAR_RESULT"',
+            "waybar": 'printf "waybar\\n" >> "$BAR_CALLS"',
+            "pgrep": 'exit 1',
+            "pkill": 'printf "stop-waybar\\n" >> "$BAR_CALLS"',
+        }
+        for name, body in stubs.items():
+            program = Path(fixture.name) / name
+            program.write_text("#!/bin/bash\n" + body + "\n")
+            program.chmod(0o755)
+            (self.bin / name).symlink_to(program)
+        env = os.environ | {"XDG_CONFIG_HOME": str(self.home / ".config"), "PATH": str(self.bin),
+                            "BAR_CALLS": str(calls), "BAR_RESULT": "0" if succeeds else "1"}
+        args = ["/bin/bash", str(ROOT / "shared/hyprland_scripts/start_waybar.sh")]
+        if render_only:
+            args.append("--render-only")
+        subprocess.run(args, env=env, capture_output=True, text=True, check=True, timeout=10)
+        return calls.read_text().splitlines() if calls.exists() else []
+
+    def test_quickshell_is_ready_before_old_bar_stops(self):
+        self.assertEqual(self.start_with_frontend(True), ["quickshell:start", "stop-waybar"])
+
+    def test_failed_quickshell_preserves_waybar_fallback(self):
+        self.assertEqual(self.start_with_frontend(False), ["quickshell:start", "waybar"])
+
+    def test_render_only_never_starts_either_frontend(self):
+        self.assertEqual(self.start_with_frontend(True, render_only=True), [])
+
     def cursor_calls(self, theme=None, legacy=False):
         fixture = tempfile.TemporaryDirectory(prefix=".cursor-startup-", dir=ROOT / "tests")
         self.addCleanup(fixture.cleanup)

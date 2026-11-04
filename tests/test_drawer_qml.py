@@ -122,11 +122,13 @@ EXERCISE = r'''
             if (JSON.stringify(actionProcess.command.slice(-3)) !== JSON.stringify(["run", "project-terminal", "/a literal project"]))
                 throw new Error("project terminal key lost its selected path");
             root.hide();
+            if (!root.drawerVisible || keyboard.enabled) throw new Error("closing lost its reveal or kept keyboard input");
         }
     }
     Timer {
         interval: 2700; running: true
         onTriggered: {
+            if (root.drawerVisible) throw new Error("closed drawer did not finish hiding");
             if (barStyle.text().includes("#custom-logo")) throw new Error("hidden drawer left its bar marker active");
             root.opened = true;
             root.page = "projects";
@@ -225,7 +227,8 @@ class DrawerQmlTest(unittest.TestCase):
             source = re.sub(r"^        (?:anchors \{.*|margins \{.*|exclusionMode:.*|WlrLayershell\..*)\n", "", source, flags=re.M)
             source = source.rsplit("\n}", 1)[0] + EXERCISE + "\n}\n"
             (directory / "shell.qml").write_text(source)
-            shutil.copyfile(ROOT / "shared/quickshell/foxml/DrawerLogic.js", directory / "DrawerLogic.js")
+            for name in ("DrawerLogic.js", "ClipIcon.qml", "LoadingDots.qml"):
+                shutil.copyfile(ROOT / "shared/quickshell/foxml" / name, directory / name)
             shutil.copyfile(ROOT / "shared/quickshell/foxml/paper-cat.png", directory / "paper-cat.png")
             renderer = ROOT / "src/fox-render/fox-render-fast"
             render = str(renderer) if renderer.exists() else shutil.which("fox-render-fast")

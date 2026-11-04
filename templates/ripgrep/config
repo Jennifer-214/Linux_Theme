@@ -1,0 +1,10 @@
+# Color-only preview; search behavior stays native.
+--colors=path:none
+--colors=path:fg:{{FG_R}},{{FG_G}},{{FG_B}}
+--colors=line:none
+--colors=line:fg:{{FG_DIM_R}},{{FG_DIM_G}},{{FG_DIM_B}}
+--colors=column:none
+--colors=column:fg:{{FG_DIM_R}},{{FG_DIM_G}},{{FG_DIM_B}}
+--colors=match:none
+--colors=match:fg:{{FG_R}},{{FG_G}},{{FG_B}}
+--colors=match:bg:{{SELECTION_R}},{{SELECTION_G}},{{SELECTION_B}}

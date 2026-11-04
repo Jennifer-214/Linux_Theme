@@ -2,9 +2,13 @@
 #define FOX_RENDER_RENDER_HPP
 
 #include <string>
+#include <filesystem>
 #include <unordered_map>
 
 namespace fox_render {
+
+bool atomic_write(const std::filesystem::path& dest, const std::string& body,
+                  std::filesystem::perms source_mode);
 
 // Single-pass {{KEY}} substitution. Unknown {{...}} markers pass through
 // untouched (mirrors sed -e 's|{{KNOWN}}|val|g' behaviour for unmatched).

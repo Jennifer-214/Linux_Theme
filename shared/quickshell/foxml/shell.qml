@@ -4,6 +4,7 @@ import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
+import Quickshell.Hyprland
 import "DrawerLogic.js" as Logic
 
 ShellRoot {
@@ -63,6 +64,52 @@ ShellRoot {
     }
 
     Theme { id: theme }
+    readonly property alias paperTheme: theme
+
+    property bool barEnabled: Quickshell.env("FOXML_BAR_AUTOSTART") === "1" || Quickshell.env("FOXML_DRAWER_PREVIEW") !== "1"
+    property var attachment: null
+    property var openScreen: null
+    property bool closingPicker: false
+    readonly property bool pickerLayout: opened ? pickerActive : closingPicker
+    readonly property var focusedScreen: Quickshell.screens.find(function(output) {
+        return Hyprland.focusedMonitor && output.name === Hyprland.focusedMonitor.name;
+    }) || Quickshell.screens[0] || null
+    readonly property var resolvedAnchor: attachment && desktopBar.item ? desktopBar.item.anchorFor(attachment.screenName, attachment.moduleName) : null
+    readonly property var drawerScreen: resolvedAnchor ? resolvedAnchor.screen : openScreen || focusedScreen
+    readonly property var drawerHost: resolvedAnchor && desktopBar.item ? desktopBar.item.hostFor(drawerScreen.name) : null
+    readonly property var drawerPlacement: panel.placement
+    readonly property real drawerWidth: panel.implicitWidth
+    readonly property real drawerHeight: panel.implicitHeight
+    property real drawerReveal: opened ? 1 : 0
+    readonly property bool drawerVisible: opened || drawerReveal > .001
+    Behavior on drawerReveal { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+    Loader {
+        id: desktopBar
+        active: root.barEnabled
+        source: "PaperBar.qml"
+        onLoaded: item.controller = root
+    }
+    IpcHandler {
+        target: "bar"
+        function start(): void { root.barEnabled = true; if (desktopBar.item) desktopBar.item.shown = true; }
+        function show(): void { root.barEnabled = true; if (desktopBar.item) desktopBar.item.shown = true; }
+        function hide(): void { if (desktopBar.item) desktopBar.item.shown = false; }
+        function toggle(): void { if (!root.barEnabled) root.barEnabled = true; else if (desktopBar.item) desktopBar.item.shown = !desktopBar.item.shown; }
+        function refresh(name: string): void { if (desktopBar.item) desktopBar.item.refresh(name); }
+        function status(): string {
+            return JSON.stringify(desktopBar.item ? desktopBar.item.status() : {enabled:root.barEnabled, ready:false, visible:false, error:""});
+        }
+    }
+    function placeAtLauncher() {
+        openScreen = focusedScreen;
+        attachment = desktopBar.item && desktopBar.item.shown && openScreen ? {screenName:openScreen.name, moduleName:"custom/logo"} : null;
+    }
+    function showFromBar(pageId, screenName, moduleName) {
+        if (opened && page === pageId) { hide(); return; }
+        show(pageId);
+        openScreen = Quickshell.screens.find(function(output) {return output.name === screenName;}) || focusedScreen;
+        attachment = {screenName:screenName, moduleName:moduleName};
+    }
 
     FileView {
         id: barStyle
@@ -97,6 +144,7 @@ ShellRoot {
         var data;
         try { data = JSON.parse(pickerRequest.text()); } catch (error) { return; }
         if (!data || typeof data.title !== "string" || !Array.isArray(data.items) || data.items.length > 10000) return;
+        if (!opened) placeAtLauncher();
         finishPicker({cancel: true});
         finishEdit();
         remember();
@@ -213,6 +261,7 @@ ShellRoot {
     }
 
     function show(pageId) {
+        if (!opened) placeAtLauncher();
         finishPicker({cancel: true});
         opened = true;
         searching = false;
@@ -235,9 +284,10 @@ ShellRoot {
         Qt.callLater(function() { keyboard.forceActiveFocus(); });
     }
 
-    function hide() {
+    function hide(response) {
+        closingPicker = pickerActive;
         homeFocusPending = false;
-        finishPicker({cancel: true});
+        finishPicker(response || {cancel: true});
         finishEdit();
         remember();
         opened = false;
@@ -330,8 +380,8 @@ ShellRoot {
         if (pickerActive) {
             if (pickerPrompt) {
                 if (!searchInput.text.trim()) return;
-                finishPicker({text: searchInput.text}); hide();
-            } else if (item && item.enabled !== false) { finishPicker({index: item.pickerIndex}); hide(); }
+                hide({text: searchInput.text});
+            } else if (item && item.enabled !== false) { hide({index: item.pickerIndex}); }
             return;
         }
         if (!item || item.enabled === false || actionBusy) return;
@@ -503,7 +553,9 @@ ShellRoot {
         function status(): string {
             return JSON.stringify({ open: root.opened, page: root.page, searching: root.searching,
                 editing: root.editing, focus: root.focusArea, selected: Logic.identity(root.entries[root.itemIndex]),
-                group: root.groupId, count: root.entries.length, busy: root.actionBusy, error: root.failed });
+                group: root.groupId, count: root.entries.length, busy: root.actionBusy, error: root.failed,
+                attached:!!root.resolvedAnchor, screen:root.drawerScreen ? root.drawerScreen.name : "", reveal:root.drawerReveal,
+                visible:root.drawerVisible, source:root.attachment ? root.attachment.moduleName : "" });
         }
     }
 
@@ -611,22 +663,42 @@ ShellRoot {
 
     PanelWindow {
         id: panel
-        visible: root.opened
+        screen: root.drawerScreen
+        visible: root.drawerVisible && !root.drawerHost
         anchors { top: true; right: true }
-        margins { top: 63; right: 20 }
-        implicitWidth: Math.min(root.pickerActive ? 640 : 790, (screen ? screen.width : 1280) - 32)
-        implicitHeight: Math.min(root.pickerActive && root.pickerPrompt ? 310 : 624, (screen ? screen.height : 800) - 96)
+        readonly property var placement: Logic.drawerPlacement(screen ? screen.width : 1280, implicitWidth, root.resolvedAnchor)
+        margins { top: panel.placement.top; right: (panel.screen ? panel.screen.width : 1280) - panel.placement.left - panel.implicitWidth }
+        implicitWidth: Math.min(root.pickerLayout ? 640 : 790, (screen ? screen.width : 1280) - 32)
+        implicitHeight: Math.min(root.pickerLayout && root.pickerPrompt ? 310 : 624, Math.max(180, (screen ? screen.height : 800) - placement.top - 16))
         color: "transparent"
         exclusionMode: ExclusionMode.Ignore
         WlrLayershell.namespace: "foxml-drawer"
         WlrLayershell.layer: WlrLayer.Overlay
-        WlrLayershell.keyboardFocus: root.opened ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+        WlrLayershell.keyboardFocus: root.opened && !root.drawerHost ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
 
+        Item {
+            id: revealClip
+            parent: root.drawerHost || panel.contentItem
+            x: root.drawerHost ? panel.placement.left : 0
+            y: root.drawerHost ? panel.placement.top : 0
+            width: panel.implicitWidth
+            height: panel.implicitHeight * root.drawerReveal
+            opacity: Math.min(1, root.drawerReveal * 2)
+            clip: true
+            onParentChanged: { if (root.opened) Qt.callLater(function() { keyboard.forceActiveFocus(); }); }
         FocusScope {
             id: keyboard
-            anchors.fill: parent
+            x: 0; y: -14 * (1-root.drawerReveal); width: panel.implicitWidth; height: panel.implicitHeight
+            enabled: root.opened
             focus: true
             Keys.onPressed: event => root.key(event)
+
+            Rectangle {
+                visible: theme.paperDetails
+                x: 8; y: 8; width: parent.width - 10; height: parent.height - 10
+                color: theme.background; border.color: Qt.alpha(theme.line, .8)
+                radius: Math.max(4, Math.min(theme.radius, 12))
+            }
 
             Rectangle {
                 anchors.fill: parent
@@ -658,7 +730,8 @@ ShellRoot {
                             ToolTip.text: "Pinned favorites · f"
                         }
                         Rectangle { width: 5; height: 5; radius: 3; color: root.failed ? theme.error : theme.success }
-                        Text { textFormat: Text.PlainText; text: root.actionBusy ? "WORKING" : root.pickerActive && root.pickerPrompt ? "WRITE" : root.searching ? "SEARCH" : root.editing ? "ADJUST" : "NORMAL"; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9 }
+                        Text { textFormat: Text.PlainText; text: root.actionBusy ? "WORKING" : root.pageLoading ? "OPENING" : root.pickerLayout && root.pickerPrompt ? "WRITE" : root.searching ? "SEARCH" : root.editing ? "ADJUST" : "NORMAL"; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9 }
+                        LoadingDots { theme: root.paperTheme; busy: root.opened && (root.actionBusy || root.pageLoading); Layout.preferredWidth: visible ? 24 : 0 }
                         ToolButton {
                             text: "×"
                             implicitWidth: 28; implicitHeight: 28; padding: 0
@@ -671,7 +744,7 @@ ShellRoot {
                     }
                     RowLayout {
                         Layout.fillWidth: true
-                        Text { textFormat: Text.PlainText; text: "make yourself at home."; color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: panel.width < 580 ? 21 : 27; Layout.fillWidth: true; elide: Text.ElideRight }
+                        Text { textFormat: Text.PlainText; text: "make yourself at home."; color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: panel.implicitWidth < 580 ? 21 : 27; Layout.fillWidth: true; elide: Text.ElideRight }
                         Canvas {
                             width: 46; height: 40
                             onPaint: {
@@ -703,8 +776,8 @@ ShellRoot {
 
                         ListView {
                             id: groupList
-                            visible: !root.pickerActive
-                            Layout.preferredWidth: panel.width < 580 ? 125 : 179
+                            visible: !root.pickerLayout
+                            Layout.preferredWidth: panel.implicitWidth < 580 ? 125 : 179
                             Layout.fillHeight: true
                             clip: true
                             spacing: 7
@@ -737,7 +810,7 @@ ShellRoot {
                                         Layout.fillWidth: true
                                         spacing: 3
                                         Text { textFormat: Text.PlainText; text: modelData.label || ""; color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true }
-                                        Text { textFormat: Text.PlainText; visible: panel.width >= 580; text: modelData.summary || modelData.detail || ""; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9; elide: Text.ElideRight; Layout.fillWidth: true }
+                                        Text { textFormat: Text.PlainText; visible: panel.implicitWidth >= 580; text: modelData.summary || modelData.detail || ""; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9; elide: Text.ElideRight; Layout.fillWidth: true }
                                     }
                                     Text { textFormat: Text.PlainText; text: "›"; color: theme.muted; font.pixelSize: 18 }
                                 }
@@ -751,7 +824,7 @@ ShellRoot {
                             }
                         }
 
-                        Rectangle { visible: !root.pickerActive; width: 1; Layout.fillHeight: true; color: theme.line }
+                        Rectangle { visible: !root.pickerLayout; width: 1; Layout.fillHeight: true; color: theme.line }
 
                         ColumnLayout {
                             id: drawer
@@ -767,8 +840,8 @@ ShellRoot {
 
                             RowLayout {
                                 Layout.fillWidth: true
-                                Text { textFormat: Text.PlainText; text: root.searching && !root.pickerActive ? "find a little thing" : root.pageTitle; color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: 20; Layout.fillWidth: true; elide: Text.ElideRight }
-                                Text { textFormat: Text.PlainText; text: root.page === "root" || (root.pickerActive && root.pickerPrompt) ? "" : String(root.entries.length).padStart(2, "0"); color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10 }
+                                Text { textFormat: Text.PlainText; text: root.searching && !root.pickerLayout ? "find a little thing" : root.pageTitle; color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: 20; Layout.fillWidth: true; elide: Text.ElideRight }
+                                Text { textFormat: Text.PlainText; text: root.page === "root" || (root.pickerLayout && root.pickerPrompt) ? "" : String(root.entries.length).padStart(2, "0"); color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10 }
                             }
                             Text {
                                 id: breadcrumbRow
@@ -799,7 +872,7 @@ ShellRoot {
                                         color: theme.ink
                                         font.family: theme.fontFamily
                                         font.pixelSize: 12
-                                        placeholderText: root.pickerPrompt && root.pickerActive ? "write here…" : "find a little thing…"
+                                        placeholderText: root.pickerPrompt && root.pickerLayout ? "write here…" : "find a little thing…"
                                         placeholderTextColor: theme.muted
                                         selectByMouse: true
                                         background: Item {
@@ -809,7 +882,7 @@ ShellRoot {
                                         Keys.onPressed: event => root.key(event)
                                     }
                                     ToolButton {
-                                        visible: root.pickerActive && root.pickerPrompt
+                                        visible: root.pickerLayout && root.pickerPrompt
                                         text: "↵"
                                         palette.buttonText: theme.ink
                                         background: Rectangle { color: root.buttonShade(parent.down, parent.hovered); radius: 3 }
@@ -847,6 +920,7 @@ ShellRoot {
                                         required property int index
                                         property bool selected: index === root.itemIndex && root.focusArea === "items"
                                         property string menuIcon: Logic.iconName(modelData) ? Quickshell.iconPath(Logic.iconName(modelData), true) : ""
+                                        readonly property var connection: theme.paperDetails ? Logic.connectionState(modelData) : null
                                         width: Math.max(0, itemList.width - theme.scrollGutter)
                                         property bool card: modelData.presentation === "project" || modelData.presentation === "library" || modelData.presentation === "download"
                                         height: card ? 94 : modelData.kind === "slider" ? 91 : modelData.image ? 80 : 72
@@ -879,7 +953,7 @@ ShellRoot {
                                             anchors.margins: 12
                                             spacing: 10
                                             Image {
-                                                visible: Boolean(modelData.image || itemRow.menuIcon)
+                                                visible: itemRow.connection === null && Boolean(modelData.image || itemRow.menuIcon)
                                                 source: modelData.image || itemRow.menuIcon
                                                 sourceSize.width: modelData.image ? 42 : 24
                                                 sourceSize.height: modelData.image ? 42 : 24
@@ -888,7 +962,8 @@ ShellRoot {
                                                 fillMode: Image.PreserveAspectFit
                                                 asynchronous: true
                                             }
-                                            Text { textFormat: Text.PlainText; visible: !modelData.image && !itemRow.menuIcon; text: Logic.symbol(modelData); color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 16; font.weight: Font.Normal; Layout.preferredWidth: visible ? 24 : 0 }
+                                            ClipIcon { theme: root.paperTheme; visible: itemRow.connection !== null; linked: itemRow.connection === true; Layout.preferredWidth: visible ? 24 : 0; Layout.preferredHeight: 24 }
+                                            Text { textFormat: Text.PlainText; visible: itemRow.connection === null && !modelData.image && !itemRow.menuIcon; text: Logic.symbol(modelData); color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 16; font.weight: Font.Normal; Layout.preferredWidth: visible ? 24 : 0 }
                                             ColumnLayout {
                                                 Layout.fillWidth: true
                                                 spacing: 4
@@ -979,7 +1054,7 @@ ShellRoot {
                                     anchors.centerIn: parent
                                     width: parent.width - 28
                                     spacing: 15
-                                    visible: !(root.pickerActive && root.pickerPrompt) && !root.pendingConfirm && !root.entries.length && !root.pageLoading && (root.drawerReady || root.failed)
+                                    visible: !(root.pickerLayout && root.pickerPrompt) && !root.pendingConfirm && !root.entries.length && !root.pageLoading && (root.drawerReady || root.failed)
                                     Image {
                                         visible: theme.paperDetails && !root.failed
                                         anchors.horizontalCenter: parent.horizontalCenter
@@ -1070,8 +1145,8 @@ ShellRoot {
                                 required property var modelData
                                 implicitWidth: Math.min(hintFooter.width, hintWord.implicitWidth + (modelData.key ? 10 : 0))
                                 implicitHeight: 19
-                                Rectangle { visible: modelData.key; anchors.fill: parent; anchors.topMargin: 1; anchors.bottomMargin: 1; color: theme.background; border.color: Qt.alpha(theme.line, .8); radius: 3 }
-                                Text { id: hintWord; textFormat: Text.PlainText; anchors.centerIn: parent; width: Math.max(0, parent.width - (modelData.key ? 10 : 0)); elide: Text.ElideRight; text: modelData.text; color: modelData.key ? theme.ink : theme.muted; font.family: theme.fontFamily; font.pixelSize: panel.width < 580 ? 9 : 10 }
+                                Rectangle { visible: modelData.key; anchors.fill: parent; anchors.topMargin: 1; anchors.bottomMargin: 1; color: theme.highlight; border.color: Qt.alpha(theme.line, .8); radius: 3 }
+                                Text { id: hintWord; textFormat: Text.PlainText; anchors.centerIn: parent; width: Math.max(0, parent.width - (modelData.key ? 10 : 0)); elide: Text.ElideRight; text: modelData.text; color: modelData.key ? theme.ink : theme.muted; font.family: theme.fontFamily; font.pixelSize: panel.implicitWidth < 580 ? 9 : 10 }
                             }
                         }
                     }
@@ -1080,12 +1155,14 @@ ShellRoot {
                         textFormat: Text.PlainText
                         text: root.footerHint
                         color: theme.muted; font.family: theme.fontFamily
-                        font.pixelSize: panel.width < 580 ? 9 : 10
+                        font.pixelSize: panel.implicitWidth < 580 ? 9 : 10
                         Layout.fillWidth: true; elide: Text.ElideRight
                     }
                 }
             }
         }
+    }
+
     }
 
     Component.onCompleted: {

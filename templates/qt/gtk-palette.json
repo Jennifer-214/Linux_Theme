@@ -1,0 +1,336 @@
+{
+  "QtGtk3Palettes": {
+    "SystemPalette": {
+      "Window": [
+        {
+          "ColorGroup": "All",
+          "ColorScheme": "Unknown",
+          "SourceType": "Fixed",
+          "SourceData": {
+            "FixedBrush": {
+              "Color": "#{{BG}}",
+              "Height": 0,
+              "Width": 0
+            }
+          }
+        }
+      ],
+      "WindowText": [
+        {
+          "ColorGroup": "All",
+          "ColorScheme": "Unknown",
+          "SourceType": "Fixed",
+          "SourceData": {
+            "FixedBrush": {
+              "Color": "#{{FG}}",
+              "Height": 0,
+              "Width": 0
+            }
+          }
+        },
+        {
+          "ColorGroup": "Disabled",
+          "ColorScheme": "Unknown",
+          "SourceType": "Fixed",
+          "SourceData": {
+            "FixedBrush": {
+              "Color": "#{{FG_DIM}}",
+              "Height": 0,
+              "Width": 0
+            }
+          }
+        }
+      ],
+      "Base": [
+        {
+          "ColorGroup": "All",
+          "ColorScheme": "Unknown",
+          "SourceType": "Fixed",
+          "SourceData": {
+            "FixedBrush": {
+              "Color": "#{{BG}}",
+              "Height": 0,
+              "Width": 0
+            }
+          }
+        }
+      ],
+      "AlternateBase": [
+        {
+          "ColorGroup": "All",
+          "ColorScheme": "Unknown",
+          "SourceType": "Fixed",
+          "SourceData": {
+            "FixedBrush": {
+              "Color": "#{{BG_DARK}}",
+              "Height": 0,
+              "Width": 0
+            }
+          }
+        }
+      ],
+      "Text": [
+        {
+          "ColorGroup": "All",
+          "ColorScheme": "Unknown",
+          "SourceType": "Fixed",
+          "SourceData": {
+            "FixedBrush": {
+              "Color": "#{{FG}}",
+              "Height": 0,
+              "Width": 0
+            }
+          }
+        },
+        {
+          "ColorGroup": "Disabled",
+          "ColorScheme": "Unknown",
+          "SourceType": "Fixed",
+          "SourceData": {
+            "FixedBrush": {
+              "Color": "#{{FG_DIM}}",
+              "Height": 0,
+              "Width": 0
+            }
+          }
+        }
+      ],
+      "Button": [
+        {
+          "ColorGroup": "All",
+          "ColorScheme": "Unknown",
+          "SourceType": "Fixed",
+          "SourceData": {
+            "FixedBrush": {
+              "Color": "#{{BG_DARK}}",
+              "Height": 0,
+              "Width": 0
+            }
+          }
+        }
+      ],
+      "ButtonText": [
+        {
+          "ColorGroup": "All",
+          "ColorScheme": "Unknown",
+          "SourceType": "Fixed",
+          "SourceData": {
+            "FixedBrush": {
+              "Color": "#{{FG}}",
+              "Height": 0,
+              "Width": 0
+            }
+          }
+        },
+        {
+          "ColorGroup": "Disabled",
+          "ColorScheme": "Unknown",
+          "SourceType": "Fixed",
+          "SourceData": {
+            "FixedBrush": {
+              "Color": "#{{FG_DIM}}",
+              "Height": 0,
+              "Width": 0
+            }
+          }
+        }
+      ],
+      "BrightText": [
+        {
+          "ColorGroup": "All",
+          "ColorScheme": "Unknown",
+          "SourceType": "Fixed",
+          "SourceData": {
+            "FixedBrush": {
+              "Color": "#{{FG}}",
+              "Height": 0,
+              "Width": 0
+            }
+          }
+        }
+      ],
+      "Highlight": [
+        {
+          "ColorGroup": "All",
+          "ColorScheme": "Unknown",
+          "SourceType": "Fixed",
+          "SourceData": {
+            "FixedBrush": {
+              "Color": "#{{SELECTION}}",
+              "Height": 0,
+              "Width": 0
+            }
+          }
+        }
+      ],
+      "HighlightedText": [
+        {
+          "ColorGroup": "All",
+          "ColorScheme": "Unknown",
+          "SourceType": "Fixed",
+          "SourceData": {
+            "FixedBrush": {
+              "Color": "#{{FG}}",
+              "Height": 0,
+              "Width": 0
+            }
+          }
+        }
+      ],
+      "Light": [
+        {
+          "ColorGroup": "All",
+          "ColorScheme": "Unknown",
+          "SourceType": "Fixed",
+          "SourceData": {
+            "FixedBrush": {
+              "Color": "#{{BG}}",
+              "Height": 0,
+              "Width": 0
+            }
+          }
+        }
+      ],
+      "Midlight": [
+        {
+          "ColorGroup": "All",
+          "ColorScheme": "Unknown",
+          "SourceType": "Fixed",
+          "SourceData": {
+            "FixedBrush": {
+              "Color": "#{{BG_DARK}}",
+              "Height": 0,
+              "Width": 0
+            }
+          }
+        }
+      ],
+      "Mid": [
+        {
+          "ColorGroup": "All",
+          "ColorScheme": "Unknown",
+          "SourceType": "Fixed",
+          "SourceData": {
+            "FixedBrush": {
+              "Color": "#{{ROFI_BORDER}}",
+              "Height": 0,
+              "Width": 0
+            }
+          }
+        }
+      ],
+      "Dark": [
+        {
+          "ColorGroup": "All",
+          "ColorScheme": "Unknown",
+          "SourceType": "Fixed",
+          "SourceData": {
+            "FixedBrush": {
+              "Color": "#{{FG_DIM}}",
+              "Height": 0,
+              "Width": 0
+            }
+          }
+        }
+      ],
+      "Shadow": [
+        {
+          "ColorGroup": "All",
+          "ColorScheme": "Unknown",
+          "SourceType": "Fixed",
+          "SourceData": {
+            "FixedBrush": {
+              "Color": "#{{ROFI_BORDER}}",
+              "Height": 0,
+              "Width": 0
+            }
+          }
+        }
+      ],
+      "Link": [
+        {
+          "ColorGroup": "All",
+          "ColorScheme": "Unknown",
+          "SourceType": "Fixed",
+          "SourceData": {
+            "FixedBrush": {
+              "Color": "#{{FG_DIM}}",
+              "Height": 0,
+              "Width": 0
+            }
+          }
+        }
+      ],
+      "LinkVisited": [
+        {
+          "ColorGroup": "All",
+          "ColorScheme": "Unknown",
+          "SourceType": "Fixed",
+          "SourceData": {
+            "FixedBrush": {
+              "Color": "#{{FG_DIM}}",
+              "Height": 0,
+              "Width": 0
+            }
+          }
+        }
+      ],
+      "ToolTipBase": [
+        {
+          "ColorGroup": "All",
+          "ColorScheme": "Unknown",
+          "SourceType": "Fixed",
+          "SourceData": {
+            "FixedBrush": {
+              "Color": "#{{BG}}",
+              "Height": 0,
+              "Width": 0
+            }
+          }
+        }
+      ],
+      "ToolTipText": [
+        {
+          "ColorGroup": "All",
+          "ColorScheme": "Unknown",
+          "SourceType": "Fixed",
+          "SourceData": {
+            "FixedBrush": {
+              "Color": "#{{FG}}",
+              "Height": 0,
+              "Width": 0
+            }
+          }
+        }
+      ],
+      "PlaceholderText": [
+        {
+          "ColorGroup": "All",
+          "ColorScheme": "Unknown",
+          "SourceType": "Fixed",
+          "SourceData": {
+            "FixedBrush": {
+              "Color": "#{{FG_DIM}}",
+              "Height": 0,
+              "Width": 0
+            }
+          }
+        }
+      ],
+      "Accent": [
+        {
+          "ColorGroup": "All",
+          "ColorScheme": "Unknown",
+          "SourceType": "Fixed",
+          "SourceData": {
+            "FixedBrush": {
+              "Color": "#{{SELECTION}}",
+              "Height": 0,
+              "Width": 0
+            }
+          }
+        }
+      ]
+    }
+  }
+}

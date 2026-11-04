@@ -18,6 +18,7 @@
 #include "palette.hpp"
 #include "render.hpp"
 #include "reverse.hpp"
+#include "icon_family.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -163,6 +164,9 @@ int run_reverse(int argc, char** argv) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    if (argc == 5 && std::string(argv[1]) == "--finish-icons") {
+        return fox_render::finish_icon_family(argv[3],argv[4],fox_render::parse_palette(argv[2])) ? 0 : 1;
+    }
     // Reverse mode dispatch.
     if (argc >= 2 && std::string(argv[1]) == "--reverse") {
         return run_reverse(argc, argv);
@@ -199,6 +203,10 @@ int main(int argc, char** argv) {
     bool show_progress = isatty(fileno(stderr));
     auto t0 = std::chrono::steady_clock::now();
     size_t n = fox_render::render_tree(template_dir, output_dir, table, show_progress);
+    if (!fox_render::finish_icon_family(template_dir,output_dir,table)) {
+        std::fprintf(stderr,"fox-render-fast: icon-family generation failed; refusing an incomplete render\n");
+        return 1;
+    }
     auto t1 = std::chrono::steady_clock::now();
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
 

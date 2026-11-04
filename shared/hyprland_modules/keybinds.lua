@@ -45,8 +45,8 @@ hl.bind(mainMod .. " + SHIFT + I", hl.dsp.exec_cmd(chat))
 hl.bind(mainMod .. " + SHIFT + O", hl.dsp.exec_cmd("~/.config/hypr/scripts/screenshot.sh"))
 -- Toggle displays off (DPMS).
 hl.bind(mainMod .. " + SHIFT + L", hl.dsp.exec_cmd("~/.config/hypr/scripts/toggle_dpms.sh"))
--- Toggle Waybar.
-hl.bind(mainMod .. " + B", hl.dsp.exec_cmd("killall -SIGUSR1 waybar"))
+-- Toggle the desktop bar.
+hl.bind(mainMod .. " + B", hl.dsp.exec_cmd("fox-bar toggle"))
 -- Cycle wallpaper.
 hl.bind(mainMod .. " + W", hl.dsp.exec_cmd("~/.config/hypr/scripts/rotate_wallpaper.sh --cycle"))
 -- Clipboard history — text.

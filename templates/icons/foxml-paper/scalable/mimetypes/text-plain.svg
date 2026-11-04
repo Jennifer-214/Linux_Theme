@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+  <path d="M13 7h18l9 9v25q0 2-2 2H13q-2 0-2-2V9q0-2 2-2Z" fill="#{{BG_DARK}}"/>
+  <path d="M11 5h18l9 9v25q0 2-2 2H11q-2 0-2-2V7q0-2 2-2Z" fill="#{{BG}}" stroke="#{{FG}}" stroke-width="1.4" stroke-linejoin="round"/>
+  <path d="M29 5v9h9" fill="#{{SELECTION}}" stroke="#{{FG}}" stroke-width="1.2" stroke-linejoin="round"/>
+  <path d="M14 19v16" stroke="#{{SELECTION}}" stroke-width="2" stroke-linecap="round"/>
+  <path d="M18 21h13m-13 5h13m-13 5h9" fill="none" stroke="#{{FG_DIM}}" stroke-width="1.2" stroke-linecap="round"/>
+</svg>

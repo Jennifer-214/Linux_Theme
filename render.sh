@@ -102,7 +102,7 @@ build_sed_expr() {
         )
         str_vars=(
             THEME_TYPE NVIM_STYLE NVIM_BG KITTY_BG_OPACITY POPUP_BG_OPACITY SHOW_WELCOME SHOW_BANNER WALLPAPER
-            MAKO_ICON_THEME VSCODE_UI_THEME FONT_FAMILY
+            MAKO_ICON_THEME GTK_ICON_THEME VSCODE_UI_THEME FONT_FAMILY
             ANSI_ACCENT1 ANSI_ACCENT2 ANSI_ACCENT3 ANSI_ACCENT4 ANSI_ACCENT5
             ANSI_TEXT ANSI_MUTED ANSI_ERROR ANSI_OK ANSI_STANDOUT_BG
             ANSI_PROMPT ANSI_PROMPT2 ANSI_LOAD
@@ -293,6 +293,17 @@ render_all() {
         foxml_progress "$current" "$total" "Rendering templates"
         render_file "$template" "$output" "$sed_expr"
     done
+    local family_source="$template_dir/icons/icon-family.json"
+    [[ -f "$family_source" ]] || family_source="$template_dir/../icons/icon-family.json"
+    if [[ -f "$family_source" ]]; then
+        local native="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/src/fox-render/fox-render-fast"
+        [[ -x "$native" ]] || native="$(command -v fox-render-fast || true)"
+        if [[ ! -x "$native" ]]; then
+            echo "Icon generation needs fox-render-fast; build src/fox-render first." >&2
+            return 1
+        fi
+        "$native" --finish-icons "$palette_file" "$template_dir" "$output_dir" || return 1
+    fi
     echo "" # newline after progress bar
 }
 
@@ -327,7 +338,7 @@ build_reverse_sed_expr() {
         )
         str_vars=(
             THEME_TYPE NVIM_STYLE NVIM_BG KITTY_BG_OPACITY POPUP_BG_OPACITY SHOW_WELCOME SHOW_BANNER WALLPAPER
-            MAKO_ICON_THEME VSCODE_UI_THEME FONT_FAMILY
+            MAKO_ICON_THEME GTK_ICON_THEME VSCODE_UI_THEME FONT_FAMILY
             ANSI_ACCENT1 ANSI_ACCENT2 ANSI_ACCENT3 ANSI_ACCENT4 ANSI_ACCENT5
             ANSI_TEXT ANSI_MUTED ANSI_ERROR ANSI_OK ANSI_STANDOUT_BG
             ANSI_PROMPT ANSI_PROMPT2 ANSI_LOAD

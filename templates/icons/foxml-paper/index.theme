@@ -1,0 +1,29 @@
+[Icon Theme]
+Name={{GTK_ICON_THEME}}
+Comment=Pencil stationery, paper parcels, and folded notes
+Inherits=Papirus-Light,hicolor
+Directories=scalable/places,scalable/mimetypes,scalable/emblems
+
+[scalable/places]
+Size=48
+MinSize=16
+MaxSize=512
+Type=Scalable
+Context=Places
+
+[scalable/mimetypes]
+Size=48
+MinSize=16
+MaxSize=512
+Type=Scalable
+Context=MimeTypes
+
+[scalable/emblems]
+Size=48
+MinSize=8
+MaxSize=512
+Type=Scalable
+Context=Emblems
+
+# foxml:icon-aliases-begin
+# foxml:icon-aliases-end

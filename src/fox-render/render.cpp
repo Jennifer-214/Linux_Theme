@@ -86,6 +86,8 @@ std::string slurp(const fs::path& p) {
     return ss.str();
 }
 
+}  // namespace
+
 // Atomic write: tmp file alongside dest, then rename. Preserves source mode.
 bool atomic_write(const fs::path& dest, const std::string& body,
                   fs::perms src_perms) {
@@ -108,6 +110,8 @@ bool atomic_write(const fs::path& dest, const std::string& body,
     }
     return true;
 }
+
+namespace {
 
 void draw_progress(size_t done, size_t total) {
     if (total == 0) return;

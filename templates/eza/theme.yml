@@ -1,0 +1,234 @@
+{
+  "colourful": true,
+  "filekinds": {
+    "normal": {
+      "foreground": "#{{FG}}"
+    },
+    "directory": {
+      "foreground": "#{{FG}}"
+    },
+    "symlink": {
+      "foreground": "#{{FG}}"
+    },
+    "pipe": {
+      "foreground": "#{{FG}}"
+    },
+    "block_device": {
+      "foreground": "#{{FG}}"
+    },
+    "char_device": {
+      "foreground": "#{{FG}}"
+    },
+    "socket": {
+      "foreground": "#{{FG}}"
+    },
+    "special": {
+      "foreground": "#{{FG}}"
+    },
+    "executable": {
+      "foreground": "#{{FG}}"
+    },
+    "mount_point": {
+      "foreground": "#{{FG}}"
+    }
+  },
+  "date": {
+    "foreground": "#{{FG_DIM}}",
+    "is_bold": false,
+    "is_dimmed": false
+  },
+  "punctuation": {
+    "foreground": "#{{ROFI_BORDER}}"
+  },
+  "header": {
+    "foreground": "#{{FG_DIM}}",
+    "is_underline": false,
+    "is_bold": false
+  },
+  "symlink_path": {
+    "foreground": "#{{FG_DIM}}",
+    "is_bold": false,
+    "is_dimmed": false
+  },
+  "broken_symlink": {
+    "foreground": "#{{RED}}"
+  },
+  "perms": {
+    "user_read": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    },
+    "user_write": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    },
+    "user_execute_file": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    },
+    "user_execute_other": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    },
+    "group_read": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    },
+    "group_write": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    },
+    "group_execute": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    },
+    "other_read": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    },
+    "other_write": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    },
+    "other_execute": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    },
+    "special_user_file": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    },
+    "special_other": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    },
+    "attribute": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    }
+  },
+  "users": {
+    "user_you": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    },
+    "user_root": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    },
+    "user_other": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    },
+    "group_yours": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    },
+    "group_other": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    },
+    "group_root": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    }
+  },
+  "size": {
+    "number_byte": {
+      "foreground": "#{{FG}}"
+    },
+    "number_kilo": {
+      "foreground": "#{{FG}}"
+    },
+    "number_mega": {
+      "foreground": "#{{FG}}"
+    },
+    "number_giga": {
+      "foreground": "#{{FG}}"
+    },
+    "number_huge": {
+      "foreground": "#{{FG}}"
+    },
+    "unit_byte": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    },
+    "unit_kilo": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    },
+    "unit_mega": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    },
+    "unit_giga": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    },
+    "unit_huge": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    }
+  },
+  "git": {
+    "new": {
+      "foreground": "#{{GREEN}}"
+    },
+    "modified": {
+      "foreground": "#{{FG}}",
+      "background": "#{{SELECTION}}",
+      "is_bold": true
+    },
+    "deleted": {
+      "foreground": "#{{RED}}"
+    },
+    "renamed": {
+      "foreground": "#{{FG}}",
+      "background": "#{{SELECTION}}",
+      "is_bold": true
+    },
+    "typechange": {
+      "foreground": "#{{FG}}",
+      "background": "#{{SELECTION}}",
+      "is_bold": true
+    },
+    "ignored": {
+      "foreground": "#{{FG_DIM}}",
+      "is_bold": false,
+      "is_dimmed": false
+    },
+    "conflicted": {
+      "foreground": "#{{RED}}",
+      "is_bold": true
+    }
+  },
+  "extensions": {},
+  "filenames": {},
+  "_foxml": {
+    "enabled": "{{LITTLE_DETAILS}}"
+  }
+}

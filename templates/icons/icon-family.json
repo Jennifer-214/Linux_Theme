@@ -1,0 +1,404 @@
+{
+  "enabled": "{{LITTLE_DETAILS}}",
+  "ink": "#{{FG}}",
+  "muted": "#{{FG_DIM}}",
+  "accent": "#{{EZA_ICON_FG}}",
+  "paper": "#{{BG}}",
+  "blush": "#{{SELECTION}}",
+  "font": "{{FONT_FAMILY}}",
+  "directory": {
+    "glyph": ""
+  },
+  "symlink": {
+    "glyph": ""
+  },
+  "readonly": {
+    "glyph": "",
+    "asset": "emblem-readonly",
+    "aliases": [
+      "emblem-nowrite"
+    ]
+  },
+  "families": [
+    {
+      "id": "note",
+      "glyph": "",
+      "extensions": [
+        "txt",
+        "md",
+        "rst",
+        "text"
+      ],
+      "mimes": [
+        "text/plain",
+        "text/markdown",
+        "text/x-readme"
+      ],
+      "asset": "text-plain",
+      "existing_vector": true,
+      "names": [
+        "README",
+        "README.md",
+        "README.txt",
+        "LICENSE"
+      ]
+    },
+    {
+      "id": "parcel",
+      "glyph": "",
+      "extensions": [
+        "zip",
+        "tar",
+        "gz",
+        "tgz",
+        "bz",
+        "bz2",
+        "tbz",
+        "tbz2",
+        "xz",
+        "txz",
+        "zst",
+        "tzst",
+        "7z",
+        "rar"
+      ],
+      "mimes": [
+        "application/zip",
+        "application/gzip",
+        "application/x-gzip",
+        "application/x-tar",
+        "application/x-compressed-tar",
+        "application/x-bzip",
+        "application/x-bzip2",
+        "application/x-bzip-compressed-tar",
+        "application/x-xz",
+        "application/x-xz-compressed-tar",
+        "application/x-zstd-compressed-tar",
+        "application/x-7z-compressed",
+        "application/vnd.rar",
+        "application/x-rar",
+        "application/x-archive"
+      ],
+      "asset": "package-x-generic",
+      "existing_vector": true
+    },
+    {
+      "id": "pdf",
+      "glyph": "",
+      "extensions": [
+        "pdf"
+      ],
+      "mimes": [
+        "application/pdf"
+      ],
+      "asset": "application-pdf",
+      "existing_vector": true
+    },
+    {
+      "id": "python",
+      "glyph": "",
+      "extensions": [
+        "py",
+        "pyw",
+        "pyi"
+      ],
+      "mimes": [
+        "text/x-python",
+        "application/x-python-code",
+        "text/x-python3"
+      ],
+      "asset": "text-x-python"
+    },
+    {
+      "id": "json",
+      "glyph": "",
+      "extensions": [
+        "json",
+        "jsonc",
+        "json5"
+      ],
+      "mimes": [
+        "application/json",
+        "application/x-json",
+        "text/x-json"
+      ],
+      "asset": "application-json"
+    },
+    {
+      "id": "c",
+      "glyph": "",
+      "extensions": [
+        "c",
+        "h"
+      ],
+      "mimes": [
+        "text/x-c",
+        "text/x-csrc",
+        "text/x-chdr"
+      ],
+      "asset": "text-x-csrc"
+    },
+    {
+      "id": "cpp",
+      "glyph": "",
+      "extensions": [
+        "cpp",
+        "cc",
+        "cxx",
+        "c++",
+        "hpp",
+        "hh",
+        "hxx"
+      ],
+      "mimes": [
+        "text/x-c++",
+        "text/x-c++src",
+        "text/x-c++hdr"
+      ],
+      "asset": "text-x-c++src"
+    },
+    {
+      "id": "lua",
+      "glyph": "",
+      "extensions": [
+        "lua"
+      ],
+      "mimes": [
+        "text/x-lua",
+        "application/x-lua"
+      ],
+      "asset": "text-x-lua"
+    },
+    {
+      "id": "shell",
+      "glyph": "",
+      "extensions": [
+        "sh",
+        "zsh",
+        "bash",
+        "fish"
+      ],
+      "mimes": [
+        "application/x-shellscript",
+        "text/x-shellscript",
+        "text/x-zsh",
+        "text/x-fish"
+      ],
+      "asset": "application-x-shellscript"
+    },
+    {
+      "id": "javascript",
+      "glyph": "",
+      "extensions": [
+        "js",
+        "jsx",
+        "mjs",
+        "cjs"
+      ],
+      "mimes": [
+        "application/javascript",
+        "text/javascript",
+        "text/jsx"
+      ],
+      "asset": "application-javascript"
+    },
+    {
+      "id": "typescript",
+      "glyph": "",
+      "extensions": [
+        "ts",
+        "tsx",
+        "mts",
+        "cts"
+      ],
+      "mimes": [
+        "application/typescript",
+        "text/typescript",
+        "text/tsx"
+      ],
+      "asset": "application-typescript"
+    },
+    {
+      "id": "rust",
+      "glyph": "",
+      "extensions": [
+        "rs"
+      ],
+      "mimes": [
+        "text/x-rust"
+      ],
+      "asset": "text-x-rust"
+    },
+    {
+      "id": "go",
+      "glyph": "",
+      "extensions": [
+        "go"
+      ],
+      "mimes": [
+        "text/x-go"
+      ],
+      "asset": "text-x-go"
+    },
+    {
+      "id": "config",
+      "glyph": "",
+      "extensions": [
+        "toml",
+        "yaml",
+        "yml",
+        "ini",
+        "conf",
+        "cfg",
+        "properties"
+      ],
+      "mimes": [
+        "application/toml",
+        "application/x-toml",
+        "text/x-toml",
+        "application/yaml",
+        "application/x-yaml",
+        "text/yaml",
+        "text/x-yaml",
+        "text/x-ini",
+        "text/x-config"
+      ],
+      "asset": "foxml-config",
+      "names": [
+        ".gitignore",
+        ".gitattributes",
+        ".editorconfig"
+      ]
+    },
+    {
+      "id": "image",
+      "glyph": "",
+      "extensions": [
+        "png",
+        "jpg",
+        "jpeg",
+        "gif",
+        "webp",
+        "svg",
+        "avif",
+        "bmp",
+        "tiff",
+        "tif",
+        "ico"
+      ],
+      "mimes": [
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "image/webp",
+        "image/svg+xml",
+        "image/avif",
+        "image/bmp",
+        "image/tiff",
+        "image/vnd.microsoft.icon"
+      ],
+      "asset": "foxml-image"
+    },
+    {
+      "id": "sheet",
+      "glyph": "",
+      "extensions": [
+        "csv",
+        "tsv",
+        "xls",
+        "xlsx",
+        "ods"
+      ],
+      "mimes": [
+        "text/csv",
+        "text/tab-separated-values",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.oasis.opendocument.spreadsheet"
+      ],
+      "asset": "foxml-sheet"
+    },
+    {
+      "id": "audio",
+      "glyph": "",
+      "extensions": [
+        "mp3",
+        "flac",
+        "ogg",
+        "oga",
+        "opus",
+        "wav",
+        "m4a",
+        "aac"
+      ],
+      "mimes": [
+        "audio/mpeg",
+        "audio/flac",
+        "audio/x-flac",
+        "audio/ogg",
+        "audio/x-vorbis+ogg",
+        "audio/opus",
+        "audio/wav",
+        "audio/x-wav",
+        "audio/mp4",
+        "audio/aac",
+        "audio/vnd.wave"
+      ],
+      "asset": "foxml-audio"
+    },
+    {
+      "id": "video",
+      "glyph": "",
+      "extensions": [
+        "mp4",
+        "mkv",
+        "webm",
+        "mov",
+        "avi",
+        "m4v"
+      ],
+      "mimes": [
+        "video/mp4",
+        "video/x-matroska",
+        "video/webm",
+        "video/quicktime",
+        "video/x-msvideo"
+      ],
+      "asset": "foxml-video"
+    },
+    {
+      "id": "log",
+      "glyph": "",
+      "extensions": [
+        "log"
+      ],
+      "mimes": [
+        "text/x-log"
+      ],
+      "asset": "foxml-log",
+      "badge": "log",
+      "muted": true
+    },
+    {
+      "id": "backup",
+      "glyph": "",
+      "extensions": [
+        "bak",
+        "tmp",
+        "temp",
+        "old",
+        "swp",
+        "swo",
+        "orig"
+      ],
+      "mimes": [
+        "application/x-trash",
+        "application/x-editor-backup"
+      ],
+      "asset": "foxml-backup",
+      "badge": "…",
+      "muted": true
+    }
+  ],
+  "error": "#{{RED}}"
+}

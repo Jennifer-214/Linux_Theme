@@ -127,6 +127,10 @@ check_hyprland() {
 }
 
 check_waybar() {
+    if command -v fox-bar >/dev/null 2>&1 && fox-bar status 2>/dev/null | jq -e ".ready == true" >/dev/null 2>&1; then
+        ok "Quickshell bar is ready (shared drawer service)"
+        return
+    fi
     section "Waybar"
     if ! command -v waybar &>/dev/null; then
         warn "waybar not installed (skipping)"

@@ -18,6 +18,7 @@ inline const std::vector<std::string>& deps_packages() {
 
         // Compositor, lock, wallpaper, idle
         "hyprland", "hyprlock", "awww", "hypridle", "hyprpolkitagent",
+        "qt6-base", // includes the GTK platform theme bridge used by desktop dialogs
         // Themed login
         "greetd", "greetd-regreet",
 

@@ -1,5 +1,11 @@
 .pragma library
 
+function drawerPlacement(screenWidth, windowWidth, anchor) {
+    if (!anchor) return {left:Math.max(0, screenWidth-windowWidth-20), top:63};
+    var left = Math.max(11, Math.min(screenWidth-windowWidth-11, anchor.x+anchor.width/2-windowWidth/2));
+    return {left:left, top:Math.max(7, Math.floor(anchor.y)-9)};
+}
+
 function identity(item) {
     return item ? JSON.stringify([String(item.id || ""), String(item.argument === undefined ? "" : item.argument)]) : "";
 }
@@ -34,6 +40,12 @@ function symbol(item) {
         search: "⌕", download: "↧", info: "·", package: "□", message: "✉",
         lock: "▢", suspend: "☾", reboot: "↻", poweroff: "⏻", logout: "↪", "app-launch": "⌘" };
     return icons[icon] || icons[item.id] || (item.kind === "page" ? "›" : "·");
+}
+
+function connectionState(item) {
+    if (!item || (item.id !== "wifi-connect" && item.id !== "bluetooth-connect")
+        || item.enabled === false || typeof item.checked !== "boolean") return null;
+    return item.checked;
 }
 
 function iconName(item) {

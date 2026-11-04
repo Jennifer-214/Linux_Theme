@@ -93,6 +93,20 @@ gu=38;5;{{ANSI_ACCENT2}}:\
 
 
 # ─── zsh-syntax-highlighting (FoML) ────────────
+typeset -g FOXML_PAPER_LISTING=0
+if [[ -z ${RIPGREP_CONFIG_PATH:-} || $RIPGREP_CONFIG_PATH == "${XDG_CONFIG_HOME:-$HOME/.config}/ripgrep/config" ]]; then
+  export RIPGREP_CONFIG_PATH="${XDG_CONFIG_HOME:-$HOME/.config}/ripgrep/config"
+fi
+if [[ "{{LITTLE_DETAILS}}" == fox-little-details-on ]]; then
+  FOXML_PAPER_LISTING=1
+  export EZA_ICON_SPACING=3
+  # eza's rendered theme owns its true-color styles; LS_COLORS remains available
+  # to ordinary ls and shell completion.
+  export EZA_COLORS=reset
+else
+  unset EZA_COLORS EZA_ICON_SPACING
+fi
+
 typeset -A ZSH_HIGHLIGHT_STYLES
 
 ZSH_HIGHLIGHT_STYLES[default]='fg={{ANSI_TEXT}}'

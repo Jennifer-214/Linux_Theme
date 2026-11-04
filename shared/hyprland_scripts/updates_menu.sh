@@ -57,6 +57,7 @@ printf '%s\n' "${lines[@]}" > "$LIST_CACHE"
 
 refresh_pill() {
     rm -f "$COUNT_CACHE"
+    fox-bar refresh custom/updates 2>/dev/null || true
     pkill -SIGRTMIN+1 waybar 2>/dev/null || true
 }
 

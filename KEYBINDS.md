@@ -566,7 +566,7 @@ Shows indent guides automatically. No keybinds.
 | `ALT + Shift + I` | Discord |
 | `ALT + Shift + O` | Screenshot (GUI editor) |
 | `ALT + Shift + L` | Toggle displays off (DPMS) |
-| `ALT + B` | Toggle Waybar |
+| `ALT + B` | Toggle the desktop bar |
 | `ALT + W` | Cycle wallpaper |
 | `ALT + V` | Clipboard history — text |
 | `ALT + Shift + V` | Clipboard history — images |

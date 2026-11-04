@@ -84,3 +84,20 @@ assert.match(logic.emptyState('downloads',true,false).title,/matching/);
 assert.match(logic.emptyState('bookmarks',false,false).detail,/press b/);
 assert.match(logic.emptyState('root',false,true).title,/moment/);
 console.log('keycap instructions and context-sensitive empty states: passed');
+
+for (const width of [720,1080,1920]) {
+    const sheetWidth=Math.min(790,width-32);
+    for (const anchor of [{x:14,y:40,width:35},{x:width-140,y:55,width:126}]) {
+        const p=logic.drawerPlacement(width,sheetWidth,anchor);
+        assert.ok(p.left >= 0 && p.left+sheetWidth <= width);
+        assert.ok(p.top < anchor.y, "paper must start behind the bookmark");
+    }
+}
+assert.equal(logic.drawerPlacement(1920,790,null).top,63);
+console.log('drawer attachment stays inside landscape and portrait outputs: passed');
+assert.equal(logic.connectionState({id:'wifi-connect',checked:true}),true);
+assert.equal(logic.connectionState({id:'wifi-connect',checked:false}),false);
+assert.equal(logic.connectionState({id:'bluetooth-connect',checked:true}),true);
+assert.equal(logic.connectionState({id:'bluetooth-connect',enabled:false}),null);
+assert.equal(logic.connectionState({id:'wifi-toggle',checked:true}),null);
+assert.equal(logic.connectionState({id:'wifi-connect'}),null);
