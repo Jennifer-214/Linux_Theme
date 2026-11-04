@@ -32,6 +32,9 @@ ShellRoot {
     property int groupIndex: 0
     property int itemIndex: 0
     property int draftValue: 0
+    readonly property string footerHint: Logic.footerHint({confirming: pendingConfirm !== null, busy: actionBusy,
+        prompt: pickerActive && pickerPrompt, searching: searching, picker: pickerActive,
+        editing: editing, focus: focusArea}, entries[itemIndex])
     property var pendingConfirm: null
     property bool confirmYes: false
     property int viewSerial: 0
@@ -879,8 +882,8 @@ ShellRoot {
                                             ColumnLayout {
                                                 Layout.fillWidth: true
                                                 spacing: 4
-                                                Text { textFormat: Text.PlainText; text: modelData.label || ""; color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true }
-                                                Text { textFormat: Text.PlainText; text: Logic.detailText(modelData); visible: text.length > 0; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9; elide: Text.ElideRight; Layout.fillWidth: true }
+                                                Text { id: entryLabel; textFormat: Text.PlainText; text: modelData.label || ""; color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true }
+                                                Text { id: entryDetail; textFormat: Text.PlainText; text: Logic.detailText(modelData); visible: text.length > 0; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9; elide: Text.ElideRight; Layout.fillWidth: true }
                                                 Item {
                                                     id: ruler
                                                     visible: modelData.kind === "slider"
@@ -919,7 +922,7 @@ ShellRoot {
                                         }
                                         ToolTip {
                                             id: itemTip
-                                            visible: (itemMouse.containsMouse || itemRow.selected) && text.length > 0
+                                            visible: (itemMouse.containsMouse || itemRow.selected) && text.length > 0 && (entryLabel.truncated || entryDetail.truncated || Boolean(modelData.modifiedAt) || (Logic.focusDetail(modelData).length > 0 && breadcrumbRow.truncated))
                                             delay: 900
                                             timeout: 7000
                                             text: Logic.tooltipText(modelData)
@@ -961,13 +964,25 @@ ShellRoot {
                                 }
 
                                 Column {
+                                    readonly property var note: Logic.emptyState(root.page, root.searching, root.failed)
                                     anchors.centerIn: parent
                                     width: parent.width - 28
                                     spacing: 15
                                     visible: !(root.pickerActive && root.pickerPrompt) && !root.pendingConfirm && !root.entries.length && !viewProcess.running && !groupProcess.running
-                                    Text { textFormat: Text.PlainText; width: parent.width; text: root.page === "root" ? "✎" : "·"; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 34; horizontalAlignment: Text.AlignHCenter }
-                                    Text { textFormat: Text.PlainText; width: parent.width; text: root.page === "root" ? "everything in its little place." : root.page === "library" ? "the shelves are quiet." : root.page === "bookmarks" ? "save your place." : root.page === "downloads" ? "nothing in the post." : "nothing here just yet."; color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: 18; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap }
-                                    Text { textFormat: Text.PlainText; width: parent.width; text: root.page === "root" ? "choose a group on the left\nor press / to find any action." : root.page === "library" ? "plug in a removable drive\nand its library card will appear here." : root.page === "bookmarks" ? "press b on a project card\nto leave a little ribbon here." : root.page === "downloads" ? "your latest downloads will land here.\npress / to filter, or h to go back." : "try another search, or h to go back."; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10; horizontalAlignment: Text.AlignHCenter; lineHeight: 1.5; wrapMode: Text.WordWrap }
+                                    Image {
+                                        visible: theme.paperDetails && !root.failed
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        source: "paper-cat.png"
+                                        width: 180
+                                        height: 114
+                                        sourceSize.width: 360
+                                        fillMode: Image.PreserveAspectFit
+                                        smooth: true
+                                        mipmap: true
+                                    }
+                                    Text { visible: !theme.paperDetails || root.failed; textFormat: Text.PlainText; width: parent.width; text: root.failed ? "!" : theme.paperDetails || root.page === "root" ? "✎" : "·"; color: root.failed ? theme.error : theme.muted; font.family: theme.fontFamily; font.pixelSize: theme.paperDetails ? 27 : 34; horizontalAlignment: Text.AlignHCenter }
+                                    Text { textFormat: Text.PlainText; width: parent.width; text: parent.note.title; color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: 18; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap }
+                                    Text { textFormat: Text.PlainText; width: parent.width; text: parent.note.detail; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10; horizontalAlignment: Text.AlignHCenter; lineHeight: 1.5; wrapMode: Text.WordWrap }
                                 }
 
                                 Item {
@@ -1030,11 +1045,29 @@ ShellRoot {
 
                     Text { visible: root.message.length > 0; textFormat: Text.PlainText; text: (root.failed ? "! " : "✿ ") + root.message; color: root.failed ? theme.error : theme.muted; font.family: theme.fontFamily; font.pixelSize: 10; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.role: Accessible.StaticText; Accessible.name: root.message }
                     Rectangle { Layout.fillWidth: true; height: 1; color: theme.line }
+                    Flow {
+                        id: hintFooter
+                        visible: theme.paperDetails
+                        Layout.fillWidth: true
+                        Layout.minimumWidth: 0
+                        spacing: 0
+                        Accessible.role: Accessible.StaticText
+                        Accessible.name: root.footerHint
+                        Repeater {
+                            model: Logic.hintParts(root.footerHint)
+                            delegate: Item {
+                                required property var modelData
+                                implicitWidth: Math.min(hintFooter.width, hintWord.implicitWidth + (modelData.key ? 10 : 0))
+                                implicitHeight: 19
+                                Rectangle { visible: modelData.key; anchors.fill: parent; anchors.topMargin: 1; anchors.bottomMargin: 1; color: theme.background; border.color: Qt.alpha(theme.line, .8); radius: 3 }
+                                Text { id: hintWord; textFormat: Text.PlainText; anchors.centerIn: parent; width: Math.max(0, parent.width - (modelData.key ? 10 : 0)); elide: Text.ElideRight; text: modelData.text; color: modelData.key ? theme.ink : theme.muted; font.family: theme.fontFamily; font.pixelSize: panel.width < 580 ? 9 : 10 }
+                            }
+                        }
+                    }
                     Text {
+                        visible: !theme.paperDetails
                         textFormat: Text.PlainText
-                        text: Logic.footerHint({confirming: root.pendingConfirm !== null, busy: root.actionBusy,
-                            prompt: root.pickerActive && root.pickerPrompt, searching: root.searching,
-                            picker: root.pickerActive, editing: root.editing, focus: root.focusArea}, root.entries[root.itemIndex])
+                        text: root.footerHint
                         color: theme.muted; font.family: theme.fontFamily
                         font.pixelSize: panel.width < 580 ? 9 : 10
                         Layout.fillWidth: true; elide: Text.ElideRight

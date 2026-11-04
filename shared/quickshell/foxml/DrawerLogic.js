@@ -107,6 +107,33 @@ function footerHint(state, item) {
     return "Enter / l runs · j / k move · / searches · h goes back";
 }
 
+function hintParts(hint) {
+    var parts = [];
+    String(hint).split(" · ").forEach(function(clause, index) {
+        if (index) parts.push({text: " · ", key: false});
+        var prefix = clause.match(/^((?:Enter|Esc|[hjkltebrf↑↓\/])(?:(?: \/ | or )(?:Enter|Esc|[hjkltebrf↑↓\/]))?)(?= |$)/);
+        if (!prefix) { parts.push({text: clause, key: false}); return; }
+        prefix[1].split(/(Enter|Esc|[hjkltebrf↑↓])/).forEach(function(text) {
+            if (text) parts.push({text: text, key: /^(Enter|Esc|[hjkltebrf↑↓\/])$/.test(text)});
+        });
+        if (clause.length > prefix[1].length) parts.push({text: clause.slice(prefix[1].length), key: false});
+    });
+    return parts;
+}
+
+function emptyState(page, searching, failed) {
+    if (failed) return {title: "this page needs a moment.", detail: "check the note below, or h to go back."};
+    if (searching) return {title: "no matching notes.", detail: "try another search, or Esc to go back."};
+    var pages = {
+        root: ["everything in its little place.", "choose a group on the left\nor press / to find any action."],
+        library: ["the shelves are quiet.", "plug in a removable drive\nand its library card will appear here."],
+        bookmarks: ["save your place.", "press b on a project card\nto leave a little ribbon here."],
+        downloads: ["nothing in the post.", "your latest downloads will land here.\npress / to filter, or h to go back."]
+    };
+    var lines = pages[page] || ["nothing here", "h goes back to the previous page."];
+    return {title: lines[0], detail: lines[1]};
+}
+
 function breadcrumbs(page, group, trail, groups, title) {
     if (page === "root" || page === "picker") return [];
     var labels = {};

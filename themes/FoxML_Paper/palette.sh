@@ -38,10 +38,14 @@ SHADOW_ALPHA=0.06
 # A drawn hairline separates sheets; inactive windows stay paper, not soot.
 GTK_PREFER_DARK=0
 # Built by the installer from Catppuccin: the highlighter hue, stronger than SELECTION because
-# f1d6de disappears at cursor size, with a graphite outline. base:src_fill:src_outline:fill:outline
+# f1d6de disappears at cursor size, with a graphite outline. base:src_fill:src_outline:fill:outline[:flower]; flower
+# swaps the busy cursors for a slowly turning flower in the same inks.
 CURSOR_THEME=foxml-paper-cursors
-CURSOR_RECOLOR=catppuccin-mocha-pink-cursors:f5c2e7:1e1e2e:edb0c4:3c3c40
-PAPIRUS_FOLDER_COLOR=grey
+CURSOR_RECOLOR=catppuccin-mocha-pink-cursors:f5c2e7:1e1e2e:edb0c4:3c3c40:flower
+# Stock Papirus has no blush: built from Catppuccin's pink with the pointer's pink and
+# graphite emblems. base:from=to,from=to
+PAPIRUS_FOLDER_COLOR=foxml-blush
+PAPIRUS_FOLDER_RECOLOR=cat-mocha-pink:F5C2E7=edb0c4,E1AED3=d99ab0,CDD6F4=f4f2ed,313244=3c3c40
 HYPR_BORDER_SIZE=1
 HYPR_BORDER_INACTIVE=9a989488
 HYPR_SHADOW_ALPHA_INACTIVE=0.08
@@ -190,6 +194,8 @@ TMUX_MODE_BG=f1d6de
 KITTY_CURSOR=3c3c40
 KITTY_CURSOR_TEXT=f4f2ed
 KITTY_POINTER_SHAPE=arrow
+ZATHURA_HIGHLIGHT="rgba(241,214,222,0.70)"
+ZATHURA_HIGHLIGHT_ACTIVE="rgba(237,176,196,0.70)"
 WAYBAR_WS_ACTIVE=b8336a
 PI_BORDER=c8c5be
 PI_MUTED=7c7a76
@@ -313,6 +319,7 @@ HYPRLOCK_DATE_TEXT='cmd[update:60000] date +"// [DATE] [%Y-%m-%d] [%^a]"'
 # A handwritten sign-off under the password field (other themes park it off-screen).
 HYPRLOCK_NOTE='<i>see you soon ♡</i>'
 HYPRLOCK_NOTE_Y=-140
+HYPRLOCK_CAT_Y=-228
 MAKO_BORDER=c8c5be
 MAKO_CRIT_BORDER=9a5a48
 MAKO_AGENT_BORDER=9a9894

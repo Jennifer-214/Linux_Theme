@@ -16,10 +16,9 @@ hl.env("XDG_SESSION_DESKTOP", "Hyprland")
 -- Cursor — XCURSOR_PATH includes ~/.local/share/icons because that's where
 -- the catppuccin_cursor module drops the theme (XDG user dir, no sudo needed).
 -- XCURSOR_THEME comes from the palette, in theme.lua.
--- XCURSOR_SIZE here is the pre-Hyprland fallback; start_waybar.sh overrides
--- it via `hyprctl setcursor` + `setenv` based on detected monitor scale.
-hl.env("XCURSOR_SIZE", "24")
-hl.env("HYPRCURSOR_SIZE", "24")
+-- One pointer size everywhere; start_waybar.sh and GTK's settings.ini use the same.
+hl.env("XCURSOR_SIZE", "30")
+hl.env("HYPRCURSOR_SIZE", "30")
 hl.env("XCURSOR_PATH", os.getenv("HOME") .. "/.local/share/icons:" .. os.getenv("HOME") .. "/.icons:/usr/share/icons:/usr/share/pixmaps")
 
 -- Wayland

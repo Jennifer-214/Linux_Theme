@@ -11,11 +11,13 @@
 #include "../core/palette.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
+#include "folder_recolor.hpp"
 
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <system_error>
 #include <unistd.h>
 
 namespace fs = std::filesystem;
@@ -28,6 +30,23 @@ bool have(const std::string& bin) { return sh::have(bin); }
 
 bool pacman_has(const std::string& pkg) {
     return sh::run({"sh", "-c", "pacman -Qi " + pkg + " &>/dev/null"}) == 0;
+}
+
+// Stages the derived colour first, so a failed build leaves the theme as it was.
+bool install_folder_color(const fs::path& root, bool system, const std::string& color,
+                          const folder_recolor::Recolor& recolor) {
+    std::string pattern = (fs::temp_directory_path() / "foxin-folders-XXXXXX").string();
+    if (!::mkdtemp(pattern.data())) return false;
+    const fs::path stage = pattern;
+    const std::string src = stage.string(), dst = (root / "Papirus").string();
+    bool ok = folder_recolor::build(root / "Papirus", stage, color, recolor);
+    if (ok) {
+        ok = (system ? sh::run({"sudo", "cp", "-rT", src, dst})
+                     : sh::run({"cp", "-rT", src, dst})) == 0;
+    }
+    std::error_code ec;
+    fs::remove_all(stage, ec);
+    return ok;
 }
 
 }  // namespace
@@ -134,17 +153,26 @@ void run_papirus_icons(Context& ctx) {
     // The marker records the color last applied, so a theme change re-runs it.
     const std::string folder_color = palette::get(ctx.palette_path, "PAPIRUS_FOLDER_COLOR", "cat-mocha-peach");
     fs::path pf_marker = ctx.config_home / "foxml/catppuccin-folders-applied.marker";
+    const std::string recolor_token = palette::get(ctx.palette_path, "PAPIRUS_FOLDER_RECOLOR", "none");
+    const auto recolor = folder_recolor::parse(recolor_token);
+    if (!recolor && recolor_token != "none") ui::warn("ignoring malformed PAPIRUS_FOLDER_RECOLOR: " + recolor_token);
+    const std::string mark = folder_recolor::mark(folder_color, recolor ? recolor_token : "none");
     std::string applied;
     if (std::ifstream in{pf_marker}) std::getline(in, applied);
-    if (applied == folder_color) {
+    if (applied == mark) {
         ui::skipped("folders already " + folder_color);
     } else {
         if (sh::dry_run()) {
+            if (recolor) ui::substep("[dry-run] would build " + folder_color + " from " + recolor->base);
             ui::substep("[dry-run] would run papirus-folders -C " + folder_color);
         } else {
+            if (recolor && !install_folder_color(papirus_root, papirus_root == sys_icons, folder_color, *recolor)) {
+                ui::warn("could not build folder colour " + folder_color + " — keeping the current folders");
+                return;
+            }
             std::string pf_cmd = "";
             if (have("papirus-folders")) {
-                pf_cmd = "papirus-folders";
+                pf_cmd = "/usr/bin/papirus-folders";
             } else {
                 ui::substep("fetching papirus-folders script");
                 sh::run({"curl", "-fsSL", "-o", "/tmp/pf",
@@ -154,10 +182,11 @@ void run_papirus_icons(Context& ctx) {
             }
 
             if (!pf_cmd.empty()) {
-                if (sh::run({pf_cmd, "-C", folder_color, "-t", "Papirus-Dark"}) == 0) {
+                // Through bash: the fetched copy sits in /tmp, which noexec_tmp mounts noexec.
+                if (sh::run({"bash", pf_cmd, "-C", folder_color, "-t", "Papirus-Dark"}) == 0) {
                     ui::ok("folders → " + folder_color);
                     fs::create_directories(pf_marker.parent_path());
-                    std::ofstream(pf_marker) << folder_color << "\n";
+                    std::ofstream(pf_marker) << mark << "\n";
                 }
                 if (pf_cmd == "/tmp/pf") fs::remove("/tmp/pf");
             }

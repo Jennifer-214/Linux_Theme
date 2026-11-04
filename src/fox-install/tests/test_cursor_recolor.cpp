@@ -70,6 +70,9 @@ int main() {
     check("bad hex", !parse_recolor("base:f5c2e7:1e1e2e:edb0c4:zzzzzz"));
     check("short hex", !parse_recolor("base:f5c2e7:1e1e2e:edb0c4:3c3"));
     check("path in base refused", !parse_recolor("../evil:f5c2e7:1e1e2e:edb0c4:3c3c40"));
+    check("no flower by default", !rc->flower);
+    check("flower option", parse_recolor(std::string(TOKEN) + ":flower")->flower);
+    check("unknown option refused", !parse_recolor(std::string(TOKEN) + ":sparkles"));
     if (!rc) return 1;
 
     // ── pixels ─────────────────────────────────────────────────────────
@@ -130,6 +133,55 @@ int main() {
         check("corrupt source fails the build", !build_theme(src, dest, "derived-cursors", *rc));
         check("failed build keeps the old set", read_file(dest / "cursors/default") == before);
         check("failed build leaves no temp dir", !fs::exists(root / "derived-cursors.foxin-tmp"));
+        fs::remove_all(root);
+    }
+
+    // ── flower ─────────────────────────────────────────────────────────
+    {
+        const auto flower = parse_recolor(std::string(TOKEN) + ":flower");
+        const fs::path root = fs::temp_directory_path() / ("fox_flower_" + std::to_string(::getpid()));
+        const fs::path src = root / "base-cursors", dest = root / "derived-cursors";
+        fs::create_directories(src / "cursors");
+        const auto arrow = [](uint32_t nominal, uint32_t edge) {
+            Image image{nominal, edge, edge, 2, 3, 0, std::vector<unsigned char>(edge * edge * 4, 0)};
+            image.bgra[0] = 0x2e; image.bgra[1] = 0x1e; image.bgra[2] = 0x1e; image.bgra[3] = 255;
+            return image;
+        };
+        std::ofstream(src / "cursors/default", std::ios::binary) << write_images({arrow(24, 32), arrow(48, 64)});
+        std::ofstream(src / "cursors/wait", std::ios::binary) << xcursor({{{0xe7, 0xc2, 0xf5, 255}}});
+        fs::create_symlink("default", src / "cursors/progress");  // must not write through to default
+
+        check("flower build succeeds", build_theme(src, dest, "derived-cursors", *flower));
+        const auto wait = read_images(read_file(dest / "cursors/wait"));
+        const auto busy = read_images(read_file(dest / "cursors/progress"));
+        check("twelve frames per size", wait.size() == 24 && busy.size() == 24);
+        check("sizes kept", !wait.empty() && wait.front().nominal == 24 && wait.back().nominal == 48);
+        if (wait.size() == 24 && busy.size() == 24) {
+            check("wait is centred", wait[0].xhot == 16 && wait[0].yhot == 16 && wait[12].xhot == 32);
+            check("progress keeps the arrow's tip", busy[0].xhot == 2 && busy[0].yhot == 3);
+            check("frames turn", wait[0].bgra != wait[1].bgra);
+            check("frames have a delay", wait[0].delay > 0 && busy[0].delay > 0);
+            size_t fill = 0, ink = 0, clear_corner = wait[0].bgra[3] == 0;
+            for (size_t p = 0; p + 3 < wait[0].bgra.size(); p += 4) {
+                const auto* px = &wait[0].bgra[p];
+                if (px[3] == 255 && px[2] == 0xed && px[1] == 0xb0 && px[0] == 0xc4) ++fill;
+                if (px[3] == 255 && px[2] == 0x3c && px[1] == 0x3c && px[0] == 0x40) ++ink;
+            }
+            check("petals use the fill", fill > 50);
+            check("outline uses the ink", ink > 10);
+            check("corners stay clear", clear_corner);
+            check("the centre has no hole", wait[0].bgra[(16 * 32 + 16) * 4 + 3] == 255);
+            check("arrow survives under the small flower", busy[0].bgra[3] == 255);
+        }
+        check("default isn't written through a link", read_images(read_file(dest / "cursors/default")).size() == 2);
+        check("no flower without the option", [&] {
+            const fs::path plain = root / "plain-cursors";
+            return build_theme(src, plain, "plain-cursors", *rc) &&
+                   read_images(read_file(plain / "cursors/wait")).size() == 1;
+        }());
+
+        std::ofstream(src / "cursors/default", std::ios::binary) << "garbage";
+        check("a broken default fails the flower build", !build_theme(src, root / "broken", "broken", *flower));
         fs::remove_all(root);
     }
 

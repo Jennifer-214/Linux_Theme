@@ -20,7 +20,7 @@ fi
 # which isn't in the default XCURSOR_PATH. XCURSOR_SIZE is set per-monitor
 # by start_waybar.sh after Hyprland is up; pre-launch fallback is 24
 # (1080p default — gets corrected on the first apply-scale pass).
-export XCURSOR_SIZE="${XCURSOR_SIZE:-24}"
+export XCURSOR_SIZE="${XCURSOR_SIZE:-30}"
 # XCURSOR_THEME is inherited from Hyprland (theme.conf, from the palette).
 export XCURSOR_THEME="${XCURSOR_THEME:-catppuccin-mocha-peach-cursors}"
 # The rendered settings win over a stale launcher's inherited theme.

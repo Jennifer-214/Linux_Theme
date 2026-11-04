@@ -4,6 +4,7 @@
 
 #include "../../fox-common/shell.hpp"
 #include "../modules/cursor_recolor.hpp"
+#include "../modules/folder_recolor.hpp"
 
 #include <algorithm>
 #include <filesystem>
@@ -288,7 +289,14 @@ Classification check_greetd(const Context& /*ctx*/, const Manifest& manifest) {
     return unit_check(manifest, "greetd", "greetd.service", /*user=*/false);
 }
 
-Classification check_papirus_icons(const Context& /*ctx*/, const Manifest& manifest) {
+Classification check_papirus_icons(const Context& ctx, const Manifest& manifest) {
+    // The package alone doesn't say which colour the folders are.
+    std::string applied;
+    if (std::ifstream in{ctx.config_home / "foxml/catppuccin-folders-applied.marker"}) std::getline(in, applied);
+    const std::string color = palette::get(ctx.palette_path, "PAPIRUS_FOLDER_COLOR", "cat-mocha-peach");
+    const std::string token = palette::get(ctx.palette_path, "PAPIRUS_FOLDER_RECOLOR", "none");
+    if (!applied.empty() && applied != folder_recolor::mark(color, token))
+        return {Status::Update, "folder colour changed, re-run needed"};
     return package_check(manifest, "papirus_icons", "papirus-icon-theme");
 }
 

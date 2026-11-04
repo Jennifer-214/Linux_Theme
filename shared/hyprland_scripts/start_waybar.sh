@@ -75,19 +75,16 @@ compute_profile() {
         FONT_BASE="10"; FONT_LOGO="12";   FONT_STATS="9"
         PAD_WIN="3px 8px"; PAD_MOD="2px 10px"; MARGIN_MOD="1px 4px"
         HEIGHT="34"; TRAY_ICON="14"
-        CURSOR_SIZE="24"
     elif (( ew <= 2560 )); then
         PROFILE="1440p"
         FONT_BASE="11.5";  FONT_LOGO="14";   FONT_STATS="10.5"
         PAD_WIN="4px 9px"; PAD_MOD="3px 12px"; MARGIN_MOD="2px 5px"
         HEIGHT="42"; TRAY_ICON="15"
-        CURSOR_SIZE="28"
     else
         PROFILE="4K"
         FONT_BASE="13"; FONT_LOGO="16";  FONT_STATS="12"
         PAD_WIN="4px 10px"; PAD_MOD="4px 14px"; MARGIN_MOD="2px 6px"
         HEIGHT="56"; TRAY_ICON="16"
-        CURSOR_SIZE="32"
     fi
 }
 
@@ -181,12 +178,12 @@ compute_profile "$EW"
 [[ -f "$STYLE_TMPL"  ]] && substitute "$STYLE_TMPL"  "$STYLE_OUT"
 [[ -f "$CONFIG_TMPL" ]] && substitute "$CONFIG_TMPL" "$CONFIG_OUT"
 
-# Rofi offsets + cursor come from the PRIMARY profile — the launcher opens on
-# the primary and the pointer size is session-global.
+# Rofi offsets come from the PRIMARY profile — the launcher opens on the primary.
+# The pointer is one size everywhere, matching gtk-cursor-theme-size in settings.ini.
 ROFI_Y=$(( ALIGNED_MARGIN + HEIGHT - 1 ))
 MOD_X_MARGIN=$(echo "$MARGIN_MOD" | awk '{print $NF}' | tr -dc '0-9')
 ROFI_X=$(( GAPS + MOD_X_MARGIN ))
-CURSOR_SIZE_USE="$CURSOR_SIZE"
+CURSOR_SIZE_USE="30"
 PROFILE_PRIMARY="$PROFILE"
 EW_PRIMARY="$EW"
 

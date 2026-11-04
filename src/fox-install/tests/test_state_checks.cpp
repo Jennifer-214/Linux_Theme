@@ -61,6 +61,17 @@ int main() {
         EXPECT(state::check_catppuccin_cursor(c, empty).status == state::Status::Noop);
     }
 
+    // The folder marker decides, before any package lookup, when the colour moved.
+    {
+        Context c = ctx;
+        c.config_home = tmp_cfg / "folder_config";
+        c.palette_path = tmp_cfg / "folder_palette.sh";
+        fs::create_directories(c.config_home / "foxml");
+        std::ofstream(c.config_home / "foxml/catppuccin-folders-applied.marker") << "grey\n";
+        std::ofstream(c.palette_path) << "PAPIRUS_FOLDER_COLOR=blush\nPAPIRUS_FOLDER_RECOLOR=base:F5C2E7=edb0c4\n";
+        EXPECT(state::check_papirus_icons(c, empty).status == state::Status::Update);
+    }
+
     // T1: deps with no manifest entry → Fresh, no subprocess call.
     {
         auto cls = state::check_deps(ctx, empty);

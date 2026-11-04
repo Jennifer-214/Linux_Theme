@@ -144,17 +144,33 @@ case "$status" in
         ;;
 esac
 
-# Tint the heart alone; the readings and warning classes keep their own ink.
+# Firmware with a charge limit (ThinkPads et al.) rests there as "Not charging"
+# and never reports Full, so holding at the limit counts as finished.
+thr=$(cat "$bat/charge_control_end_threshold" 2>/dev/null)
+holding=0
+if [[ -n "$src" && "$status" == "Not charging" && "$thr" =~ ^[0-9]+$ ]] \
+    && (( thr < 100 && cap >= thr - 5 )); then
+    holding=1
+fi
+
+# Outline heart while charging, filled once it's done. Tint the heart alone; the
+# readings and warning classes keep their own ink.
 doodle=""
+heart=""
 if [[ "$status" == Charging ]]; then
     heart="♡"
+elif [[ "$status" == Full ]] || (( holding )); then
+    heart="♥"
+fi
+if [[ -n "$heart" ]]; then
     _pal="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/modules/border_colors.sh"
     # shellcheck source=/dev/null
     [[ -r "$_pal" ]] && source "$_pal"
     if [[ "${C_DETAIL_ACCENT:-}" =~ ^[[:xdigit:]]{6}$ ]]; then
-        heart="<span foreground='#${C_DETAIL_ACCENT}'>♡</span>"
+        heart="<span foreground='#${C_DETAIL_ACCENT}'>$heart</span>"
     fi
-    doodle="󰚥 $heart "
+    doodle="$heart "
+    [[ "$status" == Charging ]] && doodle="󰚥 $doodle"
 fi
 text="$doodle$icon $cap%$watts"
 
@@ -182,11 +198,7 @@ fi
 # al.) holds at charge_control_end_threshold on purpose — say so, so
 # "Not charging at 80%" reads as policy, not a broken charger.
 power_line="${src:-battery}"
-thr=$(cat "$bat/charge_control_end_threshold" 2>/dev/null)
-if [[ -n "$src" && "$status" == "Not charging" && "$thr" =~ ^[0-9]+$ ]] \
-    && (( thr < 100 && cap >= thr - 5 )); then
-    power_line="$src — holding at ${thr}% (charge threshold)"
-fi
+(( holding )) && power_line="$src — holding at ${thr}% (charge threshold)"
 
 tooltip="Battery: ${cap}% (${status}${watts:+,$watts}${eta:+, $eta})\\n   Power: ${power_line}\\n  Volume: ${vol}\\n  Brightness: ${bright}"
 

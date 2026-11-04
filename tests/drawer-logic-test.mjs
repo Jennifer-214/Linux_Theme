@@ -72,3 +72,15 @@ assert.match(logic.tooltipText({label:'Notes',presentation:'download',argument:'
 assert.match(logic.detailText({enabled:false,detail:'PDF',disabledReason:'xdg-open is not installed'}), /not installed/);
 assert.match(logic.footerHint({}, {enabled:false,disabledReason:'Radio state unavailable'}), /Radio state unavailable/);
 console.log('confirmation labels, full paths, exact dates and unavailable reasons: passed');
+
+for (const state of [{focus:'groups'},{focus:'items'},{editing:true},{searching:true},{confirming:true},{busy:true}]) {
+    const hint=logic.footerHint(state,{kind:'slider'});
+    const parts=plain(logic.hintParts(hint));
+    assert.equal(parts.map(part=>part.text).join(''),hint,'keycaps changed the shortcut instructions');
+}
+assert.deepEqual(plain(logic.hintParts('h / l choose')).filter(part=>part.key).map(part=>part.text),['h','l']);
+assert.deepEqual(plain(logic.hintParts('/ searches')).filter(part=>part.key).map(part=>part.text),['/']);
+assert.match(logic.emptyState('downloads',true,false).title,/matching/);
+assert.match(logic.emptyState('bookmarks',false,false).detail,/press b/);
+assert.match(logic.emptyState('root',false,true).title,/moment/);
+console.log('keycap instructions and context-sensitive empty states: passed');

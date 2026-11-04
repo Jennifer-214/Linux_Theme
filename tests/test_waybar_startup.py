@@ -78,7 +78,7 @@ print('[]' if sys.argv[1:2] == ['monitors'] else ('eval is only supported with t
 
     def test_rendered_cursor_theme_overrides_stale_launcher_environment(self):
         calls = self.cursor_calls("catppuccin-mocha-pink-cursors")
-        self.assertIn(["setcursor", "catppuccin-mocha-pink-cursors", "24"], calls)
+        self.assertIn(["setcursor", "catppuccin-mocha-pink-cursors", "30"], calls)
         update = next(row[1] for row in calls if row[0] == "eval" and "hl.env" in row[1])
         self.assertIn("hl.env('HYPRCURSOR_THEME', 'catppuccin-mocha-pink-cursors')", update)
         self.assertIn("hl.env('XCURSOR_THEME', 'catppuccin-mocha-pink-cursors')", update)
@@ -88,13 +88,13 @@ print('[]' if sys.argv[1:2] == ['monitors'] else ('eval is only supported with t
         update = next(row[1] for row in calls if row[0] == "--batch")
         self.assertIn("keyword env HYPRCURSOR_THEME,catppuccin-latte-pink-cursors", update)
         self.assertIn("keyword env XCURSOR_THEME,catppuccin-latte-pink-cursors", update)
-        self.assertIn("keyword env HYPRCURSOR_SIZE,24", update)
+        self.assertIn("keyword env HYPRCURSOR_SIZE,30", update)
 
     def test_cursor_theme_falls_back_to_environment_without_rendered_settings(self):
-        self.assertIn(["setcursor", "previous-theme", "24"], self.cursor_calls())
+        self.assertIn(["setcursor", "previous-theme", "30"], self.cursor_calls())
 
     def test_cursor_setting_is_data_and_invalid_value_uses_fallback(self):
-        self.assertIn(["setcursor", "previous-theme", "24"], self.cursor_calls("$(touch should-not-exist)"))
+        self.assertIn(["setcursor", "previous-theme", "30"], self.cursor_calls("$(touch should-not-exist)"))
         self.assertFalse((ROOT / "should-not-exist").exists())
 
     def test_session_exports_cursor_to_both_activation_environments(self):
