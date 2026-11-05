@@ -37,6 +37,9 @@ Classification deps_classification(int rc, const std::string& out, std::size_t t
 // The query itself: pacman -T and every deps_packages() name.
 std::vector<std::string> deps_probe_argv();
 
+// True when the folders on disk were coloured for a different palette.
+bool folders_stale(const Context& ctx);
+
 // render — templated config deploy. Compares the deployed copy of a
 // sentinel rendered file (~/.config/hypr/hyprland.conf) against the
 // stored source_hash from the manifest. No manifest entry → Fresh.

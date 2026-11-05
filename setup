@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # setup — painless full install. Equivalent to running:
-#   ./install.sh FoxML_Classic --deps --ai --models --github --yes
+#   ./install.sh --preset workstation --yes
 #
 # Use this after cloning the repo when you want the full Fox ML
-# workstation: theme + system deps + Ollama AI stack + GitHub workspace
-# clone, all non-interactive.
+# workstation: every default module plus system deps, the AI stack and
+# the GitHub workspace clone, all non-interactive. Uses your saved theme,
+# or the default on a first install; pass a theme name to choose one.
 #
 # For just the theme (no AI, no GitHub clone), use ./setup-minimal.
 # For the interactive walkthrough with prompts, use ./install.sh directly.
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec "$SCRIPT_DIR/install.sh" FoxML_Classic --deps --ai --models --github --yes "$@"
+exec "$SCRIPT_DIR/install.sh" --preset workstation --yes "$@"

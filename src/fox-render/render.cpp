@@ -127,7 +127,7 @@ void draw_progress(size_t done, size_t total) {
 
 }  // namespace
 
-size_t render_tree(
+RenderResult render_tree(
     const std::string& template_dir,
     const std::string& output_dir,
     const std::unordered_map<std::string, std::string>& table,
@@ -148,10 +148,11 @@ size_t render_tree(
         if (it->is_symlink()) continue;            // never follow symlinks
         if (it->is_regular_file()) files.push_back(it->path());
     }
-    if (files.empty()) return 0;
+    if (files.empty()) return {};
 
     const size_t total = files.size();
     std::atomic<size_t> done{0};
+    std::atomic<size_t> failed{0};
     std::mutex progress_mtx;
 
     auto worker = [&](size_t start, size_t step) {
@@ -171,7 +172,11 @@ size_t render_tree(
                 // explicitly if they want broader access.
                 perms = fs::perms::owner_read | fs::perms::owner_write;
             }
-            atomic_write(dst, out, perms);
+            if (!atomic_write(dst, out, perms)) {
+                failed.fetch_add(1, std::memory_order_relaxed);
+                std::lock_guard<std::mutex> g(progress_mtx);
+                std::fprintf(stderr, "fox-render-fast: could not write %s\n", dst.c_str());
+            }
 
             size_t now = done.fetch_add(1, std::memory_order_relaxed) + 1;
             if (show_progress) {
@@ -193,7 +198,8 @@ size_t render_tree(
     for (auto& f : futs) f.get();
     if (show_progress) std::fputc('\n', stderr);
 
-    return total;
+    const size_t missed = failed.load();
+    return {total - missed, missed};
 }
 
 }  // namespace fox_render

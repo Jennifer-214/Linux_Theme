@@ -93,7 +93,7 @@ if [[ "$changed" == "true" ]]; then
     fox_install="$SCRIPT_DIR/src/fox-install/fox-install"
     if [[ -x "$fox_install" ]]; then
         "$fox_install" "$ACTIVE_THEME" \
-            --only render,symlinks,specials --yes --quiet
+            --render-only --no-summary --yes --quiet
     else
         # Fall back to install.sh if the native binary isn't built yet.
         "$SCRIPT_DIR/install.sh" "$ACTIVE_THEME" --render --yes

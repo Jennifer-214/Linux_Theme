@@ -35,7 +35,7 @@ set index-active-bg             "rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},
 set index-active-fg             "#{{FG}}"
 
 set recolor-lightcolor          "#{{BG}}"
-set recolor-{{THEME_TYPE}}color           "#{{FG}}"
+set recolor-darkcolor           "#{{FG}}"
 set recolor                     "{{SHOW_WELCOME}}"
 set recolor-keephue             "false"
 

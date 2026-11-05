@@ -74,13 +74,14 @@ _do_swap() {
     # css/toml/hyprland.conf/wallpaper only. It must never rewrite
     # /etc/greetd/config.toml or touch service state from a recolour -- a
     # theme swap cannot be allowed to cost a login. Needs sudo; without it
-    # greetd warns and skips and the rest of the swap still succeeds.
+    # greetd reports it and the rest of the swap still goes through (exit 3).
+    # --render-only is the shared theme list; --only adds what a swap needs on top.
     FOXML_SKIP_PLUGIN_SYNC=1 FOXML_THEME_ONLY=1 \
     "$fox_install" "$theme" "${force_args[@]}" \
-        --only theme,render,symlinks,specials,drawer,personalize,greetd,post_install \
+        --only papirus_icons,greetd --render-only --no-summary \
         --yes --quiet || rc=$?
 
-    if (( rc != 0 )); then
+    if (( rc != 0 && rc != 3 )); then
         # exit 2 = render aborted to protect live ~/.config edits. fox-install
         # suggests "--full", but it can't know it was invoked through swap.sh,
         # which takes only a theme name -- so print a hint that actually works here.
@@ -113,6 +114,11 @@ _do_swap() {
             && echo ":: tmux reloaded" || true
     fi
 
+    # exit 3 = finished, but something was skipped (usually a cold sudo cache for the login screen).
+    if (( rc == 3 )); then
+        echo ":: Swapped, but incomplete: see the modules listed above, then run it again."
+        exit 3
+    fi
     echo ":: Done."
 }
 

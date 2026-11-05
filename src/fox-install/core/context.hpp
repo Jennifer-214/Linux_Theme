@@ -27,6 +27,7 @@ struct Context {
 
     // Theme selection.
     std::string theme_name;
+    std::string theme_source;               // why this theme: shown by the theme module
     std::filesystem::path palette_path;     // <themes_dir>/<theme>/palette.sh
 
     // Global flags.
@@ -37,6 +38,7 @@ struct Context {
 
     // Wallpaper.
     bool rotate_wallpapers = false;       // --rotate-wallpapers (default off)
+    bool rotate_decided = false;          // a flag or the wallpaper module chose; else specials keeps the live mode
 
     // Opt-in fine-grained hardening. Bash kept these as separate
     // INSTALL_* flags so --full could enable the security suite
@@ -58,6 +60,8 @@ struct Context {
     // reported as success — the silent-partial-deploy trap).
     bool render_ran = false;
     bool render_ok  = false;
+    // Set when a theme file could not be deployed: the desktop is not fully on this theme, so don't record it as active.
+    bool deploy_failed = false;
 
     // Hardware detection (filled by the detect module).
     bool has_nvidia   = false;

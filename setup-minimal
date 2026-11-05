@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # setup-minimal — painless theme-only install. Equivalent to:
-#   ./install.sh FoxML_Classic --deps --yes
+#   ./install.sh --only deps,zsh_plugins,papirus_icons,monitors,keybind_docs --render-only --yes
 #
-# Theme + Hyprland + system packages. No Ollama models, no GitHub
-# workspace clone, no AI stack. Use this when you want the look but
-# not the full workstation tooling.
+# System packages plus the theme on every surface. Leaves firewall,
+# security, boot and login-screen settings alone, and adds no AI stack or
+# GitHub clone. Uses your saved theme, or the default on a first install;
+# pass a theme name to choose one.
 
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec "$SCRIPT_DIR/install.sh" FoxML_Classic --deps --yes "$@"
+exec "$SCRIPT_DIR/install.sh" --only deps,zsh_plugins,papirus_icons,monitors,keybind_docs --render-only --yes "$@"

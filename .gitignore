@@ -44,6 +44,9 @@ src/fox-intel/libfox-intel.a
 src/*/*.o
 src/*/core/*.o
 src/*/modules/*.o
+src/*/*.d
+src/*/core/*.d
+src/*/modules/*.d
 src/*/tests/test_*
 !src/*/tests/test_*.cpp
 !src/*/tests/test_*.hpp

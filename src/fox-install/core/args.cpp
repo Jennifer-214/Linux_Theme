@@ -124,22 +124,22 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
         }
     };
 
+    // Everything a palette reaches, so --render, --render-only and the theme tools can't drift apart. Folder colours
+    // stay out because they can need sudo: the theme swapper adds papirus_icons, and post_install reports them otherwise.
+    auto apply_theme_modules = [&]() {
+        for (const char* slug : {"render", "symlinks", "specials", "drawer", "personalize",
+                                 "catppuccin_cursor", "welcome_banner", "post_install"}) {
+            std::size_t s_idx = find_by_slug(slug);
+            if (s_idx != SIZE_MAX && !explicitly_disabled[s_idx]) out.module_enabled[s_idx] = true;
+        }
+    };
+
     // Shared by the --<flag> and bare-slug spellings so both behave
     // identically (positional `render` used to miss --render's implied
     // modules and deploy nothing visible).
     auto enable_module = [&](std::size_t idx) {
         out.module_enabled[idx] = true;
-        // UX: render almost always wants symlinks to deploy the fresh
-        // bits AND post_install to re-render waybar style.css from the
-        // .tmpl and restart waybar/dunst/mako so the changes are
-        // visible. Without post_install, the new .tmpl sits on disk and
-        // the running bars keep their stale CSS until next login.
-        if (std::string(MODULES[idx].slug) == "render") {
-            for (const char* implied : {"symlinks", "drawer", "post_install"}) {
-                std::size_t s_idx = find_by_slug(implied);
-                if (s_idx != SIZE_MAX && !explicitly_disabled[s_idx]) out.module_enabled[s_idx] = true;
-            }
-        }
+        if (std::string(MODULES[idx].slug) == "render") apply_theme_modules();
     };
 
     for (int i = 1; i < argc; ++i) {
@@ -203,10 +203,12 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
 
         if (a == "--rotate-wallpapers") {
             ctx.rotate_wallpapers = true;
+            ctx.rotate_decided = true;
             continue;
         }
         if (a == "--no-rotate-wallpapers") {
             ctx.rotate_wallpapers = false;
+            ctx.rotate_decided = true;
             continue;
         }
 
@@ -242,17 +244,9 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
 
         if (a == "--render-only") {
             switch_to_exclusive();
-            static const char* KEEP[] = {
-                "detect", "preflight", "theme",
-                "render", "symlinks", "specials", "drawer",
-                "personalize", "post_install", "summary", nullptr,
-            };
-            for (auto** s = KEEP; *s; ++s) {
-                std::size_t idx = find_by_slug(*s);
-                if (idx != SIZE_MAX && !explicitly_disabled[idx]) {
-                    out.module_enabled[idx] = true;
-                }
-            }
+            apply_theme_modules();
+            std::size_t idx = find_by_slug("summary");
+            if (idx != SIZE_MAX && !explicitly_disabled[idx]) out.module_enabled[idx] = true;
             continue;
         }
 

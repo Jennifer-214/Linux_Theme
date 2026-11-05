@@ -215,9 +215,14 @@ void run_symlinks(Context& ctx) {
         tally(deploy_mapping(ctx, ctx.shared_dir, symlinks::SHARED_MAPPINGS[i]));
     }
 
-    ui::ok("deployed " + std::to_string(deployed) +
-           ", skipped "  + std::to_string(skipped) +
-           ", failed "   + std::to_string(failed));
+    const std::string counts = "deployed " + std::to_string(deployed) + ", skipped " + std::to_string(skipped) +
+                               ", failed " + std::to_string(failed);
+    if (failed > 0) {
+        ctx.deploy_failed = true;
+        ui::err(counts);
+    } else {
+        ui::ok(counts);
+    }
     if (deployed > 0 && !sh::dry_run()) {
         ui::ok("backups at " + ctx.backup_dir.string());
     }

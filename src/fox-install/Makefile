@@ -54,35 +54,13 @@ $(FOX_HEALTH_LIB):
 $(FOX_MONITOR_LIB):
 	$(MAKE) --no-print-directory -C $(FOX_MONITOR_DIR)
 
-# Generic rule covers everything; registry.cpp picks up modules.def
-# automatically via #include in registry.cpp.
-%.o: %.cpp
-	$(CXX) $(CXXFLAGS) -c $< -o $@
+# -MMD records every project header each object includes, so a header edit rebuilds exactly its includers.
+# Makefile is a prerequisite so a flag change rebuilds objects from before the .d files existed.
+DEPFLAGS := -MMD -MP
+%.o: %.cpp Makefile
+	$(CXX) $(CXXFLAGS) $(DEPFLAGS) -c $< -o $@
 
-# Header dependency: anything that includes core/module.hpp pulls in
-# core/modules.def transitively. Re-tag registry.cpp explicitly so a
-# modules.def edit triggers a rebuild.
-core/registry.o: core/registry.cpp core/module.hpp core/modules.def
-
-# Header-only helpers: re-tag their includers so an edit to one rebuilds them (no -MMD here).
-fox-install.o:          core/hw_autoenable.hpp
-core/state_checks.o:    core/deps_list.hpp
-modules/deps.o:         core/deps_list.hpp
-modules/symlinks.o:     modules/symlinks_data.hpp
-modules/specials.o:     core/built_tools.hpp modules/nvidia_modules.hpp modules/firefox_appearance.hpp
-modules/hidepid.o:      modules/hidepid_check.hpp
-modules/foxml_health_boot.o: modules/foxml_health_boot_script.hpp
-modules/post_install.o: modules/gtk_appearance.hpp modules/firefox_appearance.hpp modules/notification_refresh.hpp
-
-# Sidecar lives in ../fox-monitor now. Re-tag the modules that include it
-# (directly or via personalize.hpp) so a sidecar-header edit triggers a
-# rebuild — the generic %.o rule alone won't see the cross-dir header.
-SIDECAR_HDR  := $(FOX_MONITOR_DIR)/sidecar.hpp
-VARIANTS_HDR := $(FOX_MONITOR_DIR)/variants.hpp
-APPLY_HDR    := $(FOX_MONITOR_DIR)/apply.hpp
-modules/personalize.o: modules/personalize.cpp modules/personalize.hpp $(SIDECAR_HDR) $(VARIANTS_HDR) $(APPLY_HDR)
-modules/monitors.o:    modules/monitors.cpp    $(SIDECAR_HDR)
-modules/summary.o:     modules/summary.cpp     $(SIDECAR_HDR)
+-include $(CORE_OBJ:.o=.d) $(MODULE_OBJ:.o=.d) $(MAIN_OBJ:.o=.d)
 
 install: all
 	@mkdir -p $(PREFIX)
@@ -125,6 +103,8 @@ test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_c
 	@./tests/test_icon_deploy
 	@./tests/test_firefox_appearance
 	@./tests/test_notification_refresh
+	@./tests/test_theme_choice
+	@./tests/test_ide_settings
 	@bash ./tests/lint_shell_assets.sh
 	@bash ./tests/lint_unit_escaping.sh
 
@@ -137,6 +117,13 @@ tests/test_registry: tests/test_registry.cpp core/registry.o
 
 test: tests/test_firefox_appearance
 test: tests/test_notification_refresh
+test: tests/test_theme_choice tests/test_ide_settings
+
+tests/test_theme_choice: tests/test_theme_choice.cpp core/theme_choice.hpp
+	$(CXX) $(CXXFLAGS) $< -o $@
+
+tests/test_ide_settings: tests/test_ide_settings.cpp modules/ide_settings.hpp core/backup.o $(FOX_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) $(filter %.cpp %.o %.a,$^) -o $@
 
 tests/test_notification_refresh: tests/test_notification_refresh.cpp modules/notification_refresh.hpp
 	$(CXX) $(CXXFLAGS) $< -o $@
@@ -273,8 +260,7 @@ tests/test_banner_font: tests/test_banner_font.cpp modules/banner_font.o
 	$(CXX) $(CXXFLAGS) tests/test_banner_font.cpp modules/banner_font.o -o $@
 
 clean:
-	@rm -f tests/test_gtk_appearance
-	@rm -f tests/test_firefox_appearance
-	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) tests/test_registry tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_iommu tests/test_gaming tests/test_hyprlock_pin tests/test_nvidia_modules tests/test_claude_wiring tests/test_hw_autoenable tests/test_built_tools tests/test_hidepid tests/test_health_boot tests/test_dry_run tests/test_git_clone
+	@rm -f $(BIN) $(CORE_OBJ) $(MODULE_OBJ) $(MAIN_OBJ) $(patsubst %.cpp,%,$(wildcard tests/test_*.cpp))
+	@rm -f $(CORE_OBJ:.o=.d) $(MODULE_OBJ:.o=.d) $(MAIN_OBJ:.o=.d)
 
 .PHONY: all install clean test

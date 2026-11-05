@@ -16,10 +16,12 @@
 #include "../core/context.hpp"
 #include "../core/backup.hpp"
 #include "../core/built_tools.hpp"
+#include "../core/palette.hpp"
 #include "claude_wiring.hpp"
 #include "nvidia_modules.hpp"
 #include "hypr_lua.hpp"
 #include "firefox_appearance.hpp"
+#include "wallpaper_mode.hpp"
 #include "../core/idempotency.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
@@ -239,6 +241,7 @@ void do_cursor_vscode(const Context& ctx) {
         fs::path target = ext_dir / "foxml-theme";
         fs::create_directories(target / "themes");
         deploy_file(ctx, src, target / "themes/foxml-color-theme.json");
+        const std::string ui_theme = palette::get(ctx.palette_path, "VSCODE_UI_THEME", "vs-dark");
         std::ofstream pkg(target / "package.json");
         pkg << "{\n"
                "  \"name\": \"foxml-theme\",\n"
@@ -248,7 +251,7 @@ void do_cursor_vscode(const Context& ctx) {
                "  \"engines\": { \"vscode\": \"^1.60.0\" },\n"
                "  \"categories\": [\"Themes\"],\n"
                "  \"contributes\": {\n"
-               "    \"themes\": [{ \"label\": \"Fox ML\", \"uiTheme\": \"vs-dark\", "
+               "    \"themes\": [{ \"label\": \"Fox ML\", \"uiTheme\": \"" << ui_theme << "\", "
                "\"path\": \"./themes/foxml-color-theme.json\" }]\n"
                "  }\n"
                "}\n";
@@ -681,6 +684,9 @@ void run_specials(Context& ctx) {
                     "KEYBINDS.md to ~/.local/share/foxml/, systemd user units");
         return;
     }
+
+    // Read before do_hyprland_modules resets autostart.conf; a theme refresh must not turn rotation off.
+    keep_live_wallpaper_mode(ctx);
 
     do_firefox(ctx);
     do_cursor_vscode(ctx);

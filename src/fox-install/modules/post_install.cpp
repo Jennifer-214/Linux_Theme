@@ -14,6 +14,8 @@
 #include "gtk_appearance.hpp"
 #include "firefox_appearance.hpp"
 #include "notification_refresh.hpp"
+#include "ide_settings.hpp"
+#include "../core/state_checks.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
@@ -45,26 +47,25 @@ void restart_detached(const std::string& killname, const std::string& spawn_cmd)
 }
 
 void cursor_vscode_set_theme(const Context& ctx) {
-    if (!have("jq") && false) return;        // pure-native — no jq dependency
     for (const char* ide : { "Cursor", "Code" }) {
-        fs::path root = ctx.config_home / ide;
-        fs::path user = root / "User";
+        const fs::path root = ctx.config_home / ide;
         if (!fs::is_directory(root)) continue;
-        fs::create_directories(user);
-        fs::path settings = user / "settings.json";
-
-        json existing = json::object();
-        if (fs::exists(settings)) {
-            try {
-                std::ifstream f(settings);
-                f >> existing;
-                if (!existing.is_object()) existing = json::object();
-            } catch (...) { existing = json::object(); }
+        const std::string name(ide);
+        switch (ide_settings::set_color_theme(ctx, root / "User/settings.json", "Fox ML")) {
+            case ide_settings::Result::Updated:
+                ui::ok(name + ": workbench.colorTheme = Fox ML");
+                break;
+            case ide_settings::Result::Unchanged:
+                ui::skipped(name + " already uses Fox ML");
+                break;
+            case ide_settings::Result::LeftAlone:
+                ui::warn(name + " settings.json has comments or isn't plain JSON, so it was left alone. "
+                         "Set \"workbench.colorTheme\": \"Fox ML\" there to use the theme");
+                break;
+            case ide_settings::Result::Failed:
+                ui::warn(name + " settings.json could not be backed up and updated; it was left as it was");
+                break;
         }
-        existing["workbench.colorTheme"] = "Fox ML";
-        std::ofstream o(settings);
-        o << existing.dump(2);
-        ui::ok(std::string(ide) + ": workbench.colorTheme = Fox ML");
     }
 }
 
@@ -73,8 +74,11 @@ void cursor_vscode_set_theme(const Context& ctx) {
 void write_active_theme_and_marker(const Context& ctx) {
     // Record the active theme name at <script_dir>/.active-theme so
     // future runs of fox-install (and the legacy bash tools that still
-    // read it — swap.sh, update.sh) pick the right palette.
-    {
+    // read it — swap.sh, update.sh) pick the right palette. A partly
+    // applied theme keeps the old name, so a retry still knows what's live.
+    if ((ctx.render_ran && !ctx.render_ok) || ctx.deploy_failed) {
+        ui::warn("theme " + ctx.theme_name + " was only partly applied — saved theme left as it was");
+    } else {
         std::ofstream f(ctx.script_dir / ".active-theme");
         f << ctx.theme_name << "\n";
     }
@@ -114,6 +118,9 @@ void run_post_install(Context& ctx) {
     sync_gtk_font(ctx);
     sync_gtk_icon_theme(ctx);
     refresh_gtk_icon_cache(ctx);
+    // Folder colours can need sudo, so a plain --render reports them instead of prompting.
+    if (state::folders_stale(ctx))
+        ui::warn("folder colours are still from the previous theme — update them with --only papirus_icons");
     if (!firefox_appearance::sync_styles(ctx))
         ui::warn("Firefox styles were not fully refreshed");
 

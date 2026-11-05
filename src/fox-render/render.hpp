@@ -18,8 +18,13 @@ std::string apply_substitutions(
 
 // Renders every file under `template_dir` into `output_dir`, preserving
 // the relative path. Writes are atomic (tmp + rename). Uses a thread pool
-// sized to hardware_concurrency(). Returns the number of files rendered.
-size_t render_tree(
+// sized to hardware_concurrency(). `failed` counts files that couldn't be written.
+struct RenderResult {
+    size_t rendered = 0;
+    size_t failed = 0;
+};
+
+RenderResult render_tree(
     const std::string& template_dir,
     const std::string& output_dir,
     const std::unordered_map<std::string, std::string>& table,

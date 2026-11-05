@@ -7,14 +7,14 @@
     "editorLineNumber.foreground": "#{{SURFACE}}",
     "editorLineNumber.activeForeground": "#{{PRIMARY}}",
     "editorCursor.foreground": "#{{PRIMARY}}",
-    "editor.selectionBackground": "rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.25)",
-    "editor.inactiveSelectionBackground": "rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.15)",
+    "editor.selectionBackground": "#{{PRIMARY}}40",
+    "editor.inactiveSelectionBackground": "#{{PRIMARY}}26",
     "editor.lineHighlightBackground": "#{{BG_ALT}}",
     "editor.lineHighlightBorder": "#00000000",
     "editorIndentGuide.background1": "#{{SURFACE}}",
     "editorIndentGuide.activeBackground1": "#{{PRIMARY}}",
     "editorWhitespace.foreground": "#{{SURFACE}}",
-    "editorBracketMatch.background": "rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.2)",
+    "editorBracketMatch.background": "#{{PRIMARY}}33",
     "editorBracketMatch.border": "#{{PRIMARY}}",
 
     "activityBar.background": "#{{BG}}",
@@ -32,18 +32,18 @@
     "sideBarSectionHeader.foreground": "#{{FG}}",
     "sideBarSectionHeader.border": "#{{SURFACE}}",
 
-    "list.activeSelectionBackground": "rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.25)",
+    "list.activeSelectionBackground": "#{{PRIMARY}}40",
     "list.activeSelectionForeground": "#{{FG}}",
-    "list.inactiveSelectionBackground": "rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.15)",
-    "list.hoverBackground": "rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.1)",
+    "list.inactiveSelectionBackground": "#{{PRIMARY}}26",
+    "list.hoverBackground": "#{{PRIMARY}}1A",
     "list.highlightForeground": "#{{PRIMARY}}",
 
     "statusBar.background": "#{{BG}}",
     "statusBar.foreground": "#{{FG}}",
     "statusBar.border": "#{{PRIMARY}}",
     "statusBar.noFolderBackground": "#{{BG}}",
-    "statusBarItem.activeBackground": "rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.25)",
-    "statusBarItem.hoverBackground": "rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.15)",
+    "statusBarItem.activeBackground": "#{{PRIMARY}}40",
+    "statusBarItem.hoverBackground": "#{{PRIMARY}}26",
     "statusBarItem.prominentBackground": "#{{PRIMARY}}",
     "statusBarItem.prominentForeground": "#{{BG}}",
 
@@ -60,7 +60,7 @@
     "tab.inactiveBackground": "#{{BG}}",
     "tab.inactiveForeground": "#{{FG_DIM}}",
     "tab.border": "#{{SURFACE}}",
-    "tab.hoverBackground": "rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.1)",
+    "tab.hoverBackground": "#{{PRIMARY}}1A",
 
     "editorGroupHeader.tabsBackground": "#{{BG}}",
     "editorGroupHeader.tabsBorder": "#{{SURFACE}}",
@@ -96,7 +96,7 @@
     "input.foreground": "#{{FG}}",
     "input.border": "#{{PRIMARY}}",
     "input.placeholderForeground": "#{{FG_DIM}}",
-    "inputOption.activeBackground": "rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.25)",
+    "inputOption.activeBackground": "#{{PRIMARY}}40",
     "inputOption.activeBorder": "#{{PRIMARY}}",
 
     "dropdown.background": "#{{BG_ALT}}",
@@ -110,15 +110,15 @@
     "button.secondaryForeground": "#{{FG}}",
 
     "scrollbar.shadow": "#00000000",
-    "scrollbarSlider.background": "rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.3)",
-    "scrollbarSlider.hoverBackground": "rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.5)",
-    "scrollbarSlider.activeBackground": "rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},{{KITTY_BG_OPACITY}})",
+    "scrollbarSlider.background": "#{{PRIMARY}}4D",
+    "scrollbarSlider.hoverBackground": "#{{PRIMARY}}80",
+    "scrollbarSlider.activeBackground": "#{{PRIMARY}}B3",
 
     "editorWidget.background": "#{{BG}}",
     "editorWidget.border": "#{{PRIMARY}}",
     "editorSuggestWidget.background": "#{{BG}}",
     "editorSuggestWidget.border": "#{{PRIMARY}}",
-    "editorSuggestWidget.selectedBackground": "rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.25)",
+    "editorSuggestWidget.selectedBackground": "#{{PRIMARY}}40",
     "editorSuggestWidget.highlightForeground": "#{{PRIMARY}}",
 
     "peekView.border": "#{{PRIMARY}}",
@@ -139,11 +139,11 @@
     "editorInfo.foreground": "#{{BLUE}}",
 
     "minimap.background": "#{{BG}}",
-    "minimap.selectionHighlight": "rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.3)",
+    "minimap.selectionHighlight": "#{{PRIMARY}}4D",
 
     "focusBorder": "#{{PRIMARY}}",
     "foreground": "#{{FG}}",
-    "selection.background": "rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.3)",
+    "selection.background": "#{{PRIMARY}}4D",
     "widget.shadow": "#00000050"
   },
   "tokenColors": [

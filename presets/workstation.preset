@@ -1,0 +1,5 @@
+# workstation.preset — what ./setup installs: every default module, plus these.
+deps = on
+ai = on
+models = on
+github = on

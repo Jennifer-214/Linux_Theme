@@ -30,10 +30,12 @@ Caches sudo, installs git+curl, clones to `~/code/Linux_Theme`, runs the full se
 
 **Already cloned:**
 ```bash
-./setup            # full kitchen sink — theme + deps + AI + GitHub clone
-./setup-minimal    # theme + system deps only (no AI, no GitHub clone)
+./setup            # full kitchen sink — every default module + deps + AI + GitHub clone
+./setup-minimal    # theme + system deps only (no security, login screen, AI or GitHub clone)
 ./install.sh       # interactive, prompts at each step
 ```
+
+These use your saved theme, or FoxML_Classic on a first install. Add a theme name to pick one: `./setup-minimal FoxML_Paper`.
 
 **Fine-grained:**
 ```bash
@@ -59,8 +61,10 @@ Caches sudo, installs git+curl, clones to `~/code/Linux_Theme`, runs the full se
 | --privacy | DNS-over-HTTPS |
 | `--vault` | GPG-encrypted `pass` manager + Git signing |
 | `--nvidia` | nvidia-open-dkms + Hyprland on dGPU (Optimus laptops) |
-| `--render` | Re-render templates + redeploy + restart waybar/mako/dunst |
+| `--render` | Apply the theme everywhere: render, deploy, scripts, drawer, cursor and banner, then restart waybar/mako/dunst. Folder colours can need sudo, so it warns and leaves them to `--only papirus_icons` |
 | `--dry-run` | Print every step without executing |
+
+The installer exits `0` when everything finished, `1` when a module failed, `2` when a render stopped to protect live edits, and `3` when it finished but a module reported an error.
 
 `--nvidia` requires `systemd-boot`; other bootloaders print manual instructions. Reboot afterwards.
 
@@ -573,10 +577,10 @@ prompts keep their existing behavior; narrow terminals or missing NUI use the
 normal prompt. Markdown footnote markers get pencil-on-blush accents while source,
 code spans, and fenced examples stay intact. These details use palette tokens
 and existing widgets, without another service or package.
-Palette-only `--render` also copies Firefox's rendered stylesheets into its
-existing profile, backing up replaced files without changing preferences or
-restarting the browser. Firefox loads them on its next restart; Neovim loads
-its updated configuration on its next launch.
+Palette-only `--render` also refreshes Firefox's rendered stylesheets and find
+colours in its existing profile, backing up replaced files without restarting
+the browser. Firefox loads them on its next restart; Neovim loads its updated
+configuration on its next launch.
 PDF files use the same folded note with a pencil `PDF` label. File-manager links
 carry a small blush paperclip emblem. Paper's `ls`/`ll`/`lt` use the rendered eza
 theme: pencil filenames and glyphs, readable gray metadata, faint tree branches,
@@ -638,7 +642,7 @@ OSDs retain their compact pencil rulers. The notification launcher explicitly
 selects the rendered XDG config so an older `~/.mako/config` cannot shadow it.
 Shell and tmux fzf matches share `FZF_MATCH_*`/`FZF_META_FG` palette tokens; Firefox
 find colors use `FF_FIND_BG/FG`, merged into its preferences by the specials module
-(`--render-only` or full install). Firefox reads these preferences on its next launch.
+(`--render`, `--render-only` or full install). Firefox reads these preferences on its next launch.
 Paper's sleeping-pencil-cat wallpaper is supplied as a 4K image with its
 original 1080p source. The cursor installer also repairs desktop preferences and
 fallback-theme inheritance when the cursor assets are already installed.

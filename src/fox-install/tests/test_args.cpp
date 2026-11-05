@@ -123,6 +123,44 @@ int main() {
         EXPECT(!on(r, "security"));
     }
 
+    // Every palette surface is refreshed by both spellings, with nothing that needs sudo.
+    for (const auto& flags : {std::vector<std::string>{"--render"}, std::vector<std::string>{"--render-only"}}) {
+        auto r = do_parse(flags);
+        for (const char* slug : {"render", "symlinks", "specials", "drawer", "personalize",
+                                 "catppuccin_cursor", "welcome_banner", "post_install"}) {
+            EXPECT(on(r, slug));
+        }
+        EXPECT(!on(r, "papirus_icons"));
+        EXPECT(!on(r, "greetd"));
+        EXPECT(!on(r, "security"));
+    }
+
+    // The theme swapper's selection: the shared list plus folders and the login screen's look.
+    {
+        auto r = do_parse({"FoxML_Paper", "--only", "papirus_icons,greetd", "--render-only", "--no-summary", "--yes"});
+        EXPECT(r.ok);
+        EXPECT(on(r, "render"));
+        EXPECT(on(r, "catppuccin_cursor"));
+        EXPECT(on(r, "papirus_icons"));
+        EXPECT(on(r, "greetd"));
+        EXPECT(on(r, "theme"));
+        EXPECT(!on(r, "summary"));
+        EXPECT(!on(r, "security"));
+        EXPECT(!on(r, "sudo_fingerprint"));
+    }
+
+    // setup-minimal: packages and theme, and nothing from the security or login side.
+    {
+        auto r = do_parse({"--only", "deps,zsh_plugins,papirus_icons,monitors,keybind_docs", "--render-only", "--yes"});
+        EXPECT(r.ok);
+        for (const char* slug : {"deps", "render", "symlinks", "specials", "drawer", "post_install", "papirus_icons"}) {
+            EXPECT(on(r, slug));
+        }
+        for (const char* slug : {"ufw", "security", "greetd", "boot_sync", "recovery_entry", "ai", "github"}) {
+            EXPECT(!on(r, slug));
+        }
+    }
+
     for (const auto& flags : {std::vector<std::string>{"--no-drawer", "--render"},
                               std::vector<std::string>{"--render", "--no-drawer"},
                               std::vector<std::string>{"--no-drawer", "--render-only"}}) {

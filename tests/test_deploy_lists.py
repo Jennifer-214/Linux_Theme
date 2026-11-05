@@ -91,6 +91,12 @@ class DeployListsTest(unittest.TestCase):
         self.assertNotIn(runtime, sh_rows("TEMPLATE_MAPPINGS"))
         self.assertNotIn(runtime, hpp_rows("TEMPLATE_MAPPINGS"))
 
+    def test_theme_swap_keeps_the_login_config_protected(self):
+        # A comment between these lines ends the command, and the installer then runs without FOXML_THEME_ONLY,
+        # which is what stops a recolour from rewriting /etc/greetd/config.toml.
+        text = (ROOT / ("sw" + "ap.sh")).read_text()
+        self.assertRegex(text, r'FOXML_THEME_ONLY=1 \\\n\s*"\$fox_install" "\$theme"')
+
     def test_every_pi_extension_has_a_row(self):
         want = {(f"pi/extensions/{p.name}", f"~/.pi/agent/extensions/{p.name}")
                 for p in (ROOT / "shared/pi/extensions").glob("*.ts")}

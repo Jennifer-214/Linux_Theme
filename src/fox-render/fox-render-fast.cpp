@@ -202,7 +202,12 @@ int main(int argc, char** argv) {
 
     bool show_progress = isatty(fileno(stderr));
     auto t0 = std::chrono::steady_clock::now();
-    size_t n = fox_render::render_tree(template_dir, output_dir, table, show_progress);
+    const auto result = fox_render::render_tree(template_dir, output_dir, table, show_progress);
+    if (result.failed > 0) {
+        std::fprintf(stderr, "fox-render-fast: %zu of %zu files could not be written; refusing an incomplete render\n",
+                     result.failed, result.failed + result.rendered);
+        return 1;
+    }
     if (!fox_render::finish_icon_family(template_dir,output_dir,table)) {
         std::fprintf(stderr,"fox-render-fast: icon-family generation failed; refusing an incomplete render\n");
         return 1;
@@ -211,6 +216,6 @@ int main(int argc, char** argv) {
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
 
     std::fprintf(stderr, "Rendered %zu templates to: %s (%lld ms)\n",
-                 n, output_dir.c_str(), static_cast<long long>(ms));
+                 result.rendered, output_dir.c_str(), static_cast<long long>(ms));
     return 0;
 }

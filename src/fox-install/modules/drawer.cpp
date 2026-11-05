@@ -18,27 +18,32 @@ void run_drawer(Context& ctx) {
                     "back up and deploy Quickshell, preserve menus.json, and start the shared desktop service");
         return;
     }
+    // Every failure below leaves the desktop partly on the old theme.
+    auto incomplete = [&](const std::string& why) {
+        ctx.deploy_failed = true;
+        ui::err(why);
+    };
     if (ctx.render_ran && !ctx.render_ok) {
-        ui::warn("render failed; refusing to install a partial drawer theme");
+        incomplete("render failed; refusing to install a partial drawer theme");
         return;
     }
     const auto backend = ctx.script_dir / "src/fox-drawer";
     const auto renderer = ctx.script_dir / "src/fox-render";
     if (sh::run({"make", "-C", backend.string()}) != 0 ||
         sh::run({"make", "-C", renderer.string()}) != 0) {
-        ui::warn("drawer build failed; existing menus remain available");
+        incomplete("drawer build failed; existing menus remain available");
         return;
     }
     const auto output = ctx.rendered_dir / "quickshell/foxml";
     if (sh::run({(renderer / "fox-render-fast").string(), ctx.palette_path.string(),
                  (ctx.templates_dir / "quickshell/foxml").string(), output.string()}) != 0) {
-        ui::warn("drawer palette did not render; leaving the installed drawer unchanged");
+        incomplete("drawer palette did not render; leaving the installed drawer unchanged");
         return;
     }
     const auto dest = ctx.config_home / "quickshell/foxml";
     auto deploy = [&](const fs::path& src, const fs::path& target) {
         if (deploy_file_atomic(ctx, src, target)) return true;
-        ui::warn("could not back up/deploy " + target.string());
+        incomplete("could not back up/deploy " + target.string());
         return false;
     };
     if (!deploy(backend / "fox-drawer", ctx.home / ".local/bin/fox-drawer")) return;
@@ -58,7 +63,7 @@ void run_drawer(Context& ctx) {
             ok = deploy(entry.path(), dest / name) && ok;
         }
     }
-    if (ec) { ui::warn("could not read drawer configuration: " + ec.message()); return; }
+    if (ec) { incomplete("could not read drawer configuration: " + ec.message()); return; }
     ok = deploy(output / "Theme.qml", dest / "Theme.qml") && ok;
     for (const char* name : {"fox-desktop-menu", "fox-bar", "fox-hl", "fox-picker", "fox-menu", "fox-cheatsheet", "fox-sandbox",
                             "fox-ai-quick", "fox-wallpaper", "fox-password-copy"})
@@ -69,7 +74,7 @@ void run_drawer(Context& ctx) {
         ok = deploy(ctx.shared_dir / "hyprland_scripts" / name,
                     ctx.config_home / "hypr/scripts" / name) && ok;
     }
-    if (!ok) { ui::warn("drawer deployment incomplete; check the paths above before opening it"); return; }
+    if (!ok) { incomplete("drawer deployment incomplete; check the paths above before opening it"); return; }
     const auto notifications = ctx.script_dir / "src/fox-mako";
     if (fs::exists(notifications / "Makefile")) {
         if (sh::run({"make", "-C", notifications.string()}) == 0) {

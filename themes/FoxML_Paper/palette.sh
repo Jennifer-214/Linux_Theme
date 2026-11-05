@@ -13,7 +13,7 @@ KITTY_BG_OPACITY=0.85
 POPUP_BG_OPACITY=0.92
 MAKO_ICON_THEME=Papirus-Light
 GTK_ICON_THEME=FoxML-Paper
-VSCODE_UI_THEME=vs-light
+VSCODE_UI_THEME=vs
 FONT_FAMILY="MonaspiceKr Nerd Font"
 # WARNING: SHOW_WELCOME is also the project's literal-true alias used in
 # ~246 template substitutions (vim opts, yazi bold, Firefox CSS selectors,

@@ -12,6 +12,7 @@
 #include "core/install_lock.hpp"
 #include "core/module.hpp"
 #include "core/state_manifest.hpp"
+#include "core/theme_choice.hpp"
 #include "core/wizard.hpp"
 #include "../fox-common/shell.hpp"
 #include "../fox-common/ui.hpp"
@@ -31,6 +32,8 @@ namespace fs = std::filesystem;
 namespace {
 
 constexpr const char* DEFAULT_THEME = "FoxML_Classic";
+// Finished, but at least one module reported an error. 2 is taken: render stopped to protect live edits.
+constexpr int EXIT_INCOMPLETE = 3;
 
 // Walk PATH for the first `fox-install` it would resolve to; if that's
 // not the binary actually running right now AND mtimes differ, warn.
@@ -153,10 +156,11 @@ void fill_paths_pre(fox_install::Context& ctx, const char* argv0) {
 }
 
 // Theme-DEPENDENT paths. Resolved AFTER parse() has had a chance to set
-// ctx.theme_name from a positional arg (else the default is locked in
-// before the user's choice is seen).
+// ctx.theme_name from a positional arg, and before the plan reads the palette.
 void fill_paths_post(fox_install::Context& ctx) {
-    if (ctx.theme_name.empty()) ctx.theme_name = DEFAULT_THEME;
+    const auto choice = fox_install::choose_theme(ctx.theme_name, ctx.themes_dir, ctx.script_dir, DEFAULT_THEME);
+    ctx.theme_name   = choice.name;
+    ctx.theme_source = choice.source;
     ctx.palette_path = ctx.themes_dir / ctx.theme_name / "palette.sh";
 }
 
@@ -556,9 +560,8 @@ int main(int argc, char** argv) {
             // A module that printed err() but returned normally (the
             // cold-sudo self-skip pattern) ran INCOMPLETE — track it so
             // the end summary can't claim a clean run it didn't have.
-            if (ui::error_count() > errs_before) {
-                soft_error_modules.emplace_back(m.slug);
-            }
+            const bool incomplete = ui::error_count() > errs_before;
+            if (incomplete) soft_error_modules.emplace_back(m.slug);
 
             // Preflight is allowed to refuse the run entirely. If it
             // flipped preflight_failed, no later module is safe — even
@@ -570,6 +573,9 @@ int main(int argc, char** argv) {
                 ui::substep("run `fox sec health --verbose` for full detail + fix hints; resolve and re-run");
                 return 1;
             }
+
+            // Not stamped as done: the next run should do this module again.
+            if (incomplete) continue;
 
             // Update resume state after success
             if (!ctx.dry_run) {
@@ -682,5 +688,6 @@ int main(int argc, char** argv) {
                     "    • systemctl enable failures → sudo -v, then retry\n"
                     "    • module-specific errors → check the error line above\n");
     }
-    return failed_modules.empty() ? 0 : 1;
+    if (!failed_modules.empty()) return 1;
+    return soft_error_modules.empty() ? 0 : EXIT_INCOMPLETE;
 }

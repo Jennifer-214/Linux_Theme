@@ -1,6 +1,9 @@
 // Minimal unit tests for fox-render's pure functions.
 // Run via `make -C src/fox-render test`. Exits non-zero on first failure.
 
+#include <filesystem>
+#include <fstream>
+#include <unistd.h>
 #include "../palette.hpp"
 #include "../render.hpp"
 
@@ -64,9 +67,30 @@ void test_substitution_malformed_marker_safe() {
     EXPECT(fox_render::apply_substitutions("tail {{X", t) == "tail {{X");
 }
 
+// A file sitting where an output directory belongs: the write fails and the render has to say so.
+void test_write_failure_is_reported() {
+    namespace fs = std::filesystem;
+    char pattern[] = "/tmp/fox-render-write-XXXXXX";
+    if (!::mkdtemp(pattern)) { ++g_failed; return; }
+    const fs::path root(pattern);
+    fs::create_directories(root / "templates/kitty");
+    std::ofstream(root / "templates/kitty/kitty.conf") << "x\n";
+    std::ofstream(root / "templates/plain.conf") << "y\n";
+    fs::create_directories(root / "out");
+    std::ofstream(root / "out/kitty") << "in the way\n";
+
+    const auto result = fox_render::render_tree((root / "templates").string(), (root / "out").string(), {}, false);
+    if (result.failed != 1 || result.rendered != 1) {
+        std::fprintf(stderr, "write failure: rendered %zu, failed %zu\n", result.rendered, result.failed);
+        ++g_failed;
+    }
+    fs::remove_all(root);
+}
+
 }  // namespace
 
 int main() {
+    test_write_failure_is_reported();
     test_palette_basic_hex();
     test_substitution_unknown_passes_through();
     test_substitution_overlapping_braces();
