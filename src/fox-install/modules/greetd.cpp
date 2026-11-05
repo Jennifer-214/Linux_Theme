@@ -105,6 +105,20 @@ bool greeter_config_parses(const fs::path& staged) {
     return false;
 }
 
+constexpr const char* GREETER_DIR    = "/etc/greetd";
+constexpr const char* GREETER_BACKUP = "/etc/greetd.foxml-bak";
+
+// One generation of the whole directory, so a failed update can put back the login screen that worked.
+bool backup_greeter() {
+    if (!fs::is_directory(GREETER_DIR)) return true;
+    sh::run({"sudo", "rm", "-rf", GREETER_BACKUP});
+    return sh::run({"sudo", "cp", "-a", "-T", GREETER_DIR, GREETER_BACKUP}) == 0;
+}
+
+void restore_greeter() {
+    if (fs::is_directory(GREETER_BACKUP)) sh::run({"sudo", "cp", "-a", "-T", GREETER_BACKUP, GREETER_DIR});
+}
+
 }  // namespace
 
 void run_greetd(Context& ctx) {
@@ -125,8 +139,8 @@ void run_greetd(Context& ctx) {
     for (const char* needed : { "regreet.css", "regreet.toml", "hyprland.conf",
                                  "hyprland.lua", "select-monitor.sh", "start-greeter.sh" }) {
         if (!fs::exists(staged / needed)) {
-            ui::ok("staged regreet file missing: " + (staged / needed).string() +
-                   " (run --specials first to stage)");
+            ui::err("staged regreet file missing: " + (staged / needed).string() +
+                    " (run --specials first to stage)");
             return;
         }
     }
@@ -147,8 +161,8 @@ void run_greetd(Context& ctx) {
     fs::path wall_src = ctx.home / ".wallpapers" / wall_name;
 
     if (!fs::exists(wall_src)) {
-        ui::warn("login wallpaper " + wall_src.string() +
-                 " missing — copy your wallpaper to ~/.wallpapers/ first");
+        ui::err("login wallpaper " + wall_src.string() +
+                " missing — copy your wallpaper to ~/.wallpapers/ first");
         return;
     }
 
@@ -166,19 +180,33 @@ void run_greetd(Context& ctx) {
         }
         return;
     }
+    // Checked before anything is replaced: a config that won't parse must not reach a working login screen.
+    if (!greeter_config_parses(staged)) {
+        ui::err("login screen left as it was — fix the greeter config, then re-run --greetd");
+        return;
+    }
     if (!sh::sudo_warmup()) {
         ui::err("sudo cache cold — `sudo -v` first");
         return;
     }
+    if (!backup_greeter()) {
+        ui::err("could not back up /etc/greetd — login screen left as it was");
+        return;
+    }
 
-    write_root_file(staged / "regreet.css",       "/etc/greetd/regreet.css",      "644");
-    write_root_inline("/etc/greetd/regreet.toml",
-                      retarget_wallpaper(staged / "regreet.toml", wall_path.string()));
-    write_root_file(staged / "hyprland.conf",     "/etc/greetd/hyprland.conf",    "644");
-    write_root_file(staged / "hyprland.lua",      "/etc/greetd/hyprland.lua",     "644");
-    write_root_file(staged / "select-monitor.sh", "/etc/greetd/select-monitor.sh","755");
-    write_root_file(staged / "start-greeter.sh",  hypr_lua::GREETER_LAUNCHER,     "755");
-    write_root_file(wall_src,                     wall_path,                       "644");
+    bool installed = write_root_file(staged / "regreet.css", "/etc/greetd/regreet.css", "644");
+    installed = write_root_inline("/etc/greetd/regreet.toml",
+                                  retarget_wallpaper(staged / "regreet.toml", wall_path.string())) && installed;
+    installed = write_root_file(staged / "hyprland.conf",     "/etc/greetd/hyprland.conf",     "644") && installed;
+    installed = write_root_file(staged / "hyprland.lua",      "/etc/greetd/hyprland.lua",      "644") && installed;
+    installed = write_root_file(staged / "select-monitor.sh", "/etc/greetd/select-monitor.sh", "755") && installed;
+    installed = write_root_file(staged / "start-greeter.sh",  hypr_lua::GREETER_LAUNCHER,      "755") && installed;
+    installed = write_root_file(wall_src,                     wall_path,                       "644") && installed;
+    if (!installed) {
+        restore_greeter();
+        ui::err("login screen files could not be installed — restored the previous ones");
+        return;
+    }
     ui::ok("regreet css/toml, hyprland.conf + hyprland.lua → /etc/greetd/");
     ui::ok("greeter launcher → " + std::string(hypr_lua::GREETER_LAUNCHER));
     ui::ok("monitor selector → /etc/greetd/select-monitor.sh");
@@ -200,10 +228,12 @@ void run_greetd(Context& ctx) {
         ui::skipped("/etc/greetd/config.toml already starts the greeter launcher");
     } else if (action == hypr_lua::GreeterToml::Keep) {
         ui::skipped("/etc/greetd/config.toml already customized — leaving as-is");
-    } else if (!greeter_config_parses(staged)) {
-        ui::warn("/etc/greetd/config.toml left as it was — fix the greeter config, then re-run --greetd");
     } else if (write_root_inline(cfg, CONFIG_TOML_BODY)) {
         ui::ok("/etc/greetd/config.toml → start-greeter.sh (Hyprland greeter session)");
+    } else {
+        restore_greeter();
+        ui::err("/etc/greetd/config.toml could not be written — restored the previous login screen");
+        return;
     }
 
     if (sh::run({"systemctl", "is-enabled", "--quiet", "greetd"}) != 0) {

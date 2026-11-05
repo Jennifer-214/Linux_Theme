@@ -252,6 +252,33 @@ int main() {
         EXPECT(!state::package_classify(false, true, "gaming", "steam").reason.empty());
     }
 
+    // An enabled greetd says nothing about the theme: only a matching current render counts as up to date.
+    {
+        char pattern[] = "/tmp/fox-greeter-theme-XXXXXX";
+        EXPECT(::mkdtemp(pattern) != nullptr);
+        const fs::path root(pattern);
+        Context c;
+        c.theme_name = "T";
+        c.templates_dir = root / "templates";
+        c.rendered_dir = root / "rendered";
+        c.palette_path = root / "palette.sh";
+        fs::create_directories(c.templates_dir);
+        fs::create_directories(c.rendered_dir / "regreet");
+        std::ofstream(c.palette_path) << "BG=000000\n";
+        std::ofstream(c.rendered_dir / "regreet/regreet.css") << "paper\n";
+        std::ofstream(state::render_stamp_path(c)) << state::render_inputs_hash(c) << '\n';
+        const fs::path deployed = root / "deployed.css";
+
+        EXPECT(state::greeter_theme_stale(c, deployed));
+        std::ofstream(deployed) << "classic\n";
+        EXPECT(state::greeter_theme_stale(c, deployed));
+        std::ofstream(deployed) << "paper\n";
+        EXPECT(!state::greeter_theme_stale(c, deployed));
+        std::ofstream(c.palette_path) << "BG=ffffff\n";
+        EXPECT(state::greeter_theme_stale(c, deployed));
+        fs::remove_all(root);
+    }
+
     if (failures == 0) {
         std::cout << "state_checks tests: OK\n";
         return 0;

@@ -43,6 +43,17 @@ int main() {
         std::fprintf(stderr, "FAIL: MODULES_COUNT == 0\n");
         return 1;
     }
+    // The login screen reads what render and specials produce, and fingerprint wiring needs it in place.
+    const auto position = [](const char* slug) {
+        for (std::size_t i = 0; i < MODULES_COUNT; ++i)
+            if (std::strcmp(MODULES[i].slug, slug) == 0) return i;
+        return MODULES_COUNT;
+    };
+    if (position("greetd") <= position("render") || position("greetd") <= position("specials") ||
+        position("greetd") >= position("greetd_fingerprint") || position("greetd") == MODULES_COUNT) {
+        std::fprintf(stderr, "FAIL: greetd must run after render + specials and before greetd_fingerprint\n");
+        return 1;
+    }
     if (DECLARED_FULL_COUNT != MODULES_COUNT) {
         std::fprintf(stderr,
             "FAIL: DECLARED_FULL_COUNT (%zu) != MODULES_COUNT (%zu) — "

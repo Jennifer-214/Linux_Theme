@@ -285,8 +285,18 @@ Classification check_endlessh(const Context& /*ctx*/, const Manifest& manifest) 
     return primary;
 }
 
-Classification check_greetd(const Context& /*ctx*/, const Manifest& manifest) {
-    return unit_check(manifest, "greetd", "greetd.service", /*user=*/false);
+bool greeter_theme_stale(const Context& ctx, const fs::path& deployed_css) {
+    const fs::path rendered_css = ctx.rendered_dir / "regreet/regreet.css";
+    if (!rendered_is_current(ctx) || !fs::exists(rendered_css) || !fs::exists(deployed_css)) return true;
+    return hash_file(rendered_css) != hash_file(deployed_css);
+}
+
+Classification check_greetd(const Context& ctx, const Manifest& manifest) {
+    Classification unit = unit_check(manifest, "greetd", "greetd.service", /*user=*/false);
+    // An enabled service says nothing about which theme the login screen shows.
+    if (unit.status == Status::Noop && greeter_theme_stale(ctx, "/etc/greetd/regreet.css"))
+        return {Status::Update, "login screen theme is out of date"};
+    return unit;
 }
 
 bool folders_stale(const Context& ctx) {
