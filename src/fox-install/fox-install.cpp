@@ -689,5 +689,6 @@ int main(int argc, char** argv) {
                     "    • module-specific errors → check the error line above\n");
     }
     if (!failed_modules.empty()) return 1;
-    return soft_error_modules.empty() ? 0 : EXIT_INCOMPLETE;
+    // A preview changes nothing, so nothing was left unfinished; the summary above still lists what it found.
+    return (soft_error_modules.empty() || ctx.dry_run) ? 0 : EXIT_INCOMPLETE;
 }
