@@ -140,6 +140,64 @@
     border-radius: 0 !important;
   }
 
+  /* Paper shortcuts: one folded label instead of nested gray tiles.
+     Keep Firefox's layout, favicons, pin badges and context-menu hit areas. */
+  {{FF_EXTRA_SCOPE}} .top-sites-list .top-site-outer,
+  {{FF_EXTRA_SCOPE}} .top-sites-list .top-site-inner,
+  {{FF_EXTRA_SCOPE}} .top-sites-list .tile,
+  {{FF_EXTRA_SCOPE}} .top-sites-list .top-site-button {
+    background-color: transparent !important;
+    box-shadow: none !important;
+  }
+
+  {{FF_EXTRA_SCOPE}} .top-sites-list .top-site-inner > a.top-site-button {
+    position: relative;
+    background: #{{BG}} !important;
+    border-radius: 2px !important;
+    box-shadow: inset 0 0 0 1px #{{FF_FRAME}}, 1px 2px 2px rgba({{FG_R}},{{FG_G}},{{FG_B}},0.045) !important;
+  }
+
+  /* The fold is decorative and cannot intercept clicks or drag gestures. */
+  {{FF_EXTRA_SCOPE}} .top-sites-list .top-site-inner > a.top-site-button::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 10px;
+    height: 10px;
+    pointer-events: none;
+    background: linear-gradient(45deg, #{{BG_DARK}} 46%, #{{FF_FRAME}} 49%, #{{FF_FRAME}} 52%, #{{BG}} 55%) !important;
+    border-left: 1px solid #{{FF_FRAME}};
+    border-bottom: 1px solid #{{FF_FRAME}};
+    border-bottom-left-radius: 2px;
+  }
+
+  {{FF_EXTRA_SCOPE}} .top-sites-list .top-site-outer .title {
+    color: #{{FG}} !important;
+    font-family: "{{FONT_FAMILY}}", monospace !important;
+    font-size: 12px !important;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    padding-bottom: 6px;
+    margin-bottom: -6px;
+    text-decoration: underline solid transparent 2px;
+    text-underline-offset: 4px;
+  }
+
+  {{FF_EXTRA_SCOPE}} .top-sites-list .top-site-outer:is(:hover, :focus-within, .active) .title {
+    text-decoration-color: #{{SELECTION}} !important;
+  }
+
+  {{FF_EXTRA_SCOPE}} .top-sites-list .top-site-inner > a.top-site-button:focus-visible {
+    outline: 2px solid #{{PRIMARY}} !important;
+    outline-offset: 3px !important;
+  }
+
+  {{FF_EXTRA_SCOPE}} .top-sites-list .top-site-inner > a.top-site-button:active {
+    box-shadow: inset 0 0 0 1px #{{FF_FRAME}} !important;
+  }
+
   /* ===== Cards (Pocket / recommendations) ===== */
   .ds-card,
   .ds-card-grid .ds-card,

@@ -650,7 +650,10 @@ The wallpaper's cat, cut out with a rising zzz, is `shared/quickshell/foxml/pape
 It sits on empty drawer pages and under the lock screen note (`HYPRLOCK_CAT_Y`), and
 replaces the logo and wordmark on Firefox's new tab. That page blocks `file:` images, so
 its copy is embedded in `userContent.css`. Pages with their own empty-state line keep it;
-the rest say "nothing here". The `flower` option in `CURSOR_RECOLOR` swaps the busy
+the rest say "nothing here".
+Firefox's new-tab shortcuts use cream paper labels with small folded corners,
+graphite names and blush underlines on hover or keyboard focus.
+The `flower` option in `CURSOR_RECOLOR` swaps the busy
 cursors for a turning flower in the pointer's colours. The pointer is size 30 on every
 theme and display. `PAPIRUS_FOLDER_RECOLOR` builds the `foxml-blush` folders from
 Catppuccin's pink to match it, and Zathura search highlights use `ZATHURA_HIGHLIGHT` and
