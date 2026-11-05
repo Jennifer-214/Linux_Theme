@@ -70,6 +70,17 @@ void run_drawer(Context& ctx) {
                     ctx.config_home / "hypr/scripts" / name) && ok;
     }
     if (!ok) { ui::warn("drawer deployment incomplete; check the paths above before opening it"); return; }
+    const auto notifications = ctx.script_dir / "src/fox-mako";
+    if (fs::exists(notifications / "Makefile")) {
+        if (sh::run({"make", "-C", notifications.string()}) == 0) {
+            bool deployed = deploy(notifications / "fox-mako", ctx.home / ".local/bin/fox-mako");
+            deployed = deploy(ctx.shared_dir / "bin/fox-notifications", ctx.home / ".local/bin/fox-notifications") && deployed;
+            deployed = deploy(ctx.shared_dir / "systemd/user/mako.service.d/50-foxml.conf",
+                              ctx.config_home / "systemd/user/mako.service.d/50-foxml.conf") && deployed;
+            if (deployed && std::getenv("WAYLAND_DISPLAY")) sh::run({"systemctl", "--user", "daemon-reload"});
+            if (!deployed) ui::warn("notification extension deployment incomplete; system Mako remains available");
+        } else ui::warn("notification extension did not build; system Mako keeps its regular outline");
+    }
     ui::ok("drawer installed; custom menu hierarchy preserved at " + (dest / "menus.json").string());
     if (!sh::have("quickshell")) {
         ui::warn("install Quickshell with --deps (or pacman -S quickshell) to enable desktop menus");

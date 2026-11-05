@@ -156,7 +156,45 @@ Paper.completion_icons = {
   Color = "󰏘", File = "󰈙", Reference = "󰈇", Folder = "󰉋", EnumMember = "",
   Constant = "󰏿", Struct = "󰙅", Event = "", Operator = "󰆕", TypeParameter = "󰊄",
 }
-if Paper.enabled then vim.opt.cursorlineopt = "line,number" end
+if Paper.enabled then
+  vim.opt.cursorlineopt = "line,number"
+  vim.opt.inccommand = "nosplit"
+  -- hlslens owns the one search count beside the current match.
+  vim.opt.shortmess:append("S")
+end
+function Paper.search_lens(render, positions, nearest, index)
+  local position = positions[index]
+  if not nearest or not position then return end
+  render.setVirt(0, position[1] - 1, position[2] - 1,
+    { { "  " .. index .. " of " .. #positions .. "  ", "HlSearchLensNear" } }, true)
+end
+function Paper.completion_format(entry, item)
+  item.icon = Paper.completion_icons[item.kind] or "·"
+  item.icon_hl_group = "FoxPaperCompletionIcon"
+  local completion = entry:get_completion_item()
+  local detail = item.menu and item.menu ~= "" and item.menu or completion.detail or ""
+  detail = vim.trim(detail:gsub("%s+", " "))
+  local budget = math.min(52, math.max(18, math.floor(vim.o.columns * .32)))
+  if vim.fn.strdisplaywidth(detail) > budget then
+    detail = vim.fn.strcharpart(detail, 0, budget - 1)
+    while vim.fn.strdisplaywidth(detail) > budget - 1 do
+      detail = vim.fn.strcharpart(detail, 0, vim.fn.strchars(detail) - 1)
+    end
+    detail = detail .. "…"
+  end
+  item.menu = detail
+  return item
+end
+function Paper.merge_label(buf, win, context)
+  if not Paper.enabled or not vim.api.nvim_win_is_valid(win) or not context
+      or not (context.layout_name or ""):match("^diff[134]") then return end
+  local labels = { a = "current · ours", b = "result · working tree", c = "incoming · theirs", d = "base" }
+  local label = labels[context.symbol]
+  if not label then return end
+  local name = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t"):gsub("%%", "%%%%")
+  local group = context.symbol == "a" and "FoxPaperMergeCurrent" or "FoxPaperMergeOther"
+  vim.wo[win].winbar = "%#" .. group .. "#  " .. label .. " · %<" .. name .. "  %*"
+end
 Paper.virtual_text = Paper.enabled and { current_line = true } or true
 Paper.namespace = vim.api.nvim_create_namespace("foxml_paper_bookmarks")
 Paper.quote_namespace = vim.api.nvim_create_namespace("foxml_paper_quotes")
@@ -1363,6 +1401,7 @@ local plugins = {
     "sindrets/diffview.nvim",
     cmd = { "DiffviewOpen", "DiffviewFileHistory", "DiffviewClose" },
     dependencies = { "nvim-lua/plenary.nvim" },
+    opts = { hooks = { diff_buf_win_enter = Paper.enabled and Paper.merge_label or nil } },
   },
 
   -- CodeCompanion — chat, inline edits and agents on the LOCAL models, through llama.cpp's router (127.0.0.1:8080,
@@ -1824,6 +1863,7 @@ local plugins = {
   {
     "nvim-pack/nvim-spectre",
     dependencies = { "nvim-lua/plenary.nvim" },
+    opts = Paper.enabled and { lnum_for_results = true } or {},
     keys = {
       { "<leader>sr", function() require("spectre").toggle() end, desc = "Search & Replace (Spectre)" },
       { "<leader>sw", function() require("spectre").open_visual({ select_word = {{SHOW_WELCOME}} }) end, desc = "Search current word" },
@@ -1850,7 +1890,7 @@ local plugins = {
           lua = { pattern = { "^:%s*lua%s+", "^:%s*lua%s*=%s*", "^:%s*=%s*" }, icon = " ", lang = "lua" },
         },
       },
-      messages = { enabled = {{SHOW_WELCOME}}, view = "mini", view_search = "virtualtext" },
+      messages = { enabled = {{SHOW_WELCOME}}, view = "mini", view_search = not Paper.enabled and "virtualtext" or false },
       popupmenu = { enabled = {{SHOW_WELCOME}}, backend = "nui" },
       lsp = {
         override = {
@@ -1956,7 +1996,10 @@ local plugins = {
   {
     "kevinhwang91/nvim-hlslens",
     event = "BufReadPost",
-    opts = { calm_down = {{SHOW_WELCOME}}, nearest_only = {{SHOW_WELCOME}} },
+    opts = {
+      calm_down = {{SHOW_WELCOME}}, nearest_only = {{SHOW_WELCOME}},
+      override_lens = Paper.enabled and Paper.search_lens or nil,
+    },
   },
 
 }
@@ -2052,6 +2095,10 @@ local function apply_foxml_theme()
   end
   hl("Substitute",   { fg = P.bg, bg = P.red })
   hl("MatchParen",   { fg = Paper.enabled and P.bookmark or P.pink, bold = not Paper.enabled and {{SHOW_WELCOME}}, underline = {{SHOW_WELCOME}} })
+  if Paper.enabled then
+    hl("Substitute", { fg = P.fg, bg = P.sel, bold = true })
+    hl("MatchParen", { fg = P.fg, bg = P.sel, bold = true })
+  end
 
   -- ── Fold ──
   hl("Folded",       { fg = P.comment, bg = P.bg_hl })
@@ -2065,7 +2112,7 @@ local function apply_foxml_theme()
     hl("NoiceLspSignatureActiveParameter", { link = "LspSignatureActiveParameter" })
   end
   hl("FoxPaperFoldArrow", { fg = P.bookmark, bg = P.bg_hl })
-  hl("FoxPaperFoldText", { fg = P.comment, bg = P.bg_hl })
+  hl("FoxPaperFoldText", { fg = Paper.enabled and P.syn.comment or P.comment, bg = P.bg_hl })
   hl("FoxPaperFoldCount", { fg = P.faint, bg = P.bg_hl })
 
   -- ── Messages ──
@@ -2120,6 +2167,11 @@ local function apply_foxml_theme()
   hl("DiagnosticInfo",           { fg = P.peach })
   hl("DiagnosticHint",           { fg = P.green })
   hl("DiagnosticOk",             { fg = P.green })
+  if Paper.enabled then
+    -- Fade only server-tagged unnecessary code; leave severity marks and text intact.
+    hl("DiagnosticUnnecessary", { fg = P.comment, italic = false })
+    hl("@lsp.mod.unused", { link = "DiagnosticUnnecessary" })
+  end
   hl("DiagnosticUnderlineError", { undercurl = {{SHOW_WELCOME}}, sp = P.pen })
   hl("DiagnosticUnderlineWarn",  { undercurl = {{NVIM_WARN_CURL}}, underdashed = {{NVIM_WARN_DASH}}, sp = P.warn })  -- Paper: dashed, so it never reads as the red squiggle
   hl("DiagnosticUnderlineInfo",  { undercurl = {{SHOW_WELCOME}}, sp = P.peach })
@@ -2273,6 +2325,7 @@ local function apply_foxml_theme()
   hl("DiffChange",   { bg = P.diff_chg })
   hl("DiffDelete",   { bg = P.diff_del })
   hl("DiffText",     { bg = P.diff_txt })
+  if Paper.enabled then hl("DiffText", { fg = P.fg, bg = P.sel, bold = true }) end
   hl("SpellBad",     { undercurl = {{SHOW_WELCOME}}, sp = P.red })
   hl("SpellCap",     { undercurl = {{SHOW_WELCOME}}, sp = P.yellow })
   hl("SpellRare",    { undercurl = {{SHOW_WELCOME}}, sp = P.cyan })
@@ -2284,6 +2337,21 @@ local function apply_foxml_theme()
   end
 
   -- ── Plugin highlights ──
+  if Paper.enabled then
+    hl("SpectreHeader", { fg = P.comment })
+    hl("SpectreBody", { fg = P.fg })
+    hl("SpectreFile", { fg = P.fg, bold = true })
+    hl("SpectreDir", { fg = P.fg_dim })
+    hl("SpectreBorder", { fg = P.faint })
+    hl("SpectreSearch", { fg = P.fg_dim, bg = P.bg_alt, strikethrough = true })
+    hl("SpectreReplace", { fg = P.fg, bg = P.sel, bold = true })
+    hl("QuickFixLine", { fg = P.fg, bg = P.sel })
+    hl("qfFileName", { fg = P.fg, bold = true })
+    hl("qfLineNr", { fg = P.fg_dim })
+    hl("qfSeparator", { fg = P.faint })
+    hl("FoxPaperMergeCurrent", { fg = P.fg, bg = P.sel, bold = true })
+    hl("FoxPaperMergeOther", { fg = P.fg, bg = P.bg_alt, bold = true })
+  end
 
   -- CmpBorder
   hl("CmpBorder", { fg = P.float_border, bg = P.none })
@@ -2437,6 +2505,13 @@ local function apply_foxml_theme()
   hl("DapBreakpointCondition", { fg = P.yellow })
   hl("DapLogPoint",            { fg = P.cyan })
   hl("DapStopped",             { fg = P.green, bg = P.bg_hl })
+  if Paper.enabled then
+    hl("FoxPaperDebugLine", { fg = P.fg, bg = P.sel })
+    hl("DapStopped", { fg = P.bookmark })
+    hl("DapBreakpoint", { fg = P.comment })
+    vim.fn.sign_define("DapStopped", { text = "→", texthl = "DapStopped", linehl = "FoxPaperDebugLine" })
+    vim.fn.sign_define("DapBreakpoint", { text = "●", texthl = "DapBreakpoint" })
+  end
 
   -- Aerial
   hl("AerialLine",         { bg = P.bg_hl })
@@ -2594,7 +2669,7 @@ local function apply_foxml_theme()
   hl("HlSearchLensNear", { fg = P.bg, bg = P.peach })
   if Paper.enabled then
     hl("HlSearchNear", { link = "CurSearch" })
-    hl("HlSearchLensNear", { fg = P.comment })
+    hl("HlSearchLensNear", { fg = P.fg, bg = P.sel })
   end
 
   -- Avante
@@ -2676,9 +2751,12 @@ local function apply_foxml_theme()
   hl("CmpItemMenu",           { fg = P.comment, italic = {{SHOW_WELCOME}} })
   if Paper.enabled then
     hl("CmpItemAbbr", { fg = P.fg })
+    hl("CmpItemAbbrMatch", { fg = P.fg, bold = true })
+    hl("CmpItemAbbrMatchFuzzy", { fg = P.fg })
+    hl("CmpItemMenu", { fg = P.fg_dim, italic = false })
     hl("FoxPaperCompletionIcon", { fg = P.bookmark })
     for kind in pairs(Paper.completion_icons) do
-      hl("CmpItemKind" .. kind, { fg = P.comment })
+      hl("CmpItemKind" .. kind, { fg = P.fg_dim })
     end
   end
 
@@ -3093,13 +3171,7 @@ local cmp = require("cmp")
 local luasnip = require("luasnip")
 cmp.setup({
   snippet = { expand = function(args) luasnip.lsp_expand(args.body) end },
-  formatting = Paper.enabled and {
-    format = function(_, item)
-      item.icon = Paper.completion_icons[item.kind] or "·"
-      item.icon_hl_group = "FoxPaperCompletionIcon"
-      return item
-    end,
-  } or nil,
+  formatting = Paper.enabled and { format = Paper.completion_format } or nil,
   mapping = cmp.mapping.preset.insert({
     ["<C-b>"] = cmp.mapping.scroll_docs(-4),
     ["<C-f>"] = cmp.mapping.scroll_docs(4),

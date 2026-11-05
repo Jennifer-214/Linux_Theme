@@ -1,0 +1,47 @@
+-- Exercise rendered Paper styling with native search/substitution and installed hlslens.
+local api = vim.api
+local source = table.concat(vim.fn.readfile(vim.env.PAPER_SEARCH_INIT), '\n')
+local palette = assert(source:match('(local P = %b{})'))
+local details = assert(source:match('%-%- >>> fox%-paper%-details\n(.-)\n%-%- <<< fox%-paper%-details'))
+local apply = assert(source:match('(local function apply_foxml_theme%(%)\n.-\nend)\n\napply_foxml_theme%(%)'))
+local state = assert(loadstring('local map=vim.keymap.set\n' .. palette .. '\n' .. details .. '\n' .. apply .. '\napply_foxml_theme()\nreturn {P=P,Paper=Paper}'))()
+local P, Paper = state.P, state.Paper
+assert(Paper.enabled and vim.o.inccommand == 'nosplit' and vim.o.shortmess:find('S', 1, true))
+local function options(plugin)
+  local _, last = assert(source:find('"' .. plugin .. '"', 1, true))
+  return assert(loadstring('local Paper=...\nreturn ' .. assert(source:sub(last):match('opts = (%b{})'))))(Paper)
+end
+assert(options('folke/noice.nvim').messages.view_search == false, 'Noice duplicates the count')
+for _, name in ipairs({'Substitute', 'MatchParen', 'HlSearchLensNear'}) do
+  local group = api.nvim_get_hl(0, {name=name, link=false})
+  assert(group.fg == tonumber(P.fg:sub(2), 16) and group.bg == tonumber(P.sel:sub(2), 16), name)
+end
+vim.opt.rtp:append(vim.fn.expand('~/.local/share/nvim/lazy/nvim-hlslens'))
+require('hlslens').setup(options('kevinhwang91/nvim-hlslens'))
+api.nvim_buf_set_lines(0, 0, -1, false, {'bookmark one', 'bookmark two', 'bookmark three'})
+vim.cmd('set hlsearch')
+api.nvim_feedkeys('/bookmark' .. vim.keycode('<CR>'), 'xt', false)
+api.nvim_feedkeys('n', 'xt', false)
+vim.wait(150)
+local count = vim.fn.searchcount({recompute=1})
+assert(count.current == 3 and count.total == 3, vim.inspect(count))
+api.nvim_feedkeys('N', 'xt', false)
+vim.wait(150)
+count = vim.fn.searchcount({recompute=1})
+assert(count.current == 2 and count.total == 3, 'backward search changed')
+local chunks = {}
+local renderer = {setVirt=function(_, row, _, text) chunks[#chunks+1]={row=row,text=text} end}
+Paper.search_lens(renderer, {{1,1},{2,1},{3,1}}, true, 2)
+Paper.search_lens(renderer, {{1,1},{2,1},{3,1}}, false, 1)
+assert(#chunks == 1 and chunks[1].row == 1 and chunks[1].text[1][1] == '  2 of 3  ')
+vim.cmd('nohlsearch')
+require('hlslens').stop()
+local before = api.nvim_buf_get_lines(0, 0, -1, false)
+api.nvim_feedkeys(':%s/bookmark/note/g' .. vim.keycode('<Esc>'), 'xt', false)
+assert(vim.deep_equal(before, api.nvim_buf_get_lines(0, 0, -1, false)), 'cancel changed text')
+vim.cmd('%s/bookmark/note/g')
+assert(api.nvim_get_current_line():find('note', 1, true))
+vim.cmd('undo')
+assert(vim.deep_equal(before, api.nvim_buf_get_lines(0, 0, -1, false)), 'undo failed')
+print('PAPER_SEARCH_OK: native search, single count, cancel and undo')
+vim.cmd('qa!')

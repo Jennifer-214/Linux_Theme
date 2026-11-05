@@ -13,6 +13,7 @@
 #include "personalize.hpp"
 #include "gtk_appearance.hpp"
 #include "firefox_appearance.hpp"
+#include "notification_refresh.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
@@ -23,6 +24,7 @@
 #include <filesystem>
 #include <fstream>
 #include <system_error>
+#include <unistd.h>
 
 namespace fs = std::filesystem;
 using json   = nlohmann::json;
@@ -164,15 +166,30 @@ void run_post_install(Context& ctx) {
         ui::ok("Dunst restarted");
     }
 
-    // mako: native reload via makoctl is preferred (no popup queue loss),
-    // fall back to restart if makoctl isn't around.
-    if (process_running("mako")) {
-        if (have("makoctl") &&
+    const bool stock_mako = process_running("mako");
+    const bool custom_mako = process_running("fox-mako");
+    if (stock_mako || custom_mako) {
+        const auto binary = ctx.home / ".local/bin/fox-mako";
+        const auto launcher = ctx.home / ".local/bin/fox-notifications";
+        const auto dropin = ctx.config_home / "systemd/user/mako.service.d/50-foxml.conf";
+        const bool custom_ready = fs::exists(binary) && fs::exists(launcher) && fs::exists(dropin);
+        std::string pids;
+        if (custom_mako)
+            sh::probe({"pgrep", "-u", std::to_string(::getuid()), "-x", "fox-mako"}, pids);
+        const bool restart = custom_ready && (stock_mako || notifications::running_binary_changed(binary, pids));
+        if (!restart && have("makoctl") &&
             sh::run({"sh", "-c", "makoctl reload >/dev/null 2>&1"}) == 0) {
             ui::ok("mako reloaded");
+        } else if (sh::run({"systemctl", "--user", "is-active", "--quiet", "mako.service"}) == 0) {
+            if (sh::run({"systemctl", "--user", "restart", "mako.service"}) == 0)
+                ui::ok("Mako notification service refreshed");
+            else ui::warn("Mako service restart failed; run systemctl --user restart mako.service");
         } else {
-            restart_detached("mako", "mako");
-            ui::ok("mako restarted");
+            sh::run({"pkill", "-x", custom_mako ? "fox-mako" : "mako"});
+            const auto command = fs::exists(launcher) ? launcher.string()
+                : (custom_mako ? binary.string() : "mako");
+            if (sh::run({"setsid", "-f", command}) == 0) ui::ok("Mako notifications refreshed");
+            else ui::warn("Mako could not be restarted");
         }
     }
 

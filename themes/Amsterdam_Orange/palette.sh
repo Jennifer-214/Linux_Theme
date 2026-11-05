@@ -445,3 +445,14 @@ ICON_FOLDER_TAB=ff3300
 
 # Tooltip root selector; native GTK tooltip windows have no window ancestor.
 GTK_TOOLTIP_SCOPE=":not(*)"
+
+# Tracing-paper tooltip fill; text stays fully opaque.
+TOOLTIP_BG_OPACITY=1.0
+
+# Notification paper, placement and type alignment.
+MAKO_PADDING=14
+MAKO_MARGIN=14
+MAKO_OUTER_MARGIN=0
+MAKO_TEXT_ALIGN=left
+MAKO_ICON_LOCATION=left
+MAKO_PAPER_SHAPE=none

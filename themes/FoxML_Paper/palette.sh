@@ -168,14 +168,14 @@ NVIM_READONLY_BOLD=false
 # Dark typed code and warm handwritten comments, with blush behind literals.
 NVIM_SYN_VAR=1c1c1e
 NVIM_SYN_MEMBER=2b2b2d
-NVIM_SYN_PARAM=6e6d70
+NVIM_SYN_PARAM=48484b
 NVIM_SYN_TYPE=3c3c40
 NVIM_SYN_STRING=3c3c40
 NVIM_SYN_NUMBER=3c3c40
 NVIM_SYN_CALL=1c1c1e
 NVIM_SYN_OPERATOR=48484b
 NVIM_SYN_RETURN=1c1c1e
-NVIM_SYN_COMMENT=7c7a76
+NVIM_SYN_COMMENT=706e6a
 NVIM_SYN_HEADER=7c7a76
 NVIM_SECTION_HEADERS=true
 NVIM_FAINT_FG=a8a6a0
@@ -483,3 +483,14 @@ ICON_FOLDER_TAB=d99ab0
 
 # Tooltip root selector; native GTK tooltip windows have no window ancestor.
 GTK_TOOLTIP_SCOPE=tooltip
+
+# Tracing-paper tooltip fill; text stays fully opaque.
+TOOLTIP_BG_OPACITY=0.94
+
+# Notification paper, placement and type alignment.
+MAKO_PADDING=18,14,24,14
+MAKO_MARGIN=0,14,10,14
+MAKO_OUTER_MARGIN=0
+MAKO_TEXT_ALIGN=center
+MAKO_ICON_LOCATION=top
+MAKO_PAPER_SHAPE=bookmark

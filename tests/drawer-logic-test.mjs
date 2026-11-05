@@ -94,6 +94,14 @@ for (const width of [720,1080,1920]) {
     }
 }
 assert.equal(logic.drawerPlacement(1920,790,null).top,63);
+for (const width of [1920,1080,720]) {
+    const sheet=Math.min(790,width-32);
+    for (const anchor of [null,{x:14,y:32,width:36},{x:width-110,y:46,width:96}]) {
+        const placement=logic.drawerPlacement(width,sheet,anchor,true);
+        assert.equal(placement.top,0,'connected paper must reach the screen edge');
+        assert.ok(placement.left>=0 && placement.left+sheet<=width);
+    }
+}
 console.log('drawer attachment stays inside landscape and portrait outputs: passed');
 assert.equal(logic.connectionState({id:'wifi-connect',checked:true}),true);
 assert.equal(logic.connectionState({id:'wifi-connect',checked:false}),false);
@@ -101,3 +109,9 @@ assert.equal(logic.connectionState({id:'bluetooth-connect',checked:true}),true);
 assert.equal(logic.connectionState({id:'bluetooth-connect',enabled:false}),null);
 assert.equal(logic.connectionState({id:'wifi-toggle',checked:true}),null);
 assert.equal(logic.connectionState({id:'wifi-connect'}),null);
+assert.equal(logic.statusLabel({presentation:'media',mediaState:'Paused'}),'paused');
+assert.equal(logic.statusLabel({presentation:'media',mediaState:'Playing'}),'');
+assert.equal(logic.statusLabel({mediaState:'Paused'}),'');
+assert.equal(logic.detailText({presentation:'media',mediaState:'Paused',detail:'Artist · Paused'},true),'Artist');
+assert.equal(logic.detailText({presentation:'media',mediaState:'Paused',detail:'Paused'},true),'');
+assert.equal(logic.detailText({presentation:'media',mediaState:'Paused',detail:'Artist · Paused'}),'Artist · Paused');

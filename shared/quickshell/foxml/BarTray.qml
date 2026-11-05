@@ -39,7 +39,7 @@ Row {
                 anchor.rect.x: icon.mapToItem(tray.panel.contentItem, 0, 0).x
                 anchor.rect.y: tray.panel.barHeight
             }
-            BarHint { theme: tray.theme; visible: mouse.containsMouse; text: BarLogic.plain(icon.modelData.tooltipTitle || icon.modelData.title) + (icon.modelData.tooltipDescription ? "\n" + BarLogic.plain(icon.modelData.tooltipDescription) : "") }
+            BarBannerHint { theme:tray.theme; panel:tray.panel; hovered:mouse.containsMouse && !mouse.pressed; text: BarLogic.plain(icon.modelData.tooltipTitle || icon.modelData.title) + (icon.modelData.tooltipDescription ? "\n" + BarLogic.plain(icon.modelData.tooltipDescription) : "") }
         }
     }
 }

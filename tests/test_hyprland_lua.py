@@ -226,13 +226,16 @@ def conf_layer_rules(text):
         m = re.fullmatch(r"layerrule\s*=\s*(.*)", l)
         if m:
             f = dict(x.strip().partition(" ")[::2] for x in m.group(1).split(","))
-            out.add((f["match:namespace"].strip(), f.get("ignore_alpha", "").strip()))
+            out.add((f["match:namespace"].strip(), f.get("ignore_alpha", "").strip(),f.get("no_anim", "off").strip()=="on"))
     return out
 
 
 def lua_layer_rules(text):
-    return {(re.search(r'namespace = "([^"]+)"', a).group(1), re.search(r"ignore_alpha = ([\d.]+)", a).group(1))
-            for _, a in lua_calls(text, "hl.layer_rule")}
+    out=set()
+    for _,a in lua_calls(text,"hl.layer_rule"):
+        alpha=re.search(r"ignore_alpha = ([\d.]+)",a)
+        out.add((re.search(r'namespace = "([^"]+)"',a).group(1),alpha.group(1) if alpha else "",bool(re.search(r"no_anim = true",a))))
+    return out
 
 
 def conf_workspace_rules(text):
@@ -311,6 +314,7 @@ class ModuleParity(unittest.TestCase):
             enabled = g("enabled") == "true"
             lua_anims[g("leaf")] = (enabled, g("speed") if enabled else None, g("bezier"), g("style"))
         self.assertEqual(conf_anims, lua_anims)
+        self.assertEqual(conf_layer_rules(conf),lua_layer_rules(lua),"rendered theme layer rules differ")
         conf_curves = {f[0]: [squash(x) for x in f[1:]] for f in
                        ([x.strip() for x in m.group(1).split(",")] for m in
                         (re.fullmatch(r"bezier\s*=\s*(.*)", l) for l in conf_lines(conf)) if m)}

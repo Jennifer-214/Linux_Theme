@@ -37,6 +37,7 @@ inline const std::vector<std::string>& deps_packages() {
 
         // Build tools
         "cmake", "base-devel",
+        "wayland-protocols", "wayland", "cairo", "pango", "gdk-pixbuf2", "glib2", "systemd-libs", // native Mako paper outlines
 
         // C/C++ intelligence (fox-symdeps.nvim): clangd + clang-format, a compile DB
         // for Make projects (bear), the plugin's python adapters (yaml), and

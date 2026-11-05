@@ -71,6 +71,11 @@ function windowIcon(app, spec) {
 function compactOutput(width, height, name, primaryName) {
     return !!(primaryName && name !== primaryName) || width < 1280 || height > width;
 }
+function fullscreenWorkspace(workspace) {
+    return !!(workspace && workspace.hasFullscreen && workspace.toplevels.values.some(function(window) {
+        return (window.lastIpcObject || {}).fullscreen === 2;
+    }));
+}
 function outputConfig(primaryConfig, secondaryConfig, compact) {
     if (!compact) return primaryConfig;
     if (Array.isArray(secondaryConfig["modules-left"])) return secondaryConfig;

@@ -10,8 +10,13 @@ border-color=#{{MAKO_BORDER}}
 progress-color=over #{{BLUSH}}80
 border-size={{BORDER_SIZE}}
 border-radius={{ROUNDING}}
-padding=14
-margin=14
+padding={{MAKO_PADDING}}
+margin={{MAKO_MARGIN}}
+outer-margin={{MAKO_OUTER_MARGIN}}
+text-alignment={{MAKO_TEXT_ALIGN}}
+icon-location={{MAKO_ICON_LOCATION}}
+# Stock Mako ignores this optional outline directive.
+# foxml-paper-shape={{MAKO_PAPER_SHAPE}}
 width=360
 # 6 lanes (was 3) so multi-pane agent bursts don't queue behind a long
 # critical popup. With max-visible=3 + critical timeout=15s, a single
@@ -86,6 +91,7 @@ default-timeout=6000
 # their OSD keeps the regular popup). No text (a zero-width space), no icon, 1pt font:
 # what's left is a 4px line that progress-color fills like a level.
 [app-name={{MAKO_OSD_APP}}]
+# foxml-paper-shape=none
 format=​
 font={{FONT_FAMILY}} 1
 icons=0

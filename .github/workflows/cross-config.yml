@@ -39,7 +39,8 @@ jobs:
         run: |
           pacman -Sy --noconfirm --needed \
             base-devel git curl pkgconf openssl \
-            pacman-contrib coreutils sed gawk
+            pacman-contrib coreutils sed gawk \
+            python wayland wayland-protocols cairo pango glib2 gdk-pixbuf2 systemd-libs
 
       - name: Fetch nlohmann/json header
         run: |

@@ -199,6 +199,35 @@ class BackendTests(unittest.TestCase):
     def calls(self):
         return [json.loads(line) for line in self.calls_path.read_text().splitlines()] if self.calls_path.exists() else []
 
+    def test_media_artwork_metadata_and_playback_keep_the_same_action(self):
+        self.write_config([dict(id='sound', label='Sound', items=[
+            dict(id='media-play-pause', label='Play / pause', kind='action', detail='Your current music or media'),
+            dict(id='media-next', label='Next track', kind='action')])])
+        title='Quiet "hours"; $(literal)'
+        self.state={'commands':{'playerctl':{'stdout':'\x1f'.join([title,'Pencil ensemble','Playing','file:///tmp/quiet%20hours.png'])+'\n'}}}
+        rows=self.invoke('view','sound')['items']
+        self.assertEqual(rows[0]['label'],title)
+        self.assertEqual(rows[0]['detail'],'Pencil ensemble · Playing')
+        self.assertEqual(rows[0]['artwork'],'file:///tmp/quiet%20hours.png')
+        self.assertEqual(rows[0]['presentation'],'media')
+        self.assertEqual(rows[0]['id'],'media-play-pause')
+        self.assertNotIn('artwork',rows[1])
+        self.assertEqual(len([c for c in self.calls() if c[0]=='playerctl']),1)
+        self.assertTrue(self.invoke('run','media-play-pause')['ok'])
+        self.assertEqual(self.calls()[-1],['playerctl','play-pause'])
+        for value in ['https://example.test/cover.jpg','http://example.test/cover.jpg','data:image/png,invalid','javascript:invalid','']:
+            with self.subTest(artwork=value):
+                self.state['commands']['playerctl']['stdout']='\x1f'.join(['A track','','Paused',value])+'\n'
+                row=self.invoke('view','sound')['items'][0]
+                self.assertEqual(row['detail'],'Paused')
+                self.assertEqual('artwork' in row,value.startswith(('https://','http://')))
+        for response in [{'exit':1},{'stdout':'broken metadata'},{'stdout':'title\x1fartist\x1funknown\x1fimage'},{'stdout':'extra\x1ftitle\x1fartist\x1fPlaying\x1fimage'}]:
+            self.state['commands']['playerctl']=response
+            row=self.invoke('view','sound')['items'][0]
+            self.assertEqual(row['label'],'Play / pause')
+            self.assertTrue(row['enabled'])
+            self.assertNotIn('artwork',row)
+
     def failed(self, *args):
         data = self.invoke(*args, expect=1)
         if args[0] == "run":

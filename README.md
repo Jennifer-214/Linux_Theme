@@ -467,15 +467,32 @@ while process text and window frames retain their existing colors. Thunar filena
 selections use blush with soft pencil edges. Native Mako notes add a small RECEIVED
 stamp, with room for the body; explicit saved/copied/ready categories give that stamp
 useful words without repeating them in the title. DND is applied after all app styles.
-Workspace and volume OSDs retain their compact formats. Yazi uses current theme sections
+Volume OSDs retain their compact format; workspace notices use the banner and replace
+the previous workspace notice. Yazi uses current theme sections
 and palette-driven notebook tabs (`YAZI_TAB_ACTIVE_FG/BG`); Delta file labels use the
 palette-selected `DELTA_LABEL_STYLE`. Post-install rebuilds the Bat/delta syntax cache
 on render-only theme changes as well as full installs.
 Paper's active signature parameter and selected search result use blush with pencil
-text; other matches use underlines. Native puts and bracketed pastes flash briefly
+text; other matches use underlines. The existing hlslens plugin owns one readable
+`3 of 5` search tag, with the native/Noice duplicate counts hidden on Paper.
+Substitution previews and matching brackets also use pencil on blush. `:s` previews
+in place until Enter; Esc cancels it without edits. These styles use the existing
+palette selection tokens and need no additional plugin. Spectre uses gray struck-out
+search text and blush replacement text, and quickfix uses a blush selected row with
+readable line numbers. DAP's paused line has a small rose arrow and a blush wash.
+Diffview merge headers name current, incoming, base, and result within their existing
+rows; other editor/plugin winbars are preserved. Completion names remain pencil,
+with quieter type/signature details that shorten to fit narrow windows while insertion
+text and full documentation remain intact. Native puts and bracketed pastes flash briefly
 without changing their undo behavior. A quiet last-edit pencil stays below bookmark
 and diagnostic priority, and hidden zero-width characters in code receive a visible
 clue without editing the file. Read-only files keep a graphite lock in the footer.
+Paper comments use a stronger warm gray with italic lettering, still lighter than code.
+Function parameters use darker upright pencil (`NVIM_SYN_PARAM`) so signatures remain
+clearly separate from comment prose in both Treesitter and LSP highlighting.
+Server-tagged unnecessary code recedes to an upright gray via native diagnostic tags;
+warnings, errors, source text, and formatting remain intact. The comment shade uses
+`NVIM_SYN_COMMENT`, so it follows rendering and theme installation.
 JSON keys are stronger pencil, Python documentation is quieter than code, and JSON
 quotes remain visible. Conform formats Python on save with Ruff (or Black when the
 project explicitly configures it); existing project settings and virtualenv tools win.
@@ -519,6 +536,37 @@ endpoint; slider rulers retain their tick marks. Firefox download meters share t
 pencil rule, and pinned browser tabs keep their favicon with a small pencil clip.
 The drawer's paper grain is drawn once per size/palette change, with no animation
 or polling. Tooltips use a short blush edge stitch across Quickshell, GTK and Firefox.
+Long drawers use a short blush page-edge marker in the outer gutter, retaining
+the native scrollbar's dragging and track clicks. The Sound drawer's existing
+play/pause row shows the current track and available media artwork, held by a small
+translucent blush tape strip. Missing or failed artwork falls back to the music
+glyph; playback actions retain their existing IDs. Metadata uses the existing
+`playerctl` dependency and visible-page refresh, without a new daemon or package.
+Media artwork has a narrow cream photo mat beneath the existing tape. Paused and
+stopped media use pencil-on-blush state tags, matching Neovim's draft tag; the
+detail line omits the repeated state. Tooltip backgrounds share
+`TOOLTIP_BG_OPACITY` across Quickshell, GTK and Firefox (Paper: 0.94), while text
+stays fully opaque.
+
+Paper notifications share one continuous ribbon from the screen's top edge,
+right-aligned behind the bar, with centered text and one shallow bookmark cut.
+The existing layer animation slides the ribbon from the top. The bar stays on a
+stable overlay layer above the ribbon; its actual per-output height sets
+the notification content inset, including compact portrait bars. This uses two
+change-only runtime files, not a polling service. `src/fox-mako` builds the
+checksum-pinned Mako 1.11.0 source with an optional Cairo outline extension;
+upstream Mako still handles actions, history, DND, stacking and progress. The
+palette's `MAKO_PAPER_SHAPE` selects `bookmark`, `receipt` or `none`; compact OSDs
+keep their ordinary outline. Namespaced configuration comments are ignored by
+stock Mako, and `fox-notifications` falls back to the system binary. The drawer
+installer backs up and deploys the native binary, launcher and user-service
+drop-in. Its dependency list includes the native rendering/build libraries.
+The umbrella `make install` defers this optional renderer to that module, so the
+build happens after dependencies and cannot bypass the old binary's backup.
+Palette-only refreshes reload Mako without clearing its queue; a changed renderer
+binary restarts the service so newly installed banner code takes effect. Failed
+builds preserve the installed notification files. No envelope pockets or punched-hole
+margins are applied.
 LSP symbol-renaming prompts use a correction slip: the old name in readable gray,
 the editable name on blush, Enter to confirm and Escape to cancel. Other input
 prompts keep their existing behavior; narrow terminals or missing NUI use the
@@ -568,6 +616,26 @@ stop when idle; four-second background refreshes do not animate them.
 The drawer's shared shortcut hints use blush-filled keycaps with pencil lettering on Paper, and empty
 lists show a pencil with context-sensitive guidance. Tooltips reveal clipped text
 or extra metadata instead of repeating short labels that already fit.
+Paper drawers extend continuously from the screen's top edge and slide their
+whole sheet down and back up behind the bar. The content inset follows the
+actual bar height, preserving the menu layout on portrait outputs. A missing
+bookmark on a compact bar keeps the drawer in that output's host; hiding the
+bar leaves a screen-edge sheet. The close animation releases keyboard input
+immediately. The drawer uses the same flat top, shallow V-cut and pencil shadow
+as the bar ribbons. Its native host surface keeps a stable size during opening,
+closing and hover tips; the input mask and reserved desktop space still follow
+only the bar and visible sheet. A targeted `foxml-bar` no-animation layer rule
+keeps compositor effects from moving the row while Quickshell animates content.
+Paper's bar keeps a stable Overlay layer so notification ribbons stay behind it
+throughout their closing animation. Fullscreen workspaces still hide the bar
+unless a drawer or notification needs it; notification coverage ends after the
+closing transition, without switching the bar between compositor layers.
+Top-bar hover text, workspace hints and tray hints slide out as smaller ribbons
+behind their bookmarks. These hints are click-through, delay their appearance,
+wrap within the output width, and retract when a drawer opens. Workspace-switch
+notifications (`focus-pulse`) inherit the hanging Mako ribbon; volume/brightness
+OSDs retain their compact pencil rulers. The notification launcher explicitly
+selects the rendered XDG config so an older `~/.mako/config` cannot shadow it.
 Shell and tmux fzf matches share `FZF_MATCH_*`/`FZF_META_FG` palette tokens; Firefox
 find colors use `FF_FIND_BG/FG`, merged into its preferences by the specials module
 (`--render-only` or full install). Firefox reads these preferences on its next launch.

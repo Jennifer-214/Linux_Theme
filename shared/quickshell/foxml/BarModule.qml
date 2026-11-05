@@ -48,7 +48,7 @@ Item {
         sourceComponent: module.name === "tray" ? tray : workspaces
     }
     Component { id: tray; BarTray { theme: module.theme; spec: module.spec; panel: module.panel } }
-    Component { id: workspaces; BarWorkspaces { theme: module.theme; spec: module.spec; output: module.panel.screen; depth: module.depth; compact: module.compact; tight: module.tight; maxWidth: module.workspaceBudget } }
+    Component { id: workspaces; BarWorkspaces { theme: module.theme; spec: module.spec; panel:module.panel; output: module.panel.screen; depth: module.depth; compact: module.compact; tight: module.tight; maxWidth: module.workspaceBudget } }
     BarRibbon { theme: module.theme; anchors.fill: parent; depth: module.depth; visible: module.name === "custom/logo"; selected: module.focused; holdingPaper: module.focused; pressed: mouse.pressed; hovered: mouse.containsMouse && module.interactive }
     Rectangle {
         anchors.horizontalCenter: parent.horizontalCenter
@@ -92,5 +92,5 @@ Item {
         onClicked: event => module.runAction(event.button === Qt.RightButton ? "on-click-right" : event.button === Qt.MiddleButton ? "on-click-middle" : "on-click")
         onWheel: event => { module.runAction(event.angleDelta.y > 0 ? "on-scroll-up" : "on-scroll-down"); event.accepted = true; }
     }
-    BarHint { theme: module.theme; visible: !module.special && mouse.containsMouse && module.spec.tooltip !== false && !!module.sample.tooltip; text: module.sample.tooltip }
+    BarBannerHint { theme:module.theme; panel:module.panel; hovered:!module.special && mouse.containsMouse && !mouse.pressed && module.spec.tooltip !== false; text:module.sample.tooltip || "" }
 }

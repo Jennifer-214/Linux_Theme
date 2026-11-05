@@ -72,7 +72,7 @@ modules/symlinks.o:     modules/symlinks_data.hpp
 modules/specials.o:     core/built_tools.hpp modules/nvidia_modules.hpp modules/firefox_appearance.hpp
 modules/hidepid.o:      modules/hidepid_check.hpp
 modules/foxml_health_boot.o: modules/foxml_health_boot_script.hpp
-modules/post_install.o: modules/gtk_appearance.hpp modules/firefox_appearance.hpp
+modules/post_install.o: modules/gtk_appearance.hpp modules/firefox_appearance.hpp modules/notification_refresh.hpp
 
 # Sidecar lives in ../fox-monitor now. Re-tag the modules that include it
 # (directly or via personalize.hpp) so a sidecar-header edit triggers a
@@ -124,6 +124,7 @@ test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_c
 	@./tests/test_gtk_appearance
 	@./tests/test_icon_deploy
 	@./tests/test_firefox_appearance
+	@./tests/test_notification_refresh
 	@bash ./tests/lint_shell_assets.sh
 	@bash ./tests/lint_unit_escaping.sh
 
@@ -135,6 +136,14 @@ tests/test_registry: tests/test_registry.cpp core/registry.o
 
 
 test: tests/test_firefox_appearance
+test: tests/test_notification_refresh
+
+tests/test_notification_refresh: tests/test_notification_refresh.cpp modules/notification_refresh.hpp
+	$(CXX) $(CXXFLAGS) $< -o $@
+
+test-notification-refresh: tests/test_notification_refresh
+	./tests/test_notification_refresh
+.PHONY: test-notification-refresh
 
 tests/test_firefox_appearance: tests/test_firefox_appearance.cpp modules/firefox_appearance.hpp core/backup.o $(FOX_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) $(filter %.cpp %.o %.a,$^) -o $@

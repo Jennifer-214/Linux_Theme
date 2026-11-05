@@ -5,6 +5,10 @@ const source = fs.readFileSync(new URL('../shared/quickshell/foxml/BarLogic.js',
 const ctx = vm.createContext({});
 vm.runInContext(source.replace('.pragma library', ''), ctx);
 const plain = value => JSON.parse(JSON.stringify(value));
+assert.equal(ctx.fullscreenWorkspace(null),false);
+assert.equal(ctx.fullscreenWorkspace({hasFullscreen:true,toplevels:{values:[{lastIpcObject:{fullscreen:1}}]}}),false,'maximized windows must keep the bar visible');
+assert.equal(ctx.fullscreenWorkspace({hasFullscreen:true,toplevels:{values:[{lastIpcObject:{fullscreen:2}}]}}),true);
+assert.equal(ctx.fullscreenWorkspace({hasFullscreen:false,toplevels:{values:[]}}),false);
 const config = {'modules-left':['group/one'], 'modules-right':['custom/x'],
     'group/one':{modules:['custom/x','group/cycle','memory']}, 'group/cycle':{modules:['group/one']},
     'custom/x':{exec:'printf hello', interval:3}};

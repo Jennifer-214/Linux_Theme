@@ -139,7 +139,7 @@ local function filename()
   return vim.api.nvim_eval_statusline(vim.wo[editor].statusline,{winid=editor,maxwidth=150}).str
 end
 local match=vim.api.nvim_get_hl(0,{name='MatchParen',link=false})
-assert(match.fg==0xb8336a and match.underline and not match.bold)
+assert(match.fg==0x2b2b2d and match.bg==0xf1d6de and match.bold and not match.underline)
 local before=filename()
 require('neo-tree.command').execute({action='focus',position='left',dir=project})
 vim.wait(300)

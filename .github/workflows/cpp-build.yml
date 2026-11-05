@@ -7,9 +7,8 @@ on:
 
 jobs:
   build-and-test:
-    # Ubuntu has g++ 13 + libcurl headers in apt; that's enough to build
-    # every src/fox-*/ tool. We don't need Arch here — the build only
-    # cares about a recent libstdc++ and a libcurl-dev. Distro-specific
+    # Ubuntu provides the C++ toolchain and native Mako rendering libraries.
+    # Distro-specific
     # behaviour (pacman, systemd, hyprland) is exercised in a separate
     # integration step on a real Arch host, not here.
     runs-on: ubuntu-latest
@@ -21,7 +20,9 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends \
-            g++ make libcurl4-openssl-dev
+            g++ make libcurl4-openssl-dev python3 pkg-config \
+            libcairo2-dev libpango1.0-dev libglib2.0-dev libgdk-pixbuf-2.0-dev \
+            libsystemd-dev libwayland-dev wayland-protocols
 
       - name: Fetch nlohmann/json header (fox-intel dep)
         run: |

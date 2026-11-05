@@ -1,0 +1,17 @@
+#!/bin/sh
+# The custom binary implements upstream Mako, with optional paper outlines.
+# Keep system Mako available when the native extension has not been built.
+config_file="${XDG_CONFIG_HOME:-$HOME/.config}/mako/config"
+if [ -r "$config_file" ]; then
+    # Mako otherwise prefers an old ~/.mako/config over the rendered XDG file.
+    # Explicit arguments from the caller can still override this default.
+    set -- --config "$config_file" "$@"
+fi
+if [ -x "$HOME/.local/bin/fox-mako" ]; then
+    if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+        export FOXML_MAKO_BANNER_STATE="$XDG_RUNTIME_DIR/foxml-mako-banner"
+        export FOXML_MAKO_BAR_GEOMETRY="$XDG_RUNTIME_DIR/foxml-bar-geometry"
+    fi
+    exec "$HOME/.local/bin/fox-mako" "$@"
+fi
+exec mako "$@"

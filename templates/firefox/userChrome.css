@@ -525,7 +525,7 @@ notification {
    color here, so tooltips came out as a faint, see-through box. */
 tooltip {
   appearance: none !important;
-  background: var(--fox-bg) !important;
+  background: rgba({{BG_R}}, {{BG_G}}, {{BG_B}}, {{TOOLTIP_BG_OPACITY}}) !important;
   color: var(--fox-fg) !important;
   border: 1px solid var(--fox-frame) !important;
   border-radius: var(--fox-radius-sm) !important;

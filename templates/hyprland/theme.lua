@@ -123,6 +123,8 @@ hl.animation({ leaf = "fadeOut",     enabled = true, speed = 4,  bezier = "foxEa
 hl.animation({ leaf = "workspaces",  enabled = true, speed = 5,  bezier = "foxSnap", style = "{{HYPR_WS_ANIM}}" })
 hl.animation({ leaf = "layersIn",    enabled = true, speed = 4,  bezier = "foxSnap", style = "slide top" })
 hl.animation({ leaf = "layersOut",   enabled = true, speed = 4,  bezier = "foxEase", style = "slide top" })
+-- The shared bar surface stays still; its drawers animate inside Quickshell.
+hl.layer_rule({ match = { namespace = "^(foxml-bar)$" }, no_anim = true })
 
 -- Cursor theme follows the palette (environment.lua sets the search path + size)
 hl.env("XCURSOR_THEME", "{{CURSOR_THEME}}")

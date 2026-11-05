@@ -344,6 +344,37 @@ std::string required(const std::string& id) {
     if (id == "logout") return "fox-hl";
     return {};
 }
+void decorate_media(Json& row) {
+    // Query the same default player as the existing playback actions. No
+    // follower daemon: this shares the drawer's normal visible-page refresh.
+    std::string output;
+    if (!sh::capture({"playerctl", "--no-messages", "metadata", "--format",
+                      "{{title}}\x1f{{artist}}\x1f{{status}}\x1f{{mpris:artUrl}}"}, output)
+        || output.size() > 16384) return;
+    std::array<std::string, 4> fields;
+    size_t begin = 0;
+    for (size_t i = 0; i < fields.size(); ++i) {
+        const auto end = output.find('\x1f', begin);
+        if ((i < 3) == (end == std::string::npos)) return;
+        fields[i] = trim(output.substr(begin, end == std::string::npos ? end : end - begin));
+        begin = end == std::string::npos ? output.size() : end + 1;
+    }
+    for (size_t i = 0; i < 2; ++i) {
+        if (!safe_text(fields[i], 2048)) return;
+        for (char& c : fields[i]) if (static_cast<unsigned char>(c) < 32) c = ' ';
+    }
+    if (fields[2] != "Playing" && fields[2] != "Paused" && fields[2] != "Stopped") return;
+    if (!fields[0].empty()) row["label"] = fields[0];
+    row["detail"] = (fields[1].empty() ? "" : fields[1] + " · ") + fields[2];
+    row["mediaState"] = fields[2];
+    row["presentation"] = "media";
+    const auto& artwork = fields[3];
+    const bool supported = artwork.rfind("file:///", 0) == 0 || artwork.rfind("https://", 0) == 0 || artwork.rfind("http://", 0) == 0;
+    if (supported && safe_text(artwork) &&
+        std::none_of(artwork.begin(), artwork.end(), [](unsigned char c) { return c < 32; })) {
+        row["artwork"] = artwork;
+    }
+}
 bool decorate(Json& row) {
     const auto id = text(row, "id");
     if (text(row, "kind") == "page") return true;
@@ -351,6 +382,7 @@ bool decorate(Json& row) {
     if (!dependency.empty() && !sh::have(dependency)) {
         row["enabled"] = false; row["detail"] = dependency + " is not installed"; return false;
     }
+    if (id == "media-play-pause") decorate_media(row);
     State state;
     bool queried = false;
     if (id == "volume" || id == "volume-mute" || id == "mic-mute") { state = audio_state(id == "mic-mute"); queried = true; }

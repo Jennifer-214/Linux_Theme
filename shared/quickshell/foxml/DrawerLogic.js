@@ -1,9 +1,9 @@
 .pragma library
 
-function drawerPlacement(screenWidth, windowWidth, anchor) {
-    if (!anchor) return {left:Math.max(0, screenWidth-windowWidth-20), top:63};
+function drawerPlacement(screenWidth, windowWidth, anchor, connected) {
+    if (!anchor) return {left:Math.max(0, screenWidth-windowWidth-20), top:connected ? 0 : 63};
     var left = Math.max(11, Math.min(screenWidth-windowWidth-11, anchor.x+anchor.width/2-windowWidth/2));
-    return {left:left, top:Math.max(7, Math.floor(anchor.y)-9)};
+    return {left:left, top:connected ? 0 : Math.max(7, Math.floor(anchor.y)-9)};
 }
 
 function identity(item) {
@@ -78,8 +78,16 @@ function tooltipText(item) {
     return parts.filter(function(part, index) { return part && parts.indexOf(part) === index; }).join("\n");
 }
 
-function detailText(item) {
+function statusLabel(item) {
+    return item.presentation === "media" && (item.mediaState === "Paused" || item.mediaState === "Stopped") ? item.mediaState.toLowerCase() : "";
+}
+
+function detailText(item, stateTag) {
     var detail = String(item.disabledReason || item.detail || "");
+    if (stateTag && statusLabel(item)) {
+        if (detail === item.mediaState) detail = "";
+        else if (detail.endsWith(" · " + item.mediaState)) detail = detail.slice(0, -item.mediaState.length - 3);
+    }
     var normalized = detail.trim().toLowerCase();
     if (normalized === String(item.label || "").trim().toLowerCase()) return "";
     if ((item.kind === "slider" || item.kind === "toggle") && normalized === valueText(item, false, 0)) return "";

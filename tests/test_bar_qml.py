@@ -63,6 +63,8 @@ ShellRoot {
     property bool opened: false
     property string page: "root"
     property var attachment: null
+    property real stableSurfaceHeight:0
+    property real stableToolbarY:0
     function showFromBar(page, output, offset) { root.page = page; root.opened = true; }
     PaperBar { id: bar; controller: root }
     function findModule(item, name) {
@@ -86,6 +88,17 @@ ShellRoot {
         metric.runAction("on-click");
         idle.runAction("on-click");
         if (!idle.dataSource.idleEnabled) { console.error("BAR_IDLE_TOGGLE_FAILED"); Qt.exit(1); }
+        root.stableSurfaceHeight=window.implicitHeight;
+        root.stableToolbarY=window.moduleContainer.mapToItem(window.contentItem,0,0).y;
+        window.showHint(metric,"A longer pencil tooltip that wraps on narrow displays",metric);
+    }}
+    Timer { interval:1100; running:true; onTriggered: {
+        var window=bar.windows[0],hint=window.hintContainer;
+        if (!window.hintVisible || window.hintReveal<.99 || hint.x<0 || hint.x+hint.width>window.width
+            || hint.height<=window.barHeight || window.implicitHeight!==root.stableSurfaceHeight
+            || window.moduleContainer.mapToItem(window.contentItem,0,0).y!==root.stableToolbarY)
+            throw new Error("banner tooltip moved the bar or escaped its output");
+        window.hideHint(window.hintOwner);
     }}
     Timer { interval:1400; running:true; onTriggered: { bar.shown=false; if (bar.status().visible) {Qt.exit(1);return;} console.log("BAR_NATIVE_OK"); Qt.quit(); } }
 }

@@ -76,13 +76,14 @@ ShellRoot {
     }) || Quickshell.screens[0] || null
     readonly property var resolvedAnchor: attachment && desktopBar.item ? desktopBar.item.anchorFor(attachment.screenName, attachment.moduleName) : null
     readonly property var drawerScreen: resolvedAnchor ? resolvedAnchor.screen : openScreen || focusedScreen
-    readonly property var drawerHost: resolvedAnchor && desktopBar.item ? desktopBar.item.hostFor(drawerScreen.name) : null
+    readonly property var drawerHost: desktopBar.item && drawerScreen ? desktopBar.item.hostFor(drawerScreen.name) : null
+    readonly property real drawerTopInset: theme.paperDetails && drawerHost ? drawerHost.barHeight : 0
     readonly property var drawerPlacement: panel.placement
     readonly property real drawerWidth: panel.implicitWidth
     readonly property real drawerHeight: panel.implicitHeight
     property real drawerReveal: opened ? 1 : 0
     readonly property bool drawerVisible: opened || drawerReveal > .001
-    Behavior on drawerReveal { NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
+    Behavior on drawerReveal { NumberAnimation { duration: theme.paperDetails ? 220 : 160; easing.type: Easing.OutCubic } }
     Loader {
         id: desktopBar
         active: root.barEnabled
@@ -555,6 +556,8 @@ ShellRoot {
                 editing: root.editing, focus: root.focusArea, selected: Logic.identity(root.entries[root.itemIndex]),
                 group: root.groupId, count: root.entries.length, busy: root.actionBusy, error: root.failed,
                 attached:!!root.resolvedAnchor, screen:root.drawerScreen ? root.drawerScreen.name : "", reveal:root.drawerReveal,
+                connected:theme.paperDetails && !!root.drawerHost, topInset:root.drawerTopInset,
+                placement:root.drawerPlacement, width:root.drawerWidth, height:root.drawerHeight, sheetY:keyboard.y,
                 visible:root.drawerVisible, source:root.attachment ? root.attachment.moduleName : "" });
         }
     }
@@ -666,10 +669,10 @@ ShellRoot {
         screen: root.drawerScreen
         visible: root.drawerVisible && !root.drawerHost
         anchors { top: true; right: true }
-        readonly property var placement: Logic.drawerPlacement(screen ? screen.width : 1280, implicitWidth, root.resolvedAnchor)
+        readonly property var placement: Logic.drawerPlacement(screen ? screen.width : 1280, implicitWidth, root.resolvedAnchor, theme.paperDetails)
         margins { top: panel.placement.top; right: (panel.screen ? panel.screen.width : 1280) - panel.placement.left - panel.implicitWidth }
         implicitWidth: Math.min(root.pickerLayout ? 640 : 790, (screen ? screen.width : 1280) - 32)
-        implicitHeight: Math.min(root.pickerLayout && root.pickerPrompt ? 310 : 624, Math.max(180, (screen ? screen.height : 800) - placement.top - 16))
+        implicitHeight: Math.min((root.pickerLayout && root.pickerPrompt ? 310 : 624) + root.drawerTopInset, Math.max(180, (screen ? screen.height : 800) - placement.top - 16))
         color: "transparent"
         exclusionMode: ExclusionMode.Ignore
         WlrLayershell.namespace: "foxml-drawer"
@@ -682,37 +685,45 @@ ShellRoot {
             x: root.drawerHost ? panel.placement.left : 0
             y: root.drawerHost ? panel.placement.top : 0
             width: panel.implicitWidth
-            height: panel.implicitHeight * root.drawerReveal
-            opacity: Math.min(1, root.drawerReveal * 2)
+            height: panel.implicitHeight * (theme.paperDetails ? 1 : root.drawerReveal)
+            opacity: theme.paperDetails ? 1 : Math.min(1, root.drawerReveal * 2)
             clip: true
             onParentChanged: { if (root.opened) Qt.callLater(function() { keyboard.forceActiveFocus(); }); }
         FocusScope {
             id: keyboard
-            x: 0; y: -14 * (1-root.drawerReveal); width: panel.implicitWidth; height: panel.implicitHeight
+            x: 0
+            y: -(theme.paperDetails ? panel.implicitHeight : 14) * (1-root.drawerReveal)
+            width: panel.implicitWidth; height: panel.implicitHeight
             enabled: root.opened
             focus: true
             Keys.onPressed: event => root.key(event)
 
-            Rectangle {
-                visible: theme.paperDetails
-                x: 8; y: 8; width: parent.width - 10; height: parent.height - 10
-                color: theme.background; border.color: Qt.alpha(theme.line, .8)
-                radius: Math.max(4, Math.min(theme.radius, 12))
-            }
-
-            Rectangle {
+            Item {
                 anchors.fill: parent
                 anchors.margins: 5
-                color: theme.background
-                radius: Math.max(4, Math.min(theme.radius, 12))
-                border.width: 1
-                border.color: theme.line
-                PaperShadow { visible: theme.paperDetails; ink: theme.ink }
-                PaperGrain { anchors.fill:parent; theme:root.paperTheme }
+                anchors.topMargin: theme.paperDetails ? 0 : 5
+                BarRibbon {
+                    id: drawerBanner
+                    objectName: "drawer-banner"
+                    anchors.fill: parent
+                    visible: theme.paperDetails
+                    theme: root.paperTheme
+                    depth: height - 4
+                    inset: 0
+                }
+                Rectangle {
+                    visible: !theme.paperDetails
+                    anchors.fill: parent
+                    color: theme.background
+                    radius: Math.max(4, Math.min(theme.radius, 12))
+                    border.width: 1; border.color: theme.line
+                }
+                PaperGrain { anchors.fill:parent; anchors.bottomMargin:14; theme:root.paperTheme }
 
                 ColumnLayout {
                     anchors.fill: parent
                     anchors.margins: 24
+                    anchors.topMargin: 24 + root.drawerTopInset
                     spacing: 14
 
                     RowLayout {
@@ -907,11 +918,11 @@ ShellRoot {
                                     currentIndex: root.itemIndex
                                     keyNavigationEnabled: false
                                     boundsBehavior: Flickable.StopAtBounds
-                                    ScrollBar.vertical: ScrollBar {
+                                    ScrollBar.vertical: PageEdgeScrollBar {
                                         id: itemScroll
+                                        theme: root.paperTheme
                                         policy: ScrollBar.AsNeeded
                                         visible: itemList.contentHeight > itemList.height
-                                        contentItem: Rectangle { implicitWidth: 4; implicitHeight: 20; radius: 2; color: itemScroll.pressed && theme.paperDetails ? theme.detailAccent : theme.line }
                                     }
                                     delegate: Rectangle {
                                         id: itemRow
@@ -920,9 +931,11 @@ ShellRoot {
                                         property bool selected: index === root.itemIndex && root.focusArea === "items"
                                         property string menuIcon: Logic.iconName(modelData) ? Quickshell.iconPath(Logic.iconName(modelData), true) : ""
                                         readonly property var connection: theme.paperDetails ? Logic.connectionState(modelData) : null
+                                        readonly property bool mediaArtwork: modelData.presentation === "media" && Boolean(modelData.artwork)
+                                        readonly property string stateLabel: theme.paperDetails ? Logic.statusLabel(modelData) : ""
                                         width: Math.max(0, itemList.width - theme.scrollGutter)
                                         property bool card: modelData.presentation === "project" || modelData.presentation === "library" || modelData.presentation === "download"
-                                        height: card ? 94 : modelData.kind === "slider" ? 91 : modelData.image ? 80 : 72
+                                        height: card ? 94 : modelData.kind === "slider" ? 91 : modelData.image || mediaArtwork ? 80 : 72
                                         radius: 4
                                         color: itemMouse.pressed ? Qt.alpha(theme.line, .35) : selected ? theme.focusFill : theme.paperDetails ? (itemMouse.containsMouse && modelData.enabled !== false ? theme.hoverFill : theme.background) : card ? theme.surface : root.buttonShade(false, itemMouse.containsMouse)
                                         border.width: theme.paperDetails || selected || card || itemMouse.containsMouse ? 1 : 0
@@ -952,7 +965,7 @@ ShellRoot {
                                             anchors.margins: 12
                                             spacing: 10
                                             Image {
-                                                visible: itemRow.connection === null && Boolean(modelData.image || itemRow.menuIcon)
+                                                visible: itemRow.connection === null && !itemRow.mediaArtwork && Boolean(modelData.image || itemRow.menuIcon)
                                                 source: modelData.image || itemRow.menuIcon
                                                 sourceSize.width: modelData.image ? 42 : 24
                                                 sourceSize.height: modelData.image ? 42 : 24
@@ -961,13 +974,26 @@ ShellRoot {
                                                 fillMode: Image.PreserveAspectFit
                                                 asynchronous: true
                                             }
+                                            MediaArtwork {
+                                                objectName: "media-artwork"
+                                                theme: root.paperTheme
+                                                visible: itemRow.mediaArtwork
+                                                source: itemRow.mediaArtwork ? modelData.artwork : ""
+                                                Layout.preferredWidth: visible ? 48 : 0
+                                                Layout.preferredHeight: 52
+                                            }
                                             ClipIcon { theme: root.paperTheme; visible: itemRow.connection !== null; linked: itemRow.connection === true; Layout.preferredWidth: visible ? 24 : 0; Layout.preferredHeight: 24 }
-                                            Text { textFormat: Text.PlainText; visible: itemRow.connection === null && !modelData.image && !itemRow.menuIcon; text: Logic.symbol(modelData); color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 16; font.weight: Font.Normal; Layout.preferredWidth: visible ? 24 : 0 }
+                                            Text { textFormat: Text.PlainText; visible: itemRow.connection === null && !itemRow.mediaArtwork && !modelData.image && !itemRow.menuIcon; text: Logic.symbol(modelData); color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 16; font.weight: Font.Normal; Layout.preferredWidth: visible ? 24 : 0 }
                                             ColumnLayout {
                                                 Layout.fillWidth: true
                                                 spacing: 4
-                                                Text { id: entryLabel; textFormat: Text.PlainText; text: modelData.label || ""; color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true }
-                                                Text { id: entryDetail; textFormat: Text.PlainText; text: Logic.detailText(modelData); visible: text.length > 0; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9; elide: Text.ElideRight; Layout.fillWidth: true }
+                                                RowLayout {
+                                                    Layout.fillWidth: true
+                                                    spacing: 8
+                                                    Text { id: entryLabel; textFormat: Text.PlainText; text: modelData.label || ""; color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true }
+                                                    StateTag { objectName:"media-state-tag"; theme:root.paperTheme; text:itemRow.stateLabel; visible:text.length>0 }
+                                                }
+                                                Text { id: entryDetail; textFormat: Text.PlainText; text: Logic.detailText(modelData, itemRow.stateLabel.length > 0); visible: text.length > 0; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9; elide: Text.ElideRight; Layout.fillWidth: true }
                                                 PencilProgress {
                                                     id: ruler
                                                     theme: root.paperTheme
@@ -1007,7 +1033,7 @@ ShellRoot {
                                             text: Logic.tooltipText(modelData)
                                             contentItem: Text { text: itemTip.text; textFormat: Text.PlainText; color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 10; wrapMode: Text.WrapAnywhere }
                                             background: Rectangle {
-                                                color:theme.background; border.color:theme.line; radius:4
+                                                color:theme.tooltipFill; border.color:theme.line; radius:4
                                                 Rectangle { x:0; y:(parent.height-height)/2; width:2; height:Math.min(16,parent.height-8); radius:1; color:theme.highlight; visible:theme.paperDetails }
                                             }
                                             width: Math.min(implicitWidth, itemRow.width)

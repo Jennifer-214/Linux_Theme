@@ -9,6 +9,7 @@ Flickable {
     required property var theme
     required property var spec
     required property var output
+    property var panel: null
     property real depth: 43
     property bool compact: false
     property bool tight: false
@@ -89,7 +90,7 @@ Flickable {
                         event.accepted = true;
                     }
                 }
-                BarHint { theme: workspaces.theme; visible: mouse.containsMouse; text: "Page " + tab.modelData.id + (tab.windows.length ? " · " + tab.windows.map(function(w) {return w.title;}).join("\n") : " · a little space") }
+                BarBannerHint { theme:workspaces.theme; panel:workspaces.panel; hovered:mouse.containsMouse && !mouse.pressed; text: "Page " + tab.modelData.id + (tab.windows.length ? " · " + tab.windows.map(function(w) {return w.title;}).join("\n") : " · a little space") }
             }
         }
     }

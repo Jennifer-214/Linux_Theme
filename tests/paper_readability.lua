@@ -6,6 +6,11 @@ local block=assert(source:match('%-%- >>> fox%-paper%-details\n(.-)\n%-%- <<< fo
 local apply=assert(source:match('(local function apply_foxml_theme%(%)\n.-\nend)\n\napply_foxml_theme%(%)'))
 local state=assert(loadstring('local map=vim.keymap.set\n'..palette..'\n'..block..'\n'..apply..'\napply_foxml_theme()\nreturn {P=P,Paper=Paper}'))()
 local P,Paper=state.P,state.Paper
+local comment=api.nvim_get_hl(0,{name='@comment',link=false})
+local unused=api.nvim_get_hl(0,{name='DiagnosticUnnecessary',link=false})
+assert(comment.italic and not comment.bold and comment.fg==tonumber(P.syn.comment:sub(2),16))
+assert(unused.fg~=comment.fg and not unused.italic and not unused.bg,'unused code looks like a comment or selected code')
+assert(api.nvim_get_hl(0,{name='Comment',link=false}).fg==comment.fg,'classic syntax differs from Treesitter comments')
 Paper.setup_popup_styles()
 local buf=api.nvim_get_current_buf();vim.bo[buf].buflisted=true
 vim.opt.rtp:append(vim.fn.expand('~/.local/share/nvim/site'))
@@ -29,6 +34,16 @@ assert(not vim.wo.list,'code whitespace markings leaked into Markdown')
 api.nvim_win_set_buf(0,buf);assert(vim.wo.list,'returning to code lost trailing-space markers')
 local member=api.nvim_get_hl(0,{name='@variable.member',link=false});local parameter=api.nvim_get_hl(0,{name='@lsp.type.parameter',link=false})
 assert(member.bold and member.fg~=parameter.fg and not parameter.italic)
+assert(parameter.fg~=comment.fg,'function inputs share the comment color')
+local function luminance(rgb)
+ local value=0
+ for _,part in ipairs({{16,.2126},{8,.7152},{0,.0722}})do
+  local channel=math.floor(rgb/2^part[1])%256/255
+  value=value+part[2]*(channel<=.04045 and channel/12.92 or ((channel+.055)/1.055)^2.4)
+ end
+ return value
+end
+assert(luminance(parameter.fg)<luminance(comment.fg)*.65,'parameters are too close in brightness to comments')
 local references=api.nvim_get_hl(0,{name='IlluminatedWordRead',link=false})
 assert(references.underline and not references.bg,'symbol tracing is not underline-only')
 local signature=api.nvim_get_hl(0,{name='LspSignatureActiveParameter',link=false})
@@ -70,8 +85,17 @@ local diag=assert(source:match('%-%- Diagnostics config\nvim.diagnostic.config%(
 assert(loadstring('local Paper,border=...\nvim.diagnostic.config('..diag..')'))(Paper,'rounded')
 local ns=api.nvim_create_namespace('paper_reading_checks')
 api.nvim_win_set_cursor(0,{1,1})
-vim.diagnostic.set(ns,buf,{{lnum=0,col=0,severity=vim.diagnostic.severity.WARN,message='First note'},{lnum=1,col=0,severity=vim.diagnostic.severity.WARN,message='Second note'}})
+vim.diagnostic.set(ns,buf,{{lnum=0,col=0,end_col=8,severity=vim.diagnostic.severity.WARN,message='First note',_tags={unnecessary=true}},{lnum=1,col=0,end_col=8,severity=vim.diagnostic.severity.WARN,message='Second note'}})
 vim.wait(30)
+local underline_ns=assert(vim.diagnostic.get_namespace(ns).user_data.underline_ns)
+local unnecessary=0
+local warning=0
+for _,mark in ipairs(api.nvim_buf_get_extmarks(buf,underline_ns,0,-1,{details=true}))do
+ if mark[4].hl_group=='DiagnosticUnnecessary' then
+  unnecessary=unnecessary+1;assert(mark[2]==0,'unused style leaked onto live code')
+ elseif mark[4].hl_group=='DiagnosticUnderlineWarn' then warning=warning+1 end
+end
+assert(unnecessary==1 and warning==2,'unused styling hid a warning or ignored its tag')
 local text_ns=assert(vim.diagnostic.get_namespace(ns).user_data.virt_text_ns)
 local marks=api.nvim_buf_get_extmarks(buf,text_ns,0,-1,{details=true})
 assert(#marks==1 and marks[1][2]==0,'off-line diagnostics still show messages: '..vim.inspect(marks))

@@ -176,8 +176,56 @@ EXERCISE = r'''
             root.hide();
         }
     }
+    function testFind(item, name) {
+        if (item.objectName === name) return item;
+        for (var child of item.children || []) {
+            var found = testFind(child, name);
+            if (found) return found;
+        }
+        return null;
+    }
+    Timer { interval:4300; running:true; onTriggered: {
+        root.opened=true; root.page="bookmarks"; root.focusArea="items"; root.itemIndex=0;
+        root.entries=Array.from({length:12},function(_,i){return {id:"fixture-"+i,label:"Page "+i,kind:"action"};});
+        itemList.positionViewAtBeginning();
+    }}
+    Timer { interval:4400; running:true; onTriggered: {
+        var marker=testFind(itemScroll,"page-edge-marker");
+        if (!itemScroll.visible || !marker || Math.abs(marker.mapToItem(itemList,0,0).y)>4)
+            throw new Error("page-edge marker did not start at the top");
+        itemList.contentY=itemList.originY+(itemList.contentHeight-itemList.height)*.5;
+    }}
+    Timer { interval:4500; running:true; onTriggered: {
+        var marker=testFind(itemScroll,"page-edge-marker");
+        if (Math.abs(marker.mapToItem(itemList,0,0).y-(itemList.height-marker.height)*.5)>4)
+            throw new Error("page-edge marker did not follow the middle of the page");
+        // Native ScrollBar position remains two-way connected to the view.
+        itemScroll.position=1-itemScroll.size;
+    }}
+    Timer { interval:4600; running:true; onTriggered: {
+        var marker=testFind(itemScroll,"page-edge-marker");
+        if (Math.abs(marker.mapToItem(itemList,0,0).y+marker.height-itemList.height)>4
+            || Math.abs(itemList.contentY-itemList.originY-itemList.contentHeight+itemList.height)>4)
+            throw new Error("native scrollbar did not reach the page bottom");
+        root.itemIndex=0;
+        root.entries=[{id:"media-play-pause",label:"A track",detail:"An artist · Paused",mediaState:"Paused",kind:"action",presentation:"media",artwork:Qt.resolvedUrl("paper-cat.png")}];
+    }}
+    Timer { interval:4700; running:true; onTriggered: {
+        var cover=testFind(itemList,"media-artwork"), tape=testFind(cover,"media-washi-tape");
+        if (itemScroll.visible || !cover.ready || !tape.visible)
+            throw new Error("media artwork/tape did not load or a short page kept its scrollbar");
+        if (!testFind(cover,"media-photo-mat").visible || testFind(itemList,"media-state-tag").text!=="paused"
+            || Math.abs(theme.tooltipFill.a-.94)>.005)
+            throw new Error("photo mat, matching state label or tracing-paper fill is missing");
+        root.activate(root.entries[0]);
+        if (JSON.stringify(actionProcess.command.slice(-2))!==JSON.stringify(["run","media-play-pause"]))
+            throw new Error("media artwork changed the playback action");
+        cover.source="";
+        if (cover.ready || tape.visible) throw new Error("empty artwork did not restore its fallback");
+        root.hide();
+    }}
     Timer {
-        interval: 4800; running: true
+        interval: 5000; running: true
         onTriggered: {
             var base = Quickshell.env("XDG_RUNTIME_DIR");
             root.showPicker(base + "/foxml-picker-abc123/request.json");
@@ -227,7 +275,7 @@ class DrawerQmlTest(unittest.TestCase):
             source = re.sub(r"^        (?:anchors \{.*|margins \{.*|exclusionMode:.*|WlrLayershell\..*)\n", "", source, flags=re.M)
             source = source.rsplit("\n}", 1)[0] + EXERCISE + "\n}\n"
             (directory / "shell.qml").write_text(source)
-            for name in ("DrawerLogic.js", "ClipIcon.qml", "LoadingDots.qml", "PencilProgress.qml", "PaperGrain.qml", "BarHint.qml"):
+            for name in ("DrawerLogic.js", "ClipIcon.qml", "LoadingDots.qml", "PencilProgress.qml", "PaperGrain.qml", "BarHint.qml", "PageEdgeScrollBar.qml", "MediaArtwork.qml", "StateTag.qml", "BarRibbon.qml"):
                 shutil.copyfile(ROOT / "shared/quickshell/foxml" / name, directory / name)
             shutil.copyfile(ROOT / "shared/quickshell/foxml/paper-cat.png", directory / "paper-cat.png")
             renderer = ROOT / "src/fox-render/fox-render-fast"
@@ -262,7 +310,7 @@ class DrawerQmlTest(unittest.TestCase):
             self.assertEqual([json.loads(line) for line in actions.read_text().splitlines()],
                              [["run", "volume", "47"], ["run", "project-terminal", "/a literal project"],
                               ["run", "project-bookmark", "/a literal project"], ["run", "drive-eject", "/dev/sda", "--confirm"],
-                              ["run", "download-folder", "/a literal download.txt"]])
+                              ["run", "download-folder", "/a literal download.txt"], ["run", "media-play-pause"]])
 
 
 if __name__ == "__main__":
