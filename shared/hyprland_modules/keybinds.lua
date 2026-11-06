@@ -25,6 +25,8 @@ hl.bind(mainMod .. " + F", hl.dsp.exec_cmd(browser))
 hl.bind(mainMod .. " + SHIFT + C", hl.dsp.exec_cmd(coding))
 -- FoxML drawers — apps, connections, sound, comfort and system.
 hl.bind(mainMod .. " + SHIFT + D", hl.dsp.exec_cmd(menu))
+-- Calendar beneath the clock banner (toggle).
+hl.bind(mainMod .. " + C", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu calendar"))
 -- Steam.
 hl.bind(mainMod .. " + SHIFT + M", hl.dsp.exec_cmd("steam steam://open/main"))
 -- Yazi file manager (toggle).
@@ -43,6 +45,8 @@ hl.bind(mainMod .. " + SHIFT + P", hl.dsp.exec_cmd("hyprpicker -a"))
 hl.bind(mainMod .. " + SHIFT + I", hl.dsp.exec_cmd(chat))
 -- Screenshot (GUI editor).
 hl.bind(mainMod .. " + SHIFT + O", hl.dsp.exec_cmd("~/.config/hypr/scripts/screenshot.sh"))
+-- Screenshot scrapbook (saved captures).
+hl.bind(mainMod .. " + CTRL + O", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu screenshots"))
 -- Toggle displays off (DPMS).
 hl.bind(mainMod .. " + SHIFT + L", hl.dsp.exec_cmd("~/.config/hypr/scripts/toggle_dpms.sh"))
 -- Toggle the desktop bar.

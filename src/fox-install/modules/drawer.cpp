@@ -2,10 +2,12 @@
 #include "../core/backup.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
+#include "../../fox-common/json.hpp"
 
 #include <filesystem>
 #include <cstdlib>
 #include <system_error>
+#include <fstream>
 
 namespace fs = std::filesystem;
 
@@ -64,13 +66,47 @@ void run_drawer(Context& ctx) {
         }
     }
     if (ec) { incomplete("could not read drawer configuration: " + ec.message()); return; }
+    // Add the scrapbook to an existing Desk without replacing the user's
+    // hierarchy, labels, order, favorites or other menu settings.
+    {
+        std::ifstream current(dest / "menus.json"), defaults(shared / "menus.json");
+        auto menu = nlohmann::json::parse(current, nullptr, false);
+        const auto shipped = nlohmann::json::parse(defaults, nullptr, false);
+        if (menu.is_object() && menu.contains("groups") && menu["groups"].is_array()
+            && shipped.is_object() && shipped.contains("groups") && shipped["groups"].is_array()) {
+            const auto field = [](const nlohmann::json& object, const char* key) -> std::string {
+            if (!object.is_object() || !object.contains(key) || !object[key].is_string()) return {};
+            return object[key].get<std::string>();
+        };
+        bool present = false;
+            for (const auto& group : menu["groups"]) if (group.contains("items") && group["items"].is_array())
+                for (const auto& item : group["items"])
+                    if (field(item, "page") == "screenshots" || field(item, "id") == "screenshots") present = true;
+            if (!present) for (auto& group : menu["groups"])
+                if (field(group, "id") == "desk" && group.contains("items") && group["items"].is_array()) {
+                    for (const auto& original : shipped["groups"]) if (field(original, "id") == "desk")
+                        for (const auto& item : original["items"]) if (field(item, "page") == "screenshots")
+                            group["items"].push_back(item);
+                    const auto upgraded = output / "menus.upgraded.json";
+                    std::ofstream file(upgraded); file << menu.dump(2) << '\n'; file.close();
+                    if (!file) { incomplete("could not prepare scrapbook menu upgrade"); return; }
+                    ok = deploy(upgraded, dest / "menus.json") && ok;
+                    break;
+                }
+        }
+    }
     ok = deploy(output / "Theme.qml", dest / "Theme.qml") && ok;
+    for (const auto& entry : fs::directory_iterator(output, ec)) {
+        if (entry.is_regular_file() && entry.path().extension() == ".svg")
+            ok = deploy(entry.path(), dest / entry.path().filename()) && ok;
+    }
+    if (ec) { incomplete("could not read drawer artwork: " + ec.message()); return; }
     for (const char* name : {"fox-desktop-menu", "fox-bar", "fox-hl", "fox-picker", "fox-menu", "fox-cheatsheet", "fox-sandbox",
                             "fox-ai-quick", "fox-wallpaper", "fox-password-copy"})
         ok = deploy(ctx.shared_dir / "bin" / name, ctx.home / ".local/bin" / name) && ok;
     for (const char* name : {"toggle_rofi.sh", "hub.sh", "network.sh", "bluetooth.sh", "audio_switcher.sh",
                             "powermenu.sh", "clipmanager.sh", "updates_menu.sh", "eww_action.sh",
-                            "start_waybar.sh", "startup.sh", "agent_rofi.sh", "panic.sh"}) {
+                            "start_waybar.sh", "startup.sh", "agent_rofi.sh", "panic.sh", "osd.sh", "screenshot.sh"}) {
         ok = deploy(ctx.shared_dir / "hyprland_scripts" / name,
                     ctx.config_home / "hypr/scripts" / name) && ok;
     }
@@ -92,6 +128,11 @@ void run_drawer(Context& ctx) {
         return;
     }
     if (std::getenv("WAYLAND_DISPLAY")) {
+        // Atomic replacements can leave Quickshell watching the old inode.
+        // A fresh engine also discovers newly installed component/IPC types.
+        std::string running;
+        if (sh::capture({"quickshell", "-c", "foxml", "ipc", "call", "drawer", "status"}, running))
+            sh::run({"quickshell", "-c", "foxml", "kill"});
         if (sh::run({(ctx.home / ".local/bin/fox-desktop-menu").string(), "--start"}) != 0)
             ui::warn("drawer startup failed; existing menus remain available");
         else ui::ok("drawer is ready; use fox-desktop-menu or your existing menu shortcut");

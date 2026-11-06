@@ -70,6 +70,66 @@ EXERCISE = r'''
     }}
     Timer { interval:2100; running:true; onTriggered: {
         if (root.drawerVisible) throw new Error("drawer remained visible");
+        root.show("calendar");
+    }}
+    Timer { interval:2400; running:true; onTriggered: {
+        var window=desktopBar.item.windows[0];
+        if (!root.calendarLayout || !calendarSheet.visible || !root.resolvedAnchor || root.attachment.moduleName!=="custom/clock")
+            throw new Error("keyboard calendar did not attach to the clock");
+        if (root.drawerWidth!==430 || !drawerBanner.visible || root.drawerPlacement.top!==0 || !keyboard.activeFocus)
+            throw new Error("calendar lost its compact banner or keyboard focus");
+        if (groupList.visible || !root.drawerReady || root.pageLoading || root.failed || viewProcess.running)
+            throw new Error("calendar queried a backend page or showed the menu sidebar");
+        var month=calendarSheet.month.getMonth(),year=calendarSheet.month.getFullYear();
+        root.key({key:Qt.Key_L,modifiers:0,accepted:false});
+        if (calendarSheet.month.getMonth()!==(month+1)%12) throw new Error("calendar next-month key failed");
+        root.key({key:Qt.Key_H,modifiers:0,accepted:false});
+        if (calendarSheet.month.getMonth()!==month || calendarSheet.month.getFullYear()!==year)
+            throw new Error("calendar previous-month key failed");
+        calendarSheet.today=new Date(2000,0,1,12);calendarSheet.month=new Date(2000,0,1,12);
+        calendarSheet.refreshToday();
+        if (calendarSheet.month.getFullYear()!==new Date().getFullYear()) throw new Error("open calendar did not follow date rollover");
+        calendarSheet.moveMonth(1);
+        root.key({key:Qt.Key_T,modifiers:0,accepted:false});
+        if (!calendarSheet.currentMonth) throw new Error("today key failed");
+        root.hide();
+    }}
+    Timer { interval:2700; running:true; onTriggered: {
+        if (root.drawerVisible || keyboard.enabled) throw new Error("calendar close kept its sheet or keyboard");
+        root.showFromBar("calendar",desktopBar.item.windows[0].screen.name,"custom/clock");
+    }}
+    Timer { interval:3000; running:true; onTriggered: {
+        if (!root.resolvedAnchor || root.attachment.moduleName!=="custom/clock" || !calendarSheet.currentMonth)
+            throw new Error("clock click did not open the current month");
+        root.showFromBar("calendar",desktopBar.item.windows[0].screen.name,"custom/clock");
+        if (root.opened || keyboard.enabled) throw new Error("second clock click did not toggle closed");
+        root.show("sound");
+    }}
+    Timer { interval:3300; running:true; onTriggered: {
+        if (root.calendarLayout || !groupList.visible || calendarSheet.visible || root.entries.length!==3)
+            throw new Error("normal drawer did not recover after calendar");
+        root.show("screenshots");
+    }}
+    Timer { interval:3600; running:true; onTriggered: {
+        if (!root.scrapbookLayout || !scrapbookSheet.visible || root.entries.length!==7 || groupList.visible)
+            throw new Error("scrapbook did not load its photo sheet");
+        root.key({key:Qt.Key_Down,modifiers:0,accepted:false});
+        if (root.itemIndex!==scrapbookSheet.columns) throw new Error("scrapbook grid navigation failed");
+        root.key({key:Qt.Key_C,modifiers:0,accepted:false});
+        if (actionProcess.command.slice(-3).join("|")!=="run|screenshot-copy|/sample/shot-3.png" || actionProcess.item.close)
+            throw new Error("copy does not preserve the selected picture or keeps the wrong action");
+        volumeSlip.show(200,false);
+        if (!volumeSlip.showing || volumeSlip.value!==150) throw new Error("volume slip level clamp failed");
+        volumeSlip.show(42,true);
+        if (!volumeSlip.muted || volumeSlip.value!==42) throw new Error("volume slip mute state failed");
+    }}
+    Timer { interval:4000; running:true; onTriggered: {
+        if (!root.opened || !root.scrapbookLayout || root.failed) throw new Error("copy closed or broke the scrapbook");
+        root.key({key:Qt.Key_Escape,modifiers:0,accepted:false});
+        if (root.opened || keyboard.enabled) throw new Error("scrapbook did not close cleanly");
+    }}
+    Timer { interval:5500; running:true; onTriggered: {
+        if (volumeSlip.showing || volumeSlip.displayable) throw new Error("volume slip did not expire");
         console.log("TUCKED_DRAWER_OK");Qt.quit();
     }}
 '''
@@ -89,11 +149,15 @@ class TuckedDrawer(unittest.TestCase):
             shutil.copytree(ROOT/"shared/quickshell/foxml",qml)
             subprocess.run([str(renderer),str(ROOT/"themes/FoxML_Paper/palette.sh"),str(ROOT/"templates/quickshell/foxml"),str(qml)],check=True,capture_output=True)
             config=work/"config/waybar";config.mkdir(parents=True)
-            layout={"modules-left":["custom/logo"],"modules-center":[],"modules-right":["custom/updates"],
+            layout={"modules-left":["custom/logo"],"modules-center":[],"modules-right":["custom/updates","custom/clock"],
+                "custom/clock":{"format":"Thursday 09♡09","on-click":"fox-desktop-menu calendar"},
                 "custom/logo":{"format":"✎","on-click":"fox-desktop-menu root"},
                 "custom/updates":{"format":"↧ 4","on-click":"fox-desktop-menu updates"}}
             for name in ["config","config_secondary"]:
                 (config/name).write_text(json.dumps(layout))
+            volume=(qml/"VolumeSlip.qml").read_text().replace("PanelWindow {","FloatingWindow {")
+            volume=re.sub(r"^    (?:anchors.*|margins\..*|exclusionMode:.*|WlrLayershell\..*)\n","",volume,flags=re.M)
+            (qml/"VolumeSlip.qml").write_text(volume)
             fixture=work/"fixture.json";fixture.write_text("{}")
             runtime=work/"runtime";runtime.mkdir(mode=0o700)
             source=(qml/"shell.qml").read_text().replace("    PanelWindow {","    FloatingWindow {")

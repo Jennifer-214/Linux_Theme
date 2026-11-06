@@ -19,12 +19,18 @@ name = pathlib.Path(sys.argv[0]).name
 args = sys.argv[1:]
 with open(os.environ["TEST_CALLS"], "a") as stream:
     stream.write(json.dumps([name, *args]) + "\n")
-if name == "quickshell":
+if name == "setsid" and args[:2] == ["-f", "quickshell"]:
+    if os.environ.get("TEST_LAUNCH_FAIL"): sys.exit(1)
+    pathlib.Path(os.environ["TEST_READY"]).touch()
+elif name == "quickshell":
     ready = pathlib.Path(os.environ["TEST_READY"])
     if "--daemonize" in args:
         if os.environ.get("TEST_LAUNCH_FAIL"): sys.exit(1)
         ready.touch()
     elif "status" in args:
+        if os.environ.get("TEST_INVALID_STATUS"):
+            print('Not ready to accept queries yet.'); sys.exit(0)
+        if ready.exists() and not os.environ.get("TEST_NEVER_READY"): print('{"open":false}')
         sys.exit(0 if ready.exists() and not os.environ.get("TEST_NEVER_READY") else 1)
     elif os.environ.get("TEST_ACTION_FAIL"):
         sys.exit(1)
@@ -38,6 +44,11 @@ elif name == "systemctl" and args and args[0] == "start" and os.environ.get("TES
 
 
 class DrawerEntrypoints(unittest.TestCase):
+    def test_start_waits_for_json_even_when_ipc_exits_zero(self):
+        result = self.run_script(LAUNCHER, "--start", TEST_INVALID_STATUS="1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("did not become ready", result.stderr)
+
     def setUp(self):
         # The machine may mount /tmp noexec; executable fixtures stay in the writable repo.
         self.tmp = tempfile.TemporaryDirectory(prefix=".fox-menu-test-", dir=ROOT / "tests")
@@ -55,7 +66,7 @@ class DrawerEntrypoints(unittest.TestCase):
         self.fake = self.bin / "fake-command"
         self.fake.write_text(FAKE)
         self.fake.chmod(0o755)
-        for name in ("quickshell", "fox-drawer", "pkill", "rofi", "sleep", "kitty", "notify-send", "checkupdates", "systemctl", "journalctl"):
+        for name in ("quickshell", "setsid", "fox-drawer", "pkill", "rofi", "sleep", "kitty", "notify-send", "checkupdates", "systemctl", "journalctl"):
             (self.bin / name).symlink_to(self.fake)
         for name in ("mkdir", "rm", "flock", "bash"):
             (self.bin / name).symlink_to(shutil.which(name))
@@ -118,7 +129,7 @@ class DrawerEntrypoints(unittest.TestCase):
         self.ready.unlink()
         result = self.run_script(LAUNCHER, "--start")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(["quickshell", "-c", "foxml", "--no-duplicate", "--daemonize"], self.calls())
+        self.assertIn(["setsid", "-f", "quickshell", "-c", "foxml", "--no-duplicate"], self.calls())
         self.assertFalse(any("toggle" in row or "open" in row for row in self.calls()))
 
     def test_failed_readiness_has_a_bounded_exit(self):

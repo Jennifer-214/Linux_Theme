@@ -237,6 +237,7 @@ Adding a new theme = writing one `palette.sh` file. All app configs render from 
 | Hyprland | `templates/hyprland/theme.conf` | `~/.config/hypr/modules/theme.conf` |
 | Hyprlock | `templates/hyprlock/hyprlock.conf` | `~/.config/hypr/hyprlock.conf` |
 | Neovim | `templates/nvim/init.lua` | `~/.config/nvim/init.lua` |
+| Swappy screenshot editor | `templates/swappy/config` | `~/.config/swappy/config` |
 | Kitty | `templates/kitty/kitty.conf` | `~/.config/kitty/kitty.conf` |
 | Waybar | `templates/waybar/style.css` | `~/.config/waybar/style.css` |
 | Tmux | `templates/tmux/.tmux.conf` | `~/.tmux.conf` |
@@ -351,8 +352,29 @@ The Hyprland menu shortcuts call the drawer directly, including Wi-Fi, Bluetooth
 audio outputs, clipboard, windows and agent notes. Agent notes jump directly
 to their exact tmux target; a stale or unreachable note stays available for
 review, and clearing all notes asks for confirmation. Paper's bar uses a pencil
-launcher, notebook workspace tabs and a handwritten clock tab. Unused rofi-calc
-and rofi-emoji add-ons are no longer in the default package list; installed
+launcher, notebook workspace tabs and a handwritten clock tab. Click the clock or
+press `Alt+C` to toggle a calendar sheet beneath its banner on the focused monitor.
+Past dates have light pencil X's; today has an uneven, open blush circle. A tiny cat
+keeps the handwritten month company. Use `h/l`, Left/Right or Page Up/Down to change
+months, `t` to return to today, and Escape to close. The date refreshes while open,
+including across midnight.
+
+`Alt+Ctrl+O` or Desk → Screenshot scrapbook opens the newest 64 saved screenshots
+as taped photo prints with handwritten timestamps. Arrow keys or `h/j/k/l` choose
+a picture; `c` copies it, Enter opens it, and Escape closes. The sheet also has
+copy, open, folder and new-capture buttons. It reads `~/Pictures/Screenshots`, or
+the optional `screenshots_directory` in `menus.json`, and skips symlinks and partial
+files. Swappy uses the current palette's accent ink, configured font and thin
+pencil strokes. Screenshot pixels are preserved unless you annotate them.
+Paper's volume keys show a little speaker slip with a blush ruler, percentage and
+mute state; brightness retains its existing indicator. Other palettes and an
+unavailable drawer keep the notification fallback. New Neovim windows show a
+notebook cover with the current directory, today's date, the existing editor
+shortcuts and three recent pages. All of these ship through rendering and the
+native installer; existing custom menu entries are preserved when adding the
+scrapbook to Desk.
+
+Unused rofi-calc and rofi-emoji add-ons are no longer in the default package list; installed
 packages are not removed. The overlapping Rofi desktop menus are retired;
 their old script names now delegate to Quickshell, preserving custom shortcuts.
 A failed drawer reports an error instead of launching a second menu implementation.
@@ -399,8 +421,11 @@ error. Both Hyprland formats start it with normal colors; `--deps` installs it.
 Paper's workspace tabs include monochrome icons for open Hyprland windows; an
 editor inside Kitty/tmux uses the terminal icon. Kitty leaves its own tab row
 hidden, while tmux adds a pink dot to the existing window label on a bell.
-Kitty's background is 80% opaque so the paper wallpaper can show through while
-text stays solid.
+Kitty's background is 97% opaque, with undimmed text so it stays readable on
+lower-contrast displays. Paper windows keep their text at full opacity when focus
+moves between monitors. Blush selections use a stronger dusty pink, with darker
+comments and line numbers; functions, parameters, types and literals retain
+distinct inks and emphasis.
 The session switcher also marks sessions with a bell in a background window,
 using the window flags already included in its normal session query.
 
@@ -470,7 +495,9 @@ pencil veil. Btop's CPU, memory-use, and download strokes carry blush gradients,
 while process text and window frames retain their existing colors. Thunar filename
 selections use blush with soft pencil edges. Native Mako notes add a small RECEIVED
 stamp, with room for the body; explicit saved/copied/ready categories give that stamp
-useful words without repeating them in the title. DND is applied after all app styles.
+useful words without repeating them in the title. A faint, broken pencil outline
+frames those stamps in the native renderer; stock Mako keeps the blush text labels.
+DND is applied after all app styles.
 Volume OSDs retain their compact format; workspace notices use the banner and replace
 the previous workspace notice. Yazi uses current theme sections
 and palette-driven notebook tabs (`YAZI_TAB_ACTIVE_FG/BG`); Delta file labels use the
@@ -610,7 +637,9 @@ The installer deploys generated vectors and MIME aliases through the same atomic
 backup-first path as ordinary configs. Icon-cache refreshes also snapshot the old
 cache before replacing it. New files have no older version to back up; rendered
 output is rebuildable from the shared definition and the selected palette.
-The lock screen shows a blush Caps Lock tag only while a readable keyboard LED is
+The lock screen writes the weekday and date in lowercase handwriting with a blush
+underline, using the local date. The clock, password field and cat keep their spacing.
+It shows a blush Caps Lock tag only while a readable keyboard LED is
 on; its read-only helper runs only while locked. It sits above the password field,
 clear of the note and sleeping cat; centered anchors preserve this spacing in
 portrait layouts. Connection rows use linked paperclips
@@ -643,16 +672,30 @@ selects the rendered XDG config so an older `~/.mako/config` cannot shadow it.
 Shell and tmux fzf matches share `FZF_MATCH_*`/`FZF_META_FG` palette tokens; Firefox
 find colors use `FF_FIND_BG/FG`, merged into its preferences by the specials module
 (`--render`, `--render-only` or full install). Firefox reads these preferences on its next launch.
-Paper's sleeping-pencil-cat wallpaper is supplied as a 4K image with its
-original 1080p source. The cursor installer also repairs desktop preferences and
+Paper's sleeping-pencil-cat wallpaper has matching landscape and portrait
+compositions in warm bone white. Tall outputs use the portrait companion so the
+cat stays in the lower-right corner. The cursor installer also repairs desktop preferences and
 fallback-theme inheritance when the cursor assets are already installed.
-The wallpaper's cat, cut out with a rising zzz, is `shared/quickshell/foxml/paper-cat.png`.
+The wallpaper's cat, cut out with a rising zzz and faint blush cheeks, is
+`shared/quickshell/foxml/paper-cat.png`. The drawer's line-drawn cat has matching cheeks.
 It sits on empty drawer pages and under the lock screen note (`HYPRLOCK_CAT_Y`), and
-replaces the logo and wordmark on Firefox's new tab. That page blocks `file:` images, so
-its copy is embedded in `userContent.css`. Pages with their own empty-state line keep it;
+replaces the logo and wordmark on Firefox's new tab, above “a fresh page.” That page
+blocks `file:` images, so both render paths embed this same PNG in `userContent.css`.
+Pages with their own empty-state line keep it;
 the rest say "nothing here".
 Firefox's new-tab shortcuts use cream paper labels with small folded corners,
 graphite names and blush underlines on hover or keyboard focus.
+Downloads, Bookmarks and Clipboard have their own pencil illustrations on empty
+pages. Standard drawer groups, Applications, Passwords and Lock screen use matching
+pencil icons; custom menu icons and application logos stay available. Project cards
+have index-card rules, drive cards have checkout-stamp outlines, and download slips
+have shallow torn edges. One still flourish marks each drawer heading: a blush
+swash on Home, a circled count on Bookmarks, and a pencil-like underline elsewhere.
+Clipboard image thumbnails sit in little cream photo prints with a deeper bottom
+margin and one blush photo corner. Failed previews keep a readable image glyph.
+Fastfetch puts a small ASCII cat on a machine library card beside labeled specs;
+other palettes retain their existing logo and labels. The Paper wallpaper includes
+the same soft cheeks, and supplies the matching lock and login backgrounds.
 The `flower` option in `CURSOR_RECOLOR` swaps the busy
 cursors for a turning flower in the pointer's colours. The pointer is size 30 on every
 theme and display. `PAPIRUS_FOLDER_RECOLOR` builds the `foxml-blush` folders from
@@ -743,7 +786,7 @@ Stack: LSP via mason, DAP, cmake-tools, neotest, lazygit, telescope, harpoon, ne
 - `~/.config/hypr/modules/monitors.conf` — name-keyed Hyprland rules. Unplugged monitors are silently skipped, so undocking just works; plugging the same external back in restores the saved layout.
 - `~/.config/foxml/monitor-layout.conf` — sidecar consumed by `start_waybar.sh` and `rotate_wallpaper.sh`.
 
-The `personalize` module pre-renders a wallpaper variant per **unique** monitor resolution: `magick <src> -resize ${WxH}^ -gravity center -extent ${WxH}` writes `${name}_${WxH}.${ext}` for each entry in the sidecar's `MONITOR_RESOLUTIONS` list (e.g. `eDP-1:1920x1080 DP-2:1440x2560`). Each variant is scaled-to-cover at the monitor's native resolution then center-cropped — pixel-perfect, no runtime scaling. `rotate_wallpaper.sh` picks the matching variant per monitor from `hyprctl monitors`, falling back to the source if a variant is missing. Source wallpapers smaller than your monitor will upscale (and look soft); the shipped FoxML wallpapers are large enough that 4K monitors don't see this.
+The `personalize` module pre-renders a wallpaper variant per **unique** monitor resolution, named `${name}_${WxH}.${ext}` for each sidecar entry (for example, `eDP-1:1920x1080 DP-2:1440x2560`). Tall outputs prefer a matching `${name}_portrait` source when one is supplied; ordinary photos keep their centered crop. Authored orientation pairs preserve their drawing with Lanczos resizing, while ordinary upscaling crops can use Real-ESRGAN. Variants are published atomically at native dimensions. `rotate_wallpaper.sh` picks the matching variant per monitor; `fox-monitor reconcile` refreshes only the active wallpaper so a hotplug does not rebuild the whole collection.
 
 External monitors get a stripped-down secondary waybar (workspaces + clock + fox/SysHub launcher) — main bar stays on the laptop. Single-monitor setups render the original full bar unchanged.
 

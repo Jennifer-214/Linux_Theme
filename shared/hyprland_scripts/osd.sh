@@ -24,6 +24,17 @@ case "$TYPE" in
         
         ICON="󰕾"
         [[ "$MUTE" == "yes" ]] && ICON="󰝟"
+
+        # Paper's shared Quickshell process draws the little volume slip. A
+        # missing service retains the normal notification fallback below.
+        palette="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/modules/border_colors.sh"
+        [[ -r "$palette" ]] && source "$palette"
+        quiet=false
+        [[ "$MUTE" == "yes" ]] && quiet=true
+        if [[ "${C_LITTLE_DETAILS:-}" == fox-little-details-on ]] &&
+            quickshell -c foxml ipc call volume present "$VOL" "$quiet" >/dev/null 2>&1; then
+            exit 0
+        fi
         
         notify-send -a fox-osd -h string:x-canonical-private-synchronous:volume \
                     -h int:value:"$VOL" \

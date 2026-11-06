@@ -538,6 +538,39 @@ class BackendTests(unittest.TestCase):
             self.assertIn(['setsid','-f','bash',str(helper),mode],self.calls())
         self.assertFalse(any(call[0]=='rofi' or 'FOXML_MENU_LEGACY=1' in call for call in self.calls()))
 
+    def test_scrapbook_lists_only_pictures_and_encodes_literal_paths(self):
+        folder = self.home / 'Pictures/Screenshots'; folder.mkdir(parents=True)
+        older = folder / 'older.png'; older.write_bytes(b'old'); os.utime(older, (100, 100))
+        picture = folder / 'a #picture?; $(nope).PNG'; picture.write_bytes(b'png image'); os.utime(picture, (200, 200))
+        (folder / 'notes.txt').write_text('not a photo')
+        (folder / '.hidden.png').write_bytes(b'hidden')
+        outside = self.home / 'outside.png'; outside.write_bytes(b'outside')
+        (folder / 'linked.png').symlink_to(outside)
+        rows = self.invoke('view', 'screenshots')['items']
+        self.assertEqual([row['label'] for row in rows], [picture.name, older.name])
+        self.assertEqual(rows[0]['image'], picture.as_uri())
+        self.assertEqual(rows[0]['presentation'], 'screenshot')
+        self.assertTrue(self.invoke('run', 'screenshot-copy', str(picture))['ok'])
+        self.assertEqual(self.clipboard_path.read_bytes(), b'png image')
+        self.assertIn(['wl-copy', '--type', 'image/png'], self.calls())
+        self.assertTrue(self.invoke('run', 'screenshot-open', str(picture))['ok'])
+        self.assertIn(['setsid', '-f', 'xdg-open', str(picture)], self.calls())
+        self.failed('run', 'screenshot-copy', str(outside))
+        self.failed('run', 'screenshot-open', str(folder / 'linked.png'))
+        picture.unlink()
+        self.failed('run', 'screenshot-copy', str(picture))
+
+    def test_scrapbook_directory_override_and_missing_folder(self):
+        self.assertEqual(self.invoke('view', 'screenshots')['items'], [])
+        folder = self.home / 'Custom shots'; folder.mkdir(); (folder / 'image.jpg').write_bytes(b'jpeg')
+        config = json.loads(self.config.read_text()); config['screenshots_directory'] = '~/Custom shots'
+        self.config.write_text(json.dumps(config))
+        rows = self.invoke('view', 'screenshots')['items']; self.assertEqual(len(rows), 1)
+        self.assertTrue(self.invoke('run', 'screenshot-copy', rows[0]['argument'])['ok'])
+        self.assertIn(['wl-copy', '--type', 'image/jpeg'], self.calls())
+        config['screenshots_directory'] = 'relative'; self.config.write_text(json.dumps(config))
+        self.failed('view', 'screenshots')
+
     def test_incoming_tray_filters_temporary_files_and_orders_by_modified_time(self):
         folder = self.home / 'Downloads'
         folder.mkdir()

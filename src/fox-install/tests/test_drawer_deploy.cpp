@@ -16,7 +16,8 @@ std::string read(const fs::path& path) {
 }
 
 int main() {
-    std::string pattern = (fs::temp_directory_path() / "fox-drawer-deploy-XXXXXX").string();
+    // The fixture executes fake build tools; /tmp is noexec on FoxML systems.
+    std::string pattern = (fs::current_path() / ".fox-drawer-deploy-XXXXXX").string();
     const char* temp = ::mkdtemp(pattern.data());
     if (!temp) return 1;
     const fs::path root(temp);
@@ -80,18 +81,18 @@ int main() {
     ::setenv("PATH", path.c_str(), 1);
     put(ctx.script_dir / "src/fox-drawer/fox-drawer", "new backend", true);
     put(ctx.script_dir / "src/fox-render/fox-render-fast",
-        "#!/bin/sh\nmkdir -p \"$3\"\nprintf 'rendered palette\\n' > \"$3/Theme.qml\"\n", true);
+        "#!/bin/sh\nmkdir -p \"$3\"\nprintf 'rendered palette\\n' > \"$3/Theme.qml\"\nprintf 'new pencil icon\\n' > \"$3/paper-icon.svg\"\n", true);
     put(ctx.script_dir / "src/fox-mako/Makefile", "all:\n");
     put(ctx.script_dir / "src/fox-mako/fox-mako", "new Mako", true);
     put(ctx.templates_dir / "waybar/drawer-state.css", "runtime default");
-    for (const char* name : {"shell.qml", "BarBannerHint.qml", "PageEdgeScrollBar.qml", "MediaArtwork.qml", "StateTag.qml"})
+    for (const char* name : {"shell.qml", "BarBannerHint.qml", "PageEdgeScrollBar.qml", "MediaArtwork.qml", "StateTag.qml", "ScrapbookSheet.qml", "VolumeSlip.qml"})
         put(ctx.shared_dir / "quickshell/foxml" / name, std::string("new ") + name);
     put(ctx.shared_dir / "quickshell/foxml/menus.json", "new defaults");
     for (const char* name : {"fox-desktop-menu", "fox-bar", "fox-hl", "fox-picker", "fox-menu", "fox-cheatsheet", "fox-sandbox",
                             "fox-ai-quick", "fox-wallpaper", "fox-password-copy", "fox-notifications"})
         put(ctx.shared_dir / "bin" / name, std::string("new ") + name, true);
     for (const char* name : {"toggle_rofi.sh", "hub.sh", "network.sh", "bluetooth.sh", "audio_switcher.sh", "powermenu.sh",
-                            "clipmanager.sh", "updates_menu.sh", "eww_action.sh", "start_waybar.sh", "startup.sh", "agent_rofi.sh", "panic.sh"})
+                            "clipmanager.sh", "updates_menu.sh", "eww_action.sh", "start_waybar.sh", "startup.sh", "agent_rofi.sh", "panic.sh", "osd.sh", "screenshot.sh"})
         put(ctx.shared_dir / "hyprland_scripts" / name, "script", true);
     const fs::path service = "systemd/user/mako.service.d/50-foxml.conf";
     put(ctx.shared_dir / service, "new service override");
@@ -100,6 +101,7 @@ int main() {
     put(ctx.config_home / service, "old service override");
     put(ctx.config_home / "quickshell/foxml/menus.json", "my hierarchy");
     put(ctx.config_home / "quickshell/foxml/MediaArtwork.qml", "old artwork");
+    put(ctx.config_home / "quickshell/foxml/paper-icon.svg", "old pencil icon");
     put(ctx.config_home / "waybar/drawer-state.css", "active runtime marker");
     fox_install::run_drawer(ctx);
     expect(read(ctx.home / ".local/bin/fox-mako") == "new Mako", "custom Mako is deployed");
@@ -110,8 +112,10 @@ int main() {
     expect(read(ctx.config_home / "quickshell/foxml/menus.json") == "my hierarchy", "custom hierarchy is preserved");
     expect(read(ctx.config_home / "quickshell/foxml/menus.default.json") == "new defaults", "menu defaults are refreshed");
     expect(read(ctx.config_home / "quickshell/foxml/Theme.qml") == "rendered palette\n", "drawer palette is deployed");
+    expect(read(ctx.config_home / "quickshell/foxml/paper-icon.svg") == "new pencil icon\n", "rendered drawer artwork is deployed");
+    expect(read(ctx.backup_dir / ".config/quickshell/foxml/paper-icon.svg") == "old pencil icon", "rendered artwork is backed up before replacement");
     expect(read(ctx.config_home / "waybar/drawer-state.css") == "active runtime marker", "runtime bar marker is preserved");
-    for (const char* name : {"BarBannerHint.qml", "PageEdgeScrollBar.qml", "MediaArtwork.qml", "StateTag.qml"})
+    for (const char* name : {"BarBannerHint.qml", "PageEdgeScrollBar.qml", "MediaArtwork.qml", "StateTag.qml", "ScrapbookSheet.qml", "VolumeSlip.qml"})
         expect(read(ctx.config_home / "quickshell/foxml" / name) == std::string("new ") + name, "new QML component is deployed automatically");
     expect(read(ctx.backup_dir / ".config/quickshell/foxml/MediaArtwork.qml") == "old artwork", "QML component is backed up");
     ::setenv("FOXML_TEST_MAKO_FAIL", "1", 1);
@@ -123,6 +127,17 @@ int main() {
     expect(read(ctx.home / ".local/bin/fox-notifications") == "new fox-notifications", "failed build preserves notification launcher");
     expect(read(ctx.config_home / service) == "new service override", "failed build preserves service override");
     expect(read(ctx.backup_dir / ".local/bin/fox-mako") == "old Mako", "repeated deploy preserves the first backup");
+    put(ctx.config_home / "quickshell/foxml/menus.json", R"({"favorites":["desk/custom"],"groups":[{"id":"desk","label":"My desk","items":[{"id":"custom","label":"Keep me"}]}]})");
+    put(ctx.shared_dir / "quickshell/foxml/menus.json", R"({"groups":[{"id":"desk","items":[{"id":"screenshots","page":"screenshots","label":"Screenshot scrapbook","kind":"page"}]}]})");
+    fox_install::run_drawer(ctx);
+    const auto upgraded = read(ctx.config_home / "quickshell/foxml/menus.json");
+    expect(upgraded.find("Keep me") != std::string::npos && upgraded.find("My desk") != std::string::npos
+           && upgraded.find("desk/custom") != std::string::npos && upgraded.find("Screenshot scrapbook") != std::string::npos,
+           "scrapbook migration preserves custom entries, titles and favorites");
+    fox_install::run_drawer(ctx);
+    expect(read(ctx.config_home / "quickshell/foxml/menus.json") == upgraded, "scrapbook migration is idempotent");
+    expect(read(ctx.config_home / "hypr/scripts/osd.sh") == "script", "drawer installs the volume helper");
+    expect(read(ctx.config_home / "hypr/scripts/screenshot.sh") == "script", "drawer installs the screenshot helper");
     ::unsetenv("FOXML_TEST_MAKO_FAIL");
     ::setenv("PATH", original_path.c_str(), 1);
     if (had_wayland) ::setenv("WAYLAND_DISPLAY", original_wayland.c_str(), 1);

@@ -16,6 +16,26 @@ RENDER=ROOT/'src/fox-render/fox-render-fast'
 
 @unittest.skipUnless(RENDER.exists(), 'build fox-render-fast first')
 class Stationery(unittest.TestCase):
+    def test_handwritten_date_is_valid_markup_and_stays_clear_of_the_clock(self):
+        import gi
+        gi.require_version('Pango','1.0');gi.require_version('PangoCairo','1.0')
+        from gi.repository import Pango,PangoCairo
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            subprocess.run([str(RENDER),str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates/hyprlock'),str(root/'lock')],check=True,capture_output=True)
+            script=root/'lock/date-label.sh'
+            text=subprocess.check_output(['sh','-c','date() { printf "Wednesday, September 30\\n"; }; . "$1"','date-fixture',str(script)],text=True)
+            _,attrs,plain,_=Pango.parse_markup(text,-1,'\x00')
+            self.assertEqual(plain.strip(),'wednesday, september 30')
+            self.assertIn('underline_color="#',text)
+            layout=Pango.Layout.new(PangoCairo.FontMap.get_default().create_context())
+            layout.set_font_description(Pango.FontDescription('MonaspiceKr Nerd Font 14'))
+            layout.set_markup(text.strip(),-1)
+            width,height=layout.get_pixel_size()
+            self.assertLess(width,440)
+            self.assertLess(height,34)
+            self.assertNotIn('{{',script.read_text())
+
     def test_listing_theme_renders_for_every_palette(self):
         with tempfile.TemporaryDirectory() as tmp:
             for palette in (ROOT/'themes').glob('*/palette.sh'):

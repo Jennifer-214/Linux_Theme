@@ -15,6 +15,15 @@ if args[0] == "view":
     elif page == "search":
         query = args[2] if len(args) > 2 else ""
         items = [dict(id="found", label=query, kind="action")]
+    elif page == "screenshots":
+        items = [dict(id="screenshot-open", label="little-picture-" + str(i) + ".png", kind="action", presentation="screenshot",
+                      argument="/sample/shot-" + str(i) + ".png", image="", modifiedAt="2026-11-05 14:30:00 CST", close=True)
+                 for i in range(7)]
+    elif page == "agents":
+        items = [dict(id="agent-jump", label="Claude · Paper notebook", kind="action", icon="message",
+                      detail="A little note is ready for you", argument="sample-agent"),
+                 dict(id="agent-clear", label="Clear agent notes", kind="action", icon="message",
+                      detail="Put these notes away", confirm="Clear all agent notes?")]
     elif page == "downloads":
         items = [dict(id="download-open", label="field-notes.pdf · sample", kind="action", presentation="download", icon="✉",
                       argument="/sample/field-notes.pdf", stamp="8m AGO", detail="PDF · 2.4 MiB · modified 8m ago"),
@@ -43,6 +52,8 @@ if args[0] == "view":
         data.update(title="Library cards · sample preview" if page == "library" else "Bookmark ribbons · sample preview", group="desk")
     elif page == "downloads":
         data.update(title="Incoming paper tray · sample preview", group="desk")
+    elif page == "agents":
+        data.update(title="Agent notes", group="desk")
     if page == "root":
         data["favorites"] = [dict(id="volume", group="sound", label="Volume", kind="slider", value=42)]
         data["items"][1]["summary"] = "42% · speakers"

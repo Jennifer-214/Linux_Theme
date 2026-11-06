@@ -38,8 +38,57 @@ function symbol(item) {
     var icons = { desk: "✎", sound: "♫", connections: "⌁", comfort: "☾", system: "⚙",
         wifi: "⌁", bluetooth: "⋈", window: "▣", volume: "♪", image: "▧", palette: "◐",
         search: "⌕", download: "↧", info: "·", package: "□", message: "✉",
-        lock: "▢", suspend: "☾", reboot: "↻", poweroff: "⏻", logout: "↪", "app-launch": "⌘" };
+        lock: "▢", suspend: "☾", reboot: "↻", poweroff: "⏻", logout: "↪", "app-launch": "⌘",
+        apps: "⌘", vault: "⚿", passwords: "⚿" };
     return icons[icon] || icons[item.id] || (item.kind === "page" ? "›" : "·");
+}
+
+function paperIcon(item) {
+    if (!item) return "";
+    var presets = {
+        desk:["desk","✎"], sound:["sound","♫"], connections:["connections","⌁"],
+        comfort:["comfort","☾"], system:["system","⚙"], apps:["apps","⌘"],
+        projects:["notebook","▤"], bookmarks:["bookmark","◇"], library:["library","▤"],
+        downloads:["mail","✉"], screenshots:["picture","▧"], windows:["window","▣"],
+        "clipboard-text":["clipboard","⌇"], "clipboard-images":["picture","▧"],
+        wallpapers:["picture","❀"], themes:["palette","◐"],
+        "wallpaper-next":["refresh","↝"], "wallpaper-sync":["palette","◇"],
+        "color-picker":["pencil","✎"], agents:["mail","✉"],
+        volume:["sound","♪"], "volume-mute":["sound","♩"], "audio-outputs":["sound","◉"],
+        "mic-mute":["microphone","○"], "media-play-pause":["play","▷"],
+        "media-previous":["previous","‹"], "media-next":["next","›"],
+        wifi:["wifi","⌁"], bluetooth:["bluetooth","⋈"],
+        brightness:["comfort","☼"], nightlight:["moon","☾"], dnd:["mail","✉"], idle:["clock","◷"],
+        updates:["refresh","↻"], "power-profile":["battery","◈"],
+        vault:["passwords","⚿"], passwords:["passwords","⚿"], tools:["notebook","▤"],
+        cheatsheet:["notebook","✎"], sandbox:["window","▢"], security:["shield","◇"],
+        cleanup:["pencil","✎"], lock:["lock","▢"], power:["power","⏻"],
+        suspend:["moon","suspend"], reboot:["refresh","reboot"],
+        poweroff:["power","poweroff"], logout:["logout","logout"]
+    };
+    var semantic = {message:"mail", window:"window", volume:"sound", image:"picture", palette:"palette",
+        search:"search", download:"mail", info:"notebook", package:"package", key:"passwords",
+        wifi:"wifi", bluetooth:"bluetooth", clipboard:"clipboard"};
+    var id = String(item.id || ""), preset = presets[id], icon = String(item.icon || ""), name = "";
+    // Application identity and user artwork keep their own icons.
+    if (id === "app-launch") return "";
+    // An explicit custom glyph or icon name belongs to the user's menu.
+    if (preset) {
+        if (icon && icon !== preset[1] && icon !== symbol({id:id}) && icon !== id) return "";
+        name = preset[0];
+    } else name = semantic[icon] || (icon === "✉" ? "mail" : "");
+    if (!name) return "";
+    return "paper-icon-" + name + ".svg";
+}
+
+function emptyIllustration(page, searching, failed) {
+    if (failed) return "";
+    var names = {downloads:"tray",bookmarks:"notebook","clipboard-text":"scraps","clipboard-images":"scraps"};
+    return !searching && names[page] ? "paper-empty-" + names[page] + ".svg" : "paper-cat.png";
+}
+
+function pageFlourish(page, searching) {
+    return searching ? "" : page === "root" ? "swash" : page === "bookmarks" ? "circle" : "underline";
 }
 
 function connectionState(item) {
@@ -148,7 +197,9 @@ function emptyState(page, searching, failed) {
         root: ["everything in its little place.", "choose a group on the left\nor press / to find any action."],
         library: ["the shelves are quiet.", "plug in a removable drive\nand its library card will appear here."],
         bookmarks: ["save your place.", "press b on a project card\nto leave a little ribbon here."],
-        downloads: ["nothing in the post.", "your latest downloads will land here.\npress / to filter, or h to go back."]
+        downloads: ["nothing in the post.", "your latest downloads will land here.\npress / to filter, or h to go back."],
+        "clipboard-text": ["a place for little thoughts.", "copy some text to keep it close.\nh goes back to the previous page."],
+        "clipboard-images": ["a place for little pictures.", "copy an image to keep it close.\nh goes back to the previous page."]
     };
     var lines = pages[page] || ["nothing here", "h goes back to the previous page."];
     return {title: lines[0], detail: lines[1]};

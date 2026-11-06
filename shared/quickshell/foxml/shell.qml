@@ -33,7 +33,9 @@ ShellRoot {
     property int groupIndex: 0
     property int itemIndex: 0
     property int draftValue: 0
-    readonly property string footerHint: Logic.footerHint({confirming: pendingConfirm !== null, busy: actionBusy,
+    readonly property bool calendarLayout: page === "calendar" && !pickerLayout
+    readonly property bool scrapbookLayout: page === "screenshots" && !pickerLayout
+    readonly property string footerHint: calendarLayout ? "h / l month · t today · Esc close" : scrapbookLayout ? "arrows choose · c copy · Enter open · Esc close" : Logic.footerHint({confirming: pendingConfirm !== null, busy: actionBusy,
         prompt: pickerActive && pickerPrompt, searching: searching, picker: pickerActive,
         editing: editing, focus: focusArea}, entries[itemIndex])
     property var pendingConfirm: null
@@ -65,6 +67,12 @@ ShellRoot {
 
     Theme { id: theme }
     readonly property alias paperTheme: theme
+    VolumeSlip { id: volumeSlip; theme: root.paperTheme; output: root.focusedScreen }
+    IpcHandler {
+        target: "volume"
+        function present(value: int, muted: bool): void { volumeSlip.show(value, muted); }
+        function status(): string { return JSON.stringify({visible:volumeSlip.showing, value:volumeSlip.value, muted:volumeSlip.muted}); }
+    }
 
     property bool barEnabled: Quickshell.env("FOXML_BAR_AUTOSTART") === "1" || Quickshell.env("FOXML_DRAWER_PREVIEW") !== "1"
     property var attachment: null
@@ -198,7 +206,7 @@ ShellRoot {
     }
 
     function requestView() {
-        if (!opened || pendingConfirm) return;
+        if (!opened || pendingConfirm || calendarLayout) return;
         if (pickerActive) {
             var needle = searching ? searchInput.text.toLowerCase() : "";
             entries = pickerItems.filter(function(row) { return row.label.toLowerCase().indexOf(needle) >= 0; });
@@ -247,6 +255,7 @@ ShellRoot {
             }
             itemIndex = Logic.restoreIndex(entries, samePage ? oldKey : (saved ? saved.key : ""));
             itemList.viewPage = requestedPage;
+            if (scrapbookLayout) Qt.callLater(function() { scrapbookSheet.reveal(root.itemIndex); });
             if (!samePage) {
                 Qt.callLater(function() {
                     itemList.contentY = saved && !searching ? saved.scroll : 0;
@@ -276,6 +285,20 @@ ShellRoot {
         navigationSerial++;
         focusArea = page === "root" ? "groups" : "items";
         note("");
+        if (calendarLayout) {
+            openScreen = focusedScreen;
+            attachment = desktopBar.item && desktopBar.item.shown && openScreen ? {screenName:openScreen.name, moduleName:"custom/clock"} : null;
+            nextView = null;
+            viewSerial++;
+            entries = [];
+            groupId = "";
+            pageTitle = "calendar";
+            pageLoading = false;
+            drawerReady = true;
+            calendarSheet.reset();
+            Qt.callLater(function() { keyboard.forceActiveFocus(); });
+            return;
+        }
         if (!groupProcess.running) groupProcess.running = true;
         if (page === "root") {
             entries = [];
@@ -322,6 +345,7 @@ ShellRoot {
     }
 
     function goBack() {
+        if (calendarLayout || scrapbookLayout) { hide(); return; }
         if (pickerActive && (pickerPrompt || !searching)) { hide(); return; }
         if (pendingConfirm) { pendingConfirm = null; return; }
         if (editing) { finishEdit(); return; }
@@ -375,6 +399,12 @@ ShellRoot {
             itemIndex = Logic.nextIndex(entries, itemIndex, delta);
             itemList.positionViewAtIndex(itemIndex, ListView.Contain);
         }
+    }
+
+    function screenshotAction(index, action) {
+        if (actionBusy || !entries[index]) return;
+        var item = Object.assign({}, entries[index], {id:action, close:action !== "screenshot-copy"});
+        runAction(item, undefined, false);
     }
 
     function activate(item, confirmed) {
@@ -483,6 +513,28 @@ ShellRoot {
         if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)) return;
         homeFocusPending = false;
         var k = event.key;
+        if (calendarLayout) {
+            if (k === Qt.Key_Escape || k === Qt.Key_Q) hide();
+            else if (k === Qt.Key_H || k === Qt.Key_Left || k === Qt.Key_PageUp) calendarSheet.moveMonth(-1);
+            else if (k === Qt.Key_L || k === Qt.Key_Right || k === Qt.Key_PageDown) calendarSheet.moveMonth(1);
+            else if (k === Qt.Key_T || k === Qt.Key_Home) calendarSheet.reset();
+            else return;
+            event.accepted = true;
+            return;
+        }
+        if (scrapbookLayout) {
+            if (k === Qt.Key_Escape || k === Qt.Key_Q) hide();
+            else if (k === Qt.Key_Left || k === Qt.Key_H) itemIndex = Math.max(0, itemIndex - 1);
+            else if (k === Qt.Key_Right || k === Qt.Key_L) itemIndex = Math.min(entries.length - 1, itemIndex + 1);
+            else if (k === Qt.Key_Up || k === Qt.Key_K) itemIndex = Math.max(0, itemIndex - scrapbookSheet.columns);
+            else if (k === Qt.Key_Down || k === Qt.Key_J) itemIndex = Math.min(entries.length - 1, itemIndex + scrapbookSheet.columns);
+            else if (k === Qt.Key_C) screenshotAction(itemIndex, "screenshot-copy");
+            else if (k === Qt.Key_Return || k === Qt.Key_Enter) activate(entries[itemIndex]);
+            else return;
+            itemIndex = Math.max(0, itemIndex);
+            event.accepted = true;
+            return;
+        }
         if (searching) {
             if (k === Qt.Key_Escape) { goBack(); event.accepted = true; }
             else if (k === Qt.Key_Down || k === Qt.Key_Up) { step(k === Qt.Key_Down ? 1 : -1); event.accepted = true; }
@@ -568,7 +620,7 @@ ShellRoot {
         stdout: StdioCollector { id: groupOut }
         stderr: StdioCollector { id: groupErr }
         onExited: (code, status) => {
-            if (!root.opened || root.pickerActive) return;
+            if (!root.opened || root.pickerActive || root.calendarLayout) return;
             try {
                 var data = JSON.parse(groupOut.text);
                 if ((code !== 0 || data.error) && !Array.isArray(data.items)) throw new Error(data.error || "Cannot read menu groups.");
@@ -633,7 +685,7 @@ ShellRoot {
     Timer { id: searchDebounce; interval: 160; onTriggered: root.requestView() }
     Timer {
         interval: 4000; repeat: true
-        running: root.opened && !root.pickerActive && !root.searching && !root.editing && !root.pendingConfirm && !root.actionBusy
+        running: root.opened && !root.pickerActive && !root.calendarLayout && !root.scrapbookLayout && !root.searching && !root.editing && !root.pendingConfirm && !root.actionBusy
         onTriggered: {
             if (!groupProcess.running) groupProcess.running = true;
             if (root.page !== "root") root.requestView();
@@ -671,8 +723,8 @@ ShellRoot {
         anchors { top: true; right: true }
         readonly property var placement: Logic.drawerPlacement(screen ? screen.width : 1280, implicitWidth, root.resolvedAnchor, theme.paperDetails)
         margins { top: panel.placement.top; right: (panel.screen ? panel.screen.width : 1280) - panel.placement.left - panel.implicitWidth }
-        implicitWidth: Math.min(root.pickerLayout ? 640 : 790, (screen ? screen.width : 1280) - 32)
-        implicitHeight: Math.min((root.pickerLayout && root.pickerPrompt ? 310 : 624) + root.drawerTopInset, Math.max(180, (screen ? screen.height : 800) - placement.top - 16))
+        implicitWidth: Math.min(root.calendarLayout ? 430 : root.pickerLayout ? 640 : 790, (screen ? screen.width : 1280) - 32)
+        implicitHeight: Math.min((root.calendarLayout ? 560 : root.pickerLayout && root.pickerPrompt ? 310 : 624) + root.drawerTopInset, Math.max(180, (screen ? screen.height : 800) - placement.top - 16))
         color: "transparent"
         exclusionMode: ExclusionMode.Ignore
         WlrLayershell.namespace: "foxml-drawer"
@@ -728,10 +780,11 @@ ShellRoot {
 
                     RowLayout {
                         Layout.fillWidth: true
-                        Text { textFormat: Text.PlainText; text: "// THE QUIET CORNER"; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10; font.letterSpacing: 1 }
+                        Text { textFormat: Text.PlainText; text: root.calendarLayout ? "// LITTLE DAYS" : "// THE QUIET CORNER"; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10; font.letterSpacing: 1 }
                         Item { Layout.fillWidth: true }
                         ToolButton {
                             text: "♡"
+                            visible: !root.calendarLayout
                             implicitWidth: 28; implicitHeight: 28; padding: 0
                             font.family: theme.fontFamily
                             palette.buttonText: theme.ink
@@ -740,8 +793,8 @@ ShellRoot {
                             Accessible.name: "Pinned favorites (f)"
                             BarHint { theme:root.paperTheme; visible:parent.hovered; text:"Pinned favorites · f" }
                         }
-                        Rectangle { width: 5; height: 5; radius: 3; color: root.failed ? theme.error : theme.success }
-                        Text { textFormat: Text.PlainText; text: root.actionBusy ? "WORKING" : root.pageLoading ? "OPENING" : root.pickerLayout && root.pickerPrompt ? "WRITE" : root.searching ? "SEARCH" : root.editing ? "ADJUST" : "NORMAL"; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9 }
+                        Rectangle { visible: !root.calendarLayout; width: 5; height: 5; radius: 3; color: root.failed ? theme.error : theme.success }
+                        Text { visible: !root.calendarLayout; textFormat: Text.PlainText; text: root.actionBusy ? "WORKING" : root.pageLoading ? "OPENING" : root.pickerLayout && root.pickerPrompt ? "WRITE" : root.searching ? "SEARCH" : root.editing ? "ADJUST" : "NORMAL"; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9 }
                         LoadingDots { theme: root.paperTheme; busy: root.opened && (root.actionBusy || root.pageLoading); Layout.preferredWidth: visible ? 24 : 0 }
                         ToolButton {
                             text: "×"
@@ -755,6 +808,7 @@ ShellRoot {
                     }
                     RowLayout {
                         Layout.fillWidth: true
+                        visible: !root.calendarLayout && !root.scrapbookLayout
                         Text { textFormat: Text.PlainText; text: "make yourself at home."; color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: panel.implicitWidth < 580 ? 21 : 27; Layout.fillWidth: true; elide: Text.ElideRight }
                         Canvas {
                             width: 46; height: 40
@@ -775,6 +829,13 @@ ShellRoot {
                                 c.moveTo(40, 25); c.lineTo(45, 23); c.moveTo(40, 29); c.lineTo(45, 30);
                                 c.moveTo(7, 35); c.quadraticCurveTo(24, 38, 41, 34);
                                 c.stroke();
+                                if (theme.paperDetails) {
+                                    c.fillStyle = Qt.alpha(theme.highlight, .8);
+                                    [16.5, 32.5].forEach(function(x) {
+                                        c.save(); c.translate(x, 25); c.scale(3, 1.5);
+                                        c.beginPath(); c.arc(0, 0, 1, 0, Math.PI * 2); c.fill(); c.restore();
+                                    });
+                                }
                             }
                         }
                     }
@@ -783,6 +844,7 @@ ShellRoot {
                     RowLayout {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
+                        visible: !root.calendarLayout && !root.scrapbookLayout
                         spacing: 18
 
                         ListView {
@@ -804,9 +866,9 @@ ShellRoot {
                                 width: groupList.width - (theme.paperDetails ? 4 : 0)
                                 height: 65
                                 radius: 4
-                                color: groupMouse.pressed ? Qt.alpha(theme.line, .35) : index === root.groupIndex && (root.page !== "root" || root.focusArea === "groups") ? (theme.paperDetails || root.focusArea === "groups" ? theme.focusFill : Qt.alpha(theme.selection, theme.selectionOpacity * .45)) : theme.paperDetails ? (groupMouse.containsMouse ? theme.hoverFill : theme.background) : root.buttonShade(false, groupMouse.containsMouse)
+                                color: groupMouse.pressed ? Qt.alpha(theme.line, .35) : index === root.groupIndex && (root.page !== "root" || root.focusArea === "groups") ? (theme.paperDetails || root.focusArea === "groups" ? theme.focusFill : Qt.alpha(theme.selection, theme.selectionOpacity * .45)) : theme.paperDetails ? (groupMouse.containsMouse ? theme.hoverFill : Qt.alpha(theme.highlight, .23)) : root.buttonShade(false, groupMouse.containsMouse)
                                 border.width: theme.paperDetails || (index === root.groupIndex && root.focusArea === "groups") ? 1 : 0
-                                border.color: theme.paperDetails && !(index === root.groupIndex && root.focusArea === "groups") ? Qt.alpha(theme.line, .6) : theme.line
+                                border.color: theme.line
                                 PaperShadow {
                                     visible: theme.paperDetails
                                     ink: theme.ink
@@ -816,11 +878,16 @@ ShellRoot {
                                     anchors.fill: parent
                                     anchors.margins: 12
                                     spacing: 10
-                                    Text { textFormat: Text.PlainText; text: Logic.symbol(modelData); color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 16; font.weight: Font.Normal; Layout.preferredWidth: 24 }
+                                    Item {
+                                        readonly property string pencilIcon: theme.paperDetails ? Logic.paperIcon(modelData) : ""
+                                        Layout.preferredWidth: 24; Layout.preferredHeight: 24
+                                        Image { anchors.fill: parent; visible: parent.pencilIcon.length > 0; source: parent.pencilIcon; sourceSize.width: 48; sourceSize.height: 48; fillMode: Image.PreserveAspectFit }
+                                        Text { anchors.centerIn: parent; visible: !parent.pencilIcon; textFormat: Text.PlainText; text: Logic.symbol(modelData); color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 16; font.weight: Font.Normal }
+                                    }
                                     ColumnLayout {
                                         Layout.fillWidth: true
                                         spacing: 3
-                                        Text { textFormat: Text.PlainText; text: modelData.label || ""; color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true }
+                                        Text { textFormat: Text.PlainText; text: modelData.label || ""; color: theme.ink; font.family: theme.fontFamily; font.pixelSize: theme.paperDetails ? 13 : 12; font.weight: theme.paperDetails ? Font.DemiBold : Font.Normal; elide: Text.ElideRight; Layout.fillWidth: true }
                                         Text { textFormat: Text.PlainText; visible: panel.implicitWidth >= 580; text: modelData.summary || modelData.detail || ""; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9; elide: Text.ElideRight; Layout.fillWidth: true }
                                     }
                                     Text { textFormat: Text.PlainText; text: "›"; color: theme.muted; font.pixelSize: 18 }
@@ -834,7 +901,7 @@ ShellRoot {
                             }
                         }
 
-                        Rectangle { visible: !root.pickerLayout; width: 1; Layout.fillHeight: true; color: theme.line }
+                        Rectangle { visible: !root.pickerLayout; width: theme.paperDetails ? 2 : 1; Layout.fillHeight: true; color: theme.line }
 
                         ColumnLayout {
                             id: drawer
@@ -848,11 +915,42 @@ ShellRoot {
                                 Behavior on x { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                             }
 
-                            RowLayout {
+                            Rectangle {
                                 Layout.fillWidth: true
-                                Text { textFormat: Text.PlainText; text: root.searching && !root.pickerLayout ? "find a little thing" : root.pageTitle; color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: 20; Layout.fillWidth: true; elide: Text.ElideRight }
-                                Text { textFormat: Text.PlainText; text: root.page === "root" || (root.pickerLayout && root.pickerPrompt) ? "" : String(root.entries.length).padStart(2, "0"); color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10 }
+                                implicitHeight: theme.paperDetails ? 38 : 28
+                                color: theme.paperDetails ? Qt.alpha(theme.highlight, .55) : "transparent"
+                                radius: 3
+                                border.width: theme.paperDetails ? 1 : 0
+                                border.color: theme.line
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: theme.paperDetails ? 10 : 0
+                                    anchors.rightMargin: theme.paperDetails ? 10 : 0
+                                Text {
+                                    id: pageHeading
+                                    textFormat: Text.PlainText; text: root.searching && !root.pickerLayout ? "find a little thing" : root.pageTitle
+                                    color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: 20; Layout.fillWidth: true; elide: Text.ElideRight
+                                    PaperFlourish {
+                                        theme: root.paperTheme
+                                        kind: Logic.pageFlourish(root.page, root.searching)
+                                        visible: theme.paperDetails && !root.pickerLayout && (kind === "swash" || kind === "underline")
+                                        z: -1; x: 0; y: kind === "swash" ? 2 : pageHeading.height - 1
+                                        width: Math.min(pageHeading.contentWidth, pageHeading.width)
+                                        height: kind === "swash" ? Math.max(0, pageHeading.height - 2) : 4
+                                    }
+                                }
+                                Text {
+                                    id: pageCount
+                                    textFormat: Text.PlainText; text: root.page === "root" || (root.pickerLayout && root.pickerPrompt) ? "" : String(root.entries.length).padStart(2, "0")
+                                    color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10
+                                    PaperFlourish {
+                                        theme: root.paperTheme; kind: "circle"
+                                        visible: theme.paperDetails && !root.pickerLayout && Logic.pageFlourish(root.page, root.searching) === "circle" && pageCount.text.length > 0
+                                        z: -1; x: -7; y: -5; width: pageCount.width + 14; height: pageCount.height + 10
+                                    }
+                                }
                             }
+                                }
                             Text {
                                 id: breadcrumbRow
                                 visible: !root.searching && (root.breadcrumbs.length > 1 || text.length > 0)
@@ -929,32 +1027,50 @@ ShellRoot {
                                         required property var modelData
                                         required property int index
                                         property bool selected: index === root.itemIndex && root.focusArea === "items"
-                                        property string menuIcon: Logic.iconName(modelData) ? Quickshell.iconPath(Logic.iconName(modelData), true) : ""
+                                        readonly property string pencilIcon: theme.paperDetails ? Logic.paperIcon(modelData) : ""
+                                        property string menuIcon: pencilIcon || (Logic.iconName(modelData) ? Quickshell.iconPath(Logic.iconName(modelData), true) : "")
                                         readonly property var connection: theme.paperDetails ? Logic.connectionState(modelData) : null
                                         readonly property bool mediaArtwork: modelData.presentation === "media" && Boolean(modelData.artwork)
+                                        readonly property bool clipboardPhoto: theme.paperDetails && root.page === "clipboard-images" && Boolean(modelData.image)
                                         readonly property string stateLabel: theme.paperDetails ? Logic.statusLabel(modelData) : ""
                                         width: Math.max(0, itemList.width - theme.scrollGutter)
                                         property bool card: modelData.presentation === "project" || modelData.presentation === "library" || modelData.presentation === "download"
                                         height: card ? 94 : modelData.kind === "slider" ? 91 : modelData.image || mediaArtwork ? 80 : 72
                                         radius: 4
-                                        color: itemMouse.pressed ? Qt.alpha(theme.line, .35) : selected ? theme.focusFill : theme.paperDetails ? (itemMouse.containsMouse && modelData.enabled !== false ? theme.hoverFill : theme.background) : card ? theme.surface : root.buttonShade(false, itemMouse.containsMouse)
-                                        border.width: theme.paperDetails || selected || card || itemMouse.containsMouse ? 1 : 0
-                                        border.color: itemMouse.pressed ? theme.muted : theme.paperDetails && !selected ? Qt.alpha(theme.line, .6) : theme.line
+                                        readonly property color rowFill: itemMouse.pressed ? Qt.alpha(theme.line, .35) : selected ? theme.focusFill : theme.paperDetails ? (itemMouse.containsMouse && modelData.enabled !== false ? theme.hoverFill : theme.background) : card ? theme.surface : root.buttonShade(false, itemMouse.containsMouse)
+                                        readonly property color rowEdge: itemMouse.pressed ? theme.muted : theme.paperDetails && !selected ? Qt.alpha(theme.line, .6) : theme.line
+                                        color: theme.paperDetails && card ? "transparent" : rowFill
+                                        border.width: theme.paperDetails && card ? 0 : theme.paperDetails || selected || card || itemMouse.containsMouse ? 1 : 0
+                                        border.color: rowEdge
                                         opacity: modelData.enabled === false ? (theme.paperDetails ? .75 : .48) : 1
+                                        PaperCardSurface {
+                                            anchors.fill: parent; visible: theme.paperDetails && itemRow.card
+                                            theme: root.paperTheme; presentation: modelData.presentation || ""
+                                            fillColor: itemRow.rowFill; edgeColor: itemRow.rowEdge
+                                        }
                                         PaperShadow {
                                             visible: theme.paperDetails
                                             ink: theme.ink
                                             strength: itemMouse.pressed ? .012 : itemRow.selected ? .06 : .035
                                         }
-                                        Text {
-                                            visible: itemRow.card
-                                            anchors.top: parent.top; anchors.right: parent.right
-                                            anchors.topMargin: 7; anchors.rightMargin: 10
-                                            text: modelData.presentation === "library" ? (modelData.mounted ? "CHECKED OUT" : "ON THE SHELF") : modelData.presentation === "download" ? (modelData.stamp || "INCOMING") : String(index + 1).padStart(2, "0")
-                                            color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 8
-                                        }
                                         Rectangle {
                                             visible: itemRow.card
+                                            anchors.top: parent.top
+                                            anchors.left: theme.paperDetails && modelData.presentation === "project" ? parent.left : undefined
+                                            anchors.right: theme.paperDetails && modelData.presentation === "project" ? undefined : parent.right
+                                            anchors.topMargin: 7; anchors.leftMargin: 14; anchors.rightMargin: 10
+                                            width: cardStamp.implicitWidth + (theme.paperDetails ? 8 : 0); height: cardStamp.implicitHeight + (theme.paperDetails ? 4 : 0)
+                                            color: theme.paperDetails ? Qt.alpha(theme.highlight, .45) : "transparent"
+                                            border.width: theme.paperDetails ? 1 : 0
+                                            border.color: Qt.alpha(theme.muted, .55)
+                                            Text {
+                                                id: cardStamp; anchors.centerIn: parent
+                                                text: modelData.presentation === "library" ? (modelData.mounted ? "CHECKED OUT" : "ON THE SHELF") : modelData.presentation === "download" ? (modelData.stamp || "INCOMING") : (theme.paperDetails ? "PROJECT " : "") + String(index + 1).padStart(2, "0")
+                                                color: theme.paperDetails ? theme.ink : theme.muted; font.family: theme.fontFamily; font.pixelSize: theme.paperDetails ? 10 : 8; font.weight: theme.paperDetails ? Font.DemiBold : Font.Normal
+                                            }
+                                        }
+                                        Rectangle {
+                                            visible: itemRow.card && !(theme.paperDetails && modelData.presentation === "download")
                                             anchors.bottom: parent.bottom; anchors.left: parent.left; anchors.right: parent.right
                                             anchors.bottomMargin: 11; anchors.leftMargin: 48; anchors.rightMargin: 12
                                             height: 1; color: theme.line; opacity: .6
@@ -965,7 +1081,8 @@ ShellRoot {
                                             anchors.margins: 12
                                             spacing: 10
                                             Image {
-                                                visible: itemRow.connection === null && !itemRow.mediaArtwork && Boolean(modelData.image || itemRow.menuIcon)
+                                                objectName: "item-menu-icon"
+                                                visible: itemRow.connection === null && !itemRow.mediaArtwork && !itemRow.clipboardPhoto && Boolean(modelData.image || itemRow.menuIcon)
                                                 source: modelData.image || itemRow.menuIcon
                                                 sourceSize.width: modelData.image ? 42 : 24
                                                 sourceSize.height: modelData.image ? 42 : 24
@@ -981,6 +1098,11 @@ ShellRoot {
                                                 source: itemRow.mediaArtwork ? modelData.artwork : ""
                                                 Layout.preferredWidth: visible ? 48 : 0
                                                 Layout.preferredHeight: 52
+                                            }
+                                            ClipboardPhoto {
+                                                theme: root.paperTheme; visible: itemRow.clipboardPhoto
+                                                source: visible ? modelData.image : ""
+                                                Layout.preferredWidth: visible ? 52 : 0; Layout.preferredHeight: 56
                                             }
                                             ClipIcon { theme: root.paperTheme; visible: itemRow.connection !== null; linked: itemRow.connection === true; Layout.preferredWidth: visible ? 24 : 0; Layout.preferredHeight: 24 }
                                             Text { textFormat: Text.PlainText; visible: itemRow.connection === null && !itemRow.mediaArtwork && !modelData.image && !itemRow.menuIcon; text: Logic.symbol(modelData); color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 16; font.weight: Font.Normal; Layout.preferredWidth: visible ? 24 : 0 }
@@ -1080,7 +1202,7 @@ ShellRoot {
                                     Image {
                                         visible: theme.paperDetails && !root.failed
                                         anchors.horizontalCenter: parent.horizontalCenter
-                                        source: "paper-cat.png"
+                                        source: Logic.emptyIllustration(root.page, root.searching, root.failed)
                                         width: 180
                                         height: 114
                                         sourceSize.width: 360
@@ -1151,7 +1273,29 @@ ShellRoot {
                         }
                     }
 
-                    Text { visible: root.message.length > 0; textFormat: Text.PlainText; text: (root.failed ? "! " : "✿ ") + root.message; color: root.failed ? theme.error : theme.muted; font.family: theme.fontFamily; font.pixelSize: 10; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.role: Accessible.StaticText; Accessible.name: root.message }
+                    CalendarSheet {
+                        id: calendarSheet
+                        visible: root.calendarLayout
+                        active: root.opened && root.calendarLayout
+                        theme: root.paperTheme
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                    }
+                    ScrapbookSheet {
+                        id: scrapbookSheet
+                        visible: root.scrapbookLayout
+                        theme: root.paperTheme
+                        entries: root.entries
+                        selectedIndex: root.itemIndex
+                        busy: root.pageLoading || root.actionBusy
+                        Layout.fillWidth: true; Layout.fillHeight: true
+                        onChoose: index => { root.itemIndex = index; keyboard.forceActiveFocus(); }
+                        onOpenPicture: index => root.activate(root.entries[index])
+                        onCopyPicture: index => root.screenshotAction(index, "screenshot-copy")
+                        onOpenFolder: index => root.screenshotAction(index, "screenshot-folder")
+                        onCapture: root.activate({id:"screenshot-capture",kind:"action",enabled:true,close:true})
+                    }
+                    Text { visible: root.message.length > 0 && !root.calendarLayout; textFormat: Text.PlainText; text: (root.failed ? "! " : "✿ ") + root.message; color: root.failed ? theme.error : theme.muted; font.family: theme.fontFamily; font.pixelSize: 10; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.role: Accessible.StaticText; Accessible.name: root.message }
                     Rectangle { Layout.fillWidth: true; height: 1; color: theme.line }
                     Flow {
                         id: hintFooter

@@ -98,14 +98,14 @@ fs::path repository() {
 }
 const std::set<std::string> pages = {
     "apps", "windows", "audio-outputs", "wifi", "bluetooth", "clipboard-text", "clipboard-images",
-    "wallpapers", "themes", "power", "updates", "agents", "projects", "bookmarks", "library", "downloads", "passwords"
+    "wallpapers", "themes", "power", "updates", "agents", "projects", "bookmarks", "library", "downloads", "screenshots", "passwords"
 };
 const std::set<std::string> actions = {
     "volume", "volume-mute", "mic-mute", "media-play-pause", "media-next", "media-previous", "brightness",
     "nightlight", "dnd", "idle", "power-profile", "lock", "suspend", "reboot", "poweroff", "logout",
     "wallpaper-next", "wallpaper-sync", "color-picker", "updates-terminal", "updates-silent", "vault",
     "security", "cleanup", "agent-triage", "agent-jump", "agent-clear", "app-launch", "window-focus", "audio-output", "wifi-connect",
-    "wifi-toggle", "bluetooth-connect", "bluetooth-toggle", "bluetooth-scan", "clipboard-restore", "wallpaper-set", "theme-set", "project-open", "project-terminal", "project-bookmark", "drive-open", "drive-eject", "download-open", "download-folder", "password-copy", "tools", "cheatsheet", "sandbox"
+    "wifi-toggle", "bluetooth-connect", "bluetooth-toggle", "bluetooth-scan", "clipboard-restore", "wallpaper-set", "theme-set", "project-open", "project-terminal", "project-bookmark", "drive-open", "drive-eject", "download-open", "download-folder", "screenshot-open", "screenshot-copy", "screenshot-folder", "screenshot-capture", "password-copy", "tools", "cheatsheet", "sandbox"
 };
 Json item(const std::string& id, const std::string& label, const std::string& kind = "action",
           const std::string& detail = {}, const std::string& icon = {}) {
@@ -218,10 +218,10 @@ bool read_config(const fs::path& file, Json& config, std::string& error) {
             }
         }
     }
-    if (config.contains("downloads_directory")) {
-        const auto path = text(config, "downloads_directory");
+    for (const char* key : {"downloads_directory", "screenshots_directory"}) if (config.contains(key)) {
+        const auto path = text(config, key);
         if (path.empty() || !safe_text(path) || (!fs::path(path).is_absolute() && path.rfind("~/", 0) != 0)) {
-            error = "downloads_directory must be absolute or start with ~/"; return false;
+            error = std::string(key) + " must be absolute or start with ~/"; return false;
         }
     }
     if (config.contains("favorites")) {
@@ -1013,7 +1013,7 @@ struct Download {
     uint64_t size;
     fs::file_time_type modified;
 };
-std::vector<Download> downloads(const Json& config) {
+std::vector<Download> downloads(const Json& config, bool pictures_only = false) {
     std::vector<Download> found;
     const auto root = download_directory(config);
     if (root.empty()) return found;
@@ -1026,6 +1026,7 @@ std::vector<Download> downloads(const Json& config) {
         const auto name = entry.path().filename().string();
         if (name.empty() || name.front() == '.' || !safe_text(name)) continue;
         const auto ext = lower(entry.path().extension().string());
+        if (pictures_only && ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".webp") continue;
         const std::set<std::string> partial{".part", ".partial", ".crdownload", ".download", ".tmp", ".aria2"};
         if (partial.count(ext)) continue;
         const auto modified = entry.last_write_time(status);
@@ -1055,6 +1056,42 @@ std::vector<Download> downloads(const Json& config) {
     });
     if (found.size() > 64) found.resize(64);
     return found;
+}
+
+std::vector<Download> screenshots(const Json& config) {
+    Json scoped = config;
+    scoped["downloads_directory"] = text(config, "screenshots_directory", home() + "/Pictures/Screenshots");
+    return downloads(scoped, true);
+}
+std::string file_url(const fs::path& path) {
+    static constexpr char hex[] = "0123456789ABCDEF";
+    std::string out = "file://";
+    for (unsigned char c : path.string()) {
+        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+            || c == '/' || c == '-' || c == '_' || c == '.' || c == '~') out += c;
+        else { out += '%'; out += hex[c >> 4]; out += hex[c & 15]; }
+    }
+    return out;
+}
+Json copy_screenshot(const fs::path& path) {
+    if (!sh::have("wl-copy")) return result(false, "wl-copy is not installed");
+    const int fd = ::open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    if (fd < 0) return result(false, "This picture is no longer available");
+    const auto ext = lower(path.extension().string());
+    const char* mime = ext == ".png" ? "image/png" : ext == ".webp" ? "image/webp" : "image/jpeg";
+    const pid_t child = ::fork();
+    if (child == 0) {
+        ::dup2(fd, STDIN_FILENO); ::close(fd);
+        const int nullfd = ::open("/dev/null", O_WRONLY);
+        if (nullfd >= 0) { ::dup2(nullfd, STDOUT_FILENO); ::dup2(nullfd, STDERR_FILENO); ::close(nullfd); }
+        ::execlp("wl-copy", "wl-copy", "--type", mime, static_cast<char*>(nullptr)); ::_exit(127);
+    }
+    ::close(fd);
+    if (child < 0) return result(false, "Could not start clipboard writer");
+    int status = 0;
+    while (::waitpid(child, &status, 0) < 0) if (errno != EINTR) return result(false, "Could not await clipboard writer");
+    const bool ok = WIFEXITED(status) && WEXITSTATUS(status) == 0;
+    return result(ok, ok ? "Picture copied" : "Could not copy picture");
 }
 
 std::string group_summary(const std::string& group) {
@@ -1178,6 +1215,15 @@ Json view(const Json& config, const std::string& page, const std::string& query)
             row["enabled"] = sh::have("udisksctl") && sh::have("xdg-open");
             if (!row["enabled"].get<bool>()) row["disabledReason"] = !sh::have("udisksctl") ? "udisksctl is not installed" : "xdg-open is not installed";
             rows.push_back(row);
+        }
+    } else if (page == "screenshots") {
+        known = true; out["title"] = "Little moments";
+        for (const auto& file : screenshots(config)) {
+            auto row = item("screenshot-open", file.name, "action", file.modified_at, "image");
+            row["argument"] = file.path.string(); row["close"] = true;
+            row["presentation"] = "screenshot"; row["image"] = file_url(file.path);
+            row["stamp"] = file.age; row["modifiedAt"] = file.modified_at;
+            row["enabled"] = sh::have("xdg-open"); rows.push_back(row);
         }
     } else if (page == "downloads") {
         known = true; out["title"] = "Incoming paper tray";
@@ -1323,7 +1369,7 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         if (id == "logout") return command({"fox-hl", "dispatch", "hl.dsp.exit()", "exit"}, "Log out", true);
         return command({"systemctl", id}, id == "suspend" ? "Suspend" : id == "reboot" ? "Restart" : "Shut down", true);
     }
-    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","password-copy","agent-jump"};
+    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","screenshot-open","screenshot-copy","screenshot-folder","password-copy","agent-jump"};
     if (!argument_actions.count(id) && !arg.empty()) return result(false, "This action accepts no argument");
     if (id == "volume" || id == "brightness") {
         int value = 0;
@@ -1360,6 +1406,15 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         }
         if (profile != "balanced" && profile != "performance" && profile != "power-saver") return result(false, "Invalid power profile");
         return command({"powerprofilesctl", "set", profile}, "Power profile: " + profile);
+    }
+    if (id == "screenshot-capture") return launch({script("screenshot.sh").string()}, "Screenshot editor opened");
+    if (id == "screenshot-open" || id == "screenshot-copy" || id == "screenshot-folder") {
+        for (const auto& file : screenshots(config)) if (file.path.string() == arg) {
+            if (id == "screenshot-copy") return copy_screenshot(file.path);
+            return launch({"xdg-open", id == "screenshot-open" ? arg : file.path.parent_path().string()},
+                          id == "screenshot-open" ? "Picture opened" : "Screenshot folder opened");
+        }
+        return result(false, "This picture is no longer in the scrapbook");
     }
     if (id == "download-open" || id == "download-folder") {
         for (const auto& file : downloads(config)) if (file.path.string() == arg)

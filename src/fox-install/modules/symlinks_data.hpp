@@ -29,9 +29,11 @@ inline constexpr Mapping TEMPLATE_MAPPINGS[] = {
     { "hyprland/hyprtoolkit.conf",     "~/.config/hypr/hyprtoolkit.conf" },
     { "hyprlock/hyprlock.conf",       "~/.config/hypr/hyprlock.conf" },
     { "hyprlock/capslock-label.sh",   "~/.config/hypr/scripts/capslock-label.sh" },
+    { "hyprlock/date-label.sh",       "~/.config/hypr/scripts/date-label.sh" },
 
     // Neovim
     { "nvim/init.lua",                "~/.config/nvim/init.lua" },
+    { "swappy/config",                "~/.config/swappy/config" },
 
     // Kitty
     { "kitty/kitty.conf",             "~/.config/kitty/kitty.conf" },

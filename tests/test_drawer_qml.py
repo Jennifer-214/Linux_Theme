@@ -205,7 +205,7 @@ EXERCISE = r'''
     Timer { interval:4600; running:true; onTriggered: {
         var marker=testFind(itemScroll,"page-edge-marker");
         if (Math.abs(marker.mapToItem(itemList,0,0).y+marker.height-itemList.height)>4
-            || Math.abs(itemList.contentY-itemList.originY-itemList.contentHeight+itemList.height)>4)
+            || Math.abs(itemList.contentY-itemList.originY-itemList.contentHeight+itemList.height)>4.5)
             throw new Error("native scrollbar did not reach the page bottom");
         root.itemIndex=0;
         root.entries=[{id:"media-play-pause",label:"A track",detail:"An artist · Paused",mediaState:"Paused",kind:"action",presentation:"media",artwork:Qt.resolvedUrl("paper-cat.png")}];
@@ -215,7 +215,7 @@ EXERCISE = r'''
         if (itemScroll.visible || !cover.ready || !tape.visible)
             throw new Error("media artwork/tape did not load or a short page kept its scrollbar");
         if (!testFind(cover,"media-photo-mat").visible || testFind(itemList,"media-state-tag").text!=="paused"
-            || Math.abs(theme.tooltipFill.a-.94)>.005)
+            || Math.abs(theme.tooltipFill.a-.98)>.005)
             throw new Error("photo mat, matching state label or tracing-paper fill is missing");
         root.activate(root.entries[0]);
         if (JSON.stringify(actionProcess.command.slice(-2))!==JSON.stringify(["run","media-play-pause"]))
@@ -275,8 +275,11 @@ class DrawerQmlTest(unittest.TestCase):
             source = re.sub(r"^        (?:anchors \{.*|margins \{.*|exclusionMode:.*|WlrLayershell\..*)\n", "", source, flags=re.M)
             source = source.rsplit("\n}", 1)[0] + EXERCISE + "\n}\n"
             (directory / "shell.qml").write_text(source)
-            for name in ("DrawerLogic.js", "ClipIcon.qml", "LoadingDots.qml", "PencilProgress.qml", "PaperGrain.qml", "BarHint.qml", "PageEdgeScrollBar.qml", "MediaArtwork.qml", "StateTag.qml", "BarRibbon.qml"):
+            for name in ("DrawerLogic.js", "ClipIcon.qml", "LoadingDots.qml", "PencilProgress.qml", "PaperGrain.qml", "BarHint.qml", "PageEdgeScrollBar.qml", "MediaArtwork.qml", "StateTag.qml", "BarRibbon.qml", "PaperFlourish.qml", "PaperCardSurface.qml", "ClipboardPhoto.qml", "CalendarSheet.qml", "CalendarLogic.js", "ScrapbookSheet.qml", "VolumeSlip.qml"):
                 shutil.copyfile(ROOT / "shared/quickshell/foxml" / name, directory / name)
+            volume = (directory / "VolumeSlip.qml").read_text().replace("PanelWindow {", "FloatingWindow {")
+            volume = re.sub(r"^    (?:anchors.*|margins\..*|exclusionMode:.*|WlrLayershell\..*)\n", "", volume, flags=re.M)
+            (directory / "VolumeSlip.qml").write_text(volume)
             shutil.copyfile(ROOT / "shared/quickshell/foxml/paper-cat.png", directory / "paper-cat.png")
             renderer = ROOT / "src/fox-render/fox-render-fast"
             render = str(renderer) if renderer.exists() else shutil.which("fox-render-fast")

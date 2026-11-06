@@ -556,6 +556,7 @@ Shows indent guides automatically. No keybinds.
 | `ALT + F` | Firefox |
 | `ALT + Shift + C` | Cursor (code editor) |
 | `ALT + Shift + D` | FoxML drawers — apps, connections, sound, comfort and system |
+| `ALT + C` | Calendar beneath the clock banner (toggle) |
 | `ALT + Shift + M` | Steam |
 | `ALT + Shift + Y` | Yazi file manager (toggle) |
 | `ALT + Shift + T` | Btop system monitor (toggle) |
@@ -565,6 +566,7 @@ Shows indent guides automatically. No keybinds.
 | `ALT + Shift + P` | Color picker (hyprpicker) |
 | `ALT + Shift + I` | Discord |
 | `ALT + Shift + O` | Screenshot (GUI editor) |
+| `ALT + Ctrl + O` | Screenshot scrapbook (saved captures) |
 | `ALT + Shift + L` | Toggle displays off (DPMS) |
 | `ALT + B` | Toggle the desktop bar |
 | `ALT + W` | Cycle wallpaper |

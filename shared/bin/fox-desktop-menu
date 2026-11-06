@@ -20,6 +20,11 @@ available() {
 }
 
 ipc() { quickshell -c foxml ipc call drawer "$@"; }
+ready_status() {
+    local response
+    response=$(ipc status 2>/dev/null) || return 1
+    [[ "$response" == *'"open":'* ]]
+}
 
 case "${1:-root}" in
     --available) available; exit $? ;;
@@ -45,14 +50,16 @@ if ! available; then
     exit 1
 fi
 
-if ! ipc status >/dev/null 2>&1; then
-    quickshell -c foxml --no-duplicate --daemonize >/dev/null 2>&1 || {
+if ! ready_status; then
+    # Detach before Qt/Wayland initializes; forking the loaded shell can leave
+    # a newly added layer surface with no live IPC service.
+    setsid -f quickshell -c foxml --no-duplicate >/dev/null 2>&1 || {
         printf 'fox-desktop-menu: could not start the FoxML drawer.\n' >&2
         exit 1
     }
     ready=false
     for (( attempt=0; attempt<30; attempt++ )); do
-        if ipc status >/dev/null 2>&1; then ready=true; break; fi
+        if ready_status; then ready=true; break; fi
         sleep 0.1
     done
     if [[ "$ready" != true ]]; then

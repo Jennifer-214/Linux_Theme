@@ -122,7 +122,7 @@ local function options(name)
   return assert(source:sub(last):match('opts = (%b{})'))
 end
 local highlights=assert(source:match('(local function apply_foxml_theme%(%)\n.-\nend)\n\napply_foxml_theme%(%)'))
-local opts=assert(loadstring(palette..'\n'..paper..'\n'..highlights..'\napply_foxml_theme()\n'..footer..'\nreturn {buffers='..options('akinsho/bufferline.nvim')..',tree='..options('nvim-neo-tree/neo-tree.nvim')..'}'))()
+local opts=assert(loadstring(palette..'\n'..paper..'\n'..highlights..'\napply_foxml_theme()\n'..footer..'\nreturn {P=P,buffers='..options('akinsho/bufferline.nvim')..',tree='..options('nvim-neo-tree/neo-tree.nvim')..'}'))()
 require('bufferline').setup(opts.buffers)
 require('neo-tree').setup(opts.tree)
 local file_icon=require('neo-tree.sources.common.components').icon(opts.tree.default_component_configs.icon,{type='file',name='note.cpp'},{})
@@ -139,7 +139,7 @@ local function filename()
   return vim.api.nvim_eval_statusline(vim.wo[editor].statusline,{winid=editor,maxwidth=150}).str
 end
 local match=vim.api.nvim_get_hl(0,{name='MatchParen',link=false})
-assert(match.fg==0x2b2b2d and match.bg==0xf1d6de and match.bold and not match.underline)
+assert(match.fg==tonumber(opts.P.fg:sub(2),16) and match.bg==tonumber(opts.P.sel:sub(2),16) and match.bold and not match.underline)
 local before=filename()
 require('neo-tree.command').execute({action='focus',position='left',dir=project})
 vim.wait(300)
@@ -149,7 +149,7 @@ assert(before:find('nested/note.cpp',1,true),before)
 assert(during:find('nested/note.cpp',1,true),during)
 for _,name in ipairs({'BufferLineBufferSelected','BufferLineBufferVisible'}) do
  local hl=vim.api.nvim_get_hl(0,{name=name,link=false})
- assert(hl.fg==0x2b2b2d and hl.bold and not hl.italic,name..vim.inspect(hl))
+ assert(hl.fg==tonumber(opts.P.fg:sub(2),16) and hl.bold and not hl.italic,name..vim.inspect(hl))
 end
 assert(vim.api.nvim_win_get_buf(editor)==file)
 vim.api.nvim_set_current_win(editor)

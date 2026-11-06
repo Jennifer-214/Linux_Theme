@@ -115,3 +115,30 @@ assert.equal(logic.statusLabel({mediaState:'Paused'}),'');
 assert.equal(logic.detailText({presentation:'media',mediaState:'Paused',detail:'Artist · Paused'},true),'Artist');
 assert.equal(logic.detailText({presentation:'media',mediaState:'Paused',detail:'Paused'},true),'');
 assert.equal(logic.detailText({presentation:'media',mediaState:'Paused',detail:'Artist · Paused'}),'Artist · Paused');
+
+const menus=JSON.parse(fs.readFileSync(new URL('../shared/quickshell/foxml/menus.json',import.meta.url),'utf8'));
+for (const group of menus.groups) assert.ok(logic.paperIcon(group).endsWith('.svg'));
+for (const id of ['apps','vault','lock']) {
+    const item=menus.groups.flatMap(group=>group.items).find(item=>item.id===id);
+    assert.ok(logic.paperIcon(item).endsWith('.svg'));
+    assert.equal(logic.paperIcon({...item,icon:'my-own-icon'}),'');
+    assert.equal(logic.paperIcon({...item,icon:'★'}),'');
+}
+assert.equal(logic.paperIcon({id:'app-launch',icon:'firefox'}),'');
+assert.equal(logic.paperIcon({id:'agent-jump',icon:'message'}),'paper-icon-mail.svg');
+assert.equal(logic.paperIcon({id:'agent-clear',icon:'message'}),'paper-icon-mail.svg');
+assert.equal(logic.paperIcon({id:'download-open',icon:'✉'}),'paper-icon-mail.svg');
+assert.equal(logic.paperIcon({id:'window-focus',icon:'window'}),'paper-icon-window.svg');
+assert.equal(logic.paperIcon({id:'password-copy',icon:'key'}),'paper-icon-passwords.svg');
+assert.equal(logic.paperIcon({id:'clipboard-restore',icon:'clipboard'}),'paper-icon-clipboard.svg');
+for (const item of menus.groups.flatMap(group=>group.items)) {
+    const icon = logic.paperIcon(item);
+    assert.ok(icon, 'Paper menu item is missing a themed icon: '+item.id);
+    assert.ok(fs.existsSync(new URL('../templates/quickshell/foxml/'+icon, import.meta.url)));
+    assert.equal(logic.paperIcon({...item,icon:'my-own-icon'}),'');
+}
+assert.equal(logic.emptyIllustration('downloads',false,false),'paper-empty-tray.svg');
+assert.equal(logic.emptyIllustration('downloads',true,false),'paper-cat.png');
+assert.equal(logic.emptyIllustration('downloads',false,true),'');
+assert.equal(logic.pageFlourish('bookmarks',false),'circle');
+assert.equal(logic.pageFlourish('root',true),'');

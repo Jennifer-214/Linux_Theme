@@ -201,7 +201,7 @@
     "return-type": "json",
     "interval": 60,
     "tooltip": true,
-    "on-click": "kitty -e bash -lc 'f=\"${XDG_RUNTIME_DIR:-/tmp}/foxml-waybar/updates.list\"; { [ -s \"$f\" ] && cat \"$f\" || checkupdates; } | less; exec zsh' &"
+    "on-click": "fox-desktop-menu calendar"
   },
 
   "custom/updates": {

@@ -33,6 +33,10 @@ if not pi:
 pkg = Path(pi).resolve().parent
 while not (pkg / "package.json").exists() and pkg != pkg.parent:
     pkg = pkg.parent
+manifest = pkg / "package.json"
+if not manifest.exists() or "pi-coding-agent" not in manifest.read_text(errors="ignore"):
+    print("    skip: pi's package not found beside the launcher")
+    sys.exit(0)
 # Not /tmp: the noexec_tmp module mounts it noexec
 base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
 base.mkdir(parents=True, exist_ok=True)

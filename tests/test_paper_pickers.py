@@ -54,7 +54,7 @@ class PaperPickers(unittest.TestCase):
 
     def run_tool(self, name, *args, **env):
         path = ROOT/'shared'/('hyprland_scripts' if name.endswith('.sh') else 'bin')/name
-        result = subprocess.run(['/bin/bash',str(path),*args], env=self.env|env, text=True, capture_output=True, timeout=5)
+        result = subprocess.run(['/bin/bash',str(path),*args], env=self.env|env, text=True, capture_output=True, stdin=subprocess.DEVNULL, timeout=5)
         self.assertEqual(result.returncode,0,result.stderr)
         calls = [json.loads(row) for row in (self.home/'calls').read_text().splitlines()]
         self.assertFalse(any(row[0]=='rofi' for row in calls))

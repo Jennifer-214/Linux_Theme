@@ -64,7 +64,8 @@
     "exec": "~/.config/waybar/scripts/clock.sh",
     "return-type": "json",
     "interval": 60,
-    "tooltip": true
+    "tooltip": true,
+    "on-click": "fox-desktop-menu calendar"
   },
 
   "custom/updates": {
