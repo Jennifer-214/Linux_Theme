@@ -313,8 +313,8 @@ HYPRLOCK_CLOCK_COLOR=2b2b2dee
 HYPRLOCK_CLOCK_FONT="MonaspiceRn Nerd Font"
 HYPRLOCK_DIM_COLOR=6e6d70cc
 HYPRLOCK_INPUT_BORDER=a9a19bff
-# Password dots are little outline flowers, pencil-weight like the ♡ below them.
-HYPRLOCK_DOTS_STYLE='dots_text_format = ❀'
+# Password dots are little outline hearts, pencil-weight like the ♡ below them.
+HYPRLOCK_DOTS_STYLE='dots_text_format = ♡'
 HYPRLOCK_FAIL=9a5a48
 HYPRLOCK_CAPS=1c1c1e
 # A handwritten date with a blush underline, beside the sleeping cat.

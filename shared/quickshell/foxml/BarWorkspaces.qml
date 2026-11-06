@@ -79,6 +79,13 @@ Flickable {
                     font.bold: tab.current
                     color: tab.ws && tab.ws.urgent ? workspaces.theme.error : tab.current || tab.windows.length ? workspaces.theme.ink : workspaces.theme.muted
                 }
+                PawPrint {
+                    anchors.horizontalCenter: label.horizontalCenter
+                    anchors.top: label.bottom
+                    anchors.topMargin: -1
+                    visible: tab.current && workspaces.theme.paperDetails
+                    theme: workspaces.theme
+                }
                 MouseArea {
                     id: mouse
                     anchors.fill: parent

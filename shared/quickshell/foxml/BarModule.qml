@@ -21,10 +21,11 @@ Item {
     readonly property string label: BarLogic.format(sample.text, {icon:sample.text})
     readonly property var clockParts: name === "custom/clock" ? label.trim().match(/^(.*?)\s+(\d{1,2}[:♡]\d{2}(?:\s*[AP]M)?)$/) : null
     readonly property bool special: name === "hyprland/workspaces" || name === "tray"
+    readonly property bool catPill: name === "idle_inhibitor" && theme.paperDetails
     readonly property bool interactive: name === "idle_inhibitor" || ["on-click", "on-click-right", "on-click-middle", "on-scroll-up", "on-scroll-down"].some(function(key) { return !!spec[key]; })
     readonly property bool focused: !!(controller && (controller.drawerVisible || controller.opened) && controller.attachment && controller.attachment.moduleName === name && controller.attachment.screenName === panel.screen.name)
     readonly property real labelLimit: compact && name === "custom/ai_status" ? tight ? 42 : 124 : 2000
-    implicitWidth: special ? specialContent.implicitWidth : clockParts ? clock.implicitWidth + 14 : label ? Math.min(text.implicitWidth, labelLimit) + 14 : 0
+    implicitWidth: special ? specialContent.implicitWidth : catPill ? nap.implicitWidth + 14 : clockParts ? clock.implicitWidth + 14 : label ? Math.min(text.implicitWidth, labelLimit) + 14 : 0
     implicitHeight: depth + 4
     visible: implicitWidth > 0
 
@@ -53,11 +54,19 @@ Item {
     Rectangle {
         anchors.horizontalCenter: parent.horizontalCenter
         y: module.clockParts ? clock.y - 2 : text.y - 4
-        width: (module.clockParts ? clock.implicitWidth : text.width) + 8
+        width: (module.clockParts ? clock.implicitWidth : module.catPill ? nap.width : text.width) + 8
         height: module.clockParts ? clock.implicitHeight + 4 : text.height + 8
         radius: 3
         color: module.focused || mouse.pressed ? module.theme.highlight : module.theme.hoverFill
         visible: !module.special && module.name !== "custom/logo" && (module.focused || mouse.pressed || (module.theme.paperDetails && module.interactive && mouse.containsMouse))
+    }
+    CatNap {
+        id: nap
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: 10
+        visible: module.catPill
+        theme: module.theme
+        awake: module.dataSource.idleEnabled
     }
     Text {
         id: text
@@ -66,7 +75,7 @@ Item {
         height: 23
         width: Math.min(implicitWidth, module.labelLimit)
         elide: Text.ElideRight
-        visible: !module.special && !module.clockParts
+        visible: !module.special && !module.clockParts && !module.catPill
         text: module.label
         textFormat: Text.PlainText
         color: module.sample.classes.indexOf("critical") >= 0 || module.sample.classes.indexOf("error") >= 0 ? module.theme.error
