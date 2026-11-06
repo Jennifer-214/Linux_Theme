@@ -29,11 +29,19 @@ def prepare():
     if SOURCE.exists():shutil.rmtree(SOURCE)
     with tarfile.open(archive) as tar:tar.extractall(VENDOR,filter='data')
     shutil.copyfile(ROOT/'paper-edge.h',SOURCE/'include/foxml-paper.h')
+    shutil.copyfile(ROOT/'paper-stamp.h',SOURCE/'include/foxml-paper-stamp.h')
     shutil.copyfile(ROOT/'bar-bridge.h',SOURCE/'include/foxml-bar-bridge.h')
     replace('include/config.h','\tint32_t border_size;','\tint32_t border_size;\n\tint32_t foxml_paper_shape;')
     replace('include/config.h','\tbool touch_binding, notify_binding;','\tbool touch_binding, notify_binding;\n\tbool foxml_paper_shape;')
+    replace('include/config.h','\tint32_t foxml_paper_shape;','\tint32_t foxml_paper_shape;\n\tbool foxml_paper_stamp;')
+    replace('include/config.h','\tbool foxml_paper_shape;','\tbool foxml_paper_shape;\n\tbool foxml_paper_stamp;')
     replace('config.c','\tstyle->border_size = 2;','\tstyle->border_size = 2;\n\tstyle->foxml_paper_shape = 0;')
+    replace('config.c','\tstyle->foxml_paper_shape = 0;','\tstyle->foxml_paper_shape = 0;\n\tstyle->foxml_paper_stamp = false;')
     replace('config.c','\t// Now on to actually setting things!', '''\t// Now on to actually setting things!
+    if (style->spec.foxml_paper_stamp) {
+        target->foxml_paper_stamp = style->foxml_paper_stamp;
+        target->spec.foxml_paper_stamp = true;
+    }
     if (style->spec.foxml_paper_shape) {
         target->foxml_paper_shape = style->foxml_paper_shape;
         target->spec.foxml_paper_shape = true;
@@ -45,14 +53,28 @@ def prepare():
         else return false;
         return spec->foxml_paper_shape = true;
     } else if (strcmp(name, "font") == 0) {''')
-    # Stock Mako ignores these comments. This binary interprets only this one
-    # namespaced directive, in the normal per-criterion config/reload flow.
-    replace('config.c',"\t\tif (stripped_line[0] == '\\0' || stripped_line[0] == '\\n' ||",'''        if (strncmp(stripped_line, "# foxml-paper-shape=", 19) == 0) {
+    replace('config.c','} else if (strcmp(name, "font") == 0) {','''} else if (strcmp(name, "foxml-paper-stamp") == 0) {
+        if (strcmp(value, "1") == 0) style->foxml_paper_stamp = true;
+        else if (strcmp(value, "0") == 0) style->foxml_paper_stamp = false;
+        else return false;
+        return spec->foxml_paper_stamp = true;
+    } else if (strcmp(name, "font") == 0) {''')
+    # Stock Mako ignores these optional namespaced directives.
+    replace('config.c',"\t\tif (stripped_line[0] == '\\0' || stripped_line[0] == '\\n' ||",'''        if (strncmp(stripped_line, "# foxml-paper-shape=", 19) == 0 ||
+                strncmp(stripped_line, "# foxml-paper-stamp=", 19) == 0) {
             stripped_line += 2;
             len -= 2;
         }
 \t\tif (stripped_line[0] == '\\0' || stripped_line[0] == '\\n' ||''')
     replace('render.c','#include "render.h"','#include "render.h"\n#include "foxml-paper.h"\n#include "foxml-bar-bridge.h"\nstatic bool foxml_ribbon_contents = false;')
+    replace('render.c','#include "foxml-paper.h"','#include "foxml-paper.h"\n#include "foxml-paper-stamp.h"')
+    replace('render.c','\tpango_cairo_show_layout(cairo, layout);','''    if (style->foxml_paper_stamp) {
+        double origin_x, origin_y;
+        cairo_get_current_point(cairo, &origin_x, &origin_y);
+        foxml_stamp_frame(cairo, layout, origin_x, origin_y, style->colors.text, scale);
+        cairo_move_to(cairo, origin_x, origin_y);
+    }
+\tpango_cairo_show_layout(cairo, layout);''')
     # A centered Pango layout already aligns text inside its configured width.
     # The vertical-icon centering offset would otherwise be applied twice.
     replace('render.c','\t// Render text\n','''    if (icon_vertical && style->text_alignment == PANGO_ALIGN_CENTER) {

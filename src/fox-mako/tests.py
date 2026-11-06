@@ -4,6 +4,43 @@ import os,shlex,shutil,subprocess,tempfile,unittest
 
 ROOT=Path(__file__).resolve().parent
 class PaperMako(unittest.TestCase):
+    def test_stamp_tracks_aligned_text_at_both_scales_and_skips_wrapped_labels(self):
+        with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='stamp-') as temp:
+            root=Path(temp);source=root/'stamp.c';binary=root/'stamp'
+            source.write_text('''#include "paper-stamp.h"
+#include <assert.h>
+#include <stdio.h>
+int main(void) {
+ cairo_surface_t *s=cairo_image_surface_create(CAIRO_FORMAT_ARGB32,800,400);
+ cairo_t *c=cairo_create(s);PangoLayout *layout=pango_cairo_create_layout(c);
+ for(int scale=1;scale<=2;scale++) {
+  PangoFontDescription *font=pango_font_description_from_string("MonaspiceKr Nerd Font 9");
+  pango_font_description_set_size(font,9*scale*PANGO_SCALE);
+  pango_layout_set_font_description(layout,font);pango_font_description_free(font);
+  pango_layout_set_width(layout,320*scale*PANGO_SCALE);
+  pango_layout_set_alignment(layout,PANGO_ALIGN_CENTER);
+  const char *labels[]={" RECEIVED "," SAVED "," COPIED "," READY "};
+  for(int i=0;i<4;i++) {
+   char text[80];snprintf(text,sizeof(text),"%s\\nA little note",labels[i]);
+   pango_layout_set_text(layout,text,-1);PangoRectangle b;
+   assert(foxml_stamp_bounds(layout,&b));
+   double mid=(b.x+b.width/2.)/PANGO_SCALE;
+   assert(mid>159*scale && mid<161*scale);
+   foxml_stamp_frame(c,layout,10*scale,10*scale,0x3c3c40ff,scale);
+  }
+  pango_layout_set_text(layout,"A regular notification\\nNo stamp",-1);
+  PangoRectangle b;assert(!foxml_stamp_bounds(layout,&b));
+  pango_layout_set_text(layout," RECEIVED \\nA little note",-1);
+  pango_layout_set_wrap(layout,PANGO_WRAP_WORD_CHAR);
+  pango_layout_set_width(layout,15*scale*PANGO_SCALE);
+  assert(!foxml_stamp_bounds(layout,&b));
+ }
+ g_object_unref(layout);cairo_destroy(c);cairo_surface_destroy(s);return 0;
+}''')
+            flags=shlex.split(subprocess.check_output(['pkg-config','--cflags','--libs','pangocairo'],text=True))
+            subprocess.run(['cc','-I'+str(ROOT),str(source),'-o',str(binary),*flags],check=True,capture_output=True)
+            subprocess.run([str(binary)],check=True)
+
     def test_bootstrap_install_defers_build_and_preserves_the_installed_binary(self):
         with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='bootstrap-') as temp:
             root=Path(temp);shutil.copy2(ROOT/'Makefile',root/'Makefile')
@@ -75,5 +112,9 @@ int main(void){
             path.write_text('# foxml-paper-shape=invalid\n')
             result=subprocess.run([str(ROOT/'fox-mako'),'-c',str(path)],env=env,capture_output=True,text=True,timeout=3)
             self.assertIn('Failed to parse option',result.stderr)
+            for stamp in ['0','1','invalid']:
+                path.write_text('# foxml-paper-stamp='+stamp+'\n')
+                result=subprocess.run([str(ROOT/'fox-mako'),'-c',str(path)],env=env,capture_output=True,text=True,timeout=3)
+                self.assertEqual('Failed to parse option' in result.stderr,stamp=='invalid')
 
 if __name__=='__main__':unittest.main()

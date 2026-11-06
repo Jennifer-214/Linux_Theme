@@ -302,7 +302,7 @@ render_all() {
             echo "Icon generation needs fox-render-fast; build src/fox-render first." >&2
             return 1
         fi
-        "$native" --finish-icons "$palette_file" "$template_dir" "$output_dir" || return 1
+        "$native" --finish-assets "$palette_file" "$template_dir" "$output_dir" || return 1
     fi
     echo "" # newline after progress bar
 }

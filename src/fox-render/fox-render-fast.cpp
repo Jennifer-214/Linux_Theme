@@ -16,6 +16,7 @@
 //     update.sh's _DANGER_PATTERNS list.
 
 #include "palette.hpp"
+#include "paper_assets.hpp"
 #include "render.hpp"
 #include "reverse.hpp"
 #include "icon_family.hpp"
@@ -164,6 +165,10 @@ int run_reverse(int argc, char** argv) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    if (argc == 5 && std::string(argv[1]) == "--finish-assets") {
+        return fox_render::finish_icon_family(argv[3], argv[4], fox_render::parse_palette(argv[2])) &&
+            fox_render::finish_paper_assets(argv[3], argv[4]) ? 0 : 1;
+    }
     if (argc == 5 && std::string(argv[1]) == "--finish-icons") {
         return fox_render::finish_icon_family(argv[3],argv[4],fox_render::parse_palette(argv[2])) ? 0 : 1;
     }
@@ -210,6 +215,10 @@ int main(int argc, char** argv) {
     }
     if (!fox_render::finish_icon_family(template_dir,output_dir,table)) {
         std::fprintf(stderr,"fox-render-fast: icon-family generation failed; refusing an incomplete render\n");
+        return 1;
+    }
+    if (!fox_render::finish_paper_assets(template_dir, output_dir)) {
+        std::fprintf(stderr, "fox-render-fast: shared Paper artwork did not render\n");
         return 1;
     }
     auto t1 = std::chrono::steady_clock::now();

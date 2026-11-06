@@ -4,7 +4,7 @@ PREFIX ?= $(HOME)/.local/bin
 .DEFAULT_GOAL := all
 all: $(BIN)
 
-vendor/.ready: prepare.py paper-edge.h bar-bridge.h
+vendor/.ready: prepare.py paper-edge.h paper-stamp.h bar-bridge.h
 	python3 prepare.py
 
 $(BIN): vendor/.ready

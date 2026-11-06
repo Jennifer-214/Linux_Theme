@@ -30,6 +30,7 @@ icon-path=/usr/share/icons/{{MAKO_ICON_THEME}}
 
 # Only Paper matches this rule; OSDs keep their own compact formats below.
 [summary~={{MAKO_STAMP_SUMMARIES}}]
+# foxml-paper-stamp=1
 height=124
 format=<span font_family="{{FONT_FAMILY}}" size="x-small" weight="semibold" letter_spacing="1024" foreground="#{{FG}}" background="#{{SELECTION}}"> RECEIVED </span>\n{{MAKO_FORMAT}}
 
@@ -59,6 +60,7 @@ default-timeout=15000
 # synchronous hint in focus-pulse.sh, this shows exactly one transient chip
 # per switch instead of a growing stack.
 [app-name=focus-pulse]
+# foxml-paper-stamp=0
 format={{MAKO_FORMAT}}
 background-color=#{{BG}}{{POPUP_BG_OPACITY_HEX}}
 text-color=#{{ACCENT}}
@@ -92,6 +94,7 @@ default-timeout=6000
 # what's left is a 4px line that progress-color fills like a level.
 [app-name={{MAKO_OSD_APP}}]
 # foxml-paper-shape=none
+# foxml-paper-stamp=0
 format=​
 font={{FONT_FAMILY}} 1
 icons=0

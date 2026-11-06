@@ -5,7 +5,7 @@ CXXFLAGS ?= -std=c++17 -O3 -Wall -Wextra -pthread
 LDFLAGS  ?= -pthread
 PREFIX   ?= $(HOME)/.local/bin
 
-OBJ = palette.o render.o reverse.o icon_family.o
+OBJ = palette.o render.o reverse.o icon_family.o paper_assets.o
 BIN = fox-render-fast
 
 all: $(BIN)
@@ -21,6 +21,9 @@ reverse.o: reverse.cpp reverse.hpp
 
 icon_family.o: icon_family.cpp icon_family.hpp render.hpp ../fox-common/json.hpp
 	$(CXX) $(CXXFLAGS) -c icon_family.cpp -o $@
+
+paper_assets.o: paper_assets.cpp paper_assets.hpp render.hpp
+	$(CXX) $(CXXFLAGS) -c paper_assets.cpp -o $@
 
 $(BIN): fox-render-fast.cpp $(OBJ)
 	$(CXX) $(CXXFLAGS) fox-render-fast.cpp $(OBJ) -o $@ $(LDFLAGS)
