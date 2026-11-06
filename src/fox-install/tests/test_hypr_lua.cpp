@@ -123,6 +123,10 @@ int main() {
         check("no command line → keep", greeter_toml_action("[terminal]\nvt = 1\n", true) == GreeterToml::Keep);
         check("verify ok", verify_output_ok("======== Config parsing result:\n\nconfig ok\n"));
         check("verify error", !verify_output_ok("hyprland.lua:2: unexpected symbol near '#'"));
+        check("good config passes", greeter_config_ok(true, "config ok\n"));
+        check("bad config fails", !greeter_config_ok(true, "hyprland.lua:2: unexpected symbol"));
+        check("missing compositor fails", !greeter_config_ok(false, ""));
+        check("missing compositor fails despite stale output", !greeter_config_ok(false, "config ok\n"));
     }
 
     // ── Lua twins of per-machine modules (existing users moving to 0.57) ──

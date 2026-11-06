@@ -139,6 +139,12 @@ inline bool verify_output_ok(const std::string& out) {
     return out.find("config ok") != std::string::npos;
 }
 
+// The login screen needs a compositor that accepted its config. A missing
+// Hyprland fails too: enabling greetd then would boot to a blank screen.
+inline bool greeter_config_ok(bool have_hyprland, const std::string& verify_output) {
+    return have_hyprland && verify_output_ok(verify_output);
+}
+
 inline bool write_text_atomic(const std::filesystem::path& dest, const std::string& body) {
     namespace fs = std::filesystem;
     std::error_code ec;

@@ -92,14 +92,21 @@ bool write_root_inline(const fs::path& dst, const std::string& body) {
 // before greetd is pointed at it. Always pass -c: without it, 0.57's
 // verify-config writes a stock ~/.config/hypr/hyprland.lua.
 bool greeter_config_parses(const fs::path& staged) {
-    if (!sh::have("Hyprland")) return true;   // nothing to check against yet
-    std::string out;
-    sh::capture({"Hyprland", "--version"}, out);
-    const bool lua = hypr_lua::reads_lua_only(hypr_lua::parse_version(out));
-    const fs::path cfg = staged / (lua ? "hyprland.lua" : "hyprland.conf");
+    const bool have = sh::have("Hyprland");
+    fs::path cfg;
     std::string res;
-    sh::capture({"Hyprland", "--verify-config", "-c", cfg.string()}, res);
-    if (hypr_lua::verify_output_ok(res)) return true;
+    if (have) {
+        std::string out;
+        sh::capture({"Hyprland", "--version"}, out);
+        const bool lua = hypr_lua::reads_lua_only(hypr_lua::parse_version(out));
+        cfg = staged / (lua ? "hyprland.lua" : "hyprland.conf");
+        sh::capture({"Hyprland", "--verify-config", "-c", cfg.string()}, res);
+    }
+    if (hypr_lua::greeter_config_ok(have, res)) return true;
+    if (!have) {
+        ui::warn("Hyprland is not installed, so the login screen has nothing to run on");
+        return false;
+    }
     ui::warn("greeter config " + cfg.string() + " does not parse with the installed Hyprland:");
     ui::substep(res.substr(res.find("parsing result") == std::string::npos ? 0 : res.find("parsing result")));
     return false;
@@ -115,8 +122,9 @@ bool backup_greeter() {
     return sh::run({"sudo", "cp", "-a", "-T", GREETER_DIR, GREETER_BACKUP}) == 0;
 }
 
-void restore_greeter() {
-    if (fs::is_directory(GREETER_BACKUP)) sh::run({"sudo", "cp", "-a", "-T", GREETER_BACKUP, GREETER_DIR});
+bool restore_greeter() {
+    return fs::is_directory(GREETER_BACKUP) &&
+           sh::run({"sudo", "cp", "-a", "-T", GREETER_BACKUP, GREETER_DIR}) == 0;
 }
 
 }  // namespace
@@ -135,12 +143,36 @@ void run_greetd(Context& ctx) {
         return;
     }
 
+    // Every failure below leaves the login screen on the previous theme.
+    auto incomplete = [&](const std::string& why) {
+        ctx.deploy_failed = true;
+        ui::err(why);
+    };
+    if (ctx.render_ran && !ctx.render_ok) {
+        incomplete("render failed; refusing to install a partial login screen");
+        return;
+    }
+    // A dry run stages nothing, so the checks below would report a healthy box as failed.
+    if (sh::dry_run()) {
+        if (theme_only) {
+            ui::substep("[dry-run] would install regreet css/toml, hyprland.conf + "
+                        "hyprland.lua, start-greeter.sh + wallpaper to /etc/greetd/; "
+                        "config.toml and greetd service state left untouched (theme-only)");
+        } else {
+            ui::substep("[dry-run] would install regreet files, hyprland.conf + "
+                        "hyprland.lua, start-greeter.sh + wallpaper to /etc/greetd/, "
+                        "point /etc/greetd/config.toml at start-greeter.sh if stock "
+                        "or installer-written, enable greetd");
+        }
+        return;
+    }
+
     fs::path staged = ctx.config_home / "regreet";
     for (const char* needed : { "regreet.css", "regreet.toml", "hyprland.conf",
                                  "hyprland.lua", "select-monitor.sh", "start-greeter.sh" }) {
         if (!fs::exists(staged / needed)) {
-            ui::err("staged regreet file missing: " + (staged / needed).string() +
-                    " (run --specials first to stage)");
+            incomplete("staged regreet file missing: " + (staged / needed).string() +
+                       " (run --specials first to stage)");
             return;
         }
     }
@@ -161,36 +193,22 @@ void run_greetd(Context& ctx) {
     fs::path wall_src = ctx.home / ".wallpapers" / wall_name;
 
     if (!fs::exists(wall_src)) {
-        ui::err("login wallpaper " + wall_src.string() +
-                " missing — copy your wallpaper to ~/.wallpapers/ first");
+        incomplete("login wallpaper " + wall_src.string() +
+                   " missing — copy your wallpaper to ~/.wallpapers/ first");
         return;
     }
 
-    if (sh::dry_run()) {
-        if (theme_only) {
-            ui::substep("[dry-run] would install regreet css/toml, hyprland.conf + "
-                        "hyprland.lua, start-greeter.sh + wallpaper to /etc/greetd/; "
-                        "config.toml and greetd service state left untouched (theme-only)");
-        } else {
-            ui::substep("[dry-run] would install regreet files, hyprland.conf + "
-                        "hyprland.lua, start-greeter.sh + wallpaper to /etc/greetd/, "
-                        "point /etc/greetd/config.toml at start-greeter.sh if stock "
-                        "or installer-written (after the greeter config parses), "
-                        "enable greetd");
-        }
-        return;
-    }
     // Checked before anything is replaced: a config that won't parse must not reach a working login screen.
     if (!greeter_config_parses(staged)) {
-        ui::err("login screen left as it was — fix the greeter config, then re-run --greetd");
+        incomplete("login screen left as it was — fix the problem above, then re-run --greetd");
         return;
     }
     if (!sh::sudo_warmup()) {
-        ui::err("sudo cache cold — `sudo -v` first");
+        incomplete("sudo cache cold — `sudo -v` first");
         return;
     }
     if (!backup_greeter()) {
-        ui::err("could not back up /etc/greetd — login screen left as it was");
+        incomplete("could not back up /etc/greetd — login screen left as it was");
         return;
     }
 
@@ -203,8 +221,9 @@ void run_greetd(Context& ctx) {
     installed = write_root_file(staged / "start-greeter.sh",  hypr_lua::GREETER_LAUNCHER,      "755") && installed;
     installed = write_root_file(wall_src,                     wall_path,                       "644") && installed;
     if (!installed) {
-        restore_greeter();
-        ui::err("login screen files could not be installed — restored the previous ones");
+        incomplete(restore_greeter()
+            ? "login screen files could not be installed — restored the previous ones"
+            : "login screen files could not be installed, and the backup was not restored — check /etc/greetd");
         return;
     }
     ui::ok("regreet css/toml, hyprland.conf + hyprland.lua → /etc/greetd/");
@@ -231,14 +250,17 @@ void run_greetd(Context& ctx) {
     } else if (write_root_inline(cfg, CONFIG_TOML_BODY)) {
         ui::ok("/etc/greetd/config.toml → start-greeter.sh (Hyprland greeter session)");
     } else {
-        restore_greeter();
-        ui::err("/etc/greetd/config.toml could not be written — restored the previous login screen");
+        incomplete(restore_greeter()
+            ? "/etc/greetd/config.toml could not be written — restored the previous login screen"
+            : "/etc/greetd/config.toml could not be written, and the backup was not restored — check /etc/greetd");
         return;
     }
 
     if (sh::run({"systemctl", "is-enabled", "--quiet", "greetd"}) != 0) {
         if (sh::run({"sudo", "systemctl", "enable", "greetd"}) == 0) {
             ui::ok("greetd enabled (login screen on next boot)");
+        } else {
+            incomplete("could not enable greetd — is another display manager enabled?");
         }
     } else {
         ui::skipped("greetd already enabled");
