@@ -17,9 +17,12 @@ RENDER=ROOT/'src/fox-render/fox-render-fast'
 @unittest.skipUnless(RENDER.exists(), 'build fox-render-fast first')
 class Stationery(unittest.TestCase):
     def test_handwritten_date_is_valid_markup_and_stays_clear_of_the_clock(self):
-        import gi
-        gi.require_version('Pango','1.0');gi.require_version('PangoCairo','1.0')
-        from gi.repository import Pango,PangoCairo
+        try:
+            import gi
+            gi.require_version('Pango','1.0');gi.require_version('PangoCairo','1.0')
+            from gi.repository import Pango,PangoCairo
+        except (ImportError, ValueError):
+            self.skipTest('Pango is required to measure the rendered label')
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
             subprocess.run([str(RENDER),str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates/hyprlock'),str(root/'lock')],check=True,capture_output=True)
