@@ -4,6 +4,9 @@
 These all rendered cleanly and failed later: the apps accept the file and quietly ignore or misread a value.
 """
 import re
+import configparser
+import base64
+import json
 import subprocess
 import tempfile
 import unittest
@@ -45,6 +48,30 @@ class RenderedConfigsTest(unittest.TestCase):
             colours = dict(re.findall(r'^set (recolor-(?:light|dark)color)\s+"(#\w+)"', text, re.M))
             self.assertEqual(colours, {"recolor-lightcolor": "#" + palette_value(theme, "BG"),
                                        "recolor-darkcolor": "#" + palette_value(theme, "FG")}, theme)
+
+    def test_firefox_embeds_the_shared_cat_instead_of_a_separate_copy(self):
+        cat = (ROOT / "shared/quickshell/foxml/paper-cat.png").read_bytes()
+        for theme in THEMES:
+            css = (self.out / theme / "firefox/userContent.css").read_text()
+            encoded = re.search(r'data:image/png;base64,([A-Za-z0-9+/=]+)', css)
+            self.assertIsNotNone(encoded, theme)
+            self.assertEqual(base64.b64decode(encoded.group(1)), cat, theme)
+
+    def test_fastfetch_configs_are_valid_json_for_every_palette(self):
+        for theme in THEMES:
+            data = json.loads((self.out / theme / "fastfetch/config.jsonc").read_text())
+            self.assertIn(data['logo']['type'], ['small', 'data'], theme)
+            self.assertNotIn('{{', json.dumps(data), theme)
+
+    def test_screenshot_editor_uses_valid_palette_ink_and_pencil_strokes(self):
+        for theme in THEMES:
+            config = configparser.ConfigParser(interpolation=None)
+            config.read(self.out / theme / 'swappy/config')
+            settings = config['Default']
+            self.assertRegex(settings['custom_color'], r'^#[0-9a-fA-F]{6}$', theme)
+            self.assertEqual(settings.getint('line_size'), 2)
+            self.assertEqual(settings['save_dir'], '$HOME/Pictures/Screenshots')
+            self.assertNotIn('{{', settings['text_font'])
 
 
 class SourcesTest(unittest.TestCase):

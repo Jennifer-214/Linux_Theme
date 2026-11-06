@@ -63,7 +63,7 @@ hl.config({
     decoration = {
         rounding = {{ROUNDING}},
         active_opacity = 1.0,
-        inactive_opacity = 0.88,
+        inactive_opacity = {{HYPR_INACTIVE_OPACITY}},
         blur = {
             enabled = {{SHOW_WELCOME}},
             size = {{BLUR_SIZE}},
