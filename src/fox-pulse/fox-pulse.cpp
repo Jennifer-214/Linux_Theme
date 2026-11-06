@@ -69,7 +69,8 @@ struct HandlerSpec {
 // Order of resolution: ~/.config/foxml/pulse.d/<name>.sh override →
 // legacy ~/.config/hypr/scripts/<script> → native command.
 const HandlerSpec FOCUS_HANDLER   = { "focus",   "focus-pulse.sh",       nullptr };
-const HandlerSpec MONITOR_HANDLER = { "monitor", "fox-monitor-watch.sh",
+// The legacy watcher is a persistent listener, not a one-shot event handler.
+const HandlerSpec MONITOR_HANDLER = { "monitor", nullptr,
     "\"$HOME/.local/bin/fox-monitor\" reconcile" };
 const HandlerSpec CONFIG_HANDLER  = { "config",  nullptr, nullptr };
 
@@ -322,6 +323,8 @@ int main(int argc, char** argv) {
             "fox-pulse: Hyprland socket not yet available — will retry\n");
     }
     auto last_reconnect = std::chrono::steady_clock::now();
+    // Startup may be the only event after env-init hands us a live session.
+    if (hypr.connected()) mon_db.trigger();
 
     bool running = true;
     while (running) {
@@ -359,6 +362,7 @@ int main(int argc, char** argv) {
                     }
                 } else {
                     reconnect_misses = 0;
+                    mon_db.trigger();
                 }
             }
         }

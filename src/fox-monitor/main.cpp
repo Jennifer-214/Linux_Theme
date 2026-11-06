@@ -204,8 +204,8 @@ int cmd_status() {
 // reconcile — re-derive the layout from live Hyprland state, regenerate the
 // per-monitor wallpaper variants, and RE-APPLY the CURRENT wallpaper to each
 // monitor. Never rotates (the base is the .current symlink, not a clock slot).
-// Composition of the libfox-monitor submodules: rederive → sidecar::write →
-// variants::generate → apply::apply_current → waybar regen.
+// Composition: rederive → sidecar::write → immediate apply → variants::generate
+// → apply finished variants → waybar regen.
 int cmd_reconcile(bool dry_run, bool force) {
     if (dry_run) sh::set_dry_run(true);
 
@@ -241,12 +241,17 @@ int cmd_reconcile(bool dry_run, bool force) {
         return 1;
     }
 
-    ui::section("Per-monitor wallpaper variants");
-    fox_monitor::variants::generate(wall_dir, layout.monitor_resolutions, dry_run, force);
-
     ui::section("Apply current wallpaper");
     std::size_t applied =
         fox_monitor::apply::apply_current(layout, wall_dir, dry_run);
+
+    // A portrait upscale can take minutes. Give a newly connected screen its
+    // current image immediately, then replace the crop with the finished variant.
+    ui::section("Per-monitor wallpaper variants");
+    auto generated = fox_monitor::variants::generate(
+        wall_dir, layout.monitor_resolutions, dry_run, force,
+        fox_monitor::apply::current_base(wall_dir));
+    if (generated > 0) fox_monitor::apply::apply_current(layout, wall_dir, dry_run);
 
     // Regenerate waybar if the start script is deployed (hotplug can add/drop
     // a bar). Fire-and-forget: background it INSIDE the shell (`… &`) so we

@@ -66,6 +66,10 @@ void crop_region(int sw, int sh, int tw, int th, int& rw, int& rh);
 // True if realesrgan-ncnn-vulkan is reachable on PATH (the GPU upscaler).
 bool esrgan_available();
 
+// Prefer an authored tall companion; ordinary photos retain their source crop.
+std::filesystem::path source_for(const std::filesystem::path& wall_dir,
+                                const std::string& base, int width, int height);
+
 // Generates pre-cropped per-monitor wallpaper variants under `wall_dir`.
 //
 //   wall_dir            — the wallpaper directory (~/.wallpapers)
@@ -81,12 +85,15 @@ bool esrgan_available();
 //                         dims-match skip): the planner sees an empty
 //                         existing-variants map so every (base,res) is a
 //                         Generate. Default callers pass false.
+//   active_base         — optional current filename for a fast hotplug refresh;
+//                         empty prepares the whole collection for the installer.
 //
 // Returns the number of files generated (0 == no-op rerun, not failure).
 std::size_t generate(const std::filesystem::path& wall_dir,
                      const std::vector<std::string>& monitor_resolutions,
                      bool dry_run,
-                     bool force = false);
+                     bool force = false,
+                     const std::string& active_base = {});
 
 }  // namespace fox_monitor::variants
 

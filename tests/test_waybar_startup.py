@@ -151,8 +151,10 @@ with open(os.environ['CURSOR_ENV_CALLS'],'a') as stream:
                     'XCURSOR_THEME':'stale-white','HYPRCURSOR_THEME':'stale-white','XCURSOR_SIZE':'24','CURSOR_ENV_CALLS':str(calls)}
                 subprocess.run(['/bin/bash',str(ROOT/'shared/hyprland_scripts/env-init.sh')],env=env,check=True,capture_output=True,text=True)
             rows=[json.loads(line)for line in calls.read_text().splitlines()]
-            self.assertEqual([row[0]for row in rows],['systemctl','dbus-update-activation-environment'])
-            for _,args,env in rows:
+            self.assertIn(['--user','try-restart','fox-pulse.service'],[row[1]for row in rows])
+            exports=[row for row in rows if 'try-restart' not in row[1]]
+            self.assertEqual([row[0]for row in exports],['systemctl','dbus-update-activation-environment'])
+            for _,args,env in exports:
                 self.assertIn('XCURSOR_THEME',args)
                 self.assertEqual(env['XCURSOR_THEME'],'catppuccin-mocha-pink-cursors')
                 self.assertEqual(env['HYPRCURSOR_THEME'],env['XCURSOR_THEME'])

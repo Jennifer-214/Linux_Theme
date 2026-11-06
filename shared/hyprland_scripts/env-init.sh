@@ -39,10 +39,14 @@ export XCURSOR_PATH="$HOME/.local/share/icons:$HOME/.icons:/usr/share/icons:/usr
 # graphical-session.target, which is RefuseManualStart=yes upstream and is
 # not auto-activated by Hyprland.
 if command -v systemctl >/dev/null 2>&1; then
-    systemctl --user import-environment \
-        WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE \
+    if systemctl --user import-environment \
+        WAYLAND_DISPLAY HYPRLAND_INSTANCE_SIGNATURE XDG_CURRENT_DESKTOP XDG_SESSION_TYPE \
         DISPLAY DBUS_SESSION_BUS_ADDRESS \
-        XCURSOR_THEME XCURSOR_SIZE XCURSOR_PATH HYPRCURSOR_THEME HYPRCURSOR_SIZE 2>/dev/null
+        XCURSOR_THEME XCURSOR_SIZE XCURSOR_PATH HYPRCURSOR_THEME HYPRCURSOR_SIZE 2>/dev/null; then
+        # default.target starts this daemon before a compositor exists. Importing
+        # variables updates the manager, so restart the active process to inherit them.
+        systemctl --user try-restart fox-pulse.service 2>/dev/null
+    fi
 fi
 
 # Classic D-Bus activation has its own environment, separate from systemd's.

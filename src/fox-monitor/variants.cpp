@@ -148,11 +148,27 @@ bool esrgan_available() {
     return sh::have("realesrgan-ncnn-vulkan");
 }
 
+fs::path source_for(const fs::path& wall_dir, const std::string& base,
+                    int width, int height) {
+    const fs::path original = wall_dir / base;
+    if (width > 0 && height > width) {
+        const auto stem = original.stem().string() + "_portrait";
+        for (const auto& ext : {original.extension().string(), std::string(".png"),
+                                std::string(".jpg"), std::string(".jpeg")}) {
+            std::error_code ec;
+            const auto candidate = wall_dir / (stem + ext);
+            if (fs::is_regular_file(candidate, ec)) return candidate;
+        }
+    }
+    return original;
+}
+
 // ─── per-monitor wallpaper variants ────────────────────────────────
 std::size_t generate(const fs::path& wall_dir,
                      const std::vector<std::string>& monitor_resolutions,
                      bool dry_run,
-                     bool force) {
+                     bool force,
+                     const std::string& active_base) {
     if (!fs::is_directory(wall_dir))  return 0;
     if (monitor_resolutions.empty())  return 0;
 
@@ -206,6 +222,7 @@ std::size_t generate(const fs::path& wall_dir,
     for (auto& entry : fs::directory_iterator(wall_dir)) {
         if (!entry.is_regular_file()) continue;
         std::string fname = entry.path().filename().string();
+        if (fname.empty() || fname.front() == '.') continue;
         std::string ext   = entry.path().extension().string();
         if (ext.size() > 1) ext.erase(0, 1);
         if (!is_image(ext)) continue;
@@ -240,12 +257,28 @@ std::size_t generate(const fs::path& wall_dir,
             existing_variants[fname] =
                 parse_res(dims, vw, vh) ? std::make_pair(vw, vh)
                                         : std::make_pair(0, 0);
+            // Updated artwork must replace an old crop even when that crop
+            // already has the correct pixel dimensions.
+            const auto suffix = stem.find_last_of('_');
+            int tw = 0, th = 0;
+            if (suffix != std::string::npos && parse_res(stem.substr(suffix + 1), tw, th)) {
+                const auto base = stem.substr(0, suffix) + "." + ext;
+                const auto source = source_for(wall_dir, base, tw, th);
+                std::error_code source_ec, output_ec;
+                const auto source_time = fs::last_write_time(source, source_ec);
+                const auto output_time = fs::last_write_time(entry.path(), output_ec);
+                if (!source_ec && !output_ec && source_time > output_time)
+                    existing_variants[fname] = {0, 0};
+            }
             continue;
         }
 
         if (stem.size() >= 9 && stem.compare(stem.size() - 9, 9, "_portrait") == 0)
             continue;
 
+        // Hotplug only needs the current image. The installer leaves this empty
+        // to prepare the complete collection without delaying desktop recovery.
+        if (!active_base.empty() && fname != active_base) continue;
         base_files.push_back(fname);
     }
 
@@ -253,15 +286,31 @@ std::size_t generate(const fs::path& wall_dir,
 
     size_t generated = 0;
     for (const auto& act : actions) {
-        fs::path out = wall_dir / act.out_file;
+        const fs::path final_out = wall_dir / act.out_file;
         if (act.kind == VariantAction::Prune) {
             if (!dry_run) {
                 std::error_code ec;
-                fs::remove(out, ec);
+                fs::remove(final_out, ec);
             }
             continue;
         }
-        fs::path in_path = wall_dir / act.src_base_file;
+        const fs::path out = wall_dir /
+            (".foxml-" + std::to_string(::getpid()) + "-" + act.out_file);
+        auto publish = [&](int rc) {
+            if (dry_run) return rc == 0;
+            std::error_code ec;
+            if (rc == 0) {
+                fs::rename(out, final_out, ec);
+                if (!ec) return true;
+                ui::warn("could not publish wallpaper variant " + act.out_file);
+            }
+            fs::remove(out, ec);
+            return false;
+        };
+        fs::path in_path = source_for(wall_dir, act.src_base_file, act.w, act.h);
+        const bool authored_portrait = in_path != wall_dir / act.src_base_file;
+        const bool authored_pair = authored_portrait ||
+            source_for(wall_dir, act.src_base_file, 1, 2) != wall_dir / act.src_base_file;
         // NATIVE dims — the variant file matches the monitor's reported
         // resolution exactly. The filename stays keyed to the monitor res so
         // rotate_wallpaper.sh's lookup still works.
@@ -320,13 +369,15 @@ std::size_t generate(const fs::path& wall_dir,
 
         if (!upscales) {
             // DOWNSCALING (or unprobeable source) crop — unchanged.
-            if (run_lanczos_downscale() == 0) ++generated;
+            if (publish(run_lanczos_downscale())) ++generated;
             continue;
         }
 
         // UPSCALING crop. Prefer the Real-ESRGAN region path; fall back to
         // Lanczos+sharpen when ESRGAN is unavailable or any step fails.
-        const bool use_esrgan = esrgan_available();
+        // Preserve authored orientation companions' strokes; they need resizing,
+        // not neural reconstruction of a tiny landscape crop.
+        const bool use_esrgan = !authored_pair && esrgan_available();
 
         if (dry_run) {
             // Mirror sh::run's dry-run logging: print the planned command(s)
@@ -357,7 +408,7 @@ std::size_t generate(const fs::path& wall_dir,
         }
 
         if (!use_esrgan) {
-            if (run_lanczos_upscale() == 0) ++generated;
+            if (publish(run_lanczos_upscale())) ++generated;
             continue;
         }
 
@@ -418,12 +469,12 @@ std::size_t generate(const fs::path& wall_dir,
         fs::remove(tmp_region, rmec);
         fs::remove(tmp_up, rmec);
 
-        if (esrgan_ok) {
+        if (esrgan_ok && publish(0)) {
             ++generated;
         } else {
             ui::warn("ESRGAN upscale failed for " + act.out_file +
                      " — falling back to Lanczos+sharpen");
-            if (run_lanczos_upscale() == 0) ++generated;
+            if (publish(run_lanczos_upscale())) ++generated;
         }
     }
     // Stamp the current recipe after a real run so the one-time full regen does

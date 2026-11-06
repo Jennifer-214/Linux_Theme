@@ -52,7 +52,7 @@ bool ensure_daemon(bool dry_run) {
 
     if (sh::have("awww-daemon")) {
         // setsid detaches the daemon from this process group.
-        sh::run({"setsid", "awww-daemon"});
+        sh::run({"setsid", "-f", "awww-daemon"});
     }
     for (int i = 0; i < 30; ++i) {
         if (sh::capture({"awww", "query"}, ignore)) return true;
