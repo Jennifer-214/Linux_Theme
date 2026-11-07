@@ -107,7 +107,7 @@
     format = "<b>%s</b>\n%b"
     timeout = 5
 
-# AI agents — both Claude and Gemini share the primary peach accent
+# AI agents use the primary peach accent
 # so notification chrome reads as "an agent is talking to you", not
 # "which agent is talking." Critical-urgency entries (Notification
 # hook = permission/input prompt) still get the red border from
@@ -121,11 +121,3 @@
     format = "<b>%s</b>\n%b"
     timeout = 6
 
-[gemini]
-    appname = Gemini
-    background = "#{{BG}}{{POPUP_BG_OPACITY_HEX}}"
-    foreground = "#{{PRIMARY}}"
-    frame_color = "#{{PRIMARY}}"
-    highlight = "#{{PRIMARY}}"
-    format = "<b>%s</b>\n%b"
-    timeout = 6

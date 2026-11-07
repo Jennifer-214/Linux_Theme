@@ -78,9 +78,6 @@ TEMPLATE_MAPPINGS=(
     # Border colors for scripts
     "hyprland/border_colors.sh|~/.config/hypr/modules/border_colors.sh"
 
-    # AI Agent — AGENT_DIR placeholder is resolved by the special handler,
-    # which jq-merges into the user's settings.json to preserve security.auth.
-    "gemini/settings.json|AGENT_DIR/settings.json"
 
     # OpenCode TUI theme — palette-driven; deploy as a custom theme that
     # opencode.json references via "theme": "foxml".
@@ -281,33 +278,6 @@ PKGJSON
     if command -v bat &>/dev/null; then
         bat cache --build &>/dev/null
         command -v foxml_substep >/dev/null && foxml_substep "Bat cache rebuilt" || echo "  Bat cache rebuilt"
-    fi
-
-    # AI Agent (Gemini) — merge the rendered config into the user's settings.json.
-    # `.hooks` and `.ui` are *replaced* wholesale (not deep-merged) so a removed
-    # event (e.g. a previous install's bogus SubagentStop) doesn't linger; other
-    # top-level keys like `security` are preserved.
-    local gemini_dir="${GEMINI_CONFIG_HOME:-$HOME/.gemini}"
-    local gemini_settings="$gemini_dir/settings.json"
-    if [[ -f "$rendered_dir/gemini/settings.json" ]]; then
-        if [[ -f "$gemini_settings" ]]; then
-            local tmp_settings; tmp_settings="$(mktemp)"
-            if jq --slurpfile new "$rendered_dir/gemini/settings.json" '
-                    . * $new[0]
-                    | .hooks = $new[0].hooks
-                    | .ui    = $new[0].ui
-                ' "$gemini_settings" > "$tmp_settings" 2>/dev/null; then
-                mv "$tmp_settings" "$gemini_settings"
-                command -v foxml_substep >/dev/null && foxml_substep "Gemini settings (hooks + theme) merged" || echo "  Gemini settings (hooks + theme) merged"
-            else
-                rm -f "$tmp_settings"
-                echo "  Gemini merge failed (jq error), skipping"
-            fi
-        else
-            mkdir -p "$(dirname "$gemini_settings")"
-            cp "$rendered_dir/gemini/settings.json" "$gemini_settings"
-            command -v foxml_substep >/dev/null && foxml_substep "Gemini settings installed" || echo "  Gemini settings installed"
-        fi
     fi
 
     # Claude CLI — ensure Stop / SubagentStop / Notification hooks are wired
@@ -691,8 +661,8 @@ JSON
     fi
 
     # Reload the live notification daemon so the freshly-rendered [app-name=Claude]
-    # / [app-name=Gemini] rules are active without a relog. Hook config in
-    # ~/.claude/settings.json and ~/.gemini/settings.json is read by the agent
+    # rules are active without a relog. Hook config in
+    # ~/.claude/settings.json is read by the agent
     # processes at startup, so already-running agent sessions still need to be
     # restarted to pick up new hooks — that part can't be fixed from here.
     if pgrep -x mako >/dev/null 2>&1 && command -v makoctl >/dev/null 2>&1; then
@@ -3890,21 +3860,6 @@ update_specials() {
     if [[ -f "$bat_dir/themes/Fox ML.tmTheme" ]]; then
         sed "$sed_expr" "$bat_dir/themes/Fox ML.tmTheme" > "$template_dir/bat/foxml.tmTheme"
         echo "  Bat theme"
-    fi
-
-    # AI Agent — pull config back into the template; keeping security/auth out
-    # of the captured template avoids leaking session creds into the repo.
-    local gemini_dir="${GEMINI_CONFIG_HOME:-$HOME/.gemini}"
-    local gemini_settings="$gemini_dir/settings.json"
-    if [[ -f "$gemini_settings" ]]; then
-        local tmp_captured; tmp_captured="$(mktemp)"
-        # Capture theme, hooks, and notifications but skip security
-        if jq '{ui: .ui, hooks: .hooks, hooksConfig: .hooksConfig, general: .general}' "$gemini_settings" > "$tmp_captured" 2>/dev/null; then
-            mkdir -p "$template_dir/gemini"
-            sed "$sed_expr" "$tmp_captured" > "$template_dir/gemini/settings.json"
-            echo "  Gemini settings (captured hooks + theme)"
-        fi
-        rm -f "$tmp_captured"
     fi
 
     # Hyprland scripts

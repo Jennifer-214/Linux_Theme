@@ -256,7 +256,6 @@ Adding a new theme = writing one `palette.sh` file. All app configs render from 
 | Bat | `templates/bat/foxml.tmTheme` | `~/.config/bat/themes/Fox ML.tmTheme` |
 | Lazygit | `templates/lazygit/config.yml` | `~/.config/lazygit/config.yml` |
 | Git delta | `templates/git/delta.gitconfig` | `~/.config/git/delta-foxml.gitconfig` |
-| Gemini CLI | `templates/gemini/settings.json` | `~/.gemini/settings.json` (merged) |
 | OpenCode | `templates/opencode/foxml.json` | `~/.config/opencode/themes/foxml.json` |
 | Codex CLI | `templates/codex/foxml.tmTheme` | `~/.codex/themes/foxml.tmTheme` |
 | ReGreet (login) | `templates/regreet/regreet.css` | `/etc/greetd/regreet.css` (sudo) |

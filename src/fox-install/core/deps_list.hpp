@@ -58,7 +58,7 @@ inline const std::vector<std::string>& deps_packages() {
 
         // CLI tools
         "zsh", "fzf", "eza", "bat", "yazi", "btop", "fd", "zoxide",
-        "jq", "git-delta", "github-cli", "pacman-contrib",
+        "jq", "git-delta", "github-cli", "pacman-contrib", "openai-codex",
         "lazygit", "ncspot", "cliphist",
         "cloc", "tree", "rsync", "shellcheck", "ripgrep",
         // reviewing changes, agents' included: difftastic diffs by syntax (GIT_EXTERNAL_DIFF=difft git diff —

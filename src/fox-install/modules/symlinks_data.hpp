@@ -94,9 +94,6 @@ inline constexpr Mapping TEMPLATE_MAPPINGS[] = {
     // Hyprland border-color script
     { "hyprland/border_colors.sh",    "~/.config/hypr/modules/border_colors.sh" },
 
-    // AI Agent — AGENT_DIR placeholder, handled by specials.
-    { "gemini/settings.json",         "AGENT_DIR/settings.json" },
-
     // OpenCode TUI theme
     { "opencode/foxml.json",          "~/.config/opencode/themes/foxml.json" },
 

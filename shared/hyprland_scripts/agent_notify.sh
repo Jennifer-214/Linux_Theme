@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # agent_notify.sh — themed notify-send + JSONL queue append for AI agent hooks.
-# Invoked by Claude Code / Gemini CLI hooks. Reads hook payload JSON on stdin.
+# Invoked by Claude Code hooks. Reads hook payload JSON on stdin.
 #
 # Usage:
 #   agent_notify.sh <source> <event>
-#     <source>: claude | gemini
+#     <source>: claude
 #     <event>:  stop | subagent | notification
 #
 # Theme: hex colors are sourced from ~/.config/hypr/modules/border_colors.sh
@@ -36,7 +36,7 @@ trap 'echo "[$(date -Iseconds)] $0 ${LINENO} ${BASH_COMMAND}" >> "$LOG_FILE" 2>/
 src="${1:-claude}"
 event="${2:-stop}"
 
-# Read hook payload (Claude and Gemini both pass JSON on stdin). Bounded read
+# Read hook payload (Claude passes JSON on stdin). Bounded read
 # so this never wedges if a hook fires without piping anything.
 input=""
 if [[ ! -t 0 ]]; then
@@ -70,22 +70,7 @@ if [[ -n "$input" ]] && command -v jq >/dev/null 2>&1; then
     tool_name="$(printf '%s' "$input" | jq -r '.tool_name // empty' 2>/dev/null)" || tool_name=""
 fi
 
-# Gemini ships no SubagentStop event — its closest analog is AfterTool,
-# which fires for *every* tool call. Filter out built-in primitives and
-# MCP tools so only subagent invocations notify. Subagents register as
-# tools under their own name, so anything outside this list is treated
-# as a subagent (covers the built-in codebase_investigator plus any
-# custom agent under ~/.gemini/agents/).
-if [[ "$src" == "gemini" && "$event" == "subagent" ]]; then
-    case "$tool_name" in
-        ""|read_file|write_file|replace|edit|run_shell_command|list_directory|ls|search_file_content|grep|glob|web_fetch|web_search|save_memory|read_many_files|mcp_*)
-            exit 0
-            ;;
-    esac
-    [[ -z "$msg" ]] && msg="$tool_name"
-fi
-
-# Idle pings — both Claude Code and Gemini CLI fire Notification hooks for
+# Idle pings — Claude Code fires Notification hooks for
 # real permission prompts ("Claude needs your permission to use Bash") AND
 # for after-N-seconds "waiting for your input" idle reminders. The idle
 # variant is noise during multi-pane work — same critical urgency as a
@@ -105,7 +90,7 @@ project="$(basename "$cwd" 2>/dev/null)"
 [[ -z "$project" ]] && project="?"
 
 # tmux target — populated when the hook is invoked from inside a tmux pane,
-# which is the common case (claude/gemini run in a tmux pane). Format S:W.P.
+# which is the common case (claude runs in a tmux pane). Format S:W.P.
 tmux_target=""
 if [[ -n "${TMUX:-}" ]] && command -v tmux >/dev/null 2>&1; then
     tmux_target="$(tmux display-message -p '#S:#I.#P' 2>/dev/null || true)"
@@ -113,7 +98,6 @@ fi
 
 case "$src" in
     claude)   src_label="Claude";   src_color="$C_PRIMARY" ;;
-    gemini)   src_label="Gemini";   src_color="$C_ACCENT"  ;;
     opencode) src_label="OpenCode"; src_color="$C_WARN"    ;;
     *)        src_label="$src";     src_color="$C_PRIMARY" ;;
 esac

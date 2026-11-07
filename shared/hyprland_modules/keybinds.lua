@@ -61,7 +61,7 @@ hl.bind(mainMod .. " + SHIFT + V", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-men
 hl.bind(mainMod .. " + SHIFT + K", hl.dsp.exec_cmd("~/.config/hypr/scripts/panic.sh"))
 -- Power menu.
 hl.bind(mainMod .. " + SHIFT + X", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu power"))
--- AI agent triage — pending Claude/Gemini notifications, hjkl, switches tmux to the originating pane.
+-- AI agent triage — pending Claude notifications, hjkl, switches tmux to the originating pane.
 hl.bind(mainMod .. " + SHIFT + E", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu agents"))
 -- Path of Building (Flatpak) — build planner; `pob 2` for PoE 2.
 hl.bind(mainMod .. " + CTRL + P", hl.dsp.exec_cmd("~/.local/bin/pob"))

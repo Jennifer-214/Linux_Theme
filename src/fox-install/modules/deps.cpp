@@ -177,12 +177,11 @@ void run_deps(Context& ctx) {
                 ui::warn("could not change the login shell — run `chsh -s /usr/bin/zsh`");
         }
 
-        // ─── NPM globals (Gemini + Claude CLIs, pi coding agent) ──
+        // ─── NPM globals (Claude CLI, pi coding agent) ───────────
         // Idempotent: only installs ones missing from PATH. pi is the local-model
         // agent; its config comes from `fox-llm-update --sync` (opencode module).
         if (have_cmd("npm")) {
             std::vector<std::string> npm_globals;
-            if (!have_cmd("gemini")) npm_globals.push_back("@google/gemini-cli");
             if (!have_cmd("claude")) npm_globals.push_back("@anthropic-ai/claude-code");
             if (!have_cmd("pi"))     npm_globals.push_back("@earendil-works/pi-coding-agent");  // the old @mariozechner name stops at 0.73.1
             if (!npm_globals.empty()) {

@@ -126,7 +126,7 @@ FOX_MODULE( monitors,    run_monitors,      "--monitors",    "Configure Hyprland
 FOX_MODULE( personalize, run_personalize,   "--personalize", "Per-monitor wallpapers + hyprlock + workspace rules", true  )
 FOX_MODULE( symlinks,    run_symlinks,      "--symlinks",    "Deploy rendered + shared configs (mapping tables)", true  )
 FOX_MODULE( keybind_docs, run_keybind_docs, "--keybind-docs", "Regenerate KEYBINDS.md from the tmux/Hyprland configs", true )
-FOX_MODULE( specials,    run_specials,      "--specials",    "Firefox + Cursor + Bat + Gemini + Claude + bulk dirs", true )
+FOX_MODULE( specials,    run_specials,      "--specials",    "Firefox + Cursor + Bat + Claude + bulk dirs", true )
 FOX_MODULE( drawer,      run_drawer,        "--drawer",      "Quickshell bar, hierarchical menus and active palette", true )
 //   greetd — installs+enables a system systemd unit, writes /etc/greetd/. After render and specials: specials stages its
 //   files from this run's palette and deploys the wallpapers. Before that it skips a fresh install and reuses the last theme.

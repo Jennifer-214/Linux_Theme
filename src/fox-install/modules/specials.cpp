@@ -3,7 +3,7 @@
 // What TEMPLATE_MAPPINGS / SHARED_MAPPINGS can't express:
 //
 //   * FIREFOX_PROFILE / AGENT_DIR placeholders (need profile discovery).
-//   * JSON merges that preserve secret keys (Gemini auth, Claude hooks).
+//   * JSON merges that preserve user keys (Claude hooks).
 //   * `bat cache --build` (post-deploy cache rebuild).
 //   * Bulk-deploy of directories like shared/hyprland_scripts/ — same
 //     file every install, but the file LIST changes when new scripts
@@ -307,60 +307,6 @@ void do_git_delta(const Context& ctx) {
         }
         ui::substep("git delta include → " + delta_inc.string());
     }
-}
-
-// ─── Gemini settings jq-merge ──────────────────────────────────────
-//
-// Merge contract (matches bash jq invocation):
-//   . * $new[0]                       — deep-merge entire object
-//   | .hooks = $new[0].hooks         — replace .hooks wholesale
-//   | .ui    = $new[0].ui            — replace .ui wholesale
-//
-// Translated to nlohmann/json: start from existing settings, deep-merge
-// rendered settings on top, then overwrite .hooks / .ui with the
-// rendered values. .security and similar top-level keys are preserved.
-void do_gemini(const Context& ctx) {
-    fs::path rendered = ctx.rendered_dir / "gemini/settings.json";
-    if (!fs::exists(rendered)) return;
-
-    const char* gem_env = std::getenv("GEMINI_CONFIG_HOME");
-    fs::path gem_dir = (gem_env && *gem_env) ? fs::path(gem_env)
-                                              : (ctx.home / ".gemini");
-    fs::path target = gem_dir / "settings.json";
-
-    json new_j;
-    try {
-        std::ifstream f(rendered);
-        f >> new_j;
-    } catch (const std::exception& e) {
-        ui::warn(std::string("Gemini parse failed: ") + e.what());
-        return;
-    }
-
-    if (!fs::exists(target)) {
-        fs::create_directories(target.parent_path());
-        write_json_atomic(target, new_j);
-        ui::substep("Gemini settings installed");
-        return;
-    }
-
-    json existing;
-    try {
-        std::ifstream f(target);
-        f >> existing;
-    } catch (...) {
-        ui::warn("Gemini existing settings.json unparseable, skipping merge");
-        return;
-    }
-
-    // Deep merge new onto existing (nlohmann/json's merge_patch deep-merges).
-    existing.merge_patch(new_j);
-    // Then force-replace .hooks and .ui wholesale.
-    if (new_j.contains("hooks")) existing["hooks"] = new_j["hooks"];
-    if (new_j.contains("ui"))    existing["ui"]    = new_j["ui"];
-
-    write_json_atomic(target, existing);
-    ui::substep("Gemini settings (hooks + theme) merged");
 }
 
 // ─── Claude CLI hooks merge ────────────────────────────────────────
@@ -678,7 +624,7 @@ void run_specials(Context& ctx) {
 
     if (sh::dry_run()) {
         ui::substep("[dry-run] would: Firefox CSS+user.js, Cursor/VS Code theme, "
-                    "Bat cache rebuild, Gemini+Claude settings jq-merge, "
+                    "Bat cache rebuild, Claude settings jq-merge, "
                     "hyprland_scripts + waybar_scripts + hyprland_modules (.conf + .lua) + wallpapers + bin deploy, "
                     "hyprland.lua when Hyprland >= 0.57, "
                     "KEYBINDS.md to ~/.local/share/foxml/, systemd user units");
@@ -693,7 +639,6 @@ void run_specials(Context& ctx) {
     do_bat_config(ctx);
     do_bat_cache();
     do_git_delta(ctx);
-    do_gemini(ctx);
     do_claude_hooks(ctx);
 
     // fox-monitor-watch.sh has been replaced by fox-pulse + the
