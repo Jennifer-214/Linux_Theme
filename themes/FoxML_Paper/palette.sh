@@ -127,9 +127,9 @@ WHEAT=8a7a5a
 CLAY=9a5a48
 
 # ─── Nvim diff colors ───
-DIFF_ADD=e3e9e0
+DIFF_ADD=d7e1d3
 DIFF_CHANGE=e4dfd6
-DIFF_DELETE=efe2e0
+DIFF_DELETE=eddad7
 DIFF_TEXT=dcd9d2
 TREESITTER_CTX=e4dfd6
 
@@ -150,14 +150,14 @@ NVIM_INDENT6=d6d2ca
 NVIM_IBL_SCOPE=8e8c88
 
 # ─── Nvim state backgrounds (diagnostics / git / conflicts / word highlight) ───
-NVIM_DIAG_ERR_BG=f2e4e2
+NVIM_DIAG_ERR_BG=f0dcd9
 NVIM_DIAG_WARN_BG=ece9e3
 NVIM_GIT_MOD=8a7650
 NVIM_GIT_DEL=9a5a58
-NVIM_CONFLICT_CUR=f0e0de
+NVIM_CONFLICT_CUR=f0dcda
 NVIM_CONFLICT_CUR_LABEL=e8d2cf
-NVIM_CONFLICT_INC=e2eae0
-NVIM_CONFLICT_INC_LABEL=d6e2d3
+NVIM_CONFLICT_INC=d8e4d5
+NVIM_CONFLICT_INC_LABEL=cbddc7
 NVIM_ILLUMINATE=e2dfd8
 
 # ─── Nvim definition / keyword weight ───
@@ -470,11 +470,11 @@ YAZI_SELECTED_BG=e2a4ba
 # A paper footer: small blush mode labels, quiet metadata.
 YAZI_MODE_FG=202024
 YAZI_MODE_ALT_FG=59565b
-YAZI_MODE_NORMAL_BG=f1d6de
+YAZI_MODE_NORMAL_BG=e2a4ba
 YAZI_MODE_NORMAL_ALT_BG=f0ede7
-YAZI_MODE_SELECT_BG=f1d6de
+YAZI_MODE_SELECT_BG=e2a4ba
 YAZI_MODE_SELECT_ALT_BG=f0ede7
-YAZI_MODE_UNSET_BG=f1d6de
+YAZI_MODE_UNSET_BG=e2a4ba
 YAZI_MODE_UNSET_ALT_BG=f0ede7
 
 # Native permission dialogs use the same selection fill and readable links.
@@ -518,13 +518,13 @@ FASTFETCH_KEY_WIDTH=10
 
 # Claude Code (custom:foxml): a soft pink behind sent messages, sage and coral diffs under dark ink.
 CLAUDE_USER_BG=e8becd
-CLAUDE_USER_BG_HOVER=edccd8
-CLAUDE_DIFF_ADD=cfe3cf
-CLAUDE_DIFF_ADD_DIM=e1ebdf
-CLAUDE_DIFF_ADD_WORD=a9cfa9
-CLAUDE_DIFF_DEL=f3d0c6
-CLAUDE_DIFF_DEL_DIM=f4e0da
-CLAUDE_DIFF_DEL_WORD=e8a898
+CLAUDE_USER_BG_HOVER=e2a4ba
+CLAUDE_DIFF_ADD=bedcbe
+CLAUDE_DIFF_ADD_DIM=d6e5d2
+CLAUDE_DIFF_ADD_WORD=91c791
+CLAUDE_DIFF_DEL=f5c7ba
+CLAUDE_DIFF_DEL_DIM=f4d9d1
+CLAUDE_DIFF_DEL_WORD=ec9c88
 
 # Commit garden: paper, then four pinks that deepen with the day's commits. Level 1 is the message-box pink
 # that read on every monitor; each step is at least 1.25:1 from the last.

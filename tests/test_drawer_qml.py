@@ -234,14 +234,18 @@ EXERCISE = r'''
     Timer { interval:4800; running:true; onTriggered: root.show("root") }
     Timer { interval:5000; running:true; onTriggered: {
         var texts = todaySheet.tags.map(function(tag) { return tag.text; });
-        if (texts[0] !== "◇ Paper notebook is waiting" || texts.indexOf("80%") !== 1)
-            throw new Error("Today lost its waiting agent or battery tag: " + JSON.stringify(texts));
+        if (texts[0] !== "◇ Paper notebook is waiting" || texts[1] !== "✎ 2 working" || texts.indexOf("80%") !== 2)
+            throw new Error("Today lost its waiting agent, working count or battery tag: " + JSON.stringify(texts));
         if (testFind(todaySheet, "today-since").text !== "✎ 3 commits since this morning") throw new Error("the commits line is missing");
+        var usage = testFind(todaySheet, "today-claude");
+        if (!usage || usage.text !== "Claude · 22% of this 5h · 83% this week · resets sun" || !Qt.colorEqual(usage.color, theme.gardenShades[4]))
+            throw new Error("the Claude usage line is missing or not berry past 80%");
         root.focusArea = "items"; root.itemIndex = 0;
         root.key({key: Qt.Key_K, modifiers: 0, accepted: false});
         if (root.focusArea !== "tags" || root.tagIndex !== 0 || todaySheet.selectedTag !== 0) throw new Error("k from the first favorite did not reach the tags");
         root.key({key: Qt.Key_L, modifiers: 0, accepted: false});
-        if (root.tagIndex !== 1) throw new Error("l did not move along the tags");
+        root.key({key: Qt.Key_L, modifiers: 0, accepted: false});
+        if (root.tagIndex !== 2) throw new Error("l did not move along the tags");
         root.key({key: Qt.Key_Return, modifiers: 0, accepted: false});
         if (root.page !== "power" || root.focusArea !== "items" || JSON.stringify(root.trail) !== JSON.stringify(["root"]))
             throw new Error("the battery tag did not open Power with a way back");
@@ -263,7 +267,7 @@ EXERCISE = r'''
     Timer { interval:5650; running:true; onTriggered: { root.show("root"); testFind(todaySheet, "today-hearts").children[0].clicked(null); } }
     Timer { interval:5900; running:true; onTriggered: {
         if (root.page !== "garden" || !root.gardenLayout || !gardenSheet.visible || itemList.visible || emptyNote.visible)
-            throw new Error("the hearts line did not open the garden sheet");
+            throw new Error("the hearts line did not open the garden sheet: " + root.page + " " + root.gardenLayout + " " + gardenSheet.visible + " " + itemList.visible + " " + emptyNote.visible);
         if (gardenSheet.counts.length !== 371 || root.gardenIndex !== 370) throw new Error("the garden did not start on today");
         if (testFind(gardenSheet, "garden-summary").text !== "♥ 35 commits this year · longest streak 4 days · busiest nov 2 (9)")
             throw new Error("garden summary: " + testFind(gardenSheet, "garden-summary").text);
@@ -279,6 +283,16 @@ EXERCISE = r'''
         if (root.gardenIndex !== 370) throw new Error("t did not return to today");
         root.key({key: Qt.Key_Escape, modifiers: 0, accepted: false});
         if (root.page !== "root" || !root.opened) throw new Error("Esc did not take the garden back to Today, where it opened from");
+        root.hide();
+    }}
+    Timer { interval:6000; running:true; onTriggered: root.show("agents") }
+    Timer { interval:6100; running:true; onTriggered: {
+        var hearts = testFind(itemList, "context-hearts");
+        if (root.entries.length !== 2 || !hearts || !hearts.visible || hearts.filled !== 2)
+            throw new Error("a Claude session row lost its context hearts: " + root.page + " " + root.entries.length + " " + (hearts ? hearts.visible + "/" + hearts.filled : "none"));
+        root.activate(root.entries[1]);
+        if (JSON.stringify(actionProcess.command.slice(-3)) !== JSON.stringify(["run","claude-jump","%4"]))
+            throw new Error("picking a session did not jump to its pane: " + JSON.stringify(actionProcess.command));
         root.hide();
     }}
     Timer {
@@ -332,7 +346,7 @@ class DrawerQmlTest(unittest.TestCase):
             source = re.sub(r"^        (?:anchors \{.*|margins \{.*|exclusionMode:.*|WlrLayershell\..*)\n", "", source, flags=re.M)
             source = source.rsplit("\n}", 1)[0] + EXERCISE + "\n}\n"
             (directory / "shell.qml").write_text(source)
-            for name in ("DrawerLogic.js", "ClipIcon.qml", "LoadingDots.qml", "PencilProgress.qml", "PaperGrain.qml", "BarHint.qml", "PageEdgeScrollBar.qml", "MediaArtwork.qml", "StateTag.qml", "BarRibbon.qml", "PaperFlourish.qml", "PaperCardSurface.qml", "ClipboardPhoto.qml", "CalendarSheet.qml", "CalendarLogic.js", "ScrapbookSheet.qml", "GardenSheet.qml", "TodaySheet.qml", "VolumeSlip.qml"):
+            for name in ("DrawerLogic.js", "ClipIcon.qml", "LoadingDots.qml", "PencilProgress.qml", "PaperGrain.qml", "BarHint.qml", "PageEdgeScrollBar.qml", "MediaArtwork.qml", "StateTag.qml", "BarRibbon.qml", "PaperFlourish.qml", "PaperCardSurface.qml", "ClipboardPhoto.qml", "CalendarSheet.qml", "CalendarLogic.js", "ScrapbookSheet.qml", "GardenSheet.qml", "ContextHearts.qml", "TodaySheet.qml", "VolumeSlip.qml"):
                 shutil.copyfile(ROOT / "shared/quickshell/foxml" / name, directory / name)
             volume = (directory / "VolumeSlip.qml").read_text().replace("PanelWindow {", "FloatingWindow {")
             volume = re.sub(r"^    (?:anchors.*|margins\..*|exclusionMode:.*|WlrLayershell\..*)\n", "", volume, flags=re.M)
@@ -372,7 +386,7 @@ class DrawerQmlTest(unittest.TestCase):
                              [["run", "volume", "47"], ["run", "project-terminal", "/a literal project"],
                               ["run", "project-bookmark", "/a literal project"], ["run", "drive-eject", "/dev/sda", "--confirm"],
                               ["run", "download-folder", "/a literal download.txt"], ["run", "media-play-pause"],
-                              ["run", "agent-jump", "sample-agent"]])
+                              ["run", "agent-jump", "sample-agent"], ["run", "claude-jump", "%4"]])
 
 
 if __name__ == "__main__":

@@ -104,7 +104,7 @@ const std::set<std::string> actions = {
     "volume", "volume-mute", "mic-mute", "media-play-pause", "media-next", "media-previous", "brightness",
     "nightlight", "dnd", "idle", "power-profile", "lock", "suspend", "reboot", "poweroff", "logout",
     "wallpaper-next", "wallpaper-sync", "color-picker", "updates-terminal", "updates-silent", "vault",
-    "security", "cleanup", "agent-triage", "agent-jump", "agent-clear", "app-launch", "window-focus", "audio-output", "wifi-connect",
+    "security", "cleanup", "agent-triage", "agent-jump", "agent-clear", "claude-jump", "app-launch", "window-focus", "audio-output", "wifi-connect",
     "wifi-toggle", "bluetooth-connect", "bluetooth-toggle", "bluetooth-scan", "bluetooth-service", "tool-run", "cheatsheet-copy", "sandbox-launch", "clipboard-restore", "wallpaper-set", "theme-set", "project-open", "project-terminal", "project-bookmark", "drive-open", "drive-eject", "download-open", "download-folder", "screenshot-open", "screenshot-copy", "screenshot-folder", "screenshot-capture", "password-copy", "tools", "cheatsheet", "sandbox"
 };
 // The drawer loads one page at a time, so a page read that waits on a dead service holds every other page behind it.
@@ -772,12 +772,8 @@ void focus_agent_client(int pid) {
             && std::regex_match(address, std::regex("0x[0-9a-fA-F]{1,32}"))) { focus_address(address, false); return; }
     }
 }
-Json jump_agent(const std::string& key) {
-    if (key.size() != 64 || key.find_first_not_of("0123456789abcdef") != std::string::npos) return result(false, "Invalid agent note");
-    Json note;
-    for (const auto& entry : agent_notes()) if (entry.first == key) { note = entry.second; break; }
-    if (note.is_null()) return result(false, "This agent note has already been dismissed");
-    const auto target = text(note, "tmux");
+// Selects a tmux pane (session:window.pane) in the terminal that shows it, and focuses that window.
+Json jump_target(const std::string& target) {
     if (!safe_text(target, 256) || !std::regex_match(target, std::regex("[^:\r\n]{1,200}:[0-9]+\\.[0-9]+"))) return result(false, "This note has no reachable tmux pane");
     if (!sh::have("tmux")) return result(false, "tmux is not installed");
     const auto colon = target.find(':');
@@ -814,8 +810,156 @@ Json jump_agent(const std::string& key) {
         }
     }
     if (client_pid > 0) focus_agent_client(client_pid);
-    if (!dismiss_agent(key)) return result(false, "Terminal selected, but the note could not be dismissed");
     return result(true, "Agent terminal selected", true);
+}
+Json jump_agent(const std::string& key) {
+    if (key.size() != 64 || key.find_first_not_of("0123456789abcdef") != std::string::npos) return result(false, "Invalid agent note");
+    Json note;
+    for (const auto& entry : agent_notes()) if (entry.first == key) { note = entry.second; break; }
+    if (note.is_null()) return result(false, "This agent note has already been dismissed");
+    auto jumped = jump_target(text(note, "tmux"));
+    if (!truth(jumped, "ok")) return jumped;
+    if (!dismiss_agent(key)) return result(false, "Terminal selected, but the note could not be dismissed");
+    return jumped;
+}
+
+// Claude Code sessions, from what the status line and hooks leave in foxml-claude/ beside the agent queue:
+// <id>.json is the status line's latest look (model, context, plan usage, pane), <id>.state the hooks' word on
+// what it is doing. A session counts while its tmux pane still runs something other than a shell, for twelve hours.
+struct ClaudeSession {
+    std::string id, project, model, state, detail, pane;
+    int context = -1;
+    long long epoch = 0;
+};
+struct ClaudeUsage { int five = -1, week = -1; long long five_resets = 0, week_resets = 0; };
+fs::path claude_dir() { return agent_queue().parent_path() / "foxml-claude"; }
+int whole(const Json& object, const char* key) {
+    const auto at = object.find(key);
+    return at != object.end() && at->is_number() ? static_cast<int>(at->get<double>()) : -1;
+}
+long long stamp(const Json& object, const char* key) {
+    const auto at = object.find(key);
+    return at != object.end() && at->is_number() ? static_cast<long long>(at->get<double>()) : 0;
+}
+std::vector<ClaudeSession> claude_sessions(ClaudeUsage& usage) {
+    std::vector<ClaudeSession> sessions;
+    std::error_code ec;
+    if (!directory(claude_dir())) return sessions;
+    std::map<std::string, std::pair<Json, Json>> found;
+    for (const auto& entry : fs::directory_iterator(claude_dir(), ec)) {
+        const auto name = entry.path().filename().string(), ext = entry.path().extension().string();
+        const auto id = entry.path().stem().string();
+        if ((ext != ".json" && ext != ".state") || !std::regex_match(id, std::regex("[A-Za-z0-9_-]{1,80}"))) continue;
+        if (entry.file_size(ec) > 65536) continue;
+        auto data = Json::parse(read(entry.path()), nullptr, false);
+        if (!data.is_object()) continue;
+        (ext == ".json" ? found[id].first : found[id].second) = std::move(data);
+    }
+    if (found.empty()) return sessions;
+    std::map<std::string, std::string> panes;
+    std::string output;
+    const bool tmux = sh::have("tmux") && capture({"tmux", "list-panes", "-a", "-F", "#{pane_id}\t#{pane_current_command}"}, output);
+    if (tmux) for (const auto& line : lines(output)) {
+        const auto tab = line.find('\t');
+        if (tab != std::string::npos) panes[line.substr(0, tab)] = line.substr(tab + 1);
+    }
+    static const std::set<std::string> shells = {"zsh", "bash", "fish", "sh", "dash", "nu", "tmux"};
+    const long long now = static_cast<long long>(std::time(nullptr));
+    long long usage_epoch = 0;
+    for (const auto& [id, pair] : found) {
+        const auto& [look, word] = pair;
+        ClaudeSession session;
+        session.id = id;
+        session.epoch = std::max(stamp(look, "epoch"), stamp(word, "epoch"));
+        if (session.epoch <= 0 || now - session.epoch > agent_note_lifetime) continue;
+        session.pane = text(word, "pane", text(look, "pane"));
+        if (!session.pane.empty()) {
+            const auto pane = panes.find(session.pane);
+            if (!tmux || pane == panes.end() || shells.count(pane->second)) continue;
+        }
+        std::string place;
+        for (const auto& candidate : {text(look, "project"), text(look, "cwd"), text(word, "cwd")})
+            if (place.empty()) place = candidate;
+        while (place.size() > 1 && place.back() == '/') place.pop_back();
+        session.project = place.empty() ? "Claude" : place == home() ? "home" : fs::path(place).filename().string();
+        session.model = text(look, "model", "Claude");
+        session.context = whole(look, "context");
+        session.state = text(word, "state", "waiting");
+        session.detail = text(word, "detail");
+        sessions.push_back(session);
+        // Plan usage is the account's, so the freshest look that has it speaks for every session.
+        const auto has = [&](const char* key) { const auto at = look.find(key); return at != look.end() && at->is_object() && whole(*at, "used") >= 0; };
+        if (stamp(look, "epoch") > usage_epoch && (has("five") || has("week"))) {
+            usage_epoch = stamp(look, "epoch");
+            const auto window = [&](const char* key, int& used, long long& resets) {
+                const auto at = look.find(key);
+                if (at == look.end() || !at->is_object()) { used = -1; resets = 0; return; }
+                resets = stamp(*at, "resets");
+                used = resets > 0 && resets <= now ? -1 : whole(*at, "used");
+            };
+            window("five", usage.five, usage.five_resets);
+            window("week", usage.week, usage.week_resets);
+        }
+    }
+    std::sort(sessions.begin(), sessions.end(), [](const auto& a, const auto& b) { return a.epoch > b.epoch; });
+    return sessions;
+}
+bool claude_busy(const ClaudeSession& session) { return session.state == "working" || session.state == "compacting"; }
+std::string claude_state_text(const ClaudeSession& session) {
+    if (session.state == "needs") return "needs you";
+    if (session.state == "error") return session.detail == "rate_limit" ? "hit a limit" : "stopped";
+    return session.state;
+}
+std::string claude_usage_line(const ClaudeUsage& usage) {
+    std::string line;
+    const auto when = [](long long resets, const char* format) {
+        if (resets <= 0) return std::string();
+        char out[32] = {}; const std::time_t at = static_cast<std::time_t>(resets);
+        std::strftime(out, sizeof out, format, std::localtime(&at));
+        return lower(trim(out));
+    };
+    if (usage.five >= 0) line += std::to_string(usage.five) + "% of this 5h" + (usage.five >= 80 ? " · resets " + when(usage.five_resets, "%l%p") : "");
+    if (usage.week >= 0) line += (line.empty() ? "" : " · ") + std::to_string(usage.week) + "% this week" + (usage.week >= 80 ? " · resets " + when(usage.week_resets, "%a") : "");
+    return line;
+}
+// The bar pill, in waybar's custom-module shape: ✎ busy · ◇ waiting · ! stopped; hovering lists each session.
+Json claude_bar() {
+    ClaudeUsage usage;
+    const auto sessions = claude_sessions(usage);
+    int busy = 0, waiting = 0, stopped = 0;
+    bool asking = false;
+    for (const auto& session : sessions) {
+        if (claude_busy(session)) ++busy;
+        else if (session.state == "error") ++stopped;
+        else { ++waiting; asking = asking || session.state == "needs"; }
+    }
+    std::string text;
+    if (busy) text += "✎ " + std::to_string(busy);
+    if (waiting) text += (text.empty() ? "" : "  ") + std::string("◇ ") + std::to_string(waiting);
+    if (stopped) text += (text.empty() ? "" : "  ") + std::string("! ") + std::to_string(stopped);
+    std::string tooltip;
+    size_t shown = 0;
+    for (const auto& session : sessions) {
+        if (shown++ == 6) { tooltip += "and " + std::to_string(sessions.size() - 6) + " more\n"; break; }
+        tooltip += session.project + " · " + session.model + (session.context >= 0 ? " · " + std::to_string(session.context) + "% context" : "")
+                 + " · " + claude_state_text(session) + "\n";
+    }
+    const auto line = claude_usage_line(usage);
+    if (!line.empty()) tooltip += line + "\n";
+    if (!tooltip.empty()) tooltip.pop_back();
+    Json classes = Json::array();
+    if (asking) classes.push_back("asking");
+    if (usage.five >= 80 || usage.week >= 80) classes.push_back("berry");
+    if (stopped) classes.push_back("stopped");
+    return Json{{"text", text}, {"tooltip", tooltip}, {"class", classes}};
+}
+// From a session row: its pane id (%N) names the place to go.
+Json jump_claude(const std::string& pane) {
+    if (!std::regex_match(pane, std::regex("%[0-9]{1,6}"))) return result(false, "This session is not in a tmux pane");
+    if (!sh::have("tmux")) return result(false, "tmux is not installed");
+    std::string target;
+    if (!capture({"tmux", "display-message", "-p", "-t", pane, "#S:#I.#P"}, target)) return result(false, "The session's terminal is no longer available");
+    return jump_target(trim(target));
 }
 
 volatile std::sig_atomic_t picker_stopped = 0;
@@ -1328,6 +1472,12 @@ Json today_summary() {
         projects_seen[project] = today["waiting"].size();
         today["waiting"].push_back(Json{{"project", project}, {"argument", at->first}, {"asking", event == "notification"}, {"count", 1}});
     }
+    ClaudeUsage usage;
+    int busy = 0;
+    for (const auto& session : claude_sessions(usage)) busy += claude_busy(session);
+    today["claudeWorking"] = busy;
+    today["claudeUsage"] = claude_usage_line(usage);
+    today["claudeBerry"] = usage.five >= 80 || usage.week >= 80;
     for (const auto& line : lines(read(fs::path(home()) / ".todo"))) if (!trim(line).empty()) { today["todo"] = trim(line); break; }
     std::error_code ec;
     for (const auto& entry : fs::directory_iterator("/sys/class/power_supply", ec)) {
@@ -1581,6 +1731,16 @@ Json view(const Json& config, const std::string& page, const std::string& query)
         if (!sh::have("pass")) fail("Install pass to use your existing password store");
     } else if (page == "agents") {
         known = true; out["title"] = "Agent notes";
+        // Each live Claude session first, with how full its context is; picking one goes to its pane.
+        ClaudeUsage usage;
+        for (const auto& session : claude_sessions(usage)) {
+            auto row = item("claude-jump", session.project + " · " + session.model, "action",
+                            session.context >= 0 ? std::to_string(session.context) + "% of its context" : "context not measured yet", "message");
+            row["argument"] = session.pane; row["presentation"] = "claude"; row["claudeState"] = claude_state_text(session);
+            row["context"] = session.context; row["enabled"] = !session.pane.empty();
+            if (session.pane.empty()) row["disabledReason"] = "Not in a tmux pane, so there is nowhere to jump";
+            rows.push_back(row);
+        }
         const auto notes = agent_notes();
         for (auto at = notes.rbegin(); at != notes.rend() && rows.size() < 128; ++at) {
             const auto& entry = at->second;
@@ -1617,7 +1777,7 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         if (id == "logout") return command({"fox-hl", "dispatch", "hl.dsp.exit()", "exit"}, "Log out", true);
         return command({"systemctl", id}, id == "suspend" ? "Suspend" : id == "reboot" ? "Restart" : "Shut down", true);
     }
-    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","tool-run","cheatsheet-copy","sandbox-launch","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","screenshot-open","screenshot-copy","screenshot-folder","password-copy","agent-jump"};
+    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","tool-run","cheatsheet-copy","sandbox-launch","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","screenshot-open","screenshot-copy","screenshot-folder","password-copy","agent-jump","claude-jump"};
     if (!argument_actions.count(id) && !arg.empty()) return result(false, "This action accepts no argument");
     if (id == "volume" || id == "brightness") {
         int value = 0;
@@ -1813,6 +1973,7 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         return launch({"bash", updater.string(), id == "updates-terminal" ? "--apply-terminal" : "--apply-silent"}, "Updater opened");
     }
     if (id == "agent-jump") return jump_agent(arg);
+    if (id == "claude-jump") return jump_claude(arg);
     if (id == "agent-triage") { auto response = result(true, "Choose an agent note"); response["page"] = "agents"; return response; }
     if (id == "color-picker") return launch({"hyprpicker", "-a"}, "Color picker opened");
     if (id == "vault") { auto response = result(true, "Choose a key"); response["page"] = "passwords"; return response; }
@@ -1860,7 +2021,13 @@ int main(int argc, char** argv) {
         }
         if (!args.empty() && args[0] == "pick") return pick(args);
         if (args.size() == 1 && (args[0] == "--help" || args[0] == "help")) {
-            std::cout << "fox-drawer [--config PATH] view PAGE [QUERY]\nfox-drawer [--config PATH] run ACTION [ARGUMENT]\nfox-drawer [--config PATH] commit-days YYYY-MM\nfox-drawer pick [--title TITLE] [--index | --prompt]\n"; return 0;
+            std::cout << "fox-drawer [--config PATH] view PAGE [QUERY]\nfox-drawer [--config PATH] run ACTION [ARGUMENT]\nfox-drawer [--config PATH] commit-days YYYY-MM\nfox-drawer claude-bar\nfox-drawer pick [--title TITLE] [--index | --prompt]\n"; return 0;
+        }
+        // Polled by the bar every few seconds, so it reads no menu and never waits long on tmux.
+        if (args.size() == 1 && args[0] == "claude-bar") {
+            read_limit_seconds = 2;
+            std::cout << claude_bar().dump(-1, ' ', false, Json::error_handler_t::replace) << '\n';
+            return 0;
         }
         if (args.size() < 2 || args.size() > 4 || (args[0] != "view" && args[0] != "run" && args[0] != "commit-days")
             || (args.size() == 4 && (args[0] != "run" || args[1] != "drive-eject" || args[3] != "--confirm"))) {

@@ -40,6 +40,8 @@ ONE_SIDED = {
         "native-only Codex theme; edit templates/codex directly rather than reverse-capturing",
     ("TEMPLATE_MAPPINGS", "claude/foxml-theme.json", "~/.claude/themes/foxml.json"):
         "native-only Claude Code theme; edit templates/claude directly rather than reverse-capturing",
+    ("TEMPLATE_MAPPINGS", "claude/statusline.sh", "~/.claude/statusline.sh"):
+        "native-only Claude Code status line; edit templates/claude directly rather than reverse-capturing",
 }
 
 

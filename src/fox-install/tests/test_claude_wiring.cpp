@@ -148,13 +148,22 @@ void test_user_settings() {  // S10b: do_claude_hooks' merge, through the functi
     check(themed["env"]["CLAUDE_CODE_TMUX_TRUECOLOR"] == "0" && themed["env"]["OTHER"] == "x", "her own env values kept");
     json odd_env = json::parse(R"({"env":"not an object"})");
     check(merge_user_settings(odd_env, installer, true) && odd_env["env"] == "not an object", "an env that is not an object: left alone");
+    check(!hers.contains("statusLine"), "no status line until its script is deployed");
+    json lined = json::parse(R"({"theme":"dark-ansi"})");
+    check(merge_user_settings(lined, installer, true, true) && lined["statusLine"]["command"] == CLAUDE_STATUS_LINE
+          && lined["statusLine"]["type"] == "command", "the palette's status line once its script is deployed");
+    json own_line = json::parse(R"({"statusLine":{"type":"command","command":"~/my-line.sh"}})");
+    check(merge_user_settings(own_line, installer, true, true) && own_line["statusLine"]["command"] == "~/my-line.sh",
+          "a status line she wrote herself is kept");
     // the call site: do_claude_hooks must use merge_user_settings, never a merge-patch of the hooks
     std::ifstream sp("modules/specials.cpp");
     std::ostringstream ss; ss << sp.rdbuf();
     const std::string src = ss.str();
     check(!src.empty(), "modules/specials.cpp readable (the test runs from src/fox-install)");
-    check(src.find("merge_user_settings(existing, hooks, custom_theme)") != std::string::npos, "do_claude_hooks calls merge_user_settings");
+    check(src.find("merge_user_settings(existing, hooks, custom_theme, status_line)") != std::string::npos, "do_claude_hooks calls merge_user_settings");
     check(src.find("agent_notify.sh claude seen") != std::string::npos, "replying in a pane clears its note (UserPromptSubmit)");
+    for (const char* event : {"claude compact\"", "claude compacted\"", "claude failed\"", "claude ended\""})
+        check(src.find(std::string("agent_notify.sh ") + event) != std::string::npos, "session state hooks wired (compact, failure, end)");
     check(src.find(".merge_patch(hooks)") == std::string::npos, "no merge-patch of the hooks left in specials.cpp");
 }
 

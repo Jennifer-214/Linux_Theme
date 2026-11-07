@@ -64,6 +64,37 @@ class AgentNotifyTest(unittest.TestCase):
         self.assertEqual((seen.returncode, seen.stdout), (0, ""), "seen says nothing: its stdout would reach the agent")
         self.assertEqual([n["tmux"] for n in self.notes()], ["s:4.4", "s:1.3"], "replying clears only this pane's note")
 
+    def state_hook(self, event, payload):
+        env = os.environ | {"PATH": f"{self.bin}:{os.environ['PATH']}", "XDG_RUNTIME_DIR": str(self.run_dir),
+                            "TMUX": "/tmp/fake,1,0", "TMUX_PANE": "%7", "HOME": str(self.tmp)}
+        return subprocess.run(["bash", str(SCRIPT), "claude", event], input=json.dumps({"cwd": "/x/paper", **payload}),
+                              env=env, text=True, capture_output=True, timeout=10)
+
+    def test_each_session_says_what_it_is_doing(self):
+        sessions = self.run_dir / "foxml-claude"
+        state = lambda: json.loads((sessions / "abc-1.state").read_text())
+        seen = self.state_hook("seen", {"session_id": "abc-1"})
+        self.assertEqual((seen.returncode, seen.stdout), (0, ""), "still silent while recording")
+        self.assertEqual((state()["state"], state()["pane"], state()["cwd"]), ("working", "%7", "/x/paper"))
+        self.assertEqual(sessions.stat().st_mode & 0o777, 0o700)
+        self.assertEqual((sessions / "abc-1.state").stat().st_mode & 0o777, 0o600)
+        for event, payload, expected in (("stop", {}, "waiting"), ("notification", {"message": "Claude needs your permission to use Bash"}, "needs"),
+                                         ("compact", {"trigger": "auto"}, "compacting"), ("compacted", {"trigger": "auto"}, "working"),
+                                         ("compacted", {"trigger": "manual"}, "waiting"), ("failed", {"error": "rate_limit"}, "error")):
+            self.assertEqual(self.state_hook(event, {"session_id": "abc-1", **payload}).returncode, 0)
+            self.assertEqual(state()["state"], expected, event)
+        self.assertEqual(state()["detail"], "rate_limit")
+        lines_before = len(self.notes())
+        self.state_hook("compact", {"session_id": "abc-1"})
+        self.assertEqual(len(self.notes()), lines_before, "compacting leaves no note and no popup")
+        idle = self.state_hook("notification", {"session_id": "abc-1", "message": "Claude is waiting for your input"})
+        self.assertEqual((idle.returncode, state()["state"]), (0, "compacting"), "an idle reminder changes nothing")
+        (sessions / "abc-1.json").write_text("{}")
+        self.state_hook("ended", {"session_id": "abc-1", "reason": "prompt_input_exit"})
+        self.assertEqual(list(sessions.iterdir()), [], "an ended session leaves nothing behind")
+        self.state_hook("seen", {"session_id": "../escape"})
+        self.assertFalse((self.run_dir / "escape.state").exists(), "a session id is never a path")
+
     def test_seen_outside_tmux_changes_nothing(self):
         self.queue.write_text(json.dumps({"event": "stop", "tmux": "s:1.2"}) + "\n")
         env = os.environ | {"PATH": f"{self.bin}:{os.environ['PATH']}", "XDG_RUNTIME_DIR": str(self.run_dir), "HOME": str(self.tmp)}

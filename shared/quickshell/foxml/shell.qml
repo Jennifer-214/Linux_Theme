@@ -41,7 +41,7 @@ ShellRoot {
     property var garden: null
     property int gardenIndex: -1
     property bool viewFailed: false
-    readonly property string footerHint: calendarLayout ? "h / l changes month · t returns to today · Esc closes" : scrapbookLayout ? "arrows choose · c copies · Enter opens · Esc goes back" : gardenLayout ? "h / l a week · j / k a day · Esc goes back" : Logic.footerHint({confirming: pendingConfirm !== null, busy: actionBusy,
+    readonly property string footerHint: calendarLayout ? "h / l changes month · t today · g the garden · Esc closes" : scrapbookLayout ? "arrows choose · c copies · Enter opens · Esc goes back" : gardenLayout ? "h / l a week · j / k a day · Esc goes back" : Logic.footerHint({confirming: pendingConfirm !== null, busy: actionBusy,
         prompt: pickerActive && pickerPrompt, searching: searching, picker: pickerActive,
         editing: editing, focus: focusArea}, entries[itemIndex])
     property var pendingConfirm: null
@@ -481,6 +481,13 @@ ShellRoot {
         }
     }
 
+    // The calendar is a small sheet under the clock; the garden is a full drawer page, so it reopens at the launcher.
+    function gardenFromCalendar() {
+        if (!calendarLayout) return;
+        placeAtLauncher();
+        show("garden");
+    }
+
     function openTag(tag) {
         if (!tag || actionBusy || pendingConfirm) return;
         if (tag.page) {
@@ -606,6 +613,7 @@ ShellRoot {
             else if (k === Qt.Key_H || k === Qt.Key_Left || k === Qt.Key_PageUp) calendarSheet.moveMonth(-1);
             else if (k === Qt.Key_L || k === Qt.Key_Right || k === Qt.Key_PageDown) calendarSheet.moveMonth(1);
             else if (k === Qt.Key_T || k === Qt.Key_Home) calendarSheet.reset();
+            else if (k === Qt.Key_G) gardenFromCalendar();
             else return;
             event.accepted = true;
             return;
@@ -1295,6 +1303,11 @@ ShellRoot {
                                                     StateTag { objectName:"media-state-tag"; theme:root.paperTheme; text:itemRow.stateLabel; visible:text.length>0 }
                                                 }
                                                 Text { id: entryDetail; textFormat: Text.PlainText; text: Logic.detailText(modelData, itemRow.stateLabel.length > 0); visible: text.length > 0; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9; elide: Text.ElideRight; Layout.fillWidth: true }
+                                                ContextHearts {
+                                                    objectName: "context-hearts"
+                                                    theme: root.paperTheme
+                                                    percent: modelData.presentation === "claude" && modelData.context !== undefined ? Number(modelData.context) : -1
+                                                }
                                                 PencilProgress {
                                                     id: ruler
                                                     theme: root.paperTheme
@@ -1458,6 +1471,7 @@ ShellRoot {
                         active: root.opened && root.calendarLayout
                         theme: root.paperTheme
                         commandFor: root.backendCommand
+                        onOpenGarden: root.gardenFromCalendar()
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                     }

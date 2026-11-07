@@ -75,6 +75,7 @@ Item {
     }
     Text {
         id: text
+        objectName: "bar-module-text"
         anchors.horizontalCenter: parent.horizontalCenter
         y: 7
         height: 23
@@ -84,7 +85,8 @@ Item {
         text: module.label
         textFormat: Text.PlainText
         color: module.sample.classes.indexOf("critical") >= 0 || module.sample.classes.indexOf("error") >= 0 ? module.theme.error
-            : module.sample.classes.indexOf("warning") >= 0 ? module.theme.warning : module.theme.ink
+            : module.sample.classes.indexOf("warning") >= 0 || module.sample.classes.indexOf("stopped") >= 0 ? module.theme.warning
+            : module.sample.classes.indexOf("berry") >= 0 ? module.theme.gardenShades[4] : module.theme.ink
         font.family: module.theme.fontFamily
         font.pixelSize: module.name === "custom/logo" ? 18 : 13
         verticalAlignment: Text.AlignVCenter

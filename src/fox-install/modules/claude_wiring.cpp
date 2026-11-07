@@ -119,8 +119,11 @@ int merge_hook_entries(json& settings, const json& wanted) {
     return added;  // an event's list is only ever created when a command is added to it
 }
 
-bool merge_user_settings(json& existing, const json& hooks, bool custom_theme) {
+bool merge_user_settings(json& existing, const json& hooks, bool custom_theme, bool status_line) {
     if (!existing.is_object()) return false;
+    // only where there is none: a status line someone wrote themselves stays theirs
+    if (status_line && !existing.contains("statusLine"))
+        existing["statusLine"] = json{{"type", "command"}, {"command", CLAUDE_STATUS_LINE}, {"padding", 0}};
     const bool merged = merge_hook_entries(existing, hooks) >= 0;
     // set on every run, as dark-ansi always was; a custom: theme whose file is missing would fall back to dark
     existing["theme"] = custom_theme ? CLAUDE_THEME : "dark-ansi";

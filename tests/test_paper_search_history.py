@@ -64,10 +64,14 @@ class SearchHistory(unittest.TestCase):
             rgb = [int(color[i:i+2],16)/255 for i in (1,3,5)]
             linear = [c/12.92 if c <= .04045 else ((c+.055)/1.055)**2.4 for c in rgb]
             return sum(c*w for c,w in zip(linear,(.2126,.7152,.0722)))
-        for style in theme['mode'].values():
+        # The pink labels go no paler than #e8becd, the palest pink that still reads on a bright 4K panel.
+        proven = luminance('#e8becd')
+        for name, style in theme['mode'].items():
             bg,fg = luminance(style['bg']),luminance(style['fg'])
-            self.assertGreater(bg,.65)
-            self.assertGreaterEqual((bg+.05)/(fg+.05),4.5)
+            self.assertGreater(bg,.4,name)
+            self.assertGreaterEqual((bg+.05)/(fg+.05),4.5,name)
+            if name.endswith('_main'):
+                self.assertLessEqual(bg,proven+1e-9,name)
 
 if __name__ == '__main__':
     unittest.main()

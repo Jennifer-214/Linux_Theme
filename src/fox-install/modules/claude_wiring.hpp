@@ -28,9 +28,12 @@ int merge_hook_entries(nlohmann::json& settings, const nlohmann::json& wanted);
 // SubagentStop or Notification was erased by the next install — and the theme set on every run: the palette's own
 // custom:foxml when its file is deployed (`custom_theme`), else dark-ansi. CLAUDE_CODE_TMUX_TRUECOLOR is added to "env"
 // when absent: inside tmux Claude otherwise rounds every theme colour to the 256-colour palette.
+// The palette's status line (`status_line`, when its script is deployed) goes in only where no statusLine is set.
 // → false when its "hooks" is not an object (they are then left exactly as they are; the theme is still set).
 inline constexpr const char* CLAUDE_THEME = "custom:foxml";
-bool merge_user_settings(nlohmann::json& existing, const nlohmann::json& hooks, bool custom_theme = false);
+inline constexpr const char* CLAUDE_STATUS_LINE = "bash ~/.claude/statusline.sh";
+bool merge_user_settings(nlohmann::json& existing, const nlohmann::json& hooks, bool custom_theme = false,
+                         bool status_line = false);
 
 struct WiringReport {
     std::vector<std::string> done;     // each change, one line

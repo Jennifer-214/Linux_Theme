@@ -94,8 +94,11 @@ elif name == 'tmux':
         Path(os.environ['DRAWER_TEST_STATE']).write_text(json.dumps(state))
     if args[:1] == ['list-clients']:
         print(state.get('tmux_clients', '123\t/dev/pts/fixture\t99999999'))
+    elif args[:1] == ['list-panes']:
+        print(state.get('panes', ''))
     elif args[:1] == ['display-message']:
-        print('99999999')
+        pane = args[args.index('-t') + 1] if '-t' in args else ''
+        print(state.get('pane_targets', {}).get(pane, '99999999'))
 elif name == 'pactl' and 'sinks' in args:
     print(json.dumps([{'index':1, 'name':'desk.output', 'description':'Desk speakers', 'state':'RUNNING', 'mute':False}]))
 elif name == 'pactl' and 'get-default-sink' in args:
@@ -360,6 +363,51 @@ class BackendTests(unittest.TestCase):
                          "one tag per project; a pane still working is not waiting")
         self.assertEqual(today["waiting"][1]["argument"],rows[1]["argument"],"the tag goes to the project's newest waiting pane")
         self.assertEqual(queue.read_text().count("\n"),8,"reading never rewrites the queue")
+
+    def test_claude_sessions_feed_the_bar_pill_the_agents_page_and_today(self):
+        self.env.pop("TMUX",None)
+        sessions=Path(self.env["XDG_RUNTIME_DIR"])/"foxml-claude"
+        sessions.mkdir()
+        now=int(time.time())
+        def put(name,data): (sessions/name).write_text(json.dumps(data))
+        put("a1.json",{"model":"Opus 5.5","context":41,"five":{"used":22,"resets":now+3600},"week":{"used":83,"resets":now+86400},
+                       "project":"/code/Linux_Theme","pane":"%3","epoch":now-5})
+        put("a1.state",{"state":"working","pane":"%3","epoch":now})
+        put("b2.json",{"model":"Opus 5.5","context":12,"five":{"used":None,"resets":None},"week":{"used":None,"resets":None},
+                       "project":"","cwd":"/code/FoxML_Trader_v2/","pane":"%4","epoch":now})
+        put("b2.state",{"state":"needs","pane":"%4","epoch":now})
+        put("c3.state",{"state":"working","pane":"%5","epoch":now})          # its pane is back at a shell: gone
+        put("d4.state",{"state":"working","pane":"%3","epoch":now-13*3600})  # twelve hours quiet: gone
+        put("e5.state",{"state":"error","detail":"rate_limit","cwd":str(self.home),"epoch":now})  # outside tmux, in ~: kept, with nowhere to jump
+        (sessions/"bad id.state").write_text(json.dumps({"state":"working","epoch":now}))
+        (sessions/"f6.state").write_text("not json")
+        self.state.update(panes="%3\tclaude\n%4\tnode\n%5\tzsh",pane_targets={"%3":"paper:2.1"})
+        self.state_path.write_text(json.dumps(self.state))
+        result=subprocess.run([str(BINARY),"claude-bar"],env=self.env,capture_output=True,text=True,timeout=10)
+        bar=json.loads(result.stdout)
+        self.assertEqual(bar["text"],"✎ 1  ◇ 1  ! 1")
+        self.assertEqual(bar["class"],["asking","berry","stopped"])
+        self.assertEqual(bar["tooltip"].splitlines()[:3],["Linux_Theme · Opus 5.5 · 41% context · working","FoxML_Trader_v2 · Opus 5.5 · 12% context · needs you","home · Claude · hit a limit"])
+        self.assertTrue(bar["tooltip"].splitlines()[3].startswith("22% of this 5h · 83% this week · resets "),bar["tooltip"])
+        rows=[row for row in self.invoke("view","agents")["items"] if row["id"]=="claude-jump"]
+        self.assertEqual([(r["label"],r["claudeState"],r["context"],r["argument"],r["enabled"]) for r in rows],
+                         [("Linux_Theme · Opus 5.5","working",41,"%3",True),("FoxML_Trader_v2 · Opus 5.5","needs you",12,"%4",True),
+                          ("home · Claude","hit a limit",-1,"",False)])
+        today=self.invoke("view","root")["today"]
+        self.assertEqual((today["claudeWorking"],today["claudeBerry"]),(1,True))
+        self.assertTrue(today["claudeUsage"].startswith("22% of this 5h · 83% this week"))
+        self.assertTrue(self.invoke("run","claude-jump","%3")["close"])
+        self.assertIn(["tmux","switch-client","-c","/dev/pts/fixture","-t","paper:2.1"],self.calls())
+        before=list(self.calls())
+        for bad in ["paper:2.1","%3;rm","%"]:
+            self.failed("run","claude-jump",bad)
+        self.assertEqual(self.calls(),before,"a bad pane id never reaches tmux")
+        put("a1.json",{"model":"Opus 5.5","context":41,"five":{"used":22,"resets":now-10},"week":{"used":61,"resets":now+86400},"pane":"%3","epoch":now})
+        self.assertEqual(self.invoke("view","root")["today"]["claudeUsage"],"61% this week","a window past its reset is not shown")
+        for name in list(sessions.iterdir()): name.unlink()
+        self.state_path.write_text(json.dumps(self.state))
+        result=subprocess.run([str(BINARY),"claude-bar"],env=self.env,capture_output=True,text=True,timeout=10)
+        self.assertEqual(json.loads(result.stdout),{"class":[],"text":"","tooltip":""},"no sessions: the pill folds away")
 
     def test_agent_focuses_the_client_window_instead_of_an_arbitrary_kitty(self):
         self.env.pop("TMUX",None)

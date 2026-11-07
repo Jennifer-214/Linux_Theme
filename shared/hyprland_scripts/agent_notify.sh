@@ -5,8 +5,9 @@
 # Usage:
 #   agent_notify.sh <source> <event>
 #     <source>: claude
-#     <event>:  stop | subagent | notification | seen
-#               (seen: you replied in this pane, so its note is cleared — no popup)
+#     <event>:  stop | subagent | notification | seen | compact | compacted | failed | ended
+#               (seen: you replied in this pane, so its note is cleared — no popup;
+#                compact … ended only record what the session is doing, for the drawer)
 #
 # Theme: hex colors are sourced from ~/.config/hypr/modules/border_colors.sh
 # (rendered by render.sh from the active palette), so a palette swap takes
@@ -69,6 +70,8 @@ if [[ -n "$input" ]] && command -v jq >/dev/null 2>&1; then
     ' 2>/dev/null)" || msg=""
     cwd="$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)" || cwd=""
     tool_name="$(printf '%s' "$input" | jq -r '.tool_name // empty' 2>/dev/null)" || tool_name=""
+    session_id="$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)" || session_id=""
+    trigger="$(printf '%s' "$input" | jq -r '.trigger // .error // empty' 2>/dev/null)" || trigger=""
 fi
 
 # Idle pings — Claude Code fires Notification hooks for
@@ -122,6 +125,35 @@ prune_queue() {
         rm -f "$tmp"
     fi
 }
+
+# What each Claude session is doing, for the bar pill and the drawer: one small
+# file per session beside the status line's own snapshot. Ended sessions leave none.
+session_dir="$FOXML_RUNTIME_DIR/foxml-claude"
+record_state() {
+    [[ "$src" == "claude" && "$session_id" =~ ^[A-Za-z0-9_-]{1,80}$ ]] || return 0
+    command -v jq >/dev/null 2>&1 || return 0
+    ( umask 077; mkdir -p "$session_dir" ) || return 0
+    local file="$session_dir/$session_id.state" tmp
+    tmp="$(umask 077; mktemp "$file.XXXXXX")" || return 0
+    if jq -cn --arg state "$1" --arg detail "${2:-}" --arg pane "$tmux_pane" --arg cwd "$cwd" \
+            --argjson epoch "$(date +%s)" \
+            '{state:$state, detail:$detail, pane:$pane, cwd:$cwd, epoch:$epoch}' > "$tmp" 2>>"$LOG_FILE"; then
+        mv -f "$tmp" "$file"
+    else
+        rm -f "$tmp"
+    fi
+}
+case "$event" in
+    seen)         record_state working ;;
+    stop)         record_state waiting ;;
+    notification) record_state needs ;;
+    compact)      record_state compacting; exit 0 ;;
+    compacted)    if [[ "$trigger" == "manual" ]]; then record_state waiting; else record_state working; fi; exit 0 ;;
+    failed)       record_state error "$trigger"; exit 0 ;;
+    ended)
+        [[ "$session_id" =~ ^[A-Za-z0-9_-]{1,80}$ ]] && rm -f "$session_dir/$session_id.state" "$session_dir/$session_id.json"
+        exit 0 ;;
+esac
 
 # You answered this pane: its note is done. Says nothing on stdout, because a
 # UserPromptSubmit hook's output is handed to the agent as context.

@@ -63,6 +63,7 @@ window#waybar > box {
 #custom-updates,
 #tray,
 #custom-ai_status,
+#custom-claude,
 #custom-media,
 #hardware,
 #system,
@@ -77,14 +78,16 @@ window#waybar > box {
 
 #custom-clock,
 #custom-updates,
-#custom-ai_status {
+#custom-ai_status,
+#custom-claude {
     padding: __PAD_MOD__;
 }
 
 /* AI status sits alone on the left but should read as a peer of the
    right-side stats: same bold/letter-spacing/font-size so the bar's
    typography is uniform. */
-#custom-ai_status {
+#custom-ai_status,
+#custom-claude {
     font-size: __FONT_STATS__pt;
     font-weight: normal;
     letter-spacing: 0.5px;
@@ -274,6 +277,15 @@ window#waybar > box {
 #custom-ai_status.warning {
     color: #{{WAYBAR_WARN}};
     text-shadow: none;
+}
+
+/* Claude sessions: berry once plan usage passes 80%, amber when one stopped on an error. */
+#custom-claude.berry {
+    color: #{{GARDEN_4}};
+}
+
+#custom-claude.stopped {
+    color: #{{WAYBAR_WARN}};
 }
 
 #custom-net_speed {

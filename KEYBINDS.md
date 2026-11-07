@@ -574,7 +574,7 @@ Shows indent guides automatically. No keybinds.
 | `ALT + Shift + V` | Clipboard history — images |
 | `ALT + Shift + K` | Panic kill — terminate runaway processes |
 | `ALT + Shift + X` | Power menu |
-| `ALT + Shift + E` | AI agent triage — pending Claude notifications, hjkl, switches tmux to the originating pane |
+| `ALT + Shift + E` | Agents — each Claude session with its context hearts and state, then pending notes; Enter switches tmux to that pane |
 | `ALT + Ctrl + P` | Path of Building (Flatpak) — build planner; `pob 2` for PoE 2 |
 
 ### Media Keys

@@ -10,6 +10,7 @@ ColumnLayout {
     property var commandFor: null
     property bool active: visible
     property var heartCache: ({})
+    signal openGarden()
     readonly property string monthKey: Qt.formatDate(month, "yyyy-MM")
     readonly property var hearts: heartCache[monthKey] || []
     property date today: new Date()
@@ -174,6 +175,14 @@ ColumnLayout {
             background: Rectangle { radius: 3; color: parent.down ? calendar.theme.highlight : parent.hovered || parent.activeFocus ? calendar.theme.hoverFill : "transparent" }
             Accessible.name: "Return to current month"
             onClicked: calendar.reset()
+        }
+        ToolButton {
+            objectName: "calendar-garden"
+            text: "garden ›"; font.family: calendar.theme.fontFamily; font.pixelSize: 11
+            palette.buttonText: calendar.theme.ink
+            background: Rectangle { radius: 3; color: parent.down ? calendar.theme.highlight : parent.hovered || parent.activeFocus ? calendar.theme.hoverFill : "transparent" }
+            Accessible.name: "Open the commit garden"
+            onClicked: calendar.openGarden()
         }
     }
 }

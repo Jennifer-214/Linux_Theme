@@ -185,3 +185,16 @@ assert.equal(logic.emptyIllustration('downloads',true,false),'paper-cat.png');
 assert.equal(logic.emptyIllustration('downloads',false,true),'');
 assert.equal(logic.pageFlourish('bookmarks',false),'circle');
 assert.equal(logic.pageFlourish('root',true),'');
+
+// Claude sessions: a working count on Today, plan usage, the state tag and the context hearts.
+assert.deepEqual(plain(logic.todayTags({ claudeWorking: 2 }, [])), [{ text: '✎ 2 working', page: 'agents' }]);
+assert.deepEqual(plain(logic.todayTags({ claudeWorking: 0 }, [])), []);
+assert.equal(logic.claudeLine('22% of this 5h · 61% this week'), 'Claude · 22% of this 5h · 61% this week');
+assert.equal(logic.claudeLine(''), '');
+assert.equal(logic.statusLabel({ presentation: 'claude', claudeState: 'needs you' }), 'needs you');
+assert.equal(logic.detailText({ presentation: 'claude', claudeState: 'working', detail: '41% of its context' }, true), '41% of its context');
+assert.equal(logic.detailText({ presentation: 'claude', claudeState: 'working', detail: '41% of its context' }, false), 'working · 41% of its context',
+    'without the paper tag the state rides in the detail');
+assert.deepEqual([-1, 0, 9, 10, 41, 90, 100, 140].map(logic.contextHearts), [-1, 0, 0, 1, 2, 5, 5, 5]);
+assert.equal(logic.contextHearts(undefined), -1);
+console.log('claude session logic: ok');

@@ -260,7 +260,7 @@ Adding a new theme = writing one `palette.sh` file. All app configs render from 
 | Git delta | `templates/git/delta.gitconfig` | `~/.config/git/delta-foxml.gitconfig` |
 | OpenCode | `templates/opencode/foxml.json` | `~/.config/opencode/themes/foxml.json` |
 | Codex CLI | `templates/codex/foxml.tmTheme` | `~/.codex/themes/foxml.tmTheme` |
-| Claude Code | `templates/claude/foxml-theme.json` | `~/.claude/themes/foxml.json` |
+| Claude Code | `templates/claude/foxml-theme.json`, `templates/claude/statusline.sh` | `~/.claude/themes/foxml.json`, `~/.claude/statusline.sh` |
 | ReGreet (login) | `templates/regreet/regreet.css` | `/etc/greetd/regreet.css` (sudo) |
 
 For Codex CLI, select `foxml` once with `/theme` (or set `theme = "foxml"`
@@ -276,6 +276,28 @@ the palette's colors for the box behind your sent messages and for diffs (Paper
 uses a light pink box with sage and coral diffs). The installer also sets
 `CLAUDE_CODE_TMUX_TRUECOLOR=1`; without it Claude rounds every color to the
 256-color palette inside tmux. Restart Claude after a theme swap.
+
+Claude Code's status line comes from `templates/claude/statusline.sh`, set as
+`statusLine` only when you have none of your own. It shows the model, five hearts
+for how full the context is, your 5-hour and weekly plan usage (Pro and Max
+plans; berry and bold from 80%, with the reset time), the git branch, and
+`gate open` once a repo's `.claude/.plan-approved` lists the session. Narrow panes
+drop the branch first, then the weekly figure. Each run also leaves a small
+snapshot of the session in `$XDG_RUNTIME_DIR/foxml-claude/`, and the installer's
+hooks record beside it whether the session is working, waiting, needs you,
+compacting or stopped on an error; a session that ends removes both. Nothing
+there leaves the machine.
+
+The bar reads those files through `fox-drawer claude-bar`: a pill beside the
+local-model status shows `✎` sessions working, `◇` sessions waiting and `!` ones
+stopped, and folds away when none are open. Its text turns berry past 80% of a
+plan limit, and its ribbon hangs lower while a session is asking for you. Hover
+for each session's project, model, context and state with the plan usage, as a
+banner on whichever monitor you are on; click to open the Agents page, where each
+session has its context hearts and Enter goes to its tmux pane. Today shows the
+plan usage and a `✎ 2 working` tag. The count is Claude only: a build or a
+sanitizer run you started yourself can still be busy at zero. Sessions whose pane
+went back to a shell, and anything quiet for twelve hours, are left out.
 
 Firefox's `userContent.css` also themes Vimium: link hints become small paper tags
 in the selection color with the typed letters faded, find mode uses the same
@@ -368,7 +390,7 @@ shades of the palette's accent, set by the quarters of your own busy days. Your 
 busiest days wear a heart and today is outlined. It counts commits you wrote (by your
 `user.email`, by author date, so a rebase or a second branch counts once) across the
 project index cards. `h`/`l` move a week, `j`/`k` a day, `t` returns to today, and the
-"days with a heart" line on Today opens it.
+"days with a heart" line on Today opens it, as do `garden ›` and `g` on the calendar.
 
 Desk → Incoming paper tray lists the newest 64 regular files in your XDG
 Downloads folder (falling back to `~/Downloads`), with type, size and modification
@@ -392,7 +414,7 @@ press `Alt+C` to toggle a calendar sheet beneath its banner on the focused monit
 Past dates have light pencil X's; today has an uneven, open blush circle; days with a
 commit in your project folders get a tiny heart. A tiny cat keeps the handwritten month
 company. Use `h/l`, Left/Right or Page Up/Down to change
-months, `t` to return to today, and Escape to close. The date refreshes while open,
+months, `t` to return to today, `g` for the commit garden, and Escape to close. The date refreshes while open,
 including across midnight.
 
 `Alt+Ctrl+O` or Desk → Screenshot scrapbook opens the newest 64 saved screenshots

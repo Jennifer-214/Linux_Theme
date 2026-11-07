@@ -41,7 +41,10 @@ class NativeBar(unittest.TestCase):
             helper.write_text('import json\nfrom pathlib import Path\np=Path(__file__).with_name("polls")\np.write_text(p.read_text()+"x" if p.exists() else "x")\nprint(json.dumps({"text":"42%", "tooltip":"CPU\\n43°", "class":"warning"}))\n')
             action = work / 'action'
             module = {'exec':f'python3 {helper}', 'return-type':'json', 'interval':'once', 'on-click':f'printf clicked > {action}'}
-            layout = {'modules-left':['group/launcher','group/test'], 'modules-center':[], 'modules-right':['idle_inhibitor','memory'],
+            claude = work / 'claude.json'
+            claude.write_text(json.dumps({'text':'✎ 1  ◇ 1', 'tooltip':'Linux_Theme · Opus 5.5 · 41% context · working', 'class':['asking','berry']}))
+            layout = {'modules-left':['group/launcher','group/test','custom/claude'], 'modules-center':[], 'modules-right':['idle_inhibitor','memory'],
+                      'custom/claude':{'exec':f'cat {claude}', 'return-type':'json', 'interval':'once', 'on-click':'fox-desktop-menu agents'},
                       'group/launcher':{'modules':['custom/logo','hyprland/workspaces']},
                       'custom/logo':{'format':'✎','on-click':'fox-desktop-menu root'},
                       'hyprland/workspaces':{'format':'{name} {windows}', 'persistent-workspaces':{'*':list(range(1,10))}},
@@ -84,6 +87,16 @@ ShellRoot {
         var anchor=bar.anchorFor(window.screen.name,"custom/test");
         if (!anchor || anchor.x < 0 || anchor.width <= 0 || anchor.y <= 0) {console.error("BAR_ANCHOR_INVALID");Qt.exit(1);return;}
 
+
+        var claude=root.findModule(window.contentItem, "custom/claude");
+        var claudeText=claude ? claude.children.find(function(child) {return child.objectName === "bar-module-text";}) : null;
+        var ribbon=claude ? claude.parent : null;
+        while (ribbon && ribbon.calling === undefined) ribbon=ribbon.parent;
+        if (!claude || claude.label !== "✎ 1  ◇ 1" || !ribbon || !ribbon.calling || ribbon.depth !== 50 || !claudeText
+            || !Qt.colorEqual(claudeText.color, claude.theme.gardenShades[4])) { console.error("BAR_MISSING_CLAUDE", claude ? JSON.stringify([claude.label, ribbon ? ribbon.depth : null, !!claudeText, claudeText ? String(claudeText.color) : "", String(claude.theme.gardenShades[4])]) : "none"); Qt.exit(1); return; }
+        claude.runAction("on-click");
+        if (root.page !== "agents" || !root.opened) { console.error("BAR_MISSING_CLAUDE_CLICK"); Qt.exit(1); return; }
+        root.opened=false;
         if (!metric || metric.label !== "42%" || metric.sample.tooltip !== "CPU\\n43°" || metric.sample.classes[0] !== "warning" || !idle) { console.error("BAR_MISSING_METRIC"); Qt.exit(1); return; }
         metric.runAction("on-click");
         idle.runAction("on-click");
@@ -100,7 +113,7 @@ ShellRoot {
             throw new Error("banner tooltip moved the bar or escaped its output");
         window.hideHint(window.hintOwner);
     }}
-    Timer { interval:1400; running:true; onTriggered: { bar.shown=false; if (bar.status().visible) {Qt.exit(1);return;} console.log("BAR_NATIVE_OK"); Qt.quit(); } }
+    Timer { interval:1800; running:true; onTriggered: { bar.shown=false; if (bar.status().visible) {Qt.exit(1);return;} console.log("BAR_NATIVE_OK"); Qt.quit(); } }
 }
 ''')
             (work / 'runtime').mkdir(mode=0o700)

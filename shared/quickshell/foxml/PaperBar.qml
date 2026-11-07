@@ -181,9 +181,12 @@ Scope {
                             visible: width > 0
                             drawSheet: !launcher
                             inset: launcher ? 0 : 10
-                            selected: attached || (modelData === "custom/updates" && /[1-9]/.test(barData.snapshot(modelData).text))
+                            // Pending updates, and a Claude session asking for you, hang a little lower.
+                            readonly property bool calling: (modelData === "custom/updates" && /[1-9]/.test(barData.snapshot(modelData).text))
+                                || (modelData === "custom/claude" && barData.snapshot(modelData).classes.indexOf("asking") >= 0)
+                            selected: attached || calling
                             holdingPaper: attached
-                            depth: modelData === "custom/clock" ? 58 : modelData === "custom/updates" && /[1-9]/.test(barData.snapshot(modelData).text) ? 50 : 43
+                            depth: modelData === "custom/clock" ? 58 : calling ? 50 : 43
                             Row {
                                 id: groupRow
                                 y: -7

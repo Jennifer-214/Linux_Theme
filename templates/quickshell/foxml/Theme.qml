@@ -11,7 +11,7 @@ QtObject {
     readonly property color selection: "#{{BG_HIGHLIGHT}}"
     readonly property color highlight: "#{{SELECTION}}"
     readonly property color tooltipFill: Qt.alpha(background, {{TOOLTIP_BG_OPACITY}})
-    readonly property color hoverFill: Qt.alpha(highlight, .45)
+    readonly property color hoverFill: Qt.alpha(highlight, .6)
     readonly property color focusFill: Qt.alpha("#{{SELECTION}}", paperDetails ? {{ROFI_SELECTED_ALPHA}} : Math.min({{ROFI_SELECTED_ALPHA}}, .55))
     readonly property color detailAccent: "#{{WAYBAR_WS_ACTIVE}}"
     // The commit garden's five shades, from an empty day to the busiest.

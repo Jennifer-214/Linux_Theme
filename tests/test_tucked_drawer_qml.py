@@ -92,6 +92,10 @@ EXERCISE = r'''
         calendarSheet.moveMonth(1);
         root.key({key:Qt.Key_T,modifiers:0,accepted:false});
         if (!calendarSheet.currentMonth) throw new Error("today key failed");
+        root.key({key:Qt.Key_G,modifiers:0,accepted:false});
+        if (root.calendarLayout || root.page!=="garden" || !root.gardenLayout || root.focusArea!=="items"
+            || (root.attachment && root.attachment.moduleName!=="custom/logo"))
+            throw new Error("g in the calendar did not open the garden at the launcher");
         root.hide();
     }}
     Timer { interval:2700; running:true; onTriggered: {

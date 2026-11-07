@@ -102,6 +102,7 @@ inline constexpr Mapping TEMPLATE_MAPPINGS[] = {
 
     // Claude Code theme (custom:foxml) — message box and diff colours; specials selects it once it is here.
     { "claude/foxml-theme.json",      "~/.claude/themes/foxml.json" },
+    { "claude/statusline.sh",         "~/.claude/statusline.sh" },
 
     // pi coding agent TUI theme
     { "pi/foxml.json",                "~/.pi/agent/themes/foxml.json" },

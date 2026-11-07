@@ -29,6 +29,8 @@ function todayTags(today, groups) {
                               : project + (agent.asking ? " needs you" : " is waiting")),
             {action: "agent-jump", argument: String(agent.argument)});
     });
+    var working = Number(today.claudeWorking || 0);
+    add(working ? "✎ " + working + " working" : "", {page: "agents"});
     var notes = Number(today.notes || 0);
     add(today.battery ? today.battery + (/^(charging|full|not charging)$/.test(today.batteryState || "") ? " · plugged in" : "") : "", {page: "power"});
     add(summary("connections"), {page: "wifi"});
@@ -42,6 +44,11 @@ function todayTags(today, groups) {
 function sinceLine(count) {
     count = Number(count || 0);
     return count ? "✎ " + count + (count === 1 ? " commit" : " commits") + " since this morning" : "";
+}
+
+// Claude plan usage, as the backend words it; quiet when the plan reports none.
+function claudeLine(usage) {
+    return usage ? "Claude · " + usage : "";
 }
 
 function heartLine(count) {
@@ -244,11 +251,20 @@ function tooltipText(item) {
 }
 
 function statusLabel(item) {
+    if (item.presentation === "claude") return String(item.claudeState || "");
     return item.presentation === "media" && (item.mediaState === "Paused" || item.mediaState === "Stopped") ? item.mediaState.toLowerCase() : "";
+}
+
+// Five hearts for a session's context: how many are filled.
+function contextHearts(percent) {
+    var value = Number(percent);
+    return isFinite(value) && value >= 0 ? Math.min(5, Math.round(value / 20)) : -1;
 }
 
 function detailText(item, stateTag) {
     var detail = String(item.disabledReason || item.detail || "");
+    // Without the paper tag a session's state still has to be said somewhere.
+    if (!stateTag && item.presentation === "claude" && item.claudeState) detail = item.claudeState + (detail ? " · " + detail : "");
     if (stateTag && statusLabel(item)) {
         if (detail === item.mediaState) detail = "";
         else if (detail.endsWith(" · " + item.mediaState)) detail = detail.slice(0, -item.mediaState.length - 3);
