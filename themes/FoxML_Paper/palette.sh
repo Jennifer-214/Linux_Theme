@@ -56,6 +56,7 @@ HYPR_DIM_STRENGTH=0.0
 HYPR_INACTIVE_OPACITY=1.0
 # Workspace switch: a short vertical slide-fade, like flipping a top-bound notepad.
 HYPR_WS_ANIM='slidefadevert 20%'
+HYPR_WIN_CURVE=foxSettle
 # Comments (italic) in Monaspace Radon: handwriting beside the typed code.
 KITTY_ITALIC_FONT="MonaspiceRn Nerd Font"
 KITTY_TAB_BAR_STYLE=hidden
@@ -316,6 +317,7 @@ HYPRLOCK_INPUT_BORDER=a9a19bff
 # Password dots are little outline hearts, pencil-weight like the ♡ below them.
 HYPRLOCK_DOTS_STYLE='dots_text_format = ♡'
 HYPRLOCK_FAIL=9a5a48
+HYPRLOCK_FAIL_TEXT='<i>not quite ♡ $FAIL</i>'
 HYPRLOCK_CAPS=1c1c1e
 # A handwritten date with a blush underline, beside the sleeping cat.
 HYPRLOCK_DATE_TEXT='cmd[update:60000] sh "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/scripts/date-label.sh"'

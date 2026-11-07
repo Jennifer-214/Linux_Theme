@@ -180,6 +180,10 @@ function caramel_precmd() {
     PROMPT_INDICATOR="%{%F{{{ANSI_ACCENT2}}}%}❯%{%f%}"
   else
     PROMPT_INDICATOR="%{${_fox_err}%}❯ %{%F{{{ANSI_ACCENT2}}}%}${exit_code}%{%f%}"
+    # A worried little face, once: only right after a command that really failed, never for Ctrl-C or Ctrl-Z.
+    if (( _caramel_paper && _caramel_timer_start > 0 && exit_code != 130 && exit_code != 148 )); then
+      PROMPT_INDICATOR+=" %{%F{#{{COMMENT}}}%}(=;ω;=)%{%f%}"
+    fi
   fi
 
   # ── Command execution time (show if >= 3s) ──

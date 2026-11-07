@@ -130,6 +130,34 @@ EXERCISE = r'''
     }}
     Timer { interval:5500; running:true; onTriggered: {
         if (volumeSlip.showing || volumeSlip.displayable) throw new Error("volume slip did not expire");
+        root.show("calendar");
+    }}
+    Timer { interval:5800; running:true; onTriggered: {
+        if (calendarSheet.hearts.length!==2 || calendarSheet.hearts[0]!==1) throw new Error("calendar hearts did not load: "+JSON.stringify(calendarSheet.hearts));
+        root.hide();
+        root.show("hung");
+    }}
+    // A page that never answers must not hold the next one behind it.
+    Timer { interval:6000; running:true; onTriggered: {
+        if (!viewProcess.running || !root.pageLoading) throw new Error("hung page did not start loading");
+        root.show("sound");
+    }}
+    Timer { interval:6400; running:true; onTriggered: {
+        if (root.pageLoading || root.entries.length!==3 || root.page!=="sound") throw new Error("a hung page blocked the next page");
+        root.show("slow");
+        root.show("root");
+    }}
+    Timer { interval:7000; running:true; onTriggered: {
+        if (root.page!=="root" || itemList.viewPage!=="root" || root.entries.length!==1) throw new Error("a late page reply landed on home");
+        root.show("hung");
+    }}
+    // Staying on the hung page ends with a message, not a spinner.
+    Timer { interval:7700; running:true; onTriggered: {
+        if (root.pageLoading || !root.failed || root.message.indexOf("too long")<0) throw new Error("hung page never gave up: "+root.message);
+        root.show("sound");
+    }}
+    Timer { interval:8100; running:true; onTriggered: {
+        if (root.pageLoading || root.entries.length!==3 || root.failed) throw new Error("drawer did not recover after a timeout");
         console.log("TUCKED_DRAWER_OK");Qt.quit();
     }}
 '''
@@ -163,6 +191,7 @@ class TuckedDrawer(unittest.TestCase):
             source=(qml/"shell.qml").read_text().replace("    PanelWindow {","    FloatingWindow {")
             source=re.sub(r"^        (?:anchors \{.*|margins \{.*|exclusionMode:.*|WlrLayershell\..*)\n","",source,flags=re.M)
             source=source.replace("screen ? screen.width : 1280",str(width)).replace("screen ? screen.height : 800","1920" if width<1280 else "1080")
+            source=source.replace("id: viewWatchdog; interval: 10000","id: viewWatchdog; interval: 500")
             (qml/"shell.qml").write_text(source.rsplit("\n}",1)[0]+EXERCISE+"\n}\n")
             source=(qml/"PaperBar.qml").read_text().replace("PanelWindow {","FloatingWindow {\n            implicitWidth: "+str(width))
             source=re.sub(r"^\s*(?:anchors \{ top: true; left: true; right: true \}|exclusiveZone:.*|WlrLayershell\..*|IdleInhibitor \{.*)\n","\n",source,flags=re.M)
@@ -172,7 +201,7 @@ class TuckedDrawer(unittest.TestCase):
                 "FOXML_BAR_FIXTURE":str(fixture),"FOXML_DRAWER_BACKEND":str(ROOT/"tests/drawer-ui-backend.py"),
                 "FOXML_DRAWER_TEST_LOG":str(work/"actions"),"QS_NO_RELOAD_POPUP":"1"}
             env.pop("WAYLAND_DISPLAY",None);env.pop("HYPRLAND_INSTANCE_SIGNATURE",None)
-            result=subprocess.run(["quickshell","-p",str(qml),"--no-color"],env=env,capture_output=True,text=True,timeout=10)
+            result=subprocess.run(["quickshell","-p",str(qml),"--no-color"],env=env,capture_output=True,text=True,timeout=16)
             log=result.stdout+result.stderr
             self.assertEqual(result.returncode,0,log)
             self.assertIn("TUCKED_DRAWER_OK",log)

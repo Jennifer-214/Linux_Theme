@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import Quickshell.Services.Mpris
 import "BarLogic.js" as BarLogic
 
 Item {
@@ -16,7 +17,9 @@ Item {
     property bool compact: false
     property bool tight: false
     property real workspaceBudget: 560
-    readonly property var sample: name === "idle_inhibitor" ? {text:(spec["format-icons"] || {})[dataSource.idleEnabled ? "activated" : "deactivated"] || "○", tooltip:dataSource.idleEnabled ? "Keeping this desk awake" : "Allow this desk to rest", classes:[]}
+    readonly property bool catHungry: name === "idle_inhibitor" && theme.paperDetails && BarLogic.hungry(dataSource.snapshot("custom/battery").tooltip)
+    readonly property bool catListening: name === "idle_inhibitor" && theme.paperDetails && Mpris.players.values.some(player => player.isPlaying)
+    readonly property var sample: name === "idle_inhibitor" ? {text:(spec["format-icons"] || {})[dataSource.idleEnabled ? "activated" : "deactivated"] || "○", tooltip:catHungry ? "She's hungry. Time for the charger ♡" : dataSource.idleEnabled ? "Keeping this desk awake" : "Allow this desk to rest", classes:[]}
         : spec.exec || name === "memory" || name === "power-profiles-daemon" ? dataSource.snapshot(name) : {text:spec.format || "", tooltip:spec["tooltip-format"] || (typeof spec.tooltip === "string" ? spec.tooltip : ""), classes:[]}
     readonly property string label: BarLogic.format(sample.text, {icon:sample.text})
     readonly property var clockParts: name === "custom/clock" ? label.trim().match(/^(.*?)\s+(\d{1,2}[:♡]\d{2}(?:\s*[AP]M)?)$/) : null
@@ -67,6 +70,8 @@ Item {
         visible: module.catPill
         theme: module.theme
         awake: module.dataSource.idleEnabled
+        hungry: module.catHungry
+        music: module.catListening
     }
     Text {
         id: text

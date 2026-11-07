@@ -109,8 +109,9 @@ hl.curve("foxSnap",   { type = "bezier", points = { { 0.05, 0.9 }, { 0.1, 1.0 } 
 hl.curve("foxBounce", { type = "bezier", points = { { {{KITTY_BG_OPACITY}}8, -0.3 }, { 0.265, 1.35 } } })
 hl.curve("foxSlow",   { type = "bezier", points = { { 0.0, {{KITTY_BG_OPACITY}} }, { 0.4, 1.0 } } })
 
+hl.curve("foxSettle", { type = "bezier", points = { { 0.22, 1.0 }, { 0.36, 1.05 } } })  -- a soft landing, like paper laid down
 hl.animation({ leaf = "windows",     enabled = true, speed = 5,  bezier = "foxSnap", style = "popin 92%" })
-hl.animation({ leaf = "windowsIn",   enabled = true, speed = 5,  bezier = "foxSnap", style = "popin 92%" })
+hl.animation({ leaf = "windowsIn",   enabled = true, speed = 5,  bezier = "{{HYPR_WIN_CURVE}}", style = "popin 92%" })
 hl.animation({ leaf = "windowsOut",  enabled = true, speed = 4,  bezier = "foxEase", style = "popin 80%" })
 hl.animation({ leaf = "windowsMove", enabled = true, speed = 4,  bezier = "foxSnap" })
 hl.animation({ leaf = "border",      enabled = true, speed = 12, bezier = "foxSlow" })

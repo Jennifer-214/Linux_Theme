@@ -1,12 +1,17 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import Quickshell.Io
 import "CalendarLogic.js" as CalendarLogic
 
 ColumnLayout {
     id: calendar
     required property var theme
+    property var commandFor: null
     property bool active: visible
+    property var heartCache: ({})
+    readonly property string monthKey: Qt.formatDate(month, "yyyy-MM")
+    readonly property var hearts: heartCache[monthKey] || []
     property date today: new Date()
     property date month: CalendarLogic.monthAt(today, 0)
     readonly property int firstDay: Qt.locale().firstDayOfWeek % 7
@@ -16,6 +21,31 @@ ColumnLayout {
 
     function reset() { today = new Date(); month = CalendarLogic.monthAt(today, 0); }
     function moveMonth(delta) { month = CalendarLogic.monthAt(month, delta); }
+    // In the background: hearts arrive a moment after the sheet opens, and months seen before show theirs at once.
+    function loadHearts() {
+        if (!active || !theme.paperDetails || !commandFor || heartProcess.running) return;
+        heartProcess.requested = monthKey;
+        heartProcess.command = commandFor(["commit-days", monthKey]);
+        heartProcess.running = true;
+    }
+    onMonthKeyChanged: loadHearts()
+    onActiveChanged: loadHearts()
+    Process {
+        id: heartProcess
+        property string requested: ""
+        stdout: StdioCollector { id: heartOut }
+        onExited: (code, status) => {
+            try {
+                var data = JSON.parse(heartOut.text);
+                if (code === 0 && Array.isArray(data.days)) {
+                    var cache = Object.assign({}, calendar.heartCache);
+                    cache[requested] = data.days;
+                    calendar.heartCache = cache;
+                }
+            } catch (error) {}
+            if (requested !== calendar.monthKey) calendar.loadHearts();
+        }
+    }
     function refreshToday() {
         var now = new Date(), follow = currentMonth;
         if (!CalendarLogic.sameDay(today, now)) {
@@ -71,15 +101,27 @@ ColumnLayout {
                 id: dayCell
                 required property var modelData
                 required property int index
+                readonly property bool hearted: modelData.day > 0 && calendar.hearts.indexOf(modelData.day) >= 0
                 Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.preferredHeight: 38
                 Accessible.role: Accessible.StaticText
-                Accessible.name: modelData.day ? Qt.formatDate(new Date(calendar.month.getFullYear(), calendar.month.getMonth(), modelData.day, 12), "dddd, MMMM d, yyyy") + (modelData.today ? ", today" : modelData.past ? ", past" : "") : ""
+                Accessible.name: modelData.day ? Qt.formatDate(new Date(calendar.month.getFullYear(), calendar.month.getMonth(), modelData.day, 12), "dddd, MMMM d, yyyy") + (modelData.today ? ", today" : modelData.past ? ", past" : "") + (hearted ? ", heart" : "") : ""
                 Text {
                     anchors.centerIn: parent
                     text: dayCell.modelData.day || ""
                     font.family: calendar.theme.fontFamily; font.pixelSize: 14
                     font.bold: dayCell.modelData.today
                     color: dayCell.modelData.past ? calendar.theme.muted : calendar.theme.ink
+                }
+                Text {
+                    objectName: "calendar-heart"
+                    visible: dayCell.hearted
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.horizontalCenterOffset: 14
+                    y: 2
+                    text: "♥"
+                    textFormat: Text.PlainText
+                    color: calendar.theme.detailAccent
+                    font.pixelSize: 10
                 }
                 Canvas {
                     id: dayMark

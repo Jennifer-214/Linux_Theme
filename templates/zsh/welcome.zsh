@@ -110,10 +110,24 @@ function _caramel_welcome_centered() {
   (( left < 0 )) && left=0
   local dcol=$(( left + 15 ))
   echo ""
-  printf '%*s%b\n' $left '' " ${c1}/\\_/\\ ${O}"
-  printf '%*s%b\n' $left '' "${c1}(${c3}˚${c1}ˎ ${c3}。${c1}7${O}\e[${dcol}G${ink}$1${O}"
+  # Her hours: sleepy eyes late at night, and now and then a little surprise beside her ears.
+  local hour=$(date +%-H) eyes="${c3}˚${c1}ˎ ${c3}。" extra="" greeting
+  if (( hour >= 22 || hour < 5 )); then
+    eyes="${c3}-${c1}ˎ ${c3}-"
+    greeting="still up?"
+  elif (( hour < 12 )); then greeting="good morning, ${USER}"
+  elif (( hour < 17 )); then greeting="good afternoon, ${USER}"
+  else greeting="good evening, ${USER}"
+  fi
+  if (( RANDOM % 30 == 0 )); then
+    (( RANDOM % 2 )) && extra=" ${c3}ʚɞ${O}" || extra=" ${c3}♡${O}"
+  fi
+  printf '%*s%b\n' $left '' " ${c1}/\\_/\\ ${O}${extra}"
+  printf '%*s%b\n' $left '' "${c1}(${eyes}${c1}7${O}\e[${dcol}G${ink}$1${O}"
   printf '%*s%b\n' $left '' " ${c1}|、${c3}^${c1} 〵${O}\e[${dcol}G${ink}$2${O} ${dim}·${O} ${ink}$3${O}"
   printf '%*s%b\n' $left '' " ${c1}じし${c3}ˍ${c1},)ノ${O}"
+  echo ""
+  _wc_line "$greeting" "${hand}${greeting}${O}"
 
   if [[ -s ~/.todo ]]; then
     echo ""
