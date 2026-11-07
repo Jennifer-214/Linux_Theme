@@ -112,7 +112,9 @@ Bash is retained where it makes sense — small Hyprland event scripts, `mapping
 - **arch-audit** systemd-user timer (daily CVE surface)
 - **DNS sinkhole** — StevenBlack blocklist + DNSSEC strict-mode picker
 
-Opt-in via dedicated flags: `--browser-harden` (arkenfox + Firejail), `--vault` (mlock-protected secret store), `--endlessh` (SSH tarpit on `:22`, real sshd moved to high port), `--mac-random` (NetworkManager randomization), `--fprint` + `--fprint-pam` (fingerprint + safe PAM splice into `system-local-login` only — never `/etc/pam.d/sudo`).
+**Browser hardening** (`--browser-harden`, on by default) wraps Firefox in Firejail and puts arkenfox's `user.js` in the profile Firefox opens (read from its `profiles.ini`). Firefox never reads `user-overrides.js` itself, so the installer copies it into `user.js` after arkenfox, then keeps the theme's own lines after that. The first run creates it with four comfort settings: restore the last session, stay signed in, and keep the themed new tab and Home pages. Delete a line there to get arkenfox's stricter setting back. The previous `user.js` is backed up first.
+
+Opt-in via dedicated flags: `--vault` (mlock-protected secret store), `--endlessh` (SSH tarpit on `:22`, real sshd moved to high port), `--mac-random` (NetworkManager randomization), `--fprint` + `--fprint-pam` (fingerprint + safe PAM splice into `system-local-login` only — never `/etc/pam.d/sudo`).
 
 Day-to-day tooling:
 

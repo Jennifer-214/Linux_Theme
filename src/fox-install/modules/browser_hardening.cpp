@@ -1,11 +1,12 @@
 // modules/browser_hardening.cpp — arkenfox user.js + firejail Firefox.
 //
-// Three pieces (mirrors mappings.sh::install_browser_hardening):
-//   1. Fetch arkenfox user.js into the default-release Firefox profile.
+// Three pieces:
+//   1. Fetch arkenfox user.js into the profile Firefox opens (profiles.ini).
 //      Re-download if missing or older than 30 days (arkenfox tags
 //      quarterly; 30d is conservative).
-//   2. Drop an empty user-overrides.js stub so users have a clear place
-//      to relax arkenfox settings without editing user.js itself.
+//   2. A user-overrides.js with laptop-friendly relaxations, copied into
+//      user.js after arkenfox — Firefox never reads that file itself.
+//      The lines other steps keep in user.js stay after both.
 //   3. firecfg to symlink /usr/local/bin/firefox → /usr/bin/firejail so
 //      every `firefox` invocation runs sandboxed, plus a
 //      ~/.config/firejail/firefox.local override that pins DNS to
@@ -13,8 +14,12 @@
 //      can bypass the --privacy module's DoH config.
 
 #include "../core/context.hpp"
+#include "../core/backup.hpp"
+#include "../core/idempotency.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
+#include "arkenfox_userjs.hpp"
+#include "firefox_appearance.hpp"
 
 #include <chrono>
 #include <filesystem>
@@ -28,59 +33,27 @@ namespace {
 
 bool have(const std::string& bin) { return sh::have(bin); }
 
-// Discover the active Firefox profile. Prefer *.default-release (the
-// default-named profile on modern Firefox), fall back to *.default
-// (older versions / fresh installs).
-fs::path firefox_default_profile(const Context& ctx) {
-    fs::path base = ctx.home / ".mozilla/firefox";
+bool older_than_days(const fs::path& file, int days) {
     std::error_code ec;
-    if (!fs::is_directory(base, ec)) return {};
-    fs::path fallback;
-    for (auto& e : fs::directory_iterator(base, ec)) {
-        if (!e.is_directory()) continue;
-        std::string name = e.path().filename().string();
-        if (name.size() > 16 && name.substr(name.size() - 16) == ".default-release")
-            return e.path();
-        if (name.size() > 8 && name.substr(name.size() - 8) == ".default")
-            fallback = e.path();
-    }
-    return fallback;
-}
-
-bool needs_refresh(const fs::path& user_js) {
-    std::error_code ec;
-    if (!fs::exists(user_js, ec)) return true;
-    // arkenfox marker check.
-    std::ifstream f(user_js);
-    std::string line;
-    bool has_marker = false;
-    while (std::getline(f, line)) {
-        if (line.find("arkenfox user.js") != std::string::npos) {
-            has_marker = true;
-            break;
-        }
-    }
-    if (!has_marker) return true;
-    // Age check: 30 days.
-    auto last = fs::last_write_time(user_js, ec);
+    auto last = fs::last_write_time(file, ec);
     if (ec) return true;
-    auto age = std::chrono::system_clock::now().time_since_epoch() -
-               last.time_since_epoch();
-    auto days = std::chrono::duration_cast<std::chrono::hours>(age).count() / 24;
-    return days > 30;
+    auto age = fs::file_time_type::clock::now() - last;
+    return std::chrono::duration_cast<std::chrono::hours>(age).count() / 24 > days;
 }
 
 constexpr const char* OVERRIDES_STUB =
-    "// user-overrides.js — your personal overrides for arkenfox user.js.\n"
+    "// user-overrides.js — your changes to arkenfox's user.js.\n"
     "//\n"
-    "// Anything you set here wins over the arkenfox defaults. Common\n"
-    "// relaxations on a personal laptop:\n"
-    "//\n"
-    "//   user_pref(\"privacy.resistFingerprinting\", false);  // breaks dark mode + screen scaling\n"
-    "//   user_pref(\"browser.startup.page\", 3);              // restore previous session\n"
-    "//   user_pref(\"browser.search.suggest.enabled\", true); // search suggestions\n"
-    "//\n"
-    "// See https://github.com/arkenfox/user.js/wiki/3.1-Overrides for the full list.\n";
+    "// Firefox only reads user.js, so the installer copies this file into it, after arkenfox,\n"
+    "// on its next run; these lines win. The four below keep a personal laptop comfortable.\n"
+    "// Delete one to get arkenfox's stricter setting back.\n"
+    "\n"
+    "user_pref(\"browser.startup.page\", 3);                             // reopen last session's tabs\n"
+    "user_pref(\"privacy.clearOnShutdown_v2.cookiesAndStorage\", false); // stay signed in after closing Firefox\n"
+    "user_pref(\"browser.newtabpage.enabled\", true);                    // the themed new tab page, not a blank one\n"
+    "user_pref(\"browser.startup.homepage\", \"about:home\");              // and the same page for Home\n"
+    "\n"
+    "// More: https://github.com/arkenfox/user.js/wiki/3.1-Overrides\n";
 
 constexpr const char* FIREJAIL_LOCAL_BODY =
     "# foxml-managed — Firejail Firefox overrides.\n"
@@ -92,38 +65,55 @@ constexpr const char* FIREJAIL_LOCAL_BODY =
     "dns 127.0.0.1\n";
 
 void do_arkenfox(const Context& ctx) {
-    fs::path profile = firefox_default_profile(ctx);
+    fs::path profile = firefox_appearance::profile(ctx);
     if (profile.empty()) {
-        ui::ok("Firefox profile not found — launch Firefox once, then re-run --browser-hardening");
+        ui::ok("Firefox profile not found — launch Firefox once, then re-run --browser-harden");
         return;
     }
     fs::path user_js   = profile / "user.js";
     fs::path overrides = profile / "user-overrides.js";
 
-    if (needs_refresh(user_js)) {
+    std::error_code ec;
+    if (!fs::exists(overrides, ec)) {
+        if (idem::write_atomic(overrides, OVERRIDES_STUB)) ui::ok("user-overrides.js created (session restore, sign-ins kept)");
+        else ui::warn("could not create user-overrides.js");
+    }
+
+    const std::string old = idem::read_file(user_js);
+    std::string base = arkenfox::arkenfox_part(old);
+    const bool stale = base.empty() || older_than_days(user_js, 30);
+    const bool overrides_newer = fs::exists(user_js, ec) && fs::exists(overrides, ec) &&
+                                 fs::last_write_time(overrides, ec) > fs::last_write_time(user_js, ec);
+    if (!stale && arkenfox::has_overrides(old) && !overrides_newer) {
+        ui::skipped("arkenfox user.js already up-to-date");
+        return;
+    }
+
+    if (stale) {
         fs::path tmp = user_js;
-        tmp += ".tmp";
+        tmp += ".arkenfox-tmp";
         int rc = sh::run({"curl", "-fsSL", "--max-time", "30",
                           "https://raw.githubusercontent.com/arkenfox/user.js/master/user.js",
                           "-o", tmp.string()});
-        if (rc == 0) {
-            std::error_code ec;
-            fs::rename(tmp, user_js, ec);
-            ui::ok("arkenfox user.js → " + profile.string());
-        } else {
-            ui::warn("arkenfox download failed — network issue?");
-            std::error_code ec;
-            fs::remove(tmp, ec);
-        }
-    } else {
-        ui::skipped("arkenfox user.js already up-to-date");
+        std::string download = rc == 0 ? idem::read_file(tmp) : std::string();
+        fs::remove(tmp, ec);
+        if (arkenfox::complete(download)) base = download;
+        else if (base.empty()) {
+            ui::warn("arkenfox download failed or was cut off; user.js left as it was");
+            return;
+        } else ui::warn("arkenfox download failed; keeping the copy already in user.js");
     }
 
-    if (!fs::exists(overrides)) {
-        std::ofstream o(overrides);
-        o << OVERRIDES_STUB;
-        ui::ok("user-overrides.js stub created");
+    const std::string next = arkenfox::compose(base, idem::read_file(overrides), old);
+    if (next == old) {
+        ui::skipped("arkenfox user.js already up-to-date");
+        return;
     }
+    if (!snapshot_one(ctx, user_js) || !idem::write_atomic(user_js, next)) {
+        ui::warn("could not write Firefox user.js; leaving the previous file intact");
+        return;
+    }
+    ui::ok("arkenfox user.js → " + profile.string() + " (with user-overrides.js and the theme's lines)");
 }
 
 void do_firejail(const Context& ctx) {
@@ -216,8 +206,9 @@ void run_browser_hardening(Context& ctx) {
         return;
     }
     if (sh::dry_run()) {
-        ui::substep("[dry-run] would fetch arkenfox user.js into default-release profile, "
-                    "create user-overrides.js stub, apply firejail symlinks via firecfg, "
+        ui::substep("[dry-run] would fetch arkenfox user.js into the profile Firefox opens, "
+                    "copy user-overrides.js in after it (keeping the theme's lines, with a backup), "
+                    "apply firejail symlinks via firecfg, "
                     "drop ~/.config/firejail/firefox.local DNS pin");
         return;
     }

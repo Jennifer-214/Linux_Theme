@@ -60,6 +60,26 @@ int main() {
     ctx.home = root / "no-profile"; ctx.config_home = ctx.home / ".config";
     ok &= fox_install::firefox_appearance::sync_styles(ctx);
     ok &= !fs::exists(ctx.home);
+
+    // Firefox's own index names the profile it opens; an older Default=1 profile and folder names lose to it.
+    ctx.home = root / "listed"; ctx.config_home = ctx.home / ".config";
+    const auto base = ctx.config_home / "mozilla/firefox";
+    const auto opened = base / "a1b2c3d4.custom", older = base / "k9x8w7v6.default", named = base / "zz.default-release";
+    fs::create_directories(opened); fs::create_directories(older); fs::create_directories(named);
+    put(base / "profiles.ini",
+        "[Install0123456789ABCDEF]\r\nDefault=a1b2c3d4.custom\r\nLocked=1\r\n\r\n"
+        "[Profile1]\r\nName=default\r\nIsRelative=1\r\nPath=k9x8w7v6.default\r\nDefault=1\r\n\r\n"
+        "[Profile0]\r\nName=default-release\r\nIsRelative=1\r\nPath=zz.default-release\r\n");
+    ok &= fox_install::firefox_appearance::profile(ctx) == opened;
+    put(base / "profiles.ini",
+        "[Profile0]\nName=default-release\nIsRelative=1\nPath=zz.default-release\n\n"
+        "[Profile1]\nName=default\nIsRelative=1\nPath=k9x8w7v6.default\nDefault=1\n");
+    ok &= fox_install::firefox_appearance::profile(ctx) == older;
+    const auto elsewhere = root / "elsewhere.profile"; fs::create_directories(elsewhere);
+    put(base / "profiles.ini", "[Profile0]\nIsRelative=0\nPath=" + elsewhere.string() + "\nDefault=1\n");
+    ok &= fox_install::firefox_appearance::profile(ctx) == elsewhere;
+    put(base / "profiles.ini", "[Install1]\nDefault=gone.default-release\n");
+    ok &= fox_install::firefox_appearance::profile(ctx) == named;
     fs::remove_all(root);
     std::cout << (ok ? "Firefox appearance backup deployment: OK\n" : "Firefox appearance backup deployment: FAILED\n");
     return ok ? 0 : 1;
