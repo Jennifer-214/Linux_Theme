@@ -275,6 +275,15 @@ uses a light pink box with sage and coral diffs). The installer also sets
 `CLAUDE_CODE_TMUX_TRUECOLOR=1`; without it Claude rounds every color to the
 256-color palette inside tmux. Restart Claude after a theme swap.
 
+Firefox's `userContent.css` also themes Vimium: link hints become small paper tags
+in the selection color with the typed letters faded, find mode uses the same
+selection, and the Vomnibar and its status bar become paper cards in the drawer's
+font. They follow a theme swap after a Firefox restart. The installer adds Vimium
+through Firefox's own policy file, `/etc/firefox/policies/policies.json` (merged
+with anything already there, the previous file kept as `.foxml-bak`), so it
+installs from addons.mozilla.org on Firefox's next start; it can be switched off
+in Firefox but not removed while that entry is there.
+
 ## Shared (non-color) files
 
 ### Desktop drawers
@@ -350,6 +359,14 @@ Busy-volume failures stop ejection. Internal disks, system mounts, encrypted
 containers and unsupported device stacks are excluded. The library uses
 `lsblk`, `udisksctl` and `xdg-open`; `--deps` installs their packages. No drives
 are mounted or ejected by opening the drawer, and no extra watcher is started.
+
+Desk → Commit garden is a year of your commits, one little square a day, in two
+half-year beds: empty days are pencil outlines and busier days deepen through four
+shades of the palette's accent, set by the quarters of your own busy days. Your three
+busiest days wear a heart and today is outlined. It counts commits you wrote (by your
+`user.email`, by author date, so a rebase or a second branch counts once) across the
+project index cards. `h`/`l` move a week, `j`/`k` a day, `t` returns to today, and the
+"days with a heart" line on Today opens it.
 
 Desk → Incoming paper tray lists the newest 64 regular files in your XDG
 Downloads folder (falling back to `~/Downloads`), with type, size and modification

@@ -525,3 +525,11 @@ CLAUDE_DIFF_ADD_WORD=a9cfa9
 CLAUDE_DIFF_DEL=f3d0c6
 CLAUDE_DIFF_DEL_DIM=f4e0da
 CLAUDE_DIFF_DEL_WORD=e8a898
+
+# Commit garden: paper, then four pinks that deepen with the day's commits. Level 1 is the message-box pink
+# that read on every monitor; each step is at least 1.25:1 from the last.
+GARDEN_0=e3dfd8
+GARDEN_1=e8becd
+GARDEN_2=dc9bb3
+GARDEN_3=c67596
+GARDEN_4=a24f73

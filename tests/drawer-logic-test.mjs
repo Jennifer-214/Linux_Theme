@@ -27,6 +27,20 @@ assert.deepEqual(plain(logic.todayTags({ battery: '80%', batteryState: 'not char
      { text: '1 agent note', page: 'agents' }]);
 assert.equal(plain(logic.todayTags({ waiting: [{ project: 'Trader', argument: 'k', asking: true, count: 3 }] }, []))[0].text,
     '◇ 3 in Trader, one needs you');
+const gardenCounts = [0, 1, 2, 3, 4, 8, 0, 9, 9, 0];
+assert.deepEqual(plain(logic.gardenThresholds(gardenCounts)), [2, 4, 8]);
+assert.deepEqual(plain(logic.gardenThresholds([0, 0])), [0, 0, 0]);
+assert.deepEqual(gardenCounts.map(count => logic.gardenLevel(count, [2, 4, 8])), [0, 1, 1, 2, 2, 3, 0, 4, 4, 0]);
+assert.deepEqual(plain(logic.gardenHearts(gardenCounts)), [8, 7, 5], 'the busiest three, a tie to the later day');
+assert.deepEqual(plain(logic.gardenHearts([0, 0])), []);
+assert.equal(logic.gardenSummary('2025-11-02', gardenCounts), '♥ 36 commits this year · longest streak 5 days · busiest nov 10 (9)');
+assert.equal(logic.gardenSummary('2025-11-02', [0, 0]), 'the garden is waiting for its first commit');
+assert.equal(logic.gardenSummary('2025-11-02', [0, 1234]), '♥ 1,234 commits this year · longest streak 1 day · busiest nov 3 (1234)');
+assert.equal(logic.gardenReadout('2025-11-02', gardenCounts, 1, 9), 'mon, nov 3 · 1 commit');
+assert.equal(logic.gardenReadout('2025-11-02', gardenCounts, 9, 9), 'today · no commits');
+assert.equal(logic.gardenReadout('2025-11-02', gardenCounts, 12, 9), '');
+assert.equal(logic.gardenDate('2025-12-28', 7).getFullYear(), 2026, 'days roll across the new year');
+assert.deepEqual(plain(logic.gardenMonths('2025-11-02', 0, 10)), [{ week: 0, text: 'nov' }, { week: 5, text: 'dec' }, { week: 9, text: 'jan' }]);
 assert.equal(logic.sinceLine(0), '');
 assert.equal(logic.sinceLine(1), '✎ 1 commit since this morning');
 assert.equal(logic.sinceLine(12), '✎ 12 commits since this morning');

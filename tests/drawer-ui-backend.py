@@ -28,6 +28,8 @@ if args[0] == "view":
         items = [dict(id="screenshot-open", label="little-picture-" + str(i) + ".png", kind="action", presentation="screenshot",
                       argument="/sample/shot-" + str(i) + ".png", image="", modifiedAt="2026-11-05 14:30:00 CST", close=True)
                  for i in range(7)]
+    elif page == "garden":
+        items = []
     elif page == "agents":
         items = [dict(id="agent-jump", label="Claude · Paper notebook", kind="action", icon="message",
                       detail="A little note is ready for you", argument="sample-agent"),
@@ -63,6 +65,9 @@ if args[0] == "view":
         data.update(title="Incoming paper tray · sample preview", group="desk")
     elif page == "agents":
         data.update(title="Agent notes", group="desk")
+    elif page == "garden":
+        data.update(title="Commit garden", group="desk",
+                    garden=dict(start="2025-11-02", counts=[0] * 360 + [1, 2, 0, 5, 9, 9, 3, 0, 0, 4, 2]))
     if page == "root":
         data["favorites"] = [dict(id="volume", group="sound", label="Volume", kind="slider", value=42)]
         data["items"][2]["summary"] = "42% · speakers"

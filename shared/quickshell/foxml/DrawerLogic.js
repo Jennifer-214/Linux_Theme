@@ -48,6 +48,75 @@ function heartLine(count) {
     return count ? "♥ " + count + (count === 1 ? " day" : " days") + " with a heart this month" : "♥ this month's first heart is waiting";
 }
 
+// The commit garden. Counts run one per day from `start` (a Sunday, "YYYY-MM-DD") to today.
+var gardenMonthNames = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+var gardenWeekdays = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+
+function gardenDate(start, index) {
+    var parts = String(start || "").split("-").map(Number);
+    return new Date(parts[0], (parts[1] || 1) - 1, (parts[2] || 1) + Number(index || 0), 12);
+}
+
+// Like GitHub's graph: the quarters of your own non-empty days set the shades, so a quiet year still blooms.
+function gardenThresholds(counts) {
+    var busy = (counts || []).filter(function(count) { return count > 0; }).sort(function(a, b) { return a - b; });
+    if (!busy.length) return [0, 0, 0];
+    var at = function(share) { return busy[Math.floor((busy.length - 1) * share)]; };
+    return [at(.25), at(.5), at(.75)];
+}
+
+function gardenLevel(count, thresholds) {
+    if (!(count > 0)) return 0;
+    return count <= thresholds[0] ? 1 : count <= thresholds[1] ? 2 : count <= thresholds[2] ? 3 : 4;
+}
+
+// The three busiest days wear a heart; a tie goes to the more recent day.
+function gardenHearts(counts) {
+    return (counts || []).map(function(count, index) { return {count: count, index: index}; })
+        .filter(function(day) { return day.count > 0; })
+        .sort(function(a, b) { return b.count - a.count || b.index - a.index; })
+        .slice(0, 3).map(function(day) { return day.index; });
+}
+
+function gardenNumber(value) {
+    return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+function gardenSummary(start, counts) {
+    counts = counts || [];
+    var total = 0, longest = 0, run = 0, busiest = -1;
+    counts.forEach(function(count, index) {
+        total += count;
+        run = count > 0 ? run + 1 : 0;
+        longest = Math.max(longest, run);
+        if (count > 0 && (busiest < 0 || count >= counts[busiest])) busiest = index;
+    });
+    if (!total) return "the garden is waiting for its first commit";
+    var day = gardenDate(start, busiest);
+    return "♥ " + gardenNumber(total) + (total === 1 ? " commit" : " commits") + " this year · longest streak " + longest
+        + (longest === 1 ? " day" : " days") + " · busiest " + gardenMonthNames[day.getMonth()] + " " + day.getDate()
+        + " (" + counts[busiest] + ")";
+}
+
+function gardenReadout(start, counts, index, todayIndex) {
+    if (!counts || index < 0 || index >= counts.length) return "";
+    var day = gardenDate(start, index), count = counts[index];
+    var name = index === todayIndex ? "today" : gardenWeekdays[day.getDay()] + ", " + gardenMonthNames[day.getMonth()] + " " + day.getDate();
+    return name + " · " + (count ? count + (count === 1 ? " commit" : " commits") : "no commits");
+}
+
+// Month names above the weeks where a new month begins, between weeks `from` and `to` (exclusive).
+function gardenMonths(start, from, to) {
+    var labels = [], last = -1;
+    for (var week = from; week < to; week++) {
+        var month = gardenDate(start, week * 7).getMonth();
+        var firstWeek = week === from;
+        if (month !== last && (firstWeek || gardenDate(start, week * 7).getDate() <= 7)) labels.push({week: week - from, text: gardenMonthNames[month]});
+        last = month;
+    }
+    return labels;
+}
+
 function isNight(date) {
     var hour = date.getHours();
     return hour >= 22 || hour < 5;
@@ -96,7 +165,7 @@ function paperIcon(item) {
         today:["today","✿"], desk:["desk","✎"], sound:["sound","♫"], connections:["connections","⌁"],
         comfort:["comfort","☾"], system:["system","⚙"], apps:["apps","⌘"],
         projects:["notebook","▤"], bookmarks:["bookmark","◇"], library:["library","▥","▤"],
-        downloads:["tray","↧","✉"], screenshots:["picture","▧"], windows:["window","▣"],
+        downloads:["tray","↧","✉"], screenshots:["picture","▧"], windows:["window","▣"], garden:["garden","❦"],
         "clipboard-text":["clipboard","⌇"], "clipboard-images":["picture","▧"],
         wallpapers:["picture","❀"], themes:["palette","◐"],
         "wallpaper-next":["refresh","↝"], "wallpaper-sync":["palette","◑","◇"],

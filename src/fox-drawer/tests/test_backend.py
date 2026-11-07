@@ -905,6 +905,39 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(self.invoke("commit-days", "2026-12")["days"], [1])
         self.assertEqual(self.invoke("commit-days", "2026-13", expect=1)["ok"], False)
 
+    def test_commit_garden_counts_a_year_of_days_written(self):
+        import datetime
+        self.real("git", "timeout")
+        project = self.home / "code/notebook"
+        project.mkdir(parents=True)
+        environment = {**os.environ, "HOME": str(self.home)}
+        run = lambda *argv, **extra: subprocess.run(["git", "-C", str(project), *argv], check=True, capture_output=True, env={**environment, **extra})
+        run("init", "-q")
+        run("config", "user.email", "me@example.test")
+        run("config", "user.name", "Me")
+        today = datetime.date.today()
+        def commit(day, subject, email="me@example.test", committed=None):
+            stamp = day.isoformat() + "T12:00:00"
+            run("commit", "-q", "--allow-empty", "-m", subject, f"--author=Me <{email}>",
+                GIT_AUTHOR_DATE=stamp, GIT_COMMITTER_DATE=(committed or day).isoformat() + "T12:30:00")
+        # in date order, as histories are: git's --since stops at the first commit older than the cutoff
+        commit(today - datetime.timedelta(days=400), "long ago")
+        commit(today - datetime.timedelta(days=1), "yesterday")
+        run("checkout", "-q", "-b", "rebased")
+        # a rebase: the same commit again, written yesterday, committed today on another branch
+        commit(today - datetime.timedelta(days=1), "yesterday", committed=today)
+        run("checkout", "-q", "-")
+        for n in range(3): commit(today, f"today {n}")
+        commit(today, "not mine", email="someone@example.test")
+        garden = self.invoke("view", "garden")
+        self.assertEqual((garden["title"], garden["garden"]["counts"][-2:]), ("Commit garden", [1, 3]))
+        start = datetime.date.fromisoformat(garden["garden"]["start"])
+        self.assertEqual(start.weekday(), 6, "the garden starts on a Sunday")
+        self.assertEqual(len(garden["garden"]["counts"]) - 1, (today - start).days)
+        self.assertGreaterEqual((today - start).days, 364)
+        self.assertEqual(sum(garden["garden"]["counts"]), 4, "others' commits, old ones and rebased copies stay out")
+        self.assertEqual(self.invoke("commit-days", today.strftime("%Y-%m"))["today"], 3)
+
     def test_search_rows_show_live_values(self):
         self.state["commands"] = {"wpctl": {"stdout": "Volume: 0.42\n"}}
         self.write_config([{"id": "sound", "label": "Sound", "icon": "music", "description": "", "items": [{"id": "volume", "label": "Volume", "kind": "slider"}]}])

@@ -11,8 +11,9 @@ Rectangle {
     implicitWidth: label.implicitWidth + 12
     implicitHeight: label.implicitHeight + 6
     color: selected ? theme.focusFill : interactive && hover.containsMouse ? theme.hoverFill : theme.highlight
-    border.width: selected ? 1 : 0
-    border.color: theme.ink
+    // The keyboard's tag wears the accent ring the hearts use, softer than an ink box.
+    border.width: selected ? 1.5 : 0
+    border.color: theme.detailAccent
     Text {
         id: label
         anchors.centerIn: parent

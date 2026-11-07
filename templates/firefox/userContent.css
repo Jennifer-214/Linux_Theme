@@ -531,3 +531,84 @@
     pointer-events: none;
   }
 }
+
+/* ===== Vimium — link hints, find mode, the Vomnibar and its status bar =====
+   Hints sit in the page itself; the Vomnibar and HUD are Vimium's own extension pages,
+   so they are reached through moz-extension://. Ids are Vimium's, so nothing else matches. */
+@-moz-document url-prefix("http"), url-prefix("https"), url-prefix("file") {
+  div.internal-vimium-hint-marker {
+    background: #{{SELECTION}} !important;
+    border: 1px solid rgba({{FG_R}},{{FG_G}},{{FG_B}},0.35) !important;
+    border-radius: 4px !important;
+    box-shadow: 1px 1px 0 rgba({{FG_R}},{{FG_G}},{{FG_B}},0.12) !important;
+    padding: 1px 4px !important;
+  }
+  div.internal-vimium-hint-marker span {
+    color: #{{FG}} !important;
+    font-family: "{{FONT_FAMILY}}", monospace !important;
+    font-weight: 600 !important;
+    text-shadow: none !important;
+  }
+  /* letters already typed fade back into the paper */
+  div.internal-vimium-hint-marker > .matchingCharacter {
+    color: rgba({{FG_R}},{{FG_G}},{{FG_B}},0.4) !important;
+  }
+  div > .vimiumActiveHintMarker span {
+    color: #{{FG}} !important;
+    text-decoration: underline !important;
+  }
+  div.internal-vimium-input-hint {
+    background-color: rgba({{SELECTION_R}},{{SELECTION_G}},{{SELECTION_B}},0.3) !important;
+    border: 1px solid #{{SELECTION}} !important;
+  }
+  div.internal-vimium-selected-input-hint {
+    background-color: rgba({{SELECTION_R}},{{SELECTION_G}},{{SELECTION_B}},0.55) !important;
+    border: 1px solid #{{FG}} !important;
+  }
+  div.internal-vimium-selected-input-hint span { color: #{{FG}} !important; }
+  div.vimium-highlighted-frame { border: 3px solid #{{SELECTION}} !important; }
+  body.vimium-find-mode ::selection {
+    background: #{{SELECTION}} !important;
+    color: #{{FG}} !important;
+  }
+}
+
+@-moz-document url-prefix("moz-extension://") {
+  #vomnibar {
+    background: #{{BG}} !important;
+    color: #{{FG}} !important;
+    border: 1px solid rgba({{FG_R}},{{FG_G}},{{FG_B}},0.25) !important;
+    border-radius: 10px !important;
+    box-shadow: 0 6px 22px rgba(0,0,0,0.28) !important;
+    font-family: "{{FONT_FAMILY}}", monospace !important;
+  }
+  #vomnibar-search-area { border-bottom: 1px solid rgba({{FG_R}},{{FG_G}},{{FG_B}},0.15) !important; }
+  #vomnibar input {
+    background: #{{BG_ALT}} !important;
+    color: #{{FG}} !important;
+    border: 1px solid rgba({{FG_R}},{{FG_G}},{{FG_B}},0.2) !important;
+    border-radius: 6px !important;
+    box-shadow: none !important;
+    font-family: "{{FONT_FAMILY}}", monospace !important;
+  }
+  #vomnibar input::selection { background: #{{SELECTION}} !important; color: #{{FG}} !important; }
+  #vomnibar li { border-bottom: 1px solid rgba({{FG_R}},{{FG_G}},{{FG_B}},0.08) !important; color: #{{FG}} !important; }
+  #vomnibar li.selected { background: #{{SELECTION}} !important; }
+  #vomnibar li em, #vomnibar li .title, #vomnibar li .match,
+  #vomnibar li em .match, #vomnibar li .title .match { color: #{{FG}} !important; }
+  #vomnibar li .url { color: #{{FG_DIM}} !important; }
+  #vomnibar li .source { color: #{{FG_DIM}} !important; }
+
+  #hud-container {
+    background: #{{BG}} !important;
+    color: #{{FG}} !important;
+    border: 1px solid rgba({{FG_R}},{{FG_G}},{{FG_B}},0.25) !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.22) !important;
+    font-family: "{{FONT_FAMILY}}", monospace !important;
+  }
+  #hud-body { background: #{{BG}} !important; }
+  #search-area, #hud { color: #{{FG}} !important; }
+  #hud.hud-find { background: #{{BG_ALT}} !important; border: 1px solid rgba({{FG_R}},{{FG_G}},{{FG_B}},0.2) !important; }
+  span#hud-match-count { color: #{{FG_DIM}} !important; }
+}

@@ -488,3 +488,10 @@ CLAUDE_DIFF_ADD_WORD=7ad4a5
 CLAUDE_DIFF_DEL=d93b54
 CLAUDE_DIFF_DEL_DIM=d93b54
 CLAUDE_DIFF_DEL_WORD=f2586e
+
+# Commit garden: the surface, then four steps toward the blush accent; each at least 1.36:1 from the last.
+GARDEN_0=3c2a44
+GARDEN_1=765371
+GARDEN_2=a17191
+GARDEN_3=d092b5
+GARDEN_4=ffb3d9

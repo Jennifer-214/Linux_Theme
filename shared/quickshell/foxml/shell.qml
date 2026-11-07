@@ -37,8 +37,11 @@ ShellRoot {
     property int draftValue: 0
     readonly property bool calendarLayout: page === "calendar" && !pickerLayout
     readonly property bool scrapbookLayout: page === "screenshots" && !pickerLayout
+    readonly property bool gardenLayout: page === "garden" && !pickerLayout
+    property var garden: null
+    property int gardenIndex: -1
     property bool viewFailed: false
-    readonly property string footerHint: calendarLayout ? "h / l changes month · t returns to today · Esc closes" : scrapbookLayout ? "arrows choose · c copies · Enter opens · Esc goes back" : Logic.footerHint({confirming: pendingConfirm !== null, busy: actionBusy,
+    readonly property string footerHint: calendarLayout ? "h / l changes month · t returns to today · Esc closes" : scrapbookLayout ? "arrows choose · c copies · Enter opens · Esc goes back" : gardenLayout ? "h / l a week · j / k a day · Esc goes back" : Logic.footerHint({confirming: pendingConfirm !== null, busy: actionBusy,
         prompt: pickerActive && pickerPrompt, searching: searching, picker: pickerActive,
         editing: editing, focus: focusArea}, entries[itemIndex])
     property var pendingConfirm: null
@@ -277,6 +280,11 @@ ShellRoot {
                 if (gi >= 0 && focusArea !== "groups") groupIndex = gi;
             }
             itemIndex = Logic.restoreIndex(entries, samePage ? oldKey : (saved ? saved.key : ""));
+            if (requestedPage === "garden") {
+                garden = data.garden || null;
+                var planted = garden && Array.isArray(garden.counts) ? garden.counts.length : 0;
+                if (!samePage || gardenIndex >= planted) gardenIndex = planted - 1;
+            }
             itemList.viewPage = requestedPage;
             if (scrapbookLayout) Qt.callLater(function() { scrapbookSheet.reveal(root.itemIndex); });
             if (!samePage) {
@@ -602,6 +610,21 @@ ShellRoot {
             event.accepted = true;
             return;
         }
+        if (gardenLayout && focusArea === "items" && !searching && !pendingConfirm) {
+            var planted = garden && Array.isArray(garden.counts) ? garden.counts.length : 0;
+            if (k === Qt.Key_Q) hide();
+            else if (k === Qt.Key_Escape) goBack();
+            else if (k === Qt.Key_Slash) startSearch();
+            else if (k === Qt.Key_F) show("root");
+            else if (k === Qt.Key_Left || k === Qt.Key_H) { if (gardenIndex < 7) goBack(); else gardenIndex -= 7; }
+            else if (k === Qt.Key_Right || k === Qt.Key_L) gardenIndex = Math.min(planted - 1, gardenIndex + 7);
+            else if (k === Qt.Key_Up || k === Qt.Key_K) gardenIndex = Math.max(0, gardenIndex - 1);
+            else if (k === Qt.Key_Down || k === Qt.Key_J) gardenIndex = Math.min(planted - 1, gardenIndex + 1);
+            else if (k === Qt.Key_T || k === Qt.Key_Home) gardenIndex = planted - 1;
+            else return;
+            event.accepted = true;
+            return;
+        }
         if (scrapbookLayout && focusArea === "items" && !searching && !pendingConfirm) {
             if (k === Qt.Key_Q) hide();
             else if (k === Qt.Key_Escape) goBack();
@@ -800,7 +823,7 @@ ShellRoot {
     Timer { id: previewTimer; interval: 180; onTriggered: root.previewGroup(root.groupIndex) }
     Timer {
         interval: 4000; repeat: true
-        running: root.opened && !root.pickerActive && !root.calendarLayout && !root.scrapbookLayout && !root.searching && !root.editing && !root.pendingConfirm && !root.actionBusy
+        running: root.opened && !root.pickerActive && !root.calendarLayout && !root.scrapbookLayout && !root.gardenLayout && !root.searching && !root.editing && !root.pendingConfirm && !root.actionBusy
         onTriggered: {
             if (!groupProcess.running) groupProcess.running = true;
             // A refresh would replace the request a slow page is still answering, and it would never finish.
@@ -1127,12 +1150,23 @@ ShellRoot {
                                 commandFor: root.backendCommand
                                 selectedTag: root.focusArea === "tags" ? root.tagIndex : -1
                                 onOpenTag: tag => root.openTag(tag)
+                                onOpenGarden: root.openTag({page: "garden", text: "Commit garden"})
                                 Layout.fillWidth: true
                             }
 
                             Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
+
+                                GardenSheet {
+                                    id: gardenSheet
+                                    visible: root.gardenLayout && !root.searching
+                                    theme: root.paperTheme
+                                    garden: root.garden
+                                    selectedIndex: root.gardenIndex
+                                    anchors.fill: parent
+                                    onChoose: index => { root.gardenIndex = index; root.focusArea = "items"; keyboard.forceActiveFocus(); }
+                                }
 
                                 ScrapbookSheet {
                                     id: scrapbookSheet
@@ -1153,7 +1187,7 @@ ShellRoot {
                                     id: itemList
                                     property string viewPage: ""
                                     anchors.fill: parent
-                                    visible: !root.pendingConfirm && !root.scrapbookLayout && (root.page !== "root" || root.entries.length > 0 || root.searching)
+                                    visible: !root.pendingConfirm && !root.scrapbookLayout && !root.gardenLayout && (root.page !== "root" || root.entries.length > 0 || root.searching)
                                     clip: true
                                     spacing: 7
                                     bottomMargin: theme.paperDetails && contentHeight >= height ? 4 : 0
@@ -1343,7 +1377,7 @@ ShellRoot {
                                     anchors.centerIn: parent
                                     width: parent.width - 28
                                     spacing: 15
-                                    visible: root.page !== "root" && !root.scrapbookLayout && (!(root.pickerLayout && root.pickerPrompt) && !root.pendingConfirm && !root.entries.length && !root.pageLoading && (root.drawerReady || root.failed))
+                                    visible: root.page !== "root" && !root.scrapbookLayout && !root.gardenLayout && (!(root.pickerLayout && root.pickerPrompt) && !root.pendingConfirm && !root.entries.length && !root.pageLoading && (root.drawerReady || root.failed))
                                     Image {
                                         visible: theme.paperDetails && !root.failed
                                         anchors.horizontalCenter: parent.horizontalCenter

@@ -20,6 +20,7 @@ ColumnLayout {
     property int selectedTag: -1
     readonly property var tags: Logic.todayTags(today, groups)
     signal openTag(var tag)
+    signal openGarden()
     spacing: 7
 
     function loadHearts() {
@@ -65,7 +66,14 @@ ColumnLayout {
         }
     }
     Text { visible: Boolean(sheet.today.todo); text: "◇ next: " + (sheet.today.todo || ""); textFormat: Text.PlainText; color: sheet.theme.ink; font.family: sheet.theme.fontFamily; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
-    Text { objectName: "today-hearts"; visible: sheet.theme.paperDetails; text: Logic.heartLine(sheet.hearts); textFormat: Text.PlainText; color: sheet.theme.detailAccent; font.family: sheet.theme.fontFamily; font.pixelSize: 11; Layout.fillWidth: true }
+    Text {
+        objectName: "today-hearts"; visible: sheet.theme.paperDetails; text: Logic.heartLine(sheet.hearts) + "  ›"; textFormat: Text.PlainText
+        color: sheet.theme.detailAccent; font.family: sheet.theme.fontFamily; font.pixelSize: 11; font.underline: heartsMouse.containsMouse
+        Layout.fillWidth: true
+        // The month's hearts open the whole year of them.
+        MouseArea { id: heartsMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: sheet.openGarden() }
+        Accessible.role: Accessible.Button; Accessible.name: "Open the commit garden"
+    }
     Text { objectName: "today-since"; visible: text.length > 0; text: Logic.sinceLine(sheet.commitsToday); textFormat: Text.PlainText; color: sheet.theme.muted; font.family: sheet.theme.fontFamily; font.pixelSize: 11; Layout.fillWidth: true }
     Text { visible: sheet.favorites > 0; text: "a few favorites."; textFormat: Text.PlainText; color: sheet.theme.muted; font.family: sheet.theme.headingFont; font.italic: true; font.pixelSize: 14; Layout.topMargin: 3 }
 }

@@ -21,6 +21,7 @@
 #include "nvidia_modules.hpp"
 #include "hypr_lua.hpp"
 #include "firefox_appearance.hpp"
+#include "firefox_policies.hpp"
 #include "wallpaper_mode.hpp"
 #include "../core/idempotency.hpp"
 #include "../../fox-common/shell.hpp"
@@ -228,6 +229,42 @@ void do_firefox(const Context& ctx) {
         sh::run({"sh", "-c", "setsid -f firefox >/dev/null 2>&1 &"});
         ui::substep("Firefox restarted (session restore brings tabs back)");
     }
+}
+
+// ─── Firefox add-ons (Vimium) ──────────────────────────────────────
+// Through Firefox's own policy file, which it reads at start: the add-on installs from addons.mozilla.org on the
+// next launch. The file is root's, so the merged copy goes in beside it and is renamed over it, the old one kept as
+// policies.json.foxml-bak; a file that does not parse, or has a shape Firefox would not read, is left alone.
+void do_firefox_addons(const Context& ctx) {
+    if (!have("firefox")) return;
+    const fs::path policy = "/etc/firefox/policies/policies.json";
+    json file;
+    std::error_code ec;
+    const bool existed = fs::exists(policy, ec);
+    if (existed) {
+        std::ifstream in(policy);
+        if (!in) { ui::warn("Firefox policies.json is not readable — Vimium not added"); return; }
+        try { in >> file; } catch (...) { ui::warn(policy.string() + " does not parse — left as it is, Vimium not added"); return; }
+    }
+    std::vector<std::string> added;
+    for (const auto& addon : firefox_policies::ADDONS) {
+        const auto merged = firefox_policies::add_extension(file, addon);
+        if (merged == firefox_policies::Merge::Refused) { ui::warn(policy.string() + " has a shape Firefox would not read — left as it is"); return; }
+        if (merged == firefox_policies::Merge::Added) added.push_back(addon.name);
+    }
+    if (added.empty()) { ui::substep("Firefox add-ons already in its policy (Vimium)"); return; }
+    const fs::path staged = ctx.home / ".cache/foxml/firefox-policies.json";
+    fs::create_directories(staged.parent_path(), ec);
+    if (!idem::write_atomic(staged, file.dump(2) + "\n")) { ui::warn("could not stage Firefox policies.json"); return; }
+    const std::string target = policy.string(), next = target + ".foxml-new";
+    const bool ok = sh::run({"sudo", "install", "-D", "-m", "644", staged.string(), next}) == 0
+        && (!existed || sh::run({"sudo", "cp", "-a", target, target + ".foxml-bak"}) == 0)
+        && sh::run({"sudo", "mv", "-f", next, target}) == 0;
+    fs::remove(staged, ec);
+    if (!ok) { sh::run({"sudo", "rm", "-f", next}); ui::warn("could not write " + target + " — Firefox add-ons not added"); return; }
+    std::string names;
+    for (const auto& name : added) names += (names.empty() ? "" : ", ") + name;
+    ui::substep("Firefox will install " + names + " on its next start (" + target + ")");
 }
 
 // ─── Cursor / VS Code ──────────────────────────────────────────────
@@ -631,7 +668,7 @@ void run_specials(Context& ctx) {
     ui::section("Special configs");
 
     if (sh::dry_run()) {
-        ui::substep("[dry-run] would: Firefox CSS+user.js, Cursor/VS Code theme, "
+        ui::substep("[dry-run] would: Firefox CSS+user.js, Vimium via /etc/firefox/policies (sudo, merged), Cursor/VS Code theme, "
                     "Bat cache rebuild, Claude settings jq-merge, "
                     "hyprland_scripts + waybar_scripts + hyprland_modules (.conf + .lua) + wallpapers + bin deploy, "
                     "hyprland.lua when Hyprland >= 0.57, "
@@ -642,6 +679,7 @@ void run_specials(Context& ctx) {
     // Read before do_hyprland_modules resets autostart.conf; a theme refresh must not turn rotation off.
     keep_live_wallpaper_mode(ctx);
 
+    do_firefox_addons(ctx);  // before do_firefox, whose restart is when Firefox reads the policy
     do_firefox(ctx);
     do_cursor_vscode(ctx);
     do_bat_config(ctx);

@@ -98,7 +98,7 @@ fs::path repository() {
 }
 const std::set<std::string> pages = {
     "apps", "windows", "audio-outputs", "wifi", "bluetooth", "tools", "cheatsheet", "sandbox", "clipboard-text", "clipboard-images",
-    "wallpapers", "themes", "power", "updates", "agents", "projects", "bookmarks", "library", "downloads", "screenshots", "passwords"
+    "wallpapers", "themes", "power", "updates", "agents", "projects", "bookmarks", "library", "downloads", "screenshots", "passwords", "garden"
 };
 const std::set<std::string> actions = {
     "volume", "volume-mute", "mic-mute", "media-play-pause", "media-next", "media-previous", "brightness",
@@ -1241,28 +1241,69 @@ bool valid_month(const std::string& month) {
     return std::regex_match(month, format);
 }
 // Days in YYYY-MM with a commit by the identity each repository is configured with. Reads dates, nothing else.
-Json commit_days(const Json& config, const std::string& month) {
-    std::set<std::string> days, today_commits;
-    char today[16] = {}; const std::time_t now = std::time(nullptr); std::strftime(today, sizeof today, "%Y-%m-%d", std::localtime(&now));
-    const int year = std::stoi(month.substr(0, 4)), number = std::stoi(month.substr(5, 2));
-    const auto next = std::to_string(number == 12 ? year + 1 : year) + (number >= 9 && number != 12 ? "-" : "-0") + std::to_string(number == 12 ? 1 : number + 1) + "-01";
-    if (sh::have("git")) for (const auto& project : projects(config)) {
+// One of your own commits: the day it was committed, the day it was written, and what makes it the same commit
+// in another branch, clone or rebase (its author time and subject; a rebase changes the hash, never those).
+struct OwnCommit { std::string committed, authored, key; };
+std::vector<OwnCommit> own_commits(const Json& config, const std::string& since, const std::string& until) {
+    std::vector<OwnCommit> out;
+    if (!sh::have("git")) return out;
+    for (const auto& project : projects(config)) {
         const auto path = project.path.string(); std::string email, log;
         if (!directory(project.path / ".git") && !regular(project.path / ".git")) continue;
         if (!capture({"git", "-C", path, "config", "user.email"}, email) || trim(email).empty()) continue;
-        if (!capture({"git", "-C", path, "log", "--all", "--fixed-strings", "--author=" + trim(email), "--since=" + month + "-01T00:00:00",
-                      "--until=" + next + "T00:00:00", "--date=format-local:%Y-%m-%d", "--format=%cd %ad %H"}, log)) continue;
+        Args args{"git", "-C", path, "log", "--all", "--fixed-strings", "--author=" + trim(email), "--since=" + since + "T00:00:00",
+                  "--date=format-local:%Y-%m-%d", "--format=%cd%x09%ad%x09%at%x09%s"};
+        if (!until.empty()) args.push_back("--until=" + until + "T00:00:00");
+        if (!capture(args, log)) continue;
         for (const auto& row : lines(log)) {
-            std::istringstream fields(row); std::string day, authored, hash;
-            if (!(fields >> day >> authored >> hash)) continue;
-            if (day.rfind(month + "-", 0) == 0) days.insert(day);
-            // Written today, not just rebased today: a rebase moves the commit date, never the author date.
-            if (authored == today) today_commits.insert(hash);
+            const auto a = row.find('\t'), b = a == std::string::npos ? a : row.find('\t', a + 1);
+            if (b == std::string::npos) continue;
+            out.push_back({row.substr(0, a), row.substr(a + 1, b - a - 1), row.substr(b + 1)});
         }
+    }
+    return out;
+}
+std::string local_day(std::time_t when) {
+    char day[16] = {}; std::strftime(day, sizeof day, "%Y-%m-%d", std::localtime(&when)); return day;
+}
+
+Json commit_days(const Json& config, const std::string& month) {
+    std::set<std::string> days, today_commits;
+    const auto today = local_day(std::time(nullptr));
+    const int year = std::stoi(month.substr(0, 4)), number = std::stoi(month.substr(5, 2));
+    const auto next = std::to_string(number == 12 ? year + 1 : year) + (number >= 9 && number != 12 ? "-" : "-0") + std::to_string(number == 12 ? 1 : number + 1) + "-01";
+    for (const auto& commit : own_commits(config, month + "-01", next)) {
+        if (commit.committed.rfind(month + "-", 0) == 0) days.insert(commit.committed);
+        // Written today, not just rebased today: a rebase moves the commit date, never the author date.
+        if (commit.authored == today) today_commits.insert(commit.key);
     }
     Json list = Json::array();
     for (const auto& day : days) list.push_back(std::stoi(day.substr(8, 2)));
     return Json{{"ok", true}, {"month", month}, {"days", list}, {"today", today_commits.size()}};
+}
+
+// The commit garden: how many commits you wrote on each day, from the Sunday 52 weeks before this week's to today.
+Json commit_year(const Json& config) {
+    const std::time_t now = std::time(nullptr);
+    std::tm first = *std::localtime(&now);
+    first.tm_mday -= first.tm_wday + 52 * 7; first.tm_hour = 12; first.tm_min = first.tm_sec = 0; first.tm_isdst = -1;
+    const std::time_t start = std::mktime(&first);
+    std::map<std::string, size_t> index;
+    std::vector<std::string> days;
+    for (std::tm day = first;; ++day.tm_mday) {
+        std::tm probe = day; probe.tm_isdst = -1;
+        const auto name = local_day(std::mktime(&probe));
+        index[name] = days.size(); days.push_back(name);
+        if (name == local_day(now) || days.size() > 380) break;
+    }
+    std::vector<std::set<std::string>> written(days.size());
+    for (const auto& commit : own_commits(config, local_day(start), {})) {
+        const auto at = index.find(commit.authored);
+        if (at != index.end()) written[at->second].insert(commit.key);
+    }
+    Json counts = Json::array();
+    for (const auto& keys : written) counts.push_back(keys.size());
+    return Json{{"start", days.front()}, {"counts", counts}};
 }
 
 // What the Today sheet adds to the group summaries: the battery, agent notes and the next thing on ~/.todo.
@@ -1389,6 +1430,9 @@ Json view(const Json& config, const std::string& page, const std::string& query)
             if (!row["enabled"].get<bool>()) row["disabledReason"] = !sh::have("udisksctl") ? "udisksctl is not installed" : "xdg-open is not installed";
             rows.push_back(row);
         }
+    } else if (page == "garden") {
+        known = true; out["title"] = "Commit garden";
+        out["garden"] = commit_year(config);
     } else if (page == "screenshots") {
         known = true; out["title"] = "Screenshot scrapbook";
         for (const auto& file : screenshots(config)) {

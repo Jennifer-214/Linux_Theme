@@ -260,8 +260,29 @@ EXERCISE = r'''
         root.show("root");
         root.openTag(todaySheet.tags[0]);
     }}
+    Timer { interval:5650; running:true; onTriggered: { root.show("root"); testFind(todaySheet, "today-hearts").children[0].clicked(null); } }
+    Timer { interval:5900; running:true; onTriggered: {
+        if (root.page !== "garden" || !root.gardenLayout || !gardenSheet.visible || itemList.visible || emptyNote.visible)
+            throw new Error("the hearts line did not open the garden sheet");
+        if (gardenSheet.counts.length !== 371 || root.gardenIndex !== 370) throw new Error("the garden did not start on today");
+        if (testFind(gardenSheet, "garden-summary").text !== "♥ 35 commits this year · longest streak 4 days · busiest nov 2 (9)")
+            throw new Error("garden summary: " + testFind(gardenSheet, "garden-summary").text);
+        if (testFind(gardenSheet, "garden-readout").text !== "today · 2 commits") throw new Error("the readout does not start on today");
+        var today = testFind(gardenSheet, "garden-day-370"), heart = testFind(gardenSheet, "garden-day-365");
+        if (!today || today.level !== 1 || !heart || !heart.heart || testFind(gardenSheet, "garden-day-363").level !== 3)
+            throw new Error("garden shades or hearts are wrong");
+        root.key({key: Qt.Key_H, modifiers: 0, accepted: false});
+        root.key({key: Qt.Key_K, modifiers: 0, accepted: false});
+        if (root.gardenIndex !== 362 || testFind(gardenSheet, "garden-readout").text !== "fri, oct 30 · no commits")
+            throw new Error("h / k did not move a week and a day: " + root.gardenIndex + " " + testFind(gardenSheet, "garden-readout").text);
+        root.key({key: Qt.Key_T, modifiers: 0, accepted: false});
+        if (root.gardenIndex !== 370) throw new Error("t did not return to today");
+        root.key({key: Qt.Key_Escape, modifiers: 0, accepted: false});
+        if (root.page !== "root" || !root.opened) throw new Error("Esc did not take the garden back to Today, where it opened from");
+        root.hide();
+    }}
     Timer {
-        interval: 5600; running: true
+        interval: 6200; running: true
         onTriggered: {
             var base = Quickshell.env("XDG_RUNTIME_DIR");
             root.showPicker(base + "/foxml-picker-abc123/request.json");
@@ -311,7 +332,7 @@ class DrawerQmlTest(unittest.TestCase):
             source = re.sub(r"^        (?:anchors \{.*|margins \{.*|exclusionMode:.*|WlrLayershell\..*)\n", "", source, flags=re.M)
             source = source.rsplit("\n}", 1)[0] + EXERCISE + "\n}\n"
             (directory / "shell.qml").write_text(source)
-            for name in ("DrawerLogic.js", "ClipIcon.qml", "LoadingDots.qml", "PencilProgress.qml", "PaperGrain.qml", "BarHint.qml", "PageEdgeScrollBar.qml", "MediaArtwork.qml", "StateTag.qml", "BarRibbon.qml", "PaperFlourish.qml", "PaperCardSurface.qml", "ClipboardPhoto.qml", "CalendarSheet.qml", "CalendarLogic.js", "ScrapbookSheet.qml", "TodaySheet.qml", "VolumeSlip.qml"):
+            for name in ("DrawerLogic.js", "ClipIcon.qml", "LoadingDots.qml", "PencilProgress.qml", "PaperGrain.qml", "BarHint.qml", "PageEdgeScrollBar.qml", "MediaArtwork.qml", "StateTag.qml", "BarRibbon.qml", "PaperFlourish.qml", "PaperCardSurface.qml", "ClipboardPhoto.qml", "CalendarSheet.qml", "CalendarLogic.js", "ScrapbookSheet.qml", "GardenSheet.qml", "TodaySheet.qml", "VolumeSlip.qml"):
                 shutil.copyfile(ROOT / "shared/quickshell/foxml" / name, directory / name)
             volume = (directory / "VolumeSlip.qml").read_text().replace("PanelWindow {", "FloatingWindow {")
             volume = re.sub(r"^    (?:anchors.*|margins\..*|exclusionMode:.*|WlrLayershell\..*)\n", "", volume, flags=re.M)

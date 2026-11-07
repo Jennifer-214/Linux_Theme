@@ -105,6 +105,7 @@ test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_c
 	@./tests/test_notification_refresh
 	@./tests/test_theme_choice
 	@./tests/test_ide_settings
+	@./tests/test_firefox_policies
 	@bash ./tests/lint_shell_assets.sh
 	@bash ./tests/lint_unit_escaping.sh
 
@@ -117,7 +118,10 @@ tests/test_registry: tests/test_registry.cpp core/registry.o
 
 test: tests/test_firefox_appearance
 test: tests/test_notification_refresh
-test: tests/test_theme_choice tests/test_ide_settings
+test: tests/test_theme_choice tests/test_ide_settings tests/test_firefox_policies
+
+tests/test_firefox_policies: tests/test_firefox_policies.cpp modules/firefox_policies.hpp
+	$(CXX) $(CXXFLAGS) $< -o $@
 
 tests/test_theme_choice: tests/test_theme_choice.cpp core/theme_choice.hpp
 	$(CXX) $(CXXFLAGS) $< -o $@
