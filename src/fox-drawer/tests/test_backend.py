@@ -462,7 +462,7 @@ class BackendTests(unittest.TestCase):
         config["favorites"] = ["sound/volume"]
         self.config.write_text(json.dumps(config))
         data = self.invoke("view", "root")
-        self.assertEqual(data["items"][0]["summary"], "42% · speakers")
+        self.assertEqual(data["items"][1]["summary"], "42% · speakers")
         self.assertEqual(data["favorites"][0]["id"], "volume")
         self.assertEqual(data["favorites"][0]["value"], 42)
         self.assertEqual(data["favorites"][0]["group"], "sound")
@@ -470,7 +470,7 @@ class BackendTests(unittest.TestCase):
     def test_unavailable_summary_does_not_fabricate_zero(self):
         self.state = {"commands": {"wpctl": {"exit": 1}}}
         data = self.invoke("view", "root")
-        self.assertEqual(data["items"][0]["summary"], "Audio unavailable")
+        self.assertEqual(data["items"][1]["summary"], "Audio unavailable")
         self.assertEqual(data["favorites"], [])
 
     def test_unknown_or_duplicate_favorites_are_rejected(self):
@@ -887,6 +887,13 @@ class BackendTests(unittest.TestCase):
         self.state["commands"] = {"wpctl": {"stdout": "Volume: 0.42\n"}}
         self.write_config([{"id": "sound", "label": "Sound", "icon": "music", "description": "", "items": [{"id": "volume", "label": "Volume", "kind": "slider"}]}])
         self.assertEqual(self.invoke("view", "search", "volume")["items"][0]["value"], 42)
+
+    def test_today_leads_the_top_level_list_with_the_day(self):
+        (self.home / ".todo").write_text("\n  water the fern  \nthen rest\n")
+        data = self.invoke("view", "root")
+        self.assertEqual((data["items"][0]["id"], data["items"][0]["page"]), ("today", "root"))
+        self.assertEqual(data["today"]["todo"], "water the fern")
+        self.assertEqual(data["today"]["notes"], 0)
 
     def test_invalid_dynamic_arguments_fail_without_mutations(self):
         for action, argument in (

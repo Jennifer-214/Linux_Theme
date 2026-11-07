@@ -6,6 +6,29 @@ function drawerPlacement(screenWidth, windowWidth, anchor, connected) {
     return {left:left, top:connected ? 0 : Math.max(7, Math.floor(anchor.y)-9)};
 }
 
+function greeting(date, name) {
+    var hour = date.getHours(), who = name ? ", " + name : "";
+    if (isNight(date)) return "still up?";
+    return (hour < 12 ? "good morning" : hour < 17 ? "good afternoon" : "good evening") + who;
+}
+
+// The Today sheet's little tags: the group summaries, plus what only Today knows.
+function todayTags(today, groups) {
+    today = today || {};
+    var summary = function(id) {
+        var group = (groups || []).filter(function(row) { return row.id === id; })[0];
+        return group && group.summary ? String(group.summary) : "";
+    };
+    var battery = today.battery ? today.battery + (/^(charging|full|not charging)$/.test(today.batteryState || "") ? " · plugged in" : "") : "";
+    var notes = Number(today.notes || 0);
+    return [battery, summary("connections"), summary("sound"), summary("system"),
+            notes ? notes + (notes === 1 ? " agent note" : " agent notes") : ""].filter(Boolean);
+}
+
+function heartLine(count) {
+    return count ? "♥ " + count + (count === 1 ? " day" : " days") + " with a heart this month" : "♥ this month's first heart is waiting";
+}
+
 function isNight(date) {
     var hour = date.getHours();
     return hour >= 22 || hour < 5;
@@ -40,7 +63,7 @@ function actionArguments(item, value, confirmed) {
 function symbol(item) {
     var icon = String(item.icon || "");
     if (icon && !/^[\x00-\x7f]+$/.test(icon)) return icon;
-    var icons = { desk: "✎", sound: "♫", connections: "⌁", comfort: "☾", system: "⚙",
+    var icons = { today: "✿", desk: "✎", sound: "♫", connections: "⌁", comfort: "☾", system: "⚙",
         wifi: "⌁", bluetooth: "⋈", window: "▣", volume: "♪", image: "▧", palette: "◐",
         search: "⌕", download: "↧", info: "·", package: "□", message: "✉",
         lock: "▢", suspend: "☾", reboot: "↻", poweroff: "⏻", logout: "↪", "app-launch": "⌘",
@@ -51,23 +74,23 @@ function symbol(item) {
 function paperIcon(item) {
     if (!item) return "";
     var presets = {
-        desk:["desk","✎"], sound:["sound","♫"], connections:["connections","⌁"],
+        today:["today","✿"], desk:["desk","✎"], sound:["sound","♫"], connections:["connections","⌁"],
         comfort:["comfort","☾"], system:["system","⚙"], apps:["apps","⌘"],
-        projects:["notebook","▤"], bookmarks:["bookmark","◇"], library:["library","▤"],
-        downloads:["mail","✉"], screenshots:["picture","▧"], windows:["window","▣"],
+        projects:["notebook","▤"], bookmarks:["bookmark","◇"], library:["library","▥","▤"],
+        downloads:["tray","↧","✉"], screenshots:["picture","▧"], windows:["window","▣"],
         "clipboard-text":["clipboard","⌇"], "clipboard-images":["picture","▧"],
         wallpapers:["picture","❀"], themes:["palette","◐"],
-        "wallpaper-next":["refresh","↝"], "wallpaper-sync":["palette","◇"],
-        "color-picker":["pencil","✎"], agents:["mail","✉"],
+        "wallpaper-next":["refresh","↝"], "wallpaper-sync":["palette","◑","◇"],
+        "color-picker":["dropper","✎"], agents:["note","✉"],
         volume:["sound","♪"], "volume-mute":["sound","♩"], "audio-outputs":["sound","◉"],
         "mic-mute":["microphone","○"], "media-play-pause":["play","▷"],
         "media-previous":["previous","‹"], "media-next":["next","›"],
         wifi:["wifi","⌁"], bluetooth:["bluetooth","⋈"],
-        brightness:["comfort","☼"], nightlight:["moon","☾"], dnd:["mail","✉"], idle:["clock","◷"],
+        brightness:["comfort","☼"], nightlight:["moon","☾"], dnd:["bell","⊘","✉"], idle:["clock","◷"],
         updates:["refresh","↻"], "power-profile":["battery","◈"],
-        vault:["passwords","⚿"], passwords:["passwords","⚿"], tools:["notebook","▤"],
-        cheatsheet:["notebook","✎"], sandbox:["window","▢"], security:["shield","◇"],
-        cleanup:["pencil","✎"], lock:["lock","▢"], power:["power","⏻"],
+        vault:["passwords","⚿"], passwords:["passwords","⚿"], tools:["terminal","❯","▤"],
+        cheatsheet:["keys","⌨","✎"], sandbox:["sandbox","▢"], security:["shield","⛨","◇"],
+        cleanup:["broom","✧","✎"], lock:["lock","⊡","▢"], power:["power","⏻"],
         suspend:["moon","suspend"], reboot:["refresh","reboot"],
         poweroff:["power","poweroff"], logout:["logout","logout"]
     };
@@ -79,7 +102,7 @@ function paperIcon(item) {
     if (id === "app-launch") return "";
     // An explicit custom glyph or icon name belongs to the user's menu.
     if (preset) {
-        if (icon && icon !== preset[1] && icon !== symbol({id:id}) && icon !== id) return "";
+        if (icon && icon !== preset[1] && icon !== preset[2] && icon !== symbol({id:id}) && icon !== id) return "";
         name = preset[0];
     } else name = semantic[icon] || (icon === "✉" ? "mail" : "");
     if (!name) return "";
@@ -188,7 +211,7 @@ function hintParts(hint) {
         var prefix = clause.match(/^((?:Enter|Esc|[hjkltebrfc↑↓\/])(?:(?: \/ | or )(?:Enter|Esc|[hjkltebrfc↑↓\/]))?)(?= |$)/);
         if (!prefix) { parts.push({text: clause, key: false}); return; }
         prefix[1].split(/(Enter|Esc|[hjkltebrfc↑↓])/).forEach(function(text) {
-            if (text) parts.push({text: text, key: /^(Enter|Esc|[hjkltebrf↑↓\/])$/.test(text)});
+            if (text) parts.push({text: text, key: /^(Enter|Esc|[hjkltebrfc↑↓\/])$/.test(text)});
         });
         if (clause.length > prefix[1].length) parts.push({text: clause.slice(prefix[1].length), key: false});
     });
@@ -200,13 +223,19 @@ function emptyState(page, searching, failed) {
     if (searching) return {title: "no matching notes.", detail: "try another search, or Esc to go back."};
     var pages = {
         root: ["everything in its little place.", "choose a group on the left\nor press / to find any action."],
+        agents: ["all quiet at the desk.", "your agents will leave a note here\nwhen they need you."],
+        passwords: ["the key drawer is empty.", "add something with pass\nand it will appear here."],
+        projects: ["no index cards yet.", "folders with a project inside ~/code\nget a little card here."],
+        wallpapers: ["no pictures in the frame.", "add some to ~/.wallpapers\nand they will hang here."],
+        windows: ["a clear desk.", "open windows will gather here."],
+        screenshots: ["no little moments yet.", "press + new to take one."],
         library: ["the shelves are quiet.", "plug in a removable drive\nand its library card will appear here."],
         bookmarks: ["save your place.", "press b on a project card\nto leave a little ribbon here."],
         downloads: ["nothing in the post.", "your latest downloads will land here.\npress / to filter, or h to go back."],
         "clipboard-text": ["a place for little thoughts.", "copy some text to keep it close.\nh goes back to the previous page."],
         "clipboard-images": ["a place for little pictures.", "copy an image to keep it close.\nh goes back to the previous page."]
     };
-    var lines = pages[page] || ["nothing here", "h goes back to the previous page."];
+    var lines = pages[page] || ["nothing here yet.", "h goes back to the previous page."];
     return {title: lines[0], detail: lines[1]};
 }
 

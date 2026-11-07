@@ -306,7 +306,10 @@ Group subtitles show live volume, active connection, notification state, open
 window count and cached updates. They refresh every four seconds while the
 panel is open, with no polling while it is closed.
 
-The home panel shows pinned favorites. Use `f` or the heart button to return
+The drawer opens on **Today**, the first item in the sidebar, with the sidebar focused so
+`j`/`k` move straight through the groups. Today shows the date, battery, Wi-Fi, volume,
+updates, agent notes, your next `~/.todo` line and this month's commit hearts, with your
+pinned favorites beneath. Enter on Today steps into the favorites. Use `f` or the heart button to return
 to it, and Tab to switch between favorites and groups. Set `"favorites"` in
 `menus.json` to an ordered list of existing `group/item` references, for example
 `["desk/apps", "desk/clipboard-text", "comfort/dnd"]`. Up to eight are supported;

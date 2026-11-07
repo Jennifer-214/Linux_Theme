@@ -1231,6 +1231,21 @@ Json commit_days(const Json& config, const std::string& month) {
     return Json{{"ok", true}, {"month", month}, {"days", list}};
 }
 
+// What the Today sheet adds to the group summaries: the battery, agent notes and the next thing on ~/.todo.
+Json today_summary() {
+    Json today{{"notes", agent_notes().size()}, {"todo", ""}};
+    for (const auto& line : lines(read(fs::path(home()) / ".todo"))) if (!trim(line).empty()) { today["todo"] = trim(line); break; }
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator("/sys/class/power_supply", ec)) {
+        if (entry.path().filename().string().rfind("BAT", 0) != 0) continue;
+        const auto level = trim(read(entry.path() / "capacity"));
+        if (level.empty()) continue;
+        today["battery"] = level + "%"; today["batteryState"] = lower(trim(read(entry.path() / "status")));
+        break;
+    }
+    return today;
+}
+
 Json view(const Json& config, const std::string& page, const std::string& query) {
     Json out{{"id", page}, {"title", page}, {"items", Json::array()}, {"ok", true}, {"group", group_for(config, page)}};
     auto& rows = out["items"];
@@ -1238,6 +1253,11 @@ Json view(const Json& config, const std::string& page, const std::string& query)
     bool known = false;
     if (page == "root") {
         known = true; out["title"] = text(config, "title", "FoxML");
+        char date[48] = {}; const std::time_t now = std::time(nullptr); const std::tm* local = std::localtime(&now);
+        std::strftime(date, sizeof date, "%a, %b ", local);
+        auto home_row = item("today", "Today", "page", "A look at your day", "today");
+        home_row["page"] = "root"; home_row["summary"] = date + std::to_string(local->tm_mday); rows.push_back(home_row);
+        out["today"] = today_summary();
         for (const auto& group : config["groups"]) {
             auto row = item(text(group, "id"), text(group, "label"), "page", text(group, "description"), text(group, "icon"));
             row["summary"] = group_summary(text(group, "id"));
@@ -1264,7 +1284,7 @@ Json view(const Json& config, const std::string& page, const std::string& query)
         }
         if (!query.empty()) {
             for (const auto& app : desktops()) {
-                auto row = item("app-launch", app.name, "action", "Desk › Applications · " + app.detail, app.icon);
+                auto row = item("app-launch", app.name, "action", "Desk › Applications" + (app.detail.empty() ? "" : " · " + app.detail), app.icon);
                 row["argument"] = app.path.string(); row["close"] = true;
                 row["group"] = "desk"; row["enabled"] = sh::have("gio"); rows.push_back(row);
             }
@@ -1273,7 +1293,7 @@ Json view(const Json& config, const std::string& page, const std::string& query)
                 for (const auto& client : clients) {
                     if (!client.is_object() || text(client, "address").empty()) continue;
                     auto row = item("window-focus", text(client, "title", text(client, "class", "Window")),
-                                    "action", "Desk › Windows · " + text(client, "class"), "window");
+                                    "action", "Desk › Open windows · " + text(client, "class"), "window");
                     row["argument"] = text(client, "address"); row["close"] = true;
                     row["group"] = "desk"; rows.push_back(row);
                 }
@@ -1288,7 +1308,7 @@ Json view(const Json& config, const std::string& page, const std::string& query)
         }
     }
     if (page == "projects" || page == "bookmarks") {
-        known = true; out["title"] = page == "bookmarks" ? "Bookmarked pages" : "Project index cards";
+        known = true; out["title"] = page == "bookmarks" ? "Bookmarks" : "Project index cards";
         std::vector<std::string> pinned;
         if (!bookmarks(pinned)) fail("Bookmarks could not be read");
         for (const auto& project : projects(config)) {
@@ -1317,7 +1337,7 @@ Json view(const Json& config, const std::string& page, const std::string& query)
             rows.push_back(row);
         }
     } else if (page == "screenshots") {
-        known = true; out["title"] = "Little moments";
+        known = true; out["title"] = "Screenshot scrapbook";
         for (const auto& file : screenshots(config)) {
             auto row = item("screenshot-open", file.name, "action", file.modified_at, "image");
             row["argument"] = file.path.string(); row["close"] = true;
@@ -1341,7 +1361,7 @@ Json view(const Json& config, const std::string& page, const std::string& query)
             row["argument"] = app.path.string(); row["close"] = true; row["enabled"] = sh::have("gio"); rows.push_back(row);
         }
     } else if (page == "windows") {
-        known = true; out["title"] = "Windows"; Json clients;
+        known = true; out["title"] = "Open windows"; Json clients;
         if (!capture_json({"hyprctl", "-j", "clients"}, clients) || !clients.is_array()) fail("Hyprland windows are unavailable");
         else for (const auto& client : clients) {
             if (!client.is_object() || text(client, "address").empty()) continue;
@@ -1349,7 +1369,7 @@ Json view(const Json& config, const std::string& page, const std::string& query)
             row["argument"] = text(client, "address"); row["close"] = true; rows.push_back(row);
         }
     } else if (page == "audio-outputs") {
-        known = true; out["title"] = "Audio outputs"; Json sinks; std::string current;
+        known = true; out["title"] = "Audio output"; Json sinks; std::string current;
         capture({"pactl", "get-default-sink"}, current);
         if (!capture_json({"pactl", "-f", "json", "list", "sinks"}, sinks) || !sinks.is_array()) fail("Audio devices are unavailable");
         else for (const auto& sink : sinks) {
@@ -1390,7 +1410,7 @@ Json view(const Json& config, const std::string& page, const std::string& query)
             auto scan = item("bluetooth-scan", "Scan and pair devices", "action", "Opens the Bluetooth manager", "search"); scan["close"] = true; rows.push_back(scan);
         }
     } else if (page == "clipboard-text" || page == "clipboard-images") {
-        known = true; out["title"] = page == "clipboard-images" ? "Image clipboard" : "Text clipboard";
+        known = true; out["title"] = page == "clipboard-images" ? "Clipboard images" : "Clipboard";
         if (!clipboard_rows(rows, page == "clipboard-images")) fail("Clipboard history is unavailable");
         else if (page == "clipboard-images") {
             size_t previews = 0;
@@ -1454,7 +1474,7 @@ Json view(const Json& config, const std::string& page, const std::string& query)
             auto row = item("updates-terminal", line, "action", "Pending package", "package"); row["enabled"] = false; rows.push_back(row);
         }
     } else if (page == "passwords") {
-        known = true; out["title"] = "A little key drawer";
+        known = true; out["title"] = "Passwords";
         for (const auto& name : password_names()) {
             auto row = item("password-copy", name, "action", "Copy password · pass clears the clipboard after its timeout", "key");
             row["argument"] = name;
@@ -1463,7 +1483,7 @@ Json view(const Json& config, const std::string& page, const std::string& query)
         }
         if (!sh::have("pass")) fail("Install pass to use your existing password store");
     } else if (page == "agents") {
-        known = true; out["title"] = "Agent notifications";
+        known = true; out["title"] = "Agent notes";
         const auto notes = agent_notes();
         for (auto at = notes.rbegin(); at != notes.rend() && rows.size() < 128; ++at) {
             const auto& entry = at->second;
@@ -1472,7 +1492,7 @@ Json view(const Json& config, const std::string& page, const std::string& query)
         }
         if (!notes.empty()) {
             auto row = item("agent-clear", "Clear agent notes", "action", "Dismiss all pending notes", "message");
-            row["confirm"] = "Clear all agent notes?"; rows.push_back(row);
+            row["confirm"] = "This puts every note away."; rows.push_back(row);
         }
     }
     if (!known) fail("Unknown drawer page");

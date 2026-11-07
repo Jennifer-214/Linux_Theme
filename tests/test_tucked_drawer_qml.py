@@ -111,12 +111,12 @@ EXERCISE = r'''
         root.show("screenshots");
     }}
     Timer { interval:3600; running:true; onTriggered: {
-        if (!root.scrapbookLayout || !scrapbookSheet.visible || root.entries.length!==7 || groupList.visible)
-            throw new Error("scrapbook did not load its photo sheet");
+        if (!root.scrapbookLayout || !scrapbookSheet.visible || root.entries.length!==7 || !groupList.visible)
+            throw new Error("scrapbook did not load its photo sheet inside the drawer");
         root.key({key:Qt.Key_Down,modifiers:0,accepted:false});
         if (root.itemIndex!==scrapbookSheet.columns) throw new Error("scrapbook grid navigation failed");
         root.key({key:Qt.Key_C,modifiers:0,accepted:false});
-        if (actionProcess.command.slice(-3).join("|")!=="run|screenshot-copy|/sample/shot-3.png" || actionProcess.item.close)
+        if (actionProcess.command.slice(-3).join("|")!=="run|screenshot-copy|/sample/shot-"+scrapbookSheet.columns+".png" || actionProcess.item.close)
             throw new Error("copy does not preserve the selected picture or keeps the wrong action");
         volumeSlip.show(200,false);
         if (!volumeSlip.showing || volumeSlip.value!==150) throw new Error("volume slip level clamp failed");
@@ -125,6 +125,8 @@ EXERCISE = r'''
     }}
     Timer { interval:4000; running:true; onTriggered: {
         if (!root.opened || !root.scrapbookLayout || root.failed) throw new Error("copy closed or broke the scrapbook");
+        root.key({key:Qt.Key_Escape,modifiers:0,accepted:false});
+        if (root.focusArea!=="groups") throw new Error("Esc did not take the scrapbook back to the sidebar");
         root.key({key:Qt.Key_Escape,modifiers:0,accepted:false});
         if (root.opened || keyboard.enabled) throw new Error("scrapbook did not close cleanly");
     }}

@@ -15,6 +15,19 @@ assert.equal(logic.isNight(new Date(2026, 10, 6, 5, 0)), false);
 for (const id of ['audio-output', 'theme-set', 'wifi-connect', 'bluetooth-connect']) assert.equal(logic.connectionState({ id, checked: true }), true);
 assert.equal(logic.connectionState({ id: 'nightlight', checked: true }), null);
 
+assert.equal(logic.greeting(new Date(2026, 10, 6, 9), 'fox'), 'good morning, fox');
+assert.equal(logic.greeting(new Date(2026, 10, 6, 13), 'fox'), 'good afternoon, fox');
+assert.equal(logic.greeting(new Date(2026, 10, 6, 19), ''), 'good evening');
+assert.equal(logic.greeting(new Date(2026, 10, 6, 23), 'fox'), 'still up?');
+assert.deepEqual(plain(logic.todayTags({ battery: '80%', batteryState: 'not charging', notes: 1 },
+    [{ id: 'connections', summary: 'home' }, { id: 'sound', summary: '' }, { id: 'system', summary: '0 cached updates' }])),
+    ['80% · plugged in', 'home', '0 cached updates', '1 agent note']);
+assert.deepEqual(plain(logic.todayTags(undefined, undefined)), []);
+assert.equal(logic.heartLine(1), '♥ 1 day with a heart this month');
+assert.equal(logic.paperIcon({ id: 'dnd', icon: '✉' }), 'paper-icon-bell.svg');
+assert.equal(logic.paperIcon({ id: 'dnd', icon: '⊘' }), 'paper-icon-bell.svg');
+assert.equal(logic.paperIcon({ id: 'today', icon: 'today' }), 'paper-icon-today.svg');
+
 const rows = [{ id: 'a' }, { id: 'b', enabled: false }, { id: 'c' }];
 assert.equal(logic.nextIndex(rows, 0, 1), 2);
 assert.equal(logic.nextIndex(rows, 2, 1), 0);

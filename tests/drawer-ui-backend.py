@@ -18,8 +18,9 @@ if args[0] == "view":
     elif page == "slow":
         time.sleep(.4)
     if page == "root":
-        items = [dict(id=name, page=name, label=name.title(), kind="page")
-                 for name in ("desk", "sound", "connections", "comfort", "system")]
+        items = [dict(id="today", page="root", label="Today", kind="page", icon="today", summary="Friday, November 6")]
+        items += [dict(id=name, page=name, label=name.title(), kind="page")
+                  for name in ("desk", "sound", "connections", "comfort", "system")]
     elif page == "search":
         query = args[2] if len(args) > 2 else ""
         items = [dict(id="found", label=query, kind="action")]
@@ -64,7 +65,8 @@ if args[0] == "view":
         data.update(title="Agent notes", group="desk")
     if page == "root":
         data["favorites"] = [dict(id="volume", group="sound", label="Volume", kind="slider", value=42)]
-        data["items"][1]["summary"] = "42% · speakers"
+        data["items"][2]["summary"] = "42% · speakers"
+        data["today"] = dict(battery="80%", batteryState="discharging", notes=2, todo="water the fern")
     print(json.dumps(data))
 else:
     with open(os.environ["FOXML_DRAWER_TEST_LOG"], "a") as stream:

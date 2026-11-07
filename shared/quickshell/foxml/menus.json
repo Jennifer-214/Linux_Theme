@@ -12,8 +12,8 @@
         { "id": "apps", "label": "Applications", "detail": "Find something to open", "icon": "⌘", "kind": "page", "page": "apps" },
         { "id": "projects", "label": "Project index cards", "detail": "A little card for each code project", "icon": "▤", "kind": "page", "page": "projects" },
         { "id": "bookmarks", "label": "Bookmarks", "detail": "The projects you left a ribbon in", "icon": "◇", "kind": "page", "page": "bookmarks" },
-        { "id": "library", "label": "The little library", "detail": "Removable drives and their checkout cards", "icon": "▤", "kind": "page", "page": "library" },
-        { "id": "downloads", "label": "Incoming paper tray", "detail": "Your newest downloads, in a little pile", "icon": "✉", "kind": "page", "page": "downloads" },
+        { "id": "library", "label": "The little library", "detail": "Removable drives and their checkout cards", "icon": "▥", "kind": "page", "page": "library" },
+        { "id": "downloads", "label": "Incoming paper tray", "detail": "Your newest downloads, in a little pile", "icon": "↧", "kind": "page", "page": "downloads" },
         { "id": "screenshots", "label": "Screenshot scrapbook", "detail": "Little moments, tucked into photo prints", "icon": "▧", "kind": "page", "page": "screenshots" },
         { "id": "windows", "label": "Open windows", "detail": "Pick up where you left off", "icon": "▣", "kind": "page", "page": "windows" },
         { "id": "clipboard-text", "label": "Clipboard", "detail": "Your collected scraps of text", "icon": "⌇", "kind": "page", "page": "clipboard-text" },
@@ -21,7 +21,7 @@
         { "id": "wallpapers", "label": "Wallpapers", "detail": "A different page beneath your windows", "icon": "❀", "kind": "page", "page": "wallpapers" },
         { "id": "themes", "label": "Themes", "detail": "Choose your paper and ink", "icon": "◐", "kind": "page", "page": "themes" },
         { "id": "wallpaper-next", "label": "Next wallpaper", "detail": "Turn over a new leaf", "icon": "↝", "kind": "action", "close": true },
-        { "id": "wallpaper-sync", "label": "Colors from wallpaper", "detail": "Use this wallpaper as the palette", "icon": "◇", "kind": "action", "close": true },
+        { "id": "wallpaper-sync", "label": "Colors from wallpaper", "detail": "Use this wallpaper as the palette, in a terminal", "icon": "◑", "kind": "action", "close": true },
         { "id": "color-picker", "label": "Pick a color", "detail": "Borrow a little ink from the screen", "icon": "✎", "kind": "action", "close": true },
         { "id": "agents", "label": "Agent notes", "detail": "Your agents are waiting here", "icon": "✉", "kind": "page", "page": "agents" }
       ]
@@ -59,7 +59,7 @@
       "items": [
         { "id": "brightness", "label": "Brightness", "detail": "A comfortable amount of light", "icon": "☼", "kind": "slider" },
         { "id": "nightlight", "label": "Night light", "detail": "A warmer glow for tired eyes", "icon": "☾", "kind": "toggle" },
-        { "id": "dnd", "label": "Do not disturb", "detail": "Shh… the world can wait a moment", "icon": "✉", "kind": "toggle" },
+        { "id": "dnd", "label": "Do not disturb", "detail": "Shh… the world can wait a moment", "icon": "⊘", "kind": "toggle" },
         { "id": "idle", "label": "Stay awake", "detail": "Keep the screens on for a little longer", "icon": "◷", "kind": "toggle" }
       ]
     },
@@ -72,12 +72,12 @@
         { "id": "updates", "label": "Updates", "detail": "See what is ready to update", "icon": "↻", "kind": "page", "page": "updates" },
         { "id": "power-profile", "label": "Power profile", "detail": "Cycle performance, balanced and power saver", "icon": "◈", "kind": "action" },
         { "id": "vault", "label": "Passwords", "detail": "Copy from your existing pass store", "icon": "⚿", "kind": "page", "page": "passwords" },
-        { "id": "tools", "label": "Fox tools", "detail": "The command collection", "icon": "▤", "kind": "page", "page": "tools" },
-        { "id": "cheatsheet", "label": "Shortcut reference", "detail": "Find a shortcut and copy its keys", "icon": "✎", "kind": "page", "page": "cheatsheet" },
+        { "id": "tools", "label": "Fox tools", "detail": "The command collection", "icon": "❯", "kind": "page", "page": "tools" },
+        { "id": "cheatsheet", "label": "Shortcut reference", "detail": "Find a shortcut and copy its keys", "icon": "⌨", "kind": "page", "page": "cheatsheet" },
         { "id": "sandbox", "label": "Disposable sandbox", "detail": "A fresh space for an app", "icon": "▢", "kind": "page", "page": "sandbox" },
-        { "id": "security", "label": "Security audit", "detail": "Open the system audit in a terminal", "icon": "◇", "kind": "action", "close": true },
-        { "id": "cleanup", "label": "System cleanup", "detail": "Tidy up in a terminal", "icon": "✎", "kind": "action", "close": true },
-        { "id": "lock", "label": "Lock screen", "detail": "See you soon", "icon": "▢", "kind": "action", "close": true },
+        { "id": "security", "label": "Security audit", "detail": "Open the security dashboard in a terminal", "icon": "⛨", "kind": "action", "close": true },
+        { "id": "cleanup", "label": "System cleanup", "detail": "Tidy up in a terminal", "icon": "✧", "kind": "action", "close": true },
+        { "id": "lock", "label": "Lock screen", "detail": "See you soon", "icon": "⊡", "kind": "action", "close": true },
         { "id": "power", "label": "Power", "detail": "Suspend, restart, shut down or log out", "icon": "⏻", "kind": "page", "page": "power" }
       ]
     }

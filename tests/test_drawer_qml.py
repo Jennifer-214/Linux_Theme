@@ -40,7 +40,7 @@ EXERCISE = r'''
     Timer {
         interval: 700; running: true
         onTriggered: {
-            if (root.groups.length !== 5 || root.entries.length !== 3) throw new Error("views missing");
+            if (root.groups.length !== 6 || root.entries.length !== 3) throw new Error("views missing");
             if (!barStyle.text().includes("#custom-battery")) throw new Error("sound drawer did not mark the bar");
             root.step(1);
             if (root.itemIndex !== 1) throw new Error("j does not advance");
@@ -87,11 +87,16 @@ EXERCISE = r'''
     Timer {
         interval: 1600; running: true
         onTriggered: {
-            if (root.page !== "root" || root.focusArea !== "items") {
-                console.error("Home favorites did not receive their normal initial focus");
+            if (root.page !== "root" || root.focusArea !== "groups" || root.groupIndex !== 0 || root.groups[0].id !== "today") {
+                console.error("Home did not open on Today in the top-level list");
                 Qt.exit(1);
                 return;
             }
+            if (!todaySheet.visible || todaySheet.tags.indexOf("80%") < 0 || todaySheet.tags.indexOf("2 agent notes") < 0)
+                throw new Error("Today sheet is missing its overview");
+            root.chooseGroup(0);
+            if (root.focusArea !== "items" || root.page !== "root") throw new Error("Enter on Today did not step into the favorites");
+            root.focusArea = "groups";
             root.show("root");
             root.groupIndex = 2;
             root.step(1);
@@ -109,7 +114,7 @@ EXERCISE = r'''
                 return;
             }
             root.focusArea = "items";
-            if (root.groups[1].summary !== "42% · speakers")
+            if (root.groups[2].summary !== "42% · speakers")
                 throw new Error("favorite keyboard focus or live summary missing");
             var tab = {key: Qt.Key_Tab, modifiers: 0, accepted: false}; root.key(tab);
             if (root.focusArea !== "groups") throw new Error("Tab did not reach groups from favorites");
@@ -275,7 +280,7 @@ class DrawerQmlTest(unittest.TestCase):
             source = re.sub(r"^        (?:anchors \{.*|margins \{.*|exclusionMode:.*|WlrLayershell\..*)\n", "", source, flags=re.M)
             source = source.rsplit("\n}", 1)[0] + EXERCISE + "\n}\n"
             (directory / "shell.qml").write_text(source)
-            for name in ("DrawerLogic.js", "ClipIcon.qml", "LoadingDots.qml", "PencilProgress.qml", "PaperGrain.qml", "BarHint.qml", "PageEdgeScrollBar.qml", "MediaArtwork.qml", "StateTag.qml", "BarRibbon.qml", "PaperFlourish.qml", "PaperCardSurface.qml", "ClipboardPhoto.qml", "CalendarSheet.qml", "CalendarLogic.js", "ScrapbookSheet.qml", "VolumeSlip.qml"):
+            for name in ("DrawerLogic.js", "ClipIcon.qml", "LoadingDots.qml", "PencilProgress.qml", "PaperGrain.qml", "BarHint.qml", "PageEdgeScrollBar.qml", "MediaArtwork.qml", "StateTag.qml", "BarRibbon.qml", "PaperFlourish.qml", "PaperCardSurface.qml", "ClipboardPhoto.qml", "CalendarSheet.qml", "CalendarLogic.js", "ScrapbookSheet.qml", "TodaySheet.qml", "VolumeSlip.qml"):
                 shutil.copyfile(ROOT / "shared/quickshell/foxml" / name, directory / name)
             volume = (directory / "VolumeSlip.qml").read_text().replace("PanelWindow {", "FloatingWindow {")
             volume = re.sub(r"^    (?:anchors.*|margins\..*|exclusionMode:.*|WlrLayershell\..*)\n", "", volume, flags=re.M)

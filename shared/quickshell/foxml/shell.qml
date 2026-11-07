@@ -20,7 +20,7 @@ ShellRoot {
     property bool editing: false
     property bool actionBusy: false
     property string page: "root"
-    property string pageTitle: "a little room to think."
+    property string pageTitle: "today."
     property string groupId: ""
     property string message: ""
     property bool failed: false
@@ -46,7 +46,7 @@ ShellRoot {
     property bool drawerReady: true
     // A page change is pending. The 4s background refresh never sets this, so it can't blink a page.
     property bool pageLoading: false
-    property bool homeFocusPending: false
+    property var today: ({})
     property var nextView: null
     property var nextAction: null
     property string backend: Quickshell.env("FOXML_DRAWER_BACKEND") || "fox-drawer"
@@ -303,7 +303,6 @@ ShellRoot {
         trail = [];
         page = pageId || "root";
         pageLoading = true;
-        homeFocusPending = page === "root";
         navigationSerial++;
         focusArea = page === "root" ? "groups" : "items";
         note("");
@@ -326,8 +325,9 @@ ShellRoot {
         if (page === "root") {
             dropView();
             entries = [];
-            pageTitle = "a little room to think.";
+            pageTitle = "today.";
             groupId = "";
+            groupIndex = 0;
         } else {
             entries = [];
             requestView();
@@ -337,7 +337,6 @@ ShellRoot {
 
     function hide(response) {
         closingPicker = pickerActive;
-        homeFocusPending = false;
         finishPicker(response || {cancel: true});
         finishEdit();
         remember();
@@ -352,9 +351,14 @@ ShellRoot {
     function chooseGroup(index) {
         if (pickerActive) return;
         if (!groups[index]) return;
-        homeFocusPending = false;
         remember();
         groupIndex = index;
+        if (groups[index].page === "root") {
+            // Today is already showing, so Enter steps down into the favorites beneath it.
+            if (page === "root") { if (entries.length) focusArea = "items"; }
+            else show("root");
+            return;
+        }
         groupId = groups[index].page || groups[index].id;
         trail = [];
         page = groupId;
@@ -372,7 +376,7 @@ ShellRoot {
     }
 
     function goBack() {
-        if (calendarLayout || (scrapbookLayout && !trail.length)) { hide(); return; }
+        if (calendarLayout) { hide(); return; }
         if (pickerActive && (pickerPrompt || !searching)) { hide(); return; }
         if (pendingConfirm) { pendingConfirm = null; return; }
         if (editing) { finishEdit(); return; }
@@ -417,7 +421,6 @@ ShellRoot {
     }
 
     function step(delta) {
-        homeFocusPending = false;
         if (pendingConfirm) { confirmYes = !confirmYes; return; }
         if (editing) return;
         if (focusArea === "groups") {
@@ -540,7 +543,6 @@ ShellRoot {
 
     function key(event) {
         if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)) return;
-        homeFocusPending = false;
         var k = event.key;
         if (calendarLayout) {
             if (k === Qt.Key_Escape || k === Qt.Key_Q) hide();
@@ -551,9 +553,14 @@ ShellRoot {
             event.accepted = true;
             return;
         }
-        if (scrapbookLayout) {
-            if (k === Qt.Key_Escape || k === Qt.Key_Q) hide();
-            else if (k === Qt.Key_Left || k === Qt.Key_H) itemIndex = Math.max(0, itemIndex - 1);
+        if (scrapbookLayout && focusArea === "items" && !searching && !pendingConfirm) {
+            if (k === Qt.Key_Q) hide();
+            else if (k === Qt.Key_Escape) goBack();
+            else if (k === Qt.Key_Slash) startSearch();
+            else if (k === Qt.Key_F) show("root");
+            else if (k === Qt.Key_Left || k === Qt.Key_H) {
+                if (itemIndex % scrapbookSheet.columns === 0) goBack(); else itemIndex--;
+            }
             else if (k === Qt.Key_Right || k === Qt.Key_L) itemIndex = Math.min(entries.length - 1, itemIndex + 1);
             else if (k === Qt.Key_Up || k === Qt.Key_K) itemIndex = Math.max(0, itemIndex - scrapbookSheet.columns);
             else if (k === Qt.Key_Down || k === Qt.Key_J) itemIndex = Math.min(entries.length - 1, itemIndex + scrapbookSheet.columns);
@@ -661,11 +668,10 @@ ShellRoot {
                     var previous = Logic.identity(root.entries[root.itemIndex]);
                     root.entries = Array.isArray(data.favorites) ? data.favorites : [];
                     root.itemIndex = Logic.restoreIndex(root.entries, previous);
-                    root.pageTitle = root.entries.length ? "a few favorites." : "a little room to think.";
+                    root.pageTitle = "today.";
+                    root.today = data.today || {};
                     root.drawerReady = true;
                     itemList.viewPage = "root";
-                    if (root.homeFocusPending && root.entries.length) root.focusArea = "items";
-                    root.homeFocusPending = false;
                 }
                 var gi = root.focusArea === "groups" ? -1 : root.groups.findIndex(function(g) { return g.page === root.page || g.id === root.groupId; });
                 root.groupIndex = gi >= 0 ? gi : Logic.restoreIndex(root.groups, previousGroup);
@@ -849,7 +855,7 @@ ShellRoot {
                     }
                     RowLayout {
                         Layout.fillWidth: true
-                        visible: !root.calendarLayout && !root.scrapbookLayout
+                        visible: !root.calendarLayout
                         Text { textFormat: Text.PlainText; text: theme.paperDetails && root.page === "power" && Logic.isNight(new Date()) ? "goodnight, see you tomorrow." : "make yourself at home."; color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: panel.implicitWidth < 580 ? 21 : 27; Layout.fillWidth: true; elide: Text.ElideRight }
                         Canvas {
                             width: 46; height: 40
@@ -885,7 +891,7 @@ ShellRoot {
                     RowLayout {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                        visible: !root.calendarLayout && !root.scrapbookLayout
+                        visible: !root.calendarLayout
                         spacing: 18
 
                         ListView {
@@ -905,9 +911,9 @@ ShellRoot {
                                 required property var modelData
                                 required property int index
                                 width: groupList.width - (theme.paperDetails ? 4 : 0)
-                                height: 65
+                                height: 59
                                 radius: 4
-                                color: groupMouse.pressed ? Qt.alpha(theme.line, .35) : index === root.groupIndex && (root.page !== "root" || root.focusArea === "groups") ? (theme.paperDetails || root.focusArea === "groups" ? theme.focusFill : Qt.alpha(theme.selection, theme.selectionOpacity * .45)) : theme.paperDetails ? (groupMouse.containsMouse ? theme.hoverFill : Qt.alpha(theme.highlight, .23)) : root.buttonShade(false, groupMouse.containsMouse)
+                                color: groupMouse.pressed ? Qt.alpha(theme.line, .35) : index === root.groupIndex ? (theme.paperDetails || root.focusArea === "groups" ? theme.focusFill : Qt.alpha(theme.selection, theme.selectionOpacity * .45)) : theme.paperDetails ? (groupMouse.containsMouse ? theme.hoverFill : Qt.alpha(theme.highlight, .23)) : root.buttonShade(false, groupMouse.containsMouse)
                                 border.width: theme.paperDetails || (index === root.groupIndex && root.focusArea === "groups") ? 1 : 0
                                 border.color: theme.line
                                 PaperShadow {
@@ -949,7 +955,7 @@ ShellRoot {
                             Layout.fillWidth: true
                             Layout.fillHeight: true
                             spacing: 10
-                            opacity: !root.drawerReady ? 0 : root.page === "root" && !root.entries.length ? .65 : 1
+                            opacity: !root.drawerReady ? 0 : 1
                             Behavior on opacity { NumberAnimation { duration: 160 } }
                             transform: Translate {
                                 x: root.drawerReady ? 0 : 28
@@ -1041,15 +1047,42 @@ ShellRoot {
                                 }
                             }
 
+                            TodaySheet {
+                                id: todaySheet
+                                visible: root.page === "root" && !root.searching && !root.pickerLayout && !root.pendingConfirm
+                                active: root.opened && visible
+                                theme: root.paperTheme
+                                today: root.today
+                                groups: root.groups
+                                favorites: root.entries.length
+                                commandFor: root.backendCommand
+                                Layout.fillWidth: true
+                            }
+
                             Item {
                                 Layout.fillWidth: true
                                 Layout.fillHeight: true
+
+                                ScrapbookSheet {
+                                    id: scrapbookSheet
+                                    visible: root.scrapbookLayout
+                                    theme: root.paperTheme
+                                    entries: root.entries
+                                    selectedIndex: root.itemIndex
+                                    busy: root.pageLoading || root.actionBusy
+                                    anchors.fill: parent
+                                    onChoose: index => { root.itemIndex = index; root.focusArea = "items"; keyboard.forceActiveFocus(); }
+                                    onOpenPicture: index => root.activate(root.entries[index])
+                                    onCopyPicture: index => root.screenshotAction(index, "screenshot-copy")
+                                    onOpenFolder: index => root.screenshotAction(index, "screenshot-folder")
+                                    onCapture: root.activate({id:"screenshot-capture",kind:"action",enabled:true,close:true})
+                                }
 
                                 ListView {
                                     id: itemList
                                     property string viewPage: ""
                                     anchors.fill: parent
-                                    visible: !root.pendingConfirm && (root.page !== "root" || root.entries.length > 0 || root.searching)
+                                    visible: !root.pendingConfirm && !root.scrapbookLayout && (root.page !== "root" || root.entries.length > 0 || root.searching)
                                     clip: true
                                     spacing: 7
                                     bottomMargin: theme.paperDetails && contentHeight >= height ? 4 : 0
@@ -1239,7 +1272,7 @@ ShellRoot {
                                     anchors.centerIn: parent
                                     width: parent.width - 28
                                     spacing: 15
-                                    visible: !(root.pickerLayout && root.pickerPrompt) && !root.pendingConfirm && !root.entries.length && !root.pageLoading && (root.drawerReady || root.failed)
+                                    visible: root.page !== "root" && !root.scrapbookLayout && (!(root.pickerLayout && root.pickerPrompt) && !root.pendingConfirm && !root.entries.length && !root.pageLoading && (root.drawerReady || root.failed))
                                     Image {
                                         visible: theme.paperDetails && !root.failed
                                         anchors.horizontalCenter: parent.horizontalCenter
@@ -1322,20 +1355,6 @@ ShellRoot {
                         commandFor: root.backendCommand
                         Layout.fillWidth: true
                         Layout.fillHeight: true
-                    }
-                    ScrapbookSheet {
-                        id: scrapbookSheet
-                        visible: root.scrapbookLayout
-                        theme: root.paperTheme
-                        entries: root.entries
-                        selectedIndex: root.itemIndex
-                        busy: root.pageLoading || root.actionBusy
-                        Layout.fillWidth: true; Layout.fillHeight: true
-                        onChoose: index => { root.itemIndex = index; keyboard.forceActiveFocus(); }
-                        onOpenPicture: index => root.activate(root.entries[index])
-                        onCopyPicture: index => root.screenshotAction(index, "screenshot-copy")
-                        onOpenFolder: index => root.screenshotAction(index, "screenshot-folder")
-                        onCapture: root.activate({id:"screenshot-capture",kind:"action",enabled:true,close:true})
                     }
                     Text { visible: root.message.length > 0 && !root.calendarLayout; textFormat: Text.PlainText; text: (root.failed ? "! " : "✿ ") + root.message; color: root.failed ? theme.error : theme.muted; font.family: theme.fontFamily; font.pixelSize: 10; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.role: Accessible.StaticText; Accessible.name: root.message }
                     Rectangle { Layout.fillWidth: true; height: 1; color: theme.line }

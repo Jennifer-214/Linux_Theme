@@ -20,7 +20,7 @@ ColumnLayout {
     onSelectedIndexChanged: reveal(selectedIndex)
     RowLayout {
         Layout.fillWidth: true
-        Text { text: "little moments."; textFormat: Text.PlainText; font.family: book.theme.headingFont; font.italic: true; font.pixelSize: 28; color: book.theme.ink; Layout.fillWidth: true }
+        Text { text: entries.length + (entries.length === 1 ? " picture tucked away" : " pictures tucked away"); textFormat: Text.PlainText; color: book.theme.muted; font.family: book.theme.fontFamily; font.pixelSize: 11; Layout.fillWidth: true }
         ToolButton {
             text: "+ new"; font.family: book.theme.fontFamily; font.pixelSize: 11
             palette.buttonText: book.theme.ink
@@ -29,7 +29,6 @@ ColumnLayout {
             Accessible.name: "Take a screenshot"
         }
     }
-    Text { text: entries.length + (entries.length === 1 ? " picture tucked away" : " pictures tucked away"); color: book.theme.muted; font.family: book.theme.fontFamily; font.pixelSize: 10 }
     GridView {
         id: photos
         Layout.fillWidth: true; Layout.fillHeight: true
@@ -38,7 +37,7 @@ ColumnLayout {
         currentIndex: book.selectedIndex
         keyNavigationEnabled: false
         boundsBehavior: Flickable.StopAtBounds
-        ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+        ScrollBar.vertical: PageEdgeScrollBar { theme: book.theme; policy: ScrollBar.AsNeeded; visible: photos.contentHeight > photos.height }
         delegate: Item {
             id: photoPrint
             required property int index
