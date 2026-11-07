@@ -17,8 +17,9 @@ hl.config({ cursor = {
 } })
 
 -- ─── Misc ───────────────────────────────────
+hl.config({ layers = { layers_hog_keyboard_focus = true } })
+
 hl.config({ misc = {
-    layers_hog_keyboard_focus = true,
     animate_manual_resizes = true,
     animate_mouse_windowdragging = true,
     key_press_enables_dpms = false,
