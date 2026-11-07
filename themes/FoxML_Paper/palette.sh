@@ -515,3 +515,13 @@ FASTFETCH_KEY_GPU="GPU"
 FASTFETCH_KEY_MEMORY="memory"
 FASTFETCH_KEY_DISK="disk"
 FASTFETCH_KEY_WIDTH=10
+
+# Claude Code (custom:foxml): a soft pink behind sent messages, sage and coral diffs under dark ink.
+CLAUDE_USER_BG=e8becd
+CLAUDE_USER_BG_HOVER=edccd8
+CLAUDE_DIFF_ADD=cfe3cf
+CLAUDE_DIFF_ADD_DIM=e1ebdf
+CLAUDE_DIFF_ADD_WORD=a9cfa9
+CLAUDE_DIFF_DEL=f3d0c6
+CLAUDE_DIFF_DEL_DIM=f4e0da
+CLAUDE_DIFF_DEL_WORD=e8a898

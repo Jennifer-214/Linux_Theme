@@ -12,17 +12,36 @@ function greeting(date, name) {
     return (hour < 12 ? "good morning" : hour < 17 ? "good afternoon" : "good evening") + who;
 }
 
-// The Today sheet's little tags: the group summaries, plus what only Today knows.
+// The Today sheet's little tags: waiting agents first, then the group summaries and what only Today knows.
+// Each opens what it describes: a page, or the agent's own terminal.
 function todayTags(today, groups) {
     today = today || {};
     var summary = function(id) {
         var group = (groups || []).filter(function(row) { return row.id === id; })[0];
         return group && group.summary ? String(group.summary) : "";
     };
-    var battery = today.battery ? today.battery + (/^(charging|full|not charging)$/.test(today.batteryState || "") ? " · plugged in" : "") : "";
+    var tags = [];
+    var add = function(text, target) { if (text) tags.push(Object.assign({text: text}, target)); };
+    (Array.isArray(today.waiting) ? today.waiting : []).forEach(function(agent) {
+        if (!agent || !agent.argument) return;
+        var count = Number(agent.count || 1), project = agent.project || "an agent";
+        add("◇ " + (count > 1 ? count + " in " + project + (agent.asking ? ", one needs you" : " are waiting")
+                              : project + (agent.asking ? " needs you" : " is waiting")),
+            {action: "agent-jump", argument: String(agent.argument)});
+    });
     var notes = Number(today.notes || 0);
-    return [battery, summary("connections"), summary("sound"), summary("system"),
-            notes ? notes + (notes === 1 ? " agent note" : " agent notes") : ""].filter(Boolean);
+    add(today.battery ? today.battery + (/^(charging|full|not charging)$/.test(today.batteryState || "") ? " · plugged in" : "") : "", {page: "power"});
+    add(summary("connections"), {page: "wifi"});
+    add(summary("sound"), {page: "audio-outputs"});
+    add(summary("system"), {page: "updates"});
+    add(notes ? notes + (notes === 1 ? " agent note" : " agent notes") : "", {page: "agents"});
+    return tags;
+}
+
+// Commits written today, across the project cards; quiet until there is one.
+function sinceLine(count) {
+    count = Number(count || 0);
+    return count ? "✎ " + count + (count === 1 ? " commit" : " commits") + " since this morning" : "";
 }
 
 function heartLine(count) {
@@ -192,6 +211,7 @@ function footerHint(state, item) {
     if (state.picker) return "j / k move · Enter / l chooses · / searches · h / Esc closes";
     if (state.editing) return "h / l adjusts · Enter or Esc finishes";
     if (state.focus === "groups") return "j / k move · Enter / l opens a drawer · / searches · Esc closes";
+    if (state.focus === "tags") return "Enter opens · h / l choose · j goes to favorites · Esc goes back";
     if (!item) return "h goes back · / searches · Esc goes back";
     if (item.enabled === false) return (item.disabledReason || item.detail || "control unavailable") + " · h goes back · / searches";
     if (item.presentation === "project") return "Enter opens editor · t terminal · b bookmark · h goes back";

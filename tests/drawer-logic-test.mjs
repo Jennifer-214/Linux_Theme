@@ -19,9 +19,18 @@ assert.equal(logic.greeting(new Date(2026, 10, 6, 9), 'fox'), 'good morning, fox
 assert.equal(logic.greeting(new Date(2026, 10, 6, 13), 'fox'), 'good afternoon, fox');
 assert.equal(logic.greeting(new Date(2026, 10, 6, 19), ''), 'good evening');
 assert.equal(logic.greeting(new Date(2026, 10, 6, 23), 'fox'), 'still up?');
-assert.deepEqual(plain(logic.todayTags({ battery: '80%', batteryState: 'not charging', notes: 1 },
+assert.deepEqual(plain(logic.todayTags({ battery: '80%', batteryState: 'not charging', notes: 1,
+    waiting: [{ project: 'Trader', argument: 'k1', asking: false, count: 2 }, { project: 'foxtag', argument: 'k2', asking: true }, { project: 'x' }] },
     [{ id: 'connections', summary: 'home' }, { id: 'sound', summary: '' }, { id: 'system', summary: '0 cached updates' }])),
-    ['80% · plugged in', 'home', '0 cached updates', '1 agent note']);
+    [{ text: '◇ 2 in Trader are waiting', action: 'agent-jump', argument: 'k1' }, { text: '◇ foxtag needs you', action: 'agent-jump', argument: 'k2' },
+     { text: '80% · plugged in', page: 'power' }, { text: 'home', page: 'wifi' }, { text: '0 cached updates', page: 'updates' },
+     { text: '1 agent note', page: 'agents' }]);
+assert.equal(plain(logic.todayTags({ waiting: [{ project: 'Trader', argument: 'k', asking: true, count: 3 }] }, []))[0].text,
+    '◇ 3 in Trader, one needs you');
+assert.equal(logic.sinceLine(0), '');
+assert.equal(logic.sinceLine(1), '✎ 1 commit since this morning');
+assert.equal(logic.sinceLine(12), '✎ 12 commits since this morning');
+assert.equal(logic.footerHint({ focus: 'tags' }), 'Enter opens · h / l choose · j goes to favorites · Esc goes back');
 assert.deepEqual(plain(logic.todayTags(undefined, undefined)), []);
 assert.equal(logic.heartLine(1), '♥ 1 day with a heart this month');
 assert.equal(logic.paperIcon({ id: 'dnd', icon: '✉' }), 'paper-icon-bell.svg');

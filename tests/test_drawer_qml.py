@@ -92,7 +92,8 @@ EXERCISE = r'''
                 Qt.exit(1);
                 return;
             }
-            if (!todaySheet.visible || todaySheet.tags.indexOf("80%") < 0 || todaySheet.tags.indexOf("2 agent notes") < 0)
+            var tagTexts = todaySheet.tags.map(function(tag) { return tag.text; });
+            if (!todaySheet.visible || tagTexts.indexOf("80%") < 0 || tagTexts.indexOf("2 agent notes") < 0)
                 throw new Error("Today sheet is missing its overview");
             root.chooseGroup(0);
             if (root.focusArea !== "items" || root.page !== "root") throw new Error("Enter on Today did not step into the favorites");
@@ -100,6 +101,7 @@ EXERCISE = r'''
             root.show("root");
             root.groupIndex = 2;
             root.step(1);
+            previewTimer.stop();  // the sidebar preview has its own stage at 4800
         }
     }
     Timer {
@@ -229,8 +231,37 @@ EXERCISE = r'''
         if (cover.ready || tape.visible) throw new Error("empty artwork did not restore its fallback");
         root.hide();
     }}
+    Timer { interval:4800; running:true; onTriggered: root.show("root") }
+    Timer { interval:5000; running:true; onTriggered: {
+        var texts = todaySheet.tags.map(function(tag) { return tag.text; });
+        if (texts[0] !== "◇ Paper notebook is waiting" || texts.indexOf("80%") !== 1)
+            throw new Error("Today lost its waiting agent or battery tag: " + JSON.stringify(texts));
+        if (testFind(todaySheet, "today-since").text !== "✎ 3 commits since this morning") throw new Error("the commits line is missing");
+        root.focusArea = "items"; root.itemIndex = 0;
+        root.key({key: Qt.Key_K, modifiers: 0, accepted: false});
+        if (root.focusArea !== "tags" || root.tagIndex !== 0 || todaySheet.selectedTag !== 0) throw new Error("k from the first favorite did not reach the tags");
+        root.key({key: Qt.Key_L, modifiers: 0, accepted: false});
+        if (root.tagIndex !== 1) throw new Error("l did not move along the tags");
+        root.key({key: Qt.Key_Return, modifiers: 0, accepted: false});
+        if (root.page !== "power" || root.focusArea !== "items" || JSON.stringify(root.trail) !== JSON.stringify(["root"]))
+            throw new Error("the battery tag did not open Power with a way back");
+        root.goBack();
+        if (root.page !== "root") throw new Error("back from a tag did not return to Today");
+        root.goBack();
+        if (root.focusArea !== "groups") throw new Error("Esc from the favorites did not reach the sidebar");
+        root.step(1);
+        if (root.page !== "root" || root.groupIndex !== 1) throw new Error("the preview loaded before the pause");
+    }}
+    Timer { interval:5300; running:true; onTriggered: {
+        if (root.page !== "desk" || root.focusArea !== "groups") throw new Error("moving through the sidebar did not preview the drawer: " + root.page);
+        var serial = root.navigationSerial;
+        root.key({key: Qt.Key_Return, modifiers: 0, accepted: false});
+        if (root.focusArea !== "items" || root.page !== "desk" || root.navigationSerial !== serial) throw new Error("Enter reloaded a previewed drawer");
+        root.show("root");
+        root.openTag(todaySheet.tags[0]);
+    }}
     Timer {
-        interval: 5000; running: true
+        interval: 5600; running: true
         onTriggered: {
             var base = Quickshell.env("XDG_RUNTIME_DIR");
             root.showPicker(base + "/foxml-picker-abc123/request.json");
@@ -313,12 +344,14 @@ class DrawerQmlTest(unittest.TestCase):
                 self.assertTrue(json.loads(response.read_text()).get("cancel"), "Cancellation must reach each caller on disk")
             self.assertNotIn("TypeError", log)
             self.assertNotIn("ReferenceError", log)
+            self.assertNotIn("Error: ", log, "a stage threw; QML timers only log what they throw")
             self.assertNotIn("Could not update the Waybar drawer marker", log)
             self.assertNotIn("#custom-logo", (directory / "drawer-state.css").read_text())
             self.assertEqual([json.loads(line) for line in actions.read_text().splitlines()],
                              [["run", "volume", "47"], ["run", "project-terminal", "/a literal project"],
                               ["run", "project-bookmark", "/a literal project"], ["run", "drive-eject", "/dev/sda", "--confirm"],
-                              ["run", "download-folder", "/a literal download.txt"], ["run", "media-play-pause"]])
+                              ["run", "download-folder", "/a literal download.txt"], ["run", "media-play-pause"],
+                              ["run", "agent-jump", "sample-agent"]])
 
 
 if __name__ == "__main__":

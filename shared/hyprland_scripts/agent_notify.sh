@@ -5,7 +5,8 @@
 # Usage:
 #   agent_notify.sh <source> <event>
 #     <source>: claude
-#     <event>:  stop | subagent | notification
+#     <event>:  stop | subagent | notification | seen
+#               (seen: you replied in this pane, so its note is cleared — no popup)
 #
 # Theme: hex colors are sourced from ~/.config/hypr/modules/border_colors.sh
 # (rendered by render.sh from the active palette), so a palette swap takes
@@ -91,9 +92,46 @@ project="$(basename "$cwd" 2>/dev/null)"
 
 # tmux target — populated when the hook is invoked from inside a tmux pane,
 # which is the common case (claude runs in a tmux pane). Format S:W.P.
+# $TMUX_PANE names the hook's own pane; a bare display-message would name
+# whichever pane the client has active, which is often a different one.
 tmux_target=""
-if [[ -n "${TMUX:-}" ]] && command -v tmux >/dev/null 2>&1; then
-    tmux_target="$(tmux display-message -p '#S:#I.#P' 2>/dev/null || true)"
+tmux_pane=""
+if [[ -n "${TMUX:-}" && -n "${TMUX_PANE:-}" ]] && command -v tmux >/dev/null 2>&1; then
+    tmux_pane="$TMUX_PANE"
+    tmux_target="$(tmux display-message -p -t "$tmux_pane" '#S:#I.#P' 2>/dev/null || true)"
+fi
+
+# The triage queue (JSONL), shared with the drawer under the same flock.
+queue_file="$FOXML_RUNTIME_DIR/foxml-agent-queue.jsonl"
+# A pane's newest note replaces its older ones, and notes older than twelve hours go.
+# Rewrites the queue without them; unreadable lines are dropped, never fatal.
+# Callers hold the lock.
+prune_queue() {
+    [[ -s "$queue_file" ]] && command -v jq >/dev/null 2>&1 || return 0
+    local cutoff tmp
+    cutoff=$(( $(date +%s) - 12 * 3600 ))
+    tmp="$(umask 077; mktemp "${queue_file}.XXXXXX")" || return 0
+    if jq -cR --arg pane "$tmux_pane" --arg target "$tmux_target" --argjson cutoff "$cutoff" '
+        fromjson? | select(type == "object")
+        | select(((.epoch // $cutoff) >= $cutoff)
+                 and (if $pane != "" and (.pane // "") == $pane then false
+                      elif $target != "" and (.pane // "") == "" and (.tmux // "") == $target then false
+                      else true end))' "$queue_file" > "$tmp" 2>>"$LOG_FILE"; then
+        mv -f "$tmp" "$queue_file"
+    else
+        rm -f "$tmp"
+    fi
+}
+
+# You answered this pane: its note is done. Says nothing on stdout, because a
+# UserPromptSubmit hook's output is handed to the agent as context.
+if [[ "$event" == "seen" ]]; then
+    [[ -n "$tmux_pane" || -n "$tmux_target" ]] || exit 0
+    (
+        flock -w 2 9 || exit 0
+        prune_queue
+    ) 9>"${queue_file}.lock"
+    exit 0
 fi
 
 case "$src" in
@@ -159,12 +197,13 @@ fi
 # Append to the triage queue (JSONL). flock serializes concurrent appends
 # from multiple panes. Uses the same FOXML_RUNTIME_DIR computed above so
 # the queue file isn't world-readable on /tmp-fallback systems.
-queue_file="$FOXML_RUNTIME_DIR/foxml-agent-queue.jsonl"
 ( umask 077; : >> "$queue_file" )
 
 if command -v jq >/dev/null 2>&1; then
     entry="$(jq -cn \
         --arg ts "$(date -Iseconds)" \
+        --argjson epoch "$(date +%s)" \
+        --arg pane "$tmux_pane" \
         --arg src "$src" \
         --arg event "$event" \
         --arg project "$project" \
@@ -172,11 +211,12 @@ if command -v jq >/dev/null 2>&1; then
         --arg target "$tmux_target" \
         --arg msg "$body_text" \
         --arg urgency "$urgency" \
-        '{ts:$ts, source:$src, event:$event, project:$project, cwd:$cwd, tmux:$target, message:$msg, urgency:$urgency}' \
+        '{ts:$ts, epoch:$epoch, source:$src, event:$event, project:$project, cwd:$cwd, tmux:$target, pane:$pane, message:$msg, urgency:$urgency}' \
         2>/dev/null)" || entry=""
     if [[ -n "$entry" ]]; then
         (
             flock -n 9 || flock 9
+            prune_queue
             printf '%s\n' "$entry" >> "$queue_file"
         ) 9>"${queue_file}.lock"
     fi

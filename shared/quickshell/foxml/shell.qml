@@ -32,6 +32,8 @@ ShellRoot {
     property string focusArea: "groups"
     property int groupIndex: 0
     property int itemIndex: 0
+    property int tagIndex: 0
+    readonly property var todayTags: Logic.todayTags(today, groups)
     property int draftValue: 0
     readonly property bool calendarLayout: page === "calendar" && !pickerLayout
     readonly property bool scrapbookLayout: page === "screenshots" && !pickerLayout
@@ -293,6 +295,7 @@ ShellRoot {
     }
 
     function show(pageId) {
+        previewTimer.stop();
         if (!opened) placeAtLauncher();
         finishPicker({cancel: true});
         opened = true;
@@ -345,18 +348,49 @@ ShellRoot {
         searching = false;
         pendingConfirm = null;
         dropView();
+        previewTimer.stop();
         navigationSerial++;
+    }
+
+    // Moving through the sidebar shows each drawer as you pass it; the keyboard stays in the sidebar.
+    function previewGroup(index) {
+        if (!opened || focusArea !== "groups" || pickerActive || searching || editing || pendingConfirm || calendarLayout) return;
+        var group = groups[index];
+        if (!group) return;
+        var target = group.page || group.id;
+        if (target === "root") { if (page !== "root" || trail.length) show("root"); return; }
+        if (page === target && !trail.length) return;
+        remember();
+        groupId = target;
+        trail = [];
+        page = target;
+        navigationSerial++;
+        note("");
+        drawerReady = false;
+        pageLoading = true;
+        entries = [];
+        requestView();
     }
 
     function chooseGroup(index) {
         if (pickerActive) return;
         if (!groups[index]) return;
+        previewTimer.stop();
         remember();
         groupIndex = index;
         if (groups[index].page === "root") {
-            // Today is already showing, so Enter steps down into the favorites beneath it.
-            if (page === "root") { if (entries.length) focusArea = "items"; }
+            // Today is already showing, so Enter steps down into the favorites beneath it, or its tags.
+            if (page === "root") {
+                if (entries.length) focusArea = "items";
+                else if (todayTags.length) { focusArea = "tags"; tagIndex = 0; }
+            }
             else show("root");
+            return;
+        }
+        // The preview already brought this drawer up, so Enter only steps into it.
+        if (page === (groups[index].page || groups[index].id) && !trail.length && !searching) {
+            focusArea = "items";
+            keyboard.forceActiveFocus();
             return;
         }
         groupId = groups[index].page || groups[index].id;
@@ -400,7 +434,7 @@ ShellRoot {
             trail = stack;
             entries = [];
             requestView();
-        } else if (focusArea === "items") {
+        } else if (focusArea === "items" || focusArea === "tags") {
             remember();
             focusArea = "groups";
             note("");
@@ -426,10 +460,25 @@ ShellRoot {
         if (focusArea === "groups") {
             groupIndex = Logic.nextIndex(groups, groupIndex, delta);
             groupList.positionViewAtIndex(groupIndex, ListView.Contain);
+            previewTimer.restart();
+        } else if (focusArea === "tags") {
+            if (delta > 0 && entries.length) { focusArea = "items"; itemIndex = Logic.nextIndex(entries, -1, 1); itemList.positionViewAtIndex(itemIndex, ListView.Contain); }
+        } else if (delta < 0 && page === "root" && !searching && !pickerActive && todayTags.length && itemIndex === Logic.nextIndex(entries, -1, 1)) {
+            // Up from the first favorite reaches the tags above it.
+            focusArea = "tags";
+            tagIndex = Math.min(tagIndex, todayTags.length - 1);
         } else {
             itemIndex = Logic.nextIndex(entries, itemIndex, delta);
             itemList.positionViewAtIndex(itemIndex, ListView.Contain);
         }
+    }
+
+    function openTag(tag) {
+        if (!tag || actionBusy || pendingConfirm) return;
+        if (tag.page) {
+            focusArea = "items";
+            activate({id: tag.page, kind: "page", page: tag.page, label: tag.text});
+        } else if (tag.action) runAction({id: tag.action, action: tag.action, argument: tag.argument, label: tag.text, kind: "action", close: true}, undefined, false);
     }
 
     function screenshotAction(index, action) {
@@ -589,6 +638,24 @@ ShellRoot {
             event.accepted = true;
             return;
         }
+        if (focusArea === "tags" && !editing && !pendingConfirm) {
+            var tagCount = todayTags.length;
+            if (!tagCount || page !== "root") { focusArea = entries.length ? "items" : "groups"; event.accepted = true; return; }
+            tagIndex = Math.max(0, Math.min(tagIndex, tagCount - 1));
+            if (k === Qt.Key_Escape) goBack();
+            else if (k === Qt.Key_Q) hide();
+            else if (k === Qt.Key_H || k === Qt.Key_Left) { if (tagIndex > 0) tagIndex--; else goBack(); }
+            else if (k === Qt.Key_L || k === Qt.Key_Right) tagIndex = Math.min(tagCount - 1, tagIndex + 1);
+            else if (k === Qt.Key_J || k === Qt.Key_Down) step(1);
+            else if (k === Qt.Key_K || k === Qt.Key_Up) {}
+            else if (k === Qt.Key_Return || k === Qt.Key_Enter || k === Qt.Key_Space) openTag(todayTags[tagIndex]);
+            else if (k === Qt.Key_Slash) startSearch();
+            else if (k === Qt.Key_F) show("root");
+            else if (k === Qt.Key_Tab || k === Qt.Key_Backtab) focusArea = "groups";
+            else return;
+            event.accepted = true;
+            return;
+        }
         if (k === Qt.Key_Escape) goBack();
         else if (k === Qt.Key_R && !editing && !pendingConfirm && !actionBusy && focusArea === "items"
                  && entries[itemIndex] && entries[itemIndex].presentation === "download") {
@@ -729,6 +796,8 @@ ShellRoot {
         onTriggered: { if (item) root.runAction(item, value, false); }
     }
     Timer { id: searchDebounce; interval: 160; onTriggered: root.requestView() }
+    // Long enough that holding j to run down the sidebar loads only where you stop.
+    Timer { id: previewTimer; interval: 180; onTriggered: root.previewGroup(root.groupIndex) }
     Timer {
         interval: 4000; repeat: true
         running: root.opened && !root.pickerActive && !root.calendarLayout && !root.scrapbookLayout && !root.searching && !root.editing && !root.pendingConfirm && !root.actionBusy
@@ -1056,6 +1125,8 @@ ShellRoot {
                                 groups: root.groups
                                 favorites: root.entries.length
                                 commandFor: root.backendCommand
+                                selectedTag: root.focusArea === "tags" ? root.tagIndex : -1
+                                onOpenTag: tag => root.openTag(tag)
                                 Layout.fillWidth: true
                             }
 

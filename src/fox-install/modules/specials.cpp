@@ -333,12 +333,20 @@ void do_claude_hooks(const Context& ctx) {
                 {"hooks", {{ {"type","command"},
                              {"command","~/.config/hypr/scripts/agent_notify.sh claude notification"} }}}
             }}},
+            // replying in a pane clears its agent note
+            {"UserPromptSubmit", {{
+                {"matcher", ""},
+                {"hooks", {{ {"type","command"},
+                             {"command","~/.config/hypr/scripts/agent_notify.sh claude seen"} }}}
+            }}},
         }}
     };
+    // the symlinks step deploys the palette's Claude theme before this runs
+    const bool custom_theme = fs::is_regular_file(claude_dir / "themes/foxml.json");
 
     if (!fs::exists(settings)) {
-        json out = hooks;
-        out["theme"] = "dark-ansi";
+        json out = json::object();
+        merge_user_settings(out, hooks, custom_theme);
         write_json_atomic(settings, out);
         ui::substep("Claude settings (hooks + theme) created");
         return;
@@ -353,7 +361,7 @@ void do_claude_hooks(const Context& ctx) {
         return;
     }
     // by command, never merge_patch: a merge-patch REPLACES each hook list, erasing any hook she added herself
-    if (!merge_user_settings(existing, hooks))
+    if (!merge_user_settings(existing, hooks, custom_theme))
         ui::warn("Claude settings.json: \"hooks\" is not an object — its hooks left untouched");
     write_json_atomic(settings, existing);
     ui::substep("Claude settings (hooks + theme) merged");

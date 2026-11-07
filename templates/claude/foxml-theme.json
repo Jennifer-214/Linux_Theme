@@ -1,0 +1,14 @@
+{
+  "name": "FoxML",
+  "base": "dark-ansi",
+  "overrides": {
+    "userMessageBackground": "rgb({{CLAUDE_USER_BG_R}},{{CLAUDE_USER_BG_G}},{{CLAUDE_USER_BG_B}})",
+    "userMessageBackgroundHover": "rgb({{CLAUDE_USER_BG_HOVER_R}},{{CLAUDE_USER_BG_HOVER_G}},{{CLAUDE_USER_BG_HOVER_B}})",
+    "diffAdded": "rgb({{CLAUDE_DIFF_ADD_R}},{{CLAUDE_DIFF_ADD_G}},{{CLAUDE_DIFF_ADD_B}})",
+    "diffAddedDimmed": "rgb({{CLAUDE_DIFF_ADD_DIM_R}},{{CLAUDE_DIFF_ADD_DIM_G}},{{CLAUDE_DIFF_ADD_DIM_B}})",
+    "diffAddedWord": "rgb({{CLAUDE_DIFF_ADD_WORD_R}},{{CLAUDE_DIFF_ADD_WORD_G}},{{CLAUDE_DIFF_ADD_WORD_B}})",
+    "diffRemoved": "rgb({{CLAUDE_DIFF_DEL_R}},{{CLAUDE_DIFF_DEL_G}},{{CLAUDE_DIFF_DEL_B}})",
+    "diffRemovedDimmed": "rgb({{CLAUDE_DIFF_DEL_DIM_R}},{{CLAUDE_DIFF_DEL_DIM_G}},{{CLAUDE_DIFF_DEL_DIM_B}})",
+    "diffRemovedWord": "rgb({{CLAUDE_DIFF_DEL_WORD_R}},{{CLAUDE_DIFF_DEL_WORD_G}},{{CLAUDE_DIFF_DEL_WORD_B}})"
+  }
+}

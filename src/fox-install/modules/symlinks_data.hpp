@@ -100,6 +100,9 @@ inline constexpr Mapping TEMPLATE_MAPPINGS[] = {
     // Codex CLI syntax theme — select once with /theme; swaps replace its colors.
     { "codex/foxml.tmTheme",          "~/.codex/themes/foxml.tmTheme" },
 
+    // Claude Code theme (custom:foxml) — message box and diff colours; specials selects it once it is here.
+    { "claude/foxml-theme.json",      "~/.claude/themes/foxml.json" },
+
     // pi coding agent TUI theme
     { "pi/foxml.json",                "~/.pi/agent/themes/foxml.json" },
 

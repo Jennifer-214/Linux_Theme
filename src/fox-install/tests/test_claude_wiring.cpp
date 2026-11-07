@@ -141,12 +141,20 @@ void test_user_settings() {  // S10b: do_claude_hooks' merge, through the functi
     json bad = json::parse(R"({"hooks":"nope","theme":"light"})");
     check(!merge_user_settings(bad, installer) && bad["hooks"] == "nope" && bad["theme"] == "dark-ansi",
           "a broken hooks entry: left as it is, said, the theme still set");
+    check(hers["env"]["CLAUDE_CODE_TMUX_TRUECOLOR"] == "1", "tmux truecolor switched on");
+    json themed = json::parse(R"({"theme":"dark-ansi","env":{"CLAUDE_CODE_TMUX_TRUECOLOR":"0","OTHER":"x"}})");
+    check(merge_user_settings(themed, installer, true) && themed["theme"] == CLAUDE_THEME,
+          "the palette's own theme once its file is deployed");
+    check(themed["env"]["CLAUDE_CODE_TMUX_TRUECOLOR"] == "0" && themed["env"]["OTHER"] == "x", "her own env values kept");
+    json odd_env = json::parse(R"({"env":"not an object"})");
+    check(merge_user_settings(odd_env, installer, true) && odd_env["env"] == "not an object", "an env that is not an object: left alone");
     // the call site: do_claude_hooks must use merge_user_settings, never a merge-patch of the hooks
     std::ifstream sp("modules/specials.cpp");
     std::ostringstream ss; ss << sp.rdbuf();
     const std::string src = ss.str();
     check(!src.empty(), "modules/specials.cpp readable (the test runs from src/fox-install)");
-    check(src.find("merge_user_settings(existing, hooks)") != std::string::npos, "do_claude_hooks calls merge_user_settings");
+    check(src.find("merge_user_settings(existing, hooks, custom_theme)") != std::string::npos, "do_claude_hooks calls merge_user_settings");
+    check(src.find("agent_notify.sh claude seen") != std::string::npos, "replying in a pane clears its note (UserPromptSubmit)");
     check(src.find(".merge_patch(hooks)") == std::string::npos, "no merge-patch of the hooks left in specials.cpp");
 }
 

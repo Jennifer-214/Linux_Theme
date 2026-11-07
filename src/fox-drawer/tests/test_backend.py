@@ -322,7 +322,7 @@ class BackendTests(unittest.TestCase):
         self.env.pop("TMUX",None)
         queue=Path(self.env["XDG_RUNTIME_DIR"])/"foxml-agent-queue.jsonl"
         old={"source":"fixture","project":"paper","tmux":"paper:1.2","message":"older note"}
-        newer=old|{"message":"newer note"}
+        newer=old|{"message":"newer note","tmux":"paper:1.3"}  # another pane: a pane shows only its newest note
         arrival=old|{"message":"arrived while routing"}
         queue.write_text(json.dumps(old)+"\n"+json.dumps(newer)+"\n")
         rows=self.invoke("view","agents")["items"]
@@ -338,6 +338,28 @@ class BackendTests(unittest.TestCase):
         before=list(self.calls())
         self.failed("run","agent-jump",key)
         self.assertEqual(self.calls(),before)
+
+    def test_agent_notes_keep_each_panes_newest_and_let_old_ones_go(self):
+        queue=Path(self.env["XDG_RUNTIME_DIR"])/"foxml-agent-queue.jsonl"
+        now=int(time.time())
+        stale={"project":"stale","tmux":"a:1.1","pane":"%1","event":"stop","epoch":now-13*3600}
+        working={"project":"trader","tmux":"b:1.1","pane":"%2","event":"subagent","epoch":now-60}
+        waiting=working|{"event":"stop","epoch":now-30,"message":"ready"}
+        asking={"project":"foxtag","tmux":"c:1.1","event":"notification","ts":time.strftime("%Y-%m-%dT%H:%M:%S%z",time.localtime(now-10))[:-2]+":"+time.strftime("%z")[-2:]}
+        old_by_ts=asking|{"tmux":"d:1.1","ts":"2026-01-01T08:00:00-06:00"}
+        twin={"project":"trader","tmux":"e:1.1","event":"stop","epoch":now-90}
+        same_place={"project":"trader","tmux":"e:1.1","pane":"%5","event":"subagent","epoch":now-80}  # e:1.1's newest: working
+        second={"project":"trader","tmux":"f:1.1","event":"stop","epoch":now-70}
+        queue.write_text("\n".join(json.dumps(n) for n in (stale,working,twin,same_place,second,waiting,asking,old_by_ts))+"\n")
+        rows=self.invoke("view","agents")["items"]
+        self.assertEqual([row["label"] for row in rows[:-1]],["Agent · foxtag","Agent · trader","Agent · trader","Agent · trader"],
+                         "newest first; the stale, the replaced and the same pane under its old name gone")
+        today=self.invoke("view","root")["today"]
+        self.assertEqual(today["notes"],4)
+        self.assertEqual([(w["project"],w["asking"],w["count"]) for w in today["waiting"]],[("foxtag",True,1),("trader",False,2)],
+                         "one tag per project; a pane still working is not waiting")
+        self.assertEqual(today["waiting"][1]["argument"],rows[1]["argument"],"the tag goes to the project's newest waiting pane")
+        self.assertEqual(queue.read_text().count("\n"),8,"reading never rewrites the queue")
 
     def test_agent_focuses_the_client_window_instead_of_an_arbitrary_kitty(self):
         self.env.pop("TMUX",None)

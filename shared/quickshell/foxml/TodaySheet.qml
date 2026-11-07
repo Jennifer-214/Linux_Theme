@@ -15,11 +15,15 @@ ColumnLayout {
     property bool active: visible
     property date now: new Date()
     property int hearts: 0
+    property int commitsToday: 0
+    // The tag the keyboard is on, or -1 while the favorites or sidebar have it.
+    property int selectedTag: -1
     readonly property var tags: Logic.todayTags(today, groups)
+    signal openTag(var tag)
     spacing: 7
 
     function loadHearts() {
-        if (!active || !theme.paperDetails || !commandFor || heartProcess.running) return;
+        if (!active || !commandFor || heartProcess.running) return;
         heartProcess.command = commandFor(["commit-days", Qt.formatDate(now, "yyyy-MM")]);
         heartProcess.running = true;
     }
@@ -32,6 +36,7 @@ ColumnLayout {
             try {
                 var data = JSON.parse(heartOut.text);
                 if (code === 0 && Array.isArray(data.days)) sheet.hearts = data.days.length;
+                if (code === 0) sheet.commitsToday = Number(data.today || 0);
             } catch (error) {}
         }
     }
@@ -47,10 +52,20 @@ ColumnLayout {
         spacing: 6
         Repeater {
             model: sheet.tags
-            StateTag { required property var modelData; theme: sheet.theme; text: modelData }
+            StateTag {
+                required property var modelData
+                required property int index
+                objectName: "today-tag-" + index
+                theme: sheet.theme
+                text: modelData.text
+                interactive: Boolean(modelData.page || modelData.action)
+                selected: index === sheet.selectedTag
+                onClicked: sheet.openTag(modelData)
+            }
         }
     }
     Text { visible: Boolean(sheet.today.todo); text: "◇ next: " + (sheet.today.todo || ""); textFormat: Text.PlainText; color: sheet.theme.ink; font.family: sheet.theme.fontFamily; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
     Text { objectName: "today-hearts"; visible: sheet.theme.paperDetails; text: Logic.heartLine(sheet.hearts); textFormat: Text.PlainText; color: sheet.theme.detailAccent; font.family: sheet.theme.fontFamily; font.pixelSize: 11; Layout.fillWidth: true }
+    Text { objectName: "today-since"; visible: text.length > 0; text: Logic.sinceLine(sheet.commitsToday); textFormat: Text.PlainText; color: sheet.theme.muted; font.family: sheet.theme.fontFamily; font.pixelSize: 11; Layout.fillWidth: true }
     Text { visible: sheet.favorites > 0; text: "a few favorites."; textFormat: Text.PlainText; color: sheet.theme.muted; font.family: sheet.theme.headingFont; font.italic: true; font.pixelSize: 14; Layout.topMargin: 3 }
 }

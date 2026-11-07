@@ -27,6 +27,11 @@ hl.config({
         },
     },
 
+    -- A new window opens below (or right of) the one in focus, wherever the pointer is
+    dwindle = {
+        force_split = 2,
+    },
+
     -- ─────────────────────────────────────────
     -- Groups (Tabs)
     -- ─────────────────────────────────────────

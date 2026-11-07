@@ -38,6 +38,8 @@ ONE_SIDED = {
         "native-only toolkit theme; edit templates/hyprland directly rather than reverse-capturing",
     ("TEMPLATE_MAPPINGS", "codex/foxml.tmTheme", "~/.codex/themes/foxml.tmTheme"):
         "native-only Codex theme; edit templates/codex directly rather than reverse-capturing",
+    ("TEMPLATE_MAPPINGS", "claude/foxml-theme.json", "~/.claude/themes/foxml.json"):
+        "native-only Claude Code theme; edit templates/claude directly rather than reverse-capturing",
 }
 
 

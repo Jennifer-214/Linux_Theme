@@ -258,6 +258,7 @@ Adding a new theme = writing one `palette.sh` file. All app configs render from 
 | Git delta | `templates/git/delta.gitconfig` | `~/.config/git/delta-foxml.gitconfig` |
 | OpenCode | `templates/opencode/foxml.json` | `~/.config/opencode/themes/foxml.json` |
 | Codex CLI | `templates/codex/foxml.tmTheme` | `~/.codex/themes/foxml.tmTheme` |
+| Claude Code | `templates/claude/foxml-theme.json` | `~/.claude/themes/foxml.json` |
 | ReGreet (login) | `templates/regreet/regreet.css` | `/etc/greetd/regreet.css` (sudo) |
 
 For Codex CLI, select `foxml` once with `/theme` (or set `theme = "foxml"`
@@ -266,6 +267,13 @@ the surrounding interface inherits the terminal's colors. Restart Codex after
 a theme swap. With a custom `CODEX_HOME`, copy the rendered theme into
 `$CODEX_HOME/themes/foxml.tmTheme`. Edit `templates/codex/foxml.tmTheme` directly;
 the legacy `update.sh` capture list does not include Codex.
+
+Claude Code uses `custom:foxml`, which the installer selects in
+`~/.claude/settings.json` once the theme file is deployed. It is `dark-ansi` with
+the palette's colors for the box behind your sent messages and for diffs (Paper
+uses a light pink box with sage and coral diffs). The installer also sets
+`CLAUDE_CODE_TMUX_TRUECOLOR=1`; without it Claude rounds every color to the
+256-color palette inside tmux. Restart Claude after a theme swap.
 
 ## Shared (non-color) files
 
@@ -307,10 +315,14 @@ window count and cached updates. They refresh every four seconds while the
 panel is open, with no polling while it is closed.
 
 The drawer opens on **Today**, the first item in the sidebar, with the sidebar focused so
-`j`/`k` move straight through the groups. Today shows the date, battery, Wi-Fi, volume,
-updates, agent notes, your next `~/.todo` line and this month's commit hearts, with your
-pinned favorites beneath. Enter on Today steps into the favorites. Use `f` or the heart button to return
-to it, and Tab to switch between favorites and groups. Set `"favorites"` in
+`j`/`k` move straight through the groups; each group's page appears beside the sidebar as
+you pause on it, and Enter or `l` steps into it. Today shows the date, any agent waiting
+for you, battery, Wi-Fi, volume, updates, agent notes, your next `~/.todo` line, this
+month's commit hearts and how many commits you wrote today, with your pinned favorites
+beneath. Each tag opens what it describes (an agent tag goes to that agent's terminal);
+click it, or press `k` from the first favorite and use `h`/`l` and Enter. Enter on Today
+steps into the favorites. Use `f` or the heart button to return to it, and Tab to switch
+between favorites and groups. Set `"favorites"` in
 `menus.json` to an ordered list of existing `group/item` references, for example
 `["desk/apps", "desk/clipboard-text", "comfort/dnd"]`. Up to eight are supported;
 `[]` explicitly hides favorites. Existing custom configurations without this
@@ -353,7 +365,9 @@ A filled heart marks a finished charge: `Full`, or holding at a charge limit.
 The Hyprland menu shortcuts call the drawer directly, including Wi-Fi, Bluetooth,
 audio outputs, clipboard, windows and agent notes. Agent notes jump directly
 to their exact tmux target; a stale or unreachable note stays available for
-review, and clearing all notes asks for confirmation. Paper's bar uses a pencil
+review, and clearing all notes asks for confirmation. Each tmux pane keeps only
+its newest note, replying in that pane clears it (a `UserPromptSubmit` hook),
+and notes older than twelve hours are dropped. Paper's bar uses a pencil
 launcher, notebook workspace tabs and a handwritten clock tab. Click the clock or
 press `Alt+C` to toggle a calendar sheet beneath its banner on the focused monitor.
 Past dates have light pencil X's; today has an uneven, open blush circle; days with a

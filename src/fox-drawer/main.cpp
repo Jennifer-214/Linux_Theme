@@ -699,15 +699,42 @@ struct AgentLock {
     }
     ~AgentLock() { if (fd >= 0) ::close(fd); }
 };
+// Seconds since the epoch for a note: its "epoch", else its ISO-8601 "ts" with a ±hh:mm offset; 0 when neither reads.
+long long note_time(const Json& note) {
+    const auto epoch = note.find("epoch");
+    if (epoch != note.end() && epoch->is_number_integer()) return epoch->get<long long>();
+    const auto ts = text(note, "ts");
+    std::tm when{}; int oh = 0, om = 0; char sign = 0;
+    if (std::sscanf(ts.c_str(), "%4d-%2d-%2dT%2d:%2d:%2d%c%2d:%2d", &when.tm_year, &when.tm_mon, &when.tm_mday,
+                    &when.tm_hour, &when.tm_min, &when.tm_sec, &sign, &oh, &om) != 9 || (sign != '+' && sign != '-')) return 0;
+    when.tm_year -= 1900; when.tm_mon -= 1;
+    const long long offset = (oh * 3600LL + om * 60LL) * (sign == '-' ? -1 : 1);
+    return static_cast<long long>(::timegm(&when)) - offset;
+}
+constexpr long long agent_note_lifetime = 12 * 3600;
+// A pane's newest note stands for it; anything older than twelve hours has gone stale.
 std::vector<std::pair<std::string, Json>> agent_notes() {
     std::vector<std::pair<std::string, Json>> notes;
     if (!regular(agent_queue())) return notes;
     AgentLock lock(LOCK_SH);
     if (lock.fd < 0) return notes;
+    const long long now = static_cast<long long>(std::time(nullptr));
+    // A pane is known by its tmux id and by its session:window.pane place; older notes carry only the place.
+    std::map<std::string, size_t> newest;
     for (const auto& line : lines(read(agent_queue()))) {
         auto note = Json::parse(line, nullptr, false);
-        if (note.is_object()) notes.emplace_back(agent_key(line), std::move(note));
+        if (!note.is_object()) continue;
+        const auto at = note_time(note);
+        if (at > 0 && now - at > agent_note_lifetime) continue;
+        for (const auto& name : {text(note, "pane"), text(note, "tmux")}) {
+            if (name.empty()) continue;
+            const auto seen = newest.find(name);
+            if (seen != newest.end()) notes[seen->second].first.clear();
+            newest[name] = notes.size();
+        }
+        notes.emplace_back(agent_key(line), std::move(note));
     }
+    notes.erase(std::remove_if(notes.begin(), notes.end(), [](const auto& entry) { return entry.first.empty(); }), notes.end());
     return notes;
 }
 bool dismiss_agent(const std::string& key, bool all = false) {
@@ -1215,7 +1242,8 @@ bool valid_month(const std::string& month) {
 }
 // Days in YYYY-MM with a commit by the identity each repository is configured with. Reads dates, nothing else.
 Json commit_days(const Json& config, const std::string& month) {
-    std::set<std::string> days;
+    std::set<std::string> days, today_commits;
+    char today[16] = {}; const std::time_t now = std::time(nullptr); std::strftime(today, sizeof today, "%Y-%m-%d", std::localtime(&now));
     const int year = std::stoi(month.substr(0, 4)), number = std::stoi(month.substr(5, 2));
     const auto next = std::to_string(number == 12 ? year + 1 : year) + (number >= 9 && number != 12 ? "-" : "-0") + std::to_string(number == 12 ? 1 : number + 1) + "-01";
     if (sh::have("git")) for (const auto& project : projects(config)) {
@@ -1223,17 +1251,42 @@ Json commit_days(const Json& config, const std::string& month) {
         if (!directory(project.path / ".git") && !regular(project.path / ".git")) continue;
         if (!capture({"git", "-C", path, "config", "user.email"}, email) || trim(email).empty()) continue;
         if (!capture({"git", "-C", path, "log", "--all", "--fixed-strings", "--author=" + trim(email), "--since=" + month + "-01T00:00:00",
-                      "--until=" + next + "T00:00:00", "--date=format-local:%Y-%m-%d", "--format=%cd"}, log)) continue;
-        for (const auto& day : lines(log)) if (day.rfind(month + "-", 0) == 0) days.insert(trim(day));
+                      "--until=" + next + "T00:00:00", "--date=format-local:%Y-%m-%d", "--format=%cd %ad %H"}, log)) continue;
+        for (const auto& row : lines(log)) {
+            std::istringstream fields(row); std::string day, authored, hash;
+            if (!(fields >> day >> authored >> hash)) continue;
+            if (day.rfind(month + "-", 0) == 0) days.insert(day);
+            // Written today, not just rebased today: a rebase moves the commit date, never the author date.
+            if (authored == today) today_commits.insert(hash);
+        }
     }
     Json list = Json::array();
     for (const auto& day : days) list.push_back(std::stoi(day.substr(8, 2)));
-    return Json{{"ok", true}, {"month", month}, {"days", list}};
+    return Json{{"ok", true}, {"month", month}, {"days", list}, {"today", today_commits.size()}};
 }
 
 // What the Today sheet adds to the group summaries: the battery, agent notes and the next thing on ~/.todo.
 Json today_summary() {
-    Json today{{"notes", agent_notes().size()}, {"todo", ""}};
+    const auto notes = agent_notes();
+    Json today{{"notes", notes.size()}, {"todo", ""}, {"waiting", Json::array()}};
+    // An agent is waiting when its pane's newest note says its turn ended or it asked for something.
+    // One tag per project: the newest pane is where its tag goes, and the count says how many wait there.
+    std::map<std::string, size_t> projects_seen;
+    for (auto at = notes.rbegin(); at != notes.rend(); ++at) {
+        const auto event = text(at->second, "event");
+        if (event != "stop" && event != "notification") continue;
+        const auto project = text(at->second, "project", "An agent");
+        const auto seen = projects_seen.find(project);
+        if (seen != projects_seen.end()) {
+            auto& tag = today["waiting"][seen->second];
+            tag["count"] = tag["count"].get<int>() + 1;
+            if (event == "notification") tag["asking"] = true;
+            continue;
+        }
+        if (today["waiting"].size() >= 4) continue;
+        projects_seen[project] = today["waiting"].size();
+        today["waiting"].push_back(Json{{"project", project}, {"argument", at->first}, {"asking", event == "notification"}, {"count", 1}});
+    }
     for (const auto& line : lines(read(fs::path(home()) / ".todo"))) if (!trim(line).empty()) { today["todo"] = trim(line); break; }
     std::error_code ec;
     for (const auto& entry : fs::directory_iterator("/sys/class/power_supply", ec)) {

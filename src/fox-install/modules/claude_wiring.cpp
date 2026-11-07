@@ -119,10 +119,14 @@ int merge_hook_entries(json& settings, const json& wanted) {
     return added;  // an event's list is only ever created when a command is added to it
 }
 
-bool merge_user_settings(json& existing, const json& hooks) {
+bool merge_user_settings(json& existing, const json& hooks, bool custom_theme) {
     if (!existing.is_object()) return false;
     const bool merged = merge_hook_entries(existing, hooks) >= 0;
-    existing["theme"] = "dark-ansi";   // force-flip to dark-ansi on every run (unchanged)
+    // set on every run, as dark-ansi always was; a custom: theme whose file is missing would fall back to dark
+    existing["theme"] = custom_theme ? CLAUDE_THEME : "dark-ansi";
+    if (!existing.contains("env")) existing["env"] = json::object();
+    if (existing["env"].is_object() && !existing["env"].contains("CLAUDE_CODE_TMUX_TRUECOLOR"))
+        existing["env"]["CLAUDE_CODE_TMUX_TRUECOLOR"] = "1";
     return merged;
 }
 

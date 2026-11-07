@@ -4,9 +4,15 @@ Rectangle {
     id: tag
     required property var theme
     property alias text: label.text
+    // A tag that opens something takes a click and can carry the keyboard selection.
+    property bool interactive: false
+    property bool selected: false
+    signal clicked()
     implicitWidth: label.implicitWidth + 12
     implicitHeight: label.implicitHeight + 6
-    color: theme.highlight
+    color: selected ? theme.focusFill : interactive && hover.containsMouse ? theme.hoverFill : theme.highlight
+    border.width: selected ? 1 : 0
+    border.color: theme.ink
     Text {
         id: label
         anchors.centerIn: parent
@@ -15,4 +21,14 @@ Rectangle {
         font.family: tag.theme.fontFamily
         font.pixelSize: 10
     }
+    MouseArea {
+        id: hover
+        anchors.fill: parent
+        enabled: tag.interactive
+        hoverEnabled: tag.interactive
+        cursorShape: tag.interactive ? Qt.PointingHandCursor : Qt.ArrowCursor
+        onClicked: tag.clicked()
+    }
+    Accessible.role: interactive ? Accessible.Button : Accessible.StaticText
+    Accessible.name: label.text
 }

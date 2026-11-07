@@ -9,7 +9,7 @@ args = sys.argv[1:]
 if args[:1] == ["--config"]:
     args = args[2:]
 if args[0] == "commit-days":
-    print(json.dumps(dict(ok=True, month=args[1], days=[1, 2])))
+    print(json.dumps(dict(ok=True, month=args[1], days=[1, 2], today=3)))
     sys.exit(0)
 if args[0] == "view":
     page = args[1]
@@ -66,7 +66,8 @@ if args[0] == "view":
     if page == "root":
         data["favorites"] = [dict(id="volume", group="sound", label="Volume", kind="slider", value=42)]
         data["items"][2]["summary"] = "42% · speakers"
-        data["today"] = dict(battery="80%", batteryState="discharging", notes=2, todo="water the fern")
+        data["today"] = dict(battery="80%", batteryState="discharging", notes=2, todo="water the fern",
+                             waiting=[dict(project="Paper notebook", argument="sample-agent", asking=False)])
     print(json.dumps(data))
 else:
     with open(os.environ["FOXML_DRAWER_TEST_LOG"], "a") as stream:
