@@ -6,9 +6,11 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 
@@ -36,6 +38,9 @@ if name == 'setsid' and state.get('inspect_fds'):
     Path(os.environ['DRAWER_TEST_FDS']).write_text(json.dumps(inherited))
 key = '\x1f'.join([name, *args])
 response = state.get('exact', {}).get(key, state.get('commands', {}).get(name))
+if response is not None and response.get('hang'):
+    import time
+    time.sleep(30)
 if response is not None:
     sys.stdout.buffer.write(base64.b64decode(response['base64']) if 'base64' in response else response.get('stdout', '').encode())
     sys.stderr.write(response.get('stderr', ''))
@@ -166,7 +171,7 @@ class BackendTests(unittest.TestCase):
         Path(self.env["XDG_RUNTIME_DIR"]).mkdir()
         for name in (
             "wpctl", "brightnessctl", "hyprctl", "pactl", "nmcli", "bluetoothctl", "cliphist", "wl-copy",
-            "gio", "setsid", "kitty", "bash", "systemctl", "loginctl", "pkill", "pgrep", "hyprsunset", "makoctl",
+            "gio", "setsid", "kitty", "sudo", "bash", "systemctl", "loginctl", "pkill", "pgrep", "hyprsunset", "makoctl",
             "dunstctl", "powerprofilesctl", "playerctl", "hyprpicker", "awww", "notify-send", "tmux", "fox-hl", "pass", "fox-password-copy", "quickshell", "fox-desktop-menu",
             "checkupdates", "informant", "fox-wallpaper", "fox-lock", "fox-clean", "fox", "hypridle", "lsblk", "udisksctl", "xdg-open", "xdg-user-dir",
         ):
@@ -788,6 +793,100 @@ class BackendTests(unittest.TestCase):
         descriptors = json.loads(self.fds_path.read_text())
         leaked = {fd: target for fd, target in descriptors.items() if int(fd) > 2 and target.startswith("pipe:[")}
         self.assertEqual(leaked, {}, f"detached application kept the backend JSON pipe open: {leaked}")
+
+    def real(self, *names):
+        for name in names:
+            (self.bin / name).unlink(missing_ok=True)
+            (self.bin / name).symlink_to(shutil.which(name))
+
+    def test_stopped_bluetooth_offers_the_service_and_never_waits_on_bluetoothctl(self):
+        self.state["exact"] = {"systemctl\x1fis-active\x1f--quiet\x1fbluetooth": {"exit": 3}}
+        page = self.invoke("view", "bluetooth")
+        self.assertEqual([row["id"] for row in page["items"]], ["bluetooth-service"])
+        self.assertFalse(page.get("error"))
+        self.assertFalse([call for call in self.calls() if call[0] == "bluetoothctl"])
+        self.assertIn("off", self.invoke("run", "bluetooth-toggle", expect=1)["message"])
+        self.assertEqual(self.invoke("run", "bluetooth-service")["close"], True)
+        self.assertIn(["sudo", "systemctl", "enable", "--now", "bluetooth"], [call[-5:] for call in self.calls()])
+
+    def test_a_hung_command_cannot_hold_a_page(self):
+        self.real("timeout")
+        self.state["commands"] = {"bluetoothctl": {"hang": True}}
+        started = time.monotonic()
+        page = self.invoke("view", "bluetooth", expect=1)
+        self.assertLess(time.monotonic() - started, 7)
+        self.assertEqual(page["error"], "Bluetooth devices are unavailable")
+
+    def test_fox_tools_is_a_page_that_runs_only_listed_commands(self):
+        tools = self.home / ".local/bin"
+        tools.mkdir(parents=True)
+        (tools / "fox-doctor").write_text("#!/bin/bash\n# fox-doctor — check the machine\n")
+        (tools / "fox-menu").write_text("#!/bin/bash\n# fox-menu — hidden\n")
+        (tools / "fox-binary").write_bytes(b"\x7fELF\x00\n")
+        (tools / "unrelated").write_text("#!/bin/bash\n")
+        for tool in tools.iterdir():
+            tool.chmod(0o755)
+        rows = {row["label"]: row["detail"] for row in self.invoke("view", "tools")["items"]}
+        self.assertEqual(rows, {"fox-binary": "Opens in a terminal", "fox-doctor": "Check the machine"})
+        self.assertEqual(self.invoke("run", "tools")["page"], "tools")
+        self.failed("run", "tool-run", "unrelated")
+        self.assertTrue(self.invoke("run", "tool-run", "fox-doctor")["close"])
+        launched = [call for call in self.calls() if call[0] == "setsid"][-1]
+        self.assertEqual(launched[-2:], ["--", str(tools / "fox-doctor")])
+        self.assertIn("--hold", launched)
+
+    def test_shortcut_reference_reads_tables_and_copies_only_known_keys(self):
+        document = self.home / ".local/share/foxml/KEYBINDS.md"
+        document.parent.mkdir(parents=True)
+        document.write_text("## Desk\n### Windows\n| Key | Action |\n|-----|--------|\n| `ALT + /` | **Find** a `shortcut` |\nProse\n")
+        rows = self.invoke("view", "cheatsheet")["items"]
+        self.assertEqual([(row["label"], row["detail"]) for row in rows], [("ALT + /", "Find a shortcut · Desk · Windows")])
+        self.assertEqual(self.invoke("run", "cheatsheet-copy", "ALT + /")["message"], "Copied: ALT + /")
+        self.assertFalse(self.invoke("run", "cheatsheet-copy", "ALT + /")["close"])
+        self.failed("run", "cheatsheet-copy", "not a shortcut")
+
+    def test_sandbox_page_runs_fixed_commands(self):
+        for name in ("fox-sandbox", "firefox", "chromium", "yazi", "less"):
+            fake = self.bin / name
+            fake.write_text(f"#!{sys.executable}\n" + FAKE_COMMAND)
+            fake.chmod(0o755)
+        (self.bin / "chromium").unlink()
+        rows = {row["argument"]: row for row in self.invoke("view", "sandbox")["items"]}
+        self.assertFalse(rows["chromium"]["enabled"])
+        self.assertTrue(rows["firefox"]["enabled"])
+        self.assertTrue(self.invoke("run", "sandbox-launch", "yazi")["close"])
+        self.assertEqual([call for call in self.calls() if call[0] == "setsid"][-1][-4:], ["fox-sandbox", "kitty", "-e", "yazi"])
+        self.failed("run", "sandbox-launch", "chromium")
+        self.failed("run", "sandbox-launch", "rm -rf")
+
+    def test_failures_read_as_failures(self):
+        self.state["commands"] = {"wpctl": {"exit": 1}}
+        self.state["exact"] = {"wpctl\x1fget-volume\x1f@DEFAULT_AUDIO_SINK@": {"stdout": "Volume: 0.42\n"}}
+        self.assertEqual(self.invoke("run", "volume-mute", expect=1)["message"], "Could not toggle mute")
+
+    def test_commit_days_counts_my_commits_in_that_month(self):
+        self.real("git", "timeout")
+        project = self.home / "code/notebook"
+        project.mkdir(parents=True)
+        (project / ".git").mkdir()
+        environment = {**os.environ, "HOME": str(self.home)}
+        run = lambda *argv, **extra: subprocess.run(["git", "-C", str(project), *argv], check=True, capture_output=True, env={**environment, **extra})
+        (project / ".git").rmdir()
+        run("init", "-q")
+        run("config", "user.email", "me@example.test")
+        run("config", "user.name", "Me")
+        for day, email in (("2026-10-31", "me@example.test"), ("2026-11-03", "me@example.test"), ("2026-11-03", "me@example.test"),
+                           ("2026-11-04", "someone@example.test"), ("2026-12-01", "me@example.test")):
+            stamp = day + "T12:00:00"
+            run("commit", "-q", "--allow-empty", "-m", day, f"--author=Me <{email}>", GIT_AUTHOR_DATE=stamp, GIT_COMMITTER_DATE=stamp)
+        self.assertEqual(self.invoke("commit-days", "2026-11")["days"], [3])
+        self.assertEqual(self.invoke("commit-days", "2026-12")["days"], [1])
+        self.assertEqual(self.invoke("commit-days", "2026-13", expect=1)["ok"], False)
+
+    def test_search_rows_show_live_values(self):
+        self.state["commands"] = {"wpctl": {"stdout": "Volume: 0.42\n"}}
+        self.write_config([{"id": "sound", "label": "Sound", "icon": "music", "description": "", "items": [{"id": "volume", "label": "Volume", "kind": "slider"}]}])
+        self.assertEqual(self.invoke("view", "search", "volume")["items"][0]["value"], 42)
 
     def test_invalid_dynamic_arguments_fail_without_mutations(self):
         for action, argument in (

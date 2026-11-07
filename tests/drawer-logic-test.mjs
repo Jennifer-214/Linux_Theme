@@ -8,6 +8,13 @@ vm.runInContext(fs.readFileSync(file, 'utf8').replace(/^\.pragma library\s*/, ''
 const logic = context;
 const plain = value => JSON.parse(JSON.stringify(value));
 
+assert.equal(logic.isNight(new Date(2026, 10, 6, 21, 59)), false);
+assert.equal(logic.isNight(new Date(2026, 10, 6, 22, 0)), true);
+assert.equal(logic.isNight(new Date(2026, 10, 6, 4, 59)), true);
+assert.equal(logic.isNight(new Date(2026, 10, 6, 5, 0)), false);
+for (const id of ['audio-output', 'theme-set', 'wifi-connect', 'bluetooth-connect']) assert.equal(logic.connectionState({ id, checked: true }), true);
+assert.equal(logic.connectionState({ id: 'nightlight', checked: true }), null);
+
 const rows = [{ id: 'a' }, { id: 'b', enabled: false }, { id: 'c' }];
 assert.equal(logic.nextIndex(rows, 0, 1), 2);
 assert.equal(logic.nextIndex(rows, 2, 1), 0);

@@ -35,7 +35,8 @@ ShellRoot {
     property int draftValue: 0
     readonly property bool calendarLayout: page === "calendar" && !pickerLayout
     readonly property bool scrapbookLayout: page === "screenshots" && !pickerLayout
-    readonly property string footerHint: calendarLayout ? "h / l month · t today · Esc close" : scrapbookLayout ? "arrows choose · c copy · Enter open · Esc close" : Logic.footerHint({confirming: pendingConfirm !== null, busy: actionBusy,
+    property bool viewFailed: false
+    readonly property string footerHint: calendarLayout ? "h / l changes month · t returns to today · Esc closes" : scrapbookLayout ? "arrows choose · c copies · Enter opens · Esc goes back" : Logic.footerHint({confirming: pendingConfirm !== null, busy: actionBusy,
         prompt: pickerActive && pickerPrompt, searching: searching, picker: pickerActive,
         editing: editing, focus: focusArea}, entries[itemIndex])
     property var pendingConfirm: null
@@ -205,6 +206,13 @@ ShellRoot {
         }
     }
 
+    // A page reply still in flight must not land on whatever is showing now.
+    function dropView() {
+        nextView = null;
+        viewSerial++;
+        if (viewProcess.running) viewProcess.running = false;
+    }
+
     function requestView() {
         if (!opened || pendingConfirm || calendarLayout) return;
         if (pickerActive) {
@@ -214,11 +222,14 @@ ShellRoot {
             return;
         }
         if (page === "root" && !searching) {
+            dropView();
             if (!groupProcess.running) groupProcess.running = true;
             return;
         }
         nextView = { serial: ++viewSerial, page: searching ? searchPage : page,
                      query: searching ? searchInput.text : "", filter: searching };
+        // One page loads at a time; leaving a page gives up its load so a slow one can't hold the next.
+        if (viewProcess.running && viewProcess.requestedPage !== nextView.page) viewProcess.running = false;
         startView();
     }
 
@@ -232,12 +243,22 @@ ShellRoot {
         viewProcess.running = true;
     }
 
+    function viewTimedOut(serial) {
+        if (serial !== viewSerial || !opened) return;
+        pageLoading = false;
+        drawerReady = true;
+        viewFailed = true;
+        note("That page took too long to open. Try it again in a moment.", true);
+    }
+
     function applyView(serial, requestedPage, output, exitCode, diagnostic) {
         if (serial !== viewSerial || !opened) return;
         pageLoading = false;
         try {
             var data = JSON.parse(output);
             var partial = exitCode !== 0 || Boolean(data.error);
+            var recovered = viewFailed && !partial;
+            viewFailed = partial;
             if (partial && !Array.isArray(data.items)) {
                 note(data.error || "This drawer could not be read.", true);
                 return;
@@ -263,8 +284,9 @@ ShellRoot {
                 });
             }
             if (partial) note(data.error || "Some controls are unavailable.", true);
-            else if (failed) note("a little order, restored.");
+            else if (recovered) note("a little order, restored.");
         } catch (error) {
+            viewFailed = true;
             note(exitCode !== 0 ? "The drawer service is unavailable. " + diagnostic.trim().slice(0, 180)
                                : "The drawer service returned an unreadable reply.", true);
         }
@@ -296,15 +318,20 @@ ShellRoot {
             pageLoading = false;
             drawerReady = true;
             calendarSheet.reset();
+            if (viewProcess.running) viewProcess.running = false;
             Qt.callLater(function() { keyboard.forceActiveFocus(); });
             return;
         }
         if (!groupProcess.running) groupProcess.running = true;
         if (page === "root") {
+            dropView();
             entries = [];
             pageTitle = "a little room to think.";
             groupId = "";
-        } else requestView();
+        } else {
+            entries = [];
+            requestView();
+        }
         Qt.callLater(function() { keyboard.forceActiveFocus(); });
     }
 
@@ -318,8 +345,7 @@ ShellRoot {
         editing = false;
         searching = false;
         pendingConfirm = null;
-        nextView = null;
-        viewSerial++;
+        dropView();
         navigationSerial++;
     }
 
@@ -333,6 +359,7 @@ ShellRoot {
         trail = [];
         page = groupId;
         navigationSerial++;
+        note("");
         drawerReady = false;
         pageLoading = true;
         entries = [];
@@ -345,7 +372,7 @@ ShellRoot {
     }
 
     function goBack() {
-        if (calendarLayout || scrapbookLayout) { hide(); return; }
+        if (calendarLayout || (scrapbookLayout && !trail.length)) { hide(); return; }
         if (pickerActive && (pickerPrompt || !searching)) { hide(); return; }
         if (pendingConfirm) { pendingConfirm = null; return; }
         if (editing) { finishEdit(); return; }
@@ -363,6 +390,7 @@ ShellRoot {
             var stack = trail.slice();
             page = stack.pop();
             navigationSerial++;
+            note("");
             drawerReady = false;
             pageLoading = true;
             trail = stack;
@@ -443,6 +471,7 @@ ShellRoot {
             } else trail = trail.concat([page]);
             page = item.page || item.id;
             navigationSerial++;
+            note("");
             drawerReady = false;
             pageLoading = true;
             entries = [];
@@ -648,21 +677,31 @@ ShellRoot {
         id: viewProcess
         property int serial: 0
         property string requestedPage: ""
+        property bool timedOut: false
         stdout: StdioCollector { id: viewOut }
         stderr: StdioCollector { id: viewErr }
         onExited: (code, status) => {
-            root.applyView(serial, requestedPage, viewOut.text, code, viewErr.text);
+            if (timedOut) root.viewTimedOut(serial); else root.applyView(serial, requestedPage, viewOut.text, code, viewErr.text);
+            timedOut = false;
             Qt.callLater(root.startView);
         }
     }
+    Timer { id: viewWatchdog; interval: 10000; running: viewProcess.running; onTriggered: { viewProcess.timedOut = true; viewProcess.running = false; } }
     Process {
         id: actionProcess
         property var item: null
         property int location: 0
         stdout: StdioCollector { id: actionOut }
         stderr: StdioCollector { id: actionErr }
+        property bool timedOut: false
         onExited: (code, status) => {
             root.actionBusy = false;
+            if (timedOut) {
+                timedOut = false;
+                root.note("That took too long, so I stopped waiting for it.", true);
+                Qt.callLater(root.startAction);
+                return;
+            }
             try {
                 var result = JSON.parse(actionOut.text);
                 root.note(result.message || (result.ok ? "all set." : "That action did not complete."), !result.ok || code !== 0);
@@ -675,6 +714,7 @@ ShellRoot {
             Qt.callLater(root.startAction);
         }
     }
+    Timer { interval: 120000; running: actionProcess.running; onTriggered: { actionProcess.timedOut = true; actionProcess.running = false; } }
     Timer {
         id: sliderWrite
         property var item: null
@@ -688,7 +728,8 @@ ShellRoot {
         running: root.opened && !root.pickerActive && !root.calendarLayout && !root.scrapbookLayout && !root.searching && !root.editing && !root.pendingConfirm && !root.actionBusy
         onTriggered: {
             if (!groupProcess.running) groupProcess.running = true;
-            if (root.page !== "root") root.requestView();
+            // A refresh would replace the request a slow page is still answering, and it would never finish.
+            if (root.page !== "root" && !viewProcess.running) root.requestView();
         }
     }
 
@@ -809,7 +850,7 @@ ShellRoot {
                     RowLayout {
                         Layout.fillWidth: true
                         visible: !root.calendarLayout && !root.scrapbookLayout
-                        Text { textFormat: Text.PlainText; text: "make yourself at home."; color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: panel.implicitWidth < 580 ? 21 : 27; Layout.fillWidth: true; elide: Text.ElideRight }
+                        Text { textFormat: Text.PlainText; text: theme.paperDetails && root.page === "power" && Logic.isNight(new Date()) ? "goodnight, see you tomorrow." : "make yourself at home."; color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: panel.implicitWidth < 580 ? 21 : 27; Layout.fillWidth: true; elide: Text.ElideRight }
                         Canvas {
                             width: 46; height: 40
                             onPaint: {
@@ -1278,6 +1319,7 @@ ShellRoot {
                         visible: root.calendarLayout
                         active: root.opened && root.calendarLayout
                         theme: root.paperTheme
+                        commandFor: root.backendCommand
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                     }

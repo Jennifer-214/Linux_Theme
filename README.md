@@ -353,8 +353,9 @@ to their exact tmux target; a stale or unreachable note stays available for
 review, and clearing all notes asks for confirmation. Paper's bar uses a pencil
 launcher, notebook workspace tabs and a handwritten clock tab. Click the clock or
 press `Alt+C` to toggle a calendar sheet beneath its banner on the focused monitor.
-Past dates have light pencil X's; today has an uneven, open blush circle. A tiny cat
-keeps the handwritten month company. Use `h/l`, Left/Right or Page Up/Down to change
+Past dates have light pencil X's; today has an uneven, open blush circle; days with a
+commit in your project folders get a tiny heart. A tiny cat keeps the handwritten month
+company. Use `h/l`, Left/Right or Page Up/Down to change
 months, `t` to return to today, and Escape to close. The date refreshes while open,
 including across midnight.
 
@@ -398,9 +399,9 @@ installer preserves this file and refreshes `menus.default.json` separately.
 The supported item kinds are `page`, `action`, `toggle`, and `slider`; action IDs
 refer to the backend's built-in operations. Palette colors come from
 `templates/quickshell/foxml/Theme.qml`. The old `FOXML_MENU_LEGACY` desktop-menu
-override is retired. The command launcher, shortcut reference, sandbox picker,
-existing local AI prompt and wallpaper rotation menu now share the
-Quickshell picker too. `fox-picker --title TITLE` reads one label per input line;
+override is retired. Fox tools, Shortcut reference and Disposable sandbox are
+ordinary drawer pages, and their shortcuts open those pages. The local AI prompt
+and wallpaper rotation menu use the Quickshell picker. `fox-picker --title TITLE` reads one label per input line;
 `--index` returns its original zero-based index, and `--prompt` accepts free text.
 Escape cancels without an action. These use the existing drawer service, with
 private temporary request files and no additional daemon.

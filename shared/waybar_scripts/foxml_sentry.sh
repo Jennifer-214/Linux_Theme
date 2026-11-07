@@ -11,7 +11,7 @@
 #   warning  — class="warning"   baseline drifted OR recent ledger entry
 #   critical — class="critical"  hardening missing OR active intrusion
 #
-# Pairs with: fox sec / fox sec --live / fox arm --status — they are
+# Pairs with: fox sec / fox sec dashboard --live / fox arm --status — they are
 # the deeper-detail views. The widget is the glance.
 
 set -u
@@ -190,7 +190,7 @@ _tooltip() {
         out+="\\n? Unknown (${#unknowns[@]}):\\n"
         for m in "${unknowns[@]}"; do out+="  · $m\\n"; done
     fi
-    out+="\\nClick: fox sec --live  •  Detail: fox arm --status"
+    out+="\\nClick: fox sec dashboard --live  •  Detail: fox arm --status"
     # JSON-safe.
     printf '%s' "${out//\"/\\\"}"
 }

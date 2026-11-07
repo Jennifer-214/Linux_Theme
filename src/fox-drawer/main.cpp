@@ -97,7 +97,7 @@ fs::path repository() {
     return candidate;
 }
 const std::set<std::string> pages = {
-    "apps", "windows", "audio-outputs", "wifi", "bluetooth", "clipboard-text", "clipboard-images",
+    "apps", "windows", "audio-outputs", "wifi", "bluetooth", "tools", "cheatsheet", "sandbox", "clipboard-text", "clipboard-images",
     "wallpapers", "themes", "power", "updates", "agents", "projects", "bookmarks", "library", "downloads", "screenshots", "passwords"
 };
 const std::set<std::string> actions = {
@@ -105,8 +105,16 @@ const std::set<std::string> actions = {
     "nightlight", "dnd", "idle", "power-profile", "lock", "suspend", "reboot", "poweroff", "logout",
     "wallpaper-next", "wallpaper-sync", "color-picker", "updates-terminal", "updates-silent", "vault",
     "security", "cleanup", "agent-triage", "agent-jump", "agent-clear", "app-launch", "window-focus", "audio-output", "wifi-connect",
-    "wifi-toggle", "bluetooth-connect", "bluetooth-toggle", "bluetooth-scan", "clipboard-restore", "wallpaper-set", "theme-set", "project-open", "project-terminal", "project-bookmark", "drive-open", "drive-eject", "download-open", "download-folder", "screenshot-open", "screenshot-copy", "screenshot-folder", "screenshot-capture", "password-copy", "tools", "cheatsheet", "sandbox"
+    "wifi-toggle", "bluetooth-connect", "bluetooth-toggle", "bluetooth-scan", "bluetooth-service", "tool-run", "cheatsheet-copy", "sandbox-launch", "clipboard-restore", "wallpaper-set", "theme-set", "project-open", "project-terminal", "project-bookmark", "drive-open", "drive-eject", "download-open", "download-folder", "screenshot-open", "screenshot-copy", "screenshot-folder", "screenshot-capture", "password-copy", "tools", "cheatsheet", "sandbox"
 };
+// The drawer loads one page at a time, so a page read that waits on a dead service holds every other page behind it.
+int read_limit_seconds = 0;
+bool capture(const Args& args, std::string& out) {
+    if (read_limit_seconds <= 0 || !sh::have("timeout")) return sh::capture(args, out);
+    Args limited{"timeout", "-k", "1", std::to_string(read_limit_seconds)};
+    limited.insert(limited.end(), args.begin(), args.end());
+    return sh::capture(limited, out);
+}
 Json item(const std::string& id, const std::string& label, const std::string& kind = "action",
           const std::string& detail = {}, const std::string& icon = {}) {
     return Json{{"id", id}, {"label", label}, {"kind", kind}, {"detail", detail}, {"icon", icon}, {"enabled", true}};
@@ -114,10 +122,10 @@ Json item(const std::string& id, const std::string& label, const std::string& ki
 Json result(bool ok, const std::string& message, bool close = false) {
     return Json{{"ok", ok}, {"message", message}, {"close", close}};
 }
-Json command(const Args& args, const std::string& message, bool close = false) {
+Json command(const Args& args, const std::string& message, bool close = false, const std::string& failure = {}) {
     std::string output;
     if (!sh::have(args.front())) return result(false, args.front() + " is not installed");
-    if (!sh::capture(args, output)) return result(false, "Could not " + lower(message));
+    if (!capture(args, output)) return result(false, failure.empty() ? "Could not " + lower(message) : failure);
     return result(true, message, close);
 }
 Json launch(const Args& args, const std::string& message) {
@@ -153,7 +161,7 @@ Json background(const Args& args, const std::string& message) {
 }
 bool capture_json(const Args& args, Json& data) {
     std::string out;
-    if (!sh::capture(args, out)) return false;
+    if (!capture(args, out)) return false;
     data = Json::parse(out, nullptr, false);
     return !data.is_discarded();
 }
@@ -247,7 +255,7 @@ struct State { bool ok = false; double value = 0; bool checked = false; std::str
 State audio_state(bool microphone = false) {
     std::string out;
     State state;
-    if (!sh::capture({"wpctl", "get-volume", microphone ? "@DEFAULT_AUDIO_SOURCE@" : "@DEFAULT_AUDIO_SINK@"}, out)) return state;
+    if (!capture({"wpctl", "get-volume", microphone ? "@DEFAULT_AUDIO_SOURCE@" : "@DEFAULT_AUDIO_SINK@"}, out)) return state;
     std::smatch match;
     if (!std::regex_search(out, match, std::regex("Volume: ([0-9]+(?:\\.[0-9]+)?)"))) return state;
     char* end = nullptr;
@@ -259,7 +267,7 @@ State audio_state(bool microphone = false) {
 }
 State brightness_state() {
     std::string out; State state;
-    if (!sh::capture({"brightnessctl", "-m"}, out)) return state;
+    if (!capture({"brightnessctl", "-m"}, out)) return state;
     std::smatch match;
     if (!std::regex_search(out, match, std::regex(",([0-9]{1,3})%,"))) return state;
     int value = 0; const auto digits = match[1].str();
@@ -269,9 +277,9 @@ State brightness_state() {
 }
 State dnd_state() {
     State state; std::string out;
-    if (sh::have("makoctl") && sh::capture({"makoctl", "mode"}, out)) {
+    if (sh::have("makoctl") && capture({"makoctl", "mode"}, out)) {
         state.ok = true; state.checked = out.find("do-not-disturb") != std::string::npos; state.label = "mako";
-    } else if (sh::have("dunstctl") && sh::capture({"dunstctl", "is-paused"}, out) && (trim(out) == "true" || trim(out) == "false")) {
+    } else if (sh::have("dunstctl") && capture({"dunstctl", "is-paused"}, out) && (trim(out) == "true" || trim(out) == "false")) {
         state.ok = true; state.checked = trim(out) == "true"; state.label = "dunst";
     }
     return state;
@@ -285,7 +293,7 @@ State process_state(const std::string& process) {
 }
 bool nightlight_identity(bool& identity) {
     std::string output;
-    if (!sh::capture({"hyprctl", "hyprsunset", "identity", "get"}, output)) return false;
+    if (!capture({"hyprctl", "hyprsunset", "identity", "get"}, output)) return false;
     output = trim(output);
     if (output != "true" && output != "false") return false;
     identity = output == "true";
@@ -326,7 +334,7 @@ Json toggle_nightlight() {
     if (identity) { args.push_back("temperature"); args.push_back("3500"); }
     else args.push_back("identity");
     std::string output;
-    if (!sh::capture(args, output) || trim(output) != "ok") return result(false, "Night light change was rejected");
+    if (!capture(args, output) || trim(output) != "ok") return result(false, "Night light change was rejected");
     bool after = identity;
     if (!nightlight_identity(after) || after == identity) return result(false, "Night light state did not change");
     return result(true, after ? "Night light disabled" : "Night light enabled (3500K)");
@@ -348,7 +356,7 @@ void decorate_media(Json& row) {
     // Query the same default player as the existing playback actions. No
     // follower daemon: this shares the drawer's normal visible-page refresh.
     std::string output;
-    if (!sh::capture({"playerctl", "--no-messages", "metadata", "--format",
+    if (!capture({"playerctl", "--no-messages", "metadata", "--format",
                       "{{title}}\x1f{{artist}}\x1f{{status}}\x1f{{mpris:artUrl}}"}, output)
         || output.size() > 16384) return;
     std::array<std::string, 4> fields;
@@ -396,7 +404,7 @@ bool decorate(Json& row) {
     }
     else if (id == "power-profile") {
         std::string out; queried = true;
-        state.ok = sh::capture({"powerprofilesctl", "get"}, out);
+        state.ok = capture({"powerprofilesctl", "get"}, out);
         state.label = trim(out);
         state.ok = state.ok && (state.label == "balanced" || state.label == "performance" || state.label == "power-saver");
     }
@@ -471,19 +479,25 @@ std::vector<std::string> nm_fields(const std::string& line) {
 }
 bool wifi_rows(Json& rows) {
     std::string out;
-    if (!sh::capture({"nmcli", "-t", "--escape", "yes", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list", "--rescan", "no"}, out)) return false;
+    if (!capture({"nmcli", "-t", "--escape", "yes", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "device", "wifi", "list", "--rescan", "no"}, out)) return false;
     rows = Json::array(); std::set<std::string> seen;
     for (const auto& line : lines(out)) {
         const auto f = nm_fields(line);
         if (f.size() != 4 || f[1].empty() || !safe_text(f[1], 32) || !seen.insert(f[1]).second) continue;
-        auto row = item("wifi-connect", f[1], "action", f[2] + "% · " + (f[3].empty() ? "Open" : f[3]), "wifi");
+        auto row = item("wifi-connect", f[1], "action", (f[0] == "*" ? "Connected · " : "") + f[2] + "% · " + (f[3].empty() ? "Open" : f[3]), "wifi");
         row["argument"] = f[1]; row["checked"] = f[0] == "*"; rows.push_back(row);
     }
     return true;
 }
+// bluetoothctl waits forever for a daemon that isn't running, so ask systemd first.
+bool bluetooth_service_running() {
+    if (!sh::have("systemctl")) return true;
+    std::string ignored;
+    return capture({"systemctl", "is-active", "--quiet", "bluetooth"}, ignored);
+}
 bool bluetooth_rows(Json& rows) {
     std::string out;
-    if (!sh::capture({"bluetoothctl", "devices"}, out)) return false;
+    if (!capture({"bluetoothctl", "devices"}, out)) return false;
     rows = Json::array();
     const std::regex format("^Device ([[:xdigit:]]{2}(?::[[:xdigit:]]{2}){5}) (.+)$");
     for (const auto& line : lines(out)) {
@@ -511,7 +525,7 @@ std::string base64(const std::string& data) {
 }
 std::string image_preview(const std::string& id) {
     std::string bytes;
-    if (!sh::capture({"cliphist", "decode", id}, bytes) || bytes.empty() || bytes.size() > 16 * 1024 * 1024) return {};
+    if (!capture({"cliphist", "decode", id}, bytes) || bytes.empty() || bytes.size() > 16 * 1024 * 1024) return {};
     std::string mime;
     if (bytes.size() >= 8 && bytes.compare(0, 8, "\211PNG\r\n\032\n", 8) == 0) mime = "image/png";
     else if (bytes.size() >= 3 && bytes.compare(0, 3, "\377\330\377", 3) == 0) mime = "image/jpeg";
@@ -529,7 +543,7 @@ std::string image_preview(const std::string& id) {
                 if (n > 0) offset += static_cast<size_t>(n); else if (n < 0 && errno == EINTR) continue; else break;
             }
             ::close(fd); std::string thumbnail;
-            const bool ok = offset == bytes.size() && sh::capture({"magick", std::string(path.data()) + "[0]", "-thumbnail", "144x88>", "-strip", "png:-"}, thumbnail);
+            const bool ok = offset == bytes.size() && capture({"magick", std::string(path.data()) + "[0]", "-thumbnail", "144x88>", "-strip", "png:-"}, thumbnail);
             ::unlink(path.data());
             if (ok && !thumbnail.empty() && thumbnail.size() <= 256 * 1024) { bytes = std::move(thumbnail); mime = "image/png"; }
         }
@@ -539,7 +553,7 @@ std::string image_preview(const std::string& id) {
 }
 bool clipboard_rows(Json& rows, bool images) {
     std::string out;
-    if (!sh::capture({"cliphist", "list"}, out)) return false;
+    if (!capture({"cliphist", "list"}, out)) return false;
     rows = Json::array();
     for (const auto& line : lines(out)) {
         const auto tab = line.find('\t'); if (tab == std::string::npos || !numeric_id(line.substr(0, tab))) continue;
@@ -589,18 +603,10 @@ bool percent(const std::string& value, int& parsed) {
 }
 
 // Shared sh:: has no stdin/pipe primitive. Keep clipboard data in the pipe, never a shell string or text JSON.
-Json restore_clipboard(const std::string& id) {
-    if (!numeric_id(id)) return result(false, "Invalid clipboard ID");
-    Json rows;
-    if ((!clipboard_rows(rows, false) || !member_argument(rows, id)) && (!clipboard_rows(rows, true) || !member_argument(rows, id)))
-        return result(false, "Clipboard entry is unavailable");
-    if (!sh::have("wl-copy")) return result(false, "wl-copy is not installed");
-    // Decode succeeds before touching the live clipboard; an invalid decode must not replace it with an empty value.
-    std::string data;
-    if (!sh::capture({"cliphist", "decode", id}, data)) return result(false, "Could not decode clipboard entry");
-    int pipefd[2]; if (::pipe(pipefd) < 0) return result(false, "Could not open clipboard pipe");
+bool write_clipboard(const std::string& data) {
+    int pipefd[2]; if (::pipe(pipefd) < 0) return false;
     const pid_t child = ::fork();
-    if (child < 0) { ::close(pipefd[0]); ::close(pipefd[1]); return result(false, "Could not start clipboard writer"); }
+    if (child < 0) { ::close(pipefd[0]); ::close(pipefd[1]); return false; }
     if (child == 0) {
         ::close(pipefd[1]); ::dup2(pipefd[0], STDIN_FILENO); ::close(pipefd[0]);
         const int nullfd = ::open("/dev/null", O_WRONLY);
@@ -616,8 +622,19 @@ Json restore_clipboard(const std::string& id) {
     }
     ::close(pipefd[1]); int status = 0;
     std::signal(SIGPIPE, old_signal);
-    while (::waitpid(child, &status, 0) < 0) if (errno != EINTR) return result(false, "Could not await clipboard writer");
-    const bool ok = offset == data.size() && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+    while (::waitpid(child, &status, 0) < 0) if (errno != EINTR) return false;
+    return offset == data.size() && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+Json restore_clipboard(const std::string& id) {
+    if (!numeric_id(id)) return result(false, "Invalid clipboard ID");
+    Json rows;
+    if ((!clipboard_rows(rows, false) || !member_argument(rows, id)) && (!clipboard_rows(rows, true) || !member_argument(rows, id)))
+        return result(false, "Clipboard entry is unavailable");
+    if (!sh::have("wl-copy")) return result(false, "wl-copy is not installed");
+    // Decode succeeds before touching the live clipboard; an invalid decode must not replace it with an empty value.
+    std::string data;
+    if (!capture({"cliphist", "decode", id}, data)) return result(false, "Could not decode clipboard entry");
+    const bool ok = write_clipboard(data);
     return result(ok, ok ? "Clipboard restored" : "Could not restore clipboard", ok);
 }
 
@@ -740,18 +757,18 @@ Json jump_agent(const std::string& key) {
     const auto session = target.substr(0, colon);
     const auto window = target.substr(0, target.rfind('.'));
     std::string output;
-    if (!sh::capture({"tmux", "has-session", "-t", "=" + session}, output)
-        || !sh::capture({"tmux", "select-window", "-t", window}, output)
-        || !sh::capture({"tmux", "select-pane", "-t", target}, output)) return result(false, "The agent terminal is no longer available");
+    if (!capture({"tmux", "has-session", "-t", "=" + session}, output)
+        || !capture({"tmux", "select-window", "-t", window}, output)
+        || !capture({"tmux", "select-pane", "-t", target}, output)) return result(false, "The agent terminal is no longer available");
     std::string client;
     int client_pid = 0;
     if (!env("TMUX").empty()) {
-        if (!sh::capture({"tmux", "switch-client", "-t", target}, output)) return result(false, "Could not switch to the agent terminal");
-        if (sh::capture({"tmux", "display-message", "-p", "#{client_pid}"}, output)) {
+        if (!capture({"tmux", "switch-client", "-t", target}, output)) return result(false, "Could not switch to the agent terminal");
+        if (capture({"tmux", "display-message", "-p", "#{client_pid}"}, output)) {
             const auto value = trim(output); std::from_chars(value.data(), value.data() + value.size(), client_pid);
         }
     } else {
-        if (!sh::capture({"tmux", "list-clients", "-F", "#{client_activity}\t#{client_name}\t#{client_pid}"}, output)) return result(false, "Could not read tmux clients");
+        if (!capture({"tmux", "list-clients", "-F", "#{client_activity}\t#{client_name}\t#{client_pid}"}, output)) return result(false, "Could not read tmux clients");
         unsigned long long newest = 0;
         for (const auto& line : lines(output)) {
             const auto first = line.find('\t'), last = line.rfind('\t');
@@ -763,7 +780,7 @@ Json jump_agent(const std::string& key) {
             if (client.empty() || activity >= newest) { newest = activity; client = line.substr(first + 1, last - first - 1); client_pid = process; }
         }
         if (!client.empty()) {
-            if (!sh::capture({"tmux", "switch-client", "-c", client, "-t", target}, output)) return result(false, "Could not switch to the agent terminal");
+            if (!capture({"tmux", "switch-client", "-c", client, "-t", target}, output)) return result(false, "Could not switch to the agent terminal");
         } else {
             const auto opened = terminal({"tmux", "attach-session", "-t", "=" + session}, "Agent terminal opened");
             if (!truth(opened, "ok")) return opened;
@@ -822,8 +839,8 @@ int pick(const Args& args) {
     request.watch = ::inotify_init1(IN_CLOEXEC | IN_NONBLOCK);
     if (request.watch < 0 || ::inotify_add_watch(request.watch, request.path.c_str(), IN_MOVED_TO | IN_CLOSE_WRITE) < 0) return 2;
     std::string output;
-    if (!sh::capture({"fox-desktop-menu", "--start"}, output) ||
-        !sh::capture({"quickshell", "-c", "foxml", "ipc", "call", "drawer", "pick",
+    if (!capture({"fox-desktop-menu", "--start"}, output) ||
+        !capture({"quickshell", "-c", "foxml", "ipc", "call", "drawer", "pick",
                       (request.path / "request.json").string()}, output)) {
         std::cerr << "Could not open the Quickshell picker\n"; return 2;
     }
@@ -850,7 +867,7 @@ int pick(const Args& args) {
         char events[4096];
         while (::read(request.watch, events, sizeof(events)) > 0) {}
     }
-    sh::capture({"quickshell", "-c", "foxml", "ipc", "call", "drawer", "cancelPicker",
+    capture({"quickshell", "-c", "foxml", "ipc", "call", "drawer", "cancelPicker",
                  (request.path / "request.json").string()}, output);
     return 1;
 }
@@ -997,7 +1014,7 @@ fs::path download_directory(const Json& config) {
     std::string path = text(config, "downloads_directory");
     if (path.empty() && sh::have("xdg-user-dir")) {
         std::string output;
-        if (sh::capture({"xdg-user-dir", "DOWNLOAD"}, output) && fs::path(trim(output)).is_absolute()) path = trim(output);
+        if (capture({"xdg-user-dir", "DOWNLOAD"}, output) && fs::path(trim(output)).is_absolute()) path = trim(output);
         if (path == home()) return {}; // XDG uses HOME to mark a disabled special folder.
     }
     if (path.empty()) path = home() + "/Downloads";
@@ -1105,7 +1122,7 @@ std::string group_summary(const std::string& group) {
     }
     if (group == "connections") {
         std::string out;
-        if (!sh::capture({"nmcli", "-t", "-f", "TYPE,NAME", "connection", "show", "--active"}, out)) return "Network unavailable";
+        if (!capture({"nmcli", "-t", "-f", "TYPE,NAME", "connection", "show", "--active"}, out)) return "Network unavailable";
         for (const auto& line : lines(out)) {
             const auto fields = nm_fields(line);
             if (fields.size() >= 2 && (fields[0] == "802-11-wireless" || fields[0] == "wifi")) return fields[1];
@@ -1126,9 +1143,92 @@ std::string group_summary(const std::string& group) {
         if (!regular(path)) return "Updates not checked";
         size_t count = 0;
         for (const auto& line : lines(read(path))) if (!trim(line).empty()) ++count;
-        return std::to_string(count) + " cached updates";
+        return std::to_string(count) + (count == 1 ? " cached update" : " cached updates");
     }
     return {};
+}
+
+struct Tool { std::string name, description; };
+std::vector<Tool> fox_tools() {
+    static const std::set<std::string> hidden{"fox", "fox-bar", "fox-desktop-menu", "fox-drawer", "fox-cheatsheet", "fox-menu", "fox-picker", "fox-rollback", "fox-sandbox", "fox-wallpaper"};
+    static const std::map<std::string, std::string> fixed{
+        {"fask", "Query the FoxML Intelligence Layer (AI model)"}, {"findex", "Rebuild the vector index for AI semantic search"}};
+    std::vector<Tool> found; std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(fs::path(home()) / ".local/bin", ec)) {
+        const auto name = entry.path().filename().string();
+        const bool listed = name.rfind("fox-", 0) == 0 || fixed.count(name) || name == "fhelp";
+        if (!listed || hidden.count(name) || !regular(entry.path()) || ::access(entry.path().c_str(), X_OK) != 0) continue;
+        std::string description = fixed.count(name) ? fixed.at(name) : "";
+        if (description.empty()) {
+            // The second line of a script reads "# fox-name — what it does".
+            std::ifstream stream(entry.path(), std::ios::binary); std::string shebang, line;
+            if (std::getline(stream, shebang) && shebang.rfind("#!", 0) == 0 && std::getline(stream, line))
+                for (const std::string dash : {" — ", " -- ", " - "})
+                    if (const auto at = line.find(dash); line.rfind("#", 0) == 0 && at != std::string::npos) {
+                        description = trim(line.substr(at + dash.size()));
+                        if (!description.empty()) description[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(description[0])));
+                        break;
+                    }
+        }
+        found.push_back({name, description.empty() ? "Opens in a terminal" : description});
+    }
+    std::sort(found.begin(), found.end(), [](const Tool& a, const Tool& b) { return a.name < b.name; });
+    return found;
+}
+
+struct Shortcut { std::string keys, description, section; };
+std::vector<Shortcut> shortcuts() {
+    fs::path file = data_home() / "foxml/KEYBINDS.md";
+    if (!regular(file)) file = repository() / "KEYBINDS.md";
+    std::vector<Shortcut> found; std::string major, section;
+    for (const auto& line : lines(read(file))) {
+        if (line.rfind("## ", 0) == 0) { section = major = trim(line.substr(3)); continue; }
+        if (line.rfind("### ", 0) == 0) { section = major + " · " + trim(line.substr(4)); continue; }
+        if (line.rfind("| `", 0) != 0) continue;
+        const auto close = line.find('`', 3);
+        const auto bar = close == std::string::npos ? close : line.find('|', close);
+        if (bar == std::string::npos || !trim(line.substr(close + 1, bar - close - 1)).empty()) continue;
+        std::string description = trim(line.substr(bar + 1));
+        if (!description.empty() && description.back() == '|') description = trim(description.substr(0, description.size() - 1));
+        description.erase(std::remove(description.begin(), description.end(), '`'), description.end());
+        for (auto at = description.find("**"); at != std::string::npos; at = description.find("**")) description.erase(at, 2);
+        found.push_back({line.substr(3, close - 3), description, section});
+    }
+    return found;
+}
+
+struct Sandbox { const char* id; const char* label; const char* detail; const char* program; Args argv; };
+const std::vector<Sandbox>& sandboxes() {
+    static const std::vector<Sandbox> table{
+        {"firefox", "Firefox", "A private session", "firefox", {"firefox"}},
+        {"chromium", "Chromium", "A private session", "chromium", {"chromium", "--incognito"}},
+        {"kitty", "Kitty", "A disposable terminal", "kitty", {"kitty"}},
+        {"yazi", "Yazi", "A file browser with an empty home", "yazi", {"kitty", "-e", "yazi"}},
+        {"pager", "Pager", "A disposable terminal", "less", {"kitty", "-e", "less"}},
+    };
+    return table;
+}
+
+bool valid_month(const std::string& month) {
+    static const std::regex format("^[0-9]{4}-(0[1-9]|1[0-2])$");
+    return std::regex_match(month, format);
+}
+// Days in YYYY-MM with a commit by the identity each repository is configured with. Reads dates, nothing else.
+Json commit_days(const Json& config, const std::string& month) {
+    std::set<std::string> days;
+    const int year = std::stoi(month.substr(0, 4)), number = std::stoi(month.substr(5, 2));
+    const auto next = std::to_string(number == 12 ? year + 1 : year) + (number >= 9 && number != 12 ? "-" : "-0") + std::to_string(number == 12 ? 1 : number + 1) + "-01";
+    if (sh::have("git")) for (const auto& project : projects(config)) {
+        const auto path = project.path.string(); std::string email, log;
+        if (!directory(project.path / ".git") && !regular(project.path / ".git")) continue;
+        if (!capture({"git", "-C", path, "config", "user.email"}, email) || trim(email).empty()) continue;
+        if (!capture({"git", "-C", path, "log", "--all", "--fixed-strings", "--author=" + trim(email), "--since=" + month + "-01T00:00:00",
+                      "--until=" + next + "T00:00:00", "--date=format-local:%Y-%m-%d", "--format=%cd"}, log)) continue;
+        for (const auto& day : lines(log)) if (day.rfind(month + "-", 0) == 0) days.insert(trim(day));
+    }
+    Json list = Json::array();
+    for (const auto& day : days) list.push_back(std::stoi(day.substr(8, 2)));
+    return Json{{"ok", true}, {"month", month}, {"days", list}};
 }
 
 Json view(const Json& config, const std::string& page, const std::string& query) {
@@ -1250,38 +1350,45 @@ Json view(const Json& config, const std::string& page, const std::string& query)
         }
     } else if (page == "audio-outputs") {
         known = true; out["title"] = "Audio outputs"; Json sinks; std::string current;
-        sh::capture({"pactl", "get-default-sink"}, current);
+        capture({"pactl", "get-default-sink"}, current);
         if (!capture_json({"pactl", "-f", "json", "list", "sinks"}, sinks) || !sinks.is_array()) fail("Audio devices are unavailable");
         else for (const auto& sink : sinks) {
             if (!sink.is_object() || text(sink, "name").empty()) continue;
-            auto row = item("audio-output", text(sink, "description", text(sink, "name")), "action", text(sink, "state"), "volume");
-            row["argument"] = text(sink, "name"); row["checked"] = trim(current) == text(sink, "name"); rows.push_back(row);
+            const bool selected = trim(current) == text(sink, "name");
+            auto row = item("audio-output", text(sink, "description", text(sink, "name")), "action", selected ? "Current output" : "Available", "volume");
+            row["argument"] = text(sink, "name"); row["checked"] = selected; rows.push_back(row);
         }
     } else if (page == "wifi") {
         known = true; out["title"] = "Wi-Fi";
         if (!wifi_rows(rows)) fail("NetworkManager Wi-Fi is unavailable");
         std::string radio;
         auto toggle = item("wifi-toggle", "Wi-Fi radio", "toggle", "Wireless connection", "wifi");
-        if (sh::capture({"nmcli", "radio", "wifi"}, radio) && (trim(radio) == "enabled" || trim(radio) == "disabled")) toggle["checked"] = trim(radio) == "enabled";
+        if (capture({"nmcli", "radio", "wifi"}, radio) && (trim(radio) == "enabled" || trim(radio) == "disabled")) toggle["checked"] = trim(radio) == "enabled";
         else { toggle["enabled"] = false; toggle["detail"] = "Radio state unavailable"; }
         rows.insert(rows.begin(), toggle);
     } else if (page == "bluetooth") {
         known = true; out["title"] = "Bluetooth";
-        if (!bluetooth_rows(rows)) fail("Bluetooth devices are unavailable");
-        for (auto& row : rows) {
-            std::string info;
-            if (sh::capture({"bluetoothctl", "info", text(row, "argument")}, info) && info.find("Connected:") != std::string::npos) {
-                row["kind"] = "toggle"; row["checked"] = info.find("Connected: yes") != std::string::npos;
-                const auto status = truth(row, "checked") ? "Connected" : info.find("Paired: yes") != std::string::npos ? "Paired" : "Not paired";
-                row["detail"] = std::string(status) + " · " + text(row, "argument");
-            } else { row["enabled"] = false; row["detail"] = "Device state unavailable"; }
+        if (!bluetooth_service_running()) {
+            auto row = item("bluetooth-service", "Turn on Bluetooth", "action", "The Bluetooth service is off · asks for your password in a terminal", "bluetooth");
+            row["close"] = true; rows.push_back(row);
+        } else {
+            const bool reachable = bluetooth_rows(rows);
+            if (!reachable) fail("Bluetooth devices are unavailable");
+            for (auto& row : rows) {
+                std::string info;
+                if (capture({"bluetoothctl", "info", text(row, "argument")}, info) && info.find("Connected:") != std::string::npos) {
+                    row["kind"] = "toggle"; row["checked"] = info.find("Connected: yes") != std::string::npos;
+                    const auto status = truth(row, "checked") ? "Connected" : info.find("Paired: yes") != std::string::npos ? "Paired" : "Not paired";
+                    row["detail"] = std::string(status) + " · " + text(row, "argument");
+                } else { row["enabled"] = false; row["detail"] = "Device state unavailable"; }
+            }
+            auto toggle = item("bluetooth-toggle", "Bluetooth power", "toggle", {}, "bluetooth"); std::string controller;
+            if (reachable && capture({"bluetoothctl", "show"}, controller) && controller.find("Powered:") != std::string::npos)
+                toggle["checked"] = controller.find("Powered: yes") != std::string::npos;
+            else { toggle["enabled"] = false; toggle["detail"] = "Controller state unavailable"; }
+            rows.insert(rows.begin(), toggle);
+            auto scan = item("bluetooth-scan", "Scan and pair devices", "action", "Opens the Bluetooth manager", "search"); scan["close"] = true; rows.push_back(scan);
         }
-        auto toggle = item("bluetooth-toggle", "Bluetooth power", "toggle", {}, "bluetooth"); std::string controller;
-        if (sh::capture({"bluetoothctl", "show"}, controller) && controller.find("Powered:") != std::string::npos)
-            toggle["checked"] = controller.find("Powered: yes") != std::string::npos;
-        else { toggle["enabled"] = false; toggle["detail"] = "Controller state unavailable"; }
-        rows.insert(rows.begin(), toggle);
-        rows.push_back(item("bluetooth-scan", "Scan and pair devices", "action", "Opens the Bluetooth manager", "search"));
     } else if (page == "clipboard-text" || page == "clipboard-images") {
         known = true; out["title"] = page == "clipboard-images" ? "Image clipboard" : "Text clipboard";
         if (!clipboard_rows(rows, page == "clipboard-images")) fail("Clipboard history is unavailable");
@@ -1303,7 +1410,7 @@ Json view(const Json& config, const std::string& page, const std::string& query)
         known = true; out["title"] = "Themes";
         const auto active = trim(read(repository() / ".active-theme"));
         for (const auto& theme : themes()) {
-            auto row = item("theme-set", theme, "action", "Apply in terminal", "palette");
+            auto row = item("theme-set", theme, "action", theme == active ? "Current theme" : "Apply in terminal", "palette");
             row["argument"] = theme; row["checked"] = theme == active; row["close"] = true; rows.push_back(row);
         }
         if (rows.empty()) fail("No theme repository was found");
@@ -1313,13 +1420,35 @@ Json view(const Json& config, const std::string& page, const std::string& query)
             auto row = item(pair.first, pair.second, "action", {}, pair.first);
             decorate(row); rows.push_back(row);
         }
+    } else if (page == "tools") {
+        known = true; out["title"] = "Fox tools";
+        for (const auto& tool : fox_tools()) {
+            auto row = item("tool-run", tool.name, "action", tool.description, "info");
+            row["argument"] = tool.name; row["close"] = true; rows.push_back(row);
+        }
+        if (rows.empty()) fail("No fox commands were found in ~/.local/bin");
+    } else if (page == "cheatsheet") {
+        known = true; out["title"] = "Shortcut reference";
+        for (const auto& shortcut : shortcuts()) {
+            auto row = item("cheatsheet-copy", shortcut.keys, "action", shortcut.description + " · " + shortcut.section, "info");
+            row["argument"] = shortcut.keys; rows.push_back(row);
+        }
+        if (rows.empty()) fail("KEYBINDS.md is unavailable");
+    } else if (page == "sandbox") {
+        known = true; out["title"] = "Disposable sandbox";
+        for (const auto& sandbox : sandboxes()) {
+            auto row = item("sandbox-launch", sandbox.label, "action", sandbox.detail, "window");
+            row["argument"] = sandbox.id; row["close"] = true;
+            if (!sh::have(sandbox.program)) { row["enabled"] = false; row["detail"] = "Not installed"; }
+            rows.push_back(row);
+        }
     } else if (page == "updates") {
         known = true; out["title"] = "Updates";
         rows.push_back(item("updates-terminal", "Apply updates in terminal", "action", "Keeps the update lock and news checks", "download"));
         if (sh::have("informant")) rows.push_back(item("updates-silent", "Apply updates quietly", "action", "Protected by the unread-news guard", "download"));
         const auto pending = read(runtime() / "foxml-waybar/updates.list");
         if (pending.empty()) {
-            auto row = item("updates-terminal", "No cached update list", "action", "Open the updater to check for updates", "info"); rows.push_back(row);
+            auto row = item("updates-terminal", "No cached update list", "action", "Open the updater to check for updates", "info"); row["enabled"] = false; rows.push_back(row);
         } else for (const auto& line : lines(pending)) {
             if (line.empty()) continue;
             auto row = item("updates-terminal", line, "action", "Pending package", "package"); row["enabled"] = false; rows.push_back(row);
@@ -1352,6 +1481,8 @@ Json view(const Json& config, const std::string& page, const std::string& query)
         for (const auto& row : rows) if (lower(text(row, "label") + " " + text(row, "detail")).find(needle) != std::string::npos) filtered.push_back(row);
         rows = std::move(filtered);
     }
+    // Search rows come straight from the menu, so they still need their live values.
+    if (page == "search") for (auto& row : rows) if (text(row, "id") != "app-launch") decorate(row);
     return out;
 }
 
@@ -1369,29 +1500,29 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         if (id == "logout") return command({"fox-hl", "dispatch", "hl.dsp.exit()", "exit"}, "Log out", true);
         return command({"systemctl", id}, id == "suspend" ? "Suspend" : id == "reboot" ? "Restart" : "Shut down", true);
     }
-    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","screenshot-open","screenshot-copy","screenshot-folder","password-copy","agent-jump"};
+    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","tool-run","cheatsheet-copy","sandbox-launch","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","screenshot-open","screenshot-copy","screenshot-folder","password-copy","agent-jump"};
     if (!argument_actions.count(id) && !arg.empty()) return result(false, "This action accepts no argument");
     if (id == "volume" || id == "brightness") {
         int value = 0;
         if (!percent(arg, value)) return result(false, "Level must be an integer from 0 to 100");
         if (id == "volume") {
             if (!audio_state().ok) return result(false, "Audio state is unavailable");
-            return command({"wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", std::to_string(value) + "%"}, "Volume adjusted");
+            return command({"wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", std::to_string(value) + "%"}, "Volume adjusted", false, "Could not change the volume");
         }
         if (!brightness_state().ok) return result(false, "Brightness state is unavailable");
-        return command({"brightnessctl", "set", std::to_string(std::max(1, value)) + "%"}, "Brightness adjusted");
+        return command({"brightnessctl", "set", std::to_string(std::max(1, value)) + "%"}, "Brightness adjusted", false, "Could not change the brightness");
     }
     if (id == "volume-mute" || id == "mic-mute") {
         if (!audio_state(id == "mic-mute").ok) return result(false, "Audio state is unavailable");
-        return command({"wpctl", "set-mute", id == "mic-mute" ? "@DEFAULT_AUDIO_SOURCE@" : "@DEFAULT_AUDIO_SINK@", "toggle"}, "Mute toggled");
+        return command({"wpctl", "set-mute", id == "mic-mute" ? "@DEFAULT_AUDIO_SOURCE@" : "@DEFAULT_AUDIO_SINK@", "toggle"}, "Mute toggled", false, "Could not toggle mute");
     }
-    if (id.rfind("media-", 0) == 0) return command({"playerctl", id.substr(6)}, "Playback updated");
+    if (id.rfind("media-", 0) == 0) return command({"playerctl", id.substr(6)}, "Playback updated", false, "Could not control playback");
     if (id == "nightlight") return toggle_nightlight();
     if (id == "dnd") {
         const auto state = dnd_state();
         if (!state.ok) return result(false, "Notification service is unavailable");
-        return state.label == "mako" ? command({"makoctl", "mode", "-t", "do-not-disturb"}, "Do not disturb toggled")
-                                     : command({"dunstctl", "set-paused", "toggle"}, "Do not disturb toggled");
+        return state.label == "mako" ? command({"makoctl", "mode", "-t", "do-not-disturb"}, "Do not disturb toggled", false, "Could not toggle Do not disturb")
+                                     : command({"dunstctl", "set-paused", "toggle"}, "Do not disturb toggled", false, "Could not toggle Do not disturb");
     }
     if (id == "idle") {
         if (!process_state("hypridle").ok) return result(false, "Idle service state is unavailable");
@@ -1401,11 +1532,11 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         std::string profile = arg;
         if (profile.empty()) {
             std::string current;
-            if (!sh::capture({"powerprofilesctl", "get"}, current)) return result(false, "Power profile is unavailable");
+            if (!capture({"powerprofilesctl", "get"}, current)) return result(false, "Power profile is unavailable");
             profile = trim(current) == "balanced" ? "performance" : trim(current) == "performance" ? "power-saver" : trim(current) == "power-saver" ? "balanced" : "";
         }
         if (profile != "balanced" && profile != "performance" && profile != "power-saver") return result(false, "Invalid power profile");
-        return command({"powerprofilesctl", "set", profile}, "Power profile: " + profile);
+        return command({"powerprofilesctl", "set", profile}, "Power profile: " + profile, false, "Could not change the power profile");
     }
     if (id == "screenshot-capture") return launch({script("screenshot.sh").string()}, "Screenshot editor opened");
     if (id == "screenshot-open" || id == "screenshot-copy" || id == "screenshot-folder") {
@@ -1446,7 +1577,7 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
             const auto unmounted = command({"udisksctl","unmount","--block-device",volume.path,"--no-user-interaction"}, "Unmount volume");
             if (!truth(unmounted,"ok")) return result(false, "Drive remains connected: a volume could not be unmounted");
         }
-        return command({"udisksctl","power-off","--block-device",arg,"--no-user-interaction"}, "Drive safely ejected");
+        return command({"udisksctl","power-off","--block-device",arg,"--no-user-interaction"}, "Drive safely ejected", false, "Could not eject the drive");
     }
     if (id == "project-open" || id == "project-terminal" || id == "project-bookmark") {
         bool found = false;
@@ -1483,12 +1614,14 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         if (!capture_json({"pactl", "-f", "json", "list", "sinks"}, sinks) || !sinks.is_array()) return result(false, "Audio outputs are unavailable");
         for (const auto& sink : sinks) if (text(sink, "name") == arg && !arg.empty()) found = true;
         if (!found || arg.front() == '-') return result(false, "Invalid audio output");
-        return command({"pactl", "set-default-sink", arg}, "Audio output selected");
+        return command({"pactl", "set-default-sink", arg}, "Audio output selected", false, "Could not switch the audio output");
     }
+    if ((id == "bluetooth-toggle" || id == "bluetooth-scan") && !bluetooth_service_running())
+        return result(false, "The Bluetooth service is off");
     if (id == "wifi-toggle") {
         std::string current;
-        if (!sh::capture({"nmcli", "radio", "wifi"}, current) || (trim(current) != "enabled" && trim(current) != "disabled")) return result(false, "Wi-Fi radio state is unavailable");
-        return command({"nmcli", "radio", "wifi", trim(current) == "enabled" ? "off" : "on"}, "Wi-Fi radio toggled");
+        if (!capture({"nmcli", "radio", "wifi"}, current) || (trim(current) != "enabled" && trim(current) != "disabled")) return result(false, "Wi-Fi radio state is unavailable");
+        return command({"nmcli", "radio", "wifi", trim(current) == "enabled" ? "off" : "on"}, "Wi-Fi radio toggled", false, "Could not toggle Wi-Fi");
     }
     if (id == "wifi-connect") {
         Json networks;
@@ -1496,37 +1629,42 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         if (!wifi_rows(networks) || !member_argument(networks, arg)) return result(false, "Network is not currently available");
         // NetworkManager reuses stored secrets. Unknown networks go to a terminal's password prompt, never this UI.
         std::string saved;
-        if (sh::capture({"nmcli", "-t", "--escape", "yes", "-f", "UUID,TYPE", "connection", "show"}, saved)) {
+        if (capture({"nmcli", "-t", "--escape", "yes", "-f", "UUID,TYPE", "connection", "show"}, saved)) {
             for (const auto& line : lines(saved)) {
                 const auto f = nm_fields(line);
                 if (f.size() != 2 || f[1] != "802-11-wireless" || !std::regex_match(f[0], std::regex("[0-9a-fA-F-]{36}"))) continue;
                 std::string ssid;
-                if (sh::capture({"nmcli", "-g", "802-11-wireless.ssid", "connection", "show", "uuid", f[0]}, ssid) && trim(ssid) == arg)
-                    return command({"nmcli", "-w", "15", "connection", "up", "uuid", f[0]}, "Connected to " + arg);
+                if (capture({"nmcli", "-g", "802-11-wireless.ssid", "connection", "show", "uuid", f[0]}, ssid) && trim(ssid) == arg)
+                    return command({"nmcli", "-w", "15", "connection", "up", "uuid", f[0]}, "Connected to " + arg, false, "Could not connect to " + arg);
             }
         }
         return terminal({"nmcli", "--ask", "device", "wifi", "connect", "--", arg}, "Network password prompt opened");
     }
     if (id == "bluetooth-toggle") {
         std::string controller;
-        if (!sh::capture({"bluetoothctl", "show"}, controller) || controller.find("Powered:") == std::string::npos) return result(false, "Bluetooth controller is unavailable");
-        return command({"bluetoothctl", "power", controller.find("Powered: yes") != std::string::npos ? "off" : "on"}, "Bluetooth power toggled");
+        if (!capture({"bluetoothctl", "show"}, controller) || controller.find("Powered:") == std::string::npos) return result(false, "Bluetooth controller is unavailable");
+        return command({"bluetoothctl", "power", controller.find("Powered: yes") != std::string::npos ? "off" : "on"}, "Bluetooth power toggled", false, "Could not toggle Bluetooth");
     }
-    if (id == "bluetooth-scan") return terminal({"bluetoothctl"}, "Bluetooth pairing console opened");
+    if (id == "bluetooth-service") return terminal({"sudo", "systemctl", "enable", "--now", "bluetooth"}, "Bluetooth service prompt opened");
+    if (id == "bluetooth-scan") {
+        if (sh::have("blueman-manager")) return launch({"blueman-manager"}, "Bluetooth manager opened");
+        return terminal({"bluetoothctl"}, "Bluetooth pairing console opened");
+    }
     if (id == "bluetooth-connect") {
         if (!std::regex_match(arg, std::regex("[[:xdigit:]]{2}(?::[[:xdigit:]]{2}){5}"))) return result(false, "Invalid Bluetooth address");
+        if (!bluetooth_service_running()) return result(false, "The Bluetooth service is off");
         Json devices; std::string info;
-        if (!bluetooth_rows(devices) || !member_argument(devices, arg) || !sh::capture({"bluetoothctl", "info", arg}, info)) return result(false, "Bluetooth device is unavailable");
+        if (!bluetooth_rows(devices) || !member_argument(devices, arg) || !capture({"bluetoothctl", "info", arg}, info)) return result(false, "Bluetooth device is unavailable");
         if (info.find("Paired: yes") == std::string::npos) return terminal({"bluetoothctl", "--agent", "KeyboardDisplay", "pair", arg}, "Bluetooth pairing prompt opened");
-        return command({"bluetoothctl", "--timeout", "10", info.find("Connected: yes") != std::string::npos ? "disconnect" : "connect", arg}, "Bluetooth connection updated");
+        return command({"bluetoothctl", "--timeout", "10", info.find("Connected: yes") != std::string::npos ? "disconnect" : "connect", arg}, "Bluetooth connection updated", false, "Could not update that Bluetooth connection");
     }
     if (id == "clipboard-restore") return restore_clipboard(arg);
     if (id == "wallpaper-set") {
         bool found = false; for (const auto& path : wallpapers()) if (path.string() == arg) found = true;
         if (!found) return result(false, "Wallpaper is not in the wallpaper folder");
-        return command({"fox-wallpaper", "--set", arg}, "Wallpaper selected");
+        return command({"fox-wallpaper", "--set", arg}, "Wallpaper selected", false, "Could not set that wallpaper");
     }
-    if (id == "wallpaper-next") return command({script("rotate_wallpaper.sh").string(), "--cycle"}, "Wallpaper changed");
+    if (id == "wallpaper-next") return command({script("rotate_wallpaper.sh").string(), "--cycle"}, "Wallpaper changed", false, "Could not change the wallpaper");
     if (id == "wallpaper-sync") {
         fs::path wallpaper; std::error_code ec;
         const auto current = fs::path(home()) / ".wallpapers/.current";
@@ -1536,7 +1674,7 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         }
         if (!regular(wallpaper)) {
             std::string query;
-            if (sh::capture({"awww", "query"}, query)) for (const auto& line : lines(query)) {
+            if (capture({"awww", "query"}, query)) for (const auto& line : lines(query)) {
                 const auto at = line.find("image:");
                 if (at != std::string::npos && regular(trim(line.substr(at + 6)))) { wallpaper = trim(line.substr(at + 6)); break; }
             }
@@ -1564,13 +1702,32 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
     if (id == "password-copy") {
         const auto names = password_names();
         if (std::find(names.begin(), names.end(), arg) == names.end()) return result(false, "Unknown password entry");
-        return command({"fox-password-copy", arg}, "Password copied", true);
+        return command({"fox-password-copy", arg}, "Password copied", true, "Could not copy that password");
     }
-    if (id == "tools") return launch({"fox-menu"}, "Tool drawer opened");
-    if (id == "cheatsheet") return launch({"fox-cheatsheet"}, "Shortcut reference opened");
-    if (id == "sandbox") return launch({"fox-sandbox"}, "Sandbox picker opened");
-    if (id == "security") return terminal({"fox", "sec", "--live"}, "Security dashboard opened");
-    if (id == "cleanup") return terminal({"zsh", "-ic", "fox-clean"}, "System cleanup opened");
+    // Saved menus may still name these as actions; they open the same pages as the shipped menu.
+    if (id == "tools" || id == "cheatsheet" || id == "sandbox") { auto response = result(true, "Choose one"); response["page"] = id; return response; }
+    if (id == "tool-run") {
+        const auto available = fox_tools();
+        if (std::none_of(available.begin(), available.end(), [&](const Tool& tool) { return tool.name == arg; })) return result(false, "Unknown tool");
+        return launch({"kitty", "--hold", "--title", "fox: " + arg, "--", (fs::path(home()) / ".local/bin" / arg).string()}, "Tool opened in a terminal");
+    }
+    if (id == "cheatsheet-copy") {
+        const auto available = shortcuts();
+        if (std::none_of(available.begin(), available.end(), [&](const Shortcut& shortcut) { return shortcut.keys == arg; })) return result(false, "Unknown shortcut");
+        if (!sh::have("wl-copy")) return result(false, "wl-copy is not installed");
+        const bool ok = write_clipboard(arg);
+        return result(ok, ok ? "Copied: " + arg : "Could not copy that shortcut");
+    }
+    if (id == "sandbox-launch") {
+        for (const auto& sandbox : sandboxes()) if (arg == sandbox.id) {
+            if (!sh::have(sandbox.program)) return result(false, std::string(sandbox.label) + " is not installed");
+            Args argv{"fox-sandbox"}; argv.insert(argv.end(), sandbox.argv.begin(), sandbox.argv.end());
+            return launch(argv, "Sandbox opened");
+        }
+        return result(false, "Unknown sandbox");
+    }
+    if (id == "security") return terminal({"fox", "sec", "dashboard", "--live"}, "Security dashboard opened");
+    if (id == "cleanup") return terminal({"zsh", "-ic", "fox-clean; print; read -s '?Press enter to close…'"}, "System cleanup opened");
     if (id == "lock") return launch({script("lock.sh").string()}, "Screen lock opened");
     return result(false, "Action is unavailable");
 }
@@ -1586,9 +1743,9 @@ int main(int argc, char** argv) {
         }
         if (!args.empty() && args[0] == "pick") return pick(args);
         if (args.size() == 1 && (args[0] == "--help" || args[0] == "help")) {
-            std::cout << "fox-drawer [--config PATH] view PAGE [QUERY]\nfox-drawer [--config PATH] run ACTION [ARGUMENT]\nfox-drawer pick [--title TITLE] [--index | --prompt]\n"; return 0;
+            std::cout << "fox-drawer [--config PATH] view PAGE [QUERY]\nfox-drawer [--config PATH] run ACTION [ARGUMENT]\nfox-drawer [--config PATH] commit-days YYYY-MM\nfox-drawer pick [--title TITLE] [--index | --prompt]\n"; return 0;
         }
-        if (args.size() < 2 || args.size() > 4 || (args[0] != "view" && args[0] != "run")
+        if (args.size() < 2 || args.size() > 4 || (args[0] != "view" && args[0] != "run" && args[0] != "commit-days")
             || (args.size() == 4 && (args[0] != "run" || args[1] != "drive-eject" || args[3] != "--confirm"))) {
             std::cout << result(false, "Use view PAGE [QUERY] or run ACTION [ARGUMENT]").dump() << '\n'; return 1;
         }
@@ -1598,8 +1755,15 @@ int main(int argc, char** argv) {
             if (args[0] == "view") { failure["error"] = error; failure["id"] = args[1]; failure["title"] = "Unavailable"; failure["items"] = Json::array(); }
             std::cout << failure.dump() << '\n'; return 1;
         }
+        if (args[0] == "commit-days") {
+            if (args.size() != 2 || !valid_month(args[1])) { std::cout << result(false, "Use commit-days YYYY-MM").dump() << '\n'; return 1; }
+            read_limit_seconds = 4;
+            std::cout << commit_days(config, args[1]).dump() << '\n';
+            return 0;
+        }
         const auto argument = args.size() >= 3 ? args[2] : "";
         if (!safe_text(argument)) { std::cout << result(false, "Invalid argument").dump() << '\n'; return 1; }
+        if (args[0] == "view") read_limit_seconds = 4;
         const Json response = args[0] == "view" ? view(config, args[1], argument) : run_action(config, args[1], argument, args.size() == 4);
         std::cout << response.dump(-1, ' ', false, Json::error_handler_t::replace) << '\n';
         return truth(response, "ok") ? 0 : 1;

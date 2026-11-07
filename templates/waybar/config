@@ -62,7 +62,7 @@
     "return-type": "json",
     "interval": 15,
     "tooltip": true,
-    "on-click": "kitty -e fox sec --live"
+    "on-click": "kitty -e fox sec dashboard --live"
   },
   "custom/overwatch": {
     "exec": "~/.config/waybar/scripts/hw_overwatch.sh",

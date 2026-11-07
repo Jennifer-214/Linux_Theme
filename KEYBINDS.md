@@ -631,7 +631,7 @@ Shows indent guides automatically. No keybinds.
 
 | Key | Action |
 |-----|--------|
-| `ALT + Shift + S` | Quickshell picker for one-shot sandboxed apps |
+| `ALT + Shift + S` | Drawer page for one-shot sandboxed apps |
 
 ### Ghost Mode (boss key)
 

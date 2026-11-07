@@ -6,6 +6,11 @@ function drawerPlacement(screenWidth, windowWidth, anchor, connected) {
     return {left:left, top:connected ? 0 : Math.max(7, Math.floor(anchor.y)-9)};
 }
 
+function isNight(date) {
+    var hour = date.getHours();
+    return hour >= 22 || hour < 5;
+}
+
 function identity(item) {
     return item ? JSON.stringify([String(item.id || ""), String(item.argument === undefined ? "" : item.argument)]) : "";
 }
@@ -92,7 +97,7 @@ function pageFlourish(page, searching) {
 }
 
 function connectionState(item) {
-    if (!item || (item.id !== "wifi-connect" && item.id !== "bluetooth-connect")
+    if (!item || ["wifi-connect", "bluetooth-connect", "audio-output", "theme-set"].indexOf(item.id) < 0
         || item.enabled === false || typeof item.checked !== "boolean") return null;
     return item.checked;
 }
@@ -164,7 +169,7 @@ function footerHint(state, item) {
     if (state.picker) return "j / k move · Enter / l chooses · / searches · h / Esc closes";
     if (state.editing) return "h / l adjusts · Enter or Esc finishes";
     if (state.focus === "groups") return "j / k move · Enter / l opens a drawer · / searches · Esc closes";
-    if (!item) return "h goes back · / searches · Esc closes";
+    if (!item) return "h goes back · / searches · Esc goes back";
     if (item.enabled === false) return (item.disabledReason || item.detail || "control unavailable") + " · h goes back · / searches";
     if (item.presentation === "project") return "Enter opens editor · t terminal · b bookmark · h goes back";
     if (item.presentation === "library") return "Enter opens / mounts · e ejects · / filters · h goes back";
@@ -180,9 +185,9 @@ function hintParts(hint) {
     var parts = [];
     String(hint).split(" · ").forEach(function(clause, index) {
         if (index) parts.push({text: " · ", key: false});
-        var prefix = clause.match(/^((?:Enter|Esc|[hjkltebrf↑↓\/])(?:(?: \/ | or )(?:Enter|Esc|[hjkltebrf↑↓\/]))?)(?= |$)/);
+        var prefix = clause.match(/^((?:Enter|Esc|[hjkltebrfc↑↓\/])(?:(?: \/ | or )(?:Enter|Esc|[hjkltebrfc↑↓\/]))?)(?= |$)/);
         if (!prefix) { parts.push({text: clause, key: false}); return; }
-        prefix[1].split(/(Enter|Esc|[hjkltebrf↑↓])/).forEach(function(text) {
+        prefix[1].split(/(Enter|Esc|[hjkltebrfc↑↓])/).forEach(function(text) {
             if (text) parts.push({text: text, key: /^(Enter|Esc|[hjkltebrf↑↓\/])$/.test(text)});
         });
         if (clause.length > prefix[1].length) parts.push({text: clause.slice(prefix[1].length), key: false});

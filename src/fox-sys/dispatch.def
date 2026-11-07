@@ -13,5 +13,5 @@ FOX_SUBCMD( hw-info,    fox-hw-info,    "Hardware detection helper (GPU / chassi
 FOX_SUBCMD( lock,       fox-lock,       "Pre-check wrapper around hyprlock" )
 
 // — Discovery —
-FOX_SUBCMD( menu,       fox-menu,       "Rofi launcher for fox-* CLI commands" )
-FOX_SUBCMD( cheatsheet, fox-cheatsheet, "Searchable keybind reference via rofi" )
+FOX_SUBCMD( menu,       fox-menu,       "Drawer launcher for fox-* CLI commands" )
+FOX_SUBCMD( cheatsheet, fox-cheatsheet, "Searchable keybind reference" )

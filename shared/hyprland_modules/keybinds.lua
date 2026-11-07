@@ -113,7 +113,7 @@ hl.bind(mainMod .. " + SHIFT + Tab", function() hl.dispatch(hl.dsp.window.cycle_
 hl.bind(mainMod .. " + Tab", function() hl.dispatch(hl.dsp.window.cycle_next({ floating = true })) end)
 hl.bind(mainMod .. " + CTRL + Tab", function() hl.dispatch(hl.dsp.window.cycle_next({ tiled = true })) end)
 -- Searchable keybind cheatsheet — fuzzy-find any binding by description
-hl.bind(mainMod .. " + slash", hl.dsp.exec_cmd("~/.local/bin/fox-cheatsheet"))
+hl.bind(mainMod .. " + slash", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu cheatsheet"))
 
 -- ─────────────────────────────────────────
 -- Workspaces
@@ -156,7 +156,7 @@ hl.bind(mainMod .. " + mouse:273", hl.dsp.window.resize(), { mouse = true })
 -- target with --private so its tmpfs $HOME evaporates on close. Quick
 -- way to visit a sketchy URL or run an untrusted script without it
 -- touching your real dotfiles.
-hl.bind(mainMod .. " + SHIFT + S", hl.dsp.exec_cmd("fox-sandbox"))
+hl.bind(mainMod .. " + SHIFT + S", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu sandbox"))
 
 -- ─────────────────────────────────────────
 -- Ghost Mode (boss key)

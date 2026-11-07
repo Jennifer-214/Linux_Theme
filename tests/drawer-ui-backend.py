@@ -3,12 +3,20 @@
 import json
 import os
 import sys
+import time
 
 args = sys.argv[1:]
 if args[:1] == ["--config"]:
     args = args[2:]
+if args[0] == "commit-days":
+    print(json.dumps(dict(ok=True, month=args[1], days=[1, 2])))
+    sys.exit(0)
 if args[0] == "view":
     page = args[1]
+    if page == "hung":
+        time.sleep(30)
+    elif page == "slow":
+        time.sleep(.4)
     if page == "root":
         items = [dict(id=name, page=name, label=name.title(), kind="page")
                  for name in ("desk", "sound", "connections", "comfort", "system")]

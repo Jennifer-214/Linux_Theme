@@ -18,8 +18,8 @@ MARKER="$HOME/.local/share/foxml/.first-launch-shown"
 # repaints. ~3 seconds is a comfortable margin.
 sleep 3
 
-if command -v fox-cheatsheet >/dev/null 2>&1; then
-    fox-cheatsheet >/dev/null 2>&1 || true
+if command -v fox-desktop-menu >/dev/null 2>&1; then
+    fox-desktop-menu --open cheatsheet >/dev/null 2>&1 || true
 fi
 
 mkdir -p "$(dirname "$MARKER")"
