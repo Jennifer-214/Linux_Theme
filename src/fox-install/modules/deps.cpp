@@ -9,6 +9,9 @@
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
+#include <pwd.h>
+#include <unistd.h>
+
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -154,29 +157,24 @@ void run_deps(Context& ctx) {
         }
 
         // ─── Oh My Zsh ─────────────────────────────────────────────
-        // Prefer the signature-verified AUR install (oh-my-zsh-git);
-        // fall back to upstream curl-sh only if no AUR helper present.
-        // Without OMZ, the deployed .zshrc + caramel theme + plugin
-        // list error out on first shell open.
+        // A plain clone into the path .zshrc, the caramel theme and zsh_plugins all use. The AUR
+        // package lands in /usr/share, and the upstream script edits .zshrc and the login shell.
         fs::path omz_dir = ctx.home / ".oh-my-zsh";
         if (!fs::is_directory(omz_dir)) {
             ui::substep("installing Oh My Zsh");
-            std::string aur;
-            if      (have_cmd("yay"))  aur = "yay";
-            else if (have_cmd("paru")) aur = "paru";
-            bool installed = false;
-            if (!aur.empty()) {
-                installed = sh::run({aur, "-S", "--needed", "--noconfirm",
-                                     "oh-my-zsh-git"}) == 0;
-            }
-            if (!installed) {
-                installed = sh::run({"sh", "-c",
-                    "sh -c \"$(curl -fsSL "
-                    "https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)\""
-                    " '' --unattended"}) == 0;
-            }
-            if (installed) ui::ok("Oh My Zsh installed");
-            else           ui::warn("Oh My Zsh install failed — zsh_plugins will skip");
+            if (sh::run({"git", "clone", "--depth", "1", "https://github.com/ohmyzsh/ohmyzsh.git",
+                         omz_dir.string()}) == 0) ui::ok("Oh My Zsh installed");
+            else ui::warn("Oh My Zsh install failed — zsh_plugins will skip");
+        }
+
+        // ─── Login shell ───────────────────────────────────────────
+        // The theme's prompt, aliases and tools all live in zsh. Failing here costs a shell, never a login.
+        if (const passwd* pw = ::getpwuid(::getuid());
+            pw && fs::exists("/usr/bin/zsh") && fs::path(pw->pw_shell).filename() != "zsh") {
+            if (sh::run({"sudo", "chsh", "-s", "/usr/bin/zsh", pw->pw_name}) == 0)
+                ui::ok("login shell → zsh (from the next login)");
+            else
+                ui::warn("could not change the login shell — run `chsh -s /usr/bin/zsh`");
         }
 
         // ─── NPM globals (Gemini + Claude CLIs, pi coding agent) ──
