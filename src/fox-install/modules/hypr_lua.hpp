@@ -145,6 +145,12 @@ inline bool greeter_config_ok(bool have_hyprland, const std::string& verify_outp
     return have_hyprland && verify_output_ok(verify_output);
 }
 
+// regreet's first-login choice. Hyprland also ships a uwsm session that sorts first, and without uwsm installed that
+// login ends at once and drops the user back at the greeter.
+inline std::string regreet_state_body(const std::string& user) {
+    return "last_user = " + lua_str(user) + "\n\n[user_to_last_sess]\n" + lua_str(user) + " = \"Hyprland\"\n";
+}
+
 inline bool write_text_atomic(const std::filesystem::path& dest, const std::string& body) {
     namespace fs = std::filesystem;
     std::error_code ec;

@@ -127,6 +127,8 @@ int main() {
         check("bad config fails", !greeter_config_ok(true, "hyprland.lua:2: unexpected symbol"));
         check("missing compositor fails", !greeter_config_ok(false, ""));
         check("missing compositor fails despite stale output", !greeter_config_ok(false, "config ok\n"));
+        check("first login picks plain Hyprland", regreet_state_body("fox") ==
+              "last_user = \"fox\"\n\n[user_to_last_sess]\n\"fox\" = \"Hyprland\"\n");
     }
 
     // ── Lua twins of per-machine modules (existing users moving to 0.57) ──

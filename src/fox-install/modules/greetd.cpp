@@ -127,6 +127,19 @@ bool restore_greeter() {
            sh::run({"sudo", "cp", "-a", "-T", GREETER_BACKUP, GREETER_DIR}) == 0;
 }
 
+// Only a new machine: an existing file holds the user's own last choice.
+void seed_regreet_state() {
+    const fs::path state = "/var/lib/regreet/state.toml";
+    const char* user = std::getenv("USER");
+    if (!user || !*user || fs::exists(state)) return;
+    const bool seeded =
+        sh::run({"sudo", "install", "-d", "-m", "755", "-o", "greeter", "-g", "greeter", state.parent_path().string()}) == 0 &&
+        write_root_inline(state, hypr_lua::regreet_state_body(user)) &&
+        sh::run({"sudo", "chown", "greeter:greeter", state.string()}) == 0;
+    if (seeded) ui::ok("first login defaults to the Hyprland session");
+    else        ui::warn("could not set the first-login session — pick Hyprland on the login screen");
+}
+
 }  // namespace
 
 void run_greetd(Context& ctx) {
@@ -265,6 +278,7 @@ void run_greetd(Context& ctx) {
     } else {
         ui::skipped("greetd already enabled");
     }
+    seed_regreet_state();
 }
 
 }  // namespace fox_install
