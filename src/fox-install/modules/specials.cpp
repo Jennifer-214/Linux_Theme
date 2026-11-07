@@ -667,7 +667,7 @@ void do_wallpaper_mode(const Context& ctx) {
     } else {
         // Ensure --static flag exists exactly once.
         sh::run({"sed", "-i", "/rotate_wallpaper.sh/ { /--static/! s|rotate_wallpaper.sh|rotate_wallpaper.sh --static| }", autostart.string()});
-        ui::substep("wallpaper mode: static (FoxML Earthy)");
+        ui::substep("wallpaper mode: static");
     }
 }
 
@@ -716,6 +716,7 @@ void run_specials(Context& ctx) {
         { "shared/pulse.d",          ".config/foxml/pulse.d",  ".sh", true,  "pulse handlers",   nullptr,    false },
     };
     for (auto& s : BULK) deploy_dir_files(ctx, s);
+    seed_theme_wallpaper(ctx);
 
     do_hyprland_modules(ctx);
     do_wallpaper_mode(ctx);
