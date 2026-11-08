@@ -27,6 +27,7 @@ icons update automatically; these bindings use the existing plugins and Vim mark
 | Key | Action |
 |-----|--------|
 | `ALT + Shift + D` | Open the main Quickshell drawer |
+| `ALT + Space` | Find anything: type to search apps, projects, windows, settings, screenshots and Claude sessions |
 | `ALT + /` | Open this shortcut reference |
 | `j` / `k` | Move down / up |
 | `l` / `Enter` | Open a drawer, toggle a switch, or run the selected action |

@@ -2236,12 +2236,39 @@ Json view(const Json& config, const std::string& page, const std::string& query,
         for (const auto& project : projects(config)) if (std::find(pinned.begin(), pinned.end(), project.path.string()) != pinned.end())
             out["favorites"].push_back(project_card(project, true));
     } else if (page == "search") {
-        known = true; out["title"] = "Find a little thing";
+        known = true; out["title"] = "Find anything";
         for (const auto& group : config["groups"]) for (auto row : group["items"]) {
             row["detail"] = text(group, "label") + (text(row, "detail").empty() ? "" : " › " + text(row, "detail"));
             row["group"] = text(group, "id"); rows.push_back(row);
         }
         if (!query.empty()) {
+            for (const auto& project : projects(config)) {
+                if (lower(project.path.string()).find(lower(query)) == std::string::npos) continue;
+                auto row = project_card(project, false);
+                row["detail"] = "Project · " + text(row, "detail");
+                rows.push_back(row);
+            }
+            const auto captures = screenshots(config);
+            for (std::size_t i = 0; i < std::min<std::size_t>(captures.size(), 12); ++i) {
+                const auto& file = captures[i];
+                auto row = item("screenshot-open", i == 0 ? "Last screenshot · " + file.name : file.name,
+                                "action", "Screenshot scrapbook · " + file.modified_at, "image");
+                row["argument"] = file.path.string(); row["close"] = true;
+                rows.push_back(row);
+            }
+            ClaudeUsage usage;
+            for (const auto& session : claude_sessions(usage)) {
+                auto row = item("claude-jump", "Claude · " + session.name(), "action",
+                                session.project + " · " + claude_state_text(session), "message");
+                row["argument"] = session.pane; row["enabled"] = !session.pane.empty(); row["close"] = true;
+                rows.push_back(row);
+            }
+            Json devices = Json::array();
+            if (bluetooth_rows(devices)) for (auto row : devices) {
+                row["label"] = "Connect " + text(row, "label");
+                row["detail"] = "Bluetooth device · " + text(row, "detail");
+                rows.push_back(row);
+            }
             for (const auto& app : desktops()) {
                 auto row = item("app-launch", app.name, "action", "Desk › Applications" + (app.detail.empty() ? "" : " · " + app.detail), app.icon);
                 row["argument"] = app.path.string(); row["close"] = true;

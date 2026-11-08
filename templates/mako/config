@@ -84,6 +84,15 @@ default-timeout=4000
 border-color=#{{MAKO_AGENT_BORDER}}
 default-timeout=6000
 
+# Results that need a decision stay until opened or dismissed. Do not let the
+# global ignore-timeout override the sender's persistent lifetime.
+[category=foxml.work]
+default-timeout=0
+ignore-timeout=0
+on-button-left=invoke-default-action
+on-button-middle=exec makoctl menu -n "$id" ~/.local/bin/fox-picker --title "Notice actions"
+on-button-right=dismiss
+
 # Volume / brightness as a pencil stroke: osd.sh sends app-name fox-osd, and a theme
 # opts in by setting MAKO_OSD_APP=fox-osd (others name an app that never exists, so
 # their OSD keeps the regular popup). No text (a zero-width space), no icon, 1pt font:

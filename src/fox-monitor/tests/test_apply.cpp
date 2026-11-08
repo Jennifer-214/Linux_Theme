@@ -90,6 +90,14 @@ int main() {
         check("(5) variant absent → is_fallback=true (→ --resize crop)", fb == true);
     }
 
+    touch(dir / "foxml_paper_tree.png");
+    touch(dir / "foxml_paper_quiet.png");
+    check("Paper primary keeps cat", companion_for("foxml_paper_soft.png", true, false, dir) == "foxml_paper_soft.png");
+    check("Paper left gets tree", companion_for("foxml_paper_soft.png", false, true, dir) == "foxml_paper_tree.png");
+    check("Paper right gets quiet paper", companion_for("foxml_paper_soft.png", false, false, dir) == "foxml_paper_quiet.png");
+    check("Other wallpaper keeps its pick", companion_for("custom.png", false, true, dir) == "custom.png");
+    fs::remove(dir / "foxml_paper_tree.png", ec);
+    check("Missing companion keeps cat", companion_for("foxml_paper_soft.png", false, true, dir) == "foxml_paper_soft.png");
     fs::remove_all(dir, ec);
 
     if (failed == 0) std::printf("test_apply: OK\n");

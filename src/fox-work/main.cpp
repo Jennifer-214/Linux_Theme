@@ -431,11 +431,13 @@ void notify_failure(const std::string& label, const std::string& id, bool servic
     if (env("FOXML_WORK_NOTIFY") == "0" || !sh::have("notify-send") || !sh::have("setsid")) return;
     const auto own = fs::canonical("/proc/self/exe").string();
     const bool pane = !service && !str(load_run(id), "pane").empty();
-    const std::string script = "exec >/dev/null 2>&1; choice=$(notify-send --wait --expire-time=15000 --app-name=FoxML --action=log='Open log' "
+    const bool tests = !service && load_run(id).value("testRun", false);
+    const std::string script = "exec >/dev/null 2>&1; choice=$(notify-send --wait --expire-time=0 --category=foxml.work --app-name=FoxML --action=default='Open result' --action=log='Open log' "
         + std::string(pane ? "--action=jump='Jump to terminal' " : "")
-        + "--action=ask='Ask Claude' \"$4\" \"$2\"); case \"$choice\" in log) exec \"$1\" open --action \"$5\" --id \"$3\";; jump) exec \"$1\" open --action jump --id \"$3\";; ask) exec \"$1\" open --action \"$6\" --id \"$3\";; esac";
+        + "--action=ask='Ask Claude' \"$4\" \"$2\"); case \"$choice\" in default) exec \"$1\" open --action \"$7\" --id \"$3\";; log) exec \"$1\" open --action \"$5\" --id \"$3\";; jump) exec \"$1\" open --action jump --id \"$3\";; ask) exec \"$1\" open --action \"$6\" --id \"$3\";; esac";
     sh::run({"setsid", "-f", "sh", "-c", script, "sh", own, clean(label).substr(0, 160), id,
-             service ? "User service failed" : "Job failed", service ? "service" : "log", service ? "ask-service" : "ask"});
+             service ? "User service failed" : tests ? "Tests failed" : "Job failed", service ? "service" : "log", service ? "ask-service" : "ask",
+             service ? "service" : tests ? "tests" : "log"});
 }
 }
 

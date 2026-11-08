@@ -25,6 +25,8 @@ hl.bind(mainMod .. " + F", hl.dsp.exec_cmd(browser))
 hl.bind(mainMod .. " + SHIFT + C", hl.dsp.exec_cmd(coding))
 -- FoxML drawers — apps, connections, sound, comfort and system.
 hl.bind(mainMod .. " + SHIFT + D", hl.dsp.exec_cmd(menu))
+-- Find anything: open with the search field already focused.
+hl.bind(mainMod .. " + SPACE", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu search"))
 -- Calendar beneath the clock banner (toggle).
 hl.bind(mainMod .. " + C", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu calendar"))
 -- Steam.

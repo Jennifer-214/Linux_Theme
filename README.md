@@ -425,6 +425,14 @@ that detaches its children, cannot report those children's eventual exit status.
 Commands with explicit credentials, privileged commands and existing wrappers
 are excluded from automatic Claude capture. Existing processes are not adopted.
 
+Failed jobs and user services, Claude completion/input notices, and pi's useful
+completion/input notices stay visible until opened or dismissed. Click a notice
+to open its result or session; right-click dismisses it. Mako's middle-click
+action menu offers alternatives such as the log, review, or a draft for Claude.
+Test failures open the first recorded source location when one is available.
+Agent notices replace the previous notice from the same tmux pane. Ordinary
+desktop notices keep their short lifetime, and Do Not Disturb still hides them.
+
 Captured gtest, CTest, pytest and unittest output supplies reported counts and
 source locations. The notebook shows the result, its failures and **since last
 pass**. Select a failure to open its exact quickfix entry in Neovim, using Trouble
@@ -535,6 +543,12 @@ between favorites and groups. Set `"favorites"` in
 `["desk/apps", "desk/clipboard-text", "comfort/dnd"]`. Up to eight are supported;
 `[]` explicitly hides favorites. Existing custom configurations without this
 field keep the group-only home view until favorites are added.
+
+**Alt+Space** opens **Find anything** with the search field focused. Type to
+find desktop actions, apps, open windows, projects, Bluetooth devices, recent
+screenshots and Claude sessions. Up/Down selects a result, Enter opens it, and
+Escape closes this directly opened search. Project results use the existing
+editor action.
 
 Desk → Project index cards lists immediate project folders under `~/code`,
 recognizing Git repositories and common build manifests without running Git,
@@ -698,8 +712,8 @@ error. Both Hyprland formats start it with normal colors; `--deps` installs it.
 Paper's workspace tabs include monochrome icons for open Hyprland windows; an
 editor inside Kitty/tmux uses the terminal icon. Kitty leaves its own tab row
 hidden, while tmux adds a pink dot to the existing window label on a bell.
-Kitty's background is 97% opaque, with undimmed text so it stays readable on
-lower-contrast displays. Paper windows keep their text at full opacity when focus
+Kitty's Paper background is 70% opaque so the wallpaper shows through, while
+text stays undimmed. Paper windows keep their text at full opacity when focus
 moves between monitors. Blush selections use a stronger dusty pink, with darker
 comments and line numbers; functions, parameters, types and literals retain
 distinct inks and emphasis.
@@ -955,9 +969,11 @@ selects the rendered XDG config so an older `~/.mako/config` cannot shadow it.
 Shell and tmux fzf matches share `FZF_MATCH_*`/`FZF_META_FG` palette tokens; Firefox
 find colors use `FF_FIND_BG/FG`, merged into its preferences by the specials module
 (`--render`, `--render-only` or full install). Firefox reads these preferences on its next launch.
-Paper's sleeping-pencil-cat wallpaper has matching landscape and portrait
-compositions in warm bone white. Tall outputs use the portrait companion so the
-cat stays in the lower-right corner. The cursor installer also repairs desktop preferences and
+Paper's soft wallpaper set uses warm bone white and faint paper grain: a sleeping
+pencil cat with a dusty pink heart on the primary display, a sage and blush
+colored-pencil tree on displays to its left, and quiet paper on other displays.
+The assignment follows live monitor positions; selecting another wallpaper
+keeps its ordinary per-monitor variants. The cursor installer also repairs desktop preferences and
 fallback-theme inheritance when the cursor assets are already installed.
 The wallpaper's cat, cut out with a rising zzz and faint blush cheeks, is
 `shared/quickshell/foxml/paper-cat.png`. The drawer's line-drawn cat has matching cheeks.

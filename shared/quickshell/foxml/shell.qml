@@ -315,6 +315,8 @@ ShellRoot {
         searchInput.text = "";
         trail = [];
         page = pageId || "root";
+        searching = page === "search";
+        if (searching) searchPage = "search";
         pageLoading = true;
         navigationSerial++;
         focusArea = page === "root" ? "groups" : "items";
@@ -345,7 +347,7 @@ ShellRoot {
             entries = [];
             requestView();
         }
-        Qt.callLater(function() { keyboard.forceActiveFocus(); });
+        Qt.callLater(function() { if (root.searching) searchInput.forceActiveFocus(); else keyboard.forceActiveFocus(); });
     }
 
     function hide(response) {
@@ -425,6 +427,7 @@ ShellRoot {
         if (pendingConfirm) { pendingConfirm = null; return; }
         if (editing) { finishEdit(); return; }
         if (searching) {
+            if (page === "search") { hide(); return; }
             searching = false;
             navigationSerial++;
             searchInput.text = "";
@@ -746,7 +749,7 @@ ShellRoot {
         }
         function status(): string {
             return JSON.stringify({ open: root.opened, page: root.page, searching: root.searching,
-                editing: root.editing, focus: root.focusArea, selected: Logic.identity(root.entries[root.itemIndex]),
+                editing: root.editing, focus: root.focusArea, searchFocused: root.searching && searchInput.activeFocus, selected: Logic.identity(root.entries[root.itemIndex]),
                 group: root.groupId, count: root.entries.length, busy: root.actionBusy, error: root.failed,
                 attached:!!root.resolvedAnchor, screen:root.drawerScreen ? root.drawerScreen.name : "", reveal:root.drawerReveal,
                 connected:theme.paperDetails && !!root.drawerHost, topInset:root.drawerTopInset,
@@ -1006,7 +1009,7 @@ ShellRoot {
 
                         ListView {
                             id: groupList
-                            visible: !root.pickerLayout
+                            visible: !root.pickerLayout && root.page !== "search"
                             Layout.preferredWidth: panel.implicitWidth < 580 ? 125 : 179
                             Layout.fillHeight: true
                             clip: true
@@ -1085,7 +1088,7 @@ ShellRoot {
                                     anchors.rightMargin: theme.paperDetails ? 10 : 0
                                 Text {
                                     id: pageHeading
-                                    textFormat: Text.PlainText; text: root.searching && !root.pickerLayout ? "find a little thing" : root.pageTitle
+                                    textFormat: Text.PlainText; text: root.searching && !root.pickerLayout ? "find anything" : root.pageTitle
                                     color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: 20; Layout.fillWidth: true; elide: Text.ElideRight
                                     PaperFlourish {
                                         theme: root.paperTheme
@@ -1137,7 +1140,7 @@ ShellRoot {
                                         color: theme.ink
                                         font.family: theme.fontFamily
                                         font.pixelSize: 12
-                                        placeholderText: root.pickerPrompt && root.pickerLayout ? "write here…" : "find a little thing…"
+                                        placeholderText: root.pickerPrompt && root.pickerLayout ? "write here…" : root.searchPage === "search" ? "apps, projects, settings, recent things…" : "find on this page…"
                                         placeholderTextColor: theme.muted
                                         selectByMouse: true
                                         background: Item {

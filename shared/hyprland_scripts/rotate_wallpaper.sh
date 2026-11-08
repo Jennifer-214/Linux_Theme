@@ -262,7 +262,23 @@ if command -v hyprctl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
         while IFS= read -r name; do
             [[ -z "$name" ]] && continue
             mon_pick="${monitor_pick[$name]:-$pick}"
-            if [[ "$mon_pick" == "$pick" ]]; then
+            if [[ "$filename" == foxml_paper_soft.png && -n "$PRIMARY" && "$name" != "$PRIMARY" ]]; then
+                companion=$(printf '%s' "$monitors_json" | jq -r --arg primary "$PRIMARY" --arg output "$name" '
+                    (map(select(.name == $primary)) | .[0].x) as $px |
+                    (map(select(.name == $output)) | .[0].x) as $x |
+                    if $px == null or $x == null then ""
+                    elif $x < $px then "foxml_paper_tree.png" else "foxml_paper_quiet.png" end')
+                if [[ -n "$companion" && -f "$WALL_DIR/$companion" ]]; then
+                    mon_pick="$WALL_DIR/$companion"
+                    for entry in $MONITOR_RESOLUTIONS; do
+                        if [[ "${entry%%:*}" == "$name" && -f "$WALL_DIR/${companion%.png}_${entry##*:}.png" ]]; then
+                            mon_pick="$WALL_DIR/${companion%.png}_${entry##*:}.png"
+                        fi
+                    done
+                    monitor_pick[$name]="$mon_pick"
+                fi
+            fi
+            if [[ "$mon_pick" == "$pick" || "$mon_pick" == "$WALL_DIR/foxml_paper_tree.png" || "$mon_pick" == "$WALL_DIR/foxml_paper_quiet.png" ]]; then
                 resize="crop"
             else
                 resize="fit"

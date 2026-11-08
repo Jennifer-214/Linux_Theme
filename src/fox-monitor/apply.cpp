@@ -10,8 +10,10 @@
 
 #include "../fox-common/shell.hpp"
 #include "../fox-common/ui.hpp"
+#include "../fox-common/json.hpp"
 
 #include <chrono>
+#include <map>
 #include <system_error>
 #include <thread>
 
@@ -90,6 +92,14 @@ std::string variant_for(const std::string& base, const std::string& res,
     return base;
 }
 
+std::string companion_for(const std::string& base, bool primary, bool left,
+                           const fs::path& wall_dir) {
+    if (base != "foxml_paper_soft.png" || primary) return base;
+    const std::string candidate = left ? "foxml_paper_tree.png" : "foxml_paper_quiet.png";
+    std::error_code ec;
+    return fs::is_regular_file(wall_dir / candidate, ec) ? candidate : base;
+}
+
 std::size_t apply_current(const sidecar::Layout& layout,
                           const fs::path& wall_dir, bool dry_run) {
     std::string base = current_base(wall_dir);
@@ -111,12 +121,25 @@ std::size_t apply_current(const sidecar::Layout& layout,
     }
 
     std::size_t applied = 0;
+    std::map<std::string, int> positions;
+    if (base == "foxml_paper_soft.png" && sh::have("hyprctl")) {
+        std::string output;
+        if (sh::capture({"hyprctl", "monitors", "-j"}, output)) {
+            const auto monitors = nlohmann::json::parse(output, nullptr, false);
+            if (monitors.is_array()) for (const auto& monitor : monitors)
+                if (monitor.is_object() && monitor.contains("name") && monitor["name"].is_string()
+                    && monitor.contains("x") && monitor["x"].is_number_integer())
+                    positions[monitor["name"].get<std::string>()] = monitor["x"].get<int>();
+        }
+    }
     for (const auto& entry : layout.monitor_resolutions) {
         std::string name, res;
         if (!parse_entry(entry, name, res)) continue;
 
         bool is_fallback = false;
-        std::string file = variant_for(base, res, wall_dir, is_fallback);
+        const auto selected = positions.count(layout.primary) && positions.count(name)
+            ? companion_for(base, name == layout.primary, positions[name] < positions[layout.primary], wall_dir) : base;
+        std::string file = variant_for(selected, res, wall_dir, is_fallback);
         const char* resize = is_fallback ? "crop" : "fit";
         fs::path img = wall_dir / file;
 

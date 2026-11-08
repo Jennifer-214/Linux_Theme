@@ -27,6 +27,10 @@ std::string variant_for(const std::string& base, const std::string& res,
                         const std::filesystem::path& wall_dir,
                         bool& is_fallback);
 
+// The Paper set follows physical placement, not connector names.
+std::string companion_for(const std::string& base, bool primary, bool left,
+                           const std::filesystem::path& wall_dir);
+
 // For each "name:WxH" in layout.monitor_resolutions, apply the current
 // wallpaper to that monitor via `awww img -o <name> <variant> --resize
 // <fit|crop> --transition-type fade ...`. The variant gets --resize fit

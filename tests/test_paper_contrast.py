@@ -48,6 +48,6 @@ class PaperContrast(unittest.TestCase):
                     kitty = (out/'kitty/kitty.conf').read_text()
                     if paper:
                         self.assertRegex(kitty, r'(?m)^dim_opacity\s+1\.0$')
-                        self.assertRegex(kitty, r'(?m)^background_opacity\s+0\.97$')
+                        self.assertRegex(kitty, r'(?m)^background_opacity\s+0\.70$')
 
 if __name__ == '__main__': unittest.main()

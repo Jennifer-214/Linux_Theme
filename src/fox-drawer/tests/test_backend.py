@@ -1040,6 +1040,19 @@ class BackendTests(unittest.TestCase):
         self.assertTrue(any("gio" in call and "launch" in call and str(desktop) in call for call in self.calls()))
         self.assertFalse((self.root / "injected").exists())
 
+    def test_find_anything_includes_project_device_and_latest_screenshot(self):
+        project = self.home/'code'/'Little Paper'
+        (project/'.git').mkdir(parents=True)
+        captures = self.home/'Pictures'/'Screenshots'
+        captures.mkdir(parents=True)
+        (captures/'capture.png').write_bytes(b'preview')
+        rows = self.invoke('view','search','Little Paper')['items']
+        self.assertTrue(any(row['id']=='project-open' and row['argument']==str(project) for row in rows))
+        rows = self.invoke('view','search','headphones')['items']
+        self.assertTrue(any(row['id']=='bluetooth-connect' and row['argument']=='AA:BB:CC:DD:EE:FF' for row in rows))
+        rows = self.invoke('view','search','last screenshot')['items']
+        self.assertTrue(any(row['id']=='screenshot-open' and row['argument']==str(captures/'capture.png') for row in rows))
+
     def test_hidden_desktop_file_not_offered(self):
         directory = self.home / ".local/share/applications"
         directory.mkdir(parents=True)

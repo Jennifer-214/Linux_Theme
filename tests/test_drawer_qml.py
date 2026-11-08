@@ -81,6 +81,11 @@ EXERCISE = r'''
             if (root.entries.length !== 2 || !root.failed || root.entries[root.itemIndex].id !== "usable") throw new Error("partial page was discarded");
             root.hide();
             if (root.opened) throw new Error("close did not hide panel");
+            root.show("search");
+            if (!root.searching || root.searchPage !== "search" || root.focusArea !== "items")
+                throw new Error("Find anything did not enter search directly");
+            root.goBack();
+            if (root.opened) throw new Error("Escape did not close directly opened search");
             root.show("root");
         }
     }

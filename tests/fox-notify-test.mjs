@@ -35,9 +35,9 @@ const argvText = (sent) => JSON.stringify(sent);
   await run(b, "completed");
   check(b.sent.length === 1, "a settled run pings once");
   const a = b.sent[0] || [];
-  check(a[0] === "notify-send" && a[1] === "-a" && a[2] === "pi", "notify-send -a pi");
-  check(!a.includes("-u"), "done is on the normal lane (no -u critical)");
-  check(a.at(-2) === "🦊 pi is ready" && /^📁 Linux_Theme · \d+s$/.test(a.at(-1)), `done: ${JSON.stringify(a.slice(-2))}`);
+  check(a[0] === "fox-work-notice" && a[1] === "agent" && a[2] === "pi", "persistent pi agent notice");
+  check(a[7] === "stop", "done is on the normal lane (no -u critical)");
+  check(a[3] === "🦊 pi is ready" && /^📁 Linux_Theme · \d+s$/.test(a[4]), `done: ${JSON.stringify(a.slice(3,5))}`);
 }
 { // a retry: agent_end twice, settled once → one ping (agent_end is not listened to)
   const b = boot();
@@ -55,7 +55,7 @@ const argvText = (sent) => JSON.stringify(sent);
 { // an error: a ping whatever the length
   const b = boot({ minSecs: 3600 });
   await run(b, "error");
-  check(b.sent.length === 1 && b.sent[0].at(-2) === "🦊 pi stopped on an error" && b.sent[0].at(-1) === "📁 Linux_Theme",
+  check(b.sent.length === 1 && b.sent[0][3] === "🦊 pi stopped on an error" && b.sent[0][4] === "📁 Linux_Theme",
         `an error pings at any length: ${argvText(b.sent)}`);
 }
 { // Escape: nothing, by either signal
@@ -80,8 +80,8 @@ for (const mode of ["print", "rpc", "json"]) { // only the terminal UI
   await sleep(DELAY * 3);
   check(b.sent.length === 1, `a dialog left open pings once (${b.sent.length})`);
   const a = b.sent[0] || [];
-  check(a.includes("-u") && a[a.indexOf("-u") + 1] === "critical", "a dialog notice is critical");
-  check(a.at(-2) === "🦊 pi needs your yes" && a.at(-1) === "📁 Linux_Theme", `needs your yes: ${JSON.stringify(a.slice(-2))}`);
+  check(a[7] === "notification", "a dialog notice is critical");
+  check(a[3] === "🦊 pi needs your yes" && a[4] === "📁 Linux_Theme", `needs your yes: ${JSON.stringify(a.slice(3,5))}`);
   check(!/rm -rf|secret|hunter2|Allow/.test(argvText(b.sent)), "the dialog's title never reaches the notice");
   await b.fire("ui_prompt_end", { kind: "confirm" });
 }
@@ -115,12 +115,12 @@ for (const kind of ["input", "editor", "custom"]) { // typing kinds: she is alre
   b.pi.events.emit("fox:approval", {});
   await b.fire("ui_prompt_start", { kind: "confirm" });
   await sleep(DELAY * 3);
-  check(b.sent.length === 1 && b.sent[0].at(-2) === "🦊 pi needs approval", `the hint: ${argvText(b.sent)}`);
+  check(b.sent.length === 1 && b.sent[0][3] === "🦊 pi needs approval", `the hint: ${argvText(b.sent)}`);
   await b.fire("ui_prompt_end", { kind: "confirm" });
   b.sent.length = 0; // …and only that one: the next dialog is "needs your yes"
   await b.fire("ui_prompt_start", { kind: "confirm" });
   await sleep(DELAY * 3);
-  check(b.sent.length === 1 && b.sent[0].at(-2) === "🦊 pi needs your yes", `a hint is used once: ${argvText(b.sent)}`);
+  check(b.sent.length === 1 && b.sent[0][3] === "🦊 pi needs your yes", `a hint is used once: ${argvText(b.sent)}`);
 }
 { // a stale hint (older than hintMs) is ignored
   const b = boot();
@@ -129,7 +129,7 @@ for (const kind of ["input", "editor", "custom"]) { // typing kinds: she is alre
   await sleep(HINT * 2);
   await b.fire("ui_prompt_start", { kind: "confirm" });
   await sleep(DELAY * 3);
-  check(b.sent.length === 1 && b.sent[0].at(-2) === "🦊 pi needs your yes", `a stale hint is ignored: ${argvText(b.sent)}`);
+  check(b.sent.length === 1 && b.sent[0][3] === "🦊 pi needs your yes", `a stale hint is ignored: ${argvText(b.sent)}`);
 }
 { // a hint consumed by a typing dialog does not carry to the next yes/no
   const b = boot();
@@ -139,7 +139,7 @@ for (const kind of ["input", "editor", "custom"]) { // typing kinds: she is alre
   await b.fire("ui_prompt_end", { kind: "input" });
   await b.fire("ui_prompt_start", { kind: "confirm" });
   await sleep(DELAY * 3);
-  check(b.sent.length === 1 && b.sent[0].at(-2) === "🦊 pi needs your yes", `a hint is the next dialog's only: ${argvText(b.sent)}`);
+  check(b.sent.length === 1 && b.sent[0][3] === "🦊 pi needs your yes", `a hint is the next dialog's only: ${argvText(b.sent)}`);
 }
 { // shutdown during a dialog: the timer is cleared, nothing fires later
   const b = boot();
@@ -153,7 +153,7 @@ for (const kind of ["input", "editor", "custom"]) { // typing kinds: she is alre
   const b = boot();
   await run(b, "error", false, b.live("tui", "/home/u/-x"));
   const a = b.sent[0] || [];
-  check(a.at(-2).startsWith("🦊") && a.at(-1).startsWith("📁 -x"), `no argv string after the flags starts with "-": ${JSON.stringify(a.slice(-2))}`);
+  check(a[3].startsWith("🦊") && a[4].startsWith("📁 -x"), `no argv string after the flags starts with "-": ${JSON.stringify(a.slice(3,5))}`);
 }
 { // notify-send missing: no throw out of a handler
   const b = boot();

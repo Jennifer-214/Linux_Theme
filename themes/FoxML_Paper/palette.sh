@@ -10,7 +10,7 @@
 THEME_TYPE=light
 NVIM_STYLE=day
 NVIM_BG=light
-KITTY_BG_OPACITY=0.97
+KITTY_BG_OPACITY=0.70
 POPUP_BG_OPACITY=0.98
 MAKO_ICON_THEME=Papirus-Light
 GTK_ICON_THEME=FoxML-Paper
@@ -23,7 +23,7 @@ FONT_FAMILY="MonaspiceKr Nerd Font"
 # `[[ "{{SHOW_WELCOME}}" == "true" ]]` check in templates/zsh/welcome.zsh.
 SHOW_WELCOME=true
 SHOW_BANNER=true
-WALLPAPER=foxml_paper_nap.jpg
+WALLPAPER=foxml_paper_soft.png
 
 # ─── Aesthetic controls ───
 # Light blur so the paper grain still shows through translucent windows.
@@ -286,7 +286,7 @@ SENTRY_CRIT=9a5a48
 SENTRY_WARN=1c1c1e
 SENTRY_OK=6e6d70
 SENTRY_DIM=76716e
-KITTY_OPACITY=0.97
+KITTY_OPACITY=0.70
 ANSI_WHITE=55555a
 ANSI_BLUE=55555a
 ANSI_BLUE_BRIGHT=6e6d70
@@ -395,7 +395,7 @@ FF_SELECTION_FG=1c1c1e
 # ─── Errors · warnings · syntax roles · Thunar · one sheet opacity ───
 # Paper: one error red (the symdeps terracotta 9a5a48), warnings in the darkest ink, graphite syntax
 # outside nvim too, the highlighter in Thunar, and handwritten notification titles.
-# Nearly opaque paper and undimmed text stay readable on lower-contrast displays.
+# Translucent terminal paper keeps the wallpaper visible; text stays undimmed.
 NVIM_WARN=1c1c1e
 NVIM_WARN_CURL=false
 NVIM_WARN_DASH=true

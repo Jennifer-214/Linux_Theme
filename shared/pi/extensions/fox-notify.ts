@@ -24,6 +24,7 @@ export function makeNotify({ delayMs = 5000, minSecs = 15, hintMs = 1000 } = {})
 		// stale…"). No handler below reads its ctx.
 		let tui = false;
 		let project = "";
+		let projectPath = "";
 		let started = 0;
 		let outcome: string | undefined; // agent_before_settle's: completed | aborted | error
 		let timer: ReturnType<typeof setTimeout> | undefined;
@@ -32,10 +33,11 @@ export function makeNotify({ delayMs = 5000, minSecs = 15, hintMs = 1000 } = {})
 		const look = (ctx: { hasUI: boolean; mode: string; cwd: string }) => {
 			tui = ctx.hasUI && ctx.mode === "tui";
 			project = basename(ctx.cwd || "") || "pi";
+			projectPath = ctx.cwd || "";
 		};
 		const send = (summary: string, body: string, critical = false) =>
 			pi
-				.exec("notify-send", ["-a", "pi", ...(critical ? ["-u", "critical"] : []), summary, `📁 ${body}`])
+				.exec("fox-work-notice", ["agent", "pi", summary, `📁 ${body}`, projectPath, process.env.TMUX_PANE || "", critical ? "notification" : "stop"])
 				.catch(() => {}); // no notify-send, no daemon: a notice is a courtesy, never an error in her session
 		const clear = () => {
 			if (timer) clearTimeout(timer);

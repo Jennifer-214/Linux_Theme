@@ -27,9 +27,10 @@ class AgentNotifyTest(unittest.TestCase):
         self.run_dir.mkdir(mode=0o700)
         self.bin.mkdir()
         (self.bin / "notify-send").write_text("#!/bin/sh\nexit 0\n")
+        (self.bin / "fox-work-notice").write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$XDG_RUNTIME_DIR/notice-args"\n')
         # display-message -t <pane> names that pane's own target
         (self.bin / "tmux").write_text('#!/bin/sh\ncase "$*" in *"-t %7"*) echo s:1.2 ;; *"-t %8"*) echo s:1.3 ;; esac\n')
-        for name in ("notify-send", "tmux"):
+        for name in ("notify-send", "tmux", "fox-work-notice"):
             (self.bin / name).chmod(0o755)
         self.queue = self.run_dir / "foxml-agent-queue.jsonl"
 
@@ -44,6 +45,13 @@ class AgentNotifyTest(unittest.TestCase):
 
     def notes(self):
         return [json.loads(line) for line in self.queue.read_text().splitlines()]
+
+    def test_completed_and_blocked_turns_use_nonblocking_actionable_notices(self):
+        for event in ('stop', 'notification'):
+            self.assertEqual(self.hook(event).returncode, 0)
+            args = (self.run_dir / 'notice-args').read_text().splitlines()
+            self.assertEqual(args[:2], ['agent', 'Claude'])
+            self.assertEqual(args[-3:], ['/x/paper', '%7', event])
 
     def test_one_note_per_pane_and_seen_clears_it(self):
         stale = {"event": "stop", "tmux": "z:9.9", "pane": "%99", "epoch": int(time.time()) - 13 * 3600}

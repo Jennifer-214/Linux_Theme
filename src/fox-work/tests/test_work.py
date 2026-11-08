@@ -272,7 +272,10 @@ class Work(unittest.TestCase):
             rows = [json.loads(line) for line in calls.read_text().splitlines()]
             notices = [r for r in rows if Path(r[0]).name=='setsid']
             self.assertEqual(len(notices),1)
-            self.assertEqual(notices[0][-3:],['User service failed','service','ask-service'])
+            self.assertEqual(notices[0][-4:],['User service failed','service','ask-service','service'])
+            self.assertIn('--expire-time=0',notices[0][4])
+            self.assertIn('--category=foxml.work',notices[0][4])
+            self.assertIn('--action=default=',notices[0][4])
             self.assertNotIn("--action=jump",notices[0][4])
             units.write_text('')
             self.data('notify-services')
