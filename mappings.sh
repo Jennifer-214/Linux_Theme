@@ -167,6 +167,7 @@ SHARED_MAPPINGS=(
     "claude/mods/foxml-paper/hooks/hooks.json|~/.claude/mods/foxml-paper/hooks/hooks.json"
     "claude/mods/foxml-paper/hooks/register.tsx|~/.claude/mods/foxml-paper/hooks/register.tsx"
     "claude/mods/foxml-paper/types/index.d.ts|~/.claude/mods/foxml-paper/types/index.d.ts"
+    "claude/commands/goodnight.md|~/.claude/commands/goodnight.md"
 
     # ReGreet (login screen — needs sudo to install to /etc/greetd/)
     # "regreet.toml|/etc/greetd/regreet.toml"

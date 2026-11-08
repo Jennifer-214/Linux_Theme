@@ -66,7 +66,7 @@ if args[0] == "view":
     elif page == "agents":
         data.update(title="Agent notes", group="desk",
                     items=[dict(id="claude-jump", label="Linux_Theme · Opus 5.5", kind="action", presentation="claude", icon="message",
-                                claudeState="working", context=41, argument="%3", detail="41% of its context", enabled=True),
+                                claudeState="working", context=41, argument="%3", detail="41% of its context", enabled=True, fresh=True),
                            dict(id="claude-jump", label="Trader · Opus 5.5", kind="action", presentation="claude", icon="message",
                                 claudeState="needs you", context=88, argument="%4", detail="88% of its context", enabled=True)])
     elif page == "garden":
@@ -77,7 +77,8 @@ if args[0] == "view":
         data["items"][2]["summary"] = "42% · speakers"
         data["today"] = dict(battery="80%", batteryState="discharging", notes=2, todo="water the fern",
                              waiting=[dict(project="Paper notebook", argument="sample-agent", asking=False)],
-                             claudeWorking=2, claudeUsage="17% of the week left · refills sun", claudeBerry=True)
+                             claudeWorking=2, claudeUsage="17% of the week left · refills sun", claudeBerry=True,
+                             claudeMinutes=130, claudeWeekLeft=17)
     print(json.dumps(data))
 else:
     with open(os.environ["FOXML_DRAWER_TEST_LOG"], "a") as stream:

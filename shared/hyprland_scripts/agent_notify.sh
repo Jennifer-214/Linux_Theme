@@ -5,9 +5,9 @@
 # Usage:
 #   agent_notify.sh <source> <event>
 #     <source>: claude
-#     <event>:  stop | subagent | notification | seen | compact | compacted | failed | ended
+#     <event>:  stop | subagent | notification | seen | started | compact | compacted | failed | ended
 #               (seen: you replied in this pane, so its note is cleared — no popup;
-#                compact … ended only record what the session is doing, for the drawer)
+#                started … ended only record what the session is doing, for the drawer)
 #
 # Theme: hex colors are sourced from ~/.config/hypr/modules/border_colors.sh
 # (rendered by render.sh from the active palette), so a palette swap takes
@@ -71,7 +71,7 @@ if [[ -n "$input" ]] && command -v jq >/dev/null 2>&1; then
     cwd="$(printf '%s' "$input" | jq -r '.cwd // empty' 2>/dev/null)" || cwd=""
     tool_name="$(printf '%s' "$input" | jq -r '.tool_name // empty' 2>/dev/null)" || tool_name=""
     session_id="$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)" || session_id=""
-    trigger="$(printf '%s' "$input" | jq -r '.trigger // .error // empty' 2>/dev/null)" || trigger=""
+    trigger="$(printf '%s' "$input" | jq -r '.trigger // .error // .source // empty' 2>/dev/null)" || trigger=""
     session_name="$(printf '%s' "$input" | jq -r '.session_title // empty | gsub("[[:cntrl:]]"; " ") | .[0:80]' 2>/dev/null)" || session_name=""
 fi
 
@@ -138,24 +138,36 @@ record_state() {
     # Not every event carries the title Claude Code gave the session; keep the last one.
     [[ -z "$name" && -r "$file" ]] && name="$(jq -r '.title // empty' "$file" 2>/dev/null)"
     tmp="$(umask 077; mktemp "$file.XXXXXX")" || return 0
+    local epoch; epoch="$(date +%s)"
     if jq -cn --arg state "$1" --arg detail "${2:-}" --arg pane "$tmux_pane" --arg cwd "$cwd" \
-            --arg title "$name" --argjson epoch "$(date +%s)" \
+            --arg title "$name" --argjson epoch "$epoch" \
             '{state:$state, detail:$detail, pane:$pane, cwd:$cwd, epoch:$epoch}
              + (if $title == "" then {} else {title:$title} end)' > "$tmp" 2>>"$LOG_FILE"; then
         mv -f "$tmp" "$file"
     else
         rm -f "$tmp"
     fi
+    # Today's tally: one line per change, so the drawer can add up the time spent working.
+    ( umask 077; printf '%s %s %s\n' "$session_id" "$1" "$epoch" >> "$session_dir/tally-$(date +%F)" ) 2>/dev/null
 }
 case "$event" in
     seen)         record_state working ;;
+    # A new session counts at once; one restarted by a compaction is the compacted event's to say.
+    started)
+        [[ "$trigger" == "compact" ]] && exit 0
+        record_state waiting
+        find "$session_dir" -maxdepth 1 -name 'tally-*' ! -name "tally-$(date +%F)" -delete 2>/dev/null
+        exit 0 ;;
     stop)         record_state waiting ;;
     notification) record_state needs ;;
     compact)      record_state compacting; exit 0 ;;
-    compacted)    if [[ "$trigger" == "manual" ]]; then record_state waiting; else record_state working; fi; exit 0 ;;
+    # "fresh": the context was just tidied, so the status line sparkles for a moment.
+    compacted)    if [[ "$trigger" == "manual" ]]; then record_state waiting fresh; else record_state working fresh; fi; exit 0 ;;
     failed)       record_state error "$trigger"; exit 0 ;;
     ended)
-        [[ "$session_id" =~ ^[A-Za-z0-9_-]{1,80}$ ]] && rm -f "$session_dir/$session_id.state" "$session_dir/$session_id.json"
+        [[ "$session_id" =~ ^[A-Za-z0-9_-]{1,80}$ ]] || exit 0
+        rm -f "$session_dir/$session_id.state" "$session_dir/$session_id.json"
+        [[ -d "$session_dir" ]] && ( umask 077; printf '%s ended %s\n' "$session_id" "$(date +%s)" >> "$session_dir/tally-$(date +%F)" ) 2>/dev/null
         exit 0 ;;
 esac
 

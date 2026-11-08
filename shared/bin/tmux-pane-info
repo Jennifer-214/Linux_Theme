@@ -1,10 +1,25 @@
 #!/bin/bash
 # Refined pane info for tmux border
-# Usage: tmux-pane-info <path> <command> <active_flag>
+# Usage: tmux-pane-info <path> <command> [pane id]
 
 path="${1:-$PWD}"
 cmd="${2:-}"
-active="${3:-0}"
+pane="${3:-}"
+
+# 0. A Claude session in this pane: ♡ while it needs you, ✿ while it works (from the hooks' state files;
+#    the footer's own ✎ already marks the active pane).
+claude=""
+if [[ "$pane" =~ ^%[0-9]+$ ]]; then
+    case "$cmd" in zsh|bash|fish|sh|dash|nu|tmux|"") ;; *)
+        sessions="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/foxml-claude"
+        for state in $(grep -l -E "\"pane\": *\"$pane\"" "$sessions"/*.state 2>/dev/null | xargs -r ls -t 2>/dev/null | head -1); do
+            case "$(grep -o -E '"state": *"[a-z]*"' "$state")" in
+                *'"needs"')                   claude="♡  " ;;
+                *'"working"'|*'"compacting"') claude="✿  " ;;
+            esac
+        done ;;
+    esac
+fi
 
 # 1. Shortened Path (just the last two segments if long)
 # ~/code/Linux_Theme -> .../Linux_Theme
@@ -72,4 +87,4 @@ res="$short_path  $sep  $cmd"
 [[ -n "$env_info" ]] && res="$res  $sep  $env_info"
 [[ -n "$git_info" ]] && res="$res  $sep  $git_info"
 
-echo " $res "
+echo " $claude$res "

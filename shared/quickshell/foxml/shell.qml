@@ -1307,6 +1307,7 @@ ShellRoot {
                                                     objectName: "context-hearts"
                                                     theme: root.paperTheme
                                                     percent: modelData.presentation === "claude" && modelData.context !== undefined ? Number(modelData.context) : -1
+                                                    fresh: modelData.fresh === true
                                                 }
                                                 PencilProgress {
                                                     id: ruler

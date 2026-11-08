@@ -238,8 +238,11 @@ EXERCISE = r'''
             throw new Error("Today lost its waiting agent, working count or battery tag: " + JSON.stringify(texts));
         if (testFind(todaySheet, "today-since").text !== "✎ 3 commits since this morning") throw new Error("the commits line is missing");
         var usage = testFind(todaySheet, "today-claude");
-        if (!usage || usage.text !== "Claude · 17% of the week left · refills sun" || !Qt.colorEqual(usage.color, theme.gardenShades[4]))
+        if (!usage || usage.text !== "Claude · 2h 10m today · 17% of the week left · refills sun" || !Qt.colorEqual(usage.color, theme.gardenShades[4]))
             throw new Error("the Claude usage line is missing or not berry past 80%");
+        var teacup = testFind(todaySheet, "today-teacup");
+        if (!teacup || !teacup.visible || teacup.remaining !== 17 || Math.abs(teacup.level - 0.17) > 0.001)
+            throw new Error("the teacup is missing or not filled to what is left");
         root.focusArea = "items"; root.itemIndex = 0;
         root.key({key: Qt.Key_K, modifiers: 0, accepted: false});
         if (root.focusArea !== "tags" || root.tagIndex !== 0 || todaySheet.selectedTag !== 0) throw new Error("k from the first favorite did not reach the tags");
@@ -290,6 +293,8 @@ EXERCISE = r'''
         var hearts = testFind(itemList, "context-hearts");
         if (root.entries.length !== 2 || !hearts || !hearts.visible || hearts.filled !== 2)
             throw new Error("a Claude session row lost its context hearts: " + root.page + " " + root.entries.length + " " + (hearts ? hearts.visible + "/" + hearts.filled : "none"));
+        if (!hearts.fresh || !hearts.sparkling || !testFind(hearts, "context-sparkle"))
+            throw new Error("a freshly tidied session did not sparkle: " + hearts.fresh + " " + hearts.sparkling);
         root.activate(root.entries[1]);
         if (JSON.stringify(actionProcess.command.slice(-3)) !== JSON.stringify(["run","claude-jump","%4"]))
             throw new Error("picking a session did not jump to its pane: " + JSON.stringify(actionProcess.command));
@@ -346,7 +351,7 @@ class DrawerQmlTest(unittest.TestCase):
             source = re.sub(r"^        (?:anchors \{.*|margins \{.*|exclusionMode:.*|WlrLayershell\..*)\n", "", source, flags=re.M)
             source = source.rsplit("\n}", 1)[0] + EXERCISE + "\n}\n"
             (directory / "shell.qml").write_text(source)
-            for name in ("DrawerLogic.js", "ClipIcon.qml", "LoadingDots.qml", "PencilProgress.qml", "PaperGrain.qml", "BarHint.qml", "PageEdgeScrollBar.qml", "MediaArtwork.qml", "StateTag.qml", "BarRibbon.qml", "PaperFlourish.qml", "PaperCardSurface.qml", "ClipboardPhoto.qml", "CalendarSheet.qml", "CalendarLogic.js", "ScrapbookSheet.qml", "GardenSheet.qml", "ContextHearts.qml", "TodaySheet.qml", "VolumeSlip.qml"):
+            for name in ("DrawerLogic.js", "ClipIcon.qml", "LoadingDots.qml", "PencilProgress.qml", "PaperGrain.qml", "BarHint.qml", "PageEdgeScrollBar.qml", "MediaArtwork.qml", "StateTag.qml", "BarRibbon.qml", "PaperFlourish.qml", "PaperCardSurface.qml", "ClipboardPhoto.qml", "CalendarSheet.qml", "CalendarLogic.js", "ScrapbookSheet.qml", "GardenSheet.qml", "ContextHearts.qml", "TeaCup.qml", "TodaySheet.qml", "VolumeSlip.qml"):
                 shutil.copyfile(ROOT / "shared/quickshell/foxml" / name, directory / name)
             volume = (directory / "VolumeSlip.qml").read_text().replace("PanelWindow {", "FloatingWindow {")
             volume = re.sub(r"^    (?:anchors.*|margins\..*|exclusionMode:.*|WlrLayershell\..*)\n", "", volume, flags=re.M)

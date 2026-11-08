@@ -174,8 +174,8 @@ void test_user_settings() {  // S10b: do_claude_hooks' merge, through the functi
     check(!src.empty(), "modules/specials.cpp readable (the test runs from src/fox-install)");
     check(src.find("merge_user_settings(existing, hooks, custom_theme, status_line, paper_mod)") != std::string::npos, "do_claude_hooks calls merge_user_settings");
     check(src.find("agent_notify.sh claude seen") != std::string::npos, "replying in a pane clears its note (UserPromptSubmit)");
-    for (const char* event : {"claude compact\"", "claude compacted\"", "claude failed\"", "claude ended\""})
-        check(src.find(std::string("agent_notify.sh ") + event) != std::string::npos, "session state hooks wired (compact, failure, end)");
+    for (const char* event : {"claude started\"", "claude compact\"", "claude compacted\"", "claude failed\"", "claude ended\""})
+        check(src.find(std::string("agent_notify.sh ") + event) != std::string::npos, "session state hooks wired (start, compact, failure, end)");
     check(src.find(".merge_patch(hooks)") == std::string::npos, "no merge-patch of the hooks left in specials.cpp");
 }
 

@@ -28,6 +28,14 @@ function redZoneOf(command: string): string | null {
   return command.match(RED_TOOLS)?.[2]?.split(/\s+/)[0] ?? null
 }
 
+// The cat says hello by the hour.
+function greeting(hour: number): string {
+  if (hour >= 5 && hour < 12) return 'good morning ♡ ᓚᘏᗢ'
+  if (hour >= 12 && hour < 18) return 'good afternoon ♡ ᓚᘏᗢ'
+  if (hour >= 18 && hour < 23) return 'good evening ♡ ᓚᘏᗢ'
+  return 'up late? be gentle with yourself ♡ ᓚᘏᗢ'
+}
+
 function hearts(percent: number | null): number {
   return percent === null ? 0 : Math.min(5, Math.floor((percent * 5 + 50) / 100))
 }
@@ -117,7 +125,10 @@ export const register: Register = on => {
     const started = await next(e)
     await $.command.register({ name: 'notebook', description: 'Open the paper notebook beside the chat' })
     // Only where someone is looking: a headless run (claude -p) has nowhere to put a pane.
-    if (e.isInteractive) void $.ui.open({ id: PANE, title: 'notebook' })
+    if (e.isInteractive) {
+      void $.ui.open({ id: PANE, title: 'notebook' })
+      $.ui.toast(greeting(new Date().getHours()))
+    }
     void refresh($)
     $.clock.every(20000, () => void refresh($))
     return started

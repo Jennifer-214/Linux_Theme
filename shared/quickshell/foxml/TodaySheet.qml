@@ -75,11 +75,16 @@ ColumnLayout {
         Accessible.role: Accessible.Button; Accessible.name: "Open the commit garden"
     }
     Text { objectName: "today-since"; visible: text.length > 0; text: Logic.sinceLine(sheet.commitsToday); textFormat: Text.PlainText; color: sheet.theme.muted; font.family: sheet.theme.fontFamily; font.pixelSize: 11; Layout.fillWidth: true }
-    // Claude plan usage: berry from 80%, the colour of the garden's busiest days.
-    Text {
-        objectName: "today-claude"; visible: text.length > 0; text: Logic.claudeLine(sheet.today.claudeUsage); textFormat: Text.PlainText
-        color: sheet.today.claudeBerry ? sheet.theme.gardenShades[4] : sheet.theme.muted; font.weight: sheet.today.claudeBerry ? Font.DemiBold : Font.Normal
-        font.family: sheet.theme.fontFamily; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight
+    // Claude: the time spent today and what is left of the week, beside a teacup of it; berry from 80%.
+    RowLayout {
+        visible: claudeText.text.length > 0; spacing: 5; Layout.fillWidth: true
+        TeaCup { objectName: "today-teacup"; theme: sheet.theme; remaining: sheet.today.claudeWeekLeft === undefined ? -1 : Number(sheet.today.claudeWeekLeft) }
+        Text {
+            id: claudeText
+            objectName: "today-claude"; text: Logic.claudeLine(sheet.today.claudeUsage, sheet.today.claudeMinutes); textFormat: Text.PlainText
+            color: sheet.today.claudeBerry ? sheet.theme.gardenShades[4] : sheet.theme.muted; font.weight: sheet.today.claudeBerry ? Font.DemiBold : Font.Normal
+            font.family: sheet.theme.fontFamily; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight
+        }
     }
     Text { visible: sheet.favorites > 0; text: "a few favorites."; textFormat: Text.PlainText; color: sheet.theme.muted; font.family: sheet.theme.headingFont; font.italic: true; font.pixelSize: 14; Layout.topMargin: 3 }
 }

@@ -47,8 +47,17 @@ function sinceLine(count) {
 }
 
 // Claude plan usage, as the backend words it; quiet when the plan reports none.
-function claudeLine(usage) {
-    return usage ? "Claude · " + usage : "";
+// "2h 10m today": the time Claude spent working today, quiet below a minute.
+function claudeTime(minutes) {
+    var total = Math.floor(Number(minutes) || 0);
+    if (total < 1) return "";
+    var hours = Math.floor(total / 60), rest = total % 60;
+    return (hours ? hours + "h" + (rest ? " " + rest + "m" : "") : rest + "m") + " today";
+}
+
+function claudeLine(usage, minutes) {
+    var parts = [claudeTime(minutes), usage || ""].filter(function(part) { return part.length > 0; });
+    return parts.length ? "Claude · " + parts.join(" · ") : "";
 }
 
 function heartLine(count) {

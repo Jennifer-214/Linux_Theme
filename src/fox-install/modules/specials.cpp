@@ -392,6 +392,11 @@ void do_claude_hooks(const Context& ctx) {
                 {"hooks", {{ {"type","command"},
                              {"command","~/.config/hypr/scripts/agent_notify.sh claude failed"} }}}
             }}},
+            {"SessionStart", {{
+                {"matcher", ""},
+                {"hooks", {{ {"type","command"},
+                             {"command","~/.config/hypr/scripts/agent_notify.sh claude started"} }}}
+            }}},
             {"SessionEnd", {{
                 {"matcher", ""},
                 {"hooks", {{ {"type","command"},

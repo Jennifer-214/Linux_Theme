@@ -54,6 +54,22 @@ if [[ "$ctx" =~ ^[0-9]+$ ]]; then
     add "$hearts $DIM$ctx%$RESET" "$bare $ctx%"
 fi
 
+# What the hooks last said of this session: a cat naps while it waits on you, it tidies while compacting,
+# and a page just tidied sparkles for a minute and a half.
+state="" detail="" since=0
+if [[ -n "$sid" && -r "$XDG_RUNTIME_DIR/foxml-claude/$sid.state" ]]; then
+    IFS=$'\t' read -r state detail since < <(jq -r '[.state // "", .detail // "", .epoch // 0] | @tsv' \
+        "$XDG_RUNTIME_DIR/foxml-claude/$sid.state" 2>/dev/null)
+fi
+[[ "$since" =~ ^[0-9]+$ ]] || since=0
+if [[ "$state" == "compacting" ]]; then
+    add "${DIM}tidying ✧$RESET" "tidying ✧"
+elif [[ "$detail" == "fresh" ]] && (( now - since < 90 )); then
+    add "${HEART}✧ a fresh page$RESET" "✧ a fresh page"
+elif [[ "$state" == "waiting" || "$state" == "needs" ]]; then
+    add "${FAINT}ᓚᘏᗢ$RESET" "ᓚᘏᗢ"
+fi
+
 # Plan usage turns berry from 80%, and then says when it resets.
 usage() {
     local label="$1" used="$2" resets="$3" format="$4" when=""
@@ -78,14 +94,14 @@ if [[ -n "$sid" && -r "$project/.claude/.plan-approved" ]] && grep -q "^$sid " "
     add "${ACCENT}gate open$RESET" "gate open"
 fi
 
-# Narrow panes drop the branch first, then the week, then the five hours; the model and hearts stay.
+# Narrow panes drop the branch first, then the cat's note, the week and the five hours; the model and hearts stay.
 width="${COLUMNS:-200}"
 fits() {
     local total=0 i
     for i in "${!plain[@]}"; do [[ -n "${plain[$i]}" ]] && total=$(( total + ${#plain[$i]} + 3 )); done
     (( total <= width ))
 }
-for drop in "⎇ " "week " "5h "; do
+for drop in "⎇ " "ᓚᘏᗢ" "tidying" "✧ a fresh" "week " "5h "; do
     fits && break
     for i in "${!plain[@]}"; do
         [[ "${plain[$i]}" == "$drop"* ]] && { parts[$i]=""; plain[$i]=""; }

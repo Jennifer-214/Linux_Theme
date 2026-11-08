@@ -416,6 +416,46 @@ class BackendTests(unittest.TestCase):
         result=subprocess.run([str(BINARY),"claude-bar"],env=self.env,capture_output=True,text=True,timeout=10)
         self.assertEqual(json.loads(result.stdout),{"class":[],"text":"","tooltip":""},"no sessions: the pill folds away")
 
+    def test_today_adds_up_the_time_with_claude_and_fills_the_teacup(self):
+        self.env.pop("TMUX",None)
+        sessions=Path(self.env["XDG_RUNTIME_DIR"])/"foxml-claude"
+        sessions.mkdir()
+        now=int(time.time())
+        (sessions/"t1.state").write_text(json.dumps({"state":"working","pane":"%1","epoch":now,"detail":"fresh"}))
+        (sessions/"t1.json").write_text(json.dumps({"context":12,"week":{"used":24,"resets":now+86400},"pane":"%1","epoch":now}))
+        self.state.update(panes="%1\tclaude"); self.state_path.write_text(json.dumps(self.state))
+        day=time.strftime("%Y-%m-%d")
+        (sessions/f"tally-{day}").write_text("\n".join([
+            f"t0 working {now-7200}", f"t0 waiting {now-6000}",     # 20 minutes, done
+            f"t0 working {now-5000}", f"t0 ended {now-4400}",       # 10 more, ended
+            f"gone working {now-3000}",                            # never closed, no longer live: not counted
+            "bad line", f"t1 waiting {now-900}", f"t1 working {now-600}"]) + "\n")  # 10 minutes and still going
+        today=self.invoke("view","root")["today"]
+        self.assertEqual((today["claudeMinutes"],today["claudeWeekLeft"]),(40,76))
+        rows=[row for row in self.invoke("view","agents")["items"] if row["id"]=="claude-jump"]
+        self.assertTrue(rows[0]["fresh"],"a page tidied a moment ago sparkles")
+        (sessions/"t1.json").write_text(json.dumps({"context":12,"pane":"%1","epoch":now}))
+        self.assertEqual(self.invoke("view","root")["today"]["claudeWeekLeft"],-1,"no reading, no teacup")
+
+    def test_the_bar_says_all_done_when_the_last_session_stops(self):
+        self.env.pop("TMUX",None)
+        sessions=Path(self.env["XDG_RUNTIME_DIR"])/"foxml-claude"
+        sessions.mkdir()
+        now=int(time.time())
+        def bar(state):
+            (sessions/"d1.state").write_text(json.dumps({"state":state,"pane":"%1","epoch":now}))
+            self.state.update(panes="%1\tclaude"); self.state_path.write_text(json.dumps(self.state))
+            return json.loads(subprocess.run([str(BINARY),"claude-bar"],env=self.env,capture_output=True,text=True,timeout=10).stdout)
+        self.assertEqual(bar("waiting")["text"],"◇ 1","nothing finished yet")
+        self.assertEqual(bar("working")["text"],"✎ 1")
+        done=bar("waiting")
+        self.assertEqual((done["text"],"done" in done["class"]),("♡ all done  ◇ 1",True))
+        self.assertEqual(bar("waiting")["text"],"♡ all done  ◇ 1","every bar's poll sees the same moment")
+        memo=json.loads((sessions/".bar-memo").read_text())
+        (sessions/".bar-memo").write_text(json.dumps({"busy":0,"doneUntil":memo["doneUntil"]-60}))
+        self.assertEqual(bar("waiting")["text"],"◇ 1","and then it folds away")
+        self.assertEqual((sessions/".bar-memo").stat().st_mode & 0o777,0o600)
+
     def test_the_next_waiting_session_comes_round_in_turn(self):
         self.env.pop("TMUX",None)
         sessions=Path(self.env["XDG_RUNTIME_DIR"])/"foxml-claude"

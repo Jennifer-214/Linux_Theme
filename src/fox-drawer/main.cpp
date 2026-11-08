@@ -832,6 +832,7 @@ struct ClaudeSession {
     // Claude Code's own title for the session when it has given one, else the folder.
     std::string name() const { return title.empty() ? project : title; }
     long long epoch = 0;
+    bool fresh = false;  // its context was tidied a moment ago: the hearts sparkle
 };
 struct ClaudeUsage { int five = -1, week = -1; long long five_resets = 0, week_resets = 0; };
 fs::path claude_dir() { return agent_queue().parent_path() / "foxml-claude"; }
@@ -889,6 +890,7 @@ std::vector<ClaudeSession> claude_sessions(ClaudeUsage& usage) {
         session.state = text(word, "state", "waiting");
         session.detail = text(word, "detail");
         session.title = text(word, "title");
+        session.fresh = text(word, "detail") == "fresh" && now - stamp(word, "epoch") < 90;
         if (session.title.size() > 80 || !safe_text(session.title)) session.title.clear();
         sessions.push_back(session);
         // Plan usage is the account's, so the freshest look that has it speaks for every session.
@@ -926,6 +928,32 @@ std::string claude_usage_line(const ClaudeUsage& usage) {
     if (usage.week >= 0) line += (line.empty() ? "" : " · ") + std::to_string(usage.week) + "% this week" + (usage.week >= 80 ? " · resets " + when(usage.week_resets, "%a") : "");
     return line;
 }
+// Minutes Claude spent working today, from the hooks' tally: each working or compacting stretch runs to the
+// session's next change, and a stretch still open counts up to now while that session still works.
+int claude_minutes_today(const std::vector<ClaudeSession>& live) {
+    char day[16] = {}; const std::time_t now = std::time(nullptr);
+    std::strftime(day, sizeof day, "%Y-%m-%d", std::localtime(&now));
+    const auto tally = claude_dir() / (std::string("tally-") + day);
+    std::error_code ec;
+    if (!fs::is_regular_file(tally, ec) || fs::file_size(tally, ec) > 4 * 1024 * 1024) return 0;
+    std::map<std::string, std::pair<std::string, long long>> open;
+    long long seconds = 0;
+    const auto busy = [](const std::string& state) { return state == "working" || state == "compacting"; };
+    for (const auto& line : lines(read(tally))) {
+        std::istringstream fields(line);
+        std::string id, state; long long at = 0;
+        if (!(fields >> id >> state >> at) || at <= 0) continue;
+        auto found = open.find(id);
+        if (found != open.end() && busy(found->second.first) && at >= found->second.second) seconds += at - found->second.second;
+        open[id] = {state, at};
+    }
+    for (const auto& [id, last] : open) {
+        if (!busy(last.first)) continue;
+        for (const auto& session : live)
+            if (session.id == id && claude_busy(session)) { seconds += std::max(0LL, static_cast<long long>(now) - last.second); break; }
+    }
+    return static_cast<int>(seconds / 60);
+}
 // Today's line counts what is left: the week first, and the five hours once they run low.
 std::string claude_left_line(const ClaudeUsage& usage) {
     const auto when = [](long long resets, const char* format) {
@@ -955,7 +983,21 @@ Json claude_bar() {
         else if (session.state == "error") ++stopped;
         else { ++waiting; asking = asking || session.state == "needs"; }
     }
-    std::string text;
+    // The moment the last busy session stops, every bar says so for a few seconds. Each monitor's bar polls on
+    // its own, so the moment is kept in a small file beside the sessions rather than in any one bar.
+    bool done = false;
+    if (directory(claude_dir())) {
+        const auto memo_path = claude_dir() / ".bar-memo";
+        const auto memo = Json::parse(read(memo_path), nullptr, false);
+        const int was = memo.is_object() ? whole(memo, "busy") : 0;
+        long long until = memo.is_object() ? stamp(memo, "doneUntil") : 0;
+        const long long now = static_cast<long long>(std::time(nullptr));
+        if (was > 0 && busy == 0 && !sessions.empty()) until = now + 6;
+        done = busy == 0 && until > now && !sessions.empty();
+        if (was != busy || (memo.is_object() ? stamp(memo, "doneUntil") : 0) != until)
+            write_atomic(memo_path, Json{{"busy", busy}, {"doneUntil", until}}.dump() + "\n");
+    }
+    std::string text = done ? "♡ all done" : "";
     if (busy) text += "✎ " + std::to_string(busy);
     if (waiting) text += (text.empty() ? "" : "  ") + std::string("◇ ") + std::to_string(waiting);
     if (stopped) text += (text.empty() ? "" : "  ") + std::string("! ") + std::to_string(stopped);
@@ -973,6 +1015,7 @@ Json claude_bar() {
     if (asking) classes.push_back("asking");
     if (usage.five >= 80 || usage.week >= 80) classes.push_back("berry");
     if (stopped) classes.push_back("stopped");
+    if (done) classes.push_back("done");
     return Json{{"text", text}, {"tooltip", tooltip}, {"class", classes}};
 }
 // The lock screen's line: what is still going on while you are away. Empty when nothing is.
@@ -1524,9 +1567,13 @@ Json today_summary() {
     }
     ClaudeUsage usage;
     int busy = 0;
-    for (const auto& session : claude_sessions(usage)) busy += claude_busy(session);
+    const auto sessions = claude_sessions(usage);
+    for (const auto& session : sessions) busy += claude_busy(session);
     today["claudeWorking"] = busy;
     today["claudeUsage"] = claude_left_line(usage);
+    today["claudeMinutes"] = claude_minutes_today(sessions);
+    // The teacup: how much of the week is left, or -1 when there is no reading.
+    today["claudeWeekLeft"] = usage.week >= 0 ? std::max(0, 100 - usage.week) : -1;
     today["claudeBerry"] = usage.five >= 80 || usage.week >= 80;
     for (const auto& line : lines(read(fs::path(home()) / ".todo"))) if (!trim(line).empty()) { today["todo"] = trim(line); break; }
     std::error_code ec;
@@ -1788,7 +1835,7 @@ Json view(const Json& config, const std::string& page, const std::string& query)
             auto row = item("claude-jump", session.name() + " · " + session.model, "action",
                             session.title.empty() ? measured : session.project + " · " + measured, "message");
             row["argument"] = session.pane; row["presentation"] = "claude"; row["claudeState"] = claude_state_text(session);
-            row["context"] = session.context; row["enabled"] = !session.pane.empty();
+            row["context"] = session.context; row["fresh"] = session.fresh; row["enabled"] = !session.pane.empty();
             if (session.pane.empty()) row["disabledReason"] = "Not in a tmux pane, so there is nowhere to jump";
             rows.push_back(row);
         }

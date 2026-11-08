@@ -91,9 +91,29 @@ class AgentNotifyTest(unittest.TestCase):
         self.assertEqual((idle.returncode, state()["state"]), (0, "compacting"), "an idle reminder changes nothing")
         (sessions / "abc-1.json").write_text("{}")
         self.state_hook("ended", {"session_id": "abc-1", "reason": "prompt_input_exit"})
-        self.assertEqual(list(sessions.iterdir()), [], "an ended session leaves nothing behind")
+        self.assertEqual([p.name for p in sessions.iterdir() if not p.name.startswith("tally-")], [], "an ended session leaves nothing behind")
         self.state_hook("seen", {"session_id": "../escape"})
         self.assertFalse((self.run_dir / "escape.state").exists(), "a session id is never a path")
+
+    def test_starts_fresh_pages_and_the_days_tally(self):
+        sessions = self.run_dir / "foxml-claude"
+        state = lambda: json.loads((sessions / "t-1.state").read_text())
+        sessions.mkdir(mode=0o700)
+        (sessions / "tally-2020-01-01").write_text("old 1 2\n")
+        started = self.state_hook("started", {"session_id": "t-1", "source": "startup"})
+        self.assertEqual((started.returncode, started.stdout), (0, ""), "SessionStart output would reach the agent")
+        self.assertEqual(state()["state"], "waiting", "a new session counts at once")
+        self.assertFalse((sessions / "tally-2020-01-01").exists(), "yesterday's tally goes")
+        self.state_hook("seen", {"session_id": "t-1"})
+        self.state_hook("started", {"session_id": "t-1", "source": "compact"})
+        self.assertEqual(state()["state"], "working", "a restart after a compaction is left to the compacted event")
+        self.state_hook("compacted", {"session_id": "t-1", "trigger": "auto"})
+        self.assertEqual((state()["state"], state()["detail"]), ("working", "fresh"))
+        self.state_hook("ended", {"session_id": "t-1"})
+        tally = [line.split() for line in next(sessions.glob("tally-*")).read_text().splitlines()]
+        self.assertEqual([row[1] for row in tally], ["waiting", "working", "working", "ended"])
+        self.assertTrue(all(row[0] == "t-1" and row[2].isdigit() for row in tally))
+        self.assertEqual(next(sessions.glob("tally-*")).stat().st_mode & 0o777, 0o600)
 
     def test_the_session_title_is_kept(self):
         state = lambda: json.loads((self.run_dir / "foxml-claude" / "abc-2.state").read_text())

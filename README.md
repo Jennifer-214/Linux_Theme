@@ -281,8 +281,10 @@ Claude Code's status line comes from `templates/claude/statusline.sh`, set as
 `statusLine` only when you have none of your own. It shows the model, five hearts
 for how full the context is, your 5-hour and weekly plan usage (Pro and Max
 plans; berry and bold from 80%, with the reset time), the git branch, and
-`gate open` once a repo's `.claude/.plan-approved` lists the session. Narrow panes
-drop the branch first, then the weekly figure. Each run also leaves a small
+`gate open` once a repo's `.claude/.plan-approved` lists the session. A small cat
+(`ᓚᘏᗢ`) naps at the end while the session waits on you, `tidying ✧` shows while it
+compacts, and `✧ a fresh page` for a minute and a half after. Narrow panes drop the
+branch first, then the cat, then the weekly figure. Each run also leaves a small
 snapshot of the session in `$XDG_RUNTIME_DIR/foxml-claude/`, and the installer's
 hooks record beside it whether the session is working, waiting, needs you,
 compacting or stopped on an error; a session that ends removes both. Nothing
@@ -293,12 +295,17 @@ local-model status shows `✎` sessions working, `◇` sessions waiting and `!` 
 stopped, and folds away when none are open. Its text turns berry past 80% of a
 plan limit, and its ribbon hangs lower while a session is asking for you. Hover
 for each session's project, model, context and state with the plan usage, as a
-banner on whichever monitor you are on; click to open the Agents page, where each
-session has its context hearts and Enter goes to its tmux pane. Sessions go by
+banner on whichever monitor you are on. When the last busy session finishes, every
+bar says `♡ all done` for a few seconds; click to open the Agents page, where each
+session has its context hearts (they sparkle once after a compaction) and Enter
+goes to its tmux pane. Each tmux pane footer starts with `♡` while its session needs
+you and `✿` while it works. Sessions go by
 the title Claude Code gives them, with the folder beside it. `ALT+Ctrl+E` goes
 straight to the next session waiting on you, the one asking first; press it again
-for the one after. Today shows how much of the week's plan is left and when it
-refills (and the five hours once they run low), and a `✎ 2 working` tag. The lock
+for the one after. Today shows the time Claude spent working today, a little
+teacup of the week's plan with how much is left and when it refills (and the five
+hours once they run low), and a `✎ 2 working` tag. The time comes from a tally the
+hooks keep beside the session files for the day. The lock
 screen says `2 still working ✎` under the battery while sessions are busy. The count is Claude only: a build or a
 sanitizer run you started yourself can still be busy at zero. Sessions whose pane
 went back to a shell, and anything quiet for twelve hours, are left out.
@@ -319,6 +326,11 @@ list there yourself). It only reads, and draws in the palette:
   (`a seed planted ❦`).
 - **Spinner words** in the terminal: knitting, pressing flowers, baking,
   steeping tea and the like.
+- **A hello** by the hour when a session starts.
+
+`/goodnight` (`~/.claude/commands/goodnight.md`) wraps up a session: Claude writes a
+short where-we-left-off note to `~/.local/state/foxml/goodnight/<project>.md`, lists
+what is uncommitted without touching it, and opens the Power page.
 
 Its code is copied as it is; only `templates/claude/mods/foxml-paper/hooks/theme.ts`
 is rendered, so a theme swap recolours it at the next Claude start.

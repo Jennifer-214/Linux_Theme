@@ -192,6 +192,8 @@ inline constexpr Mapping SHARED_MAPPINGS[] = {
     { "claude/mods/foxml-paper/hooks/hooks.json",   "~/.claude/mods/foxml-paper/hooks/hooks.json" },
     { "claude/mods/foxml-paper/hooks/register.tsx", "~/.claude/mods/foxml-paper/hooks/register.tsx" },
     { "claude/mods/foxml-paper/types/index.d.ts",   "~/.claude/mods/foxml-paper/types/index.d.ts" },
+    // /goodnight: a where-we-left-off note, what is uncommitted, then the goodnight Power page.
+    { "claude/commands/goodnight.md",               "~/.claude/commands/goodnight.md" },
 
     // Distro profile
     { "foxml-profile.json",           "~/.local/share/foxml/distro/foxml-profile.json" },

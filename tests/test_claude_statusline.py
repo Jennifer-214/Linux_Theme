@@ -79,6 +79,25 @@ class StatusLineTest(unittest.TestCase):
         other = payload | {"session_id": "not-approved"}
         self.assertNotIn("gate open", self.line(script, other))
 
+    def test_the_cat_naps_while_waiting_and_a_tidied_page_sparkles(self):
+        script = self.render("FoxML_Paper")
+        sessions = self.runtime / "foxml-claude"
+        sessions.mkdir(mode=0o700)
+        payload = {"session_id": "cat-1", "model": {"display_name": "Opus 5.5"}, "context_window": {"used_percentage": 41}}
+        def shown(state, detail="", age=0):
+            (sessions / "cat-1.state").write_text(json.dumps({"state": state, "detail": detail, "epoch": int(time.time()) - age}))
+            return ESCAPE.sub("", self.line(script, payload))
+        self.assertEqual(shown("waiting"), "Opus 5.5 · ♥♥♡♡♡ 41% · ᓚᘏᗢ\n")
+        self.assertEqual(shown("needs"), "Opus 5.5 · ♥♥♡♡♡ 41% · ᓚᘏᗢ\n")
+        self.assertEqual(shown("working"), "Opus 5.5 · ♥♥♡♡♡ 41%\n", "no cat while it works")
+        self.assertEqual(shown("compacting"), "Opus 5.5 · ♥♥♡♡♡ 41% · tidying ✧\n")
+        self.assertEqual(shown("working", "fresh", 10), "Opus 5.5 · ♥♥♡♡♡ 41% · ✧ a fresh page\n")
+        self.assertEqual(shown("working", "fresh", 200), "Opus 5.5 · ♥♥♡♡♡ 41%\n", "the sparkle fades")
+        (sessions / "cat-1.state").write_text("not json")
+        self.assertEqual(ESCAPE.sub("", self.line(script, payload)), "Opus 5.5 · ♥♥♡♡♡ 41%\n", "an unreadable state says nothing")
+        shown("waiting")
+        self.assertEqual(ESCAPE.sub("", self.line(script, payload, columns=24)), "Opus 5.5 · ♥♥♡♡♡ 41%\n", "a narrow pane drops the cat first")
+
     def test_odd_input_still_prints_a_line_and_writes_nowhere_strange(self):
         script = self.render("FoxML_Paper")
         self.assertEqual(ESCAPE.sub("", self.line(script, {})), "Claude\n")

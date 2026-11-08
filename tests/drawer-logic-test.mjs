@@ -191,6 +191,11 @@ assert.deepEqual(plain(logic.todayTags({ claudeWorking: 2 }, [])), [{ text: '✎
 assert.deepEqual(plain(logic.todayTags({ claudeWorking: 0 }, [])), []);
 assert.equal(logic.claudeLine('76% of the week left · refills sun'), 'Claude · 76% of the week left · refills sun');
 assert.equal(logic.claudeLine(''), '');
+assert.equal(logic.claudeLine('76% of the week left · refills sun', 130), 'Claude · 2h 10m today · 76% of the week left · refills sun');
+assert.equal(logic.claudeLine('', 40), 'Claude · 40m today');
+assert.equal(logic.claudeTime(0), '');
+assert.equal(logic.claudeTime(120), '2h today');
+assert.equal(logic.claudeTime(undefined), '');
 assert.equal(logic.statusLabel({ presentation: 'claude', claudeState: 'needs you' }), 'needs you');
 assert.equal(logic.detailText({ presentation: 'claude', claudeState: 'working', detail: '41% of its context' }, true), '41% of its context');
 assert.equal(logic.detailText({ presentation: 'claude', claudeState: 'working', detail: '41% of its context' }, false), 'working · 41% of its context',
