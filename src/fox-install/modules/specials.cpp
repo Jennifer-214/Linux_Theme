@@ -392,6 +392,22 @@ void do_claude_hooks(const Context& ctx) {
                 {"hooks", {{ {"type","command"},
                              {"command","~/.config/hypr/scripts/agent_notify.sh claude failed"} }}}
             }}},
+            // An answered permission prompt: the tool ran, failed, or was denied. Each clears "needs you".
+            {"PostToolUse", {{
+                {"matcher", ""},
+                {"hooks", {{ {"type","command"},
+                             {"command","~/.config/hypr/scripts/agent_notify.sh claude toolran"} }}}
+            }}},
+            {"PostToolUseFailure", {{
+                {"matcher", ""},
+                {"hooks", {{ {"type","command"},
+                             {"command","~/.config/hypr/scripts/agent_notify.sh claude toolran"} }}}
+            }}},
+            {"PermissionDenied", {{
+                {"matcher", ""},
+                {"hooks", {{ {"type","command"},
+                             {"command","~/.config/hypr/scripts/agent_notify.sh claude toolran"} }}}
+            }}},
             {"SessionStart", {{
                 {"matcher", ""},
                 {"hooks", {{ {"type","command"},

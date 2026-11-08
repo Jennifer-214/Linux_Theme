@@ -239,6 +239,10 @@ GRAD5=139
 # ─── Tmux colors ───
 TMUX_ACTIVE=colour180
 TMUX_INACTIVE=colour240
+# tmux pane dividers: drawn in the background, so splits show only their footers.
+TMUX_BORDER=1a1214
+TMUX_BORDER_ACTIVE=1a1214
+TMUX_BORDER_LINES=single
 TMUX_INACTIVE_FG=8c8070
 TMUX_ACTIVE_FG=d4985a
 TMUX_ACTIVE_BG=1f1519

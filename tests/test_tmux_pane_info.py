@@ -39,3 +39,33 @@ class PaneFooter(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+RENDER = SCRIPT.parents[2] / "src/fox-render/fox-render-fast"
+
+
+@unittest.skipUnless(RENDER.exists() and __import__("shutil").which("tmux"), "fox-render-fast and tmux needed")
+class PaneDividers(unittest.TestCase):
+    def test_every_theme_renders_a_tmux_config_that_parses(self):
+        root = SCRIPT.parents[2]
+        for palette in sorted((root / "themes").glob("*/palette.sh")):
+            with self.subTest(theme=palette.parent.name), tempfile.TemporaryDirectory() as tmp:
+                subprocess.run([str(RENDER), str(palette), str(root / "templates/tmux"), tmp], check=True, capture_output=True)
+                conf = Path(tmp) / ".tmux.conf"
+                text = conf.read_text()
+                self.assertNotIn("{{", text)
+                socket = f"fox-test-{os.getpid()}-{palette.parent.name}"
+                # a throwaway server: the real one is never touched
+                out = subprocess.run(["tmux", "-L", socket, "-f", "/dev/null", "new-session", "-d", ";",
+                                      "source-file", "-n", str(conf), ";", "kill-server"], capture_output=True, text=True, timeout=10)
+                self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
+
+    def test_paper_draws_a_double_pencil_line_with_a_pink_active_pane(self):
+        root = SCRIPT.parents[2]
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run([str(RENDER), str(root / "themes/FoxML_Paper/palette.sh"), str(root / "templates/tmux"), tmp],
+                           check=True, capture_output=True)
+            text = (Path(tmp) / ".tmux.conf").read_text()
+        self.assertIn("set -g pane-border-lines double", text)
+        self.assertIn('set -g pane-border-style "fg=#a39d96,bg=default"', text)
+        self.assertIn('set -g pane-active-border-style "fg=#c67596,bg=default"', text)

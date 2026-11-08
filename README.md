@@ -443,7 +443,9 @@ The Hyprland menu shortcuts call the drawer directly, including Wi-Fi, Bluetooth
 audio outputs, clipboard, windows and agent notes. Agent notes jump directly
 to their exact tmux target; a stale or unreachable note stays available for
 review, and clearing all notes asks for confirmation. Each tmux pane keeps only
-its newest note, replying in that pane clears it (a `UserPromptSubmit` hook),
+its newest note, replying in that pane clears it (a `UserPromptSubmit` hook), as does
+answering Claude's permission prompt (the tool then runs, fails or is denied:
+`PostToolUse`, `PostToolUseFailure`, `PermissionDenied`),
 and notes older than twelve hours are dropped. Paper's bar uses a pencil
 launcher, notebook workspace tabs and a handwritten clock tab. Click the clock or
 press `Alt+C` to toggle a calendar sheet beneath its banner on the focused monitor.

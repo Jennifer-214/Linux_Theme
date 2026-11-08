@@ -262,6 +262,10 @@ GRAD5=244
 # ─── Tmux colors ───
 TMUX_ACTIVE=colour238
 TMUX_INACTIVE=colour246
+# tmux pane dividers: a double pencil line (═), the active pane's in heart pink.
+TMUX_BORDER=a39d96
+TMUX_BORDER_ACTIVE=c67596
+TMUX_BORDER_LINES=double
 TMUX_INACTIVE_FG=756e73
 TMUX_ACTIVE_FG=202024
 TMUX_ACTIVE_BG=e6e3dc

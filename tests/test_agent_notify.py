@@ -115,6 +115,25 @@ class AgentNotifyTest(unittest.TestCase):
         self.assertTrue(all(row[0] == "t-1" and row[2].isdigit() for row in tally))
         self.assertEqual(next(sessions.glob("tally-*")).stat().st_mode & 0o777, 0o600)
 
+    def test_a_tool_running_means_the_question_was_answered(self):
+        sessions = self.run_dir / "foxml-claude"
+        state = lambda: json.loads((sessions / "q-1.state").read_text())
+        self.state_hook("seen", {"session_id": "q-1"})
+        self.state_hook("notification", {"session_id": "q-1", "message": "Claude needs your permission to use Bash"})
+        self.assertEqual(state()["state"], "needs")
+        self.assertTrue(any(n.get("pane") == "%7" for n in self.notes()), "the note waits for you")
+        ran = self.state_hook("toolran", {"session_id": "q-1", "tool_name": "Bash", "tool_response": {"stdout": "x" * 5000}})
+        self.assertEqual((ran.returncode, ran.stdout), (0, ""))
+        self.assertEqual(state()["state"], "working", "approved: it is working again")
+        self.assertFalse(any(n.get("pane") == "%7" for n in self.notes()), "and its note is gone")
+        before = (sessions / "q-1.state").read_text()
+        self.state_hook("stop", {"session_id": "q-1"})
+        waiting = (sessions / "q-1.state").read_text()
+        self.state_hook("toolran", {"session_id": "q-1"})
+        self.assertEqual((sessions / "q-1.state").read_text(), waiting, "anything but needs is left exactly as it is")
+        self.assertNotEqual(before, waiting)
+        self.assertEqual(self.state_hook("toolran", {"session_id": "../x"}).returncode, 0)
+
     def test_the_session_title_is_kept(self):
         state = lambda: json.loads((self.run_dir / "foxml-claude" / "abc-2.state").read_text())
         self.state_hook("seen", {"session_id": "abc-2"})

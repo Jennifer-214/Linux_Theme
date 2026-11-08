@@ -5,8 +5,9 @@
 # Usage:
 #   agent_notify.sh <source> <event>
 #     <source>: claude
-#     <event>:  stop | subagent | notification | seen | started | compact | compacted | failed | ended
-#               (seen: you replied in this pane, so its note is cleared — no popup;
+#     <event>:  stop | subagent | notification | seen | toolran | started | compact | compacted | failed | ended
+#               (seen: you replied in this pane, so its note is cleared — no popup; toolran: a tool ran,
+#                so a "needs you" was answered and counts as seen;
 #                started … ended only record what the session is doing, for the drawer)
 #
 # Theme: hex colors are sourced from ~/.config/hypr/modules/border_colors.sh
@@ -43,6 +44,14 @@ event="${2:-stop}"
 input=""
 if [[ ! -t 0 ]]; then
     input="$(timeout 0.2 cat 2>/dev/null || true)"
+fi
+
+# After each tool Claude runs (PostToolUse): a session marked "needs you" was answered, so it counts as
+# seen again. Every tool call lands here, so anything else leaves at once, before any jq.
+if [[ "$event" == "toolran" ]]; then
+    [[ "$input" =~ \"session_id\"[[:space:]]*:[[:space:]]*\"([A-Za-z0-9_-]{1,80})\" ]] || exit 0
+    grep -q '"state":"needs"' "$FOXML_RUNTIME_DIR/foxml-claude/${BASH_REMATCH[1]}.state" 2>/dev/null || exit 0
+    event="seen"
 fi
 
 # Theme palette (rendered hex strings, no leading '#').
