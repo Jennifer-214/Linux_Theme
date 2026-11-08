@@ -1,10 +1,10 @@
 /**
  * fox-notify — desktop notices from pi, through notify-send (mako / dunst):
  *
- *   a run of 15 s or more settled            🦊 pi is ready              📁 <project> · Ns
- *   a run settled on an error (any length)    🦊 pi stopped on an error   📁 <project>
- *   a select / confirm dialog open for 5 s    🦊 pi needs your yes        📁 <project>      (critical: mako keeps it 15 s)
- *   …right after the plan gate's hint          🦊 pi needs approval        📁 <project>      (critical)
+ *   a run of 15 s or more settled            pi is ready              📁 <project> · Ns
+ *   a run settled on an error (any length)    pi stopped on an error   📁 <project>
+ *   a select / confirm dialog open for 5 s    pi needs your yes        📁 <project>      (critical: mako keeps it 15 s)
+ *   …right after the plan gate's hint          pi needs approval        📁 <project>      (critical)
  *
  * A run she stopped (Escape) pings nothing: she is there. Only in the terminal UI — never for pi -p, RPC or json runs
  * (subagents, an editor's own pi). pi's examples/extensions/notify.ts writes OSC 99/777 escapes, which tmux swallows
@@ -37,7 +37,7 @@ export function makeNotify({ delayMs = 5000, minSecs = 15, hintMs = 1000 } = {})
 		};
 		const send = (summary: string, body: string, critical = false) =>
 			pi
-				.exec("fox-work-notice", ["agent", "pi", summary, `📁 ${body}`, projectPath, process.env.TMUX_PANE || "", critical ? "notification" : "stop"])
+				.exec("fox-work-notice", ["agent", "pi", summary, `Project · ${body}`, projectPath, process.env.TMUX_PANE || "", critical ? "notification" : "stop"])
 				.catch(() => {}); // no notify-send, no daemon: a notice is a courtesy, never an error in her session
 		const clear = () => {
 			if (timer) clearTimeout(timer);
@@ -56,10 +56,10 @@ export function makeNotify({ delayMs = 5000, minSecs = 15, hintMs = 1000 } = {})
 		// once per run, after any retry, compaction or queued follow-up — agent_end fires per loop, so a retry pinged twice
 		pi.on("agent_settled", async (event) => {
 			if (!tui || event.aborted || outcome === "aborted") return;
-			if (outcome === "error") return void (await send("🦊 pi stopped on an error", project));
+			if (outcome === "error") return void (await send("pi stopped on an error", project));
 			const secs = Math.round((Date.now() - started) / 1000);
 			if (secs < minSecs) return; // quick replies don't need a ping
-			await send("🦊 pi is ready", `${project} · ${secs}s`);
+			await send("pi is ready", `${project} · ${secs}s`);
 		});
 
 		pi.events.on("fox:approval", () => {
@@ -73,7 +73,7 @@ export function makeNotify({ delayMs = 5000, minSecs = 15, hintMs = 1000 } = {})
 			if (!tui || (event.kind !== "select" && event.kind !== "confirm") || timer) return;
 			timer = setTimeout(() => {
 				timer = undefined;
-				void send(approval ? "🦊 pi needs approval" : "🦊 pi needs your yes", project, true);
+				void send(approval ? "pi needs approval" : "pi needs your yes", project, true);
 			}, delayMs);
 			timer.unref?.(); // never keeps pi alive
 		});

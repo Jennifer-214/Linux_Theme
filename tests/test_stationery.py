@@ -63,7 +63,7 @@ class Stationery(unittest.TestCase):
             subprocess.run([str(RENDER),str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates/hyprlock'),str(root/'lock')],check=True,capture_output=True)
             widgets=[(kind,body) for kind,body in re.findall(r'(?ms)^(label|input-field|image) \{\n(.*?)^\}',(root/'lock/hyprlock.conf').read_text())]
             caps=next(body for kind,body in widgets if kind=='label' and 'capslock-label.sh' in body)
-            cat=next(body for kind,body in widgets if kind=='image' and 'paper-cat.png' in body)
+            cat=next(body for kind,body in widgets if kind=='image' and 'paper-sprig.png' in body)
             entry=next(body for kind,body in widgets if kind=='input-field')
             def value(body,key):return re.search(r'^\s*'+re.escape(key)+r'\s*=\s*(.+)$',body,re.M).group(1)
             def y(body):
@@ -74,7 +74,7 @@ class Stationery(unittest.TestCase):
             layout=Pango.Layout.new(PangoCairo.FontMap.get_default().create_context())
             layout.set_font_description(Pango.FontDescription(value(caps,'font_family')+' '+value(caps,'font_size')))
             layout.set_markup(markup,-1);tag_height=layout.get_pixel_size().height
-            width,height=struct.unpack('>II',(ROOT/'shared/quickshell/foxml/paper-cat.png').read_bytes()[16:24])
+            width,height=struct.unpack('>II',(ROOT/'shared/quickshell/foxml/paper-sprig.png').read_bytes()[16:24])
             cat_height=height*float(value(cat,'size'))/min(width,height)
             field_height=float(value(entry,'size').split(',')[1])
             for screen_width,screen_height,scale in [(1920,1080,1),(1080,1920,1),(3840,2160,2),(2160,3840,2),(720,1280,1)]:

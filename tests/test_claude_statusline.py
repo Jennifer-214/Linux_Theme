@@ -53,7 +53,7 @@ class StatusLineTest(unittest.TestCase):
                 self.assertEqual(subprocess.run(["bash", "-n", str(script)]).returncode, 0)
                 shown = self.line(script, {"model": {"display_name": "Opus 5.5"}, "context_window": {"used_percentage": 41}})
                 self.assertIn("\x1b[38;2;", shown, "truecolour from the palette")
-                self.assertEqual(ESCAPE.sub("", shown), "Opus 5.5 · ♥♥♡♡♡ 41%\n")
+                self.assertEqual(ESCAPE.sub("", shown), "Opus 5.5 · " + ("▰▰▱▱▱" if theme == "FoxML_Paper" else "♥♥♡♡♡") + " 41%\n")
 
     def test_usage_branch_gate_snapshot_and_narrow_panes(self):
         script = self.render("FoxML_Paper")
@@ -68,13 +68,13 @@ class StatusLineTest(unittest.TestCase):
                    "workspace": {"current_dir": str(project), "project_dir": str(project)}}
         shown = self.line(script, payload)
         day = time.strftime("%a", time.localtime(soon)).lower()
-        self.assertEqual(ESCAPE.sub("", shown), f"Opus 5.5 · ♥♥♥♥♡ 88% · 5h 22% · week 83% (resets {day}) · ⎇ garden · gate open\n")
+        self.assertEqual(ESCAPE.sub("", shown), f"Opus 5.5 · ▰▰▰▰▱ 88% · 5h 22% · week 83% (resets {day}) · ⎇ garden · gate open\n")
         self.assertIn("\x1b[38;2;162;79;115m\x1b[1mweek 83%", shown, "berry and bold from 80%")
         snapshot = json.loads((self.runtime / "foxml-claude/abc-123.json").read_text())
         self.assertEqual((snapshot["context"], snapshot["five"]["used"], snapshot["week"]["used"], snapshot["pane"]), (88, 22, 83, "%3"))
         self.assertEqual((self.runtime / "foxml-claude").stat().st_mode & 0o777, 0o700)
         self.assertEqual((self.runtime / "foxml-claude/abc-123.json").stat().st_mode & 0o777, 0o600)
-        self.assertEqual(ESCAPE.sub("", self.line(script, payload, columns=50)), "Opus 5.5 · ♥♥♥♥♡ 88% · 5h 22% · gate open\n",
+        self.assertEqual(ESCAPE.sub("", self.line(script, payload, columns=50)), "Opus 5.5 · ▰▰▰▰▱ 88% · 5h 22% · gate open\n",
                          "a narrow pane drops the branch, then the week")
         other = payload | {"session_id": "not-approved"}
         self.assertNotIn("gate open", self.line(script, other))
@@ -87,16 +87,16 @@ class StatusLineTest(unittest.TestCase):
         def shown(state, detail="", age=0):
             (sessions / "cat-1.state").write_text(json.dumps({"state": state, "detail": detail, "epoch": int(time.time()) - age}))
             return ESCAPE.sub("", self.line(script, payload))
-        self.assertEqual(shown("waiting"), "Opus 5.5 · ♥♥♡♡♡ 41% · ᓚᘏᗢ\n")
-        self.assertEqual(shown("needs"), "Opus 5.5 · ♥♥♡♡♡ 41% · ᓚᘏᗢ\n")
-        self.assertEqual(shown("working"), "Opus 5.5 · ♥♥♡♡♡ 41%\n", "no cat while it works")
-        self.assertEqual(shown("compacting"), "Opus 5.5 · ♥♥♡♡♡ 41% · tidying ✧\n")
-        self.assertEqual(shown("working", "fresh", 10), "Opus 5.5 · ♥♥♡♡♡ 41% · ✧ a fresh page\n")
-        self.assertEqual(shown("working", "fresh", 200), "Opus 5.5 · ♥♥♡♡♡ 41%\n", "the sparkle fades")
+        self.assertEqual(shown("waiting"), "Opus 5.5 · ▰▰▱▱▱ 41% · ready\n")
+        self.assertEqual(shown("needs"), "Opus 5.5 · ▰▰▱▱▱ 41% · needs input\n")
+        self.assertEqual(shown("working"), "Opus 5.5 · ▰▰▱▱▱ 41%\n", "no cat while it works")
+        self.assertEqual(shown("compacting"), "Opus 5.5 · ▰▰▱▱▱ 41% · tidying ✧\n")
+        self.assertEqual(shown("working", "fresh", 10), "Opus 5.5 · ▰▰▱▱▱ 41% · ✧ a fresh page\n")
+        self.assertEqual(shown("working", "fresh", 200), "Opus 5.5 · ▰▰▱▱▱ 41%\n", "the sparkle fades")
         (sessions / "cat-1.state").write_text("not json")
-        self.assertEqual(ESCAPE.sub("", self.line(script, payload)), "Opus 5.5 · ♥♥♡♡♡ 41%\n", "an unreadable state says nothing")
+        self.assertEqual(ESCAPE.sub("", self.line(script, payload)), "Opus 5.5 · ▰▰▱▱▱ 41%\n", "an unreadable state says nothing")
         shown("waiting")
-        self.assertEqual(ESCAPE.sub("", self.line(script, payload, columns=24)), "Opus 5.5 · ♥♥♡♡♡ 41%\n", "a narrow pane drops the cat first")
+        self.assertEqual(ESCAPE.sub("", self.line(script, payload, columns=24)), "Opus 5.5 · ▰▰▱▱▱ 41%\n", "a narrow pane drops the cat first")
 
     def test_odd_input_still_prints_a_line_and_writes_nowhere_strange(self):
         script = self.render("FoxML_Paper")

@@ -68,7 +68,7 @@ function claudeLine(usage, minutes) {
 }
 
 function heartLine(count) {
-    return count ? "♥ " + count + (count === 1 ? " day" : " days") + " with a heart this month" : "♥ this month's first heart is waiting";
+    return count ? "· " + count + (count === 1 ? " day" : " days") + " active this month" : "No commits this month";
 }
 
 // The commit garden. Counts run one per day from `start` (a Sunday, "YYYY-MM-DD") to today.
@@ -116,7 +116,7 @@ function gardenSummary(start, counts) {
     });
     if (!total) return "the garden is waiting for its first commit";
     var day = gardenDate(start, busiest);
-    return "♥ " + gardenNumber(total) + (total === 1 ? " commit" : " commits") + " this year · longest streak " + longest
+    return "· " + gardenNumber(total) + (total === 1 ? " commit" : " commits") + " this year · longest streak " + longest
         + (longest === 1 ? " day" : " days") + " · busiest " + gardenMonthNames[day.getMonth()] + " " + day.getDate()
         + " (" + counts[busiest] + ")";
 }
@@ -227,7 +227,7 @@ function paperIcon(item) {
 function emptyIllustration(page, searching, failed) {
     if (failed) return "";
     var names = {downloads:"tray",bookmarks:"notebook","clipboard-text":"scraps","clipboard-images":"scraps"};
-    return !searching && names[page] ? "paper-empty-" + names[page] + ".svg" : "paper-cat.png";
+    return !searching && names[page] ? "paper-empty-" + names[page] + ".svg" : "paper-sprig.png";
 }
 
 function pageFlourish(page, searching) {
@@ -275,7 +275,7 @@ function statusLabel(item) {
     return item.presentation === "media" && (item.mediaState === "Paused" || item.mediaState === "Stopped") ? item.mediaState.toLowerCase() : "";
 }
 
-// Five hearts for a session's context: how many are filled.
+// Five meter segments for a session's context: how many are filled.
 function contextHearts(percent) {
     var value = Number(percent);
     return isFinite(value) && value >= 0 ? Math.min(5, Math.round(value / 20)) : -1;

@@ -123,7 +123,7 @@ test('the notebook shows the hearts, the session name and the pages touched', as
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    expect((await ui.find({ type: 'Text', text: /♥♥♥♡♡/ }))?.text).toBe('♥♥♥♡♡ 64%')
+    expect((await ui.find({ type: 'Text', text: /▰▰▰▱▱/ }))?.text).toBe('▰▰▰▱▱ 64%')
     expect((await ui.find({ key: 'page-files' }))?.text).toContain('2 all files')
     await ui.press({ key: 'page-files' })
     await ui.press({ key: 'scope-all' })
@@ -182,8 +182,7 @@ test('the spinner knits in the terminal and leaves other surfaces their words', 
   const spinner = { plugin: 'foxml-paper', component: 'Spinner', requestId: 'main', props: { word: 'Sauteing', message: null, suffix: '…', mode: 'thinking' } } as const
   const terminal = await $.ui.mount({ ...spinner, surface: 'terminal' })
   const word = (await terminal.find({ type: 'Text' }))?.text ?? ''
-  expect(['Knitting', 'Pressing flowers', 'Baking', 'Stitching', 'Doodling', 'Steeping tea', 'Folding paper',
-    'Tending the garden', 'Sketching', 'Tidying up', 'Writing a little note', 'Threading a needle']).toContain(word)
+  expect(['Reading', 'Checking', 'Tracing', 'Writing', 'Reviewing', 'Working']).toContain(word)
   await terminal.unmount()
   const desktop = await $.ui.mount({ ...spinner, surface: 'desktop' })
   expect((await desktop.find({ type: 'Text' }))?.text).toBe('Sauteing')
@@ -197,7 +196,7 @@ test('other claudes are listed with go and note, and a note reaches the session 
   await ui.press({ key: 'page-sessions' })
   expect((await ui.find({ type: 'Text', text: /other claudes/ }))?.text).toBe('other claudes')
   expect(await ui.find({ type: 'Text', text: /this one/ })).toBeUndefined()
-  expect((await ui.find({ type: 'Text', text: /Ledger tidy/ }))?.text).toBe('♥ Ledger tidy · trader')
+  expect((await ui.find({ type: 'Text', text: /Ledger tidy/ }))?.text).toBe('● Ledger tidy · trader')
   expect(await ui.find({ key: 'go-p2' })).toBeUndefined()
 
   await ui.press({ key: 'go-p1' })
@@ -207,7 +206,7 @@ test('other claudes are listed with go and note, and a note reaches the session 
   expect(await ui.find({ key: 'note-p2' })).toBeUndefined()
   await ui.input({ key: 'peer-note', text: '  the tests are green, go ahead  ', kind: 'submit' })
   expect(seen.sent).toEqual([{ to: 'p2', text: '✉ from another session: the tests are green, go ahead' }])
-  expect(seen.toasts).toContain('note left for docs ♡')
+  expect(seen.toasts).toContain('note left for docs')
   expect(await ui.find({ key: 'peer-note' })).toBeUndefined()
 
   await ui.press({ key: 'note-p1' })

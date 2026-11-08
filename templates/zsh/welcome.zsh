@@ -51,7 +51,7 @@ function _caramel_welcome() {
   local min=$(date '+%M')
   local ap=$(date '+%p' | tr '[:upper:]' '[:lower:]')
 
-  # Paper: no name banner — the cat and the date, centered as one group, the quote below.
+  # Paper uses a centered field-note heading and date, with the quote below.
   [[ "{{WELCOME_LAYOUT}}" == "centered" ]] && { _caramel_welcome_centered "$dow" "$mon $dom" "$hr:$min $ap"; return; }
 
   echo ""
@@ -105,29 +105,10 @@ function _caramel_welcome_centered() {
     printf '%*s%b\n' $pad '' "$2"
   }
   local when="$2 · $3"
-  local bw=$(( 14 + ${(m)#when} ))
-  local left=$(( (COLUMNS - bw) / 2 ))
-  (( left < 0 )) && left=0
-  local dcol=$(( left + 15 ))
   echo ""
-  # Her hours: sleepy eyes late at night, and now and then a little surprise beside her ears.
-  local hour=$(date +%-H) eyes="${c3}˚${c1}ˎ ${c3}。" extra="" greeting
-  if (( hour >= 22 || hour < 5 )); then
-    eyes="${c3}-${c1}ˎ ${c3}-"
-    greeting="still up?"
-  elif (( hour < 12 )); then greeting="good morning, ${USER}"
-  elif (( hour < 17 )); then greeting="good afternoon, ${USER}"
-  else greeting="good evening, ${USER}"
-  fi
-  if (( RANDOM % 30 == 0 )); then
-    (( RANDOM % 2 )) && extra=" ${c3}ʚɞ${O}" || extra=" ${c3}♡${O}"
-  fi
-  printf '%*s%b\n' $left '' " ${c1}/\\_/\\ ${O}${extra}"
-  printf '%*s%b\n' $left '' "${c1}(${eyes}${c1}7${O}\e[${dcol}G${ink}$1${O}"
-  printf '%*s%b\n' $left '' " ${c1}|、${c3}^${c1} 〵${O}\e[${dcol}G${ink}$2${O} ${dim}·${O} ${ink}$3${O}"
-  printf '%*s%b\n' $left '' " ${c1}じし${c3}ˍ${c1},)ノ${O}"
-  echo ""
-  _wc_line "$greeting" "${hand}${greeting}${O}"
+  _wc_line "$1" "${hand}$1${O}"
+  _wc_line "$when" "${ink}$2${O} ${dim}·${O} ${ink}$3${O}"
+  _wc_line "──╱──" "${dim}──╱──${O}"
 
   if [[ -s ~/.todo ]]; then
     echo ""

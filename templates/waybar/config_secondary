@@ -54,10 +54,10 @@
     "window-rewrite-default": "󰘔",
     "window-rewrite": {
         "class<firefox>": "󰈹",
-        "class<kitty>": "󰄛",
+        "class<kitty>": "",
         "class<discord>": "󰙯",
         "class<steam>": "󰓓",
-        "class<yazi>": "󰇥",
+        "class<yazi>": "",
         "class<thunar>": "󰝰",
         "class<rofi>": "󰀻",
         "class<cursor>": "󰨞",

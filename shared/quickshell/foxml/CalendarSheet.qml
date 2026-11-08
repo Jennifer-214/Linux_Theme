@@ -119,7 +119,7 @@ ColumnLayout {
                     anchors.horizontalCenter: parent.horizontalCenter
                     anchors.horizontalCenterOffset: 14
                     y: 2
-                    text: "♥"
+                    text: "•"
                     textFormat: Text.PlainText
                     color: calendar.theme.detailAccent
                     font.pixelSize: 10
@@ -167,8 +167,8 @@ ColumnLayout {
     RowLayout {
         Layout.fillWidth: true
         spacing: 10
-        Image { source: "paper-cat.png"; visible: calendar.theme.paperDetails; Layout.preferredWidth: 45; Layout.preferredHeight: 42; fillMode: Image.PreserveAspectFit; sourceSize.width: 90; sourceSize.height: 84 }
-        Text { text: calendar.currentMonth ? "one little day at a time." : "a little peek " + (calendar.month < calendar.today ? "back." : "ahead."); color: calendar.theme.muted; font.family: calendar.theme.headingFont; font.pixelSize: 15; font.italic: true; Layout.fillWidth: true; elide: Text.ElideRight }
+        Image { source: "paper-sprig.png"; visible: calendar.theme.paperDetails; Layout.preferredWidth: 45; Layout.preferredHeight: 42; fillMode: Image.PreserveAspectFit; sourceSize.width: 90; sourceSize.height: 84 }
+        Text { text: calendar.currentMonth ? "this month." : "looking " + (calendar.month < calendar.today ? "back." : "ahead."); color: calendar.theme.muted; font.family: calendar.theme.headingFont; font.pixelSize: 15; font.italic: true; Layout.fillWidth: true; elide: Text.ElideRight }
         ToolButton {
             text: "today"; font.family: calendar.theme.fontFamily; font.pixelSize: 11
             palette.buttonText: calendar.theme.ink

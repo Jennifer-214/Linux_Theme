@@ -94,7 +94,7 @@ std::string variant_for(const std::string& base, const std::string& res,
 
 std::string companion_for(const std::string& base, bool primary, bool left,
                            const fs::path& wall_dir) {
-    if (base != "foxml_paper_soft.png" || primary) return base;
+    if ((base != "foxml_paper_soft.png" && base != "foxml_paper_botanical.png") || primary) return base;
     const std::string candidate = left ? "foxml_paper_tree.png" : "foxml_paper_quiet.png";
     std::error_code ec;
     return fs::is_regular_file(wall_dir / candidate, ec) ? candidate : base;
@@ -122,7 +122,7 @@ std::size_t apply_current(const sidecar::Layout& layout,
 
     std::size_t applied = 0;
     std::map<std::string, int> positions;
-    if (base == "foxml_paper_soft.png" && sh::have("hyprctl")) {
+    if ((base == "foxml_paper_soft.png" || base == "foxml_paper_botanical.png") && sh::have("hyprctl")) {
         std::string output;
         if (sh::capture({"hyprctl", "monitors", "-j"}, output)) {
             const auto monitors = nlohmann::json::parse(output, nullptr, false);

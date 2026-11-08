@@ -285,13 +285,12 @@ uses a light pink box with sage and coral diffs). The installer also sets
 256-color palette inside tmux. Restart Claude after a theme swap.
 
 Claude Code's status line comes from `templates/claude/statusline.sh`, set as
-`statusLine` only when you have none of your own. It shows the model, five hearts
+`statusLine` only when you have none of your own. It shows the model, a five-segment context meter on Paper
 for how full the context is, your 5-hour and weekly plan usage (Pro and Max
 plans; berry and bold from 80%, with the reset time), the git branch, and
-`gate open` once a repo's `.claude/.plan-approved` lists the session. A small cat
-(`ᓚᘏᗢ`) naps at the end while the session waits on you, `tidying ✧` shows while it
+`gate open` once a repo's `.claude/.plan-approved` lists the session. Paper shows `ready` or `needs input` while the session waits; `tidying ✧` shows while it
 compacts, and `✧ a fresh page` for a minute and a half after. Narrow panes drop the
-branch first, then the cat, then the weekly figure. Each run also leaves a small
+branch first, then the readiness label, then the weekly figure. Each run also leaves a small
 snapshot of the session in `$XDG_RUNTIME_DIR/foxml-claude/`, and the installer's
 hooks record beside it whether the session is working, waiting, needs you,
 compacting or stopped on an error; a session that ends removes both. Nothing
@@ -303,16 +302,16 @@ stopped, and folds away when none are open. Its text turns berry past 80% of a
 plan limit, and its ribbon hangs lower while a session is asking for you. Hover
 for each session's project, model, context and state with the plan usage, as a
 banner on whichever monitor you are on. When the last busy session finishes, every
-bar says `♡ all done` for a few seconds; click to open the Agents page (or, while a session asks for you, to go straight to it), where each
-session has its context hearts (they sparkle once after a compaction) and Enter
+bar says `✓ all done` for a few seconds; click to open the Agents page (or, while a session asks for you, to go straight to it), where each
+session has its context meters (a brief reset indicator follows compaction) and Enter
 goes to its tmux pane: to the kitty window already showing that tmux session, on
 whichever monitor it is, with the keyboard moved there once the drawer closes, or to a new
-terminal attached to it when no window shows it. Each tmux pane footer starts with `♡` while its session needs
+terminal attached to it when no window shows it. Each tmux pane footer starts with `!` while its session needs
 you and `✿` while it works. Sessions go by
 the title Claude Code gives them, with the folder beside it. `ALT+Ctrl+E` goes
 straight to the next session waiting on you, the one asking first; press it again
 for the one after. Today shows the time Claude spent working today, a little
-teacup of the week's plan with how much is left and when it refills (and the five
+meter of the week's plan with how much is left and when it refills (and the five
 hours once they run low), and a `✎ 2 working` tag. The time comes from a tally the
 hooks keep beside the session files for the day. The lock
 screen says `2 still working ✎` under the battery while sessions are busy. The count is Claude only: a build or a
@@ -324,7 +323,7 @@ The installer also adds a Claude Code mod, `~/.claude/mods/foxml-paper`, named i
 list there yourself). It draws in the palette and keeps its session records in private runtime and state folders:
 
 - **The notebook**, a pane beside the chat (`/notebook` opens it; it opens by
-  itself in a terminal 144 columns or wider): the context hearts, the session's
+  itself in a terminal 144 columns or wider): the context meters, the session's
   title, the plan you last read or wrote under a `plans/` folder, the plan gate,
   and the files changed since the last commit with their `+`/`−` counts.
   It starts with a compact overview; files, project and sessions have their own
@@ -351,10 +350,9 @@ list there yourself). It draws in the palette and keeps its session records in p
   against, PAM, fstab, the greeter, sudoers, the boot loader, the kernel command
   line, sysctl, USBGuard or the firewall: `red zone · /etc/pam.d · brick-safety
   first`. It only warns; the next prompt clears it.
-- **Toasts** for two hearts left, the plan gate opening and a commit landing
+- **Toasts** for 60% context used, the plan gate opening and a commit landing
   (`a seed planted ❦`).
-- **Spinner words** in the terminal: knitting, pressing flowers, baking,
-  steeping tea and the like.
+- **Spinner words** in the terminal: reading, checking, tracing, writing and reviewing.
 - **A hello** by the hour when a session starts.
 - **Two sessions, one file:** each session notes the files it edits in
   `$XDG_RUNTIME_DIR/foxml-claude/edits/` (private, gone at reboot). Before an edit, if
@@ -372,7 +370,7 @@ list there yourself). It draws in the palette and keeps its session records in p
   notebook lists only the sessions editing in the same repo.
 - **Envelopes:** a note sent from nvim (`<Space>Cn`, left in
   `$XDG_RUNTIME_DIR/foxml-claude/inbox/<session>/`) or by another Claude shows as `✉ from …` in the notebook,
-  with `✉ 2` beside the hearts while any are unread. **Mark read** removes one and
+  with `✉ 2` beside the meter while any are unread. **Mark read** removes one and
   updates the count; **mark all notes read** clears the current list. Read markers
   survive plugin reloads, suppressing identical peer retries for 15 minutes; a later
   identical note can be new. Peer identity uses the full body, so two messages with
@@ -522,7 +520,7 @@ marker stylesheet for fallback compatibility.
 Hover and press feedback changes only the paper shade or pencil outline; controls
 keep their position and size. The pink active-workspace fill remains visible on hover.
 Drawer surfaces use quiet paper shades, with a faint highlighter wash on focused
-items. Bookmark ribbons, the focus edge and the charging heart follow the existing
+items. Bookmark ribbons, the focus edge and the charging marker follow the existing
 workspace accent; battery numbers stay graphite. The active workspace keeps its
 soft highlighter fill, and warning colors are retained. Control symbols share the existing font,
 size and pencil weight; status glows and the repeating battery pulse are removed.
@@ -534,10 +532,10 @@ The drawer opens on **Today**, the first item in the sidebar, with the sidebar f
 `j`/`k` move straight through the groups; each group's page appears beside the sidebar as
 you pause on it, and Enter or `l` steps into it. Today shows the date, any agent waiting
 for you, battery, Wi-Fi, volume, updates, agent notes, your next `~/.todo` line, this
-month's commit hearts and how many commits you wrote today, with your pinned favorites
+month's active commit days and how many commits you wrote today, with your pinned favorites
 beneath. Each tag opens what it describes (an agent tag goes to that agent's terminal);
 click it, or press `k` from the first favorite and use `h`/`l` and Enter. Enter on Today
-steps into the favorites. Use `f` or the heart button to return to it, and Tab to switch
+steps into the favorites. Use `f` or the bookmark button to return to it, and Tab to switch
 between favorites and groups. Set `"favorites"` in
 `menus.json` to an ordered list of existing `group/item` references, for example
 `["desk/apps", "desk/clipboard-text", "comfort/dnd"]`. Up to eight are supported;
@@ -588,10 +586,10 @@ does not fetch it again; a model a role uses cannot be removed.
 Desk → Commit garden is a year of your commits, one little square a day, in two
 half-year beds: empty days are pencil outlines and busier days deepen through four
 shades of the palette's accent, set by the quarters of your own busy days. Your three
-busiest days wear a heart and today is outlined. It counts commits you wrote (by your
+busiest days wear a leaf and today is outlined. It counts commits you wrote (by your
 `user.email`, by author date, so a rebase or a second branch counts once) across the
 project index cards. `h`/`l` move a week, `j`/`k` a day, `t` returns to today, and the
-"days with a heart" line on Today opens it, as do `garden ›` and `g` on the calendar.
+"active days" line on Today opens it, as do `garden ›` and `g` on the calendar.
 
 Desk → Incoming paper tray lists the newest 64 regular files in your XDG
 Downloads folder (falling back to `~/Downloads`), with type, size and modification
@@ -601,9 +599,9 @@ download extensions are skipped. Set `"downloads_directory": "~/Incoming"` in
 `menus.json` to override the folder. A disabled XDG Downloads folder stays empty.
 Listing reads file metadata only; it never reads file contents or moves files.
 
-The existing battery module adds a plug-and-heart
+The existing battery module adds a charge
 doodle while charging, keeping its capacity, watts, threshold and failure signals.
-A filled heart marks a finished charge: `Full`, or holding at a charge limit.
+A check marks a finished charge: `Full`, or holding at a charge limit.
 The Hyprland menu shortcuts call the drawer directly, including Wi-Fi, Bluetooth,
 audio outputs, clipboard, windows and agent notes. Agent notes jump directly
 to their exact tmux target; a stale or unreachable note stays available for
@@ -612,11 +610,11 @@ its newest note, replying in that pane clears it (a `UserPromptSubmit` hook), as
 answering Claude's permission prompt (the tool then runs, fails or is denied:
 `PostToolUse`, `PostToolUseFailure`, `PermissionDenied`). A session is marked as needing
 you the moment its permission dialog opens (`PermissionRequest`); the popup and note
-follow Claude's own notification. Notes older than twelve hours are dropped. Paper's bar uses a pencil
+follow Claude's own notification. Notes older than twelve hours are dropped. Paper's bar uses a botanical
 launcher, notebook workspace tabs and a handwritten clock tab. Click the clock or
 press `Alt+C` to toggle a calendar sheet beneath its banner on the focused monitor.
 Past dates have light pencil X's; today has an uneven, open blush circle; days with a
-commit in your project folders get a tiny heart. A tiny cat keeps the handwritten month
+commit in your project folders get a small dot. A botanical sprig keeps the handwritten month
 company. Use `h/l`, Left/Right or Page Up/Down to change
 months, `t` to return to today, `g` for the commit garden, and Escape to close. The date refreshes while open,
 including across midnight.
@@ -935,10 +933,10 @@ lock puts the panel on the focused monitor instead, from a private copy of the c
 `$XDG_RUNTIME_DIR/foxml/`. Any doubt, or a re-pinned lock that fails at once, falls back to
 plain `hyprlock`; manual, idle and sleep locks all go through it.
 The lock screen writes the weekday and date in lowercase handwriting with a blush
-underline, using the local date. The clock, password field and cat keep their spacing.
+underline, using the local date. The clock, password field and botanical illustration keep their spacing.
 It shows a blush Caps Lock tag only while a readable keyboard LED is
 on; its read-only helper runs only while locked. It sits above the password field,
-clear of the note and sleeping cat; centered anchors preserve this spacing in
+clear of the note and botanical illustration; centered anchors preserve this spacing in
 portrait layouts. Connection rows use linked paperclips
 for connected devices and one open clip for disconnected devices. Unknown states
 retain their standard icon. Drawer loading dots wait 220ms before appearing and
@@ -969,14 +967,11 @@ selects the rendered XDG config so an older `~/.mako/config` cannot shadow it.
 Shell and tmux fzf matches share `FZF_MATCH_*`/`FZF_META_FG` palette tokens; Firefox
 find colors use `FF_FIND_BG/FG`, merged into its preferences by the specials module
 (`--render`, `--render-only` or full install). Firefox reads these preferences on its next launch.
-Paper's soft wallpaper set uses warm bone white and faint paper grain: a sleeping
-pencil cat with a dusty pink heart on the primary display, a sage and blush
-colored-pencil tree on displays to its left, and quiet paper on other displays.
-The assignment follows live monitor positions; selecting another wallpaper
-keeps its ordinary per-monitor variants. The cursor installer also repairs desktop preferences and
-fallback-theme inheritance when the cursor assets are already installed.
-The wallpaper's cat, cut out with a rising zzz and faint blush cheeks, is
-`shared/quickshell/foxml/paper-cat.png`. The drawer's line-drawn cat has matching cheeks.
+Paper's botanical wallpaper set uses warm bone white and faint paper grain: a
+small colored-pencil sprig on the primary display, a sage and blush tree on
+displays to its left, and quiet paper on other displays. The assignment follows
+live monitor positions; selecting another wallpaper keeps its ordinary variants.
+The matching transparent sprig is `shared/quickshell/foxml/paper-sprig.png`.
 It sits on empty drawer pages and under the lock screen note (`HYPRLOCK_CAT_Y`), and
 replaces the logo and wordmark on Firefox's new tab, above “a fresh page.” That page
 blocks `file:` images, so both render paths embed this same PNG in `userContent.css`.
@@ -992,9 +987,9 @@ have shallow torn edges. One still flourish marks each drawer heading: a blush
 swash on Home, a circled count on Bookmarks, and a pencil-like underline elsewhere.
 Clipboard image thumbnails sit in little cream photo prints with a deeper bottom
 margin and one blush photo corner. Failed previews keep a readable image glyph.
-Fastfetch puts a small ASCII cat on a machine library card beside labeled specs;
-other palettes retain their existing logo and labels. The Paper wallpaper includes
-the same soft cheeks, and supplies the matching lock and login backgrounds.
+Fastfetch puts a small field-notes branch on a machine library card beside labeled
+specs; other palettes retain their existing logo and labels. The Paper wallpaper
+and matching lock-screen sprig share the same colored-pencil botanical style.
 The `flower` option in `CURSOR_RECOLOR` swaps the busy
 cursors for a turning flower in the pointer's colours. The pointer is size 30 on every
 theme and display. `PAPIRUS_FOLDER_RECOLOR` builds the `foxml-blush` folders from
@@ -1192,3 +1187,9 @@ high failure (Hyprland or Quickshell).
 ## License
 
 Do whatever you want with it.
+
+Paper's wide bar banners use rounded lower edges with a faint second paper edge;
+narrow workspace bookmarks retain their notch and use a pencil underline for
+the active page. Drawers have a turned lower-right corner and a faint margin
+rule. The botanical refresh updates the existing Claude, Neovim, terminal and
+desktop configurations; their navigation and actions remain the same.

@@ -153,14 +153,14 @@ if [[ -n "$src" && "$status" == "Not charging" && "$thr" =~ ^[0-9]+$ ]] \
     holding=1
 fi
 
-# Outline heart while charging, filled once it's done. Tint the heart alone; the
+# A charge marker while charging, a check when complete. Tint the marker alone; the
 # readings and warning classes keep their own ink.
 doodle=""
 heart=""
 if [[ "$status" == Charging ]]; then
-    heart="♡"
+    heart="ϟ"
 elif [[ "$status" == Full ]] || (( holding )); then
-    heart="♥"
+    heart="✓"
 fi
 if [[ -n "$heart" ]]; then
     _pal="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/modules/border_colors.sh"
@@ -170,7 +170,7 @@ if [[ -n "$heart" ]]; then
         heart="<span foreground='#${C_DETAIL_ACCENT}'>$heart</span>"
     fi
     doodle="$heart "
-    [[ "$status" == Charging ]] && doodle="󰚥 $doodle"
+
 fi
 text="$doodle$icon $cap%$watts"
 

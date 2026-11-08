@@ -921,6 +921,7 @@ ShellRoot {
                     visible: theme.paperDetails
                     theme: root.paperTheme
                     depth: height - 4
+                    edgeStyle: "page"
                     inset: 0
                 }
                 Rectangle {
@@ -943,7 +944,7 @@ ShellRoot {
                         Text { textFormat: Text.PlainText; text: root.calendarLayout ? "// LITTLE DAYS" : "// THE QUIET CORNER"; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10; font.letterSpacing: 1 }
                         Item { Layout.fillWidth: true }
                         ToolButton {
-                            text: "♡"
+                            text: "◇"
                             visible: !root.calendarLayout
                             implicitWidth: 28; implicitHeight: 28; padding: 0
                             font.family: theme.fontFamily
@@ -970,33 +971,9 @@ ShellRoot {
                         Layout.fillWidth: true
                         visible: !root.calendarLayout
                         Text { textFormat: Text.PlainText; text: theme.paperDetails && root.page === "power" && Logic.isNight(new Date()) ? "goodnight, see you tomorrow." : "make yourself at home."; color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: panel.implicitWidth < 580 ? 21 : 27; Layout.fillWidth: true; elide: Text.ElideRight }
-                        Canvas {
-                            width: 46; height: 40
-                            onPaint: {
-                                var c = getContext("2d");
-                                c.clearRect(0, 0, width, height);
-                                c.strokeStyle = theme.ink;
-                                c.lineWidth = 1.1;
-                                c.lineJoin = "round";
-                                c.lineCap = "round";
-                                c.beginPath();
-                                c.moveTo(9, 32); c.lineTo(9, 16); c.lineTo(14, 7); c.lineTo(21, 14);
-                                c.lineTo(28, 14); c.lineTo(35, 7); c.lineTo(39, 17); c.lineTo(39, 32);
-                                c.moveTo(18, 20); c.lineTo(18, 22); c.moveTo(30, 20); c.lineTo(30, 22);
-                                c.moveTo(22, 25); c.lineTo(25, 27); c.lineTo(28, 25);
-                                c.moveTo(20, 30); c.lineTo(25, 27); c.lineTo(30, 30);
-                                c.moveTo(7, 25); c.lineTo(2, 23); c.moveTo(7, 29); c.lineTo(2, 30);
-                                c.moveTo(40, 25); c.lineTo(45, 23); c.moveTo(40, 29); c.lineTo(45, 30);
-                                c.moveTo(7, 35); c.quadraticCurveTo(24, 38, 41, 34);
-                                c.stroke();
-                                if (theme.paperDetails) {
-                                    c.fillStyle = Qt.alpha(theme.highlight, .8);
-                                    [16.5, 32.5].forEach(function(x) {
-                                        c.save(); c.translate(x, 25); c.scale(3, 1.5);
-                                        c.beginPath(); c.arc(0, 0, 1, 0, Math.PI * 2); c.fill(); c.restore();
-                                    });
-                                }
-                            }
+                        BotanicalMark {
+                            Layout.preferredWidth: 30; Layout.preferredHeight: 36
+                            theme: root.paperTheme
                         }
                     }
                     Rectangle { Layout.fillWidth: true; height: 1; color: theme.line }

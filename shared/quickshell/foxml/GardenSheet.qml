@@ -89,7 +89,7 @@ ColumnLayout {
                                 border.width: plot.selected ? 1.6 : plot.day === sheet.todayIndex || plot.level === 0 ? 1 : 0
                                 border.color: plot.selected ? sheet.theme.ink : plot.day === sheet.todayIndex ? sheet.theme.detailAccent : Qt.alpha(sheet.theme.line, .7)
                             }
-                            // Drawn, not typed: the font's ♥ is an outline and would read lighter than its neighbours.
+                            // A leaf marks the busiest days without adding another status symbol.
                             Shape {
                                 objectName: "garden-heart"
                                 visible: plot.heart
@@ -101,7 +101,7 @@ ColumnLayout {
                                     fillColor: sheet.theme.gardenShades[4]
                                     strokeColor: plot.selected ? sheet.theme.ink : sheet.theme.gardenShades[4]
                                     strokeWidth: plot.selected ? 2 : 1
-                                    PathSvg { path: "M12 21.2C6.6 17.6 2.5 14.2 2.5 9.6 2.5 6.6 4.8 4.4 7.6 4.4c1.9 0 3.5 1 4.4 2.6.9-1.6 2.5-2.6 4.4-2.6 2.8 0 5.1 2.2 5.1 5.2 0 4.6-4.1 8-9.5 11.6Z" }
+                                    PathSvg { path: "M5 20C2 10 11 3 21 3C21 14 12 23 5 20ZM5 20L17 7" }
                                 }
                             }
                             MouseArea {

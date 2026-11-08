@@ -27,8 +27,7 @@ const notebookView = atom({ plugin: 'foxml-paper', key: 'notebookView' } as cons
   { page: 'overview', scope: 'session', selected: '', offset: 0, form: 'none' } as NotebookView, { shape: 'notebook-1' })
 const SID = /^[A-Za-z0-9_-]{1,80}$/
 
-const WORDS = ['Knitting', 'Pressing flowers', 'Baking', 'Stitching', 'Doodling', 'Steeping tea',
-  'Folding paper', 'Tending the garden', 'Sketching', 'Tidying up', 'Writing a little note', 'Threading a needle']
+const WORDS = ['Reading', 'Checking', 'Tracing', 'Writing', 'Reviewing', 'Working']
 
 // Where a slip can leave a machine unbootable or locked out: login, boot, mounts, the kernel, the firewall.
 const RED_PATHS = /(^|[\s'"=])(\/etc\/(pam\.d|fstab|crypttab|greetd|sudoers|mkinitcpio|default\/grub|kernel\/cmdline|sysctl|usbguard|ufw|security)|\/boot\/)/
@@ -42,12 +41,12 @@ function redZoneOf(command: string): string | null {
   return command.match(RED_TOOLS)?.[2]?.split(/\s+/)[0] ?? null
 }
 
-// The cat says hello by the hour.
+// A short greeting by the hour.
 function greeting(hour: number): string {
-  if (hour >= 5 && hour < 12) return 'good morning ♡ ᓚᘏᗢ'
-  if (hour >= 12 && hour < 18) return 'good afternoon ♡ ᓚᘏᗢ'
-  if (hour >= 18 && hour < 23) return 'good evening ♡ ᓚᘏᗢ'
-  return 'up late? be gentle with yourself ♡ ᓚᘏᗢ'
+  if (hour >= 5 && hour < 12) return 'good morning'
+  if (hour >= 12 && hour < 18) return 'good afternoon'
+  if (hour >= 18 && hour < 23) return 'good evening'
+  return 'working late'
 }
 
 function hearts(percent: number | null): number {
@@ -359,16 +358,16 @@ async function sendNote($: EngineInterface, peer: PaperPeer, text: string) {
   const me = (await read($, title)) ?? 'another session'
   try {
     const sent = await $.session.send({ to: { sessionId: peer.id }, text: `✉ from ${me}: ${note}` })
-    $.ui.toast(sent.isDelivered ? `note left for ${peer.name} ♡` : `not sent: ${sent.reason}`)
+    $.ui.toast(sent.isDelivered ? `note left for ${peer.name}` : `not sent: ${sent.reason}`)
   } catch {
     $.ui.toast(`not sent: ${peer.name} isn't taking notes`)
   }
 }
 
 function peerMark(peer: PaperPeer): [string, string] {
-  if (peer.state === 'needs you') return ['♥', paper.berry]
+  if (peer.state === 'needs you') return ['●', paper.berry]
   if (peer.busy) return ['✎', paper.dim]
-  return ['♡', paper.ink]
+  return ['○', paper.ink]
 }
 
 function toneColour(tone: PaperTone | undefined): string {
@@ -448,7 +447,7 @@ async function refreshNow($: EngineInterface) {
       pane: otherLedgers.find(o => o.sid === n.sid)?.ledger.pane ?? '' })))
 
     const left = 5 - hearts(context)
-    if (memory.lastHearts > 2 && left === 2) $.ui.toast('two hearts left ♡ wrap up, or write a handoff?')
+    if (memory.lastHearts > 2 && left === 2) $.ui.toast('Context is 60% used · consider a handoff.')
     memory.lastHearts = left
     if (memory.lastGate === 'closed' && gate === 'open') $.ui.toast('gate open ✓ the plan is approved')
     memory.lastGate = gate
@@ -588,7 +587,7 @@ export const register: Register = on => {
     const turn = await $.session.turns()
     let seed = turn
     for (const ch of e.requestId ?? '') seed = (seed * 31 + ch.charCodeAt(0)) >>> 0
-    return next({ ...e, props: { ...e.props, word: WORDS[seed % WORDS.length] ?? 'Knitting' } })
+    return next({ ...e, props: { ...e.props, word: WORDS[seed % WORDS.length] ?? 'Working' } })
   })
 
   // One band at a time: the red zone first, then a card's alert, then another session's recent edit.
@@ -598,7 +597,7 @@ export const register: Register = on => {
     const zone = await read($, redZone)
     if (zone !== null) return (
       <Box>
-        <Text color={paper.ribbon} weight="bold">♡ red zone </Text>
+        <Text color={paper.ribbon} weight="bold">○ red zone </Text>
         <Text color={paper.ink}>{clip(zone.what, Math.max(8, e.props.bodyColumns - 40))}</Text>
         <Text color={paper.dim}> · brick-safety first </Text>
         <Button key="dismiss" label="ok" plain onPress={() => update($, redZone, () => null)} />
@@ -607,7 +606,7 @@ export const register: Register = on => {
     const alert = (await read($, look))?.card?.alert
     if (alert) return (
       <Box>
-        <Text color={toneColour(alert.tone ?? 'berry')} weight="bold">♡ {clip(alert.text, Math.max(8, e.props.bodyColumns - 4))}</Text>
+        <Text color={toneColour(alert.tone ?? 'berry')} weight="bold">○ {clip(alert.text, Math.max(8, e.props.bodyColumns - 4))}</Text>
       </Box>
     )
     const other = await read($, overlap)
@@ -615,7 +614,7 @@ export const register: Register = on => {
       const name = other.path.split('/').pop() ?? other.path
       return (
         <Box>
-          <Text color={paper.ribbon} weight="bold">♡ coordinate with the active session that last edited </Text>
+          <Text color={paper.ribbon} weight="bold">○ coordinate with the active session that last edited </Text>
           <Text color={paper.ink}>{clip(name, 40)}</Text>
           <Text color={paper.dim}> · {clip(other.title, Math.max(8, e.props.bodyColumns - 100))}{other.pane ? ` (pane ${other.pane})` : ''}, {other.ago} </Text>
           <Button key="seen" label="ok" plain onPress={() => update($, overlap, () => null)} />
@@ -875,8 +874,8 @@ export const register: Register = on => {
     const back = () => view.form !== 'none' ? setView({ form: 'none' }) : page('overview')
     return <Box flexDirection="column">
       <Text>
-        <Text color={(now?.context ?? 0) >= 80 ? paper.berry : paper.heart}>{'♥'.repeat(filled)}</Text>
-        <Text color={paper.note}>{'♡'.repeat(5 - filled)}</Text>
+        <Text color={(now?.context ?? 0) >= 80 ? paper.berry : paper.heart}>{'▰'.repeat(filled)}</Text>
+        <Text color={paper.note}>{'▱'.repeat(5 - filled)}</Text>
         <Text color={paper.dim}>{now?.context == null ? '' : ` ${now.context}%`}</Text>
         {mail.length > 0 && <Text color={paper.ribbon}>{` · ✉ ${mail.length}`}</Text>}
         <Text color={paper.ink}>{name ? ' · ' + shortPath(name, Math.max(4, width - 14)) : ''}</Text>

@@ -49,8 +49,8 @@ class RenderedConfigsTest(unittest.TestCase):
             self.assertEqual(colours, {"recolor-lightcolor": "#" + palette_value(theme, "BG"),
                                        "recolor-darkcolor": "#" + palette_value(theme, "FG")}, theme)
 
-    def test_firefox_embeds_the_shared_cat_instead_of_a_separate_copy(self):
-        cat = (ROOT / "shared/quickshell/foxml/paper-cat.png").read_bytes()
+    def test_firefox_embeds_the_shared_botanical_illustration(self):
+        cat = (ROOT / "shared/quickshell/foxml/paper-sprig.png").read_bytes()
         for theme in THEMES:
             css = (self.out / theme / "firefox/userContent.css").read_text()
             encoded = re.search(r'data:image/png;base64,([A-Za-z0-9+/=]+)', css)

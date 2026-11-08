@@ -29,6 +29,7 @@ EXERCISE = r'''
         if (window.implicitHeight!==root.testSurfaceHeight || window.moduleContainer.mapToItem(window.contentItem,0,0).y!==root.testBarY)
             throw new Error("opening resized or moved the bar surface");
         if (!drawerBanner.visible || drawerBanner.depth<=0) throw new Error("drawer did not use the shared ribbon shape");
+        if (drawerBanner.edgeStyle!=="page" || drawerBanner.foldSize<18) throw new Error("drawer lost its turned page corner");
         if (root.drawerPlacement.top >= root.resolvedAnchor.y) throw new Error("paper did not tuck under the bookmark");
         if (root.drawerPlacement.top !== 0 || root.drawerTopInset !== window.barHeight
             || revealClip.y !== 0 || revealClip.height !== root.drawerHeight || Math.abs(keyboard.y)>1)
@@ -184,7 +185,7 @@ class TuckedDrawer(unittest.TestCase):
             subprocess.run([str(renderer),str(ROOT/"themes/FoxML_Paper/palette.sh"),str(ROOT/"templates/quickshell/foxml"),str(qml)],check=True,capture_output=True)
             config=work/"config/waybar";config.mkdir(parents=True)
             layout={"modules-left":["custom/logo"],"modules-center":[],"modules-right":["custom/updates","custom/clock"],
-                "custom/clock":{"format":"Thursday 09♡09","on-click":"fox-desktop-menu calendar"},
+                "custom/clock":{"format":"Thursday 09:09","on-click":"fox-desktop-menu calendar"},
                 "custom/logo":{"format":"✎","on-click":"fox-desktop-menu root"},
                 "custom/updates":{"format":"↧ 4","on-click":"fox-desktop-menu updates"}}
             for name in ["config","config_secondary"]:

@@ -12,10 +12,10 @@ bool finish_paper_assets(const fs::path& templates, const fs::path& output) {
     if (!fs::exists(css)) return true;
     std::ifstream in(css);
     std::string text{std::istreambuf_iterator<char>(in), {}};
-    const std::string marker = "{{PAPER_CAT_DATA_URI}}";
+    const std::string marker = "{{PAPER_BOTANICAL_DATA_URI}}";
     if (text.find(marker) == std::string::npos) return true;
     const auto repo = full ? templates.parent_path() : templates.parent_path().parent_path();
-    std::ifstream asset(repo / "shared/quickshell/foxml/paper-cat.png", std::ios::binary);
+    std::ifstream asset(repo / "shared/quickshell/foxml/paper-sprig.png", std::ios::binary);
     const std::string bytes{std::istreambuf_iterator<char>(asset), {}};
     if (bytes.empty()) return false;
     static constexpr char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -29,7 +29,7 @@ bool finish_paper_assets(const fs::path& templates, const fs::path& output) {
         data += i + 1 < bytes.size() ? alphabet[(value >> 6) & 63] : '=';
         data += i + 2 < bytes.size() ? alphabet[value & 63] : '=';
     }
-    // Firefox blocks file: images here, so embed the same cat used by the drawer and lock screen.
+    // Firefox blocks file: images here, so embed the same sprig used by the drawer and lock screen.
     for (size_t at = text.find(marker); at != std::string::npos; at = text.find(marker, at + data.size()))
         text.replace(at, marker.size(), data);
     return atomic_write(css, text, fs::status(css).permissions());

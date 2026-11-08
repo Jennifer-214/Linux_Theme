@@ -45,42 +45,42 @@ class BatteryDoodleTests(unittest.TestCase):
 
     def test_charging_has_doodle_and_keeps_numbers(self):
         state = self.read_state("Charging")
-        self.assertTrue(state["text"].startswith("󰚥 ♡ "))
+        self.assertTrue(state["text"].startswith("ϟ "))
         self.assertIn("80% +10W", state["text"])
         self.assertEqual(state["class"], "charging")
 
     def test_threshold_hold_is_not_drawn_as_charging(self):
         state = self.read_state("Not charging")
-        self.assertNotIn("♡", state["text"])
+        self.assertNotIn("ϟ", state["text"])
         self.assertEqual(state["class"], "plugged")
         self.assertIn("holding at 80%", state["tooltip"])
 
     def test_holding_at_the_charge_limit_fills_the_heart(self):
         state = self.read_state("Not charging")
-        self.assertTrue(state["text"].startswith("♥ "))
+        self.assertTrue(state["text"].startswith("✓ "))
 
     def test_full_fills_the_heart(self):
         state = self.read_state("Full", capacity=100)
-        self.assertTrue(state["text"].startswith("♥ "))
+        self.assertTrue(state["text"].startswith("✓ "))
 
     def test_not_charging_below_the_limit_has_no_heart(self):
         state = self.read_state("Not charging", capacity=60)
-        self.assertNotIn("♥", state["text"])
-        self.assertNotIn("♡", state["text"])
+        self.assertNotIn("✓", state["text"])
+        self.assertNotIn("ϟ", state["text"])
 
     def test_filled_heart_uses_the_palette_accent(self):
         palette = self.config / "hypr/modules/border_colors.sh"
         palette.parent.mkdir(parents=True)
         palette.write_text('export C_DETAIL_ACCENT="ab12cd"\n')
         state = self.read_state("Not charging")
-        self.assertTrue(state["text"].startswith("<span foreground='#ab12cd'>♥</span> "))
+        self.assertTrue(state["text"].startswith("<span foreground='#ab12cd'>✓</span> "))
 
     def test_only_heart_uses_rendered_palette_accent(self):
         palette = self.config / "hypr/modules/border_colors.sh"
         palette.parent.mkdir(parents=True)
         palette.write_text('export C_DETAIL_ACCENT="ab12cd"\n')
         state = self.read_state("Charging")
-        self.assertTrue(state["text"].startswith("󰚥 <span foreground='#ab12cd'>♡</span> "))
+        self.assertTrue(state["text"].startswith("<span foreground='#ab12cd'>ϟ</span> "))
         self.assertEqual(state["text"].count('<span'), 1)
         self.assertIn('80% +10W',state['text'])
         self.assertNotIn('<span',state['tooltip'])
@@ -90,18 +90,18 @@ class BatteryDoodleTests(unittest.TestCase):
         palette.parent.mkdir(parents=True)
         palette.write_text('export C_DETAIL_ACCENT="not-a-color"\n')
         state = self.read_state("Charging")
-        self.assertTrue(state["text"].startswith("󰚥 ♡ "))
+        self.assertTrue(state["text"].startswith("ϟ "))
         self.assertNotIn('<span',state['text'])
 
     def test_unplugged_critical_still_has_critical_class(self):
         state = self.read_state("Discharging", capacity=5, connected=False)
         self.assertEqual(state["class"], "critical")
-        self.assertNotIn("♡", state["text"])
+        self.assertNotIn("ϟ", state["text"])
 
     def test_failed_charger_keeps_drain_warning(self):
         for _ in range(3): state = self.read_state("Discharging")
         self.assertEqual(state["class"], "plugged-drain")
-        self.assertNotIn("♡", state["text"])
+        self.assertNotIn("ϟ", state["text"])
 
 
 if __name__ == "__main__":

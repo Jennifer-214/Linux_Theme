@@ -504,15 +504,15 @@
   {{FF_EXTRA_SCOPE}} moz-toggle {
     --toggle-dot-background-color-on-pressed: #{{PRIMARY}} !important;
   }
-  /* the wallpaper's sleeping cat instead of the fox and wordmark; embedded because this
-     page's content policy blocks file: images; the renderer embeds shared/quickshell/foxml/paper-cat.png */
+  /* the paper theme's botanical illustration instead of the fox and wordmark; embedded because this
+     page's content policy blocks file: images; the renderer embeds shared/quickshell/foxml/paper-sprig.png */
   {{FF_EXTRA_SCOPE}} .logo {
-    background-image: url("{{PAPER_CAT_DATA_URI}}") !important;
+    background-image: url("{{PAPER_BOTANICAL_DATA_URI}}") !important;
     background-size: contain !important;
     background-repeat: no-repeat !important;
     background-position: center !important;
     width: 112px !important;
-    height: 72px !important;
+    height: 112px !important;
   }
   {{FF_EXTRA_SCOPE}} .wordmark {
     display: none !important;

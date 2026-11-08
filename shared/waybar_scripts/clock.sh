@@ -58,7 +58,7 @@ elif command -v checkupdates >/dev/null 2>&1; then
 fi
 
 # ── Little details (themes opt in via the rendered palette) ───────
-# The colon becomes a heart when the clock's two halves match (09♡09), and
+# Paper keeps a plain clock and
 # wttr's colour emoji becomes a monochrome glyph that takes the theme's ink.
 _pal="$HOME/.config/hypr/modules/border_colors.sh"
 [[ -r "$_pal" ]] && source "$_pal"
@@ -85,10 +85,6 @@ ink_weather() {
 
 # ── Output ────────────────────────────────────────────────────────
 text=$(date +"  %a %b %d  %I:%M %p")
-if (( little )) && [[ $text =~ ([0-9]{2}):([0-9]{2}) ]] \
-        && [[ ${BASH_REMATCH[1]} == "${BASH_REMATCH[2]}" ]]; then
-    text=${text/"${BASH_REMATCH[0]}"/"${BASH_REMATCH[1]}♡${BASH_REMATCH[2]}"}
-fi
 (( little )) && weather=$(ink_weather "$weather")
 today=$(date +"%A, %B %-d %Y")
 

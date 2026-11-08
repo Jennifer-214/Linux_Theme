@@ -18,6 +18,7 @@ QtObject {
     readonly property var gardenShades: ["#{{GARDEN_0}}", "#{{GARDEN_1}}", "#{{GARDEN_2}}", "#{{GARDEN_3}}", "#{{GARDEN_4}}"]
     readonly property real selectionOpacity: {{ROFI_SELECTED_ALPHA}}
     readonly property color accent: "#{{PRIMARY}}"
+    readonly property color botanicalInk: "#{{GREEN}}"
     readonly property color error: "#{{RED}}"
     readonly property color warning: "#{{WAYBAR_WARN}}"
     readonly property color success: "#{{OK}}"

@@ -118,7 +118,7 @@ function M.needs_text(live)
   local waiting = {}
   for _, p in ipairs(live or {}) do if p.state == "needs you" then waiting[#waiting + 1] = p.name end end
   if #waiting == 0 then return "" end
-  return "♥ " .. waiting[1] .. (#waiting > 1 and (" +" .. (#waiting - 1)) or "")
+  return "● " .. waiting[1] .. (#waiting > 1 and (" +" .. (#waiting - 1)) or "")
 end
 
 -- ─── notes ────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -176,7 +176,7 @@ end
 
 function M.who(c, names, me)
   if c.claude then return "✿", (c.url and names[c.url]) or "Claude" end
-  if c.author == me then return "♥", "you" end
+  if c.author == me then return "●", "you" end
   return "·", c.author
 end
 
@@ -200,7 +200,7 @@ function M.live_files(p, dirty)
 end
 
 function M.blame_text(info, trailer, names, me, now_s)
-  if info.author == "Not Committed Yet" or (info.sha or ""):match("^0+$") then return "  ♡ not committed yet" end
+  if info.author == "Not Committed Yet" or (info.sha or ""):match("^0+$") then return "  ○ not committed yet" end
   local mark, who = M.who({ claude = trailer.claude, url = trailer.url, author = info.author }, names, me)
   local when = M.ago(now_s - (tonumber(info.author_time) or now_s), tonumber(info.author_time))
   return string.format("  %s %s · %s · %s", mark, who, when, info.summary or "")
@@ -295,7 +295,7 @@ function M.jump()
 end
 
 local function peer_item(p)
-  local mark = p.state == "needs you" and "♥" or (p.busy and "✎" or "♡")
+  local mark = p.state == "needs you" and "●" or (p.busy and "✎" or "○")
   return string.format("%s %s · %s · %s", mark, p.name, p.project or "", p.state or "")
 end
 
@@ -314,7 +314,7 @@ function M.send(range)
       if not text or vim.trim(text) == "" then return end
       local note = M.note(text, path, range and range[1], range and range[2], code)
       if M.write_note(dir, p.id, note) then
-        vim.notify("note left for " .. p.name .. " ♡", vim.log.levels.INFO, { title = "Claude" })
+        vim.notify("note left for " .. p.name, vim.log.levels.INFO, { title = "Claude" })
       else
         vim.notify("could not leave the note", vim.log.levels.ERROR, { title = "Claude" })
       end

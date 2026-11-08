@@ -14,7 +14,7 @@ export C_SENTRY_CRIT="{{SENTRY_CRIT}}"
 export C_SENTRY_WARN="{{SENTRY_WARN}}"
 export C_SENTRY_OK="{{SENTRY_OK}}"
 export C_SENTRY_DIM="{{SENTRY_DIM}}"
-# Paper's little details (clock.sh: heart colon + monochrome weather glyph)
+# Paper's pencil details and monochrome weather glyphs
 export C_LITTLE_DETAILS="{{LITTLE_DETAILS}}"
 # Small desktop details follow the workspace accent.
 export C_DETAIL_ACCENT="{{WAYBAR_WS_ACTIVE}}"

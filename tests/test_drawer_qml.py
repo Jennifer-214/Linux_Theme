@@ -220,7 +220,7 @@ EXERCISE = r'''
             || Math.abs(itemList.contentY-itemList.originY-itemList.contentHeight+itemList.height)>4.5)
             throw new Error("native scrollbar did not reach the page bottom");
         root.itemIndex=0;
-        root.entries=[{id:"media-play-pause",label:"A track",detail:"An artist · Paused",mediaState:"Paused",kind:"action",presentation:"media",artwork:Qt.resolvedUrl("paper-cat.png")}];
+        root.entries=[{id:"media-play-pause",label:"A track",detail:"An artist · Paused",mediaState:"Paused",kind:"action",presentation:"media",artwork:Qt.resolvedUrl("paper-sprig.png")}];
     }}
     Timer { interval:4700; running:true; onTriggered: {
         var cover=testFind(itemList,"media-artwork"), tape=testFind(cover,"media-washi-tape");
@@ -277,7 +277,7 @@ EXERCISE = r'''
         if (root.page !== "garden" || !root.gardenLayout || !gardenSheet.visible || itemList.visible || emptyNote.visible)
             throw new Error("the hearts line did not open the garden sheet: " + root.page + " " + root.gardenLayout + " " + gardenSheet.visible + " " + itemList.visible + " " + emptyNote.visible);
         if (gardenSheet.counts.length !== 371 || root.gardenIndex !== 370) throw new Error("the garden did not start on today");
-        if (testFind(gardenSheet, "garden-summary").text !== "♥ 35 commits this year · longest streak 4 days · busiest nov 2 (9)")
+        if (testFind(gardenSheet, "garden-summary").text !== "· 35 commits this year · longest streak 4 days · busiest nov 2 (9)")
             throw new Error("garden summary: " + testFind(gardenSheet, "garden-summary").text);
         if (testFind(gardenSheet, "garden-readout").text !== "today · 2 commits") throw new Error("the readout does not start on today");
         var today = testFind(gardenSheet, "garden-day-370"), heart = testFind(gardenSheet, "garden-day-365");
@@ -356,12 +356,12 @@ class DrawerQmlTest(unittest.TestCase):
             source = re.sub(r"^        (?:anchors \{.*|margins \{.*|exclusionMode:.*|WlrLayershell\..*)\n", "", source, flags=re.M)
             source = source.rsplit("\n}", 1)[0] + EXERCISE + "\n}\n"
             (directory / "shell.qml").write_text(source)
-            for name in ("DrawerLogic.js", "ClipIcon.qml", "LoadingDots.qml", "PencilProgress.qml", "PaperGrain.qml", "BarHint.qml", "PageEdgeScrollBar.qml", "MediaArtwork.qml", "StateTag.qml", "BarRibbon.qml", "PaperFlourish.qml", "PaperCardSurface.qml", "ClipboardPhoto.qml", "CalendarSheet.qml", "CalendarLogic.js", "ScrapbookSheet.qml", "GardenSheet.qml", "ContextHearts.qml", "TeaCup.qml", "TodaySheet.qml", "VolumeSlip.qml"):
+            for name in ("DrawerLogic.js", "ClipIcon.qml", "LoadingDots.qml", "PencilProgress.qml", "PaperGrain.qml", "BarHint.qml", "PageEdgeScrollBar.qml", "MediaArtwork.qml", "StateTag.qml", "BarRibbon.qml", "PaperFlourish.qml", "PaperCardSurface.qml", "ClipboardPhoto.qml", "CalendarSheet.qml", "CalendarLogic.js", "ScrapbookSheet.qml", "GardenSheet.qml", "ContextHearts.qml", "TeaCup.qml", "TodaySheet.qml", "VolumeSlip.qml", "BotanicalMark.qml"):
                 shutil.copyfile(ROOT / "shared/quickshell/foxml" / name, directory / name)
             volume = (directory / "VolumeSlip.qml").read_text().replace("PanelWindow {", "FloatingWindow {")
             volume = re.sub(r"^    (?:anchors.*|margins\..*|exclusionMode:.*|WlrLayershell\..*)\n", "", volume, flags=re.M)
             (directory / "VolumeSlip.qml").write_text(volume)
-            shutil.copyfile(ROOT / "shared/quickshell/foxml/paper-cat.png", directory / "paper-cat.png")
+            shutil.copyfile(ROOT / "shared/quickshell/foxml/paper-sprig.png", directory / "paper-sprig.png")
             renderer = ROOT / "src/fox-render/fox-render-fast"
             render = str(renderer) if renderer.exists() else shutil.which("fox-render-fast")
             if not render:

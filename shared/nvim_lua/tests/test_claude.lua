@@ -32,7 +32,7 @@ eq(C.gate_text("/code/paper", live, "a 2026-11-07\n"), "gate open ✓", "the gat
 eq(C.gate_text("/code/paper", live, "zzz 2026\n"), "plan first ✎", "the session here is not approved")
 eq(C.gate_text("/code/paper", live, nil), "", "no gate file, nothing shown")
 eq(C.gate_text("/code/nowhere", live, "a\n"), "", "no session in this repo, nothing shown")
-eq(C.needs_text(live), "♥ docs", "who needs you")
+eq(C.needs_text(live), "● docs", "who needs you")
 
 eq(C.note(" look here ", "/code/paper/x.lua", 3, 5, "int x;"),
    { from = "nvim", text = "look here", file = "/code/paper/x.lua", lines = "3-5", code = "int x;" }, "a note with a selection")
@@ -47,7 +47,7 @@ eq(commits[1].files, { "README.md", "src/a.cpp" }, "files of a commit")
 eq(commits[2].parent, nil, "a root commit has no parent")
 local names = C.parse_names('{"url":"https://claude.ai/code/session_X","title":"Linux_Theme","at":1}\nbroken\n')
 eq(C.commit_label(commits[1], names, "Caramel", NOW), "✿ aaaa111  Linux_Theme · 2h · feat: drawer pages  2 files", "a Claude commit, named")
-eq(C.commit_label(commits[2], names, "Caramel", NOW), "♥ bbbb222  you · yesterday · fix kitty padding  1 file", "your commit")
+eq(C.commit_label(commits[2], names, "Caramel", NOW), "● bbbb222  you · yesterday · fix kitty padding  1 file", "your commit")
 eq(C.who({ claude = true, url = "https://unknown" }, names, "me"), "✿", "an unknown session is still Claude's")
 
 eq(C.live_files(live[1], { ["/code/paper/y.lua"] = true }), { "/code/paper/y.lua" }, "only files still uncommitted")
@@ -56,8 +56,8 @@ eq(C.live_label(live[1], { "/a" }), "✎ Ledger tidy · waiting · 1 file, not c
 eq(C.blame_text({ sha = "aaaa", author = "Caramel", author_time = NOW - 120, summary = "feat: x" },
   { claude = true, url = "https://claude.ai/code/session_X" }, names, "Caramel", NOW), "  ✿ Linux_Theme · 2m · feat: x", "blame names the session")
 eq(C.blame_text({ sha = "bbbb", author = "Caramel", author_time = NOW - 120, summary = "fix" }, { claude = false }, names, "Caramel", NOW),
-  "  ♥ you · 2m · fix", "blame on your line")
-eq(C.blame_text({ sha = "0000000", author = "Not Committed Yet" }, {}, names, "Caramel", NOW), "  ♡ not committed yet", "uncommitted")
+  "  ● you · 2m · fix", "blame on your line")
+eq(C.blame_text({ sha = "0000000", author = "Not Committed Yet" }, {}, names, "Caramel", NOW), "  ○ not committed yet", "uncommitted")
 
 -- A note lands where the mod reads it, whole, named as it expects.
 local dir = vim.fn.tempname()

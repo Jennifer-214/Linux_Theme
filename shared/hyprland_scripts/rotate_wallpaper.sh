@@ -262,7 +262,7 @@ if command -v hyprctl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
         while IFS= read -r name; do
             [[ -z "$name" ]] && continue
             mon_pick="${monitor_pick[$name]:-$pick}"
-            if [[ "$filename" == foxml_paper_soft.png && -n "$PRIMARY" && "$name" != "$PRIMARY" ]]; then
+            if [[ ( "$filename" == foxml_paper_soft.png || "$filename" == foxml_paper_botanical.png ) && -n "$PRIMARY" && "$name" != "$PRIMARY" ]]; then
                 companion=$(printf '%s' "$monitors_json" | jq -r --arg primary "$PRIMARY" --arg output "$name" '
                     (map(select(.name == $primary)) | .[0].x) as $px |
                     (map(select(.name == $output)) | .[0].x) as $x |

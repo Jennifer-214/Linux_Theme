@@ -1042,7 +1042,7 @@ Json claude_bar() {
         if (was != busy || (memo.is_object() ? stamp(memo, "doneUntil") : 0) != until)
             write_atomic(memo_path, Json{{"busy", busy}, {"doneUntil", until}}.dump() + "\n");
     }
-    std::string text = done ? "♡ all done" : "";
+    std::string text = done ? "✓ all done" : "";
     if (busy) text += "✎ " + std::to_string(busy);
     if (waiting) text += (text.empty() ? "" : "  ") + std::string("◇ ") + std::to_string(waiting);
     if (stopped) text += (text.empty() ? "" : "  ") + std::string("! ") + std::to_string(stopped);
@@ -1070,7 +1070,7 @@ std::string claude_lock_line() {
     for (const auto& session : claude_sessions(usage)) { busy += claude_busy(session); asking += session.state == "needs"; }
     std::string line;
     if (busy) line = std::to_string(busy) + " still working ✎";
-    if (asking) line += (line.empty() ? "" : "  ·  ") + std::to_string(asking) + (asking == 1 ? " needs you ♡" : " need you ♡");
+    if (asking) line += (line.empty() ? "" : "  ·  ") + std::to_string(asking) + (asking == 1 ? " needs you" : " need you");
     return line;
 }
 // From a session row: its pane id (%N) names the place to go.

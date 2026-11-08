@@ -23,7 +23,7 @@ FONT_FAMILY="MonaspiceKr Nerd Font"
 # `[[ "{{SHOW_WELCOME}}" == "true" ]]` check in templates/zsh/welcome.zsh.
 SHOW_WELCOME=true
 SHOW_BANNER=true
-WALLPAPER=foxml_paper_soft.png
+WALLPAPER=foxml_paper_botanical.png
 
 # ─── Aesthetic controls ───
 # Light blur so the paper grain still shows through translucent windows.
@@ -262,7 +262,7 @@ GRAD5=244
 # ─── Tmux colors ───
 TMUX_ACTIVE=colour238
 TMUX_INACTIVE=colour246
-# tmux pane dividers: a double pencil line (═), the active pane's in heart pink.
+# tmux pane dividers: a double pencil line (═), the active pane's in blush.
 TMUX_BORDER=a39d96
 TMUX_BORDER_ACTIVE=c67596
 TMUX_BORDER_LINES=double
@@ -300,9 +300,8 @@ TMUX_FOOTER_HIGHLIGHT=fox-tmux-hl-on
 
 WELCOME_LAYOUT=centered
 
-# Little hidden touches: the bar clock's colon becomes a heart when its two halves match
-# (09♡09), the weather reads as a monochrome glyph, and a ✿ notification arrives when a
-# long command succeeds while you're looking elsewhere. Other themes: fox-little-details-off.
+# Paper uses botanical illustrations and quiet pencil details.
+# Other themes: fox-little-details-off.
 LITTLE_DETAILS=fox-little-details-on
 
 # ─── Cohesive surfaces (lock screen · mako · rofi · btop · lazygit · fzf · nvim floats) ───
@@ -318,15 +317,15 @@ HYPRLOCK_CLOCK_COLOR=2b2b2dee
 HYPRLOCK_CLOCK_FONT="MonaspiceRn Nerd Font"
 HYPRLOCK_DIM_COLOR=6e6d70cc
 HYPRLOCK_INPUT_BORDER=a9a19bff
-# Password dots are little outline hearts, pencil-weight like the ♡ below them.
-HYPRLOCK_DOTS_STYLE='dots_text_format = ♡'
+# Password entry uses plain dots.
+HYPRLOCK_DOTS_STYLE='dots_text_format = •'
 HYPRLOCK_FAIL=9a5a48
-HYPRLOCK_FAIL_TEXT='<i>not quite ♡ $FAIL</i>'
+HYPRLOCK_FAIL_TEXT='<i>try again · $FAIL</i>'
 HYPRLOCK_CAPS=1c1c1e
-# A handwritten date with a blush underline, beside the sleeping cat.
+# A handwritten date with a blush underline, beside the botanical study.
 HYPRLOCK_DATE_TEXT='cmd[update:60000] sh "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/scripts/date-label.sh"'
 # A handwritten sign-off under the password field (other themes park it off-screen).
-HYPRLOCK_NOTE='<i>see you soon ♡</i>'
+HYPRLOCK_NOTE='<i>locked</i>'
 HYPRLOCK_NOTE_Y=-140
 HYPRLOCK_CAT_Y=-228
 MAKO_BORDER=a9a19b
@@ -504,7 +503,7 @@ MAKO_ICON_LOCATION=top
 MAKO_PAPER_SHAPE=bookmark
 
 # Fastfetch machine card and field labels.
-FASTFETCH_LOGO='"type": "data", "source": "$1╭──────────────────────╮\n$1│$2 this little machine  $1│\n$1│$2                      $1│\n$1│$2        /\\_/\\         $1│\n$1│$2      ( -.- ) z       $1│\n$1│$2        > ^ <         $1│\n$1│$2                      $1│\n$1│$2    handle with ♡     $1│\n$1╰──────────────────────╯"'
+FASTFETCH_LOGO='"type": "data", "source": "$1╭──────────────────────╮\n$1│$2       FIELD NOTES    $1│\n$1│$2                      $1│\n$1│$2          /           $1│\n$1│$2       --/--          $1│\n$1│$2        /             $1│\n$1│$2     --/              $1│\n$1│$2                      $1│\n$1╰──────────────────────╯"'
 FASTFETCH_KEY_INK=245
 FASTFETCH_OUTPUT_INK=238
 FASTFETCH_KEY_OS="OS"

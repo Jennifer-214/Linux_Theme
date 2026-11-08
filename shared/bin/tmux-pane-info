@@ -6,7 +6,7 @@ path="${1:-$PWD}"
 cmd="${2:-}"
 pane="${3:-}"
 
-# 0. A Claude session in this pane: ♡ while it needs you, ✿ while it works (from the hooks' state files;
+# 0. A Claude session in this pane: ! while it needs you, ✿ while it works (from the hooks' state files;
 #    the footer's own ✎ already marks the active pane).
 claude=""
 if [[ "$pane" =~ ^%[0-9]+$ ]]; then
@@ -14,7 +14,7 @@ if [[ "$pane" =~ ^%[0-9]+$ ]]; then
         sessions="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/foxml-claude"
         for state in $(grep -l -E "\"pane\": *\"$pane\"" "$sessions"/*.state 2>/dev/null | xargs -r ls -t 2>/dev/null | head -1); do
             case "$(grep -o -E '"state": *"[a-z]*"' "$state")" in
-                *'"needs"')                   claude="♡  " ;;
+                *'"needs"')                   claude="!  " ;;
                 *'"working"'|*'"compacting"') claude="✿  " ;;
             esac
         done ;;

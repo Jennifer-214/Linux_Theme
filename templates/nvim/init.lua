@@ -177,7 +177,7 @@ function Paper.notebook_sections(dashboard)
   page(vim.fn.fnamemodify(vim.fn.getcwd(), ":t"), "FoxNotebookTitle")
   page(os.date("%A, %B %d  ·  %Y"):lower(), "FoxNotebookNote")
   page("", "FoxNotebookText")
-  page("CONTENTS                              ♡", "FoxNotebookNote")
+  page("CONTENTS", "FoxNotebookNote")
   local descriptions = { f = "find a page", g = "look for a little word", r = "recent pages",
     p = "other notebooks", s = "pick up where you left off", l = "care for your tools", q = "close the notebook" }
   page("n   a fresh page", "FoxNotebookText", "n", ":ene | startinsert")
@@ -198,8 +198,8 @@ function Paper.notebook_sections(dashboard)
   end
   if count == 0 then page("your next little idea starts here.", "FoxNotebookNote") end
   page("", "FoxNotebookText")
-  page(" /\\_/\\     one page at a time.", "FoxNotebookNote")
-  page("( -.- )    ♡", "FoxNotebookNote")
+  page("  /  ·  field notes", "FoxNotebookNote")
+  page(" /", "FoxNotebookNote")
   rows[#rows + 1] = { text = { { "╰" .. string.rep("─", width - 2) .. "╯", hl = "FoxNotebookRule" } } }
   return rows
 end
@@ -1056,7 +1056,7 @@ local plugins = {
       } or nil,
       current_line_blame = {{SHOW_WELCOME}},
       current_line_blame_opts = { delay = 300, virt_text_pos = "eol" },
-      -- ✿ the Claude session behind a line (its commit's Claude-Session trailer), ♥ you (foxml.claude)
+      -- ✿ the Claude session behind a line (its commit's Claude-Session trailer), ● you (foxml.claude)
       current_line_blame_formatter = function(user, info)
         local ok, claude = pcall(require, "foxml.claude")
         if ok then return claude.blame_formatter(user, info) end

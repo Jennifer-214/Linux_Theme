@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Claude Code status line, in the palette: model · context hearts · plan usage · branch · plan gate.
+# Claude Code status line, in the palette: model · context meter · plan usage · branch · plan gate.
 # Each run also leaves a small snapshot of the session for the bar pill and the drawer's Agents page,
 # in $XDG_RUNTIME_DIR/foxml-claude/<session>.json (the hooks keep <session>.state beside it).
 input="$(cat)"
@@ -47,14 +47,16 @@ if [[ "$ctx" =~ ^[0-9]+$ ]]; then
     filled=$(( (ctx * 5 + 50) / 100 )); (( filled > 5 )) && filled=5
     colour="$HEART"; (( ctx >= 80 )) && colour="$BERRY"
     hearts="" bare=""
+    filled_mark="♥"; empty_mark="♡"
+    if [[ "{{LITTLE_DETAILS}}" == fox-little-details-on ]]; then filled_mark="▰"; empty_mark="▱"; fi
     for (( i = 0; i < 5; i++ )); do
-        if (( i < filled )); then hearts+="$colour♥"; else hearts+="$FAINT♡"; fi
-        bare+="♥"
+        if (( i < filled )); then hearts+="$colour$filled_mark"; else hearts+="$FAINT$empty_mark"; fi
+        bare+="$filled_mark"
     done
     add "$hearts $DIM$ctx%$RESET" "$bare $ctx%"
 fi
 
-# What the hooks last said of this session: a cat naps while it waits on you, it tidies while compacting,
+# What the hooks last said of this session: readiness, compaction,
 # and a page just tidied sparkles for a minute and a half.
 state="" detail="" since=0
 if [[ -n "$sid" && -r "$XDG_RUNTIME_DIR/foxml-claude/$sid.state" ]]; then
@@ -67,7 +69,10 @@ if [[ "$state" == "compacting" ]]; then
 elif [[ "$detail" == "fresh" ]] && (( now - since < 90 )); then
     add "${HEART}✧ a fresh page$RESET" "✧ a fresh page"
 elif [[ "$state" == "waiting" || "$state" == "needs" ]]; then
-    add "${FAINT}ᓚᘏᗢ$RESET" "ᓚᘏᗢ"
+    if [[ "{{LITTLE_DETAILS}}" == fox-little-details-on ]]; then
+        label="ready"; [[ "$state" == needs ]] && label="needs input"
+        add "${FAINT}$label$RESET" "$label"
+    else add "${FAINT}ᓚᘏᗢ$RESET" "ᓚᘏᗢ"; fi
 fi
 
 # Plan usage turns berry from 80%, and then says when it resets.
@@ -94,14 +99,14 @@ if [[ -n "$sid" && -r "$project/.claude/.plan-approved" ]] && grep -q "^$sid " "
     add "${ACCENT}gate open$RESET" "gate open"
 fi
 
-# Narrow panes drop the branch first, then the cat's note, the week and the five hours; the model and hearts stay.
+# Narrow panes drop the branch first, then the readiness note, the week and the five hours; the model and context stay.
 width="${COLUMNS:-200}"
 fits() {
     local total=0 i
     for i in "${!plain[@]}"; do [[ -n "${plain[$i]}" ]] && total=$(( total + ${#plain[$i]} + 3 )); done
     (( total <= width ))
 }
-for drop in "⎇ " "ᓚᘏᗢ" "tidying" "✧ a fresh" "week " "5h "; do
+for drop in "⎇ " "ready" "needs input" "ᓚᘏᗢ" "tidying" "✧ a fresh" "week " "5h "; do
     fits && break
     for i in "${!plain[@]}"; do
         [[ "${plain[$i]}" == "$drop"* ]] && { parts[$i]=""; plain[$i]=""; }

@@ -61,6 +61,7 @@ Flickable {
                 readonly property string allIcons: windows.map(function(w) {return BarLogic.windowIcon((w.lastIpcObject || {}).class || "", workspaces.spec);}).join(workspaces.spec["format-window-separator"] || " ")
                 readonly property string icons: workspaces.tight ? "" : workspaces.compact ? allIcons.split(workspaces.spec["format-window-separator"] || " ")[0] : allIcons
                 theme: workspaces.theme
+                edgeStyle: "bookmark"
                 width: Math.min(workspaces.tight ? 38 : workspaces.compact ? 68 : 180, Math.max(28, label.implicitWidth + 17))
                 depth: current ? workspaces.depth + 7 : workspaces.depth
                 selected: current
@@ -79,12 +80,13 @@ Flickable {
                     font.bold: tab.current
                     color: tab.ws && tab.ws.urgent ? workspaces.theme.error : tab.current || tab.windows.length ? workspaces.theme.ink : workspaces.theme.muted
                 }
-                PawPrint {
+                Rectangle {
                     anchors.horizontalCenter: label.horizontalCenter
                     anchors.top: label.bottom
-                    anchors.topMargin: -1
+                    anchors.topMargin: 1
                     visible: tab.current && workspaces.theme.paperDetails
-                    theme: workspaces.theme
+                    width: 11; height: 1; radius: .5
+                    color: workspaces.theme.ink
                 }
                 MouseArea {
                     id: mouse
