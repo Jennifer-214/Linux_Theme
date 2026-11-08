@@ -72,6 +72,7 @@ if [[ -n "$input" ]] && command -v jq >/dev/null 2>&1; then
     tool_name="$(printf '%s' "$input" | jq -r '.tool_name // empty' 2>/dev/null)" || tool_name=""
     session_id="$(printf '%s' "$input" | jq -r '.session_id // empty' 2>/dev/null)" || session_id=""
     trigger="$(printf '%s' "$input" | jq -r '.trigger // .error // empty' 2>/dev/null)" || trigger=""
+    session_name="$(printf '%s' "$input" | jq -r '.session_title // empty | gsub("[[:cntrl:]]"; " ") | .[0:80]' 2>/dev/null)" || session_name=""
 fi
 
 # Idle pings — Claude Code fires Notification hooks for
@@ -133,11 +134,14 @@ record_state() {
     [[ "$src" == "claude" && "$session_id" =~ ^[A-Za-z0-9_-]{1,80}$ ]] || return 0
     command -v jq >/dev/null 2>&1 || return 0
     ( umask 077; mkdir -p "$session_dir" ) || return 0
-    local file="$session_dir/$session_id.state" tmp
+    local file="$session_dir/$session_id.state" tmp name="${session_name:-}"
+    # Not every event carries the title Claude Code gave the session; keep the last one.
+    [[ -z "$name" && -r "$file" ]] && name="$(jq -r '.title // empty' "$file" 2>/dev/null)"
     tmp="$(umask 077; mktemp "$file.XXXXXX")" || return 0
     if jq -cn --arg state "$1" --arg detail "${2:-}" --arg pane "$tmux_pane" --arg cwd "$cwd" \
-            --argjson epoch "$(date +%s)" \
-            '{state:$state, detail:$detail, pane:$pane, cwd:$cwd, epoch:$epoch}' > "$tmp" 2>>"$LOG_FILE"; then
+            --arg title "$name" --argjson epoch "$(date +%s)" \
+            '{state:$state, detail:$detail, pane:$pane, cwd:$cwd, epoch:$epoch}
+             + (if $title == "" then {} else {title:$title} end)' > "$tmp" 2>>"$LOG_FILE"; then
         mv -f "$tmp" "$file"
     else
         rm -f "$tmp"

@@ -42,6 +42,8 @@ ONE_SIDED = {
         "native-only Claude Code theme; edit templates/claude directly rather than reverse-capturing",
     ("TEMPLATE_MAPPINGS", "claude/statusline.sh", "~/.claude/statusline.sh"):
         "native-only Claude Code status line; edit templates/claude directly rather than reverse-capturing",
+    ("TEMPLATE_MAPPINGS", "claude/mods/foxml-paper/hooks/theme.ts", "~/.claude/mods/foxml-paper/hooks/theme.ts"):
+        "native-only palette of the Claude Code paper mod; edit templates/claude directly rather than reverse-capturing",
 }
 
 

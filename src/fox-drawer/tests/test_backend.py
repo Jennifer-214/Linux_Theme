@@ -375,7 +375,7 @@ class BackendTests(unittest.TestCase):
         put("a1.state",{"state":"working","pane":"%3","epoch":now})
         put("b2.json",{"model":"Opus 5.5","context":12,"five":{"used":None,"resets":None},"week":{"used":None,"resets":None},
                        "project":"","cwd":"/code/FoxML_Trader_v2/","pane":"%4","epoch":now})
-        put("b2.state",{"state":"needs","pane":"%4","epoch":now})
+        put("b2.state",{"state":"needs","pane":"%4","epoch":now,"title":"Ledger tidy"})
         put("c3.state",{"state":"working","pane":"%5","epoch":now})          # its pane is back at a shell: gone
         put("d4.state",{"state":"working","pane":"%3","epoch":now-13*3600})  # twelve hours quiet: gone
         put("e5.state",{"state":"error","detail":"rate_limit","cwd":str(self.home),"epoch":now})  # outside tmux, in ~: kept, with nowhere to jump
@@ -387,15 +387,18 @@ class BackendTests(unittest.TestCase):
         bar=json.loads(result.stdout)
         self.assertEqual(bar["text"],"✎ 1  ◇ 1  ! 1")
         self.assertEqual(bar["class"],["asking","berry","stopped"])
-        self.assertEqual(bar["tooltip"].splitlines()[:3],["Linux_Theme · Opus 5.5 · 41% context · working","FoxML_Trader_v2 · Opus 5.5 · 12% context · needs you","home · Claude · hit a limit"])
+        self.assertEqual(bar["tooltip"].splitlines()[:3],["Linux_Theme · Opus 5.5 · 41% context · working","Ledger tidy · Opus 5.5 · 12% context · needs you","home · Claude · hit a limit"])
         self.assertTrue(bar["tooltip"].splitlines()[3].startswith("22% of this 5h · 83% this week · resets "),bar["tooltip"])
         rows=[row for row in self.invoke("view","agents")["items"] if row["id"]=="claude-jump"]
         self.assertEqual([(r["label"],r["claudeState"],r["context"],r["argument"],r["enabled"]) for r in rows],
-                         [("Linux_Theme · Opus 5.5","working",41,"%3",True),("FoxML_Trader_v2 · Opus 5.5","needs you",12,"%4",True),
+                         [("Linux_Theme · Opus 5.5","working",41,"%3",True),("Ledger tidy · Opus 5.5","needs you",12,"%4",True),
                           ("home · Claude","hit a limit",-1,"",False)])
+        self.assertEqual(rows[1]["detail"],"FoxML_Trader_v2 · 12% of its context","a titled session still names its folder")
         today=self.invoke("view","root")["today"]
         self.assertEqual((today["claudeWorking"],today["claudeBerry"]),(1,True))
-        self.assertTrue(today["claudeUsage"].startswith("22% of this 5h · 83% this week"))
+        self.assertRegex(today["claudeUsage"],r"^17% of the week left · refills [a-z]{3}$","Today counts what is left")
+        lock=subprocess.run([str(BINARY),"claude-lock-line"],env=self.env,capture_output=True,text=True,timeout=10)
+        self.assertEqual(lock.stdout,"1 still working ✎  ·  1 needs you ♡\n")
         self.assertTrue(self.invoke("run","claude-jump","%3")["close"])
         self.assertIn(["tmux","switch-client","-c","/dev/pts/fixture","-t","paper:2.1"],self.calls())
         before=list(self.calls())
@@ -403,11 +406,36 @@ class BackendTests(unittest.TestCase):
             self.failed("run","claude-jump",bad)
         self.assertEqual(self.calls(),before,"a bad pane id never reaches tmux")
         put("a1.json",{"model":"Opus 5.5","context":41,"five":{"used":22,"resets":now-10},"week":{"used":61,"resets":now+86400},"pane":"%3","epoch":now})
-        self.assertEqual(self.invoke("view","root")["today"]["claudeUsage"],"61% this week","a window past its reset is not shown")
+        self.assertRegex(self.invoke("view","root")["today"]["claudeUsage"],r"^39% of the week left · refills [a-z]{3}$")
+        put("a1.json",{"model":"Opus 5.5","context":41,"five":{"used":91,"resets":now+600},"week":{"used":61,"resets":now+86400},"pane":"%3","epoch":now})
+        self.assertRegex(self.invoke("view","root")["today"]["claudeUsage"],r" · 9% of this 5h left$","the 5h shows once it runs low")
         for name in list(sessions.iterdir()): name.unlink()
         self.state_path.write_text(json.dumps(self.state))
+        lock=subprocess.run([str(BINARY),"claude-lock-line"],env=self.env,capture_output=True,text=True,timeout=10)
+        self.assertEqual((lock.returncode,lock.stdout),(0,"\n"),"nothing going on: the lock screen says nothing")
         result=subprocess.run([str(BINARY),"claude-bar"],env=self.env,capture_output=True,text=True,timeout=10)
         self.assertEqual(json.loads(result.stdout),{"class":[],"text":"","tooltip":""},"no sessions: the pill folds away")
+
+    def test_the_next_waiting_session_comes_round_in_turn(self):
+        self.env.pop("TMUX",None)
+        sessions=Path(self.env["XDG_RUNTIME_DIR"])/"foxml-claude"
+        sessions.mkdir()
+        now=int(time.time())
+        for sid,state,pane,age in (("w1","waiting","%1",30),("n2","needs","%2",5),("w3","waiting","%3",60),("b4","working","%4",1)):
+            (sessions/f"{sid}.state").write_text(json.dumps({"state":state,"pane":pane,"epoch":now-age}))
+        def jump(here):
+            self.state.update(panes="%1\tclaude\n%2\tclaude\n%3\tclaude\n%4\tclaude",
+                              pane_targets={"":here,"%1":"s:1.1","%2":"s:2.1","%3":"s:3.1","%4":"s:4.1"})
+            self.state_path.write_text(json.dumps(self.state))
+            out=subprocess.run([str(BINARY),"claude-next"],env=self.env,capture_output=True,text=True,timeout=10)
+            return out.returncode,[c[-1] for c in self.calls() if c[:2]==["tmux","switch-client"]][-1:]
+        self.assertEqual(jump("%9"),(0,["s:2.1"]),"the one asking goes first")
+        self.assertEqual(jump("%2"),(0,["s:3.1"]),"then the longest waiting")
+        self.assertEqual(jump("%3"),(0,["s:1.1"]))
+        self.assertEqual(jump("%1"),(0,["s:2.1"]),"and round again; a working session is never picked")
+        for name in list(sessions.iterdir()): name.unlink()
+        out=subprocess.run([str(BINARY),"claude-next"],env=self.env,capture_output=True,text=True,timeout=10)
+        self.assertEqual((out.returncode,json.loads(out.stdout)["message"]),(1,"No session is waiting on you"))
 
     def test_agent_focuses_the_client_window_instead_of_an_arbitrary_kitty(self):
         self.env.pop("TMUX",None)

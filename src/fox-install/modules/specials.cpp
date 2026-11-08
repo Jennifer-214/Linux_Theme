@@ -402,10 +402,11 @@ void do_claude_hooks(const Context& ctx) {
     // the symlinks step deploys the palette's Claude theme and status line before this runs
     const bool custom_theme = fs::is_regular_file(claude_dir / "themes/foxml.json");
     const bool status_line = fs::is_regular_file(claude_dir / "statusline.sh");
+    const bool paper_mod = fs::is_regular_file(claude_dir / "mods/foxml-paper/.claude-plugin/plugin.json");
 
     if (!fs::exists(settings)) {
         json out = json::object();
-        merge_user_settings(out, hooks, custom_theme, status_line);
+        merge_user_settings(out, hooks, custom_theme, status_line, paper_mod);
         write_json_atomic(settings, out);
         ui::substep("Claude settings (hooks + theme) created");
         return;
@@ -420,7 +421,7 @@ void do_claude_hooks(const Context& ctx) {
         return;
     }
     // by command, never merge_patch: a merge-patch REPLACES each hook list, erasing any hook she added herself
-    if (!merge_user_settings(existing, hooks, custom_theme, status_line))
+    if (!merge_user_settings(existing, hooks, custom_theme, status_line, paper_mod))
         ui::warn("Claude settings.json: \"hooks\" is not an object — its hooks left untouched");
     write_json_atomic(settings, existing);
     ui::substep("Claude settings (hooks + theme) merged");

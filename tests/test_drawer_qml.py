@@ -238,7 +238,7 @@ EXERCISE = r'''
             throw new Error("Today lost its waiting agent, working count or battery tag: " + JSON.stringify(texts));
         if (testFind(todaySheet, "today-since").text !== "✎ 3 commits since this morning") throw new Error("the commits line is missing");
         var usage = testFind(todaySheet, "today-claude");
-        if (!usage || usage.text !== "Claude · 22% of this 5h · 83% this week · resets sun" || !Qt.colorEqual(usage.color, theme.gardenShades[4]))
+        if (!usage || usage.text !== "Claude · 17% of the week left · refills sun" || !Qt.colorEqual(usage.color, theme.gardenShades[4]))
             throw new Error("the Claude usage line is missing or not berry past 80%");
         root.focusArea = "items"; root.itemIndex = 0;
         root.key({key: Qt.Key_K, modifiers: 0, accepted: false});

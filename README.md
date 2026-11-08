@@ -260,7 +260,7 @@ Adding a new theme = writing one `palette.sh` file. All app configs render from 
 | Git delta | `templates/git/delta.gitconfig` | `~/.config/git/delta-foxml.gitconfig` |
 | OpenCode | `templates/opencode/foxml.json` | `~/.config/opencode/themes/foxml.json` |
 | Codex CLI | `templates/codex/foxml.tmTheme` | `~/.codex/themes/foxml.tmTheme` |
-| Claude Code | `templates/claude/foxml-theme.json`, `templates/claude/statusline.sh` | `~/.claude/themes/foxml.json`, `~/.claude/statusline.sh` |
+| Claude Code | `templates/claude/foxml-theme.json`, `templates/claude/statusline.sh`, `shared/claude/mods/foxml-paper/` | `~/.claude/themes/foxml.json`, `~/.claude/statusline.sh`, `~/.claude/mods/foxml-paper/` |
 | ReGreet (login) | `templates/regreet/regreet.css` | `/etc/greetd/regreet.css` (sudo) |
 
 For Codex CLI, select `foxml` once with `/theme` (or set `theme = "foxml"`
@@ -294,10 +294,34 @@ stopped, and folds away when none are open. Its text turns berry past 80% of a
 plan limit, and its ribbon hangs lower while a session is asking for you. Hover
 for each session's project, model, context and state with the plan usage, as a
 banner on whichever monitor you are on; click to open the Agents page, where each
-session has its context hearts and Enter goes to its tmux pane. Today shows the
-plan usage and a `✎ 2 working` tag. The count is Claude only: a build or a
+session has its context hearts and Enter goes to its tmux pane. Sessions go by
+the title Claude Code gives them, with the folder beside it. `ALT+Ctrl+E` goes
+straight to the next session waiting on you, the one asking first; press it again
+for the one after. Today shows how much of the week's plan is left and when it
+refills (and the five hours once they run low), and a `✎ 2 working` tag. The lock
+screen says `2 still working ✎` under the battery while sessions are busy. The count is Claude only: a build or a
 sanitizer run you started yourself can still be busy at zero. Sessions whose pane
 went back to a shell, and anything quiet for twelve hours, are left out.
+
+The installer also adds a Claude Code mod, `~/.claude/mods/foxml-paper`, named in
+`CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json` (beside any folders you
+list there yourself). It only reads, and draws in the palette:
+
+- **The notebook**, a pane beside the chat (`/notebook` opens it; it opens by
+  itself in a terminal 144 columns or wider): the context hearts, the session's
+  title, the plan you last read or wrote under a `plans/` folder, the plan gate,
+  and the files changed since the last commit with their `+`/`−` counts.
+- **A red-zone band** above the prompt when Claude edits, or runs with `sudo`
+  against, PAM, fstab, the greeter, sudoers, the boot loader, the kernel command
+  line, sysctl, USBGuard or the firewall: `red zone · /etc/pam.d · brick-safety
+  first`. It only warns; the next prompt clears it.
+- **Toasts** for two hearts left, the plan gate opening and a commit landing
+  (`a seed planted ❦`).
+- **Spinner words** in the terminal: knitting, pressing flowers, baking,
+  steeping tea and the like.
+
+Its code is copied as it is; only `templates/claude/mods/foxml-paper/hooks/theme.ts`
+is rendered, so a theme swap recolours it at the next Claude start.
 
 Firefox's `userContent.css` also themes Vimium: link hints become small paper tags
 in the selection color with the typed letters faded, find mode uses the same

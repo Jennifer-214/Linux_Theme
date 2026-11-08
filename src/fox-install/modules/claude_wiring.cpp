@@ -119,7 +119,7 @@ int merge_hook_entries(json& settings, const json& wanted) {
     return added;  // an event's list is only ever created when a command is added to it
 }
 
-bool merge_user_settings(json& existing, const json& hooks, bool custom_theme, bool status_line) {
+bool merge_user_settings(json& existing, const json& hooks, bool custom_theme, bool status_line, bool paper_mod) {
     if (!existing.is_object()) return false;
     // only where there is none: a status line someone wrote themselves stays theirs
     if (status_line && !existing.contains("statusLine"))
@@ -130,6 +130,21 @@ bool merge_user_settings(json& existing, const json& hooks, bool custom_theme, b
     if (!existing.contains("env")) existing["env"] = json::object();
     if (existing["env"].is_object() && !existing["env"].contains("CLAUDE_CODE_TMUX_TRUECOLOR"))
         existing["env"]["CLAUDE_CODE_TMUX_TRUECOLOR"] = "1";
+    // A path list (':'-separated): the mod joins whatever folders are already named, once.
+    if (paper_mod && existing["env"].is_object()) {
+        json& dirs = existing["env"]["CLAUDE_CODE_PLUGIN_DIRS"];
+        if (dirs.is_null()) dirs = CLAUDE_PAPER_MOD;
+        else if (dirs.is_string()) {
+            const std::string have = dirs.get<std::string>();
+            bool named = false;
+            for (size_t at = 0; at <= have.size();) {
+                const size_t end = std::min(have.find(':', at), have.size());
+                named = named || have.substr(at, end - at) == CLAUDE_PAPER_MOD;
+                at = end + 1;
+            }
+            if (!named) dirs = have.empty() ? std::string(CLAUDE_PAPER_MOD) : have + ":" + CLAUDE_PAPER_MOD;
+        }
+    }
     return merged;
 }
 

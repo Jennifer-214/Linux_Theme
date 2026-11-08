@@ -162,6 +162,11 @@ SHARED_MAPPINGS=(
     # Distro profiles
     "foxml-profile.json|~/.local/share/foxml/distro/foxml-profile.json"
 
+    # Claude Code paper mod (its palette, theme.ts, renders from templates/claude)
+    "claude/mods/foxml-paper/.claude-plugin/plugin.json|~/.claude/mods/foxml-paper/.claude-plugin/plugin.json"
+    "claude/mods/foxml-paper/hooks/hooks.json|~/.claude/mods/foxml-paper/hooks/hooks.json"
+    "claude/mods/foxml-paper/hooks/register.tsx|~/.claude/mods/foxml-paper/hooks/register.tsx"
+    "claude/mods/foxml-paper/types/index.d.ts|~/.claude/mods/foxml-paper/types/index.d.ts"
 
     # ReGreet (login screen — needs sudo to install to /etc/greetd/)
     # "regreet.toml|/etc/greetd/regreet.toml"

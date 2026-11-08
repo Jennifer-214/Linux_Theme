@@ -155,12 +155,24 @@ void test_user_settings() {  // S10b: do_claude_hooks' merge, through the functi
     json own_line = json::parse(R"({"statusLine":{"type":"command","command":"~/my-line.sh"}})");
     check(merge_user_settings(own_line, installer, true, true) && own_line["statusLine"]["command"] == "~/my-line.sh",
           "a status line she wrote herself is kept");
+    check(!lined["env"].contains("CLAUDE_CODE_PLUGIN_DIRS"), "no mod folder until the mod is deployed");
+    json modded = json::parse(R"({"env":{}})");
+    check(merge_user_settings(modded, installer, true, true, true) && modded["env"]["CLAUDE_CODE_PLUGIN_DIRS"] == CLAUDE_PAPER_MOD,
+          "the paper mod is named once deployed");
+    json hers_dirs = json::parse(R"({"env":{"CLAUDE_CODE_PLUGIN_DIRS":"~/mods/mine:~/.claude/mods/foxml-paper-old"}})");
+    merge_user_settings(hers_dirs, installer, true, true, true);
+    merge_user_settings(hers_dirs, installer, true, true, true);
+    check(hers_dirs["env"]["CLAUDE_CODE_PLUGIN_DIRS"] == "~/mods/mine:~/.claude/mods/foxml-paper-old:~/.claude/mods/foxml-paper",
+          "her own mod folders kept, the paper mod added once (a longer name that starts the same is not it)");
+    json odd_dirs = json::parse(R"({"env":{"CLAUDE_CODE_PLUGIN_DIRS":7}})");
+    merge_user_settings(odd_dirs, installer, true, true, true);
+    check(odd_dirs["env"]["CLAUDE_CODE_PLUGIN_DIRS"] == 7, "a mod folder list that is not text: left alone");
     // the call site: do_claude_hooks must use merge_user_settings, never a merge-patch of the hooks
     std::ifstream sp("modules/specials.cpp");
     std::ostringstream ss; ss << sp.rdbuf();
     const std::string src = ss.str();
     check(!src.empty(), "modules/specials.cpp readable (the test runs from src/fox-install)");
-    check(src.find("merge_user_settings(existing, hooks, custom_theme, status_line)") != std::string::npos, "do_claude_hooks calls merge_user_settings");
+    check(src.find("merge_user_settings(existing, hooks, custom_theme, status_line, paper_mod)") != std::string::npos, "do_claude_hooks calls merge_user_settings");
     check(src.find("agent_notify.sh claude seen") != std::string::npos, "replying in a pane clears its note (UserPromptSubmit)");
     for (const char* event : {"claude compact\"", "claude compacted\"", "claude failed\"", "claude ended\""})
         check(src.find(std::string("agent_notify.sh ") + event) != std::string::npos, "session state hooks wired (compact, failure, end)");

@@ -29,11 +29,13 @@ int merge_hook_entries(nlohmann::json& settings, const nlohmann::json& wanted);
 // custom:foxml when its file is deployed (`custom_theme`), else dark-ansi. CLAUDE_CODE_TMUX_TRUECOLOR is added to "env"
 // when absent: inside tmux Claude otherwise rounds every theme colour to the 256-colour palette.
 // The palette's status line (`status_line`, when its script is deployed) goes in only where no statusLine is set.
+// The paper mod (`paper_mod`, when deployed) is added to env CLAUDE_CODE_PLUGIN_DIRS, keeping every folder already named.
 // → false when its "hooks" is not an object (they are then left exactly as they are; the theme is still set).
 inline constexpr const char* CLAUDE_THEME = "custom:foxml";
 inline constexpr const char* CLAUDE_STATUS_LINE = "bash ~/.claude/statusline.sh";
+inline constexpr const char* CLAUDE_PAPER_MOD = "~/.claude/mods/foxml-paper";
 bool merge_user_settings(nlohmann::json& existing, const nlohmann::json& hooks, bool custom_theme = false,
-                         bool status_line = false);
+                         bool status_line = false, bool paper_mod = false);
 
 struct WiringReport {
     std::vector<std::string> done;     // each change, one line

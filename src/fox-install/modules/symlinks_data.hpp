@@ -103,6 +103,8 @@ inline constexpr Mapping TEMPLATE_MAPPINGS[] = {
     // Claude Code theme (custom:foxml) — message box and diff colours; specials selects it once it is here.
     { "claude/foxml-theme.json",      "~/.claude/themes/foxml.json" },
     { "claude/statusline.sh",         "~/.claude/statusline.sh" },
+    // The paper mod's palette; its code is in SHARED_MAPPINGS. specials names the folder in CLAUDE_CODE_PLUGIN_DIRS.
+    { "claude/mods/foxml-paper/hooks/theme.ts", "~/.claude/mods/foxml-paper/hooks/theme.ts" },
 
     // pi coding agent TUI theme
     { "pi/foxml.json",                "~/.pi/agent/themes/foxml.json" },
@@ -184,6 +186,12 @@ inline constexpr Mapping SHARED_MAPPINGS[] = {
     { "pi/extensions/fox-scope.ts",   "~/.pi/agent/extensions/fox-scope.ts" },
     { "bin/fox-word-count",           "~/.local/bin/fox-word-count" },
     { "bin/pob",                      "~/.local/bin/pob" },
+
+    // Claude Code paper mod: notebook pane, red-zone band, toasts, spinner words (templates/ renders its theme.ts).
+    { "claude/mods/foxml-paper/.claude-plugin/plugin.json", "~/.claude/mods/foxml-paper/.claude-plugin/plugin.json" },
+    { "claude/mods/foxml-paper/hooks/hooks.json",   "~/.claude/mods/foxml-paper/hooks/hooks.json" },
+    { "claude/mods/foxml-paper/hooks/register.tsx", "~/.claude/mods/foxml-paper/hooks/register.tsx" },
+    { "claude/mods/foxml-paper/types/index.d.ts",   "~/.claude/mods/foxml-paper/types/index.d.ts" },
 
     // Distro profile
     { "foxml-profile.json",           "~/.local/share/foxml/distro/foxml-profile.json" },

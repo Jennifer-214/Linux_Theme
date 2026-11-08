@@ -63,6 +63,8 @@ hl.bind(mainMod .. " + SHIFT + K", hl.dsp.exec_cmd("~/.config/hypr/scripts/panic
 hl.bind(mainMod .. " + SHIFT + X", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu power"))
 -- Agents — each Claude session with its context hearts and state, then pending notes; Enter switches tmux to that pane.
 hl.bind(mainMod .. " + SHIFT + E", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu agents"))
+-- Next waiting session — jumps tmux to the Claude session waiting on you, the one asking first; press again for the next.
+hl.bind(mainMod .. " + CTRL + E", hl.dsp.exec_cmd("~/.local/bin/fox-drawer claude-next"))
 -- Path of Building (Flatpak) — build planner; `pob 2` for PoE 2.
 hl.bind(mainMod .. " + CTRL + P", hl.dsp.exec_cmd("~/.local/bin/pob"))
 

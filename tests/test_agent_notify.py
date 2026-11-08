@@ -95,6 +95,17 @@ class AgentNotifyTest(unittest.TestCase):
         self.state_hook("seen", {"session_id": "../escape"})
         self.assertFalse((self.run_dir / "escape.state").exists(), "a session id is never a path")
 
+    def test_the_session_title_is_kept(self):
+        state = lambda: json.loads((self.run_dir / "foxml-claude" / "abc-2.state").read_text())
+        self.state_hook("seen", {"session_id": "abc-2"})
+        self.assertNotIn("title", state(), "no title until Claude Code gives one")
+        self.state_hook("seen", {"session_id": "abc-2", "session_title": "Greeter\nrecolour"})
+        self.assertEqual(state()["title"], "Greeter recolour")
+        self.state_hook("stop", {"session_id": "abc-2"})
+        self.assertEqual((state()["state"], state()["title"]), ("waiting", "Greeter recolour"), "an event without one keeps it")
+        self.state_hook("seen", {"session_id": "abc-2", "session_title": "x" * 200})
+        self.assertEqual(len(state()["title"]), 80)
+
     def test_seen_outside_tmux_changes_nothing(self):
         self.queue.write_text(json.dumps({"event": "stop", "tmux": "s:1.2"}) + "\n")
         env = os.environ | {"PATH": f"{self.bin}:{os.environ['PATH']}", "XDG_RUNTIME_DIR": str(self.run_dir), "HOME": str(self.tmp)}

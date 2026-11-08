@@ -77,7 +77,7 @@ if args[0] == "view":
         data["items"][2]["summary"] = "42% · speakers"
         data["today"] = dict(battery="80%", batteryState="discharging", notes=2, todo="water the fern",
                              waiting=[dict(project="Paper notebook", argument="sample-agent", asking=False)],
-                             claudeWorking=2, claudeUsage="22% of this 5h · 83% this week · resets sun", claudeBerry=True)
+                             claudeWorking=2, claudeUsage="17% of the week left · refills sun", claudeBerry=True)
     print(json.dumps(data))
 else:
     with open(os.environ["FOXML_DRAWER_TEST_LOG"], "a") as stream:

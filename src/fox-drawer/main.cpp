@@ -827,8 +827,10 @@ Json jump_agent(const std::string& key) {
 // <id>.json is the status line's latest look (model, context, plan usage, pane), <id>.state the hooks' word on
 // what it is doing. A session counts while its tmux pane still runs something other than a shell, for twelve hours.
 struct ClaudeSession {
-    std::string id, project, model, state, detail, pane;
+    std::string id, project, title, model, state, detail, pane;
     int context = -1;
+    // Claude Code's own title for the session when it has given one, else the folder.
+    std::string name() const { return title.empty() ? project : title; }
     long long epoch = 0;
 };
 struct ClaudeUsage { int five = -1, week = -1; long long five_resets = 0, week_resets = 0; };
@@ -886,6 +888,8 @@ std::vector<ClaudeSession> claude_sessions(ClaudeUsage& usage) {
         session.context = whole(look, "context");
         session.state = text(word, "state", "waiting");
         session.detail = text(word, "detail");
+        session.title = text(word, "title");
+        if (session.title.size() > 80 || !safe_text(session.title)) session.title.clear();
         sessions.push_back(session);
         // Plan usage is the account's, so the freshest look that has it speaks for every session.
         const auto has = [&](const char* key) { const auto at = look.find(key); return at != look.end() && at->is_object() && whole(*at, "used") >= 0; };
@@ -922,6 +926,24 @@ std::string claude_usage_line(const ClaudeUsage& usage) {
     if (usage.week >= 0) line += (line.empty() ? "" : " · ") + std::to_string(usage.week) + "% this week" + (usage.week >= 80 ? " · resets " + when(usage.week_resets, "%a") : "");
     return line;
 }
+// Today's line counts what is left: the week first, and the five hours once they run low.
+std::string claude_left_line(const ClaudeUsage& usage) {
+    const auto when = [](long long resets, const char* format) {
+        if (resets <= 0) return std::string();
+        char out[32] = {}; const std::time_t at = static_cast<std::time_t>(resets);
+        std::strftime(out, sizeof out, format, std::localtime(&at));
+        return lower(trim(out));
+    };
+    std::string line;
+    if (usage.week >= 0) {
+        line = std::to_string(std::max(0, 100 - usage.week)) + "% of the week left";
+        const auto day = when(usage.week_resets, "%a");
+        if (!day.empty()) line += " · refills " + day;
+    }
+    if (usage.five >= 80)
+        line += (line.empty() ? "" : " · ") + std::to_string(std::max(0, 100 - usage.five)) + "% of this 5h left";
+    return line;
+}
 // The bar pill, in waybar's custom-module shape: ✎ busy · ◇ waiting · ! stopped; hovering lists each session.
 Json claude_bar() {
     ClaudeUsage usage;
@@ -941,7 +963,7 @@ Json claude_bar() {
     size_t shown = 0;
     for (const auto& session : sessions) {
         if (shown++ == 6) { tooltip += "and " + std::to_string(sessions.size() - 6) + " more\n"; break; }
-        tooltip += session.project + " · " + session.model + (session.context >= 0 ? " · " + std::to_string(session.context) + "% context" : "")
+        tooltip += session.name() + " · " + session.model + (session.context >= 0 ? " · " + std::to_string(session.context) + "% context" : "")
                  + " · " + claude_state_text(session) + "\n";
     }
     const auto line = claude_usage_line(usage);
@@ -953,6 +975,16 @@ Json claude_bar() {
     if (stopped) classes.push_back("stopped");
     return Json{{"text", text}, {"tooltip", tooltip}, {"class", classes}};
 }
+// The lock screen's line: what is still going on while you are away. Empty when nothing is.
+std::string claude_lock_line() {
+    ClaudeUsage usage;
+    int busy = 0, asking = 0;
+    for (const auto& session : claude_sessions(usage)) { busy += claude_busy(session); asking += session.state == "needs"; }
+    std::string line;
+    if (busy) line = std::to_string(busy) + " still working ✎";
+    if (asking) line += (line.empty() ? "" : "  ·  ") + std::to_string(asking) + (asking == 1 ? " needs you ♡" : " need you ♡");
+    return line;
+}
 // From a session row: its pane id (%N) names the place to go.
 Json jump_claude(const std::string& pane) {
     if (!std::regex_match(pane, std::regex("%[0-9]{1,6}"))) return result(false, "This session is not in a tmux pane");
@@ -960,6 +992,24 @@ Json jump_claude(const std::string& pane) {
     std::string target;
     if (!capture({"tmux", "display-message", "-p", "-t", pane, "#S:#I.#P"}, target)) return result(false, "The session's terminal is no longer available");
     return jump_target(trim(target));
+}
+// The keybind: the next session waiting on you, those asking first, the longest-waiting first. From one of
+// them, the one after it, so pressing again walks the list.
+Json jump_next_claude() {
+    ClaudeUsage usage;
+    std::vector<ClaudeSession> waiting;
+    for (const auto& session : claude_sessions(usage))
+        if (!session.pane.empty() && !claude_busy(session) && session.state != "error") waiting.push_back(session);
+    if (waiting.empty()) return result(false, "No session is waiting on you");
+    std::stable_sort(waiting.begin(), waiting.end(), [](const auto& a, const auto& b) {
+        if ((a.state == "needs") != (b.state == "needs")) return a.state == "needs";
+        return a.epoch < b.epoch;
+    });
+    std::string here;
+    if (capture({"tmux", "display-message", "-p", "#{pane_id}"}, here)) here = trim(here);
+    size_t at = 0;
+    for (size_t i = 0; i < waiting.size(); ++i) if (waiting[i].pane == here) { at = (i + 1) % waiting.size(); break; }
+    return jump_claude(waiting[at].pane);
 }
 
 volatile std::sig_atomic_t picker_stopped = 0;
@@ -1476,7 +1526,7 @@ Json today_summary() {
     int busy = 0;
     for (const auto& session : claude_sessions(usage)) busy += claude_busy(session);
     today["claudeWorking"] = busy;
-    today["claudeUsage"] = claude_usage_line(usage);
+    today["claudeUsage"] = claude_left_line(usage);
     today["claudeBerry"] = usage.five >= 80 || usage.week >= 80;
     for (const auto& line : lines(read(fs::path(home()) / ".todo"))) if (!trim(line).empty()) { today["todo"] = trim(line); break; }
     std::error_code ec;
@@ -1734,8 +1784,9 @@ Json view(const Json& config, const std::string& page, const std::string& query)
         // Each live Claude session first, with how full its context is; picking one goes to its pane.
         ClaudeUsage usage;
         for (const auto& session : claude_sessions(usage)) {
-            auto row = item("claude-jump", session.project + " · " + session.model, "action",
-                            session.context >= 0 ? std::to_string(session.context) + "% of its context" : "context not measured yet", "message");
+            const auto measured = session.context >= 0 ? std::to_string(session.context) + "% of its context" : "context not measured yet";
+            auto row = item("claude-jump", session.name() + " · " + session.model, "action",
+                            session.title.empty() ? measured : session.project + " · " + measured, "message");
             row["argument"] = session.pane; row["presentation"] = "claude"; row["claudeState"] = claude_state_text(session);
             row["context"] = session.context; row["enabled"] = !session.pane.empty();
             if (session.pane.empty()) row["disabledReason"] = "Not in a tmux pane, so there is nowhere to jump";
@@ -2021,13 +2072,24 @@ int main(int argc, char** argv) {
         }
         if (!args.empty() && args[0] == "pick") return pick(args);
         if (args.size() == 1 && (args[0] == "--help" || args[0] == "help")) {
-            std::cout << "fox-drawer [--config PATH] view PAGE [QUERY]\nfox-drawer [--config PATH] run ACTION [ARGUMENT]\nfox-drawer [--config PATH] commit-days YYYY-MM\nfox-drawer claude-bar\nfox-drawer pick [--title TITLE] [--index | --prompt]\n"; return 0;
+            std::cout << "fox-drawer [--config PATH] view PAGE [QUERY]\nfox-drawer [--config PATH] run ACTION [ARGUMENT]\nfox-drawer [--config PATH] commit-days YYYY-MM\nfox-drawer claude-bar | claude-lock-line | claude-next\nfox-drawer pick [--title TITLE] [--index | --prompt]\n"; return 0;
         }
         // Polled by the bar every few seconds, so it reads no menu and never waits long on tmux.
         if (args.size() == 1 && args[0] == "claude-bar") {
             read_limit_seconds = 2;
             std::cout << claude_bar().dump(-1, ' ', false, Json::error_handler_t::replace) << '\n';
             return 0;
+        }
+        if (args.size() == 1 && args[0] == "claude-lock-line") {
+            read_limit_seconds = 2;
+            std::cout << claude_lock_line() << '\n';
+            return 0;
+        }
+        if (args.size() == 1 && args[0] == "claude-next") {
+            read_limit_seconds = 2;
+            const auto jumped = jump_next_claude();
+            std::cout << jumped.dump() << '\n';
+            return truth(jumped, "ok") ? 0 : 1;
         }
         if (args.size() < 2 || args.size() > 4 || (args[0] != "view" && args[0] != "run" && args[0] != "commit-days")
             || (args.size() == 4 && (args[0] != "run" || args[1] != "drive-eject" || args[3] != "--confirm"))) {
