@@ -1237,18 +1237,44 @@ class BackendTests(unittest.TestCase):
         self.assertNotIn(("startup-autostart", "Blueman"), {(r["id"], r["label"]) for r in self.invoke("view", "startup")["items"]})
 
     def test_storage_page_measures_in_the_background_and_reads_the_result(self):
-        self.real("du", "timeout")
-        (self.home / ".cache/pip").mkdir(parents=True); (self.home / ".cache/pip/wheel").write_bytes(b"x" * 60_000_000)
-        (self.home / ".local/share/Trash/files").mkdir(parents=True); (self.home / ".local/share/Trash/files/old").write_bytes(b"x" * 70_000_000)
+        self.real("timeout")
+        self.env["DRAWER_TEST_REAL_DU"] = shutil.which("du")
+        du = self.bin / "du"
+        # Keep real measurements inside the fixture. The production scan also
+        # visits / and system caches, which can take minutes on a CI runner.
+        du.write_text(f"#!{sys.executable}\n" + r'''
+import json
+import os
+from pathlib import Path
+import sys
+
+with open(os.environ['DRAWER_TEST_CALLS'], 'a') as log:
+    log.write(json.dumps(['du', *sys.argv[1:]]) + '\n')
+target = Path(sys.argv[-1]).resolve()
+if target.is_relative_to(Path.home().resolve()):
+    os.execv(os.environ['DRAWER_TEST_REAL_DU'], [os.environ['DRAWER_TEST_REAL_DU'], *sys.argv[1:]])
+print('0\t' + str(target))
+''')
+        du.chmod(0o755)
+        for name, size in [(".cache/pip/wheel", 60_000_000), (".local/share/Trash/files/old", 70_000_000)]:
+            path = self.home / name
+            path.parent.mkdir(parents=True)
+            with path.open("wb") as stream:
+                stream.truncate(size)  # du -b measures apparent size; no large writes needed.
         self.env["XDG_CACHE_HOME"] = str(self.home / ".cache")
         rows = self.invoke("view", "storage")["items"]
         self.assertEqual(rows[0]["label"], "Measure the disk")
-        out = subprocess.run([str(BINARY), "storage-scan"], env=self.env, capture_output=True, text=True, timeout=120)
+        out = subprocess.run([str(BINARY), "storage-scan"], env=self.env, capture_output=True, text=True, timeout=10)
         self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn(["du", "-sxb", "/"], self.calls(), "the whole-disk probe uses the fixture too")
+        measured = json.loads((self.home / ".cache/foxml/storage.json").read_text())
+        by_kind = {kind["id"]: kind for kind in measured["kinds"]}
+        self.assertGreaterEqual(by_kind["dev"]["bytes"], 60_000_000)
+        self.assertGreaterEqual(by_kind["trash"]["bytes"], 70_000_000)
         rows = self.invoke("view", "storage")["items"]
         labels = [r["label"] for r in rows]
         self.assertIn("free of", labels[0])
-        # The machine's own absolute paths (a pacman cache) may show up too; these two are the test's.
+        # Only disposable home folders contribute to the measured categories.
         self.assertLess(labels.index("Trash"), labels.index("Language and build caches"), "largest first")
         trash = next(r for r in rows if r["label"] == "Trash")
         self.assertEqual((trash["id"], trash["confirm"]), ("storage-empty-trash", True))
