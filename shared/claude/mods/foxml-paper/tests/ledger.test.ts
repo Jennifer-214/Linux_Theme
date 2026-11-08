@@ -43,7 +43,7 @@ test('neighbours are the other live sessions in the same repo, and a bad ledger 
     { sid: 'a', live: true, ledger: ledger('Same repo', '/r', [['/r/x', 1000], ['/r/y', 2000]]) },
     { sid: 'b', live: true, ledger: ledger('Elsewhere', '/q', [['/q/x', 1000]]) },
   ]
-  expect(neighbours('/r', NOW, 'me', others)).toEqual([{ title: 'Same repo', files: 2 }])
+  expect(neighbours('/r', NOW, 'me', others)).toEqual([{ sid: 'a', title: 'Same repo', files: 2 }])
   expect(parseLedger('not json')).toBe(null)
   expect(parseLedger('{"edits":[{"path":1}]}')?.edits).toEqual([])
   expect(agoText(30000)).toBe('just now')

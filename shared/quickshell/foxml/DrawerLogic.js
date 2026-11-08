@@ -171,7 +171,8 @@ function symbol(item) {
         wifi: "⌁", bluetooth: "⋈", window: "▣", volume: "♪", image: "▧", palette: "◐",
         search: "⌕", download: "↧", info: "·", package: "□", message: "✉",
         lock: "▢", suspend: "☾", reboot: "↻", poweroff: "⏻", logout: "↪", "app-launch": "⌘",
-        apps: "⌘", vault: "⚿", passwords: "⚿" };
+        apps: "⌘", vault: "⚿", passwords: "⚿",
+        folder: "▭", cpu: "◈", trash: "⌫", shield: "⛨", refresh: "↺", gear: "⚙" };
     return icons[icon] || icons[item.id] || (item.kind === "page" ? "›" : "·");
 }
 

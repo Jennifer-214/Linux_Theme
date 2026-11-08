@@ -3,6 +3,7 @@
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 #include "../../fox-common/json.hpp"
+#include "menu_upgrade.hpp"
 
 #include <filesystem>
 #include <cstdlib>
@@ -66,34 +67,32 @@ void run_drawer(Context& ctx) {
         }
     }
     if (ec) { incomplete("could not read drawer configuration: " + ec.message()); return; }
-    // Add the scrapbook to an existing Desk without replacing the user's
-    // hierarchy, labels, order, favorites or other menu settings.
+    // New pages reach an existing menu once (menu_upgrade.hpp), without replacing the user's hierarchy, labels,
+    // order, favorites or other menu settings; a page they removed stays removed.
     {
         std::ifstream current(dest / "menus.json"), defaults(shared / "menus.json");
         auto menu = nlohmann::json::parse(current, nullptr, false);
         const auto shipped = nlohmann::json::parse(defaults, nullptr, false);
-        if (menu.is_object() && menu.contains("groups") && menu["groups"].is_array()
-            && shipped.is_object() && shipped.contains("groups") && shipped["groups"].is_array()) {
-            const auto field = [](const nlohmann::json& object, const char* key) -> std::string {
-            if (!object.is_object() || !object.contains(key) || !object[key].is_string()) return {};
-            return object[key].get<std::string>();
-        };
-        bool present = false;
-            for (const auto& group : menu["groups"]) if (group.contains("items") && group["items"].is_array())
-                for (const auto& item : group["items"])
-                    if (field(item, "page") == "screenshots" || field(item, "id") == "screenshots") present = true;
-            if (!present) for (auto& group : menu["groups"])
-                if (field(group, "id") == "desk" && group.contains("items") && group["items"].is_array()) {
-                    for (const auto& original : shipped["groups"]) if (field(original, "id") == "desk")
-                        for (const auto& item : original["items"]) if (field(item, "page") == "screenshots")
-                            group["items"].push_back(item);
-                    const auto upgraded = output / "menus.upgraded.json";
-                    std::ofstream file(upgraded); file << menu.dump(2) << '\n'; file.close();
-                    if (!file) { incomplete("could not prepare scrapbook menu upgrade"); return; }
-                    ok = deploy(upgraded, dest / "menus.json") && ok;
-                    break;
-                }
+        const auto record = ctx.home / ".local/state/foxml/menu-offered.json";
+        std::ifstream seen_file(record);
+        const auto seen = nlohmann::json::parse(seen_file, nullptr, false);
+        std::set<std::string> offered;
+        if (seen.is_array()) for (const auto& id : seen) if (id.is_string()) offered.insert(id.get<std::string>());
+        const auto added = menu_upgrade::offer(menu, shipped, offered, !seen.is_array());
+        if (!added.empty()) {
+            const auto upgraded = output / "menus.upgraded.json";
+            std::ofstream file(upgraded); file << menu.dump(2) << '\n'; file.close();
+            if (!file) { incomplete("could not prepare the menu upgrade"); return; }
+            ok = deploy(upgraded, dest / "menus.json") && ok;
+            std::string names;
+            for (const auto& id : added) names += (names.empty() ? "" : ", ") + id;
+            ui::substep("drawer menu: added " + names);
         }
+        nlohmann::json list = nlohmann::json::array();
+        for (const auto& id : offered) list.push_back(id);
+        fs::create_directories(record.parent_path(), ec);
+        std::ofstream out(record.string() + ".tmp"); out << list.dump() << '\n'; out.close();
+        if (out) fs::rename(record.string() + ".tmp", record, ec);
     }
     ok = deploy(output / "Theme.qml", dest / "Theme.qml") && ok;
     for (const auto& entry : fs::directory_iterator(output, ec)) {

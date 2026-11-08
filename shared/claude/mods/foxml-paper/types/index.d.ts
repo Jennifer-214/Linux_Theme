@@ -9,7 +9,7 @@ export type PaperLook = {
   plan: { title: string; file: string } | null
   context: number | null
   // Other live sessions editing in this repo (from the shared edits ledgers).
-  neighbours: { title: string; files: number }[]
+  neighbours: { sid: string; title: string; files: number }[]
   // A card another mod left for this session (cards/<session>.json).
   card: PaperCard | null
 }
@@ -25,6 +25,9 @@ export type PaperOverlap = { path: string; title: string; ago: string; pane?: st
 
 export type PaperRedZone = { what: string }
 
+// Another live Claude on this machine, as fox-drawer's Agents page sees it (fox-drawer claude-peers).
+export type PaperPeer = { id: string; name: string; project: string; state: string; busy: boolean; pane: string }
+
 declare module 'claude-code' {
   interface PluginState {
     'foxml-paper': {
@@ -32,6 +35,9 @@ declare module 'claude-code' {
       title: string | null
       redZone: Shaped<PaperRedZone | null>
       overlap: Shaped<PaperOverlap | null>
+      peers: Shaped<PaperPeer[]>
+      // The peer a note is being written to, by session id.
+      writingTo: string | null
     }
   }
 }

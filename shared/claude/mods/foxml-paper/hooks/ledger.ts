@@ -60,9 +60,9 @@ export function overlapFor(path: string, now: number, self: string, others: Othe
 }
 
 // The other live sessions working in the same repo, with how many files each touched in the window.
-export function neighbours(root: string, now: number, self: string, others: Other[]): { title: string; files: number }[] {
+export function neighbours(root: string, now: number, self: string, others: Other[]): { sid: string; title: string; files: number }[] {
   return others
     .filter(o => o.sid !== self && o.live && root !== '' && o.ledger.root === root)
-    .map(o => ({ title: nameOf(o), files: o.ledger.edits.filter(e => now - e.at <= WINDOW_MS).length }))
+    .map(o => ({ sid: o.sid, title: nameOf(o), files: o.ledger.edits.filter(e => now - e.at <= WINDOW_MS).length }))
     .filter(n => n.files > 0)
 }

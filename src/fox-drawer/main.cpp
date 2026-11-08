@@ -98,14 +98,17 @@ fs::path repository() {
 }
 const std::set<std::string> pages = {
     "apps", "windows", "audio-outputs", "wifi", "bluetooth", "tools", "cheatsheet", "sandbox", "clipboard-text", "clipboard-images",
-    "wallpapers", "themes", "power", "updates", "agents", "projects", "bookmarks", "library", "downloads", "screenshots", "passwords", "garden"
+    "wallpapers", "themes", "power", "updates", "agents", "projects", "bookmarks", "library", "downloads", "screenshots", "passwords", "garden",
+    "models", "storage", "backups", "startup"
 };
 const std::set<std::string> actions = {
     "volume", "volume-mute", "mic-mute", "media-play-pause", "media-next", "media-previous", "brightness",
     "nightlight", "dnd", "idle", "power-profile", "lock", "suspend", "reboot", "poweroff", "logout",
     "wallpaper-next", "wallpaper-sync", "color-picker", "updates-terminal", "updates-silent", "vault",
     "security", "cleanup", "agent-triage", "agent-jump", "agent-clear", "claude-jump", "app-launch", "window-focus", "audio-output", "wifi-connect",
-    "wifi-toggle", "bluetooth-connect", "bluetooth-toggle", "bluetooth-scan", "bluetooth-service", "tool-run", "cheatsheet-copy", "sandbox-launch", "clipboard-restore", "wallpaper-set", "theme-set", "project-open", "project-terminal", "project-bookmark", "drive-open", "drive-eject", "download-open", "download-folder", "screenshot-open", "screenshot-copy", "screenshot-folder", "screenshot-capture", "password-copy", "tools", "cheatsheet", "sandbox"
+    "wifi-toggle", "bluetooth-connect", "bluetooth-toggle", "bluetooth-scan", "bluetooth-service", "tool-run", "cheatsheet-copy", "sandbox-launch", "clipboard-restore", "wallpaper-set", "theme-set", "project-open", "project-terminal", "project-bookmark", "drive-open", "drive-eject", "download-open", "download-folder", "screenshot-open", "screenshot-copy", "screenshot-folder", "screenshot-capture", "password-copy", "tools", "cheatsheet", "sandbox",
+    "model-agent", "model-remove", "storage-scan", "storage-open", "storage-clean-packages", "storage-trim-journal", "storage-flatpak-unused",
+    "storage-empty-trash", "storage-hidden", "backup-restore", "backup-open", "backup-prune", "startup-user", "startup-autostart"
 };
 // The drawer loads one page at a time, so a page read that waits on a dead service holds every other page behind it.
 int read_limit_seconds = 0;
@@ -777,7 +780,13 @@ void focus_agent_client(int pid) {
         const auto process = client.find("pid");
         const auto address = text(client, "address");
         if (process != client.end() && process->is_number_integer() && ancestors.count(process->get<int>())
-            && std::regex_match(address, std::regex("0x[0-9a-fA-F]{1,32}"))) { focus_address(address, false); return; }
+            && std::regex_match(address, std::regex("0x[0-9a-fA-F]{1,32}"))) {
+            // A moment later, detached: the drawer holds the keyboard until it closes after this action returns,
+            // and closing hands it back to the old window, so focusing now only moved the pointer.
+            launch({"/bin/sh", "-c", "sleep 0.35; exec fox-hl dispatch \"$1\" \"$2\"", "sh",
+                    "hl.dsp.focus({ window = 'address:" + address + "' })", "focuswindow address:" + address}, "");
+            return;
+        }
     }
 }
 // Selects a tmux pane (session:window.pane) in the terminal that shows it, and focuses that window.
@@ -799,22 +808,33 @@ Json jump_target(const std::string& target) {
             const auto value = trim(output); std::from_chars(value.data(), value.data() + value.size(), client_pid);
         }
     } else {
-        if (!capture({"tmux", "list-clients", "-F", "#{client_activity}\t#{client_name}\t#{client_pid}"}, output)) return result(false, "Could not read tmux clients");
-        unsigned long long newest = 0;
+        if (!capture({"tmux", "list-clients", "-F", "#{client_activity}\t#{client_name}\t#{client_pid}\t#{client_session}"}, output)) return result(false, "Could not read tmux clients");
+        // A terminal already showing that session is the one to bring forward; only when none does is the most
+        // recently used terminal switched over to it (switching first left focus where it was).
+        unsigned long long newest = 0, newest_showing = 0;
+        std::string showing; int showing_pid = 0;
         for (const auto& line : lines(output)) {
-            const auto first = line.find('\t'), last = line.rfind('\t');
-            if (first == std::string::npos || first == last) continue;
+            std::vector<std::string> field;
+            for (size_t at = 0;;) { const auto tab = line.find('\t', at); field.push_back(line.substr(at, tab == std::string::npos ? std::string::npos : tab - at)); if (tab == std::string::npos) break; at = tab + 1; }
+            if (field.size() < 3) continue;
             unsigned long long activity = 0; int process = 0;
-            const auto a = std::from_chars(line.data(), line.data() + first, activity);
-            const auto p = std::from_chars(line.data() + last + 1, line.data() + line.size(), process);
-            if (a.ec != std::errc{} || a.ptr != line.data() + first || p.ec != std::errc{} || p.ptr != line.data() + line.size() || process <= 0) continue;
-            if (client.empty() || activity >= newest) { newest = activity; client = line.substr(first + 1, last - first - 1); client_pid = process; }
+            const auto a = std::from_chars(field[0].data(), field[0].data() + field[0].size(), activity);
+            const auto p = std::from_chars(field[2].data(), field[2].data() + field[2].size(), process);
+            if (a.ec != std::errc{} || a.ptr != field[0].data() + field[0].size() || p.ec != std::errc{}
+                || p.ptr != field[2].data() + field[2].size() || process <= 0) continue;
+            if (client.empty() || activity >= newest) { newest = activity; client = field[1]; client_pid = process; }
+            if (field.size() > 3 && field[3] == session && (showing.empty() || activity >= newest_showing)) {
+                newest_showing = activity; showing = field[1]; showing_pid = process;
+            }
         }
-        if (!client.empty()) {
+        if (!showing.empty()) {
+            client = showing; client_pid = showing_pid;
             if (!capture({"tmux", "switch-client", "-c", client, "-t", target}, output)) return result(false, "Could not switch to the agent terminal");
         } else {
+            // Nobody shows it: a terminal of its own, never the one you are working in.
             const auto opened = terminal({"tmux", "attach-session", "-t", "=" + session}, "Agent terminal opened");
             if (!truth(opened, "ok")) return opened;
+            client_pid = 0;
         }
     }
     if (client_pid > 0) focus_agent_client(client_pid);
@@ -980,6 +1000,20 @@ std::string claude_left_line(const ClaudeUsage& usage) {
     if (usage.five >= 80)
         line += (line.empty() ? "" : " · ") + std::to_string(std::max(0, 100 - usage.five)) + "% of this 5h left";
     return line;
+}
+// Why a pending package deserves care, or "" when it doesn't: what it touches and what to expect.
+std::string update_care(const std::string& name) {
+    static const std::vector<std::pair<std::regex, std::string>> rules = {
+        {std::regex("linux(-lts|-zen|-hardened)?(-headers)?|linux-firmware.*"), "kernel or firmware · reboot after"},
+        {std::regex("nvidia.*|.*-dkms|dkms"), "graphics driver · reboot after; a mismatch can fall back to software rendering"},
+        {std::regex("mkinitcpio|dracut|systemd-boot.*|grub|efibootmgr|amd-ucode|intel-ucode"), "boot · rebuilds the boot image"},
+        {std::regex("pam|pambase|libpam.*|shadow|sudo|fprintd|libfprint"), "login and sudo · keep a terminal open until you have tested sudo"},
+        {std::regex("greetd.*|regreet|hyprlock"), "login or lock screen · test it before logging out"},
+        {std::regex("systemd|systemd-libs|glibc|lib32-glibc"), "core system · reboot after"},
+        {std::regex("hyprland|aquamarine|hyprutils|hyprlang|hyprgraphics|xdg-desktop-portal-hyprland"), "desktop compositor · log out and back in after"},
+    };
+    for (const auto& [pattern, why] : rules) if (std::regex_match(name, pattern)) return why;
+    return "";
 }
 // The bar pill, in waybar's custom-module shape: ✎ busy · ◇ waiting · ! stopped; hovering lists each session.
 Json claude_bar() {
@@ -1223,10 +1257,31 @@ std::vector<Project> projects(const Json& config) {
     return found;
 }
 
+// A git project's state, read without taking any lock another session's commit needs: "✎ dirty", "↑2 unpushed".
+std::string git_badges(const fs::path& repo) {
+    std::error_code ec;
+    if (!fs::exists(repo / ".git", ec) || !sh::have("git")) return {};
+    std::string out;
+    if (!capture({"git", "--no-optional-locks", "-C", repo.string(), "status", "--porcelain=v1", "--branch",
+                  "--untracked-files=no"}, out)) return {};
+    std::string badges;
+    const auto all = lines(out);
+    bool dirty = false;
+    for (size_t i = 1; i < all.size(); ++i) dirty = dirty || !trim(all[i]).empty();
+    if (dirty) badges += "✎ dirty";
+    if (!all.empty()) {
+        static const std::regex ahead("\\[ahead ([0-9]+)");
+        std::smatch m;
+        if (std::regex_search(all[0], m, ahead)) badges += (badges.empty() ? "" : " · ") + ("↑" + m[1].str() + " unpushed");
+    }
+    return badges;
+}
 Json project_card(const Project& project, bool pinned) {
     std::string location = project.path.string();
     if (location.rfind(home() + "/", 0) == 0) location = "~" + location.substr(home().size());
-    auto row = item("project-open", project.name, "action", project.type + " · " + location, "▤");
+    const auto badges = git_badges(project.path);
+    auto row = item("project-open", project.name, "action", project.type + " · " + location + (badges.empty() ? "" : " · " + badges), "▤");
+    if (!badges.empty()) row["git"] = badges;
     row["argument"] = project.path.string(); row["close"] = true;
     row["presentation"] = "project"; row["bookmarked"] = pinned;
     return row;
@@ -1596,6 +1651,432 @@ Json today_summary() {
     return today;
 }
 
+// ─── Models: the local models fox-llm keeps, which role uses each, and whether the router serves it ───────────
+fs::path llm_config_dir() { return fs::path(env("XDG_CONFIG_HOME", home() + "/.config")) / "foxml/llm"; }
+fs::path gguf_dir() { return fs::path(env("XDG_DATA_HOME", home() + "/.local/share")) / "fox-llm/gguf"; }
+// The first roles file there is, as FoxIntel and fox-llm-update read them.
+fs::path roles_file() {
+    for (const auto& path : {llm_config_dir() / "roles.conf", fs::path(home()) / "code/custom_models/roles.conf", llm_config_dir() / "roles.default"})
+        if (regular(path)) return path;
+    return {};
+}
+std::map<std::string, std::vector<std::string>> model_roles() {
+    std::map<std::string, std::vector<std::string>> roles;
+    const auto file = roles_file();
+    if (file.empty()) return roles;
+    for (const auto& line : lines(read(file))) {
+        std::istringstream fields(line);
+        std::string role, model;
+        if (!(fields >> role >> model) || role.empty() || role[0] == '#') continue;
+        roles[model].push_back(role);
+    }
+    return roles;
+}
+bool known_model(const std::string& name) {
+    return std::regex_match(name, std::regex("[A-Za-z0-9][A-Za-z0-9._:-]{0,119}")) && regular(gguf_dir() / (name + ".gguf"));
+}
+fs::path llm_tool(const char* name) { return fs::path(home()) / ".local/bin" / name; }
+Json model_use_for_agent(const std::string& name) {
+    if (!known_model(name)) return result(false, "That model is not here");
+    const auto from = roles_file();
+    const auto target = llm_config_dir() / "roles.conf";
+    std::vector<std::string> kept;
+    bool replaced = false;
+    for (const auto& line : lines(from.empty() ? std::string() : read(from))) {
+        std::istringstream fields(line);
+        std::string role, model, rest, word;
+        if ((fields >> role >> model) && role == "agent") {
+            std::string server = "llama";
+            fields >> server;  // the server stays; a ctx= belonged to the old model, so it goes
+            kept.push_back("agent " + name + " " + server);
+            replaced = true;
+        } else kept.push_back(line);
+    }
+    if (!replaced) kept.push_back("agent " + name + " llama");
+    std::string text;
+    for (const auto& line : kept) text += line + "\n";
+    std::error_code ec;
+    fs::create_directories(target.parent_path(), ec);
+    if (regular(target)) {
+        char stamp[32] = {}; const std::time_t now = std::time(nullptr);
+        std::strftime(stamp, sizeof stamp, "%Y%m%d-%H%M%S", std::localtime(&now));
+        if (!write_atomic(target.string() + ".bak-" + stamp, read(target))) return result(false, "Could not back up roles.conf");
+    }
+    if (!write_atomic(target, text)) return result(false, "Could not write roles.conf");
+    std::string out;
+    if (regular(llm_tool("fox-llm-update"))) capture({llm_tool("fox-llm-update").string(), "--sync"}, out);
+    return result(true, name + " is the agent model now");
+}
+Json model_remove(const std::string& name, bool confirmed) {
+    if (!confirmed) return result(false, "Confirmation required");
+    if (!known_model(name)) return result(false, "That model is not here");
+    const auto roles = model_roles();
+    if (roles.count(name)) return result(false, "A role uses " + name + "; give that role another model first");
+    std::error_code ec;
+    fs::remove(gguf_dir() / (name + ".gguf"), ec);
+    if (ec) return result(false, "Could not remove " + name);
+    // A skip line in this machine's own list (never in a repo): fox-llm-update won't fetch it again from any list.
+    const auto list = llm_config_dir() / "gguf-models.txt";
+    std::string text = regular(list) ? read(list) : "# This machine's picks and skips. A \"-name\" line skips a model from every list.\n";
+    if (!text.empty() && text.back() != '\n') text += "\n";
+    text += "-" + name + "\n";
+    if (!write_atomic(list, text)) return result(false, name + " removed, but its skip line could not be written");
+    std::string out;
+    if (regular(llm_tool("fox-llm-update"))) capture({llm_tool("fox-llm-update").string(), "--sync"}, out);
+    capture({"systemctl", "--user", "try-restart", "fox-llm-server.service"}, out);
+    return result(true, name + " removed");
+}
+
+void model_rows(Json& rows) {
+    std::error_code ec;
+    if (!directory(gguf_dir())) {
+        auto row = item("model-agent", "No local models here", "action", "The local AI layer is optional: fox ai sets it up", "info");
+        row["enabled"] = false; rows.push_back(row); return;
+    }
+    const auto roles = model_roles();
+    const auto presets = read(llm_config_dir() / "llama-presets.ini");
+    std::vector<std::pair<uint64_t, std::string>> models;
+    for (const auto& entry : fs::directory_iterator(gguf_dir(), ec)) {
+        if (entry.path().extension() != ".gguf" || !entry.is_regular_file(ec)) continue;
+        models.push_back({entry.file_size(ec), entry.path().stem().string()});
+    }
+    std::sort(models.rbegin(), models.rend());
+    const auto joined = [](const std::vector<std::string>& list) { std::string s; for (const auto& r : list) s += (s.empty() ? "" : ", ") + r; return s; };
+    for (const auto& [bytes, name] : models) {
+        const bool used = roles.count(name) > 0;
+        const bool agent = used && std::find(roles.at(name).begin(), roles.at(name).end(), "agent") != roles.at(name).end();
+        const bool served = presets.find("[" + name + "]") != std::string::npos;
+        auto row = item("model-agent", name, "action", capacity(bytes) + " · " + (used ? "the " + joined(roles.at(name)) + " model" : "no role") + (served ? "" : " · not served"), "cpu");
+        row["argument"] = name;
+        if (agent) { row["enabled"] = false; row["disabledReason"] = "Already the agent model"; }
+        else row["confirm"] = true;
+        rows.push_back(row);
+    }
+    auto head = item("model-remove", "Remove a model", "action", "Deleted from disk, and skipped by the nightly update", "info");
+    head["enabled"] = false; rows.push_back(head);
+    for (const auto& [bytes, name] : models) {
+        auto row = item("model-remove", "Remove " + name, "action", capacity(bytes), "trash");
+        row["argument"] = name;
+        if (roles.count(name)) { row["enabled"] = false; row["disabledReason"] = "The " + joined(roles.at(name)) + " role uses it; give the role another model first"; }
+        else row["confirm"] = true;
+        rows.push_back(row);
+    }
+}
+
+// ─── Storage: what uses the disk, measured in the background and kept for the page ────────────────────────────
+fs::path storage_cache() { return fs::path(env("XDG_CACHE_HOME", home() + "/.cache")) / "foxml/storage.json"; }
+fs::path storage_lock() { return runtime() / "foxml-storage-scan.lock"; }
+struct StorageKind { const char* id; const char* label; std::vector<std::string> paths; const char* action; const char* hint; };
+std::vector<StorageKind> storage_kinds() {
+    return {
+        {"packages", "Package cache", {"/var/cache/pacman/pkg", "~/.cache/yay", "~/.cache/paru"}, "storage-clean-packages", "old versions of installed packages"},
+        {"models", "Local AI models", {"~/.local/share/fox-llm", "~/.cache/huggingface", "~/.ollama", "/usr/share/ollama/.ollama", "/var/lib/ollama", "~/.lmstudio", "~/.cache/lm-studio"}, "", "see Desk → Models"},
+        {"games", "Games", {"~/.local/share/Steam", "~/.var/app/com.valvesoftware.Steam", "~/Games", "~/.local/share/lutris"}, "", "uninstall games from their launcher"},
+        {"vms", "VM and container images", {"~/.local/share/libvirt/images", "/var/lib/libvirt/images", "~/.local/share/containers", "/var/lib/containers", "/var/lib/docker", "~/.local/share/gnome-boxes", "~/VirtualBox VMs"}, "", "remove images you no longer use"},
+        {"flatpak", "Flatpak apps and runtimes", {"~/.local/share/flatpak", "/var/lib/flatpak"}, "storage-flatpak-unused", "unused runtimes can go"},
+        {"dev", "Language and build caches", {"~/.npm", "~/.cache/pip", "~/.cache/uv", "~/.cargo/registry", "~/.cache/go-build", "~/.cache/ccache", "~/.ccache", "~/.cache/yarn", "~/.cache/pnpm", "~/.gradle/caches", "~/.m2/repository"}, "", "rebuilt when needed"},
+        {"browser", "Browser caches", {"~/.cache/mozilla", "~/.cache/chromium", "~/.cache/google-chrome", "~/.cache/BraveSoftware"}, "", "rebuilt as you browse"},
+        {"trash", "Trash", {"~/.local/share/Trash"}, "storage-empty-trash", "files you deleted"},
+    };
+}
+std::string expand_home(const std::string& path) { return path.rfind("~/", 0) == 0 ? home() + path.substr(1) : path; }
+// du's bytes for one path, and whether some of it was out of reach.
+std::pair<uint64_t, bool> du_bytes(const std::string& path, int seconds) {
+    std::string out;
+    const int status = sh::probe({"timeout", std::to_string(seconds), "du", "-sxb", path}, out);
+    uint64_t bytes = 0;
+    const auto first = out.substr(0, out.find('\t'));
+    std::from_chars(first.data(), first.data() + first.size(), bytes);
+    return {bytes, status != 0};
+}
+int storage_scan() {
+    std::error_code ec;
+    fs::create_directories(storage_cache().parent_path(), ec);
+    if (regular(storage_lock())) return 0;  // one scan at a time
+    write_atomic(storage_lock(), std::to_string(::getpid()) + "\n");
+    Json kinds = Json::array();
+    for (const auto& kind : storage_kinds()) {
+        uint64_t total = 0; bool partial = false; Json found = Json::array();
+        for (const auto& raw : kind.paths) {
+            const auto path = expand_home(raw);
+            if (!fs::exists(path, ec)) continue;
+            const auto [bytes, hidden] = du_bytes(path, 120);
+            total += bytes; partial = partial || hidden;
+            if (bytes > 0) found.push_back(Json{{"path", path}, {"bytes", bytes}});
+        }
+        if (found.empty()) continue;
+        kinds.push_back(Json{{"id", kind.id}, {"label", kind.label}, {"bytes", total}, {"partial", partial}, {"paths", found}});
+    }
+    // The journal says its own size.
+    std::string journal;
+    if (sh::have("journalctl") && capture({"journalctl", "--disk-usage"}, journal)) {
+        std::smatch m;
+        if (std::regex_search(journal, m, std::regex("([0-9.]+)([KMGT])"))) {
+            const double value = std::stod(m[1].str());
+            const double scale = m[2] == "K" ? 1e3 : m[2] == "M" ? 1e6 : m[2] == "G" ? 1e9 : 1e12;
+            kinds.push_back(Json{{"id", "journal"}, {"label", "System journal"}, {"bytes", static_cast<uint64_t>(value * scale)}, {"partial", false}, {"paths", Json::array()}});
+        }
+    }
+    // The largest folders two levels into home, on this disk only.
+    Json largest = Json::array();
+    std::string out;
+    sh::probe({"timeout", "300", "du", "-xb", "--max-depth=2", home()}, out);
+    std::vector<std::pair<uint64_t, std::string>> folders;
+    for (const auto& line : lines(out)) {
+        const auto tab = line.find('\t');
+        if (tab == std::string::npos) continue;
+        uint64_t bytes = 0; std::from_chars(line.data(), line.data() + tab, bytes);
+        const auto path = line.substr(tab + 1);
+        if (path == home()) continue;
+        folders.push_back({bytes, path});
+    }
+    std::sort(folders.rbegin(), folders.rend());
+    // A folder shown already through one of its children says less; keep the more specific ones.
+    std::vector<std::string> kept;
+    for (const auto& [bytes, path] : folders) {
+        if (kept.size() >= 8) break;
+        bool parent = false;
+        for (const auto& [other_bytes, other] : folders)
+            if (other != path && other.rfind(path + "/", 0) == 0 && other_bytes * 10 >= bytes * 7) { parent = true; break; }
+        if (parent) continue;
+        kept.push_back(path);
+        largest.push_back(Json{{"path", path}, {"bytes", bytes}});
+    }
+    // What the disk counts but nothing visible holds: usually places only root can read.
+    struct statvfs disk{};
+    uint64_t used = 0, size = 0, avail = 0;
+    if (::statvfs(home().c_str(), &disk) == 0) {
+        size = static_cast<uint64_t>(disk.f_blocks) * disk.f_frsize;
+        avail = static_cast<uint64_t>(disk.f_bavail) * disk.f_frsize;
+        used = size - static_cast<uint64_t>(disk.f_bfree) * disk.f_frsize;
+    }
+    std::string root_out;
+    sh::probe({"timeout", "600", "du", "-sxb", "/"}, root_out);
+    uint64_t visible = 0;
+    const auto first = root_out.substr(0, root_out.find('\t'));
+    std::from_chars(first.data(), first.data() + first.size(), visible);
+    const uint64_t hidden = visible > 0 && used > visible ? used - visible : 0;
+    Json data{{"at", static_cast<long long>(std::time(nullptr))}, {"used", used}, {"size", size}, {"available", avail},
+              {"hidden", hidden}, {"kinds", kinds}, {"largest", largest}};
+    write_atomic(storage_cache(), data.dump() + "\n");
+    fs::remove(storage_lock(), ec);
+    return 0;
+}
+std::string ago(long long seconds) {
+    if (seconds < 90) return "just now";
+    if (seconds < 3600) return std::to_string(seconds / 60) + " minutes ago";
+    if (seconds < 172800) return std::to_string(seconds / 3600) + (seconds < 7200 ? " hour ago" : " hours ago");
+    return std::to_string(seconds / 86400) + " days ago";
+}
+bool scan_running() {
+    if (!regular(storage_lock())) return false;
+    const auto pid = trim(read(storage_lock()));
+    if (!pid.empty() && fs::exists(fs::path("/proc") / pid)) return true;
+    std::error_code ec; fs::remove(storage_lock(), ec);  // a scan that died
+    return false;
+}
+void storage_rows(Json& rows) {
+    const auto data = Json::parse(read(storage_cache()), nullptr, false);
+    if (scan_running()) {
+        auto row = item("storage-scan", "Measuring the disk…", "action", "This takes a minute or two; the page fills in when it's done", "info");
+        row["enabled"] = false; rows.push_back(row);
+    }
+    if (!data.is_object()) {
+        if (!scan_running()) rows.push_back(item("storage-scan", "Measure the disk", "action", "Find what uses the space · a minute or two, in the background", "info"));
+        return;
+    }
+    const auto num = [](const Json& o, const char* k) { return o.contains(k) && o[k].is_number() ? o[k].get<uint64_t>() : uint64_t(0); };
+    const long long at = data.contains("at") && data["at"].is_number() ? data["at"].get<long long>() : 0;
+    auto head = item("storage-scan", capacity(num(data, "available")) + " free of " + capacity(num(data, "size")), "action",
+                     "Measured " + ago(static_cast<long long>(std::time(nullptr)) - at) + " · Enter measures again", "info");
+    if (scan_running()) head["enabled"] = false;
+    rows.push_back(head);
+    std::vector<Json> kinds;
+    if (data.contains("kinds") && data["kinds"].is_array()) for (const auto& k : data["kinds"]) kinds.push_back(k);
+    std::sort(kinds.begin(), kinds.end(), [&](const Json& a, const Json& b) { return num(a, "bytes") > num(b, "bytes"); });
+    std::map<std::string, std::pair<std::string, std::string>> extra;
+    for (const auto& kind : storage_kinds()) extra[kind.id] = {kind.action, kind.hint};
+    for (const auto& kind : kinds) {
+        const auto id = text(kind, "id");
+        if (num(kind, "bytes") < 50ull * 1000 * 1000) continue;
+        const auto [action, hint] = extra.count(id) ? extra[id] : std::pair<std::string, std::string>{"", ""};
+        std::string detail = capacity(num(kind, "bytes")) + (hint.empty() ? "" : " · " + hint);
+        if (kind.contains("partial") && kind["partial"] == true) detail += " · part of it is root-only";
+        std::string act = action;
+        if (id == "journal") act = "storage-trim-journal";
+        auto row = item(act.empty() ? "storage-open" : act, text(kind, "label"), "action", detail, "folder");
+        if (act.empty()) {
+            const auto& paths = kind["paths"];
+            if (paths.is_array() && !paths.empty()) row["argument"] = text(paths[0], "path"); else row["enabled"] = false;
+        }
+        if (act == "storage-empty-trash") row["confirm"] = true;
+        rows.push_back(row);
+    }
+    if (num(data, "hidden") > 5ull * 1000 * 1000 * 1000) {
+        auto row = item("storage-hidden", capacity(num(data, "hidden")) + " the disk counts but no folder shows", "action",
+                        "Usually places only root can read · Enter looks in a terminal", "info");
+        rows.push_back(row);
+    }
+    if (data.contains("largest") && data["largest"].is_array() && !data["largest"].empty()) {
+        auto label = item("storage-open", "Largest folders in your home", "action", "", "info"); label["enabled"] = false; rows.push_back(label);
+        for (const auto& folder : data["largest"]) {
+            auto path = text(folder, "path");
+            auto shown = path.rfind(home() + "/", 0) == 0 ? "~" + path.substr(home().size()) : path;
+            auto row = item("storage-open", shown, "action", capacity(num(folder, "bytes")), "folder");
+            row["argument"] = path; rows.push_back(row);
+        }
+    }
+}
+bool storage_known_path(const std::string& path) {
+    const auto data = Json::parse(read(storage_cache()), nullptr, false);
+    if (!data.is_object()) return false;
+    for (const char* list : {"largest"}) if (data.contains(list) && data[list].is_array())
+        for (const auto& entry : data[list]) if (text(entry, "path") == path) return true;
+    if (data.contains("kinds") && data["kinds"].is_array())
+        for (const auto& kind : data["kinds"]) if (kind.contains("paths") && kind["paths"].is_array())
+            for (const auto& entry : kind["paths"]) if (text(entry, "path") == path) return true;
+    return false;
+}
+
+// ─── Backups: what the theme tools and the installer kept before replacing files ───────────────────────────────
+fs::path backups_root() { return fs::path(env("XDG_STATE_HOME", home() + "/.local/state")) / "foxml"; }
+struct Backup { fs::path path; std::string name, when, label; bool restorable = false; };
+std::vector<Backup> backups() {
+    std::vector<Backup> found;
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(backups_root(), ec)) {
+        if (!entry.is_directory(ec)) continue;
+        const auto name = entry.path().filename().string();
+        std::smatch m;
+        if (name.find("backup") == std::string::npos || !std::regex_search(name, m, std::regex("(20[0-9]{6})-([0-9]{6})(?:-(.*))?"))) continue;
+        Backup b; b.path = entry.path(); b.name = name;
+        const auto d = m[1].str(), t = m[2].str();
+        b.when = d.substr(0, 4) + "-" + d.substr(4, 2) + "-" + d.substr(6, 2) + " " + t.substr(0, 2) + ":" + t.substr(2, 2);
+        b.label = m[3].matched ? m[3].str() : (name.rfind("theme-backup", 0) == 0 ? "theme" : name.substr(0, name.find("-backup")));
+        b.restorable = regular(entry.path() / "restore.sh") && regular(entry.path() / "manifest");
+        found.push_back(b);
+    }
+    std::sort(found.begin(), found.end(), [](const Backup& a, const Backup& b) { return a.when > b.when; });
+    return found;
+}
+void backup_rows(Json& rows) {
+    const auto all = backups();
+    if (all.size() > 10) {
+        auto row = item("backup-prune", "Keep the newest 10", "action", "Removes the " + std::to_string(all.size() - 10) + " older backups", "info");
+        row["confirm"] = true; rows.push_back(row);
+    }
+    for (const auto& b : all) {
+        std::size_t files = 0; std::error_code ec;
+        for (fs::recursive_directory_iterator it(b.path, fs::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec))
+            if (it->is_regular_file(ec)) ++files;
+        auto row = item(b.restorable ? "backup-restore" : "backup-open", b.label, "action",
+                        b.when + " · " + std::to_string(files) + (files == 1 ? " file" : " files") + (b.restorable ? " · Enter puts them back" : " · Enter opens the folder"),
+                        b.restorable ? "refresh" : "folder");
+        row["argument"] = b.name;
+        if (b.restorable) row["confirm"] = true;
+        rows.push_back(row);
+    }
+    if (all.empty()) { auto row = item("backup-open", "No backups yet", "action", "The theme tools keep one before they replace files", "info"); row["enabled"] = false; rows.push_back(row); }
+}
+std::optional<Backup> find_backup(const std::string& name) {
+    for (const auto& b : backups()) if (b.name == name) return b;
+    return std::nullopt;
+}
+
+// ─── Startup: what starts with the session ─────────────────────────────────────────────────────────────────────
+fs::path user_autostart() { return fs::path(env("XDG_CONFIG_HOME", home() + "/.config")) / "autostart"; }
+std::map<std::string, std::string> desktop_fields(const fs::path& file) {
+    std::map<std::string, std::string> fields; bool entry = false;
+    for (const auto& raw : lines(read(file))) {
+        const auto line = trim(raw);
+        if (!line.empty() && line.front() == '[') { entry = line == "[Desktop Entry]"; continue; }
+        const auto eq = line.find('=');
+        if (entry && eq != std::string::npos && !fields.count(line.substr(0, eq))) fields[line.substr(0, eq)] = line.substr(eq + 1);
+    }
+    return fields;
+}
+void startup_rows(Json& rows) {
+    std::string out;
+    // Your own services: switching one off is yours to do.
+    if (sh::have("systemctl") && capture({"systemctl", "--user", "list-unit-files", "--state=enabled", "--type=service,timer", "--no-legend", "--plain"}, out)) {
+        auto head = item("startup-user", "Your services", "action", "Start with your session · Enter switches one off", "info"); head["enabled"] = false; rows.push_back(head);
+        for (const auto& line : lines(out)) {
+            const auto unit = line.substr(0, line.find(' '));
+            if (!std::regex_match(unit, std::regex("[A-Za-z0-9@._-]+\\.(service|timer)"))) continue;
+            std::string state;
+            capture({"systemctl", "--user", "is-active", unit}, state);
+            // FoxML's own watchers guard the machine; say so before one is switched off.
+            const bool guard = std::regex_match(unit, std::regex("fox-(bouncer|tripwire|sentry[A-Za-z-]*|vault|honey[A-Za-z-]*)\\.(service|timer)"));
+            auto row = item("startup-user", unit, "action", std::string(trim(state) == "active" ? "running" : "not running right now")
+                            + (guard ? " · a security watcher: switching it off lowers your protection" : ""), guard ? "shield" : "gear");
+            row["argument"] = unit; row["confirm"] = true; rows.push_back(row);
+        }
+    }
+    // Desktop autostart entries (XDG): hidden with a user copy, the system's file is never edited.
+    std::map<std::string, fs::path> entries;
+    std::error_code ec;
+    for (const auto& dir : {fs::path("/etc/xdg/autostart"), user_autostart()})
+        for (const auto& entry : fs::directory_iterator(dir, ec)) if (entry.path().extension() == ".desktop") entries[entry.path().filename().string()] = entry.path();
+    bool any = false;
+    for (const auto& [name, path] : entries) {
+        const auto fields = desktop_fields(path);
+        if (fields.count("Hidden") && fields.at("Hidden") == "true") continue;
+        if (fields.count("OnlyShowIn") && fields.at("OnlyShowIn").find("Hyprland") == std::string::npos) continue;
+        if (!any) { auto head = item("startup-autostart", "Desktop autostart", "action", "Enter hides one for your account", "info"); head["enabled"] = false; rows.push_back(head); any = true; }
+        auto row = item("startup-autostart", fields.count("Name") ? fields.at("Name") : name, "action", name, "gear");
+        row["argument"] = name; row["confirm"] = true; rows.push_back(row);
+    }
+    // Hyprland's own autostart: part of the theme, listed so nothing starts unseen.
+    const auto config = fs::path(env("XDG_CONFIG_HOME", home() + "/.config")) / "hypr/modules";
+    std::vector<std::string> hypr;
+    for (const auto& raw : lines(read(config / "autostart.lua"))) {
+        std::smatch m;
+        if (trim(raw).rfind("--", 0) != 0 && std::regex_search(raw, m, std::regex("hl\\.exec_cmd\\(\"([^\"]+)\"\\)"))) hypr.push_back(m[1].str());
+    }
+    if (hypr.empty()) for (const auto& raw : lines(read(config / "autostart.conf"))) {
+        std::smatch m;
+        if (std::regex_search(raw, m, std::regex("^\\s*exec-once\\s*=\\s*(.+)$"))) hypr.push_back(trim(m[1].str()));
+    }
+    if (!hypr.empty()) {
+        auto head = item("startup-hyprland", "Started by Hyprland", "action", "Part of the theme's autostart.lua", "info"); head["enabled"] = false; rows.push_back(head);
+        for (const auto& command : hypr) {
+            auto row = item("startup-hyprland", command.substr(0, 90), "action", "", "gear");
+            row["enabled"] = false; row["disabledReason"] = "Change it in ~/.config/hypr/modules/autostart.lua"; rows.push_back(row);
+        }
+    }
+    // System services: listed only. Switching off the wrong one can cost the login screen or the network.
+    if (sh::have("systemctl") && capture({"systemctl", "list-unit-files", "--state=enabled", "--type=service", "--no-legend", "--plain"}, out)) {
+        auto head = item("startup-system", "System services", "action", "Listed only: change these in a terminal, with care", "info"); head["enabled"] = false; rows.push_back(head);
+        for (const auto& line : lines(out)) {
+            const auto unit = line.substr(0, line.find(' '));
+            if (unit.empty()) continue;
+            auto row = item("startup-system", unit, "action", "", "gear");
+            row["enabled"] = false; row["disabledReason"] = "System services change with sudo in a terminal"; rows.push_back(row);
+        }
+    }
+}
+Json startup_user_off(const std::string& unit, bool confirmed) {
+    if (!confirmed) return result(false, "Confirmation required");
+    if (!std::regex_match(unit, std::regex("[A-Za-z0-9@._-]+\\.(service|timer)"))) return result(false, "Not a service name");
+    return command({"systemctl", "--user", "disable", "--now", unit}, unit + " switched off", false, "Could not switch off " + unit);
+}
+Json startup_autostart_hide(const std::string& name, bool confirmed) {
+    if (!confirmed) return result(false, "Confirmation required");
+    if (!std::regex_match(name, std::regex("[A-Za-z0-9@._-]+\\.desktop"))) return result(false, "Not an autostart entry");
+    const auto mine = user_autostart() / name;
+    const auto source = regular(mine) ? mine : fs::path("/etc/xdg/autostart") / name;
+    if (!regular(source)) return result(false, "That entry is gone");
+    std::string text = read(source);
+    if (text.find("\nHidden=true") == std::string::npos) {
+        const auto at = text.find("[Desktop Entry]");
+        if (at == std::string::npos) return result(false, "Not a desktop entry");
+        text.insert(at + 15, "\nHidden=true");
+    }
+    std::error_code ec;
+    fs::create_directories(mine.parent_path(), ec);
+    return write_atomic(mine, text) ? result(true, name + " won't start next time") : result(false, "Could not write " + mine.string());
+}
+
 Json view(const Json& config, const std::string& page, const std::string& query) {
     Json out{{"id", page}, {"title", page}, {"items", Json::array()}, {"ok", true}, {"group", group_for(config, page)}};
     auto& rows = out["items"];
@@ -1822,10 +2303,37 @@ Json view(const Json& config, const std::string& page, const std::string& query)
         const auto pending = read(runtime() / "foxml-waybar/updates.list");
         if (pending.empty()) {
             auto row = item("updates-terminal", "No cached update list", "action", "Open the updater to check for updates", "info"); row["enabled"] = false; rows.push_back(row);
-        } else for (const auto& line : lines(pending)) {
-            if (line.empty()) continue;
-            auto row = item("updates-terminal", line, "action", "Pending package", "package"); row["enabled"] = false; rows.push_back(row);
+        } else {
+            // The ones that touch boot, login or the graphics stack first, with why: worth a moment's care.
+            std::vector<Json> careful, plain;
+            for (const auto& line : lines(pending)) {
+                if (trim(line).empty()) continue;
+                const auto why = update_care(line.substr(0, line.find(' ')));
+                auto row = item("updates-terminal", line, "action", why.empty() ? "Pending package" : why, why.empty() ? "package" : "info");
+                row["enabled"] = false;
+                if (!why.empty()) row["careful"] = true;
+                (why.empty() ? plain : careful).push_back(row);
+            }
+            if (!careful.empty()) {
+                auto head = item("updates-terminal", careful.size() == 1 ? "1 update needs a little care" : std::to_string(careful.size()) + " updates need a little care",
+                                 "action", "Kernel, boot, login or graphics: read the notes before rebooting", "info");
+                head["enabled"] = false; rows.push_back(head);
+            }
+            for (auto& row : careful) rows.push_back(row);
+            for (auto& row : plain) rows.push_back(row);
         }
+    } else if (page == "models") {
+        known = true; out["title"] = "Local models";
+        model_rows(rows);
+    } else if (page == "storage") {
+        known = true; out["title"] = "Storage";
+        storage_rows(rows);
+    } else if (page == "backups") {
+        known = true; out["title"] = "Backups";
+        backup_rows(rows);
+    } else if (page == "startup") {
+        known = true; out["title"] = "Startup";
+        startup_rows(rows);
     } else if (page == "passwords") {
         known = true; out["title"] = "Passwords";
         for (const auto& name : password_names()) {
@@ -1884,8 +2392,9 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         if (id == "logout") return command({"fox-hl", "dispatch", "hl.dsp.exit()", "exit"}, "Log out", true);
         return command({"systemctl", id}, id == "suspend" ? "Suspend" : id == "reboot" ? "Restart" : "Shut down", true);
     }
-    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","tool-run","cheatsheet-copy","sandbox-launch","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","screenshot-open","screenshot-copy","screenshot-folder","password-copy","agent-jump","claude-jump"};
-    if (!argument_actions.count(id) && !arg.empty()) return result(false, "This action accepts no argument");
+    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","tool-run","cheatsheet-copy","sandbox-launch","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","screenshot-open","screenshot-copy","screenshot-folder","password-copy","agent-jump","claude-jump","model-agent","model-remove","storage-open","backup-restore","backup-open","startup-user","startup-autostart"};
+    const bool confirm_only = arg == "--confirm" && (id == "backup-prune" || id == "storage-empty-trash");
+    if (!argument_actions.count(id) && !arg.empty() && !confirm_only) return result(false, "This action accepts no argument");
     if (id == "volume" || id == "brightness") {
         int value = 0;
         if (!percent(arg, value)) return result(false, "Level must be an integer from 0 to 100");
@@ -2083,6 +2592,45 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
     }
     if (id == "agent-jump") return jump_agent(arg);
     if (id == "claude-jump") return jump_claude(arg);
+    if (id == "model-agent") return confirmed ? model_use_for_agent(arg) : result(false, "Confirmation required");
+    if (id == "model-remove") return model_remove(arg, confirmed);
+    if (id == "storage-scan") {
+        std::error_code ec;
+        const auto self = fs::read_symlink("/proc/self/exe", ec);
+        if (ec) return result(false, "Could not start the measurement");
+        auto started = launch({self.string(), "storage-scan"}, "Measuring the disk in the background");
+        started["close"] = false; return started;
+    }
+    if (id == "storage-open") return storage_known_path(arg) ? launch({"xdg-open", arg}, "Folder opened") : result(false, "Measure the disk again first");
+    if (id == "storage-clean-packages")
+        return terminal({"sh", "-c", "if command -v paccache >/dev/null; then sudo paccache -rk1 && sudo paccache -ruk0; else echo 'paccache is in pacman-contrib'; fi; echo; read -rp 'Enter closes this window ' _"}, "Package cache cleanup opened");
+    if (id == "storage-trim-journal")
+        return terminal({"sh", "-c", "sudo journalctl --vacuum-size=500M; echo; read -rp 'Enter closes this window ' _"}, "Journal trim opened");
+    if (id == "storage-flatpak-unused")
+        return terminal({"sh", "-c", "flatpak uninstall --unused; echo; read -rp 'Enter closes this window ' _"}, "Flatpak cleanup opened");
+    if (id == "storage-hidden")
+        return terminal({"sh", "-c", "echo 'Root-only folders, largest first (read-only):'; sudo du -xh --max-depth=3 / 2>/dev/null | sort -rh | head -25; echo; read -rp 'Enter closes this window ' _"}, "Looking in a terminal");
+    if (id == "storage-empty-trash") {
+        if (!confirmed && arg != "--confirm") return result(false, "Confirmation required");
+        return command({"gio", "trash", "--empty"}, "Trash emptied", false, "Could not empty the trash");
+    }
+    if (id == "backup-open" || id == "backup-restore") {
+        const auto backup = find_backup(arg);
+        if (!backup) return result(false, "That backup is gone");
+        if (id == "backup-open") return launch({"xdg-open", backup->path.string()}, "Backup folder opened");
+        if (!confirmed) return result(false, "Confirmation required");
+        if (!backup->restorable) return result(false, "This backup has no restore script; open it to copy files back");
+        return terminal({"bash", (backup->path / "restore.sh").string()}, "Restoring in a terminal");
+    }
+    if (id == "backup-prune") {
+        if (arg != "--confirm") return result(false, "Confirmation required");
+        const auto all = backups();
+        std::error_code ec; std::size_t removed = 0;
+        for (std::size_t i = 10; i < all.size(); ++i) if (fs::remove_all(all[i].path, ec) > 0 && !ec) ++removed;
+        return result(true, std::to_string(removed) + (removed == 1 ? " older backup removed" : " older backups removed"));
+    }
+    if (id == "startup-user") return startup_user_off(arg, confirmed);
+    if (id == "startup-autostart") return startup_autostart_hide(arg, confirmed);
     if (id == "agent-triage") { auto response = result(true, "Choose an agent note"); response["page"] = "agents"; return response; }
     if (id == "color-picker") return launch({"hyprpicker", "-a"}, "Color picker opened");
     if (id == "vault") { auto response = result(true, "Choose a key"); response["page"] = "passwords"; return response; }
@@ -2143,6 +2691,19 @@ int main(int argc, char** argv) {
             std::cout << claude_lock_line() << '\n';
             return 0;
         }
+        // The paper notebook's peers: the same live sessions the Agents page shows, one rule for both.
+        if (args.size() == 1 && args[0] == "claude-peers") {
+            read_limit_seconds = 2;
+            ClaudeUsage usage;
+            Json peers = Json::array();
+            for (const auto& session : claude_sessions(usage))
+                peers.push_back(Json{{"id", session.id}, {"name", session.name()}, {"project", session.project},
+                                     {"state", claude_state_text(session)}, {"busy", claude_busy(session)}, {"pane", session.pane}});
+            std::cout << peers.dump(-1, ' ', false, Json::error_handler_t::replace) << '\n';
+            return 0;
+        }
+        // The Storage page's measurement: slow on purpose (it walks the disk), run detached by the page.
+        if (args.size() == 1 && args[0] == "storage-scan") return storage_scan();
         if (args.size() == 1 && args[0] == "claude-next") {
             read_limit_seconds = 2;
             const auto jumped = jump_next_claude();
@@ -2150,7 +2711,8 @@ int main(int argc, char** argv) {
             return truth(jumped, "ok") ? 0 : 1;
         }
         if (args.size() < 2 || args.size() > 4 || (args[0] != "view" && args[0] != "run" && args[0] != "commit-days")
-            || (args.size() == 4 && (args[0] != "run" || args[1] != "drive-eject" || args[3] != "--confirm"))) {
+            || (args.size() == 4 && (args[0] != "run" || args[3] != "--confirm"
+                || !std::set<std::string>{"drive-eject", "model-agent", "model-remove", "backup-restore", "startup-user", "startup-autostart"}.count(args[1])))) {
             std::cout << result(false, "Use view PAGE [QUERY] or run ACTION [ARGUMENT]").dump() << '\n'; return 1;
         }
         Json config; std::string error;

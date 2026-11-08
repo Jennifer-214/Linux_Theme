@@ -1,14 +1,14 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { PaperCard, PaperFile, PaperLook, PaperOverlap, PaperRedZone, PaperTone } from '../types'
+import type { PaperCard, PaperFile, PaperLook, PaperOverlap, PaperPeer, PaperRedZone, PaperTone } from '../types'
 import { addEdit, neighbours, overlapFor, parseLedger } from './ledger'
 import type { Other } from './ledger'
 import { paper } from './theme'
 
 // FoxML paper: a notebook pane beside the chat (hearts, the session's name, its plan, the gate, pages
-// touched), a red-zone band before a risky system edit, a band when another live session edited the same file
-// lately, a few gentle toasts, and paper spinner words. The only files it writes are this session's own notes in
+// touched, the other Claudes with [go] and [note]), a red-zone band before a risky system edit, a band when
+// another live session edited the same file lately, a few gentle toasts, and paper spinner words. The only files it writes are this session's own notes in
 // the private runtime folder ($XDG_RUNTIME_DIR/foxml-claude/edits/<session>.json).
 
 const PANE = 'paper-notebook'
@@ -16,6 +16,8 @@ const look = atom({ plugin: 'foxml-paper', key: 'look' } as const, null as Paper
 const title = atom({ plugin: 'foxml-paper', key: 'title' } as const, null as string | null)
 const redZone = atom({ plugin: 'foxml-paper', key: 'redZone' } as const, null as PaperRedZone | null, { shape: 'red-1' })
 const overlap = atom({ plugin: 'foxml-paper', key: 'overlap' } as const, null as PaperOverlap | null, { shape: 'overlap-1' })
+const peers = atom({ plugin: 'foxml-paper', key: 'peers' } as const, [] as PaperPeer[], { shape: 'peers-1' })
+const writingTo = atom({ plugin: 'foxml-paper', key: 'writingTo' } as const, null as string | null)
 
 const WORDS = ['Knitting', 'Pressing flowers', 'Baking', 'Stitching', 'Doodling', 'Steeping tea',
   'Folding paper', 'Tending the garden', 'Sketching', 'Tidying up', 'Writing a little note', 'Threading a needle']
@@ -68,6 +70,8 @@ const memory = {
   pane: undefined as string | null | undefined,
   // file → when Claude was last told about it, so each overlap is said once.
   noted: new Map<string, number>(),
+  // fox-drawer answered: the peers list replaces "also in this repo".
+  peersKnown: false,
 }
 
 // $XDG_RUNTIME_DIR/foxml-claude, where the hooks keep each session's state; null without one.
@@ -168,6 +172,44 @@ async function readCard($: EngineInterface, dir: string | null): Promise<PaperCa
   }
 }
 
+// The other live Claudes, from fox-drawer (one liveness rule for the drawer and the notebook); null without it.
+async function readPeers($: EngineInterface): Promise<PaperPeer[] | null> {
+  const out = await run($, ['fox-drawer', 'claude-peers'])
+  if (out === null) return null
+  try {
+    const self = await $.session.id()
+    const list = JSON.parse(out) as PaperPeer[]
+    return Array.isArray(list)
+      ? list.filter(p => p && typeof p.id === 'string' && p.id !== self && typeof p.name === 'string').slice(0, 6)
+      : null
+  } catch {
+    return null
+  }
+}
+
+async function goTo($: EngineInterface, peer: PaperPeer) {
+  const out = await run($, ['fox-drawer', 'run', 'claude-jump', peer.pane])
+  if (out === null) $.ui.toast(`couldn't reach ${peer.name}'s window`)
+}
+
+async function sendNote($: EngineInterface, peer: PaperPeer, text: string) {
+  const note = text.trim()
+  await update($, writingTo, () => null)
+  if (note === '') return
+  try {
+    const sent = await $.session.send({ to: { sessionId: peer.id }, text: note })
+    $.ui.toast(sent.isDelivered ? `note left for ${peer.name} ♡` : `not sent: ${sent.reason}`)
+  } catch {
+    $.ui.toast(`not sent: ${peer.name} isn't taking notes`)
+  }
+}
+
+function peerMark(peer: PaperPeer): [string, string] {
+  if (peer.state === 'needs you') return ['♥', paper.berry]
+  if (peer.busy) return ['✎', paper.dim]
+  return ['♡', paper.ink]
+}
+
 function toneColour(tone: PaperTone | undefined): string {
   return tone === undefined ? paper.ink : paper[tone === 'heart' ? 'heart' : tone]
 }
@@ -213,6 +255,9 @@ async function refresh($: EngineInterface) {
     const near = dir === null ? [] : neighbours(root, await $.clock.now(), await $.session.id(), await readOthers($, dir))
     const card = await readCard($, dir)
     await update($, look, () => ({ branch, files, gate, plan, context, neighbours: near, card }))
+    const found = await readPeers($)
+    await update($, peers, () => found ?? [])
+    memory.peersKnown = found !== null
 
     const left = 5 - hearts(context)
     if (memory.lastHearts > 2 && left === 2) $.ui.toast('two hearts left ♡ wrap up, or write a handoff?')
@@ -345,8 +390,11 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text } = $.ui.resolve(e)
+    const { Box, Button, Input, Text } = $.ui.resolve(e)
     const now = await read($, look)
+    const others = await read($, peers)
+    const writingId = await read($, writingTo)
+    const writing = others.find(p => p.id === writingId) ?? null
     const name = await read($, title)
     const width = Math.max(12, e.props.bodyColumns)
     const filled = hearts(now?.context ?? null)
@@ -381,9 +429,45 @@ export const register: Register = on => {
         })}
         {files.length > room && <Text color={paper.note}>and {files.length - room} more</Text>}
         {now !== null && now.branch !== '' && <Text color={paper.note}>{clip('⎇ ' + now.branch, width)}</Text>}
-        {(now?.neighbours.length ?? 0) > 0 && <Text> </Text>}
-        {(now?.neighbours.length ?? 0) > 0 && <Text color={paper.dim}>also in this repo</Text>}
-        {(now?.neighbours ?? []).map(n => (
+        {others.length > 0 && <Text> </Text>}
+        {others.length > 0 && <Text color={paper.dim}>other claudes</Text>}
+        {others.map(peer => {
+          const [mark, colour] = peerMark(peer)
+          const here = now?.neighbours.find(n => n.sid === peer.id)
+          const where = peer.name === peer.project ? '' : ` · ${peer.project}`
+          return (
+            <Box flexDirection="column">
+              <Text>
+                <Text color={colour}>{mark} </Text>
+                <Text color={paper.ink}>{clip(`${peer.name}${where}`, width - 2)}</Text>
+              </Text>
+              <Text color={paper.note}>{clip(`  ${peer.state}${here ? ` · editing ${here.files} ${here.files === 1 ? 'file' : 'files'} here` : ''}`, width)}</Text>
+              {writing?.id !== peer.id && (
+                <Box>
+                  <Text>  </Text>
+                  {peer.pane !== '' && <Button key={`go-${peer.id}`} label="go" plain onPress={() => void goTo($, peer)} />}
+                  {peer.pane !== '' && <Text> </Text>}
+                  <Button key={`note-${peer.id}`} label="note" plain onPress={() => {
+                    void update($, writingTo, () => peer.id).then(() => $.ui.focus({ requestId: PANE, key: 'peer-note' })).catch(() => undefined)
+                  }} />
+                </Box>
+              )}
+              {writing?.id === peer.id && (
+                <Box flexDirection="column">
+                  <Input key="peer-note" placeholder={`a note for ${clip(peer.name, 20)}`} submitLabel="send" autoFocus
+                    onSubmit={value => void sendNote($, peer, value)} />
+                  <Box>
+                    <Text>  </Text>
+                    <Button key="peer-cancel" label="never mind" plain onPress={() => void update($, writingTo, () => null)} />
+                  </Box>
+                </Box>
+              )}
+            </Box>
+          )
+        })}
+        {!memory.peersKnown && (now?.neighbours.length ?? 0) > 0 && <Text> </Text>}
+        {!memory.peersKnown && (now?.neighbours.length ?? 0) > 0 && <Text color={paper.dim}>also in this repo</Text>}
+        {(memory.peersKnown ? [] : now?.neighbours ?? []).map(n => (
           <Text color={paper.ink}>{clip(`${n.title} · ${n.files} ${n.files === 1 ? 'file' : 'files'}`, width)}</Text>
         ))}
         {now?.card && <Text> </Text>}

@@ -93,7 +93,7 @@ elif name == 'tmux':
         with queue.open('a') as stream: stream.write(json.dumps(state.pop('agent_append'))+'\n')
         Path(os.environ['DRAWER_TEST_STATE']).write_text(json.dumps(state))
     if args[:1] == ['list-clients']:
-        print(state.get('tmux_clients', '123\t/dev/pts/fixture\t99999999'))
+        print(state.get('tmux_clients', '123\t/dev/pts/fixture\t99999999\tpaper'))
     elif args[:1] == ['list-panes']:
         print(state.get('panes', ''))
     elif args[:1] == ['display-message']:
@@ -484,7 +484,7 @@ class BackendTests(unittest.TestCase):
         for sid,state,pane,age in (("w1","waiting","%1",30),("n2","needs","%2",5),("w3","waiting","%3",60),("b4","working","%4",1)):
             (sessions/f"{sid}.state").write_text(json.dumps({"state":state,"pane":pane,"epoch":now-age}))
         def jump(here):
-            self.state.update(panes="%1\tclaude\n%2\tclaude\n%3\tclaude\n%4\tclaude",
+            self.state.update(panes="%1\tclaude\n%2\tclaude\n%3\tclaude\n%4\tclaude", tmux_clients="123\t/dev/pts/fixture\t99999999\ts",
                               pane_targets={"":here,"%1":"s:1.1","%2":"s:2.1","%3":"s:3.1","%4":"s:4.1"})
             self.state_path.write_text(json.dumps(self.state))
             out=subprocess.run([str(BINARY),"claude-next"],env=self.env,capture_output=True,text=True,timeout=10)
@@ -500,15 +500,41 @@ class BackendTests(unittest.TestCase):
     def test_agent_focuses_the_client_window_instead_of_an_arbitrary_kitty(self):
         self.env.pop("TMUX",None)
         pid=os.getpid()
-        self.state.update(tmux_clients=f"123\t/dev/pts/selected\t{pid}",windows=[
+        self.state.update(tmux_clients=f"123\t/dev/pts/selected\t{pid}\tpaper",windows=[
             {"address":"0x11","pid":99999999,"class":"kitty"},
             {"address":"0x22","pid":pid,"class":"kitty"}])
         queue=Path(self.env["XDG_RUNTIME_DIR"])/"foxml-agent-queue.jsonl"
         queue.write_text(json.dumps({"tmux":"paper:1.2","source":"fixture"})+"\n")
         key=self.invoke("view","agents")["items"][0]["argument"]
         self.assertTrue(self.invoke("run","agent-jump",key)["ok"])
-        self.assertIn(["fox-hl","dispatch","hl.dsp.focus({ window = 'address:0x22' })","focuswindow address:0x22"],self.calls())
+        self.assertIn(["setsid","-f","/bin/sh","-c",'sleep 0.35; exec fox-hl dispatch "$1" "$2"',"sh","hl.dsp.focus({ window = 'address:0x22' })","focuswindow address:0x22"],self.calls(),"focused after the drawer lets go of the keyboard")
         self.assertFalse(any('class:kitty' in argument for call in self.calls() for argument in call))
+
+    def test_a_jump_goes_to_the_window_already_showing_that_session(self):
+        self.env.pop("TMUX",None)
+        pid=os.getpid()
+        # The most recently used terminal shows session "main" (the main screen); "paper" is in another window.
+        self.state.update(tmux_clients=f"900\t/dev/pts/main\t99999999\tmain\n100\t/dev/pts/side\t{pid}\tpaper",windows=[
+            {"address":"0x11","pid":99999999,"class":"kitty"},
+            {"address":"0x22","pid":pid,"class":"kitty"}])
+        queue=Path(self.env["XDG_RUNTIME_DIR"])/"foxml-agent-queue.jsonl"
+        queue.write_text(json.dumps({"tmux":"paper:1.2","source":"fixture"})+"\n")
+        key=self.invoke("view","agents")["items"][0]["argument"]
+        self.assertTrue(self.invoke("run","agent-jump",key)["ok"])
+        switches=[c for c in self.calls() if c[:2]==["tmux","switch-client"]]
+        self.assertEqual(switches,[["tmux","switch-client","-c","/dev/pts/side","-t","paper:1.2"]],"the main screen's terminal is left alone")
+        self.assertIn(["setsid","-f","/bin/sh","-c",'sleep 0.35; exec fox-hl dispatch "$1" "$2"',"sh","hl.dsp.focus({ window = 'address:0x22' })","focuswindow address:0x22"],self.calls(),"focused after the drawer lets go of the keyboard")
+
+    def test_a_session_nobody_shows_gets_its_own_terminal(self):
+        self.env.pop("TMUX",None)
+        self.state.update(tmux_clients="900\t/dev/pts/main\t99999999\tmain")
+        self.state_path.write_text(json.dumps(self.state))
+        queue=Path(self.env["XDG_RUNTIME_DIR"])/"foxml-agent-queue.jsonl"
+        queue.write_text(json.dumps({"tmux":"paper:1.2","source":"fixture"})+"\n")
+        key=self.invoke("view","agents")["items"][0]["argument"]
+        self.assertTrue(self.invoke("run","agent-jump",key)["ok"])
+        self.assertFalse([c for c in self.calls() if c[:2]==["tmux","switch-client"]],"never takes over the terminal you are in")
+        self.assertTrue(any("attach-session" in c for c in self.calls()),"a terminal of its own")
 
     def test_agent_failed_route_keeps_note_and_clear_requires_confirmation(self):
         queue=Path(self.env["XDG_RUNTIME_DIR"])/"foxml-agent-queue.jsonl"
@@ -1021,6 +1047,135 @@ class BackendTests(unittest.TestCase):
         self.state["commands"] = {"wpctl": {"exit": 1}}
         self.state["exact"] = {"wpctl\x1fget-volume\x1f@DEFAULT_AUDIO_SINK@": {"stdout": "Volume: 0.42\n"}}
         self.assertEqual(self.invoke("run", "volume-mute", expect=1)["message"], "Could not toggle mute")
+
+    def test_models_page_switches_the_agent_and_removes_a_model_for_good(self):
+        gguf = self.home / ".local/share/fox-llm/gguf"; gguf.mkdir(parents=True)
+        for name, size in (("big:35b", 3000), ("small:4b", 2000), ("spare:9b", 1000)):
+            (gguf / f"{name}.gguf").write_bytes(b"x" * size)
+        llm = self.home / ".config/foxml/llm"; llm.mkdir(parents=True)
+        (llm / "roles.conf").write_text("# roles\nagent big:35b llama ctx=131072\nquick small:4b llama\n")
+        (llm / "llama-presets.ini").write_text("[big:35b]\n[small:4b]\n")
+        rows = self.invoke("view", "models")["items"]
+        use = {r["label"]: r for r in rows if r["id"] == "model-agent"}
+        self.assertEqual(list(use), ["big:35b", "small:4b", "spare:9b"], "largest first")
+        self.assertFalse(use["big:35b"]["enabled"])
+        self.assertIn("the quick model", use["small:4b"]["detail"])
+        self.assertIn("no role · not served", use["spare:9b"]["detail"])
+        self.failed("run", "model-agent", "spare:9b")  # no confirmation
+        self.assertTrue(self.invoke("run", "model-agent", "spare:9b", "--confirm")["ok"])
+        self.assertEqual((llm / "roles.conf").read_text(), "# roles\nagent spare:9b llama\nquick small:4b llama\n", "the server kept, the old ctx dropped")
+        self.assertTrue(list(llm.glob("roles.conf.bak-*")), "the old roles file is kept")
+        remove = {r["argument"]: r for r in self.invoke("view", "models")["items"] if r["id"] == "model-remove" and "argument" in r}
+        self.assertFalse(remove["small:4b"]["enabled"], "a role uses it")
+        self.assertEqual(self.failed("run", "model-remove", "small:4b", "--confirm")["message"], "A role uses small:4b; give that role another model first")
+        self.failed("run", "model-remove", "big:35b")  # no confirmation
+        self.assertTrue(self.invoke("run", "model-remove", "big:35b", "--confirm")["ok"])
+        self.assertFalse((gguf / "big:35b.gguf").exists())
+        self.assertTrue((llm / "gguf-models.txt").read_text().endswith("-big:35b\n"), "skipped by the nightly update")
+        self.failed("run", "model-remove", "../../etc/passwd", "--confirm")
+
+    def test_backups_page_restores_only_what_has_a_script_and_prunes_old_ones(self):
+        root = self.home / ".local/state/foxml"
+        for i in range(12):
+            folder = root / f"theme-backup-202611{i+1:02d}-120000-try{i}"; folder.mkdir(parents=True)
+            (folder / "kitty.conf").write_text("x")
+        good = root / "theme-backup-20261130-120000"; good.mkdir()
+        (good / "manifest").write_text("restore|/x\n"); (good / "restore.sh").write_text("#!/bin/bash\n")
+        rows = self.invoke("view", "backups")["items"]
+        self.assertEqual(rows[0]["id"], "backup-prune")
+        self.assertEqual((rows[1]["id"], rows[1]["label"], rows[1]["confirm"]), ("backup-restore", "theme", True), "newest first; it can be restored")
+        self.assertEqual(rows[2]["id"], "backup-open", "a plain copy only opens")
+        self.failed("run", "backup-restore", "theme-backup-20261101-120000-try0", "--confirm")
+        self.failed("run", "backup-restore", "../../../etc", "--confirm")
+        self.assertTrue(self.invoke("run", "backup-prune", "--confirm")["ok"])
+        left = sorted(p.name for p in root.iterdir())
+        self.assertEqual(len(left), 10)
+        self.assertIn("theme-backup-20261130-120000", left)
+        self.assertNotIn("theme-backup-20261101-120000-try0", left, "the oldest go")
+
+    def test_startup_page_switches_off_your_own_and_only_lists_the_system(self):
+        listing = "fox-pulse.service enabled enabled\nfox-tripwire.service enabled enabled\n"
+        self.state["exact"] = {
+            "systemctl\x1f--user\x1flist-unit-files\x1f--state=enabled\x1f--type=service,timer\x1f--no-legend\x1f--plain": {"stdout": listing},
+            "systemctl\x1f--user\x1fis-active\x1ffox-pulse.service": {"stdout": "active\n"},
+            "systemctl\x1flist-unit-files\x1f--state=enabled\x1f--type=service\x1f--no-legend\x1f--plain": {"stdout": "greetd.service enabled enabled\n"},
+        }
+        auto = self.home / ".config/autostart"; auto.mkdir(parents=True)
+        (auto / "blueman.desktop").write_text("[Desktop Entry]\nName=Blueman\nExec=blueman-applet\n")
+        rows = self.invoke("view", "startup")["items"]
+        by = {(r["id"], r["label"]): r for r in rows}
+        self.assertEqual(by[("startup-user", "fox-pulse.service")]["detail"], "running")
+        self.assertIn("security watcher", by[("startup-user", "fox-tripwire.service")]["detail"])
+        self.assertFalse(by[("startup-system", "greetd.service")]["enabled"], "system services are listed, never switched here")
+        self.failed("run", "startup-system", "greetd.service", "--confirm")
+        self.failed("run", "startup-user", "fox-pulse.service")
+        self.assertTrue(self.invoke("run", "startup-user", "fox-pulse.service", "--confirm")["ok"])
+        self.assertIn(["systemctl", "--user", "disable", "--now", "fox-pulse.service"], self.calls())
+        self.assertTrue(self.invoke("run", "startup-autostart", "blueman.desktop", "--confirm")["ok"])
+        self.assertIn("Hidden=true", (auto / "blueman.desktop").read_text())
+        self.assertNotIn(("startup-autostart", "Blueman"), {(r["id"], r["label"]) for r in self.invoke("view", "startup")["items"]})
+
+    def test_storage_page_measures_in_the_background_and_reads_the_result(self):
+        self.real("du", "timeout")
+        (self.home / ".cache/pip").mkdir(parents=True); (self.home / ".cache/pip/wheel").write_bytes(b"x" * 60_000_000)
+        (self.home / ".local/share/Trash/files").mkdir(parents=True); (self.home / ".local/share/Trash/files/old").write_bytes(b"x" * 70_000_000)
+        self.env["XDG_CACHE_HOME"] = str(self.home / ".cache")
+        rows = self.invoke("view", "storage")["items"]
+        self.assertEqual(rows[0]["label"], "Measure the disk")
+        out = subprocess.run([str(BINARY), "storage-scan"], env=self.env, capture_output=True, text=True, timeout=120)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        rows = self.invoke("view", "storage")["items"]
+        labels = [r["label"] for r in rows]
+        self.assertIn("free of", labels[0])
+        # The machine's own absolute paths (a pacman cache) may show up too; these two are the test's.
+        self.assertLess(labels.index("Trash"), labels.index("Language and build caches"), "largest first")
+        trash = next(r for r in rows if r["label"] == "Trash")
+        self.assertEqual((trash["id"], trash["confirm"]), ("storage-empty-trash", True))
+        self.failed("run", "storage-empty-trash")
+        self.assertTrue(self.invoke("run", "storage-empty-trash", "--confirm")["ok"])
+        self.assertIn(["gio", "trash", "--empty"], self.calls())
+        self.failed("run", "storage-open", "/etc")
+        self.assertFalse((Path(self.env["XDG_RUNTIME_DIR"]) / "foxml-storage-scan.lock").exists())
+
+    def test_updates_that_touch_boot_login_or_graphics_come_first(self):
+        cache = Path(self.env["XDG_RUNTIME_DIR"]) / "foxml-waybar"
+        cache.mkdir(parents=True)
+        (cache / "updates.list").write_text("python-regex 1 -> 2\nlinux 6.1 -> 6.2\nopencode 2.2.5-1 -> 2.2.6-1\n"
+                                            "nvidia-open-dkms 590 -> 595\npam 1.7 -> 1.8\nhyprland 0.57 -> 0.58\n\n")
+        rows = [r for r in self.invoke("view", "updates")["items"] if r["id"] == "updates-terminal" and r.get("enabled") is False]
+        self.assertEqual(rows[0]["label"], "4 updates need a little care")
+        careful = [r["label"].split()[0] for r in rows if r.get("careful")]
+        self.assertEqual(careful, ["linux", "nvidia-open-dkms", "pam", "hyprland"], "in the order listed, before the rest")
+        self.assertIn("reboot after", rows[1]["detail"])
+        self.assertIn("keep a terminal open", next(r for r in rows if r["label"].startswith("pam"))["detail"])
+        self.assertEqual([r["label"].split()[0] for r in rows[-2:]], ["python-regex", "opencode"])
+        self.assertEqual(next(r for r in rows if r["label"].startswith("opencode"))["detail"], "Pending package")
+
+    def test_project_cards_show_dirty_and_unpushed_work(self):
+        self.real("git", "timeout")
+        environment = {**os.environ, "HOME": str(self.home), "GIT_CONFIG_GLOBAL": "/dev/null",
+                       "GIT_AUTHOR_NAME": "Me", "GIT_AUTHOR_EMAIL": "me@example.test",
+                       "GIT_COMMITTER_NAME": "Me", "GIT_COMMITTER_EMAIL": "me@example.test"}
+        git = lambda where, *argv: subprocess.run(["git", "-C", str(where), *argv], check=True, capture_output=True, env=environment)
+        remote = self.home / "remote.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True, env=environment)
+        for name in ("clean", "dirty", "ahead"):
+            repo = self.home / "code" / name
+            repo.mkdir(parents=True)
+            git(repo, "init", "-q", "-b", "main")
+            (repo / "a.txt").write_text("a\n")
+            git(repo, "add", "a.txt"); git(repo, "commit", "-q", "-m", "a")
+        git(self.home / "code/ahead", "remote", "add", "origin", str(remote))
+        git(self.home / "code/ahead", "push", "-q", "-u", "origin", "main")
+        git(self.home / "code/ahead", "commit", "-q", "--allow-empty", "-m", "not pushed yet")
+        (self.home / "code/dirty/a.txt").write_text("changed\n")
+        (self.home / "code/clean/new-untracked.txt").write_text("untracked files don't count\n")
+        cards = {row["label"]: row for row in self.invoke("view", "projects")["items"]}
+        self.assertEqual(cards["dirty"].get("git"), "✎ dirty")
+        self.assertEqual(cards["ahead"].get("git"), "↑1 unpushed")
+        self.assertNotIn("git", cards["clean"])
+        self.assertTrue(cards["dirty"]["detail"].endswith(" · ✎ dirty"))
+        self.assertFalse((self.home / "code/dirty/.git/index.lock").exists())
 
     def test_commit_days_counts_my_commits_in_that_month(self):
         self.real("git", "timeout")

@@ -18,8 +18,19 @@ const BAND = {
 
 const done = (stdout: string) => ({ exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false })
 
+const PEERS = JSON.stringify([
+  { id: 'abc', name: 'this one', project: 'paper', state: 'working', busy: true, pane: '%1' },
+  { id: 'p1', name: 'Ledger tidy', project: 'trader', state: 'needs you', busy: false, pane: '%4' },
+  { id: 'p2', name: 'docs', project: 'docs', state: 'waiting', busy: false, pane: '' },
+])
+const seen = { argv: [] as string[], sent: [] as { to: unknown; text: string }[], toasts: [] as string[] }
+
 // Nothing sits beneath the plugin in a test: these stand for the engine and the machine.
 function engine(on: On) {
+  seen.argv = []; seen.sent = []; seen.toasts = []
+  on('session.send', (_, e) => { seen.sent.push({ to: e.to, text: e.text }); return { isDelivered: true } })
+  on('ui.focus', () => ({}))
+  on('ui.toast', (_, e) => { seen.toasts.push(e.text); return { value: undefined } })
   on('command.register', () => ({ value: { command: 'notebook' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
@@ -30,6 +41,9 @@ function engine(on: On) {
   on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200000, percent: 64 }, rateLimits: [] } }))
   on('process.run', (_, e) => {
     const argv = e.argv.join(' ')
+    seen.argv.push(argv)
+    if (argv === 'fox-drawer claude-peers') return { value: done(PEERS) }
+    if (argv.startsWith('fox-drawer run claude-jump')) return { value: done('{"ok":true}') }
     if (argv.includes('status') && !argv.includes('--no-optional-locks')) return { value: { ...done(''), exitCode: 9 } }
     if (argv.includes('status')) return { value: done('## main...origin/main\n M a.txt\n') }
     if (argv.includes('numstat')) return { value: done('12\t3\tshared/a very long folder/notes.txt\n1\t0\tREADME.md\n') }
@@ -100,4 +114,30 @@ test('the spinner knits in the terminal and leaves other surfaces their words', 
   const desktop = await $.ui.mount({ ...spinner, surface: 'desktop' })
   expect((await desktop.find({ type: 'Text' }))?.text).toBe('Sauteing')
   await desktop.unmount()
+})
+
+test('other claudes are listed with go and note, and a note reaches the session it was written to', async ($, on) => {
+  engine(on)
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /other claudes/ }))?.text).toBe('other claudes')
+  expect(await ui.find({ type: 'Text', text: /this one/ })).toBeUndefined()
+  expect((await ui.find({ type: 'Text', text: /Ledger tidy/ }))?.text).toBe('♥ Ledger tidy · trader')
+  expect(await ui.find({ key: 'go-p2' })).toBeUndefined()
+
+  await ui.press({ key: 'go-p1' })
+  expect(seen.argv).toContain('fox-drawer run claude-jump %4')
+
+  await ui.press({ key: 'note-p2' })
+  expect(await ui.find({ key: 'note-p2' })).toBeUndefined()
+  await ui.input({ key: 'peer-note', text: '  the tests are green, go ahead  ', kind: 'submit' })
+  expect(seen.sent).toEqual([{ to: 'p2', text: 'the tests are green, go ahead' }])
+  expect(seen.toasts).toContain('note left for docs ♡')
+  expect(await ui.find({ key: 'peer-note' })).toBeUndefined()
+
+  await ui.press({ key: 'note-p1' })
+  await ui.press({ key: 'peer-cancel' })
+  expect(await ui.find({ key: 'peer-note' })).toBeUndefined()
+  expect(seen.sent).toHaveLength(1)
+  await ui.unmount()
 })

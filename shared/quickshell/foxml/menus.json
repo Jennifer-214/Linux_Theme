@@ -16,6 +16,7 @@
         { "id": "downloads", "label": "Incoming paper tray", "detail": "Your newest downloads, in a little pile", "icon": "↧", "kind": "page", "page": "downloads" },
         { "id": "screenshots", "label": "Screenshot scrapbook", "detail": "Little moments, tucked into photo prints", "icon": "▧", "kind": "page", "page": "screenshots" },
         { "id": "garden", "label": "Commit garden", "detail": "A year of commits, one little square a day", "icon": "❦", "kind": "page", "page": "garden" },
+        { "id": "models", "label": "Local models", "detail": "Your AI models, their roles and sizes", "icon": "◈", "kind": "page", "page": "models" },
         { "id": "windows", "label": "Open windows", "detail": "Pick up where you left off", "icon": "▣", "kind": "page", "page": "windows" },
         { "id": "clipboard-text", "label": "Clipboard", "detail": "Your collected scraps of text", "icon": "⌇", "kind": "page", "page": "clipboard-text" },
         { "id": "clipboard-images", "label": "Clipboard images", "detail": "The pictures you saved for later", "icon": "▧", "kind": "page", "page": "clipboard-images" },
@@ -71,6 +72,9 @@
       "description": "A little care for your machine",
       "items": [
         { "id": "updates", "label": "Updates", "detail": "See what is ready to update", "icon": "↻", "kind": "page", "page": "updates" },
+        { "id": "storage", "label": "Storage", "detail": "What uses the disk, and what can go", "icon": "▦", "kind": "page", "page": "storage" },
+        { "id": "backups", "label": "Backups", "detail": "Files the theme kept before replacing them", "icon": "↺", "kind": "page", "page": "backups" },
+        { "id": "startup", "label": "Startup", "detail": "What starts with your session", "icon": "⏵", "kind": "page", "page": "startup" },
         { "id": "power-profile", "label": "Power profile", "detail": "Cycle performance, balanced and power saver", "icon": "◈", "kind": "action" },
         { "id": "vault", "label": "Passwords", "detail": "Copy from your existing pass store", "icon": "⚿", "kind": "page", "page": "passwords" },
         { "id": "tools", "label": "Fox tools", "detail": "The command collection", "icon": "❯", "kind": "page", "page": "tools" },

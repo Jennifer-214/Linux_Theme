@@ -305,7 +305,9 @@ for each session's project, model, context and state with the plan usage, as a
 banner on whichever monitor you are on. When the last busy session finishes, every
 bar says `♡ all done` for a few seconds; click to open the Agents page (or, while a session asks for you, to go straight to it), where each
 session has its context hearts (they sparkle once after a compaction) and Enter
-goes to its tmux pane. Each tmux pane footer starts with `♡` while its session needs
+goes to its tmux pane: to the kitty window already showing that tmux session, on
+whichever monitor it is, with the keyboard moved there once the drawer closes, or to a new
+terminal attached to it when no window shows it. Each tmux pane footer starts with `♡` while its session needs
 you and `✿` while it works. Sessions go by
 the title Claude Code gives them, with the folder beside it. `ALT+Ctrl+E` goes
 straight to the next session waiting on you, the one asking first; press it again
@@ -341,7 +343,13 @@ list there yourself). It only reads, and draws in the palette:
   4 minutes ago`, and Claude gets the same note once so it can message that session
   (Claude Code's peer list shows each session's tmux pane) or read its changes first. It only
   warns. Worktrees are separate files, so they never match; edits made through shell
-  commands are not seen. The notebook lists the other sessions editing in the same repo.
+  commands are not seen.
+- **Other Claudes:** the notebook lists the other live sessions on this machine (the same
+  list as the drawer's Agents page, from `fox-drawer claude-peers`): name, project, whether
+  it is working, waiting or needs you, and how many files it is editing in this repo.
+  `go` jumps to its window; `note` opens a one-line box in the notebook, and Enter sends
+  the text to that session as a message (`$.session.send`). Without `fox-drawer`, the
+  notebook lists only the sessions editing in the same repo.
 - **Cards:** another mod can leave a card for a session in
   `$XDG_RUNTIME_DIR/foxml-claude/cards/<session>.json` (`title`, `rows` of `mark`/`text`/`tone`,
   an optional `alert`); the notebook draws it, and its alert takes the band.
@@ -438,6 +446,18 @@ containers and unsupported device stacks are excluded. The library uses
 `lsblk`, `udisksctl` and `xdg-open`; `--deps` installs their packages. No drives
 are mounted or ejected by opening the drawer, and no extra watcher is started.
 
+Project cards for Git repositories show `✎ dirty` when tracked files have changes and
+`↑N unpushed` when the branch is ahead of its upstream (`git --no-optional-locks status`,
+read-only).
+
+Desk → Local models lists the GGUF models in `~/.local/share/fox-llm/gguf`, largest first,
+with the role that uses each (from the first roles file, as FoxIntel reads them) and
+whether the router serves it. Enter on a model, after a confirmation, makes it the agent
+model: the `agent` line of `~/.config/foxml/llm/roles.conf` is rewritten (the old file is
+kept as `roles.conf.bak-<time>`) and `fox-llm-update --sync` runs. Remove deletes a model
+and adds a `-name` skip line to `~/.config/foxml/llm/gguf-models.txt` so the nightly update
+does not fetch it again; a model a role uses cannot be removed.
+
 Desk → Commit garden is a year of your commits, one little square a day, in two
 half-year beds: empty days are pencil outlines and busier days deepen through four
 shades of the palette's accent, set by the quarters of your own busy days. Your three
@@ -520,6 +540,35 @@ and wallpaper rotation menu use the Quickshell picker. `fox-picker --title TITLE
 `--index` returns its original zero-based index, and `--prompt` accepts free text.
 Escape cancels without an action. These use the existing drawer service, with
 private temporary request files and no additional daemon.
+
+System → Updates lists pending updates that need care first, each with the reason: the
+kernel or firmware (restart after), NVIDIA or DKMS, the initramfs, boot loader or microcode,
+PAM and sudo, the greeter and lock screen, systemd and glibc, and Hyprland.
+
+System → Storage measures the disk in the background (`fox-drawer storage-scan`, a minute or
+two; the result is kept in `~/.cache/foxml/storage.json`). It shows free space, known
+categories wherever they exist (package caches, the journal, Flatpak, language and build
+caches, browser caches, AI model stores, games, VM and container images, trash), the
+largest folders in your home, and space the disk counts but no readable folder holds
+(usually root-only places). Cleaning the package cache, trimming the journal and removing
+unused Flatpak runtimes open in a terminal with `sudo`; emptying the trash asks first; the
+other rows open the folder.
+
+System → Backups lists the folders the theme tools and installer kept in
+`~/.local/state/foxml` before replacing files, newest first. A backup with a `restore.sh`
+can be put back (after a confirmation, in a terminal); the others open as folders. Keep the
+newest 10 removes the rest.
+
+System → Startup lists what starts with your session: your enabled user services and
+timers (Enter switches one off with `systemctl --user disable --now`, after a confirmation;
+FoxML's security watchers are marked), desktop autostart entries (hidden for your account
+with a `Hidden=true` copy in `~/.config/autostart`; the system file is not edited), the
+commands in Hyprland's `autostart.lua`, and enabled system services. Hyprland's commands
+and system services are listed only.
+
+An install adds new drawer pages to an existing `menus.json` once, after the item they
+follow in the shipped menu; a page you remove stays removed
+(`~/.local/state/foxml/menu-offered.json` records what was offered).
 
 System → Passwords lists encrypted `pass` entry names only. Enter copies the
 first line with `pass show --clip=1`; GPG handles unlocking and `pass` handles
