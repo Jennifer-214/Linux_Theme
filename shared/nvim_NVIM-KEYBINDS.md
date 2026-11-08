@@ -518,6 +518,26 @@ Commands:
 | `:ClaudeCodeAdd` | Add file to context |
 | `:ClaudeCodeStatus` | Check WebSocket server status |
 
+### The other Claudes (foxml.claude)
+Reads what the paper mod and `fox-drawer` keep in `$XDG_RUNTIME_DIR/foxml-claude`, and git. A buffer a live
+Claude edited in the last 15 minutes shows `✎ <session> · 3m` in the statusline and a `✎` in the bufferline; the
+first change you make to it says which session to coordinate with. The statusline also shows `gate open ✓` /
+`plan first ✎` (repos with a plan gate) and `♥ <session>` while one needs you.
+
+| Key | Action |
+|-----|--------|
+| `Space Cw` | What changed: live sessions (uncommitted work) and the last 60 commits, `✿` Claude's (named by session) and `♥` yours |
+| `Space Cn` | Note to a Claude: the file, or the selection (visual), and a line of text; it arrives as an envelope and Claude reads it as your words |
+| `Space Cj` | Go to the pane of the Claude that edited this buffer |
+| `Space Cd` | The change under review, side by side, for this file |
+| `Space Cp` | The plan the sessions in this repo read last (`:Plan`) |
+
+In What changed: `Enter` reviews a change inline (gitsigns compares against just before it; the files go to the
+quickfix list), `]f` / `[f` move between its files, `d` in the quickfix list opens one side by side, `Esc` there
+(or `:ChangedDone`) ends the review. `f` on a live session follows it: a tab of its own opens each file it edits at
+its newest change, without moving your cursor; `f` again (or `:ClaudeFollow`) stops. Blame names the session
+behind Claude's lines (`✿ <session> · 2h · <summary>`) and marks yours `♥ you`.
+
 ### Avante (AI Chat Panel)
 | Key | Action |
 |-----|--------|

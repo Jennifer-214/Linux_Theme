@@ -180,6 +180,8 @@ case "$event" in
         [[ "$session_id" =~ ^[A-Za-z0-9_-]{1,80}$ ]] || exit 0
         rm -f "$session_dir/$session_id.state" "$session_dir/$session_id.json" \
               "$session_dir/edits/$session_id.json" "$session_dir/cards/$session_id.json"
+        # the paper mod's before-copies and the session's undelivered notes go with it
+        [[ -n "$session_dir" ]] && rm -rf -- "$session_dir/edits/$session_id" "$session_dir/inbox/$session_id"
         [[ -d "$session_dir" ]] && ( umask 077; printf '%s ended %s\n' "$session_id" "$(date +%s)" >> "$session_dir/tally-$(date +%F)" ) 2>/dev/null
         exit 0 ;;
 esac

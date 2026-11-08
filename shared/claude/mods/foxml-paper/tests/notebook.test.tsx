@@ -1,4 +1,4 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
 
@@ -23,11 +23,36 @@ const PEERS = JSON.stringify([
   { id: 'p1', name: 'Ledger tidy', project: 'trader', state: 'needs you', busy: false, pane: '%4' },
   { id: 'p2', name: 'docs', project: 'docs', state: 'waiting', busy: false, pane: '' },
 ])
-const seen = { argv: [] as string[], sent: [] as { to: unknown; text: string }[], toasts: [] as string[] }
+const seen = { argv: [] as string[], sent: [] as { to: unknown; text: string }[], toasts: [] as string[], submitted: [] as string[] }
+const NOW = 1_800_000_000_000
+
+// A small file system in memory, for the runtime and state folders.
+function fakeFs(on: On, files: Record<string, string>) {
+  const entries = (dir: string) => Object.keys(files).filter(f => f.startsWith(dir + '/') && !f.slice(dir.length + 1).includes('/'))
+  on('fs.read', (_, e) => {
+    const text = files[e.path]
+    if (text === undefined) throw new Error('missing ' + e.path)
+    return { value: text }
+  })
+  on('fs.write', (_, e) => { files[e.path] = e.text; return { value: undefined } })
+  on('fs.exists', (_, e) => ({ value: e.path in files }))
+  on('fs.stat', (_, e) => {
+    const text = files[e.path]
+    if (text === undefined) throw new Error('missing ' + e.path)
+    return { value: { kind: 'file' as const, size: text.length, mtimeMs: 0, isLink: false, realPath: e.path } }
+  })
+  on('fs.list', (_, e) => {
+    const found = entries(e.path ?? '.')
+    if (found.length === 0) throw new Error('missing ' + e.path)
+    return { value: found.map(f => ({ name: f.slice((e.path ?? '.').length + 1), kind: 'file' as const, size: 1, mtimeMs: 0, isLink: false })) }
+  })
+  return files
+}
 
 // Nothing sits beneath the plugin in a test: these stand for the engine and the machine.
-function engine(on: On) {
-  seen.argv = []; seen.sent = []; seen.toasts = []
+function engine(on: On, options: { runtime?: string; state?: string; clock?: boolean; files?: Record<string, string> } = {}) {
+  seen.argv = []; seen.sent = []; seen.toasts = []; seen.submitted = []
+  on('session.receive', (_, e) => ({ text: e.text }))
   on('session.send', (_, e) => { seen.sent.push({ to: e.to, text: e.text }); return { isDelivered: true } })
   on('ui.focus', () => ({}))
   on('ui.toast', (_, e) => { seen.toasts.push(e.text); return { value: undefined } })
@@ -42,6 +67,13 @@ function engine(on: On) {
   on('process.run', (_, e) => {
     const argv = e.argv.join(' ')
     seen.argv.push(argv)
+    if (argv === 'sh -c printf %s "$XDG_RUNTIME_DIR"' && options.runtime) return { value: done(options.runtime) }
+    if (argv.startsWith('sh -c printf %s "${XDG_STATE_HOME') && options.state) return { value: done(options.state) }
+    if (argv.startsWith('rm -f -- ') && options.files) { delete options.files[e.argv[3] ?? '']; return { value: done('') } }
+    if (argv.startsWith('chmod ')) return { value: done('') }
+    if (argv.includes('log -1 --format=%ct%x00%B'))
+      return { value: done(`${NOW / 1000}\u0000feat: a thing\n\nClaude-Session: https://claude.ai/code/session_X\n`) }
+    if (argv.includes('-- /code/paper/clean.txt')) return { value: done('') }
     if (argv === 'fox-drawer claude-peers') return { value: done(PEERS) }
     if (argv.startsWith('fox-drawer run claude-jump')) return { value: done('{"ok":true}') }
     if (argv.includes('status') && !argv.includes('--no-optional-locks')) return { value: { ...done(''), exitCode: 9 } }
@@ -50,8 +82,11 @@ function engine(on: On) {
     return { value: { ...done(''), exitCode: 1 } }
   })
   on('tool.call', () => ({ result: {} }))
-  on('prompt.submit', (_, e) => ({ text: e.text }))
-  on('clock.every', () => ({ value: undefined }))
+  on('prompt.submit', (_, e) => {
+    if (e.origin.kind === 'plugin') seen.submitted.push(e.text)
+    return { text: e.text }
+  })
+  if (options.clock !== false) on('clock.every', () => ({ value: undefined }))
   on('ui.render', ($, e) => {
     const { Text } = $.ui.resolve(e)
     return <Text>{e.component === 'Spinner' ? e.props.word : 'engine'}</Text>
@@ -131,7 +166,7 @@ test('other claudes are listed with go and note, and a note reaches the session 
   await ui.press({ key: 'note-p2' })
   expect(await ui.find({ key: 'note-p2' })).toBeUndefined()
   await ui.input({ key: 'peer-note', text: '  the tests are green, go ahead  ', kind: 'submit' })
-  expect(seen.sent).toEqual([{ to: 'p2', text: 'the tests are green, go ahead' }])
+  expect(seen.sent).toEqual([{ to: 'p2', text: '✉ from another session: the tests are green, go ahead' }])
   expect(seen.toasts).toContain('note left for docs ♡')
   expect(await ui.find({ key: 'peer-note' })).toBeUndefined()
 
@@ -140,4 +175,55 @@ test('other claudes are listed with go and note, and a note reaches the session 
   expect(await ui.find({ key: 'peer-note' })).toBeUndefined()
   expect(seen.sent).toHaveLength(1)
   await ui.unmount()
+})
+
+test('a note from nvim becomes an envelope and reaches Claude as your words', async ($, on) => {
+  const files = fakeFs(on, { '/run/t/foxml-claude/inbox/abc/1-a.json':
+    JSON.stringify({ from: 'nvim', text: ' look at this ', file: 'src/a.cpp', lines: '3-5', code: 'int x;' }),
+    '/run/t/foxml-claude/inbox/abc/2-b.json': '{"text": 5}' })
+  engine(on, { runtime: '/run/t', clock: false, files })
+  const clock = mock.clock(on, { now: NOW })
+  await opened($)
+  await clock.advance(5000)
+  expect(seen.submitted).toEqual(['look at this\n(src/a.cpp:3-5)\n```\nint x;\n```'])
+  expect(Object.keys(files).filter(f => f.includes('/inbox/'))).toEqual([])
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /✉ from/ }))?.text).toBe('✉ from you, in nvim')
+  expect(await ui.find({ type: 'Text', text: /✉ 1/ })).toBeDefined()
+  await ui.press({ key: `envelope-${NOW + 5000}-0` })
+  expect(await ui.find({ type: 'Text', text: /✉ from/ })).toBeUndefined()
+  await clock.advance(5000)
+  expect(seen.submitted).toHaveLength(1)
+  await ui.unmount()
+})
+
+test("a Claude commit is named by its session, and another Claude's note shows as an envelope", async ($, on) => {
+  const files = fakeFs(on, {})
+  engine(on, { state: '/state', clock: false, files })
+  mock.clock(on, { now: NOW })
+  await opened($)
+  await $.tool.call({ tool: 'Bash', command: 'git commit -m "feat: a thing"' })
+  expect(JSON.parse(files['/state/foxml/claude-sessions.jsonl'] ?? 'null'))
+    .toEqual({ url: 'https://claude.ai/code/session_X', title: 'paper', at: NOW })
+  await $.session.receive({ origin: { kind: 'peer' }, text: '✉ from docs: the build is yours now' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /✉ from/ }))?.text).toBe('✉ from docs')
+  expect((await ui.find({ type: 'Text', text: /build is yours/ }))?.text).toBe('  the build is yours now ')
+  await ui.unmount()
+})
+
+test('the first edit of a file with uncommitted changes keeps it as it was; a clean file needs no copy', async ($, on) => {
+  const files = fakeFs(on, { '/code/paper/a.txt': 'before', '/code/paper/clean.txt': 'tidy' })
+  engine(on, { runtime: '/run/t', clock: false, files })
+  mock.clock(on, { now: NOW })
+  await opened($)
+  await $.tool.call({ tool: 'Edit', file_path: '/code/paper/a.txt', old_string: 'before', new_string: 'after' })
+  files['/code/paper/a.txt'] = 'after'
+  await $.tool.call({ tool: 'Edit', file_path: '/code/paper/a.txt', old_string: 'after', new_string: 'again' })
+  await $.tool.call({ tool: 'Edit', file_path: '/code/paper/clean.txt', old_string: 'tidy', new_string: 'x' })
+  expect(files['/run/t/foxml-claude/edits/abc/before/1.txt']).toBe('before')
+  expect(files['/run/t/foxml-claude/edits/abc/before/2.txt']).toBeUndefined()
+  const ledger = JSON.parse(files['/run/t/foxml-claude/edits/abc.json'] ?? '{}')
+  expect(ledger.before).toEqual({ '/code/paper/a.txt': '1.txt' })
+  expect(ledger.all.map((e: { path: string }) => e.path)).toEqual(['/code/paper/a.txt', '/code/paper/clean.txt'])
 })

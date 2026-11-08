@@ -139,6 +139,7 @@ inline constexpr Mapping SHARED_MAPPINGS[] = {
     // Neovim
     { "nvim_lazy-lock.json",          "~/.config/nvim/lazy-lock.json" },
     { "nvim_ftplugin/cpp.lua",        "~/.config/nvim/ftplugin/cpp.lua" },
+    { "nvim_lua/foxml/claude.lua",    "~/.config/nvim/lua/foxml/claude.lua" },
 
     // Rofi config
     { "rofi_config.rasi",             "~/.config/rofi/config.rasi" },

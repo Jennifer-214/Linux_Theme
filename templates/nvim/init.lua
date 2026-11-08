@@ -886,6 +886,7 @@ local plugins = {
       -- named leader groups (the popup showed a bare "+4 keymaps" for each)
       spec = {
         { "<leader>b", group = "buffers" },
+        { "<leader>C", group = "claude" },
         { "<leader>c", group = "code / cmake" },
         { "<leader>d", group = "symdeps" },      -- fox-symdeps: labelled before the plugin loads (it loads on first press)
         { "<leader>f", group = "find" },
@@ -1008,6 +1009,11 @@ local plugins = {
         },
         separator_style = "thin",
         modified_icon = Paper.enabled and "✎" or "●",
+        -- a ✎ after a buffer a live Claude edited lately (foxml.claude)
+        name_formatter = function(buf)
+          local ok, claude = pcall(require, "foxml.claude")
+          return ok and claude.bufferline_name(buf) or buf.name
+        end,
         show_buffer_close_icons = false,
         show_close_icon = false,
       },
@@ -1050,7 +1056,12 @@ local plugins = {
       } or nil,
       current_line_blame = {{SHOW_WELCOME}},
       current_line_blame_opts = { delay = 300, virt_text_pos = "eol" },
-      current_line_blame_formatter = "  <author>, <author_time:%R> · <summary>",
+      -- ✿ the Claude session behind a line (its commit's Claude-Session trailer), ♥ you (foxml.claude)
+      current_line_blame_formatter = function(user, info)
+        local ok, claude = pcall(require, "foxml.claude")
+        if ok then return claude.blame_formatter(user, info) end
+        return { { "  " .. (info.author or "") .. " · " .. (info.summary or ""), "GitSignsCurrentLineBlame" } }
+      end,
     },
   },
 
@@ -3049,6 +3060,17 @@ require("lualine").setup({
     lualine_b = { "branch", "diff", "diagnostics" },
     lualine_c = { filename_component, draft_component },
     lualine_x = {
+      -- the other Claudes (foxml.claude): reviewing/following, who needs you, the plan gate, who edited this buffer
+      { function() local ok, c = pcall(require, "foxml.claude"); return ok and c.status_mode() or "" end, color = { fg = P.peach } },
+      { function() local ok, c = pcall(require, "foxml.claude"); return ok and c.status_needs() or "" end, color = { fg = P.red } },
+      {
+        function() local ok, c = pcall(require, "foxml.claude"); return ok and c.status_gate() or "" end,
+        color = function()
+          local ok, c = pcall(require, "foxml.claude")
+          return { fg = ok and c.status_gate():find("open") and P.green or P.comment }
+        end,
+      },
+      { function() local ok, c = pcall(require, "foxml.claude"); return ok and c.status_footprint() or "" end, color = { fg = P.pink } },
       {
         -- this buffer's engine: Copilot's icon only where Copilot is attached (a public repo), else the local model's
         function()
@@ -3854,6 +3876,9 @@ vim.api.nvim_create_autocmd("BufWritePre", {
 vim.api.nvim_create_autocmd({ "FocusGained", "BufEnter", "CursorHold", "CursorHoldI" }, {
   command = "if mode() != 'c' | checktime | endif",
 })
+-- The other Claudes on this machine: footprints, notes, what changed, follow (shared/nvim_lua/foxml/claude.lua)
+pcall(function() require("foxml.claude").setup() end)
+
 -- Notify when a file reloads so it's not silent/confusing
 vim.api.nvim_create_autocmd("FileChangedShellPost", {
   callback = function() vim.notify("File reloaded (changed on disk)", vim.log.levels.INFO) end,

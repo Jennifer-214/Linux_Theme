@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { addEdit, agoText, neighbours, overlapFor, parseLedger, WINDOW_MS } from '../hooks/ledger'
+import { addBefore, addEdit, addName, agoText, neighbours, noteText, overlapFor, parseLedger, parseNames, parseNote, trailerUrl, WINDOW_MS, withPlan } from '../hooks/ledger'
 import type { Other } from '../hooks/ledger'
 
 const NOW = 1_800_000_000_000
@@ -47,4 +47,39 @@ test('neighbours are the other live sessions in the same repo, and a bad ledger 
   expect(parseLedger('not json')).toBe(null)
   expect(parseLedger('{"edits":[{"path":1}]}')?.edits).toEqual([])
   expect(agoText(30000)).toBe('just now')
+})
+
+test('commit names: one per session url, newest title, a broken line skipped', async () => {
+  expect(trailerUrl('fix: x\n\nClaude-Session: https://claude.ai/code/session_A\n')).toBe('https://claude.ai/code/session_A')
+  expect(trailerUrl('fix: x\nClaude-Session: not-a-url')).toBe(null)
+  let names = parseNames('{"url":"u1","title":"Old","at":1}\nnot json\n')
+  names = addName(names, 'u1', 'New', 2)
+  names = addName(names, 'u2', 'Other', 3)
+  expect(names).toEqual([{ url: 'u1', title: 'New', at: 2 }, { url: 'u2', title: 'Other', at: 3 }])
+})
+
+test('notes from nvim are checked before Claude reads them', async () => {
+  expect(parseNote('{"text":"  hi  "}')).toEqual({ from: 'nvim', text: 'hi' })
+  expect(parseNote('{"text":""}')).toBe(null)
+  expect(parseNote(JSON.stringify({ text: 'x'.repeat(2001) }))).toBe(null)
+  expect(parseNote('{"text":"hi","lines":"1;rm"}')).toEqual({ from: 'nvim', text: 'hi' })
+  expect(noteText({ from: 'nvim', text: 'see', code: 'a ``` b' })).toBe('see\n~~~~\na ``` b\n~~~~')
+})
+
+test('the session-long list keeps first edits; before-copies are numbered', async () => {
+  let mine = addEdit(null, '/r/a', NOW - 3 * 3600000, null, '/r')
+  mine = addEdit(mine, '/r/b', NOW, null, '/r')
+  mine = addEdit(mine, '/r/a', NOW + 1, null, '/r')
+  expect(mine.all?.map(e => e.path)).toEqual(['/r/a', '/r/b'])
+  const first = addBefore(mine, '/r/a', '/r')
+  expect(first.copy).toBe('1.txt')
+  expect(addBefore(first.ledger, '/r/b', '/r').copy).toBe('2.txt')
+  expect(parseLedger(JSON.stringify({ edits: [], before: { '/r/a': '../../x' } }))?.before).toBe(undefined)
+})
+
+test('the plan a session read stays in its ledger through later edits', async () => {
+  let mine = withPlan(null, '/w/plans/p.md', NOW, '/r')
+  mine = addEdit(mine, '/r/a', NOW + 1, null, '/r')
+  const back = parseLedger(JSON.stringify(mine))
+  expect([back?.plan, back?.plan_at]).toEqual(['/w/plans/p.md', NOW])
 })

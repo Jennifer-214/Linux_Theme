@@ -1,15 +1,17 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { PaperCard, PaperFile, PaperLook, PaperOverlap, PaperPeer, PaperRedZone, PaperTone } from '../types'
-import { addEdit, neighbours, overlapFor, parseLedger } from './ledger'
+import type { PaperCard, PaperEnvelope, PaperFile, PaperLook, PaperOverlap, PaperPeer, PaperRedZone, PaperTone } from '../types'
+import { addBefore, addEdit, addName, neighbours, namesText, noteText, overlapFor, parseLedger, parseNames, parseNote, trailerUrl, withPlan } from './ledger'
 import type { Other } from './ledger'
 import { paper } from './theme'
 
 // FoxML paper: a notebook pane beside the chat (hearts, the session's name, its plan, the gate, pages
 // touched, the other Claudes with [go] and [note]), a red-zone band before a risky system edit, a band when
-// another live session edited the same file lately, a few gentle toasts, and paper spinner words. The only files it writes are this session's own notes in
-// the private runtime folder ($XDG_RUNTIME_DIR/foxml-claude/edits/<session>.json).
+// another live session edited the same file lately, notes as envelopes (from nvim's inbox, or another Claude), a
+// few gentle toasts, and paper spinner words. It writes only this session's own files in the private runtime folder
+// ($XDG_RUNTIME_DIR/foxml-claude: edits/<session>.json, edits/<session>/before/, and its inbox notes, removed once
+// delivered) and the commit names in $XDG_STATE_HOME/foxml/claude-sessions.jsonl.
 
 const PANE = 'paper-notebook'
 const look = atom({ plugin: 'foxml-paper', key: 'look' } as const, null as PaperLook | null, { shape: 'look-2' })
@@ -18,6 +20,8 @@ const redZone = atom({ plugin: 'foxml-paper', key: 'redZone' } as const, null as
 const overlap = atom({ plugin: 'foxml-paper', key: 'overlap' } as const, null as PaperOverlap | null, { shape: 'overlap-1' })
 const peers = atom({ plugin: 'foxml-paper', key: 'peers' } as const, [] as PaperPeer[], { shape: 'peers-1' })
 const writingTo = atom({ plugin: 'foxml-paper', key: 'writingTo' } as const, null as string | null)
+const envelopes = atom({ plugin: 'foxml-paper', key: 'envelopes' } as const, [] as PaperEnvelope[], { shape: 'env-1' })
+const SID = /^[A-Za-z0-9_-]{1,80}$/
 
 const WORDS = ['Knitting', 'Pressing flowers', 'Baking', 'Stitching', 'Doodling', 'Steeping tea',
   'Folding paper', 'Tending the garden', 'Sketching', 'Tidying up', 'Writing a little note', 'Threading a needle']
@@ -72,6 +76,23 @@ const memory = {
   noted: new Map<string, number>(),
   // fox-drawer answered: the peers list replaces "also in this repo".
   peersKnown: false,
+  state: undefined as string | null | undefined,
+  inboxBusy: false,
+  delivered: new Set<string>(),
+}
+
+// $XDG_STATE_HOME/foxml: what outlives a reboot (the commit names).
+async function stateDir($: EngineInterface): Promise<string | null> {
+  if (memory.state !== undefined) return memory.state
+  const out = await run($, ['sh', '-c', 'printf %s "${XDG_STATE_HOME:-$HOME/.local/state}"'])
+  memory.state = out !== null && out.startsWith('/') ? out + '/foxml' : null
+  return memory.state
+}
+
+// Repos listed in ~/.config/foxml/claude-private-repos (one root per line) get no before-copies.
+async function isPrivate($: EngineInterface, root: string): Promise<boolean> {
+  const out = await run($, ['sh', '-c', 'cat "${XDG_CONFIG_HOME:-$HOME/.config}/foxml/claude-private-repos" 2>/dev/null; true'])
+  return (out ?? '').split('\n').map(l => l.trim().replace(/\/+$/, '')).some(l => l !== '' && !l.startsWith('#') && l === root)
 }
 
 // $XDG_RUNTIME_DIR/foxml-claude, where the hooks keep each session's state; null without one.
@@ -148,6 +169,95 @@ async function checkOverlap($: EngineInterface, file: string) {
   }).catch(() => undefined)
 }
 
+// Before this session's first edit of a file that already has uncommitted changes, keep it as it was, so a review
+// can show only this session's part. A clean file needs no copy: its before is HEAD.
+async function keepBefore($: EngineInterface, file: string) {
+  const dir = await sessionsDir($)
+  const sid = await $.session.id()
+  if (dir === null || !SID.test(sid)) return
+  const path = await realPath($, file)
+  const own = `${dir}/edits/${sid}.json`
+  let ledger = null
+  try { ledger = parseLedger(await $.fs.read(own)) } catch { ledger = null }
+  if (ledger?.all?.some(e => e.path === path) || ledger?.before?.[path]) return
+  const root = await repoRoot($)
+  if (await isPrivate($, root)) return
+  let size = 0
+  try { size = (await $.fs.stat(path)).size } catch { return }  // a new file: nothing came before it
+  if (size > 1024 * 1024) return
+  const folder = path.slice(0, path.lastIndexOf('/')) || '/'
+  const status = await run($, ['git', '--no-optional-locks', '-C', folder, 'status', '--porcelain=v1', '--', path])
+  if (status === null || status.trim() === '') return
+  const text = await $.fs.read(path)
+  if (text.includes('\u0000')) return
+  const { ledger: next, copy } = addBefore(ledger, path, root)
+  await $.fs.write(`${dir}/edits/${sid}/before/${copy}`, text)
+  await $.fs.write(own, JSON.stringify(next) + '\n')
+}
+
+// The plan this session reads or writes, in its ledger, so nvim's :Plan can open it.
+async function notePlan($: EngineInterface, file: string) {
+  if (memory.planFile === file) return
+  memory.planFile = file
+  const dir = await sessionsDir($)
+  const sid = await $.session.id()
+  if (dir === null || !SID.test(sid)) return
+  const own = `${dir}/edits/${sid}.json`
+  let ledger = null
+  try { ledger = parseLedger(await $.fs.read(own)) } catch { ledger = null }
+  await $.fs.write(own, JSON.stringify(withPlan(ledger, await realPath($, file), await $.clock.now(), await repoRoot($))) + '\n')
+}
+
+// After a commit lands: which session made it, by its Claude-Session trailer, so nvim can name it.
+async function nameCommit($: EngineInterface, command: string) {
+  const where = command.match(/git\s+-C\s+(\S+)\s+commit/)?.[1]?.replace(/^['"]|['"]$/g, '') ?? (await $.session.cwd())
+  const out = await run($, ['git', '--no-optional-locks', '-C', where, 'log', '-1', '--format=%ct%x00%B'])
+  if (out === null) return
+  const [stamp, body] = out.split('\u0000')
+  const now = await $.clock.now()
+  if (now / 1000 - Number(stamp) > 300) return  // not the commit just made
+  const url = trailerUrl(body ?? '')
+  const state = await stateDir($)
+  if (url === null || state === null) return
+  const name = (await read($, title)) ?? (await repoRoot($)).split('/').filter(Boolean).pop() ?? 'Claude'
+  const file = `${state}/claude-sessions.jsonl`
+  let names = parseNames('')
+  try { names = parseNames(await $.fs.read(file)) } catch { names = [] }
+  if (names.some(n => n.url === url && n.title === name)) return
+  await $.fs.write(file, namesText(addName(names, url, name, now)))
+  await run($, ['chmod', '600', file])
+}
+
+// Notes nvim leaves for this session: each shows as an envelope and goes to Claude as your words.
+async function checkInbox($: EngineInterface) {
+  if (memory.inboxBusy) return
+  memory.inboxBusy = true
+  try {
+    const dir = await sessionsDir($)
+    const sid = await $.session.id()
+    if (dir === null || !SID.test(sid)) return
+    const box = `${dir}/inbox/${sid}`
+    let entries: { name: string; kind: string }[] = []
+    try { entries = await $.fs.list(box) } catch { return }
+    const notes = entries.filter(e => e.kind === 'file' && /^[A-Za-z0-9_-]{1,80}\.json$/.test(e.name)).map(e => e.name).sort()
+    for (const name of notes) {
+      const path = `${box}/${name}`
+      let note = null
+      try { note = parseNote(await $.fs.read(path)) } catch { note = null }
+      await run($, ['rm', '-f', '--', path])
+      if (memory.delivered.has(name)) continue
+      memory.delivered.add(name)
+      if (note === null) continue
+      const at = await $.clock.now()
+      const text = note.text
+      await update($, envelopes, list => [{ from: 'you, in nvim', text, at }, ...list].slice(0, 5))
+      void $.prompt.submit({ text: noteText(note), asUser: true }).catch(() => undefined)
+    }
+  } finally {
+    memory.inboxBusy = false
+  }
+}
+
 // After an edit: note it in this session's ledger, for the other sessions to see.
 async function recordEdit($: EngineInterface, file: string) {
   const dir = await sessionsDir($)
@@ -196,8 +306,9 @@ async function sendNote($: EngineInterface, peer: PaperPeer, text: string) {
   const note = text.trim()
   await update($, writingTo, () => null)
   if (note === '') return
+  const me = (await read($, title)) ?? 'another session'
   try {
-    const sent = await $.session.send({ to: { sessionId: peer.id }, text: note })
+    const sent = await $.session.send({ to: { sessionId: peer.id }, text: `✉ from ${me}: ${note}` })
     $.ui.toast(sent.isDelivered ? `note left for ${peer.name} ♡` : `not sent: ${sent.reason}`)
   } catch {
     $.ui.toast(`not sent: ${peer.name} isn't taking notes`)
@@ -275,7 +386,7 @@ async function beforeEdit($: EngineInterface, file: string) {
   // An edit needs no sudo to count: the path alone says where it lands.
   const what = (' ' + file).match(RED_PATHS)?.[2] ?? null
   if (what !== null) await update($, redZone, () => ({ what }))
-  if (/\/plans\/.+\.md$/.test(file)) memory.planFile = file
+  if (/\/plans\/.+\.md$/.test(file)) await notePlan($, file).catch(() => undefined)
 }
 
 export const register: Register = on => {
@@ -290,6 +401,7 @@ export const register: Register = on => {
     }
     void refresh($)
     $.clock.every(20000, () => void refresh($))
+    $.clock.every(5000, () => void checkInbox($))
     return started
   })
 
@@ -320,14 +432,30 @@ export const register: Register = on => {
     const what = redZoneOf(e.command)
     if (what !== null) await update($, redZone, () => ({ what }))
     const ran = await next(e)
-    if (COMMIT.test(e.command) && ran.deny === undefined && ran.isError !== true) $.ui.toast('a seed planted ❦')
+    if (COMMIT.test(e.command) && ran.deny === undefined && ran.isError !== true) {
+      $.ui.toast('a seed planted ❦')
+      await nameCommit($, e.command).catch(() => undefined)
+    }
     void refresh($)
     return ran
+  })
+
+  // Another Claude's message: an envelope in the notebook; delivering it stays the engine's.
+  on('session.receive', async ($, e, next) => {
+    if (e.origin.kind === 'peer' || e.origin.kind === 'peer-send-message') {
+      const first = e.text.split('\n').find(line => line.trim() !== '')?.trim() ?? ''
+      const from = first.match(/^✉ from (.{1,60}?): /)?.[1] ?? 'another Claude'
+      const text = first.replace(/^✉ from .{1,60}?: /, '').slice(0, 200)
+      const at = await $.clock.now()
+      if (text !== '') await update($, envelopes, list => [{ from, text, at }, ...list].slice(0, 5))
+    }
+    return next(e)
   })
 
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
     await beforeEdit($, e.file_path)
     await checkOverlap($, e.file_path).catch(() => undefined)
+    await keepBefore($, e.file_path).catch(() => undefined)
     const ran = await next(e)
     if (ran.deny === undefined && ran.isError !== true) await recordEdit($, e.file_path).catch(() => undefined)
     void refresh($)
@@ -336,6 +464,7 @@ export const register: Register = on => {
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
     await beforeEdit($, e.file_path)
     await checkOverlap($, e.file_path).catch(() => undefined)
+    await keepBefore($, e.file_path).catch(() => undefined)
     const ran = await next(e)
     if (ran.deny === undefined && ran.isError !== true) await recordEdit($, e.file_path).catch(() => undefined)
     void refresh($)
@@ -343,7 +472,7 @@ export const register: Register = on => {
   })
 
   on('tool.call', { tool: 'Read' }, async ($, e, next) => {
-    if (/\/plans\/.+\.md$/.test(e.file_path)) memory.planFile = e.file_path
+    if (/\/plans\/.+\.md$/.test(e.file_path)) await notePlan($, e.file_path).catch(() => undefined)
     return next(e)
   })
 
@@ -393,6 +522,7 @@ export const register: Register = on => {
     const { Box, Button, Input, Text } = $.ui.resolve(e)
     const now = await read($, look)
     const others = await read($, peers)
+    const mail = await read($, envelopes)
     const writingId = await read($, writingTo)
     const writing = others.find(p => p.id === writingId) ?? null
     const name = await read($, title)
@@ -408,8 +538,19 @@ export const register: Register = on => {
           <Text color={heartColour}>{'♥'.repeat(filled)}</Text>
           <Text color={paper.note}>{'♡'.repeat(5 - filled)}</Text>
           <Text color={paper.dim}>{now?.context === null || now === null ? '' : ` ${now.context}%`}</Text>
+          {mail.length > 0 && <Text color={paper.ribbon}>{`  ✉ ${mail.length}`}</Text>}
         </Text>
         {name !== null && <Text color={paper.ink} weight="bold">{clip(name, width)}</Text>}
+        {mail.map((note, i) => (
+          <Box flexDirection="column">
+            <Text color={paper.ribbon}>{clip(`✉ from ${note.from}`, width)}</Text>
+            <Box>
+              <Text color={paper.ink}>{clip(`  ${note.text}`, Math.max(4, width - 5))} </Text>
+              <Button key={`envelope-${note.at}-${i}`} label="ok" plain
+                onPress={() => void update($, envelopes, list => list.filter((_, j) => j !== i))} />
+            </Box>
+          </Box>
+        ))}
         <Text> </Text>
         <Text color={paper.dim}>the plan</Text>
         <Text color={now?.plan ? paper.ink : paper.note}>{clip(now?.plan?.title ?? 'none read yet', width)}</Text>

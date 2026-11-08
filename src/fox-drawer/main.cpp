@@ -2691,6 +2691,11 @@ int main(int argc, char** argv) {
             std::cout << claude_lock_line() << '\n';
             return 0;
         }
+        // Every page the backend answers, one per line: the drawer's self-check opens each.
+        if (args.size() == 1 && args[0] == "pages") {
+            for (const auto& page : pages) std::cout << page << '\n';
+            return 0;
+        }
         // The paper notebook's peers: the same live sessions the Agents page shows, one rule for both.
         if (args.size() == 1 && args[0] == "claude-peers") {
             read_limit_seconds = 2;

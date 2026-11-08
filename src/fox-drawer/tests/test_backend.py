@@ -141,6 +141,53 @@ elif name == 'udisksctl' and args[:1] == ['mount'] and state.get('after_mount'):
 '''
 
 
+REPO = Path(__file__).resolve().parents[3]
+
+
+def item_icons(source):
+    """Every string literal in the icon (fifth) argument of each item(...) call in the backend."""
+    import re
+    found = set()
+    for m in re.finditer(r'(?<![A-Za-z0-9_])item\(', source):
+        i, depth, quote, args, cur = m.end(), 1, None, [], ''
+        while i < len(source) and depth:
+            c = source[i]
+            if quote:
+                cur += c
+                if c == '\\':
+                    cur += source[i + 1]; i += 1
+                elif c == quote:
+                    quote = None
+            elif c in '"\'':
+                quote = c; cur += c
+            elif c in '({[':
+                depth += 1; cur += c
+            elif c in ')}]':
+                depth -= 1
+                if depth:
+                    cur += c
+            elif c == ',' and depth == 1:
+                args.append(cur.strip()); cur = ''
+            else:
+                cur += c
+            i += 1
+        args.append(cur.strip())
+        if len(args) >= 5:
+            icon = args[4]
+            while re.search(r'[A-Za-z_]\w*\([^()]*\)', icon):  # a lookup like text(row, "icon") names no icon
+                icon = re.sub(r'[A-Za-z_]\w*\([^()]*\)', '', icon)
+            found.update(re.findall(r'"([^"]*)"', icon))
+    return found
+
+
+def js_object_keys(source, name):
+    """The keys of `var NAME = { ... };` in DrawerLogic.js."""
+    import re
+    start = source.index("var " + name + " = {")
+    body = source[start:source.index("};", start)]
+    return set(re.findall(r'(?:^|[{,\s])"?([a-z][a-z-]*)"?\s*:', body))
+
+
 class BackendTests(unittest.TestCase):
     def setUp(self):
         # /tmp is intentionally noexec on FoxML; fake executables belong beside the test.
@@ -1047,6 +1094,47 @@ class BackendTests(unittest.TestCase):
         self.state["commands"] = {"wpctl": {"exit": 1}}
         self.state["exact"] = {"wpctl\x1fget-volume\x1f@DEFAULT_AUDIO_SINK@": {"stdout": "Volume: 0.42\n"}}
         self.assertEqual(self.invoke("run", "volume-mute", expect=1)["message"], "Could not toggle mute")
+
+    def test_every_page_answers_quickly_with_well_formed_rows(self):
+        import re
+        pages = subprocess.run([str(BINARY), "pages"], capture_output=True, text=True, timeout=5).stdout.split()
+        self.assertGreaterEqual(len(pages), 20)
+        source = (REPO / "src/fox-drawer/main.cpp").read_text()
+        takes = set(re.findall(r'"([a-z-]+)"', source[source.index("argument_actions{"):source.index("};", source.index("argument_actions{"))]))
+        for page in pages:
+            with self.subTest(page=page):
+                self.state_path.write_text(json.dumps(self.state))
+                began = time.monotonic()
+                out = subprocess.run([str(BINARY), "--config", str(self.config), "view", page], env=self.env,
+                                     capture_output=True, text=True, timeout=10)
+                self.assertLess(time.monotonic() - began, 2.0, "a page must not keep the drawer waiting")
+                data = json.loads(out.stdout)
+                if out.returncode != 0:
+                    self.assertTrue(data.get("error"), "a page that fails says why")
+                    continue
+                self.assertFalse(data.get("error"))
+                self.assertIsInstance(data.get("items"), list)
+                for row in data["items"]:
+                    self.assertTrue(row.get("id") and row.get("label") and row.get("kind"), row)
+                    if "argument" in row and row.get("kind") == "action" and row.get("enabled", True):
+                        self.assertIn(row["id"], takes, f"{row['id']} has an argument but no action takes one")
+
+    def test_the_menu_names_real_pages_and_every_icon_has_a_drawing(self):
+        pages = set(subprocess.run([str(BINARY), "pages"], capture_output=True, text=True, timeout=5).stdout.split())
+        menu = json.loads((REPO / "shared/quickshell/foxml/menus.json").read_text())
+        for group in menu["groups"]:
+            for entry in group.get("items", []):
+                if entry.get("kind") == "page":
+                    self.assertIn(entry.get("page"), pages, f"menu item {entry.get('id')} opens a page the backend doesn't have")
+        logic = (REPO / "shared/quickshell/foxml/DrawerLogic.js").read_text()
+        drawn = js_object_keys(logic, "icons") | js_object_keys(logic, "semantic")
+        for icon in item_icons((REPO / "src/fox-drawer/main.cpp").read_text()):
+            if icon and icon.isascii():
+                self.assertIn(icon, drawn, f'icon "{icon}" has no symbol or picture, so it draws as a dot')
+        import re
+        art = REPO / "templates/quickshell/foxml"
+        for name in set(re.findall(r':\s*"([a-z-]+)"', logic[logic.index("var semantic = {"):logic.index("};", logic.index("var semantic = {"))])):
+            self.assertTrue((art / f"paper-icon-{name}.svg").exists(), f"paper-icon-{name}.svg is missing")
 
     def test_models_page_switches_the_agent_and_removes_a_model_for_good(self):
         gguf = self.home / ".local/share/fox-llm/gguf"; gguf.mkdir(parents=True)

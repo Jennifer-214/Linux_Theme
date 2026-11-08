@@ -93,8 +93,15 @@ class AgentNotifyTest(unittest.TestCase):
         for sub in ("edits", "cards"):
             (sessions / sub).mkdir(exist_ok=True)
             (sessions / sub / "abc-1.json").write_text("{}")
+        (sessions / "edits/abc-1/before").mkdir(parents=True)
+        (sessions / "edits/abc-1/before/1.txt").write_text("old")
+        (sessions / "inbox/abc-1").mkdir(parents=True)
+        (sessions / "inbox/abc-1/1-a.json").write_text("{}")
+        (sessions / "inbox/other").mkdir()
         self.state_hook("ended", {"session_id": "abc-1", "reason": "prompt_input_exit"})
-        self.assertEqual([p.name for sub in ("edits", "cards") for p in (sessions / sub).iterdir()], [], "its edits and card go too")
+        self.assertEqual([p.name for sub in ("edits", "cards") for p in (sessions / sub).iterdir()], [],
+                         "its edits, before-copies and card go too")
+        self.assertEqual([p.name for p in (sessions / "inbox").iterdir()], ["other"], "its own inbox only")
         self.assertEqual([p.name for p in sessions.iterdir() if p.is_file() and not p.name.startswith("tally-")], [], "an ended session leaves nothing behind")
         self.state_hook("seen", {"session_id": "../escape"})
         self.assertFalse((self.run_dir / "escape.state").exists(), "a session id is never a path")

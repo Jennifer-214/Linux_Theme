@@ -350,6 +350,15 @@ list there yourself). It only reads, and draws in the palette:
   `go` jumps to its window; `note` opens a one-line box in the notebook, and Enter sends
   the text to that session as a message (`$.session.send`). Without `fox-drawer`, the
   notebook lists only the sessions editing in the same repo.
+- **Envelopes:** a note sent from nvim (`<Space>Cn`, left in
+  `$XDG_RUNTIME_DIR/foxml-claude/inbox/<session>/`) or by another Claude shows as `✉ from …` in the notebook,
+  with `✉ 2` beside the hearts while any are unread; `ok` puts one away. A note from nvim goes to Claude as
+  your own words once the session is idle.
+- **For nvim:** the mod keeps what nvim's review needs: each session's full list of edited files and, before its
+  first edit of a file that already had uncommitted changes, a copy of that file (`edits/<session>/before/`,
+  private, at most 1 MiB, gone when the session ends); the plan the session read last; and, after a Claude
+  commit, the session's title for its `Claude-Session:` trailer (`$XDG_STATE_HOME/foxml/claude-sessions.jsonl`).
+  Repos listed one per line in `~/.config/foxml/claude-private-repos` get no before-copies.
 - **Cards:** another mod can leave a card for a session in
   `$XDG_RUNTIME_DIR/foxml-claude/cards/<session>.json` (`title`, `rows` of `mark`/`text`/`tone`,
   an optional `alert`); the notebook draws it, and its alert takes the band.
@@ -946,6 +955,10 @@ AI integration:
 - **copilot.lua** — inline ghost-text completions + copilot-cmp source (toggle `<Space>Ci`)
 - **avante.nvim** — Cursor-style chat panel via Copilot (Claude Sonnet 4)
 - **claudecode.nvim** — Claude Code terminal integration (`<Space>Ct`, `<Space>Cs`)
+- **foxml.claude** — the other Claudes on this machine: footprints on buffers they edited lately, a note to any
+  session (`<Space>Cn`), a "what changed" list of live sessions and commits reviewed inline (`<Space>Cw`),
+  following a session, the plan gate in the statusline, and blame that names the Claude session behind a line
+  (see the keybind reference)
 
 Stack: LSP via mason, DAP, cmake-tools, neotest, lazygit, telescope, harpoon, neo-tree, treesitter, zen-mode.
 

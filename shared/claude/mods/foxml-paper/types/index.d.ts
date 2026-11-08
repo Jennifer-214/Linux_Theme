@@ -26,6 +26,9 @@ export type PaperOverlap = { path: string; title: string; ago: string; pane?: st
 export type PaperRedZone = { what: string }
 
 // Another live Claude on this machine, as fox-drawer's Agents page sees it (fox-drawer claude-peers).
+// A note that reached this session: from you in nvim, or from another Claude.
+export type PaperEnvelope = { from: string; text: string; at: number }
+
 export type PaperPeer = { id: string; name: string; project: string; state: string; busy: boolean; pane: string }
 
 declare module 'claude-code' {
@@ -38,6 +41,7 @@ declare module 'claude-code' {
       peers: Shaped<PaperPeer[]>
       // The peer a note is being written to, by session id.
       writingTo: string | null
+      envelopes: Shaped<PaperEnvelope[]>
     }
   }
 }
