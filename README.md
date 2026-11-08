@@ -785,7 +785,7 @@ while process text and window frames retain their existing colors. Thunar filena
 selections use blush with soft pencil edges. Native Mako notes add a small RECEIVED
 stamp, with room for the body; explicit saved/copied/ready categories give that stamp
 useful words without repeating them in the title. A faint, broken pencil outline
-frames those stamps in the native renderer; stock Mako keeps the blush text labels.
+frames those stamps with a small pencil sprig in the native renderer; stock Mako keeps the blush text labels.
 DND is applied after all app styles.
 Volume OSDs retain their compact format; workspace notices use the banner and replace
 the previous workspace notice. Yazi uses current theme sections

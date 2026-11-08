@@ -24,15 +24,6 @@ static bool foxml_stamp_bounds(PangoLayout *layout, PangoRectangle *bounds) {
     return bounds->width > 0 && bounds->height > 0;
 }
 
-static void foxml_stamp_pad(cairo_t *cr, double x, double y, double rx, double ry) {
-    cairo_save(cr);
-    cairo_translate(cr, x, y);
-    cairo_scale(cr, rx, ry);
-    cairo_new_sub_path(cr);
-    cairo_arc(cr, 0, 0, 1, 0, 6.2832);
-    cairo_restore(cr);
-}
-
 static void foxml_stamp_frame(cairo_t *cr, PangoLayout *layout,
         double origin_x, double origin_y, uint32_t ink, int scale) {
     PangoRectangle bounds;
@@ -59,14 +50,23 @@ static void foxml_stamp_frame(cairo_t *cr, PangoLayout *layout,
     cairo_line_to(cr, x + w, y + 1.2 * scale);
     cairo_line_to(cr, x + w * .37, y);
     cairo_stroke(cr);
-    // A small paw beside the frame, in the same faint stamp ink.
+    // A small pencil sprig beside the frame, in the same faint stamp ink.
     double px = x + w + 8 * scale, py = y + h / 2 + scale;
+    cairo_translate(cr, px, py);
+    cairo_scale(cr, scale, scale);
+    cairo_set_line_width(cr, .7);
     cairo_new_path(cr);
-    foxml_stamp_pad(cr, px, py + scale, 2.6 * scale, 2.1 * scale);
-    foxml_stamp_pad(cr, px - 3.4 * scale, py - 1.4 * scale, 1.05 * scale, 1.3 * scale);
-    foxml_stamp_pad(cr, px - 1.2 * scale, py - 3.4 * scale, 1.05 * scale, 1.35 * scale);
-    foxml_stamp_pad(cr, px + 1.2 * scale, py - 3.4 * scale, 1.05 * scale, 1.35 * scale);
-    foxml_stamp_pad(cr, px + 3.4 * scale, py - 1.4 * scale, 1.05 * scale, 1.3 * scale);
-    cairo_fill(cr);
+    cairo_move_to(cr, -2.5, 5);
+    cairo_curve_to(cr, 0, 2, -.5, -2, 2, -6);
+    cairo_move_to(cr, -1, 2.5);
+    cairo_curve_to(cr, -4, 2, -4.5, -.5, -4.5, -1.5);
+    cairo_curve_to(cr, -2, -1, -1, .5, -1, 2.5);
+    cairo_move_to(cr, 0, 0);
+    cairo_curve_to(cr, 0, -2, 2.5, -3, 4.5, -3);
+    cairo_curve_to(cr, 4, -.5, 2, .5, 0, 0);
+    cairo_move_to(cr, 1, -3.5);
+    cairo_curve_to(cr, -1.5, -3.5, -2.5, -5, -2, -6.5);
+    cairo_curve_to(cr, 0, -6.5, 1, -5, 1, -3.5);
+    cairo_stroke(cr);
     cairo_restore(cr);
 }

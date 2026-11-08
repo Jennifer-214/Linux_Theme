@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Paper's small touches: the waking cat, workspace paw and lock-screen hearts."""
+"""Paper's field-note greeting, lock-screen feedback and quiet prompt."""
 import re
 import shutil
 import subprocess
@@ -12,24 +12,6 @@ QML = ROOT / "shared/quickshell/foxml"
 
 
 class LittleDetails(unittest.TestCase):
-    def test_cat_follows_the_idle_inhibitor_only_on_paper(self):
-        module = (QML / "BarModule.qml").read_text()
-        self.assertIn('catPill: name === "idle_inhibitor" && theme.paperDetails', module)
-        self.assertIn("awake: module.dataSource.idleEnabled", module)
-        self.assertIn("!module.catPill", module)
-        cat = (QML / "CatNap.qml").read_text()
-        self.assertRegex(cat, r"if \(!awake && !hungry\)")
-        self.assertRegex(cat, r"if \(awake \|\| hungry\)")
-
-    def test_hunger_and_music_stay_on_the_paper_cat(self):
-        module = (QML / "BarModule.qml").read_text()
-        self.assertIn('catHungry: name === "idle_inhibitor" && theme.paperDetails', module)
-        self.assertIn('catListening: name === "idle_inhibitor" && theme.paperDetails', module)
-        # The note drifts once per tick; an always-running animation would repaint the bar for a whole album.
-        cat = (QML / "CatNap.qml").read_text()
-        self.assertNotIn("loops: Animation.Infinite", cat)
-        self.assertIn("running: cat.music", cat)
-
     def test_goodnight_is_a_paper_power_page_detail(self):
         shell = (QML / "shell.qml").read_text()
         self.assertIn('theme.paperDetails && root.page === "power" && Logic.isNight(new Date())', shell)
@@ -42,20 +24,24 @@ class LittleDetails(unittest.TestCase):
             message = re.search(r"(?m)^HYPRLOCK_FAIL_TEXT='(.*)'$", text)
             self.assertIsNotNone(message, palette.parent.name)
             self.assertIn("$FAIL", message.group(1), "the real reason must stay visible")
-            self.assertEqual("♡" in message.group(1), paper)
+            self.assertNotIn("♡", message.group(1))
+            if paper:
+                self.assertEqual(message.group(1), "<i>try again · $FAIL</i>")
 
-    def test_paw_marks_only_the_active_workspace_on_paper(self):
+    def test_pencil_mark_follows_the_active_workspace_on_paper(self):
         bar = (QML / "BarWorkspaces.qml").read_text()
         self.assertIn("visible: tab.current && workspaces.theme.paperDetails", bar)
 
-    def test_only_paper_types_hearts(self):
+    def test_paper_password_uses_plain_dots(self):
         for palette in sorted((ROOT / "themes").glob("*/palette.sh")):
             style = re.search(r"^HYPRLOCK_DOTS_STYLE='?([^'\n]*)", palette.read_text(), re.M)
-            hearts = bool(style) and "♡" in style.group(1)
-            self.assertEqual(hearts, palette.parent.name == "FoxML_Paper", palette.parent.name)
+            if style:
+                self.assertNotIn("♡", style.group(1), palette.parent.name)
+            if palette.parent.name == "FoxML_Paper":
+                self.assertEqual(style.group(1), "dots_text_format = •")
 
 
-class TerminalCat(unittest.TestCase):
+class TerminalNotes(unittest.TestCase):
     def render(self, tmp):
         renderer = ROOT / "src/fox-render/fox-render-fast"
         if not renderer.exists():
@@ -77,27 +63,35 @@ _caramel_welcome_centered Friday 'November 6' '9:00 pm'
             return subprocess.run(["zsh", "-f", "-c", script], capture_output=True, text=True, timeout=10, check=True).stdout.split("MARK")[-1]
 
     @unittest.skipUnless(shutil.which("zsh"), "zsh is required")
-    def test_greeting_and_eyes_follow_the_hour(self):
-        for hour, greeting, sleepy in ((9, "good morning, fox", False), (13, "good afternoon, fox", False),
-                                       (19, "good evening, fox", False), (22, "still up?", True), (4, "still up?", True)):
-            with self.subTest(hour=hour):
-                out = self.welcome(hour)
-                self.assertIn(greeting, out)
-                self.assertEqual("。" not in out, sleepy)
+    def test_field_note_heading_keeps_the_day_and_date(self):
+        out = self.welcome(9)
+        self.assertIn("Friday", out)
+        self.assertIn("November 6", out)
+        self.assertIn("9:00 pm", out)
+        self.assertNotIn("ᓚᘏᗢ", out)
+        self.assertNotIn("♡", out)
 
     @unittest.skipUnless(shutil.which("zsh"), "zsh is required")
-    def test_worried_face_shows_once_and_never_for_interrupts(self):
+    def test_failed_commands_keep_the_numeric_status_without_a_mascot(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.render(tmp)
             script = f"""
 autoload -Uz add-zsh-hook
-source <(sed -n '/^_caramel_timer_start=0/,/^add-zsh-hook preexec/p;/^_fox_err=/p;/^typeset -gi _caramel_paper/,/^\[\[/p' {tmp}/caramel.zsh-theme)
-source <(sed -n '/^function caramel_precmd/,/^  # ── Command execution time/p' {tmp}/caramel.zsh-theme; print '}}')
-check() {{ _caramel_timer_start=$2; (exit $1); caramel_precmd; [[ $PROMPT_INDICATOR == *'(=;ω;=)'* ]] && print yes || print no; }}
-check 1 5; check 1 0; check 130 5; check 148 5; check 0 5
+source {tmp}/caramel.zsh-theme
+check() {{ _caramel_timer_start=0; (exit $1); caramel_precmd; print -r -- "$PROMPT_INDICATOR"; }}
+check 1; check 130; check 148; check 0
 """
             out = subprocess.run(["zsh", "-f", "-c", script], capture_output=True, text=True, timeout=10)
-            self.assertEqual(out.stdout.split(), ["yes", "no", "no", "no", "no"], out.stderr)
+            self.assertEqual(out.returncode, 0, out.stderr)
+            lines = out.stdout.splitlines()
+            self.assertEqual(len(lines), 4, out.stdout + out.stderr)
+            for line, code in zip(lines, [1, 130, 148, 0]):
+                self.assertIn("❯", line)
+                if code:
+                    self.assertIn(f"❯ {code}", line)
+                else:
+                    self.assertNotIn("❯ 0", line)
+                self.assertNotIn("ω", line)
 
 
 if __name__ == "__main__":

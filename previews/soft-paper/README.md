@@ -21,8 +21,12 @@ The current `shared/wallpapers/foxml_paper_botanical.png` wallpaper and transpar
 imagegen tool using the existing colored-pencil tree as a style reference.
 Their full prompts are in `shared/wallpapers/botanical-prompts.json`; the earlier
 companion-set prompts remain in `shared/wallpapers/paper-prompts.json`.
+The tree uses stronger pencil pigment to remain visible behind 70% opaque paper.
 The preview references production assets directly and uses locally installed Monaspice fonts.
 
 `native-bar.png` and `native-drawer.png` capture the actual QML components with
 isolated example data. They show the selected rounded wide banners and turned
 page corner. No private desktop contents are included.
+
+`notification-stamp.png` renders the native notification stamp and its pencil
+sprig using Cairo and Pango with example text.

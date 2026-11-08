@@ -557,6 +557,7 @@ Shows indent guides automatically. No keybinds.
 | `ALT + F` | Firefox |
 | `ALT + Shift + C` | Cursor (code editor) |
 | `ALT + Shift + D` | FoxML drawers — apps, connections, sound, comfort and system |
+| `ALT + SPACE` | Find anything: open with the search field already focused |
 | `ALT + C` | Calendar beneath the clock banner (toggle) |
 | `ALT + Shift + M` | Steam |
 | `ALT + Shift + Y` | Yazi file manager (toggle) |

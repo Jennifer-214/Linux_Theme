@@ -1,4 +1,4 @@
-"""The tmux pane footer marks a Claude session that needs you (♡) or is working (✿)."""
+"""The tmux pane footer marks a Claude session that needs you (!) or is working (✿)."""
 import json
 import os
 from pathlib import Path
@@ -28,13 +28,13 @@ class PaneFooter(unittest.TestCase):
         self.put("a", "needs", "%7")
         self.put("b", "working", "%8")
         self.put("c", "waiting", "%9")
-        self.assertTrue(self.footer("claude", "%7").startswith(" ♡  "))
+        self.assertTrue(self.footer("claude", "%7").startswith(" !  "))
         self.assertTrue(self.footer("claude", "%8").startswith(" ✿  "))
-        self.assertFalse(self.footer("claude", "%9").startswith((" ♡", " ✿")), "waiting is quiet")
-        self.assertFalse(self.footer("zsh", "%7").startswith(" ♡"), "back at a shell: the session is gone")
-        self.assertFalse(self.footer("claude", "%70").startswith(" ♡"), "%7 is not %70")
-        self.assertFalse(self.footer("claude", "%7;rm").startswith(" ♡"), "only a pane id is looked up")
-        self.assertFalse(self.footer("claude", "").startswith(" ♡"), "no pane id, no mark")
+        self.assertFalse(self.footer("claude", "%9").startswith((" !", " ✿")), "waiting is quiet")
+        self.assertFalse(self.footer("zsh", "%7").startswith(" !"), "back at a shell: the session is gone")
+        self.assertFalse(self.footer("claude", "%70").startswith(" !"), "%7 is not %70")
+        self.assertFalse(self.footer("claude", "%7;rm").startswith(" !"), "only a pane id is looked up")
+        self.assertFalse(self.footer("claude", "").startswith(" !"), "no pane id, no mark")
 
 
 if __name__ == "__main__":
