@@ -90,8 +90,12 @@ class AgentNotifyTest(unittest.TestCase):
         idle = self.state_hook("notification", {"session_id": "abc-1", "message": "Claude is waiting for your input"})
         self.assertEqual((idle.returncode, state()["state"]), (0, "compacting"), "an idle reminder changes nothing")
         (sessions / "abc-1.json").write_text("{}")
+        for sub in ("edits", "cards"):
+            (sessions / sub).mkdir(exist_ok=True)
+            (sessions / sub / "abc-1.json").write_text("{}")
         self.state_hook("ended", {"session_id": "abc-1", "reason": "prompt_input_exit"})
-        self.assertEqual([p.name for p in sessions.iterdir() if not p.name.startswith("tally-")], [], "an ended session leaves nothing behind")
+        self.assertEqual([p.name for sub in ("edits", "cards") for p in (sessions / sub).iterdir()], [], "its edits and card go too")
+        self.assertEqual([p.name for p in sessions.iterdir() if p.is_file() and not p.name.startswith("tally-")], [], "an ended session leaves nothing behind")
         self.state_hook("seen", {"session_id": "../escape"})
         self.assertFalse((self.run_dir / "escape.state").exists(), "a session id is never a path")
 

@@ -858,6 +858,7 @@ std::vector<ClaudeSession> claude_sessions(ClaudeUsage& usage) {
     if (!directory(claude_dir())) return sessions;
     std::map<std::string, std::pair<Json, Json>> found;
     for (const auto& entry : fs::directory_iterator(claude_dir(), ec)) {
+        if (!entry.is_regular_file(ec)) continue;  // edits/ and cards/ belong to the paper mod
         const auto name = entry.path().filename().string(), ext = entry.path().extension().string();
         const auto id = entry.path().stem().string();
         if ((ext != ".json" && ext != ".state") || !std::regex_match(id, std::regex("[A-Za-z0-9_-]{1,80}"))) continue;

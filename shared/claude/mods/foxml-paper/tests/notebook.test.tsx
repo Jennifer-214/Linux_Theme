@@ -30,6 +30,7 @@ function engine(on: On) {
   on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200000, percent: 64 }, rateLimits: [] } }))
   on('process.run', (_, e) => {
     const argv = e.argv.join(' ')
+    if (argv.includes('status') && !argv.includes('--no-optional-locks')) return { value: { ...done(''), exitCode: 9 } }
     if (argv.includes('status')) return { value: done('## main...origin/main\n M a.txt\n') }
     if (argv.includes('numstat')) return { value: done('12\t3\tshared/a very long folder/notes.txt\n1\t0\tREADME.md\n') }
     return { value: { ...done(''), exitCode: 1 } }

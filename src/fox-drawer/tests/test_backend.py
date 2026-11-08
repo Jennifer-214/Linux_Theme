@@ -381,6 +381,9 @@ class BackendTests(unittest.TestCase):
         put("d4.state",{"state":"working","pane":"%3","epoch":now-13*3600})  # twelve hours quiet: gone
         put("e5.state",{"state":"error","detail":"rate_limit","cwd":str(self.home),"epoch":now})  # outside tmux, in ~: kept, with nowhere to jump
         (sessions/"bad id.state").write_text(json.dumps({"state":"working","epoch":now}))
+        for sub in ("edits","cards"):  # the paper mod's folders are never sessions
+            (sessions/sub).mkdir(); (sessions/sub/"a1.json").write_text("{}")
+        (sessions/"cards.state").mkdir()
         (sessions/"f6.state").write_text("not json")
         self.state.update(panes="%3\tclaude\n%4\tnode\n%5\tzsh",pane_targets={"%3":"paper:2.1"})
         self.state_path.write_text(json.dumps(self.state))
@@ -410,7 +413,7 @@ class BackendTests(unittest.TestCase):
         self.assertRegex(self.invoke("view","root")["today"]["claudeUsage"],r"^39% of the week left · refills [a-z]{3}$")
         put("a1.json",{"model":"Opus 5.5","context":41,"five":{"used":91,"resets":now+600},"week":{"used":61,"resets":now+86400},"pane":"%3","epoch":now})
         self.assertRegex(self.invoke("view","root")["today"]["claudeUsage"],r" · 9% of this 5h left$","the 5h shows once it runs low")
-        for name in list(sessions.iterdir()): name.unlink()
+        for name in list(sessions.iterdir()): shutil.rmtree(name) if name.is_dir() else name.unlink()
         self.state_path.write_text(json.dumps(self.state))
         lock=subprocess.run([str(BINARY),"claude-lock-line"],env=self.env,capture_output=True,text=True,timeout=10)
         self.assertEqual((lock.returncode,lock.stdout),(0,"\n"),"nothing going on: the lock screen says nothing")

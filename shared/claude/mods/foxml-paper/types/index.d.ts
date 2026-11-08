@@ -8,7 +8,20 @@ export type PaperLook = {
   gate: 'open' | 'closed' | 'none'
   plan: { title: string; file: string } | null
   context: number | null
+  // Other live sessions editing in this repo (from the shared edits ledgers).
+  neighbours: { title: string; files: number }[]
+  // A card another mod left for this session (cards/<session>.json).
+  card: PaperCard | null
 }
+
+export type PaperTone = 'ink' | 'dim' | 'heart' | 'berry' | 'ribbon' | 'added' | 'removed'
+export type PaperCard = {
+  title: string
+  rows: { mark?: string; text: string; tone?: PaperTone }[]
+  alert?: { text: string; tone?: PaperTone } | null
+}
+
+export type PaperOverlap = { path: string; title: string; ago: string; pane?: string }
 
 export type PaperRedZone = { what: string }
 
@@ -18,6 +31,7 @@ declare module 'claude-code' {
       look: Shaped<PaperLook | null>
       title: string | null
       redZone: Shaped<PaperRedZone | null>
+      overlap: Shaped<PaperOverlap | null>
     }
   }
 }

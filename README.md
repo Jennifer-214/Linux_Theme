@@ -327,6 +327,17 @@ list there yourself). It only reads, and draws in the palette:
 - **Spinner words** in the terminal: knitting, pressing flowers, baking,
   steeping tea and the like.
 - **A hello** by the hour when a session starts.
+- **Two sessions, one file:** each session notes the files it edits in
+  `$XDG_RUNTIME_DIR/foxml-claude/edits/` (private, gone at reboot). Before an edit, if
+  another live session changed the same file in the last 15 minutes, a band says
+  `coordinate with the active session that last edited main.cpp · <its title> (pane %2),
+  4 minutes ago`, and Claude gets the same note once so it can message that session
+  (Claude Code's peer list shows each session's tmux pane) or read its changes first. It only
+  warns. Worktrees are separate files, so they never match; edits made through shell
+  commands are not seen. The notebook lists the other sessions editing in the same repo.
+- **Cards:** another mod can leave a card for a session in
+  `$XDG_RUNTIME_DIR/foxml-claude/cards/<session>.json` (`title`, `rows` of `mark`/`text`/`tone`,
+  an optional `alert`); the notebook draws it, and its alert takes the band.
 
 `/goodnight` (`~/.claude/commands/goodnight.md`) wraps up a session: Claude writes a
 short where-we-left-off note to `~/.local/state/foxml/goodnight/<project>.md`, lists
