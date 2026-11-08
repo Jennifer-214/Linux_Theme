@@ -32,8 +32,10 @@ void run_drawer(Context& ctx) {
     }
     const auto backend = ctx.script_dir / "src/fox-drawer";
     const auto renderer = ctx.script_dir / "src/fox-render";
+    const auto work = ctx.script_dir / "src/fox-work";
     if (sh::run({"make", "-C", backend.string()}) != 0 ||
-        sh::run({"make", "-C", renderer.string()}) != 0) {
+        sh::run({"make", "-C", renderer.string()}) != 0 ||
+        sh::run({"make", "-C", work.string()}) != 0) {
         incomplete("drawer build failed; existing menus remain available");
         return;
     }
@@ -50,6 +52,7 @@ void run_drawer(Context& ctx) {
         return false;
     };
     if (!deploy(backend / "fox-drawer", ctx.home / ".local/bin/fox-drawer")) return;
+    if (!deploy(work / "fox-work", ctx.home / ".local/bin/fox-work")) return;
     const auto bar_state = ctx.config_home / "waybar/drawer-state.css";
     if (!fs::exists(bar_state) && !deploy(ctx.templates_dir / "waybar/drawer-state.css", bar_state)) return;
     bool ok = true;

@@ -57,6 +57,8 @@ src/fox-sec/fox-sec
 src/fox-theme/fox-theme
 src/fox-theme-check/fox-theme-check
 src/fox-dev/fox-dev
+src/fox-work/fox-work
+!src/fox-work/tests/test_work.py
 src/fox-sys/fox-sys
 src/fox-common/libfox-common.a
 src/fox-health/libfox-health.a

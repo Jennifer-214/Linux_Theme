@@ -20,6 +20,12 @@ BIN_RE = re.compile(r"^[ \t]*BIN[ \t]*:?=[ \t]*([^\s#]+)", re.M)
 
 # New surfaces deploy through the native installer; AGENT.md freezes mappings.sh.
 ONE_SIDED = {
+    ("SHARED_MAPPINGS", "zsh_work.zsh", "~/.config/zsh/work.zsh"):
+        "native-only foreground job observation and fjob; AGENT.md freezes mappings.sh",
+    ("SHARED_MAPPINGS", "nvim_lua/foxml/work.lua", "~/.config/nvim/lua/foxml/work.lua"):
+        "native-only test quickfix, review and editable failure drafts",
+    ("SHARED_MAPPINGS", "claude/mods/foxml-paper/hooks/work.ts", "~/.claude/mods/foxml-paper/hooks/work.ts"):
+        "native-only Claude work records; code is copied, with colors in the existing rendered theme",
     ("TEMPLATE_MAPPINGS", "swappy/config", "~/.config/swappy/config"):
         "native-only screenshot annotation colors and pencil strokes; rendered from the selected palette",
     ("TEMPLATE_MAPPINGS", "qt/gtk-palette.json", "~/.config/foxml/qt-palette.json"):

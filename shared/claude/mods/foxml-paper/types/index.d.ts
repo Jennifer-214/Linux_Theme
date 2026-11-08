@@ -1,4 +1,8 @@
 export type PaperFile = { path: string; added: number; removed: number }
+export type WorkTest = { id: string; state: string; stale?: boolean; tests: { passed: number | null; failed: number | null; failures: { filename: string; lnum: number; text: string }[] } }
+export type WorkTask = { id: string; text: string; done: boolean }
+export type WorkJob = { id: string; command: string; state: string; elapsed: number; activity: number; session: string }
+export type WorkLook = { tests: WorkTest | null; tasks: WorkTask[]; jobs: WorkJob[] }
 
 // What the notebook shows, refreshed after edits and every little while.
 export type PaperLook = {
@@ -12,6 +16,7 @@ export type PaperLook = {
   neighbours: { sid: string; title: string; files: number }[]
   // A card another mod left for this session (cards/<session>.json).
   card: PaperCard | null
+  work: WorkLook | null
 }
 
 export type PaperTone = 'ink' | 'dim' | 'heart' | 'berry' | 'ribbon' | 'added' | 'removed'

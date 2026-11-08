@@ -46,6 +46,7 @@ ShellRoot {
         editing: editing, focus: focusArea}, entries[itemIndex])
     property var pendingConfirm: null
     property bool confirmYes: false
+    property string worktreeProject: ""
     property int viewSerial: 0
     property int navigationSerial: 0
     property bool drawerReady: true
@@ -244,7 +245,8 @@ ShellRoot {
         nextView = null;
         viewProcess.serial = request.serial;
         viewProcess.requestedPage = request.page;
-        viewProcess.command = backendCommand(["view", request.page].concat(request.filter ? [request.query] : []));
+        viewProcess.command = backendCommand(["view", request.page].concat(request.filter ? [request.query] : [])
+            .concat(request.page === "worktrees" && worktreeProject ? ["--project", worktreeProject] : []));
         viewProcess.running = true;
     }
 
@@ -530,6 +532,7 @@ ShellRoot {
             return;
         }
         if (item.kind === "page") {
+            if ((item.page || item.id) === "worktrees") worktreeProject = "";
             remember();
             if (searching) {
                 searching = false;
@@ -694,6 +697,10 @@ ShellRoot {
         }
         else if (k === Qt.Key_B && !editing && !pendingConfirm && focusArea === "items"
                  && entries[itemIndex] && entries[itemIndex].presentation === "project") bookmark(entries[itemIndex]);
+        else if ((k === Qt.Key_W || k === Qt.Key_N) && !editing && !pendingConfirm && !actionBusy && focusArea === "items"
+                 && entries[itemIndex] && entries[itemIndex].presentation === "project") {
+            runAction(Object.assign({}, entries[itemIndex], {id: k === Qt.Key_W ? "project-worktrees" : "work-tasks", close: false}), undefined, false);
+        }
         else if (k === Qt.Key_E && !editing && !pendingConfirm && focusArea === "items"
                  && entries[itemIndex] && entries[itemIndex].presentation === "library") eject(entries[itemIndex]);
         else if (k === Qt.Key_T && !editing && !pendingConfirm && !actionBusy && focusArea === "items"
@@ -810,7 +817,10 @@ ShellRoot {
                 var result = JSON.parse(actionOut.text);
                 root.note(result.message || (result.ok ? "all set." : "That action did not complete."), !result.ok || code !== 0);
                 if (result.ok && code === 0) {
-                    if (root.opened && location === root.navigationSerial && result.page) root.show(result.page);
+                    if (root.opened && location === root.navigationSerial && result.page) {
+                        root.worktreeProject = result.project || "";
+                        root.show(result.page);
+                    }
                     else if (root.opened && location === root.navigationSerial && (result.close || (item && item.close))) root.hide();
                     else if (!root.editing) root.requestView();
                 }
@@ -1381,6 +1391,17 @@ ShellRoot {
                                                 if (modelData.presentation === "library") root.eject(modelData); else root.bookmark(modelData);
                                                 keyboard.forceActiveFocus();
                                             }
+                                        }
+                                        ToolButton {
+                                            visible: modelData.presentation === "project"
+                                            anchors.bottom: parent.bottom; anchors.right: parent.right
+                                            anchors.rightMargin: 35; anchors.bottomMargin: 2
+                                            width: 23; height: 23; text: "▥"; font.pixelSize: 12
+                                            background: Rectangle { color: root.buttonShade(parent.down, parent.hovered); radius: 3 }
+                                            contentItem: Text { text: parent.text; color: theme.ink; font: parent.font; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
+                                            Accessible.name: "Open project worktrees (w)"
+                                            BarHint { theme: root.paperTheme; visible: parent.hovered; text: parent.Accessible.name }
+                                            onClicked: root.runAction(Object.assign({}, modelData, {id: "project-worktrees", close: false}), undefined, false)
                                         }
                                     }
                                 }

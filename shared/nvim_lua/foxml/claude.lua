@@ -356,7 +356,7 @@ function M.rows(root)
                           label = M.live_label(p, files), short = p.name }
     end
   end
-  local log = system({ "git", "--no-optional-locks", "-C", root, "log", "-60", "--name-only", "--format=" .. M.LOG_FORMAT })
+  local log = system({ "git", "--no-optional-locks", "-C", root, "log", "-80", "--name-only", "--format=" .. M.LOG_FORMAT })
   local names, now_s = M.names(), os.time()
   for _, c in ipairs(M.parse_log(log)) do
     local files = {}
@@ -403,6 +403,9 @@ function M.open_review(row, root)
   vim.cmd("copen")
   vim.cmd("wincmd p")
   pcall(vim.cmd.cfirst)
+  if row.kind == "commit" and vim.fn.executable("fox-work") == 1 then
+    vim.system({ "fox-work", "reviewed", "--root", root, "--sha", row.sha }, { text = true })
+  end
 end
 
 local function scratch(lines, name)
@@ -479,13 +482,20 @@ function M.follow(row)
   pcall(vim.cmd.redrawstatus)
 end
 
-function M.changes()
+function M.changes(unreviewed)
   local root = repo_root(0) or vim.fs.root(vim.fn.getcwd(), ".git")
   if not root then
     vim.notify("not in a git repository", vim.log.levels.INFO, { title = "Claude" })
     return
   end
   local rows = M.rows(root)
+  if unreviewed == true and vim.fn.executable("fox-work") == 1 then
+    local wanted = M.decode(system({ "fox-work", "reviews", "--root", root })) or {}
+    local pending = {}
+    for _, c in ipairs(wanted) do pending[c.sha] = true end
+    rows = vim.tbl_filter(function(r) return r.kind == "commit" and pending[r.sha] end, rows)
+    if #rows == 0 then vim.notify("No Claude changes left to look over today."); return end
+  end
   local ok, pickers = pcall(require, "telescope.pickers")
   if not ok then
     vim.ui.select(rows, { prompt = "What changed", format_item = function(r) return r.label end }, function(r)
@@ -536,6 +546,7 @@ end
 local timer
 function M.setup()
   if timer then return end
+  pcall(function() require("foxml.work").setup() end)
   math.randomseed(uv.hrtime())
   timer = uv.new_timer()
   timer:start(0, 5000, vim.schedule_wrap(poll))

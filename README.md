@@ -370,6 +370,81 @@ what is uncommitted without touching it, and opens the Power page.
 Its code is copied as it is; only `templates/claude/mods/foxml-paper/hooks/theme.ts`
 is rendered, so a theme swap recolours it at the next Claude start.
 
+### Jobs, tests and the next thing
+
+Desk adds **Jobs**, **Test results**, **Changes to look over**, **Worktree map**,
+**Pinned next steps** and **Failures**. Today links to running jobs, jobs finished in
+the last 24 hours, today's uninspected Claude commits and your first pinned step.
+The Agents page shows the current command, elapsed time and last activity; Enter
+still jumps to that session's terminal. Supervised background jobs remain visible
+when Claude goes idle.
+
+The paper mod supervises recognized Claude Bash builds, test runs and downloads.
+It keeps the original command's exit status and streams its output to the terminal.
+In an interactive zsh, ordinary foreground build commands get status tracking;
+use **`fjob`** when you also want captured output or a background job:
+
+```sh
+fjob make -j4
+fjob ctest --test-dir build --output-on-failure
+fjob ./build/controller_test &
+fjob wget -O model.gguf https://example.org/model.gguf
+# Without the shell helper:
+fox-work run -- ctest --test-dir build --output-on-failure
+```
+
+Start the supervisor around the actual job: a plain `make &`, or a shell script
+that detaches its children, cannot report those children's eventual exit status.
+Commands with explicit credentials, privileged commands and existing wrappers
+are excluded from automatic Claude capture. Existing processes are not adopted.
+
+Captured gtest, CTest, pytest and unittest output supplies reported counts and
+source locations. The notebook shows the result, its failures and **since last
+pass**. Select a failure to open its exact quickfix entry in Neovim, using Trouble
+when available; **Space Ce** opens the latest results. Logs with no source
+locations open as text. Unknown totals remain unknown; interrupted jobs never
+count as passes. Logs retain at most their newest 4 MiB and mark truncation.
+CTest's enclosing totals take precedence over child summaries.
+
+Each captured run records its starting revision and the contents of supported
+source/config files, including nonignored untracked files and uncommitted edits.
+Comparisons use the most recent successful run of the same command in the same
+checkout. Editing those files makes a result stale; changes during a run also
+disqualify it as a baseline. Snapshots exclude secret paths, hidden files,
+symlinks, binary files and ignored build outputs. They stop at 4,000 files,
+1 MiB per file and 32 MiB total; an incomplete snapshot cannot establish a
+passing baseline. Repos in `claude-private-repos` get no source copies.
+External dependencies and environment changes are outside this source check.
+
+Project cards have a **worktrees button**, or **w** on the keyboard; **n** opens
+their next steps. Worktrees show their branch, dirty/untracked files, unpushed
+commits and the sessions using each checkout. Open an editor or terminal there,
+or jump to a listed Claude. Next steps are shared with the notebook and Today;
+**Space Ck** or `:WorkTasks` adds, completes or reopens them. Selecting **prepare**
+opens an editable note. In that note, **Space ws** chooses a Claude and sends it;
+closing the note sends nothing.
+
+In Claude's notebook, press **Ctrl+X, then Tab** to give the pane the keyboard.
+**Tab / Shift+Tab** walk its controls, **Enter** activates the selected control,
+and **Up / Down** scroll a short pane. **Esc** returns to the prompt. Printable
+keys, including `hjkl`, type normally inside an input; the notebook uses Claude's
+native controls rather than the desktop drawer's `hjkl` navigation.
+
+Opening a commit through **Space Cw** or the review tray records it as inspected
+and removes it from Today's pending count. The tray considers the most recent
+80 commits and recognizes `Claude-Session` or Claude coauthor trailers; it does
+not infer authorship from message wording. Inspection does not stage or commit.
+
+A failed job offers **Open log**, **Jump to terminal** when it has a tmux pane,
+and **Ask Claude**. Ask opens an editable error excerpt with the same explicit
+recipient selection. Failures also lists failed user services. A user timer
+checks for newly failed services once a minute and offers their recent journal
+and a draft; it never restarts a service. Set `FOXML_WORK_NOTIFY=0` to mute job
+popups. Work records, private logs, deduplicated source versions, next steps and
+inspection marks live in `$XDG_STATE_HOME/foxml/work/` (default
+`~/.local/state/foxml/work/`), with directories mode 0700 and files mode 0600.
+`fox dev work help` lists the underlying command interface.
+
 Firefox's `userContent.css` also themes Vimium: link hints become small paper tags
 in the selection color with the typed letters faded, find mode uses the same
 selection, and the Vomnibar and its status bar become paper cards in the drawer's

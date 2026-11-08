@@ -160,6 +160,10 @@ assert.equal(logic.detailText({presentation:'media',mediaState:'Paused',detail:'
 assert.equal(logic.detailText({presentation:'media',mediaState:'Paused',detail:'Artist · Paused'}),'Artist · Paused');
 
 const menus=JSON.parse(fs.readFileSync(new URL('../shared/quickshell/foxml/menus.json',import.meta.url),'utf8'));
+const workTags=logic.todayTags({jobsRunning:2,jobsFinished:1,jobsFailed:1,changesToReview:3,nextStep:'rerun the sanitizer'},[]);
+assert.ok(workTags.some(t=>t.page==='jobs' && t.text.includes('2 jobs running')));
+assert.ok(workTags.some(t=>t.page==='reviews' && t.text==='3 changes to look over ✿'));
+assert.ok(workTags.some(t=>t.page==='next-steps' && t.text.includes('rerun the sanitizer')));
 for (const group of menus.groups) assert.ok(logic.paperIcon(group).endsWith('.svg'));
 for (const id of ['apps','vault','lock']) {
     const item=menus.groups.flatMap(group=>group.items).find(item=>item.id===id);

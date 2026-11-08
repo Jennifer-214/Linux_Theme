@@ -5,6 +5,7 @@ import type { PaperCard, PaperEnvelope, PaperFile, PaperLook, PaperOverlap, Pape
 import { addBefore, addEdit, addName, neighbours, namesText, noteText, overlapFor, parseLedger, parseNames, parseNote, trailerUrl, withPlan } from './ledger'
 import type { Other } from './ledger'
 import { paper } from './theme'
+import { canTrack, testLabel, work, workLook, wrapped } from './work'
 
 // FoxML paper: a notebook pane beside the chat (hearts, the session's name, its plan, the gate, pages
 // touched, the other Claudes with [go] and [note]), a red-zone band before a risky system edit, a band when
@@ -14,7 +15,7 @@ import { paper } from './theme'
 // delivered) and the commit names in $XDG_STATE_HOME/foxml/claude-sessions.jsonl.
 
 const PANE = 'paper-notebook'
-const look = atom({ plugin: 'foxml-paper', key: 'look' } as const, null as PaperLook | null, { shape: 'look-2' })
+const look = atom({ plugin: 'foxml-paper', key: 'look' } as const, null as PaperLook | null, { shape: 'look-3' })
 const title = atom({ plugin: 'foxml-paper', key: 'title' } as const, null as string | null)
 const redZone = atom({ plugin: 'foxml-paper', key: 'redZone' } as const, null as PaperRedZone | null, { shape: 'red-1' })
 const overlap = atom({ plugin: 'foxml-paper', key: 'overlap' } as const, null as PaperOverlap | null, { shape: 'overlap-1' })
@@ -140,6 +141,13 @@ async function readOthers($: EngineInterface, dir: string): Promise<Other[]> {
 
 async function repoRoot($: EngineInterface): Promise<string> {
   return (await $.session.repo())?.root ?? (await $.session.cwd())
+}
+
+async function withActivity<T>($: EngineInterface, text: string, call: () => Promise<T>): Promise<T> {
+  const args = ['activity', '--root', await repoRoot($), '--session', await $.session.id(), '--text', text]
+  await work($, [...args, '--state', 'working'])
+  try { return await call() }
+  finally { await work($, [...args, '--state', 'done']) }
 }
 
 // Before an edit: has another live session edited this file lately? Band for you, a note for Claude, once.
@@ -365,7 +373,8 @@ async function refresh($: EngineInterface) {
     const dir = await sessionsDir($)
     const near = dir === null ? [] : neighbours(root, await $.clock.now(), await $.session.id(), await readOthers($, dir))
     const card = await readCard($, dir)
-    await update($, look, () => ({ branch, files, gate, plan, context, neighbours: near, card }))
+    const projectWork = await workLook($, root, await $.session.id())
+    await update($, look, () => ({ branch, files, gate, plan, context, neighbours: near, card, work: projectWork }))
     const found = await readPeers($)
     await update($, peers, () => found ?? [])
     memory.peersKnown = found !== null
@@ -431,7 +440,15 @@ export const register: Register = on => {
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const what = redZoneOf(e.command)
     if (what !== null) await update($, redZone, () => ({ what }))
-    const ran = await next(e)
+    const root = await repoRoot($)
+    const sid = await $.session.id()
+    const safe = !/password|token|secret|authorization|sk-|ghp_/i.test(e.command)
+    const activity = safe ? e.command.split('\n')[0]?.slice(0, 160) ?? 'running a command' : 'running a command'
+    await work($, ['activity', '--root', root, '--session', sid, '--text', activity, '--state', 'working'])
+    const available = canTrack(e.command) && await work($, ['classify', '--command', e.command])
+    let ran: Awaited<ReturnType<typeof next>>
+    try { ran = await next(available ? { ...e, command: wrapped(e.command, root, sid) } : e) }
+    finally { await work($, ['activity', '--root', root, '--session', sid, '--text', activity, '--state', 'done']) }
     if (COMMIT.test(e.command) && ran.deny === undefined && ran.isError !== true) {
       $.ui.toast('a seed planted ❦')
       await nameCommit($, e.command).catch(() => undefined)
@@ -456,7 +473,7 @@ export const register: Register = on => {
     await beforeEdit($, e.file_path)
     await checkOverlap($, e.file_path).catch(() => undefined)
     await keepBefore($, e.file_path).catch(() => undefined)
-    const ran = await next(e)
+    const ran = await withActivity($, `editing ${e.file_path.split('/').pop() ?? 'a file'}`, () => next(e))
     if (ran.deny === undefined && ran.isError !== true) await recordEdit($, e.file_path).catch(() => undefined)
     void refresh($)
     return ran
@@ -465,7 +482,7 @@ export const register: Register = on => {
     await beforeEdit($, e.file_path)
     await checkOverlap($, e.file_path).catch(() => undefined)
     await keepBefore($, e.file_path).catch(() => undefined)
-    const ran = await next(e)
+    const ran = await withActivity($, `writing ${e.file_path.split('/').pop() ?? 'a file'}`, () => next(e))
     if (ran.deny === undefined && ran.isError !== true) await recordEdit($, e.file_path).catch(() => undefined)
     void refresh($)
     return ran
@@ -473,7 +490,7 @@ export const register: Register = on => {
 
   on('tool.call', { tool: 'Read' }, async ($, e, next) => {
     if (/\/plans\/.+\.md$/.test(e.file_path)) await notePlan($, e.file_path).catch(() => undefined)
-    return next(e)
+    return withActivity($, `reading ${e.file_path.split('/').pop() ?? 'a file'}`, () => next(e))
   })
 
   on('ui.render', { component: 'Spinner' }, async ($, e, next) => {
@@ -556,6 +573,45 @@ export const register: Register = on => {
         <Text color={now?.plan ? paper.ink : paper.note}>{clip(now?.plan?.title ?? 'none read yet', width)}</Text>
         {now?.gate === 'open' && <Text color={paper.ribbon}>gate open ✓</Text>}
         {now?.gate === 'closed' && <Text color={paper.note}>plan first ✎</Text>}
+        {now?.work?.tests && (
+          <Box flexDirection="column">
+            <Text> </Text>
+            <Text color={now.work.tests.stale ? paper.note : (now.work.tests.tests.failed ?? 0) > 0 ? paper.berry : paper.added}>
+              {clip(testLabel(now.work.tests), width)}
+            </Text>
+            <Box>
+              <Button key="work-tests" label="failures" plain onPress={() => void work($, ['open', '--action', 'tests', '--id', now.work!.tests!.id])} />
+              <Text> </Text>
+              <Button key="work-compare" label="since last pass" plain onPress={() => void work($, ['open', '--action', 'compare', '--id', now.work!.tests!.id])} />
+            </Box>
+            {now.work.tests.tests.failures.slice(0, 3).map((failure, i) => (
+              <Button key={`work-failure-${i}`} label={clip(`${failure.filename.split('/').pop()}:${failure.lnum}`, width)} plain
+                onPress={() => void work($, ['open', '--action', 'tests', '--id', now.work!.tests!.id, '--index', String(i + 1)])} />
+            ))}
+          </Box>
+        )}
+        {(now?.work?.jobs ?? []).slice(0, 3).map(job => (
+          <Text color={paper.dim}>{clip(`◷ ${job.command} · ${Math.floor(job.elapsed / 60)}m`, width)}</Text>
+        ))}
+        {now?.work && <Text> </Text>}
+        {now?.work && <Text color={paper.dim}>next steps</Text>}
+        {(now?.work?.tasks ?? []).filter(t => !t.done).slice(0, 5).map(task => (
+          <Box flexDirection="column">
+            <Text color={paper.ink}>{clip('◇ ' + task.text, width)}</Text>
+            <Box>
+              <Button key={`task-done-${task.id}`} label="done" plain onPress={() => {
+                void repoRoot($).then(root => work($, ['task-toggle', '--root', root, '--id', task.id])).then(() => refresh($))
+              }} />
+              <Text> </Text>
+              <Button key={`task-draft-${task.id}`} label="prepare" plain onPress={() => {
+                void repoRoot($).then(root => work($, ['open', '--root', root, '--action', 'tasks', '--id', task.id]))
+              }} />
+            </Box>
+          </Box>
+        ))}
+        {now?.work && <Input key="work-next-step" placeholder="pin a next step" submitLabel="pin" onSubmit={value => {
+          void repoRoot($).then(root => work($, ['task-add', '--root', root, '--text', value])).then(() => refresh($))
+        }} />}
         <Text> </Text>
         <Text color={paper.dim}>{files.length === 0 ? 'no pages touched' : files.length === 1 ? '1 page touched' : `${files.length} pages touched`}</Text>
         {files.slice(0, room).map(file => {

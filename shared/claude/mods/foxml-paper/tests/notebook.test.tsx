@@ -50,7 +50,7 @@ function fakeFs(on: On, files: Record<string, string>) {
 }
 
 // Nothing sits beneath the plugin in a test: these stand for the engine and the machine.
-function engine(on: On, options: { runtime?: string; state?: string; clock?: boolean; files?: Record<string, string> } = {}) {
+function engine(on: On, options: { runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown } = {}) {
   seen.argv = []; seen.sent = []; seen.toasts = []; seen.submitted = []
   on('session.receive', (_, e) => ({ text: e.text }))
   on('session.send', (_, e) => { seen.sent.push({ to: e.to, text: e.text }); return { isDelivered: true } })
@@ -67,6 +67,7 @@ function engine(on: On, options: { runtime?: string; state?: string; clock?: boo
   on('process.run', (_, e) => {
     const argv = e.argv.join(' ')
     seen.argv.push(argv)
+    if (argv.startsWith('fox-work notebook') && options.projectWork) return { value: done(JSON.stringify(options.projectWork)) }
     if (argv === 'sh -c printf %s "$XDG_RUNTIME_DIR"' && options.runtime) return { value: done(options.runtime) }
     if (argv.startsWith('sh -c printf %s "${XDG_STATE_HOME') && options.state) return { value: done(options.state) }
     if (argv.startsWith('rm -f -- ') && options.files) { delete options.files[e.argv[3] ?? '']; return { value: done('') } }
@@ -110,6 +111,23 @@ test('the notebook shows the hearts, the session name and the pages touched', as
     expect((await ui.find({ type: 'Text', text: /⎇/ }))?.text).toBe('⎇ main')
     await ui.unmount()
   }
+})
+
+test('test failures open their quickfix location, and next steps prepare a draft without sending it', async ($, on) => {
+  engine(on, { projectWork: {
+    tests: { id: 'a'.repeat(32), state: 'failed', stale: true, tests: { passed: 128, failed: 2, failures: [{ filename: '/code/paper/test.cpp', lnum: 12, text: 'failed' }] } },
+    jobs: [], tasks: [{ id: 'next', text: 'rerun the sanitizer', done: false }],
+  } })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /128 passed/ }))?.text).toContain('stale')
+  await ui.press({ key: 'work-failure-0' })
+  expect(seen.argv).toContain(`fox-work open --action tests --id ${'a'.repeat(32)} --index 1`)
+  await ui.press({ key: 'task-draft-next' })
+  expect(seen.argv).toContain('fox-work open --root /code/paper --action tasks --id next')
+  expect(seen.sent).toEqual([])
+  expect(seen.submitted).toEqual([])
+  await ui.unmount()
 })
 
 test('a privileged edit of login or boot raises the red-zone band, and the next prompt clears it', async ($, on) => {

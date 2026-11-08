@@ -47,6 +47,11 @@ std::vector<std::string> tail_log(std::size_t lines);
 int run(std::initializer_list<const char*> argv);
 int run(const std::vector<std::string>& argv);
 
+// Stream stdout/stderr to their original descriptors and a private, bounded combined log.
+// Used by the job supervisor; returns 128+signal for a signalled child.
+int run_logged(const std::vector<std::string>& argv, const std::filesystem::path& log,
+               std::size_t limit, bool& truncated);
+
 // Runs argv, capturing stdout. Returns true on exit code 0.
 bool capture(const std::vector<std::string>& argv, std::string& out);
 

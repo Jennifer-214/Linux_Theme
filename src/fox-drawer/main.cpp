@@ -99,7 +99,7 @@ fs::path repository() {
 const std::set<std::string> pages = {
     "apps", "windows", "audio-outputs", "wifi", "bluetooth", "tools", "cheatsheet", "sandbox", "clipboard-text", "clipboard-images",
     "wallpapers", "themes", "power", "updates", "agents", "projects", "bookmarks", "library", "downloads", "screenshots", "passwords", "garden",
-    "models", "storage", "backups", "startup"
+    "models", "storage", "backups", "startup", "jobs", "test-results", "reviews", "worktrees", "next-steps", "failures"
 };
 const std::set<std::string> actions = {
     "volume", "volume-mute", "mic-mute", "media-play-pause", "media-next", "media-previous", "brightness",
@@ -108,7 +108,8 @@ const std::set<std::string> actions = {
     "security", "cleanup", "agent-triage", "agent-jump", "agent-clear", "claude-jump", "app-launch", "window-focus", "audio-output", "wifi-connect",
     "wifi-toggle", "bluetooth-connect", "bluetooth-toggle", "bluetooth-scan", "bluetooth-service", "tool-run", "cheatsheet-copy", "sandbox-launch", "clipboard-restore", "wallpaper-set", "theme-set", "project-open", "project-terminal", "project-bookmark", "drive-open", "drive-eject", "download-open", "download-folder", "screenshot-open", "screenshot-copy", "screenshot-folder", "screenshot-capture", "password-copy", "tools", "cheatsheet", "sandbox",
     "model-agent", "model-remove", "storage-scan", "storage-open", "storage-clean-packages", "storage-trim-journal", "storage-flatpak-unused",
-    "storage-empty-trash", "storage-hidden", "backup-restore", "backup-open", "backup-prune", "startup-user", "startup-autostart"
+    "storage-empty-trash", "storage-hidden", "backup-restore", "backup-open", "backup-prune", "startup-user", "startup-autostart",
+    "work-open", "work-jump", "work-tests", "work-compare", "work-ask", "work-reviews", "work-tasks", "work-task-toggle", "work-task-draft", "worktree-open", "worktree-terminal", "project-worktrees", "service-log", "service-ask"
 };
 // The drawer loads one page at a time, so a page read that waits on a dead service holds every other page behind it.
 int read_limit_seconds = 0;
@@ -855,7 +856,7 @@ Json jump_agent(const std::string& key) {
 // <id>.json is the status line's latest look (model, context, plan usage, pane), <id>.state the hooks' word on
 // what it is doing. A session counts while its tmux pane still runs something other than a shell, for twelve hours.
 struct ClaudeSession {
-    std::string id, project, title, model, state, detail, pane;
+    std::string id, project, title, model, state, detail, pane, root;
     int context = -1;
     // Claude Code's own title for the session when it has given one, else the folder.
     std::string name() const { return title.empty() ? project : title; }
@@ -914,6 +915,7 @@ std::vector<ClaudeSession> claude_sessions(ClaudeUsage& usage) {
             if (place.empty()) place = candidate;
         while (place.size() > 1 && place.back() == '/') place.pop_back();
         session.project = place.empty() ? "Claude" : place == home() ? "home" : fs::path(place).filename().string();
+        session.root = place;
         session.model = text(look, "model", "Claude");
         session.context = whole(look, "context");
         session.state = text(word, "state", "waiting");
@@ -1282,9 +1284,127 @@ Json project_card(const Project& project, bool pinned) {
     const auto badges = git_badges(project.path);
     auto row = item("project-open", project.name, "action", project.type + " · " + location + (badges.empty() ? "" : " · " + badges), "▤");
     if (!badges.empty()) row["git"] = badges;
+    static const auto sessions = [] { ClaudeUsage usage; return claude_sessions(usage); }();
+    int open = 0;
+    for (const auto& s : sessions) if (s.root == project.path.string() || s.root.rfind(project.path.string() + "/", 0) == 0) ++open;
+    if (open > 1) row["detail"] = text(row, "detail") + " · also open in " + std::to_string(open) + " sessions";
     row["argument"] = project.path.string(); row["close"] = true;
     row["presentation"] = "project"; row["bookmarked"] = pinned;
     return row;
+}
+
+Json work_data(const Json& config, bool fresh = false) {
+    if (!sh::have("fox-work")) return Json();
+    Args args{"fox-work", "overview"};
+    if (fresh) { args.push_back("--fresh"); args.push_back("yes"); }
+    for (const auto& project : projects(config)) {
+        if (args.size() > 130) break;
+        if (!directory(project.path / ".git") && !regular(project.path / ".git")) continue;
+        args.push_back("--root"); args.push_back(project.path.string());
+    }
+    Json data;
+    return capture_json(args, data) && data.is_object() ? data : Json();
+}
+std::string work_age(long long seconds) {
+    return seconds < 60 ? std::to_string(std::max(0LL, seconds)) + "s" : seconds < 3600 ? std::to_string(seconds / 60) + "m" : std::to_string(seconds / 3600) + "h " + std::to_string(seconds % 3600 / 60) + "m";
+}
+Json work_row(const std::string& action, const std::string& label, const std::string& argument, const std::string& detail = {}) {
+    auto row = item(action, label, "action", detail, "✎"); row["argument"] = argument; row["close"] = true; return row;
+}
+bool work_project(const Json& config, const std::string& path) {
+    for (const auto& p : projects(config)) if (p.path.string() == path) return true;
+    return false;
+}
+void work_rows(const Json& config, const std::string& page, Json& rows) {
+    const auto data = work_data(config, page == "test-results");
+    if (!data.is_object()) {
+        auto row = item("work-open", "Work records are unavailable", "action", "Install fox-work to track jobs and test results", "info");
+        row["enabled"] = false; rows.push_back(row); return;
+    }
+    if (page == "reviews") {
+        for (const auto& r : data.value("reviews", Json::array()))
+            rows.push_back(work_row("work-reviews", text(r, "subject"), Json{{"root", text(r, "root")}, {"id", text(r, "sha")}}.dump(),
+                                    fs::path(text(r, "root")).filename().string() + " · " + text(r, "sha").substr(0, 7) + " · opens in Neovim"));
+        return;
+    }
+    if (page == "next-steps") {
+        for (const auto& t : data.value("tasks", Json::array())) {
+            const auto arg = Json{{"root", text(t, "root")}, {"id", text(t, "id")}}.dump();
+            rows.push_back(work_row("work-task-draft", "◇ " + text(t, "text"), arg, fs::path(text(t, "root")).filename().string() + " · prepare a note; you choose whether to send it"));
+            auto done = work_row("work-task-toggle", "  Mark done", arg); done["close"] = false; rows.push_back(done);
+        }
+        for (const auto& p : projects(config)) rows.push_back(work_row("work-tasks", "Pin a next step · " + p.name, p.path.string(), "Add or reopen a step in Neovim"));
+        return;
+    }
+    int shown = 0;
+    for (const auto& j : data.value("jobs", Json::array())) {
+        const auto state = text(j, "state");
+        if (page == "test-results" && !truth(j, "testRun")) continue;
+        if (page == "failures" && state != "failed" && state != "interrupted") continue;
+        if (++shown > 24) break;
+        const auto id = text(j, "id");
+        std::string detail = fs::path(text(j, "root")).filename().string() + " · " + state + " · " + work_age(stamp(j, "elapsed"));
+        if (state != "running") detail += j.contains("exit") ? " · exit " + std::to_string(whole(j, "exit")) : " · exit unknown";
+        else detail += " · last output " + work_age(static_cast<long long>(std::time(nullptr)) - stamp(j, "activity")) + " ago";
+        const auto test = j.find("tests");
+        if (test != j.end() && test->is_object()) {
+            const auto passed = whole(*test, "passed"), failed = whole(*test, "failed");
+            if (passed >= 0) detail += " · ✓ " + std::to_string(passed) + " passed";
+            if (failed >= 0) detail += " · " + std::to_string(failed) + " failed";
+            if (truth(j, "stale")) detail += " · stale";
+        }
+        if (truth(j, "observed")) detail += " · status only; fjob captures output";
+        rows.push_back(work_row(page == "test-results" ? "work-tests" : "work-open", text(j, "command"), id, detail));
+        if (!text(j, "pane").empty()) rows.push_back(work_row("work-jump", "  Jump to terminal", text(j, "pane")));
+        if (truth(j, "testRun")) rows.push_back(work_row("work-compare", "  What changed since it last passed?", id));
+        if (state == "failed" || state == "interrupted") rows.push_back(work_row("work-ask", "  Ask Claude…", id, "Review the error excerpt, then choose a session"));
+    }
+    if (page == "failures") {
+        std::string failed;
+        if (capture({"systemctl", "--user", "--failed", "--no-legend", "--plain", "--type=service"}, failed))
+            for (const auto& line : lines(failed)) {
+                std::istringstream fields(line); std::string unit; fields >> unit;
+                if (!std::regex_match(unit, std::regex("[A-Za-z0-9_.@:-]{1,200}\\.service"))) continue;
+                rows.push_back(work_row("service-log", unit, unit, "Failed user service · open its recent journal"));
+                rows.push_back(work_row("service-ask", "  Ask Claude…", unit, "Review the journal excerpt before sending"));
+            }
+    }
+}
+void worktree_rows(const Json& config, const std::string& scope, Json& rows) {
+    std::set<std::string> seen;
+    for (const auto& p : projects(config)) {
+        if (!scope.empty() && p.path.string() != scope) continue;
+        Json trees;
+        if (!capture_json({"fox-work", "worktrees", "--root", p.path.string()}, trees) || !trees.is_array()) continue;
+        for (const auto& tree : trees) {
+            const auto path = text(tree, "path"); if (!seen.insert(path).second) continue;
+            const auto status = lines(text(tree, "status"));
+            const auto changed = status.size() > 1 ? status.size() - 1 : 0;
+            std::string detail = path + " · " + (status.empty() ? "status unavailable" : changed ? std::to_string(changed) + " changed or untracked" : "clean");
+            if (!status.empty()) {
+                std::smatch ahead;
+                if (std::regex_search(status[0], ahead, std::regex("\\[ahead ([0-9]+)"))) detail += " · ↑" + ahead[1].str() + " unpushed";
+            }
+            const auto peers = tree.value("sessions", Json::array());
+            if (peers.size() > 1) detail += " · also open in " + std::to_string(peers.size()) + " sessions";
+            for (const auto& peer : peers) detail += " · " + text(peer, "name") + " (" + text(peer, "state") + ")";
+            auto row = work_row("worktree-open", p.name + " · " + text(tree, "branch"), path, detail);
+            row["enabled"] = directory(path) && !truth(tree, "bare"); rows.push_back(row);
+            rows.push_back(work_row("worktree-terminal", "  Open terminal here", path));
+            for (const auto& peer : peers) if (!text(peer, "pane").empty())
+                rows.push_back(work_row("work-jump", "  Go to " + text(peer, "name"), text(peer, "pane")));
+        }
+    }
+}
+bool known_worktree(const Json& config, const std::string& path) {
+    if (!fs::path(path).is_absolute()) return false;
+    for (const auto& p : projects(config)) {
+        std::string paths;
+        if (!capture({"git", "--no-optional-locks", "-C", p.path.string(), "worktree", "list", "--porcelain", "-z"}, paths)) continue;
+        std::istringstream in(paths); std::string line;
+        while (std::getline(in, line, '\0')) if (line == "worktree " + path) return directory(path);
+    }
+    return false;
 }
 
 struct Volume { std::string path, disk, label, mount; uint64_t size = 0; };
@@ -1608,7 +1728,7 @@ Json commit_year(const Json& config) {
 }
 
 // What the Today sheet adds to the group summaries: the battery, agent notes and the next thing on ~/.todo.
-Json today_summary() {
+Json today_summary(const Json& config) {
     const auto notes = agent_notes();
     Json today{{"notes", notes.size()}, {"todo", ""}, {"waiting", Json::array()}};
     // An agent is waiting when its pane's newest note says its turn ended or it asked for something.
@@ -1639,6 +1759,14 @@ Json today_summary() {
     // The teacup: how much of the week is left, or -1 when there is no reading.
     today["claudeWeekLeft"] = usage.week >= 0 ? std::max(0, 100 - usage.week) : -1;
     today["claudeBerry"] = usage.five >= 80 || usage.week >= 80;
+    const auto work = work_data(config);
+    if (work.is_object()) {
+        today["jobsRunning"] = whole(work, "running"); today["jobsFinished"] = whole(work, "finished");
+        today["jobsFailed"] = whole(work, "failed");
+        today["changesToReview"] = work.value("reviews", Json::array()).size();
+        today["nextSteps"] = work.value("tasks", Json::array()).size();
+        if (!work.value("tasks", Json::array()).empty()) today["nextStep"] = text(work["tasks"][0], "text");
+    }
     for (const auto& line : lines(read(fs::path(home()) / ".todo"))) if (!trim(line).empty()) { today["todo"] = trim(line); break; }
     std::error_code ec;
     for (const auto& entry : fs::directory_iterator("/sys/class/power_supply", ec)) {
@@ -2077,7 +2205,7 @@ Json startup_autostart_hide(const std::string& name, bool confirmed) {
     return write_atomic(mine, text) ? result(true, name + " won't start next time") : result(false, "Could not write " + mine.string());
 }
 
-Json view(const Json& config, const std::string& page, const std::string& query) {
+Json view(const Json& config, const std::string& page, const std::string& query, const std::string& project_scope = {}) {
     Json out{{"id", page}, {"title", page}, {"items", Json::array()}, {"ok", true}, {"group", group_for(config, page)}};
     auto& rows = out["items"];
     auto fail = [&](const std::string& message) { out["ok"] = false; out["error"] = message; };
@@ -2088,7 +2216,7 @@ Json view(const Json& config, const std::string& page, const std::string& query)
         std::strftime(date, sizeof date, "%a, %b ", local);
         auto home_row = item("today", "Today", "page", "A look at your day", "today");
         home_row["page"] = "root"; home_row["summary"] = date + std::to_string(local->tm_mday); rows.push_back(home_row);
-        out["today"] = today_summary();
+        out["today"] = today_summary(config);
         for (const auto& group : config["groups"]) {
             auto row = item(text(group, "id"), text(group, "label"), "page", text(group, "description"), text(group, "icon"));
             row["summary"] = group_summary(text(group, "id"));
@@ -2138,7 +2266,15 @@ Json view(const Json& config, const std::string& page, const std::string& query)
             rows.push_back(row);
         }
     }
-    if (page == "projects" || page == "bookmarks") {
+    if (page == "jobs" || page == "test-results" || page == "reviews" || page == "next-steps" || page == "failures") {
+        known = true;
+        out["title"] = page == "jobs" ? "Jobs" : page == "test-results" ? "Test results" : page == "reviews" ? "Changes to look over" : page == "next-steps" ? "Pinned next steps" : "Failures";
+        work_rows(config, page, rows);
+    } else if (page == "worktrees") {
+        known = true; out["title"] = "Worktree map";
+        if (!project_scope.empty() && !work_project(config, project_scope)) fail("This project is no longer in your index cards");
+        else worktree_rows(config, project_scope, rows);
+    } else if (page == "projects" || page == "bookmarks") {
         known = true; out["title"] = page == "bookmarks" ? "Bookmarks" : "Project index cards";
         std::vector<std::string> pinned;
         if (!bookmarks(pinned)) fail("Bookmarks could not be read");
@@ -2347,12 +2483,28 @@ Json view(const Json& config, const std::string& page, const std::string& query)
         known = true; out["title"] = "Agent notes";
         // Each live Claude session first, with how full its context is; picking one goes to its pane.
         ClaudeUsage usage;
+        Json activities;
+        if (sh::have("fox-work")) capture_json({"fox-work", "activities"}, activities);
         for (const auto& session : claude_sessions(usage)) {
             const auto measured = session.context >= 0 ? std::to_string(session.context) + "% of its context" : "context not measured yet";
             auto row = item("claude-jump", session.name() + " · " + session.model, "action",
                             session.title.empty() ? measured : session.project + " · " + measured, "message");
             row["argument"] = session.pane; row["presentation"] = "claude"; row["claudeState"] = claude_state_text(session);
             row["context"] = session.context; row["fresh"] = session.fresh; row["enabled"] = !session.pane.empty();
+            row["lastActivity"] = session.epoch;
+            if (activities.is_object() && activities.contains(session.id) && activities[session.id].is_object()) {
+                const auto& a = activities[session.id];
+                const auto last = stamp(a, "at");
+                const bool active = truth(a, "active") && claude_busy(session);
+                row["currentTask"] = session.state == "needs" ? "waiting for your answer" : text(a, "text");
+                row["taskStarted"] = stamp(a, "started"); row["lastActivity"] = last;
+                row["detail"] = text(row, "detail") + " · " + (active ? "" : "last: ") + text(row, "currentTask")
+                    + " · " + work_age(static_cast<long long>(std::time(nullptr)) - (active ? stamp(a, "started") : last))
+                    + (active ? " elapsed" : " ago");
+            } else if (session.state == "needs") {
+                row["detail"] = text(row, "detail") + " · waiting for your answer";
+            }
+            row["detail"] = text(row, "detail") + " · last activity " + work_age(static_cast<long long>(std::time(nullptr)) - stamp(row, "lastActivity")) + " ago";
             if (session.pane.empty()) row["disabledReason"] = "Not in a tmux pane, so there is nowhere to jump";
             rows.push_back(row);
         }
@@ -2381,6 +2533,35 @@ Json view(const Json& config, const std::string& page, const std::string& query)
 Json run_action(const Json& config, const std::string& id, const std::string& arg, bool confirmed) {
     if (!actions.count(id)) return result(false, "Unknown drawer action");
     if (!safe_text(arg)) return result(false, "Invalid action argument");
+    if (id == "work-jump") return jump_claude(arg);
+    if (id == "project-worktrees") {
+        if (!work_project(config, arg)) return result(false, "Project is no longer in your configured project roots");
+        auto out = result(true, "Worktrees opened"); out["page"] = "worktrees"; out["project"] = arg; return out;
+    }
+    if (id == "worktree-open" || id == "worktree-terminal") {
+        if (!known_worktree(config, arg)) return result(false, "This worktree is no longer available");
+        if (id == "worktree-terminal") return launch({"kitty", "--directory", arg}, "Worktree terminal opened");
+        if (config.contains("project_editor")) { auto editor = config["project_editor"].get<Args>(); editor.push_back(arg); return launch(editor, "Worktree opened"); }
+        return sh::have("cursor") ? launch({"cursor", arg}, "Worktree opened") : terminal({"nvim", arg}, "Worktree opened");
+    }
+    if (id == "work-tasks") {
+        if (!work_project(config, arg)) return result(false, "Project is no longer in your configured project roots");
+        return launch({"fox-work", "open", "--action", "tasks", "--root", arg}, "Project next steps opened");
+    }
+    if (id == "work-reviews" || id == "work-task-toggle" || id == "work-task-draft") {
+        const auto value = Json::parse(arg, nullptr, false);
+        if (!value.is_object() || !work_project(config, text(value, "root"))) return result(false, "This project is no longer in your index cards");
+        if (id == "work-task-toggle") return command({"fox-work", "task-toggle", "--root", text(value, "root"), "--id", text(value, "id")}, "Next step updated");
+        return launch({"fox-work", "open", "--action", id == "work-reviews" ? "reviews" : "tasks", "--root", text(value, "root"), "--id", text(value, "id")}, "Opened in Neovim");
+    }
+    if (id == "work-open" || id == "work-tests" || id == "work-compare" || id == "work-ask") {
+        if (!std::regex_match(arg, std::regex("[a-f0-9]{32}"))) return result(false, "Invalid job record");
+        return launch({"fox-work", "open", "--action", id == "work-open" ? "log" : id == "work-tests" ? "tests" : id == "work-compare" ? "compare" : "ask", "--id", arg}, "Opened in Neovim");
+    }
+    if (id == "service-log" || id == "service-ask") {
+        if (!std::regex_match(arg, std::regex("[A-Za-z0-9_.@:-]{1,200}\\.service"))) return result(false, "Invalid service unit");
+        return launch({"fox-work", "open", "--action", id == "service-log" ? "service" : "ask-service", "--id", arg}, "Service journal opened");
+    }
     if (id == "agent-clear") {
         if (arg != "--confirm") return result(false, "Confirmation required");
         const bool cleared = dismiss_agent({}, true);
@@ -2671,9 +2852,11 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
 int main(int argc, char** argv) {
     try {
         fs::path config_path = config_home() / "quickshell/foxml/menus.json";
+        std::string project_scope;
         Args args;
         for (int i = 1; i < argc; ++i) {
             if (std::string(argv[i]) == "--config" && i + 1 < argc) config_path = argv[++i];
+            else if (std::string(argv[i]) == "--project" && i + 1 < argc) project_scope = argv[++i];
             else args.emplace_back(argv[i]);
         }
         if (!args.empty() && args[0] == "pick") return pick(args);
@@ -2735,7 +2918,7 @@ int main(int argc, char** argv) {
         const auto argument = args.size() >= 3 ? args[2] : "";
         if (!safe_text(argument)) { std::cout << result(false, "Invalid argument").dump() << '\n'; return 1; }
         if (args[0] == "view") read_limit_seconds = 4;
-        const Json response = args[0] == "view" ? view(config, args[1], argument) : run_action(config, args[1], argument, args.size() == 4);
+        const Json response = args[0] == "view" ? view(config, args[1], argument, project_scope) : run_action(config, args[1], argument, args.size() == 4);
         std::cout << response.dump(-1, ' ', false, Json::error_handler_t::replace) << '\n';
         return truth(response, "ok") ? 0 : 1;
     } catch (const std::exception&) {

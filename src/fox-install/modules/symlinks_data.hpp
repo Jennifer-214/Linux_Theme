@@ -140,6 +140,7 @@ inline constexpr Mapping SHARED_MAPPINGS[] = {
     { "nvim_lazy-lock.json",          "~/.config/nvim/lazy-lock.json" },
     { "nvim_ftplugin/cpp.lua",        "~/.config/nvim/ftplugin/cpp.lua" },
     { "nvim_lua/foxml/claude.lua",    "~/.config/nvim/lua/foxml/claude.lua" },
+    { "nvim_lua/foxml/work.lua",      "~/.config/nvim/lua/foxml/work.lua" },
 
     // Rofi config
     { "rofi_config.rasi",             "~/.config/rofi/config.rasi" },
@@ -150,6 +151,7 @@ inline constexpr Mapping SHARED_MAPPINGS[] = {
     { "zsh_paths.zsh",                "~/.config/zsh/paths.zsh" },
     { "zsh_conda.zsh",                "~/.config/zsh/conda.zsh" },
     { "zsh_history_scrub.zsh",        "~/.config/zsh/history-scrub.zsh" },
+    { "zsh_work.zsh",                 "~/.config/zsh/work.zsh" },
 
     // User-facing fox-* shell wrappers. Compiled tools (fox-ai-swap, fask, findex, …)
     // are NOT shipped here: `make install` (install.sh) builds them from src/ — a copied
@@ -193,6 +195,7 @@ inline constexpr Mapping SHARED_MAPPINGS[] = {
     { "claude/mods/foxml-paper/hooks/hooks.json",   "~/.claude/mods/foxml-paper/hooks/hooks.json" },
     { "claude/mods/foxml-paper/hooks/register.tsx", "~/.claude/mods/foxml-paper/hooks/register.tsx" },
     { "claude/mods/foxml-paper/hooks/ledger.ts",    "~/.claude/mods/foxml-paper/hooks/ledger.ts" },
+    { "claude/mods/foxml-paper/hooks/work.ts",      "~/.claude/mods/foxml-paper/hooks/work.ts" },
     { "claude/mods/foxml-paper/types/index.d.ts",   "~/.claude/mods/foxml-paper/types/index.d.ts" },
     // /goodnight: a where-we-left-off note, what is uncommitted, then the goodnight Power page.
     { "claude/commands/goodnight.md",               "~/.claude/commands/goodnight.md" },

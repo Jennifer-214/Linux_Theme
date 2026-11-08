@@ -7,6 +7,7 @@ FOX_SUBCMD( init,            fox-init,            "One-touch project onboarding"
 // — Build / verify —
 FOX_SUBCMD( build-verify,    fox-build-verify,    "Reproducible-build helper for foxml C++ projects" )
 FOX_SUBCMD( test,            fox-test,            "Health gate for a FoxML checkout" )
+FOX_SUBCMD( work,            fox-work,            "Jobs, test failures, reviews and project next steps" )
 
 // — Code / repo introspection —
 FOX_SUBCMD( word-count,      fox-word-count,      "Word count utility for the current workspace" )

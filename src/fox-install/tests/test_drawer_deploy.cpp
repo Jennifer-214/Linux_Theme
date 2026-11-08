@@ -80,6 +80,7 @@ int main() {
     const std::string path = (root / "bin").string() + ":" + original_path;
     ::setenv("PATH", path.c_str(), 1);
     put(ctx.script_dir / "src/fox-drawer/fox-drawer", "new backend", true);
+    put(ctx.script_dir / "src/fox-work/fox-work", "new work tracker", true);
     put(ctx.script_dir / "src/fox-render/fox-render-fast",
         "#!/bin/sh\nmkdir -p \"$3\"\nprintf 'rendered palette\\n' > \"$3/Theme.qml\"\nprintf 'new pencil icon\\n' > \"$3/paper-icon.svg\"\n", true);
     put(ctx.script_dir / "src/fox-mako/Makefile", "all:\n");

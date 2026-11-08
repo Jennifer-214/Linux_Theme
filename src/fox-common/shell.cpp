@@ -7,6 +7,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <csignal>
+#include <poll.h>
+#include <sys/stat.h>
 #include <fcntl.h>
 #include <fstream>
 #include <sys/wait.h>
@@ -18,6 +21,8 @@ namespace {
 
 bool g_dry_run = false;
 std::filesystem::path g_stderr_log;
+volatile std::sig_atomic_t logged_child = 0;
+void forward_logged_signal(int signal) { if (logged_child > 0) ::kill(logged_child, signal); }
 
 // Open the configured stderr log for append. Returns -1 if unset or
 // the open fails (which we treat as "fall through to terminal stderr"
@@ -175,6 +180,71 @@ int probe(const std::vector<std::string>& argv, std::string& out) {
 
 bool capture(const std::vector<std::string>& argv, std::string& out) {
     return probe(argv, out) == 0;
+}
+
+int run_logged(const std::vector<std::string>& argv, const std::filesystem::path& log,
+               std::size_t limit, bool& truncated) {
+    truncated = false;
+    if (argv.empty()) return 127;
+    if (g_dry_run) return run(argv);
+    const int fd = ::open(log.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+    int out[2], err[2];
+    if (fd < 0) return -1;
+    if (::pipe2(out, O_CLOEXEC) < 0) { ::close(fd); return -1; }
+    if (::pipe2(err, O_CLOEXEC) < 0) { ::close(fd); ::close(out[0]); ::close(out[1]); return -1; }
+    const auto old_int = std::signal(SIGINT, forward_logged_signal);
+    const auto old_term = std::signal(SIGTERM, forward_logged_signal);
+    const auto old_pipe = std::signal(SIGPIPE, SIG_IGN);
+    const pid_t pid = ::fork();
+    if (pid == 0) {
+        std::signal(SIGINT, SIG_DFL); std::signal(SIGTERM, SIG_DFL);
+        std::signal(SIGPIPE, SIG_DFL);
+        ::dup2(out[1], STDOUT_FILENO); ::dup2(err[1], STDERR_FILENO);
+        ::close(out[0]); ::close(out[1]); ::close(err[0]); ::close(err[1]); ::close(fd);
+        std::vector<char*> args;
+        for (const auto& a : argv) args.push_back(const_cast<char*>(a.c_str()));
+        args.push_back(nullptr);
+        ::execvp(args[0], args.data()); ::_exit(127);
+    }
+    ::close(out[1]); ::close(err[1]);
+    if (pid < 0) {
+        ::close(out[0]); ::close(err[0]); ::close(fd);
+        std::signal(SIGINT, old_int); std::signal(SIGTERM, old_term); std::signal(SIGPIPE, old_pipe); return -1;
+    }
+    logged_child = pid;
+    pollfd streams[2] = {{out[0], POLLIN, 0}, {err[0], POLLIN, 0}};
+    int status = 0, remaining = 2;
+    bool ended = false;
+    std::string tail;
+    const auto write_all = [](int dest, const char* data, size_t n) {
+        while (n) { const auto w = ::write(dest, data, n); if (w < 0 && errno == EINTR) continue;
+            if (w <= 0) break;
+            data += w; n -= static_cast<size_t>(w); }
+    };
+    while (remaining) {
+        const int ready = ::poll(streams, 2, 100);
+        if (ready < 0 && errno != EINTR) break;
+        for (int i = 0; i < 2; ++i) if (streams[i].fd >= 0 && streams[i].revents) {
+            char buf[8192]; const auto n = ::read(streams[i].fd, buf, sizeof buf);
+            if (n > 0) {
+                write_all(i == 0 ? STDOUT_FILENO : STDERR_FILENO, buf, static_cast<size_t>(n));
+                tail.append(buf, static_cast<size_t>(n));
+                if (tail.size() > limit) { tail.erase(0, tail.size() - limit); truncated = true; }
+                if (!truncated) write_all(fd, buf, static_cast<size_t>(n));
+                else ::futimens(fd, nullptr);
+            } else if (n == 0 || errno != EINTR) { ::close(streams[i].fd); streams[i].fd = -1; --remaining; }
+        }
+        if (!ended) ended = ::waitpid(pid, &status, WNOHANG) == pid;
+        // A daemon may inherit a pipe; it must not keep a completed command's supervisor alive.
+        if (ended && ready == 0) break;
+    }
+    for (auto& stream : streams) if (stream.fd >= 0) ::close(stream.fd);
+    if (!ended) while (::waitpid(pid, &status, 0) < 0) if (errno != EINTR) { status = 0; break; }
+    if (truncated) { ::ftruncate(fd, 0); ::lseek(fd, 0, SEEK_SET); write_all(fd, tail.data(), tail.size()); }
+    ::close(fd);
+    logged_child = 0;
+    std::signal(SIGINT, old_int); std::signal(SIGTERM, old_term); std::signal(SIGPIPE, old_pipe);
+    return WIFEXITED(status) ? WEXITSTATUS(status) : WIFSIGNALED(status) ? 128 + WTERMSIG(status) : -1;
 }
 
 bool write_root_atomic(const std::filesystem::path& dst,

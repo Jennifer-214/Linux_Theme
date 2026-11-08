@@ -224,7 +224,7 @@ class BackendTests(unittest.TestCase):
             "wpctl", "brightnessctl", "hyprctl", "pactl", "nmcli", "bluetoothctl", "cliphist", "wl-copy",
             "gio", "setsid", "kitty", "sudo", "bash", "systemctl", "loginctl", "pkill", "pgrep", "hyprsunset", "makoctl",
             "dunstctl", "powerprofilesctl", "playerctl", "hyprpicker", "awww", "notify-send", "tmux", "fox-hl", "pass", "fox-password-copy", "quickshell", "fox-desktop-menu",
-            "checkupdates", "informant", "fox-wallpaper", "fox-lock", "fox-clean", "fox", "hypridle", "lsblk", "udisksctl", "xdg-open", "xdg-user-dir",
+            "checkupdates", "informant", "fox-wallpaper", "fox-lock", "fox-clean", "fox", "hypridle", "lsblk", "udisksctl", "xdg-open", "xdg-user-dir", "fox-work",
         ):
             fake = self.bin / name
             fake.write_text(f"#!{sys.executable}\n" + FAKE_COMMAND)
@@ -254,6 +254,38 @@ class BackendTests(unittest.TestCase):
 
     def calls(self):
         return [json.loads(line) for line in self.calls_path.read_text().splitlines()] if self.calls_path.exists() else []
+
+    def test_jobs_results_review_tray_and_next_steps_share_work_records(self):
+        job = dict(id='a'*32, command='make test', root='/code/paper', state='failed', elapsed=63,
+                   activity=int(time.time()), exit=1, pane='%4', testRun=True, stale=True,
+                   tests=dict(passed=128, failed=2, failures=[]))
+        overview = dict(jobs=[job], running=0, finished=1, failed=1, reviews=[], tasks=[dict(id='b'*32, root='/code/paper', text='rerun the sanitizer')])
+        self.state={'commands':{'fox-work':{'stdout':json.dumps(overview)}}}
+        rows=self.invoke('view','jobs')['items']
+        self.assertEqual([r['id'] for r in rows],['work-open','work-jump','work-compare','work-ask'])
+        self.assertIn('128 passed',rows[0]['detail'])
+        self.assertIn('exit 1',rows[0]['detail'])
+        results=self.invoke('view','test-results')['items']
+        self.assertEqual(results[0]['id'],'work-tests')
+        self.assertIn('stale',results[0]['detail'])
+        today=self.invoke('view','root')['today']
+        self.assertEqual((today['jobsFinished'],today['jobsFailed'],today['nextStep']),(1,1,'rerun the sanitizer'))
+        steps=self.invoke('view','next-steps')['items']
+        self.assertEqual([r['id'] for r in steps],['work-task-draft','work-task-toggle'])
+        self.assertFalse(steps[1]['close'])
+        self.invoke('run','work-ask','a'*32)
+        self.assertEqual(self.calls()[-1],['setsid','-f','fox-work','open','--action','ask','--id','a'*32])
+        self.invoke('run','work-open','../../bad',expect=1)
+        self.assertNotIn(['setsid','-f','fox-work','open','--action','log','--id','../../bad'],self.calls())
+
+    def test_failed_user_services_offer_logs_and_a_draft_without_restarting(self):
+        self.state={'commands':{'fox-work':{'stdout':json.dumps(dict(jobs=[],reviews=[],tasks=[]))},
+                                'systemctl':{'stdout':'example.service loaded failed failed Example\n'}}}
+        rows=self.invoke('view','failures')['items']
+        self.assertEqual([r['id'] for r in rows],['service-log','service-ask'])
+        self.invoke('run','service-ask','example.service')
+        self.assertEqual(self.calls()[-1],['setsid','-f','fox-work','open','--action','ask-service','--id','example.service'])
+        self.assertFalse(any(c[0]=='systemctl' and 'restart' in c for c in self.calls()))
 
     def test_media_artwork_metadata_and_playback_keep_the_same_action(self):
         self.write_config([dict(id='sound', label='Sound', items=[
@@ -444,7 +476,8 @@ class BackendTests(unittest.TestCase):
         self.assertEqual([(r["label"],r["claudeState"],r["context"],r["argument"],r["enabled"]) for r in rows],
                          [("Linux_Theme · Opus 5.5","working",41,"%3",True),("Ledger tidy · Opus 5.5","needs you",12,"%4",True),
                           ("home · Claude","hit a limit",-1,"",False)])
-        self.assertEqual(rows[1]["detail"],"FoxML_Trader_v2 · 12% of its context","a titled session still names its folder")
+        self.assertTrue(rows[1]["detail"].startswith("FoxML_Trader_v2 · 12% of its context · waiting for your answer"),"a titled session still names its folder and says why it is waiting")
+        self.assertIn("last activity",rows[1]["detail"])
         today=self.invoke("view","root")["today"]
         self.assertEqual((today["claudeWorking"],today["claudeBerry"]),(1,True))
         self.assertRegex(today["claudeUsage"],r"^17% of the week left · refills [a-z]{3}$","Today counts what is left")

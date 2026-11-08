@@ -31,6 +31,13 @@ function todayTags(today, groups) {
     });
     var working = Number(today.claudeWorking || 0);
     add(working ? "✎ " + working + " working" : "", {page: "agents"});
+    var running = Number(today.jobsRunning || 0), finished = Number(today.jobsFinished || 0);
+    add(running || finished ? "◷ " + running + " jobs running · " + finished + " finished" : "", {page: "jobs"});
+    var reviews = Number(today.changesToReview || 0);
+    add(reviews ? reviews + (reviews === 1 ? " change to look over ✿" : " changes to look over ✿") : "", {page: "reviews"});
+    var failed = Number(today.jobsFailed || 0);
+    add(failed ? "! " + failed + (failed === 1 ? " failed job" : " failed jobs") : "", {page: "failures"});
+    add(today.nextStep ? "◇ next: " + today.nextStep : "", {page: "next-steps"});
     var notes = Number(today.notes || 0);
     add(today.battery ? today.battery + (/^(charging|full|not charging)$/.test(today.batteryState || "") ? " · plugged in" : "") : "", {page: "power"});
     add(summary("connections"), {page: "wifi"});
@@ -182,6 +189,9 @@ function paperIcon(item) {
         today:["today","✿"], desk:["desk","✎"], sound:["sound","♫"], connections:["connections","⌁"],
         comfort:["comfort","☾"], system:["system","⚙"], apps:["apps","⌘"],
         projects:["notebook","▤"], bookmarks:["bookmark","◇"], library:["library","▥","▤"],
+        worktrees:["notebook","▥"], jobs:["clock","◷"], "test-results":["notebook","✓"],
+        reviews:["note","✿"], "next-steps":["bookmark","◇"], failures:["note","!"],
+        models:["notebook","◈"], storage:["library","▦"], backups:["refresh","↺"], startup:["play","⏵"],
         downloads:["tray","↧","✉"], screenshots:["picture","▧"], windows:["window","▣"], garden:["garden","❦"],
         "clipboard-text":["clipboard","⌇"], "clipboard-images":["picture","▧"],
         wallpapers:["picture","❀"], themes:["palette","◐"],
@@ -309,7 +319,7 @@ function footerHint(state, item) {
     if (state.focus === "tags") return "Enter opens · h / l choose · j goes to favorites · Esc goes back";
     if (!item) return "h goes back · / searches · Esc goes back";
     if (item.enabled === false) return (item.disabledReason || item.detail || "control unavailable") + " · h goes back · / searches";
-    if (item.presentation === "project") return "Enter opens editor · t terminal · b bookmark · h goes back";
+    if (item.presentation === "project") return "Enter editor · t terminal · w worktrees · n next steps · b bookmark";
     if (item.presentation === "library") return "Enter opens / mounts · e ejects · / filters · h goes back";
     if (item.presentation === "download") return "Enter opens · r opens folder · / filters · h goes back";
     if (item.kind === "toggle") return "Enter / l toggles on or off · j / k move · h goes back";

@@ -15,7 +15,7 @@
 namespace fox_install::menu_upgrade {
 
 // Pages shipped since offers were recorded; a machine without a record is offered only these.
-inline const std::set<std::string> FIRST_OFFER = {"screenshots", "models", "storage", "backups", "startup"};
+inline const std::set<std::string> FIRST_OFFER = {"screenshots", "models", "storage", "backups", "startup", "worktrees", "jobs", "test-results", "reviews", "next-steps", "failures"};
 
 inline std::string field(const nlohmann::json& object, const char* key) {
     if (!object.is_object() || !object.contains(key) || !object[key].is_string()) return {};

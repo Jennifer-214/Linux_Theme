@@ -65,6 +65,7 @@ source "$ZSHCONF/colors.zsh"
 source "$ZSHCONF/aliases.zsh"
 source "$ZSHCONF/git.zsh"
 source "$ZSHCONF/paths.zsh"
+[[ -r "$ZSHCONF/work.zsh" ]] && source "$ZSHCONF/work.zsh"
 source "$ZSHCONF/conda.zsh"
 source "$ZSHCONF/welcome.zsh"
 
