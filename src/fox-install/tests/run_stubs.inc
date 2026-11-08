@@ -64,6 +64,7 @@ void run_models      (Context&) {}
 void run_github      (Context&) {}
 void run_fox_symdeps (Context&) {}
 void run_theme_workspace (Context&) {}
+void run_private_extras  (Context&) {}
 void run_llama_server(Context&) {}
 void run_llama_turbo (Context&) {}
 void run_gaming      (Context&) {}

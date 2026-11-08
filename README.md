@@ -63,8 +63,15 @@ These use your saved theme, or FoxML_Classic on a first install. Add a theme nam
 | `--nvidia` | nvidia-open-dkms + Hyprland on dGPU (Optimus laptops) |
 | `--render` | Apply the theme everywhere: render, deploy, scripts, drawer, cursor and banner, then restart waybar/mako/dunst. Folder colours can need sudo, so it warns and leaves them to `--only papirus_icons` |
 | `--dry-run` | Print every step without executing |
+| `--private-extras` | The repo owner's own extras, from a script in her private `linux-theme-workspace` (off by default) |
 
 The installer exits `0` when everything finished, `1` when a module failed, `2` when a render stopped to protect live edits, and `3` when it finished but a module reported an error.
+
+`--private-extras` runs `~/code/linux-theme-workspace/private-extras.sh` only after checking that the GitHub
+login is the repo owner's, that the checkout is her private `linux-theme-workspace` and GitHub still serves it,
+that the script is the committed one, and that the commit is signed by her key (its fingerprint is pinned in
+`modules/private_extras.hpp`). On anyone else's machine it prints why it did not run and the install goes on,
+finishing with exit `3`.
 
 `--nvidia` requires `systemd-boot`; other bootloaders print manual instructions. Reboot afterwards.
 

@@ -150,6 +150,9 @@ FOX_MODULE( fox_symdeps, run_fox_symdeps,  "--fox-symdeps",  "fox-symdeps.nvim +
 // theme_workspace — Linux_Theme's own .claude/ (plan gate, installer guard, skills) is git-ignored, so a fresh clone
 // lacks it; restored from the private linux-theme-workspace that github (above) clones. Best-effort, no root.
 FOX_MODULE( theme_workspace, run_theme_workspace, "--theme-workspace", "Linux_Theme's Claude wiring — plan gate, installer guard, skills — from your private linux-theme-workspace (best-effort)", true )
+// private_extras — the owner's own extras, from a script in her private linux-theme-workspace. Off by default; it
+// runs only for her (GitHub login, her private repo, a commit signed by her key) and fails alone for anyone else.
+FOX_MODULE( private_extras, run_private_extras, "--private-extras", "Your private extras from linux-theme-workspace (owner only: login, private repo and signed commit checked)", false )
 FOX_MODULE( llama_server, run_llama_server, "--llama-server", "llama.cpp router — the default local model server for pi + opencode (llama-cpp + GPU backend)", false )
 FOX_MODULE( llama_turbo, run_llama_turbo, "--llama-turbo", "TurboQuant llama.cpp fork built from source — second engine for llama-turbo roles", false )
 //   gaming — opt-in Steam + [multilib]. Lifted out of `deps` so the base
