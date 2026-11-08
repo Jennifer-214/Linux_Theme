@@ -6,6 +6,7 @@ export const paper = {
   heart: '#{{GARDEN_3}}',
   berry: '#{{GARDEN_4}}',
   ribbon: '#{{WAYBAR_WS_ACTIVE}}',
-  added: '#{{CLAUDE_DIFF_ADD_WORD}}',
-  removed: '#{{CLAUDE_DIFF_DEL_WORD}}',
+  added: '#{{GREEN}}',
+  removed: '#{{RED}}',
+  selection: '#{{SELECTION}}',
 } as const

@@ -321,12 +321,32 @@ went back to a shell, and anything quiet for twelve hours, are left out.
 
 The installer also adds a Claude Code mod, `~/.claude/mods/foxml-paper`, named in
 `CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json` (beside any folders you
-list there yourself). It only reads, and draws in the palette:
+list there yourself). It draws in the palette and keeps its session records in private runtime and state folders:
 
 - **The notebook**, a pane beside the chat (`/notebook` opens it; it opens by
   itself in a terminal 144 columns or wider): the context hearts, the session's
   title, the plan you last read or wrote under a `plans/` folder, the plan gate,
   and the files changed since the last commit with their `+`/`−` counts.
+  It starts with a compact overview; files, project and sessions have their own
+  pages. `/notebook files`, `/notebook all`, `/notebook project` and
+  `/notebook sessions` open them directly, including in narrow terminals.
+  The file page switches between recorded edits by this session and the whole
+  working tree. Counts are working-tree totals; shared files name the other live
+  sessions that edited them, and changes without a recorded author stay
+  unattributed. Counts align in columns, with readable sage and terracotta ink.
+  Selected rows use blush with dark ink under keyboard focus and pointer hover.
+  Enter or `l` opens a file's diff, and `e` opens the selected file in nvim.
+  In the session view the diff uses a before-copy when the file already had
+  uncommitted edits; other edits made since that copy can still appear.
+  Selection stays in the notebook while an editor window is open.
+  The project page pins an active Markdown plan and its current step for this
+  session, saved across reloads and restarts; reading another plan does not
+  replace the pin. Its test result reports how many captured source files have
+  changed, or says freshness is unknown when the snapshot is incomplete.
+  Tests, failures, changed source files, worktrees and project documents open
+  their corresponding editor view. An overview row leads to failed job logs,
+  unread notes or the session involved in an overlapping edit. Adding a next
+  step opens a field only when asked.
 - **A red-zone band** above the prompt when Claude edits, or runs with `sudo`
   against, PAM, fstab, the greeter, sudoers, the boot loader, the kernel command
   line, sysctl, USBGuard or the firewall: `red zone · /etc/pam.d · brick-safety
@@ -352,8 +372,12 @@ list there yourself). It only reads, and draws in the palette:
   notebook lists only the sessions editing in the same repo.
 - **Envelopes:** a note sent from nvim (`<Space>Cn`, left in
   `$XDG_RUNTIME_DIR/foxml-claude/inbox/<session>/`) or by another Claude shows as `✉ from …` in the notebook,
-  with `✉ 2` beside the hearts while any are unread; `ok` puts one away. A note from nvim goes to Claude as
-  your own words once the session is idle.
+  with `✉ 2` beside the hearts while any are unread. **Mark read** removes one and
+  updates the count; **mark all notes read** clears the current list. Read markers
+  survive plugin reloads, suppressing identical peer retries for 15 minutes; a later
+  identical note can be new. Peer identity uses the full body, so two messages with
+  the same preview stay distinct. A note from nvim goes to Claude as your own words
+  once the session is idle.
 - **For nvim:** the mod keeps what nvim's review needs: each session's full list of edited files and, before its
   first edit of a file that already had uncommitted changes, a copy of that file (`edits/<session>/before/`,
   private, at most 1 MiB, gone when the session ends); the plan the session read last; and, after a Claude
@@ -362,6 +386,9 @@ list there yourself). It only reads, and draws in the palette:
 - **Cards:** another mod can leave a card for a session in
   `$XDG_RUNTIME_DIR/foxml-claude/cards/<session>.json` (`title`, `rows` of `mark`/`text`/`tone`,
   an optional `alert`); the notebook draws it, and its alert takes the band.
+  A row may also carry an `action`: `{kind: "file" | "file-diff", file: "relative/path"}`
+  or `{kind: "log" | "tests" | "compare", id: "run-id"}`. These rows are selectable
+  on the project page; actions open local editor views and never execute card-supplied commands.
 
 `/goodnight` (`~/.claude/commands/goodnight.md`) wraps up a session: Claude writes a
 short where-we-left-off note to `~/.local/state/foxml/goodnight/<project>.md`, lists
@@ -428,7 +455,9 @@ In Claude's notebook, press **Ctrl+X, then Tab** to give the pane the keyboard.
 **Tab / Shift+Tab** walk its controls, **Enter** activates the selected control,
 and **Up / Down** scroll a short pane. **Esc** returns to the prompt. Printable
 keys, including `hjkl`, type normally inside an input; the notebook uses Claude's
-native controls rather than the desktop drawer's `hjkl` navigation.
+native inputs. Outside a field, **j / k** select rows, **l** opens the selected
+item, **h** returns to the overview or closes the active field, and **e** edits
+the selected file. The shortcut row shows those keys while the notebook has focus.
 
 Opening a commit through **Space Cw** or the review tray records it as inspected
 and removes it from Today's pending count. The tray considers the most recent

@@ -12,7 +12,14 @@ test('supervision preserves literal shell source and does not nest wrappers or c
 
 test('a failed command remains visible even when its printed tests passed; unknown totals stay unknown', () => {
   expect(testLabel({ id: 'a', state: 'failed', stale: true, tests: { passed: 128, failed: 2, failures: [] } }))
-    .toBe('✓ 128 passed · 2 failed · failed · stale')
+    .toBe('✓ 128 passed · 2 failed · failed · freshness unknown')
   expect(testLabel({ id: 'a', state: 'interrupted', tests: { passed: null, failed: null, failures: [] } }))
     .toBe('interrupted · no test totals')
+})
+
+test('freshness names content changes and never treats an unknown snapshot as a current pass', () => {
+  const base = { id: 'a', state: 'passed', stale: true, tests: { passed: 128, failed: 0, failures: [] } }
+  expect(testLabel({ ...base, changedFiles: ['a.ts', 'b.ts', 'c.ts'] })).toBe('✓ 128 passed · 0 failed · 3 files changed since')
+  expect(testLabel({ ...base, changedFiles: [], changedDuringRun: true })).toContain('source changed during run')
+  expect(testLabel({ ...base, changedFiles: null })).toContain('freshness unknown')
 })

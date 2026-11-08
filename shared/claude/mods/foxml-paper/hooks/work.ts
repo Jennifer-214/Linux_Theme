@@ -12,7 +12,11 @@ export function wrapped(command: string, root: string, session: string): string 
 export function testLabel(test: WorkTest): string {
   const p = test.tests?.passed, f = test.tests?.failed
   const counts = [p == null ? '' : `✓ ${p} passed`, f == null ? '' : `${f} failed`].filter(Boolean).join(' · ')
-  return (counts || `${test.state} · no test totals`) + (counts && test.state !== 'passed' ? ` · ${test.state}` : '') + (test.stale ? ' · stale' : '')
+  const changed = test.changedFiles?.length
+  const freshness = changed ? ` · ${changed} ${changed === 1 ? 'file' : 'files'} changed since`
+    : test.changedDuringRun ? ' · source changed during run'
+    : test.stale ? ' · freshness unknown' : ''
+  return (counts || `${test.state} · no test totals`) + (counts && test.state !== 'passed' ? ` · ${test.state}` : '') + freshness
 }
 export async function work($: EngineInterface, args: string[]): Promise<string | null> {
   try {

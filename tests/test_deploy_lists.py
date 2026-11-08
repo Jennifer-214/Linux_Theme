@@ -26,6 +26,8 @@ ONE_SIDED = {
         "native-only test quickfix, review and editable failure drafts",
     ("SHARED_MAPPINGS", "claude/mods/foxml-paper/hooks/work.ts", "~/.claude/mods/foxml-paper/hooks/work.ts"):
         "native-only Claude work records; code is copied, with colors in the existing rendered theme",
+    ("SHARED_MAPPINGS", "claude/mods/foxml-paper/hooks/notebook.ts", "~/.claude/mods/foxml-paper/hooks/notebook.ts"):
+        "native-only notebook file parsing and attribution, deployed beside its render hook",
     ("TEMPLATE_MAPPINGS", "swappy/config", "~/.config/swappy/config"):
         "native-only screenshot annotation colors and pencil strokes; rendered from the selected palette",
     ("TEMPLATE_MAPPINGS", "qt/gtk-palette.json", "~/.config/foxml/qt-palette.json"):

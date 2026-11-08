@@ -84,6 +84,18 @@ class Work(unittest.TestCase):
         (self.repo / "new_test.py").write_text("assert True\n")
         self.assertTrue(self.data("notebook")["tests"]["stale"])
 
+    def test_freshness_counts_modified_added_and_deleted_files_by_content(self):
+        (self.repo / "deleted.py").write_text("print('old')\n")
+        self.execute("print('128 passed')")
+        self.assertEqual(self.data("notebook")["tests"]["changedFiles"], [])
+        (self.repo / "sample.cpp").write_text("int updated = 2;\n")
+        (self.repo / "deleted.py").unlink()
+        (self.repo / "new.py").write_text("print('new')\n")
+        test = self.data("notebook")["tests"]
+        self.assertTrue(test["stale"])
+        self.assertEqual(test["changedFiles"], ["deleted.py", "new.py", "sample.cpp"])
+        self.assertEqual(self.data("tests", "--id", test["id"])["changedFiles"], test["changedFiles"])
+
     def test_changed_during_run_is_not_a_green_baseline(self):
         self.execute("from pathlib import Path; Path('sample.cpp').write_text('changed\\n'); print('2 passed')")
         self.assertTrue(self.latest()["changedDuringRun"])
@@ -119,6 +131,47 @@ class Work(unittest.TestCase):
         self.assertFalse(self.latest()["snapshot"]["complete"])
         self.assertFalse(self.latest()["baselineEligible"])
         self.assertEqual(self.latest()["snapshot"]["files"], {})
+        self.assertIsNone(self.data("notebook")["tests"]["changedFiles"])
+
+    def test_attention_failure_clears_after_same_command_succeeds(self):
+        script = "from pathlib import Path; import sys; sys.exit(Path('broken').exists())"
+        (self.repo / "broken").touch()
+        self.execute(script, code=1)
+        self.assertEqual(len(self.data("notebook")["failures"]), 1)
+        (self.repo / "broken").unlink()
+        self.execute(script)
+        self.assertEqual(self.data("notebook")["failures"], [])
+
+    def test_active_plan_and_step_are_persistent_and_scoped_to_session(self):
+        plan = self.repo / "plan with spaces.md"
+        plan.write_text("# A plan\n")
+        self.assertTrue(self.data("plan-pin", "--session", "one", "--file", plan, "--step", "implement file selection")["ok"])
+        self.assertEqual(self.data("plan", "--session", "one")["step"], "implement file selection")
+        self.assertIsNone(self.data("plan", "--session", "two"))
+        self.assertFalse(json.loads(self.invoke("plan-pin", "--session", "one", "--file", "missing.md", code=1))["ok"])
+        self.assertEqual(self.data("plan", "--session", "one")["file"], str(plan))
+        self.assertTrue(self.data("plan-pin", "--session", "one", "--file", "")["ok"])
+        self.assertIsNone(self.data("plan", "--session", "one"))
+
+    def test_file_actions_preserve_literal_arguments_and_reject_paths_outside_checkout(self):
+        with tempfile.TemporaryDirectory(prefix='.fox-work-editor-', dir=Path(__file__).parent) as temp:
+            fake = Path(temp)
+            calls = self.dir / 'editor.json'
+            kitty = fake / 'kitty'
+            kitty.write_text('#!' + sys.executable + '\nimport json,os,sys\nfrom pathlib import Path\nPath(os.environ["WORK_CALLS"]).write_text(json.dumps(sys.argv))\n')
+            kitty.chmod(0o755)
+            self.env.update(PATH=str(fake) + os.pathsep + self.env['PATH'], WORK_CALLS=str(calls))
+            path = self.repo / "a ' quote ; literal.cpp"
+            path.write_text("int x;\n")
+            self.invoke('open', '--root', self.repo, '--action', 'file-diff', '--file', path.name, '--session', 'abc')
+            argv = json.loads(calls.read_text())
+            self.assertEqual(argv[-3:], ['foxml-work:file-diff', str(path), 'abc'])
+            self.assertEqual(argv[argv.index('--directory') + 1], str(self.repo))
+            outside = self.dir / 'outside.cpp'
+            outside.write_text('outside\n')
+            (self.repo / 'escape.cpp').symlink_to(outside)
+            self.invoke('open', '--root', self.repo, '--action', 'file', '--file', outside, code=2)
+            self.invoke('open', '--root', self.repo, '--action', 'file', '--file', 'escape.cpp', code=2)
 
     def test_running_background_job_outlives_its_caller_and_is_visible(self):
         p = subprocess.Popen([str(BIN), "run", "--session", "abc", "--", sys.executable, "-c",

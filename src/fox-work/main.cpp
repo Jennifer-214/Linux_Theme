@@ -157,6 +157,21 @@ bool same_source(const J& a, const J& b) {
     return a.is_object() && b.is_object() && a.value("complete", false) && b.value("complete", false)
         && str(a, "fingerprint") == str(b, "fingerprint");
 }
+void freshness(J& job, const J& current) {
+    const auto& captured = job["snapshot"];
+    job["stale"] = job.value("changedDuringRun", false) || !same_source(captured, current);
+    job["changedFiles"] = nullptr;
+    if (!captured.is_object() || !captured.value("complete", false) || !current.value("complete", false)
+        || !captured.contains("files") || !captured["files"].is_object()) return;
+    std::set<std::string> paths;
+    for (const auto& version : {captured["files"], current["files"]})
+        for (auto it = version.begin(); it != version.end(); ++it) paths.insert(it.key());
+    J changed = J::array();
+    for (const auto& path : paths)
+        if (!captured["files"].contains(path) || !current["files"].contains(path)
+            || captured["files"][path] != current["files"][path]) changed.push_back(path);
+    job["changedFiles"] = changed;
+}
 std::string clean(std::string s) {
     s = std::regex_replace(s, std::regex("\x1b\\[[0-?]*[ -/]*[@-~]"), "");
     s = std::regex_replace(s, std::regex("\x1b\\][^\x07]*(\x07|\x1b\\\\)"), "");
@@ -341,12 +356,30 @@ J overview(const A& requested, bool fresh = false) {
 }
 J notebook(const std::string& root, const std::string& session) {
     J latest; auto all = runs(root); const auto current = snapshot(root);
-    J jobs = J::array();
+    J jobs = J::array(), failures = J::array(); std::set<std::string> commands;
     for (auto j : all) {
         if (str(j, "state") == "running") { j.erase("snapshot"); jobs.push_back(j); }
-        if (latest.is_null() && j.value("testRun", false)) { j["stale"] = j.value("changedDuringRun", false) || !same_source(j["snapshot"], current); j.erase("snapshot"); latest = j; }
+        else if (commands.insert(str(j, "command")).second && failures.size() < 3
+                 && (str(j, "state") == "failed" || str(j, "state") == "interrupted")) {
+            auto failed = j; failed.erase("snapshot"); failures.push_back(failed);
+        }
+        if (latest.is_null() && j.value("testRun", false)) { freshness(j, current); j.erase("snapshot"); latest = j; }
     }
-    return J{{"tests", latest}, {"jobs", jobs}, {"tasks", tasks(root)}, {"session", session}};
+    return J{{"tests", latest}, {"jobs", jobs}, {"failures", failures}, {"tasks", tasks(root)}, {"session", session}};
+}
+fs::path plan_path(const std::string& root, const std::string& session) {
+    return project_dir(root) / "plans" / (hash(session) + ".json");
+}
+J pin_plan(const std::string& root, const std::string& session, const std::string& file, const std::string& step) {
+    if (session.empty() || session.size() > 80 || step.size() > 1000) return J{{"ok", false}};
+    J plan;
+    if (!file.empty()) {
+        std::error_code ec;
+        const auto path = fs::canonical(fs::path(file).is_absolute() ? fs::path(file) : fs::path(root) / file, ec);
+        if (ec || path.extension() != ".md" || !fs::is_regular_file(path, ec)) return J{{"ok", false}, {"message", "Choose an existing Markdown plan"}};
+        plan = J{{"file", path.string()}, {"step", clean(step)}, {"at", now()}};
+    }
+    return J{{"ok", atomic(plan_path(root, session), plan.dump())}};
 }
 J worktrees(const std::string& root) {
     J rows = J::array(), row;
@@ -422,11 +455,12 @@ int main(int argc, char** argv) {
                          "fox-work jobs | overview [--root DIR...] | notebook --root DIR | worktrees --root DIR\n"
                          "fox-work task-add --root DIR --text TEXT | task-toggle --root DIR --id ID\n"
                          "fox-work tests --root DIR | compare --id RUN | reviewed --root DIR --sha SHA\n"
-                         "fox-work open --root DIR --action tests|reviews|compare|log|tasks|ask --id RUN\n"; return 0;
+                         "fox-work plan|plan-pin --root DIR --session ID [--file PLAN.md --step TEXT]\n"
+                         "fox-work open --root DIR --action tests|reviews|compare|log|tasks|ask|file|file-diff|plan|worktree --id RUN [--file PATH --session ID]\n"; return 0;
         }
         const auto cmd = args[0];
         const auto place = opts.count("--root") ? opts["--root"] : fs::current_path().string();
-        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "worktrees", "activity"}.count(cmd)
+        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "worktrees", "activity", "plan", "plan-pin"}.count(cmd)
             ? root_of(place) : place;
         const auto id = opts["--id"];
         J out;
@@ -473,6 +507,8 @@ int main(int argc, char** argv) {
         else if (cmd == "overview") out = overview(roots, opts["--fresh"] == "yes");
         else if (cmd == "notebook") out = notebook(root, opts["--session"]);
         else if (cmd == "worktrees") out = worktrees(root);
+        else if (cmd == "plan") out = json(plan_path(root, opts["--session"]));
+        else if (cmd == "plan-pin") out = pin_plan(root, opts["--session"], opts["--file"], opts["--step"]);
         else if (cmd == "tasks") out = tasks(root);
         else if (cmd == "task-add") out = task_change(root, opts["--text"], "");
         else if (cmd == "task-toggle") out = task_change(root, "", id);
@@ -480,7 +516,7 @@ int main(int argc, char** argv) {
         else if (cmd == "reviewed") out = reviewed(root, opts["--sha"]);
         else if (cmd == "tests") {
             auto j = id.empty() ? notebook(root, "")["tests"] : load_run(id);
-            if (j.is_object() && j.contains("snapshot")) { j["stale"] = j.value("changedDuringRun", false) || !same_source(j["snapshot"], snapshot(str(j, "root"))); j.erase("snapshot"); }
+            if (j.is_object() && j.contains("snapshot")) { freshness(j, snapshot(str(j, "root"))); j.erase("snapshot"); }
             out = j.is_object() ? j : J();
         } else if (cmd == "compare") {
             auto j = load_run(id); if (!j.is_object()) return 1;
@@ -491,6 +527,25 @@ int main(int argc, char** argv) {
             if (action == "jump") {
                 if (!j.is_object() || str(j, "pane").empty()) return 1;
                 return sh::run({"fox-drawer", "run", "work-jump", str(j, "pane")});
+            }
+            if (action == "file" || action == "file-diff") {
+                std::error_code ec;
+                const auto canonical_root = fs::canonical(where, ec); if (ec) return 2;
+                const auto path = fs::weakly_canonical(canonical_root / fs::path(opts["--file"]), ec);
+                const auto relative = path.lexically_relative(canonical_root);
+                if (ec || opts["--file"].empty() || relative.empty() || *relative.begin() == ".." || relative == ".") return 2;
+                return open_editor(canonical_root.string(), action, path.string(), opts["--session"]);
+            }
+            if (action == "plan") {
+                auto plan = json(plan_path(root_of(where), opts["--session"]));
+                if (!plan.is_object()) return 1;
+                return open_editor(where, "file", str(plan, "file"));
+            }
+            if (action == "worktree") {
+                std::error_code ec; const auto selected = fs::canonical(opts["--file"], ec); if (ec) return 2;
+                for (const auto& tree : worktrees(root_of(where)))
+                    if (str(tree, "path") == selected.string() && !tree.value("bare", false)) return open_editor(selected.string(), "workspace");
+                return 2;
             }
             if (!std::set<std::string>{"tests", "reviews", "compare", "log", "tasks", "ask", "service", "ask-service"}.count(action)) return 2;
             return open_editor(where, action, id, opts["--index"]);

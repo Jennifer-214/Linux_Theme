@@ -120,7 +120,18 @@ function M.open_args()
   local id, index = args[2] or "", args[3]
   if not action then return end
   vim.cmd("silent! argdelete *")
-  if action == "tests" then M.tests(id, index)
+  if action == "file" then vim.cmd("edit " .. vim.fn.fnameescape(id))
+  elseif action == "file-diff" then
+    local C = require("foxml.claude")
+    local ledger = {}
+    if type(index) == "string" and index:match("^[A-Za-z0-9_-]+$") and #index <= 80 and C.runtime() then
+      ledger = C.decode(C.read(C.runtime() .. "/edits/" .. index .. ".json")) or {}
+    end
+    C.open_review({ kind = "live", sid = index or "", name = "notebook", short = "notebook",
+      files = { id }, before = ledger.before or {}, label = "notebook change" }, root())
+    C.diff(id)
+  elseif action == "workspace" then vim.cmd("edit " .. vim.fn.fnameescape(vim.fn.getcwd()))
+  elseif action == "tests" then M.tests(id, index)
   elseif action == "compare" then M.compare(id)
   elseif action == "reviews" then
     local C = require("foxml.claude")

@@ -1,6 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 import type { Engine } from 'claude-code/testing'
+import { mailId } from '../hooks/notebook'
 
 const PANE = {
   plugin: 'foxml-paper',
@@ -50,11 +51,15 @@ function fakeFs(on: On, files: Record<string, string>) {
 }
 
 // Nothing sits beneath the plugin in a test: these stand for the engine and the machine.
-function engine(on: On, options: { runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown } = {}) {
+function engine(on: On, options: { runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; trees?: unknown; readIds?: { id: string; at: number }[] } = {}) {
+  let pinned: { file: string; step: string } | null = null
   seen.argv = []; seen.sent = []; seen.toasts = []; seen.submitted = []
+  mock.store(on, { 'notebook-read-mail:abc': options.readIds ?? [] })
   on('session.receive', (_, e) => ({ text: e.text }))
   on('session.send', (_, e) => { seen.sent.push({ to: e.to, text: e.text }); return { isDelivered: true } })
-  on('ui.focus', () => ({}))
+  on('ui.focus', () => ({ value: {}, deny: undefined }))
+  on('ui.scroll', () => ({ value: {}, deny: undefined }))
+  if (!options.files) on('fs.exists', () => ({ value: false }))
   on('ui.toast', (_, e) => { seen.toasts.push(e.text); return { value: undefined } })
   on('command.register', () => ({ value: { command: 'notebook' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))
@@ -67,6 +72,15 @@ function engine(on: On, options: { runtime?: string; state?: string; clock?: boo
   on('process.run', (_, e) => {
     const argv = e.argv.join(' ')
     seen.argv.push(argv)
+    if (argv.startsWith('fox-work plan-pin ')) {
+      const file = e.argv[e.argv.indexOf('--file') + 1] ?? ''
+      pinned = file ? { file: file.startsWith('/') ? file : '/code/paper/' + file, step: e.argv[e.argv.indexOf('--step') + 1] ?? '' } : null
+      return { value: done('{"ok":true}') }
+    }
+    if (argv.startsWith('fox-work plan ')) return { value: done(JSON.stringify(pinned)) }
+    if (argv.startsWith('fox-work open ')) return { value: done('') }
+    if (argv.startsWith('fox-work task-add ')) return { value: done('{"ok":true}') }
+    if (argv.startsWith('fox-work worktrees ')) return { value: done(JSON.stringify(options.trees ?? [])) }
     if (argv.startsWith('fox-work notebook') && options.projectWork) return { value: done(JSON.stringify(options.projectWork)) }
     if (argv === 'sh -c printf %s "$XDG_RUNTIME_DIR"' && options.runtime) return { value: done(options.runtime) }
     if (argv.startsWith('sh -c printf %s "${XDG_STATE_HOME') && options.state) return { value: done(options.state) }
@@ -78,8 +92,9 @@ function engine(on: On, options: { runtime?: string; state?: string; clock?: boo
     if (argv === 'fox-drawer claude-peers') return { value: done(PEERS) }
     if (argv.startsWith('fox-drawer run claude-jump')) return { value: done('{"ok":true}') }
     if (argv.includes('status') && !argv.includes('--no-optional-locks')) return { value: { ...done(''), exitCode: 9 } }
+    if (argv.includes('status') && e.argv.includes('-z')) return { value: done(' M shared/a very long folder/notes.txt\0 M README.md\0') }
     if (argv.includes('status')) return { value: done('## main...origin/main\n M a.txt\n') }
-    if (argv.includes('numstat')) return { value: done('12\t3\tshared/a very long folder/notes.txt\n1\t0\tREADME.md\n') }
+    if (argv.includes('numstat')) return { value: done('12\t3\tshared/a very long folder/notes.txt\u00001\t0\tREADME.md\0') }
     return { value: { ...done(''), exitCode: 1 } }
   })
   on('tool.call', () => ({ result: {} }))
@@ -87,7 +102,10 @@ function engine(on: On, options: { runtime?: string; state?: string; clock?: boo
     if (e.origin.kind === 'plugin') seen.submitted.push(e.text)
     return { text: e.text }
   })
-  if (options.clock !== false) on('clock.every', () => ({ value: undefined }))
+  if (options.clock !== false) {
+    on('clock.every', () => ({ value: undefined }))
+    on('clock.now', () => ({ value: NOW }))
+  }
   on('ui.render', ($, e) => {
     const { Text } = $.ui.resolve(e)
     return <Text>{e.component === 'Spinner' ? e.props.word : 'engine'}</Text>
@@ -106,9 +124,11 @@ test('the notebook shows the hearts, the session name and the pages touched', as
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
     expect((await ui.find({ type: 'Text', text: /♥♥♥♡♡/ }))?.text).toBe('♥♥♥♡♡ 64%')
-    expect((await ui.find({ type: 'Text', text: /pages touched/ }))?.text).toBe('2 pages touched')
-    expect((await ui.find({ type: 'Text', text: /README/ }))?.text).toBe('+1 −0 README.md')
-    expect((await ui.find({ type: 'Text', text: /⎇/ }))?.text).toBe('⎇ main')
+    expect((await ui.find({ key: 'page-files' }))?.text).toContain('2 all files')
+    await ui.press({ key: 'page-files' })
+    await ui.press({ key: 'scope-all' })
+    expect((await ui.find({ key: 'file:README.md' }))?.text).toContain('README.md')
+    await ui.press({ key: 'nav-back' })
     await ui.unmount()
   }
 })
@@ -120,9 +140,10 @@ test('test failures open their quickfix location, and next steps prepare a draft
   } })
   await opened($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /128 passed/ }))?.text).toContain('stale')
+  await ui.press({ key: 'page-project' })
+  expect((await ui.find({ type: 'Text', text: /128 passed/ }))?.text).toContain('freshness unknown')
   await ui.press({ key: 'work-failure-0' })
-  expect(seen.argv).toContain(`fox-work open --action tests --id ${'a'.repeat(32)} --index 1`)
+  expect(seen.argv).toContain(`fox-work open --root /code/paper --action tests --id ${'a'.repeat(32)} --index 1`)
   await ui.press({ key: 'task-draft-next' })
   expect(seen.argv).toContain('fox-work open --root /code/paper --action tasks --id next')
   expect(seen.sent).toEqual([])
@@ -173,6 +194,7 @@ test('other claudes are listed with go and note, and a note reaches the session 
   engine(on)
   await opened($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'page-sessions' })
   expect((await ui.find({ type: 'Text', text: /other claudes/ }))?.text).toBe('other claudes')
   expect(await ui.find({ type: 'Text', text: /this one/ })).toBeUndefined()
   expect((await ui.find({ type: 'Text', text: /Ledger tidy/ }))?.text).toBe('♥ Ledger tidy · trader')
@@ -206,9 +228,10 @@ test('a note from nvim becomes an envelope and reaches Claude as your words', as
   expect(seen.submitted).toEqual(['look at this\n(src/a.cpp:3-5)\n```\nint x;\n```'])
   expect(Object.keys(files).filter(f => f.includes('/inbox/'))).toEqual([])
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await $.command.run({ command: 'notebook', args: 'sessions', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
   expect((await ui.find({ type: 'Text', text: /✉ from/ }))?.text).toBe('✉ from you, in nvim')
   expect(await ui.find({ type: 'Text', text: /✉ 1/ })).toBeDefined()
-  await ui.press({ key: `envelope-${NOW + 5000}-0` })
+  await ui.press({ key: 'envelope-nvim-1-a.json' })
   expect(await ui.find({ type: 'Text', text: /✉ from/ })).toBeUndefined()
   await clock.advance(5000)
   expect(seen.submitted).toHaveLength(1)
@@ -225,8 +248,9 @@ test("a Claude commit is named by its session, and another Claude's note shows a
     .toEqual({ url: 'https://claude.ai/code/session_X', title: 'paper', at: NOW })
   await $.session.receive({ origin: { kind: 'peer' }, text: '✉ from docs: the build is yours now' })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await $.command.run({ command: 'notebook', args: 'sessions', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
   expect((await ui.find({ type: 'Text', text: /✉ from/ }))?.text).toBe('✉ from docs')
-  expect((await ui.find({ type: 'Text', text: /build is yours/ }))?.text).toBe('  the build is yours now ')
+  expect((await ui.find({ type: 'Text', text: /build is yours/ }))?.text).toBe('the build is yours now')
   await ui.unmount()
 })
 
@@ -244,4 +268,121 @@ test('the first edit of a file with uncommitted changes keeps it as it was; a cl
   const ledger = JSON.parse(files['/run/t/foxml-claude/edits/abc.json'] ?? '{}')
   expect(ledger.before).toEqual({ '/code/paper/a.txt': '1.txt' })
   expect(ledger.all.map((e: { path: string }) => e.path)).toEqual(['/code/paper/a.txt', '/code/paper/clean.txt'])
+})
+
+test('session files, keyboard selection and editor actions retain the selected file through refresh', async ($, on) => {
+  const files = fakeFs(on, {
+    '/run/t/foxml-claude/edits/abc.json': JSON.stringify({ root: '/code/paper', edits: [], all: [{ path: '/code/paper/README.md', at: 1 }] }),
+  })
+  engine(on, { runtime: '/run/t', files })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'page-files' })
+  expect(await ui.find({ key: 'file:README.md' })).toBeDefined()
+  expect(await ui.find({ key: 'file:shared/a very long folder/notes.txt' })).toBeUndefined()
+  expect((await ui.find({ key: 'nav-down' }))?.props.hotkey).toBe('j')
+  expect((await ui.find({ key: 'nav-up' }))?.props.hotkey).toBe('k')
+  expect((await ui.find({ key: 'nav-back' }))?.props.hotkey).toBe('h')
+  expect((await ui.find({ key: 'nav-open' }))?.props.hotkey).toBe('l')
+  await ui.press({ key: 'nav-down' })
+  await ui.press({ key: 'nav-down' })
+  await ui.press({ key: 'nav-down' })
+  expect((await ui.find({ key: 'file:README.md' }))?.text).toStartWith('› ')
+  await ui.press({ key: 'nav-open' })
+  expect(seen.argv).toContain('fox-work open --root /code/paper --action file-diff --file README.md --session abc')
+  await ui.press({ key: 'nav-editor' })
+  expect(seen.argv).toContain('fox-work open --root /code/paper --action file --file README.md --session abc')
+  await $.command.run({ command: 'notebook', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 101 } })
+  expect((await ui.find({ key: 'file:README.md' }))?.text).toStartWith('› ')
+  await ui.press({ key: 'scope-all' })
+  expect(await ui.find({ key: 'file:shared/a very long folder/notes.txt' })).toBeDefined()
+  await ui.press({ key: 'file:shared/a very long folder/notes.txt' })
+  expect(seen.argv).toContain('fox-work open --root /code/paper --action file-diff --file shared/a very long folder/notes.txt --session ')
+  await ui.unmount()
+})
+
+test('pinning the plan and current step survives another plan read, and task inputs stay collapsed until asked', async ($, on) => {
+  const files = fakeFs(on, { '/code/paper/plans/one.md': '# The active plan\n', '/code/paper/plans/two.md': '# Another plan\n' })
+  engine(on, { runtime: '/run/t', files, projectWork: { tests: null, jobs: [], tasks: [] } })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ key: 'work-next-step' })).toBeUndefined()
+  await ui.press({ key: 'task-add' })
+  expect((await ui.find({ key: 'work-next-step' }))?.props.autoFocus).toBe(true)
+  expect((await ui.find({ key: 'task-add' }))?.props.autoFocus).toBeUndefined()
+  await ui.input({ key: 'work-next-step', text: 'check hjkl in the terminal', kind: 'submit' })
+  expect(seen.argv).toContain('fox-work task-add --root /code/paper --text check hjkl in the terminal')
+  expect(await ui.find({ key: 'work-next-step' })).toBeUndefined()
+  await ui.press({ key: 'plan-pin' })
+  await ui.input({ key: 'plan-file', text: 'plans/one.md', kind: 'submit' })
+  await $.command.run({ command: 'notebook', args: 'project', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  await ui.press({ key: 'plan-step' })
+  await ui.input({ key: 'plan-current-step', text: 'ship file selection', kind: 'submit' })
+  await $.tool.call({ tool: 'Read', file_path: '/code/paper/plans/two.md' })
+  await $.command.run({ command: 'notebook', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  expect((await ui.find({ key: 'plan-open' }))?.text).toContain('The active plan')
+  expect((await ui.find({ key: 'plan-step' }))?.text).toContain('ship file selection')
+  const ledger = JSON.parse(files['/run/t/foxml-claude/edits/abc.json'] ?? '{}')
+  expect(ledger.plan).toBe('/code/paper/plans/one.md')
+  expect(seen.sent).toEqual([])
+  expect(seen.submitted).toEqual([])
+  await ui.unmount()
+})
+
+test('the attention summary and project cards lead to job output, source files and worktrees', async ($, on) => {
+  const files = fakeFs(on, {
+    '/run/t/foxml-claude/cards/abc.json': JSON.stringify({ title: 'ledger book', rows: [{ text: 'readiness', action: { kind: 'file', file: 'plans/state.md' } }] }),
+    '/code/paper/package.json': '{}',
+  })
+  const failed = { id: 'b'.repeat(32), command: 'make test', state: 'failed', elapsed: 1, activity: 0, session: 'abc' }
+  engine(on, { runtime: '/run/t', files,
+    projectWork: { tests: null, jobs: [], tasks: [], failures: [failed] },
+    trees: [{ path: '/code/paper-feature', branch: 'feature', status: '## feature\n M a.ts\n', sessions: [] }],
+  })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'attention-job-' + failed.id })
+  expect(seen.argv).toContain(`fox-work open --root /code/paper --action log --id ${failed.id}`)
+  await ui.press({ key: 'page-project' })
+  await ui.press({ key: 'card-0' })
+  expect(seen.argv).toContain('fox-work open --root /code/paper --action file --file plans/state.md --session abc')
+  await ui.press({ key: 'tree:/code/paper-feature' })
+  expect(seen.argv).toContain('fox-work open --root /code/paper --action worktree --file /code/paper-feature')
+  await ui.press({ key: 'document:package.json' })
+  expect(seen.argv).toContain('fox-work open --root /code/paper --action file --file package.json')
+  await ui.unmount()
+})
+
+test('read notes disappear with their unread count, duplicate delivery stays read, and new notes can be cleared together', async ($, on) => {
+  engine(on)
+  await opened($)
+  const prefix = 'a'.repeat(210)
+  await $.session.receive({ origin: { kind: 'peer' }, text: '✉ from docs: ' + prefix + ' first' })
+  await $.session.receive({ origin: { kind: 'peer' }, text: '✉ from docs: ' + prefix + ' second' })
+  await $.command.run({ command: 'notebook', args: 'sessions', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /✉ 2/ }))?.text).toContain('✉ 2')
+  const first = await mailId('docs', prefix + ' first')
+  await ui.press({ key: 'envelope-' + first })
+  expect(await ui.find({ type: 'Text', text: /first$/ })).toBeUndefined()
+  expect((await ui.find({ type: 'Text', text: /✉ 1/ }))?.text).toContain('✉ 1')
+  await $.session.receive({ origin: { kind: 'peer-send-message' }, text: '✉ from docs: ' + prefix + ' first' })
+  expect(await ui.find({ key: 'envelope-' + first })).toBeUndefined()
+  await ui.press({ key: 'mail-clear' })
+  expect(await ui.find({ type: 'Text', text: /✉ from/ })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: /✉ [0-9]/ })).toBeUndefined()
+  expect(await ui.find({ key: 'mail-clear' })).toBeUndefined()
+  await ui.unmount()
+})
+
+test('read markers restored at startup suppress a retried peer message after reload', async ($, on) => {
+  const id = await mailId('docs', 'already read')
+  engine(on, { readIds: [{ id, at: NOW - 1000 }] })
+  await opened($)
+  await $.session.receive({ origin: { kind: 'peer' }, text: '✉ from docs: already read' })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ key: 'attention-mail' })).toBeUndefined()
+  await $.session.receive({ origin: { kind: 'peer' }, text: '✉ from docs: a different new note' })
+  expect((await ui.find({ key: 'attention-mail' }))?.text).toContain('1 unread note')
+  await ui.unmount()
 })
