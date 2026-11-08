@@ -55,6 +55,7 @@ src/fox/fox
 src/fox-ai/fox-ai
 src/fox-sec/fox-sec
 src/fox-theme/fox-theme
+src/fox-theme-check/fox-theme-check
 src/fox-dev/fox-dev
 src/fox-sys/fox-sys
 src/fox-common/libfox-common.a
@@ -99,3 +100,6 @@ __pycache__/
 
 # fox-intel embeddings index — regenerated on build; 2.7MB, not for the repo
 .foxml_index.json
+
+# executable scratch for tests (beside them: /tmp may be noexec)
+tests/.fox-theme-check-tests-*/

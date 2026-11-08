@@ -400,7 +400,15 @@ bool decorate(Json& row) {
     else if (id == "idle") {
         state = process_state("hypridle");
         const bool paused = regular(runtime() / "hypridle_paused");
-        state.ok = state.ok && (paused || state.checked); state.checked = paused; queried = true;
+        // Auto-lock is opt-in (fox-lock --idle): with hypridle off and nothing paused, nothing will blank the
+        // screen, so there is nothing to stay awake against. Say so calmly rather than as a failed read.
+        if (state.ok && !state.checked && !paused) {
+            row["enabled"] = false; row["checked"] = false;
+            row["detail"] = "Auto-lock is off, so the screen already stays awake";
+            row["disabledReason"] = "Turn on auto-lock with fox-lock --idle on to use this";
+            return true;
+        }
+        state.checked = paused; queried = true;
     }
     else if (id == "power-profile") {
         std::string out; queried = true;
@@ -1900,7 +1908,9 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
                                      : command({"dunstctl", "set-paused", "toggle"}, "Do not disturb toggled", false, "Could not toggle Do not disturb");
     }
     if (id == "idle") {
-        if (!process_state("hypridle").ok) return result(false, "Idle service state is unavailable");
+        const auto idle = process_state("hypridle");
+        if (!idle.ok) return result(false, "Idle service state is unavailable");
+        if (!idle.checked && !regular(runtime() / "hypridle_paused")) return result(false, "Auto-lock is off, so the screen already stays awake");
         return background({script("toggle_dpms.sh").string()}, "Idle inhibition toggled");
     }
     if (id == "power-profile") {

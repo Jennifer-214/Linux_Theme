@@ -640,24 +640,34 @@ void do_systemd_user(const Context& ctx) {
     sh::systemctl_daemon_reload(/*user=*/true);
 
     // One-time migration: fox-pulse subsumes the legacy bash watchers
-    // (fox-monitor-watch + focus-pulse) in a single epoll daemon. On a box
-    // that ran an older install, fox-monitor-watch.service may still be
-    // enabled+running and its script still on disk — disable+stop it and
-    // remove the stale script so we don't run both. Idempotent: no-ops when
-    // the unit/script are already gone.
-    sh::run({"systemctl", "--user", "disable", "--now", "fox-monitor-watch.service"});
-    {
-        fs::path stale = ctx.home / ".config/hypr/scripts/fox-monitor-watch.sh";
+    // (fox-monitor-watch + focus-pulse) in a single epoll daemon; it runs the
+    // workspace OSD itself through ~/.config/foxml/pulse.d/focus.sh. On a box
+    // that ran an older install either legacy unit may still be enabled and
+    // its script still on disk — disable+stop it and remove the stale files so
+    // we don't run both (two OSDs per switch), and so a unit whose script is no
+    // longer deployed can't restart-loop. Idempotent: no-ops when already gone.
+    struct Legacy { const char* unit; const char* script; bool our_unit_file; };
+    static const Legacy LEGACY[] = {
+        { "fox-monitor-watch.service", "fox-monitor-watch.sh", false },
+        { "foxml-focus-pulse.service", "focus-pulse.sh",       true  },
+    };
+    for (const auto& legacy : LEGACY) {
+        sh::run({"systemctl", "--user", "disable", "--now", legacy.unit});
         std::error_code rec;
-        if (fs::exists(stale, rec)) {
-            fs::remove(stale, rec);
-            ui::substep("removed stale fox-monitor-watch.sh (superseded by fox-pulse)");
+        std::vector<fs::path> stale{ ctx.home / ".config/hypr/scripts" / legacy.script };
+        if (legacy.our_unit_file) stale.push_back(dst_root / legacy.unit);
+        for (const auto& path : stale) {
+            if (fs::exists(path, rec) && snapshot_one(ctx, path)) {  // backed up first, like every replaced file
+                fs::remove(path, rec);
+                ui::substep("removed stale " + path.filename().string() + " (superseded by fox-pulse)");
+            }
         }
     }
+    sh::systemctl_daemon_reload(/*user=*/true);
 
-    // Auto-enable core daemons. fox-pulse replaces fox-monitor-watch;
-    // foxml-focus-pulse stays for the workspace-switch OSD.
-    for (const char* svc : { "fox-pulse.service", "foxml-focus-pulse.service" }) {
+    // Auto-enable core daemons. fox-pulse replaces fox-monitor-watch and
+    // foxml-focus-pulse (the workspace OSD is its focus handler).
+    for (const char* svc : { "fox-pulse.service" }) {
         if (fs::exists(dst_root / svc)) {
             sh::systemctl_enable(svc, /*user=*/true);
         }

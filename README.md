@@ -91,7 +91,7 @@ Native C++ tools under `src/`:
 | `fox-install` | Module-registry-driven install orchestrator (51 modules) |
 | `fox-intel` | `libfox-intel.a` — local model client (llama.cpp's router) + embedding API; linked into every AI tool |
 | `fox-render-fast` | Concurrent template engine; drop-in for the old `render.sh` |
-| `fox-pulse` | Single-epoll daemon multiplexing Hyprland IPC + inotify + debouncers |
+| `fox-pulse` | Single-epoll daemon multiplexing Hyprland IPC + inotify + debouncers; shows the workspace notice through `~/.config/foxml/pulse.d/focus.sh` (the old `foxml-focus-pulse.service` is retired on upgrade) |
 | `fox-vault` | `mlock()`-protected in-RAM secret store with Unix-socket CLI |
 | `fox-ask`, `fox-ai-doctor`, `fox-ai-oracle`, `fox-ai-snitch`, `fox-ai-audit`, `fox-ai-bouncer`, `fox-ai-review`, `fox-ai-swap` | One-shot AI tools that link `libfox-intel.a` — pattern is `#include "fox_intel.hpp"` + `ai.ask(prompt)`. No plugin framework. |
 
@@ -951,6 +951,28 @@ See `themes/FoxML_Classic/palette.sh` for the full variable list.
 2. Restart terminals/apps
 3. Firefox: enable `toolkit.legacyUserProfileCustomizations.stylesheets` in `about:config`
 4. Cursor: select "Fox ML" in the color theme picker
+
+### Checking the desktop
+
+`fox theme check` says whether the desktop the theme set up is deployed and working.
+It only reads: it renders the active theme into a temporary folder to compare, runs
+each probe under a time limit, and fixes nothing.
+
+| Check | What it looks at |
+|-------|------------------|
+| D1 | Every deployed config, script and drawer file against what the theme ships now. The lock screen's per-monitor pins, a workspace pinned to a monitor, the wallpaper mode, monitor and NVIDIA files, plugin locks and your own `menus.json` are this machine's; a file with lines you added is "yours", not drift |
+| D2 | `hyprctl configerrors` |
+| D3 | Quickshell is running and its last reload loaded |
+| D4 | Every drawer page answers within 8 s |
+| D5 | Every custom bar module answers, with valid JSON where it promises some |
+| D6 | `~/.tmux.conf` parses (on a throwaway tmux server) and the lock screen's helpers exist |
+| D7 | Neovim starts headless without errors |
+| D8 | The Claude status line runs and the paper mod validates |
+| D9 | `fox-pulse` and the wallpaper timer run when enabled, and no retired watcher runs beside them |
+
+`--verbose` adds the details, `--only D1,D4` picks checks, and `--theme NAME` compares
+against another theme. Exit codes follow `fox sec health`: 0 ok, 1 warnings, 3 a
+high failure (Hyprland or Quickshell).
 
 ## License
 

@@ -658,7 +658,7 @@ JSON
             # take the systemd path instead — Restart=on-failure makes them
             # self-heal. Other services (power-state-watcher, etc.) stay
             # opt-in.
-            for svc in fox-monitor-watch.service foxml-focus-pulse.service; do
+            for svc in fox-pulse.service; do
                 [[ -f "$HOME/.config/systemd/user/$svc" ]] || continue
                 systemctl --user enable --now "$svc" &>/dev/null \
                     && echo "  systemd $svc enabled"

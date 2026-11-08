@@ -734,7 +734,7 @@ check_security() {
     fi
 
     # systemd timers / services we ship
-    for svc in fox-monitor-watch.service foxml-focus-pulse.service foxml-arch-audit.timer; do
+    for svc in fox-pulse.service foxml-arch-audit.timer; do
         if systemctl --user is-enabled --quiet "$svc" 2>/dev/null; then
             if systemctl --user is-active --quiet "$svc" 2>/dev/null \
                || [[ "$svc" == *.timer ]]; then

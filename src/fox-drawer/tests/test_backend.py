@@ -129,7 +129,8 @@ elif name == 'makoctl' and args[:1] == ['mode']:
 elif name == 'dunstctl' and args[:1] == ['is-paused']:
     print('false')
 elif name == 'pgrep':
-    sys.exit(0 if args[-1:] == ['hyprsunset'] and state.get('nightlight_running') else 1)
+    sys.exit(0 if (args[-1:] == ['hyprsunset'] and state.get('nightlight_running'))
+             or (args[-1:] == ['hypridle'] and state.get('hypridle_running')) else 1)
 elif name == 'lsblk':
     print(json.dumps(state.get('drives', {'blockdevices': []})))
 elif name == 'xdg-user-dir':
@@ -436,6 +437,22 @@ class BackendTests(unittest.TestCase):
         self.assertTrue(rows[0]["fresh"],"a page tidied a moment ago sparkles")
         (sessions/"t1.json").write_text(json.dumps({"context":12,"pane":"%1","epoch":now}))
         self.assertEqual(self.invoke("view","root")["today"]["claudeWeekLeft"],-1,"no reading, no teacup")
+
+    def test_stay_awake_is_calm_when_auto_lock_is_off(self):
+        self.write_config([{"id":"comfort","label":"Comfort","items":[{"id":"idle","label":"Stay awake","kind":"toggle"}]}])
+        page=self.invoke("view","comfort")
+        self.assertNotIn("error",page,"auto-lock off is a choice, not a failure")
+        row=page["items"][0]
+        self.assertEqual((row["enabled"],row["checked"],row["detail"]),(False,False,"Auto-lock is off, so the screen already stays awake"))
+        self.assertEqual(self.failed("run","idle")["message"],"Auto-lock is off, so the screen already stays awake")
+        self.assertNotIn("toggle_dpms.sh"," ".join(" ".join(c) for c in self.calls()),"nothing is paused when there is nothing to pause")
+        self.state.update(hypridle_running=True); self.state_path.write_text(json.dumps(self.state))
+        row=self.invoke("view","comfort")["items"][0]
+        self.assertEqual((row["enabled"],row["checked"]),(True,False),"with auto-lock on, the switch works as before")
+        (Path(self.env["XDG_RUNTIME_DIR"])/"hypridle_paused").write_text("")
+        self.state.update(hypridle_running=False); self.state_path.write_text(json.dumps(self.state))
+        row=self.invoke("view","comfort")["items"][0]
+        self.assertEqual((row["enabled"],row["checked"]),(True,True),"paused by this switch: it reads as on")
 
     def test_the_bar_says_all_done_when_the_last_session_stops(self):
         self.env.pop("TMUX",None)

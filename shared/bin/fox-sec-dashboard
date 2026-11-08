@@ -138,8 +138,7 @@ sec_watchers() {
     _h "Intrusion watchers"
     _user_svc_state fox-bouncer.service
     _user_svc_state fox-tripwire.service
-    _user_svc_state fox-monitor-watch.service
-    _user_svc_state foxml-focus-pulse.service
+    _user_svc_state fox-pulse.service
     if [[ -f "$HOME/.config/foxml/dispatch.conf" ]]; then
         _ok "fox-dispatch webhook configured"
     else

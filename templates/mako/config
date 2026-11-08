@@ -57,7 +57,7 @@ default-timeout=15000
 
 # Workspace OSD (focus-pulse). ignore-timeout=1 above discards the sender's
 # own -t 800, so the short lifetime has to be set here. Paired with the
-# synchronous hint in focus-pulse.sh, this shows exactly one transient chip
+# synchronous hint in fox-pulse's pulse.d/focus.sh, this shows exactly one transient chip
 # per switch instead of a growing stack.
 [app-name=focus-pulse]
 # foxml-paper-stamp=0

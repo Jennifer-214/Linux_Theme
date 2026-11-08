@@ -68,7 +68,9 @@ struct HandlerSpec {
 // $HOME is expanded by /bin/sh -c in spawn_handler.
 // Order of resolution: ~/.config/foxml/pulse.d/<name>.sh override →
 // legacy ~/.config/hypr/scripts/<script> → native command.
-const HandlerSpec FOCUS_HANDLER   = { "focus",   "focus-pulse.sh",       nullptr };
+// No legacy fallback: the old focus-pulse.sh was a persistent socat listener, so spawning it per event
+// leaked a listener each switch. The one-shot handler is pulse.d/focus.sh; without it, focus does nothing.
+const HandlerSpec FOCUS_HANDLER   = { "focus",   nullptr,                nullptr };
 // The legacy watcher is a persistent listener, not a one-shot event handler.
 const HandlerSpec MONITOR_HANDLER = { "monitor", nullptr,
     "\"$HOME/.local/bin/fox-monitor\" reconcile" };
