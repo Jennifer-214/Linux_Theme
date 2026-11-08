@@ -395,8 +395,9 @@ CheckResult check_services(const Env&) {
     for (const char* unit : {"foxml-focus-pulse.service", "fox-monitor-watch.service"})
         if (state(unit, "is-active") == "active")
             problems.push_back(std::string(unit) + " still runs beside fox-pulse (retired)");
-    if (state("wallpaper-rotate.timer", "is-enabled") == "enabled" && state("wallpaper-rotate.timer", "is-active") != "active")
-        problems.push_back("wallpaper-rotate.timer is enabled but not running");
+    for (const char* timer : {"wallpaper-rotate.timer", "fox-theme-check.timer"})
+        if (state(timer, "is-enabled") == "enabled" && state(timer, "is-active") != "active")
+            problems.push_back(std::string(timer) + " is enabled but not running");
     if (problems.empty()) return result("D9", title, Severity::Medium, Status::Pass);
     std::string detail;
     for (const auto& item : problems) detail += "  " + item + "\n";
@@ -404,10 +405,99 @@ CheckResult check_services(const Env&) {
                   "systemctl --user disable --now <retired unit>; systemctl --user restart <stopped unit>");
 }
 
+// A value from the active theme's palette.sh (KEY=value lines, quotes allowed).
+std::string palette_value(const Env& env, const std::string& key) {
+    for (const auto& line : fox_theme_check::split_lines(read_file(env.repo / "themes" / env.theme / "palette.sh"))) {
+        if (line.rfind(key + "=", 0) != 0) continue;
+        auto value = line.substr(key.size() + 1);
+        if (value.size() >= 2 && (value.front() == '"' || value.front() == '\'') && value.back() == value.front())
+            value = value.substr(1, value.size() - 2);
+        return value;
+    }
+    return {};
+}
+
+std::string gsetting(const char* key) {
+    if (!sh::have("gsettings")) return {};
+    auto value = trim(run_bounded(5, {"gsettings", "get", "org.gnome.desktop.interface", key}).out);
+    if (value.size() >= 2 && value.front() == '\'' && value.back() == '\'') value = value.substr(1, value.size() - 2);
+    return value;
+}
+
+CheckResult check_gtk(const Env& env) {
+    const char* title = "GTK apps are light or dark like the theme";
+    const auto dark = palette_value(env, "GTK_PREFER_DARK");
+    const auto scheme = gsetting("color-scheme");
+    if (dark.empty() || scheme.empty()) return result("D10", title, Severity::Low, Status::Skip, "no gsettings or no GTK_PREFER_DARK");
+    const bool wants_dark = dark == "1" || dark == "true";
+    if (wants_dark == (scheme == "prefer-dark")) return result("D10", title, Severity::Low, Status::Pass, "color-scheme " + scheme);
+    return result("D10", title, Severity::Low, Status::Warn,
+                  std::string("the theme is ") + (wants_dark ? "dark" : "light") + " but color-scheme is " + scheme
+                  + "; GTK 4 and libadwaita apps follow color-scheme",
+                  std::string("gsettings set org.gnome.desktop.interface color-scheme ") + (wants_dark ? "prefer-dark" : "default"));
+}
+
+CheckResult check_firefox(const Env& env) {
+    const char* title = "Firefox find colours are the theme's";
+    const auto bg = palette_value(env, "FF_FIND_BG"), fg = palette_value(env, "FF_FIND_FG");
+    const auto profile = firefox_profile(env);
+    std::error_code ec;
+    if (bg.empty() || profile.empty() || !fs::exists(profile / "user.js", ec))
+        return result("D11", title, Severity::Low, Status::Skip, profile.empty() ? "no Firefox profile found" : "no user.js or no find colours in the theme");
+    const auto prefs = read_file(profile / "user.js");
+    std::vector<std::string> missing;
+    static const char* const prefs_wanted[] = {"ui.textHighlightBackground", "ui.textHighlightForeground",
+                                               "ui.textSelectAttentionBackground", "ui.textSelectAttentionForeground"};
+    for (const char* pref : prefs_wanted) {
+        const auto& colour = std::string(pref).find("Background") != std::string::npos ? bg : fg;
+        if (prefs.find(std::string("user_pref(\"") + pref + "\", \"#" + colour + "\");") == std::string::npos) missing.push_back(pref);
+    }
+    if (missing.empty()) return result("D11", title, Severity::Low, Status::Pass);
+    std::string detail = "not set to the theme in user.js:";
+    for (const auto& pref : missing) detail += " " + pref;
+    return result("D11", title, Severity::Low, Status::Warn, detail, "re-render, then restart Firefox");
+}
+
+CheckResult check_cursor(const Env& env) {
+    const char* title = "the pointer is the theme's cursor";
+    const auto want = palette_value(env, "CURSOR_THEME");
+    const auto have = gsetting("cursor-theme");
+    if (want.empty() || have.empty()) return result("D12", title, Severity::Low, Status::Skip, "no gsettings or no CURSOR_THEME");
+    std::error_code ec;
+    bool installed = false;
+    for (const auto& dir : {env.home / ".local/share/icons", env.home / ".icons", fs::path("/usr/share/icons")})
+        installed = installed || fs::is_directory(dir / want / "cursors", ec);
+    if (have == want && installed) return result("D12", title, Severity::Low, Status::Pass, want);
+    return result("D12", title, Severity::Low, Status::Warn,
+                  have != want ? "cursor-theme is " + have + ", the theme's is " + want : want + " is not installed",
+                  "re-run the installer's cursor step (catppuccin_cursor)");
+}
+
+CheckResult check_lock_panel(const Env& env) {
+    const char* title = "the lock screen's password field is on a screen you can see";
+    const auto chooser = env.home / ".local/bin/fox-lock-panel";
+    const auto conf = env.config / "hypr/hyprlock.conf";
+    std::error_code ec;
+    if (!fs::exists(conf, ec)) return result("D13", title, Severity::Medium, Status::Skip, "no lock screen config");
+    if (!in_session()) return result("D13", title, Severity::Medium, Status::Skip, "not in a Hyprland session");
+    if (!fs::exists(chooser, ec))
+        return result("D13", title, Severity::Medium, Status::Warn, "fox-lock-panel is not installed, so the panel always uses its install-time pin",
+                      "re-run the installer");
+    const auto chosen = trim(run_bounded(5, {"bash", chooser.string()}).out);
+    if (chosen.empty() || chosen == conf.string())
+        return result("D13", title, Severity::Medium, Status::Pass, "its pinned monitor is connected, on and open");
+    std::string to;
+    for (const auto& line : fox_theme_check::split_lines(read_file(chosen)))
+        if (line.find("monitor =") != std::string::npos && to.empty() && line.find("monitor =") + 9 < line.size()) to = trim(line.substr(line.find('=') + 1));
+    return result("D13", title, Severity::Medium, Status::Pass,
+                  "its pinned monitor is shut or unplugged; locking now would put it on " + (to.empty() ? std::string("another screen") : to));
+}
+
 struct Entry { const char* id; CheckResult (*fn)(const Env&); };
 const Entry CHECKS[] = {
     {"D1", check_drift}, {"D2", check_hyprland}, {"D3", check_quickshell}, {"D4", check_drawer}, {"D5", check_bar},
     {"D6", check_configs}, {"D7", check_nvim}, {"D8", check_claude}, {"D9", check_services},
+    {"D10", check_gtk}, {"D11", check_firefox}, {"D12", check_cursor}, {"D13", check_lock_panel},
 };
 
 std::vector<std::string> split_csv(const std::string& text) {
@@ -446,7 +536,8 @@ int main(int argc, char** argv) {
                         "--theme compares against another theme than the active one (after a swap, say).\n"
                         "  D1 deployed files match the theme   D2 Hyprland config   D3 Quickshell\n"
                         "  D4 drawer pages   D5 bar modules   D6 tmux / lock screen   D7 Neovim\n"
-                        "  D8 Claude status line and mod   D9 services\n\n"
+                        "  D8 Claude status line and mod   D9 services   D10 GTK light/dark   D11 Firefox find colours\n"
+                        "  D12 cursor   D13 lock screen panel on a visible screen\n\n"
                         "exit codes: 0 ok  1 warnings  2 critical  3 high\n");
             return 0;
         } else { std::fprintf(stderr, "fox theme check: unknown option %s (see --help)\n", arg.c_str()); return 64; }
@@ -475,7 +566,7 @@ int main(int argc, char** argv) {
         results.push_back(check.fn(env));
         if (quiet) continue;
         const auto& r = results.back();
-        std::printf("%s %s  %s\n", mark(r.status), r.id.c_str(), r.title.c_str());
+        std::printf("%s %-3s  %s\n", mark(r.status), r.id.c_str(), r.title.c_str());
         if ((verbose || r.status == Status::Warn || r.status == Status::Fail) && !r.detail.empty()) {
             std::istringstream lines(r.detail);
             for (std::string line; std::getline(lines, line);) std::printf("        %s\n", line.c_str());

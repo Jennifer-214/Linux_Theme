@@ -392,6 +392,12 @@ void do_claude_hooks(const Context& ctx) {
                 {"hooks", {{ {"type","command"},
                              {"command","~/.config/hypr/scripts/agent_notify.sh claude failed"} }}}
             }}},
+            // A permission dialog opening marks the session "needs you" at once (no popup: Notification brings it).
+            {"PermissionRequest", {{
+                {"matcher", ""},
+                {"hooks", {{ {"type","command"},
+                             {"command","~/.config/hypr/scripts/agent_notify.sh claude asking"} }}}
+            }}},
             // An answered permission prompt: the tool ran, failed, or was denied. Each clears "needs you".
             {"PostToolUse", {{
                 {"matcher", ""},
@@ -682,8 +688,9 @@ void do_systemd_user(const Context& ctx) {
     sh::systemctl_daemon_reload(/*user=*/true);
 
     // Auto-enable core daemons. fox-pulse replaces fox-monitor-watch and
-    // foxml-focus-pulse (the workspace OSD is its focus handler).
-    for (const char* svc : { "fox-pulse.service" }) {
+    // foxml-focus-pulse (the workspace OSD is its focus handler); the weekly
+    // fox theme check only reads and notifies when something is off.
+    for (const char* svc : { "fox-pulse.service", "fox-theme-check.timer" }) {
         if (fs::exists(dst_root / svc)) {
             sh::systemctl_enable(svc, /*user=*/true);
         }

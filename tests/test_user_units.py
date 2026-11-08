@@ -32,5 +32,17 @@ class UserUnits(unittest.TestCase):
         self.assertIn('"foxml-focus-pulse.service", "focus-pulse.sh"', SPECIALS, "upgrades retire the old unit")
 
 
+class SelfCheckRunsItself(unittest.TestCase):
+    def test_installs_and_swaps_end_with_the_check_and_a_weekly_timer_runs_it(self):
+        post = Path(glob.glob(str(ROOT / "src/fox-ins*l/modules/post_install.cpp"))[0]).read_text()
+        self.assertIn('"--theme", ctx.theme_name', post, "post_install checks the theme it just applied")
+        self.assertIn("never fails the install", post)
+        unit = (ROOT / "shared/systemd_user/fox-theme-check.service").read_text()
+        self.assertIn("--quiet --only D1,D6,D8,D9,D10,D11,D12", unit, "no checks that need the live session")
+        self.assertIn("notify-send", unit)
+        self.assertIn("OnCalendar=weekly", (ROOT / "shared/systemd_user/fox-theme-check.timer").read_text())
+        self.assertIn('"fox-theme-check.timer"', SPECIALS, "enabled on install")
+
+
 if __name__ == "__main__":
     unittest.main()

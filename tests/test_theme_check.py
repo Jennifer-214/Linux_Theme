@@ -95,6 +95,45 @@ class ThemeCheck(unittest.TestCase):
         self.assertIn("custom/gone (exit 4)", out.stdout)
         self.assertNotIn("custom/good", out.stdout)
 
+    def test_gtk_firefox_cursor_and_the_lock_panel(self):
+        self.shim("gsettings", 'case "$3" in color-scheme) echo "\'prefer-dark\'" ;; cursor-theme) echo "\'foxml-paper-cursors\'" ;; esac')
+        out = self.run_check("--only", "D10")
+        self.assertIn("the theme is light but color-scheme is prefer-dark", out.stdout)
+        self.assertEqual(out.returncode, 1)
+        self.shim("gsettings", 'case "$3" in color-scheme) echo "\'default\'" ;; cursor-theme) echo "\'foxml-paper-cursors\'" ;; esac')
+        self.assertEqual(self.run_check("--only", "D10").returncode, 0)
+
+        out = self.run_check("--only", "D12")
+        self.assertIn("foxml-paper-cursors is not installed", out.stdout)
+        (self.home / ".local/share/icons/foxml-paper-cursors/cursors").mkdir(parents=True)
+        self.assertEqual(self.run_check("--only", "D12").returncode, 0)
+
+        ff = self.home / ".config/mozilla/firefox"
+        (ff / "abc.default-release").mkdir(parents=True)
+        (ff / "profiles.ini").write_text("[Install4F96D1932A9F858E]\nDefault=abc.default-release\nLocked=1\n")
+        prefs = ('user_pref("ui.textHighlightBackground", "#e2a4ba");\nuser_pref("ui.textHighlightForeground", "#202024");\n'
+                 'user_pref("ui.textSelectAttentionBackground", "#e2a4ba");\n')
+        (ff / "abc.default-release/user.js").write_text(prefs)
+        out = self.run_check("--only", "D11")
+        self.assertIn("ui.textSelectAttentionForeground", out.stdout)
+        (ff / "abc.default-release/user.js").write_text(prefs + 'user_pref("ui.textSelectAttentionForeground", "#202024");\n')
+        self.assertEqual(self.run_check("--only", "D11").returncode, 0)
+
+        lock = self.home / ".config/hypr/hyprlock.conf"
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        lock.write_text("label {\n    monitor = eDP-1\n}\n")
+        session = {"HYPRLAND_INSTANCE_SIGNATURE": "test"}
+        out = self.run_check("--only", "D13", extra_env=session)
+        self.assertIn("fox-lock-panel is not installed", out.stdout)
+        moved = self.tmp / "moved.conf"
+        moved.write_text("label {\n    monitor = DP-2\n}\n")
+        chooser = self.home / ".local/bin/fox-lock-panel"
+        chooser.parent.mkdir(parents=True, exist_ok=True)
+        chooser.write_text(f"#!/bin/sh\necho {moved}\n")
+        out = self.run_check("--only", "D13", "--verbose", extra_env=session)
+        self.assertIn("locking now would put it on DP-2", out.stdout)
+        self.assertEqual(out.returncode, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -296,7 +296,7 @@ stopped, and folds away when none are open. Its text turns berry past 80% of a
 plan limit, and its ribbon hangs lower while a session is asking for you. Hover
 for each session's project, model, context and state with the plan usage, as a
 banner on whichever monitor you are on. When the last busy session finishes, every
-bar says `♡ all done` for a few seconds; click to open the Agents page, where each
+bar says `♡ all done` for a few seconds; click to open the Agents page (or, while a session asks for you, to go straight to it), where each
 session has its context hearts (they sparkle once after a compaction) and Enter
 goes to its tmux pane. Each tmux pane footer starts with `♡` while its session needs
 you and `✿` while it works. Sessions go by
@@ -445,8 +445,9 @@ to their exact tmux target; a stale or unreachable note stays available for
 review, and clearing all notes asks for confirmation. Each tmux pane keeps only
 its newest note, replying in that pane clears it (a `UserPromptSubmit` hook), as does
 answering Claude's permission prompt (the tool then runs, fails or is denied:
-`PostToolUse`, `PostToolUseFailure`, `PermissionDenied`),
-and notes older than twelve hours are dropped. Paper's bar uses a pencil
+`PostToolUse`, `PostToolUseFailure`, `PermissionDenied`). A session is marked as needing
+you the moment its permission dialog opens (`PermissionRequest`); the popup and note
+follow Claude's own notification. Notes older than twelve hours are dropped. Paper's bar uses a pencil
 launcher, notebook workspace tabs and a handwritten clock tab. Click the clock or
 press `Alt+C` to toggle a calendar sheet beneath its banner on the focused monitor.
 Past dates have light pencil X's; today has an uneven, open blush circle; days with a
@@ -733,6 +734,12 @@ The installer deploys generated vectors and MIME aliases through the same atomic
 backup-first path as ordinary configs. Icon-cache refreshes also snapshot the old
 cache before replacing it. New files have no older version to back up; rendered
 output is rebuildable from the shared definition and the selected palette.
+The lock screen's panel (clock, date and password field) is pinned to the primary
+monitor at install. At lock time `fox-lock-panel` checks that monitor is connected, on and,
+for a laptop panel, open; docked with the lid shut, or with the pinned monitor unplugged, that
+lock puts the panel on the focused monitor instead, from a private copy of the config in
+`$XDG_RUNTIME_DIR/foxml/`. Any doubt, or a re-pinned lock that fails at once, falls back to
+plain `hyprlock`; manual, idle and sleep locks all go through it.
 The lock screen writes the weekday and date in lowercase handwriting with a blush
 underline, using the local date. The clock, password field and cat keep their spacing.
 It shows a blush Caps Lock tag only while a readable keyboard LED is
@@ -970,10 +977,16 @@ each probe under a time limit, and fixes nothing.
 | D6 | `~/.tmux.conf` parses (on a throwaway tmux server) and the lock screen's helpers exist |
 | D7 | Neovim starts headless without errors |
 | D8 | The Claude status line runs and the paper mod validates |
-| D9 | `fox-pulse` and the wallpaper timer run when enabled, and no retired watcher runs beside them |
+| D9 | `fox-pulse` and the wallpaper and theme-check timers run when enabled, and no retired watcher runs beside them |
+| D10 | GTK's `color-scheme` agrees with the theme being light or dark (GTK 4 and libadwaita apps follow it) |
+| D11 | Firefox's find colours in the profile's `user.js` are the theme's |
+| D12 | The desktop's cursor theme is the palette's, and it is installed |
+| D13 | The lock screen's password field would land on a screen you can see (see below) |
 
 `--verbose` adds the details, `--only D1,D4` picks checks, and `--theme NAME` compares
-against another theme. Exit codes follow `fox sec health`: 0 ok, 1 warnings, 3 a
+against another theme. Every install and theme swap ends with it, and a weekly user
+timer (`fox-theme-check.timer`) runs the checks that don't need the live session and
+sends a notification only when something isn't clean. Exit codes follow `fox sec health`: 0 ok, 1 warnings, 3 a
 high failure (Hyprland or Quickshell).
 
 ## License

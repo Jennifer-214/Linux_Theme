@@ -44,7 +44,8 @@ class NativeBar(unittest.TestCase):
             claude = work / 'claude.json'
             claude.write_text(json.dumps({'text':'✎ 1  ◇ 1', 'tooltip':'Linux_Theme · Opus 5.5 · 41% context · working', 'class':['asking','berry']}))
             layout = {'modules-left':['group/launcher','group/test','custom/claude'], 'modules-center':[], 'modules-right':['idle_inhibitor','memory'],
-                      'custom/claude':{'exec':f'cat {claude}', 'return-type':'json', 'interval':'once', 'on-click':'fox-desktop-menu agents'},
+                      'custom/claude':{'exec':f'cat {claude}', 'return-type':'json', 'interval':'once', 'on-click':'fox-desktop-menu agents',
+                                       'on-click-asking':f'printf asked > {action}.asking'},
                       'group/launcher':{'modules':['custom/logo','hyprland/workspaces']},
                       'custom/logo':{'format':'✎','on-click':'fox-desktop-menu root'},
                       'hyprland/workspaces':{'format':'{name} {windows}', 'persistent-workspaces':{'*':list(range(1,10))}},
@@ -95,6 +96,9 @@ ShellRoot {
         if (!claude || claude.label !== "✎ 1  ◇ 1" || !ribbon || !ribbon.calling || ribbon.depth !== 50 || !claudeText
             || !Qt.colorEqual(claudeText.color, claude.theme.gardenShades[4])) { console.error("BAR_MISSING_CLAUDE", claude ? JSON.stringify([claude.label, ribbon ? ribbon.depth : null, !!claudeText, claudeText ? String(claudeText.color) : "", String(claude.theme.gardenShades[4])]) : "none"); Qt.exit(1); return; }
         claude.runAction("on-click");
+        if (root.opened) { console.error("BAR_CLAUDE_ASKING_OPENED_AGENTS"); Qt.exit(1); return; }
+        claude.sample.classes=["berry"];
+        claude.runAction("on-click");
         if (root.page !== "agents" || !root.opened) { console.error("BAR_MISSING_CLAUDE_CLICK"); Qt.exit(1); return; }
         root.opened=false;
         if (!metric || metric.label !== "42%" || metric.sample.tooltip !== "CPU\\n43°" || metric.sample.classes[0] !== "warning" || !idle) { console.error("BAR_MISSING_METRIC"); Qt.exit(1); return; }
@@ -126,9 +130,10 @@ ShellRoot {
             output = result.stdout + result.stderr
             self.assertEqual(result.returncode, 0, output)
             self.assertIn('BAR_NATIVE_OK', output)
-            for error in ['TypeError', 'ReferenceError', 'Unable to assign', 'Binding loop', 'BAR_BAD', 'BAR_MISSING', 'BAR_ANCHOR_INVALID', 'BAR_WORKSPACES_INVALID']:
+            for error in ['TypeError', 'ReferenceError', 'Unable to assign', 'Binding loop', 'BAR_BAD', 'BAR_MISSING', 'BAR_ANCHOR_INVALID', 'BAR_WORKSPACES_INVALID', 'BAR_CLAUDE_ASKING']:
                 self.assertNotIn(error, output)
             self.assertEqual(action.read_text(), 'clicked')
+            self.assertEqual(Path(f'{action}.asking').read_text(), 'asked', 'a session asking: the pill goes to it')
             # One initial poll shared across both output configurations, then one action refresh.
             self.assertEqual((work / 'polls').read_text(), 'xx')
 

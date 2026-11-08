@@ -1,0 +1,11 @@
+[Unit]
+Description=Run fox theme check once a week
+
+[Timer]
+OnCalendar=weekly
+RandomizedDelaySec=2h
+# A week missed while the laptop was off runs at the next boot.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

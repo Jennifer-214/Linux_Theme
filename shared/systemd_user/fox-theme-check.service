@@ -1,0 +1,9 @@
+[Unit]
+Description=A weekly look at the desktop the theme set up (fox theme check)
+
+[Service]
+Type=oneshot
+# Only the checks that don't need the live session (its environment can be stale here). Read-only; a
+# notification only when something is not clean.
+ExecStart=/bin/sh -c '%h/.local/bin/fox-theme-check --quiet --only D1,D6,D8,D9,D10,D11,D12 || notify-send -a "fox theme check" "Something on the desktop needs a look" "Run fox theme check to see what"'
+Nice=10

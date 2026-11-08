@@ -105,7 +105,8 @@ void run_post_install(Context& ctx) {
                     "finalize per-monitor wallpaper variants + hyprlock (post-deploy), "
                     "render waybar for current layout, restart waybar+dunst+mako, "
                     "Lazy sync + TSUpdateSync (60s/120s caps), "
-                    "GTK desktop font, Bat/delta theme cache, Cursor/VS Code workbench.colorTheme=Fox ML");
+                    "GTK desktop font, Bat/delta theme cache, Cursor/VS Code workbench.colorTheme=Fox ML, "
+                    "fox theme check (read-only report)");
         return;
     }
 
@@ -227,6 +228,19 @@ void run_post_install(Context& ctx) {
     }
 
     cursor_vscode_set_theme(ctx);
+
+    // Last: check what this install or swap left behind, so a problem shows now and not days later. It only reads
+    // and prints; its result never fails the install. The repo's fresh build first, the installed one otherwise.
+    for (const fs::path& check : {ctx.script_dir / "src/fox-theme-check/fox-theme-check",
+                                  ctx.home / ".local/bin/fox-theme-check"}) {
+        std::error_code ec;
+        if (!fs::is_regular_file(check, ec) || ::access(check.c_str(), X_OK) != 0) continue;
+        ui::section("Checking the desktop");
+        const int rc = sh::run({"timeout", "180", check.string(), "--theme", ctx.theme_name});
+        if (rc == 0) ui::ok("fox theme check: all clear");
+        else ui::warn("fox theme check found something to look at (above); run `fox theme check --verbose` any time");
+        break;
+    }
 
     // NOTE: we deliberately keep rendered/ around. It's gitignored, so it
     // never dirties `git status` — the old "clean up for a tidy tree"

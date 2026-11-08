@@ -103,3 +103,4 @@ __pycache__/
 
 # executable scratch for tests (beside them: /tmp may be noexec)
 tests/.fox-theme-check-tests-*/
+tests/.fox-lock-panel-tests-*/

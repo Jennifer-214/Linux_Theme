@@ -162,7 +162,8 @@
     "return-type": "json",
     "interval": 3,
     "tooltip": true,
-    "on-click": "~/.local/bin/fox-desktop-menu agents"
+    "on-click": "~/.local/bin/fox-desktop-menu agents",
+    "on-click-asking": "~/.local/bin/fox-drawer claude-next"
   },
 
   "custom/ai_status": {

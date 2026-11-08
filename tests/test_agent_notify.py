@@ -115,6 +115,16 @@ class AgentNotifyTest(unittest.TestCase):
         self.assertTrue(all(row[0] == "t-1" and row[2].isdigit() for row in tally))
         self.assertEqual(next(sessions.glob("tally-*")).stat().st_mode & 0o777, 0o600)
 
+    def test_the_dialog_opening_marks_it_at_once_and_quietly(self):
+        before = len(self.notes()) if self.queue.exists() else 0
+        asked = self.state_hook("asking", {"session_id": "p-1", "tool_name": "Bash"})
+        self.assertEqual((asked.returncode, asked.stdout), (0, ""), "stdout would be read as a permission decision")
+        state = json.loads((self.run_dir / "foxml-claude" / "p-1.state").read_text())
+        self.assertEqual(state["state"], "needs")
+        self.assertEqual(len(self.notes()) if self.queue.exists() else 0, before, "no note: Notification brings that")
+        self.state_hook("toolran", {"session_id": "p-1"})
+        self.assertEqual(json.loads((self.run_dir / "foxml-claude" / "p-1.state").read_text())["state"], "working")
+
     def test_a_tool_running_means_the_question_was_answered(self):
         sessions = self.run_dir / "foxml-claude"
         state = lambda: json.loads((sessions / "q-1.state").read_text())

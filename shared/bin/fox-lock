@@ -78,7 +78,13 @@ fi
 
 # Run the lock screen in the FOREGROUND (no exec) so we regain control the
 # moment hyprlock exits — i.e. when the screen unlocks — and can self-heal.
-hyprlock "$@"
+# fox-lock-panel keeps the password field on a screen you can see (lid shut while
+# docked, the pinned monitor unplugged); it falls back to plain hyprlock itself.
+if command -v fox-lock-panel >/dev/null 2>&1; then
+    fox-lock-panel --run "$@"
+else
+    hyprlock "$@"
+fi
 _rc=$?
 
 # ── On-unlock cleanup (manual-lock path) ───────────────────────────────

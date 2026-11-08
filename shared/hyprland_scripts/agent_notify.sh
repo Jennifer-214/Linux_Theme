@@ -5,7 +5,7 @@
 # Usage:
 #   agent_notify.sh <source> <event>
 #     <source>: claude
-#     <event>:  stop | subagent | notification | seen | toolran | started | compact | compacted | failed | ended
+#     <event>:  stop | subagent | notification | asking | seen | toolran | started | compact | compacted | failed | ended
 #               (seen: you replied in this pane, so its note is cleared — no popup; toolran: a tool ran,
 #                so a "needs you" was answered and counts as seen;
 #                started … ended only record what the session is doing, for the drawer)
@@ -169,6 +169,9 @@ case "$event" in
         exit 0 ;;
     stop)         record_state waiting ;;
     notification) record_state needs ;;
+    # The permission dialog just opened (PermissionRequest): mark it at once, quietly. The popup and the note
+    # still come with the Notification hook, after its delay, if the dialog is still waiting by then.
+    asking)       record_state needs; exit 0 ;;
     compact)      record_state compacting; exit 0 ;;
     # "fresh": the context was just tidied, so the status line sparkles for a moment.
     compacted)    if [[ "$trigger" == "manual" ]]; then record_state waiting fresh; else record_state working fresh; fi; exit 0 ;;
