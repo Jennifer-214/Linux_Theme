@@ -24,7 +24,7 @@ const PEERS = JSON.stringify([
   { id: 'p1', name: 'Ledger tidy', project: 'trader', state: 'needs you', busy: false, pane: '%4' },
   { id: 'p2', name: 'docs', project: 'docs', state: 'waiting', busy: false, pane: '' },
 ])
-const seen = { argv: [] as string[], sent: [] as { to: unknown; text: string }[], toasts: [] as string[], submitted: [] as string[],
+const seen = { stdin: [] as string[], bash: [] as string[], argv: [] as string[], sent: [] as { to: unknown; text: string }[], toasts: [] as string[], submitted: [] as string[],
   opened: [] as { id: string; closeOnEscape?: true }[] }
 const NOW = 1_800_000_000_000
 
@@ -52,9 +52,9 @@ function fakeFs(on: On, files: Record<string, string>) {
 }
 
 // Nothing sits beneath the plugin in a test: these stand for the engine and the machine.
-function engine(on: On, options: { runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; credits?: unknown; trees?: unknown; readIds?: { id: string; at: number }[] } = {}) {
+function engine(on: On, options: { bash?: (command: string) => unknown; runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; credits?: unknown; trees?: unknown; readIds?: { id: string; at: number }[] } = {}) {
   let pinned: { file: string; step: string } | null = null
-  seen.argv = []; seen.sent = []; seen.toasts = []; seen.submitted = []; seen.opened = []
+  seen.argv = []; seen.stdin = []; seen.bash = []; seen.sent = []; seen.toasts = []; seen.submitted = []; seen.opened = []
   mock.store(on, { 'notebook-read-mail:abc': options.readIds ?? [] })
   on('session.receive', (_, e) => ({ text: e.text }))
   on('session.send', (_, e) => { seen.sent.push({ to: e.to, text: e.text }); return { isDelivered: true } })
@@ -74,6 +74,8 @@ function engine(on: On, options: { runtime?: string; state?: string; clock?: boo
   on('process.run', (_, e) => {
     const argv = e.argv.join(' ')
     seen.argv.push(argv)
+    if (e.init?.stdin !== undefined) seen.stdin.push(e.init.stdin)
+    if (argv.startsWith('fox-work begin ')) return { value: done('f'.repeat(32) + '\n') }
     if (argv.startsWith('fox-work plan-pin ')) {
       const file = e.argv[e.argv.indexOf('--file') + 1] ?? ''
       pinned = file ? { file: file.startsWith('/') ? file : '/code/paper/' + file, step: e.argv[e.argv.indexOf('--step') + 1] ?? '' } : null
@@ -101,7 +103,10 @@ function engine(on: On, options: { runtime?: string; state?: string; clock?: boo
     if (argv.includes('numstat')) return { value: done('12\t3\tshared/a very long folder/notes.txt\u00001\t0\tREADME.md\0') }
     return { value: { ...done(''), exitCode: 1 } }
   })
-  on('tool.call', () => ({ result: {} }))
+  on('tool.call', (_, e) => {
+    if (e.tool === 'Bash' && typeof e.command === 'string') seen.bash.push(e.command)
+    return options.bash && typeof e.command === 'string' ? options.bash(e.command) as { result: unknown } : ({ result: {} })
+  })
   on('prompt.submit', (_, e) => {
     if (e.origin.kind === 'plugin') seen.submitted.push(e.text)
     return { text: e.text }
@@ -145,7 +150,7 @@ test('test failures open their quickfix location, and next steps prepare a draft
   await opened($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'page-project' })
-  expect((await ui.find({ type: 'Text', text: /128 passed/ }))?.text).toContain('freshness unknown')
+  expect((await ui.find({ type: 'Text', text: /128 passed/ }))?.text).toContain('may be out of date')
   await ui.press({ key: 'work-failure-0' })
   expect(seen.argv).toContain(`fox-work open --root /code/paper --action tests --id ${'a'.repeat(32)} --index 1`)
   await ui.press({ key: 'task-draft-next' })
@@ -416,17 +421,42 @@ test('read markers restored at startup suppress a retried peer message after rel
 })
 
 
-test('the API credit meter is separate from session context and opens the shared credit drawer', async ($, on) => {
+test('the notebook at rest shows no key hints and no credit meter while credit is plentiful', async ($, on) => {
   engine(on, { credits: { short: 'API ~$180.00 left', headline: '$20.00 tracked of $200.00', detail: 'Tracked runs only · renews Dec 1',
     meter: '▰▰▰▰▰▰▰▰▰▱', status: 'tracked', source: 'local', remaining_percent: 90, as_of: '2026-11-09T00:00:00Z', projects: [] } })
   await opened($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ key: 'api-credit-meter' }))?.text).toContain('API ~$180.00 left')
-  expect((await ui.find({ key: 'api-credit-meter' }))?.text).toContain('▰▰▰▰▰▰▰▰▰▱ tracked')
+  expect(await ui.find({ key: 'api-credit-meter' })).toBeUndefined()
+  expect(await ui.find({ key: 'nav-back' })).toBeUndefined()
+  await ui.press({ key: 'page-files' })
+  expect((await ui.find({ key: 'nav-back' }))?.props.hotkey).toBe('h')
+  await ui.unmount()
+})
+
+test('the API credit meter appears when credit runs low and opens the shared credit drawer', async ($, on) => {
+  engine(on, { credits: { short: 'API ~$30.00 left', headline: '$170.00 tracked of $200.00', detail: 'Tracked runs only · renews Dec 1',
+    meter: '▰▱▱▱▱▱▱▱▱▱', status: 'tracked', source: 'local', remaining_percent: 15, as_of: '2026-11-09T00:00:00Z', projects: [] } })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ key: 'api-credit-meter' }))?.text).toContain('API ~$30.00 left')
+  expect((await ui.find({ key: 'api-credit-meter' }))?.text).toContain('▰▱▱▱▱▱▱▱▱▱ tracked')
   expect((await ui.find({ type: 'Text', text: /64%/ }))?.text).toContain('64%')
   await ui.press({ key: 'api-credit-meter' })
   expect(seen.argv).toContain('fox-desktop-menu --open api-credits')
   expect(seen.argv.some(argv => argv.includes('fox-credits sync'))).toBe(false)
   expect(seen.submitted).toEqual([])
   await ui.unmount()
+})
+
+test('a build Claude runs is recorded around the call, never rewritten, under its plain-words title', async ($, on) => {
+  engine(on, { bash: () => ({ result: 'Exit code 2\n128 passed, 2 failed', text: 'Exit code 2\n128 passed, 2 failed', isError: true }) })
+  await opened($)
+  await $.tool.call({ tool: 'Bash', command: 'make -C src test', description: 'Run the unit tests' })
+  expect(seen.bash).toEqual(['make -C src test'])
+  expect(seen.argv).toContain('fox-work begin --root /code/paper --session abc --pid parent --command make -C src test --title Run the unit tests')
+  expect(seen.argv).toContain(`fox-work finish --id ${'f'.repeat(32)} --exit 2 --output -`)
+  expect(seen.stdin).toContain('Exit code 2\n128 passed, 2 failed')
+  expect(seen.argv.some(argv => argv.includes('fox-work run'))).toBe(false)
+  await $.tool.call({ tool: 'Bash', command: 'ls', description: 'List files' })
+  expect(seen.argv.filter(argv => argv.startsWith('fox-work begin')).length).toBe(1)
 })

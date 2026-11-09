@@ -8,8 +8,7 @@
   "modules-left": [
     "group/launcher",
     "custom/ai_status",
-    "custom/claude",
-    "custom/api_credits"
+    "custom/claude"
   ],
 
   "modules-center": [],
@@ -43,13 +42,6 @@
     "on-click": "~/.local/bin/fox-ai-quick"
   },
 
-  "custom/api_credits": {
-    "exec": "~/.local/bin/fox-credits bar",
-    "return-type": "json",
-    "interval": 60,
-    "tooltip": true,
-    "on-click": "~/.local/bin/fox-desktop-menu api-credits"
-  },
 
   "custom/logo": {
     "format": "{{WAYBAR_LOGO}}",

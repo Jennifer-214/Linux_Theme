@@ -38,7 +38,6 @@ function todayTags(today, groups) {
     var failed = Number(today.jobsFailed || 0);
     add(failed ? "! " + failed + (failed === 1 ? " failed job" : " failed jobs") : "", {page: "failures"});
     add(today.nextStep ? "◇ next: " + today.nextStep : "", {page: "next-steps"});
-    if (today.apiCredits) add(today.apiCredits.short || "API credits", {page: "api-credits"});
     var notes = Number(today.notes || 0);
     add(today.battery ? today.battery + (/^(charging|full|not charging)$/.test(today.batteryState || "") ? " · plugged in" : "") : "", {page: "power"});
     add(summary("connections"), {page: "wifi"});
@@ -192,7 +191,7 @@ function paperIcon(item) {
         projects:["notebook","▤"], bookmarks:["bookmark","◇"], library:["library","▥","▤"],
         worktrees:["notebook","▥"], jobs:["clock","◷"], "test-results":["notebook","✓"],
         reviews:["note","✿"], "next-steps":["bookmark","◇"], failures:["note","!"],
-        models:["notebook","◈"], "api-credits":["notebook","◇"], storage:["library","▦"], backups:["refresh","↺"], startup:["play","⏵"],
+        models:["notebook","◈"], "api-credits":["notebook","◇"], "api-tasks":["mail","✎"], displays:["window","▭"], storage:["library","▦"], backups:["refresh","↺"], startup:["play","⏵"],
         downloads:["tray","↧","✉"], screenshots:["picture","▧"], windows:["window","▣"], garden:["garden","❦"],
         "clipboard-text":["clipboard","⌇"], "clipboard-images":["picture","▧"],
         wallpapers:["picture","❀"], themes:["palette","◐"],
@@ -212,7 +211,9 @@ function paperIcon(item) {
     };
     var semantic = {message:"mail", window:"window", volume:"sound", image:"picture", palette:"palette",
         search:"search", download:"mail", info:"notebook", package:"package", key:"passwords",
-        wifi:"wifi", bluetooth:"bluetooth", clipboard:"clipboard"};
+        wifi:"wifi", bluetooth:"bluetooth", clipboard:"clipboard", gear:"system", system:"system", cpu:"system",
+        refresh:"refresh", today:"today", folder:"library", trash:"broom", apps:"apps", terminal:"terminal", next:"next",
+        comfort:"comfort", shield:"shield"};
     var id = String(item.id || ""), preset = presets[id], icon = String(item.icon || ""), name = "";
     // Application identity and user artwork keep their own icons.
     if (id === "app-launch") return "";

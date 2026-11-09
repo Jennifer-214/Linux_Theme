@@ -294,7 +294,8 @@ ShellRoot {
             if (!samePage) {
                 Qt.callLater(function() {
                     itemList.contentY = saved && !searching ? saved.scroll : 0;
-                    itemList.positionViewAtIndex(itemIndex, ListView.Contain);
+                    // A first visit reads from the top even when the first live row sits below a page of notes.
+                    if (saved || searching) itemList.positionViewAtIndex(itemIndex, ListView.Contain);
                 });
             }
             if (partial) note(data.error || "Some controls are unavailable.", true);
@@ -308,7 +309,8 @@ ShellRoot {
 
     function show(pageId) {
         previewTimer.stop();
-        if (!opened) placeAtLauncher();
+        // Rows are remembered while the drawer stays open; each fresh open starts every page at the top.
+        if (!opened) { placeAtLauncher(); remembered = ({}); }
         finishPicker({cancel: true});
         opened = true;
         searching = false;
@@ -1220,7 +1222,10 @@ ShellRoot {
                                         readonly property bool mediaArtwork: modelData.presentation === "media" && Boolean(modelData.artwork)
                                         readonly property bool clipboardPhoto: theme.paperDetails && root.page === "clipboard-images" && Boolean(modelData.image)
                                         readonly property string stateLabel: theme.paperDetails ? Logic.statusLabel(modelData) : ""
-                                        width: Math.max(0, itemList.width - theme.scrollGutter)
+                                        // A row that belongs to the one above it sits indented beneath it.
+                                        readonly property int indent: modelData.nested === true ? 22 : 0
+                                        x: indent
+                                        width: Math.max(0, itemList.width - theme.scrollGutter - indent)
                                         property bool card: modelData.presentation === "project" || modelData.presentation === "library" || modelData.presentation === "download"
                                         height: card ? 94 : modelData.kind === "slider" ? 91 : modelData.image || mediaArtwork ? 80 : 72
                                         radius: 4
@@ -1345,6 +1350,10 @@ ShellRoot {
                                             visible: (itemMouse.containsMouse || itemRow.selected) && text.length > 0 && (entryLabel.truncated || entryDetail.truncated || Boolean(modelData.modifiedAt) || (Logic.focusDetail(modelData).length > 0 && breadcrumbRow.truncated))
                                             delay: 900
                                             timeout: 7000
+                                            // Below the row when the space above it inside the list can't hold the tip (it would cover the page title).
+                                            y: itemRow.y - itemList.contentY < implicitHeight + 6 ? itemRow.height + 4 : -implicitHeight - 4
+                                            // ToolTip centres on its unwrapped width, which slides a long tip off the drawer's left edge.
+                                            x: 0
                                             text: Logic.tooltipText(modelData)
                                             contentItem: Text { text: itemTip.text; textFormat: Text.PlainText; color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 10; wrapMode: Text.WrapAnywhere }
                                             background: Rectangle {

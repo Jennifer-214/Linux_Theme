@@ -1126,7 +1126,8 @@ class BackendTests(unittest.TestCase):
                     'detail':'Tracked runs only · renews Dec 1', 'status':'tracked', 'source':'local',
                     'remaining_usd':'197.90', 'remaining_percent':98.9, 'projects':[]}
         usage = {'snapshot': snapshot,
-                 'projects': [{'id':'trader','label':'Trader','spent_usd':'2.00','runs':2,'average_usd':'1.0000'}],
+                 'projects': [{'id':'trader','label':'Trader','spent_usd':'2.00','runs':2,'average_usd':'1.0000'},
+                              {'id':'theme','label':'Linux_Theme','spent_usd':'0.00075','runs':2,'average_usd':'0.00036080000000000004'}],
                  'models': [{'model':'claude-opus-5-5','spent_usd':'1.50','runs':1,'average_usd':'1.5000','input_tokens':12000,'output_tokens':3000}],
                  'days': [{'day':'2026-11-0'+str(n),'spent_usd':'0.10','runs':1} for n in range(1,10)],
                  'top': [{'id':'b','project':'trader','model':'claude-opus-5-5','cost_usd':'1.50','at':'2026-11-09T01:00:00Z','label':'Why is the book slow?'}]}
@@ -1135,11 +1136,16 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(page['title'], 'API usage')
         self.assertEqual(page['credits'], snapshot)
         labels = [r['label'] for r in page['items']]
-        self.assertIn('  Trader', labels)
-        self.assertIn('  claude-opus-5-5', labels)
-        self.assertIn('  Why is the book slow?', labels)
-        self.assertEqual(len([l for l in labels if l.startswith('  2026-11-0')]), 7, 'only the last seven days')
-        self.assertIn('12k in / 3k out', [r for r in page['items'] if r['label']=='  claude-opus-5-5'][0]['detail'])
+        nested = {r['label'] for r in page['items'] if r.get('nested')}
+        self.assertTrue({'Trader', 'claude-opus-5-5', 'Why is the book slow?'} <= nested, 'entries sit beneath their heading')
+        self.assertNotIn('By project', nested)
+        self.assertFalse([l for l in labels if l.startswith(' ')], 'indent is the nested flag, never spaces')
+        self.assertEqual(len([l for l in labels if l.startswith('2026-11-0')]), 7, 'only the last seven days')
+        by_label = {r['label']: r['detail'] for r in page['items']}
+        self.assertIn('12k in / 3k out', by_label['claude-opus-5-5'])
+        self.assertIn('$2.00 · 2 runs · about $1.00 each', by_label['Trader'])
+        self.assertIn('<$0.01 · 2 runs · about <$0.01 each', by_label['Linux_Theme'], 'no float noise, no fractions of a cent')
+        self.assertNotIn('2026-11-09T', by_label['Why is the book slow?'])
         ids = [r['id'] for r in page['items']]
         self.assertNotIn('credits-sync', ids)
         self.assertEqual([c for c in self.calls() if c[0]=='fox-credits'], [['fox-credits','usage']])
@@ -1155,10 +1161,11 @@ class BackendTests(unittest.TestCase):
                          model='claude-sonnet-5-5', credits='$12.00 left this month'),
                     dict(id='theme', label='Linux_Theme', root='/code/theme', available=False, budget_usd='1.00',
                          credits='$12.00 left this month')]
-        mine = dict(id='a'*32, command='make test', root='/code/trader/sub', state='failed', elapsed=3, exit=2)
+        mine = dict(id='a'*32, command='make test', title='Run the trader tests', root='/code/trader/sub', state='failed', elapsed=3, exit=2)
         other = dict(id='b'*32, command='make test', root='/code/other', state='failed', elapsed=3, exit=2)
         saved = [dict(id='c'*32, project='trader', label='Trader', title='Why is the book slow?', status='completed',
-                      model='claude-opus-5-5', cost_usd='0.42', finished_at='2026-11-09T01:02:03Z')]
+                      model='claude-opus-5-5', cost_usd='0.42',
+                      finished_at=time.strftime('%Y-%m-%dT%H:%M:%S.123456+00:00', time.gmtime(time.time() - 60)))]
         self.state = {'commands': {'fox-work': {'stdout': json.dumps(dict(jobs=[mine, other], reviews=[], tasks=[]))}},
                       'exact': {'fox-claude-api\x1fprojects': {'stdout': json.dumps(projects)},
                                 'fox-claude-api\x1fhistory': {'stdout': json.dumps(saved)},
@@ -1171,8 +1178,10 @@ class BackendTests(unittest.TestCase):
         self.assertIn('claude-sonnet-5-5', rows[1]['detail'])
         self.assertFalse(any(r['enabled'] for r in rows[4:7]), 'a missing project folder should not be askable')
         self.assertEqual(rows[7]['label'], 'Why is the book slow?')
-        self.assertIn('claude-opus-5-5 · $0.42', rows[7]['detail'])
+        self.assertIn('claude-opus-5-5 · $0.42 · today ', rows[7]['detail'])
+        self.assertTrue(rows[8].get('nested') and rows[8]['label'] == 'Follow up', 'a follow-up sits under its answer')
         failures = self.invoke('view','failures')['items']
+        self.assertIn('Run the trader tests', [r['label'] for r in failures], 'a job reads by its title, not its command')
         explain = [r for r in failures if r['id']=='api-task-failure']
         self.assertEqual([r['argument'] for r in explain], ['a'*32], 'only failures inside an API project get the row')
         self.failed('run','api-task-ask','nope')
@@ -1343,10 +1352,10 @@ class BackendTests(unittest.TestCase):
                 if entry.get("kind") == "page":
                     self.assertIn(entry.get("page"), pages, f"menu item {entry.get('id')} opens a page the backend doesn't have")
         logic = (REPO / "shared/quickshell/foxml/DrawerLogic.js").read_text()
-        drawn = js_object_keys(logic, "icons") | js_object_keys(logic, "semantic")
+        drawn = js_object_keys(logic, "semantic")
         for icon in item_icons((REPO / "src/fox-drawer/main.cpp").read_text()):
-            if icon and icon.isascii():
-                self.assertIn(icon, drawn, f'icon "{icon}" has no symbol or picture, so it draws as a dot')
+            if icon and icon.isascii() and icon != "app-launch":
+                self.assertIn(icon, drawn, f'icon "{icon}" has no paper drawing, so it shows a text glyph or a system icon')
         import re
         art = REPO / "templates/quickshell/foxml"
         for name in set(re.findall(r':\s*"([a-z-]+)"', logic[logic.index("var semantic = {"):logic.index("};", logic.index("var semantic = {"))])):

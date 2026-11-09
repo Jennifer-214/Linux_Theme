@@ -255,7 +255,7 @@ std::string kind_of(const std::string& command) {
     if (std::regex_search(command, std::regex("\\b(curl|wget|aria2c|fox-llm-update)\\b"))) return "download";
     return {};
 }
-J begin(const std::string& command, const std::string& root, const std::string& session, long long pid, bool observed) {
+J begin(const std::string& command, const std::string& root, const std::string& session, long long pid, bool observed, const std::string& title = {}) {
     if (!register_root(root)) return J();
     const auto id = uuid(); const auto dir = run_dir(id);
     const auto snap = snapshot(root, dir / "source");
@@ -265,6 +265,9 @@ J begin(const std::string& command, const std::string& root, const std::string& 
         {"pane", env("TMUX_PANE")}, {"pid", pid}, {"process", proc_stamp(pid)}, {"started", now()}, {"state", "running"},
         {"snapshot", snap}, {"baseline", green}, {"observed", observed},
         {"startedNs", std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count()}};
+    // What the command does in plain words (Claude's description of it), shown in place of the command.
+    const auto named = trim(clean(title));
+    if (!named.empty() && named.find('\n') == std::string::npos) j["title"] = named.substr(0, 160);
     return atomic(dir / "run.json", j.dump()) ? j : J();
 }
 bool finish(J j, int code, bool truncated) {
@@ -338,9 +341,15 @@ J overview(const A& requested, bool fresh = false) {
     for (const auto& r : known_roots()) roots.insert(r.get<std::string>());
     for (const auto& r : requested) { const auto root = root_of(r); if (!root.empty()) roots.insert(root); }
     const auto day = now() - 24 * 3600;
+    // A failure counts until the same command, run again in the same project, gets past it; runs are newest first.
+    std::set<std::string> settled;
     for (auto& r : all) {
+        const bool newest = settled.insert(str(r, "root") + '\n' + str(r, "command")).second;
         if (str(r, "state") == "running") ++running;
-        else if (num(r, "ended") >= day) { ++finished; if (str(r, "state") == "failed" || str(r, "state") == "interrupted") ++failed; }
+        else if (num(r, "ended") >= day) {
+            ++finished;
+            if (newest && (str(r, "state") == "failed" || str(r, "state") == "interrupted")) ++failed;
+        }
         if (fresh && r.value("testRun", false)) {
             const auto root = str(r, "root");
             if (!snapshots.count(root)) snapshots[root] = snapshot(root);
@@ -359,7 +368,7 @@ J notebook(const std::string& root, const std::string& session) {
     J jobs = J::array(), failures = J::array(); std::set<std::string> commands;
     for (auto j : all) {
         if (str(j, "state") == "running") { j.erase("snapshot"); jobs.push_back(j); }
-        else if (commands.insert(str(j, "command")).second && failures.size() < 3
+        else if (commands.insert(str(j, "command")).second && failures.size() < 3 && num(j, "ended") >= now() - 24 * 3600
                  && (str(j, "state") == "failed" || str(j, "state") == "interrupted")) {
             auto failed = j; failed.erase("snapshot"); failures.push_back(failed);
         }
@@ -453,8 +462,9 @@ int main(int argc, char** argv) {
             } else args.push_back(a);
         }
         if (args.empty() || args[0] == "help") {
-            std::cout << "fox-work run [--root DIR] [--session ID] -- COMMAND [ARGS...]\n"
+            std::cout << "fox-work run [--root DIR] [--session ID] [--title TEXT] -- COMMAND [ARGS...]\n"
                          "fox-work jobs | overview [--root DIR...] | notebook --root DIR | worktrees --root DIR\n"
+                         "fox-work begin --root DIR --pid PID|parent --command TEXT [--session ID --title TEXT] | finish --id RUN --exit N [--output -]\n"
                          "fox-work task-add --root DIR --text TEXT | task-toggle --root DIR --id ID\n"
                          "fox-work tests --root DIR | compare --id RUN | reviewed --root DIR --sha SHA\n"
                          "fox-work plan|plan-pin --root DIR --session ID [--file PLAN.md --step TEXT]\n"
@@ -472,21 +482,34 @@ int main(int argc, char** argv) {
             A child(args.begin() + 1, args.end()); std::string label;
             for (const auto& a : child) label += (label.empty() ? "" : " ") + quote(a);
             if (child.size() == 3 && (child[0] == "bash" || child[0] == "zsh") && child[1] == "-c") label = child[2];
-            auto j = begin(label, root, opts["--session"], ::getpid(), false);
+            auto j = begin(label, root, opts["--session"], ::getpid(), false, opts["--title"]);
             if (!j.is_object()) { std::cerr << "Could not record job; running command directly.\n"; return sh::run(child); }
             bool truncated = false; const int code = sh::run_logged(child, run_dir(str(j, "id")) / "output.log", 4 * 1024 * 1024, truncated);
             finish(j, code, truncated);
-            if (code != 0) notify_failure(label, str(j, "id"));
+            if (code != 0) notify_failure(str(j, "title", label), str(j, "id"));
             return code < 0 ? 125 : code;
         } else if (cmd == "begin") {
             if (kind_of(opts["--command"]).empty()) return 0;
-            out = begin(opts["--command"], root, opts["--session"], std::stoll(opts["--pid"]), true);
+            // "parent": whoever started this (Claude Code itself, for a mod); the job stays running only while it lives.
+            const long long pid = opts["--pid"] == "parent" ? static_cast<long long>(::getppid()) : std::stoll(opts["--pid"]);
+            out = begin(opts["--command"], root, opts["--session"], pid, true, opts["--title"]);
             if (!out.is_object()) return 1;
             std::cout << str(out, "id") << '\n'; return 0;
         } else if (cmd == "finish") {
-            const auto j = load_run(id); const int code = std::stoi(opts["--exit"]);
-            const bool ok = j.is_object() && finish(j, code, false);
-            if (ok && code != 0) notify_failure(str(j, "command"), id);
+            auto j = load_run(id); const int code = std::stoi(opts["--exit"]);
+            // "--output -": the caller saw the output (a Claude Code Bash call) and hands it over, so the run reads like one fox-work ran.
+            bool truncated = false;
+            if (j.is_object() && opts["--output"] == "-") {
+                constexpr size_t cap = 4 * 1024 * 1024;
+                std::string output(cap + 1, '\0');
+                std::cin.read(&output[0], static_cast<std::streamsize>(output.size()));
+                output.resize(static_cast<size_t>(std::cin.gcount()));
+                if (output.size() > cap) { output.resize(cap); truncated = true; }
+                if (atomic(run_dir(str(j, "id")) / "output.log", output)) j["observed"] = false;
+            }
+            const bool ok = j.is_object() && finish(j, code, truncated);
+            // A stop (Ctrl+C, a denied or interrupted call) is the person's own doing; only real failures notify.
+            if (ok && code != 0 && code < 128) notify_failure(str(j, "title", str(j, "command")), id);
             out = J{{"ok", ok}};
         } else if (cmd == "activity") {
             const auto sid = opts["--session"];

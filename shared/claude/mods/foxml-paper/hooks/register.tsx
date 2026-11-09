@@ -5,7 +5,7 @@ import type { ApiCredits, NotebookView, PaperAction, PaperCard, PaperEnvelope, P
 import { addBefore, addEdit, addName, neighbours, namesText, noteText, overlapFor, parseLedger, parseNames, parseNote, trailerUrl, withPlan } from './ledger'
 import type { Other } from './ledger'
 import { paper } from './theme'
-import { canTrack, testLabel, work, workLook, wrapped } from './work'
+import { beginArgs, canTrack, exitOf, outputOf, testLabel, work, workLook } from './work'
 import { attributeFiles, fileColumns, fileCounts, gitFiles, mailId, shortPath } from './notebook'
 
 // FoxML paper: a notebook pane beside the chat (hearts, the session's name, its plan, the gate, pages
@@ -51,6 +51,13 @@ function greeting(hour: number): string {
 
 function hearts(percent: number | null): number {
   return percent === null ? 0 : Math.min(5, Math.floor((percent * 5 + 50) / 100))
+}
+
+// Paths keep their end (the file name); words keep their start.
+function fit(label: string, width: number): string {
+  if (width < 2) return ''
+  if (label.length <= width) return label
+  return /^\S*\/\S*$/.test(label.trim()) ? shortPath(label, width) : label.slice(0, width - 1).trimEnd() + '…'
 }
 
 function clip(text: string, width: number): string {
@@ -547,18 +554,26 @@ export const register: Register = on => {
     const root = await repoRoot($)
     const sid = await $.session.id()
     const safe = !/password|token|secret|authorization|sk-|ghp_/i.test(e.command)
-    const activity = safe ? e.command.split('\n')[0]?.slice(0, 160) ?? 'running a command' : 'running a command'
+    // Claude's own plain-words description of the command reads better than the command, wherever one is shown.
+    const described = typeof e.description === 'string' ? e.description.split('\n')[0]!.trim().slice(0, 160) : ''
+    const title = described && !/password|token|secret|authorization|sk-|ghp_/i.test(described) ? described : ''
+    const activity = title || (safe ? e.command.split('\n')[0]?.slice(0, 160) ?? 'running a command' : 'running a command')
     await work($, ['activity', '--root', root, '--session', sid, '--text', activity, '--state', 'working'])
-    const available = canTrack(e.command) && await work($, ['classify', '--command', e.command])
-    let ran: Awaited<ReturnType<typeof next>>
-    try { ran = await next(available ? { ...e, command: wrapped(e.command, root, sid) } : e) }
-    finally { await work($, ['activity', '--root', root, '--session', sid, '--text', activity, '--state', 'done']) }
-    if (COMMIT.test(e.command) && ran.deny === undefined && ran.isError !== true) {
+    const job = canTrack(e.command) && e.run_in_background !== true
+      ? (await work($, beginArgs(e.command, root, sid, title)))?.trim() || null : null
+    let ran: Awaited<ReturnType<typeof next>> | undefined
+    try { ran = await next(e) }
+    finally {
+      await work($, ['activity', '--root', root, '--session', sid, '--text', activity, '--state', 'done'])
+      if (job && /^[0-9a-f-]{8,64}$/.test(job))
+        await work($, ['finish', '--id', job, '--exit', String(ran ? exitOf(ran) : 130), '--output', '-'], ran ? outputOf(ran) : '')
+    }
+    if (COMMIT.test(e.command) && ran!.deny === undefined && ran!.isError !== true) {
       $.ui.toast('a seed planted ❦')
       await nameCommit($, e.command).catch(() => undefined)
     }
     void refresh($)
-    return ran
+    return ran!
   })
 
   // Another Claude's message: an envelope in the notebook; delivering it stays the engine's.
@@ -709,9 +724,9 @@ export const register: Register = on => {
       const body = <Text color={paper.ink}>
         <Text color={paper.ribbon}>{selected ? '› ' : '  '}</Text>
         {detail ?? <Text color={paper.ink}>
-          {/^[◇⌑✉✓◷+] /.test(label)
-            ? <Text><Text color={label.startsWith('✓') || label.startsWith('◷') ? paper.added : paper.ribbon}>{label.slice(0, 1)}</Text>{shortPath(label.slice(1), width - 3)}</Text>
-            : shortPath(label, width - 2)}
+          {/^[◇⌑✉✓◷+!] /.test(label)
+            ? <Text><Text color={label.startsWith('!') ? paper.berry : label.startsWith('✓') || label.startsWith('◷') ? paper.added : paper.ribbon}>{label.slice(0, 1)}</Text>{fit(label.slice(1), width - 3)}</Text>
+            : fit(label, width - 2)}
         </Text>}
       </Text>
       return <Button key={key} label={label} plain hover={hover} {...(selected && view.form === 'none' && writingId === null ? { autoFocus: true as const } : {})} onPress={async () => {
@@ -744,13 +759,13 @@ export const register: Register = on => {
       }))
       if (mail.length) content.push(row('attention-mail', `✉ ${mail.length} unread ${mail.length === 1 ? 'note' : 'notes'}`, () => page('sessions')))
       for (const job of (now?.work?.failures ?? []).slice(0, 2))
-        content.push(row(`attention-job-${job.id}`, `! ${job.state} · ${job.command}`, () => openJob(job.id)))
+        content.push(row(`attention-job-${job.id}`, `! ${job.state} · ${job.title ?? job.command}`, () => openJob(job.id)))
       if (now?.work?.tests) content.push(row('work-tests', testLabel(now.work.tests), () => openJob(now.work!.tests!.id, 'tests'),
         <Text color={(now.work.tests.tests.failed ?? 0) > 0 || now.work.tests.state === 'failed' ? paper.berry : now.work.tests.stale ? paper.note : paper.added}>
           {testLabel(now.work.tests)}
         </Text>))
       for (const job of (now?.work?.jobs ?? []).slice(0, 1))
-        content.push(row(`job-${job.id}`, `◷ ${job.command} · ${Math.floor(job.elapsed / 60)}m`, () => openJob(job.id)))
+        content.push(row(`job-${job.id}`, `◷ ${job.title ?? job.command} · ${Math.floor(job.elapsed / 60)}m`, () => openJob(job.id)))
       const own = (now?.files ?? []).filter(f => f.own).length
       content.push(row('page-files', `${own} this session · ${now?.files.length ?? 0} all files`, () => page('files')))
       content.push(row('page-project', now?.card?.title ?? 'project · plan, tests & worktrees', () => page('project')))
@@ -814,7 +829,7 @@ export const register: Register = on => {
         for (const file of (test.changedFiles ?? []).slice(0, 10))
           content.push(row('test-changed:' + file, 'changed since: ' + file, () => openFile(file, true)))
       }
-      for (const job of now?.work?.jobs ?? []) content.push(row(`job-${job.id}`, `◷ ${job.command}`, () => openJob(job.id)))
+      for (const job of now?.work?.jobs ?? []) content.push(row(`job-${job.id}`, `◷ ${job.title ?? job.command}`, () => openJob(job.id)))
       if (now?.work) {
         for (const task of now.work.tasks.filter(t => !t.done)) {
           content.push(row(`task-draft-${task.id}`, '◇ ' + task.text, () => checkedWork(['open', '--root', root, '--action', 'tasks', '--id', task.id])))
@@ -907,13 +922,14 @@ export const register: Register = on => {
         {mail.length > 0 && <Text color={paper.ribbon}>{` · ✉ ${mail.length}`}</Text>}
         <Text color={paper.ink}>{name ? ' · ' + shortPath(name, Math.max(4, width - 14)) : ''}</Text>
       </Text>
-      <Box>
+      {/* The keys only matter while the notebook holds the keyboard; at rest the row is noise. */}
+      {(e.props.isFocused || view.page !== 'overview') && <Box>
         <Button key="nav-back" label="back" hotkey="h" plain onPress={back} /><Text> </Text>
         <Button key="nav-up" label="↑" hotkey="k" plain onPress={() => move(-1)} /><Text> </Text>
         <Button key="nav-down" label="↓" hotkey="j" plain onPress={() => move(1)} /><Text> </Text>
         <Button key="nav-open" label="open" hotkey="l" plain onPress={activate} />
-      </Box>
-      {now?.credits && <Button key="api-credit-meter" label="monthly API credit details" plain
+      </Box>}
+      {now?.credits && (now.credits.status === 'error' || (now.credits.remaining_percent != null && now.credits.remaining_percent <= 20)) && <Button key="api-credit-meter" label="monthly API credit details" plain
         onPress={() => run($, ['fox-desktop-menu', '--open', 'api-credits'])}>
         <Text color={now.credits.status === 'error' || (now.credits.remaining_percent !== null && now.credits.remaining_percent <= 20) ? paper.berry : paper.added}>
           {shortPath(now.credits.short, width)}

@@ -142,6 +142,39 @@ class Work(unittest.TestCase):
         self.execute(script)
         self.assertEqual(self.data("notebook")["failures"], [])
 
+    def test_a_call_recorded_from_outside_reads_like_one_fox_work_ran(self):
+        p = subprocess.run([str(BIN), "begin", "--root", self.repo, "--session", "s", "--pid", "parent",
+                            "--command", "make test", "--title", "Run the tests"], cwd=self.repo, env=self.env,
+                           capture_output=True, text=True, timeout=30)
+        run = p.stdout.strip()
+        self.assertRegex(run, r"^[0-9a-f]{32}$", p.stderr)
+        self.assertEqual(self.latest()["pid"], os.getpid(), "the job lives as long as whoever started it")
+        subprocess.run([str(BIN), "finish", "--id", run, "--exit", "2", "--output", "-"], input="128 passed, 2 failed\n",
+                       cwd=self.repo, env=self.env, capture_output=True, text=True, timeout=30, check=True)
+        j = self.latest()
+        self.assertEqual((j["state"], j["title"], j["observed"]), ("failed", "Run the tests", False))
+        self.assertEqual((j["tests"]["passed"], j["tests"]["failed"]), (128, 2))
+
+    def test_a_title_names_the_job_and_the_failure_count_is_what_still_fails_today(self):
+        script = "from pathlib import Path; import sys; sys.exit(Path('broken').exists())"
+        (self.repo / "broken").touch()
+        self.invoke("run", "--session", "s", "--title", "Check the sample\nbuild", "--", sys.executable, "-c", script, code=1)
+        self.assertNotIn("title", self.latest(), "a title must be one line")
+        self.invoke("run", "--session", "s", "--title", "  Check the sample  ", "--", sys.executable, "-c", script, code=1)
+        self.assertEqual(self.latest()["title"], "Check the sample")
+        self.assertIn("sys.exit", self.latest()["command"], "the command itself is kept")
+        self.assertEqual(self.data("overview", "--root", self.repo)["failed"], 1, "one command, failing twice, is one failure")
+        (self.repo / "broken").unlink()
+        self.execute(script)
+        self.assertEqual(self.data("overview", "--root", self.repo)["failed"], 0, "fixed once it passes again")
+        (self.repo / "broken").touch()
+        self.execute("import sys; sys.exit(3)", code=3)
+        self.assertEqual(len(self.data("notebook")["failures"]), 1)
+        for run in Path(self.env["XDG_STATE_HOME"]).rglob("run.json"):
+            j = json.loads(run.read_text()); j["ended"] -= 2 * 24 * 3600; run.write_text(json.dumps(j))
+        self.assertEqual(self.data("notebook")["failures"], [], "yesterday's failures leave the notebook")
+        self.assertEqual(self.data("overview", "--root", self.repo)["failed"], 0)
+
     def test_active_plan_and_step_are_persistent_and_scoped_to_session(self):
         plan = self.repo / "plan with spaces.md"
         plan.write_text("# A plan\n")

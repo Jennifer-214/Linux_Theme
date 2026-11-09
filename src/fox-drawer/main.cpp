@@ -122,7 +122,54 @@ bool capture(const Args& args, std::string& out) {
 }
 Json item(const std::string& id, const std::string& label, const std::string& kind = "action",
           const std::string& detail = {}, const std::string& icon = {}) {
-    return Json{{"id", id}, {"label", label}, {"kind", kind}, {"detail", detail}, {"icon", icon}, {"enabled", true}};
+    // A label opening with two spaces belongs to the row above it; the front end indents the card instead.
+    const auto start = label.rfind("  ", 0) == 0 ? label.find_first_not_of(' ') : 0;
+    Json row{{"id", id}, {"label", start == std::string::npos ? std::string() : label.substr(start)}, {"kind", kind},
+             {"detail", detail}, {"icon", icon}, {"enabled", true}};
+    if (start != 0) row["nested"] = true;
+    return row;
+}
+// A dollar amount as people read it: cents, and "<$0.01" for the fractions of a cent small runs cost.
+std::string money_text(const std::string& usd) {
+    char* end = nullptr;
+    const double value = std::strtod(usd.c_str(), &end);
+    if (usd.empty() || end == usd.c_str() || *end != '\0' || !std::isfinite(value) || value < 0) return "cost unknown";
+    if (value > 0 && value < 0.005) return "<$0.01";
+    char out[32] = {}; std::snprintf(out, sizeof out, "$%.2f", value); return out;
+}
+// Seconds since the epoch for an ISO-8601 time with optional fractions and a Z or ±hh:mm zone; 0 when it doesn't read.
+long long iso_seconds(const std::string& iso) {
+    std::tm when{}; int used = 0;
+    if (std::sscanf(iso.c_str(), "%4d-%2d-%2dT%2d:%2d:%2d%n", &when.tm_year, &when.tm_mon, &when.tm_mday,
+                    &when.tm_hour, &when.tm_min, &when.tm_sec, &used) != 6) return 0;
+    auto rest = iso.substr(static_cast<size_t>(used));
+    if (!rest.empty() && rest[0] == '.') rest.erase(0, std::min(rest.find_first_not_of("0123456789", 1), rest.size()));
+    long long offset = 0; int oh = 0, om = 0;
+    if (rest.size() == 6 && (rest[0] == '+' || rest[0] == '-') && std::sscanf(rest.c_str() + 1, "%2d:%2d", &oh, &om) == 2)
+        offset = (oh * 3600LL + om * 60LL) * (rest[0] == '-' ? -1 : 1);
+    else if (rest != "Z" && !rest.empty()) return 0;
+    when.tm_year -= 1900; when.tm_mon -= 1;
+    return static_cast<long long>(::timegm(&when)) - offset;
+}
+// "today 11:46 pm", "yesterday 9:05 am", "mon 2:10 pm" within the week, then "nov 2".
+std::string when_text(long long epoch, std::time_t now = std::time(nullptr)) {
+    if (epoch <= 0) return "";
+    const std::time_t at = static_cast<std::time_t>(epoch);
+    std::tm then{}, today{};
+    if (!::localtime_r(&at, &then) || !::localtime_r(&now, &today)) return "";
+    std::tm midnight = today; midnight.tm_hour = midnight.tm_min = midnight.tm_sec = 0; midnight.tm_isdst = -1;
+    const auto start = std::mktime(&midnight);
+    char clock[16] = {}, day[16] = {};
+    std::strftime(clock, sizeof clock, "%I:%M %p", &then);
+    auto time = lower(clock);
+    if (time.front() == '0') time.erase(0, 1);
+    if (at >= start) return "today " + time;
+    if (at >= start - 24 * 3600) return "yesterday " + time;
+    if (at >= start - 6 * 24 * 3600) { std::strftime(day, sizeof day, "%a", &then); return lower(day) + " " + time; }
+    std::strftime(day, sizeof day, "%b %e", &then);
+    std::string out = lower(day);
+    out.erase(std::unique(out.begin(), out.end(), [](char a, char b) { return a == ' ' && b == ' '; }), out.end());
+    return out;
 }
 Json result(bool ok, const std::string& message, bool close = false) {
     return Json{{"ok", ok}, {"message", message}, {"close", close}};
@@ -1492,28 +1539,28 @@ void display_rows(Json& rows) {
         const auto side = s.name == primary ? std::string("main screen") : placement::side_of(primary_box, box) + " of " + primary;
         auto head = item("display-edit", s.name + (s.model.empty() ? "" : " · " + s.model), "action",
                          std::to_string(s.width) + "×" + std::to_string(s.height) + " · scale " + placement::scale_text(s.scale) + " · "
-                         + orientation(s.transform) + " · " + side + " · " + std::to_string(box.w) + "×" + std::to_string(box.h) + " of room", "system");
+                         + orientation(s.transform) + " · " + side, "window");
         rows.push_back(head);
         const int up = next_scale(s, 1), down = next_scale(s, -1);
         auto bigger = item("display-scale-up", "  Bigger text and windows", "action",
                            up == s.scale ? "Already at the largest even scale" : "Scale " + placement::scale_text(s.scale) + " → " + placement::scale_text(up), "search");
         bigger["argument"] = s.name; bigger["enabled"] = up != s.scale; rows.push_back(bigger);
         auto smaller = item("display-scale-down", "  More room", "action",
-                            down == s.scale ? "Already at the smallest even scale" : "Scale " + placement::scale_text(s.scale) + " → " + placement::scale_text(down), "window");
+                            down == s.scale ? "Already at the smallest even scale" : "Scale " + placement::scale_text(s.scale) + " → " + placement::scale_text(down), "apps");
         smaller["argument"] = s.name; smaller["enabled"] = down != s.scale; rows.push_back(smaller);
         const int turned = s.transform == 0 ? 3 : s.transform == 3 ? 1 : 0;
         auto rotate = item("display-rotate", "  Rotate", "action", orientation(s.transform) + " → " + orientation(turned), "refresh");
         rotate["argument"] = s.name; rows.push_back(rotate);
         if (s.name != primary) {
             const auto now = placement::side_of(primary_box, box);
-            auto move = item("display-side", "  Move to another side", "action", now + " → " + next_side(now) + " of " + primary, "apps");
+            auto move = item("display-side", "  Move to another side", "action", now + " → " + next_side(now) + " of " + primary, "next");
             move["argument"] = s.name; rows.push_back(move);
         }
     }
     const int size = cursor_size();
-    rows.push_back(item("cursor-size-up", "Larger pointer", "action", "Pointer size " + std::to_string(size) + " → " + std::to_string(std::min(48, size + 6)), "app-launch"));
+    rows.push_back(item("cursor-size-up", "Larger pointer", "action", "Pointer size " + std::to_string(size) + " → " + std::to_string(std::min(48, size + 6)), "comfort"));
     rows.back()["enabled"] = size < 48;
-    rows.push_back(item("cursor-size-down", "Smaller pointer", "action", "Pointer size " + std::to_string(size) + " → " + std::to_string(std::max(24, size - 6)), "app-launch"));
+    rows.push_back(item("cursor-size-down", "Smaller pointer", "action", "Pointer size " + std::to_string(size) + " → " + std::to_string(std::max(24, size - 6)), "comfort"));
     rows.back()["enabled"] = size > 24;
     rows.push_back(item("display-edit", "Edit monitors.lua", "action", "Open the screen rules in Neovim · Hyprland applies them on save", "gear"));
     if (!regular(display_pending()) && regular(hypr_modules() / "monitors.lua.foxml-prev"))
@@ -1645,7 +1692,7 @@ void work_rows(const Json& config, const std::string& page, Json& rows) {
             if (truth(j, "stale")) detail += " · stale";
         }
         if (truth(j, "observed")) detail += " · status only; fjob captures output";
-        rows.push_back(work_row(page == "test-results" ? "work-tests" : "work-open", text(j, "command"), id, detail));
+        rows.push_back(work_row(page == "test-results" ? "work-tests" : "work-open", text(j, "title", text(j, "command")), id, detail));
         if (!text(j, "pane").empty()) rows.push_back(work_row("work-jump", "  Jump to terminal", text(j, "pane")));
         if (truth(j, "testRun")) rows.push_back(work_row("work-compare", "  What changed since it last passed?", id));
         if (state == "failed" || state == "interrupted") {
@@ -2777,7 +2824,7 @@ Json view(const Json& config, const std::string& page, const std::string& query,
             auto ask = item("api-task-ask", "Ask about " + label, "action",
                             "Read-only · " + text(project, "model") + " · default budget $" + text(project, "budget_usd"), "message");
             auto review = item("api-task-review", "  Review uncommitted changes", "action", "Bugs, risky edits and missing tests in the diff", "search");
-            auto agent = item("api-task-pi", "  Open pi with API credits", "action", "pi can edit files · every reply is tracked", "app-launch");
+            auto agent = item("api-task-pi", "  Open pi with API credits", "action", "pi can edit files · every reply is tracked", "terminal");
             for (auto* row : {&ask, &review, &agent}) {
                 (*row)["argument"] = id;
                 if (!here) { (*row)["enabled"] = false; (*row)["detail"] = "Project folder not found · " + text(project, "root"); }
@@ -2786,15 +2833,16 @@ Json view(const Json& config, const std::string& page, const std::string& query,
         }
         for (const auto& task : api_history()) {
             const auto id = text(task, "id");
-            const auto cost = task.contains("cost_usd") && task["cost_usd"].is_string() ? "$" + text(task, "cost_usd") : std::string("cost unknown");
+            const auto cost = task.contains("cost_usd") && task["cost_usd"].is_string() ? money_text(text(task, "cost_usd")) : std::string("cost unknown");
+            const auto when = when_text(iso_seconds(text(task, "finished_at", text(task, "started_at"))));
             auto row = item("api-task-open", text(task, "title", text(task, "label")), "action",
                             text(task, "label") + " · " + text(task, "status") + " · " + text(task, "model", "model unknown") + " · " + cost
-                            + " · " + text(task, "finished_at", text(task, "started_at")).substr(0, 16), "message");
+                            + (when.empty() ? "" : " · " + when), "message");
             row["argument"] = id; rows.push_back(row);
             auto follow = item("api-task-follow", "  Follow up", "action", "Ask more, with this question and answer as context", "message");
             follow["argument"] = id; rows.push_back(follow);
         }
-        rows.push_back(item("api-task-settings", "Edit API task settings", "action", "Key file, model, effort, default budget and project folders, in Neovim", "gear"));
+        rows.push_back(item("api-task-settings", "Edit API task settings", "action", "Key file, model, effort, default budget and project folders, in Neovim", "system"));
         for (auto& row : rows) if (truth(row, "enabled")) { decorate(row); row["close"] = true; }
     } else if (page == "api-credits") {
         known = true; out["title"] = "API usage";
@@ -2802,7 +2850,7 @@ Json view(const Json& config, const std::string& page, const std::string& query,
         auto note = [&](const std::string& label, const std::string& detail, const std::string& icon = "info") {
             auto row = item("credits-summary", label, "action", detail, icon); row["enabled"] = false; rows.push_back(row);
         };
-        auto money = [](const Json& row) { return "$" + text(row, "spent_usd"); };
+        auto money = [](const Json& row) { return money_text(text(row, "spent_usd")); };
         if (sh::have("fox-credits") && capture_json({"fox-credits", "usage"}, usage) && usage.is_object() && usage["snapshot"].is_object()) {
             const auto& credits = usage["snapshot"];
             out["credits"] = credits;
@@ -2811,10 +2859,10 @@ Json view(const Json& config, const std::string& page, const std::string& query,
             if (usage["projects"].is_array() && !usage["projects"].empty()) {
                 note("By project", "This month", "folder");
                 for (const auto& p : usage["projects"])
-                    note("  " + text(p, "label"), money(p) + " · " + std::to_string(p.value("runs", 0)) + " runs · about $" + text(p, "average_usd") + " each", "folder");
+                    note("  " + text(p, "label"), money(p) + " · " + std::to_string(p.value("runs", 0)) + " runs · about " + money_text(text(p, "average_usd")) + " each", "folder");
                 note("By model", "Average cost per run helps pick a cheaper model", "system");
                 for (const auto& m : usage["models"])
-                    note("  " + text(m, "model"), money(m) + " · " + std::to_string(m.value("runs", 0)) + " runs · about $" + text(m, "average_usd") + " each · "
+                    note("  " + text(m, "model"), money(m) + " · " + std::to_string(m.value("runs", 0)) + " runs · about " + money_text(text(m, "average_usd")) + " each · "
                          + std::to_string(m.value("input_tokens", 0) / 1000) + "k in / " + std::to_string(m.value("output_tokens", 0) / 1000) + "k out", "system");
                 note("Recent days", "Spend per day", "today");
                 const auto& days = usage["days"];
@@ -2824,8 +2872,8 @@ Json view(const Json& config, const std::string& page, const std::string& query,
                 int shown = 0;
                 for (const auto& t : usage["top"]) {
                     if (++shown > 5) break;
-                    note("  " + text(t, "label", text(t, "id")), text(t, "project") + " · " + text(t, "model", "model unknown") + " · $"
-                         + text(t, "cost_usd") + " · " + text(t, "at").substr(0, 10), "search");
+                    note("  " + text(t, "label", text(t, "id")), text(t, "project") + " · " + text(t, "model", "model unknown") + " · "
+                         + money_text(text(t, "cost_usd")) + " · " + when_text(iso_seconds(text(t, "at"))), "search");
                 }
             } else if (credits.value("remaining_usd", Json()).is_string()) {
                 note("No tracked runs yet this month", "Ask about a project, or open pi with API credits");
@@ -2833,7 +2881,7 @@ Json view(const Json& config, const std::string& page, const std::string& query,
         } else {
             note("The API credit meter is unavailable", "Install fox-credits");
         }
-        rows.push_back(item("credits-setup", "Renewal day and budget", "action", "When the monthly credit renews, and how much it is", "gear"));
+        rows.push_back(item("credits-setup", "Renewal day and budget", "action", "When the monthly credit renews, and how much it is", "system"));
         rows.push_back(item("credits-console", "Open Claude Console", "action", "The account's real balance and credit expiry", "window"));
         rows.push_back(item("api-tasks", "Review with API credits", "page", "Ask about a project, review changes, or open pi", "message"));
         rows.back()["page"] = "api-tasks";

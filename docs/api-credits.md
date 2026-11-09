@@ -1,8 +1,9 @@
 # API tasks and usage
 
 `fox-claude-api` runs read-only Claude reviews of your projects on an ordinary inference API key, and can open
-pi with the same key. `fox-credits` keeps the monthly meter that the bars, the drawer's Today card and
-**API usage** page, and the paper notebook all read.
+pi with the same key. `fox-credits` keeps the monthly meter: the main screen's bar, the drawer's Today card
+and **API usage** page read it, and the paper notebook shows it only once 20% or less is left. Amounts read in
+cents, and a run under a cent reads `<$0.01`.
 
 ## What the meter counts
 

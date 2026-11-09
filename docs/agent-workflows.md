@@ -130,12 +130,21 @@ is rendered, so a theme swap recolours it at the next Claude start.
 Desk adds **Jobs**, **Test results**, **Changes to look over**, **Worktree map**,
 **Pinned next steps** and **Failures**. Today links to running jobs, jobs finished in
 the last 24 hours, today's uninspected Claude commits and your first pinned step.
+The failed count is what still fails: a command that failed and then passed in the
+same project no longer counts, and failures older than a day leave Today and the
+notebook.
 The Agents page shows the current command, elapsed time and last activity; Enter
 still jumps to that session's terminal. Supervised background jobs remain visible
 when Claude goes idle.
 
-The paper mod supervises recognized Claude Bash builds, test runs and downloads.
-It keeps the original command's exit status and streams its output to the terminal.
+The paper mod records Claude's Bash builds, test runs and downloads: a command
+counts when one of its steps starts with a build, test or download tool
+(`cd src && make`, `python3 -B tests/test_x.py`), not when it only mentions one
+(`rg foo cmake/`). The command runs exactly as Claude wrote it, so auto mode
+reviews what really runs; the mod records the start, then hands `fox-work` the
+exit status and output when the call returns. Jobs carry Claude's one-line
+description of the command as their title. Background (`run_in_background`)
+calls are not recorded.
 In an interactive zsh, ordinary foreground build commands get status tracking;
 use **`fjob`** when you also want captured output or a background job:
 
