@@ -213,6 +213,11 @@ class ClaudeApi(unittest.TestCase):
         self.assertEqual(row['model'],'claude-sonnet-5-5')
         self.assertIn('[redacted]',value['result'])
 
+    def test_float_noise_in_the_cli_cost_is_rounded_to_micro_dollars(self):
+        self.assertEqual(api.cost_text(0.00036080000000000004), '0.000361')
+        self.assertEqual(api.cost_text(0.125), '0.125')
+        self.assertEqual(api.cost_text(20), '20')
+
     def test_result_markdown_names_project_model_cost_and_folder(self):
         value = self.execute()
         text = api.markdown(value)

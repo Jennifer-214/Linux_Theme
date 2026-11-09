@@ -52,6 +52,11 @@ def decimal(value):
     return number
 
 
+def cost_text(value):
+    """The CLI reports a float; keep whole micro-dollars so 0.0003608000000004 reads 0.000361."""
+    return format(decimal(value).quantize(Decimal('0.000001')).normalize(), 'f')
+
+
 def budget(value):
     number = decimal(value)
     if not Decimal('0.01') <= number <= 200:
@@ -364,7 +369,7 @@ def execute(cfg, project, question, limit, root=None, context_file=None, model=N
         answer = report.get('result') or '\n'.join(str(e) for e in report.get('errors') or [])
         value['result'] = str(answer or ('Claude returned no result. '+(stderr or '')[-2000:])).replace(key, '[redacted]')
         if report.get('total_cost_usd') is not None:
-            value['cost_usd'] = str(decimal(report['total_cost_usd']))
+            value['cost_usd'] = cost_text(report['total_cost_usd'])
         value.update(usage_of(report, model))
     except (OSError, ValueError) as error:
         value['status'] = 'failed'
