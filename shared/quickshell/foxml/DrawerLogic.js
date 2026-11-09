@@ -38,6 +38,7 @@ function todayTags(today, groups) {
     var failed = Number(today.jobsFailed || 0);
     add(failed ? "! " + failed + (failed === 1 ? " failed job" : " failed jobs") : "", {page: "failures"});
     add(today.nextStep ? "◇ next: " + today.nextStep : "", {page: "next-steps"});
+    if (today.apiCredits) add(today.apiCredits.short || "API credits", {page: "api-credits"});
     var notes = Number(today.notes || 0);
     add(today.battery ? today.battery + (/^(charging|full|not charging)$/.test(today.batteryState || "") ? " · plugged in" : "") : "", {page: "power"});
     add(summary("connections"), {page: "wifi"});
@@ -191,7 +192,7 @@ function paperIcon(item) {
         projects:["notebook","▤"], bookmarks:["bookmark","◇"], library:["library","▥","▤"],
         worktrees:["notebook","▥"], jobs:["clock","◷"], "test-results":["notebook","✓"],
         reviews:["note","✿"], "next-steps":["bookmark","◇"], failures:["note","!"],
-        models:["notebook","◈"], storage:["library","▦"], backups:["refresh","↺"], startup:["play","⏵"],
+        models:["notebook","◈"], "api-credits":["notebook","◇"], storage:["library","▦"], backups:["refresh","↺"], startup:["play","⏵"],
         downloads:["tray","↧","✉"], screenshots:["picture","▧"], windows:["window","▣"], garden:["garden","❦"],
         "clipboard-text":["clipboard","⌇"], "clipboard-images":["picture","▧"],
         wallpapers:["picture","❀"], themes:["palette","◐"],

@@ -104,7 +104,7 @@ void run_drawer(Context& ctx) {
     }
     if (ec) { incomplete("could not read drawer artwork: " + ec.message()); return; }
     for (const char* name : {"fox-desktop-menu", "fox-bar", "fox-hl", "fox-picker", "fox-menu", "fox-cheatsheet", "fox-sandbox",
-                            "fox-ai-quick", "fox-wallpaper", "fox-password-copy"})
+                            "fox-ai-quick", "fox-wallpaper", "fox-password-copy", "fox-credits"})
         ok = deploy(ctx.shared_dir / "bin" / name, ctx.home / ".local/bin" / name) && ok;
     for (const char* name : {"toggle_rofi.sh", "hub.sh", "network.sh", "bluetooth.sh", "audio_switcher.sh",
                             "powermenu.sh", "clipmanager.sh", "updates_menu.sh", "eww_action.sh",

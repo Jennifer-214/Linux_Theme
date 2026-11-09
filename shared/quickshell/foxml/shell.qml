@@ -26,6 +26,7 @@ ShellRoot {
     property bool failed: false
     property var groups: []
     property var entries: []
+    property var creditSnapshot: null
     property var trail: []
     readonly property var breadcrumbs: Logic.breadcrumbs(page, groupId, trail, groups, pageTitle)
     property var remembered: ({})
@@ -274,6 +275,7 @@ ShellRoot {
             var samePage = entries.length && itemList.viewPage === requestedPage;
             var saved = remembered[page];
             entries = Array.isArray(data.items) ? data.items : [];
+            creditSnapshot = requestedPage === "api-credits" ? data.credits || null : null;
             pageTitle = data.title || page;
             drawerReady = true;
             if (data.group && !searching) {
@@ -1088,6 +1090,14 @@ ShellRoot {
                                 }
                             }
                                 }
+                            ApiCreditMeter {
+                                objectName: "drawer-api-credits"
+                                theme: root.paperTheme
+                                credit: root.creditSnapshot
+                                compact: true
+                                visible: root.page === "api-credits" && credit !== null
+                                Layout.fillWidth: true
+                            }
                             Text {
                                 id: breadcrumbRow
                                 visible: !root.searching && (root.breadcrumbs.length > 1 || text.length > 0)

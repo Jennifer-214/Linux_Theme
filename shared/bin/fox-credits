@@ -1,0 +1,437 @@
+#!/usr/bin/env python3
+# fox-credits — the monthly API credit budget shared by the notebook and desktop.
+"""Status reads are offline. Only `sync` contacts Anthropic's reporting API."""
+import argparse
+import calendar
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import stat
+import sys
+import tempfile
+import urllib.error
+import urllib.parse
+import urllib.request
+from zoneinfo import ZoneInfo
+
+UTC = timezone.utc
+API = 'https://api.anthropic.com/v1/organizations/analytics/cost'
+PROJECTS = {'trader': 'Trader', 'plugins': 'Claude mods'}
+PLAN_PRODUCTS = {'chat', 'chat_cowork_unified', 'claude_code', 'claude_design', 'claude_in_chrome',
+                 'claude_tag', 'cowork', 'office_agent'}
+
+
+def locations():
+    home = Path.home()
+    return (Path(os.environ.get('XDG_CONFIG_HOME', home / '.config')) / 'foxml/api-credits.json',
+            Path(os.environ.get('XDG_STATE_HOME', home / '.local/state')) / 'foxml/api-credits')
+
+
+def defaults():
+    return {'budget_usd': '200.00', 'renewal_day': None, 'timezone': 'UTC', 'key_file': '',
+            'projects': {key: {'label': label, 'workspace_ids': [], 'api_key_ids': []}
+                         for key, label in PROJECTS.items()}}
+
+
+def amount(value):
+    try:
+        result = Decimal(str(value))
+    except InvalidOperation:
+        raise ValueError('Invalid cost amount') from None
+    if not result.is_finite() or result < 0 or result > Decimal('1000000000'):
+        raise ValueError('Cost amounts must be finite and nonnegative')
+    return result
+
+
+def money(value):
+    return f'${value:,.2f}'
+
+
+def timestamp(value):
+    result = datetime.fromisoformat(value.replace('Z', '+00:00'))
+    if result.tzinfo is None:
+        raise ValueError('Timestamps need a timezone')
+    return result.astimezone(UTC)
+
+
+def iso(value):
+    return value.astimezone(UTC).isoformat().replace('+00:00', 'Z')
+
+
+def load(path, fallback=None):
+    if not path.exists():
+        return fallback
+    return json.loads(path.read_text())
+
+
+def validate(config):
+    if not isinstance(config, dict):
+        raise ValueError('Credit configuration must be an object')
+    budget = amount(config['budget_usd'])
+    if budget <= 0:
+        raise ValueError('Budget must be greater than zero')
+    day = config.get('renewal_day')
+    if day is not None and (type(day) is not int or not 1 <= day <= 31):
+        raise ValueError('Renewal day must be 1 through 31')
+    ZoneInfo(config.get('timezone', 'UTC'))
+    if not isinstance(config.get('key_file', ''), str):
+        raise ValueError('Reporting key file must be a path')
+    seen = set()
+    projects = config.get('projects', {})
+    if not isinstance(projects, dict):
+        raise ValueError('Project mappings must be an object')
+    for project, entry in projects.items():
+        if not isinstance(entry, dict) or not isinstance(entry.get('label', project), str):
+            raise ValueError('Invalid project label')
+        for kind in ('workspace_ids', 'api_key_ids'):
+            ids = entry.get(kind, [])
+            if not isinstance(ids, list) or any(not isinstance(v, str) or not v or len(v) > 200 for v in ids):
+                raise ValueError('Project IDs must be nonempty strings')
+            for value in ids:
+                identity = (kind, value)
+                if identity in seen:
+                    raise ValueError('A reporting ID can belong to only one project')
+                seen.add(identity)
+    return config
+
+
+def read_config():
+    return validate(load(locations()[0], defaults()))
+
+
+def cycle(config, now):
+    if config.get('renewal_day') is None:
+        return None
+    local = now.astimezone(ZoneInfo(config['timezone']))
+    day = config['renewal_day']
+
+    def boundary(year, month):
+        return datetime(year, month, min(day, calendar.monthrange(year, month)[1]), tzinfo=local.tzinfo)
+
+    start = boundary(local.year, local.month)
+    if local < start:
+        previous = start.replace(day=1) - timedelta(days=1)
+        start = boundary(previous.year, previous.month)
+    following = (start.replace(day=1) + timedelta(days=32)).replace(day=1)
+    end = boundary(following.year, following.month)
+    return start.astimezone(UTC), end.astimezone(UTC)
+
+
+def signature(config):
+    # A different cycle or attribution mapping invalidates the old snapshot.
+    tracked = {'scope': 'monthly-plan-api-v1', 'config': config}
+    return hashlib.sha256(json.dumps(tracked, sort_keys=True).encode()).hexdigest()
+
+
+def atomic(path, value):
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd, name = tempfile.mkstemp(prefix='.' + path.name, dir=path.parent)
+    try:
+        with os.fdopen(fd, 'w') as stream:
+            json.dump(value, stream, ensure_ascii=False)
+            stream.write('\n')
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(name, path)
+    finally:
+        if os.path.exists(name):
+            os.unlink(name)
+
+
+@contextmanager
+def locked():
+    state = locations()[1]
+    state.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd = os.open(state / 'lock', os.O_CREAT | os.O_RDWR, 0o600)
+    with os.fdopen(fd, 'w') as stream:
+        fcntl.flock(stream, fcntl.LOCK_EX)
+        yield state
+
+
+def project_for(config, group):
+    found = set()
+    for key, entry in config.get('projects', {}).items():
+        if group.get('workspace_id') in entry.get('workspace_ids', []) or group.get('api_key_id') in entry.get('api_key_ids', []):
+            found.add(key)
+    if len(found) > 1:
+        raise ValueError('Workspace and API key map the same cost to different projects')
+    return next(iter(found), 'other')
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        raise ValueError('Reporting endpoint redirected; credentials were not forwarded')
+
+
+def request_report(url, key):
+    request = urllib.request.Request(url, headers={
+        'x-api-key': key, 'anthropic-version': '2026-10-21',
+        'anthropic-beta': 'analytics-usage-cost-2026-08-24',
+        'Accept': 'application/json'})
+    with urllib.request.build_opener(NoRedirect).open(request, timeout=15) as response:
+        return json.loads(response.read(8_000_000))
+
+
+def collect(config, start, end, key, request=request_report):
+    totals = {'other': Decimal(0)}
+    totals.update({project: Decimal(0) for project in config.get('projects', {})})
+    cursor, visited, refreshed = None, set(), None
+    for _ in range(100):
+        params = [('starting_at', iso(start)), ('ending_at', iso(end)),
+                  ('group_by[]', 'workspace_id'), ('group_by[]', 'api_key_id'), ('group_by[]', 'product'), ('limit', '1000')]
+        if cursor:
+            params.append(('page', cursor))
+        page = request(API + '?' + urllib.parse.urlencode(params), key)
+        if not isinstance(page, dict) or not isinstance(page.get('data'), list):
+            raise ValueError('Invalid reporting response')
+        stamp = page.get('data_refreshed_at')
+        if stamp is None:
+            raise ValueError('Anthropic has not published cost data for this period yet')
+        timestamp(stamp)
+        if refreshed is not None and stamp != refreshed:
+            raise ValueError('Reporting snapshot changed during pagination; try again')
+        refreshed = stamp
+        for row in page['data']:
+            if not isinstance(row, dict) or not isinstance(row.get('cost'), dict) or not isinstance(row.get('group', {}), dict):
+                raise ValueError('Invalid cost report row')
+            # Interactive subscription products cannot consume monthly API
+            # credits. Null product includes unattributed execution fees, kept
+            # conservatively in the budget instead of silently dropping them.
+            if row.get('group', {}).get('product') in PLAN_PRODUCTS:
+                continue
+            cost = row['cost']
+            if cost.get('currency') != 'USD':
+                raise ValueError('Reporting currency is not USD')
+            # Anthropic reports decimal CENTS, including fractional cents.
+            dollars = amount(cost['amount']) / 100
+            project = project_for(config, row.get('group', {}))
+            totals[project] += dollars
+        if page.get('has_more') is False:
+            return totals, refreshed
+        cursor = page.get('next_page')
+        if not isinstance(cursor, str) or not cursor or cursor in visited:
+            raise ValueError('Invalid reporting pagination')
+        visited.add(cursor)
+    raise ValueError('Reporting pagination exceeded its limit')
+
+
+def sync(config, now):
+    bounds = cycle(config, now)
+    if bounds is None:
+        raise ValueError('Confirm the credit renewal day first: fox-credits setup')
+    key_path = Path(config.get('key_file', '')).expanduser()
+    if not config.get('key_file') or not key_path.is_file():
+        raise ValueError('Connect a reporting credential first: fox-credits setup')
+    info = key_path.stat()
+    if info.st_uid != os.getuid() or stat.S_IMODE(info.st_mode) & 0o077:
+        raise ValueError('Reporting credential must be owned by you with permissions 600')
+    key = key_path.read_text().strip()
+    if not key or any(c.isspace() for c in key):
+        raise ValueError('Reporting credential file is empty or invalid')
+    start, end = bounds
+    # The endpoint rounds to UTC hours; querying the current incomplete hour
+    # would silently change the boundary, so name that bound explicitly.
+    through = min(now, end).replace(minute=0, second=0, microsecond=0)
+    if through <= start:
+        raise ValueError('The new credit cycle has not completed its first reporting hour')
+    totals, refreshed = collect(config, start, through, key)
+    with locked() as state:
+        atomic(state / 'reported.json', {
+            'signature': signature(config), 'cycle_start': iso(start), 'cycle_end': iso(end),
+            'updated_at': iso(now), 'as_of': refreshed, 'through': iso(through),
+            'projects': {k: str(v) for k, v in totals.items()}})
+
+
+def record(config, project, cost, event_id, at):
+    if project not in config.get('projects', {}):
+        raise ValueError('Unknown credit project')
+    if not event_id or len(event_id) > 200 or any(ord(c) < 32 for c in event_id):
+        raise ValueError('A stable request or run ID is required')
+    event = {'id': event_id, 'project': project, 'cost_usd': str(amount(cost)), 'at': iso(timestamp(at))}
+    with locked() as state:
+        ledger = load(state / 'tracked.json', {'events': []})
+        previous = next((old for old in ledger['events'] if old['id'] == event_id), None)
+        if previous is not None and previous != event:
+            raise ValueError('That run ID already has a different cost record')
+        if previous is None:
+            ledger['events'].append(event)
+            atomic(state / 'tracked.json', ledger)
+
+
+def snapshot(config, now):
+    budget = amount(config['budget_usd'])
+    result = {'version': 1, 'budget_usd': str(budget), 'spent_usd': None, 'remaining_usd': None,
+              'remaining_percent': None, 'source': 'unconnected', 'status': 'setup',
+              'short': 'API · setup', 'headline': money(budget) + ' monthly API credits',
+              'detail': 'Confirm the renewal date in Claude Console.', 'meter': '',
+              'projects': [{'id': key, 'label': entry.get('label', key), 'spent_usd': None, 'detail': 'Not connected'}
+                           for key, entry in config.get('projects', {}).items()],
+              'cycle_start': None, 'cycle_end': None, 'as_of': None}
+    bounds = cycle(config, now)
+    if bounds is None:
+        return result
+    start, end = bounds
+    renewal = end.astimezone(ZoneInfo(config['timezone'])).strftime('%b %-d')
+    result.update(cycle_start=iso(start), cycle_end=iso(end),
+                  short='API · connect', detail='Renews ' + renewal + ' · connect billing; spend is unknown.')
+    state = locations()[1]
+    report = load(state / 'reported.json', {})
+    source, totals = 'unconnected', None
+    if report.get('signature') == signature(config) and report.get('cycle_start') == iso(start) and report.get('cycle_end') == iso(end):
+        totals = {key: amount(value) for key, value in report['projects'].items()}
+        source = 'anthropic'
+        result['as_of'] = report['as_of']
+        result['status'] = 'stale' if (now - timestamp(report['updated_at']) > timedelta(hours=6)
+                                      or now - timestamp(report['as_of']) > timedelta(hours=24)) else 'reported'
+    else:
+        ledger = load(state / 'tracked.json', {'events': []})
+        events = [event for event in ledger['events'] if start <= timestamp(event['at']) < end and timestamp(event['at']) <= now]
+        if events:
+            totals = {key: Decimal(0) for key in config.get('projects', {})}
+            for event in events:
+                key = event['project'] if event['project'] in totals else 'other'
+                totals[key] = totals.get(key, Decimal(0)) + amount(event['cost_usd'])
+            source = 'local'
+            result['as_of'] = max(event['at'] for event in events)
+            result['status'] = 'partial'
+    if totals is None:
+        return result
+    spent = sum(totals.values(), Decimal(0))
+    remaining = max(Decimal(0), budget - spent)
+    percent = min(100, max(0, float(remaining / budget * 100)))
+    mark = '~' if source == 'local' else ''
+    result.update(source=source, spent_usd=str(spent), remaining_usd=str(remaining), remaining_percent=percent,
+                  short='API ' + mark + money(remaining) + ' left',
+                  headline=money(spent) + ' used of ' + money(budget),
+                  meter='▰' * round(percent / 10) + '▱' * (10 - round(percent / 10)))
+    local_end = end.astimezone(ZoneInfo(config['timezone'])).strftime('%b %-d')
+    result['detail'] = ('Tracked calls only · excludes untracked usage' if source == 'local'
+                        else 'Anthropic report · billing can lag up to 24h') + ' · renews ' + local_end
+    if result['status'] == 'stale':
+        result['detail'] = 'Stale report · sync needed · renews ' + local_end
+    result['projects'] = []
+    for key, entry in config.get('projects', {}).items():
+        mapped = bool(entry.get('workspace_ids') or entry.get('api_key_ids'))
+        known = source == 'local' or mapped
+        value = totals.get(key, Decimal(0)) if known else None
+        result['projects'].append({'id': key, 'label': entry.get('label', key),
+                                   'spent_usd': str(value) if value is not None else None,
+                                   'detail': money(value) if value is not None else 'Assign an API key or workspace'})
+    if totals.get('other', 0):
+        result['projects'].append({'id': 'other', 'label': 'Other / unassigned',
+                                   'spent_usd': str(totals['other']), 'detail': money(totals['other'])})
+    return result
+
+
+def bar(value):
+    lines = [value['headline'], value['detail']]
+    if value.get('as_of'):
+        lines.append('As of ' + value['as_of'])
+    lines.extend(project['label'] + ': ' + project['detail'] for project in value['projects'])
+    percent = value['remaining_percent']
+    css = 'critical' if percent is not None and percent <= 0 else 'warning' if value['status'] in ('stale', 'error') or (percent is not None and percent <= 20) else 'muted' if percent is None else 'normal'
+    result = {'text': value['short'], 'tooltip': '\n'.join(lines), 'class': [css]}
+    if percent is not None:
+        result['percentage'] = percent
+    return result
+
+
+def configure(args):
+    config = read_config()
+    if args.renewal_day is not None:
+        config['renewal_day'] = args.renewal_day
+    if args.budget is not None:
+        config['budget_usd'] = str(amount(args.budget))
+    if args.timezone is not None:
+        config['timezone'] = args.timezone
+    if args.key_file is not None:
+        config['key_file'] = str(Path(args.key_file).expanduser()) if args.key_file else ''
+    validate(config)
+    atomic(locations()[0], config)
+    print('Saved credit settings to', locations()[0])
+
+
+def setup():
+    config = read_config()
+    print('Monthly plan API credits. Interactive subscription limits are separate.')
+    print('Confirm the credit expiry date at https://platform.claude.com/settings/billing')
+    value = input('Renewal day (1–31; leave blank to keep unconfirmed): ').strip()
+    if value:
+        config['renewal_day'] = int(value)
+    zone = input('Billing timezone [' + config['timezone'] + ']: ').strip()
+    if zone:
+        config['timezone'] = zone
+    print('Automatic reporting needs an Anthropic credential with reporting permissions.')
+    print('Store it in a private file with permissions 600. Do not paste it here.')
+    key = input('Reporting credential FILE path (optional): ').strip()
+    if key:
+        config['key_file'] = str(Path(key).expanduser())
+    validate(config)
+    atomic(locations()[0], config)
+    print('Settings saved. Run fox-credits sync after connecting reporting.')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    commands = parser.add_subparsers(dest='command')
+    commands.add_parser('status')
+    commands.add_parser('bar')
+    commands.add_parser('sync')
+    commands.add_parser('sync-if-configured')
+    commands.add_parser('setup')
+    conf = commands.add_parser('configure')
+    conf.add_argument('--renewal-day', type=int)
+    conf.add_argument('--budget')
+    conf.add_argument('--timezone')
+    conf.add_argument('--key-file')
+    entry = commands.add_parser('record')
+    entry.add_argument('--project', required=True)
+    entry.add_argument('--cost-usd', required=True)
+    entry.add_argument('--id', required=True)
+    entry.add_argument('--at', required=True)
+    args = parser.parse_args()
+    command = args.command or 'status'
+    now = datetime.now(UTC)
+    try:
+        config = read_config()
+        if command == 'configure':
+            configure(args)
+        elif command == 'setup':
+            setup()
+        elif command in ('sync', 'sync-if-configured'):
+            if command == 'sync-if-configured' and (config.get('renewal_day') is None or not config.get('key_file')):
+                return 0
+            sync(config, now)
+            print('Updated billing report; no model requests were made.')
+        elif command == 'record':
+            record(config, args.project, args.cost_usd, args.id, args.at)
+        else:
+            value = snapshot(config, now)
+            print(json.dumps(bar(value) if command == 'bar' else value, ensure_ascii=False))
+        return 0
+    except (ValueError, KeyError, TypeError, OSError, EOFError) as error:
+        # HTTP errors can include response details. Do not print credentials,
+        # server bodies or request objects to the bar, notebook or terminal.
+        message = ('Billing request failed (HTTP ' + str(error.code) + '); check reporting access.'
+                   if isinstance(error, urllib.error.HTTPError) else
+                   'Billing network request failed; cached figures were kept.'
+                   if isinstance(error, urllib.error.URLError) else
+                   str(error) if isinstance(error, ValueError) else
+                   'Credit settings or cached data are unavailable; inspect fox-credits setup.')
+        if command in ('status', 'bar'):
+            value = snapshot(defaults(), now)
+            value.update(status='error', short='API · unavailable', detail=message)
+            print(json.dumps(bar(value) if command == 'bar' else value, ensure_ascii=False))
+            return 0
+        else:
+            print('fox-credits:', message, file=sys.stderr)
+        return 1
+
+
+if __name__ == '__main__':
+    sys.exit(main())

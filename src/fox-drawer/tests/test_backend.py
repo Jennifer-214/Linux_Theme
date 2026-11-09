@@ -1118,6 +1118,23 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(launched[-2:], ["--", str(tools / "fox-doctor")])
         self.assertIn("--hold", launched)
 
+    def test_credit_page_reads_cached_status_and_uses_fixed_setup_actions(self):
+        helper = self.bin/'fox-credits'
+        helper.write_text('#!'+sys.executable+'\n'+FAKE_COMMAND)
+        helper.chmod(0o755)
+        snapshot = {'headline':'$20.00 used of $200.00', 'short':'API $180.00 left',
+                    'detail':'Anthropic report · renews Dec 8', 'status':'reported',
+                    'remaining_percent':90, 'as_of':'2026-11-09T00:00:00Z',
+                    'projects':[{'label':'Trader','detail':'$15.00'}, {'label':'Claude mods','detail':'$5.00'}]}
+        self.state['commands'] = {'fox-credits':{'stdout':json.dumps(snapshot)}}
+        page = self.invoke('view','api-credits')
+        self.assertEqual(page['credits'], snapshot)
+        self.assertEqual([r['label'] for r in page['items'] if r['id']=='credits-project'], ['Trader','Claude mods'])
+        self.assertEqual([c for c in self.calls() if c[0]=='fox-credits'], [['fox-credits','status']])
+        self.failed('run','credits-sync','arbitrary argument')
+        self.assertTrue(self.invoke('run','credits-setup')['ok'])
+        self.assertTrue(any(call[-2:]==['fox-credits','setup'] for call in self.calls()))
+
     def test_shortcut_reference_reads_tables_and_copies_only_known_keys(self):
         document = self.home / ".local/share/foxml/KEYBINDS.md"
         document.parent.mkdir(parents=True)

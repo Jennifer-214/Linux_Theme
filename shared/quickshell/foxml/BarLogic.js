@@ -37,8 +37,11 @@ function pollers(primary, secondary) {
 function sample(output, spec) {
     var value = spec["return-type"] === "json" ? JSON.parse(output.trim()) : {text: output.trim()};
     if (!value || typeof value !== "object") throw new Error("Helper returned no module data");
-    return {text: plain(value.text), tooltip: plain(value.tooltip || value.alt || value.text),
+    var result = {text: plain(value.text), tooltip: plain(value.tooltip || value.alt || value.text),
         classes: Array.isArray(value.class) ? value.class : String(value.class || "").split(/\s+/)};
+    if (typeof value.percentage === "number" && isFinite(value.percentage))
+        result.percentage = Math.max(0, Math.min(100, value.percentage));
+    return result;
 }
 function format(text, values) {
     return String(text || "").replace(/\{([A-Za-z]+)(?::([^}]+))?\}/g, function(all, key, style) {

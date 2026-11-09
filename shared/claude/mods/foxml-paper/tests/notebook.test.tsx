@@ -52,7 +52,7 @@ function fakeFs(on: On, files: Record<string, string>) {
 }
 
 // Nothing sits beneath the plugin in a test: these stand for the engine and the machine.
-function engine(on: On, options: { runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; trees?: unknown; readIds?: { id: string; at: number }[] } = {}) {
+function engine(on: On, options: { runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; credits?: unknown; trees?: unknown; readIds?: { id: string; at: number }[] } = {}) {
   let pinned: { file: string; step: string } | null = null
   seen.argv = []; seen.sent = []; seen.toasts = []; seen.submitted = []; seen.opened = []
   mock.store(on, { 'notebook-read-mail:abc': options.readIds ?? [] })
@@ -91,6 +91,8 @@ function engine(on: On, options: { runtime?: string; state?: string; clock?: boo
     if (argv.includes('log -1 --format=%ct%x00%B'))
       return { value: done(`${NOW / 1000}\u0000feat: a thing\n\nClaude-Session: https://claude.ai/code/session_X\n`) }
     if (argv.includes('-- /code/paper/clean.txt')) return { value: done('') }
+    if (argv === 'fox-credits status' && options.credits) return { value: done(JSON.stringify(options.credits)) }
+    if (argv === 'fox-desktop-menu --open api-credits') return { value: done('') }
     if (argv === 'fox-drawer claude-peers') return { value: done(PEERS) }
     if (argv.startsWith('fox-drawer run claude-jump')) return { value: done('{"ok":true}') }
     if (argv.includes('status') && !argv.includes('--no-optional-locks')) return { value: { ...done(''), exitCode: 9 } }
@@ -410,5 +412,20 @@ test('read markers restored at startup suppress a retried peer message after rel
   expect(await ui.find({ key: 'attention-mail' })).toBeUndefined()
   await $.session.receive({ origin: { kind: 'peer' }, text: '✉ from docs: a different new note' })
   expect((await ui.find({ key: 'attention-mail' }))?.text).toContain('1 unread note')
+  await ui.unmount()
+})
+
+
+test('the API credit meter is separate from session context and opens the shared credit drawer', async ($, on) => {
+  engine(on, { credits: { short: 'API $180.00 left', headline: '$20.00 used of $200.00', detail: 'Anthropic report',
+    meter: '▰▰▰▰▰▰▰▰▰▱', status: 'reported', source: 'anthropic', remaining_percent: 90, as_of: '2026-11-09T00:00:00Z', projects: [] } })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ key: 'api-credit-meter' }))?.text).toContain('API $180.00 left')
+  expect((await ui.find({ type: 'Text', text: /64%/ }))?.text).toContain('64%')
+  await ui.press({ key: 'api-credit-meter' })
+  expect(seen.argv).toContain('fox-desktop-menu --open api-credits')
+  expect(seen.argv.some(argv => argv.includes('fox-credits sync'))).toBe(false)
+  expect(seen.submitted).toEqual([])
   await ui.unmount()
 })

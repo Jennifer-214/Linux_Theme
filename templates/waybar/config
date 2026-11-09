@@ -8,7 +8,8 @@
   "modules-left": [
     "group/launcher",
     "custom/ai_status",
-    "custom/claude"
+    "custom/claude",
+    "custom/api_credits"
   ],
 
   "modules-center": [],
@@ -164,6 +165,14 @@
     "tooltip": true,
     "on-click": "~/.local/bin/fox-desktop-menu agents",
     "on-click-asking": "~/.local/bin/fox-drawer claude-next"
+  },
+
+  "custom/api_credits": {
+    "exec": "~/.local/bin/fox-credits bar",
+    "return-type": "json",
+    "interval": 60,
+    "tooltip": true,
+    "on-click": "~/.local/bin/fox-desktop-menu api-credits"
   },
 
   "custom/ai_status": {

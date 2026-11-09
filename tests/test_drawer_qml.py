@@ -356,7 +356,7 @@ class DrawerQmlTest(unittest.TestCase):
             source = re.sub(r"^        (?:anchors \{.*|margins \{.*|exclusionMode:.*|WlrLayershell\..*)\n", "", source, flags=re.M)
             source = source.rsplit("\n}", 1)[0] + EXERCISE + "\n}\n"
             (directory / "shell.qml").write_text(source)
-            for name in ("DrawerLogic.js", "ClipIcon.qml", "LoadingDots.qml", "PencilProgress.qml", "PaperGrain.qml", "BarHint.qml", "PageEdgeScrollBar.qml", "MediaArtwork.qml", "StateTag.qml", "BarRibbon.qml", "PaperFlourish.qml", "PaperCardSurface.qml", "ClipboardPhoto.qml", "CalendarSheet.qml", "CalendarLogic.js", "ScrapbookSheet.qml", "GardenSheet.qml", "ContextHearts.qml", "TeaCup.qml", "TodaySheet.qml", "VolumeSlip.qml", "BotanicalMark.qml"):
+            for name in ("DrawerLogic.js", "ClipIcon.qml", "LoadingDots.qml", "PencilProgress.qml", "PaperGrain.qml", "BarHint.qml", "PageEdgeScrollBar.qml", "MediaArtwork.qml", "StateTag.qml", "BarRibbon.qml", "PaperFlourish.qml", "PaperCardSurface.qml", "ClipboardPhoto.qml", "CalendarSheet.qml", "CalendarLogic.js", "ScrapbookSheet.qml", "GardenSheet.qml", "ContextHearts.qml", "TeaCup.qml", "TodaySheet.qml", "ApiCreditMeter.qml", "VolumeSlip.qml", "BotanicalMark.qml"):
                 shutil.copyfile(ROOT / "shared/quickshell/foxml" / name, directory / name)
             volume = (directory / "VolumeSlip.qml").read_text().replace("PanelWindow {", "FloatingWindow {")
             volume = re.sub(r"^    (?:anchors.*|margins\..*|exclusionMode:.*|WlrLayershell\..*)\n", "", volume, flags=re.M)

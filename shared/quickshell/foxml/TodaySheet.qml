@@ -86,5 +86,12 @@ ColumnLayout {
             font.family: sheet.theme.fontFamily; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight
         }
     }
+    ApiCreditMeter {
+        objectName: "today-api-credits"
+        theme: sheet.theme
+        credit: sheet.today.apiCredits || null
+        Layout.fillWidth: true
+        onClicked: sheet.openTag({page: "api-credits"})
+    }
     Text { visible: sheet.favorites > 0; text: "a few favorites."; textFormat: Text.PlainText; color: sheet.theme.muted; font.family: sheet.theme.headingFont; font.italic: true; font.pixelSize: 14; Layout.topMargin: 3 }
 }

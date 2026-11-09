@@ -690,7 +690,7 @@ void do_systemd_user(const Context& ctx) {
     // Auto-enable core daemons. fox-pulse replaces fox-monitor-watch and
     // foxml-focus-pulse (the workspace OSD is its focus handler); the weekly
     // fox theme check only reads and notifies when something is off.
-    for (const char* svc : { "fox-pulse.service", "fox-theme-check.timer", "fox-work-notify.timer" }) {
+    for (const char* svc : { "fox-pulse.service", "fox-theme-check.timer", "fox-work-notify.timer", "fox-credits-sync.timer" }) {
         if (fs::exists(dst_root / svc)) {
             sh::systemctl_enable(svc, /*user=*/true);
         }

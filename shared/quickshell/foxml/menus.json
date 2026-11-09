@@ -84,6 +84,7 @@
         { "id": "power-profile", "label": "Power profile", "detail": "Cycle performance, balanced and power saver", "icon": "◈", "kind": "action" },
         { "id": "vault", "label": "Passwords", "detail": "Copy from your existing pass store", "icon": "⚿", "kind": "page", "page": "passwords" },
         { "id": "tools", "label": "Fox tools", "detail": "Commands grouped by what you want to do", "icon": "❯", "kind": "page", "page": "tools" },
+        { "id": "api-credits", "label": "Monthly API credits", "detail": "Your $200 credit budget for Trader and Claude mods", "icon": "◇", "kind": "page", "page": "api-credits" },
         { "id": "cheatsheet", "label": "Shortcut reference", "detail": "Find a shortcut and copy its keys", "icon": "⌨", "kind": "page", "page": "cheatsheet" },
         { "id": "sandbox", "label": "Disposable sandbox", "detail": "A fresh space for an app", "icon": "▢", "kind": "page", "page": "sandbox" },
         { "id": "security", "label": "Security audit", "detail": "Open the security dashboard in a terminal", "icon": "⛨", "kind": "action", "close": true },

@@ -99,7 +99,7 @@ fs::path repository() {
 const std::set<std::string> pages = {
     "apps", "windows", "audio-outputs", "wifi", "bluetooth", "tools", "tools-ai", "tools-security", "tools-desktop", "tools-system", "tools-projects", "tools-other", "tools-all", "cheatsheet", "sandbox", "clipboard-text", "clipboard-images",
     "wallpapers", "themes", "power", "updates", "agents", "projects", "bookmarks", "library", "downloads", "screenshots", "passwords", "garden",
-    "models", "storage", "backups", "startup", "jobs", "test-results", "reviews", "worktrees", "next-steps", "failures"
+    "models", "storage", "backups", "startup", "jobs", "test-results", "reviews", "worktrees", "next-steps", "failures", "api-credits"
 };
 const std::set<std::string> actions = {
     "volume", "volume-mute", "mic-mute", "media-play-pause", "media-next", "media-previous", "brightness",
@@ -107,7 +107,7 @@ const std::set<std::string> actions = {
     "wallpaper-next", "wallpaper-sync", "color-picker", "updates-terminal", "updates-silent", "vault",
     "security", "cleanup", "agent-triage", "agent-jump", "agent-clear", "claude-jump", "app-launch", "window-focus", "audio-output", "wifi-connect",
     "wifi-toggle", "bluetooth-connect", "bluetooth-toggle", "bluetooth-scan", "bluetooth-service", "tool-run", "cheatsheet-copy", "sandbox-launch", "clipboard-restore", "wallpaper-set", "theme-set", "project-open", "project-terminal", "project-bookmark", "drive-open", "drive-eject", "download-open", "download-folder", "screenshot-open", "screenshot-copy", "screenshot-folder", "screenshot-capture", "password-copy", "tools", "cheatsheet", "sandbox",
-    "model-agent", "model-remove", "storage-scan", "storage-open", "storage-clean-packages", "storage-trim-journal", "storage-flatpak-unused",
+    "credits-setup", "credits-sync", "credits-console", "model-agent", "model-remove", "storage-scan", "storage-open", "storage-clean-packages", "storage-trim-journal", "storage-flatpak-unused",
     "storage-empty-trash", "storage-hidden", "backup-restore", "backup-open", "backup-prune", "startup-user", "startup-autostart",
     "work-open", "work-jump", "work-tests", "work-compare", "work-ask", "work-reviews", "work-tasks", "work-task-toggle", "work-task-draft", "worktree-open", "worktree-terminal", "project-worktrees", "service-log", "service-ask"
 };
@@ -352,6 +352,8 @@ std::string required(const std::string& id) {
     if (id == "color-picker") return "hyprpicker";
     if (id == "password-copy") return "pass";
     if (id == "security") return "fox";
+    if (id == "credits-setup" || id == "credits-sync") return "fox-credits";
+    if (id == "credits-console") return "xdg-open";
     if (id == "suspend" || id == "reboot" || id == "poweroff") return "systemctl";
     if (id == "logout") return "fox-hl";
     return {};
@@ -1615,7 +1617,7 @@ std::string tool_section(const std::string& name) {
         {"tools-system", {"fox-doctor", "fox-hw-info", "fox-install", "fox-legacy", "fox-nvidia-state", "fox-sys", "fox-tail", "fox-template-lint", "fox-test", "fox-uninstall"}},
         {"tools-projects", {"fox-backup", "fox-build-verify", "fox-cafe", "fox-dev", "fox-develop", "fox-distro-build", "fox-distro-flash", "fox-distro-guide", "fox-generate-module", "fox-init", "fox-new-project", "fox-work", "fox-work-notice"}},
     };
-    if (name.rfind("fox-ai", 0) == 0 || name.rfind("fox-llm-", 0) == 0 || name == "fox-ask" || name == "fox-agent-parse" || name == "fask" || name == "findex" || name == "fhelp") return "tools-ai";
+    if (name.rfind("fox-ai", 0) == 0 || name.rfind("fox-llm-", 0) == 0 || name == "fox-credits" || name == "fox-ask" || name == "fox-agent-parse" || name == "fask" || name == "findex" || name == "fhelp") return "tools-ai";
     for (const auto& [section, tools] : names) if (tools.count(name)) return section;
     return "tools-other";
 }
@@ -1781,6 +1783,9 @@ Json today_summary(const Json& config) {
     // The teacup: how much of the week is left, or -1 when there is no reading.
     today["claudeWeekLeft"] = usage.week >= 0 ? std::max(0, 100 - usage.week) : -1;
     today["claudeBerry"] = usage.five >= 80 || usage.week >= 80;
+    Json credits;
+    if (sh::have("fox-credits") && capture_json({"fox-credits", "status"}, credits) && credits.is_object())
+        today["apiCredits"] = credits;
     const auto work = work_data(config);
     if (work.is_object()) {
         today["jobsRunning"] = whole(work, "running"); today["jobsFinished"] = whole(work, "finished");
@@ -2463,6 +2468,29 @@ Json view(const Json& config, const std::string& page, const std::string& query,
             auto row = item(pair.first, pair.second, "action", {}, pair.first);
             decorate(row); rows.push_back(row);
         }
+    } else if (page == "api-credits") {
+        known = true; out["title"] = "Monthly API credits";
+        Json credits;
+        if (sh::have("fox-credits") && capture_json({"fox-credits", "status"}, credits) && credits.is_object()) {
+            out["credits"] = credits;
+            auto summary = item("credits-summary", text(credits, "headline"), "action", text(credits, "detail"), "info");
+            summary["enabled"] = false; rows.push_back(summary);
+            if (!text(credits, "as_of").empty()) {
+                auto stamp = item("credits-as-of", "Reported as of " + text(credits, "as_of"), "action", "Billing reports are delayed; this is a budget meter, not a live balance", "info");
+                stamp["enabled"] = false; rows.push_back(stamp);
+            }
+            if (credits.contains("projects") && credits["projects"].is_array()) for (const auto& project : credits["projects"]) {
+                auto row = item("credits-project", text(project, "label"), "action", text(project, "detail"), "folder");
+                row["enabled"] = false; rows.push_back(row);
+            }
+        } else {
+            auto row = item("credits-summary", "API spending is not connected", "action", "Set the credit cycle and connect a billing report", "info");
+            row["enabled"] = false; rows.push_back(row);
+        }
+        rows.push_back(item("credits-setup", "Set up credit tracking", "action", "Confirm the renewal date and connect reporting", "gear"));
+        rows.push_back(item("credits-sync", "Refresh billing report", "action", "Fetch reported API spending in a terminal", "refresh"));
+        rows.push_back(item("credits-console", "Open Claude Console", "action", "Check the credit expiry and account spending", "window"));
+        for (auto& row : rows) if (truth(row, "enabled")) { decorate(row); row["close"] = true; }
     } else if (page == "tools" || page.rfind("tools-", 0) == 0) {
         const auto section = std::find_if(tool_sections.begin(), tool_sections.end(), [&](const ToolSection& s) { return s.id == page; });
         known = page == "tools" || section != tool_sections.end();
@@ -2906,6 +2934,9 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         }
         return result(false, "Unknown sandbox");
     }
+    if (id == "credits-setup") return terminal({"fox-credits", "setup"}, "Credit settings opened");
+    if (id == "credits-sync") return terminal({"fox-credits", "sync"}, "Billing refresh opened");
+    if (id == "credits-console") return launch({"xdg-open", "https://platform.claude.com/settings/billing"}, "Claude Console opened");
     if (id == "security") return terminal({"fox", "sec", "dashboard", "--live"}, "Security dashboard opened");
     if (id == "cleanup") return terminal({"zsh", "-ic", "fox-clean; print; read -s '?Press enter to close…'"}, "System cleanup opened");
     if (id == "lock") return launch({script("lock.sh").string()}, "Screen lock opened");

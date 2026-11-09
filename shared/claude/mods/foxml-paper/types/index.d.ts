@@ -6,6 +6,11 @@ export type WorkJob = { id: string; command: string; state: string; elapsed: num
 export type WorkLook = { tests: WorkTest | null; tasks: WorkTask[]; jobs: WorkJob[]; failures?: WorkJob[] }
 export type NotebookView = { page: 'overview' | 'files' | 'project' | 'sessions'; scope: 'session' | 'all'; selected: string; focused?: string; offset: number; form: 'none' | 'task' | 'plan' | 'step' }
 export type PaperTree = { path: string; branch: string; status: string; bare?: boolean; sessions: PaperPeer[] }
+export type ApiCredits = {
+  short: string; headline: string; detail: string; meter: string
+  status: string; source: string; remaining_percent: number | null; as_of: string | null
+  projects: { id: string; label: string; spent_usd: string | null; detail: string }[]
+}
 
 // What the notebook shows, refreshed after edits and every little while.
 export type PaperLook = {
@@ -23,6 +28,7 @@ export type PaperLook = {
   // A card another mod left for this session (cards/<session>.json).
   card: PaperCard | null
   work: WorkLook | null
+  credits?: ApiCredits | null
 }
 
 export type PaperTone = 'ink' | 'dim' | 'heart' | 'berry' | 'ribbon' | 'added' | 'removed'

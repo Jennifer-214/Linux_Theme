@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh configured API credit reporting hourly
+
+[Timer]
+OnStartupSec=2min
+OnUnitActiveSec=1h
+RandomizedDelaySec=2min
+
+[Install]
+WantedBy=timers.target

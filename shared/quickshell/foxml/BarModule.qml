@@ -96,6 +96,18 @@ Item {
         Text { anchors.horizontalCenter: parent.horizontalCenter; text: module.clockParts ? module.clockParts[1] : ""; color: module.theme.muted; font.family: module.theme.fontFamily; font.pixelSize: 10; textFormat: Text.PlainText }
         Text { anchors.horizontalCenter: parent.horizontalCenter; text: module.clockParts ? module.clockParts[2] : ""; color: module.theme.ink; font.family: module.theme.headingFont; font.pixelSize: 21; textFormat: Text.PlainText }
     }
+    Rectangle {
+        objectName: "bar-api-credit-rail"
+        visible: module.name === "custom/api_credits" && module.sample.percentage !== undefined
+        anchors.horizontalCenter: parent.horizontalCenter
+        y: 33; width: Math.max(0, module.width - 18); height: 3; radius: 1.5
+        color: Qt.alpha(module.theme.line, .3)
+        Rectangle {
+            width: parent.width * Math.max(0, Math.min(100, Number(module.sample.percentage || 0))) / 100
+            height: parent.height; radius: parent.radius
+            color: Number(module.sample.percentage) <= 20 ? module.theme.error : module.theme.botanicalInk
+        }
+    }
     MouseArea {
         id: mouse
         anchors.fill: parent

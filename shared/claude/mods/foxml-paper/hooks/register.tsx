@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderNode } from 'claude-code'
 
-import type { NotebookView, PaperAction, PaperCard, PaperEnvelope, PaperLook, PaperOverlap, PaperPeer, PaperRedZone, PaperTone, PaperTree } from '../types'
+import type { ApiCredits, NotebookView, PaperAction, PaperCard, PaperEnvelope, PaperLook, PaperOverlap, PaperPeer, PaperRedZone, PaperTone, PaperTree } from '../types'
 import { addBefore, addEdit, addName, neighbours, namesText, noteText, overlapFor, parseLedger, parseNames, parseNote, trailerUrl, withPlan } from './ledger'
 import type { Other } from './ledger'
 import { paper } from './theme'
@@ -429,6 +429,11 @@ async function refreshNow($: EngineInterface) {
     const near = neighbours(root, await $.clock.now(), session, otherLedgers)
     const card = await readCard($, dir)
     const projectWork = await workLook($, root, await $.session.id())
+    let credits: ApiCredits | null = null
+    try {
+      const value = JSON.parse(await run($, ['fox-credits', 'status']) ?? 'null')
+      if (value && typeof value.short === 'string' && typeof value.headline === 'string' && typeof value.meter === 'string') credits = value
+    } catch { /* The account meter is optional; session context still works. */ }
     let project: PaperLook['project']
     if ((await read($, notebookView)).page === 'project') {
       let trees: PaperTree[] = []
@@ -440,7 +445,7 @@ async function refreshNow($: EngineInterface) {
       }
       project = { trees, documents }
     }
-    await update($, look, () => ({ root, session, branch, files, gate, plan, context, neighbours: near, card, work: projectWork, project }))
+    await update($, look, () => ({ root, session, branch, files, gate, plan, context, neighbours: near, card, work: projectWork, project, credits }))
     const found = await readPeers($)
     await update($, peers, () => found ?? near.map(n => ({ id: n.sid, name: n.title, project: root.split('/').pop() ?? root,
       state: `edited ${n.files} ${n.files === 1 ? 'file' : 'files'} here`, busy: false,
@@ -908,6 +913,13 @@ export const register: Register = on => {
         <Button key="nav-down" label="↓" hotkey="j" plain onPress={() => move(1)} /><Text> </Text>
         <Button key="nav-open" label="open" hotkey="l" plain onPress={activate} />
       </Box>
+      {now?.credits && <Button key="api-credit-meter" label="monthly API credit details" plain
+        onPress={() => run($, ['fox-desktop-menu', '--open', 'api-credits'])}>
+        <Text color={now.credits.status === 'stale' || now.credits.status === 'error' || (now.credits.remaining_percent !== null && now.credits.remaining_percent <= 20) ? paper.berry : paper.added}>
+          {shortPath(now.credits.short, width)}
+          {now.credits.meter ? '\n' + now.credits.meter + (now.credits.source === 'local' ? ' tracked only' : ' reported') : ''}
+        </Text>
+      </Button>}
       {view.page !== 'overview' && <Box>
         {(['files', 'project', 'sessions'] as const).map(value => <Button key={'nav-page-' + value} label={value} plain onPress={() => page(value)} />)}
       </Box>}
