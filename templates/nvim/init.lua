@@ -3616,7 +3616,8 @@ end, { desc = "Toggle diagnostic lines" })
 
 -- Toggle comment folding: collapse comment blocks (// runs + /* */ walls) so the logic is readable —
 -- the engine's comment walls can eat most of the screen. Treesitter-driven; per-window. A folded
--- block shows just its first line; zo/za peeks one, zR opens all. Code lines never fold.
+-- block shows just its first line; zo/za peeks one, zR opens all, Space tC refolds all.
+-- Code lines never fold. Disabling restores the window's previous folding options.
 function _G.FoxCommentFoldExpr()
   local first = (vim.fn.getline(vim.v.lnum):find("%S") or 1) - 1
   local ok, node = pcall(vim.treesitter.get_node, { pos = { vim.v.lnum - 1, first } })
@@ -3628,30 +3629,45 @@ function _G.FoxCommentFoldExpr()
   end
   return "0"
 end
+local function refold_comments()
+  if Paper.enabled and not Paper.file_buffer(vim.api.nvim_get_current_buf()) then return end
+  -- Reparse edits before rebuilding folds; an opened comment can otherwise
+  -- retain the old range until Treesitter's next update.
+  pcall(function() vim.treesitter.get_parser():parse() end)
+  if not vim.w.fox_comment_fold then
+    local previous = {}
+    for _, option in ipairs({ "foldmethod", "foldexpr", "foldenable", "foldlevel", "foldtext" }) do
+      previous[option] = vim.wo[option]
+    end
+    vim.w.fox_comment_fold_previous = previous
+  end
+  vim.w.fox_comment_fold = true
+  vim.wo.foldmethod = "expr"
+  vim.wo.foldexpr = "v:lua.FoxCommentFoldExpr()"
+  if Paper.enabled then vim.wo.foldtext = "v:lua.FoxPaperFoldText()" end
+  vim.wo.foldlevel = 0
+  vim.wo.foldenable = true
+  vim.cmd("normal! zX") -- zx would immediately reopen the fold containing the cursor.
+  vim.notify("Comments refolded · zo opens one · zR opens all · Space tC refolds")
+end
 map("n", "<leader>tc", function()
   if Paper.enabled and not Paper.file_buffer(vim.api.nvim_get_current_buf()) then return end
   if vim.w.fox_comment_fold then
+    local previous = vim.w.fox_comment_fold_previous
     vim.w.fox_comment_fold = false
-    vim.wo.foldenable = false
-    vim.wo.foldmethod = "manual"
-    if vim.w.fox_paper_foldtext ~= nil then
-      vim.wo.foldtext, vim.w.fox_paper_foldtext = vim.w.fox_paper_foldtext, nil
+    if previous then
+      for _, option in ipairs({ "foldexpr", "foldtext", "foldlevel", "foldmethod", "foldenable" }) do
+        vim.wo[option] = previous[option]
+      end
     end
+    vim.w.fox_comment_fold_previous = nil
     vim.notify("Comment folding: OFF")
   else
-    vim.w.fox_comment_fold = true
-    vim.wo.foldmethod = "expr"
-    vim.wo.foldexpr = "v:lua.FoxCommentFoldExpr()"
-    if Paper.enabled then
-      vim.w.fox_paper_foldtext = vim.wo.foldtext
-      vim.wo.foldtext = "v:lua.FoxPaperFoldText()"
-    end
-    vim.wo.foldlevel = 0
-    vim.wo.foldenable = true
-    vim.cmd("normal! zX") -- zx would immediately reopen the fold containing the cursor.
-    vim.notify("Comment folding: ON")
+    refold_comments()
   end
 end, { desc = "Toggle comment folding" })
+map("n", "<leader>tC", refold_comments, { desc = "Refold all comments" })
+vim.api.nvim_create_user_command("CommentRefold", refold_comments, { desc = "Enable and refold all comments in this window" })
 
 -- === Per-project settings ===
 

@@ -56,9 +56,15 @@ assert(arow == 2, 'bookmark did not follow the native mark after an edit')
 vim.api.nvim_buf_del_mark(buf,'b'); Paper.refresh(buf)
 assert(#marks() == 2, 'deleted mark left a ribbon behind')
 local old_foldtext = vim.wo.foldtext
+vim.wo.foldmethod = 'indent'
+vim.wo.foldexpr = '0'
+vim.wo.foldlevel = 3
+vim.wo.foldenable = false
 local mapping = vim.fn.maparg('<Space>tc','n',false,true)
 assert(type(mapping.callback)=='function' and mapping.desc=='Toggle comment folding')
 local function toggle() vim.api.nvim_feedkeys(vim.keycode('<Space>tc'),'xt',false) end
+local refold = vim.fn.maparg('<Space>tC','n',false,true)
+assert(type(refold.callback)=='function' and refold.desc=='Refold all comments')
 local parser = vim.env.NOTEBOOK_CPP_PARSER
 if parser and parser ~= '' then
   vim.treesitter.language.add('cpp',{path=parser})
@@ -76,9 +82,28 @@ if parser and parser ~= '' then
     vim.cmd('normal! zc')
     assert(vim.fn.foldclosed(4) == 4, 'zc did not close the comment again')
   end
+  vim.cmd('normal! zR')
+  assert(vim.fn.foldclosed(4) == -1)
+  vim.api.nvim_feedkeys(vim.keycode('<Space>tC'),'xt',false)
+  assert(vim.fn.foldclosed(4) == 4, 'refold key did not undo zR under cursor')
+  assert(vim.api.nvim_win_get_cursor(0)[1] == 4, 'refolding moved cursor')
+  vim.cmd('normal! zi')
+  assert(not vim.wo.foldenable)
+  vim.cmd('CommentRefold')
+  assert(vim.wo.foldenable and vim.fn.foldclosed(4) == 4, 'refold did not re-enable folds')
+  vim.api.nvim_buf_set_lines(buf,5,5,false,{'  // Added while reviewing.'})
+  vim.cmd('CommentRefold')
+  assert(vim.fn.foldclosedend(4) == 7, 'refold did not recalculate edited comments')
+  assert(vim.fn.foldclosed(3) == -1 and vim.fn.foldclosed(8) == -1, 'refold swallowed code')
   vim.cmd('normal! zo')
   toggle()
   assert(vim.wo.foldtext == old_foldtext, 'toggle did not restore the existing fold text')
+  assert(vim.wo.foldmethod == 'indent' and vim.wo.foldexpr == '0' and vim.wo.foldlevel == 3 and not vim.wo.foldenable,
+    'toggle did not restore previous folding options')
+  vim.cmd('CommentRefold')
+  assert(vim.w.fox_comment_fold and vim.fn.foldclosed(4) == 4, 'refold from OFF did not enable folding')
+  toggle()
+  assert(vim.wo.foldmethod == 'indent' and not vim.wo.foldenable, 'repeated refolding overwrote saved settings')
   toggle()
   assert(vim.fn.foldclosed(4) == 4, 're-enabling comment folds reopened the comment under the cursor')
   toggle()
@@ -95,6 +120,7 @@ if plugin and plugin ~= '' then
   assert(not Paper.file_buffer(hud.buf) and #vim.api.nvim_buf_get_extmarks(hud.buf,Paper.namespace,0,-1,{})==0)
   assert(vim.wo[hud.win].winbar == winbar and vim.wo[hud.win].signcolumn == signcolumn)
   vim.api.nvim_set_current_win(hud.win);toggle()
+  vim.cmd('CommentRefold')
   assert(vim.wo[hud.win].foldtext == foldtext, 'comment toggle altered symdeps folds')
   assert(vim.fn.maparg('q','n',false,true).buffer==1,'symdeps local navigation was lost')
   hud:close()

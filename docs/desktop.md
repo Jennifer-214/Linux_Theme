@@ -276,7 +276,10 @@ sign gutter, below diagnostic/git/breakpoint priority. `ma` sets mark `a`; `'a`
 returns to it. Ribbons refresh on the existing idle/edit events, without a new
 timer. Unsaved buffers use a graphite pencil marker, and Lualine keeps its data
 on a quiet paper footer. `<leader>tc` toggles comment folds; folded notes show
-the first line and line count, and `zo` opens one. These details skip symdeps
+the first line and line count, and `zo` opens one. **Space tC** (capital C) or
+`:CommentRefold` enables and refolds all comments in the current window, including
+after `zR`; `zc` closes just the current comment. Turning comment folding off
+restores the previous folding settings. These details skip symdeps
 panels and leave its winbar, annotations and keys intact. No extra plugins are
 required; rendering and the existing installer mappings deploy the changes.
 Paper also uses pink matched-bracket underlines and the active tmux pane marker.
