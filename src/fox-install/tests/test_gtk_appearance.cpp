@@ -73,6 +73,22 @@ int main() {
            "desktop icon override follows the deployed Settings section");
     expect(fox_install::idem::read_file(ctx.backup_dir / "gsettings/org.gnome.desktop.interface.icon-theme") == "'Papirus-Light'\n",
            "original desktop icon preference is backed up");
+    ctx.palette_path = root / "palette.sh";
+    std::ofstream(ctx.palette_path) << "GTK_ACCENT_COLOR=pink\n";
+    ::setenv("FOXML_TEST_GTK_PREVIOUS", "'blue'", 1);
+    fox_install::sync_gtk_accent(ctx);
+    expect(fox_install::idem::read_file(root / "calls").find(
+               "set org.gnome.desktop.interface accent-color pink\n") != std::string::npos,
+           "desktop accent follows the palette");
+    expect(fox_install::idem::read_file(ctx.backup_dir / "gsettings/org.gnome.desktop.interface.accent-color") == "'blue'\n",
+           "original desktop accent is backed up");
+    const auto accent_calls = fox_install::idem::read_file(root / "calls");
+    std::ofstream(ctx.palette_path) << "GTK_ACCENT_COLOR=e2a4ba\n";
+    fox_install::sync_gtk_accent(ctx);
+    std::ofstream(ctx.palette_path) << "THEME_TYPE=light\n";
+    fox_install::sync_gtk_accent(ctx);
+    expect(fox_install::idem::read_file(root / "calls") == accent_calls,
+           "an unknown or missing accent name leaves the desktop accent alone");
     ::setenv("PATH", old_path.c_str(), 1);
     ::unsetenv("FOXML_TEST_GTK_PREVIOUS");
     ::unsetenv("FOXML_TEST_GTK_CALLS");

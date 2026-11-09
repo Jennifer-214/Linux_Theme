@@ -1,18 +1,31 @@
 /* ====== Fox ML Theme Palette (GTK4) ====== */
-@define-color bg        #{{BG}};                     /* FoML slate bg */
-@define-color fg        #{{FG}};                     /* off-white text */
-@define-color accent    #{{PRIMARY}};                     /* peach accent */
-@define-color accent2   #{{SECONDARY}};                     /* pink accent */
-@define-color sel_bg    {{GTK_SEL_BG}};      /* selection bg */
-@define-color sel_fg    #{{FG}};                     /* selection text */
-@define-color panel     rgba({{BG_R}},{{BG_G}},{{BG_B}},{{GTK_PANEL_ALPHA}});         /* FoML panel */
-@define-color panel2    rgba({{SURFACE_R}},{{SURFACE_G}},{{SURFACE_B}},0.5);          /* slate glass */
+@define-color bg        #{{BG}};
+@define-color fg        #{{FG}};
+@define-color accent    #{{PRIMARY}};
+@define-color accent2   #{{SECONDARY}};
+@define-color sel_bg    {{GTK_SEL_BG}};
+@define-color sel_fg    #{{FG}};
+@define-color panel     rgba({{BG_R}},{{BG_G}},{{BG_B}},{{GTK_PANEL_ALPHA}});
+@define-color panel2    rgba({{SURFACE_R}},{{SURFACE_G}},{{SURFACE_B}},0.5);
 @define-color border    @accent;
 
 @define-color ok        #{{GREEN_BRIGHT}};
 @define-color warn      #{{YELLOW}};
-@define-color info      #{{ACCENT}};                     /* lavender */
-@define-color danger    #{{SECONDARY}};                     /* pink */
+@define-color info      #{{ACCENT}};
+@define-color danger    #{{RED}};
+
+/* Accent for GTK4 / libadwaita: the copy-mode highlighter under its ink (switches, checks,
+   suggested buttons), and a readable accent ink for links, focus rings and accented text. */
+@define-color accent_bg_color #{{TMUX_MODE_BG}};
+@define-color accent_fg_color #{{TMUX_MODE_FG}};
+@define-color accent_color    #{{WAYBAR_WS_ACTIVE}};
+:root {
+  --accent-bg-color: #{{TMUX_MODE_BG}};
+  --accent-fg-color: #{{TMUX_MODE_FG}};
+  --accent-color: #{{WAYBAR_WS_ACTIVE}};
+}
+switch:checked { background-color: @accent_bg_color; color: @accent_fg_color; }
+*:focus-visible { outline-color: alpha(@accent_color, 0.5); }
 
 /* ====== Global ====== */
 window, dialog, .background {
@@ -135,10 +148,10 @@ tooltip, tooltip.background { background-color: alpha(@bg, {{TOOLTIP_BG_OPACITY}
 tooltip *, tooltip label { color: @fg; }
 
 /* ====== Infobars ====== */
-.info    { background: alpha(@info, 0.15);   border: 1px solid alpha(@info, {{KITTY_BG_OPACITY}}); }
-.warning { background: alpha(@warn, 0.15);   border: 1px solid alpha(@warn, {{KITTY_BG_OPACITY}}); }
-.error,.danger { background: alpha(@danger, 0.15); border: 1px solid alpha(@danger, {{KITTY_BG_OPACITY}}); }
-.success { background: alpha(@ok, 0.15);     border: 1px solid alpha(@ok, {{KITTY_BG_OPACITY}}); }
+.info    { background: alpha(@info, 0.15);   border: 1px solid alpha(@info, {{GTK_FIELD_ALPHA}}); }
+.warning { background: alpha(@warn, 0.15);   border: 1px solid alpha(@warn, {{GTK_FIELD_ALPHA}}); }
+.error,.danger { background: alpha(@danger, 0.15); border: 1px solid alpha(@danger, {{GTK_FIELD_ALPHA}}); }
+.success { background: alpha(@ok, 0.15);     border: 1px solid alpha(@ok, {{GTK_FIELD_ALPHA}}); }
 
 /* ====== Menus / Popovers ====== */
 popover, popover contents {

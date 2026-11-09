@@ -6,6 +6,26 @@ function drawerPlacement(screenWidth, windowWidth, anchor, connected) {
     return {left:left, top:connected ? 0 : Math.max(7, Math.floor(anchor.y)-9)};
 }
 
+// The sheet's height below the bar: the calendar and a written prompt stay small; the drawer itself
+// grows with the screen so the landing page has room for its favorites, without covering a laptop.
+function drawerBody(layout, screenHeight) {
+    if (layout === "calendar") return 560;
+    if (layout === "prompt") return 310;
+    return Math.max(624, Math.min(940, Math.round(Number(screenHeight || 0) * .78)));
+}
+
+// Paper headings are written by hand: lowercase with a full stop. Acronyms (API, USB) and names
+// with capitals inside them (FoxML) stay as they are; "Wi-Fi" becomes "wi-fi".
+function pageHeading(title, paper) {
+    title = String(title || "");
+    if (!paper || !title) return title;
+    var written = title.replace(/[A-Za-z][A-Za-z']*(?:-[A-Za-z][A-Za-z']*)*/g, function(word) {
+        var simple = word.split("-").every(function(part) { return /^[A-Z]?[a-z']*$/.test(part); });
+        return simple ? word.toLowerCase() : word;
+    });
+    return /[.!?…:]$/.test(written) ? written : written + ".";
+}
+
 function greeting(date, name) {
     var hour = date.getHours(), who = name ? ", " + name : "";
     if (isNight(date)) return "still up?";
@@ -32,9 +52,10 @@ function todayTags(today, groups) {
     var working = Number(today.claudeWorking || 0);
     add(working ? "✎ " + working + " working" : "", {page: "agents"});
     var running = Number(today.jobsRunning || 0), finished = Number(today.jobsFinished || 0);
-    add(running || finished ? "◷ " + running + " jobs running · " + finished + " finished" : "", {page: "jobs"});
+    add(running ? "◷ " + running + (running === 1 ? " job running" : " jobs running") + (finished ? " · " + finished + " finished" : "")
+        : finished ? "◷ " + finished + (finished === 1 ? " job finished" : " jobs finished") : "", {page: "jobs"});
     var reviews = Number(today.changesToReview || 0);
-    add(reviews ? reviews + (reviews === 1 ? " change to look over ✿" : " changes to look over ✿") : "", {page: "reviews"});
+    add(reviews ? "✿ " + reviews + (reviews === 1 ? " change to look over" : " changes to look over") : "", {page: "reviews"});
     var failed = Number(today.jobsFailed || 0);
     add(failed ? "! " + failed + (failed === 1 ? " failed job" : " failed jobs") : "", {page: "failures"});
     add(today.nextStep ? "◇ next: " + today.nextStep : "", {page: "next-steps"});
@@ -335,10 +356,10 @@ function hintParts(hint) {
     var parts = [];
     String(hint).split(" · ").forEach(function(clause, index) {
         if (index) parts.push({text: " · ", key: false});
-        var prefix = clause.match(/^((?:Enter|Esc|[hjkltebrfc↑↓\/])(?:(?: \/ | or )(?:Enter|Esc|[hjkltebrfc↑↓\/]))?)(?= |$)/);
+        var prefix = clause.match(/^((?:Enter|Esc|[hjkltebrfcgnw↑↓\/])(?:(?: \/ | or )(?:Enter|Esc|[hjkltebrfcgnw↑↓\/]))?)(?= |$)/);
         if (!prefix) { parts.push({text: clause, key: false}); return; }
-        prefix[1].split(/(Enter|Esc|[hjkltebrfc↑↓])/).forEach(function(text) {
-            if (text) parts.push({text: text, key: /^(Enter|Esc|[hjkltebrfc↑↓\/])$/.test(text)});
+        prefix[1].split(/(Enter|Esc|[hjkltebrfcgnw↑↓])/).forEach(function(text) {
+            if (text) parts.push({text: text, key: /^(Enter|Esc|[hjkltebrfcgnw↑↓\/])$/.test(text)});
         });
         if (clause.length > prefix[1].length) parts.push({text: clause.slice(prefix[1].length), key: false});
     });

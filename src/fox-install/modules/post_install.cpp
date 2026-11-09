@@ -1,7 +1,7 @@
 // modules/post_install.cpp — final live-apply step (runs last by design).
 //
 // Mirrors install.sh.legacy::apply_post_install:
-//   * Restart waybar + dunst if currently running so the new palette
+//   * Restart the bar and notifications if currently running so the new palette
 //     loads without a fresh login.
 //   * Nvim Lazy + treesitter sync (60s / 120s timeouts to avoid hangs).
 //   * Cursor / VS Code: jq-merge workbench.colorTheme="Fox ML".
@@ -39,11 +39,6 @@ bool have(const std::string& bin) { return sh::have(bin); }
 
 bool process_running(const std::string& name) {
     return sh::run({"pgrep", "-x", name}) == 0;
-}
-
-void restart_detached(const std::string& killname, const std::string& spawn_cmd) {
-    sh::run({"pkill", "-x", killname});
-    sh::run({"setsid", "-f", spawn_cmd});
 }
 
 void cursor_vscode_set_theme(const Context& ctx) {
@@ -103,9 +98,9 @@ void run_post_install(Context& ctx) {
     if (sh::dry_run()) {
         ui::substep("[dry-run] would: write .active-theme + install marker, "
                     "finalize per-monitor wallpaper variants + hyprlock (post-deploy), "
-                    "render waybar for current layout, restart waybar+dunst+mako, "
+                    "render waybar for current layout, restart the bar and mako, "
                     "Lazy sync + TSUpdateSync (60s/120s caps), "
-                    "GTK desktop font, Bat/delta theme cache, Cursor/VS Code workbench.colorTheme=Fox ML, "
+                    "GTK desktop font + accent, Bat/delta theme cache, Cursor/VS Code workbench.colorTheme=Fox ML, "
                     "fox theme check (read-only report)");
         return;
     }
@@ -118,6 +113,7 @@ void run_post_install(Context& ctx) {
 
     sync_gtk_font(ctx);
     sync_gtk_icon_theme(ctx);
+    sync_gtk_accent(ctx);
     refresh_gtk_icon_cache(ctx);
     // Folder colours can need sudo, so a plain --render reports them instead of prompting.
     if (state::folders_stale(ctx))
@@ -167,11 +163,6 @@ void run_post_install(Context& ctx) {
     if (std::getenv("WAYLAND_DISPLAY") && fs::exists(start_waybar)) {
         sh::run({"setsid", "-f", start_waybar.string()});
         ui::ok("desktop bar refreshed for current palette and monitors");
-    }
-
-    if (process_running("dunst")) {
-        restart_detached("dunst", "dunst");
-        ui::ok("Dunst restarted");
     }
 
     const bool stock_mako = process_running("mako");

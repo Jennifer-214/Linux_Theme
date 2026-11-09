@@ -1,6 +1,9 @@
 #!/bin/bash
 # Network speed HUD for Waybar
 # Monitors throughput for HFT DataStream awareness
+# $1 / $2: the theme's down / up glyphs (WAYBAR_ICON_NET_DOWN / _UP, passed by the bar config).
+DOWN="${1:-󰇚}"
+UP="${2:-󰕒}"
 
 INTERFACE=$(ip route | awk '/^default/ {print $5; exit}')
 [[ -z "$INTERFACE" ]] && exit 0
@@ -68,4 +71,4 @@ if [[ "$INTERFACE" == wl* ]] && command -v nmcli >/dev/null 2>&1; then
     fi
 fi
 
-printf '{"text":"󰇚 %s  󰕒 %s","tooltip":"%s"}\n' "$RX_F" "$TX_F" "$tooltip"
+printf '{"text":"%s %s  %s %s","tooltip":"%s"}\n' "$DOWN" "$RX_F" "$UP" "$TX_F" "$tooltip"

@@ -52,17 +52,16 @@
   "hyprland/workspaces": {
     "format": "{{WAYBAR_WS_FORMAT}}",
     "format-window-separator": " ",
-    "window-rewrite-default": "󰘔",
+    "window-rewrite-default": "{{WAYBAR_WIN_DEFAULT}}",
     "window-rewrite": {
-        "class<firefox>": "󰈹",
-        "class<kitty>": "",
-        "class<discord>": "󰙯",
-        "class<steam>": "󰓓",
-        "class<yazi>": "",
-        "class<thunar>": "󰝰",
-        "class<rofi>": "󰀻",
-        "class<cursor>": "󰨞",
-        "class<btopterm>": "󰑮"
+        "class<firefox>": "{{WAYBAR_WIN_BROWSER}}",
+        "class<kitty>": "{{WAYBAR_WIN_TERMINAL}}",
+        "class<discord>": "{{WAYBAR_WIN_CHAT}}",
+        "class<steam>": "{{WAYBAR_WIN_GAMES}}",
+        "class<yazi>": "{{WAYBAR_WIN_FILES}}",
+        "class<thunar>": "{{WAYBAR_WIN_FILES}}",
+        "class<cursor>": "{{WAYBAR_WIN_EDITOR}}",
+        "class<btopterm>": "{{WAYBAR_WIN_MONITOR}}"
     },
     "disable-scroll": false,
     "all-outputs": false,

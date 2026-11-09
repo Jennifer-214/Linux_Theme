@@ -20,7 +20,7 @@ QtObject {
     readonly property color accent: "#{{PRIMARY}}"
     readonly property color botanicalInk: "#{{GREEN}}"
     readonly property color error: "#{{RED}}"
-    readonly property color warning: "#{{WAYBAR_WARN}}"
+    readonly property color warning: "#{{WARN}}"
     readonly property color success: "#{{OK}}"
     readonly property string fontFamily: "{{FONT_FAMILY}}"
     readonly property string headingFont: "{{HYPRLOCK_CLOCK_FONT}}"

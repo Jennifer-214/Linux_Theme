@@ -76,17 +76,16 @@
   "hyprland/workspaces": {
     "format": "{{WAYBAR_WS_FORMAT}}",
     "format-window-separator": " ",
-    "window-rewrite-default": "󰘔",
+    "window-rewrite-default": "{{WAYBAR_WIN_DEFAULT}}",
     "window-rewrite": {
-        "class<firefox>": "󰈹",
-        "class<kitty>": "",
-        "class<discord>": "󰙯",
-        "class<steam>": "󰓓",
-        "class<yazi>": "",
-        "class<thunar>": "󰝰",
-        "class<rofi>": "󰀻",
-        "class<cursor>": "󰨞",
-        "class<btopterm>": "󰑮"
+        "class<firefox>": "{{WAYBAR_WIN_BROWSER}}",
+        "class<kitty>": "{{WAYBAR_WIN_TERMINAL}}",
+        "class<discord>": "{{WAYBAR_WIN_CHAT}}",
+        "class<steam>": "{{WAYBAR_WIN_GAMES}}",
+        "class<yazi>": "{{WAYBAR_WIN_FILES}}",
+        "class<thunar>": "{{WAYBAR_WIN_FILES}}",
+        "class<cursor>": "{{WAYBAR_WIN_EDITOR}}",
+        "class<btopterm>": "{{WAYBAR_WIN_MONITOR}}"
     },
     "disable-scroll": false,
     "all-outputs": true,
@@ -96,31 +95,31 @@
   },
 
   "custom/cpu": {
-    "exec": "~/.config/waybar/scripts/cpu.sh",
+    "exec": "~/.config/waybar/scripts/cpu.sh '{{WAYBAR_ICON_CPU}}'",
     "return-type": "json",
     "interval": 5,
     "tooltip": true
   },
 
   "custom/gpu": {
-    "exec": "~/.config/waybar/scripts/gpu-stats.sh",
+    "exec": "~/.config/waybar/scripts/gpu-stats.sh '{{WAYBAR_ICON_GPU}}'",
     "return-type": "json",
     "interval": 5,
     "tooltip": true
   },
 
   "memory": {
-    "format": "󰍛 {used:0.1f}/{total:0.0f}g",
+    "format": "{{WAYBAR_ICON_MEM}} {used:0.1f}/{total:0.0f}g",
     "interval": 5,
     "states": {
       "warning": 75,
       "critical": 90
     },
-    "tooltip-format": "RAM: {used:0.1f}g / {total:0.1f}g ({percentage}%)\nSwap: {swapUsed:0.1f}g / {total:0.1f}g"
+    "tooltip-format": "RAM: {used:0.1f}g / {total:0.1f}g ({percentage}%)\nSwap: {swapUsed:0.1f}g / {swapTotal:0.1f}g"
   },
 
   "custom/disk": {
-    "exec": "~/.config/waybar/scripts/disk.sh",
+    "exec": "~/.config/waybar/scripts/disk.sh '{{WAYBAR_ICON_DISK}}'",
     "return-type": "json",
     "interval": 60
   },
@@ -143,8 +142,8 @@
       "activated": "☼",
       "deactivated": "○"
     },
-    "tooltip-format-activated": "Idle inhibited — click to release",
-    "tooltip-format-deactivated": "Click to keep screen awake"
+    "tooltip-format-activated": "Keeping the screen awake · click to let it rest",
+    "tooltip-format-deactivated": "The screen rests when idle · click to keep it awake"
   },
 
   "tray": {
@@ -191,7 +190,7 @@
   },
 
   "custom/net_speed": {
-    "exec": "~/.config/waybar/scripts/net_speed.sh",
+    "exec": "~/.config/waybar/scripts/net_speed.sh '{{WAYBAR_ICON_NET_DOWN}}' '{{WAYBAR_ICON_NET_UP}}'",
     "return-type": "json",
     "interval": 2,
     "tooltip": true

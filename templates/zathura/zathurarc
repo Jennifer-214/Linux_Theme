@@ -31,12 +31,12 @@ set completion-group-fg         "#{{PRIMARY}}"
 
 set index-bg                    "#{{BG}}"
 set index-fg                    "#{{FG}}"
-set index-active-bg             "rgba({{PRIMARY_R}},{{PRIMARY_G}},{{PRIMARY_B}},0.25)"
+set index-active-bg             "#{{SELECTION}}"
 set index-active-fg             "#{{FG}}"
 
 set recolor-lightcolor          "#{{BG}}"
 set recolor-darkcolor           "#{{FG}}"
-set recolor                     "{{SHOW_WELCOME}}"
+set recolor                     "{{ZATHURA_RECOLOR}}"
 set recolor-keephue             "false"
 
 # Appearance

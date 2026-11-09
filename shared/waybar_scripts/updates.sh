@@ -99,7 +99,8 @@ elif (( sync_age_h < 24  )); then age_str="${sync_age_h}h ago"
 else
     age_str="$(( sync_age_h / 24 ))d ago"
 fi
-tooltip="$count pending updates\\nlast sync: $age_str"
+(( count == 1 )) && noun="update" || noun="updates"
+tooltip="$count pending $noun\\nlast sync: $age_str"
 # List the packages on hover when the cached list still matches the
 # count (i.e. not stale after an apply). Cap to 15 — the click menu
 # shows the full set. Real newlines → literal \n for the JSON string.

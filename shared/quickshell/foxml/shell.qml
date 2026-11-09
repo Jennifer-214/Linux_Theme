@@ -75,11 +75,16 @@ ShellRoot {
 
     Theme { id: theme }
     readonly property alias paperTheme: theme
-    VolumeSlip { id: volumeSlip; theme: root.paperTheme; output: root.focusedScreen }
+    LevelSlip { id: levelSlip; theme: root.paperTheme; output: root.focusedScreen }
     IpcHandler {
         target: "volume"
-        function present(value: int, muted: bool): void { volumeSlip.show(value, muted); }
-        function status(): string { return JSON.stringify({visible:volumeSlip.showing, value:volumeSlip.value, muted:volumeSlip.muted}); }
+        function present(value: int, muted: bool): void { levelSlip.showVolume(value, muted); }
+        function status(): string { return JSON.stringify({visible:levelSlip.showing && levelSlip.kind === "sound", value:levelSlip.value, muted:levelSlip.muted}); }
+    }
+    IpcHandler {
+        target: "brightness"
+        function present(value: int): void { levelSlip.showBrightness(value); }
+        function status(): string { return JSON.stringify({visible:levelSlip.showing && levelSlip.kind === "light", value:levelSlip.value}); }
     }
 
     property bool barEnabled: Quickshell.env("FOXML_BAR_AUTOSTART") === "1" || Quickshell.env("FOXML_DRAWER_PREVIEW") !== "1"
@@ -888,7 +893,7 @@ ShellRoot {
         readonly property var placement: Logic.drawerPlacement(screen ? screen.width : 1280, implicitWidth, root.resolvedAnchor, theme.paperDetails)
         margins { top: panel.placement.top; right: (panel.screen ? panel.screen.width : 1280) - panel.placement.left - panel.implicitWidth }
         implicitWidth: Math.min(root.calendarLayout ? 430 : root.pickerLayout ? 640 : 790, (screen ? screen.width : 1280) - 32)
-        implicitHeight: Math.min((root.calendarLayout ? 560 : root.pickerLayout && root.pickerPrompt ? 310 : 624) + root.drawerTopInset, Math.max(180, (screen ? screen.height : 800) - placement.top - 16))
+        implicitHeight: Math.min(Logic.drawerBody(root.calendarLayout ? "calendar" : root.pickerLayout && root.pickerPrompt ? "prompt" : "drawer", screen ? screen.height : 800) + root.drawerTopInset, Math.max(180, (screen ? screen.height : 800) - placement.top - 16))
         color: "transparent"
         exclusionMode: ExclusionMode.Ignore
         WlrLayershell.namespace: "foxml-drawer"
@@ -1069,7 +1074,7 @@ ShellRoot {
                                     anchors.rightMargin: theme.paperDetails ? 10 : 0
                                 Text {
                                     id: pageHeading
-                                    textFormat: Text.PlainText; text: root.searching && !root.pickerLayout ? "find anything" : root.pageTitle
+                                    textFormat: Text.PlainText; text: Logic.pageHeading(root.searching && !root.pickerLayout ? "find anything" : root.pageTitle, theme.paperDetails)
                                     color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: 20; Layout.fillWidth: true; elide: Text.ElideRight
                                     PaperFlourish {
                                         theme: root.paperTheme
@@ -1224,10 +1229,12 @@ ShellRoot {
                                         readonly property string stateLabel: theme.paperDetails ? Logic.statusLabel(modelData) : ""
                                         // A row that belongs to the one above it sits indented beneath it.
                                         readonly property int indent: modelData.nested === true ? 22 : 0
+                                        // Today's favorites sit a little closer so more of them fit under the day.
+                                        readonly property bool compactRow: root.page === "root" && !root.searching
                                         x: indent
                                         width: Math.max(0, itemList.width - theme.scrollGutter - indent)
                                         property bool card: modelData.presentation === "project" || modelData.presentation === "library" || modelData.presentation === "download"
-                                        height: card ? 94 : modelData.kind === "slider" ? 91 : modelData.image || mediaArtwork ? 80 : 72
+                                        height: card ? 94 : modelData.kind === "slider" ? 91 : modelData.image || mediaArtwork ? 80 : itemRow.compactRow ? 54 : 72
                                         radius: 4
                                         readonly property color rowFill: itemMouse.pressed ? Qt.alpha(theme.line, .35) : selected ? theme.focusFill : theme.paperDetails ? (itemMouse.containsMouse && modelData.enabled !== false ? theme.hoverFill : theme.background) : card ? theme.surface : root.buttonShade(false, itemMouse.containsMouse)
                                         readonly property color rowEdge: itemMouse.pressed ? theme.muted : theme.paperDetails && !selected ? Qt.alpha(theme.line, .6) : theme.line
@@ -1270,7 +1277,7 @@ ShellRoot {
                                         Rectangle { visible: selected; width: 2; anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom; color: theme.detailAccent; radius: 1 }
                                         RowLayout {
                                             anchors.fill: parent
-                                            anchors.margins: 12
+                                            anchors.margins: itemRow.compactRow ? 10 : 12
                                             spacing: 10
                                             Image {
                                                 objectName: "item-menu-icon"

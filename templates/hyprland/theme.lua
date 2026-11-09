@@ -22,7 +22,8 @@ hl.config({
         border_size = {{HYPR_BORDER_SIZE}},
         layout = "dwindle",
         col = {
-            active_border = { colors = { "rgba({{BLUSH}}ff)", "rgba({{PRIMARY}}ff)" }, angle = 45 }, -- blush → peach (only visible if border_size > 0)
+            -- a theme's two border stops (equal stops draw a solid line); only visible if border_size > 0
+            active_border = { colors = { "rgba({{HYPR_BORDER_ACTIVE}})", "rgba({{HYPR_BORDER_ACTIVE_END}})" }, angle = 45 },
             inactive_border = "rgba({{HYPR_BORDER_INACTIVE}})", -- slate (dimmed)
         },
     },
@@ -54,7 +55,7 @@ hl.config({
             scrolling = {{SHOW_WELCOME}},
             text_color = "rgba({{FG}}ff)",
             col = {
-                active = "rgba({{PRIMARY}}bb)",
+                active = "rgba({{HYPR_GROUPBAR_ACTIVE}})",
                 inactive = "rgba({{SURFACE}}88)",
                 locked_active = "rgba({{RED}}bb)",
                 locked_inactive = "rgba({{SURFACE}}88)",
@@ -87,7 +88,7 @@ hl.config({
             color = "rgba({{HYPR_SHADOW_RGB_R}},{{HYPR_SHADOW_RGB_G}},{{HYPR_SHADOW_RGB_B}},{{SHADOW_ALPHA}})",
             color_inactive = "rgba({{HYPR_SHADOW_RGB_R}},{{HYPR_SHADOW_RGB_G}},{{HYPR_SHADOW_RGB_B}},{{HYPR_SHADOW_ALPHA_INACTIVE}})",
         },
-        dim_inactive = {{SHOW_WELCOME}},
+        dim_inactive = {{HYPR_DIM_INACTIVE}},
         dim_strength = {{HYPR_DIM_STRENGTH}},
     },
 
@@ -111,8 +112,7 @@ hl.config({
 -- ─────────────────────────────────────────
 hl.curve("foxEase",   { type = "bezier", points = { { 0.16, 1.0 }, { 0.3, 1.0 } } })
 hl.curve("foxSnap",   { type = "bezier", points = { { 0.05, 0.9 }, { 0.1, 1.0 } } })
-hl.curve("foxBounce", { type = "bezier", points = { { {{KITTY_BG_OPACITY}}8, -0.3 }, { 0.265, 1.35 } } })
-hl.curve("foxSlow",   { type = "bezier", points = { { 0.0, {{KITTY_BG_OPACITY}} }, { 0.4, 1.0 } } })
+hl.curve("foxSlow",   { type = "bezier", points = { { 0.0, 0.6 }, { 0.4, 1.0 } } })
 
 hl.curve("foxSettle", { type = "bezier", points = { { 0.22, 1.0 }, { 0.36, 1.05 } } })  -- a soft landing, like paper laid down
 hl.animation({ leaf = "windows",     enabled = true, speed = 5,  bezier = "foxSnap", style = "popin 92%" })
@@ -129,8 +129,9 @@ hl.animation({ leaf = "fadeOut",     enabled = true, speed = 4,  bezier = "foxEa
 hl.animation({ leaf = "workspaces",  enabled = true, speed = 5,  bezier = "foxSnap", style = "{{HYPR_WS_ANIM}}" })
 hl.animation({ leaf = "layersIn",    enabled = true, speed = 4,  bezier = "foxSnap", style = "slide top" })
 hl.animation({ leaf = "layersOut",   enabled = true, speed = 4,  bezier = "foxEase", style = "slide top" })
--- The shared bar surface stays still; its drawers animate inside Quickshell.
-hl.layer_rule({ match = { namespace = "^(foxml-bar)$" }, no_anim = true })
+-- Quickshell surfaces animate themselves (the bar's drawers, the drawer page, the volume slip);
+-- a layersIn slide on top would move them twice.
+hl.layer_rule({ match = { namespace = "^(foxml-bar|foxml-drawer|foxml-volume)$" }, no_anim = true })
 
 -- Cursor theme follows the palette (environment.lua sets the search path + size)
 hl.env("XCURSOR_THEME", "{{CURSOR_THEME}}")

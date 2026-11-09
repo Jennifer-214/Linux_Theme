@@ -84,7 +84,9 @@ ink_weather() {
 }
 
 # ── Output ────────────────────────────────────────────────────────
-text=$(date +"  %a %b %d  %I:%M %p")
+# No leading zeros ("Mon Nov 9  9:41 AM"); Paper writes it in the drawer's lowercase hand.
+text=$(date +"  %a %b %-d  %-I:%M %p")
+(( little )) && text=${text,,}
 (( little )) && weather=$(ink_weather "$weather")
 today=$(date +"%A, %B %-d %Y")
 

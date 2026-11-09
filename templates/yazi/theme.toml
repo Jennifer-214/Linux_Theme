@@ -22,7 +22,7 @@ count_copied = { fg = "#{{YAZI_COPIED_FG}}", bg = "#{{YAZI_COPIED_BG}}", bold = 
 count_cut = { fg = "#{{BG}}", bg = "#{{RED}}" }
 count_selected = { fg = "#{{YAZI_SELECTED_FG}}", bg = "#{{YAZI_SELECTED_BG}}", bold = {{SHOW_WELCOME}} }
 border_symbol = "│"
-border_style = { fg = "#{{TMUX_ACTIVE_BG}}" }
+border_style = { fg = "#{{BTOP_LINE}}" }
 
 [indicator]
 parent = { fg = "#{{FG}}", bg = "#{{BG_HIGHLIGHT}}" }

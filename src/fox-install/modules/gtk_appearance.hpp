@@ -3,6 +3,7 @@
 #include "../core/context.hpp"
 #include "../core/idempotency.hpp"
 #include "../core/backup.hpp"
+#include "../core/palette.hpp"
 #include "../../fox-common/shell.hpp"
 #include "../../fox-common/ui.hpp"
 
@@ -11,19 +12,9 @@
 
 namespace fox_install {
 
-inline void sync_gtk_preference(const Context& ctx, const std::string& ini_key,
-                                const std::string& preference, const std::string& label) {
-    if (sh::dry_run() || !sh::have("gsettings")) return;
-    std::ifstream settings(ctx.config_home / "gtk-3.0/settings.ini");
-    std::string line, value;
-    bool in_settings = false;
-    while (std::getline(settings, line)) {
-        if (!line.empty() && line.back() == '\r') line.pop_back();
-        if (!line.empty() && line.front() == '[') in_settings = line == "[Settings]";
-        if (in_settings && line.rfind(ini_key + "=", 0) == 0)
-            value = line.substr(ini_key.size() + 1);
-    }
-    if (value.empty()) return;
+inline void set_gtk_preference(const Context& ctx, const std::string& preference,
+                               const std::string& value, const std::string& label) {
+    if (value.empty() || sh::dry_run() || !sh::have("gsettings")) return;
     const std::string schema = "org.gnome.desktop.interface";
     std::string previous;
     if (!sh::capture({"gsettings", "get", schema, preference}, previous)) return;
@@ -37,9 +28,24 @@ inline void sync_gtk_preference(const Context& ctx, const std::string& ini_key,
         return;
     }
     if (sh::run({"gsettings", "set", schema, preference, value}) == 0)
-        ui::ok("GTK desktop " + label + " synchronized with settings.ini");
+        ui::ok("GTK desktop " + label + " synchronized with the theme");
     else
         ui::warn("GTK desktop " + label + " could not be synchronized");
+}
+
+inline void sync_gtk_preference(const Context& ctx, const std::string& ini_key,
+                                const std::string& preference, const std::string& label) {
+    if (sh::dry_run() || !sh::have("gsettings")) return;
+    std::ifstream settings(ctx.config_home / "gtk-3.0/settings.ini");
+    std::string line, value;
+    bool in_settings = false;
+    while (std::getline(settings, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (!line.empty() && line.front() == '[') in_settings = line == "[Settings]";
+        if (in_settings && line.rfind(ini_key + "=", 0) == 0)
+            value = line.substr(ini_key.size() + 1);
+    }
+    set_gtk_preference(ctx, preference, value, label);
 }
 
 inline void sync_gtk_font(const Context& ctx) {
@@ -48,6 +54,15 @@ inline void sync_gtk_font(const Context& ctx) {
 
 inline void sync_gtk_icon_theme(const Context& ctx) {
     sync_gtk_preference(ctx, "gtk-icon-theme-name", "icon-theme", "icons");
+}
+
+// libadwaita and portal-aware apps take their accent from gsettings, not from gtk.css.
+inline void sync_gtk_accent(const Context& ctx) {
+    static const char* const names[] = {"blue", "teal", "green", "yellow", "orange",
+                                        "red", "pink", "purple", "slate"};
+    const std::string value = palette::get(ctx.palette_path, "GTK_ACCENT_COLOR", "");
+    for (const char* name : names)
+        if (value == name) return set_gtk_preference(ctx, "accent-color", value, "accent");
 }
 
 inline void refresh_gtk_icon_cache(const Context& ctx) {

@@ -19,17 +19,17 @@
 	features = {{DELTA_LABEL_STYLE}}
 
 	minus-style                   = syntax "#{{DIFF_DELETE}}"
-	minus-emph-style              = syntax "#{{SELECTION}}"
+	minus-emph-style              = syntax "#{{DELTA_DEL_WORD}}"
 	plus-style                    = syntax "#{{DIFF_ADD}}"
-	plus-emph-style               = syntax "#{{NVIM_SEL}}"
+	plus-emph-style               = syntax "#{{DELTA_ADD_WORD}}"
 
-	hunk-header-decoration-style  = "#{{SURFACE}}" box
+	hunk-header-decoration-style  = "#{{BTOP_LINE}}" box
 
 	line-numbers-minus-style      = "#{{RED}}"
 	line-numbers-plus-style       = "#{{GREEN}}"
 	line-numbers-zero-style       = "#{{COMMENT}}"
-	line-numbers-left-style       = "#{{SURFACE}}"
-	line-numbers-right-style      = "#{{SURFACE}}"
+	line-numbers-left-style       = "#{{BTOP_LINE}}"
+	line-numbers-right-style      = "#{{BTOP_LINE}}"
 
 	blame-palette = "#{{BG}}" "#{{BG_HIGHLIGHT}}" "#{{BG_ALT}}" "#{{SURFACE}}"
 

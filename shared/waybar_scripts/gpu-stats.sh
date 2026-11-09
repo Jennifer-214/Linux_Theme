@@ -4,7 +4,8 @@
 # doesn't keep it awake and burn battery. Emits a graceful empty/neutral text
 # on absence or driver error so the bar never breaks.
 
-ICON='󰢮'
+# $1: the theme's glyph (WAYBAR_ICON_GPU, passed by the bar config).
+ICON="${1:-󰢮}"
 
 # Locate an NVIDIA display-class PCI device (vendor 0x10de, class 0x03xx).
 gpu_path=""

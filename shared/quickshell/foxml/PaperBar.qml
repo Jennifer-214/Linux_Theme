@@ -5,6 +5,7 @@ import Quickshell.Wayland
 import Quickshell.Io
 import Quickshell.Hyprland
 import "BarLogic.js" as BarLogic
+import "DrawerLogic.js" as DrawerLogic
 
 Scope {
     id: bar
@@ -98,7 +99,7 @@ Scope {
             // Keep the native surface unchanged while the drawer slides. Its
             // input mask and exclusive zone still expose/reserve only the bar
             // and the currently visible sheet.
-            implicitHeight: barTheme.paperDetails ? Math.min(screen.height,barHeight+624)
+            implicitHeight: barTheme.paperDetails ? Math.min(screen.height,barHeight+DrawerLogic.drawerBody("drawer",screen.height))
                 : hosting ? Math.max(barHeight,bar.controller.drawerPlacement.top+bar.controller.drawerHeight) : barHeight
             exclusiveZone: Quickshell.env("FOXML_BAR_PREVIEW") === "1" ? 0 : barHeight
             color: "transparent"

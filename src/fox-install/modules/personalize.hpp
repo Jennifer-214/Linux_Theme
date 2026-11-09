@@ -10,7 +10,9 @@
 #include "../../fox-monitor/sidecar.hpp"
 
 #include <cstddef>
+#include <functional>
 #include <string>
+#include <vector>
 
 namespace fox_install::personalize {
 
@@ -27,6 +29,27 @@ std::size_t generate_per_monitor_wallpapers(
 // with one block per monitor pointing at its wallpaper variant.
 bool personalize_hyprlock(
     const Context& ctx, const sidecar::Layout& layout);
+
+// Pure helpers behind personalize_hyprlock. on_disk(name) says whether
+// ~/.wallpapers/<name> exists.
+//
+// "foxml_paper_x_1080x1920.png" → "foxml_paper_x.png" (a variant back to its source).
+std::string lock_source_name(const std::string& name);
+// The file for a monitor of size res: active's <stem>_<res> cut, else the theme
+// default's cut, else the theme default, else active (is_fallback = not the first).
+std::string lock_wallpaper_for(const std::string& active, const std::string& theme_default,
+                               const std::string& res,
+                               const std::function<bool(const std::string&)>& on_disk,
+                               bool& is_fallback);
+// The settings lines (all but monitor/path) of the first background block
+// between the sentinels; empty when there is none.
+std::string background_tail(const std::string& body);
+// One `background { monitor, path, <tail> }` block per "name:WxH" entry.
+std::string background_blocks(const std::vector<std::string>& monitor_resolutions,
+                              const std::string& active, const std::string& theme_default,
+                              const std::string& tail,
+                              const std::function<bool(const std::string&)>& on_disk,
+                              std::size_t& fallbacks);
 
 // Rewrites the workspace 1 pin in rules.conf to bind to layout.primary.
 bool personalize_workspace_rules(

@@ -49,6 +49,11 @@ function greeting(hour: number): string {
   return 'working late'
 }
 
+// One colour for a test result wherever it shows: berry for any failure, note when stale, green when it holds.
+function testColour(test: { state: string; stale?: boolean; tests: { failed: number | null } }): string {
+  return (test.tests.failed ?? 0) > 0 || test.state === 'failed' || test.state === 'interrupted' ? paper.berry : test.stale ? paper.note : paper.added
+}
+
 function hearts(percent: number | null): number {
   return percent === null ? 0 : Math.min(5, Math.floor((percent * 5 + 50) / 100))
 }
@@ -459,7 +464,7 @@ async function refreshNow($: EngineInterface) {
       pane: otherLedgers.find(o => o.sid === n.sid)?.ledger.pane ?? '' })))
 
     const left = 5 - hearts(context)
-    if (memory.lastHearts > 2 && left === 2) $.ui.toast('Context is 60% used · consider a handoff.')
+    if (memory.lastHearts > 2 && left === 2) $.ui.toast(`context is ${context ?? 50}% used · a good moment for a handoff`)
     memory.lastHearts = left
     if (memory.lastGate === 'closed' && gate === 'open') $.ui.toast('gate open ✓ the plan is approved')
     memory.lastGate = gate
@@ -761,7 +766,7 @@ export const register: Register = on => {
       for (const job of (now?.work?.failures ?? []).slice(0, 2))
         content.push(row(`attention-job-${job.id}`, `! ${job.state} · ${job.title ?? job.command}`, () => openJob(job.id)))
       if (now?.work?.tests) content.push(row('work-tests', testLabel(now.work.tests), () => openJob(now.work!.tests!.id, 'tests'),
-        <Text color={(now.work.tests.tests.failed ?? 0) > 0 || now.work.tests.state === 'failed' ? paper.berry : now.work.tests.stale ? paper.note : paper.added}>
+        <Text color={testColour(now.work.tests)}>
           {testLabel(now.work.tests)}
         </Text>))
       for (const job of (now?.work?.jobs ?? []).slice(0, 1))
@@ -821,7 +826,7 @@ export const register: Register = on => {
       } else content.push(row('plan-pin', '+ active plan', () => setView({ form: 'plan' })))
       if (now?.work?.tests) {
         const test = now.work.tests
-        content.push(<Text color={test.stale ? paper.note : paper.added}>{testLabel(test)}</Text>)
+        content.push(<Text color={testColour(test)}>{testLabel(test)}</Text>)
         content.push(row('work-tests', 'test output & failures', () => openJob(test.id, 'tests')))
         content.push(row('work-compare', 'compare with last passing run', () => openJob(test.id, 'compare')))
         for (const [i, failure] of test.tests.failures.slice(0, 10).entries())
@@ -856,7 +861,7 @@ export const register: Register = on => {
       for (const tree of now?.project?.trees ?? []) {
         if (tree.bare) continue
         const dirty = tree.status.split('\n').filter(line => line && !line.startsWith('##')).length
-        content.push(row('tree:' + tree.path, `${tree.branch} · ${dirty} changed · ${tree.sessions.length} sessions`, () => checkedWork([
+        content.push(row('tree:' + tree.path, `${tree.branch} · ${dirty} changed · ${tree.sessions.length} ${tree.sessions.length === 1 ? 'session' : 'sessions'}`, () => checkedWork([
           'open', '--root', root, '--action', 'worktree', '--file', tree.path,
         ])))
       }

@@ -123,6 +123,22 @@ for (const state of [{focus:'groups'},{focus:'items'},{editing:true},{searching:
 }
 assert.deepEqual(plain(logic.hintParts('h / l choose')).filter(part=>part.key).map(part=>part.text),['h','l']);
 assert.deepEqual(plain(logic.hintParts('/ searches')).filter(part=>part.key).map(part=>part.text),['/']);
+assert.deepEqual(plain(logic.hintParts(logic.footerHint({},{presentation:'project'}))).filter(part=>part.key).map(part=>part.text),['Enter','t','w','n','b']);
+assert.deepEqual(plain(logic.hintParts('g the garden · working… · nothing here')).filter(part=>part.key).map(part=>part.text),['g']);
+assert.equal(logic.pageHeading('Wi-Fi',true),'wi-fi.');
+assert.equal(logic.pageHeading('API usage',true),'API usage.');
+assert.equal(logic.pageHeading('Review with API credits',true),'review with API credits.');
+assert.equal(logic.pageHeading('Fox tools',true),'fox tools.');
+assert.equal(logic.pageHeading('FoxML',true),'FoxML.');
+assert.equal(logic.pageHeading('today.',true),'today.');
+assert.equal(logic.pageHeading('Delete this?',true),'delete this?');
+assert.equal(logic.pageHeading("Caramel's notes",true),"caramel's notes.");
+assert.equal(logic.pageHeading('Wi-Fi',false),'Wi-Fi');
+assert.equal(logic.drawerBody('drawer',1080),842);
+assert.equal(logic.drawerBody('drawer',800),624);
+assert.equal(logic.drawerBody('drawer',3072),940);
+assert.equal(logic.drawerBody('calendar',3072),560);
+assert.equal(logic.drawerBody('prompt',1080),310);
 assert.match(logic.emptyState('downloads',true,false).title,/matching/);
 assert.match(logic.emptyState('bookmarks',false,false).detail,/press b/);
 assert.match(logic.emptyState('root',false,true).title,/moment/);
@@ -162,7 +178,11 @@ assert.equal(logic.detailText({presentation:'media',mediaState:'Paused',detail:'
 const menus=JSON.parse(fs.readFileSync(new URL('../shared/quickshell/foxml/menus.json',import.meta.url),'utf8'));
 const workTags=logic.todayTags({jobsRunning:2,jobsFinished:1,jobsFailed:1,changesToReview:3,nextStep:'rerun the sanitizer'},[]);
 assert.ok(workTags.some(t=>t.page==='jobs' && t.text.includes('2 jobs running')));
-assert.ok(workTags.some(t=>t.page==='reviews' && t.text==='3 changes to look over ✿'));
+assert.ok(workTags.some(t=>t.page==='reviews' && t.text==='✿ 3 changes to look over'));
+assert.equal(plain(logic.todayTags({jobsRunning:1,jobsFinished:0},[]))[0].text,'◷ 1 job running');
+assert.equal(plain(logic.todayTags({jobsRunning:0,jobsFinished:287},[]))[0].text,'◷ 287 jobs finished');
+assert.equal(plain(logic.todayTags({jobsRunning:2,jobsFinished:1},[]))[0].text,'◷ 2 jobs running · 1 finished');
+assert.deepEqual(plain(logic.todayTags({jobsRunning:0,jobsFinished:0},[])),[]);
 assert.ok(workTags.some(t=>t.page==='next-steps' && t.text.includes('rerun the sanitizer')));
 for (const group of menus.groups) assert.ok(logic.paperIcon(group).endsWith('.svg'));
 for (const id of ['apps','vault','lock']) {

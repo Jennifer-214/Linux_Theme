@@ -1,11 +1,5 @@
 .pragma library
 
-// The battery script's tooltip names both the level and whether it is draining.
-function hungry(batteryTooltip) {
-    var state = String(batteryTooltip || "").match(/^Battery: (\d+)% \(Discharging/);
-    return !!state && Number(state[1]) < 10;
-}
-
 function plain(value) {
     return String(value || "").replace(/<[^>]*>/g, "").replace(/&lt;/g, "<")
         .replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&amp;/g, "&");

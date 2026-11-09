@@ -44,7 +44,7 @@ void run_next_steps(Context& ctx) {
 
     if (have("opencode")) {
         ui::ok("OpenCode is ready — run `opencode` to start local AI development");
-        ui::substep("AI notifications wired via mako/dunst on turn complete + "
+        ui::substep("AI notifications wired via mako on turn complete + "
                     "subagent done + input needed (ALT+SHIFT+E for triage)");
         ui::substep("restart any in-flight agent sessions to load the new hooks");
     }

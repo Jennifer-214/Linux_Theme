@@ -44,13 +44,11 @@ TEMPLATE_MAPPINGS=(
     "mako/config|~/.config/mako/config"
 
     # Dunst
-    "dunst/dunstrc|~/.config/dunst/dunstrc"
 
     # Fastfetch
     "fastfetch/config.jsonc|~/.config/fastfetch/config.jsonc"
 
     # Rofi
-    "rofi/glass.rasi|~/.config/rofi/glass.rasi"
 
     # GTK
     "gtk-3.0/gtk.css|~/.config/gtk-3.0/gtk.css"
@@ -120,7 +118,6 @@ SHARED_MAPPINGS=(
     "nvim_lua/foxml/claude.lua|~/.config/nvim/lua/foxml/claude.lua"
 
     # Rofi config
-    "rofi_config.rasi|~/.config/rofi/config.rasi"
 
     # Zsh non-color
     "zsh_aliases.zsh|~/.config/zsh/aliases.zsh"

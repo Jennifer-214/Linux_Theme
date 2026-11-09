@@ -39,6 +39,10 @@ PAPIRUS_FOLDER_COLOR=cat-mocha-peach
 PAPIRUS_FOLDER_RECOLOR=none
 HYPR_BORDER_SIZE=0
 HYPR_BORDER_INACTIVE=3d354866
+HYPR_BORDER_ACTIVE=f0bcd0ff
+HYPR_BORDER_ACTIVE_END=e8a4b8ff
+HYPR_GROUPBAR_ACTIVE=e8a4b8bb
+HYPR_DIM_INACTIVE=true
 HYPR_SHADOW_ALPHA_INACTIVE=0.40
 HYPR_DIM_STRENGTH=0.15
 HYPR_INACTIVE_OPACITY=0.88
@@ -250,6 +254,21 @@ TMUX_ACTIVE_BG=1f1525
 # ─── Bar · terminal quiet layer (waybar states · logo · kitty ANSI · tmux footer) ───
 WAYBAR_LOGO=🦊
 WAYBAR_WS_FORMAT='{name} {windows}'
+# Bar glyphs (module icons passed to the bar scripts; window icons on the workspace tabs).
+WAYBAR_ICON_CPU='󰻠'
+WAYBAR_ICON_GPU='󰢮'
+WAYBAR_ICON_MEM='󰍛'
+WAYBAR_ICON_DISK='󰋊'
+WAYBAR_ICON_NET_DOWN='󰇚'
+WAYBAR_ICON_NET_UP='󰕒'
+WAYBAR_WIN_DEFAULT='󰘔'
+WAYBAR_WIN_BROWSER='󰈹'
+WAYBAR_WIN_TERMINAL=''
+WAYBAR_WIN_CHAT='󰙯'
+WAYBAR_WIN_GAMES='󰓓'
+WAYBAR_WIN_FILES=''
+WAYBAR_WIN_EDITOR='󰨞'
+WAYBAR_WIN_MONITOR='󰑮'
 WAYBAR_WARN=d4b4a8
 WAYBAR_CRIT=c46878
 WAYBAR_UPD_LOW=8aab9a
@@ -495,3 +514,13 @@ GARDEN_1=735e71
 GARDEN_2=9a7b8f
 GARDEN_3=c59caf
 GARDEN_4=f0bcd0
+
+# nvim cursor line (kept apart from Visual), zathura page recolor, desktop accent (libadwaita name).
+NVIM_CURSORLINE=1f1525
+ZATHURA_RECOLOR=true
+GTK_ACCENT_COLOR=pink
+# delta changed-word backgrounds (dark tints keep light syntax text readable).
+DELTA_DEL_WORD=4d2f4d
+DELTA_ADD_WORD=372228
+# GTK entry fill and infobar border alpha (was borrowed from the terminal opacity).
+GTK_FIELD_ALPHA=0.55

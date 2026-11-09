@@ -1,6 +1,8 @@
 #!/bin/bash
 # Waybar CPU module — usage % (tick delta) + package temp via coretemp.
 # Resolved by hwmon "name", so it survives hwmonN renumbering across boots.
+# $1: the theme's glyph (WAYBAR_ICON_CPU, passed by the bar config).
+ICON="${1:-󰻠}"
 
 # /proc/stat is cumulative since boot — diff against the runtime-cached
 # previous sample instead of sleeping 1s mid-exec, so the module renders
@@ -47,7 +49,7 @@ fi
 tooltip="CPU: ${usage}% ${temp}°C"
 
 if [[ -n "$temp" ]]; then
-    printf '{"text":"󰻠 %s%% %s°","tooltip":"%s"%s}\n' "$usage" "$temp" "$tooltip" "$cls"
+    printf '{"text":"%s %s%% %s°","tooltip":"%s"%s}\n' "$ICON" "$usage" "$temp" "$tooltip" "$cls"
 else
-    printf '{"text":"󰻠 %s%%","tooltip":"%s"%s}\n' "$usage" "$tooltip" "$cls"
+    printf '{"text":"%s %s%%","tooltip":"%s"%s}\n' "$ICON" "$usage" "$tooltip" "$cls"
 fi

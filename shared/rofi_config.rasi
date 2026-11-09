@@ -1,7 +1,0 @@
-configuration {
-    modi: "drun,run,window";
-    show-icons: true;
-    terminal: "kitty";
-}
-
-@theme "~/.config/rofi/glass.rasi"

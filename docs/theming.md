@@ -37,7 +37,7 @@ Interactive picker with color previews. Check [theme status](../themes/README.md
 
 ## Editing configs
 
-Edit the templates in `templates/`, not your live configs. Templates use `{{TOKEN}}` placeholders; `install.sh --render` renders them with the active theme's colors and restarts waybar/mako/dunst so the new look applies live.
+Edit the templates in `templates/`, not your live configs. Templates use `{{TOKEN}}` placeholders; `install.sh --render` renders them with the active theme's colors and restarts the bar and notifications so the new look applies live.
 
 If you've already edited a live config and want to keep the changes:
 
@@ -58,8 +58,6 @@ Reverse-renders your live configs back into templates, replacing rendered colors
 | Waybar | `templates/waybar/style.css` | `~/.config/waybar/style.css` |
 | Tmux | `templates/tmux/.tmux.conf` | `~/.tmux.conf` |
 | Zsh | `templates/zsh/` (7 files) | `~/.zshrc` + `~/.config/zsh/` |
-| Rofi (legacy assets) | `templates/rofi/glass.rasi` | `~/.config/rofi/glass.rasi` |
-| Dunst | `templates/dunst/dunstrc` | `~/.config/dunst/dunstrc` |
 | Mako | `templates/mako/config` | `~/.config/mako/config` |
 | Fastfetch | `templates/fastfetch/config.jsonc` | `~/.config/fastfetch/config.jsonc` |
 | GTK 3 | `templates/gtk-3.0/gtk.css` | `~/.config/gtk-3.0/gtk.css` |
@@ -120,7 +118,6 @@ Copied as-is regardless of theme:
 | `shared/wallpapers/` | Wallpaper files |
 | `shared/nvim_lazy-lock.json` | Neovim plugin lock file |
 | `shared/nvim_ftplugin/` | Neovim filetype plugins |
-| `shared/rofi_config.rasi` | Rofi layout config |
 | `shared/waybar_config` | Waybar module/layout config |
 | `shared/zsh_aliases.zsh` | Shell aliases |
 | `shared/zsh_git.zsh` | Git workflow functions |

@@ -34,7 +34,7 @@ GAP_IN=5
 GAP_OUT=10
 BORDER_SIZE=1
 SHADOW_RANGE=6
-SHADOW_ALPHA=0.06
+SHADOW_ALPHA=0.08
 
 # ─── Desktop chrome (GTK settings.ini · cursor · Hyprland window edges · kitty text · banner) ───
 # A drawn hairline separates sheets; inactive windows stay paper, not soot.
@@ -50,7 +50,13 @@ PAPIRUS_FOLDER_COLOR=foxml-blush
 PAPIRUS_FOLDER_RECOLOR=cat-mocha-pink:F5C2E7=edb0c4,E1AED3=d99ab0,CDD6F4=f0ede7,313244=3c3c40
 HYPR_BORDER_SIZE=1
 HYPR_BORDER_INACTIVE=9a989488
-HYPR_SHADOW_ALPHA_INACTIVE=0.08
+# Focused window: a solid 1px highlighter-pink line (the selection pink); groupbar tab the same.
+HYPR_BORDER_ACTIVE=e2a4baff
+HYPR_BORDER_ACTIVE_END=e2a4baff
+HYPR_GROUPBAR_ACTIVE=e2a4baff
+# No dimming: unfocused screens stay as readable as the focused one.
+HYPR_DIM_INACTIVE=false
+HYPR_SHADOW_ALPHA_INACTIVE=0.05
 # Keep text equally visible when focus moves to another screen.
 HYPR_DIM_STRENGTH=0.0
 HYPR_INACTIVE_OPACITY=1.0
@@ -275,6 +281,21 @@ TMUX_ACTIVE_BG=e6e3dc
 # a pencil launcher and window glyphs, lighter prompt rules (ANSI white), neutral ANSI blue, and a faint dotted footer.
 WAYBAR_LOGO='✎'
 WAYBAR_WS_FORMAT='{name} {windows}'
+# Bar glyphs: the drawer's pencil vocabulary instead of Nerd Font icons (module + window icons).
+WAYBAR_ICON_CPU='⊞'
+WAYBAR_ICON_GPU='▣'
+WAYBAR_ICON_MEM='▤'
+WAYBAR_ICON_DISK='▦'
+WAYBAR_ICON_NET_DOWN='↧'
+WAYBAR_ICON_NET_UP='↥'
+WAYBAR_WIN_DEFAULT='▢'
+WAYBAR_WIN_BROWSER='◎'
+WAYBAR_WIN_TERMINAL='❯'
+WAYBAR_WIN_CHAT='✉'
+WAYBAR_WIN_GAMES='▷'
+WAYBAR_WIN_FILES='▭'
+WAYBAR_WIN_EDITOR='✎'
+WAYBAR_WIN_MONITOR='◈'
 WAYBAR_WARN=1c1c1e
 WAYBAR_CRIT=9a5a48
 WAYBAR_UPD_LOW=3c3c40
@@ -341,7 +362,7 @@ ROFI_SELECTED=e2a4ba
 ROFI_SELECTED_ALPHA=0.95
 BTOP_SELECTED_BG=e2a4ba
 BTOP_HI_FG=b8336a
-BTOP_SELECTED_FG=b8336a
+BTOP_SELECTED_FG=202024
 BTOP_PROC_MISC=b8336a
 BTOP_LINE=a9a19b
 BTOP_COOL=9a9894
@@ -536,3 +557,15 @@ GARDEN_1=e8becd
 GARDEN_2=dc9bb3
 GARDEN_3=c67596
 GARDEN_4=a24f73
+
+# A paler blush for the cursor's line, so a one-line Visual selection (e2a4ba) still shows on it.
+NVIM_CURSORLINE=e8becd
+# PDFs keep their own figures and colours on the white page.
+ZATHURA_RECOLOR=false
+# libadwaita / portal accent name, so native apps lose the default blue.
+GTK_ACCENT_COLOR=pink
+# delta changed words: coral for removed, sage for added (the Claude diff words), under graphite ink.
+DELTA_DEL_WORD=ec9c88
+DELTA_ADD_WORD=91c791
+# GTK entry fill and infobar border alpha (was borrowed from the terminal opacity).
+GTK_FIELD_ALPHA=0.97

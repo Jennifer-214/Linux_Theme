@@ -51,7 +51,15 @@ case "$TYPE" in
         fi
         
         VAL=$(brightnessctl -m | cut -d, -f4 | tr -d '%')
-        
+
+        # Paper's light slip, beside the volume one; otherwise the notification below.
+        palette="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/modules/border_colors.sh"
+        [[ -r "$palette" ]] && source "$palette"
+        if [[ "${C_LITTLE_DETAILS:-}" == fox-little-details-on ]] &&
+            quickshell -c foxml ipc call brightness present "$VAL" >/dev/null 2>&1; then
+            exit 0
+        fi
+
         notify-send -a fox-osd -h string:x-canonical-private-synchronous:brightness \
                     -h int:value:"$VAL" \
                     -i display-brightness \

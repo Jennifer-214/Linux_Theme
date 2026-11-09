@@ -20,7 +20,7 @@ hl.workspace_rule({ workspace = "1", default = true })
 -- ─────────────────────────────────────────
 -- Layer Rules
 -- ─────────────────────────────────────────
--- Blur the launcher + notification bubbles. mako/dunst create a layer
+-- Blur the notification bubbles. mako creates a layer
 -- surface larger than the visible popup, so without an alpha threshold
 -- the blur leaks into the transparent margin around the bubble.
 --
@@ -34,10 +34,10 @@ hl.workspace_rule({ workspace = "1", default = true })
 --     `ignorezero`. The latter two error with "invalid field type".
 --   - Namespace must be `match:namespace <regex>`, not a bare regex.
 -- Working form (single line, comma-separated properties):
-hl.layer_rule({ match = { namespace = "^(rofi|mako|dunst|notifications)$" }, blur = true, ignore_alpha = 0.1 })
+hl.layer_rule({ match = { namespace = "^(notifications)$" }, blur = true, ignore_alpha = 0.1 })
 
--- Waybar uses a higher ignore_alpha so the blur region stops at the
--- module bubbles (background alpha 0.7) and doesn't extend into the
+-- Waybar (kept as the fallback bar) uses a higher ignore_alpha so the blur
+-- region stops at the module bubbles (background alpha 0.7) and doesn't extend into the
 -- CSS box-shadow's soft alpha halo — otherwise the threshold cutoff
 -- inside the shadow gradient creates a blocky rectangular blur edge
 -- around each module.
@@ -47,18 +47,6 @@ hl.layer_rule({ match = { namespace = "^(waybar)$" }, blur = true, ignore_alpha 
 -- Thunar (translucent file manager)
 -- ─────────────────────────────────────────
 -- Thunar transparency handled via GTK CSS (compositor opacity causes rubberband trail artifacts)
-
--- ─────────────────────────────────────────
--- Discord
--- ─────────────────────────────────────────
-
--- ─────────────────────────────────────────
--- Yazi (Scratchpad)
--- ─────────────────────────────────────────
-
--- ─────────────────────────────────────────
--- ncspot (Scratchpad)
--- ─────────────────────────────────────────
 
 -- ─────────────────────────────────────────
 -- Steam / Games — translucent client, games stay opaque

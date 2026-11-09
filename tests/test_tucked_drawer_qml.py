@@ -123,10 +123,16 @@ EXERCISE = r'''
         root.key({key:Qt.Key_C,modifiers:0,accepted:false});
         if (actionProcess.command.slice(-3).join("|")!=="run|screenshot-copy|/sample/shot-"+scrapbookSheet.columns+".png" || actionProcess.item.close)
             throw new Error("copy does not preserve the selected picture or keeps the wrong action");
-        volumeSlip.show(200,false);
-        if (!volumeSlip.showing || volumeSlip.value!==150) throw new Error("volume slip level clamp failed");
-        volumeSlip.show(42,true);
-        if (!volumeSlip.muted || volumeSlip.value!==42) throw new Error("volume slip mute state failed");
+        levelSlip.showVolume(200,false);
+        if (!levelSlip.showing || levelSlip.value!==150 || !levelSlip.overFull || levelSlip.heading!=="a little loud."
+            || levelSlip.detail!=="150% · past full")
+            throw new Error("volume past full is not shown as overflow");
+        levelSlip.showBrightness(140);
+        if (levelSlip.kind!=="light" || levelSlip.value!==100 || levelSlip.heading!=="a little light." || levelSlip.overFull
+            || levelSlip.detail!=="100%")
+            throw new Error("brightness slip failed");
+        levelSlip.showVolume(42,true);
+        if (!levelSlip.muted || levelSlip.value!==42 || levelSlip.kind!=="sound" || levelSlip.heading!=="a little quiet.") throw new Error("volume slip mute state failed");
     }}
     Timer { interval:4000; running:true; onTriggered: {
         if (!root.opened || !root.scrapbookLayout || root.failed) throw new Error("copy closed or broke the scrapbook");
@@ -136,7 +142,7 @@ EXERCISE = r'''
         if (root.opened || keyboard.enabled) throw new Error("scrapbook did not close cleanly");
     }}
     Timer { interval:5500; running:true; onTriggered: {
-        if (volumeSlip.showing || volumeSlip.displayable) throw new Error("volume slip did not expire");
+        if (levelSlip.showing || levelSlip.displayable) throw new Error("volume slip did not expire");
         root.show("calendar");
     }}
     Timer { interval:5800; running:true; onTriggered: {
@@ -190,9 +196,9 @@ class TuckedDrawer(unittest.TestCase):
                 "custom/updates":{"format":"↧ 4","on-click":"fox-desktop-menu updates"}}
             for name in ["config","config_secondary"]:
                 (config/name).write_text(json.dumps(layout))
-            volume=(qml/"VolumeSlip.qml").read_text().replace("PanelWindow {","FloatingWindow {")
+            volume=(qml/"LevelSlip.qml").read_text().replace("PanelWindow {","FloatingWindow {")
             volume=re.sub(r"^    (?:anchors.*|margins\..*|exclusionMode:.*|WlrLayershell\..*)\n","",volume,flags=re.M)
-            (qml/"VolumeSlip.qml").write_text(volume)
+            (qml/"LevelSlip.qml").write_text(volume)
             fixture=work/"fixture.json";fixture.write_text("{}")
             runtime=work/"runtime";runtime.mkdir(mode=0o700)
             source=(qml/"shell.qml").read_text().replace("    PanelWindow {","    FloatingWindow {")

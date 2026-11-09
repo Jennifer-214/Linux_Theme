@@ -32,7 +32,7 @@ inline const std::vector<std::string>& deps_packages() {
         "nodejs", "npm", "tree-sitter-cli",
 
         // Bar, launcher, notifications
-        "waybar", "mako", "dunst", "quickshell", // One desktop menu service; pass below owns secret handling.
+        "waybar", "mako", "quickshell", // One desktop menu service; pass below owns secret handling.
         "udisks2", "util-linux", // removable-drive library cards (xdg-utils is below)
 
         // Build tools

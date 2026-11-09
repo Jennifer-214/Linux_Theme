@@ -86,6 +86,7 @@ test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_c
 	@./tests/test_gaming
 	@./tests/test_iommu
 	@./tests/test_hyprlock_pin
+	@./tests/test_hyprlock_backgrounds
 	@./tests/test_nvidia_modules
 	@./tests/test_claude_wiring
 	@./tests/test_hw_autoenable
@@ -214,6 +215,12 @@ tests/test_hypr_lua: tests/test_hypr_lua.cpp modules/hypr_lua.hpp
 # (sidecar::Layout, the personalize API's parameter type) + libfox-common (sh::/ui::).
 tests/test_hyprlock_pin: tests/test_hyprlock_pin.cpp modules/personalize.o $(FOX_MONITOR_LIB) $(FOX_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) tests/test_hyprlock_pin.cpp modules/personalize.o -L$(FOX_MONITOR_DIR) -lfox-monitor -L$(FOX_COMMON_DIR) -lfox-common -o $@
+
+# hyprlock background blocks — one per monitor, on the wallpaper cut for its size,
+# with the theme default as the fallback and the template's settings copied in.
+test: tests/test_hyprlock_backgrounds
+tests/test_hyprlock_backgrounds: tests/test_hyprlock_backgrounds.cpp modules/personalize.o $(FOX_MONITOR_LIB) $(FOX_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_hyprlock_backgrounds.cpp modules/personalize.o -L$(FOX_MONITOR_DIR) -lfox-monitor -L$(FOX_COMMON_DIR) -lfox-common -o $@
 
 # Claude hook wiring (S10 / S10b, 2026-10-15): merge_hook_entries + restore_theme_wiring on a throwaway fixture
 # (a home, a git checkout with .claude/ ignored, a fake workspace), and snapshot_one, moved to core/backup.cpp.

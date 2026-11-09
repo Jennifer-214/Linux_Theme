@@ -84,6 +84,7 @@ local P = {
   bg_hl     = "#{{TMUX_ACTIVE_BG}}",
   sel       = "#{{NVIM_SEL}}",
   list_sel  = "#{{NVIM_LIST_SEL}}",  -- the selected row in lists, trees and pickers
+  cursorline = "#{{NVIM_CURSORLINE}}",  -- the cursor's line, a step paler than Visual
   menu_sel  = "#{{NVIM_MENU_SEL}}",  -- the selected row in completion / popup menus
   fg        = "#{{FG}}",
   fg_pastel = "#{{FG_PASTEL}}",
@@ -2117,7 +2118,7 @@ local function apply_foxml_theme()
   hl("NormalFloat",  { fg = P.fg, bg = P.float_bg })
   hl("FloatBorder",  { fg = P.float_border, bg = P.none })
   hl("FloatTitle",   { fg = Paper.enabled and P.fg or P.peach, bg = P.none, bold = {{SHOW_WELCOME}} })
-  hl("CursorLine",  { bg = P.list_sel })  -- Paper carries the existing pink list selection across the cursor's line.
+  hl("CursorLine",  { bg = P.cursorline })  -- Paper: pale blush under the cursor, so a one-line Visual still shows.
   hl("CursorColumn", { bg = P.bg_hl })
   hl("ColorColumn",  { bg = P.bg_hl })
   hl("Visual",       { bg = P.sel })

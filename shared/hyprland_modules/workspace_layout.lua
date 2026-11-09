@@ -9,7 +9,7 @@ hl.window_rule({
     name = "spotify-music-scratchpad",
     match = { class = "^(Spotify)$" },
     float = true,
-    size = "1800 1000",
+    size = { "monitor_w*0.9", "monitor_h*0.3+monitor_w*0.35" }, -- 90% of the screen width (see scratchpads.lua)
     center = true,
     workspace = "special:music silent",
 })

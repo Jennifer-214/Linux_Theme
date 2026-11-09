@@ -62,7 +62,7 @@ ColumnLayout {
             Layout.fillWidth: true
             spacing: 2
             Text {
-                text: Qt.formatDate(calendar.month, "MMMM").toLowerCase()
+                text: Qt.formatDate(calendar.month, "MMMM").toLowerCase() + (calendar.theme.paperDetails ? "." : "")
                 textFormat: Text.PlainText
                 color: calendar.theme.ink
                 font.family: calendar.theme.headingFont; font.pixelSize: 32; font.italic: true
