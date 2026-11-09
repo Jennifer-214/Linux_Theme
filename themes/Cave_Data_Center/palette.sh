@@ -291,6 +291,9 @@ WELCOME_LAYOUT=banner
 LITTLE_DETAILS=fox-little-details-off
 
 # ─── Cohesive surfaces (lock screen · mako · rofi · btop · lazygit · fzf · nvim floats) ───
+# The lock screen's own blur, softer than windows: what the lock has always used.
+HYPRLOCK_BLUR_SIZE=8
+HYPRLOCK_BLUR_PASSES=3
 HYPRLOCK_VIBRANCY=0.20
 HYPRLOCK_BRIGHTNESS=0.45
 HYPRLOCK_CONTRAST=1.10

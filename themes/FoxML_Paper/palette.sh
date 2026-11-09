@@ -328,6 +328,9 @@ LITTLE_DETAILS=fox-little-details-on
 # ─── Cohesive surfaces (lock screen · mako · rofi · btop · lazygit · fzf · nvim floats) ───
 # Paper: one hairline (a9a19b) for every frame, the pink highlighter for every selection,
 # the raspberry pen for every failure, graphite for everything else.
+# The lock screen's own blur, softer than windows: what the lock has always used.
+HYPRLOCK_BLUR_SIZE=8
+HYPRLOCK_BLUR_PASSES=3
 HYPRLOCK_VIBRANCY=0.0
 HYPRLOCK_BRIGHTNESS=1.0
 HYPRLOCK_CONTRAST=1.0
