@@ -14,3 +14,9 @@ tool using the tree as a style reference. Their prompts are saved in
 `shared/wallpapers/botanical-prompts.json`. The older cat artwork remains available.
 The tree's pencil pigment was strengthened in place so its branches and leaves
 remain visible through a 70% opaque terminal; that edit's prompt is saved there too.
+
+The subtle-color set uses `foxml_paper_botanical_color.png` on the primary
+display, the existing tree on the left, and `foxml_paper_flower.png` on the right.
+Muted sage leaves and dusty rose petals add color to the same warm paper.
+Both variants were edited with the built-in imagegen tool; originals remain
+available. Full prompts are in `paper-color-prompts.json`.

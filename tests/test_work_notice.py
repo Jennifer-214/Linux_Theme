@@ -10,7 +10,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 
 class WorkNotice(unittest.TestCase):
-    def test_persistent_worker_does_not_keep_agent_output_pipes_open(self):
+    def test_action_worker_does_not_keep_agent_output_pipes_open(self):
         with tempfile.TemporaryDirectory(prefix='.work-notice-pipes-', dir=ROOT/'tests') as temp:
             base = Path(temp)
             gate = base/'waiting'
@@ -26,7 +26,7 @@ class WorkNotice(unittest.TestCase):
             finally:
                 gate.unlink(missing_ok=True)
 
-    def test_persistent_actions_keep_paths_literal_and_dismiss_does_nothing(self):
+    def test_expiring_actions_keep_paths_literal_and_dismiss_does_nothing(self):
         with tempfile.TemporaryDirectory(prefix='.work-notice-', dir=ROOT/'tests') as temp:
             base = Path(temp)
             calls = base/'calls'
@@ -48,7 +48,7 @@ class WorkNotice(unittest.TestCase):
                 subprocess.run(command,env=env|{'NOTICE_CHOICE':choice},check=True,timeout=5)
                 return [json.loads(line) for line in calls.read_text().splitlines()]
             rows = invoke('default')
-            self.assertIn('--expire-time=0', rows[0])
+            self.assertIn('--expire-time=4000', rows[0])
             self.assertIn('--category=foxml.work', rows[0])
             self.assertIn('--hint=string:x-dunst-stack-tag:foxml-agent-7', rows[0])
             self.assertEqual(rows[-1], ['fox-drawer','run','claude-jump','%7'])

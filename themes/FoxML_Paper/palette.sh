@@ -23,7 +23,7 @@ FONT_FAMILY="MonaspiceKr Nerd Font"
 # `[[ "{{SHOW_WELCOME}}" == "true" ]]` check in templates/zsh/welcome.zsh.
 SHOW_WELCOME=true
 SHOW_BANNER=true
-WALLPAPER=foxml_paper_botanical.png
+WALLPAPER=foxml_paper_botanical_color.png
 
 # ─── Aesthetic controls ───
 # Light blur so the paper grain still shows through translucent windows.

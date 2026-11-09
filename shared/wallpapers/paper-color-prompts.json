@@ -1,0 +1,13 @@
+{
+  "generator": "Built-in image_gen",
+  "flower": {
+    "file": "foxml_paper_flower.png",
+    "reference": "foxml_paper_quiet.png",
+    "prompt": "Use case: precise-object-edit. Asset type: portrait 9:16 desktop wallpaper. Input image 1 is the EDIT TARGET: warm bone ivory paper. Create a tasteful colored-pencil companion to an existing botanical desktop. Keep its exact warm bone background #f0ede7, fine quiet paper grain, portrait aspect ratio and generous empty space. Add one small delicate pressed wildflower study near the lower right with generous 10 percent edge margins, covering only about 20 percent of the page width and 20 percent height. Fine graphite stem, 3 muted sage leaves (#83927b), one dusty rose blossom (#bc8193), visible soft colored-pencil hatching. One tiny detached petal nearby. Very small graphite specimen ticks beneath it, no letters or numbers. The botanical color should be clearly visible but subdued, natural, adult sketchbook aesthetic. The upper 75 percent and center stay empty for terminal readability. No border, no shadows, no gradient wash, no furniture, no tape, no text, no watermark. Opaque wallpaper, ideally 2160x3840."
+  },
+  "botanical": {
+    "file": "foxml_paper_botanical_color.png",
+    "reference": "foxml_paper_botanical.png",
+    "prompt": "Use case: precise-object-edit. Asset type: landscape 16:9 desktop wallpaper. Input image 1 is the EDIT TARGET. Preserve the exact existing warm bone ivory paper background #f0ede7, its fine grain, the botanical sprig's scale and bottom-right placement and all generous empty space. Change ONLY the sprig's pigment: give the leaves slightly richer muted sage green (#829275), retain graphite outlines and visible colored-pencil hatching, and make the one rosebud a warm dusty rose (#bc8193) with a little pale pink variation. Make the stem graphite-brown (#6f685b). Small colorful details should be legible through a 70 percent opaque ivory terminal but subtle when unobscured. Preserve the natural delicate pencil study; no flat vector fills or thick outlines. No new plants, no text, no frame, no gradients, no wash, no watermark. Opaque wallpaper, ideally 3840x2160."
+  }
+}

@@ -18,12 +18,10 @@ icon-location={{MAKO_ICON_LOCATION}}
 # Stock Mako ignores this optional outline directive.
 # foxml-paper-shape={{MAKO_PAPER_SHAPE}}
 width=360
-# 6 lanes (was 3) so multi-pane agent bursts don't queue behind a long
-# critical popup. With max-visible=3 + critical timeout=15s, a single
-# "Claude needs input" notification holds a slot for 15s while subsequent
-# turn-completes and subagent-done events queue invisibly — they then
-# drip onto the screen seconds-to-minutes after the actual event.
+# Six lanes keep bursts of agent notices from queuing out of sight.
 max-visible=6
+# Every notice uses the same four-second lifetime, including critical notices,
+# agent results and OSDs. Ignore sender timeouts so none can stay indefinitely.
 default-timeout=4000
 ignore-timeout=1
 icon-path=/usr/share/icons/{{MAKO_ICON_THEME}}
@@ -47,33 +45,26 @@ format=<span font_family="{{FONT_FAMILY}}" size="x-small" weight="semibold" lett
 background-color=#{{BG}}{{POPUP_BG_OPACITY_HEX}}
 text-color=#{{PRIMARY}}
 border-color=#{{MAKO_BORDER}}80
-default-timeout=2000
 
 [urgency=critical]
 background-color=#{{BG}}{{POPUP_BG_OPACITY_HEX}}
 text-color=#{{PRIMARY}}
 border-color=#{{MAKO_CRIT_BORDER}}
-default-timeout=15000
 
-# Workspace OSD (focus-pulse). ignore-timeout=1 above discards the sender's
-# own -t 800, so the short lifetime has to be set here. Paired with the
-# synchronous hint in fox-pulse's pulse.d/focus.sh, this shows exactly one transient chip
-# per switch instead of a growing stack.
+# Workspace OSD (focus-pulse). The synchronous hint in fox-pulse's
+# pulse.d/focus.sh replaces the previous chip instead of growing a stack.
 [app-name=focus-pulse]
 # foxml-paper-stamp=0
 format={{MAKO_FORMAT}}
 background-color=#{{BG}}{{POPUP_BG_OPACITY_HEX}}
 text-color=#{{ACCENT}}
 border-color=#{{SECONDARY}}80
-default-timeout=900
 
 [app-name=Spotify]
 border-color=#{{MAKO_MEDIA_BORDER}}
-default-timeout=4000
 
 [app-name="com.spotify.Client"]
 border-color=#{{MAKO_MEDIA_BORDER}}
-default-timeout=4000
 
 # AI agents use the primary peach accent
 # so notification chrome reads as "an agent is talking to you", not
@@ -82,13 +73,9 @@ default-timeout=4000
 # urgency=critical block above.
 [app-name=Claude]
 border-color=#{{MAKO_AGENT_BORDER}}
-default-timeout=6000
 
-# Results that need a decision stay until opened or dismissed. Do not let the
-# global ignore-timeout override the sender's persistent lifetime.
+# Work notices keep their actions during the same four-second lifetime.
 [category=foxml.work]
-default-timeout=0
-ignore-timeout=0
 on-button-left=invoke-default-action
 on-button-middle=exec makoctl menu -n "$id" ~/.local/bin/fox-picker --title "Notice actions"
 on-button-right=dismiss
@@ -112,7 +99,6 @@ border-radius=2
 background-color=#{{PRIMARY}}14
 progress-color=source #{{PRIMARY}}d9
 anchor=bottom-center
-default-timeout=1200
 
 # Last so app-specific styles cannot make a notification visible during DND.
 [mode=do-not-disturb]

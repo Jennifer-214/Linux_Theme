@@ -10,7 +10,7 @@ Item {
     implicitHeight: tickMarks ? 14 : 8
 
     Rectangle { width: parent.width; height: 1; y: ruler.railY; color: ruler.theme.line }
-    Rectangle { width: parent.width * ruler.fraction; height: 2; y: ruler.railY - 1; color: ruler.theme.ink }
+    Rectangle { width: parent.width * ruler.fraction; height: 2; y: ruler.railY - 1; color: ruler.theme.paperDetails ? ruler.theme.botanicalInk : ruler.theme.ink }
     Repeater {
         model: ruler.tickMarks ? 11 : 0
         Rectangle {

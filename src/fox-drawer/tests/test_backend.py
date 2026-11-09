@@ -1103,8 +1103,14 @@ class BackendTests(unittest.TestCase):
         (tools / "unrelated").write_text("#!/bin/bash\n")
         for tool in tools.iterdir():
             tool.chmod(0o755)
-        rows = {row["label"]: row["detail"] for row in self.invoke("view", "tools")["items"]}
+        sections = {row["page"]: row for row in self.invoke("view", "tools")["items"]}
+        self.assertEqual(set(sections), {"tools-system", "tools-other", "tools-all"})
+        self.assertTrue(all(row["kind"] == "page" for row in sections.values()))
+        self.assertEqual([row["label"] for row in self.invoke("view", "tools-system")["items"]], ["fox-doctor"])
+        rows = {row["label"]: row["detail"] for row in self.invoke("view", "tools-all")["items"]}
         self.assertEqual(rows, {"fox-binary": "Opens in a terminal", "fox-doctor": "Check the machine"})
+        self.assertEqual([row["label"] for row in self.invoke("view", "tools-other")["items"]], ["fox-binary"])
+        self.assertTrue(any(row.get("argument") == "fox-doctor" for row in self.invoke("view", "search", "fox-doctor")["items"]))
         self.assertEqual(self.invoke("run", "tools")["page"], "tools")
         self.failed("run", "tool-run", "unrelated")
         self.assertTrue(self.invoke("run", "tool-run", "fox-doctor")["close"])

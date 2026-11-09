@@ -24,7 +24,8 @@ const PEERS = JSON.stringify([
   { id: 'p1', name: 'Ledger tidy', project: 'trader', state: 'needs you', busy: false, pane: '%4' },
   { id: 'p2', name: 'docs', project: 'docs', state: 'waiting', busy: false, pane: '' },
 ])
-const seen = { argv: [] as string[], sent: [] as { to: unknown; text: string }[], toasts: [] as string[], submitted: [] as string[] }
+const seen = { argv: [] as string[], sent: [] as { to: unknown; text: string }[], toasts: [] as string[], submitted: [] as string[],
+  opened: [] as { id: string; closeOnEscape?: true }[] }
 const NOW = 1_800_000_000_000
 
 // A small file system in memory, for the runtime and state folders.
@@ -53,7 +54,7 @@ function fakeFs(on: On, files: Record<string, string>) {
 // Nothing sits beneath the plugin in a test: these stand for the engine and the machine.
 function engine(on: On, options: { runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; trees?: unknown; readIds?: { id: string; at: number }[] } = {}) {
   let pinned: { file: string; step: string } | null = null
-  seen.argv = []; seen.sent = []; seen.toasts = []; seen.submitted = []
+  seen.argv = []; seen.sent = []; seen.toasts = []; seen.submitted = []; seen.opened = []
   mock.store(on, { 'notebook-read-mail:abc': options.readIds ?? [] })
   on('session.receive', (_, e) => ({ text: e.text }))
   on('session.send', (_, e) => { seen.sent.push({ to: e.to, text: e.text }); return { isDelivered: true } })
@@ -62,7 +63,8 @@ function engine(on: On, options: { runtime?: string; state?: string; clock?: boo
   if (!options.files) on('fs.exists', () => ({ value: false }))
   on('ui.toast', (_, e) => { seen.toasts.push(e.text); return { value: undefined } })
   on('command.register', () => ({ value: { command: 'notebook' } }))
-  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.open', (_, e) => { seen.opened.push(e); return { value: { isPlaced: true } } })
+  on('ui.close', () => ({ value: undefined }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.cwd', () => ({ value: '/code/paper' }))
   on('session.repo', () => ({ value: { root: '/code/paper', remote: null, internal: false, name: null } }))
@@ -324,6 +326,31 @@ test('pinning the plan and current step survives another plan read, and task inp
   const ledger = JSON.parse(files['/run/t/foxml-claude/edits/abc.json'] ?? '{}')
   expect(ledger.plan).toBe('/code/paper/plans/one.md')
   expect(seen.sent).toEqual([])
+  expect(seen.submitted).toEqual([])
+  await ui.unmount()
+})
+
+test('next-step editors keep cancel visible, request native Escape closing, and discard unfinished forms on reopening', async ($, on) => {
+  engine(on, { projectWork: { tests: null, jobs: [], tasks: [] } })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'task-add' })
+  expect(seen.opened.at(-1)?.closeOnEscape).toBe(true)
+  expect(await ui.find({ key: 'work-next-step' })).toBeDefined()
+  expect(await ui.find({ key: 'form-cancel' })).toBeDefined()
+  expect(await ui.find({ key: 'page-files' })).toBeUndefined()
+  await ui.input({ key: 'work-next-step', text: 'unfinished thought', kind: 'change' })
+  await ui.press({ key: 'form-cancel' })
+  expect(await ui.find({ key: 'work-next-step' })).toBeUndefined()
+  expect(seen.opened.at(-1)?.closeOnEscape).toBeUndefined()
+  await ui.press({ key: 'task-add' })
+  await $.command.run({ command: 'notebook', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  expect(await ui.find({ key: 'work-next-step' })).toBeUndefined()
+  expect(await ui.find({ key: 'task-add' })).toBeDefined()
+  await ui.press({ key: 'task-add' })
+  await ui.input({ key: 'work-next-step', text: '  ', kind: 'submit' })
+  expect(await ui.find({ key: 'work-next-step' })).toBeUndefined()
+  expect(seen.argv.some(argv => argv.startsWith('fox-work task-add '))).toBe(false)
   expect(seen.submitted).toEqual([])
   await ui.unmount()
 })

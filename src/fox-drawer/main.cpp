@@ -97,7 +97,7 @@ fs::path repository() {
     return candidate;
 }
 const std::set<std::string> pages = {
-    "apps", "windows", "audio-outputs", "wifi", "bluetooth", "tools", "cheatsheet", "sandbox", "clipboard-text", "clipboard-images",
+    "apps", "windows", "audio-outputs", "wifi", "bluetooth", "tools", "tools-ai", "tools-security", "tools-desktop", "tools-system", "tools-projects", "tools-other", "tools-all", "cheatsheet", "sandbox", "clipboard-text", "clipboard-images",
     "wallpapers", "themes", "power", "updates", "agents", "projects", "bookmarks", "library", "downloads", "screenshots", "passwords", "garden",
     "models", "storage", "backups", "startup", "jobs", "test-results", "reviews", "worktrees", "next-steps", "failures"
 };
@@ -651,9 +651,10 @@ Json restore_clipboard(const std::string& id) {
 }
 
 std::string group_for(const Json& config, const std::string& page) {
+    const auto target = page.rfind("tools-", 0) == 0 ? "tools" : page;
     for (const auto& group : config["groups"]) {
-        if (text(group, "id") == page) return page;
-        for (const auto& row : group["items"]) if (text(row, "page") == page) return text(group, "id");
+        if (text(group, "id") == target) return target;
+        for (const auto& row : group["items"]) if (text(row, "page") == target) return text(group, "id");
     }
     return {};
 }
@@ -1597,6 +1598,27 @@ std::string group_summary(const std::string& group) {
 }
 
 struct Tool { std::string name, description; };
+struct ToolSection { std::string id, label, description, icon; };
+const std::vector<ToolSection> tool_sections{
+    {"tools-ai", "AI & coding", "Assistants, local models and code review", "message"},
+    {"tools-security", "Security & privacy", "Hardening, firewall, audits and passwords", "shield"},
+    {"tools-desktop", "Desktop & appearance", "Themes, screens, notifications and colors", "palette"},
+    {"tools-system", "System & diagnostics", "Health checks, hardware and maintenance", "gear"},
+    {"tools-projects", "Projects & backups", "Project setup, work tracking and recovery", "folder"},
+    {"tools-other", "Other tools", "Additional installed Fox commands", "info"},
+    {"tools-all", "All tools", "Every installed command, alphabetically", "info"},
+};
+std::string tool_section(const std::string& name) {
+    static const std::map<std::string, std::set<std::string>> names{
+        {"tools-security", {"fox-allowlist", "fox-arm", "fox-audit", "fox-audit-timer", "fox-bouncer", "fox-deadman", "fox-dispatch", "fox-dns-shield", "fox-dnssec", "fox-fingerprint", "fox-firewall", "fox-harden", "fox-honey", "fox-honeypot", "fox-jail", "fox-knock", "fox-lock", "fox-lock-panel", "fox-mac", "fox-offline", "fox-overwatch", "fox-pass", "fox-password-copy", "fox-ports", "fox-proximity", "fox-sec", "fox-sec-dashboard", "fox-sec-health", "fox-sentry-audit", "fox-snitch", "fox-spa", "fox-tripwire", "fox-usb", "fox-vault", "fox-vpn"}},
+        {"tools-desktop", {"fox-color", "fox-eza", "fox-gen-keybinds", "fox-hl", "fox-mako", "fox-monitor", "fox-notifications", "fox-pulse", "fox-render-fast", "fox-theme", "fox-theme-check", "fox-theme-tweak"}},
+        {"tools-system", {"fox-doctor", "fox-hw-info", "fox-install", "fox-legacy", "fox-nvidia-state", "fox-sys", "fox-tail", "fox-template-lint", "fox-test", "fox-uninstall"}},
+        {"tools-projects", {"fox-backup", "fox-build-verify", "fox-cafe", "fox-dev", "fox-develop", "fox-distro-build", "fox-distro-flash", "fox-distro-guide", "fox-generate-module", "fox-init", "fox-new-project", "fox-work", "fox-work-notice"}},
+    };
+    if (name.rfind("fox-ai", 0) == 0 || name.rfind("fox-llm-", 0) == 0 || name == "fox-ask" || name == "fox-agent-parse" || name == "fask" || name == "findex" || name == "fhelp") return "tools-ai";
+    for (const auto& [section, tools] : names) if (tools.count(name)) return section;
+    return "tools-other";
+}
 std::vector<Tool> fox_tools() {
     static const std::set<std::string> hidden{"fox", "fox-bar", "fox-desktop-menu", "fox-drawer", "fox-cheatsheet", "fox-menu", "fox-picker", "fox-rollback", "fox-sandbox", "fox-wallpaper"};
     static const std::map<std::string, std::string> fixed{
@@ -2242,6 +2264,10 @@ Json view(const Json& config, const std::string& page, const std::string& query,
             row["group"] = text(group, "id"); rows.push_back(row);
         }
         if (!query.empty()) {
+            for (const auto& tool : fox_tools()) {
+                auto row = item("tool-run", tool.name, "action", "Fox tools · " + tool.description, "info");
+                row["argument"] = tool.name; row["close"] = true; row["group"] = "system"; rows.push_back(row);
+            }
             for (const auto& project : projects(config)) {
                 if (lower(project.path.string()).find(lower(query)) == std::string::npos) continue;
                 auto row = project_card(project, false);
@@ -2437,13 +2463,24 @@ Json view(const Json& config, const std::string& page, const std::string& query,
             auto row = item(pair.first, pair.second, "action", {}, pair.first);
             decorate(row); rows.push_back(row);
         }
-    } else if (page == "tools") {
-        known = true; out["title"] = "Fox tools";
-        for (const auto& tool : fox_tools()) {
-            auto row = item("tool-run", tool.name, "action", tool.description, "info");
+    } else if (page == "tools" || page.rfind("tools-", 0) == 0) {
+        const auto section = std::find_if(tool_sections.begin(), tool_sections.end(), [&](const ToolSection& s) { return s.id == page; });
+        known = page == "tools" || section != tool_sections.end();
+        out["title"] = page == "tools" ? "Fox tools" : section != tool_sections.end() ? section->label : "Fox tools";
+        const auto tools = fox_tools();
+        if (page == "tools") {
+            for (const auto& category : tool_sections) {
+                const auto count = std::count_if(tools.begin(), tools.end(), [&](const Tool& t) { return category.id == "tools-all" || tool_section(t.name) == category.id; });
+                if (!count) continue;
+                auto row = item(category.id, category.label, "page", category.description + " · " + std::to_string(count) + (count == 1 ? " tool" : " tools"), category.icon);
+                row["page"] = category.id; rows.push_back(row);
+            }
+        } else if (known) for (const auto& tool : tools) {
+            if (page != "tools-all" && tool_section(tool.name) != page) continue;
+            auto row = item("tool-run", tool.name, "action", tool.description, section->icon);
             row["argument"] = tool.name; row["close"] = true; rows.push_back(row);
         }
-        if (rows.empty()) fail("No fox commands were found in ~/.local/bin");
+        if (tools.empty()) fail("No fox commands were found in ~/.local/bin");
     } else if (page == "cheatsheet") {
         known = true; out["title"] = "Shortcut reference";
         for (const auto& shortcut : shortcuts()) {

@@ -83,7 +83,7 @@
         { "id": "startup", "label": "Startup", "detail": "What starts with your session", "icon": "⏵", "kind": "page", "page": "startup" },
         { "id": "power-profile", "label": "Power profile", "detail": "Cycle performance, balanced and power saver", "icon": "◈", "kind": "action" },
         { "id": "vault", "label": "Passwords", "detail": "Copy from your existing pass store", "icon": "⚿", "kind": "page", "page": "passwords" },
-        { "id": "tools", "label": "Fox tools", "detail": "The command collection", "icon": "❯", "kind": "page", "page": "tools" },
+        { "id": "tools", "label": "Fox tools", "detail": "Commands grouped by what you want to do", "icon": "❯", "kind": "page", "page": "tools" },
         { "id": "cheatsheet", "label": "Shortcut reference", "detail": "Find a shortcut and copy its keys", "icon": "⌨", "kind": "page", "page": "cheatsheet" },
         { "id": "sandbox", "label": "Disposable sandbox", "detail": "A fresh space for an app", "icon": "▢", "kind": "page", "page": "sandbox" },
         { "id": "security", "label": "Security audit", "detail": "Open the security dashboard in a terminal", "icon": "⛨", "kind": "action", "close": true },

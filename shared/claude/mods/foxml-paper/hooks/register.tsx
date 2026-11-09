@@ -491,6 +491,9 @@ export const register: Register = on => {
 
   on('command.run', { command: 'notebook' }, async ($, e) => {
     const page = e.args.trim()
+    await update($, notebookView, view => ({ ...view, form: 'none',
+      ...(view.form !== 'none' ? { selected: '', focused: '' } : {}) }))
+    await update($, writingTo, () => null)
     if (['files', 'project', 'sessions', 'overview', 'all'].includes(page))
       await update($, notebookView, v => ({ ...v, page: page === 'all' ? 'files' : page as NotebookView['page'],
         scope: page === 'all' ? 'all' as const : v.scope, offset: 0, selected: '', form: 'none' as const }))
@@ -506,6 +509,14 @@ export const register: Register = on => {
       await update($, notebookView, view => ({ ...view, focused: e.element ?? '',
         selected: e.element && !e.element.startsWith('nav-') ? e.element : view.selected }))
     return focused
+  })
+
+  // Escape closes an active editor. Reopening the notebook must never restore
+  // an abandoned form or put the keyboard straight back into its input.
+  on('ui.close', { id: PANE }, async ($, e, next) => {
+    await update($, notebookView, view => ({ ...view, form: 'none', selected: '', focused: '' }))
+    await update($, writingTo, () => null)
+    return next(e)
   })
 
   // Claude Code names each session; the notebook heads with that name.
@@ -642,12 +653,16 @@ export const register: Register = on => {
     const content = []
     const setView = async (change: Partial<NotebookView>) => {
       await update($, notebookView, v => ({ ...v, ...change }))
+      if (change.page || change.form !== undefined) {
+        await $.ui.open({ id: PANE, title: 'notebook', rows: (change.page ?? view.page) === 'overview' ? 10 : 22, columns: 42, focus: true,
+          ...(change.form && change.form !== 'none' ? { closeOnEscape: true as const } : {}) })
+      }
       if (change.page) {
-        await $.ui.open({ id: PANE, title: 'notebook', rows: change.page === 'overview' ? 10 : 22, columns: 42, focus: true })
         await refresh($)
       }
       const input = change.form === 'task' ? 'work-next-step' : change.form === 'plan' ? 'plan-file' : change.form === 'step' ? 'plan-current-step' : null
       if (input) await $.ui.focus({ requestId: PANE, key: input }).catch(() => undefined)
+      else if (change.form === 'none') await $.ui.focus({ requestId: PANE, key: 'nav-back' }).catch(() => undefined)
     }
     const checkedWork = async (args: string[]) => {
       const result = await work($, args)
@@ -688,7 +703,11 @@ export const register: Register = on => {
       }
       const body = <Text color={paper.ink}>
         <Text color={paper.ribbon}>{selected ? '› ' : '  '}</Text>
-        {detail ?? <Text color={paper.ink}>{shortPath(label, width - 2)}</Text>}
+        {detail ?? <Text color={paper.ink}>
+          {/^[◇⌑✉✓◷+] /.test(label)
+            ? <Text><Text color={label.startsWith('✓') || label.startsWith('◷') ? paper.added : paper.ribbon}>{label.slice(0, 1)}</Text>{shortPath(label.slice(1), width - 3)}</Text>
+            : shortPath(label, width - 2)}
+        </Text>}
       </Text>
       return <Button key={key} label={label} plain hover={hover} {...(selected && view.form === 'none' && writingId === null ? { autoFocus: true as const } : {})} onPress={async () => {
         await update($, notebookView, v => ({ ...v, selected: key, focused: key }))
@@ -708,7 +727,7 @@ export const register: Register = on => {
       if (plan) await notePlan($, plan.file)
     }
 
-    if (view.page === 'overview') {
+    if (view.form === 'none' && view.page === 'overview') {
       if (now?.plan) content.push(row('plan-open', (now.plan.pinned ? '⌑ ' : '') + now.plan.title, () => openDocument(now.plan!.file)))
       else content.push(row('plan-pin', 'pin an active plan', () => setView({ form: 'plan' })))
       if (now?.plan?.step) content.push(row('plan-step', '◇ ' + now.plan.step, () => setView({ form: 'step' })))
@@ -736,7 +755,7 @@ export const register: Register = on => {
       if (now?.work) content.push(row('task-add', '+ next step', () => setView({ form: 'task' })))
     }
 
-    if (view.page === 'files') {
+    if (view.form === 'none' && view.page === 'files') {
       content.push(row('scope-session', (view.scope === 'session' ? '● ' : '○ ') + 'this session', () => setView({ scope: 'session', offset: 0, selected: '' })))
       content.push(row('scope-all', (view.scope === 'all' ? '● ' : '○ ') + 'all changes', () => setView({ scope: 'all', offset: 0, selected: '' })))
       const files = (now?.files ?? []).filter(f => view.scope === 'all' || f.own)
@@ -773,7 +792,7 @@ export const register: Register = on => {
       }
     }
 
-    if (view.page === 'project') {
+    if (view.form === 'none' && view.page === 'project') {
       if (now?.plan) {
         content.push(row('plan-open', (now.plan.pinned ? '⌑ ' : '') + now.plan.title, () => openDocument(now.plan!.file)))
         content.push(row('plan-pin', now.plan.pinned ? 'change active plan' : 'pin this plan', () => now.plan?.pinned ? setView({ form: 'plan' }) : pin(now.plan!.file)))
@@ -823,7 +842,7 @@ export const register: Register = on => {
       }
     }
 
-    if (view.page === 'sessions') {
+    if (view.form === 'none' && view.page === 'sessions') {
       if (mail.length) content.push(row('mail-clear', 'mark all notes read', () => acknowledgeMail($, mail)))
       for (const note of mail) {
         content.push(text(`✉ from ${note.from}`, paper.ribbon))
@@ -852,14 +871,17 @@ export const register: Register = on => {
 
     if (view.form === 'task') {
       content.push(<Input key="work-next-step" placeholder="pin a next step" submitLabel="pin" autoFocus onSubmit={async value => {
-        if (!value.trim()) return
+        if (!value.trim()) { await setView({ form: 'none' }); return }
         if (await checkedWork(['task-add', '--root', root, '--text', value.trim()])) { await setView({ form: 'none' }); await refresh($) }
       }} />)
     }
     if (view.form === 'plan') content.push(<Input key="plan-file" placeholder="path/to/plan.md" submitLabel="pin" autoFocus onSubmit={value => pin(value)} />)
     if (view.form === 'step') content.push(<Input key="plan-current-step" placeholder="current step" value={now?.plan?.step ?? ''} submitLabel="pin" autoFocus
       onSubmit={value => now?.plan ? pin(now.plan.file, value) : undefined} />)
-    if (view.form !== 'none') content.push(row('form-cancel', 'cancel', () => setView({ form: 'none' })))
+    if (view.form !== 'none') {
+      content.push(row('form-cancel', 'cancel', () => setView({ form: 'none' })))
+      content.push(text('Esc closes · Tab then Enter cancels'))
+    }
 
     const move = async (direction: number) => {
       if (!navigation.length) return

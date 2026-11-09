@@ -10,7 +10,8 @@ Rectangle {
     signal clicked()
     implicitWidth: label.implicitWidth + 12
     implicitHeight: label.implicitHeight + 6
-    color: selected ? theme.focusFill : interactive && hover.containsMouse ? theme.hoverFill : theme.highlight
+    readonly property bool positive: /^(playing|connected|ready|running|active)$/i.test(text)
+    color: selected ? theme.focusFill : interactive && hover.containsMouse ? theme.hoverFill : theme.paperDetails && positive ? Qt.alpha(theme.botanicalInk, .18) : theme.highlight
     // The keyboard's tag wears the accent ring the hearts use, softer than an ink box.
     border.width: selected ? 1.5 : 0
     border.color: theme.detailAccent

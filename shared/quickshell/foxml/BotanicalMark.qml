@@ -17,10 +17,12 @@ Canvas {
             c.beginPath();c.moveTo(x,y);
             c.quadraticCurveTo(x+dx*.1,y+dy,x+dx,y+dy);
             c.quadraticCurveTo(x+dx,y+dy*.1,x,y);
-            c.fillStyle=Qt.alpha(sprig.theme.botanicalInk,.16);c.fill();c.stroke();
+            c.fillStyle=Qt.alpha(sprig.theme.botanicalInk,.4);c.fill();
+            c.strokeStyle=Qt.alpha(sprig.theme.botanicalInk,.9);c.stroke();
         }
         leaf(13,23,-9,-7);leaf(15,19,10,-6);leaf(15,14,-8,-7);leaf(17,10,8,-5);
         c.beginPath();c.ellipse(18,1,4,5);
-        c.fillStyle=Qt.alpha(theme.detailAccent,.38);c.fill();c.stroke();
+        c.fillStyle=Qt.alpha(theme.detailAccent,.55);c.fill();
+        c.strokeStyle=Qt.alpha(theme.ink,.8);c.stroke();
     }
 }
