@@ -98,6 +98,12 @@ int main() {
     check("Botanical primary keeps sprig", companion_for("foxml_paper_botanical.png", true, false, dir) == "foxml_paper_botanical.png");
     check("Botanical left gets tree", companion_for("foxml_paper_botanical.png", false, true, dir) == "foxml_paper_tree.png");
     check("Botanical right gets quiet paper", companion_for("foxml_paper_botanical.png", false, false, dir) == "foxml_paper_quiet.png");
+    touch(dir / "foxml_paper_flower.png");
+    check("Colored botanical primary keeps sprig", companion_for("foxml_paper_botanical_color.png", true, false, dir) == "foxml_paper_botanical_color.png");
+    check("Colored botanical left gets tree", companion_for("foxml_paper_botanical_color.png", false, true, dir) == "foxml_paper_tree.png");
+    check("Colored botanical right gets flower", companion_for("foxml_paper_botanical_color.png", false, false, dir) == "foxml_paper_flower.png");
+    fs::remove(dir / "foxml_paper_flower.png", ec);
+    check("Missing flower keeps sprig", companion_for("foxml_paper_botanical_color.png", false, false, dir) == "foxml_paper_botanical_color.png");
     check("Other wallpaper keeps its pick", companion_for("custom.png", false, true, dir) == "custom.png");
     fs::remove(dir / "foxml_paper_tree.png", ec);
     check("Missing companion keeps cat", companion_for("foxml_paper_soft.png", false, true, dir) == "foxml_paper_soft.png");

@@ -1,0 +1,117 @@
+{
+  "processing": "Local upscaling, not native 4K generation",
+  "files": {
+    "amsterdam_orange.jpg": {
+      "source_size": [
+        2560,
+        1440
+      ],
+      "output_size": [
+        3840,
+        2160
+      ],
+      "method": "Lanczos",
+      "original": "shared/wallpapers/source/amsterdam_orange.jpg",
+      "original_sha256": "1d9ea26547873f48a5fb735a78cab096d945b00d49e3a44808bd3d166be8642b",
+      "output_sha256": "fd38ccd90911bfc95455ecd198d9a81274bc70783adbc55175be129802fdf42c"
+    },
+    "foxml_paper_botanical.png": {
+      "source_size": [
+        1672,
+        941
+      ],
+      "output_size": [
+        3840,
+        2160
+      ],
+      "method": "pencil hatching + paper fibers + Lanczos 4K",
+      "original": "shared/wallpapers/source/foxml_paper_botanical.png",
+      "original_sha256": "02feff8fe61ed4cc5c364c768f4649f87454c52b167f00c2c8125ad68c0077cf",
+      "output_sha256": "4a9df5227ec5bedae4f7646391c15f835225f1c75fa3595a74d7fb57c7af87b5"
+    },
+    "foxml_paper_botanical_color.png": {
+      "source_size": [
+        1672,
+        941
+      ],
+      "output_size": [
+        3840,
+        2160
+      ],
+      "method": "pencil hatching + paper fibers + Lanczos 4K",
+      "original": "shared/wallpapers/source/foxml_paper_botanical_color.png",
+      "original_sha256": "80f1eadf7c3618795533a6b7562063289cb84e8094cce5f53a1e5e3217110ce5",
+      "output_sha256": "427df07773e6a032986df5f811d68bf78a556333eec1e0ad0f8d48026a0a6611"
+    },
+    "foxml_paper_flower.png": {
+      "source_size": [
+        941,
+        1672
+      ],
+      "output_size": [
+        2160,
+        3840
+      ],
+      "method": "pencil hatching + paper fibers + Lanczos 4K",
+      "original": "shared/wallpapers/source/foxml_paper_flower.png",
+      "original_sha256": "228480003e7b0cbfb9cdbc5ce4f634e581fc0fbd21cbd6c3c8cd759cf0ccff90",
+      "output_sha256": "f52be6545e1970377ec0f81ccc131ef22a6fbdb76b13b79e3cd657eaf2266fa5"
+    },
+    "foxml_paper_quiet.png": {
+      "source_size": [
+        941,
+        1672
+      ],
+      "output_size": [
+        2160,
+        3840
+      ],
+      "method": "pencil hatching + paper fibers + Lanczos 4K",
+      "original": "shared/wallpapers/source/foxml_paper_quiet.png",
+      "original_sha256": "71d47d84036ffc0114018644d5c13ca8e00e3130766971308324b31f502f083a",
+      "output_sha256": "f3503c0e9d3935a5bb0789f1159c314413f4421d078ded60098e5144b5c51bda"
+    },
+    "foxml_paper_soft.png": {
+      "source_size": [
+        1672,
+        941
+      ],
+      "output_size": [
+        3840,
+        2160
+      ],
+      "method": "pencil hatching + paper fibers + Lanczos 4K",
+      "original": "shared/wallpapers/source/foxml_paper_soft.png",
+      "original_sha256": "46d581ad80ae8a7d0f19cd2fa5855d5069b49245ca21e845d500c1f4ded835af",
+      "output_sha256": "625f4b7fb8bab80aba776658f70fc5377ea94b7465cb21d47af822fba6e81c79"
+    },
+    "foxml_paper_nap.jpg": {
+      "source_size": [
+        3840,
+        2160
+      ],
+      "output_size": [
+        3840,
+        2160
+      ],
+      "method": "pencil hatching + paper fibers + Lanczos 4K",
+      "original": "shared/wallpapers/source/foxml_paper_nap.jpg",
+      "original_sha256": "ac220b956f7cc3663550ce9d608de64c2d7b5bae3b60e5a39bd6137a58075bc1",
+      "output_sha256": "43160daafd6075a4747e804ff08ac3f4bb9f57700a30b1892ab4275e5b9c1692"
+    },
+    "foxml_paper_tree.png": {
+      "source_size": [
+        941,
+        1672
+      ],
+      "output_size": [
+        2160,
+        3840
+      ],
+      "method": "pencil hatching + paper fibers + Lanczos 4K",
+      "original": "shared/wallpapers/source/foxml_paper_tree.png",
+      "original_sha256": "7a79df10e21762a671ed0151678c69db5f6c0476c9936c5b725c9241c8b86673",
+      "output_sha256": "bb621ae0a4721eb26cdd2a58e7faf720d606139c6f827d0b67a3a751c3d40f8c"
+    }
+  }
+}
