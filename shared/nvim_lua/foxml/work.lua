@@ -119,6 +119,11 @@ function M.open_args()
   local action = (args[1] or ""):match("^foxml%-work:(.+)$")
   local id, index = args[2] or "", args[3]
   if not action then return end
+  vim.g.foxml_work_view = true
+  vim.keymap.set("n", "<leader>Cq", function() require("foxml.claude").close() end, { desc = "Close work viewer" })
+  if action == "file-diff" or action == "reviews" then
+    vim.keymap.set("n", "q", function() require("foxml.claude").close() end, { desc = "Close Claude review" })
+  end
   vim.cmd("silent! argdelete *")
   if action == "file" then vim.cmd("edit " .. vim.fn.fnameescape(id))
   elseif action == "file-diff" then

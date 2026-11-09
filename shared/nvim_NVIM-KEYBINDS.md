@@ -530,11 +530,15 @@ first change you make to it says which session to coordinate with. The statuslin
 | `Space Cn` | Note to a Claude: the file, or the selection (visual), and a line of text; it arrives as an envelope and Claude reads it as your words |
 | `Space Cj` | Go to the pane of the Claude that edited this buffer |
 | `Space Cd` | The change under review, side by side, for this file |
+| `Space Cq` | Close all Claude review tabs and the file list; stop following |
 | `Space Cp` | The plan the sessions in this repo read last (`:Plan`) |
 
 In What changed: `Enter` reviews a change inline (gitsigns compares against just before it; the files go to the
-quickfix list), `]f` / `[f` move between its files, `d` in the quickfix list opens one side by side, `Esc` there
-(or `:ChangedDone`) ends the review. `f` on a live session follows it: a tab of its own opens each file it edits at
+quickfix list), `]f` / `[f` move between its files, `d` in the quickfix list opens one side by side, and `Space Cq`
+(or `:ClaudeReviewClose` / `:ChangedDone`) closes the whole review. `q` or `Esc` in its file list or snapshot
+also closes the review. A dedicated viewer opened from the notebook or drawer exits in one action;
+`q` works from either side of those reviews. Unsaved file edits still get a save prompt. In an existing editor,
+review tabs close and your editing window stays open. `f` on a live session follows it: a tab of its own opens each file it edits at
 its newest change, without moving your cursor; `f` again (or `:ClaudeFollow`) stops. Blame names the session
 behind Claude's lines (`✿ <session> · 2h · <summary>`) and marks yours `● you`.
 

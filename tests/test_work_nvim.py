@@ -14,6 +14,91 @@ BIN = ROOT / "src/fox-work/fox-work"
 
 @unittest.skipUnless(shutil.which("nvim") and BIN.exists(), "build fox-work and install Neovim first")
 class WorkNvim(unittest.TestCase):
+    def test_review_exit_closes_its_tabs_and_preserves_editor_and_edits(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            source = folder / 'a.cpp'
+            source.write_text('int original;\n')
+            env = dict(os.environ, TEST_WORK_LUA=str(ROOT/'shared/nvim_lua'),
+                       TEST_SOURCE=str(source), NVIM_LOG_FILE=str(folder/'nvim.log'))
+            script = folder/'exit.lua'
+            script.write_text(r'''
+package.path = vim.env.TEST_WORK_LUA .. '/?.lua;' .. package.path
+vim.g.mapleader = ' '
+package.loaded['foxml.claude'] = dofile(vim.env.TEST_WORK_LUA .. '/foxml/claude.lua')
+package.loaded['foxml.work'] = dofile(vim.env.TEST_WORK_LUA .. '/foxml/work.lua')
+local C = require('foxml.claude')
+C.setup()
+vim.cmd('set hidden')
+vim.cmd('edit ' .. vim.fn.fnameescape(vim.env.TEST_SOURCE))
+local editor, file = vim.api.nvim_get_current_win(), vim.api.nvim_get_current_buf()
+vim.api.nvim_buf_set_lines(file, 0, -1, false, {'int unsaved;'})
+vim.cmd('tabnew')
+local unrelated = vim.api.nvim_get_current_tabpage()
+vim.api.nvim_set_current_win(editor)
+local row = {kind='live', sid='test', name='test', short='test', label='test', files={vim.env.TEST_SOURCE}, before={}}
+C.open_review(row, vim.fs.dirname(vim.env.TEST_SOURCE))
+C.diff(vim.env.TEST_SOURCE)
+C.diff(vim.env.TEST_SOURCE)
+assert(#vim.api.nvim_list_tabpages() == 4)
+local close = vim.fn.maparg('<Space>Cq', 'n', false, true)
+assert(type(close.callback) == 'function')
+close.callback()
+assert(#vim.api.nvim_list_tabpages() == 2, 'review tabs remained')
+assert(vim.api.nvim_tabpage_is_valid(unrelated), 'unrelated tab was closed')
+assert(vim.api.nvim_get_current_win() == editor, 'did not return to editor')
+assert(C.review == nil and vim.fn.getqflist({winid=0}).winid == 0)
+assert(vim.bo[file].modified and vim.api.nvim_buf_get_lines(file,0,1,false)[1] == 'int unsaved;', 'unsaved edit lost')
+assert(vim.fn.maparg('q','n') == '', 'normal editor macro key was replaced')
+C.open_review(row, vim.fs.dirname(vim.env.TEST_SOURCE))
+C.diff(vim.env.TEST_SOURCE)
+vim.cmd('tabclose')
+vim.cmd('ChangedDone')
+assert(#vim.api.nvim_list_tabpages() == 2, 'manually closed diff broke cleanup')
+C.follow(row)
+assert(C.following and #vim.api.nvim_list_tabpages() == 3)
+C.close()
+assert(C.following == nil and #vim.api.nvim_list_tabpages() == 2, 'follow view remained')
+C.close()
+assert(#vim.api.nvim_list_tabpages() == 2, 'repeated exit closed ordinary tabs')
+''')
+            checked = subprocess.run(['nvim','--headless','-u','NONE','-l',str(script)],
+                                     cwd=folder, env=env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+
+    def test_notebook_review_quits_all_windows_with_one_key(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            source = folder/'a.cpp'
+            source.write_text('int a;\n')
+            result = folder/'closed.json'
+            env = dict(os.environ, TEST_WORK_LUA=str(ROOT/'shared/nvim_lua'), TEST_SOURCE=str(source),
+                       TEST_RESULT=str(result), NVIM_LOG_FILE=str(folder/'nvim.log'))
+            script = folder/'standalone.lua'
+            script.write_text(r'''
+package.path = vim.env.TEST_WORK_LUA .. '/?.lua;' .. package.path
+vim.g.mapleader = ' '
+package.loaded['foxml.claude'] = dofile(vim.env.TEST_WORK_LUA .. '/foxml/claude.lua')
+package.loaded['foxml.work'] = dofile(vim.env.TEST_WORK_LUA .. '/foxml/work.lua')
+vim.fn.argv = function() return {'foxml-work:file-diff', vim.env.TEST_SOURCE, ''} end
+require('foxml.work').open_args()
+local C = require('foxml.claude')
+C.diff(vim.env.TEST_SOURCE)
+vim.cmd('vsplit')
+assert(#vim.api.nvim_list_wins() >= 5, 'fixture has too few review windows')
+vim.api.nvim_create_autocmd('VimLeavePre', {callback=function()
+  vim.fn.writefile({vim.json.encode({closed=true, windows=#vim.api.nvim_list_wins()})}, vim.env.TEST_RESULT)
+end})
+local close = vim.fn.maparg('q','n',false,true)
+assert(type(close.callback) == 'function', 'one-key exit missing')
+close.callback()
+error('review exit did not quit the dedicated viewer')
+''')
+            checked = subprocess.run(['nvim','--headless','-u','NONE','-l',str(script)],
+                                     cwd=folder, env=env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+            self.assertTrue(json.loads(result.read_text())['closed'])
+
     def test_notebook_diff_uses_session_before_copy_and_all_changes_use_head(self):
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp)

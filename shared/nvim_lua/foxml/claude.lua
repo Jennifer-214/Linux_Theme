@@ -375,16 +375,52 @@ local function set_review_keys(on)
 end
 
 function M.done()
-  if not M.review then return end
+  if not M.review then return true end
+  local review = M.review
+  local remaining = {}
+  -- Only tabs created by this review belong to its exit action.
+  for _, tab in ipairs(review.tabs or {}) do
+    if vim.api.nvim_tabpage_is_valid(tab) then
+      vim.api.nvim_set_current_tabpage(tab)
+      local ok, err = pcall(vim.cmd, "tabclose")
+      if not ok then
+        remaining[#remaining + 1] = tab
+        vim.notify(tostring(err), vim.log.levels.WARN, { title = "Claude review" })
+      end
+    end
+  end
+  if review.origin and vim.api.nvim_win_is_valid(review.origin) then
+    vim.api.nvim_set_current_win(review.origin)
+  end
+  review.tabs = remaining
+  if #remaining > 0 then return false end
   pcall(function() require("gitsigns").reset_base(true) end)
   set_review_keys(false)
   M.review = nil
-  pcall(vim.cmd.cclose)
+  if vim.fn.getqflist({ id = 0 }).id == review.quickfix then pcall(vim.cmd.cclose) end
   pcall(vim.cmd.redrawstatus)
+  return true
+end
+
+function M.close()
+  -- The notebook launches its own Neovim process. One action exits all of its
+  -- splits/tabs, with the normal save prompt for any modified file.
+  if vim.g.foxml_work_view then vim.cmd("confirm qall"); return end
+  if not M.done() then return end
+  if M.following then
+    local follow = M.following
+    M.follow()
+    if vim.api.nvim_tabpage_is_valid(follow.tab) then
+      vim.api.nvim_set_current_tabpage(follow.tab)
+      local ok, err = pcall(vim.cmd, "tabclose")
+      if not ok then vim.notify(tostring(err), vim.log.levels.WARN, { title = "Claude review" }) end
+    end
+    if follow.origin and vim.api.nvim_win_is_valid(follow.origin) then vim.api.nvim_set_current_win(follow.origin) end
+  end
 end
 
 function M.open_review(row, root)
-  M.done()
+  if not M.done() then return end
   local base = row.kind == "commit" and row.parent or "HEAD"
   pcall(function() require("gitsigns").change_base(base, true) end)
   local since = {}
@@ -397,8 +433,9 @@ function M.open_review(row, root)
     items[#items + 1] = { filename = file, lnum = 1,
       text = since[file] and "changed again since: <leader>Cd shows this change alone" or row.label }
   end
-  M.review = { row = row, root = root, label = row.short }
-  vim.fn.setqflist({}, " ", { title = "what changed · " .. row.label, items = items })
+  M.review = { row = row, root = root, label = row.short, origin = vim.api.nvim_get_current_win(), tabs = {} }
+  vim.fn.setqflist({}, " ", { title = "what changed · " .. row.label .. " · Space Cq closes review", items = items })
+  M.review.quickfix = vim.fn.getqflist({ id = 0 }).id
   set_review_keys(true)
   vim.cmd("copen")
   vim.cmd("wincmd p")
@@ -441,11 +478,16 @@ function M.diff(path)
     left = scratch(lines_of(text), "before " .. r.row.name .. "/" .. rel)
   end
   vim.cmd("tabnew")
+  r.tabs[#r.tabs + 1] = vim.api.nvim_get_current_tabpage()
   if right then vim.api.nvim_win_set_buf(0, right) else vim.cmd("edit " .. vim.fn.fnameescape(path)) end
   vim.cmd("diffthis")
   vim.cmd("leftabove vsplit")
   vim.api.nvim_win_set_buf(0, left)
   vim.cmd("diffthis")
+  for _, buf in ipairs({ left, right }) do
+    vim.keymap.set("n", "q", M.close, { buffer = buf, desc = "Close Claude review" })
+    vim.keymap.set("n", "<Esc>", M.close, { buffer = buf, desc = "Close Claude review" })
+  end
 end
 
 -- Follow: a tab of its own shows each file the session edits, at its newest change; your cursor stays put.
@@ -459,8 +501,9 @@ function M.follow(row)
   end
   if not row or row.kind ~= "live" then return end
   local here = vim.api.nvim_get_current_tabpage()
+  local origin = vim.api.nvim_get_current_win()
   vim.cmd("tabnew")
-  M.following = { sid = row.sid, name = row.name, tab = vim.api.nvim_get_current_tabpage(), win = vim.api.nvim_get_current_win() }
+  M.following = { sid = row.sid, name = row.name, tab = vim.api.nvim_get_current_tabpage(), win = vim.api.nvim_get_current_win(), origin = origin }
   vim.api.nvim_set_current_tabpage(here)
   follow_timer = uv.new_timer()
   follow_timer:start(0, 2000, vim.schedule_wrap(function()
@@ -555,18 +598,21 @@ function M.setup()
   vim.api.nvim_create_autocmd("FileType", { group = group, pattern = "qf", callback = function(a)
     local title = vim.fn.getqflist({ title = 0 }).title or ""
     if not title:find("^what changed") then return end
-    vim.keymap.set("n", "<Esc>", M.done, { buffer = a.buf, desc = "Done reviewing" })
+    vim.keymap.set("n", "<Esc>", M.close, { buffer = a.buf, desc = "Close Claude review" })
+    vim.keymap.set("n", "q", M.close, { buffer = a.buf, desc = "Close Claude review" })
     vim.keymap.set("n", "d", function()
       local item = vim.fn.getqflist()[vim.fn.line(".")]
       if item then M.diff(uv.fs_realpath(vim.api.nvim_buf_get_name(item.bufnr)) or vim.api.nvim_buf_get_name(item.bufnr)) end
     end, { buffer = a.buf, desc = "This change side by side" })
   end })
   vim.api.nvim_create_user_command("ClaudeChanges", M.changes, { desc = "What changed: live sessions and commits" })
-  vim.api.nvim_create_user_command("ChangedDone", M.done, { desc = "Stop reviewing a change" })
+  vim.api.nvim_create_user_command("ChangedDone", M.close, { desc = "Close Claude review" })
+  vim.api.nvim_create_user_command("ClaudeReviewClose", M.close, { desc = "Close all Claude review views" })
   vim.api.nvim_create_user_command("Plan", M.plan, { desc = "The plan the sessions here read last" })
   vim.api.nvim_create_user_command("ClaudeFollow", function() M.follow() end, { desc = "Stop following a session" })
   local map = vim.keymap.set
   map("n", "<leader>Cw", M.changes, { desc = "What changed" })
+  map("n", "<leader>Cq", M.close, { desc = "Close all Claude review views" })
   map("n", "<leader>Cn", function() M.send() end, { desc = "Note to a Claude" })
   map("x", "<leader>Cn", function()
     local a, b = vim.fn.line("v"), vim.fn.line(".")
