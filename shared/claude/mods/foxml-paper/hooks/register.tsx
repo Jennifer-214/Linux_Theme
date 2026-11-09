@@ -915,9 +915,9 @@ export const register: Register = on => {
       </Box>
       {now?.credits && <Button key="api-credit-meter" label="monthly API credit details" plain
         onPress={() => run($, ['fox-desktop-menu', '--open', 'api-credits'])}>
-        <Text color={now.credits.status === 'stale' || now.credits.status === 'error' || (now.credits.remaining_percent !== null && now.credits.remaining_percent <= 20) ? paper.berry : paper.added}>
+        <Text color={now.credits.status === 'error' || (now.credits.remaining_percent !== null && now.credits.remaining_percent <= 20) ? paper.berry : paper.added}>
           {shortPath(now.credits.short, width)}
-          {now.credits.meter ? '\n' + now.credits.meter + (now.credits.source === 'local' ? ' tracked only' : ' reported') : ''}
+          {now.credits.meter ? '\n' + now.credits.meter + ' tracked' : ''}
         </Text>
       </Button>}
       {view.page !== 'overview' && <Box>

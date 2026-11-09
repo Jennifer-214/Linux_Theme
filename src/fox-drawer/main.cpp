@@ -108,7 +108,7 @@ const std::set<std::string> actions = {
     "wallpaper-next", "wallpaper-sync", "color-picker", "updates-terminal", "updates-silent", "vault",
     "security", "cleanup", "agent-triage", "agent-jump", "agent-clear", "claude-jump", "app-launch", "window-focus", "audio-output", "wifi-connect",
     "wifi-toggle", "bluetooth-connect", "bluetooth-toggle", "bluetooth-scan", "bluetooth-service", "tool-run", "cheatsheet-copy", "sandbox-launch", "clipboard-restore", "wallpaper-set", "theme-set", "project-open", "project-terminal", "project-bookmark", "drive-open", "drive-eject", "download-open", "download-folder", "screenshot-open", "screenshot-copy", "screenshot-folder", "screenshot-capture", "password-copy", "tools", "cheatsheet", "sandbox",
-    "api-task-ask", "api-task-open", "api-task-failure", "api-task-settings", "display-scale-up", "display-scale-down", "display-rotate", "display-side", "display-keep", "display-undo", "display-edit", "cursor-size-up", "cursor-size-down", "credits-setup", "credits-sync", "credits-console", "model-agent", "model-remove", "storage-scan", "storage-open", "storage-clean-packages", "storage-trim-journal", "storage-flatpak-unused",
+    "api-task-ask", "api-task-open", "api-task-failure", "api-task-settings", "api-task-review", "api-task-pi", "api-task-follow", "display-scale-up", "display-scale-down", "display-rotate", "display-side", "display-keep", "display-undo", "display-edit", "cursor-size-up", "cursor-size-down", "credits-setup", "credits-console", "model-agent", "model-remove", "storage-scan", "storage-open", "storage-clean-packages", "storage-trim-journal", "storage-flatpak-unused",
     "storage-empty-trash", "storage-hidden", "backup-restore", "backup-open", "backup-prune", "startup-user", "startup-autostart",
     "work-open", "work-jump", "work-tests", "work-compare", "work-ask", "work-reviews", "work-tasks", "work-task-toggle", "work-task-draft", "worktree-open", "worktree-terminal", "project-worktrees", "service-log", "service-ask"
 };
@@ -353,7 +353,7 @@ std::string required(const std::string& id) {
     if (id == "color-picker") return "hyprpicker";
     if (id == "password-copy") return "pass";
     if (id == "security") return "fox";
-    if (id == "credits-setup" || id == "credits-sync") return "fox-credits";
+    if (id == "credits-setup") return "fox-credits";
     if (id == "credits-console") return "xdg-open";
     if (id.rfind("api-task-", 0) == 0) return "fox-claude-api";
     if (id == "suspend" || id == "reboot" || id == "poweroff") return "systemctl";
@@ -1562,6 +1562,14 @@ Json display_action(const std::string& id, const std::string& arg) {
     done["close"] = false; return done;
 }
 
+Json api_history() {
+    Json history;
+    Json out = Json::array();
+    if (!sh::have("fox-claude-api") || !capture_json({"fox-claude-api", "history"}, history) || !history.is_array()) return out;
+    for (const auto& task : history)
+        if (task.is_object() && std::regex_match(text(task, "id"), std::regex("[0-9a-f]{32}"))) out.push_back(task);
+    return out;
+}
 Json api_projects() {
     Json projects;
     if (!sh::have("fox-claude-api") || !capture_json({"fox-claude-api", "projects"}, projects) || !projects.is_array()) return Json::array();
@@ -2760,52 +2768,74 @@ Json view(const Json& config, const std::string& page, const std::string& query,
         known = true; out["title"] = "Review with API credits";
         const auto projects = api_projects();
         if (!projects.empty()) {
-            auto left = item("api-credits", text(projects.front(), "credits"), "page", "Monthly API credits · budget and billing", "info");
+            auto left = item("api-credits", text(projects.front(), "credits"), "page", "API usage · by project, model and day", "info");
             left["page"] = "api-credits"; rows.push_back(left);
         }
         for (const auto& project : projects) {
-            auto row = item("api-task-ask", "Ask about " + text(project, "label"), "action",
-                            "Read-only review · default budget $" + text(project, "budget_usd"), "message");
-            row["argument"] = text(project, "id");
-            if (!truth(project, "available")) { row["enabled"] = false; row["detail"] = "Project folder not found · " + text(project, "root"); }
-            rows.push_back(row);
-        }
-        Json history;
-        if (sh::have("fox-claude-api") && capture_json({"fox-claude-api", "history"}, history) && history.is_array()) {
-            for (const auto& task : history) {
-                const auto id = text(task, "id");
-                if (!std::regex_match(id, std::regex("[0-9a-f]{32}"))) continue;
-                auto row = item("api-task-open", text(task, "label") + " · " + text(task, "status"), "action",
-                                text(task, "finished_at", text(task, "started_at")) + " · "
-                                + (task.contains("cost_usd") && task["cost_usd"].is_string() ? "$" + text(task, "cost_usd") + " estimated" : "cost unknown"), "message");
-                row["argument"] = id; rows.push_back(row);
+            const auto id = text(project, "id"), label = text(project, "label");
+            const bool here = truth(project, "available");
+            auto ask = item("api-task-ask", "Ask about " + label, "action",
+                            "Read-only · " + text(project, "model") + " · default budget $" + text(project, "budget_usd"), "message");
+            auto review = item("api-task-review", "  Review uncommitted changes", "action", "Bugs, risky edits and missing tests in the diff", "search");
+            auto agent = item("api-task-pi", "  Open pi with API credits", "action", "pi can edit files · every reply is tracked", "app-launch");
+            for (auto* row : {&ask, &review, &agent}) {
+                (*row)["argument"] = id;
+                if (!here) { (*row)["enabled"] = false; (*row)["detail"] = "Project folder not found · " + text(project, "root"); }
+                rows.push_back(*row);
             }
         }
-        rows.push_back(item("api-task-settings", "Edit API task settings", "action", "Key file, default budget and project folders, in Neovim", "gear"));
+        for (const auto& task : api_history()) {
+            const auto id = text(task, "id");
+            const auto cost = task.contains("cost_usd") && task["cost_usd"].is_string() ? "$" + text(task, "cost_usd") : std::string("cost unknown");
+            auto row = item("api-task-open", text(task, "title", text(task, "label")), "action",
+                            text(task, "label") + " · " + text(task, "status") + " · " + text(task, "model", "model unknown") + " · " + cost
+                            + " · " + text(task, "finished_at", text(task, "started_at")).substr(0, 16), "message");
+            row["argument"] = id; rows.push_back(row);
+            auto follow = item("api-task-follow", "  Follow up", "action", "Ask more, with this question and answer as context", "message");
+            follow["argument"] = id; rows.push_back(follow);
+        }
+        rows.push_back(item("api-task-settings", "Edit API task settings", "action", "Key file, model, effort, default budget and project folders, in Neovim", "gear"));
         for (auto& row : rows) if (truth(row, "enabled")) { decorate(row); row["close"] = true; }
     } else if (page == "api-credits") {
-        known = true; out["title"] = "Monthly API credits";
-        Json credits;
-        if (sh::have("fox-credits") && capture_json({"fox-credits", "status"}, credits) && credits.is_object()) {
+        known = true; out["title"] = "API usage";
+        Json usage;
+        auto note = [&](const std::string& label, const std::string& detail, const std::string& icon = "info") {
+            auto row = item("credits-summary", label, "action", detail, icon); row["enabled"] = false; rows.push_back(row);
+        };
+        auto money = [](const Json& row) { return "$" + text(row, "spent_usd"); };
+        if (sh::have("fox-credits") && capture_json({"fox-credits", "usage"}, usage) && usage.is_object() && usage["snapshot"].is_object()) {
+            const auto& credits = usage["snapshot"];
             out["credits"] = credits;
-            auto summary = item("credits-summary", text(credits, "headline"), "action", text(credits, "detail"), "info");
-            summary["enabled"] = false; rows.push_back(summary);
-            if (!text(credits, "as_of").empty()) {
-                auto stamp = item("credits-as-of", "Reported as of " + text(credits, "as_of"), "action", "Billing reports are delayed; this is a budget meter, not a live balance", "info");
-                stamp["enabled"] = false; rows.push_back(stamp);
-            }
-            if (credits.contains("projects") && credits["projects"].is_array()) for (const auto& project : credits["projects"]) {
-                auto row = item("credits-project", text(project, "label"), "action", text(project, "detail"), "folder");
-                row["enabled"] = false; rows.push_back(row);
+            note(text(credits, "headline"), text(credits, "detail"));
+            note("Counts runs made through these tools", "API tasks and pi with API credits · other uses of the key are not included");
+            if (usage["projects"].is_array() && !usage["projects"].empty()) {
+                note("By project", "This month", "folder");
+                for (const auto& p : usage["projects"])
+                    note("  " + text(p, "label"), money(p) + " · " + std::to_string(p.value("runs", 0)) + " runs · about $" + text(p, "average_usd") + " each", "folder");
+                note("By model", "Average cost per run helps pick a cheaper model", "system");
+                for (const auto& m : usage["models"])
+                    note("  " + text(m, "model"), money(m) + " · " + std::to_string(m.value("runs", 0)) + " runs · about $" + text(m, "average_usd") + " each · "
+                         + std::to_string(m.value("input_tokens", 0) / 1000) + "k in / " + std::to_string(m.value("output_tokens", 0) / 1000) + "k out", "system");
+                note("Recent days", "Spend per day", "today");
+                const auto& days = usage["days"];
+                for (size_t i = days.size() > 7 ? days.size() - 7 : 0; i < days.size(); ++i)
+                    note("  " + text(days[i], "day"), money(days[i]) + " · " + std::to_string(days[i].value("runs", 0)) + " runs", "today");
+                note("Costliest runs", "This month", "search");
+                int shown = 0;
+                for (const auto& t : usage["top"]) {
+                    if (++shown > 5) break;
+                    note("  " + text(t, "label", text(t, "id")), text(t, "project") + " · " + text(t, "model", "model unknown") + " · $"
+                         + text(t, "cost_usd") + " · " + text(t, "at").substr(0, 10), "search");
+                }
+            } else if (credits.value("remaining_usd", Json()).is_string()) {
+                note("No tracked runs yet this month", "Ask about a project, or open pi with API credits");
             }
         } else {
-            auto row = item("credits-summary", "API spending is not connected", "action", "Set the credit cycle and connect a billing report", "info");
-            row["enabled"] = false; rows.push_back(row);
+            note("The API credit meter is unavailable", "Install fox-credits");
         }
-        rows.push_back(item("credits-setup", "Set up credit tracking", "action", "Confirm the renewal date and connect reporting", "gear"));
-        rows.push_back(item("credits-sync", "Refresh billing report", "action", "Fetch reported API spending in a terminal", "refresh"));
-        rows.push_back(item("credits-console", "Open Claude Console", "action", "Check the credit expiry and account spending", "window"));
-        rows.push_back(item("api-tasks", "Review with API credits", "page", "Ask about Trader, Claude mods or Linux_Theme; track costs locally", "message"));
+        rows.push_back(item("credits-setup", "Renewal day and budget", "action", "When the monthly credit renews, and how much it is", "gear"));
+        rows.push_back(item("credits-console", "Open Claude Console", "action", "The account's real balance and credit expiry", "window"));
+        rows.push_back(item("api-tasks", "Review with API credits", "page", "Ask about a project, review changes, or open pi", "message"));
         rows.back()["page"] = "api-tasks";
         for (auto& row : rows) if (truth(row, "enabled")) { decorate(row); row["close"] = true; }
     } else if (page == "tools" || page.rfind("tools-", 0) == 0) {
@@ -2982,7 +3012,7 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         if (id == "logout") return command({"fox-hl", "dispatch", "hl.dsp.exit()", "exit"}, "Log out", true);
         return command({"systemctl", id}, id == "suspend" ? "Suspend" : id == "reboot" ? "Restart" : "Shut down", true);
     }
-    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","tool-run","cheatsheet-copy","sandbox-launch","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","screenshot-open","screenshot-copy","screenshot-folder","password-copy","agent-jump","claude-jump","model-agent","model-remove","storage-open","backup-restore","backup-open","startup-user","startup-autostart","api-task-ask","api-task-open","api-task-failure","display-scale-up","display-scale-down","display-rotate","display-side"};
+    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","tool-run","cheatsheet-copy","sandbox-launch","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","screenshot-open","screenshot-copy","screenshot-folder","password-copy","agent-jump","claude-jump","model-agent","model-remove","storage-open","backup-restore","backup-open","startup-user","startup-autostart","api-task-ask","api-task-open","api-task-failure","api-task-review","api-task-pi","api-task-follow","display-scale-up","display-scale-down","display-rotate","display-side"};
     const bool confirm_only = arg == "--confirm" && (id == "backup-prune" || id == "storage-empty-trash");
     if (!argument_actions.count(id) && !arg.empty() && !confirm_only) return result(false, "This action accepts no argument");
     if (id == "volume" || id == "brightness") {
@@ -3252,12 +3282,23 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         return result(false, "Unknown sandbox");
     }
     if (id == "credits-setup") return terminal({"fox-credits", "setup"}, "Credit settings opened");
-    if (id == "credits-sync") return terminal({"fox-credits", "sync"}, "Billing refresh opened");
     if (id == "credits-console") return launch({"xdg-open", "https://platform.claude.com/settings/billing"}, "Claude Console opened");
     if (id.rfind("display-", 0) == 0 || id.rfind("cursor-size-", 0) == 0) return display_action(id, arg);
-    if (id == "api-task-ask") {
-        for (const auto& p : api_projects()) if (text(p, "id") == arg) return terminal({"fox-claude-api", "ask", "--project", arg}, "API task prompt opened");
+    if (id == "api-task-ask" || id == "api-task-review" || id == "api-task-pi") {
+        for (const auto& p : api_projects()) {
+            if (text(p, "id") != arg) continue;
+            if (id == "api-task-pi") return terminal({"fox-claude-api", "pi", "--project", arg}, "pi opened with API credits");
+            Args args{"fox-claude-api", "ask", "--project", arg};
+            if (id == "api-task-review") args.push_back("--review-changes");
+            return terminal(args, id == "api-task-review" ? "Change review prompt opened" : "API task prompt opened");
+        }
         return result(false, "That API project is no longer configured");
+    }
+    if (id == "api-task-follow") {
+        for (const auto& task : api_history())
+            if (text(task, "id") == arg)
+                return terminal({"fox-claude-api", "ask", "--project", text(task, "project"), "--follow", arg}, "Follow-up prompt opened");
+        return result(false, "That API task is no longer saved");
     }
     if (id == "api-task-settings") {
         const auto file = config_home() / "foxml/api-tasks.json";
@@ -3288,7 +3329,7 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
     }
     if (id == "api-task-open") {
         if (!std::regex_match(arg, std::regex("[0-9a-f]{32}"))) return result(false, "Invalid API task ID");
-        return terminal({"fox-claude-api", "show", arg}, "API task result opened");
+        return terminal({"fox-claude-api", "open", arg}, "API task result opened in Neovim");
     }
     if (id == "security") return terminal({"fox", "sec", "dashboard", "--live"}, "Security dashboard opened");
     if (id == "cleanup") return terminal({"zsh", "-ic", "fox-clean; print; read -s '?Press enter to close…'"}, "System cleanup opened");

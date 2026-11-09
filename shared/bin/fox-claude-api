@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Budgeted, read-only Claude API tasks for Trader and private Claude mods."""
+"""Budgeted, read-only Claude API tasks for your projects, and pi with API credits. Costs go to fox-credits."""
 import argparse
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -13,11 +13,23 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 
 PROJECTS = {'trader': ('Trader', 'tick-trader-percore-workspace'), 'plugins': ('Claude mods', 'claude-mods'),
             'theme': ('Linux_Theme', 'Linux_Theme')}
+MODELS = ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-haiku-5-5', 'claude-fable-5-1']
+EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
 TOOLS = 'Read,Glob,Grep'
+# Read rules also cover Grep and Glob (Claude Code permissions docs); paths are gitignore-style.
+SECRETS = ['Read(**/.env)', 'Read(**/.env.*)', 'Read(**/*.pem)', 'Read(**/*.key)', 'Read(**/secrets/**)',
+           'Read(**/id_rsa*)', 'Read(**/id_ed25519*)', 'Read(**/id_ecdsa*)', 'Read(~/.ssh/**)', 'Read(~/.gnupg/**)',
+           'Read(~/.password-store/**)', 'Read(~/.config/foxml/secrets/**)', 'Read(~/.aws/**)', 'Read(~/.netrc)']
+SYSTEM = ('Review and explain only. Use the provided project as your scope. Do not read credentials, private key '
+          'files or .env files. Cite relevant file paths and line numbers as path:line. Propose changes in your '
+          'answer; do not apply them.')
+REVIEW = 'Review these uncommitted changes: likely bugs, risky edits and missing tests. Cite path:line.'
+LIMIT = 24000
 
 
 def locations():
@@ -47,15 +59,34 @@ def budget(value):
     return str(number)
 
 
+def model_name(value):
+    if not isinstance(value, str) or not re.fullmatch(r'[a-z0-9][a-z0-9.\-\[\]]{1,60}', value):
+        raise ValueError('Model must be a Claude model ID such as ' + MODELS[0])
+    return value
+
+
+def effort_name(value):
+    if value not in [''] + EFFORTS:
+        raise ValueError('Effort must be one of: ' + ', '.join(EFFORTS))
+    return value
+
+
 def config():
     path, _ = locations()
     default = {'key_file': str(path.parent/'secrets/anthropic-api.key'), 'budget_usd': '1.00',
+               'model': MODELS[0], 'effort': '', 'fallback_model': '',
                'projects': {key: {'label': label, 'root': str(Path.home()/'code'/folder)}
                             for key, (label, folder) in PROJECTS.items()}}
     value = load(path, default)
+    for key in ('model', 'effort', 'fallback_model'):
+        value.setdefault(key, default[key])
     for key, entry in default['projects'].items():
         value.setdefault('projects', {}).setdefault(key, entry)
     budget(value['budget_usd'])
+    model_name(value['model'])
+    effort_name(value['effort'])
+    if value['fallback_model']:
+        model_name(value['fallback_model'])
     if not isinstance(value['key_file'], str):
         raise ValueError('API key setting must be a file path')
     return value
@@ -66,8 +97,7 @@ def atomic(path, value):
     fd, temp = tempfile.mkstemp(dir=path.parent, prefix='.'+path.name)
     try:
         with os.fdopen(fd, 'w') as stream:
-            json.dump(value, stream, ensure_ascii=False)
-            stream.write('\n')
+            stream.write(value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)+'\n')
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temp, path)
@@ -86,7 +116,7 @@ def credential(path):
     if not key or len(key) > 8192 or any(c.isspace() for c in key):
         raise ValueError('API key file must contain only the full API secret on one line')
     if key.startswith('sk-ant-admin'):
-        raise ValueError('Use an ordinary inference API key, not the billing Admin key')
+        raise ValueError('Use an ordinary inference API key, not an Admin key')
     return key
 
 
@@ -107,11 +137,8 @@ def credits():
     except ValueError:
         remaining = None
     if remaining is None:
-        return {'remaining_usd': None, 'text': 'Remaining credit unknown · connect billing in API credits'}
-    text = '$' + format(Decimal(remaining), ',.2f') + ' left this month'
-    if value.get('source') == 'local':
-        text += ' · tracked runs only'
-    return {'remaining_usd': remaining, 'text': text}
+        return {'remaining_usd': None, 'text': 'Remaining credit unknown · set the renewal day in API usage'}
+    return {'remaining_usd': remaining, 'text': '~$' + format(Decimal(remaining), ',.2f') + ' left this month · tracked runs'}
 
 
 def project_rows(cfg):
@@ -119,14 +146,22 @@ def project_rows(cfg):
     return [{'id': key, 'label': cfg['projects'][key]['label'],
              'root': str(Path(cfg['projects'][key]['root']).expanduser().resolve()),
              'available': Path(cfg['projects'][key]['root']).expanduser().is_dir(),
-             'budget_usd': cfg['budget_usd'], 'remaining_usd': left['remaining_usd'],
-             'credits': left['text']} for key in PROJECTS]
+             'budget_usd': cfg['budget_usd'], 'model': cfg['model'], 'effort': cfg['effort'],
+             'models': MODELS if cfg['model'] in MODELS else [cfg['model']]+MODELS,
+             'remaining_usd': left['remaining_usd'], 'credits': left['text']} for key in PROJECTS]
 
 
 def run_path(run_id):
     if not re.fullmatch(r'[0-9a-f]{32}', run_id):
         raise ValueError('Invalid API task ID')
     return locations()[1]/(run_id+'.json')
+
+
+def load_run(run_id):
+    value = load(run_path(run_id))
+    if not isinstance(value, dict) or value.get('id') != run_id:
+        raise ValueError('API task not found')
+    return value
 
 
 def history():
@@ -144,26 +179,135 @@ def record_cost(value):
     helper = shutil.which('fox-credits')
     if not helper:
         return False
+    details = {k: value[k] for k in ('model', 'input_tokens', 'output_tokens', 'cache_read_tokens',
+                                    'cache_write_tokens', 'turns', 'duration_ms') if isinstance(value.get(k), (int, str))}
+    details.update(source='task', label=value.get('title', value['label'])[:80])
     result = subprocess.run([helper, 'record', '--project', value['project'], '--cost-usd', value['cost_usd'],
-                             '--id', 'api-task-'+value['id'], '--at', value['finished_at'], '--estimate'],
-                            capture_output=True, text=True, timeout=10)
+                             '--id', 'api-task-'+value['id'], '--at', value['finished_at'], '--estimate',
+                             '--details', json.dumps(details)], capture_output=True, text=True, timeout=10)
     return result.returncode == 0
 
 
-def execute(cfg, project, question, limit, root=None, context_file=None):
+def git_changes(root):
+    def git(*args):
+        result = subprocess.run(['git', '--no-optional-locks', '-C', str(root), *args],
+                                capture_output=True, text=True, timeout=20)
+        if result.returncode != 0:
+            raise ValueError('This project folder is not a git checkout')
+        return result.stdout
+    diff = git('diff', 'HEAD', '--stat') + '\n' + git('diff', 'HEAD')
+    untracked = git('ls-files', '--others', '--exclude-standard').splitlines()
+    if not diff.strip() and not untracked:
+        raise ValueError('No uncommitted changes here')
+    if len(diff) > LIMIT:
+        diff = diff[:LIMIT] + '\n… diff cut at 24 KB; read the files for the rest.'
+    text = 'Uncommitted changes (git diff HEAD):\n' + diff
+    if untracked:
+        text += '\nNew files not yet in git:\n' + '\n'.join(untracked[:100])
+    return text
+
+
+def follow_context(parent_id):
+    parent = load_run(parent_id)
+    earlier = 'Earlier question:\n' + parent.get('question', '')[-8000:] + '\n\nYour earlier answer:\n' \
+              + parent.get('result', '')[-12000:] + '\n\nFollow-up question:\n'
+    return parent, earlier
+
+
+def title_of(question, kind):
+    if kind:
+        return kind
+    first = next((line.strip() for line in question.splitlines() if line.strip()), 'API task')
+    return first[:60] + ('…' if len(first) > 60 else '')
+
+
+def describe(tool, args):
+    if not isinstance(args, dict):
+        return tool
+    if tool == 'Read':
+        return 'Reading ' + str(args.get('file_path', ''))
+    if tool == 'Grep':
+        return 'Searching for ' + str(args.get('pattern', ''))[:80]
+    if tool == 'Glob':
+        return 'Listing ' + str(args.get('pattern', ''))[:80]
+    return tool
+
+
+def parse_stream(lines, progress=None):
+    """The result event from a stream-json run; progress(text) gets each tool call."""
+    report = {}
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(event, dict):
+            continue
+        if event.get('type') == 'assistant' and progress:
+            content = (event.get('message') or {}).get('content') or []
+            for block in content if isinstance(content, list) else []:
+                if isinstance(block, dict) and block.get('type') == 'tool_use':
+                    progress(describe(block.get('name', ''), block.get('input')))
+        elif event.get('type') == 'result':
+            report = event
+    return report
+
+
+def usage_of(report, fallback_model):
+    usage = report.get('usage') if isinstance(report.get('usage'), dict) else {}
+    out = {}
+    for ours, theirs in (('input_tokens', 'input_tokens'), ('output_tokens', 'output_tokens'),
+                         ('cache_read_tokens', 'cache_read_input_tokens'), ('cache_write_tokens', 'cache_creation_input_tokens'),
+                         ('turns', 'num_turns'), ('duration_ms', 'duration_ms')):
+        value = usage.get(theirs, report.get(theirs))
+        if type(value) is int and value >= 0:
+            out[ours] = value
+    models = report.get('modelUsage') if isinstance(report.get('modelUsage'), dict) else {}
+    costly = sorted(((v.get('costUSD') or 0, k) for k, v in models.items() if isinstance(v, dict)), reverse=True)
+    model = costly[0][1] if costly else fallback_model
+    out['model'] = model if re.fullmatch(r'[A-Za-z0-9._:/\[\]-]{1,100}', model or '') else fallback_model
+    return out
+
+
+def notify(value, seconds):
+    if seconds < 30 or not shutil.which('notify-send'):
+        return
+    cost = '$'+value['cost_usd'] if value.get('cost_usd') else 'cost unknown'
+    first = next((line for line in value['result'].splitlines() if line.strip()), '')[:140]
+    script = ('r=$(notify-send -a "API task" -A open=Open "$1" "$2" 2>/dev/null); '
+              '[ "$r" = open ] && exec fox-claude-api open "$3"')
+    try:
+        subprocess.Popen(['sh', '-c', script, 'notify', value['label']+' · '+value['status']+' · '+cost, first, value['id']],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    except OSError:
+        pass
+
+
+def execute(cfg, project, question, limit, root=None, context_file=None, model=None, effort=None,
+            follow=None, review=False, kind='', progress=None):
     if project not in PROJECTS:
-        raise ValueError('Choose Trader or Claude mods')
+        raise ValueError('Choose one of: ' + ', '.join(label for label, _ in PROJECTS.values()))
     entry = cfg['projects'][project]
     configured = Path(entry['root']).expanduser().resolve()
     root = Path(root).expanduser().resolve() if root else configured
     if not root.is_dir() or not root.is_relative_to(configured):
         raise ValueError('Choose a folder inside the configured '+entry['label']+' project')
-    if not question.strip() or len(question) > 32000:
-        raise ValueError('Task must contain 1–32,000 characters')
+    model = model_name(model or cfg['model'])
+    effort = effort_name(cfg['effort'] if effort is None else effort)
     limit = budget(limit)
     left = credits()['remaining_usd']
     if left is not None and Decimal(limit) > Decimal(left):
-        raise ValueError('Run budget $'+limit+' is more than the $'+left+' left this month')
+        raise ValueError('Run budget $'+limit+' is more than the ~$'+left+' left this month')
+    parent, asked = None, question
+    if review:
+        question = (question.strip() or REVIEW) + '\n\n' + git_changes(root)
+        kind = kind or 'Review uncommitted changes'
+    if follow:
+        parent, earlier = follow_context(follow)
+        question = earlier + question
+        kind = kind or 'Follow-up: ' + title_of(asked, '')
+    if not question.strip() or len(question) > 64000:
+        raise ValueError('Task must contain 1–64,000 characters')
     context = ''
     if context_file:
         path = Path(context_file).expanduser().resolve()
@@ -171,15 +315,16 @@ def execute(cfg, project, question, limit, root=None, context_file=None):
             raise ValueError('The selected file must be inside this project')
         context = '\nFocus file: '+str(path.relative_to(root))+'\n'
     key = credential(cfg['key_file'])
-    question = question.replace(key, '[redacted]')
     executable = shutil.which('claude')
     if not executable:
         raise ValueError('Claude CLI is not installed')
+    question = question.replace(key, '[redacted]')
     run_id = uuid.uuid4().hex
     value = {'id': run_id, 'project': project, 'label': entry['label'], 'root': str(root),
+             'title': title_of(asked.replace(key, '[redacted]'), kind), 'parent': parent['id'] if parent else None,
              'started_at': datetime.now(timezone.utc).isoformat(), 'status': 'started',
-             'budget_usd': limit, 'cost_usd': None, 'cost_source': 'Claude CLI estimate',
-             'tracked': False, 'question': question.replace(key, '[redacted]'), 'result': ''}
+             'budget_usd': limit, 'model': model, 'effort': effort, 'cost_usd': None, 'cost_source': 'Claude CLI estimate',
+             'tracked': False, 'question': question, 'result': ''}
     path = run_path(run_id)
     atomic(path, value)
     env = os.environ.copy()
@@ -187,38 +332,40 @@ def execute(cfg, project, question, limit, root=None, context_file=None):
         if name.startswith(('ANTHROPIC_', 'CLAUDE_CODE_', 'CLAUDE_AGENT_')) or name == 'CLAUDE_CONFIG_DIR':
             env.pop(name)
     env['ANTHROPIC_API_KEY'] = key
-    command = [executable, '--bare', '-p', '--output-format', 'json', '--no-session-persistence',
-               '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
-               '--tools', TOOLS, '--allowedTools', TOOLS, '--max-budget-usd', limit,
-               '--append-system-prompt',
-               'Review and explain only. Use the provided project as your scope. '
-               'Do not read credentials, private key files or .env files. '
-               'Cite relevant file paths and line numbers. Propose changes in your answer; do not apply them.']
+    command = [executable, '--bare', '-p', '--output-format', 'stream-json', '--verbose', '--no-session-persistence',
+               '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--model', model,
+               '--settings', json.dumps({'permissions': {'deny': SECRETS}}),
+               '--tools', TOOLS, '--allowedTools', TOOLS, '--disallowedTools', ' '.join(SECRETS),
+               '--max-budget-usd', limit, '--append-system-prompt', SYSTEM]
+    if effort:
+        command += ['--effort', effort]
+    if cfg.get('fallback_model') and cfg['fallback_model'] != model:
+        command += ['--fallback-model', cfg['fallback_model']]
     prompt = 'Project: '+entry['label']+context+'\nTask:\n'+question
-    interrupted = False
+    interrupted, started, report, stderr = False, time.monotonic(), {}, ''
     try:
         with subprocess.Popen(command, cwd=root, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE, text=True) as process:
             try:
-                stdout, stderr = process.communicate(prompt, timeout=1200)
+                process.stdin.write(prompt)
+                process.stdin.close()
+                report = parse_stream(process.stdout, progress)
+                process.wait(timeout=1200)
             except (KeyboardInterrupt, subprocess.TimeoutExpired):
                 interrupted = True
                 process.send_signal(signal.SIGINT)
                 try:
-                    stdout, stderr = process.communicate(timeout=15)
+                    process.wait(timeout=15)
                 except subprocess.TimeoutExpired:
                     process.kill()
-                    stdout, stderr = process.communicate()
-        try:
-            report = json.loads(stdout)
-            if not isinstance(report, dict):
-                raise ValueError('Invalid result')
-        except (ValueError, TypeError):
-            report = {}
-        value['status'] = 'interrupted' if interrupted else 'failed' if process.returncode or report.get('is_error') or not report else 'completed'
-        value['result'] = str(report.get('result') or ('Claude returned no structured result. '+stderr[-2000:])).replace(key, '[redacted]')
+            stderr = process.stderr.read() if process.stderr else ''
+        failed = process.returncode or report.get('is_error') or not report
+        value['status'] = 'interrupted' if interrupted else 'failed' if failed else 'completed'
+        answer = report.get('result') or '\n'.join(str(e) for e in report.get('errors') or [])
+        value['result'] = str(answer or ('Claude returned no result. '+(stderr or '')[-2000:])).replace(key, '[redacted]')
         if report.get('total_cost_usd') is not None:
             value['cost_usd'] = str(decimal(report['total_cost_usd']))
+        value.update(usage_of(report, model))
     except (OSError, ValueError) as error:
         value['status'] = 'failed'
         value['result'] = ('Could not complete API task: '+str(error)).replace(key, '[redacted]')
@@ -229,6 +376,7 @@ def execute(cfg, project, question, limit, root=None, context_file=None):
     except (OSError, subprocess.SubprocessError):
         pass
     atomic(path, value)
+    notify(value, time.monotonic() - started)
     return value
 
 
@@ -238,21 +386,69 @@ def question_file(path):
     with os.fdopen(fd) as stream:
         if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
             raise ValueError('The question file must be a regular file')
-        text = stream.read(24001)
+        text = stream.read(LIMIT+1)
     runtime = os.environ.get('XDG_RUNTIME_DIR')
     if runtime and path.resolve().is_relative_to(Path(runtime).resolve()/'foxml/api-questions'):
         path.unlink(missing_ok=True)
-    if len(text) > 24000:
+    if len(text) > LIMIT:
         raise ValueError('The prefilled context is larger than 24 KB')
     return text
 
 
-def display(value):
-    cost = '$'+value['cost_usd']+' estimated' if value.get('cost_usd') is not None else 'cost unavailable'
-    print(value['label']+' · '+value['status']+' · '+cost)
+def markdown(value):
+    cost = '$'+value['cost_usd']+' estimated' if value.get('cost_usd') is not None else 'cost unknown'
+    head = ['# ' + value.get('title', value['label']), '',
+            '- Project: ' + value['label'] + ' · folder: ' + value['root'],
+            '- ' + value['status'] + ' · ' + str(value.get('model', '')) + ' · ' + cost + ' · budget $' + value['budget_usd'],
+            '- Task ID: ' + value['id'] + ('' if not value.get('parent') else ' · follows ' + value['parent'])]
     if not value.get('tracked'):
-        print('Meter record unavailable; retry with: fox-claude-api record '+value['id'])
-    print('\n'+value['result'])
+        head.append('- Not in the meter yet: fox-claude-api record ' + value['id'])
+    return '\n'.join(head) + '\n\n' + value['result'] + '\n'
+
+
+def open_result(run_id):
+    value = load_run(run_id)
+    folder = Path(os.environ.get('XDG_RUNTIME_DIR') or tempfile.gettempdir())/'foxml/api-results'
+    folder.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path = folder/(run_id+'.md')
+    atomic(path, markdown(value))
+    editor = shutil.which('nvim')
+    if not editor:
+        print(markdown(value))
+        return 0
+    os.execv(editor, [editor, '-c', "lua pcall(function() require('foxml.work').api_result_opened() end)", str(path)])
+
+
+def pi(cfg, project, model):
+    if project not in PROJECTS:
+        raise ValueError('Unknown project')
+    root = Path(cfg['projects'][project]['root']).expanduser().resolve()
+    if not root.is_dir():
+        raise ValueError('Project folder not found: '+str(root))
+    left = credits()['remaining_usd']
+    if left is not None and Decimal(left) <= 0:
+        raise ValueError('No tracked API credit left this month')
+    key = credential(cfg['key_file'])
+    executable = shutil.which('pi')
+    if not executable:
+        raise ValueError('pi is not installed')
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith(('ANTHROPIC_', 'CLAUDE_CODE_', 'CLAUDE_AGENT_'))}
+    env.update(ANTHROPIC_API_KEY=key, FOXML_API_CREDITS='1', FOXML_API_PROJECT=project)
+    os.chdir(root)
+    os.execve(executable, [executable, '--provider', 'anthropic', '--model', model_name(model or cfg['model'])], env)
+
+
+def pick(prompt, options, default):
+    print(prompt)
+    for n, option in enumerate(options, 1):
+        print('  ' + str(n) + ') ' + option + ('  (default)' if option == default else ''))
+    answer = input('Choice [Enter keeps ' + default + ']: ').strip()
+    if not answer:
+        return default
+    if answer.isdigit() and 1 <= int(answer) <= len(options):
+        return options[int(answer)-1]
+    return answer
 
 
 def main():
@@ -263,6 +459,9 @@ def main():
     conf = commands.add_parser('configure')
     conf.add_argument('--key-file')
     conf.add_argument('--budget')
+    conf.add_argument('--model')
+    conf.add_argument('--effort')
+    conf.add_argument('--fallback-model')
     for project in PROJECTS:
         conf.add_argument('--'+project+'-root')
     for name in ('run', 'ask'):
@@ -270,15 +469,22 @@ def main():
         cmd.add_argument('--project', choices=PROJECTS, required=True)
         cmd.add_argument('--root')
         cmd.add_argument('--budget')
+        cmd.add_argument('--model')
+        cmd.add_argument('--effort')
         cmd.add_argument('--context-file')
+        cmd.add_argument('--follow', help='ask a follow-up to an earlier task')
+        cmd.add_argument('--review-changes', action='store_true', help="review the project's uncommitted changes")
         if name == 'ask':
             cmd.add_argument('--question-file', help='prefilled context, e.g. a test failure (removed after reading)')
         if name == 'run':
             cmd.add_argument('--json', action='store_true')
             cmd.add_argument('--prompt-stdin', action='store_true', required=True)
-    for name in ('show', 'record'):
+    for name in ('show', 'record', 'open'):
         cmd = commands.add_parser(name)
         cmd.add_argument('id')
+    cmd = commands.add_parser('pi', help='open pi in a project with your API key; its usage is tracked')
+    cmd.add_argument('--project', choices=PROJECTS, required=True)
+    cmd.add_argument('--model')
     args = parser.parse_args()
     try:
         cfg = config()
@@ -292,16 +498,24 @@ def main():
                 credential(cfg['key_file'])
             if args.budget is not None:
                 cfg['budget_usd'] = budget(args.budget)
+            if args.model is not None:
+                cfg['model'] = model_name(args.model)
+            if args.effort is not None:
+                cfg['effort'] = effort_name(args.effort)
+            if args.fallback_model is not None:
+                cfg['fallback_model'] = model_name(args.fallback_model) if args.fallback_model else ''
             for project in PROJECTS:
                 root = getattr(args, project+'_root')
                 if root is not None:
                     cfg['projects'][project]['root'] = str(Path(root).expanduser().resolve())
             atomic(locations()[0], cfg)
             print('Saved API task settings; no model request was made.')
+        elif args.command == 'open':
+            return open_result(args.id)
+        elif args.command == 'pi':
+            pi(cfg, args.project, args.model)
         elif args.command in ('show', 'record'):
-            value = load(run_path(args.id))
-            if not isinstance(value, dict):
-                raise ValueError('API task not found')
+            value = load_run(args.id)
             if args.command == 'record':
                 value['tracked'] = record_cost(value)
                 atomic(run_path(args.id), value)
@@ -309,16 +523,17 @@ def main():
                     raise ValueError('No usable cost record; the meter was not changed')
                 print('Recorded cost without making a model request.')
             else:
-                display(value)
-                if sys.stdin.isatty():
-                    input('\nEnter closes this result ')
+                print(markdown(value))
         else:
+            model, effort = args.model, args.effort
             if args.command == 'ask':
                 entry = cfg['projects'][args.project]
                 print(entry['label']+' · review and explain only\nProject: '+str(args.root or entry['root']))
                 print('Uses your monthly API credits. Replies are saved locally; no files will be edited.')
                 print(credits()['text'])
                 prefilled = question_file(args.question_file) if args.question_file else ''
+                if args.follow:
+                    print('Follow-up to: ' + load_run(args.follow).get('title', args.follow))
                 if prefilled:
                     lines = prefilled.splitlines()
                     print('\nContext ('+str(len(lines))+' lines):\n'+'\n'.join(lines[:12])+('\n…' if len(lines) > 12 else '')+'\n')
@@ -326,29 +541,42 @@ def main():
                     if extra.lower() == 'q':
                         return 0
                     question = (extra or 'Explain this failure and suggest a fix.')+'\n\n'+prefilled
+                elif args.review_changes:
+                    extra = input('What to look for (Enter: bugs, risky edits, missing tests; q cancels): ').strip()
+                    if extra.lower() == 'q':
+                        return 0
+                    question = extra
                 else:
                     question = input('Task (blank cancels): ').strip()
                     if not question:
                         return 0
+                if not model:
+                    model = pick('Model:', MODELS if cfg['model'] in MODELS else [cfg['model']]+MODELS, cfg['model'])
                 limit = input('Run budget in USD ['+str(args.budget or cfg['budget_usd'])+']; Enter starts: ').strip()
                 limit = limit or args.budget or cfg['budget_usd']
                 print('Working… Ctrl+C stops the task.')
+                progress = lambda text: print('  · '+text, flush=True)
             else:
-                question = sys.stdin.read(32001)
+                question = sys.stdin.read(64001)
                 limit = args.budget or cfg['budget_usd']
-            value = execute(cfg, args.project, question, limit, args.root, args.context_file)
+                progress = (lambda text: print(text, file=sys.stderr, flush=True)) if args.json else None
+            value = execute(cfg, args.project, question, limit, args.root, args.context_file, model, effort,
+                            args.follow, args.review_changes, progress=progress)
             if args.command == 'run' and args.json:
                 print(json.dumps(value, ensure_ascii=False))
+            elif args.command == 'ask' and sys.stdin.isatty() and shutil.which('nvim'):
+                print('\n' + value['label'] + ' · ' + value['status'] + ' · '
+                      + ('$'+value['cost_usd']+' estimated' if value.get('cost_usd') else 'cost unknown'))
+                input('Enter opens the answer in Neovim ')
+                return open_result(value['id'])
             else:
-                display(value)
-                if sys.stdin.isatty():
-                    input('\nEnter closes this result ')
+                print(markdown(value))
             return 0 if value['status'] == 'completed' else 1
         return 0
     except (OSError, ValueError, KeyError, TypeError, EOFError, KeyboardInterrupt, subprocess.SubprocessError) as error:
         message = str(error) if isinstance(error, ValueError) else 'API task unavailable; check the project and private API key file.'
         print('fox-claude-api: '+message, file=sys.stderr)
-        if args.command == 'ask' and sys.stdin.isatty():
+        if args.command in ('ask', 'pi') and sys.stdin.isatty():
             try:
                 input('\nEnter closes this window ')
             except (EOFError, KeyboardInterrupt):

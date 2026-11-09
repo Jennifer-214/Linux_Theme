@@ -24,65 +24,156 @@ local function scratch(text, name, ft, editable)
   return buf
 end
 
+-- API tasks (fox-claude-api): read-only reviews on API credits, with a model choice, live progress,
+-- follow-ups and results whose path:line citations become a quickfix list.
 local api_job
+local function api_projects()
+  local ok, out = pcall(function() return vim.system({'fox-claude-api', 'projects'}, {text=true}):wait(5000) end)
+  local parsed, projects = pcall(vim.json.decode, ok and out.stdout or '')
+  return parsed and type(projects) == 'table' and projects or nil
+end
+local function inside(dir, project) return dir == project.root or dir:sub(1, #project.root+1) == project.root .. '/' end
+
+-- path:line citations in an answer → quickfix items, resolved against the task's folder.
+function M.api_citations(lines, folder)
+  local items, seen = {}, {}
+  for _, line in ipairs(lines) do
+    for path, lnum in line:gmatch('([%w%._%-/~]+%.[%w]+):(%d+)') do
+      local full = path:sub(1, 1) == '/' and path or (folder .. '/' .. path)
+      local key = full .. ':' .. lnum
+      if not seen[key] and vim.fn.filereadable(full) == 1 then
+        seen[key] = true
+        items[#items+1] = {filename=full, lnum=tonumber(lnum), text=vim.trim(line):sub(1, 160)}
+      end
+    end
+  end
+  return items
+end
+
+local function api_follow(id, project_id)
+  vim.ui.input({prompt='Follow-up question: '}, function(question)
+    if not question or vim.trim(question) == '' then return end
+    M.api_run({id=project_id, label='Follow-up'}, question, {'--follow', id})
+  end)
+end
+
+-- Called in a buffer holding a saved result (fox-claude-api open, or a finished :ClaudeApi run).
+function M.api_result_opened(buf)
+  buf = buf or vim.api.nvim_get_current_buf()
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, 12, false)
+  local folder, id, project_id
+  for _, line in ipairs(lines) do
+    folder = folder or line:match('folder: (.+)$')
+    id = id or line:match('Task ID: (%x+)')
+  end
+  vim.bo[buf].filetype, vim.bo[buf].modifiable = 'markdown', false
+  vim.wo.wrap = true
+  if folder and id then
+    local ok, out = pcall(function() return vim.system({'fox-claude-api', 'history'}, {text=true}):wait(5000) end)
+    local parsed, rows = pcall(vim.json.decode, ok and out.stdout or '')
+    for _, row in ipairs(parsed and type(rows) == 'table' and rows or {}) do if row.id == id then project_id = row.project end end
+    local items = M.api_citations(vim.api.nvim_buf_get_lines(buf, 0, -1, false), folder)
+    vim.fn.setqflist({}, ' ', {title='API answer citations', items=items})
+    local function jump()
+      local line = vim.api.nvim_get_current_line()
+      local hit = M.api_citations({line}, folder)[1]
+      if hit then vim.cmd('edit ' .. vim.fn.fnameescape(hit.filename)); vim.api.nvim_win_set_cursor(0, {hit.lnum, 0}) end
+    end
+    vim.keymap.set('n', '<CR>', jump, {buffer=buf, desc='Open the cited file and line'})
+    if project_id then vim.keymap.set('n', 'f', function() api_follow(id, project_id) end, {buffer=buf, desc='Ask a follow-up'}) end
+    vim.notify(#items .. ' cited lines in the quickfix list (:copen) · Enter opens one · f asks a follow-up · q closes')
+  end
+  vim.keymap.set('n', 'q', '<cmd>bwipeout<cr>', {buffer=buf, desc='Close API result'})
+end
+
+-- Starts fox-claude-api run; progress lines arrive on stderr, the result as JSON on stdout.
+function M.api_run(project, question, extra, opts)
+  opts = opts or {}
+  if api_job then vim.notify('An API task is already running. :ClaudeApiStop cancels it.'); return end
+  local argv = {'fox-claude-api', 'run', '--project', project.id, '--prompt-stdin', '--json'}
+  if opts.model then vim.list_extend(argv, {'--model', opts.model}) end
+  if opts.budget then vim.list_extend(argv, {'--budget', opts.budget}) end
+  vim.list_extend(argv, extra or {})
+  local progress = {title='API task', id='fox-claude-api'}
+  api_job = vim.system(argv, {text=true, stdin=question, stderr=vim.schedule_wrap(function(_, data)
+    if not data then return end
+    local last = vim.trim(data):match('([^\n]*)$')
+    if last and last ~= '' then vim.notify(project.label .. ' · ' .. last, vim.log.levels.INFO, progress) end
+  end)}, vim.schedule_wrap(function(result)
+    api_job = nil
+    local parsed, value = pcall(vim.json.decode, result.stdout or '')
+    if not parsed or type(value) ~= 'table' or not value.id then
+      vim.notify(vim.trim(result.stderr or '') ~= '' and result.stderr or 'API task failed.', vim.log.levels.WARN); return
+    end
+    local md = vim.system({'fox-claude-api', 'show', value.id}, {text=true}):wait(5000)
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(md.stdout or value.result or '', '\n', {plain=true}))
+    vim.bo[buf].bufhidden = 'wipe'
+    vim.cmd('tab sbuffer ' .. buf)
+    M.api_result_opened(buf)
+  end))
+  vim.notify(project.label .. ' API task started' .. (opts.model and (' · ' .. opts.model) or '') .. ' · :ClaudeApiStop cancels',
+    vim.log.levels.INFO, progress)
+end
+
+local function api_choose_project(callback)
+  if vim.fn.executable('fox-claude-api') ~= 1 then vim.notify('Install fox-claude-api first.', vim.log.levels.WARN); return end
+  local projects = api_projects()
+  if not projects then vim.notify('API task settings are unavailable.', vim.log.levels.WARN); return end
+  local here = (vim.uv or vim.loop).fs_realpath(root()) or root()
+  for _, project in ipairs(projects) do if inside(here, project) then return callback(project, here) end end
+  local heading = projects[1] and type(projects[1].credits) == 'string' and (' · ' .. projects[1].credits) or ''
+  vim.ui.select(projects, {prompt='Review with API credits' .. heading, format_item=function(p) return p.label end},
+    function(project) if project then callback(project, here) end end)
+end
+
+local function api_model_and_budget(project, callback)
+  local models = project.models or {project.model}
+  vim.ui.select(models, {prompt='Model (' .. (project.credits or '') .. ')',
+    format_item=function(m) return m == project.model and (m .. '  · default') or m end}, function(model)
+    if not model then return end
+    vim.ui.input({prompt='Run budget USD (Enter starts): ', default=project.budget_usd or '1.00'}, function(limit)
+      if limit and vim.trim(limit) ~= '' then callback(model, vim.trim(limit)) end
+    end)
+  end)
+end
+
 function M.api_task(selection)
   if api_job then vim.notify('An API task is already running. :ClaudeApiStop cancels it.'); return end
-  if vim.fn.executable('fox-claude-api') ~= 1 then vim.notify('Install fox-claude-api first.', vim.log.levels.WARN); return end
-  local current_root = (vim.uv or vim.loop).fs_realpath(root()) or root()
   local file = vim.api.nvim_buf_get_name(0)
   local context = ''
   if selection then
     context = table.concat(vim.api.nvim_buf_get_lines(0, selection[1]-1, selection[2], false), '\n')
     if #context > 24000 then vim.notify('Select a smaller excerpt (up to 24 KB).', vim.log.levels.WARN); return end
   end
-  local out = vim.system({'fox-claude-api', 'projects'}, {text=true}):wait(3000)
-  local ok, projects = pcall(vim.json.decode, out.stdout or '')
-  if not ok or type(projects) ~= 'table' then vim.notify('API task settings are unavailable.', vim.log.levels.WARN); return end
-  local function choose(project)
-    if not project then return end
-    local local_project = current_root == project.root or current_root:sub(1, #project.root+1) == project.root .. '/'
-    local left = type(project.credits) == 'string' and (' (' .. project.credits .. ')') or ''
-    vim.ui.input({prompt=project.label .. left .. ' API task: '}, function(question)
+  api_choose_project(function(project, here)
+    vim.ui.input({prompt=project.label .. ' API task: '}, function(question)
       if not question or vim.trim(question) == '' then return end
-      vim.ui.input({prompt='Run budget USD (Enter starts): ', default=project.budget_usd or '1.00'}, function(limit)
-        if not limit or vim.trim(limit) == '' then return end
-        if api_job then vim.notify('An API task is already running.'); return end
-        local argv = {'fox-claude-api', 'run', '--project', project.id, '--budget', limit, '--prompt-stdin', '--json'}
-        if local_project then
-          vim.list_extend(argv, {'--root', current_root})
-          if file ~= '' and vim.fn.filereadable(file) == 1 then vim.list_extend(argv, {'--context-file', file}) end
+      api_model_and_budget(project, function(model, limit)
+        local extra = {}
+        if inside(here, project) then
+          vim.list_extend(extra, {'--root', here})
+          if file ~= '' and vim.fn.filereadable(file) == 1 then vim.list_extend(extra, {'--context-file', file}) end
           if context ~= '' then question = question .. '\n\nSelected excerpt from ' .. file .. ':\n' .. context end
         end
-        api_job = vim.system(argv, {text=true, stdin=question}, vim.schedule_wrap(function(result)
-          api_job = nil
-          local parsed, value = pcall(vim.json.decode, result.stdout or '')
-          if not parsed or type(value) ~= 'table' then
-            vim.notify(result.stderr or 'API task failed.', vim.log.levels.WARN); return
-          end
-          local price = value.cost_usd and ('$' .. value.cost_usd .. ' estimated') or 'cost unknown'
-          local heading = '# ' .. project.label .. ' · ' .. value.status .. '\n\n' .. price
-            .. ' · budget $' .. value.budget_usd .. '\n'
-            .. (value.tracked and 'Added to the tracked-only meter.' or 'Cost not recorded in the meter.')
-            .. '\n\nq / Esc / Space Cq closes this result.\n\n'
-          local buf = vim.api.nvim_create_buf(false, true)
-          vim.api.nvim_buf_set_lines(buf,0,-1,false,vim.split(heading .. (value.result or ''), '\n', {plain=true}))
-          vim.bo[buf].filetype, vim.bo[buf].bufhidden, vim.bo[buf].modifiable = 'markdown', 'wipe', false
-          local width, height = math.max(20, math.min(110, vim.o.columns-6)), math.max(3, vim.o.lines-8)
-          local win = vim.api.nvim_open_win(buf,true,{relative='editor',width=width,height=height,
-            col=math.max(0,math.floor((vim.o.columns-width)/2)),row=2,style='minimal',border='rounded',title=' API review '})
-          vim.wo[win].wrap = true
-          local function close() if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win,false) end end
-          for _, key in ipairs({'q','<Esc>','<leader>Cq'}) do vim.keymap.set('n',key,close,{buffer=buf,desc='Close API result'}) end
-        end))
-        vim.notify(project.label .. ' API task started · budget $' .. limit .. ' · :ClaudeApiStop cancels')
+        M.api_run(project, question, extra, {model=model, budget=limit})
       end)
     end)
-  end
-  for _, project in ipairs(projects) do
-    if current_root == project.root or current_root:sub(1, #project.root+1) == project.root .. '/' then choose(project); return end
-  end
-  local heading = projects[1] and type(projects[1].credits) == 'string' and (' · ' .. projects[1].credits) or ''
-  vim.ui.select(projects,{prompt='Review with API credits' .. heading,format_item=function(p) return p.label end},choose)
+  end)
+end
+
+function M.api_review()
+  api_choose_project(function(project, here)
+    vim.ui.input({prompt='Review uncommitted changes in ' .. project.label .. ' — look for (Enter: bugs, risky edits, missing tests): '},
+      function(focus)
+        if focus == nil then return end
+        api_model_and_budget(project, function(model, limit)
+          local extra = {'--review-changes'}
+          if inside(here, project) then vim.list_extend(extra, {'--root', here}) end
+          M.api_run(project, focus, extra, {model=model, budget=limit})
+        end)
+      end)
+  end)
 end
 
 function M.tests(id, index)
@@ -219,7 +310,10 @@ function M.setup()
   vim.api.nvim_create_user_command('ClaudeApiStop', function()
     if api_job then api_job:kill(2) else vim.notify('No API task is running.') end
   end, {desc='Stop the running API task'})
+  vim.api.nvim_create_user_command('ClaudeApiReview', function() M.api_review() end,
+    {desc='Review uncommitted changes using API credits'})
   vim.keymap.set('n','<leader>Ca',function() M.api_task() end,{desc='Ask using API credits'})
+  vim.keymap.set('n','<leader>CR',function() M.api_review() end,{desc='Review changes using API credits'})
   vim.keymap.set('x','<leader>Ca',function()
     local a,b = vim.fn.line('v'),vim.fn.line('.')
     vim.api.nvim_feedkeys(vim.keycode('<Esc>'),'nx',false)

@@ -1,9 +1,0 @@
-[Unit]
-Description=Refresh the monthly Claude API credit report
-ConditionPathIsExecutable=%h/.local/bin/fox-credits
-
-[Service]
-Type=oneshot
-ExecStart=%h/.local/bin/fox-credits sync-if-configured
-NoNewPrivileges=yes
-UMask=0077

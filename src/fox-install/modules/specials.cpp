@@ -668,20 +668,25 @@ void do_systemd_user(const Context& ctx) {
     // its script still on disk — disable+stop it and remove the stale files so
     // we don't run both (two OSDs per switch), and so a unit whose script is no
     // longer deployed can't restart-loop. Idempotent: no-ops when already gone.
-    struct Legacy { const char* unit; const char* script; bool our_unit_file; };
+    // fox-credits-sync fetched an Admin-key billing report that individual
+    // accounts cannot use; fox-credits now counts only its own tracked runs.
+    struct Legacy { const char* unit; const char* script; bool our_unit_file; const char* why; };
     static const Legacy LEGACY[] = {
-        { "fox-monitor-watch.service", "fox-monitor-watch.sh", false },
-        { "foxml-focus-pulse.service", "focus-pulse.sh",       true  },
+        { "fox-monitor-watch.service", "fox-monitor-watch.sh", false, "superseded by fox-pulse" },
+        { "foxml-focus-pulse.service", "focus-pulse.sh",       true,  "superseded by fox-pulse" },
+        { "fox-credits-sync.timer",    nullptr,                true,  "billing reports retired" },
+        { "fox-credits-sync.service",  nullptr,                true,  "billing reports retired" },
     };
     for (const auto& legacy : LEGACY) {
         sh::run({"systemctl", "--user", "disable", "--now", legacy.unit});
         std::error_code rec;
-        std::vector<fs::path> stale{ ctx.home / ".config/hypr/scripts" / legacy.script };
+        std::vector<fs::path> stale;
+        if (legacy.script) stale.push_back(ctx.home / ".config/hypr/scripts" / legacy.script);
         if (legacy.our_unit_file) stale.push_back(dst_root / legacy.unit);
         for (const auto& path : stale) {
             if (fs::exists(path, rec) && snapshot_one(ctx, path)) {  // backed up first, like every replaced file
                 fs::remove(path, rec);
-                ui::substep("removed stale " + path.filename().string() + " (superseded by fox-pulse)");
+                ui::substep("removed stale " + path.filename().string() + " (" + legacy.why + ")");
             }
         }
     }
@@ -690,7 +695,7 @@ void do_systemd_user(const Context& ctx) {
     // Auto-enable core daemons. fox-pulse replaces fox-monitor-watch and
     // foxml-focus-pulse (the workspace OSD is its focus handler); the weekly
     // fox theme check only reads and notifies when something is off.
-    for (const char* svc : { "fox-pulse.service", "fox-theme-check.timer", "fox-work-notify.timer", "fox-credits-sync.timer" }) {
+    for (const char* svc : { "fox-pulse.service", "fox-theme-check.timer", "fox-work-notify.timer" }) {
         if (fs::exists(dst_root / svc)) {
             sh::systemctl_enable(svc, /*user=*/true);
         }

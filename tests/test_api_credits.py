@@ -1,4 +1,4 @@
-"""Credit accounting uses fixed fixtures and never contacts a billing or model API."""
+"""Credit accounting is local: tracked runs against the monthly budget. Never contacts a network or model API."""
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 import importlib.machinery
@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import socket
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -30,23 +31,25 @@ class ApiCredits(unittest.TestCase):
         self.config = credits.defaults()
         self.config.update(renewal_day=8, timezone='America/Chicago')
 
-    def report(self, projects, **changes):
-        start, end = credits.cycle(self.config, NOW)
-        value = {'signature': credits.signature(self.config), 'cycle_start': credits.iso(start),
-                 'cycle_end': credits.iso(end), 'updated_at': credits.iso(NOW),
-                 'as_of': credits.iso(NOW-timedelta(hours=4)), 'projects': projects}
-        value.update(changes)
-        credits.atomic(credits.locations()[1]/'reported.json', value)
+    def stamp(self, minutes=1):
+        return credits.iso(NOW-timedelta(minutes=minutes))
 
-    def test_unconfirmed_cycle_and_unconnected_billing_are_unknown_not_zero(self):
-        for config in [credits.defaults(), self.config]:
-            value = credits.snapshot(config, NOW)
-            self.assertIsNone(value['spent_usd'])
-            self.assertIsNone(value['remaining_percent'])
-            self.assertIsNone(value['remaining_usd'])
-            self.assertEqual(value['meter'], '')
-            self.assertNotIn('$200.00 left', value['short'])
+    def test_without_a_renewal_day_spend_is_unknown_not_zero(self):
+        value = credits.snapshot(credits.defaults(), NOW)
+        self.assertIsNone(value['spent_usd'])
+        self.assertIsNone(value['remaining_usd'])
+        self.assertEqual(value['meter'], '')
+        self.assertEqual(value['short'], 'API · setup')
         self.assertFalse(credits.locations()[1].exists(), 'offline display must not create state')
+
+    def test_with_a_renewal_day_the_full_budget_shows_as_tracked_from_day_one(self):
+        value = credits.snapshot(self.config, NOW)
+        self.assertEqual(value['short'], 'API ~$200.00 left')
+        self.assertEqual(value['status'], 'tracked')
+        self.assertEqual(value['runs'], 0)
+        self.assertIn('Tracked runs only', value['detail'])
+        self.assertIn('Counts runs made through', credits.bar(value)['tooltip'])
+        self.assertNotIn('connect', json.dumps(value).lower())
 
     def test_cycle_respects_day_timezone_dst_and_short_months(self):
         start, end = credits.cycle(self.config, NOW)
@@ -61,98 +64,47 @@ class ApiCredits(unittest.TestCase):
         self.assertEqual(start.day, 28)
         self.assertEqual(end.day, 31)
 
-    def test_paginated_costs_are_cents_not_dollars_and_all_rows_count(self):
-        self.config['projects']['trader']['api_key_ids'] = ['key-trader']
-        self.config['projects']['plugins']['workspace_ids'] = ['workspace-plugins']
-        stamp = credits.iso(NOW-timedelta(hours=4))
-        pages = [
-            {'data': [{'group': {'api_key_id': 'key-trader'}, 'cost': {'currency': 'USD', 'amount': '1234.500000'}}],
-             'has_more': True, 'next_page': 'second', 'data_refreshed_at': stamp},
-            {'data': [{'group': {'workspace_id': 'workspace-plugins'}, 'cost': {'currency': 'USD', 'amount': '200.250000'}},
-                      {'group': {}, 'cost': {'currency': 'USD', 'amount': '10.000000'}}],
-             'has_more': False, 'next_page': None, 'data_refreshed_at': stamp}]
-        urls = []
-        def fake(url, key):
-            urls.append(url)
-            self.assertEqual(key, 'fixture-only')
-            return pages[len(urls)-1]
-        start, end = credits.cycle(self.config, NOW)
-        totals, refreshed = credits.collect(self.config, start, NOW, 'fixture-only', request=fake)
-        self.assertEqual(totals, {'trader': Decimal('12.345'), 'plugins': Decimal('2.0025'), 'theme': Decimal(0),
-                                  'other': Decimal('.10')})
-        self.assertEqual(refreshed, stamp)
-        self.assertIn('page=second', urls[1])
-        self.assertTrue(all(url.startswith('https://api.anthropic.com/') for url in urls))
-        self.assertTrue(all('fixture-only' not in url for url in urls))
-
-    def test_incomplete_pagination_and_unknown_data_never_publish_a_zero(self):
-        start, _ = credits.cycle(self.config, NOW)
-        examples = [
-            {'data': [], 'data_refreshed_at': None, 'has_more': False},
-            {'data': [], 'data_refreshed_at': credits.iso(NOW), 'has_more': True, 'next_page': ''},
-            {'data': [{'group': {}, 'cost': {'currency': 'EUR', 'amount': '10'}}], 'data_refreshed_at': credits.iso(NOW), 'has_more': False}]
-        for page in examples:
-            with self.subTest(page=page), self.assertRaises(ValueError):
-                credits.collect(self.config, start, NOW, 'fixture', request=lambda *_: page)
-        self.assertFalse((credits.locations()[1]/'reported.json').exists())
-
-    def test_interactive_plan_cost_is_not_counted_as_monthly_api_credit_spend(self):
-        start, _ = credits.cycle(self.config, NOW)
-        page = {'data': [
-            {'group': {'product': 'messages_api'}, 'cost': {'currency':'USD', 'amount':'125'}},
-            {'group': {'product': 'claude_code'}, 'cost': {'currency':'USD', 'amount':'50000'}},
-            {'group': {'product': 'chat'}, 'cost': {'currency':'USD', 'amount':'50000'}}],
-            'data_refreshed_at': credits.iso(NOW), 'has_more': False}
-        totals, _ = credits.collect(self.config, start, NOW, 'fixture', request=lambda *_: page)
-        self.assertEqual(sum(totals.values()), Decimal('1.25'))
-
-    def test_authoritative_snapshot_does_not_add_locally_recorded_costs_again(self):
-        self.config['projects']['trader']['api_key_ids'] = ['key-trader']
-        credits.record(self.config, 'trader', '12.345', 'call-1', credits.iso(NOW-timedelta(minutes=1)))
-        self.report({'trader': '12.345', 'plugins': '2', 'other': '0.10'})
-        value = credits.snapshot(self.config, NOW)
-        self.assertEqual(value['source'], 'anthropic')
-        self.assertEqual(Decimal(value['spent_usd']), Decimal('14.445'))
-        self.assertEqual(Decimal(value['remaining_usd']), Decimal('185.555'))
-        self.assertEqual(value['projects'][0]['detail'], '$12.34')
-        self.assertIsNone(value['projects'][1]['spent_usd'], 'unmapped projects must not claim zero spend')
-
-    def test_local_records_are_partial_deduplicated_and_cycle_bounded(self):
-        stamp = credits.iso(NOW-timedelta(minutes=1))
-        credits.record(self.config, 'trader', '3.25', 'call-1', stamp)
-        credits.record(self.config, 'trader', '3.25', 'call-1', stamp)
+    def test_records_are_deduplicated_and_cycle_bounded(self):
+        credits.record(self.config, 'trader', '3.25', 'call-1', self.stamp())
+        credits.record(self.config, 'trader', '3.25', 'call-1', self.stamp())
         credits.record(self.config, 'plugins', '50', 'old-call', '2026-10-01T00:00:00Z')
         value = credits.snapshot(self.config, NOW)
-        self.assertEqual(value['status'], 'partial')
-        self.assertEqual(value['source'], 'local')
         self.assertEqual(Decimal(value['spent_usd']), Decimal('3.25'))
-        self.assertIn('~', value['short'])
-        self.assertIn('excludes untracked', value['detail'])
+        self.assertEqual(value['short'], 'API ~$196.75 left')
+        self.assertEqual(value['runs'], 1)
         with self.assertRaises(ValueError):
-            credits.record(self.config, 'trader', '8', 'call-1', stamp)
+            credits.record(self.config, 'trader', '8', 'call-1', self.stamp())
 
-    def test_renewal_mapping_changes_and_old_reports_invalidate_cached_figures(self):
-        self.report({'trader': '20'})
-        self.config['renewal_day'] = 1
-        self.assertIsNone(credits.snapshot(self.config, NOW)['spent_usd'])
-        self.config['renewal_day'] = 8
-        self.config['projects']['plugins']['api_key_ids'] = ['different-key']
-        self.assertIsNone(credits.snapshot(self.config, NOW)['spent_usd'])
-        self.config['projects']['plugins']['api_key_ids'] = []
-        future = datetime(2026, 12, 9, tzinfo=timezone.utc)
-        self.assertIsNone(credits.snapshot(self.config, future)['spent_usd'])
+    def test_usage_groups_by_project_model_and_day_with_the_costliest_runs(self):
+        runs = [('trader', '0.50', 'a', 'claude-sonnet-5-5', 30), ('trader', '1.50', 'b', 'claude-opus-5-5', 20),
+                ('theme', '0.10', 'c', 'claude-sonnet-5-5', 2000), ('other', '0.05', 'd', 'claude-haiku-5-5', 1)]
+        for project, cost, run, model, minutes in runs:
+            credits.record(self.config, project, cost, run, self.stamp(minutes), True,
+                           {'model': model, 'input_tokens': 1000, 'output_tokens': 200, 'cache_read_tokens': 50,
+                            'source': 'task', 'label': project + ' review'})
+        usage = credits.usage(self.config, NOW)
+        self.assertEqual([p['id'] for p in usage['projects']], ['trader', 'theme', 'other'])
+        self.assertEqual(Decimal(usage['projects'][0]['spent_usd']), Decimal('2.00'))
+        self.assertEqual(usage['projects'][0]['average_usd'], '1.0000')
+        models = {m['model']: m for m in usage['models']}
+        self.assertEqual(models['claude-sonnet-5-5']['runs'], 2)
+        self.assertEqual(models['claude-sonnet-5-5']['input_tokens'], 2100)
+        self.assertEqual([d['day'] for d in usage['days']], ['2026-11-08', '2026-11-09'])
+        self.assertEqual([t['id'] for t in usage['top']], ['b', 'a', 'c', 'd'])
+        self.assertEqual(usage['top'][0]['label'], 'trader review')
+        snapshot = credits.snapshot(self.config, NOW)
+        self.assertIn('Other folders', [p['label'] for p in snapshot['projects']])
 
-    def test_old_data_and_old_sync_are_both_marked_stale(self):
-        for changes in [{'updated_at': credits.iso(NOW-timedelta(hours=7))},
-                        {'as_of': credits.iso(NOW-timedelta(hours=25))}]:
-            self.report({'trader': '20'}, **changes)
-            value = credits.snapshot(self.config, NOW)
-            self.assertEqual(value['status'], 'stale')
-            self.assertEqual(value['short'], 'API $180.00 left')
-            self.assertEqual(credits.bar(value)['class'], ['warning'])
+    def test_run_details_are_validated(self):
+        self.assertEqual(credits.details('{"model":"claude-sonnet-5-5","turns":3,"source":"pi"}'),
+                         {'model': 'claude-sonnet-5-5', 'turns': 3, 'source': 'pi'})
+        for bad in ['[]', '{"model":"a b"}', '{"turns":-1}', '{"turns":1.5}', '{"source":"web"}',
+                    '{"label":"x\\ny"}', '{"unknown":1}']:
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                credits.details(bad)
 
     def test_over_budget_is_visible_and_meter_clamped(self):
-        self.report({'trader': '201.25'})
+        credits.record(self.config, 'trader', '201.25', 'big', self.stamp())
         value = credits.snapshot(self.config, NOW)
         self.assertEqual(Decimal(value['remaining_usd']), 0)
         self.assertEqual(value['remaining_percent'], 0)
@@ -160,37 +112,28 @@ class ApiCredits(unittest.TestCase):
         self.assertEqual(credits.bar(value)['class'], ['critical'])
         self.assertIn('$201.25', value['headline'])
 
-    def test_nonfinite_negative_costs_and_conflicting_project_ids_are_rejected(self):
+    def test_nonfinite_or_negative_costs_and_unknown_projects_are_rejected(self):
         for value in ['NaN', 'Infinity', '-1', 'oops']:
             with self.subTest(value=value), self.assertRaises(ValueError):
                 credits.amount(value)
-        self.config['projects']['trader']['api_key_ids'] = ['same']
-        self.config['projects']['plugins']['api_key_ids'] = ['same']
         with self.assertRaises(ValueError):
-            credits.validate(self.config)
-        self.config['projects']['plugins']['api_key_ids'] = ['different']
-        self.config['projects']['plugins']['workspace_ids'] = ['plugins']
-        with self.assertRaises(ValueError):
-            credits.project_for(self.config, {'api_key_id': 'same', 'workspace_id': 'plugins'})
+            credits.record(self.config, 'nope', '1', 'x', self.stamp())
 
-    def test_credential_file_permissions_checked_before_any_request(self):
-        key = self.root/'reporting.key'
-        key.write_text('fixture-only')
-        key.chmod(0o644)
-        self.config['key_file'] = str(key)
-        with patch.object(credits, 'collect') as collect:
-            with self.assertRaises(ValueError):
-                credits.sync(self.config, NOW)
-            collect.assert_not_called()
-        with self.assertRaises(ValueError):
-            credits.NoRedirect().redirect_request(None, None, None, None, None, None)
+    def test_older_settings_with_billing_report_keys_still_load(self):
+        old = dict(credits.defaults(), renewal_day=1, key_file='~/.config/foxml/secrets/reporting.key')
+        old['projects'] = {'trader': {'label': 'Trader', 'workspace_ids': [], 'api_key_ids': []}}
+        credits.atomic(credits.locations()[0], old)
+        config = credits.read_config()
+        self.assertNotIn('key_file', config)
+        self.assertEqual(set(config['projects']), {'trader', 'plugins', 'theme', 'other'})
 
-    def test_offline_status_and_bar_never_contact_network(self):
-        with patch.object(credits, 'request_report', side_effect=AssertionError('network called')):
-            self.report({'trader': '0', 'plugins': '0', 'other': '0'})
-            value = credits.snapshot(self.config, NOW)
-            self.assertEqual(value['short'], 'API $200.00 left')
-            self.assertNotIn('fixture', json.dumps(credits.bar(value)))
+    def test_status_bar_and_usage_never_open_a_network_connection(self):
+        credits.record(self.config, 'trader', '1', 'call', self.stamp())
+        with patch.object(socket, 'socket', side_effect=AssertionError('network used')):
+            credits.snapshot(self.config, NOW)
+            credits.bar(credits.snapshot(self.config, NOW))
+            credits.usage(self.config, NOW)
+        self.assertFalse(hasattr(credits, 'sync'))
 
 
 if __name__ == '__main__':

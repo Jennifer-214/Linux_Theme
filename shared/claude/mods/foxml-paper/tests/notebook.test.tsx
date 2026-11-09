@@ -417,11 +417,12 @@ test('read markers restored at startup suppress a retried peer message after rel
 
 
 test('the API credit meter is separate from session context and opens the shared credit drawer', async ($, on) => {
-  engine(on, { credits: { short: 'API $180.00 left', headline: '$20.00 used of $200.00', detail: 'Anthropic report',
-    meter: '▰▰▰▰▰▰▰▰▰▱', status: 'reported', source: 'anthropic', remaining_percent: 90, as_of: '2026-11-09T00:00:00Z', projects: [] } })
+  engine(on, { credits: { short: 'API ~$180.00 left', headline: '$20.00 tracked of $200.00', detail: 'Tracked runs only · renews Dec 1',
+    meter: '▰▰▰▰▰▰▰▰▰▱', status: 'tracked', source: 'local', remaining_percent: 90, as_of: '2026-11-09T00:00:00Z', projects: [] } })
   await opened($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ key: 'api-credit-meter' }))?.text).toContain('API $180.00 left')
+  expect((await ui.find({ key: 'api-credit-meter' }))?.text).toContain('API ~$180.00 left')
+  expect((await ui.find({ key: 'api-credit-meter' }))?.text).toContain('▰▰▰▰▰▰▰▰▰▱ tracked')
   expect((await ui.find({ type: 'Text', text: /64%/ }))?.text).toContain('64%')
   await ui.press({ key: 'api-credit-meter' })
   expect(seen.argv).toContain('fox-desktop-menu --open api-credits')

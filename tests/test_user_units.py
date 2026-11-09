@@ -31,6 +31,11 @@ class UserUnits(unittest.TestCase):
         self.assertRegex(PULSE, r'FOCUS_HANDLER\s*=\s*\{\s*"focus",\s*nullptr,', "no fallback to a persistent listener")
         self.assertIn('"foxml-focus-pulse.service", "focus-pulse.sh"', SPECIALS, "upgrades retire the old unit")
 
+    def test_the_retired_billing_sync_is_removed_on_upgrade(self):
+        for unit in ("fox-credits-sync.timer", "fox-credits-sync.service"):
+            self.assertFalse((ROOT / "shared/systemd_user" / unit).exists(), unit + " is still shipped")
+            self.assertRegex(SPECIALS, r'\{ "' + re.escape(unit) + r'",\s*nullptr,\s*true,', "upgrades disable and remove " + unit)
+
 
 class SelfCheckRunsItself(unittest.TestCase):
     def test_installs_and_swaps_end_with_the_check_and_a_weekly_timer_runs_it(self):

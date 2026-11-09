@@ -1118,20 +1118,32 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(launched[-2:], ["--", str(tools / "fox-doctor")])
         self.assertIn("--hold", launched)
 
-    def test_credit_page_reads_cached_status_and_uses_fixed_setup_actions(self):
+    def test_usage_page_shows_tracked_spend_by_project_model_and_day(self):
         helper = self.bin/'fox-credits'
         helper.write_text('#!'+sys.executable+'\n'+FAKE_COMMAND)
         helper.chmod(0o755)
-        snapshot = {'headline':'$20.00 used of $200.00', 'short':'API $180.00 left',
-                    'detail':'Anthropic report · renews Dec 8', 'status':'reported',
-                    'remaining_percent':90, 'as_of':'2026-11-09T00:00:00Z',
-                    'projects':[{'label':'Trader','detail':'$15.00'}, {'label':'Claude mods','detail':'$5.00'}]}
-        self.state['commands'] = {'fox-credits':{'stdout':json.dumps(snapshot)}}
+        snapshot = {'headline':'$2.10 tracked of $200.00', 'short':'API ~$197.90 left',
+                    'detail':'Tracked runs only · renews Dec 1', 'status':'tracked', 'source':'local',
+                    'remaining_usd':'197.90', 'remaining_percent':98.9, 'projects':[]}
+        usage = {'snapshot': snapshot,
+                 'projects': [{'id':'trader','label':'Trader','spent_usd':'2.00','runs':2,'average_usd':'1.0000'}],
+                 'models': [{'model':'claude-opus-5-5','spent_usd':'1.50','runs':1,'average_usd':'1.5000','input_tokens':12000,'output_tokens':3000}],
+                 'days': [{'day':'2026-11-0'+str(n),'spent_usd':'0.10','runs':1} for n in range(1,10)],
+                 'top': [{'id':'b','project':'trader','model':'claude-opus-5-5','cost_usd':'1.50','at':'2026-11-09T01:00:00Z','label':'Why is the book slow?'}]}
+        self.state['commands'] = {'fox-credits':{'stdout':json.dumps(usage)}}
         page = self.invoke('view','api-credits')
+        self.assertEqual(page['title'], 'API usage')
         self.assertEqual(page['credits'], snapshot)
-        self.assertEqual([r['label'] for r in page['items'] if r['id']=='credits-project'], ['Trader','Claude mods'])
-        self.assertEqual([c for c in self.calls() if c[0]=='fox-credits'], [['fox-credits','status']])
-        self.failed('run','credits-sync','arbitrary argument')
+        labels = [r['label'] for r in page['items']]
+        self.assertIn('  Trader', labels)
+        self.assertIn('  claude-opus-5-5', labels)
+        self.assertIn('  Why is the book slow?', labels)
+        self.assertEqual(len([l for l in labels if l.startswith('  2026-11-0')]), 7, 'only the last seven days')
+        self.assertIn('12k in / 3k out', [r for r in page['items'] if r['label']=='  claude-opus-5-5'][0]['detail'])
+        ids = [r['id'] for r in page['items']]
+        self.assertNotIn('credits-sync', ids)
+        self.assertEqual([c for c in self.calls() if c[0]=='fox-credits'], [['fox-credits','usage']])
+        self.failed('run','credits-sync')
         self.assertTrue(self.invoke('run','credits-setup')['ok'])
         self.assertTrue(any(call[-2:]==['fox-credits','setup'] for call in self.calls()))
 
@@ -1140,20 +1152,26 @@ class BackendTests(unittest.TestCase):
         helper.write_text('#!'+sys.executable+'\n'+FAKE_COMMAND)
         helper.chmod(0o755)
         projects = [dict(id='trader', label='Trader', root='/code/trader', available=True, budget_usd='1.00',
-                         credits='$12.00 left this month'),
+                         model='claude-sonnet-5-5', credits='$12.00 left this month'),
                     dict(id='theme', label='Linux_Theme', root='/code/theme', available=False, budget_usd='1.00',
                          credits='$12.00 left this month')]
         mine = dict(id='a'*32, command='make test', root='/code/trader/sub', state='failed', elapsed=3, exit=2)
         other = dict(id='b'*32, command='make test', root='/code/other', state='failed', elapsed=3, exit=2)
+        saved = [dict(id='c'*32, project='trader', label='Trader', title='Why is the book slow?', status='completed',
+                      model='claude-opus-5-5', cost_usd='0.42', finished_at='2026-11-09T01:02:03Z')]
         self.state = {'commands': {'fox-work': {'stdout': json.dumps(dict(jobs=[mine, other], reviews=[], tasks=[]))}},
                       'exact': {'fox-claude-api\x1fprojects': {'stdout': json.dumps(projects)},
-                                'fox-claude-api\x1fhistory': {'stdout': '[]'},
+                                'fox-claude-api\x1fhistory': {'stdout': json.dumps(saved)},
                                 'fox-work\x1ftests\x1f--id\x1f'+'a'*32: {'stdout': json.dumps(mine)},
                                 'fox-work\x1flog\x1f--id\x1f'+'a'*32: {'stdout': 'assertion failed: boom\n'}}}
         rows = self.invoke('view','api-tasks')['items']
-        self.assertEqual([r['id'] for r in rows], ['api-credits','api-task-ask','api-task-ask','api-task-settings'])
+        self.assertEqual([r['id'] for r in rows], ['api-credits'] + ['api-task-ask','api-task-review','api-task-pi']*2
+                         + ['api-task-open','api-task-follow','api-task-settings'])
         self.assertIn('$12.00 left', rows[0]['label'])
-        self.assertFalse(rows[2]['enabled'], 'a missing project folder should not be askable')
+        self.assertIn('claude-sonnet-5-5', rows[1]['detail'])
+        self.assertFalse(any(r['enabled'] for r in rows[4:7]), 'a missing project folder should not be askable')
+        self.assertEqual(rows[7]['label'], 'Why is the book slow?')
+        self.assertIn('claude-opus-5-5 · $0.42', rows[7]['detail'])
         failures = self.invoke('view','failures')['items']
         explain = [r for r in failures if r['id']=='api-task-failure']
         self.assertEqual([r['argument'] for r in explain], ['a'*32], 'only failures inside an API project get the row')
@@ -1168,7 +1186,16 @@ class BackendTests(unittest.TestCase):
         self.assertIn('Command: make test', question.read_text())
         self.assertIn('assertion failed: boom', question.read_text())
         self.assertTrue(self.invoke('run','api-task-open','c'*32)['ok'], 'a saved result could not be reopened')
-        self.assertTrue(self.invoke('run','api-task-ask','trader')['ok'])
+        self.assertEqual([c for c in self.calls() if c[0]=='setsid'][-1][2:], ['kitty','-e','fox-claude-api','open','c'*32])
+        for action, tail in (('api-task-ask', ['ask','--project','trader']),
+                             ('api-task-review', ['ask','--project','trader','--review-changes']),
+                             ('api-task-pi', ['pi','--project','trader'])):
+            self.assertTrue(self.invoke('run', action, 'trader')['ok'])
+            self.assertEqual([c for c in self.calls() if c[0]=='setsid'][-1][5:], tail)
+        self.assertTrue(self.invoke('run','api-task-follow','c'*32)['ok'])
+        self.assertEqual([c for c in self.calls() if c[0]=='setsid'][-1][5:], ['ask','--project','trader','--follow','c'*32])
+        self.failed('run','api-task-follow','d'*32)
+        self.failed('run','api-task-pi','nope')
 
     def displays_fixture(self):
         modules = self.home/'.config/hypr/modules'

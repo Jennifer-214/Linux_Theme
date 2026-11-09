@@ -11,6 +11,11 @@ in the current window, including after `zR`. **zo** opens one comment, **zc** cl
 it, and **zR** opens all. `:CommentRefold` also enables/refolds comments. Turning
 comment folding off restores the window's previous folding settings.
 
+API tasks (monthly API credits, read-only): **Space Ca** asks about this project (a visual
+selection goes along as an excerpt), **Space CR** reviews its uncommitted changes, and
+`:ClaudeApiStop` cancels. In an answer, **Enter** opens a cited `path:line`, **f** asks a
+follow-up and **q** closes; every citation is also in the quickfix list (`:copen`).
+
 ---
 
 ## Core Vim

@@ -1,97 +1,62 @@
-# Monthly API credit meter
+# API tasks and usage
 
-The paper notebook, the drawer's Today card / Monthly API credits page, and
-both monitor bar configurations use `fox-credits` as their shared data source.
-The $200 budget is for API credits from the monthly plan. It does not count
-interactive subscription usage or treat its API-equivalent cost as credit spend.
+`fox-claude-api` runs read-only Claude reviews of your projects on an ordinary inference API key, and can open
+pi with the same key. `fox-credits` keeps the monthly meter that the bars, the drawer's Today card and
+**API usage** page, and the paper notebook all read.
 
-No model calls are made by the meter. `status` and `bar` only read local state.
-`sync` calls Anthropic's cost reporting endpoint. An hourly user timer calls
-`sync-if-configured`, which exits quietly until the cycle and credential exist.
+## What the meter counts
 
-Until a renewal date and a usable data source are supplied, the display says
-`API · setup`; unknown spend is never presented as zero or a full balance.
+The meter is the monthly budget minus the runs these tools record:
 
-## Connect reporting
+- every `fox-claude-api` task (the Claude CLI reports each run's cost, tokens and model), and
+- every Anthropic reply in a pi session opened with **Open pi with API credits** (`fox-claude-api pi`).
 
-Open **System → Monthly API credits → Set up credit tracking**, or run:
+Calls made with the key anywhere else are **not** counted, and every place the number appears says "tracked".
+Costs are client-side estimates; Claude Console shows the account's real balance. Reading account-wide
+spending needs an Admin key, which individual accounts cannot create, so the meter never contacts the network.
+
+Set the renewal day, timezone and monthly amount with **API usage → Renewal day and budget**, or:
 
 ```
 fox-credits setup
+fox-credits configure --renewal-day 1 --timezone America/Chicago --budget 200
 ```
 
-Confirm the monthly credit's expiry / renewal day in Claude Console. Set the
-billing timezone too; the default is UTC. A day of 29–31 clamps to the last day
-of shorter months without changing the configured anchor for later months.
-The meter uses midnight on that billing day as its cycle boundary.
+Until a renewal day is set the meter shows `API · setup`; afterwards it reads `API ~$X left` from day one.
+`fox-credits usage` prints this month by project, by model and by day, plus the costliest runs; the drawer's
+**API usage** page shows the same. The run ledger is `~/.local/state/foxml/api-credits/tracked.json`.
 
-Automatic reporting needs an Anthropic credential permitted to read organization
-cost analytics. Ordinary workspace-scoped inference keys cannot read those
-reports. Individual accounts may not have reporting access. Store a suitable
-reporting credential in a private file (mode 600); give setup only the path.
-The key is read only by the sync process, sent only to Anthropic's fixed HTTPS
-endpoint, and never copied into notebook state, widget output or logs.
-Redirects are refused so credentials are not forwarded to another host.
+## Tasks
 
-Then run `fox-credits sync`. The service retains the last successful snapshot
-if a request fails. Figures show their source, freshness and cycle; the meter
-is a budget calculation, not a live query of the account's credit balance.
+Settings: `${XDG_CONFIG_HOME:-~/.config}/foxml/api-tasks.json` — key file (mode 600), default model, effort,
+fallback model, default run budget and the project folders (Trader, Claude mods, Linux_Theme).
+**Edit API task settings** opens it in Neovim; `fox-claude-api configure --model claude-opus-5-5` works too.
 
-The config is `${XDG_CONFIG_HOME:-~/.config}/foxml/api-credits.json`.
-For a Trader / Claude mods breakdown, use separate API keys or workspaces for
-the two workloads and put their **IDs**, not secret key strings, into each
-project's `api_key_ids` or `workspace_ids` arrays. Unassigned costs remain in
-`Other / unassigned` and still count toward the shared $200 allowance.
-A project with no mapping says that attribution is unconfigured; it does not
-claim that the project has spent nothing.
+- **Drawer → Review with API credits**: per project, *Ask*, *Review uncommitted changes* and *Open pi with
+  API credits*; past results open in Neovim, each with *Follow up*.
+- **Test results / Failures**: a failed job in one of those projects gets *Explain with API credits*, with
+  the command, exit code and output filled in.
+- **Neovim**: `:ClaudeApi` / `Space Ca` (a visual selection is sent as an excerpt), `:ClaudeApiReview` /
+  `Space CR`, `:ClaudeApiStop`. Each asks for the model and run budget; progress shows as it reads files.
+  The answer opens in a tab: its `path:line` citations are in the quickfix list (`:copen`), Enter on a line
+  opens the cited spot, `f` asks a follow-up, `q` closes.
 
-## Local tracking without account reporting access
+Each task:
 
-A client can record the actual dollar cost returned for a completed API run:
+- uses only Read, Glob and Grep, with no MCP servers, no hooks and no saved session;
+- cannot read `.env*`, `*.key`, `*.pem`, `secrets/`, SSH/GPG keys, the password store or the API key folder —
+  these are permission deny rules, not only an instruction;
+- stops at its run budget, and is refused before it starts when the budget is more than the tracked credit
+  left this month;
+- is saved privately under `~/.local/state/foxml/api-tasks/` (mode 600, the key redacted);
+- sends a notification with its cost when it took over 30 seconds (Open shows the answer).
 
-```
-fox-credits record --project trader --cost-usd 0.065 --id unique-request-id --at 2026-11-09T18:00:00Z
-```
+A follow-up sends the earlier question and answer as context. *Review uncommitted changes* sends
+`git diff HEAD` (cut at 24 KB) and the names of new files.
 
-Use `--project plugins` for Claude mods and `--project theme` for Linux_Theme. Record a stable unique request/run ID
-and the actual event timestamp; retries with the same record are idempotent.
-These figures are marked **tracked only**, with `~` on the remaining estimate.
-They cannot cover calls made by other clients. Reported organization totals
-and local records are never added together, avoiding double-counting.
+## pi with API credits
 
-## Read-only API tasks
-
-`fox-claude-api` runs a review-and-explain task with an ordinary inference key, read-only tools
-(Read, Glob, Grep) and a per-run budget. Its projects are Trader, Claude mods and Linux_Theme;
-settings live in `${XDG_CONFIG_HOME:-~/.config}/foxml/api-tasks.json` (key file, default budget,
-project folders). New projects are added to an older settings file automatically.
-
-- **Drawer → Review with API credits**: the remaining credit, one row per project, past results,
-  and **Edit API task settings** (opens the settings file in Neovim).
-- **Test results / Failures**: a failed job inside one of those projects gets **Explain with API
-  credits**, which opens the prompt with the command, exit code and output already filled in.
-- **Neovim**: `:ClaudeApi` or `Space Ca` (a visual selection is sent as an excerpt).
-
-Before a run starts, its budget is checked against the remaining credit; a budget above it is
-refused. When the remaining credit is unknown (nothing connected or tracked yet), the run is
-allowed and the prompt says the amount is unknown. Each run's CLI cost estimate is recorded with
-`fox-credits record --estimate`; `fox-claude-api record ID` retries a record that did not land.
-
-## Reporting limits
-
-The Analytics API reports costs as decimal **cents**, which the collector
-converts to dollars without binary floating-point accounting. It follows all
-pages and preserves fractional cents. Missing data, incomplete pagination,
-conflicting attribution and invalid currency reject the snapshot.
-
-Anthropic's data may lag up to 24 hours and be revised later. Interactive chat, Claude Code and Cowork product costs are excluded from API
-credit spending. Unattributed execution charges are included conservatively;
-this is one reason the figure is a budget estimate, not the actual balance.
-The collector names its last completed UTC reporting hour and the API's `data_refreshed_at`.
-Reports from an old credit cycle or a changed attribution config are invalidated.
-The meter does not enforce a spending cap; use the Console's workspace spending
-controls for that.
-
-Sources: [Monthly plan API credits](https://support.claude.com/en/articles/17154008-monthly-api-credits-for-max-ultra-and-team-plans),
-[Analytics API and cost units](https://platform.claude.com/docs/en/manage-claude/usage-cost-analytics-api),
-[Reporting access](https://platform.claude.com/docs/en/manage-claude/admin-api).
+`fox-claude-api pi --project theme [--model claude-sonnet-5-5]` opens pi in that project with the key in its
+environment only, `--provider anthropic`, and `FOXML_API_CREDITS=1`. pi's `fox-credits` extension then records
+each reply (pi's catalog-price estimate) and shows what is left in pi's footer. Unlike tasks, pi can edit
+files. A pi started any other way — a local model, or a subscription login — is never counted.
