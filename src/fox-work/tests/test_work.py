@@ -186,6 +186,58 @@ class Work(unittest.TestCase):
         self.assertTrue(self.data("plan-pin", "--session", "one", "--file", "")["ok"])
         self.assertIsNone(self.data("plan", "--session", "one"))
 
+    def test_plan_counts_markdown_checkboxes_outside_code_fences(self):
+        plan = self.repo / "plan.md"
+        plan.write_text("# A plan\n- [x] one\n  - [X] nested two\n* [ ] three\n1. [ ] four\n```\n- [x] example, not a step\n```\n- [] not a box\n")
+        self.data("plan-pin", "--session", "one", "--file", plan)
+        j = self.data("plan", "--session", "one")
+        self.assertEqual((j["done"], j["total"]), (2, 4))
+        plan.write_text("# No boxes here\n- just a list\n")
+        self.assertEqual(self.data("plan", "--session", "one")["total"], 0)
+
+    def record(self, command, code, output="", root=None, took=None):
+        """A Claude Bash call recorded from outside, as the mod does it; took rewrites its duration."""
+        run = self.invoke("begin", "--root", root or self.repo, "--session", "s", "--pid", "parent", "--command", command).strip()
+        if code is None:
+            return run, None
+        p = subprocess.run([str(BIN), "finish", "--id", run, "--exit", str(code), "--output", "-"], input=output,
+                           cwd=self.repo, env=self.env, capture_output=True, text=True, timeout=30, check=True)
+        if took is not None:
+            record = next(Path(self.env["XDG_STATE_HOME"]).rglob(run + "/run.json"))
+            j = json.loads(record.read_text()); j["started"] = j["ended"] - took; record.write_text(json.dumps(j))
+        return run, json.loads(p.stdout)
+
+    def test_running_job_estimate_is_the_last_pass_of_the_same_command_here(self):
+        self.record("make test", 0, "3 passed\n", took=42)
+        self.record("make test", 2, "1 failed\n", took=5)
+        running, _ = self.record("make test", None)
+        rows = {r["id"]: r for r in self.data("jobs")}
+        self.assertEqual(rows[running]["estimate"], 42, "a failure in between is no estimate")
+        self.assertNotIn("estimate", next(r for r in self.data("jobs") if r["state"] != "running"))
+        self.assertEqual(self.data("notebook")["jobs"][0]["estimate"], 42)
+        self.assertEqual(next(r for r in self.data("overview")["jobs"] if r["id"] == running)["estimate"], 42)
+        other, _ = self.record("make test VERBOSE=1", None)
+        self.assertNotIn("estimate", {r["id"]: r for r in self.data("jobs")}[other], "only the exact command counts")
+        elsewhere = self.dir / "elsewhere"; elsewhere.mkdir()
+        away, _ = self.record("make test", None, root=elsewhere)
+        self.assertNotIn("estimate", {r["id"]: r for r in self.data("jobs")}[away], "only the same checkout counts")
+        self.record("make test", 0, "3 passed\n", took=30)
+        self.assertEqual({r["id"]: r for r in self.data("jobs")}[running]["estimate"], 30, "the newest pass wins")
+
+    def test_finish_reports_how_many_runs_failed_in_a_row_before(self):
+        _, first = self.record("make test", 2, "1 failed\n")
+        self.assertEqual(first["failedBefore"], 0)
+        self.record("make build", 2, "")
+        self.record("make test", 130, "")
+        _, second = self.record("make test", 2, "1 failed\n")
+        self.assertEqual(second["failedBefore"], 1, "a stop neither counts nor breaks the run of failures")
+        _, green = self.record("make test", 0, "4 passed\n")
+        self.assertEqual((green["state"], green["testRun"], green["failedBefore"]), ("passed", True, 2))
+        self.assertEqual(next(r for r in self.data("jobs") if r["state"] == "passed")["failedBefore"], 2)
+        self.record("make test", 2, "1 failed\n")
+        _, flaky = self.record("make test", 0, "4 passed\n")
+        self.assertEqual(flaky["failedBefore"], 1, "one flaky failure is not a streak")
+
     def test_file_actions_preserve_literal_arguments_and_reject_paths_outside_checkout(self):
         with tempfile.TemporaryDirectory(prefix='.fox-work-editor-', dir=Path(__file__).parent) as temp:
             fake = Path(temp)

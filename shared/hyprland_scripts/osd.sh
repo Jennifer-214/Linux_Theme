@@ -4,7 +4,7 @@
 # Uses notify-send with progress bar hints (supported by mako/dunst). app-name fox-osd
 # lets a theme restyle these in mako (MAKO_OSD_APP), e.g. as a thin level line.
 
-TYPE=$1 # "volume" or "brightness"
+TYPE=$1 # "volume", "mic" or "brightness"
 CHANGE=$2 # "up" or "down" or "mute"
 
 case "$TYPE" in
@@ -43,6 +43,17 @@ case "$TYPE" in
                     --transient
         ;;
         
+    mic)
+        # Same toggle as the drawer's mic-mute row; the note says which way it went.
+        wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle || exit 0
+        if wpctl get-volume @DEFAULT_AUDIO_SOURCE@ 2>/dev/null | grep -q MUTED; then
+            title="shh… the mic is off"; icon=microphone-sensitivity-muted
+        else
+            title="the mic is listening"; icon=audio-input-microphone
+        fi
+        notify-send -h string:x-canonical-private-synchronous:mic -i "$icon" "$title" "" 2>/dev/null || true
+        ;;
+
     brightness)
         if [[ "$CHANGE" == "up" ]]; then
             brightnessctl set 5%+

@@ -22,11 +22,17 @@ assert.equal(logic.greeting(new Date(2026, 10, 6, 23), 'fox'), 'still up?');
 assert.deepEqual(plain(logic.todayTags({ battery: '80%', batteryState: 'not charging', notes: 1,
     waiting: [{ project: 'Trader', argument: 'k1', asking: false, count: 2 }, { project: 'foxtag', argument: 'k2', asking: true }, { project: 'x' }] },
     [{ id: 'connections', summary: 'home' }, { id: 'sound', summary: '' }, { id: 'system', summary: '0 cached updates' }])),
-    [{ text: '◇ 2 in Trader are waiting', action: 'agent-jump', argument: 'k1' }, { text: '◇ foxtag needs you', action: 'agent-jump', argument: 'k2' },
-     { text: '80% · plugged in', page: 'power' }, { text: 'home', page: 'wifi' }, { text: '0 cached updates', page: 'updates' },
-     { text: '1 agent note', page: 'agents' }]);
+    [{ text: '✉ 2 in Trader are waiting', action: 'agent-jump', argument: 'k1' }, { text: '✉ foxtag needs you', action: 'agent-jump', argument: 'k2' },
+     { text: '80% · plugged in', page: 'power' }, { text: '⌁ home', page: 'wifi' }, { text: '↻ 0 cached updates', page: 'updates' },
+     { text: '✉ 1 agent note', page: 'agents' }]);
 assert.equal(plain(logic.todayTags({ waiting: [{ project: 'Trader', argument: 'k', asking: true, count: 3 }] }, []))[0].text,
-    '◇ 3 in Trader, one needs you');
+    '✉ 3 in Trader, one needs you');
+// The garden closes the row once the sheet passes its hearts: unread, none yet, or the month's count.
+assert.deepEqual(plain(logic.todayTags({}, [{ id: 'sound', summary: '11% · speakers' }], -1)),
+    [{ text: '♪ 11% · speakers', page: 'audio-outputs' }, { text: '❦ the garden', page: 'garden' }]);
+assert.equal(plain(logic.todayTags({}, [], 0))[0].text, '❦ no commits this month');
+assert.equal(plain(logic.todayTags({}, [], 1))[0].text, '❦ 1 day active this month');
+assert.equal(plain(logic.todayTags({ battery: '9%' }, [], 12)).at(-1).text, '❦ 12 days active this month');
 const gardenCounts = [0, 1, 2, 3, 4, 8, 0, 9, 9, 0];
 assert.deepEqual(plain(logic.gardenThresholds(gardenCounts)), [2, 4, 8]);
 assert.deepEqual(plain(logic.gardenThresholds([0, 0])), [0, 0, 0]);
@@ -44,9 +50,8 @@ assert.deepEqual(plain(logic.gardenMonths('2025-11-02', 0, 10)), [{ week: 0, tex
 assert.equal(logic.sinceLine(0), '');
 assert.equal(logic.sinceLine(1), '✎ 1 commit since this morning');
 assert.equal(logic.sinceLine(12), '✎ 12 commits since this morning');
-assert.equal(logic.footerHint({ focus: 'tags' }), 'Enter opens · h / l choose · j goes to favorites · Esc goes back');
+assert.equal(logic.footerHint({ focus: 'tags' }), 'Enter opens · h / l choose · j goes to favorites · Esc goes back · ? keys');
 assert.deepEqual(plain(logic.todayTags(undefined, undefined)), []);
-assert.equal(logic.heartLine(1), '· 1 day active this month');
 assert.equal(logic.paperIcon({ id: 'dnd', icon: '✉' }), 'paper-icon-bell.svg');
 assert.equal(logic.paperIcon({ id: 'dnd', icon: '⊘' }), 'paper-icon-bell.svg');
 assert.equal(logic.paperIcon({ id: 'today', icon: 'today' }), 'paper-icon-today.svg');
@@ -123,7 +128,15 @@ for (const state of [{focus:'groups'},{focus:'items'},{editing:true},{searching:
 }
 assert.deepEqual(plain(logic.hintParts('h / l choose')).filter(part=>part.key).map(part=>part.text),['h','l']);
 assert.deepEqual(plain(logic.hintParts('/ searches')).filter(part=>part.key).map(part=>part.text),['/']);
-assert.deepEqual(plain(logic.hintParts(logic.footerHint({},{presentation:'project'}))).filter(part=>part.key).map(part=>part.text),['Enter','t','w','n','b']);
+assert.deepEqual(plain(logic.hintParts(logic.footerHint({},{presentation:'project'}))).filter(part=>part.key).map(part=>part.text),['Enter','t','w','n','b','?']);
+assert.deepEqual(plain(logic.hintParts(logic.footerHint({focus:'groups',groups:7}))).filter(part=>part.key).map(part=>part.text),['j','k','Enter','l','1–7','/','Esc','?']);
+assert.ok(!logic.footerHint({focus:'groups',groups:1}).includes('jump'), 'one group has nothing to jump to');
+assert.match(logic.footerHint({focus:'groups',groups:14}), /1–9 jump/);
+// `?` works wherever the keyboard is not typing, adjusting, confirming or answering another program's picker.
+for (const state of [{focus:'groups'},{focus:'items'},{focus:'tags'},{busy:true}]) assert.match(logic.footerHint(state,{kind:'toggle'}), / · \? keys$/);
+for (const state of [{searching:true},{prompt:true},{picker:true},{editing:true},{confirming:true},{busy:true,searching:true}]) assert.ok(!logic.footerHint(state,{kind:'toggle'}).includes('? keys'));
+for (const sheet of ['calendar','scrapbook','garden']) assert.match(logic.sheetHint(sheet), / · \? keys$/);
+assert.equal(logic.sheetHint('nothing'), '');
 assert.deepEqual(plain(logic.hintParts('g the garden · working… · nothing here')).filter(part=>part.key).map(part=>part.text),['g']);
 assert.equal(logic.pageHeading('Wi-Fi',true),'wi-fi.');
 assert.equal(logic.pageHeading('API usage',true),'API usage.');
@@ -142,6 +155,12 @@ assert.equal(logic.drawerBody('prompt',1080),310);
 assert.match(logic.emptyState('downloads',true,false).title,/matching/);
 assert.match(logic.emptyState('bookmarks',false,false).detail,/press b/);
 assert.match(logic.emptyState('root',false,true).title,/moment/);
+assert.equal(logic.emptyState('updates',false,false).title,'all up to date.');
+for (const page of ['failures','jobs','test-results']) assert.equal(logic.emptyState(page,false,false).title,'nothing has failed today.');
+assert.equal(logic.emptyState('reviews',false,false).title,'no changes waiting.');
+assert.match(logic.emptyState('next-steps',false,false).detail,/press n on a project card/);
+assert.match(logic.emptyState('screenshots',false,false).detail,/alt ⇧ o takes one/);
+assert.match(logic.emptyState('unknown-page',false,false).title,/nothing here yet/);
 console.log('keycap instructions and context-sensitive empty states: passed');
 
 for (const width of [720,1080,1920]) {
@@ -178,7 +197,8 @@ assert.equal(logic.detailText({presentation:'media',mediaState:'Paused',detail:'
 const menus=JSON.parse(fs.readFileSync(new URL('../shared/quickshell/foxml/menus.json',import.meta.url),'utf8'));
 const workTags=logic.todayTags({jobsRunning:2,jobsFinished:1,jobsFailed:1,changesToReview:3,nextStep:'rerun the sanitizer'},[]);
 assert.ok(workTags.some(t=>t.page==='jobs' && t.text.includes('2 jobs running')));
-assert.ok(workTags.some(t=>t.page==='reviews' && t.text==='✿ 3 changes to look over'));
+assert.ok(workTags.some(t=>t.page==='reviews' && t.text==='◎ 3 changes to look over'));
+assert.ok(workTags.some(t=>t.page==='next-steps' && t.text==='↳ next: rerun the sanitizer'));
 assert.equal(plain(logic.todayTags({jobsRunning:1,jobsFinished:0},[]))[0].text,'◷ 1 job running');
 assert.equal(plain(logic.todayTags({jobsRunning:0,jobsFinished:287},[]))[0].text,'◷ 287 jobs finished');
 assert.equal(plain(logic.todayTags({jobsRunning:2,jobsFinished:1},[]))[0].text,'◷ 2 jobs running · 1 finished');
@@ -204,6 +224,25 @@ for (const item of menus.groups.flatMap(group=>group.items)) {
     assert.ok(fs.existsSync(new URL('../templates/quickshell/foxml/'+icon, import.meta.url)));
     assert.equal(logic.paperIcon({...item,icon:'my-own-icon'}),'');
 }
+// One glyph per item: no two items share one, a menu's older glyph maps to the item's own, a custom one stays.
+const glyphOwners={};
+for (const [id,glyph] of Object.entries(logic.glyphs)) if (id!=='passwords') {
+    assert.ok(!glyphOwners[glyph], `${id} and ${glyphOwners[glyph]} share ${glyph}`);
+    glyphOwners[glyph]=id;
+}
+const shown=new Map();
+for (const row of [...menus.groups,...menus.groups.flatMap(group=>group.items)]) {
+    const glyph=logic.symbol(row);
+    assert.ok(!shown.has(glyph) || shown.get(glyph)===row.id, `${row.id} and ${shown.get(glyph)} both show ${glyph}`);
+    shown.set(glyph,row.id);
+}
+assert.equal(logic.symbol({id:'next-steps',icon:'◇'}),'↳');
+assert.equal(logic.symbol({id:'models',icon:'◈'}),'⬡');
+assert.equal(logic.symbol({id:'idle',icon:'◷'}),'⊙');
+assert.equal(logic.symbol({id:'next-steps',icon:'★'}),'★');
+assert.equal(logic.paperIcon({id:'next-steps',icon:'↳'}),'paper-icon-next.svg');
+assert.equal(logic.paperIcon({id:'clipboard-images',icon:'▧'}),'paper-icon-clipboard.svg');
+assert.equal(logic.paperIcon({id:'models',icon:'★'}),'');
 assert.equal(logic.emptyIllustration('downloads',false,false),'paper-empty-tray.svg');
 assert.equal(logic.emptyIllustration('downloads',true,false),'paper-sprig.png');
 assert.equal(logic.emptyIllustration('downloads',false,true),'');
@@ -211,7 +250,7 @@ assert.equal(logic.pageFlourish('bookmarks',false),'circle');
 assert.equal(logic.pageFlourish('root',true),'');
 
 // Claude sessions: a working count on Today, plan usage, the state tag and the context hearts.
-assert.deepEqual(plain(logic.todayTags({ claudeWorking: 2 }, [])), [{ text: '✎ 2 working', page: 'agents' }]);
+assert.deepEqual(plain(logic.todayTags({ claudeWorking: 2 }, [])), [{ text: '⋯ 2 working', page: 'agents' }]);
 assert.deepEqual(plain(logic.todayTags({ claudeWorking: 0 }, [])), []);
 assert.equal(logic.claudeLine('76% of the week left · refills sun'), 'Claude · 76% of the week left · refills sun');
 assert.equal(logic.claudeLine(''), '');

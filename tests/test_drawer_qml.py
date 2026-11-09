@@ -98,7 +98,7 @@ EXERCISE = r'''
                 return;
             }
             var tagTexts = todaySheet.tags.map(function(tag) { return tag.text; });
-            if (!todaySheet.visible || tagTexts.indexOf("80%") < 0 || tagTexts.indexOf("2 agent notes") < 0)
+            if (!todaySheet.visible || tagTexts.indexOf("80%") < 0 || tagTexts.indexOf("✉ 2 agent notes") < 0 || tagTexts[tagTexts.length - 1] !== "❦ 2 days active this month")
                 throw new Error("Today sheet is missing its overview");
             root.chooseGroup(0);
             if (root.focusArea !== "items" || root.page !== "root") throw new Error("Enter on Today did not step into the favorites");
@@ -239,7 +239,7 @@ EXERCISE = r'''
     Timer { interval:4800; running:true; onTriggered: root.show("root") }
     Timer { interval:5000; running:true; onTriggered: {
         var texts = todaySheet.tags.map(function(tag) { return tag.text; });
-        if (texts[0] !== "◇ Paper notebook is waiting" || texts[1] !== "✎ 2 working" || texts.indexOf("80%") !== 2)
+        if (texts[0] !== "✉ Paper notebook is waiting" || texts[1] !== "⋯ 2 working" || texts.indexOf("80%") !== 2)
             throw new Error("Today lost its waiting agent, working count or battery tag: " + JSON.stringify(texts));
         if (testFind(todaySheet, "today-since").text !== "✎ 3 commits since this morning") throw new Error("the commits line is missing");
         var usage = testFind(todaySheet, "today-claude");
@@ -272,7 +272,14 @@ EXERCISE = r'''
         root.show("root");
         root.openTag(todaySheet.tags[0]);
     }}
-    Timer { interval:5650; running:true; onTriggered: { root.show("root"); testFind(todaySheet, "today-hearts").children[0].clicked(null); } }
+    // The garden is the last Today tag, so the keyboard reaches it like any other.
+    Timer { interval:5650; running:true; onTriggered: {
+        root.show("root");
+        root.focusArea = "tags"; root.tagIndex = 0;
+        for (var n = 0; n < todaySheet.tags.length; n++) root.key({key: Qt.Key_L, modifiers: 0, accepted: false});
+        if (root.todayTags[root.tagIndex].page !== "garden" || todaySheet.selectedTag !== root.tagIndex) throw new Error("l did not reach the garden tag");
+        root.key({key: Qt.Key_Return, modifiers: 0, accepted: false});
+    } }
     Timer { interval:5900; running:true; onTriggered: {
         if (root.page !== "garden" || !root.gardenLayout || !gardenSheet.visible || itemList.visible || emptyNote.visible)
             throw new Error("the hearts line did not open the garden sheet: " + root.page + " " + root.gardenLayout + " " + gardenSheet.visible + " " + itemList.visible + " " + emptyNote.visible);
@@ -305,8 +312,55 @@ EXERCISE = r'''
             throw new Error("picking a session did not jump to its pane: " + JSON.stringify(actionProcess.command));
         root.hide();
     }}
+    function testFindAll(item, name, found) {
+        found = found || [];
+        if (item.objectName === name) found.push(item);
+        for (var child of item.children || []) testFindAll(child, name, found);
+        return found;
+    }
+    // The landing page comes back as it last read, at once; `?` opens the drawer's keys; digits jump to groups.
+    Timer { interval:6250; running:true; onTriggered: {
+        root.show("root");
+        if (root.entries.length !== 1 || root.pageLoading || itemList.viewPage !== "root" || root.today.battery !== "80%" || !root.drawerReady)
+            throw new Error("the landing page blinked empty on open: " + root.entries.length + " " + root.pageLoading + " " + itemList.viewPage);
+        if (!root.footerHint.endsWith(" · ? keys") || root.footerHint.indexOf("1–6 jump") < 0) throw new Error("footer lost ? keys or the jump digits: " + root.footerHint);
+        root.key({key: Qt.Key_Question, modifiers: Qt.ShiftModifier, accepted: false, text: "?"});
+        if (root.page !== "cheatsheet" || root.keysFilter !== "quickshell drawers" || root.searching || root.focusArea !== "items" || JSON.stringify(root.trail) !== JSON.stringify(["root"]))
+            throw new Error("? did not open the drawer keys: " + root.page + " " + root.keysFilter + " " + JSON.stringify(root.trail));
+        if (JSON.stringify(viewProcess.command.slice(-3)) !== JSON.stringify(["view", "cheatsheet", "quickshell drawers"]))
+            throw new Error("the drawer keys were not filtered: " + JSON.stringify(viewProcess.command));
+    }}
+    Timer { interval:6600; running:true; onTriggered: {
+        if (root.pageTitle !== "drawer keys" || !root.entries.length) throw new Error("the keys page is not titled drawer keys: " + root.pageTitle);
+        root.goBack();
+        if (root.page !== "root" || root.keysFilter !== "") throw new Error("h from the keys did not return to Today");
+        if (root.entries.length !== 1 || root.pageLoading || !root.drawerReady) throw new Error("coming back to Today blinked its favorites");
+        root.key({key: Qt.Key_3, modifiers: 0, accepted: false});
+        if (root.page !== root.groups[2].id || root.focusArea !== "items" || root.groupIndex !== 2) throw new Error("3 did not open the third group: " + root.page);
+        root.key({key: Qt.Key_1, modifiers: 0, accepted: false});
+        if (root.page !== "root" || root.groupIndex !== 0) throw new Error("1 did not return to Today: " + root.page);
+        root.page = "sound";
+        root.entries = [{id: "wifi", label: "With keys", kind: "page", page: "wifi", keys: "alt ⇧ n"}, {id: "plain-row", label: "No keys", kind: "action"}];
+    }}
+    Timer { interval:6700; running:true; onTriggered: {
+        var labels = testFindAll(itemList, "item-keys");
+        var shown = labels.filter(function(row) { return row.visible; });
+        if (labels.length !== 2 || shown.length !== 1 || JSON.stringify(shown[0].caps) !== JSON.stringify(["alt", "⇧", "n"]))
+            throw new Error("row keys did not render as caps on only the row that has them: " + labels.length + " " + shown.length);
+        root.hide();
+        levelSlip.showMedia("A song\u0007", "An artist", "Playing", "javascript:alert(1)");
+        if (levelSlip.heading !== "a little song." || levelSlip.detail !== "A song · An artist" || levelSlip.playState !== "playing" || levelSlip.artUrl !== "")
+            throw new Error("the song slip: " + levelSlip.heading + " / " + levelSlip.detail + " / " + levelSlip.playState + " / " + levelSlip.artUrl);
+        if (testFind(levelSlip.artwork, "level-slip-glyph").visible || !testFind(levelSlip.artwork, "level-slip-state").visible || !testFind(levelSlip.artwork, "level-slip-artwork").visible)
+            throw new Error("the song slip kept the level glyph or lost its state and artwork");
+        levelSlip.showMedia("", "", "Stopped", Qt.resolvedUrl("paper-sprig.png"));
+        if (levelSlip.detail !== "nothing is playing." || levelSlip.playState !== "stopped" || levelSlip.artUrl.indexOf("file:///") !== 0)
+            throw new Error("an empty song slip: " + levelSlip.detail + " / " + levelSlip.artUrl);
+        levelSlip.showVolume(40, false);
+        if (levelSlip.heading !== "a little sound." || !testFind(levelSlip.artwork, "level-slip-glyph").visible) throw new Error("volume after a song kept the song layout");
+    }}
     Timer {
-        interval: 6200; running: true
+        interval: 7000; running: true
         onTriggered: {
             var base = Quickshell.env("XDG_RUNTIME_DIR");
             root.showPicker(base + "/foxml-picker-abc123/request.json");

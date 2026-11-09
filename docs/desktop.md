@@ -159,6 +159,10 @@ copy, open, folder and new-capture buttons. It reads `~/Pictures/Screenshots`, o
 the optional `screenshots_directory` in `menus.json`, and skips symlinks and partial
 files. Swappy uses the current palette's accent ink, configured font and thin
 pencil strokes. Screenshot pixels are preserved unless you annotate them.
+`Alt+Shift+O` opens the region in Swappy; `Print` skips the editor and puts the
+region straight into the folder and onto the clipboard. Escape while selecting
+cancels without a notice. `Alt+Shift+P` picks a color on screen, copies its hex
+and shows it on a COPIED note with a swatch.
 Paper's volume keys show a little speaker slip with a blush ruler, percentage and
 mute state; brightness retains its existing indicator. Other palettes and an
 unavailable drawer keep the notification fallback. New Neovim windows show a
@@ -182,6 +186,16 @@ Use `j/k` to move, `l` or Enter to open, and `h` to go back. Enter on a slider
 starts adjustment with `h/l`; Escape finishes. `/` searches menu actions from a
 group, or filters the current app/device/clipboard list. Escape goes back before
 closing. Shutdown, restart, suspend and logout require confirmation.
+
+Desktop keys (full list in `KEYBINDS.md`): `Alt+h/j/k/l` moves focus and
+`Alt+Shift+h/j/k/l` moves the focused window that way, tiled or floating, onto the
+neighboring monitor at the edge (`Alt+R` then `Shift+h/j/k/l` still nudges a
+floating window by pixels). `Alt+Ctrl+L` locks the screen. `Alt+Ctrl+Shift+K` is
+Lockdown: it wipes clipboard history, closes and forgets the Firefox session, stops
+editors under `~/code` and the trading engines, then locks, with no confirmation.
+Stay awake (pausing idle auto-lock) lives in the drawer; it never switches auto-lock
+on — that stays opt-in through `fox-lock --idle on|off`. The media keys show the
+song slip, and the mic-mute key says which way it went.
 
 ### Install and customize the drawer
 
@@ -358,8 +372,8 @@ stamp, with room for the body; explicit saved/copied/ready categories give that 
 useful words without repeating them in the title. A faint, broken pencil outline
 frames those stamps with a small pencil sprig in the native renderer; stock Mako keeps the blush text labels.
 DND is applied after all app styles.
-Volume OSDs retain their compact format; workspace notices use the banner and replace
-the previous workspace notice. Yazi uses current theme sections
+Volume OSDs retain their compact format. Switching workspaces posts no notice; the bar
+already shows where you are. Yazi uses current theme sections
 and palette-driven notebook tabs (`YAZI_TAB_ACTIVE_FG/BG`); Delta file labels use the
 palette-selected `DELTA_LABEL_STYLE`. Post-install rebuilds the Bat/delta syntax cache
 on render-only theme changes as well as full installs.
@@ -539,8 +553,7 @@ unless a drawer or notification needs it; notification coverage ends after the
 closing transition, without switching the bar between compositor layers.
 Top-bar hover text, workspace hints and tray hints slide out as smaller ribbons
 behind their bookmarks. These hints are click-through, delay their appearance,
-wrap within the output width, and retract when a drawer opens. Workspace-switch
-notifications (`focus-pulse`) inherit the hanging Mako ribbon; volume/brightness
+wrap within the output width, and retract when a drawer opens. Volume/brightness
 OSDs retain their compact pencil rulers. The notification launcher explicitly
 selects the rendered XDG config so an older `~/.mako/config` cannot shadow it.
 Shell and tmux fzf matches share `FZF_MATCH_*`/`FZF_META_FG` palette tokens; Firefox

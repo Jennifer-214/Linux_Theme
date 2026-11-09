@@ -15,7 +15,7 @@ Native C++ tools under [`src/`](../src/):
 | `fox-install` | Install orchestrator driven by a shared module registry |
 | `fox-intel` | `libfox-intel.a` — local model client (llama.cpp's router) + embedding API; linked into every AI tool |
 | `fox-render-fast` | Concurrent template engine; drop-in for the old `render.sh` |
-| `fox-pulse` | Single-epoll daemon multiplexing Hyprland IPC + inotify + debouncers; shows the workspace notice through `~/.config/foxml/pulse.d/focus.sh` (the old `foxml-focus-pulse.service` is retired on upgrade) |
+| `fox-pulse` | Single-epoll daemon multiplexing Hyprland IPC + inotify + debouncers; runs the one-shot focus handler `~/.config/foxml/pulse.d/focus.sh`, which posts nothing by default since the bar already shows the workspace (the old `foxml-focus-pulse.service` is retired on upgrade) |
 | `fox-vault` | `mlock()`-protected in-RAM secret store with Unix-socket CLI |
 | `fox-ask`, `fox-ai-doctor`, `fox-ai-oracle`, `fox-ai-snitch`, `fox-ai-audit`, `fox-ai-bouncer`, `fox-ai-review`, `fox-ai-swap` | One-shot AI tools that link `libfox-intel.a` — pattern is `#include "fox_intel.hpp"` + `ai.ask(prompt)`. No plugin framework. |
 

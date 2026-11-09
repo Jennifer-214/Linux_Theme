@@ -76,8 +76,11 @@ elif name == 'setsid' and args[1:] == ['hyprsunset', '--identity']:
         state['nightlight_running'] = True; state['nightlight_identity'] = True
         Path(os.environ['DRAWER_TEST_STATE']).write_text(json.dumps(state))
     sys.exit(0)
+def save(): Path(os.environ['DRAWER_TEST_STATE']).write_text(json.dumps(state))
 if name == 'wpctl'  and args[:1] == ['get-volume']:
-    print('Volume: 0.42')
+    print('Volume: 0.42' + (' [MUTED]' if state.get('muted', {}).get(args[1]) else ''))
+elif name == 'wpctl' and args[:1] == ['set-mute'] and args[2:] == ['toggle']:
+    state.setdefault('muted', {})[args[1]] = not state.get('muted', {}).get(args[1]); save()
 elif name == 'brightnessctl':
     if '-m' in args or '--machine-readable' in args:
         print('intel_backlight,backlight,42,42%,100')
@@ -103,6 +106,9 @@ elif name == 'pactl' and 'sinks' in args:
     print(json.dumps([{'index':1, 'name':'desk.output', 'description':'Desk speakers', 'state':'RUNNING', 'mute':False}]))
 elif name == 'pactl' and 'get-default-sink' in args:
     print('desk.output')
+elif name == 'nmcli' and args[:2] == ['radio', 'wifi']:
+    if args[2:] in (['on'], ['off']): state['radio'] = args[2] == 'on'; save()
+    else: print('enabled' if state.get('radio', True) else 'disabled')
 elif name == 'nmcli':
     if 'wifi' in args and 'list' in args:
         print(state.get('wifi', '*:Friendly Network:85:WPA2'))
@@ -114,7 +120,9 @@ elif name == 'bluetoothctl':
     elif 'info' in args:
         print('Device AA:BB:CC:DD:EE:FF\n\tName: Desk headphones\n\tPaired: yes\n\tConnected: no')
     elif 'show' in args:
-        print('Controller 00:11:22:33:44:55\n\tPowered: yes')
+        print('Controller 00:11:22:33:44:55\n\tPowered: ' + ('yes' if state.get('bt_power', True) else 'no'))
+    elif args[:1] == ['power']:
+        state['bt_power'] = args[1:] == ['on']; save()
 elif name == 'cliphist':
     if args[:1] == ['list']:
         print(state.get('clipboard', '17\ta little note\n18\t[[ binary data 8 B png 1x1 ]]'))
@@ -125,7 +133,10 @@ elif name == 'wl-copy':
 elif name == 'powerprofilesctl' and args[:1] == ['get']:
     print('balanced')
 elif name == 'makoctl' and args[:1] == ['mode']:
-    print('default')
+    if args[1:] == ['-t', 'do-not-disturb']: state['dnd'] = not state.get('dnd'); save()
+    else: print('default\ndo-not-disturb' if state.get('dnd') else 'default')
+elif name == 'makoctl' and args[:1] in (['history'], ['list']):
+    print(json.dumps(state.get('mako_' + args[0], [])))
 elif name == 'dunstctl' and args[:1] == ['is-paused']:
     print('false')
 elif name == 'pgrep':
@@ -1621,6 +1632,219 @@ print('0\t' + str(target))
         self.assertEqual(base64.b64decode(data), base64.b64decode(encoded))
         self.assertIn(["cliphist", "decode", "18"], self.calls())
         self.assertFalse(any(call[0] in ("setsid", "wl-copy") for call in self.calls()))
+
+    # ── Polish round 3: regrouped menu, search words, keys, shortcut order, warm toggles, notes, thumbnails ──
+
+    def shipped_menu(self):
+        return json.loads((REPO / "shared/quickshell/foxml/menus.json").read_text())
+
+    def test_the_shipped_menu_has_a_workbench_and_every_page_opens(self):
+        self.config.write_text((REPO / "shared/quickshell/foxml/menus.json").read_text())
+        menu = self.shipped_menu()
+        groups = {g["id"]: [i["id"] for i in g["items"]] for g in menu["groups"]}
+        self.assertEqual(list(groups)[:2], ["desk", "workbench"])
+        self.assertLessEqual(len(groups["desk"]), 10, "the desk keeps only everyday things")
+        for moved in ("projects", "worktrees", "agents", "jobs", "test-results", "reviews", "next-steps", "failures", "models", "api-tasks", "api-credits", "garden"):
+            self.assertIn(moved, groups["workbench"])
+        self.assertEqual(groups["workbench"].index("api-credits"), groups["workbench"].index("api-tasks") + 1, "API usage sits beside API tasks")
+        for look in ("wallpapers", "themes", "wallpaper-next", "wallpaper-sync", "color-picker", "earlier-notes"):
+            self.assertIn(look, groups["comfort"])
+        self.assertIn("calendar", groups["desk"])
+        root = self.invoke("view", "root")
+        self.assertEqual([r["page"] for r in root["items"][1:]], list(groups))
+        self.assertEqual(next(r for r in root["items"] if r["id"] == "workbench")["summary"], "all quiet on the bench")
+        for group in menu["groups"]:
+            with self.subTest(group=group["id"]):
+                data = subprocess.run([str(BINARY), "--config", str(self.config), "view", group["id"]], env=self.env, capture_output=True, text=True, timeout=10)
+                self.assertEqual(json.loads(data.stdout)["title"], group["label"])
+        for entry in (i for g in menu["groups"] for i in g["items"] if i["kind"] == "page"):
+            with self.subTest(page=entry["page"]):
+                data = json.loads(subprocess.run([str(BINARY), "--config", str(self.config), "view", entry["page"]], env=self.env,
+                                                 capture_output=True, text=True, timeout=10).stdout)
+                self.assertNotEqual(data.get("error"), "Unknown drawer page")
+        opened = self.invoke("run", "calendar")
+        self.assertEqual((opened["ok"], opened["page"]), (True, "calendar"))
+        for favorite in menu["favorites"]:
+            group, item = favorite.split("/")
+            self.assertIn(item, groups[group])
+
+    def test_every_menu_icon_and_group_icon_has_a_paper_drawing(self):
+        if not shutil.which("node"):
+            self.skipTest("node is not installed")
+        script = ("const fs=require('fs'),vm=require('vm');const c=vm.createContext({});"
+                  "vm.runInContext(fs.readFileSync(process.argv[1],'utf8').replace(/^\\.pragma library\\s*/,''),c);"
+                  "const m=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));"
+                  "console.log(JSON.stringify([...m.groups,...m.groups.flatMap(g=>g.items)].map(e=>[e.id,c.paperIcon(e)])))")
+        out = subprocess.run(["node", "-e", script, str(REPO / "shared/quickshell/foxml/DrawerLogic.js"), str(REPO / "shared/quickshell/foxml/menus.json")],
+                             capture_output=True, text=True, timeout=10)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        for entry, icon in json.loads(out.stdout):
+            with self.subTest(id=entry):
+                self.assertTrue(icon, f"{entry} has no paper drawing")
+                self.assertTrue((REPO / "templates/quickshell/foxml" / icon).exists(), icon)
+
+    def test_keys_must_be_short_text_and_keywords_a_list_of_words(self):
+        base = {"id": "connections", "label": "Connections", "items": [{"id": "wifi", "label": "Wi-Fi", "kind": "page", "page": "wifi"}]}
+        for bad in ({"keys": ["alt"]}, {"keys": "x" * 80}, {"keywords": "wifi"}, {"keywords": [1]}, {"keywords": [""]}):
+            with self.subTest(bad=bad):
+                group = json.loads(json.dumps(base)); group["items"][0].update(bad)
+                self.write_config([group])
+                self.assertIn("error", self.invoke("view", "connections", expect=1))
+
+    def test_search_finds_rows_by_keyword_id_and_hyphenless_words(self):
+        self.write_config([
+            {"id": "connections", "label": "Connections", "items": [
+                {"id": "wifi", "label": "Wi-Fi", "detail": "Find a network nearby", "kind": "page", "page": "wifi", "keys": "alt ⇧ n", "keywords": ["wireless", "internet"]}]},
+            {"id": "comfort", "label": "Comfort", "items": [
+                {"id": "dnd", "label": "Do not disturb", "kind": "toggle", "keywords": ["notifications", "quiet"]}]},
+            {"id": "system", "label": "System", "items": [
+                {"id": "displays", "label": "Displays", "kind": "page", "page": "displays", "keywords": ["monitor", "resolution", "pointer"]}]}])
+        found = lambda q: [r["id"] for r in self.invoke("view", "search", q)["items"] if r["id"] in ("wifi", "dnd", "displays")]
+        for query, expected in (("wireless", ["wifi"]), ("WiFi", ["wifi"]), ("wi-fi", ["wifi"]), ("dnd", ["dnd"]), ("Notifications", ["dnd"]),
+                                ("monitor", ["displays"]), ("pointer", ["displays"]), ("alt ⇧ n", ["wifi"]), ("nothing like it", [])):
+            with self.subTest(query=query):
+                self.assertEqual(found(query), expected)
+        row = next(r for r in self.invoke("view", "search", "wireless")["items"] if r["id"] == "wifi")
+        self.assertEqual(row["keys"], "alt ⇧ n")
+        self.assertEqual(self.invoke("view", "connections")["items"][0]["keys"], "alt ⇧ n")
+        self.assertEqual([r["id"] for r in self.invoke("view", "comfort", "quiet")["items"]], ["dnd"])
+
+    def test_search_finds_an_app_by_its_desktop_keywords(self):
+        apps = self.root / "system-data/applications"; apps.mkdir(parents=True)
+        (apps / "paper.desktop").write_text("[Desktop Entry]\nType=Application\nName=Paper Reader\nGenericName=Web Browser\nKeywords=internet;www;\nExec=true\n")
+        for query in ("www", "browser"):
+            self.assertIn("Paper Reader", [r["label"] for r in self.invoke("view", "search", query)["items"] if r["id"] == "app-launch"])
+
+    def keybinds(self, text):
+        document = self.home / ".local/share/foxml/KEYBINDS.md"
+        document.parent.mkdir(parents=True, exist_ok=True)
+        document.write_text(text)
+
+    def test_shortcut_reference_puts_the_desktop_first_and_leaves_stock_vim_out(self):
+        table = "| Key | Action |\n|-----|--------|\n"
+        self.keybinds("## Paper notebook details\n" + table + "| `ma` | Set bookmark a |\n### Quickshell drawers\n" + table + "| `j` / `k` | Move down / up |\n"
+                      "## Core Vim\n### Movement\n" + table + "| `h/j/k/l` | Left / Down / Up / Right |\n"
+                      "## Custom Keymaps (init.lua)\n### Telescope\n" + table + "| `Space ff` | Find files |\n"
+                      "## Hyprland (ALT = mainMod)\n### Applications\n" + table + "| `ALT + Shift + N` | Wi-Fi networks |\n"
+                      "## Tmux (Ctrl+a prefix)\n" + table + "| `Ctrl+a c` | New window |\n")
+        rows = self.invoke("view", "cheatsheet")["items"]
+        labels = [r["label"] for r in rows]
+        self.assertEqual(labels[0], "ALT + Shift + N")
+        self.assertLess(labels.index("ALT + Shift + N"), labels.index("Ctrl+a c"))
+        self.assertLess(labels.index("Ctrl+a c"), labels.index("Space ff"))
+        self.assertLess(labels.index("Ctrl+a c"), labels.index("ma"))
+        self.assertEqual((labels[1], rows[1]["detail"]), ("j / k", "Move down / up · Paper notebook details · Quickshell drawers"),
+                         "the drawer's own keys come straight after the desktop, a key pair in one cell read as one")
+        self.assertNotIn("h/j/k/l", labels)
+        found = self.invoke("view", "search", "wi-fi networks")["items"]
+        self.assertIn(("cheatsheet-copy", "ALT + Shift + N"), [(r["id"], r["label"]) for r in found])
+        self.assertFalse(any(r["id"] == "cheatsheet-copy" and r["label"] == "Space ff" for r in self.invoke("view", "search", "find files")["items"]),
+                         "search offers the desktop's binds, not every editor key")
+        self.assertTrue(self.invoke("run", "cheatsheet-copy", "ALT + Shift + N")["ok"])
+
+    def kept(self, *args):
+        """invoke, keeping what the fake services remember between runs."""
+        data = self.invoke(*args)
+        self.state = json.loads(self.state_path.read_text())
+        return data
+
+    def test_toggles_say_which_way_they_went(self):
+        self.write_config([{"id": "sound", "label": "Sound", "items": [{"id": "volume-mute", "label": "Mute", "kind": "toggle"}]}])
+        for action, said in (("volume-mute", "sound muted · a little quiet"), ("volume-mute", "sound is back"),
+                             ("mic-mute", "microphone muted · just for you"), ("mic-mute", "microphone is listening again"),
+                             ("wifi-toggle", "wi-fi off · resting the radio"), ("wifi-toggle", "wi-fi on"),
+                             ("bluetooth-toggle", "bluetooth off"), ("bluetooth-toggle", "bluetooth on"),
+                             ("dnd", "shh… notifications paused"), ("dnd", "notifications are back"),
+                             ("power-profile", "balanced · as usual")):
+            with self.subTest(action=action, said=said):
+                self.assertEqual(self.kept("run", action)["message"], said)
+        self.state["nightlight_running"] = True
+        self.assertEqual(self.kept("run", "nightlight")["message"], "night light on · a warmer glow")
+        self.assertEqual(self.kept("run", "nightlight")["message"], "night light off")
+
+    def note(self, id, summary="Claude · paper", body="Turn complete", app="Claude", urgency="normal"):
+        return {"id": id, "app_name": app, "app_icon": None, "category": None, "desktop_entry": None,
+                "summary": summary, "body": body, "urgency": urgency, "actions": {}}
+
+    def test_coming_back_from_quiet_counts_the_notes_that_arrived(self):
+        self.state["mako_history"] = [self.note(5)]
+        self.assertEqual(self.kept("run", "dnd")["message"], "shh… notifications paused")
+        self.state["mako_history"] = [self.note(8, app="fox-osd"), self.note(7), self.note(5)]
+        self.state["mako_list"] = [self.note(9, summary="still showing")]
+        self.assertEqual(self.kept("run", "dnd")["message"], "notifications are back · 2 notes while you were quiet")
+        notices = [c for c in self.calls() if c[0] == "notify-send"]
+        self.assertEqual(len(notices), 1, "one gentle notice, not every note again")
+        self.assertIn("2 notes while you were quiet", notices[0])
+        self.kept("run", "dnd")
+        self.assertEqual(self.kept("run", "dnd")["message"], "notifications are back", "nothing new, nothing said")
+        self.assertEqual(len([c for c in self.calls() if c[0] == "notify-send"]), 1)
+
+    def test_earlier_notes_list_newest_first_and_open_or_clear(self):
+        body = '<span foreground="#353238">Turn complete &amp; ready</span>\n<span font_size="smaller">tmux: paper:1.2</span>'
+        self.state["mako_history"] = [self.note(4, summary="Saved", body="a <b>little</b> file", app="foxml"),
+                                      self.note(9, body=body), self.note(6, app="fox-osd", summary="42%"),
+                                      self.note(7, summary="Battery low", app="", urgency="critical")]
+        self.assertEqual(subprocess.run([str(BINARY), "note-arrived", "9"], env=self.env, timeout=5).returncode, 0)
+        self.assertNotEqual(subprocess.run([str(BINARY), "note-arrived", "9;rm"], env=self.env, timeout=5).returncode, 0)
+        rows = self.invoke("view", "earlier-notes")["items"]
+        self.assertEqual([r["argument"] for r in rows[:-1]], ["9", "7", "4"])
+        self.assertEqual(rows[0]["label"], "Claude · paper")
+        self.assertTrue(rows[0]["detail"].startswith("Claude · Turn complete & ready · today "), rows[0]["detail"])
+        self.assertTrue(rows[1]["careful"])
+        self.assertEqual(rows[2]["detail"], "foxml · a little file")
+        self.assertEqual(rows[-1]["id"], "note-clear")
+        notes = Path(self.env["XDG_RUNTIME_DIR"]) / "foxml/notes.json"
+        self.assertEqual(notes.stat().st_mode & 0o777, 0o600)
+        self.invoke("run", "note-open", "4")
+        self.assertEqual([c for c in self.calls() if c[0] == "notify-send"][-1], ["notify-send", "-a", "foxml", "-u", "normal", "--", "Saved", "a <b>little</b> file"])
+        self.invoke("run", "note-open", "9")
+        self.assertIn(["tmux", "select-pane", "-t", "paper:1.2"], self.calls())
+        self.failed("run", "note-open", "6")
+        self.failed("run", "note-open", "12")
+        self.assertEqual(self.invoke("run", "note-clear")["message"], "tucked away.")
+        self.assertEqual(self.invoke("view", "earlier-notes")["items"], [])
+        self.state["mako_history"].append(self.note(10, summary="new after the clear"))
+        self.assertEqual([r["argument"] for r in self.invoke("view", "earlier-notes")["items"][:-1]], ["10"])
+        self.state["mako_history"] = [self.note(2, summary="mako started again")]
+        self.assertEqual([r["label"] for r in self.invoke("view", "earlier-notes")["items"][:-1]], ["mako started again"],
+                         "a mako restart counts ids from one again, so an old clear no longer hides them")
+
+    def test_clipboard_thumbnails_are_made_once_and_go_with_their_entry(self):
+        fake = self.bin / "magick"; fake.write_text(f"#!{sys.executable}\n" + FAKE_COMMAND); fake.chmod(0o755)
+        thumb = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=")
+        self.state["commands"] = {"magick": {"base64": base64.b64encode(thumb).decode()}}
+        self.state["clipboard"] = "17\ta note\n18\t[[ binary data 68 B png 1x1 ]]\n19\t[[ binary data 9 B txt ]]"
+        self.state["clipboard_data"] = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"pixels").decode()
+        first = self.invoke("view", "clipboard-images")["items"]
+        second = self.invoke("view", "clipboard-images")["items"]
+        self.assertEqual(first, second)
+        self.assertEqual(base64.b64decode(second[0]["image"].split(",", 1)[1]), thumb)
+        decodes = [c for c in self.calls() if c[0] == "cliphist" and c[1] == "decode"]
+        self.assertEqual(sorted(c[2] for c in decodes), ["18", "19"], "each entry is decoded once, then read from the cache")
+        self.assertEqual(len([c for c in self.calls() if c[0] == "magick"]), 2)
+        cache = Path(self.env["XDG_RUNTIME_DIR"]) / "foxml/clip-thumbs"
+        self.assertEqual(cache.stat().st_mode & 0o777, 0o700)
+        self.assertEqual({f.name: f.stat().st_mode & 0o777 for f in cache.iterdir()}, {"18.thumb": 0o600, "19.thumb": 0o600})
+        self.state["clipboard"] = "20\t[[ binary data 68 B png 1x1 ]]"
+        self.invoke("view", "clipboard-images")
+        self.assertEqual(sorted(f.name for f in cache.iterdir()), ["20.thumb"])
+
+    def test_windows_say_their_workspace_and_screen(self):
+        monitors = [{"id": 0, "name": "eDP-1", "width": 1920, "height": 1080, "x": 0, "y": 0, "scale": 1.0, "transform": 0},
+                    {"id": 1, "name": "HDMI-A-1", "width": 2560, "height": 1440, "x": -2560, "y": 0, "scale": 1.0, "transform": 0}]
+        (self.home / ".config/foxml").mkdir(parents=True)
+        (self.home / ".config/foxml/monitor-layout.conf").write_text('PRIMARY="eDP-1"\n')
+        self.state["exact"] = {"hyprctl\x1fmonitors\x1f-j": {"stdout": json.dumps(monitors)}}
+        self.state["windows"] = [
+            {"address": "0xa1", "title": "notes", "class": "kitty", "workspace": {"id": 3, "name": "3"}, "monitor": 1},
+            {"address": "0xa2", "title": "web", "class": "firefox", "workspace": {"id": 1, "name": "1"}, "monitor": 0},
+            {"address": "0xa3", "title": "tucked", "class": "kitty", "workspace": {"id": -98, "name": "special:scratch"}, "monitor": 0}]
+        rows = self.invoke("view", "windows")["items"]
+        self.assertEqual([r["detail"] for r in rows], ["kitty · workspace 3 · left screen", "firefox · workspace 1 · main screen",
+                                                      "kitty · tucked in the scratchpad · main screen"])
+        self.assertIn("workspace 3 · left screen", next(r for r in self.invoke("view", "search", "notes")["items"] if r["id"] == "window-focus")["detail"])
+        self.state["exact"] = {"hyprctl\x1fmonitors\x1f-j": {"stdout": json.dumps(monitors[:1])}}
+        self.assertEqual(self.invoke("view", "windows")["items"][0]["detail"], "kitty · workspace 3", "one screen needs no words")
 
 
 if __name__ == "__main__":

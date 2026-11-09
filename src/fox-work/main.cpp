@@ -247,7 +247,18 @@ J runs(const std::string& root = {}) {
         j["activity"] = ::stat(log.c_str(), &st) == 0 ? std::max(num(j, "started"), static_cast<long long>(st.st_mtime)) : num(j, "started");
         j["log"] = log.string(); out.push_back(j);
     }
-    std::sort(out.begin(), out.end(), [](const J& a, const J& b) { return num(a, "startedNs", num(a, "started") * 1000000000LL) > num(b, "startedNs", num(b, "started") * 1000000000LL); }); return out;
+    std::sort(out.begin(), out.end(), [](const J& a, const J& b) { return num(a, "startedNs", num(a, "started") * 1000000000LL) > num(b, "startedNs", num(b, "started") * 1000000000LL); });
+    // A running job's estimate: how long the newest pass of the exact same command in the same checkout took.
+    std::map<std::string, long long> took;
+    for (const auto& r : out) {
+        const auto took_s = num(r, "ended") - num(r, "started");
+        if (str(r, "state") == "passed" && num(r, "ended") > 0 && took_s >= 1) took.emplace(str(r, "root") + '\n' + str(r, "command"), took_s);
+    }
+    for (auto& r : out) if (str(r, "state") == "running") {
+        const auto it = took.find(str(r, "root") + '\n' + str(r, "command"));
+        if (it != took.end()) r["estimate"] = it->second;
+    }
+    return out;
 }
 std::string kind_of(const std::string& command) {
     if (std::regex_search(command, std::regex("(^|[ /;&|])(ctest|pytest|test_[^ /;&|]*|[^ /;&|]*_test)([ ;&|]|$)|\\b(cargo|go|npm|pnpm|bun) (run )?test\\b|\\bmake[^;&|]*\\btest\\b|unittest"))) return "tests";
@@ -270,9 +281,22 @@ J begin(const std::string& command, const std::string& root, const std::string& 
     if (!named.empty() && named.find('\n') == std::string::npos) j["title"] = named.substr(0, 160);
     return atomic(dir / "run.json", j.dump()) ? j : J();
 }
-bool finish(J j, int code, bool truncated) {
+// How many runs of the same command in the same checkout failed in a row just before this one; a stop is skipped.
+long long failed_before(const J& job) {
+    long long n = 0; const auto started = num(job, "startedNs", num(job, "started") * 1000000000LL);
+    for (const auto& r : runs(str(job, "root"))) {
+        if (str(r, "id") == str(job, "id") || str(r, "command") != str(job, "command")
+            || num(r, "startedNs", num(r, "started") * 1000000000LL) >= started) continue;
+        const auto state = str(r, "state");
+        if (state == "failed") ++n;
+        else if (state == "passed") break;
+    }
+    return n;
+}
+bool finish(J& j, int code, bool truncated) {
     if (!j.is_object()) return false;
     j["ended"] = now(); j["exit"] = code; j["truncated"] = truncated;
+    j["failedBefore"] = failed_before(j);
     j["state"] = code == 0 ? "passed" : code >= 128 || code < 0 ? "interrupted" : "failed";
     j["tests"] = parse_tests(read(run_dir(str(j, "id")) / "output.log"), str(j, "root"));
     j["testRun"] = str(j, "kind") == "tests" || !j["tests"]["passed"].is_null() || !j["tests"]["failed"].is_null();
@@ -389,6 +413,18 @@ J pin_plan(const std::string& root, const std::string& session, const std::strin
         plan = J{{"file", path.string()}, {"step", clean(step)}, {"at", now()}};
     }
     return J{{"ok", atomic(plan_path(root, session), plan.dump())}};
+}
+// Markdown checkboxes outside code fences: "- [x]" done, "- [ ]" still to do.
+J plan_with_progress(J plan) {
+    if (!plan.is_object() || str(plan, "file").empty()) return plan;
+    const std::regex box("^\\s*(?:[-*+]|[0-9]+[.)])\\s+\\[([ xX])\\]");
+    long long done = 0, total = 0; bool fence = false; std::smatch m;
+    for (const auto& line : split(read(str(plan, "file"), 1024 * 1024))) {
+        const auto t = trim(line);
+        if (t.rfind("```", 0) == 0 || t.rfind("~~~", 0) == 0) { fence = !fence; continue; }
+        if (!fence && std::regex_search(line, m, box)) { ++total; if (m[1] != " ") ++done; }
+    }
+    plan["done"] = done; plan["total"] = total; return plan;
 }
 J worktrees(const std::string& root) {
     J rows = J::array(), row;
@@ -511,6 +547,7 @@ int main(int argc, char** argv) {
             // A stop (Ctrl+C, a denied or interrupted call) is the person's own doing; only real failures notify.
             if (ok && code != 0 && code < 128) notify_failure(str(j, "title", str(j, "command")), id);
             out = J{{"ok", ok}};
+            if (ok) { out["state"] = j["state"]; out["testRun"] = j["testRun"]; out["failedBefore"] = j["failedBefore"]; }
         } else if (cmd == "activity") {
             const auto sid = opts["--session"];
             if (!std::regex_match(sid, std::regex("[A-Za-z0-9_-]{1,80}"))) return 2;
@@ -532,7 +569,7 @@ int main(int argc, char** argv) {
         else if (cmd == "overview") out = overview(roots, opts["--fresh"] == "yes");
         else if (cmd == "notebook") out = notebook(root, opts["--session"]);
         else if (cmd == "worktrees") out = worktrees(root);
-        else if (cmd == "plan") out = json(plan_path(root, opts["--session"]));
+        else if (cmd == "plan") out = plan_with_progress(json(plan_path(root, opts["--session"])));
         else if (cmd == "plan-pin") out = pin_plan(root, opts["--session"], opts["--file"], opts["--step"]);
         else if (cmd == "tasks") out = tasks(root);
         else if (cmd == "task-add") out = task_change(root, opts["--text"], "");

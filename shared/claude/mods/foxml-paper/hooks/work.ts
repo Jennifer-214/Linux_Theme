@@ -1,5 +1,5 @@
 import type { EngineInterface } from 'claude-code'
-import type { WorkLook, WorkTest } from '../types'
+import type { WorkJob, WorkLook, WorkTest } from '../types'
 
 export function shellQuote(s: string): string { return "'" + s.replace(/'/g, "'\\''") + "'" }
 // A build, test or download is the command a segment starts with, not a word it mentions:
@@ -40,6 +40,42 @@ export function testLabel(test: WorkTest): string {
     : test.stale ? ' · may be out of date' : ''
   const plain: Record<string, string> = { passed: '✓ last run passed', failed: 'last run failed', interrupted: 'last run stopped early', running: '◷ running' }
   return (counts || plain[test.state] || `last run ${test.state}`) + (counts && test.state !== 'passed' ? ` · ${test.state}` : '') + freshness
+}
+// Markdown checkboxes outside code fences, counted the way fox-work's plan output counts them.
+export function planProgress(text: string): { done: number; total: number } {
+  let done = 0, total = 0, fence = false
+  for (const line of text.split('\n')) {
+    const t = line.trim()
+    if (t.startsWith('```') || t.startsWith('~~~')) { fence = !fence; continue }
+    const box = fence ? null : line.match(/^\s*(?:[-*+]|\d+[.)])\s+\[([ xX])\]/)
+    if (box) { total++; if (box[1] !== ' ') done++ }
+  }
+  return { done, total }
+}
+export function stepLabel(p: { done: number; total: number }): string {
+  return p.done >= p.total ? `all ${p.total} ${p.total === 1 ? 'step' : 'steps'} done ✿` : `step ${p.done + 1} of ${p.total}`
+}
+// A little ruler: drawn up to `fraction`, with a pencil at the point when one is asked for.
+export function ruler(fraction: number, length: number, pencil = false): [string, string, string] {
+  const n = Math.max(3, length), at = Math.round(Math.min(1, Math.max(0, fraction)) * n)
+  if (!pencil) return ['━'.repeat(at), '', '┄'.repeat(n - at)]
+  const drawn = Math.min(at, n - 1)
+  return ['━'.repeat(drawn), '✎', '┄'.repeat(n - drawn - 1)]
+}
+// How a running job compares with the last time the same command passed here; no estimate, no guess.
+export function jobPace(job: WorkJob): { fraction: number; left: string } | { late: true } | null {
+  const estimate = job.estimate
+  if (typeof estimate !== 'number' || !(estimate > 0)) return null
+  const left = estimate - job.elapsed
+  if (left <= 0) return { late: true }
+  return { fraction: job.elapsed / estimate, left: left < 60 ? 'under a minute left' : `about ${Math.round(left / 60)}m left` }
+}
+// fox-work finish says how many runs of this command failed in a row before; a pass after two or more is a recovery.
+export function greenAgain(finished: string | null): boolean {
+  try {
+    const value = JSON.parse(finished ?? 'null') as { ok?: boolean; state?: string; testRun?: boolean; failedBefore?: number } | null
+    return value?.ok === true && value.state === 'passed' && value.testRun === true && (value.failedBefore ?? 0) >= 2
+  } catch { return false }
 }
 export async function work($: EngineInterface, args: string[], stdin?: string): Promise<string | null> {
   try {

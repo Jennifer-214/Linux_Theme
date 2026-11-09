@@ -100,7 +100,7 @@ fs::path repository() {
 const std::set<std::string> pages = {
     "apps", "windows", "audio-outputs", "wifi", "bluetooth", "tools", "tools-ai", "tools-security", "tools-desktop", "tools-system", "tools-projects", "tools-other", "tools-all", "cheatsheet", "sandbox", "clipboard-text", "clipboard-images",
     "wallpapers", "themes", "power", "updates", "agents", "projects", "bookmarks", "library", "downloads", "screenshots", "passwords", "garden",
-    "models", "storage", "backups", "startup", "displays", "jobs", "test-results", "reviews", "worktrees", "next-steps", "failures", "api-credits", "api-tasks"
+    "models", "storage", "backups", "startup", "displays", "jobs", "test-results", "reviews", "worktrees", "next-steps", "failures", "api-credits", "api-tasks", "earlier-notes"
 };
 const std::set<std::string> actions = {
     "volume", "volume-mute", "mic-mute", "media-play-pause", "media-next", "media-previous", "brightness",
@@ -110,7 +110,8 @@ const std::set<std::string> actions = {
     "wifi-toggle", "bluetooth-connect", "bluetooth-toggle", "bluetooth-scan", "bluetooth-service", "tool-run", "cheatsheet-copy", "sandbox-launch", "clipboard-restore", "wallpaper-set", "theme-set", "project-open", "project-terminal", "project-bookmark", "drive-open", "drive-eject", "download-open", "download-folder", "screenshot-open", "screenshot-copy", "screenshot-folder", "screenshot-capture", "password-copy", "tools", "cheatsheet", "sandbox",
     "api-task-ask", "api-task-open", "api-task-failure", "api-task-settings", "api-task-review", "api-task-pi", "api-task-follow", "display-scale-up", "display-scale-down", "display-rotate", "display-side", "display-keep", "display-undo", "display-edit", "cursor-size-up", "cursor-size-down", "credits-setup", "credits-console", "model-agent", "model-remove", "storage-scan", "storage-open", "storage-clean-packages", "storage-trim-journal", "storage-flatpak-unused",
     "storage-empty-trash", "storage-hidden", "backup-restore", "backup-open", "backup-prune", "startup-user", "startup-autostart",
-    "work-open", "work-jump", "work-tests", "work-compare", "work-ask", "work-reviews", "work-tasks", "work-task-toggle", "work-task-draft", "worktree-open", "worktree-terminal", "project-worktrees", "service-log", "service-ask"
+    "work-open", "work-jump", "work-tests", "work-compare", "work-ask", "work-reviews", "work-tasks", "work-task-toggle", "work-task-draft", "worktree-open", "worktree-terminal", "project-worktrees", "service-log", "service-ask",
+    "note-open", "note-clear", "calendar"
 };
 // The drawer loads one page at a time, so a page read that waits on a dead service holds every other page behind it.
 int read_limit_seconds = 0;
@@ -225,7 +226,7 @@ bool read_config(const fs::path& file, Json& config, std::string& error) {
         error = "Menu configuration needs a groups array"; return false;
     }
     if (config["groups"].empty() || config["groups"].size() > 32) { error = "Invalid menu group count"; return false; }
-    const std::set<std::string> allowed = {"id","label","detail","icon","kind","page","value","checked","enabled","confirm","argument","close","description"};
+    const std::set<std::string> allowed = {"id","label","detail","icon","kind","page","value","checked","enabled","confirm","argument","close","description","keys","keywords"};
     std::set<std::string> group_ids;
     for (const auto& group : config["groups"]) {
         const auto id = text(group, "id");
@@ -252,6 +253,14 @@ bool read_config(const fs::path& file, Json& config, std::string& error) {
                 if (row.contains(key) && !row[key].is_boolean()) { error = "Menu boolean has an invalid type"; return false; }
             }
             if (row.contains("argument") && !row["argument"].is_string()) { error = "Menu argument must be text"; return false; }
+            if (row.contains("keys") && (!row["keys"].is_string() || !safe_text(text(row, "keys"), 64))) { error = "Menu keys must be short text"; return false; }
+            if (row.contains("keywords")) {
+                const auto& words = row["keywords"];
+                if (!words.is_array() || words.size() > 24
+                    || std::any_of(words.begin(), words.end(), [](const Json& w) { return !w.is_string() || w.get<std::string>().empty() || !safe_text(w.get<std::string>(), 64); })) {
+                    error = "Menu keywords must be a short list of words"; return false;
+                }
+            }
             if (row.contains("value") && !row["value"].is_number()) { error = "Slider value must be numeric"; return false; }
             if (row.contains("confirm") && !row["confirm"].is_boolean() && !row["confirm"].is_string()) {
                 error = "Invalid confirmation"; return false;
@@ -389,7 +398,7 @@ Json toggle_nightlight() {
     if (!capture(args, output) || trim(output) != "ok") return result(false, "Night light change was rejected");
     bool after = identity;
     if (!nightlight_identity(after) || after == identity) return result(false, "Night light state did not change");
-    return result(true, after ? "Night light disabled" : "Night light enabled (3500K)");
+    return result(true, after ? "night light off" : "night light on · a warmer glow");
 }
 std::string required(const std::string& id) {
     if (id == "volume" || id == "volume-mute" || id == "mic-mute") return "wpctl";
@@ -483,7 +492,7 @@ bool decorate(Json& row) {
     return true;
 }
 
-struct Desktop { std::string name, detail, icon; fs::path path; };
+struct Desktop { std::string name, detail, icon; fs::path path; std::vector<std::string> keywords; };
 std::string desktop_value(std::string value) {
     std::string out;
     for (size_t i = 0; i < value.size(); ++i) {
@@ -522,7 +531,12 @@ std::vector<Desktop> desktops() {
             if (values["Type"] != "Application" || values["Name"].empty() || values["Hidden"] == "true" || values["NoDisplay"] == "true") continue;
             if (!values["TryExec"].empty() && !sh::have(values["TryExec"])) continue;
             if (!safe_text(values["Name"]) || !safe_text(path.string())) continue;
-            found.push_back({values["Name"], values["Comment"], values["Icon"], fs::absolute(path)});
+            // Keywords and the generic name let "browser" or "music" find an app by what it is for.
+            std::vector<std::string> words;
+            std::istringstream keywords(values["Keywords"] + ";" + values["GenericName"]);
+            for (std::string word; std::getline(keywords, word, ';') && words.size() < 16;)
+                if (!trim(word).empty() && safe_text(trim(word), 64)) words.push_back(trim(word));
+            found.push_back({values["Name"], values["Comment"], values["Icon"], fs::absolute(path), words});
         }
     }
     std::sort(found.begin(), found.end(), [](const auto& a, const auto& b) { return lower(a.name) < lower(b.name); });
@@ -586,14 +600,25 @@ std::string base64(const std::string& data) {
     }
     return out;
 }
-std::string image_preview(const std::string& id) {
-    std::string bytes;
-    if (!capture({"cliphist", "decode", id}, bytes) || bytes.empty() || bytes.size() > 16 * 1024 * 1024) return {};
-    std::string mime;
+// Thumbnails are made once per clipboard entry (cliphist ids never change their contents) and kept, 0600 in a
+// 0700 folder of the runtime directory, so the page's refresh reads files instead of decoding every picture again.
+bool write_atomic(const fs::path& path, const std::string& data);
+fs::path thumb_dir() { return runtime() / "foxml/clip-thumbs"; }
+bool thumb_dir_ready() {
+    std::error_code ec;
+    fs::create_directories(thumb_dir(), ec);
+    if (ec || fs::is_symlink(thumb_dir(), ec) || !directory(thumb_dir())) return false;
+    fs::permissions(thumb_dir(), fs::perms::owner_all, fs::perm_options::replace, ec);
+    return !ec;
+}
+enum class Preview { made, not_a_picture, unreadable };
+Preview make_preview(const std::string& id, std::string& mime, std::string& bytes) {
+    if (!capture({"cliphist", "decode", id}, bytes)) return Preview::unreadable;
+    if (bytes.empty() || bytes.size() > 16 * 1024 * 1024) return Preview::not_a_picture;
     if (bytes.size() >= 8 && bytes.compare(0, 8, "\211PNG\r\n\032\n", 8) == 0) mime = "image/png";
     else if (bytes.size() >= 3 && bytes.compare(0, 3, "\377\330\377", 3) == 0) mime = "image/jpeg";
     else if (bytes.size() >= 12 && bytes.compare(0, 4, "RIFF") == 0 && bytes.compare(8, 4, "WEBP") == 0) mime = "image/webp";
-    else return {};
+    else return Preview::not_a_picture;
     if (sh::have("magick")) {
         // Short-lived 0600 input avoids exposing clipboard pixels in a shared thumbnail cache.
         std::string pattern = (runtime() / "fox-drawer-image-XXXXXX").string();
@@ -611,8 +636,34 @@ std::string image_preview(const std::string& id) {
             if (ok && !thumbnail.empty() && thumbnail.size() <= 256 * 1024) { bytes = std::move(thumbnail); mime = "image/png"; }
         }
     }
-    if (bytes.size() > 256 * 1024) return {};
-    return "data:" + mime + ";base64," + base64(bytes);
+    if (bytes.size() > 256 * 1024) { bytes.clear(); mime.clear(); return Preview::not_a_picture; }
+    return Preview::made;
+}
+// A kept thumbnail is "<mime>\n<bytes>"; an empty mime remembers an entry that is not a picture we can show.
+std::string image_preview(const std::string& id, bool cache) {
+    const auto file = thumb_dir() / (id + ".thumb");
+    if (cache && regular(file) && !fs::is_symlink(file)) {
+        const auto kept = read(file);
+        const auto newline = kept.find('\n');
+        if (newline != std::string::npos) {
+            const auto mime = kept.substr(0, newline);
+            return mime.empty() ? std::string() : "data:" + mime + ";base64," + base64(kept.substr(newline + 1));
+        }
+    }
+    std::string mime, bytes;
+    const auto made = make_preview(id, mime, bytes);
+    if (made == Preview::unreadable) return {};
+    if (cache) write_atomic(file, (made == Preview::made ? mime : std::string()) + "\n" + (made == Preview::made ? bytes : std::string()));
+    return made == Preview::made ? "data:" + mime + ";base64," + base64(bytes) : std::string();
+}
+// Thumbnails of entries that left the history go with them.
+void prune_thumbs(const std::set<std::string>& keep) {
+    std::error_code ec;
+    for (fs::directory_iterator it(thumb_dir(), ec), end; !ec && it != end; it.increment(ec)) {
+        const auto name = it->path().filename().string();
+        const auto dot = name.find('.');
+        if (!keep.count(name.substr(0, dot))) { std::error_code ignored; fs::remove(it->path(), ignored); }
+    }
 }
 bool clipboard_rows(Json& rows, bool images) {
     std::string out;
@@ -708,6 +759,23 @@ std::string group_for(const Json& config, const std::string& page) {
         for (const auto& row : group["items"]) if (text(row, "page") == target) return text(group, "id");
     }
     return {};
+}
+// Search reads "wi-fi", "Wi-Fi" and "wifi" as one word.
+std::string search_fold(const std::string& value) {
+    auto out = lower(value);
+    out.erase(std::remove(out.begin(), out.end(), '-'), out.end());
+    return out;
+}
+std::string search_text(const Json& row) {
+    std::string haystack = text(row, "label") + "\n" + text(row, "detail") + "\n" + text(row, "keys");
+    if (const auto words = row.find("keywords"); words != row.end() && words->is_array())
+        for (const auto& word : *words) if (word.is_string()) haystack += "\n" + word.get<std::string>();
+    return search_fold(haystack);
+}
+// A menu row is also found by its id, so "dnd" or "api-credits" reach it.
+void searchable_by_id(Json& row) {
+    if (!row.contains("keywords") || !row["keywords"].is_array()) row["keywords"] = Json::array();
+    row["keywords"].push_back(text(row, "id"));
 }
 struct Project { fs::path path; std::string name, type; };
 fs::path bookmark_file() {
@@ -902,6 +970,169 @@ Json jump_agent(const std::string& key) {
     if (!truth(jumped, "ok")) return jumped;
     if (!dismiss_agent(key)) return result(false, "Terminal selected, but the note could not be dismissed");
     return jumped;
+}
+
+// ── Earlier notes: mako keeps the notes that expired (four seconds, even critical ones, and unseen during
+// do-not-disturb); this reads them back. mako's history has no times, so arrivals are stamped by
+// `fox-drawer note-arrived <id>` (mako's on-notify hook) and do-not-disturb from the drawer remembers the newest
+// note it started after. Everything lives in $XDG_RUNTIME_DIR/foxml/notes.json and goes away at logout.
+fs::path notes_file() { return runtime() / "foxml/notes.json"; }
+struct NotesLock {
+    int fd = -1;
+    NotesLock() {
+        std::error_code ec; fs::create_directories(notes_file().parent_path(), ec);
+        fd = ::open((notes_file().string() + ".lock").c_str(), O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+        if (fd >= 0 && ::flock(fd, LOCK_EX) != 0) { ::close(fd); fd = -1; }
+    }
+    ~NotesLock() { if (fd >= 0) ::close(fd); }
+};
+Json notes_state() {
+    auto state = Json::parse(read(notes_file()), nullptr, false);
+    if (!state.is_object()) state = Json::object();
+    if (!state.contains("arrived") || !state["arrived"].is_object()) state["arrived"] = Json::object();
+    return state;
+}
+bool save_notes_state(const Json& state) { return write_atomic(notes_file(), state.dump()); }
+long long number_field(const Json& object, const char* key) {
+    const auto at = object.find(key);
+    return at != object.end() && at->is_number_integer() ? at->get<long long>() : 0;
+}
+// Pango markup and entities out, the tmux line out, the first line that is left.
+std::string note_plain(const std::string& body) {
+    std::string out; bool tag = false;
+    for (char c : body) { if (c == '<') tag = true; else if (c == '>') tag = false; else if (!tag) out += c; }
+    for (const auto& [entity, plain] : std::vector<std::pair<std::string, std::string>>{{"&lt;", "<"}, {"&gt;", ">"}, {"&quot;", "\""}, {"&apos;", "'"}, {"&amp;", "&"}})
+        for (auto at = out.find(entity); at != std::string::npos; at = out.find(entity, at + plain.size())) out.replace(at, entity.size(), plain);
+    for (const auto& line : lines(out)) {
+        const auto clean = trim(line);
+        if (!clean.empty() && clean.rfind("tmux:", 0) != 0) return clean.size() > 140 ? clean.substr(0, 140) + "…" : clean;
+    }
+    return {};
+}
+std::string note_pane(const std::string& body) {
+    static const std::regex pane(R"(tmux: ([^:<>\s]{1,200}:[0-9]+\.[0-9]+))");
+    std::smatch m;
+    return std::regex_search(body, m, pane) ? m[1].str() : std::string();
+}
+struct Note { long long id = 0; std::string app, summary, body, urgency; };
+// The volume and brightness slips are mako notes too; they are not notes anyone missed.
+bool passing_note(const Json& note) { return text(note, "app_name") == "fox-osd"; }
+bool mako_notes(const char* which, std::vector<Note>& notes) {
+    Json data;
+    if (!sh::have("makoctl") || !capture_json({"makoctl", which, "-j"}, data) || !data.is_array()) return false;
+    for (const auto& n : data) {
+        if (!n.is_object() || passing_note(n) || number_field(n, "id") <= 0) continue;
+        Note note{number_field(n, "id"), text(n, "app_name"), text(n, "summary"), text(n, "body"), text(n, "urgency", "normal")};
+        if (!safe_text(note.app, 256) || !safe_text(note.summary) || !safe_text(note.body, 16384)) continue;
+        notes.push_back(note);
+    }
+    return true;
+}
+long long newest_note(const std::vector<Note>& notes) {
+    long long newest = 0;
+    for (const auto& n : notes) newest = std::max(newest, n.id);
+    return newest;
+}
+int note_arrived(const std::string& id) {
+    if (!numeric_id(id)) return 2;
+    NotesLock lock;
+    if (lock.fd < 0) return 1;
+    auto state = notes_state();
+    auto& arrived = state["arrived"];
+    arrived[id] = static_cast<long long>(std::time(nullptr));
+    // A long session keeps the newest couple of hundred stamps; mako's history is shorter than that.
+    const auto key_id = [](const std::string& key) { return numeric_id(key) ? std::strtoll(key.c_str(), nullptr, 10) : 0LL; };
+    while (arrived.size() > 200) {
+        auto oldest = arrived.begin();
+        for (auto it = arrived.begin(); it != arrived.end(); ++it) if (key_id(it.key()) < key_id(oldest.key())) oldest = it;
+        arrived.erase(oldest);
+    }
+    return save_notes_state(state) ? 0 : 1;
+}
+// Ids start again at 1 when mako restarts, so a clear or a quiet mark above the newest note has gone stale.
+void settle_notes_state(Json& state, long long newest) {
+    if (number_field(state, "cleared") > newest) state.erase("cleared");
+    if (number_field(state, "quiet_after") > newest) state["quiet_after"] = newest;
+}
+bool earlier_note_rows(Json& rows) {
+    std::vector<Note> notes;
+    if (!mako_notes("history", notes)) return false;
+    NotesLock lock;
+    auto state = notes_state();
+    settle_notes_state(state, newest_note(notes));
+    const auto cleared = number_field(state, "cleared");
+    const bool quiet = state.contains("quiet_since");
+    const auto quiet_after = number_field(state, "quiet_after");
+    std::sort(notes.begin(), notes.end(), [](const Note& a, const Note& b) { return a.id > b.id; });
+    for (const auto& note : notes) {
+        if (note.id <= cleared) continue;
+        const auto stamp = state["arrived"].find(std::to_string(note.id));
+        std::string when = stamp != state["arrived"].end() && stamp->is_number_integer() ? when_text(stamp->get<long long>()) : "";
+        if (when.empty() && quiet && note.id > quiet_after) when = "while you were quiet";
+        const auto said = note_plain(note.body);
+        const auto pane = note_pane(note.body);
+        std::string detail = note.app.empty() ? "a note" : note.app;
+        if (!said.empty()) detail += " · " + said;
+        if (!when.empty()) detail += " · " + when;
+        auto row = item("note-open", note.summary.empty() ? "(no title)" : note.summary, "action", detail, "message");
+        row["argument"] = std::to_string(note.id);
+        if (note.urgency == "critical") row["careful"] = true;
+        if (!pane.empty()) row["close"] = true;
+        rows.push_back(row);
+    }
+    if (!rows.empty()) rows.push_back(item("note-clear", "Tuck these notes away", "action", "They leave this list; new notes still arrive here", "message"));
+    return true;
+}
+Json open_note(const std::string& id) {
+    if (!numeric_id(id)) return result(false, "Invalid note");
+    std::vector<Note> notes;
+    if (!mako_notes("history", notes)) return result(false, "Earlier notes are unavailable");
+    const auto at = std::find_if(notes.begin(), notes.end(), [&](const Note& n) { return std::to_string(n.id) == id; });
+    if (at == notes.end()) return result(false, "That note has drifted out of mako's history");
+    const auto pane = note_pane(at->body);
+    if (!pane.empty()) return jump_target(pane);
+    if (!sh::have("notify-send")) return result(false, "notify-send is not installed");
+    const auto urgency = at->urgency == "low" || at->urgency == "critical" ? at->urgency : std::string("normal");
+    auto shown = command({"notify-send", "-a", at->app.empty() ? std::string("foxml") : at->app, "-u", urgency, "--", at->summary, at->body},
+                         "here it is again", false, "Could not show that note again");
+    const auto quiet = dnd_state();
+    if (truth(shown, "ok") && quiet.ok && quiet.checked) shown["message"] = "it's waiting quietly · do not disturb is on";
+    return shown;
+}
+Json clear_notes() {
+    std::vector<Note> notes;
+    if (!mako_notes("history", notes)) return result(false, "Earlier notes are unavailable");
+    NotesLock lock;
+    auto state = notes_state();
+    state["cleared"] = newest_note(notes);
+    return save_notes_state(state) ? result(true, "tucked away.") : result(false, "Could not put the notes away");
+}
+// Do not disturb from the drawer: going quiet remembers the newest note; coming back counts what arrived since.
+std::string quiet_changed(bool quiet) {
+    std::vector<Note> notes;
+    const bool readable = mako_notes("history", notes) && mako_notes("list", notes);
+    NotesLock lock;
+    auto state = notes_state();
+    if (quiet) {
+        state["quiet_since"] = static_cast<long long>(std::time(nullptr));
+        state["quiet_after"] = readable ? newest_note(notes) : 0;
+        if (!readable) state.erase("quiet_since");
+        save_notes_state(state);
+        return {};
+    }
+    if (!state.contains("quiet_since") || !readable) { state.erase("quiet_since"); state.erase("quiet_after"); save_notes_state(state); return {}; }
+    settle_notes_state(state, newest_note(notes));
+    std::set<long long> missed;
+    for (const auto& n : notes) if (n.id > number_field(state, "quiet_after")) missed.insert(n.id);
+    state.erase("quiet_since"); state.erase("quiet_after");
+    save_notes_state(state);
+    if (missed.empty()) return {};
+    const auto count = std::to_string(missed.size()) + (missed.size() == 1 ? " note" : " notes") + " while you were quiet";
+    if (sh::have("notify-send")) {
+        std::string ignored;
+        capture({"notify-send", "-a", "foxml", "-u", "low", "--", count, "they're waiting in earlier notes, in the drawer's comfort corner"}, ignored);
+    }
+    return count;
 }
 
 // Claude Code sessions, from what the status line and hooks leave in foxml-claude/ beside the agent queue:
@@ -1347,7 +1578,7 @@ Json project_card(const Project& project, bool pinned) {
 
 // ── Displays: scale, rotation, side and pointer size, applied live with a 15 s keep-or-go-back ──
 namespace placement = fox_monitor::placement;
-struct LiveScreen { std::string name, model; int width = 0, height = 0, x = 0, y = 0, scale = 100, transform = 0; };
+struct LiveScreen { std::string name, model; int width = 0, height = 0, x = 0, y = 0, scale = 100, transform = 0, id = -1; };
 fs::path hypr_modules() { return config_home() / "hypr/modules"; }
 fs::path display_pending() { return runtime() / "foxml/display-pending"; }
 // 15 s; tests shorten it with FOXML_DISPLAY_REVERT_SECONDS (0-60).
@@ -1366,6 +1597,7 @@ std::vector<LiveScreen> live_screens() {
         s.width = m.value("width", 0); s.height = m.value("height", 0);
         s.x = m.value("x", 0); s.y = m.value("y", 0);
         s.scale = placement::to_x100(m.value("scale", 1.0)); s.transform = m.value("transform", 0);
+        if (m.contains("id") && m["id"].is_number_integer()) s.id = m["id"].get<int>();
         if (std::regex_match(s.name, std::regex("[A-Za-z0-9_.:-]{1,64}")) && s.width > 0 && s.height > 0) out.push_back(s);
     }
     return out;
@@ -1519,6 +1751,38 @@ Json set_cursor_size(int size) {
     auto done = result(true, "Pointer size " + std::to_string(size) + " · apps opened from now on use it too");
     done["close"] = false; return done;
 }
+// Where each screen sits, said from the main screen: "main screen", "left screen", "top screen". One screen needs no words.
+std::map<int, std::string> screen_places() {
+    std::map<int, std::string> places;
+    const auto screens = live_screens();
+    if (screens.size() < 2) return places;
+    const auto primary = primary_of(screens);
+    const auto main_screen = std::find_if(screens.begin(), screens.end(), [&](const LiveScreen& s) { return s.name == primary; });
+    if (main_screen == screens.end()) return places;
+    const auto main_box = live_box(*main_screen);
+    for (const auto& s : screens) {
+        if (s.id < 0) continue;
+        if (s.name == primary) { places[s.id] = "main screen"; continue; }
+        const auto side = placement::side_of(main_box, live_box(s));
+        places[s.id] = (side == "above" ? std::string("top") : side == "below" ? std::string("bottom") : side) + " screen";
+    }
+    return places;
+}
+std::string window_place(const Json& client, const std::map<int, std::string>& places) {
+    std::string where;
+    if (const auto ws = client.find("workspace"); ws != client.end() && ws->is_object()) {
+        const auto name = text(*ws, "name");
+        const int id = ws->contains("id") && (*ws)["id"].is_number_integer() ? (*ws)["id"].get<int>() : 0;
+        if (id < 0 || name.rfind("special", 0) == 0) where = "tucked in the scratchpad";
+        else if (!name.empty() && name != std::to_string(id) && safe_text(name, 64)) where = "workspace " + name;
+        else if (id > 0) where = "workspace " + std::to_string(id);
+    }
+    if (const auto monitor = client.find("monitor"); monitor != client.end() && monitor->is_number_integer()) {
+        const auto place = places.find(monitor->get<int>());
+        if (place != places.end()) where += (where.empty() ? "" : " · ") + place->second;
+    }
+    return where;
+}
 void display_rows(Json& rows) {
     const auto screens = live_screens();
     if (screens.empty()) {
@@ -1646,7 +1910,14 @@ std::string work_age(long long seconds) {
     return seconds < 60 ? std::to_string(std::max(0LL, seconds)) + "s" : seconds < 3600 ? std::to_string(seconds / 60) + "m" : std::to_string(seconds / 3600) + "h " + std::to_string(seconds % 3600 / 60) + "m";
 }
 Json work_row(const std::string& action, const std::string& label, const std::string& argument, const std::string& detail = {}) {
-    auto row = item(action, label, "action", detail, "✎"); row["argument"] = argument; row["close"] = true; return row;
+    // Each kind of work row has its own pencil drawing: the job itself, its terminal, a comparison, a question.
+    static const std::map<std::string, std::string> icons = {
+        {"work-open", "clock"}, {"work-tests", "notebook"}, {"work-jump", "terminal"}, {"work-compare", "search"},
+        {"work-ask", "message"}, {"api-task-failure", "message"}, {"work-reviews", "note"}, {"work-task-draft", "next"},
+        {"work-task-toggle", "next"}, {"work-tasks", "next"}, {"service-log", "notebook"}, {"service-ask", "message"}};
+    const auto found = icons.find(action);
+    auto row = item(action, label, "action", detail, found == icons.end() ? "clock" : found->second);
+    row["argument"] = argument; row["close"] = true; return row;
 }
 bool work_project(const Json& config, const std::string& path) {
     for (const auto& p : projects(config)) if (p.path.string() == path) return true;
@@ -1938,6 +2209,16 @@ std::string group_summary(const std::string& group) {
     return {};
 }
 
+// The bench at a glance, from the same counts Today shows: what is running, then what waits for you.
+std::string workbench_summary(const Json& today) {
+    const auto count = [&](const char* key) { return today.contains(key) && today[key].is_number_integer() ? today[key].get<long long>() : 0LL; };
+    const auto say = [](long long n, const std::string& one, const std::string& many) { return std::to_string(n) + " " + (n == 1 ? one : many); };
+    if (count("jobsRunning")) return say(count("jobsRunning"), "job running", "jobs running");
+    if (count("claudeWorking")) return say(count("claudeWorking"), "Claude working", "Claudes working");
+    if (count("jobsFailed")) return say(count("jobsFailed"), "job failed", "jobs failed");
+    if (count("changesToReview")) return say(count("changesToReview"), "change to look over", "changes to look over");
+    return "all quiet on the bench";
+}
 struct Tool { std::string name, description; };
 struct ToolSection { std::string id, label, description, icon; };
 const std::vector<ToolSection> tool_sections{
@@ -1987,24 +2268,44 @@ std::vector<Tool> fox_tools() {
     return found;
 }
 
-struct Shortcut { std::string keys, description, section; };
+// Desktop first, then the drawer, tmux and Neovim. Stock Vim keys are Vim's own and stay out; the theme's
+// init.lua maps and notebook marks stay in.
+enum class KeyFamily { desktop, drawer, tmux, nvim, stock };
+struct Shortcut { std::string keys, description, section; KeyFamily family = KeyFamily::nvim; };
+KeyFamily key_family(const std::string& major, const std::string& minor) {
+    if (major.rfind("Hyprland", 0) == 0) return KeyFamily::desktop;
+    if (minor.find("Quickshell") != std::string::npos || minor.find("drawer") != std::string::npos) return KeyFamily::drawer;
+    if (major.rfind("Tmux", 0) == 0) return KeyFamily::tmux;
+    if (major.rfind("Core Vim", 0) == 0) return KeyFamily::stock;
+    return KeyFamily::nvim;
+}
 std::vector<Shortcut> shortcuts() {
     fs::path file = data_home() / "foxml/KEYBINDS.md";
     if (!regular(file)) file = repository() / "KEYBINDS.md";
-    std::vector<Shortcut> found; std::string major, section;
+    std::vector<Shortcut> found; std::string major, minor, section;
     for (const auto& line : lines(read(file))) {
-        if (line.rfind("## ", 0) == 0) { section = major = trim(line.substr(3)); continue; }
-        if (line.rfind("### ", 0) == 0) { section = major + " · " + trim(line.substr(4)); continue; }
+        if (line.rfind("## ", 0) == 0) { section = major = trim(line.substr(3)); minor.clear(); continue; }
+        if (line.rfind("### ", 0) == 0) { minor = trim(line.substr(4)); section = major + " · " + minor; continue; }
         if (line.rfind("| `", 0) != 0) continue;
-        const auto close = line.find('`', 3);
-        const auto bar = close == std::string::npos ? close : line.find('|', close);
-        if (bar == std::string::npos || !trim(line.substr(close + 1, bar - close - 1)).empty()) continue;
+        // The first cell, to the first bar outside backticks: "`j` / `k`" reads "j / k", "`Ctrl+a \|`" reads "Ctrl+a |".
+        std::string keys; bool code = false; size_t bar = std::string::npos;
+        for (size_t i = 2; i < line.size(); ++i) {
+            if (line[i] == '\\' && i + 1 < line.size() && line[i + 1] == '|') { keys += '|'; ++i; }
+            else if (line[i] == '`') code = !code;
+            else if (line[i] == '|' && !code) { bar = i; break; }
+            else keys += line[i];
+        }
+        keys = trim(keys);
+        if (bar == std::string::npos || keys.empty()) continue;
+        const auto family = key_family(major, minor);
+        if (family == KeyFamily::stock) continue;
         std::string description = trim(line.substr(bar + 1));
         if (!description.empty() && description.back() == '|') description = trim(description.substr(0, description.size() - 1));
         description.erase(std::remove(description.begin(), description.end(), '`'), description.end());
         for (auto at = description.find("**"); at != std::string::npos; at = description.find("**")) description.erase(at, 2);
-        found.push_back({line.substr(3, close - 3), description, section});
+        found.push_back({keys, description, section, family});
     }
+    std::stable_sort(found.begin(), found.end(), [](const Shortcut& a, const Shortcut& b) { return a.family < b.family; });
     return found;
 }
 
@@ -2585,7 +2886,7 @@ Json view(const Json& config, const std::string& page, const std::string& query,
         out["today"] = today_summary(config);
         for (const auto& group : config["groups"]) {
             auto row = item(text(group, "id"), text(group, "label"), "page", text(group, "description"), text(group, "icon"));
-            row["summary"] = group_summary(text(group, "id"));
+            row["summary"] = text(group, "id") == "workbench" ? workbench_summary(out["today"]) : group_summary(text(group, "id"));
             row["page"] = text(group, "id"); rows.push_back(row);
         }
         out["favorites"] = Json::array();
@@ -2605,9 +2906,14 @@ Json view(const Json& config, const std::string& page, const std::string& query,
         known = true; out["title"] = "Find anything";
         for (const auto& group : config["groups"]) for (auto row : group["items"]) {
             row["detail"] = text(group, "label") + (text(row, "detail").empty() ? "" : " › " + text(row, "detail"));
-            row["group"] = text(group, "id"); rows.push_back(row);
+            row["group"] = text(group, "id"); searchable_by_id(row); rows.push_back(row);
         }
         if (!query.empty()) {
+            for (const auto& shortcut : shortcuts()) {
+                if (shortcut.family != KeyFamily::desktop) continue;
+                auto row = item("cheatsheet-copy", shortcut.keys, "action", "Shortcut · " + shortcut.description, "info");
+                row["argument"] = shortcut.keys; row["group"] = "system"; rows.push_back(row);
+            }
             for (const auto& tool : fox_tools()) {
                 auto row = item("tool-run", tool.name, "action", "Fox tools · " + tool.description, "info");
                 row["argument"] = tool.name; row["close"] = true; row["group"] = "system"; rows.push_back(row);
@@ -2642,14 +2948,17 @@ Json view(const Json& config, const std::string& page, const std::string& query,
             for (const auto& app : desktops()) {
                 auto row = item("app-launch", app.name, "action", "Desk › Applications" + (app.detail.empty() ? "" : " · " + app.detail), app.icon);
                 row["argument"] = app.path.string(); row["close"] = true;
+                if (!app.keywords.empty()) row["keywords"] = app.keywords;
                 row["group"] = "desk"; row["enabled"] = sh::have("gio"); rows.push_back(row);
             }
             Json clients;
             if (sh::have("hyprctl") && capture_json({"hyprctl", "-j", "clients"}, clients) && clients.is_array()) {
+                const auto places = screen_places();
                 for (const auto& client : clients) {
                     if (!client.is_object() || text(client, "address").empty()) continue;
+                    const auto where = window_place(client, places);
                     auto row = item("window-focus", text(client, "title", text(client, "class", "Window")),
-                                    "action", "Desk › Open windows · " + text(client, "class"), "window");
+                                    "action", "Desk › Open windows · " + text(client, "class") + (where.empty() ? "" : " · " + where), "window");
                     row["argument"] = text(client, "address"); row["close"] = true;
                     row["group"] = "desk"; rows.push_back(row);
                 }
@@ -2660,6 +2969,7 @@ Json view(const Json& config, const std::string& page, const std::string& query,
         for (auto row : group["items"]) {
             if (!row.contains("enabled")) row["enabled"] = true;
             if (!decorate(row)) fail("Some controls are unavailable");
+            if (!query.empty()) searchable_by_id(row);
             rows.push_back(row);
         }
     }
@@ -2725,14 +3035,20 @@ Json view(const Json& config, const std::string& page, const std::string& query,
         if (!sh::have("gio")) fail("gio is not installed");
         for (const auto& app : desktops()) {
             auto row = item("app-launch", app.name, "action", app.detail, app.icon);
+            if (!app.keywords.empty()) row["keywords"] = app.keywords;
             row["argument"] = app.path.string(); row["close"] = true; row["enabled"] = sh::have("gio"); rows.push_back(row);
         }
     } else if (page == "windows") {
         known = true; out["title"] = "Open windows"; Json clients;
-        if (!capture_json({"hyprctl", "-j", "clients"}, clients) || !clients.is_array()) fail("Hyprland windows are unavailable");
+        const bool listed = capture_json({"hyprctl", "-j", "clients"}, clients) && clients.is_array();
+        const auto places = listed ? screen_places() : std::map<int, std::string>{};
+        if (!listed) fail("Hyprland windows are unavailable");
         else for (const auto& client : clients) {
             if (!client.is_object() || text(client, "address").empty()) continue;
-            auto row = item("window-focus", text(client, "title", text(client, "class", "Window")), "action", text(client, "class"), "window");
+            const auto where = window_place(client, places);
+            const auto app = text(client, "class");
+            auto row = item("window-focus", text(client, "title", text(client, "class", "Window")), "action",
+                            app + (app.empty() || where.empty() ? "" : " · ") + where, "window");
             row["argument"] = text(client, "address"); row["close"] = true; rows.push_back(row);
         }
     } else if (page == "audio-outputs") {
@@ -2780,12 +3096,16 @@ Json view(const Json& config, const std::string& page, const std::string& query,
         known = true; out["title"] = page == "clipboard-images" ? "Clipboard images" : "Clipboard";
         if (!clipboard_rows(rows, page == "clipboard-images")) fail("Clipboard history is unavailable");
         else if (page == "clipboard-images") {
+            const bool cache = thumb_dir_ready();
+            std::set<std::string> listed;
             size_t previews = 0;
             for (auto& row : rows) {
-                if (previews++ >= 24) break;
-                const auto image = image_preview(text(row, "argument"));
+                listed.insert(text(row, "argument"));
+                if (previews++ >= 24) continue;
+                const auto image = image_preview(text(row, "argument"), cache);
                 if (!image.empty()) row["image"] = image;
             }
+            if (cache) prune_thumbs(listed);
         }
     } else if (page == "wallpapers") {
         known = true; out["title"] = "Wallpapers";
@@ -2945,6 +3265,9 @@ Json view(const Json& config, const std::string& page, const std::string& query,
             for (auto& row : careful) rows.push_back(row);
             for (auto& row : plain) rows.push_back(row);
         }
+    } else if (page == "earlier-notes") {
+        known = true; out["title"] = "Earlier notes";
+        if (!earlier_note_rows(rows)) fail(sh::have("makoctl") ? "mako's history is unavailable" : "Earlier notes read mako's history; mako is not installed");
     } else if (page == "models") {
         known = true; out["title"] = "Local models";
         model_rows(rows);
@@ -3008,8 +3331,8 @@ Json view(const Json& config, const std::string& page, const std::string& query,
     }
     if (!known) fail("Unknown drawer page");
     if (!query.empty()) {
-        Json filtered = Json::array(); const auto needle = lower(query);
-        for (const auto& row : rows) if (lower(text(row, "label") + " " + text(row, "detail")).find(needle) != std::string::npos) filtered.push_back(row);
+        Json filtered = Json::array(); const auto needle = search_fold(query);
+        for (const auto& row : rows) if (search_text(row).find(needle) != std::string::npos) filtered.push_back(row);
         rows = std::move(filtered);
     }
     // Search rows come straight from the menu, so they still need their live values.
@@ -3060,7 +3383,7 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         if (id == "logout") return command({"fox-hl", "dispatch", "hl.dsp.exit()", "exit"}, "Log out", true);
         return command({"systemctl", id}, id == "suspend" ? "Suspend" : id == "reboot" ? "Restart" : "Shut down", true);
     }
-    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","tool-run","cheatsheet-copy","sandbox-launch","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","screenshot-open","screenshot-copy","screenshot-folder","password-copy","agent-jump","claude-jump","model-agent","model-remove","storage-open","backup-restore","backup-open","startup-user","startup-autostart","api-task-ask","api-task-open","api-task-failure","api-task-review","api-task-pi","api-task-follow","display-scale-up","display-scale-down","display-rotate","display-side"};
+    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","tool-run","cheatsheet-copy","sandbox-launch","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","screenshot-open","screenshot-copy","screenshot-folder","password-copy","agent-jump","claude-jump","model-agent","model-remove","storage-open","backup-restore","backup-open","startup-user","startup-autostart","api-task-ask","api-task-open","api-task-failure","api-task-review","api-task-pi","api-task-follow","display-scale-up","display-scale-down","display-rotate","display-side","note-open"};
     const bool confirm_only = arg == "--confirm" && (id == "backup-prune" || id == "storage-empty-trash");
     if (!argument_actions.count(id) && !arg.empty() && !confirm_only) return result(false, "This action accepts no argument");
     if (id == "volume" || id == "brightness") {
@@ -3074,22 +3397,42 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         return command({"brightnessctl", "set", std::to_string(std::max(1, value)) + "%"}, "Brightness adjusted", false, "Could not change the brightness");
     }
     if (id == "volume-mute" || id == "mic-mute") {
-        if (!audio_state(id == "mic-mute").ok) return result(false, "Audio state is unavailable");
-        return command({"wpctl", "set-mute", id == "mic-mute" ? "@DEFAULT_AUDIO_SOURCE@" : "@DEFAULT_AUDIO_SINK@", "toggle"}, "Mute toggled", false, "Could not toggle mute");
+        const bool mic = id == "mic-mute";
+        if (!audio_state(mic).ok) return result(false, "Audio state is unavailable");
+        auto done = command({"wpctl", "set-mute", mic ? "@DEFAULT_AUDIO_SOURCE@" : "@DEFAULT_AUDIO_SINK@", "toggle"}, "mute switched", false, "Could not toggle mute");
+        const auto after = audio_state(mic);
+        if (truth(done, "ok") && after.ok)
+            done["message"] = mic ? (after.checked ? "microphone muted · just for you" : "microphone is listening again")
+                                  : (after.checked ? "sound muted · a little quiet" : "sound is back");
+        return done;
     }
     if (id.rfind("media-", 0) == 0) return command({"playerctl", id.substr(6)}, "Playback updated", false, "Could not control playback");
     if (id == "nightlight") return toggle_nightlight();
     if (id == "dnd") {
         const auto state = dnd_state();
         if (!state.ok) return result(false, "Notification service is unavailable");
-        return state.label == "mako" ? command({"makoctl", "mode", "-t", "do-not-disturb"}, "Do not disturb toggled", false, "Could not toggle Do not disturb")
-                                     : command({"dunstctl", "set-paused", "toggle"}, "Do not disturb toggled", false, "Could not toggle Do not disturb");
+        auto done = state.label == "mako" ? command({"makoctl", "mode", "-t", "do-not-disturb"}, "do not disturb switched", false, "Could not toggle Do not disturb")
+                                          : command({"dunstctl", "set-paused", "toggle"}, "do not disturb switched", false, "Could not toggle Do not disturb");
+        const auto after = dnd_state();
+        if (!truth(done, "ok") || !after.ok || after.checked == state.checked) return done;
+        if (after.checked) { if (after.label == "mako") quiet_changed(true); done["message"] = "shh… notifications paused"; return done; }
+        const auto missed = after.label == "mako" ? quiet_changed(false) : std::string();
+        done["message"] = "notifications are back" + (missed.empty() ? std::string() : " · " + missed);
+        return done;
     }
     if (id == "idle") {
         const auto idle = process_state("hypridle");
         if (!idle.ok) return result(false, "Idle service state is unavailable");
-        if (!idle.checked && !regular(runtime() / "hypridle_paused")) return result(false, "Auto-lock is off, so the screen already stays awake");
-        return background({script("toggle_dpms.sh").string()}, "Idle inhibition toggled");
+        const bool was_awake = regular(runtime() / "hypridle_paused");
+        if (!idle.checked && !was_awake) return result(false, "Auto-lock is off, so the screen already stays awake");
+        auto done = background({script("toggle_dpms.sh").string()}, "stay awake is switching…");
+        if (!truth(done, "ok")) return done;
+        // The script runs on its own; its mark appears or goes within a moment.
+        for (int wait = 0; wait < 20 && regular(runtime() / "hypridle_paused") == was_awake; ++wait)
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        if (regular(runtime() / "hypridle_paused") != was_awake)
+            done["message"] = was_awake ? "the screens can rest when idle again" : "staying awake · the screens stay on";
+        return done;
     }
     if (id == "power-profile") {
         std::string profile = arg;
@@ -3099,7 +3442,15 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
             profile = trim(current) == "balanced" ? "performance" : trim(current) == "performance" ? "power-saver" : trim(current) == "power-saver" ? "balanced" : "";
         }
         if (profile != "balanced" && profile != "performance" && profile != "power-saver") return result(false, "Invalid power profile");
-        return command({"powerprofilesctl", "set", profile}, "Power profile: " + profile, false, "Could not change the power profile");
+        auto done = command({"powerprofilesctl", "set", profile}, "power profile · " + profile, false, "Could not change the power profile");
+        std::string now;
+        if (truth(done, "ok") && capture({"powerprofilesctl", "get"}, now)) {
+            now = trim(now);
+            if (now == "performance") done["message"] = "performance · running at full speed";
+            else if (now == "balanced") done["message"] = "balanced · as usual";
+            else if (now == "power-saver") done["message"] = "power saver · going gently";
+        }
+        return done;
     }
     if (id == "screenshot-capture") return launch({script("screenshot.sh").string()}, "Screenshot editor opened");
     if (id == "screenshot-open" || id == "screenshot-copy" || id == "screenshot-folder") {
@@ -3184,7 +3535,11 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
     if (id == "wifi-toggle") {
         std::string current;
         if (!capture({"nmcli", "radio", "wifi"}, current) || (trim(current) != "enabled" && trim(current) != "disabled")) return result(false, "Wi-Fi radio state is unavailable");
-        return command({"nmcli", "radio", "wifi", trim(current) == "enabled" ? "off" : "on"}, "Wi-Fi radio toggled", false, "Could not toggle Wi-Fi");
+        auto done = command({"nmcli", "radio", "wifi", trim(current) == "enabled" ? "off" : "on"}, "wi-fi switched", false, "Could not toggle Wi-Fi");
+        std::string now;
+        if (truth(done, "ok") && capture({"nmcli", "radio", "wifi"}, now) && (trim(now) == "enabled" || trim(now) == "disabled"))
+            done["message"] = trim(now) == "enabled" ? "wi-fi on" : "wi-fi off · resting the radio";
+        return done;
     }
     if (id == "wifi-connect") {
         Json networks;
@@ -3206,7 +3561,11 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
     if (id == "bluetooth-toggle") {
         std::string controller;
         if (!capture({"bluetoothctl", "show"}, controller) || controller.find("Powered:") == std::string::npos) return result(false, "Bluetooth controller is unavailable");
-        return command({"bluetoothctl", "power", controller.find("Powered: yes") != std::string::npos ? "off" : "on"}, "Bluetooth power toggled", false, "Could not toggle Bluetooth");
+        auto done = command({"bluetoothctl", "power", controller.find("Powered: yes") != std::string::npos ? "off" : "on"}, "bluetooth switched", false, "Could not toggle Bluetooth");
+        std::string now;
+        if (truth(done, "ok") && capture({"bluetoothctl", "show"}, now) && now.find("Powered:") != std::string::npos)
+            done["message"] = now.find("Powered: yes") != std::string::npos ? "bluetooth on" : "bluetooth off";
+        return done;
     }
     if (id == "bluetooth-service") return terminal({"sudo", "systemctl", "enable", "--now", "bluetooth"}, "Bluetooth service prompt opened");
     if (id == "bluetooth-scan") {
@@ -3299,8 +3658,14 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
     }
     if (id == "startup-user") return startup_user_off(arg, confirmed);
     if (id == "startup-autostart") return startup_autostart_hide(arg, confirmed);
+    if (id == "note-open") return open_note(arg);
+    if (id == "note-clear") return clear_notes();
+    // The calendar is a sheet of the drawer itself, under the clock: the front end opens it like any page.
+    if (id == "calendar") { auto response = result(true, ""); response["page"] = "calendar"; return response; }
     if (id == "agent-triage") { auto response = result(true, "Choose an agent note"); response["page"] = "agents"; return response; }
-    if (id == "color-picker") return launch({"hyprpicker", "-a"}, "Color picker opened");
+    // The desktop's picker script stamps the copied colour with a swatch; plain hyprpicker where it isn't deployed.
+    if (id == "color-picker") return regular(script("color_picker.sh")) ? launch({"bash", script("color_picker.sh").string()}, "pick a little ink from the screen")
+                                                                        : launch({"hyprpicker", "-a"}, "pick a little ink from the screen");
     if (id == "vault") { auto response = result(true, "Choose a key"); response["page"] = "passwords"; return response; }
     if (id == "password-copy") {
         const auto names = password_names();
@@ -3427,6 +3792,8 @@ int main(int argc, char** argv) {
             std::cout << peers.dump(-1, ' ', false, Json::error_handler_t::replace) << '\n';
             return 0;
         }
+        // mako's on-notify hook: `on-notify=exec fox-drawer note-arrived "$id"` stamps when each note came.
+        if (args.size() == 2 && args[0] == "note-arrived") return note_arrived(args[1]);
         // The Storage page's measurement: slow on purpose (it walks the disk), run detached by the page.
         if (args.size() == 1 && args[0] == "storage-scan") return storage_scan();
         // The Displays page's safety timer: goes back to the saved layout unless it was kept.

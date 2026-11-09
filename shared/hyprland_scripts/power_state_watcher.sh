@@ -86,8 +86,17 @@ apply_state() {
 
 trap 'pkill -x hypridle 2>/dev/null || true; exit 0' TERM INT
 
+# Stay awake (toggle_dpms.sh, the drawer's Stay awake row) stops hypridle and
+# leaves this file; while it exists the supervisor must not bring hypridle back.
+PAUSED="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/hypridle_paused"
+
 last=""
 while :; do
+    if [[ -f "$PAUSED" ]]; then
+        last=""
+        sleep 30
+        continue
+    fi
     now="$(current_state)"
     # Re-apply on a power-state change OR whenever hypridle isn't running. The
     # latter turns this from a transition-only config-swapper into a supervisor:

@@ -2,7 +2,8 @@ export type PaperOwner = { sid: string; name: string; pane?: string }
 export type PaperFile = { path: string; added: number | null; removed: number | null; own?: boolean; owners?: PaperOwner[]; status?: string }
 export type WorkTest = { id: string; state: string; stale?: boolean; changedFiles?: string[] | null; changedDuringRun?: boolean; tests: { passed: number | null; failed: number | null; failures: { filename: string; lnum: number; text: string }[] } }
 export type WorkTask = { id: string; text: string; done: boolean }
-export type WorkJob = { id: string; command: string; title?: string; state: string; elapsed: number; activity: number; session: string }
+// estimate: seconds the newest pass of the same command in the same checkout took (running jobs only).
+export type WorkJob = { id: string; command: string; title?: string; state: string; elapsed: number; activity: number; session: string; estimate?: number }
 export type WorkLook = { tests: WorkTest | null; tasks: WorkTask[]; jobs: WorkJob[]; failures?: WorkJob[] }
 export type NotebookView = { page: 'overview' | 'files' | 'project' | 'sessions'; scope: 'session' | 'all'; selected: string; focused?: string; offset: number; form: 'none' | 'task' | 'plan' | 'step' }
 export type PaperTree = { path: string; branch: string; status: string; bare?: boolean; sessions: PaperPeer[] }
@@ -20,7 +21,9 @@ export type PaperLook = {
   files: PaperFile[]
   // open: this session is approved in the repo's plan gate; closed: the gate exists and it is not.
   gate: 'open' | 'closed' | 'none'
-  plan: { title: string; file: string; pinned?: boolean; step?: string } | null
+  plan: { title: string; file: string; pinned?: boolean; step?: string; done?: number; total?: number } | null
+  // Last night's /goodnight note for this project, while it is fresh (under 36 hours).
+  lastNight?: { file: string; line: string } | null
   project?: { trees: PaperTree[]; documents: { path: string; label: string }[] }
   context: number | null
   // Other live sessions editing in this repo (from the shared edits ledgers).

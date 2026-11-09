@@ -64,8 +64,8 @@ if [[ -f "$STATE" ]]; then
         # canonical "on, audio not muted" state before continuing, so an
         # attacker-planted file can't poison the restore step.
         rm -f "$STATE"
-        notify-send -u critical -t 3000 "👻 Ghost Mode" \
-            "State file had wrong perms — refusing to read. Toggle again." 2>/dev/null || true
+        notify-send -h string:x-canonical-private-synchronous:ghost-mode "ghost mode stayed put" \
+            "its state file had the wrong permissions, so it was cleared · press alt+g again" 2>/dev/null || true
         exit 1
     fi
 
@@ -87,7 +87,9 @@ if [[ -f "$STATE" ]]; then
     fox-hl config "{ decoration = { blur = { enabled = true, size = 3, passes = 2 }, active_opacity = 0.95, inactive_opacity = 0.85 } }" \
         "keyword decoration:blur:enabled true ; keyword decoration:blur:size 3 ; keyword decoration:blur:passes 2 ; keyword decoration:active_opacity 0.95 ; keyword decoration:inactive_opacity 0.85" >/dev/null 2>&1 || true
 
-    notify-send -t 1500 "👻 Ghost Mode" "Off" 2>/dev/null || true
+    restored="the bar is back"
+    [[ "${PRE_MUTED:-no}" == "no" ]] && restored="the bar and sound are back"
+    notify-send -h string:x-canonical-private-synchronous:ghost-mode "back again" "$restored" 2>/dev/null || true
     exit 0
 fi
 
@@ -115,4 +117,5 @@ wpctl set-mute @DEFAULT_AUDIO_SINK@ 1 2>/dev/null || true
 fox-hl config "{ decoration = { blur = { enabled = true, size = 12, passes = 4 }, active_opacity = 1.0, inactive_opacity = 1.0 } }" \
     "keyword decoration:blur:enabled true ; keyword decoration:blur:size 12 ; keyword decoration:blur:passes 4 ; keyword decoration:active_opacity 1.0 ; keyword decoration:inactive_opacity 1.0" >/dev/null 2>&1 || true
 
-notify-send -t 1500 "👻 Ghost Mode" "On (toggle off with the same keybind)" 2>/dev/null || true
+notify-send -h string:x-canonical-private-synchronous:ghost-mode "shh… tucked away" \
+    "bar hidden, sound muted · alt+g brings it back" 2>/dev/null || true

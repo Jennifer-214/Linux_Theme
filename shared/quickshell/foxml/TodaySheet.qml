@@ -14,13 +14,14 @@ ColumnLayout {
     property var commandFor: null
     property bool active: visible
     property date now: new Date()
-    property int hearts: 0
+    // The month's active days; -1 until they are read.
+    property int hearts: -1
     property int commitsToday: 0
     // The tag the keyboard is on, or -1 while the favorites or sidebar have it.
     property int selectedTag: -1
-    readonly property var tags: Logic.todayTags(today, groups)
+    // The garden tag closes the row, so the month's hearts are reachable from the keyboard too.
+    readonly property var tags: Logic.todayTags(today, groups, hearts)
     signal openTag(var tag)
-    signal openGarden()
     spacing: 5
 
     function loadHearts() {
@@ -66,20 +67,8 @@ ColumnLayout {
         }
     }
     // ~/.todo's first line; the pinned next step already has its own tag.
-    Text { objectName: "today-todo"; visible: Boolean(sheet.today.todo) && sheet.today.todo !== sheet.today.nextStep; text: "▢ to do: " + (sheet.today.todo || ""); textFormat: Text.PlainText; color: sheet.theme.ink; font.family: sheet.theme.fontFamily; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
-    // The month's hearts and today's commits share one line.
-    RowLayout {
-        visible: sheet.theme.paperDetails || sinceText.text.length > 0; spacing: 14; Layout.fillWidth: true
-        Text {
-            objectName: "today-hearts"; visible: sheet.theme.paperDetails; text: Logic.heartLine(sheet.hearts) + "  ›"; textFormat: Text.PlainText
-            color: sheet.theme.detailAccent; font.family: sheet.theme.fontFamily; font.pixelSize: 11; font.underline: heartsMouse.containsMouse
-            // The month's hearts open the whole year of them.
-            MouseArea { id: heartsMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: sheet.openGarden() }
-            Accessible.role: Accessible.Button; Accessible.name: "Open the commit garden"
-        }
-        Text { id: sinceText; objectName: "today-since"; visible: text.length > 0; text: Logic.sinceLine(sheet.commitsToday); textFormat: Text.PlainText; color: sheet.theme.muted; font.family: sheet.theme.fontFamily; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
-        Item { visible: !sinceText.visible; Layout.fillWidth: true }
-    }
+    Text { objectName: "today-todo"; visible: Boolean(sheet.today.todo) && sheet.today.todo !== sheet.today.nextStep; text: "☐ to do: " + (sheet.today.todo || ""); textFormat: Text.PlainText; color: sheet.theme.ink; font.family: sheet.theme.fontFamily; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
+    Text { id: sinceText; objectName: "today-since"; visible: text.length > 0; text: Logic.sinceLine(sheet.commitsToday); textFormat: Text.PlainText; color: sheet.theme.muted; font.family: sheet.theme.fontFamily; font.pixelSize: 11; Layout.fillWidth: true; elide: Text.ElideRight }
     // Claude: the time spent today and what is left of the week, beside a teacup of it; berry from 80%.
     RowLayout {
         visible: claudeText.text.length > 0; spacing: 5; Layout.fillWidth: true

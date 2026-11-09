@@ -33,8 +33,9 @@ function greeting(date, name) {
 }
 
 // The Today sheet's little tags: waiting agents first, then the group summaries and what only Today knows.
-// Each opens what it describes: a page, or the agent's own terminal.
-function todayTags(today, groups) {
+// Each opens what it describes: a page, or the agent's own terminal. Every tag wears its page's glyph.
+// `hearts` is the month's active days (-1 until read); the garden tag closes the row.
+function todayTags(today, groups, hearts) {
     today = today || {};
     var summary = function(id) {
         var group = (groups || []).filter(function(row) { return row.id === id; })[0];
@@ -45,27 +46,36 @@ function todayTags(today, groups) {
     (Array.isArray(today.waiting) ? today.waiting : []).forEach(function(agent) {
         if (!agent || !agent.argument) return;
         var count = Number(agent.count || 1), project = agent.project || "an agent";
-        add("◇ " + (count > 1 ? count + " in " + project + (agent.asking ? ", one needs you" : " are waiting")
+        add(glyphs.agents + " " + (count > 1 ? count + " in " + project + (agent.asking ? ", one needs you" : " are waiting")
                               : project + (agent.asking ? " needs you" : " is waiting")),
             {action: "agent-jump", argument: String(agent.argument)});
     });
     var working = Number(today.claudeWorking || 0);
-    add(working ? "✎ " + working + " working" : "", {page: "agents"});
+    add(working ? "⋯ " + working + " working" : "", {page: "agents"});
     var running = Number(today.jobsRunning || 0), finished = Number(today.jobsFinished || 0);
-    add(running ? "◷ " + running + (running === 1 ? " job running" : " jobs running") + (finished ? " · " + finished + " finished" : "")
-        : finished ? "◷ " + finished + (finished === 1 ? " job finished" : " jobs finished") : "", {page: "jobs"});
+    add(running ? glyphs.jobs + " " + running + (running === 1 ? " job running" : " jobs running") + (finished ? " · " + finished + " finished" : "")
+        : finished ? glyphs.jobs + " " + finished + (finished === 1 ? " job finished" : " jobs finished") : "", {page: "jobs"});
     var reviews = Number(today.changesToReview || 0);
-    add(reviews ? "✿ " + reviews + (reviews === 1 ? " change to look over" : " changes to look over") : "", {page: "reviews"});
+    add(reviews ? glyphs.reviews + " " + reviews + (reviews === 1 ? " change to look over" : " changes to look over") : "", {page: "reviews"});
     var failed = Number(today.jobsFailed || 0);
     add(failed ? "! " + failed + (failed === 1 ? " failed job" : " failed jobs") : "", {page: "failures"});
-    add(today.nextStep ? "◇ next: " + today.nextStep : "", {page: "next-steps"});
+    add(today.nextStep ? glyphs["next-steps"] + " next: " + today.nextStep : "", {page: "next-steps"});
     var notes = Number(today.notes || 0);
     add(today.battery ? today.battery + (/^(charging|full|not charging)$/.test(today.batteryState || "") ? " · plugged in" : "") : "", {page: "power"});
-    add(summary("connections"), {page: "wifi"});
-    add(summary("sound"), {page: "audio-outputs"});
-    add(summary("system"), {page: "updates"});
-    add(notes ? notes + (notes === 1 ? " agent note" : " agent notes") : "", {page: "agents"});
+    var marked = function(glyph, text) { return text ? glyph + " " + text : ""; };
+    add(marked(glyphs.wifi, summary("connections")), {page: "wifi"});
+    add(marked(glyphs.volume, summary("sound")), {page: "audio-outputs"});
+    add(marked(glyphs.updates, summary("system")), {page: "updates"});
+    add(notes ? glyphs.agents + " " + notes + (notes === 1 ? " agent note" : " agent notes") : "", {page: "agents"});
+    if (hearts !== undefined && hearts !== null) add(gardenTag(hearts), {page: "garden"});
     return tags;
+}
+
+// The month's hearts, as the tag that opens the whole year of them.
+function gardenTag(hearts) {
+    var count = Number(hearts);
+    if (!(count >= 0)) return glyphs.garden + " the garden";
+    return glyphs.garden + " " + (count ? count + (count === 1 ? " day" : " days") + " active this month" : "no commits this month");
 }
 
 // Commits written today, across the project cards; quiet until there is one.
@@ -86,10 +96,6 @@ function claudeTime(minutes) {
 function claudeLine(usage, minutes) {
     var parts = [claudeTime(minutes), usage || ""].filter(function(part) { return part.length > 0; });
     return parts.length ? "Claude · " + parts.join(" · ") : "";
-}
-
-function heartLine(count) {
-    return count ? "· " + count + (count === 1 ? " day" : " days") + " active this month" : "No commits this month";
 }
 
 // The commit garden. Counts run one per day from `start` (a Sunday, "YYYY-MM-DD") to today.
@@ -192,55 +198,80 @@ function actionArguments(item, value, confirmed) {
     return args;
 }
 
+// One glyph per item. A menu still carrying an item's earlier glyph (listed after its drawing in
+// paperPresets) is shown the item's own one; a glyph the user chose stays theirs.
+var glyphs = {
+    today:"✿", desk:"✎", workbench:"⚒", sound:"♫", connections:"⇄", comfort:"☁", system:"⚙",
+    calendar:"◰", "earlier-notes":"↶", apps:"⌘", projects:"▤", "api-tasks":"☰", worktrees:"▥", jobs:"◷", "test-results":"✓", reviews:"◎",
+    "next-steps":"↳", failures:"!", bookmarks:"◇", library:"⌸", downloads:"↧", screenshots:"▧", garden:"❦",
+    models:"⬡", windows:"▣", "clipboard-text":"⌇", "clipboard-images":"⧉", wallpapers:"❀", themes:"◐",
+    "wallpaper-next":"↝", "wallpaper-sync":"◑", "color-picker":"⌖", agents:"✉",
+    volume:"♪", "volume-mute":"♩", "audio-outputs":"◉", "mic-mute":"○", "media-play-pause":"▷",
+    "media-previous":"‹", "media-next":"›", wifi:"⌁", bluetooth:"⋈",
+    brightness:"☼", nightlight:"☾", dnd:"⊘", idle:"⊙",
+    updates:"↻", displays:"▭", storage:"▦", backups:"↺", startup:"⏵", "power-profile":"◈",
+    vault:"⚿", passwords:"⚿", tools:"❯", "api-credits":"◔", cheatsheet:"⌨", sandbox:"▢", security:"⛨",
+    cleanup:"✧", lock:"⊡", power:"⏼", suspend:"⏾", reboot:"⟳", poweroff:"⏻", logout:"↪"
+};
+
+// [drawing, then glyphs and icon names that menus used for the item before].
+var paperPresets = {
+    today:["today","✿"], desk:["desk","✎"], workbench:["terminal","terminal"], calendar:["today","today"],
+    "earlier-notes":["bell","message"], sound:["sound","♫"], connections:["connections","⌁"],
+    comfort:["comfort","☾"], system:["system","⚙"], apps:["apps","⌘"],
+    projects:["notebook","▤"], bookmarks:["bookmark","◇"], library:["library","▥","▤"],
+    worktrees:["notebook","▥"], jobs:["clock","◷"], "test-results":["notebook","✓"],
+    reviews:["note","✿"], "next-steps":["next","◇"], failures:["note","!"],
+    models:["package","◈"], "api-credits":["notebook","◇"], "api-tasks":["mail","✎"], displays:["window","▭"], storage:["library","▦"], backups:["refresh","↺"], startup:["play","⏵"],
+    downloads:["tray","↧","✉"], screenshots:["picture","▧"], windows:["window","▣"], garden:["garden","❦"],
+    "clipboard-text":["clipboard","⌇"], "clipboard-images":["clipboard","▧"],
+    wallpapers:["picture","❀"], themes:["palette","◐"],
+    "wallpaper-next":["refresh","↝"], "wallpaper-sync":["palette","◑","◇"],
+    "color-picker":["dropper","✎"], agents:["note","✉"],
+    volume:["sound","♪"], "volume-mute":["sound","♩"], "audio-outputs":["sound","◉"],
+    "mic-mute":["microphone","○"], "media-play-pause":["play","▷"],
+    "media-previous":["previous","‹"], "media-next":["next","›"],
+    wifi:["wifi","⌁"], bluetooth:["bluetooth","⋈"],
+    brightness:["comfort","☼"], nightlight:["moon","☾"], dnd:["bell","⊘","✉"], idle:["clock","◷"],
+    updates:["refresh","↻"], "power-profile":["battery","◈"],
+    vault:["passwords","⚿"], passwords:["passwords","⚿"], tools:["terminal","❯","▤"],
+    cheatsheet:["keys","⌨","✎"], sandbox:["sandbox","▢"], security:["shield","⛨","◇"],
+    cleanup:["broom","✧","✎"], lock:["lock","⊡","▢"], power:["power","⏻"],
+    suspend:["moon","suspend","☾"], reboot:["refresh","reboot","↻"],
+    poweroff:["power","poweroff"], logout:["logout","logout"]
+};
+
+function ownGlyph(id, icon) {
+    var own = glyphs[id], preset = paperPresets[id];
+    if (!own) return "";
+    return !icon || icon === own || /^[\x00-\x7f]+$/.test(icon) || (preset && preset.indexOf(icon) > 0) ? own : "";
+}
+
 function symbol(item) {
-    var icon = String(item.icon || "");
+    var icon = String(item.icon || ""), own = ownGlyph(String(item.id || ""), icon);
+    if (own) return own;
     if (icon && !/^[\x00-\x7f]+$/.test(icon)) return icon;
-    var icons = { today: "✿", desk: "✎", sound: "♫", connections: "⌁", comfort: "☾", system: "⚙",
-        wifi: "⌁", bluetooth: "⋈", window: "▣", volume: "♪", image: "▧", palette: "◐",
+    var icons = { today: "✿", desk: "✎", sound: "♫", connections: "⇄", comfort: "☁", system: "⚙", wifi: "⌁", bluetooth: "⋈", window: "▣", volume: "♪", image: "▧", palette: "◐",
         search: "⌕", download: "↧", info: "·", package: "□", message: "✉",
-        lock: "▢", suspend: "☾", reboot: "↻", poweroff: "⏻", logout: "↪", "app-launch": "⌘",
+        lock: "⊡", suspend: "⏾", reboot: "⟳", poweroff: "⏻", logout: "↪", "app-launch": "⌘",
         apps: "⌘", vault: "⚿", passwords: "⚿",
         folder: "▭", cpu: "◈", trash: "⌫", shield: "⛨", refresh: "↺", gear: "⚙" };
-    return icons[icon] || icons[item.id] || (item.kind === "page" ? "›" : "·");
+    return icons[icon] || (item.kind === "page" ? "›" : "·");
 }
 
 function paperIcon(item) {
     if (!item) return "";
-    var presets = {
-        today:["today","✿"], desk:["desk","✎"], sound:["sound","♫"], connections:["connections","⌁"],
-        comfort:["comfort","☾"], system:["system","⚙"], apps:["apps","⌘"],
-        projects:["notebook","▤"], bookmarks:["bookmark","◇"], library:["library","▥","▤"],
-        worktrees:["notebook","▥"], jobs:["clock","◷"], "test-results":["notebook","✓"],
-        reviews:["note","✿"], "next-steps":["bookmark","◇"], failures:["note","!"],
-        models:["notebook","◈"], "api-credits":["notebook","◇"], "api-tasks":["mail","✎"], displays:["window","▭"], storage:["library","▦"], backups:["refresh","↺"], startup:["play","⏵"],
-        downloads:["tray","↧","✉"], screenshots:["picture","▧"], windows:["window","▣"], garden:["garden","❦"],
-        "clipboard-text":["clipboard","⌇"], "clipboard-images":["picture","▧"],
-        wallpapers:["picture","❀"], themes:["palette","◐"],
-        "wallpaper-next":["refresh","↝"], "wallpaper-sync":["palette","◑","◇"],
-        "color-picker":["dropper","✎"], agents:["note","✉"],
-        volume:["sound","♪"], "volume-mute":["sound","♩"], "audio-outputs":["sound","◉"],
-        "mic-mute":["microphone","○"], "media-play-pause":["play","▷"],
-        "media-previous":["previous","‹"], "media-next":["next","›"],
-        wifi:["wifi","⌁"], bluetooth:["bluetooth","⋈"],
-        brightness:["comfort","☼"], nightlight:["moon","☾"], dnd:["bell","⊘","✉"], idle:["clock","◷"],
-        updates:["refresh","↻"], "power-profile":["battery","◈"],
-        vault:["passwords","⚿"], passwords:["passwords","⚿"], tools:["terminal","❯","▤"],
-        cheatsheet:["keys","⌨","✎"], sandbox:["sandbox","▢"], security:["shield","⛨","◇"],
-        cleanup:["broom","✧","✎"], lock:["lock","⊡","▢"], power:["power","⏻"],
-        suspend:["moon","suspend"], reboot:["refresh","reboot"],
-        poweroff:["power","poweroff"], logout:["logout","logout"]
-    };
     var semantic = {message:"mail", window:"window", volume:"sound", image:"picture", palette:"palette",
         search:"search", download:"mail", info:"notebook", package:"package", key:"passwords",
         wifi:"wifi", bluetooth:"bluetooth", clipboard:"clipboard", gear:"system", system:"system", cpu:"system",
         refresh:"refresh", today:"today", folder:"library", trash:"broom", apps:"apps", terminal:"terminal", next:"next",
-        comfort:"comfort", shield:"shield"};
-    var id = String(item.id || ""), preset = presets[id], icon = String(item.icon || ""), name = "";
+        comfort:"comfort", shield:"shield", clock:"clock", note:"note", notebook:"notebook"};
+    var id = String(item.id || ""), preset = paperPresets[id], icon = String(item.icon || ""), name = "";
     // Application identity and user artwork keep their own icons.
     if (id === "app-launch") return "";
     // An explicit custom glyph or icon name belongs to the user's menu.
     if (preset) {
-        if (icon && icon !== preset[1] && icon !== preset[2] && icon !== symbol({id:id}) && icon !== id) return "";
+        if (icon && preset.indexOf(icon) < 0 && icon !== glyphs[id] && icon !== id) return "";
         name = preset[0];
     } else name = semantic[icon] || (icon === "✉" ? "mail" : "");
     if (!name) return "";
@@ -331,14 +362,26 @@ function barStyle(opened, page, group) {
     return css + selectors.join(", ") + " { box-shadow: inset 0 -1px @peach; }\n";
 }
 
+// `?` opens the shortcut reference at the drawer's own section.
+var drawerKeysQuery = "quickshell drawers";
+
+// The keys that work right now. Every hint the `?` key works under ends with "? keys"; typing into a
+// field, a confirmation, an adjustment and another program's picker keep their own keys.
 function footerHint(state, item) {
     if (state.confirming) return "h / l choose · Enter confirms · Esc cancels";
-    if (state.busy) return "working… · Esc goes back";
+    if (state.busy) return "working… · Esc goes back" + (state.prompt || state.searching || state.picker || state.editing ? "" : " · ? keys");
     if (state.prompt) return "type normally · Enter sends · Esc closes";
     if (state.searching) return "type to find · ↑ / ↓ choose · Enter selects · Esc goes back";
     if (state.picker) return "j / k move · Enter / l chooses · / searches · h / Esc closes";
     if (state.editing) return "h / l adjusts · Enter or Esc finishes";
-    if (state.focus === "groups") return "j / k move · Enter / l opens a drawer · / searches · Esc closes";
+    return hintFor(state, item) + " · ? keys";
+}
+
+function hintFor(state, item) {
+    if (state.focus === "groups") {
+        var count = Math.min(9, Number(state.groups || 0));
+        return "j / k move · Enter / l opens a drawer" + (count > 1 ? " · 1–" + count + " jump" : "") + " · / searches · Esc closes";
+    }
     if (state.focus === "tags") return "Enter opens · h / l choose · j goes to favorites · Esc goes back";
     if (!item) return "h goes back · / searches · Esc goes back";
     if (item.enabled === false) return (item.disabledReason || item.detail || "control unavailable") + " · h goes back · / searches";
@@ -352,20 +395,33 @@ function footerHint(state, item) {
     return "Enter / l runs · j / k move · / searches · h goes back";
 }
 
+// The sheets with their own keys: the calendar, the screenshot scrapbook and the garden.
+function sheetHint(layout) {
+    var hints = {calendar: "h / l changes month · t today · g the garden · Esc closes",
+        scrapbook: "arrows choose · c copies · Enter opens · Esc goes back",
+        garden: "h / l a week · j / k a day · Esc goes back"};
+    return hints[layout] ? hints[layout] + " · ? keys" : "";
+}
+
+var hintKey = "Enter|Esc|[1-9]–[1-9]|[hjkltebrfcgnw↑↓\\/?]";
 function hintParts(hint) {
     var parts = [];
+    var prefixPattern = new RegExp("^((?:" + hintKey + ")(?:(?: \\/ | or )(?:" + hintKey + "))?)(?= |$)");
+    var splitPattern = new RegExp("(Enter|Esc|[1-9]–[1-9]|[hjkltebrfcgnw↑↓?])");
+    var keyPattern = new RegExp("^(?:" + hintKey + ")$");
     String(hint).split(" · ").forEach(function(clause, index) {
         if (index) parts.push({text: " · ", key: false});
-        var prefix = clause.match(/^((?:Enter|Esc|[hjkltebrfcgnw↑↓\/])(?:(?: \/ | or )(?:Enter|Esc|[hjkltebrfcgnw↑↓\/]))?)(?= |$)/);
+        var prefix = clause.match(prefixPattern);
         if (!prefix) { parts.push({text: clause, key: false}); return; }
-        prefix[1].split(/(Enter|Esc|[hjkltebrfcgnw↑↓])/).forEach(function(text) {
-            if (text) parts.push({text: text, key: /^(Enter|Esc|[hjkltebrfcgnw↑↓\/])$/.test(text)});
+        prefix[1].split(splitPattern).forEach(function(text) {
+            if (text) parts.push({text: text, key: keyPattern.test(text)});
         });
         if (clause.length > prefix[1].length) parts.push({text: clause.slice(prefix[1].length), key: false});
     });
     return parts;
 }
 
+// An empty page says whether that is good news, or how to fill it, naming the real key.
 function emptyState(page, searching, failed) {
     if (failed) return {title: "this page needs a moment.", detail: "check the note below, or h to go back."};
     if (searching) return {title: "no matching notes.", detail: "try another search, or Esc to go back."};
@@ -376,12 +432,19 @@ function emptyState(page, searching, failed) {
         projects: ["no index cards yet.", "folders with a project inside ~/code\nget a little card here."],
         wallpapers: ["no pictures in the frame.", "add some to ~/.wallpapers\nand they will hang here."],
         windows: ["a clear desk.", "open windows will gather here."],
-        screenshots: ["no little moments yet.", "press + new to take one."],
+        screenshots: ["no little moments yet.", "alt ⇧ o takes one, or press + new."],
         library: ["the shelves are quiet.", "plug in a removable drive\nand its library card will appear here."],
         bookmarks: ["save your place.", "press b on a project card\nto leave a little ribbon here."],
         downloads: ["nothing in the post.", "your latest downloads will land here.\npress / to filter, or h to go back."],
         "clipboard-text": ["a place for little thoughts.", "copy some text to keep it close.\nh goes back to the previous page."],
-        "clipboard-images": ["a place for little pictures.", "copy an image to keep it close.\nh goes back to the previous page."]
+        "clipboard-images": ["a place for little pictures.", "copy an image to keep it close.\nh goes back to the previous page."],
+        updates: ["all up to date.", "nothing is waiting to install.\nh goes back to the previous page."],
+        failures: ["nothing has failed today.", "a job that stops with an error\nwill leave a note here."],
+        jobs: ["nothing has failed today.", "commands you run in a terminal\nwill gather here."],
+        "test-results": ["nothing has failed today.", "your test runs\nwill leave their results here."],
+        reviews: ["no changes waiting.", "new commits to look over\nwill wait for you here."],
+        "next-steps": ["no next steps pinned.", "pin a next step from the notebook,\nor press n on a project card."],
+        worktrees: ["just the one tree.", "worktrees you add to a project\nwill be mapped here."]
     };
     var lines = pages[page] || ["nothing here yet.", "h goes back to the previous page."];
     return {title: lines[0], detail: lines[1]};

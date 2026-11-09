@@ -39,7 +39,7 @@
     "return-type": "json",
     "interval": 2,
     "tooltip": true,
-    "on-click": "~/.local/bin/fox-ai-quick"
+    "on-click": "~/.local/bin/fox-ai-swap"
   },
 
 
@@ -84,6 +84,6 @@
     "interval": 300,
     "signal": 1,
     "tooltip": true,
-    "on-click": "~/.config/hypr/scripts/updates_menu.sh"
+    "on-click": "~/.local/bin/fox-desktop-menu updates"
   }
 }

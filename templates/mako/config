@@ -20,6 +20,9 @@ icon-location={{MAKO_ICON_LOCATION}}
 width=360
 # Six lanes keep bursts of agent notices from queuing out of sight.
 max-visible=6
+# The drawer's "earlier notes" reads this history; arrival times are noted as each one comes.
+max-history=50
+on-notify=exec ~/.local/bin/fox-drawer note-arrived "$id"
 # Every notice uses the same four-second lifetime, including critical notices,
 # agent results and OSDs. Ignore sender timeouts so none can stay indefinitely.
 default-timeout=4000
@@ -50,15 +53,6 @@ border-color=#{{MAKO_BORDER}}80
 background-color=#{{BG}}{{POPUP_BG_OPACITY_HEX}}
 text-color=#{{PRIMARY}}
 border-color=#{{MAKO_CRIT_BORDER}}
-
-# Workspace OSD (focus-pulse). The synchronous hint in fox-pulse's
-# pulse.d/focus.sh replaces the previous chip instead of growing a stack.
-[app-name=focus-pulse]
-# foxml-paper-stamp=0
-format={{MAKO_FORMAT}}
-background-color=#{{BG}}{{POPUP_BG_OPACITY_HEX}}
-text-color=#{{ACCENT}}
-border-color=#{{SECONDARY}}80
 
 [app-name=Spotify]
 border-color=#{{MAKO_MEDIA_BORDER}}

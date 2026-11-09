@@ -1,5 +1,6 @@
 #!/bin/bash
 # Region screenshot → Edit with Swappy → save/copy.
+# --quick skips the editor: the region goes straight to the folder and the clipboard.
 # NOTE: `set -e` is intentionally NOT used. slurp on cancel exits non-zero
 # but we want to handle that path explicitly, not abort with no message.
 out_dir="$HOME/Pictures/Screenshots"
@@ -21,13 +22,17 @@ if [[ "${C_LITTLE_DETAILS:-}" == fox-little-details-on ]]; then
 fi
 geom=$(slurp "${selection_style[@]}" 2>/dev/null)
 slurp_rc=$?
+# Escape cancels quietly; nothing happened, so there is nothing to say.
 if (( slurp_rc != 0 )) || [[ -z "$geom" ]]; then
-    notify-send -t 2000 "Screenshot" "Cancelled"
     exit 0
 fi
 
 sleep 0.1
-grim -g "$geom" - | swappy -f - -o "$file"
+if [[ "${1:-}" == "--quick" ]]; then
+    grim -t png -g "$geom" "$file.part" && mv -f "$file.part" "$file" || rm -f "$file.part"
+else
+    grim -g "$geom" - | swappy -f - -o "$file"
+fi
 
 # Check if file was actually saved (user may have cancelled in swappy too).
 if [[ -f "$file" ]]; then

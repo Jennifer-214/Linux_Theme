@@ -211,7 +211,7 @@
     "return-type": "json",
     "interval": 1,
     "tooltip": true,
-    "on-click": "pavucontrol"
+    "on-click": "~/.local/bin/fox-desktop-menu power"
   },
 
   "custom/clock": {

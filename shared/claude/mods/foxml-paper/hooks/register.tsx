@@ -1,11 +1,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderNode } from 'claude-code'
 
-import type { ApiCredits, NotebookView, PaperAction, PaperCard, PaperEnvelope, PaperLook, PaperOverlap, PaperPeer, PaperRedZone, PaperTone, PaperTree } from '../types'
+import type { ApiCredits, NotebookView, PaperAction, PaperCard, PaperEnvelope, PaperLook, PaperOverlap, PaperPeer, PaperRedZone, PaperTone, PaperTree, WorkJob } from '../types'
 import { addBefore, addEdit, addName, neighbours, namesText, noteText, overlapFor, parseLedger, parseNames, parseNote, trailerUrl, withPlan } from './ledger'
 import type { Other } from './ledger'
 import { paper } from './theme'
-import { beginArgs, canTrack, exitOf, outputOf, testLabel, work, workLook } from './work'
+import { beginArgs, canTrack, exitOf, greenAgain, jobPace, outputOf, planProgress, ruler, stepLabel, testLabel, work, workLook } from './work'
 import { attributeFiles, fileColumns, fileCounts, gitFiles, mailId, shortPath } from './notebook'
 
 // FoxML paper: a notebook pane beside the chat (hearts, the session's name, its plan, the gate, pages
@@ -95,6 +95,7 @@ const memory = {
   delivered: new Set<string>(),
   receipts: new Map<string, number>(),
   receiptsReady: null as Promise<void> | null,
+  toldLastNight: false,
 }
 
 // No delivery id is exposed for peers. Coalesce identical full bodies briefly;
@@ -193,6 +194,23 @@ async function readOthers($: EngineInterface, dir: string): Promise<Other[]> {
 
 async function repoRoot($: EngineInterface): Promise<string> {
   return (await $.session.repo())?.root ?? (await $.session.cwd())
+}
+
+// /goodnight leaves $XDG_STATE_HOME/foxml/goodnight/<repo folder>.md; it waits for the next session for a day and a half.
+const LAST_NIGHT_MS = 36 * 3600 * 1000
+async function lastNight($: EngineInterface, root: string): Promise<PaperLook['lastNight']> {
+  const state = await stateDir($)
+  const name = root.split('/').filter(Boolean).pop()
+  if (state === null || !name) return null
+  const file = `${state}/goodnight/${name}.md`
+  try {
+    const stat = await $.fs.stat(file)
+    if (stat.kind !== 'file' || (await $.clock.now()) - stat.mtimeMs > LAST_NIGHT_MS) return null
+    const first = (await $.fs.read(file)).split('\n').map(l => l.replace(/^[\s#>*-]+/, '').trim()).find(l => l !== '') ?? ''
+    return { file, line: first.slice(0, 200) }
+  } catch {
+    return null
+  }
 }
 
 async function withActivity<T>($: EngineInterface, text: string, call: () => Promise<T>): Promise<T> {
@@ -429,9 +447,10 @@ async function refreshNow($: EngineInterface) {
     const planFile = pinned?.file ?? memory.planFile ?? own?.plan ?? null
     if (planFile !== null) {
       try {
-        const heading = (await $.fs.read(planFile)).split('\n').find(line => line.startsWith('# '))
+        const text = await $.fs.read(planFile)
+        const heading = text.split('\n').find(line => line.startsWith('# '))
         plan = { title: heading ? heading.slice(2).trim() : planFile.split('/').pop() ?? planFile, file: planFile,
-          pinned: pinned !== null, step: pinned?.step ?? '' }
+          pinned: pinned !== null, step: pinned?.step ?? '', ...planProgress(text) }
       } catch {
         plan = null
       }
@@ -457,7 +476,8 @@ async function refreshNow($: EngineInterface) {
       }
       project = { trees, documents }
     }
-    await update($, look, () => ({ root, session, branch, files, gate, plan, context, neighbours: near, card, work: projectWork, project, credits }))
+    const note = await lastNight($, root)
+    await update($, look, () => ({ root, session, branch, files, gate, plan, context, neighbours: near, card, work: projectWork, project, credits, lastNight: note }))
     const found = await readPeers($)
     await update($, peers, () => found ?? near.map(n => ({ id: n.sid, name: n.title, project: root.split('/').pop() ?? root,
       state: `edited ${n.files} ${n.files === 1 ? 'file' : 'files'} here`, busy: false,
@@ -500,6 +520,10 @@ export const register: Register = on => {
       if (!opened.isPlaced) $.ui.toast('The notebook is available: /notebook opens it at this width.')
     }
     await refresh($)
+    if (e.isInteractive && !memory.toldLastNight && (await read($, look))?.lastNight) {
+      memory.toldLastNight = true
+      $.ui.toast("last night's note is waiting · /notebook project")
+    }
     $.clock.every(20000, () => void refresh($))
     $.clock.every(5000, () => void checkInbox($))
     await $.command.register({ name: 'notebook', description: 'Open the paper notebook', argumentHint: '[files|all|project|sessions]', immediate: true })
@@ -567,12 +591,15 @@ export const register: Register = on => {
     const job = canTrack(e.command) && e.run_in_background !== true
       ? (await work($, beginArgs(e.command, root, sid, title)))?.trim() || null : null
     let ran: Awaited<ReturnType<typeof next>> | undefined
+    let finished: string | null = null
     try { ran = await next(e) }
     finally {
       await work($, ['activity', '--root', root, '--session', sid, '--text', activity, '--state', 'done'])
       if (job && /^[0-9a-f-]{8,64}$/.test(job))
-        await work($, ['finish', '--id', job, '--exit', String(ran ? exitOf(ran) : 130), '--output', '-'], ran ? outputOf(ran) : '')
+        finished = await work($, ['finish', '--id', job, '--exit', String(ran ? exitOf(ran) : 130), '--output', '-'], ran ? outputOf(ran) : '')
     }
+    // Tests that failed two or more times in a row pass again: fox-work counted the run of failures.
+    if (greenAgain(finished)) $.ui.toast('green again ✿')
     if (COMMIT.test(e.command) && ran!.deny === undefined && ran!.isError !== true) {
       $.ui.toast('a seed planted ❦')
       await nameCommit($, e.command).catch(() => undefined)
@@ -742,6 +769,23 @@ export const register: Register = on => {
       </Button>
     }
     const text = (label: string, colour: string = paper.dim) => <Text color={colour}>{label.length > width ? label.slice(0, width - 1) + '…' : label}</Text>
+    // A ruler under its row, indented to the row's text, with words after it.
+    const measured = (fraction: number, words: string, pencil = false) => {
+      const length = Math.max(3, Math.min(16, width - words.length - 4))
+      const [drawn, mark, rest] = ruler(fraction, length, pencil)
+      return <Text color={paper.dim}>{'  '}<Text color={paper.heart}>{drawn}</Text><Text color={paper.ribbon}>{mark}</Text><Text color={paper.note}>{rest}</Text>{' ' + fit(words, Math.max(2, width - length - 3))}</Text>
+    }
+    const planRuler = () => {
+      const total = now?.plan?.total ?? 0, done = now?.plan?.done ?? 0
+      if (total > 0) content.push(measured(done / total, stepLabel({ done, total })))
+    }
+    // Against the last pass of the same command here: a pencil on the ruler, or a plain note once it runs long.
+    const jobRow = (job: WorkJob, label: string) => {
+      content.push(row(`job-${job.id}`, label, () => openJob(job.id)))
+      const pace = jobPace(job)
+      if (pace && 'late' in pace) content.push(text('  taking longer than last time'))
+      else if (pace) content.push(measured(pace.fraction, pace.left, true))
+    }
     const pin = async (file: string, step = '') => {
       if (!await checkedWork(['plan-pin', '--root', root, '--session', session, '--file', file.trim(), '--step', step.trim()])) return
       memory.pinnedFile = file.trim() || null
@@ -753,7 +797,7 @@ export const register: Register = on => {
     }
 
     if (view.form === 'none' && view.page === 'overview') {
-      if (now?.plan) content.push(row('plan-open', (now.plan.pinned ? '⌑ ' : '') + now.plan.title, () => openDocument(now.plan!.file)))
+      if (now?.plan) { content.push(row('plan-open', (now.plan.pinned ? '⌑ ' : '') + now.plan.title, () => openDocument(now.plan!.file))); planRuler() }
       else content.push(row('plan-pin', 'pin an active plan', () => setView({ form: 'plan' })))
       if (now?.plan?.step) content.push(row('plan-step', '◇ ' + now.plan.step, () => setView({ form: 'step' })))
       if (now?.gate === 'open') content.push(text('gate open ✓', paper.ribbon))
@@ -769,8 +813,7 @@ export const register: Register = on => {
         <Text color={testColour(now.work.tests)}>
           {testLabel(now.work.tests)}
         </Text>))
-      for (const job of (now?.work?.jobs ?? []).slice(0, 1))
-        content.push(row(`job-${job.id}`, `◷ ${job.title ?? job.command} · ${Math.floor(job.elapsed / 60)}m`, () => openJob(job.id)))
+      for (const job of (now?.work?.jobs ?? []).slice(0, 1)) jobRow(job, `◷ ${job.title ?? job.command} · ${Math.floor(job.elapsed / 60)}m`)
       const own = (now?.files ?? []).filter(f => f.own).length
       content.push(row('page-files', `${own} this session · ${now?.files.length ?? 0} all files`, () => page('files')))
       content.push(row('page-project', now?.card?.title ?? 'project · plan, tests & worktrees', () => page('project')))
@@ -820,10 +863,12 @@ export const register: Register = on => {
     if (view.form === 'none' && view.page === 'project') {
       if (now?.plan) {
         content.push(row('plan-open', (now.plan.pinned ? '⌑ ' : '') + now.plan.title, () => openDocument(now.plan!.file)))
+        planRuler()
         content.push(row('plan-pin', now.plan.pinned ? 'change active plan' : 'pin this plan', () => now.plan?.pinned ? setView({ form: 'plan' }) : pin(now.plan!.file)))
         content.push(row('plan-step', now.plan.step ? '◇ ' + now.plan.step : '+ current step', () => setView({ form: 'step' })))
         if (now.plan.pinned) content.push(row('plan-unpin', 'unpin plan', () => pin('')))
       } else content.push(row('plan-pin', '+ active plan', () => setView({ form: 'plan' })))
+      if (now?.lastNight) content.push(row('last-night', 'last night · ' + (now.lastNight.line || 'where we left off'), () => openDocument(now.lastNight!.file)))
       if (now?.work?.tests) {
         const test = now.work.tests
         content.push(<Text color={testColour(test)}>{testLabel(test)}</Text>)
@@ -834,7 +879,7 @@ export const register: Register = on => {
         for (const file of (test.changedFiles ?? []).slice(0, 10))
           content.push(row('test-changed:' + file, 'changed since: ' + file, () => openFile(file, true)))
       }
-      for (const job of now?.work?.jobs ?? []) content.push(row(`job-${job.id}`, `◷ ${job.title ?? job.command}`, () => openJob(job.id)))
+      for (const job of now?.work?.jobs ?? []) jobRow(job, `◷ ${job.title ?? job.command}`)
       if (now?.work) {
         for (const task of now.work.tasks.filter(t => !t.done)) {
           content.push(row(`task-draft-${task.id}`, '◇ ' + task.text, () => checkedWork(['open', '--root', root, '--action', 'tasks', '--id', task.id])))

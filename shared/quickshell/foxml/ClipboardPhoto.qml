@@ -35,6 +35,6 @@ Item {
     }
     Text {
         anchors.centerIn: parent; visible: !photo.ready
-        text: "▧"; color: photo.theme.muted; font.family: photo.theme.fontFamily; font.pixelSize: 18
+        text: "⧉"; color: photo.theme.muted; font.family: photo.theme.fontFamily; font.pixelSize: 18
     }
 }

@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { beginArgs, canTrack, exitOf, outputOf, shellQuote, testLabel } from '../hooks/work'
+import { beginArgs, canTrack, exitOf, greenAgain, jobPace, outputOf, planProgress, ruler, shellQuote, stepLabel, testLabel } from '../hooks/work'
 
 test('tracking records a command as written, keeps secrets out, and reads how the call ended', () => {
   const command = "make test && printf '%s' \"$HOME\""
@@ -38,4 +38,37 @@ test('freshness names content changes and never treats an unknown snapshot as a 
   expect(testLabel({ ...base, changedFiles: ['a.ts', 'b.ts', 'c.ts'] })).toBe('✓ 128 passed · 0 failed · 3 files changed since')
   expect(testLabel({ ...base, changedFiles: [], changedDuringRun: true })).toContain('code changed while it ran')
   expect(testLabel({ ...base, changedFiles: null })).toContain('may be out of date')
+})
+
+test('plan progress counts checkboxes outside code fences and names the step being worked on', () => {
+  const plan = '# Plan\n- [x] one\n  - [X] two\n* [ ] three\n1. [ ] four\n```\n- [x] an example\n```\n- [] not a box\n'
+  expect(planProgress(plan)).toEqual({ done: 2, total: 4 })
+  expect(planProgress('# Plan\n- a list\n')).toEqual({ done: 0, total: 0 })
+  expect(stepLabel({ done: 3, total: 9 })).toBe('step 4 of 9')
+  expect(stepLabel({ done: 9, total: 9 })).toBe('all 9 steps done ✿')
+  expect(ruler(0.5, 10).join('')).toBe('━━━━━┄┄┄┄┄')
+  expect(ruler(0.5, 10, true).join('')).toBe('━━━━━✎┄┄┄┄')
+  expect(ruler(1, 10, true).join('')).toBe('━━━━━━━━━✎')
+  expect(ruler(0, 10, true).join('').length).toBe(10)
+})
+
+test('a running job is measured only against a recorded pass, and never past it', () => {
+  const job = { id: 'a', command: 'make', state: 'running', elapsed: 60, activity: 0, session: 's' }
+  expect(jobPace(job)).toBeNull()
+  expect(jobPace({ ...job, estimate: 150 })).toEqual({ fraction: 0.4, left: 'about 2m left' })
+  expect(jobPace({ ...job, estimate: 90 })).toEqual({ fraction: 60 / 90, left: 'under a minute left' })
+  expect(jobPace({ ...job, estimate: 60 })).toEqual({ late: true })
+  expect(jobPace({ ...job, estimate: 0 })).toBeNull()
+})
+
+test('green again only after two or more failures in a row of a test run', () => {
+  const said = (v: object) => JSON.stringify({ ok: true, state: 'passed', testRun: true, failedBefore: 2, ...v })
+  expect(greenAgain(said({}))).toBe(true)
+  expect(greenAgain(said({ failedBefore: 1 }))).toBe(false)
+  expect(greenAgain(said({ testRun: false }))).toBe(false)
+  expect(greenAgain(said({ state: 'failed' }))).toBe(false)
+  expect(greenAgain(said({ failedBefore: undefined }))).toBe(false)
+  expect(greenAgain(null)).toBe(false)
+  expect(greenAgain('{"ok":true}')).toBe(false)
+  expect(greenAgain('not json')).toBe(false)
 })

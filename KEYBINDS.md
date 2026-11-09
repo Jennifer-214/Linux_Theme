@@ -37,6 +37,10 @@ icons update automatically; these bindings use the existing plugins and Vim mark
 | `Esc` | Leave search or adjustment, go back, then close |
 | `f` | Go to favorites in the main drawer |
 | `Tab` | Switch focus between groups and items |
+| `1`–`9` | Jump to a sidebar group (1 is Today) |
+| `g` / `G` | Jump to the top / bottom of a page |
+| `?` | Show these drawer keys; h goes back |
+| `q` | Close the drawer |
 
 Press Enter on a slider to adjust it with h/l. Switches such as Night light
 use Enter or l for both on and off; h goes back. The footer shows the keys
@@ -566,16 +570,17 @@ Shows indent guides automatically. No keybinds.
 | `ALT + Shift + N` | Network / Wi-Fi menu |
 | `ALT + Shift + B` | Bluetooth menu |
 | `ALT + Shift + A` | Audio output switcher |
-| `ALT + Shift + P` | Color picker (hyprpicker) |
+| `ALT + Shift + P` | Color picker — copies the hex and shows it on a COPIED slip with a swatch |
 | `ALT + Shift + I` | Discord |
 | `ALT + Shift + O` | Screenshot (GUI editor) |
+| `Print` | Quick screenshot — a region straight to the clipboard and ~/Pictures/Screenshots, no editor |
 | `ALT + Ctrl + O` | Screenshot scrapbook (saved captures) |
-| `ALT + Shift + L` | Toggle displays off (DPMS) |
 | `ALT + B` | Toggle the desktop bar |
 | `ALT + W` | Cycle wallpaper |
 | `ALT + V` | Clipboard history — text |
 | `ALT + Shift + V` | Clipboard history — images |
-| `ALT + Shift + K` | Panic kill — terminate runaway processes |
+| `ALT + Ctrl + L` | Lock the screen now |
+| `ALT + Ctrl + Shift + K` | Lockdown — wipe clipboard, close Firefox session, stop editors and engines, lock |
 | `ALT + Shift + X` | Power menu |
 | `ALT + Shift + E` | Agents — each Claude session with its context meters and state, then pending notes; Enter switches tmux to that pane |
 | `ALT + Ctrl + E` | Next waiting session — jumps tmux to the Claude session waiting on you, the one asking first; press again for the next |
@@ -590,9 +595,10 @@ Shows indent guides automatically. No keybinds.
 | `Mute` | Toggle mute |
 | `Bright +` | Raise screen brightness |
 | `Bright −` | Lower screen brightness |
-| `Play` | Play / pause |
-| `Next` | Next track |
-| `Prev` | Previous track |
+| `XF86AudioMicMute` | Microphone mute, with a note saying which way it went |
+| `Play` | Play / pause, with the little song slip |
+| `Next` | Next track, with the little song slip |
+| `Prev` | Previous track, with the little song slip |
 | `Stop` | Stop playback |
 
 ### Window Management
@@ -617,6 +623,7 @@ Shows indent guides automatically. No keybinds.
 | `ALT + j` | Move focus down |
 | `ALT + k` | Move focus up |
 | `ALT + l` | Move focus right |
+| `ALT + Shift + h/j/k/l` | Move the focused window that way — tiled or floating — onto the next monitor at the edge |
 | `ALT + Shift + Tab` | Cycle to previous window |
 | `ALT + Tab` | Jump focus through only floating windows (skip tiled) |
 | `ALT + Ctrl + Tab` | Cycle tiled windows |

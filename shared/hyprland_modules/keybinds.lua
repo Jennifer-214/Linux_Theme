@@ -41,16 +41,16 @@ hl.bind(mainMod .. " + SHIFT + N", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-men
 hl.bind(mainMod .. " + SHIFT + B", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu bluetooth"))
 -- Audio output switcher.
 hl.bind(mainMod .. " + SHIFT + A", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu audio-outputs"))
--- Color picker (hyprpicker).
-hl.bind(mainMod .. " + SHIFT + P", hl.dsp.exec_cmd("hyprpicker -a"))
+-- Color picker — copies the hex and shows it on a COPIED slip with a swatch.
+hl.bind(mainMod .. " + SHIFT + P", hl.dsp.exec_cmd("~/.config/hypr/scripts/color_picker.sh"))
 -- Discord.
 hl.bind(mainMod .. " + SHIFT + I", hl.dsp.exec_cmd(chat))
 -- Screenshot (GUI editor).
 hl.bind(mainMod .. " + SHIFT + O", hl.dsp.exec_cmd("~/.config/hypr/scripts/screenshot.sh"))
+-- Quick screenshot — a region straight to the clipboard and ~/Pictures/Screenshots, no editor.
+hl.bind("Print", hl.dsp.exec_cmd("~/.config/hypr/scripts/screenshot.sh --quick"))
 -- Screenshot scrapbook (saved captures).
 hl.bind(mainMod .. " + CTRL + O", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu screenshots"))
--- Toggle displays off (DPMS).
-hl.bind(mainMod .. " + SHIFT + L", hl.dsp.exec_cmd("~/.config/hypr/scripts/toggle_dpms.sh"))
 -- Toggle the desktop bar.
 hl.bind(mainMod .. " + B", hl.dsp.exec_cmd("fox-bar toggle"))
 -- Cycle wallpaper.
@@ -59,8 +59,10 @@ hl.bind(mainMod .. " + W", hl.dsp.exec_cmd("~/.config/hypr/scripts/rotate_wallpa
 hl.bind(mainMod .. " + V", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu clipboard-text"))
 -- Clipboard history — images.
 hl.bind(mainMod .. " + SHIFT + V", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu clipboard-images"))
--- Panic kill — terminate runaway processes.
-hl.bind(mainMod .. " + SHIFT + K", hl.dsp.exec_cmd("~/.config/hypr/scripts/panic.sh"))
+-- Lock the screen now.
+hl.bind(mainMod .. " + CTRL + L", hl.dsp.exec_cmd("~/.config/hypr/scripts/lock.sh"))
+-- Lockdown — wipe clipboard, close Firefox session, stop editors and engines, lock.
+hl.bind(mainMod .. " + CTRL + SHIFT + K", hl.dsp.exec_cmd("~/.config/hypr/scripts/panic.sh"))
 -- Power menu.
 hl.bind(mainMod .. " + SHIFT + X", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu power"))
 -- Agents — each Claude session with its context meters and state, then pending notes; Enter switches tmux to that pane.
@@ -78,9 +80,14 @@ hl.bind("XF86AudioLowerVolume", hl.dsp.exec_cmd("~/.config/hypr/scripts/osd.sh v
 hl.bind("XF86AudioMute", hl.dsp.exec_cmd("~/.config/hypr/scripts/osd.sh volume mute"), { locked = true })
 hl.bind("XF86MonBrightnessUp", hl.dsp.exec_cmd("~/.config/hypr/scripts/osd.sh brightness up"), { locked = true })
 hl.bind("XF86MonBrightnessDown", hl.dsp.exec_cmd("~/.config/hypr/scripts/osd.sh brightness down"), { locked = true })
-hl.bind("XF86AudioPlay", hl.dsp.exec_cmd("playerctl play-pause"), { locked = true })
-hl.bind("XF86AudioNext", hl.dsp.exec_cmd("playerctl next"), { locked = true })
-hl.bind("XF86AudioPrev", hl.dsp.exec_cmd("playerctl previous"), { locked = true })
+-- Microphone mute, with a note saying which way it went.
+hl.bind("XF86AudioMicMute", hl.dsp.exec_cmd("~/.config/hypr/scripts/osd.sh mic mute"), { locked = true })
+-- Play / pause, with the little song slip.
+hl.bind("XF86AudioPlay", hl.dsp.exec_cmd("~/.config/hypr/scripts/media.sh play-pause"), { locked = true })
+-- Next track, with the little song slip.
+hl.bind("XF86AudioNext", hl.dsp.exec_cmd("~/.config/hypr/scripts/media.sh next"), { locked = true })
+-- Previous track, with the little song slip.
+hl.bind("XF86AudioPrev", hl.dsp.exec_cmd("~/.config/hypr/scripts/media.sh previous"), { locked = true })
 hl.bind("XF86AudioStop", hl.dsp.exec_cmd("playerctl stop"), { locked = true })
 
 -- ─────────────────────────────────────────
@@ -108,6 +115,12 @@ hl.bind(mainMod .. " + h", hl.dsp.focus({ direction = "left" }))
 hl.bind(mainMod .. " + j", hl.dsp.focus({ direction = "down" }))
 hl.bind(mainMod .. " + k", hl.dsp.focus({ direction = "up" }))
 hl.bind(mainMod .. " + l", hl.dsp.focus({ direction = "right" }))
+
+-- Move the focused window that way — tiled or floating — onto the next monitor at the edge.
+hl.bind(mainMod .. " + SHIFT + h", hl.dsp.window.move({ direction = "left" }))
+hl.bind(mainMod .. " + SHIFT + j", hl.dsp.window.move({ direction = "down" }))
+hl.bind(mainMod .. " + SHIFT + k", hl.dsp.window.move({ direction = "up" }))
+hl.bind(mainMod .. " + SHIFT + l", hl.dsp.window.move({ direction = "right" }))
 
 -- cycle_next is built at keypress time: with three cycle_next binds made at load time,
 -- upstream reports both binds stepping backwards (hyprwm/Hyprland discussion 14716).
@@ -197,7 +210,8 @@ hl.bind("CTRL + ALT + F6", hl.dsp.exec_cmd("chvt 6"))
 -- Resize / move submap
 -- ─────────────────────────────────────────
 -- Resize / move mode. ALT+R enters: bare hjkl resize the focused window,
--- SHIFT+hjkl move it (moveactive — floating windows only, by pixels). binde
+-- SHIFT+hjkl nudge it (moveactive — floating windows only, by pixels; ALT+SHIFT+hjkl
+-- outside this mode moves any window a whole slot). binde
 -- repeats on hold so you can glide. Escape or Return exits.
 hl.bind(mainMod .. " + R", hl.dsp.submap("resize"))
 

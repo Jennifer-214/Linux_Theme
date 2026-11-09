@@ -34,7 +34,7 @@ ShellRoot {
     property int groupIndex: 0
     property int itemIndex: 0
     property int tagIndex: 0
-    readonly property var todayTags: Logic.todayTags(today, groups)
+    readonly property var todayTags: todaySheet.tags
     property int draftValue: 0
     readonly property bool calendarLayout: page === "calendar" && !pickerLayout
     readonly property bool scrapbookLayout: page === "screenshots" && !pickerLayout
@@ -42,9 +42,10 @@ ShellRoot {
     property var garden: null
     property int gardenIndex: -1
     property bool viewFailed: false
-    readonly property string footerHint: calendarLayout ? "h / l changes month · t today · g the garden · Esc closes" : scrapbookLayout ? "arrows choose · c copies · Enter opens · Esc goes back" : gardenLayout ? "h / l a week · j / k a day · Esc goes back" : Logic.footerHint({confirming: pendingConfirm !== null, busy: actionBusy,
+    readonly property string footerHint: calendarLayout ? Logic.sheetHint("calendar") : scrapbookLayout && focusArea === "items" && !searching && !pendingConfirm ? Logic.sheetHint("scrapbook")
+        : gardenLayout && focusArea === "items" && !searching && !pendingConfirm ? Logic.sheetHint("garden") : Logic.footerHint({confirming: pendingConfirm !== null, busy: actionBusy,
         prompt: pickerActive && pickerPrompt, searching: searching, picker: pickerActive,
-        editing: editing, focus: focusArea}, entries[itemIndex])
+        editing: editing, focus: focusArea, groups: groups.length}, entries[itemIndex])
     property var pendingConfirm: null
     property bool confirmYes: false
     property string worktreeProject: ""
@@ -54,6 +55,10 @@ ShellRoot {
     // A page change is pending. The 4s background refresh never sets this, so it can't blink a page.
     property bool pageLoading: false
     property var today: ({})
+    // The landing page as it last read, shown at once on the next open while the root read refreshes it.
+    property var rootCache: null
+    // Set by `?`: the shortcut reference opens at the drawer's own keys.
+    property string keysFilter: ""
     property var nextView: null
     property var nextAction: null
     property string backend: Quickshell.env("FOXML_DRAWER_BACKEND") || "fox-drawer"
@@ -62,7 +67,7 @@ ShellRoot {
     property string lastBarStyle: ""
 
     onOpenedChanged: barWrite.restart()
-    onPageChanged: barWrite.restart()
+    onPageChanged: { barWrite.restart(); if (page !== "cheatsheet") keysFilter = ""; }
     onGroupIdChanged: barWrite.restart()
 
     function syncBar(closing) {
@@ -75,7 +80,9 @@ ShellRoot {
 
     Theme { id: theme }
     readonly property alias paperTheme: theme
-    LevelSlip { id: levelSlip; theme: root.paperTheme; output: root.focusedScreen }
+    // The light slip belongs on the screen whose backlight it changed; sound and songs follow the focus.
+    readonly property var backlightScreen: Quickshell.screens.find(function(output) { return /^(eDP|LVDS|DSI)-/.test(output.name); }) || null
+    LevelSlip { id: levelSlip; theme: root.paperTheme; output: kind === "light" && root.backlightScreen ? root.backlightScreen : root.focusedScreen }
     IpcHandler {
         target: "volume"
         function present(value: int, muted: bool): void { levelSlip.showVolume(value, muted); }
@@ -84,7 +91,15 @@ ShellRoot {
     IpcHandler {
         target: "brightness"
         function present(value: int): void { levelSlip.showBrightness(value); }
-        function status(): string { return JSON.stringify({visible:levelSlip.showing && levelSlip.kind === "light", value:levelSlip.value}); }
+        function status(): string { return JSON.stringify({visible:levelSlip.showing && levelSlip.kind === "light", value:levelSlip.value, screen:levelSlip.output ? levelSlip.output.name : ""}); }
+    }
+    IpcHandler {
+        target: "media"
+        function present(title: string, artist: string, state: string, artwork: string): void { levelSlip.showMedia(title, artist, state, artwork); }
+        function status(): string {
+            return JSON.stringify({visible:levelSlip.showing && levelSlip.kind === "media", title:levelSlip.title, artist:levelSlip.artist,
+                state:levelSlip.playState, artwork:levelSlip.artUrl, screen:levelSlip.output ? levelSlip.output.name : ""});
+        }
     }
 
     property bool barEnabled: Quickshell.env("FOXML_BAR_AUTOSTART") === "1" || Quickshell.env("FOXML_DRAWER_PREVIEW") !== "1"
@@ -238,8 +253,9 @@ ShellRoot {
             if (!groupProcess.running) groupProcess.running = true;
             return;
         }
+        var fixed = !searching && page === "cheatsheet" ? keysFilter : "";
         nextView = { serial: ++viewSerial, page: searching ? searchPage : page,
-                     query: searching ? searchInput.text : "", filter: searching };
+                     query: searching ? searchInput.text : fixed, filter: searching || fixed.length > 0 };
         // One page loads at a time; leaving a page gives up its load so a slow one can't hold the next.
         if (viewProcess.running && viewProcess.requestedPage !== nextView.page) viewProcess.running = false;
         startView();
@@ -281,7 +297,7 @@ ShellRoot {
             var saved = remembered[page];
             entries = Array.isArray(data.items) ? data.items : [];
             creditSnapshot = requestedPage === "api-credits" ? data.credits || null : null;
-            pageTitle = data.title || page;
+            pageTitle = (requestedPage === "cheatsheet" && keysFilter && !searching ? "drawer keys" : data.title) || page;
             drawerReady = true;
             if (data.group && !searching) {
                 groupId = data.group;
@@ -348,15 +364,30 @@ ShellRoot {
         if (!groupProcess.running) groupProcess.running = true;
         if (page === "root") {
             dropView();
-            entries = [];
             pageTitle = "today.";
             groupId = "";
-            groupIndex = 0;
+            var home = groups.findIndex(function(g) { return g.page === "root"; });
+            groupIndex = home >= 0 ? home : 0;
+            if (restoreRoot()) Qt.callLater(function() { itemList.positionViewAtBeginning(); });
         } else {
             entries = [];
             requestView();
         }
         Qt.callLater(function() { if (root.searching) searchInput.forceActiveFocus(); else keyboard.forceActiveFocus(); });
+    }
+
+    // The last landing page stays up while it refreshes in place, so coming back to Today never blinks.
+    function restoreRoot() {
+        if (!rootCache) { entries = []; return false; }
+        today = rootCache.today;
+        entries = rootCache.entries;
+        itemIndex = Logic.restoreIndex(entries, "");
+        itemList.viewPage = "root";
+        pageTitle = "today.";
+        groupId = "";
+        drawerReady = true;
+        pageLoading = false;
+        return true;
     }
 
     function hide(response) {
@@ -451,10 +482,12 @@ ShellRoot {
             page = stack.pop();
             navigationSerial++;
             note("");
-            drawerReady = false;
-            pageLoading = true;
             trail = stack;
-            entries = [];
+            if (page !== "root" || !restoreRoot()) {
+                drawerReady = false;
+                pageLoading = true;
+                entries = [];
+            }
             requestView();
         } else if (focusArea === "items" || focusArea === "tags") {
             remember();
@@ -474,6 +507,40 @@ ShellRoot {
         requestView();
         Qt.callLater(function() { searchInput.forceActiveFocus(); });
         note("");
+    }
+
+    // `?`: the shortcut reference, at the drawer's own keys; h or Esc comes back here.
+    function showKeys() {
+        if (pickerActive || pendingConfirm || editing || searching) return;
+        previewTimer.stop();
+        if (calendarLayout) { placeAtLauncher(); trail = []; }
+        else if (page !== "cheatsheet") { remember(); trail = trail.concat([page]); }
+        page = "cheatsheet";
+        keysFilter = Logic.drawerKeysQuery;
+        navigationSerial++;
+        note("");
+        focusArea = "items";
+        drawerReady = false;
+        pageLoading = true;
+        entries = [];
+        itemList.viewPage = "";
+        requestView();
+        keyboard.forceActiveFocus();
+    }
+
+    // 1–9: the sidebar's groups, in order.
+    function jumpToGroup(index) {
+        if (!groups[index] || pickerActive || pendingConfirm || editing || searching) return;
+        previewTimer.stop();
+        var target = groups[index].page || groups[index].id;
+        if (target === "root" && page === "root" && !trail.length) {
+            remember();
+            groupIndex = index;
+            focusArea = "groups";
+            return;
+        }
+        groupList.positionViewAtIndex(index, ListView.Contain);
+        chooseGroup(index);
     }
 
     function step(delta) {
@@ -623,8 +690,11 @@ ShellRoot {
     function key(event) {
         if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)) return;
         var k = event.key;
+        var helpKey = k === Qt.Key_Question || event.text === "?";
+        var digit = k >= Qt.Key_1 && k <= Qt.Key_9 ? k - Qt.Key_1 : -1;
         if (calendarLayout) {
             if (k === Qt.Key_Escape || k === Qt.Key_Q) hide();
+            else if (helpKey) showKeys();
             else if (k === Qt.Key_H || k === Qt.Key_Left || k === Qt.Key_PageUp) calendarSheet.moveMonth(-1);
             else if (k === Qt.Key_L || k === Qt.Key_Right || k === Qt.Key_PageDown) calendarSheet.moveMonth(1);
             else if (k === Qt.Key_T || k === Qt.Key_Home) calendarSheet.reset();
@@ -644,6 +714,8 @@ ShellRoot {
             else if (k === Qt.Key_Up || k === Qt.Key_K) gardenIndex = Math.max(0, gardenIndex - 1);
             else if (k === Qt.Key_Down || k === Qt.Key_J) gardenIndex = Math.min(planted - 1, gardenIndex + 1);
             else if (k === Qt.Key_T || k === Qt.Key_Home) gardenIndex = planted - 1;
+            else if (helpKey) showKeys();
+            else if (digit >= 0) jumpToGroup(digit);
             else return;
             event.accepted = true;
             return;
@@ -661,6 +733,8 @@ ShellRoot {
             else if (k === Qt.Key_Down || k === Qt.Key_J) itemIndex = Math.min(entries.length - 1, itemIndex + scrapbookSheet.columns);
             else if (k === Qt.Key_C) screenshotAction(itemIndex, "screenshot-copy");
             else if (k === Qt.Key_Return || k === Qt.Key_Enter) activate(entries[itemIndex]);
+            else if (helpKey) showKeys();
+            else if (digit >= 0) { jumpToGroup(digit); event.accepted = true; return; }
             else return;
             itemIndex = Math.max(0, itemIndex);
             event.accepted = true;
@@ -698,11 +772,15 @@ ShellRoot {
             else if (k === Qt.Key_Slash) startSearch();
             else if (k === Qt.Key_F) show("root");
             else if (k === Qt.Key_Tab || k === Qt.Key_Backtab) focusArea = "groups";
+            else if (helpKey) showKeys();
+            else if (digit >= 0) jumpToGroup(digit);
             else return;
             event.accepted = true;
             return;
         }
         if (k === Qt.Key_Escape) goBack();
+        else if (helpKey && !editing && !pendingConfirm) showKeys();
+        else if (digit >= 0 && !editing && !pendingConfirm) jumpToGroup(digit);
         else if (k === Qt.Key_R && !editing && !pendingConfirm && !actionBusy && focusArea === "items"
                  && entries[itemIndex] && entries[itemIndex].presentation === "download") {
             runAction(Object.assign({}, entries[itemIndex], {id: "download-folder", action: "download-folder"}), undefined, false);
@@ -782,13 +860,19 @@ ShellRoot {
                 var refreshedGroups = Array.isArray(data.items) ? data.items : [];
                 if (JSON.stringify(root.groups) !== JSON.stringify(refreshedGroups)) root.groups = refreshedGroups;
                 if (root.page === "root" && !root.searching && !root.editing && !root.pendingConfirm) {
-                    var previous = Logic.identity(root.entries[root.itemIndex]);
-                    root.entries = Array.isArray(data.favorites) ? data.favorites : [];
-                    root.itemIndex = Logic.restoreIndex(root.entries, previous);
+                    // Only what changed is replaced, so the landing page refreshes without a flicker.
+                    var favorites = Array.isArray(data.favorites) ? data.favorites : [];
+                    if (itemList.viewPage !== "root" || JSON.stringify(favorites) !== JSON.stringify(root.entries)) {
+                        var previous = Logic.identity(root.entries[root.itemIndex]);
+                        root.entries = favorites;
+                        root.itemIndex = Logic.restoreIndex(root.entries, previous);
+                    }
+                    var todayData = data.today || {};
+                    if (JSON.stringify(todayData) !== JSON.stringify(root.today)) root.today = todayData;
                     root.pageTitle = "today.";
-                    root.today = data.today || {};
                     root.drawerReady = true;
                     itemList.viewPage = "root";
+                    root.rootCache = {entries: root.entries, today: root.today};
                 }
                 var gi = root.focusArea === "groups" ? -1 : root.groups.findIndex(function(g) { return g.page === root.page || g.id === root.groupId; });
                 root.groupIndex = gi >= 0 ? gi : Logic.restoreIndex(root.groups, previousGroup);
@@ -1165,7 +1249,6 @@ ShellRoot {
                                 commandFor: root.backendCommand
                                 selectedTag: root.focusArea === "tags" ? root.tagIndex : -1
                                 onOpenTag: tag => root.openTag(tag)
-                                onOpenGarden: root.openTag({page: "garden", text: "Commit garden"})
                                 Layout.fillWidth: true
                             }
 
@@ -1330,6 +1413,28 @@ ShellRoot {
                                                     Layout.preferredHeight: theme.paperDetails ? 14 : 3
                                                     tickMarks: theme.paperDetails
                                                     value: root.editing && selected ? root.draftValue : Number(modelData.value || 0)
+                                                }
+                                            }
+                                            // The row's own shortcut, faint until the row is chosen: "alt ⇧ n" as little keycaps.
+                                            Row {
+                                                objectName: "item-keys"
+                                                readonly property var caps: typeof modelData.keys === "string" ? modelData.keys.trim().split(/\s+/).filter(function(cap) { return cap.length > 0; }).slice(0, 5) : []
+                                                visible: caps.length > 0
+                                                spacing: 2
+                                                opacity: itemRow.selected || itemMouse.containsMouse ? .9 : .55
+                                                Layout.alignment: Qt.AlignVCenter
+                                                Accessible.role: Accessible.StaticText
+                                                Accessible.name: visible ? "shortcut " + modelData.keys : ""
+                                                Repeater {
+                                                    model: parent.caps
+                                                    delegate: Rectangle {
+                                                        required property string modelData
+                                                        width: Math.max(height, keyCap.implicitWidth + 7); height: keyCap.implicitHeight + 3
+                                                        radius: 3
+                                                        color: theme.paperDetails ? Qt.alpha(theme.highlight, .4) : "transparent"
+                                                        border.width: 1; border.color: Qt.alpha(theme.line, .75)
+                                                        Text { id: keyCap; anchors.centerIn: parent; textFormat: Text.PlainText; text: modelData; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9 }
+                                                    }
                                                 }
                                             }
                                             ColumnLayout {

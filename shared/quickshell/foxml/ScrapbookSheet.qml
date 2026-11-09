@@ -93,7 +93,7 @@ ColumnLayout {
         }
         Text {
             anchors.centerIn: parent; visible: !book.entries.length && !book.busy
-            text: "a place for little moments.\n\ntake a screenshot to start your collection."
+            text: "a place for little moments.\n\nalt ⇧ o takes one, or press + new."
             horizontalAlignment: Text.AlignHCenter; color: book.theme.muted
             font.family: book.theme.headingFont; font.italic: true; font.pixelSize: 17
         }

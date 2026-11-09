@@ -1,6 +1,9 @@
 #!/bin/bash
-# FoxML Panic Button
-# Instantly locks down the machine, wipes sensitive memory, and stops active engines.
+# Lockdown — wipe clipboard, close Firefox session, stop editors and engines, lock.
+# Bound to ALT+CTRL+SHIFT+K (three modifiers, so it is never one slip from a
+# focus key). There is no confirmation: it shreds clipboard history and the
+# Firefox session, kill -9s every nvim under ~/code, stops the trading engines,
+# then locks. For a plain lock use ALT+CTRL+L.
 #
 # Process kills are scoped by exact binary name (-x) and per-pid cwd
 # inspection so we don't nuke unrelated processes that happen to share
@@ -110,14 +113,14 @@ done
 
 # 5. Notify briefly before locking. The lock screen overlays this
 #    quickly anyway, but notify-send fires the bell sound so the user
-#    knows the panic button actually worked.
-notify-send -u critical "LOCKDOWN" "Clipboard wiped. Engines stopped. Screen locking..." 2>/dev/null || true
+#    knows the lockdown actually ran.
+notify-send "locking down." "clipboard wiped, firefox session closed, editors and engines stopped" 2>/dev/null || true
 
 # Phone alert via fox-dispatch (no-op silently if webhook isn't
 # configured). Background + disown so the lock fires immediately;
 # dispatch finishes in the background after we're locked.
 if command -v fox-dispatch >/dev/null 2>&1; then
-    (fox-dispatch "PANIC" "panic.sh triggered on $(hostname) at $(date -Iseconds)" >/dev/null 2>&1) &
+    (fox-dispatch "lockdown" "lockdown ran on $(hostname) at $(date -Iseconds)" >/dev/null 2>&1) &
     disown || true
 fi
 

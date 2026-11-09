@@ -197,6 +197,15 @@ separator { background-color: @border; }
 {{GTK_DETAIL_SCOPE}} notebook > header tab:checked { border-bottom: 1px solid @detail_ink; }
 {{GTK_DETAIL_SCOPE}} scrollbar > range > trough > slider:active { background: @detail_ink; }
 
+/* Paper frames bars, menus, buttons and fields with the same faint hairline as its other surfaces. */
+{{GTK_DETAIL_SCOPE}} headerbar, {{GTK_DETAIL_SCOPE}} .titlebar, {{GTK_DETAIL_SCOPE}} menubar { border-bottom-color: #{{BTOP_LINE}}; }
+{{GTK_DETAIL_SCOPE}} headerbar button:hover,
+{{GTK_DETAIL_SCOPE}} button, {{GTK_DETAIL_SCOPE}} button:hover, {{GTK_DETAIL_SCOPE}} button:active,
+{{GTK_DETAIL_SCOPE}} button.suggested-action, {{GTK_DETAIL_SCOPE}} button.default,
+{{GTK_DETAIL_SCOPE}} entry, {{GTK_DETAIL_SCOPE}} searchbar entry, {{GTK_DETAIL_SCOPE}} .search-bar entry,
+{{GTK_DETAIL_SCOPE}} entry.search,
+{{GTK_DETAIL_SCOPE}} popover, {{GTK_DETAIL_SCOPE}} popover contents, {{GTK_DETAIL_SCOPE}} menu { border-color: #{{BTOP_LINE}}; }
+
 /* Paper interaction details: a quiet hover wash and pencil progress with a blush tip. */
 {{GTK_DETAIL_SCOPE}} button:hover:not(:active):not(:checked):not(:disabled),
 {{GTK_DETAIL_SCOPE}} headerbar button:hover:not(:active):not(:checked):not(:disabled) {

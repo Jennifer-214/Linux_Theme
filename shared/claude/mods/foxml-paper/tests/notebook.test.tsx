@@ -29,7 +29,7 @@ const seen = { stdin: [] as string[], bash: [] as string[], argv: [] as string[]
 const NOW = 1_800_000_000_000
 
 // A small file system in memory, for the runtime and state folders.
-function fakeFs(on: On, files: Record<string, string>) {
+function fakeFs(on: On, files: Record<string, string>, mtimes: Record<string, number> = {}) {
   const entries = (dir: string) => Object.keys(files).filter(f => f.startsWith(dir + '/') && !f.slice(dir.length + 1).includes('/'))
   on('fs.read', (_, e) => {
     const text = files[e.path]
@@ -41,7 +41,7 @@ function fakeFs(on: On, files: Record<string, string>) {
   on('fs.stat', (_, e) => {
     const text = files[e.path]
     if (text === undefined) throw new Error('missing ' + e.path)
-    return { value: { kind: 'file' as const, size: text.length, mtimeMs: 0, isLink: false, realPath: e.path } }
+    return { value: { kind: 'file' as const, size: text.length, mtimeMs: mtimes[e.path] ?? 0, isLink: false, realPath: e.path } }
   })
   on('fs.list', (_, e) => {
     const found = entries(e.path ?? '.')
@@ -52,7 +52,7 @@ function fakeFs(on: On, files: Record<string, string>) {
 }
 
 // Nothing sits beneath the plugin in a test: these stand for the engine and the machine.
-function engine(on: On, options: { bash?: (command: string) => unknown; runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; credits?: unknown; trees?: unknown; readIds?: { id: string; at: number }[] } = {}) {
+function engine(on: On, options: { bash?: (command: string) => unknown; runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; finished?: () => unknown; credits?: unknown; trees?: unknown; readIds?: { id: string; at: number }[] } = {}) {
   let pinned: { file: string; step: string } | null = null
   seen.argv = []; seen.stdin = []; seen.bash = []; seen.sent = []; seen.toasts = []; seen.submitted = []; seen.opened = []
   mock.store(on, { 'notebook-read-mail:abc': options.readIds ?? [] })
@@ -76,6 +76,7 @@ function engine(on: On, options: { bash?: (command: string) => unknown; runtime?
     seen.argv.push(argv)
     if (e.init?.stdin !== undefined) seen.stdin.push(e.init.stdin)
     if (argv.startsWith('fox-work begin ')) return { value: done('f'.repeat(32) + '\n') }
+    if (argv.startsWith('fox-work finish ') && options.finished) return { value: done(JSON.stringify(options.finished())) }
     if (argv.startsWith('fox-work plan-pin ')) {
       const file = e.argv[e.argv.indexOf('--file') + 1] ?? ''
       pinned = file ? { file: file.startsWith('/') ? file : '/code/paper/' + file, step: e.argv[e.argv.indexOf('--step') + 1] ?? '' } : null
@@ -459,4 +460,80 @@ test('a build Claude runs is recorded around the call, never rewritten, under it
   expect(seen.argv.some(argv => argv.includes('fox-work run'))).toBe(false)
   await $.tool.call({ tool: 'Bash', command: 'ls', description: 'List files' })
   expect(seen.argv.filter(argv => argv.startsWith('fox-work begin')).length).toBe(1)
+})
+
+test('tests that failed twice in a row and pass again say green again, once; a flaky one stays quiet', async ($, on) => {
+  let failedBefore = 2
+  engine(on, { bash: () => ({ result: { stdout: '4 passed', stderr: '' } }), finished: () => ({ ok: true, state: 'passed', testRun: true, failedBefore }) })
+  await opened($)
+  await $.tool.call({ tool: 'Bash', command: 'make test', description: 'Run the tests' })
+  expect(seen.toasts.filter(t => t === 'green again ✿').length).toBe(1)
+  failedBefore = 1
+  seen.toasts = []
+  await $.tool.call({ tool: 'Bash', command: 'make test', description: 'Run the tests' })
+  expect(seen.toasts).not.toContain('green again ✿')
+})
+
+test('a running job draws a pencil ruler against its last pass, and says so plainly once it runs long', async ($, on) => {
+  const job = { id: 'j1', command: 'make', title: 'Build the engine', state: 'running', elapsed: 60, activity: 0, session: 'abc' }
+  const projectWork = { tests: null, tasks: [], jobs: [{ ...job, estimate: 150 } as typeof job & { estimate?: number }] }
+  engine(on, { projectWork })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ key: 'job-j1' }))?.text).toContain('Build the engine · 1m')
+  expect((await ui.find({ type: 'Text', text: /✎.*about 2m left/ }))?.text).toMatch(/^ {2}━+✎┄+ about 2m left$/)
+  const again = () => $.command.run({ command: 'notebook', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  projectWork.jobs = [{ ...job, estimate: 45 }]
+  await again()
+  expect(await ui.find({ type: 'Text', text: /taking longer than last time/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /✎/ })).toBeUndefined()
+  projectWork.jobs = [job]
+  await again()
+  expect((await ui.find({ key: 'job-j1' }))?.text).toContain('· 1m')
+  expect(await ui.find({ type: 'Text', text: /left|longer|✎/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test("the plan row shows which checkbox step is next, and nothing for a plan without boxes", async ($, on) => {
+  const files = fakeFs(on, { '/code/paper/plans/one.md': '# The active plan\n- [x] a\n- [x] b\n- [ ] c\n',
+    '/code/paper/plans/two.md': '# Prose only\n' })
+  engine(on, { runtime: '/run/t', files, projectWork: { tests: null, jobs: [], tasks: [] } })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'plan-pin' })
+  await ui.input({ key: 'plan-file', text: 'plans/one.md', kind: 'submit' })
+  expect((await ui.find({ type: 'Text', text: /step 3 of 3/ }))?.text).toMatch(/^ {2}━+┄+ step 3 of 3$/)
+  await $.command.run({ command: 'notebook', args: 'project', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  expect(await ui.find({ type: 'Text', text: /step 3 of 3/ })).toBeDefined()
+  await ui.press({ key: 'plan-pin' })
+  await ui.input({ key: 'plan-file', text: 'plans/two.md', kind: 'submit' })
+  expect(await ui.find({ type: 'Text', text: /step \d+ of/ })).toBeUndefined()
+  await ui.unmount()
+})
+
+test("last night's goodnight note is pointed to at the start and opens from the project page, never sent to Claude", async ($, on) => {
+  const note = '/state/foxml/goodnight/paper.md'
+  const files = fakeFs(on, { [note]: '# where we left off\n\nthe ruler works; the drawer is next\n' }, { [note]: NOW - 10 * 3600 * 1000 })
+  engine(on, { state: '/state', files, projectWork: { tests: null, jobs: [], tasks: [] } })
+  await opened($)
+  expect(seen.toasts).toContain("last night's note is waiting · /notebook project")
+  expect(seen.submitted).toEqual([])
+  await $.command.run({ command: 'notebook', args: 'project', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ key: 'last-night' }))?.text).toContain('last night · where we left off')
+  await ui.press({ key: 'last-night' })
+  expect(seen.argv).toContain('fox-work open --root /state/foxml/goodnight --action file --file paper.md')
+  await ui.unmount()
+})
+
+test("an old goodnight note stays out of the way", async ($, on) => {
+  const note = '/state/foxml/goodnight/paper.md'
+  const files = fakeFs(on, { [note]: 'old news\n' }, { [note]: NOW - 40 * 3600 * 1000 })
+  engine(on, { state: '/state', files, projectWork: { tests: null, jobs: [], tasks: [] } })
+  await opened($)
+  expect(seen.toasts.some(t => t.includes('last night'))).toBe(false)
+  await $.command.run({ command: 'notebook', args: 'project', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ key: 'last-night' })).toBeUndefined()
+  await ui.unmount()
 })
