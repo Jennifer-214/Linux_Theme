@@ -101,15 +101,17 @@ class PaperPickers(unittest.TestCase):
         self.assertIn(['wl-copy','--sensitive'],calls)
         self.assertEqual((self.home/'input').read_text().splitlines(),['show','--clip=1','--','a literal $(entry)'])
 
-    def test_command_picker_cancel_keeps_commands_idle(self):
-        commands = self.home/'.local/bin'
-        commands.mkdir(parents=True)
-        cmd = commands/'fox-fixture'
-        cmd.write_text('#!/bin/bash\n# fox-fixture — a little fixture\n')
-        cmd.chmod(0o755)
-        calls = self.run_tool('fox-menu',PICKER_CANCEL='1')
-        self.assertFalse(any(row[0]=='setsid' for row in calls))
-        self.assertIn('fox-fixture',(self.home/'input').read_text())
+    def test_command_entrypoint_opens_tools_without_launching_commands(self):
+        # Stage the real wrapper beside the fake desktop launcher: the wrapper
+        # deliberately resolves its sibling instead of a command on PATH.
+        wrapper = self.bin/'fox-menu'
+        shutil.copy(ROOT/'shared/bin/fox-menu', wrapper)
+        result = subprocess.run(['/bin/bash', str(wrapper)], env=self.env,
+                                text=True, capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        calls = [json.loads(row) for row in (self.home/'calls').read_text().splitlines()]
+        self.assertEqual(calls, [['fox-desktop-menu', '--open', 'tools']])
+        self.assertFalse((self.home/'input').exists(), 'opening tools must not invoke a picker or command')
 
 
 if __name__ == '__main__':
