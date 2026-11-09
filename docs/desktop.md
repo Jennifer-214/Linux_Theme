@@ -218,6 +218,18 @@ largest folders in your home, and space the disk counts but no readable folder h
 unused Flatpak runtimes open in a terminal with `sudo`; emptying the trash asks first; the
 other rows open the folder.
 
+### Displays
+
+System → Displays lists each screen with its mode, scale, rotation, side of the main screen and
+how much room it gives. Each screen has **Bigger text and windows** / **More room** (the next
+scale that divides its mode evenly, 0.75 to 3), **Rotate** (landscape → portrait turned left →
+portrait turned right) and, for other screens, **Move to another side**. Every change moves the
+other screens so edges touch and stay centred, writes both `monitors.conf` and `monitors.lua`
+in `~/.config/hypr/modules/`, and reloads Hyprland. **Keep this layout** within 15 seconds, or it
+goes back by itself; the layout from before the change is kept as `*.foxml-prev` (**Undo the
+last display change**). **Larger / Smaller pointer** steps the pointer size (24–48) live and
+saves it to `~/.config/hypr/modules/local.lua`, which `hyprland.lua` loads last.
+
 ### Backups and startup
 
 System → Backups lists the folders the theme tools and installer kept in
@@ -275,7 +287,8 @@ In Neovim, named `a-z` / `A-Z` marks get pink bookmark ribbons in the existing
 sign gutter, below diagnostic/git/breakpoint priority. `ma` sets mark `a`; `'a`
 returns to it. Ribbons refresh on the existing idle/edit events, without a new
 timer. Unsaved buffers use a graphite pencil marker, and Lualine keeps its data
-on a quiet paper footer. `<leader>tc` toggles comment folds; folded notes show
+on a quiet paper footer. Comments arrive folded in every file you open (very large files excepted);
+`<leader>tc` switches that off or back on, and the choice is remembered. Folded notes show
 the first line and line count, and `zo` opens one. **Space tC** (capital C) or
 `:CommentRefold` enables and refolds all comments in the current window, including
 after `zR`; `zc` closes just the current comment. Turning comment folding off

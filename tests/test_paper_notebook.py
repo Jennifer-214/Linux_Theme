@@ -107,6 +107,30 @@ if parser and parser ~= '' then
   toggle()
   assert(vim.fn.foldclosed(4) == 4, 're-enabling comment folds reopened the comment under the cursor')
   toggle()
+  local function open_new(name)
+    local other = vim.api.nvim_create_buf(true, false)
+    vim.api.nvim_buf_set_name(other, vim.fn.fnamemodify(vim.env.NOTEBOOK_SOURCE, ':h') .. '/' .. name)
+    vim.api.nvim_buf_set_lines(other, 0, -1, false, {'int a;', '// first', '// second', 'int b;'})
+    vim.bo[other].filetype = 'cpp'
+    vim.api.nvim_win_set_buf(0, other)
+    vim.wait(200, function() return false end)
+    return other
+  end
+  toggle()
+  local second = open_new('second.cpp')
+  assert(vim.fn.foldclosed(2) == 2, 'a newly opened file did not arrive with its comments folded')
+  assert(vim.fn.foldclosed(1) == -1 and vim.fn.foldclosed(4) == -1, 'prefold swallowed code')
+  vim.api.nvim_win_set_cursor(0, {2, 0}); vim.cmd('normal! zo')
+  vim.api.nvim_win_set_buf(0, buf); vim.wait(100, function() return false end)
+  vim.api.nvim_win_set_buf(0, second); vim.wait(100, function() return false end)
+  assert(vim.fn.foldclosed(2) == -1, 'returning to a file refolded the comment you had opened')
+  toggle()
+  local state = vim.fn.stdpath('state') .. '/fox-comment-fold'
+  assert(vim.fn.readfile(state)[1] == 'off', 'turning comment folding off was not remembered')
+  open_new('third.cpp')
+  assert(vim.fn.foldclosed(2) == -1, 'a new file was folded after comment folding was switched off')
+  assert(not vim.w.fox_comment_fold)
+  vim.api.nvim_win_set_buf(0, buf)
 end
 local plugin = vim.env.NOTEBOOK_SYMDEPS
 if plugin and plugin ~= '' then

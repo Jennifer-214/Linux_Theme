@@ -78,7 +78,8 @@ class ApiCredits(unittest.TestCase):
             return pages[len(urls)-1]
         start, end = credits.cycle(self.config, NOW)
         totals, refreshed = credits.collect(self.config, start, NOW, 'fixture-only', request=fake)
-        self.assertEqual(totals, {'trader': Decimal('12.345'), 'plugins': Decimal('2.0025'), 'other': Decimal('.10')})
+        self.assertEqual(totals, {'trader': Decimal('12.345'), 'plugins': Decimal('2.0025'), 'theme': Decimal(0),
+                                  'other': Decimal('.10')})
         self.assertEqual(refreshed, stamp)
         self.assertIn('page=second', urls[1])
         self.assertTrue(all(url.startswith('https://api.anthropic.com/') for url in urls))

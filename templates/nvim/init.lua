@@ -3614,10 +3614,11 @@ map("n", "<leader>tl", function()
   vim.notify("Diagnostic lines: " .. (on and "ON" or "OFF"))
 end, { desc = "Toggle diagnostic lines" })
 
--- Toggle comment folding: collapse comment blocks (// runs + /* */ walls) so the logic is readable —
--- the engine's comment walls can eat most of the screen. Treesitter-driven; per-window. A folded
--- block shows just its first line; zo/za peeks one, zR opens all, Space tC refolds all.
--- Code lines never fold. Disabling restores the window's previous folding options.
+-- Comment folding: collapse comment blocks (// runs + /* */ walls) so the logic is readable —
+-- the engine's comment walls can eat most of the screen. Treesitter-driven. On by default: every
+-- file you open arrives with its comments folded; Space tc switches that off (and back on) for
+-- this window and every file after, and the choice is remembered. zo/za peeks one, zR opens all,
+-- Space tC refolds all. Code lines never fold. Off restores the window's previous folding options.
 function _G.FoxCommentFoldExpr()
   local first = (vim.fn.getline(vim.v.lnum):find("%S") or 1) - 1
   local ok, node = pcall(vim.treesitter.get_node, { pos = { vim.v.lnum - 1, first } })
@@ -3629,15 +3630,26 @@ function _G.FoxCommentFoldExpr()
   end
   return "0"
 end
-local function refold_comments()
+local comment_fold_state = vim.fn.stdpath("state") .. "/fox-comment-fold"
+local comment_fold_auto = vim.fn.filereadable(comment_fold_state) == 0 or vim.fn.readfile(comment_fold_state)[1] ~= "off"
+local function save_comment_fold_auto(on)
+  comment_fold_auto = on
+  pcall(vim.fn.mkdir, vim.fn.fnamemodify(comment_fold_state, ":h"), "p")
+  local temp = comment_fold_state .. ".tmp"
+  if vim.fn.writefile({ on and "on" or "off" }, temp) == 0 then (vim.uv or vim.loop).fs_rename(temp, comment_fold_state) end
+end
+local fold_options = { "foldmethod", "foldexpr", "foldenable", "foldlevel", "foldtext" }
+local function refold_comments(silent)
   if Paper.enabled and not Paper.file_buffer(vim.api.nvim_get_current_buf()) then return end
   -- Reparse edits before rebuilding folds; an opened comment can otherwise
   -- retain the old range until Treesitter's next update.
   pcall(function() vim.treesitter.get_parser():parse() end)
   if not vim.w.fox_comment_fold then
+    -- A split copies its parent's comment-fold options; restoring those would leave it folded.
+    local inherited = vim.wo.foldexpr == "v:lua.FoxCommentFoldExpr()"
     local previous = {}
-    for _, option in ipairs({ "foldmethod", "foldexpr", "foldenable", "foldlevel", "foldtext" }) do
-      previous[option] = vim.wo[option]
+    for _, option in ipairs(fold_options) do
+      previous[option] = inherited and vim.go[option] or vim.wo[option]
     end
     vim.w.fox_comment_fold_previous = previous
   end
@@ -3648,26 +3660,56 @@ local function refold_comments()
   vim.wo.foldlevel = 0
   vim.wo.foldenable = true
   vim.cmd("normal! zX") -- zx would immediately reopen the fold containing the cursor.
-  vim.notify("Comments refolded · zo opens one · zR opens all · Space tC refolds")
+  if silent ~= true then vim.notify("Comments refolded · zo opens one · zR opens all · Space tC refolds") end
+end
+local function unfold_comments()
+  local previous = vim.w.fox_comment_fold_previous
+  vim.w.fox_comment_fold = false
+  if previous then
+    for _, option in ipairs({ "foldexpr", "foldtext", "foldlevel", "foldmethod", "foldenable" }) do
+      vim.wo[option] = previous[option]
+    end
+  end
+  vim.w.fox_comment_fold_previous = nil
 end
 map("n", "<leader>tc", function()
   if Paper.enabled and not Paper.file_buffer(vim.api.nvim_get_current_buf()) then return end
   if vim.w.fox_comment_fold then
-    local previous = vim.w.fox_comment_fold_previous
-    vim.w.fox_comment_fold = false
-    if previous then
-      for _, option in ipairs({ "foldexpr", "foldtext", "foldlevel", "foldmethod", "foldenable" }) do
-        vim.wo[option] = previous[option]
-      end
-    end
-    vim.w.fox_comment_fold_previous = nil
-    vim.notify("Comment folding: OFF")
+    unfold_comments()
+    save_comment_fold_auto(false)
+    vim.notify("Comment folding: OFF · new files open unfolded")
   else
-    refold_comments()
+    save_comment_fold_auto(true)
+    refold_comments(true)
+    vim.notify("Comment folding: ON · new files open folded")
   end
 end, { desc = "Toggle comment folding" })
 map("n", "<leader>tC", refold_comments, { desc = "Refold all comments" })
-vim.api.nvim_create_user_command("CommentRefold", refold_comments, { desc = "Enable and refold all comments in this window" })
+vim.api.nvim_create_user_command("CommentRefold", function() refold_comments() end, { desc = "Enable and refold all comments in this window" })
+-- Prefold: the first time a file is shown in a window, once Treesitter has its parser. Coming back
+-- to a file keeps whatever you opened. Very large files are skipped (foldexpr asks Treesitter per line).
+vim.api.nvim_create_autocmd("BufWinEnter", {
+  group = vim.api.nvim_create_augroup("foxml_comment_prefold", { clear = true }),
+  callback = function(args)
+    local buf = args.buf
+    vim.schedule(function()
+      local win = vim.api.nvim_get_current_win()
+      if vim.api.nvim_win_get_buf(win) ~= buf or not vim.api.nvim_buf_is_valid(buf) then return end
+      if vim.bo[buf].buftype ~= "" or not vim.bo[buf].buflisted or vim.bo[buf].filetype:match("^fox%-symdeps") then return end
+      local seen = vim.w[win].fox_comment_fold_seen or {}
+      if seen[tostring(buf)] then return end
+      seen[tostring(buf)] = true
+      vim.w[win].fox_comment_fold_seen = seen
+      if not comment_fold_auto then
+        if vim.w[win].fox_comment_fold then unfold_comments() end
+        return
+      end
+      if vim.api.nvim_buf_line_count(buf) > 20000 then return end
+      local ok, parser = pcall(vim.treesitter.get_parser, buf, nil, { error = false })
+      if ok and parser then refold_comments(true) end
+    end)
+  end,
+})
 
 -- === Per-project settings ===
 

@@ -11,6 +11,7 @@
       "items": [
         { "id": "apps", "label": "Applications", "detail": "Find something to open", "icon": "⌘", "kind": "page", "page": "apps" },
         { "id": "projects", "label": "Project index cards", "detail": "A little card for each code project", "icon": "▤", "kind": "page", "page": "projects" },
+        { "id": "api-tasks", "label": "Review with API credits", "detail": "Ask about Trader, Claude mods or Linux_Theme, with a budget per run", "icon": "✎", "kind": "page", "page": "api-tasks" },
         { "id": "worktrees", "label": "Worktree map", "detail": "Branches, working folders and the Claudes in each", "icon": "▥", "kind": "page", "page": "worktrees" },
         { "id": "jobs", "label": "Jobs", "detail": "Builds, tests and downloads, even after Claude is idle", "icon": "◷", "kind": "page", "page": "jobs" },
         { "id": "test-results", "label": "Test results", "detail": "Failures to open and changes since the last pass", "icon": "✓", "kind": "page", "page": "test-results" },
@@ -78,6 +79,7 @@
       "description": "A little care for your machine",
       "items": [
         { "id": "updates", "label": "Updates", "detail": "See what is ready to update", "icon": "↻", "kind": "page", "page": "updates" },
+        { "id": "displays", "label": "Displays", "detail": "Scale, rotation, arrangement and pointer size", "icon": "▭", "kind": "page", "page": "displays" },
         { "id": "storage", "label": "Storage", "detail": "What uses the disk, and what can go", "icon": "▦", "kind": "page", "page": "storage" },
         { "id": "backups", "label": "Backups", "detail": "Files the theme kept before replacing them", "icon": "↺", "kind": "page", "page": "backups" },
         { "id": "startup", "label": "Startup", "detail": "What starts with your session", "icon": "⏵", "kind": "page", "page": "startup" },

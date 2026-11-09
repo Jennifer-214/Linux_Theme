@@ -14,6 +14,7 @@
 #include "../core/context.hpp"
 #include "hypr_lua.hpp"
 #include "../../fox-common/shell.hpp"
+#include "../../fox-monitor/placement.hpp"
 #include "../../fox-monitor/sidecar.hpp"
 #include "../../fox-common/ui.hpp"
 #include "personalize.hpp"
@@ -36,6 +37,7 @@ using json   = nlohmann::json;
 namespace fox_install {
 
 namespace sidecar = fox_monitor::sidecar;
+namespace placement = fox_monitor::placement;
 
 namespace {
 
@@ -49,13 +51,14 @@ struct Anchor {
 std::pair<std::string, int> pick_scale(bool tty) {
     if (!tty) return {"1", 100};
     std::cerr << "    Scale (HiDPI):\n"
-                 "      [1] 1x   [2] 1.25x   [3] 1.5x   [4] 2x\n"
+                 "      [1] 1x   [2] 1.25x   [3] 1.5x   [4] 2x   [5] 0.75x\n"
                  "    Choice [1]: ";
     std::string line;
     std::getline(std::cin, line);
     if (line == "2") return {"1.25", 125};
     if (line == "3") return {"1.5",  150};
     if (line == "4") return {"2",    200};
+    if (line == "5") return {"0.75", 75};
     return {"1", 100};
 }
 
@@ -322,19 +325,15 @@ void run_monitors(Context& ctx) {
 
         // Post-transform physical dimensions + logical (post-scale) bounds.
         int phys_w = ext_w, phys_h = ext_h;
-        int eff_w  = ext_w, eff_h  = ext_h, transform = 0;
-        if (orient == "portrait-left")  { eff_w = ext_h; eff_h = ext_w; transform = 3; }
-        if (orient == "portrait-right") { eff_w = ext_h; eff_h = ext_w; transform = 1; }
+        int transform = 0;
+        if (orient == "portrait-left")  transform = 3;
+        if (orient == "portrait-right") transform = 1;
         if (transform != 0) { phys_w = ext_h; phys_h = ext_w; }
-        eff_w = eff_w * 100 / ext_scale_x100;
-        eff_h = eff_h * 100 / ext_scale_x100;
 
         const Anchor& a = anchors[anchor_name];
-        int ext_x = 0, ext_y = 0;
-        if      (pos == "right") { ext_x = a.x + a.w;          ext_y = a.y + (a.h - eff_h) / 2; }
-        else if (pos == "left")  { ext_x = a.x - eff_w;        ext_y = a.y + (a.h - eff_h) / 2; }
-        else if (pos == "above") { ext_x = a.x + (a.w - eff_w) / 2; ext_y = a.y - eff_h; }
-        else if (pos == "below") { ext_x = a.x + (a.w - eff_w) / 2; ext_y = a.y + a.h;  }
+        const auto box = placement::beside({a.x, a.y, a.w, a.h},
+                                           placement::logical({ext, ext_w, ext_h, ext_scale_x100, transform, pos, anchor_name}), pos);
+        const int ext_x = box.x, ext_y = box.y, eff_w = box.w, eff_h = box.h;
 
         if (transform != 0) {
             rules << "monitor = " << ext << ", preferred, "

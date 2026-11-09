@@ -53,11 +53,29 @@ A client can record the actual dollar cost returned for a completed API run:
 fox-credits record --project trader --cost-usd 0.065 --id unique-request-id --at 2026-11-09T18:00:00Z
 ```
 
-Use `--project plugins` for Claude mods. Record a stable unique request/run ID
+Use `--project plugins` for Claude mods and `--project theme` for Linux_Theme. Record a stable unique request/run ID
 and the actual event timestamp; retries with the same record are idempotent.
 These figures are marked **tracked only**, with `~` on the remaining estimate.
 They cannot cover calls made by other clients. Reported organization totals
 and local records are never added together, avoiding double-counting.
+
+## Read-only API tasks
+
+`fox-claude-api` runs a review-and-explain task with an ordinary inference key, read-only tools
+(Read, Glob, Grep) and a per-run budget. Its projects are Trader, Claude mods and Linux_Theme;
+settings live in `${XDG_CONFIG_HOME:-~/.config}/foxml/api-tasks.json` (key file, default budget,
+project folders). New projects are added to an older settings file automatically.
+
+- **Drawer → Review with API credits**: the remaining credit, one row per project, past results,
+  and **Edit API task settings** (opens the settings file in Neovim).
+- **Test results / Failures**: a failed job inside one of those projects gets **Explain with API
+  credits**, which opens the prompt with the command, exit code and output already filled in.
+- **Neovim**: `:ClaudeApi` or `Space Ca` (a visual selection is sent as an excerpt).
+
+Before a run starts, its budget is checked against the remaining credit; a budget above it is
+refused. When the remaining credit is unknown (nothing connected or tracked yet), the run is
+allowed and the prompt says the amount is unknown. Each run's CLI cost estimate is recorded with
+`fox-credits record --estimate`; `fox-claude-api record ID` retries a record that did not land.
 
 ## Reporting limits
 

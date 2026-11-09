@@ -23,3 +23,7 @@ local modules = {
 for _, name in ipairs(modules) do
     require("modules." .. name)
 end
+
+-- This machine's own settings (the drawer's Displays page writes the pointer size here). Optional,
+-- and loaded last: a mistake in it shows as Hyprland's config error after everything else applied.
+pcall(require, "modules.local")

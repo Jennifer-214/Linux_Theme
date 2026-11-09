@@ -1,5 +1,6 @@
 #include "json.hpp"
 #include "shell.hpp"
+#include "../fox-monitor/placement.hpp"
 
 #include <algorithm>
 #include <array>
@@ -99,7 +100,7 @@ fs::path repository() {
 const std::set<std::string> pages = {
     "apps", "windows", "audio-outputs", "wifi", "bluetooth", "tools", "tools-ai", "tools-security", "tools-desktop", "tools-system", "tools-projects", "tools-other", "tools-all", "cheatsheet", "sandbox", "clipboard-text", "clipboard-images",
     "wallpapers", "themes", "power", "updates", "agents", "projects", "bookmarks", "library", "downloads", "screenshots", "passwords", "garden",
-    "models", "storage", "backups", "startup", "jobs", "test-results", "reviews", "worktrees", "next-steps", "failures", "api-credits"
+    "models", "storage", "backups", "startup", "displays", "jobs", "test-results", "reviews", "worktrees", "next-steps", "failures", "api-credits", "api-tasks"
 };
 const std::set<std::string> actions = {
     "volume", "volume-mute", "mic-mute", "media-play-pause", "media-next", "media-previous", "brightness",
@@ -107,7 +108,7 @@ const std::set<std::string> actions = {
     "wallpaper-next", "wallpaper-sync", "color-picker", "updates-terminal", "updates-silent", "vault",
     "security", "cleanup", "agent-triage", "agent-jump", "agent-clear", "claude-jump", "app-launch", "window-focus", "audio-output", "wifi-connect",
     "wifi-toggle", "bluetooth-connect", "bluetooth-toggle", "bluetooth-scan", "bluetooth-service", "tool-run", "cheatsheet-copy", "sandbox-launch", "clipboard-restore", "wallpaper-set", "theme-set", "project-open", "project-terminal", "project-bookmark", "drive-open", "drive-eject", "download-open", "download-folder", "screenshot-open", "screenshot-copy", "screenshot-folder", "screenshot-capture", "password-copy", "tools", "cheatsheet", "sandbox",
-    "credits-setup", "credits-sync", "credits-console", "model-agent", "model-remove", "storage-scan", "storage-open", "storage-clean-packages", "storage-trim-journal", "storage-flatpak-unused",
+    "api-task-ask", "api-task-open", "api-task-failure", "api-task-settings", "display-scale-up", "display-scale-down", "display-rotate", "display-side", "display-keep", "display-undo", "display-edit", "cursor-size-up", "cursor-size-down", "credits-setup", "credits-sync", "credits-console", "model-agent", "model-remove", "storage-scan", "storage-open", "storage-clean-packages", "storage-trim-journal", "storage-flatpak-unused",
     "storage-empty-trash", "storage-hidden", "backup-restore", "backup-open", "backup-prune", "startup-user", "startup-autostart",
     "work-open", "work-jump", "work-tests", "work-compare", "work-ask", "work-reviews", "work-tasks", "work-task-toggle", "work-task-draft", "worktree-open", "worktree-terminal", "project-worktrees", "service-log", "service-ask"
 };
@@ -354,6 +355,7 @@ std::string required(const std::string& id) {
     if (id == "security") return "fox";
     if (id == "credits-setup" || id == "credits-sync") return "fox-credits";
     if (id == "credits-console") return "xdg-open";
+    if (id.rfind("api-task-", 0) == 0) return "fox-claude-api";
     if (id == "suspend" || id == "reboot" || id == "poweroff") return "systemctl";
     if (id == "logout") return "fox-hl";
     return {};
@@ -1296,6 +1298,283 @@ Json project_card(const Project& project, bool pinned) {
     return row;
 }
 
+// ── Displays: scale, rotation, side and pointer size, applied live with a 15 s keep-or-go-back ──
+namespace placement = fox_monitor::placement;
+struct LiveScreen { std::string name, model; int width = 0, height = 0, x = 0, y = 0, scale = 100, transform = 0; };
+fs::path hypr_modules() { return config_home() / "hypr/modules"; }
+fs::path display_pending() { return runtime() / "foxml/display-pending"; }
+// 15 s; tests shorten it with FOXML_DISPLAY_REVERT_SECONDS (0-60).
+int display_revert_wait() {
+    const auto value = env("FOXML_DISPLAY_REVERT_SECONDS", "15");
+    return value.size() <= 2 && !value.empty() && std::all_of(value.begin(), value.end(), ::isdigit) ? std::min(60, std::stoi(value)) : 15;
+}
+std::vector<LiveScreen> live_screens() {
+    std::vector<LiveScreen> out;
+    Json monitors;
+    if (!sh::have("hyprctl") || !capture_json({"hyprctl", "monitors", "-j"}, monitors) || !monitors.is_array()) return out;
+    for (const auto& m : monitors) {
+        if (!m.is_object() || truth(m, "disabled")) continue;
+        LiveScreen s;
+        s.name = text(m, "name"); s.model = text(m, "model", text(m, "description"));
+        s.width = m.value("width", 0); s.height = m.value("height", 0);
+        s.x = m.value("x", 0); s.y = m.value("y", 0);
+        s.scale = placement::to_x100(m.value("scale", 1.0)); s.transform = m.value("transform", 0);
+        if (std::regex_match(s.name, std::regex("[A-Za-z0-9_.:-]{1,64}")) && s.width > 0 && s.height > 0) out.push_back(s);
+    }
+    return out;
+}
+placement::Box live_box(const LiveScreen& s) {
+    auto box = placement::logical({s.name, s.width, s.height, s.scale, s.transform, "", ""});
+    box.x = s.x; box.y = s.y; return box;
+}
+std::string primary_of(const std::vector<LiveScreen>& screens) {
+    static const std::regex line(R"re(^\s*PRIMARY="?([A-Za-z0-9_.:-]+)"?\s*$)re");
+    for (const auto& l : lines(read(config_home() / "foxml/monitor-layout.conf"))) {
+        std::smatch m;
+        if (!std::regex_match(l, m, line)) continue;
+        for (const auto& s : screens) if (s.name == m[1].str()) return s.name;
+    }
+    for (const auto& s : screens) if (s.x == 0 && s.y == 0) return s.name;
+    return screens.empty() ? std::string() : screens.front().name;
+}
+std::string orientation(int transform) {
+    if (transform == 3) return "portrait, turned left";
+    if (transform == 1) return "portrait, turned right";
+    if (transform == 2) return "upside down";
+    return transform == 0 ? "landscape" : "flipped";
+}
+std::string next_side(const std::string& side) {
+    return side == "left" ? "right" : side == "right" ? "above" : side == "above" ? "below" : "left";
+}
+int next_scale(const LiveScreen& s, int direction) {
+    const auto steps = placement::scales_for(s.width, s.height);
+    if (direction > 0) { for (int step : steps) if (step > s.scale) return step; }
+    else for (auto it = steps.rbegin(); it != steps.rend(); ++it) if (*it < s.scale) return *it;
+    return s.scale;
+}
+// Every non-primary screen keeps its side; screens sharing a side chain outward in their live order.
+std::map<std::string, placement::Box> arrange(const std::vector<LiveScreen>& screens, const std::string& primary,
+                                              std::map<std::string, std::string> sides = {}) {
+    const auto first = std::find_if(screens.begin(), screens.end(), [&](const LiveScreen& s) { return s.name == primary; });
+    if (first == screens.end()) return {};
+    const auto primary_box = live_box(*first);
+    std::vector<std::pair<long, placement::Screen>> others;
+    for (const auto& s : screens) {
+        if (s.name == primary) continue;
+        const auto box = live_box(s);
+        const auto side = sides.count(s.name) ? sides[s.name] : placement::side_of(primary_box, box);
+        const long distance = side == "left" ? -box.x : side == "right" ? box.x : side == "above" ? -box.y : box.y;
+        others.push_back({distance, {s.name, s.width, s.height, s.scale, s.transform, side, ""}});
+    }
+    std::stable_sort(others.begin(), others.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    std::map<std::string, std::string> last_on_side;
+    std::vector<placement::Screen> ordered;
+    for (auto& [distance, screen] : others) {
+        (void)distance;
+        screen.anchor = last_on_side.count(screen.side) ? last_on_side[screen.side] : std::string();
+        last_on_side[screen.side] = screen.name;
+        ordered.push_back(screen);
+    }
+    return placement::place({first->name, first->width, first->height, first->scale, first->transform, "", ""}, ordered);
+}
+bool copy_text(const fs::path& from, const fs::path& to) { return regular(from) && write_atomic(to, read(from)); }
+std::string display_token() {
+    std::ifstream random("/dev/urandom", std::ios::binary);
+    std::array<unsigned char, 16> bytes{};
+    random.read(reinterpret_cast<char*>(bytes.data()), bytes.size());
+    std::ostringstream out;
+    for (auto b : bytes) out << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(b);
+    return out.str();
+}
+// Wallpapers and the monitor sidecar follow the new layout.
+void display_settled() {
+    if (sh::have("fox-monitor")) launch({"fox-monitor", "reconcile"}, "");
+}
+Json restore_displays(const std::string& message) {
+    const auto dir = hypr_modules();
+    bool ok = false;
+    for (const char* name : {"monitors.conf", "monitors.lua"})
+        if (regular(dir / (std::string(name) + ".foxml-prev"))) ok = copy_text(dir / (std::string(name) + ".foxml-prev"), dir / name) || ok;
+    std::error_code ec; fs::remove(display_pending(), ec);
+    if (!ok) return result(false, "No earlier display layout is saved");
+    std::string ignored; capture({"hyprctl", "reload"}, ignored);
+    display_settled();
+    return result(true, message);
+}
+// Writes the new layout to monitors.conf and monitors.lua (the first change of a round saves the
+// current files as .foxml-prev), reloads Hyprland and starts the timer that goes back unless kept.
+Json apply_displays(const std::vector<LiveScreen>& screens, const std::string& primary,
+                    const std::map<std::string, std::string>& sides, const std::string& message) {
+    const auto boxes = arrange(screens, primary, sides);
+    if (boxes.empty()) return result(false, "Could not read the screens from Hyprland");
+    const auto dir = hypr_modules();
+    const auto conf_path = dir / "monitors.conf", lua_path = dir / "monitors.lua";
+    if (!regular(lua_path) && !regular(conf_path)) return result(false, "No monitors.lua to change; run the installer's monitor step first");
+    std::string conf = read(conf_path), lua = read(lua_path);
+    for (const auto& s : screens) {
+        const auto box = boxes.find(s.name);
+        if (box == boxes.end()) continue;
+        const auto position = s.name == primary ? std::string("0x0") : placement::position_text(box->second);
+        const auto scale = placement::scale_text(s.scale);
+        if (regular(conf_path)) conf = placement::set_conf_rule(conf, s.name, position, scale, s.transform);
+        if (regular(lua_path)) lua = placement::set_lua_rule(lua, s.name, position, scale, s.transform);
+    }
+    if (!regular(display_pending())) {
+        for (const auto& path : {conf_path, lua_path})
+            if (regular(path) && !copy_text(path, path.string() + ".foxml-prev")) return result(false, "Could not save the current layout first");
+    }
+    if ((regular(conf_path) && !write_atomic(conf_path, conf)) || (regular(lua_path) && !write_atomic(lua_path, lua)))
+        return result(false, "Could not write the new layout");
+    std::error_code ec; fs::create_directories(display_pending().parent_path(), ec);
+    const auto token = display_token();
+    if (!write_atomic(display_pending(), token)) return restore_displays("Could not start the safety timer, so the layout went back");
+    std::string ignored; capture({"hyprctl", "reload"}, ignored);
+    const auto self = fs::read_symlink("/proc/self/exe", ec);
+    if (ec || !truth(launch({self.string(), "display-revert", token}, ""), "ok"))
+        return restore_displays("Could not start the safety timer, so the layout went back");
+    return result(true, message + " · Keep this layout, or it goes back in " + std::to_string(display_revert_wait()) + "s");
+}
+int display_revert(const std::string& token) {
+    if (!std::regex_match(token, std::regex("[0-9a-f]{32}"))) return 2;
+    std::this_thread::sleep_for(std::chrono::seconds(display_revert_wait()));
+    std::string current = read(display_pending());
+    while (!current.empty() && std::isspace(static_cast<unsigned char>(current.back()))) current.pop_back();
+    if (current != token) return 0;
+    const auto done = restore_displays("Display layout went back");
+    if (sh::have("notify-send"))
+        sh::run({"notify-send", "-a", "Displays", truth(done, "ok") ? "Display layout went back" : "Display layout could not go back",
+                 truth(done, "ok") ? "It was not kept in time." : "Restore monitors.lua.foxml-prev in ~/.config/hypr/modules."});
+    return truth(done, "ok") ? 0 : 1;
+}
+int cursor_size() {
+    static const std::regex size(R"re(XCURSOR_SIZE"\s*,\s*"(\d{2}))re");
+    std::smatch m;
+    const auto local = read(hypr_modules() / "local.lua");
+    if (std::regex_search(local, m, size)) return std::stoi(m[1].str());
+    const auto from_env = env("XCURSOR_SIZE", "30");
+    return std::all_of(from_env.begin(), from_env.end(), ::isdigit) && !from_env.empty() && from_env.size() < 3 ? std::stoi(from_env) : 30;
+}
+Json set_cursor_size(int size) {
+    static const std::string begin = "-- foxml:cursor-size-begin", end = "-- foxml:cursor-size-end";
+    const auto path = hypr_modules() / "local.lua";
+    std::string body = read(path);
+    const std::string block = begin + "\nhl.env(\"XCURSOR_SIZE\", \"" + std::to_string(size) + "\")\nhl.env(\"HYPRCURSOR_SIZE\", \""
+                              + std::to_string(size) + "\")\n" + end + "\n";
+    const auto a = body.find(begin), b = body.find(end);
+    if (a != std::string::npos && b != std::string::npos && b > a) body.replace(a, b + end.size() + 1 - a, block);
+    else body = (body.empty() ? std::string("-- This machine's own Hyprland settings, loaded after the theme's modules.\n") : body
+                 + (body.back() == '\n' ? "" : "\n")) + block;
+    if (!write_atomic(path, body)) return result(false, "Could not save the pointer size");
+    std::string ignored;
+    const auto theme = env("XCURSOR_THEME", "default");
+    if (sh::have("hyprctl")) capture({"hyprctl", "setcursor", theme, std::to_string(size)}, ignored);
+    if (sh::have("gsettings")) capture({"gsettings", "set", "org.gnome.desktop.interface", "cursor-size", std::to_string(size)}, ignored);
+    auto done = result(true, "Pointer size " + std::to_string(size) + " · apps opened from now on use it too");
+    done["close"] = false; return done;
+}
+void display_rows(Json& rows) {
+    const auto screens = live_screens();
+    if (screens.empty()) {
+        auto row = item("display-edit", "Screens are unavailable", "action", "Hyprland did not answer · open monitors.lua instead", "system");
+        rows.push_back(row); return;
+    }
+    if (regular(display_pending())) {
+        std::error_code ec;
+        const auto age = std::chrono::duration_cast<std::chrono::seconds>(fs::file_time_type::clock::now() - fs::last_write_time(display_pending(), ec)).count();
+        const auto left = std::max<long long>(0, display_revert_wait() - age);
+        rows.push_back(item("display-keep", "Keep this layout", "action", "Otherwise it goes back in " + std::to_string(left) + "s", "today"));
+        rows.push_back(item("display-undo", "Go back now", "action", "Restore the layout from before", "refresh"));
+    }
+    const auto primary = primary_of(screens);
+    const auto primary_box = live_box(*std::find_if(screens.begin(), screens.end(), [&](const LiveScreen& s) { return s.name == primary; }));
+    for (const auto& s : screens) {
+        const auto box = live_box(s);
+        const auto side = s.name == primary ? std::string("main screen") : placement::side_of(primary_box, box) + " of " + primary;
+        auto head = item("display-edit", s.name + (s.model.empty() ? "" : " · " + s.model), "action",
+                         std::to_string(s.width) + "×" + std::to_string(s.height) + " · scale " + placement::scale_text(s.scale) + " · "
+                         + orientation(s.transform) + " · " + side + " · " + std::to_string(box.w) + "×" + std::to_string(box.h) + " of room", "system");
+        rows.push_back(head);
+        const int up = next_scale(s, 1), down = next_scale(s, -1);
+        auto bigger = item("display-scale-up", "  Bigger text and windows", "action",
+                           up == s.scale ? "Already at the largest even scale" : "Scale " + placement::scale_text(s.scale) + " → " + placement::scale_text(up), "search");
+        bigger["argument"] = s.name; bigger["enabled"] = up != s.scale; rows.push_back(bigger);
+        auto smaller = item("display-scale-down", "  More room", "action",
+                            down == s.scale ? "Already at the smallest even scale" : "Scale " + placement::scale_text(s.scale) + " → " + placement::scale_text(down), "window");
+        smaller["argument"] = s.name; smaller["enabled"] = down != s.scale; rows.push_back(smaller);
+        const int turned = s.transform == 0 ? 3 : s.transform == 3 ? 1 : 0;
+        auto rotate = item("display-rotate", "  Rotate", "action", orientation(s.transform) + " → " + orientation(turned), "refresh");
+        rotate["argument"] = s.name; rows.push_back(rotate);
+        if (s.name != primary) {
+            const auto now = placement::side_of(primary_box, box);
+            auto move = item("display-side", "  Move to another side", "action", now + " → " + next_side(now) + " of " + primary, "apps");
+            move["argument"] = s.name; rows.push_back(move);
+        }
+    }
+    const int size = cursor_size();
+    rows.push_back(item("cursor-size-up", "Larger pointer", "action", "Pointer size " + std::to_string(size) + " → " + std::to_string(std::min(48, size + 6)), "app-launch"));
+    rows.back()["enabled"] = size < 48;
+    rows.push_back(item("cursor-size-down", "Smaller pointer", "action", "Pointer size " + std::to_string(size) + " → " + std::to_string(std::max(24, size - 6)), "app-launch"));
+    rows.back()["enabled"] = size > 24;
+    rows.push_back(item("display-edit", "Edit monitors.lua", "action", "Open the screen rules in Neovim · Hyprland applies them on save", "gear"));
+    if (!regular(display_pending()) && regular(hypr_modules() / "monitors.lua.foxml-prev"))
+        rows.push_back(item("display-undo", "Undo the last display change", "action", "Restore the layout saved before it", "refresh"));
+}
+Json display_action(const std::string& id, const std::string& arg) {
+    if (id == "display-keep") {
+        std::error_code ec;
+        if (!fs::remove(display_pending(), ec)) return result(false, "Nothing is waiting to be kept");
+        display_settled();
+        auto done = result(true, "Layout kept"); done["close"] = false; return done;
+    }
+    if (id == "display-undo") { auto done = restore_displays("Layout restored"); done["close"] = false; return done; }
+    if (id == "display-edit") {
+        const auto file = hypr_modules() / "monitors.lua";
+        return terminal({"nvim", (regular(file) ? file : hypr_modules() / "monitors.conf").string()}, "Screen rules opened");
+    }
+    if (id == "cursor-size-up" || id == "cursor-size-down") {
+        const int size = cursor_size();
+        return set_cursor_size(id == "cursor-size-up" ? std::min(48, size + 6) : std::max(24, size - 6));
+    }
+    auto screens = live_screens();
+    const auto screen = std::find_if(screens.begin(), screens.end(), [&](const LiveScreen& s) { return s.name == arg; });
+    if (screen == screens.end()) return result(false, "That screen is no longer connected");
+    const auto primary = primary_of(screens);
+    // Sides come from the layout as it is now; a resized screen can overlap until it is moved.
+    std::map<std::string, std::string> sides;
+    const auto& main_screen = *std::find_if(screens.begin(), screens.end(), [&](const LiveScreen& s) { return s.name == primary; });
+    const auto main_box = live_box(main_screen);
+    for (const auto& s : screens) if (s.name != primary) sides[s.name] = placement::side_of(main_box, live_box(s));
+    std::string message;
+    if (id == "display-scale-up" || id == "display-scale-down") {
+        const int to = next_scale(*screen, id == "display-scale-up" ? 1 : -1);
+        if (to == screen->scale) return result(false, "No even scale further that way");
+        message = screen->name + " scale " + placement::scale_text(to);
+        screen->scale = to;
+    } else if (id == "display-rotate") {
+        screen->transform = screen->transform == 0 ? 3 : screen->transform == 3 ? 1 : 0;
+        message = screen->name + " " + orientation(screen->transform);
+    } else if (id == "display-side") {
+        if (screen->name == primary) return result(false, "The main screen stays where it is");
+        sides[screen->name] = next_side(sides[screen->name]);
+        message = screen->name + " moved " + sides[screen->name] + " of " + primary;
+    } else return result(false, "Unknown display action");
+    auto done = apply_displays(screens, primary, sides, message);
+    done["close"] = false; return done;
+}
+
+Json api_projects() {
+    Json projects;
+    if (!sh::have("fox-claude-api") || !capture_json({"fox-claude-api", "projects"}, projects) || !projects.is_array()) return Json::array();
+    return projects;
+}
+// The API project whose folder holds this path, or "" (failures elsewhere get no API row).
+std::string api_project_for(const Json& projects, const std::string& path) {
+    for (const auto& p : projects) {
+        const auto root = text(p, "root");
+        if (!root.empty() && (path == root || path.rfind(root + "/", 0) == 0)) return text(p, "id");
+    }
+    return {};
+}
 Json work_data(const Json& config, bool fresh = false) {
     if (!sh::have("fox-work")) return Json();
     Args args{"fox-work", "overview"};
@@ -1340,6 +1619,7 @@ void work_rows(const Json& config, const std::string& page, Json& rows) {
         return;
     }
     int shown = 0;
+    const auto api = page == "failures" || page == "test-results" ? api_projects() : Json::array();
     for (const auto& j : data.value("jobs", Json::array())) {
         const auto state = text(j, "state");
         if (page == "test-results" && !truth(j, "testRun")) continue;
@@ -1360,7 +1640,11 @@ void work_rows(const Json& config, const std::string& page, Json& rows) {
         rows.push_back(work_row(page == "test-results" ? "work-tests" : "work-open", text(j, "command"), id, detail));
         if (!text(j, "pane").empty()) rows.push_back(work_row("work-jump", "  Jump to terminal", text(j, "pane")));
         if (truth(j, "testRun")) rows.push_back(work_row("work-compare", "  What changed since it last passed?", id));
-        if (state == "failed" || state == "interrupted") rows.push_back(work_row("work-ask", "  Ask Claude…", id, "Review the error excerpt, then choose a session"));
+        if (state == "failed" || state == "interrupted") {
+            rows.push_back(work_row("work-ask", "  Ask Claude…", id, "Review the error excerpt, then choose a session"));
+            if (!api_project_for(api, text(j, "root")).empty())
+                rows.push_back(work_row("api-task-failure", "  Explain with API credits", id, "Read-only review of the error · you set the budget"));
+        }
     }
     if (page == "failures") {
         std::string failed;
@@ -1617,7 +1901,7 @@ std::string tool_section(const std::string& name) {
         {"tools-system", {"fox-doctor", "fox-hw-info", "fox-install", "fox-legacy", "fox-nvidia-state", "fox-sys", "fox-tail", "fox-template-lint", "fox-test", "fox-uninstall"}},
         {"tools-projects", {"fox-backup", "fox-build-verify", "fox-cafe", "fox-dev", "fox-develop", "fox-distro-build", "fox-distro-flash", "fox-distro-guide", "fox-generate-module", "fox-init", "fox-new-project", "fox-work", "fox-work-notice"}},
     };
-    if (name.rfind("fox-ai", 0) == 0 || name.rfind("fox-llm-", 0) == 0 || name == "fox-credits" || name == "fox-ask" || name == "fox-agent-parse" || name == "fask" || name == "findex" || name == "fhelp") return "tools-ai";
+    if (name.rfind("fox-ai", 0) == 0 || name.rfind("fox-llm-", 0) == 0 || name == "fox-claude-api" || name == "fox-credits" || name == "fox-ask" || name == "fox-agent-parse" || name == "fask" || name == "findex" || name == "fhelp") return "tools-ai";
     for (const auto& [section, tools] : names) if (tools.count(name)) return section;
     return "tools-other";
 }
@@ -2468,6 +2752,37 @@ Json view(const Json& config, const std::string& page, const std::string& query,
             auto row = item(pair.first, pair.second, "action", {}, pair.first);
             decorate(row); rows.push_back(row);
         }
+    } else if (page == "displays") {
+        known = true; out["title"] = "Displays";
+        display_rows(rows);
+        for (auto& row : rows) if (truth(row, "enabled")) decorate(row);
+    } else if (page == "api-tasks") {
+        known = true; out["title"] = "Review with API credits";
+        const auto projects = api_projects();
+        if (!projects.empty()) {
+            auto left = item("api-credits", text(projects.front(), "credits"), "page", "Monthly API credits · budget and billing", "info");
+            left["page"] = "api-credits"; rows.push_back(left);
+        }
+        for (const auto& project : projects) {
+            auto row = item("api-task-ask", "Ask about " + text(project, "label"), "action",
+                            "Read-only review · default budget $" + text(project, "budget_usd"), "message");
+            row["argument"] = text(project, "id");
+            if (!truth(project, "available")) { row["enabled"] = false; row["detail"] = "Project folder not found · " + text(project, "root"); }
+            rows.push_back(row);
+        }
+        Json history;
+        if (sh::have("fox-claude-api") && capture_json({"fox-claude-api", "history"}, history) && history.is_array()) {
+            for (const auto& task : history) {
+                const auto id = text(task, "id");
+                if (!std::regex_match(id, std::regex("[0-9a-f]{32}"))) continue;
+                auto row = item("api-task-open", text(task, "label") + " · " + text(task, "status"), "action",
+                                text(task, "finished_at", text(task, "started_at")) + " · "
+                                + (task.contains("cost_usd") && task["cost_usd"].is_string() ? "$" + text(task, "cost_usd") + " estimated" : "cost unknown"), "message");
+                row["argument"] = id; rows.push_back(row);
+            }
+        }
+        rows.push_back(item("api-task-settings", "Edit API task settings", "action", "Key file, default budget and project folders, in Neovim", "gear"));
+        for (auto& row : rows) if (truth(row, "enabled")) { decorate(row); row["close"] = true; }
     } else if (page == "api-credits") {
         known = true; out["title"] = "Monthly API credits";
         Json credits;
@@ -2490,6 +2805,8 @@ Json view(const Json& config, const std::string& page, const std::string& query,
         rows.push_back(item("credits-setup", "Set up credit tracking", "action", "Confirm the renewal date and connect reporting", "gear"));
         rows.push_back(item("credits-sync", "Refresh billing report", "action", "Fetch reported API spending in a terminal", "refresh"));
         rows.push_back(item("credits-console", "Open Claude Console", "action", "Check the credit expiry and account spending", "window"));
+        rows.push_back(item("api-tasks", "Review with API credits", "page", "Ask about Trader, Claude mods or Linux_Theme; track costs locally", "message"));
+        rows.back()["page"] = "api-tasks";
         for (auto& row : rows) if (truth(row, "enabled")) { decorate(row); row["close"] = true; }
     } else if (page == "tools" || page.rfind("tools-", 0) == 0) {
         const auto section = std::find_if(tool_sections.begin(), tool_sections.end(), [&](const ToolSection& s) { return s.id == page; });
@@ -2665,7 +2982,7 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         if (id == "logout") return command({"fox-hl", "dispatch", "hl.dsp.exit()", "exit"}, "Log out", true);
         return command({"systemctl", id}, id == "suspend" ? "Suspend" : id == "reboot" ? "Restart" : "Shut down", true);
     }
-    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","tool-run","cheatsheet-copy","sandbox-launch","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","screenshot-open","screenshot-copy","screenshot-folder","password-copy","agent-jump","claude-jump","model-agent","model-remove","storage-open","backup-restore","backup-open","startup-user","startup-autostart"};
+    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","tool-run","cheatsheet-copy","sandbox-launch","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","screenshot-open","screenshot-copy","screenshot-folder","password-copy","agent-jump","claude-jump","model-agent","model-remove","storage-open","backup-restore","backup-open","startup-user","startup-autostart","api-task-ask","api-task-open","api-task-failure","display-scale-up","display-scale-down","display-rotate","display-side"};
     const bool confirm_only = arg == "--confirm" && (id == "backup-prune" || id == "storage-empty-trash");
     if (!argument_actions.count(id) && !arg.empty() && !confirm_only) return result(false, "This action accepts no argument");
     if (id == "volume" || id == "brightness") {
@@ -2937,6 +3254,42 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
     if (id == "credits-setup") return terminal({"fox-credits", "setup"}, "Credit settings opened");
     if (id == "credits-sync") return terminal({"fox-credits", "sync"}, "Billing refresh opened");
     if (id == "credits-console") return launch({"xdg-open", "https://platform.claude.com/settings/billing"}, "Claude Console opened");
+    if (id.rfind("display-", 0) == 0 || id.rfind("cursor-size-", 0) == 0) return display_action(id, arg);
+    if (id == "api-task-ask") {
+        for (const auto& p : api_projects()) if (text(p, "id") == arg) return terminal({"fox-claude-api", "ask", "--project", arg}, "API task prompt opened");
+        return result(false, "That API project is no longer configured");
+    }
+    if (id == "api-task-settings") {
+        const auto file = config_home() / "foxml/api-tasks.json";
+        if (!regular(file)) {
+            std::string ignored;
+            if (!capture({"fox-claude-api", "configure"}, ignored)) return result(false, "Could not create API task settings");
+        }
+        return terminal({"nvim", file.string()}, "API task settings opened");
+    }
+    if (id == "api-task-failure") {
+        if (!std::regex_match(arg, std::regex("[a-f0-9]{32}"))) return result(false, "Invalid job record");
+        Json job; std::string log;
+        if (!capture_json({"fox-work", "tests", "--id", arg}, job) || !job.is_object()) return result(false, "That job is no longer available");
+        const auto project = api_project_for(api_projects(), text(job, "root"));
+        if (project.empty()) return result(false, "This project is not set up for API reviews");
+        if (!capture({"fox-work", "log", "--id", arg}, log) || log.empty()) log = "No captured output; inspect the originating terminal.";
+        if (log.size() > 12000) log = log.substr(log.size() - 12000);
+        const std::string exit_code = job.contains("exit") && job["exit"].is_number() ? std::to_string(whole(job, "exit")) : "unknown";
+        const auto question = "Failed command in " + text(job, "root") + "\nCommand: " + text(job, "command")
+                            + "\nExit: " + exit_code + "\n\n" + log;
+        const auto folder = runtime() / "foxml/api-questions";
+        std::error_code ec; fs::create_directories(folder, ec);
+        fs::permissions(folder, fs::perms::owner_all, fs::perm_options::replace, ec);
+        const auto file = folder / (arg + ".txt");
+        if (!write_atomic(file, question)) return result(false, "Could not prepare the failure for review");
+        return terminal({"fox-claude-api", "ask", "--project", project, "--root", text(job, "root"), "--question-file", file.string()},
+                        "API review prompt opened");
+    }
+    if (id == "api-task-open") {
+        if (!std::regex_match(arg, std::regex("[0-9a-f]{32}"))) return result(false, "Invalid API task ID");
+        return terminal({"fox-claude-api", "show", arg}, "API task result opened");
+    }
     if (id == "security") return terminal({"fox", "sec", "dashboard", "--live"}, "Security dashboard opened");
     if (id == "cleanup") return terminal({"zsh", "-ic", "fox-clean; print; read -s '?Press enter to close…'"}, "System cleanup opened");
     if (id == "lock") return launch({script("lock.sh").string()}, "Screen lock opened");
@@ -2987,6 +3340,8 @@ int main(int argc, char** argv) {
         }
         // The Storage page's measurement: slow on purpose (it walks the disk), run detached by the page.
         if (args.size() == 1 && args[0] == "storage-scan") return storage_scan();
+        // The Displays page's safety timer: goes back to the saved layout unless it was kept.
+        if (args.size() == 2 && args[0] == "display-revert") return display_revert(args[1]);
         if (args.size() == 1 && args[0] == "claude-next") {
             read_limit_seconds = 2;
             const auto jumped = jump_next_claude();

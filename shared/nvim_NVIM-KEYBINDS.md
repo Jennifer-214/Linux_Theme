@@ -5,7 +5,8 @@ Leader: **Space** | Local leader: **Space**
 Paper bookmark ribbons and folded-note bindings are listed in the full reference:
 press **Alt+/** and search for **Paper notebook details**.
 
-For comment folding, **Space tc** toggles it and **Space tC** refolds every comment
+Files open with their comments folded. **Space tc** switches that off or on (remembered
+for new files too) and **Space tC** refolds every comment
 in the current window, including after `zR`. **zo** opens one comment, **zc** closes
 it, and **zR** opens all. `:CommentRefold` also enables/refolds comments. Turning
 comment folding off restores the window's previous folding settings.

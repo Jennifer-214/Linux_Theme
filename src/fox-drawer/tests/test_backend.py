@@ -1135,6 +1135,126 @@ class BackendTests(unittest.TestCase):
         self.assertTrue(self.invoke('run','credits-setup')['ok'])
         self.assertTrue(any(call[-2:]==['fox-credits','setup'] for call in self.calls()))
 
+    def test_api_tasks_list_configured_projects_and_explain_only_their_failures(self):
+        helper = self.bin/'fox-claude-api'
+        helper.write_text('#!'+sys.executable+'\n'+FAKE_COMMAND)
+        helper.chmod(0o755)
+        projects = [dict(id='trader', label='Trader', root='/code/trader', available=True, budget_usd='1.00',
+                         credits='$12.00 left this month'),
+                    dict(id='theme', label='Linux_Theme', root='/code/theme', available=False, budget_usd='1.00',
+                         credits='$12.00 left this month')]
+        mine = dict(id='a'*32, command='make test', root='/code/trader/sub', state='failed', elapsed=3, exit=2)
+        other = dict(id='b'*32, command='make test', root='/code/other', state='failed', elapsed=3, exit=2)
+        self.state = {'commands': {'fox-work': {'stdout': json.dumps(dict(jobs=[mine, other], reviews=[], tasks=[]))}},
+                      'exact': {'fox-claude-api\x1fprojects': {'stdout': json.dumps(projects)},
+                                'fox-claude-api\x1fhistory': {'stdout': '[]'},
+                                'fox-work\x1ftests\x1f--id\x1f'+'a'*32: {'stdout': json.dumps(mine)},
+                                'fox-work\x1flog\x1f--id\x1f'+'a'*32: {'stdout': 'assertion failed: boom\n'}}}
+        rows = self.invoke('view','api-tasks')['items']
+        self.assertEqual([r['id'] for r in rows], ['api-credits','api-task-ask','api-task-ask','api-task-settings'])
+        self.assertIn('$12.00 left', rows[0]['label'])
+        self.assertFalse(rows[2]['enabled'], 'a missing project folder should not be askable')
+        failures = self.invoke('view','failures')['items']
+        explain = [r for r in failures if r['id']=='api-task-failure']
+        self.assertEqual([r['argument'] for r in explain], ['a'*32], 'only failures inside an API project get the row')
+        self.failed('run','api-task-ask','nope')
+        self.failed('run','api-task-failure','../../bad')
+        self.assertTrue(self.invoke('run','api-task-failure','a'*32)['ok'])
+        launched = [c for c in self.calls() if c[0]=='setsid'][-1]
+        question = Path(launched[-1])
+        self.assertEqual(launched[2:-1], ['kitty','-e','fox-claude-api','ask','--project','trader','--root','/code/trader/sub','--question-file'])
+        self.assertEqual(question.parent, Path(self.env['XDG_RUNTIME_DIR'])/'foxml/api-questions')
+        self.assertEqual(question.stat().st_mode & 0o777, 0o600)
+        self.assertIn('Command: make test', question.read_text())
+        self.assertIn('assertion failed: boom', question.read_text())
+        self.assertTrue(self.invoke('run','api-task-open','c'*32)['ok'], 'a saved result could not be reopened')
+        self.assertTrue(self.invoke('run','api-task-ask','trader')['ok'])
+
+    def displays_fixture(self):
+        modules = self.home/'.config/hypr/modules'
+        modules.mkdir(parents=True)
+        conf = ('monitor = eDP-1, preferred, 0x0, 1\n'
+                'monitor = DP-2, preferred, -1440x-740, 1.5, transform, 3\n'
+                'monitor = HDMI-A-1,1920x1080@60,1920x-420,1,transform,3,supports_hdr,-1\n'
+                '\n# Catch-all\nmonitor = , preferred, auto, 1\n')
+        lua = ('hl.monitor({ output = "eDP-1", mode = "preferred", position = "0x0", scale = 1.00 })\n'
+               'hl.monitor({ output = "DP-2", mode = "preferred", position = "-1440x-740", scale = 1.5, transform = 3 })\n'
+               'hl.monitor({ output = "HDMI-A-1", mode = "1920x1080@60", position = "1920x-420", scale = 1, transform = 3, supports_hdr = -1 })\n'
+               '\n-- Catch-all\nhl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })\n')
+        (modules/'monitors.conf').write_text(conf)
+        (modules/'monitors.lua').write_text(lua)
+        layout = self.home/'.config/foxml/monitor-layout.conf'
+        layout.parent.mkdir(parents=True, exist_ok=True)
+        layout.write_text('PRIMARY="eDP-1"\n')
+        monitors = [dict(name='DP-2', model='Acer', width=3840, height=2160, x=-1440, y=-740, scale=1.5, transform=3),
+                    dict(name='HDMI-A-1', model='Side', width=1920, height=1080, x=1920, y=-420, scale=1.0, transform=3),
+                    dict(name='eDP-1', model='Laptop', width=1920, height=1080, x=0, y=0, scale=1.0, transform=0)]
+        self.state = {'exact': {'hyprctl\x1fmonitors\x1f-j': {'stdout': json.dumps(monitors)}}}
+        return modules, conf, lua
+
+    def test_displays_rescale_moves_neighbours_and_go_back_unless_kept(self):
+        modules, conf, lua = self.displays_fixture()
+        rows = self.invoke('view','displays')['items']
+        heads = {r['label'].split(' · ')[0]: r for r in rows if r['id']=='display-edit' and ' · ' in r['label']}
+        self.assertIn('scale 1.5', heads['DP-2']['detail'])
+        self.assertIn('left of eDP-1', heads['DP-2']['detail'])
+        self.assertIn('Scale 1.5 → 1.25', [r for r in rows if r['id']=='display-scale-down' and r['argument']=='DP-2'][0]['detail'])
+        self.assertNotIn('display-side', [r['id'] for r in rows if r.get('argument')=='eDP-1'], 'the main screen has no side')
+
+        done = self.invoke('run','display-scale-down','DP-2')
+        self.assertIn('goes back in 15s', done['message'])
+        self.assertFalse(done['close'])
+        new_lua, new_conf = (modules/'monitors.lua').read_text(), (modules/'monitors.conf').read_text()
+        self.assertIn('"DP-2", mode = "preferred", position = "-1728x-996", scale = 1.25, transform = 3 })', new_lua)
+        self.assertIn('monitor = DP-2, preferred, -1728x-996, 1.25, transform, 3\n', new_conf)
+        self.assertIn('position = "1920x-420", scale = 1, transform = 3, supports_hdr = -1', new_lua, 'a neighbour on the other side moved')
+        self.assertEqual((modules/'monitors.lua.foxml-prev').read_text(), lua)
+        self.assertEqual((modules/'monitors.conf.foxml-prev').read_text(), conf)
+        pending = Path(self.env['XDG_RUNTIME_DIR'])/'foxml/display-pending'
+        token = pending.read_text().strip()
+        self.assertIn(['hyprctl','reload'], self.calls())
+        self.assertIn(['setsid','-f',str(BINARY),'display-revert',token], self.calls())
+        self.assertEqual(self.invoke('view','displays')['items'][0]['id'], 'display-keep')
+
+        self.invoke('run','display-side','HDMI-A-1')
+        self.assertEqual((modules/'monitors.lua.foxml-prev').read_text(), lua, 'a second change overwrote the saved layout')
+        self.assertIn('"HDMI-A-1", mode = "1920x1080@60", position = "420x-1920"', (modules/'monitors.lua').read_text())
+
+        self.assertTrue(self.invoke('run','display-keep')['ok'])
+        self.assertFalse(pending.exists())
+        self.failed('run','display-keep')
+        self.assertTrue(self.invoke('run','display-undo')['ok'])
+        self.assertEqual((modules/'monitors.lua').read_text(), lua)
+        self.assertEqual((modules/'monitors.conf').read_text(), conf)
+        self.failed('run','display-rotate','NOPE-1')
+
+    def test_display_timer_goes_back_only_for_its_own_change(self):
+        modules, conf, lua = self.displays_fixture()
+        self.invoke('run','display-rotate','eDP-1')
+        self.assertIn('"eDP-1", mode = "preferred", position = "0x0", scale = 1, transform = 3 })', (modules/'monitors.lua').read_text())
+        pending = Path(self.env['XDG_RUNTIME_DIR'])/'foxml/display-pending'
+        token = pending.read_text().strip()
+        env = dict(self.env, FOXML_DISPLAY_REVERT_SECONDS='0')
+        stale = subprocess.run([str(BINARY),'display-revert','f'*32], env=env, capture_output=True, timeout=10)
+        self.assertEqual(stale.returncode, 0)
+        self.assertNotEqual((modules/'monitors.lua').read_text(), lua, 'an older timer undid a newer change')
+        timer = subprocess.run([str(BINARY),'display-revert',token], env=env, capture_output=True, timeout=10)
+        self.assertEqual(timer.returncode, 0, timer.stderr)
+        self.assertEqual((modules/'monitors.lua').read_text(), lua)
+        self.assertFalse(pending.exists())
+        self.assertTrue(any(c[0]=='notify-send' and 'Display layout went back' in c for c in self.calls()))
+
+    def test_pointer_size_steps_save_one_block_and_apply_live(self):
+        modules, _, _ = self.displays_fixture()
+        self.env['XCURSOR_SIZE'] = '30'
+        self.assertFalse(self.invoke('run','cursor-size-up')['close'])
+        self.assertTrue(any(c[:2]==['hyprctl','setcursor'] and c[-1]=='36' for c in self.calls()))
+        self.invoke('run','cursor-size-up')
+        local = (modules/'local.lua').read_text()
+        self.assertEqual(local.count('foxml:cursor-size-begin'), 1)
+        self.assertIn('hl.env("XCURSOR_SIZE", "42")', local)
+        self.assertIn('Pointer size 42 → 48', [r for r in self.invoke('view','displays')['items'] if r['id']=='cursor-size-up'][0]['detail'])
+
     def test_shortcut_reference_reads_tables_and_copies_only_known_keys(self):
         document = self.home / ".local/share/foxml/KEYBINDS.md"
         document.parent.mkdir(parents=True)

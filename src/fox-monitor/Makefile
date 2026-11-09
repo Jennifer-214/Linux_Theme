@@ -67,12 +67,16 @@ install: all
 # portrait/secondary derivation, sticky-primary preserve + first-fallback).
 # It links only rederive.o + shell.o (via libfox-common, for the sh:: refs
 # rederive.cpp carries even though the pure fn touches none of them).
-test: tests/test_variants tests/test_sidecar tests/test_rederive tests/test_apply tests/test_source
+test: tests/test_variants tests/test_sidecar tests/test_rederive tests/test_apply tests/test_source tests/test_placement
 	@./tests/test_variants
 	@./tests/test_sidecar
 	@./tests/test_rederive
 	@./tests/test_apply
 	@./tests/test_source
+	@./tests/test_placement
+
+tests/test_placement: tests/test_placement.cpp placement.hpp
+	$(CXX) $(CXXFLAGS) tests/test_placement.cpp -o $@
 
 tests/test_source: tests/test_source.cpp variants.o $(FOX_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) tests/test_source.cpp variants.o -L$(FOX_COMMON_DIR) -lfox-common -o $@

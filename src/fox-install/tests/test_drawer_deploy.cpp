@@ -90,7 +90,7 @@ int main() {
         put(ctx.shared_dir / "quickshell/foxml" / name, std::string("new ") + name);
     put(ctx.shared_dir / "quickshell/foxml/menus.json", "new defaults");
     for (const char* name : {"fox-desktop-menu", "fox-bar", "fox-hl", "fox-picker", "fox-menu", "fox-cheatsheet", "fox-sandbox",
-                            "fox-ai-quick", "fox-wallpaper", "fox-password-copy", "fox-notifications", "fox-credits"})
+                            "fox-ai-quick", "fox-wallpaper", "fox-password-copy", "fox-notifications", "fox-credits", "fox-claude-api"})
         put(ctx.shared_dir / "bin" / name, std::string("new ") + name, true);
     for (const char* name : {"toggle_rofi.sh", "hub.sh", "network.sh", "bluetooth.sh", "audio_switcher.sh", "powermenu.sh",
                             "clipmanager.sh", "updates_menu.sh", "eww_action.sh", "start_waybar.sh", "startup.sh", "agent_rofi.sh", "panic.sh", "osd.sh", "screenshot.sh"})

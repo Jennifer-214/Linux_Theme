@@ -17,7 +17,7 @@ icons update automatically; these bindings use the existing plugins and Vim mark
 | `'A` | Return to global bookmark A |
 | `:delmarks a` | Remove bookmark a (press Enter after the command) |
 | `Space w` | Save the file and clear its unsaved pencil marker |
-| `Space tc` | Toggle comment folding and folded note slips |
+| `Space tc` | Toggle comment folding (files open folded; remembered) |
 | `Space tC` | Enable/refold all comments in this window, including after `zR` (`:CommentRefold`) |
 | `zo` / `zc` / `za` | Open / close / toggle a fold |
 | `zR` / `zM` | Open / close all folds |

@@ -21,7 +21,7 @@ from zoneinfo import ZoneInfo
 
 UTC = timezone.utc
 API = 'https://api.anthropic.com/v1/organizations/analytics/cost'
-PROJECTS = {'trader': 'Trader', 'plugins': 'Claude mods'}
+PROJECTS = {'trader': 'Trader', 'plugins': 'Claude mods', 'theme': 'Linux_Theme'}
 PLAN_PRODUCTS = {'chat', 'chat_cowork_unified', 'claude_code', 'claude_design', 'claude_in_chrome',
                  'claude_tag', 'cowork', 'office_agent'}
 
@@ -101,7 +101,11 @@ def validate(config):
 
 
 def read_config():
-    return validate(load(locations()[0], defaults()))
+    config = load(locations()[0], defaults())
+    if isinstance(config, dict) and isinstance(config.get('projects'), dict):
+        for key, entry in defaults()['projects'].items():
+            config['projects'].setdefault(key, entry)
+    return validate(config)
 
 
 def cycle(config, now):
@@ -247,12 +251,14 @@ def sync(config, now):
             'projects': {k: str(v) for k, v in totals.items()}})
 
 
-def record(config, project, cost, event_id, at):
+def record(config, project, cost, event_id, at, estimate=False):
     if project not in config.get('projects', {}):
         raise ValueError('Unknown credit project')
     if not event_id or len(event_id) > 200 or any(ord(c) < 32 for c in event_id):
         raise ValueError('A stable request or run ID is required')
     event = {'id': event_id, 'project': project, 'cost_usd': str(amount(cost)), 'at': iso(timestamp(at))}
+    if estimate:
+        event['estimated'] = True
     with locked() as state:
         ledger = load(state / 'tracked.json', {'events': []})
         previous = next((old for old in ledger['events'] if old['id'] == event_id), None)
@@ -314,6 +320,8 @@ def snapshot(config, now):
                         else 'Anthropic report · billing can lag up to 24h') + ' · renews ' + local_end
     if result['status'] == 'stale':
         result['detail'] = 'Stale report · sync needed · renews ' + local_end
+    if source == 'local' and any(event.get('estimated') for event in events):
+        result['detail'] += ' · includes CLI cost estimates'
     result['projects'] = []
     for key, entry in config.get('projects', {}).items():
         mapped = bool(entry.get('workspace_ids') or entry.get('api_key_ids'))
@@ -394,6 +402,7 @@ def main():
     entry.add_argument('--cost-usd', required=True)
     entry.add_argument('--id', required=True)
     entry.add_argument('--at', required=True)
+    entry.add_argument('--estimate', action='store_true', help='mark a client-side cost estimate')
     args = parser.parse_args()
     command = args.command or 'status'
     now = datetime.now(UTC)
@@ -409,7 +418,7 @@ def main():
             sync(config, now)
             print('Updated billing report; no model requests were made.')
         elif command == 'record':
-            record(config, args.project, args.cost_usd, args.id, args.at)
+            record(config, args.project, args.cost_usd, args.id, args.at, args.estimate)
         else:
             value = snapshot(config, now)
             print(json.dumps(bar(value) if command == 'bar' else value, ensure_ascii=False))
