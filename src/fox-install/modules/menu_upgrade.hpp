@@ -9,6 +9,7 @@
 #include "../../fox-common/json.hpp"
 
 #include <algorithm>
+#include <initializer_list>
 #include <map>
 #include <set>
 #include <string>
@@ -90,13 +91,77 @@ inline nlohmann::json* group_of(nlohmann::json& menu, const std::string& id) {
     return nullptr;
 }
 
+// The shipped order of a group's items, to place a moved item after its nearest shipped neighbour.
+inline std::vector<std::string> shipped_order(const nlohmann::json& shipped, const std::string& group) {
+    std::vector<std::string> order;
+    for (const auto& source : shipped["groups"])
+        if (field(source, "id") == group && source.contains("items") && source["items"].is_array())
+            for (const auto& item : source["items"]) order.push_back(field(item, "id"));
+    return order;
+}
+
+// Moves one item if it is still in the group it shipped in; favorites naming it follow. False when it is elsewhere.
+inline bool move_item(nlohmann::json& menu, const nlohmann::json& shipped, const Move& move) {
+    auto* from = group_of(menu, move.from); auto* to = group_of(menu, move.to);
+    if (!from || !to) return false;
+    auto& items = (*from)["items"];
+    auto found = std::find_if(items.begin(), items.end(), [&](const nlohmann::json& item) { return field(item, "id") == move.id; });
+    if (found == items.end()) return false;
+    auto item = *found; items.erase(found);
+    auto& target = (*to)["items"];
+    const auto order = shipped_order(shipped, move.to);
+    std::size_t at = target.size();
+    const auto self = std::find(order.begin(), order.end(), std::string(move.id));
+    for (auto before = self; self != order.end() && before != order.begin();) {
+        --before;
+        const auto there = std::find_if(target.begin(), target.end(), [&](const nlohmann::json& i) { return field(i, "id") == *before; });
+        if (there != target.end()) { at = static_cast<std::size_t>(there - target.begin()) + 1; break; }
+    }
+    if (self != order.end() && at == target.size()) {
+        // No earlier neighbour here: go before the first later one, so the shipped order still reads top to bottom.
+        for (auto after = self + 1; after != order.end(); ++after) {
+            const auto there = std::find_if(target.begin(), target.end(), [&](const nlohmann::json& i) { return field(i, "id") == *after; });
+            if (there != target.end()) { at = static_cast<std::size_t>(there - target.begin()); break; }
+        }
+    }
+    target.insert(target.begin() + static_cast<long>(at), item);
+    if (menu.contains("favorites") && menu["favorites"].is_array())
+        for (auto& favorite : menu["favorites"])
+            if (favorite.is_string() && favorite.get<std::string>() == std::string(move.from) + "/" + move.id)
+                favorite = std::string(move.to) + "/" + move.id;
+    return true;
+}
+
+// Rows gain the shipped fields they lack (shortcut labels, search words, the section they sit under).
+inline bool copy_shipped_fields(nlohmann::json& menu, const nlohmann::json& shipped, std::initializer_list<const char*> keys) {
+    bool changed = false;
+    std::map<std::string, nlohmann::json> shipped_items;
+    for (const auto& source : shipped["groups"])
+        if (source.contains("items") && source["items"].is_array())
+            for (const auto& item : source["items"]) if (!field(item, "id").empty()) shipped_items[field(item, "id")] = item;
+    for (auto& group : menu["groups"]) {
+        if (!group.contains("items") || !group["items"].is_array()) continue;
+        for (auto& item : group["items"]) {
+            const auto at = shipped_items.find(field(item, "id"));
+            if (at == shipped_items.end()) continue;
+            for (const char* key : keys)
+                if (!item.contains(key) && at->second.contains(key)) { item[key] = at->second[key]; changed = true; }
+        }
+    }
+    return changed;
+}
+
+inline bool usable(const nlohmann::json& menu, const nlohmann::json& shipped) {
+    return menu.is_object() && menu.contains("groups") && menu["groups"].is_array()
+        && shipped.is_object() && shipped.contains("groups") && shipped["groups"].is_array();
+}
+
 // Returns the ids moved; `changed` reports any edit (a new group, favorites, labels) even when nothing moved.
 inline std::vector<std::string> relayout(nlohmann::json& menu, const nlohmann::json& shipped, std::set<std::string>& offered,
                                          bool& changed) {
     std::vector<std::string> moved;
     changed = false;
-    if (offered.count(LAYOUT_MARKER) || !menu.is_object() || !menu.contains("groups") || !menu["groups"].is_array()
-        || !shipped.is_object() || !shipped.contains("groups") || !shipped["groups"].is_array()) return moved;
+    if (offered.count(LAYOUT_MARKER) || !usable(menu, shipped)) return moved;
     offered.insert(LAYOUT_MARKER);
     auto& groups = menu["groups"];
     if (!group_of(menu, "workbench")) {
@@ -109,45 +174,8 @@ inline std::vector<std::string> relayout(nlohmann::json& menu, const nlohmann::j
             changed = true;
         }
     }
-    // The shipped order of each destination group, to place a moved item after its nearest shipped neighbour.
-    auto shipped_order = [&](const std::string& group) {
-        std::vector<std::string> order;
-        for (const auto& source : shipped["groups"])
-            if (field(source, "id") == group && source.contains("items") && source["items"].is_array())
-                for (const auto& item : source["items"]) order.push_back(field(item, "id"));
-        return order;
-    };
-    for (const auto& move : WORKBENCH_MOVES) {
-        auto* from = group_of(menu, move.from); auto* to = group_of(menu, move.to);
-        if (!from || !to) continue;
-        auto& items = (*from)["items"];
-        auto found = std::find_if(items.begin(), items.end(), [&](const nlohmann::json& item) { return field(item, "id") == move.id; });
-        if (found == items.end()) continue;
-        auto item = *found; items.erase(found);
-        auto& target = (*to)["items"];
-        const auto order = shipped_order(move.to);
-        std::size_t at = target.size();
-        const auto self = std::find(order.begin(), order.end(), std::string(move.id));
-        for (auto before = self; self != order.end() && before != order.begin();) {
-            --before;
-            const auto there = std::find_if(target.begin(), target.end(), [&](const nlohmann::json& i) { return field(i, "id") == *before; });
-            if (there != target.end()) { at = static_cast<std::size_t>(there - target.begin()) + 1; break; }
-        }
-        if (self != order.end() && at == target.size()) {
-            // No earlier neighbour here: go before the first later one, so the shipped order still reads top to bottom.
-            for (auto after = self + 1; after != order.end(); ++after) {
-                const auto there = std::find_if(target.begin(), target.end(), [&](const nlohmann::json& i) { return field(i, "id") == *after; });
-                if (there != target.end()) { at = static_cast<std::size_t>(there - target.begin()); break; }
-            }
-        }
-        target.insert(target.begin() + static_cast<long>(at), item);
-        moved.push_back(move.id);
-        if (menu.contains("favorites") && menu["favorites"].is_array())
-            for (auto& favorite : menu["favorites"])
-                if (favorite.is_string() && favorite.get<std::string>() == std::string(move.from) + "/" + move.id)
-                    favorite = std::string(move.to) + "/" + move.id;
-        changed = true;
-    }
+    for (const auto& move : WORKBENCH_MOVES)
+        if (move_item(menu, shipped, move)) { moved.push_back(move.id); changed = true; }
     // Desk itself was reordered. Only a Desk that still reads in the old shipped order, with nothing of her own in
     // it, takes the new order; any Desk she arranged keeps hers.
     static const std::vector<std::string> OLD_DESK = {"apps", "bookmarks", "library", "downloads", "screenshots", "windows",
@@ -159,7 +187,7 @@ inline std::vector<std::string> relayout(nlohmann::json& menu, const nlohmann::j
         std::vector<std::string> expected;
         for (const auto& id : OLD_DESK) if (std::find(now.begin(), now.end(), id) != now.end()) expected.push_back(id);
         if (!now.empty() && now == expected) {
-            const auto order = shipped_order("desk");
+            const auto order = shipped_order(shipped, "desk");
             auto rank = [&](const nlohmann::json& item) {
                 const auto at = std::find(order.begin(), order.end(), field(item, "id"));
                 return static_cast<std::size_t>(at - order.begin());
@@ -169,19 +197,45 @@ inline std::vector<std::string> relayout(nlohmann::json& menu, const nlohmann::j
             if (sorted != items) { items = sorted; changed = true; }
         }
     }
-    std::map<std::string, nlohmann::json> shipped_items;
-    for (const auto& source : shipped["groups"])
-        if (source.contains("items") && source["items"].is_array())
-            for (const auto& item : source["items"]) if (!field(item, "id").empty()) shipped_items[field(item, "id")] = item;
-    for (auto& group : groups) {
-        if (!group.contains("items") || !group["items"].is_array()) continue;
-        for (auto& item : group["items"]) {
-            const auto at = shipped_items.find(field(item, "id"));
-            if (at == shipped_items.end()) continue;
-            for (const char* key : {"keys", "keywords"})
-                if (!item.contains(key) && at->second.contains(key)) { item[key] = at->second[key]; changed = true; }
-        }
+    if (copy_shipped_fields(menu, shipped, {"keys", "keywords"})) changed = true;
+    return moved;
+}
+
+// The sectioned tabs (2026-11-09): each row names the small heading it sits under; Pick a color joins Desk (it
+// collects a colour like the clipboard does), Displays joins the other screen controls in Comfort, and the two API
+// rows became one page. Once, and only for items still where they shipped; her own rows have no section and the
+// drawer lists them last, under "more".
+inline const char* SECTIONS_MARKER = "@layout:sections";
+inline const std::vector<Move> SECTION_MOVES = {{"color-picker", "comfort", "desk"}, {"displays", "system", "comfort"}};
+
+inline std::vector<std::string> resection(nlohmann::json& menu, const nlohmann::json& shipped, std::set<std::string>& offered,
+                                          bool& changed) {
+    std::vector<std::string> moved;
+    changed = false;
+    if (offered.count(SECTIONS_MARKER) || !usable(menu, shipped)) return moved;
+    offered.insert(SECTIONS_MARKER);
+    for (const auto& move : SECTION_MOVES)
+        if (move_item(menu, shipped, move)) { moved.push_back(move.id); changed = true; }
+    // One API page: the old "Review with API credits" row goes, its favorite points at the page that holds it now,
+    // and a usage row still under its shipped name takes the new one.
+    bool retired = false;
+    if (auto* bench = group_of(menu, "workbench")) {
+        auto& items = (*bench)["items"];
+        const bool page_here = std::any_of(items.begin(), items.end(), [](const nlohmann::json& i) { return field(i, "id") == "api-credits"; });
+        for (auto it = items.begin(); page_here && it != items.end(); ++it)
+            if (field(*it, "id") == "api-tasks" && field(*it, "label") == "Review with API credits") { items.erase(it); retired = changed = true; break; }
+        for (auto& item : items)
+            if (field(item, "id") == "api-credits" && field(item, "label") == "API usage")
+                for (const auto& source : shipped["groups"]) if (source.contains("items") && source["items"].is_array())
+                    for (const auto& s : source["items"]) if (field(s, "id") == "api-credits") {
+                        for (const char* key : {"label", "detail", "icon"}) if (s.contains(key)) item[key] = s[key];
+                        changed = true;
+                    }
     }
+    if (retired && menu.contains("favorites") && menu["favorites"].is_array())
+        for (auto& favorite : menu["favorites"])
+            if (favorite.is_string() && favorite.get<std::string>() == "workbench/api-tasks") { favorite = "workbench/api-credits"; changed = true; }
+    if (copy_shipped_fields(menu, shipped, {"section", "keys", "keywords"})) changed = true;
     return moved;
 }
 

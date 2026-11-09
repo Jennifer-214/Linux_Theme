@@ -104,13 +104,13 @@ hl.window_rule({
 })
 
 -- ─────────────────────────────────────────
--- Swappy (Screenshot Editor) — float, center, fixed size
+-- Swappy (Screenshot Editor) — float, centred, sized to the screen it opens on
 -- ─────────────────────────────────────────
 hl.window_rule({
     name = "swappy-float",
     match = { class = "^(swappy)$" },
     float = true,
-    size = "1200 800",
+    size = { "monitor_w*0.62", "monitor_h*0.62" },
     center = true,
 })
 

@@ -53,3 +53,8 @@ export async function mailId(from: string, body: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify([from, body])))
   return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('')
 }
+
+// The drawer page that shows the same thing at desk size: `d` in the notebook opens it.
+export function drawerPage(page: 'overview' | 'files' | 'project' | 'sessions'): string {
+  return { overview: 'workbench', files: 'reviews', project: 'projects', sessions: 'agents' }[page]
+}

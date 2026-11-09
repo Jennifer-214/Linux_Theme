@@ -1181,7 +1181,10 @@ class BackendTests(unittest.TestCase):
                  'top': [{'id':'b','project':'trader','model':'claude-opus-5-5','cost_usd':'1.50','at':'2026-11-09T01:00:00Z','label':'Why is the book slow?'}]}
         self.state['commands'] = {'fox-credits':{'stdout':json.dumps(usage)}}
         page = self.invoke('view','api-credits')
-        self.assertEqual(page['title'], 'API usage')
+        self.assertEqual(page['title'], 'API')
+        headings = [r['label'] for r in page['items'] if r['kind'] == 'heading']
+        self.assertEqual(headings, ['spend', 'settings'], 'no projects or earlier asks here, so only these two')
+        self.assertFalse(any(r['enabled'] for r in page['items'] if r['kind'] == 'heading'), 'headings are never selectable')
         self.assertEqual(page['credits'], snapshot)
         labels = [r['label'] for r in page['items']]
         nested = {r['label'] for r in page['items'] if r.get('nested')}
@@ -1200,6 +1203,7 @@ class BackendTests(unittest.TestCase):
         self.failed('run','credits-sync')
         self.assertTrue(self.invoke('run','credits-setup')['ok'])
         self.assertTrue(any(call[-2:]==['fox-credits','setup'] for call in self.calls()))
+        self.assertEqual(self.invoke('view','api-tasks')['title'], 'API', 'the old page name opens the one API page')
 
     def test_api_tasks_list_configured_projects_and_explain_only_their_failures(self):
         helper = self.bin/'fox-claude-api'
@@ -1220,14 +1224,14 @@ class BackendTests(unittest.TestCase):
                                 'fox-work\x1ftests\x1f--id\x1f'+'a'*32: {'stdout': json.dumps(mine)},
                                 'fox-work\x1flog\x1f--id\x1f'+'a'*32: {'stdout': 'assertion failed: boom\n'}}}
         rows = self.invoke('view','api-tasks')['items']
-        self.assertEqual([r['id'] for r in rows], ['api-credits'] + ['api-task-ask','api-task-review','api-task-pi']*2
-                         + ['api-task-open','api-task-follow','api-task-settings'])
-        self.assertIn('$12.00 left', rows[0]['label'])
-        self.assertIn('claude-sonnet-5-5', rows[1]['detail'])
-        self.assertFalse(any(r['enabled'] for r in rows[4:7]), 'a missing project folder should not be askable')
-        self.assertEqual(rows[7]['label'], 'Why is the book slow?')
-        self.assertIn('claude-opus-5-5 · $0.42 · today ', rows[7]['detail'])
-        self.assertTrue(rows[8].get('nested') and rows[8]['label'] == 'Follow up', 'a follow-up sits under its answer')
+        self.assertEqual([r['id'] for r in rows], ['credits-summary', 'section-ask'] + ['api-task-ask','api-task-review','api-task-pi']*2
+                         + ['section-earlier-asks', 'api-task-open', 'api-task-follow',
+                            'section-settings', 'credits-setup', 'credits-console', 'api-task-settings'])
+        self.assertIn('claude-sonnet-5-5', rows[2]['detail'])
+        self.assertFalse(any(r['enabled'] for r in rows[5:8]), 'a missing project folder should not be askable')
+        self.assertEqual(rows[9]['label'], 'Why is the book slow?')
+        self.assertIn('claude-opus-5-5 · $0.42 · today ', rows[9]['detail'])
+        self.assertTrue(rows[10].get('nested') and rows[10]['label'] == 'Follow up', 'a follow-up sits under its answer')
         failures = self.invoke('view','failures')['items']
         self.assertIn('Run the trader tests', [r['label'] for r in failures], 'a job reads by its title, not its command')
         explain = [r for r in failures if r['id']=='api-task-failure']
@@ -1689,12 +1693,23 @@ print('0\t' + str(target))
         groups = {g["id"]: [i["id"] for i in g["items"]] for g in menu["groups"]}
         self.assertEqual(list(groups)[:2], ["desk", "workbench"])
         self.assertLessEqual(len(groups["desk"]), 10, "the desk keeps only everyday things")
-        for moved in ("projects", "worktrees", "agents", "jobs", "test-results", "reviews", "next-steps", "failures", "models", "api-tasks", "api-credits", "garden"):
+        for moved in ("projects", "worktrees", "agents", "jobs", "test-results", "reviews", "next-steps", "failures", "models", "api-credits", "garden"):
             self.assertIn(moved, groups["workbench"])
-        self.assertEqual(groups["workbench"].index("api-credits"), groups["workbench"].index("api-tasks") + 1, "API usage sits beside API tasks")
-        for look in ("wallpapers", "themes", "wallpaper-next", "wallpaper-sync", "color-picker", "earlier-notes"):
+        self.assertNotIn("api-tasks", [i for ids in groups.values() for i in ids], "asking lives on the one API page")
+        for look in ("wallpapers", "themes", "wallpaper-next", "wallpaper-sync", "earlier-notes", "brightness", "displays"):
             self.assertIn(look, groups["comfort"])
         self.assertIn("calendar", groups["desk"])
+        self.assertIn("color-picker", groups["desk"], "picking a colour collects it, like the clipboard")
+        for group in menu["groups"]:
+            if group["id"] in ("desk", "workbench", "comfort", "system"):
+                sections = [i.get("section") for i in group["items"]]
+                self.assertTrue(all(sections), group["id"] + ": every shipped row names its heading")
+                runs = [s for n, s in enumerate(sections) if n == 0 or sections[n - 1] != s]
+                self.assertEqual(len(runs), len(set(runs)), group["id"] + ": each heading's rows sit together")
+        system = self.invoke("view", "system")["items"]
+        self.assertEqual([r["label"] for r in system if r["kind"] == "heading"], ["upkeep", "power", "safety", "help"])
+        self.assertEqual(system[0]["kind"], "heading")
+        self.assertFalse([r for r in self.invoke("view", "system", "upd")["items"] if r["kind"] == "heading"], "a search reads as a plain list")
         root = self.invoke("view", "root")
         self.assertEqual([r["page"] for r in root["items"][1:]], list(groups))
         self.assertEqual(next(r for r in root["items"] if r["id"] == "workbench")["summary"], "all quiet on the bench")

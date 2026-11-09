@@ -9,15 +9,16 @@
       "icon": "✎",
       "description": "Your apps, papers and little everyday things",
       "items": [
-        { "id": "apps", "label": "Applications", "detail": "Find something to open", "icon": "⌘", "kind": "page", "page": "apps", "keywords": ["programs", "launch", "open"] },
-        { "id": "windows", "label": "Open windows", "detail": "Pick up where you left off", "icon": "▣", "kind": "page", "page": "windows", "keys": "alt `", "keywords": ["switch", "focus", "tasks"] },
-        { "id": "calendar", "label": "Calendar", "detail": "The month on a little sheet, a heart on each day you wrote code", "icon": "today", "kind": "action", "keys": "alt c", "keywords": ["date", "month", "day", "today"] },
-        { "id": "clipboard-text", "label": "Clipboard", "detail": "Your collected scraps of text", "icon": "⌇", "kind": "page", "page": "clipboard-text", "keys": "alt v", "keywords": ["copy", "paste", "history"] },
-        { "id": "clipboard-images", "label": "Clipboard images", "detail": "The pictures you saved for later", "icon": "▧", "kind": "page", "page": "clipboard-images", "keys": "alt ⇧ v", "keywords": ["copy", "paste", "pictures", "images"] },
-        { "id": "downloads", "label": "Incoming paper tray", "detail": "Your newest downloads, in a little pile", "icon": "↧", "kind": "page", "page": "downloads", "keywords": ["files", "browser"] },
-        { "id": "screenshots", "label": "Screenshot scrapbook", "detail": "Little moments, tucked into photo prints", "icon": "▧", "kind": "page", "page": "screenshots", "keys": "alt ctrl o", "keywords": ["capture", "pictures", "photos"] },
-        { "id": "library", "label": "The little library", "detail": "Removable drives and their checkout cards", "icon": "▥", "kind": "page", "page": "library", "keywords": ["usb", "drive", "eject", "mount", "disk"] },
-        { "id": "bookmarks", "label": "Bookmarks", "detail": "The projects you left a ribbon in", "icon": "◇", "kind": "page", "page": "bookmarks", "keywords": ["ribbon", "pinned"] }
+        { "id": "apps", "label": "Applications", "detail": "Find something to open", "icon": "⌘", "kind": "page", "page": "apps", "keywords": ["programs", "launch", "open"], "section": "open" },
+        { "id": "windows", "label": "Open windows", "detail": "Pick up where you left off", "icon": "▣", "kind": "page", "page": "windows", "keys": "alt `", "keywords": ["switch", "focus", "tasks"], "section": "open" },
+        { "id": "calendar", "label": "Calendar", "detail": "The month on a little sheet, a heart on each day you wrote code", "icon": "today", "kind": "action", "keys": "alt c", "keywords": ["date", "month", "day", "today"], "section": "open" },
+        { "id": "clipboard-text", "label": "Clipboard", "detail": "Your collected scraps of text", "icon": "⌇", "kind": "page", "page": "clipboard-text", "keys": "alt v", "keywords": ["copy", "paste", "history"], "section": "collected" },
+        { "id": "clipboard-images", "label": "Clipboard images", "detail": "The pictures you saved for later", "icon": "▧", "kind": "page", "page": "clipboard-images", "keys": "alt ⇧ v", "keywords": ["copy", "paste", "pictures", "images"], "section": "collected" },
+        { "id": "screenshots", "label": "Screenshot scrapbook", "detail": "Little moments, tucked into photo prints", "icon": "▧", "kind": "page", "page": "screenshots", "keys": "alt ctrl o", "keywords": ["capture", "pictures", "photos"], "section": "collected" },
+        { "id": "downloads", "label": "Incoming paper tray", "detail": "Your newest downloads, in a little pile", "icon": "↧", "kind": "page", "page": "downloads", "keywords": ["files", "browser"], "section": "collected" },
+        { "id": "color-picker", "label": "Pick a color", "detail": "Borrow a little ink from the screen", "icon": "✎", "kind": "action", "close": true, "keys": "alt ⇧ p", "keywords": ["colour", "eyedropper", "hex"], "section": "collected" },
+        { "id": "library", "label": "The little library", "detail": "Removable drives and their checkout cards", "icon": "▥", "kind": "page", "page": "library", "keywords": ["usb", "drive", "eject", "mount", "disk"], "section": "reading" },
+        { "id": "bookmarks", "label": "Bookmarks", "detail": "The projects you left a ribbon in", "icon": "◇", "kind": "page", "page": "bookmarks", "keywords": ["ribbon", "pinned"], "section": "reading" }
       ]
     },
     {
@@ -26,18 +27,17 @@
       "icon": "terminal",
       "description": "Your projects, jobs and the helpers at work",
       "items": [
-        { "id": "projects", "label": "Project index cards", "detail": "A little card for each code project", "icon": "▤", "kind": "page", "page": "projects", "keywords": ["code", "repos", "git"] },
-        { "id": "worktrees", "label": "Worktree map", "detail": "Branches, working folders and the Claudes in each", "icon": "▥", "kind": "page", "page": "worktrees", "keywords": ["branches", "git"] },
-        { "id": "agents", "label": "Agent notes", "detail": "Your agents are waiting here", "icon": "✉", "kind": "page", "page": "agents", "keys": "alt ⇧ e", "keywords": ["claude", "sessions", "waiting"] },
-        { "id": "jobs", "label": "Jobs", "detail": "Builds, tests and downloads, even after Claude is idle", "icon": "◷", "kind": "page", "page": "jobs", "keywords": ["builds", "make", "running"] },
-        { "id": "test-results", "label": "Test results", "detail": "Failures to open and changes since the last pass", "icon": "✓", "kind": "page", "page": "test-results", "keywords": ["tests", "failing", "passing"] },
-        { "id": "reviews", "label": "Changes to look over", "detail": "Today's Claude commits you have not opened yet", "icon": "✿", "kind": "page", "page": "reviews", "keywords": ["commits", "diff"] },
-        { "id": "next-steps", "label": "Pinned next steps", "detail": "Keep a little place for what comes next", "icon": "◇", "kind": "page", "page": "next-steps", "keywords": ["todo", "tasks", "plan"] },
-        { "id": "failures", "label": "Failures", "detail": "Job errors and failed user services, with their logs", "icon": "!", "kind": "page", "page": "failures", "keywords": ["errors", "logs", "services", "crashed"] },
-        { "id": "models", "label": "Local models", "detail": "Your AI models, their roles and sizes", "icon": "◈", "kind": "page", "page": "models", "keywords": ["ollama", "llm", "ai", "gguf"] },
-        { "id": "api-tasks", "label": "Review with API credits", "detail": "Ask about Trader, Claude mods or Linux_Theme, with a budget per run", "icon": "✎", "kind": "page", "page": "api-tasks", "keywords": ["claude", "api", "budget", "ask"] },
-        { "id": "api-credits", "label": "API usage", "detail": "Tracked spend by project, model and day", "icon": "◇", "kind": "page", "page": "api-credits", "keywords": ["spend", "cost", "billing", "budget", "credits"] },
-        { "id": "garden", "label": "Commit garden", "detail": "A year of commits, one little square a day", "icon": "❦", "kind": "page", "page": "garden", "keywords": ["commits", "contributions", "history"] }
+        { "id": "projects", "label": "Project index cards", "detail": "A little card for each code project", "icon": "▤", "kind": "page", "page": "projects", "keywords": ["code", "repos", "git"], "section": "projects" },
+        { "id": "worktrees", "label": "Worktree map", "detail": "Branches, working folders and the Claudes in each", "icon": "▥", "kind": "page", "page": "worktrees", "keywords": ["branches", "git"], "section": "projects" },
+        { "id": "garden", "label": "Commit garden", "detail": "A year of commits, one little square a day", "icon": "❦", "kind": "page", "page": "garden", "keywords": ["commits", "contributions", "history"], "section": "projects" },
+        { "id": "agents", "label": "Agent notes", "detail": "Your agents are waiting here", "icon": "✉", "kind": "page", "page": "agents", "keys": "alt ⇧ e", "keywords": ["claude", "sessions", "waiting"], "section": "in progress" },
+        { "id": "jobs", "label": "Jobs", "detail": "Builds, tests and downloads, even after Claude is idle", "icon": "◷", "kind": "page", "page": "jobs", "keywords": ["builds", "make", "running"], "section": "in progress" },
+        { "id": "test-results", "label": "Test results", "detail": "Failures to open and changes since the last pass", "icon": "✓", "kind": "page", "page": "test-results", "keywords": ["tests", "failing", "passing"], "section": "in progress" },
+        { "id": "failures", "label": "Failures", "detail": "Job errors and failed user services, with their logs", "icon": "!", "kind": "page", "page": "failures", "keywords": ["errors", "logs", "services", "crashed"], "section": "in progress" },
+        { "id": "reviews", "label": "Changes to look over", "detail": "Today's Claude commits you have not opened yet", "icon": "✿", "kind": "page", "page": "reviews", "keywords": ["commits", "diff"], "section": "in progress" },
+        { "id": "next-steps", "label": "Pinned next steps", "detail": "Keep a little place for what comes next", "icon": "◇", "kind": "page", "page": "next-steps", "keywords": ["todo", "tasks", "plan"], "section": "in progress" },
+        { "id": "models", "label": "Local models", "detail": "Your AI models, their roles and sizes", "icon": "◈", "kind": "page", "page": "models", "keywords": ["ollama", "llm", "ai", "gguf"], "section": "AI" },
+        { "id": "api-credits", "label": "API", "detail": "Usage and budget, then ask, review or open pi with credits", "icon": "◇", "kind": "page", "page": "api-credits", "keywords": ["spend", "cost", "billing", "budget", "credits", "claude", "api", "ask", "review"], "section": "AI" }
       ]
     },
     {
@@ -71,16 +71,16 @@
       "icon": "☾",
       "description": "Make yourself at home",
       "items": [
-        { "id": "brightness", "label": "Brightness", "detail": "A comfortable amount of light", "icon": "☼", "kind": "slider", "keywords": ["screen", "backlight", "dim"] },
-        { "id": "nightlight", "label": "Night light", "detail": "A warmer glow for tired eyes", "icon": "☾", "kind": "toggle", "keywords": ["warm", "blue light", "sunset"] },
-        { "id": "dnd", "label": "Do not disturb", "detail": "Shh… the world can wait a moment", "icon": "⊘", "kind": "toggle", "keywords": ["notifications", "dnd", "quiet", "focus"] },
-        { "id": "earlier-notes", "label": "Earlier notes", "detail": "The notes that slipped by, newest first", "icon": "message", "kind": "page", "page": "earlier-notes", "keywords": ["notifications", "history", "missed", "mako"] },
-        { "id": "idle", "label": "Stay awake", "detail": "Keep the screens on for a little longer", "icon": "◷", "kind": "toggle", "keywords": ["caffeine", "sleep", "inhibit", "screensaver"] },
-        { "id": "wallpapers", "label": "Wallpapers", "detail": "A different page beneath your windows", "icon": "❀", "kind": "page", "page": "wallpapers", "keywords": ["background", "picture"] },
-        { "id": "themes", "label": "Themes", "detail": "Choose your paper and ink", "icon": "◐", "kind": "page", "page": "themes", "keywords": ["colors", "colours", "palette", "look"] },
-        { "id": "wallpaper-next", "label": "Next wallpaper", "detail": "Turn over a new leaf", "icon": "↝", "kind": "action", "close": true, "keys": "alt w", "keywords": ["background", "shuffle"] },
-        { "id": "wallpaper-sync", "label": "Colors from wallpaper", "detail": "Use this wallpaper as the palette, in a terminal", "icon": "◑", "kind": "action", "close": true, "keywords": ["palette", "colors", "colours"] },
-        { "id": "color-picker", "label": "Pick a color", "detail": "Borrow a little ink from the screen", "icon": "✎", "kind": "action", "close": true, "keys": "alt ⇧ p", "keywords": ["colour", "eyedropper", "hex"] }
+        { "id": "brightness", "label": "Brightness", "detail": "A comfortable amount of light", "icon": "☼", "kind": "slider", "keywords": ["screen", "backlight", "dim"], "section": "screen" },
+        { "id": "nightlight", "label": "Night light", "detail": "A warmer glow for tired eyes", "icon": "☾", "kind": "toggle", "keywords": ["warm", "blue light", "sunset"], "section": "screen" },
+        { "id": "idle", "label": "Stay awake", "detail": "Keep the screens on for a little longer", "icon": "◷", "kind": "toggle", "keywords": ["caffeine", "sleep", "inhibit", "screensaver"], "section": "screen" },
+        { "id": "displays", "label": "Displays", "detail": "Scale, rotation, arrangement and pointer size", "icon": "▭", "kind": "page", "page": "displays", "keywords": ["monitor", "screen", "resolution", "scale", "cursor", "pointer", "rotate"], "section": "screen" },
+        { "id": "dnd", "label": "Do not disturb", "detail": "Shh… the world can wait a moment", "icon": "⊘", "kind": "toggle", "keywords": ["notifications", "dnd", "quiet", "focus"], "section": "notices" },
+        { "id": "earlier-notes", "label": "Earlier notes", "detail": "The notes that slipped by, newest first", "icon": "message", "kind": "page", "page": "earlier-notes", "keywords": ["notifications", "history", "missed", "mako"], "section": "notices" },
+        { "id": "wallpapers", "label": "Wallpapers", "detail": "A different page beneath your windows", "icon": "❀", "kind": "page", "page": "wallpapers", "keywords": ["background", "picture"], "section": "look" },
+        { "id": "themes", "label": "Themes", "detail": "Choose your paper and ink", "icon": "◐", "kind": "page", "page": "themes", "keywords": ["colors", "colours", "palette", "look"], "section": "look" },
+        { "id": "wallpaper-next", "label": "Next wallpaper", "detail": "Turn over a new leaf", "icon": "↝", "kind": "action", "close": true, "keys": "alt w", "keywords": ["background", "shuffle"], "section": "look" },
+        { "id": "wallpaper-sync", "label": "Colors from wallpaper", "detail": "Use this wallpaper as the palette, in a terminal", "icon": "◑", "kind": "action", "close": true, "keywords": ["palette", "colors", "colours"], "section": "look" }
       ]
     },
     {
@@ -89,20 +89,19 @@
       "icon": "⚙",
       "description": "A little care for your machine",
       "items": [
-        { "id": "updates", "label": "Updates", "detail": "See what is ready to update", "icon": "↻", "kind": "page", "page": "updates", "keywords": ["upgrade", "pacman", "packages"] },
-        { "id": "displays", "label": "Displays", "detail": "Scale, rotation, arrangement and pointer size", "icon": "▭", "kind": "page", "page": "displays", "keywords": ["monitor", "screen", "resolution", "scale", "cursor", "pointer", "rotate"] },
-        { "id": "storage", "label": "Storage", "detail": "What uses the disk, and what can go", "icon": "▦", "kind": "page", "page": "storage", "keywords": ["disk", "space", "cleanup"] },
-        { "id": "backups", "label": "Backups", "detail": "Files the theme kept before replacing them", "icon": "↺", "kind": "page", "page": "backups", "keywords": ["restore"] },
-        { "id": "startup", "label": "Startup", "detail": "What starts with your session", "icon": "⏵", "kind": "page", "page": "startup", "keywords": ["autostart", "services", "login"] },
-        { "id": "power-profile", "label": "Power profile", "detail": "Cycle performance, balanced and power saver", "icon": "◈", "kind": "action", "keywords": ["battery", "performance", "saver"] },
-        { "id": "vault", "label": "Passwords", "detail": "Copy from your existing pass store", "icon": "⚿", "kind": "page", "page": "passwords", "keywords": ["pass", "secrets", "keys"] },
-        { "id": "tools", "label": "Fox tools", "detail": "Commands grouped by what you want to do", "icon": "❯", "kind": "page", "page": "tools", "keywords": ["commands", "fox"] },
-        { "id": "cheatsheet", "label": "Shortcut reference", "detail": "Find a shortcut and copy its keys", "icon": "⌨", "kind": "page", "page": "cheatsheet", "keys": "alt /", "keywords": ["keybinds", "keys", "hotkeys", "bindings"] },
-        { "id": "sandbox", "label": "Disposable sandbox", "detail": "A fresh space for an app", "icon": "▢", "kind": "page", "page": "sandbox", "keys": "alt ⇧ s", "keywords": ["private", "incognito", "jail"] },
-        { "id": "security", "label": "Security audit", "detail": "Open the security dashboard in a terminal", "icon": "⛨", "kind": "action", "close": true, "keywords": ["audit", "firewall"] },
-        { "id": "cleanup", "label": "System cleanup", "detail": "Tidy up in a terminal", "icon": "✧", "kind": "action", "close": true, "keywords": ["clean", "tidy", "cache"] },
-        { "id": "lock", "label": "Lock screen", "detail": "See you soon", "icon": "⊡", "kind": "action", "close": true, "keywords": ["hyprlock"], "keys": "alt ctrl l" },
-        { "id": "power", "label": "Power", "detail": "Suspend, restart, shut down or log out", "icon": "⏻", "kind": "page", "page": "power", "keys": "alt ⇧ x", "keywords": ["shutdown", "restart", "reboot", "suspend", "logout", "sleep"] }
+        { "id": "updates", "label": "Updates", "detail": "See what is ready to update", "icon": "↻", "kind": "page", "page": "updates", "keywords": ["upgrade", "pacman", "packages"], "section": "upkeep" },
+        { "id": "storage", "label": "Storage", "detail": "What uses the disk, and what can go", "icon": "▦", "kind": "page", "page": "storage", "keywords": ["disk", "space", "cleanup"], "section": "upkeep" },
+        { "id": "backups", "label": "Backups", "detail": "Files the theme kept before replacing them", "icon": "↺", "kind": "page", "page": "backups", "keywords": ["restore"], "section": "upkeep" },
+        { "id": "cleanup", "label": "System cleanup", "detail": "Tidy up in a terminal", "icon": "✧", "kind": "action", "close": true, "keywords": ["clean", "tidy", "cache"], "section": "upkeep" },
+        { "id": "startup", "label": "Startup", "detail": "What starts with your session", "icon": "⏵", "kind": "page", "page": "startup", "keywords": ["autostart", "services", "login"], "section": "upkeep" },
+        { "id": "power-profile", "label": "Power profile", "detail": "Cycle performance, balanced and power saver", "icon": "◈", "kind": "action", "keywords": ["battery", "performance", "saver"], "section": "power" },
+        { "id": "power", "label": "Power", "detail": "Suspend, restart, shut down or log out", "icon": "⏻", "kind": "page", "page": "power", "keys": "alt ⇧ x", "keywords": ["shutdown", "restart", "reboot", "suspend", "logout", "sleep"], "section": "power" },
+        { "id": "lock", "label": "Lock screen", "detail": "See you soon", "icon": "⊡", "kind": "action", "close": true, "keywords": ["hyprlock"], "keys": "alt ctrl l", "section": "power" },
+        { "id": "security", "label": "Security audit", "detail": "Open the security dashboard in a terminal", "icon": "⛨", "kind": "action", "close": true, "keywords": ["audit", "firewall"], "section": "safety" },
+        { "id": "vault", "label": "Passwords", "detail": "Copy from your existing pass store", "icon": "⚿", "kind": "page", "page": "passwords", "keywords": ["pass", "secrets", "keys"], "section": "safety" },
+        { "id": "sandbox", "label": "Disposable sandbox", "detail": "A fresh space for an app", "icon": "▢", "kind": "page", "page": "sandbox", "keys": "alt ⇧ s", "keywords": ["private", "incognito", "jail"], "section": "safety" },
+        { "id": "tools", "label": "Fox tools", "detail": "Commands grouped by what you want to do", "icon": "❯", "kind": "page", "page": "tools", "keywords": ["commands", "fox"], "section": "help" },
+        { "id": "cheatsheet", "label": "Shortcut reference", "detail": "Find a shortcut and copy its keys", "icon": "⌨", "kind": "page", "page": "cheatsheet", "keys": "alt /", "keywords": ["keybinds", "keys", "hotkeys", "bindings"], "section": "help" }
       ]
     }
   ]

@@ -528,6 +528,19 @@ ShellRoot {
         keyboard.forceActiveFocus();
     }
 
+    // From the drawer's own keys to the whole reference, on the same page.
+    function showAllKeys() {
+        if (searching) { searching = false; searchInput.text = ""; }
+        keysFilter = "";
+        navigationSerial++;
+        focusArea = "items";
+        pageLoading = true;
+        entries = [];
+        itemList.viewPage = "";
+        requestView();
+        keyboard.forceActiveFocus();
+    }
+
     // 1–9: the sidebar's groups, in order.
     function jumpToGroup(index) {
         if (!groups[index] || pickerActive || pendingConfirm || editing || searching) return;
@@ -559,6 +572,8 @@ ShellRoot {
         } else {
             itemIndex = Logic.nextIndex(entries, itemIndex, delta);
             itemList.positionViewAtIndex(itemIndex, ListView.Contain);
+            // Moving up keeps the heading over the row in sight too.
+            if (delta < 0) itemList.positionViewAtIndex(Logic.headingAbove(entries, itemIndex), ListView.Contain);
         }
     }
 
@@ -592,6 +607,7 @@ ShellRoot {
             return;
         }
         if (!item || item.enabled === false || actionBusy) return;
+        if (item.id === "keys-all") { showAllKeys(); return; }
         if (searching && searchPage === "search" && item.group && (item.kind === "slider" || item.kind === "toggle")) {
             searching = false;
             searchInput.text = "";
@@ -818,9 +834,9 @@ ShellRoot {
         else if (k === Qt.Key_Tab || k === Qt.Key_Backtab) {
             if (entries.length) focusArea = focusArea === "groups" ? "items" : "groups";
         } else if (k === Qt.Key_Home || (k === Qt.Key_G && !(event.modifiers & Qt.ShiftModifier))) {
-            if (focusArea === "groups") groupIndex = 0; else itemIndex = 0;
+            if (focusArea === "groups") groupIndex = 0; else { itemIndex = Logic.nextIndex(entries, -1, 1); itemList.positionViewAtBeginning(); }
         } else if (k === Qt.Key_End || (k === Qt.Key_G && (event.modifiers & Qt.ShiftModifier))) {
-            if (focusArea === "groups") groupIndex = groups.length - 1; else itemIndex = entries.length - 1;
+            if (focusArea === "groups") groupIndex = groups.length - 1; else itemIndex = Logic.nextIndex(entries, entries.length, -1);
         } else return;
         event.accepted = true;
     }
@@ -1171,7 +1187,7 @@ ShellRoot {
                                 }
                                 Text {
                                     id: pageCount
-                                    textFormat: Text.PlainText; text: root.page === "root" || (root.pickerLayout && root.pickerPrompt) ? "" : String(root.entries.length).padStart(2, "0")
+                                    textFormat: Text.PlainText; text: root.page === "root" || (root.pickerLayout && root.pickerPrompt) ? "" : String(Logic.rowCount(root.entries)).padStart(2, "0")
                                     color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10
                                     PaperFlourish {
                                         theme: root.paperTheme; kind: "circle"
@@ -1312,26 +1328,30 @@ ShellRoot {
                                         readonly property string stateLabel: theme.paperDetails ? Logic.statusLabel(modelData) : ""
                                         // A row that belongs to the one above it sits indented beneath it.
                                         readonly property int indent: modelData.nested === true ? 22 : 0
+                                        // A small section heading: no card, no icon, never selected.
+                                        readonly property bool heading: modelData.kind === "heading"
                                         // Today's favorites sit a little closer so more of them fit under the day.
                                         readonly property bool compactRow: root.page === "root" && !root.searching
-                                        x: indent
+                                        // The list sets each row's x itself, so the indent is a shift: the row keeps its left edge in
+                                        // line with the text above it and its right edge in line with every other row.
+                                        transform: Translate { x: itemRow.indent }
                                         width: Math.max(0, itemList.width - theme.scrollGutter - indent)
                                         property bool card: modelData.presentation === "project" || modelData.presentation === "library" || modelData.presentation === "download"
-                                        height: card ? 94 : modelData.kind === "slider" ? 91 : modelData.image || mediaArtwork ? 80 : itemRow.compactRow ? 54 : 72
+                                        height: heading ? 30 : card ? 94 : modelData.kind === "slider" ? 91 : modelData.image || mediaArtwork ? 80 : itemRow.compactRow ? 54 : 72
                                         radius: 4
                                         readonly property color rowFill: itemMouse.pressed ? Qt.alpha(theme.line, .35) : selected ? theme.focusFill : theme.paperDetails ? (itemMouse.containsMouse && modelData.enabled !== false ? theme.hoverFill : theme.background) : card ? theme.surface : root.buttonShade(false, itemMouse.containsMouse)
                                         readonly property color rowEdge: itemMouse.pressed ? theme.muted : theme.paperDetails && !selected ? Qt.alpha(theme.line, .6) : theme.line
-                                        color: theme.paperDetails && card ? "transparent" : rowFill
-                                        border.width: theme.paperDetails && card ? 0 : theme.paperDetails || selected || card || itemMouse.containsMouse ? 1 : 0
+                                        color: heading || (theme.paperDetails && card) ? "transparent" : rowFill
+                                        border.width: heading || (theme.paperDetails && card) ? 0 : theme.paperDetails || selected || card || itemMouse.containsMouse ? 1 : 0
                                         border.color: rowEdge
-                                        opacity: modelData.enabled === false ? (theme.paperDetails ? .75 : .48) : 1
+                                        opacity: modelData.enabled === false && !heading ? (theme.paperDetails ? .75 : .48) : 1
                                         PaperCardSurface {
                                             anchors.fill: parent; visible: theme.paperDetails && itemRow.card
                                             theme: root.paperTheme; presentation: modelData.presentation || ""
                                             fillColor: itemRow.rowFill; edgeColor: itemRow.rowEdge
                                         }
                                         PaperShadow {
-                                            visible: theme.paperDetails
+                                            visible: theme.paperDetails && !itemRow.heading
                                             ink: theme.ink
                                             strength: itemMouse.pressed ? .012 : itemRow.selected ? .06 : .035
                                         }
@@ -1358,7 +1378,26 @@ ShellRoot {
                                             height: 1; color: theme.line; opacity: .6
                                         }
                                         Rectangle { visible: selected; width: 2; anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom; color: theme.detailAccent; radius: 1 }
+                                        Text {
+                                            id: sectionHeading
+                                            objectName: "section-heading"
+                                            visible: itemRow.heading
+                                            textFormat: Text.PlainText
+                                            anchors.left: parent.left; anchors.leftMargin: 4
+                                            anchors.bottom: parent.bottom; anchors.bottomMargin: 5
+                                            text: visible ? Logic.sectionHeading(modelData.label, theme.paperDetails) : ""
+                                            color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10
+                                            font.italic: theme.paperDetails; font.letterSpacing: theme.paperDetails ? 0 : 1.2
+                                        }
+                                        Rectangle {
+                                            visible: itemRow.heading
+                                            anchors.left: sectionHeading.right; anchors.leftMargin: 8
+                                            anchors.right: parent.right; anchors.rightMargin: 6
+                                            anchors.verticalCenter: sectionHeading.verticalCenter
+                                            height: 1; color: theme.line; opacity: .55
+                                        }
                                         RowLayout {
+                                            visible: !itemRow.heading
                                             anchors.fill: parent
                                             anchors.margins: itemRow.compactRow ? 10 : 12
                                             spacing: 10
@@ -1453,13 +1492,13 @@ ShellRoot {
                                         MouseArea {
                                             id: itemMouse
                                             anchors.fill: parent
-                                            hoverEnabled: true
+                                            hoverEnabled: !itemRow.heading
                                             cursorShape: modelData.enabled === false ? Qt.ArrowCursor : Qt.PointingHandCursor
-                                            onClicked: { root.itemIndex = index; root.focusArea = "items"; root.activate(modelData); keyboard.forceActiveFocus(); }
+                                            onClicked: { if (itemRow.heading) return; root.itemIndex = index; root.focusArea = "items"; root.activate(modelData); keyboard.forceActiveFocus(); }
                                         }
                                         ToolTip {
                                             id: itemTip
-                                            visible: (itemMouse.containsMouse || itemRow.selected) && text.length > 0 && (entryLabel.truncated || entryDetail.truncated || Boolean(modelData.modifiedAt) || (Logic.focusDetail(modelData).length > 0 && breadcrumbRow.truncated))
+                                            visible: !itemRow.heading && (itemMouse.containsMouse || itemRow.selected) && text.length > 0 && (entryLabel.truncated || entryDetail.truncated || Boolean(modelData.modifiedAt) || (Logic.focusDetail(modelData).length > 0 && breadcrumbRow.truncated))
                                             delay: 900
                                             timeout: 7000
                                             // Below the row when the space above it inside the list can't hold the tip (it would cover the page title).

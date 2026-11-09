@@ -39,7 +39,7 @@ icons update automatically; these bindings use the existing plugins and Vim mark
 | `Tab` | Switch focus between groups and items |
 | `1`–`9` | Jump to a sidebar group (1 is Today) |
 | `g` / `G` | Jump to the top / bottom of a page |
-| `?` | Show these drawer keys; h goes back |
+| `?` | Show these drawer keys, then **All shortcuts** for every key; h goes back |
 | `q` | Close the drawer |
 
 Press Enter on a slider to adjust it with h/l. Switches such as Night light

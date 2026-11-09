@@ -8,8 +8,10 @@ Bar and drawer controls, everyday tools, Paper appearance, shell/editor setup an
 
 ## Bar and drawers
 
-`fox-desktop-menu` opens the Quickshell menu: Desk, Sound, Connections, Comfort,
-and System. Existing menu shortcuts and the bar launcher open the same drawer;
+`fox-desktop-menu` opens the Quickshell menu: Desk, Workbench, Sound, Connections,
+Comfort and System. Inside a tab, rows sit under small headings (System: upkeep, power,
+safety, help); a row you add yourself, with no `"section"`, is listed last under "more".
+Searching a tab lists plain rows. Existing menu shortcuts and the bar launcher open the same drawer;
 `fox-desktop-menu wifi` or `fox-desktop-menu sound` opens a section directly.
 The top bar and drawers share one Quickshell process. On Paper, its modules hang
 from the screen edge as little paper banners, with blush active-workspace ribbons.
@@ -234,7 +236,7 @@ other rows open the folder.
 
 ### Displays
 
-System → Displays lists each screen with its mode, scale, rotation, side of the main screen and
+Comfort → Displays lists each screen with its mode, scale, rotation, side of the main screen and
 how much room it gives. Each screen has **Bigger text and windows** / **More room** (the next
 scale that divides its mode evenly, 0.75 to 3), **Rotate** (landscape → portrait turned left →
 portrait turned right) and, for other screens, **Move to another side**. Every change moves the

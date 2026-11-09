@@ -110,9 +110,9 @@ BLUE_BRIGHT=6e6d70
 CYAN=5e5e63
 CYAN_BRIGHT=7c7a76
 WHITE=2b2b2d
-# kitty color8 — "bright black"; Claude Code (dark-ansi) uses it as the
-# user-message / sidebar background, so on paper it is a pencil-highlight grey
-ANSI_BRIGHT_BLACK=d8d5cd
+# kitty color8 — "bright black": comments and dim text, so a pencil grey that still reads on
+# the paper and on Claude's pastel diff lines (it was a pale highlight grey, which made comments vanish)
+ANSI_BRIGHT_BLACK=6b6569
 
 # ─── Semantic aliases ───
 OK=5b6b5c

@@ -2,7 +2,7 @@
 
 `fox-claude-api` runs read-only Claude reviews of your projects on an ordinary inference API key, and can open
 pi with the same key. `fox-credits` keeps the monthly meter: the main screen's bar, the drawer's Today card
-and **API usage** page read it, and the paper notebook shows it only once 20% or less is left. Amounts read in
+and **API** page read it, and the paper notebook shows it only once 20% or less is left. Amounts read in
 cents, and a run under a cent reads `<$0.01`.
 
 ## What the meter counts
@@ -16,7 +16,7 @@ Calls made with the key anywhere else are **not** counted, and every place the n
 Costs are client-side estimates; Claude Console shows the account's real balance. Reading account-wide
 spending needs an Admin key, which individual accounts cannot create, so the meter never contacts the network.
 
-Set the renewal day, timezone and monthly amount with **API usage → Renewal day and budget**, or:
+Set the renewal day, timezone and monthly amount with **API → Renewal day and budget**, or:
 
 ```
 fox-credits setup
@@ -25,7 +25,7 @@ fox-credits configure --renewal-day 1 --timezone America/Chicago --budget 200
 
 Until a renewal day is set the meter shows `API · setup`; afterwards it reads `API ~$X left` from day one.
 `fox-credits usage` prints this month by project, by model and by day, plus the costliest runs; the drawer's
-**API usage** page shows the same. The run ledger is `~/.local/state/foxml/api-credits/tracked.json`.
+**API** page shows the same, under *spend*. The run ledger is `~/.local/state/foxml/api-credits/tracked.json`.
 
 ## Tasks
 
@@ -33,8 +33,8 @@ Settings: `${XDG_CONFIG_HOME:-~/.config}/foxml/api-tasks.json` — key file (mod
 fallback model, default run budget and the project folders (Trader, Claude mods, Linux_Theme).
 **Edit API task settings** opens it in Neovim; `fox-claude-api configure --model claude-opus-5-5` works too.
 
-- **Drawer → Review with API credits**: per project, *Ask*, *Review uncommitted changes* and *Open pi with
-  API credits*; past results open in Neovim, each with *Follow up*.
+- **Drawer → Workbench → API**: under *ask*, per project, *Ask*, *Review uncommitted changes* and *Open pi
+  with API credits*; under *earlier asks*, past results open in Neovim, each with *Follow up*.
 - **Test results / Failures**: a failed job in one of those projects gets *Explain with API credits*, with
   the command, exit code and output filled in.
 - **Neovim**: `:ClaudeApi` / `Space Ca` (a visual selection is sent as an excerpt), `:ClaudeApiReview` /

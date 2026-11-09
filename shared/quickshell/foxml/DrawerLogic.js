@@ -8,10 +8,29 @@ function drawerPlacement(screenWidth, windowWidth, anchor, connected) {
 
 // The sheet's height below the bar: the calendar and a written prompt stay small; the drawer itself
 // grows with the screen so the landing page has room for its favorites, without covering a laptop.
+// A tall portrait screen may use up to half its height, so it shows more rows than a laptop does.
 function drawerBody(layout, screenHeight) {
     if (layout === "calendar") return 560;
     if (layout === "prompt") return 310;
-    return Math.max(624, Math.min(940, Math.round(Number(screenHeight || 0) * .78)));
+    var height = Number(screenHeight || 0);
+    return Math.max(624, Math.min(Math.max(940, Math.round(height * .5)), Math.round(height * .78)));
+}
+
+// A section heading inside a tab: Paper writes it small and lowercase ("upkeep"), the other themes in spaced capitals.
+function sectionHeading(label, paper) {
+    label = String(label || "");
+    if (!paper) return label.toUpperCase();
+    return /^[A-Z]{2,}$/.test(label) ? label : label.toLowerCase();
+}
+
+// How many rows a page holds; its section headings are not rows.
+function rowCount(items) {
+    return (items || []).filter(function(item) { return item.kind !== "heading"; }).length;
+}
+
+// The heading just above a row, when there is one, so moving up shows it along with the row.
+function headingAbove(items, index) {
+    return index > 0 && items[index - 1] && items[index - 1].kind === "heading" ? index - 1 : index;
 }
 
 // Paper headings are written by hand: lowercase with a full stop. Acronyms (API, USB) and names

@@ -6,7 +6,7 @@ import { addBefore, addEdit, addName, neighbours, namesText, noteText, overlapFo
 import type { Other } from './ledger'
 import { paper } from './theme'
 import { beginArgs, canTrack, exitOf, greenAgain, jobPace, outputOf, planProgress, ruler, stepLabel, testLabel, work, workLook } from './work'
-import { attributeFiles, fileColumns, fileCounts, gitFiles, mailId, shortPath } from './notebook'
+import { attributeFiles, fileColumns, fileCounts, gitFiles, drawerPage, mailId, shortPath } from './notebook'
 
 // FoxML paper: a notebook pane beside the chat (hearts, the session's name, its plan, the gate, pages
 // touched, the other Claudes with [go] and [note]), a red-zone band before a risky system edit, a band when
@@ -977,7 +977,8 @@ export const register: Register = on => {
         <Button key="nav-back" label="back" hotkey="h" plain onPress={back} /><Text> </Text>
         <Button key="nav-up" label="↑" hotkey="k" plain onPress={() => move(-1)} /><Text> </Text>
         <Button key="nav-down" label="↓" hotkey="j" plain onPress={() => move(1)} /><Text> </Text>
-        <Button key="nav-open" label="open" hotkey="l" plain onPress={activate} />
+        <Button key="nav-open" label="open" hotkey="l" plain onPress={activate} /><Text> </Text>
+        <Button key="nav-drawer" label="drawer" hotkey="d" plain onPress={() => run($, ['fox-desktop-menu', '--open', drawerPage(view.page)])} />
       </Box>}
       {now?.credits && (now.credits.status === 'error' || (now.credits.remaining_percent != null && now.credits.remaining_percent <= 20)) && <Button key="api-credit-meter" label="monthly API credit details" plain
         onPress={() => run($, ['fox-desktop-menu', '--open', 'api-credits'])}>

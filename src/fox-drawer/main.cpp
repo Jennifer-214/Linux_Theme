@@ -3,6 +3,7 @@
 #include "../fox-monitor/placement.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <array>
 #include <cerrno>
 #include <charconv>
@@ -130,6 +131,40 @@ Json item(const std::string& id, const std::string& label, const std::string& ki
     if (start != 0) row["nested"] = true;
     return row;
 }
+
+// A small heading over the rows that follow it; never selectable, so the keys and the mouse pass over it.
+Json heading(const std::string& label) {
+    std::string slug;
+    for (const char c : label) slug += std::isalnum(static_cast<unsigned char>(c)) ? static_cast<char>(std::tolower(static_cast<unsigned char>(c))) : '-';
+    auto row = item("section-" + slug, label, "heading");
+    row["enabled"] = false;
+    return row;
+}
+
+// A tab's rows under their headings: sections in the order they first appear, her own rows (no section) last under
+// "more". A tab without sections, or one being searched, reads as the plain list it always was.
+Json sectioned(const Json& rows) {
+    std::vector<std::string> order;
+    bool any = false;
+    for (const auto& row : rows) {
+        const auto name = row.contains("section") && row["section"].is_string() ? row["section"].get<std::string>() : std::string();
+        any = any || !name.empty();
+        if (!name.empty() && std::find(order.begin(), order.end(), name) == order.end()) order.push_back(name);
+    }
+    if (!any) return rows;
+    order.push_back("");
+    Json out = Json::array();
+    for (const auto& name : order) {
+        bool headed = false;
+        for (const auto& row : rows) {
+            const auto mine = row.contains("section") && row["section"].is_string() ? row["section"].get<std::string>() : std::string();
+            if (mine != name) continue;
+            if (!headed) { out.push_back(heading(name.empty() ? "more" : name)); headed = true; }
+            out.push_back(row);
+        }
+    }
+    return out;
+}
 // A dollar amount as people read it: cents, and "<$0.01" for the fractions of a cent small runs cost.
 std::string money_text(const std::string& usd) {
     char* end = nullptr;
@@ -226,7 +261,7 @@ bool read_config(const fs::path& file, Json& config, std::string& error) {
         error = "Menu configuration needs a groups array"; return false;
     }
     if (config["groups"].empty() || config["groups"].size() > 32) { error = "Invalid menu group count"; return false; }
-    const std::set<std::string> allowed = {"id","label","detail","icon","kind","page","value","checked","enabled","confirm","argument","close","description","keys","keywords"};
+    const std::set<std::string> allowed = {"id","label","detail","icon","kind","page","value","checked","enabled","confirm","argument","close","description","keys","keywords","section"};
     std::set<std::string> group_ids;
     for (const auto& group : config["groups"]) {
         const auto id = text(group, "id");
@@ -254,6 +289,9 @@ bool read_config(const fs::path& file, Json& config, std::string& error) {
             }
             if (row.contains("argument") && !row["argument"].is_string()) { error = "Menu argument must be text"; return false; }
             if (row.contains("keys") && (!row["keys"].is_string() || !safe_text(text(row, "keys"), 64))) { error = "Menu keys must be short text"; return false; }
+            if (row.contains("section") && (!row["section"].is_string() || text(row, "section").empty() || !safe_text(text(row, "section"), 40))) {
+                error = "Menu section must be a short heading"; return false;
+            }
             if (row.contains("keywords")) {
                 const auto& words = row["keywords"];
                 if (!words.is_array() || words.size() > 24
@@ -3140,6 +3178,7 @@ Json view(const Json& config, const std::string& page, const std::string& query,
             if (!query.empty()) searchable_by_id(row);
             rows.push_back(row);
         }
+        if (query.empty()) rows = sectioned(rows);
     }
     if (page == "jobs" || page == "test-results" || page == "reviews" || page == "next-steps" || page == "failures") {
         known = true;
@@ -3299,13 +3338,23 @@ Json view(const Json& config, const std::string& page, const std::string& query,
         known = true; out["title"] = "Displays";
         display_rows(rows);
         for (auto& row : rows) if (truth(row, "enabled")) decorate(row);
-    } else if (page == "api-tasks") {
-        known = true; out["title"] = "Review with API credits";
-        const auto projects = api_projects();
-        if (!projects.empty()) {
-            auto left = item("api-credits", text(projects.front(), "credits"), "page", "API usage · by project, model and day", "info");
-            left["page"] = "api-credits"; rows.push_back(left);
+    } else if (page == "api-credits" || page == "api-tasks") {
+        // One API page: what is left, then asking, earlier asks, where the money went, and the settings.
+        known = true; out["title"] = "API";
+        Json usage;
+        auto note = [&](const std::string& label, const std::string& detail, const std::string& icon = "info") {
+            auto row = item("credits-summary", label, "action", detail, icon); row["enabled"] = false; rows.push_back(row);
+        };
+        auto money = [](const Json& row) { return money_text(text(row, "spent_usd")); };
+        const bool metered = sh::have("fox-credits") && capture_json({"fox-credits", "usage"}, usage) && usage.is_object() && usage["snapshot"].is_object();
+        if (metered) {
+            out["credits"] = usage["snapshot"];
+            note(text(usage["snapshot"], "headline"), text(usage["snapshot"], "detail"));
+        } else {
+            note("The API credit meter is unavailable", "Install fox-credits");
         }
+        const auto projects = api_projects();
+        if (!projects.empty()) rows.push_back(heading("ask"));
         for (const auto& project : projects) {
             const auto id = text(project, "id"), label = text(project, "label");
             const bool here = truth(project, "available");
@@ -3319,7 +3368,9 @@ Json view(const Json& config, const std::string& page, const std::string& query,
                 rows.push_back(*row);
             }
         }
-        for (const auto& task : api_history()) {
+        const auto history = api_history();
+        if (!history.empty()) rows.push_back(heading("earlier asks"));
+        for (const auto& task : history) {
             const auto id = text(task, "id");
             const auto cost = task.contains("cost_usd") && task["cost_usd"].is_string() ? money_text(text(task, "cost_usd")) : std::string("cost unknown");
             const auto when = when_text(iso_seconds(text(task, "finished_at", text(task, "started_at"))));
@@ -3330,19 +3381,8 @@ Json view(const Json& config, const std::string& page, const std::string& query,
             auto follow = item("api-task-follow", "  Follow up", "action", "Ask more, with this question and answer as context", "message");
             follow["argument"] = id; rows.push_back(follow);
         }
-        rows.push_back(item("api-task-settings", "Edit API task settings", "action", "Key file, model, effort, default budget and project folders, in Neovim", "system"));
-        for (auto& row : rows) if (truth(row, "enabled")) { decorate(row); row["close"] = true; }
-    } else if (page == "api-credits") {
-        known = true; out["title"] = "API usage";
-        Json usage;
-        auto note = [&](const std::string& label, const std::string& detail, const std::string& icon = "info") {
-            auto row = item("credits-summary", label, "action", detail, icon); row["enabled"] = false; rows.push_back(row);
-        };
-        auto money = [](const Json& row) { return money_text(text(row, "spent_usd")); };
-        if (sh::have("fox-credits") && capture_json({"fox-credits", "usage"}, usage) && usage.is_object() && usage["snapshot"].is_object()) {
-            const auto& credits = usage["snapshot"];
-            out["credits"] = credits;
-            note(text(credits, "headline"), text(credits, "detail"));
+        if (metered) {
+            rows.push_back(heading("spend"));
             note("Counts runs made through these tools", "API tasks and pi with API credits · other uses of the key are not included");
             if (usage["projects"].is_array() && !usage["projects"].empty()) {
                 note("By project", "This month", "folder");
@@ -3363,16 +3403,14 @@ Json view(const Json& config, const std::string& page, const std::string& query,
                     note("  " + text(t, "label", text(t, "id")), text(t, "project") + " · " + text(t, "model", "model unknown") + " · "
                          + money_text(text(t, "cost_usd")) + " · " + when_text(iso_seconds(text(t, "at"))), "search");
                 }
-            } else if (credits.value("remaining_usd", Json()).is_string()) {
+            } else if (usage["snapshot"].value("remaining_usd", Json()).is_string()) {
                 note("No tracked runs yet this month", "Ask about a project, or open pi with API credits");
             }
-        } else {
-            note("The API credit meter is unavailable", "Install fox-credits");
         }
+        rows.push_back(heading("settings"));
         rows.push_back(item("credits-setup", "Renewal day and budget", "action", "When the monthly credit renews, and how much it is", "system"));
         rows.push_back(item("credits-console", "Open Claude Console", "action", "The account's real balance and credit expiry", "window"));
-        rows.push_back(item("api-tasks", "Review with API credits", "page", "Ask about a project, review changes, or open pi", "message"));
-        rows.back()["page"] = "api-tasks";
+        rows.push_back(item("api-task-settings", "Edit API task settings", "action", "Key file, model, effort, default budget and project folders, in Neovim", "system"));
         for (auto& row : rows) if (truth(row, "enabled")) { decorate(row); row["close"] = true; }
     } else if (page == "tools" || page.rfind("tools-", 0) == 0) {
         const auto section = std::find_if(tool_sections.begin(), tool_sections.end(), [&](const ToolSection& s) { return s.id == page; });
@@ -3502,6 +3540,11 @@ Json view(const Json& config, const std::string& page, const std::string& query,
         Json filtered = Json::array(); const auto needle = search_fold(query);
         for (const auto& row : rows) if (search_text(row).find(needle) != std::string::npos) filtered.push_back(row);
         rows = std::move(filtered);
+        // A narrowed reference (the drawer's own keys, from `?`) ends with the way to every shortcut.
+        if (page == "cheatsheet" && !rows.empty()) {
+            auto all = item("keys-all", "All shortcuts", "page", "Every key on the desktop, not only these", "⌨");
+            all["page"] = "cheatsheet"; rows.push_back(all);
+        }
     }
     // Search rows come straight from the menu, so they still need their live values.
     if (page == "search") for (auto& row : rows) if (text(row, "id") != "app-launch") decorate(row);

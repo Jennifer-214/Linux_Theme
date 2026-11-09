@@ -95,6 +95,37 @@ int main() {
     relayout(arranged, deskShipped, r2, c2);
     check(!c2 && arranged == before, "a Desk she arranged keeps her order");
 
+    // Sections: each row gains its heading, Pick a color and Displays move once, and the two API rows become one page.
+    const auto sections = json::parse(R"({"groups":[
+      {"id":"desk","items":[{"id":"apps","section":"open"},{"id":"color-picker","section":"collected"}]},
+      {"id":"workbench","items":[{"id":"models","section":"AI"},{"id":"api-credits","label":"API","detail":"Usage and asking","section":"AI"}]},
+      {"id":"comfort","items":[{"id":"brightness","section":"screen"},{"id":"displays","section":"screen"},{"id":"themes","section":"look"}]},
+      {"id":"system","items":[{"id":"updates","section":"upkeep"}]}]})");
+    auto before_sections = json::parse(R"({"favorites":["workbench/api-tasks","comfort/color-picker"],"groups":[
+      {"id":"desk","items":[{"id":"apps"},{"id":"mine","label":"Mine"}]},
+      {"id":"workbench","items":[{"id":"models"},{"id":"api-tasks","label":"Review with API credits"},{"id":"api-credits","label":"API usage"}]},
+      {"id":"comfort","items":[{"id":"brightness"},{"id":"themes"},{"id":"color-picker"}]},
+      {"id":"system","items":[{"id":"updates"},{"id":"displays"}]}]})");
+    std::set<std::string> sectionRecord{"@layout:workbench"}; bool sectionChanged = false;
+    const auto sectionMoves = resection(before_sections, sections, sectionRecord, sectionChanged);
+    check(sectionChanged && sectionMoves == std::vector<std::string>{"color-picker", "displays"}, "Pick a color and Displays move");
+    check(before_sections["groups"][0]["items"][1]["id"] == "color-picker", "Pick a color joins Desk, after Apps as shipped");
+    check(before_sections["groups"][2]["items"][1]["id"] == "displays", "Displays lands after brightness, its shipped neighbour");
+    check(before_sections["groups"][1]["items"].size() == 2 && before_sections["groups"][1]["items"][1]["label"] == "API",
+          "the old ask row goes, and the usage row takes the API page's name");
+    check(before_sections["favorites"] == json::parse(R"(["workbench/api-credits","desk/color-picker"])"), "favorites follow");
+    check(before_sections["groups"][0]["items"][0]["section"] == "open" && !before_sections["groups"][0]["items"][2].contains("section"),
+          "shipped rows gain their heading; her own row has none");
+    bool sectionAgain = true;
+    check(resection(before_sections, sections, sectionRecord, sectionAgain).empty() && !sectionAgain, "sections are applied once");
+    auto renamed = json::parse(R"({"groups":[{"id":"workbench","items":[{"id":"api-tasks","label":"Ask Claude"},{"id":"api-credits","label":"Spend"}]},
+      {"id":"system","items":[{"id":"color-picker"}]},{"id":"desk","items":[]},{"id":"comfort","items":[]}]})");
+    std::set<std::string> r3; bool c3 = false;
+    resection(renamed, sections, r3, c3);
+    check(renamed["groups"][0]["items"].size() == 2 && renamed["groups"][0]["items"][0]["label"] == "Ask Claude"
+          && renamed["groups"][0]["items"][1]["label"] == "Spend" && renamed["groups"][1]["items"][0]["id"] == "color-picker",
+          "rows she renamed or moved herself stay as they are");
+
     std::printf("test_menu_upgrade: %d passed\n", passed);
     return failures ? 1 : 0;
 }

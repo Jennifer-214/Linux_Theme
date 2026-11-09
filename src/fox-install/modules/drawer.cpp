@@ -83,8 +83,10 @@ void run_drawer(Context& ctx) {
         if (seen.is_array()) for (const auto& id : seen) if (id.is_string()) offered.insert(id.get<std::string>());
         bool relaid = false;
         const auto moved = menu_upgrade::relayout(menu, shipped, offered, relaid);
+        bool sectioned = false;
+        const auto resorted = menu_upgrade::resection(menu, shipped, offered, sectioned);
         const auto added = menu_upgrade::offer(menu, shipped, offered, !seen.is_array());
-        if (relaid || !added.empty()) {
+        if (relaid || sectioned || !added.empty()) {
             const auto upgraded = output / "menus.upgraded.json";
             std::ofstream file(upgraded); file << menu.dump(2) << '\n'; file.close();
             if (!file) { incomplete("could not prepare the menu upgrade"); return; }
@@ -94,6 +96,8 @@ void run_drawer(Context& ctx) {
             if (!added.empty()) ui::substep("drawer menu: added " + names);
             if (!moved.empty()) ui::substep("drawer menu: " + std::to_string(moved.size()) + " items moved to Workbench and Comfort (the new layout)");
             else if (relaid) ui::substep("drawer menu: shortcut labels and search words added");
+            if (sectioned) ui::substep(resorted.empty() ? "drawer menu: tabs sorted under small headings"
+                                                        : "drawer menu: tabs sorted under small headings; Pick a color and Displays moved");
         }
         nlohmann::json list = nlohmann::json::array();
         for (const auto& id : offered) list.push_back(id);
