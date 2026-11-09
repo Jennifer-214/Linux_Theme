@@ -15,6 +15,8 @@ ColumnLayout {
     readonly property int todayIndex: counts.length - 1
     readonly property var thresholds: Logic.gardenThresholds(counts)
     readonly property var hearts: Logic.gardenHearts(counts)
+    // Days a failing test went green again (fox-work: passed after two or more failures in a row).
+    readonly property var greens: garden && Array.isArray(garden.green) ? garden.green : []
     readonly property int weeks: Math.ceil(counts.length / 7)
     readonly property int splitWeek: Math.ceil(weeks / 2)
     readonly property int gap: 3
@@ -88,6 +90,16 @@ ColumnLayout {
                                 // An empty day is a pencil outline, so even the palest bed reads on a bright screen.
                                 border.width: plot.selected ? 1.6 : plot.day === sheet.todayIndex || plot.level === 0 ? 1 : 0
                                 border.color: plot.selected ? sheet.theme.ink : plot.day === sheet.todayIndex ? sheet.theme.detailAccent : Qt.alpha(sheet.theme.line, .7)
+                            }
+                            // A pressed flower: the day a failing test went green again.
+                            Text {
+                                objectName: "garden-green"
+                                visible: plot.planted && sheet.greens.indexOf(plot.day) >= 0
+                                anchors.right: parent.right; anchors.top: parent.top
+                                anchors.rightMargin: -2; anchors.topMargin: -4
+                                text: "✿"; textFormat: Text.PlainText
+                                font.family: sheet.theme.fontFamily; font.pixelSize: Math.max(8, sheet.cell * .55)
+                                color: sheet.theme.detailAccent
                             }
                             // A leaf marks the busiest days without adding another status symbol.
                             Shape {

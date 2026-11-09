@@ -18,6 +18,9 @@ assert.equal(ctx.plain('<b>a &lt; b &amp; c</b>'), 'a < b & c');
 assert.deepEqual(plain(ctx.sample('{"text":"<b>42</b>","tooltip":"CPU\\n43°","class":"warning busy"}', {'return-type':'json'})),
     {text:'42',tooltip:'CPU\n43°',classes:['warning','busy']});
 assert.throws(() => ctx.sample('broken', {'return-type':'json'}));
+// Workspace pins for a waiting Claude pass through; anything that isn't a small workspace id stays out.
+assert.deepEqual(plain(ctx.sample('{"text":"◇ 1","pins":[2,"x",0,7.5,40]}', {'return-type':'json'})).pins, [2, 40]);
+assert.equal(ctx.sample('{"text":"✎ 1"}', {'return-type':'json'}).pins, undefined);
 assert.equal(ctx.format('{used:0.1f}/{total:0.0f}', {used:2.32,total:15.8}), '2.3/16');
 assert.equal(ctx.memory('MemTotal: 16777216 kB\nMemAvailable: 2097152 kB', {}).classes[0], 'warning');
 assert.equal(ctx.primary('PRIMARY="DP-1"\nSECONDARY_OUTPUTS="HDMI-A-1"'), 'DP-1');

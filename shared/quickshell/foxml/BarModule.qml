@@ -51,7 +51,8 @@ Item {
         sourceComponent: module.name === "tray" ? tray : workspaces
     }
     Component { id: tray; BarTray { theme: module.theme; spec: module.spec; panel: module.panel } }
-    Component { id: workspaces; BarWorkspaces { theme: module.theme; spec: module.spec; panel:module.panel; output: module.panel.screen; depth: module.depth; compact: module.compact; tight: module.tight; maxWidth: module.workspaceBudget } }
+    Component { id: workspaces; BarWorkspaces { theme: module.theme; spec: module.spec; panel:module.panel; output: module.panel.screen; depth: module.depth; compact: module.compact; tight: module.tight; maxWidth: module.workspaceBudget
+        pins: ((module.dataSource.snapshots || {})["custom/claude"] || {}).pins || [] } }
     BarRibbon { theme: module.theme; anchors.fill: parent; depth: module.depth; visible: module.name === "custom/logo"; selected: module.focused; holdingPaper: module.focused; pressed: mouse.pressed; hovered: mouse.containsMouse && module.interactive }
     Rectangle {
         anchors.horizontalCenter: parent.horizontalCenter

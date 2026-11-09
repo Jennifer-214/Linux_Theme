@@ -14,6 +14,8 @@ Flickable {
     property bool compact: false
     property bool tight: false
     property real maxWidth: 560
+    // Workspace ids where a Claude waits on you; their tabs wear a small pink pin.
+    property var pins: []
     implicitWidth: Math.min(workspaceRow.implicitWidth, maxWidth)
     implicitHeight: depth + 11
     contentWidth: workspaceRow.implicitWidth
@@ -79,6 +81,15 @@ Flickable {
                     font.pixelSize: 12
                     font.bold: tab.current
                     color: tab.ws && tab.ws.urgent ? workspaces.theme.error : tab.current || tab.windows.length ? workspaces.theme.ink : workspaces.theme.muted
+                }
+                Rectangle {
+                    objectName: "waiting-pin"
+                    visible: workspaces.pins.indexOf(tab.modelData.id) >= 0
+                    anchors.right: parent.right; anchors.top: parent.top
+                    anchors.rightMargin: 4; anchors.topMargin: 5
+                    width: 5; height: 5; radius: 2.5
+                    // Ink on the current (pink) tab, pink on the paper ones: always visible.
+                    color: tab.current ? workspaces.theme.ink : (workspaces.theme.detailAccent || workspaces.theme.error)
                 }
                 Rectangle {
                     anchors.horizontalCenter: label.horizontalCenter

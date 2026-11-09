@@ -108,7 +108,7 @@ const std::set<std::string> actions = {
     "wallpaper-next", "wallpaper-sync", "color-picker", "updates-terminal", "updates-silent", "vault",
     "security", "cleanup", "agent-triage", "agent-jump", "agent-clear", "claude-jump", "app-launch", "window-focus", "audio-output", "wifi-connect",
     "wifi-toggle", "bluetooth-connect", "bluetooth-toggle", "bluetooth-scan", "bluetooth-service", "tool-run", "cheatsheet-copy", "sandbox-launch", "clipboard-restore", "wallpaper-set", "theme-set", "project-open", "project-terminal", "project-bookmark", "drive-open", "drive-eject", "download-open", "download-folder", "screenshot-open", "screenshot-copy", "screenshot-folder", "screenshot-capture", "password-copy", "tools", "cheatsheet", "sandbox",
-    "api-task-ask", "api-task-open", "api-task-failure", "api-task-settings", "api-task-review", "api-task-pi", "api-task-follow", "display-scale-up", "display-scale-down", "display-rotate", "display-side", "display-keep", "display-undo", "display-edit", "cursor-size-up", "cursor-size-down", "credits-setup", "credits-console", "model-agent", "model-remove", "storage-scan", "storage-open", "storage-clean-packages", "storage-trim-journal", "storage-flatpak-unused",
+    "goodnight-open", "api-task-ask", "api-task-open", "api-task-failure", "api-task-settings", "api-task-review", "api-task-pi", "api-task-follow", "display-scale-up", "display-scale-down", "display-rotate", "display-side", "display-keep", "display-undo", "display-edit", "cursor-size-up", "cursor-size-down", "credits-setup", "credits-console", "model-agent", "model-remove", "storage-scan", "storage-open", "storage-clean-packages", "storage-trim-journal", "storage-flatpak-unused",
     "storage-empty-trash", "storage-hidden", "backup-restore", "backup-open", "backup-prune", "startup-user", "startup-autostart",
     "work-open", "work-jump", "work-tests", "work-compare", "work-ask", "work-reviews", "work-tasks", "work-task-toggle", "work-task-draft", "worktree-open", "worktree-terminal", "project-worktrees", "service-log", "service-ask",
     "note-open", "note-clear", "calendar"
@@ -1301,6 +1301,49 @@ std::string update_care(const std::string& name) {
     return "";
 }
 // The bar pill, in waybar's custom-module shape: ✎ busy · ◇ waiting · ! stopped; hovering lists each session.
+// Workspaces whose terminal shows a Claude that waits on you: pane → tmux session → the tmux clients showing it →
+// the kitty window holding that client (walking up the client's parent processes) → its workspace. Three reads,
+// only while someone is waiting.
+std::vector<int> waiting_workspaces(const std::vector<ClaudeSession>& sessions) {
+    std::set<std::string> panes;
+    for (const auto& s : sessions) if (!s.pane.empty() && !claude_busy(s) && s.state != "error") panes.insert(s.pane);
+    std::vector<int> out;
+    if (panes.empty() || !sh::have("tmux") || !sh::have("hyprctl")) return out;
+    std::string text;
+    std::set<std::string> wanted;
+    if (!capture({"tmux", "list-panes", "-a", "-F", "#{pane_id}\t#{session_name}"}, text)) return out;
+    for (const auto& line : lines(text)) {
+        const auto tab = line.find('\t');
+        if (tab != std::string::npos && panes.count(line.substr(0, tab))) wanted.insert(line.substr(tab + 1));
+    }
+    std::set<long long> client_pids;
+    if (wanted.empty() || !capture({"tmux", "list-clients", "-F", "#{client_session}\t#{client_pid}"}, text)) return out;
+    for (const auto& line : lines(text)) {
+        const auto tab = line.find('\t');
+        if (tab != std::string::npos && wanted.count(line.substr(0, tab))) client_pids.insert(std::atoll(line.substr(tab + 1).c_str()));
+    }
+    Json clients;
+    if (client_pids.empty() || !capture_json({"hyprctl", "clients", "-j"}, clients) || !clients.is_array()) return out;
+    std::map<long long, int> window_workspace;
+    for (const auto& c : clients)
+        if (c.is_object() && c.contains("pid") && c["pid"].is_number_integer() && c.contains("workspace") && c["workspace"].is_object())
+            window_workspace[c["pid"].get<long long>()] = c["workspace"].value("id", 0);
+    std::set<int> found;
+    for (auto pid : client_pids) {
+        for (int depth = 0; depth < 8 && pid > 1; ++depth) {
+            const auto at = window_workspace.find(pid);
+            if (at != window_workspace.end()) { if (at->second > 0) found.insert(at->second); break; }
+            const auto stat = read(fs::path("/proc") / std::to_string(pid) / "stat");
+            const auto close = stat.rfind(')');
+            if (close == std::string::npos) break;
+            std::istringstream fields(stat.substr(close + 2));
+            std::string state; long long parent = 0;
+            if (!(fields >> state >> parent)) break;
+            pid = parent;
+        }
+    }
+    return std::vector<int>(found.begin(), found.end());
+}
 Json claude_bar() {
     ClaudeUsage usage;
     const auto sessions = claude_sessions(usage);
@@ -1344,7 +1387,9 @@ Json claude_bar() {
     if (usage.five >= 80 || usage.week >= 80) classes.push_back("berry");
     if (stopped) classes.push_back("stopped");
     if (done) classes.push_back("done");
-    return Json{{"text", text}, {"tooltip", tooltip}, {"class", classes}};
+    Json bar{{"text", text}, {"tooltip", tooltip}, {"class", classes}};
+    if (waiting) bar["pins"] = waiting_workspaces(sessions);
+    return bar;
 }
 // The lock screen's line: what is still going on while you are away. Empty when nothing is.
 std::string claude_lock_line() {
@@ -1894,6 +1939,97 @@ std::string api_project_for(const Json& projects, const std::string& path) {
     }
     return {};
 }
+// ── While you were away: fox-lock stamps the moment the screen locks (which Claudes were working) and, once
+// unlocked, one quiet note says what happened meanwhile. Both run detached from fox-lock, so a slow read can
+// never hold the lock or the unlock. The stamp lives in $XDG_RUNTIME_DIR/foxml/away.json (0600).
+fs::path away_file() { return runtime() / "foxml/away.json"; }
+int away_start() {
+    std::error_code ec;
+    fs::create_directories(away_file().parent_path(), ec);
+    fs::permissions(away_file().parent_path(), fs::perms::owner_all, fs::perm_options::replace, ec);
+    ClaudeUsage usage;
+    Json busy = Json::array();
+    for (const auto& session : claude_sessions(usage)) if (claude_busy(session)) busy.push_back(session.id);
+    return write_atomic(away_file(), Json{{"at", static_cast<long long>(std::time(nullptr))}, {"busy", busy}}.dump()) ? 0 : 1;
+}
+// The note's one line, from what was true at the lock and what is true now.
+std::string away_line(const Json& stamp, const std::vector<ClaudeSession>& now, const Json& jobs, int commits) {
+    const long long since = stamp.value("at", 0LL);
+    std::set<std::string> was_busy;
+    for (const auto& id : stamp.value("busy", Json::array())) if (id.is_string()) was_busy.insert(id.get<std::string>());
+    int done = 0, needs = 0;
+    for (const auto& s : now) {
+        if (was_busy.count(s.id) && !claude_busy(s)) ++done;
+        if (s.state == "needs") ++needs;
+    }
+    int passed = 0, failed = 0; std::string only;
+    for (const auto& j : jobs) {
+        if (!j.is_object() || !j.contains("ended") || !j["ended"].is_number_integer() || j["ended"].get<long long>() < since) continue;
+        const auto state = text(j, "state");
+        if (state == "passed") ++passed; else if (state == "failed") ++failed; else continue;
+        only = text(j, "title", text(j, "command")) + (state == "passed" ? " passed" : " failed");
+    }
+    std::vector<std::string> parts;
+    if (done) parts.push_back(std::to_string(done) + " done ✓");
+    if (needs) parts.push_back(std::to_string(needs) + (needs == 1 ? " needs you" : " need you"));
+    if (passed + failed == 1) parts.push_back(only.size() > 60 ? only.substr(0, 59) + "…" : only);
+    else if (passed + failed > 1) parts.push_back(std::to_string(passed) + " jobs passed" + (failed ? " · " + std::to_string(failed) + " failed" : ""));
+    if (commits) parts.push_back(std::to_string(commits) + (commits == 1 ? " commit" : " commits"));
+    std::string line;
+    for (const auto& part : parts) line += (line.empty() ? "" : " · ") + part;
+    return line;
+}
+int away_summary(const Json& config) {
+    Json stamp;
+    std::error_code ec;
+    try { stamp = Json::parse(read(away_file())); } catch (...) { return 0; }
+    fs::remove(away_file(), ec);
+    const long long since = stamp.value("at", 0LL), now = static_cast<long long>(std::time(nullptr));
+    if (since <= 0 || now - since < 120) return 0;  // a quick step away needs no note
+    read_limit_seconds = 3;
+    ClaudeUsage usage;
+    const auto sessions = claude_sessions(usage);
+    Json jobs;
+    if (!sh::have("fox-work") || !capture_json({"fox-work", "jobs"}, jobs) || !jobs.is_array()) jobs = Json::array();
+    int commits = 0, looked = 0;
+    for (const auto& project : projects(config)) {
+        if (++looked > 16) break;
+        if (!directory(project.path / ".git") && !regular(project.path / ".git")) continue;
+        std::string out;
+        if (capture({"git", "--no-optional-locks", "-C", project.path.string(), "rev-list", "--count", "--since=@" + std::to_string(since), "HEAD"}, out))
+            commits += std::atoi(trim(out).c_str());
+    }
+    const auto line = away_line(stamp, sessions, jobs, commits);
+    if (line.empty() || !sh::have("notify-send")) return 0;
+    return sh::run({"notify-send", "--app-name=FoxML", "--category=foxml.away", "while you were away", line}) == 0 ? 0 : 1;
+}
+// /goodnight leaves "where we left off" notes here, one per project (the git root's folder name).
+fs::path goodnight_dir() { return fs::path(env("XDG_STATE_HOME", home() + "/.local/state")) / "foxml/goodnight"; }
+// Notes from the last 36 hours, newest first: the morning's slip names the project and its next step.
+Json last_night_notes(std::time_t now = std::time(nullptr)) {
+    std::vector<std::pair<long long, Json>> found;
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(goodnight_dir(), ec)) {
+        const auto name = entry.path().stem().string();
+        if (entry.path().extension() != ".md" || !entry.is_regular_file(ec) || !std::regex_match(name, std::regex("[A-Za-z0-9._-]{1,80}"))) continue;
+        const auto age = std::chrono::duration_cast<std::chrono::seconds>(fs::file_time_type::clock::now() - fs::last_write_time(entry.path(), ec)).count();
+        if (ec || age < 0 || age > 36 * 3600) continue;
+        std::string next, first;
+        for (const auto& raw : lines(read(entry.path()))) {
+            auto line = trim(raw);
+            if (line.empty() || line[0] == '#') continue;
+            line = trim(std::regex_replace(line, std::regex("^[-*] +"), ""));
+            if (first.empty()) first = line;
+            if (lower(line).rfind("next:", 0) == 0) { next = trim(line.substr(5)); break; }
+        }
+        const auto said = next.empty() ? first : next;
+        found.push_back({static_cast<long long>(now) - age, Json{{"name", name}, {"next", said.substr(0, 140)}, {"hasNext", !next.empty()}}});
+    }
+    std::sort(found.begin(), found.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+    Json out = Json::array();
+    for (const auto& f : found) { if (out.size() >= 3) break; out.push_back(f.second); }
+    return out;
+}
 Json work_data(const Json& config, bool fresh = false) {
     if (!sh::have("fox-work")) return Json();
     Args args{"fox-work", "overview"};
@@ -1954,7 +2090,18 @@ void work_rows(const Json& config, const std::string& page, Json& rows) {
         const auto id = text(j, "id");
         std::string detail = fs::path(text(j, "root")).filename().string() + " · " + state + " · " + work_age(stamp(j, "elapsed"));
         if (state != "running") detail += j.contains("exit") ? " · exit " + std::to_string(whole(j, "exit")) : " · exit unknown";
-        else detail += " · last output " + work_age(static_cast<long long>(std::time(nullptr)) - stamp(j, "activity")) + " ago";
+        else {
+            // Against the last passing run of the very same command here: a pencil ruler and what's left, never a made-up percent.
+            if (j.contains("estimate") && j["estimate"].is_number_integer() && j["estimate"].get<long long>() > 0) {
+                const long long estimate = j["estimate"].get<long long>(), elapsed = stamp(j, "elapsed"), left = estimate - elapsed;
+                const int filled = static_cast<int>(std::min<long long>(8, elapsed * 8 / estimate));
+                std::string ruler;
+                for (int i = 0; i < 8; ++i) ruler += i < filled ? "━" : "┄";
+                detail += left > 0 ? " · " + ruler + " " + (left < 60 ? std::string("under a minute left") : "about " + std::to_string((left + 30) / 60) + "m left")
+                                   : std::string(" · taking longer than last time");
+            }
+            detail += " · last output " + work_age(static_cast<long long>(std::time(nullptr)) - stamp(j, "activity")) + " ago";
+        }
         const auto test = j.find("tests");
         if (test != j.end() && test->is_object()) {
             const auto passed = whole(*test, "passed"), failed = whole(*test, "failed");
@@ -2388,7 +2535,17 @@ Json commit_year(const Json& config) {
     }
     Json counts = Json::array();
     for (const auto& keys : written) counts.push_back(keys.size());
-    return Json{{"start", days.front()}, {"counts", counts}};
+    // Days a test run went green again after failing at least twice in a row: a pressed flower on that square.
+    std::set<size_t> green;
+    Json jobs;
+    if (sh::have("fox-work") && capture_json({"fox-work", "jobs"}, jobs) && jobs.is_array())
+        for (const auto& j : jobs) {
+            if (!j.is_object() || text(j, "state") != "passed" || !truth(j, "testRun") || whole(j, "failedBefore") < 2) continue;
+            if (!j.contains("ended") || !j["ended"].is_number_integer()) continue;
+            const auto at = index.find(local_day(static_cast<std::time_t>(j["ended"].get<long long>())));
+            if (at != index.end()) green.insert(at->second);
+        }
+    return Json{{"start", days.front()}, {"counts", counts}, {"green", Json(std::vector<size_t>(green.begin(), green.end()))}};
 }
 
 // What the Today sheet adds to the group summaries: the battery, agent notes and the next thing on ~/.todo.
@@ -2433,7 +2590,18 @@ Json today_summary(const Json& config) {
         today["changesToReview"] = work.value("reviews", Json::array()).size();
         today["nextSteps"] = work.value("tasks", Json::array()).size();
         if (!work.value("tasks", Json::array()).empty()) today["nextStep"] = text(work["tasks"][0], "text");
+        // The first running job that has run before: how long it took then is how long to expect now.
+        for (const auto& j : work.value("jobs", Json::array())) {
+            if (text(j, "state") != "running" || !j.contains("estimate") || !j["estimate"].is_number_integer()) continue;
+            const long long estimate = j["estimate"].get<long long>(), elapsed = std::max(0LL, static_cast<long long>(std::time(nullptr)) - (j.contains("started") && j["started"].is_number_integer() ? j["started"].get<long long>() : 0LL));
+            auto name = text(j, "title", text(j, "command"));
+            if (name.size() > 48) name = name.substr(0, 47) + "…";
+            const long long left = estimate - elapsed;
+            today["runningJob"] = Json{{"name", name}, {"left", left > 0 ? (left < 60 ? std::string("under a minute left") : "about " + std::to_string((left + 30) / 60) + "m left") : std::string("taking longer than last time")}};
+            break;
+        }
     }
+    today["lastNight"] = last_night_notes();
     for (const auto& line : lines(read(fs::path(home()) / ".todo"))) if (!trim(line).empty()) { today["todo"] = trim(line); break; }
     std::error_code ec;
     for (const auto& entry : fs::directory_iterator("/sys/class/power_supply", ec)) {
@@ -3383,7 +3551,7 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         if (id == "logout") return command({"fox-hl", "dispatch", "hl.dsp.exit()", "exit"}, "Log out", true);
         return command({"systemctl", id}, id == "suspend" ? "Suspend" : id == "reboot" ? "Restart" : "Shut down", true);
     }
-    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","tool-run","cheatsheet-copy","sandbox-launch","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","screenshot-open","screenshot-copy","screenshot-folder","password-copy","agent-jump","claude-jump","model-agent","model-remove","storage-open","backup-restore","backup-open","startup-user","startup-autostart","api-task-ask","api-task-open","api-task-failure","api-task-review","api-task-pi","api-task-follow","display-scale-up","display-scale-down","display-rotate","display-side","note-open"};
+    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","tool-run","cheatsheet-copy","sandbox-launch","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","screenshot-open","screenshot-copy","screenshot-folder","password-copy","agent-jump","claude-jump","model-agent","model-remove","storage-open","backup-restore","backup-open","startup-user","startup-autostart","api-task-ask","api-task-open","api-task-failure","api-task-review","api-task-pi","api-task-follow","display-scale-up","display-scale-down","display-rotate","display-side","note-open","goodnight-open"};
     const bool confirm_only = arg == "--confirm" && (id == "backup-prune" || id == "storage-empty-trash");
     if (!argument_actions.count(id) && !arg.empty() && !confirm_only) return result(false, "This action accepts no argument");
     if (id == "volume" || id == "brightness") {
@@ -3713,6 +3881,12 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
                 return terminal({"fox-claude-api", "ask", "--project", text(task, "project"), "--follow", arg}, "Follow-up prompt opened");
         return result(false, "That API task is no longer saved");
     }
+    if (id == "goodnight-open") {
+        if (!std::regex_match(arg, std::regex("[A-Za-z0-9._-]{1,80}"))) return result(false, "Invalid note name");
+        const auto file = goodnight_dir() / (arg + ".md");
+        if (!regular(file)) return result(false, "That note has been put away");
+        return terminal({"nvim", file.string()}, "Last night's note opened");
+    }
     if (id == "api-task-settings") {
         const auto file = config_home() / "foxml/api-tasks.json";
         if (!regular(file)) {
@@ -3763,7 +3937,7 @@ int main(int argc, char** argv) {
         }
         if (!args.empty() && args[0] == "pick") return pick(args);
         if (args.size() == 1 && (args[0] == "--help" || args[0] == "help")) {
-            std::cout << "fox-drawer [--config PATH] view PAGE [QUERY]\nfox-drawer [--config PATH] run ACTION [ARGUMENT]\nfox-drawer [--config PATH] commit-days YYYY-MM\nfox-drawer claude-bar | claude-lock-line | claude-next\nfox-drawer pick [--title TITLE] [--index | --prompt]\n"; return 0;
+            std::cout << "fox-drawer [--config PATH] view PAGE [QUERY]\nfox-drawer [--config PATH] run ACTION [ARGUMENT]\nfox-drawer [--config PATH] commit-days YYYY-MM\nfox-drawer claude-bar | claude-lock-line | claude-next | away-start | away-summary\nfox-drawer pick [--title TITLE] [--index | --prompt]\n"; return 0;
         }
         // Polled by the bar every few seconds, so it reads no menu and never waits long on tmux.
         if (args.size() == 1 && args[0] == "claude-bar") {
@@ -3794,6 +3968,13 @@ int main(int argc, char** argv) {
         }
         // mako's on-notify hook: `on-notify=exec fox-drawer note-arrived "$id"` stamps when each note came.
         if (args.size() == 2 && args[0] == "note-arrived") return note_arrived(args[1]);
+        // fox-lock, detached: the stamp as the screen locks, and the "while you were away" note after unlock.
+        if (args.size() == 1 && args[0] == "away-start") { read_limit_seconds = 2; return away_start(); }
+        if (args.size() == 1 && args[0] == "away-summary") {
+            Json config; std::string error;
+            if (!read_config(config_path, config, error)) config = Json::object();
+            return away_summary(config);
+        }
         // The Storage page's measurement: slow on purpose (it walks the disk), run detached by the page.
         if (args.size() == 1 && args[0] == "storage-scan") return storage_scan();
         // The Displays page's safety timer: goes back to the saved layout unless it was kept.

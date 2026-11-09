@@ -43,6 +43,12 @@ function todayTags(today, groups, hearts) {
     };
     var tags = [];
     var add = function(text, target) { if (text) tags.push(Object.assign({text: text}, target)); };
+    // The morning slip: last night's /goodnight note for each project, its next step first.
+    (Array.isArray(today.lastNight) ? today.lastNight : []).forEach(function(note) {
+        if (!note || !note.name) return;
+        add("☾ last night · " + note.name + (note.next ? (note.hasNext ? " · next: " : " · ") + note.next : ""),
+            {action: "goodnight-open", argument: String(note.name)});
+    });
     (Array.isArray(today.waiting) ? today.waiting : []).forEach(function(agent) {
         if (!agent || !agent.argument) return;
         var count = Number(agent.count || 1), project = agent.project || "an agent";
@@ -53,7 +59,9 @@ function todayTags(today, groups, hearts) {
     var working = Number(today.claudeWorking || 0);
     add(working ? "⋯ " + working + " working" : "", {page: "agents"});
     var running = Number(today.jobsRunning || 0), finished = Number(today.jobsFinished || 0);
-    add(running ? glyphs.jobs + " " + running + (running === 1 ? " job running" : " jobs running") + (finished ? " · " + finished + " finished" : "")
+    var job = today.runningJob;
+    add(job && job.name ? glyphs.jobs + " " + job.name + " · " + job.left + (running > 1 ? " · " + running + " running" : "")
+        : running ? glyphs.jobs + " " + running + (running === 1 ? " job running" : " jobs running") + (finished ? " · " + finished + " finished" : "")
         : finished ? glyphs.jobs + " " + finished + (finished === 1 ? " job finished" : " jobs finished") : "", {page: "jobs"});
     var reviews = Number(today.changesToReview || 0);
     add(reviews ? glyphs.reviews + " " + reviews + (reviews === 1 ? " change to look over" : " changes to look over") : "", {page: "reviews"});

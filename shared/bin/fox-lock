@@ -76,6 +76,11 @@ if command -v usbguard >/dev/null 2>&1 && systemctl is-active --quiet usbguard 2
     usbguard set-parameter ImplicitPolicyTarget block 2>/dev/null || true
 fi
 
+# "While you were away": stamp which Claudes were working as the screen locks; the note comes after unlock.
+# Detached and silent, so it can never delay or fail the lock itself.
+_drawer="$HOME/.local/bin/fox-drawer"
+[ -x "$_drawer" ] && { setsid -f "$_drawer" away-start </dev/null >/dev/null 2>&1 || true; }
+
 # Run the lock screen in the FOREGROUND (no exec) so we regain control the
 # moment hyprlock exits — i.e. when the screen unlocks — and can self-heal.
 # fox-lock-panel keeps the password field on a screen you can see (lid shut while
@@ -106,5 +111,7 @@ fi
 # test from here is always false and the self-heal never ran.
 command -v fox-fingerprint >/dev/null 2>&1 \
     && fox-fingerprint reset --no-ask-password >/dev/null 2>&1 || true
+# One quiet note of what happened while locked (nothing for a short break). Detached, last, never fatal.
+[ -x "$_drawer" ] && { setsid -f "$_drawer" away-summary </dev/null >/dev/null 2>&1 || true; }
 
 exit "$_rc"

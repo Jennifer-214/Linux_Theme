@@ -31,6 +31,12 @@ assert.equal(plain(logic.todayTags({ waiting: [{ project: 'Trader', argument: 'k
 assert.deepEqual(plain(logic.todayTags({}, [{ id: 'sound', summary: '11% · speakers' }], -1)),
     [{ text: '♪ 11% · speakers', page: 'audio-outputs' }, { text: '❦ the garden', page: 'garden' }]);
 assert.equal(plain(logic.todayTags({}, [], 0))[0].text, '❦ no commits this month');
+// Morning: last night's notes lead the row and open in Neovim; a running job that ran before says what's left.
+assert.deepEqual(plain(logic.todayTags({ lastNight: [{ name: 'Linux_Theme', next: 'W3 /dev/shm', hasNext: true }, { name: 'x', next: 'did a thing', hasNext: false }] }, []))
+    .slice(0, 2), [{ text: '☾ last night · Linux_Theme · next: W3 /dev/shm', action: 'goodnight-open', argument: 'Linux_Theme' },
+                   { text: '☾ last night · x · did a thing', action: 'goodnight-open', argument: 'x' }]);
+assert.equal(plain(logic.todayTags({ jobsRunning: 2, runningJob: { name: 'Build the engine', left: 'about 2m left' } }, []))[0].text,
+    '◷ Build the engine · about 2m left · 2 running'.replace('◷', logic.glyphs ? logic.glyphs.jobs : '◷'));
 assert.equal(plain(logic.todayTags({}, [], 1))[0].text, '❦ 1 day active this month');
 assert.equal(plain(logic.todayTags({ battery: '9%' }, [], 12)).at(-1).text, '❦ 12 days active this month');
 const gardenCounts = [0, 1, 2, 3, 4, 8, 0, 9, 9, 0];

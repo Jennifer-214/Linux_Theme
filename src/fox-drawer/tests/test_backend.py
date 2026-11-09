@@ -266,6 +266,43 @@ class BackendTests(unittest.TestCase):
     def calls(self):
         return [json.loads(line) for line in self.calls_path.read_text().splitlines()] if self.calls_path.exists() else []
 
+    def away(self, *args):
+        self.state_path.write_text(json.dumps(self.state))
+        return subprocess.run([str(BINARY), "--config", str(self.config), *args], env=self.env, capture_output=True, text=True, timeout=10)
+
+    def test_while_you_were_away_says_what_happened_once_and_stays_quiet_for_a_short_break(self):
+        now = int(time.time())
+        jobs = [dict(id='a'*32, command='make -j8', title='Build the engine', state='passed', ended=now - 30, root='/x'),
+                dict(id='b'*32, command='make test', state='failed', ended=now - 9000, root='/x')]
+        self.state = {'commands': {'fox-work': {'stdout': json.dumps(jobs)}}}
+        self.assertEqual(self.away('away-start').returncode, 0)
+        stamp = Path(self.env['XDG_RUNTIME_DIR']) / 'foxml/away.json'
+        self.assertEqual(stamp.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(self.away('away-summary').returncode, 0)
+        self.assertFalse([c for c in self.calls() if c[0] == 'notify-send'], 'a short break needs no note')
+        self.assertFalse(stamp.exists(), 'the stamp is used once')
+        stamp.write_text(json.dumps({'at': now - 600, 'busy': []}))
+        self.away('away-summary')
+        notes = [c for c in self.calls() if c[0] == 'notify-send']
+        self.assertEqual(len(notes), 1)
+        self.assertIn('while you were away', notes[0])
+        self.assertEqual(notes[0][-1], 'Build the engine passed', 'only what happened while away, by its title')
+        self.away('away-summary')
+        self.assertEqual(len([c for c in self.calls() if c[0] == 'notify-send']), 1, 'no stamp, no second note')
+
+    def test_last_nights_notes_lead_today_and_open_by_name_only(self):
+        notes = Path(self.env['XDG_STATE_HOME']) / 'foxml/goodnight'
+        notes.mkdir(parents=True)
+        (notes / 'Linux_Theme.md').write_text('# where we left off\nnext: finish the lock slip\n- did the drawer\n')
+        (notes / 'old.md').write_text('next: ancient\n')
+        os.utime(notes / 'old.md', (time.time() - 40 * 3600, time.time() - 40 * 3600))
+        today = self.invoke('view', 'root').get('today', {})
+        self.assertEqual(today.get('lastNight'), [{'name': 'Linux_Theme', 'next': 'finish the lock slip', 'hasNext': True}])
+        (self.bin / 'nvim').write_text(f"#!{sys.executable}\n" + FAKE_COMMAND); (self.bin / 'nvim').chmod(0o755)
+        self.assertTrue(self.invoke('run', 'goodnight-open', 'Linux_Theme')['ok'])
+        self.assertIn(str(notes / 'Linux_Theme.md'), [c for c in self.calls() if c[0] == 'setsid'][-1])
+        self.failed('run', 'goodnight-open', '../secrets')
+
     def test_jobs_results_review_tray_and_next_steps_share_work_records(self):
         job = dict(id='a'*32, command='make test', root='/code/paper', state='failed', elapsed=63,
                    activity=int(time.time()), exit=1, pane='%4', testRun=True, stale=True,
@@ -1578,6 +1615,14 @@ print('0\t' + str(target))
         self.assertGreaterEqual((today - start).days, 364)
         self.assertEqual(sum(garden["garden"]["counts"]), 4, "others' commits, old ones and rebased copies stay out")
         self.assertEqual(self.invoke("commit-days", today.strftime("%Y-%m"))["today"], 3)
+        self.assertEqual(garden["garden"]["green"], [])
+        now = int(time.time())
+        self.state = {"commands": {"fox-work": {"stdout": json.dumps([
+            dict(state="passed", testRun=True, failedBefore=3, ended=now),
+            dict(state="passed", testRun=True, failedBefore=1, ended=now - 86400),
+            dict(state="passed", testRun=False, failedBefore=4, ended=now - 86400)])}}}
+        green = self.invoke("view", "garden")["garden"]["green"]
+        self.assertEqual(green, [len(garden["garden"]["counts"]) - 1], "only a test that failed twice or more and then passed")
 
     def test_search_rows_show_live_values(self):
         self.state["commands"] = {"wpctl": {"stdout": "Volume: 0.42\n"}}

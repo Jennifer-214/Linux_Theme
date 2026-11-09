@@ -35,6 +35,9 @@ function sample(output, spec) {
         classes: Array.isArray(value.class) ? value.class : String(value.class || "").split(/\s+/)};
     if (typeof value.percentage === "number" && isFinite(value.percentage))
         result.percentage = Math.max(0, Math.min(100, value.percentage));
+    // Workspaces holding a Claude that waits on you (fox-drawer claude-bar): the tabs wear a small pin.
+    if (Array.isArray(value.pins))
+        result.pins = value.pins.filter(function(id) { return Number.isInteger(id) && id > 0 && id < 100; }).slice(0, 10);
     return result;
 }
 function format(text, values) {
