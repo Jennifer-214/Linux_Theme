@@ -163,7 +163,7 @@ assert.ok(logic.scopedPage('display') && logic.scopedPage('display-modes') && lo
 assert.deepEqual(plain(logic.breadcrumbs('cheatsheet-keys','system',['cheatsheet'],[{id:'system',label:'System',items:[]}],'Desktop',{cheatsheet:'Shortcut reference'})).map(c=>c.label),['System','Shortcut reference','Desktop'],'a page seen earlier names itself in the trail');
 assert.ok(logic.scopedPage('cheatsheet-keys') && !logic.scopedPage('cheatsheet'), 'a section of the reference names its book; the landing page does not');
 assert.equal(logic.nextIndex(sectioned,sectioned.length,-1),4,'G lands on the last row');
-assert.equal(logic.drawerBody('calendar',3072),560);
+assert.equal(logic.drawerBody('calendar',3072),590);
 assert.equal(logic.drawerBody('prompt',1080),310);
 assert.match(logic.emptyState('downloads',true,false).title,/matching/);
 assert.match(logic.emptyState('bookmarks',false,false).detail,/press b/);
@@ -265,6 +265,8 @@ assert.equal(logic.pageFlourish('root',true),'');
 // Claude sessions: a working count on Today, plan usage, the state tag and the context hearts.
 assert.deepEqual(plain(logic.todayTags({ claudeWorking: 2 }, [])), [{ text: '⋯ 2 working', page: 'agents' }]);
 assert.deepEqual(plain(logic.todayTags({ claudeWorking: 0 }, [])), []);
+assert.deepEqual(plain(logic.todayTags({ dueSoon: [{ title: 'Assignment 4', course: 'CS 303', when: 'tomorrow 11:59 pm' }] }, [])),
+                 [{ text: '✎ Assignment 4 · CS 303 · due tomorrow 11:59 pm', page: 'calendar' }], 'a deadline is a tag that opens the calendar');
 assert.deepEqual(plain(logic.todayTags({ claudeWorking: 2, claudeSessions: 4 }, [])), [{ text: '⋯ 2 of 4 working', page: 'agents' }], 'the waiting ones still count');
 assert.equal(logic.claudeLine('76% of the week left · refills sun'), 'Claude · 76% of the week left · refills sun');
 assert.equal(logic.claudeLine(''), '');

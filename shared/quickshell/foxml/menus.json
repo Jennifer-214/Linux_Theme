@@ -11,7 +11,7 @@
       "items": [
         { "id": "apps", "label": "Applications", "detail": "Find something to open", "icon": "⌘", "kind": "page", "page": "apps", "keywords": ["programs", "launch", "open"], "section": "open" },
         { "id": "windows", "label": "Open windows", "detail": "Pick up where you left off", "icon": "▣", "kind": "page", "page": "windows", "keys": "alt `", "keywords": ["switch", "focus", "tasks"], "section": "open" },
-        { "id": "calendar", "label": "Calendar", "detail": "The month on a little sheet, a heart on each day you wrote code", "icon": "today", "kind": "action", "keys": "alt c", "keywords": ["date", "month", "day", "today"], "section": "open" },
+        { "id": "calendar", "label": "Calendar", "detail": "The month on a little sheet, a heart on each day you wrote code", "icon": "today", "kind": "action", "keys": "alt c", "keywords": ["date", "month", "day", "today", "due", "deadline", "assignments", "school", "courses"], "section": "open" },
         { "id": "clipboard-text", "label": "Clipboard", "detail": "Your collected scraps of text", "icon": "⌇", "kind": "page", "page": "clipboard-text", "keys": "alt v", "keywords": ["copy", "paste", "history"], "section": "collected" },
         { "id": "clipboard-images", "label": "Clipboard images", "detail": "The pictures you saved for later", "icon": "▧", "kind": "page", "page": "clipboard-images", "keys": "alt ⇧ v", "keywords": ["copy", "paste", "pictures", "images"], "section": "collected" },
         { "id": "screenshots", "label": "Screenshot scrapbook", "detail": "Little moments, tucked into photo prints", "icon": "▧", "kind": "page", "page": "screenshots", "keys": "alt ctrl o", "keywords": ["capture", "pictures", "photos"], "section": "collected" },

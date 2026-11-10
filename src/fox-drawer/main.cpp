@@ -28,6 +28,7 @@
 #include <vector>
 #include <fcntl.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 #include <sys/inotify.h>
 #include <poll.h>
 #include <openssl/sha.h>
@@ -102,7 +103,7 @@ fs::path repository() {
 const std::set<std::string> pages = {
     "apps", "windows", "audio-outputs", "wifi", "bluetooth", "tools", "tools-ai", "tools-security", "tools-desktop", "tools-system", "tools-projects", "tools-other", "tools-all", "cheatsheet", "cheatsheet-keys", "sandbox", "clipboard-text", "clipboard-images",
     "wallpapers", "themes", "power", "updates", "agents", "projects", "bookmarks", "library", "downloads", "screenshots", "passwords", "garden",
-    "models", "storage", "backups", "startup", "displays", "display", "display-modes", "jobs", "test-results", "reviews", "worktrees", "next-steps", "failures", "api-credits", "api-tasks", "earlier-notes"
+    "models", "storage", "backups", "startup", "displays", "display", "display-modes", "calendar-feeds", "jobs", "test-results", "reviews", "worktrees", "next-steps", "failures", "api-credits", "api-tasks", "earlier-notes"
 };
 const std::set<std::string> actions = {
     "volume", "volume-mute", "mic-mute", "media-play-pause", "media-next", "media-previous", "brightness",
@@ -110,7 +111,7 @@ const std::set<std::string> actions = {
     "wallpaper-next", "wallpaper-sync", "color-picker", "updates-terminal", "updates-silent", "vault",
     "security", "cleanup", "agent-triage", "agent-jump", "agent-clear", "claude-jump", "app-launch", "window-focus", "audio-output", "wifi-connect",
     "wifi-toggle", "bluetooth-connect", "bluetooth-toggle", "bluetooth-scan", "bluetooth-service", "tool-run", "cheatsheet-copy", "sandbox-launch", "clipboard-restore", "wallpaper-set", "theme-set", "project-open", "project-terminal", "project-bookmark", "drive-open", "drive-eject", "download-open", "download-folder", "screenshot-open", "screenshot-copy", "screenshot-folder", "screenshot-capture", "password-copy", "tools", "cheatsheet", "sandbox",
-    "goodnight-open", "api-task-ask", "api-task-open", "api-task-failure", "api-task-settings", "api-task-review", "api-task-pi", "api-task-follow", "display-scale", "display-rotate", "display-side", "display-mode", "display-keep", "display-undo", "display-edit", "cursor-size", "credits-setup", "credits-console", "model-agent", "model-remove", "storage-scan", "storage-open", "storage-clean-packages", "storage-trim-journal", "storage-flatpak-unused",
+    "goodnight-open", "api-task-ask", "api-task-open", "api-task-failure", "api-task-settings", "api-task-review", "api-task-pi", "api-task-follow", "calendar-feed-add", "calendar-feed-remove", "calendar-refresh", "display-scale", "display-rotate", "display-side", "display-mode", "display-keep", "display-undo", "display-edit", "cursor-size", "credits-setup", "credits-console", "model-agent", "model-remove", "storage-scan", "storage-open", "storage-clean-packages", "storage-trim-journal", "storage-flatpak-unused",
     "storage-empty-trash", "storage-hidden", "backup-restore", "backup-open", "backup-prune", "startup-user", "startup-autostart",
     "work-open", "work-jump", "work-tests", "work-compare", "work-ask", "work-reviews", "work-tasks", "work-task-toggle", "work-task-draft", "worktree-open", "worktree-terminal", "project-worktrees", "service-log", "service-ask",
     "note-open", "note-clear", "calendar"
@@ -2849,6 +2850,180 @@ std::string local_day(std::time_t when) {
     char day[16] = {}; std::strftime(day, sizeof day, "%Y-%m-%d", std::localtime(&when)); return day;
 }
 
+// ── Due dates: a course site's private calendar feed (Canvas, Moodle, Blackboard export .ics links) ──
+// The links are private, so they live only in a 0600 file; the feeds are fetched in the background at most every
+// three hours (calendar-refresh, started detached) and read from the cache, so nothing waits on the network and
+// nothing is fetched without a feed.
+fs::path calendar_feeds_file() { return config_home() / "foxml/calendar-feeds.json"; }
+fs::path calendar_cache() { return fs::path(env("XDG_CACHE_HOME", home() + "/.cache")) / "foxml/calendar"; }
+Json calendar_feeds() {
+    const auto feeds = Json::parse(read(calendar_feeds_file()), nullptr, false);
+    Json out = Json::array();
+    if (feeds.is_array()) for (const auto& f : feeds) if (f.is_object() && text(f, "url").rfind("https://", 0) == 0) out.push_back(f);
+    return out;
+}
+std::string feed_key(const std::string& url) {
+    unsigned long long h = 1469598103934665603ULL;
+    for (const unsigned char c : url) { h ^= c; h *= 1099511628211ULL; }
+    std::ostringstream o; o << std::hex << h; return o.str();
+}
+bool save_calendar_feeds(const Json& feeds) {
+    std::error_code ec; fs::create_directories(calendar_feeds_file().parent_path(), ec);
+    if (!write_atomic(calendar_feeds_file(), feeds.dump(2) + "\n")) return false;
+    ::chmod(calendar_feeds_file().c_str(), 0600);
+    return true;
+}
+int calendar_refresh() {
+    if (!sh::have("curl")) return 1;
+    std::error_code ec; fs::create_directories(calendar_cache(), ec);
+    int failed = 0;
+    for (const auto& feed : calendar_feeds()) {
+        std::string body;
+        if (!capture({"curl", "-fsSL", "--max-time", "20", "--max-filesize", "10000000", text(feed, "url")}, body)
+            || body.find("BEGIN:VCALENDAR") == std::string::npos) { ++failed; continue; }
+        if (!write_atomic(calendar_cache() / (feed_key(text(feed, "url")) + ".ics"), body)) ++failed;
+    }
+    return failed ? 1 : 0;
+}
+// Fetch in the background when the newest cache is over three hours old (or missing); never waits for it.
+void calendar_refresh_if_stale() {
+    const auto feeds = calendar_feeds();
+    if (feeds.empty()) return;
+    std::error_code ec;
+    const auto limit = fs::file_time_type::clock::now() - std::chrono::hours(3);
+    for (const auto& feed : feeds) {
+        const auto file = calendar_cache() / (feed_key(text(feed, "url")) + ".ics");
+        std::error_code tec; const auto when = fs::last_write_time(file, tec);
+        if (tec || when < limit) {
+            const auto self = fs::read_symlink("/proc/self/exe", ec);
+            if (!ec) launch({self.string(), "calendar-refresh"}, "");
+            return;
+        }
+    }
+}
+struct Due { std::time_t at = 0; bool all_day = false; std::string title, course; };
+// ICS text to the things that are due: VEVENT start or VTODO due; UTC ("…Z"), local or date-only times.
+std::vector<Due> parse_ics(const std::string& ics) {
+    std::vector<std::string> unfolded;
+    for (auto line : lines(ics)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        if (!line.empty() && (line[0] == ' ' || line[0] == '\t') && !unfolded.empty()) unfolded.back() += line.substr(1);
+        else unfolded.push_back(line);
+    }
+    auto unescape = [](std::string s) {
+        std::string out;
+        for (size_t i = 0; i < s.size(); ++i) {
+            if (s[i] == '\\' && i + 1 < s.size()) { const char n = s[++i]; out += n == 'n' || n == 'N' ? ' ' : n; }
+            else out += s[i];
+        }
+        return trim(out);
+    };
+    auto when = [](const std::string& value, bool& all_day) -> std::time_t {
+        static const std::regex stamp(R"((\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z?))?)");
+        std::smatch m;
+        if (!std::regex_match(value, m, stamp)) return 0;
+        std::tm tm{}; tm.tm_year = std::stoi(m[1]) - 1900; tm.tm_mon = std::stoi(m[2]) - 1; tm.tm_mday = std::stoi(m[3]);
+        all_day = !m[4].matched;
+        if (!all_day) { tm.tm_hour = std::stoi(m[4]); tm.tm_min = std::stoi(m[5]); tm.tm_sec = std::stoi(m[6]); }
+        else tm.tm_hour = 12;
+        tm.tm_isdst = -1;
+        return m[7].matched && m[7].length() ? ::timegm(&tm) : std::mktime(&tm);
+    };
+    std::vector<Due> out;
+    Due current; bool inside = false, has_due = false;
+    for (const auto& line : unfolded) {
+        if (line == "BEGIN:VEVENT" || line == "BEGIN:VTODO") { current = Due{}; inside = true; has_due = false; continue; }
+        if ((line == "END:VEVENT" || line == "END:VTODO") && inside) {
+            inside = false;
+            if (current.at > 0 && !current.title.empty()) {
+                static const std::regex bracket(R"(^(.*?)\s*\[([^\]]{1,40})\]\s*$)");
+                std::smatch m;
+                if (std::regex_match(current.title, m, bracket)) { current.title = trim(m[1]); current.course = trim(m[2]); }
+                out.push_back(current);
+            }
+            continue;
+        }
+        if (!inside) continue;
+        const auto colon = line.find(':');
+        if (colon == std::string::npos) continue;
+        const auto key = line.substr(0, line.find_first_of(";:")), value = line.substr(colon + 1);
+        if (key == "SUMMARY") current.title = unescape(value).substr(0, 120);
+        else if (key == "DUE") { current.at = when(value, current.all_day); has_due = true; }
+        else if (key == "DTSTART" && !has_due) current.at = when(value, current.all_day);
+    }
+    return out;
+}
+std::vector<Due> due_items() {
+    std::vector<Due> all;
+    for (const auto& feed : calendar_feeds())
+        for (const auto& d : parse_ics(read(calendar_cache() / (feed_key(text(feed, "url")) + ".ics")))) all.push_back(d);
+    std::sort(all.begin(), all.end(), [](const Due& a, const Due& b) { return a.at < b.at; });
+    return all;
+}
+std::string due_clock(const Due& d) {
+    if (d.all_day) return "";
+    char out[16]; const std::tm tm = *std::localtime(&d.at);
+    std::strftime(out, sizeof out, "%I:%M %p", &tm);
+    std::string s = trim(out);
+    if (!s.empty() && s[0] == '0') s.erase(0, 1);
+    for (auto& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return s;
+}
+Json due_row(const Due& d) {
+    const std::tm tm = *std::localtime(&d.at);
+    return Json{{"day", tm.tm_mday}, {"title", d.title}, {"course", d.course}, {"time", due_clock(d)}, {"at", static_cast<long long>(d.at)}};
+}
+
+// "today 11:59 pm", "tomorrow", "thu 9:00 am": when something is due, said the short way.
+std::string due_when(const Due& d) {
+    const auto now = std::time(nullptr);
+    const std::tm a = *std::localtime(&now), b = *std::localtime(&d.at);
+    std::tm day_a = a, day_b = b; day_a.tm_hour = day_b.tm_hour = 12; day_a.tm_min = day_b.tm_min = day_a.tm_sec = day_b.tm_sec = 0;
+    const auto days = static_cast<long>(std::lround(std::difftime(std::mktime(&day_b), std::mktime(&day_a)) / 86400));
+    char weekday[8]; std::strftime(weekday, sizeof weekday, "%a", &b);
+    std::string w = weekday; for (auto& c : w) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    const std::string day = days == 0 ? "today" : days == 1 ? "tomorrow" : w;
+    const auto clock = due_clock(d);
+    return clock.empty() ? day : day + " " + clock;
+}
+Json calendar_feed_add(const std::string& raw) {
+    std::string url = trim(raw);
+    if (url.rfind("webcal://", 0) == 0) url = "https://" + url.substr(9);
+    static const std::regex ok(R"(^https://[A-Za-z0-9.-]+(:[0-9]{1,5})?/[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]*$)");
+    if (url.size() > 2000 || !std::regex_match(url, ok)) return result(false, "That is not a calendar link (https:// or webcal://)");
+    auto feeds = calendar_feeds();
+    for (const auto& f : feeds) if (text(f, "url") == url) return result(false, "That calendar is already here");
+    static const std::regex host(R"(^https://([^/:]+))");
+    std::smatch m; std::regex_search(url, m, host);
+    feeds.push_back(Json{{"url", url}, {"name", m[1].str()}});
+    if (!save_calendar_feeds(feeds)) return result(false, "Could not save the calendar link");
+    const auto refreshed = calendar_refresh() == 0;
+    auto done = result(true, refreshed ? "Calendar added · its due dates are on the calendar" : "Calendar added · it could not be read yet; trying again later");
+    done["close"] = false; return done;
+}
+void calendar_feed_rows(Json& rows) {
+    const auto feeds = calendar_feeds();
+    const auto all = due_items();
+    const auto now = std::time(nullptr);
+    if (!feeds.empty()) rows.push_back(heading("calendars"));
+    for (const auto& f : feeds) {
+        const auto key = feed_key(text(f, "url"));
+        std::error_code ec; const auto when = fs::last_write_time(calendar_cache() / (key + ".ics"), ec);
+        long long coming = 0;
+        for (const auto& d : parse_ics(read(calendar_cache() / (key + ".ics")))) coming += d.at >= now;
+        const auto age = ec ? std::string("not read yet")
+            : "read " + std::to_string(std::chrono::duration_cast<std::chrono::minutes>(fs::file_time_type::clock::now() - when).count() / 60) + " h ago";
+        auto row = item("calendar-feed-remove", text(f, "name", "calendar"), "action", std::to_string(coming) + " coming up · " + age, "today");
+        row["argument"] = key; row["confirm"] = "Remove this calendar? Its due dates leave the calendar; you can add the link again any time.";
+        rows.push_back(row);
+    }
+    rows.push_back(heading(feeds.empty() ? "add one" : "more"));
+    rows.push_back(item("calendar-feed-add", "Add a calendar link", "action",
+                        "Your course site's private calendar feed (Canvas, Moodle, Blackboard) · stays on this machine", "today"));
+    if (!feeds.empty()) rows.push_back(item("calendar-refresh", "Read them again now", "action", "They are read every few hours on their own", "refresh"));
+    (void)all;
+}
+
 Json commit_days(const Json& config, const std::string& month) {
     std::set<std::string> days, today_commits;
     const auto today = local_day(std::time(nullptr));
@@ -2861,7 +3036,16 @@ Json commit_days(const Json& config, const std::string& month) {
     }
     Json list = Json::array();
     for (const auto& day : days) list.push_back(std::stoi(day.substr(8, 2)));
-    return Json{{"ok", true}, {"month", month}, {"days", list}, {"today", today_commits.size()}};
+    // What is due this month, and the next three things due from now (they may be next month).
+    calendar_refresh_if_stale();
+    Json due = Json::array(), coming = Json::array();
+    const auto now = std::time(nullptr);
+    for (const auto& d : due_items()) {
+        const std::tm tm = *std::localtime(&d.at);
+        if (tm.tm_year + 1900 == year && tm.tm_mon + 1 == number) due.push_back(due_row(d));
+        if (d.at >= now - 3600 && coming.size() < 3) coming.push_back(due_row(d));
+    }
+    return Json{{"ok", true}, {"month", month}, {"days", list}, {"today", today_commits.size()}, {"due", due}, {"coming", coming}};
 }
 
 // The commit garden: how many commits you wrote on each day, from the Sunday 52 weeks before this week's to today.
@@ -2936,6 +3120,14 @@ Json today_summary(const Json& config) {
     // The teacup: how much of the week is left, or -1 when there is no reading.
     today["claudeWeekLeft"] = usage.week >= 0 ? std::max(0, 100 - usage.week) : -1;
     today["claudeBerry"] = usage.five >= 80 || usage.week >= 80;
+    // Due within two days, from the course calendars (read in the background).
+    calendar_refresh_if_stale();
+    today["dueSoon"] = Json::array();
+    for (const auto& d : due_items()) {
+        const auto now = std::time(nullptr);
+        if (d.at < now - 1800 || d.at > now + 48 * 3600 || today["dueSoon"].size() >= 3) continue;
+        today["dueSoon"].push_back(Json{{"title", d.title}, {"course", d.course}, {"when", due_when(d)}});
+    }
     const auto work = work_data(config);
     if (const auto credits = credits_read.get(); credits.is_object()) today["apiCredits"] = credits;
     if (work.is_object()) {
@@ -3658,6 +3850,9 @@ Json view(const Json& config, const std::string& page, const std::string& query,
         if (project_scope.empty() || !(page == "display" ? screen_rows(project_scope, rows, out) : mode_rows(project_scope, rows, out)))
             fail("That screen is no longer connected");
         for (auto& row : rows) if (truth(row, "enabled")) decorate(row);
+    } else if (page == "calendar-feeds") {
+        known = true; out["title"] = "Course calendars";
+        calendar_feed_rows(rows);
     } else if (page == "displays") {
         known = true; out["title"] = "Displays";
         display_rows(rows);
@@ -3958,7 +4153,7 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         if (id == "logout") return command({"fox-hl", "dispatch", "hl.dsp.exit()", "exit"}, "Log out", true);
         return command({"systemctl", id}, id == "suspend" ? "Suspend" : id == "reboot" ? "Restart" : "Shut down", true);
     }
-    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","tool-run","cheatsheet-copy","sandbox-launch","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","screenshot-open","screenshot-copy","screenshot-folder","password-copy","agent-jump","claude-jump","model-agent","model-remove","storage-open","backup-restore","backup-open","startup-user","startup-autostart","api-task-ask","api-task-open","api-task-failure","api-task-review","api-task-pi","api-task-follow","display-scale","display-rotate","display-side","display-mode","cursor-size","note-open","goodnight-open"};
+    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","tool-run","cheatsheet-copy","sandbox-launch","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","screenshot-open","screenshot-copy","screenshot-folder","password-copy","agent-jump","claude-jump","model-agent","model-remove","storage-open","backup-restore","backup-open","startup-user","startup-autostart","api-task-ask","api-task-open","api-task-failure","api-task-review","api-task-pi","api-task-follow","display-scale","display-rotate","display-side","display-mode","cursor-size","calendar-feed-remove","note-open","goodnight-open"};
     const bool confirm_only = arg == "--confirm" && (id == "backup-prune" || id == "storage-empty-trash");
     if (!argument_actions.count(id) && !arg.empty() && !confirm_only) return result(false, "This action accepts no argument");
     if (id == "volume" || id == "brightness") {
@@ -4272,6 +4467,19 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
     if (id == "credits-setup") return terminal({"fox-credits", "setup"}, "Credit settings opened");
     if (id == "credits-console") return launch({"xdg-open", "https://platform.claude.com/settings/billing"}, "Claude Console opened");
     if (id.rfind("display-", 0) == 0 || id == "cursor-size") return display_action(id, arg);
+    if (id == "calendar-feed-add") {
+        // The link is pasted into the drawer's own prompt, then handed back to this program to keep.
+        const auto self = fs::read_symlink("/proc/self/exe");
+        return launch({"/bin/sh", "-c", "url=$(fox-picker --title 'Paste your course calendar link' --prompt) && [ -n \"$url\" ] && exec \"$1\" calendar-feed-add \"$url\"",
+                       "sh", self.string()}, "Paste the link");
+    }
+    if (id == "calendar-refresh") { auto done = result(calendar_refresh() == 0, "Calendars read again"); done["close"] = false; return done; }
+    if (id == "calendar-feed-remove") {
+        auto feeds = calendar_feeds(); Json kept = Json::array(); bool removed = false;
+        for (const auto& f : feeds) { if (feed_key(text(f, "url")) == arg) { removed = true; std::error_code ec; fs::remove(calendar_cache() / (arg + ".ics"), ec); } else kept.push_back(f); }
+        if (!removed) return result(false, "That calendar is no longer here");
+        auto done = result(save_calendar_feeds(kept), "Calendar removed"); done["close"] = false; return done;
+    }
     if (id == "api-task-ask" || id == "api-task-review" || id == "api-task-pi") {
         for (const auto& p : api_projects()) {
             if (text(p, "id") != arg) continue;
@@ -4377,6 +4585,13 @@ int main(int argc, char** argv) {
         if (args.size() == 2 && args[0] == "note-arrived") return note_arrived(args[1]);
         // The installer, after deploying: the ribbons reach Thunar's sidebar on a machine that already has them.
         if (args.size() == 1 && args[0] == "thunar-bookmarks") return sync_thunar_bookmarks();
+        // The course calendars: read now (detached, by the drawer), or keep a pasted link.
+        if (args.size() == 1 && args[0] == "calendar-refresh") return calendar_refresh();
+        if (args.size() == 2 && args[0] == "calendar-feed-add") {
+            const auto added = calendar_feed_add(args[1]);
+            if (sh::have("notify-send")) sh::run({"notify-send", "--app-name=FoxML", truth(added, "ok") ? "Course calendar" : "Course calendar not added", text(added, "message")});
+            return truth(added, "ok") ? 0 : 1;
+        }
         // fox-pulse: after workspace switches, and after screens come or go.
         if (args.size() == 1 && args[0] == "workspaces-remember") { read_limit_seconds = 2; return workspaces_remember(); }
         if (args.size() == 1 && args[0] == "screens-changed") { read_limit_seconds = 3; return screens_changed(); }
@@ -4399,7 +4614,7 @@ int main(int argc, char** argv) {
         }
         if (args.size() < 2 || args.size() > 4 || (args[0] != "view" && args[0] != "run" && args[0] != "commit-days")
             || (args.size() == 4 && (args[0] != "run" || args[3] != "--confirm"
-                || !std::set<std::string>{"drive-eject", "model-agent", "model-remove", "backup-restore", "startup-user", "startup-autostart"}.count(args[1])))) {
+                || !std::set<std::string>{"drive-eject", "model-agent", "model-remove", "backup-restore", "startup-user", "startup-autostart", "calendar-feed-remove"}.count(args[1])))) {
             std::cout << result(false, "Use view PAGE [QUERY] or run ACTION [ARGUMENT]").dump() << '\n'; return 1;
         }
         Json config; std::string error;

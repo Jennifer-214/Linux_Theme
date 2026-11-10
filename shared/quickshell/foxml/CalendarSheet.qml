@@ -10,9 +10,22 @@ ColumnLayout {
     property var commandFor: null
     property bool active: visible
     property var heartCache: ({})
+    // From the course calendars (if any): what is due each month, and the next few things due from now.
+    property var dueCache: ({})
+    property var coming: []
+    property var dueHover: null
+    ToolTip {
+        parent: calendar.dueHover || calendar
+        visible: calendar.dueHover !== null
+        delay: 400
+        text: calendar.dueHover ? calendar.dueHover.dueHere.map(function(d) { return d.title + (d.course ? " · " + d.course : "") + (d.time ? " · " + d.time : ""); }).join("\n") : ""
+    }
     signal openGarden()
+    signal openCourses()
     readonly property string monthKey: Qt.formatDate(month, "yyyy-MM")
     readonly property var hearts: heartCache[monthKey] || []
+    readonly property var due: dueCache[monthKey] || []
+    function dueOn(day) { return due.filter(function(d) { return d.day === day; }); }
     property date today: new Date()
     property date month: CalendarLogic.monthAt(today, 0)
     readonly property int firstDay: Qt.locale().firstDayOfWeek % 7
@@ -42,6 +55,10 @@ ColumnLayout {
                     var cache = Object.assign({}, calendar.heartCache);
                     cache[requested] = data.days;
                     calendar.heartCache = cache;
+                    var dues = Object.assign({}, calendar.dueCache);
+                    dues[requested] = Array.isArray(data.due) ? data.due : [];
+                    calendar.dueCache = dues;
+                    if (Array.isArray(data.coming)) calendar.coming = data.coming;
                 }
             } catch (error) {}
             if (requested !== calendar.monthKey) calendar.loadHearts();
@@ -103,6 +120,7 @@ ColumnLayout {
                 required property var modelData
                 required property int index
                 readonly property bool hearted: modelData.day > 0 && calendar.hearts.indexOf(modelData.day) >= 0
+                readonly property var dueHere: modelData.day > 0 ? calendar.dueOn(modelData.day) : []
                 Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.preferredHeight: 38
                 Accessible.role: Accessible.StaticText
                 Accessible.name: modelData.day ? Qt.formatDate(new Date(calendar.month.getFullYear(), calendar.month.getMonth(), modelData.day, 12), "dddd, MMMM d, yyyy") + (modelData.today ? ", today" : modelData.past ? ", past" : "") + (hearted ? ", heart" : "") : ""
@@ -112,6 +130,20 @@ ColumnLayout {
                     font.family: calendar.theme.fontFamily; font.pixelSize: 14
                     font.bold: dayCell.modelData.today
                     color: dayCell.modelData.past ? calendar.theme.muted : calendar.theme.ink
+                }
+                // Something due: a short ink line under the date, like a pencilled deadline.
+                Rectangle {
+                    objectName: "calendar-due"
+                    visible: dayCell.dueHere.length > 0
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.bottom: parent.bottom; anchors.bottomMargin: 2
+                    width: dayCell.dueHere.length > 1 ? 16 : 10; height: 2; radius: 1
+                    color: calendar.theme.ink
+                }
+                // Hovering a day with something due shows it in the sheet's one tooltip (not one per day).
+                MouseArea {
+                    anchors.fill: parent; enabled: dayCell.dueHere.length > 0; hoverEnabled: enabled; acceptedButtons: Qt.NoButton
+                    onContainsMouseChanged: calendar.dueHover = containsMouse ? dayCell : (calendar.dueHover === dayCell ? null : calendar.dueHover)
                 }
                 Text {
                     objectName: "calendar-heart"
@@ -164,17 +196,46 @@ ColumnLayout {
         }
     }
     Item { Layout.fillHeight: true; Layout.minimumHeight: 0 }
+    // The next things due, in pencil: "tue 11 · Assignment 4 · CS 303 · 11:59 pm".
+    Column {
+        objectName: "calendar-coming"
+        visible: calendar.coming.length > 0
+        Layout.fillWidth: true
+        spacing: 3
+        Text { text: "coming up"; color: calendar.theme.muted; font.family: calendar.theme.headingFont; font.italic: true; font.pixelSize: 12 }
+        Repeater {
+            model: calendar.coming.slice(0, 3)
+            Text {
+                required property var modelData
+                width: parent.width
+                text: Qt.formatDate(new Date(modelData.at * 1000), "ddd d").toLowerCase() + " · " + modelData.title
+                      + (modelData.course ? " · " + modelData.course : "") + (modelData.time ? " · " + modelData.time : "")
+                textFormat: Text.PlainText; elide: Text.ElideRight
+                color: calendar.theme.ink; font.family: calendar.theme.fontFamily; font.pixelSize: 11
+            }
+        }
+    }
     RowLayout {
         Layout.fillWidth: true
         spacing: 10
         Image { source: "paper-sprig.png"; visible: calendar.theme.paperDetails; Layout.preferredWidth: 45; Layout.preferredHeight: 42; fillMode: Image.PreserveAspectFit; sourceSize.width: 90; sourceSize.height: 84 }
-        Text { text: calendar.currentMonth ? "this month." : "looking " + (calendar.month < calendar.today ? "back." : "ahead."); color: calendar.theme.muted; font.family: calendar.theme.headingFont; font.pixelSize: 15; font.italic: true; Layout.fillWidth: true; elide: Text.ElideRight }
+        Text { text: calendar.currentMonth ? "this month." : (calendar.month < calendar.today ? "back." : "ahead."); color: calendar.theme.muted; font.family: calendar.theme.headingFont; font.pixelSize: 15; font.italic: true; Layout.fillWidth: true; elide: Text.ElideRight }
         ToolButton {
+            // Only when looking at another month: on this month there is nowhere to go back to.
+            visible: !calendar.currentMonth
             text: "today"; font.family: calendar.theme.fontFamily; font.pixelSize: 11
             palette.buttonText: calendar.theme.ink
             background: Rectangle { radius: 3; color: parent.down ? calendar.theme.highlight : parent.hovered || parent.activeFocus ? calendar.theme.hoverFill : "transparent" }
             Accessible.name: "Return to current month"
             onClicked: calendar.reset()
+        }
+        ToolButton {
+            objectName: "calendar-courses"
+            text: "courses ›"; font.family: calendar.theme.fontFamily; font.pixelSize: 11
+            palette.buttonText: calendar.theme.ink
+            background: Rectangle { radius: 3; color: parent.down ? calendar.theme.highlight : parent.hovered || parent.activeFocus ? calendar.theme.hoverFill : "transparent" }
+            Accessible.name: "Course calendars: due dates from your course site"
+            onClicked: calendar.openCourses()
         }
         ToolButton {
             objectName: "calendar-garden"

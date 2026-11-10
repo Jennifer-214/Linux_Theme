@@ -232,7 +232,7 @@ class BackendTests(unittest.TestCase):
         })
         Path(self.env["XDG_RUNTIME_DIR"]).mkdir()
         for name in (
-            "wpctl", "brightnessctl", "hyprctl", "pactl", "nmcli", "bluetoothctl", "cliphist", "wl-copy",
+            "wpctl", "brightnessctl", "hyprctl", "pactl", "nmcli", "bluetoothctl", "cliphist", "wl-copy", "curl",
             "gio", "setsid", "kitty", "sudo", "bash", "systemctl", "loginctl", "pkill", "pgrep", "hyprsunset", "makoctl",
             "dunstctl", "powerprofilesctl", "playerctl", "hyprpicker", "awww", "notify-send", "tmux", "fox-hl", "pass", "fox-password-copy", "quickshell", "fox-desktop-menu",
             "checkupdates", "informant", "fox-wallpaper", "fox-lock", "fox-clean", "fox", "hypridle", "lsblk", "udisksctl", "xdg-open", "xdg-user-dir", "fox-work",
@@ -1432,6 +1432,43 @@ class BackendTests(unittest.TestCase):
         self.assertIn('--open display --scope', notice[0][4])
         self.run_quiet('screens-changed')
         self.assertEqual(len([c for c in self.calls() if c[0] == 'setsid']), 1, 'said once while it stays plugged in')
+
+    def test_course_calendars_put_due_dates_on_the_calendar_and_today(self):
+        import datetime
+        url = 'https://canvas.example.edu/feeds/calendars/user_abc.ics'
+        soon = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=20)).strftime('%Y%m%dT%H%M%SZ')
+        later = (datetime.date.today() + datetime.timedelta(days=9)).strftime('%Y%m%d')
+        ics = ('BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nDTSTART:' + soon + '\r\nSUMMARY:Assignment 4 [CS 303]\r\nEND:VEVENT\r\n'
+               'BEGIN:VTODO\r\nDTSTART:20200101T000000Z\r\nDUE;VALUE=DATE:' + later + '\r\nSUMMARY:Reading\\, chapter 3\r\n'
+               ' and notes\r\nEND:VTODO\r\nEND:VCALENDAR\r\n')
+        curl = '\x1f'.join(['curl', '-fsSL', '--max-time', '20', '--max-filesize', '10000000', url])
+        self.state = {'exact': {curl: {'stdout': ics}}}
+        self.assertEqual(self.run_quiet('calendar-feed-add', 'webcal://canvas.example.edu/feeds/calendars/user_abc.ics').returncode, 0)
+        feeds = Path(self.env.get('XDG_CONFIG_HOME', str(self.home/'.config')))/'foxml/calendar-feeds.json'
+        self.assertEqual(json.loads(feeds.read_text())[0]['url'], url, 'a webcal link is kept as https')
+        self.assertEqual(feeds.stat().st_mode & 0o777, 0o600, 'the private link is readable only by its owner')
+        self.assertNotEqual(self.run_quiet('calendar-feed-add', 'http://insecure.example/x.ics').returncode, 0)
+        self.assertNotEqual(self.run_quiet('calendar-feed-add', url).returncode, 0, 'the same calendar twice')
+
+        month = datetime.datetime.now().strftime('%Y-%m')
+        days = self.invoke('commit-days', month)
+        coming = [(c['title'], c['course']) for c in days['coming']]
+        self.assertEqual(coming[:2], [('Assignment 4', 'CS 303'), ('Reading, chapter 3and notes', '')], 'unfolded, unescaped, the course out of its brackets')
+        today = self.invoke('view', 'root')['today']
+        self.assertEqual([d['title'] for d in today['dueSoon']], ['Assignment 4'], 'only what is due within two days')
+        self.assertRegex(today['dueSoon'][0]['when'], r'^(today|tomorrow) ')
+
+        rows = self.invoke('view', 'calendar-feeds')['items']
+        feed = next(r for r in rows if r['id'] == 'calendar-feed-remove')
+        self.assertEqual(feed['label'], 'canvas.example.edu')
+        self.assertIn('coming up', feed['detail'])
+        self.assertTrue(feed['confirm'])
+        self.invoke('run', 'calendar-feed-add')
+        prompt = [c for c in self.calls() if c[0] == 'setsid'][-1]
+        self.assertIn("fox-picker --title 'Paste your course calendar link' --prompt", prompt[4], 'the link is pasted into the drawer prompt')
+        self.assertTrue(self.invoke('run', 'calendar-feed-remove', feed['argument'])['ok'])
+        self.assertEqual(json.loads(feeds.read_text()), [])
+        self.assertEqual(self.invoke('commit-days', month)['coming'], [], 'a removed calendar leaves no due dates')
 
     def test_display_timer_goes_back_only_for_its_own_change(self):
         modules, conf, lua = self.displays_fixture()

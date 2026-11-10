@@ -10,7 +10,7 @@ function drawerPlacement(screenWidth, windowWidth, anchor, connected) {
 // grows with the screen so the landing page has room for its favorites, without covering a laptop.
 // A tall portrait screen may use up to half its height, so it shows more rows than a laptop does.
 function drawerBody(layout, screenHeight) {
-    if (layout === "calendar") return 560;
+    if (layout === "calendar") return 590;  // the month, then up to three "coming up" lines
     if (layout === "prompt") return 310;
     var height = Number(screenHeight || 0);
     return Math.max(624, Math.min(Math.max(940, Math.round(height * .5)), Math.round(height * .78)));
@@ -73,6 +73,11 @@ function todayTags(today, groups, hearts) {
     };
     var tags = [];
     var add = function(text, target) { if (text) tags.push(Object.assign({text: text}, target)); };
+    // Due soon, from the course calendars: first, since a deadline outranks everything else here.
+    (Array.isArray(today.dueSoon) ? today.dueSoon : []).forEach(function(due) {
+        if (!due || !due.title) return;
+        add("✎ " + due.title + (due.course ? " · " + due.course : "") + " · due " + (due.when || "soon"), {page: "calendar"});
+    });
     // The morning slip: last night's /goodnight note for each project, its next step first.
     (Array.isArray(today.lastNight) ? today.lastNight : []).forEach(function(note) {
         if (!note || !note.name) return;

@@ -152,6 +152,13 @@ company. Use `h/l`, Left/Right or Page Up/Down to change
 months, `t` to return to today, `g` for the commit garden, and Escape to close. The date refreshes while open,
 including across midnight.
 
+**Due dates.** `courses ›` (or `c`) on the calendar opens *Course calendars*: paste your course site's private
+calendar link (Canvas, Moodle and Blackboard all export one; `webcal://` works). The link stays in
+`~/.config/foxml/calendar-feeds.json` (readable only by you), and the feed is read in the background at most every
+three hours. A day with something due gets a short ink line under its date (hover it for what is due), the next
+three things due are listed under the month, and anything due within two days is a tag on Today that opens the
+calendar. A "[CS 303]" in a title is shown as the course. Nothing is fetched until a link is added.
+
 ### Screenshots
 
 `Alt+Ctrl+O` or Desk → Screenshot scrapbook opens the newest 64 saved screenshots

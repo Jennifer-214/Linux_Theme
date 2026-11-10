@@ -598,6 +598,12 @@ ShellRoot {
         placeAtLauncher();
         show("garden");
     }
+    // The course calendars behind the due dates: add a link, read them again, remove one.
+    function coursesFromCalendar() {
+        if (!calendarLayout) return;
+        placeAtLauncher();
+        show("calendar-feeds");
+    }
 
     function openTag(tag) {
         if (!tag || actionBusy || pendingConfirm) return;
@@ -738,6 +744,7 @@ ShellRoot {
             else if (k === Qt.Key_L || k === Qt.Key_Right || k === Qt.Key_PageDown) calendarSheet.moveMonth(1);
             else if (k === Qt.Key_T || k === Qt.Key_Home) calendarSheet.reset();
             else if (k === Qt.Key_G) gardenFromCalendar();
+            else if (k === Qt.Key_C) coursesFromCalendar();
             else return;
             event.accepted = true;
             return;
@@ -1681,6 +1688,7 @@ ShellRoot {
                         theme: root.paperTheme
                         commandFor: root.backendCommand
                         onOpenGarden: root.gardenFromCalendar()
+                        onOpenCourses: root.coursesFromCalendar()
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                     }
