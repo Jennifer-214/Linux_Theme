@@ -1,11 +1,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderNode } from 'claude-code'
 
-import type { ApiCredits, NotebookView, PaperAction, PaperCard, PaperEnvelope, PaperLook, PaperOverlap, PaperPeer, PaperRedZone, PaperTone, PaperTree, WorkJob } from '../types'
+import type { ApiCredits, CiLook, GitLook, NotebookView, PaperAction, PaperCard, PaperEnvelope, PaperLook, PaperOverlap, PaperPeer, PaperRedZone, PaperTone, PaperTree, TurnLook, WorkJob } from '../types'
 import { addBefore, addEdit, addName, neighbours, namesText, noteText, overlapFor, parseLedger, parseNames, parseNote, trailerUrl, withPlan } from './ledger'
 import type { Other } from './ledger'
 import { paper } from './theme'
-import { beginArgs, canTrack, exitOf, greenAgain, jobPace, outputOf, planProgress, ruler, stepLabel, testLabel, work, workLook } from './work'
+import { beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, planProgress, ruler, stepLabel, testLabel, turnLabel, work, workLook } from './work'
 import { attributeFiles, fileColumns, fileCounts, gitFiles, drawerPage, mailId, shortPath } from './notebook'
 
 // FoxML paper: a notebook pane beside the chat (hearts, the session's name, its plan, the gate, pages
@@ -22,6 +22,7 @@ const redZone = atom({ plugin: 'foxml-paper', key: 'redZone' } as const, null as
 const overlap = atom({ plugin: 'foxml-paper', key: 'overlap' } as const, null as PaperOverlap | null, { shape: 'overlap-1' })
 const peers = atom({ plugin: 'foxml-paper', key: 'peers' } as const, [] as PaperPeer[], { shape: 'peers-1' })
 const writingTo = atom({ plugin: 'foxml-paper', key: 'writingTo' } as const, null as string | null)
+const turn = atom({ plugin: 'foxml-paper', key: 'turn' } as const, null as TurnLook | null, { shape: 'turn-1' })
 const envelopes = atom({ plugin: 'foxml-paper', key: 'envelopes' } as const, [] as PaperEnvelope[], { shape: 'env-1' })
 const notebookView = atom({ plugin: 'foxml-paper', key: 'notebookView' } as const,
   { page: 'overview', scope: 'session', selected: '', offset: 0, form: 'none' } as NotebookView, { shape: 'notebook-1' })
@@ -96,6 +97,10 @@ const memory = {
   receipts: new Map<string, number>(),
   receiptsReady: null as Promise<void> | null,
   toldLastNight: false,
+  // CI is asked of GitHub only when the pushed commit changes, every 30 s while it runs, else every 5 minutes.
+  ci: null as CiLook | null,
+  ciTold: '',
+  github: new Map<string, boolean>(),
 }
 
 // No delivery id is exposed for peers. Coalesce identical full bodies briefly;
@@ -404,6 +409,33 @@ function toneColour(tone: PaperTone | undefined): string {
   return tone === undefined ? paper.ink : paper[tone === 'heart' ? 'heart' : tone]
 }
 
+// The pushed commit's GitHub Actions runs (gh run list), asked sparingly; a failure is told once as a toast.
+async function ciFor($: EngineInterface, root: string, upstream: string): Promise<CiLook | null> {
+  const sha = (await run($, ['git', '--no-optional-locks', '-C', root, 'rev-parse', '--verify', upstream + '^{commit}']))?.trim() ?? ''
+  if (!/^[0-9a-f]{40}$/.test(sha)) return null
+  const remote = upstream.split('/')[0] ?? ''
+  if (!memory.github.has(root + ' ' + remote)) {
+    const url = (await run($, ['git', '-C', root, 'remote', 'get-url', remote])) ?? ''
+    memory.github.set(root + ' ' + remote, /github\.com[:/]/.test(url))
+  }
+  if (!memory.github.get(root + ' ' + remote)) return null
+  const now = await $.clock.now()
+  const held = memory.ci?.sha === sha ? memory.ci : null
+  const running = held !== null && (held.runs.length === 0 || held.runs.some(r => r.status !== 'completed'))
+  if (held && now - held.at < (running ? 30000 : 300000)) return held
+  try {
+    const out = await $.process.run(['gh', 'run', 'list', '--commit', sha, '--limit', '40', '--json', 'name,workflowName,status,conclusion,url'], { cwd: root, timeoutMs: 8000 })
+    const runs = out.exitCode === 0 ? JSON.parse(out.stdout) : null
+    if (!Array.isArray(runs)) return held
+    memory.ci = { sha, runs, at: now }
+  } catch { return held }
+  const said = ciLabel(memory.ci.runs)
+  if (said?.state === 'failed' && memory.ciTold !== sha) { memory.ciTold = sha; $.ui.toast(said.label) }
+  if (said?.state === 'passed' && memory.ciTold === sha + ':running') { memory.ciTold = sha; $.ui.toast('✓ CI passed') }
+  if (said?.state === 'running' && memory.ciTold !== sha) memory.ciTold = sha + ':running'
+  return memory.ci
+}
+
 function refresh($: EngineInterface): Promise<void> {
   if (memory.refreshTask === null) memory.refreshTask = refreshNow($).finally(() => { memory.refreshTask = null })
   return memory.refreshTask
@@ -416,7 +448,11 @@ async function refreshNow($: EngineInterface) {
     const session = await $.session.id()
     // --no-optional-locks: never take the index lock another session's commit may need.
     const status = await run($, ['git', '--no-optional-locks', '-C', cwd, 'status', '--porcelain=v1', '--branch', '--untracked-files=no'])
-    const branch = status?.split('\n')[0]?.replace(/^## /, '').replace(/\.\.\..*$/, '').replace(/^No commits yet on /, '') ?? ''
+    const tracking = parseBranchLine(status?.split('\n')[0] ?? '')
+    const branch = tracking.branch
+    const trees = (await run($, ['git', '--no-optional-locks', '-C', root, 'worktree', 'list', '--porcelain']))?.split('\n').filter(l => l.startsWith('worktree ')).length ?? 1
+    const git: GitLook | null = status === null ? null : { upstream: tracking.upstream, ahead: tracking.ahead, behind: tracking.behind, trees }
+    const ci = git?.upstream ? await ciFor($, root, git.upstream) : null
     const head = await run($, ['git', '--no-optional-locks', '-C', root, 'rev-parse', '--verify', 'HEAD'])
     const numstat = await run($, ['git', '--no-optional-locks', '-C', root, 'diff', '--numstat', '-z', ...(head === null ? ['--cached'] : ['HEAD'])])
     const paths = await run($, ['git', '--no-optional-locks', '-C', root, 'status', '--porcelain=v1', '-z', '--untracked-files=all'])
@@ -477,7 +513,7 @@ async function refreshNow($: EngineInterface) {
       project = { trees, documents }
     }
     const note = await lastNight($, root)
-    await update($, look, () => ({ root, session, branch, files, gate, plan, context, neighbours: near, card, work: projectWork, project, credits, lastNight: note }))
+    await update($, look, () => ({ root, session, branch, files, gate, plan, context, neighbours: near, card, work: projectWork, project, credits, lastNight: note, git, ci }))
     const found = await readPeers($)
     await update($, peers, () => found ?? near.map(n => ({ id: n.sid, name: n.title, project: root.split('/').pop() ?? root,
       state: `edited ${n.files} ${n.files === 1 ? 'file' : 'files'} here`, busy: false,
@@ -565,12 +601,18 @@ export const register: Register = on => {
     if (e.session_title) await update($, title, () => e.session_title ?? null)
     return next(e)
   })
+  on('classic.Stop', async ($, e, next) => {
+    await update($, turn, () => null)
+    return next(e)
+  })
   on('classic.SessionStart', async ($, e, next) => {
     if (e.session_title) await update($, title, () => e.session_title ?? null)
     return next(e)
   })
 
   on('prompt.submit', async ($, e, next) => {
+    const started = await $.clock.now()
+    await update($, turn, () => ({ started, step: '' }))
     await update($, redZone, () => null)
     await update($, overlap, () => null)
     void refresh($)
@@ -588,6 +630,7 @@ export const register: Register = on => {
     const title = described && !/password|token|secret|authorization|sk-|ghp_/i.test(described) ? described : ''
     const activity = title || (safe ? e.command.split('\n')[0]?.slice(0, 160) ?? 'running a command' : 'running a command')
     await work($, ['activity', '--root', root, '--session', sid, '--text', activity, '--state', 'working'])
+    if (title) await update($, turn, t => t ? { ...t, step: title } : t)
     const job = canTrack(e.command) && e.run_in_background !== true
       ? (await work($, beginArgs(e.command, root, sid, title)))?.trim() || null : null
     let ran: Awaited<ReturnType<typeof next>> | undefined
@@ -697,6 +740,8 @@ export const register: Register = on => {
     const writingId = await read($, writingTo)
     const writing = others.find(p => p.id === writingId) ?? null
     const name = await read($, title)
+    const underway = await read($, turn)
+    const clock = await $.clock.now()
     const width = Math.max(12, e.props.bodyColumns)
     const filled = hearts(now?.context ?? null)
     const root = now?.root ?? await repoRoot($)
@@ -797,6 +842,8 @@ export const register: Register = on => {
     }
 
     if (view.form === 'none' && view.page === 'overview') {
+      const working = turnLabel(underway, clock)
+      if (working) content.push(text(working, paper.ribbon))
       if (now?.plan) { content.push(row('plan-open', (now.plan.pinned ? '⌑ ' : '') + now.plan.title, () => openDocument(now.plan!.file))); planRuler() }
       else content.push(row('plan-pin', 'pin an active plan', () => setView({ form: 'plan' })))
       if (now?.plan?.step) content.push(row('plan-step', '◇ ' + now.plan.step, () => setView({ form: 'step' })))
@@ -809,14 +856,17 @@ export const register: Register = on => {
       if (mail.length) content.push(row('attention-mail', `✉ ${mail.length} unread ${mail.length === 1 ? 'note' : 'notes'}`, () => page('sessions')))
       for (const job of (now?.work?.failures ?? []).slice(0, 2))
         content.push(row(`attention-job-${job.id}`, `! ${job.state} · ${job.title ?? job.command}`, () => openJob(job.id)))
-      if (now?.work?.tests) content.push(row('work-tests', testLabel(now.work.tests), () => openJob(now.work!.tests!.id, 'tests'),
+      if (now?.work?.tests) content.push(row('work-tests', testLabel(now.work.tests, clock / 1000), () => openJob(now.work!.tests!.id, 'tests'),
         <Text color={testColour(now.work.tests)}>
-          {testLabel(now.work.tests)}
+          {testLabel(now.work.tests, clock / 1000)}
         </Text>))
+      const ci = ciLabel(now?.ci?.runs)
+      if (ci) content.push(row('work-ci', ci.label, async () => { if (/^https:\/\/github\.com\//.test(ci.url)) await run($, ['xdg-open', ci.url]) },
+        <Text color={ci.state === 'failed' ? paper.berry : ci.state === 'passed' ? paper.added : paper.dim}>{fit(ci.label, width - 2)}</Text>))
       for (const job of (now?.work?.jobs ?? []).slice(0, 1)) jobRow(job, `◷ ${job.title ?? job.command} · ${Math.floor(job.elapsed / 60)}m`)
       const own = (now?.files ?? []).filter(f => f.own).length
       content.push(row('page-files', `${own} this session · ${now?.files.length ?? 0} all files`, () => page('files')))
-      content.push(row('page-project', now?.card?.title ?? 'project · plan, tests & worktrees', () => page('project')))
+      content.push(row('page-project', now?.card?.title ?? branchLabel(now?.git, now?.branch ?? ''), () => page('project')))
       // Counted with this one, so four running reads as four: "4 claudes · you + 3 others".
       if (others.length) content.push(row('page-sessions', `${others.length + 1} claudes · you + ${others.length} ${others.length === 1 ? 'other' : 'others'}`, () => page('sessions')))
       const tasks = (now?.work?.tasks ?? []).filter(t => !t.done)

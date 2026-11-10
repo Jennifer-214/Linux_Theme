@@ -1,6 +1,12 @@
 export type PaperOwner = { sid: string; name: string; pane?: string }
 export type PaperFile = { path: string; added: number | null; removed: number | null; own?: boolean; owners?: PaperOwner[]; status?: string }
-export type WorkTest = { id: string; state: string; stale?: boolean; changedFiles?: string[] | null; changedDuringRun?: boolean; tests: { passed: number | null; failed: number | null; failures: { filename: string; lnum: number; text: string }[] } }
+export type WorkTest = { id: string; state: string; ended?: number; stale?: boolean; changedFiles?: string[] | null; changedDuringRun?: boolean; tests: { passed: number | null; failed: number | null; failures: { filename: string; lnum: number; text: string }[] } }
+// Where the checkout stands against its upstream (null upstream: never pushed), and how many worktrees it has.
+export type GitLook = { upstream: string | null; ahead: number; behind: number; trees: number }
+// One GitHub Actions run of the pushed commit (gh run list --json).
+export type CiRun = { name?: string; workflowName?: string; status: string; conclusion: string; url?: string }
+export type CiLook = { sha: string; runs: CiRun[]; at: number }
+export type TurnLook = { started: number; step: string }
 export type WorkTask = { id: string; text: string; done: boolean }
 // estimate: seconds the newest pass of the same command in the same checkout took (running jobs only).
 export type WorkJob = { id: string; command: string; title?: string; state: string; elapsed: number; activity: number; session: string; estimate?: number }
@@ -32,6 +38,9 @@ export type PaperLook = {
   card: PaperCard | null
   work: WorkLook | null
   credits?: ApiCredits | null
+  git?: GitLook | null
+  // The pushed commit's GitHub Actions runs, when the repo is on GitHub and gh is set up.
+  ci?: CiLook | null
 }
 
 export type PaperTone = 'ink' | 'dim' | 'heart' | 'berry' | 'ribbon' | 'added' | 'removed'
@@ -64,6 +73,8 @@ declare module 'claude-code' {
       writingTo: string | null
       envelopes: Shaped<PaperEnvelope[]>
       notebookView: Shaped<NotebookView>
+      // The turn under way: when your message came, and the latest step Claude described.
+      turn: Shaped<TurnLook | null>
     }
   }
 }

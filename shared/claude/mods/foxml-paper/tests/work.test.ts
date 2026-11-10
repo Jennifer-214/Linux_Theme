@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { beginArgs, canTrack, exitOf, greenAgain, jobPace, outputOf, planProgress, ruler, shellQuote, stepLabel, testLabel } from '../hooks/work'
+import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, planProgress, ruler, shellQuote, stepLabel, testLabel, turnLabel, withoutHeredocs } from '../hooks/work'
 
 test('tracking records a command as written, keeps secrets out, and reads how the call ended', () => {
   const command = "make test && printf '%s' \"$HOME\""
@@ -14,8 +14,13 @@ test('tracking records a command as written, keeps secrets out, and reads how th
     'node --experimental-strip-types tests/a.test.mjs', 'npm run build', 'python3 -m pytest -q', 'CC=clang cmake -S . -B build'])
     expect(canTrack(source)).toBe(true)
   for (const source of ["rg -n 'USE_NATIVE' cmake/ tests/ CMakeLists.txt", 'sed -n 1,5p tests/test_work.py', 'grep -n make Makefile',
-    'git diff --stat; git diff CMakeLists.txt | head', 'cat build/test_results.txt'])
+    'git diff --stat; git diff CMakeLists.txt | head', 'cat build/test_results.txt',
+    // An edit script that only names a test file runs no test: not the line that assigns it, not a heredoc's body.
+    "python3 -I - <<'EOF'\np='tests/test_x.py'; t=open(p).read()\nEOF", "cat > tests/test_a.py <<EOF\nimport unittest\nEOF",
+    "p='tests/test_x.py' python3 -c 'print(1)'"])
     expect(canTrack(source)).toBe(false)
+  expect(canTrack("python3 -B tests/test_x.py <<'EOF'\nanswer\nEOF")).toBe(true)
+  expect(withoutHeredocs("a <<'EOF'\nbody tests/test_x.py\nEOF\nmake")).toBe("a <<EOF\nmake")
   expect(exitOf({ result: { stdout: 'ok', stderr: '', interrupted: false } })).toBe(0)
   expect(exitOf({ isError: true, text: 'Exit code 2\nboom', result: 'Exit code 2\nboom' })).toBe(2)
   expect(exitOf({ isError: true, text: 'something broke' })).toBe(1)
@@ -27,15 +32,21 @@ test('tracking records a command as written, keeps secrets out, and reads how th
 
 test('a failed command remains visible even when its printed tests passed; unknown totals stay unknown', () => {
   expect(testLabel({ id: 'a', state: 'failed', stale: true, tests: { passed: 128, failed: 2, failures: [] } }))
-    .toBe('✓ 128 passed · 2 failed · failed · may be out of date')
+    .toBe('2 failed · 128 passed · may be out of date')
+  expect(testLabel({ id: 'a', state: 'failed', tests: { passed: 128, failed: 0, failures: [] } })).toBe('tests failed')
   expect(testLabel({ id: 'a', state: 'interrupted', tests: { passed: null, failed: null, failures: [] } }))
-    .toBe('last run stopped early')
-  expect(testLabel({ id: 'a', state: 'passed', tests: { passed: null, failed: null, failures: [] } })).toBe('✓ last run passed')
+    .toBe('tests stopped early')
+  expect(testLabel({ id: 'a', state: 'passed', tests: { passed: null, failed: null, failures: [] } })).toBe('✓ tests passed')
+  const ran = { id: 'a', state: 'passed', ended: 1000, tests: { passed: 12, failed: 0, failures: [] } }
+  expect(testLabel(ran, 1000 + 7300)).toBe('✓ 12 passed 2h ago')
+  expect(testLabel({ ...ran, changedDuringRun: true }, 1030)).toBe('✓ 12 passed just now · code changed while it ran')
+  expect(testLabel({ ...ran, state: 'running' }, 5000)).toBe('◷ tests running')
+  expect([ago(59), ago(61), ago(3 * 3600), ago(30 * 3600), ago(5 * 86400)]).toEqual(['just now', '1m ago', '3h ago', 'yesterday', '5 days ago'])
 })
 
 test('freshness names content changes and never treats an unknown snapshot as a current pass', () => {
   const base = { id: 'a', state: 'passed', stale: true, tests: { passed: 128, failed: 0, failures: [] } }
-  expect(testLabel({ ...base, changedFiles: ['a.ts', 'b.ts', 'c.ts'] })).toBe('✓ 128 passed · 0 failed · 3 files changed since')
+  expect(testLabel({ ...base, changedFiles: ['a.ts', 'b.ts', 'c.ts'] })).toBe('✓ 128 passed · 3 files changed since')
   expect(testLabel({ ...base, changedFiles: [], changedDuringRun: true })).toContain('code changed while it ran')
   expect(testLabel({ ...base, changedFiles: null })).toContain('may be out of date')
 })
@@ -71,4 +82,35 @@ test('green again only after two or more failures in a row of a test run', () =>
   expect(greenAgain(null)).toBe(false)
   expect(greenAgain('{"ok":true}')).toBe(false)
   expect(greenAgain('not json')).toBe(false)
+})
+
+test('the branch line says what is pushed, and CI says what the pushed commit got', () => {
+  expect(parseBranchLine('## polish/x...origin/polish/x [ahead 2, behind 1]')).toEqual({ branch: 'polish/x', upstream: 'origin/polish/x', ahead: 2, behind: 1 })
+  expect(parseBranchLine('## main...origin/main')).toEqual({ branch: 'main', upstream: 'origin/main', ahead: 0, behind: 0 })
+  expect(parseBranchLine('## topic')).toEqual({ branch: 'topic', upstream: null, ahead: 0, behind: 0 })
+  expect(parseBranchLine('## gone...origin/gone [gone]').upstream).toBe(null)
+  expect(parseBranchLine('## No commits yet on main').branch).toBe('main')
+  expect(branchLabel({ upstream: 'origin/x', ahead: 2, behind: 0, trees: 2 }, 'polish/x')).toBe('polish/x · 2 unpushed · 2 worktrees')
+  expect(branchLabel({ upstream: 'origin/x', ahead: 0, behind: 3, trees: 1 }, 'x')).toBe('x · 3 to pull')
+  expect(branchLabel({ upstream: 'origin/x', ahead: 0, behind: 0, trees: 1 }, 'x')).toBe('x · pushed')
+  expect(branchLabel({ upstream: null, ahead: 0, behind: 0, trees: 1 }, 'topic')).toBe('topic · not pushed yet')
+  expect(branchLabel(null, 'x')).toBe('x')
+
+  const done = (workflowName: string, conclusion = 'success') => ({ workflowName, status: 'completed', conclusion, url: `https://github.com/o/r/actions/runs/${workflowName}` })
+  expect(ciLabel([])).toBe(null)
+  expect(ciLabel([done('ci'), done('shellcheck')])).toEqual({ label: '✓ CI passed', state: 'passed', url: 'https://github.com/o/r/actions/runs/ci' })
+  expect(ciLabel([done('ci'), { workflowName: 'cpp-build', status: 'in_progress', conclusion: '' }])?.label).toBe('◷ CI running · 1 of 2 done')
+  const failed = ciLabel([done('ci'), done('keybinds-sync', 'failure'), { workflowName: 'cpp-build', status: 'queued', conclusion: '' }])
+  expect(failed?.label).toBe('✗ CI · keybinds-sync failed · still running')
+  expect(failed?.url).toBe('https://github.com/o/r/actions/runs/keybinds-sync')
+  expect(ciLabel([done('a', 'failure'), done('b', 'timed_out')])?.label).toBe('✗ CI · a failed and 1 more')
+  expect(ciLabel([done('a'), done('b', 'cancelled')])?.label).toBe('CI cancelled')
+})
+
+test('the turn under way reads as how long and its latest step', () => {
+  expect(turnLabel(null, 1)).toBe(null)
+  expect(turnLabel({ started: 0, step: 'x' }, 1)).toBe(null)
+  expect(turnLabel({ started: 1000, step: '' }, 1000 + 30000)).toBe('◷ working')
+  expect(turnLabel({ started: 1000, step: 'Run the drawer tests' }, 1000 + 14 * 60000)).toBe('◷ working 14m · Run the drawer tests')
+  expect(turnLabel({ started: 0 + 1, step: 'x' }, 1 + 75 * 60000)).toBe('◷ working 1h 15m · x')
 })

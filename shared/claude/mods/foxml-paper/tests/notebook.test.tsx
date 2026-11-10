@@ -52,7 +52,7 @@ function fakeFs(on: On, files: Record<string, string>, mtimes: Record<string, nu
 }
 
 // Nothing sits beneath the plugin in a test: these stand for the engine and the machine.
-function engine(on: On, options: { bash?: (command: string) => unknown; runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; finished?: () => unknown; credits?: unknown; trees?: unknown; readIds?: { id: string; at: number }[] } = {}) {
+function engine(on: On, options: { ci?: unknown[]; bash?: (command: string) => unknown; runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; finished?: () => unknown; credits?: unknown; trees?: unknown; readIds?: { id: string; at: number }[] } = {}) {
   let pinned: { file: string; step: string } | null = null
   seen.argv = []; seen.stdin = []; seen.bash = []; seen.sent = []; seen.toasts = []; seen.submitted = []; seen.opened = []
   mock.store(on, { 'notebook-read-mail:abc': options.readIds ?? [] })
@@ -94,6 +94,9 @@ function engine(on: On, options: { bash?: (command: string) => unknown; runtime?
     if (argv.includes('log -1 --format=%ct%x00%B'))
       return { value: done(`${NOW / 1000}\u0000feat: a thing\n\nClaude-Session: https://claude.ai/code/session_X\n`) }
     if (argv.includes('-- /code/paper/clean.txt')) return { value: done('') }
+    if (options.ci && argv.includes('rev-parse --verify origin/main^{commit}')) return { value: done('c'.repeat(40) + '\n') }
+    if (options.ci && argv === 'git -C /code/paper remote get-url origin') return { value: done('git@github.com:o/paper.git\n') }
+    if (options.ci && argv.startsWith('gh run list --commit ' + 'c'.repeat(40))) return { value: done(JSON.stringify(options.ci)) }
     if (argv === 'fox-credits status' && options.credits) return { value: done(JSON.stringify(options.credits)) }
     if (argv === 'fox-desktop-menu --open api-credits') return { value: done('') }
     if (argv === 'fox-drawer claude-peers') return { value: done(PEERS) }
@@ -540,4 +543,27 @@ test("an old goodnight note stays out of the way", async ($, on) => {
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ key: 'last-night' })).toBeUndefined()
   await ui.unmount()
+})
+
+test('the notebook says where the branch stands, what CI made of the push, and how long the turn has run', async ($, on) => {
+  engine(on, { ci: [
+    { workflowName: 'ci', status: 'completed', conclusion: 'success', url: 'https://github.com/o/paper/actions/runs/1' },
+    { workflowName: 'keybinds-sync', status: 'completed', conclusion: 'failure', url: 'https://github.com/o/paper/actions/runs/2' },
+  ] })
+  await opened($)
+  let ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ key: 'page-project' }))?.text).toContain('main · pushed')
+  expect((await ui.find({ key: 'work-ci' }))?.text).toContain('✗ CI · keybinds-sync failed')
+  expect(seen.toasts).toContain('✗ CI · keybinds-sync failed')
+  await ui.press({ key: 'work-ci' })
+  expect(seen.argv).toContain('xdg-open https://github.com/o/paper/actions/runs/2')
+  expect(await ui.find({ type: 'Text', text: /working/ })).toBeUndefined()
+  await ui.unmount()
+
+  await $.prompt.submit({ text: 'run the tests', wait: false, origin: { kind: 'composer' } })
+  await $.tool.call({ tool: 'Bash', command: 'true', description: 'Run the drawer tests' })
+  ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ type: 'Text', text: /working/ }))?.text).toBe('◷ working · Run the drawer tests')
+  await ui.unmount()
+  expect(seen.argv.filter(a => a.startsWith('gh run list')).length).toBe(1)
 })

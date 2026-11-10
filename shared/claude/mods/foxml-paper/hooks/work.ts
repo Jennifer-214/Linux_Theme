@@ -1,14 +1,18 @@
 import type { EngineInterface } from 'claude-code'
-import type { WorkJob, WorkLook, WorkTest } from '../types'
+import type { CiRun, GitLook, WorkJob, WorkLook, WorkTest } from '../types'
 
 export function shellQuote(s: string): string { return "'" + s.replace(/'/g, "'\\''") + "'" }
 // A build, test or download is the command a segment starts with, not a word it mentions:
 // "rg foo cmake/ tests/" is a search, "cd src && make" and "python3 -B tests/test_x.py" are jobs.
-const RUNNER = /^(?:(?:make|ninja|cmake|ctest|pytest|cargo|meson|curl|wget|aria2c|fox-llm-update)\b|(?:npm|pnpm|bun|go) (?:run )?(?:test|build)\b|python3? (?:-\S+ )*-m (?:unittest|pytest)\b|(?:python3?|node|bun) (?:-\S+ )*\S*(?:test_\w+|\w+_test|\w+\.test)\.\w+|\S*\/(?:test_\w+|\w+_test)\b)/
+const RUNNER = /^(?:(?:make|ninja|cmake|ctest|pytest|cargo|meson|curl|wget|aria2c|fox-llm-update)\b|(?:npm|pnpm|bun|go) (?:run )?(?:test|build)\b|python3? (?:-\S+ )*-m (?:unittest|pytest)\b|(?:python3?|node|bun) (?:-\S+ )*[\w.~\/-]*(?:test_\w+|\w+_test|\w+\.test)\.\w+|[\w.~\/-]*\/(?:test_\w+|\w+_test)\b)/
 const PREFIX = /^(?:\w+=\S*\s+|command\s+|env\s+|nice\s+|timeout\s+(?:-\S+\s+)*\S+\s+)+/
+// A heredoc's body is text the command reads, not commands: an edit script naming tests/test_x.py runs no test.
+export function withoutHeredocs(command: string): string {
+  return command.replace(/<<-?\s*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?(?:\n[ \t]*\2[ \t]*(?=\n|$)|$)/g, '<<$2')
+}
 export function canTrack(command: string): boolean {
   return command.length <= 4000 && !/^\s/.test(command) && !/&\s*$/.test(command) && !/fox-work|\bfjob\b|password|token|secret|authorization|\bpass\b|\bsudo\b|\bexport\b|sk-|ghp_| -u |--user /i.test(command)
-    && command.split(/&&|\|\||[;|\n()]/).some(part => RUNNER.test(part.trim().replace(PREFIX, '')))
+    && withoutHeredocs(command).split(/&&|\|\||[;|\n()]/).some(part => RUNNER.test(part.trim().replace(PREFIX, '')))
 }
 // The command runs exactly as written (so auto mode reviews what really runs); fox-work only records it around the call.
 export function beginArgs(command: string, root: string, session: string, title = ''): string[] {
@@ -31,15 +35,73 @@ export function outputOf(ran: { text?: unknown; result?: unknown }): string {
     return [result.stdout, result.stderr].filter(part => typeof part === 'string' && part !== '').join('\n')
   return typeof ran.text === 'string' ? ran.text : typeof result === 'string' ? result : ''
 }
-export function testLabel(test: WorkTest): string {
+// "2h ago": how long since, in the words a person uses.
+export function ago(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds))
+  if (s < 60) return 'just now'
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`
+  if (s < 172800) return 'yesterday'
+  return `${Math.floor(s / 86400)} days ago`
+}
+// "✓ 128 passed 2h ago · 3 files changed since": what the last test run said, how old it is, and whether it still holds.
+export function testLabel(test: WorkTest, now?: number): string {
   const p = test.tests?.passed, f = test.tests?.failed
-  const counts = [p == null ? '' : `✓ ${p} passed`, f == null ? '' : `${f} failed`].filter(Boolean).join(' · ')
+  let head: string
+  if (test.state === 'running') head = '◷ tests running'
+  else if (test.state === 'passed') head = '✓ ' + (p == null ? 'tests passed' : `${p} passed`) + (f ? ` · ${f} failed` : '')
+  else if (test.state === 'failed') head = f ? `${f} failed` + (p == null ? '' : ` · ${p} passed`) : 'tests failed'
+  else if (test.state === 'interrupted') head = 'tests stopped early'
+  else head = `tests ${test.state}`
+  if (test.state !== 'running' && typeof test.ended === 'number' && typeof now === 'number' && test.ended > 0) head += ' ' + ago(now - test.ended)
   const changed = test.changedFiles?.length
   const freshness = changed ? ` · ${changed} ${changed === 1 ? 'file' : 'files'} changed since`
     : test.changedDuringRun ? ' · code changed while it ran'
     : test.stale ? ' · may be out of date' : ''
-  const plain: Record<string, string> = { passed: '✓ last run passed', failed: 'last run failed', interrupted: 'last run stopped early', running: '◷ running' }
-  return (counts || plain[test.state] || `last run ${test.state}`) + (counts && test.state !== 'passed' ? ` · ${test.state}` : '') + freshness
+  return head + freshness
+}
+// git status --branch's first line: "## main...origin/main [ahead 2, behind 1]"; "[gone]" is an upstream deleted.
+export function parseBranchLine(line: string): { branch: string; upstream: string | null; ahead: number; behind: number } {
+  const m = line.replace(/^## /, '').match(/^(?:No commits yet on |Initial commit on )?(.*?)(?:\.\.\.(\S+))?(?: \[(.*)\])?$/)
+  const branch = m?.[1] ?? '', notes = m?.[3] ?? ''
+  const upstream = m?.[2] && !/\bgone\b/.test(notes) ? m[2] : null
+  return { branch, upstream, ahead: Number(notes.match(/ahead (\d+)/)?.[1] ?? 0), behind: Number(notes.match(/behind (\d+)/)?.[1] ?? 0) }
+}
+// "polish/drawer · 2 unpushed · 2 worktrees": where this checkout stands against what was pushed.
+export function branchLabel(git: GitLook | null | undefined, branch: string): string {
+  const parts = [branch || 'no branch']
+  if (git) {
+    if (!git.upstream) parts.push('not pushed yet')
+    else {
+      if (git.ahead > 0) parts.push(`${git.ahead} unpushed`)
+      if (git.behind > 0) parts.push(`${git.behind} to pull`)
+      if (git.ahead === 0 && git.behind === 0) parts.push('pushed')
+    }
+    if (git.trees > 1) parts.push(`${git.trees} worktrees`)
+  }
+  return parts.join(' · ')
+}
+// The pushed commit's CI, from its GitHub Actions runs: running, failed (which), or passed. null when it has none.
+export function ciLabel(runs: CiRun[] | null | undefined): { label: string; state: 'running' | 'failed' | 'passed' | 'other'; url: string } | null {
+  if (!runs || runs.length === 0) return null
+  const failed = runs.filter(r => r.status === 'completed' && (r.conclusion === 'failure' || r.conclusion === 'timed_out' || r.conclusion === 'startup_failure'))
+  const open = runs.filter(r => r.status !== 'completed')
+  if (failed.length) {
+    const names = [...new Set(failed.map(r => r.workflowName || r.name || 'a check'))]
+    return { label: `✗ CI · ${names[0]} failed` + (names.length > 1 ? ` and ${names.length - 1} more` : '') + (open.length ? ' · still running' : ''),
+      state: 'failed', url: failed[0]!.url ?? '' }
+  }
+  if (open.length) return { label: `◷ CI running · ${runs.length - open.length} of ${runs.length} done`, state: 'running', url: open[0]!.url ?? '' }
+  if (runs.every(r => r.conclusion === 'success' || r.conclusion === 'skipped' || r.conclusion === 'neutral'))
+    return { label: '✓ CI passed', state: 'passed', url: runs[0]!.url ?? '' }
+  return { label: `CI ${runs.find(r => r.conclusion !== 'success')?.conclusion ?? 'finished'}`, state: 'other', url: runs[0]!.url ?? '' }
+}
+// "◷ working 14m · Run the drawer tests": the turn under way, from your message to now, and its latest step.
+export function turnLabel(turn: { started: number; step: string } | null | undefined, nowMs: number): string | null {
+  if (!turn || !(turn.started > 0)) return null
+  const minutes = Math.floor(Math.max(0, nowMs - turn.started) / 60000)
+  const took = minutes < 1 ? 'working' : minutes < 60 ? `working ${minutes}m` : `working ${Math.floor(minutes / 60)}h ${minutes % 60}m`
+  return '◷ ' + took + (turn.step ? ' · ' + turn.step : '')
 }
 // Markdown checkboxes outside code fences, counted the way fox-work's plan output counts them.
 export function planProgress(text: string): { done: number; total: number } {
