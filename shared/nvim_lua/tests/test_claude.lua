@@ -69,5 +69,19 @@ eq(vim.uv.fs_stat(dir .. "/inbox/abc").mode % 512, tonumber("700", 8), "the inbo
 eq(C.write_note(dir, "../x", C.note("hi")), false, "a bad session id writes nothing")
 vim.fn.delete(dir, "rf")
 
+-- Neo-tree's mark: one session, two sessions sharing a file, none.
+local shared_live = {
+  { id = "a", name = "Ledger tidy", ledger = { edits = { { path = "/code/paper/x.lua", at = (NOW - 60) * 1000 } } } },
+  { id = "b", name = "docs", ledger = { edits = { { path = "/code/paper/x.lua", at = (NOW - 30) * 1000 }, { path = "/code/paper/y.lua", at = (NOW - 30) * 1000 } } } },
+  { id = "c", name = "old", ledger = { edits = { { path = "/code/paper/z.lua", at = (NOW - 3600) * 1000 } } } },
+}
+eq(C.tree_mark("/code/paper/y.lua", NOW * 1000, shared_live), { text = "✎", hl = "FoxTreeClaude", who = "docs" }, "one session: a pencil")
+eq(C.tree_mark("/code/paper/x.lua", NOW * 1000, shared_live), { text = "✎2", hl = "FoxTreeClaudeShared", who = "Ledger tidy, docs" },
+   "two sessions on one file: the overlap shows")
+eq(C.tree_mark("/code/paper/z.lua", NOW * 1000, shared_live), nil, "an edit older than the window: no mark")
+eq(C.tree_signature(NOW * 1000, shared_live) == C.tree_signature(NOW * 1000, shared_live), true, "the signature is stable")
+
+
+
 print(string.format("test_claude: %d passed%s", passed, failed > 0 and (", " .. failed .. " failed") or ""))
 os.exit(failed > 0 and 1 or 0)

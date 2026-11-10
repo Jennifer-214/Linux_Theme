@@ -87,6 +87,32 @@ function M.footprint(path, now_ms, live)
   return best
 end
 
+-- Neo-tree's mark for a file the live sessions edited within the window: ✎ for one, ✎2 (warning colour) when two
+-- or more share it, so the overlap shows before the file is opened. nil when none did.
+function M.tree_mark(path, now_ms, live)
+  local names = {}
+  for _, p in ipairs(live or M.live or {}) do
+    for _, e in ipairs((p.ledger or {}).edits or {}) do
+      if e.path == path and now_ms - e.at <= M.window_s * 1000 then names[#names + 1] = p.name; break end
+    end
+  end
+  if #names == 0 then return nil end
+  if #names == 1 then return { text = "✎", hl = "FoxTreeClaude", who = names[1] } end
+  return { text = "✎" .. #names, hl = "FoxTreeClaudeShared", who = table.concat(names, ", ") }
+end
+
+-- The files with a mark right now, as one string: Neo-tree redraws only when this changes.
+function M.tree_signature(now_ms, live)
+  local marked = {}
+  for _, p in ipairs(live or M.live or {}) do
+    for _, e in ipairs((p.ledger or {}).edits or {}) do
+      if now_ms - e.at <= M.window_s * 1000 then marked[#marked + 1] = p.id .. "\0" .. e.path end
+    end
+  end
+  table.sort(marked)
+  return table.concat(marked, "\n")
+end
+
 function M.footprint_text(fp, now_ms)
   if not fp then return "" end
   return "✎ " .. fp.name .. " · " .. M.ago(math.max(0, (now_ms - fp.at) / 1000))
@@ -240,6 +266,11 @@ local function poll()
       M.live = M.with_ledgers(out.code == 0 and M.decode(out.stdout) or {}, dir)
       pcall(vim.cmd.redrawstatus)
       pcall(vim.cmd.redrawtabline)
+      local signature = M.tree_signature(vim.uv.now and (os.time() * 1000) or 0)
+      if signature ~= M.tree_seen and package.loaded["neo-tree"] then
+        M.tree_seen = signature
+        pcall(function() require("neo-tree.sources.manager").refresh("filesystem") end)
+      end
     end)
   end)
   if not ok then M.live = {} end

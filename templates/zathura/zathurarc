@@ -38,6 +38,8 @@ set recolor-lightcolor          "#{{BG}}"
 set recolor-darkcolor           "#{{FG}}"
 set recolor                     "{{ZATHURA_RECOLOR}}"
 set recolor-keephue             "false"
+# Photos and diagrams keep their real colours; only the page and the text take the paper and the ink.
+set recolor-reverse-video       "true"
 
 # Appearance
 set font                        "{{FONT_FAMILY}} 11"

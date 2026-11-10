@@ -29,7 +29,7 @@ ready_status() {
 case "${1:-root}" in
     --available) available; exit $? ;;
     --help|-h)
-        printf '%s\n' 'Usage: fox-desktop-menu [PAGE | --open PAGE | --start | --close | --available]' \
+        printf '%s\n' 'Usage: fox-desktop-menu [PAGE | --open PAGE [--scope NAME] | --start | --close | --available]' \
             'Open or toggle the palette-driven desktop drawer.'
         exit 0 ;;
     --close)
@@ -37,10 +37,15 @@ case "${1:-root}" in
         ipc close >/dev/null 2>&1
         exit $? ;;
     --start) action=start; page=root ;;
-    --open) action=open; page="${2:-root}" ;;
+    # --scope: the one thing the page shows, e.g. a screen ("--open display --scope DP-2").
+    --open) action=open; page="${2:-root}"; [[ "${3:-}" == --scope ]] && scope="${4:-}" ;;
     *) action=toggle; page="${1:-root}" ;;
 esac
 
+if [[ -n "${scope:-}" && ! "$scope" =~ ^[A-Za-z0-9_.:-]{1,64}$ ]]; then
+    printf 'fox-desktop-menu: invalid scope: %s\n' "$scope" >&2
+    exit 2
+fi
 if [[ ! "$page" =~ ^[a-z][a-z0-9-]*$ ]]; then
     printf 'fox-desktop-menu: invalid page name: %s\n' "$page" >&2
     exit 2
@@ -69,4 +74,4 @@ if ! ready_status; then
 fi
 
 [[ "$action" == start ]] && exit 0
-ipc "$action" "$page"
+if [[ -n "${scope:-}" ]]; then ipc openScoped "$page" "$scope"; else ipc "$action" "$page"; fi

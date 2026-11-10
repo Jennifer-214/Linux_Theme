@@ -40,8 +40,6 @@ The FoxML_Paper desktop, with its drawer open:
 
 ![Neovim](shared/screenshots/nvim.png?v=2)
 
-![Neovim with Avante](shared/screenshots/nvim_avante.png?v=2)
-
 </details>
 
 ## Install

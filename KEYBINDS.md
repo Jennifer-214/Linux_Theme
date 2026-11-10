@@ -371,12 +371,13 @@ Everything here runs on your machine through llama.cpp's router; nothing leaves 
 
 | Key | Action |
 |-----|--------|
-| `Space cc` | AI actions menu (CodeCompanion) |
-| `Space cC` | Toggle the AI chat (the roles file's quick model — qwen3.5:4b) |
+| `Space aa` | AI actions menu (CodeCompanion) |
+| `Space ac` | Toggle the AI chat (the roles file's quick model — qwen3.5:4b) |
 | `ga` (visual) | Add the selection to the chat |
-| `Space ci` | Inline edit — ask for a change to the selection / at the cursor (the quick model); it comes back as a diff to accept |
-| `Space cp` | pi — the local coding agent, in a split (multi-file work; pi's own model, `~/.pi/agent/settings.json`) |
-| `Space ta` | Ghost-text completion: Copilot ⇄ local (qwen2.5-coder:1.5b) |
+| `Space ai` | Inline edit — ask for a change to the selection / at the cursor (the quick model); it comes back as a diff to accept |
+| `Space ap` | pi — the local coding agent, in a split (multi-file work; pi's own model, `~/.pi/agent/settings.json`) |
+| `Space at` | Ghost-text completion: Copilot ⇄ local (qwen2.5-coder:1.5b) |
+| `Space ag` | Copilot: ghost text ⇄ the completion menu |
 
 In the chat, `#{buffer}` shares the current file, `#{diagnostics}` its errors; `/file` adds another file.
 The GPU has 4 GB: a 3B model fits whole (fast), a 7B spills a little to the CPU; the 30B-A3B models (pi's) run
@@ -478,23 +479,21 @@ Inside terminal:
 |-----|--------|
 | `Ctrl+\ Ctrl+n` | Exit terminal mode (back to normal) |
 
-### Claude Code (AI Terminal)
+### Claude sessions (foxml.claude)
+The other Claudes on this machine, from inside the editor.
+
 | Key | Action |
 |-----|--------|
-| `Space Ct` | Toggle Claude terminal (show/hide) |
-| `Space Cs` | Send selection to Claude (visual) |
-
-Claude Code sees all open buffers (the ones you cycle with `H`/`L`) automatically via WebSocket — file contents, paths, and diagnostics are shared without pasting. Use `Space Cs` in visual mode to explicitly point Claude at a specific code block.
-
-Commands:
-| Command | Action |
-|---------|--------|
-| `:ClaudeCode` | Simple show/hide toggle |
-| `:ClaudeCodeFocus` | Smart focus toggle (swap between code and terminal) |
-| `:ClaudeCodeOpen` | Open terminal (no toggle) |
-| `:ClaudeCodeSend` | Send visual selection |
-| `:ClaudeCodeAdd` | Add file to context |
-| `:ClaudeCodeStatus` | Check WebSocket server status |
+| `Space Cw` | What changed: live sessions' edits and recent commits, reviewed inline |
+| `Space Cd` | This change side by side |
+| `Space Cj` | Go to the Claude that edited this file |
+| `Space Cn` | Leave a note for a Claude (visual: send the selection) |
+| `Space Cp` | Open the plan |
+| `Space Cm` | Plan marks: every place the plan names, by step (drifted ones say why) |
+| `Space Cq` | Close all Claude review views |
+| `]n` | Next plan mark (a pink ✎ with "step 3" on a line the plan names) |
+| `[n` | Previous plan mark |
+| `Space tP` | Show or hide plan marks |
 
 ### VimTeX (LaTeX)
 | Key | Action |

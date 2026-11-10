@@ -139,6 +139,7 @@ inline constexpr Mapping SHARED_MAPPINGS[] = {
     { "nvim_ftplugin/cpp.lua",        "~/.config/nvim/ftplugin/cpp.lua" },
     { "nvim_lua/foxml/claude.lua",    "~/.config/nvim/lua/foxml/claude.lua" },
     { "nvim_lua/foxml/work.lua",      "~/.config/nvim/lua/foxml/work.lua" },
+    { "nvim_lua/foxml/planmarks.lua", "~/.config/nvim/lua/foxml/planmarks.lua" },
 
     // Rofi config
 

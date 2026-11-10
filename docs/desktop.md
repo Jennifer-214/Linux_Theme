@@ -654,9 +654,10 @@ See [`shared/nvim_NVIM-KEYBINDS.md`](../shared/nvim_NVIM-KEYBINDS.md) for the fu
 
 AI integration:
 
-- **copilot.lua** — inline ghost-text completions + copilot-cmp source (toggle `<Space>Ci`)
-- **avante.nvim** — Cursor-style chat panel via Copilot (Claude Sonnet 4)
-- **claudecode.nvim** — Claude Code terminal integration (`<Space>Ct`, `<Space>Cs`)
+- **copilot.lua** — ghost-text completion in public repos (`<Space>ag`: ghost text ⇄ the completion menu)
+- **minuet-ai.nvim** — the same ghost text from the local model in private repos (`<Space>at` switches)
+- **codecompanion.nvim** — chat, inline edits and pi on the local models, all under `<Space>a`
+- **foxml.planmarks** — the pinned plan's references marked in the files (✎ + "step 3", `]n`/`[n`, `<Space>Cm`)
 - **foxml.claude** — the other Claudes on this machine: footprints on buffers they edited lately, a note to any
   session (`<Space>Cn`), a "what changed" list of live sessions and commits reviewed inline (`<Space>Cw`),
   following a session, the plan gate in the statusline, and blame that names the Claude session behind a line

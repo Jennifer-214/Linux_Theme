@@ -886,6 +886,7 @@ local plugins = {
     opts = {
       -- named leader groups (the popup showed a bare "+4 keymaps" for each)
       spec = {
+        { "<leader>a", group = "AI (local model, completion)" },
         { "<leader>b", group = "buffers" },
         { "<leader>C", group = "claude" },
         { "<leader>c", group = "code / cmake" },
@@ -994,6 +995,23 @@ local plugins = {
         },
       },
     },
+    -- ✎ after a file a Claude session is editing, ✎2 in the warning colour when two share it (foxml.claude).
+    config = function(_, opts)
+      opts.filesystem.components = {
+        claude = function(_, node)
+          local ok, claude = pcall(require, "foxml.claude")
+          if not ok or node.type ~= "file" then return {} end
+          local mark = claude.tree_mark(node.path, os.time() * 1000)
+          return mark and { text = " " .. mark.text, highlight = mark.hl } or {}
+        end,
+      }
+      local file = vim.deepcopy(require("neo-tree.defaults").renderers.file)
+      for _, part in ipairs(file) do
+        if part[1] == "container" and part.content then table.insert(part.content, 2, { "claude", zindex = 10 }) end
+      end
+      opts.filesystem.renderers = { file = file }
+      require("neo-tree").setup(opts)
+    end,
   },
 
   -- Bufferline (buffer tabs)
@@ -1480,11 +1498,11 @@ local plugins = {
     "olimorris/codecompanion.nvim",
     -- keys live here (not as global maps) so they only exist while the plugin is enabled
     keys = {
-      { "<leader>cc", "<cmd>CodeCompanionActions<cr>", mode = { "n", "v" }, desc = "AI Actions (CodeCompanion)" },
-      { "<leader>cC", "<cmd>CodeCompanionChat Toggle<cr>", mode = { "n", "v" }, desc = "AI Chat Toggle" },
-      { "ga", "<cmd>CodeCompanionChat Add<cr>", mode = "v", desc = "Add selection to AI chat" },
-      { "<leader>ci", "<cmd>CodeCompanion<cr>", mode = { "n", "v" }, desc = "AI Inline (CodeCompanion)" },
-      { "<leader>cp", "<cmd>CodeCompanionCLI<cr>", mode = { "n", "v" }, desc = "AI agent: pi (CodeCompanion CLI)" },
+      { "<leader>aa", "<cmd>CodeCompanionActions<cr>", mode = { "n", "v" }, desc = "Actions (local model)" },
+      { "<leader>ac", "<cmd>CodeCompanionChat Toggle<cr>", mode = { "n", "v" }, desc = "Chat (local model)" },
+      { "ga", "<cmd>CodeCompanionChat Add<cr>", mode = "v", desc = "Add selection to the AI chat" },
+      { "<leader>ai", "<cmd>CodeCompanion<cr>", mode = { "n", "v" }, desc = "Inline edit (local model)" },
+      { "<leader>ap", "<cmd>CodeCompanionCLI<cr>", mode = { "n", "v" }, desc = "pi, the local coding agent" },
     },
     cmd = { "CodeCompanion", "CodeCompanionChat", "CodeCompanionActions", "CodeCompanionCLI" },
     dependencies = {
@@ -1565,8 +1583,6 @@ local plugins = {
       end,
       filetypes = {
         ["*"] = {{SHOW_WELCOME}},
-        ["AvanteInput"] = false,
-        ["Avante"] = false,
         ["."] = false,
       },
     },
@@ -1577,7 +1593,7 @@ local plugins = {
   -- /v1/completions ignores `suffix` (measured 2026-10-14: it rambles), so the gap goes in the prompt with the model's
   -- own fill-in-the-middle tokens. The BASE coder model (fill-in-the-middle trained) fits the 4 GB GPU with room to spare; `:Minuet` can
   -- point it at 3b. On in every buffer whose repo is not public (RepoVis, above the plugin list), and everywhere
-  -- after <leader>ta. One engine per buffer: the two never show at once.
+  -- after <leader>at. One engine per buffer: the two never show at once.
   -- Measured 2026-10-13: these models don't reliably stop at the gap — given `return ` before the cursor and `}`
   -- after, they wrote `a + b;` and then repeated the `}` and invented new functions. Two settings stop that: `stop` at
   -- the first blank line (no run-on), and after_cursor_filter_length = 1 (minuet's default is 0 — OFF — for this
@@ -1612,57 +1628,6 @@ local plugins = {
     end,
   },
 
-  -- Avante (Cursor-style AI panel) — DISABLED: relying on Copilot for inline suggestions instead.
-  {
-    "yetone/avante.nvim",
-    enabled = false,
-    -- keys live here (not as global maps) so they only exist while the plugin is enabled
-    keys = {
-      { "<leader>aa", "<cmd>AvanteAsk<cr>", mode = { "n", "v" }, desc = "Avante ask" },
-      { "<leader>at", "<cmd>AvanteToggle<cr>", desc = "Avante toggle" },
-      { "<leader>ac", "<cmd>AvanteChat<cr>", desc = "Avante chat" },
-      { "<leader>ae", "<cmd>AvanteEdit<cr>", mode = "v", desc = "Avante edit (selection)" },
-      { "<leader>ar", "<cmd>AvanteRefresh<cr>", desc = "Avante refresh" },
-      { "<leader>aS", "<cmd>AvanteStop<cr>", desc = "Avante stop" },
-    },
-    event = "VeryLazy",
-    version = false,
-    build = "make",
-    dependencies = {
-      "nvim-treesitter/nvim-treesitter",
-      "stevearc/dressing.nvim",
-      "nvim-lua/plenary.nvim",
-      "MunifTanjim/nui.nvim",
-      "zbirenbaum/copilot.lua",
-    },
-    opts = {
-      provider = "llamacpp",
-      providers = {
-        llamacpp = {
-          __inherited_from = "openai",
-          api_key_name = "",
-          endpoint = "http://127.0.0.1:8080/v1", -- llama.cpp's router (Avante is disabled; kept right for a re-enable)
-          model = global_model,
-        },
-      },
-      behaviour = {
-        auto_suggestions = false,
-        auto_set_keymaps = {{SHOW_WELCOME}},
-        auto_add_current_file = false,
-        auto_apply_diff_after_generation = {{SHOW_WELCOME}},
-      },
-      history = {
-        max_tokens = 8192,
-      },
-      windows = {
-        width = 30,
-        sidebar_header = {
-          rounded = {{SHOW_WELCOME}},
-          include_model = {{SHOW_WELCOME}},
-        },
-      },
-    },
-  },
   { "MunifTanjim/nui.nvim" },
 
   -- mini.ai (enhanced text objects)
@@ -1773,27 +1738,6 @@ local plugins = {
         notification_history = { border = "rounded", title = " Notifications ", title_pos = "center" },
       },
       indent = { enabled = false },
-    },
-  },
-
-  -- Claude Code (AI terminal integration) — DISABLED: debloat, not in regular use.
-  {
-    "coder/claudecode.nvim",
-    enabled = false,
-    dependencies = { "folke/snacks.nvim" },
-    event = "VeryLazy",
-    keys = {
-      { "<leader>Ct", "<cmd>ClaudeCode<cr>", desc = "Claude toggle" },
-      { "<leader>Cs", "<cmd>ClaudeCodeSend<cr>", mode = "v", desc = "Claude send selection" },
-    },
-    opts = {
-      terminal = {
-        snacks_win_opts = {
-          position = "right",
-          width = 0.4,
-          border = "rounded",
-        },
-      },
     },
   },
 
@@ -2746,51 +2690,6 @@ local function apply_foxml_theme()
     hl("HlSearchLensNear", { fg = P.fg, bg = P.sel })
   end
 
-  -- Avante
-  hl("AvanteTitle",                        { fg = P.bg, bg = P.peach, bold = {{SHOW_WELCOME}} })
-  hl("AvanteReversedTitle",                { fg = P.peach, bg = P.bg_deep })
-  hl("AvanteSubtitle",                     { fg = P.bg, bg = P.peach, bold = {{SHOW_WELCOME}} })
-  hl("AvanteReversedSubtitle",             { fg = P.peach, bg = P.bg_deep })
-  hl("AvanteThirdTitle",                   { fg = P.warm, bg = P.bg_hl })
-  hl("AvanteReversedThirdTitle",           { fg = P.bg_hl, bg = P.bg_deep })
-  hl("AvanteSidebarNormal",                { bg = P.bg_deep })
-  hl("AvanteSidebarWinSeparator",          { fg = P.bg_deep, bg = P.bg_deep })
-  hl("AvanteSidebarWinHorizontalSeparator", { fg = P.bg_hl })
-  hl("AvantePromptInput",                  { fg = P.fg, bg = P.bg_hl })
-  hl("AvantePromptInputBorder",            { fg = P.float_border, bg = P.bg_hl })
-  hl("AvanteInlineHint",                   { fg = P.peach, bg = P.bg_deep, bold = {{SHOW_WELCOME}} })
-  hl("AvantePopupHint",                    { fg = P.comment, bg = P.bg_deep })
-  hl("AvanteConfirmTitle",                 { fg = P.bg, bg = P.red, bold = {{SHOW_WELCOME}} })
-  hl("AvanteButtonDefault",               { fg = P.bg, bg = P.comment })
-  hl("AvanteButtonDefaultHover",          { fg = P.bg, bg = P.green })
-  hl("AvanteButtonPrimary",               { fg = P.bg, bg = P.warm })
-  hl("AvanteButtonPrimaryHover",          { fg = P.bg, bg = P.peach })
-  hl("AvanteButtonDanger",                { fg = P.bg, bg = P.warm })
-  hl("AvanteButtonDangerHover",           { fg = P.bg, bg = P.red })
-  hl("AvanteToBeDeleted",                 { bg = P.conflict_cur, strikethrough = {{SHOW_WELCOME}} })
-  hl("AvanteToBeDeletedWOStrikethrough",  { bg = P.conflict_cur })
-  hl("AvanteConflictCurrent",             { bg = P.conflict_cur, bold = {{SHOW_WELCOME}} })
-  hl("AvanteConflictCurrentLabel",        { bg = P.conflict_cur_label })
-  hl("AvanteConflictIncoming",            { bg = P.conflict_inc, bold = {{SHOW_WELCOME}} })
-  hl("AvanteConflictIncomingLabel",       { bg = P.conflict_inc_label })
-  hl("AvanteStateSpinnerGenerating",      { fg = P.bg, bg = P.pink })
-  hl("AvanteStateSpinnerToolCalling",     { fg = P.bg, bg = P.peach })
-  hl("AvanteStateSpinnerFailed",          { fg = P.bg, bg = P.red })
-  hl("AvanteStateSpinnerSucceeded",       { fg = P.bg, bg = P.green })
-  hl("AvanteStateSpinnerSearching",       { fg = P.bg, bg = P.yellow })
-  hl("AvanteStateSpinnerThinking",        { fg = P.bg, bg = P.pink })
-  hl("AvanteStateSpinnerCompacting",      { fg = P.bg, bg = P.yellow })
-  hl("AvanteTaskRunning",                 { fg = P.pink })
-  hl("AvanteTaskCompleted",               { fg = P.green })
-  hl("AvanteTaskFailed",                  { fg = P.red })
-  hl("AvanteThinking",                    { fg = P.pink, italic = {{SHOW_WELCOME}} })
-
-  -- Claude Code
-  hl("ClaudeCodeNormal",    { fg = P.fg, bg = P.bg_deep })
-  hl("ClaudeCodeBorder",    { fg = P.float_border, bg = P.bg_deep })
-  hl("ClaudeCodeTitle",     { fg = P.bg, bg = P.peach, bold = {{SHOW_WELCOME}} })
-  hl("ClaudeCodeSeparator", { fg = P.bg_deep, bg = P.bg_deep })
-
   -- vim-illuminate (subtle earthy underline, not distracting)
   hl("IlluminatedWordText",  { bg = P.illuminate })
   hl("IlluminatedWordRead",  { bg = P.illuminate })
@@ -2951,8 +2850,7 @@ end, 100)
 
 -- Force solid background on sidebar/panel filetypes
 -- (uses vim.schedule so it runs AFTER plugins set their own winhighlight)
-local sidebar_fts = { ["Avante"] = {{SHOW_WELCOME}}, ["AvanteInput"] = {{SHOW_WELCOME}},
-  ["AvantePrompt"] = {{SHOW_WELCOME}}, ["Trouble"] = {{SHOW_WELCOME}}, ["aerial"] = {{SHOW_WELCOME}}, ["markdown"] = false }
+local sidebar_fts = { ["Trouble"] = {{SHOW_WELCOME}}, ["aerial"] = {{SHOW_WELCOME}}, ["markdown"] = false }
 vim.api.nvim_create_autocmd({ "FileType", "BufWinEnter" }, {
   callback = function()
     vim.schedule(function()
@@ -3463,7 +3361,7 @@ vim.api.nvim_create_autocmd("BufEnter", {
     apply_engine(buf)
   end,
 })
-map("n", "<leader>ta", function()
+map("n", "<leader>at", function()
   vim.g.fox_completion = vim.g.fox_completion == "local" and "auto" or "local"
   for _, b in ipairs(vim.api.nvim_list_bufs()) do if vim.api.nvim_buf_is_loaded(b) then apply_engine(b) end end
   vim.notify(vim.g.fox_completion == "local" and "Completion: the local model everywhere"
@@ -3471,7 +3369,7 @@ map("n", "<leader>ta", function()
 end, { desc = "Completion: per repo ⇄ the local model everywhere" })
 
 -- Copilot: toggle inline ghost-text vs cmp-menu suggestions
-map("n", "<leader>tp", function()
+map("n", "<leader>ag", function()
   local suggestion = require("copilot.suggestion")
   local cfg = require("copilot.config").suggestion
   if cfg.enabled then
@@ -3531,7 +3429,7 @@ map("t", "<C-l>", "<C-\\><C-n><C-w>l", { desc = "Move to right split" })
 map("t", "<C-j>", "<C-\\><C-n><C-w>j", { desc = "Move to lower split" })
 map("t", "<C-k>", "<C-\\><C-n><C-w>k", { desc = "Move to upper split" })
 
--- AI keymaps (Avante / CodeCompanion) live in those plugin specs' `keys`, so they exist only when enabled
+-- AI keymaps (CodeCompanion, Space a) live in its plugin spec's `keys`, so they exist only when it is enabled
 
 -- Lazygit
 map("n", "<leader>gg", "<cmd>LazyGit<cr>", { desc = "LazyGit" })
@@ -3937,6 +3835,12 @@ vim.api.nvim_create_autocmd({ "FocusGained", "BufEnter", "CursorHold", "CursorHo
 })
 -- The other Claudes on this machine: footprints, notes, what changed, follow (shared/nvim_lua/foxml/claude.lua)
 pcall(function() require("foxml.claude").setup() end)
+-- The plan's references, marked where they are: ✎ + "step 3", ]n / [n, Space Cm (shared/nvim_lua/foxml/planmarks.lua)
+vim.api.nvim_set_hl(0, "FoxPlanSign", { fg = P.bookmark })
+vim.api.nvim_set_hl(0, "FoxPlanNote", { fg = P.comment, italic = Paper.enabled })
+vim.api.nvim_set_hl(0, "FoxTreeClaude", { fg = P.bookmark })
+vim.api.nvim_set_hl(0, "FoxTreeClaudeShared", { link = "DiagnosticWarn" })
+pcall(function() require("foxml.planmarks").setup() end)
 
 -- Notify when a file reloads so it's not silent/confusing
 vim.api.nvim_create_autocmd("FileChangedShellPost", {

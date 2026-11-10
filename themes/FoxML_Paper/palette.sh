@@ -568,7 +568,8 @@ GARDEN_4=a24f73
 # A paler blush for the cursor's line, so a one-line Visual selection (e2a4ba) still shows on it.
 NVIM_CURSORLINE=e8becd
 # PDFs keep their own figures and colours on the white page.
-ZATHURA_RECOLOR=false
+# PDFs print on the paper: white pages become #f0ede7 and black text the ink. Ctrl+R shows the plain page.
+ZATHURA_RECOLOR=true
 # libadwaita / portal accent name, so native apps lose the default blue.
 GTK_ACCENT_COLOR=pink
 # delta changed words: coral for removed, sage for added (the Claude diff words), under graphite ink.

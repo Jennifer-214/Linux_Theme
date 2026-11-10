@@ -9,6 +9,7 @@
 
 #include <fstream>
 #include <string>
+#include <tuple>
 
 namespace fox_install {
 
@@ -63,6 +64,25 @@ inline void sync_gtk_accent(const Context& ctx) {
     const std::string value = palette::get(ctx.palette_path, "GTK_ACCENT_COLOR", "");
     for (const char* name : names)
         if (value == name) return set_gtk_preference(ctx, "accent-color", value, "accent");
+}
+
+// Thunar reads like the rest of the desk: no menubar (Ctrl+M brings it back) and the path as clickable folder
+// names. Set once, only where Thunar has no choice of its own yet; the drawer's ribboned projects join its sidebar.
+inline void sync_thunar_view(const Context& ctx) {
+    if (sh::dry_run()) return;
+    if (sh::have("xfconf-query")) {
+        bool changed = false;
+        for (const auto& [property, type, value] : {std::tuple<const char*, const char*, const char*>{"/last-menubar-visible", "bool", "false"},
+                                                    {"/last-location-bar", "string", "ThunarLocationButtons"}}) {
+            std::string current;
+            if (sh::capture({"xfconf-query", "-c", "thunar", "-p", property}, current)) continue;  // she has one: hers stays
+            if (sh::run({"xfconf-query", "-c", "thunar", "-p", property, "-n", "-t", type, "-s", value}) == 0) changed = true;
+        }
+        if (changed) ui::ok("Thunar: menubar tucked away (Ctrl+M) and the path as folder buttons");
+    }
+    const auto drawer = ctx.home / ".local/bin/fox-drawer";
+    if (std::filesystem::exists(drawer) && sh::run({drawer.string(), "thunar-bookmarks"}) != 0)
+        ui::warn("Bookmarked projects could not be added to Thunar's sidebar");
 }
 
 inline void refresh_gtk_icon_cache(const Context& ctx) {

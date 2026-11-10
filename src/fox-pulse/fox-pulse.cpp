@@ -72,8 +72,10 @@ struct HandlerSpec {
 // leaked a listener each switch. The one-shot handler is pulse.d/focus.sh; without it, focus does nothing.
 const HandlerSpec FOCUS_HANDLER   = { "focus",   nullptr,                nullptr };
 // The legacy watcher is a persistent listener, not a one-shot event handler.
+// After the layout settles, fox-drawer moves workspaces back to a screen that returned and says when a screen
+// that was never arranged appears.
 const HandlerSpec MONITOR_HANDLER = { "monitor", nullptr,
-    "\"$HOME/.local/bin/fox-monitor\" reconcile" };
+    "\"$HOME/.local/bin/fox-monitor\" reconcile; [ -x \"$HOME/.local/bin/fox-drawer\" ] && \"$HOME/.local/bin/fox-drawer\" screens-changed" };
 const HandlerSpec CONFIG_HANDLER  = { "config",  nullptr, nullptr };
 
 std::string env_or(const char* k, const std::string& fallback) {

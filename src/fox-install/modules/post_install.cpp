@@ -100,7 +100,7 @@ void run_post_install(Context& ctx) {
                     "finalize per-monitor wallpaper variants + hyprlock (post-deploy), "
                     "render waybar for current layout, restart the bar and mako, "
                     "Lazy sync + TSUpdateSync (60s/120s caps), "
-                    "GTK desktop font + accent, Bat/delta theme cache, Cursor/VS Code workbench.colorTheme=Fox ML, "
+                    "GTK desktop font + accent, Thunar view + sidebar projects, Bat/delta theme cache, Cursor/VS Code workbench.colorTheme=Fox ML, "
                     "fox theme check (read-only report)");
         return;
     }
@@ -114,6 +114,7 @@ void run_post_install(Context& ctx) {
     sync_gtk_font(ctx);
     sync_gtk_icon_theme(ctx);
     sync_gtk_accent(ctx);
+    sync_thunar_view(ctx);
     refresh_gtk_icon_cache(ctx);
     // Folder colours can need sudo, so a plain --render reports them instead of prompting.
     if (state::folders_stale(ctx))

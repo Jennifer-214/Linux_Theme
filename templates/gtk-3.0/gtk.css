@@ -374,6 +374,14 @@ window.soffice button:hover {
 {{GTK_DETAIL_SCOPE}}.thunar menubar, {{GTK_DETAIL_SCOPE}}.thunar toolbar, {{GTK_DETAIL_SCOPE}}.thunar .sidebar,
 {{GTK_DETAIL_SCOPE}}.thunar .sidebar .view, {{GTK_DETAIL_SCOPE}}.thunar statusbar { background-color: transparent; background-image: none; }
 
+/* Paper: the path reads as a breadcrumb trail — plain folder names split by hairlines, the open one underlined. */
+{{GTK_DETAIL_SCOPE}}.thunar .path-bar-button {
+  background: none; box-shadow: none; border: none; border-radius: 0; padding: 2px 8px; color: #{{FG_DIM}};
+}
+{{GTK_DETAIL_SCOPE}}.thunar .path-bar-button + .path-bar-button { border-left: 1px solid #{{BTOP_LINE}}; }
+{{GTK_DETAIL_SCOPE}}.thunar .path-bar-button:hover { color: @fg; background-color: alpha(@sel_bg, 0.35); }
+{{GTK_DETAIL_SCOPE}}.thunar .path-bar-button:checked { color: @fg; box-shadow: inset 0 -2px @sel_bg; }
+
 /* Thunar cards use the existing icon grid and pencil frame. */
 {{GTK_DETAIL_SCOPE}}.thunar iconview.view:selected,
 {{GTK_DETAIL_SCOPE}}.thunar iconview.view:selected:focus,

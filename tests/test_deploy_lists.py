@@ -24,6 +24,8 @@ ONE_SIDED = {
         "native-only foreground job observation and fjob; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "nvim_lua/foxml/work.lua", "~/.config/nvim/lua/foxml/work.lua"):
         "native-only test quickfix, review and editable failure drafts",
+    ("SHARED_MAPPINGS", "nvim_lua/foxml/planmarks.lua", "~/.config/nvim/lua/foxml/planmarks.lua"):
+        "native-only plan marks in the sign column; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "claude/mods/foxml-paper/hooks/work.ts", "~/.claude/mods/foxml-paper/hooks/work.ts"):
         "native-only Claude work records; code is copied, with colors in the existing rendered theme",
     ("SHARED_MAPPINGS", "claude/mods/foxml-paper/hooks/notebook.ts", "~/.claude/mods/foxml-paper/hooks/notebook.ts"):

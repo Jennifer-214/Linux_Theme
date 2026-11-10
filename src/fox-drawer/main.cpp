@@ -1565,6 +1565,7 @@ std::vector<std::string> password_names() {
     std::sort(names.begin(), names.end());
     return names;
 }
+int sync_thunar_bookmarks();
 Json toggle_bookmark(const std::string& path) {
     const auto file = bookmark_file();
     std::error_code ec;
@@ -1590,7 +1591,51 @@ Json toggle_bookmark(const std::string& path) {
         }
     }
     ::close(lock);
+    if (ok) sync_thunar_bookmarks();
     return result(ok, message);
+}
+// Thunar's sidebar lists GTK bookmarks; the projects with a ribbon join them. Only the lines added here are ever
+// changed or removed (they are recorded beside the ribbons), so bookmarks she made in Thunar stay hers.
+std::string file_uri(const std::string& path) {
+    static const char* hex = "0123456789ABCDEF";
+    std::string out = "file://";
+    for (const unsigned char c : path) {
+        if (std::isalnum(c) || c == '/' || c == '-' || c == '_' || c == '.' || c == '~') out += static_cast<char>(c);
+        else { out += '%'; out += hex[c >> 4]; out += hex[c & 15]; }
+    }
+    return out;
+}
+int sync_thunar_bookmarks() {
+    std::vector<std::string> ribbons;
+    if (!bookmarks(ribbons)) return 1;
+    const auto gtk = config_home() / "gtk-3.0/bookmarks";
+    const auto record = bookmark_file().parent_path() / "thunar-bookmarks.json";
+    std::set<std::string> ours;
+    const auto saved = Json::parse(read(record), nullptr, false);
+    if (saved.is_array()) for (const auto& uri : saved) if (uri.is_string()) ours.insert(uri.get<std::string>());
+    std::set<std::string> wanted;
+    for (const auto& path : ribbons) if (directory(path)) wanted.insert(file_uri(path));
+    std::vector<std::string> kept;
+    std::set<std::string> present;
+    for (const auto& line : lines(read(gtk))) {
+        if (trim(line).empty()) continue;
+        const auto uri = line.substr(0, line.find(' '));
+        if (ours.count(uri) && !wanted.count(uri)) continue;  // a ribbon taken off: its line goes
+        kept.push_back(line); present.insert(uri);
+    }
+    std::set<std::string> now_ours;
+    for (const auto& path : ribbons) {
+        const auto uri = file_uri(path);
+        if (!wanted.count(uri)) continue;
+        if (!present.count(uri)) { kept.push_back(uri + " " + fs::path(path).filename().string()); now_ours.insert(uri); }
+        else if (ours.count(uri)) now_ours.insert(uri);
+    }
+    std::string body;
+    for (const auto& line : kept) body += line + "\n";
+    std::error_code ec; fs::create_directories(gtk.parent_path(), ec);
+    if (body != read(gtk) && !write_atomic(gtk, body)) return 1;
+    Json list = Json::array(); for (const auto& uri : now_ours) list.push_back(uri);
+    return write_atomic(record, list.dump() + "\n") ? 0 : 1;
 }
 std::vector<Project> projects(const Json& config) {
     const auto roots = config.value("project_roots", Json::array({"~/code"}));
@@ -2087,6 +2132,93 @@ Json display_action(const std::string& id, const std::string& arg) {
     } else return result(false, "Unknown display action");
     auto done = apply_displays(screens, primary, sides, message);
     done["close"] = false; return done;
+}
+
+// ── Screens coming and going: workspaces return to the screen they lived on, and a screen never arranged says so ──
+fs::path workspace_homes_file() { return fs::path(env("XDG_STATE_HOME", home() + "/.local/state")) / "foxml/workspace-homes.json"; }
+struct LiveWorkspace { std::string name, monitor; };
+std::vector<LiveWorkspace> live_workspaces() {
+    std::vector<LiveWorkspace> out;
+    Json list;
+    if (!sh::have("hyprctl") || !capture_json({"hyprctl", "workspaces", "-j"}, list) || !list.is_array()) return out;
+    for (const auto& w : list) {
+        if (!w.is_object() || w.value("id", 0) <= 0) continue;  // special workspaces have no home screen
+        const auto name = text(w, "name"), monitor = text(w, "monitor");
+        if (std::regex_match(name, std::regex("[A-Za-z0-9_.:-]{1,32}")) && std::regex_match(monitor, std::regex("[A-Za-z0-9_.:-]{1,64}")))
+            out.push_back({name, monitor});
+    }
+    return out;
+}
+// The screen each workspace lives on. A workspace whose screen is unplugged keeps that home, and so does one
+// whose screen came back within the last 15 s: Hyprland's focus events can arrive before the move home does.
+int workspaces_remember() {
+    const auto screens = live_screens();
+    if (screens.empty()) return 0;
+    auto saved = Json::parse(read(workspace_homes_file()), nullptr, false);
+    if (!saved.is_object()) saved = Json::object();
+    Json homes = saved.value("homes", Json::object()), seen = saved.value("seen", Json::object());
+    if (!homes.is_object()) homes = Json::object();
+    if (!seen.is_object()) seen = Json::object();
+    const auto now = static_cast<long long>(std::time(nullptr));
+    Json connected = Json::object();
+    for (const auto& s : screens) connected[s.name] = seen.contains(s.name) && seen[s.name].is_number_integer() ? seen[s.name] : Json(now);
+    for (const auto& w : live_workspaces()) {
+        const auto home_screen = homes.contains(w.name) && homes[w.name].is_string() ? homes[w.name].get<std::string>() : std::string();
+        const bool away = !home_screen.empty() && !connected.contains(home_screen);
+        const bool returning = !home_screen.empty() && connected.contains(home_screen) && now - connected[home_screen].get<long long>() < 15;
+        if (!away && !returning) homes[w.name] = w.monitor;
+    }
+    while (homes.size() > 64) homes.erase(homes.begin());
+    const Json next{{"homes", homes}, {"seen", connected}};
+    if (next == saved) return 0;
+    std::error_code ec; fs::create_directories(workspace_homes_file().parent_path(), ec);
+    return write_atomic(workspace_homes_file(), next.dump() + "\n") ? 0 : 1;
+}
+bool screen_has_rule(const std::string& name) {
+    const auto lua = read(hypr_modules() / "monitors.lua");
+    for (const auto& line : lines(lua))
+        if (line.find("hl.monitor(") != std::string::npos && line.find("output = \"" + name + "\"") != std::string::npos
+            && line.find("--") > line.find("hl.monitor(")) return true;
+    for (const auto& line : lines(read(hypr_modules() / "monitors.conf"))) {
+        std::smatch m;
+        if (std::regex_match(line, m, std::regex(R"(^\s*monitor\s*=\s*([^,\s]+)\s*,.*)")) && m[1].str() == name) return true;
+    }
+    return false;
+}
+// After screens change: workspaces go home, and a screen with no saved rule gets one notice that opens its page.
+int screens_changed() {
+    const auto screens = live_screens();
+    if (screens.empty()) return 0;
+    std::set<std::string> connected;
+    for (const auto& s : screens) connected.insert(s.name);
+    const auto saved = Json::parse(read(workspace_homes_file()), nullptr, false);
+    const auto homes = saved.is_object() ? saved.value("homes", Json::object()) : Json::object();
+    for (const auto& w : live_workspaces()) {
+        if (!homes.is_object() || !homes.contains(w.name) || !homes[w.name].is_string()) continue;
+        const auto home_screen = homes[w.name].get<std::string>();
+        if (home_screen == w.monitor || !connected.count(home_screen) || !std::regex_match(home_screen, std::regex("[A-Za-z0-9_.:-]{1,64}"))) continue;
+        std::string ignored;
+        capture({"hyprctl", "dispatch", "hl.dsp.workspace.move({ workspace = \"" + w.name + "\", monitor = \"" + home_screen + "\" })"}, ignored);
+    }
+    workspaces_remember();
+    // Which screens were here last time; the first run after login only records them.
+    const auto seen_file = runtime() / "foxml/screens-seen";
+    const bool first = !regular(seen_file);
+    std::set<std::string> before;
+    for (const auto& line : lines(read(seen_file))) if (!trim(line).empty()) before.insert(trim(line));
+    std::string body;
+    for (const auto& name : connected) body += name + "\n";
+    std::error_code ec; fs::create_directories(seen_file.parent_path(), ec);
+    write_atomic(seen_file, body);
+    if (first) return 0;
+    for (const auto& s : screens) {
+        if (before.count(s.name) || screen_has_rule(s.name) || !sh::have("notify-send")) continue;
+        launch({"/bin/sh", "-c", "a=$(notify-send -a Displays -c foxml.work -A default=Arrange --wait \"$2 connected\" "
+                            "'Arrange it: size, rotation and which side') && [ \"$a\" = default ] && "
+                            "exec \"$HOME/.local/bin/fox-desktop-menu\" --open display --scope \"$1\"",
+                "sh", s.name, screen_label(s)}, "");
+    }
+    return 0;
 }
 
 Json api_history() {
@@ -4236,6 +4368,11 @@ int main(int argc, char** argv) {
         }
         // mako's on-notify hook: `on-notify=exec fox-drawer note-arrived "$id"` stamps when each note came.
         if (args.size() == 2 && args[0] == "note-arrived") return note_arrived(args[1]);
+        // The installer, after deploying: the ribbons reach Thunar's sidebar on a machine that already has them.
+        if (args.size() == 1 && args[0] == "thunar-bookmarks") return sync_thunar_bookmarks();
+        // fox-pulse: after workspace switches, and after screens come or go.
+        if (args.size() == 1 && args[0] == "workspaces-remember") { read_limit_seconds = 2; return workspaces_remember(); }
+        if (args.size() == 1 && args[0] == "screens-changed") { read_limit_seconds = 3; return screens_changed(); }
         // fox-lock, detached: the stamp as the screen locks, and the "while you were away" note after unlock.
         if (args.size() == 1 && args[0] == "away-start") { read_limit_seconds = 2; return away_start(); }
         if (args.size() == 1 && args[0] == "away-summary") {

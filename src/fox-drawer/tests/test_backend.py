@@ -1369,6 +1369,70 @@ class BackendTests(unittest.TestCase):
         self.assertIn('"DP-2", mode = "preferred", position = "-2560x-180", scale = 1.5 })', (modules/'monitors.lua').read_text(),
                       'a portrait screen turned to landscape is placed again, so it does not overlap the laptop')
 
+    def test_ribboned_projects_join_thunars_sidebar_and_her_own_bookmarks_stay(self):
+        state = Path(self.env.get('XDG_STATE_HOME', str(self.home/'.local/state')))/'foxml'
+        config = Path(self.env.get('XDG_CONFIG_HOME', str(self.home/'.config')))
+        project = self.home/'code/My notes'
+        project.mkdir(parents=True)
+        state.mkdir(parents=True, exist_ok=True)
+        (state/'project-bookmarks.json').write_text(json.dumps([str(project), str(self.home/'gone')]))
+        gtk = config/'gtk-3.0/bookmarks'
+        gtk.parent.mkdir(parents=True, exist_ok=True)
+        gtk.write_text('file:///srv/shared Shared\n')
+        run = lambda: subprocess.run([str(BINARY), 'thunar-bookmarks'], env=self.env, capture_output=True, text=True, timeout=10)
+        self.assertEqual(run().returncode, 0)
+        uri = 'file://' + str(project).replace(' ', '%20')
+        self.assertEqual(gtk.read_text(), f'file:///srv/shared Shared\n{uri} My notes\n', 'a missing folder is not added')
+        self.assertEqual(run().returncode, 0)
+        self.assertEqual(gtk.read_text().count(uri), 1, 'running again adds nothing twice')
+        (state/'project-bookmarks.json').write_text('[]')
+        run()
+        self.assertEqual(gtk.read_text(), 'file:///srv/shared Shared\n', 'only the line the drawer added goes when its ribbon does')
+
+    def run_quiet(self, *args):
+        self.state_path.write_text(json.dumps(self.state))
+        return subprocess.run([str(BINARY), *args], env=self.env, capture_output=True, text=True, timeout=10)
+
+    def test_workspaces_go_home_when_their_screen_returns_and_a_new_screen_says_so(self):
+        modules, _, _ = self.displays_fixture()
+        monitors = json.loads(self.state['exact']['hyprctl\x1fmonitors\x1f-j']['stdout'])
+        laptop_only = [m for m in monitors if m['name'] == 'eDP-1']
+        def screen(ms, ws):
+            self.state['exact']['hyprctl\x1fmonitors\x1f-j'] = {'stdout': json.dumps(ms)}
+            self.state['exact']['hyprctl\x1fworkspaces\x1f-j'] = {'stdout': json.dumps(
+                [dict(id=int(n), name=n, monitor=m) for n, m in ws] + [dict(id=-98, name='special:notes', monitor='eDP-1')])}
+        homes = lambda: json.loads((Path(self.env.get('XDG_STATE_HOME', str(self.home/'.local/state')))/'foxml/workspace-homes.json').read_text())['homes']
+        screen(monitors, [('1', 'eDP-1'), ('2', 'DP-2'), ('3', 'HDMI-A-1')])
+        self.assertEqual(self.run_quiet('workspaces-remember').returncode, 0)
+        self.assertEqual(homes(), {'1': 'eDP-1', '2': 'DP-2', '3': 'HDMI-A-1'}, 'special workspaces have no home')
+        self.assertEqual(self.run_quiet('screens-changed').returncode, 0)
+        self.assertFalse([c for c in self.calls() if c[:2] == ['hyprctl', 'dispatch']], 'nothing is away, nothing moves')
+        self.assertFalse([c for c in self.calls() if c[0] == 'setsid'], 'the first run after login only records the screens')
+
+        # The Acer is unplugged: its workspace lands on the laptop but keeps the Acer as home.
+        screen([m for m in monitors if m['name'] != 'DP-2'], [('1', 'eDP-1'), ('2', 'eDP-1'), ('3', 'HDMI-A-1')])
+        self.run_quiet('workspaces-remember'); self.run_quiet('screens-changed')
+        self.assertEqual(homes()['2'], 'DP-2')
+        # It comes back; a focus event arriving first must not take the home away.
+        screen(monitors, [('1', 'eDP-1'), ('2', 'eDP-1'), ('3', 'HDMI-A-1')])
+        self.run_quiet('workspaces-remember')
+        self.assertEqual(homes()['2'], 'DP-2', 'a returning screen keeps its workspaces for a moment')
+        self.run_quiet('screens-changed')
+        self.assertIn(['hyprctl', 'dispatch', 'hl.dsp.workspace.move({ workspace = "2", monitor = "DP-2" })'], self.calls())
+        self.assertFalse([c for c in self.calls() if c[0] == 'setsid'], 'the Acer has a saved rule, so no notice')
+
+        # A screen never arranged: one notice that opens its own page.
+        new = dict(laptop_only[0], name='DP-9', make='LG Electronics', model='27GL850', x=1920, y=0)
+        screen(monitors + [new], [('1', 'eDP-1')])
+        self.run_quiet('screens-changed')
+        notice = [c for c in self.calls() if c[0] == 'setsid']
+        self.assertEqual(len(notice), 1)
+        self.assertEqual(notice[0][-3:], ['sh', 'DP-9', 'LG 27GL850'])
+        self.assertEqual(notice[0][2], '/bin/sh')
+        self.assertIn('--open display --scope', notice[0][4])
+        self.run_quiet('screens-changed')
+        self.assertEqual(len([c for c in self.calls() if c[0] == 'setsid']), 1, 'said once while it stays plugged in')
+
     def test_display_timer_goes_back_only_for_its_own_change(self):
         modules, conf, lua = self.displays_fixture()
         self.invoke('run','display-rotate','eDP-1=3')

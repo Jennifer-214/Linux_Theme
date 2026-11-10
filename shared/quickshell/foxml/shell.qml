@@ -858,6 +858,8 @@ ShellRoot {
         target: "drawer"
         function toggle(page: string): void { if (root.opened && (!page || page === root.page)) root.hide(); else root.show(page); }
         function open(page: string): void { root.show(page); }
+        // A page about one thing: a screen from the "connected" notice, a book of the shortcut reference.
+        function openScoped(page: string, scope: string): void { root.pageScope = scope; root.show(page); }
         function close(): void { root.hide(); }
         function pick(path: string): void { root.showPicker(path); }
         function cancelPicker(path: string): void {
