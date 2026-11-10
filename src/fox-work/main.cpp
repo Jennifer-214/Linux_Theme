@@ -4,6 +4,7 @@
 #include <chrono>
 #include <charconv>
 #include <csignal>
+#include <cstring>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
@@ -13,6 +14,8 @@
 #include <set>
 #include <sstream>
 #include <fcntl.h>
+#include <fnmatch.h>
+#include <glob.h>
 #include <openssl/sha.h>
 #include <sys/file.h>
 #include <sys/stat.h>
@@ -358,6 +361,123 @@ J known_roots() {
         auto r = read(e.path() / "root", 4096); if (!r.empty() && e.path().filename() == hash(r)) roots.push_back(r);
     } return roots;
 }
+// The tests a command runs — not the files it merely mentions (a script it writes, a heredoc's body): the test file
+// after a runner ("python3 -B tests/test_x.py", "node t.mjs", "nvim -l t.lua"), a test binary run by path, the files a
+// `for t in tests/test_*.py` loop walks, "make -C D test" (as "make:D") and "claude plugin test DIR" (as "plugin:DIR").
+// Globs are expanded in the project, so a command written differently still names the same files. Empty: none.
+std::vector<std::string> test_targets(const std::string& command, const std::string& root) {
+    static const std::regex test_file(R"(([\w./*~-]*/)?(test_[\w.*-]+|[\w.*-]+[-_]test|[\w.*-]+\.test)\.(py|lua|cpp|cc|mjs|js|ts|tsx|sh))");
+    static const std::regex test_binary(R"(^(\./|/)?[\w./*-]*/?(test_[\w.*-]+|[\w.*-]+_test)$)");
+    static const std::set<std::string> runners{"python3", "python", "node", "bash", "sh", "nvim", "lua", "luajit", "pytest",
+                                               "bun", "deno", "timeout", "env", "npx", "uv"};
+    std::vector<std::string> out;
+    auto clean = [](std::string s) {
+        while (!s.empty() && (s.front() == '"' || s.front() == '\'' || s.front() == '(' || s.front() == '{')) s.erase(0, 1);
+        while (!s.empty() && (s.back() == '"' || s.back() == '\'' || s.back() == ')' || s.back() == '}')) s.pop_back();
+        if (s.rfind("./", 0) == 0) s.erase(0, 2);
+        return s;
+    };
+    auto add_file = [&](const std::string& token) {
+        std::smatch m;
+        if (std::regex_search(token, m, test_file)) out.push_back(m[0].str());
+        else if (std::regex_match(token, test_binary)) out.push_back(token);
+    };
+    std::string heredoc;
+    std::istringstream lines(command);
+    for (std::string line; std::getline(lines, line);) {
+        if (!heredoc.empty()) { if (line == heredoc) heredoc.clear(); continue; }
+        std::smatch h;
+        if (std::regex_search(line, h, std::regex(R"(<<-?\s*['"]?(\w+)['"]?)"))) heredoc = h[1].str();
+        static const std::regex split(R"(;|&&|\|\||\||&)");
+        for (auto it = std::sregex_token_iterator(line.begin(), line.end(), split, -1); it != std::sregex_token_iterator(); ++it) {
+            std::istringstream words(it->str());
+            std::vector<std::string> w;
+            for (std::string x; words >> x;) w.push_back(clean(x));
+            size_t i = 0;
+            while (i < w.size() && (w[i].empty() || w[i] == "do" || w[i] == "then" || w[i] == "!" || w[i].find('=') != std::string::npos)) ++i;
+            if (i >= w.size()) continue;
+            const auto& head = w[i];
+            if (head == "for") {
+                for (size_t k = i + 1; k < w.size(); ++k) if (w[k] == "in") { for (size_t j = k + 1; j < w.size(); ++j) add_file(w[j]); break; }
+            } else if (head == "make") {
+                std::string dir = ".", goal;
+                for (size_t k = i + 1; k < w.size(); ++k) {
+                    if (w[k] == "-C" && k + 1 < w.size()) dir = w[++k];
+                    else if (w[k] == "test" || w[k] == "check") goal = w[k];
+                }
+                if (!goal.empty()) out.push_back("make:" + dir);
+            } else if (head == "ctest" || head == "pytest"
+                       || ((head == "cargo" || head == "go" || head == "npm" || head == "pnpm" || head == "bun") && i + 1 < w.size()
+                           && (w[i + 1] == "test" || (w[i + 1] == "run" && i + 2 < w.size() && w[i + 2] == "test")))
+                       || (fs::path(head).filename().string().rfind("python", 0) == 0 && std::find(w.begin(), w.end(), "unittest") != w.end())) {
+                std::smatch m; bool named = false;
+                for (size_t k = i + 1; k < w.size() && !named; ++k)
+                    if (std::regex_search(w[k], m, test_file)) { out.push_back(m[0].str()); named = true; }
+                if (!named) out.push_back("suite:" + fs::path(head).filename().string());  // a whole suite: tests, none by name
+            } else if (head == "claude" && i + 3 < w.size() && w[i + 1] == "plugin" && w[i + 2] == "test") {
+                out.push_back("plugin:" + w[i + 3]);
+            } else if (runners.count(fs::path(head).filename().string()) && head != "pytest") {
+                for (size_t k = i + 1; k < w.size(); ++k) {
+                    std::smatch m;
+                    if (std::regex_search(w[k], m, test_file)) { out.push_back(m[0].str()); break; }
+                }
+            } else {
+                add_file(head);
+            }
+        }
+    }
+    // Globs to the files they name in this project, so a glob and the folder it matches are one target.
+    std::vector<std::string> expanded;
+    for (const auto& target : out) {
+        const auto colon = target.find(':');
+        const std::string prefix = colon == std::string::npos ? "" : target.substr(0, colon + 1);
+        const std::string path = colon == std::string::npos ? target : target.substr(colon + 1);
+        if (path.find_first_of("*?[") == std::string::npos || root.empty()) { expanded.push_back(target); continue; }
+        ::glob_t g{};
+        const auto pattern = (fs::path(root) / path).string();
+        if (::glob(pattern.c_str(), 0, nullptr, &g) == 0 && g.gl_pathc > 0) {
+            for (size_t k = 0; k < g.gl_pathc; ++k) expanded.push_back(prefix + fs::path(g.gl_pathv[k]).lexically_relative(root).string());
+        } else expanded.push_back(target);
+        ::globfree(&g);
+    }
+    std::sort(expanded.begin(), expanded.end()); expanded.erase(std::unique(expanded.begin(), expanded.end()), expanded.end());
+    return expanded;
+}
+// One target covering another: the same; a glob that matches it; the same file written from another folder; or a
+// passing "make -C D test" for a test that lives under D.
+bool covers(const std::string& a, const std::string& b) {
+    if (a == b || ::fnmatch(a.c_str(), b.c_str(), 0) == 0) return true;
+    const auto tail = [](const std::string& x, const std::string& y) { return x.size() > y.size() && x.compare(x.size() - y.size() - 1, y.size() + 1, "/" + y) == 0; };
+    if (a.rfind("make:", 0) == 0 && b.find(':') == std::string::npos) {
+        const auto dir = a.substr(5);
+        return dir == "." || b.rfind(dir + "/", 0) == 0;
+    }
+    return tail(a, b) || tail(b, a);
+}
+// Whether a failed run still stands, deciding newest first: it clears once a newer run passed every test it named
+// (whatever that run was called or how its command was written), and it counts once among newer failures of the
+// same tests. A command that names no test keeps the old rule: only a newer run of the same command settles it.
+struct Settled {
+    std::set<std::string> commands;
+    std::map<std::string, std::vector<std::string>> passed, failed;
+    bool standing(const J& r) {
+        const auto root = str(r, "root"), state = str(r, "state");
+        const bool newest = commands.insert(root + '\n' + str(r, "command")).second;
+        const auto targets = test_targets(str(r, "command"), root);
+        auto all_in = [&](const std::vector<std::string>& seen) {
+            return !targets.empty() && std::all_of(targets.begin(), targets.end(), [&](const std::string& t) {
+                return std::any_of(seen.begin(), seen.end(), [&](const std::string& s) { return covers(s, t); });
+            });
+        };
+        if (state == "passed") { for (const auto& t : targets) passed[root].push_back(t); return false; }
+        if (state != "failed" && state != "interrupted") return false;
+        // A call filed as a test run that ran no test (a grep that only mentions tests/test_x.py) is no failure.
+        if (str(r, "kind") == "tests" && targets.empty()) return false;
+        const bool open = newest && !all_in(passed[root]) && !all_in(failed[root]);
+        for (const auto& t : targets) failed[root].push_back(t);
+        return open;
+    }
+};
 J overview(const A& requested, bool fresh = false) {
     auto all = runs(); J todo = J::array(), review = J::array(); int running = 0, finished = 0, failed = 0;
     std::map<std::string, J> snapshots;
@@ -365,14 +485,14 @@ J overview(const A& requested, bool fresh = false) {
     for (const auto& r : known_roots()) roots.insert(r.get<std::string>());
     for (const auto& r : requested) { const auto root = root_of(r); if (!root.empty()) roots.insert(root); }
     const auto day = now() - 24 * 3600;
-    // A failure counts until the same command, run again in the same project, gets past it; runs are newest first.
-    std::set<std::string> settled;
+    // A failure counts until a newer run in the same project gets past it (Settled); runs are newest first.
+    Settled settled;
     for (auto& r : all) {
-        const bool newest = settled.insert(str(r, "root") + '\n' + str(r, "command")).second;
+        const bool standing = settled.standing(r);
         if (str(r, "state") == "running") ++running;
         else if (num(r, "ended") >= day) {
             ++finished;
-            if (newest && (str(r, "state") == "failed" || str(r, "state") == "interrupted")) ++failed;
+            if (standing) ++failed;
         }
         if (fresh && r.value("testRun", false)) {
             const auto root = str(r, "root");
@@ -389,11 +509,11 @@ J overview(const A& requested, bool fresh = false) {
 }
 J notebook(const std::string& root, const std::string& session) {
     J latest; auto all = runs(root); const auto current = snapshot(root);
-    J jobs = J::array(), failures = J::array(); std::set<std::string> commands;
+    J jobs = J::array(), failures = J::array(); Settled settled;
     for (auto j : all) {
+        const bool standing = settled.standing(j);
         if (str(j, "state") == "running") { j.erase("snapshot"); jobs.push_back(j); }
-        else if (commands.insert(str(j, "command")).second && failures.size() < 3 && num(j, "ended") >= now() - 24 * 3600
-                 && (str(j, "state") == "failed" || str(j, "state") == "interrupted")) {
+        else if (standing && failures.size() < 3 && num(j, "ended") >= now() - 24 * 3600) {
             auto failed = j; failed.erase("snapshot"); failures.push_back(failed);
         }
         if (latest.is_null() && j.value("testRun", false)) { freshness(j, current); j.erase("snapshot"); latest = j; }

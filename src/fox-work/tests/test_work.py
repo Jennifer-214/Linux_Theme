@@ -175,6 +175,38 @@ class Work(unittest.TestCase):
         self.assertEqual(self.data("notebook")["failures"], [], "yesterday's failures leave the notebook")
         self.assertEqual(self.data("overview", "--root", self.repo)["failed"], 0)
 
+    def test_a_failure_clears_when_a_newer_run_passes_the_same_tests_however_it_was_written(self):
+        failures = lambda: [f["command"] for f in self.data("notebook")["failures"]]
+        self.record("cd here; python3 -B tests/test_a.py", 1)
+        self.record("python3 -B tests/test_b.py", 0)
+        self.assertEqual(len(failures()), 1, "a passing run of another test does not clear it")
+        self.record("python3 -I -B tests/test_a.py 2>&1 | tail -3", 1)
+        self.assertEqual(self.data("overview", "--root", self.repo)["failed"], 1, "the same test failing twice, written two ways, is one failure")
+        self.record("python3 -B tests/test_b.py; python3 -B tests/test_a.py", 0)
+        self.assertEqual(failures(), [], "a newer run that passed the same test clears it")
+
+        # What a command only mentions (a heredoc that writes a test) is not what it ran.
+        self.record("cat > tests/test_c.py <<'EOF'\nimport tests.test_d\nEOF\npython3 -B tests/test_e.py", 1)
+        self.record("python3 -B tests/test_e.py", 0)
+        self.assertEqual(failures(), [], "the test it ran passed; the files its heredoc names are not tests it ran")
+
+        # A test binary under a folder, cleared by that folder's suite written with a glob.
+        (self.repo / "sub/tests").mkdir(parents=True)
+        (self.repo / "sub/tests/test_ring").write_text("")
+        self.record("make -C sub tests/test_ring; ./sub/tests/test_ring", 2)
+        self.assertEqual(len(failures()), 1)
+        self.record("make -s -C s*b test 2>&1 | tail -1", 0)
+        self.assertEqual(failures(), [], "make -C D test covers the tests under D, globs read as the folder they match")
+
+        # A command that names no test keeps the old rule: only the same command, passing, settles it.
+        self.record("make -C sub all", 1)
+        self.record("python3 -B tests/test_a.py", 0)
+        self.assertEqual(failures(), ["make -C sub all"])
+        record = next(Path(self.env["XDG_STATE_HOME"]).rglob("run.json"))
+        old = json.loads(record.read_text())
+        old.update(command="grep -n x tests/test_a.py", kind="tests", state="failed", observed=False); record.write_text(json.dumps(old))
+        self.assertNotIn("grep -n x tests/test_a.py", failures(), "a call that only mentions a test file ran no test")
+
     def test_active_plan_and_step_are_persistent_and_scoped_to_session(self):
         plan = self.repo / "plan with spaces.md"
         plan.write_text("# A plan\n")
