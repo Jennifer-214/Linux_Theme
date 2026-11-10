@@ -1,0 +1,20 @@
+#!/bin/bash
+# tmux-title — the terminal's window title: "Linux_Theme · polish/drawer · claude".
+# The project is the repo the pane sits in (else its folder), then the branch, then what runs there unless it is
+# just the shell. tmux's set-titles-string runs it, so the bar and the drawer's Open windows say where each
+# terminal is. Usage: tmux-title <pane path> <pane command>
+path="${1:-$PWD}"
+cmd="${2:-}"
+top=$(git -C "$path" rev-parse --show-toplevel 2>/dev/null)
+if [[ -n "$top" ]]; then
+    project=$(basename "$top")
+    branch=$(git -C "$path" symbolic-ref --quiet --short HEAD 2>/dev/null) || branch=$(git -C "$path" rev-parse --short HEAD 2>/dev/null)
+    (( ${#branch} > 28 )) && branch="${branch:0:27}…"
+else
+    project=$(basename "$path"); [[ "$path" == "$HOME" ]] && project="~"
+    branch=""
+fi
+title="$project"
+[[ -n "$branch" ]] && title+=" · $branch"
+case "$cmd" in zsh|bash|fish|sh|dash|nu|tmux|"") ;; *) title+=" · $cmd" ;; esac
+printf '%s' "$title"
