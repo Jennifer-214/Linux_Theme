@@ -635,7 +635,6 @@ Shows indent guides automatically. No keybinds.
 | `ALT + ,` | Previous workspace |
 | `ALT + .` | Next workspace |
 | `ALT + 1–9` | Switch to workspace |
-| `ALT + O` | The desk overview: every workspace as a photo print (hjkl/arrows + Enter, a click or a digit goes there; Esc closes) |
 | `ALT + Shift + 1–9` | Move window to workspace |
 
 ### Sandbox launcher
@@ -655,6 +654,7 @@ Shows indent guides automatically. No keybinds.
 | Key | Action |
 |-----|--------|
 | `ALT + Grave` | Active windows with the same navigation as the other drawers |
+| `ALT + O` | The desk overview: every workspace as a photo print (hjkl/arrows + Enter, a click or a digit goes there; Esc closes) |
 
 ### TTY switch (diagnostics)
 
