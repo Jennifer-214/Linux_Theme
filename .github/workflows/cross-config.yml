@@ -37,7 +37,9 @@ jobs:
 
       - name: Install build + dry-run dependencies
         run: |
-          pacman -Sy --noconfirm --needed \
+          # -Syu, never -Sy: installing against a fresh database without upgrading is a partial upgrade, and breaks
+          # the day a library (systemd-libs) moves ahead of the image's own package that pins it (systemd).
+          pacman -Syu --noconfirm --needed \
             base-devel git curl pkgconf openssl \
             pacman-contrib coreutils sed gawk \
             python wayland wayland-protocols cairo pango glib2 gdk-pixbuf2 systemd-libs
