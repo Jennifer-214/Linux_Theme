@@ -107,10 +107,10 @@ inline size_t insert_at(const std::vector<std::string>& lines, const std::regex&
 }
 }  // namespace detail
 
-// monitors.conf: NAME's `monitor =` line gets this position, scale and rotation; its mode and any
-// other options stay. A screen with no line gets one before the catch-all (`monitor = , ...`).
+// monitors.conf: NAME's `monitor =` line gets this position, scale and rotation, and the mode when one is
+// given ("2560x1440@59.95"); any other options stay. A screen with no line gets one before the catch-all.
 inline std::string set_conf_rule(const std::string& conf, const std::string& name, const std::string& position,
-                                 const std::string& scale, int transform) {
+                                 const std::string& scale, int transform, const std::string& mode = {}) {
     static const std::regex rule(R"(^\s*monitor\s*=\s*(.*)$)");
     auto lines = detail::lines(conf);
     bool found = false;
@@ -121,7 +121,7 @@ inline std::string set_conf_rule(const std::string& conf, const std::string& nam
         std::stringstream fields(m[1].str());
         for (std::string part; std::getline(fields, part, ',');) f.push_back(detail::trim(part));
         if (f.empty() || f[0] != name || f.size() < 4) continue;
-        std::vector<std::string> out{f[0], f[1], position, scale};
+        std::vector<std::string> out{f[0], mode.empty() ? f[1] : mode, position, scale};
         if (transform != 0) { out.push_back("transform"); out.push_back(std::to_string(transform)); }
         for (size_t i = 4; i < f.size(); ++i) {
             if (f[i] == "transform" && i + 1 < f.size()) { ++i; continue; }
@@ -132,7 +132,7 @@ inline std::string set_conf_rule(const std::string& conf, const std::string& nam
         found = true;
     }
     if (!found) {
-        std::string line = "monitor = " + name + ", preferred, " + position + ", " + scale;
+        std::string line = "monitor = " + name + ", " + (mode.empty() ? "preferred" : mode) + ", " + position + ", " + scale;
         if (transform != 0) line += ", transform, " + std::to_string(transform);
         const auto at = detail::insert_at(lines, std::regex(R"(^\s*monitor\s*=\s*,)"), "#");
         lines.insert(lines.begin() + static_cast<long>(at), line);
@@ -142,10 +142,10 @@ inline std::string set_conf_rule(const std::string& conf, const std::string& nam
 
 // monitors.lua: the same edit on NAME's hl.monitor({...}) line.
 inline std::string set_lua_rule(const std::string& lua, const std::string& name, const std::string& position,
-                                const std::string& scale, int transform) {
+                                const std::string& scale, int transform, const std::string& mode = {}) {
     const std::string output = "output = \"" + name + "\"";
     static const std::regex pos(R"(position\s*=\s*"[^"]*")"), turn(R"(,\s*transform\s*=\s*-?\d+)"),
-                            size(R"(scale\s*=\s*[^,}\s]+)");
+                            size(R"(scale\s*=\s*[^,}\s]+)"), shown(R"(mode\s*=\s*"[^"]*")");
     const std::string sized = "scale = " + scale + (transform != 0 ? ", transform = " + std::to_string(transform) : "");
     auto lines = detail::lines(lua);
     bool found = false;
@@ -155,10 +155,11 @@ inline std::string set_lua_rule(const std::string& lua, const std::string& name,
         line = std::regex_replace(line, turn, "");
         line = std::regex_replace(line, pos, "position = \"" + position + "\"");
         line = std::regex_replace(line, size, sized, std::regex_constants::format_first_only);
+        if (!mode.empty()) line = std::regex_replace(line, shown, "mode = \"" + mode + "\"", std::regex_constants::format_first_only);
         found = true;
     }
     if (!found) {
-        const auto line = "hl.monitor({ " + output + ", mode = \"preferred\", position = \"" + position + "\", " + sized + " })";
+        const auto line = "hl.monitor({ " + output + ", mode = \"" + (mode.empty() ? std::string("preferred") : mode) + "\", position = \"" + position + "\", " + sized + " })";
         const auto at = detail::insert_at(lines, std::regex(R"(output\s*=\s*"")"), "--");
         lines.insert(lines.begin() + static_cast<long>(at), line);
     }

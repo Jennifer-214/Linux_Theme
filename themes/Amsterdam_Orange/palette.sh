@@ -404,6 +404,8 @@ GTK_RUBBER_BG="rgba(255,176,96,0.20)"
 GTK_RUBBER_BORDER="2px solid rgba(255,176,96,0.65)"
 GTK_PANEL_ALPHA=0.95
 GTK_WINDOW_ALPHA=0.65
+# Zathura around the pages; the pages themselves stay solid.
+ZATHURA_BG_ALPHA=1.0
 WAYBAR_BUBBLE_ALPHA=0.7
 MAKO_FORMAT='<b>%s</b>\n%b'
 

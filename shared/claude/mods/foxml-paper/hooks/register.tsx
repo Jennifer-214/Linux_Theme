@@ -369,7 +369,7 @@ async function readPeers($: EngineInterface): Promise<PaperPeer[] | null> {
     const self = await $.session.id()
     const list = JSON.parse(out) as PaperPeer[]
     return Array.isArray(list)
-      ? list.filter(p => p && typeof p.id === 'string' && p.id !== self && typeof p.name === 'string').slice(0, 6)
+      ? list.filter(p => p && typeof p.id === 'string' && p.id !== self && typeof p.name === 'string')
       : null
   } catch {
     return null
@@ -817,7 +817,8 @@ export const register: Register = on => {
       const own = (now?.files ?? []).filter(f => f.own).length
       content.push(row('page-files', `${own} this session · ${now?.files.length ?? 0} all files`, () => page('files')))
       content.push(row('page-project', now?.card?.title ?? 'project · plan, tests & worktrees', () => page('project')))
-      if (others.length) content.push(row('page-sessions', `${others.length} other ${others.length === 1 ? 'session' : 'sessions'}`, () => page('sessions')))
+      // Counted with this one, so four running reads as four: "4 claudes · you + 3 others".
+      if (others.length) content.push(row('page-sessions', `${others.length + 1} claudes · you + ${others.length} ${others.length === 1 ? 'other' : 'others'}`, () => page('sessions')))
       const tasks = (now?.work?.tasks ?? []).filter(t => !t.done)
       if (tasks.length) content.push(row('page-tasks', `${tasks.length} next ${tasks.length === 1 ? 'step' : 'steps'} · ${tasks[0]?.text ?? ''}`, () => page('project')))
       if (now?.work) content.push(row('task-add', '+ next step', () => setView({ form: 'task' })))
@@ -919,8 +920,8 @@ export const register: Register = on => {
         content.push(<Text color={paper.ink}>{note.text}</Text>)
         content.push(row(`envelope-${note.id ?? note.at}`, 'mark read', () => acknowledgeMail($, [note])))
       }
-      if (others.length) content.push(text('other claudes'))
-      for (const peer of others) {
+      if (others.length) content.push(text(`${others.length + 1} claudes · you and ${others.length} ${others.length === 1 ? 'other' : 'others'}`))
+      for (const peer of others.slice(0, 8)) {
         const [mark, colour] = peerMark(peer)
         const where = peer.name === peer.project ? '' : ` · ${peer.project}`
         content.push(text(`${mark} ${peer.name}${where}`, colour))
@@ -936,6 +937,7 @@ export const register: Register = on => {
           content.push(row('peer-cancel', 'never mind', () => update($, writingTo, () => null)))
         }
       }
+      if (others.length > 8) content.push(text(`+ ${others.length - 8} more · the drawer's Agents page lists them all`))
       if (!mail.length && !others.length) content.push(text('No unread notes or other live sessions.'))
     }
 

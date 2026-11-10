@@ -213,7 +213,10 @@ The supported item kinds are `page`, `action`, `toggle`, and `slider`; action ID
 refer to the backend's built-in operations. Palette colors come from
 `templates/quickshell/foxml/Theme.qml`. The old `FOXML_MENU_LEGACY` desktop-menu
 override is retired. Fox tools, Shortcut reference and Disposable sandbox are
-ordinary drawer pages, and their shortcuts open those pages. The local AI prompt
+ordinary drawer pages, and their shortcuts open those pages. The Shortcut reference (read from `KEYBINDS.md`)
+opens on its books (Desktop, The drawer, Terminal (tmux), Commands, Neovim); each book lists what a shortcut
+does under its section headings, with the keys drawn as caps, and Enter copies them. Typing searches every
+book, and `?` opens on the drawer's own keys with **All shortcuts** at the end. The local AI prompt
 and wallpaper rotation menu use the Quickshell picker. `fox-picker --title TITLE` reads one label per input line;
 `--index` returns its original zero-based index, and `--prompt` accepts free text.
 Escape cancels without an action. These use the existing drawer service, with
@@ -236,15 +239,21 @@ other rows open the folder.
 
 ### Displays
 
-Comfort → Displays lists each screen with its mode, scale, rotation, side of the main screen and
-how much room it gives. Each screen has **Bigger text and windows** / **More room** (the next
-scale that divides its mode evenly, 0.75 to 3), **Rotate** (landscape → portrait turned left →
-portrait turned right) and, for other screens, **Move to another side**. Every change moves the
-other screens so edges touch and stay centred, writes both `monitors.conf` and `monitors.lua`
-in `~/.config/hypr/modules/`, and reloads Hyprland. **Keep this layout** within 15 seconds, or it
-goes back by itself; the layout from before the change is kept as `*.foxml-prev` (**Undo the
-last display change**). **Larger / Smaller pointer** steps the pointer size (24–48) live and
-saves it to `~/.config/hypr/modules/local.lua`, which `hyprland.lua` loads last.
+Comfort → Displays shows a card per screen ("Acer B277K L · portrait · 125% · left of the laptop"); Enter opens
+that screen's own page:
+
+- **size**: a slider with a stop at every scale that divides the screen's mode evenly (Hyprland blurs any
+  other), each saying what it gives ("fits like 1728×3072"). `h`/`l` choose, Enter applies, Esc leaves it.
+- **rotation**: landscape, portrait turned left, portrait turned right, upside down.
+- **side** (other screens): left of, right of, above or below the main screen.
+- **mode**: the resolutions and refresh rates the screen offers. A new resolution keeps the even scale
+  nearest the one in use, so text stays about the same size.
+
+Every change places all screens again so their edges touch, centred, and none overlap; writes both
+`monitors.conf` and `monitors.lua` in `~/.config/hypr/modules/`; and reloads Hyprland. **Keep this layout**
+within 15 seconds, or it goes back by itself; the layout from before is kept as `*.foxml-prev` (**Undo the
+last display change**). Under *everywhere*, **Pointer size** (24–48) applies live and is saved to
+`~/.config/hypr/modules/local.lua`, which `hyprland.lua` loads last.
 
 ### Backups and startup
 

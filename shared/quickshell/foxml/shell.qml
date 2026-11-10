@@ -28,7 +28,9 @@ ShellRoot {
     property var entries: []
     property var creditSnapshot: null
     property var trail: []
-    readonly property var breadcrumbs: Logic.breadcrumbs(page, groupId, trail, groups, pageTitle)
+    // Titles of pages already shown this session, so a trail through a page no menu row names still reads in words.
+    property var seenTitles: ({})
+    readonly property var breadcrumbs: Logic.breadcrumbs(page, groupId, trail, groups, pageTitle, seenTitles)
     property var remembered: ({})
     property string focusArea: "groups"
     property int groupIndex: 0
@@ -48,7 +50,8 @@ ShellRoot {
         editing: editing, focus: focusArea, groups: groups.length}, entries[itemIndex])
     property var pendingConfirm: null
     property bool confirmYes: false
-    property string worktreeProject: ""
+    // The project a worktree map shows, or the screen a display page shows.
+    property string pageScope: ""
     property int viewSerial: 0
     property int navigationSerial: 0
     property bool drawerReady: true
@@ -268,7 +271,7 @@ ShellRoot {
         viewProcess.serial = request.serial;
         viewProcess.requestedPage = request.page;
         viewProcess.command = backendCommand(["view", request.page].concat(request.filter ? [request.query] : [])
-            .concat(request.page === "worktrees" && worktreeProject ? ["--project", worktreeProject] : []));
+            .concat(Logic.scopedPage(request.page) && pageScope ? ["--project", pageScope] : []));
         viewProcess.running = true;
     }
 
@@ -298,6 +301,7 @@ ShellRoot {
             entries = Array.isArray(data.items) ? data.items : [];
             creditSnapshot = requestedPage === "api-credits" ? data.credits || null : null;
             pageTitle = (requestedPage === "cheatsheet" && keysFilter && !searching ? "drawer keys" : data.title) || page;
+            if (data.title && !(requestedPage === "cheatsheet" && keysFilter)) { var seen = Object.assign({}, seenTitles); seen[requestedPage] = data.title; seenTitles = seen; }
             drawerReady = true;
             if (data.group && !searching) {
                 groupId = data.group;
@@ -465,7 +469,8 @@ ShellRoot {
         if (calendarLayout) { hide(); return; }
         if (pickerActive && (pickerPrompt || !searching)) { hide(); return; }
         if (pendingConfirm) { pendingConfirm = null; return; }
-        if (editing) { finishEdit(); return; }
+        // Esc leaves a stop slider as it was; other sliders have already been writing as they moved.
+        if (editing) { if (Logic.hasStops(entries[itemIndex])) editing = false; else finishEdit(); return; }
         if (searching) {
             if (page === "search") { hide(); return; }
             searching = false;
@@ -627,7 +632,8 @@ ShellRoot {
             return;
         }
         if (item.kind === "page") {
-            if ((item.page || item.id) === "worktrees") worktreeProject = "";
+            if (item.scope) pageScope = String(item.scope);
+            else if (Logic.scopedPage(item.page || item.id)) pageScope = "";
             remember();
             if (searching) {
                 searching = false;
@@ -645,7 +651,7 @@ ShellRoot {
             return;
         }
         if (item.kind === "slider") {
-            draftValue = Math.round(Number(item.value || 0));
+            draftValue = Logic.hasStops(item) ? Number(item.stop || 0) : Math.round(Number(item.value || 0));
             editing = true;
             note("");
             return;
@@ -688,6 +694,8 @@ ShellRoot {
     function adjust(delta) {
         var item = entries[itemIndex];
         if (!editing || !item || item.kind !== "slider") return;
+        // A slider with stops (a screen's size) moves one stop at a time and changes nothing until Enter.
+        if (Logic.hasStops(item)) { draftValue = Math.max(0, Math.min(item.stops.length - 1, draftValue + (delta > 0 ? 1 : -1))); return; }
         draftValue = Math.max(0, Math.min(100, draftValue + delta));
         sliderWrite.item = item;
         sliderWrite.value = draftValue;
@@ -697,6 +705,11 @@ ShellRoot {
     function finishEdit() {
         if (!editing) return;
         editing = false;
+        var stopped = entries[itemIndex];
+        if (Logic.hasStops(stopped)) {
+            if (draftValue !== Number(stopped.stop || 0)) runAction(stopped, stopped.stops[draftValue].value, false);
+            return;
+        }
         if (sliderWrite.running) {
             sliderWrite.stop();
             runAction(sliderWrite.item, sliderWrite.value, false);
@@ -930,7 +943,7 @@ ShellRoot {
                 root.note(result.message || (result.ok ? "all set." : "That action did not complete."), !result.ok || code !== 0);
                 if (result.ok && code === 0) {
                     if (root.opened && location === root.navigationSerial && result.page) {
-                        root.worktreeProject = result.project || "";
+                        root.pageScope = result.project || "";
                         root.show(result.page);
                     }
                     else if (root.opened && location === root.navigationSerial && (result.close || (item && item.close))) root.hide();
@@ -1330,8 +1343,11 @@ ShellRoot {
                                         readonly property int indent: modelData.nested === true ? 22 : 0
                                         // A small section heading: no card, no icon, never selected.
                                         readonly property bool heading: modelData.kind === "heading"
+                                        // The row as the backend sent it: inside the list, modelData's nested lists lose their length.
+                                        readonly property var source: root.entries[index] || modelData
                                         // Today's favorites sit a little closer so more of them fit under the day.
-                                        readonly property bool compactRow: root.page === "root" && !root.searching
+                                        // …and so do shortcuts, one line each: what it does, then its keys.
+                                        readonly property bool compactRow: (root.page === "root" && !root.searching) || modelData.presentation === "shortcut"
                                         // The list sets each row's x itself, so the indent is a shift: the row keeps its left edge in
                                         // line with the text above it and its right edge in line with every other row.
                                         transform: Translate { x: itemRow.indent }
@@ -1403,7 +1419,7 @@ ShellRoot {
                                             spacing: 10
                                             Image {
                                                 objectName: "item-menu-icon"
-                                                visible: itemRow.connection === null && !itemRow.mediaArtwork && !itemRow.clipboardPhoto && Boolean(modelData.image || itemRow.menuIcon)
+                                                visible: itemRow.connection === null && !itemRow.mediaArtwork && !itemRow.clipboardPhoto && modelData.presentation !== "shortcut" && Boolean(modelData.image || itemRow.menuIcon)
                                                 source: modelData.image || itemRow.menuIcon
                                                 sourceSize.width: modelData.image ? 42 : 24
                                                 sourceSize.height: modelData.image ? 42 : 24
@@ -1426,7 +1442,7 @@ ShellRoot {
                                                 Layout.preferredWidth: visible ? 52 : 0; Layout.preferredHeight: 56
                                             }
                                             ClipIcon { theme: root.paperTheme; visible: itemRow.connection !== null; linked: itemRow.connection === true; Layout.preferredWidth: visible ? 24 : 0; Layout.preferredHeight: 24 }
-                                            Text { textFormat: Text.PlainText; visible: itemRow.connection === null && !itemRow.mediaArtwork && !modelData.image && !itemRow.menuIcon; text: Logic.symbol(modelData); color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 16; font.weight: Font.Normal; Layout.preferredWidth: visible ? 24 : 0 }
+                                            Text { textFormat: Text.PlainText; visible: itemRow.connection === null && !itemRow.mediaArtwork && !modelData.image && !itemRow.menuIcon && modelData.presentation !== "shortcut"; text: Logic.symbol(modelData); color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 16; font.weight: Font.Normal; Layout.preferredWidth: visible ? 24 : 0 }
                                             ColumnLayout {
                                                 Layout.fillWidth: true
                                                 spacing: 4
@@ -1436,7 +1452,7 @@ ShellRoot {
                                                     Text { id: entryLabel; textFormat: Text.PlainText; text: modelData.label || ""; color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 12; elide: Text.ElideRight; Layout.fillWidth: true }
                                                     StateTag { objectName:"media-state-tag"; theme:root.paperTheme; text:itemRow.stateLabel; visible:text.length>0 }
                                                 }
-                                                Text { id: entryDetail; textFormat: Text.PlainText; text: Logic.detailText(modelData, itemRow.stateLabel.length > 0); visible: text.length > 0; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9; elide: Text.ElideRight; Layout.fillWidth: true }
+                                                Text { id: entryDetail; textFormat: Text.PlainText; text: root.editing && itemRow.selected && Logic.hasStops(itemRow.source) ? Logic.stopDetail(itemRow.source, root.draftValue) : Logic.detailText(modelData, itemRow.stateLabel.length > 0); visible: text.length > 0; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9; elide: Text.ElideRight; Layout.fillWidth: true }
                                                 ContextHearts {
                                                     objectName: "context-hearts"
                                                     theme: root.paperTheme
@@ -1451,7 +1467,7 @@ ShellRoot {
                                                     Layout.topMargin: 6
                                                     Layout.preferredHeight: theme.paperDetails ? 14 : 3
                                                     tickMarks: theme.paperDetails
-                                                    value: root.editing && selected ? root.draftValue : Number(modelData.value || 0)
+                                                    value: Logic.sliderPosition(itemRow.source, root.editing && selected, root.draftValue)
                                                 }
                                             }
                                             // The row's own shortcut, faint until the row is chosen: "alt ⇧ n" as little keycaps.
@@ -1460,7 +1476,8 @@ ShellRoot {
                                                 readonly property var caps: typeof modelData.keys === "string" ? modelData.keys.trim().split(/\s+/).filter(function(cap) { return cap.length > 0; }).slice(0, 5) : []
                                                 visible: caps.length > 0
                                                 spacing: 2
-                                                opacity: itemRow.selected || itemMouse.containsMouse ? .9 : .55
+                                                // In the shortcut reference the keys are the answer, so they are drawn solid.
+                                                opacity: modelData.presentation === "shortcut" || itemRow.selected || itemMouse.containsMouse ? .9 : .55
                                                 Layout.alignment: Qt.AlignVCenter
                                                 Accessible.role: Accessible.StaticText
                                                 Accessible.name: visible ? "shortcut " + modelData.keys : ""
@@ -1472,7 +1489,7 @@ ShellRoot {
                                                         radius: 3
                                                         color: theme.paperDetails ? Qt.alpha(theme.highlight, .4) : "transparent"
                                                         border.width: 1; border.color: Qt.alpha(theme.line, .75)
-                                                        Text { id: keyCap; anchors.centerIn: parent; textFormat: Text.PlainText; text: modelData; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9 }
+                                                        Text { id: keyCap; anchors.centerIn: parent; textFormat: Text.PlainText; text: modelData; color: itemRow.modelData.presentation === "shortcut" ? theme.ink : theme.muted; font.family: theme.fontFamily; font.pixelSize: itemRow.modelData.presentation === "shortcut" ? 11 : 9 }
                                                     }
                                                 }
                                             }
@@ -1485,7 +1502,7 @@ ShellRoot {
                                                     color: "transparent"; border.width: 1; border.color: theme.muted
                                                     Rectangle { width: 8; height: 8; radius: 4; y: 4; x: modelData.checked || modelData.active ? 17 : 4; color: theme.paperDetails && (modelData.checked || modelData.active) ? theme.detailAccent : theme.ink; Behavior on x { NumberAnimation { duration: 100 } } }
                                                 }
-                                                Text { textFormat: Text.PlainText; visible: modelData.kind !== "toggle"; text: (theme.paperDetails && root.editing && selected && modelData.kind === "slider" ? "✎ " : "") + Logic.valueText(modelData, root.editing && selected, root.draftValue); color: theme.ink; font.family: theme.fontFamily; font.pixelSize: modelData.kind === "page" ? 18 : 11; Layout.alignment: Qt.AlignRight }
+                                                Text { textFormat: Text.PlainText; visible: modelData.kind !== "toggle"; text: (theme.paperDetails && root.editing && selected && modelData.kind === "slider" ? "✎ " : "") + Logic.valueText(itemRow.source, root.editing && selected, root.draftValue); color: theme.ink; font.family: theme.fontFamily; font.pixelSize: modelData.kind === "page" ? 18 : 11; Layout.alignment: Qt.AlignRight }
                                                 Text { textFormat: Text.PlainText; visible: modelData.kind === "toggle"; text: Logic.valueText(modelData, false, 0); color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 8; Layout.alignment: Qt.AlignRight }
                                             }
                                         }
@@ -1502,7 +1519,7 @@ ShellRoot {
                                             delay: 900
                                             timeout: 7000
                                             // Below the row when the space above it inside the list can't hold the tip (it would cover the page title).
-                                            y: itemRow.y - itemList.contentY < implicitHeight + 6 ? itemRow.height + 4 : -implicitHeight - 4
+                                            y: itemRow.y - itemList.contentY < implicitHeight + 6 || Logic.headingAbove(root.entries, index) !== index ? itemRow.height + 4 : -implicitHeight - 4
                                             // ToolTip centres on its unwrapped width, which slides a long tip off the drawer's left edge.
                                             x: 0
                                             text: Logic.tooltipText(modelData)

@@ -365,6 +365,15 @@ window.soffice button:hover {
 {{GTK_DETAIL_SCOPE}} entry.search, {{GTK_DETAIL_SCOPE}} search entry,
 {{GTK_DETAIL_SCOPE}} menu { border-color: #{{BTOP_LINE}}; }
 
+/* The divider between Thunar's sidebar and its files is a hairline too, not a black bar. */
+{{GTK_DETAIL_SCOPE}} paned > separator, {{GTK_DETAIL_SCOPE}} separator { background-color: #{{BTOP_LINE}}; background-image: none; }
+{{GTK_DETAIL_SCOPE}} paned.horizontal > separator { min-width: 1px; padding: 0; margin: 0; background-color: transparent; border: none; border-left: 1px solid #{{BTOP_LINE}}; }
+{{GTK_DETAIL_SCOPE}} paned.vertical > separator { min-height: 1px; padding: 0; margin: 0; background-color: transparent; border: none; border-top: 1px solid #{{BTOP_LINE}}; }
+
+/* Paper: Thunar's bars and sidebar let the see-through window show, so the whole window reads as one sheet. */
+{{GTK_DETAIL_SCOPE}}.thunar menubar, {{GTK_DETAIL_SCOPE}}.thunar toolbar, {{GTK_DETAIL_SCOPE}}.thunar .sidebar,
+{{GTK_DETAIL_SCOPE}}.thunar .sidebar .view, {{GTK_DETAIL_SCOPE}}.thunar statusbar { background-color: transparent; background-image: none; }
+
 /* Thunar cards use the existing icon grid and pencil frame. */
 {{GTK_DETAIL_SCOPE}}.thunar iconview.view:selected,
 {{GTK_DETAIL_SCOPE}}.thunar iconview.view:selected:focus,

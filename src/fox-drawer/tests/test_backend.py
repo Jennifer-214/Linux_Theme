@@ -1274,22 +1274,57 @@ class BackendTests(unittest.TestCase):
         layout = self.home/'.config/foxml/monitor-layout.conf'
         layout.parent.mkdir(parents=True, exist_ok=True)
         layout.write_text('PRIMARY="eDP-1"\n')
-        monitors = [dict(name='DP-2', model='Acer', width=3840, height=2160, x=-1440, y=-740, scale=1.5, transform=3),
-                    dict(name='HDMI-A-1', model='Side', width=1920, height=1080, x=1920, y=-420, scale=1.0, transform=3),
-                    dict(name='eDP-1', model='Laptop', width=1920, height=1080, x=0, y=0, scale=1.0, transform=0)]
+        monitors = [dict(name='DP-2', make='Acer Technologies', model='B277K L', width=3840, height=2160, x=-1440, y=-740, scale=1.5,
+                         transform=3, refreshRate=59.997, availableModes=['3840x2160@60.00Hz', '3840x2160@29.97Hz', '2560x1440@59.95Hz', 'junk']),
+                    dict(name='HDMI-A-1', make='Dell Inc.', model='DELL P2419H', width=1920, height=1080, x=1920, y=-420, scale=1.0,
+                         transform=3, refreshRate=60.0, availableModes=['1920x1080@60.00Hz']),
+                    dict(name='eDP-1', make='Chimei Innolux Corporation', model='0x150C', width=1920, height=1080, x=0, y=0, scale=1.0,
+                         transform=0, refreshRate=60.001, availableModes=['1920x1080@60.00Hz'])]
         self.state = {'exact': {'hyprctl\x1fmonitors\x1f-j': {'stdout': json.dumps(monitors)}}}
         return modules, conf, lua
 
-    def test_displays_rescale_moves_neighbours_and_go_back_unless_kept(self):
-        modules, conf, lua = self.displays_fixture()
+    def test_displays_list_a_card_per_screen_and_each_screen_has_its_own_page(self):
+        self.displays_fixture()
         rows = self.invoke('view','displays')['items']
-        heads = {r['label'].split(' · ')[0]: r for r in rows if r['id']=='display-edit' and ' · ' in r['label']}
-        self.assertIn('scale 1.5', heads['DP-2']['detail'])
-        self.assertIn('left of eDP-1', heads['DP-2']['detail'])
-        self.assertIn('Scale 1.5 → 1.25', [r for r in rows if r['id']=='display-scale-down' and r['argument']=='DP-2'][0]['detail'])
-        self.assertNotIn('display-side', [r['id'] for r in rows if r.get('argument')=='eDP-1'], 'the main screen has no side')
+        self.assertEqual([r['label'] for r in rows if r['kind']=='heading'], ['screens', 'everywhere'])
+        cards = {r['scope']: r for r in rows if r['id']=='display-screen'}
+        self.assertEqual(set(cards), {'DP-2', 'HDMI-A-1', 'eDP-1'})
+        self.assertEqual(cards['DP-2']['label'], 'Acer B277K L')
+        self.assertEqual(cards['HDMI-A-1']['label'], 'Dell P2419H', "the make's word isn't said twice")
+        self.assertEqual(cards['eDP-1']['label'], 'Laptop screen')
+        self.assertEqual(cards['DP-2']['detail'], 'portrait · 150% · left of the laptop')
+        self.assertEqual(cards['eDP-1']['detail'], 'landscape · 100% · main screen')
+        self.assertEqual((cards['DP-2']['kind'], cards['DP-2']['page']), ('page', 'display'))
+        pointer = next(r for r in rows if r['id']=='cursor-size')
+        self.assertEqual([s['value'] for s in pointer['stops']], [24, 30, 36, 42, 48])
 
-        done = self.invoke('run','display-scale-down','DP-2')
+        page = self.invoke('--project','DP-2','view','display')
+        self.assertEqual(page['title'], 'Acer B277K L')
+        items = page['items']
+        self.assertEqual([r['label'] for r in items if r['kind']=='heading'], ['size', 'rotation', 'side', 'mode'])
+        size = next(r for r in items if r['id']=='display-scale')
+        self.assertEqual(size['kind'], 'slider')
+        self.assertEqual(size['stops'][size['stop']]['value'], 150, 'the slider starts at the size in use')
+        self.assertIn('fits like 1440×2560', [s['detail'] for s in size['stops']])
+        self.assertTrue(all(3840 * 100 % s['value'] == 0 and 2160 * 100 % s['value'] == 0 for s in size['stops']), 'only even sizes')
+        turned = [r for r in items if r['id']=='display-rotate']
+        self.assertEqual([r['label'] for r in turned], ['Landscape', 'Portrait, turned left', 'Portrait, turned right', 'Upside down'])
+        self.assertEqual([r['label'] for r in turned if r.get('checked')], ['Portrait, turned left'])
+        self.assertEqual([r['label'] for r in items if r['id']=='display-side'],
+                         ['Left of the laptop', 'Right of the laptop', 'Above the laptop', 'Below the laptop'])
+        mode = next(r for r in items if r['id']=='display-modes')
+        self.assertEqual((mode['label'], mode['page'], mode['scope']), ('3840×2160 at 60 Hz', 'display-modes', 'DP-2'))
+        laptop = self.invoke('--project','eDP-1','view','display')['items']
+        self.assertNotIn('display-side', [r['id'] for r in laptop], 'the main screen has no side')
+        modes = self.invoke('--project','DP-2','view','display-modes')['items']
+        self.assertEqual([r['label'] for r in modes], ['3840×2160 · 60 Hz', '3840×2160 · 29.97 Hz', '2560×1440 · 59.95 Hz'])
+        self.assertEqual([r['detail'] for r in modes if r.get('checked')], ['In use'])
+        self.assertFalse(self.invoke('--project','DP-9','view','display', expect=1)['ok'], 'a screen that left says so')
+
+    def test_display_changes_move_every_screen_and_go_back_unless_kept(self):
+        modules, conf, lua = self.displays_fixture()
+        done = self.invoke('run','display-scale','DP-2=125')
+        self.assertIn('Acer B277K L at 125%', done['message'])
         self.assertIn('goes back in 15s', done['message'])
         self.assertFalse(done['close'])
         new_lua, new_conf = (modules/'monitors.lua').read_text(), (modules/'monitors.conf').read_text()
@@ -1303,8 +1338,9 @@ class BackendTests(unittest.TestCase):
         self.assertIn(['hyprctl','reload'], self.calls())
         self.assertIn(['setsid','-f',str(BINARY),'display-revert',token], self.calls())
         self.assertEqual(self.invoke('view','displays')['items'][0]['id'], 'display-keep')
+        self.assertEqual(self.invoke('--project','DP-2','view','display')['items'][0]['id'], 'display-keep', 'keep is on the screen page too')
 
-        self.invoke('run','display-side','HDMI-A-1')
+        self.invoke('run','display-side','HDMI-A-1=above')
         self.assertEqual((modules/'monitors.lua.foxml-prev').read_text(), lua, 'a second change overwrote the saved layout')
         self.assertIn('"HDMI-A-1", mode = "1920x1080@60", position = "420x-1920"', (modules/'monitors.lua').read_text())
 
@@ -1314,11 +1350,28 @@ class BackendTests(unittest.TestCase):
         self.assertTrue(self.invoke('run','display-undo')['ok'])
         self.assertEqual((modules/'monitors.lua').read_text(), lua)
         self.assertEqual((modules/'monitors.conf').read_text(), conf)
-        self.failed('run','display-rotate','NOPE-1')
+        for action, argument in (('display-rotate','NOPE-1=0'), ('display-scale','DP-2=133'), ('display-scale','DP-2'),
+                                 ('display-rotate','DP-2=7'), ('display-side','eDP-1=left'), ('display-side','DP-2=inside'),
+                                 ('display-mode','DP-2=1024x768@60.00'), ('display-scale','DP-2=150'), ('cursor-size','pointer=31')):
+            with self.subTest(action=action, argument=argument):
+                self.failed('run', action, argument)
+
+    def test_a_new_mode_keeps_the_text_size_close_and_moves_the_neighbours(self):
+        modules, _, _ = self.displays_fixture()
+        done = self.invoke('run','display-mode','DP-2=2560x1440@59.95')
+        self.assertIn('2560×1440, 59.95 Hz', done['message'])
+        new_lua, new_conf = (modules/'monitors.lua').read_text(), (modules/'monitors.conf').read_text()
+        self.assertIn('"DP-2", mode = "2560x1440@59.95", position = "-900x-260", scale = 1.6, transform = 3 })', new_lua,
+                      '150% does not divide 2560×1440 evenly, so the nearest even size is kept, and the screen is placed from its new size')
+        self.assertIn('monitor = DP-2, 2560x1440@59.95, -900x-260, 1.6, transform, 3\n', new_conf)
+        self.invoke('run','display-undo')
+        self.invoke('run','display-rotate','DP-2=0')
+        self.assertIn('"DP-2", mode = "preferred", position = "-2560x-180", scale = 1.5 })', (modules/'monitors.lua').read_text(),
+                      'a portrait screen turned to landscape is placed again, so it does not overlap the laptop')
 
     def test_display_timer_goes_back_only_for_its_own_change(self):
         modules, conf, lua = self.displays_fixture()
-        self.invoke('run','display-rotate','eDP-1')
+        self.invoke('run','display-rotate','eDP-1=3')
         self.assertIn('"eDP-1", mode = "preferred", position = "0x0", scale = 1, transform = 3 })', (modules/'monitors.lua').read_text())
         pending = Path(self.env['XDG_RUNTIME_DIR'])/'foxml/display-pending'
         token = pending.read_text().strip()
@@ -1332,23 +1385,27 @@ class BackendTests(unittest.TestCase):
         self.assertFalse(pending.exists())
         self.assertTrue(any(c[0]=='notify-send' and 'Display layout went back' in c for c in self.calls()))
 
-    def test_pointer_size_steps_save_one_block_and_apply_live(self):
+    def test_pointer_size_stops_save_one_block_and_apply_live(self):
         modules, _, _ = self.displays_fixture()
         self.env['XCURSOR_SIZE'] = '30'
-        self.assertFalse(self.invoke('run','cursor-size-up')['close'])
+        self.assertFalse(self.invoke('run','cursor-size','pointer=36')['close'])
         self.assertTrue(any(c[:2]==['hyprctl','setcursor'] and c[-1]=='36' for c in self.calls()))
-        self.invoke('run','cursor-size-up')
+        self.invoke('run','cursor-size','pointer=42')
         local = (modules/'local.lua').read_text()
         self.assertEqual(local.count('foxml:cursor-size-begin'), 1)
         self.assertIn('hl.env("XCURSOR_SIZE", "42")', local)
-        self.assertIn('Pointer size 42 → 48', [r for r in self.invoke('view','displays')['items'] if r['id']=='cursor-size-up'][0]['detail'])
+        pointer = next(r for r in self.invoke('view','displays')['items'] if r['id']=='cursor-size')
+        self.assertEqual(pointer['stops'][pointer['stop']]['value'], 42)
 
     def test_shortcut_reference_reads_tables_and_copies_only_known_keys(self):
         document = self.home / ".local/share/foxml/KEYBINDS.md"
         document.parent.mkdir(parents=True)
         document.write_text("## Desk\n### Windows\n| Key | Action |\n|-----|--------|\n| `ALT + /` | **Find** a `shortcut` |\nProse\n")
         rows = self.invoke("view", "cheatsheet")["items"]
-        self.assertEqual([(row["label"], row["detail"]) for row in rows], [("ALT + /", "Find a shortcut · Desk · Windows")])
+        self.assertEqual([(row["label"], row["scope"]) for row in rows], [("Neovim", "nvim")], "the landing page lists each book with shortcuts")
+        rows = self.invoke("--project", "nvim", "view", "cheatsheet-keys")["items"]
+        self.assertEqual([(row["kind"], row["label"], row.get("keys")) for row in rows],
+                         [("heading", "Windows", None), ("action", "Find a shortcut", "alt /")], "what it does is the title; the keys are caps")
         self.assertEqual(self.invoke("run", "cheatsheet-copy", "ALT + /")["message"], "Copied: ALT + /")
         self.assertFalse(self.invoke("run", "cheatsheet-copy", "ALT + /")["close"])
         self.failed("run", "cheatsheet-copy", "not a shortcut")
@@ -1787,18 +1844,24 @@ print('0\t' + str(target))
                       "## Custom Keymaps (init.lua)\n### Telescope\n" + table + "| `Space ff` | Find files |\n"
                       "## Hyprland (ALT = mainMod)\n### Applications\n" + table + "| `ALT + Shift + N` | Wi-Fi networks |\n"
                       "## Tmux (Ctrl+a prefix)\n" + table + "| `Ctrl+a c` | New window |\n")
-        rows = self.invoke("view", "cheatsheet")["items"]
-        labels = [r["label"] for r in rows]
-        self.assertEqual(labels[0], "ALT + Shift + N")
-        self.assertLess(labels.index("ALT + Shift + N"), labels.index("Ctrl+a c"))
-        self.assertLess(labels.index("Ctrl+a c"), labels.index("Space ff"))
-        self.assertLess(labels.index("Ctrl+a c"), labels.index("ma"))
-        self.assertEqual((labels[1], rows[1]["detail"]), ("j / k", "Move down / up · Paper notebook details · Quickshell drawers"),
-                         "the drawer's own keys come straight after the desktop, a key pair in one cell read as one")
-        self.assertNotIn("h/j/k/l", labels)
+        books = self.invoke("view", "cheatsheet")["items"]
+        self.assertEqual([r["label"] for r in books], ["Desktop", "The drawer", "Terminal (tmux)", "Neovim"])
+        self.assertEqual(books[0]["detail"], "Apps, windows, workspaces and media · 1 shortcuts")
+        self.assertTrue(all(r["page"] == "cheatsheet-keys" for r in books))
+        tmux = self.invoke("--project", "tmux", "view", "cheatsheet-keys")["items"]
+        self.assertEqual([(r["label"], r.get("keys")) for r in tmux if r["kind"] != "heading"], [("New window", "ctrl a c")])
+        drawer = self.invoke("--project", "drawer", "view", "cheatsheet-keys")["items"]
+        self.assertEqual([(r["label"], r.get("keys")) for r in drawer if r["kind"] != "heading"], [("Move down / up", "j / k")],
+                         "a key pair in one cell reads as one")
+        nvim = self.invoke("--project", "nvim", "view", "cheatsheet-keys")["items"]
+        self.assertEqual([r["label"] for r in nvim if r["kind"] == "heading"], ["Paper notebook details", "Telescope"])
+        self.assertNotIn("Left / Down / Up / Right", [r["label"] for r in nvim], "stock vim keys stay out")
+        mine = self.invoke("view", "cheatsheet", "quickshell drawers")["items"]
+        self.assertEqual(mine[0]["detail"], "Paper notebook details · Quickshell drawers", "a search says where each shortcut belongs")
+        self.assertEqual(mine[-1]["id"], "keys-all")
         found = self.invoke("view", "search", "wi-fi networks")["items"]
-        self.assertIn(("cheatsheet-copy", "ALT + Shift + N"), [(r["id"], r["label"]) for r in found])
-        self.assertFalse(any(r["id"] == "cheatsheet-copy" and r["label"] == "Space ff" for r in self.invoke("view", "search", "find files")["items"]),
+        self.assertIn(("cheatsheet-copy", "Wi-Fi networks", "alt ⇧ n"), [(r["id"], r["label"], r.get("keys")) for r in found])
+        self.assertFalse(any(r["id"] == "cheatsheet-copy" and r["argument"] == "Space ff" for r in self.invoke("view", "search", "find files")["items"]),
                          "search offers the desktop's binds, not every editor key")
         self.assertTrue(self.invoke("run", "cheatsheet-copy", "ALT + Shift + N")["ok"])
 

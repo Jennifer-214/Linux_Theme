@@ -370,6 +370,119 @@
       "asset": "foxml-video"
     },
     {
+      "id": "document",
+      "glyph": "",
+      "extensions": [
+        "doc",
+        "docx",
+        "odt",
+        "rtf"
+      ],
+      "mimes": [
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.oasis.opendocument.text",
+        "application/rtf",
+        "text/rtf"
+      ],
+      "asset": "x-office-document"
+    },
+    {
+      "id": "slides",
+      "glyph": "",
+      "extensions": [
+        "ppt",
+        "pptx",
+        "odp",
+        "key"
+      ],
+      "mimes": [
+        "application/vnd.ms-powerpoint",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "application/vnd.oasis.opendocument.presentation"
+      ],
+      "asset": "x-office-presentation"
+    },
+    {
+      "id": "web",
+      "glyph": "",
+      "extensions": [
+        "html",
+        "htm",
+        "xhtml",
+        "css"
+      ],
+      "mimes": [
+        "text/html",
+        "application/xhtml+xml",
+        "text/css"
+      ],
+      "asset": "text-html"
+    },
+    {
+      "id": "notebook",
+      "glyph": "",
+      "extensions": [
+        "ipynb"
+      ],
+      "mimes": [
+        "application/x-ipynb+json"
+      ],
+      "asset": "application-x-ipynb+json",
+      "badge": "NB"
+    },
+    {
+      "id": "tex",
+      "glyph": "",
+      "extensions": [
+        "tex",
+        "bib",
+        "sty",
+        "cls"
+      ],
+      "mimes": [
+        "text/x-tex",
+        "text/x-bibtex"
+      ],
+      "asset": "text-x-tex"
+    },
+    {
+      "id": "ebook",
+      "glyph": "",
+      "extensions": [
+        "epub",
+        "mobi",
+        "azw3"
+      ],
+      "mimes": [
+        "application/epub+zip",
+        "application/x-mobipocket-ebook"
+      ],
+      "asset": "application-epub+zip"
+    },
+    {
+      "id": "installer",
+      "glyph": "",
+      "extensions": [
+        "flatpakref",
+        "flatpakrepo",
+        "flatpak",
+        "deb",
+        "rpm",
+        "appimage"
+      ],
+      "mimes": [
+        "application/vnd.flatpak.ref",
+        "application/vnd.flatpak.repo",
+        "application/vnd.flatpak",
+        "application/vnd.debian.binary-package",
+        "application/x-rpm",
+        "application/vnd.appimage",
+        "application/x-iso9660-appimage"
+      ],
+      "asset": "foxml-installer"
+    },
+    {
       "id": "log",
       "glyph": "",
       "extensions": [

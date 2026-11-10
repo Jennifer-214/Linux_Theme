@@ -80,6 +80,17 @@ int main() {
           l.find("position = \"0x1080\", scale = 1 })\n-- Catch-all") != std::string::npos);
     check("lua leaves the catch-all alone", l.find("output = \"\", mode = \"preferred\", position = \"auto\", scale = 1 })") != std::string::npos);
 
+    // A new mode replaces the old one and nothing else; a screen with no rule gets the mode it was given.
+    auto m = p::set_conf_rule(conf, "HDMI-A-1", "1920x-740", "0.75", 3, "1600x900@60.00");
+    check("conf sets the mode", m.find("monitor = HDMI-A-1, 1600x900@60.00, 1920x-740, 0.75, transform, 3, supports_hdr, -1\n") != std::string::npos);
+    m = p::set_conf_rule(m, "DP-9", "0x1080", "1", 0, "2560x1440@59.95");
+    check("conf adds a missing screen with its mode", m.find("monitor = DP-9, 2560x1440@59.95, 0x1080, 1\n") != std::string::npos);
+    auto ml = p::set_lua_rule(lua, "DP-2", "-1728x-996", "1.25", 3, "2560x1440@59.95");
+    check("lua sets the mode", ml.find("output = \"DP-2\", mode = \"2560x1440@59.95\", position = \"-1728x-996\", scale = 1.25, transform = 3 })") != std::string::npos);
+    check("lua leaves other screens' modes alone", ml.find("output = \"HDMI-A-1\", mode = \"1920x1080@60\"") != std::string::npos);
+    ml = p::set_lua_rule(ml, "DP-9", "0x1080", "1", 0, "1920x1080@60.00");
+    check("lua adds a missing screen with its mode", ml.find("output = \"DP-9\", mode = \"1920x1080@60.00\"") != std::string::npos);
+
     if (failures == 0) std::cout << "test_placement: all checks passed\n";
     return failures == 0 ? 0 : 1;
 }

@@ -3,7 +3,7 @@
 # ╰──────────────────────────────────────────────────────────────────╯
 
 # Colors
-set default-bg                  "#{{BG}}"
+set default-bg                  "rgba({{BG_R}},{{BG_G}},{{BG_B}},{{ZATHURA_BG_ALPHA}})"
 set default-fg                  "#{{FG}}"
 
 set statusbar-bg                "#{{BG_DARK}}"

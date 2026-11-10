@@ -443,7 +443,11 @@ GTK_ICON_SEL_BORDER="1px solid rgb(169,161,155)"
 GTK_RUBBER_BG="rgba(226,164,186,0.35)"
 GTK_RUBBER_BORDER="1px solid rgb(169,161,155)"
 GTK_PANEL_ALPHA=0.98
-GTK_WINDOW_ALPHA=0.98
+# Windows match the terminal (0.70): black ink reads on the paper wallpaper and its drawings show through.
+# Firefox stays solid (rules.lua).
+GTK_WINDOW_ALPHA=0.70
+# Zathura around the pages; the pages themselves stay solid.
+ZATHURA_BG_ALPHA=0.70
 WAYBAR_BUBBLE_ALPHA=0.98
 MAKO_FORMAT='<span font_family="MonaspiceRn Nerd Font" style="italic" size="large">%s</span>\n%b'
 

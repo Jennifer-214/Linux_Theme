@@ -38,7 +38,10 @@ function headingAbove(items, index) {
 function pageHeading(title, paper) {
     title = String(title || "");
     if (!paper || !title) return title;
-    var written = title.replace(/[A-Za-z][A-Za-z']*(?:-[A-Za-z][A-Za-z']*)*/g, function(word) {
+    // A model number ("B277K") and the single capital after it stay as written: "acer B277K L."
+    var model = /[A-Za-z][0-9]|[0-9][A-Za-z]/.test(title);
+    var written = title.replace(/[A-Za-z0-9][A-Za-z0-9']*(?:-[A-Za-z0-9][A-Za-z0-9']*)*/g, function(word) {
+        if (/[0-9]/.test(word) || (model && /^[A-Z]$/.test(word))) return word;
         var simple = word.split("-").every(function(part) { return /^[A-Z]?[a-z']*$/.test(part); });
         return simple ? word.toLowerCase() : word;
     });
@@ -75,8 +78,8 @@ function todayTags(today, groups, hearts) {
                               : project + (agent.asking ? " needs you" : " is waiting")),
             {action: "agent-jump", argument: String(agent.argument)});
     });
-    var working = Number(today.claudeWorking || 0);
-    add(working ? "⋯ " + working + " working" : "", {page: "agents"});
+    var working = Number(today.claudeWorking || 0), live = Number(today.claudeSessions || 0);
+    add(working ? "⋯ " + (live > working ? working + " of " + live : working) + " working" : "", {page: "agents"});
     var running = Number(today.jobsRunning || 0), finished = Number(today.jobsFinished || 0);
     var job = today.runningJob;
     add(job && job.name ? glyphs.jobs + " " + job.name + " · " + job.left + (running > 1 ? " · " + running + " running" : "")
@@ -219,7 +222,9 @@ function nextIndex(items, current, delta) {
 
 function actionArguments(item, value, confirmed) {
     var args = ["run", String(item.action || item.id)];
-    if (value !== undefined) args.push(String(value));
+    // A stop slider names what it sets as well as the value: "DP-2=125".
+    if (value !== undefined && hasStops(item) && item.argument !== undefined) args.push(String(item.argument) + "=" + String(value));
+    else if (value !== undefined) args.push(String(value));
     else if (item.argument !== undefined) args.push(String(item.argument));
     if (confirmed) args.push("--confirm");
     return args;
@@ -326,7 +331,31 @@ function iconName(item) {
     return /^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(icon) ? icon : "";
 }
 
+// Pages that show one thing chosen on the page before: a project's worktrees, one screen.
+function scopedPage(page) {
+    return page === "worktrees" || page === "display" || page === "display-modes" || page === "cheatsheet-keys";
+}
+
+// A slider whose values are a few fixed stops, each with its own label and words.
+function hasStops(item) {
+    // The drawer hands rows over as Qt values, where a list is not an Array; a length is enough.
+    return Boolean(item) && item.kind === "slider" && Boolean(item.stops) && Number(item.stops.length) > 0;
+}
+
+function sliderPosition(item, editing, draft) {
+    if (!hasStops(item)) return editing ? draft : Number(item.value || 0);
+    var count = item.stops.length;
+    var at = editing ? draft : Number(item.stop || 0);
+    return count > 1 ? at * 100 / (count - 1) : 100;
+}
+
+function stopDetail(item, draft) {
+    var stop = item.stops[Math.max(0, Math.min(item.stops.length - 1, draft))];
+    return (draft === Number(item.stop || 0) ? "now · " : "Enter for ") + String(stop.label) + (stop.detail ? " · " + stop.detail : "");
+}
+
 function valueText(item, editing, draft) {
+    if (hasStops(item)) return String(item.stops[Math.max(0, Math.min(item.stops.length - 1, editing ? draft : Number(item.stop || 0)))].label);
     if (item.kind === "slider") return String(editing ? draft : Math.round(Number(item.value || 0))) + "%";
     if (item.kind === "toggle") return item.checked || item.active ? "on" : "off";
     if (item.kind === "page") return "›";
@@ -400,6 +429,7 @@ function footerHint(state, item) {
     if (state.prompt) return "type normally · Enter sends · Esc closes";
     if (state.searching) return "type to find · ↑ / ↓ choose · Enter selects · Esc goes back";
     if (state.picker) return "j / k move · Enter / l chooses · / searches · h / Esc closes";
+    if (state.editing && hasStops(item)) return "h / l chooses · Enter applies · Esc leaves it";
     if (state.editing) return "h / l adjusts · Enter or Esc finishes";
     return hintFor(state, item) + " · ? keys";
 }
@@ -477,9 +507,10 @@ function emptyState(page, searching, failed) {
     return {title: lines[0], detail: lines[1]};
 }
 
-function breadcrumbs(page, group, trail, groups, title) {
+function breadcrumbs(page, group, trail, groups, title, seen) {
     if (page === "root" || page === "picker") return [];
     var labels = {};
+    Object.keys(seen || {}).forEach(function(id) { labels[id] = seen[id]; });
     (groups || []).forEach(function(section) {
         labels[section.page || section.id] = section.label;
         (section.items || []).forEach(function(item) {

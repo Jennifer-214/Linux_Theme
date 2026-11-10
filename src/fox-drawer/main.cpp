@@ -99,9 +99,9 @@ fs::path repository() {
     return candidate;
 }
 const std::set<std::string> pages = {
-    "apps", "windows", "audio-outputs", "wifi", "bluetooth", "tools", "tools-ai", "tools-security", "tools-desktop", "tools-system", "tools-projects", "tools-other", "tools-all", "cheatsheet", "sandbox", "clipboard-text", "clipboard-images",
+    "apps", "windows", "audio-outputs", "wifi", "bluetooth", "tools", "tools-ai", "tools-security", "tools-desktop", "tools-system", "tools-projects", "tools-other", "tools-all", "cheatsheet", "cheatsheet-keys", "sandbox", "clipboard-text", "clipboard-images",
     "wallpapers", "themes", "power", "updates", "agents", "projects", "bookmarks", "library", "downloads", "screenshots", "passwords", "garden",
-    "models", "storage", "backups", "startup", "displays", "jobs", "test-results", "reviews", "worktrees", "next-steps", "failures", "api-credits", "api-tasks", "earlier-notes"
+    "models", "storage", "backups", "startup", "displays", "display", "display-modes", "jobs", "test-results", "reviews", "worktrees", "next-steps", "failures", "api-credits", "api-tasks", "earlier-notes"
 };
 const std::set<std::string> actions = {
     "volume", "volume-mute", "mic-mute", "media-play-pause", "media-next", "media-previous", "brightness",
@@ -109,7 +109,7 @@ const std::set<std::string> actions = {
     "wallpaper-next", "wallpaper-sync", "color-picker", "updates-terminal", "updates-silent", "vault",
     "security", "cleanup", "agent-triage", "agent-jump", "agent-clear", "claude-jump", "app-launch", "window-focus", "audio-output", "wifi-connect",
     "wifi-toggle", "bluetooth-connect", "bluetooth-toggle", "bluetooth-scan", "bluetooth-service", "tool-run", "cheatsheet-copy", "sandbox-launch", "clipboard-restore", "wallpaper-set", "theme-set", "project-open", "project-terminal", "project-bookmark", "drive-open", "drive-eject", "download-open", "download-folder", "screenshot-open", "screenshot-copy", "screenshot-folder", "screenshot-capture", "password-copy", "tools", "cheatsheet", "sandbox",
-    "goodnight-open", "api-task-ask", "api-task-open", "api-task-failure", "api-task-settings", "api-task-review", "api-task-pi", "api-task-follow", "display-scale-up", "display-scale-down", "display-rotate", "display-side", "display-keep", "display-undo", "display-edit", "cursor-size-up", "cursor-size-down", "credits-setup", "credits-console", "model-agent", "model-remove", "storage-scan", "storage-open", "storage-clean-packages", "storage-trim-journal", "storage-flatpak-unused",
+    "goodnight-open", "api-task-ask", "api-task-open", "api-task-failure", "api-task-settings", "api-task-review", "api-task-pi", "api-task-follow", "display-scale", "display-rotate", "display-side", "display-mode", "display-keep", "display-undo", "display-edit", "cursor-size", "credits-setup", "credits-console", "model-agent", "model-remove", "storage-scan", "storage-open", "storage-clean-packages", "storage-trim-journal", "storage-flatpak-unused",
     "storage-empty-trash", "storage-hidden", "backup-restore", "backup-open", "backup-prune", "startup-user", "startup-autostart",
     "work-open", "work-jump", "work-tests", "work-compare", "work-ask", "work-reviews", "work-tasks", "work-task-toggle", "work-task-draft", "worktree-open", "worktree-terminal", "project-worktrees", "service-log", "service-ask",
     "note-open", "note-clear", "calendar"
@@ -1661,7 +1661,11 @@ Json project_card(const Project& project, bool pinned) {
 
 // ── Displays: scale, rotation, side and pointer size, applied live with a 15 s keep-or-go-back ──
 namespace placement = fox_monitor::placement;
-struct LiveScreen { std::string name, model; int width = 0, height = 0, x = 0, y = 0, scale = 100, transform = 0, id = -1; };
+// `mode` is empty until a change picks a new one ("2560x1440@59.95"); `modes` are the ones the screen offers.
+struct LiveScreen {
+    std::string name, model, make, mode; int width = 0, height = 0, x = 0, y = 0, scale = 100, transform = 0, id = -1;
+    double refresh = 0; std::vector<std::string> modes;
+};
 fs::path hypr_modules() { return config_home() / "hypr/modules"; }
 fs::path display_pending() { return runtime() / "foxml/display-pending"; }
 // 15 s; tests shorten it with FOXML_DISPLAY_REVERT_SECONDS (0-60).
@@ -1676,7 +1680,16 @@ std::vector<LiveScreen> live_screens() {
     for (const auto& m : monitors) {
         if (!m.is_object() || truth(m, "disabled")) continue;
         LiveScreen s;
-        s.name = text(m, "name"); s.model = text(m, "model", text(m, "description"));
+        s.name = text(m, "name"); s.model = text(m, "model", text(m, "description")); s.make = text(m, "make");
+        if (m.contains("refreshRate") && m["refreshRate"].is_number()) s.refresh = m["refreshRate"].get<double>();
+        static const std::regex offered(R"((\d{3,5})x(\d{3,5})@(\d{2,3}(?:\.\d{1,3})?)Hz)");
+        if (m.contains("availableModes") && m["availableModes"].is_array())
+            for (const auto& mode : m["availableModes"]) {
+                std::smatch f; const auto value = mode.is_string() ? mode.get<std::string>() : std::string();
+                if (!std::regex_match(value, f, offered)) continue;
+                const auto plain = f[1].str() + "x" + f[2].str() + "@" + f[3].str();
+                if (std::find(s.modes.begin(), s.modes.end(), plain) == s.modes.end()) s.modes.push_back(plain);
+            }
         s.width = m.value("width", 0); s.height = m.value("height", 0);
         s.x = m.value("x", 0); s.y = m.value("y", 0);
         s.scale = placement::to_x100(m.value("scale", 1.0)); s.transform = m.value("transform", 0);
@@ -1705,14 +1718,36 @@ std::string orientation(int transform) {
     if (transform == 2) return "upside down";
     return transform == 0 ? "landscape" : "flipped";
 }
-std::string next_side(const std::string& side) {
-    return side == "left" ? "right" : side == "right" ? "above" : side == "above" ? "below" : "left";
+// "Acer B277K L", "Dell P2419H", "Laptop screen": the make's first word, unless the model already says it.
+std::string screen_label(const LiveScreen& s) {
+    if (s.name.rfind("eDP", 0) == 0 || s.name.rfind("LVDS", 0) == 0 || s.name.rfind("DSI", 0) == 0) return "Laptop screen";
+    if (s.model.empty()) return s.name;
+    std::string brand = s.make.substr(0, s.make.find(' '));
+    auto lower = [](std::string v) { for (auto& c : v) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c))); return v; };
+    const auto first = s.model.substr(0, s.model.find(' '));
+    if (!brand.empty() && lower(first) == lower(brand)) return brand + s.model.substr(first.size());
+    return brand.empty() ? s.model : brand + " " + s.model;
 }
-int next_scale(const LiveScreen& s, int direction) {
-    const auto steps = placement::scales_for(s.width, s.height);
-    if (direction > 0) { for (int step : steps) if (step > s.scale) return step; }
-    else for (auto it = steps.rbegin(); it != steps.rend(); ++it) if (*it < s.scale) return *it;
-    return s.scale;
+// "60 Hz", "59.94 Hz".
+std::string hertz(double rate) {
+    char out[16]; std::snprintf(out, sizeof out, "%.2f", rate);
+    std::string text = out;
+    while (text.back() == '0') text.pop_back();
+    if (text.back() == '.') text.pop_back();
+    return text + " Hz";
+}
+// The scale that keeps text closest to its size now, among the even ones for a mode.
+int nearest_scale(const std::vector<int>& steps, int scale) {
+    int best = steps.empty() ? scale : steps.front();
+    for (int step : steps) if (std::abs(step - scale) < std::abs(best - scale)) best = step;
+    return best;
+}
+// "NAME=VALUE" from a screen page's control.
+bool screen_and_value(const std::string& arg, std::string& name, std::string& value) {
+    const auto at = arg.find('=');
+    if (at == std::string::npos || at == 0 || at + 1 >= arg.size()) return false;
+    name = arg.substr(0, at); value = arg.substr(at + 1);
+    return std::regex_match(name, std::regex("[A-Za-z0-9_.:-]{1,64}")) && std::regex_match(value, std::regex("[A-Za-z0-9.@-]{1,24}"));
 }
 // Every non-primary screen keeps its side; screens sharing a side chain outward in their live order.
 std::map<std::string, placement::Box> arrange(const std::vector<LiveScreen>& screens, const std::string& primary,
@@ -1778,8 +1813,8 @@ Json apply_displays(const std::vector<LiveScreen>& screens, const std::string& p
         if (box == boxes.end()) continue;
         const auto position = s.name == primary ? std::string("0x0") : placement::position_text(box->second);
         const auto scale = placement::scale_text(s.scale);
-        if (regular(conf_path)) conf = placement::set_conf_rule(conf, s.name, position, scale, s.transform);
-        if (regular(lua_path)) lua = placement::set_lua_rule(lua, s.name, position, scale, s.transform);
+        if (regular(conf_path)) conf = placement::set_conf_rule(conf, s.name, position, scale, s.transform, s.mode);
+        if (regular(lua_path)) lua = placement::set_lua_rule(lua, s.name, position, scale, s.transform, s.mode);
     }
     if (!regular(display_pending())) {
         for (const auto& path : {conf_path, lua_path})
@@ -1866,52 +1901,130 @@ std::string window_place(const Json& client, const std::map<int, std::string>& p
     }
     return where;
 }
+// A slider that moves stop by stop and changes nothing until Enter: each stop's value, label and what it gives.
+Json stop_slider(const std::string& id, const std::string& label, const std::string& detail, const std::string& argument,
+                 const std::vector<std::pair<int, std::pair<std::string, std::string>>>& stops, int current, const std::string& icon) {
+    auto row = item(id, label, "slider", detail, icon);
+    row["argument"] = argument;
+    row["stops"] = Json::array();
+    int at = 0;
+    for (size_t i = 0; i < stops.size(); ++i) {
+        row["stops"].push_back(Json{{"value", stops[i].first}, {"label", stops[i].second.first}, {"detail", stops[i].second.second}});
+        if (stops[i].first == current) at = static_cast<int>(i);
+    }
+    row["stop"] = at;
+    row["value"] = stops.size() > 1 ? at * 100.0 / static_cast<double>(stops.size() - 1) : 100.0;
+    return row;
+}
+void display_pending_rows(Json& rows) {
+    if (!regular(display_pending())) return;
+    std::error_code ec;
+    const auto age = std::chrono::duration_cast<std::chrono::seconds>(fs::file_time_type::clock::now() - fs::last_write_time(display_pending(), ec)).count();
+    const auto left = std::max<long long>(0, display_revert_wait() - age);
+    rows.push_back(item("display-keep", "Keep this layout", "action", "Otherwise it goes back in " + std::to_string(left) + "s", "today"));
+    rows.push_back(item("display-undo", "Go back now", "action", "Restore the layout from before", "refresh"));
+}
+// "left of the laptop", "above the laptop".
+std::string side_words(const std::string& side, const std::string& of) {
+    return side + (side == "above" || side == "below" ? " " : " of ") + of;
+}
+std::string screen_place(const LiveScreen& s, const std::vector<LiveScreen>& screens, const std::string& primary) {
+    if (s.name == primary) return screens.size() > 1 ? "main screen" : "";
+    const auto main_screen = std::find_if(screens.begin(), screens.end(), [&](const LiveScreen& o) { return o.name == primary; });
+    if (main_screen == screens.end()) return "";
+    const auto label = screen_label(*main_screen);
+    return side_words(placement::side_of(live_box(*main_screen), live_box(s)), label == "Laptop screen" ? std::string("the laptop") : label);
+}
+// The Displays page: a card per screen, then what applies to every screen.
 void display_rows(Json& rows) {
     const auto screens = live_screens();
     if (screens.empty()) {
-        auto row = item("display-edit", "Screens are unavailable", "action", "Hyprland did not answer · open monitors.lua instead", "system");
-        rows.push_back(row); return;
+        rows.push_back(item("display-edit", "Screens are unavailable", "action", "Hyprland did not answer · open monitors.lua instead", "system"));
+        return;
     }
-    if (regular(display_pending())) {
-        std::error_code ec;
-        const auto age = std::chrono::duration_cast<std::chrono::seconds>(fs::file_time_type::clock::now() - fs::last_write_time(display_pending(), ec)).count();
-        const auto left = std::max<long long>(0, display_revert_wait() - age);
-        rows.push_back(item("display-keep", "Keep this layout", "action", "Otherwise it goes back in " + std::to_string(left) + "s", "today"));
-        rows.push_back(item("display-undo", "Go back now", "action", "Restore the layout from before", "refresh"));
-    }
+    display_pending_rows(rows);
     const auto primary = primary_of(screens);
-    const auto primary_box = live_box(*std::find_if(screens.begin(), screens.end(), [&](const LiveScreen& s) { return s.name == primary; }));
+    rows.push_back(heading("screens"));
     for (const auto& s : screens) {
-        const auto box = live_box(s);
-        const auto side = s.name == primary ? std::string("main screen") : placement::side_of(primary_box, box) + " of " + primary;
-        auto head = item("display-edit", s.name + (s.model.empty() ? "" : " · " + s.model), "action",
-                         std::to_string(s.width) + "×" + std::to_string(s.height) + " · scale " + placement::scale_text(s.scale) + " · "
-                         + orientation(s.transform) + " · " + side, "window");
-        rows.push_back(head);
-        const int up = next_scale(s, 1), down = next_scale(s, -1);
-        auto bigger = item("display-scale-up", "  Bigger text and windows", "action",
-                           up == s.scale ? "Already at the largest even scale" : "Scale " + placement::scale_text(s.scale) + " → " + placement::scale_text(up), "search");
-        bigger["argument"] = s.name; bigger["enabled"] = up != s.scale; rows.push_back(bigger);
-        auto smaller = item("display-scale-down", "  More room", "action",
-                            down == s.scale ? "Already at the smallest even scale" : "Scale " + placement::scale_text(s.scale) + " → " + placement::scale_text(down), "apps");
-        smaller["argument"] = s.name; smaller["enabled"] = down != s.scale; rows.push_back(smaller);
-        const int turned = s.transform == 0 ? 3 : s.transform == 3 ? 1 : 0;
-        auto rotate = item("display-rotate", "  Rotate", "action", orientation(s.transform) + " → " + orientation(turned), "refresh");
-        rotate["argument"] = s.name; rows.push_back(rotate);
-        if (s.name != primary) {
-            const auto now = placement::side_of(primary_box, box);
-            auto move = item("display-side", "  Move to another side", "action", now + " → " + next_side(now) + " of " + primary, "next");
-            move["argument"] = s.name; rows.push_back(move);
-        }
+        std::string detail = (placement::sideways(s.transform) ? "portrait · " : "landscape · ") + std::to_string(s.scale) + "%";
+        const auto place = screen_place(s, screens, primary);
+        if (!place.empty()) detail += " · " + place;
+        auto card = item("display-screen", screen_label(s), "page", detail, "window");
+        card["page"] = "display"; card["scope"] = s.name; card["argument"] = s.name;
+        rows.push_back(card);
     }
+    rows.push_back(heading("everywhere"));
     const int size = cursor_size();
-    rows.push_back(item("cursor-size-up", "Larger pointer", "action", "Pointer size " + std::to_string(size) + " → " + std::to_string(std::min(48, size + 6)), "comfort"));
-    rows.back()["enabled"] = size < 48;
-    rows.push_back(item("cursor-size-down", "Smaller pointer", "action", "Pointer size " + std::to_string(size) + " → " + std::to_string(std::max(24, size - 6)), "comfort"));
-    rows.back()["enabled"] = size > 24;
+    std::vector<std::pair<int, std::pair<std::string, std::string>>> pointer;
+    for (int stop : {24, 30, 36, 42, 48}) pointer.push_back({stop, {std::to_string(stop), stop == 30 ? "the usual size" : stop > 30 ? "easier to find" : "smaller"}});
+    rows.push_back(stop_slider("cursor-size", "Pointer size", "smaller ← → bigger · now " + std::to_string(size), "pointer", pointer, size, "comfort"));
     rows.push_back(item("display-edit", "Edit monitors.lua", "action", "Open the screen rules in Neovim · Hyprland applies them on save", "gear"));
     if (!regular(display_pending()) && regular(hypr_modules() / "monitors.lua.foxml-prev"))
         rows.push_back(item("display-undo", "Undo the last display change", "action", "Restore the layout saved before it", "refresh"));
+}
+// One screen's own page: its size, how it is turned, where it sits, and its mode.
+bool screen_rows(const std::string& name, Json& rows, Json& out) {
+    const auto screens = live_screens();
+    const auto found = std::find_if(screens.begin(), screens.end(), [&](const LiveScreen& s) { return s.name == name; });
+    if (found == screens.end()) return false;
+    const auto& s = *found;
+    const auto primary = primary_of(screens);
+    out["title"] = screen_label(s);
+    display_pending_rows(rows);
+    rows.push_back(heading("size"));
+    std::vector<std::pair<int, std::pair<std::string, std::string>>> sizes;
+    for (int step : placement::scales_for(s.width, s.height)) {
+        const auto box = placement::logical({s.name, s.width, s.height, step, s.transform, "", ""});
+        sizes.push_back({step, {std::to_string(step) + "%", "fits like " + std::to_string(box.w) + "×" + std::to_string(box.h)}});
+    }
+    rows.push_back(stop_slider("display-scale", "Text and windows", "smaller ← → bigger · now " + std::to_string(s.scale) + "%",
+                               s.name, sizes, s.scale, "search"));
+    rows.push_back(heading("rotation"));
+    for (const auto& [turn, label] : std::vector<std::pair<int, std::string>>{{0, "Landscape"}, {3, "Portrait, turned left"},
+                                                                            {1, "Portrait, turned right"}, {2, "Upside down"}}) {
+        auto row = item("display-rotate", label, "action", s.transform == turn ? "In use" : "", "refresh");
+        row["argument"] = s.name + "=" + std::to_string(turn); row["checked"] = s.transform == turn; rows.push_back(row);
+    }
+    if (s.name != primary) {
+        const auto main_screen = std::find_if(screens.begin(), screens.end(), [&](const LiveScreen& o) { return o.name == primary; });
+        const auto now = placement::side_of(live_box(*main_screen), live_box(s));
+        const auto label = screen_label(*main_screen);
+        const auto of = label == "Laptop screen" ? std::string("the laptop") : label;
+        rows.push_back(heading("side"));
+        for (const char* side : {"left", "right", "above", "below"}) {
+            auto words = side_words(side, of); words[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(words[0])));
+            auto row = item("display-side", words, "action",
+                            now == side ? "In use" : "", "next");
+            row["argument"] = s.name + "=" + side; row["checked"] = now == side; rows.push_back(row);
+        }
+    }
+    rows.push_back(heading("mode"));
+    auto mode = item("display-modes", std::to_string(s.width) + "×" + std::to_string(s.height) + " at " + hertz(s.refresh), "page",
+                     "Resolution and refresh rate · " + std::to_string(s.modes.size()) + " to choose from", "system");
+    mode["page"] = "display-modes"; mode["scope"] = s.name; rows.push_back(mode);
+    if (s.name == primary || screens.size() < 2) rows.push_back(item("display-edit", "Edit monitors.lua", "action", "Open the screen rules in Neovim", "gear"));
+    return true;
+}
+bool mode_rows(const std::string& name, Json& rows, Json& out) {
+    const auto screens = live_screens();
+    const auto found = std::find_if(screens.begin(), screens.end(), [&](const LiveScreen& s) { return s.name == name; });
+    if (found == screens.end()) return false;
+    const auto& s = *found;
+    out["title"] = screen_label(s) + " · mode";
+    display_pending_rows(rows);
+    static const std::regex parts(R"((\d+)x(\d+)@([\d.]+))");
+    bool marked = false;
+    for (size_t i = 0; i < s.modes.size(); ++i) {
+        std::smatch f;
+        if (!std::regex_match(s.modes[i], f, parts)) continue;
+        const bool current = !marked && std::stoi(f[1].str()) == s.width && std::stoi(f[2].str()) == s.height && std::abs(std::stod(f[3].str()) - s.refresh) < 0.5;
+        marked = marked || current;
+        auto row = item("display-mode", f[1].str() + "×" + f[2].str() + " · " + hertz(std::stod(f[3].str())), "action",
+                        current ? "In use" : i == 0 ? "The screen's own best mode" : "", "system");
+        row["argument"] = s.name + "=" + s.modes[i]; row["checked"] = current; rows.push_back(row);
+    }
+    if (s.modes.empty()) rows.push_back(item("display-edit", "This screen lists no modes", "action", "Open monitors.lua to set one by hand", "gear"));
+    return true;
 }
 Json display_action(const std::string& id, const std::string& arg) {
     if (id == "display-keep") {
@@ -1925,32 +2038,52 @@ Json display_action(const std::string& id, const std::string& arg) {
         const auto file = hypr_modules() / "monitors.lua";
         return terminal({"nvim", (regular(file) ? file : hypr_modules() / "monitors.conf").string()}, "Screen rules opened");
     }
-    if (id == "cursor-size-up" || id == "cursor-size-down") {
-        const int size = cursor_size();
-        return set_cursor_size(id == "cursor-size-up" ? std::min(48, size + 6) : std::max(24, size - 6));
+    if (id == "cursor-size") {
+        static const std::set<std::string> sizes{"24", "30", "36", "42", "48"};
+        std::string name, value;
+        if (!screen_and_value(arg, name, value) || name != "pointer" || !sizes.count(value)) return result(false, "That pointer size is not offered");
+        return set_cursor_size(std::stoi(value));
     }
+    std::string name, value;
+    if (!screen_and_value(arg, name, value)) return result(false, "Choose a screen and a setting");
     auto screens = live_screens();
-    const auto screen = std::find_if(screens.begin(), screens.end(), [&](const LiveScreen& s) { return s.name == arg; });
+    const auto screen = std::find_if(screens.begin(), screens.end(), [&](const LiveScreen& s) { return s.name == name; });
     if (screen == screens.end()) return result(false, "That screen is no longer connected");
     const auto primary = primary_of(screens);
-    // Sides come from the layout as it is now; a resized screen can overlap until it is moved.
+    // Sides come from the layout as it is now, so every screen keeps its side and is placed again from its new size.
     std::map<std::string, std::string> sides;
     const auto& main_screen = *std::find_if(screens.begin(), screens.end(), [&](const LiveScreen& s) { return s.name == primary; });
     const auto main_box = live_box(main_screen);
     for (const auto& s : screens) if (s.name != primary) sides[s.name] = placement::side_of(main_box, live_box(s));
+    const auto label = screen_label(*screen);
     std::string message;
-    if (id == "display-scale-up" || id == "display-scale-down") {
-        const int to = next_scale(*screen, id == "display-scale-up" ? 1 : -1);
-        if (to == screen->scale) return result(false, "No even scale further that way");
-        message = screen->name + " scale " + placement::scale_text(to);
-        screen->scale = to;
+    if (id == "display-scale") {
+        const auto steps = placement::scales_for(screen->width, screen->height);
+        if (!std::regex_match(value, std::regex("\\d{2,3}")) || std::find(steps.begin(), steps.end(), std::stoi(value)) == steps.end())
+            return result(false, "That size does not fit this screen evenly");
+        if (std::stoi(value) == screen->scale) return result(false, "Already at that size");
+        screen->scale = std::stoi(value);
+        message = label + " at " + value + "%";
     } else if (id == "display-rotate") {
-        screen->transform = screen->transform == 0 ? 3 : screen->transform == 3 ? 1 : 0;
-        message = screen->name + " " + orientation(screen->transform);
+        if (value != "0" && value != "1" && value != "2" && value != "3") return result(false, "Unknown rotation");
+        if (std::stoi(value) == screen->transform) return result(false, "Already turned that way");
+        screen->transform = std::stoi(value);
+        message = label + " " + orientation(screen->transform);
     } else if (id == "display-side") {
         if (screen->name == primary) return result(false, "The main screen stays where it is");
-        sides[screen->name] = next_side(sides[screen->name]);
-        message = screen->name + " moved " + sides[screen->name] + " of " + primary;
+        if (value != "left" && value != "right" && value != "above" && value != "below") return result(false, "Unknown side");
+        if (sides[screen->name] == value) return result(false, "Already on that side");
+        sides[screen->name] = value;
+        message = label + " moved " + value;
+    } else if (id == "display-mode") {
+        if (std::find(screen->modes.begin(), screen->modes.end(), value) == screen->modes.end()) return result(false, "This screen does not offer that mode");
+        std::smatch f; const std::regex parts(R"((\d+)x(\d+)@([\d.]+))");
+        std::regex_match(value, f, parts);
+        screen->width = std::stoi(f[1].str()); screen->height = std::stoi(f[2].str()); screen->mode = value;
+        const int before = screen->scale;
+        screen->scale = nearest_scale(placement::scales_for(screen->width, screen->height), screen->scale);
+        message = label + " at " + f[1].str() + "×" + f[2].str() + ", " + hertz(std::stod(f[3].str()))
+                  + (screen->scale != before ? " · size " + std::to_string(screen->scale) + "% so it stays sharp" : "");
     } else return result(false, "Unknown display action");
     auto done = apply_displays(screens, primary, sides, message);
     done["close"] = false; return done;
@@ -2399,7 +2532,11 @@ std::string workbench_summary(const Json& today) {
     const auto count = [&](const char* key) { return today.contains(key) && today[key].is_number_integer() ? today[key].get<long long>() : 0LL; };
     const auto say = [](long long n, const std::string& one, const std::string& many) { return std::to_string(n) + " " + (n == 1 ? one : many); };
     if (count("jobsRunning")) return say(count("jobsRunning"), "job running", "jobs running");
+    // Every live Claude counts, not only the busy ones: "4 Claudes · 2 working" when two are waiting on her.
+    if (count("claudeWorking") && count("claudeSessions") > count("claudeWorking"))
+        return say(count("claudeSessions"), "Claude", "Claudes") + " · " + std::to_string(count("claudeWorking")) + " working";
     if (count("claudeWorking")) return say(count("claudeWorking"), "Claude working", "Claudes working");
+    if (count("claudeSessions")) return say(count("claudeSessions"), "Claude waiting", "Claudes waiting");
     if (count("jobsFailed")) return say(count("jobsFailed"), "job failed", "jobs failed");
     if (count("changesToReview")) return say(count("changesToReview"), "change to look over", "changes to look over");
     return "all quiet on the bench";
@@ -2455,14 +2592,56 @@ std::vector<Tool> fox_tools() {
 
 // Desktop first, then the drawer, tmux and Neovim. Stock Vim keys are Vim's own and stay out; the theme's
 // init.lua maps and notebook marks stay in.
-enum class KeyFamily { desktop, drawer, tmux, nvim, stock };
+enum class KeyFamily { desktop, drawer, tmux, commands, nvim, stock };
 struct Shortcut { std::string keys, description, section; KeyFamily family = KeyFamily::nvim; };
 KeyFamily key_family(const std::string& major, const std::string& minor) {
     if (major.rfind("Hyprland", 0) == 0) return KeyFamily::desktop;
     if (minor.find("Quickshell") != std::string::npos || minor.find("drawer") != std::string::npos) return KeyFamily::drawer;
     if (major.rfind("Tmux", 0) == 0) return KeyFamily::tmux;
     if (major.rfind("Core Vim", 0) == 0) return KeyFamily::stock;
+    if (major.rfind("Useful Commands", 0) == 0) return KeyFamily::commands;
     return KeyFamily::nvim;
+}
+struct KeyBook { KeyFamily family; const char* id; const char* label; const char* detail; const char* icon; };
+const std::vector<KeyBook> key_books{
+    {KeyFamily::desktop, "desktop", "Desktop", "Apps, windows, workspaces and media", "window"},
+    {KeyFamily::drawer, "drawer", "The drawer", "Moving around this drawer", "apps"},
+    {KeyFamily::tmux, "tmux", "Terminal (tmux)", "Panes, windows and copy mode", "terminal"},
+    {KeyFamily::commands, "commands", "Commands", "Handy commands to type", "terminal"},
+    {KeyFamily::nvim, "nvim", "Neovim", "Files, search, git, code and its plugins", "note"},
+};
+// "ALT + Shift + N" → "alt ⇧ n", "Space ff" → "space ff": the keycaps a row draws. Empty when it would need more than
+// five caps; the row then says its keys in words. Editor keys keep their case ("S" is not "s" there).
+std::string key_caps(const std::string& keys, KeyFamily family) {
+    std::vector<std::string> caps;
+    std::string token;
+    auto flush = [&] {
+        if (token.empty()) return;
+        std::string lower = token;
+        for (auto& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        if (lower == "shift") caps.push_back("⇧");
+        else if (lower == "alt" || lower == "ctrl" || lower == "super" || lower == "space" || lower == "enter" || lower == "tab"
+                 || lower == "esc" || lower == "escape" || lower == "return") caps.push_back(lower == "escape" ? "esc" : lower == "return" ? "enter" : lower);
+        else caps.push_back(token);
+        token.clear();
+    };
+    for (size_t i = 0; i < keys.size(); ++i) {
+        const char c = keys[i];
+        if (c == ' ' || (c == '+' && !token.empty() && i + 1 < keys.size())) flush();
+        else token += c;
+    }
+    flush();
+    // A "+" between spaced keys ("ALT + F") joins them; it is not a key of its own.
+    if (caps.size() > 1) caps.erase(std::remove(caps.begin(), caps.end(), std::string("+")), caps.end());
+    // A letter held with a modifier reads lowercase ("alt ⇧ d"); a bare editor key keeps its case ("S").
+    const bool held = std::any_of(caps.begin(), caps.end(), [](const std::string& c) { return c == "alt" || c == "ctrl" || c == "super" || c == "⇧"; });
+    for (auto& cap : caps)
+        if ((held || family == KeyFamily::desktop) && cap.size() == 1 && std::isalpha(static_cast<unsigned char>(cap[0])))
+            cap[0] = static_cast<char>(std::tolower(static_cast<unsigned char>(cap[0])));
+    if (caps.empty() || caps.size() > 5) return {};
+    std::string out;
+    for (const auto& cap : caps) out += (out.empty() ? "" : " ") + cap;
+    return out;
 }
 std::vector<Shortcut> shortcuts() {
     fs::path file = data_home() / "foxml/KEYBINDS.md";
@@ -2613,6 +2792,7 @@ Json today_summary(const Json& config) {
     const auto sessions = claude_sessions(usage);
     for (const auto& session : sessions) busy += claude_busy(session);
     today["claudeWorking"] = busy;
+    today["claudeSessions"] = static_cast<int>(sessions.size());
     today["claudeUsage"] = claude_left_line(usage);
     today["claudeMinutes"] = claude_minutes_today(sessions);
     // The teacup: how much of the week is left, or -1 when there is no reading.
@@ -3117,8 +3297,11 @@ Json view(const Json& config, const std::string& page, const std::string& query,
         if (!query.empty()) {
             for (const auto& shortcut : shortcuts()) {
                 if (shortcut.family != KeyFamily::desktop) continue;
-                auto row = item("cheatsheet-copy", shortcut.keys, "action", "Shortcut · " + shortcut.description, "info");
-                row["argument"] = shortcut.keys; row["group"] = "system"; rows.push_back(row);
+                const auto caps = key_caps(shortcut.keys, shortcut.family);
+                auto row = item("cheatsheet-copy", shortcut.description, "action", caps.empty() ? "Shortcut · " + shortcut.keys : "Shortcut", "info");
+                row["argument"] = shortcut.keys; row["group"] = "system"; row["presentation"] = "shortcut";
+                if (!caps.empty()) row["keys"] = caps;
+                row["keywords"] = Json::array({shortcut.keys}); rows.push_back(row);
             }
             for (const auto& tool : fox_tools()) {
                 auto row = item("tool-run", tool.name, "action", "Fox tools · " + tool.description, "info");
@@ -3334,6 +3517,11 @@ Json view(const Json& config, const std::string& page, const std::string& query,
             auto row = item(pair.first, pair.second, "action", {}, pair.first);
             decorate(row); rows.push_back(row);
         }
+    } else if (page == "display" || page == "display-modes") {
+        known = true; out["title"] = "Displays";
+        if (project_scope.empty() || !(page == "display" ? screen_rows(project_scope, rows, out) : mode_rows(project_scope, rows, out)))
+            fail("That screen is no longer connected");
+        for (auto& row : rows) if (truth(row, "enabled")) decorate(row);
     } else if (page == "displays") {
         known = true; out["title"] = "Displays";
         display_rows(rows);
@@ -3430,13 +3618,50 @@ Json view(const Json& config, const std::string& page, const std::string& query,
             row["argument"] = tool.name; row["close"] = true; rows.push_back(row);
         }
         if (tools.empty()) fail("No fox commands were found in ~/.local/bin");
-    } else if (page == "cheatsheet") {
+    } else if (page == "cheatsheet" || page == "cheatsheet-keys") {
         known = true; out["title"] = "Shortcut reference";
-        for (const auto& shortcut : shortcuts()) {
-            auto row = item("cheatsheet-copy", shortcut.keys, "action", shortcut.description + " · " + shortcut.section, "info");
-            row["argument"] = shortcut.keys; rows.push_back(row);
+        const auto all = shortcuts();
+        if (all.empty()) fail("KEYBINDS.md is unavailable");
+        // One shortcut: what it does as the title, its keys as caps (or in words when they need more than five).
+        auto shortcut_row = [&](const Shortcut& s, const std::string& where) {
+            // "Y (copy mode)": the keys are Y; the words in brackets say when.
+            std::string keys = s.keys, note;
+            if (const auto open = keys.find(" ("); open != std::string::npos && keys.back() == ')') {
+                note = keys.substr(open + 2, keys.size() - open - 3); keys = trim(keys.substr(0, open));
+            }
+            const auto caps = key_caps(keys, s.family);
+            std::string detail = caps.empty() ? keys : "";
+            for (const auto& part : {note, where}) if (!part.empty()) detail += (detail.empty() ? "" : " · ") + part;
+            auto row = item("cheatsheet-copy", s.description, "action", detail, "info");
+            row["argument"] = s.keys; row["presentation"] = "shortcut";
+            if (!caps.empty()) row["keys"] = caps;
+            row["keywords"] = Json::array({s.keys});
+            return row;
+        };
+        const auto book = std::find_if(key_books.begin(), key_books.end(), [&](const KeyBook& b) { return b.id == project_scope; });
+        if (!query.empty()) {
+            // Searching, or the drawer's own keys from `?`: every shortcut, each saying where it belongs.
+            for (const auto& s : all) rows.push_back(shortcut_row(s, s.section));
+        } else if (page == "cheatsheet-keys" && book != key_books.end()) {
+            out["title"] = book->label;
+            std::string last;
+            for (const auto& s : all) {
+                if (s.family != book->family) continue;
+                static const std::string dot = " · ";
+                const auto at = s.section.find(dot);
+                const auto heading_text = at == std::string::npos ? s.section : s.section.substr(at + dot.size());
+                if (heading_text != last) { rows.push_back(heading(heading_text)); last = heading_text; }
+                rows.push_back(shortcut_row(s, ""));
+            }
+        } else {
+            for (const auto& b : key_books) {
+                const auto count = std::count_if(all.begin(), all.end(), [&](const Shortcut& s) { return s.family == b.family; });
+                if (!count) continue;
+                auto row = item("cheatsheet-book", b.label, "page", std::string(b.detail) + " · " + std::to_string(count) + " shortcuts", b.icon);
+                row["page"] = "cheatsheet-keys"; row["scope"] = b.id; row["argument"] = b.id;
+                rows.push_back(row);
+            }
         }
-        if (rows.empty()) fail("KEYBINDS.md is unavailable");
     } else if (page == "sandbox") {
         known = true; out["title"] = "Disposable sandbox";
         for (const auto& sandbox : sandboxes()) {
@@ -3594,7 +3819,7 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         if (id == "logout") return command({"fox-hl", "dispatch", "hl.dsp.exit()", "exit"}, "Log out", true);
         return command({"systemctl", id}, id == "suspend" ? "Suspend" : id == "reboot" ? "Restart" : "Shut down", true);
     }
-    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","tool-run","cheatsheet-copy","sandbox-launch","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","screenshot-open","screenshot-copy","screenshot-folder","password-copy","agent-jump","claude-jump","model-agent","model-remove","storage-open","backup-restore","backup-open","startup-user","startup-autostart","api-task-ask","api-task-open","api-task-failure","api-task-review","api-task-pi","api-task-follow","display-scale-up","display-scale-down","display-rotate","display-side","note-open","goodnight-open"};
+    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","tool-run","cheatsheet-copy","sandbox-launch","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","screenshot-open","screenshot-copy","screenshot-folder","password-copy","agent-jump","claude-jump","model-agent","model-remove","storage-open","backup-restore","backup-open","startup-user","startup-autostart","api-task-ask","api-task-open","api-task-failure","api-task-review","api-task-pi","api-task-follow","display-scale","display-rotate","display-side","display-mode","cursor-size","note-open","goodnight-open"};
     const bool confirm_only = arg == "--confirm" && (id == "backup-prune" || id == "storage-empty-trash");
     if (!argument_actions.count(id) && !arg.empty() && !confirm_only) return result(false, "This action accepts no argument");
     if (id == "volume" || id == "brightness") {
@@ -3907,7 +4132,7 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
     }
     if (id == "credits-setup") return terminal({"fox-credits", "setup"}, "Credit settings opened");
     if (id == "credits-console") return launch({"xdg-open", "https://platform.claude.com/settings/billing"}, "Claude Console opened");
-    if (id.rfind("display-", 0) == 0 || id.rfind("cursor-size-", 0) == 0) return display_action(id, arg);
+    if (id.rfind("display-", 0) == 0 || id == "cursor-size") return display_action(id, arg);
     if (id == "api-task-ask" || id == "api-task-review" || id == "api-task-pi") {
         for (const auto& p : api_projects()) {
             if (text(p, "id") != arg) continue;
