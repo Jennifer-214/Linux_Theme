@@ -77,12 +77,14 @@ Scope {
             property var hintOwner: null
             property var hintSource: null
             property string hintText: ""
+            // The windows a workspace tab's banner shows as small photo prints (Paper), live only while it is open.
+            property var hintWindows: []
             property real hintReveal: hintOwner ? 1 : 0
             readonly property bool hintVisible: hintOwner !== null || hintReveal > .001
             Behavior on hintReveal { NumberAnimation { duration:160; easing.type:Easing.OutCubic } }
-            function showHint(owner,text,source) {
+            function showHint(owner,text,source,windows) {
                 if (!text || hosting) return;
-                hintSource=source;hintText=text;hintOwner=owner;
+                hintSource=source;hintText=text;hintWindows=(windows||[]).filter(function(w){return w&&w.wayland;});hintOwner=owner;
             }
             function hideHint(owner) { if (hintOwner===owner) hintOwner=null; }
             readonly property bool hosting: !!(bar.controller && bar.controller.drawerVisible && bar.controller.drawerHost === paperHost)
@@ -137,8 +139,10 @@ Scope {
                         var layout=barWindow.layoutWidth+barWindow.width;
                         return layout>0 && barWindow.hintSource ? barWindow.hintSource.mapToItem(barWindow.contentItem,barWindow.hintSource.width/2,0).x : barWindow.width/2;
                     }
-                    width:Math.min(barWindow.width-28,Math.max(160,Math.min(340,hintMeasure.boundingRect.width+28)))
-                    height:barWindow.barHeight+hintLabel.implicitHeight+32
+                    readonly property int prints: Math.min(3,barWindow.hintWindows.length)
+                    readonly property real printsHeight: prints>0 ? 112 : 0
+                    width:Math.min(barWindow.width-28,Math.max(160,prints>0?printRow.implicitWidth+28:0,Math.min(340,hintMeasure.boundingRect.width+28)))
+                    height:barWindow.barHeight+printsHeight+hintLabel.implicitHeight+32
                     x:Math.max(14,Math.min(barWindow.width-width-14,sourceCenter-width/2))
                     y:0;clip:true
                     TextMetrics { id:hintMeasure;font.family:barTheme.fontFamily;font.pixelSize:12;text:barWindow.hintText }
@@ -148,9 +152,59 @@ Scope {
                         depth:height-4
                         inset:0
                         y:-height*(1-barWindow.hintReveal)
+                        // Small photo prints of the windows on a hovered workspace, tilted like the scrapbook's.
+                        Row {
+                            id:printRow
+                            objectName:"bar-hint-prints"
+                            visible:hintClip.prints>0
+                            anchors.horizontalCenter:parent.horizontalCenter
+                            y:barWindow.barHeight+6
+                            spacing:12
+                            Repeater {
+                                model:barWindow.hintWindows.slice(0,3)
+                                Item {
+                                    id:photo
+                                    required property var modelData
+                                    required property int index
+                                    // Shaped like its window: a portrait terminal is a tall print, a browser a wide one.
+                                    readonly property real aspect: shot.sourceSize.height>0 ? shot.sourceSize.width/shot.sourceSize.height : 1.5
+                                    width:Math.max(60,Math.min(170,84*aspect+10));height:98
+                                    rotation:index%2 ? 1.4 : -1.2
+                                    Rectangle {
+                                        anchors.fill:parent;anchors.margins:-1
+                                        color:Qt.alpha(barTheme.ink,.06);radius:2;x:1.5;y:2
+                                    }
+                                    Rectangle {
+                                        anchors.fill:parent
+                                        color:barTheme.background;border.width:1;border.color:Qt.alpha(barTheme.line,.85);radius:2
+                                        ScreencopyView {
+                                            id:shot
+                                            anchors.fill:parent;anchors.margins:5;anchors.bottomMargin:14
+                                            captureSource:photo.modelData ? photo.modelData.wayland : null
+                                            live:barWindow.hintOwner!==null
+                                            constraintSize:Qt.size(300,200)
+                                        }
+                                        Text {
+                                            anchors.centerIn:shot;width:shot.width-8
+                                            visible:!shot.hasContent
+                                            text:photo.modelData ? photo.modelData.title : ""
+                                            color:barTheme.muted;font.family:barTheme.fontFamily;font.pixelSize:10
+                                            elide:Text.ElideRight;horizontalAlignment:Text.AlignHCenter;textFormat:Text.PlainText
+                                        }
+                                        Text {
+                                            anchors.bottom:parent.bottom;anchors.bottomMargin:1;anchors.horizontalCenter:parent.horizontalCenter
+                                            width:parent.width-10
+                                            text:photo.modelData ? (photo.modelData.title||"") : ""
+                                            color:barTheme.ink;font.family:barTheme.fontFamily;font.pixelSize:9
+                                            elide:Text.ElideRight;horizontalAlignment:Text.AlignHCenter;textFormat:Text.PlainText
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         Text {
                             id:hintLabel
-                            x:14;y:barWindow.barHeight+3;width:parent.width-28
+                            x:14;y:barWindow.barHeight+hintClip.printsHeight+3;width:parent.width-28
                             text:barWindow.hintText;textFormat:Text.PlainText
                             color:barTheme.ink;font.family:barTheme.fontFamily;font.pixelSize:12
                             wrapMode:Text.WrapAnywhere;maximumLineCount:8;elide:Text.ElideRight

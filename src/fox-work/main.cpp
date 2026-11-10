@@ -47,6 +47,15 @@ std::string read(const fs::path& p, size_t limit = 8 * 1024 * 1024) {
     std::ifstream f(p, std::ios::binary); return f ? std::string(std::istreambuf_iterator<char>(f), {}) : "";
 }
 J json(const fs::path& p) { auto j = J::parse(read(p), nullptr, false); return j.is_discarded() ? J() : j; }
+// A run record without its source snapshot: the snapshot is most of the file (every tracked file's hash), and only
+// the freshness checks need it, so a listing of every run skips building it (load_run reads the whole record).
+J json_lean(const fs::path& p) {
+    const J::parser_callback_t skip = [](int depth, J::parse_event_t event, J& parsed) {
+        return !(depth == 1 && event == J::parse_event_t::key && parsed == "snapshot");
+    };
+    auto j = J::parse(read(p), skip, false);
+    return j.is_discarded() ? J() : j;
+}
 fs::path base() { return fs::path(env("XDG_STATE_HOME", env("HOME") + "/.local/state")) / "foxml/work"; }
 bool private_dir(const fs::path& p) {
     std::error_code ec; fs::create_directories(p, ec);
@@ -88,8 +97,9 @@ std::string root_of(const std::string& path) {
         if (parent == parent.parent_path()) break;
         parent = parent.parent_path();
     }
-    auto root = git ? trim(query({"git", "--no-optional-locks", "-C", path, "rev-parse", "--show-toplevel"})) : "";
-    return fs::canonical(root.empty() ? fs::path(path) : fs::path(root), ec).string();
+    // The folder holding .git is the repo's top level (a worktree's .git is a file, which counts the same), so no
+    // git call is needed: the drawer asks this for every project on every open.
+    return fs::canonical(git ? parent : fs::path(path), ec).string();
 }
 fs::path project_dir(const std::string& root) { return base() / "projects" / hash(root); }
 bool register_root(const std::string& root) { return !root.empty() && atomic(project_dir(root) / "root", root); }
@@ -238,12 +248,26 @@ J parse_tests(const std::string& log, const std::string& root) {
     return out;
 }
 fs::path run_dir(const std::string& id) { return id_ok(id) ? base() / "runs" / id : fs::path(); }
-J load_run(const std::string& id) { return id_ok(id) ? json(run_dir(id) / "run.json") : J(); }
+// A run is two files: run.json (small, read for every listing) and snapshot.json (the source snapshot, read only by
+// the freshness checks). Records written before the split carry their snapshot inline; both read the same way.
+J load_run(const std::string& id) {
+    if (!id_ok(id)) return J();
+    auto j = json(run_dir(id) / "run.json");
+    if (j.is_object() && !j.contains("snapshot") && fs::exists(run_dir(id) / "snapshot.json")) j["snapshot"] = json(run_dir(id) / "snapshot.json");
+    return j;
+}
+bool save_run(const fs::path& dir, J j) {
+    if (j.contains("snapshot")) {
+        if (!atomic(dir / "snapshot.json", j["snapshot"].dump())) return false;
+        j.erase("snapshot");
+    }
+    return atomic(dir / "run.json", j.dump());
+}
 J runs(const std::string& root = {}) {
     J out = J::array(); std::error_code ec;
     for (const auto& e : fs::directory_iterator(base() / "runs", ec)) {
         if (!id_ok(e.path().filename().string()) || e.is_symlink(ec)) continue;
-        auto j = json(e.path() / "run.json"); if (!j.is_object() || (!root.empty() && str(j, "root") != root)) continue;
+        auto j = json_lean(e.path() / "run.json"); if (!j.is_object() || (!root.empty() && str(j, "root") != root)) continue;
         if (str(j, "state") == "running" && proc_stamp(num(j, "pid")) != str(j, "process")) j["state"] = "interrupted";
         j["elapsed"] = std::max(0LL, (num(j, "ended") ? num(j, "ended") : now()) - num(j, "started"));
         struct stat st{}; const auto log = e.path() / "output.log";
@@ -269,8 +293,20 @@ std::string kind_of(const std::string& command) {
     if (std::regex_search(command, std::regex("\\b(curl|wget|aria2c|fox-llm-update)\\b"))) return "download";
     return {};
 }
+// Runs older than 30 days go: estimates, failures and the notebook look back a day or a few weeks at most, and every
+// listing reads every run. Judged by the record's file date, so it costs a stat per run, not a read.
+void prune_old_runs() {
+    std::error_code ec;
+    const auto limit = fs::file_time_type::clock::now() - std::chrono::hours(24 * 30);
+    for (const auto& e : fs::directory_iterator(base() / "runs", ec)) {
+        if (!id_ok(e.path().filename().string()) || e.is_symlink(ec)) continue;
+        std::error_code tec; const auto when = fs::last_write_time(e.path() / "run.json", tec);
+        if (!tec && when < limit) fs::remove_all(e.path(), tec);
+    }
+}
 J begin(const std::string& command, const std::string& root, const std::string& session, long long pid, bool observed, const std::string& title = {}) {
     if (!register_root(root)) return J();
+    prune_old_runs();
     const auto id = uuid(); const auto dir = run_dir(id);
     const auto snap = snapshot(root, dir / "source");
     std::string green;
@@ -282,7 +318,7 @@ J begin(const std::string& command, const std::string& root, const std::string& 
     // What the command does in plain words (Claude's description of it), shown in place of the command.
     const auto named = trim(clean(title));
     if (!named.empty() && named.find('\n') == std::string::npos) j["title"] = named.substr(0, 160);
-    return atomic(dir / "run.json", j.dump()) ? j : J();
+    return save_run(dir, j) ? j : J();
 }
 // How many runs of the same command in the same checkout failed in a row just before this one; a stop is skipped.
 long long failed_before(const J& job) {
@@ -306,7 +342,7 @@ bool finish(J& j, int code, bool truncated) {
     if (!same_source(j["snapshot"], snapshot(str(j, "root")))) j["changedDuringRun"] = true;
     if (j.value("changedDuringRun", false) || truncated || num(j["tests"], "failed") > 0) j["baselineEligible"] = false;
     else j["baselineEligible"] = j["testRun"].get<bool>() && code == 0 && num(j["tests"], "passed") > 0 && j["snapshot"].value("complete", false);
-    if (!atomic(run_dir(str(j, "id")) / "run.json", j.dump())) return false;
+    if (!save_run(run_dir(str(j, "id")), j)) return false;
     return true;
 }
 J tasks(const std::string& root) { auto j = json(project_dir(root) / "tasks.json"); return j.is_array() ? j : J::array(); }
@@ -324,9 +360,31 @@ J task_change(const std::string& root, const std::string& text, const std::strin
     }
     return J{{"ok", atomic(file, j.dump())}, {"message", id.empty() ? "Next step pinned" : "Next step updated"}};
 }
+// The file a commit, checkout or rebase in this checkout touches: .git/logs/HEAD, or its worktree's own.
+fs::path head_log(const std::string& root) {
+    const auto dot = fs::path(root) / ".git";
+    std::error_code ec;
+    if (fs::is_directory(dot, ec)) return dot / "logs/HEAD";
+    const auto line = trim(read(dot));
+    if (line.rfind("gitdir:", 0) != 0) return dot;
+    fs::path dir = trim(line.substr(7));
+    if (dir.is_relative()) dir = fs::path(root) / dir;
+    return dir / "logs/HEAD";
+}
+long long stamp_of(const fs::path& p) {
+    std::error_code ec; const auto t = fs::last_write_time(p, ec);
+    return ec ? 0 : static_cast<long long>(t.time_since_epoch().count());
+}
 J reviews(const std::string& root, bool today_only = true) {
     std::error_code error;
     if (!fs::exists(fs::path(root) / ".git", error)) return J::array();
+    // Kept until the checkout's history or the review marks change (or the day turns): the drawer asks every open.
+    const std::time_t clock = std::time(nullptr);
+    std::tm day = *std::localtime(&clock);
+    const auto signature = std::to_string(stamp_of(head_log(root))) + "|" + std::to_string(stamp_of(project_dir(root) / "reviewed.json"))
+                           + "|" + std::to_string(day.tm_year) + "-" + std::to_string(day.tm_yday) + "|" + (today_only ? "today" : "all");
+    const auto cached = json(project_dir(root) / "reviews-cache.json");
+    if (cached.is_object() && str(cached, "signature") == signature && cached["reviews"].is_array()) return cached["reviews"];
     const auto marks = json(project_dir(root) / "reviewed.json");
     A a{"git", "--no-optional-locks", "-C", root, "log", "-80", "--format=%H%x1f%ct%x1f%s%x1f%(trailers:key=Claude-Session,valueonly)%x1f%(trailers:key=Co-Authored-By,valueonly)%x1e"};
     J out = J::array();
@@ -344,6 +402,7 @@ J reviews(const std::string& root, bool today_only = true) {
         if (today_only && (at < start || seen)) continue;
         out.push_back(J{{"sha", f[0]}, {"at", at}, {"subject", f[2]}, {"root", root}, {"reviewed", seen}});
     }
+    if (register_root(root)) atomic(project_dir(root) / "reviews-cache.json", J{{"signature", signature}, {"reviews", out}}.dump());
     return out;
 }
 J reviewed(const std::string& root, const std::string& sha) {
@@ -387,7 +446,8 @@ std::vector<std::string> test_targets(const std::string& command, const std::str
     for (std::string line; std::getline(lines, line);) {
         if (!heredoc.empty()) { if (line == heredoc) heredoc.clear(); continue; }
         std::smatch h;
-        if (std::regex_search(line, h, std::regex(R"(<<-?\s*['"]?(\w+)['"]?)"))) heredoc = h[1].str();
+        static const std::regex opens(R"(<<-?\s*['"]?(\w+)['"]?)");
+        if (std::regex_search(line, h, opens)) heredoc = h[1].str();
         static const std::regex split(R"(;|&&|\|\||\||&)");
         for (auto it = std::sregex_token_iterator(line.begin(), line.end(), split, -1); it != std::sregex_token_iterator(); ++it) {
             std::istringstream words(it->str());
@@ -497,7 +557,7 @@ J overview(const A& requested, bool fresh = false) {
         if (fresh && r.value("testRun", false)) {
             const auto root = str(r, "root");
             if (!snapshots.count(root)) snapshots[root] = snapshot(root);
-            r["stale"] = r.value("changedDuringRun", false) || !same_source(r["snapshot"], snapshots[root]);
+            r["stale"] = r.value("changedDuringRun", false) || !same_source(load_run(str(r, "id")).value("snapshot", J()), snapshots[root]);
         }
         r.erase("snapshot");
     }
@@ -516,7 +576,10 @@ J notebook(const std::string& root, const std::string& session) {
         else if (standing && failures.size() < 3 && num(j, "ended") >= now() - 24 * 3600) {
             auto failed = j; failed.erase("snapshot"); failures.push_back(failed);
         }
-        if (latest.is_null() && j.value("testRun", false)) { freshness(j, current); j.erase("snapshot"); latest = j; }
+        if (latest.is_null() && j.value("testRun", false)) {
+            j["snapshot"] = load_run(str(j, "id")).value("snapshot", J());
+            freshness(j, current); j.erase("snapshot"); latest = j;
+        }
     }
     return J{{"tests", latest}, {"jobs", jobs}, {"failures", failures}, {"tasks", tasks(root)}, {"session", session}};
 }

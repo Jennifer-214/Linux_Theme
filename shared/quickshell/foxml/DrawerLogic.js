@@ -33,6 +33,14 @@ function headingAbove(items, index) {
     return index > 0 && items[index - 1] && items[index - 1].kind === "heading" ? index - 1 : index;
 }
 
+// The sheet's height: what the page needs (fit, 0 = unknown), never shorter than the laptop-sized sheet and never
+// taller than the screen allows. On a laptop that is the usual sheet; on a tall portrait screen a short page stops
+// where its content does instead of leaving a stretch of empty paper.
+function fitHeight(full, fit, floor) {
+    if (!(fit > 0)) return full;
+    return Math.min(full, Math.max(Math.min(floor, full), fit));
+}
+
 // Paper headings are written by hand: lowercase with a full stop. Acronyms (API, USB) and names
 // with capitals inside them (FoxML) stay as they are; "Wi-Fi" becomes "wi-fi".
 function pageHeading(title, paper) {
@@ -421,62 +429,9 @@ function barStyle(opened, page, group) {
 // `?` opens the shortcut reference at the drawer's own section.
 var drawerKeysQuery = "quickshell drawers";
 
-// The keys that work right now. Every hint the `?` key works under ends with "? keys"; typing into a
-// field, a confirmation, an adjustment and another program's picker keep their own keys.
-function footerHint(state, item) {
-    if (state.confirming) return "h / l choose · Enter confirms · Esc cancels";
-    if (state.busy) return "working… · Esc goes back" + (state.prompt || state.searching || state.picker || state.editing ? "" : " · ? keys");
-    if (state.prompt) return "type normally · Enter sends · Esc closes";
-    if (state.searching) return "type to find · ↑ / ↓ choose · Enter selects · Esc goes back";
-    if (state.picker) return "j / k move · Enter / l chooses · / searches · h / Esc closes";
-    if (state.editing && hasStops(item)) return "h / l chooses · Enter applies · Esc leaves it";
-    if (state.editing) return "h / l adjusts · Enter or Esc finishes";
-    return hintFor(state, item) + " · ? keys";
-}
 
-function hintFor(state, item) {
-    if (state.focus === "groups") {
-        var count = Math.min(9, Number(state.groups || 0));
-        return "j / k move · Enter / l opens a drawer" + (count > 1 ? " · 1–" + count + " jump" : "") + " · / searches · Esc closes";
-    }
-    if (state.focus === "tags") return "Enter opens · h / l choose · j goes to favorites · Esc goes back";
-    if (!item) return "h goes back · / searches · Esc goes back";
-    if (item.enabled === false) return (item.disabledReason || item.detail || "control unavailable") + " · h goes back · / searches";
-    if (item.presentation === "project") return "Enter editor · t terminal · w worktrees · n next steps · b bookmark";
-    if (item.presentation === "library") return "Enter opens / mounts · e ejects · / filters · h goes back";
-    if (item.presentation === "download") return "Enter opens · r opens folder · / filters · h goes back";
-    if (item.kind === "toggle") return "Enter / l toggles on or off · j / k move · h goes back";
-    if (item.kind === "slider") return "Enter / l starts adjustment · j / k move · h goes back";
-    if (item.kind === "page") return "Enter / l opens · j / k move · / searches · h goes back";
-    if (item.id === "agent-jump") return "Enter / l goes to agent · j / k move · h goes back";
-    return "Enter / l runs · j / k move · / searches · h goes back";
-}
 
-// The sheets with their own keys: the calendar, the screenshot scrapbook and the garden.
-function sheetHint(layout) {
-    var hints = {calendar: "h / l changes month · t today · g the garden · Esc closes",
-        scrapbook: "arrows choose · c copies · Enter opens · Esc goes back",
-        garden: "h / l a week · j / k a day · Esc goes back"};
-    return hints[layout] ? hints[layout] + " · ? keys" : "";
-}
 
-var hintKey = "Enter|Esc|[1-9]–[1-9]|[hjkltebrfcgnw↑↓\\/?]";
-function hintParts(hint) {
-    var parts = [];
-    var prefixPattern = new RegExp("^((?:" + hintKey + ")(?:(?: \\/ | or )(?:" + hintKey + "))?)(?= |$)");
-    var splitPattern = new RegExp("(Enter|Esc|[1-9]–[1-9]|[hjkltebrfcgnw↑↓?])");
-    var keyPattern = new RegExp("^(?:" + hintKey + ")$");
-    String(hint).split(" · ").forEach(function(clause, index) {
-        if (index) parts.push({text: " · ", key: false});
-        var prefix = clause.match(prefixPattern);
-        if (!prefix) { parts.push({text: clause, key: false}); return; }
-        prefix[1].split(splitPattern).forEach(function(text) {
-            if (text) parts.push({text: text, key: keyPattern.test(text)});
-        });
-        if (clause.length > prefix[1].length) parts.push({text: clause.slice(prefix[1].length), key: false});
-    });
-    return parts;
-}
 
 // An empty page says whether that is good news, or how to fill it, naming the real key.
 function emptyState(page, searching, failed) {

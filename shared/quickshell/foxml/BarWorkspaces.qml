@@ -110,7 +110,7 @@ Flickable {
                         event.accepted = true;
                     }
                 }
-                BarBannerHint { theme:workspaces.theme; panel:workspaces.panel; hovered:mouse.containsMouse && !mouse.pressed; text: (workspaces.theme.paperDetails ? "Page " : "Workspace ") + tab.modelData.id + (tab.windows.length ? "\n" + tab.windows.map(function(w) {return w.title;}).join("\n") : " · empty") }
+                BarBannerHint { theme:workspaces.theme; panel:workspaces.panel; windows:tab.windows; hovered:mouse.containsMouse && !mouse.pressed; text: (workspaces.theme.paperDetails ? "Page " : "Workspace ") + tab.modelData.id + (tab.windows.length ? "\n" + tab.windows.map(function(w) {return w.title;}).join("\n") : " · empty") }
             }
         }
     }

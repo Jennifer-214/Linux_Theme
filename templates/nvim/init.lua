@@ -600,8 +600,7 @@ function Paper.correction_slip(opts, on_confirm)
   local width = math.min(49, vim.o.columns - 12)
   local slip = Popup({relative="editor", position="50%", size={width=width,height=4}, enter=false,
     border={style="rounded",padding={0,2},text={
-      top={{" ✎ correction ","FoxPaperSlipTitle"}},top_align="left",
-      bottom={{" Enter applies · Esc cancels ","FoxPaperSlipOld"}},bottom_align="left"}},
+      top={{" ✎ correction ","FoxPaperSlipTitle"}},top_align="left"}},
     win_options={winhighlight="Normal:FoxPaperSlip,FloatBorder:FoxPaperSlipBorder",winblend=0}})
   local input, finished
   local function finish(value)

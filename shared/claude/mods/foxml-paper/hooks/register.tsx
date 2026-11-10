@@ -831,7 +831,6 @@ export const register: Register = on => {
       const columns = fileColumns(files)
       const offset = Math.min(view.offset, Math.max(0, Math.floor((files.length - 1) / 40) * 40))
       content.push(text(`${files.length} ${files.length === 1 ? 'file' : 'files'} · working-tree totals`))
-      content.push(text('Enter: diff · e: edit selected'))
       if (!files.length) content.push(text(view.scope === 'session' ? 'No recorded edits still differ.' : 'The working tree is clean.'))
       let directory = ''
       for (const file of files.slice(offset, offset + 40)) {
@@ -952,7 +951,6 @@ export const register: Register = on => {
       onSubmit={value => now?.plan ? pin(now.plan.file, value) : undefined} />)
     if (view.form !== 'none') {
       content.push(row('form-cancel', 'cancel', () => setView({ form: 'none' })))
-      content.push(text('Esc closes · Tab then Enter cancels'))
     }
 
     const move = async (direction: number) => {

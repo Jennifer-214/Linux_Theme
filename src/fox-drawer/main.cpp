@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <future>
 #include <fstream>
 #include <iostream>
 #include <iomanip>
@@ -2899,6 +2900,11 @@ Json commit_year(const Json& config) {
 
 // What the Today sheet adds to the group summaries: the battery, agent notes and the next thing on ~/.todo.
 Json today_summary(const Json& config) {
+    // The API meter is its own program (a Python start-up), so it runs while the rest of the day is read.
+    auto credits_read = std::async(std::launch::async, [] {
+        Json credits;
+        return sh::have("fox-credits") && capture_json({"fox-credits", "status"}, credits) && credits.is_object() ? credits : Json();
+    });
     const auto notes = agent_notes();
     Json today{{"notes", notes.size()}, {"todo", ""}, {"waiting", Json::array()}};
     // An agent is waiting when its pane's newest note says its turn ended or it asked for something.
@@ -2930,10 +2936,8 @@ Json today_summary(const Json& config) {
     // The teacup: how much of the week is left, or -1 when there is no reading.
     today["claudeWeekLeft"] = usage.week >= 0 ? std::max(0, 100 - usage.week) : -1;
     today["claudeBerry"] = usage.five >= 80 || usage.week >= 80;
-    Json credits;
-    if (sh::have("fox-credits") && capture_json({"fox-credits", "status"}, credits) && credits.is_object())
-        today["apiCredits"] = credits;
     const auto work = work_data(config);
+    if (const auto credits = credits_read.get(); credits.is_object()) today["apiCredits"] = credits;
     if (work.is_object()) {
         today["jobsRunning"] = whole(work, "running"); today["jobsFinished"] = whole(work, "finished");
         today["jobsFailed"] = whole(work, "failed");
@@ -3661,6 +3665,9 @@ Json view(const Json& config, const std::string& page, const std::string& query,
     } else if (page == "api-credits" || page == "api-tasks") {
         // One API page: what is left, then asking, earlier asks, where the money went, and the settings.
         known = true; out["title"] = "API";
+        // Three small programs (each a Python start-up): read side by side, not one after another.
+        auto projects_read = std::async(std::launch::async, [] { return api_projects(); });
+        auto history_read = std::async(std::launch::async, [] { return api_history(); });
         Json usage;
         auto note = [&](const std::string& label, const std::string& detail, const std::string& icon = "info") {
             auto row = item("credits-summary", label, "action", detail, icon); row["enabled"] = false; rows.push_back(row);
@@ -3673,7 +3680,7 @@ Json view(const Json& config, const std::string& page, const std::string& query,
         } else {
             note("The API credit meter is unavailable", "Install fox-credits");
         }
-        const auto projects = api_projects();
+        const auto projects = projects_read.get();
         if (!projects.empty()) rows.push_back(heading("ask"));
         for (const auto& project : projects) {
             const auto id = text(project, "id"), label = text(project, "label");
@@ -3688,7 +3695,7 @@ Json view(const Json& config, const std::string& page, const std::string& query,
                 rows.push_back(*row);
             }
         }
-        const auto history = api_history();
+        const auto history = history_read.get();
         if (!history.empty()) rows.push_back(heading("earlier asks"));
         for (const auto& task : history) {
             const auto id = text(task, "id");

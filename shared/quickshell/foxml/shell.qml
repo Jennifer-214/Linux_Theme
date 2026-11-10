@@ -44,10 +44,6 @@ ShellRoot {
     property var garden: null
     property int gardenIndex: -1
     property bool viewFailed: false
-    readonly property string footerHint: calendarLayout ? Logic.sheetHint("calendar") : scrapbookLayout && focusArea === "items" && !searching && !pendingConfirm ? Logic.sheetHint("scrapbook")
-        : gardenLayout && focusArea === "items" && !searching && !pendingConfirm ? Logic.sheetHint("garden") : Logic.footerHint({confirming: pendingConfirm !== null, busy: actionBusy,
-        prompt: pickerActive && pickerPrompt, searching: searching, picker: pickerActive,
-        editing: editing, focus: focusArea, groups: groups.length}, entries[itemIndex])
     property var pendingConfirm: null
     property bool confirmYes: false
     // The project a worktree map shows, or the screen a display page shows.
@@ -120,6 +116,20 @@ ShellRoot {
     readonly property var drawerPlacement: panel.placement
     readonly property real drawerWidth: panel.implicitWidth
     readonly property real drawerHeight: panel.implicitHeight
+    // The sheet's height for what the page holds: its chrome plus the longer of the two lists (Logic.fitHeight
+    // keeps it between the laptop-sized sheet and the screen's limit). 0 = use the full height.
+    property real fitBody: 0
+    function refit() {
+        if (calendarLayout || scrapbookLayout || gardenLayout || pickerLayout || pendingConfirm || !itemList.visible) { fitBody = 0; return; }
+        var list = panel.implicitHeight - itemList.height + itemList.contentHeight + 6;
+        var side = groupList.visible ? panel.implicitHeight - groupList.height + groupList.contentHeight + 6 : 0;
+        fitBody = Math.ceil(Math.max(list, side));
+    }
+    onCalendarLayoutChanged: Qt.callLater(refit)
+    onScrapbookLayoutChanged: Qt.callLater(refit)
+    onGardenLayoutChanged: Qt.callLater(refit)
+    onPickerLayoutChanged: Qt.callLater(refit)
+    onPendingConfirmChanged: Qt.callLater(refit)
     property real drawerReveal: opened ? 1 : 0
     readonly property bool drawerVisible: opened || drawerReveal > .001
     Behavior on drawerReveal { NumberAnimation { duration: theme.paperDetails ? 220 : 160; easing.type: Easing.OutCubic } }
@@ -1008,7 +1018,9 @@ ShellRoot {
         readonly property var placement: Logic.drawerPlacement(screen ? screen.width : 1280, implicitWidth, root.resolvedAnchor, theme.paperDetails)
         margins { top: panel.placement.top; right: (panel.screen ? panel.screen.width : 1280) - panel.placement.left - panel.implicitWidth }
         implicitWidth: Math.min(root.calendarLayout ? 430 : root.pickerLayout ? 640 : 790, (screen ? screen.width : 1280) - 32)
-        implicitHeight: Math.min(Logic.drawerBody(root.calendarLayout ? "calendar" : root.pickerLayout && root.pickerPrompt ? "prompt" : "drawer", screen ? screen.height : 800) + root.drawerTopInset, Math.max(180, (screen ? screen.height : 800) - placement.top - 16))
+        readonly property real fullHeight: Math.min(Logic.drawerBody(root.calendarLayout ? "calendar" : root.pickerLayout && root.pickerPrompt ? "prompt" : "drawer", screen ? screen.height : 800) + root.drawerTopInset, Math.max(180, (screen ? screen.height : 800) - placement.top - 16))
+        implicitHeight: Logic.fitHeight(fullHeight, root.fitBody, Logic.drawerBody("drawer", 1080) + root.drawerTopInset)
+        Behavior on implicitHeight { enabled: root.opened; NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
         color: "transparent"
         exclusionMode: ExclusionMode.Ignore
         WlrLayershell.namespace: "foxml-drawer"
@@ -1061,6 +1073,8 @@ ShellRoot {
                     anchors.fill: parent
                     anchors.margins: 24
                     anchors.topMargin: 24 + root.drawerTopInset
+                    // Clear of the folded corner: the last row ends above the fold, not under it.
+                    anchors.bottomMargin: theme.paperDetails ? Math.max(24, drawerBanner.foldSize + 10) : 24
                     spacing: 14
 
                     RowLayout {
@@ -1110,6 +1124,7 @@ ShellRoot {
 
                         ListView {
                             id: groupList
+                            onContentHeightChanged: Qt.callLater(root.refit)
                             visible: !root.pickerLayout && root.page !== "search"
                             Layout.preferredWidth: panel.implicitWidth < 580 ? 125 : 179
                             Layout.fillHeight: true
@@ -1315,6 +1330,8 @@ ShellRoot {
                                 ListView {
                                     id: itemList
                                     property string viewPage: ""
+                                    onContentHeightChanged: Qt.callLater(root.refit)
+                                    onVisibleChanged: Qt.callLater(root.refit)
                                     anchors.fill: parent
                                     visible: !root.pendingConfirm && !root.scrapbookLayout && !root.gardenLayout && (root.page !== "root" || root.entries.length > 0 || root.searching)
                                     clip: true
@@ -1353,7 +1370,8 @@ ShellRoot {
                                         // The list sets each row's x itself, so the indent is a shift: the row keeps its left edge in
                                         // line with the text above it and its right edge in line with every other row.
                                         transform: Translate { x: itemRow.indent }
-                                        width: Math.max(0, itemList.width - theme.scrollGutter - indent)
+                                        // Room for the scrollbar only while there is one, so rows line up with the heading above.
+                                        width: Math.max(0, itemList.width - (itemScroll.visible ? theme.scrollGutter : 0) - indent)
                                         property bool card: modelData.presentation === "project" || modelData.presentation === "library" || modelData.presentation === "download"
                                         height: heading ? 30 : card ? 94 : modelData.kind === "slider" ? 91 : modelData.image || mediaArtwork ? 80 : itemRow.compactRow ? 54 : 72
                                         radius: 4
@@ -1667,34 +1685,6 @@ ShellRoot {
                         Layout.fillHeight: true
                     }
                     Text { visible: root.message.length > 0 && !root.calendarLayout; textFormat: Text.PlainText; text: (root.failed ? "! " : "✿ ") + root.message; color: root.failed ? theme.error : theme.muted; font.family: theme.fontFamily; font.pixelSize: 10; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.role: Accessible.StaticText; Accessible.name: root.message }
-                    Rectangle { Layout.fillWidth: true; height: 1; color: theme.line }
-                    Flow {
-                        id: hintFooter
-                        visible: theme.paperDetails
-                        Layout.fillWidth: true
-                        Layout.minimumWidth: 0
-                        spacing: 0
-                        Accessible.role: Accessible.StaticText
-                        Accessible.name: root.footerHint
-                        Repeater {
-                            model: Logic.hintParts(root.footerHint)
-                            delegate: Item {
-                                required property var modelData
-                                implicitWidth: Math.min(hintFooter.width, hintWord.implicitWidth + (modelData.key ? 10 : 0))
-                                implicitHeight: 19
-                                Rectangle { visible: modelData.key; anchors.fill: parent; anchors.topMargin: 1; anchors.bottomMargin: 1; color: theme.highlight; border.color: Qt.alpha(theme.line, .8); radius: 3 }
-                                Text { id: hintWord; textFormat: Text.PlainText; anchors.centerIn: parent; width: Math.max(0, parent.width - (modelData.key ? 10 : 0)); elide: Text.ElideRight; text: modelData.text; color: modelData.key ? theme.ink : theme.muted; font.family: theme.fontFamily; font.pixelSize: panel.implicitWidth < 580 ? 9 : 10 }
-                            }
-                        }
-                    }
-                    Text {
-                        visible: !theme.paperDetails
-                        textFormat: Text.PlainText
-                        text: root.footerHint
-                        color: theme.muted; font.family: theme.fontFamily
-                        font.pixelSize: panel.implicitWidth < 580 ? 9 : 10
-                        Layout.fillWidth: true; elide: Text.ElideRight
-                    }
                 }
             }
         }

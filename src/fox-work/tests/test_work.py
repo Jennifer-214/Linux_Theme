@@ -48,7 +48,16 @@ class Work(unittest.TestCase):
         return self.invoke("run", "--session", "test-session", "--", sys.executable, "-c", script, code=code)
 
     def latest(self):
-        return self.data("jobs")[0]
+        """The newest run, with its source snapshot (kept beside the record, in snapshot.json)."""
+        run = self.data("jobs")[0]
+        folder = Path(self.env["XDG_STATE_HOME"]) / "foxml/work/runs" / run["id"]
+        for name in ("snapshot.json", "run.json"):
+            saved = json.loads((folder / name).read_text()) if (folder / name).exists() else {}
+            if name == "snapshot.json" and saved:
+                run["snapshot"] = saved; break
+            if "snapshot" in saved:
+                run["snapshot"] = saved["snapshot"]; break
+        return run
 
     def test_streams_exit_status_counts_and_locations(self):
         text = "sample.cpp:1:3: assertion failed\n128 passed, 2 failed\n"
@@ -206,6 +215,17 @@ class Work(unittest.TestCase):
         old = json.loads(record.read_text())
         old.update(command="grep -n x tests/test_a.py", kind="tests", state="failed", observed=False); record.write_text(json.dumps(old))
         self.assertNotIn("grep -n x tests/test_a.py", failures(), "a call that only mentions a test file ran no test")
+
+    def test_runs_older_than_a_month_are_cleared_when_a_new_one_starts(self):
+        self.record("python3 -B tests/test_old.py", 0)
+        old = next(Path(self.env["XDG_STATE_HOME"]).rglob("run.json"))
+        stamp = old.stat().st_mtime - 31 * 24 * 3600
+        os.utime(old, (stamp, stamp))
+        self.record("python3 -B tests/test_new.py", 0)
+        self.assertFalse(old.parent.exists(), "a run from last month is gone")
+        self.assertEqual(len(self.data("jobs")), 1)
+        self.assertTrue((Path(self.env["XDG_STATE_HOME"]) / "foxml/work/runs" / self.latest()["id"] / "snapshot.json").exists(),
+                        "a new run keeps its snapshot beside the record")
 
     def test_active_plan_and_step_are_persistent_and_scoped_to_session(self):
         plan = self.repo / "plan with spaces.md"

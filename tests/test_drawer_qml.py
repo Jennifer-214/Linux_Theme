@@ -323,7 +323,6 @@ EXERCISE = r'''
         root.show("root");
         if (root.entries.length !== 1 || root.pageLoading || itemList.viewPage !== "root" || root.today.battery !== "80%" || !root.drawerReady)
             throw new Error("the landing page blinked empty on open: " + root.entries.length + " " + root.pageLoading + " " + itemList.viewPage);
-        if (!root.footerHint.endsWith(" · ? keys") || root.footerHint.indexOf("1–6 jump") < 0) throw new Error("footer lost ? keys or the jump digits: " + root.footerHint);
         root.key({key: Qt.Key_Question, modifiers: Qt.ShiftModifier, accepted: false, text: "?"});
         if (root.page !== "cheatsheet" || root.keysFilter !== "quickshell drawers" || root.searching || root.focusArea !== "items" || JSON.stringify(root.trail) !== JSON.stringify(["root"]))
             throw new Error("? did not open the drawer keys: " + root.page + " " + root.keysFilter + " " + JSON.stringify(root.trail));

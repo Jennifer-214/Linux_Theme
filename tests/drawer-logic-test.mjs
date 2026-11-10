@@ -56,7 +56,6 @@ assert.deepEqual(plain(logic.gardenMonths('2025-11-02', 0, 10)), [{ week: 0, tex
 assert.equal(logic.sinceLine(0), '');
 assert.equal(logic.sinceLine(1), '✎ 1 commit since this morning');
 assert.equal(logic.sinceLine(12), '✎ 12 commits since this morning');
-assert.equal(logic.footerHint({ focus: 'tags' }), 'Enter opens · h / l choose · j goes to favorites · Esc goes back · ? keys');
 assert.deepEqual(plain(logic.todayTags(undefined, undefined)), []);
 assert.equal(logic.paperIcon({ id: 'dnd', icon: '✉' }), 'paper-icon-bell.svg');
 assert.equal(logic.paperIcon({ id: 'dnd', icon: '⊘' }), 'paper-icon-bell.svg');
@@ -97,14 +96,6 @@ assert.ok(!logic.barStyle(false, 'updates', 'system').includes('#custom-updates'
 assert.ok(!logic.barStyle(true, 'x { injected }', '').includes('injected'));
 console.log('drawer navigation, identity, action argv and values: passed');
 
-assert.match(logic.footerHint({focus:'items'}, {kind:'toggle'}), /toggles on or off/);
-assert.match(logic.footerHint({focus:'items'}, {kind:'slider'}), /starts adjustment/);
-assert.match(logic.footerHint({focus:'items',editing:true}, {kind:'slider'}), /h \/ l adjusts/);
-assert.match(logic.footerHint({focus:'items',searching:true}, {kind:'toggle'}), /type to find/);
-assert.match(logic.footerHint({focus:'items',confirming:true}, {}), /Esc cancels/);
-assert.match(logic.footerHint({focus:'items'}, {id:'agent-jump'}), /goes to agent/);
-assert.match(logic.footerHint({focus:'groups'}, {kind:'toggle'}), /opens a drawer/);
-console.log('contextual drawer hints: passed');
 
 const sections = [{id:'desk',page:'desk',label:'Desk',items:[{id:'projects',kind:'page',label:'Projects'}]}];
 assert.deepEqual(plain(logic.breadcrumbs('projects','desk',['root','desk'],sections)), [
@@ -124,26 +115,8 @@ assert.equal(logic.focusDetail({id:'password-copy',argument:'/private/secret'}),
 assert.equal(logic.focusDetail({presentation:'download',argument:'/Downloads/a long name.pdf'}), '/Downloads/a long name.pdf');
 assert.match(logic.tooltipText({label:'Notes',presentation:'download',argument:'/Downloads/Notes',modifiedAt:'2026-11-03 12:00:00 CST'}), /2026-11-03/);
 assert.match(logic.detailText({enabled:false,detail:'PDF',disabledReason:'xdg-open is not installed'}), /not installed/);
-assert.match(logic.footerHint({}, {enabled:false,disabledReason:'Radio state unavailable'}), /Radio state unavailable/);
 console.log('confirmation labels, full paths, exact dates and unavailable reasons: passed');
 
-for (const state of [{focus:'groups'},{focus:'items'},{editing:true},{searching:true},{confirming:true},{busy:true}]) {
-    const hint=logic.footerHint(state,{kind:'slider'});
-    const parts=plain(logic.hintParts(hint));
-    assert.equal(parts.map(part=>part.text).join(''),hint,'keycaps changed the shortcut instructions');
-}
-assert.deepEqual(plain(logic.hintParts('h / l choose')).filter(part=>part.key).map(part=>part.text),['h','l']);
-assert.deepEqual(plain(logic.hintParts('/ searches')).filter(part=>part.key).map(part=>part.text),['/']);
-assert.deepEqual(plain(logic.hintParts(logic.footerHint({},{presentation:'project'}))).filter(part=>part.key).map(part=>part.text),['Enter','t','w','n','b','?']);
-assert.deepEqual(plain(logic.hintParts(logic.footerHint({focus:'groups',groups:7}))).filter(part=>part.key).map(part=>part.text),['j','k','Enter','l','1–7','/','Esc','?']);
-assert.ok(!logic.footerHint({focus:'groups',groups:1}).includes('jump'), 'one group has nothing to jump to');
-assert.match(logic.footerHint({focus:'groups',groups:14}), /1–9 jump/);
-// `?` works wherever the keyboard is not typing, adjusting, confirming or answering another program's picker.
-for (const state of [{focus:'groups'},{focus:'items'},{focus:'tags'},{busy:true}]) assert.match(logic.footerHint(state,{kind:'toggle'}), / · \? keys$/);
-for (const state of [{searching:true},{prompt:true},{picker:true},{editing:true},{confirming:true},{busy:true,searching:true}]) assert.ok(!logic.footerHint(state,{kind:'toggle'}).includes('? keys'));
-for (const sheet of ['calendar','scrapbook','garden']) assert.match(logic.sheetHint(sheet), / · \? keys$/);
-assert.equal(logic.sheetHint('nothing'), '');
-assert.deepEqual(plain(logic.hintParts('g the garden · working… · nothing here')).filter(part=>part.key).map(part=>part.text),['g']);
 assert.equal(logic.pageHeading('Wi-Fi',true),'wi-fi.');
 assert.equal(logic.pageHeading('API usage',true),'API usage.');
 assert.equal(logic.pageHeading('Review with API credits',true),'review with API credits.');
@@ -158,6 +131,11 @@ assert.equal(logic.drawerBody('drawer',800),624);
 assert.equal(logic.drawerBody('drawer',3072),1536);
 assert.equal(logic.drawerBody('drawer',2560),1280);
 assert.equal(logic.drawerBody('drawer',1600),940);
+assert.equal(logic.fitHeight(1602, 0, 908), 1602, 'unknown content: the full sheet');
+assert.equal(logic.fitHeight(1602, 1180, 908), 1180, 'a tall screen stops where the page does');
+assert.equal(logic.fitHeight(1602, 400, 908), 908, 'never shorter than the laptop sheet');
+assert.equal(logic.fitHeight(908, 1400, 908), 908, 'a laptop keeps its usual sheet');
+assert.equal(logic.fitHeight(1602, 2400, 908), 1602, 'a long page scrolls inside the screen limit');
 assert.equal(logic.sectionHeading('in progress',true),'in progress');
 assert.equal(logic.sectionHeading('AI',true),'AI');
 assert.equal(logic.sectionHeading('upkeep',false),'UPKEEP');
@@ -179,7 +157,6 @@ assert.equal(logic.valueText(size,false,0),'125%');
 assert.equal(logic.valueText(size,true,0),'100%');
 assert.equal(logic.stopDetail(size,1),'now · 125% · fits like 1728×3072');
 assert.equal(logic.stopDetail(size,2),'Enter for 150% · fits like 1440×2560');
-assert.equal(logic.footerHint({editing:true},size),'h / l chooses · Enter applies · Esc leaves it');
 assert.equal(logic.pageHeading('Acer B277K L',true),'acer B277K L.');
 assert.equal(logic.pageHeading('A look at your day',true),'a look at your day.');
 assert.ok(logic.scopedPage('display') && logic.scopedPage('display-modes') && logic.scopedPage('worktrees') && !logic.scopedPage('displays'));
