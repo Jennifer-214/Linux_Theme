@@ -635,6 +635,7 @@ Shows indent guides automatically. No keybinds.
 | `ALT + ,` | Previous workspace |
 | `ALT + .` | Next workspace |
 | `ALT + 1–9` | Switch to workspace |
+| `ALT + O` | The desk overview: every workspace as a photo print (hjkl/arrows + Enter, a click or a digit goes there; Esc closes) |
 | `ALT + Shift + 1–9` | Move window to workspace |
 
 ### Sandbox launcher

@@ -103,7 +103,7 @@ fs::path repository() {
 const std::set<std::string> pages = {
     "apps", "windows", "audio-outputs", "wifi", "bluetooth", "tools", "tools-ai", "tools-security", "tools-desktop", "tools-system", "tools-projects", "tools-other", "tools-all", "cheatsheet", "cheatsheet-keys", "sandbox", "clipboard-text", "clipboard-images",
     "wallpapers", "themes", "power", "updates", "agents", "projects", "bookmarks", "library", "downloads", "screenshots", "passwords", "garden",
-    "models", "storage", "backups", "startup", "displays", "display", "display-modes", "calendar-feeds", "jobs", "test-results", "reviews", "worktrees", "next-steps", "failures", "api-credits", "api-tasks", "earlier-notes"
+    "models", "storage", "backups", "startup", "displays", "display", "display-modes", "calendar-feeds", "programs", "jobs", "test-results", "reviews", "worktrees", "next-steps", "failures", "api-credits", "api-tasks", "earlier-notes"
 };
 const std::set<std::string> actions = {
     "volume", "volume-mute", "mic-mute", "media-play-pause", "media-next", "media-previous", "brightness",
@@ -112,7 +112,7 @@ const std::set<std::string> actions = {
     "security", "cleanup", "agent-triage", "agent-jump", "agent-clear", "claude-jump", "app-launch", "window-focus", "audio-output", "wifi-connect",
     "wifi-toggle", "bluetooth-connect", "bluetooth-toggle", "bluetooth-scan", "bluetooth-service", "tool-run", "cheatsheet-copy", "sandbox-launch", "clipboard-restore", "wallpaper-set", "theme-set", "project-open", "project-terminal", "project-bookmark", "drive-open", "drive-eject", "download-open", "download-folder", "screenshot-open", "screenshot-copy", "screenshot-folder", "screenshot-capture", "password-copy", "tools", "cheatsheet", "sandbox",
     "goodnight-open", "api-task-ask", "api-task-open", "api-task-failure", "api-task-settings", "api-task-review", "api-task-pi", "api-task-follow", "calendar-feed-add", "calendar-feed-remove", "calendar-refresh", "display-scale", "display-rotate", "display-side", "display-mode", "display-keep", "display-undo", "display-edit", "cursor-size", "credits-setup", "credits-console", "model-agent", "model-remove", "storage-scan", "storage-open", "storage-clean-packages", "storage-trim-journal", "storage-flatpak-unused",
-    "storage-empty-trash", "storage-hidden", "backup-restore", "backup-open", "backup-prune", "startup-user", "startup-autostart",
+    "storage-empty-trash", "storage-hidden", "backup-restore", "backup-open", "backup-prune", "startup-user", "startup-autostart", "program-quit", "program-force",
     "work-open", "work-jump", "work-tests", "work-compare", "work-ask", "work-reviews", "work-tasks", "work-task-toggle", "work-task-draft", "worktree-open", "worktree-terminal", "project-worktrees", "service-log", "service-ask",
     "note-open", "note-clear", "calendar"
 };
@@ -1283,7 +1283,8 @@ std::string claude_usage_line(const ClaudeUsage& usage) {
     return line;
 }
 // Minutes Claude spent working today, from the hooks' tally: each working or compacting stretch runs to the
-// session's next change, and a stretch still open counts up to now while that session still works.
+// session's next change, and a stretch still open counts up to now while that session still works. It is clock
+// time: sessions working side by side count once, so the day never holds more than it has had.
 int claude_minutes_today(const std::vector<ClaudeSession>& live) {
     char day[16] = {}; const std::time_t now = std::time(nullptr);
     std::strftime(day, sizeof day, "%Y-%m-%d", std::localtime(&now));
@@ -1291,21 +1292,28 @@ int claude_minutes_today(const std::vector<ClaudeSession>& live) {
     std::error_code ec;
     if (!fs::is_regular_file(tally, ec) || fs::file_size(tally, ec) > 4 * 1024 * 1024) return 0;
     std::map<std::string, std::pair<std::string, long long>> open;
-    long long seconds = 0;
+    std::vector<std::pair<long long, long long>> stretches;
     const auto busy = [](const std::string& state) { return state == "working" || state == "compacting"; };
     for (const auto& line : lines(read(tally))) {
         std::istringstream fields(line);
         std::string id, state; long long at = 0;
         if (!(fields >> id >> state >> at) || at <= 0) continue;
         auto found = open.find(id);
-        if (found != open.end() && busy(found->second.first) && at >= found->second.second) seconds += at - found->second.second;
+        if (found != open.end() && busy(found->second.first) && at >= found->second.second) stretches.emplace_back(found->second.second, at);
         open[id] = {state, at};
     }
     for (const auto& [id, last] : open) {
         if (!busy(last.first)) continue;
         for (const auto& session : live)
-            if (session.id == id && claude_busy(session)) { seconds += std::max(0LL, static_cast<long long>(now) - last.second); break; }
+            if (session.id == id && claude_busy(session)) { stretches.emplace_back(last.second, std::max(last.second, static_cast<long long>(now))); break; }
     }
+    std::sort(stretches.begin(), stretches.end());
+    long long seconds = 0, from = 0, to = -1;
+    for (const auto& [start, end] : stretches) {
+        if (start > to) { if (to > from) seconds += to - from; from = start; to = end; }
+        else to = std::max(to, end);
+    }
+    if (to > from) seconds += to - from;
     return static_cast<int>(seconds / 60);
 }
 // Today's line counts what is left: the week first, and the five hours once they run low.
@@ -3504,6 +3512,190 @@ std::map<std::string, std::string> desktop_fields(const fs::path& file) {
     }
     return fields;
 }
+// ── Programs: what is using the computer right now, one row per program (its helper processes counted with it).
+// Only your own processes are read or quit; the desktop's own parts are shown but never quit from here.
+fs::path proc_root() { return env("FOXML_PROC", "/proc"); }
+fs::path quit_asked_file() { return fs::path(env("XDG_STATE_HOME", home() + "/.local/state")) / "foxml/quit-asked.json"; }
+struct Proc { int pid = 0, ppid = 0; unsigned long long ticks = 0, start = 0; long long rss = 0; std::string name, label; };
+std::map<int, Proc> read_procs() {
+    std::map<int, Proc> out;
+    std::error_code ec;
+    const long page = std::max(1L, ::sysconf(_SC_PAGESIZE));
+    for (const auto& entry : fs::directory_iterator(proc_root(), ec)) {
+        const auto base = entry.path().filename().string();
+        if (base.empty() || !std::all_of(base.begin(), base.end(), [](unsigned char c) { return std::isdigit(c); })) continue;
+        struct stat owner{};
+        if (::stat(entry.path().c_str(), &owner) != 0 || owner.st_uid != ::getuid()) continue;
+        const auto stat_text = read(entry.path() / "stat");
+        const auto open = stat_text.find('('), close = stat_text.rfind(')');
+        if (open == std::string::npos || close == std::string::npos || close + 2 > stat_text.size()) continue;
+        std::istringstream rest(stat_text.substr(close + 2));
+        std::vector<std::string> field; std::string word;
+        while (rest >> word) field.push_back(word);
+        if (field.size() < 20) continue;
+        Proc proc;
+        const auto number = [](const std::string& s, auto& value) { return std::from_chars(s.data(), s.data() + s.size(), value).ec == std::errc(); };
+        unsigned long long user = 0, system = 0;
+        if (!number(base, proc.pid) || !number(field[1], proc.ppid) || !number(field[11], user) || !number(field[12], system)
+            || !number(field[19], proc.start)) continue;
+        proc.ticks = user + system;
+        std::istringstream statm(read(entry.path() / "statm"));
+        long long size = 0, resident = 0;
+        statm >> size >> resident;
+        proc.rss = resident * page;
+        auto exe = fs::read_symlink(entry.path() / "exe", ec).filename().string();
+        ec.clear();
+        if (const auto deleted = exe.find(" (deleted)"); deleted != std::string::npos) exe.erase(deleted);
+        // A program file named for its version (Claude Code's "2.1.319") goes by its process name instead.
+        const auto comm = stat_text.substr(open + 1, close - open - 1);
+        proc.name = exe.empty() || std::regex_match(exe, std::regex("[0-9][0-9.]*")) ? comm : exe;
+        proc.label = proc.name;
+        // An interpreter is named by what it runs: "python3 · fox-foo.py".
+        if (std::regex_match(proc.name, std::regex("(python[0-9.]*|node|bash|sh|zsh|perl|ruby|lua[0-9.]*)"))) {
+            const auto cmdline = read(entry.path() / "cmdline");
+            std::vector<std::string> argv; std::string arg;
+            for (const char c : cmdline) { if (c) arg += c; else { argv.push_back(arg); arg.clear(); } }
+            if (!arg.empty()) argv.push_back(arg);
+            for (std::size_t i = 1; i < argv.size(); ++i) {
+                if (argv[i] == "-c") break;                                   // inline code: no script to name
+                if (argv[i] == "-m" && i + 1 < argv.size()) { proc.label += " · " + argv[i + 1]; break; }
+                if (!argv[i].empty() && argv[i][0] != '-') {
+                    const auto script = fs::path(argv[i]).filename().string();
+                    if (std::regex_match(script, std::regex("[A-Za-z0-9@._+-]{1,60}"))) proc.label += " · " + script;
+                    break;
+                }
+            }
+        }
+        // Tools that work inside a project say which one, so three Claudes are told apart.
+        if (std::regex_match(proc.name, std::regex("(claude|codex|nvim|clangd|pi)"))) {
+            const auto folder = fs::read_symlink(entry.path() / "cwd", ec).filename().string();
+            ec.clear();
+            if (!folder.empty()) proc.label += " · " + folder;
+        }
+        out[proc.pid] = proc;
+    }
+    return out;
+}
+struct Program { int pid = 0; unsigned long long start = 0; std::string name, label; double cpu = 0; long long rss = 0; std::vector<int> pids; };
+// A process joins the nearest ancestor running the same program, so Firefox's helpers sit under Firefox.
+std::vector<Program> group_programs(const std::map<int, Proc>& now, const std::map<int, Proc>& before, double seconds) {
+    const double hz = static_cast<double>(std::max(1L, ::sysconf(_SC_CLK_TCK)));
+    std::map<int, Program> groups;
+    for (const auto& [pid, proc] : now) {
+        int root = pid;
+        for (int depth = 0; depth < 64; ++depth) {
+            const auto parent = now.find(now.at(root).ppid);
+            if (parent == now.end() || parent->second.name != proc.name) break;
+            root = parent->first;
+        }
+        auto& group = groups[root];
+        if (group.pids.empty()) { const auto& top = now.at(root); group.pid = root; group.start = top.start; group.name = top.name; group.label = top.label; }
+        group.pids.push_back(pid);
+        group.rss += proc.rss;
+        const auto earlier = before.find(pid);
+        if (seconds > 0 && earlier != before.end() && earlier->second.start == proc.start && proc.ticks >= earlier->second.ticks)
+            group.cpu += (proc.ticks - earlier->second.ticks) / hz / seconds * 100.0;
+    }
+    std::vector<Program> out;
+    for (auto& [root, group] : groups) out.push_back(std::move(group));
+    return out;
+}
+std::vector<Program> sample_programs() {
+    int ms = 250;
+    const auto wanted = env("FOXML_PROC_SAMPLE_MS");
+    if (!wanted.empty()) std::from_chars(wanted.data(), wanted.data() + wanted.size(), ms);
+    const auto before = read_procs();
+    if (ms > 0) std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+    return group_programs(read_procs(), before, ms / 1000.0);
+}
+// The desktop's own parts: quitting one from a menu would take the menu (or the session) with it.
+bool desktop_part(const std::string& name) {
+    static const std::regex parts("(Hyprland|quickshell|qs|systemd|\\(sd-pam\\)|dbus-.*|pipewire.*|wireplumber|xdg-.*portal.*|hyprpolkitagent|"
+                                  "gnome-keyring-daemon|fox-pulse|fox-vault|fox-drawer|ssh-agent|gpg-agent|at-spi.*|hypridle|swww-daemon|mako|dunst)");
+    return std::regex_match(name, parts);
+}
+std::string memory_text(long long bytes) {
+    std::ostringstream out;
+    if (bytes >= 1024LL * 1024 * 1024) out << std::fixed << std::setprecision(1) << bytes / (1024.0 * 1024 * 1024) << " GB";
+    else out << std::max(1LL, bytes / (1024 * 1024)) << " MB";
+    return out.str();
+}
+Json quit_asked() {
+    std::ifstream file(quit_asked_file());
+    auto asked = Json::parse(file, nullptr, false);
+    return asked.is_object() ? asked : Json::object();
+}
+void programs_rows(Json& rows) {
+    auto programs = sample_programs();
+    const auto asked = quit_asked();
+    const auto now = static_cast<long long>(std::time(nullptr));
+    std::set<int> shown;
+    const auto row_for = [&](const Program& program) {
+        const auto key = std::to_string(program.pid) + ":" + std::to_string(program.start);
+        std::string detail = std::to_string(static_cast<int>(std::lround(program.cpu))) + "% CPU · " + memory_text(program.rss);
+        if (program.pids.size() > 1) detail += " · " + std::to_string(program.pids.size()) + " processes";
+        if (desktop_part(program.name)) {
+            auto row = item("program-quit", program.label, "action", detail + " · part of your desktop", "shield");
+            row["enabled"] = false; return row;
+        }
+        const bool terminal = std::regex_match(program.name, std::regex("(kitty|tmux.*|foot|alacritty|wezterm.*)"));
+        const auto it = asked.find(key);
+        if (it != asked.end() && it->is_number() && now - it->get<long long>() >= 3) {
+            auto row = item("program-force", "Force quit " + program.label, "action", "It did not quit when asked · " + detail, "cpu");
+            row["argument"] = key; row["confirm"] = "Force quit " + program.label + " now? Anything unsaved in it is lost."; return row;
+        }
+        auto row = item("program-quit", program.label, "action", detail, "cpu");
+        row["argument"] = key;
+        row["confirm"] = terminal ? "Quit " + program.label + "? Every one of its windows closes, and what runs in them (Claude sessions too)."
+                                  : "Quit " + program.label + "? Anything unsaved in it may be lost.";
+        return row;
+    };
+    std::sort(programs.begin(), programs.end(), [](const Program& a, const Program& b) { return a.cpu > b.cpu; });
+    rows.push_back(heading("busy right now"));
+    for (const auto& program : programs) {
+        if (shown.size() >= 6 || program.cpu < 1.0) break;
+        rows.push_back(row_for(program)); shown.insert(program.pid);
+    }
+    if (shown.empty()) { auto calm = item("programs-calm", "Nothing is busy right now", "action", "Every program is idle", "info"); calm["enabled"] = false; rows.push_back(calm); }
+    std::sort(programs.begin(), programs.end(), [](const Program& a, const Program& b) { return a.rss > b.rss; });
+    rows.push_back(heading("using the most memory"));
+    int listed = 0;
+    for (const auto& program : programs) {
+        if (listed >= 6) break;
+        if (shown.count(program.pid)) continue;
+        rows.push_back(row_for(program)); ++listed;
+    }
+}
+// The pid and its start time name one process; a pid reused since the page was read is never signalled.
+std::optional<Program> program_at(const std::string& key) {
+    std::smatch m;
+    if (!std::regex_match(key, m, std::regex("([0-9]{1,9}):([0-9]{1,20})"))) return std::nullopt;
+    for (auto& program : group_programs(read_procs(), {}, 0))
+        if (std::to_string(program.pid) == m[1].str() && std::to_string(program.start) == m[2].str()) return program;
+    return std::nullopt;
+}
+Json program_quit(const std::string& key, bool confirmed, bool force) {
+    if (!confirmed) return result(false, "Confirmation required");
+    const auto program = program_at(key);
+    if (!program) return result(false, "That program has already quit");
+    if (desktop_part(program->name)) return result(false, program->label + " is part of your desktop");
+    auto asked = quit_asked();
+    // Forget the asks whose programs are gone, so the file stays small.
+    for (auto it = asked.begin(); it != asked.end();) {
+        if (it.key() != key && !program_at(it.key())) it = asked.erase(it); else ++it;
+    }
+    if (force) {
+        for (const int pid : program->pids) ::kill(pid, SIGKILL);
+        asked.erase(key);
+    } else {
+        if (::kill(program->pid, SIGTERM) != 0) return result(false, "Could not ask " + program->label + " to quit");
+        asked[key] = static_cast<long long>(std::time(nullptr));
+    }
+    std::error_code ec;
+    fs::create_directories(quit_asked_file().parent_path(), ec);
+    write_atomic(quit_asked_file(), asked.dump());
+    return result(true, force ? program->label + " force quit" : "Asked " + program->label + " to quit");
+}
 void startup_rows(Json& rows) {
     std::string out;
     // Your own services: switching one off is yours to do.
@@ -4045,6 +4237,9 @@ Json view(const Json& config, const std::string& page, const std::string& query,
     } else if (page == "startup") {
         known = true; out["title"] = "Startup";
         startup_rows(rows);
+    } else if (page == "programs") {
+        known = true; out["title"] = "Programs";
+        programs_rows(rows);
     } else if (page == "passwords") {
         known = true; out["title"] = "Passwords";
         for (const auto& name : password_names()) {
@@ -4153,7 +4348,7 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         if (id == "logout") return command({"fox-hl", "dispatch", "hl.dsp.exit()", "exit"}, "Log out", true);
         return command({"systemctl", id}, id == "suspend" ? "Suspend" : id == "reboot" ? "Restart" : "Shut down", true);
     }
-    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","tool-run","cheatsheet-copy","sandbox-launch","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","screenshot-open","screenshot-copy","screenshot-folder","password-copy","agent-jump","claude-jump","model-agent","model-remove","storage-open","backup-restore","backup-open","startup-user","startup-autostart","api-task-ask","api-task-open","api-task-failure","api-task-review","api-task-pi","api-task-follow","display-scale","display-rotate","display-side","display-mode","cursor-size","calendar-feed-remove","note-open","goodnight-open"};
+    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","tool-run","cheatsheet-copy","sandbox-launch","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","screenshot-open","screenshot-copy","screenshot-folder","password-copy","agent-jump","claude-jump","model-agent","model-remove","storage-open","backup-restore","backup-open","startup-user","startup-autostart","program-quit","program-force","api-task-ask","api-task-open","api-task-failure","api-task-review","api-task-pi","api-task-follow","display-scale","display-rotate","display-side","display-mode","cursor-size","calendar-feed-remove","note-open","goodnight-open"};
     const bool confirm_only = arg == "--confirm" && (id == "backup-prune" || id == "storage-empty-trash");
     if (!argument_actions.count(id) && !arg.empty() && !confirm_only) return result(false, "This action accepts no argument");
     if (id == "volume" || id == "brightness") {
@@ -4428,6 +4623,8 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
     }
     if (id == "startup-user") return startup_user_off(arg, confirmed);
     if (id == "startup-autostart") return startup_autostart_hide(arg, confirmed);
+    if (id == "program-quit") return program_quit(arg, confirmed, false);
+    if (id == "program-force") return program_quit(arg, confirmed, true);
     if (id == "note-open") return open_note(arg);
     if (id == "note-clear") return clear_notes();
     // The calendar is a sheet of the drawer itself, under the clock: the front end opens it like any page.
@@ -4614,7 +4811,7 @@ int main(int argc, char** argv) {
         }
         if (args.size() < 2 || args.size() > 4 || (args[0] != "view" && args[0] != "run" && args[0] != "commit-days")
             || (args.size() == 4 && (args[0] != "run" || args[3] != "--confirm"
-                || !std::set<std::string>{"drive-eject", "model-agent", "model-remove", "backup-restore", "startup-user", "startup-autostart", "calendar-feed-remove"}.count(args[1])))) {
+                || !std::set<std::string>{"drive-eject", "model-agent", "model-remove", "backup-restore", "startup-user", "startup-autostart", "calendar-feed-remove", "program-quit", "program-force"}.count(args[1])))) {
             std::cout << result(false, "Use view PAGE [QUERY] or run ACTION [ARGUMENT]").dump() << '\n'; return 1;
         }
         Json config; std::string error;

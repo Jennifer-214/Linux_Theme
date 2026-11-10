@@ -93,6 +93,7 @@
         { "id": "storage", "label": "Storage", "detail": "What uses the disk, and what can go", "icon": "▦", "kind": "page", "page": "storage", "keywords": ["disk", "space", "cleanup"], "section": "upkeep" },
         { "id": "backups", "label": "Backups", "detail": "Files the theme kept before replacing them", "icon": "↺", "kind": "page", "page": "backups", "keywords": ["restore"], "section": "upkeep" },
         { "id": "cleanup", "label": "System cleanup", "detail": "Tidy up in a terminal", "icon": "✧", "kind": "action", "close": true, "keywords": ["clean", "tidy", "cache"], "section": "upkeep" },
+        { "id": "programs", "label": "Programs", "detail": "What is using your computer right now", "icon": "⊞", "kind": "page", "page": "programs", "keywords": ["processes", "task manager", "cpu", "memory", "ram", "quit", "kill", "slow", "fans", "frozen"], "section": "upkeep" },
         { "id": "startup", "label": "Startup", "detail": "What starts with your session", "icon": "⏵", "kind": "page", "page": "startup", "keywords": ["autostart", "services", "login"], "section": "upkeep" },
         { "id": "power-profile", "label": "Power profile", "detail": "Cycle performance, balanced and power saver", "icon": "◈", "kind": "action", "keywords": ["battery", "performance", "saver"], "section": "power" },
         { "id": "power", "label": "Power", "detail": "Suspend, restart, shut down or log out", "icon": "⏻", "kind": "page", "page": "power", "keys": "alt ⇧ x", "keywords": ["shutdown", "restart", "reboot", "suspend", "logout", "sleep"], "section": "power" },

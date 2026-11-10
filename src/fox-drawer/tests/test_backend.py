@@ -560,6 +560,7 @@ class BackendTests(unittest.TestCase):
         (sessions/f"tally-{day}").write_text("\n".join([
             f"t0 working {now-7200}", f"t0 waiting {now-6000}",     # 20 minutes, done
             f"t0 working {now-5000}", f"t0 ended {now-4400}",       # 10 more, ended
+            f"t2 working {now-7000}", f"t2 waiting {now-6100}",     # side by side with t0's first stretch: counted once
             f"gone working {now-3000}",                            # never closed, no longer live: not counted
             "bad line", f"t1 waiting {now-900}", f"t1 working {now-600}"]) + "\n")  # 10 minutes and still going
         today=self.invoke("view","root")["today"]
@@ -1432,6 +1433,46 @@ class BackendTests(unittest.TestCase):
         self.assertIn('--open display --scope', notice[0][4])
         self.run_quiet('screens-changed')
         self.assertEqual(len([c for c in self.calls() if c[0] == 'setsid']), 1, 'said once while it stays plugged in')
+
+    def test_programs_lists_your_own_programs_and_quits_one_only_when_confirmed(self):
+        proc = self.home/'proc'
+        def fake(pid, comm, ppid, exe, rss_pages, cmdline=(), cwd=None):
+            d = proc/str(pid); d.mkdir(parents=True)
+            fields = ['S', str(ppid)] + ['0'] * 9 + ['50', '50'] + ['0'] * 6 + ['777', '0', '0']
+            (d/'stat').write_text(f'{pid} ({comm}) ' + ' '.join(fields))
+            (d/'statm').write_text(f'1000 {rss_pages} 0 0 0 0 0')
+            (d/'cmdline').write_bytes(b'\0'.join(c.encode() for c in cmdline) + b'\0')
+            (d/'exe').symlink_to(exe)
+            if cwd: (d/'cwd').symlink_to(cwd)
+        fake(100, 'firefox', 1, '/usr/lib/firefox/firefox', 200000)
+        fake(101, 'Isolated Web Co', 100, '/usr/lib/firefox/firefox', 100000)
+        fake(200, 'python3', 1, '/usr/bin/python3', 3000, ('python3', '-u', '/home/x/fox-foo.py'))
+        fake(201, 'python3', 1, '/usr/bin/python3', 2000, ('python3', '-c', 'import os; print(1)'))
+        fake(300, 'Hyprland', 1, '/usr/bin/Hyprland', 150000)
+        fake(400, 'claude', 1, '/home/x/.local/share/claude/versions/2.1.5', 120000, cwd='/home/x/code/MyProj')
+        self.env.update(FOXML_PROC=str(proc), FOXML_PROC_SAMPLE_MS='0')
+        rows = self.invoke('view', 'programs')['items']
+        labels = [r['label'] for r in rows if r['kind'] != 'heading']
+        self.assertEqual(labels[0], 'Nothing is busy right now')
+        self.assertEqual(labels[1:], ['firefox', 'Hyprland', 'claude · MyProj', 'python3 · fox-foo.py', 'python3'],
+                         'by memory; helpers under their program; a version-named file by its process name; code is never a name')
+        firefox = next(r for r in rows if r['label'] == 'firefox')
+        self.assertIn('2 processes', firefox['detail'])
+        self.assertEqual(firefox['argument'], '100:777')
+        self.assertTrue(firefox['confirm'])
+        self.assertFalse(next(r for r in rows if r['label'] == 'Hyprland')['enabled'], 'the desktop itself is never quit from here')
+
+        del self.env['FOXML_PROC']
+        victim = subprocess.Popen(['sleep', '60'])
+        self.addCleanup(victim.kill)
+        start = Path(f'/proc/{victim.pid}/stat').read_text().rsplit(')', 1)[1].split()[19]
+        key = f'{victim.pid}:{start}'
+        self.assertFalse(self.invoke('run', 'program-quit', key, expect=1)['ok'], 'not without a confirmation')
+        self.assertIsNone(victim.poll())
+        self.assertFalse(self.invoke('run', 'program-quit', f'{victim.pid}:1', '--confirm', expect=1)['ok'],
+                         'a pid whose start time changed is a different process')
+        self.assertTrue(self.invoke('run', 'program-quit', key, '--confirm')['ok'])
+        self.assertEqual(victim.wait(timeout=5), -15, 'asked politely: SIGTERM')
 
     def test_course_calendars_put_due_dates_on_the_calendar_and_today(self):
         import datetime

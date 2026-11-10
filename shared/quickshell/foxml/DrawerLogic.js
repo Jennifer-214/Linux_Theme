@@ -254,7 +254,7 @@ var glyphs = {
     volume:"♪", "volume-mute":"♩", "audio-outputs":"◉", "mic-mute":"○", "media-play-pause":"▷",
     "media-previous":"‹", "media-next":"›", wifi:"⌁", bluetooth:"⋈",
     brightness:"☼", nightlight:"☾", dnd:"⊘", idle:"⊙",
-    updates:"↻", displays:"▭", storage:"▦", backups:"↺", startup:"⏵", "power-profile":"◈",
+    updates:"↻", displays:"▭", storage:"▦", backups:"↺", startup:"⏵", programs:"⊞", "power-profile":"◈",
     vault:"⚿", passwords:"⚿", tools:"❯", "api-credits":"◔", cheatsheet:"⌨", sandbox:"▢", security:"⛨",
     cleanup:"✧", lock:"⊡", power:"⏼", suspend:"⏾", reboot:"⟳", poweroff:"⏻", logout:"↪"
 };
@@ -267,7 +267,7 @@ var paperPresets = {
     projects:["notebook","▤"], bookmarks:["bookmark","◇"], library:["library","▥","▤"],
     worktrees:["notebook","▥"], jobs:["clock","◷"], "test-results":["notebook","✓"],
     reviews:["note","✿"], "next-steps":["next","◇"], failures:["note","!"],
-    models:["package","◈"], "api-credits":["notebook","◇"], "api-tasks":["mail","✎"], displays:["window","▭"], storage:["library","▦"], backups:["refresh","↺"], startup:["play","⏵"],
+    models:["package","◈"], "api-credits":["notebook","◇"], "api-tasks":["mail","✎"], displays:["window","▭"], storage:["library","▦"], backups:["refresh","↺"], startup:["play","⏵"], programs:["cpu","⊞"],
     downloads:["tray","↧","✉"], screenshots:["picture","▧"], windows:["window","▣"], garden:["garden","❦"],
     "clipboard-text":["clipboard","⌇"], "clipboard-images":["clipboard","▧"],
     wallpapers:["picture","❀"], themes:["palette","◐"],
