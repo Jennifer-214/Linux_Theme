@@ -12,7 +12,9 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "shared/bin/tmux-sessionizer"
 
-if shutil.which("bwrap") and not os.environ.get("FOXML_TMUX_TEST_SEALED"):
+# (Only where bwrap may make namespaces: a CI container may not, and then the test's own -S socket is the guard.)
+if (shutil.which("bwrap") and not os.environ.get("FOXML_TMUX_TEST_SEALED")
+        and subprocess.run(["bwrap", "--dev-bind", "/", "/", "true"], capture_output=True).returncode == 0):
     runtime = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
     os.environ["FOXML_TMUX_TEST_SEALED"] = "1"
     os.execvp("bwrap", ["bwrap", "--dev-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", runtime,
