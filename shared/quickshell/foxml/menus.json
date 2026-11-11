@@ -27,6 +27,7 @@
       "icon": "terminal",
       "description": "Your projects, jobs and the helpers at work",
       "items": [
+        { "id": "terminals", "label": "Terminals", "detail": "Your tmux sessions: go to one, rename, move a pane, close", "icon": "⧈", "kind": "page", "page": "terminals", "keywords": ["tmux", "sessions", "terminal", "kitty", "switch", "rename"], "section": "projects" },
         { "id": "projects", "label": "Project index cards", "detail": "A little card for each code project", "icon": "▤", "kind": "page", "page": "projects", "keywords": ["code", "repos", "git"], "section": "projects" },
         { "id": "worktrees", "label": "Worktree map", "detail": "Branches, working folders and the Claudes in each", "icon": "▥", "kind": "page", "page": "worktrees", "keywords": ["branches", "git"], "section": "projects" },
         { "id": "garden", "label": "Commit garden", "detail": "A year of commits, one little square a day", "icon": "❦", "kind": "page", "page": "garden", "keywords": ["commits", "contributions", "history"], "section": "projects" },

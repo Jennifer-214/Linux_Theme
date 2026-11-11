@@ -103,7 +103,7 @@ fs::path repository() {
 const std::set<std::string> pages = {
     "apps", "windows", "audio-outputs", "wifi", "bluetooth", "tools", "tools-ai", "tools-security", "tools-desktop", "tools-system", "tools-projects", "tools-other", "tools-all", "cheatsheet", "cheatsheet-keys", "sandbox", "clipboard-text", "clipboard-images",
     "wallpapers", "themes", "power", "updates", "agents", "projects", "bookmarks", "library", "downloads", "screenshots", "passwords", "garden",
-    "models", "storage", "backups", "startup", "displays", "display", "display-modes", "calendar-feeds", "programs", "jobs", "test-results", "reviews", "worktrees", "next-steps", "failures", "api-credits", "api-tasks", "earlier-notes"
+    "models", "storage", "backups", "startup", "displays", "display", "display-modes", "calendar-feeds", "programs", "terminals", "terminals-arrange", "terminal", "terminal-pane", "jobs", "test-results", "reviews", "worktrees", "next-steps", "failures", "api-credits", "api-tasks", "earlier-notes"
 };
 const std::set<std::string> actions = {
     "volume", "volume-mute", "mic-mute", "media-play-pause", "media-next", "media-previous", "brightness",
@@ -112,7 +112,7 @@ const std::set<std::string> actions = {
     "security", "cleanup", "agent-triage", "agent-jump", "agent-clear", "claude-jump", "app-launch", "window-focus", "audio-output", "wifi-connect",
     "wifi-toggle", "bluetooth-connect", "bluetooth-toggle", "bluetooth-scan", "bluetooth-service", "tool-run", "cheatsheet-copy", "sandbox-launch", "clipboard-restore", "wallpaper-set", "theme-set", "project-open", "project-terminal", "project-bookmark", "drive-open", "drive-eject", "download-open", "download-folder", "screenshot-open", "screenshot-copy", "screenshot-folder", "screenshot-capture", "password-copy", "tools", "cheatsheet", "sandbox",
     "goodnight-open", "api-task-ask", "api-task-open", "api-task-failure", "api-task-settings", "api-task-review", "api-task-pi", "api-task-follow", "calendar-feed-add", "calendar-feed-remove", "calendar-refresh", "display-scale", "display-rotate", "display-side", "display-mode", "display-keep", "display-undo", "display-edit", "cursor-size", "credits-setup", "credits-console", "model-agent", "model-remove", "storage-scan", "storage-open", "storage-clean-packages", "storage-trim-journal", "storage-flatpak-unused",
-    "storage-empty-trash", "storage-hidden", "backup-restore", "backup-open", "backup-prune", "startup-user", "startup-autostart", "program-quit", "program-force",
+    "storage-empty-trash", "storage-hidden", "backup-restore", "backup-open", "backup-prune", "startup-user", "startup-autostart", "program-quit", "program-force", "terminal-go", "terminal-new", "terminal-here", "terminal-rename", "terminal-pane-move", "terminal-pane-split", "terminal-close",
     "work-open", "work-jump", "work-tests", "work-compare", "work-ask", "work-reviews", "work-tasks", "work-task-toggle", "work-task-draft", "worktree-open", "worktree-terminal", "project-worktrees", "service-log", "service-ask",
     "note-open", "note-clear", "calendar"
 };
@@ -3696,6 +3696,229 @@ Json program_quit(const std::string& key, bool confirmed, bool force) {
     write_atomic(quit_asked_file(), asked.dump());
     return result(true, force ? program->label + " force quit" : "Asked " + program->label + " to quit");
 }
+// ── Terminals: tmux sessions by name, where each is shown, and moving them about. Every tmux call names its target
+// exactly (=name, %pane); nothing here ever stops the server itself.
+struct TmuxPane { std::string id, session, window, cmd, path; bool active = false; };
+struct TmuxSession { std::string name; int windows = 0; long long activity = 0; std::vector<TmuxPane> panes; std::vector<int> clients; };
+std::vector<std::string> tabs(const std::string& line) {
+    std::vector<std::string> out;
+    for (size_t at = 0;;) { const auto tab = line.find('\t', at); out.push_back(line.substr(at, tab == std::string::npos ? std::string::npos : tab - at)); if (tab == std::string::npos) break; at = tab + 1; }
+    return out;
+}
+std::vector<TmuxSession> tmux_sessions() {
+    std::vector<TmuxSession> out;
+    std::string text;
+    if (!sh::have("tmux") || !capture({"tmux", "list-sessions", "-F", "#{session_name}\t#{session_windows}\t#{session_activity}"}, text)) return out;
+    std::map<std::string, size_t> at;
+    for (const auto& line : lines(text)) {
+        const auto f = tabs(line);
+        if (f.size() < 3 || f[0].empty()) continue;
+        TmuxSession s; s.name = f[0]; s.windows = std::atoi(f[1].c_str()); s.activity = std::atoll(f[2].c_str());
+        at[s.name] = out.size(); out.push_back(s);
+    }
+    if (capture({"tmux", "list-panes", "-a", "-F", "#{session_name}\t#{window_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_active}\t#{window_active}"}, text))
+        for (const auto& line : lines(text)) {
+            const auto f = tabs(line);
+            if (f.size() < 7 || !at.count(f[0])) continue;
+            out[at[f[0]]].panes.push_back({f[2], f[0], f[1], f[3], f[4], f[5] == "1" && f[6] == "1"});
+        }
+    if (capture({"tmux", "list-clients", "-F", "#{client_session}\t#{client_pid}"}, text))
+        for (const auto& line : lines(text)) {
+            const auto f = tabs(line);
+            if (f.size() >= 2 && at.count(f[0])) out[at[f[0]]].clients.push_back(std::atoi(f[1].c_str()));
+        }
+    return out;
+}
+// "claude, nvim · 3 windows": what runs there, the plain shells only when nothing else does.
+std::string tmux_session_detail(const TmuxSession& s) {
+    static const std::set<std::string> shells = {"zsh", "bash", "fish", "sh", "dash", "nu"};
+    std::vector<std::string> apps;
+    for (const auto& p : s.panes)
+        if (!shells.count(p.cmd) && std::find(apps.begin(), apps.end(), p.cmd) == apps.end()) apps.push_back(p.cmd);
+    std::string out;
+    for (const auto& a : apps) out += (out.empty() ? "" : ", ") + a;
+    if (out.empty()) out = "a shell";
+    if (s.windows > 1) out += " · " + std::to_string(s.windows) + " windows";
+    return out;
+}
+const TmuxSession* find_session(const std::vector<TmuxSession>& all, const std::string& name) {
+    const auto it = std::find_if(all.begin(), all.end(), [&](const TmuxSession& s) { return s.name == name; });
+    return it == all.end() ? nullptr : &*it;
+}
+bool session_name_ok(const std::string& name) { return !name.empty() && name.size() <= 80 && safe_text(name, 80) && name.find_first_of(".:\t\n") == std::string::npos; }
+void terminals_rows(Json& rows) {
+    auto sessions = tmux_sessions();
+    if (!sh::have("tmux")) { auto none = item("terminal-go", "tmux is not installed", "action", "", "terminal"); none["enabled"] = false; rows.push_back(none); return; }
+    std::sort(sessions.begin(), sessions.end(), [](const TmuxSession& a, const TmuxSession& b) { return a.activity > b.activity; });
+    for (const bool shown : {true, false}) {
+        bool any = false;
+        for (const auto& s : sessions) {
+            if (s.clients.empty() == shown) continue;
+            if (!any) { rows.push_back(heading(shown ? "in a window" : "not in a window")); any = true; }
+            auto row = item("terminal-go", s.name, "action", tmux_session_detail(s) + (shown ? "" : " · opens in a new window"), "terminal");
+            row["argument"] = s.name; rows.push_back(row);
+        }
+    }
+    // Projects not open yet: the folders under ~/code and ~/school, newest first.
+    std::vector<std::pair<fs::file_time_type, fs::path>> projects;
+    std::error_code ec;
+    for (const auto* root : {"/code", "/school"})
+        for (const auto& entry : fs::directory_iterator(home() + root, ec))
+            if (const auto n = entry.path().filename().string(); entry.is_directory(ec) && n.front() != '.' && n.front() != '_' && n != "deprecated")
+                projects.emplace_back(entry.last_write_time(ec), entry.path());
+    std::sort(projects.begin(), projects.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
+    int listed = 0;
+    for (const auto& [when, path] : projects) {
+        auto name = path.filename().string();
+        std::replace(name.begin(), name.end(), '.', '_'); std::replace(name.begin(), name.end(), ':', '_'); std::replace(name.begin(), name.end(), ' ', '_');
+        if (find_session(sessions, name) || listed >= 6) continue;
+        if (listed++ == 0) rows.push_back(heading("open a project"));
+        auto row = item("terminal-new", path.filename().string(), "action", "A new terminal there", "folder");
+        row["argument"] = path.string(); rows.push_back(row);
+    }
+    if (!sessions.empty()) {
+        rows.push_back(heading("tidy"));
+        auto arrange = item("terminals-arrange", "Rearrange sessions", "page", "Rename, show here, move a pane, close", "window");
+        arrange["page"] = "terminals-arrange"; rows.push_back(arrange);
+    }
+}
+void terminals_arrange_rows(Json& rows) {
+    for (const auto& s : tmux_sessions()) {
+        auto row = item("terminal-session", s.name, "page", tmux_session_detail(s) + (s.clients.empty() ? " · not in a window" : ""), "terminal");
+        row["page"] = "terminal"; row["scope"] = s.name; row["argument"] = s.name; rows.push_back(row);
+    }
+}
+bool terminal_rows(const std::string& name, Json& rows, Json& out) {
+    const auto sessions = tmux_sessions();
+    const auto* s = find_session(sessions, name);
+    if (!s) return false;
+    out["title"] = s->name;
+    auto go = item("terminal-go", s->clients.empty() ? "Open in a new window" : "Go to it", "action", tmux_session_detail(*s), "terminal");
+    go["argument"] = s->name; rows.push_back(go);
+    auto here = item("terminal-here", "Show it in the focused terminal", "action",
+                     s->clients.empty() ? "The terminal you were in switches to it" : "The terminal you were in switches to it; the window showing it now closes", "window");
+    here["argument"] = s->name; rows.push_back(here);
+    auto rename = item("terminal-rename", "Rename", "action", "Give it a name of your own", "note");
+    rename["argument"] = s->name; rows.push_back(rename);
+    if (s->panes.size() > 1 || sessions.size() > 1) {
+        rows.push_back(heading("its panes"));
+        for (const auto& p : s->panes) {
+            auto row = item("terminal-pane", p.cmd + " · window " + p.window, "page", fs::path(p.path).filename().string() + (p.active ? " · the one in front" : ""), "terminal");
+            row["page"] = "terminal-pane"; row["scope"] = p.id; row["argument"] = p.id; rows.push_back(row);
+        }
+    }
+    rows.push_back(heading("close"));
+    bool busy = false;
+    for (const auto& p : s->panes) busy = busy || p.cmd == "claude" || p.cmd == "nvim" || p.cmd == "codex" || p.cmd == "vim";
+    auto close = item("terminal-close", "Close this session", "action", busy ? "Something is still running in it" : "Every window in it closes", "trash");
+    close["argument"] = s->name;
+    close["confirm"] = std::string("Close ") + s->name + "?" + (busy ? " Claude, editors and anything else running in it stop, and unsaved work in them is lost." : "");
+    rows.push_back(close);
+    return true;
+}
+bool terminal_pane_rows(const std::string& pane, Json& rows, Json& out) {
+    const auto sessions = tmux_sessions();
+    const TmuxPane* found = nullptr;
+    for (const auto& s : sessions) for (const auto& p : s.panes) if (p.id == pane) found = &p;
+    if (!found) return false;
+    out["title"] = found->cmd + " · " + found->session;
+    rows.push_back(heading("move it"));
+    for (const auto& s : sessions) {
+        if (s.name == found->session) continue;
+        auto row = item("terminal-pane-move", "Into " + s.name, "action", "As a new window there", "next");
+        row["argument"] = pane + "\t" + s.name; rows.push_back(row);
+    }
+    auto own = item("terminal-pane-split", "Into a session of its own", "action", "Named for its folder", "window");
+    own["argument"] = pane; rows.push_back(own);
+    return true;
+}
+// The tmux client inside a window: the client process's parents lead to the window's process.
+std::string client_in_window(int window_pid) {
+    std::string text;
+    if (window_pid <= 0 || !capture({"tmux", "list-clients", "-F", "#{client_tty}\t#{client_pid}"}, text)) return {};
+    for (const auto& line : lines(text)) {
+        const auto f = tabs(line);
+        if (f.size() < 2) continue;
+        int pid = std::atoi(f[1].c_str());
+        for (int depth = 0; depth < 8 && pid > 1; ++depth) {
+            if (pid == window_pid) return f[0];
+            const auto stat = read(fs::path("/proc") / std::to_string(pid) / "stat");
+            const auto close = stat.rfind(')');
+            if (close == std::string::npos) break;
+            std::istringstream fields(stat.substr(close + 2));
+            std::string state; int parent = 0;
+            if (!(fields >> state >> parent)) break;
+            pid = parent;
+        }
+    }
+    return {};
+}
+Json terminal_go(const std::string& name) {
+    const auto sessions = tmux_sessions();
+    const auto* s = find_session(sessions, name);
+    if (!s) return result(false, "That session is gone");
+    if (s->clients.empty()) return terminal({"tmux", "attach-session", "-t", "=" + name}, name + " opened");
+    focus_agent_client(s->clients.front());
+    return result(true, name, true);
+}
+Json terminal_here(const std::string& name) {
+    const auto sessions = tmux_sessions();
+    const auto* s = find_session(sessions, name);
+    if (!s) return result(false, "That session is gone");
+    Json active;
+    if (!capture_json({"hyprctl", "-j", "activewindow"}, active) || !active.is_object()) return result(false, "No window has the focus");
+    const auto tty = client_in_window(active.value("pid", 0));
+    if (tty.empty()) return result(false, "The focused window is not a terminal with tmux");
+    std::string text, out;
+    // Never in two places: the other windows showing it let go first (each closes as its tmux client detaches).
+    if (capture({"tmux", "list-clients", "-F", "#{client_tty}\t#{client_session}"}, text))
+        for (const auto& line : lines(text)) {
+            const auto f = tabs(line);
+            if (f.size() >= 2 && f[1] == name && f[0] != tty) capture({"tmux", "detach-client", "-t", f[0]}, out);
+        }
+    if (!capture({"tmux", "switch-client", "-c", tty, "-t", "=" + name}, out)) return result(false, "Could not switch that terminal");
+    return result(true, name + " is in that terminal now", true);
+}
+Json terminal_rename(const std::string& from, const std::string& to) {
+    if (!session_name_ok(to)) return result(false, "A name without dots or colons, please");
+    const auto sessions = tmux_sessions();
+    if (!find_session(sessions, from)) return result(false, "That session is gone");
+    if (find_session(sessions, to)) return result(false, "Another session is called " + to);
+    std::string out;
+    return capture({"tmux", "rename-session", "-t", "=" + from, "--", to}, out) ? result(true, from + " is " + to + " now") : result(false, "Could not rename it");
+}
+Json terminal_pane_move(const std::string& arg) {
+    const auto tab = arg.find('\t');
+    if (tab == std::string::npos) return result(false, "Not a pane and a session");
+    const auto pane = arg.substr(0, tab), target = arg.substr(tab + 1);
+    if (!std::regex_match(pane, std::regex("%[0-9]{1,9}")) || !find_session(tmux_sessions(), target)) return result(false, "That pane or session is gone");
+    std::string out;
+    return capture({"tmux", "break-pane", "-d", "-s", pane, "-t", "=" + target + ":"}, out) ? result(true, "Moved into " + target) : result(false, "Could not move it");
+}
+Json terminal_pane_split(const std::string& pane) {
+    if (!std::regex_match(pane, std::regex("%[0-9]{1,9}"))) return result(false, "Not a pane");
+    const auto sessions = tmux_sessions();
+    const TmuxPane* found = nullptr;
+    for (const auto& s : sessions) for (const auto& p : s.panes) if (p.id == pane) found = &p;
+    if (!found) return result(false, "That pane is gone");
+    auto base = fs::path(found->path).filename().string();
+    for (auto& c : base) if (c == '.' || c == ':' || c == ' ') c = '_';
+    if (base.empty()) base = "pane";
+    auto name = base;
+    for (int n = 2; find_session(sessions, name); ++n) name = base + "-" + std::to_string(n);
+    std::string out, first;
+    // A new session starts with a shell window; the pane goes in beside it and the shell goes.
+    if (!capture({"tmux", "new-session", "-d", "-s", name, "-c", found->path, "-P", "-F", "#{window_id}"}, first)) return result(false, "Could not start a session");
+    if (!capture({"tmux", "break-pane", "-d", "-s", pane, "-t", "=" + name + ":"}, out)) return result(false, "Could not move it");
+    capture({"tmux", "kill-window", "-t", trim(first)}, out);
+    return result(true, "Its own session now: " + name);
+}
+Json terminal_close(const std::string& name, bool confirmed) {
+    if (!confirmed) return result(false, "Confirmation required");
+    if (!find_session(tmux_sessions(), name)) return result(false, "That session is gone");
+    std::string out;
+    return capture({"tmux", "kill-session", "-t", "=" + name}, out) ? result(true, name + " closed") : result(false, "Could not close it");
+}
 void startup_rows(Json& rows) {
     std::string out;
     // Your own services: switching one off is yours to do.
@@ -4237,6 +4460,16 @@ Json view(const Json& config, const std::string& page, const std::string& query,
     } else if (page == "startup") {
         known = true; out["title"] = "Startup";
         startup_rows(rows);
+    } else if (page == "terminals") {
+        known = true; out["title"] = "Terminals";
+        terminals_rows(rows);
+    } else if (page == "terminals-arrange") {
+        known = true; out["title"] = "Rearrange";
+        terminals_arrange_rows(rows);
+    } else if (page == "terminal" || page == "terminal-pane") {
+        known = true; out["title"] = "Terminal";
+        if (project_scope.empty() || !(page == "terminal" ? terminal_rows(project_scope, rows, out) : terminal_pane_rows(project_scope, rows, out)))
+            fail(page == "terminal" ? "That session is gone" : "That pane is gone");
     } else if (page == "programs") {
         known = true; out["title"] = "Programs";
         programs_rows(rows);
@@ -4348,7 +4581,7 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         if (id == "logout") return command({"fox-hl", "dispatch", "hl.dsp.exit()", "exit"}, "Log out", true);
         return command({"systemctl", id}, id == "suspend" ? "Suspend" : id == "reboot" ? "Restart" : "Shut down", true);
     }
-    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","tool-run","cheatsheet-copy","sandbox-launch","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","screenshot-open","screenshot-copy","screenshot-folder","password-copy","agent-jump","claude-jump","model-agent","model-remove","storage-open","backup-restore","backup-open","startup-user","startup-autostart","program-quit","program-force","api-task-ask","api-task-open","api-task-failure","api-task-review","api-task-pi","api-task-follow","display-scale","display-rotate","display-side","display-mode","cursor-size","calendar-feed-remove","note-open","goodnight-open"};
+    const std::set<std::string> argument_actions{"volume","brightness","power-profile","app-launch","window-focus","audio-output","wifi-connect","bluetooth-connect","tool-run","cheatsheet-copy","sandbox-launch","clipboard-restore","wallpaper-set","theme-set","project-open","project-terminal","project-bookmark","drive-open","drive-eject","download-open","download-folder","screenshot-open","screenshot-copy","screenshot-folder","password-copy","agent-jump","claude-jump","model-agent","model-remove","storage-open","backup-restore","backup-open","startup-user","startup-autostart","program-quit","program-force","terminal-go","terminal-new","terminal-here","terminal-rename","terminal-pane-move","terminal-pane-split","terminal-close","api-task-ask","api-task-open","api-task-failure","api-task-review","api-task-pi","api-task-follow","display-scale","display-rotate","display-side","display-mode","cursor-size","calendar-feed-remove","note-open","goodnight-open"};
     const bool confirm_only = arg == "--confirm" && (id == "backup-prune" || id == "storage-empty-trash");
     if (!argument_actions.count(id) && !arg.empty() && !confirm_only) return result(false, "This action accepts no argument");
     if (id == "volume" || id == "brightness") {
@@ -4624,6 +4857,24 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
     if (id == "startup-user") return startup_user_off(arg, confirmed);
     if (id == "startup-autostart") return startup_autostart_hide(arg, confirmed);
     if (id == "program-quit") return program_quit(arg, confirmed, false);
+    if (id == "terminal-go") return terminal_go(arg);
+    if (id == "terminal-new") {
+        std::error_code ec;
+        if (!fs::is_directory(arg, ec)) return result(false, "That folder is gone");
+        return launch({"kitty", "--directory", arg, "tmux", "new-session"}, "Terminal opened");
+    }
+    if (id == "terminal-here") return terminal_here(arg);
+    if (id == "terminal-rename") {
+        if (!find_session(tmux_sessions(), arg)) return result(false, "That session is gone");
+        std::error_code ec;
+        const auto self = fs::read_symlink("/proc/self/exe", ec);
+        if (ec) return result(false, "Could not find the drawer program");
+        return launch({"/bin/sh", "-c", "name=$(fox-picker --title \"Rename $2\" --prompt) && [ -n \"$name\" ] && exec \"$1\" terminal-rename \"$2\" \"$name\"",
+                       "sh", self.string(), arg}, "Type a name");
+    }
+    if (id == "terminal-pane-move") return terminal_pane_move(arg);
+    if (id == "terminal-pane-split") return terminal_pane_split(arg);
+    if (id == "terminal-close") return terminal_close(arg, confirmed);
     if (id == "program-force") return program_quit(arg, confirmed, true);
     if (id == "note-open") return open_note(arg);
     if (id == "note-clear") return clear_notes();
@@ -4784,6 +5035,11 @@ int main(int argc, char** argv) {
         if (args.size() == 1 && args[0] == "thunar-bookmarks") return sync_thunar_bookmarks();
         // The course calendars: read now (detached, by the drawer), or keep a pasted link.
         if (args.size() == 1 && args[0] == "calendar-refresh") return calendar_refresh();
+        if (args.size() == 3 && args[0] == "terminal-rename") {
+            const auto renamed = terminal_rename(args[1], args[2]);
+            if (sh::have("notify-send")) sh::run({"notify-send", "--app-name=FoxML", "Terminals", text(renamed, "message")});
+            return truth(renamed, "ok") ? 0 : 1;
+        }
         if (args.size() == 2 && args[0] == "calendar-feed-add") {
             const auto added = calendar_feed_add(args[1]);
             if (sh::have("notify-send")) sh::run({"notify-send", "--app-name=FoxML", truth(added, "ok") ? "Course calendar" : "Course calendar not added", text(added, "message")});
@@ -4811,7 +5067,7 @@ int main(int argc, char** argv) {
         }
         if (args.size() < 2 || args.size() > 4 || (args[0] != "view" && args[0] != "run" && args[0] != "commit-days")
             || (args.size() == 4 && (args[0] != "run" || args[3] != "--confirm"
-                || !std::set<std::string>{"drive-eject", "model-agent", "model-remove", "backup-restore", "startup-user", "startup-autostart", "calendar-feed-remove", "program-quit", "program-force"}.count(args[1])))) {
+                || !std::set<std::string>{"drive-eject", "model-agent", "model-remove", "backup-restore", "startup-user", "startup-autostart", "calendar-feed-remove", "program-quit", "program-force", "terminal-close"}.count(args[1])))) {
             std::cout << result(false, "Use view PAGE [QUERY] or run ACTION [ARGUMENT]").dump() << '\n'; return 1;
         }
         Json config; std::string error;

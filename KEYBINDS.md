@@ -689,7 +689,8 @@ Shows indent guides automatically. No keybinds.
 | `Ctrl+a c` | New window in the current pane's directory |
 | `Ctrl+a Tab` | Jump back to the last-used window |
 | `Ctrl+a q` | Show pane numbers — flash the overlay, then press a number to jump to that pane |
-| `Ctrl+a w` | Fuzzy session switcher / project launcher (replaces choose-tree) |
+| `Ctrl+a w` | Your sessions: the drawer's Terminals page on the desktop, the switcher popup anywhere else |
+| `Ctrl+a W` | The session switcher popup: enter goes to a session, ^b shows it here, ^r renames, ^x closes, ? keys |
 | `Ctrl+a G` | Lazygit on the current pane's repo, in a themed float |
 | `Ctrl+a a` | Ask your local model (fox-ai-oracle) without leaving the terminal |
 | `Ctrl+a e` | Mirror keystrokes to all panes in the current window |

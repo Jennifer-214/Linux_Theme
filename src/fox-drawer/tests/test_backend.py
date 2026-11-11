@@ -1434,6 +1434,75 @@ class BackendTests(unittest.TestCase):
         self.run_quiet('screens-changed')
         self.assertEqual(len([c for c in self.calls() if c[0] == 'setsid']), 1, 'said once while it stays plugged in')
 
+    def test_terminals_go_to_a_session_show_it_here_rename_move_a_pane_and_close_only_when_confirmed(self):
+        me = os.getpid()
+        j = lambda *argv: "\x1f".join(argv)
+        (self.home/"code/Paper").mkdir(parents=True); (self.home/"code/_scratch_x").mkdir(); (self.home/"code/Linux_Theme").mkdir()
+        self.state["exact"] = {
+            j("tmux","list-sessions","-F","#{session_name}\t#{session_windows}\t#{session_activity}"):
+                {"stdout": "Linux_Theme\t1\t300\nFoxML_Trader_v2\t2\t200\nnotes\t1\t100\n"},
+            j("tmux","list-panes","-a","-F","#{session_name}\t#{window_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_active}\t#{window_active}"):
+                {"stdout": "Linux_Theme\t1\t%1\tclaude\t/code/Linux_Theme\t1\t1\nFoxML_Trader_v2\t1\t%2\tnvim\t/code/FoxML_Trader_v2\t1\t1\n"
+                           "FoxML_Trader_v2\t2\t%3\tzsh\t/code/FoxML_Trader_v2/src\t1\t0\nnotes\t1\t%4\tzsh\t/home/x/notes\t1\t1\n"},
+            j("tmux","list-clients","-F","#{client_session}\t#{client_pid}"): {"stdout": f"Linux_Theme\t{me}\nFoxML_Trader_v2\t999999\n"},
+            j("tmux","list-clients","-F","#{client_tty}\t#{client_pid}"): {"stdout": f"/dev/pts/7\t{me}\n/dev/pts/8\t999999\n"},
+            j("tmux","list-clients","-F","#{client_tty}\t#{client_session}"): {"stdout": "/dev/pts/7\tLinux_Theme\n/dev/pts/8\tFoxML_Trader_v2\n"},
+            j("hyprctl","-j","activewindow"): {"stdout": json.dumps({"pid": me})},
+            j("hyprctl","-j","clients"): {"stdout": json.dumps([{"pid": me, "address": "0xabc"}])},
+            j("tmux","new-session","-d","-s","src","-c","/code/FoxML_Trader_v2/src","-P","-F","#{window_id}"): {"stdout": "@9\n"},
+        }
+        page = self.invoke("view", "terminals")["items"]
+        sections = [(r["kind"], r["label"]) for r in page]
+        self.assertEqual(sections[:5], [("heading","in a window"),("action","Linux_Theme"),("action","FoxML_Trader_v2"),
+                                        ("heading","not in a window"),("action","notes")], "newest first, shown before not shown")
+        self.assertEqual(next(r for r in page if r["label"] == "FoxML_Trader_v2")["detail"], "nvim · 2 windows", "what runs there, not the shells")
+        self.assertIn("opens in a new window", next(r for r in page if r["label"] == "notes")["detail"])
+        self.assertEqual([r["label"] for r in page if r["id"] == "terminal-new"], ["Paper"], "an open project and a scratch folder are not offered")
+
+        trader = self.invoke("view", "terminal", "", "--project", "FoxML_Trader_v2")
+        self.assertEqual(trader["title"], "FoxML_Trader_v2")
+        close = next(r for r in trader["items"] if r["id"] == "terminal-close")
+        self.assertIn("unsaved work", close["confirm"], "an editor running there is warned about")
+        moves = self.invoke("view", "terminal-pane", "", "--project", "%3")["items"]
+        self.assertEqual([(r["label"], r.get("argument")) for r in moves if r["kind"] != "heading"],
+                         [("Into Linux_Theme", "%3\tLinux_Theme"), ("Into notes", "%3\tnotes"), ("Into a session of its own", "%3")])
+
+        self.assertTrue(self.invoke("run", "terminal-go", "Linux_Theme")["close"])
+        self.assertTrue(any("address:0xabc" in " ".join(c) for c in self.calls()), "shown in a window: that window gets the focus")
+        self.invoke("run", "terminal-go", "notes")
+        self.assertTrue(any("attach-session" in c and "=notes" in c for c in self.calls()), "shown nowhere: a new window")
+
+        self.invoke("run", "terminal-here", "FoxML_Trader_v2")
+        calls = self.calls()
+        self.assertIn(["tmux","detach-client","-t","/dev/pts/8"], calls, "the other window showing it lets go")
+        self.assertIn(["tmux","switch-client","-c","/dev/pts/7","-t","=FoxML_Trader_v2"], calls, "the focused terminal shows it")
+        self.assertLess(calls.index(["tmux","detach-client","-t","/dev/pts/8"]), calls.index(["tmux","switch-client","-c","/dev/pts/7","-t","=FoxML_Trader_v2"]))
+
+        rename = lambda *a: subprocess.run([str(BINARY), "terminal-rename", *a], env=self.env, capture_output=True, text=True, timeout=10)
+        self.state_path.write_text(json.dumps(self.state))
+        self.assertEqual(rename("notes", "journal").returncode, 0)
+        self.assertIn(["tmux","rename-session","-t","=notes","--","journal"], self.calls())
+        for bad in [("notes", "a.b"), ("notes", "Linux_Theme"), ("gone", "x"), ("notes", "")]:
+            self.assertNotEqual(rename(*bad).returncode, 0, bad)
+
+        self.invoke("run", "terminal-pane-move", "%4\tLinux_Theme")
+        self.assertIn(["tmux","break-pane","-d","-s","%4","-t","=Linux_Theme:"], self.calls())
+        before = len(self.calls())
+        self.failed("run", "terminal-pane-move", "%4;x\tLinux_Theme")
+        self.failed("run", "terminal-pane-move", "%4\tnowhere")
+        self.assertFalse(any(c[:2] == ["tmux","break-pane"] for c in self.calls()[before:]), "a bad pane or session never moves anything")
+
+        self.invoke("run", "terminal-pane-split", "%3")
+        calls = self.calls()
+        self.assertIn(["tmux","break-pane","-d","-s","%3","-t","=src:"], calls)
+        self.assertIn(["tmux","kill-window","-t","@9"], calls, "the new session's own shell window goes")
+
+        self.failed("run", "terminal-close", "notes")
+        self.assertNotIn(["tmux","kill-session","-t","=notes"], self.calls(), "never without a confirmation")
+        self.invoke("run", "terminal-close", "notes", "--confirm")
+        self.assertIn(["tmux","kill-session","-t","=notes"], self.calls())
+        self.assertFalse(any("kill-server" in c for c in self.calls()), "nothing here ever stops the server")
+
     def test_programs_lists_your_own_programs_and_quits_one_only_when_confirmed(self):
         proc = self.home/'proc'
         def fake(pid, comm, ppid, exe, rss_pages, cmdline=(), cwd=None):

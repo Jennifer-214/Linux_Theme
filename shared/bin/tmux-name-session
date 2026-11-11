@@ -1,0 +1,31 @@
+#!/bin/bash
+# tmux-name-session — a session tmux only numbered takes the name of the project its shell is in ("Linux_Theme",
+# then "Linux_Theme-2"). A name you gave it stays yours: only tmux's own numbers are replaced. zsh runs it on cd.
+# Usage: tmux-name-session [path]          (inside tmux: names this pane's session)
+#        tmux-name-session --all           (names every numbered session by the folder of its first pane)
+set -u
+project_of() {
+    local path="$1" top
+    top=$(git -C "$path" rev-parse --show-toplevel 2>/dev/null)
+    if [[ -n "$top" ]]; then basename "$top"
+    elif [[ "$path" =~ ^$HOME/(code|school)/([^/]+) ]]; then printf '%s' "${BASH_REMATCH[2]}"
+    fi
+}
+name_session() {
+    local session="$1" path="$2" name candidate n=2 taken
+    [[ "$session" =~ ^[0-9]+$ ]] || return 0
+    name=$(project_of "$path" | tr ' .:' '___')
+    [[ -n "$name" ]] || return 0
+    taken=$(tmux list-sessions -F '#{session_name}' 2>/dev/null)
+    candidate="$name"
+    while grep -qxF -- "$candidate" <<<"$taken"; do candidate="$name-$n"; n=$((n + 1)); done
+    tmux rename-session -t "=$session" -- "$candidate" 2>/dev/null
+}
+if [[ "${1:-}" == "--all" ]]; then
+    tmux list-sessions -F '#{session_name}' 2>/dev/null | while IFS= read -r session; do
+        name_session "$session" "$(tmux display-message -p -t "=$session:" '#{pane_current_path}' 2>/dev/null)"
+    done
+    exit 0
+fi
+[[ -n "${TMUX:-}" && -n "${TMUX_PANE:-}" ]] || exit 0
+name_session "$(tmux display-message -p -t "$TMUX_PANE" '#{session_name}' 2>/dev/null)" "${1:-$PWD}"
