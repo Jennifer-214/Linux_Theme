@@ -46,7 +46,17 @@ Scope {
     }
     function cancel() { if (flow) flow.cancelAuthenticationRequest(); field.text = ""; }
 
-    Component.onCompleted: if (enabled) handover.running = true
+    // Quickshell finds its session from its own pid, and that lookup reads /proc/1, which hidepid hides from you; then it
+    // cannot register, so the plain prompt is left alone instead of stopped and handed back (no gap at all).
+    Component.onCompleted: if (enabled) canRegister.running = true
+    Process {
+        id: canRegister
+        command: ["sh", "-c", "test -r /proc/1/cgroup"]
+        onExited: code => {
+            if (code === 0) handover.running = true;
+            else console.info("polkit: /proc/1 is hidden (hidepid), so the paper prompt cannot register; the plain prompt stays");
+        }
+    }
     Process {
         id: handover
         command: ["systemctl", "--user", "stop", "hyprpolkitagent.service"]

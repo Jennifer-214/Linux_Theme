@@ -34,8 +34,8 @@ Keyring setup also masks limited SSH/GPG `gnome-keyring-daemon` autostart units.
 a paper slip that says what is asking in plain words. `hyprpolkitagent` holds the prompt from login; the shell takes
 it over once it is up and hands it back if it cannot hold it. `fox-pulse` starts `hyprpolkitagent` again whenever no
 paper prompt is registered, so a prompt is always there. `FOXML_POLKIT_PROMPT=off` in the shell's environment keeps
-the plain one. With `hidepid` but without the `proc`-group exemption for polkit, the paper prompt cannot register and
-the plain one stays.
+the plain one. With `hidepid` on, the paper prompt cannot register (Quickshell looks its session up from its own
+process, which needs `/proc/1`), so the shell leaves the plain one in place from the start.
 
 ## Browser hardening
 

@@ -68,19 +68,25 @@ void run_deps(Context& ctx) {
 
     const std::vector<std::string>& pkgs = deps_packages();
 
+    // Sync and upgrade first. Installing against the package list the machine last synced asks for versions the mirrors
+    // have since replaced (a week-old Arch install gets a wall of 404s), and -Sy without -u is a partial upgrade.
+    ui::substep("Updating the system first (pacman -Syu), so packages come from today's mirrors");
+    const bool synced = sh::run({"sudo", "pacman", "-Syu", "--noconfirm"}) == 0;
+    if (!synced) ui::warn("pacman -Syu failed — installing anyway");
+
     int rc = sh::pacman(pkgs);
     if (rc != 0) {
         // Most common failure mode: a single package has an unresolvable
         // dep (libtree-sitter ABI skew on neovim, etc.) and pacman
         // aborts the ENTIRE --needed transaction, so packages that
         // would've installed fine get skipped along with it. Auto-
-        // recover: run a full system upgrade (pulls newer co-deps),
-        // then retry the original batch. If THAT still fails, fall
-        // back to per-package installs so at least the ones with no
-        // conflicts land.
-        ui::warn("pacman batch failed — running `sudo pacman -Syu` to refresh deps, then retrying");
-        if (sh::run({"sudo", "pacman", "-Syu", "--noconfirm"}) == 0) {
-            rc = sh::pacman(pkgs);
+        // recover: run a full system upgrade (pulls newer co-deps) if the
+        // one above failed, then retry the original batch. If THAT still
+        // fails, fall back to per-package installs so at least the ones
+        // with no conflicts land.
+        if (!synced) {
+            ui::warn("pacman batch failed — running `sudo pacman -Syu` again, then retrying");
+            if (sh::run({"sudo", "pacman", "-Syu", "--noconfirm"}) == 0) rc = sh::pacman(pkgs);
         }
         if (rc != 0) {
             ui::warn("batch still failing — falling back to per-package install");
