@@ -1,0 +1,226 @@
+#!/usr/bin/env bash
+# desk-vpn — WireGuard wizard with UFW kill-switch.
+set -u
+C_GRN=$'\e[32m'; C_YEL=$'\e[33m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
+
+CONF_DIR=/etc/wireguard
+KILLSWITCH_RULE=/etc/ufw/before.rules.d/foxml-vpn-killswitch  # virtual marker; we actually use ufw deny
+
+_check_wg() {
+    command -v wg-quick >/dev/null 2>&1 \
+        || { echo "${C_RED}wireguard-tools not installed: sudo pacman -S wireguard-tools${C_RST}" >&2; return 1; }
+}
+
+_list() {
+    _check_wg || return 1
+    echo "  configs in $CONF_DIR:"
+    local n=0
+    if sudo -n true 2>/dev/null; then
+        sudo ls -1 "$CONF_DIR"/*.conf 2>/dev/null | while read -r f; do
+            printf '    %s\n' "$(basename "${f%.conf}")"; done
+        n=$(sudo ls -1 "$CONF_DIR"/*.conf 2>/dev/null | wc -l)
+    else
+        echo "    ${C_DIM}(sudo required to list)${C_RST}"
+    fi
+    echo
+    echo "  active interfaces:"
+    if command -v wg >/dev/null 2>&1; then
+        local out
+        out=$(sudo wg 2>/dev/null)
+        [[ -z "$out" ]] && echo "    ${C_DIM}(none)${C_RST}" || echo "$out" | sed 's/^/    /'
+    fi
+}
+
+_up() {
+    local iface="$1"
+    _check_wg || return 1
+    sudo wg-quick up "$iface" && echo "${C_GRN}✓ $iface up${C_RST}"
+}
+
+_down() {
+    local iface="$1"
+    _check_wg || return 1
+    sudo wg-quick down "$iface" && echo "${C_GRN}✓ $iface down${C_RST}"
+}
+
+_killswitch_on() {
+    local iface="${1:-wg0}"
+    # Default-deny everything outbound EXCEPT the wireguard tunnel and DNS-over-HTTPS to known DoH endpoints (loopback resolved).
+    sudo ufw default deny outgoing >/dev/null
+    sudo ufw allow out on "$iface" >/dev/null
+    # DNS-over-HTTPS: allow outbound 443 to 127.0.0.53 (systemd-resolved) — local only.
+    sudo ufw allow out to 127.0.0.0/8 >/dev/null
+    # The VPN handshake itself (UDP to the peer endpoint) — allowed by ufw default rules for that one port.
+    echo "${C_GRN}✓ kill-switch armed — all traffic routes via $iface only${C_RST}"
+    echo "${C_YEL}  to disarm: desk vpn killswitch off${C_RST}"
+}
+
+_killswitch_off() {
+    sudo ufw default allow outgoing >/dev/null
+    # Don't try to clean per-iface rules — they don't hurt anything when iface is down.
+    echo "${C_GRN}✓ kill-switch disarmed (outgoing default = allow)${C_RST}"
+}
+
+_status() {
+    if sudo -n ufw status 2>/dev/null | grep -q '^Default: .* deny (outgoing)'; then
+        echo "  kill-switch: ${C_GRN}ARMED${C_RST} (outgoing default = deny)"
+    else
+        echo "  kill-switch: ${C_DIM}disarmed${C_RST}"
+    fi
+    _list
+}
+
+_import() {
+    local src="$1"
+    [[ -f "$src" ]] || { echo "${C_RED}file not found: $src${C_RST}" >&2; return 1; }
+    # Sanity-check it looks like a WG config.
+    if ! grep -qE '^\[(Interface|Peer)\]' "$src"; then
+        echo "${C_RED}$src doesn't look like a WireGuard config (no [Interface]/[Peer] section)${C_RST}" >&2
+        return 1
+    fi
+    _check_wg || return 1
+    # Strip .conf if user passed it; we re-add.
+    local name
+    name=$(basename "$src" .conf)
+    # Sanitize: alphanumerics + dash + underscore only.
+    name=$(tr -cd 'A-Za-z0-9_-' <<<"$name")
+    [[ -z "$name" ]] && { echo "${C_RED}empty/invalid name${C_RST}" >&2; return 1; }
+    local dest="$CONF_DIR/${name}.conf"
+    if sudo test -f "$dest"; then
+        local r
+        read -rp "  $dest exists. Overwrite? [y/N] " -n 1 -r r; echo
+        [[ "$r" =~ ^[Yy]$ ]] || { echo cancelled; return 0; }
+    fi
+    sudo install -d -m 0700 "$CONF_DIR"
+    sudo install -m 0600 -o root -g root "$src" "$dest"
+    echo "${C_GRN}✓ imported as $name${C_RST}"
+    echo "  ${C_DIM}bring up:       desk vpn up $name${C_RST}"
+    echo "  ${C_DIM}kill-switch on: desk vpn killswitch on $name${C_RST}"
+}
+
+_import_url() {
+    local url="$1"
+    [[ "$url" =~ ^https?:// ]] || { echo "${C_RED}URL must be http(s)://${C_RST}" >&2; return 1; }
+    local tmp
+    tmp=$(mktemp --suffix=.conf)
+    if ! curl -fsSL -m 30 "$url" -o "$tmp"; then
+        echo "${C_RED}download failed${C_RST}" >&2
+        rm -f "$tmp"; return 1
+    fi
+    chmod 600 "$tmp"
+    local name
+    read -rp "  name to import as (no extension): " name
+    name=$(tr -cd 'A-Za-z0-9_-' <<<"$name")
+    # _import keys off the basename of the conf file for the new conn
+    # name, so we need the file to live at <something>/<name>.conf.
+    # Use a fresh mktemp DIRECTORY (0700) instead of /tmp/${name}.conf
+    # — the previous code wrote to a predictable path an attacker
+    # could pre-symlink elsewhere.
+    local stage
+    stage=$(mktemp -d)
+    mv "$tmp" "$stage/${name}.conf"
+    _import "$stage/${name}.conf"
+    rm -rf "$stage"
+}
+
+_new() {
+    local name="$1"
+    _check_wg || return 1
+    name=$(tr -cd 'A-Za-z0-9_-' <<<"$name")
+    [[ -z "$name" ]] && { echo "${C_RED}name required${C_RST}" >&2; return 1; }
+    local dest="$CONF_DIR/${name}.conf"
+    if sudo test -f "$dest"; then echo "${C_RED}$dest already exists${C_RST}" >&2; return 1; fi
+
+    # Generate keypair.
+    local privkey pubkey
+    privkey=$(wg genkey)
+    pubkey=$(wg pubkey <<<"$privkey")
+
+    echo "${C_BOLD:-}Creating $name — fill in the peer details:${C_RST:-}"
+    local addr peer_pub peer_endpoint allowed_ips dns
+    read -rp "  Your tunnel IP/CIDR (e.g. 10.66.66.2/32): " addr
+    read -rp "  Peer (server) public key:                 " peer_pub
+    read -rp "  Peer (server) endpoint (host:port):       " peer_endpoint
+    read -rp "  AllowedIPs (e.g. 0.0.0.0/0,::/0 for full): " allowed_ips
+    read -rp "  DNS to use over the tunnel (blank = none): " dns
+
+    sudo install -d -m 0700 "$CONF_DIR"
+    {
+        echo "[Interface]"
+        echo "PrivateKey = $privkey"
+        echo "Address = ${addr:-10.66.66.2/32}"
+        [[ -n "$dns" ]] && echo "DNS = $dns"
+        echo ""
+        echo "[Peer]"
+        echo "PublicKey = $peer_pub"
+        echo "Endpoint = $peer_endpoint"
+        echo "AllowedIPs = ${allowed_ips:-0.0.0.0/0,::/0}"
+        echo "PersistentKeepalive = 25"
+    } | sudo tee "$dest" >/dev/null
+    sudo chmod 600 "$dest"
+    sudo chown root:root "$dest"
+
+    echo
+    echo "${C_GRN}✓ written to $dest${C_RST}"
+    echo "  ${C_PEACH:-}YOUR public key (give to the server admin):${C_RST:-} $pubkey"
+    echo "  ${C_DIM}bring up:    desk vpn up $name${C_RST}"
+    echo "  ${C_DIM}kill-switch: desk vpn killswitch on $name${C_RST}"
+}
+
+_delete() {
+    local name="$1"
+    name=$(tr -cd 'A-Za-z0-9_-' <<<"$name")
+    local f="$CONF_DIR/${name}.conf"
+    if sudo test -f "$f"; then
+        # Down it first if active.
+        sudo wg-quick down "$name" 2>/dev/null || true
+        sudo rm -f "$f"
+        echo "${C_GRN}✓ deleted $f${C_RST}"
+    else
+        echo "${C_YEL}no such config: $f${C_RST}"
+    fi
+}
+
+case "${1:-}" in
+    ""|status)   _status ;;
+    list)        _list ;;
+    up)          [[ -n "${2:-}" ]] && _up   "$2" || { echo "usage: desk vpn up <iface>"; exit 2; } ;;
+    down)        [[ -n "${2:-}" ]] && _down "$2" || { echo "usage: desk vpn down <iface>"; exit 2; } ;;
+    import)      [[ -n "${2:-}" ]] && _import "$2" || { echo "usage: desk vpn import <file.conf>"; exit 2; } ;;
+    import-url)  [[ -n "${2:-}" ]] && _import_url "$2" || { echo "usage: desk vpn import-url <https://...>"; exit 2; } ;;
+    new)         [[ -n "${2:-}" ]] && _new "$2" || { echo "usage: desk vpn new <name>"; exit 2; } ;;
+    delete|rm)   [[ -n "${2:-}" ]] && _delete "$2" || { echo "usage: desk vpn delete <name>"; exit 2; } ;;
+    killswitch)
+        case "${2:-}" in
+            on|arm)     _killswitch_on   "${3:-wg0}" ;;
+            off|disarm) _killswitch_off ;;
+            *) echo "usage: desk vpn killswitch on|off [iface]"; exit 2 ;;
+        esac
+        ;;
+    -h|--help|help) cat <<EOF
+desk vpn — WireGuard manager + UFW kill-switch + config import/generate
+
+  desk vpn [status]               show iface state + kill-switch state
+  desk vpn list                   list configs + active ifaces
+
+  config management (no manual /etc/wireguard editing):
+    desk vpn import <file>        copy a .conf into /etc/wireguard (0600 root:root)
+    desk vpn import-url <url>     fetch + import from https URL
+    desk vpn new <name>           generate keypair + interactive scaffold;
+                                  prints YOUR pubkey to give to the server admin
+    desk vpn delete <name>        remove a config (downs it first if active)
+
+  runtime:
+    desk vpn up   <iface>         wg-quick up
+    desk vpn down <iface>         wg-quick down
+    desk vpn killswitch on [iface]   default-deny outgoing except via <iface>
+    desk vpn killswitch off          restore outgoing default = allow
+
+Typical flow:
+  desk vpn import ~/Downloads/myvpn.conf
+  desk vpn killswitch on myvpn
+  desk vpn up myvpn
+EOF
+    ;;
+    *) echo "unknown: $1" >&2; exit 2 ;;
+esac

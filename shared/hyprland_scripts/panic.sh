@@ -116,17 +116,17 @@ done
 #    knows the lockdown actually ran.
 notify-send "locking down." "clipboard wiped, firefox session closed, editors and engines stopped" 2>/dev/null || true
 
-# Phone alert via fox-dispatch (no-op silently if webhook isn't
+# Phone alert via desk-dispatch (no-op silently if webhook isn't
 # configured). Background + disown so the lock fires immediately;
 # dispatch finishes in the background after we're locked.
-if command -v fox-dispatch >/dev/null 2>&1; then
-    (fox-dispatch "lockdown" "lockdown ran on $(hostname) at $(date -Iseconds)" >/dev/null 2>&1) &
+if command -v desk-dispatch >/dev/null 2>&1; then
+    (desk-dispatch "lockdown" "lockdown ran on $(hostname) at $(date -Iseconds)" >/dev/null 2>&1) &
     disown || true
 fi
 
-# 6. Lock. Prefer fox-lock (dbus + awww sanity check) when present.
-if command -v fox-lock >/dev/null 2>&1; then
-    exec fox-lock
+# 6. Lock. Prefer desk-lock (dbus + awww sanity check) when present.
+if command -v desk-lock >/dev/null 2>&1; then
+    exec desk-lock
 elif [[ -x "$HOME/.config/hypr/scripts/lock.sh" ]]; then
     exec "$HOME/.config/hypr/scripts/lock.sh"
 else

@@ -182,18 +182,18 @@ class TuckedDrawer(unittest.TestCase):
             with self.subTest(width=width):self.exercise(width)
 
     def exercise(self,width):
-        renderer=ROOT/"src/fox-render/fox-render-fast"
+        renderer=ROOT/"src/desk-render/desk-render-fast"
         if not renderer.exists():
-            self.skipTest("build fox-render-fast first")
+            self.skipTest("build desk-render-fast first")
         with tempfile.TemporaryDirectory(prefix="tucked-drawer-") as tmp:
             work=Path(tmp);qml=work/"qml"
             shutil.copytree(ROOT/"shared/quickshell/foxml",qml)
             subprocess.run([str(renderer),str(ROOT/"themes/FoxML_Paper/palette.sh"),str(ROOT/"templates/quickshell/foxml"),str(qml)],check=True,capture_output=True)
             config=work/"config/waybar";config.mkdir(parents=True)
             layout={"modules-left":["custom/logo"],"modules-center":[],"modules-right":["custom/updates","custom/clock"],
-                "custom/clock":{"format":"Thursday 09:09","on-click":"fox-desktop-menu calendar"},
-                "custom/logo":{"format":"✎","on-click":"fox-desktop-menu root"},
-                "custom/updates":{"format":"↧ 4","on-click":"fox-desktop-menu updates"}}
+                "custom/clock":{"format":"Thursday 09:09","on-click":"desktop-menu calendar"},
+                "custom/logo":{"format":"✎","on-click":"desktop-menu root"},
+                "custom/updates":{"format":"↧ 4","on-click":"desktop-menu updates"}}
             for name in ["config","config_secondary"]:
                 (config/name).write_text(json.dumps(layout))
             volume=(qml/"LevelSlip.qml").read_text().replace("PanelWindow {","FloatingWindow {")

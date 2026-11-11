@@ -8,7 +8,7 @@ test('tracking records a command as written, keeps secrets out, and reads how th
   expect(beginArgs(command, '/r', 'abc', ' Run the unit tests ')).toContain('Run the unit tests')
   expect(beginArgs(command, '/r', 'abc', 'two\nlines')).not.toContain('--title')
   expect(shellQuote("a'b")).toBe("'a'\\''b'")
-  for (const source of ['fjob make', 'fox-work run -- make', 'curl -H "Authorization: Bearer secret" example.test', 'sudo make install', 'make &'])
+  for (const source of ['fjob make', 'desk-work run -- make', 'curl -H "Authorization: Bearer secret" example.test', 'sudo make install', 'make &'])
     expect(canTrack(source)).toBe(false)
   for (const source of ['cd src && make -j8', 'python3 -B tests/test_work.py', 'timeout 60 ctest --output-on-failure', './build/engine_test',
     'node --experimental-strip-types tests/a.test.mjs', 'npm run build', 'python3 -m pytest -q', 'CC=clang cmake -S . -B build'])

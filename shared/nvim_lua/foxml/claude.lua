@@ -1,6 +1,6 @@
 -- foxml.claude — nvim knows the other Claudes on this machine.
 --
--- Reads what the paper mod and fox-drawer already keep ($XDG_RUNTIME_DIR/foxml-claude: <sid>.state/.json, the
+-- Reads what the paper mod and desk-drawer already keep ($XDG_RUNTIME_DIR/foxml-claude: <sid>.state/.json, the
 -- edits ledgers and before-copies; $XDG_STATE_HOME/foxml/claude-sessions.jsonl, the commit names) and git. Writes
 -- only notes into a session's inbox. Shows: footprints (who edited this buffer lately), the plan gate and who needs
 -- you, a "what changed" list of live sessions and commits reviewed inline through gitsigns, following a session,
@@ -261,7 +261,7 @@ end
 local function poll()
   local dir = M.runtime()
   if not dir or not uv.fs_stat(dir) then M.live = {}; return end
-  local ok = pcall(vim.system, { "fox-drawer", "claude-peers" }, { text = true }, function(out)
+  local ok = pcall(vim.system, { "desk-drawer", "claude-peers" }, { text = true }, function(out)
     vim.schedule(function()
       M.live = M.with_ledgers(out.code == 0 and M.decode(out.stdout) or {}, dir)
       pcall(vim.cmd.redrawstatus)
@@ -322,7 +322,7 @@ function M.jump()
     vim.notify("no Claude edited this file lately", vim.log.levels.INFO, { title = "Claude" })
     return
   end
-  vim.system({ "fox-drawer", "run", "claude-jump", fp.pane })
+  vim.system({ "desk-drawer", "run", "claude-jump", fp.pane })
 end
 
 local function peer_item(p)
@@ -471,8 +471,8 @@ function M.open_review(row, root)
   vim.cmd("copen")
   vim.cmd("wincmd p")
   pcall(vim.cmd.cfirst)
-  if row.kind == "commit" and vim.fn.executable("fox-work") == 1 then
-    vim.system({ "fox-work", "reviewed", "--root", root, "--sha", row.sha }, { text = true })
+  if row.kind == "commit" and vim.fn.executable("desk-work") == 1 then
+    vim.system({ "desk-work", "reviewed", "--root", root, "--sha", row.sha }, { text = true })
   end
 end
 
@@ -563,8 +563,8 @@ function M.changes(unreviewed)
     return
   end
   local rows = M.rows(root)
-  if unreviewed == true and vim.fn.executable("fox-work") == 1 then
-    local wanted = M.decode(system({ "fox-work", "reviews", "--root", root })) or {}
+  if unreviewed == true and vim.fn.executable("desk-work") == 1 then
+    local wanted = M.decode(system({ "desk-work", "reviews", "--root", root })) or {}
     local pending = {}
     for _, c in ipairs(wanted) do pending[c.sha] = true end
     rows = vim.tbl_filter(function(r) return r.kind == "commit" and pending[r.sha] end, rows)

@@ -75,18 +75,18 @@ function engine(on: On, options: { ci?: unknown[]; bash?: (command: string) => u
     const argv = e.argv.join(' ')
     seen.argv.push(argv)
     if (e.init?.stdin !== undefined) seen.stdin.push(e.init.stdin)
-    if (argv.startsWith('fox-work begin ')) return { value: done('f'.repeat(32) + '\n') }
-    if (argv.startsWith('fox-work finish ') && options.finished) return { value: done(JSON.stringify(options.finished())) }
-    if (argv.startsWith('fox-work plan-pin ')) {
+    if (argv.startsWith('desk-work begin ')) return { value: done('f'.repeat(32) + '\n') }
+    if (argv.startsWith('desk-work finish ') && options.finished) return { value: done(JSON.stringify(options.finished())) }
+    if (argv.startsWith('desk-work plan-pin ')) {
       const file = e.argv[e.argv.indexOf('--file') + 1] ?? ''
       pinned = file ? { file: file.startsWith('/') ? file : '/code/paper/' + file, step: e.argv[e.argv.indexOf('--step') + 1] ?? '' } : null
       return { value: done('{"ok":true}') }
     }
-    if (argv.startsWith('fox-work plan ')) return { value: done(JSON.stringify(pinned)) }
-    if (argv.startsWith('fox-work open ')) return { value: done('') }
-    if (argv.startsWith('fox-work task-add ')) return { value: done('{"ok":true}') }
-    if (argv.startsWith('fox-work worktrees ')) return { value: done(JSON.stringify(options.trees ?? [])) }
-    if (argv.startsWith('fox-work notebook') && options.projectWork) return { value: done(JSON.stringify(options.projectWork)) }
+    if (argv.startsWith('desk-work plan ')) return { value: done(JSON.stringify(pinned)) }
+    if (argv.startsWith('desk-work open ')) return { value: done('') }
+    if (argv.startsWith('desk-work task-add ')) return { value: done('{"ok":true}') }
+    if (argv.startsWith('desk-work worktrees ')) return { value: done(JSON.stringify(options.trees ?? [])) }
+    if (argv.startsWith('desk-work notebook') && options.projectWork) return { value: done(JSON.stringify(options.projectWork)) }
     if (argv === 'sh -c printf %s "$XDG_RUNTIME_DIR"' && options.runtime) return { value: done(options.runtime) }
     if (argv.startsWith('sh -c printf %s "${XDG_STATE_HOME') && options.state) return { value: done(options.state) }
     if (argv.startsWith('rm -f -- ') && options.files) { delete options.files[e.argv[3] ?? '']; return { value: done('') } }
@@ -97,10 +97,10 @@ function engine(on: On, options: { ci?: unknown[]; bash?: (command: string) => u
     if (options.ci && argv.includes('rev-parse --verify origin/main^{commit}')) return { value: done('c'.repeat(40) + '\n') }
     if (options.ci && argv === 'git -C /code/paper remote get-url origin') return { value: done('git@github.com:o/paper.git\n') }
     if (options.ci && argv.startsWith('gh run list --commit ' + 'c'.repeat(40))) return { value: done(JSON.stringify(options.ci)) }
-    if (argv === 'fox-credits status' && options.credits) return { value: done(JSON.stringify(options.credits)) }
-    if (argv === 'fox-desktop-menu --open api-credits') return { value: done('') }
-    if (argv === 'fox-drawer claude-peers') return { value: done(PEERS) }
-    if (argv.startsWith('fox-drawer run claude-jump')) return { value: done('{"ok":true}') }
+    if (argv === 'desk-credits status' && options.credits) return { value: done(JSON.stringify(options.credits)) }
+    if (argv === 'desktop-menu --open api-credits') return { value: done('') }
+    if (argv === 'desk-drawer claude-peers') return { value: done(PEERS) }
+    if (argv.startsWith('desk-drawer run claude-jump')) return { value: done('{"ok":true}') }
     if (argv.includes('status') && !argv.includes('--no-optional-locks')) return { value: { ...done(''), exitCode: 9 } }
     if (argv.includes('status') && e.argv.includes('-z')) return { value: done(' M shared/a very long folder/notes.txt\0 M README.md\0') }
     if (argv.includes('status')) return { value: done('## main...origin/main\n M a.txt\n') }
@@ -156,9 +156,9 @@ test('test failures open their quickfix location, and next steps prepare a draft
   await ui.press({ key: 'page-project' })
   expect((await ui.find({ type: 'Text', text: /128 passed/ }))?.text).toContain('may be out of date')
   await ui.press({ key: 'work-failure-0' })
-  expect(seen.argv).toContain(`fox-work open --root /code/paper --action tests --id ${'a'.repeat(32)} --index 1`)
+  expect(seen.argv).toContain(`desk-work open --root /code/paper --action tests --id ${'a'.repeat(32)} --index 1`)
   await ui.press({ key: 'task-draft-next' })
-  expect(seen.argv).toContain('fox-work open --root /code/paper --action tasks --id next')
+  expect(seen.argv).toContain('desk-work open --root /code/paper --action tasks --id next')
   expect(seen.sent).toEqual([])
   expect(seen.submitted).toEqual([])
   await ui.unmount()
@@ -214,7 +214,7 @@ test('other claudes are listed with go and note, and a note reaches the session 
   expect(await ui.find({ key: 'go-p2' })).toBeUndefined()
 
   await ui.press({ key: 'go-p1' })
-  expect(seen.argv).toContain('fox-drawer run claude-jump %4')
+  expect(seen.argv).toContain('desk-drawer run claude-jump %4')
 
   await ui.press({ key: 'note-p2' })
   expect(await ui.find({ key: 'note-p2' })).toBeUndefined()
@@ -302,18 +302,18 @@ test('session files, keyboard selection and editor actions retain the selected f
   await ui.press({ key: 'nav-down' })
   expect((await ui.find({ key: 'file:README.md' }))?.text).toStartWith('› ')
   await ui.press({ key: 'nav-open' })
-  expect(seen.argv).toContain('fox-work open --root /code/paper --action file-diff --file README.md --session abc')
+  expect(seen.argv).toContain('desk-work open --root /code/paper --action file-diff --file README.md --session abc')
   await ui.press({ key: 'nav-editor' })
-  expect(seen.argv).toContain('fox-work open --root /code/paper --action file --file README.md --session abc')
+  expect(seen.argv).toContain('desk-work open --root /code/paper --action file --file README.md --session abc')
   expect((await ui.find({ key: 'nav-drawer' }))?.props.hotkey).toBe('d')
   await ui.press({ key: 'nav-drawer' })
-  expect(seen.argv).toContain('fox-desktop-menu --open reviews')
+  expect(seen.argv).toContain('desktop-menu --open reviews')
   await $.command.run({ command: 'notebook', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 101 } })
   expect((await ui.find({ key: 'file:README.md' }))?.text).toStartWith('› ')
   await ui.press({ key: 'scope-all' })
   expect(await ui.find({ key: 'file:shared/a very long folder/notes.txt' })).toBeDefined()
   await ui.press({ key: 'file:shared/a very long folder/notes.txt' })
-  expect(seen.argv).toContain('fox-work open --root /code/paper --action file-diff --file shared/a very long folder/notes.txt --session ')
+  expect(seen.argv).toContain('desk-work open --root /code/paper --action file-diff --file shared/a very long folder/notes.txt --session ')
   await ui.unmount()
 })
 
@@ -327,7 +327,7 @@ test('pinning the plan and current step survives another plan read, and task inp
   expect((await ui.find({ key: 'work-next-step' }))?.props.autoFocus).toBe(true)
   expect((await ui.find({ key: 'task-add' }))?.props.autoFocus).toBeUndefined()
   await ui.input({ key: 'work-next-step', text: 'check hjkl in the terminal', kind: 'submit' })
-  expect(seen.argv).toContain('fox-work task-add --root /code/paper --text check hjkl in the terminal')
+  expect(seen.argv).toContain('desk-work task-add --root /code/paper --text check hjkl in the terminal')
   expect(await ui.find({ key: 'work-next-step' })).toBeUndefined()
   await ui.press({ key: 'plan-pin' })
   await ui.input({ key: 'plan-file', text: 'plans/one.md', kind: 'submit' })
@@ -365,7 +365,7 @@ test('next-step editors keep cancel visible, request native Escape closing, and 
   await ui.press({ key: 'task-add' })
   await ui.input({ key: 'work-next-step', text: '  ', kind: 'submit' })
   expect(await ui.find({ key: 'work-next-step' })).toBeUndefined()
-  expect(seen.argv.some(argv => argv.startsWith('fox-work task-add '))).toBe(false)
+  expect(seen.argv.some(argv => argv.startsWith('desk-work task-add '))).toBe(false)
   expect(seen.submitted).toEqual([])
   await ui.unmount()
 })
@@ -383,14 +383,14 @@ test('the attention summary and project cards lead to job output, source files a
   await opened($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'attention-job-' + failed.id })
-  expect(seen.argv).toContain(`fox-work open --root /code/paper --action log --id ${failed.id}`)
+  expect(seen.argv).toContain(`desk-work open --root /code/paper --action log --id ${failed.id}`)
   await ui.press({ key: 'page-project' })
   await ui.press({ key: 'card-0' })
-  expect(seen.argv).toContain('fox-work open --root /code/paper --action file --file plans/state.md --session abc')
+  expect(seen.argv).toContain('desk-work open --root /code/paper --action file --file plans/state.md --session abc')
   await ui.press({ key: 'tree:/code/paper-feature' })
-  expect(seen.argv).toContain('fox-work open --root /code/paper --action worktree --file /code/paper-feature')
+  expect(seen.argv).toContain('desk-work open --root /code/paper --action worktree --file /code/paper-feature')
   await ui.press({ key: 'document:package.json' })
-  expect(seen.argv).toContain('fox-work open --root /code/paper --action file --file package.json')
+  expect(seen.argv).toContain('desk-work open --root /code/paper --action file --file package.json')
   await ui.unmount()
 })
 
@@ -450,8 +450,8 @@ test('the API credit meter appears when credit runs low and opens the shared cre
   expect((await ui.find({ key: 'api-credit-meter' }))?.text).toContain('▰▱▱▱▱▱▱▱▱▱ tracked')
   expect((await ui.find({ type: 'Text', text: /64%/ }))?.text).toContain('64%')
   await ui.press({ key: 'api-credit-meter' })
-  expect(seen.argv).toContain('fox-desktop-menu --open api-credits')
-  expect(seen.argv.some(argv => argv.includes('fox-credits sync'))).toBe(false)
+  expect(seen.argv).toContain('desktop-menu --open api-credits')
+  expect(seen.argv.some(argv => argv.includes('desk-credits sync'))).toBe(false)
   expect(seen.submitted).toEqual([])
   await ui.unmount()
 })
@@ -461,12 +461,12 @@ test('a build Claude runs is recorded around the call, never rewritten, under it
   await opened($)
   await $.tool.call({ tool: 'Bash', command: 'make -C src test', description: 'Run the unit tests' })
   expect(seen.bash).toEqual(['make -C src test'])
-  expect(seen.argv).toContain('fox-work begin --root /code/paper --session abc --pid parent --command make -C src test --title Run the unit tests')
-  expect(seen.argv).toContain(`fox-work finish --id ${'f'.repeat(32)} --exit 2 --output -`)
+  expect(seen.argv).toContain('desk-work begin --root /code/paper --session abc --pid parent --command make -C src test --title Run the unit tests')
+  expect(seen.argv).toContain(`desk-work finish --id ${'f'.repeat(32)} --exit 2 --output -`)
   expect(seen.stdin).toContain('Exit code 2\n128 passed, 2 failed')
-  expect(seen.argv.some(argv => argv.includes('fox-work run'))).toBe(false)
+  expect(seen.argv.some(argv => argv.includes('desk-work run'))).toBe(false)
   await $.tool.call({ tool: 'Bash', command: 'ls', description: 'List files' })
-  expect(seen.argv.filter(argv => argv.startsWith('fox-work begin')).length).toBe(1)
+  expect(seen.argv.filter(argv => argv.startsWith('desk-work begin')).length).toBe(1)
 })
 
 test('tests that failed twice in a row and pass again say green again, once; a flaky one stays quiet', async ($, on) => {
@@ -529,7 +529,7 @@ test("last night's goodnight note is pointed to at the start and opens from the 
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await ui.find({ key: 'last-night' }))?.text).toContain('last night · where we left off')
   await ui.press({ key: 'last-night' })
-  expect(seen.argv).toContain('fox-work open --root /state/foxml/goodnight --action file --file paper.md')
+  expect(seen.argv).toContain('desk-work open --root /state/foxml/goodnight --action file --file paper.md')
   await ui.unmount()
 })
 

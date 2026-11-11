@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# desk-init — one-touch project onboarding.
+#
+# Usage:
+#   desk-init <project-name>           # open existing dir in $HOME/code/<name>
+#   desk-init <project-name> --new     # create fresh dir + git init
+#   desk-init --here                   # treat $PWD as the project
+#
+# What it does, in order:
+#   1. Resolves the project directory.
+#   2. Switches to / creates an empty Hyprland workspace and renames it
+#      to the project name (Hyprland 0.40+ supports named workspaces).
+#   3. Spawns a kitty with `tmux new-session -A -s <name>` so the
+#      session is attach-or-create — re-running desk-init reattaches
+#      rather than nesting.
+#   4. Opens nvim in the project root inside the tmux session.
+#   5. Triggers findex in the background to index the project for AI
+#      search (no-op if it's already indexed).
+#
+# Idempotent: re-runs reattach to the existing tmux, focus the existing
+# workspace, and skip findex if .foxml_index.json already exists and
+# is fresher than any .git/HEAD change.
+
+set -u
+
+NEW=0
+HERE=0
+NAME=""
+
+for arg in "$@"; do
+    case "$arg" in
+        --new)   NEW=1 ;;
+        --here)  HERE=1 ;;
+        --help|-h)
+            sed -n '2,17p' "$0" | sed 's/^# \?//'
+            exit 0 ;;
+        -*) echo "unknown flag: $arg" >&2; exit 2 ;;
+        *)  NAME="$arg" ;;
+    esac
+done
+
+if (( HERE )); then
+    PROJECT_DIR="$PWD"
+    NAME=${NAME:-$(basename "$PWD")}
+elif [[ -z "$NAME" ]]; then
+    echo "usage: desk-init <project-name> [--new] | desk-init --here" >&2
+    exit 2
+else
+    PROJECT_DIR="$HOME/code/$NAME"
+fi
+
+# Create directory if --new.
+if (( NEW )); then
+    if [[ -d "$PROJECT_DIR" ]]; then
+        echo "desk-init: $PROJECT_DIR already exists (omit --new to open it)" >&2
+        exit 1
+    fi
+    mkdir -p "$PROJECT_DIR"
+    ( cd "$PROJECT_DIR" && git init -q && touch README.md ) || true
+    echo "desk-init: created $PROJECT_DIR"
+elif [[ ! -d "$PROJECT_DIR" ]]; then
+    echo "desk-init: $PROJECT_DIR does not exist (use --new to create)" >&2
+    exit 1
+fi
+
+# Pick a workspace number — first one that isn't already populated,
+# or fall back to the current one. Hyprland's named workspaces use a
+# `name:NAME` syntax; we name it after the project for at-a-glance
+# identification.
+WS_NAME="name:$NAME"
+if command -v hyprctl >/dev/null 2>&1 && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]]; then
+    # Already on a workspace named after this project? Just stay there.
+    current=$(hyprctl activeworkspace -j 2>/dev/null | jq -r '.name // ""')
+    if [[ "$current" != "$NAME" ]]; then
+        desk-hl dispatch "hl.dsp.focus({ workspace = '$WS_NAME' })" "workspace $WS_NAME" >/dev/null 2>&1 || true
+    fi
+fi
+
+# Spawn kitty + tmux. The session name matches the project. -A means
+# attach-or-create, so re-running desk-init reattaches; -d means start
+# detached so we can immediately send commands to it.
+SESSION="$NAME"
+if command -v tmux >/dev/null 2>&1; then
+    # Create or reuse the tmux session, set its working dir, and open
+    # nvim in the first window. Subsequent windows the user opens are
+    # also rooted in $PROJECT_DIR.
+    if ! tmux has-session -t "$SESSION" 2>/dev/null; then
+        tmux new-session -d -s "$SESSION" -c "$PROJECT_DIR"
+        tmux send-keys -t "$SESSION" "nvim ." C-m
+    fi
+    setsid -f kitty --title "$NAME" -- tmux attach-session -t "$SESSION" >/dev/null 2>&1 < /dev/null &
+else
+    # No tmux — just open kitty with nvim, no session reuse.
+    setsid -f kitty --title "$NAME" --directory "$PROJECT_DIR" -- nvim . >/dev/null 2>&1 < /dev/null &
+fi
+
+# Index in the background. findex is the C++ tool (already on PATH)
+# that builds .foxml_index.json for ai-find / fask. Skip if a fresh
+# index already exists.
+if command -v findex >/dev/null 2>&1; then
+    idx_file="$PROJECT_DIR/.foxml_index.json"
+    needs_reindex=1
+    if [[ -f "$idx_file" ]]; then
+        # Compare index mtime vs the latest source file mtime. If index
+        # is newer, skip — saves the heavy embedding pass.
+        latest_src=$(find "$PROJECT_DIR" -type f \
+            \( -name '*.c' -o -name '*.cpp' -o -name '*.h' -o -name '*.hpp' \
+               -o -name '*.py' -o -name '*.rs' -o -name '*.go' -o -name '*.md' \
+               -o -name '*.sh' -o -name '*.lua' -o -name '*.ts' -o -name '*.js' \) \
+            -newer "$idx_file" 2>/dev/null | head -1)
+        [[ -z "$latest_src" ]] && needs_reindex=0
+    fi
+    if (( needs_reindex )); then
+        ( cd "$PROJECT_DIR" && setsid -f findex >/dev/null 2>&1 ) &
+        echo "desk-init: indexing $PROJECT_DIR in background (ai-find ready in ~30s)"
+    else
+        echo "desk-init: index up-to-date, skipping reindex"
+    fi
+fi
+
+ready_label="Workspace '$NAME' ready"
+palette="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/modules/border_colors.sh"
+if [[ -r "$palette" ]]; then
+    source "$palette"
+    [[ "${C_LITTLE_DETAILS:-}" == fox-little-details-on ]] && ready_label="Workspace '$NAME'"
+fi
+notify-send --category=foxml.ready -t 3000 "desk-init" "$ready_label" 2>/dev/null || true

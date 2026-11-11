@@ -99,7 +99,7 @@ done
 cd "$FOXML_DIR"
 
 # ─── Choose installer ──────────────────────────────────────────────
-# C++ (./install.sh + native fox-install) is the default. Legacy bash
+# C++ (./install.sh + native desk-install) is the default. Legacy bash
 # (./legacy/install.sh, frozen at pre-cutover SHA 596a81a) is the
 # fallback for users who hit a C++ bug on a fresh laptop.
 #

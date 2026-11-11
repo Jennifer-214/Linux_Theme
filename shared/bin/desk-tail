@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# desk-tail — Context Injector. Gathers local repo and system state for AI agents.
+#
+# Generates a .foxml_context.md file in the current directory with:
+#   • Recent git diffs and logs
+#   • Active shell/tmux environment details
+#   • Recent system errors (journalctl)
+#   • Project-specific "current task" from .foxml_todo
+#
+# Usage: desk-tail
+
+set -uo pipefail
+C_GRN=$'\e[32m'; C_YEL=$'\e[33m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
+
+OUT=".foxml_context.md"
+
+echo "${C_DIM}Gathering context for the Fox...${C_RST}"
+
+{
+    echo "# Linux_Theme Session Context"
+    echo "Generated: $(date)"
+    echo "Host: $(hostname)"
+    echo "PWD: $(pwd)"
+    echo
+
+    echo "## 🛠 Project State"
+    if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        echo "### Git Branch: $(git branch --show-current)"
+        echo "### Recent Commits"
+        echo '```text'
+        git log -n 3 --oneline
+        echo '```'
+        echo "### Uncommitted Changes (Summary)"
+        echo '```text'
+        git status --short
+        echo '```'
+        
+        # Only include diff if it's small enough
+        DIFF_LINES=$(git diff | wc -l)
+        if (( DIFF_LINES < 100 )); then
+            echo "### Current Diff"
+            echo '```diff'
+            git diff
+            echo '```'
+        else
+            echo "### Current Diff (Large, >100 lines - see git diff)"
+        fi
+    else
+        echo "Not a git repository."
+    fi
+    echo
+
+    if [[ -f ".foxml_todo" ]]; then
+        echo "## ✅ Project TODO (.foxml_todo)"
+        echo '```text'
+        cat ".foxml_todo"
+        echo '```'
+        echo
+    fi
+
+    echo "## 🖥 System Environment"
+    echo "- OS: $(uname -sr)"
+    if command -v uptime >/dev/null; then
+        echo "- Uptime: $(uptime -p)"
+    fi
+    
+    if [[ -n "${TMUX:-}" ]]; then
+        echo "- Active Tmux Session: $(tmux display-message -p '#S')"
+    fi
+    echo
+
+    echo "## ⚠️ Recent System Logs (last 5 min errors)"
+    echo '```text'
+    if command -v journalctl >/dev/null 2>&1; then
+        journalctl --user -p 3 --since "5 minutes ago" --no-pager 2>/dev/null || echo "(no recent user errors)"
+    else
+        echo "(journalctl not available)"
+    fi
+    echo '```'
+
+} > "$OUT"
+
+echo "${C_GRN}✓ Context injected: $OUT${C_RST}"
+echo "${C_DIM}OpenCode will now see this file in your project root.${C_RST}"

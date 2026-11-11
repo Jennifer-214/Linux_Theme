@@ -1,7 +1,7 @@
 # core-models.txt — the one model list for the local-LLM stack: Hugging Face GGUFs in llama.cpp's own format.
 #
-# fox-llm-update downloads them — on first install (fox-install's models step queues it), then from its daily
-# timer — into ~/.local/share/fox-llm/gguf/<name>.gguf, where fox-llm-serve serves each under <name>. Blocks
+# llm-update downloads them — on first install (desk-install's models step queues it), then from its daily
+# timer — into ~/.local/share/fox-llm/gguf/<name>.gguf, where llm-serve serves each under <name>. Blocks
 # are picked by system RAM:
 #   tier: large   ≥ 32 GB   tier: medium  ≥ 16 GB   tier: small   < 16 GB
 #   tier: all     every machine (small helpers other tools depend on)

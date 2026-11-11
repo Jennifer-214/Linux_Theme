@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# desk-lock — pre-check wrapper around hyprlock.
+#
+# Catches the most common wedge precursors before invoking hyprlock:
+#   - dbus user session unreachable (common after suspend/resume)
+#   - hyprlock already running (don't stack instances)
+#   - awww-daemon dead (post-unlock wallpaper rotation would fail silently)
+#
+# Pass-through args go straight to hyprlock so this is a drop-in
+# replacement: `desk-lock --grace 2` etc.
+
+set -u
+
+# ── Idle auto-lock toggle ──────────────────────────────────────────────
+# `desk-lock --idle on|off|toggle|status` flips the power-state-watcher user
+# service, which runs hypridle (idle-timeout lock + before-sleep lock). Kept
+# on desk-lock so `desk sys lock --idle …` is the single lock surface — no extra
+# binary. Returns before the lock path below.
+if [[ "${1:-}" == "--idle" || "${1:-}" == "idle" ]]; then
+    svc="power-state-watcher.service"
+    action="${2:-status}"
+    if [[ "$action" == "toggle" ]]; then
+        systemctl --user is-enabled --quiet "$svc" 2>/dev/null && action="off" || action="on"
+    fi
+    case "$action" in
+        on)  systemctl --user enable  --now "$svc" && echo "idle auto-lock: on"  ;;
+        off) systemctl --user disable --now "$svc" && echo "idle auto-lock: off" ;;
+        status)
+            if systemctl --user is-enabled --quiet "$svc" 2>/dev/null; then
+                pgrep -x hypridle >/dev/null 2>&1 \
+                    && echo "idle auto-lock: on (hypridle running)" \
+                    || echo "idle auto-lock: on (hypridle down — restarts within ~30s)"
+            else
+                echo "idle auto-lock: off"
+            fi
+            ;;
+        *)   echo "usage: desk-lock --idle {on|off|toggle|status}" >&2; exit 2 ;;
+    esac
+    exit 0
+fi
+
+# Already locked → don't stack hyprlock instances. A second hyprlock
+# would race the first for the seat grab and produce undefined behaviour.
+if pgrep -x hyprlock >/dev/null 2>&1; then
+    echo "desk-lock: hyprlock already running" >&2
+    exit 0
+fi
+
+# dbus user session is the most common wedge point. hyprlock and PAM
+# both rely on it; if it's hung, the lock screen surfaces as the
+# "password submit does nothing" symptom. Fail loud here so the user
+# can recover (or knowingly proceed) before triggering the lock.
+if command -v busctl >/dev/null 2>&1; then
+    if ! busctl --user list >/dev/null 2>&1; then
+        echo "desk-lock: dbus user session unreachable — aborting lock" >&2
+        echo "  diagnose: busctl --user list" >&2
+        echo "  recover:  systemctl --user restart dbus" >&2
+        exit 1
+    fi
+fi
+
+# awww-daemon is needed for the on-unlock wallpaper rotate. Not fatal —
+# the lock screen itself is fine without it — but warn so the user
+# knows what to expect after unlocking.
+if command -v awww >/dev/null 2>&1 && ! awww query &>/dev/null; then
+    echo "desk-lock: warning — awww-daemon not reachable (post-unlock wallpaper may not refresh)" >&2
+fi
+
+# USBGuard lock-down — switch any pluggable devices to "block by default"
+# while the screen is locked, so a BadUSB / Rubber Ducky inserted in our
+# absence can't be auto-trusted. install_usbguard adds the running user
+# to IPCAllowedUsers, so no sudo needed. Restored to "apply-policy" in the
+# on-unlock cleanup below (this manual-lock path) AND by unlock-hook.sh
+# (the suspend/idle path that goes through hypridle's unlock_cmd).
+if command -v usbguard >/dev/null 2>&1 && systemctl is-active --quiet usbguard 2>/dev/null; then
+    usbguard set-parameter ImplicitPolicyTarget block 2>/dev/null || true
+fi
+
+# "While you were away": stamp which Claudes were working as the screen locks; the note comes after unlock.
+# Detached and silent, so it can never delay or fail the lock itself.
+_drawer="$HOME/.local/bin/desk-drawer"
+[ -x "$_drawer" ] && { setsid -f "$_drawer" away-start </dev/null >/dev/null 2>&1 || true; }
+
+# Run the lock screen in the FOREGROUND (no exec) so we regain control the
+# moment hyprlock exits — i.e. when the screen unlocks — and can self-heal.
+# lock-panel keeps the password field on a screen you can see (lid shut while
+# docked, the pinned monitor unplugged); it falls back to plain hyprlock itself.
+if command -v lock-panel >/dev/null 2>&1; then
+    lock-panel --run "$@"
+else
+    hyprlock "$@"
+fi
+_rc=$?
+
+# ── On-unlock cleanup (manual-lock path) ───────────────────────────────
+# hypridle's unlock_cmd (unlock-hook.sh) only fires for logind-mediated
+# unlocks (suspend / idle via `loginctl lock-session`). A manual lock comes
+# straight through desk-lock and never touches logind, so the same restores
+# have to run here too:
+#   1. USBGuard → apply-policy (undo the block-on-lock above; no sudo).
+#   2. Bounce fprintd: hyprlock holds pam_fprintd while locked and a
+#      Synaptics close-timeout can leave the reader "already claimed",
+#      silently breaking fingerprint-for-sudo until fprintd is restarted.
+if command -v usbguard >/dev/null 2>&1 && systemctl is-active --quiet usbguard 2>/dev/null; then
+    usbguard set-parameter ImplicitPolicyTarget apply-policy 2>/dev/null || true
+fi
+# --no-ask-password: with the fprintd_reset_polkit grant fprintd restarts
+# silently; without it the restart fails at once instead of popping an auth
+# dialog on every unlock (password sudo still works, just no auto-clear).
+# Don't gate on the rule file: /etc/polkit-1/rules.d is root-only, so a
+# test from here is always false and the self-heal never ran.
+command -v desk-fingerprint >/dev/null 2>&1 \
+    && desk-fingerprint reset --no-ask-password >/dev/null 2>&1 || true
+# One quiet note of what happened while locked (nothing for a short break). Detached, last, never fatal.
+[ -x "$_drawer" ] && { setsid -f "$_drawer" away-summary </dev/null >/dev/null 2>&1 || true; }
+
+exit "$_rc"

@@ -43,12 +43,12 @@ echo
 _do_swap() {
     local theme="$1"
     local force="${2:-}"
-    local fox_install="$SCRIPT_DIR/src/fox-install/fox-install"
+    local fox_install="$SCRIPT_DIR/src/desk-install/desk-install"
 
     if [[ ! -x "$fox_install" ]]; then
-        echo ":: Building fox-install..."
-        make -C "$SCRIPT_DIR/src/fox-install" >/dev/null || {
-            echo "fox-install build failed; falling back to install.sh"
+        echo ":: Building desk-install..."
+        make -C "$SCRIPT_DIR/src/desk-install" >/dev/null || {
+            echo "desk-install build failed; falling back to install.sh"
             exec "$SCRIPT_DIR/install.sh" ${force:+--reapply} "$theme"
         }
     fi
@@ -82,7 +82,7 @@ _do_swap() {
         --yes --quiet || rc=$?
 
     if (( rc != 0 && rc != 3 )); then
-        # exit 2 = render aborted to protect live ~/.config edits. fox-install
+        # exit 2 = render aborted to protect live ~/.config edits. desk-install
         # suggests "--full", but it can't know it was invoked through swap.sh,
         # which takes only a theme name -- so print a hint that actually works here.
         if (( rc == 2 )) && [[ -z "$force" ]]; then
@@ -124,7 +124,7 @@ _do_swap() {
 
 # ─────────────────────────────────────────
 # Flags. --full is the user-facing spelling for "overwrite live edits" (it's what
-# fox-install's own error text suggests); it maps to --reapply internally -- see
+# desk-install's own error text suggests); it maps to --reapply internally -- see
 # _do_swap. Everything else is treated as the theme name.
 # ─────────────────────────────────────────
 FORCE=""

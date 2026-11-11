@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tests/test_fox_llm_discover.py — fox-llm-discover's decisions, offline.
+"""tests/test_fox_llm_discover.py — llm-discover's decisions, offline.
 
 Hugging Face's API is replaced with canned answers; what is tested is the logic: one spelling per
 model across quantizers, which file is picked, what is MoE, which uploads are left out (no tools, too
@@ -14,7 +14,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-loader = importlib.machinery.SourceFileLoader("fox_llm_discover", str(ROOT / "shared/bin/fox-llm-discover"))
+loader = importlib.machinery.SourceFileLoader("fox_llm_discover", str(ROOT / "shared/bin/llm-discover"))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 d = importlib.util.module_from_spec(spec)
 loader.exec_module(d)
@@ -48,7 +48,7 @@ class DiscoverTest(unittest.TestCase):
     def run_main(self, *args):
         out = io.StringIO()
         old = sys.argv
-        sys.argv = ["fox-llm-discover", *args]
+        sys.argv = ["llm-discover", *args]
         try:
             with contextlib.redirect_stdout(out):
                 d.main()

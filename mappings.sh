@@ -125,27 +125,27 @@ SHARED_MAPPINGS=(
     "zsh_paths.zsh|~/.config/zsh/paths.zsh"
     "zsh_conda.zsh|~/.config/zsh/conda.zsh"
     "zsh_history_scrub.zsh|~/.config/zsh/history-scrub.zsh"
-    "bin/fox-aider|~/.local/bin/fox-aider"
-    "bin/fox-wallpaper|~/.local/bin/fox-wallpaper"
-    "bin/fox-ai-status|~/.local/bin/fox-ai-status"
-    "bin/fox-ai-commit|~/.local/bin/fox-ai-commit"
-    "bin/fox-ai-purge|~/.local/bin/fox-ai-purge"
-    "bin/fox-ai-log|~/.local/bin/fox-ai-log"
-    "bin/fox-ai-quick|~/.local/bin/fox-ai-quick"
-    "bin/fox-ai-find|~/.local/bin/fox-ai-find"
-    "bin/fox-ai-bench|~/.local/bin/fox-ai-bench"
-    "bin/fox-new-project|~/.local/bin/fox-new-project"
-    "bin/fox-distro-guide|~/.local/bin/fox-distro-guide"
+    "bin/desk-aider|~/.local/bin/desk-aider"
+    "bin/desk-wallpaper|~/.local/bin/desk-wallpaper"
+    "bin/ai-status|~/.local/bin/ai-status"
+    "bin/ai-commit|~/.local/bin/ai-commit"
+    "bin/ai-purge|~/.local/bin/ai-purge"
+    "bin/ai-log|~/.local/bin/ai-log"
+    "bin/ai-quick|~/.local/bin/ai-quick"
+    "bin/ai-find|~/.local/bin/ai-find"
+    "bin/ai-bench|~/.local/bin/ai-bench"
+    "bin/new-project|~/.local/bin/new-project"
+    "bin/distro-guide|~/.local/bin/distro-guide"
     "bin/pi|~/.local/bin/pi"
-    "bin/fox-distro-build|~/.local/bin/fox-distro-build"
-    "bin/fox-distro-flash|~/.local/bin/fox-distro-flash"
+    "bin/distro-build|~/.local/bin/distro-build"
+    "bin/distro-flash|~/.local/bin/distro-flash"
     "bin/fhelp|~/.local/bin/fhelp"
-    # Local-LLM stack (fox-llm-update, discovery, model list, pi extensions)
-    "bin/fox-llm-update|~/.local/bin/fox-llm-update"
-    "bin/fox-llm-discover|~/.local/bin/fox-llm-discover"
-    "bin/fox-llm-serve|~/.local/bin/fox-llm-serve"
-    "bin/fox-llm-run|~/.local/bin/fox-llm-run"
-    "bin/fox-llm-grade|~/.local/bin/fox-llm-grade"
+    # Local-LLM stack (llm-update, discovery, model list, pi extensions)
+    "bin/llm-update|~/.local/bin/llm-update"
+    "bin/llm-discover|~/.local/bin/llm-discover"
+    "bin/llm-serve|~/.local/bin/llm-serve"
+    "bin/llm-run|~/.local/bin/llm-run"
+    "bin/llm-grade|~/.local/bin/llm-grade"
     "llm/roles.default|~/.config/foxml/llm/roles.default"
     "llm/core-models.txt|~/.config/foxml/llm/core-models.txt"
     "pi/extensions/fox-guard.ts|~/.pi/agent/extensions/fox-guard.ts"
@@ -155,7 +155,7 @@ SHARED_MAPPINGS=(
     "pi/extensions/fox-budget.ts|~/.pi/agent/extensions/fox-budget.ts"
     "pi/extensions/fox-credits.ts|~/.pi/agent/extensions/fox-credits.ts"
     "pi/extensions/fox-scope.ts|~/.pi/agent/extensions/fox-scope.ts"
-    "bin/fox-word-count|~/.local/bin/fox-word-count"
+    "bin/word-count|~/.local/bin/word-count"
     "bin/pob|~/.local/bin/pob"
 
     # Distro profiles
@@ -344,7 +344,7 @@ JSON
     # produced a 100+ line dump during install_specials. Switched to
     # foxml_progress-style "section + count" output so it reads like
     # the rest of the install (pacman aesthetic). Per-file diagnostics
-    # are still available via fox-doctor.
+    # are still available via desk-doctor.
 
     # ~/.local/bin helpers.
     if [[ -d "$SCRIPT_DIR/shared/bin" ]]; then
@@ -432,7 +432,7 @@ JSON
         echo "  ReGreet staged to ~/.config/regreet/ (install_greetd will deploy)"
     fi
 
-    # KEYBINDS.md — deployed to ~/.local/share/foxml/ so fox-cheatsheet
+    # KEYBINDS.md — deployed to ~/.local/share/foxml/ so desk-cheatsheet
     # can find it on installed systems without depending on the repo path.
     if [[ -f "$SCRIPT_DIR/KEYBINDS.md" ]]; then
         mkdir -p "$HOME/.local/share/foxml"
@@ -985,23 +985,23 @@ install_keyring_full_components() {
     return 0
 }
 
-# Wire fail2ban + fox-bouncer to fox-dispatch so phone notifications fire
+# Wire fail2ban + desk-bouncer to desk-dispatch so phone notifications fire
 # on:
 #   • fail2ban ban (network brute force attempt)
 #   • USBGuard BLOCK while screen is locked (evil-maid attempt)
 #
 # Both are idempotent — re-running just verifies state and re-applies
-# the action drop-in if missing. fox-bouncer runs as a user systemd
+# the action drop-in if missing. desk-bouncer runs as a user systemd
 # service; the fail2ban hook lives in /etc/fail2ban/action.d/.
 #
-# fox-dispatch itself reads ~/.config/foxml/dispatch.conf which is NOT
+# desk-dispatch itself reads ~/.config/foxml/dispatch.conf which is NOT
 # managed by the installer (it has the secret webhook URL). If absent,
 # the hooks fall back to notify-send (local notification) so they're
 # still useful even without phone alerts configured.
 install_dispatch_hooks() {
     # 0. Install the foxml-fail2ban-notify helper script to /usr/local/bin
     # so the fail2ban daemon (running as root) can call it. The script
-    # does the geo + whois enrichment + threat-log append + fox-dispatch
+    # does the geo + whois enrichment + threat-log append + desk-dispatch
     # call, all in user-friendly bash that fail2ban's config parser
     # doesn't have to interpret.
     if [[ -f "$SCRIPT_DIR/shared/bin/foxml-fail2ban-notify" ]]; then
@@ -1015,12 +1015,12 @@ install_dispatch_hooks() {
     # AFTER both the action.d file AND the jail.local dedupe, not
     # between them. Otherwise we test against a config that's half-
     # updated and report a false-positive failure.
-    if pacman -Qi fail2ban &>/dev/null && command -v fox-dispatch >/dev/null 2>&1; then
+    if pacman -Qi fail2ban &>/dev/null && command -v desk-dispatch >/dev/null 2>&1; then
         local action="/etc/fail2ban/action.d/foxml-dispatch.conf"
         # Always rewrite the action drop-in to ensure we have the
         # clean helper-script form. Idempotent on re-runs.
         sudo tee "$action" >/dev/null <<EOF
-# foxml-managed — fires fox-dispatch on every fail2ban ban.
+# foxml-managed — fires desk-dispatch on every fail2ban ban.
 # Revert: sudo rm $action and remove "action = foxml-dispatch" from jail.local.
 [Definition]
 actionban  = /usr/local/bin/foxml-fail2ban-notify <ip> <name> <failures> ${USER}
@@ -1084,57 +1084,57 @@ EOF
             echo "      diagnose: sudo fail2ban-client -t"
         fi
     else
-        echo "  • fail2ban or fox-dispatch missing — skipping ban-hook"
+        echo "  • fail2ban or desk-dispatch missing — skipping ban-hook"
     fi
 
-    # 2. fox-bouncer user service (USB-blocked-while-locked alerts).
-    if command -v fox-bouncer >/dev/null 2>&1; then
+    # 2. desk-bouncer user service (USB-blocked-while-locked alerts).
+    if command -v desk-bouncer >/dev/null 2>&1; then
         if systemctl --user is-enabled --quiet fox-bouncer.service 2>/dev/null; then
-            echo "  • fox-bouncer already enabled"
+            echo "  • desk-bouncer already enabled"
         else
-            fox-bouncer --install >/dev/null 2>&1 \
+            desk-bouncer --install >/dev/null 2>&1 \
                 && echo "  + fox-bouncer.service enabled" \
-                || echo "  ! fox-bouncer install failed (run manually: fox-bouncer --install)"
+                || echo "  ! desk-bouncer install failed (run manually: desk-bouncer --install)"
         fi
     fi
 
-    # 2b. fox-sentry-audit — kernel-level honeypot watcher. Drops a
+    # 2b. desk-sentry-audit — kernel-level honeypot watcher. Drops a
     # plausibly-named fake credential file in ~/Documents and adds an
     # auditd watch with key=foxml_honey; a user systemd unit tails the
-    # journal for that key and fires fox-dispatch on any read.
-    # Strong complement to fox-tripwire (userspace inotify): auditd
+    # journal for that key and fires desk-dispatch on any read.
+    # Strong complement to desk-tripwire (userspace inotify): auditd
     # runs in the kernel so userspace ptrace/inotify tricks can't
     # bypass it. Both stay on by default — they alert, don't act.
-    if command -v fox-sentry-audit >/dev/null 2>&1 && pacman -Qi audit &>/dev/null; then
+    if command -v desk-sentry-audit >/dev/null 2>&1 && pacman -Qi audit &>/dev/null; then
         if systemctl --user is-enabled --quiet fox-sentry-audit.service 2>/dev/null; then
-            echo "  • fox-sentry-audit already enabled"
+            echo "  • desk-sentry-audit already enabled"
         else
-            fox-sentry-audit --install >/dev/null 2>&1 \
+            desk-sentry-audit --install >/dev/null 2>&1 \
                 && echo "  + fox-sentry-audit.service enabled (kernel-level honeypot)" \
-                || echo "  ! fox-sentry-audit install failed (run manually: fox-sentry-audit --install)"
+                || echo "  ! desk-sentry-audit install failed (run manually: desk-sentry-audit --install)"
         fi
     fi
 
-    # 3. Offer to configure fox-dispatch webhook if it's not set up yet.
+    # 3. Offer to configure desk-dispatch webhook if it's not set up yet.
     # Only when at a TTY and not --yes — silent in unattended mode.
     # Touch a `.skipped-dispatch` marker on decline so the same
-    # question doesn't re-fire from fox-arm later in the --heavy flow.
+    # question doesn't re-fire from desk-arm later in the --heavy flow.
     # User can `rm ~/.config/foxml/.skipped-dispatch` to re-trigger.
     if [[ -t 0 ]] && ! ${ASSUME_YES:-false}; then
         local _skip_marker="$HOME/.config/foxml/.skipped-dispatch"
         if [[ -f "$HOME/.config/foxml/dispatch.conf" ]]; then
-            echo "  • fox-dispatch webhook already configured"
+            echo "  • desk-dispatch webhook already configured"
         elif [[ -f "$_skip_marker" ]]; then
-            echo "  • fox-dispatch previously declined ($_skip_marker — remove to re-prompt)"
+            echo "  • desk-dispatch previously declined ($_skip_marker — remove to re-prompt)"
         else
             echo ""
-            echo "  fox-dispatch (phone alerts) is not yet configured."
+            echo "  desk-dispatch (phone alerts) is not yet configured."
             if foxml_prompt_yn "  Set up Discord/Telegram webhook now? [y/N] "; then
-                fox-dispatch --setup
+                desk-dispatch --setup
             else
                 mkdir -p "$HOME/.config/foxml" 2>/dev/null
                 touch "$_skip_marker"
-                echo "  • run later: fox dispatch --setup  (or: rm $_skip_marker && fox install --full)"
+                echo "  • run later: desk dispatch --setup  (or: rm $_skip_marker && desk install --full)"
             fi
         fi
     fi
@@ -1202,7 +1202,7 @@ install_endlessh_tarpit() {
             echo "  ! AUR install of endlessh failed"
             echo "    last 8 lines of build log:"
             tail -8 /tmp/foxml-aur.log 2>/dev/null | sed 's/^/      /'
-            echo "    workaround: $aur -S endlessh   (then re-run fox install)"
+            echo "    workaround: $aur -S endlessh   (then re-run desk install)"
             return 0
         fi
     fi
@@ -1247,7 +1247,7 @@ EOF
 
 # etckeeper — git-version /etc. Records every config change with a
 # pacman hook so any post-install drift is visible via `git log`. We
-# DON'T auto-revert (a legit `ufw allow` change from `fox ports` would
+# DON'T auto-revert (a legit `ufw allow` change from `desk ports` would
 # get clobbered) — we just alert when sensitive files change outside
 # the expected pacman / fox-tool flow.
 install_etckeeper() {
@@ -1285,7 +1285,7 @@ install_etckeeper() {
     # Attempt an initial or catch-up commit; fails silently if tree is clean
     sudo etckeeper commit "foxml: /etc snapshot" >/dev/null 2>&1 || true
 
-    # Drop a systemd path unit that fires fox-dispatch when sensitive
+    # Drop a systemd path unit that fires desk-dispatch when sensitive
     # subdirs change outside of pacman / etckeeper's own commits.
     local watcher="$HOME/.config/systemd/user/fox-etcwatch.path"
     local svc="$HOME/.config/systemd/user/fox-etcwatch.service"
@@ -1319,7 +1319,7 @@ Type=oneshot
 # avoid \`sudo git log\` here because user systemd units have no TTY
 # for password prompts; stat works on the directory entry without
 # needing read access to the .git contents.
-ExecStart=/bin/sh -c 'stamp=\$(stat -c %%Y /var/lib/foxml/etc-last-commit 2>/dev/null || echo 0); now=\$(date +%%s); age=\$((now - stamp)); if [ "\$age" -gt 30 ]; then fox-dispatch "etc-change" "/etc modified outside an etckeeper commit (paths: ssh/sudoers.d/pam.d/ufw/fail2ban/audit/sysctl.d). Run: sudo etckeeper unclean" 2>/dev/null || true; fi'
+ExecStart=/bin/sh -c 'stamp=\$(stat -c %%Y /var/lib/foxml/etc-last-commit 2>/dev/null || echo 0); now=\$(date +%%s); age=\$((now - stamp)); if [ "\$age" -gt 30 ]; then desk-dispatch "etc-change" "/etc modified outside an etckeeper commit (paths: ssh/sudoers.d/pam.d/ufw/fail2ban/audit/sysctl.d). Run: sudo etckeeper unclean" 2>/dev/null || true; fi'
 EOF
         systemctl --user daemon-reload >/dev/null 2>&1
         systemctl --user enable --now fox-etcwatch.path >/dev/null 2>&1
@@ -1412,7 +1412,7 @@ install_noexec_tmp() {
 
     # Try /tmp live too — kernel rejects if any open file holds /tmp
     # busy, but most install-time runs succeed. Falls back to a clear
-    # "reboot to apply" note so fox doctor / fox harden doesn't keep
+    # "reboot to apply" note so desk doctor / desk harden doesn't keep
     # flagging a half-applied state.
     if findmnt /tmp 2>/dev/null | grep -q noexec; then
         echo "  • /tmp already noexec live"
@@ -2102,7 +2102,7 @@ install_resolved_dnssec() {
     #   1 / relaxed   validate-when-signed (recommended for laptops)
     #   2 / strict    refuse unsigned answers (best, can wedge on
     #                 hotel / café wifi + clock skew)
-    # User can flip later anytime via `fox dnssec 0/1/2`.
+    # User can flip later anytime via `desk dnssec 0/1/2`.
     local conf=/etc/systemd/resolved.conf.d/00-foxml-dnssec.conf
     sudo install -d /etc/systemd/resolved.conf.d
     local current_val="" desired_val="allow-downgrade"   # default = relaxed
@@ -2125,9 +2125,9 @@ install_resolved_dnssec() {
 
     if [[ "$current_val" != "$desired_val" ]]; then
         printf '[Resolve]\nDNSSEC=%s\n' "$desired_val" | sudo tee "$conf" >/dev/null
-        echo "  DNSSEC=$desired_val → $conf  ${C_DIM:-}(change later: fox dnssec 0/1/2)${C_RST:-}"
+        echo "  DNSSEC=$desired_val → $conf  ${C_DIM:-}(change later: desk dnssec 0/1/2)${C_RST:-}"
     else
-        echo "  • DNSSEC=$desired_val already configured  ${C_DIM:-}(change: fox dnssec 0/1/2)${C_RST:-}"
+        echo "  • DNSSEC=$desired_val already configured  ${C_DIM:-}(change: desk dnssec 0/1/2)${C_RST:-}"
     fi
 
     # Strip DNSSEC lines from sibling drop-ins so 00-foxml-dnssec.conf
@@ -2426,7 +2426,7 @@ install_ufw_baseline() {
 
     # Always re-apply the baseline defaults (deny incoming, allow
     # outgoing). The previous "skip if active" guard was too permissive:
-    # fox-doctor catches drift on existing installs, but we then refused
+    # desk-doctor catches drift on existing installs, but we then refused
     # to fix it. Default policies are idempotent — `default deny
     # incoming` on an already-deny-incoming UFW is a no-op. We DO skip
     # the `--force reset` when UFW is already active, so existing
@@ -2491,7 +2491,7 @@ install_ufw_baseline() {
         fi
     fi
 
-    # SSH lockout safety: if we're being run over SSH (e.g. `fox install`
+    # SSH lockout safety: if we're being run over SSH (e.g. `desk install`
     # from a remote shell), the deny-incoming default would kill the
     # current session mid-install. SSH_CONNECTION format is
     # "client_ip client_port server_ip server_port" — explicitly allow
@@ -2512,7 +2512,7 @@ install_ufw_baseline() {
     sudo ufw logging low >/dev/null 2>&1 || true
     echo "y" | sudo ufw enable >/dev/null
     sudo systemctl enable --now ufw >/dev/null 2>&1 \
-        || echo "    ! ufw enable failed — re-run with: sudo -v && fox install --full"
+        || echo "    ! ufw enable failed — re-run with: sudo -v && desk install --full"
     echo "    UFW enabled (deny incoming + low logging)"
 }
 
@@ -3499,14 +3499,14 @@ install_security() {
     # installer with no error message. Loud failure here is the fix.
     if ! sudo -v 2>/dev/null; then
         echo "  ! sudo cache cold and no TTY — security hardening needs root"
-        echo "    re-run: sudo -v && fox install --full"
+        echo "    re-run: sudo -v && desk install --full"
         return 0
     fi
 
     # UFW is applied unconditionally by install_ufw_baseline (called from
     # install.sh BEFORE this function). Re-running it here would just do
     # the same idempotent work twice. If a future code path invokes
-    # install_security in isolation (e.g. fox-doctor remediation), call
+    # install_security in isolation (e.g. desk-doctor remediation), call
     # install_ufw_baseline yourself first; we no longer chain it here.
     if ! pacman -Qi ufw &>/dev/null; then
         echo "  ufw package not found — run with --deps --secure"
@@ -3785,13 +3785,13 @@ EOF
                             echo "  Installing fwknop from AUR (build ~20-40s)..."
                             $_aur -S --needed --noconfirm fwknop 2>&1 | sed 's/^/    /'
                         else
-                            echo "  ! fwknop not installed AND no AUR helper — install manually then run: fox spa --setup"
+                            echo "  ! fwknop not installed AND no AUR helper — install manually then run: desk spa --setup"
                         fi
                     fi
                     if command -v fwknopd >/dev/null 2>&1; then
-                        fox-spa --setup || echo "  ! fox spa setup failed — re-run: fox spa --setup"
+                        desk-spa --setup || echo "  ! desk spa setup failed — re-run: desk spa --setup"
                     else
-                        echo "  • SPA not ready — run later: fox spa --setup"
+                        echo "  • SPA not ready — run later: desk spa --setup"
                     fi
                     ;;
                 2)
@@ -3806,15 +3806,15 @@ EOF
                         fi
                     fi
                     if command -v knockd >/dev/null 2>&1; then
-                        fox-knock --setup || echo "  ! fox knock setup failed — re-run: fox knock --setup"
+                        desk-knock --setup || echo "  ! desk knock setup failed — re-run: desk knock --setup"
                     else
-                        echo "  ! knockd not available — install manually then run: fox knock --setup"
+                        echo "  ! knockd not available — install manually then run: desk knock --setup"
                     fi
                     ;;
                 3|*)
                     mkdir -p "$HOME/.config/foxml" 2>/dev/null
                     touch "$HOME/.config/foxml/.skipped-ssh-gating"
-                    echo "  • skipped — run later:  fox spa --setup  OR  fox knock --setup"
+                    echo "  • skipped — run later:  desk spa --setup  OR  desk knock --setup"
                     ;;
             esac
         fi
@@ -3823,7 +3823,7 @@ EOF
     # lynis — system hardening audit tool. Read-only; gives a 0-100
     # hardening_index + a list of suggestions. Different layer from
     # auditd/fail2ban (active monitors) — lynis is a posture report.
-    # Wired up via `fox audit`. No service, just a binary.
+    # Wired up via `desk audit`. No service, just a binary.
     if ! pacman -Qi lynis &>/dev/null; then
         echo "  Installing lynis (audit tool — read-only, no daemon)..."
         sudo pacman -S --needed --noconfirm lynis 2>&1 | tail -3 | sed 's/^/    /' || true

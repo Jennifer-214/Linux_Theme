@@ -80,7 +80,7 @@ After installation, reload Hyprland and restart applications to load their new
 configuration. Check the result with:
 
 ```bash
-fox theme check
+desk theme check
 ```
 
 ## Themes
@@ -107,14 +107,14 @@ configs, `./update.sh` can capture supported files back into templates. See the
 | Command or shortcut | What it opens or checks |
 | --- | --- |
 | `Alt+Space` | Find apps, windows, projects and desktop actions |
-| `fox-desktop-menu` | Desktop drawer |
-| `fox sys cheatsheet` | Searchable keyboard shortcut reference |
-| `fox theme check` | Deployed desktop configuration and runtime checks |
-| `fox sys doctor` | Configuration diagnostics |
-| `fox sec health` | Boot and authentication health checks |
-| `fox sec dashboard` | Security dashboard |
-| `fox monitor status` | Monitor layout status |
-| `fox help` | Command namespaces and help |
+| `desktop-menu` | Desktop drawer |
+| `desk sys cheatsheet` | Searchable keyboard shortcut reference |
+| `desk theme check` | Deployed desktop configuration and runtime checks |
+| `desk sys doctor` | Configuration diagnostics |
+| `desk sec health` | Boot and authentication health checks |
+| `desk sec dashboard` | Security dashboard |
+| `desk monitor status` | Monitor layout status |
+| `desk help` | Command namespaces and help |
 
 See [KEYBINDS.md](KEYBINDS.md) for desktop shortcuts and the
 [Neovim reference](shared/nvim_NVIM-KEYBINDS.md) for editor keys.

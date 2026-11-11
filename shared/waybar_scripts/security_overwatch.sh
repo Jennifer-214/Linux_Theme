@@ -54,7 +54,7 @@ else
 fi
 
 # 5. Recent intrusion alerts (shared ledger — tripwire, bouncer,
-# fail2ban hook, hw_overwatch all write here via fox-dispatch). Any
+# fail2ban hook, hw_overwatch all write here via desk-dispatch). Any
 # entry inside the 5-minute window flips us to at-least-warning.
 LEDGER="${XDG_DATA_HOME:-$HOME/.local/share}/foxml/alerts.log"
 LEDGER_WINDOW=300

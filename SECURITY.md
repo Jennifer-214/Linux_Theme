@@ -28,7 +28,7 @@ Layered (each cheap, attacker pays full cost to bypass each):
 - **Auth**: SSH keys-only on a custom port + Endlessh tarpit on :22
   + optional knock / SPA gate + fingerprint via fprintd
 - **Sandbox**: Firejail Firefox + arkenfox user.js + AppArmor + opt-in
-  OpenSnitch per-app egress prompts + `fox offline` network-namespace
+  OpenSnitch per-app egress prompts + `desk offline` network-namespace
   void for sketchy code
 - **Hardware**: USBGuard allowlist + IOMMU DMA isolation + optional
   USB-tether dead-man switch
@@ -64,7 +64,7 @@ perms. gitleaks runs on every push as a backstop.
 
 Back up the local secrets with:
 ```
-fox backup
+desk backup
 ```
 which produces a GPG-encrypted tarball readable only by you.
 

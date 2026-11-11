@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Wait for notification actions outside the agent hook, so the note's lifetime
+# never keeps the agent itself waiting for the desktop.
+set -euo pipefail
+
+if [[ "${1:-}" == agent && $# == 7 ]]; then
+    command -v notify-send >/dev/null && command -v setsid >/dev/null || exit 0
+    exec setsid -f bash "${BASH_SOURCE[0]}" --send-agent "${@:2}" </dev/null >/dev/null 2>&1
+fi
+[[ "${1:-}" == --send-agent && $# == 7 ]] || exit 2
+app="$2"; title="$3"; body="$4"; project="$5"; pane="$6"; event="$7"
+[[ "$app" == Claude || "$app" == pi ]] || exit 2
+[[ "$event" == stop || "$event" == notification ]] || exit 2
+options=(--wait --expire-time=4000 --category=foxml.work --app-name="$app"
+    --action=default='Go to session' --action=review='Review changes')
+[[ "$event" == notification ]] && options+=(--urgency=critical)
+# One live note per pane; another turn replaces its old result.
+[[ "$pane" =~ ^%[0-9]+$ ]] && options+=(--hint="string:x-dunst-stack-tag:foxml-agent-${pane#%}")
+choice="$(notify-send "${options[@]}" -- "$title" "$body")" || exit 0
+case "$choice" in
+    default)
+        if [[ "$pane" =~ ^%[0-9]+$ ]]; then
+            exec desk-drawer run claude-jump "$pane"
+        fi
+        exec desktop-menu --open agents
+        ;;
+    review)
+        [[ "$project" == /* && -d "$project" ]] || exit 0
+        exec desk-work open --root "$project" --action reviews
+        ;;
+esac

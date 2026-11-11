@@ -26,27 +26,27 @@
   },
 
   "custom/claude": {
-    "exec": "~/.local/bin/fox-drawer claude-bar",
+    "exec": "~/.local/bin/desk-drawer claude-bar",
     "return-type": "json",
     "interval": 3,
     "tooltip": true,
-    "on-click": "~/.local/bin/fox-desktop-menu agents",
-    "on-click-asking": "~/.local/bin/fox-drawer claude-next"
+    "on-click": "~/.local/bin/desktop-menu agents",
+    "on-click-asking": "~/.local/bin/desk-drawer claude-next"
   },
 
   "custom/ai_status": {
-    "exec": "~/.local/bin/fox-ai-status",
+    "exec": "~/.local/bin/ai-status",
     "return-type": "json",
     "interval": 2,
     "tooltip": true,
-    "on-click": "~/.local/bin/fox-ai-swap"
+    "on-click": "~/.local/bin/ai-swap"
   },
 
 
   "custom/logo": {
     "format": "{{WAYBAR_LOGO}}",
     "tooltip": "The quiet corner",
-    "on-click": "~/.local/bin/fox-desktop-menu root"
+    "on-click": "~/.local/bin/desktop-menu root"
   },
 
   "hyprland/workspaces": {
@@ -75,7 +75,7 @@
     "return-type": "json",
     "interval": 60,
     "tooltip": true,
-    "on-click": "fox-desktop-menu calendar"
+    "on-click": "desktop-menu calendar"
   },
 
   "custom/updates": {
@@ -84,6 +84,6 @@
     "interval": 300,
     "signal": 1,
     "tooltip": true,
-    "on-click": "~/.local/bin/fox-desktop-menu updates"
+    "on-click": "~/.local/bin/desktop-menu updates"
   }
 }

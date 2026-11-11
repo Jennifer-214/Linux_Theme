@@ -33,7 +33,7 @@ emit() {
 # ─── GPU: NVIDIA pegged by unknown process ────────────────────────
 gpu_findings=""
 # NVIDIA updated without a reboot: nvidia-smi can only fail (each call a kernel log entry) — no GPU scan until then
-nv_state=$("${FOX_NVIDIA_STATE:-$HOME/.local/bin/fox-nvidia-state}" 2>/dev/null)
+nv_state=$("${FOX_NVIDIA_STATE:-$HOME/.local/bin/nvidia-state}" 2>/dev/null)
 if command -v nvidia-smi >/dev/null 2>&1 && [[ ${nv_state%% *} != mismatch ]]; then
     # Returns "pid,process_name,used_memory" CSV per process holding the
     # GPU. Anything outside the known-ok allow-list at >1GB VRAM is a
@@ -42,7 +42,7 @@ if command -v nvidia-smi >/dev/null 2>&1 && [[ ${nv_state%% *} != mismatch ]]; t
         pname="${pname// /}"; pname="${pname##*/}"; used="${used// /}"   # a path on some drivers
         [[ -z "$pid" || "$used" == "0" ]] && continue
         case "$pname" in
-            llama-server)                             continue ;;   # the local models (fox-llm-serve)
+            llama-server)                             continue ;;   # the local models (llm-serve)
             firefox|chromium|chrome|kitty|hyprland)   continue ;;
             python|python3|node|java)                 continue ;;
             *) gpu_findings+="GPU: $pname ($used MiB); " ;;
@@ -152,7 +152,7 @@ if [[ -n "$new_roots" ]]; then
 fi
 
 # ─── Shared ledger: tripwire / bouncer / fail2ban / dispatch ──────
-# Pull any alert entries written by fox-dispatch in the last 5 minutes
+# Pull any alert entries written by desk-dispatch in the last 5 minutes
 # (matches our notify-send cooldown window). Format: epoch\tsource\tmsg.
 ledger_findings=""
 LEDGER="${XDG_DATA_HOME:-$HOME/.local/share}/foxml/alerts.log"
@@ -183,7 +183,7 @@ combined=""
 } > "$STATE"
 
 if [[ -n "$combined" ]]; then
-    # Rate-limit notify-send AND fox-dispatch so a sustained anomaly
+    # Rate-limit notify-send AND desk-dispatch so a sustained anomaly
     # doesn't spam either channel. Same cooldown window for both — if
     # we just sent a local notification, the phone alert is also stale.
     last=0
@@ -193,12 +193,12 @@ if [[ -n "$combined" ]]; then
         echo "$now" > "$LAST_ALERT"
         notify-send -u critical -t 8000 -a "overwatch" \
             "Hardware anomaly" "$combined" 2>/dev/null || true
-        # Phone alert via fox-dispatch when configured. Silent failure if
+        # Phone alert via desk-dispatch when configured. Silent failure if
         # the webhook config isn't present — local notify-send already
         # covered the case.
-        if command -v fox-dispatch >/dev/null 2>&1 \
+        if command -v desk-dispatch >/dev/null 2>&1 \
            && [[ -f "$HOME/.config/foxml/dispatch.conf" ]]; then
-            fox-dispatch "overwatch anomaly" "$combined" >/dev/null 2>&1 &
+            desk-dispatch "overwatch anomaly" "$combined" >/dev/null 2>&1 &
             disown
         fi
     fi

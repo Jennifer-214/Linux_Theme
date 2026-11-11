@@ -1,15 +1,15 @@
 """Every shipped user unit can start, and no job has two owners.
 
 foxml-focus-pulse.service once ran a script the installer had stopped deploying (a restart loop on a fresh
-install) while fox-pulse showed the same workspace notice (two per switch on an upgraded one)."""
+install) while desk-pulse showed the same workspace notice (two per switch on an upgraded one)."""
 import glob
 from pathlib import Path
 import re
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-SPECIALS = Path(glob.glob(str(ROOT / "src/fox-ins*l/modules/specials.cpp"))[0]).read_text()
-PULSE = (ROOT / "src/fox-pulse/fox-pulse.cpp").read_text()
+SPECIALS = Path(glob.glob(str(ROOT / "src/desk-ins*l/modules/specials.cpp"))[0]).read_text()
+PULSE = (ROOT / "src/desk-pulse/desk-pulse.cpp").read_text()
 
 
 class UserUnits(unittest.TestCase):
@@ -27,7 +27,7 @@ class UserUnits(unittest.TestCase):
 
     def test_the_workspace_notice_has_one_owner(self):
         self.assertFalse((ROOT / "shared/systemd_user/foxml-focus-pulse.service").exists())
-        self.assertTrue((ROOT / "shared/pulse.d/focus.sh").exists(), "fox-pulse's one-shot focus handler")
+        self.assertTrue((ROOT / "shared/pulse.d/focus.sh").exists(), "desk-pulse's one-shot focus handler")
         self.assertRegex(PULSE, r'FOCUS_HANDLER\s*=\s*\{\s*"focus",\s*nullptr,', "no fallback to a persistent listener")
         self.assertIn('"foxml-focus-pulse.service", "focus-pulse.sh"', SPECIALS, "upgrades retire the old unit")
 
@@ -39,7 +39,7 @@ class UserUnits(unittest.TestCase):
 
 class SelfCheckRunsItself(unittest.TestCase):
     def test_installs_and_swaps_end_with_the_check_and_a_weekly_timer_runs_it(self):
-        post = Path(glob.glob(str(ROOT / "src/fox-ins*l/modules/post_install.cpp"))[0]).read_text()
+        post = Path(glob.glob(str(ROOT / "src/desk-ins*l/modules/post_install.cpp"))[0]).read_text()
         self.assertIn('"--theme", ctx.theme_name', post, "post_install checks the theme it just applied")
         self.assertIn("never fails the install", post)
         unit = (ROOT / "shared/systemd_user/fox-theme-check.service").read_text()

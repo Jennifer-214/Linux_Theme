@@ -11,6 +11,6 @@ bootmodes=('bios.syslinux.mbr' 'bios.syslinux.eltorito' 'uefi-ia32.grub.esp' 'ue
 arch="x86_64"
 pacman_conf="pacman.conf"
 airootfs_permissions=(
-  ["/usr/local/bin/fox-install"]="0:0:755"
+  ["/usr/local/bin/desk-install"]="0:0:755"
   ["/root"]="0:0:750"
 )

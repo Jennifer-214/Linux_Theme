@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# lock-panel — put the lock screen's panel (clock, date, password field) on a screen you can see.
+#
+# The installer pins the panel to the primary monitor in ~/.config/hypr/hyprlock.conf. Docked with the laptop lid
+# shut, that panel stays "on" to Hyprland and the password field draws where nobody can see it. At lock time this
+# checks the pinned monitor: connected, enabled, powered and, for a built-in panel, its lid open. If it is, the
+# deployed config is used untouched. If not, a private copy re-pinned to the focused (or first visible) monitor is.
+#
+#   lock-panel          print the config hyprlock should use
+#   lock-panel --run …  lock with it (extra args go to hyprlock)
+#
+# It must never cost a lock: any doubt prints the deployed config, and --run falls back to plain hyprlock when the
+# re-pinned one exits with an error at once.
+set -u
+
+conf="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/hyprlock.conf"
+lids="${FOX_LID_STATES:-/proc/acpi/button/lid/*/state}"
+
+choose() {
+    [[ -r "$conf" ]] && command -v hyprctl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 || return 1
+    # The panel's pin: the first `monitor =` outside the per-monitor background block.
+    local pinned
+    pinned=$(awk '/foxml:hyprlock-backgrounds-begin/{b=1} /foxml:hyprlock-backgrounds-end/{b=0; next}
+                  !b && /^[[:space:]]*monitor[[:space:]]*=/ { sub(/^[^=]*=[[:space:]]*/, ""); sub(/[[:space:]]+$/, ""); if ($0 != "") { print; exit } }' "$conf")
+    [[ -n "$pinned" ]] || return 1                    # unpinned: hyprlock already draws it everywhere
+    local monitors
+    monitors=$(hyprctl monitors -j 2>/dev/null) && [[ -n "$monitors" ]] || return 1
+
+    lid_shut() {
+        local state
+        for state in $lids; do grep -qi closed "$state" 2>/dev/null && return 0; done
+        return 1
+    }
+    visible() {
+        jq -e --arg n "$1" '.[] | select(.name == $n and (.disabled | not) and .dpmsStatus)' <<<"$monitors" >/dev/null 2>&1 || return 1
+        case "$1" in eDP*|LVDS*|DSI*) lid_shut && return 1 ;; esac
+        return 0
+    }
+
+    visible "$pinned" && return 1                     # the pin is fine: use the deployed config
+    local choice name
+    choice=$(jq -r '.[] | select(.focused) | .name' <<<"$monitors" 2>/dev/null | head -n1)
+    if [[ -z "$choice" ]] || ! visible "$choice"; then
+        choice=""
+        for name in $(jq -r '.[] | .name' <<<"$monitors" 2>/dev/null); do
+            visible "$name" && { choice="$name"; break; }
+        done
+    fi
+    [[ -n "$choice" && "$choice" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
+
+    [[ -d "${XDG_RUNTIME_DIR:-}" ]] || return 1
+    local dir="$XDG_RUNTIME_DIR/foxml" tmp
+    ( umask 077; mkdir -p "$dir" ) || return 1
+    tmp=$(umask 077; mktemp "$dir/hyprlock.conf.XXXXXX") || return 1
+    if awk -v pinned="$pinned" -v choice="$choice" '
+            /foxml:hyprlock-backgrounds-begin/ { b = 1 }
+            /foxml:hyprlock-backgrounds-end/   { b = 0; print; next }
+            !b && /^[[:space:]]*monitor[[:space:]]*=/ {
+                line = $0; value = line; sub(/^[^=]*=[[:space:]]*/, "", value); sub(/[[:space:]]+$/, "", value)
+                if (value == pinned) { indent = line; sub(/[^[:space:]].*$/, "", indent); print indent "monitor = " choice; next }
+            }
+            { print }' "$conf" > "$tmp" && [[ -s "$tmp" ]]; then
+        mv -f "$tmp" "$dir/hyprlock.conf" && printf '%s\n' "$dir/hyprlock.conf" && return 0
+    fi
+    rm -f "$tmp"
+    return 1
+}
+
+if [[ "${1:-}" == "--run" ]]; then
+    shift
+    if repinned=$(choose); then
+        started=$SECONDS
+        hyprlock -c "$repinned" "$@"
+        rc=$?
+        # Exited with an error straight away: it never locked. Lock the plain way instead.
+        if (( rc != 0 && SECONDS - started < 2 )); then exec hyprlock "$@"; fi
+        exit "$rc"
+    fi
+    exec hyprlock "$@"
+fi
+
+choose || printf '%s\n' "$conf"

@@ -2,11 +2,11 @@
 """tests/test_deploy_lists.py — what the installer deploys stays coherent.
 
 - No shared/bin script is named like a tool a src/<tool> Makefile builds. specials' bulk copy puts shared/bin into
-  ~/.local/bin, so such a script landed over the compiled binary (installer audit 2026-10-15: fox, fox-vault and
-  fox-ai-review). core/built_tools.hpp skips them at install time; this keeps them out of the repo.
+  ~/.local/bin, so such a script landed over the compiled binary (installer audit 2026-10-15: fox, desk-vault and
+  ai-review). core/built_tools.hpp skips them at install time; this keeps them out of the repo.
 - mappings.sh (update.sh captures through it) and symlinks_data.hpp (the installer deploys through it) list the
   same rows, every row's source exists, and every pi extension has a row. The audit found fzf-tab.zsh deployed but
-  never captured, and pob / fox-word-count captured but deployed only by the bulk copy.
+  never captured, and pob / word-count captured but deployed only by the bulk copy.
 """
 import os
 import re
@@ -70,7 +70,7 @@ def sh_rows(name):
 
 
 def hpp_rows(name):
-    text = (ROOT / "src/fox-install/modules/symlinks_data.hpp").read_text()
+    text = (ROOT / "src/desk-install/modules/symlinks_data.hpp").read_text()
     m = re.search(name + r"\[\] = \{(.*?)\n\};", text, re.S)
     return set(re.findall(r'\{\s*"([^"]+)",\s*"([^"]+)"\s*\}', m.group(1)))
 
@@ -87,8 +87,8 @@ def built_tools():
 class DeployListsTest(unittest.TestCase):
     def test_no_shared_bin_script_shadows_a_built_tool(self):
         built = built_tools()
-        self.assertIn("fox", built)
-        self.assertEqual(built.get("fox-render-fast"), "fox-render")
+        self.assertIn("desk", built)
+        self.assertEqual(built.get("desk-render-fast"), "desk-render")
         clashes = sorted(f"shared/bin/{n} vs src/{built[n]}" for n in os.listdir(ROOT / "shared/bin") if n in built)
         self.assertEqual(clashes, [], "a shared/bin script named like a compiled tool would be copied over it")
 

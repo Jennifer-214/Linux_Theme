@@ -1,0 +1,77 @@
+#!/bin/bash
+# desktop-menu — one named Quickshell instance serves the desktop menus.
+
+# Compositor keybinds do not inherit the interactive shell's ~/.local/bin PATH.
+launcher_dir="${BASH_SOURCE[0]%/*}"
+[[ "$launcher_dir" == "${BASH_SOURCE[0]}" ]] && launcher_dir="$HOME/.local/bin"
+launcher_dir="$(cd -- "$launcher_dir" && pwd -P)" || exit 1
+case ":${PATH:-}:" in
+    *":$launcher_dir:"*) ;;
+    *) export PATH="$launcher_dir:${PATH:-/usr/local/bin:/usr/bin:/bin}" ;;
+esac
+
+config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
+config_dir="$config_home/quickshell/foxml"
+
+available() {
+    command -v quickshell >/dev/null 2>&1 &&
+        command -v desk-drawer >/dev/null 2>&1 &&
+        [[ -r "$config_dir/shell.qml" && -r "$config_dir/Theme.qml" && -r "$config_dir/menus.json" ]]
+}
+
+ipc() { quickshell -c foxml ipc call drawer "$@"; }
+ready_status() {
+    local response
+    response=$(ipc status 2>/dev/null) || return 1
+    [[ "$response" == *'"open":'* ]]
+}
+
+case "${1:-root}" in
+    --available) available; exit $? ;;
+    --help|-h)
+        printf '%s\n' 'Usage: desktop-menu [PAGE | --open PAGE [--scope NAME] | --start | --close | --available]' \
+            'Open or toggle the palette-driven desktop drawer.'
+        exit 0 ;;
+    --close)
+        available || exit 1
+        ipc close >/dev/null 2>&1
+        exit $? ;;
+    --start) action=start; page=root ;;
+    # --scope: the one thing the page shows, e.g. a screen ("--open display --scope DP-2").
+    --open) action=open; page="${2:-root}"; [[ "${3:-}" == --scope ]] && scope="${4:-}" ;;
+    *) action=toggle; page="${1:-root}" ;;
+esac
+
+if [[ -n "${scope:-}" && ! "$scope" =~ ^[A-Za-z0-9_.:-]{1,64}$ ]]; then
+    printf 'desktop-menu: invalid scope: %s\n' "$scope" >&2
+    exit 2
+fi
+if [[ ! "$page" =~ ^[a-z][a-z0-9-]*$ ]]; then
+    printf 'desktop-menu: invalid page name: %s\n' "$page" >&2
+    exit 2
+fi
+if ! available; then
+    printf 'desktop-menu: drawer unavailable; install Quickshell and run desk-install --only drawer.\n' >&2
+    exit 1
+fi
+
+if ! ready_status; then
+    # Detach before Qt/Wayland initializes; forking the loaded shell can leave
+    # a newly added layer surface with no live IPC service.
+    setsid -f quickshell -c foxml --no-duplicate >/dev/null 2>&1 || {
+        printf 'desktop-menu: could not start the drawer.\n' >&2
+        exit 1
+    }
+    ready=false
+    for (( attempt=0; attempt<30; attempt++ )); do
+        if ready_status; then ready=true; break; fi
+        sleep 0.1
+    done
+    if [[ "$ready" != true ]]; then
+        printf 'desktop-menu: the drawer did not become ready; check quickshell -c foxml log.\n' >&2
+        exit 1
+    fi
+fi
+
+[[ "$action" == start ]] && exit 0
+if [[ -n "${scope:-}" ]]; then ipc openScoped "$page" "$scope"; else ipc "$action" "$page"; fi

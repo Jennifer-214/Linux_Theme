@@ -73,7 +73,7 @@ if [[ -f "$STATE" ]]; then
     rm -f "$STATE"
 
     # Show waybar again.
-    fox-bar show 2>/dev/null || pkill -SIGUSR1 waybar 2>/dev/null || true
+    desk-bar show 2>/dev/null || pkill -SIGUSR1 waybar 2>/dev/null || true
 
     # Restore audio mute only if the user wasn't already muted pre-toggle.
     if [[ "${PRE_MUTED:-no}" == "no" ]]; then
@@ -84,7 +84,7 @@ if [[ -f "$STATE" ]]; then
     # with the same key as before resets them back to config defaults
     # on the next hyprctl reload, but we can also unbind the override
     # explicitly by re-issuing the original config values.
-    fox-hl config "{ decoration = { blur = { enabled = true, size = 3, passes = 2 }, active_opacity = 0.95, inactive_opacity = 0.85 } }" \
+    desk-hl config "{ decoration = { blur = { enabled = true, size = 3, passes = 2 }, active_opacity = 0.95, inactive_opacity = 0.85 } }" \
         "keyword decoration:blur:enabled true ; keyword decoration:blur:size 3 ; keyword decoration:blur:passes 2 ; keyword decoration:active_opacity 0.95 ; keyword decoration:inactive_opacity 0.85" >/dev/null 2>&1 || true
 
     restored="the bar is back"
@@ -105,7 +105,7 @@ fi
 chmod 600 "$STATE" 2>/dev/null || true
 
 # Hide waybar (SIGUSR1 is its toggle-visibility signal).
-fox-bar hide 2>/dev/null || pkill -SIGUSR1 waybar 2>/dev/null || true
+desk-bar hide 2>/dev/null || pkill -SIGUSR1 waybar 2>/dev/null || true
 
 # Mute audio.
 wpctl set-mute @DEFAULT_AUDIO_SINK@ 1 2>/dev/null || true
@@ -114,7 +114,7 @@ wpctl set-mute @DEFAULT_AUDIO_SINK@ 1 2>/dev/null || true
 # behind the active window doesn't peek through translucency. The
 # active window stays opaque; inactive windows get heavy blur as a
 # "you can't see what's there" indicator.
-fox-hl config "{ decoration = { blur = { enabled = true, size = 12, passes = 4 }, active_opacity = 1.0, inactive_opacity = 1.0 } }" \
+desk-hl config "{ decoration = { blur = { enabled = true, size = 12, passes = 4 }, active_opacity = 1.0, inactive_opacity = 1.0 } }" \
     "keyword decoration:blur:enabled true ; keyword decoration:blur:size 12 ; keyword decoration:blur:passes 4 ; keyword decoration:active_opacity 1.0 ; keyword decoration:inactive_opacity 1.0" >/dev/null 2>&1 || true
 
 notify-send -h string:x-canonical-private-synchronous:ghost-mode "shh… tucked away" \

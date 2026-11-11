@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-RENDER = ROOT / 'src/fox-render/fox-render-fast'
+RENDER = ROOT / 'src/desk-render/desk-render-fast'
 
 
 @unittest.skipUnless(RENDER.is_file() and shutil.which('nvim'), 'renderer and Neovim required')

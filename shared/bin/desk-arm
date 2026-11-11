@@ -1,0 +1,233 @@
+#!/usr/bin/env bash
+# desk-arm — single-command "turn everything on" for the opt-in
+# defenses. Equivalent to manually running every fox <tool> --setup /
+# --enable in sequence, but with a clean per-step status line and
+# safe handling of the tools that need machine-specific input.
+#
+# Default behaviour: enable everything that's safe-to-arm without
+# user-specific input. Interactive prompts kick in for the tools that
+# genuinely need a choice (cafe SSID list, dispatch webhook, knock vs
+# spa, etc.).
+#
+# Usage:
+#   desk arm                interactive — enables safe stuff, prompts
+#                          for the user-specific ones
+#   desk arm --status       per-tool state
+#   desk arm --heavy        also enable opensnitch + cowrie (heavy)
+#   desk arm --disarm       reverse the lockdown-style ones (best effort)
+
+set -u
+C_BOLD=$'\e[1m'; C_DIM=$'\e[2m'; C_PEACH=$'\e[95m'
+C_GRN=$'\e[32m'; C_YEL=$'\e[33m'; C_RED=$'\e[31m'; C_RST=$'\e[0m'
+
+_step() { printf '\n%s── %s%s\n' "$C_BOLD" "$1" "$C_RST"; }
+_ok()   { printf '  %s✓%s %s\n' "$C_GRN" "$C_RST" "$1"; }
+_skip() { printf '  %s•%s %s\n' "$C_DIM" "$C_RST" "$1"; }
+_warn() { printf '  %s!%s %s\n' "$C_YEL" "$C_RST" "$1"; }
+_yn() {
+    local p="$1" r=""
+    read -rp "  $p " -n 1 -r r; echo
+    [[ "$r" =~ ^[Yy]$ ]]
+}
+
+_status() {
+    echo "${C_BOLD}desk arm — current state${C_RST}"
+    echo
+    # dispatch
+    if [[ -f "$HOME/.config/foxml/dispatch.conf" ]]; then _ok "dispatch     webhook configured"
+    else _warn "dispatch     not configured (desk dispatch --setup)"; fi
+    # knock OR spa
+    if [[ -f "$HOME/.config/foxml/knock.conf" ]];     then _ok "knock        configured"
+    elif [[ -f "$HOME/.config/foxml/spa.conf" ]];     then _ok "spa          configured (replaces knock)"
+    else _warn "knock / spa  neither configured"; fi
+    # firewall lockdown
+    if sudo -n ufw status verbose 2>/dev/null | grep -q 'deny (outgoing)'; then _ok "firewall     egress lockdown active"
+    else _warn "firewall     egress lockdown NOT active"; fi
+    # cafe
+    if [[ -f "$HOME/.config/foxml/cafe.conf" ]];      then _ok "cafe         dispatcher armed"
+    else _warn "cafe         not configured (desk cafe --setup)"; fi
+    # dns-shield
+    if grep -q '^# foxml-shield BEGIN' /etc/hosts 2>/dev/null; then _ok "dns-shield   active"
+    else _warn "dns-shield   NOT active (desk dns-shield --enable)"; fi
+    # tripwire
+    if systemctl --user is-active --quiet fox-tripwire.service 2>/dev/null; then _ok "tripwire     running"
+    else _warn "tripwire     not running (desk tripwire --install)"; fi
+    # sentry-audit
+    if systemctl --user is-active --quiet fox-sentry-audit.service 2>/dev/null; then _ok "sentry-audit running"
+    else _warn "sentry-audit not running (desk sentry-audit --install)"; fi
+    # bouncer
+    if systemctl --user is-active --quiet fox-bouncer.service 2>/dev/null; then _ok "bouncer      running"
+    else _warn "bouncer      not running (desk bouncer --install)"; fi
+    # deadman
+    if [[ -f /etc/udev/rules.d/99-foxml-deadman.rules ]]; then _ok "deadman      armed"
+    else _skip "deadman      not configured (needs USB — desk deadman --setup)"; fi
+    # vault
+    if [[ -d "$HOME/.password-store" ]];               then _ok "vault        initialised"
+    else _warn "vault        not initialised (desk vault init)"; fi
+    # opensnitch
+    if systemctl is-active --quiet opensnitchd 2>/dev/null; then _ok "snitch       opensnitch running"
+    else _skip "snitch       not enabled (desk snitch --enable)"; fi
+    # cowrie
+    if systemctl is-active --quiet cowrie 2>/dev/null; then _ok "honeypot     cowrie running"
+    else _skip "honeypot     not enabled (desk honeypot --enable)"; fi
+    # vpn
+    if sudo -n wg 2>/dev/null | grep -q 'interface:'; then _ok "vpn          wireguard up"
+    else _skip "vpn          no active wireguard iface"; fi
+    # proximity
+    if systemctl --user is-active --quiet fox-proximity.service 2>/dev/null; then _ok "proximity    bluetooth auto-lock armed"
+    else _skip "proximity    not configured (desk proximity --setup)"; fi
+}
+
+_arm() {
+    local heavy="${1:-0}"
+    echo "${C_BOLD}${C_PEACH}desk arm — engaging every opt-in defense${C_RST}"
+
+    _step "dns-shield (StevenBlack hosts blocklist)"
+    if grep -q '^# foxml-shield BEGIN' /etc/hosts 2>/dev/null; then
+        _ok "already active"
+    else
+        if _yn "Enable dns-shield (downloads ~150k entries to /etc/hosts)? [Y/n]"; then
+            desk-dns-shield --enable
+        else _skip "skipped"; fi
+    fi
+
+    _step "tripwire (userspace honeypot)"
+    if systemctl --user is-active --quiet fox-tripwire.service 2>/dev/null; then
+        _ok "already running"
+    else
+        if _yn "Install desk-tripwire? (FP risk: backup/indexer/AV will trip it) [y/N]"; then
+            desk-tripwire --install
+        else _skip "skipped (recommended OFF for daily-driver laptops)"; fi
+    fi
+
+    _step "dispatch (phone alerts via webhook)"
+    if [[ -f "$HOME/.config/foxml/dispatch.conf" ]]; then
+        _ok "already configured"
+    elif [[ -f "$HOME/.config/foxml/.skipped-dispatch" ]]; then
+        # Respect a prior decline from install.sh's interactive flow.
+        # Avoids the "asked twice" complaint when desk install --full
+        # --heavy chains install_security_extras + desk arm.
+        _skip "previously declined (rm ~/.config/foxml/.skipped-dispatch to re-offer)"
+    else
+        if _yn "Configure Discord/Telegram webhook now? [Y/n]"; then
+            desk-dispatch --setup
+        else
+            mkdir -p "$HOME/.config/foxml" 2>/dev/null
+            touch "$HOME/.config/foxml/.skipped-dispatch"
+            _skip "skipped (run later: desk dispatch --setup)"
+        fi
+    fi
+
+    _step "knock OR spa (SSH access gating)"
+    if [[ -f "$HOME/.config/foxml/spa.conf" ]] || [[ -f "$HOME/.config/foxml/knock.conf" ]]; then
+        _ok "already configured"
+    elif [[ -f "$HOME/.config/foxml/.skipped-ssh-gating" ]]; then
+        _skip "previously declined (rm ~/.config/foxml/.skipped-ssh-gating to re-offer)"
+    else
+        echo "  [1] knock (port-sequence, simpler, sniffable on same LAN)"
+        echo "  [2] spa   (single encrypted packet, replay-immune, recommended)"
+        echo "  [3] skip"
+        local c=""
+        read -rp "  choose [1/2/3, default 3]: " -n 1 -r c; echo
+        case "$c" in
+            1) desk-knock --setup ;;
+            2) desk-spa --setup ;;
+            *) mkdir -p "$HOME/.config/foxml" 2>/dev/null
+               touch "$HOME/.config/foxml/.skipped-ssh-gating"
+               _skip "skipped" ;;
+        esac
+    fi
+
+    _step "cafe (auto-tighten on untrusted wifi)"
+    if [[ -f "$HOME/.config/foxml/cafe.conf" ]]; then
+        _ok "already configured"
+    else
+        if _yn "Set up Café Mode now? [Y/n]"; then
+            desk-cafe --setup
+        else _skip "skipped"; fi
+    fi
+
+    _step "vault (pass store)"
+    if [[ -d "$HOME/.password-store" ]]; then
+        _ok "already initialised"
+    else
+        if _yn "Initialise pass vault now? [Y/n]"; then
+            desk-pass init
+        else _skip "skipped"; fi
+    fi
+
+    _step "firewall lockdown (egress filter)"
+    if sudo -n ufw status verbose 2>/dev/null | grep -q 'deny (outgoing)'; then
+        _ok "already active"
+    else
+        if _yn "Enable egress lockdown (default-deny outgoing with allowlist)? [y/N]"; then
+            desk-firewall lockdown
+        else _skip "skipped (apps using non-standard ports may break — opt in later if needed)"; fi
+    fi
+
+    _step "proximity (Bluetooth auto-lock)"
+    if systemctl --user is-active --quiet fox-proximity.service 2>/dev/null; then
+        _ok "already armed"
+    else
+        if _yn "Set up Bluetooth proximity lock now? (needs a paired phone/device) [y/N]"; then
+            desk-proximity --setup
+        else _skip "skipped (run later: desk proximity --setup)"; fi
+    fi
+
+    if (( heavy )); then
+        _step "snitch (OpenSnitch per-app prompts) — HEAVY"
+        if systemctl is-active --quiet opensnitchd 2>/dev/null; then
+            _ok "already active"
+        else
+            desk-snitch --enable
+        fi
+
+        _step "honeypot (Cowrie SSH honeypot) — HEAVY"
+        if systemctl is-active --quiet cowrie 2>/dev/null; then
+            _ok "already active"
+        else
+            desk-honeypot --enable
+        fi
+    else
+        _skip "snitch / honeypot — pass --heavy to enable (opensnitch + cowrie)"
+    fi
+
+    echo
+    echo "${C_GRN}${C_BOLD}desk arm complete${C_RST}"
+    echo "  ${C_DIM}status check:  desk arm --status${C_RST}"
+    echo "  ${C_DIM}dashboard:     desk sec${C_RST}"
+}
+
+_disarm() {
+    echo "${C_YEL}reversing arm-style settings (best effort)...${C_RST}"
+    grep -q '^# foxml-shield BEGIN' /etc/hosts 2>/dev/null && desk-dns-shield --disable
+    sudo -n ufw status verbose 2>/dev/null | grep -q 'deny (outgoing)' && desk-firewall unlock
+    systemctl --user is-active --quiet fox-tripwire.service 2>/dev/null && desk-tripwire --uninstall
+    systemctl is-active --quiet opensnitchd 2>/dev/null && desk-snitch --disable
+    systemctl is-active --quiet cowrie 2>/dev/null && desk-honeypot --disable
+    [[ -f /etc/NetworkManager/dispatcher.d/99-foxml-cafe ]] && desk-cafe --disable
+    [[ -f /etc/udev/rules.d/99-foxml-deadman.rules ]] && desk-deadman --disarm
+    echo "${C_GRN}✓ disarmed (vault, knock, spa, dispatch config kept — they have no ambient effect)${C_RST}"
+}
+
+case "${1:-}" in
+    ""|--all)    _arm 0 ;;
+    --heavy)     _arm 1 ;;
+    --status)    _status ;;
+    --disarm)    _disarm ;;
+    -h|--help|help) cat <<EOF
+desk arm — single-command "turn everything on"
+
+  desk arm              interactive: enable every opt-in defense
+                       (safe set: dns-shield, tripwire, dispatch,
+                       knock/spa, cafe, vault, firewall lockdown)
+  desk arm --heavy      ALSO enable opensnitch + cowrie
+  desk arm --status     per-tool state (what's armed vs not)
+  desk arm --disarm     reverse the lockdown-style ones
+
+Tools needing machine-specific input (deadman → USB, vpn → .conf
+files) are skipped here — run their own --setup separately.
+EOF
+    ;;
+    *) echo "unknown: $1" >&2; exit 2 ;;
+esac

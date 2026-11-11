@@ -549,7 +549,7 @@ Shows indent guides automatically. No keybinds.
 
 ---
 
-<!-- BEGIN GENERATED: hypr — fox dev gen-keybinds; edit shared/hyprland_modules/keybinds.conf, not this -->
+<!-- BEGIN GENERATED: hypr — desk dev gen-keybinds; edit shared/hyprland_modules/keybinds.conf, not this -->
 
 ## Hyprland (ALT = mainMod)
 
@@ -675,7 +675,7 @@ Shows indent guides automatically. No keybinds.
 
 ---
 
-<!-- BEGIN GENERATED: tmux — fox dev gen-keybinds; edit templates/tmux/.tmux.conf, not this -->
+<!-- BEGIN GENERATED: tmux — desk dev gen-keybinds; edit templates/tmux/.tmux.conf, not this -->
 
 ## Tmux (Ctrl+a prefix)
 
@@ -692,7 +692,7 @@ Shows indent guides automatically. No keybinds.
 | `Ctrl+a w` | Your sessions: the drawer's Terminals page on the desktop, the switcher popup anywhere else |
 | `Ctrl+a W` | The session switcher popup: enter goes to a session, ^b shows it here, ^r renames, ^x closes, ? keys |
 | `Ctrl+a G` | Lazygit on the current pane's repo, in a themed float |
-| `Ctrl+a a` | Ask your local model (fox-ai-oracle) without leaving the terminal |
+| `Ctrl+a a` | Ask your local model (ai-oracle) without leaving the terminal |
 | `Ctrl+a e` | Mirror keystrokes to all panes in the current window |
 | `Ctrl+a m` | Move current pane to a brand-new session and switch this client to it |
 | `Ctrl+a M` | Pop current pane into its OWN kitty window (drag to portrait monitor) |

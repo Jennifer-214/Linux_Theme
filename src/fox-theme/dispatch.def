@@ -1,6 +1,0 @@
-// X-macro registry for fox-theme subcommands.
-
-FOX_SUBCMD( tweak,     fox-theme-tweak, "Live-update aesthetic variables in the active theme" )
-FOX_SUBCMD( wallpaper, fox-wallpaper,   "Manage rotation and static wallpapers" )
-FOX_SUBCMD( develop,   fox-develop,     "Toggle dev mode for live iteration on the theme repo" )
-FOX_SUBCMD( check,     fox-theme-check, "Check the desktop the theme set up is deployed and working (read-only)" )

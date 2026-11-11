@@ -21,7 +21,7 @@ class WorkNotice(unittest.TestCase):
             fake.chmod(0o755)
             env = os.environ | {'PATH':str(base)+os.pathsep+os.environ['PATH'], 'NOTICE_GATE':str(gate)}
             try:
-                subprocess.run(['bash',str(ROOT/'shared/bin/fox-work-notice'),'agent','pi','Ready','A result',str(base),'%7','stop'],
+                subprocess.run(['bash',str(ROOT/'shared/bin/work-notice'),'agent','pi','Ready','A result',str(base),'%7','stop'],
                                env=env,check=True,capture_output=True,timeout=1)
             finally:
                 gate.unlink(missing_ok=True)
@@ -36,12 +36,12 @@ class WorkNotice(unittest.TestCase):
                     'from pathlib import Path\n'
                     'with open(os.environ["NOTICE_CALLS"],"a") as f: f.write(json.dumps([Path(sys.argv[0]).name,*sys.argv[1:]])+"\\n")\n'
                     'if Path(sys.argv[0]).name=="notify-send": print(os.environ.get("NOTICE_CHOICE",""))\n')
-            for name in ('notify-send', 'fox-drawer', 'fox-work', 'fox-desktop-menu', 'setsid'):
+            for name in ('notify-send', 'desk-drawer', 'desk-work', 'desktop-menu', 'setsid'):
                 path = base/name
                 path.write_text(fake)
                 path.chmod(0o755)
             env = os.environ | {'PATH':str(base)+os.pathsep+os.environ['PATH'], 'NOTICE_CALLS':str(calls)}
-            command = ['bash',str(ROOT/'shared/bin/fox-work-notice'),'--send-agent','Claude',
+            command = ['bash',str(ROOT/'shared/bin/work-notice'),'--send-agent','Claude',
                        'Claude finished','A change to review',str(project),'%7','stop']
             def invoke(choice):
                 calls.write_text('')
@@ -51,12 +51,12 @@ class WorkNotice(unittest.TestCase):
             self.assertIn('--expire-time=4000', rows[0])
             self.assertIn('--category=foxml.work', rows[0])
             self.assertIn('--hint=string:x-dunst-stack-tag:foxml-agent-7', rows[0])
-            self.assertEqual(rows[-1], ['fox-drawer','run','claude-jump','%7'])
-            self.assertEqual(invoke('review')[-1], ['fox-work','open','--root',str(project),'--action','reviews'])
+            self.assertEqual(rows[-1], ['desk-drawer','run','claude-jump','%7'])
+            self.assertEqual(invoke('review')[-1], ['desk-work','open','--root',str(project),'--action','reviews'])
             self.assertEqual(len(invoke('')), 1)
             self.assertFalse((base/'injected').exists())
             command[-2] = '%7;touch injected'
-            self.assertEqual(invoke('default')[-1], ['fox-desktop-menu','--open','agents'])
+            self.assertEqual(invoke('default')[-1], ['desktop-menu','--open','agents'])
             command[2] = 'agent'
             calls.write_text('')
             subprocess.run(command,env=env,check=True,timeout=5)

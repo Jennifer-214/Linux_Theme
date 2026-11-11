@@ -65,9 +65,9 @@ binaries before handing off to the orchestrator, even with `--dry-run` or `--hel
 To inspect the orchestrator without those wrapper steps, build and call it directly:
 
 ```bash
-make -C src/fox-install
-./src/fox-install/fox-install --help
-./src/fox-install/fox-install --preset workstation --dry-run
+make -C src/desk-install
+./src/desk-install/desk-install --help
+./src/desk-install/desk-install --preset workstation --dry-run
 ```
 
 The build requires the compiler, Make and OpenSSL files listed above. For a normal
@@ -102,7 +102,7 @@ install, use `install.sh` so the other native tools are built and installed too.
 | `--ssh-harden` | Run the SSH hardening wizard |
 | `--perf` | Configure Chrony time synchronization |
 | `--privacy` | Configure DNS-over-HTTPS |
-| `--vault` | Install the in-memory `fox-vault` secret-store service |
+| `--vault` | Install the in-memory `desk-vault` secret-store service |
 | `--nvidia` | nvidia-open-dkms + Hyprland on dGPU (Optimus laptops) |
 | `--render` | Apply the theme everywhere: render, deploy, scripts, drawer, cursor and banner, then restart waybar/mako/dunst. Folder colours can need sudo, so it warns and leaves them to `--only papirus_icons` |
 | `--private-extras` | The repo owner's own extras, from a script in her private `linux-theme-workspace` (off by default) |
@@ -117,7 +117,7 @@ finishing with exit `3`.
 
 `--nvidia` requires `systemd-boot`; other bootloaders print manual instructions. Reboot afterwards.
 
-`./src/fox-install/fox-install --help` lists the current module flags after building.
+`./src/desk-install/desk-install --help` lists the current module flags after building.
 
 ### Archinstall profile
 
@@ -136,4 +136,4 @@ Installs `linux-zen`, NVIDIA drivers, and runs the bootstrap on first boot.
 3. Firefox: enable `toolkit.legacyUserProfileCustomizations.stylesheets` in `about:config`
 4. Cursor: select "Fox ML" in the color theme picker
 
-Run `fox theme check` to verify the desktop; see the [check reference](desktop.md#checking-the-desktop).
+Run `desk theme check` to verify the desktop; see the [check reference](desktop.md#checking-the-desktop).

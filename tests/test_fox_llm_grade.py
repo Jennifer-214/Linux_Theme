@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tests/test_fox_llm_grade.py — fox-llm-grade against a fake model server and the real C++ compiler.
+"""tests/test_fox_llm_grade.py — llm-grade against a fake model server and the real C++ compiler.
 
 The fake server answers like llama.cpp's router (/models, /models/unload, /v1/chat/completions, /infill) with canned
 answers: right C++ for four tasks and a ring buffer that masks with N-1 (wrong when N isn't a power of two), so the score
@@ -18,7 +18,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SCRIPT = ROOT / "shared/bin/fox-llm-grade"
+SCRIPT = ROOT / "shared/bin/llm-grade"
 GRADE = importlib.machinery.SourceFileLoader("fox_llm_grade", str(SCRIPT)).load_module()
 
 ANSWERS = {
@@ -141,7 +141,7 @@ class GradeTest(unittest.TestCase):
         return r.stdout
 
     def scores(self):
-        f = self.home / ".local/state/fox-llm-update/grades.tsv"
+        f = self.home / ".local/state/llm-update/grades.tsv"
         rows = [l.split("\t") for l in f.read_text().splitlines()] if f.exists() else []
         return {(r[2], r[4]): r[5] for r in rows}, rows
 
@@ -161,7 +161,7 @@ class GradeTest(unittest.TestCase):
         self.assertEqual(FakeRouter.log[-1], ("/models/unload", "qwen3.5:9b"))              # and freed after
         unloaded = [m for p, m in FakeRouter.log if p == "/models/unload"]
         self.assertNotIn("qwen2.5-coder:1.5b-base", unloaded)            # ghost text stays loaded: she may be typing
-        self.assertTrue((self.home / ".cache/fox-llm-grade/qwen3.5:9b/ring-1.md").exists())
+        self.assertTrue((self.home / ".cache/llm-grade/qwen3.5:9b/ring-1.md").exists())
 
     def test_an_answer_cut_off_by_the_token_limit_says_so(self):
         FakeRouter.cut_off = "parse_price"
@@ -177,7 +177,7 @@ class GradeTest(unittest.TestCase):
         self.assertNotIn(("qwen2.5-coder:1.5b-base", "cxx"), s)
 
     def test_pending_waits_while_a_chat_model_is_in_use_then_grades_and_says_so(self):
-        state = self.home / ".local/state/fox-llm-update"
+        state = self.home / ".local/state/llm-update"
         state.mkdir(parents=True)
         (state / "grade-pending.txt").write_text("qwen3.5:9b\nnot-downloaded:1b\nqwen3-reranker:0.6b\n")
         (self.home / ".local/share/fox-llm/gguf/qwen3-reranker:0.6b.gguf").write_bytes(b"GGUF")      # an extra embedding
@@ -192,7 +192,7 @@ class GradeTest(unittest.TestCase):
         self.assertIn("Model graded", (self.tmp / "notify.log").read_text())
 
     def test_a_grade_cut_short_keeps_the_model_listed(self):
-        state = self.home / ".local/state/fox-llm-update"
+        state = self.home / ".local/state/llm-update"
         state.mkdir(parents=True)
         (state / "grade-pending.txt").write_text("qwen3.5:9b\n")
         FakeRouter.fail_chat = True                                  # the server breaks off mid-grade (a restart)
@@ -213,10 +213,10 @@ class GradeTest(unittest.TestCase):
     def test_queue_lists_the_model_and_starts_a_background_run(self):
         self.run_grade("--queue", "qwen3.5:9b")
         self.run_grade("--queue", "qwen3.5:9b")                                # listed once
-        self.assertEqual((self.home / ".local/state/fox-llm-update/grade-pending.txt").read_text(), "qwen3.5:9b\n")
+        self.assertEqual((self.home / ".local/state/llm-update/grade-pending.txt").read_text(), "qwen3.5:9b\n")
         runs = (self.tmp / "run.log").read_text().splitlines()
         self.assertEqual(len(runs), 2)
-        self.assertIn("--unit=fox-llm-grade", runs[0])
+        self.assertIn("--unit=llm-grade", runs[0])
         self.assertIn("--nice=19", runs[0])                                     # never ahead of her editor
         self.assertTrue(runs[0].endswith("--pending"))
 

@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+# desk-uninstall — remove Linux_Theme binaries + state from $HOME.
+#
+# Different from `desk rollback` (which restores Hyprland/waybar configs
+# from a timestamped backup). This script focuses on the Theme-specific
+# artifacts: binaries, systemd user services, state directories, marker
+# files. Leaves the user's Hyprland/waybar/dotfiles alone — restore
+# those via `desk rollback <timestamp>` if you want a pristine config.
+#
+# Doesn't touch:
+#   - ~/.config/hypr, ~/.config/waybar, ~/.config/kitty, etc.  (user data)
+#   - Wallpapers in ~/.wallpapers
+#   - Packages installed via pacman (`sudo pacman -R foo` for those)
+#   - The Linux_Theme repo itself
+#
+# Usage:
+#   desk-uninstall          — show what would be removed, prompt
+#   desk-uninstall --yes    — remove without prompting (scripts only)
+#   desk-uninstall --help
+
+set -u
+
+ASSUME_YES=0
+for arg in "$@"; do
+    case "$arg" in
+        --yes|-y) ASSUME_YES=1 ;;
+        --help|-h) sed -n '2,17p' "$0" | sed 's/^# \?//'; exit 0 ;;
+        *) echo "unknown: $arg" >&2; exit 2 ;;
+    esac
+done
+
+red()    { printf '\033[31m%s\033[0m' "$1"; }
+yellow() { printf '\033[33m%s\033[0m' "$1"; }
+dim()    { printf '\033[2m%s\033[0m' "$1"; }
+bold()   { printf '\033[1m%s\033[0m' "$1"; }
+
+# Collect targets. Anything that exists is a candidate; we'll show the
+# list and remove on confirmation.
+declare -a TARGETS=()
+declare -a SERVICES=()
+
+# 1. ~/.local/bin: desk and desk-*, the tools that are plain names, the fox-* links left from before the 2026-11
+#    rename (and any old fox-* copies), fask/findex/fhelp.
+PLAIN_TOOLS=(agent-parse ai-audit ai-bench ai-bouncer ai-cmd ai-commit ai-default ai-doctor ai-explain ai-find ai-history ai-log ai-oracle ai-purge ai-quick ai-review ai-snitch ai-status ai-strategy ai-swap ai-test ai-trace ai-watch audit-timer build-verify claude-api desktop-menu distro-build distro-flash distro-guide generate-module gen-keybinds hw-info llm-discover llm-grade llm-run llm-serve llm-update lock-panel new-project nvidia-state sec-dashboard sec-health template-lint theme-check theme-tweak word-count work-notice)
+shopt -s nullglob
+for b in "$HOME/.local/bin/"desk "$HOME/.local/bin/"desk-* "$HOME/.local/bin/"fox-* "$HOME/.local/bin/"fox \
+         "$HOME/.local/bin/"fask "$HOME/.local/bin/"findex "$HOME/.local/bin/"fhelp; do
+    [[ -f "$b" || -L "$b" ]] && TARGETS+=("$b")
+done
+for t in "${PLAIN_TOOLS[@]}"; do [[ -f "$HOME/.local/bin/$t" ]] && TARGETS+=("$HOME/.local/bin/$t"); done
+shopt -u nullglob
+
+# 2. Systemd user services we install. Covers every service installed
+# by the fox-* tool family — including the security-tool services
+# from the later additions.
+for svc in fox-pulse.service fox-monitor-watch.service fox-workspace-color-watch.service \
+           power-state-watcher.service wallpaper-rotate.service wallpaper-rotate.timer \
+           foxml-focus-pulse.service foxml-arch-audit.timer \
+           fox-bouncer.service fox-tripwire.service fox-sentry-audit.service \
+           fox-proximity.service fox-etcwatch.path fox-etcwatch.service; do
+    [[ -f "$HOME/.config/systemd/user/$svc" ]] || continue
+    SERVICES+=("$svc")
+    TARGETS+=("$HOME/.config/systemd/user/$svc")
+done
+
+# 2b. System-level files that fox tools dropped — only listed; we ask
+# the user to confirm because some are root-owned and require sudo.
+declare -a SYS_FILES=(
+    "/etc/sudoers.d/99-foxml-waybar"
+    "/etc/systemd/system/proc-hidepid.service"
+    "/etc/systemd/system/cowrie.service"
+    "/etc/systemd/system/ollama.service.d/foxml-hardening.conf"
+    "/etc/systemd/coredump.conf.d/foxml-no-coredumps.conf"
+    "/etc/security/limits.d/99-foxml-no-coredumps.conf"
+    "/etc/sysctl.d/99-foxml-hardening.conf"
+    "/etc/ssh/sshd_config.d/50-foxml-hardening.conf"
+    "/etc/fail2ban/action.d/foxml-dispatch.conf"
+    "/etc/audit/rules.d/99-foxml.rules"
+    "/etc/firejail/firefox.local"
+    "/etc/NetworkManager/dispatcher.d/99-foxml-cafe"
+    "/etc/NetworkManager/conf.d/99-foxml-mac.conf"
+    "/etc/udev/rules.d/99-foxml-deadman.rules"
+    "/usr/local/bin/foxml-deadman-trip"
+    "/etc/knockd.conf"
+    "/etc/fwknopd.conf"
+    "/etc/endlessh/config"
+)
+
+# 3. Linux_Theme state / marker / sidecar.
+for d in "$HOME/.local/share/foxml" \
+         "$HOME/.local/state/foxml" \
+         "$HOME/.config/foxml"; do
+    [[ -e "$d" ]] && TARGETS+=("$d")
+done
+
+if (( ${#TARGETS[@]} == 0 )); then
+    echo "desk-uninstall: nothing to remove."
+    exit 0
+fi
+
+# Show the plan.
+printf '%s\n' "$(bold ':: desk-uninstall — files to remove')"
+for t in "${TARGETS[@]}"; do
+    printf '  %s %s\n' "$(red 'X')" "$t"
+done
+printf '\n%s\n' "$(yellow 'system-level files (need sudo to remove)')"
+present_sys=()
+for f in "${SYS_FILES[@]}"; do
+    if [[ -e "$f" ]]; then
+        present_sys+=("$f")
+        printf '  %s %s\n' "$(red 'X')" "$f"
+    fi
+done
+
+printf '\n%s\n' "$(yellow 'NOTE')"
+printf '  %s\n' "$(dim 'Hyprland / waybar / kitty configs are not touched.')"
+printf '  %s\n' "$(dim 'To restore your pre-install configs:  desk rollback')"
+printf '  %s\n' "$(dim 'Packages installed via pacman stay too: sudo pacman -Rsn <pkg> to remove.')"
+printf '  %s\n' "$(dim 'desk harden disable <layer> to roll back individual kernel/userspace layers.')"
+echo
+
+if (( ! ASSUME_YES )); then
+    read -p "Proceed with removal? [y/N] " -n 1 -r
+    echo
+    [[ ! "$REPLY" =~ ^[Yy]$ ]] && { echo "aborted."; exit 0; }
+fi
+
+# Disable services before deleting their unit files.
+for svc in "${SERVICES[@]}"; do
+    systemctl --user disable --now "$svc" >/dev/null 2>&1 || true
+done
+
+# Now delete everything.
+for t in "${TARGETS[@]}"; do
+    rm -rf "$t" 2>/dev/null || true
+done
+
+systemctl --user daemon-reload >/dev/null 2>&1 || true
+
+# System-level cleanup — ask once, then sweep.
+if (( ${#present_sys[@]} > 0 )); then
+    echo
+    read -p "Also remove the ${#present_sys[@]} system-level files (needs sudo)? [y/N] " -n 1 -r
+    echo
+    if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+        for f in "${present_sys[@]}"; do
+            sudo rm -f "$f" 2>/dev/null
+            printf '  removed %s\n' "$f"
+        done
+        sudo systemctl daemon-reload 2>/dev/null || true
+        sudo sysctl --system >/dev/null 2>&1 || true
+    fi
+fi
+
+printf '\n%s removed %d user items + %d system items\n' "$(bold 'Result:')" "${#TARGETS[@]}" "${#present_sys[@]}"
+echo "  (config files in ~/.config/hypr etc. left in place. desk rollback restores pre-install state.)"

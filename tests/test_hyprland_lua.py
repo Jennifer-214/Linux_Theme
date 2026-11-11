@@ -338,13 +338,13 @@ class EntryAndDeploy(unittest.TestCase):
             self.assertTrue(src.exists(), f"hyprland.lua requires modules.{n} but {src} is missing")
 
     def test_theme_lua_is_deployed(self):
-        rows = (ROOT / "src/fox-install/modules/symlinks_data.hpp").read_text()
+        rows = (ROOT / "src/desk-install/modules/symlinks_data.hpp").read_text()
         self.assertIn('"hyprland/theme.lua"', rows)
 
 
 # Files that send the legacy form on purpose, as the fallback for Hyprland 0.56 and older.
 LEGACY_FALLBACKS = {
-    "shared/bin/fox-hl",                 # implements both forms
+    "shared/bin/desk-hl",                 # implements both forms
     "shared/greetd_select_monitor.sh",   # keyword branch when eval is unsupported
     "shared/greetd_hyprland.conf",       # the greeter config for 0.56 and older
     "shared/greetd_hyprland.lua",        # `hyprctl dispatch exit` after the Lua exit
@@ -354,7 +354,7 @@ LEGACY_CALL = re.compile(r"hyprctl\s+(?:-\S+\s+)*(?:dispatch\s+(?![\'\"]?hl\.)|k
 
 class NoLegacyHyprctl(unittest.TestCase):
     """0.57 rejects `hyprctl dispatch <name>`, `hyprctl keyword` and keyword batches: every call
-    goes through fox-hl (both forms) or uses the Lua form. This is how the hypridle dpms calls
+    goes through desk-hl (both forms) or uses the Lua form. This is how the hypridle dpms calls
     were nearly missed: they live in .conf files, not scripts."""
 
     def test_no_bare_legacy_calls(self):
@@ -373,7 +373,7 @@ class NoLegacyHyprctl(unittest.TestCase):
                         continue
                     if LEGACY_CALL.search(line):
                         offenders.append(f"{rel}:{n}: {line.strip()[:100]}")
-        self.assertEqual(offenders, [], "legacy hyprctl calls break on Hyprland 0.57 — use fox-hl")
+        self.assertEqual(offenders, [], "legacy hyprctl calls break on Hyprland 0.57 — use desk-hl")
 
 
 class GreeterLauncher(unittest.TestCase):
@@ -424,7 +424,7 @@ class VerifyWithHyprland(unittest.TestCase):
         self.assertIn("config ok", r.stdout, f"{entry}:\n{result}")
 
     def test_every_theme(self):
-        native = ROOT / "src/fox-render/fox-render-fast"
+        native = ROOT / "src/desk-render/desk-render-fast"
         renderer = [str(native)] if os.access(native, os.X_OK) else ["bash", str(ROOT / "render.sh")]
         for palette in sorted((ROOT / "themes").glob("*/palette.sh")):
             with self.subTest(theme=palette.parent.name), tempfile.TemporaryDirectory() as d:

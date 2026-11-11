@@ -10,7 +10,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 NVIM = shutil.which('nvim')
-RENDER = ROOT/'src/fox-render/fox-render-fast'
+RENDER = ROOT/'src/desk-render/desk-render-fast'
 
 DRIVER = r'''
 vim.g.mapleader=' '
@@ -298,7 +298,7 @@ print('PAPER_SYMDEPS_STYLE_PASSED: focus, colors, counts, native help, bindings 
 vim.cmd('qa!')
 '''
 
-@unittest.skipUnless(NVIM and RENDER.exists(), 'build fox-render-fast and install nvim')
+@unittest.skipUnless(NVIM and RENDER.exists(), 'build desk-render-fast and install nvim')
 class PaperNotebook(unittest.TestCase):
     def test_symdeps_style_preserves_plugin_behavior(self):
         plugin=Path.home()/'code/tick-trader-percore-workspace/tools/plugins/fox-symdeps.nvim'

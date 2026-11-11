@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# desk-firewall — egress filtering (default-deny outgoing) + allowlist.
+#
+# Standard UFW posture lets everything OUT. If malware lands on your
+# machine, it can phone home over any port. Lockdown mode flips
+# default-deny outgoing and adds an allowlist for the protocols a
+# normal laptop actually needs:
+#
+#   • DNS to systemd-resolved (127.0.0.53:53)
+#   • HTTP / HTTPS (80, 443)
+#   • SSH OUT to anywhere (so you can connect to remote hosts)
+#   • NTP (chrony, 123/udp)
+#   • DHCP renew (67-68/udp)
+#   • Pacman mirrors (80/443 — same as HTTP)
+#   • Loopback (always)
+#
+# Reverse-shells on random high ports + custom IRC + telnet bots get
+# silently dropped at the kernel. Whitelist your VPN endpoint manually
+# via `desk firewall allow <ip>:<port>`.
+
+set -u
+C_GRN=$'\e[32m'; C_YEL=$'\e[33m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
+
+_check() { command -v ufw >/dev/null 2>&1 || { echo "${C_RED}ufw not installed${C_RST}" >&2; return 1; } }
+
+_lockdown() {
+    _check || return 1
+    if ! sudo -n true 2>/dev/null && ! sudo -v 2>/dev/null; then
+        echo "${C_RED}sudo required${C_RST}" >&2; return 1
+    fi
+
+    echo "${C_YEL}This will set UFW default OUTGOING = deny.${C_RST}"
+    echo "${C_YEL}Only the allowlist (DNS / HTTP / HTTPS / SSH / NTP / DHCP / loopback) will pass.${C_RST}"
+    echo "${C_YEL}Apps using non-standard ports will fail until you add them via:${C_RST}"
+    echo "${C_YEL}   desk firewall allow <port>/[tcp|udp]${C_RST}"
+    local r
+    read -rp "Continue? [y/N] " -n 1 -r r; echo
+    [[ "$r" =~ ^[Yy]$ ]] || { echo cancelled; return 0; }
+
+    sudo ufw allow out 53 >/dev/null
+    sudo ufw allow out 80/tcp >/dev/null
+    sudo ufw allow out 443/tcp >/dev/null
+    sudo ufw allow out 22/tcp >/dev/null
+    sudo ufw allow out 123/udp >/dev/null
+    sudo ufw allow out 67/udp >/dev/null
+    sudo ufw allow out 68/udp >/dev/null
+    # Allow loopback both directions.
+    sudo ufw allow out on lo >/dev/null
+    sudo ufw default deny outgoing >/dev/null
+    echo "${C_GRN}✓ egress lockdown active (default deny outgoing + allowlist)${C_RST}"
+    echo "  ${C_DIM}status check:  desk firewall status${C_RST}"
+    echo "  ${C_DIM}restore:       desk firewall unlock${C_RST}"
+}
+
+_unlock() {
+    _check || return 1
+    sudo ufw default allow outgoing >/dev/null
+    echo "${C_GRN}✓ egress restored (default allow outgoing)${C_RST}"
+}
+
+_allow() {
+    local target="$1"
+    _check || return 1
+    sudo ufw allow out "$target" >/dev/null && echo "${C_GRN}✓ allowed out: $target${C_RST}"
+}
+
+_status() {
+    _check || return 1
+    local def
+    def=$(sudo -n ufw status verbose 2>/dev/null | awk '/^Default:/{$1=""; print}')
+    if [[ -z "$def" ]]; then
+        echo "${C_DIM}(sudo cold — re-prime with: sudo -v)${C_RST}"
+        return 0
+    fi
+    echo "  ufw default policies:$def"
+    if grep -q 'deny (outgoing)' <<<"$def"; then
+        echo "  egress: ${C_GRN}LOCKDOWN active${C_RST}"
+    else
+        echo "  egress: ${C_DIM}allow (default)${C_RST}"
+    fi
+    echo
+    sudo ufw status numbered 2>/dev/null | awk '/Anywhere.*ALLOW OUT/' | head -10 | sed 's/^/  /'
+}
+
+case "${1:-}" in
+    ""|status)   _status ;;
+    lockdown)    _lockdown ;;
+    unlock|allow-all) _unlock ;;
+    allow)       [[ -n "${2:-}" ]] && _allow "$2" || { echo "usage: desk firewall allow <port>/[tcp|udp]"; exit 2; } ;;
+    -h|--help|help) cat <<EOF
+desk firewall — egress filtering control
+
+  desk firewall [status]    show default + active outbound rules
+  desk firewall lockdown    default-deny outgoing + standard allowlist
+                           (DNS/HTTP/HTTPS/SSH-out/NTP/DHCP/loopback)
+  desk firewall unlock      revert to default-allow outgoing
+  desk firewall allow <p>   add an outbound port to the allowlist
+                           e.g.  desk firewall allow 51820/udp  (Wireguard)
+                                 desk firewall allow 8080/tcp   (dev server)
+EOF
+    ;;
+    *) echo "unknown: $1" >&2; exit 2 ;;
+esac

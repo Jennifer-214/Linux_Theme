@@ -12,7 +12,7 @@ class NotificationLauncher(unittest.TestCase):
     def test_custom_and_stock_launchers_use_xdg_config_and_preserve_arguments(self):
         with tempfile.TemporaryDirectory(prefix='notification-launcher-') as temp:
             home=Path(temp);bin_dir=home/'bin';bin_dir.mkdir()
-            custom=home/'.local/bin/fox-mako';custom.parent.mkdir(parents=True)
+            custom=home/'.local/bin/desk-mako';custom.parent.mkdir(parents=True)
             script='#!/bin/sh\nprintf "%s\\n" "'+str(home)+'/" "$FOXML_MAKO_BANNER_STATE" "$FOXML_MAKO_BAR_GEOMETRY" "$@"\n'
             custom.write_text(script);custom.chmod(0o755)
             stock=bin_dir/'mako';stock.write_text('#!/bin/sh\nprintf "stock\\n"; printf "%s\\n" "$@"\n');stock.chmod(0o755)
@@ -22,7 +22,7 @@ class NotificationLauncher(unittest.TestCase):
             legacy=home/'.mako/config';legacy.parent.mkdir();legacy.write_text('old config must not win\n')
             env=os.environ|{'HOME':str(home),'XDG_CONFIG_HOME':str(home/'custom-config'),
                             'XDG_RUNTIME_DIR':str(home/'runtime'),'PATH':str(bin_dir)+':'+os.environ.get('PATH','')}
-            command=['sh',str(ROOT/'shared/bin/fox-notifications')]
+            command=['sh',str(ROOT/'shared/bin/desk-notifications')]
             result=subprocess.run(command+['--config','caller-config','--font','paper font'],env=env,capture_output=True,text=True)
             self.assertEqual(result.returncode,0,result.stderr)
             lines=result.stdout.splitlines()

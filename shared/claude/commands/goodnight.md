@@ -12,5 +12,5 @@ We're stopping for the night. Wrap up gently, and change nothing in the project:
    one, and show it here. The next session in this project points to it.
 2. Run `git status --short` in the project and list anything uncommitted. Do not commit, stash, push or
    discard anything; just say what is there.
-3. Run `~/.local/bin/fox-desktop-menu power` to open the Power page, which says goodnight at night.
+3. Run `~/.local/bin/desktop-menu power` to open the Power page, which says goodnight at night.
 4. End with one warm line of goodnight.

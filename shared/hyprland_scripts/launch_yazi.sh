@@ -9,7 +9,7 @@ for i in {1..10}; do
     # Check if a window with app_id=yazi exists
     if hyprctl clients | grep -q 'class: yazi'; then
         # Move to special workspace silently
-        fox-hl dispatch "hl.dsp.window.move({ workspace = 'special:yazi', follow = false })" "movetoworkspacesilent special:yazi"
+        desk-hl dispatch "hl.dsp.window.move({ workspace = 'special:yazi', follow = false })" "movetoworkspacesilent special:yazi"
         break
     fi
 done

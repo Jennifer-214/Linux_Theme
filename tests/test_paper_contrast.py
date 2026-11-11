@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-RENDER = ROOT/'src/fox-render/fox-render-fast'
+RENDER = ROOT/'src/desk-render/desk-render-fast'
 
 def luminance(hexcolor):
     channels = [int(hexcolor[i:i+2], 16)/255 for i in (0, 2, 4)]
@@ -31,7 +31,7 @@ class PaperContrast(unittest.TestCase):
         self.assertLess(luminance(values['NVIM_SYN_PARAM']), luminance(values['NVIM_SYN_COMMENT'])*.65)
         self.assertNotEqual(values['COMMENT'], values['NVIM_SYN_COMMENT'])
 
-    @unittest.skipUnless(RENDER.exists(), 'build fox-render-fast first')
+    @unittest.skipUnless(RENDER.exists(), 'build desk-render-fast first')
     def test_both_compositor_formats_keep_paper_opaque_and_other_themes_unchanged(self):
         with tempfile.TemporaryDirectory() as temp:
             for palette in sorted((ROOT/'themes').glob('*/palette.sh')):

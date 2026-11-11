@@ -6,11 +6,11 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-RENDER = ROOT/'src/fox-render/fox-render-fast'
+RENDER = ROOT/'src/desk-render/desk-render-fast'
 MOD = ROOT/'shared/claude/mods/foxml-paper'
 
 
-@unittest.skipUnless(RENDER.exists(), 'build fox-render-fast first')
+@unittest.skipUnless(RENDER.exists(), 'build desk-render-fast first')
 class PaperMod(unittest.TestCase):
     def stage(self, theme):
         tmp = Path(tempfile.mkdtemp())

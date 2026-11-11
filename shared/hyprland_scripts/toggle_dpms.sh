@@ -2,7 +2,7 @@
 # Stay awake: pause idle auto-lock for a while, or let it resume.
 #
 # (The name is historical; this never switched displays off.) Auto-lock itself is
-# opt-in, owned by `fox-lock --idle on|off`, which enables power-state-watcher —
+# opt-in, owned by `desk-lock --idle on|off`, which enables power-state-watcher —
 # the supervisor that runs hypridle. This only pauses that: the pause file makes
 # the watcher leave hypridle stopped, and resuming hands back to the watcher, so
 # it can never switch on auto-lock that was left off. The drawer's Stay awake
@@ -28,7 +28,7 @@ if [[ -f "$STATE_FILE" ]]; then
 fi
 
 if ! autolock_on; then
-    say "already awake" "auto-lock is off · fox-lock --idle on turns it on"
+    say "already awake" "auto-lock is off · desk-lock --idle on turns it on"
     exit 0
 fi
 

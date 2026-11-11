@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""tests/test_fox_llm_serve.py — fox-llm-serve's preset generation, offline.
+"""tests/test_fox_llm_serve.py — llm-serve's preset generation, offline.
 
-A throwaway model folder (~/.local/share/fox-llm/gguf, as fox-llm-update fills it) and a fake
+A throwaway model folder (~/.local/share/fox-llm/gguf, as llm-update fills it) and a fake
 `llama-server` that answers `--list-devices` with or without a GPU stand in for the real ones.
 Contract under test: roles become preset sections named after the model and pointing at its file;
 every other downloaded model is served too (embedding models in embedding mode); models not
@@ -18,7 +18,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SERVE = ROOT / "shared/bin/fox-llm-serve"
+SERVE = ROOT / "shared/bin/llm-serve"
 DEFAULT_ROLES = ROOT / "shared/llm/roles.default"
 
 
@@ -91,7 +91,7 @@ class ServeTest(unittest.TestCase):
         self.assertIn("[qwen2.5:3b]\n; role: title", ini)
         self.assertIn("c = 8192", self.section(ini, "qwen2.5:3b"))
         self.assertIn("sleep-idle-seconds = 3600", self.section(ini, "qwen3-coder:30b"))   # the agent: an hour
-        self.assertIn("; skipped qwen3.5:4b (quick): not downloaded yet (fox-llm-update)", ini)
+        self.assertIn("; skipped qwen3.5:4b (quick): not downloaded yet (llm-update)", ini)
         self.assertIn("cache-type-k = q8_0", self.section(ini, "*"))
         self.assertIn("load-on-startup = true", self.section(ini, "qwen2.5-coder:1.5b-base"))
         self.assertIn("c = 131072", self.section(ini, "qwen3-coder:30b"))
@@ -211,7 +211,7 @@ class ServeTest(unittest.TestCase):
         self.add_model("qwen3.6-35b-a3b.mmproj")                         # a vision projector: never a model
         (self.models / "half-done:7b.gguf.part").write_bytes(b"GG")      # still downloading
         (self.models / ".probe").mkdir()
-        (self.models / ".probe/checking:1b.gguf").write_bytes(b"GGUF")   # fox-llm-update's header check
+        (self.models / ".probe/checking:1b.gguf").write_bytes(b"GGUF")   # llm-update's header check
         ini = self.preset()
         self.assertIn("[qwen2.5-coder:14b]\n; extra", ini)
         self.assertIn("c = 32768", self.section(ini, "qwen2.5-coder:14b"))

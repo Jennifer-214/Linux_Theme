@@ -124,7 +124,7 @@ function M.current_plan(root)
   local best
   if ok then
     for _, p in ipairs(claude.in_repo(root, claude.live) or {}) do
-      local out = vim.fn.system({ "fox-work", "plan", "--root", root, "--session", p.id })
+      local out = vim.fn.system({ "desk-work", "plan", "--root", root, "--session", p.id })
       local pin = vim.v.shell_error == 0 and claude.decode(out) or nil
       if type(pin) == "table" and type(pin.file) == "string" and uv.fs_stat(pin.file) then
         if not best or (pin.at or 0) > best.at then best = { file = pin.file, at = pin.at or 0 } end

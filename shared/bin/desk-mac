@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# desk-mac — NetworkManager MAC randomization, per-SSID.
+set -u
+C_GRN=$'\e[32m'; C_YEL=$'\e[33m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
+
+# Global default: random for every new connection.
+GLOBAL_CONF=/etc/NetworkManager/conf.d/99-foxml-mac.conf
+
+_status() {
+    if [[ -f "$GLOBAL_CONF" ]]; then
+        echo "  ${C_GRN}✓ global wifi MAC default: random${C_RST}"
+    else
+        echo "  ${C_YEL}! global wifi MAC default: stable (NM default)${C_RST}"
+    fi
+    echo
+    echo "  Per-SSID overrides (stable / random / preserve):"
+    nmcli -t -f NAME,TYPE connection show 2>/dev/null | awk -F: '$2=="802-11-wireless"{print $1}' | while read -r ssid; do
+        local mode
+        mode=$(nmcli -t -f wifi.cloned-mac-address connection show "$ssid" 2>/dev/null | awk -F: '{print $2}')
+        [[ -z "$mode" ]] && mode="(unset = follows global)"
+        printf '    %-30s %s\n' "$ssid" "$mode"
+    done
+}
+
+_global_random() {
+    sudo tee "$GLOBAL_CONF" >/dev/null <<EOF
+# foxml-managed
+[device]
+wifi.scan-rand-mac-address=yes
+
+[connection]
+wifi.cloned-mac-address=random
+ethernet.cloned-mac-address=stable
+EOF
+    sudo systemctl restart NetworkManager >/dev/null 2>&1
+    echo "${C_GRN}✓ global MAC randomization enabled (every new wifi gets a random MAC)${C_RST}"
+}
+
+_global_off() {
+    sudo rm -f "$GLOBAL_CONF"
+    sudo systemctl restart NetworkManager >/dev/null 2>&1
+    echo "${C_GRN}✓ global MAC randomization disabled (NM default = stable)${C_RST}"
+}
+
+_set_ssid() {
+    local ssid="$1" mode="$2"
+    case "$mode" in
+        random|stable|preserve|permanent) ;;
+        *) echo "${C_RED}mode must be: random | stable | preserve | permanent${C_RST}" >&2; return 1 ;;
+    esac
+    if sudo nmcli connection modify "$ssid" wifi.cloned-mac-address "$mode" 2>&1 | sed 's/^/  /'; then
+        echo "${C_GRN}✓ $ssid → wifi.cloned-mac-address=$mode${C_RST}"
+    else
+        echo "${C_RED}✗ failed to modify $ssid${C_RST}" >&2
+        return 1
+    fi
+}
+
+case "${1:-}" in
+    ""|status)   _status ;;
+    randomize)   _global_random ;;
+    off|disable) _global_off ;;
+    stable)      [[ -n "${2:-}" ]] && _set_ssid "$2" stable || { echo "usage: desk mac stable <ssid>"; exit 2; } ;;
+    random)      [[ -n "${2:-}" ]] && _set_ssid "$2" random || { echo "usage: desk mac random <ssid>"; exit 2; } ;;
+    -h|--help|help) cat <<EOF
+desk mac — NetworkManager MAC randomization
+
+  desk mac [status]       show global default + per-SSID overrides
+  desk mac randomize      enable global randomization (every wifi gets a random MAC)
+  desk mac off            disable global randomization
+  desk mac stable <ssid>  force a stable MAC for a specific SSID (e.g. dorm wifi
+                         that requires registration)
+  desk mac random <ssid>  force random for a specific SSID
+EOF
+    ;;
+    *) echo "unknown: $1" >&2; exit 2 ;;
+esac

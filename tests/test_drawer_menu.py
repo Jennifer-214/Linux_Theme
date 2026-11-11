@@ -15,11 +15,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 MENU = json.loads((ROOT / "shared/quickshell/foxml/menus.json").read_text())
 KEYBINDS = (ROOT / "shared/hyprland_modules/keybinds.lua").read_text()
-DRAWER = ROOT / "src/fox-drawer/fox-drawer"
+DRAWER = ROOT / "src/desk-drawer/desk-drawer"
 
 # Item actions that are not drawer pages: what their bind runs.
 ACTION_COMMANDS = {
-    "calendar": r"fox-desktop-menu calendar",
+    "calendar": r"desktop-menu calendar",
     "wallpaper-next": r"rotate_wallpaper\.sh --cycle",
     "color-picker": r"hyprpicker -a|color_picker\.sh",
     "lock": r"/lock\.sh$",
@@ -55,7 +55,7 @@ class MenuKeys(unittest.TestCase):
         for item in labelled:
             with self.subTest(item=item["id"], keys=item["keys"]):
                 self.assertIn(item["keys"], table, "no Hyprland bind has these keys")
-                target = ACTION_COMMANDS.get(item["id"], r"fox-desktop-menu " + re.escape(item.get("page", item["id"])) + r"$")
+                target = ACTION_COMMANDS.get(item["id"], r"desktop-menu " + re.escape(item.get("page", item["id"])) + r"$")
                 self.assertRegex(table[item["keys"]], target)
 
     def test_keys_are_lowercase_with_the_shift_arrow(self):
@@ -76,13 +76,13 @@ class BarClicks(unittest.TestCase):
                 if not isinstance(spec, dict):
                     continue
                 for key, command in spec.items():
-                    m = re.search(r"fox-desktop-menu (\S+)", command) if key.startswith("on-click") and isinstance(command, str) else None
+                    m = re.search(r"desktop-menu (\S+)", command) if key.startswith("on-click") and isinstance(command, str) else None
                     if m:
                         with self.subTest(bar=name, module=module):
                             self.assertIn(m.group(1), known)
 
     def test_battery_opens_the_power_page(self):
-        self.assertEqual(self.bar("config")["custom/battery"]["on-click"], "~/.local/bin/fox-desktop-menu power")
+        self.assertEqual(self.bar("config")["custom/battery"]["on-click"], "~/.local/bin/desktop-menu power")
 
     def test_secondary_bar_clicks_like_the_main_bar(self):
         main, secondary = self.bar("config"), self.bar("config_secondary")

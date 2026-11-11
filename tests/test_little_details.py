@@ -43,9 +43,9 @@ class LittleDetails(unittest.TestCase):
 
 class TerminalNotes(unittest.TestCase):
     def render(self, tmp):
-        renderer = ROOT / "src/fox-render/fox-render-fast"
+        renderer = ROOT / "src/desk-render/desk-render-fast"
         if not renderer.exists():
-            self.skipTest("build fox-render-fast first")
+            self.skipTest("build desk-render-fast first")
         subprocess.run([str(renderer), str(ROOT / "themes/FoxML_Paper/palette.sh"), str(ROOT / "templates/zsh"), tmp],
                        check=True, capture_output=True)
 

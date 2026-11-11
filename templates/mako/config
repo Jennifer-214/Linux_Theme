@@ -22,7 +22,7 @@ width=360
 max-visible=6
 # The drawer's "earlier notes" reads this history; arrival times are noted as each one comes.
 max-history=50
-on-notify=exec ~/.local/bin/fox-drawer note-arrived "$id"
+on-notify=exec ~/.local/bin/desk-drawer note-arrived "$id"
 # Every notice uses the same four-second lifetime, including critical notices,
 # agent results and OSDs. Ignore sender timeouts so none can stay indefinitely.
 default-timeout=4000
@@ -71,7 +71,7 @@ border-color=#{{MAKO_AGENT_BORDER}}
 # Work notices keep their actions during the same four-second lifetime.
 [category=foxml.work]
 on-button-left=invoke-default-action
-on-button-middle=exec makoctl menu -n "$id" ~/.local/bin/fox-picker --title "Notice actions"
+on-button-middle=exec makoctl menu -n "$id" ~/.local/bin/desk-picker --title "Notice actions"
 on-button-right=dismiss
 
 # Volume / brightness as a pencil stroke: osd.sh sends app-name fox-osd, and a theme

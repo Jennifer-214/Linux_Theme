@@ -8,11 +8,11 @@ Bar and drawer controls, everyday tools, Paper appearance, shell/editor setup an
 
 ## Bar and drawers
 
-`fox-desktop-menu` opens the Quickshell menu: Desk, Workbench, Sound, Connections,
+`desktop-menu` opens the Quickshell menu: Desk, Workbench, Sound, Connections,
 Comfort and System. Inside a tab, rows sit under small headings (System: upkeep, power,
 safety, help); a row you add yourself, with no `"section"`, is listed last under "more".
 Searching a tab lists plain rows. Existing menu shortcuts and the bar launcher open the same drawer;
-`fox-desktop-menu wifi` or `fox-desktop-menu sound` opens a section directly.
+`desktop-menu wifi` or `desktop-menu sound` opens a section directly.
 The top bar and drawers share one Quickshell process. On Paper, its modules hang
 from the screen edge as little paper banners, with blush active-workspace ribbons.
 It reads the existing rendered Waybar JSON for module order, groups, formats,
@@ -21,7 +21,7 @@ across outputs; secondary, portrait, and narrow primary monitors use the compact
 configuration. Workspace icon previews shorten before text scales down, and long
 workspace strips scroll to keep the current page visible. Workspace
 window icons, power profiles, idle inhibition, and the application tray remain available.
-`Alt+B` or `fox-bar toggle` hides/shows the bar; `fox-bar status` reports readiness.
+`Alt+B` or `desk-bar toggle` hides/shows the bar; `desk-bar status` reports readiness.
 `start_waybar.sh` retains its compatibility name and rendering/cursor logic: it
 verifies Quickshell before stopping Waybar, and launches Waybar if the new bar fails
 to become ready. Waybar stays installed as a fallback. Palette changes render
@@ -106,7 +106,7 @@ Desk → Local models lists the GGUF models in `~/.local/share/fox-llm/gguf`, la
 with the role that uses each (from the first roles file, as FoxIntel reads them) and
 whether the router serves it. Enter on a model, after a confirmation, makes it the agent
 model: the `agent` line of `~/.config/foxml/llm/roles.conf` is rewritten (the old file is
-kept as `roles.conf.bak-<time>`) and `fox-llm-update --sync` runs. Remove deletes a model
+kept as `roles.conf.bak-<time>`) and `llm-update --sync` runs. Remove deletes a model
 and adds a `-name` skip line to `~/.config/foxml/llm/gguf-models.txt` so the nightly update
 does not fetch it again; a model a role uses cannot be removed.
 
@@ -203,7 +203,7 @@ floating window by pixels). `Alt+Ctrl+L` locks the screen. `Alt+Ctrl+Shift+K` is
 Lockdown: it wipes clipboard history, closes and forgets the Firefox session, stops
 editors under `~/code` and the trading engines, then locks, with no confirmation.
 Stay awake (pausing idle auto-lock) lives in the drawer; it never switches auto-lock
-on — that stays opt-in through `fox-lock --idle on|off`. The media keys show the
+on — that stays opt-in through `desk-lock --idle on|off`. The media keys show the
 song slip, and the mic-mute key says which way it went.
 
 ### Install and customize the drawer
@@ -211,7 +211,7 @@ song slip, and the mic-mute key says which way it went.
 The native `--drawer` installer module builds the backend, renders the palette,
 backs up replaced files and deploys the configuration. `--deps` installs
 Quickshell. Rendering and theme swaps include the drawer; `--no-drawer` skips it.
-Install it alone with `./src/fox-install/fox-install FoxML_Paper --only drawer --yes`
+Install it alone with `./src/desk-install/desk-install FoxML_Paper --only drawer --yes`
 after building the installer.
 
 Edit `~/.config/quickshell/foxml/menus.json` to rearrange groups or items; the
@@ -224,7 +224,7 @@ ordinary drawer pages, and their shortcuts open those pages. The Shortcut refere
 opens on its books (Desktop, The drawer, Terminal (tmux), Commands, Neovim); each book lists what a shortcut
 does under its section headings, with the keys drawn as caps, and Enter copies them. Typing searches every
 book, and `?` opens on the drawer's own keys with **All shortcuts** at the end. The local AI prompt
-and wallpaper rotation menu use the Quickshell picker. `fox-picker --title TITLE` reads one label per input line;
+and wallpaper rotation menu use the Quickshell picker. `desk-picker --title TITLE` reads one label per input line;
 `--index` returns its original zero-based index, and `--prompt` accepts free text.
 Escape cancels without an action. These use the existing drawer service, with
 private temporary request files and no additional daemon.
@@ -235,7 +235,7 @@ System → Updates lists pending updates that need care first, each with the rea
 kernel or firmware (restart after), NVIDIA or DKMS, the initramfs, boot loader or microcode,
 PAM and sudo, the greeter and lock screen, systemd and glibc, and Hyprland.
 
-System → Storage measures the disk in the background (`fox-drawer storage-scan`, a minute or
+System → Storage measures the disk in the background (`desk-drawer storage-scan`, a minute or
 two; the result is kept in `~/.cache/foxml/storage.json`). It shows free space, known
 categories wherever they exist (package caches, the journal, Flatpak, language and build
 caches, browser caches, AI model stores, games, VM and container images, trash), the
@@ -480,12 +480,12 @@ right-aligned behind the bar, with centered text and one shallow bookmark cut.
 The existing layer animation slides the ribbon from the top. The bar stays on a
 stable overlay layer above the ribbon; its actual per-output height sets
 the notification content inset, including compact portrait bars. This uses two
-change-only runtime files, not a polling service. `src/fox-mako` builds the
+change-only runtime files, not a polling service. `src/desk-mako` builds the
 checksum-pinned Mako 1.11.0 source with an optional Cairo outline extension;
 upstream Mako still handles actions, history, DND, stacking and progress. The
 palette's `MAKO_PAPER_SHAPE` selects `bookmark`, `receipt` or `none`; compact OSDs
 keep their ordinary outline. Namespaced configuration comments are ignored by
-stock Mako, and `fox-notifications` falls back to the system binary. The drawer
+stock Mako, and `desk-notifications` falls back to the system binary. The drawer
 installer backs up and deploys the native binary, launcher and user-service
 drop-in. Its dependency list includes the native rendering/build libraries.
 The umbrella `make install` defers this optional renderer to that module, so the
@@ -507,7 +507,7 @@ configuration on its next launch.
 PDF files use the same folded note with a pencil `PDF` label. File-manager links
 carry a small blush paperclip emblem. Paper's `ls`/`ll`/`lt` use the rendered eza
 theme: pencil filenames and glyphs, readable gray metadata, faint tree branches,
-and pencil-on-blush Git modification marks. The native `fox-eza` helper supplies
+and pencil-on-blush Git modification marks. The native `desk-eza` helper supplies
 icons for actual filenames and symlinks without parsing terminal output or following
 directory links. Unknown options, custom non-JSON themes, and listings beyond its
 bounded scan pass through to eza. Same-name links and real files across directories
@@ -536,7 +536,7 @@ output is rebuildable from the shared definition and the selected palette.
 ### Lock screen
 
 The lock screen's panel (clock, date and password field) is pinned to the primary
-monitor at install. At lock time `fox-lock-panel` checks that monitor is connected, on and,
+monitor at install. At lock time `lock-panel` checks that monitor is connected, on and,
 for a laptop panel, open; docked with the lid shut, or with the pinned monitor unplugged, that
 lock puts the panel on the focused monitor instead, from a private copy of the config in
 `$XDG_RUNTIME_DIR/foxml/`. Any doubt, or a re-pinned lock that fails at once, falls back to
@@ -679,7 +679,7 @@ Stack: LSP via mason, DAP, cmake-tools, neotest, lazygit, telescope, harpoon, ne
 - `~/.config/hypr/modules/monitors.conf` — name-keyed Hyprland rules. Unplugged monitors are silently skipped, so undocking just works; plugging the same external back in restores the saved layout.
 - `~/.config/foxml/monitor-layout.conf` — sidecar consumed by `start_waybar.sh` and `rotate_wallpaper.sh`.
 
-The `personalize` module pre-renders a wallpaper variant per **unique** monitor resolution, named `${name}_${WxH}.${ext}` for each sidecar entry (for example, `eDP-1:1920x1080 DP-2:1440x2560`). Tall outputs prefer a matching `${name}_portrait` source when one is supplied; ordinary photos keep their centered crop. Authored orientation pairs preserve their drawing with Lanczos resizing, while ordinary upscaling crops can use Real-ESRGAN. Variants are published atomically at native dimensions. `rotate_wallpaper.sh` picks the matching variant per monitor; `fox-monitor reconcile` refreshes only the active wallpaper so a hotplug does not rebuild the whole collection.
+The `personalize` module pre-renders a wallpaper variant per **unique** monitor resolution, named `${name}_${WxH}.${ext}` for each sidecar entry (for example, `eDP-1:1920x1080 DP-2:1440x2560`). Tall outputs prefer a matching `${name}_portrait` source when one is supplied; ordinary photos keep their centered crop. Authored orientation pairs preserve their drawing with Lanczos resizing, while ordinary upscaling crops can use Real-ESRGAN. Variants are published atomically at native dimensions. `rotate_wallpaper.sh` picks the matching variant per monitor; `desk-monitor reconcile` refreshes only the active wallpaper so a hotplug does not rebuild the whole collection.
 
 External monitors get a stripped-down secondary waybar (workspaces + clock + fox/SysHub launcher) — main bar stays on the laptop. Single-monitor setups render the original full bar unchanged.
 
@@ -704,7 +704,7 @@ On first login, pick your Hyprland session from the dropdown — regreet remembe
 
 ## Checking the desktop
 
-`fox theme check` says whether the desktop the theme set up is deployed and working.
+`desk theme check` says whether the desktop the theme set up is deployed and working.
 It only reads: it renders the active theme into a temporary folder to compare, runs
 each probe under a time limit, and fixes nothing.
 
@@ -718,7 +718,7 @@ each probe under a time limit, and fixes nothing.
 | D6 | `~/.tmux.conf` parses (on a throwaway tmux server) and the lock screen's helpers exist |
 | D7 | Neovim starts headless without errors |
 | D8 | The Claude status line runs and the paper mod validates |
-| D9 | `fox-pulse` and the wallpaper and theme-check timers run when enabled, and no retired watcher runs beside them |
+| D9 | `desk-pulse` and the wallpaper and theme-check timers run when enabled, and no retired watcher runs beside them |
 | D10 | GTK's `color-scheme` agrees with the theme being light or dark (GTK 4 and libadwaita apps follow it) |
 | D11 | Firefox's find colours in the profile's `user.js` are the theme's |
 | D12 | The desktop's cursor theme is the palette's, and it is installed |
@@ -727,5 +727,5 @@ each probe under a time limit, and fixes nothing.
 `--verbose` adds the details, `--only D1,D4` picks checks, and `--theme NAME` compares
 against another theme. Every install and theme swap ends with it, and a weekly user
 timer (`fox-theme-check.timer`) runs the checks that don't need the live session and
-sends a notification only when something isn't clean. Exit codes follow `fox sec health`: 0 ok, 1 warnings, 3 a
+sends a notification only when something isn't clean. Exit codes follow `desk sec health`: 0 ok, 1 warnings, 3 a
 high failure (Hyprland or Quickshell).

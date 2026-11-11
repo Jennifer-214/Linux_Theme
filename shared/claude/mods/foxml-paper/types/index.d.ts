@@ -55,7 +55,7 @@ export type PaperOverlap = { path: string; title: string; ago: string; pane?: st
 
 export type PaperRedZone = { what: string }
 
-// Another live Claude on this machine, as fox-drawer's Agents page sees it (fox-drawer claude-peers).
+// Another live Claude on this machine, as desk-drawer's Agents page sees it (desk-drawer claude-peers).
 // A note that reached this session: from you in nvim, or from another Claude.
 export type PaperEnvelope = { id?: string; from: string; text: string; at: number }
 

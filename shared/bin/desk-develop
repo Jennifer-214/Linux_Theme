@@ -1,0 +1,132 @@
+#!/bin/bash
+# desk-develop — toggle "dev mode" for live iteration on the theme repo.
+#
+# When ON, the live config files in ~/.config/hypr/scripts/ and
+# ~/.local/bin/ become symlinks to the repo's shared/ files. Edits to
+# the repo are reflected immediately without re-running install.sh.
+# When OFF, symlinks are flattened back into independent copies
+# (the same state install.sh leaves things in).
+#
+# Usage:
+#   desk develop on        Symlink shared/ → live config + binaries
+#   desk develop off       Replace symlinks with regular file copies
+#   desk develop [status]  Show current state (default)
+
+set -u
+
+FOXML_DIR="${FOXML_DIR:-$HOME/code/Linux_Theme}"
+STATE_DIR="$HOME/.local/state/foxml"
+STATE="$STATE_DIR/develop-mode"
+
+if [[ ! -d "$FOXML_DIR/shared" ]]; then
+    echo "error: $FOXML_DIR/shared not found (set FOXML_DIR if your checkout lives elsewhere)" >&2
+    exit 1
+fi
+
+usage() {
+    sed -n '2,14p' "$0" | sed 's/^# \?//'
+}
+
+# Each entry: source_dir|target_dir|file_glob
+# Edit here to add more sync targets (e.g. waybar_scripts/).
+TARGETS=(
+    "$FOXML_DIR/shared/hyprland_scripts|$HOME/.config/hypr/scripts|*.sh"
+    "$FOXML_DIR/shared/waybar_scripts|$HOME/.config/waybar/scripts|*.sh"
+    "$FOXML_DIR/shared/bin|$HOME/.local/bin|*"
+)
+
+# Files we never symlink — desk-develop itself (running binary), and fox
+# wrapper (we want a stable copy in PATH that survives a borked repo).
+SKIP_FILES=("desk-develop" "desk")
+
+_should_skip() {
+    local name="$1"
+    for s in "${SKIP_FILES[@]}"; do
+        [[ "$name" == "$s" ]] && return 0
+    done
+    return 1
+}
+
+_link_all() {
+    local count=0
+    for entry in "${TARGETS[@]}"; do
+        IFS='|' read -r src_dir tgt_dir pattern <<<"$entry"
+        [[ -d "$src_dir" ]] || continue
+        mkdir -p "$tgt_dir"
+        shopt -s nullglob
+        for src in "$src_dir"/$pattern; do
+            [[ -f "$src" ]] || continue
+            local name
+            name=$(basename "$src")
+            _should_skip "$name" && continue
+            ln -sfn "$src" "$tgt_dir/$name"
+            count=$((count + 1))
+        done
+        shopt -u nullglob
+    done
+    echo "  $count files symlinked"
+}
+
+_flatten_all() {
+    local count=0
+    for entry in "${TARGETS[@]}"; do
+        IFS='|' read -r src_dir tgt_dir pattern <<<"$entry"
+        [[ -d "$tgt_dir" ]] || continue
+        shopt -s nullglob
+        for tgt in "$tgt_dir"/$pattern; do
+            [[ -L "$tgt" ]] || continue
+            local resolved
+            resolved=$(readlink -f "$tgt") || continue
+            # Only flatten symlinks that actually point at our repo.
+            [[ "$resolved" == "$FOXML_DIR/"* ]] || continue
+            cp --remove-destination "$resolved" "$tgt"
+            count=$((count + 1))
+        done
+        shopt -u nullglob
+    done
+    echo "  $count symlinks flattened to copies"
+}
+
+case "${1:-status}" in
+    on|enable)
+        mkdir -p "$STATE_DIR"
+        echo "  → linking shared/ files into live config..."
+        _link_all
+        # Wire the in-repo .githooks/pre-commit so commit attempts get
+        # scanned for secrets before they land. Idempotent — git just
+        # rewrites core.hooksPath each time.
+        if [[ -d "$FOXML_DIR/.githooks" ]]; then
+            ( cd "$FOXML_DIR" && git config core.hooksPath .githooks ) \
+                && echo "  → git pre-commit secret scanner enabled (.githooks/pre-commit)"
+        fi
+        date -Iseconds > "$STATE"
+        echo "develop mode: ON"
+        echo "  edits in $FOXML_DIR/shared/ take effect immediately"
+        echo "  'desk develop off' replaces the symlinks with copies"
+        ;;
+    off|disable)
+        echo "  → flattening symlinks back to copies..."
+        _flatten_all
+        if [[ -d "$FOXML_DIR/.githooks" ]]; then
+            ( cd "$FOXML_DIR" && git config --unset core.hooksPath 2>/dev/null ) || true
+            echo "  → git pre-commit secret scanner unwired"
+        fi
+        rm -f "$STATE"
+        echo "develop mode: OFF"
+        ;;
+    status|"")
+        if [[ -f "$STATE" ]]; then
+            echo "develop mode: ON  (enabled $(cat "$STATE"))"
+            echo "  repo: $FOXML_DIR"
+        else
+            echo "develop mode: off"
+        fi
+        ;;
+    --help|-h)
+        usage
+        ;;
+    *)
+        usage
+        exit 1
+        ;;
+esac

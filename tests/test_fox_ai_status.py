@@ -2,7 +2,7 @@
 """tests/test_fox_ai_status.py — the waybar AI module asks nvidia-smi once per boot, again when the NVIDIA
 library changes, and says "reboot" when an update left the kernel module and the library apart.
 
-Runs the real script with a fake nvidia-smi (counting its calls), a fake fox-llm-run, a throwaway $HOME and runtime dir,
+Runs the real script with a fake nvidia-smi (counting its calls), a fake llm-run, a throwaway $HOME and runtime dir,
 and the NVML library / kernel module version paths pointed at files the test controls.
 """
 import json
@@ -14,7 +14,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SCRIPT = ROOT / "shared/bin/fox-ai-status"
+SCRIPT = ROOT / "shared/bin/ai-status"
 
 
 @unittest.skipUnless(shutil.which("jq"), "jq not installed")
@@ -32,7 +32,7 @@ class AiStatusTest(unittest.TestCase):
             'if [ "$FAKE_NVSMI" = mismatch ]; then\n'
             '  echo "Failed to initialize NVML: Driver/library version mismatch"\n'
             '  echo "NVML library version: 615.78"; exit 18\nfi\necho 3722\n')
-        (self.bin / "fox-llm-run").write_text('#!/bin/sh\n[ "$1" = --ps ] && printf "qwen3.5:4b\\tloaded\\t2.6\\n"\n')
+        (self.bin / "llm-run").write_text('#!/bin/sh\n[ "$1" = --ps ] && printf "qwen3.5:4b\\tloaded\\t2.6\\n"\n')
         for f in self.bin.iterdir():
             f.chmod(0o755)
         (self.tmp / "libnvidia-ml.so.615.71.09").write_text("")

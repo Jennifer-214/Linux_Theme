@@ -3,5 +3,5 @@ Description=Notice failed user services with a log and a draft for Claude
 
 [Service]
 Type=oneshot
-ExecStart=%h/.local/bin/fox-work notify-services
+ExecStart=%h/.local/bin/desk-work notify-services
 Nice=10

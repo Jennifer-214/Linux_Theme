@@ -6,7 +6,7 @@ wallpaper-editing operation (watermark strip, variant generation,
 re-upscaling with a newer model) reads from here and writes a copy
 into the parent directory.
 
-`fox-wallpaper --add <path>` copies the input here untouched and then
+`desk-wallpaper --add <path>` copies the input here untouched and then
 processes a separate copy. Regenerate everything from these via:
 
-    fox-wallpaper --regenerate-variants
+    desk-wallpaper --regenerate-variants

@@ -35,7 +35,7 @@ const argvText = (sent) => JSON.stringify(sent);
   await run(b, "completed");
   check(b.sent.length === 1, "a settled run pings once");
   const a = b.sent[0] || [];
-  check(a[0] === "fox-work-notice" && a[1] === "agent" && a[2] === "pi", "actionable pi agent notice");
+  check(a[0] === "work-notice" && a[1] === "agent" && a[2] === "pi", "actionable pi agent notice");
   check(a[7] === "stop", "done is on the normal lane (no -u critical)");
   check(a[3] === "pi is ready" && /^Project · Linux_Theme · \d+s$/.test(a[4]), `done: ${JSON.stringify(a.slice(3,5))}`);
 }

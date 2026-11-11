@@ -1,0 +1,34 @@
+#!/bin/bash
+# ai-bench — benchmark the local models on llama.cpp's router: generation and prompt-reading speed
+# per model, from the server's own timings (not a guess from the answer's length), plus the RAM the
+# loaded model holds.
+#
+# Models: the arguments, else this machine's wanted set (llm-update --wanted) — the ones the
+# router serves; llm-run --list shows them.
+set -u
+command -v llm-run >/dev/null 2>&1 || { echo "ai-bench: llm-run not found — run: desk-install --only llama_server" >&2; exit 1; }
+if (( $# )); then
+    MODELS=("$@")
+elif command -v llm-update >/dev/null; then
+    mapfile -t MODELS < <(llm-update --wanted | awk '{print $1}')
+else
+    mapfile -t MODELS < <(llm-run --list | cut -f1)
+fi
+SERVED=$(llm-run --list | cut -f1)
+PROMPT="Write a C++ function to merge two JSON objects using nlohmann/json."
+
+echo "AI benchmark (llama.cpp)"
+echo "------------------------------------------------------------------------"
+printf "%-36s | %-10s | %-12s | %s\n" "Model" "Gen tok/s" "Prompt tok/s" "RAM"
+echo "------------------------------------------------------------------------"
+for model in "${MODELS[@]}"; do
+    grep -qxF "$model" <<<"$SERVED" || continue
+    llm-run -m "$model" "hi" >/dev/null || continue           # load it (and wake the router)
+    body=$(jq -n --arg m "$model" --arg p "$PROMPT" \
+        '{model: $m, max_tokens: 256, messages: [{role: "user", content: $p}], chat_template_kwargs: {enable_thinking: false}}')
+    read -r gen pp < <(curl -s -m 900 http://127.0.0.1:8080/v1/chat/completions -H 'Content-Type: application/json' -d "$body" \
+        | jq -r '"\(.timings.predicted_per_second // 0) \(.timings.prompt_per_second // 0)"' 2>/dev/null || echo "0 0")
+    ram=$(llm-run --ps | awk -F'\t' -v m="$model" '$1 == m && $3 != "-" {print $3 " GB"}')
+    printf "%-36s | %-10.1f | %-12.1f | %s\n" "$model" "${gen:-0}" "${pp:-0}" "${ram:--}"
+done
+echo "------------------------------------------------------------------------"

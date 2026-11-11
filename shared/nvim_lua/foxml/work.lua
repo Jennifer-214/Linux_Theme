@@ -1,6 +1,6 @@
 local M = {}
 local function run(args)
-  local argv = { "fox-work" }
+  local argv = { "desk-work" }
   vim.list_extend(argv, args)
   local ok, p = pcall(vim.system, argv, { text = true })
   if not ok then return nil end
@@ -24,11 +24,11 @@ local function scratch(text, name, ft, editable)
   return buf
 end
 
--- API tasks (fox-claude-api): read-only reviews on API credits, with a model choice, live progress,
+-- API tasks (claude-api): read-only reviews on API credits, with a model choice, live progress,
 -- follow-ups and results whose path:line citations become a quickfix list.
 local api_job
 local function api_projects()
-  local ok, out = pcall(function() return vim.system({'fox-claude-api', 'projects'}, {text=true}):wait(5000) end)
+  local ok, out = pcall(function() return vim.system({'claude-api', 'projects'}, {text=true}):wait(5000) end)
   local parsed, projects = pcall(vim.json.decode, ok and out.stdout or '')
   return parsed and type(projects) == 'table' and projects or nil
 end
@@ -57,7 +57,7 @@ local function api_follow(id, project_id)
   end)
 end
 
--- Called in a buffer holding a saved result (fox-claude-api open, or a finished :ClaudeApi run).
+-- Called in a buffer holding a saved result (claude-api open, or a finished :ClaudeApi run).
 function M.api_result_opened(buf)
   buf = buf or vim.api.nvim_get_current_buf()
   local lines = vim.api.nvim_buf_get_lines(buf, 0, 12, false)
@@ -69,7 +69,7 @@ function M.api_result_opened(buf)
   vim.bo[buf].filetype, vim.bo[buf].modifiable = 'markdown', false
   vim.wo.wrap = true
   if folder and id then
-    local ok, out = pcall(function() return vim.system({'fox-claude-api', 'history'}, {text=true}):wait(5000) end)
+    local ok, out = pcall(function() return vim.system({'claude-api', 'history'}, {text=true}):wait(5000) end)
     local parsed, rows = pcall(vim.json.decode, ok and out.stdout or '')
     for _, row in ipairs(parsed and type(rows) == 'table' and rows or {}) do if row.id == id then project_id = row.project end end
     local items = M.api_citations(vim.api.nvim_buf_get_lines(buf, 0, -1, false), folder)
@@ -86,15 +86,15 @@ function M.api_result_opened(buf)
   vim.keymap.set('n', 'q', '<cmd>bwipeout<cr>', {buffer=buf, desc='Close API result'})
 end
 
--- Starts fox-claude-api run; progress lines arrive on stderr, the result as JSON on stdout.
+-- Starts claude-api run; progress lines arrive on stderr, the result as JSON on stdout.
 function M.api_run(project, question, extra, opts)
   opts = opts or {}
   if api_job then vim.notify('An API task is already running. :ClaudeApiStop cancels it.'); return end
-  local argv = {'fox-claude-api', 'run', '--project', project.id, '--prompt-stdin', '--json'}
+  local argv = {'claude-api', 'run', '--project', project.id, '--prompt-stdin', '--json'}
   if opts.model then vim.list_extend(argv, {'--model', opts.model}) end
   if opts.budget then vim.list_extend(argv, {'--budget', opts.budget}) end
   vim.list_extend(argv, extra or {})
-  local progress = {title='API task', id='fox-claude-api'}
+  local progress = {title='API task', id='claude-api'}
   api_job = vim.system(argv, {text=true, stdin=question, stderr=vim.schedule_wrap(function(_, data)
     if not data then return end
     local last = vim.trim(data):match('([^\n]*)$')
@@ -105,7 +105,7 @@ function M.api_run(project, question, extra, opts)
     if not parsed or type(value) ~= 'table' or not value.id then
       vim.notify(vim.trim(result.stderr or '') ~= '' and result.stderr or 'API task failed.', vim.log.levels.WARN); return
     end
-    local md = vim.system({'fox-claude-api', 'show', value.id}, {text=true}):wait(5000)
+    local md = vim.system({'claude-api', 'show', value.id}, {text=true}):wait(5000)
     local buf = vim.api.nvim_create_buf(false, true)
     vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(md.stdout or value.result or '', '\n', {plain=true}))
     vim.bo[buf].bufhidden = 'wipe'
@@ -117,7 +117,7 @@ function M.api_run(project, question, extra, opts)
 end
 
 local function api_choose_project(callback)
-  if vim.fn.executable('fox-claude-api') ~= 1 then vim.notify('Install fox-claude-api first.', vim.log.levels.WARN); return end
+  if vim.fn.executable('claude-api') ~= 1 then vim.notify('Install claude-api first.', vim.log.levels.WARN); return end
   local projects = api_projects()
   if not projects then vim.notify('API task settings are unavailable.', vim.log.levels.WARN); return end
   local here = (vim.uv or vim.loop).fs_realpath(root()) or root()
@@ -207,7 +207,7 @@ function M.draft(text)
     local C = require("foxml.claude")
     local dir = C.runtime()
     if not dir then vim.notify("No local Claude inbox is available."); return end
-    local ok, p = pcall(vim.system, { "fox-drawer", "claude-peers" }, { text = true })
+    local ok, p = pcall(vim.system, { "desk-drawer", "claude-peers" }, { text = true })
     local out = ok and p:wait(5000) or nil
     local peers = out and out.code == 0 and C.decode(out.stdout) or {}
     if #peers == 0 then vim.notify("No Claude sessions are available. The draft stays here."); return end

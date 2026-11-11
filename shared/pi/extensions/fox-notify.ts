@@ -37,7 +37,7 @@ export function makeNotify({ delayMs = 5000, minSecs = 15, hintMs = 1000 } = {})
 		};
 		const send = (summary: string, body: string, critical = false) =>
 			pi
-				.exec("fox-work-notice", ["agent", "pi", summary, `Project · ${body}`, projectPath, process.env.TMUX_PANE || "", critical ? "notification" : "stop"])
+				.exec("work-notice", ["agent", "pi", summary, `Project · ${body}`, projectPath, process.env.TMUX_PANE || "", critical ? "notification" : "stop"])
 				.catch(() => {}); // no notify-send, no daemon: a notice is a courtesy, never an error in her session
 		const clear = () => {
 			if (timer) clearTimeout(timer);

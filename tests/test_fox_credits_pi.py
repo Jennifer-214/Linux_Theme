@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tests/test_fox_credits_pi.py — run the fox-credits pi extension under node with a fake pi and fake fox-credits.
+"""tests/test_fox_credits_pi.py — run the desk-credits pi extension under node with a fake pi and fake desk-credits.
 
 The extension has only a type import from pi, so plain node ≥ 22 runs it. Skips (passes) when node is missing or old.
 """
@@ -20,13 +20,13 @@ major = int(subprocess.run([node, "--version"], capture_output=True, text=True).
 if major < 22:
     print(f"    skip: node {major} has no --experimental-strip-types")
     sys.exit(0)
-# Not /tmp: it is mounted noexec here, and the fake fox-credits has to run.
+# Not /tmp: it is mounted noexec here, and the fake desk-credits has to run.
 base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
 base.mkdir(parents=True, exist_ok=True)
 tmp = Path(tempfile.mkdtemp(prefix="fox-credits-pi-test-", dir=base))
 try:
     audit = tmp / "calls.txt"
-    fake = tmp / "fox-credits"
+    fake = tmp / "desk-credits"
     fake.write_text('#!/bin/sh\necho "$*" >> "$TEST_AUDIT"\n'
                     'if [ "$1" = status ]; then echo \'{"short": "API ~$199.99 left"}\'; fi\n')
     fake.chmod(0o755)

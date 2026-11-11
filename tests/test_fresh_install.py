@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-MODULES = ROOT / "src/fox-install/modules"
+MODULES = ROOT / "src/desk-install/modules"
 WALLPAPERS = ROOT / "shared/wallpapers"
 
 

@@ -27,10 +27,10 @@ class AgentNotifyTest(unittest.TestCase):
         self.run_dir.mkdir(mode=0o700)
         self.bin.mkdir()
         (self.bin / "notify-send").write_text("#!/bin/sh\nexit 0\n")
-        (self.bin / "fox-work-notice").write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$XDG_RUNTIME_DIR/notice-args"\n')
+        (self.bin / "work-notice").write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$XDG_RUNTIME_DIR/notice-args"\n')
         # display-message -t <pane> names that pane's own target
         (self.bin / "tmux").write_text('#!/bin/sh\ncase "$*" in *"-t %7"*) echo s:1.2 ;; *"-t %8"*) echo s:1.3 ;; esac\n')
-        for name in ("notify-send", "tmux", "fox-work-notice"):
+        for name in ("notify-send", "tmux", "work-notice"):
             (self.bin / name).chmod(0o755)
         self.queue = self.run_dir / "foxml-agent-queue.jsonl"
 

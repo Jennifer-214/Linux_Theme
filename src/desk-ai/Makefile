@@ -1,0 +1,38 @@
+# src/desk-ai/Makefile — namespace dispatcher for AI-augmented tools.
+#
+# Builds the `desk-ai` binary which dispatches `desk ai <sub>` to the
+# appropriate leaf binary. Mirrors src/desk/Makefile but for the AI
+# namespace specifically.
+
+CXX      ?= g++
+CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra -Wpedantic
+PREFIX   ?= $(HOME)/.local/bin
+
+FOX_COMMON_DIR := ../desk-common
+FOX_COMMON_LIB := $(FOX_COMMON_DIR)/libfox-common.a
+
+BIN := desk-ai
+
+all: $(BIN)
+
+$(BIN): main.o $(FOX_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ main.o -L$(FOX_COMMON_DIR) -lfox-common
+
+main.o: main.cpp dispatch.def
+	$(CXX) $(CXXFLAGS) -I$(FOX_COMMON_DIR) -c main.cpp -o $@
+
+$(FOX_COMMON_LIB):
+	$(MAKE) --no-print-directory -C $(FOX_COMMON_DIR)
+
+install: all
+	@mkdir -p $(PREFIX)
+	@install -m 755 $(BIN) $(PREFIX)/$(BIN)
+	@echo "  + $(BIN) installed to $(PREFIX)"
+
+test: $(BIN)
+	@bash tests/dispatch_test.sh
+
+clean:
+	@rm -f $(BIN) main.o
+
+.PHONY: all install clean test

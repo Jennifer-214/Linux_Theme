@@ -9,7 +9,7 @@ import unittest
 import xml.etree.ElementTree as ET
 
 ROOT=Path(__file__).resolve().parents[1]
-RENDER=ROOT/'src/fox-render/fox-render-fast'
+RENDER=ROOT/'src/desk-render/desk-render-fast'
 
 @unittest.skipUnless(RENDER.exists(),'build the renderer first')
 class IconFamily(unittest.TestCase):

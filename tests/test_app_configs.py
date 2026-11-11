@@ -13,7 +13,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-RENDERER = ROOT / "src/fox-render/fox-render-fast"
+RENDERER = ROOT / "src/desk-render/desk-render-fast"
 THEMES = sorted(p.parent.name for p in (ROOT / "themes").glob("*/palette.sh"))
 
 
@@ -22,7 +22,7 @@ def palette_value(theme, key):
     return re.search(rf"^{key}=(\S+)", text, re.M).group(1)
 
 
-@unittest.skipUnless(RENDERER.exists(), "needs fox-render-fast built")
+@unittest.skipUnless(RENDERER.exists(), "needs desk-render-fast built")
 class RenderedConfigsTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -81,7 +81,7 @@ class SourcesTest(unittest.TestCase):
             self.assertEqual(palette_value(theme, "VSCODE_UI_THEME"), want[palette_value(theme, "THEME_TYPE")], theme)
 
     def test_ide_manifest_reads_the_palette(self):
-        text = (ROOT / "src/fox-install/modules/specials.cpp").read_text()
+        text = (ROOT / "src/desk-install/modules/specials.cpp").read_text()
         self.assertIn('palette::get(ctx.palette_path, "VSCODE_UI_THEME"', text)
         self.assertNotIn('\\"uiTheme\\": \\"vs-dark\\"', text)
 

@@ -1,6 +1,6 @@
 name: cross-config
 
-# Boot-layout + display-manager matrix for fox-install. Each job spins
+# Boot-layout + display-manager matrix for desk-install. Each job spins
 # up an Arch container, fakes the system to look like one of the
 # supported configurations, then runs `./install.sh --dry-run --full`
 # and asserts no critical preflight/health failures.
@@ -48,7 +48,7 @@ jobs:
         run: |
           curl -fsSL \
             https://github.com/nlohmann/json/releases/latest/download/json.hpp \
-            -o src/fox-intel/json.hpp
+            -o src/desk-intel/json.hpp
 
       - name: Build everything (native orchestrator + leaves + libfox-health)
         run: make
@@ -113,17 +113,17 @@ jobs:
           # bugs surface. --yes skips every interactive prompt.
           # Capture exit code AND output — we assert both separately.
           set +e
-          ./src/fox-install/fox-install --dry-run --full --yes 2>&1 | tee /tmp/install.log
+          ./src/desk-install/desk-install --dry-run --full --yes 2>&1 | tee /tmp/install.log
           rc=${PIPESTATUS[0]}
           set -e
           echo "$rc" > /tmp/install.rc
-          echo "fox-install --dry-run --full --yes exited rc=$rc"
+          echo "desk-install --dry-run --full --yes exited rc=$rc"
 
       - name: Assert dry-run exit code is 0
         run: |
           rc=$(cat /tmp/install.rc)
           if [ "$rc" != "0" ]; then
-            echo "fox-install exited $rc — dry-run is supposed to be a no-op success"
+            echo "desk-install exited $rc — dry-run is supposed to be a no-op success"
             exit 1
           fi
 
@@ -158,7 +158,7 @@ jobs:
           fi
           echo "Dry-run completed cleanly under ${{ matrix.bootloader }}."
 
-      - name: Smoke-check fox sec health
+      - name: Smoke-check desk sec health
         run: |
           # The health library should run on every layout without
           # crashing. Exit code 2 is allowed here — the container's
@@ -167,11 +167,11 @@ jobs:
           # don't apply. We assert the binary returns one of the
           # well-known exit codes (0,1,2,3) — not 127 or signal.
           set +e
-          ./src/fox-sec-health/fox-sec-health
+          ./src/sec-health/sec-health
           rc=$?
           set -e
           if [ "$rc" -lt 0 ] || [ "$rc" -gt 3 ]; then
-            echo "fox-sec-health exit code $rc is outside the expected [0,3] range"
+            echo "sec-health exit code $rc is outside the expected [0,3] range"
             exit 1
           fi
-          echo "fox-sec-health exit=$rc (within expected range)"
+          echo "sec-health exit=$rc (within expected range)"

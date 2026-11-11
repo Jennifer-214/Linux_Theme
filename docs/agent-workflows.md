@@ -22,7 +22,7 @@ there leaves the machine.
 
 ## Desktop integration
 
-The bar reads those files through `fox-drawer claude-bar`: a pill beside the
+The bar reads those files through `desk-drawer claude-bar`: a pill beside the
 local-model status shows `✎` sessions working, `◇` sessions waiting and `!` ones
 stopped, and folds away when none are open. Its text turns berry past 80% of a
 plan limit, and its ribbon hangs lower while a session is asking for you. Hover
@@ -91,10 +91,10 @@ list there yourself). It draws in the palette and keeps its session records in p
   warns. Worktrees are separate files, so they never match; edits made through shell
   commands are not seen.
 - **Other Claudes:** the notebook lists the other live sessions on this machine (the same
-  list as the drawer's Agents page, from `fox-drawer claude-peers`): name, project, whether
+  list as the drawer's Agents page, from `desk-drawer claude-peers`): name, project, whether
   it is working, waiting or needs you, and how many files it is editing in this repo.
   `go` jumps to its window; `note` opens a one-line box in the notebook, and Enter sends
-  the text to that session as a message (`$.session.send`). Without `fox-drawer`, the
+  the text to that session as a message (`$.session.send`). Without `desk-drawer`, the
   notebook lists only the sessions editing in the same repo.
 - **Envelopes:** a note sent from nvim (`<Space>Cn`, left in
   `$XDG_RUNTIME_DIR/foxml-claude/inbox/<session>/`) or by another Claude shows as `✉ from …` in the notebook,
@@ -141,7 +141,7 @@ The paper mod records Claude's Bash builds, test runs and downloads: a command
 counts when one of its steps starts with a build, test or download tool
 (`cd src && make`, `python3 -B tests/test_x.py`), not when it only mentions one
 (`rg foo cmake/`). The command runs exactly as Claude wrote it, so auto mode
-reviews what really runs; the mod records the start, then hands `fox-work` the
+reviews what really runs; the mod records the start, then hands `desk-work` the
 exit status and output when the call returns. Jobs carry Claude's one-line
 description of the command as their title. Background (`run_in_background`)
 calls are not recorded.
@@ -154,7 +154,7 @@ fjob ctest --test-dir build --output-on-failure
 fjob ./build/controller_test &
 fjob wget -O model.gguf https://example.org/model.gguf
 # Without the shell helper:
-fox-work run -- ctest --test-dir build --output-on-failure
+desk-work run -- ctest --test-dir build --output-on-failure
 ```
 
 Start the supervisor around the actual job: a plain `make &`, or a shell script
@@ -217,4 +217,4 @@ and a draft; it never restarts a service. Set `FOXML_WORK_NOTIFY=0` to mute job
 popups. Work records, private logs, deduplicated source versions, next steps and
 inspection marks live in `$XDG_STATE_HOME/foxml/work/` (default
 `~/.local/state/foxml/work/`), with directories mode 0700 and files mode 0600.
-`fox dev work help` lists the underlying command interface.
+`desk dev work help` lists the underlying command interface.

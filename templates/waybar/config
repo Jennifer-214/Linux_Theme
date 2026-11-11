@@ -64,7 +64,7 @@
     "return-type": "json",
     "interval": 15,
     "tooltip": true,
-    "on-click": "kitty -e fox sec dashboard --live"
+    "on-click": "kitty -e desk sec dashboard --live"
   },
   "custom/overwatch": {
     "exec": "~/.config/waybar/scripts/hw_overwatch.sh",
@@ -154,32 +154,32 @@
   "custom/logo": {
     "format": "{{WAYBAR_LOGO}}",
     "tooltip": "The quiet corner",
-    "on-click": "~/.local/bin/fox-desktop-menu root"
+    "on-click": "~/.local/bin/desktop-menu root"
   },
 
   "custom/claude": {
-    "exec": "~/.local/bin/fox-drawer claude-bar",
+    "exec": "~/.local/bin/desk-drawer claude-bar",
     "return-type": "json",
     "interval": 3,
     "tooltip": true,
-    "on-click": "~/.local/bin/fox-desktop-menu agents",
-    "on-click-asking": "~/.local/bin/fox-drawer claude-next"
+    "on-click": "~/.local/bin/desktop-menu agents",
+    "on-click-asking": "~/.local/bin/desk-drawer claude-next"
   },
 
   "custom/api_credits": {
-    "exec": "~/.local/bin/fox-credits bar",
+    "exec": "~/.local/bin/desk-credits bar",
     "return-type": "json",
     "interval": 60,
     "tooltip": true,
-    "on-click": "~/.local/bin/fox-desktop-menu api-credits"
+    "on-click": "~/.local/bin/desktop-menu api-credits"
   },
 
   "custom/ai_status": {
-    "exec": "~/.local/bin/fox-ai-status",
+    "exec": "~/.local/bin/ai-status",
     "return-type": "json",
     "interval": 2,
     "tooltip": true,
-    "on-click": "~/.local/bin/fox-ai-swap"
+    "on-click": "~/.local/bin/ai-swap"
   },
 
   "custom/security": {
@@ -211,7 +211,7 @@
     "return-type": "json",
     "interval": 1,
     "tooltip": true,
-    "on-click": "~/.local/bin/fox-desktop-menu power"
+    "on-click": "~/.local/bin/desktop-menu power"
   },
 
   "custom/clock": {
@@ -219,7 +219,7 @@
     "return-type": "json",
     "interval": 60,
     "tooltip": true,
-    "on-click": "fox-desktop-menu calendar"
+    "on-click": "desktop-menu calendar"
   },
 
   "custom/updates": {
@@ -228,6 +228,6 @@
     "interval": 300,
     "signal": 1,
     "tooltip": true,
-    "on-click": "~/.local/bin/fox-desktop-menu updates"
+    "on-click": "~/.local/bin/desktop-menu updates"
   }
 }

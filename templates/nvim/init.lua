@@ -732,7 +732,7 @@ local function get_global_model(fallback)
   return fallback
 end
 
--- The model a ROLE names in the roles file — the same lookup as fox-llm-serve and fox-llm-run: the FIRST of
+-- The model a ROLE names in the roles file — the same lookup as llm-serve and llm-run: the FIRST of
 -- $XDG_CONFIG_HOME/foxml/llm/roles.conf, ~/code/custom_models/roles.conf, $XDG_CONFIG_HOME/foxml/llm/roles.default that
 -- exists decides, read whole (no fall-through to the next file); a line is `role model [engine]`, `#` a comment. So a
 -- swap of CodeCompanion's model is one line there.
@@ -3136,7 +3136,7 @@ vim.api.nvim_create_autocmd("FileType", {
   pattern = {"json", "jsonc"}, callback = function() vim.wo.conceallevel = 0 end,
 })
 
--- Mason (LSP installer). clangd comes from the system (pacman `clang`, fox-install --cpp-pro) so the
+-- Mason (LSP installer). clangd comes from the system (pacman `clang`, desk-install --cpp-pro) so the
 -- editor matches the clang++/clang-tidy toolchain; Mason installs it only on a machine without one.
 local system_clangd = vim.fn.executable("/usr/bin/clangd") == 1
 require("mason").setup()

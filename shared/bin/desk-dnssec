@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# desk-dnssec — pick DNSSEC strictness for systemd-resolved.
+#
+# Three levels:
+#   0 / off       no validation; path encryption via DoH only
+#   1 / relaxed   validate when upstream serves signed, accept unsigned
+#                 gracefully (recommended for laptops that travel —
+#                 doesn't wedge on clock skew or unsigned-but-legit paths)
+#   2 / strict    always validate; refuse anything unsigned (best
+#                 security; CAN wedge DNS on bad clock or any unsigned
+#                 path — fine for stable home network, risky on
+#                 hotel / café wifi)
+
+set -u
+C_GRN=$'\e[32m'; C_YEL=$'\e[33m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
+
+CONF_DROPIN=/etc/systemd/resolved.conf.d/00-foxml-dnssec.conf
+CONF_DOH=/etc/systemd/resolved.conf.d/foxml-doh.conf
+
+_current() {
+    local val
+    val=$(sudo -n grep -h '^DNSSEC=' "$CONF_DROPIN" "$CONF_DOH" 2>/dev/null | head -1 | awk -F= '{print $2}')
+    [[ -z "$val" ]] && val="(none / system default)"
+    echo "$val"
+}
+
+_set() {
+    local level="$1" friendly value
+    case "$level" in
+        0|off|none)        level=0; friendly="off (no validation)";            value="no" ;;
+        1|relaxed|default) level=1; friendly="relaxed (allow-downgrade)";      value="allow-downgrade" ;;
+        2|strict|yes)      level=2; friendly="strict (refuse unsigned)";       value="yes" ;;
+        *) echo "${C_RED}unknown level: $level${C_RST}" >&2; return 2 ;;
+    esac
+
+    if ! sudo -v 2>/dev/null; then
+        echo "${C_RED}sudo required${C_RST}" >&2; return 1
+    fi
+
+    sudo install -d /etc/systemd/resolved.conf.d
+    # Write the canonical drop-in.
+    printf '[Resolve]\nDNSSEC=%s\n' "$value" | sudo tee "$CONF_DROPIN" >/dev/null
+
+    # Strip DNSSEC= from EVERY other drop-in so this one wins
+    # unambiguously. systemd merges drop-ins in lexical order; any
+    # later-sorting file containing DNSSEC= would otherwise override
+    # the user's pick.
+    for sibling in /etc/systemd/resolved.conf.d/*.conf; do
+        [[ "$sibling" == "$CONF_DROPIN" ]] && continue
+        [[ -f "$sibling" ]] || continue
+        if sudo grep -q '^DNSSEC=' "$sibling" 2>/dev/null; then
+            sudo sed -i '/^DNSSEC=/d' "$sibling"
+        fi
+    done
+
+    sudo systemctl restart systemd-resolved
+    # Brief sanity probe — if resolution wedges, warn the user
+    # immediately so they can drop back to relaxed.
+    if ! getent hosts archlinux.org >/dev/null 2>&1; then
+        echo "${C_RED}⚠ DNS resolution wedged after switching to '${friendly}'${C_RST}" >&2
+        echo "  rollback:  desk dnssec relaxed" >&2
+        return 1
+    fi
+
+    echo "${C_GRN}✓ DNSSEC = ${friendly}${C_RST}"
+    case "$level" in
+        2) echo "  ${C_DIM}note: strict mode wedges DNS if your clock is off or any path is unsigned.${C_RST}"
+           echo "  ${C_DIM}      if you travel or hit hotel wifi: desk dnssec relaxed${C_RST}" ;;
+        0) echo "  ${C_YEL}note: no validation. DoH path-encryption only.${C_RST}" ;;
+    esac
+}
+
+_status() {
+    local cur
+    cur=$(_current)
+    echo "  current DNSSEC level:  ${C_GRN}$cur${C_RST}"
+    echo
+    echo "  ${C_DIM}levels:${C_RST}"
+    echo "    0 / off       no validation (DoH path-encryption only)"
+    echo "    1 / relaxed   validate-when-signed (recommended for laptops; current default)"
+    echo "    2 / strict    refuse unsigned answers (best, can wedge on bad networks)"
+    echo
+    echo "  ${C_DIM}probe (best-effort):${C_RST}"
+    if command -v drill >/dev/null 2>&1; then
+        drill -D archlinux.org 2>&1 | grep -E '^;; flags:|^;; ad' | head -3 | sed 's/^/    /'
+    else
+        dig +dnssec archlinux.org 2>&1 | grep -E 'flags:|^;; ad' | head -3 | sed 's/^/    /'
+    fi
+}
+
+case "${1:-}" in
+    ""|status)        _status ;;
+    0|off|none)       _set 0 ;;
+    1|relaxed|default) _set 1 ;;
+    2|strict|yes)     _set 2 ;;
+    -h|--help|help) cat <<EOF
+desk dnssec — DNSSEC strictness for systemd-resolved
+
+  desk dnssec [status]   show current level + recent probe
+  desk dnssec 0          off — DoH only (no validation)
+  desk dnssec 1          relaxed — allow-downgrade (current default, recommended)
+  desk dnssec 2          strict — refuse unsigned (best security, wedge risk)
+
+Aliases:  off/none  |  relaxed/default  |  strict/yes
+
+Strict mode (=2) can deadlock DNS resolution on bad networks
+(hotel captive portals, networks with broken upstream signing) or
+when your clock is off (laptop just woke). Use it on a stable home
+network; switch back to relaxed when you travel:
+  desk dnssec relaxed
+EOF
+    ;;
+    *) echo "unknown: $1" >&2; exit 2 ;;
+esac

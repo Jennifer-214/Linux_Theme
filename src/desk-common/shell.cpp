@@ -1,0 +1,366 @@
+#include "shell.hpp"
+
+#include "ui.hpp"
+
+#include <cerrno>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <deque>
+#include <csignal>
+#include <poll.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <fstream>
+#include <sys/wait.h>
+#include <unistd.h>
+
+namespace fox_install::sh {
+
+namespace {
+
+bool g_dry_run = false;
+std::filesystem::path g_stderr_log;
+volatile std::sig_atomic_t logged_child = 0;
+void forward_logged_signal(int signal) { if (logged_child > 0) ::kill(logged_child, signal); }
+
+// Open the configured stderr log for append. Returns -1 if unset or
+// the open fails (which we treat as "fall through to terminal stderr"
+// rather than aborting the run — losing some logs is preferable to
+// the install crashing).
+int open_stderr_log() {
+    if (g_stderr_log.empty()) return -1;
+    return ::open(g_stderr_log.c_str(),
+                  O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC,
+                  0600);
+}
+
+int do_run(const std::vector<const char*>& argv_c) {
+    // Pre-open the log in the parent so a failure to open (permissions,
+    // missing parent dir, …) doesn't poison the child silently. -1
+    // means "no redirection" which leaves the child's stderr at the
+    // inherited terminal — the current behavior.
+    int log_fd = open_stderr_log();
+
+    pid_t pid = ::fork();
+    if (pid < 0) {
+        if (log_fd >= 0) ::close(log_fd);
+        return -1;
+    }
+    if (pid == 0) {
+        if (log_fd >= 0) {
+            // Redirect ONLY the child's stderr. The child's stdout is
+            // intentionally left attached to the terminal so progress
+            // output from pacman / git / make stays visible — the goal
+            // is to absorb errors, not silence the install.
+            ::dup2(log_fd, STDERR_FILENO);
+            ::close(log_fd);
+        }
+        ::execvp(argv_c[0], const_cast<char* const*>(argv_c.data()));
+        ::_exit(127);
+    }
+    if (log_fd >= 0) ::close(log_fd);  // parent's copy
+    int status = 0;
+    while (::waitpid(pid, &status, 0) < 0) {
+        if (errno != EINTR) return -1;
+    }
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+
+void log_invocation(const std::vector<const char*>& argv_c) {
+    if (!g_dry_run) return;
+    std::string line = "[dry-run] $";
+    for (auto* a : argv_c) {
+        if (!a) break;
+        line += ' ';
+        line += a;
+    }
+    ui::substep(line);
+}
+
+}  // namespace
+
+void set_dry_run(bool on) { g_dry_run = on; }
+bool dry_run() { return g_dry_run; }
+
+void set_stderr_log(const std::filesystem::path& path) {
+    g_stderr_log = path;
+    if (path.empty()) return;
+    // Create the parent dir up front so the per-child open() doesn't
+    // race on the same mkdir N times. The actual file is created on
+    // first append.
+    std::error_code ec;
+    std::filesystem::create_directories(path.parent_path(), ec);
+}
+
+const std::filesystem::path& stderr_log() { return g_stderr_log; }
+
+void log_section(const std::string& title) {
+    if (g_stderr_log.empty()) return;
+    std::ofstream f(g_stderr_log, std::ios::app);
+    if (!f) return;
+    f << "=== " << title << " ===\n";
+}
+
+std::vector<std::string> tail_log(std::size_t lines) {
+    std::vector<std::string> out;
+    if (g_stderr_log.empty() || lines == 0) return out;
+    std::ifstream f(g_stderr_log);
+    if (!f) return out;
+    std::deque<std::string> ring;
+    std::string line;
+    while (std::getline(f, line)) {
+        ring.push_back(std::move(line));
+        if (ring.size() > lines) ring.pop_front();
+    }
+    out.assign(ring.begin(), ring.end());
+    return out;
+}
+
+int run(std::initializer_list<const char*> argv) {
+    std::vector<const char*> v(argv.begin(), argv.end());
+    v.push_back(nullptr);
+    log_invocation(v);
+    if (g_dry_run) return 0;
+    return do_run(v);
+}
+
+int run(const std::vector<std::string>& argv) {
+    std::vector<const char*> v;
+    v.reserve(argv.size() + 1);
+    for (auto& s : argv) v.push_back(s.c_str());
+    v.push_back(nullptr);
+    log_invocation(v);
+    if (g_dry_run) return 0;
+    return do_run(v);
+}
+
+int probe(const std::vector<std::string>& argv, std::string& out) {
+    out.clear();
+    int p[2];
+    if (::pipe(p) < 0) return -1;
+    int log_fd = open_stderr_log();
+    pid_t pid = ::fork();
+    if (pid < 0) {
+        ::close(p[0]); ::close(p[1]);
+        if (log_fd >= 0) ::close(log_fd);
+        return -1;
+    }
+    if (pid == 0) {
+        ::close(p[0]);
+        ::dup2(p[1], STDOUT_FILENO);
+        ::close(p[1]);
+        if (log_fd >= 0) {
+            ::dup2(log_fd, STDERR_FILENO);
+            ::close(log_fd);
+        }
+        std::vector<const char*> v;
+        v.reserve(argv.size() + 1);
+        for (auto& s : argv) v.push_back(s.c_str());
+        v.push_back(nullptr);
+        ::execvp(v[0], const_cast<char* const*>(v.data()));
+        ::_exit(127);
+    }
+    ::close(p[1]);
+    if (log_fd >= 0) ::close(log_fd);
+    char buf[4096];
+    for (;;) {
+        ssize_t n = ::read(p[0], buf, sizeof(buf));
+        if (n > 0) out.append(buf, static_cast<size_t>(n));
+        else if (n == 0) break;
+        else if (errno != EINTR) break;
+    }
+    ::close(p[0]);
+    int status = 0;
+    while (::waitpid(pid, &status, 0) < 0) {
+        if (errno != EINTR) return -1;
+    }
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+}
+
+bool capture(const std::vector<std::string>& argv, std::string& out) {
+    return probe(argv, out) == 0;
+}
+
+int run_logged(const std::vector<std::string>& argv, const std::filesystem::path& log,
+               std::size_t limit, bool& truncated) {
+    truncated = false;
+    if (argv.empty()) return 127;
+    if (g_dry_run) return run(argv);
+    const int fd = ::open(log.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+    int out[2], err[2];
+    if (fd < 0) return -1;
+    if (::pipe2(out, O_CLOEXEC) < 0) { ::close(fd); return -1; }
+    if (::pipe2(err, O_CLOEXEC) < 0) { ::close(fd); ::close(out[0]); ::close(out[1]); return -1; }
+    const auto old_int = std::signal(SIGINT, forward_logged_signal);
+    const auto old_term = std::signal(SIGTERM, forward_logged_signal);
+    const auto old_pipe = std::signal(SIGPIPE, SIG_IGN);
+    const pid_t pid = ::fork();
+    if (pid == 0) {
+        std::signal(SIGINT, SIG_DFL); std::signal(SIGTERM, SIG_DFL);
+        std::signal(SIGPIPE, SIG_DFL);
+        ::dup2(out[1], STDOUT_FILENO); ::dup2(err[1], STDERR_FILENO);
+        ::close(out[0]); ::close(out[1]); ::close(err[0]); ::close(err[1]); ::close(fd);
+        std::vector<char*> args;
+        for (const auto& a : argv) args.push_back(const_cast<char*>(a.c_str()));
+        args.push_back(nullptr);
+        ::execvp(args[0], args.data()); ::_exit(127);
+    }
+    ::close(out[1]); ::close(err[1]);
+    if (pid < 0) {
+        ::close(out[0]); ::close(err[0]); ::close(fd);
+        std::signal(SIGINT, old_int); std::signal(SIGTERM, old_term); std::signal(SIGPIPE, old_pipe); return -1;
+    }
+    logged_child = pid;
+    pollfd streams[2] = {{out[0], POLLIN, 0}, {err[0], POLLIN, 0}};
+    int status = 0, remaining = 2;
+    bool ended = false;
+    std::string tail;
+    const auto write_all = [](int dest, const char* data, size_t n) {
+        while (n) { const auto w = ::write(dest, data, n); if (w < 0 && errno == EINTR) continue;
+            if (w <= 0) break;
+            data += w; n -= static_cast<size_t>(w); }
+    };
+    while (remaining) {
+        const int ready = ::poll(streams, 2, 100);
+        if (ready < 0 && errno != EINTR) break;
+        for (int i = 0; i < 2; ++i) if (streams[i].fd >= 0 && streams[i].revents) {
+            char buf[8192]; const auto n = ::read(streams[i].fd, buf, sizeof buf);
+            if (n > 0) {
+                write_all(i == 0 ? STDOUT_FILENO : STDERR_FILENO, buf, static_cast<size_t>(n));
+                tail.append(buf, static_cast<size_t>(n));
+                if (tail.size() > limit) { tail.erase(0, tail.size() - limit); truncated = true; }
+                if (!truncated) write_all(fd, buf, static_cast<size_t>(n));
+                else ::futimens(fd, nullptr);
+            } else if (n == 0 || errno != EINTR) { ::close(streams[i].fd); streams[i].fd = -1; --remaining; }
+        }
+        if (!ended) ended = ::waitpid(pid, &status, WNOHANG) == pid;
+        // A daemon may inherit a pipe; it must not keep a completed command's supervisor alive.
+        if (ended && ready == 0) break;
+    }
+    for (auto& stream : streams) if (stream.fd >= 0) ::close(stream.fd);
+    if (!ended) while (::waitpid(pid, &status, 0) < 0) if (errno != EINTR) { status = 0; break; }
+    if (truncated) { ::ftruncate(fd, 0); ::lseek(fd, 0, SEEK_SET); write_all(fd, tail.data(), tail.size()); }
+    ::close(fd);
+    logged_child = 0;
+    std::signal(SIGINT, old_int); std::signal(SIGTERM, old_term); std::signal(SIGPIPE, old_pipe);
+    return WIFEXITED(status) ? WEXITSTATUS(status) : WIFSIGNALED(status) ? 128 + WTERMSIG(status) : -1;
+}
+
+bool write_root_atomic(const std::filesystem::path& dst,
+                       const std::string& body,
+                       const std::string& mode) {
+    char tmpl[] = "/tmp/foxin-rootwrite-XXXXXX";
+    int fd = ::mkstemp(tmpl);
+    if (fd < 0) return false;
+    ssize_t w = 0;
+    if (!body.empty()) {
+        w = ::write(fd, body.data(), body.size());
+    }
+    ::close(fd);
+    if (w != static_cast<ssize_t>(body.size())) {
+        ::unlink(tmpl);
+        return false;
+    }
+    int rc = run({"sudo", "install", "-d", dst.parent_path().string()});
+    if (rc == 0) {
+        rc = run({"sudo", "install", "-m", mode, "-o", "root", "-g", "root",
+                  tmpl, dst.string()});
+    }
+    ::unlink(tmpl);
+    return rc == 0;
+}
+
+bool have(const std::string& bin) {
+    if (bin.empty()) return false;
+    // Absolute or relative path: check directly. access() handles it.
+    if (bin.find('/') != std::string::npos) {
+        return ::access(bin.c_str(), X_OK) == 0;
+    }
+    const char* path = std::getenv("PATH");
+    if (!path || !*path) path = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin";
+    std::string p = path;
+    std::size_t start = 0;
+    while (start <= p.size()) {
+        std::size_t sep = p.find(':', start);
+        std::string dir = p.substr(start, sep == std::string::npos ? std::string::npos : sep - start);
+        if (dir.empty()) dir = ".";
+        std::string full = dir + "/" + bin;
+        if (::access(full.c_str(), X_OK) == 0) return true;
+        if (sep == std::string::npos) break;
+        start = sep + 1;
+    }
+    return false;
+}
+
+int pacman(std::initializer_list<const char*> pkgs) {
+    std::vector<std::string> argv = { "sudo", "pacman", "-S", "--needed", "--noconfirm" };
+    for (auto* p : pkgs) argv.emplace_back(p);
+    return run(argv);
+}
+
+int pacman(const std::vector<std::string>& pkgs) {
+    if (pkgs.empty()) return 0;
+    std::vector<std::string> argv = { "sudo", "pacman", "-S", "--needed", "--noconfirm" };
+    for (auto& p : pkgs) argv.push_back(p);
+    return run(argv);
+}
+
+int systemctl_enable(const std::string& unit, bool user) {
+    std::vector<std::string> argv;
+    if (!user) argv.push_back("sudo");
+    argv.push_back("systemctl");
+    if (user) argv.push_back("--user");
+    argv.push_back("enable");
+    argv.push_back("--now");
+    argv.push_back(unit);
+    return run(argv);
+}
+
+int systemctl_start(const std::string& unit, bool user) {
+    std::vector<std::string> argv;
+    if (!user) argv.push_back("sudo");
+    argv.push_back("systemctl");
+    if (user) argv.push_back("--user");
+    argv.push_back("start");
+    argv.push_back(unit);
+    return run(argv);
+}
+
+int systemctl_daemon_reload(bool user) {
+    std::vector<std::string> argv;
+    if (!user) argv.push_back("sudo");
+    argv.push_back("systemctl");
+    if (user) argv.push_back("--user");
+    argv.push_back("daemon-reload");
+    return run(argv);
+}
+
+bool sudo_warmup() {
+    // Use -n (non-interactive) so this is a silent cache check, NOT a
+    // PAM prompt. install.sh's wrapper keepalive loop runs `sudo -n true`
+    // every 50s, keeping the timestamp file fresh; modules just need to
+    // verify the cache is still warm. Crucially, `sudo -v` would invoke
+    // PAM and — on systems with pam_fprintd wired into /etc/pam.d/sudo —
+    // pop a fingerprint prompt for every module that needs root. That's
+    // jarring during a 30-min --full run. `-n true` skips PAM entirely:
+    // success if the timestamp is valid, failure otherwise. Modules that
+    // want to do privileged work check this and skip cleanly if cold.
+    return run({ "sudo", "-n", "true" }) == 0;
+}
+
+bool sudo_warmup_interactive() {
+    // ONE deliberate PAM prompt (fingerprint/password) at the start of a
+    // run — the wrapper's `sudo -v` equivalent for direct binary
+    // invocations. Without this, a bare `desk-install --secure` in a
+    // terminal warns "sudo cold" and every root module self-skips while
+    // the summary still reads clean. Per-module checks stay the
+    // non-interactive sudo_warmup(): one prompt up front, never one per
+    // module. sudo's timestamp is per-TTY, so this must run on the
+    // user's own terminal — agent shells without a TTY fall through.
+    if (run({ "sudo", "-n", "true" }) == 0) return true;  // already warm
+    if (!::isatty(STDIN_FILENO)) return false;
+    return run({ "sudo", "-v" }) == 0;
+}
+
+}  // namespace fox_install::sh

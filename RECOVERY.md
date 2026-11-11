@@ -35,7 +35,7 @@ sudo systemctl restart sshd
 
 Then SSH in with password and add your key to `~/.ssh/authorized_keys`.
 
-### "I forgot the knock sequence (`fox knock`)"
+### "I forgot the knock sequence (`desk knock`)"
 
 At the laptop TTY:
 
@@ -46,15 +46,15 @@ cat ~/.config/foxml/knock.conf      # shows SEQUENCE=
 Or regenerate / disable:
 
 ```
-fox knock --reset
-fox knock --disable
+desk knock --reset
+desk knock --disable
 ```
 
-### "I lost the SPA keys (`fox spa`)"
+### "I lost the SPA keys (`desk spa`)"
 
 ```
-fox spa --reveal       # interactive read (asks confirm)
-fox spa --disable      # stop fwknopd + re-open SSH
+desk spa --reveal       # interactive read (asks confirm)
+desk spa --disable      # stop fwknopd + re-open SSH
 ```
 
 ### "UFW is denying everything"
@@ -68,23 +68,23 @@ sudo ufw disable
 ### "I enabled egress lockdown and now an app can't reach the internet"
 
 ```
-fox firewall unlock                # revert to default-allow outgoing
+desk firewall unlock                # revert to default-allow outgoing
 # Or selectively:
-fox firewall allow <port>/[tcp|udp]
+desk firewall allow <port>/[tcp|udp]
 ```
 
-### "fox-deadman just locked + dropped network on a normal USB removal"
+### "desk-deadman just locked + dropped network on a normal USB removal"
 
 ```
 sudo nmcli networking on
-fox deadman --disarm
+desk deadman --disarm
 ```
 
 ### "I want to back out of the entire hardening stack"
 
 ```
-fox arm --disarm           # reverses the lockdown-style opt-ins
-fox harden disable hidepid # repeat for each layer you want off
+desk arm --disarm           # reverses the lockdown-style opt-ins
+desk harden disable hidepid # repeat for each layer you want off
 sudo systemctl disable --now ufw fail2ban auditd usbguard
 sudo rm /etc/sysctl.d/99-foxml-hardening.conf && sudo sysctl --system
 sudo rm /etc/ssh/sshd_config.d/50-foxml-hardening.conf && sudo systemctl restart sshd
@@ -92,20 +92,20 @@ sudo rm /etc/ssh/sshd_config.d/50-foxml-hardening.conf && sudo systemctl restart
 
 ### "I lost `~/.config/foxml/` (reinstalled OS, etc.)"
 
-If you ran `fox backup` before the loss:
+If you ran `desk backup` before the loss:
 
 ```
-fox backup --restore ~/Documents/foxml-backup-YYYYMMDD.tar.gpg
+desk backup --restore ~/Documents/foxml-backup-YYYYMMDD.tar.gpg
 ```
 
 If not, re-run each opt-in's `--setup`:
 
 ```
-fox dispatch --setup
-fox knock --setup        # or fox spa --setup
-fox cafe --setup
-fox deadman --setup
-fox proximity --setup
+desk dispatch --setup
+desk knock --setup        # or desk spa --setup
+desk cafe --setup
+desk deadman --setup
+desk proximity --setup
 ```
 
 System-side configs (`/etc/ssh/sshd_config.d/`, `/etc/wireguard/`,
@@ -115,4 +115,4 @@ System-side configs (`/etc/ssh/sshd_config.d/`, `/etc/wireguard/`,
 
 Each Linux_Theme install drops backups under `~/.theme_backups/foxml-backup-*`.
 Find the most recent and restore the affected files. The installer
-also runs `fox-doctor` at the end, which prints actionable hints.
+also runs `desk-doctor` at the end, which prints actionable hints.

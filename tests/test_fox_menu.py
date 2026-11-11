@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
-LAUNCHER = ROOT / "shared/bin/fox-desktop-menu"
+LAUNCHER = ROOT / "shared/bin/desktop-menu"
 WRAPPER = ROOT / "shared/hyprland_scripts/toggle_rofi.sh"
 UPDATES = ROOT / "shared/hyprland_scripts/updates_menu.sh"
 
@@ -66,11 +66,11 @@ class DrawerEntrypoints(unittest.TestCase):
         self.fake = self.bin / "fake-command"
         self.fake.write_text(FAKE)
         self.fake.chmod(0o755)
-        for name in ("quickshell", "setsid", "fox-drawer", "pkill", "rofi", "sleep", "kitty", "notify-send", "checkupdates", "systemctl", "journalctl"):
+        for name in ("quickshell", "setsid", "desk-drawer", "pkill", "rofi", "sleep", "kitty", "notify-send", "checkupdates", "systemctl", "journalctl"):
             (self.bin / name).symlink_to(self.fake)
         for name in ("mkdir", "rm", "flock", "bash"):
             (self.bin / name).symlink_to(shutil.which(name))
-        shutil.copy(LAUNCHER, self.bin / "fox-desktop-menu")
+        shutil.copy(LAUNCHER, self.bin / "desktop-menu")
         self.calls_file = self.base / "calls.jsonl"
         self.ready = self.base / "ready"
         self.ready.touch()
@@ -93,7 +93,7 @@ class DrawerEntrypoints(unittest.TestCase):
         return [r for r in rows if name is None or r[0] == name]
 
     def test_desktop_shortcut_finds_colocated_backend_without_shell_path(self):
-        result = self.run_script(self.bin / "fox-desktop-menu", "root", PATH="/usr/bin:/bin")
+        result = self.run_script(self.bin / "desktop-menu", "root", PATH="/usr/bin:/bin")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.calls()[-1][-2:], ["toggle", "root"])
         self.assertEqual(self.calls("rofi"), [])

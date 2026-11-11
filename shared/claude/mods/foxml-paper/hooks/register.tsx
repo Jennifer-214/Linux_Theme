@@ -366,9 +366,9 @@ async function readCard($: EngineInterface, dir: string | null): Promise<PaperCa
   }
 }
 
-// The other live Claudes, from fox-drawer (one liveness rule for the drawer and the notebook); null without it.
+// The other live Claudes, from desk-drawer (one liveness rule for the drawer and the notebook); null without it.
 async function readPeers($: EngineInterface): Promise<PaperPeer[] | null> {
-  const out = await run($, ['fox-drawer', 'claude-peers'])
+  const out = await run($, ['desk-drawer', 'claude-peers'])
   if (out === null) return null
   try {
     const self = await $.session.id()
@@ -382,7 +382,7 @@ async function readPeers($: EngineInterface): Promise<PaperPeer[] | null> {
 }
 
 async function goTo($: EngineInterface, peer: PaperPeer) {
-  const out = await run($, ['fox-drawer', 'run', 'claude-jump', peer.pane])
+  const out = await run($, ['desk-drawer', 'run', 'claude-jump', peer.pane])
   if (out === null) $.ui.toast(`couldn't reach ${peer.name}'s window`)
 }
 
@@ -498,7 +498,7 @@ async function refreshNow($: EngineInterface) {
     const projectWork = await workLook($, root, await $.session.id())
     let credits: ApiCredits | null = null
     try {
-      const value = JSON.parse(await run($, ['fox-credits', 'status']) ?? 'null')
+      const value = JSON.parse(await run($, ['desk-credits', 'status']) ?? 'null')
       if (value && typeof value.short === 'string' && typeof value.headline === 'string' && typeof value.meter === 'string') credits = value
     } catch { /* The account meter is optional; session context still works. */ }
     let project: PaperLook['project']
@@ -641,7 +641,7 @@ export const register: Register = on => {
       if (job && /^[0-9a-f-]{8,64}$/.test(job))
         finished = await work($, ['finish', '--id', job, '--exit', String(ran ? exitOf(ran) : 130), '--output', '-'], ran ? outputOf(ran) : '')
     }
-    // Tests that failed two or more times in a row pass again: fox-work counted the run of failures.
+    // Tests that failed two or more times in a row pass again: desk-work counted the run of failures.
     if (greenAgain(finished)) $.ui.toast('green again ✿')
     if (COMMIT.test(e.command) && ran!.deny === undefined && ran!.isError !== true) {
       $.ui.toast('a seed planted ❦')
@@ -850,7 +850,7 @@ export const register: Register = on => {
       if (now?.gate === 'open') content.push(text('gate open ✓', paper.ribbon))
       if (now?.gate === 'closed') content.push(text('plan first ✎', paper.ribbon))
       if (warning) content.push(row('attention-overlap', 'shared edit · ' + warning.path.split('/').pop(), async () => {
-        if (warning.pane) await run($, ['fox-drawer', 'run', 'claude-jump', warning.pane])
+        if (warning.pane) await run($, ['desk-drawer', 'run', 'claude-jump', warning.pane])
         else await page('files')
       }))
       if (mail.length) content.push(row('attention-mail', `✉ ${mail.length} unread ${mail.length === 1 ? 'note' : 'notes'}`, () => page('sessions')))
@@ -1028,10 +1028,10 @@ export const register: Register = on => {
         <Button key="nav-up" label="↑" hotkey="k" plain onPress={() => move(-1)} /><Text> </Text>
         <Button key="nav-down" label="↓" hotkey="j" plain onPress={() => move(1)} /><Text> </Text>
         <Button key="nav-open" label="open" hotkey="l" plain onPress={activate} /><Text> </Text>
-        <Button key="nav-drawer" label="drawer" hotkey="d" plain onPress={() => run($, ['fox-desktop-menu', '--open', drawerPage(view.page)])} />
+        <Button key="nav-drawer" label="drawer" hotkey="d" plain onPress={() => run($, ['desktop-menu', '--open', drawerPage(view.page)])} />
       </Box>}
       {now?.credits && (now.credits.status === 'error' || (now.credits.remaining_percent != null && now.credits.remaining_percent <= 20)) && <Button key="api-credit-meter" label="monthly API credit details" plain
-        onPress={() => run($, ['fox-desktop-menu', '--open', 'api-credits'])}>
+        onPress={() => run($, ['desktop-menu', '--open', 'api-credits'])}>
         <Text color={now.credits.status === 'error' || (now.credits.remaining_percent !== null && now.credits.remaining_percent <= 20) ? paper.berry : paper.added}>
           {shortPath(now.credits.short, width)}
           {now.credits.meter ? '\n' + now.credits.meter + ' tracked' : ''}

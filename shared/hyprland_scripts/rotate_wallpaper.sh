@@ -76,7 +76,7 @@ slot_index_of_current() {
 case "$MODE" in
     --cycle)
         # Cycle through EVERY non-variant wallpaper in $WALL_DIR, not just
-        # the 4 time-of-day slots — so `fox-wallpaper --add`'d images
+        # the 4 time-of-day slots — so `desk-wallpaper --add`'d images
         # appear in the rotation. Variants (foo_WxH.jpg, foo_portrait.jpg)
         # are filtered out so we cycle base wallpapers only.
         cycle_list=()
@@ -115,7 +115,7 @@ case "$MODE" in
         ;;
     --static)
         # Re-apply the persisted current wallpaper (the palette default or the
-        # user's last `fox-wallpaper --set` pick) so a reboot keeps the choice
+        # user's last `desk-wallpaper --set` pick) so a reboot keeps the choice
         # instead of snapping back to a hardcoded slot. Fall back to the midday
         # slot only when .current is unset/broken or points outside WALL_DIR.
         _cur=""
@@ -177,7 +177,7 @@ fi
 SKIP_APPLY=false
 if [[ "$MODE" != "--cycle" ]] && awww query &>/dev/null; then
     # Compare against what the daemon is ACTUALLY serving, not .current.
-    # `fox-wallpaper --set` uses .current as its REQUEST channel -- it writes
+    # `desk-wallpaper --set` uses .current as its REQUEST channel -- it writes
     # the pick there and then calls us -- so reading .current here compared the
     # target against itself and made every --set a silent no-op. Match on the
     # stem so per-monitor variants (<stem>_1920x1080.jpg) count as the same

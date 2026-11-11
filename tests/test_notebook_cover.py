@@ -16,7 +16,7 @@ class NotebookCover(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             render = root/'rendered'
-            subprocess.run([str(ROOT/'src/fox-render/fox-render-fast'), str(ROOT/'themes/FoxML_Paper/palette.sh'), str(ROOT/'templates/nvim'), str(render)], check=True, capture_output=True)
+            subprocess.run([str(ROOT/'src/desk-render/desk-render-fast'), str(ROOT/'themes/FoxML_Paper/palette.sh'), str(ROOT/'templates/nvim'), str(render)], check=True, capture_output=True)
             recent = root/'a | little #page.md'; recent.write_text('one little page')
             driver = root/'check.lua'
             driver.write_text('''

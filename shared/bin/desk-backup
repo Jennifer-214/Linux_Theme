@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# desk-backup — encrypted backup of all opt-in security config.
+#
+# Without this, losing ~/.config/foxml/ means losing your SPA keys,
+# knock sequence, dispatch webhook, dead-man USB serial, cafe SSID
+# list, dns-shield feed config, and proximity device pairing. All
+# are 0600 secret-ish — they need to be backed up but NOT to a
+# public git repo or cloud sync.
+#
+# Solution: tar the relevant files + GPG-encrypt to your own pubkey.
+# The resulting .tar.gpg can sit on a USB drive, a phone, or a
+# separate machine. To restore: gpg --decrypt + tar -x.
+#
+# Usage:
+#   desk backup [destination]   default ~/Documents/foxml-backup.tar.gpg
+#   desk backup --list          show what would be included
+#   desk backup --restore <f>   decrypt + extract f into $HOME
+
+set -u
+C_GRN=$'\e[32m'; C_YEL=$'\e[33m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
+
+# Files + dirs to back up. All relative to $HOME.
+PATHS=(
+    ".config/foxml/dispatch.conf"
+    ".config/foxml/knock.conf"
+    ".config/foxml/spa.conf"
+    ".config/foxml/deadman.conf"
+    ".config/foxml/cafe.conf"
+    ".config/foxml/dns-shield.conf"
+    ".config/foxml/proximity.conf"
+    ".config/foxml/sentry-audit.path"
+    ".config/foxml/tripwire.path"
+    ".config/foxml/tripwire.allowlist"
+    ".local/share/foxml/threat-log.txt"
+    ".local/share/foxml/alerts.log"
+    ".local/share/foxml/.installed-version"
+    ".password-store"        # whole pass tree
+    ".ssh"                   # ssh keys + config + authorized_keys
+    ".gnupg"                 # gpg keypairs + agent state
+)
+
+_list() {
+    echo "${C_DIM}desk backup would include (existing only):${C_RST}"
+    local n=0
+    for p in "${PATHS[@]}"; do
+        if [[ -e "$HOME/$p" ]]; then
+            printf '  ✓ %s\n' "$p"
+            n=$((n+1))
+        else
+            printf '  %s· %s (missing)%s\n' "$C_DIM" "$p" "$C_RST"
+        fi
+    done
+    echo
+    echo "  total: $n file(s)/dir(s)"
+}
+
+_backup() {
+    local dest="${1:-$HOME/Documents/foxml-backup-$(date +%Y%m%d).tar.gpg}"
+    # Find the user's primary GPG key.
+    local keyid
+    keyid=$(gpg --list-secret-keys --keyid-format=long --with-colons 2>/dev/null \
+            | awk -F: '/^sec:/{print $5; exit}')
+    if [[ -z "$keyid" ]]; then
+        echo "${C_RED}no GPG secret key — generate one first (desk vault init or gpg --quick-generate-key)${C_RST}" >&2
+        return 1
+    fi
+    local present=()
+    for p in "${PATHS[@]}"; do
+        [[ -e "$HOME/$p" ]] && present+=("$p")
+    done
+    if (( ${#present[@]} == 0 )); then
+        echo "${C_YEL}nothing to back up${C_RST}"; return 0
+    fi
+    mkdir -p "$(dirname "$dest")"
+    echo "${C_DIM}taring ${#present[@]} entries + encrypting to $keyid ...${C_RST}"
+    tar -C "$HOME" -cf - "${present[@]}" 2>/dev/null \
+        | gpg --quiet --batch --yes --output "$dest" --encrypt --recipient "$keyid"
+    chmod 600 "$dest"
+    local size
+    size=$(du -h "$dest" 2>/dev/null | cut -f1)
+    echo "${C_GRN}✓ $dest ($size, encrypted to $keyid)${C_RST}"
+    echo "  ${C_DIM}restore on a new machine: gpg --decrypt < $dest | tar -xC \$HOME${C_RST}"
+}
+
+_restore() {
+    local src="$1"
+    [[ -f "$src" ]] || { echo "${C_RED}not found: $src${C_RST}" >&2; return 1; }
+    echo "${C_YEL}This will extract $src into \$HOME, overwriting any matching files.${C_RST}"
+    local r
+    read -rp "Continue? [y/N] " -n 1 -r r; echo
+    [[ "$r" =~ ^[Yy]$ ]] || { echo cancelled; return 0; }
+    gpg --quiet --decrypt "$src" | tar -xC "$HOME" -v
+    echo "${C_GRN}✓ restored. Re-run \`desk arm --status\` to verify.${C_RST}"
+}
+
+case "${1:-}" in
+    ""|backup)   _backup "${2:-}" ;;
+    --list)      _list ;;
+    --restore)   [[ -n "${2:-}" ]] && _restore "$2" || { echo "usage: desk backup --restore <file>"; exit 2; } ;;
+    -h|--help|help) cat <<EOF
+desk backup — GPG-encrypted backup of opt-in security config
+
+  desk backup [dest]            create encrypted tar (default
+                               ~/Documents/foxml-backup-YYYYMMDD.tar.gpg)
+  desk backup --list            show which files would be included
+  desk backup --restore <file>  decrypt + extract into \$HOME
+
+Backed up: dispatch / knock / spa / deadman / cafe / dns-shield /
+proximity / tripwire allowlist / threat log / ssh keys / gpg keys /
+pass store. NOT backed up: /etc/* (system-managed by install.sh).
+
+Output is encrypted to your own GPG key — readable only by you.
+EOF
+    ;;
+    *) echo "unknown: $1" >&2; exit 2 ;;
+esac

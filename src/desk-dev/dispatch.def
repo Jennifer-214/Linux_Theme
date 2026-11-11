@@ -1,0 +1,27 @@
+// X-macro registry for desk-dev subcommands.
+
+// — Project scaffolding —
+FOX_SUBCMD( new-project,     new-project,     "Bootstrap a new high-discipline coding workspace" )
+FOX_SUBCMD( init,            desk-init,            "One-touch project onboarding" )
+
+// — Build / verify —
+FOX_SUBCMD( build-verify,    build-verify,    "Reproducible-build helper for foxml C++ projects" )
+FOX_SUBCMD( test,            desk-test,            "Health gate for a Linux_Theme checkout" )
+FOX_SUBCMD( work,            desk-work,            "Jobs, test failures, reviews and project next steps" )
+
+// — Code / repo introspection —
+FOX_SUBCMD( word-count,      word-count,      "Word count utility for the current workspace" )
+FOX_SUBCMD( tail,            desk-tail,            "Context Injector: gather local repo + system state for AI agents" )
+
+// — Distribution / packaging —
+FOX_SUBCMD( distro-build,    distro-build,    "Build a custom Linux_Theme Arch ISO" )
+FOX_SUBCMD( distro-flash,    distro-flash,    "Safe flashing utility for the Linux_Theme ISO" )
+FOX_SUBCMD( distro-guide,    distro-guide,    "Walkthrough for the Linux_Theme distro build/flash flow" )
+
+// — Refactor / template tooling —
+FOX_SUBCMD( generate-module, generate-module, "Scaffold a new desk-install module from a template" )
+FOX_SUBCMD( template-lint,   template-lint,   "Lint templates/* for palette-token and rendering issues" )
+FOX_SUBCMD( gen-keybinds,    gen-keybinds,    "Regenerate KEYBINDS.md from the tmux/Hyprland configs" )
+
+// — Editor integrations —
+FOX_SUBCMD( aider,           desk-aider,           "aider wrapper that stays in sync with the global model choice" )

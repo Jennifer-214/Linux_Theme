@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Unit test for shared/bin/fox-color — the OKLCH selection-color derivation.
+"""Unit test for shared/bin/desk-color — the OKLCH selection-color derivation.
 
 Run directly (`python3 tests/test_fox_color.py`) or via `make test` (the test-scripts target).
 Exit 0 = pass, 1 = fail. Dependency-free.
@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-fc = importlib.machinery.SourceFileLoader("fc", str(ROOT / "shared/bin/fox-color")).load_module()
+fc = importlib.machinery.SourceFileLoader("fc", str(ROOT / "shared/bin/desk-color")).load_module()
 
 fails = []
 def check(name, cond):

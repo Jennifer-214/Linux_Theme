@@ -1,0 +1,402 @@
+#!/bin/bash
+# The tools lost their fox- prefix in 2026-11: desk-<name>, else <name> when it is one of yours in ~/.local/bin (never
+# a system command of the same name: `desk tail` is not /usr/bin/tail).
+tool_for() {
+    if command -v "desk-$1" >/dev/null 2>&1; then echo "desk-$1"
+    elif [[ -x "$HOME/.local/bin/$1" && ! -d "$HOME/.local/bin/$1" ]]; then echo "$HOME/.local/bin/$1"
+    fi
+}
+# desk-legacy — the flat fox commands (desk vpn, desk vault init, desk help dispatch, ...), which the compiled fox hands here.
+# Was ~/.local/bin/desk; the compiled fox (src/desk) took that name for its namespaces.
+
+# The clone `make install` recorded (src/desk-install), else the default path.
+FOXML_DIR="$(cat "$HOME/.local/share/foxml/repo-dir" 2>/dev/null)"
+[[ -d "$FOXML_DIR" ]] || FOXML_DIR="$HOME/code/Linux_Theme"
+
+if [[ ! -d "$FOXML_DIR" ]]; then
+    echo "Error: Linux_Theme directory not found at $FOXML_DIR"
+    exit 1
+fi
+
+case "$1" in
+    install|setup)
+        shift
+        # `exec` instead of running as child: install.sh overwrites
+        # ~/.local/bin/desk during the shared/bin deploy loop. With a
+        # regular `cd && ./install.sh`, the parent fox process keeps
+        # reading from the now-rewritten file and bash spits out a
+        # confusing "syntax error near unexpected token" partway
+        # through install. exec replaces this process so there's no
+        # stale file handle to read from.
+        cd "$FOXML_DIR" && exec ./install.sh "$@"
+        ;;
+    swap)
+        shift
+        cd "$FOXML_DIR" && exec ./swap.sh "$@"
+        ;;
+    tweak)
+        shift
+        exec theme-tweak "$@"
+        ;;
+    update|save)
+        shift
+        cd "$FOXML_DIR" && exec ./update.sh "$@"
+        ;;
+    rollback)
+        shift
+        cd "$FOXML_DIR" && exec ./shared/bin/desk-rollback "$@"
+        ;;
+    lock)
+        shift
+        exec desk-lock "$@"
+        ;;
+    doctor)
+        shift
+        exec desk-doctor "$@"
+        ;;
+    develop|dev)
+        shift
+        exec desk-develop "$@"
+        ;;
+    menu)
+        shift
+        exec desk-menu "$@"
+        ;;
+    test)
+        shift
+        exec desk-test "$@"
+        ;;
+    uninstall|remove)
+        shift
+        exec desk-uninstall "$@"
+        ;;
+    sandbox)
+        shift
+        exec desk-sandbox "$@"
+        ;;
+    init)
+        shift
+        exec desk-init "$@"
+        ;;
+    overwatch)
+        shift
+        exec desk-overwatch "$@"
+        ;;
+    ports)
+        shift
+        exec desk-ports "$@"
+        ;;
+    dispatch)
+        shift
+        exec desk-dispatch "$@"
+        ;;
+    tripwire)
+        shift
+        exec desk-tripwire "$@"
+        ;;
+    bouncer)
+        shift
+        exec desk-bouncer "$@"
+        ;;
+    sentry-audit)
+        shift
+        exec desk-sentry-audit "$@"
+        ;;
+    knock)
+        shift
+        exec desk-knock "$@"
+        ;;
+    deadman)
+        shift
+        exec desk-deadman "$@"
+        ;;
+    usb)
+        shift
+        exec desk-usb "$@"
+        ;;
+    jail)
+        shift
+        exec desk-jail "$@"
+        ;;
+    mac)
+        shift
+        exec desk-mac "$@"
+        ;;
+    vault)
+        shift
+        exec desk-pass "$@"   # desk-vault is the compiled in-RAM store
+        ;;
+    fingerprint|fp)
+        shift
+        exec desk-fingerprint "$@"
+        ;;
+    vpn)
+        shift
+        exec desk-vpn "$@"
+        ;;
+    offline)
+        shift
+        exec desk-offline "$@"
+        ;;
+    harden)
+        shift
+        exec desk-harden "$@"
+        ;;
+    firewall)
+        shift
+        exec desk-firewall "$@"
+        ;;
+    cafe|cafe-mode)
+        shift
+        exec desk-cafe "$@"
+        ;;
+    spa)
+        shift
+        exec desk-spa "$@"
+        ;;
+    dns-shield|dns)
+        shift
+        exec desk-dns-shield "$@"
+        ;;
+    snitch)
+        shift
+        exec desk-snitch "$@"
+        ;;
+    honeypot)
+        shift
+        exec desk-honeypot "$@"
+        ;;
+    arm|lockdown-all)
+        shift
+        exec desk-arm "$@"
+        ;;
+    proximity)
+        shift
+        exec desk-proximity "$@"
+        ;;
+    backup)
+        shift
+        exec desk-backup "$@"
+        ;;
+    honey)
+        shift
+        exec desk-honey "$@"
+        ;;
+    audit-timer)
+        shift
+        exec audit-timer "$@"
+        ;;
+    build-verify)
+        shift
+        exec build-verify "$@"
+        ;;
+    allowlist)
+        shift
+        exec desk-allowlist "$@"
+        ;;
+    dnssec)
+        shift
+        exec desk-dnssec "$@"
+        ;;
+    sec|security)
+        shift
+        exec desk-sec "$@"
+        ;;
+    audit|lynis)
+        shift
+        exec desk-audit "$@"
+        ;;
+    cheatsheet)
+        shift
+        exec desk-cheatsheet "$@"
+        ;;
+    hw-info|hwinfo)
+        shift
+        exec hw-info "$@"
+        ;;
+    new-project|new)
+        shift
+        exec new-project "$@"
+        ;;
+    # AI sub-namespace: `desk ai <sub>` → fox-ai-<sub>. Lets `desk ai status`,
+    # `desk ai commit`, `desk ai bench` etc. route without listing every
+    # subcommand individually.
+    ai)
+        shift
+        sub="${1:-status}"
+        shift 2>/dev/null || true
+        if [[ -n "$(tool_for "ai-$sub")" ]]; then
+            exec "$(tool_for "ai-$sub")" "$@"
+        else
+            echo "Unknown 'desk ai' subcommand: $sub" >&2
+            echo "Available:" >&2
+            for f in "$HOME/.local/bin/"ai-*; do
+                [[ -x "$f" ]] && printf "  desk ai %s\n" "${f##*/fox-ai-}" >&2
+            done
+            exit 1
+        fi
+        ;;
+    # Distro sub-namespace: `fox distro <sub>` → fox-distro-<sub>.
+    distro)
+        shift
+        sub="${1:-guide}"
+        shift 2>/dev/null || true
+        if [[ -n "$(tool_for "distro-$sub")" ]]; then
+            exec "$(tool_for "distro-$sub")" "$@"
+        else
+            echo "Unknown 'fox distro' subcommand: $sub" >&2
+            echo "Available: build, flash, guide" >&2
+            exit 1
+        fi
+        ;;
+    help|--help|-h)
+        # `desk help <command>` → forward to the tool's own help.
+        # `desk help --ai <command>` → AI deep-dive into the command's logic.
+        use_ai=false
+        sub=""
+
+        # Check for --ai in any position
+        for arg in "$@"; do
+            if [[ "$arg" == "--ai" ]]; then use_ai=true; fi
+        done
+
+        # Identify the subcommand
+        if [[ "$1" == "help" || "$1" == "--help" || "$1" == "-h" ]]; then
+            shift
+            if [[ "$1" == "--ai" ]]; then shift; fi
+            sub="${1:-}"
+        fi
+
+        if [[ -n "$sub" ]]; then
+            if $use_ai; then
+                # Find the source code for this command
+                src_path=""
+                if [[ -f "$FOXML_DIR/shared/bin/desk-$sub" ]]; then
+                    src_path="$FOXML_DIR/shared/bin/desk-$sub"
+                elif [[ -f "$FOXML_DIR/shared/bin/$sub" ]]; then
+                    src_path="$FOXML_DIR/shared/bin/$sub"
+                elif [[ -d "$FOXML_DIR/src/desk-$sub" ]]; then
+                    # Check for C++ source
+                    src_path=$(find "$FOXML_DIR/src/desk-$sub" -name "*.cpp" | head -n 1)
+                elif [[ -f "$FOXML_DIR/src/desk-intel/$sub.cpp" ]]; then
+                    src_path="$FOXML_DIR/src/desk-intel/$sub.cpp"
+                fi
+
+                if [[ -n "$src_path" ]]; then
+                    echo -e "\033[1;32m[Fox Brain: Analyzing source for '$sub'...]\033[0m"
+                    ai-explain "$src_path"
+                    exit 0
+                else
+                    echo "Error: Could not find source code for '$sub' to explain." >&2
+                    exit 1
+                fi
+            fi
+
+            # Standard help routing
+            case "$sub" in
+                fp|fingerprint)     exec desk-fingerprint --help ;;
+                dns|dns-shield)     exec desk-dns-shield --help ;;
+                cafe|cafe-mode)     exec desk-cafe --help ;;
+                sec|security)       exec desk-sec --help ;;
+                install|setup)      exec "$FOXML_DIR/install.sh" --help ;;
+                *)
+                    if [[ -n "$(tool_for "$sub")" ]]; then
+                        exec "$(tool_for "$sub")" --help
+                    else
+                        echo "no per-command help for: $sub"
+                        echo "(run \`desk help\` for the full overview)"
+                        exit 2
+                    fi
+                    ;;
+            esac
+        fi
+        ;&    # fall through to the overview block
+    "")
+        echo "Linux_Theme CLI - Unified Theme Manager"
+        echo "Usage: fox <command> [args]"
+        echo ""
+        echo "Core Commands:"
+        echo "  install [theme]  Run the main installer (e.g., desk install FoxML_Classic --deps)"
+        echo "  swap [theme]     Switch theme (interactive picker if no name given)"
+        echo "  tweak [flags]    Live-edit active theme aesthetics (--primary, --rounding, etc.)"
+        echo "  update           Save current live config edits back into templates"
+        echo "  rollback         Restore configs from a previous backup"
+        echo "  lock             Pre-checked screen lock (dbus/awww sanity + hyprlock)"
+        echo "  doctor           Diagnose config drift (nvim, hyprland, waybar, multi-monitor)"
+        echo "  develop          Toggle dev mode (symlink shared/ → live config for fast iteration)"
+        echo "  menu             Quickshell launcher for all desk commands"
+        echo "  test             Run shellcheck + roundtrip + desk-doctor (CI gate)"
+        echo "  uninstall        Remove fox binaries + services + state (keeps user configs)"
+        echo "  sandbox          Quickshell picker for disposable firejail-wrapped apps"
+        echo "  init <name>      Open workspace + tmux + nvim + index (one-touch project onboarding)"
+        echo "  overwatch        Inspect/reset the waybar Hardware Overwatch baseline"
+        echo "  ports            UFW port manager (list / listeners / audit / allow / deny / delete)"
+        echo "  dispatch         Send a notification to phone via Discord/Telegram webhook"
+        echo "  tripwire         Honeypot-file watcher (--install / --status / --uninstall)"
+        echo "  bouncer          USB-block alerts while screen locked (--install / --status)"
+        echo "  sentry-audit     Kernel-level honeypot via auditd (--install / --status)"
+        echo "  knock            Port knocking configurator + trigger (--setup / --status / --reveal)"
+        echo "  deadman          USB-tethered panic trigger (--setup / --status / --disarm)"
+        echo "  usb              USBGuard wrapper (list / pending / allow / block / refresh / watch)"
+        echo "  jail             Firejail manager (add/rm wrappers, list sandboxes, restart firefox)"
+        echo "  mac              NetworkManager MAC randomization (global + per-SSID overrides)"
+        echo "  vault            Password store (pass) wrapper — init / lock / audit"
+        echo "  fingerprint      fprintd wrapper — enroll / delete / test / status"
+        echo "  vpn              WireGuard manager + UFW kill-switch (up / down / killswitch)"
+        echo "  offline          Run a command in a network-blackholed namespace (untrusted code sandbox)"
+        echo "  harden           Toggle kernel/userspace hardening layers (hidepid/noexec/iommu/coredumps)"
+        echo "  firewall         Egress filtering — desk firewall lockdown / unlock / allow <port>"
+        echo "  cafe             Auto-tighten on untrusted wifi (NetworkManager dispatcher)"
+        echo "  spa              Single Packet Authorization (fwknop) — replay-immune SSH gating"
+        echo "  dns-shield       Local DNS sinkhole — StevenBlack blocklist via /etc/hosts"
+        echo "  snitch           OpenSnitch per-app outbound firewall (--enable / --status / log)"
+        echo "  honeypot         Cowrie SSH honeypot (--enable / --status / log)"
+        echo "  arm              One-command lockdown — enable every opt-in defense interactively"
+        echo "  proximity        Bluetooth proximity auto-lock (--setup / --status / --disable)"
+        echo "  backup           GPG-encrypted tar of opt-in config (--list / --restore)"
+        echo "  honey            Plant fake-credential honeytokens in repo dirs (audited)"
+        echo "  audit-timer      Weekly desk doctor drift check + phone alert (--install)"
+        echo "  build-verify     Reproducible-build record/verify for C++ projects"
+        echo "  allowlist        fapolicyd executable allowlist (--enable / --enforce / --learn)"
+        echo "  dnssec           DNSSEC strictness picker — desk dnssec 0/1/2 or off/relaxed/strict"
+        echo "  sec              Unified security dashboard (alerts, posture, bans, listeners, failed auth)"
+        echo "  audit            Run lynis hardening audit — score (0-100) + suggestions"
+        echo ""
+        echo "Per-command help: desk help <command>   (e.g. desk help dispatch)"
+        echo ""
+        echo "Custom Tools (found in ~/.local/bin):"
+        for cmd in "$HOME/.local/bin/"desk-* "$HOME/.local/bin/"fask "$HOME/.local/bin/"findex "$HOME/.local/bin/"fhelp; do
+            if [[ -x "$cmd" && -f "$cmd" && "$(basename "$cmd")" != "desk-rollback" && "$(basename "$cmd")" != "desk" && "$(basename "$cmd")" != "desk-legacy" ]]; then
+                base="$(basename "$cmd")"
+                desc=""
+                if [[ "$base" == "fask" ]]; then
+                    desc="Query the local AI tools (AI model)"
+                elif [[ "$base" == "findex" ]]; then
+                    desc="Rebuild the vector index for AI semantic search"
+                else
+                    desc=$(sed -n '2p' "$cmd" 2>/dev/null | grep '^#' | sed -E 's/^#[[:space:]]*[^—-]+[—-]+[[:space:]]*//')
+                fi
+                if [[ -n "$desc" && "$desc" != "#"* ]]; then
+                    printf "  %-22s %s\n" "$base" "$desc"
+                else
+                    printf "  %-22s\n" "$base"
+                fi
+            fi
+        done
+        echo ""
+        echo "Run 'desk help' to show this message again."
+        ;;
+    *)
+        # Auto-route: if `fox-<arg>` exists on PATH, exec it. Means new
+        # tools added to shared/bin/ become accessible as `fox <name>`
+        # without having to register them here. Falls through to the
+        # error only when nothing matches.
+        if [[ -n "$(tool_for "$1")" ]]; then
+            tool="$(tool_for "$1")"; shift
+            exec "$tool" "$@"
+        fi
+        echo "Unknown command: $1"
+        echo "Run 'desk help' for usage."
+        exit 1
+        ;;
+esac

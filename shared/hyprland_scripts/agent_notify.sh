@@ -241,8 +241,8 @@ fi
 # swallowed so a transient D-Bus issue (e.g. agent started outside the
 # graphical session) doesn't paint a hook error in the TUI; details land
 # in $LOG_FILE if you need them.
-if [[ "$src" == claude && ( "$event" == stop || "$event" == notification ) ]] && command -v fox-work-notice >/dev/null 2>&1; then
-    fox-work-notice agent "$src_label" "$title" "$body" "$cwd" "$tmux_pane" "$event" 2>>"$LOG_FILE" || true
+if [[ "$src" == claude && ( "$event" == stop || "$event" == notification ) ]] && command -v work-notice >/dev/null 2>&1; then
+    work-notice agent "$src_label" "$title" "$body" "$cwd" "$tmux_pane" "$event" 2>>"$LOG_FILE" || true
 elif command -v notify-send >/dev/null 2>&1; then
     notify-send -a "$src_label" -u "$urgency" -i dialog-information \
         "$title" "$body" 2>>"$LOG_FILE" || true

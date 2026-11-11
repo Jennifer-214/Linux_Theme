@@ -1,7 +1,7 @@
 # ─── Modern tool replacements ─────────────────
 eza() {
-    if [[ ${FOXML_PAPER_LISTING:-0} == 1 && -x "$HOME/.local/bin/fox-eza" ]]; then
-        env -u LS_COLORS -u EXA_COLORS EZA_COLORS=reset "$HOME/.local/bin/fox-eza" "$@"
+    if [[ ${FOXML_PAPER_LISTING:-0} == 1 && -x "$HOME/.local/bin/desk-eza" ]]; then
+        env -u LS_COLORS -u EXA_COLORS EZA_COLORS=reset "$HOME/.local/bin/desk-eza" "$@"
     else
         command eza "$@"
     fi
@@ -74,7 +74,7 @@ alias flush='~/.contextai/src/flush_llm_cache.sh'
 function '??'() {
   local prompt="$*"
   echo "Thinking..."
-  local cmd=$(fox-llm-run "Return ONLY the linux command (no explanation, no markdown) to do the following: $prompt")
+  local cmd=$(llm-run "Return ONLY the linux command (no explanation, no markdown) to do the following: $prompt")
   echo -e "\n\033[1;32m$cmd\033[0m\n"
   read -p "Run this command? [y/N] " -n 1 -r
   echo ""
@@ -111,21 +111,21 @@ pi() {
 # Linux_Theme short-hand
 alias fask='fask'
 alias findex='findex'
-alias fcommit='fox-ai-commit'
-alias fstatus='fox-ai-status'
-alias ffind='fox-ai-find'
-alias flog='fox-ai-log'
-alias fpurge='fox-ai-purge'
-alias fquick='fox-ai-quick'
-alias fswap='fox-ai-swap'
-alias fproject='fox-new-project'
-alias fbench='fox-ai-bench'
-alias fdistro='fox-distro-guide'
-alias fbuild='fox-distro-build'
-alias fflash='fox-distro-flash'
+alias fcommit='ai-commit'
+alias fstatus='ai-status'
+alias ffind='ai-find'
+alias flog='ai-log'
+alias fpurge='ai-purge'
+alias fquick='ai-quick'
+alias fswap='ai-swap'
+alias fproject='new-project'
+alias fbench='ai-bench'
+alias fdistro='distro-guide'
+alias fbuild='distro-build'
+alias fflash='distro-flash'
 alias fhelp='fhelp'
-alias fwc='fox-word-count'
-alias word-count='fox-word-count'
+alias fwc='word-count'
+alias word-count='word-count'
 alias f-on='systemctl --user start fox-llm-server.service && echo "The local model is online."'
 alias f-off='systemctl --user stop fox-llm-server.service && echo "The local model is offline."'
 
@@ -211,7 +211,7 @@ fox-clean() {
     echo -e "\n✨ Cleanup complete! Stay earthy."
 }
 
-# fox-fingerprint lives at ~/.local/bin/fox-fingerprint (deployed from
-# shared/bin) and is also reachable as `fox sec fingerprint`. No alias —
+# desk-fingerprint lives at ~/.local/bin/desk-fingerprint (deployed from
+# shared/bin) and is also reachable as `desk sec fingerprint`. No alias —
 # one here would shadow that safe wrapper with a PAM-editing script. All
-# PAM wiring (sudo/greetd) is done by fox-install modules, never a helper.
+# PAM wiring (sudo/greetd) is done by desk-install modules, never a helper.

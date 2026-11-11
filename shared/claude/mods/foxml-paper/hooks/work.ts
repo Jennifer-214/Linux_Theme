@@ -4,17 +4,17 @@ import type { CiRun, GitLook, WorkJob, WorkLook, WorkTest } from '../types'
 export function shellQuote(s: string): string { return "'" + s.replace(/'/g, "'\\''") + "'" }
 // A build, test or download is the command a segment starts with, not a word it mentions:
 // "rg foo cmake/ tests/" is a search, "cd src && make" and "python3 -B tests/test_x.py" are jobs.
-const RUNNER = /^(?:(?:make|ninja|cmake|ctest|pytest|cargo|meson|curl|wget|aria2c|fox-llm-update)\b|(?:npm|pnpm|bun|go) (?:run )?(?:test|build)\b|python3? (?:-\S+ )*-m (?:unittest|pytest)\b|(?:python3?|node|bun) (?:-\S+ )*[\w.~\/-]*(?:test_\w+|\w+_test|\w+\.test)\.\w+|[\w.~\/-]*\/(?:test_\w+|\w+_test)\b)/
+const RUNNER = /^(?:(?:make|ninja|cmake|ctest|pytest|cargo|meson|curl|wget|aria2c|llm-update)\b|(?:npm|pnpm|bun|go) (?:run )?(?:test|build)\b|python3? (?:-\S+ )*-m (?:unittest|pytest)\b|(?:python3?|node|bun) (?:-\S+ )*[\w.~\/-]*(?:test_\w+|\w+_test|\w+\.test)\.\w+|[\w.~\/-]*\/(?:test_\w+|\w+_test)\b)/
 const PREFIX = /^(?:\w+=\S*\s+|command\s+|env\s+|nice\s+|timeout\s+(?:-\S+\s+)*\S+\s+)+/
 // A heredoc's body is text the command reads, not commands: an edit script naming tests/test_x.py runs no test.
 export function withoutHeredocs(command: string): string {
   return command.replace(/<<-?\s*(['"]?)(\w+)\1[^\n]*\n[\s\S]*?(?:\n[ \t]*\2[ \t]*(?=\n|$)|$)/g, '<<$2')
 }
 export function canTrack(command: string): boolean {
-  return command.length <= 4000 && !/^\s/.test(command) && !/&\s*$/.test(command) && !/fox-work|\bfjob\b|password|token|secret|authorization|\bpass\b|\bsudo\b|\bexport\b|sk-|ghp_| -u |--user /i.test(command)
+  return command.length <= 4000 && !/^\s/.test(command) && !/&\s*$/.test(command) && !/desk-work|\bfjob\b|password|token|secret|authorization|\bpass\b|\bsudo\b|\bexport\b|sk-|ghp_| -u |--user /i.test(command)
     && withoutHeredocs(command).split(/&&|\|\||[;|\n()]/).some(part => RUNNER.test(part.trim().replace(PREFIX, '')))
 }
-// The command runs exactly as written (so auto mode reviews what really runs); fox-work only records it around the call.
+// The command runs exactly as written (so auto mode reviews what really runs); desk-work only records it around the call.
 export function beginArgs(command: string, root: string, session: string, title = ''): string[] {
   const named = title.trim() && !title.includes('\n') ? ['--title', title.trim().slice(0, 160)] : []
   return ['begin', '--root', root, '--session', session, '--pid', 'parent', '--command', command, ...named]
@@ -103,7 +103,7 @@ export function turnLabel(turn: { started: number; step: string } | null | undef
   const took = minutes < 1 ? 'working' : minutes < 60 ? `working ${minutes}m` : `working ${Math.floor(minutes / 60)}h ${minutes % 60}m`
   return '◷ ' + took + (turn.step ? ' · ' + turn.step : '')
 }
-// Markdown checkboxes outside code fences, counted the way fox-work's plan output counts them.
+// Markdown checkboxes outside code fences, counted the way desk-work's plan output counts them.
 export function planProgress(text: string): { done: number; total: number } {
   let done = 0, total = 0, fence = false
   for (const line of text.split('\n')) {
@@ -132,7 +132,7 @@ export function jobPace(job: WorkJob): { fraction: number; left: string } | { la
   if (left <= 0) return { late: true }
   return { fraction: job.elapsed / estimate, left: left < 60 ? 'under a minute left' : `about ${Math.round(left / 60)}m left` }
 }
-// fox-work finish says how many runs of this command failed in a row before; a pass after two or more is a recovery.
+// desk-work finish says how many runs of this command failed in a row before; a pass after two or more is a recovery.
 export function greenAgain(finished: string | null): boolean {
   try {
     const value = JSON.parse(finished ?? 'null') as { ok?: boolean; state?: string; testRun?: boolean; failedBefore?: number } | null
@@ -141,7 +141,7 @@ export function greenAgain(finished: string | null): boolean {
 }
 export async function work($: EngineInterface, args: string[], stdin?: string): Promise<string | null> {
   try {
-    const out = await $.process.run(['fox-work', ...args], { timeoutMs: 10000, ...(stdin === undefined ? {} : { stdin }) })
+    const out = await $.process.run(['desk-work', ...args], { timeoutMs: 10000, ...(stdin === undefined ? {} : { stdin }) })
     return out.exitCode === 0 ? out.stdout : null
   } catch { return null }
 }

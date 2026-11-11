@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""tests/test_fox_legacy.py — the flat fox commands once the compiled fox owns ~/.local/bin/fox (installer audit
-2026-10-15). The compiled fox hands anything that isn't a namespace to shared/bin/fox-legacy, which keeps the old
-meanings (`fox vault` is the pass wrapper fox-pass, not the compiled in-RAM fox-vault) and finds the clone that
+"""tests/test_fox_legacy.py — the flat fox commands once the compiled fox owns ~/.local/bin/desk (installer audit
+2026-10-15). The compiled fox hands anything that isn't a namespace to shared/bin/desk-legacy, which keeps the old
+meanings (`desk vault` is the pass wrapper desk-pass, not the compiled in-RAM desk-vault) and finds the clone that
 `make install` recorded.
 
-Runs the built src/fox/fox and the real fox-legacy with stub fox-* tools, a throwaway $HOME and a PATH the test
+Runs the built src/desk/desk and the real desk-legacy with stub fox-* tools, a throwaway $HOME and a PATH the test
 controls.
 """
 import os
@@ -15,8 +15,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-FOX = ROOT / "src/fox/fox"
-LEGACY = ROOT / "shared/bin/fox-legacy"
+FOX = ROOT / "src/desk/desk"
+LEGACY = ROOT / "shared/bin/desk-legacy"
 
 
 def stub(path, body):
@@ -24,7 +24,7 @@ def stub(path, body):
     path.chmod(0o755)
 
 
-@unittest.skipUnless(FOX.exists(), "src/fox/fox not built (make)")
+@unittest.skipUnless(FOX.exists(), "src/desk/desk not built (make)")
 class FoxLegacyTest(unittest.TestCase):
     def setUp(self):
         base = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))   # not /tmp: noexec
@@ -35,10 +35,10 @@ class FoxLegacyTest(unittest.TestCase):
             d.mkdir(parents=True)
         (self.home / ".local/share/foxml/repo-dir").write_text(f"{self.clone}\n")
         stub(self.clone / "update.sh", 'echo "clone update.sh:$*"')
-        os.symlink(LEGACY, self.bin / "fox-legacy")
-        stub(self.bin / "fox-pass", 'echo "fox-pass:$*"')
-        stub(self.bin / "fox-vault", 'echo "compiled fox-vault:$*"')
-        stub(self.bin / "fox-vpn", 'echo "fox-vpn:$*"')
+        os.symlink(LEGACY, self.bin / "desk-legacy")
+        stub(self.bin / "desk-pass", 'echo "desk-pass:$*"')
+        stub(self.bin / "desk-vault", 'echo "compiled desk-vault:$*"')
+        stub(self.bin / "desk-vpn", 'echo "desk-vpn:$*"')
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -50,11 +50,11 @@ class FoxLegacyTest(unittest.TestCase):
 
     def test_vault_is_the_pass_wrapper(self):
         rc, out = self.fox("vault", "init")
-        self.assertEqual((rc, out.strip()), (0, "fox-pass:init"))
+        self.assertEqual((rc, out.strip()), (0, "desk-pass:init"))
 
     def test_flat_command_and_its_help(self):
-        self.assertEqual(self.fox("vpn", "--status"), (0, "fox-vpn:--status\n"))
-        self.assertEqual(self.fox("help", "vpn"), (0, "fox-vpn:--help\n"))
+        self.assertEqual(self.fox("vpn", "--status"), (0, "desk-vpn:--status\n"))
+        self.assertEqual(self.fox("help", "vpn"), (0, "desk-vpn:--help\n"))
 
     def test_unknown_name_is_reported_by_fox_legacy(self):
         rc, out = self.fox("nosuch")
@@ -75,20 +75,20 @@ class FoxLegacyTest(unittest.TestCase):
         self.assertEqual(self.fox("update", "y"), (0, "default update.sh:y\n"))
 
     def test_without_fox_legacy_the_leaf_still_runs(self):
-        (self.bin / "fox-legacy").unlink()
-        self.assertEqual(self.fox("vpn", "x"), (0, "fox-vpn:x\n"))
+        (self.bin / "desk-legacy").unlink()
+        self.assertEqual(self.fox("vpn", "x"), (0, "desk-vpn:x\n"))
         rc, out = self.fox("nosuch")
         self.assertEqual(rc, 2)
         self.assertIn("unknown namespace 'nosuch'", out)
 
     def test_help_names_fox_and_leaves_itself_out(self):
-        os.symlink(LEGACY, self.home / ".local/bin/fox-legacy")
-        stub(self.home / ".local/bin/fox-pass", "# fox-pass — pass (password store) wrapper")
+        os.symlink(LEGACY, self.home / ".local/bin/desk-legacy")
+        stub(self.home / ".local/bin/desk-pass", "# desk-pass — pass (password store) wrapper")
         rc, out = self.fox("help", prog=LEGACY)
         self.assertEqual(rc, 0)
-        self.assertIn("Per-command help: fox help <command>", out)
-        self.assertIn("fox-pass", out)
-        self.assertNotIn("fox-legacy", out)
+        self.assertIn("Per-command help: desk help <command>", out)
+        self.assertIn("desk-pass", out)
+        self.assertNotIn("desk-legacy", out)
 
 
 if __name__ == "__main__":

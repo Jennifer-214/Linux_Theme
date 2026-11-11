@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# desk-cafe — Café Mode. Auto-tighten the security posture when the
+# laptop connects to an untrusted SSID.
+#
+# A NetworkManager dispatcher script triggers on connect/disconnect.
+# Known-trusted SSIDs (your home, work) → relaxed posture.
+# Anything else → Café Mode:
+#   • MAC randomization on (per-connection)
+#   • UFW egress lockdown (default-deny outgoing + curated allowlist)
+#   • DNS pinned to 127.0.0.53 (systemd-resolved DoH)
+#   • notify-send + desk-dispatch alert
+#
+# Config: ~/.config/foxml/cafe.conf
+#   TRUSTED_SSIDS="home-wifi 'work guest' dorm-A"
+#   AUTO_VPN=yes/no
+#   AUTO_LOCKDOWN=yes/no
+
+set -u
+C_GRN=$'\e[32m'; C_YEL=$'\e[33m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
+
+# The `enable` path writes a NetworkManager dispatcher that runs as
+# root. We bake $USER into it at generation time, so a poisoned env
+# would have us writing root-executed shell with attacker-chosen text.
+# Refuse to proceed if $USER doesn't look like a real login name.
+if [[ ! "${USER:-}" =~ ^[A-Za-z_][A-Za-z0-9_-]{0,31}$ ]]; then
+    echo "desk-cafe: refusing to run — \$USER='$USER' is not a valid login name" >&2
+    exit 1
+fi
+
+CONF_DIR="$HOME/.config/foxml"
+CONF="$CONF_DIR/cafe.conf"
+DISPATCHER=/etc/NetworkManager/dispatcher.d/99-foxml-cafe
+
+_load() {
+    TRUSTED_SSIDS=""; AUTO_VPN=no; AUTO_LOCKDOWN=yes
+    [[ -f "$CONF" ]] || return 1
+    # shellcheck disable=SC1090
+    source "$CONF"
+    return 0
+}
+
+_setup() {
+    mkdir -p "$CONF_DIR" && chmod 700 "$CONF_DIR"
+    echo "${C_BOLD:-}desk cafe — setup${C_RST}"
+    echo
+    echo "  List the SSIDs you trust (home wifi, work, dorm). Anything"
+    echo "  else triggers Café Mode automatically."
+    echo "  Quote SSIDs with spaces. Example: home-wifi 'work guest'"
+    echo
+    local ssids
+    read -rp "  trusted SSIDs: " ssids
+    local auto_vpn auto_lockdown
+    read -rp "  auto-enable VPN kill-switch on untrusted? [y/N] " -n 1 -r auto_vpn; echo
+    read -rp "  auto-enable egress lockdown on untrusted? [Y/n] " -n 1 -r auto_lockdown; echo
+    [[ "$auto_vpn"      =~ ^[Yy]$ ]] && AUTO_VPN=yes      || AUTO_VPN=no
+    [[ "$auto_lockdown" =~ ^[Nn]$ ]] && AUTO_LOCKDOWN=no  || AUTO_LOCKDOWN=yes
+    ( umask 077
+      cat > "$CONF" <<EOF
+# foxml-managed
+TRUSTED_SSIDS=$(printf '%q' "$ssids")
+AUTO_VPN=$AUTO_VPN
+AUTO_LOCKDOWN=$AUTO_LOCKDOWN
+EOF
+    )
+    chmod 600 "$CONF"
+
+    # Drop the NM dispatcher. NetworkManager invokes scripts under
+    # /etc/NetworkManager/dispatcher.d on connect/disconnect events.
+    sudo tee "$DISPATCHER" >/dev/null <<EOF
+#!/bin/bash
+# foxml-managed — Café Mode trigger.
+INTERFACE="\$1"
+EVENT="\$2"
+[[ "\$EVENT" == "up" ]] || exit 0
+[[ "\$INTERFACE" == wl* ]] || exit 0
+
+USER_HOME=$(getent passwd ${USER} | cut -d: -f6)
+CONF="\$USER_HOME/.config/foxml/cafe.conf"
+[[ -r "\$CONF" ]] || exit 0
+. "\$CONF"
+
+SSID=\$(iwgetid -r 2>/dev/null)
+[[ -z "\$SSID" ]] && exit 0
+
+trusted=0
+for t in \$TRUSTED_SSIDS; do
+    [[ "\$SSID" == "\$t" ]] && trusted=1 && break
+done
+
+if (( trusted )); then
+    logger -t foxml-cafe "trusted SSID '\$SSID' — relaxed posture"
+    su -l ${USER} -c "/home/${USER}/.local/bin/desk-dispatch 'cafe-mode' 'left cafe mode (trusted: \$SSID)'" 2>/dev/null || true
+else
+    logger -t foxml-cafe "UNTRUSTED SSID '\$SSID' — engaging Café Mode"
+    [[ "\$AUTO_LOCKDOWN" == "yes" ]] && /home/${USER}/.local/bin/desk-firewall lockdown <<< y 2>/dev/null || true
+    su -l ${USER} -c "/home/${USER}/.local/bin/desk-dispatch 'cafe-mode' 'entered cafe mode (untrusted: \$SSID)'" 2>/dev/null || true
+fi
+EOF
+    sudo chmod 0755 "$DISPATCHER"
+    echo "${C_GRN}✓ dispatcher installed at $DISPATCHER${C_RST}"
+    echo "${C_GRN}✓ trusted: ${ssids:-(none)}${C_RST}"
+}
+
+_status() {
+    if [[ -f "$DISPATCHER" ]] && [[ -f "$CONF" ]]; then
+        _load
+        echo "  ${C_GRN}cafe mode: armed${C_RST}"
+        echo "  trusted:        $TRUSTED_SSIDS"
+        echo "  auto-vpn:       $AUTO_VPN"
+        echo "  auto-lockdown:  $AUTO_LOCKDOWN"
+        echo "  current SSID:   $(iwgetid -r 2>/dev/null || echo '(not connected)')"
+    else
+        echo "  ${C_YEL}cafe mode: not configured${C_RST}"
+        echo "  set up:  desk cafe --setup"
+    fi
+}
+
+_disable() {
+    sudo rm -f "$DISPATCHER"
+    rm -f "$CONF"
+    echo "${C_GRN}✓ cafe mode disabled${C_RST}"
+}
+
+case "${1:-}" in
+    ""|status)   _status ;;
+    --setup)     _setup ;;
+    --disable)   _disable ;;
+    -h|--help|help) cat <<EOF
+desk cafe — auto-tighten security on untrusted wifi
+
+  desk cafe [status]   show config + current SSID
+  desk cafe --setup    interactive: trusted SSID list + behavior flags
+  desk cafe --disable  remove dispatcher + config
+
+On untrusted wifi: fires \`desk firewall lockdown\` + dispatches an alert.
+On trusted wifi:   releases lockdown + dispatches "left cafe mode".
+EOF
+    ;;
+    *) echo "unknown: $1" >&2; exit 2 ;;
+esac

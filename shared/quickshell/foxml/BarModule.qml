@@ -42,7 +42,7 @@ Item {
         // While a Claude session asks for you, the pill goes straight to it (`on-click-asking`).
         if (key === "on-click" && spec["on-click-asking"] && module.sample.classes.indexOf("asking") >= 0) command = spec["on-click-asking"];
         if (!command) return;
-        var drawer = String(command).match(/^(?:\S*\/)?fox-desktop-menu\s+(?:--open\s+)?([a-z][a-z0-9-]*)\s*$/);
+        var drawer = String(command).match(/^(?:\S*\/)?desktop-menu\s+(?:--open\s+)?([a-z][a-z0-9-]*)\s*$/);
         if (drawer) controller.showFromBar(drawer[1], panel.screen.name, name); else dataSource.invoke(command, name);
     }
     Loader {

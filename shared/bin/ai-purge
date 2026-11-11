@@ -1,0 +1,10 @@
+#!/bin/bash
+# ai-purge — free the RAM / VRAM the local models hold: every model llama.cpp's routers have loaded
+# is unloaded (the next request loads its model again; the ghost-text model too, at its next
+# completion). --stop also stops the routers — the desk-ai tools and the agents start them again.
+echo "Purging AI models from memory..."
+llm-run --unload
+if [[ ${1:-} == --stop ]]; then
+    systemctl --user stop fox-llm-server.service fox-llm-server-turbo.service 2>/dev/null
+    echo "+ model servers stopped"
+fi

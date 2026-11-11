@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# desk-cheatsheet — searchable keybind reference in the Paper drawer.
+#
+# Parses KEYBINDS.md tables (which have hand-curated descriptions) and
+# pipes "KEY  →  ACTION" lines into Quickshell. Fuzzy-search for what you
+# need; press Enter and the keybind is copied to your clipboard so you
+# can paste it as a reminder, or just dismiss with Esc.
+#
+# Sources, in priority order:
+#   1. ~/.local/share/foxml/KEYBINDS.md   (deployed by install.sh)
+#   2. ~/code/Linux_Theme/KEYBINDS.md     (developer machine fallback)
+#
+# Usage: desk-cheatsheet                 (full set, all sections)
+#        desk-cheatsheet hyprland        (filter to one section, case-insensitive)
+
+set -euo pipefail
+
+# ───── Locate KEYBINDS.md ──────────────────────────────────────────
+KEYBINDS_FILE=""
+for candidate in \
+    "${HOME}/.local/share/foxml/KEYBINDS.md" \
+    "${HOME}/code/Linux_Theme/KEYBINDS.md"; do
+    if [[ -f "$candidate" ]]; then
+        KEYBINDS_FILE="$candidate"
+        break
+    fi
+done
+
+if [[ -z "$KEYBINDS_FILE" ]]; then
+    notify-send -u critical "desk-cheatsheet" "KEYBINDS.md not found in any expected location"
+    exit 1
+fi
+
+# ───── Optional section filter ─────────────────────────────────────
+FILTER="${1:-}"
+
+# ───── Parse markdown tables ───────────────────────────────────────
+# Recognizes rows of the form:
+#   | `KEY` | DESCRIPTION |
+# while tracking the current `## ` and `### ` headers so each entry
+# carries its section context. Skips header rows (e.g. `| Key | Action |`)
+# and divider rows (e.g. `|-----|--------|`).
+parse_keybinds() {
+    awk -v filter="${FILTER,,}" '
+        /^## / {
+            sub(/^## */, "")
+            section_h2 = $0
+            section = section_h2
+            # Skip filtering once we hit a non-matching section
+            in_filter = (filter == "" || tolower(section_h2) ~ filter)
+            next
+        }
+        /^### / {
+            sub(/^### */, "")
+            section_h3 = $0
+            section = section_h2 " · " section_h3
+            next
+        }
+        # Match: | `key` | description |  (table data row, key in backticks)
+        /^\| `[^`]+` *\|/ {
+            if (!in_filter) next
+            # Extract key between first pair of backticks
+            key = $0
+            sub(/^\| *`/, "", key)
+            sub(/` *\|.*$/, "", key)
+            # Extract description (everything between the second `|` and the closing `|`)
+            desc = $0
+            sub(/^\| *`[^`]+` *\| */, "", desc)
+            sub(/ *\| *$/, "", desc)
+            # Strip markdown emphasis markers from the description
+            gsub(/\*\*/, "", desc)
+            gsub(/`/, "", desc)
+            printf "%s\t%s\t%s\n", key, desc, section
+        }
+    ' "$KEYBINDS_FILE"
+}
+
+ENTRIES="$(parse_keybinds)"
+if [[ -z "$ENTRIES" ]]; then
+    notify-send "desk-cheatsheet" "No keybinds matched filter: ${FILTER:-<none>}"
+    exit 1
+fi
+
+mapfile -t rows <<< "$ENTRIES"
+SELECTED=$(printf '%s\n' "${rows[@]}" | awk -F'\t' '{print $1 "   →   " $2 "   ·   " $3}' \
+    | desk-picker --title "A little shortcut reference" --index) || exit 0
+[[ "$SELECTED" =~ ^[0-9]+$ ]] && (( SELECTED < ${#rows[@]} )) || exit 1
+KEY="${rows[$SELECTED]%%$'\t'*}"
+if command -v wl-copy >/dev/null 2>&1; then
+    printf '%s' "$KEY" | wl-copy
+    copy_label="Copied: $KEY"
+    palette="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/modules/border_colors.sh"
+    if [[ -r "$palette" ]]; then
+        source "$palette"
+        [[ "${C_LITTLE_DETAILS:-}" == fox-little-details-on ]] && copy_label="$KEY"
+    fi
+    notify-send --category=foxml.copied -t 2500 "desk-cheatsheet" "$copy_label"
+fi

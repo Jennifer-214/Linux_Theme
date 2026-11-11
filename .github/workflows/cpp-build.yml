@@ -24,11 +24,11 @@ jobs:
             libcairo2-dev libpango1.0-dev libglib2.0-dev libgdk-pixbuf-2.0-dev \
             libsystemd-dev libwayland-dev wayland-protocols
 
-      - name: Fetch nlohmann/json header (fox-intel dep)
+      - name: Fetch nlohmann/json header (desk-intel dep)
         run: |
           curl -fsSL \
             https://github.com/nlohmann/json/releases/latest/download/json.hpp \
-            -o src/fox-intel/json.hpp
+            -o src/desk-intel/json.hpp
 
       - name: List discovered tools
         run: make list
@@ -39,14 +39,14 @@ jobs:
       - name: Run unit tests
         run: make test
 
-      - name: Smoke-check fox-install --help
-        run: ./src/fox-install/fox-install --help
+      - name: Smoke-check desk-install --help
+        run: ./src/desk-install/desk-install --help
 
-      - name: Render parity check (fox-render-fast vs render.sh)
+      - name: Render parity check (desk-render-fast vs render.sh)
         run: |
           set -e
           rm -rf /tmp/native /tmp/legacy
-          ./src/fox-render/fox-render-fast \
+          ./src/desk-render/desk-render-fast \
             themes/FoxML_Classic/palette.sh templates /tmp/native > /dev/null
           ./render.sh \
             themes/FoxML_Classic/palette.sh templates /tmp/legacy > /dev/null

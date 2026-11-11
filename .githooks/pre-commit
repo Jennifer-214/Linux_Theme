@@ -2,7 +2,7 @@
 # pre-commit — scan staged changes for secrets and personal identifiers.
 #
 # Activated per-clone with:    git config core.hooksPath .githooks
-# (`fox develop on` does this automatically.)
+# (`desk develop on` does this automatically.)
 #
 # Catches the common leak patterns: private keys, cloud / SaaS tokens,
 # absolute $HOME paths, personal email addresses. Bypass for a known

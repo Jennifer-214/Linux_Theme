@@ -1,4 +1,4 @@
-"""fox theme check end to end: a fake home, the real repo and stand-in commands."""
+"""desk theme check end to end: a fake home, the real repo and stand-in commands."""
 import json
 import os
 from pathlib import Path
@@ -8,11 +8,11 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-CHECK = ROOT / "src/fox-theme-check/fox-theme-check"
-RENDER = ROOT / "src/fox-render/fox-render-fast"
+CHECK = ROOT / "src/theme-check/theme-check"
+RENDER = ROOT / "src/desk-render/desk-render-fast"
 
 
-@unittest.skipUnless(CHECK.exists() and RENDER.exists(), "build fox-theme-check and fox-render-fast first")
+@unittest.skipUnless(CHECK.exists() and RENDER.exists(), "build theme-check and desk-render-fast first")
 class ThemeCheck(unittest.TestCase):
     def setUp(self):
         # Beside the test, not in /tmp: stand-in commands must be executable, and /tmp may be noexec.
@@ -62,7 +62,7 @@ class ThemeCheck(unittest.TestCase):
                                ' foxml-focus-pulse.service) [ "$2" = is-active ] && echo active || echo enabled ;;'
                                ' *) echo inactive ;; esac')
         out = self.run_check("--only", "D9")
-        self.assertIn("foxml-focus-pulse.service still runs beside fox-pulse", out.stdout)
+        self.assertIn("foxml-focus-pulse.service still runs beside desk-pulse", out.stdout)
         self.assertEqual(out.returncode, 1, "a warning")
         self.shim("systemctl", 'case "$3" in fox-pulse.service) [ "$2" = is-enabled ] && echo enabled || echo active ;; *) echo inactive ;; esac')
         self.assertEqual(self.run_check("--only", "D9").returncode, 0)
@@ -79,7 +79,7 @@ class ThemeCheck(unittest.TestCase):
         menus = self.home / ".config/quickshell/foxml/menus.json"
         menus.parent.mkdir(parents=True)
         menus.write_text(json.dumps({"groups": [{"id": "comfort", "items": [{"id": "x", "kind": "page", "page": "slow"}]}]}))
-        drawer = self.home / ".local/bin/fox-drawer"
+        drawer = self.home / ".local/bin/desk-drawer"
         drawer.parent.mkdir(parents=True)
         drawer.write_text('#!/bin/sh\n[ "$2" = slow ] && echo \'{"ok":false,"message":"broken"}\' && exit 1\necho \'{"items":[]}\'\n')
         drawer.chmod(0o755)
@@ -124,10 +124,10 @@ class ThemeCheck(unittest.TestCase):
         lock.write_text("label {\n    monitor = eDP-1\n}\n")
         session = {"HYPRLAND_INSTANCE_SIGNATURE": "test"}
         out = self.run_check("--only", "D13", extra_env=session)
-        self.assertIn("fox-lock-panel is not installed", out.stdout)
+        self.assertIn("lock-panel is not installed", out.stdout)
         moved = self.tmp / "moved.conf"
         moved.write_text("label {\n    monitor = DP-2\n}\n")
-        chooser = self.home / ".local/bin/fox-lock-panel"
+        chooser = self.home / ".local/bin/lock-panel"
         chooser.parent.mkdir(parents=True, exist_ok=True)
         chooser.write_text(f"#!/bin/sh\necho {moved}\n")
         out = self.run_check("--only", "D13", "--verbose", extra_env=session)

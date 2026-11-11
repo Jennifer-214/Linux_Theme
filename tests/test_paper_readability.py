@@ -10,10 +10,10 @@ import tomllib
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-RENDER = ROOT / 'src/fox-render/fox-render-fast'
+RENDER = ROOT / 'src/desk-render/desk-render-fast'
 
 
-@unittest.skipUnless(RENDER.is_file(), 'build fox-render-fast')
+@unittest.skipUnless(RENDER.is_file(), 'build desk-render-fast')
 class PaperReadability(unittest.TestCase):
     @unittest.skipUnless(shutil.which('nvim') and (Path.home()/'.local/share/nvim/lazy/nui.nvim').is_dir(), 'Neovim/NUI not installed')
     def test_rename_callback_cancel_and_footnote_code_exclusion(self):

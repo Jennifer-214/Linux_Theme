@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# desk-pass — pass (password store) wrapper: `desk vault` (was desk-vault; that name is the compiled in-RAM store).
+set -u
+C_GRN=$'\e[32m'; C_YEL=$'\e[33m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
+
+STORE="${PASSWORD_STORE_DIR:-$HOME/.password-store}"
+
+_check_pass() { command -v pass >/dev/null 2>&1 || { echo "${C_RED}pass not installed: sudo pacman -S pass${C_RST}" >&2; return 1; } }
+
+_status() {
+    _check_pass || return 1
+    if [[ ! -d "$STORE" ]]; then
+        echo "  ${C_YEL}vault not initialized — run: desk vault init${C_RST}"
+        return 0
+    fi
+    local key
+    key=$(cat "$STORE/.gpg-id" 2>/dev/null)
+    echo "  store:    ${C_GRN}$STORE${C_RST}"
+    echo "  gpg key:  ${key:-?}"
+    echo "  entries:  $(find "$STORE" -name '*.gpg' 2>/dev/null | wc -l)"
+    # Check gpg-agent cache state.
+    if pgrep -x gpg-agent >/dev/null 2>&1; then
+        echo "  agent:    ${C_GRN}running${C_RST}"
+    else
+        echo "  agent:    ${C_RED}not running${C_RST}"
+    fi
+}
+
+_init() {
+    _check_pass || return 1
+    if [[ -d "$STORE" ]]; then
+        echo "${C_YEL}vault already exists at $STORE${C_RST}"
+        return 0
+    fi
+    local keyid
+    keyid=$(gpg --list-secret-keys --keyid-format=long --with-colons 2>/dev/null | awk -F: '/^sec:/{print $5; exit}')
+    if [[ -z "$keyid" ]]; then
+        echo "${C_YEL}no GPG signing key found — generating one${C_RST}"
+        gpg --quick-generate-key "$USER <${USER}@foxml.local>" ed25519 sign,cert 0
+        keyid=$(gpg --list-secret-keys --keyid-format=long --with-colons | awk -F: '/^sec:/{print $5; exit}')
+    fi
+    pass init "$keyid" && echo "${C_GRN}✓ vault initialised with key $keyid${C_RST}"
+}
+
+_lock() {
+    pkill -HUP gpg-agent 2>/dev/null
+    gpgconf --reload gpg-agent 2>/dev/null
+    echo "${C_GRN}✓ gpg-agent flushed (vault re-prompts on next access)${C_RST}"
+}
+
+_audit() {
+    _check_pass || return 1
+    [[ -d "$STORE" ]] || { echo "${C_RED}no vault${C_RST}" >&2; return 1; }
+    local n_short=0 n_weak=0
+    while IFS= read -r entry; do
+        local name="${entry#$STORE/}"; name="${name%.gpg}"
+        local len
+        len=$(pass show "$name" 2>/dev/null | head -1 | wc -c)
+        if (( len < 13 )); then    # < 12 chars + newline
+            n_short=$((n_short+1))
+            echo "  ${C_YEL}short:${C_RST}  $name  ($((len-1)) chars)"
+        fi
+    done < <(find "$STORE" -name '*.gpg')
+    echo
+    if (( n_short == 0 )); then
+        echo "${C_GRN}✓ no short passwords found${C_RST}"
+    else
+        echo "  total flagged: $n_short  ${C_DIM}(rotate with: pass generate <name> 24)${C_RST}"
+    fi
+}
+
+case "${1:-}" in
+    ""|status)  _status ;;
+    init)       _init ;;
+    lock)       _lock ;;
+    audit)      _audit ;;
+    -h|--help|help) cat <<EOF
+desk vault — pass (password store) wrapper
+
+  desk vault [status]   show store path + key + entry count + agent state
+  desk vault init       initialize the password-store with your GPG key
+                       (generates one if none exists)
+  desk vault lock       flush gpg-agent so next access re-prompts
+  desk vault audit      scan all entries for short (<12 char) passwords
+
+Direct pass commands still work — this is just a friendlier surface
+for the most common operations.
+EOF
+    ;;
+    *) echo "unknown: $1" >&2; exit 2 ;;
+esac

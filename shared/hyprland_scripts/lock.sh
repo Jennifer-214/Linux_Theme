@@ -1,13 +1,13 @@
 #!/bin/bash
 
-# Lock launcher — prefers fox-lock (pre-check wrapper) over bare hyprlock.
-# fox-lock catches wedge precursors (dbus unreachable, awww dead, hyprlock
+# Lock launcher — prefers desk-lock (pre-check wrapper) over bare hyprlock.
+# desk-lock catches wedge precursors (dbus unreachable, awww dead, hyprlock
 # already running) before locking, so the lock screen doesn't hang.
 # Falls through to direct hyprlock, then swaylock, if either is missing.
 # The theme is handled via ~/.config/hypr/hyprlock.conf (templated).
 
-if command -v fox-lock &>/dev/null; then
-    fox-lock
+if command -v desk-lock &>/dev/null; then
+    desk-lock
 elif command -v hyprlock &>/dev/null; then
     hyprlock
 else

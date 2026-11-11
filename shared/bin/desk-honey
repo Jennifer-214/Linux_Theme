@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+# desk-honey — plant a per-repo honeytoken matched by desk-sentry-audit.
+#
+# desk-sentry-audit already watches ~/Documents/aws_production_keys.pem.
+# This drops similar fake-credential files into your other repo dirs
+# (typically ~/code/FoxML_Trader_v2/, ~/code/tick_trader/, etc.) and
+# adds an auditd watch keyed `foxml_honey` for each. Any process that
+# opens one of those files trips the kernel auditd → fires desk-dispatch.
+#
+# Usage:
+#   desk honey                       list active honey files + watches
+#   desk honey plant <dir> [name]    drop a honey file in <dir>; default
+#                                    name: prod_keys.txt
+#   desk honey remove <dir> [name]   remove a honey file + its watch
+#   desk honey plant-all-trading     auto-plant in every ~/code/*trader*
+#                                    + ~/code/tick* directory
+
+set -u
+C_GRN=$'\e[32m'; C_YEL=$'\e[33m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
+
+AUDIT_RULES=/etc/audit/rules.d/99-foxml.rules
+
+_make_honey_content() {
+    # Same approach as desk-sentry-audit: assemble PEM markers at
+    # runtime so the repo never contains the literal pattern.
+    local b1='-----BEGIN' b2='-----END' kind='RSA PRIVATE KEY'
+    local body
+    body=$(head -c 1024 /dev/urandom | base64 | head -c 880)
+    {
+        printf '%s %s-----\n' "$b1" "$kind"
+        printf '# %s production credentials. Rotated quarterly.\n' "$(basename "$1")"
+        printf '#  exchange-account: XCH-100123\n'
+        printf '#  api-key:          XCH-LIVE-456789\n'
+        printf '#  api-secret:       (see env)\n'
+        printf '%s\n' "$body" | fold -w 64
+        printf '%s %s-----\n' "$b2" "$kind"
+    }
+}
+
+_plant() {
+    local dir="$1" name="${2:-prod_keys.txt}"
+    [[ -d "$dir" ]] || { echo "${C_RED}not a directory: $dir${C_RST}" >&2; return 1; }
+    local path="$dir/$name"
+    if [[ -f "$path" ]]; then
+        echo "${C_YEL}already exists: $path (refusing to overwrite)${C_RST}"
+        return 0
+    fi
+    if ! sudo -v 2>/dev/null; then
+        echo "${C_RED}sudo required to add auditd watch${C_RST}" >&2
+        return 1
+    fi
+    _make_honey_content "$dir" > "$path"
+    chmod 600 "$path"
+
+    # Add an auditd watch keyed foxml_honey so desk-sentry-audit picks it up.
+    local rule="-w $path -p r -k foxml_honey"
+    if ! sudo grep -qF "$rule" "$AUDIT_RULES" 2>/dev/null; then
+        echo "$rule" | sudo tee -a "$AUDIT_RULES" >/dev/null
+        sudo augenrules --load >/dev/null 2>&1 || true
+    fi
+    # Add to .gitignore in that dir so it doesn't accidentally get committed.
+    if [[ -d "$dir/.git" ]]; then
+        local gi="$dir/.gitignore"
+        if ! grep -qxF "$name" "$gi" 2>/dev/null; then
+            echo "$name" >> "$gi"
+        fi
+    fi
+    echo "${C_GRN}✓ honey planted: $path${C_RST}"
+    echo "  ${C_DIM}auditd watch: $rule${C_RST}"
+    echo "  ${C_DIM}gitignored:   $name${C_RST}"
+}
+
+_remove() {
+    local dir="$1" name="${2:-prod_keys.txt}"
+    local path="$dir/$name"
+    [[ -f "$path" ]] && rm -f "$path"
+    if sudo -n true 2>/dev/null; then
+        sudo sed -i "\|-w $path -p r -k foxml_honey|d" "$AUDIT_RULES" 2>/dev/null
+        sudo augenrules --load >/dev/null 2>&1 || true
+    fi
+    echo "${C_GRN}✓ removed${C_RST}"
+}
+
+_list() {
+    echo "${C_DIM}Active honey watches (from $AUDIT_RULES):${C_RST}"
+    if sudo -n grep 'foxml_honey' "$AUDIT_RULES" 2>/dev/null; then :;
+    else echo "  ${C_DIM}(sudo cold or no honey watches set)${C_RST}"; fi
+}
+
+_plant_all_trading() {
+    # Resolve target dirs from env / config file / default patterns.
+    # Dedupe via associative array since the default patterns overlap
+    # (a repo matched by both *trader* and FoxML* used to plant twice).
+    local -a patterns=()
+    if [[ -n "${FOX_HONEY_TARGETS:-}" ]]; then
+        read -ra patterns <<<"$FOX_HONEY_TARGETS"
+    elif [[ -f "$HOME/.config/foxml/honey-targets" ]]; then
+        while IFS= read -r line; do
+            [[ "$line" =~ ^[[:space:]]*# ]] && continue
+            [[ -z "$line" ]] && continue
+            patterns+=("$line")
+        done < "$HOME/.config/foxml/honey-targets"
+    else
+        shopt -s nullglob
+        patterns=(
+            "$HOME/code/"*[Tt]rader*
+            "$HOME/code/"tick*
+            "$HOME/code/"FoxML*
+        )
+        shopt -u nullglob
+    fi
+
+    declare -A seen=()
+    local -a dirs=()
+    for d in "${patterns[@]}"; do
+        [[ -d "$d" && -d "$d/.git" ]] || continue
+        local key; key=$(readlink -f "$d")
+        [[ -n "${seen[$key]:-}" ]] && continue
+        seen[$key]=1
+        dirs+=("$d")
+    done
+
+    if (( ${#dirs[@]} == 0 )); then
+        echo "${C_YEL}no matching repo dirs found${C_RST}"
+        echo "  override patterns:"
+        echo "    FOX_HONEY_TARGETS='~/code/dir1 ~/work/dir2' desk honey plant-all-trading"
+        echo "  or persist to ~/.config/foxml/honey-targets (one glob per line):"
+        echo "    ~/code/*Trader*"
+        echo "    ~/work/secret-repo"
+        return 0
+    fi
+    echo "${C_DIM}planting in ${#dirs[@]} repo(s):${C_RST}"
+    for d in "${dirs[@]}"; do _plant "$d"; done
+}
+
+case "${1:-}" in
+    ""|list)             _list ;;
+    plant)               [[ -n "${2:-}" ]] && _plant "$2" "${3:-}" || { echo "usage: desk honey plant <dir> [name]"; exit 2; } ;;
+    remove)              [[ -n "${2:-}" ]] && _remove "$2" "${3:-}" || { echo "usage: desk honey remove <dir> [name]"; exit 2; } ;;
+    plant-all-trading)   _plant_all_trading ;;
+    -h|--help|help) cat <<EOF
+desk honey — plant per-repo honeytokens (audited by desk-sentry-audit)
+
+  desk honey                       list active honey watches
+  desk honey plant <dir> [name]    drop fake creds in <dir>;
+                                  default name: prod_keys.txt
+  desk honey remove <dir> [name]   delete + remove its audit rule
+  desk honey plant-all-trading     auto-plant in ~/code/*trader* +
+                                  ~/code/tick* + ~/code/FoxML*
+
+Anything that reads the planted file fires desk-dispatch via the
+existing desk-sentry-audit kernel watch. Honey content generated at
+runtime (no PEM literal in the repo). Auto-adds to .gitignore so
+the bait doesn't ship with your code.
+EOF
+    ;;
+    *) echo "unknown: $1" >&2; exit 2 ;;
+esac

@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# ai-default — set / inspect the default model used by AI-native tools.
+#
+# Stores the choice at ~/.config/foxml/ai-model.conf. fask, findex, the
+# fox-ai-* helpers, and every FoxIntel-backed C++ binary read this file
+# at startup. FOXAI_MODEL=<name> in the env overrides on a per-run basis.
+#
+# Usage:
+#   ai-default              # interactive picker (the models llama.cpp serves)
+#   ai-default <model>      # set explicitly
+#   ai-default --status     # show current default + installed models
+#   ai-default --unset      # remove the override (back to auto-fallback)
+#   ai-default --help
+#
+# Performance varies by model: smaller (7b/14b) is faster + lower-VRAM,
+# larger (32b/70b) is smarter but slower.
+
+set -u
+CONF_DIR="$HOME/.config/foxml"
+CONF_FILE="$CONF_DIR/ai-model.conf"
+C_GRN=$'\e[32m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
+
+_current() {
+    [[ -f "$CONF_FILE" ]] || return 0
+    grep -E '^MODEL=' "$CONF_FILE" 2>/dev/null | head -1 | sed 's/^MODEL=//; s/^"//; s/"$//'
+}
+
+_have_server() { command -v llm-run >/dev/null 2>&1; }
+
+_installed_models() {
+    _have_server || return 0
+    llm-run --list 2>/dev/null | cut -f1
+}
+
+_write() {
+    local model="$1"
+    mkdir -p "$CONF_DIR"
+    {
+        printf '# Default AI model for fask / findex / fox-ai-* / FoxIntel-backed binaries.\n'
+        printf '# Set by ai-default. Override per-run with FOXAI_MODEL=<name>.\n'
+        printf 'MODEL=%s\n' "$model"
+    } > "$CONF_FILE"
+    printf '  %s+%s default model → %s\n' "$C_GRN" "$C_RST" "$model"
+    printf '  %s+%s config: %s\n' "$C_GRN" "$C_RST" "$CONF_FILE"
+    printf '\n  %sNote:%s performance varies by model. Smaller = faster + less VRAM;\n' "$C_DIM" "$C_RST"
+    printf '        larger = smarter but slower.\n'
+}
+
+_status() {
+    local cur
+    cur="$(_current || true)"
+    if [[ -n "$cur" ]]; then
+        printf '  current default: %s\n' "$cur"
+    else
+        printf '  current default: %s(unset — falls back to the opencode default, then the quick role)%s\n' "$C_DIM" "$C_RST"
+    fi
+    printf '\n  installed models:\n'
+    if _have_server; then
+        local out
+        out="$(llm-run --list 2>/dev/null | awk -F'\t' '{printf "    %s%s\n", $1, ($2 != "" ? "  (" $2 ")" : "")}')"
+        if [[ -n "$out" ]]; then
+            printf '%s\n' "$out"
+        else
+            printf '    %s(none yet — downloading? llm-update --models)%s\n' "$C_DIM" "$C_RST"
+        fi
+    else
+        printf '    %s(no local model server — desk-install --only llama_server)%s\n' "$C_DIM" "$C_RST"
+    fi
+}
+
+case "${1:-}" in
+    --status|-s) _status ;;
+    --unset)
+        rm -f "$CONF_FILE"
+        printf '  %s+%s default unset — falls back to the opencode default, then the quick role\n' "$C_GRN" "$C_RST"
+        ;;
+    --help|-h)
+        sed -n '2,16p' "$0" | sed 's/^# \?//'
+        ;;
+    "")
+        _have_server || { echo "no local model server — run: desk-install --only llama_server" >&2; exit 1; }
+        mapfile -t models < <(_installed_models)
+        if [[ ${#models[@]} -eq 0 ]]; then
+            echo "no models served yet — downloading? llm-update --models" >&2
+            exit 1
+        fi
+        cur="$(_current || true)"
+        printf '  Current default: %s\n\n' "${cur:-(unset)}"
+        printf '  Available models:\n'
+        for i in "${!models[@]}"; do
+            mark=""
+            [[ "${models[$i]}" == "$cur" ]] && mark=" ${C_GRN}●${C_RST}"
+            printf '  %2d) %s%s\n' "$((i+1))" "${models[$i]}" "$mark"
+        done
+        printf '\n'
+        read -rp "  Pick [1-${#models[@]}, q to quit]: " choice
+        case "$choice" in
+            q|Q|"") echo "  cancelled."; exit 0 ;;
+        esac
+        if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#models[@]} )); then
+            _write "${models[$((choice-1))]}"
+        else
+            echo "  invalid choice." >&2; exit 1
+        fi
+        ;;
+    -*)
+        echo "ai-default: unknown flag: $1" >&2
+        echo "Try: ai-default --help" >&2
+        exit 2
+        ;;
+    *)
+        if _have_server && ! _installed_models | grep -qFx "$1"; then
+            printf '  ! %s is not served here — give it a "name user/repo/file.gguf" line in\n    ~/.config/foxml/llm/gguf-models.txt, then: llm-update --models\n' "$1" >&2
+            read -rp "  Continue anyway? [y/N] " yn
+            case "${yn,,}" in
+                y|yes) ;;
+                *) echo "  cancelled."; exit 1 ;;
+            esac
+        fi
+        _write "$1"
+        ;;
+esac

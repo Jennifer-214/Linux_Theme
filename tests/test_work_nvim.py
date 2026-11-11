@@ -9,10 +9,10 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-BIN = ROOT / "src/fox-work/fox-work"
+BIN = ROOT / "src/desk-work/desk-work"
 
 
-@unittest.skipUnless(shutil.which("nvim") and BIN.exists(), "build fox-work and install Neovim first")
+@unittest.skipUnless(shutil.which("nvim") and BIN.exists(), "build desk-work and install Neovim first")
 class WorkNvim(unittest.TestCase):
     def test_review_exit_closes_its_tabs_and_preserves_editor_and_edits(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -172,7 +172,7 @@ W.draft(draft)
 assert(vim.fn.isdirectory(C.runtime() .. '/inbox') == 0, 'opening a draft sent it')
 local original = vim.system
 vim.system = function(argv, opts)
-  if argv[1] == 'fox-drawer' then return {wait=function() return {code=0,stdout=vim.json.encode({{id='abc',name='test session',project='repo',state='waiting'}})} end} end
+  if argv[1] == 'desk-drawer' then return {wait=function() return {code=0,stdout=vim.json.encode({{id='abc',name='test session',project='repo',state='waiting'}})} end} end
   return original(argv, opts)
 end
 local selected = false

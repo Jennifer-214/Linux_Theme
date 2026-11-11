@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# ai-explain — plain-English explanation of code, logs, or errors.
+#
+# Usage: ai-explain path/to/file.cpp
+#        cat foo.log | ai-explain
+#        wl-paste | ai-explain        # explain clipboard contents
+#        ai-explain --about "what does the branchless bitmap do"
+#
+# Reads stdin or a file path; emits a focused explanation. The --about
+# form lets you ask conceptual questions without piping code.
+
+set -u
+
+# llm-run asks the local llama.cpp router and picks the model: FOXAI_MODEL, else ai-default's,
+# else opencode's local default, else the roles file's quick model.
+command -v llm-run >/dev/null 2>&1 || { echo "ai-explain: llm-run not found — run: desk-install --only llama_server" >&2; exit 1; }
+
+content=""
+about=""
+while (( $# > 0 )); do
+    case "$1" in
+        --about) about="$2"; shift ;;
+        --help|-h) sed -n '2,10p' "$0" | sed 's/^# \?//'; exit 0 ;;
+        *)
+            if [[ -f "$1" ]]; then
+                content=$(cat "$1")
+            else
+                content="$1"
+            fi
+            ;;
+    esac
+    shift
+done
+
+if [[ -z "$content" && -z "$about" ]]; then
+    if [[ ! -t 0 ]]; then
+        content=$(cat)
+    else
+        echo "ai-explain: nothing to explain (pass a file, pipe input, or --about)" >&2
+        exit 2
+    fi
+fi
+
+if [[ -n "$about" ]]; then
+    prompt="Explain in plain English: $about
+
+Be concrete and concise. If relevant, mention the trade-offs."
+else
+    prompt="Explain what the following content does, in plain English. Be concrete and concise. Skip line-by-line; focus on the intent, the invariants, and any non-obvious behaviour. If you spot likely bugs, flag them briefly.
+
+CONTENT:
+$content"
+fi
+
+llm-run "$prompt"

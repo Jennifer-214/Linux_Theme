@@ -15,11 +15,11 @@ import time
 import unittest
 
 ROOT = Path(__file__).resolve().parent.parent
-RENDER = ROOT / "src/fox-render/fox-render-fast"
+RENDER = ROOT / "src/desk-render/desk-render-fast"
 ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
 
 
-@unittest.skipUnless(shutil.which("jq") and RENDER.exists(), "jq and a built fox-render-fast are needed")
+@unittest.skipUnless(shutil.which("jq") and RENDER.exists(), "jq and a built desk-render-fast are needed")
 class StatusLineTest(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp(prefix="foxml-statusline-"))

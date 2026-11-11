@@ -29,11 +29,11 @@ case "${1##*/}" in
 esac
 
 if [[ -n "$page" ]]; then
-    exec fox-desktop-menu "$page"
+    exec desktop-menu "$page"
 fi
 
 if [[ "${1##*/}" == rofi ]]; then
-    printf '%s\n' 'This Rofi mode is retired. Use fox-desktop-menu or fox-picker.' >&2
+    printf '%s\n' 'This Rofi mode is retired. Use desktop-menu or desk-picker.' >&2
     exit 2
 fi
 exec "$@"

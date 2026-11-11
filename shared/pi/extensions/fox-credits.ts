@@ -1,7 +1,7 @@
 /**
- * fox-credits — pi's Anthropic API replies count on the monthly API credit meter.
+ * desk-credits — pi's Anthropic API replies count on the monthly API credit meter.
  *
- * Only in a pi started by `fox-claude-api pi` (FOXML_API_CREDITS=1): that launcher hands pi the private API key, so
+ * Only in a pi started by `claude-api pi` (FOXML_API_CREDITS=1): that launcher hands pi the private API key, so
  * every assistant reply from provider "anthropic" is API credit. A pi using a subscription login or a local model is
  * never counted. Each reply is recorded once, by its response ID, with pi's catalog-price cost marked as an estimate,
  * and the footer shows what is left.
@@ -14,7 +14,7 @@ const PROJECT = /^[a-z]{1,20}$/;
 const MODEL = /^[A-Za-z0-9._:/[\]-]{1,100}$/;
 const whole = (n: unknown): number | undefined => (typeof n === "number" && Number.isInteger(n) && n >= 0 ? n : undefined);
 
-/** The fox-credits record arguments for one pi message, or undefined when it is not tracked API usage. */
+/** The desk-credits record arguments for one pi message, or undefined when it is not tracked API usage. */
 export function recordArgs(message: any, project: string | undefined, at: Date, fallbackId: () => string): string[] | undefined {
 	if (!message || message.role !== "assistant" || message.provider !== "anthropic" || !message.usage) return undefined;
 	const cost = message.usage.cost?.total;
@@ -33,14 +33,14 @@ export function recordArgs(message: any, project: string | undefined, at: Date, 
 
 export default function (pi: ExtensionAPI) {
 	if (process.env.FOXML_API_CREDITS !== "1") return;
-	const bin = process.env.FOX_CREDITS_BIN || "fox-credits";
+	const bin = process.env.FOX_CREDITS_BIN || "desk-credits";
 	const run = (args: string[]) =>
 		new Promise<string | undefined>((done) =>
 			execFile(bin, args, { timeout: 10_000 }, (err, out) => done(err ? undefined : String(out))));
 	const footer = async (ctx: any) => {
 		try {
 			const value = JSON.parse((await run(["status"])) ?? "null");
-			if (value && typeof value.short === "string") ctx?.ui?.setStatus?.("fox-credits", value.short);
+			if (value && typeof value.short === "string") ctx?.ui?.setStatus?.("desk-credits", value.short);
 		} catch {}
 	};
 	let n = 0;
@@ -49,7 +49,7 @@ export default function (pi: ExtensionAPI) {
 		const args = recordArgs(event.message, process.env.FOXML_API_PROJECT, new Date(),
 			() => `${process.pid}-${Date.now()}-${++n}`);
 		if (!args) return;
-		if ((await run(args)) === undefined) ctx?.ui?.notify?.("fox-credits: this reply's cost was not recorded", "warning");
+		if ((await run(args)) === undefined) ctx?.ui?.notify?.("desk-credits: this reply's cost was not recorded", "warning");
 		await footer(ctx);
 	});
 }

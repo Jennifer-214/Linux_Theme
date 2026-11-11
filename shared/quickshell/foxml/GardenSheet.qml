@@ -15,7 +15,7 @@ ColumnLayout {
     readonly property int todayIndex: counts.length - 1
     readonly property var thresholds: Logic.gardenThresholds(counts)
     readonly property var hearts: Logic.gardenHearts(counts)
-    // Days a failing test went green again (fox-work: passed after two or more failures in a row).
+    // Days a failing test went green again (desk-work: passed after two or more failures in a row).
     readonly property var greens: garden && Array.isArray(garden.green) ? garden.green : []
     readonly property int weeks: Math.ceil(counts.length / 7)
     readonly property int splitWeek: Math.ceil(weeks / 2)

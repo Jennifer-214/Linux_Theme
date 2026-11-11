@@ -60,7 +60,7 @@ class WaybarStartupTest(unittest.TestCase):
         self.addCleanup(fixture.cleanup)
         calls = self.home / "frontend-calls"
         stubs = {
-            "fox-bar": 'printf "quickshell:%s\\n" "$*" >> "$BAR_CALLS"; exit "$BAR_RESULT"',
+            "desk-bar": 'printf "quickshell:%s\\n" "$*" >> "$BAR_CALLS"; exit "$BAR_RESULT"',
             "waybar": 'printf "waybar\\n" >> "$BAR_CALLS"',
             "pgrep": 'exit 1',
             "pkill": 'printf "stop-waybar\\n" >> "$BAR_CALLS"',
@@ -99,7 +99,7 @@ print('[]' if sys.argv[1:2] == ['monitors'] else ('eval is only supported with t
 ''')
         hyprctl.chmod(0o755)
         (self.bin / "hyprctl").symlink_to(hyprctl)
-        (self.bin / "fox-hl").symlink_to(ROOT / "shared/bin/fox-hl")
+        (self.bin / "desk-hl").symlink_to(ROOT / "shared/bin/desk-hl")
         if theme is not None:
             gtk = self.home / ".config/gtk-3.0"
             gtk.mkdir()

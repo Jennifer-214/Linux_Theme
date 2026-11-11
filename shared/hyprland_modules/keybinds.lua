@@ -8,7 +8,7 @@
 local terminal = "kitty tmux new-session"
 local browser = "env -u MOZ_ENABLE_WAYLAND -u LIBVA_DRIVER_NAME -u GBM_BACKEND -u WLR_NO_HARDWARE_CURSORS firefox"
 local fileManager = "yazi"
-local menu = "~/.local/bin/fox-desktop-menu root"
+local menu = "~/.local/bin/desktop-menu root"
 local coding = "~/.local/bin/cursor"
 local chat = "discord"
 
@@ -26,9 +26,9 @@ hl.bind(mainMod .. " + SHIFT + C", hl.dsp.exec_cmd(coding))
 -- Drawers — apps, connections, sound, comfort and system.
 hl.bind(mainMod .. " + SHIFT + D", hl.dsp.exec_cmd(menu))
 -- Find anything: open with the search field already focused.
-hl.bind(mainMod .. " + SPACE", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu search"))
+hl.bind(mainMod .. " + SPACE", hl.dsp.exec_cmd("~/.local/bin/desktop-menu search"))
 -- Calendar beneath the clock banner (toggle).
-hl.bind(mainMod .. " + C", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu calendar"))
+hl.bind(mainMod .. " + C", hl.dsp.exec_cmd("~/.local/bin/desktop-menu calendar"))
 -- Steam.
 hl.bind(mainMod .. " + SHIFT + M", hl.dsp.exec_cmd("steam steam://open/main"))
 -- Yazi file manager (toggle).
@@ -36,11 +36,11 @@ hl.bind(mainMod .. " + SHIFT + Y", hl.dsp.exec_cmd("~/.config/launchers/toggle/t
 -- btop system monitor (toggle).
 hl.bind(mainMod .. " + SHIFT + T", hl.dsp.exec_cmd("~/.config/launchers/toggle/toggle_btop.sh"))
 -- Network / Wi-Fi menu.
-hl.bind(mainMod .. " + SHIFT + N", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu wifi"))
+hl.bind(mainMod .. " + SHIFT + N", hl.dsp.exec_cmd("~/.local/bin/desktop-menu wifi"))
 -- Bluetooth menu.
-hl.bind(mainMod .. " + SHIFT + B", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu bluetooth"))
+hl.bind(mainMod .. " + SHIFT + B", hl.dsp.exec_cmd("~/.local/bin/desktop-menu bluetooth"))
 -- Audio output switcher.
-hl.bind(mainMod .. " + SHIFT + A", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu audio-outputs"))
+hl.bind(mainMod .. " + SHIFT + A", hl.dsp.exec_cmd("~/.local/bin/desktop-menu audio-outputs"))
 -- Color picker — copies the hex and shows it on a COPIED slip with a swatch.
 hl.bind(mainMod .. " + SHIFT + P", hl.dsp.exec_cmd("~/.config/hypr/scripts/color_picker.sh"))
 -- Discord.
@@ -50,25 +50,25 @@ hl.bind(mainMod .. " + SHIFT + O", hl.dsp.exec_cmd("~/.config/hypr/scripts/scree
 -- Quick screenshot — a region straight to the clipboard and ~/Pictures/Screenshots, no editor.
 hl.bind("Print", hl.dsp.exec_cmd("~/.config/hypr/scripts/screenshot.sh --quick"))
 -- Screenshot scrapbook (saved captures).
-hl.bind(mainMod .. " + CTRL + O", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu screenshots"))
+hl.bind(mainMod .. " + CTRL + O", hl.dsp.exec_cmd("~/.local/bin/desktop-menu screenshots"))
 -- Toggle the desktop bar.
-hl.bind(mainMod .. " + B", hl.dsp.exec_cmd("fox-bar toggle"))
+hl.bind(mainMod .. " + B", hl.dsp.exec_cmd("desk-bar toggle"))
 -- Cycle wallpaper.
 hl.bind(mainMod .. " + W", hl.dsp.exec_cmd("~/.config/hypr/scripts/rotate_wallpaper.sh --cycle"))
 -- Clipboard history — text.
-hl.bind(mainMod .. " + V", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu clipboard-text"))
+hl.bind(mainMod .. " + V", hl.dsp.exec_cmd("~/.local/bin/desktop-menu clipboard-text"))
 -- Clipboard history — images.
-hl.bind(mainMod .. " + SHIFT + V", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu clipboard-images"))
+hl.bind(mainMod .. " + SHIFT + V", hl.dsp.exec_cmd("~/.local/bin/desktop-menu clipboard-images"))
 -- Lock the screen now.
 hl.bind(mainMod .. " + CTRL + L", hl.dsp.exec_cmd("~/.config/hypr/scripts/lock.sh"))
 -- Lockdown — wipe clipboard, close Firefox session, stop editors and engines, lock.
 hl.bind(mainMod .. " + CTRL + SHIFT + K", hl.dsp.exec_cmd("~/.config/hypr/scripts/panic.sh"))
 -- Power menu.
-hl.bind(mainMod .. " + SHIFT + X", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu power"))
+hl.bind(mainMod .. " + SHIFT + X", hl.dsp.exec_cmd("~/.local/bin/desktop-menu power"))
 -- Agents — each Claude session with its context meters and state, then pending notes; Enter switches tmux to that pane.
-hl.bind(mainMod .. " + SHIFT + E", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu agents"))
+hl.bind(mainMod .. " + SHIFT + E", hl.dsp.exec_cmd("~/.local/bin/desktop-menu agents"))
 -- Next waiting session — jumps tmux to the Claude session waiting on you, the one asking first; press again for the next.
-hl.bind(mainMod .. " + CTRL + E", hl.dsp.exec_cmd("~/.local/bin/fox-drawer claude-next"))
+hl.bind(mainMod .. " + CTRL + E", hl.dsp.exec_cmd("~/.local/bin/desk-drawer claude-next"))
 -- Path of Building (Flatpak) — build planner; `pob 2` for PoE 2.
 hl.bind(mainMod .. " + CTRL + P", hl.dsp.exec_cmd("~/.local/bin/pob"))
 
@@ -130,7 +130,7 @@ hl.bind(mainMod .. " + SHIFT + Tab", function() hl.dispatch(hl.dsp.window.cycle_
 hl.bind(mainMod .. " + Tab", function() hl.dispatch(hl.dsp.window.cycle_next({ floating = true })) end)
 hl.bind(mainMod .. " + CTRL + Tab", function() hl.dispatch(hl.dsp.window.cycle_next({ tiled = true })) end)
 -- Searchable keybind cheatsheet — fuzzy-find any binding by description
-hl.bind(mainMod .. " + slash", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu cheatsheet"))
+hl.bind(mainMod .. " + slash", hl.dsp.exec_cmd("~/.local/bin/desktop-menu cheatsheet"))
 
 -- ─────────────────────────────────────────
 -- Workspaces
@@ -173,7 +173,7 @@ hl.bind(mainMod .. " + mouse:273", hl.dsp.window.resize(), { mouse = true })
 -- target with --private so its tmpfs $HOME evaporates on close. Quick
 -- way to visit a sketchy URL or run an untrusted script without it
 -- touching your real dotfiles.
-hl.bind(mainMod .. " + SHIFT + S", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu sandbox"))
+hl.bind(mainMod .. " + SHIFT + S", hl.dsp.exec_cmd("~/.local/bin/desktop-menu sandbox"))
 
 -- ─────────────────────────────────────────
 -- Ghost Mode (boss key)
@@ -187,7 +187,7 @@ hl.bind(mainMod .. " + G", hl.dsp.exec_cmd("~/.config/hypr/scripts/ghost-mode.sh
 -- Window drawer
 -- ─────────────────────────────────────────
 -- Active windows with the same navigation as the other drawers.
-hl.bind(mainMod .. " + grave", hl.dsp.exec_cmd("~/.local/bin/fox-desktop-menu windows"))
+hl.bind(mainMod .. " + grave", hl.dsp.exec_cmd("~/.local/bin/desktop-menu windows"))
 -- The desk overview: every workspace as a photo print, its windows where they sit; Enter or a click goes there.
 hl.bind(mainMod .. " + O", hl.dsp.exec_cmd("quickshell -c foxml ipc call overview toggle"))
 

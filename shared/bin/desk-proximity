@@ -1,0 +1,222 @@
+#!/usr/bin/env bash
+# desk-proximity — Bluetooth proximity auto-lock.
+#
+# Pair a phone (or any Bluetooth device with a known MAC). A user
+# systemd service pings the device every 10 seconds via l2ping. After
+# N consecutive failed pings (default 3 → 30s grace), it fires desk-lock.
+# Works because Bluetooth Classic range is ~10m and falls off sharply
+# at walls — walking to the bathroom drops the link fast.
+#
+# Setup config: ~/.config/foxml/proximity.conf
+#   DEVICE_MAC=AA:BB:CC:DD:EE:FF
+#   DEVICE_NAME="Caramel's iPhone"
+#   PING_INTERVAL=10           # seconds between pings
+#   GRACE_FAILS=3              # consecutive fails before locking
+#
+# Usage:
+#   desk proximity --setup       interactive: scan + pick a paired device
+#   desk proximity --status      show service + last-known device state
+#   desk proximity --disable     stop service
+#   desk proximity --test        ping the registered device once
+
+set -u
+C_BOLD=$'\e[1m'; C_DIM=$'\e[2m'; C_GRN=$'\e[32m'; C_YEL=$'\e[33m'
+C_RED=$'\e[31m'; C_PEACH=$'\e[95m'; C_RST=$'\e[0m'
+
+CONF_DIR="$HOME/.config/foxml"
+CONF="$CONF_DIR/proximity.conf"
+SERVICE_NAME=fox-proximity.service
+
+_require() {
+    command -v bluetoothctl >/dev/null 2>&1 || { echo "${C_RED}bluez not installed: sudo pacman -S bluez bluez-utils${C_RST}" >&2; return 1; }
+    command -v l2ping       >/dev/null 2>&1 || { echo "${C_RED}l2ping missing (part of bluez-utils)${C_RST}" >&2; return 1; }
+}
+
+_load() {
+    DEVICE_MAC=""; DEVICE_NAME=""; PING_INTERVAL=10; GRACE_FAILS=3
+    [[ -f "$CONF" ]] || return 1
+    # shellcheck disable=SC1090
+    source "$CONF"
+    [[ -n "$DEVICE_MAC" ]]
+}
+
+_list_paired() {
+    bluetoothctl devices Paired 2>/dev/null \
+        | awk '{mac=$2; $1=$2=""; sub(/^[[:space:]]+/,""); print mac "\t" $0}'
+}
+
+_setup() {
+    _require || return 1
+    mkdir -p "$CONF_DIR" && chmod 700 "$CONF_DIR"
+
+    echo "${C_BOLD}desk proximity — setup${C_RST}"
+    echo
+
+    # Make sure the bluetooth controller is up.
+    if ! bluetoothctl show 2>/dev/null | grep -q 'Powered: yes'; then
+        echo "${C_DIM}powering bluetooth on...${C_RST}"
+        bluetoothctl power on >/dev/null 2>&1
+    fi
+
+    # If nothing is paired yet, offer a scan.
+    local paired
+    paired=$(_list_paired)
+    if [[ -z "$paired" ]]; then
+        echo "${C_YEL}No paired Bluetooth devices found.${C_RST}"
+        echo "  • Put your phone in Bluetooth-pairing mode"
+        echo "  • Then in another terminal:  bluetoothctl"
+        echo "    > scan on"
+        echo "    > pair <MAC>"
+        echo "    > trust <MAC>"
+        echo "  • Then re-run: desk proximity --setup"
+        return 1
+    fi
+
+    echo "${C_BOLD}Paired devices:${C_RST}"
+    local idx=1
+    declare -A by_idx=()
+    declare -A name_by_idx=()
+    while IFS=$'\t' read -r mac name; do
+        printf "  [%d] %s   %s\n" "$idx" "$mac" "$name"
+        by_idx[$idx]="$mac"
+        name_by_idx[$idx]="$name"
+        idx=$((idx+1))
+    done <<<"$paired"
+    echo
+    local choice
+    read -rp "  pick a device [1-$((idx-1))]: " choice
+    [[ -z "${by_idx[$choice]:-}" ]] && { echo "${C_RED}invalid${C_RST}"; return 1; }
+    local mac="${by_idx[$choice]}"
+    local name="${name_by_idx[$choice]}"
+
+    local interval grace
+    read -rp "  ping interval (seconds, default 10): " interval
+    interval=${interval:-10}
+    read -rp "  fails before lock (default 3 → ${interval} × 3 = $((interval*3))s grace): " grace
+    grace=${grace:-3}
+
+    ( umask 077
+      cat > "$CONF" <<EOF
+# foxml-managed — desk proximity config
+DEVICE_MAC=$mac
+DEVICE_NAME=$(printf '%q' "$name")
+PING_INTERVAL=$interval
+GRACE_FAILS=$grace
+EOF
+    )
+    chmod 600 "$CONF"
+
+    # Systemd user unit.
+    local unit_dir="$HOME/.config/systemd/user"
+    mkdir -p "$unit_dir"
+    cat > "$unit_dir/$SERVICE_NAME" <<EOF
+[Unit]
+Description=desk-proximity — Bluetooth proximity auto-lock
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=$(command -v desk-proximity) run
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+EOF
+    systemctl --user daemon-reload
+    systemctl --user enable --now "$SERVICE_NAME"
+    echo "${C_GRN}✓ paired with $name ($mac)${C_RST}"
+    echo "  ${C_DIM}grace window: $((interval*grace))s of consecutive ping fails before lock${C_RST}"
+    echo "  ${C_DIM}log: journalctl --user -u $SERVICE_NAME -f${C_RST}"
+}
+
+_status() {
+    if [[ -f "$CONF" ]]; then
+        _load
+        echo "  device:   ${C_GRN}$DEVICE_NAME${C_RST} ($DEVICE_MAC)"
+        echo "  interval: ${PING_INTERVAL}s"
+        echo "  grace:    ${GRACE_FAILS} fails ($((PING_INTERVAL*GRACE_FAILS))s)"
+        if systemctl --user is-active --quiet "$SERVICE_NAME"; then
+            echo "  service:  ${C_GRN}active${C_RST}"
+        else
+            echo "  service:  ${C_RED}inactive${C_RST}"
+        fi
+        # Live link probe.
+        if l2ping -c 1 -t 2 "$DEVICE_MAC" >/dev/null 2>&1; then
+            echo "  link:     ${C_GRN}in range${C_RST}"
+        else
+            echo "  link:     ${C_YEL}out of range / asleep${C_RST}"
+        fi
+    else
+        echo "  ${C_YEL}not configured${C_RST}"
+        echo "  set up:  desk proximity --setup"
+    fi
+}
+
+_disable() {
+    systemctl --user disable --now "$SERVICE_NAME" 2>/dev/null
+    rm -f "$HOME/.config/systemd/user/$SERVICE_NAME"
+    systemctl --user daemon-reload 2>/dev/null
+    echo "${C_GRN}✓ desk-proximity disabled (config kept; --setup to re-enable)${C_RST}"
+}
+
+_test() {
+    _load || { echo "${C_RED}not configured${C_RST}" >&2; return 1; }
+    l2ping -c 1 -t 2 "$DEVICE_MAC" 2>&1 | head -3
+}
+
+_run() {
+    _load || exit 1
+    local fails=0
+    while true; do
+        if l2ping -c 1 -t 2 "$DEVICE_MAC" >/dev/null 2>&1; then
+            fails=0
+        else
+            fails=$((fails+1))
+            if (( fails >= GRACE_FAILS )); then
+                # Out of range. Lock + reset counter (so we don't re-lock
+                # every interval after the first trigger).
+                logger -t desk-proximity "DEVICE OUT OF RANGE — locking ($fails fails)"
+                if pgrep -x hyprlock >/dev/null 2>&1; then
+                    # already locked
+                    :
+                else
+                    "/home/${USER}/.local/bin/desk-lock" 2>/dev/null \
+                        || hyprlock 2>/dev/null &
+                fi
+                # Optional: dispatch alert.
+                "/home/${USER}/.local/bin/desk-dispatch" "proximity-lock" \
+                    "$DEVICE_NAME out of range — laptop auto-locked" 2>/dev/null || true
+                fails=0
+                # Wait longer before next check after a trigger.
+                sleep $((PING_INTERVAL*3))
+                continue
+            fi
+        fi
+        sleep "$PING_INTERVAL"
+    done
+}
+
+case "${1:-}" in
+    ""|status)    _status ;;
+    --setup)      _setup ;;
+    --status)     _status ;;
+    --disable)    _disable ;;
+    --test)       _test ;;
+    run)          _run ;;
+    -h|--help|help) cat <<EOF
+desk proximity — Bluetooth proximity auto-lock
+
+  desk proximity [status]    show paired device + service + link state
+  desk proximity --setup     interactive: pick from paired devices
+  desk proximity --disable   stop the watcher service (keeps config)
+  desk proximity --test      one-shot ping of the registered device
+  desk proximity run         daemon mode (used by systemd unit)
+
+Behavior: every N seconds, l2ping the paired device. After K
+consecutive fails, fire desk-lock + dispatch alert. Drag a phone
+3-5m away (other side of a wall) → laptop locks within (N×K)s.
+EOF
+    ;;
+    *) echo "unknown: $1" >&2; exit 2 ;;
+esac

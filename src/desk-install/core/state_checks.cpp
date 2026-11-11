@@ -1,0 +1,437 @@
+#include "state_checks.hpp"
+#include "palette.hpp"
+#include "deps_list.hpp"
+
+#include "../../desk-common/shell.hpp"
+#include "../modules/cursor_recolor.hpp"
+#include "../modules/folder_recolor.hpp"
+
+#include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
+
+namespace fs = std::filesystem;
+
+namespace fox_install::state {
+
+namespace {
+
+bool pacman_installed(const std::string& pkg) {
+    // pacman -Qi <pkg> exits 0 if installed, 1 otherwise. We need to
+    // suppress both stdout AND stderr (pacman writes "error: package
+    // not found" on the negative case — normal for state probes, but
+    // pollutes the install log). Use a shell for the redirection but
+    // pass pkg as a positional argument ($1) so it stays out of shell
+    // parsing — pkg comes from the on-disk manifest which a user could
+    // craft if they edited it by hand.
+    // sh::probe, not sh::run: a dry run answers from the real system instead of "installed".
+    std::string out;
+    return sh::probe({"sh", "-c",
+                      "pacman -Qi \"$1\" >/dev/null 2>&1",
+                      "sh",          // $0
+                      pkg}, out) == 0;   // $1 — safe positional substitution
+}
+
+// systemctl_is_enabled — returns one of {"enabled","disabled","masked",
+// "static","not-found", ""}. Empty means the call itself failed.
+std::string systemctl_is_enabled(const std::string& unit, bool user) {
+    std::vector<std::string> argv = {"systemctl"};
+    if (user) argv.push_back("--user");
+    argv.push_back("is-enabled");
+    argv.push_back(unit);
+    std::string out;
+    sh::capture(argv, out);  // exit code is intentionally ignored — masked/disabled both produce non-zero exits but useful stdout
+    // Strip trailing newline.
+    while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) out.pop_back();
+    return out;
+}
+
+}  // namespace
+
+Classification check_deps(const Context& /*ctx*/, const Manifest& manifest) {
+    const auto it = manifest.modules.find("deps");
+    if (it == manifest.modules.end()) {
+        return {Status::Fresh, "deps has not run yet"};
+    }
+
+    // Every package run_deps installs, in one read-only query (installer audit 2026-10-15: five sentinels meant --full
+    // never installed packages added to the list later). sh::probe runs in a dry run too, so the preview is real.
+    std::string out;
+    return deps_classification(sh::probe(deps_probe_argv(), out), out, deps_packages().size());
+}
+
+std::vector<std::string> deps_probe_argv() {
+    std::vector<std::string> argv = {"pacman", "-T"};
+    argv.insert(argv.end(), deps_packages().begin(), deps_packages().end());
+    return argv;
+}
+
+Classification deps_classification(int rc, const std::string& out, std::size_t total) {
+    if (rc == 0) return {Status::Noop, "all " + std::to_string(total) + " base packages present"};
+    std::vector<std::string> missing;
+    std::istringstream lines(out);
+    for (std::string l; std::getline(lines, l);) {
+        if (!l.empty()) missing.push_back(l);
+    }
+    if (rc != 127 || missing.empty()) {
+        return {Status::Update, "couldn't check the base packages (pacman -T exit " + std::to_string(rc) + ")"};
+    }
+    std::string reason = std::to_string(missing.size()) + " of " + std::to_string(total) + " base packages missing:";
+    for (std::size_t i = 0; i < missing.size() && i < 8; ++i) reason += " " + missing[i];
+    if (missing.size() > 8) reason += " …";
+    return {Status::Update, reason};
+}
+
+std::string render_inputs_hash(const Context& ctx) {
+    std::vector<fs::path> files;
+    std::error_code ec;
+    for (fs::recursive_directory_iterator it(ctx.templates_dir, ec), end; !ec && it != end; it.increment(ec)) {
+        if (it->is_regular_file(ec)) files.push_back(it->path());
+    }
+    std::sort(files.begin(), files.end());
+    std::string all = "theme:" + ctx.theme_name + "\n";
+    for (const auto& f : files) {
+        all += fs::relative(f, ctx.templates_dir).generic_string() + '\0' + hash_file(f) + '\n';
+    }
+    all += "palette:" + (fs::exists(ctx.palette_path) ? hash_file(ctx.palette_path) : std::string("-")) + '\n';
+    return hash_string(all);
+}
+
+fs::path render_stamp_path(const Context& ctx) { return ctx.rendered_dir / ".render-inputs"; }
+
+bool rendered_is_current(const Context& ctx) {
+    if (ctx.templates_dir.empty() || !fs::is_directory(ctx.templates_dir)) return true;
+    std::ifstream f(render_stamp_path(ctx));
+    std::string stamp;
+    if (!(f >> stamp)) return false;
+    try {
+        return stamp == render_inputs_hash(ctx);
+    } catch (const std::exception&) {
+        return false;   // a template it can't read: call it stale, and let the render report the error
+    }
+}
+
+Classification check_render(const Context& ctx, const Manifest& manifest) {
+    const auto it = manifest.modules.find("render");
+    const bool tracked = (it != manifest.modules.end());
+
+    // Sentinel: hyprland.conf is the canonical "render has deployed
+    // something" marker — every theme produces one, and it's the
+    // highest-blast-radius file in the deploy set.
+    const fs::path deployed = ctx.config_home / "hypr" / "hyprland.conf";
+    if (!fs::exists(deployed)) {
+        if (!tracked) return {Status::Fresh, "no manifest entry, hyprland.conf absent"};
+        return {Status::Conflict,
+                "manifest says render ran, but " + deployed.string() + " is missing"};
+    }
+
+    if (!tracked) {
+        // File exists but was deployed by something outside the manifest
+        // (legacy install.sh run, manual copy, …). The classifier maps
+        // (empty_stored, present_deployed) to Conflict — preserve that.
+        return {Status::Conflict,
+                deployed.string() + " exists but is not tracked in the manifest"};
+    }
+
+    std::string deployed_hash;
+    try {
+        deployed_hash = hash_file(deployed);
+    } catch (const std::exception& e) {
+        return {Status::Conflict, std::string("cannot hash deployed file: ") + e.what()};
+    }
+
+    // Templates or palette changed since the last render: re-render, whatever the deployed copy says. Without this a
+    // --full run kept render "up to date" (the sentinel matched) and symlinks then shipped a months-old rendered/
+    // over today's configs (installer audit 2026-10-15, finding 3).
+    if (!rendered_is_current(ctx)) {
+        return {Status::Update, "templates or palette changed since the last render (rendered/ is stale)"};
+    }
+
+    // Two-hash compare: stored vs deployed. The full three-hash dance
+    // (stored, deployed, source) lands in Step 7 once the prompt UI
+    // exists. For Step 6 we only need to distinguish "deployment still
+    // matches what we wrote last time" from "something changed".
+    if (deployed_hash == it->second.source_hash) {
+        return {Status::Noop, "hyprland.conf matches stored hash"};
+    }
+    return {Status::Update,
+            "hyprland.conf hash diverged from stored manifest value"};
+}
+
+Classification check_etckeeper(const Context& ctx, const Manifest& manifest) {
+    // Masked is a sticky failure state — even after the file gets
+    // written and the unit installed, it'll refuse to start. Surface
+    // this before anything else so the install plan doesn't promise
+    // work it can't deliver. R5/R6 from the master plan.
+    const std::string state = systemctl_is_enabled("fox-etcwatch.path", /*user=*/true);
+    if (state == "masked") {
+        return {Status::Blocked,
+                "fox-etcwatch.path is masked — `systemctl --user unmask fox-etcwatch.path` first"};
+    }
+
+    const auto it = manifest.modules.find("etckeeper");
+    if (it == manifest.modules.end()) {
+        return {Status::Fresh, "etckeeper has not run yet"};
+    }
+
+    if (state == "enabled") {
+        // Enabled isn't the whole story: the module also owns the
+        // commit-stamp hook and the service-unit BODY (the %-escaping
+        // repair changed it) — report Update so a re-run converges them.
+        if (!fs::exists("/etc/etckeeper/commit.d/60foxml-stamp")) {
+            return {Status::Update,
+                    "commit-stamp hook missing — re-run installs /etc/etckeeper/commit.d/60foxml-stamp"};
+        }
+        std::ifstream svc(ctx.config_home / "systemd/user/fox-etcwatch.service");
+        std::ostringstream body;
+        body << svc.rdbuf();
+        if (body.str().find("/var/lib/foxml/etc-last-commit") == std::string::npos) {
+            return {Status::Update,
+                    "fox-etcwatch.service predates stamp-based suppression — re-run redeploys it"};
+        }
+        return {Status::Noop, "fox-etcwatch.path enabled + stamp hook present"};
+    }
+    // disabled, not-found, or any other state at this point means we
+    // tracked a successful etckeeper run but the unit no longer
+    // exists or has been disabled. Re-run will recreate it.
+    return {Status::Update,
+            "fox-etcwatch.path state is '" + (state.empty() ? "unknown" : state) + "', re-run needed"};
+}
+
+namespace {
+
+// Shared shape for any systemd-unit module: masked → Blocked;
+// untracked → Fresh; enabled → Noop; anything else with manifest entry
+// → Update. The user flag picks between --user and system scope; the
+// rest of the wording is uniform.
+Classification unit_check(
+    const Manifest& manifest,
+    const std::string& slug,
+    const std::string& unit,
+    bool user
+) {
+    const std::string state = systemctl_is_enabled(unit, user);
+    const char* scope = user ? " --user" : "";
+    if (state == "masked") {
+        return {Status::Blocked,
+                unit + " is masked — `systemctl" + scope + " unmask " + unit + "` first"};
+    }
+    const auto it = manifest.modules.find(slug);
+    if (it == manifest.modules.end()) {
+        return {Status::Fresh, slug + " has not run yet"};
+    }
+    if (state == "enabled") {
+        return {Status::Noop, unit + " enabled"};
+    }
+    return {Status::Update,
+            unit + " state is '" + (state.empty() ? "unknown" : state) + "', re-run needed"};
+}
+
+// Pacman-package existence check. Used by modules whose entire "did
+// it run?" question reduces to "is package X installed?". The pacman
+// probe lives here; the pure decision is package_classify (state_checks.hpp)
+// so it can be unit-tested without a real pacman.
+Classification package_check(
+    const Manifest& manifest,
+    const std::string& slug,
+    const std::string& pkg
+) {
+    return package_classify(pacman_installed(pkg),
+                            manifest.modules.find(slug) != manifest.modules.end(),
+                            slug, pkg);
+}
+
+}  // namespace
+
+// Pure (no pacman) — exposed in the header for unit testing. See the
+// header comment for the truth table.
+Classification package_classify(bool present, bool tracked,
+                                const std::string& slug, const std::string& pkg) {
+    if (!tracked) {
+        if (present) return {Status::Noop, pkg + " already installed (untracked, treated as already-done)"};
+        return {Status::Fresh, slug + " has not run yet"};
+    }
+    if (present) return {Status::Noop, pkg + " installed"};
+    return {Status::Update, pkg + " missing, re-run needed"};
+}
+
+Classification check_arch_audit(const Context& /*ctx*/, const Manifest& manifest) {
+    return unit_check(manifest, "arch_audit", "foxml-arch-audit.timer", /*user=*/true);
+}
+
+Classification check_vault(const Context& /*ctx*/, const Manifest& manifest) {
+    return unit_check(manifest, "vault", "fox-vault.service", /*user=*/true);
+}
+
+Classification check_ufw(const Context& /*ctx*/, const Manifest& manifest) {
+    return unit_check(manifest, "ufw", "ufw.service", /*user=*/false);
+}
+
+Classification check_endlessh(const Context& /*ctx*/, const Manifest& manifest) {
+    // endlessh installs as either endlessh.service (C build) or
+    // endlessh-go.service (Go AUR build). Probe the canonical name;
+    // if it's not enabled but endlessh-go.service is, classify Noop
+    // anyway so we don't insist on re-running just to swap units.
+    Classification primary = unit_check(manifest, "endlessh", "endlessh.service", /*user=*/false);
+    if (primary.status == Status::Noop || primary.status == Status::Blocked) return primary;
+    const auto it = manifest.modules.find("endlessh");
+    if (it != manifest.modules.end()
+        && systemctl_is_enabled("endlessh-go.service", /*user=*/false) == "enabled") {
+        return {Status::Noop, "endlessh-go.service enabled (AUR build)"};
+    }
+    return primary;
+}
+
+bool greeter_theme_stale(const Context& ctx, const fs::path& deployed_css) {
+    const fs::path rendered_css = ctx.rendered_dir / "regreet/regreet.css";
+    if (!rendered_is_current(ctx) || !fs::exists(rendered_css) || !fs::exists(deployed_css)) return true;
+    return hash_file(rendered_css) != hash_file(deployed_css);
+}
+
+Classification check_greetd(const Context& ctx, const Manifest& manifest) {
+    Classification unit = unit_check(manifest, "greetd", "greetd.service", /*user=*/false);
+    // An enabled service says nothing about which theme the login screen shows.
+    if (unit.status == Status::Noop && greeter_theme_stale(ctx, "/etc/greetd/regreet.css"))
+        return {Status::Update, "login screen theme is out of date"};
+    return unit;
+}
+
+bool folders_stale(const Context& ctx) {
+    std::string applied;
+    if (std::ifstream in{ctx.config_home / "foxml/catppuccin-folders-applied.marker"}) std::getline(in, applied);
+    const std::string color = palette::get(ctx.palette_path, "PAPIRUS_FOLDER_COLOR", "cat-mocha-peach");
+    const std::string token = palette::get(ctx.palette_path, "PAPIRUS_FOLDER_RECOLOR", "none");
+    return !applied.empty() && applied != folder_recolor::mark(color, token);
+}
+
+Classification check_papirus_icons(const Context& ctx, const Manifest& manifest) {
+    // The package alone doesn't say which colour the folders are.
+    if (folders_stale(ctx)) return {Status::Update, "folder colour changed, re-run needed"};
+    return package_check(manifest, "papirus_icons", "papirus-icon-theme");
+}
+
+Classification check_gaming(const Context& /*ctx*/, const Manifest& manifest) {
+    return package_check(manifest, "gaming", "steam");
+}
+
+Classification check_catppuccin_cursor(const Context& ctx, const Manifest& manifest) {
+    const std::string theme = palette::get(ctx.palette_path, "CURSOR_THEME",
+                                           "catppuccin-mocha-peach-cursors");
+    // The module unzips into ~/.local/share/icons; ~/.icons is the older home.
+    fs::path theme_dir = ctx.home / ".local/share/icons" / theme / "cursors";
+    if (!fs::is_directory(theme_dir)) theme_dir = ctx.home / ".icons" / theme / "cursors";
+    const bool present = fs::is_directory(theme_dir);
+    // A palette colour change re-derives the set even though its directory exists.
+    const auto recolor = cursor_recolor::parse_recolor(palette::get(ctx.palette_path, "CURSOR_RECOLOR", "none"));
+    if (present && recolor && !cursor_recolor::is_current(theme_dir.parent_path(), *recolor))
+        return {Status::Update, "cursor colours changed, rebuild needed"};
+    const auto it = manifest.modules.find("catppuccin_cursor");
+    const bool tracked = (it != manifest.modules.end());
+    if (!tracked) {
+        if (present) return {Status::Noop, theme_dir.string() + " already present (untracked)"};
+        return {Status::Fresh, "catppuccin_cursor has not run yet"};
+    }
+    if (present) return {Status::Noop, "cursor theme directory present"};
+    return {Status::Update, theme_dir.string() + " missing, re-run needed"};
+}
+
+Classification check_gpg_agent_cache(const Context& ctx, const Manifest& manifest) {
+    const fs::path conf = ctx.home / ".gnupg" / "gpg-agent.conf";
+    const bool present = fs::exists(conf);
+    const auto it = manifest.modules.find("gpg_agent_cache");
+    const bool tracked = (it != manifest.modules.end());
+    if (!tracked) {
+        if (present) return {Status::Noop, conf.string() + " already present (untracked)"};
+        return {Status::Fresh, "gpg_agent_cache has not run yet"};
+    }
+    if (present) return {Status::Noop, conf.string() + " present"};
+    return {Status::Update, conf.string() + " missing, re-run needed"};
+}
+
+Classification check_keyring_full(const Context& /*ctx*/, const Manifest& manifest) {
+    // The install masks four units; we probe the canonical one
+    // (gnome-keyring-daemon.service). If it's masked, the install
+    // ran successfully. Probing all four would be more thorough but
+    // also more expensive — one sentinel is enough.
+    const std::string state = systemctl_is_enabled(
+        "gnome-keyring-daemon.service", /*user=*/true);
+    const auto it = manifest.modules.find("keyring_full");
+    const bool tracked = (it != manifest.modules.end());
+    if (!tracked) {
+        return {Status::Fresh, "keyring_full has not run yet"};
+    }
+    if (state == "masked") return {Status::Noop, "gnome-keyring-daemon.service masked"};
+    return {Status::Update,
+            "gnome-keyring-daemon.service state is '"
+            + (state.empty() ? "unknown" : state)
+            + "', re-run needed to re-mask"};
+}
+
+Classification check_noexec_tmp(const Context& /*ctx*/, const Manifest& manifest) {
+    // The install edits /etc/fstab to add noexec,nosuid,nodev to the
+    // /tmp tmpfs line. A non-tmpfs /tmp (e.g., a separate disk
+    // mount) means the user has a non-stock setup and the install
+    // module would skip — classify Noop in that case too.
+    const auto it = manifest.modules.find("noexec_tmp");
+    const bool tracked = (it != manifest.modules.end());
+    std::string fstab_contents;
+    try {
+        std::ifstream f("/etc/fstab");
+        std::stringstream ss; ss << f.rdbuf();
+        fstab_contents = ss.str();
+    } catch (...) {
+        // unreadable /etc/fstab → can't classify, default to Fresh
+        // so the install attempts again if tracked-but-unverifiable.
+        if (tracked) return {Status::Update, "/etc/fstab unreadable, re-run to be safe"};
+        return {Status::Fresh, "/etc/fstab unreadable"};
+    }
+
+    const bool locked_down =
+        fstab_contents.find("noexec") != std::string::npos &&
+        fstab_contents.find("/tmp") != std::string::npos;
+    if (!tracked) {
+        if (locked_down) return {Status::Noop, "/tmp already has lockdown options (untracked)"};
+        return {Status::Fresh, "noexec_tmp has not run yet"};
+    }
+    if (locked_down) return {Status::Noop, "/tmp fstab line has noexec/nosuid/nodev"};
+    return {Status::Update, "/tmp fstab line missing lockdown options, re-run needed"};
+}
+
+Classification check_mac_random(const Context& /*ctx*/, const Manifest& manifest) {
+    // System-file module (not a unit). Hash the deployed conf against
+    // the manifest's stored hash — the same pattern check_render uses.
+    const fs::path deployed = "/etc/NetworkManager/conf.d/00-foxml-mac-random.conf";
+    const auto it = manifest.modules.find("mac_random");
+    const bool tracked = (it != manifest.modules.end());
+
+    if (!fs::exists(deployed)) {
+        if (!tracked) return {Status::Fresh, "no manifest entry, conf absent"};
+        return {Status::Conflict,
+                "manifest says mac_random ran, but " + deployed.string() + " is missing"};
+    }
+    if (!tracked) {
+        return {Status::Conflict,
+                deployed.string() + " exists but is not tracked in the manifest"};
+    }
+
+    std::string deployed_hash;
+    try {
+        deployed_hash = hash_file(deployed);
+    } catch (const std::exception& e) {
+        // Permission-denied is common here — the conf lives under
+        // /etc and is root-owned 0644 so we expect to be able to
+        // read it, but a non-standard chmod could trip us up. Treat
+        // as a soft Conflict rather than crashing.
+        return {Status::Conflict, std::string("cannot hash deployed file: ") + e.what()};
+    }
+
+    if (deployed_hash == it->second.source_hash) {
+        return {Status::Noop, "macrand conf matches stored hash"};
+    }
+    return {Status::Update, "macrand conf diverged from stored manifest value"};
+}
+
+}  // namespace fox_install::state

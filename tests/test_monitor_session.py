@@ -39,8 +39,8 @@ class MonitorSession(unittest.TestCase):
         self.assertEqual(calls[1], '--user try-restart fox-pulse.service')
 
     def test_monitor_events_use_one_shot_native_handler(self):
-        self.script(self.home / '.local/bin/fox-monitor', 'printf "native %s\\n" "$*" >> "$TRACE"')
-        self.script(self.home / '.config/hypr/scripts/fox-monitor-watch.sh', 'echo legacy >> "$TRACE"')
+        self.script(self.home / '.local/bin/desk-monitor', 'printf "native %s\\n" "$*" >> "$TRACE"')
+        self.script(self.home / '.config/hypr/scripts/monitor-watch.sh', 'echo legacy >> "$TRACE"')
         self.script(self.home / '.config/foxml/pulse.d/focus.sh', 'exit 0')
         path = self.home / 'run/hypr/test/.socket2.sock'
         path.parent.mkdir(parents=True)
@@ -48,7 +48,7 @@ class MonitorSession(unittest.TestCase):
             server.bind(str(path))
             server.listen()
             server.settimeout(3)
-            proc = subprocess.Popen([str(ROOT / 'src/fox-pulse/fox-pulse')],
+            proc = subprocess.Popen([str(ROOT / 'src/desk-pulse/desk-pulse')],
                                     env=self.env | {'HYPRLAND_INSTANCE_SIGNATURE': 'test'},
                                     stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
             try:

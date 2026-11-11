@@ -131,7 +131,7 @@ build_sed_expr() {
     done
 
     # String/number variables: {{VAR}} → value, copied literally like
-    # fox-render-fast does. sed would otherwise read `\` (MAKO_FORMAT's `\n`
+    # desk-render-fast does. sed would otherwise read `\` (MAKO_FORMAT's `\n`
     # became a real line break), `&` (the matched text) and the `|` delimiter
     # in a value, so escape those three. Quoted patterns keep bash 5.2's
     # patsub_replacement from treating `&` specially.
@@ -296,10 +296,10 @@ render_all() {
     local family_source="$template_dir/icons/icon-family.json"
     [[ -f "$family_source" ]] || family_source="$template_dir/../icons/icon-family.json"
     if [[ -f "$family_source" ]]; then
-        local native="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/src/fox-render/fox-render-fast"
-        [[ -x "$native" ]] || native="$(command -v fox-render-fast || true)"
+        local native="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/src/desk-render/desk-render-fast"
+        [[ -x "$native" ]] || native="$(command -v desk-render-fast || true)"
         if [[ ! -x "$native" ]]; then
-            echo "Icon generation needs fox-render-fast; build src/fox-render first." >&2
+            echo "Icon generation needs desk-render-fast; build src/desk-render first." >&2
             return 1
         fi
         "$native" --finish-assets "$palette_file" "$template_dir" "$output_dir" || return 1

@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# build-verify — reproducible-build helper for foxml C++ projects.
+#
+# Two modes:
+#   record   build the project + record source-SHA + binary-SHA pair
+#   verify   build the project + check binary-SHA matches the recorded pair
+#
+# Use record on the release-maker's machine; ship the recorded JSON
+# alongside the binary. Users run verify to confirm "this binary came
+# from THIS source tree." Defeats supply-chain attacks where the
+# release binary doesn't match the public source.
+
+set -u
+C_GRN=$'\e[32m'; C_YEL=$'\e[33m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
+
+usage() {
+    cat <<EOF
+desk build-verify — reproducible-build check for foxml C++ projects
+
+  desk build-verify record <make-target> <output-binary>
+      Build + record source-tree SHA + binary SHA + compiler flags.
+      Drops a .foxml-build.json next to the binary.
+
+  desk build-verify verify <output-binary>
+      Re-build the source tree + compare the binary SHA to the
+      recorded one. Exits 0 if match, 1 if mismatch.
+
+  desk build-verify show <output-binary>
+      Print the .foxml-build.json next to the binary.
+
+Source-tree SHA: git rev-parse HEAD if in a git repo, otherwise
+SHA256 of \`find . -type f -print0 | sort -z | sha256sum\`.
+
+For users:
+  Download the released binary + its .foxml-build.json. Run
+  \`desk build-verify verify <binary>\` from a fresh clone of the
+  source tree. If the SHA matches, you have proof that the
+  released binary was built from that exact source commit.
+EOF
+}
+
+_source_sha() {
+    if git rev-parse HEAD >/dev/null 2>&1; then
+        git rev-parse HEAD
+    else
+        find . -type f -print0 2>/dev/null | sort -z | xargs -0 sha256sum 2>/dev/null | sha256sum | awk '{print $1}'
+    fi
+}
+
+_record() {
+    local target="$1" binary="$2"
+    [[ -n "$target" && -n "$binary" ]] || { usage; exit 2; }
+
+    local src_sha
+    src_sha=$(_source_sha)
+
+    echo "${C_DIM}building $target...${C_RST}"
+    if ! make "$target"; then
+        echo "${C_RED}build failed${C_RST}" >&2
+        return 1
+    fi
+
+    [[ -f "$binary" ]] || { echo "${C_RED}binary $binary not found after build${C_RST}" >&2; return 1; }
+
+    local bin_sha bin_size compiler cflags
+    bin_sha=$(sha256sum "$binary" | awk '{print $1}')
+    bin_size=$(stat -c %s "$binary")
+    compiler=$(g++ --version | head -1)
+    cflags="${CFLAGS:-} ${CXXFLAGS:-}"
+
+    local out="${binary}.foxml-build.json"
+    cat > "$out" <<EOF
+{
+  "binary":      "$(basename "$binary")",
+  "source_sha":  "$src_sha",
+  "binary_sha":  "$bin_sha",
+  "binary_size": $bin_size,
+  "compiler":    "$compiler",
+  "cflags":      "$cflags",
+  "recorded_at": "$(date -Iseconds)",
+  "host":        "$(hostname)"
+}
+EOF
+    echo "${C_GRN}✓ recorded $out${C_RST}"
+    echo "  source_sha: $src_sha"
+    echo "  binary_sha: $bin_sha"
+}
+
+_verify() {
+    local binary="$1"
+    [[ -n "$binary" ]] || { usage; exit 2; }
+    local manifest="${binary}.foxml-build.json"
+    [[ -f "$manifest" ]] || { echo "${C_RED}no manifest at $manifest${C_RST}" >&2; return 1; }
+
+    local recorded_src recorded_bin
+    recorded_src=$(jq -r .source_sha "$manifest")
+    recorded_bin=$(jq -r .binary_sha "$manifest")
+
+    local cur_src
+    cur_src=$(_source_sha)
+    if [[ "$cur_src" != "$recorded_src" ]]; then
+        echo "${C_RED}✗ source SHA mismatch${C_RST}"
+        echo "  recorded: $recorded_src"
+        echo "  current:  $cur_src"
+        echo "  → you're not building from the same source tree as the release"
+        return 1
+    fi
+
+    local target
+    target=$(jq -r '.binary | sub("\\..*"; "")' "$manifest")
+    echo "${C_DIM}rebuilding $target...${C_RST}"
+    make clean >/dev/null 2>&1 || true
+    if ! make "$target"; then
+        echo "${C_RED}build failed${C_RST}" >&2
+        return 1
+    fi
+
+    local cur_bin
+    cur_bin=$(sha256sum "$binary" | awk '{print $1}')
+    if [[ "$cur_bin" == "$recorded_bin" ]]; then
+        echo "${C_GRN}✓ binary SHA matches — reproducible build verified${C_RST}"
+    else
+        echo "${C_RED}✗ binary SHA mismatch${C_RST}"
+        echo "  recorded: $recorded_bin"
+        echo "  current:  $cur_bin"
+        echo "  → released binary does NOT match this source"
+        return 1
+    fi
+}
+
+_show() {
+    local binary="$1"
+    local manifest="${binary}.foxml-build.json"
+    [[ -f "$manifest" ]] || { echo "no manifest at $manifest" >&2; return 1; }
+    if command -v jq >/dev/null 2>&1; then jq . "$manifest"; else cat "$manifest"; fi
+}
+
+case "${1:-}" in
+    record) shift; _record "${1:-}" "${2:-}" ;;
+    verify) shift; _verify "${1:-}" ;;
+    show)   shift; _show "${1:-}" ;;
+    -h|--help|help|"") usage ;;
+    *) echo "unknown: $1" >&2; exit 2 ;;
+esac

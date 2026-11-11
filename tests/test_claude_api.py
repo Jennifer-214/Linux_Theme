@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-loader = importlib.machinery.SourceFileLoader('claude_api', str(ROOT/'shared/bin/fox-claude-api'))
+loader = importlib.machinery.SourceFileLoader('claude_api', str(ROOT/'shared/bin/claude-api'))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 api = importlib.util.module_from_spec(spec)
 loader.exec_module(api)
@@ -56,7 +56,7 @@ class ClaudeApi(unittest.TestCase):
         bins.mkdir()
         (bins/'claude').write_text(FAKE)
         (bins/'claude').chmod(0o755)
-        shutil.copy2(ROOT/'shared/bin/fox-credits', bins/'fox-credits')
+        shutil.copy2(ROOT/'shared/bin/desk-credits', bins/'desk-credits')
         self.audit = self.folder/'audit.jsonl'
         self.env = dict(os.environ, PATH=str(bins)+os.pathsep+os.environ['PATH'],
                         XDG_CONFIG_HOME=str(self.folder/'config'), XDG_STATE_HOME=str(self.folder/'state'),
@@ -90,7 +90,7 @@ class ClaudeApi(unittest.TestCase):
         return api.execute(self.cfg, **args)
 
     def credit_status(self):
-        return json.loads(subprocess.check_output(['fox-credits','status'], text=True))
+        return json.loads(subprocess.check_output(['desk-credits','status'], text=True))
 
     def calls(self):
         return [json.loads(line) for line in self.audit.read_text().splitlines()] if self.audit.exists() else []
@@ -143,7 +143,7 @@ class ClaudeApi(unittest.TestCase):
         self.assertEqual((value['model'],value['input_tokens'],value['output_tokens'],value['cache_read_tokens'],
                           value['turns'],value['duration_ms']),('claude-sonnet-5-5',1200,300,800,3,4200))
         self.assertTrue(value['tracked'])
-        usage = json.loads(subprocess.check_output(['fox-credits','usage'], text=True))
+        usage = json.loads(subprocess.check_output(['desk-credits','usage'], text=True))
         self.assertEqual(usage['models'][0]['model'],'claude-sonnet-5-5')
         self.assertEqual(usage['top'][0]['label'],'Explain this file')
         self.assertEqual(Decimal(usage['projects'][0]['spent_usd']),Decimal('0.125'))
@@ -244,7 +244,7 @@ class ClaudeApi(unittest.TestCase):
         self.assertFalse(self.audit.exists())
 
     def test_budget_above_remaining_credit_is_refused_before_launch(self):
-        subprocess.check_call(['fox-credits','record','--project','trader','--cost-usd','199.50',
+        subprocess.check_call(['desk-credits','record','--project','trader','--cost-usd','199.50',
                                '--id','earlier-run','--at','2026-11-02T00:00:00Z'])
         self.assertEqual(Decimal(api.credits()['remaining_usd']),Decimal('0.50'))
         self.assertIn('~$0.50 left',api.project_rows(self.cfg)[0]['credits'])
@@ -284,7 +284,7 @@ class ClaudeApi(unittest.TestCase):
         fake.write_text('#!/bin/sh\nprintf "%s\\n" "$PWD" "$ANTHROPIC_API_KEY" "$FOXML_API_CREDITS" "$FOXML_API_PROJECT" '
                         '"${ANTHROPIC_AUTH_TOKEN:-none}" "$@" > "$TEST_API_AUDIT.pi"\n')
         fake.chmod(0o755)
-        result = subprocess.run([str(ROOT/'shared/bin/fox-claude-api'),'pi','--project','theme','--model','claude-opus-5-5'],
+        result = subprocess.run([str(ROOT/'shared/bin/claude-api'),'pi','--project','theme','--model','claude-opus-5-5'],
                                 capture_output=True, text=True, timeout=20)
         self.assertEqual(result.returncode, 0, result.stderr)
         lines = Path(str(self.audit)+'.pi').read_text().splitlines()

@@ -1,0 +1,197 @@
+#!/bin/bash
+# desk-rollback — restore / list / prune Linux_Theme config backups.
+#
+# Usage:
+#   desk-rollback                       Interactive picker (default)
+#   desk-rollback --list                List all backups with size + age
+#   desk-rollback --prune               Keep 10 most recent, delete the rest
+#   desk-rollback --prune --keep N      Keep N most recent
+#   desk-rollback --prune --older-than 30d|2w|3m
+#                                      Delete backups older than the window
+#   desk-rollback --prune ... --dry-run Show what would be deleted, don't delete
+#   desk-rollback --help                This message
+#
+# Backups live in ~/.theme_backups/foxml-backup-<YYYYMMDD-HHMMSS>/. They
+# accumulate one per install run; over weeks of iteration the directory
+# bloats. Prune keeps the directory lean without losing safety nets.
+
+set -u
+
+BACKUP_BASE_DIR="$HOME/.theme_backups"
+MODE="interactive"
+KEEP=10
+OLDER_THAN=""
+DRY_RUN=0
+QUIET=0              # --quiet: print only a one-line summary (used by the installer)
+
+while (( $# > 0 )); do
+    case "$1" in
+        --list)        MODE="list" ;;
+        --prune)       MODE="prune" ;;
+        --keep)        KEEP="${2:-10}"; shift ;;
+        --older-than)  OLDER_THAN="${2:-}"; shift ;;
+        --dry-run)     DRY_RUN=1 ;;
+        --quiet|-q)    QUIET=1 ;;
+        --help|-h)     sed -n '2,18p' "$0" | sed 's/^# \?//'; exit 0 ;;
+        *) echo "unknown arg: $1" >&2; exit 2 ;;
+    esac
+    shift
+done
+
+if [[ ! -d "$BACKUP_BASE_DIR" ]]; then
+    echo "No backups found in $BACKUP_BASE_DIR"
+    exit 0
+fi
+
+mapfile -t backups < <(find "$BACKUP_BASE_DIR" -maxdepth 1 -mindepth 1 -type d -name "foxml-backup-*" | sort -r)
+
+if [[ ${#backups[@]} -eq 0 ]]; then
+    echo "No backups found in $BACKUP_BASE_DIR"
+    exit 0
+fi
+
+# Format a YYYYMMDD-HHMMSS suffix → "YYYY-MM-DD HH:MM:SS".
+fmt_time() {
+    local folder="$1"
+    local ts="${folder##*foxml-backup-}"
+    echo "$ts" | sed -E 's/([0-9]{4})([0-9]{2})([0-9]{2})-([0-9]{2})([0-9]{2})([0-9]{2})/\1-\2-\3 \4:\5:\6/'
+}
+
+# Parse "30d" / "2w" / "3m" → seconds. Returns 0 (no filter) on bad input.
+parse_window() {
+    local v="$1"
+    [[ -z "$v" ]] && { echo 0; return; }
+    local n="${v//[^0-9]/}"
+    local u="${v//[0-9]/}"
+    case "$u" in
+        d|D|"") echo $(( n * 86400 )) ;;
+        w|W)    echo $(( n * 604800 )) ;;
+        m|M)    echo $(( n * 2592000 )) ;;  # 30-day month
+        *)      echo 0 ;;
+    esac
+}
+
+cmd_list() {
+    printf '%-22s %10s %s\n' "TIMESTAMP" "SIZE" "PATH"
+    for b in "${backups[@]}"; do
+        local size
+        size=$(du -sh "$b" 2>/dev/null | awk '{print $1}')
+        printf '%-22s %10s %s\n' "$(fmt_time "$b")" "$size" "$b"
+    done
+    local total
+    total=$(du -sh "$BACKUP_BASE_DIR" 2>/dev/null | awk '{print $1}')
+    echo
+    echo "Total: ${total:-?}  (${#backups[@]} backups)"
+}
+
+cmd_prune() {
+    # Decide which backups to delete. `keep` keeps the N most recent.
+    # `older-than` deletes everything beyond the time window.
+    # When both are passed, the union is deleted (keep wins over older-than
+    # for the N most recent — never delete inside the keep window).
+    local -a to_delete=()
+    local window_s
+    window_s="$(parse_window "$OLDER_THAN")"
+    local now
+    now=$(date +%s)
+
+    local i=0
+    for b in "${backups[@]}"; do
+        i=$((i+1))
+        local delete=0
+        # By recency: anything beyond KEEP is a delete candidate
+        if (( i > KEEP )); then delete=1; fi
+        # By age: anything older than the window is a delete candidate
+        if (( window_s > 0 )); then
+            # Derive epoch from YYYYMMDD-HHMMSS via date -d
+            local ts_raw fmt epoch
+            ts_raw="${b##*foxml-backup-}"
+            fmt=$(echo "$ts_raw" | sed -E 's/([0-9]{4})([0-9]{2})([0-9]{2})-([0-9]{2})([0-9]{2})([0-9]{2})/\1-\2-\3 \4:\5:\6/')
+            epoch=$(date -d "$fmt" +%s 2>/dev/null || echo 0)
+            if (( epoch > 0 && now - epoch > window_s )); then
+                # Older than the window — but never delete inside the keep set
+                if (( i > KEEP )); then delete=1; fi
+            fi
+        fi
+        (( delete )) && to_delete+=("$b")
+    done
+
+    if (( ${#to_delete[@]} == 0 )); then
+        (( QUIET )) || echo "Nothing to prune (keep=$KEEP, older_than='${OLDER_THAN:-none}')."
+        return
+    fi
+
+    if (( ! QUIET )); then
+        if (( DRY_RUN )); then
+            echo "Would delete ${#to_delete[@]} backup(s):"
+        else
+            echo "Deleting ${#to_delete[@]} backup(s):"
+        fi
+    fi
+    local freed=0
+    for b in "${to_delete[@]}"; do
+        local size_kb
+        size_kb=$(du -sk "$b" 2>/dev/null | awk '{print $1}')
+        freed=$((freed + ${size_kb:-0}))
+        (( QUIET )) || printf '  %s  (%s)\n' "$(fmt_time "$b")" "$(du -sh "$b" 2>/dev/null | awk '{print $1}')"
+        if (( ! DRY_RUN )); then
+            rm -rf "$b"
+        fi
+    done
+    local human
+    human="$(numfmt --to=iec --suffix=B $((freed * 1024)))"
+    if (( QUIET )); then
+        if (( DRY_RUN )); then
+            printf 'Would prune %d backup(s), free %s\n' "${#to_delete[@]}" "$human"
+        else
+            printf 'Pruned %d backup(s), freed %s\n' "${#to_delete[@]}" "$human"
+        fi
+    elif (( DRY_RUN )); then
+        printf 'Would free: %s\n' "$human"
+    else
+        printf 'Freed: %s\n' "$human"
+    fi
+}
+
+cmd_interactive() {
+    echo "╭──────────────────────────────────────────────────────────────────╮"
+    echo "│                      Linux_Theme Theme Rollback                       │"
+    echo "╰──────────────────────────────────────────────────────────────────╯"
+    echo ""
+    echo "Select a backup to restore to your home directory."
+    echo "This will overwrite your current live configs with the backed-up versions."
+    echo ""
+
+    for i in "${!backups[@]}"; do
+        echo "[$((i+1))] $(fmt_time "${backups[$i]}")"
+    done
+
+    echo ""
+    read -p "Select a backup to restore [1-${#backups[@]}] (q to quit): " choice
+
+    if [[ "$choice" == "q" || "$choice" == "Q" ]]; then
+        echo "Cancelled."
+        exit 0
+    fi
+
+    if [[ "$choice" -ge 1 && "$choice" -le ${#backups[@]} ]] 2>/dev/null; then
+        local selected="${backups[$((choice-1))]}"
+        echo ""
+        echo "Restoring from: $(basename "$selected")"
+        cp -a "$selected/." "$HOME/"
+        echo "Rollback complete."
+        if command -v hyprctl &>/dev/null; then
+            echo "Reloading Hyprland..."
+            hyprctl reload &>/dev/null || true
+        fi
+    else
+        echo "Invalid selection."
+        exit 1
+    fi
+}
+
+case "$MODE" in
+    list)        cmd_list ;;
+    prune)       cmd_prune ;;
+    interactive) cmd_interactive ;;
+esac

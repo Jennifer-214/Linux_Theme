@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# desk-offline — run a command in a network-namespaced void.
+#
+# Uses `unshare --net` to create a private network namespace
+# containing only the loopback interface. The wrapped process
+# (and its children) mathematically cannot reach eth0/wlan0 — the
+# kernel doesn't even let them see those interfaces.
+#
+# Use cases:
+#   • running an untrusted npm/python/cargo project
+#   • opening a sketchy PDF
+#   • compiling a C++ project that pulled in unknown deps
+#   • testing a binary you got from a stranger
+#
+# Caveats:
+#   • The process can't talk to ANY network, including DNS, package
+#     mirrors, or your own dev server. Plan accordingly.
+#   • Loopback (127.0.0.1) IS up inside the namespace, so apps that
+#     bind localhost work fine.
+#   • Requires kernel.unprivileged_userns_clone=1. Arch ships this on
+#     by default; Linux_Theme's hardening does NOT disable it.
+#
+# Examples:
+#   desk offline python3 sketchy.py
+#   desk offline ./untrusted-installer.sh
+#   desk offline bash             # interactive shell with no network
+
+set -u
+
+if (( $# == 0 )); then
+    cat <<'EOF'
+desk-offline — run a command with no network access
+
+  desk-offline <cmd> [args...]   run wrapped (no eth0/wlan0)
+  desk-offline                   no-arg: prints this help
+  desk-offline bash              interactive shell, network-blackholed
+
+The wrapped process gets a private network namespace with only `lo`
+up. Useful for running untrusted code without exfiltration risk.
+EOF
+    exit 0
+fi
+
+if ! command -v unshare >/dev/null 2>&1; then
+    echo "unshare not found (install: pacman -S util-linux)" >&2
+    exit 1
+fi
+
+# --net      = private network namespace
+# --user     = unprivileged user namespace (so --net works without sudo)
+# --map-root-user = uid 0 inside the namespace, current uid outside
+# We bring up lo inside the ns so localhost-bound code still works.
+# The inner sh brings up loopback then execs the user command. Using
+# double-quoted heredoc inner script to avoid single-quote issues with
+# any apostrophes in arguments.
+exec unshare --net --user --map-root-user \
+    /bin/sh -c "ip link set lo up 2>/dev/null || true; exec \"\$@\"" _ "$@"

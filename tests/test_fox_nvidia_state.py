@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Test for shared/bin/fox-nvidia-state — the one "can nvidia-smi be asked?" answer the GPU bar modules share.
+"""Test for shared/bin/nvidia-state — the one "can nvidia-smi be asked?" answer the GPU bar modules share.
 
 A fake nvidia-smi (its mismatch text as an NVIDIA update without a reboot printed it, 2026-10-15) and a fake NVML
 library link; every nvidia-smi call is counted. Checks: the mismatch answer and its versions; one call per boot, then
@@ -18,7 +18,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-HELPER = ROOT / "shared/bin/fox-nvidia-state"
+HELPER = ROOT / "shared/bin/nvidia-state"
 GPU_STATS = ROOT / "shared/waybar_scripts/gpu-stats.sh"
 OVERWATCH = ROOT / "shared/waybar_scripts/hw_overwatch.sh"
 
@@ -99,9 +99,9 @@ try:
     g = GPU_STATS.read_text()
     o = OVERWATCH.read_text()
     check("gpu-stats.sh answers a mismatch before its nvidia-smi stats call",
-          0 < g.find("fox-nvidia-state") < g.find("nvidia-smi --query-gpu"))
+          0 < g.find("nvidia-state") < g.find("nvidia-smi --query-gpu"))
     check("hw_overwatch.sh skips its GPU scan on a mismatch",
-          0 < o.find("fox-nvidia-state") < o.find("nvidia-smi --query-compute-apps") and "!= mismatch" in o)
+          0 < o.find("nvidia-state") < o.find("nvidia-smi --query-compute-apps") and "!= mismatch" in o)
     # …and gpu-stats.sh, run for real where this machine has an active NVIDIA display GPU (its sysfs check)
     active = False
     for dev in Path("/sys/bus/pci/devices").glob("*/"):

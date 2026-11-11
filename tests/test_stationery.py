@@ -12,9 +12,9 @@ import unittest
 import xml.etree.ElementTree as ET
 
 ROOT=Path(__file__).resolve().parents[1]
-RENDER=ROOT/'src/fox-render/fox-render-fast'
+RENDER=ROOT/'src/desk-render/desk-render-fast'
 
-@unittest.skipUnless(RENDER.exists(), 'build fox-render-fast first')
+@unittest.skipUnless(RENDER.exists(), 'build desk-render-fast first')
 class Stationery(unittest.TestCase):
     def test_handwritten_date_is_valid_markup_and_stays_clear_of_the_clock(self):
         try:

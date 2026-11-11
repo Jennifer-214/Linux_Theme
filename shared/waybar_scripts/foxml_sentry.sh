@@ -11,7 +11,7 @@
 #   warning  — class="warning"   baseline drifted OR recent ledger entry
 #   critical — class="critical"  hardening missing OR active intrusion
 #
-# Pairs with: fox sec / fox sec dashboard --live / fox arm --status — they are
+# Pairs with: desk sec / desk sec dashboard --live / desk arm --status — they are
 # the deeper-detail views. The widget is the glance.
 
 set -u
@@ -43,7 +43,7 @@ _bump() {
 _svc()  { systemctl is-active --quiet "$1" 2>/dev/null; }
 _usvc() { systemctl --user is-active --quiet "$1" 2>/dev/null; }
 
-# ─── BASELINE (always-on after fox install --full) ────────────────
+# ─── BASELINE (always-on after desk install --full) ────────────────
 # Anything missing here is a real warning — the install would have set it up.
 # UFW: a running unit is not proof the rules are loaded (that needs root) — so it's listed as configured, outside the
 # active-protection count. A stopped unit is still critical: the install sets it up, and nothing then enforces.
@@ -190,7 +190,7 @@ _tooltip() {
         out+="\\n? Unknown (${#unknowns[@]}):\\n"
         for m in "${unknowns[@]}"; do out+="  · $m\\n"; done
     fi
-    out+="\\nClick: fox sec dashboard --live  •  Detail: fox arm --status"
+    out+="\\nClick: desk sec dashboard --live  •  Detail: desk arm --status"
     # JSON-safe.
     printf '%s' "${out//\"/\\\"}"
 }

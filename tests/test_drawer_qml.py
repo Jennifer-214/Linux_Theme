@@ -421,10 +421,10 @@ class DrawerQmlTest(unittest.TestCase):
             polkit = re.sub(r"^        (?:anchors \{.*|exclusionMode:.*|WlrLayershell\..*)\n", "", polkit, flags=re.M)
             (directory / "PolkitPrompt.qml").write_text(polkit)
             shutil.copyfile(ROOT / "shared/quickshell/foxml/paper-sprig.png", directory / "paper-sprig.png")
-            renderer = ROOT / "src/fox-render/fox-render-fast"
-            render = str(renderer) if renderer.exists() else shutil.which("fox-render-fast")
+            renderer = ROOT / "src/desk-render/desk-render-fast"
+            render = str(renderer) if renderer.exists() else shutil.which("desk-render-fast")
             if not render:
-                self.skipTest("build fox-render-fast before running the QML smoke test")
+                self.skipTest("build desk-render-fast before running the QML smoke test")
             subprocess.run([render, str(ROOT / "themes/FoxML_Paper/palette.sh"),
                             str(ROOT / "templates/quickshell/foxml"), str(directory)], check=True, capture_output=True)
             (directory / "menus.json").write_text("{}")

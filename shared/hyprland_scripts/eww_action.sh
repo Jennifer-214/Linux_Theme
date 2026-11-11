@@ -26,16 +26,16 @@ case "$action" in
 
     apps)
         close_hub
-        exec fox-desktop-menu apps
+        exec desktop-menu apps
         ;;
 
     windows)
         close_hub
-        exec fox-desktop-menu windows
+        exec desktop-menu windows
         ;;
 
     nightlight)
-        exec fox-drawer run nightlight
+        exec desk-drawer run nightlight
         ;;
 
     idle)
@@ -82,7 +82,7 @@ case "$action" in
         case "$arg" in
             lock)     ~/.config/hypr/scripts/lock.sh ;;
             suspend)  systemctl suspend ;;
-            logout)   fox-hl dispatch "hl.dsp.exit()" "exit" ;;
+            logout)   desk-hl dispatch "hl.dsp.exit()" "exit" ;;
             reboot)   systemctl reboot ;;
             shutdown) systemctl poweroff ;;
         esac

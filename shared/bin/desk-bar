@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# The drawer and bar share one named Quickshell service.
+set -euo pipefail
+launcher_dir="$(cd -- "${BASH_SOURCE[0]%/*}" && pwd -P)"
+export PATH="$launcher_dir:${PATH:-/usr/local/bin:/usr/bin:/bin}"
+ipc() { quickshell -c foxml ipc call bar "$@"; }
+case "${1:-toggle}" in
+    --help|-h) printf '%s\n' 'Usage: desk-bar [start|show|hide|toggle|status|refresh [MODULE]]'; exit 0 ;;
+    status) ipc status; exit $? ;;
+    refresh) ipc refresh "${2:-}" >/dev/null; exit $? ;;
+    hide) ipc hide >/dev/null; exit $? ;;
+    start|--start|show|toggle) action="${1#--}" ;;
+    *) printf 'desk-bar: unknown action: %s\n' "$1" >&2; exit 2 ;;
+esac
+desktop-menu --start
+if [[ "$action" == toggle ]]; then ipc toggle >/dev/null; else ipc start >/dev/null; fi
+for ((attempt=0; attempt<40; attempt++)); do
+    state=$(ipc status 2>/dev/null) || state='{}'
+    if printf '%s' "$state" | jq -e '.ready == true and .error == ""' >/dev/null 2>&1; then exit 0; fi
+    sleep .1
+done
+ipc hide >/dev/null 2>&1 || true
+printf 'desk-bar: bar did not become ready: %s\n' "$state" >&2
+exit 1

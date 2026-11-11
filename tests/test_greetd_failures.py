@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SOURCE = (ROOT / "src/fox-install/modules/greetd.cpp").read_text()
+SOURCE = (ROOT / "src/desk-install/modules/greetd.cpp").read_text()
 BODY = SOURCE[SOURCE.index("void run_greetd(Context& ctx) {"):]
 
 

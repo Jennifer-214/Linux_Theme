@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+# desk-ports — interactive UFW port manager.
+#
+# UFW's CLI is fine but verbose. This wraps the common operations
+# (list, allow, deny, delete, scan listeners, audit drift) in a single
+# tool with rofi-style prompts and sanity checks.
+#
+# Usage:
+#   desk ports                 interactive menu (default)
+#   desk ports list            show current rules
+#   desk ports listeners       show TCP/UDP sockets actively listening
+#   desk ports allow <p>       allow tcp/udp port (validates range)
+#   desk ports limit <p>       rate-limit (good for ssh, http brute force)
+#   desk ports deny  <p>       explicit deny (also default for incoming)
+#   desk ports delete <p>      remove rule for port
+#   desk ports audit           list listeners that aren't in UFW allow rules
+
+set -u
+
+C_BOLD=$'\e[1m'
+C_DIM=$'\e[2m'
+C_PEACH=$'\e[95m'
+C_GRN=$'\e[32m'
+C_YEL=$'\e[33m'
+C_RED=$'\e[31m'
+C_RST=$'\e[0m'
+
+usage() {
+    cat <<EOF
+${C_BOLD}desk ports${C_RST} — UFW port manager
+
+  desk ports                 ${C_DIM}interactive menu${C_RST}
+  desk ports list            list current UFW rules
+  desk ports listeners       list TCP/UDP sockets currently listening
+  desk ports audit           cross-check listeners vs UFW allows
+  desk ports allow  <port>   allow port (e.g. 8080, 3000/tcp, 51820/udp)
+  desk ports limit  <port>   rate-limit (default policy for ssh)
+  desk ports deny   <port>   explicit deny
+  desk ports delete <port>   remove rule
+
+Tips:
+  • Format accepts plain number (both tcp+udp) or with /tcp /udp suffix
+  • UFW needs sudo for write ops — script re-primes once at entry
+EOF
+}
+
+need_sudo() {
+    if sudo -n true 2>/dev/null; then return 0; fi
+    if [[ -t 0 ]] && sudo -v 2>/dev/null; then return 0; fi
+    echo "${C_RED}sudo required for write operations — re-prime with: sudo -v${C_RST}" >&2
+    return 1
+}
+
+validate_port() {
+    local p="$1"
+    local num="${p%%/*}"
+    local proto=""
+    [[ "$p" == */* ]] && proto="${p#*/}"
+    if ! [[ "$num" =~ ^[0-9]+$ ]] || (( num < 1 || num > 65535 )); then
+        echo "${C_RED}invalid port: $p${C_RST}" >&2
+        return 1
+    fi
+    if [[ -n "$proto" && "$proto" != tcp && "$proto" != udp ]]; then
+        echo "${C_RED}invalid proto: $proto (must be tcp or udp)${C_RST}" >&2
+        return 1
+    fi
+    echo "$p"
+}
+
+act_list() {
+    echo "${C_BOLD}── UFW rules ──${C_RST}"
+    if ! sudo -n ufw status numbered 2>/dev/null; then
+        if [[ -t 0 ]] && need_sudo; then
+            sudo ufw status numbered
+        else
+            echo "${C_DIM}(sudo required to read UFW status)${C_RST}"
+        fi
+    fi
+}
+
+act_listeners() {
+    echo "${C_BOLD}── Listening sockets ──${C_RST}"
+    if sudo -n true 2>/dev/null; then
+        sudo ss -tulnp 2>/dev/null | awk 'NR==1 || $5 !~ /^(127\.|\[::1\])/'
+    else
+        ss -tuln | awk 'NR==1 || $5 !~ /^(127\.|\[::1\])/'
+        echo
+        echo "${C_DIM}(re-prime sudo to see process names: sudo -v)${C_RST}"
+    fi
+}
+
+act_audit() {
+    if ! need_sudo; then return 1; fi
+    echo "${C_BOLD}── Audit: non-loopback listeners NOT in UFW allow list ──${C_RST}"
+    # Pull UFW allow ports (numeric only, ignore service names for simplicity).
+    local ufw_ports
+    ufw_ports=$(sudo ufw status 2>/dev/null \
+        | awk 'NR>3 && $2 ~ /^(ALLOW|LIMIT)/ {sub("/.*","",$1); print $1}' \
+        | sort -un)
+
+    local socket_ports
+    socket_ports=$(sudo ss -tulnp 2>/dev/null \
+        | awk 'NR>1 && $5 !~ /^(127\.|\[::1\])/ {
+                  n=split($5, a, ":")
+                  print a[n]
+              }' \
+        | sort -un)
+
+    local unaccounted=""
+    for p in $socket_ports; do
+        if ! grep -qx "$p" <<<"$ufw_ports"; then
+            unaccounted+="$p "
+        fi
+    done
+    unaccounted="${unaccounted% }"
+
+    if [[ -z "$unaccounted" ]]; then
+        echo "${C_GRN}  ✓ every external listener has a matching UFW allow${C_RST}"
+    else
+        echo "${C_YEL}  ⚠ ${unaccounted}"
+        echo "${C_DIM}  (these sockets are accepting connections without an explicit allow rule —"
+        echo "   they're either denied by UFW default-incoming policy, or rely on the"
+        echo "   service binding to loopback only; verify with: desk ports listeners)${C_RST}"
+    fi
+}
+
+act_change() {
+    local op="$1" port_arg="$2"
+    local port
+    port=$(validate_port "$port_arg") || return 1
+    need_sudo || return 1
+    case "$op" in
+        allow)  sudo ufw allow  "$port" && echo "${C_GRN}✓ allowed $port${C_RST}" ;;
+        limit)  sudo ufw limit  "$port" && echo "${C_GRN}✓ limited (rate-limited) $port${C_RST}" ;;
+        deny)   sudo ufw deny   "$port" && echo "${C_GRN}✓ denied $port${C_RST}" ;;
+        delete) sudo ufw delete allow "$port" 2>/dev/null \
+                || sudo ufw delete limit "$port" 2>/dev/null \
+                || sudo ufw delete deny  "$port" 2>/dev/null
+                echo "${C_GRN}✓ deleted rule for $port${C_RST}" ;;
+    esac
+}
+
+act_menu() {
+    echo "${C_BOLD}${C_PEACH}desk ports${C_RST} — interactive"
+    echo
+    PS3="${C_PEACH}> ${C_RST}"
+    local choice
+    select choice in \
+        "list rules" \
+        "list listeners" \
+        "audit (listeners vs allows)" \
+        "allow port" \
+        "limit (rate-limit) port" \
+        "deny port" \
+        "delete rule" \
+        "quit"
+    do
+        case "$REPLY" in
+            1) act_list; break ;;
+            2) act_listeners; break ;;
+            3) act_audit; break ;;
+            4) read -rp "  port (e.g. 8080 or 3000/tcp): " p; act_change allow  "$p"; break ;;
+            5) read -rp "  port (e.g. ssh or 22):        " p; act_change limit  "$p"; break ;;
+            6) read -rp "  port: "                          p; act_change deny   "$p"; break ;;
+            7) read -rp "  port: "                          p; act_change delete "$p"; break ;;
+            8) exit 0 ;;
+            *) echo "invalid"; continue ;;
+        esac
+    done
+}
+
+case "${1:-}" in
+    ""|menu)        act_menu ;;
+    list|status)    act_list ;;
+    listeners|ls)   act_listeners ;;
+    audit)          act_audit ;;
+    allow)          [[ -n "${2:-}" ]] && act_change allow  "$2" || { echo "usage: desk ports allow <port>"; exit 2; } ;;
+    limit)          [[ -n "${2:-}" ]] && act_change limit  "$2" || { echo "usage: desk ports limit <port>"; exit 2; } ;;
+    deny)           [[ -n "${2:-}" ]] && act_change deny   "$2" || { echo "usage: desk ports deny <port>";  exit 2; } ;;
+    delete|rm)      [[ -n "${2:-}" ]] && act_change delete "$2" || { echo "usage: desk ports delete <port>"; exit 2; } ;;
+    -h|--help|help) usage ;;
+    *)              echo "unknown: $1"; usage; exit 2 ;;
+esac

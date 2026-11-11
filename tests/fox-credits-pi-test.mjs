@@ -1,4 +1,4 @@
-// tests/fox-credits-pi-test.mjs — drives the fox-credits pi extension with a fake pi and a fake fox-credits.
+// tests/fox-credits-pi-test.mjs — drives the desk-credits pi extension with a fake pi and a fake desk-credits.
 // Run via tests/test_fox_credits_pi.py, which sets FOX_CREDITS_BIN and the audit file.
 import { readFileSync, existsSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -23,7 +23,7 @@ check(mod.recordArgs(reply({ usage: { cost: { total: NaN } } }), "theme", at, ()
 check(mod.recordArgs(reply(), "../x", at, () => "x")[2] === "other", "unknown project falls back to other");
 check(mod.recordArgs(reply({ responseId: "bad id!" }), "theme", at, () => "fb")[6] === "pi-fb", "unsafe IDs are replaced");
 
-// Not started by fox-claude-api pi: nothing registers.
+// Not started by claude-api pi: nothing registers.
 const off = {};
 delete process.env.FOXML_API_CREDITS;
 mod.default({ on: (ev, fn) => { off[ev] = fn; } });
@@ -40,7 +40,7 @@ await handlers.message_end({ message: reply({ provider: "openai" }) }, ctx);
 const audit = process.env.TEST_AUDIT;
 const calls = existsSync(audit) ? readFileSync(audit, "utf8").trim().split("\n").map((l) => l.split(" ")[0]) : [];
 check(JSON.stringify(calls) === JSON.stringify(["status", "record", "status"]), "records once and refreshes the footer", JSON.stringify(calls));
-check(statuses.length === 2 && statuses[0][0] === "fox-credits" && statuses[0][1] === "API ~$199.99 left", "footer shows what is left", JSON.stringify(statuses));
+check(statuses.length === 2 && statuses[0][0] === "desk-credits" && statuses[0][1] === "API ~$199.99 left", "footer shows what is left", JSON.stringify(statuses));
 check(notes.length === 0, "no warning when the record lands", JSON.stringify(notes));
 
 console.log(fail ? `${fail} failed` : "all passed");

@@ -1,0 +1,52 @@
+// X-macro registry for desk-sec subcommands.
+//
+// Add a subcommand by including a line:
+//   FOX_SUBCMD( name, binary, "description" )
+
+// — Auditing & monitoring —
+FOX_SUBCMD( audit,         desk-audit,            "lynis wrapper for hardening posture" )
+FOX_SUBCMD( audit-timer,   audit-timer,      "Install/manage a weekly desk doctor drift audit" )
+FOX_SUBCMD( snitch,        desk-snitch,           "OpenSnitch (application-layer egress firewall)" )
+FOX_SUBCMD( sentry-audit,  desk-sentry-audit,     "Kernel-level honeypot tailer" )
+FOX_SUBCMD( overwatch,     desk-overwatch,        "Explain what the waybar overwatch widget is alerting on" )
+FOX_SUBCMD( tripwire,      desk-tripwire,         "Honeypot file watcher" )
+FOX_SUBCMD( dispatch,      desk-dispatch,         "Send a notification to your phone / Discord / Telegram" )
+
+// — Network —
+FOX_SUBCMD( firewall,      desk-firewall,         "Egress filtering (default-deny outgoing) + allowlist" )
+FOX_SUBCMD( vpn,           desk-vpn,              "WireGuard wizard with UFW kill-switch" )
+FOX_SUBCMD( dns-shield,    desk-dns-shield,       "Local DNS sinkhole using systemd-resolved" )
+FOX_SUBCMD( dnssec,        desk-dnssec,           "Pick DNSSEC strictness for systemd-resolved" )
+FOX_SUBCMD( ports,         desk-ports,            "Interactive UFW port manager" )
+FOX_SUBCMD( knock,         desk-knock,            "Port-knocking configurator + trigger" )
+FOX_SUBCMD( spa,           desk-spa,              "Single Packet Authorization via fwknop" )
+FOX_SUBCMD( offline,       desk-offline,          "Run a command in a network-namespaced void" )
+
+// — Identity —
+FOX_SUBCMD( fingerprint,   desk-fingerprint,      "fprintd wrapper" )
+FOX_SUBCMD( mac,           desk-mac,              "NetworkManager MAC randomization, per-SSID" )
+
+// — Isolation —
+FOX_SUBCMD( jail,          desk-jail,             "firejail management" )
+FOX_SUBCMD( sandbox,       desk-sandbox,          "Launch a disposable, sandboxed program" )
+FOX_SUBCMD( allowlist,     desk-allowlist,        "fapolicyd wrapper (executable allowlist)" )
+
+// — Devices —
+FOX_SUBCMD( usb,           desk-usb,              "Friendly wrapper around usbguard" )
+FOX_SUBCMD( bouncer,       desk-bouncer,          "Alert when USBGuard blocks a device while the screen is locked" )
+FOX_SUBCMD( deadman,       desk-deadman,          "USB-tethered panic trigger" )
+FOX_SUBCMD( proximity,     desk-proximity,        "Bluetooth proximity auto-lock" )
+
+// — State & posture —
+FOX_SUBCMD( arm,           desk-arm,              "Single-command 'turn everything on' for the opt-in security stack" )
+FOX_SUBCMD( harden,        desk-harden,           "Post-install control for the kernel/userspace hardening profile" )
+FOX_SUBCMD( cafe,          desk-cafe,             "Cafe Mode: auto-tighten security posture on untrusted networks" )
+FOX_SUBCMD( backup,        desk-backup,           "Encrypted backup of all opt-in security config" )
+FOX_SUBCMD( health,        sec-health,       "Run the foxml health-check library (boot path + PAM stack)" )
+
+// — Honeypots —
+FOX_SUBCMD( honey,         desk-honey,            "Plant a per-repo honeytoken matched by desk sec sentry-audit" )
+FOX_SUBCMD( honeypot,      desk-honeypot,         "Cowrie SSH honeypot wrapper" )
+
+// — Dashboard (was the standalone desk-sec binary, now a subcommand) —
+FOX_SUBCMD( dashboard,     sec-dashboard,    "Unified security dashboard (formerly the standalone desk-sec command)" )

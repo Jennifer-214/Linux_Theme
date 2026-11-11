@@ -245,7 +245,7 @@ if command -v hyprctl >/dev/null 2>&1 && [[ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}
     hyprctl setcursor "$CURSOR_THEME_USE" "$CURSOR_SIZE_USE" >/dev/null 2>&1 || true
     # `setenv` is not a Hyprland IPC request; update both cursor backends in the active parser.
     if [[ "$CURSOR_THEME_USE" =~ ^[a-zA-Z0-9_-]+$ ]]; then
-        fox-hl eval \
+        desk-hl eval \
             "hl.env('XCURSOR_THEME', '$CURSOR_THEME_USE'); hl.env('HYPRCURSOR_THEME', '$CURSOR_THEME_USE'); hl.env('XCURSOR_SIZE', '$CURSOR_SIZE_USE'); hl.env('HYPRCURSOR_SIZE', '$CURSOR_SIZE_USE'); hl.env('ROFI_X', '$ROFI_X'); hl.env('ROFI_Y', '$ROFI_Y')" \
             "keyword env XCURSOR_THEME,$CURSOR_THEME_USE; keyword env HYPRCURSOR_THEME,$CURSOR_THEME_USE; keyword env XCURSOR_SIZE,$CURSOR_SIZE_USE; keyword env HYPRCURSOR_SIZE,$CURSOR_SIZE_USE; keyword env ROFI_X,$ROFI_X; keyword env ROFI_Y,$ROFI_Y" >/dev/null 2>&1 || true
         export XCURSOR_THEME="$CURSOR_THEME_USE" HYPRCURSOR_THEME="$CURSOR_THEME_USE"
@@ -269,7 +269,7 @@ if [[ "${1:-}" == "--render-only" ]]; then
 fi
 
 # Verify the shared Quickshell bar before retiring the fallback process.
-if command -v fox-bar >/dev/null 2>&1 && fox-bar start; then
+if command -v desk-bar >/dev/null 2>&1 && desk-bar start; then
     pkill -x waybar 2>/dev/null || true
     exit 0
 fi

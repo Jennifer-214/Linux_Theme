@@ -1,0 +1,327 @@
+#!/usr/bin/env bash
+# desk-knock — port-knocking configurator + trigger.
+#
+# Setup once, then SSH is invisible to scanners. To connect, you "knock"
+# on a secret port sequence first; knockd watches network traffic for
+# the sequence and temporarily opens the real SSH port for your IP.
+#
+# Layout:
+#   • /etc/knockd.conf      managed by --setup, references the saved
+#                           sequence + the real SSH port (read from
+#                           /etc/ssh/sshd_config.d/50-foxml-hardening.conf)
+#   • ~/.config/foxml/knock.conf  YOUR sequence, 0600, NEVER committed
+#   • UFW: real SSH port stays denied; knockd injects a temporary
+#     `allow from <ip> to any port <ssh_port>` on a successful knock
+#     and removes it after CMD_TIMEOUT seconds (default: 30).
+#
+# Usage:
+#   desk knock --setup            wizard: pick/generate sequence, write configs
+#   desk knock --status           show service state; sequence is masked
+#   desk knock --reveal           print the sequence (prompts confirm)
+#   desk knock --reset            generate a new sequence
+#   desk knock --disable          stop knockd, re-open SSH unconditionally
+#   desk knock <ip>               run the knock sequence against <ip>
+#                                  (uses your local sequence + a TCP-knock
+#                                   client; needs nmap or nc-knock alt)
+#
+# Setup writes the sequence in EXACTLY ONE place outside the repo and
+# does NOT mirror it to syslog / journal / any logged channel. After
+# --setup, write the sequence on paper or save to a password manager
+# entry titled "ssh knock"; you'll need it if your ~/.config/foxml is
+# lost (e.g. fresh re-install).
+
+set -u
+
+CONF_DIR="$HOME/.config/foxml"
+USER_CONF="$CONF_DIR/knock.conf"
+SYS_CONF="/etc/knockd.conf"
+
+C_BOLD=$'\e[1m'
+C_DIM=$'\e[2m'
+C_PEACH=$'\e[95m'
+C_GRN=$'\e[32m'
+C_YEL=$'\e[33m'
+C_RED=$'\e[31m'
+C_RST=$'\e[0m'
+
+# ─── helpers ──────────────────────────────────────────────────────
+_require_knockd() {
+    if ! command -v knockd >/dev/null 2>&1; then
+        echo "${C_RED}knockd not installed${C_RST}" >&2
+        echo "  install with: sudo pacman -S knockd  (or yay -S knockd if AUR)" >&2
+        return 1
+    fi
+}
+
+_real_ssh_port() {
+    local p
+    p=$(awk '/^Port /{print $2}' /etc/ssh/sshd_config.d/50-foxml-hardening.conf 2>/dev/null)
+    if [[ -z "$p" ]]; then
+        p=$(awk '/^Port /{print $2; exit}' /etc/ssh/sshd_config 2>/dev/null)
+    fi
+    echo "${p:-22}"
+}
+
+_gen_sequence() {
+    # Three random high ports in the unused 7000-9999 range. Avoid
+    # well-known service ports + already-used ones on this machine.
+    local in_use
+    in_use=$(ss -tuln 2>/dev/null | awk 'NR>1 {n=split($5,a,":"); print a[n]}' | sort -u)
+    local seq=()
+    local tries=0
+    while (( ${#seq[@]} < 3 )); do
+        local p=$(( 7000 + RANDOM % 3000 ))
+        # Skip if already on the machine or already in the sequence.
+        grep -qx "$p" <<<"$in_use"     && continue
+        printf '%s\n' "${seq[@]}" | grep -qx "$p" && continue
+        seq+=("$p")
+        (( ++tries > 50 )) && break
+    done
+    echo "${seq[@]}"
+}
+
+_load_user_conf() {
+    SEQUENCE=""
+    TIMEOUT=10
+    OPEN_FOR=30
+    [[ -f "$USER_CONF" ]] || return 1
+    local mode
+    mode=$(stat -c '%a' "$USER_CONF" 2>/dev/null)
+    if [[ "$mode" != "600" ]]; then
+        echo "${C_RED}$USER_CONF has perms $mode — refusing (chmod 600 it)${C_RST}" >&2
+        return 1
+    fi
+    local k v
+    while IFS='=' read -r k v; do
+        k="${k##[[:space:]]}"; k="${k%%[[:space:]]}"
+        v="${v##[[:space:]]}"; v="${v%%[[:space:]]}"
+        case "$k" in
+            SEQUENCE) SEQUENCE="$v" ;;
+            TIMEOUT)  TIMEOUT="$v"  ;;
+            OPEN_FOR) OPEN_FOR="$v" ;;
+        esac
+    done < "$USER_CONF"
+    [[ -n "$SEQUENCE" ]]
+}
+
+_write_user_conf() {
+    local seq="$1"
+    mkdir -p "$CONF_DIR" && chmod 700 "$CONF_DIR"
+    ( umask 077
+      cat > "$USER_CONF" <<EOF
+# foxml-managed — port-knock secret sequence + tunables.
+# NEVER commit this file to a public repo. UFW + knockd enforce SSH
+# accessibility; if this file is lost, fall back to physical TTY login
+# or re-run \`desk knock --reset\`.
+SEQUENCE=$seq
+TIMEOUT=10
+OPEN_FOR=30
+EOF
+    )
+    chmod 600 "$USER_CONF"
+}
+
+_write_sys_conf() {
+    local seq="$1" ssh_port="$2"
+    local seq_csv
+    seq_csv=$(echo "$seq" | tr ' ' ',')
+    sudo tee "$SYS_CONF" >/dev/null <<EOF
+# foxml-managed — knockd config. Edit via: desk knock --reset
+[options]
+    UseSyslog
+    LogFile = /var/log/knockd.log
+
+[opensshd]
+    sequence    = $seq_csv
+    seq_timeout = 10
+    command     = /usr/bin/ufw allow from %IP% to any port $ssh_port proto tcp
+    tcpflags    = syn
+
+[closesshd]
+    sequence    = $(echo "$seq" | awk '{for(i=NF;i>0;i--) printf "%s%s",$i,(i>1?",":"")}')
+    seq_timeout = 10
+    command     = /usr/bin/ufw delete allow from %IP% to any port $ssh_port proto tcp
+    tcpflags    = syn
+
+[opensshd-autoclose]
+    sequence    = $seq_csv
+    seq_timeout = 10
+    start_command = /usr/bin/ufw allow from %IP% to any port $ssh_port proto tcp
+    cmd_timeout   = 30
+    stop_command  = /usr/bin/ufw delete allow from %IP% to any port $ssh_port proto tcp
+    tcpflags      = syn
+EOF
+}
+
+# ─── actions ──────────────────────────────────────────────────────
+act_setup() {
+    _require_knockd || return 1
+    local ssh_port
+    ssh_port=$(_real_ssh_port)
+    if [[ "$ssh_port" == "22" ]]; then
+        echo "${C_YEL}note: real sshd is on :22 — port knocking is most useful when sshd is on a custom port (run the SSH wizard first)${C_RST}"
+    fi
+
+    echo "${C_BOLD}desk knock — setup${C_RST}"
+    echo
+    echo "  Real SSH listens on port: ${C_PEACH}$ssh_port${C_RST}"
+    echo
+    echo "  Choose a knock sequence (3 ports in the 1024-65535 range)."
+    echo "  Press Enter to accept a random unused sequence, or type your own"
+    echo "  three ports separated by spaces:"
+    echo
+
+    local default_seq
+    default_seq=$(_gen_sequence)
+    echo "    suggested: ${C_PEACH}$default_seq${C_RST}"
+    echo
+    local user_input
+    read -rp "  sequence (Enter = suggested): " user_input
+    local seq="${user_input:-$default_seq}"
+
+    # Validate.
+    local count=0
+    for p in $seq; do
+        if ! [[ "$p" =~ ^[0-9]+$ ]] || (( p < 1024 || p > 65535 )); then
+            echo "${C_RED}invalid port: $p${C_RST}" >&2
+            return 1
+        fi
+        count=$((count+1))
+    done
+    if (( count < 2 || count > 6 )); then
+        echo "${C_RED}sequence must be 2-6 ports (got $count)${C_RST}" >&2
+        return 1
+    fi
+
+    # Persist.
+    _write_user_conf "$seq"
+    _write_sys_conf "$seq" "$ssh_port"
+
+    # Lock down: deny SSH port broadly, then knockd opens it per-IP on knock.
+    if [[ "$ssh_port" != "22" ]]; then
+        sudo ufw delete allow "$ssh_port/tcp" 2>/dev/null
+        sudo ufw delete limit "$ssh_port/tcp" 2>/dev/null
+        sudo ufw deny "$ssh_port/tcp" >/dev/null 2>&1
+        echo "  + UFW: deny $ssh_port/tcp by default; knockd will open per-IP on knock"
+    fi
+
+    # Enable + start knockd.
+    sudo systemctl enable --now knockd >/dev/null 2>&1
+    if sudo systemctl is-active --quiet knockd; then
+        echo "  ${C_GRN}✓ knockd active${C_RST}"
+    else
+        echo "  ${C_RED}! knockd failed to start — check: systemctl status knockd${C_RST}"
+        return 1
+    fi
+
+    echo
+    echo "${C_BOLD}${C_PEACH}═══════════════════════════════════════════════════════════════${C_RST}"
+    echo "${C_BOLD}  YOUR KNOCK SEQUENCE — write this down NOW${C_RST}"
+    echo "${C_BOLD}${C_PEACH}═══════════════════════════════════════════════════════════════${C_RST}"
+    echo
+    echo "    ${C_PEACH}sequence:${C_RST} $seq"
+    echo "    ${C_PEACH}ssh port:${C_RST} $ssh_port"
+    echo
+    echo "  To connect from another machine, knock then SSH:"
+    echo "    for p in $seq; do nmap -Pn --max-retries 0 -p \$p \$YOUR_HOST; done"
+    echo "    ssh -p $ssh_port user@\$YOUR_HOST"
+    echo
+    echo "  Saved to: $USER_CONF (0600)"
+    echo "  Lockout fallback: physical TTY login at the laptop."
+    echo "${C_BOLD}${C_PEACH}═══════════════════════════════════════════════════════════════${C_RST}"
+}
+
+act_reveal() {
+    if ! _load_user_conf; then
+        echo "${C_RED}no sequence configured — run: desk knock --setup${C_RST}" >&2
+        return 1
+    fi
+    local _r
+    read -rp "  Reveal the knock sequence here? Anyone watching your screen will see it. [y/N] " -n 1 -r _r
+    echo
+    [[ "$_r" =~ ^[Yy]$ ]] || { echo "  cancelled"; return 0; }
+    echo
+    echo "  ${C_PEACH}sequence:${C_RST} $SEQUENCE"
+}
+
+act_status() {
+    if sudo -n systemctl is-active --quiet knockd 2>/dev/null \
+       || systemctl is-active --quiet knockd 2>/dev/null; then
+        echo "  knockd:   ${C_GRN}active${C_RST}"
+    else
+        echo "  knockd:   ${C_RED}inactive${C_RST}"
+    fi
+    if [[ -f "$USER_CONF" ]]; then
+        echo "  config:   ${C_GRN}$USER_CONF${C_RST} (sequence masked — desk knock --reveal to see)"
+    else
+        echo "  config:   ${C_YEL}<not configured>${C_RST}"
+    fi
+    echo "  ssh port: $(_real_ssh_port)"
+    echo "  log:      sudo journalctl -u knockd -f"
+}
+
+act_reset() {
+    _load_user_conf || { echo "no existing config — run --setup instead" >&2; return 1; }
+    local seq
+    seq=$(_gen_sequence)
+    local ssh_port
+    ssh_port=$(_real_ssh_port)
+    _write_user_conf "$seq"
+    _write_sys_conf "$seq" "$ssh_port"
+    sudo systemctl restart knockd >/dev/null 2>&1
+    echo "${C_GRN}✓ new sequence written. WRITE IT DOWN:${C_RST}"
+    echo "    sequence: $seq"
+}
+
+act_disable() {
+    sudo systemctl disable --now knockd >/dev/null 2>&1 || true
+    local ssh_port
+    ssh_port=$(_real_ssh_port)
+    sudo ufw delete deny "$ssh_port/tcp" 2>/dev/null
+    sudo ufw limit "$ssh_port/tcp" >/dev/null 2>&1
+    # Archive the user's sequence so desk-spa stops treating the
+    # dormant file as "knock is still configured". Preserves the
+    # secret (rename, not rm) so re-enabling later restores it.
+    if [[ -f "$USER_CONF" ]]; then
+        mv -f "$USER_CONF" "${USER_CONF}.disabled" 2>/dev/null
+    fi
+    echo "${C_GRN}✓ knockd stopped, $ssh_port re-opened (rate-limited)${C_RST}"
+}
+
+act_trigger() {
+    local target="$1"
+    _load_user_conf || { echo "no sequence configured — run --setup first" >&2; return 1; }
+    if ! command -v nmap >/dev/null 2>&1; then
+        echo "${C_RED}nmap not installed (or use any TCP-knock client)${C_RST}" >&2
+        return 1
+    fi
+    echo "${C_DIM}knocking $target with sequence: ${SEQUENCE}${C_RST}"
+    for p in $SEQUENCE; do
+        nmap -Pn --max-retries 0 --host-timeout 1s -p "$p" "$target" >/dev/null 2>&1
+    done
+    echo "${C_GRN}✓ knock sent — SSH should be open for $OPEN_FOR seconds${C_RST}"
+}
+
+case "${1:-}" in
+    --setup)    act_setup ;;
+    --status)   act_status ;;
+    --reveal)   act_reveal ;;
+    --reset)    act_reset ;;
+    --disable)  act_disable ;;
+    -h|--help|"") cat <<EOF
+desk knock — port-knocking configurator + trigger
+
+  desk knock --setup           interactive wizard (pick or generate sequence)
+  desk knock --status          show knockd state + config location
+  desk knock --reveal          print the sequence (with confirmation prompt)
+  desk knock --reset           generate a new sequence
+  desk knock --disable         stop knockd, re-open SSH unconditionally
+  desk knock <host>            trigger the knock against <host> from this machine
+
+Files:
+  ~/.config/foxml/knock.conf      your sequence (0600, NEVER committed)
+  /etc/knockd.conf                managed by --setup
+EOF
+    ;;
+    *) act_trigger "$1" ;;
+esac

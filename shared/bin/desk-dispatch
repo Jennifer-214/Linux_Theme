@@ -1,0 +1,362 @@
+#!/usr/bin/env bash
+# desk-dispatch — send a notification to your phone / Discord / Telegram.
+#
+# Generic alerting primitive used by every fox-* security hook
+# (tripwire, fail2ban actionban, USBGuard lock-screen blocks, etc).
+#
+# Config: ~/.config/foxml/dispatch.conf
+#   WEBHOOK_KIND=discord|telegram|slack
+#   WEBHOOK_URL=...               # Discord or Slack: webhook URL
+#   TELEGRAM_BOT_TOKEN=...        # Telegram only
+#   TELEGRAM_CHAT_ID=...          # Telegram only
+#
+# Usage:
+#   desk dispatch "Title" "Body text"
+#   desk dispatch --setup          # interactive config wizard
+#   desk dispatch --test           # send a test ping
+#   echo "body" | desk dispatch "Title"
+#
+# Security: the config file is created 0600. The repo .gitignore must
+# never let this file (or anything under ~/.config/foxml/dispatch.*)
+# leak. desk-dispatch refuses to fire if the config has loose perms.
+
+set -u
+
+CONF_DIR="$HOME/.config/foxml"
+CONF="$CONF_DIR/dispatch.conf"
+LOG_DIR="${XDG_RUNTIME_DIR:-/tmp}/foxml-$USER"
+LOG="$LOG_DIR/dispatch.log"
+
+# Shared alert ledger — every fox-* security signal lands here. Both
+# waybar widgets (#custom-overwatch = hw_overwatch.sh, #custom-security
+# = security_overwatch.sh) read this file and flip to alert state on
+# any entry in the last 5 minutes. Format per line:
+#     <epoch>\t<source>\t<message>
+# Kept under $XDG_DATA_HOME so it survives logout (unlike /run/user/<uid>).
+LEDGER_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/foxml"
+LEDGER="$LEDGER_DIR/alerts.log"
+LEDGER_MAX_LINES=500   # auto-trim cap to keep tail-reads fast
+
+C_BOLD=$'\e[1m'
+C_DIM=$'\e[2m'
+C_GRN=$'\e[32m'
+C_YEL=$'\e[33m'
+C_RED=$'\e[31m'
+C_RST=$'\e[0m'
+
+usage() {
+    cat <<EOF
+${C_BOLD}desk dispatch${C_RST} — send a notification to your phone via webhook
+
+  desk dispatch "Title" "Body"   send a one-shot alert
+  desk dispatch --setup          configure a Discord, Slack, or Telegram destination
+  desk dispatch --test           send a test ping
+  desk dispatch --status         show current config (URL masked)
+  echo body | desk dispatch "T"  body can come from stdin
+
+Examples:
+  desk dispatch "ssh-bruteforce"  "203.0.113.4 banned from 10 failed attempts"
+  desk dispatch "tripwire"        "PID 31234 (cat) read \$HOME/.tripwire"
+  desk dispatch "usb-blocked"     "Rubber Ducky inserted while screen locked"
+EOF
+}
+
+# ─── config + state ───────────────────────────────────────────────
+_load_conf() {
+    if [[ ! -f "$CONF" ]]; then
+        echo "${C_RED}no config at $CONF — run: desk dispatch --setup${C_RST}" >&2
+        return 1
+    fi
+    local mode
+    mode=$(stat -c '%a' "$CONF" 2>/dev/null)
+    if [[ "$mode" != "600" ]]; then
+        echo "${C_RED}$CONF has perms $mode — refusing (chmod 600 it)${C_RST}" >&2
+        return 1
+    fi
+    # Parse safely — same allowlist pattern as ghost-mode.sh.
+    WEBHOOK_KIND="" WEBHOOK_URL=""
+    TELEGRAM_BOT_TOKEN="" TELEGRAM_CHAT_ID=""
+    local k v
+    while IFS='=' read -r k v; do
+        k="${k##[[:space:]]}"; k="${k%%[[:space:]]}"
+        v="${v##[[:space:]]}"; v="${v%%[[:space:]]}"
+        v="${v#\"}"; v="${v%\"}"; v="${v#\'}"; v="${v%\'}"
+        case "$k" in
+            WEBHOOK_KIND)        WEBHOOK_KIND="$v" ;;
+            WEBHOOK_URL)         WEBHOOK_URL="$v" ;;
+            TELEGRAM_BOT_TOKEN)  TELEGRAM_BOT_TOKEN="$v" ;;
+            TELEGRAM_CHAT_ID)    TELEGRAM_CHAT_ID="$v" ;;
+        esac
+    done < "$CONF"
+    return 0
+}
+
+_log() {
+    mkdir -p "$LOG_DIR" 2>/dev/null
+    chmod 700 "$LOG_DIR" 2>/dev/null || true
+    printf '[%s] %s\n' "$(date -Iseconds)" "$*" >>"$LOG"
+}
+
+# Append a one-line entry to the shared alert ledger so both waybar
+# widgets pick it up. Called from act_send regardless of whether a
+# webhook is configured — the ledger is the local fan-out point.
+# Self-trims to LEDGER_MAX_LINES.
+_ledger_write() {
+    local source="$1" message="$2"
+    mkdir -p "$LEDGER_DIR" 2>/dev/null
+    chmod 700 "$LEDGER_DIR" 2>/dev/null || true
+    # Strip tabs/newlines from input so the TSV stays intact.
+    source="${source//$'\t'/ }"
+    message="${message//$'\t'/ }"
+    message="${message//$'\n'/ }"
+    # Hold an flock for the entire append+trim sequence. Two concurrent
+    # desk-dispatch invocations (fail2ban firing + USB hot-plug at the
+    # same time) used to race the tail/mv pair and drop the second
+    # caller's entry between the tail read and the rename.
+    if command -v flock >/dev/null 2>&1; then
+        (
+            flock -x 9
+            printf '%s\t%s\t%s\n' "$(date +%s)" "$source" "$message" >>"$LEDGER"
+            local nlines
+            nlines=$(wc -l <"$LEDGER" 2>/dev/null || echo 0)
+            if (( nlines > LEDGER_MAX_LINES )); then
+                tail -n "$LEDGER_MAX_LINES" "$LEDGER" > "${LEDGER}.tmp" 2>/dev/null \
+                    && mv "${LEDGER}.tmp" "$LEDGER" 2>/dev/null
+            fi
+        ) 9>>"$LEDGER"
+    else
+        printf '%s\t%s\t%s\n' "$(date +%s)" "$source" "$message" >>"$LEDGER" 2>/dev/null
+    fi
+}
+
+# ─── senders ──────────────────────────────────────────────────────
+_send_discord() {
+    local title="$1" body="$2"
+    local payload
+    # JSON-escape via jq if available, else basic-escape and pray.
+    if command -v jq >/dev/null 2>&1; then
+        payload=$(jq -nc --arg c "**$title**: $body" '{content: $c}')
+    else
+        local esc_t esc_b
+        esc_t="${title//\"/\\\"}"; esc_b="${body//\"/\\\"}"
+        esc_t="${esc_t//$'\n'/\\n}"; esc_b="${esc_b//$'\n'/\\n}"
+        payload="{\"content\": \"**${esc_t}**: ${esc_b}\"}"
+    fi
+    local rc
+    curl -sS -m 8 -o /dev/null -w '%{http_code}' \
+        -H "Content-Type: application/json" \
+        -X POST -d "$payload" "$WEBHOOK_URL" | grep -qE '^2[0-9]{2}$'
+    rc=$?
+    _log "discord rc=$rc title=$title"
+    return $rc
+}
+
+_send_telegram() {
+    local title="$1" body="$2"
+    local text="*${title}*%0A${body}"
+    local url="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"
+    local rc
+    curl -sS -m 8 -o /dev/null -w '%{http_code}' \
+        --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+        --data-urlencode "text=${title}: ${body}" \
+        --data-urlencode "parse_mode=Markdown" \
+        "$url" | grep -qE '^2[0-9]{2}$'
+    rc=$?
+    _log "telegram rc=$rc title=$title"
+    return $rc
+}
+
+# Slack incoming-webhook. Same JSON shape as Discord but the field is
+# `text` (not `content`) and Slack accepts a simple "text" string with
+# markdown automatically rendered. Compatible with both classic incoming
+# webhooks and Slack app webhooks.
+_send_slack() {
+    local title="$1" body="$2"
+    local payload
+    if command -v jq >/dev/null 2>&1; then
+        payload=$(jq -nc --arg t "*$title*: $body" '{text: $t}')
+    else
+        local esc_t esc_b
+        esc_t="${title//\"/\\\"}"; esc_b="${body//\"/\\\"}"
+        esc_t="${esc_t//$'\n'/\\n}"; esc_b="${esc_b//$'\n'/\\n}"
+        payload="{\"text\": \"*${esc_t}*: ${esc_b}\"}"
+    fi
+    local rc
+    curl -sS -m 8 -o /dev/null -w '%{http_code}' \
+        -H "Content-Type: application/json" \
+        -X POST -d "$payload" "$WEBHOOK_URL" | grep -qE '^2[0-9]{2}$'
+    rc=$?
+    _log "slack rc=$rc title=$title"
+    return $rc
+}
+
+# ─── actions ──────────────────────────────────────────────────────
+act_setup() {
+    mkdir -p "$CONF_DIR" && chmod 700 "$CONF_DIR"
+    echo "${C_BOLD}desk dispatch — setup${C_RST}"
+    echo
+    echo "  [1] Discord (webhook URL — fastest setup)"
+    echo "  [2] Slack (incoming webhook URL)"
+    echo "  [3] Telegram (bot token + chat ID)"
+    # Single-keypress accept: press 1 / 2 / 3 / Enter (defaults to Discord).
+    # No Return needed for the choice itself; the per-platform prompts
+    # below still take Enter (they're URLs / tokens, not yes/no).
+    local kind_choice=""
+    read -rp "  choose [1]: " -n 1 -r kind_choice || true
+    echo ""
+    kind_choice="${kind_choice:-1}"
+    case "$kind_choice" in
+        1)
+            echo
+            echo "  In Discord: Server Settings → Integrations → Webhooks → New Webhook"
+            echo "  Pick a channel only you can read. Copy the webhook URL."
+            local url
+            read -rp "  webhook URL: " url
+            if [[ ! "$url" =~ ^https://discord(app)?\.com/api/webhooks/ ]]; then
+                echo "${C_RED}that doesn't look like a Discord webhook URL${C_RST}" >&2
+                return 1
+            fi
+            ( umask 077
+              cat > "$CONF" <<EOF
+WEBHOOK_KIND=discord
+WEBHOOK_URL=$url
+EOF
+            )
+            chmod 600 "$CONF"
+            echo "${C_GRN}  ✓ saved to $CONF (perms 600)${C_RST}"
+            ;;
+        2)
+            echo
+            echo "  In Slack: api.slack.com/apps → your app → Incoming Webhooks → Add New."
+            echo "  Pick a channel only you read. Copy the https://hooks.slack.com/... URL."
+            local url
+            read -rp "  webhook URL: " url
+            if [[ ! "$url" =~ ^https://hooks\.slack\.com/services/ ]]; then
+                echo "${C_RED}that doesn't look like a Slack incoming-webhook URL${C_RST}" >&2
+                return 1
+            fi
+            ( umask 077
+              cat > "$CONF" <<EOF
+WEBHOOK_KIND=slack
+WEBHOOK_URL=$url
+EOF
+            )
+            chmod 600 "$CONF"
+            echo "${C_GRN}  ✓ saved to $CONF (perms 600)${C_RST}"
+            ;;
+        3)
+            echo
+            echo "  Talk to @BotFather on Telegram → /newbot → save the token"
+            echo "  Send your bot any message, then visit:"
+            echo "    https://api.telegram.org/bot<TOKEN>/getUpdates"
+            echo "  to find your chat_id."
+            local token chat
+            read -rp "  bot token:  " token
+            read -rp "  chat id:    " chat
+            ( umask 077
+              cat > "$CONF" <<EOF
+WEBHOOK_KIND=telegram
+TELEGRAM_BOT_TOKEN=$token
+TELEGRAM_CHAT_ID=$chat
+EOF
+            )
+            chmod 600 "$CONF"
+            echo "${C_GRN}  ✓ saved to $CONF (perms 600)${C_RST}"
+            ;;
+        *)  echo "${C_RED}unknown choice${C_RST}"; return 1 ;;
+    esac
+    echo
+    echo "  Sending a test ping…"
+    "$0" --test
+}
+
+act_test() {
+    _load_conf || return 1
+    act_send "desk-dispatch test" "If you can read this, alerts are wired up. Host: $(hostname). Time: $(date)."
+}
+
+act_status() {
+    if [[ ! -f "$CONF" ]]; then
+        echo "  no config — run: desk dispatch --setup"
+        return 1
+    fi
+    _load_conf || return 1
+    case "$WEBHOOK_KIND" in
+        discord)
+            local host
+            host=$(awk -F/ '{print $3}' <<<"$WEBHOOK_URL")
+            echo "  kind:     discord"
+            echo "  endpoint: ${host:-?}/api/webhooks/****"
+            ;;
+        slack)
+            local host
+            host=$(awk -F/ '{print $3}' <<<"$WEBHOOK_URL")
+            echo "  kind:     slack"
+            echo "  endpoint: ${host:-?}/services/****"
+            ;;
+        telegram)
+            local masked="${TELEGRAM_BOT_TOKEN:0:6}…${TELEGRAM_BOT_TOKEN: -4}"
+            echo "  kind:     telegram"
+            echo "  token:    $masked"
+            echo "  chat_id:  $TELEGRAM_CHAT_ID"
+            ;;
+        *) echo "  kind:     unknown ('$WEBHOOK_KIND')" ;;
+    esac
+    echo "  log:      $LOG"
+}
+
+act_send() {
+    local title="${1:-fox-dispatch}"
+    local body="${2:-}"
+    # Stdin fallback for body (so pipelines work).
+    if [[ -z "$body" && ! -t 0 ]]; then
+        body=$(cat)
+    fi
+    # ALWAYS write to the shared ledger so the waybar widgets pick it up,
+    # even when no webhook is configured yet. desk-dispatch is the single
+    # fan-out point — local notify-send is each tool's responsibility.
+    _ledger_write "$title" "$body"
+
+    # Webhook send is opt-in: skip silently if not configured.
+    if ! _load_conf 2>/dev/null; then
+        return 0
+    fi
+    case "$WEBHOOK_KIND" in
+        discord)  _send_discord  "$title" "$body" ;;
+        slack)    _send_slack    "$title" "$body" ;;
+        telegram) _send_telegram "$title" "$body" ;;
+        *) echo "${C_RED}unknown WEBHOOK_KIND='$WEBHOOK_KIND' — re-run --setup${C_RST}" >&2
+           return 1 ;;
+    esac
+}
+
+act_recent() {
+    # Show the last 20 ledger entries with human-readable timestamps.
+    if [[ ! -f "$LEDGER" ]]; then
+        echo "  no alerts logged yet"
+        return 0
+    fi
+    echo "${C_BOLD:-}recent alerts (newest last):${C_RST:-}"
+    tail -n 20 "$LEDGER" | while IFS=$'\t' read -r ts source msg; do
+        printf '  %s  %-18s  %s\n' "$(date -d "@$ts" '+%m-%d %H:%M:%S' 2>/dev/null || echo "$ts")" "$source" "$msg"
+    done
+}
+
+act_clear() {
+    if [[ -f "$LEDGER" ]]; then
+        : > "$LEDGER"
+        echo "${C_GRN:-}✓ ledger cleared${C_RST:-}"
+    fi
+}
+
+# ─── entry ────────────────────────────────────────────────────────
+case "${1:-}" in
+    -h|--help|help)  usage ;;
+    --setup)         act_setup ;;
+    --test)          act_test ;;
+    --status)        act_status ;;
+    --recent)        act_recent ;;
+    --clear)         act_clear ;;
+    "" )             usage; exit 1 ;;
+    *)               act_send "$1" "${2:-}" ;;
+esac

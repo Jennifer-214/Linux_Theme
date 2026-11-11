@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# ai-strategy — plain-English explanation of a trading strategy config.
+#
+# Usage: ai-strategy strategies/momentum.yaml
+#        ai-strategy strategies/risk_limits.json
+#
+# Designed for FoxML_Trader / FoxML_Trader_v2 / tick-trader strategy
+# files. Emits a short prose summary covering:
+#   - What the strategy does (entry / exit / sizing logic).
+#   - Risk profile (max drawdown, position limits, leverage).
+#   - Parameter sensitivities (which knobs matter most).
+#   - Any obvious red flags (no stop loss, leverage > 5x, etc.).
+
+set -u
+
+# llm-run asks the local llama.cpp router and picks the model: FOXAI_MODEL, else ai-default's,
+# else opencode's local default, else the roles file's quick model.
+command -v llm-run >/dev/null 2>&1 || { echo "ai-strategy: llm-run not found — run: desk-install --only llama_server" >&2; exit 1; }
+
+if [[ $# -lt 1 || ! -f "$1" ]]; then
+    echo "usage: ai-strategy <strategy-config-file>" >&2
+    exit 2
+fi
+
+src="$1"
+content=$(cat "$src")
+prompt="The file below is a configuration for a trading strategy in the trading stack (high-performance C++ engines, paper-trading-by-default crypto). Read it and produce a focused summary:
+
+1. What it does — entry trigger, exit trigger, position sizing. One paragraph.
+2. Risk profile — drawdown limit, position cap, leverage, stop loss. Bullets.
+3. Parameter sensitivities — which parameters most affect P&L vs. drawdown.
+4. Red flags, if any — missing stop loss, leverage >5x, no risk shard, infinite-position-size assumptions.
+
+Be concrete. Quote parameter names. Do not restate the file verbatim.
+
+CONFIG (${src}):
+$content"
+
+llm-run "$prompt"

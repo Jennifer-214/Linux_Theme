@@ -5,7 +5,7 @@
  * read again by every new session: pi's own instructions, the context files (AGENTS.md / CLAUDE.md, or a project's brief),
  * the skills it lists, the tool definitions. /budget counts each in the current model's own tokens — llama.cpp's
  * llama-tokenize loads only the vocabulary of the model's GGUF in the fox-llm folder — and gives the read time at the
- * speed fox-llm-grade measured for that model. With no GGUF here (a cloud model) the counts are estimates
+ * speed llm-grade measured for that model. With no GGUF here (a cloud model) the counts are estimates
  * (characters ÷ 3.6), and say so. The report is a notice on screen: it never enters the conversation.
  */
 
@@ -18,7 +18,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 const HOME = homedir();
 const tilde = (p: string): string => (p.startsWith(`${HOME}/`) ? `~${p.slice(HOME.length)}` : p);
 
-/** The model's GGUF in the fox-llm folder, when pi's model is one fox-llm-serve serves. */
+/** The model's GGUF in the fox-llm folder, when pi's model is one llm-serve serves. */
 export function gguf(id: string | undefined): string | undefined {
 	if (!id || id.includes("/")) return undefined;
 	const p = join(process.env.XDG_DATA_HOME || join(HOME, ".local/share"), "fox-llm", "gguf", `${id}.gguf`);
@@ -47,10 +47,10 @@ export async function countAll(texts: string[], file: string | undefined): Promi
 		: { counts: texts.map(estimate), exact: false };
 }
 
-/** The read speed fox-llm-grade last measured for this model: tokens/s and the day, if it has one. */
+/** The read speed llm-grade last measured for this model: tokens/s and the day, if it has one. */
 export function readSpeed(id: string | undefined): { tps: number; day: string } | undefined {
 	try {
-		const file = join(process.env.XDG_STATE_HOME || join(HOME, ".local/state"), "fox-llm-update", "grades.tsv");
+		const file = join(process.env.XDG_STATE_HOME || join(HOME, ".local/state"), "llm-update", "grades.tsv");
 		const rows = readFileSync(file, "utf8").split("\n").map((l) => l.split("\t"))
 			.filter((r) => r.length === 6 && r[2] === id && r[4] === "read_tps" && Number(r[5]) > 0)
 			.sort((a, b) => (a[0] < b[0] ? -1 : 1));
@@ -86,7 +86,7 @@ export async function report(o: {
 		const total = promptTokens + toolTokens;
 		const speed = readSpeed(o.model?.id);
 		const time = speed ? `, ~${Math.round(total / speed.tps)} s to read at ${speed.tps} tok/s (graded ${speed.day})`
-			: ` — read speed not measured yet (fox-llm-grade ${name})`;
+			: ` — read speed not measured yet (llm-grade ${name})`;
 		lines.push(`pi's opening prompt for ${name}: ${fmt(total)} tokens${time}`);
 	} else {
 		lines.push(`pi's opening prompt for ${name} — send one message for its total (pi's own instructions)`);

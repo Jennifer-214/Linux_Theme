@@ -5,8 +5,8 @@
 # the live waybar style.css/config, then execs waybar.
 ~/.config/hypr/scripts/start_waybar.sh &
 
-if command -v fox-desktop-menu >/dev/null 2>&1 && fox-desktop-menu --available; then
-    fox-desktop-menu --start &
+if command -v desktop-menu >/dev/null 2>&1 && desktop-menu --available; then
+    desktop-menu --start &
 fi
 
 # Border telemetry (dynamic earthy borders based on system state)
@@ -21,4 +21,4 @@ sleep 1
 
 # Wait a bit then switch to workspace 1
 sleep 2
-fox-hl dispatch "hl.dsp.focus({ workspace = 1 })" "workspace 1" &
+desk-hl dispatch "hl.dsp.focus({ workspace = 1 })" "workspace 1" &

@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# desk-bouncer — alert when USBGuard blocks a device WHILE the screen is locked.
+#
+# Threat model: "evil maid". You step away, someone plugs a Rubber Ducky
+# or keylogger. USBGuard already blocks it — we just want a phone
+# notification so you know it happened.
+#
+# No webcam, no force-shutdown. That stuff is dramatic and loses work.
+# Detection-only alerts via desk-dispatch (falls back to notify-send).
+#
+# Modes:
+#   foreground:  desk-bouncer run         (for systemd unit)
+#   install:     desk-bouncer --install
+#   uninstall:   desk-bouncer --uninstall
+#   status:      desk-bouncer --status
+
+set -u
+
+CONF_DIR="$HOME/.config/foxml"
+SERVICE_NAME="fox-bouncer.service"
+
+C_GRN=$'\e[32m'
+C_YEL=$'\e[33m'
+C_RED=$'\e[31m'
+C_RST=$'\e[0m'
+
+# A "locked" probe — Hyprland-aware first, generic fallback. Returns 0
+# if the screen is currently locked, 1 otherwise.
+_is_locked() {
+    pgrep -x hyprlock >/dev/null 2>&1 && return 0
+    pgrep -x swaylock  >/dev/null 2>&1 && return 0
+    pgrep -x i3lock    >/dev/null 2>&1 && return 0
+    return 1
+}
+
+act_install() {
+    if ! command -v journalctl >/dev/null 2>&1; then
+        echo "${C_RED}journalctl required (systemd)${C_RST}" >&2
+        return 1
+    fi
+    local unit_dir="$HOME/.config/systemd/user"
+    mkdir -p "$unit_dir"
+    cat > "$unit_dir/$SERVICE_NAME" <<EOF
+[Unit]
+Description=desk-bouncer — alert on USBGuard blocks while screen locked
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=$(command -v desk-bouncer) run
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+EOF
+    systemctl --user daemon-reload
+    systemctl --user enable --now "$SERVICE_NAME"
+    echo "${C_GRN}✓ $SERVICE_NAME enabled + started${C_RST}"
+    echo "  watching: journalctl -u usbguard (system-level)"
+    echo "  log:      journalctl --user -u $SERVICE_NAME -f"
+}
+
+act_uninstall() {
+    systemctl --user disable --now "$SERVICE_NAME" 2>/dev/null || true
+    rm -f "$HOME/.config/systemd/user/$SERVICE_NAME"
+    systemctl --user daemon-reload 2>/dev/null || true
+    echo "${C_GRN}✓ desk-bouncer uninstalled${C_RST}"
+}
+
+act_status() {
+    if systemctl --user is-active --quiet "$SERVICE_NAME"; then
+        echo "  service:  ${C_GRN}active${C_RST}"
+    else
+        echo "  service:  ${C_RED}inactive${C_RST}"
+    fi
+    echo "  log:      journalctl --user -u $SERVICE_NAME --no-pager -n 30"
+}
+
+act_run() {
+    # Stream the usbguard journal. usbguard logs each policy decision
+    # with "BLOCK" / "REJECT" / "ALLOW" lines. We only care about
+    # BLOCK/REJECT when the screen is locked.
+    local last_alert=0
+    local ALERT_COOLDOWN=10
+
+    journalctl --no-pager --since=now -u usbguard.service -f -o cat 2>/dev/null \
+        | while read -r line; do
+            if [[ "$line" =~ (BLOCK|REJECT) ]]; then
+                if _is_locked; then
+                    local now
+                    now=$(date +%s)
+                    if (( now - last_alert < ALERT_COOLDOWN )); then
+                        continue
+                    fi
+                    last_alert=$now
+
+                    # Strip leading log noise; trim to ~200 chars.
+                    local msg
+                    msg=$(printf '%s' "$line" | head -c 200)
+                    echo "$(date -Iseconds) $msg" >&2
+                    desk-dispatch "USB blocked (screen LOCKED)" "$msg" 2>/dev/null \
+                        || notify-send -u critical -t 10000 "USB blocked (locked)" "$msg"
+                fi
+            fi
+        done
+}
+
+case "${1:-}" in
+    --install)    act_install ;;
+    --uninstall)  act_uninstall ;;
+    --status)     act_status ;;
+    run)          act_run ;;
+    -h|--help|"") cat <<EOF
+desk-bouncer — USB-block alerts while screen locked
+
+  desk-bouncer --install     enable user service
+  desk-bouncer --uninstall   disable + remove
+  desk-bouncer --status      show service state
+  desk-bouncer run           run in foreground
+
+Coverage:
+  fires desk-dispatch "USB blocked (screen LOCKED)" on every usbguard
+  BLOCK/REJECT line that fires while hyprlock/swaylock/i3lock is up.
+  Falls back to notify-send if desk-dispatch isn't configured.
+
+  Does NOT auto-shutdown, take webcam photos, or play alarms. Detection
+  + notification only. USBGuard itself is doing the actual blocking.
+EOF
+    ;;
+    *) echo "unknown: $1" >&2; exit 2 ;;
+esac

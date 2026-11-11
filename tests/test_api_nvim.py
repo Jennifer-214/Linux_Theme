@@ -38,7 +38,7 @@ print('API_NVIM_PASSED')
 @unittest.skipUnless(NVIM, 'nvim is not installed')
 class ApiNvim(unittest.TestCase):
     def test_citations_quickfix_and_result_keys(self):
-        # Not /tmp: it is noexec here, and the fake fox-claude-api must run.
+        # Not /tmp: it is noexec here, and the fake claude-api must run.
         with tempfile.TemporaryDirectory(prefix='.api-nvim-', dir=ROOT/'tests') as temp:
             base = Path(temp)
             project = base/'project'
@@ -47,8 +47,8 @@ class ApiNvim(unittest.TestCase):
             (project/'b.h').write_text('int c;\n')
             bins = base/'bin'
             bins.mkdir()
-            (bins/'fox-claude-api').write_text('#!/bin/sh\n[ "$1" = history ] && echo \'[{"id":"' + 'c'*32 + '","project":"trader"}]\'\n')
-            (bins/'fox-claude-api').chmod(0o755)
+            (bins/'claude-api').write_text('#!/bin/sh\n[ "$1" = history ] && echo \'[{"id":"' + 'c'*32 + '","project":"trader"}]\'\n')
+            (bins/'claude-api').chmod(0o755)
             (base/'driver.lua').write_text(DRIVER)
             env = dict(os.environ, PATH=str(bins)+os.pathsep+os.environ['PATH'], PROJECT=str(project),
                        WORK_LUA=str(ROOT/'shared/nvim_lua'), XDG_STATE_HOME=str(base/'state'), XDG_CACHE_HOME=str(base/'cache'),

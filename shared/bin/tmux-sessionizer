@@ -312,7 +312,7 @@ do_rename() {
 
 # On the desktop the drawer does the moving, so the popup and the Terminals page behave alike: a session shown in a
 # window brings that window forward, one shown nowhere opens in a new window. Elsewhere (ssh, a console) it comes here.
-drawer() { [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && command -v fox-drawer >/dev/null && fox-drawer run "$@" >/dev/null 2>&1; }
+drawer() { [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && command -v desk-drawer >/dev/null && desk-drawer run "$@" >/dev/null 2>&1; }
 show_here() {
     local line="$1" kind tgt
     kind="${line%%$TAB*}"; tgt="${line##*$TAB}"

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tests/test_fox_budget.py — run the fox-budget pi extension under node with a fake pi.
 
-A fake llama-tokenize (one token per word), a fake GGUF for qwen3.5:4b and a fake fox-llm-grade row make every number
+A fake llama-tokenize (one token per word), a fake GGUF for qwen3.5:4b and a fake llm-grade row make every number
 in the report known. fox-budget has only a type import from pi, so plain node ≥ 22 runs it. Skips (passes) when node is
 missing or too old.
 """
@@ -29,8 +29,8 @@ tmp = Path(tempfile.mkdtemp(prefix="fox-budget-test-", dir=base))
 try:
     (tmp / "data/fox-llm/gguf").mkdir(parents=True)
     (tmp / "data/fox-llm/gguf/qwen3.5:4b.gguf").write_bytes(b"GGUF")
-    (tmp / "state/fox-llm-update").mkdir(parents=True)
-    (tmp / "state/fox-llm-update/grades.tsv").write_text(
+    (tmp / "state/llm-update").mkdir(parents=True)
+    (tmp / "state/llm-update/grades.tsv").write_text(
         "2026-10-14T09:00\t11429\tqwen3.5:4b\tsize:1\tread_tps\t120\n"
         "2026-10-15T09:00\t11429\tqwen3.5:4b\tsize:1\tread_tps\t150\n")
     tok = tmp / "llama-tokenize"

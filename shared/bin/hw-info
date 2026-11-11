@@ -1,0 +1,27 @@
+#!/bin/bash
+# hw-info — Hardware detection helper for AI tiers
+
+# Get Total RAM in GB
+TOTAL_RAM=$(free -g | awk '/^Mem:/{print $2}')
+
+# Get VRAM in GB (NVIDIA only for now)
+TOTAL_VRAM=0
+if command -v nvidia-smi &>/dev/null; then
+    TOTAL_VRAM=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits | tr -d ' ' | awk '{print int($1/1024)}')
+fi
+
+# Define Tiers based on RAM
+# < 16GB: Lite
+# 16-32GB: Standard
+# > 32GB: Pro
+
+echo "RAM_GB=$TOTAL_RAM"
+echo "VRAM_GB=$TOTAL_VRAM"
+
+if [[ $TOTAL_RAM -lt 16 ]]; then
+    echo "TIER=lite"
+elif [[ $TOTAL_RAM -le 32 ]]; then
+    echo "TIER=standard"
+else
+    echo "TIER=pro"
+fi

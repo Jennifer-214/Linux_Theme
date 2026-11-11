@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+# desk-fingerprint — fprintd wrapper.
+set -u
+C_GRN=$'\e[32m'; C_YEL=$'\e[33m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
+
+FINGERS=(right-index-finger right-thumb right-middle-finger left-index-finger left-thumb left-middle-finger)
+
+_check_fprintd() {
+    command -v fprintd-enroll >/dev/null 2>&1 \
+        || { echo "${C_RED}fprintd not installed: sudo pacman -S fprintd${C_RST}" >&2; return 1; }
+}
+
+# True if $1 (a /etc/pam.d file) has an active `auth ... pam_fprintd.so` line.
+_pam_has() { grep -qE '^[[:space:]]*auth[[:space:]]+\S+[[:space:]]+pam_fprintd\.so' "$1" 2>/dev/null; }
+
+_status() {
+    _check_fprintd || return 1
+    if systemctl is-active --quiet fprintd; then
+        echo "  service: ${C_GRN}active${C_RST}"
+    else
+        echo "  service: ${C_YEL}inactive (dbus-activated; fine)${C_RST}"
+    fi
+    echo "  enrolled fingers:"
+    local out rc
+    out=$(fprintd-list "$USER" 2>&1); rc=$?
+    if echo "$out" | grep -qE '#[0-9]'; then
+        echo "$out" | grep -E '#[0-9]' | sed 's/^/    /'
+    elif [ $rc -ne 0 ] || echo "$out" | grep -qiE 'permission denied|not authorized'; then
+        # fprintd-list errors (polkit) outside an active graphical session.
+        # Don't misreport that as "no fingers enrolled".
+        echo "    ${C_YEL}(can't read from this session — run 'desk fingerprint test' to confirm, or check from your graphical login)${C_RST}"
+    else
+        echo "    ${C_YEL}(none — enroll with: desk fingerprint enroll <name>)${C_RST}"
+    fi
+    # Per-file PAM truth. Each file governs a DIFFERENT prompt — sudo is
+    # NOT covered by system-local-login (that's console TTY login).
+    echo "  PAM wiring (which prompts accept a fingerprint):"
+    local f p
+    for f in sudo greetd system-local-login hyprlock; do
+        p="/etc/pam.d/$f"
+        [ -f "$p" ] || continue
+        if _pam_has "$p"; then
+            echo "    ${C_GRN}✓${C_RST} $f"
+        else
+            echo "    ${C_DIM}·${C_RST} $f ${C_DIM}(password only)${C_RST}"
+        fi
+    done
+    if ! _pam_has /etc/pam.d/sudo; then
+        echo "  ${C_YEL}sudo is password-only — wire it SAFELY with: desk-install --sudo-fingerprint${C_RST}"
+        echo "  ${C_DIM}(never hand-edit /etc/pam.d/sudo: pam_fprintd above the header locks the account)${C_RST}"
+    fi
+}
+
+_enroll() {
+    _check_fprintd || return 1
+    local finger="${1:-right-index-finger}"
+    echo "${C_DIM}enrolling $finger — touch the reader several times when prompted${C_RST}"
+    fprintd-enroll -f "$finger" "$USER"
+}
+
+_delete() {
+    _check_fprintd || return 1
+    fprintd-delete "$USER" && echo "${C_GRN}✓ all enrolled fingers deleted${C_RST}"
+}
+
+_test() {
+    _check_fprintd || return 1
+    echo "${C_DIM}touch the reader (Ctrl-C to exit)...${C_RST}"
+    fprintd-verify "$USER"
+}
+
+_reset() {
+    _check_fprintd || return 1
+    # Clear a wedged reader: hyprlock/greetd hold pam_fprintd, and a Synaptics
+    # close-timeout can leave the device "already claimed", which silently
+    # breaks fingerprint-for-sudo (the prompt drops to a password). Bouncing
+    # fprintd releases the stale claim and re-opens the device. Password-less
+    # for active wheel users via the fprintd_reset_polkit grant; without it,
+    # polkit prompts. The lock/unlock hooks pass --no-ask-password so that
+    # case fails at once instead of popping a dialog (password sudo still works).
+    local ask=()
+    [[ "${1:-}" == --no-ask-password ]] && ask=(--no-ask-password)
+    if systemctl "${ask[@]}" restart fprintd 2>/dev/null; then
+        echo "  ${C_GRN}✓ fprintd restarted — stale reader claim cleared${C_RST}"
+    else
+        echo "  ${C_RED}fprintd restart failed${C_RST} — needs the fprintd-reset polkit grant, or: sudo systemctl restart fprintd" >&2
+        return 1
+    fi
+}
+
+_list_fingers() {
+    echo "Valid finger names for desk fingerprint enroll:"
+    for f in "${FINGERS[@]}"; do echo "  $f"; done
+}
+
+case "${1:-}" in
+    ""|status)   _status ;;
+    enroll)      _enroll "${2:-}" ;;
+    delete|del)  _delete ;;
+    test|verify) _test ;;
+    reset)       _reset "${2:-}" ;;
+    fingers)     _list_fingers ;;
+    -h|--help|help) cat <<EOF
+desk fingerprint — fprintd wrapper
+
+  desk fingerprint [status]    show service + enrolled fingers + PAM state
+  desk fingerprint enroll [F]  enroll finger F (default: right-index-finger)
+  desk fingerprint delete      delete all enrolled fingers
+  desk fingerprint test        verify a finger (Ctrl-C to exit)
+  desk fingerprint reset       restart fprintd to clear a wedged reader
+  desk fingerprint fingers     list valid finger names
+EOF
+    ;;
+    *) echo "unknown: $1" >&2; exit 2 ;;
+esac

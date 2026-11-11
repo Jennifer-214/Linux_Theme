@@ -1,0 +1,227 @@
+#!/usr/bin/env bash
+# desk-tripwire — honeypot file watcher.
+#
+# Creates ~/.config/foxml/.tripwire-${random}.txt as a fake-credential
+# file no legitimate process has any reason to read. inotifywait
+# observes IN_OPEN / IN_ACCESS and dispatches a notification via
+# desk-dispatch on any access.
+#
+# This is detection-only by default — does NOT call panic. The "panic
+# on trip" path was deliberately removed: backup tools (timeshift),
+# file indexers (tracker, baloo, plocate), and AV scanners legitimately
+# read every file on the disk, and "burn the laptop" on those is a
+# guaranteed-bad ratio.
+#
+# Modes:
+#   foreground:  desk-tripwire run         (for systemd unit + debugging)
+#   setup:       desk-tripwire --install   (create honeypot, enable service)
+#   teardown:    desk-tripwire --uninstall (rm honeypot, disable service)
+#   status:      desk-tripwire --status
+
+set -u
+
+CONF_DIR="$HOME/.config/foxml"
+HONEY_PREFIX="$CONF_DIR/.tripwire-"
+STATE="$CONF_DIR/tripwire.path"      # records current honeypot location
+SERVICE_NAME="fox-tripwire.service"
+
+C_GRN=$'\e[32m'
+C_YEL=$'\e[33m'
+C_RED=$'\e[31m'
+C_RST=$'\e[0m'
+
+# Programs whose accesses we DON'T want to alert on. Add yours below.
+# Defaults cover backups/indexers/thumbnailers — the highest-volume
+# false positives on a typical Linux desktop.
+SAFE_READERS_DEFAULT=(
+    "updatedb" "plocate" "mlocate"          # file db updaters
+    "tracker-extract" "tracker3" "baloo"    # KDE/GNOME indexers
+    "timeshift" "snapper" "btrfs"           # backup tools
+    "clamscan" "clamdscan"                  # AV
+    "gvfsd-metadata" "thumbnailer"          # file manager support
+    "ripgrep" "rg" "grep" "fzf"             # YOUR shell tools — comment out if you want alerts
+    "find"
+)
+# User can override via ~/.config/foxml/tripwire.allowlist (one per line).
+_load_allowlist() {
+    local arr=("${SAFE_READERS_DEFAULT[@]}")
+    local user_list="$CONF_DIR/tripwire.allowlist"
+    if [[ -f "$user_list" ]]; then
+        while IFS= read -r line; do
+            [[ "$line" =~ ^[[:space:]]*# ]] && continue
+            [[ -z "$line" ]] && continue
+            arr+=("$line")
+        done < "$user_list"
+    fi
+    printf '%s\n' "${arr[@]}"
+}
+
+_make_honey() {
+    mkdir -p "$CONF_DIR"
+    chmod 700 "$CONF_DIR"
+    local r
+    r=$(tr -dc 'a-z0-9' < /dev/urandom | head -c 8)
+    local path="${HONEY_PREFIX}${r}.txt"
+    # Content looks like a real secrets file — deters quick "is this
+    # actually a honeypot?" pattern matching by an attacker.
+    cat > "$path" <<EOF
+# Personal access tokens — do not share.
+github_token=ghp_aB9$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 30)
+aws_access_key=AKIA$(tr -dc 'A-Z0-9' </dev/urandom | head -c 16)
+aws_secret_key=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 40)
+EOF
+    chmod 600 "$path"
+    echo "$path" > "$STATE"
+    chmod 600 "$STATE"
+    echo "$path"
+}
+
+act_install() {
+    if ! command -v inotifywait >/dev/null 2>&1; then
+        echo "${C_RED}inotify-tools not installed — pacman -S inotify-tools${C_RST}" >&2
+        return 1
+    fi
+    local path
+    if [[ -f "$STATE" ]] && path=$(<"$STATE") && [[ -f "$path" ]]; then
+        echo "${C_YEL}honeypot already exists at $path${C_RST}"
+    else
+        path=$(_make_honey)
+        echo "${C_GRN}✓ honeypot created at $path${C_RST}"
+    fi
+
+    # Drop systemd user service.
+    local unit_dir="$HOME/.config/systemd/user"
+    mkdir -p "$unit_dir"
+    cat > "$unit_dir/$SERVICE_NAME" <<EOF
+[Unit]
+Description=desk-tripwire — honeypot file watcher (notify on access)
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=$(command -v desk-tripwire) run
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+EOF
+    systemctl --user daemon-reload
+    systemctl --user enable --now "$SERVICE_NAME"
+    echo "${C_GRN}✓ $SERVICE_NAME enabled + started${C_RST}"
+    echo
+    echo "  desk dispatch will fire if anything reads the honeypot."
+    echo "  Allowlist tunables: $CONF_DIR/tripwire.allowlist"
+    echo "  Watch the log:      journalctl --user -u $SERVICE_NAME -f"
+}
+
+act_uninstall() {
+    systemctl --user disable --now "$SERVICE_NAME" 2>/dev/null || true
+    rm -f "$HOME/.config/systemd/user/$SERVICE_NAME"
+    systemctl --user daemon-reload 2>/dev/null || true
+    if [[ -f "$STATE" ]]; then
+        local p
+        p=$(<"$STATE")
+        rm -f "$p" "$STATE"
+    fi
+    # Also clean up any stale honeypots.
+    rm -f "${HONEY_PREFIX}"*.txt 2>/dev/null
+    echo "${C_GRN}✓ desk-tripwire uninstalled${C_RST}"
+}
+
+act_status() {
+    if systemctl --user is-active --quiet "$SERVICE_NAME"; then
+        echo "  service:  ${C_GRN}active${C_RST}"
+    else
+        echo "  service:  ${C_RED}inactive${C_RST}"
+    fi
+    if [[ -f "$STATE" ]]; then
+        local p
+        p=$(<"$STATE")
+        echo "  honey:    $p"
+    else
+        echo "  honey:    ${C_YEL}<none>${C_RST}"
+    fi
+    echo "  log:      journalctl --user -u $SERVICE_NAME --no-pager -n 30"
+}
+
+act_run() {
+    local path
+    if [[ ! -f "$STATE" ]]; then
+        echo "no honeypot — run: desk-tripwire --install" >&2
+        exit 1
+    fi
+    path=$(<"$STATE")
+    if [[ ! -f "$path" ]]; then
+        # User deleted the honeypot. Recreate.
+        path=$(_make_honey)
+    fi
+
+    # Load allowlist into an associative set for O(1) lookup.
+    declare -A allowed=()
+    while IFS= read -r p; do allowed["$p"]=1; done < <(_load_allowlist)
+
+    # Rate limit: ALERT_COOLDOWN seconds between dispatches.
+    local last_alert=0
+    local ALERT_COOLDOWN=60
+
+    echo "tripwire armed: $path" >&2
+    inotifywait -m -q -e access -e open --format '%T %e %f' --timefmt '%Y-%m-%dT%H:%M:%S' "$path" \
+        | while read -r ts event _file; do
+            # Identify the reader. /proc/<pid>/comm for each PID with the file open.
+            local pid="" comm="<unknown>"
+            for p in /proc/[0-9]*; do
+                if [[ -L "$p/fd/0" ]] && readlink "$p/fd/"* 2>/dev/null | grep -qF "$path"; then
+                    pid="${p##*/}"
+                    comm=$(cat "$p/comm" 2>/dev/null)
+                    break
+                fi
+            done
+            # If we couldn't identify, scan via fuser as a fallback.
+            if [[ -z "$pid" ]] && command -v fuser >/dev/null 2>&1; then
+                pid=$(fuser "$path" 2>/dev/null | awk '{print $1}')
+                [[ -n "$pid" ]] && comm=$(cat "/proc/$pid/comm" 2>/dev/null || echo "?")
+            fi
+
+            # Allowlist check.
+            if [[ -n "${allowed[$comm]:-}" ]]; then
+                continue
+            fi
+
+            local now
+            now=$(date +%s)
+            if (( now - last_alert < ALERT_COOLDOWN )); then
+                continue
+            fi
+            last_alert=$now
+
+            local msg="tripwire access: ts=$ts event=$event pid=${pid:-?} comm=$comm"
+            echo "$msg" >&2
+            desk-dispatch "tripwire HIT" "$msg" 2>/dev/null \
+                || notify-send -u critical -t 8000 "desk-tripwire" "$msg"
+        done
+}
+
+case "${1:-}" in
+    --install)    act_install ;;
+    --uninstall)  act_uninstall ;;
+    --status)     act_status ;;
+    run)          act_run ;;
+    -h|--help|"") cat <<EOF
+${C_BOLD:-}desk-tripwire${C_RST}
+
+  desk-tripwire --install     create honeypot file + enable user service
+  desk-tripwire --uninstall   stop service + delete honeypot
+  desk-tripwire --status      show service + honeypot location
+  desk-tripwire run           run in foreground (used by systemd)
+
+Allowlist tunables:
+  ~/.config/foxml/tripwire.allowlist  (one process name per line)
+
+On trip:
+  desk-dispatch "tripwire HIT" "<details>"
+  → falls back to notify-send if dispatch isn't configured
+EOF
+    ;;
+    *) echo "unknown: $1" >&2; exit 2 ;;
+esac

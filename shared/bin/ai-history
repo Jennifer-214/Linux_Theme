@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# ai-history — natural-language query over your shell history.
+#
+# "How did I deploy that docker container last week?" → returns the
+# matching command. Uses the local model (llama.cpp, on this machine) — your shell history
+# never leaves the machine.
+#
+# Mechanics:
+#   1. Pull the last N lines of ~/.zsh_history (or ~/.bash_history),
+#      strip the zsh metadata prefix (':<time>:<duration>;...')
+#   2. Feed (recent history + query) to the local chat model with a
+#      tight system prompt: "find the line that matches this intent,
+#      return ONLY that line, no commentary."
+#   3. Print the suggested command + prompt to copy or re-run.
+#
+# Doesn't need findex / embeddings — shell history is line-oriented
+# and short enough to fit a model's context window directly. Recent-
+# first ordering biases toward "last week" style queries naturally.
+
+set -u
+
+# llm-run asks the local llama.cpp router and picks the model: FOXAI_MODEL, else ai-default's,
+# else opencode's local default, else the roles file's quick model.
+command -v llm-run >/dev/null 2>&1 || { echo "ai-history: llm-run not found — run: desk-install --only llama_server" >&2; exit 1; }
+
+# Pick the model. Honour env, then opencode's default, then fall back.
+# Read query from args or stdin.
+if [[ $# -gt 0 ]]; then
+    query="$*"
+elif [[ ! -t 0 ]]; then
+    query=$(cat)
+else
+    echo "usage: ai-history \"how did I do X\"" >&2
+    exit 2
+fi
+
+# Find the right history file. zsh first (the project's default),
+# bash as fallback.
+HIST_FILE=""
+for candidate in "$HOME/.zsh_history" "$HOME/.bash_history"; do
+    [[ -f "$candidate" ]] && { HIST_FILE="$candidate"; break; }
+done
+if [[ -z "$HIST_FILE" ]]; then
+    echo "ai-history: no ~/.zsh_history or ~/.bash_history found" >&2
+    exit 1
+fi
+
+# Last 2000 lines, strip zsh metadata (`: 1709158293:0;cmd`),
+# de-duplicate consecutive repeats, drop blank lines.
+recent=$(tail -2000 "$HIST_FILE" 2>/dev/null \
+    | sed -E 's/^: [0-9]+:[0-9]+;//' \
+    | awk '!seen[$0]++' \
+    | grep -v '^[[:space:]]*$')
+
+if [[ -z "$recent" ]]; then
+    echo "ai-history: history is empty"
+    exit 0
+fi
+
+# Tight system prompt — the model gets one job and a strict output
+# format, which avoids the coder-model "let me write a python script
+# to do this" behaviour.
+system='You search a user shell history for a command matching their description.
+
+Rules:
+- Return ONLY the matching command line, exactly as it appears in history. No commentary, no markdown, no code fences.
+- If multiple candidates match, return the MOST RECENT one (history is ordered oldest → newest).
+- If nothing matches, return exactly: NO_MATCH
+- Do not invent or modify commands.'
+
+full="$system
+
+SHELL HISTORY (oldest → newest):
+$recent
+
+USER QUERY: $query
+
+MATCHING COMMAND:"
+
+cmd=$(llm-run "$full" \
+    | sed -E '/^```/d; /^$/d' \
+    | head -n 5 \
+    | head -c 2000)
+
+if [[ -z "$cmd" || "$cmd" == "NO_MATCH" ]]; then
+    echo "ai-history: no matching command found"
+    exit 1
+fi
+
+printf '\n  \033[1mFrom history:\033[0m\n'
+printf '%s\n' "$cmd" | sed 's/^/    /'
+echo
+
+if [[ -t 1 ]]; then
+    read -r -p "  [r]un / [c]opy / dismiss? " ans
+    case "$ans" in
+        r|R) eval "$cmd" ;;
+        c|C) printf '%s' "$cmd" | wl-copy 2>/dev/null && echo "  copied to clipboard" ;;
+        *)   ;;
+    esac
+fi

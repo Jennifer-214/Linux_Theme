@@ -12,7 +12,7 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-loader = importlib.machinery.SourceFileLoader('fox_credits', str(ROOT/'shared/bin/fox-credits'))
+loader = importlib.machinery.SourceFileLoader('fox_credits', str(ROOT/'shared/bin/desk-credits'))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 credits = importlib.util.module_from_spec(spec)
 loader.exec_module(credits)

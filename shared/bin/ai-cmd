@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# ai-cmd — natural language → shell command via the local model.
+#
+# Usage: ai-cmd "find all .cpp files modified in the last hour and grep
+#                    for trailing whitespace"
+#        echo "..." | ai-cmd
+#
+# Prints the suggested command and prompts before running. Override the
+# model via FOXAI_MODEL=qwen2.5:7b (llm-run --help has the rest).
+
+set -u
+
+# llm-run asks the local llama.cpp router and picks the model: FOXAI_MODEL, else ai-default's,
+# else opencode's local default, else the roles file's quick model.
+command -v llm-run >/dev/null 2>&1 || { echo "ai-cmd: llm-run not found — run: desk-install --only llama_server" >&2; exit 1; }
+
+# Read prompt from arg or stdin.
+if [[ $# -gt 0 ]]; then
+    prompt="$*"
+else
+    prompt=$(cat)
+fi
+[[ -z "$prompt" ]] && { echo "ai-cmd: empty prompt" >&2; exit 2; }
+
+system='You are a shell command generator. Given a user description in plain English, output ONLY the bash/zsh command that accomplishes the task, with no commentary, no markdown fences, no explanation. If the task requires multiple commands, separate them with `&&` or `;`. Prefer concise pipelines. Assume Arch Linux + Wayland + Hyprland environment. Use modern coreutils (fd, rg, bat, eza) when applicable.'
+
+full_prompt="$system
+
+User request: $prompt
+
+Shell command:"
+
+cmd=$(llm-run "$full_prompt" \
+    | sed -E '/^```/d; /^$/d' \
+    | head -n 5)
+
+if [[ -z "$cmd" ]]; then
+    echo "ai-cmd: model returned nothing" >&2
+    exit 1
+fi
+
+printf '\n  \033[1mSuggested:\033[0m\n'
+printf '%s\n' "$cmd" | sed 's/^/    /'
+echo
+
+read -r -p "  Run? [y/N/edit] " yn
+case "$yn" in
+    y|Y)         eval "$cmd" ;;
+    e|edit)      read -e -i "$cmd" -p "  > " edited && eval "$edited" ;;
+    *)           echo "  not running." ;;
+esac

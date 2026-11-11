@@ -1,5 +1,5 @@
 [Unit]
-Description=Run fox theme check once a week
+Description=Run desk theme check once a week
 
 [Timer]
 OnCalendar=weekly

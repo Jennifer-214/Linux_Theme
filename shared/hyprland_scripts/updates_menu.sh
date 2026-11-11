@@ -11,7 +11,7 @@
 #                           terminal. Shown ONLY when `informant` is installed
 #                           (its pacman hook aborts on unread Arch news — the
 #                           safeguard that stops an unattended upgrade from
-#                           applying a breaking change). `fox-install
+#                           applying a breaking change). `desk-install
 #                           --safe-updates` adds the unit + informant.
 #
 # Fail-safe: if the silent upgrade exits non-zero for ANY reason
@@ -28,7 +28,7 @@ if [[ -n "$apply_mode" && "$apply_mode" != --apply-terminal && "$apply_mode" != 
     exit 2
 fi
 if [[ -z "$apply_mode" ]]; then
-    exec fox-desktop-menu updates
+    exec desktop-menu updates
 fi
 
 CACHE_DIR="${XDG_RUNTIME_DIR:-/tmp}/foxml-waybar"
@@ -57,7 +57,7 @@ printf '%s\n' "${lines[@]}" > "$LIST_CACHE"
 
 refresh_pill() {
     rm -f "$COUNT_CACHE"
-    fox-bar refresh custom/updates 2>/dev/null || true
+    desk-bar refresh custom/updates 2>/dev/null || true
     pkill -SIGRTMIN+1 waybar 2>/dev/null || true
 }
 
@@ -91,7 +91,7 @@ apply_silent() {
     # falls back to a textual agent that needs /dev/tty and dies; systemctl
     # resolves the agent via the logind session instead.
     if ! systemctl cat "$unit" >/dev/null 2>&1; then
-        notify-send "Updates" "Silent-apply unit missing (run: fox-install --safe-updates) — opening terminal."
+        notify-send "Updates" "Silent-apply unit missing (run: desk-install --safe-updates) — opening terminal."
         open_terminal; refresh_pill; return
     fi
 

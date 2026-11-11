@@ -1,4 +1,4 @@
-# desktop.preset — example fox-install preset.
+# desktop.preset — example desk-install preset.
 #
 # A preset overrides each module's default on/off. Lines are `slug = on|off`
 # (`#` starts a comment, blank lines ignored). Modules NOT listed keep their
@@ -11,7 +11,7 @@
 # A personal preset at ~/.config/foxml/presets/<name>.preset shadows the repo
 # copy of the same name. Pair with -y for a fully unattended reinstall.
 #
-# Slugs are the internal names (underscores): see `fox-install --help`.
+# Slugs are the internal names (underscores): see `desk-install --help`.
 
 # Opt into Steam + the [multilib] repo (off by default on a fresh install).
 gaming = on

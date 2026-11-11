@@ -60,7 +60,7 @@ ShellRoot {
     property string keysFilter: ""
     property var nextView: null
     property var nextAction: null
-    property string backend: Quickshell.env("FOXML_DRAWER_BACKEND") || "fox-drawer"
+    property string backend: Quickshell.env("FOXML_DRAWER_BACKEND") || "desk-drawer"
     property string barStatePath: Quickshell.env("FOXML_DRAWER_BAR_STATE") || (Quickshell.env("FOXML_DRAWER_PREVIEW") === "1" ? ""
         : (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/waybar/drawer-state.css")
     property string lastBarStyle: ""

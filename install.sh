@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Linux_Theme — installer entry point.
 #
-# Thin wrapper around the C++ orchestrator (src/fox-install). Adding a
-# new install step means writing one .cpp under src/fox-install/modules/
+# Thin wrapper around the C++ orchestrator (src/desk-install). Adding a
+# new install step means writing one .cpp under src/desk-install/modules/
 # and one line in core/modules.def. Do NOT add logic here.
 #
 #   1. (Optionally) self-update from origin/main.
 #   2. Cache sudo + keep the credential alive across the long install.
-#   3. Build fox-install if it isn't already on disk.
-#   4. exec fox-install with the same argv.
+#   3. Build desk-install if it isn't already on disk.
+#   4. exec desk-install with the same argv.
 #
 # The pre-migration bash implementation lives in legacy/ for reference
 # only; nothing in the live install path sources it. mappings.sh at the
@@ -18,7 +18,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-FOX_INSTALL_BIN="$SCRIPT_DIR/src/fox-install/fox-install"
+FOX_INSTALL_BIN="$SCRIPT_DIR/src/desk-install/desk-install"
 
 # Strip --no-update from argv and set FOXML_NO_UPDATE=1 so the
 # self-update block below skips the git fetch + re-exec. Equivalent
@@ -192,18 +192,18 @@ if ! command -v make >/dev/null 2>&1 || ! command -v g++ >/dev/null 2>&1; then
     sudo pacman -S --needed --noconfirm base-devel
 fi
 
-# nlohmann json.hpp is a fox-intel build dep. Network-dependent, so we
+# nlohmann json.hpp is a desk-intel build dep. Network-dependent, so we
 # still gate the fetch on "is the file missing?" rather than re-fetching
 # every run.
-if [[ ! -f "$SCRIPT_DIR/src/fox-intel/json.hpp" ]]; then
+if [[ ! -f "$SCRIPT_DIR/src/desk-intel/json.hpp" ]]; then
     echo ":: Fetching nlohmann/json header..."
     if ! curl -fsSL \
             https://github.com/nlohmann/json/releases/latest/download/json.hpp \
-            -o "$SCRIPT_DIR/src/fox-intel/json.hpp"; then
+            -o "$SCRIPT_DIR/src/desk-intel/json.hpp"; then
         echo "ERROR: failed to fetch nlohmann/json header from GitHub." >&2
         echo "       Check network connectivity and re-run ./install.sh." >&2
-        echo "       (If you're offline, drop a copy into src/fox-intel/json.hpp manually.)" >&2
-        rm -f "$SCRIPT_DIR/src/fox-intel/json.hpp"   # partial download, if any
+        echo "       (If you're offline, drop a copy into src/desk-intel/json.hpp manually.)" >&2
+        rm -f "$SCRIPT_DIR/src/desk-intel/json.hpp"   # partial download, if any
         exit 1
     fi
 fi
@@ -211,7 +211,7 @@ fi
 _first_build=0
 if [[ ! -x "$FOX_INSTALL_BIN" ]]; then
     _first_build=1
-    echo ":: Building native orchestrator (fox-install + libfox-intel + ~10 fox-* tools)"
+    echo ":: Building native orchestrator (desk-install + libfox-intel + ~10 fox-* tools)"
 elif [[ "${FOXML_UPDATED:-0}" == "1" ]]; then
     echo ":: Recompiling after self-update"
 fi
@@ -224,7 +224,7 @@ fi
 # the user gets ONE line at the end telling them the build is done.
 # The module-level progress bar inside the C++ orchestrator
 # (ui::module_progress) handles the per-step pretty output once make
-# hands off to fox-install.
+# hands off to desk-install.
 _jobs=$(nproc 2>/dev/null || echo 2)
 _start=$SECONDS
 if ! make -j"$_jobs" -C "$SCRIPT_DIR" install >/dev/null 2>&1; then

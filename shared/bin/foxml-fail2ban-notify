@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # foxml-fail2ban-notify — called by fail2ban actionban with positional
-# args. Logs to ~/.local/share/foxml/threat-log.txt + fires fox-dispatch.
+# args. Logs to ~/.local/share/foxml/threat-log.txt + fires desk-dispatch.
 #
 # Fail2ban's config parser chokes on giant inline `bash -c` blocks with
 # embedded $(...) + token interpolation. Moving the logic here means
@@ -11,7 +11,7 @@
 #   foxml-fail2ban-notify <ip> <jail> <failures> <target_user>
 #
 # Runs as root (fail2ban is a root daemon). Drops back to target_user
-# for the dispatch call so fox-dispatch reads the user's webhook config.
+# for the dispatch call so desk-dispatch reads the user's webhook config.
 
 set -u
 
@@ -51,13 +51,13 @@ printf '%s\t%s\t%s\t%s failures\tgeo=%s\twhois=%s\n' \
 chmod 600 "$LOG" 2>/dev/null || true
 chown "$TARGET:$TARGET" "$LOG" 2>/dev/null || true
 
-# Fire the phone alert as the target user so fox-dispatch picks up
+# Fire the phone alert as the target user so desk-dispatch picks up
 # their personal webhook config (~/.config/foxml/dispatch.conf).
 TARGET_UID=$(id -u "$TARGET")
 sudo -u "$TARGET" \
     XDG_RUNTIME_DIR="/run/user/${TARGET_UID}" \
     HOME="$USER_HOME" \
-    "$USER_HOME/.local/bin/fox-dispatch" \
+    "$USER_HOME/.local/bin/desk-dispatch" \
     "ssh-brute" \
     "${IP} banned (${JAIL}, ${FAILURES} failures) geo=${GEO}" \
     2>/dev/null || true

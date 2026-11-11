@@ -1,4 +1,4 @@
-"""fox-lock-panel: the lock screen's password field lands on a screen you can see, and a lock always happens."""
+"""lock-panel: the lock screen's password field lands on a screen you can see, and a lock always happens."""
 import json
 import os
 from pathlib import Path
@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "shared/bin/fox-lock-panel"
+SCRIPT = ROOT / "shared/bin/lock-panel"
 
 CONF = """# foxml:hyprlock-backgrounds-begin
 background {

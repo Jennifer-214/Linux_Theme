@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# desk-harden — post-install control for the kernel/userspace hardening
+# layers configured by install.sh. Each can be toggled individually.
+set -u
+C_GRN=$'\e[32m'; C_YEL=$'\e[33m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
+
+_status() {
+    echo "${C_DIM}Kernel/userspace hardening layers:${C_RST}"
+    echo
+    # hidepid — kernel 5.8+ accepts both numeric (1|2) and symbolic
+    # (noaccess|invisible|ptraceable) values. findmnt normalises to
+    # the symbolic form on modern kernels, so the legacy [12]-only
+    # regex misreports an enforced /proc as "fully visible".
+    if findmnt /proc 2>/dev/null | grep -qE 'hidepid=(1|2|noaccess|invisible|ptraceable)'; then
+        echo "  ${C_GRN}✓${C_RST} hidepid       /proc mounted with hidepid"
+    else
+        echo "  ${C_RED}✗${C_RST} hidepid       /proc fully visible"
+    fi
+    # noexec /tmp
+    if findmnt /tmp 2>/dev/null | grep -q noexec; then
+        echo "  ${C_GRN}✓${C_RST} noexec /tmp   set"
+    else
+        echo "  ${C_RED}✗${C_RST} noexec /tmp   not set"
+    fi
+    if findmnt /dev/shm 2>/dev/null | grep -q noexec; then
+        echo "  ${C_GRN}✓${C_RST} noexec /dev/shm  set"
+    else
+        echo "  ${C_RED}✗${C_RST} noexec /dev/shm  not set"
+    fi
+    # IOMMU
+    if grep -qE 'intel_iommu=on|amd_iommu=on' /proc/cmdline 2>/dev/null; then
+        echo "  ${C_GRN}✓${C_RST} IOMMU         active in current boot"
+    else
+        echo "  ${C_RED}✗${C_RST} IOMMU         not in current cmdline (reboot if recently enabled)"
+    fi
+    # No coredumps
+    if [[ -f /etc/systemd/coredump.conf.d/foxml-no-coredumps.conf ]]; then
+        echo "  ${C_GRN}✓${C_RST} coredumps     blocked (Storage=none)"
+    else
+        echo "  ${C_RED}✗${C_RST} coredumps     could be written to disk"
+    fi
+    # SysRq
+    local sysrq
+    sysrq=$(cat /proc/sys/kernel/sysrq 2>/dev/null)
+    if (( sysrq == 0 )); then
+        echo "  ${C_GRN}✓${C_RST} SysRq         fully disabled"
+    elif (( sysrq == 4 )); then
+        echo "  ${C_GRN}✓${C_RST} SysRq         hardened (=4, keyboard-control only)"
+    else
+        echo "  ${C_YEL}!${C_RST} SysRq         =$sysrq (default — physical attacker can REISUB)"
+    fi
+}
+
+_enable() {
+    local what="$1"
+    if ! type install_hidepid >/dev/null 2>&1; then
+        # mappings.sh isn't sourced — source it so the install_* helpers are in scope.
+        local repo="$HOME/code/Linux_Theme"
+        [[ -f "$HOME/.local/share/foxml/.installed-version" ]] \
+            && repo=$(awk -F= '/^script_dir=/{print $2; exit}' "$HOME/.local/share/foxml/.installed-version")
+        # shellcheck disable=SC1091
+        [[ -f "$repo/mappings.sh" ]] && source "$repo/mappings.sh"
+    fi
+    case "$what" in
+        hidepid)    install_hidepid ;;
+        noexec)     install_noexec_tmp ;;
+        iommu)      install_iommu ;;
+        coredumps)  install_no_coredumps ;;
+        *) echo "unknown: $what (try: hidepid | noexec | iommu | coredumps)"; return 2 ;;
+    esac
+}
+
+_disable() {
+    local what="$1"
+    case "$what" in
+        hidepid)
+            sudo systemctl disable proc-hidepid.service 2>/dev/null
+            sudo mount -o remount,hidepid=0 /proc
+            echo "${C_GRN}✓ hidepid disabled${C_RST}"
+            ;;
+        noexec)
+            echo "${C_YEL}/tmp noexec is fstab-managed — edit /etc/fstab and remove the flags${C_RST}"
+            echo "  backup at: /etc/fstab.foxml-bak"
+            ;;
+        iommu)
+            echo "${C_YEL}IOMMU is bootloader-managed — edit /boot/loader/entries/arch.conf and remove the *_iommu=on entries${C_RST}"
+            echo "  backup at: /boot/loader/entries/arch.conf.foxml-bak"
+            ;;
+        coredumps)
+            sudo rm /etc/systemd/coredump.conf.d/foxml-no-coredumps.conf 2>/dev/null
+            sudo rm /etc/security/limits.d/99-foxml-no-coredumps.conf 2>/dev/null
+            echo "${C_GRN}✓ coredump blocker removed${C_RST}"
+            ;;
+        *) echo "unknown: $what"; return 2 ;;
+    esac
+}
+
+case "${1:-}" in
+    ""|status)   _status ;;
+    enable)      [[ -n "${2:-}" ]] && _enable "$2"  || { echo "usage: desk harden enable <layer>"; exit 2; } ;;
+    disable)     [[ -n "${2:-}" ]] && _disable "$2" || { echo "usage: desk harden disable <layer>"; exit 2; } ;;
+    -h|--help|help) cat <<EOF
+desk harden — kernel/userspace hardening control
+
+  desk harden [status]               show all hardening layers
+  desk harden enable <layer>         turn on a layer
+  desk harden disable <layer>        turn off a layer
+
+Layers:  hidepid | noexec | iommu | coredumps
+
+Most layers are enabled by default during desk install --full.
+SysRq + ARP-poisoning protection live in the kernel sysctls
+(/etc/sysctl.d/99-foxml-hardening.conf — edit there to tune).
+EOF
+    ;;
+    *) echo "unknown: $1" >&2; exit 2 ;;
+esac

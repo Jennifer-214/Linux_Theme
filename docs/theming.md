@@ -146,7 +146,7 @@ The palette defines variables across:
 - **App overrides** — per-app background tweaks (dunst, spicetify, vencord)
 - **Font** — `FONT_FAMILY` (default `MonaspiceKr Nerd Font`)
 - **Metadata** — NVIM_STYLE, KITTY_BG_OPACITY, POPUP_BG_OPACITY, VSCODE_UI_THEME
-- **Aesthetic knobs** — ROUNDING, BLUR_SIZE, BLUR_PASSES, GAP_IN, GAP_OUT, BORDER_SIZE (live-tunable via `fox-theme-tweak`)
+- **Aesthetic knobs** — ROUNDING, BLUR_SIZE, BLUR_PASSES, GAP_IN, GAP_OUT, BORDER_SIZE (live-tunable via `theme-tweak`)
 
 ### Changing the font
 

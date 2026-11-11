@@ -8,10 +8,10 @@ on:
 jobs:
   keybinds-sync:
     # KEYBINDS.md's tmux + Hyprland sections are generated from the configs
-    # by `fox dev gen-keybinds`. This gate fails the build if a bind was
+    # by `desk dev gen-keybinds`. This gate fails the build if a bind was
     # added/changed without regenerating, if a bind is undocumented, or if
     # two binds collide (unless marked `# gen-keybinds: allow-dup`).
-    # To fix a red run: `fox dev gen-keybinds` locally, then commit.
+    # To fix a red run: `desk dev gen-keybinds` locally, then commit.
     runs-on: ubuntu-latest
 
     steps:
@@ -22,8 +22,8 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends g++ make
 
-      - name: Build fox-gen-keybinds
-        run: make -C src/fox-gen-keybinds
+      - name: Build gen-keybinds
+        run: make -C src/gen-keybinds
 
       - name: Check KEYBINDS.md is in sync with the configs
-        run: ./src/fox-gen-keybinds/fox-gen-keybinds --check --strict
+        run: ./src/gen-keybinds/gen-keybinds --check --strict

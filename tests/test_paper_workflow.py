@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 ROOT=Path(__file__).resolve().parents[1]
-RENDER=ROOT/'src/fox-render/fox-render-fast'
+RENDER=ROOT/'src/desk-render/desk-render-fast'
 PLUGINS=Path.home()/'.local/share/nvim/lazy'
 
 

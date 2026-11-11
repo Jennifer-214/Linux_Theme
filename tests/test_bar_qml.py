@@ -25,8 +25,8 @@ class NativeBar(unittest.TestCase):
                 self.exercise_width(width)
 
     def exercise_width(self, width):
-        if not (ROOT / 'src/fox-render/fox-render-fast').exists():
-            self.skipTest('build fox-render-fast before the native QML test')
+        if not (ROOT / 'src/desk-render/desk-render-fast').exists():
+            self.skipTest('build desk-render-fast before the native QML test')
         with tempfile.TemporaryDirectory(prefix='foxml-bar-') as tmp:
             work = Path(tmp)
             config = work / 'config'
@@ -34,7 +34,7 @@ class NativeBar(unittest.TestCase):
             (config / 'foxml').mkdir()
             qml = work / 'qml'
             shutil.copytree(ROOT / 'shared/quickshell/foxml', qml)
-            subprocess.run([str(ROOT / 'src/fox-render/fox-render-fast'),
+            subprocess.run([str(ROOT / 'src/desk-render/desk-render-fast'),
                             str(ROOT / 'themes/FoxML_Paper/palette.sh'),
                             str(ROOT / 'templates/quickshell/foxml'), str(qml)], check=True, capture_output=True)
             helper = work / 'helper.py'
@@ -44,10 +44,10 @@ class NativeBar(unittest.TestCase):
             claude = work / 'claude.json'
             claude.write_text(json.dumps({'text':'✎ 1  ◇ 1', 'tooltip':'Linux_Theme · Opus 5.5 · 41% context · working', 'class':['asking','berry']}))
             layout = {'modules-left':['group/launcher','group/test','custom/claude'], 'modules-center':[], 'modules-right':['idle_inhibitor','memory'],
-                      'custom/claude':{'exec':f'cat {claude}', 'return-type':'json', 'interval':'once', 'on-click':'fox-desktop-menu agents',
+                      'custom/claude':{'exec':f'cat {claude}', 'return-type':'json', 'interval':'once', 'on-click':'desktop-menu agents',
                                        'on-click-asking':f'printf asked > {action}.asking'},
                       'group/launcher':{'modules':['custom/logo','hyprland/workspaces']},
-                      'custom/logo':{'format':'✎','on-click':'fox-desktop-menu root'},
+                      'custom/logo':{'format':'✎','on-click':'desktop-menu root'},
                       'hyprland/workspaces':{'format':'{name} {windows}', 'persistent-workspaces':{'*':list(range(1,10))}},
                       'group/test':{'modules':['custom/test']}, 'custom/test':module}
             for name in ['config', 'config_secondary']:

@@ -530,7 +530,7 @@ Commands:
 | `:ClaudeCodeStatus` | Check WebSocket server status |
 
 ### The other Claudes (foxml.claude)
-Reads what the paper mod and `fox-drawer` keep in `$XDG_RUNTIME_DIR/foxml-claude`, and git. A buffer a live
+Reads what the paper mod and `desk-drawer` keep in `$XDG_RUNTIME_DIR/foxml-claude`, and git. A buffer a live
 Claude edited in the last 15 minutes shows `✎ <session> · 3m` in the statusline and a `✎` in the bufferline; the
 first change you make to it says which session to coordinate with. The statusline also shows `gate open ✓` /
 `plan first ✎` (repos with a plan gate) and `● <session>` while one needs you.

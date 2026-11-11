@@ -41,10 +41,10 @@ if __name__ == "__main__":
     unittest.main()
 
 
-RENDER = SCRIPT.parents[2] / "src/fox-render/fox-render-fast"
+RENDER = SCRIPT.parents[2] / "src/desk-render/desk-render-fast"
 
 
-@unittest.skipUnless(RENDER.exists() and __import__("shutil").which("tmux"), "fox-render-fast and tmux needed")
+@unittest.skipUnless(RENDER.exists() and __import__("shutil").which("tmux"), "desk-render-fast and tmux needed")
 class PaneDividers(unittest.TestCase):
     def test_every_theme_renders_a_tmux_config_that_parses(self):
         root = SCRIPT.parents[2]

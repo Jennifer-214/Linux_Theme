@@ -7,7 +7,7 @@ import Quickshell.Services.Polkit
 
 // The paper slip that asks for your password when something needs an administrator (a restart, an install).
 // Polkit takes one prompt per session: hyprpolkitagent holds it from login, this takes it over once the shell is up,
-// and hands it back if it cannot hold it. fox-pulse starts hyprpolkitagent again whenever no paper prompt is
+// and hands it back if it cannot hold it. desk-pulse starts hyprpolkitagent again whenever no paper prompt is
 // registered (the marker below is missing or its process is gone), so a prompt is always there.
 // FOXML_POLKIT_PROMPT=off keeps the plain one; outside a Hyprland session (tests) this never touches either.
 Scope {

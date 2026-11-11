@@ -81,9 +81,9 @@ class PolkitPrompt(unittest.TestCase):
     def test_a_request_shows_in_plain_words_and_the_session_agent_is_never_touched(self):
         if not shutil.which("quickshell"):
             self.skipTest("quickshell is not installed")
-        render = ROOT / "src/fox-render/fox-render-fast"
+        render = ROOT / "src/desk-render/desk-render-fast"
         if not render.exists():
-            self.skipTest("build fox-render-fast first")
+            self.skipTest("build desk-render-fast first")
         with tempfile.TemporaryDirectory(prefix="polkit-prompt-") as work:
             qml = Path(work) / "qml"
             qml.mkdir()

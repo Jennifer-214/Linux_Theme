@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-# fox-menu — open the categorized Fox tools drawer.
-set -euo pipefail
-launcher_dir="$(cd -- "${BASH_SOURCE[0]%/*}" && pwd -P)"
-exec "$launcher_dir/fox-desktop-menu" --open tools

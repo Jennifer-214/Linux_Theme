@@ -273,7 +273,7 @@ window#waybar > box {
     text-shadow: none;
 }
 
-/* The NVIDIA driver was updated without a reboot (fox-ai-status): amber, like the other warnings. */
+/* The NVIDIA driver was updated without a reboot (ai-status): amber, like the other warnings. */
 #custom-ai_status.warning {
     color: #{{WAYBAR_WARN}};
     text-shadow: none;

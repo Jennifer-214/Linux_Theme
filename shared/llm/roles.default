@@ -1,9 +1,9 @@
 # roles.default — which local model does which job (deployed by Linux_Theme). To make it yours, copy it to
 # ~/code/custom_models/roles.conf — your private custom_models repo, which a reinstall clones back; the
 # installer links roles.conf beside this file to it. A real roles.conf here overrides it on one machine.
-# After an edit: systemctl --user restart fox-llm-server && fox-llm-update --sync
+# After an edit: systemctl --user restart fox-llm-server && llm-update --sync
 #
-# Columns: role  model (a name from the model lists — fox-llm-update downloads it from Hugging Face)
+# Columns: role  model (a name from the model lists — llm-update downloads it from Hugging Face)
 #          server (llama = llama.cpp's router; llama-turbo = the TurboQuant one)  [slots=N] [ctx=N]
 #          slots=N  parallel conversations for the role · ctx=N  context per conversation, in tokens (default: the
 #          role's own — agent 64k on a GPU of 6 GB or less, 128k above; quick 32k; fim/title 8k). Match pi's

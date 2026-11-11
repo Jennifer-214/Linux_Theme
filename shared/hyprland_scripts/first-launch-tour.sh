@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# first-launch-tour.sh — show fox-cheatsheet once after a fresh install.
+# first-launch-tour.sh — show desk-cheatsheet once after a fresh install.
 #
 # Gated by ~/.local/share/foxml/.first-launch-shown. On the very first
 # Hyprland session after install, we wait ~3s for the bar/notif daemon
@@ -7,7 +7,7 @@
 # Subsequent sessions are silent.
 #
 # To re-trigger the tour: `rm ~/.local/share/foxml/.first-launch-shown`
-# and relogin (or just run fox-cheatsheet directly any time).
+# and relogin (or just run desk-cheatsheet directly any time).
 
 set -u
 
@@ -18,8 +18,8 @@ MARKER="$HOME/.local/share/foxml/.first-launch-shown"
 # repaints. ~3 seconds is a comfortable margin.
 sleep 3
 
-if command -v fox-desktop-menu >/dev/null 2>&1; then
-    fox-desktop-menu --open cheatsheet >/dev/null 2>&1 || true
+if command -v desktop-menu >/dev/null 2>&1; then
+    desktop-menu --open cheatsheet >/dev/null 2>&1 || true
 fi
 
 mkdir -p "$(dirname "$MARKER")"

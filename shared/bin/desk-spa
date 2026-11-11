@@ -1,0 +1,254 @@
+#!/usr/bin/env bash
+# desk-spa — Single Packet Authorization via fwknop.
+#
+# Like desk knock (port knocking) but cryptographically signed: instead
+# of a port sequence (sniffable + replayable), fwknop sends ONE
+# encrypted+HMAC'd UDP packet. The fwknopd server verifies the HMAC
+# (replay-immune via timestamp), reads the requested port, and opens
+# UFW for the source IP for a short window.
+#
+# Two halves:
+#   • Server side  (on the laptop): fwknopd reads /etc/fwknopd.conf
+#   • Client side  (your phone or another laptop): fwknop binary with
+#     the matching key sends the SPA packet
+#
+# Usage:
+#   desk spa --setup           install fwknopd, generate keys, write configs
+#   desk spa --status          show fwknopd state + config location
+#   desk spa --reveal          print client config (with confirmation)
+#   desk spa --disable         disable fwknopd + restore UFW SSH allow
+
+set -u
+C_BOLD=$'\e[1m'; C_GRN=$'\e[32m'; C_YEL=$'\e[33m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_PEACH=$'\e[95m'; C_RST=$'\e[0m'
+
+CONF_DIR="$HOME/.config/foxml"
+USER_CONF="$CONF_DIR/spa.conf"
+SYS_CONF=/etc/fwknopd.conf
+ACCESS_CONF=/etc/access.conf
+
+_require() {
+    if command -v fwknopd >/dev/null 2>&1; then return 0; fi
+    # Auto-install from AUR so the user doesn't have to do it manually.
+    local aur=""
+    command -v yay  &>/dev/null && aur="yay"
+    [[ -z "$aur" ]] && command -v paru &>/dev/null && aur="paru"
+    if [[ -z "$aur" ]]; then
+        echo "${C_RED}fwknop not installed AND no AUR helper found${C_RST}" >&2
+        echo "  install yay or paru first, then re-run: desk spa --setup" >&2
+        return 1
+    fi
+    echo "  ${C_DIM}fwknop not installed — building from AUR (~20-40s)...${C_RST}"
+    if ! $aur -S --needed --noconfirm fwknop 2>&1 | tail -20 | sed 's/^/    /'; then
+        echo "${C_RED}fwknop AUR build failed${C_RST}" >&2
+        echo "  try manually: $aur -S fwknop" >&2
+        return 1
+    fi
+    if ! command -v fwknopd >/dev/null 2>&1; then
+        echo "${C_RED}install completed but fwknopd still not on PATH${C_RST}" >&2
+        return 1
+    fi
+    echo "  ${C_GRN}✓ fwknop installed${C_RST}"
+}
+
+_disable_knockd_if_active() {
+    # Only fire when knockd is CURRENTLY active. The previous OR-check
+    # (active OR conf-exists) re-prompted forever, because desk-knock
+    # --disable stops the service but leaves knock.conf in place as
+    # archived secret storage — so the prompt would re-fire every
+    # subsequent run with the user saying y, desk-knock --disable
+    # no-op'ing, loop. SPA and knock only fight over UFW state when
+    # knockd is live; a dormant conf file is harmless.
+    if systemctl is-active --quiet knockd 2>/dev/null; then
+        echo
+        echo "  ${C_YEL}port-knocking (knockd) is active.${C_RST}"
+        echo "  SPA replaces knock — both gating the same port would race on UFW rules."
+        local _r
+        read -rp "  Disable knockd first? [Y/n] " -n 1 -r _r; echo
+        if [[ ! "$_r" =~ ^[Nn]$ ]]; then
+            command -v desk-knock >/dev/null 2>&1 && desk-knock --disable \
+                || sudo systemctl disable --now knockd 2>/dev/null
+        else
+            echo "  ${C_YEL}keeping knockd — note: behaviour will be undefined${C_RST}"
+        fi
+    fi
+}
+
+_real_ssh_port() {
+    awk '/^Port /{print $2}' /etc/ssh/sshd_config.d/50-foxml-hardening.conf 2>/dev/null \
+        || awk '/^Port /{print $2; exit}' /etc/ssh/sshd_config 2>/dev/null \
+        || echo 22
+}
+
+_setup() {
+    echo "${C_BOLD}desk spa — Single Packet Authorization setup${C_RST}"
+    echo "${C_DIM}  This will:${C_RST}"
+    echo "${C_DIM}    1. Install fwknop from AUR (if missing)${C_RST}"
+    echo "${C_DIM}    2. Disable knockd (if active — they conflict)${C_RST}"
+    echo "${C_DIM}    3. Generate random keys (no hardcoded defaults)${C_RST}"
+    echo "${C_DIM}    4. Lock your SSH port behind UDP :62201 SPA gate${C_RST}"
+    echo "${C_DIM}    5. Print keys + QR for phone transfer${C_RST}"
+    echo "${C_DIM}    6. Remind you to run desk backup${C_RST}"
+    echo
+    local _go
+    read -rp "  Proceed? [Y/n] " -n 1 -r _go; echo
+    [[ "$_go" =~ ^[Nn]$ ]] && { echo "  cancelled"; return 0; }
+
+    _require || return 1
+    _disable_knockd_if_active
+
+    local ssh_port
+    ssh_port=$(_real_ssh_port)
+    if [[ "$ssh_port" == "22" ]]; then
+        echo "${C_YEL}real sshd is on :22 — SPA is most useful when sshd is on a custom port${C_RST}"
+        echo "${C_YEL}run the SSH wizard first via: desk install --full${C_RST}"
+    fi
+
+    # Pick which interface fwknopd watches. Default to a wifi iface if
+    # one exists; fall back to first up iface.
+    local iface
+    iface=$(ip -br link 2>/dev/null | awk '$2=="UP" && $1 !~ /^lo$/ {print $1; exit}')
+    [[ -z "$iface" ]] && iface=wlan0
+
+    # Generate keys (rndsalt + HMAC).
+    mkdir -p "$CONF_DIR" && chmod 700 "$CONF_DIR"
+    local key_b64 hmac_b64
+    key_b64=$(head -c 16 /dev/urandom | base64)
+    hmac_b64=$(head -c 32 /dev/urandom | base64)
+
+    ( umask 077
+      cat > "$USER_CONF" <<EOF
+# foxml-managed — fwknop SPA client config.
+KEY_BASE64=$key_b64
+HMAC_BASE64=$hmac_b64
+FWKNOPD_IFACE=$iface
+TARGET_PORT=$ssh_port
+EOF
+    )
+    chmod 600 "$USER_CONF"
+
+    # Server config.
+    sudo tee "$SYS_CONF" >/dev/null <<EOF
+# foxml-managed
+PCAP_INTF                 $iface
+ENABLE_PCAP_PROMISC       Y
+PCAP_FILTER               udp port 62201
+EOF
+
+    sudo tee "$ACCESS_CONF" >/dev/null <<EOF
+# foxml-managed
+SOURCE                    ANY
+KEY_BASE64                $key_b64
+HMAC_KEY_BASE64           $hmac_b64
+FW_ACCESS_TIMEOUT         30
+CMD_CYCLE_OPEN            /usr/bin/ufw allow from \$SRC to any port $ssh_port proto tcp
+CMD_CYCLE_CLOSE           /usr/bin/ufw delete allow from \$SRC to any port $ssh_port proto tcp
+CMD_CYCLE_TIMER           30
+EOF
+
+    # Lock down SSH port: deny by default, fwknopd opens per-IP on knock.
+    if [[ "$ssh_port" != "22" ]]; then
+        sudo ufw delete allow "$ssh_port/tcp" 2>/dev/null
+        sudo ufw delete limit "$ssh_port/tcp" 2>/dev/null
+        sudo ufw deny "$ssh_port/tcp" >/dev/null
+    fi
+    sudo systemctl enable --now fwknopd >/dev/null 2>&1
+
+    echo
+    echo "${C_GRN}═══════════════════════════════════════════════════════════════${C_RST}"
+    echo "${C_GRN}  YOUR SPA CLIENT KEYS — save these to your phone/laptop NOW${C_RST}"
+    echo "${C_GRN}═══════════════════════════════════════════════════════════════${C_RST}"
+    echo
+    echo "  KEY_BASE64:       $key_b64"
+    echo "  HMAC_KEY_BASE64:  $hmac_b64"
+    echo "  Target host:      <THIS HOST>"
+    echo "  SPA port (UDP):   62201"
+    echo "  Service port:     $ssh_port (TCP, opens for 30s after a valid knock)"
+    echo
+
+    # QR code for easy phone-side transfer if qrencode is available.
+    # Encodes as a compact "fwknop://<hostname>?key=...&hmac=...&port=..."
+    # URI that supported clients can ingest; otherwise the user reads
+    # the keys off the terminal as before.
+    if command -v qrencode >/dev/null 2>&1; then
+        # `hostname` (the binary) isn't installed by default on modern
+        # Arch — use bash's built-in $HOSTNAME, with /etc/hostname as a
+        # last-resort fallback.
+        local host="${HOSTNAME:-$(cat /etc/hostname 2>/dev/null || echo this-host)}"
+        local uri="fwknop://${host}/spa?key=${key_b64}&hmac=${hmac_b64}&service=tcp/${ssh_port}"
+        echo "  ${C_DIM}QR (scan to phone):${C_RST}"
+        qrencode -t ANSIUTF8 -m 1 "$uri" 2>/dev/null | sed 's/^/  /'
+    else
+        echo "  ${C_DIM}install qrencode for a scannable QR: sudo pacman -S qrencode${C_RST}"
+    fi
+
+    echo "  Client invocation (from your phone with fwknop installed):"
+    echo "    fwknop -A tcp/$ssh_port -a <YOUR_PUBLIC_IP> -D <THIS_HOST> --key-base64 -K <key>"
+    echo
+    echo "  Saved client config: $USER_CONF (0600)"
+    echo "  Server config:       $SYS_CONF + $ACCESS_CONF"
+    echo "${C_GRN}═══════════════════════════════════════════════════════════════${C_RST}"
+    echo
+    echo "  ${C_BOLD}Next steps:${C_RST}"
+    echo "    1. ${C_DIM}Phone:${C_RST}  install 'FwKnop2 SPA Client' (F-Droid / Play Store)"
+    echo "             scan the QR above, or paste KEY_BASE64 + HMAC_KEY_BASE64"
+    echo "    2. ${C_DIM}Backup:${C_RST} desk backup"
+    echo "             (encrypted tarball includes ~/.config/foxml/spa.conf)"
+    echo "    3. ${C_DIM}Test:${C_RST}   from another machine with fwknop installed:"
+    echo "             fwknop -A tcp/$ssh_port -a <your-public-ip> -D <this-host> \\"
+    echo "                    --key-base64 -K \$KEY_BASE64 \\"
+    echo "                    --hmac-key-base64 \$HMAC_KEY_BASE64"
+    echo "             then ssh -p $ssh_port user@<this-host>"
+    echo "    4. ${C_DIM}Lockout fallback:${C_RST} physical TTY (Ctrl+Alt+F2) → desk spa --disable"
+}
+
+_status() {
+    if sudo -n systemctl is-active --quiet fwknopd 2>/dev/null \
+       || systemctl is-active --quiet fwknopd 2>/dev/null; then
+        echo "  fwknopd:  ${C_GRN}active${C_RST}"
+    else
+        echo "  fwknopd:  ${C_RED}inactive${C_RST}"
+    fi
+    [[ -f "$USER_CONF" ]] \
+        && echo "  config:   ${C_GRN}$USER_CONF${C_RST} (keys masked — desk spa --reveal)" \
+        || echo "  config:   ${C_YEL}not set up${C_RST}"
+    echo "  ssh port: $(_real_ssh_port)"
+}
+
+_reveal() {
+    [[ -f "$USER_CONF" ]] || { echo "no config — run --setup first"; return 1; }
+    local r
+    read -rp "  Reveal SPA keys? Anyone watching your screen will see them. [y/N] " -n 1 -r r; echo
+    [[ "$r" =~ ^[Yy]$ ]] || { echo cancelled; return 0; }
+    cat "$USER_CONF"
+}
+
+_disable() {
+    sudo systemctl disable --now fwknopd >/dev/null 2>&1
+    local ssh_port
+    ssh_port=$(_real_ssh_port)
+    sudo ufw delete deny "$ssh_port/tcp" 2>/dev/null
+    sudo ufw limit "$ssh_port/tcp" >/dev/null 2>&1
+    echo "${C_GRN}✓ fwknopd stopped, SSH re-opened (rate-limited)${C_RST}"
+}
+
+case "${1:-}" in
+    --setup)    _setup ;;
+    --status)   _status ;;
+    --reveal)   _reveal ;;
+    --disable)  _disable ;;
+    -h|--help|help) cat <<EOF
+desk spa — Single Packet Authorization (fwknop) for SSH
+
+  desk spa --setup     interactive: install fwknopd, generate keys, lock SSH
+  desk spa --status    daemon state + config location
+  desk spa --reveal    print client keys (with confirm)
+  desk spa --disable   stop fwknopd, re-open SSH unconditionally
+
+vs desk knock:
+  desk knock = port sequence (sniffable + replayable on the same network)
+  desk spa   = encrypted single packet + HMAC + timestamp (replay-immune,
+              undetectable to passive observers)
+EOF
+    ;;
+    *) echo "unknown: $1" >&2; exit 2 ;;
+esac
