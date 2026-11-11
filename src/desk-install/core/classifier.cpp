@@ -1,6 +1,6 @@
 #include "classifier.hpp"
 
-namespace fox_install::state {
+namespace desk_install::state {
 
 const char* status_name(Status s) {
     switch (s) {
@@ -64,4 +64,4 @@ Classification classify(
     return {Status::Conflict, "both deployed and source diverged from last install"};
 }
 
-}  // namespace fox_install::state
+}  // namespace desk_install::state

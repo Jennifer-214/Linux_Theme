@@ -22,10 +22,10 @@
 #include <system_error>
 
 namespace fs = std::filesystem;
-namespace sh = fox_install::sh;
-namespace ui = fox_install::ui;
+namespace sh = desk_install::sh;
+namespace ui = desk_install::ui;
 
-namespace fox_monitor::variants {
+namespace desk_monitor::variants {
 
 namespace {
 
@@ -489,4 +489,4 @@ std::size_t generate(const fs::path& wall_dir,
     return generated;
 }
 
-}  // namespace fox_monitor::variants
+}  // namespace desk_monitor::variants

@@ -23,7 +23,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -92,4 +92,4 @@ void run_safe_updates(Context& ctx) {
     }
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

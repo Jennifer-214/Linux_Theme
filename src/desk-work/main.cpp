@@ -22,7 +22,7 @@
 #include <unistd.h>
 
 namespace fs = std::filesystem;
-namespace sh = fox_install::sh;
+namespace sh = desk_install::sh;
 using J = nlohmann::json;
 using A = std::vector<std::string>;
 namespace {

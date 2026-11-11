@@ -19,7 +19,7 @@
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
 
-namespace fox_install {
+namespace desk_install {
 
 void run_cpp_pro(Context& ctx) {
     ui::section("C++ toolchain extras (clang / lldb / mold / valgrind / perf)");
@@ -47,4 +47,4 @@ void run_cpp_pro(Context& ctx) {
     else         ui::warn("pacman failed — packages may be partial");
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

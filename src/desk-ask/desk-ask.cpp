@@ -4,10 +4,10 @@
 //   desk-ask explain rcu in one paragraph
 //   echo "..." | desk-ask              # reads stdin if no args
 //
-// Streams the answer to stdout. Model comes from FoxIntel's resolution
+// Streams the answer to stdout. Model comes from DeskIntel's resolution
 // chain (FOXAI_MODEL env > opencode.json > foxml/ai-model.conf).
 
-#include "../desk-intel/fox_intel.hpp"
+#include "../desk-intel/desk_intel.hpp"
 
 #include <iostream>
 #include <sstream>
@@ -30,7 +30,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    FoxIntel intel;
+    DeskIntel intel;
     if (!intel.ensure_server_running()) return 1;
 
     std::cout << intel.color_accent() << "[Thinking...]" << intel.color_reset() << std::endl;

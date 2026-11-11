@@ -8,30 +8,30 @@
 //   1. Write `void run_foo(Context&);` in src/desk-install/modules/foo.cpp.
 //   2. Add ONE line to modules.def:
 //
-//          FOX_MODULE(foo, run_foo, "--foo", "What it does", false)
+//          DESK_MODULE(foo, run_foo, "--foo", "What it does", false)
 //
 //   3. Rebuild. --help, the arg parser, the dispatcher, and the
 //      end-of-install summary all pick it up automatically.
 //
-// FOX_MODULE arguments:
+// DESK_MODULE arguments:
 //   slug         identifier used in code, e.g. `foo`        (must be a valid C identifier)
 //   function     symbol to call: void run_foo(Context&)
 //   flag         CLI flag, e.g. "--foo"
 //   description  one-line description shown in --help
 //   default_on   if true, module runs unless explicitly disabled with --no-<slug>
 //
-// FOX_MODULE_FULL — extended form. Same shape plus three trailing prereq
+// DESK_MODULE_FULL — extended form. Same shape plus three trailing prereq
 // booleans (Step 5) and an optional state_check function pointer (Step 6),
 // consumed by the dispatcher in Session B Step 7 to skip modules whose
 // requirements can't be met or whose work has already been done:
 //
-//     FOX_MODULE_FULL(foo, run_foo, "--foo", "...", false,
+//     DESK_MODULE_FULL(foo, run_foo, "--foo", "...", false,
 //                     /*requires_root*/      true,
 //                     /*requires_graphical*/ false,
 //                     /*requires_network*/   true,
 //                     /*state_check*/        state::check_foo)
 //
-// FOX_MODULE(...) is a backward-compat shim that defaults all three
+// DESK_MODULE(...) is a backward-compat shim that defaults all three
 // prereq fields to false and the state_check pointer to nullptr —
 // existing entries in modules.def keep working unchanged.
 
@@ -39,7 +39,7 @@
 #include "classifier.hpp"
 #include "state_manifest.hpp"
 
-namespace fox_install {
+namespace desk_install {
 
 using ModuleFn     = void(*)(Context&);
 
@@ -47,7 +47,7 @@ using ModuleFn     = void(*)(Context&);
 // describing whether the module needs to run, is up to date, conflicts
 // with on-disk state, or is blocked by an unmet prereq. nullptr means
 // "no introspection — treat as Fresh on every run" (current behavior
-// for legacy FOX_MODULE entries).
+// for legacy DESK_MODULE entries).
 using StateCheckFn = state::Classification(*)(const Context&, const state::Manifest&);
 
 struct Module {
@@ -66,6 +66,6 @@ struct Module {
 extern const Module  MODULES[];
 extern const std::size_t MODULES_COUNT;
 
-}  // namespace fox_install
+}  // namespace desk_install
 
 #endif

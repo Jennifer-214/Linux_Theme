@@ -12,7 +12,7 @@
 
 #include <string>
 
-namespace fox_install::state {
+namespace desk_install::state {
 
 // The state-transition the installer needs to apply for one module.
 enum class Status {
@@ -62,4 +62,4 @@ Classification classify(
     const std::string& source_hash
 );
 
-}  // namespace fox_install::state
+}  // namespace desk_install::state

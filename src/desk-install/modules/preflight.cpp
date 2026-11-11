@@ -16,7 +16,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -132,12 +132,12 @@ void run_preflight(Context& ctx) {
         fs::exists("/run/systemd/container") ||
         std::getenv("container") != nullptr;
 
-    fox_health::CheckOptions opts;
+    desk_health::CheckOptions opts;
     opts.only = { "A", "B" };
     // Slow probes (pacman -Qkk) skip in dry-run since they read 1000s
     // of files for a check that doesn't influence dry-run output.
     opts.include_slow = !sh::dry_run();
-    auto results = fox_health::run_all(opts);
+    auto results = desk_health::run_all(opts);
 
     // Only category-A (boot path) critical fails abort the install —
     // those mean later modules can corrupt state further. Category-B
@@ -146,16 +146,16 @@ void run_preflight(Context& ctx) {
     // user sees the recommended `desk sec health --verbose` hint.
     int blocking_fails = 0;
     for (const auto& r : results) {
-        if (r.status != fox_health::Status::Fail
-            && r.status != fox_health::Status::Warn) continue;
-        const char* glyph = (r.status == fox_health::Status::Fail) ? "✗" : "!";
-        bool is_blocking = (r.severity == fox_health::Severity::Critical
+        if (r.status != desk_health::Status::Fail
+            && r.status != desk_health::Status::Warn) continue;
+        const char* glyph = (r.status == desk_health::Status::Fail) ? "✗" : "!";
+        bool is_blocking = (r.severity == desk_health::Severity::Critical
                             && r.id.size() >= 1 && r.id[0] == 'A');
         if (is_blocking) {
             ui::err(std::string(glyph) + " [" + r.id + "] " + r.title);
             ++blocking_fails;
-        } else if (r.severity == fox_health::Severity::Critical
-                || r.severity == fox_health::Severity::High) {
+        } else if (r.severity == desk_health::Severity::Critical
+                || r.severity == desk_health::Severity::High) {
             ui::warn(std::string(glyph) + " [" + r.id + "] " + r.title);
         } else {
             continue;
@@ -173,4 +173,4 @@ void run_preflight(Context& ctx) {
     }
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

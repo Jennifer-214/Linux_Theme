@@ -16,7 +16,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_render {
+namespace desk_render {
 
 std::string apply_substitutions(
     const std::string& src,
@@ -202,4 +202,4 @@ RenderResult render_tree(
     return {total - missed, missed};
 }
 
-}  // namespace fox_render
+}  // namespace desk_render

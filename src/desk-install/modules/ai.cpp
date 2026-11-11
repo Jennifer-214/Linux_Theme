@@ -13,7 +13,7 @@
 
 #include <string>
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -116,4 +116,4 @@ void run_ai(Context& /*ctx*/) {
     ui::ok("AI tooling ready");
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

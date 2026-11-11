@@ -8,7 +8,7 @@
 #include <fstream>
 #include <string>
 
-namespace fox_install {
+namespace desk_install {
 
 struct ThemeChoice {
     std::string name;
@@ -32,4 +32,4 @@ inline ThemeChoice choose_theme(const std::string& requested, const std::filesys
     return {fallback, note + "default"};
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

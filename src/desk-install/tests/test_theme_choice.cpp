@@ -5,10 +5,10 @@
 #include <unistd.h>
 
 namespace fs = std::filesystem;
-using fox_install::choose_theme;
+using desk_install::choose_theme;
 
 static int failures = 0;
-static void expect(const char* what, const fox_install::ThemeChoice& got, const char* name, const char* source) {
+static void expect(const char* what, const desk_install::ThemeChoice& got, const char* name, const char* source) {
     if (got.name == name && got.source == source) return;
     std::printf("FAIL %s: %s (%s)\n", what, got.name.c_str(), got.source.c_str());
     ++failures;

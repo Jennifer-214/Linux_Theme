@@ -7,7 +7,7 @@
 #include <unistd.h>
 
 namespace fs = std::filesystem;
-using fox_install::lay_fox_aliases;
+using desk_install::lay_fox_aliases;
 static int failed = 0;
 static void expect(bool ok, const char* what) { if (!ok) { std::printf("FAIL: %s\n", what); ++failed; } }
 

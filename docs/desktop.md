@@ -103,7 +103,7 @@ are mounted or ejected by opening the drawer, and no extra watcher is started.
 ### Local models
 
 Desk → Local models lists the GGUF models in `~/.local/share/fox-llm/gguf`, largest first,
-with the role that uses each (from the first roles file, as FoxIntel reads them) and
+with the role that uses each (from the first roles file, as DeskIntel reads them) and
 whether the router serves it. Enter on a model, after a confirmation, makes it the agent
 model: the `agent` line of `~/.config/foxml/llm/roles.conf` is rewritten (the old file is
 kept as `roles.conf.bak-<time>`) and `llm-update --sync` runs. Remove deletes a model

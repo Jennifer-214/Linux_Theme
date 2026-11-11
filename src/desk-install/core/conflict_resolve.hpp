@@ -14,7 +14,7 @@
 #include <filesystem>
 #include <string>
 
-namespace fox_install::conflict {
+namespace desk_install::conflict {
 
 enum class Decision {
     KeepMine,           // leave the deployed file alone
@@ -51,4 +51,4 @@ bool apply(
 // "backup-then-take-new"). Used by tests + the install log.
 const char* decision_name(Decision d);
 
-}  // namespace fox_install::conflict
+}  // namespace desk_install::conflict

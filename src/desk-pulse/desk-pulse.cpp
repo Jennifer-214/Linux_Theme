@@ -172,9 +172,9 @@ public:
     bool connected() const { return fd_ >= 0; }
 
     bool connect_now(int epoll_fd) {
-        std::string path = fox_pulse::resolve_hypr_socket2_path();
+        std::string path = desk_pulse::resolve_hypr_socket2_path();
         if (path.empty()) return false;
-        fd_ = fox_pulse::connect_unix_stream(path);
+        fd_ = desk_pulse::connect_unix_stream(path);
         if (fd_ < 0) return false;
         epoll_event ev{};
         ev.events  = EPOLLIN | EPOLLRDHUP;
@@ -311,9 +311,9 @@ int main(int argc, char** argv) {
         return ::epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &ev);
     };
 
-    fox_pulse::Debouncer focus_db{std::chrono::milliseconds{FOCUS_DEBOUNCE_MS}};
-    fox_pulse::Debouncer mon_db  {std::chrono::milliseconds{MONITOR_DEBOUNCE_MS}};
-    fox_pulse::Debouncer cfg_db  {std::chrono::milliseconds{CONFIG_DEBOUNCE_MS}};
+    desk_pulse::Debouncer focus_db{std::chrono::milliseconds{FOCUS_DEBOUNCE_MS}};
+    desk_pulse::Debouncer mon_db  {std::chrono::milliseconds{MONITOR_DEBOUNCE_MS}};
+    desk_pulse::Debouncer cfg_db  {std::chrono::milliseconds{CONFIG_DEBOUNCE_MS}};
     if (focus_db.fd() < 0 || mon_db.fd() < 0 || cfg_db.fd() < 0) {
         std::fprintf(stderr, "desk-pulse: timerfd_create failed\n");
         return 1;
@@ -331,7 +331,7 @@ int main(int argc, char** argv) {
         ::timerfd_settime(polkit_fd, 0, &every, nullptr);
         add_fd(polkit_fd);
     }
-    fox_pulse::AgentWatch agent_watch;
+    desk_pulse::AgentWatch agent_watch;
     const std::string polkit_marker = env_or("XDG_RUNTIME_DIR", "/run/user/" + std::to_string(::getuid())) + "/foxml-polkit-agent";
 
     int sig_fd = setup_signalfd();

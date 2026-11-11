@@ -211,7 +211,7 @@ fi
 _first_build=0
 if [[ ! -x "$FOX_INSTALL_BIN" ]]; then
     _first_build=1
-    echo ":: Building native orchestrator (desk-install + libfox-intel + ~10 fox-* tools)"
+    echo ":: Building native orchestrator (desk-install + libdesk-intel + ~10 fox-* tools)"
 elif [[ "${FOXML_UPDATED:-0}" == "1" ]]; then
     echo ":: Recompiling after self-update"
 fi

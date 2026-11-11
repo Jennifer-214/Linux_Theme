@@ -37,7 +37,7 @@
 #include <unistd.h>
 
 namespace fs = std::filesystem;
-namespace sh = fox_install::sh;
+namespace sh = desk_install::sh;
 using Json = nlohmann::json;
 using Args = std::vector<std::string>;
 
@@ -1715,7 +1715,7 @@ Json project_card(const Project& project, bool pinned) {
 }
 
 // ── Displays: scale, rotation, side and pointer size, applied live with a 15 s keep-or-go-back ──
-namespace placement = fox_monitor::placement;
+namespace placement = desk_monitor::placement;
 // `mode` is empty until a change picks a new one ("2560x1440@59.95"); `modes` are the ones the screen offers.
 struct LiveScreen {
     std::string name, model, make, mode; int width = 0, height = 0, x = 0, y = 0, scale = 100, transform = 0, id = -1;
@@ -2705,7 +2705,7 @@ std::string tool_section(const std::string& name) {
     for (const auto& [section, tools] : names) if (tools.count(name)) return section;
     return "tools-other";
 }
-std::vector<Tool> fox_tools() {
+std::vector<Tool> desk_tools() {
     // Tools lost their fox- prefix in 2026-11: desk-* by name, and the ones that are plain names by this list.
     static const std::set<std::string> plain{"agent-parse", "ai-audit", "ai-bench", "ai-bouncer", "ai-cmd", "ai-commit", "ai-default", "ai-doctor", "ai-explain", "ai-find", "ai-history", "ai-log", "ai-oracle", "ai-purge", "ai-quick", "ai-review", "ai-snitch", "ai-status", "ai-strategy", "ai-swap", "ai-test", "ai-trace", "ai-watch", "audit-timer", "build-verify", "claude-api", "desktop-menu", "distro-build", "distro-flash", "distro-guide", "generate-module", "gen-keybinds", "hw-info", "llm-discover", "llm-grade", "llm-run", "llm-serve", "llm-update", "lock-panel", "new-project", "nvidia-state", "sec-dashboard", "sec-health", "template-lint", "theme-check", "theme-tweak", "word-count", "work-notice"};
     static const std::set<std::string> hidden{"desk", "desk-bar", "desktop-menu", "desk-drawer", "desk-cheatsheet", "desk-menu", "desk-picker", "desk-rollback", "desk-sandbox", "desk-wallpaper"};
@@ -3173,7 +3173,7 @@ Json today_summary(const Json& config) {
 // ─── Models: the local models fox-llm keeps, which role uses each, and whether the router serves it ───────────
 fs::path llm_config_dir() { return fs::path(env("XDG_CONFIG_HOME", home() + "/.config")) / "foxml/llm"; }
 fs::path gguf_dir() { return fs::path(env("XDG_DATA_HOME", home() + "/.local/share")) / "fox-llm/gguf"; }
-// The first roles file there is, as FoxIntel and llm-update read them.
+// The first roles file there is, as DeskIntel and llm-update read them.
 fs::path roles_file() {
     for (const auto& path : {llm_config_dir() / "roles.conf", fs::path(home()) / "code/custom_models/roles.conf", llm_config_dir() / "roles.default"})
         if (regular(path)) return path;
@@ -4048,7 +4048,7 @@ Json view(const Json& config, const std::string& page, const std::string& query,
                 if (!caps.empty()) row["keys"] = caps;
                 row["keywords"] = Json::array({shortcut.keys}); rows.push_back(row);
             }
-            for (const auto& tool : fox_tools()) {
+            for (const auto& tool : desk_tools()) {
                 auto row = item("tool-run", tool.name, "action", "Fox tools · " + tool.description, "info");
                 row["argument"] = tool.name; row["close"] = true; row["group"] = "system"; rows.push_back(row);
             }
@@ -4355,7 +4355,7 @@ Json view(const Json& config, const std::string& page, const std::string& query,
         const auto section = std::find_if(tool_sections.begin(), tool_sections.end(), [&](const ToolSection& s) { return s.id == page; });
         known = page == "tools" || section != tool_sections.end();
         out["title"] = page == "tools" ? "Fox tools" : section != tool_sections.end() ? section->label : "Fox tools";
-        const auto tools = fox_tools();
+        const auto tools = desk_tools();
         if (page == "tools") {
             for (const auto& category : tool_sections) {
                 const auto count = std::count_if(tools.begin(), tools.end(), [&](const Tool& t) { return category.id == "tools-all" || tool_section(t.name) == category.id; });
@@ -4895,7 +4895,7 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
     // Saved menus may still name these as actions; they open the same pages as the shipped menu.
     if (id == "tools" || id == "cheatsheet" || id == "sandbox") { auto response = result(true, "Choose one"); response["page"] = id; return response; }
     if (id == "tool-run") {
-        const auto available = fox_tools();
+        const auto available = desk_tools();
         if (std::none_of(available.begin(), available.end(), [&](const Tool& tool) { return tool.name == arg; })) return result(false, "Unknown tool");
         return launch({"kitty", "--hold", "--title", "fox: " + arg, "--", (fs::path(home()) / ".local/bin" / arg).string()}, "Tool opened in a terminal");
     }

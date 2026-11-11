@@ -7,7 +7,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -68,4 +68,4 @@ void run_wallpaper(Context& ctx) {
     ensure_realesrgan();
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

@@ -9,7 +9,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install::conflict {
+namespace desk_install::conflict {
 
 const char* decision_name(Decision d) {
     switch (d) {
@@ -111,4 +111,4 @@ bool apply(
     return false;
 }
 
-}  // namespace fox_install::conflict
+}  // namespace desk_install::conflict

@@ -5,7 +5,7 @@
 
 #include <vector>
 
-namespace fox_install {
+namespace desk_install {
 
 struct HwPresent {
     bool nvidia = false, amd_gpu = false, intel_gpu = false, fprint = false;
@@ -36,4 +36,4 @@ inline std::vector<const char*> auto_enabled(const HwPresent& hw) {
     return on;
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

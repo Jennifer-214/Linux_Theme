@@ -14,7 +14,7 @@
 // model's response starting with "BLOCK:"), zero otherwise — making it
 // usable in CI as well as a local pre-commit hook.
 
-#include "../desk-intel/fox_intel.hpp"
+#include "../desk-intel/desk_intel.hpp"
 
 #include <cerrno>
 #include <cstdio>
@@ -97,7 +97,7 @@ int main(int argc, char** argv) {
         diff = diff.substr(0, 20000) + "\n... (diff truncated at 20000 chars)\n";
     }
 
-    FoxIntel ai = model.empty() ? FoxIntel{} : FoxIntel{model};
+    DeskIntel ai = model.empty() ? DeskIntel{} : DeskIntel{model};
     if (!ai.ensure_server_running()) {
         std::fprintf(stderr, "ai-review: local model server unavailable — allowing commit\n");
         return 0;
@@ -127,7 +127,7 @@ int main(int argc, char** argv) {
         "<<<BEGIN_GIT_DIFF>>>\n" + diff + "\n<<<END_GIT_DIFF>>>\n";
 
     std::ostringstream resp_buf;
-    // We can't easily capture the streamed response from FoxIntel::ask
+    // We can't easily capture the streamed response from DeskIntel::ask
     // without reaching into its WriteCallback — keep the streaming
     // for the user, then re-parse stdout would be circular. Instead use
     // the non-streaming form: ask() returns the model's full response

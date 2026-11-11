@@ -7,7 +7,7 @@
 #include <string>
 
 int main() {
-    using namespace fox_install;
+    using namespace desk_install;
     int failed = 0;
     auto eq = [&](const char* what, const std::string& got, const std::string& want) {
         if (got != want) { std::fprintf(stderr, "FAIL %s: got '%s' want '%s'\n", what, got.c_str(), want.c_str()); ++failed; }

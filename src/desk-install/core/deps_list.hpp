@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace fox_install {
+namespace desk_install {
 
 // Grouped by purpose so future contributors can find the right bucket. pacman --needed makes order and duplicates
 // safe.
@@ -102,4 +102,4 @@ inline const std::vector<std::string>& deps_packages() {
     return pkgs;
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

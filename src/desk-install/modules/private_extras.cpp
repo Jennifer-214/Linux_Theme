@@ -16,7 +16,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 void run_private_extras(Context& ctx) {
     namespace pe = private_extras;
@@ -77,4 +77,4 @@ void run_private_extras(Context& ctx) {
     else ui::ok("private extras installed");
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

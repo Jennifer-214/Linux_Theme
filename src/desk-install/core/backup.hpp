@@ -8,7 +8,7 @@
 
 #include <filesystem>
 
-namespace fox_install {
+namespace desk_install {
 
 // Snapshot one pre-existing file under ctx.backup_dir, preserving the
 // $HOME-relative path. Returns false ONLY when a pre-existing dest could
@@ -20,4 +20,4 @@ bool snapshot_one(const Context& ctx, const std::filesystem::path& dest);
 bool deploy_file_atomic(const Context& ctx, const std::filesystem::path& src,
                         const std::filesystem::path& dest);
 
-}  // namespace fox_install
+}  // namespace desk_install

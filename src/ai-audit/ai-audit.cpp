@@ -1,4 +1,4 @@
-#include "../desk-intel/fox_intel.hpp"
+#include "../desk-intel/desk_intel.hpp"
 #include <iostream>
 #include <fstream>
 #include <vector>
@@ -69,7 +69,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    FoxIntel intel;
+    DeskIntel intel;
     if (!intel.ensure_server_running()) {
         std::cerr << "Error: the local model server is not running.\n";
         return 1;

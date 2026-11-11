@@ -16,7 +16,7 @@
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -266,4 +266,4 @@ void run_theme_workspace(Context& ctx) {
     for (const auto& s : r.skipped) ui::skipped(s);
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

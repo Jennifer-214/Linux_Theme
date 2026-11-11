@@ -3,7 +3,7 @@
 
 #include <chrono>
 
-namespace fox_pulse {
+namespace desk_pulse {
 
 // timerfd-backed single-shot debouncer. trigger() arms (or re-arms) the
 // timer to fire `delay` from now; whoever epoll's on fd() sees POLLIN
@@ -25,6 +25,6 @@ private:
     std::chrono::milliseconds delay_;
 };
 
-}  // namespace fox_pulse
+}  // namespace desk_pulse
 
 #endif

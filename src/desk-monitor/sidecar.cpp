@@ -6,7 +6,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_monitor::sidecar {
+namespace desk_monitor::sidecar {
 
 namespace {
 
@@ -97,4 +97,4 @@ bool write(const std::filesystem::path& path, const Layout& layout) {
     return true;
 }
 
-}  // namespace fox_monitor::sidecar
+}  // namespace desk_monitor::sidecar

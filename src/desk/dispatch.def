@@ -1,7 +1,7 @@
 // X-macro registry for fox dispatcher namespaces.
 //
 // Add a namespace by including a line:
-//   FOX_NAMESPACE( name, binary, "description" )
+//   DESK_NAMESPACE( name, binary, "description" )
 //
 // Where:
 //   name        — user-facing name typed after `fox` (e.g., ai, sec, theme)
@@ -14,9 +14,9 @@
 //   Phase 4 → theme, dev, sys
 //   Phase 5 → font (under sys)
 
-FOX_NAMESPACE( ai,    desk-ai,    "AI-augmented tools (doctor, snitch, review, ...)" )
-FOX_NAMESPACE( sec,   desk-sec,   "Security tools (firewall, vpn, audit, snitch, ...)" )
-FOX_NAMESPACE( theme, desk-theme, "Theme management (tweak, wallpaper, develop)" )
-FOX_NAMESPACE( dev,   desk-dev,   "Developer tools (new-project, build-verify, aider, ...)" )
-FOX_NAMESPACE( sys,   desk-sys,   "System tools (install, uninstall, doctor, lock, ...)" )
-FOX_NAMESPACE( monitor, desk-monitor, "Monitor layout: status / reconcile / rotate (hotplug-safe)" )
+DESK_NAMESPACE( ai,    desk-ai,    "AI-augmented tools (doctor, snitch, review, ...)" )
+DESK_NAMESPACE( sec,   desk-sec,   "Security tools (firewall, vpn, audit, snitch, ...)" )
+DESK_NAMESPACE( theme, desk-theme, "Theme management (tweak, wallpaper, develop)" )
+DESK_NAMESPACE( dev,   desk-dev,   "Developer tools (new-project, build-verify, aider, ...)" )
+DESK_NAMESPACE( sys,   desk-sys,   "System tools (install, uninstall, doctor, lock, ...)" )
+DESK_NAMESPACE( monitor, desk-monitor, "Monitor layout: status / reconcile / rotate (hotplug-safe)" )

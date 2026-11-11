@@ -26,7 +26,7 @@
 #include <sstream>
 #include <string>
 
-namespace fox_install::idem {
+namespace desk_install::idem {
 
 inline std::string read_file(const std::filesystem::path& p) {
     std::ifstream f(p);
@@ -69,6 +69,6 @@ inline bool write_atomic(const std::filesystem::path& dst, const std::string& bo
     return true;
 }
 
-}  // namespace fox_install::idem
+}  // namespace desk_install::idem
 
 #endif

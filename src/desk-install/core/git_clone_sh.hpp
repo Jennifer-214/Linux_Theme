@@ -5,11 +5,11 @@
 #include "git_clone.hpp"
 #include "../../desk-common/shell.hpp"
 
-namespace fox_install::git_clone {
+namespace desk_install::git_clone {
 
 inline Runner sh_runner() {
     return Runner{[](const std::vector<std::string>& a) { return sh::run(a); },
                   [](const std::vector<std::string>& a) { std::string out; return sh::probe(a, out); }};
 }
 
-}  // namespace fox_install::git_clone
+}  // namespace desk_install::git_clone

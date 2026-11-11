@@ -5,8 +5,8 @@
 #include <unistd.h>
 
 namespace fs = std::filesystem;
-using fox_install::ide_settings::Result;
-using fox_install::ide_settings::set_color_theme;
+using desk_install::ide_settings::Result;
+using desk_install::ide_settings::set_color_theme;
 
 static int failures = 0;
 static void expect(const char* what, bool ok) {
@@ -23,7 +23,7 @@ int main() {
     char pattern[] = "/tmp/fox-ide-settings-XXXXXX";
     if (!::mkdtemp(pattern)) return 1;
     const fs::path root(pattern), settings = root / "home/.config/Code/User/settings.json";
-    fox_install::Context ctx;
+    desk_install::Context ctx;
     ctx.home = root / "home";
     ctx.backup_dir = root / "backup";
     fs::create_directories(settings.parent_path());

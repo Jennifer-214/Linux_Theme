@@ -47,10 +47,10 @@ clean:   $(addprefix clean-,$(TOOLS))
 $(addprefix build-,$(TOOLS)): build-%:
 	$(MAKE) --no-print-directory -C src/$* all
 
-# Tools that link ../desk-intel/libfox-intel.a build after it. Each one's sub-make (FORCE'd, so a stale
+# Tools that link ../desk-intel/libdesk-intel.a build after it. Each one's sub-make (FORCE'd, so a stale
 # library is rebuilt) would otherwise rebuild the same archive at the same moment under -j — install.sh
 # runs `make -j install` — and collide. Discovered like TOOLS: any Makefile naming the library.
-INTEL_USERS := $(filter-out desk-intel,$(patsubst src/%/Makefile,%,$(shell grep -l 'libfox-intel\.a' src/*/Makefile)))
+INTEL_USERS := $(filter-out desk-intel,$(patsubst src/%/Makefile,%,$(shell grep -l 'libdesk-intel\.a' src/*/Makefile)))
 $(addprefix build-,$(INTEL_USERS)): build-desk-intel
 $(addprefix install-,$(INTEL_USERS)): install-desk-intel
 

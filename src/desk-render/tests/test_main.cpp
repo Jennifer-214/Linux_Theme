@@ -35,7 +35,7 @@ void test_palette_basic_hex() {
         "# comment line\n"
         "FONT_FAMILY=\"Hack Nerd Font\"\n"
         "PALETTE_NAME=Skip\n");
-    auto t = fox_render::parse_palette("/tmp/foxren_test_palette.sh");
+    auto t = desk_render::parse_palette("/tmp/foxren_test_palette.sh");
     EXPECT(t["{{BG}}"]   == "1a1214");
     EXPECT(t["{{BG_R}}"] == "26");      // 0x1a
     EXPECT(t["{{BG_G}}"] == "18");      // 0x12
@@ -48,23 +48,23 @@ void test_palette_basic_hex() {
 
 void test_substitution_unknown_passes_through() {
     std::unordered_map<std::string, std::string> t = { {"{{BG}}", "1a1214"} };
-    EXPECT(fox_render::apply_substitutions("c={{BG}}", t) == "c=1a1214");
-    EXPECT(fox_render::apply_substitutions("c={{NOPE}}", t) == "c={{NOPE}}");
-    EXPECT(fox_render::apply_substitutions("plain", t) == "plain");
+    EXPECT(desk_render::apply_substitutions("c={{BG}}", t) == "c=1a1214");
+    EXPECT(desk_render::apply_substitutions("c={{NOPE}}", t) == "c={{NOPE}}");
+    EXPECT(desk_render::apply_substitutions("plain", t) == "plain");
 }
 
 void test_substitution_overlapping_braces() {
     // Regression: %F{{{BG}}} must resolve to %F{1a1214}, mirroring sed.
     std::unordered_map<std::string, std::string> t = { {"{{BG}}", "1a1214"} };
-    EXPECT(fox_render::apply_substitutions("%F{{{BG}}}!", t) == "%F{1a1214}!");
+    EXPECT(desk_render::apply_substitutions("%F{{{BG}}}!", t) == "%F{1a1214}!");
 }
 
 void test_substitution_malformed_marker_safe() {
     std::unordered_map<std::string, std::string> t = { {"{{X}}", "ok"} };
     // Whitespace inside marker -> pass through.
-    EXPECT(fox_render::apply_substitutions("{{ X }}", t) == "{{ X }}");
+    EXPECT(desk_render::apply_substitutions("{{ X }}", t) == "{{ X }}");
     // Unterminated marker -> pass through.
-    EXPECT(fox_render::apply_substitutions("tail {{X", t) == "tail {{X");
+    EXPECT(desk_render::apply_substitutions("tail {{X", t) == "tail {{X");
 }
 
 // A file sitting where an output directory belongs: the write fails and the render has to say so.
@@ -79,7 +79,7 @@ void test_write_failure_is_reported() {
     fs::create_directories(root / "out");
     std::ofstream(root / "out/kitty") << "in the way\n";
 
-    const auto result = fox_render::render_tree((root / "templates").string(), (root / "out").string(), {}, false);
+    const auto result = desk_render::render_tree((root / "templates").string(), (root / "out").string(), {}, false);
     if (result.failed != 1 || result.rendered != 1) {
         std::fprintf(stderr, "write failure: rendered %zu, failed %zu\n", result.rendered, result.failed);
         ++g_failed;

@@ -6,7 +6,7 @@
 #include <fstream>
 #include <sys/stat.h>
 
-namespace fox_pulse {
+namespace desk_pulse {
 
 namespace {
 std::string first_line(const std::string& path) {
@@ -50,4 +50,4 @@ bool AgentWatch::tick(const std::string& proc, const std::string& marker, uid_t 
     return true;
 }
 
-}  // namespace fox_pulse
+}  // namespace desk_pulse

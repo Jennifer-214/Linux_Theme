@@ -13,7 +13,7 @@ int main() {
     int failures = 0;
     auto check = [&](bool ok) { if (!ok) ++failures; };
     auto source = [&](int w, int h) {
-        return fox_monitor::variants::source_for(dir, "paper.jpg", w, h);
+        return desk_monitor::variants::source_for(dir, "paper.jpg", w, h);
     };
     check(source(1080, 1920) == dir / "paper.jpg");
     std::ofstream(dir / "paper_portrait.png") << "fixture";

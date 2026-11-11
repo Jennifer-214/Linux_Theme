@@ -5,7 +5,7 @@
 #include <fstream>
 #include <sstream>
 
-namespace fox_render {
+namespace desk_render {
 
 namespace {
 
@@ -123,4 +123,4 @@ parse_palette(const std::string& palette_path) {
     return table;
 }
 
-}  // namespace fox_render
+}  // namespace desk_render

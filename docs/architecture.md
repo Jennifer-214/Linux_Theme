@@ -13,11 +13,11 @@ Native C++ tools under [`src/`](../src/):
 | Tool | Role |
 |---|---|
 | `desk-install` | Install orchestrator driven by a shared module registry |
-| `desk-intel` | `libfox-intel.a` — local model client (llama.cpp's router) + embedding API; linked into every AI tool |
+| `desk-intel` | `libdesk-intel.a` — local model client (llama.cpp's router) + embedding API; linked into every AI tool |
 | `desk-render-fast` | Concurrent template engine; drop-in for the old `render.sh` |
 | `desk-pulse` | Single-epoll daemon multiplexing Hyprland IPC + inotify + debouncers; runs the one-shot focus handler `~/.config/foxml/pulse.d/focus.sh`, which posts nothing by default since the bar already shows the workspace (the old `foxml-focus-pulse.service` is retired on upgrade) |
 | `desk-vault` | `mlock()`-protected in-RAM secret store with Unix-socket CLI |
-| `desk-ask`, `ai-doctor`, `ai-oracle`, `ai-snitch`, `ai-audit`, `ai-bouncer`, `ai-review`, `ai-swap` | One-shot AI tools that link `libfox-intel.a` — pattern is `#include "fox_intel.hpp"` + `ai.ask(prompt)`. No plugin framework. |
+| `desk-ask`, `ai-doctor`, `ai-oracle`, `ai-snitch`, `ai-audit`, `ai-bouncer`, `ai-review`, `ai-swap` | One-shot AI tools that link `libdesk-intel.a` — pattern is `#include "desk_intel.hpp"` + `ai.ask(prompt)`. No plugin framework. |
 
 The X-macro registry in `src/desk-install/core/modules.def` is the single source of truth for install modules. Each module is a `void run_foo(Context&)` function. Subprocess goes through `sh::run` / `sh::capture` / `sh::pacman` / `sh::systemctl_*` so `--dry-run` and logging stay centralized.
 
@@ -33,7 +33,7 @@ templates/                 config files with {{PLACEHOLDER}} tokens
   nvim/init.lua            colors with #{{RED}}, ...
   waybar/style.css         @define-color bg #{{BG}}, ...
   ...                      (application templates)
-  foxml/ansi_colors.json   palette → libfox-intel theme bridge
+  foxml/ansi_colors.json   palette → libdesk-intel theme bridge
 
 themes/
   FoxML_Classic/

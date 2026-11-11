@@ -12,7 +12,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 void run_drawer(Context& ctx) {
     ui::section("Installing palette-driven bar and menu drawers");
@@ -149,4 +149,4 @@ void run_drawer(Context& ctx) {
     }
 }
 
-} // namespace fox_install
+} // namespace desk_install

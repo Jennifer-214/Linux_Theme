@@ -8,7 +8,7 @@
 #include <iostream>
 #include <string>
 
-using namespace fox_install::state;
+using namespace desk_install::state;
 
 static int failures = 0;
 #define EXPECT_STATUS(stored, deployed, source, expected) do { \

@@ -3,7 +3,7 @@
 
 #include <string>
 
-namespace fox_pulse {
+namespace desk_pulse {
 
 // Resolves $XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock.
 // Returns empty string if either env var is unset.
@@ -13,6 +13,6 @@ std::string resolve_hypr_socket2_path();
 // (set to non-blocking + close-on-exec). Returns -1 on failure.
 int connect_unix_stream(const std::string& path);
 
-}  // namespace fox_pulse
+}  // namespace desk_pulse
 
 #endif

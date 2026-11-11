@@ -3,7 +3,7 @@
 
 #include <string>
 
-namespace fox_install {
+namespace desk_install {
 
 // The sed program that uncomments the [multilib] block in pacman.conf.
 //
@@ -23,6 +23,6 @@ inline constexpr const char* MULTILIB_UNCOMMENT_SED =
 // (an uncommented `[multilib]`), so guard and writer agree.
 bool multilib_already_enabled(const std::string& conf_path);
 
-}  // namespace fox_install
+}  // namespace desk_install
 
 #endif

@@ -9,7 +9,7 @@
 //   ai-oracle how do I configure my Hyprland keybinds for tmux
 //   ai-oracle --model qwen2.5:7b what does desk-doctor check
 
-#include "../desk-intel/fox_intel.hpp"
+#include "../desk-intel/desk_intel.hpp"
 
 #include <cerrno>
 #include <cstdio>
@@ -95,7 +95,7 @@ int main(int argc, char** argv) {
         question += rest[i];
     }
 
-    FoxIntel ai = model.empty() ? FoxIntel{} : FoxIntel{model};
+    DeskIntel ai = model.empty() ? DeskIntel{} : DeskIntel{model};
     if (!ai.ensure_server_running()) {
         std::fprintf(stderr, "ai-oracle: local model server unavailable\n");
         return 1;

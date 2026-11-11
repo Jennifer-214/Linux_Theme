@@ -9,7 +9,7 @@
 #include <string>
 #include <unistd.h>
 
-using namespace fox_install::folder_recolor;
+using namespace desk_install::folder_recolor;
 
 namespace {
 
@@ -65,13 +65,13 @@ int main() {
 
         check("builds", build(papirus, stage, "blush", *rc));
         const fs::path out = stage / "48x48/places";
-        check("folder repainted", fox_install::cursor_recolor::read_file(out / "folder-blush.svg") == "<rect fill=\"#edb0c4\"/>");
-        check("kind suffix kept", fox_install::cursor_recolor::read_file(out / "folder-blush-documents.svg") == "#d99ab0");
-        check("user icons included", fox_install::cursor_recolor::read_file(out / "user-blush-home.svg") == "#edb0c4");
+        check("folder repainted", desk_install::cursor_recolor::read_file(out / "folder-blush.svg") == "<rect fill=\"#edb0c4\"/>");
+        check("kind suffix kept", desk_install::cursor_recolor::read_file(out / "folder-blush-documents.svg") == "#d99ab0");
+        check("user icons included", desk_install::cursor_recolor::read_file(out / "user-blush-home.svg") == "#edb0c4");
         check("similar colour names skipped", !fs::exists(out / "folder-blushd-on-nothing.svg"));
         check("other colours skipped", !fs::exists(out / "folder-other.svg"));
         check("symlinks skipped", !fs::exists(out / "folder-blush-link.svg"));
-        check("source left alone", fox_install::cursor_recolor::read_file(places / "folder-base.svg").find("F5C2E7") != std::string::npos);
+        check("source left alone", desk_install::cursor_recolor::read_file(places / "folder-base.svg").find("F5C2E7") != std::string::npos);
         check("missing base fails", !build(root / "nowhere", root / "stage2", "blush", *rc));
         fs::remove_all(root);
     }

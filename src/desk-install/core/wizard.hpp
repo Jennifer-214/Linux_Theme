@@ -27,7 +27,7 @@
 #include <string>
 #include <vector>
 
-namespace fox_install::wizard {
+namespace desk_install::wizard {
 
 // User-chosen disposition for one module.
 //   Skip     — leave the module alone this run.
@@ -67,7 +67,7 @@ struct Plan {
 
 // Build a default Plan. Walks `modules`, calls each one's state_check
 // (or treats it as Fresh if state_check is nullptr — legacy
-// FOX_MODULE entries), wraps into a ModulePlan with the default
+// DESK_MODULE entries), wraps into a ModulePlan with the default
 // Action. Pure function over its inputs — no IO beyond what the
 // state_check callbacks themselves do.
 Plan default_plan(
@@ -142,4 +142,4 @@ void apply_conflict_decisions(Plan& plan, const Context& ctx);
 // (ctx.backup_dir's YYYYmmdd-HHMMSS).
 std::filesystem::path conflict_backup_path(const std::filesystem::path& sentinel, const std::string& stamp);
 
-}  // namespace fox_install::wizard
+}  // namespace desk_install::wizard

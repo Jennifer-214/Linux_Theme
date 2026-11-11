@@ -5,7 +5,7 @@
 #include <filesystem>
 #include <unordered_map>
 
-namespace fox_render {
+namespace desk_render {
 
 bool atomic_write(const std::filesystem::path& dest, const std::string& body,
                   std::filesystem::perms source_mode);
@@ -30,6 +30,6 @@ RenderResult render_tree(
     const std::unordered_map<std::string, std::string>& table,
     bool show_progress);
 
-}  // namespace fox_render
+}  // namespace desk_render
 
 #endif

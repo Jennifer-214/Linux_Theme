@@ -17,7 +17,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace fox_render {
+namespace desk_render {
 
 // Substitution entries are applied in declaration order. RGB triples
 // before bare hex (longer patterns first) — otherwise "1a1214" inside
@@ -41,6 +41,6 @@ std::string apply_reverse(
 // description on hit, empty string when clean.
 std::string scan_danger(const std::string& body);
 
-}  // namespace fox_render
+}  // namespace desk_render
 
 #endif

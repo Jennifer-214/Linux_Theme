@@ -24,7 +24,7 @@
 namespace fs = std::filesystem;
 using json   = nlohmann::json;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -432,4 +432,4 @@ void run_github(Context& ctx) {
     }
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

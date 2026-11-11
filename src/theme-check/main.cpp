@@ -26,11 +26,11 @@
 #include <vector>
 
 namespace fs = std::filesystem;
-namespace sh = fox_install::sh;
+namespace sh = desk_install::sh;
 using nlohmann::json;
-using fox_health::CheckResult;
-using fox_health::Severity;
-using fox_health::Status;
+using desk_health::CheckResult;
+using desk_health::Severity;
+using desk_health::Status;
 
 namespace {
 
@@ -103,12 +103,12 @@ bool machine_owned(const fs::path& dest) {
     return names.count(dest.filename().string()) > 0;
 }
 
-fox_theme_check::Kind kind_for(const fs::path& dest) {
+desk_theme_check::Kind kind_for(const fs::path& dest) {
     const auto name = dest.filename().string();
-    if (name == "hyprlock.conf") return fox_theme_check::Kind::Hyprlock;
-    if (name == "rules.conf" || name == "rules.lua") return fox_theme_check::Kind::Rules;
-    if (name == "autostart.conf" || name == "autostart.lua") return fox_theme_check::Kind::Autostart;
-    return fox_theme_check::Kind::Plain;
+    if (name == "hyprlock.conf") return desk_theme_check::Kind::Hyprlock;
+    if (name == "rules.conf" || name == "rules.lua") return desk_theme_check::Kind::Rules;
+    if (name == "autostart.conf" || name == "autostart.lua") return desk_theme_check::Kind::Autostart;
+    return desk_theme_check::Kind::Plain;
 }
 
 struct Tally { int same = 0, yours = 0; std::vector<std::string> drift, missing; };
@@ -118,10 +118,10 @@ void compare_one(const Env& env, const fs::path& shipped, const fs::path& dest, 
     if (!fs::is_regular_file(shipped, ec) || machine_owned(dest)) return;
     const auto shown = dest.lexically_relative(env.home).string();
     if (!fs::exists(dest, ec)) { tally.missing.push_back("~/" + shown); return; }
-    switch (fox_theme_check::compare(read_file(shipped), read_file(dest), kind_for(dest))) {
-        case fox_theme_check::Verdict::Same:  ++tally.same; break;
-        case fox_theme_check::Verdict::Yours: ++tally.yours; break;
-        case fox_theme_check::Verdict::Drift: tally.drift.push_back("~/" + shown); break;
+    switch (desk_theme_check::compare(read_file(shipped), read_file(dest), kind_for(dest))) {
+        case desk_theme_check::Verdict::Same:  ++tally.same; break;
+        case desk_theme_check::Verdict::Yours: ++tally.yours; break;
+        case desk_theme_check::Verdict::Drift: tally.drift.push_back("~/" + shown); break;
     }
 }
 
@@ -180,7 +180,7 @@ CheckResult check_drift(const Env& env) {
                       "the renderer failed for " + env.theme, "render it by hand to see the error");
 
     Tally tally;
-    namespace map = fox_install::symlinks;
+    namespace map = desk_install::symlinks;
     const auto profile = firefox_profile(env);
     for (const auto& m : map::TEMPLATE_MAPPINGS) {
         std::string dest = m.dest;
@@ -194,7 +194,7 @@ CheckResult check_drift(const Env& env) {
     }
     for (const auto& m : map::SHARED_MAPPINGS) compare_one(env, env.repo / "shared" / m.src, expand(env, m.dest), tally);
 
-    const auto built = fox_install::built_tool_names(env.repo / "src");
+    const auto built = desk_install::built_tool_names(env.repo / "src");
     compare_folder(env, env.repo / "shared/bin", env.home / ".local/bin", "", built, tally);
     compare_folder(env, env.repo / "shared/hyprland_scripts", env.config / "hypr/scripts", ".sh",
                    {"monitor-watch.sh", "focus-pulse.sh"}, tally);
@@ -407,7 +407,7 @@ CheckResult check_services(const Env&) {
 
 // A value from the active theme's palette.sh (KEY=value lines, quotes allowed).
 std::string palette_value(const Env& env, const std::string& key) {
-    for (const auto& line : fox_theme_check::split_lines(read_file(env.repo / "themes" / env.theme / "palette.sh"))) {
+    for (const auto& line : desk_theme_check::split_lines(read_file(env.repo / "themes" / env.theme / "palette.sh"))) {
         if (line.rfind(key + "=", 0) != 0) continue;
         auto value = line.substr(key.size() + 1);
         if (value.size() >= 2 && (value.front() == '"' || value.front() == '\'') && value.back() == value.front())
@@ -487,7 +487,7 @@ CheckResult check_lock_panel(const Env& env) {
     if (chosen.empty() || chosen == conf.string())
         return result("D13", title, Severity::Medium, Status::Pass, "its pinned monitor is connected, on and open");
     std::string to;
-    for (const auto& line : fox_theme_check::split_lines(read_file(chosen)))
+    for (const auto& line : desk_theme_check::split_lines(read_file(chosen)))
         if (line.find("monitor =") != std::string::npos && to.empty() && line.find("monitor =") + 9 < line.size()) to = trim(line.substr(line.find('=') + 1));
     return result("D13", title, Severity::Medium, Status::Pass,
                   "its pinned monitor is shut or unplugged; locking now would put it on " + (to.empty() ? std::string("another screen") : to));
@@ -576,5 +576,5 @@ int main(int argc, char** argv) {
         std::fflush(stdout);
     }
     if (!quiet) std::printf("\ntheme %s · repo %s\n", env.theme.c_str(), env.repo.empty() ? "not found" : env.repo.c_str());
-    return fox_health::worst_exit(results);
+    return desk_health::worst_exit(results);
 }

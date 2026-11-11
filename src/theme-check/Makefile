@@ -4,25 +4,25 @@ CXX      ?= g++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra -Wpedantic
 PREFIX   ?= $(HOME)/.local/bin
 
-FOX_COMMON_DIR := ../desk-common
-FOX_HEALTH_DIR := ../desk-health
-LIBS := $(FOX_HEALTH_DIR)/libfox-health.a $(FOX_COMMON_DIR)/libfox-common.a
+DESK_COMMON_DIR := ../desk-common
+DESK_HEALTH_DIR := ../desk-health
+LIBS := $(DESK_HEALTH_DIR)/libdesk-health.a $(DESK_COMMON_DIR)/libdesk-common.a
 
 BIN := theme-check
 
 all: $(BIN)
 
 $(BIN): main.o $(LIBS)
-	$(CXX) $(CXXFLAGS) -o $@ main.o -L$(FOX_HEALTH_DIR) -lfox-health -L$(FOX_COMMON_DIR) -lfox-common
+	$(CXX) $(CXXFLAGS) -o $@ main.o -L$(DESK_HEALTH_DIR) -ldesk-health -L$(DESK_COMMON_DIR) -ldesk-common
 
 main.o: main.cpp drift.hpp
 	$(CXX) $(CXXFLAGS) -c main.cpp -o $@
 
-$(FOX_COMMON_DIR)/libfox-common.a:
-	$(MAKE) --no-print-directory -C $(FOX_COMMON_DIR)
+$(DESK_COMMON_DIR)/libdesk-common.a:
+	$(MAKE) --no-print-directory -C $(DESK_COMMON_DIR)
 
-$(FOX_HEALTH_DIR)/libfox-health.a:
-	$(MAKE) --no-print-directory -C $(FOX_HEALTH_DIR)
+$(DESK_HEALTH_DIR)/libdesk-health.a:
+	$(MAKE) --no-print-directory -C $(DESK_HEALTH_DIR)
 
 tests/test_drift: tests/test_drift.cpp drift.hpp
 	$(CXX) $(CXXFLAGS) -o $@ tests/test_drift.cpp

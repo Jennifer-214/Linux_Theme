@@ -7,7 +7,7 @@
 #include <sys/random.h>
 #include <unistd.h>
 
-namespace fox_vault {
+namespace desk_vault {
 
 namespace {
 
@@ -209,4 +209,4 @@ std::vector<std::string> Vault::list() const {
     return out;
 }
 
-}  // namespace fox_vault
+}  // namespace desk_vault

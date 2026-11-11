@@ -37,7 +37,7 @@ rendered/
 src/desk-intel/fask
 src/agent-parse/agent-parse
 src/desk-intel/findex
-src/desk-intel/libfox-intel.a
+src/desk-intel/libdesk-intel.a
 
 # fox-* native binaries + their .o / .a build artefacts.
 # The repo ships sources; install.sh runs `make` to produce these.
@@ -60,10 +60,10 @@ src/desk-dev/desk-dev
 src/desk-work/desk-work
 !src/desk-work/tests/test_work.py
 src/desk-sys/desk-sys
-src/desk-common/libfox-common.a
-src/desk-health/libfox-health.a
+src/desk-common/libdesk-common.a
+src/desk-health/libdesk-health.a
 src/desk-monitor/desk-monitor
-src/desk-monitor/libfox-monitor.a
+src/desk-monitor/libdesk-monitor.a
 src/desk-install/desk-install
 src/sec-health/sec-health
 src/desk-render/desk-render-fast

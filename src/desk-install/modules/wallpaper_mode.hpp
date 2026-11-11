@@ -9,7 +9,7 @@
 #include <string>
 #include <system_error>
 
-namespace fox_install {
+namespace desk_install {
 
 // rotate_wallpaper.sh --static re-applies .current, and a new machine has none, so it would fall back to its midday
 // slot instead of the theme's wallpaper. A pick that already exists is left alone.
@@ -35,4 +35,4 @@ inline void keep_live_wallpaper_mode(Context& ctx) {
     ctx.rotate_wallpapers = body.find("rotate_wallpaper.sh --static") == std::string::npos;
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

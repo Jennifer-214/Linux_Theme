@@ -27,7 +27,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -195,4 +195,4 @@ void run_llama_turbo(Context& ctx) {
     if (sh::run({"bash", sync_bin.string(), "--sync"}) != 0) ui::warn("llm-update --sync failed — run it by hand");
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

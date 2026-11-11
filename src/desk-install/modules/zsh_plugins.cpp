@@ -16,7 +16,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -64,4 +64,4 @@ void run_zsh_plugins(Context& ctx) {
     if (cloned == 0) ui::skipped("all plugins already present");
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

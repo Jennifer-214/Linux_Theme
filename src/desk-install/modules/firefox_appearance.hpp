@@ -10,7 +10,7 @@
 #include <fstream>
 #include <vector>
 
-namespace fox_install::firefox_appearance {
+namespace desk_install::firefox_appearance {
 
 // The profile Firefox itself opens, by its own index: an [Install…] section's Default=, else the older Default=1 on a
 // [Profile…]. Folder names are random, and a second, older profile is common. Only profiles.ini is read.
@@ -91,4 +91,4 @@ inline bool sync_styles(const Context& ctx) {
     return ok;
 }
 
-}  // namespace fox_install::firefox_appearance
+}  // namespace desk_install::firefox_appearance

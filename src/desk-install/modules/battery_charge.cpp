@@ -16,7 +16,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -103,4 +103,4 @@ void run_battery(Context& ctx) {
     (void)ctx;
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

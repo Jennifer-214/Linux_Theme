@@ -4,7 +4,7 @@
 
 #include <exception>
 
-namespace fox_health {
+namespace desk_health {
 
 const char* severity_name(Severity s) {
     switch (s) {
@@ -150,4 +150,4 @@ int worst_exit(const std::vector<CheckResult>& results) {
     return 0;
 }
 
-}  // namespace fox_health
+}  // namespace desk_health

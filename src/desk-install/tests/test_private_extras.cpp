@@ -6,7 +6,7 @@
 #include <sstream>
 #include <string>
 
-using namespace fox_install::private_extras;
+using namespace desk_install::private_extras;
 
 static int failures = 0, passed = 0;
 static void check(bool ok, const char* what) {
@@ -44,7 +44,7 @@ int main() {
 
     // The step: off by default, and nothing from the private script runs before every check.
     const auto def = slurp("core/modules.def");
-    check(def.find("FOX_MODULE( private_extras, run_private_extras, \"--private-extras\",") != std::string::npos
+    check(def.find("DESK_MODULE( private_extras, run_private_extras, \"--private-extras\",") != std::string::npos
           && def.find("signed commit checked)\", false )") != std::string::npos, "registered, off by default");
     const auto step = slurp("modules/private_extras.cpp");
     const auto run = step.find("sh::run({\"bash\", script.string()})");

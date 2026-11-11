@@ -11,7 +11,7 @@
 #include <string>
 #include <tuple>
 
-namespace fox_install {
+namespace desk_install {
 
 inline void set_gtk_preference(const Context& ctx, const std::string& preference,
                                const std::string& value, const std::string& label) {
@@ -101,4 +101,4 @@ inline void refresh_gtk_icon_cache(const Context& ctx) {
         ui::warn("Icon cache could not be refreshed");
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

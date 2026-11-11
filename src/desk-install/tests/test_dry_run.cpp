@@ -11,10 +11,10 @@
 #include <string>
 #include <unistd.h>
 
-namespace fox_install { void run_vault(Context& ctx); }
+namespace desk_install { void run_vault(Context& ctx); }
 
 namespace fs = std::filesystem;
-using namespace fox_install;
+using namespace desk_install;
 
 int main() {
     int failed = 0;

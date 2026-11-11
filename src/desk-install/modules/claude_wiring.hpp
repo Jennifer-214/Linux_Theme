@@ -15,7 +15,7 @@
 #include <string>
 #include <vector>
 
-namespace fox_install {
+namespace desk_install {
 
 // Add every hook command in `wanted` (`{"hooks": {event: [{matcher, hooks: [{type, command}]}]}}`) that `settings`
 // does not already run for that event: into the group with the same matcher when there is one, else a new group.
@@ -54,4 +54,4 @@ struct WiringReport {
 WiringReport restore_theme_wiring(const Context& ctx, const std::filesystem::path& repo,
                                   const std::filesystem::path& workspace);
 
-}  // namespace fox_install
+}  // namespace desk_install

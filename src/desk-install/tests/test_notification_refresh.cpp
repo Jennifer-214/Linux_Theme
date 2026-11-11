@@ -13,12 +13,12 @@ int main() {
     fs::create_symlink(running, root / "proc/42/exe");
     std::ofstream(installed) << "same executable";
     std::ofstream(running) << "same executable";
-    bool ok = !fox_install::notifications::running_binary_changed(installed, "42\n", root / "proc");
+    bool ok = !desk_install::notifications::running_binary_changed(installed, "42\n", root / "proc");
     std::ofstream(installed) << "new renderer";
-    ok &= fox_install::notifications::running_binary_changed(installed, "42\n", root / "proc");
-    ok &= !fox_install::notifications::running_binary_changed(installed, "99\n../../etc\n", root / "proc");
+    ok &= desk_install::notifications::running_binary_changed(installed, "42\n", root / "proc");
+    ok &= !desk_install::notifications::running_binary_changed(installed, "99\n../../etc\n", root / "proc");
     fs::remove(installed);
-    ok &= fox_install::notifications::running_binary_changed(installed, "42\n", root / "proc");
+    ok &= desk_install::notifications::running_binary_changed(installed, "42\n", root / "proc");
     fs::remove_all(root);
     std::cout << (ok ? "notification binary refresh: OK\n" : "notification binary refresh: FAILED\n");
     return ok ? 0 : 1;

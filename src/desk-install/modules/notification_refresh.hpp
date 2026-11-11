@@ -6,7 +6,7 @@
 #include <sstream>
 #include <string>
 
-namespace fox_install::notifications {
+namespace desk_install::notifications {
 
 inline bool binary_changed(const std::filesystem::path& installed,
                            const std::filesystem::path& running) {
@@ -32,4 +32,4 @@ inline bool running_binary_changed(const std::filesystem::path& installed,
     return false;
 }
 
-} // namespace fox_install::notifications
+} // namespace desk_install::notifications

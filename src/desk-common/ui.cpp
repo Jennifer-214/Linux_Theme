@@ -9,7 +9,7 @@
 #include <termios.h>
 #include <unistd.h>
 
-namespace fox_install::ui {
+namespace desk_install::ui {
 
 namespace {
 
@@ -212,4 +212,4 @@ char ask_choice(const std::string& question,
     return result;
 }
 
-}  // namespace fox_install::ui
+}  // namespace desk_install::ui

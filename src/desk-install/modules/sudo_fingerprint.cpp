@@ -28,7 +28,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -205,4 +205,4 @@ void run_sudo_fingerprint(Context& ctx) {
     ui::substep("if you lock yourself out: `su -`, faillock --reset, then restore the .foxml-bak");
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

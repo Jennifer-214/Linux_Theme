@@ -4,7 +4,7 @@
 #include <string>
 #include <unordered_map>
 
-namespace fox_render {
+namespace desk_render {
 
 // Parses a palette.sh file: ALL_CAPS shell assignments.
 // Skips PALETTE_LABELS / PALETTE_NAME / PALETTE_DESCRIPTION.
@@ -14,6 +14,6 @@ namespace fox_render {
 std::unordered_map<std::string, std::string>
 parse_palette(const std::string& palette_path);
 
-}  // namespace fox_render
+}  // namespace desk_render
 
 #endif

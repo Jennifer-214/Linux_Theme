@@ -4,7 +4,7 @@
 #include <cstdio>
 
 using nlohmann::json;
-using namespace fox_install::menu_upgrade;
+using namespace desk_install::menu_upgrade;
 
 static int failures = 0, passed = 0;
 static void check(bool ok, const char* what) {

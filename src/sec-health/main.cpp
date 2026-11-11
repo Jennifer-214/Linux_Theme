@@ -6,7 +6,7 @@
 //   default      : one line per check
 //   --verbose    : detail + fix-hint for every non-pass
 //
-// Exit code policy (from fox_health::worst_exit):
+// Exit code policy (from desk_health::worst_exit):
 //   0  green
 //   1  warnings / low-severity fails
 //   2  one or more critical fails
@@ -49,8 +49,8 @@ std::vector<std::string> split_csv(const char* s) {
     return out;
 }
 
-const char* status_glyph(fox_health::Status s) {
-    using S = fox_health::Status;
+const char* status_glyph(desk_health::Status s) {
+    using S = desk_health::Status;
     bool tty = ::isatty(STDOUT_FILENO);
     switch (s) {
         case S::Pass: return tty ? "\033[32m✓\033[0m" : "ok  ";
@@ -65,7 +65,7 @@ const char* status_glyph(fox_health::Status s) {
 
 int main(int argc, char** argv) {
     bool quiet = false, verbose = false;
-    fox_health::CheckOptions opts;
+    desk_health::CheckOptions opts;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
         if (a == "-h" || a == "--help")             { usage(); return 0; }
@@ -82,17 +82,17 @@ int main(int argc, char** argv) {
         }
     }
 
-    auto results = fox_health::run_all(opts);
-    int exit_code = fox_health::worst_exit(results);
+    auto results = desk_health::run_all(opts);
+    int exit_code = desk_health::worst_exit(results);
 
     if (!quiet) {
         for (const auto& r : results) {
             std::printf("%s [%s] %s — %s\n",
                 status_glyph(r.status),
-                fox_health::severity_name(r.severity),
+                desk_health::severity_name(r.severity),
                 r.id.c_str(),
                 r.title.c_str());
-            if (verbose || r.status == fox_health::Status::Fail) {
+            if (verbose || r.status == desk_health::Status::Fail) {
                 if (!r.detail.empty()) {
                     // Indent each line.
                     size_t start = 0;

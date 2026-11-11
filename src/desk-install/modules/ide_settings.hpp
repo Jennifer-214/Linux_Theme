@@ -14,7 +14,7 @@
 #include <string>
 #include <system_error>
 
-namespace fox_install::ide_settings {
+namespace desk_install::ide_settings {
 
 enum class Result { Updated, Unchanged, LeftAlone, Failed };
 
@@ -46,4 +46,4 @@ inline Result set_color_theme(const Context& ctx, const std::filesystem::path& s
     return deployed ? Result::Updated : Result::Failed;
 }
 
-}  // namespace fox_install::ide_settings
+}  // namespace desk_install::ide_settings

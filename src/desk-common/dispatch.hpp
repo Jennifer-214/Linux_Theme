@@ -18,7 +18,7 @@
 #include <string>
 #include <vector>
 
-namespace fox_common::dispatch {
+namespace desk_common::dispatch {
 
 struct Entry {
     std::string name;         // user-facing name ("ai", "doctor")
@@ -38,4 +38,4 @@ const Entry* find(const std::vector<Entry>& entries, const std::string& name);
 // Returns only on error (e.g., binary not on $PATH). On success, never returns.
 int exec_leaf(const std::string& binary, const std::vector<std::string>& args);
 
-}  // namespace fox_common::dispatch
+}  // namespace desk_common::dispatch

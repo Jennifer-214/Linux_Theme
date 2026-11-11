@@ -16,7 +16,7 @@
 #include <unistd.h>
 
 namespace fs = std::filesystem;
-using namespace fox_install;
+using namespace desk_install;
 
 namespace {
 

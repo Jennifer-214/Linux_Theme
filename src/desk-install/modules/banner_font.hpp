@@ -3,7 +3,7 @@
 
 #include <string>
 
-namespace fox_install {
+namespace desk_install {
 
 // Three assembled rows of the half-block name banner plus the right-anchor
 // span the welcome.zsh splash uses to position it (rc = COLUMNS - width).
@@ -34,6 +34,6 @@ std::string banner_to_hyprlock_text(const std::string& text);
 // { "\n" }. The editor dashboard matches the terminal welcome glyph-for-glyph.
 std::string banner_to_snacks_blocks(const std::string& text);
 
-}  // namespace fox_install
+}  // namespace desk_install
 
 #endif

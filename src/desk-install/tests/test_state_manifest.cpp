@@ -12,7 +12,7 @@
 #include <unistd.h>
 
 namespace fs = std::filesystem;
-using namespace fox_install::state;
+using namespace desk_install::state;
 
 static int failures = 0;
 #define EXPECT(cond) do { \
@@ -38,7 +38,7 @@ int main() {
         fs::path p = make_tmp_path();
         Manifest m = read(p);
         EXPECT(m.schema_version == 1);
-        EXPECT(m.fox_version.empty());
+        EXPECT(m.desk_version.empty());
         EXPECT(m.modules.empty());
     }
 
@@ -47,7 +47,7 @@ int main() {
         fs::path p = make_tmp_path();
         Manifest m;
         m.schema_version = 1;
-        m.fox_version = "5.10.0-test";
+        m.desk_version = "5.10.0-test";
         m.modules["render"]   = {"5.10.0-test", "abc123", "2026-05-19T01:23:45Z"};
         m.modules["waybar"]   = {"5.10.0-test", "def456", "2026-05-19T01:23:46Z"};
         m.modules["hyprland"] = {"5.10.0-test", "789xyz", "2026-05-19T01:23:47Z"};
@@ -57,7 +57,7 @@ int main() {
 
         Manifest m2 = read(p);
         EXPECT(m2.schema_version == 1);
-        EXPECT(m2.fox_version == "5.10.0-test");
+        EXPECT(m2.desk_version == "5.10.0-test");
         EXPECT(m2.modules.size() == 3);
         EXPECT(m2.modules.at("render").version == "5.10.0-test");
         EXPECT(m2.modules.at("render").source_hash == "abc123");
@@ -75,7 +75,7 @@ int main() {
         fs::path p = base / "deeply" / "nested" / "state.json";
 
         Manifest m;
-        m.fox_version = "test";
+        m.desk_version = "test";
         write(p, m);
         EXPECT(fs::exists(p));
 
@@ -86,7 +86,7 @@ int main() {
     {
         fs::path p = make_tmp_path();
         Manifest m;
-        m.fox_version = "atomic-test";
+        m.desk_version = "atomic-test";
         write(p, m);
 
         fs::path tmp = p.string() + ".tmp";

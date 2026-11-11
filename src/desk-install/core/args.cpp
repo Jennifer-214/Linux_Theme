@@ -10,7 +10,7 @@
 #include <fstream>
 #include <string>
 
-namespace fox_install::args {
+namespace desk_install::args {
 
 namespace {
 
@@ -415,4 +415,4 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
     return true;
 }
 
-}  // namespace fox_install::args
+}  // namespace desk_install::args

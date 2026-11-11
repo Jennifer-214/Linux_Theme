@@ -11,7 +11,7 @@
 #include <vector>
 
 namespace fs = std::filesystem;
-using namespace fox_install::git_clone;
+using namespace desk_install::git_clone;
 
 static int exec_argv(const std::vector<std::string>& a) {   // fork + execvp: the test's own runner (no shell)
     pid_t pid = fork();

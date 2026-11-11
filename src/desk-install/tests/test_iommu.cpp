@@ -23,7 +23,7 @@
 #include <unistd.h>
 
 namespace fs = std::filesystem;
-using namespace fox_install;
+using namespace desk_install;
 
 static int failures = 0;
 #define EXPECT(cond) do { \

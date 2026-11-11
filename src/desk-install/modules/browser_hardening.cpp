@@ -27,7 +27,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -217,4 +217,4 @@ void run_browser_hardening(Context& ctx) {
     do_firejail(ctx);
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

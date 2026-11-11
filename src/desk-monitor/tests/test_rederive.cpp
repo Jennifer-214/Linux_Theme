@@ -16,7 +16,7 @@
 #include <string>
 #include <vector>
 
-using namespace fox_monitor;
+using namespace desk_monitor;
 
 namespace {
 

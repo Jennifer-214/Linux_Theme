@@ -4,19 +4,19 @@ CXX      ?= g++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 PREFIX   ?= $(HOME)/.local/bin
 
-FOX_HEALTH_DIR := ../desk-health
-FOX_HEALTH_LIB := $(FOX_HEALTH_DIR)/libfox-health.a
+DESK_HEALTH_DIR := ../desk-health
+DESK_HEALTH_LIB := $(DESK_HEALTH_DIR)/libdesk-health.a
 
 BIN = sec-health
 
 all: $(BIN)
 
-$(BIN): main.cpp $(FOX_HEALTH_LIB)
-	$(CXX) $(CXXFLAGS) main.cpp -L$(FOX_HEALTH_DIR) -lfox-health -o $@
+$(BIN): main.cpp $(DESK_HEALTH_LIB)
+	$(CXX) $(CXXFLAGS) main.cpp -L$(DESK_HEALTH_DIR) -ldesk-health -o $@
 
 # Ensure the library is fresh before linking.
-$(FOX_HEALTH_LIB):
-	$(MAKE) --no-print-directory -C $(FOX_HEALTH_DIR) all
+$(DESK_HEALTH_LIB):
+	$(MAKE) --no-print-directory -C $(DESK_HEALTH_DIR) all
 
 install: all
 	@mkdir -p $(PREFIX)

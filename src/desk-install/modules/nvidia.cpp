@@ -40,7 +40,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -390,4 +390,4 @@ void run_nvidia(Context& ctx) {
     ui::ok("NVIDIA setup complete — reboot to activate");
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

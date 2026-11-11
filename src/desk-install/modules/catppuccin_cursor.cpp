@@ -23,7 +23,7 @@
 namespace fs = std::filesystem;
 using json   = nlohmann::json;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -171,4 +171,4 @@ void run_catppuccin_cursor(Context& ctx) {
     sync_cursor_settings(ctx, theme);
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

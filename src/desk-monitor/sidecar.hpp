@@ -9,13 +9,13 @@
 // or single quoted. Spaces inside the quoted value are preserved.
 //
 // This is the single sidecar implementation — both desk-install and
-// desk-monitor link libfox-monitor.a so there's one read/write code path.
+// desk-monitor link libdesk-monitor.a so there's one read/write code path.
 
 #include <filesystem>
 #include <string>
 #include <vector>
 
-namespace fox_monitor::sidecar {
+namespace desk_monitor::sidecar {
 
 struct Layout {
     std::string              primary;
@@ -36,6 +36,6 @@ Layout read(const std::filesystem::path& path);
 // on rename failure (tmp is cleaned up).
 bool write(const std::filesystem::path& path, const Layout& layout);
 
-}  // namespace fox_monitor::sidecar
+}  // namespace desk_monitor::sidecar
 
 #endif

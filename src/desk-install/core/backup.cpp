@@ -10,7 +10,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 bool snapshot_one(const Context& ctx, const fs::path& dest) {
     std::error_code ec;
@@ -78,4 +78,4 @@ bool deploy_file_atomic(const Context& ctx, const fs::path& src, const fs::path&
     return true;
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

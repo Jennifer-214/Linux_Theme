@@ -29,7 +29,7 @@ bool has(const std::string& hay, const std::string& needle) {
 }  // namespace
 
 int main() {
-    using namespace fox_install::hypr_lua;
+    using namespace desk_install::hypr_lua;
 
     // ── version → format ────────────────────────────────────────────────
     {

@@ -5,7 +5,7 @@
 
 #include <string>
 
-namespace fox_install::arkenfox {
+namespace desk_install::arkenfox {
 
 inline constexpr const char* NAME_MARK = "arkenfox user.js";
 inline constexpr const char* LAST_LINE = "\"_user.js.parrot\", \"SUCCESS";
@@ -60,4 +60,4 @@ inline std::string compose(const std::string& download, const std::string& overr
     return out;
 }
 
-}  // namespace fox_install::arkenfox
+}  // namespace desk_install::arkenfox

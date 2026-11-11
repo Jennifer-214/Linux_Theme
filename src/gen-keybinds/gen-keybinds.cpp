@@ -20,7 +20,7 @@
 #include <string>
 #include <vector>
 
-namespace ui = fox_install::ui;
+namespace ui = desk_install::ui;
 namespace fs = std::filesystem;
 
 namespace {

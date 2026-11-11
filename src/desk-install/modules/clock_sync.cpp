@@ -10,7 +10,7 @@
 
 #include <string>
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -69,4 +69,4 @@ void run_clock_sync(Context&) {
     if (was_running) sh::run({"sudo", "systemctl", "start", "chronyd"});
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

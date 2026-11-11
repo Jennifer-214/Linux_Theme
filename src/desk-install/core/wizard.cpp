@@ -15,7 +15,7 @@
 #include <unistd.h>
 #include <utility>
 
-namespace fox_install::wizard {
+namespace desk_install::wizard {
 
 const char* action_name(Action a) {
     switch (a) {
@@ -416,4 +416,4 @@ bool preview(const Plan& plan, const Context& ctx) {
     return ui::ask_yn("Apply this plan?", /*default_yes=*/true, ctx.assume_yes);
 }
 
-}  // namespace fox_install::wizard
+}  // namespace desk_install::wizard

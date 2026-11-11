@@ -17,7 +17,7 @@
 #include <utility>
 #include <vector>
 
-using namespace fox_monitor::variants;
+using namespace desk_monitor::variants;
 
 namespace {
 

@@ -6,7 +6,7 @@
 #include <regex>
 #include <sstream>
 
-namespace fox_render {
+namespace desk_render {
 
 namespace {
 
@@ -187,4 +187,4 @@ std::string scan_danger(const std::string& body) {
     return {};
 }
 
-}  // namespace fox_render
+}  // namespace desk_render

@@ -34,10 +34,10 @@
 namespace fs = std::filesystem;
 using json   = nlohmann::json;
 
-namespace fox_install {
+namespace desk_install {
 
-namespace sidecar = fox_monitor::sidecar;
-namespace placement = fox_monitor::placement;
+namespace sidecar = desk_monitor::sidecar;
+namespace placement = desk_monitor::placement;
 
 namespace {
 
@@ -368,4 +368,4 @@ void run_monitors(Context& ctx) {
     personalize::apply_all(ctx, layout);
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

@@ -49,7 +49,7 @@ const char* TEMPLATE =
 }  // namespace
 
 int main() {
-    using namespace fox_install::personalize;
+    using namespace desk_install::personalize;
     int failed = 0;
     auto check = [&](const char* what, bool ok) {
         if (!ok) { std::fprintf(stderr, "FAIL %s\n", what); ++failed; }

@@ -15,7 +15,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install::state {
+namespace desk_install::state {
 
 namespace {
 
@@ -434,4 +434,4 @@ Classification check_mac_random(const Context& /*ctx*/, const Manifest& manifest
     return {Status::Update, "macrand conf diverged from stored manifest value"};
 }
 
-}  // namespace fox_install::state
+}  // namespace desk_install::state

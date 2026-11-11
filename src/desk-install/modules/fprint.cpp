@@ -14,7 +14,7 @@
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
 
-namespace fox_install {
+namespace desk_install {
 
 void run_fprint(Context& ctx) {
     ui::section("Fingerprint reader (fprintd)");
@@ -73,4 +73,4 @@ void run_fprint(Context& ctx) {
     }
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

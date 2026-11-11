@@ -8,7 +8,7 @@
 // Format (~/.config/foxml/install-state.json):
 //   {
 //     "schema_version": 1,
-//     "fox_version": "5.10.x-<sha>",
+//     "desk_version": "5.10.x-<sha>",
 //     "modules": {
 //       "render":   { "version": "...", "source_hash": "...", "deployed_at": "..." },
 //       "waybar":   { ... },
@@ -24,7 +24,7 @@
 #include <map>
 #include <string>
 
-namespace fox_install::state {
+namespace desk_install::state {
 
 struct ModuleState {
     std::string version;       // fox release identifier at install time
@@ -34,7 +34,7 @@ struct ModuleState {
 
 struct Manifest {
     int schema_version = 1;
-    std::string fox_version;
+    std::string desk_version;
     std::map<std::string, ModuleState> modules;
 };
 
@@ -69,4 +69,4 @@ std::string hash_file(const std::filesystem::path& path);
 // state into a string and hashes that.
 std::string hash_string(const std::string& s);
 
-}  // namespace fox_install::state
+}  // namespace desk_install::state

@@ -12,7 +12,7 @@
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
 
-namespace fox_install {
+namespace desk_install {
 
 // The idempotency guard — exposed via gaming.hpp + matched to what the sed
 // writes (an uncommented `[multilib]`). Pass the path as $1 (positional) so
@@ -61,4 +61,4 @@ void run_gaming(Context& ctx) {
     }
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

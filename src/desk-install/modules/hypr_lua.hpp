@@ -14,7 +14,7 @@
 #include <system_error>
 #include <vector>
 
-namespace fox_install::hypr_lua {
+namespace desk_install::hypr_lua {
 
 struct Version {
     int major = -1, minor = -1, patch = -1;
@@ -186,6 +186,6 @@ inline std::string lua_twin_body(const std::filesystem::path& conf, const std::s
     return generated_conf_to_lua(text);
 }
 
-}  // namespace fox_install::hypr_lua
+}  // namespace desk_install::hypr_lua
 
 #endif

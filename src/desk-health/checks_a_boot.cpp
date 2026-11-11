@@ -31,7 +31,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_health::checks {
+namespace desk_health::checks {
 
 namespace {
 
@@ -396,4 +396,4 @@ CheckResult a7_arch_conf_no_dupes() {
     return pass("A7");
 }
 
-}  // namespace fox_health::checks
+}  // namespace desk_health::checks

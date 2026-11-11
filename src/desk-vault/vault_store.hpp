@@ -6,7 +6,7 @@
 #include <unordered_map>
 #include <vector>
 
-namespace fox_vault {
+namespace desk_vault {
 
 // SecureBuffer: a value held on an mlock()'d, anonymous, MAP_PRIVATE
 // region. Contents are XOR-obfuscated against a per-secret keystream
@@ -61,6 +61,6 @@ private:
     bool    entropy_ok_ = false;
 };
 
-}  // namespace fox_vault
+}  // namespace desk_vault
 
 #endif

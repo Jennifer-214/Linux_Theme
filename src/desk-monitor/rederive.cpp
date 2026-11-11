@@ -10,7 +10,7 @@
 #include <chrono>
 #include <thread>
 
-namespace sh   = fox_install::sh;
+namespace sh   = desk_install::sh;
 using json     = nlohmann::json;
 
 namespace {
@@ -29,7 +29,7 @@ bool all_monitors_ready(const std::string& monitors_json) {
 }
 }  // namespace
 
-namespace fox_monitor::rederive {
+namespace desk_monitor::rederive {
 
 sidecar::Layout from_hyprctl_json(const std::string& monitors_json,
                                   const std::string& sticky_primary) {
@@ -103,4 +103,4 @@ sidecar::Layout from_live(const sidecar::Layout& prev) {
     return from_hyprctl_json(raw, prev.primary);
 }
 
-}  // namespace fox_monitor::rederive
+}  // namespace desk_monitor::rederive

@@ -1,5 +1,5 @@
 // Link stubs for every module run function referenced by modules.def.
-// SINGLE SOURCE — included (inside `namespace fox_install`) by every
+// SINGLE SOURCE — included (inside `namespace desk_install`) by every
 // test binary that links core/registry.o (test_registry, test_args).
 // The tests only inspect the table; these are never invoked.
 // Adding a new module = one stub line here (a missing one is a linker

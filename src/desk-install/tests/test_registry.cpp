@@ -9,35 +9,35 @@
 #include <cstring>
 
 namespace {
-// Used by the FOX_MODULE_FULL fixture below to give the function pointer
+// Used by the DESK_MODULE_FULL fixture below to give the function pointer
 // a real target. Never called.
-void test_stub(fox_install::Context&) {}
+void test_stub(desk_install::Context&) {}
 
-fox_install::state::Classification test_state_stub(
-    const fox_install::Context&, const fox_install::state::Manifest&) {
-    return {fox_install::state::Status::Fresh, "stub"};
+desk_install::state::Classification test_state_stub(
+    const desk_install::Context&, const desk_install::state::Manifest&) {
+    return {desk_install::state::Status::Fresh, "stub"};
 }
 
-// Derive "is this module declared with the extended FOX_MODULE_FULL
+// Derive "is this module declared with the extended DESK_MODULE_FULL
 // form?" straight from modules.def instead of a hand-maintained slug
 // list — so a new full-form module needs zero edits in this test. Both
-// macros MUST be variadic to absorb the differing arities (FOX_MODULE
-// = 5 args, FOX_MODULE_FULL = 9; the trailing state::check_* token is
+// macros MUST be variadic to absorb the differing arities (DESK_MODULE
+// = 5 args, DESK_MODULE_FULL = 9; the trailing state::check_* token is
 // swallowed un-evaluated, so this include creates no symbol references).
-#define FOX_MODULE(...)      false,
-#define FOX_MODULE_FULL(...) true,
+#define DESK_MODULE(...)      false,
+#define DESK_MODULE_FULL(...) true,
 const bool DECLARED_FULL[] = {
 #include "../core/modules.def"
 };
-#undef FOX_MODULE
-#undef FOX_MODULE_FULL
+#undef DESK_MODULE
+#undef DESK_MODULE_FULL
 constexpr std::size_t DECLARED_FULL_COUNT =
     sizeof(DECLARED_FULL) / sizeof(DECLARED_FULL[0]);
 }  // namespace
 
 int main() {
     int failed = 0;
-    using namespace fox_install;
+    using namespace desk_install;
 
     if (MODULES_COUNT == 0) {
         std::fprintf(stderr, "FAIL: MODULES_COUNT == 0\n");
@@ -81,7 +81,7 @@ int main() {
             std::fprintf(stderr, "FAIL [%zu]: missing description\n", i);
             ++failed;
         }
-        // Legacy FOX_MODULE entries route through the FOX_MODULE_FULL shim
+        // Legacy DESK_MODULE entries route through the DESK_MODULE_FULL shim
         // with all prereqs defaulted to false and state_check to nullptr;
         // lock in that the shim still produces those legacy values. Full-
         // form entries must carry a state_check. Which form a module uses
@@ -92,7 +92,7 @@ int main() {
             if (m.requires_root || m.requires_graphical || m.requires_network) {
                 std::fprintf(stderr,
                     "FAIL [%zu] %s: legacy entry has a non-false prereq "
-                    "(root=%d gfx=%d net=%d) — backfill via FOX_MODULE_FULL only\n",
+                    "(root=%d gfx=%d net=%d) — backfill via DESK_MODULE_FULL only\n",
                     i, m.slug,
                     m.requires_root, m.requires_graphical, m.requires_network);
                 ++failed;
@@ -100,7 +100,7 @@ int main() {
             if (m.state_check) {
                 std::fprintf(stderr,
                     "FAIL [%zu] %s: legacy entry has a non-null state_check "
-                    "— wire via FOX_MODULE_FULL only\n", i, m.slug);
+                    "— wire via DESK_MODULE_FULL only\n", i, m.slug);
                 ++failed;
             }
         } else {
@@ -124,31 +124,31 @@ int main() {
         }
     }
 
-    // FOX_MODULE_FULL inline fixture — exercises the macro outside
+    // DESK_MODULE_FULL inline fixture — exercises the macro outside
     // modules.def so the prereq + state_check fields don't only get
     // test coverage on the day a real module starts using them.
     {
-#define FOX_MODULE_FULL(slug, fn, flag, desc, def_on, req_root, req_gfx, req_net, sc)  \
+#define DESK_MODULE_FULL(slug, fn, flag, desc, def_on, req_root, req_gfx, req_net, sc)  \
         { #slug, &fn, flag, desc, def_on, req_root, req_gfx, req_net, sc },
         const Module fixture[] = {
-            FOX_MODULE_FULL(probe_root,  test_stub, "--probe-root",  "needs root",      true,  true,  false, false, nullptr)
-            FOX_MODULE_FULL(probe_gfx,   test_stub, "--probe-gfx",   "needs Wayland",   false, false, true,  false, nullptr)
-            FOX_MODULE_FULL(probe_net,   test_stub, "--probe-net",   "downloads stuff", false, false, false, true,  nullptr)
-            FOX_MODULE_FULL(probe_check, test_stub, "--probe-check", "has state check", false, false, false, false, &test_state_stub)
+            DESK_MODULE_FULL(probe_root,  test_stub, "--probe-root",  "needs root",      true,  true,  false, false, nullptr)
+            DESK_MODULE_FULL(probe_gfx,   test_stub, "--probe-gfx",   "needs Wayland",   false, false, true,  false, nullptr)
+            DESK_MODULE_FULL(probe_net,   test_stub, "--probe-net",   "downloads stuff", false, false, false, true,  nullptr)
+            DESK_MODULE_FULL(probe_check, test_stub, "--probe-check", "has state check", false, false, false, false, &test_state_stub)
         };
-#undef FOX_MODULE_FULL
+#undef DESK_MODULE_FULL
         if (std::strcmp(fixture[0].slug, "probe_root") != 0 ||
                 !fixture[0].requires_root || fixture[0].requires_graphical || fixture[0].requires_network) {
-            std::fprintf(stderr, "FAIL: FOX_MODULE_FULL row 0 fields wrong\n"); ++failed;
+            std::fprintf(stderr, "FAIL: DESK_MODULE_FULL row 0 fields wrong\n"); ++failed;
         }
         if (!fixture[1].requires_graphical || fixture[1].requires_root || fixture[1].requires_network) {
-            std::fprintf(stderr, "FAIL: FOX_MODULE_FULL row 1 fields wrong\n"); ++failed;
+            std::fprintf(stderr, "FAIL: DESK_MODULE_FULL row 1 fields wrong\n"); ++failed;
         }
         if (!fixture[2].requires_network || fixture[2].requires_root || fixture[2].requires_graphical) {
-            std::fprintf(stderr, "FAIL: FOX_MODULE_FULL row 2 fields wrong\n"); ++failed;
+            std::fprintf(stderr, "FAIL: DESK_MODULE_FULL row 2 fields wrong\n"); ++failed;
         }
         if (fixture[3].state_check == nullptr) {
-            std::fprintf(stderr, "FAIL: FOX_MODULE_FULL row 3 state_check is nullptr\n"); ++failed;
+            std::fprintf(stderr, "FAIL: DESK_MODULE_FULL row 3 state_check is nullptr\n"); ++failed;
         } else {
             state::Manifest empty;
             Context         cx;
@@ -176,14 +176,14 @@ int main() {
 // Stub definitions for every module function referenced by modules.def —
 // now a shared single source (tests/run_stubs.inc) so test_registry and
 // test_args stay in sync. Adding a new module = one stub line THERE.
-namespace fox_install {
+namespace desk_install {
 #include "run_stubs.inc"
-}  // namespace fox_install
+}  // namespace desk_install
 
-// State-check stubs for the three modules that use FOX_MODULE_FULL +
+// State-check stubs for the three modules that use DESK_MODULE_FULL +
 // state_check in modules.def. Same rationale as the run_* stubs: the
 // test only inspects the table layout and never invokes these.
-namespace fox_install::state {
+namespace desk_install::state {
 Classification check_deps              (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
 Classification check_render            (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
 Classification check_etckeeper         (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
@@ -199,4 +199,4 @@ Classification check_catppuccin_cursor (const Context&, const Manifest&) { retur
 Classification check_gpg_agent_cache   (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
 Classification check_keyring_full      (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
 Classification check_noexec_tmp        (const Context&, const Manifest&) { return {Status::Fresh, "test stub"}; }
-}  // namespace fox_install::state
+}  // namespace desk_install::state

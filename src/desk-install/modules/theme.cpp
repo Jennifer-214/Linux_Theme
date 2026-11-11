@@ -9,7 +9,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 void run_theme(Context& ctx) {
     if (!fs::exists(ctx.palette_path)) {
@@ -19,4 +19,4 @@ void run_theme(Context& ctx) {
     ui::section("Theme: " + ctx.theme_name + " (" + ctx.theme_source + ")");
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

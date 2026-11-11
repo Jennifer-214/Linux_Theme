@@ -42,7 +42,7 @@
 namespace fs = std::filesystem;
 using json   = nlohmann::json;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -783,4 +783,4 @@ void run_specials(Context& ctx) {
     do_systemd_user(ctx);
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

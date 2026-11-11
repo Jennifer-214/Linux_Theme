@@ -6,7 +6,7 @@
 
 namespace fs = std::filesystem;
 using json = nlohmann::json;
-namespace fox_render {
+namespace desk_render {
 namespace {
 std::string read(const fs::path& p) {
     std::ifstream in(p);return {std::istreambuf_iterator<char>(in), {}};

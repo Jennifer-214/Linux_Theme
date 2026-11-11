@@ -1,7 +1,7 @@
 // ai-doctor — AI-augmented system diagnostics.
 //
 // Demonstrates the AI-as-library-call pattern documented in CLAUDE.md:
-//   #include "fox_intel.hpp"   →   FoxIntel ai; ai.ask(prompt);
+//   #include "desk_intel.hpp"   →   DeskIntel ai; ai.ask(prompt);
 //
 // This binary gathers a small bundle of system state (failed systemd
 // units, recent kernel + service errors from journalctl, basic
@@ -11,13 +11,13 @@
 // Pattern any future fox-ai-* tool can copy:
 //   1. capture context via execvp'd one-shot tools (journalctl, etc.)
 //   2. build a prompt that includes the context
-//   3. FoxIntel.ask(prompt, /*stream=*/true)
+//   3. DeskIntel.ask(prompt, /*stream=*/true)
 //   4. exit
 //
-// No model name is hard-coded — FoxIntel's default (qwen2.5-coder:7b)
+// No model name is hard-coded — DeskIntel's default (qwen2.5-coder:7b)
 // kicks in unless the user overrides via `--model`.
 
-#include "../desk-intel/fox_intel.hpp"
+#include "../desk-intel/desk_intel.hpp"
 
 #include <cerrno>
 #include <cstdio>
@@ -97,7 +97,7 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    FoxIntel ai = model.empty() ? FoxIntel{} : FoxIntel{model};
+    DeskIntel ai = model.empty() ? DeskIntel{} : DeskIntel{model};
     if (!ai.ensure_server_running()) {
         std::fprintf(stderr, "ai-doctor: local model server unavailable\n");
         return 1;

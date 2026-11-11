@@ -21,7 +21,7 @@
 #include <thread>
 #include <vector>
 
-namespace fox_install::git_clone {
+namespace desk_install::git_clone {
 
 namespace fs = std::filesystem;
 
@@ -122,4 +122,4 @@ inline const char* describe(Outcome o) {
     return "?";
 }
 
-}  // namespace fox_install::git_clone
+}  // namespace desk_install::git_clone

@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-namespace fox_monitor::placement {
+namespace desk_monitor::placement {
 
 struct Screen {
     std::string name;
@@ -166,6 +166,6 @@ inline std::string set_lua_rule(const std::string& lua, const std::string& name,
     return detail::join(lines);
 }
 
-}  // namespace fox_monitor::placement
+}  // namespace desk_monitor::placement
 
 #endif

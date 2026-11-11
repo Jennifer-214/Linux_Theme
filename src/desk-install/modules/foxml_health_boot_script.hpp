@@ -2,7 +2,7 @@
 // tests/test_health_boot can run it with stand-ins for sec-health, loginctl, sudo and desk-dispatch.
 #pragma once
 
-namespace fox_install {
+namespace desk_install {
 
 // Helper script invoked by the unit. Bash, not C++ — it just needs to
 // log + exec + always exit 0. Lives in /usr/local/lib/foxml/ alongside
@@ -49,4 +49,4 @@ inline constexpr const char* BOOT_HEALTH_SCRIPT =
     "fi\n"
     "exit 0\n";
 
-}  // namespace fox_install
+}  // namespace desk_install

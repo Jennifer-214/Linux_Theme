@@ -19,7 +19,7 @@
 
 #include <string>
 
-namespace fox_install::lockfile {
+namespace desk_install::lockfile {
 
 struct AcquireResult {
     int         fd          = -1;    // >= 0 on success, -1 on failure
@@ -40,4 +40,4 @@ AcquireResult acquire();
 // (e.g., after wizard abort but before a subsequent re-entry).
 void release(int fd);
 
-}  // namespace fox_install::lockfile
+}  // namespace desk_install::lockfile

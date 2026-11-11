@@ -12,7 +12,7 @@
 #include <unistd.h>
 #include <vector>
 
-using namespace fox_install::cursor_recolor;
+using namespace desk_install::cursor_recolor;
 
 namespace {
 

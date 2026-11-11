@@ -9,12 +9,12 @@
 
 using json = nlohmann::json;
 
-class FoxIntel {
+class DeskIntel {
 public:
     // model: "" picks it as llm-run does — FOXAI_MODEL, ai-default's (ai-model.conf), opencode's
     // local default, else the roles file's quick model.
-    FoxIntel(std::string model = "");
-    ~FoxIntel();
+    DeskIntel(std::string model = "");
+    ~DeskIntel();
 
     // Core LLM interaction
     std::string ask(const std::string& prompt, bool stream = false);
@@ -56,7 +56,7 @@ private:
 };
 
 // Utilities for safe process execution (no shell)
-namespace FoxUtils {
+namespace DeskUtils {
     int run_cmd(std::initializer_list<const char*> argv, bool silent = false);
 }
 

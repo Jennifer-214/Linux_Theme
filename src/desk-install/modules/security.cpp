@@ -29,7 +29,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -737,4 +737,4 @@ void run_security(Context& ctx) {
     ui::ok("security hardening complete");
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

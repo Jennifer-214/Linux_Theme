@@ -15,7 +15,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -67,4 +67,4 @@ void run_mac_random(Context& ctx) {
     ui::ok("MAC randomization enabled (per-SSID stable, varies across networks)");
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

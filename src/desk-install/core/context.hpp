@@ -4,7 +4,7 @@
 #include <filesystem>
 #include <string>
 
-namespace fox_install {
+namespace desk_install {
 
 // Shared state passed by reference into every module's run_*() function.
 // Modules read fields they care about and may set fields others depend
@@ -85,6 +85,6 @@ struct Context {
     bool preflight_failed = false;
 };
 
-}  // namespace fox_install
+}  // namespace desk_install
 
 #endif

@@ -17,7 +17,7 @@
 namespace fs = std::filesystem;
 using json = nlohmann::json;
 
-namespace fox_install::state {
+namespace desk_install::state {
 
 std::filesystem::path default_path() {
     const char* xdg = std::getenv("XDG_CONFIG_HOME");
@@ -61,8 +61,8 @@ Manifest read(const fs::path& path) {
     if (j.contains("schema_version") && j["schema_version"].is_number_integer()) {
         m.schema_version = j["schema_version"].get<int>();
     }
-    if (j.contains("fox_version") && j["fox_version"].is_string()) {
-        m.fox_version = j["fox_version"].get<std::string>();
+    if (j.contains("desk_version") && j["desk_version"].is_string()) {
+        m.desk_version = j["desk_version"].get<std::string>();
     }
     if (j.contains("modules") && j["modules"].is_object()) {
         for (auto it = j["modules"].begin(); it != j["modules"].end(); ++it) {
@@ -86,7 +86,7 @@ void write(const fs::path& path, const Manifest& m) {
 
     json j;
     j["schema_version"] = m.schema_version;
-    j["fox_version"] = m.fox_version;
+    j["desk_version"] = m.desk_version;
     j["modules"] = json::object();
     for (const auto& [name, ms] : m.modules) {
         j["modules"][name] = {
@@ -167,4 +167,4 @@ std::string hash_string(const std::string& s) {
     );
 }
 
-}  // namespace fox_install::state
+}  // namespace desk_install::state

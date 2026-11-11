@@ -2,7 +2,7 @@
 #define FOX_MONITOR_VARIANTS_HPP
 
 // Per-monitor wallpaper-variant generator — the path-parameterized
-// "variants" submodule of libfox-monitor. desk-install's personalize module
+// "variants" submodule of libdesk-monitor. desk-install's personalize module
 // is a thin wrapper over generate(); the pure planner is reused by tests.
 //
 // A variant is `<base>_<WxH>.<ext>` rendered at NATIVE pixel dims so each
@@ -16,7 +16,7 @@
 #include <utility>
 #include <vector>
 
-namespace fox_monitor::variants {
+namespace desk_monitor::variants {
 
 // One planned per-monitor wallpaper-variant operation. The planner emits
 // these; generate() executes them (magick / fs::remove).
@@ -95,6 +95,6 @@ std::size_t generate(const std::filesystem::path& wall_dir,
                      bool force = false,
                      const std::string& active_base = {});
 
-}  // namespace fox_monitor::variants
+}  // namespace desk_monitor::variants
 
 #endif

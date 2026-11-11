@@ -19,7 +19,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 void run_prune_backups(Context& ctx) {
     ui::section("Pruning old config backups");
@@ -41,4 +41,4 @@ void run_prune_backups(Context& ctx) {
     ui::ok(out.empty() ? std::string("backups already lean (kept 10)") : out);
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

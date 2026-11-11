@@ -10,7 +10,7 @@
 
 #include <string>
 
-namespace fox_install::ui {
+namespace desk_install::ui {
 
 void init();                                  // detect TTY + color support
 bool tty();                                   // are we writing to a real TTY?
@@ -54,6 +54,6 @@ char ask_choice(const std::string& question,
                 char default_c,
                 bool assume_yes);
 
-}  // namespace fox_install::ui
+}  // namespace desk_install::ui
 
 #endif

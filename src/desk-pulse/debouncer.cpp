@@ -5,7 +5,7 @@
 #include <unistd.h>
 #include <sys/timerfd.h>
 
-namespace fox_pulse {
+namespace desk_pulse {
 
 Debouncer::Debouncer(std::chrono::milliseconds delay)
     : delay_(delay) {
@@ -33,4 +33,4 @@ void Debouncer::read_and_consume() {
     (void)::read(fd_, &v, sizeof(v));
 }
 
-}  // namespace fox_pulse
+}  // namespace desk_pulse

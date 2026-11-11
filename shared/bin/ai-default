@@ -2,7 +2,7 @@
 # ai-default — set / inspect the default model used by AI-native tools.
 #
 # Stores the choice at ~/.config/foxml/ai-model.conf. fask, findex, the
-# fox-ai-* helpers, and every FoxIntel-backed C++ binary read this file
+# fox-ai-* helpers, and every DeskIntel-backed C++ binary read this file
 # at startup. FOXAI_MODEL=<name> in the env overrides on a per-run basis.
 #
 # Usage:
@@ -36,7 +36,7 @@ _write() {
     local model="$1"
     mkdir -p "$CONF_DIR"
     {
-        printf '# Default AI model for fask / findex / fox-ai-* / FoxIntel-backed binaries.\n'
+        printf '# Default AI model for fask / findex / fox-ai-* / DeskIntel-backed binaries.\n'
         printf '# Set by ai-default. Override per-run with FOXAI_MODEL=<name>.\n'
         printf 'MODEL=%s\n' "$model"
     } > "$CONF_FILE"

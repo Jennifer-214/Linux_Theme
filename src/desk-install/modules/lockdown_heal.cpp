@@ -25,7 +25,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 void run_lockdown_heal(Context& ctx) {
     ui::section("Lockdown self-heal (strip a brick-causing lockdown=integrity)");
@@ -113,4 +113,4 @@ void run_lockdown_heal(Context& ctx) {
            " — REBOOT to activate");
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

@@ -17,7 +17,7 @@
 #include <utility>
 #include <vector>
 
-namespace fox_install::folder_recolor {
+namespace desk_install::folder_recolor {
 
 namespace fs = std::filesystem;
 
@@ -114,6 +114,6 @@ inline std::string mark(const std::string& color, const std::string& token) {
     return token == "none" ? color : color + "|" + token;
 }
 
-}  // namespace fox_install::folder_recolor
+}  // namespace desk_install::folder_recolor
 
 #endif

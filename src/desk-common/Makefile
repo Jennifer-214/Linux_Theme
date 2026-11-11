@@ -1,6 +1,6 @@
 # src/desk-common/Makefile — shared core library.
 #
-# Produces libfox-common.a. Linked into every fox-* tool that needs the
+# Produces libdesk-common.a. Linked into every fox-* tool that needs the
 # pacman-style UI, subprocess helpers (sh::run / sh::pacman / etc.), and
 # (in future slices) the namespace dispatcher (dispatch.hpp).
 #
@@ -12,7 +12,7 @@ CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra -Wpedantic -fPIC
 
 SRC := $(wildcard *.cpp)
 OBJ := $(SRC:.cpp=.o)
-LIB := libfox-common.a
+LIB := libdesk-common.a
 
 all: $(LIB)
 

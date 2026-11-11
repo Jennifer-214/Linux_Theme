@@ -18,10 +18,10 @@
 #include <thread>
 
 namespace fs = std::filesystem;
-namespace sh = fox_install::sh;
-namespace ui = fox_install::ui;
+namespace sh = desk_install::sh;
+namespace ui = desk_install::ui;
 
-namespace fox_monitor::apply {
+namespace desk_monitor::apply {
 
 namespace {
 
@@ -171,4 +171,4 @@ std::size_t apply_current(const sidecar::Layout& layout,
     return applied;
 }
 
-}  // namespace fox_monitor::apply
+}  // namespace desk_monitor::apply

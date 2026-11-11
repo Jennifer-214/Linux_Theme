@@ -18,7 +18,7 @@ int g_failed = 0;
 } while (0)
 
 void test_roundtrip() {
-    fox_vault::Vault v;
+    desk_vault::Vault v;
     const char* s = "topsecret";
     EXPECT(v.set("a", reinterpret_cast<const uint8_t*>(s), std::strlen(s)));
 
@@ -28,13 +28,13 @@ void test_roundtrip() {
 }
 
 void test_missing_key() {
-    fox_vault::Vault v;
+    desk_vault::Vault v;
     std::string out;
     EXPECT(!v.get("nope", out));
 }
 
 void test_del() {
-    fox_vault::Vault v;
+    desk_vault::Vault v;
     const char* s = "x";
     v.set("k", reinterpret_cast<const uint8_t*>(s), 1);
     EXPECT(v.del("k"));
@@ -43,7 +43,7 @@ void test_del() {
 }
 
 void test_clear() {
-    fox_vault::Vault v;
+    desk_vault::Vault v;
     const char* s = "x";
     v.set("a", reinterpret_cast<const uint8_t*>(s), 1);
     v.set("b", reinterpret_cast<const uint8_t*>(s), 1);
@@ -53,7 +53,7 @@ void test_clear() {
 }
 
 void test_large_value() {
-    fox_vault::Vault v;
+    desk_vault::Vault v;
     std::string big(8192, 'Z');
     EXPECT(v.set("big",
         reinterpret_cast<const uint8_t*>(big.data()), big.size()));

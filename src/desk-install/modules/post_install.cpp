@@ -31,7 +31,7 @@
 namespace fs = std::filesystem;
 using json   = nlohmann::json;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -137,7 +137,7 @@ void run_post_install(Context& ctx) {
     // variants already match the current recipe is a fast no-op.
     {
         fs::path layout_path = ctx.config_home / "foxml/monitor-layout.conf";
-        auto layout = fox_monitor::sidecar::read(layout_path);
+        auto layout = desk_monitor::sidecar::read(layout_path);
         if (!layout.primary.empty() || !layout.monitor_resolutions.empty()) {
             ui::substep("finalizing per-monitor wallpapers (post-deploy)");
             personalize::apply_all(ctx, layout);
@@ -243,4 +243,4 @@ void run_post_install(Context& ctx) {
     // render.cpp::detect_drift.
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

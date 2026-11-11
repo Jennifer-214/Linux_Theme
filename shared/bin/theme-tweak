@@ -90,9 +90,9 @@ done
 
 if [[ "$changed" == "true" ]]; then
     echo ":: Re-rendering $ACTIVE_THEME..."
-    fox_install="$SCRIPT_DIR/src/desk-install/desk-install"
-    if [[ -x "$fox_install" ]]; then
-        "$fox_install" "$ACTIVE_THEME" \
+    desk_install="$SCRIPT_DIR/src/desk-install/desk-install"
+    if [[ -x "$desk_install" ]]; then
+        "$desk_install" "$ACTIVE_THEME" \
             --render-only --no-summary --yes --quiet
     else
         # Fall back to install.sh if the native binary isn't built yet.

@@ -30,7 +30,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install::personalize {
+namespace desk_install::personalize {
 
 namespace {
 
@@ -50,13 +50,13 @@ bool parse_entry(const std::string& entry, std::string& name, std::string& res) 
 }  // namespace
 
 // ─── per-monitor wallpaper variants ────────────────────────────────
-// Thin wrapper over the libfox-monitor variants submodule, which now owns
+// Thin wrapper over the libdesk-monitor variants submodule, which now owns
 // the pure planner + the path-parameterized executor (shared with the
 // desk-monitor binary). This adapts the install Context/Layout/dry-run state
 // to variants::generate's explicit parameters.
 std::size_t generate_per_monitor_wallpapers(const Context& ctx,
                                             const sidecar::Layout& layout) {
-    return fox_monitor::variants::generate(
+    return desk_monitor::variants::generate(
         ctx.home / ".wallpapers", layout.monitor_resolutions, sh::dry_run(),
         /*force=*/false);
 }
@@ -203,7 +203,7 @@ bool personalize_hyprlock(const Context& ctx, const sidecar::Layout& layout) {
 
     // Active wallpaper: what the desktop shows (.current), else the WALLPAPER
     // env, else the first path= in the existing block.
-    std::string active = fox_monitor::apply::current_base(wall_dir);
+    std::string active = desk_monitor::apply::current_base(wall_dir);
     if (!active.empty() && !on_disk(active)) active.clear();
     if (active.empty())
         if (const char* env = std::getenv("WALLPAPER"); env && *env) active = env;
@@ -360,16 +360,16 @@ void apply_all(const Context& ctx, const sidecar::Layout& layout) {
     // the reactive-refresh-omission fix: the wizard is a trigger that changes the
     // layout, so it must re-apply exactly as `desk-monitor reconcile` does.
     fs::path wall_dir = ctx.home / ".wallpapers";
-    if (!fox_monitor::apply::current_base(wall_dir).empty())
-        fox_monitor::apply::apply_current(layout, wall_dir, sh::dry_run());
+    if (!desk_monitor::apply::current_base(wall_dir).empty())
+        desk_monitor::apply::apply_current(layout, wall_dir, sh::dry_run());
 }
 
-}  // namespace fox_install::personalize
+}  // namespace desk_install::personalize
 
 // Module entry point (registered in modules.def).
-namespace fox_install {
+namespace desk_install {
 
-namespace sidecar = fox_monitor::sidecar;
+namespace sidecar = desk_monitor::sidecar;
 
 void run_personalize(Context& ctx) {
     ui::section("Personalizing for this machine");
@@ -389,4 +389,4 @@ void run_personalize(Context& ctx) {
     personalize::apply_all(ctx, layout);
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

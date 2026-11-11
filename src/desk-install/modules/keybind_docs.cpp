@@ -16,7 +16,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 void run_keybind_docs(Context& ctx) {
     ui::section("Refreshing keybind docs");
@@ -30,4 +30,4 @@ void run_keybind_docs(Context& ctx) {
     else ui::warn("gen-keybinds unavailable — KEYBINDS.md left as-is");
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

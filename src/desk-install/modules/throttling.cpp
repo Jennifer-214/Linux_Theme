@@ -24,7 +24,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -237,4 +237,4 @@ void run_throttling(Context& ctx) {
     std::cout << "\n  Done. Verify with: cpupower frequency-info | head -20\n";
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

@@ -22,7 +22,7 @@
 #include <system_error>
 #include <vector>
 
-namespace fox_install::cursor_recolor {
+namespace desk_install::cursor_recolor {
 
 namespace fs = std::filesystem;
 
@@ -309,6 +309,6 @@ inline bool build_theme(const fs::path& source, const fs::path& dest, const std:
     return ok;
 }
 
-}  // namespace fox_install::cursor_recolor
+}  // namespace desk_install::cursor_recolor
 
 #endif

@@ -9,7 +9,7 @@
 #include <map>
 #include <string>
 
-namespace fox_install::palette {
+namespace desk_install::palette {
 
 // KEY=value map; tolerant of comments, quoted values and array lines we don't use.
 inline std::map<std::string, std::string> read(const std::filesystem::path& p) {
@@ -40,6 +40,6 @@ inline std::string get(const std::filesystem::path& p, const std::string& key,
     return (it != m.end() && !it->second.empty()) ? it->second : fallback;
 }
 
-}  // namespace fox_install::palette
+}  // namespace desk_install::palette
 
 #endif

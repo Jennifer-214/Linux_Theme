@@ -12,7 +12,7 @@
 #   quick  short chat, inline edits — small enough for a 4 GB GPU
 #   fim    Copilot-style ghost text — a BASE coder model: instruct ones run past the cursor
 #   title  opencode session titles
-#   embed  embeddings (fask, findex) — what libfox-intel embeds with
+#   embed  embeddings (fask, findex) — what libdesk-intel embeds with
 agent  qwen3-coder:30b           llama
 quick  qwen3.5:4b                llama
 fim    qwen2.5-coder:1.5b-base   llama

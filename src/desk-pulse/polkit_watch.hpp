@@ -6,7 +6,7 @@
 #include <string>
 #include <sys/types.h>
 
-namespace fox_pulse {
+namespace desk_pulse {
 
 bool process_named(const std::string& proc, long pid, const std::string& comm, uid_t uid);
 bool any_process_named(const std::string& proc, const std::string& comm, uid_t uid);
@@ -17,4 +17,4 @@ struct AgentWatch {
     bool tick(const std::string& proc, const std::string& marker, uid_t uid);
 };
 
-}  // namespace fox_pulse
+}  // namespace desk_pulse

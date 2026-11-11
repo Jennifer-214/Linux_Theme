@@ -2,7 +2,7 @@
 #include "../modules/arkenfox_userjs.hpp"
 #include <iostream>
 
-namespace af = fox_install::arkenfox;
+namespace af = desk_install::arkenfox;
 static int failed = 0, passed = 0;
 static void check(bool ok, const char* what) {
     if (ok) ++passed; else { ++failed; std::cerr << "FAIL: " << what << "\n"; }

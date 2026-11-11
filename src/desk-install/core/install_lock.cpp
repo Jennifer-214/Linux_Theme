@@ -13,7 +13,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install::lockfile {
+namespace desk_install::lockfile {
 
 namespace {
 
@@ -94,4 +94,4 @@ void release(int fd) {
     if (fd >= 0) ::close(fd);
 }
 
-}  // namespace fox_install::lockfile
+}  // namespace desk_install::lockfile

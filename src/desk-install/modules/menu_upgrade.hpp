@@ -15,7 +15,7 @@
 #include <string>
 #include <vector>
 
-namespace fox_install::menu_upgrade {
+namespace desk_install::menu_upgrade {
 
 // Pages shipped since offers were recorded; a machine without a record is offered only these.
 inline const std::set<std::string> FIRST_OFFER = {"screenshots", "models", "storage", "backups", "startup", "worktrees", "jobs", "test-results", "reviews", "next-steps", "failures",
@@ -239,4 +239,4 @@ inline std::vector<std::string> resection(nlohmann::json& menu, const nlohmann::
     return moved;
 }
 
-}  // namespace fox_install::menu_upgrade
+}  // namespace desk_install::menu_upgrade

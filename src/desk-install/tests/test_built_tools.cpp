@@ -12,7 +12,7 @@
 namespace fs = std::filesystem;
 
 int main() {
-    using namespace fox_install;
+    using namespace desk_install;
     const fs::path src = fs::path(BUILD_DIR) / ("built_tools_fixture_" + std::to_string(::getpid()));
     fs::remove_all(src);
     auto mk = [&](const char* dir, const char* body) {
@@ -22,7 +22,7 @@ int main() {
     mk("fox",        "CXX ?= g++\nBIN := fox\n");
     mk("desk-vault",  "BIN = desk-vault\n");
     mk("desk-render", "  BIN=desk-render-fast   # the engine\n");
-    mk("desk-common", "LIB := libfox-common.a\nBINARY_DIR = x\n");
+    mk("desk-common", "LIB := libdesk-common.a\nBINARY_DIR = x\n");
     mk("desk-dev",    "# BIN := commented-out\nBIN:=desk-dev\nBIN := second-ignored\n");
     std::ofstream(src / "README") << "not a tool\n";
 

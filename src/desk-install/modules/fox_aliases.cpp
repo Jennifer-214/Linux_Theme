@@ -4,7 +4,7 @@
 #include "../../desk-common/ui.hpp"
 #include "fox_aliases.hpp"
 
-namespace fox_install {
+namespace desk_install {
 
 void run_fox_aliases(Context& ctx) {
     ui::section("Old fox-* names as links to their new names");
@@ -15,4 +15,4 @@ void run_fox_aliases(Context& ctx) {
            (n.left ? ", " + std::to_string(n.left) + " left alone (not ours)" : ""));
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

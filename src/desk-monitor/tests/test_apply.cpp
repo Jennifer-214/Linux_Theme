@@ -1,4 +1,4 @@
-// Characterization of fox_monitor::apply's PURE helpers — current_base + variant_for.
+// Characterization of desk_monitor::apply's PURE helpers — current_base + variant_for.
 //
 // W1 (monitor-polish): personalize::apply_all now re-applies the live wallpaper
 // after a layout change (the wizard-rotation letterbox fix), GATED on current_base()
@@ -9,7 +9,7 @@
 //     absent → is_fallback=true returns base (→ --resize crop). The fit/crop choice
 //     that makes a portrait variant FILL instead of letterbox.
 //
-// Links apply.o + libfox-common (apply.o carries ui::/sh:: refs from apply_current,
+// Links apply.o + libdesk-common (apply.o carries ui::/sh:: refs from apply_current,
 // even though the pure helpers under test touch none of them) — mirrors test_variants.
 
 #include "../apply.hpp"
@@ -19,7 +19,7 @@
 #include <string>
 
 namespace fs = std::filesystem;
-using namespace fox_monitor::apply;
+using namespace desk_monitor::apply;
 
 namespace {
 

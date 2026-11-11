@@ -13,7 +13,7 @@
 //
 // Mirrors mappings.sh's TEMPLATE_MAPPINGS + SHARED_MAPPINGS verbatim.
 
-namespace fox_install::symlinks {
+namespace desk_install::symlinks {
 
 struct Mapping {
     const char* src;      // relative path under rendered_dir or shared_dir
@@ -210,6 +210,6 @@ constexpr std::size_t TEMPLATE_MAPPINGS_COUNT =
 constexpr std::size_t SHARED_MAPPINGS_COUNT =
     sizeof(SHARED_MAPPINGS) / sizeof(SHARED_MAPPINGS[0]);
 
-}  // namespace fox_install::symlinks
+}  // namespace desk_install::symlinks
 
 #endif

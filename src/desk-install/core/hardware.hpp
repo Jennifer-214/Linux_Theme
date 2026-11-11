@@ -8,7 +8,7 @@
 #include <fstream>
 #include <string>
 
-namespace fox_install::hw {
+namespace desk_install::hw {
 
 // MemTotal (KB) → GB, ceiling.
 inline int ram_gb() {
@@ -30,6 +30,6 @@ inline int vram_gb() {
     return static_cast<int>((mb + 1023) / 1024);
 }
 
-}  // namespace fox_install::hw
+}  // namespace desk_install::hw
 
 #endif

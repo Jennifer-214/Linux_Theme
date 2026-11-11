@@ -8,7 +8,7 @@
 #include <unistd.h>
 
 namespace fs = std::filesystem;
-namespace fox_install { void run_drawer(Context&); }
+namespace desk_install { void run_drawer(Context&); }
 
 std::string read(const fs::path& path) {
     std::ifstream f(path);
@@ -21,7 +21,7 @@ int main() {
     const char* temp = ::mkdtemp(pattern.data());
     if (!temp) return 1;
     const fs::path root(temp);
-    fox_install::Context ctx;
+    desk_install::Context ctx;
     ctx.home = root / "home";
     ctx.config_home = ctx.home / ".config";
     ctx.backup_dir = root / "backup";
@@ -35,28 +35,28 @@ int main() {
     auto expect = [&](bool ok, const char* why) {
         if (!ok) { std::cerr << "FAIL: " << why << '\n'; ++failures; }
     };
-    expect(fox_install::deploy_file_atomic(ctx, source, dest), "deploy succeeds");
+    expect(desk_install::deploy_file_atomic(ctx, source, dest), "deploy succeeds");
     expect(read(dest) == "new\n", "new file is installed");
     expect(read(ctx.backup_dir / "program") == "original\n", "old file is backed up");
     expect((fs::status(dest).permissions() & fs::perms::owner_exec) != fs::perms::none,
            "executable permissions are preserved");
     expect(!fs::exists(dest.string() + ".foxin.tmp"), "temporary file is gone");
     std::ofstream(source) << "newer\n";
-    expect(fox_install::deploy_file_atomic(ctx, source, dest), "repeat deployment succeeds");
+    expect(desk_install::deploy_file_atomic(ctx, source, dest), "repeat deployment succeeds");
     expect(read(ctx.backup_dir / "program") == "original\n", "first snapshot survives a second deploy");
     const auto protected_file = root / "protected";
     std::ofstream(protected_file) << "leave this alone\n";
     fs::create_symlink(protected_file, dest.string() + ".foxin.tmp");
-    expect(fox_install::deploy_file_atomic(ctx, source, dest), "old predictable temporary path is ignored");
+    expect(desk_install::deploy_file_atomic(ctx, source, dest), "old predictable temporary path is ignored");
     expect(read(protected_file) == "leave this alone\n", "temporary symlink target is untouched");
     ctx.backup_dir = root / "blocked";
     std::ofstream(ctx.backup_dir) << "not a directory";
     std::ofstream(source) << "must not land\n";
-    expect(!fox_install::deploy_file_atomic(ctx, source, dest), "backup failure refuses deployment");
+    expect(!desk_install::deploy_file_atomic(ctx, source, dest), "backup failure refuses deployment");
     expect(read(dest) == "newer\n", "backup failure preserves installed file");
-    fox_install::sh::set_dry_run(true);
-    fox_install::run_drawer(ctx);
-    fox_install::sh::set_dry_run(false);
+    desk_install::sh::set_dry_run(true);
+    desk_install::run_drawer(ctx);
+    desk_install::sh::set_dry_run(false);
     expect(!fs::exists(ctx.config_home), "drawer dry run creates no configuration");
 
     // Exercise the module with fake build tools and a temporary HOME; no live
@@ -104,7 +104,7 @@ int main() {
     put(ctx.config_home / "quickshell/foxml/MediaArtwork.qml", "old artwork");
     put(ctx.config_home / "quickshell/foxml/paper-icon.svg", "old pencil icon");
     put(ctx.config_home / "waybar/drawer-state.css", "active runtime marker");
-    fox_install::run_drawer(ctx);
+    desk_install::run_drawer(ctx);
     expect(read(ctx.home / ".local/bin/desk-mako") == "new Mako", "custom Mako is deployed");
     expect(read(ctx.backup_dir / ".local/bin/desk-mako") == "old Mako", "custom Mako is backed up");
     expect(read(ctx.backup_dir / ".local/bin/desk-notifications") == "old launcher", "notification launcher is backed up");
@@ -123,19 +123,19 @@ int main() {
     put(ctx.script_dir / "src/desk-mako/desk-mako", "must not deploy", true);
     put(ctx.shared_dir / "bin/desk-notifications", "must not deploy", true);
     put(ctx.shared_dir / service, "must not deploy");
-    fox_install::run_drawer(ctx);
+    desk_install::run_drawer(ctx);
     expect(read(ctx.home / ".local/bin/desk-mako") == "new Mako", "failed build preserves installed custom Mako");
     expect(read(ctx.home / ".local/bin/desk-notifications") == "new desk-notifications", "failed build preserves notification launcher");
     expect(read(ctx.config_home / service) == "new service override", "failed build preserves service override");
     expect(read(ctx.backup_dir / ".local/bin/desk-mako") == "old Mako", "repeated deploy preserves the first backup");
     put(ctx.config_home / "quickshell/foxml/menus.json", R"({"favorites":["desk/custom"],"groups":[{"id":"desk","label":"My desk","items":[{"id":"custom","label":"Keep me"}]}]})");
     put(ctx.shared_dir / "quickshell/foxml/menus.json", R"({"groups":[{"id":"desk","items":[{"id":"screenshots","page":"screenshots","label":"Screenshot scrapbook","kind":"page"}]}]})");
-    fox_install::run_drawer(ctx);
+    desk_install::run_drawer(ctx);
     const auto upgraded = read(ctx.config_home / "quickshell/foxml/menus.json");
     expect(upgraded.find("Keep me") != std::string::npos && upgraded.find("My desk") != std::string::npos
            && upgraded.find("desk/custom") != std::string::npos && upgraded.find("Screenshot scrapbook") != std::string::npos,
            "scrapbook migration preserves custom entries, titles and favorites");
-    fox_install::run_drawer(ctx);
+    desk_install::run_drawer(ctx);
     expect(read(ctx.config_home / "quickshell/foxml/menus.json") == upgraded, "scrapbook migration is idempotent");
     expect(read(ctx.config_home / "hypr/scripts/osd.sh") == "script", "drawer installs the volume helper");
     expect(read(ctx.config_home / "hypr/scripts/screenshot.sh") == "script", "drawer installs the screenshot helper");

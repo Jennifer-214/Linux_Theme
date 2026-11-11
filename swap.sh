@@ -43,9 +43,9 @@ echo
 _do_swap() {
     local theme="$1"
     local force="${2:-}"
-    local fox_install="$SCRIPT_DIR/src/desk-install/desk-install"
+    local desk_install="$SCRIPT_DIR/src/desk-install/desk-install"
 
-    if [[ ! -x "$fox_install" ]]; then
+    if [[ ! -x "$desk_install" ]]; then
         echo ":: Building desk-install..."
         make -C "$SCRIPT_DIR/src/desk-install" >/dev/null || {
             echo "desk-install build failed; falling back to install.sh"
@@ -77,7 +77,7 @@ _do_swap() {
     # greetd reports it and the rest of the swap still goes through (exit 3).
     # --render-only is the shared theme list; --only adds what a swap needs on top.
     FOXML_SKIP_PLUGIN_SYNC=1 FOXML_THEME_ONLY=1 \
-    "$fox_install" "$theme" "${force_args[@]}" \
+    "$desk_install" "$theme" "${force_args[@]}" \
         --only papirus_icons,greetd --render-only --no-summary \
         --yes --quiet || rc=$?
 

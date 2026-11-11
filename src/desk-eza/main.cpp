@@ -14,7 +14,7 @@
 
 namespace fs = std::filesystem;
 using json = nlohmann::json;
-namespace sh = fox_install::sh;
+namespace sh = desk_install::sh;
 
 struct Listing {
     std::vector<fs::path> paths;

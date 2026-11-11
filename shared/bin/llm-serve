@@ -21,7 +21,7 @@
 #   · models the roles file gives the turbo engine (`llama-turbo`) — the server column wins;
 #   · models this llama.cpp can't load (an architecture newer than the build) — checked once per file.
 # Embedding models are served too, in embedding mode (/v1/embeddings) — fask/findex use them through
-# libfox-intel, which trims text longer than the model takes. FOX_LLM_ONLY_ROLES=1 limits it to the roles.
+# libdesk-intel, which trims text longer than the model takes. FOX_LLM_ONLY_ROLES=1 limits it to the roles.
 #
 # Slots (parallel conversations per model) follow RAM: under 48 GB the agent gets ONE slot — its whole
 # context goes to the one conversation, nothing to fragment or evict (side requests like the plugin's
@@ -149,7 +149,7 @@ role_flags() {
     title) ctx_flags "${ctx:-8192}" "${slots:-1}"; echo "cache-ram = 256"; helper_gpu_flags
            if (( RAM_GB < 48 )); then echo "sleep-idle-seconds = 120"; fi ;;
     # Embeddings: the model's own context (512 tokens for mxbai-embed-large) — a longer input is an
-    # error here, so libfox-intel trims it first; no prompt cache to keep.
+    # error here, so libdesk-intel trims it first; no prompt cache to keep.
     embed) echo "embeddings = true"; echo "cache-ram = 0"; helper_gpu_flags
            if (( RAM_GB < 48 )); then echo "sleep-idle-seconds = 300"; fi ;;
     # `if`, not `&&`: a false test as a function's last command is its status, and write_preset's

@@ -14,7 +14,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -79,4 +79,4 @@ void run_xgboost(Context& ctx) {
     ui::ok("XGBoost installed to /usr/local/");
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

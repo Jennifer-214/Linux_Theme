@@ -7,7 +7,7 @@
 // range (not the whole file or a prefix), concats into a context
 // block, and streams the model's answer.
 
-#include "fox_intel.hpp"
+#include "desk_intel.hpp"
 
 #include <algorithm>
 #include <filesystem>
@@ -47,7 +47,7 @@ int main(int argc, char* argv[]) {
     std::string query = argv[1];
     for (int i = 2; i < argc; ++i) { query += ' '; query += argv[i]; }
 
-    FoxIntel intel;
+    DeskIntel intel;
     if (!intel.ensure_server_running()) return 1;
 
     std::filesystem::path idx_dir = std::filesystem::current_path();
@@ -99,7 +99,7 @@ int main(int argc, char* argv[]) {
     matches.reserve(idx.size());
     for (auto& e : idx) {
         if (!e.contains("vector") || !e.contains("line_start")) continue;
-        double s = FoxIntel::cosine_similarity(
+        double s = DeskIntel::cosine_similarity(
             qvec, e["vector"].get<std::vector<float>>());
         matches.push_back({e["path"], e["line_start"], e["line_end"], s});
     }

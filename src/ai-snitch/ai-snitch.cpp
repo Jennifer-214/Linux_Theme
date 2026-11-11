@@ -6,9 +6,9 @@
 // asks the local model to flag suspicious-looking egress.
 //
 // Pattern from ai-doctor: capture context via execvp'd one-shots,
-// shape the prompt, FoxIntel.ask(stream=true), exit.
+// shape the prompt, DeskIntel.ask(stream=true), exit.
 
-#include "../desk-intel/fox_intel.hpp"
+#include "../desk-intel/desk_intel.hpp"
 
 #include <cstdio>
 #include <cerrno>
@@ -74,7 +74,7 @@ int main(int argc, char** argv) {
         if (a == "--model" && i + 1 < argc) { model = argv[++i]; continue; }
     }
 
-    FoxIntel ai = model.empty() ? FoxIntel{} : FoxIntel{model};
+    DeskIntel ai = model.empty() ? DeskIntel{} : DeskIntel{model};
     if (!ai.ensure_server_running()) {
         std::fprintf(stderr, "ai-snitch: local model server unavailable\n");
         return 1;

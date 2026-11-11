@@ -9,7 +9,7 @@
 #include <cstdlib>
 #include <string>
 
-namespace fh = fox_health;
+namespace fh = desk_health;
 
 static int g_pass = 0, g_fail = 0;
 #define CHECK(cond, msg) do { \

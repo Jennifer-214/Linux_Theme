@@ -14,7 +14,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -68,4 +68,4 @@ void run_no_coredumps(Context& ctx) {
     sh::run({"sh", "-c", "sudo systemctl daemon-reexec 2>/dev/null || true"});
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

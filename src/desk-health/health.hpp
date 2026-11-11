@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace fox_health {
+namespace desk_health {
 
 enum class Severity { Critical, High, Medium, Low };
 enum class Status   { Pass, Warn, Fail, Skip };
@@ -62,6 +62,6 @@ std::vector<CheckResult> run_all(const CheckOptions& opts = {});
 //   3  = ≥1 High Fail
 int worst_exit(const std::vector<CheckResult>& results);
 
-}  // namespace fox_health
+}  // namespace desk_health
 
 #endif

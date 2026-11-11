@@ -17,7 +17,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -117,4 +117,4 @@ void run_detect(Context& ctx) {
     ctx.detect_ran = true;
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

@@ -1,6 +1,6 @@
 # src/desk-health/Makefile — health-check library.
 #
-# Produces libfox-health.a, used by:
+# Produces libdesk-health.a, used by:
 #   - src/sec-health/ (CLI wrapper for `desk sec health`)
 #   - src/desk-install/   (future preflight integration)
 #   - src/foxml-health-pacman/ (future pacman hook binary)
@@ -11,7 +11,7 @@ AR       ?= ar
 PREFIX   ?= $(HOME)/.local/bin
 
 OBJS = health.o checks_a_boot.o checks_b_auth.o
-LIB  = libfox-health.a
+LIB  = libdesk-health.a
 
 all: $(LIB)
 

@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-namespace fox_install::args {
+namespace desk_install::args {
 
 struct Parsed {
     std::vector<bool> module_enabled;     // size = MODULES_COUNT, indexed by module order
@@ -28,6 +28,6 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx);
 void print_help(const char* argv0);
 void print_version();
 
-}  // namespace fox_install::args
+}  // namespace desk_install::args
 
 #endif

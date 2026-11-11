@@ -49,7 +49,7 @@ const char* SAMPLE =
 }  // namespace
 
 int main() {
-    using namespace fox_install::personalize;
+    using namespace desk_install::personalize;
     int failed = 0;
 
     auto check = [&](const char* what, bool ok) {
@@ -94,7 +94,7 @@ int main() {
     // to the SAME result → the known-good deployed config cannot change.
     {
         namespace fs = std::filesystem;
-        using fox_install::splice_sentinel;
+        using desk_install::splice_sentinel;
         const std::string B = "# foxml:hyprlock-backgrounds-begin";
         const std::string E = "# foxml:hyprlock-backgrounds-end";
         const std::string NEW =

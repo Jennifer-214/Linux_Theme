@@ -21,7 +21,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -81,4 +81,4 @@ void run_fprintd_reset_polkit(Context& ctx) {
     ui::ok("active local wheel users can restart fprintd without re-auth (finger self-heal)");
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

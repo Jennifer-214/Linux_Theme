@@ -21,7 +21,7 @@
 
 namespace fs = std::filesystem;
 using json = nlohmann::json;
-using namespace fox_install;
+using namespace desk_install;
 
 namespace {
 

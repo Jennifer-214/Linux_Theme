@@ -2,7 +2,7 @@
 #define FOX_MONITOR_REDERIVE_HPP
 
 // Re-derive a sidecar Layout from live Hyprland state — the C++ port of
-// monitor-watch.sh's rederive_sidecar(). A submodule of libfox-monitor
+// monitor-watch.sh's rederive_sidecar(). A submodule of libdesk-monitor
 // composed by `desk-monitor reconcile`.
 //
 // hyprctl reports PRE-transform .width/.height; a 90°/270° rotation
@@ -15,7 +15,7 @@
 
 #include <string>
 
-namespace fox_monitor::rederive {
+namespace desk_monitor::rederive {
 
 // PURE: parse `monitors_json` (the `hyprctl monitors -j` array) into a
 // Layout, applying the transform-swap, the portrait/secondary derivation,
@@ -29,6 +29,6 @@ sidecar::Layout from_hyprctl_json(const std::string& monitors_json,
 // empty) when hyprctl is unavailable / returns nothing.
 sidecar::Layout from_live(const sidecar::Layout& prev);
 
-}  // namespace fox_monitor::rederive
+}  // namespace desk_monitor::rederive
 
 #endif

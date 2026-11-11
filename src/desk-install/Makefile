@@ -8,22 +8,22 @@ CXX      ?= g++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 PREFIX   ?= $(HOME)/.local/bin
 
-# Shared core library — produces libfox-common.a (ui/shell helpers, and
+# Shared core library — produces libdesk-common.a (ui/shell helpers, and
 # in future slices the dispatcher). Linked into our binary.
-FOX_COMMON_DIR := ../desk-common
-FOX_COMMON_LIB := $(FOX_COMMON_DIR)/libfox-common.a
+DESK_COMMON_DIR := ../desk-common
+DESK_COMMON_LIB := $(DESK_COMMON_DIR)/libdesk-common.a
 
 # foxml-health check library — Phase 2 preflight integration. The
-# preflight module calls fox_health::run_all() on the A+B subset and
+# preflight module calls desk_health::run_all() on the A+B subset and
 # bails on any Critical fail.
-FOX_HEALTH_DIR := ../desk-health
-FOX_HEALTH_LIB := $(FOX_HEALTH_DIR)/libfox-health.a
+DESK_HEALTH_DIR := ../desk-health
+DESK_HEALTH_LIB := $(DESK_HEALTH_DIR)/libdesk-health.a
 
 # monitor library — the single sidecar (monitor-layout.conf) read/write
 # implementation. monitors/personalize/summary modules link this so there
 # is exactly one sidecar code path shared with the desk-monitor binary.
-FOX_MONITOR_DIR := ../desk-monitor
-FOX_MONITOR_LIB := $(FOX_MONITOR_DIR)/libfox-monitor.a
+DESK_MONITOR_DIR := ../desk-monitor
+DESK_MONITOR_LIB := $(DESK_MONITOR_DIR)/libdesk-monitor.a
 
 CORE_SRC    := $(wildcard core/*.cpp)
 MODULE_SRC  := $(wildcard modules/*.cpp)
@@ -37,22 +37,22 @@ BIN := desk-install
 
 all: $(BIN)
 
-$(BIN): $(MAIN_OBJ) $(CORE_OBJ) $(MODULE_OBJ) $(FOX_COMMON_LIB) $(FOX_HEALTH_LIB) $(FOX_MONITOR_LIB)
+$(BIN): $(MAIN_OBJ) $(CORE_OBJ) $(MODULE_OBJ) $(DESK_COMMON_LIB) $(DESK_HEALTH_LIB) $(DESK_MONITOR_LIB)
 	$(CXX) $(CXXFLAGS) -o $@ $(MAIN_OBJ) $(CORE_OBJ) $(MODULE_OBJ) \
-		-L$(FOX_MONITOR_DIR) -lfox-monitor \
-		-L$(FOX_COMMON_DIR) -lfox-common \
-		-L$(FOX_HEALTH_DIR) -lfox-health \
+		-L$(DESK_MONITOR_DIR) -ldesk-monitor \
+		-L$(DESK_COMMON_DIR) -ldesk-common \
+		-L$(DESK_HEALTH_DIR) -ldesk-health \
 		-lcrypto
 
-# Ensure libfox-common.a is built before linking.
-$(FOX_COMMON_LIB):
-	$(MAKE) --no-print-directory -C $(FOX_COMMON_DIR)
+# Ensure libdesk-common.a is built before linking.
+$(DESK_COMMON_LIB):
+	$(MAKE) --no-print-directory -C $(DESK_COMMON_DIR)
 
-$(FOX_HEALTH_LIB):
-	$(MAKE) --no-print-directory -C $(FOX_HEALTH_DIR)
+$(DESK_HEALTH_LIB):
+	$(MAKE) --no-print-directory -C $(DESK_HEALTH_DIR)
 
-$(FOX_MONITOR_LIB):
-	$(MAKE) --no-print-directory -C $(FOX_MONITOR_DIR)
+$(DESK_MONITOR_LIB):
+	$(MAKE) --no-print-directory -C $(DESK_MONITOR_DIR)
 
 # -MMD records every project header each object includes, so a header edit rebuilds exactly its includers.
 # Makefile is a prerequisite so a flag change rebuilds objects from before the .d files existed.
@@ -143,7 +143,7 @@ tests/test_arkenfox_userjs: tests/test_arkenfox_userjs.cpp modules/arkenfox_user
 tests/test_theme_choice: tests/test_theme_choice.cpp core/theme_choice.hpp
 	$(CXX) $(CXXFLAGS) $< -o $@
 
-tests/test_ide_settings: tests/test_ide_settings.cpp modules/ide_settings.hpp core/backup.o $(FOX_COMMON_LIB)
+tests/test_ide_settings: tests/test_ide_settings.cpp modules/ide_settings.hpp core/backup.o $(DESK_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) $(filter %.cpp %.o %.a,$^) -o $@
 
 tests/test_notification_refresh: tests/test_notification_refresh.cpp modules/notification_refresh.hpp
@@ -153,16 +153,16 @@ test-notification-refresh: tests/test_notification_refresh
 	./tests/test_notification_refresh
 .PHONY: test-notification-refresh
 
-tests/test_firefox_appearance: tests/test_firefox_appearance.cpp modules/firefox_appearance.hpp core/backup.o $(FOX_COMMON_LIB)
+tests/test_firefox_appearance: tests/test_firefox_appearance.cpp modules/firefox_appearance.hpp core/backup.o $(DESK_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) $(filter %.cpp %.o %.a,$^) -o $@
 
-tests/test_icon_deploy: tests/test_icon_deploy.cpp modules/symlinks.o core/backup.o $(FOX_COMMON_LIB) modules/gtk_appearance.hpp
+tests/test_icon_deploy: tests/test_icon_deploy.cpp modules/symlinks.o core/backup.o $(DESK_COMMON_LIB) modules/gtk_appearance.hpp
 	$(CXX) $(CXXFLAGS) $(filter %.cpp %.o %.a,$^) -o $@
 
-tests/test_drawer_deploy: tests/test_drawer_deploy.cpp modules/drawer.o core/backup.o $(FOX_COMMON_LIB)
+tests/test_drawer_deploy: tests/test_drawer_deploy.cpp modules/drawer.o core/backup.o $(DESK_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
-tests/test_cursor_sync: tests/test_cursor_sync.cpp modules/catppuccin_cursor.o core/backup.o $(FOX_COMMON_LIB)
+tests/test_cursor_sync: tests/test_cursor_sync.cpp modules/catppuccin_cursor.o core/backup.o $(DESK_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
 tests/test_cursor_recolor: tests/test_cursor_recolor.cpp modules/cursor_recolor.hpp
@@ -171,15 +171,15 @@ tests/test_cursor_recolor: tests/test_cursor_recolor.cpp modules/cursor_recolor.
 tests/test_folder_recolor: tests/test_folder_recolor.cpp modules/folder_recolor.hpp modules/cursor_recolor.hpp
 	$(CXX) $(CXXFLAGS) $< -o $@
 
-tests/test_gtk_appearance: tests/test_gtk_appearance.cpp modules/gtk_appearance.hpp $(FOX_COMMON_LIB)
-	$(CXX) $(CXXFLAGS) $< $(FOX_COMMON_LIB) -o $@
+tests/test_gtk_appearance: tests/test_gtk_appearance.cpp modules/gtk_appearance.hpp $(DESK_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) $< $(DESK_COMMON_LIB) -o $@
 
 # [I-08] flag-layer semantics — parse-time precedence (every shipped
 # accepted-but-overridden flag bug is a case here). Links the real
 # state_checks for the registry's check_* symbols; run_* are stubbed
 # inside the test via the modules.def X-macro.
-tests/test_args: tests/test_args.cpp core/args.o core/registry.o core/state_checks.o core/state_manifest.o core/classifier.o $(FOX_COMMON_LIB)
-	$(CXX) $(CXXFLAGS) tests/test_args.cpp core/args.o core/registry.o core/state_checks.o core/state_manifest.o core/classifier.o -L$(FOX_COMMON_DIR) -lfox-common -lcrypto -o $@
+tests/test_args: tests/test_args.cpp core/args.o core/registry.o core/state_checks.o core/state_manifest.o core/classifier.o $(DESK_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_args.cpp core/args.o core/registry.o core/state_checks.o core/state_manifest.o core/classifier.o -L$(DESK_COMMON_DIR) -ldesk-common -lcrypto -o $@
 
 tests/test_state_manifest: tests/test_state_manifest.cpp core/state_manifest.o
 	$(CXX) $(CXXFLAGS) tests/test_state_manifest.cpp core/state_manifest.o -o $@ -lcrypto
@@ -187,9 +187,9 @@ tests/test_state_manifest: tests/test_state_manifest.cpp core/state_manifest.o
 # gaming tests the [multilib]-enable IDEMPOTENCY (the fixed-point proof that
 # guards against the iommu boot-corruption class). Runs the real
 # MULTILIB_UNCOMMENT_SED against a temp fixture; links gaming.o for
-# multilib_already_enabled + libfox-common for sh::run.
-tests/test_gaming: tests/test_gaming.cpp modules/gaming.o $(FOX_COMMON_LIB)
-	$(CXX) $(CXXFLAGS) tests/test_gaming.cpp modules/gaming.o -L$(FOX_COMMON_DIR) -lfox-common -o $@
+# multilib_already_enabled + libdesk-common for sh::run.
+tests/test_gaming: tests/test_gaming.cpp modules/gaming.o $(DESK_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_gaming.cpp modules/gaming.o -L$(DESK_COMMON_DIR) -ldesk-common -o $@
 
 tests/test_classifier: tests/test_classifier.cpp core/classifier.o
 	$(CXX) $(CXXFLAGS) tests/test_classifier.cpp core/classifier.o -o $@
@@ -197,9 +197,9 @@ tests/test_classifier: tests/test_classifier.cpp core/classifier.o
 # iommu pins the lockdown gate (build_iommu_args) + the self-heal strip
 # (LOCKDOWN_STRIP_SED idempotency) + the post-edit self-check
 # (cmdline_options_sane) against a real boot-entry fixture — no VM, no sudo.
-# Links iommu.o for the real symbols + libfox-common for sh::run.
-tests/test_iommu: tests/test_iommu.cpp modules/iommu.o $(FOX_COMMON_LIB)
-	$(CXX) $(CXXFLAGS) tests/test_iommu.cpp modules/iommu.o -L$(FOX_COMMON_DIR) -lfox-common -o $@
+# Links iommu.o for the real symbols + libdesk-common for sh::run.
+tests/test_iommu: tests/test_iommu.cpp modules/iommu.o $(DESK_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_iommu.cpp modules/iommu.o -L$(DESK_COMMON_DIR) -ldesk-common -o $@
 
 # nvidia_modules pins the MERGE that replaced the destructive whole-line
 # MODULES sed (the unbootable-initramfs brick): every existing MODULES entry
@@ -214,44 +214,44 @@ tests/test_hypr_lua: tests/test_hypr_lua.cpp modules/hypr_lua.hpp
 
 # hyprlock panel pinner — pure pin_foreground_monitors() guards that the
 # login panel pins to PRIMARY while per-monitor background blocks (inside
-# the sentinels) stay untouched. Links personalize.o + libfox-monitor
-# (sidecar::Layout, the personalize API's parameter type) + libfox-common (sh::/ui::).
-tests/test_hyprlock_pin: tests/test_hyprlock_pin.cpp modules/personalize.o $(FOX_MONITOR_LIB) $(FOX_COMMON_LIB)
-	$(CXX) $(CXXFLAGS) tests/test_hyprlock_pin.cpp modules/personalize.o -L$(FOX_MONITOR_DIR) -lfox-monitor -L$(FOX_COMMON_DIR) -lfox-common -o $@
+# the sentinels) stay untouched. Links personalize.o + libdesk-monitor
+# (sidecar::Layout, the personalize API's parameter type) + libdesk-common (sh::/ui::).
+tests/test_hyprlock_pin: tests/test_hyprlock_pin.cpp modules/personalize.o $(DESK_MONITOR_LIB) $(DESK_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_hyprlock_pin.cpp modules/personalize.o -L$(DESK_MONITOR_DIR) -ldesk-monitor -L$(DESK_COMMON_DIR) -ldesk-common -o $@
 
 # hyprlock background blocks — one per monitor, on the wallpaper cut for its size,
 # with the theme default as the fallback and the template's settings copied in.
 test: tests/test_hyprlock_backgrounds
-tests/test_hyprlock_backgrounds: tests/test_hyprlock_backgrounds.cpp modules/personalize.o $(FOX_MONITOR_LIB) $(FOX_COMMON_LIB)
-	$(CXX) $(CXXFLAGS) tests/test_hyprlock_backgrounds.cpp modules/personalize.o -L$(FOX_MONITOR_DIR) -lfox-monitor -L$(FOX_COMMON_DIR) -lfox-common -o $@
+tests/test_hyprlock_backgrounds: tests/test_hyprlock_backgrounds.cpp modules/personalize.o $(DESK_MONITOR_LIB) $(DESK_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_hyprlock_backgrounds.cpp modules/personalize.o -L$(DESK_MONITOR_DIR) -ldesk-monitor -L$(DESK_COMMON_DIR) -ldesk-common -o $@
 
 # Claude hook wiring (S10 / S10b, 2026-10-15): merge_hook_entries + restore_theme_wiring on a throwaway fixture
 # (a home, a git checkout with .claude/ ignored, a fake workspace), and snapshot_one, moved to core/backup.cpp.
-tests/test_claude_wiring: tests/test_claude_wiring.cpp modules/claude_wiring.o core/backup.o $(FOX_COMMON_LIB)
-	$(CXX) $(CXXFLAGS) tests/test_claude_wiring.cpp modules/claude_wiring.o core/backup.o -L$(FOX_COMMON_DIR) -lfox-common -o $@
+tests/test_claude_wiring: tests/test_claude_wiring.cpp modules/claude_wiring.o core/backup.o $(DESK_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_claude_wiring.cpp modules/claude_wiring.o core/backup.o -L$(DESK_COMMON_DIR) -ldesk-common -o $@
 
 # NOTE: the pure plan_variants() characterization moved to desk-monitor's own
 # test target (tests/test_variants there) when the variant generator became
-# the libfox-monitor variants submodule (Slice C2).
+# the libdesk-monitor variants submodule (Slice C2).
 
 # state_checks links the real implementation (not stubs) so the empty-
 # manifest paths exercise the actual code. That pulls in shell/ui
-# helpers from libfox-common + libcrypto for hash_string.
-tests/test_state_checks: tests/test_state_checks.cpp core/state_checks.o core/state_manifest.o core/classifier.o $(FOX_COMMON_LIB)
-	$(CXX) $(CXXFLAGS) tests/test_state_checks.cpp core/state_checks.o core/state_manifest.o core/classifier.o -L$(FOX_COMMON_DIR) -lfox-common -lcrypto -o $@
+# helpers from libdesk-common + libcrypto for hash_string.
+tests/test_state_checks: tests/test_state_checks.cpp core/state_checks.o core/state_manifest.o core/classifier.o $(DESK_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_state_checks.cpp core/state_checks.o core/state_manifest.o core/classifier.o -L$(DESK_COMMON_DIR) -ldesk-common -lcrypto -o $@
 
 # conflict_resolve exercises real file-IO (the apply() path); the
-# interactive prompt() path is not driven from tests. Links libfox-common
+# interactive prompt() path is not driven from tests. Links libdesk-common
 # because the diff invocation goes through sh::run.
-tests/test_conflict_resolve: tests/test_conflict_resolve.cpp core/conflict_resolve.o $(FOX_COMMON_LIB)
-	$(CXX) $(CXXFLAGS) tests/test_conflict_resolve.cpp core/conflict_resolve.o -L$(FOX_COMMON_DIR) -lfox-common -o $@
+tests/test_conflict_resolve: tests/test_conflict_resolve.cpp core/conflict_resolve.o $(DESK_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_conflict_resolve.cpp core/conflict_resolve.o -L$(DESK_COMMON_DIR) -ldesk-common -o $@
 
 # wizard tests the data types + default_plan (pure logic). Step 9
 # adds the interactive run() body, which isn't unit-tested. The link
 # pulls classifier + conflict_resolve in because wizard's structs
 # embed their types.
-tests/test_wizard: tests/test_wizard.cpp core/wizard.o core/classifier.o core/conflict_resolve.o $(FOX_COMMON_LIB)
-	$(CXX) $(CXXFLAGS) tests/test_wizard.cpp core/wizard.o core/classifier.o core/conflict_resolve.o -L$(FOX_COMMON_DIR) -lfox-common -o $@
+tests/test_wizard: tests/test_wizard.cpp core/wizard.o core/classifier.o core/conflict_resolve.o $(DESK_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_wizard.cpp core/wizard.o core/classifier.o core/conflict_resolve.o -L$(DESK_COMMON_DIR) -ldesk-common -o $@
 
 # install_lock — POSIX flock + lockfile path resolution. No desk-common
 # dependency; pure libc plus filesystem.
@@ -259,17 +259,17 @@ tests/test_install_lock: tests/test_install_lock.cpp core/install_lock.o
 	$(CXX) $(CXXFLAGS) tests/test_install_lock.cpp core/install_lock.o -o $@
 
 # subprocess_log — desk-common's stderr-log sink, exercised end-to-end
-# through sh::run/capture. Links libfox-common because that's where
+# through sh::run/capture. Links libdesk-common because that's where
 # the implementation now lives.
-tests/test_subprocess_log: tests/test_subprocess_log.cpp $(FOX_COMMON_LIB)
-	$(CXX) $(CXXFLAGS) tests/test_subprocess_log.cpp -L$(FOX_COMMON_DIR) -lfox-common -o $@
+tests/test_subprocess_log: tests/test_subprocess_log.cpp $(DESK_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_subprocess_log.cpp -L$(DESK_COMMON_DIR) -ldesk-common -o $@
 
 # banner_font — pure glyph table + constructor. No deps beyond libstdc++.
-tests/test_dry_run: tests/test_dry_run.cpp modules/vault.o $(FOX_COMMON_LIB)
-	$(CXX) $(CXXFLAGS) tests/test_dry_run.cpp modules/vault.o -L$(FOX_COMMON_DIR) -lfox-common -o $@
+tests/test_dry_run: tests/test_dry_run.cpp modules/vault.o $(DESK_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_dry_run.cpp modules/vault.o -L$(DESK_COMMON_DIR) -ldesk-common -o $@
 
-tests/test_health_boot: tests/test_health_boot.cpp modules/foxml_health_boot_script.hpp $(FOX_COMMON_LIB)
-	$(CXX) $(CXXFLAGS) -DBUILD_DIR='"$(CURDIR)/tests"' tests/test_health_boot.cpp -L$(FOX_COMMON_DIR) -lfox-common -o $@
+tests/test_health_boot: tests/test_health_boot.cpp modules/foxml_health_boot_script.hpp $(DESK_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) -DBUILD_DIR='"$(CURDIR)/tests"' tests/test_health_boot.cpp -L$(DESK_COMMON_DIR) -ldesk-common -o $@
 
 tests/test_hidepid: tests/test_hidepid.cpp modules/hidepid_check.hpp
 	$(CXX) $(CXXFLAGS) tests/test_hidepid.cpp -o $@

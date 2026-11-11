@@ -24,7 +24,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -110,4 +110,4 @@ void run_next_steps(Context& ctx) {
     std::printf("\n");
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

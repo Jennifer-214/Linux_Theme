@@ -7,7 +7,7 @@
 #include <sstream>
 #include <string>
 
-namespace fox_install {
+namespace desk_install {
 
 // The hidepid value on the live /proc when it hides other users' processes, else "". docs.kernel.org/filesystems/proc:
 // "hidepid=invisible or hidepid=2" hides them; "hidepid=ptraceable or hidepid=4" shows only what the caller can ptrace,
@@ -44,4 +44,4 @@ inline bool is_newer_foxml_hidepid_unit(const std::string& unit_text) {
     return false;
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

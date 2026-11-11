@@ -20,7 +20,7 @@ int main() {
     const fs::path proc = root / "proc", marker = root / "foxml-polkit-agent";
     fs::create_directories(proc);
     const uid_t me = ::getuid();
-    fox_pulse::AgentWatch watch;
+    desk_pulse::AgentWatch watch;
 
     process(proc, 40, "quickshell");
     std::ofstream(marker) << "40\n";

@@ -24,7 +24,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -281,4 +281,4 @@ void run_greetd(Context& ctx) {
     seed_regreet_state();
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

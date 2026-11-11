@@ -133,7 +133,7 @@ int run_reverse(int argc, char** argv) {
         return 1;
     }
 
-    auto palette = fox_render::parse_palette(palette_path);
+    auto palette = desk_render::parse_palette(palette_path);
     if (palette.empty()) {
         std::fprintf(stderr,
             "desk-render-fast: palette parsed empty (%s)\n",
@@ -142,7 +142,7 @@ int run_reverse(int argc, char** argv) {
     }
 
     std::string body = slurp(src_path);
-    std::string danger = fox_render::scan_danger(body);
+    std::string danger = desk_render::scan_danger(body);
     if (!danger.empty()) {
         std::fprintf(stderr,
             "desk-render-fast: DANGER PATTERN in %s — %s\n"
@@ -152,8 +152,8 @@ int run_reverse(int argc, char** argv) {
         return 3;
     }
 
-    auto rules = fox_render::build_reverse_rules(palette);
-    std::string out = fox_render::apply_reverse(body, rules);
+    auto rules = desk_render::build_reverse_rules(palette);
+    std::string out = desk_render::apply_reverse(body, rules);
     if (!write_atomic(out_path, out)) {
         std::fprintf(stderr, "desk-render-fast: write failed: %s\n",
                      out_path.c_str());
@@ -166,11 +166,11 @@ int run_reverse(int argc, char** argv) {
 
 int main(int argc, char** argv) {
     if (argc == 5 && std::string(argv[1]) == "--finish-assets") {
-        return fox_render::finish_icon_family(argv[3], argv[4], fox_render::parse_palette(argv[2])) &&
-            fox_render::finish_paper_assets(argv[3], argv[4]) ? 0 : 1;
+        return desk_render::finish_icon_family(argv[3], argv[4], desk_render::parse_palette(argv[2])) &&
+            desk_render::finish_paper_assets(argv[3], argv[4]) ? 0 : 1;
     }
     if (argc == 5 && std::string(argv[1]) == "--finish-icons") {
-        return fox_render::finish_icon_family(argv[3],argv[4],fox_render::parse_palette(argv[2])) ? 0 : 1;
+        return desk_render::finish_icon_family(argv[3],argv[4],desk_render::parse_palette(argv[2])) ? 0 : 1;
     }
     // Reverse mode dispatch.
     if (argc >= 2 && std::string(argv[1]) == "--reverse") {
@@ -194,7 +194,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    auto table = fox_render::parse_palette(palette_path);
+    auto table = desk_render::parse_palette(palette_path);
     if (table.empty()) {
         // Bash fell back to a hardcoded var list with empty values so
         // unit tests / corrupted palettes don't crash the render. We
@@ -207,17 +207,17 @@ int main(int argc, char** argv) {
 
     bool show_progress = isatty(fileno(stderr));
     auto t0 = std::chrono::steady_clock::now();
-    const auto result = fox_render::render_tree(template_dir, output_dir, table, show_progress);
+    const auto result = desk_render::render_tree(template_dir, output_dir, table, show_progress);
     if (result.failed > 0) {
         std::fprintf(stderr, "desk-render-fast: %zu of %zu files could not be written; refusing an incomplete render\n",
                      result.failed, result.failed + result.rendered);
         return 1;
     }
-    if (!fox_render::finish_icon_family(template_dir,output_dir,table)) {
+    if (!desk_render::finish_icon_family(template_dir,output_dir,table)) {
         std::fprintf(stderr,"desk-render-fast: icon-family generation failed; refusing an incomplete render\n");
         return 1;
     }
-    if (!fox_render::finish_paper_assets(template_dir, output_dir)) {
+    if (!desk_render::finish_paper_assets(template_dir, output_dir)) {
         std::fprintf(stderr, "desk-render-fast: shared Paper artwork did not render\n");
         return 1;
     }

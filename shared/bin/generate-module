@@ -1,7 +1,7 @@
 #!/bin/bash
 # generate-module — Scaffold a new C++ module for desk-install.
 #
-# Creates the .cpp file, adds the FOX_MODULE entry to modules.def,
+# Creates the .cpp file, adds the DESK_MODULE entry to modules.def,
 # and adds the required stub to test_registry.cpp.
 
 set -e
@@ -32,7 +32,7 @@ cat <<EOF > "$CPP_FILE"
 #include "../core/shell.hpp"
 #include "../core/ui.hpp"
 
-namespace fox_install {
+namespace desk_install {
 
 void run_$NAME(Context& ctx) {
     ui::section("Setting up $NAME");
@@ -42,20 +42,20 @@ void run_$NAME(Context& ctx) {
     // sh::systemctl_enable("some.service", /*user=*/false);
 }
 
-}  // namespace fox_install
+}  // namespace desk_install
 EOF
 
 # 2. Update modules.def
 # Try to find a good spot (before Phase 4) or just append before the GPU section.
 if grep -q "Phase 4" "$DEF_FILE"; then
-    sed -i "/Phase 4/i FOX_MODULE( $NAME, run_$NAME, \"--$NAME\", \"$DESC\", false )" "$DEF_FILE"
+    sed -i "/Phase 4/i DESK_MODULE( $NAME, run_$NAME, \"--$NAME\", \"$DESC\", false )" "$DEF_FILE"
 else
-    echo "FOX_MODULE( $NAME, run_$NAME, \"--$NAME\", \"$DESC\", false )" >> "$DEF_FILE"
+    echo "DESK_MODULE( $NAME, run_$NAME, \"--$NAME\", \"$DESC\", false )" >> "$DEF_FILE"
 fi
 
 # 3. Update test_registry.cpp
 # Append before the closing brace of the namespace.
-sed -i "/}  \/\/ namespace fox_install/i void run_$NAME(Context&) {}" "$TEST_FILE"
+sed -i "/}  \/\/ namespace desk_install/i void run_$NAME(Context&) {}" "$TEST_FILE"
 
 echo ":: Created module '$NAME'"
 echo "   + $CPP_FILE"

@@ -9,7 +9,7 @@
 // after the embedding model changes (or after the schema changed)
 // triggers a full rebuild instead of mixing incompatible vectors.
 
-#include "fox_intel.hpp"
+#include "desk_intel.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -139,7 +139,7 @@ int main(int argc, char* argv[]) {
     int max_threads = 8;
     std::string model = "mxbai-embed-large";
 
-    FoxIntel intel;
+    DeskIntel intel;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];

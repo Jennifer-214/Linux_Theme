@@ -10,7 +10,7 @@
 #include <vector>
 
 int main() {
-    using namespace fox_install;
+    using namespace desk_install;
     int failed = 0;
     auto has = [](const std::vector<const char*>& v, const char* s) {
         return std::any_of(v.begin(), v.end(), [&](const char* x) { return std::string(x) == s; });

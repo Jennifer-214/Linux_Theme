@@ -1,11 +1,11 @@
-// Round-trip + byte-format characterization for fox_monitor::sidecar.
+// Round-trip + byte-format characterization for desk_monitor::sidecar.
 //
 // Pins the on-disk format write() emits (header line + four double-quoted
 // KEY="value" assignments, vectors space-joined) byte-for-byte, then proves
 // read() recovers every field. Also covers the empty-Layout round-trip and
 // the missing-file → empty-Layout contract that call sites rely on.
 //
-// No desk-common dependency — links only libfox-monitor.
+// No desk-common dependency — links only libdesk-monitor.
 
 #include "../sidecar.hpp"
 
@@ -16,7 +16,7 @@
 #include <string>
 
 namespace fs = std::filesystem;
-using namespace fox_monitor::sidecar;
+using namespace desk_monitor::sidecar;
 
 namespace {
 

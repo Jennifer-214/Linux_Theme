@@ -5,7 +5,7 @@
 // rotate_wallpaper.sh's per-monitor apply loop, with the KEY DIFFERENCE
 // that the base comes from the `.current` symlink (a bare filename), NOT a
 // time-of-day slot. reconcile RE-APPLIES the current wallpaper; it never
-// rotates. A submodule of libfox-monitor composed by `desk-monitor reconcile`.
+// rotates. A submodule of libdesk-monitor composed by `desk-monitor reconcile`.
 
 #include "sidecar.hpp"
 
@@ -13,7 +13,7 @@
 #include <filesystem>
 #include <string>
 
-namespace fox_monitor::apply {
+namespace desk_monitor::apply {
 
 // readlink(wall_dir/.current) → bare filename (e.g. "foxml_earthy.jpg").
 // Empty when the symlink is absent/unreadable or points outside wall_dir.
@@ -41,6 +41,6 @@ std::size_t apply_current(const sidecar::Layout& layout,
                           const std::filesystem::path& wall_dir,
                           bool dry_run);
 
-}  // namespace fox_monitor::apply
+}  // namespace desk_monitor::apply
 
 #endif

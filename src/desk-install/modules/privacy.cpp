@@ -27,7 +27,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -156,4 +156,4 @@ void run_privacy(Context& ctx) {
     ui::ok("DoH + DNSSEC active");
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

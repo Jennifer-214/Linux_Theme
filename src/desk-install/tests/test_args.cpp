@@ -13,7 +13,7 @@
 #include <string>
 #include <vector>
 
-using namespace fox_install;
+using namespace desk_install;
 
 static int failures = 0;
 #define EXPECT(cond) do { \
@@ -263,6 +263,6 @@ int main() {
 
 // Module run-function link stubs (shared single source; the check_*
 // symbols come from the real state_checks.o on the link line).
-namespace fox_install {
+namespace desk_install {
 #include "run_stubs.inc"
-}  // namespace fox_install
+}  // namespace desk_install

@@ -20,7 +20,7 @@
 #include <system_error>
 #include <vector>
 
-namespace fox_install {
+namespace desk_install {
 
 // The nvidia early-KMS modules, in dependency order. Appended (missing-only,
 // dedup) after the user's existing entries.
@@ -262,6 +262,6 @@ inline bool ensure_nvidia_conf_placeholder(const std::filesystem::path& dest) {
     return !ec;
 }
 
-}  // namespace fox_install
+}  // namespace desk_install
 
 #endif  // FOX_INSTALL_NVIDIA_MODULES_HPP

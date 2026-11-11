@@ -4,7 +4,7 @@
 #include <iterator>
 
 namespace fs = std::filesystem;
-namespace fox_render {
+namespace desk_render {
 bool finish_paper_assets(const fs::path& templates, const fs::path& output) {
     const bool full = fs::exists(templates / "firefox/userContent.css");
     if (!full && !fs::exists(templates / "userContent.css")) return true;

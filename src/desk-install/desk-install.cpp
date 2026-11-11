@@ -68,13 +68,13 @@ void warn_if_stale_on_path() {
             return;  // PATH resolves to self — nothing stale.
         }
         if (cst.st_mtime < self_st.st_mtime) {
-            fox_install::ui::warn("stale desk-install at " + candidate
+            desk_install::ui::warn("stale desk-install at " + candidate
                      + " is older than this binary");
-            fox_install::ui::substep("`make install` from the source tree to refresh ~/.local/bin");
+            desk_install::ui::substep("`make install` from the source tree to refresh ~/.local/bin");
         } else if (cst.st_mtime > self_st.st_mtime) {
-            fox_install::ui::warn("newer desk-install at " + candidate
+            desk_install::ui::warn("newer desk-install at " + candidate
                      + " — PATH would resolve there, not here");
-            fox_install::ui::substep("you may be running a stale copy; re-run via that path"
+            desk_install::ui::substep("you may be running a stale copy; re-run via that path"
                         " or `cd <source> && ./install.sh`");
         }
         return;  // shell stops at first PATH hit; we do too
@@ -132,7 +132,7 @@ fs::path detect_script_dir(const char* argv0) {
 // Theme-INDEPENDENT paths. Resolved BEFORE arg parsing so flags like
 // --preset can read ctx.script_dir / ctx.config_home (parse() only writes
 // ctx, never reads these, so this ordering is safe).
-void fill_paths_pre(fox_install::Context& ctx, const char* argv0) {
+void fill_paths_pre(desk_install::Context& ctx, const char* argv0) {
     ctx.script_dir    = detect_script_dir(argv0);
     ctx.templates_dir = ctx.script_dir / "templates";
     ctx.themes_dir    = ctx.script_dir / "themes";
@@ -157,8 +157,8 @@ void fill_paths_pre(fox_install::Context& ctx, const char* argv0) {
 
 // Theme-DEPENDENT paths. Resolved AFTER parse() has had a chance to set
 // ctx.theme_name from a positional arg, and before the plan reads the palette.
-void fill_paths_post(fox_install::Context& ctx) {
-    const auto choice = fox_install::choose_theme(ctx.theme_name, ctx.themes_dir, ctx.script_dir, DEFAULT_THEME);
+void fill_paths_post(desk_install::Context& ctx) {
+    const auto choice = desk_install::choose_theme(ctx.theme_name, ctx.themes_dir, ctx.script_dir, DEFAULT_THEME);
     ctx.theme_name   = choice.name;
     ctx.theme_source = choice.source;
     ctx.palette_path = ctx.themes_dir / ctx.theme_name / "palette.sh";
@@ -167,7 +167,7 @@ void fill_paths_post(fox_install::Context& ctx) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    using namespace fox_install;
+    using namespace desk_install;
 
     ui::init();
     warn_if_stale_on_path();

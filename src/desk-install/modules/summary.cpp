@@ -19,9 +19,9 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
-namespace sidecar = fox_monitor::sidecar;
+namespace sidecar = desk_monitor::sidecar;
 
 namespace {
 
@@ -139,4 +139,4 @@ void run_summary(Context& ctx) {
     }
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

@@ -17,7 +17,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -65,4 +65,4 @@ void run_reboot_polkit(Context& ctx) {
     ui::ok("active local wheel users can reboot/poweroff without re-auth");
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

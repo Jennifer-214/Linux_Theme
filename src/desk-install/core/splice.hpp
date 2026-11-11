@@ -12,7 +12,7 @@
 #include <sstream>
 #include <string>
 
-namespace fox_install {
+namespace desk_install {
 
 inline bool splice_sentinel(const std::filesystem::path& p,
                             const std::string& begin_sentinel,
@@ -59,6 +59,6 @@ inline bool splice_sentinel(const std::filesystem::path& p,
     return true;
 }
 
-}  // namespace fox_install
+}  // namespace desk_install
 
 #endif

@@ -22,7 +22,7 @@
 #include <string>
 #include <unistd.h>
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -145,4 +145,4 @@ void run_ufw(Context& ctx) {
     }
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

@@ -19,7 +19,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 // ParallelDownloads in /etc/pacman.conf for faster pacman fetches.
 // Bash mostly assumed Arch's stock 5 was fine; we ensure it's >= 5
@@ -206,4 +206,4 @@ void run_deps(Context& ctx) {
     }
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

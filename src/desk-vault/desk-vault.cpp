@@ -174,7 +174,7 @@ int run_daemon(bool daemonize) {
     // microseconds. PR_SET_DUMPABLE(0) blocks both.
     ::prctl(PR_SET_DUMPABLE, 0, 0, 0, 0);
 
-    fox_vault::Vault vault;
+    desk_vault::Vault vault;
     if (!vault.entropy_ok()) {
         std::fprintf(stderr,
             "desk-vault: kernel entropy unavailable (getrandom + /dev/urandom both failed); "

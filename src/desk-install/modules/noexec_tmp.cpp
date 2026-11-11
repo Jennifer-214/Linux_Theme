@@ -20,7 +20,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -160,4 +160,4 @@ void run_noexec_tmp(Context& ctx) {
     }
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

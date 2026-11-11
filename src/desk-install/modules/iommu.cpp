@@ -20,7 +20,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -257,4 +257,4 @@ void run_iommu(Context& ctx) {
            " — REBOOT to activate");
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

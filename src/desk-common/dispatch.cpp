@@ -7,7 +7,7 @@
 #include <iostream>
 #include <unistd.h>
 
-namespace fox_common::dispatch {
+namespace desk_common::dispatch {
 
 void print_help(const std::string& title, const std::vector<Entry>& entries) {
     std::cout << title << "\n\n";
@@ -56,4 +56,4 @@ int exec_leaf(const std::string& binary, const std::vector<std::string>& args) {
     return 127;
 }
 
-}  // namespace fox_common::dispatch
+}  // namespace desk_common::dispatch

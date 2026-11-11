@@ -9,7 +9,7 @@
 
 #include <string>
 
-namespace fox_install::firefox_policies {
+namespace desk_install::firefox_policies {
 
 struct Addon { const char* id; const char* slug; const char* name; };
 
@@ -40,4 +40,4 @@ inline Merge add_extension(nlohmann::json& file, const Addon& addon) {
     return Merge::Added;
 }
 
-}  // namespace fox_install::firefox_policies
+}  // namespace desk_install::firefox_policies

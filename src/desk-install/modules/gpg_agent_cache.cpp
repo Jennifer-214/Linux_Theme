@@ -16,7 +16,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -95,4 +95,4 @@ void run_gpg_agent_cache(Context& ctx) {
     sh::run({"sh", "-c", "gpgconf --reload gpg-agent 2>/dev/null || true"});
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

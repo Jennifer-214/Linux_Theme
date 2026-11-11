@@ -4,7 +4,7 @@
 #include <cstdio>
 #include <string>
 
-using namespace fox_theme_check;
+using namespace desk_theme_check;
 
 static int failures = 0, passed = 0;
 static void check(bool ok, const char* what) {

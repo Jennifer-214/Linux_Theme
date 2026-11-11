@@ -16,7 +16,7 @@
 #include <string>
 #include <vector>
 
-namespace fox_install::sh {
+namespace desk_install::sh {
 
 // Set by main() to short-circuit any side-effecting call. Reads survive.
 void set_dry_run(bool on);
@@ -97,6 +97,6 @@ bool sudo_warmup();
 // run, never one per module.
 bool sudo_warmup_interactive();
 
-}  // namespace fox_install::sh
+}  // namespace desk_install::sh
 
 #endif

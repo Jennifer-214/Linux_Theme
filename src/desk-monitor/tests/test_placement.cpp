@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <iostream>
 
-namespace p = fox_monitor::placement;
+namespace p = desk_monitor::placement;
 static int failures = 0;
 static void check(const char* what, bool ok) {
     if (!ok) { ++failures; std::cerr << "FAIL: " << what << "\n"; }

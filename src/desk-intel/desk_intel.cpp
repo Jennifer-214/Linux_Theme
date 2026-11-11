@@ -1,4 +1,4 @@
-#include "fox_intel.hpp"
+#include "desk_intel.hpp"
 #include <iostream>
 #include <fstream>
 #include <cmath>
@@ -42,7 +42,7 @@ static bool role_model(const std::string& home, const std::string& role, std::st
     return false;
 }
 
-FoxIntel::FoxIntel(std::string model) : default_model(""), accent_color("\033[1;32m") {
+DeskIntel::DeskIntel(std::string model) : default_model(""), accent_color("\033[1;32m") {
     const char* home = std::getenv("HOME");
     std::string home_str = home ? home : "";
 
@@ -103,7 +103,7 @@ FoxIntel::FoxIntel(std::string model) : default_model(""), accent_color("\033[1;
     g_curl_ref_count++;
 }
 
-FoxIntel::~FoxIntel() {
+DeskIntel::~DeskIntel() {
     std::lock_guard<std::mutex> lk(g_curl_ref_mu);
     g_curl_ref_count--;
     if (g_curl_ref_count == 0) curl_global_cleanup();
@@ -113,7 +113,7 @@ FoxIntel::~FoxIntel() {
 // `llamacpp/…`, the `ollama/…` of configs from before llama.cpp served everything, or a bare name → the
 // main one — each at the baseURL opencode has for it (llm-update --sync writes both). Anything else
 // is a cloud model desk-ai can't run locally: false, and the next source decides.
-bool FoxIntel::use_model(std::string ref, const json* opencode) {
+bool DeskIntel::use_model(std::string ref, const json* opencode) {
     std::string provider, model = ref;
     if (auto slash = ref.find('/'); slash != std::string::npos) {
         provider = ref.substr(0, slash);
@@ -138,11 +138,11 @@ bool FoxIntel::use_model(std::string ref, const json* opencode) {
     return true;
 }
 
-std::string FoxIntel::color_accent() { return accent_color; }
-std::string FoxIntel::color_dim() { return "\033[2m"; }
-std::string FoxIntel::color_reset() { return "\033[0m"; }
+std::string DeskIntel::color_accent() { return accent_color; }
+std::string DeskIntel::color_dim() { return "\033[2m"; }
+std::string DeskIntel::color_reset() { return "\033[0m"; }
 
-size_t FoxIntel::WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
+size_t DeskIntel::WriteCallback(void* contents, size_t size, size_t nmemb, std::string* userp) {
     userp->append((char*)contents, size * nmemb);
     return size * nmemb;
 }
@@ -177,7 +177,7 @@ static void print_sse_line(std::string line) {
 }
 
 // A network chunk can end mid-line: keep the tail until its newline arrives.
-size_t FoxIntel::SseCallback(void* contents, size_t size, size_t nmemb, void* userp) {
+size_t DeskIntel::SseCallback(void* contents, size_t size, size_t nmemb, void* userp) {
     auto* pending = static_cast<std::string*>(userp);
     pending->append(static_cast<char*>(contents), size * nmemb);
     for (size_t nl; (nl = pending->find('\n')) != std::string::npos; ) {
@@ -218,7 +218,7 @@ static void embed_failed(const std::string& why) {
 static std::mutex g_limit_mu;
 static std::map<std::string, int> g_embed_limit;
 
-std::vector<float> FoxIntel::get_embedding(const std::string& text, const std::string& model) {
+std::vector<float> DeskIntel::get_embedding(const std::string& text, const std::string& model) {
     return embed_llama(text, model.empty() ? "mxbai-embed-large" : model);
 }
 
@@ -226,7 +226,7 @@ std::vector<float> FoxIntel::get_embedding(const std::string& text, const std::s
 // tokenized (the router's /tokenize, same model) and cut to the first N-1 tokens plus the end token —
 // vectors identical to Ollama's cut (cosine 1.00000 on 100-line chunks, 2026-10-14), so indexes
 // built while Ollama served the embeddings stay valid.
-std::vector<float> FoxIntel::embed_llama(const std::string& text, const std::string& model) {
+std::vector<float> DeskIntel::embed_llama(const std::string& text, const std::string& model) {
     auto vector_of = [](const std::string& body) -> std::vector<float> {
         auto j = json::parse(body);
         return j.at("data").at(0).at("embedding").get<std::vector<float>>();
@@ -275,13 +275,13 @@ std::vector<float> FoxIntel::embed_llama(const std::string& text, const std::str
     return {};
 }
 
-std::string FoxIntel::ask(const std::string& prompt, bool stream) {
+std::string DeskIntel::ask(const std::string& prompt, bool stream) {
     return ask_openai(prompt, stream);
 }
 
 // The question to the llama.cpp router (OpenAI-compatible /chat/completions). Not streaming: the
 // answer, or the raw body when it isn't one (an error stays visible).
-std::string FoxIntel::ask_openai(const std::string& prompt, bool stream) {
+std::string DeskIntel::ask_openai(const std::string& prompt, bool stream) {
     std::string readBuffer, pending;
     CURL* curl = curl_easy_init();
     if (!curl) return "";
@@ -325,7 +325,7 @@ std::string FoxIntel::ask_openai(const std::string& prompt, bool stream) {
     return readBuffer;
 }
 
-double FoxIntel::cosine_similarity(const std::vector<float>& v1, const std::vector<float>& v2) {
+double DeskIntel::cosine_similarity(const std::vector<float>& v1, const std::vector<float>& v2) {
     double dot = 0.0, norm_a = 0.0, norm_b = 0.0;
     size_t n = std::min(v1.size(), v2.size());
     for (size_t i = 0; i < n; ++i) {
@@ -356,13 +356,13 @@ static std::string router_root(std::string base) {           // /health, /models
     return base;
 }
 
-bool FoxIntel::ensure_server_running() {
+bool DeskIntel::ensure_server_running() {
     // llama.cpp's router serves every local model: wake it — a user service, no sudo prompt.
     std::string sink, root = router_root(api_base);
     if (get_url(root + "/health", sink, 2) == 200) return true;
     std::string unit = router_unit + ".service";
     std::cout << color_accent() << "[Fox Brain is asleep. Waking up...]" << color_reset() << std::endl;
-    if (FoxUtils::run_cmd({"systemctl", "--user", "start", unit.c_str()}, true) != 0) {
+    if (DeskUtils::run_cmd({"systemctl", "--user", "start", unit.c_str()}, true) != 0) {
         std::cerr << "desk-intel: the local model server (" << router_unit
                   << ") isn't installed — desk-install --only llama_server" << std::endl;
         return false;
@@ -377,7 +377,7 @@ bool FoxIntel::ensure_server_running() {
     return false;
 }
 
-bool FoxIntel::ensure_model_present(const std::string& model_name) {
+bool DeskIntel::ensure_model_present(const std::string& model_name) {
     // The router serves what is downloaded — chat and embedding models alike; downloads are
     // llm-update's. Its list names each model under its real name too (aliases), which the
     // router's own ids rewrite for name:tag; a bare name is also its Ollama-era "name:latest".
@@ -396,7 +396,7 @@ bool FoxIntel::ensure_model_present(const std::string& model_name) {
     return false;
 }
 
-int FoxUtils::run_cmd(std::initializer_list<const char*> argv, bool silent) {
+int DeskUtils::run_cmd(std::initializer_list<const char*> argv, bool silent) {
     pid_t pid = fork();
     if (pid < 0) return -1;
     if (pid == 0) {

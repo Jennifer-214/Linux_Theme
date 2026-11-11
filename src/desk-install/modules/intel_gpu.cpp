@@ -7,7 +7,7 @@
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
 
-namespace fox_install {
+namespace desk_install {
 
 void run_intel_gpu(Context& ctx) {
     ui::section("Intel GPU userspace (Vulkan + VA-API)");
@@ -31,4 +31,4 @@ void run_intel_gpu(Context& ctx) {
     else         ui::warn("pacman failed — packages may be partial");
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

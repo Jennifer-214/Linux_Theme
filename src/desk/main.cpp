@@ -22,17 +22,17 @@ namespace {
 
 constexpr const char* kVersion = "0.1.0 (Phase 1 scaffolding)";
 
-std::vector<fox_common::dispatch::Entry> build_registry() {
-    std::vector<fox_common::dispatch::Entry> entries;
-#define FOX_NAMESPACE(name, binary, description) \
+std::vector<desk_common::dispatch::Entry> build_registry() {
+    std::vector<desk_common::dispatch::Entry> entries;
+#define DESK_NAMESPACE(name, binary, description) \
     entries.push_back({#name, #binary, description});
 #include "dispatch.def"
-#undef FOX_NAMESPACE
+#undef DESK_NAMESPACE
     return entries;
 }
 
-void print_help(const std::vector<fox_common::dispatch::Entry>& registry) {
-    fox_common::dispatch::print_help(
+void print_help(const std::vector<desk_common::dispatch::Entry>& registry) {
+    desk_common::dispatch::print_help(
         "desk — unified entry for Linux_Theme workstation tools.\n"
         "Usage: desk <namespace> <subcommand> [args]",
         registry
@@ -106,7 +106,7 @@ int main(int argc, char** argv) {
     }
 
     const std::string ns = argv[1];
-    const auto* entry = fox_common::dispatch::find(registry, ns);
+    const auto* entry = desk_common::dispatch::find(registry, ns);
     if (!entry) {
         int err = exec_flat(argc, argv, /*leaf_ok=*/true);
         if (err != ENOENT) {
@@ -125,5 +125,5 @@ int main(int argc, char** argv) {
     leaf_args.push_back(entry->binary);
     for (int i = 2; i < argc; ++i) leaf_args.push_back(argv[i]);
 
-    return fox_common::dispatch::exec_leaf(entry->binary, leaf_args);
+    return desk_common::dispatch::exec_leaf(entry->binary, leaf_args);
 }

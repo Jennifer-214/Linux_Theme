@@ -9,7 +9,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 
-namespace fox_pulse {
+namespace desk_pulse {
 
 std::string resolve_hypr_socket2_path() {
     const char* runtime = std::getenv("XDG_RUNTIME_DIR");
@@ -44,4 +44,4 @@ int connect_unix_stream(const std::string& path) {
     return fd;
 }
 
-}  // namespace fox_pulse
+}  // namespace desk_pulse

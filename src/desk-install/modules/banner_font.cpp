@@ -10,7 +10,7 @@
 #include <cstddef>
 #include <vector>
 
-namespace fox_install {
+namespace desk_install {
 namespace {
 
 struct Glyph { int w; const char* r1; const char* r2; const char* r3; };
@@ -149,4 +149,4 @@ std::string banner_to_snacks_blocks(const std::string& text) {
     return out;
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

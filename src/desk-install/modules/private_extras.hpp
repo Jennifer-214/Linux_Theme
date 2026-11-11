@@ -8,7 +8,7 @@
 
 #include <string>
 
-namespace fox_install::private_extras {
+namespace desk_install::private_extras {
 
 // Public facts, safe to publish: the GitHub account and the fingerprint of its commit-signing key.
 inline constexpr const char* OWNER = "Jennifer-214";
@@ -62,4 +62,4 @@ inline bool signed_by_owner(const std::string& raw) {
     return good && ours;
 }
 
-}  // namespace fox_install::private_extras
+}  // namespace desk_install::private_extras

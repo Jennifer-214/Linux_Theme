@@ -3,7 +3,7 @@
 
 #include <string>
 
-namespace fox_install {
+namespace desk_install {
 
 // Builds the IOMMU kernel-cmdline args for the detected CPU vendor.
 // lockdown=integrity is appended ONLY when add_lockdown is true — it is
@@ -47,6 +47,6 @@ std::string grub_prepend_sed(const std::string& args);
 // the same probe. False when dkms isn't installed.
 bool dkms_has_modules();
 
-}  // namespace fox_install
+}  // namespace desk_install
 
 #endif

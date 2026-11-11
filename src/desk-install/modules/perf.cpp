@@ -10,7 +10,7 @@
 
 #include <string>
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -100,4 +100,4 @@ void run_perf(Context& ctx) {
         sh::run({"sudo", "systemctl", "restart", "chronyd"});
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

@@ -7,10 +7,10 @@ BIN      := desk-eza
 .DEFAULT_GOAL := all
 all: $(BIN)
 
-$(BIN): main.cpp $(COMMON)/json.hpp $(COMMON)/shell.hpp $(COMMON)/libfox-common.a
-	$(CXX) $(CXXFLAGS) -o $@ main.cpp -L$(COMMON) -lfox-common
+$(BIN): main.cpp $(COMMON)/json.hpp $(COMMON)/shell.hpp $(COMMON)/libdesk-common.a
+	$(CXX) $(CXXFLAGS) -o $@ main.cpp -L$(COMMON) -ldesk-common
 
-$(COMMON)/libfox-common.a:
+$(COMMON)/libdesk-common.a:
 	$(MAKE) --no-print-directory -C $(COMMON)
 
 install: all

@@ -14,14 +14,14 @@
 #include <string>
 #include <vector>
 
-namespace fox_install::personalize {
+namespace desk_install::personalize {
 
-namespace sidecar = fox_monitor::sidecar;
+namespace sidecar = desk_monitor::sidecar;
 
 // Generates pre-cropped per-monitor wallpaper variants. Returns the
 // number of files generated (0 == no-op rerun, not failure). Thin wrapper
-// over fox_monitor::variants::generate (the pure planner + executor live in
-// libfox-monitor's variants submodule now).
+// over desk_monitor::variants::generate (the pure planner + executor live in
+// libdesk-monitor's variants submodule now).
 std::size_t generate_per_monitor_wallpapers(
     const Context& ctx, const sidecar::Layout& layout);
 
@@ -72,6 +72,6 @@ bool pin_hyprlock_panel(
 // monitor-layout.conf, and as the body of the personalize module.
 void apply_all(const Context& ctx, const sidecar::Layout& layout);
 
-}  // namespace fox_install::personalize
+}  // namespace desk_install::personalize
 
 #endif

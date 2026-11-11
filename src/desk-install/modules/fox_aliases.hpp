@@ -9,7 +9,7 @@
 #include <system_error>
 #include <utility>
 
-namespace fox_install {
+namespace desk_install {
 
 inline constexpr std::pair<const char*, const char*> kFoxAliases[] = {
     {"fox", "desk"},
@@ -163,4 +163,4 @@ inline AliasCounts lay_fox_aliases(const std::filesystem::path& bin, bool dry) {
     return n;
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

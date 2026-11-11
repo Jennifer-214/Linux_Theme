@@ -22,7 +22,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_health::checks {
+namespace desk_health::checks {
 
 namespace {
 
@@ -248,4 +248,4 @@ CheckResult b3_faillock_clear() {
     return pass("B3");
 }
 
-}  // namespace fox_health::checks
+}  // namespace desk_health::checks

@@ -1,17 +1,17 @@
 // X-macro registry for desk-sys subcommands.
 
 // — Install lifecycle —
-FOX_SUBCMD( install,    desk-install,    "Run the Linux_Theme installer (state-driven; --full / --dry-run)" )
-FOX_SUBCMD( uninstall,  desk-uninstall,  "Remove Linux_Theme binaries + state from $HOME" )
-FOX_SUBCMD( rollback,   desk-rollback,   "Restore configuration from a prior install backup" )
+DESK_SUBCMD( install,    desk-install,    "Run the Linux_Theme installer (state-driven; --full / --dry-run)" )
+DESK_SUBCMD( uninstall,  desk-uninstall,  "Remove Linux_Theme binaries + state from $HOME" )
+DESK_SUBCMD( rollback,   desk-rollback,   "Restore configuration from a prior install backup" )
 
 // — Diagnostics —
-FOX_SUBCMD( doctor,     desk-doctor,     "Diagnose nvim / Hyprland / Waybar config breakage" )
-FOX_SUBCMD( hw-info,    hw-info,    "Hardware detection helper (GPU / chassis / fingerprint)" )
+DESK_SUBCMD( doctor,     desk-doctor,     "Diagnose nvim / Hyprland / Waybar config breakage" )
+DESK_SUBCMD( hw-info,    hw-info,    "Hardware detection helper (GPU / chassis / fingerprint)" )
 
 // — Active state —
-FOX_SUBCMD( lock,       desk-lock,       "Pre-check wrapper around hyprlock" )
+DESK_SUBCMD( lock,       desk-lock,       "Pre-check wrapper around hyprlock" )
 
 // — Discovery —
-FOX_SUBCMD( menu,       desk-menu,       "Drawer launcher for fox-* CLI commands" )
-FOX_SUBCMD( cheatsheet, desk-cheatsheet, "Searchable keybind reference" )
+DESK_SUBCMD( menu,       desk-menu,       "Drawer launcher for fox-* CLI commands" )
+DESK_SUBCMD( cheatsheet, desk-cheatsheet, "Searchable keybind reference" )

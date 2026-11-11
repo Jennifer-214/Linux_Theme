@@ -5,7 +5,7 @@
 #include <string>
 
 using nlohmann::json;
-using namespace fox_install::firefox_policies;
+using namespace desk_install::firefox_policies;
 
 static int failures = 0, passes = 0;
 static void check(bool ok, const std::string& what) {

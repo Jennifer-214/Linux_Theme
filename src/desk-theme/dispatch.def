@@ -1,6 +1,6 @@
 // X-macro registry for desk-theme subcommands.
 
-FOX_SUBCMD( tweak,     theme-tweak, "Live-update aesthetic variables in the active theme" )
-FOX_SUBCMD( wallpaper, desk-wallpaper,   "Manage rotation and static wallpapers" )
-FOX_SUBCMD( develop,   desk-develop,     "Toggle dev mode for live iteration on the theme repo" )
-FOX_SUBCMD( check,     theme-check, "Check the desktop the theme set up is deployed and working (read-only)" )
+DESK_SUBCMD( tweak,     theme-tweak, "Live-update aesthetic variables in the active theme" )
+DESK_SUBCMD( wallpaper, desk-wallpaper,   "Manage rotation and static wallpapers" )
+DESK_SUBCMD( develop,   desk-develop,     "Toggle dev mode for live iteration on the theme repo" )
+DESK_SUBCMD( check,     theme-check, "Check the desktop the theme set up is deployed and working (read-only)" )

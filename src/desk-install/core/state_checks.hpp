@@ -4,8 +4,8 @@
 // systemctl is-enabled, file hashes, …) and returns a Classification
 // the dispatcher uses to decide whether to skip, re-run, or prompt.
 //
-// Wired into the registry via FOX_MODULE_FULL in modules.def. Modules
-// without a state_check pointer (i.e. legacy FOX_MODULE entries) are
+// Wired into the registry via DESK_MODULE_FULL in modules.def. Modules
+// without a state_check pointer (i.e. legacy DESK_MODULE entries) are
 // classified as Fresh by the dispatcher — current behavior preserved.
 
 #pragma once
@@ -17,7 +17,7 @@
 #include <string>
 #include <vector>
 
-namespace fox_install::state {
+namespace desk_install::state {
 
 // package_classify — pure "did module X install package P?" logic, the
 // core of package_check, split out so it's unit-testable without invoking
@@ -115,4 +115,4 @@ Classification check_noexec_tmp(const Context& ctx, const Manifest& manifest);
 // already-done. Mirrors check_papirus_icons.
 Classification check_gaming(const Context& ctx, const Manifest& manifest);
 
-}  // namespace fox_install::state
+}  // namespace desk_install::state

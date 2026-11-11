@@ -3,19 +3,19 @@ CXXFLAGS = -std=c++17 -O3 -Wall -fPIC
 LIBS = -lcurl
 PREFIX = $(HOME)/.local/bin
 
-all: libfox-intel.a findex fask
+all: libdesk-intel.a findex fask
 
-libfox-intel.a: fox_intel.o
+libdesk-intel.a: desk_intel.o
 	ar rcs $@ $^
 
-fox_intel.o: fox_intel.cpp fox_intel.hpp ../desk-common/json.hpp
-	$(CXX) $(CXXFLAGS) -c fox_intel.cpp -o $@
+desk_intel.o: desk_intel.cpp desk_intel.hpp ../desk-common/json.hpp
+	$(CXX) $(CXXFLAGS) -c desk_intel.cpp -o $@
 
-findex: findex.cpp libfox-intel.a
-	$(CXX) $(CXXFLAGS) findex.cpp -o findex -L. -lfox-intel $(LIBS)
+findex: findex.cpp libdesk-intel.a
+	$(CXX) $(CXXFLAGS) findex.cpp -o findex -L. -ldesk-intel $(LIBS)
 
-fask: fask.cpp libfox-intel.a
-	$(CXX) $(CXXFLAGS) fask.cpp -o fask -L. -lfox-intel $(LIBS)
+fask: fask.cpp libdesk-intel.a
+	$(CXX) $(CXXFLAGS) fask.cpp -o fask -L. -ldesk-intel $(LIBS)
 
 install: all
 	mkdir -p $(PREFIX)

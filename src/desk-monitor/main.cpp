@@ -30,8 +30,8 @@
 
 namespace fs = std::filesystem;
 using json   = nlohmann::json;
-namespace ui = fox_install::ui;
-namespace sh = fox_install::sh;
+namespace ui = desk_install::ui;
+namespace sh = desk_install::sh;
 
 namespace {
 
@@ -100,7 +100,7 @@ void report_live_monitors() {
     }
 }
 
-void report_sidecar(const fox_monitor::sidecar::Layout& sc,
+void report_sidecar(const desk_monitor::sidecar::Layout& sc,
                     bool found, const fs::path& path) {
     ui::section("Persisted layout (sidecar)");
     if (!found) {
@@ -113,7 +113,7 @@ void report_sidecar(const fox_monitor::sidecar::Layout& sc,
     ui::substep("MONITOR_RESOLUTIONS = " + join_ws(sc.monitor_resolutions));
 }
 
-void report_variant_coverage(const fox_monitor::sidecar::Layout& sc) {
+void report_variant_coverage(const desk_monitor::sidecar::Layout& sc) {
     ui::section("Wallpaper variant coverage");
     fs::path wp_dir = home_dir() / ".wallpapers";
     fs::path current = wp_dir / ".current";
@@ -192,7 +192,7 @@ int cmd_status() {
     fs::path sidecar_path = home_dir() / ".config/foxml/monitor-layout.conf";
     std::error_code ec;
     bool found = fs::exists(sidecar_path, ec) && !ec;
-    fox_monitor::sidecar::Layout sc = fox_monitor::sidecar::read(sidecar_path);
+    desk_monitor::sidecar::Layout sc = desk_monitor::sidecar::read(sidecar_path);
 
     report_live_monitors();
     report_sidecar(sc, found, sidecar_path);
@@ -215,9 +215,9 @@ int cmd_reconcile(bool dry_run, bool force) {
     ui::section(dry_run ? "Reconcile monitor layout (dry-run — no writes)"
                         : "Reconcile monitor layout");
 
-    fox_monitor::sidecar::Layout prev = fox_monitor::sidecar::read(sidecar_path);
+    desk_monitor::sidecar::Layout prev = desk_monitor::sidecar::read(sidecar_path);
 
-    fox_monitor::sidecar::Layout layout = fox_monitor::rederive::from_live(prev);
+    desk_monitor::sidecar::Layout layout = desk_monitor::rederive::from_live(prev);
     if (layout.primary.empty()) {
         ui::err("could not derive layout from live Hyprland (hyprctl unavailable "
                 "or no monitors) — aborting");
@@ -234,7 +234,7 @@ int cmd_reconcile(bool dry_run, bool force) {
     // dry-run we skip the write so nothing on disk changes.
     if (dry_run) {
         ui::substep("would write sidecar -> " + sidecar_path.string());
-    } else if (fox_monitor::sidecar::write(sidecar_path, layout)) {
+    } else if (desk_monitor::sidecar::write(sidecar_path, layout)) {
         ui::ok("sidecar updated -> " + sidecar_path.string());
     } else {
         ui::err("failed to write sidecar -> " + sidecar_path.string());
@@ -243,15 +243,15 @@ int cmd_reconcile(bool dry_run, bool force) {
 
     ui::section("Apply current wallpaper");
     std::size_t applied =
-        fox_monitor::apply::apply_current(layout, wall_dir, dry_run);
+        desk_monitor::apply::apply_current(layout, wall_dir, dry_run);
 
     // A portrait upscale can take minutes. Give a newly connected screen its
     // current image immediately, then replace the crop with the finished variant.
     ui::section("Per-monitor wallpaper variants");
-    auto generated = fox_monitor::variants::generate(
+    auto generated = desk_monitor::variants::generate(
         wall_dir, layout.monitor_resolutions, dry_run, force,
-        fox_monitor::apply::current_base(wall_dir));
-    if (generated > 0) fox_monitor::apply::apply_current(layout, wall_dir, dry_run);
+        desk_monitor::apply::current_base(wall_dir));
+    if (generated > 0) desk_monitor::apply::apply_current(layout, wall_dir, dry_run);
 
     // Regenerate waybar if the start script is deployed (hotplug can add/drop
     // a bar). Fire-and-forget: background it INSIDE the shell (`… &`) so we

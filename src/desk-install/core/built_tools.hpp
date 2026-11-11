@@ -11,7 +11,7 @@
 #include <string>
 #include <system_error>
 
-namespace fox_install {
+namespace desk_install {
 
 inline std::set<std::string> built_tool_names(const std::filesystem::path& src_dir) {
     std::set<std::string> names;
@@ -36,4 +36,4 @@ inline std::set<std::string> built_tool_names(const std::filesystem::path& src_d
     return names;
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

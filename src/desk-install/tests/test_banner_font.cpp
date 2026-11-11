@@ -7,7 +7,7 @@
 #include <string>
 
 int main() {
-    using namespace fox_install;
+    using namespace desk_install;
     int failed = 0;
 
     auto eq = [&](const char* what, const std::string& got, const std::string& exp) {

@@ -1,7 +1,7 @@
 // X-macro registry for desk-ai subcommands.
 //
 // Add a subcommand by including a line:
-//   FOX_SUBCMD( name, binary, "description" )
+//   DESK_SUBCMD( name, binary, "description" )
 //
 // Where:
 //   name        — user-facing subcommand typed after `desk ai` (e.g., doctor)
@@ -17,37 +17,37 @@
 //     formatter's expectations).
 
 // — Diagnostics & introspection —
-FOX_SUBCMD( doctor,        ai-doctor,        "Diagnose systemd / Hyprland / Waybar config breakage, suggest fixes" )
-FOX_SUBCMD( oracle,        ai-oracle,        "Natural-language Q&A over your config (KEYBINDS, README, installed tools)" )
-FOX_SUBCMD( explain,       ai-explain,       "Plain-English explanation of code, logs, or errors" )
-FOX_SUBCMD( trace,         ai-trace,         "Diagnose a C++/Python backtrace with local AI" )
-FOX_SUBCMD( log,           ai-log,           "Analyze logs or errors with the local model" )
-FOX_SUBCMD( watch,         ai-watch,         "Tail a log file with on-demand AI commentary" )
+DESK_SUBCMD( doctor,        ai-doctor,        "Diagnose systemd / Hyprland / Waybar config breakage, suggest fixes" )
+DESK_SUBCMD( oracle,        ai-oracle,        "Natural-language Q&A over your config (KEYBINDS, README, installed tools)" )
+DESK_SUBCMD( explain,       ai-explain,       "Plain-English explanation of code, logs, or errors" )
+DESK_SUBCMD( trace,         ai-trace,         "Diagnose a C++/Python backtrace with local AI" )
+DESK_SUBCMD( log,           ai-log,           "Analyze logs or errors with the local model" )
+DESK_SUBCMD( watch,         ai-watch,         "Tail a log file with on-demand AI commentary" )
 
 // — Security & egress —
-FOX_SUBCMD( snitch,        ai-snitch,        "Flag suspicious outbound network connections via AI" )
-FOX_SUBCMD( audit,         ai-audit,         "Rank top actionable security findings (arch-audit + lynis + AI ranking)" )
-FOX_SUBCMD( bouncer,       ai-bouncer,       "Classify blocked USB devices via AI (BENIGN/SUSPICIOUS/HOSTILE)" )
+DESK_SUBCMD( snitch,        ai-snitch,        "Flag suspicious outbound network connections via AI" )
+DESK_SUBCMD( audit,         ai-audit,         "Rank top actionable security findings (arch-audit + lynis + AI ranking)" )
+DESK_SUBCMD( bouncer,       ai-bouncer,       "Classify blocked USB devices via AI (BENIGN/SUSPICIOUS/HOSTILE)" )
 
 // — Code & development —
-FOX_SUBCMD( review,        ai-review,        "AI pre-commit review of staged changes (emits BLOCK/WARN/OK)" )
-FOX_SUBCMD( commit,        ai-commit,        "Generate git commit messages with the local model" )
-FOX_SUBCMD( test,          ai-test,          "Generate unit tests for a function or file" )
-FOX_SUBCMD( find,          ai-find,          "Semantic-ish code search with the local model" )
+DESK_SUBCMD( review,        ai-review,        "AI pre-commit review of staged changes (emits BLOCK/WARN/OK)" )
+DESK_SUBCMD( commit,        ai-commit,        "Generate git commit messages with the local model" )
+DESK_SUBCMD( test,          ai-test,          "Generate unit tests for a function or file" )
+DESK_SUBCMD( find,          ai-find,          "Semantic-ish code search with the local model" )
 
 // — Shell & interactive —
-FOX_SUBCMD( cmd,           ai-cmd,           "Natural language → shell command via the local model" )
-FOX_SUBCMD( history,       ai-history,       "Natural-language query over your shell history" )
-FOX_SUBCMD( quick,         ai-quick,         "Rofi-based quick AI chat" )
+DESK_SUBCMD( cmd,           ai-cmd,           "Natural language → shell command via the local model" )
+DESK_SUBCMD( history,       ai-history,       "Natural-language query over your shell history" )
+DESK_SUBCMD( quick,         ai-quick,         "Rofi-based quick AI chat" )
 
 // — Model & runtime management —
-FOX_SUBCMD( swap,          ai-swap,          "Swap the default local model (opencode, pi, desk-ai)" )
-FOX_SUBCMD( default,       ai-default,       "Set / inspect the default model used by AI-native tools" )
-FOX_SUBCMD( bench,         ai-bench,         "Benchmark the local models (llama.cpp)" )
-FOX_SUBCMD( purge,         ai-purge,         "Free up VRAM/RAM: unload the local models" )
-FOX_SUBCMD( status,        ai-status,        "Print local-AI status (also used as a Waybar module)" )
+DESK_SUBCMD( swap,          ai-swap,          "Swap the default local model (opencode, pi, desk-ai)" )
+DESK_SUBCMD( default,       ai-default,       "Set / inspect the default model used by AI-native tools" )
+DESK_SUBCMD( bench,         ai-bench,         "Benchmark the local models (llama.cpp)" )
+DESK_SUBCMD( purge,         ai-purge,         "Free up VRAM/RAM: unload the local models" )
+DESK_SUBCMD( status,        ai-status,        "Print local-AI status (also used as a Waybar module)" )
 
 // — Domain-specific —
-FOX_SUBCMD( strategy,      ai-strategy,      "Plain-English explanation of a trading strategy config" )
+DESK_SUBCMD( strategy,      ai-strategy,      "Plain-English explanation of a trading strategy config" )
 
 // — Workspace setup —

@@ -15,7 +15,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-namespace fox_install::sh {
+namespace desk_install::sh {
 
 namespace {
 
@@ -363,4 +363,4 @@ bool sudo_warmup_interactive() {
     return run({ "sudo", "-v" }) == 0;
 }
 
-}  // namespace fox_install::sh
+}  // namespace desk_install::sh

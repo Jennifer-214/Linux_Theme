@@ -12,8 +12,8 @@
 #include <unistd.h>
 
 namespace fs = std::filesystem;
-using namespace fox_install;
-using namespace fox_install::wizard;
+using namespace desk_install;
+using namespace desk_install::wizard;
 
 static int failures = 0;
 #define EXPECT(cond) do { \

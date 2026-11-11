@@ -24,7 +24,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 namespace {
 
 // Parse WELCOME_TEXT="..." out of the sidecar. Empty if absent/unset.
@@ -148,4 +148,4 @@ void run_welcome_banner(Context& ctx) {
     }
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

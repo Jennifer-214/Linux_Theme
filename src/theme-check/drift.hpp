@@ -11,7 +11,7 @@
 #include <string>
 #include <vector>
 
-namespace fox_theme_check {
+namespace desk_theme_check {
 
 enum class Kind { Plain, Hyprlock, Rules, Autostart };
 enum class Verdict { Same, Yours, Drift };
@@ -77,4 +77,4 @@ inline Verdict compare(const std::string& shipped, const std::string& live, Kind
     return contains_in_order(a, b) ? Verdict::Yours : Verdict::Drift;
 }
 
-}  // namespace fox_theme_check
+}  // namespace desk_theme_check

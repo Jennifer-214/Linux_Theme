@@ -25,7 +25,7 @@
 
 namespace fs = std::filesystem;
 
-namespace fox_install {
+namespace desk_install {
 
 namespace {
 
@@ -170,4 +170,4 @@ void run_dispatch_hooks(Context& ctx) {
     maybe_offer_setup(ctx);
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

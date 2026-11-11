@@ -8,7 +8,7 @@
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
 
-namespace fox_install {
+namespace desk_install {
 
 void run_fwupd(Context& ctx) {
     (void)ctx;
@@ -24,4 +24,4 @@ void run_fwupd(Context& ctx) {
     ui::ok("fwupd installed; fwupd-refresh.timer enabled (check: fwupdmgr get-updates)");
 }
 
-}  // namespace fox_install
+}  // namespace desk_install

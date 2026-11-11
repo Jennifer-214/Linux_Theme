@@ -50,7 +50,7 @@ jobs:
             https://github.com/nlohmann/json/releases/latest/download/json.hpp \
             -o src/desk-intel/json.hpp
 
-      - name: Build everything (native orchestrator + leaves + libfox-health)
+      - name: Build everything (native orchestrator + leaves + libdesk-health)
         run: make
 
       - name: Run unit tests

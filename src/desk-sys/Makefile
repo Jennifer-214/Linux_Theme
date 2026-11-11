@@ -3,21 +3,21 @@ CXX      ?= g++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra -Wpedantic
 PREFIX   ?= $(HOME)/.local/bin
 
-FOX_COMMON_DIR := ../desk-common
-FOX_COMMON_LIB := $(FOX_COMMON_DIR)/libfox-common.a
+DESK_COMMON_DIR := ../desk-common
+DESK_COMMON_LIB := $(DESK_COMMON_DIR)/libdesk-common.a
 
 BIN := desk-sys
 
 all: $(BIN)
 
-$(BIN): main.o $(FOX_COMMON_LIB)
-	$(CXX) $(CXXFLAGS) -o $@ main.o -L$(FOX_COMMON_DIR) -lfox-common
+$(BIN): main.o $(DESK_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) -o $@ main.o -L$(DESK_COMMON_DIR) -ldesk-common
 
 main.o: main.cpp dispatch.def
-	$(CXX) $(CXXFLAGS) -I$(FOX_COMMON_DIR) -c main.cpp -o $@
+	$(CXX) $(CXXFLAGS) -I$(DESK_COMMON_DIR) -c main.cpp -o $@
 
-$(FOX_COMMON_LIB):
-	$(MAKE) --no-print-directory -C $(FOX_COMMON_DIR)
+$(DESK_COMMON_LIB):
+	$(MAKE) --no-print-directory -C $(DESK_COMMON_DIR)
 
 install: all
 	@mkdir -p $(PREFIX)
