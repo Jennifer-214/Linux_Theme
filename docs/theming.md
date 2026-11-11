@@ -1,6 +1,6 @@
 # Theming and application reference
 
-[← Back to FoxML](../README.md)
+[← Back to the README](../README.md)
 
 Choose a palette, preserve configuration edits, find application templates or create a theme.
 

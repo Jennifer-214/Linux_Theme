@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# FoxML Theme Hub — installer entry point.
+# Linux_Theme — installer entry point.
 #
 # Thin wrapper around the C++ orchestrator (src/fox-install). Adding a
 # new install step means writing one .cpp under src/fox-install/modules/
@@ -37,7 +37,7 @@ set -- "${_argv[@]+"${_argv[@]}"}"
 # ─────────────────────────────────────────
 
 # Check free space on /boot (or / if /boot is not separate)
-# FoxML requires space for kernel images, initramfs, and AI models.
+# The installer requires space for kernel images, initramfs, and AI models.
 _boot_path="/boot"
 [[ ! -d "$_boot_path" ]] && _boot_path="/"
 _boot_info=$(df -Pk "$_boot_path" | awk 'NR==2 {print $2" "$4}')
@@ -54,7 +54,7 @@ if (( _boot_total_mb < _rec_total_mb || _boot_free_mb < _min_free_mb )); then
     echo "│   Recommended: ${_rec_total_mb} MB total capacity                         "
     echo "├──────────────────────────────────────────────────────────────────┤"
     echo "│   Warning: Your boot partition is below the recommended size.    │"
-    echo "│   FoxML needs space for kernel updates and initramfs builds.     │"
+    echo "│   The installer needs space for kernel updates and initramfs builds.     │"
     echo "│   Please consider freeing up some space (e.g., 'paccache -r').   │"
     echo "╰──────────────────────────────────────────────────────────────────╯"
     echo ""

@@ -58,7 +58,7 @@ fi
 
 cd "$TARGET_DIR" || exit 1
 
-echo -e "${BLUE}FoxML Word Count${NC}"
+echo -e "${BLUE}Linux_Theme Word Count${NC}"
 echo -e "Scanning ${BOLD}$(pwd)${NC}..."
 
 # Build exclusion arguments for grep

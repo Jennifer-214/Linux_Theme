@@ -1,4 +1,4 @@
-// fox — top-level unified entry for FoxML workstation tools.
+// fox — top-level unified entry for Linux_Theme workstation tools.
 //
 // Dispatches `fox <namespace> <subcommand> [args]` to the appropriate
 // namespace binary (fox-ai, fox-sec, ...) via execvp. Registry of
@@ -32,7 +32,7 @@ std::vector<fox_common::dispatch::Entry> build_registry() {
 
 void print_help(const std::vector<fox_common::dispatch::Entry>& registry) {
     fox_common::dispatch::print_help(
-        "fox — unified entry for FoxML workstation tools.\n"
+        "fox — unified entry for Linux_Theme workstation tools.\n"
         "Usage: fox <namespace> <subcommand> [args]",
         registry
     );

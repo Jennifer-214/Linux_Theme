@@ -1,4 +1,4 @@
-# FoxML Classic
+# Classic
 
 Dark theme with earthy, muted tones — warm peach, dusty rose, sage, and wheat on a deep plum background.
 

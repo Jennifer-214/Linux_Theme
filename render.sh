@@ -1,5 +1,5 @@
 #!/bin/bash
-# FoxML Theme Hub — Template Renderer
+# Linux_Theme — Template Renderer
 # Sources a palette and renders templates with {{PLACEHOLDER}} substitution
 #
 # Usage: ./render.sh <palette.sh> <template_dir> <output_dir>

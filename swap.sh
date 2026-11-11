@@ -1,5 +1,5 @@
 #!/bin/bash
-# FoxML Theme Hub — Theme Swapper with color previews
+# Linux_Theme — Theme Swapper with color previews
 # Usage: ./swap.sh
 
 set -e
@@ -178,7 +178,7 @@ render_swatch() {
 # ─────────────────────────────────────────
 echo ""
 echo "╭──────────────────────────────────────────────────────────────────╮"
-echo "│                    FoxML Theme Swapper                          │"
+echo "│                    Linux_Theme Theme Swapper                          │"
 echo "╰──────────────────────────────────────────────────────────────────╯"
 echo ""
 

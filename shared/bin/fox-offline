@@ -18,7 +18,7 @@
 #   • Loopback (127.0.0.1) IS up inside the namespace, so apps that
 #     bind localhost work fine.
 #   • Requires kernel.unprivileged_userns_clone=1. Arch ships this on
-#     by default; FoxML's hardening does NOT disable it.
+#     by default; Linux_Theme's hardening does NOT disable it.
 #
 # Examples:
 #   fox offline python3 sketchy.py

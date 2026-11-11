@@ -16,7 +16,7 @@ std::string read(const fs::path& path) {
 }
 
 int main() {
-    // The fixture executes fake build tools; /tmp is noexec on FoxML systems.
+    // The fixture executes fake build tools; /tmp is noexec on Linux_Theme systems.
     std::string pattern = (fs::current_path() / ".fox-drawer-deploy-XXXXXX").string();
     const char* temp = ::mkdtemp(pattern.data());
     if (!temp) return 1;

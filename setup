@@ -2,7 +2,7 @@
 # setup — painless full install. Equivalent to running:
 #   ./install.sh --preset workstation --yes
 #
-# Use this after cloning the repo when you want the full Fox ML
+# Use this after cloning the repo when you want the full Linux_Theme
 # workstation: every default module plus system deps, the AI stack and
 # the GitHub workspace clone, all non-interactive. Uses your saved theme,
 # or the default on a first install; pass a theme name to choose one.

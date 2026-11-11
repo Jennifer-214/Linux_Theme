@@ -20,7 +20,7 @@ SCRIPT = ROOT / "shared/hyprland_scripts/agent_notify.sh"
 @unittest.skipUnless(shutil.which("jq") and shutil.which("flock"), "jq and flock are needed")
 class AgentNotifyTest(unittest.TestCase):
     def setUp(self):
-        # /tmp is noexec on FoxML; the fake tmux and notify-send live beside the test.
+        # /tmp is noexec on Linux_Theme; the fake tmux and notify-send live beside the test.
         self.tmp = Path(tempfile.mkdtemp(prefix=".foxml-agent-notify-", dir=Path(__file__).parent))
         self.run_dir = self.tmp / "run"
         self.bin = self.tmp / "bin"

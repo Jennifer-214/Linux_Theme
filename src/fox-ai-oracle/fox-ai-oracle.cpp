@@ -1,4 +1,4 @@
-// fox-ai-oracle — natural-language "how do I..." for the FoxML stack.
+// fox-ai-oracle — natural-language "how do I..." for the trading stack.
 //
 // Replaces grepping through KEYBINDS.md / README.md / fox-doctor output
 // with a single question to the local model. Gathers a focused context
@@ -77,7 +77,7 @@ int main(int argc, char** argv) {
         std::string a = argv[i];
         if (a == "-h" || a == "--help") {
             std::printf("Usage: fox-ai-oracle [--model <name>] <question...>\n\n"
-                "Asks the local model your question with FoxML-specific context "
+                "Asks the local model your question with Theme-specific context "
                 "(KEYBINDS.md, README.md, installed fox-* commands).\n");
             return 0;
         }
@@ -123,8 +123,8 @@ int main(int argc, char** argv) {
     if (!theme.empty()) ctx << "=== Active theme ===\n" << theme << "\n";
 
     std::string prompt =
-        "You are the FoxML Theme Hub's local AI helper. The user asked a "
-        "question; FoxML-specific context is below. Answer using ONLY the "
+        "You are this desktop's local AI helper. The user asked a "
+        "question; Theme-specific context is below. Answer using ONLY the "
         "context — if the context doesn't cover it, say so explicitly. "
         "Keep responses short and concrete (specific keybind, exact command, "
         "exact file path). No preamble, no markdown headings.\n"

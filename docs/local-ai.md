@@ -1,6 +1,6 @@
 # Local AI
 
-[← Back to FoxML](../README.md)
+[← Back to the README](../README.md)
 
 Agent setup, model serving, model roles and semantic project search.
 
@@ -29,7 +29,7 @@ auto-fit, with a 128k-context agent role.
 ## Agents
 
 - **OpenCode** — Claude-Code-style terminal agent. Multi-provider; its local default is the llama.cpp router. Theme and skill paths are generated (skills from `~/code/*/claude-skills/`); `fox-llm-update --sync` fills the model picker from what the router serves. Auto-wakes the router on launch.
-- **pi** — minimal terminal coding agent with FoxML extensions (permission gate, desktop notifications, per-project Claude skills); same local default as OpenCode.
+- **pi** — minimal terminal coding agent with Linux_Theme extensions (permission gate, desktop notifications, per-project Claude skills); same local default as OpenCode.
 - **aider** — git-native pair programmer. Commits its own edits per change. Useful for surgical "make this change" workflows where OpenCode's multi-turn agent loop is overkill.
 
 ## Local models (`fox-llm-*`)

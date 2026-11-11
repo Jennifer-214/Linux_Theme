@@ -4,7 +4,7 @@
 # Usage: fox-ai-explain path/to/file.cpp
 #        cat foo.log | fox-ai-explain
 #        wl-paste | fox-ai-explain        # explain clipboard contents
-#        fox-ai-explain --about "what does the FoxML branchless bitmap do"
+#        fox-ai-explain --about "what does the branchless bitmap do"
 #
 # Reads stdin or a file path; emits a focused explanation. The --about
 # form lets you ask conceptual questions without piping code.

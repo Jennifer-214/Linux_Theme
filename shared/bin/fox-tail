@@ -17,7 +17,7 @@ OUT=".foxml_context.md"
 echo "${C_DIM}Gathering context for the Fox...${C_RST}"
 
 {
-    echo "# FoxML Session Context"
+    echo "# Linux_Theme Session Context"
     echo "Generated: $(date)"
     echo "Host: $(hostname)"
     echo "PWD: $(pwd)"

@@ -1,3 +1,3 @@
 #!/bin/bash
-echo "Starting FoxML OS Installation..."
+echo "Starting Linux_Theme Installation..."
 curl -fsSL https://raw.githubusercontent.com/Jennifer-214/Linux_Theme/main/bootstrap.sh | bash

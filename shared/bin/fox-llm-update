@@ -283,7 +283,7 @@ do_check() {
   fi
   if ((${#msgs[@]})); then
     log "updates available: ${msgs[*]}"
-    notify "🦊 LLM tool updates" "$(printf '%s\n' "${msgs[@]}")
+    notify "LLM tool updates" "$(printf '%s\n' "${msgs[@]}")
 Run: fox-llm-update"
   else
     log "pi, opencode, llama.cpp are current"
@@ -709,10 +709,10 @@ EOF
   # moved, and a role newly without a model (each once — the list of unfilled roles is kept until it changes).
   local moved new
   moved=$(grep -E '^(opencode|pi) default → ' "$STATE/sync-notes.txt")
-  [[ -n $moved ]] && notify "🦊 Local model default changed" "$moved"
+  [[ -n $moved ]] && notify "Local model default changed" "$moved"
   skipped=$(grep -v '^$' <<<"$skipped" | sort -u)
   new=$(comm -13 <(sort -u "$STATE/unfilled-roles.txt" 2>/dev/null) <(printf '%s\n' "$skipped" | grep -v '^$'))
-  [[ -n $new ]] && notify "🦊 A role has no model to serve" "$new"
+  [[ -n $new ]] && notify "A role has no model to serve" "$new"
   printf '%s\n' "$skipped" | grep -v '^$' > "$STATE/unfilled-roles.txt"
   sync_prompts
   # A download shows up without a restart: the router re-reads the preset fox-llm-serve just
@@ -757,7 +757,7 @@ do_discover() {
   (( pulled )) && msg="Downloaded $pulled new model(s)."
   (( ${#skipped[@]} )) && msg+=$'\n'"Also new, not downloaded: ${skipped[*]}"$'\n'"fox-llm-update --list"
   if [[ -n $msg ]]; then
-    log "$msg"; notify "🦊 New local models" "$msg"
+    log "$msg"; notify "New local models" "$msg"
   else
     log "no new models since last scan"
   fi
@@ -834,7 +834,7 @@ do_queue_run() {
     for (( try = 1; try <= QUEUE_TRIES; try++ )); do
       out=$(fetch_gguf "$name" "$src" 2>&1); rc=$?
       if (( rc == 0 )); then
-        echo "  done $(date '+%a %H:%M')"; notify "🦊 Model downloaded" "$(tail -1 <<<"$out")"
+        echo "  done $(date '+%a %H:%M')"; notify "Model downloaded" "$(tail -1 <<<"$out")"
         sync_configs
         # its report card, in the background once no chat model is in use (fox-llm-grade --report)
         if [[ -x $GRADE_BIN ]]; then "$GRADE_BIN" --queue "$name" >/dev/null 2>&1 || true; fi
@@ -846,7 +846,7 @@ do_queue_run() {
     set_aside+="$name "
   done
   echo "ALL_DONE $(date)"
-  notify "🦊 Downloads finished" "Every wanted model is downloaded."
+  notify "Downloads finished" "Every wanted model is downloaded."
   systemctl --user disable fox-llm-pull.service 2>/dev/null || true
 }
 

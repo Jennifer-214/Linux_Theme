@@ -1,4 +1,4 @@
-// FoxML's only drawing extension. Upstream Mako still owns notifications,
+// Linux_Theme's only drawing extension. Upstream Mako still owns notifications,
 // actions, history, DND, progress clipping, scaling and Wayland placement.
 #pragma once
 #include <cairo/cairo.h>

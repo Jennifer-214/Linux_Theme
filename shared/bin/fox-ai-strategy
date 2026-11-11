@@ -24,7 +24,7 @@ fi
 
 src="$1"
 content=$(cat "$src")
-prompt="The file below is a configuration for a trading strategy in the FoxML stack (high-performance C++ engines, paper-trading-by-default crypto). Read it and produce a focused summary:
+prompt="The file below is a configuration for a trading strategy in the trading stack (high-performance C++ engines, paper-trading-by-default crypto). Read it and produce a focused summary:
 
 1. What it does — entry trigger, exit trigger, position sizing. One paragraph.
 2. Risk profile — drawdown limit, position cap, leverage, stop loss. Bullets.

@@ -3,7 +3,7 @@
 iso_name="FoxML-OS"
 iso_label="FOXML_$(date +%Y%m)"
 iso_publisher="Jennifer-214 <https://github.com/Jennifer-214/Linux_Theme>"
-iso_application="FoxML High-Discipline Workstation"
+iso_application="Linux_Theme"
 iso_version="1.5.9"
 install_dir="arch"
 buildmodes=('iso')

@@ -874,7 +874,7 @@ check_security() {
     fi
 }
 
-echo "FoxML Doctor — config sanity checks"
+echo "Doctor — config sanity checks"
 check_nvim
 check_hyprland
 check_waybar

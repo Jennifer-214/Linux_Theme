@@ -17,7 +17,7 @@ fi
 SERVED=$(fox-llm-run --list | cut -f1)
 PROMPT="Write a C++ function to merge two JSON objects using nlohmann/json."
 
-echo "🦊 FoxML AI Benchmark (llama.cpp)"
+echo "AI benchmark (llama.cpp)"
 echo "------------------------------------------------------------------------"
 printf "%-36s | %-10s | %-12s | %s\n" "Model" "Gen tok/s" "Prompt tok/s" "RAM"
 echo "------------------------------------------------------------------------"

@@ -1,5 +1,5 @@
 #!/bin/bash
-# FoxML ISO Build Script
+# Linux_Theme ISO Build Script
 # Requires: sudo pacman -S archiso
 
 if ! command -v mkarchiso &>/dev/null; then
@@ -13,7 +13,7 @@ OUT_DIR="./out"
 
 mkdir -p "$BUILD_DIR" "$OUT_DIR"
 
-echo "Building FoxML OS ISO..."
+echo "Building Linux_Theme ISO..."
 sudo mkarchiso -v -w "$BUILD_DIR" -o "$OUT_DIR" .
 
 echo "Build complete. ISO is in $OUT_DIR"

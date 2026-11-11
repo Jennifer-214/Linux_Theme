@@ -23,14 +23,14 @@ export SUDO_EDITOR=nvim
 export QT_QPA_PLATFORMTHEME=gtk3
 export QT_GUI_GTK_JSON="${XDG_CONFIG_HOME:-$HOME/.config}/foxml/qt-palette.json"
 
-# Use seahorse's GTK ssh-askpass so the prompt picks up the FoxML GTK theme
+# Use seahorse's GTK ssh-askpass so the prompt picks up the Linux_Theme GTK theme
 # instead of the bright-blue x11-ssh-askpass dialog. SSH_ASKPASS_REQUIRE=prefer
 # forces ssh to use the GUI even when a TTY is available.
 if [[ -x /usr/lib/seahorse/ssh-askpass ]]; then
     export SSH_ASKPASS=/usr/lib/seahorse/ssh-askpass
     export SSH_ASKPASS_REQUIRE=prefer
 fi
-# FoxML SSH Keyring Integration
+# Linux_Theme SSH Keyring Integration
 # GNOME Keyring usually starts via Hyprland exec-once, but we ensure
 # the shell is correctly linked to the socket.
 if [[ -z "$SSH_AUTH_SOCK" ]]; then
@@ -81,7 +81,7 @@ zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}' 'r:|[._-]=* r:|=*'
 zstyle ':completion:*' squeeze-slashes {{SHOW_WELCOME}}
 
 # ─── Colored man pages ───────────────────────
-# Uses bat with the FoxML palette to highlight manual pages.
+# Uses bat with the Linux_Theme palette to highlight manual pages.
 # Zero bloat: replaces the 8+ LESS_TERMCAP lines with one robust pager command.
 export MANPAGER="sh -c 'col -bx | bat -l man -p'"
 

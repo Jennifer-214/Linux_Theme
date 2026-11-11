@@ -1,6 +1,6 @@
 # Security tools
 
-[← Back to FoxML](../README.md)
+[← Back to the README](../README.md)
 
 Configuration and commands for the workstation’s security stack. See the [threat model and reporting policy](../SECURITY.md) and [recovery guide](../RECOVERY.md).
 

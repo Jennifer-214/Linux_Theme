@@ -1,5 +1,5 @@
 #!/bin/bash
-# FoxML Paper — graphite pencil on white paper
+# Linux_Theme Paper — graphite pencil on white paper
 # Graphite inks retain distinct pressure and subtle warm/cool roles.
 # A stronger blush and readable secondary ink suit lower-contrast screens.
 # ANSI colors are quiet colored-pencil tints so git /

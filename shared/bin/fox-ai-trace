@@ -8,7 +8,7 @@
 # Best when piped a full backtrace (gdb bt, addr2line output, Python
 # traceback, or systemd-coredumpctl info dump). The model identifies the
 # crashing frame, the likely cause, and suggests fixes. Optimised for
-# FoxML's C++ trading engines where many crashes are race conditions,
+# the C++ trading engines where many crashes are race conditions,
 # fixed-point overflow, or NaN propagation.
 
 set -u

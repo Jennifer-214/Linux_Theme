@@ -1,8 +1,8 @@
 # Security
 
-## What FoxML is
+## What Linux_Theme is
 
-FoxML is a personal Arch + Hyprland configuration with a defense-in-depth
+Linux_Theme is a personal Arch + Hyprland configuration with a defense-in-depth
 security stack. It is **not** a hardened distribution, a security product,
 or an audit-grade installer. It is one engineer's daily-driver setup,
 made reusable. Treat the security choices here as a strong default

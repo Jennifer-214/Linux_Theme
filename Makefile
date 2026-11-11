@@ -1,4 +1,4 @@
-# FoxML Theme Hub — root Makefile.
+# Linux_Theme — root Makefile.
 #
 # Discovers any directory under src/ that contains its own Makefile and
 # recurses into it. To add a new C++ component:

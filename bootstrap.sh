@@ -47,7 +47,7 @@ _min_free_mb=256
 if (( _boot_total_mb < _rec_total_mb || _boot_free_mb < _min_free_mb )); then
     echo "WARNING: Low disk space on $_boot_path."
     echo "         Capacity:  ${_boot_total_mb}MB (${_boot_free_mb}MB free)"
-    echo "         FoxML recommends at least ${_rec_total_mb}MB total capacity for safe updates."
+    echo "         The installer recommends at least ${_rec_total_mb}MB total capacity for safe updates."
 
     if (( _boot_free_mb < 128 )); then
         echo "ERROR: Only ${_boot_free_mb}MB available. This is critically low."
@@ -116,7 +116,7 @@ esac
 if [[ -z "$_force" && -t 0 ]]; then
     echo ""
     echo "  ╭───────────────────────────────────────────╮"
-    echo "  │  FoxML Theme Hub — pick install path      │"
+    echo "  │  Linux_Theme — pick install path      │"
     echo "  ├───────────────────────────────────────────┤"
     echo "  │   1) C++ (recommended)                    │"
     echo "  │      Native orchestrator + --full review  │"

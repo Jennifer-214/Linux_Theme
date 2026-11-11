@@ -1,5 +1,5 @@
 #!/bin/bash
-# FoxML Theme Hub — source → destination mappings
+# Linux_Theme — source → destination mappings
 # Format: "relative-path|system-destination"
 # ~ is expanded at runtime
 
@@ -87,7 +87,7 @@ TEMPLATE_MAPPINGS=(
     # Git (delta pager — included from ~/.gitconfig, doesn't touch user identity)
     "git/delta.gitconfig|~/.config/git/delta-foxml.gitconfig"
 
-    # FoxML Shared ANSI colors (for C++ CLI tools)
+    # Linux_Theme Shared ANSI colors (for C++ CLI tools)
     "foxml/ansi_colors.json|~/.config/foxml/ansi_colors.json"
 
     # Cursor/VS Code
@@ -313,7 +313,7 @@ PKGJSON
 JSON
 
         # dark-ansi routes Claude Code's UI through the terminal's ANSI
-        # palette, which kitty.conf already paints with the FoxML colors —
+        # palette, which kitty.conf already paints with the Linux_Theme colors —
         # so the TUI inherits the active theme without any per-element work.
         if [[ ! -f "$claude_settings" ]]; then
             if command -v jq &>/dev/null; then
@@ -456,7 +456,7 @@ JSON
         (( _total > 0 )) && echo ""
     fi
 
-    # Cursor theme — Catppuccin Mocha Peach matches the FoxML earthy palette.
+    # Cursor theme — Catppuccin Mocha Peach matches the Linux_Theme earthy palette.
     # The Hyprland env + GTK ini both reference it; this fetches the theme
     # files from the upstream GitHub release if they're not already present.
     local cursor_name="catppuccin-mocha-peach-cursors"
@@ -594,7 +594,7 @@ JSON
         fi
     fi
 
-    # bat — write a tiny config that selects the FoxML tmTheme by name
+    # bat — write a tiny config that selects the Linux_Theme tmTheme by name
     local bat_dir="$HOME/.config/bat"
     if [[ -d "$bat_dir/themes" ]]; then
         if [[ -f "$bat_dir/config" ]] && grep -q '^--theme=' "$bat_dir/config"; then
@@ -606,7 +606,7 @@ JSON
         command -v foxml_substep >/dev/null && foxml_substep "bat --theme=\"Fox ML\"" || echo "  bat --theme=\"Fox ML\""
     fi
 
-    # delta — wire the rendered FoxML gitconfig in via [include] so the user's
+    # delta — wire the rendered Linux_Theme gitconfig in via [include] so the user's
     # ~/.gitconfig (identity, etc.) stays untouched. git-config -e replaces the
     # same key on re-runs, and we only add the include if delta is installed.
     if command -v delta &>/dev/null && [[ -f "$rendered_dir/git/delta.gitconfig" ]]; then
@@ -617,7 +617,7 @@ JSON
         echo "  git delta include → $delta_inc"
     fi
 
-    # btop — point btop.conf at the FoxML theme. If btop hasn't run yet there's
+    # btop — point btop.conf at the Linux_Theme theme. If btop hasn't run yet there's
     # no btop.conf; create a one-line config (btop auto-fills the rest of the
     # defaults on first launch). Without this branch the theme silently no-ops
     # on first install.
@@ -625,9 +625,9 @@ JSON
     if [[ ! -f "$btop_conf" ]]; then
         mkdir -p "$(dirname "$btop_conf")"
         echo 'color_theme = "foxml"' > "$btop_conf"
-        echo "  btop.conf created with FoxML theme"
+        echo "  btop.conf created with Linux_Theme theme"
     elif grep -qE '^color_theme\s*=\s*"foxml"' "$btop_conf"; then
-        command -v foxml_substep >/dev/null && foxml_substep "btop already on FoxML theme" || echo "  btop already on FoxML theme"
+        command -v foxml_substep >/dev/null && foxml_substep "btop already on Linux_Theme theme" || echo "  btop already on Linux_Theme theme"
     elif grep -qE '^color_theme\s*=' "$btop_conf"; then
         sed -i -E 's|^(color_theme\s*=\s*).*|\1"foxml"|' "$btop_conf"
         echo "  btop color_theme → foxml"
@@ -2537,7 +2537,7 @@ install_kernel_hardening() {
     local conf="/etc/sysctl.d/99-foxml-hardening.conf"
     local desired
     desired="$(cat <<'EOF'
-# FoxML kernel hardening — auto-applied by install.sh.
+# Linux_Theme kernel hardening — auto-applied by install.sh.
 # Reversible: `sudo rm /etc/sysctl.d/99-foxml-hardening.conf && sudo sysctl --system`.
 kernel.kptr_restrict             = 2
 kernel.dmesg_restrict            = 1
@@ -3716,7 +3716,7 @@ EOF
             # keyboard-interactive (cuts off old PAM-based brute force),
             # explicit Protocol 2 even though it's already default.
             sudo tee "$hardening_conf" >/dev/null <<EOF
-# FoxML Security Hardening
+# Linux_Theme Security Hardening
 Port $custom_port
 Protocol 2
 PasswordAuthentication $disable_pass

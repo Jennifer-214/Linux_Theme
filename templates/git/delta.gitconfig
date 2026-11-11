@@ -1,4 +1,4 @@
-; FoxML — delta pager + diff colors
+; Linux_Theme — delta pager + diff colors
 ; Included from ~/.gitconfig via [include] path = …/delta-foxml.gitconfig
 ; Re-rendered on every theme swap, so colors track the active palette.
 

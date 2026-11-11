@@ -1,4 +1,4 @@
-/* ====== Fox ML Theme Palette ====== */
+/* ====== Linux_Theme Palette ====== */
 @define-color bg        #{{BG}};
 @define-color fg        #{{FG}};
 @define-color accent    #{{PRIMARY}};
@@ -292,7 +292,7 @@ iconview.view:selected:focus {
   outline: none;
   color: #{{FG}};
 }
-/* === LibreOffice Fox ML Theme === */
+/* === LibreOffice Linux_Theme === */
 
 /* Main background for non-document areas */
 window.soffice {

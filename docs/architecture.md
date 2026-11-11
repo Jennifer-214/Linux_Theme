@@ -1,6 +1,6 @@
 # Architecture and development
 
-[← Back to FoxML](../README.md)
+[← Back to the README](../README.md)
 
 How templates, deployment and the native tools fit together.
 

@@ -1,6 +1,6 @@
 # Desktop guide
 
-[← Back to FoxML](../README.md)
+[← Back to the README](../README.md)
 
 Bar and drawer controls, everyday tools, Paper appearance, shell/editor setup and monitor behavior.
 
@@ -271,7 +271,7 @@ newest 10 removes the rest.
 
 System → Startup lists what starts with your session: your enabled user services and
 timers (Enter switches one off with `systemctl --user disable --now`, after a confirmation;
-FoxML's security watchers are marked), desktop autostart entries (hidden for your account
+The security watchers are marked), desktop autostart entries (hidden for your account
 with a `Hidden=true` copy in `~/.config/autostart`; the system file is not edited), the
 commands in Hyprland's `autostart.lua`, and enabled system services. Hyprland's commands
 and system services are listed only.

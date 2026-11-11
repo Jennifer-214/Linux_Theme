@@ -68,7 +68,7 @@ class FoxLegacyTest(unittest.TestCase):
         shutil.rmtree(self.clone)
         rc, out = self.fox("update")
         self.assertEqual(rc, 1)
-        self.assertIn(f"FoxML directory not found at {self.home}/code/Linux_Theme", out)
+        self.assertIn(f"Linux_Theme directory not found at {self.home}/code/Linux_Theme", out)
         default = self.home / "code/Linux_Theme"
         default.mkdir(parents=True)
         stub(default / "update.sh", 'echo "default update.sh:$*"')

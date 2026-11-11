@@ -201,7 +201,7 @@ def js_object_keys(source, name):
 
 class BackendTests(unittest.TestCase):
     def setUp(self):
-        # /tmp is intentionally noexec on FoxML; fake executables belong beside the test.
+        # /tmp is intentionally noexec on Linux_Theme; fake executables belong beside the test.
         self.temp = tempfile.TemporaryDirectory(prefix=".fox-drawer-tests-", dir=Path(__file__).parent)
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)

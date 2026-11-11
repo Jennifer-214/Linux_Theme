@@ -51,7 +51,7 @@ std::size_t find_by_no_slug(const std::string& flag) {
 
 void print_help(const char* argv0) {
     std::printf(
-        "fox-install — FoxML Theme Hub installer (C++ orchestrator)\n\n"
+        "fox-install — Linux_Theme installer (C++ orchestrator)\n\n"
         "Usage: %s [theme] [flags]\n\n"
         "Global flags:\n"
         "  -y, --yes         assume yes for every prompt (disables wizard)\n"

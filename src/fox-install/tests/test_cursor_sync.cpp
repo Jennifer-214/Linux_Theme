@@ -23,7 +23,7 @@ std::string one_pixel_cursor() {
 }
 
 int main() {
-    // /tmp can be mounted noexec on machines using FoxML's hardening module.
+    // /tmp can be mounted noexec on machines using Linux_Theme's hardening module.
     std::string pattern = (fs::current_path() / ".fox-cursor-sync-XXXXXX").string();
     const char* temp = ::mkdtemp(pattern.data());
     if (!temp) return 1;

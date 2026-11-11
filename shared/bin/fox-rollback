@@ -1,5 +1,5 @@
 #!/bin/bash
-# fox-rollback — restore / list / prune FoxML config backups.
+# fox-rollback — restore / list / prune Linux_Theme config backups.
 #
 # Usage:
 #   fox-rollback                       Interactive picker (default)
@@ -155,7 +155,7 @@ cmd_prune() {
 
 cmd_interactive() {
     echo "╭──────────────────────────────────────────────────────────────────╮"
-    echo "│                      FoxML Theme Rollback                       │"
+    echo "│                      Linux_Theme Theme Rollback                       │"
     echo "╰──────────────────────────────────────────────────────────────────╯"
     echo ""
     echo "Select a backup to restore to your home directory."

@@ -1,6 +1,6 @@
 {
   "name": "foxml-paper",
   "version": "0.1.0",
-  "description": "A notebook pane beside the chat, a red-zone band, gentle toasts and paper spinner words, in the FoxML palette",
+  "description": "A notebook pane beside the chat, a red-zone band, gentle toasts and paper spinner words, in the Linux_Theme palette",
   "types": "./types/index.d.ts"
 }

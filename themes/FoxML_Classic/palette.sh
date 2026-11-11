@@ -1,5 +1,5 @@
 #!/bin/bash
-# FoxML Classic — full palette
+# Classic — full palette
 # All hex values are WITHOUT the # prefix
 
 # ─── Theme metadata ───
@@ -252,7 +252,7 @@ TMUX_ACTIVE_FG=d4985a
 TMUX_ACTIVE_BG=1f1519
 
 # ─── Bar · terminal quiet layer (waybar states · logo · kitty ANSI · tmux footer) ───
-WAYBAR_LOGO=🦊
+WAYBAR_LOGO='✿'
 WAYBAR_WS_FORMAT='{name} {windows}'
 # Bar glyphs (module icons passed to the bar scripts; window icons on the workspace tabs).
 WAYBAR_ICON_CPU='󰻠'

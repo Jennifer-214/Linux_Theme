@@ -1,8 +1,8 @@
 // X-macro registry for fox-sys subcommands.
 
 // — Install lifecycle —
-FOX_SUBCMD( install,    fox-install,    "Run the FoxML installer (state-driven; --full / --dry-run)" )
-FOX_SUBCMD( uninstall,  fox-uninstall,  "Remove FoxML binaries + state from $HOME" )
+FOX_SUBCMD( install,    fox-install,    "Run the Linux_Theme installer (state-driven; --full / --dry-run)" )
+FOX_SUBCMD( uninstall,  fox-uninstall,  "Remove Linux_Theme binaries + state from $HOME" )
 FOX_SUBCMD( rollback,   fox-rollback,   "Restore configuration from a prior install backup" )
 
 // — Diagnostics —

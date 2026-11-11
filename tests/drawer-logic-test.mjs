@@ -120,8 +120,8 @@ console.log('confirmation labels, full paths, exact dates and unavailable reason
 assert.equal(logic.pageHeading('Wi-Fi',true),'wi-fi.');
 assert.equal(logic.pageHeading('API usage',true),'API usage.');
 assert.equal(logic.pageHeading('Review with API credits',true),'review with API credits.');
-assert.equal(logic.pageHeading('Fox tools',true),'fox tools.');
-assert.equal(logic.pageHeading('FoxML',true),'FoxML.');
+assert.equal(logic.pageHeading('Shell tools',true),'shell tools.');
+assert.equal(logic.pageHeading('GitHub',true),'GitHub.');
 assert.equal(logic.pageHeading('today.',true),'today.');
 assert.equal(logic.pageHeading('Delete this?',true),'delete this?');
 assert.equal(logic.pageHeading("Caramel's notes",true),"caramel's notes.");

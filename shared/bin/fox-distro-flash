@@ -1,5 +1,5 @@
 #!/bin/bash
-# fox-distro-flash — Safe flashing utility for the FoxML ISO
+# fox-distro-flash — Safe flashing utility for the Linux_Theme ISO
 
 # Locate the Linux_Theme repo. Convention is ~/code/Linux_Theme/
 # per CLAUDE.md; override with FOXML_WORKSTATION_DIR=... if you keep it
@@ -18,7 +18,7 @@ if [[ -z "$ISO_FILE" ]]; then
     exit 1
 fi
 
-echo "FoxML OS — USB Flasher"
+echo "Linux_Theme — USB Flasher"
 echo "----------------------"
 echo "ISO: $(basename "$ISO_FILE")"
 echo ""
@@ -54,8 +54,8 @@ if [[ "$TARGET_DEV" == "/dev/sda" || "$TARGET_DEV" == "/dev/nvme"* ]]; then
     exit 1
 fi
 
-echo "Flashing FoxML OS... This may take a few minutes."
+echo "Flashing Linux_Theme... This may take a few minutes."
 sudo dd if="$ISO_FILE" of="$TARGET_DEV" bs=4M status=progress oflag=sync
 
 echo ""
-echo "Done! You can now boot from this USB to deploy FoxML OS."
+echo "Done! You can now boot from this USB to deploy Linux_Theme."

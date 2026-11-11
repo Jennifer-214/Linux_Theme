@@ -1,5 +1,5 @@
 #!/bin/bash
-# Toggle the FoxML Eww Control Center (and its drawer).
+# Toggle the Linux_Theme Eww Control Center (and its drawer).
 
 if eww list-windows 2>/dev/null | grep -qE '^\*?\s*control_center( |$)'; then
     eww close control_center control_center_drawer 2>/dev/null

@@ -1,5 +1,5 @@
 #!/bin/bash
-# FoxML AI Status — Waybar module for OpenCode model status.
+# AI status — Waybar module for OpenCode model status.
 # Display reads as a peer of the memory module: "<icon> <size> X/Yg",
 # where X is the default model's resident memory while llama.cpp's router has it loaded (fox-llm-run
 # --ps) and Y is total VRAM. Falls back to "idle" when it isn't loaded.

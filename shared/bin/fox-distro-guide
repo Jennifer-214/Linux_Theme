@@ -1,9 +1,9 @@
 #!/bin/bash
-# fox-distro-guide — Instructions for the FoxML Distro experience
+# fox-distro-guide — Instructions for the Linux_Theme Distro experience
 
-echo "🦊 FoxML OS — High-Discipline Workstation"
+echo "Linux_Theme — High-Discipline Workstation"
 echo "----------------------------------------"
-echo "You can now deploy FoxML as a complete OS experience in two ways:"
+echo "You can now deploy Linux_Theme as a complete OS experience in two ways:"
 echo ""
 echo "1. The archinstall Profile (Recommended)"
 echo "   Boot a standard Arch Linux ISO and run:"
@@ -15,8 +15,8 @@ echo "   - Configure systemd-boot, pipewire, and NetworkManager"
 echo "   - Install NVIDIA drivers (if needed) and base-devel"
 echo "   - Trigger the Linux_Theme one-command bootstrap at first boot"
 echo ""
-echo "2. Build a Custom FoxML ISO"
-echo "   If you want a 'live' environment with FoxML baked in:"
+echo "2. Build a Custom Linux_Theme ISO"
+echo "   If you want a 'live' environment with Linux_Theme baked in:"
 echo "   - Install 'archiso': sudo pacman -S archiso"
 echo "   - Run the build script:"
 echo "     cd \${FOXML_WORKSTATION_DIR:-\$HOME/code/Linux_Theme}/distro && ./build.sh"

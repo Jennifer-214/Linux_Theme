@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fox-test — health gate for a FoxML checkout.
+# fox-test — health gate for a Linux_Theme checkout.
 #
 # Runs three checks in sequence:
 #   1. shellcheck (severity=error) on shared/bin + shared/hyprland_scripts

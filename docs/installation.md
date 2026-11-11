@@ -1,6 +1,6 @@
 # Installation reference
 
-[← Back to FoxML](../README.md)
+[← Back to the README](../README.md)
 
 Install paths, module selection, flags and first-run setup.
 
@@ -121,7 +121,7 @@ finishing with exit `3`.
 
 ### Archinstall profile
 
-Boot the Arch ISO and load FoxML directly:
+Boot the Arch ISO and load Linux_Theme directly:
 
 ```bash
 archinstall --config https://raw.githubusercontent.com/Jennifer-214/Linux_Theme/main/shared/foxml-profile.json

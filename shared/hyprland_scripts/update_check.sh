@@ -1,5 +1,5 @@
 #!/bin/bash
-# FoxML Update Checker
+# Linux_Theme Update Checker
 # Sends a notification when updates are available
 
 # Initial sleep to let the system connect to network

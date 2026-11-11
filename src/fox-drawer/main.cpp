@@ -2708,7 +2708,7 @@ std::string tool_section(const std::string& name) {
 std::vector<Tool> fox_tools() {
     static const std::set<std::string> hidden{"fox", "fox-bar", "fox-desktop-menu", "fox-drawer", "fox-cheatsheet", "fox-menu", "fox-picker", "fox-rollback", "fox-sandbox", "fox-wallpaper"};
     static const std::map<std::string, std::string> fixed{
-        {"fask", "Query the FoxML Intelligence Layer (AI model)"}, {"findex", "Rebuild the vector index for AI semantic search"}};
+        {"fask", "Query the local AI tools (AI model)"}, {"findex", "Rebuild the vector index for AI semantic search"}};
     std::vector<Tool> found; std::error_code ec;
     for (const auto& entry : fs::directory_iterator(fs::path(home()) / ".local/bin", ec)) {
         const auto name = entry.path().filename().string();
@@ -3929,7 +3929,7 @@ void startup_rows(Json& rows) {
             if (!std::regex_match(unit, std::regex("[A-Za-z0-9@._-]+\\.(service|timer)"))) continue;
             std::string state;
             capture({"systemctl", "--user", "is-active", unit}, state);
-            // FoxML's own watchers guard the machine; say so before one is switched off.
+            // Linux_Theme's own watchers guard the machine; say so before one is switched off.
             const bool guard = std::regex_match(unit, std::regex("fox-(bouncer|tripwire|sentry[A-Za-z-]*|vault|honey[A-Za-z-]*)\\.(service|timer)"));
             auto row = item("startup-user", unit, "action", std::string(trim(state) == "active" ? "running" : "not running right now")
                             + (guard ? " · a security watcher: switching it off lowers your protection" : ""), guard ? "shield" : "gear");
@@ -4007,7 +4007,7 @@ Json view(const Json& config, const std::string& page, const std::string& query,
     auto fail = [&](const std::string& message) { out["ok"] = false; out["error"] = message; };
     bool known = false;
     if (page == "root") {
-        known = true; out["title"] = text(config, "title", "FoxML");
+        known = true; out["title"] = text(config, "title", "Linux_Theme");
         char date[48] = {}; const std::time_t now = std::time(nullptr); const std::tm* local = std::localtime(&now);
         std::strftime(date, sizeof date, "%a, %b ", local);
         auto home_row = item("today", "Today", "page", "A look at your day", "today");

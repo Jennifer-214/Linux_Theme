@@ -1,6 +1,6 @@
 # Agent and development workflows
 
-[← Back to FoxML](../README.md)
+[← Back to the README](../README.md)
 
 Claude session status, notebook controls, supervised jobs, test results and review. For local model setup, see [Local AI](local-ai.md).
 

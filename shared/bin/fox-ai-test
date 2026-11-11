@@ -5,7 +5,7 @@
 #        fox-ai-test path/to/source.py
 #
 # Auto-detects the test framework by language + project conventions:
-#   .cpp / .h / .hpp → Catch2 (FoxML C++ projects use it)
+#   .cpp / .h / .hpp → Catch2 (the C++ projects use it)
 #   .py              → pytest
 # Prints generated tests to stdout. Pipe to a file or paste into the
 # matching tests/ directory — no auto-write to avoid clobbering.

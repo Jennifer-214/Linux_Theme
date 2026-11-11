@@ -7,7 +7,7 @@ FOXML_DIR="$(cat "$HOME/.local/share/foxml/repo-dir" 2>/dev/null)"
 [[ -d "$FOXML_DIR" ]] || FOXML_DIR="$HOME/code/Linux_Theme"
 
 if [[ ! -d "$FOXML_DIR" ]]; then
-    echo "Error: FoxML directory not found at $FOXML_DIR"
+    echo "Error: Linux_Theme directory not found at $FOXML_DIR"
     exit 1
 fi
 
@@ -303,7 +303,7 @@ case "$1" in
         fi
         ;&    # fall through to the overview block
     "")
-        echo "FoxML CLI - Unified Theme Manager"
+        echo "Linux_Theme CLI - Unified Theme Manager"
         echo "Usage: fox <command> [args]"
         echo ""
         echo "Core Commands:"
@@ -361,7 +361,7 @@ case "$1" in
                 base="$(basename "$cmd")"
                 desc=""
                 if [[ "$base" == "fask" ]]; then
-                    desc="Query the FoxML Intelligence Layer (AI model)"
+                    desc="Query the local AI tools (AI model)"
                 elif [[ "$base" == "findex" ]]; then
                     desc="Rebuild the vector index for AI semantic search"
                 else

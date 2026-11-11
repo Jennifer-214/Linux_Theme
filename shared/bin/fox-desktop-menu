@@ -59,7 +59,7 @@ if ! ready_status; then
     # Detach before Qt/Wayland initializes; forking the loaded shell can leave
     # a newly added layer surface with no live IPC service.
     setsid -f quickshell -c foxml --no-duplicate >/dev/null 2>&1 || {
-        printf 'fox-desktop-menu: could not start the FoxML drawer.\n' >&2
+        printf 'fox-desktop-menu: could not start the drawer.\n' >&2
         exit 1
     }
     ready=false

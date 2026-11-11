@@ -42,7 +42,7 @@ function fitHeight(full, fit, floor) {
 }
 
 // Paper headings are written by hand: lowercase with a full stop. Acronyms (API, USB) and names
-// with capitals inside them (FoxML) stay as they are; "Wi-Fi" becomes "wi-fi".
+// with capitals inside them (Linux_Theme) stay as they are; "Wi-Fi" becomes "wi-fi".
 function pageHeading(title, paper) {
     title = String(title || "");
     if (!paper || !title) return title;

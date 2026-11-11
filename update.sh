@@ -1,5 +1,5 @@
 #!/bin/bash
-# FoxML Theme Hub — Updater
+# Linux_Theme — Updater
 # Pulls system configs back into templates (reverse-renders colors to placeholders)
 # Usage: ./update.sh [theme_name]
 
@@ -35,7 +35,7 @@ if [[ ! -f "$PALETTE_FILE" ]]; then
 fi
 
 echo "╭──────────────────────────────────────────────────────────────────╮"
-echo "│                    FoxML Theme Updater                          │"
+echo "│                    Linux_Theme Theme Updater                          │"
 echo "╰──────────────────────────────────────────────────────────────────╯"
 echo ""
 echo "Active theme: $THEME_NAME"

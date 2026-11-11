@@ -12,7 +12,7 @@ if [[ "{{LITTLE_DETAILS}}" == fox-little-details-on ]]; then
     'paste:fg=#{{FG}},bg=#{{SELECTION}}')
 fi
 
-# ─── LS_COLORS (Semantic FoxML palette) ──────
+# ─── LS_COLORS (Semantic Linux_Theme palette) ──────
 export LS_COLORS="\
 di=38;5;{{ANSI_ACCENT1}};1:\
 ln=38;5;{{ANSI_ACCENT2}}:\

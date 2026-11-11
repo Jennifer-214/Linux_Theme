@@ -93,7 +93,7 @@ for profile in "$HOME/.mozilla/firefox/"*.default* "$HOME/.mozilla/firefox/"*.de
 done
 
 # 3. nvim: only kill instances whose cwd is under $HOME/code (where
-#    FoxML projects live). A bare `pkill nvim` would kill an unrelated
+#    Linux_Theme projects live). A bare `pkill nvim` would kill an unrelated
 #    nvim session the user has open elsewhere (notes, journal, etc.)
 #    which is way too aggressive for a panic button.
 for pid in $(pgrep -x nvim 2>/dev/null); do

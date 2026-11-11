@@ -3,7 +3,7 @@ export PATH="$HOME/.local/bin:$PATH"
 [[ -d "$HOME/.opencode/bin" ]] && export PATH="$HOME/.opencode/bin:$PATH"
 typeset -U path PATH
 
-# ─── FoxML Project Awareness ──────────────────
+# ─── Linux_Theme Project Awareness ──────────────────
 _fox_project_check() {
     if [[ -f "AGENT.md" || -d ".agent" ]]; then
         export FOXML_PROJECT_ROOT=$(pwd)

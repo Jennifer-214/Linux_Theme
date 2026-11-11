@@ -1,8 +1,8 @@
-# FoxML
+# Linux_Theme
 
 An integrated desktop and workstation toolkit for **Arch Linux + Hyprland**.
 
-FoxML brings together desktop controls, coordinated application themes, system
+Linux_Theme brings together desktop controls, coordinated application themes, system
 setup, maintenance tools and optional local AI. This repository, `Linux_Theme`,
 contains the configuration, installer and native tools that make it work.
 
@@ -20,7 +20,7 @@ contains the configuration, installer and native tools that make it work.
 | Local AI | Optional model downloads and serving, coding agents, semantic search and diagnostic tools |
 | Security | Configurable firewall, browser hardening, auditing and device controls |
 
-FoxML is an opinionated workstation setup built on Arch and Hyprland. Choose the
+Linux_Theme is an opinionated workstation setup built on Arch and Hyprland. Choose the
 parts you want through the installer; the setup scripts provide broader defaults.
 
 ## Screenshots

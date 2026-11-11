@@ -486,7 +486,7 @@ def do_pending():
             # the server restarted, a model wouldn't load…: it stays listed for the next try (a download, the timer)
             print(f"  {names[0]}: grading stopped — {e}; it stays on the list"); return 1
         set_pending([n for n in pending() if n != names[0]])
-        print(card); notify("🦊 Model graded", card + "\nfox-llm-grade --report")
+        print(card); notify("Model graded", card + "\nfox-llm-grade --report")
 
 
 def do_queue(name):

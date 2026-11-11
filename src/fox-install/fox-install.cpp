@@ -1,4 +1,4 @@
-// fox-install — typed C++ orchestrator for the FoxML Theme Hub installer.
+// fox-install — typed C++ orchestrator for the Linux_Theme installer.
 //
 // The point of this binary is the X-macro module registry in
 // core/modules.def. Everything else (arg parser, --help, dispatcher,
@@ -440,7 +440,7 @@ int main(int argc, char** argv) {
                     break;
                 }
             }
-            std::printf(" -> existing FoxML install detected"
+            std::printf(" -> existing Linux_Theme install detected"
                         "%s%s — pass --quick to skip deps + clones + model pulls\n",
                         prior_theme.empty() ? "" : " (",
                         prior_theme.empty() ? "" : (prior_theme + ")").c_str());
@@ -461,7 +461,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    ui::section("FoxML installer (fox-install) — theme: " + ctx.theme_name);
+    ui::section("Linux_Theme installer (fox-install) — theme: " + ctx.theme_name);
 
     // Upper bound for the progress bar denominator. Interactive prompts
     // may push the actually-run count lower if the user answers 'n', but

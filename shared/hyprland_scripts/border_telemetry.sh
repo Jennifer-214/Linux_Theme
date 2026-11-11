@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Hyprland Border Telemetry — Earthy edition
-# Changes border colors based on system state while maintaining the FoxML vibe.
+# Changes border colors based on system state while maintaining the Linux_Theme vibe.
 
 # Source the rendered palette
 PALETTE="${HOME}/.config/hypr/modules/border_colors.sh"

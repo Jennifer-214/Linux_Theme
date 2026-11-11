@@ -1,4 +1,4 @@
--- FoxML Theme Hub — main Hyprland config (Hyprland 0.57+ reads only Lua)
+-- Linux_Theme — main Hyprland config (Hyprland 0.57+ reads only Lua)
 -- Loads every module in ~/.config/hypr/modules/ in order; Hyprland puts this
 -- file's directory first on package.path, so "modules.keybinds" resolves to
 -- ~/.config/hypr/modules/keybinds.lua. nvidia.lua is written by the nvidia

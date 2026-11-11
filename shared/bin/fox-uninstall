@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# fox-uninstall — remove FoxML binaries + state from $HOME.
+# fox-uninstall — remove Linux_Theme binaries + state from $HOME.
 #
 # Different from `fox rollback` (which restores Hyprland/waybar configs
-# from a timestamped backup). This script focuses on the FoxML-specific
+# from a timestamped backup). This script focuses on the Theme-specific
 # artifacts: binaries, systemd user services, state directories, marker
 # files. Leaves the user's Hyprland/waybar/dotfiles alone — restore
 # those via `fox rollback <timestamp>` if you want a pristine config.
@@ -84,7 +84,7 @@ declare -a SYS_FILES=(
     "/etc/endlessh/config"
 )
 
-# 3. FoxML state / marker / sidecar.
+# 3. Linux_Theme state / marker / sidecar.
 for d in "$HOME/.local/share/foxml" \
          "$HOME/.local/state/foxml" \
          "$HOME/.config/foxml"; do

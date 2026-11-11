@@ -1,5 +1,5 @@
 #!/bin/bash
-# FoxML Bubblegum — saturated bubblegum pink + orchid on a near-black plum base
+# Linux_Theme Bubblegum — saturated bubblegum pink + orchid on a near-black plum base
 # All hex values are WITHOUT the # prefix
 
 # ─── Theme metadata ───
@@ -256,7 +256,7 @@ TMUX_ACTIVE_FG=ff5fa2
 TMUX_ACTIVE_BG=1d0f1a
 
 # ─── Bar · terminal quiet layer (waybar states · logo · kitty ANSI · tmux footer) ───
-WAYBAR_LOGO=🦊
+WAYBAR_LOGO='✿'
 WAYBAR_WS_FORMAT='{name} {windows}'
 # Bar glyphs (module icons passed to the bar scripts; window icons on the workspace tabs).
 WAYBAR_ICON_CPU='󰻠'

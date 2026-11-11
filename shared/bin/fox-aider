@@ -55,7 +55,7 @@ fi
 
 # Theme: --no-pretty drops aider's Rich-rendered chrome (frames, "Warning:"
 # headers, hyperlink underlines) which were leaning on terminal ANSI
-# bright-green and clashing with FoxML. The per-color flags still apply
+# bright-green and clashing with Linux_Theme. The per-color flags still apply
 # to user input and assistant output, so chat itself stays warmly tinted.
 # Per-call overrides win because they're later in argv.
 # Colours follow the active theme (rendered palette), Classic's as the fallback

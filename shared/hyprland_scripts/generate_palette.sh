@@ -1,6 +1,6 @@
 #!/bin/bash
-# FoxML Auto-Theme Generator
-# Extracts colors from a wallpaper and creates a FoxML palette
+# Linux_Theme Auto-Theme Generator
+# Extracts colors from a wallpaper and creates a Linux_Theme palette
 
 IMG="$1"
 if [[ ! -f "$IMG" ]]; then
@@ -23,7 +23,7 @@ convert "$IMG" -resize 200x200 -colors 8 -unique-colors txt:- > "$TMP_PALETTE/co
 # Extract hex codes (skipping the first line header)
 HEX_CODES=($(grep -oE '#[0-9A-Fa-f]{6}' "$TMP_PALETTE/colors.txt"))
 
-# Assign colors to FoxML variables
+# Assign colors to Linux_Theme variables
 # We try to pick the best fits for BG, PRIMARY, etc.
 # This is a simple mapping: 
 BG=${HEX_CODES[0]#\#}
@@ -50,7 +50,7 @@ _img_basename="${_img_basename//[^A-Za-z0-9._-]/_}"
 
 # Write the palette.sh
 cat > "$GEN_DIR/palette.sh" <<EOF
-# Generated FoxML Palette from ${_img_basename}
+# Generated Linux_Theme Palette from ${_img_basename}
 THEME_TYPE="Generated"
 BG="${BG}"
 BG_DARK="${BG}"

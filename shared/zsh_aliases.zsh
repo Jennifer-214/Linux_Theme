@@ -83,7 +83,7 @@ function '??'() {
   fi
 }
 
-# FoxML AI Tool Wrappers
+# Linux_Theme AI Tool Wrappers
 # Wake the local model server before an agent starts: llama.cpp's router, a user service — no sudo.
 _fox_llm_up() {
   systemctl --user is-enabled --quiet fox-llm-server.service 2>/dev/null || return 0
@@ -108,7 +108,7 @@ pi() {
   PI_OFFLINE=1 command pi "$@"
 }
 
-# FoxML short-hand
+# Linux_Theme short-hand
 alias fask='fask'
 alias findex='findex'
 alias fcommit='fox-ai-commit'
@@ -126,8 +126,8 @@ alias fflash='fox-distro-flash'
 alias fhelp='fhelp'
 alias fwc='fox-word-count'
 alias word-count='fox-word-count'
-alias f-on='systemctl --user start fox-llm-server.service && echo "🦊 Fox Brain is online."'
-alias f-off='systemctl --user stop fox-llm-server.service && echo "🦊 Fox Brain is offline."'
+alias f-on='systemctl --user start fox-llm-server.service && echo "The local model is online."'
+alias f-off='systemctl --user stop fox-llm-server.service && echo "The local model is offline."'
 
 # ─── Functions ────────────────────────────────
 give() {
@@ -176,7 +176,7 @@ gpp() {
 }
 
 # ─────────────────────────────────────────
-# FoxML Utilities
+# Linux_Theme Utilities
 # ─────────────────────────────────────────
 
 # Border Telemetry Hooks
@@ -189,7 +189,7 @@ add-zsh-hook precmd fox_precmd
 
 # System maintenance helper
 fox-clean() {
-    echo "🦊 Starting FoxML System Cleanup..."
+    echo "Starting system cleanup..."
     
     echo -e "\n[1/4] Cleaning pacman cache (keeping last 2 versions)..."
     sudo paccache -rk2

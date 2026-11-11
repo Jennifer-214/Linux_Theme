@@ -112,7 +112,7 @@ int main(int argc, char** argv) {
     if (std::string s = slurp("INVARIANTS.md"); !s.empty()) conventions += "=== INVARIANTS.md ===\n" + s + "\n";
 
     std::string prompt =
-        "You are a strict code reviewer on the FoxML Theme Hub project. The repo's\n"
+        "You are a strict code reviewer on the Linux_Theme project. The repo's\n"
         "conventions are below; the user is about to commit the diff that follows.\n"
         "Respond in this exact shape:\n"
         "  - One line starting with 'BLOCK:' for every HARD violation (rule explicitly\n"

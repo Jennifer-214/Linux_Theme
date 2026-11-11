@@ -76,7 +76,7 @@ vim.opt.undofile = {{SHOW_WELCOME}}           -- persistent undo across sessions
 vim.opt.writebackup = false       -- avoid "file changed" prompts from backup writes
 vim.opt.autowriteall = {{SHOW_WELCOME}}       -- auto-save when switching buffers / leaving
 
--- FoxML palette (single source of truth)
+-- Linux_Theme palette (single source of truth)
 local P = {
   bg_deep   = "#{{BG_DARK}}",
   bg        = "#{{BG}}",
@@ -2028,7 +2028,7 @@ vim.opt.fillchars:append({ eob = " ", vert = " " })
 vim.opt.pumblend = 15
 
 -- ═══════════════════════════════════════════════════════════════
--- FoxML custom colorscheme (no external theme dependency)
+-- Linux_Theme custom colorscheme (no external theme dependency)
 -- ═══════════════════════════════════════════════════════════════
 local function apply_foxml_theme()
   vim.o.background = "{{THEME_TYPE}}"
@@ -2833,7 +2833,7 @@ do
   })
 end
 
--- Override devicon colors to match FoxML palette (peach only in file tree)
+-- Override devicon colors to match Linux_Theme palette (peach only in file tree)
 vim.defer_fn(function()
   local ok, devicons = pcall(require, "nvim-web-devicons")
   if ok then

@@ -8,7 +8,7 @@ import { paper } from './theme'
 import { beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, planProgress, ruler, stepLabel, testLabel, turnLabel, work, workLook } from './work'
 import { attributeFiles, fileColumns, fileCounts, gitFiles, drawerPage, mailId, shortPath } from './notebook'
 
-// FoxML paper: a notebook pane beside the chat (hearts, the session's name, its plan, the gate, pages
+// Linux_Theme paper: a notebook pane beside the chat (hearts, the session's name, its plan, the gate, pages
 // touched, the other Claudes with [go] and [note]), a red-zone band before a risky system edit, a band when
 // another live session edited the same file lately, notes as envelopes (from nvim's inbox, or another Claude), a
 // few gentle toasts, and paper spinner words. It writes only this session's own files in the private runtime folder

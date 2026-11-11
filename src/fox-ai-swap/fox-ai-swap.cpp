@@ -168,7 +168,7 @@ static int switch_to(const std::string& ref, const std::string& current, json& c
 
 void print_header() {
     std::cout << "\033[1;36m╭──────────────────────────────────────────────────╮\033[0m" << std::endl;
-    std::cout << "\033[1;36m│          FoxML AI Model Switcher (C++)           │\033[0m" << std::endl;
+    std::cout << "\033[1;36m│          Linux_Theme AI Model Switcher (C++)           │\033[0m" << std::endl;
     std::cout << "\033[1;36m╰──────────────────────────────────────────────────╯\033[0m" << std::endl;
 }
 

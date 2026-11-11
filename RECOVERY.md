@@ -113,6 +113,6 @@ System-side configs (`/etc/ssh/sshd_config.d/`, `/etc/wireguard/`,
 
 ### "Everything is broken — full rollback"
 
-Each FoxML install drops backups under `~/.theme_backups/foxml-backup-*`.
+Each Linux_Theme install drops backups under `~/.theme_backups/foxml-backup-*`.
 Find the most recent and restore the affected files. The installer
 also runs `fox-doctor` at the end, which prints actionable hints.

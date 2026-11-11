@@ -48,7 +48,7 @@ sys.exit(1 if mode=='fail' else 0)
 
 class ClaudeApi(unittest.TestCase):
     def setUp(self):
-        # /tmp is noexec on FoxML; the fake claude must live where it can run.
+        # /tmp is noexec on Linux_Theme; the fake claude must live where it can run.
         self.temp = tempfile.TemporaryDirectory(prefix='.claude-api-', dir=ROOT/'tests')
         self.addCleanup(self.temp.cleanup)
         self.folder = Path(self.temp.name)

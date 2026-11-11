@@ -254,7 +254,7 @@ TMUX_ACTIVE_FG=ff3300
 TMUX_ACTIVE_BG=111c31
 
 # ─── Bar · terminal quiet layer (waybar states · logo · kitty ANSI · tmux footer) ───
-WAYBAR_LOGO=🦊
+WAYBAR_LOGO='✿'
 WAYBAR_WS_FORMAT='{name} {windows}'
 # Bar glyphs (module icons passed to the bar scripts; window icons on the workspace tabs).
 WAYBAR_ICON_CPU='󰻠'

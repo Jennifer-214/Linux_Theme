@@ -1,5 +1,5 @@
 #!/bin/bash
-# FoxML Rose — rose-gold + lavender on cool dark base
+# Linux_Theme Rose — rose-gold + lavender on cool dark base
 # All hex values are WITHOUT the # prefix
 
 # ─── Theme metadata ───
@@ -252,7 +252,7 @@ TMUX_ACTIVE_FG=e8a4b8
 TMUX_ACTIVE_BG=1f1525
 
 # ─── Bar · terminal quiet layer (waybar states · logo · kitty ANSI · tmux footer) ───
-WAYBAR_LOGO=🦊
+WAYBAR_LOGO='✿'
 WAYBAR_WS_FORMAT='{name} {windows}'
 # Bar glyphs (module icons passed to the bar scripts; window icons on the workspace tabs).
 WAYBAR_ICON_CPU='󰻠'
