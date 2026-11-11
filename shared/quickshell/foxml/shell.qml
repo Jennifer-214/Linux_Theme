@@ -82,6 +82,7 @@ ShellRoot {
     // The light slip belongs on the screen whose backlight it changed; sound and songs follow the focus.
     readonly property var backlightScreen: Quickshell.screens.find(function(output) { return /^(eDP|LVDS|DSI)-/.test(output.name); }) || null
     Overview { id: deskOverview; theme: root.paperTheme }
+    PolkitPrompt { id: polkitPrompt; theme: root.paperTheme; screen: root.focusedScreen }
     LevelSlip { id: levelSlip; theme: root.paperTheme; output: kind === "light" && root.backlightScreen ? root.backlightScreen : root.focusedScreen }
     IpcHandler {
         target: "volume"

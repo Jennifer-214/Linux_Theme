@@ -409,7 +409,7 @@ class DrawerQmlTest(unittest.TestCase):
             source = re.sub(r"^        (?:anchors \{.*|margins \{.*|exclusionMode:.*|WlrLayershell\..*)\n", "", source, flags=re.M)
             source = source.rsplit("\n}", 1)[0] + EXERCISE + "\n}\n"
             (directory / "shell.qml").write_text(source)
-            for name in ("DrawerLogic.js", "ClipIcon.qml", "LoadingDots.qml", "PencilProgress.qml", "PaperGrain.qml", "BarHint.qml", "PageEdgeScrollBar.qml", "MediaArtwork.qml", "StateTag.qml", "BarRibbon.qml", "PaperFlourish.qml", "PaperCardSurface.qml", "ClipboardPhoto.qml", "CalendarSheet.qml", "Overview.qml", "CalendarLogic.js", "ScrapbookSheet.qml", "GardenSheet.qml", "ContextHearts.qml", "TeaCup.qml", "TodaySheet.qml", "ApiCreditMeter.qml", "LevelSlip.qml", "BotanicalMark.qml"):
+            for name in ("DrawerLogic.js", "ClipIcon.qml", "LoadingDots.qml", "PencilProgress.qml", "PaperGrain.qml", "BarHint.qml", "PageEdgeScrollBar.qml", "MediaArtwork.qml", "StateTag.qml", "BarRibbon.qml", "PaperFlourish.qml", "PaperCardSurface.qml", "ClipboardPhoto.qml", "CalendarSheet.qml", "Overview.qml", "PolkitPrompt.qml", "CalendarLogic.js", "ScrapbookSheet.qml", "GardenSheet.qml", "ContextHearts.qml", "TeaCup.qml", "TodaySheet.qml", "ApiCreditMeter.qml", "LevelSlip.qml", "BotanicalMark.qml"):
                 shutil.copyfile(ROOT / "shared/quickshell/foxml" / name, directory / name)
             volume = (directory / "LevelSlip.qml").read_text().replace("PanelWindow {", "FloatingWindow {")
             volume = re.sub(r"^    (?:anchors.*|margins\..*|exclusionMode:.*|WlrLayershell\..*)\n", "", volume, flags=re.M)
@@ -417,6 +417,9 @@ class DrawerQmlTest(unittest.TestCase):
             overview = (directory / "Overview.qml").read_text().replace("    PanelWindow {", "    FloatingWindow {")
             overview = re.sub(r"^        (?:anchors \{.*|exclusionMode:.*|WlrLayershell\..*)\n", "", overview, flags=re.M)
             (directory / "Overview.qml").write_text(overview)
+            polkit = (directory / "PolkitPrompt.qml").read_text().replace("    PanelWindow {", "    FloatingWindow {")
+            polkit = re.sub(r"^        (?:anchors \{.*|exclusionMode:.*|WlrLayershell\..*)\n", "", polkit, flags=re.M)
+            (directory / "PolkitPrompt.qml").write_text(polkit)
             shutil.copyfile(ROOT / "shared/quickshell/foxml/paper-sprig.png", directory / "paper-sprig.png")
             renderer = ROOT / "src/fox-render/fox-render-fast"
             render = str(renderer) if renderer.exists() else shutil.which("fox-render-fast")
@@ -433,8 +436,10 @@ class DrawerQmlTest(unittest.TestCase):
                 "FOXML_DRAWER_PREVIEW": "1", "FOXML_DRAWER_BACKEND": str(ROOT / "tests/drawer-ui-backend.py"),
                 "FOXML_DRAWER_TEST_LOG": str(actions),
                 "FOXML_DRAWER_BAR_STATE": str(directory / "drawer-state.css"),
+                # The paper polkit prompt stops and starts the session's hyprpolkitagent; never from a test.
+                "FOXML_POLKIT_PROMPT": "off",
             }
-            env.pop("WAYLAND_DISPLAY", None)
+            env.pop("WAYLAND_DISPLAY", None); env.pop("HYPRLAND_INSTANCE_SIGNATURE", None)
             result = subprocess.run(["quickshell", "--path", str(directory), "--no-color"],
                                     env=env, text=True, capture_output=True, timeout=12)
             log = result.stdout + result.stderr

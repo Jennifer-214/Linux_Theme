@@ -4,7 +4,7 @@ CXX      ?= g++
 CXXFLAGS ?= -std=c++17 -O2 -Wall -Wextra
 PREFIX   ?= $(HOME)/.local/bin
 
-OBJ = hypr_socket.o debouncer.o
+OBJ = hypr_socket.o debouncer.o polkit_watch.o
 BIN = fox-pulse
 
 all: $(BIN)
@@ -14,6 +14,9 @@ hypr_socket.o: hypr_socket.cpp hypr_socket.hpp
 
 debouncer.o: debouncer.cpp debouncer.hpp
 	$(CXX) $(CXXFLAGS) -c debouncer.cpp -o $@
+
+polkit_watch.o: polkit_watch.cpp polkit_watch.hpp
+	$(CXX) $(CXXFLAGS) -c polkit_watch.cpp -o $@
 
 $(BIN): fox-pulse.cpp $(OBJ)
 	$(CXX) $(CXXFLAGS) fox-pulse.cpp $(OBJ) -o $@
@@ -26,7 +29,13 @@ install: all
 	@mv $(PREFIX)/$(BIN).new $(PREFIX)/$(BIN)
 	@echo "  + $(BIN) installed to $(PREFIX)"
 
+test: tests/test_polkit_watch
+	@./tests/test_polkit_watch
+
+tests/test_polkit_watch: tests/test_polkit_watch.cpp polkit_watch.o
+	$(CXX) $(CXXFLAGS) tests/test_polkit_watch.cpp polkit_watch.o -o $@
+
 clean:
-	@rm -f $(OBJ) $(BIN)
+	@rm -f $(OBJ) $(BIN) tests/test_polkit_watch
 
 .PHONY: all install clean

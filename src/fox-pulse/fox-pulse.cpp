@@ -11,6 +11,7 @@
 //   │  timerfd: focus  (200 ms)  │  ──>  spawn handler
 //   │  timerfd: monitor (2 s)    │  ──>  spawn handler
 //   │  timerfd: config (500 ms)  │  ──>  spawn handler
+//   │  timerfd: polkit (5 s)     │  ──>  no prompt? start hyprpolkitagent
 //   │  signalfd: SIGINT/SIGTERM  │  ──>  graceful shutdown
 //   └────────────────────────────┘
 //
@@ -22,6 +23,7 @@
 
 #include "debouncer.hpp"
 #include "hypr_socket.hpp"
+#include "polkit_watch.hpp"
 
 #include <array>
 #include <cerrno>
@@ -38,6 +40,7 @@
 #include <sys/inotify.h>
 #include <sys/signalfd.h>
 #include <sys/stat.h>
+#include <sys/timerfd.h>
 #include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
@@ -53,6 +56,7 @@ constexpr int   HYPR_RECONNECT_MS  = 2000;
 constexpr int   FOCUS_DEBOUNCE_MS  = 200;
 constexpr int   MONITOR_DEBOUNCE_MS = 2000;
 constexpr int   CONFIG_DEBOUNCE_MS = 500;
+constexpr int   POLKIT_CHECK_S     = 5;
 
 struct HandlerSpec {
     const char* name;            // class name used for handler script lookup
@@ -102,6 +106,7 @@ std::string legacy_script_dir() {
 // Spawn a handler in detached fashion (no zombie — double-fork). The
 // daemon does no waitpid(), so any reaping is the kernel's job via
 // signal(SIGCHLD, SIG_IGN) below.
+void spawn_command(const std::string& cmd);
 void spawn_handler(const HandlerSpec& spec) {
     std::string script = handler_dir() + "/" + spec.name + ".sh";
     bool have_script = ::access(script.c_str(), X_OK) == 0;
@@ -120,6 +125,11 @@ void spawn_handler(const HandlerSpec& spec) {
         return;
     }
 
+    spawn_command(cmd);
+}
+
+// Run a shell command detached (double duty: handlers and the polkit fallback).
+void spawn_command(const std::string& cmd) {
     pid_t pid = ::fork();
     if (pid < 0) return;
     if (pid == 0) {
@@ -312,6 +322,18 @@ int main(int argc, char** argv) {
     add_fd(mon_db.fd());
     add_fd(cfg_db.fd());
 
+    // A polkit prompt must always be there; see polkit_watch.hpp.
+    int polkit_fd = ::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
+    if (polkit_fd >= 0) {
+        itimerspec every{};
+        every.it_value.tv_sec = POLKIT_CHECK_S;
+        every.it_interval.tv_sec = POLKIT_CHECK_S;
+        ::timerfd_settime(polkit_fd, 0, &every, nullptr);
+        add_fd(polkit_fd);
+    }
+    fox_pulse::AgentWatch agent_watch;
+    const std::string polkit_marker = env_or("XDG_RUNTIME_DIR", "/run/user/" + std::to_string(::getuid())) + "/foxml-polkit-agent";
+
     int sig_fd = setup_signalfd();
     if (sig_fd < 0) {
         std::perror("fox-pulse: signalfd");
@@ -397,6 +419,15 @@ int main(int argc, char** argv) {
             if (fd == cfg_db.fd()) {
                 cfg_db.read_and_consume();
                 spawn_handler(CONFIG_HANDLER);
+                continue;
+            }
+            if (fd == polkit_fd) {
+                uint64_t ticks;
+                (void)::read(polkit_fd, &ticks, sizeof(ticks));
+                if (agent_watch.tick("/proc", polkit_marker, ::getuid())) {
+                    if (verbose) std::fprintf(stderr, "fox-pulse: no polkit prompt — starting hyprpolkitagent\n");
+                    spawn_command("systemctl --user start hyprpolkitagent.service");
+                }
                 continue;
             }
             if (fd == ino_fd) {

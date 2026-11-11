@@ -202,6 +202,9 @@ class TuckedDrawer(unittest.TestCase):
             overview=(qml/"Overview.qml").read_text().replace("    PanelWindow {","    FloatingWindow {")
             overview=re.sub(r"^        (?:anchors \{.*|exclusionMode:.*|WlrLayershell\..*)\n","",overview,flags=re.M)
             (qml/"Overview.qml").write_text(overview)
+            polkit=(qml/"PolkitPrompt.qml").read_text().replace("    PanelWindow {","    FloatingWindow {")
+            polkit=re.sub(r"^        (?:anchors \{.*|exclusionMode:.*|WlrLayershell\..*)\n","",polkit,flags=re.M)
+            (qml/"PolkitPrompt.qml").write_text(polkit)
             fixture=work/"fixture.json";fixture.write_text("{}")
             runtime=work/"runtime";runtime.mkdir(mode=0o700)
             source=(qml/"shell.qml").read_text().replace("    PanelWindow {","    FloatingWindow {")
@@ -215,7 +218,7 @@ class TuckedDrawer(unittest.TestCase):
             env=os.environ|{"QT_QPA_PLATFORM":"offscreen","QT_QUICK_BACKEND":"software","XDG_RUNTIME_DIR":str(runtime),
                 "XDG_CONFIG_HOME":str(work/"config"),"FOXML_DRAWER_PREVIEW":"1","FOXML_BAR_AUTOSTART":"1",
                 "FOXML_BAR_FIXTURE":str(fixture),"FOXML_DRAWER_BACKEND":str(ROOT/"tests/drawer-ui-backend.py"),
-                "FOXML_DRAWER_TEST_LOG":str(work/"actions"),"QS_NO_RELOAD_POPUP":"1"}
+                "FOXML_DRAWER_TEST_LOG":str(work/"actions"),"QS_NO_RELOAD_POPUP":"1","FOXML_POLKIT_PROMPT":"off"}
             env.pop("WAYLAND_DISPLAY",None);env.pop("HYPRLAND_INSTANCE_SIGNATURE",None)
             result=subprocess.run(["quickshell","-p",str(qml),"--no-color"],env=env,capture_output=True,text=True,timeout=16)
             log=result.stdout+result.stderr
