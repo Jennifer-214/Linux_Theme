@@ -16,7 +16,7 @@ contains the configuration, installer and native tools that make it work.
 | Themes | Shared palettes across terminals, editors, browsers, GTK/Qt apps, the lock screen and login screen |
 | Setup | A modular C++ installer for packages, configuration, hardware and services |
 | Maintenance | Desktop checks, system diagnostics, backups, update tools and recovery support |
-| Development | Neovim, tmux and shell workflows, agent session status, job tracking and test results |
+| Development | Neovim, tmux and shell workflows, agent session status, job tracking, test results and a review of what an agent changed |
 | Local AI | Optional model downloads and serving, coding agents, semantic search and diagnostic tools |
 | Security | Configurable firewall, browser hardening, auditing and device controls |
 
@@ -41,6 +41,23 @@ The FoxML_Paper desktop, with its drawer open:
 ![Neovim](shared/screenshots/nvim.png?v=2)
 
 </details>
+
+Reviewing what a coding agent changed, in Neovim: changes grouped by plan, before and after side by side, and each
+plan step against the commits that touched it.
+
+![Review of an agent's changes in Neovim, with plan coverage](shared/screenshots/review.png)
+
+<details>
+<summary>The Claude notebook</summary>
+
+The pane beside a Claude Code session: what needs you, the last turn, the plan and the work, drawn here from sample
+data by `python3 tests/notebook_preview.py`.
+
+![The Claude notebook's pages](shared/screenshots/notebook.png)
+
+</details>
+
+See [Agent workflows](docs/agent-workflows.md) for both.
 
 ## Install
 
