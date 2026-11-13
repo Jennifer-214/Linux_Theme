@@ -348,6 +348,7 @@ local function save(r, file)
   disk.files = type(disk.files) == 'table' and disk.files or {}
   if file then
     disk.files[file.rel] = r.marks[file.rel]
+    if r.marks[file.rel] and type(disk.requests) == 'table' then disk.requests[file.rel] = nil end
     disk.seen = type(disk.seen) == 'table' and disk.seen or {}
     if r.marks[file.rel] and r.row.kind ~= 'commit' and not r.row.snapshots and file.right and #file.right <= 4 * 1024 * 1024 then
       local hash = vim.fn.sha256(file.right)
@@ -417,6 +418,11 @@ local function describe(r, entry)
       or (marks and marks[f.rel] and f.loaded) and 'changed since you reviewed it' or 'not reviewed yet'
     local what = ({ A = 'added', D = 'deleted', R = 'renamed', M = 'modified' })[f.status] or 'changed'
     local name = f.rel:match('[^/]+$') or f.rel
+    local request = (not set or set == r.active_set) and M.request_of(r, f) or nil
+    if request and not (marks and marks[f.rel] == f.signature) then
+      return { name .. ' · ' .. (request.ready and 'changed since you asked · ready for re-review' or ('waiting on ' .. request.name)),
+        '✉ ' .. request.name .. ': ' .. request.text }
+    end
     if f.risks and #f.risks > 0 then return { name .. ' · ' .. what .. ' · ' .. state, '⚠ ' .. table.concat(f.risks, ' · ') } end
     if f.since then return { name .. ' · ' .. what .. ' · ' .. state, 'showing only what is new · n shows the whole change' } end
     return { f.rel .. ' · ' .. what, state }
@@ -446,7 +452,9 @@ local function panel(r, select_row)
     local marks = set and set.marks or r.marks
     local checked = marks and marks[f.rel] == f.signature and f.loaded
     local stale = not checked and marks and marks[f.rel] ~= nil and f.loaded
-    local mark = checked and '✓' or stale and '↻' or '○'
+    local request = (not set or set == r.active_set) and not checked and M.request_of(r, f) or nil
+    if request and request.ready then stale = true end
+    local mark = checked and '✓' or stale and '↻' or request and '✉' or '○'
     local stats = not f.loaded and '' or f.error and 'unavailable' or f.binary and 'binary' or ('+' .. f.added .. ' −' .. f.deleted)
     local arrow = f.expanded and '▾' or '▸'
     local left = indent .. arrow .. ' ' .. mark .. ' ' .. f.rel:gsub('[\r\n\t]', ' ')
@@ -572,6 +580,7 @@ local function maps(r, buf, sidebar)
   key('<leader>rw', function() r.whitespace = not r.whitespace; options(r); tell('Whitespace changes: ' .. (r.whitespace and 'hidden' or 'shown')) end, 'Toggle review whitespace')
   key('<leader>rc', function() r.context = not r.context; options(r); tell('Context: ' .. (r.context and 'full file' or 'six lines')) end, 'Toggle review context')
   key('r', function() M.select(r.index, true) end, 'Refresh this comparison')
+  key('c', function() if not sidebar or M.enter(true) then api.nvim_set_current_win(r.right_win); require('foxml.claude').send() end end, 'Request changes from a Claude session')
   if not sidebar then key('<leader>rn', M.toggle_since, 'New since review / the whole change') end
   key('?', M.actions, 'Review actions')
   key('<leader>e', function() api.nvim_set_current_win(r.panel_win) end, 'Review file list')
@@ -682,7 +691,9 @@ function M.unread()
   for pass = 1, 2 do
     for i, f in ipairs(r.files) do
       local risky = f.risks and #f.risks > 0
-      if r.marks[f.rel] ~= f.signature and (pass == 2 or risky) then M.select(i); return end
+      local request = M.request_of(r, f)
+      local waiting = request and not request.ready       -- still with the session: nothing to read yet
+      if r.marks[f.rel] ~= f.signature and ((pass == 1 and (risky or (request and request.ready))) or (pass == 2 and not waiting)) then M.select(i); return end
     end
   end
   panel(r); tell('Every file is checked. R finishes the review.')
@@ -890,6 +901,8 @@ function M.actions()
     add('Finish & next commit', 'Finish this review and open the next unchecked commit in this list.', M.finish_next,
       { group = 'review', bind = 'R', right = progress(r) .. '/' .. #r.files .. ' checked' })
     add('First unread file', 'Return to the first file you have not checked in this change.', M.unread, { group = 'review', bind = 'u' })
+    add('Request changes', 'Write a note about this file (or the selected lines) to a Claude session. The file then waits on it and reads ready for re-review once it changes.',
+      function() api.nvim_set_current_win(r.right_win); require('foxml.claude').send() end, { group = 'review', bind = 'c' })
     add('Only what is new', 'A file edited after you checked it opens against the copy you reviewed. Off shows the whole change. Remembered.',
       M.toggle_since, { group = 'review', bind = 'n', state = function() return M.since_mode() end, stays = true })
   end
@@ -900,11 +913,16 @@ function M.actions()
       function() api.nvim_set_current_win(r.right_win); M.open_source() end, { group = 'inspect', bind = 'gf' })
   end
   if ft == 'cpp' or ft == 'c' then
-    add('Inspect symbol', 'Open the current working C++ file near this change and inspect it in symdeps.',
-      function() api.nvim_set_current_win(r.right_win); M.symdeps(false) end, { group = 'inspect', bind = 's' })
+    -- Symbol context is symdeps' job. Without it the rows stay, saying what they need (docs/ui-style.md).
+    local has = pcall(require, 'fox-symdeps')
+    local needs = (not has) and 'requires symdeps' or nil
+    add('Inspect symbol', has and 'Open the current working C++ file near this change and inspect it in symdeps.'
+        or 'Callers, uses and layout of the symbol at this change. Requires symdeps, an optional plugin.',
+      function() api.nvim_set_current_win(r.right_win); M.symdeps(false) end, { group = 'inspect', bind = 's', right = needs })
     if r.row.kind == 'commit' then
-      add('Compare struct layout', 'Compare the current struct with this commit’s base, using the current project headers.',
-        function() api.nvim_set_current_win(r.right_win); M.symdeps(true) end, { group = 'inspect', bind = 'S' })
+      add('Compare struct layout', has and 'Compare the current struct with this commit’s base, using the current project headers.'
+          or 'The struct’s layout before and after this commit. Requires symdeps, an optional plugin.',
+        function() api.nvim_set_current_win(r.right_win); M.symdeps(true) end, { group = 'inspect', bind = 'S', right = needs })
     end
   end
   add('Ignore whitespace', 'Hide whitespace-only differences while reviewing this change.',
@@ -1038,6 +1056,32 @@ function M.symdeps(compare)
     tell('Symdeps · current working copy near the reviewed line')
     plugin.inspect_cursor()
   end
+end
+
+-- Request changes: a note sent to a session about the file under review is kept beside that file (who, what, and
+-- the file's signature then). While the file is as it was, the row waits (✉); once it changes it is ready for
+-- re-review (↻). Checking the file settles the request.
+function M.requested(path, peer, text)
+  local r = M.current
+  if not r or not path then return false end
+  local file
+  for _, f in ipairs(r.files) do if f.path == path then file = f; break end end
+  if not file then return false end
+  local disk = decode(read(r.state_file))
+  disk.requests = type(disk.requests) == 'table' and disk.requests or {}
+  disk.requests[file.rel] = { sid = peer and peer.id or '', name = peer and peer.name or 'a session',
+    text = tostring(text or ''):gsub('[\r\n\t]', ' '):sub(1, 300), at = os.time(), signature = file.signature or '' }
+  if not write_private(r.state_file, vim.json.encode(disk)) then return false end
+  r.completed = false
+  panel(r)
+  return true
+end
+function M.request_of(r, file)
+  local requests = decode(read(r.state_file)).requests
+  local request = type(requests) == 'table' and requests[file.rel] or nil
+  if type(request) ~= 'table' then return nil end
+  request.ready = file.loaded and request.signature ~= '' and request.signature ~= file.signature
+  return request
 end
 
 function M.note_context(range, buf)

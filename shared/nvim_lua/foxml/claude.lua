@@ -353,7 +353,10 @@ function M.send(range)
       if not text or vim.trim(text) == "" then return end
       local note = M.note(text, path, first, last, code)
       if M.write_note(dir, p.id, note) then
-        vim.notify("note left for " .. p.name, vim.log.levels.INFO, { title = "Claude" })
+        -- From a review, the note is a change request: it is kept beside that file until the file is checked.
+        local tracked = context and require("foxml.review").requested(context.file, p, text)
+        vim.notify(tracked and ("change requested from " .. p.name .. " · the file waits for it") or ("note left for " .. p.name),
+                   vim.log.levels.INFO, { title = "Claude" })
       else
         vim.notify("could not leave the note", vim.log.levels.ERROR, { title = "Claude" })
       end

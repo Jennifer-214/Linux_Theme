@@ -408,6 +408,43 @@ press('q')
 assert(not api.nvim_win_is_valid(win))
 ''')
 
+    def test_a_change_request_waits_on_its_file_then_reads_ready_for_re_review_and_a_check_settles_it(self):
+        source = self.repo / 'asked.lua'
+        source.write_text('local a = 1\nreturn a\n')
+        head = r'''
+local file=root .. '/asked.lua'
+local row={kind='live',sid='ask1',name='example',short='example',files={file}}
+C.open_review(row,root)
+local r=R.current
+local function panel_text() return table.concat(api.nvim_buf_get_lines(r.panel_buf,0,-1,false),'\n') end
+'''
+        self.run_lua(head + r'''
+C.live={{id='abc',name='A session'}}
+vim.ui.select=function(items,opts,cb) cb(items[1]) end
+vim.ui.input=function(opts,cb) cb('handle the empty case differently') end
+api.nvim_set_current_win(r.right_win)
+C.send({1,1})
+local request=R.request_of(r,r.files[1])
+assert(request and request.name=='A session' and request.text=='handle the empty case differently' and not request.ready,vim.inspect(request))
+assert(panel_text():find('✉',1,true),'the row waits with an envelope:\n'..panel_text())
+R.unread()
+assert(panel_text():find('✉',1,true),'a file still with the session is not offered as unread')
+C.close()
+''')
+        source.write_text('local a = 1\nif not a then return nil end\nreturn a\n')    # the session answered
+        self.run_lua(head + r'''
+R.select(1)
+local request=R.request_of(r,r.files[1])
+assert(request and request.ready,'the file changed after the request: '..vim.inspect(request))
+assert(panel_text():find('↻ asked.lua',1,true),'the row reads as changed, not waiting:\n'..panel_text())
+assert(panel_text():find('changed sin',1,true) and panel_text():find('✉ A session',1,true),'the strip says why and keeps the request:\n'..panel_text())
+R.select(1); R.unread()
+assert(r.files[r.index].rel=='asked.lua','a file ready for re-review is offered as unread')
+R.mark()
+assert(R.request_of(r,r.files[1])==nil,'checking the file settles the request')
+C.close()
+''')
+
     def test_symdeps_bridge_uses_a_real_cpp_buffer_and_the_selected_base(self):
         source = self.repo / 'inspect.cpp'
         source.write_text('struct Item { int count; };\n')

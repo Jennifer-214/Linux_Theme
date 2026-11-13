@@ -560,10 +560,14 @@ Click a commit to expand it, click a file to compare it, or click its checkbox t
 **Check & next** walks unread files and becomes **Finish & next** when the commit is checked.
 Files expand into changed functions/types (or changed line ranges when a parser is unavailable).
 Select a child to jump straight to that change. A finished commit advances to the next unchecked commit.
-**Actions** in the sidebar title contains the other operations; the shortcuts below are optional.
-When symdeps is installed, Actions uses its menu style and navigation: `j/k` or arrows select, Enter / `l` runs,
-`/` filters, and `h`, `q` or Escape closes. Click a row to run it. Toggles show their state and keep the menu open;
-the description below the rows explains the selected action.
+The sidebar is a tree: Working changes, then each plan with its commits oldest first (by branch and day when there
+are no plan files), then other commits. Marks: `✓` reviewed, `↻` edited since you reviewed it or since you asked for
+a change, `✉` waiting on a change request, `○` not yet, `⚠` needs care; the strip under the list says why.
+**Actions** (`a`, or click the title) contains the other operations; the shortcuts below are optional.
+Actions uses the symdeps menu style and navigation, with symdeps' own renderer when it is installed and a built-in
+menu to the same rules otherwise: `j/k` or arrows select, Enter / `l` runs, `/` filters, and `h`, `q` or Escape
+closes. Click a row to run it. Toggles show their state and keep the menu open; the description below the rows
+explains the selected action.
 Committed reviews compare the exact parent and selected commit; later working changes are excluded.
 Live reviews capture the current working copy (including unsaved buffers); `r` refreshes it.
 Checking a live file is invalidated when its contents change. Files with missing snapshots cannot be checked.
@@ -576,7 +580,11 @@ Checking a live file is invalidated when its contents change. Files with missing
 | `]f` / `[f`, `Tab` / `Shift+Tab` | Next / previous file |
 | `]c` / `[c` | Next / previous changed block |
 | `m` | Check or uncheck the current file as reviewed |
-| `u` | Resume at the first unchecked file |
+| `Space` (in the sidebar) | Check or uncheck the selected file |
+| `u` | Resume at the first unchecked file (files with a risk mark or ready for re-review first) |
+| `n` (sidebar) / `Space rn` | Only what is new since you reviewed a file / the whole change (remembered) |
+| `c` | Request changes: a note about this file or the selected lines to a Claude session; the file waits on it |
+| `a` (sidebar) / `?` | Actions |
 | `R` | Finish after every file is checked and open the next unchecked commit; this clears the finished commit from pending reviews |
 | `Space rw` | Show / hide whitespace differences |
 | `Space rc` | Six context lines / full-file context |
