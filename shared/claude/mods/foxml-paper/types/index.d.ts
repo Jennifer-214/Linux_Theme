@@ -10,7 +10,10 @@ export type TurnLook = { started: number; step: string }
 export type WorkTask = { id: string; text: string; done: boolean }
 // estimate: seconds the newest pass of the same command in the same checkout took (running jobs only).
 export type WorkJob = { id: string; command: string; title?: string; state: string; elapsed: number; activity: number; session: string; estimate?: number }
-export type WorkLook = { tests: WorkTest | null; tasks: WorkTask[]; jobs: WorkJob[]; failures?: WorkJob[] }
+// Review progress from desk-work, per review (a commit sha, a session id or "working"): each checked file is
+// "checked", or "changed" when it was edited after it was read.
+export type ReviewProgress = { files: Record<string, { state: 'checked' | 'changed'; at: number }>; checked: number; changed: number; total: number; completed: boolean; at: number }
+export type WorkLook = { tests: WorkTest | null; tasks: WorkTask[]; jobs: WorkJob[]; failures?: WorkJob[]; review?: Record<string, ReviewProgress> }
 export type NotebookView = { page: 'overview' | 'files' | 'project' | 'sessions'; scope: 'session' | 'all'; selected: string; focused?: string; offset: number; form: 'none' | 'task' | 'plan' | 'step' }
 export type PaperTree = { path: string; branch: string; status: string; bare?: boolean; sessions: PaperPeer[] }
 export type ApiCredits = {

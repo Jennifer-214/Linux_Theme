@@ -5,7 +5,7 @@ import type { ApiCredits, CiLook, GitLook, NotebookView, PaperAction, PaperCard,
 import { addBefore, addEdit, addName, neighbours, namesText, noteText, overlapFor, parseLedger, parseNames, parseNote, trailerUrl, withPlan } from './ledger'
 import type { Other } from './ledger'
 import { paper } from './theme'
-import { beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, planProgress, ruler, stepLabel, testLabel, turnLabel, work, workLook } from './work'
+import { beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, planProgress, reviewStates, reviewSummary, ruler, stepLabel, testLabel, turnLabel, work, workLook } from './work'
 import { attributeFiles, fileColumns, fileCounts, gitFiles, drawerPage, mailId, shortPath } from './notebook'
 
 // Linux_Theme paper: a notebook pane beside the chat (hearts, the session's name, its plan, the gate, pages
@@ -865,7 +865,8 @@ export const register: Register = on => {
         <Text color={ci.state === 'failed' ? paper.berry : ci.state === 'passed' ? paper.added : paper.dim}>{fit(ci.label, width - 2)}</Text>))
       for (const job of (now?.work?.jobs ?? []).slice(0, 1)) jobRow(job, `◷ ${job.title ?? job.command} · ${Math.floor(job.elapsed / 60)}m`)
       const own = (now?.files ?? []).filter(f => f.own).length
-      content.push(row('page-files', `${own} this session · ${now?.files.length ?? 0} all files`, () => page('files')))
+      const reviewLine = reviewSummary((now?.files ?? []).map(f => f.path), reviewStates(now?.work?.review))
+      content.push(row('page-files', `${own} this session · ${now?.files.length ?? 0} all files` + (reviewLine ? ` · ${reviewLine}` : ''), () => page('files')))
       content.push(row('page-project', now?.card?.title ?? branchLabel(now?.git, now?.branch ?? ''), () => page('project')))
       // Counted with this one, so four running reads as four: "4 claudes · you + 3 others".
       if (others.length) content.push(row('page-sessions', `${others.length + 1} claudes · you + ${others.length} ${others.length === 1 ? 'other' : 'others'}`, () => page('sessions')))
@@ -880,7 +881,10 @@ export const register: Register = on => {
       const files = (now?.files ?? []).filter(f => view.scope === 'all' || f.own)
       const columns = fileColumns(files)
       const offset = Math.min(view.offset, Math.max(0, Math.floor((files.length - 1) / 40) * 40))
+      const reviewed = reviewStates(now?.work?.review)
+      const summary = reviewSummary(files.map(f => f.path), reviewed)
       content.push(text(`${files.length} ${files.length === 1 ? 'file' : 'files'} · working-tree totals`))
+      if (summary) content.push(text(summary, paper.ribbon))
       if (!files.length) content.push(text(view.scope === 'session' ? 'No recorded edits still differ.' : 'The working tree is clean.'))
       let directory = ''
       for (const file of files.slice(offset, offset + 40)) {
@@ -889,10 +893,14 @@ export const register: Register = on => {
         const [added, removed] = fileCounts(file, columns)
         const owner = [file.own ? 'you' : '', ...(file.owners ?? []).map(o => o.name)].filter(Boolean).join(', ') || 'unattributed'
         const suffix = (file.owners?.length || !file.own) ? ` · ${owner}` : ''
-        const labelWidth = Math.max(6, width - added.length - removed.length - 4)
+        // ✓ reviewed, ↻ edited since it was reviewed, ○ not yet: only once a review of these files exists.
+        const state = reviewed.get(file.path)
+        const mark = summary ? (state === 'checked' ? '✓' : state === 'changed' ? '↻' : '○') + ' ' : ''
+        const labelWidth = Math.max(6, width - added.length - removed.length - 4 - mark.length)
         const fileLabel = shortPath(file.path, Math.max(6, labelWidth - Math.min(suffix.length, Math.floor(labelWidth / 2))))
           + shortPath(suffix, Math.min(suffix.length, Math.floor(labelWidth / 2)))
         content.push(row(`file:${file.path}`, file.path, () => openFile(file.path), <Text>
+          <Text color={state === 'checked' ? paper.added : state === 'changed' ? paper.berry : paper.note}>{mark}</Text>
           <Text color={paper.added}>{added}</Text><Text> </Text><Text color={paper.removed}>{removed}</Text><Text> </Text>
           <Text color={paper.ink}>{shortPath(fileLabel, labelWidth)}</Text>
         </Text>))

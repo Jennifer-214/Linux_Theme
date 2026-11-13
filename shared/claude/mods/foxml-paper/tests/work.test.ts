@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, planProgress, ruler, shellQuote, stepLabel, testLabel, turnLabel, withoutHeredocs } from '../hooks/work'
+import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, planProgress, reviewStates, reviewSummary, ruler, shellQuote, stepLabel, testLabel, turnLabel, withoutHeredocs } from '../hooks/work'
 
 test('tracking records a command as written, keeps secrets out, and reads how the call ended', () => {
   const command = "make test && printf '%s' \"$HOME\""
@@ -113,4 +113,20 @@ test('the turn under way reads as how long and its latest step', () => {
   expect(turnLabel({ started: 1000, step: '' }, 1000 + 30000)).toBe('◷ working')
   expect(turnLabel({ started: 1000, step: 'Run the drawer tests' }, 1000 + 14 * 60000)).toBe('◷ working 14m · Run the drawer tests')
   expect(turnLabel({ started: 0 + 1, step: 'x' }, 1 + 75 * 60000)).toBe('◷ working 1h 15m · x')
+})
+
+test('review marks: edited-after-review wins, a commit review does not mark the working file, and counts are plain', () => {
+  const mark = (state: 'checked' | 'changed') => ({ state, at: 1 })
+  const one = (files: Record<string, { state: 'checked' | 'changed'; at: number }>) => ({ files, checked: 0, changed: 0, total: 0, completed: false, at: 1 })
+  const states = reviewStates({
+    working: one({ 'queue.hpp': mark('checked'), 'worker.cpp': mark('checked') }),
+    'sess-1': one({ 'worker.cpp': mark('changed') }),
+    ['a'.repeat(40)]: one({ 'old.cpp': mark('checked') }),
+  })
+  expect([...states]).toEqual([['queue.hpp', 'checked'], ['worker.cpp', 'changed']])
+  expect(reviewSummary(['queue.hpp', 'worker.cpp', 'queue_test.cpp', 'new.cpp'], states)).toBe('1 of 4 reviewed · 1 changed since')
+  expect(reviewSummary(['queue.hpp'], states)).toBe('1 of 1 reviewed')
+  expect(reviewSummary(['untouched.cpp'], states)).toBe('')
+  expect(reviewSummary([], states)).toBe('')
+  expect([...reviewStates(null)]).toEqual([])
 })

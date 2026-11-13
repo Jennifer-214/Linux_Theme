@@ -375,6 +375,36 @@ class Work(unittest.TestCase):
         self.assertEqual(self.data("reviews"), [])
         self.assertTrue(self.data("reviews", "--all", "yes")[0]["reviewed"])
 
+    def test_review_progress_is_shared_and_a_changed_file_reopens_with_its_history(self):
+        import hashlib
+        (self.repo / "queue.cpp").write_text("one\n"); (self.repo / "worker.cpp").write_text("w\n")
+        sig = lambda s: hashlib.sha256(s.encode()).hexdigest()
+        content = hashlib.sha256(b"one\n").hexdigest()
+        mark = lambda *a: self.data("review-mark", "--key", "working", *a)
+        self.assertTrue(mark("--file", "queue.cpp", "--signature", sig("a"), "--content", content, "--total", "3")["ok"])
+        self.assertTrue(mark("--file", "worker.cpp", "--signature", sig("b"))["ok"])
+        got = self.data("review-progress")["working"]
+        self.assertEqual((got["checked"], got["changed"], got["total"], got["completed"]), (2, 0, 3, False))
+        (self.repo / "queue.cpp").write_text("two\n")                      # edited after it was checked
+        got = self.data("review-progress")["working"]
+        self.assertEqual(got["files"]["queue.cpp"]["state"], "changed")
+        self.assertEqual((got["checked"], got["changed"]), (1, 1), "a check with no recorded content (a commit's file) still holds")
+        mark("--file", "queue.cpp", "--signature", sig("c"), "--content", hashlib.sha256(b"two\n").hexdigest())
+        store = json.loads(next((self.dir / "state").rglob("review-marks.json")).read_text())
+        self.assertEqual(store["working"]["files"]["queue.cpp"]["before"]["signature"], sig("a"), "the earlier check is kept as history")
+        mark("--file", "third.cpp", "--signature", sig("d")); mark("--done", "yes")
+        self.assertTrue(self.data("review-progress", "--key", "working")["working"]["completed"])
+        mark("--file", "third.cpp", "--signature", "")                      # unchecked again
+        self.assertFalse(self.data("review-progress")["working"]["completed"])
+        for bad in (["--key", "../x", "--file", "a", "--signature", sig("a")], ["--key", "k", "--file", "../etc/passwd", "--signature", sig("a")],
+                    ["--key", "k", "--file", "/abs", "--signature", sig("a")], ["--key", "k", "--file", "a", "--signature", "nothex"]):
+            self.assertFalse(json.loads(self.invoke("review-mark", *bad, code=1))["ok"], bad)
+        self.git("commit", "--allow-empty", "-qm", "Claude change\n\nClaude-Session: https://claude.ai/code/session_example")
+        sha = self.git("rev-parse", "HEAD")
+        self.data("review-mark", "--key", sha, "--file", "queue.cpp", "--signature", sig("e"), "--total", "4")
+        row = self.data("reviews")[0]
+        self.assertEqual((row["sha"], row["checked"], row["total"]), (sha, 1, 4), "the tray row carries 1 of 4")
+
     def test_worktree_paths_with_spaces_are_not_shell_commands(self):
         other = self.dir / "other tree ; literal"
         self.git("worktree", "add", "-qb", "feature/work", str(other))

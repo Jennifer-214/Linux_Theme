@@ -375,6 +375,7 @@ long long stamp_of(const fs::path& p) {
     std::error_code ec; const auto t = fs::last_write_time(p, ec);
     return ec ? 0 : static_cast<long long>(t.time_since_epoch().count());
 }
+J review_progress(const std::string& root, const std::string& only);
 J reviews(const std::string& root, bool today_only = true) {
     std::error_code error;
     if (!fs::exists(fs::path(root) / ".git", error)) return J::array();
@@ -382,10 +383,12 @@ J reviews(const std::string& root, bool today_only = true) {
     const std::time_t clock = std::time(nullptr);
     std::tm day = *std::localtime(&clock);
     const auto signature = std::to_string(stamp_of(head_log(root))) + "|" + std::to_string(stamp_of(project_dir(root) / "reviewed.json"))
+                           + "|" + std::to_string(stamp_of(project_dir(root) / "review-marks.json"))
                            + "|" + std::to_string(day.tm_year) + "-" + std::to_string(day.tm_yday) + "|" + (today_only ? "today" : "all");
     const auto cached = json(project_dir(root) / "reviews-cache.json");
     if (cached.is_object() && str(cached, "signature") == signature && cached["reviews"].is_array()) return cached["reviews"];
     const auto marks = json(project_dir(root) / "reviewed.json");
+    const auto progress = review_progress(root, "");
     A a{"git", "--no-optional-locks", "-C", root, "log", "-80", "--format=%H%x1f%ct%x1f%s%x1f%(trailers:key=Claude-Session,valueonly)%x1f%(trailers:key=Co-Authored-By,valueonly)%x1e"};
     J out = J::array();
     const std::time_t time = std::time(nullptr);
@@ -400,7 +403,9 @@ J reviews(const std::string& root, bool today_only = true) {
         long long at = 0; try { at = std::stoll(f[1]); } catch (...) { continue; }
         const bool seen = marks.is_object() && marks.contains(f[0]);
         if (today_only && (at < start || seen)) continue;
-        out.push_back(J{{"sha", f[0]}, {"at", at}, {"subject", f[2]}, {"root", root}, {"reviewed", seen}});
+        J row{{"sha", f[0]}, {"at", at}, {"subject", f[2]}, {"root", root}, {"reviewed", seen}};
+        if (progress.contains(f[0])) { row["checked"] = progress[f[0]]["checked"]; row["total"] = progress[f[0]]["total"]; }
+        out.push_back(row);
     }
     if (register_root(root)) atomic(project_dir(root) / "reviews-cache.json", J{{"signature", signature}, {"reviews", out}}.dump());
     return out;
@@ -413,6 +418,76 @@ J reviewed(const std::string& root, const std::string& sha) {
     if (!j.is_object()) j = J::object();
     j[sha] = now();
     return J{{"ok", atomic(file, j.dump())}};
+}
+// Review progress shared by Neovim, the notebook and the drawer. One review is a key (a commit sha, a session id, or
+// "working"); each checked file keeps the signature of the two sides that were read and, for a file on disk, the hash
+// of its content then, so "changed since review" is a comparison and never a guess. Checks are never dropped when a
+// file changes: the old one stays as history under "before".
+bool review_key_ok(const std::string& key) { return std::regex_match(key, std::regex("[A-Za-z0-9_-]{1,64}")); }
+bool review_file_ok(const std::string& rel) {
+    return !rel.empty() && rel.size() <= 1024 && rel[0] != '/' && rel.find('\0') == std::string::npos
+        && rel.find("..") == std::string::npos && rel.find('\n') == std::string::npos;
+}
+J review_mark(const std::string& root, const std::string& key, const std::string& rel, const std::string& signature,
+              const std::string& content, const std::string& total, const std::string& done) {
+    if (!review_key_ok(key) || (!rel.empty() && !review_file_ok(rel)) || !register_root(root)) return J{{"ok", false}};
+    if (!signature.empty() && !std::regex_match(signature, std::regex("[a-f0-9]{64}"))) return J{{"ok", false}};
+    if (!content.empty() && !std::regex_match(content, std::regex("[a-f0-9]{64}"))) return J{{"ok", false}};
+    const auto file = project_dir(root) / "review-marks.json"; Lock lock(project_dir(root) / "reviews.lock");
+    auto j = json(file); std::error_code ec;
+    if (lock.fd < 0 || (fs::exists(file, ec) && !j.is_object())) return J{{"ok", false}};
+    if (!j.is_object()) j = J::object();
+    auto& review = j[key];
+    if (!review.is_object()) review = J{{"files", J::object()}};
+    if (!review["files"].is_object()) review["files"] = J::object();
+    if (!rel.empty()) {
+        if (signature.empty()) review["files"].erase(rel);
+        else {
+            J mark{{"signature", signature}, {"at", now()}};
+            if (!content.empty()) mark["content"] = content;
+            const auto old = review["files"].find(rel);
+            if (old != review["files"].end() && old->is_object() && str(*old, "signature") != signature)
+                mark["before"] = J{{"signature", str(*old, "signature")}, {"at", old->value("at", 0LL)}};
+            review["files"][rel] = mark;
+        }
+    }
+    if (!total.empty()) { try { review["total"] = std::clamp(std::stoi(total), 0, 100000); } catch (...) { return J{{"ok", false}}; } }
+    if (!done.empty()) review["completed"] = done == "yes";
+    review["at"] = now();
+    // Old reviews go after 90 days, so the file stays small.
+    for (auto it = j.begin(); it != j.end();) {
+        if (it.key() != key && it->is_object() && now() - it->value("at", 0LL) > 90LL * 86400) it = j.erase(it); else ++it;
+    }
+    return J{{"ok", atomic(file, j.dump())}};
+}
+// Every review of this checkout with, per file, whether its check still holds: "checked", or "changed" when the file
+// on disk no longer has the content that was read (only where that content was recorded: a commit's never changes).
+J review_progress(const std::string& root, const std::string& only) {
+    const auto marks = json(project_dir(root) / "review-marks.json");
+    J out = J::object();
+    if (!marks.is_object()) return out;
+    for (const auto& [key, review] : marks.items()) {
+        if ((!only.empty() && key != only) || !review.is_object() || !review.contains("files") || !review["files"].is_object()) continue;
+        J files = J::object(); int checked = 0, changed = 0;
+        for (const auto& [rel, mark] : review["files"].items()) {
+            if (!mark.is_object() || !review_file_ok(rel)) continue;
+            std::string state = "checked";
+            const auto content = str(mark, "content");
+            if (!content.empty()) {
+                std::error_code ec;
+                const auto path = fs::path(root) / rel;
+                const auto now_hash = fs::is_regular_file(path, ec) ? hash(read(path)) : hash("");
+                if (now_hash != content) state = "changed";
+            }
+            (state == "checked" ? checked : changed)++;
+            files[rel] = J{{"state", state}, {"at", mark.value("at", 0LL)}};
+        }
+        const int total = std::max(review.value("total", 0), static_cast<int>(files.size()));
+        out[key] = J{{"files", files}, {"checked", checked}, {"changed", changed}, {"total", total},
+                     {"completed", review.value("completed", false) && changed == 0 && checked >= total && total > 0},
+                     {"at", review.value("at", 0LL)}};
+    }
+    return out;
 }
 J known_roots() {
     J roots = J::array(); std::error_code ec;
@@ -581,7 +656,8 @@ J notebook(const std::string& root, const std::string& session) {
             freshness(j, current); j.erase("snapshot"); latest = j;
         }
     }
-    return J{{"tests", latest}, {"jobs", jobs}, {"failures", failures}, {"tasks", tasks(root)}, {"session", session}};
+    return J{{"tests", latest}, {"jobs", jobs}, {"failures", failures}, {"tasks", tasks(root)}, {"session", session},
+             {"review", review_progress(root, "")}};
 }
 fs::path plan_path(const std::string& root, const std::string& session) {
     return project_dir(root) / "plans" / (hash(session) + ".json");
@@ -691,7 +767,7 @@ int main(int argc, char** argv) {
         }
         const auto cmd = args[0];
         const auto place = opts.count("--root") ? opts["--root"] : fs::current_path().string();
-        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "worktrees", "activity", "plan", "plan-pin"}.count(cmd)
+        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "review-mark", "review-progress", "worktrees", "activity", "plan", "plan-pin"}.count(cmd)
             ? root_of(place) : place;
         const auto id = opts["--id"];
         J out;
@@ -759,6 +835,8 @@ int main(int argc, char** argv) {
         else if (cmd == "task-toggle") out = task_change(root, "", id);
         else if (cmd == "reviews") out = reviews(root, opts["--all"] != "yes");
         else if (cmd == "reviewed") out = reviewed(root, opts["--sha"]);
+        else if (cmd == "review-mark") out = review_mark(root, opts["--key"], opts["--file"], opts["--signature"], opts["--content"], opts["--total"], opts["--done"]);
+        else if (cmd == "review-progress") out = review_progress(root, opts["--key"]);
         else if (cmd == "tests") {
             auto j = id.empty() ? notebook(root, "")["tests"] : load_run(id);
             if (j.is_object() && j.contains("snapshot")) { freshness(j, snapshot(str(j, "root"))); j.erase("snapshot"); }

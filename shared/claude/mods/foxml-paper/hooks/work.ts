@@ -1,5 +1,5 @@
 import type { EngineInterface } from 'claude-code'
-import type { CiRun, GitLook, WorkJob, WorkLook, WorkTest } from '../types'
+import type { CiRun, GitLook, ReviewProgress, WorkJob, WorkLook, WorkTest } from '../types'
 
 export function shellQuote(s: string): string { return "'" + s.replace(/'/g, "'\\''") + "'" }
 // A build, test or download is the command a segment starts with, not a word it mentions:
@@ -95,6 +95,24 @@ export function ciLabel(runs: CiRun[] | null | undefined): { label: string; stat
   if (runs.every(r => r.conclusion === 'success' || r.conclusion === 'skipped' || r.conclusion === 'neutral'))
     return { label: '✓ CI passed', state: 'passed', url: runs[0]!.url ?? '' }
   return { label: `CI ${runs.find(r => r.conclusion !== 'success')?.conclusion ?? 'finished'}`, state: 'other', url: runs[0]!.url ?? '' }
+}
+// One state per file across the live reviews (working tree and sessions; a commit's review is about that commit, not
+// the file as it is now): changed-since-review wins over checked, so nothing edited later reads as reviewed.
+export function reviewStates(review: Record<string, ReviewProgress> | null | undefined): Map<string, 'checked' | 'changed'> {
+  const out = new Map<string, 'checked' | 'changed'>()
+  for (const [key, one] of Object.entries(review ?? {})) {
+    if (/^[0-9a-f]{40}$/.test(key)) continue
+    for (const [rel, mark] of Object.entries(one.files ?? {}))
+      if (mark.state === 'changed' || !out.has(rel)) out.set(rel, mark.state)
+  }
+  return out
+}
+// "2 of 4 reviewed · 1 changed since": the files that still differ, counted against what was checked.
+export function reviewSummary(paths: string[], states: Map<string, 'checked' | 'changed'>): string {
+  if (!paths.length || !paths.some(p => states.has(p))) return ''
+  const checked = paths.filter(p => states.get(p) === 'checked').length
+  const changed = paths.filter(p => states.get(p) === 'changed').length
+  return `${checked} of ${paths.length} reviewed` + (changed ? ` · ${changed} changed since` : '')
 }
 // "◷ working 14m · Run the drawer tests": the turn under way, from your message to now, and its latest step.
 export function turnLabel(turn: { started: number; step: string } | null | undefined, nowMs: number): string | null {
