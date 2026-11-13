@@ -2823,6 +2823,11 @@ local function apply_foxml_theme()
   hl("FoxTagChip",  { fg = P.blush })
   -- Section banners (//---- rule, title, rule): typed and inked, never the handwritten comment italic
   hl("FoxSectionRule", { fg = P.syn.header, bold = {{SHOW_WELCOME}}, nocombine = {{SHOW_WELCOME}} })
+  -- The symdeps plugin paints its menu footer and description strip with FoxSymdepsDim, but only defines the group
+  -- lazily (a default link from whichever of its modules runs first), never from the palette. Defined here for every
+  -- theme, so it is there before the first menu opens and after a colorscheme change; the plugin's default link
+  -- then leaves it alone. The review and the built-in menu use the same group.
+  hl("FoxSymdepsDim", { fg = P.comment, bg = "NONE", italic = false })
 end
 
 apply_foxml_theme()
