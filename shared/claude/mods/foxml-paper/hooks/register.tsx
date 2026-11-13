@@ -5,7 +5,7 @@ import type { ApiCredits, CiLook, GitLook, NotebookView, PaperAction, PaperCard,
 import { addBefore, addEdit, addName, neighbours, namesText, noteText, overlapFor, parseLedger, parseNames, parseNote, trailerUrl, withPlan, editedSince } from './ledger'
 import type { Other } from './ledger'
 import { paper } from './theme'
-import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, filterFiles, pendingLine, planProgress, receiptLine, reviewStates, reviewSummary, ruleLine, ruler, spread, workName, stepLabel, testLabel, turnLabel, unreviewed, work, workLook } from './work'
+import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, filterFiles, pendingLine, planProgress, receiptLine, reviewStates, reviewSummary, ruleLine, ruler, spread, workName, wrapWords, stepLabel, testLabel, turnLabel, unreviewed, work, workLook } from './work'
 import { attributeFiles, fileColumns, fileCounts, gitFiles, drawerPage, mailId, shortPath } from './notebook'
 
 // Linux_Theme paper: a notebook pane beside the chat (hearts, the session's name, its plan, the gate, pages
@@ -881,6 +881,8 @@ export const register: Register = on => {
     const root = now?.root ?? await repoRoot($)
     const session = now?.session ?? await $.session.id()
     const navigation: { key: string; press: () => unknown }[] = []
+    // The first "needs you" row's action, for the next key.
+    let firstNeed: (() => unknown) | null = null
     const content = []
     const setView = async (change: Partial<NotebookView>) => {
       await update($, notebookView, v => ({ ...v, ...change }))
@@ -982,7 +984,10 @@ export const register: Register = on => {
       const about: Record<string, string> = {}
       const rule = (label: string, right = '') => content.push(text(ruleLine(label, right, width), paper.ribbon))
       const pair = (key: string, left: string, right: string, press: () => unknown, says: string, colour: string = paper.ink) => {
-        about[key] = says
+        // A row too long for the pane is cut with an ellipsis; its whole text then leads the description.
+        const room = right ? Math.max(4, inner - right.length - 1) : inner
+        about[key] = left.length > room ? `${left.replace(/^[^\p{L}\p{N}]+/u, '')} — ${says}` : says
+        if (key.startsWith('attention-') && firstNeed === null) firstNeed = press
         const line = spread(left, right, inner)
         const cut = right ? line.length - right.length : line.length
         // The button's own label reads whole ("3 claudes · you + 2 others") for screen readers and other surfaces.
@@ -1073,8 +1078,8 @@ export const register: Register = on => {
       // Requests still with a session: who was asked and what for, until the file changes (then it needs you, above).
       const waitingOn = requests.filter(r => r.state === 'waiting')
       for (const r of waitingOn.slice(0, 3))
-        pair(`request-${r.file}`, '✉ ' + base(r.file), 'sent · ' + (r.name || 'a session'), () => reReview(r.file),
-          `Sent to ${r.name || 'a session'} ${ago(clock / 1000 - r.at)}: "${r.text}". The file has not changed yet. Enter opens it.`)
+        pair(`request-${r.file}`, '✉ ' + base(r.file), 'sent · ' + (r.name || 'a session'), () => setView({ page: 'request', request: r.file, selected: '' }),
+          `Sent to ${r.name || 'a session'} ${ago(clock / 1000 - r.at)}: "${r.text}". The file has not changed yet. Enter opens the thread: send it again or withdraw it.`)
       if (waitingOn.length > 3) content.push(text(`  and ${waitingOn.length - 3} more requests waiting`))
       pair('page-files', `${mine.length} this session · ${now?.files.length ?? 0} changed`, summary.replace(/ reviewed.*$/, '') , () => page('files'),
         'Files that differ from the last commit, and how many of them were reviewed as they are now.')
@@ -1112,6 +1117,32 @@ export const register: Register = on => {
       if (says) { content.push(text('')); content.push(text(says.length > width * 2 ? says.slice(0, width * 2 - 1) + '…' : says)) }
     }
 
+    if (view.form === 'none' && view.page === 'request') {
+      // One request's thread: what was asked of whom, where it stands, and the three things to do about it.
+      const thread = (now?.work?.requests ?? []).find(r => r.file === view.request)
+      if (!thread) content.push(text('That request is settled.'))
+      else {
+        content.push(text(ruleLine('request', ago(clock / 1000 - thread.at), width), paper.ribbon))
+        content.push(text((thread.state === 'ready' ? '↻ ' : '✉ ') + thread.file, paper.ink))
+        content.push(text('to ' + (thread.name || 'a session')))
+        content.push(text(thread.state === 'ready' ? 'the file has changed since' : 'the file has not changed yet', thread.state === 'ready' ? paper.added : paper.dim))
+        for (const line of wrapWords(`"${thread.text}"`, Math.max(8, width - 2))) content.push(text('  ' + line, paper.ink))
+        content.push(row('request-open', thread.state === 'ready' ? '↻ re-review the file' : 'open the file',
+          () => checkedWork(['open', '--root', root, '--action', 'file-diff', '--file', thread.file, '--session', session])))
+        const peer = others.find(p => p.id === thread.sid)
+        content.push(row('request-again', peer ? '✉ send it again' : '✉ send again · session ended', async () => {
+          if (!peer) { $.ui.toast('That session is no longer running. Withdraw this, then ask a live one from the review.'); return }
+          await sendNote($, peer, `Change request (again) for ${thread.file}: ${thread.text}`)
+          await checkedWork(['review-request', '--root', root, '--file', thread.file, '--name', thread.name, '--sid', thread.sid, '--text', thread.text])
+          await refresh($)
+        }))
+        content.push(row('request-withdraw', '✕ withdraw it', async () => {
+          if (await checkedWork(['review-request', '--root', root, '--file', thread.file, '--clear', 'yes'])) { await refresh($); await page('overview') }
+        }))
+      }
+      content.push(row('request-back', 'back', () => page('overview')))
+    }
+
     if (view.form === 'none' && view.page === 'help') {
       const line = (mark: string, words: string) => content.push(<Text><Text color={paper.ribbon}>{('  ' + mark).padEnd(5)}</Text><Text color={paper.ink}>{fit(words, width - 5)}</Text></Text>)
       content.push(text(ruleLine('marks', '', width), paper.ribbon))
@@ -1131,6 +1162,7 @@ export const register: Register = on => {
       line('j k', 'move down and up')
       line('l ⏎', 'open the selected row')
       line('h', 'back to the front page')
+      line('n', 'the next thing that needs you')
       line('e', 'on files: open the selected file to edit')
       line('d', 'the same page in the drawer')
       content.push(text(ruleLine('words', '', width), paper.ribbon))
@@ -1300,6 +1332,7 @@ export const register: Register = on => {
     }
     const activate = () => (navigation.find(n => n.key === view.selected) ?? navigation[0])?.press()
     const back = () => view.form !== 'none' ? setView({ form: 'none' }) : page('overview')
+    const nextNeed = firstNeed as (() => unknown) | null
     return <Box flexDirection="column">
       <Text>
         {/* No reading yet (a session just resumed): no meter, rather than five empty boxes that read as 0%. */}
@@ -1315,6 +1348,7 @@ export const register: Register = on => {
         <Button key="nav-up" label="↑" hotkey="k" plain onPress={() => move(-1)} /><Text> </Text>
         <Button key="nav-down" label="↓" hotkey="j" plain onPress={() => move(1)} /><Text> </Text>
         <Button key="nav-open" label="open" hotkey="l" plain onPress={activate} /><Text> </Text>
+        {nextNeed !== null && <Button key="nav-next" label="next" hotkey="n" plain onPress={() => nextNeed()} />}{nextNeed !== null && <Text> </Text>}
         <Button key="nav-drawer" label="drawer" hotkey="d" plain onPress={() => run($, ['desktop-menu', '--open', drawerPage(view.page)])} />
       </Box>}
       {now?.credits && (now.credits.status === 'error' || (now.credits.remaining_percent != null && now.credits.remaining_percent <= 20)) && <Button key="api-credit-meter" label="monthly API credit details" plain

@@ -664,7 +664,8 @@ test('needs you comes first: a request whose file changed, files edited since re
       { file: 'src/queue.cpp', name: 'Queue refactor', sid: 'q1', text: 'rename head', at: 1, state: 'ready' },
       { file: 'src/worker.cpp', name: 'Queue refactor', sid: 'q1', text: 'drain first', at: 1, state: 'waiting' }] } })
   await opened($)
-  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  // Focused: the keys row is drawn while the notebook holds the keyboard.
+  const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: true }, surface: 'terminal' } as never)
   const rules = (await ui.findAll({ type: 'Text', text: /^── / })).map(t => String(t.text).replace(/ ─.*$/, ''))
   expect(rules.indexOf('── needs you')).toBe(0)
   expect(rules.indexOf('── needs you')).toBeLessThan(rules.indexOf('── plan'))
@@ -676,6 +677,19 @@ test('needs you comes first: a request whose file changed, files edited since re
   expect(seen.argv).toContain('desk-work open --root /code/paper --action file-diff --file src/queue.cpp --session abc')
   // The thread reads out under the list: who was asked and what for.
   expect(await ui.find({ type: 'Text', text: /You asked Queue refactor: "rename head"/ })).toBeDefined()
+  // One key goes to the first thing that needs you.
+  seen.argv = []
+  await ui.press({ key: 'nav-next' })
+  expect(seen.argv).toContain('desk-work open --root /code/paper --action file-diff --file src/queue.cpp --session abc')
+  expect((await ui.find({ key: 'nav-next' }))?.props.hotkey).toBe('n')
+  // A waiting request opens its thread: the words, where it stands, send again or withdraw.
+  await ui.press({ key: 'request-src/worker.cpp' })
+  expect(await ui.find({ type: 'Text', text: /"drain first"/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /the file has not changed yet/ })).toBeDefined()
+  expect((await ui.find({ key: 'request-again' }))?.props.label).toBe('✉ send again · session ended')
+  seen.argv = []
+  await ui.press({ key: 'request-withdraw' })
+  expect(seen.argv).toContain('desk-work review-request --root /code/paper --file src/worker.cpp --clear yes')
   await ui.unmount()
 })
 

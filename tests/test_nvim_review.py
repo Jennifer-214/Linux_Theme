@@ -429,6 +429,15 @@ assert(request and request.name=='A session' and request.text=='handle the empty
 assert(panel_text():find('✉',1,true),'the row waits with an envelope:\n'..panel_text())
 R.unread()
 assert(panel_text():find('✉',1,true),'a file still with the session is not offered as unread')
+-- withdrawn from the notebook: the shared store no longer lists it, so it is gone here too
+do
+  local rr=R.current
+  local f=rr.files[rr.index]
+  local kept=rr.shared_requests
+  rr.shared_requests={}
+  assert(R.request_of(rr,f)==nil or rr.row.kind=='commit','a withdrawn request no longer shows')
+  rr.shared_requests=kept
+end
 C.close()
 ''')
         source.write_text('local a = 1\nif not a then return nil end\nreturn a\n')    # the session answered

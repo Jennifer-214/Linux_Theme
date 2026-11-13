@@ -20,9 +20,11 @@ export type ReviewProgress = { files: Record<string, { state: 'checked' | 'chang
 export type WorkLook = { tests: WorkTest | null; tasks: WorkTask[]; jobs: WorkJob[]; failures?: WorkJob[]; review?: Record<string, ReviewProgress>; pending?: number; requests?: ReviewRequest[] }
 // A change request sent to a session about a file: waiting while the file is as it was, ready once it has changed.
 export type ReviewRequest = { file: string; name: string; sid: string; text: string; at: number; state: 'waiting' | 'ready' }
-export type NotebookView = { page: 'overview' | 'files' | 'project' | 'sessions' | 'help'; scope: 'session' | 'all'; selected: string; focused?: string; offset: number; form: 'none' | 'task' | 'plan' | 'step' | 'search'
+export type NotebookView = { page: 'overview' | 'files' | 'project' | 'sessions' | 'help' | 'request'; scope: 'session' | 'all'; selected: string; focused?: string; offset: number; form: 'none' | 'task' | 'plan' | 'step' | 'search'
   // The files page: which files to list, and a part of a name to find.
-  show?: 'all' | 'unreviewed' | 'changed'; query?: string }
+  show?: 'all' | 'unreviewed' | 'changed'; query?: string
+  // The request page: which file's thread is open.
+  request?: string }
 export type PaperTree = { path: string; branch: string; status: string; bare?: boolean; sessions: PaperPeer[] }
 export type ApiCredits = {
   short: string; headline: string; detail: string; meter: string

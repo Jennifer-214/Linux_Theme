@@ -150,6 +150,18 @@ export function receiptLine(receipt: TurnReceipt | null | undefined): string {
   ].filter(Boolean)
   return parts.join(' · ')
 }
+// Words broken into lines no wider than `width`; a word longer than a line is cut with an ellipsis.
+export function wrapWords(text: string, width: number): string[] {
+  const out: string[] = []
+  let line = ''
+  for (const word of text.split(/\s+/).filter(Boolean)) {
+    const piece = word.length > width ? word.slice(0, Math.max(1, width - 1)) + '…' : word
+    if (line !== '' && line.length + 1 + piece.length > width) { out.push(line); line = piece }
+    else line = line === '' ? piece : line + ' ' + piece
+  }
+  if (line !== '') out.push(line)
+  return out
+}
 // The files page's filters: only what still needs a review (never checked, or edited since), only what was edited
 // since its review, and a part of the path to find. They combine.
 export function filterFiles<T extends { path: string }>(files: T[], states: Map<string, 'checked' | 'changed'>,

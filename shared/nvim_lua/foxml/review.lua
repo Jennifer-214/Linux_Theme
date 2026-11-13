@@ -1121,7 +1121,10 @@ function M.requested(path, peer, text)
   disk.requests[file.rel] = { sid = peer and peer.id or '', name = peer and peer.name or 'a session',
     text = tostring(text or ''):gsub('[\r\n\t]', ' '):sub(1, 300), at = os.time(), signature = file.signature or '' }
   if not write_private(r.state_file, vim.json.encode(disk)) then return false end
-  if r.row.kind ~= 'commit' then share_request(r, file, disk.requests[file.rel]) end
+  if r.row.kind ~= 'commit' then
+    share_request(r, file, disk.requests[file.rel])
+    if r.shared_requests then r.shared_requests[file.rel] = true end
+  end
   r.completed = false
   panel(r)
   return true
@@ -1130,6 +1133,8 @@ function M.request_of(r, file)
   local requests = decode(read(r.state_file)).requests
   local request = type(requests) == 'table' and requests[file.rel] or nil
   if type(request) ~= 'table' then return nil end
+  -- The shared store wins: a request withdrawn from the notebook is gone here too.
+  if r.shared_requests and r.row.kind ~= 'commit' and not r.shared_requests[file.rel] then return nil end
   request.ready = file.loaded and request.signature ~= '' and request.signature ~= file.signature
   return request
 end
@@ -1613,6 +1618,18 @@ function M.open(row, root, callbacks)
   api.nvim_create_autocmd('TabClosed', { group = r.group, callback = function()
     vim.schedule(function() if M.current == r and not api.nvim_tabpage_is_valid(r.tab) then M.close() end end)
   end })
+  -- Which requests still stand in the shared store (one may have been withdrawn from the notebook); asked in the
+  -- background, and the panel redraws when the answer comes.
+  local backend = M.work_tool()
+  if backend and row.kind ~= 'commit' then
+    pcall(vim.system, { backend, 'review-requests', '--root', root }, { text = true }, vim.schedule_wrap(function(out)
+      if M.current ~= r or r.closing or not out or out.code ~= 0 then return end
+      local standing = {}
+      for _, request in ipairs(decode(out.stdout)) do if type(request) == 'table' and request.file then standing[request.file] = true end end
+      r.shared_requests = standing
+      if api.nvim_buf_is_valid(r.panel_buf) then panel(r) end
+    end))
+  end
   -- Validate persisted checkmarks against actual content before resuming.
   local first = 1
   for i, f in ipairs(files) do

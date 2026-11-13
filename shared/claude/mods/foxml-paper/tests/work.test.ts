@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, pendingLine, planProgress, reviewStates, reviewSummary, ruler, shellQuote, stepLabel, testLabel, turnLabel, unreviewed, withoutHeredocs, workName, filterFiles } from '../hooks/work'
+import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, pendingLine, planProgress, reviewStates, reviewSummary, ruler, shellQuote, stepLabel, testLabel, turnLabel, unreviewed, withoutHeredocs, workName, filterFiles, wrapWords } from '../hooks/work'
 
 test('tracking records a command as written, keeps secrets out, and reads how the call ended', () => {
   const command = "make test && printf '%s' \"$HOME\""
@@ -158,4 +158,10 @@ test('file filters: needs review, changed since review and a part of the name co
   expect(filterFiles(files, states, 'unreviewed', '').map(f => f.path)).toEqual(['src/b.ts', 'docs/Guide.md'])
   expect(filterFiles(files, states, 'changed', undefined).map(f => f.path)).toEqual(['src/b.ts'])
   expect(filterFiles(files, states, 'unreviewed', 'GUIDE').map(f => f.path)).toEqual(['docs/Guide.md'])
+})
+
+test('words wrap to the pane, and a word longer than a line is cut', () => {
+  expect(wrapWords('rename the head pointer before the drain', 16)).toEqual(['rename the head', 'pointer before', 'the drain'])
+  expect(wrapWords('x'.repeat(30), 10)).toEqual(['x'.repeat(9) + '…'])
+  expect(wrapWords('  ', 10)).toEqual([])
 })
