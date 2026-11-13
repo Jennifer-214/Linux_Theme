@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { addBefore, addEdit, addName, agoText, neighbours, noteText, overlapFor, parseLedger, parseNames, parseNote, trailerUrl, WINDOW_MS, withPlan } from '../hooks/ledger'
+import { addBefore, addEdit, addName, agoText, neighbours, noteText, overlapFor, parseLedger, parseNames, parseNote, trailerUrl, WINDOW_MS, withPlan, editedSince } from '../hooks/ledger'
 import type { Other } from '../hooks/ledger'
 
 const NOW = 1_800_000_000_000
@@ -82,4 +82,13 @@ test('the plan a session read stays in its ledger through later edits', async ()
   mine = addEdit(mine, '/r/a', NOW + 1, null, '/r')
   const back = parseLedger(JSON.stringify(mine))
   expect([back?.plan, back?.plan_at]).toEqual(['/w/plans/p.md', NOW])
+})
+
+test('a file edited again is found by its latest edit, not its first', () => {
+  let ledger = addEdit(null, '/r/a.ts', 1000, null, '/r')
+  ledger = addEdit(ledger, '/r/b.ts', 2000, null, '/r')
+  ledger = addEdit(ledger, '/r/a.ts', 9000, null, '/r')
+  expect(editedSince(ledger, 5000)).toEqual(['/r/a.ts'])
+  expect(editedSince(ledger, 0).sort()).toEqual(['/r/a.ts', '/r/b.ts'])
+  expect(editedSince(null, 0)).toEqual([])
 })

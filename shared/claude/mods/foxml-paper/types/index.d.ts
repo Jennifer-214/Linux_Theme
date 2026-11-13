@@ -10,7 +10,7 @@ export type CiLook = { sha: string; runs: CiRun[]; at: number }
 export type TurnLook = { started: number; step: string; seen?: number }
 // What a finished turn left behind, shown as one card: this session's files it changed, the tests it ran, the commits
 // it made and anything in the red zone it touched.
-export type TurnReceipt = { at: number; files: string[]; tests: string | null; commits: string[]; risky: string[] }
+export type TurnReceipt = { at: number; files: string[]; tests: string | null; commits: { sha: string; subject: string }[]; risky: string[] }
 export type WorkTask = { id: string; text: string; done: boolean }
 // estimate: seconds the newest pass of the same command in the same checkout took (running jobs only).
 export type WorkJob = { id: string; command: string; title?: string; state: string; elapsed: number; activity: number; session: string; estimate?: number }

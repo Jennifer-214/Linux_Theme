@@ -591,7 +591,7 @@ test('the notebook says where the branch stands, what CI made of the push, and h
 test('a finished turn leaves a receipt: its files, its tests, its commits and what it touched in the red zone', async ($, on) => {
   const files = fakeFs(on, { '/code/paper/README.md': 'new' }, { '/code/paper/README.md': NOW })
   engine(on, { runtime: '/run/t', clock: false, files })
-  mock.clock(on, { now: NOW })
+  const clock = mock.clock(on, { now: NOW })
   on('classic.Stop', () => ({}) as never)          // nothing beneath the plugin answers the engine's own event
   await opened($)
   await $.prompt.submit({ text: 'tidy the readme', wait: false, origin: { kind: 'composer' } })
@@ -613,6 +613,21 @@ test('a finished turn leaves a receipt: its files, its tests, its commits and wh
   expect((await after.find({ type: 'Text', text: /turn done/ }))).toBeDefined()
   expect((await after.find({ type: 'Text', text: /1 file/ }))?.text).toContain('⚠ bootctl')
   await after.unmount()
+  // The row opens what it names: this turn's file in this session's review, not the general queue.
+  const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  seen.argv = []
+  await pane.press({ key: 'receipt-files' })
+  expect(seen.argv).toContain('desk-work open --root /code/paper --action file-diff --file README.md --session abc')
+  await pane.unmount()
+  // A later turn that edits the same file again lists it again, though its first edit was a turn ago.
+  await clock.advance(60_000)
+  await $.prompt.submit({ text: 'again', wait: false, origin: { kind: 'composer' } })
+  await $.tool.call({ tool: 'Edit', file_path: '/code/paper/README.md', old_string: 'new', new_string: 'newer' })
+  await $.classic.Stop({ hook_event_name: 'Stop', stop_hook_active: false } as never)
+  const again = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await again.find({ key: 'receipt-files' }))?.props.label).toBe('✎ 1 file changed · 0 of 1 reviewed')
+  expect(await again.find({ key: 'receipt-risk-bootctl' })).toBeUndefined()
+  await again.unmount()
 })
 
 test('before a push the notebook says what goes out unreviewed, and never stops it', async ($, on) => {

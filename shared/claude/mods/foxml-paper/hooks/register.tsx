@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderNode } from 'claude-code'
 
 import type { ApiCredits, CiLook, GitLook, NotebookView, PaperAction, PaperCard, PaperEnvelope, PaperLook, PaperOverlap, PaperPeer, PaperRedZone, PaperTone, PaperTree, TurnLook, TurnReceipt, WorkJob } from '../types'
-import { addBefore, addEdit, addName, neighbours, namesText, noteText, overlapFor, parseLedger, parseNames, parseNote, trailerUrl, withPlan } from './ledger'
+import { addBefore, addEdit, addName, neighbours, namesText, noteText, overlapFor, parseLedger, parseNames, parseNote, trailerUrl, withPlan, editedSince } from './ledger'
 import type { Other } from './ledger'
 import { paper } from './theme'
 import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, pendingLine, planProgress, receiptLine, reviewStates, reviewSummary, ruleLine, ruler, spread, workName, stepLabel, testLabel, turnLabel, unreviewed, work, workLook } from './work'
@@ -24,7 +24,7 @@ const peers = atom({ plugin: 'foxml-paper', key: 'peers' } as const, [] as Paper
 const writingTo = atom({ plugin: 'foxml-paper', key: 'writingTo' } as const, null as string | null)
 const turn = atom({ plugin: 'foxml-paper', key: 'turn' } as const, null as TurnLook | null, { shape: 'turn-1' })
 const nudge = atom({ plugin: 'foxml-paper', key: 'nudge' } as const, null as number | null)
-const receipt = atom({ plugin: 'foxml-paper', key: 'receipt' } as const, null as TurnReceipt | null, { shape: 'receipt-1' })
+const receipt = atom({ plugin: 'foxml-paper', key: 'receipt' } as const, null as TurnReceipt | null, { shape: 'receipt-2' })
 const envelopes = atom({ plugin: 'foxml-paper', key: 'envelopes' } as const, [] as PaperEnvelope[], { shape: 'env-1' })
 const notebookView = atom({ plugin: 'foxml-paper', key: 'notebookView' } as const,
   { page: 'overview', scope: 'session', selected: '', offset: 0, form: 'none' } as NotebookView, { shape: 'notebook-1' })
@@ -128,6 +128,8 @@ const memory = {
   // CI is asked of GitHub only when the pushed commit changes, every 30 s while it runs, else every 5 minutes.
   turnRisk: [] as string[],
   turnStart: 0,
+  // Every path this turn edited, however often it was edited before: the receipt's first source.
+  turnFiles: [] as string[],
   ci: null as CiLook | null,
   ciTold: '',
   github: new Map<string, boolean>(),
@@ -389,7 +391,9 @@ async function recordEdit($: EngineInterface, file: string) {
   const own = `${dir}/edits/${sid}.json`
   let ledger = null
   try { ledger = parseLedger(await $.fs.read(own)) } catch { ledger = null }
-  const next = addEdit(ledger, await realPath($, file), await $.clock.now(), await nameNow($), await repoRoot($),
+  const real = await realPath($, file)
+  if (!memory.turnFiles.includes(real)) memory.turnFiles.push(real)
+  const next = addEdit(ledger, real, await $.clock.now(), await nameNow($), await repoRoot($),
                        (await ownPane($)) ?? undefined)
   await $.fs.write(own, JSON.stringify(next) + '\n')
 }
@@ -688,12 +692,12 @@ export const register: Register = on => {
       try {
         const ledger = dir === null ? null : parseLedger(await $.fs.read(`${dir}/edits/${sid}.json`))
         const base = seen.root.replace(/\/$/, '') + '/'
-        touched = [...new Set((ledger?.all ?? ledger?.edits ?? []).filter(e => e.at >= start && e.path.startsWith(base)).map(e => e.path.slice(base.length)))]
-      } catch { touched = [] }
+        touched = [...new Set([...memory.turnFiles, ...editedSince(ledger, start)])].filter(p => p.startsWith(base)).map(p => p.slice(base.length))
+      } catch { touched = memory.turnFiles.map(p => p.replace(seen.root.replace(/\/$/, '') + '/', '')) }
       const ran = seen.work?.tests
       const tests = ran && typeof ran.ended === 'number' && ran.ended * 1000 >= start ? testLabel(ran).replace(/ · .*$/, '') : null
-      const log = await run($, ['git', '--no-optional-locks', '-C', seen.root, 'log', '-8', `--since=@${Math.floor(start / 1000)}`, '--format=%s'])
-      const commits = (log ?? '').split('\n').map(s => s.trim()).filter(Boolean)
+      const log = await run($, ['git', '--no-optional-locks', '-C', seen.root, 'log', '-8', `--since=@${Math.floor(start / 1000)}`, '--format=%H %s'])
+      const commits = (log ?? '').split('\n').map(s => s.trim()).filter(s => /^[0-9a-f]{40} /.test(s)).map(s => ({ sha: s.slice(0, 40), subject: s.slice(41) }))
       const made: TurnReceipt = { at: await $.clock.now(), files: touched.slice(0, 40), tests, commits, risky: memory.turnRisk.slice(0, 4) }
       await update($, receipt, () => (made.files.length || made.tests || made.commits.length || made.risky.length) ? made : null)
     }
@@ -710,6 +714,7 @@ export const register: Register = on => {
     await update($, turn, () => ({ started, step: '', seen: started }))
     memory.turnStart = started
     memory.turnRisk = []
+    memory.turnFiles = []
     await update($, nudge, () => null)
     await update($, redZone, () => null)
     await update($, overlap, () => null)
@@ -988,15 +993,23 @@ export const register: Register = on => {
       const done = await read($, receipt)
       if (done && !working) {
         rule('last turn', ago((clock - done.at) / 1000))
-        const open = () => checkedWork(['open', '--root', root, '--action', 'reviews'])
+        // Each row opens exactly what it names: the turn's own files (the first one not yet reviewed), or the commit.
+        const still = (now?.files ?? []).map(f => f.path)
+        const next_ = done.files.find(p => still.includes(p) && states.get(p) !== 'checked') ?? done.files.find(p => still.includes(p))
+        const open = () => next_ !== undefined
+          ? checkedWork(['open', '--root', root, '--action', 'file-diff', '--file', next_, '--session', session])
+          : done.commits[0] ? checkedWork(['open', '--root', root, '--action', 'reviews', '--id', done.commits[0].sha])
+          : checkedWork(['open', '--root', root, '--action', 'reviews'])
         if (done.files.length) {
           const read_ = done.files.filter(p => states.get(p) === 'checked').length
           pair('receipt-files', `✎ ${done.files.length} ${done.files.length === 1 ? 'file' : 'files'} changed`, `${read_} of ${done.files.length} reviewed`, open,
-            'What the last turn changed. Enter opens the review on it.')
+            next_ !== undefined ? `What the last turn changed. Enter opens ${next_.split('/').pop()}, the next one not reviewed.` : 'What the last turn changed; all of it is committed. Enter opens the commit.')
         }
         if (done.tests) pair('receipt-tests', done.tests, '', () => now?.work?.tests ? openJob(now.work.tests.id, 'tests') : undefined,
           'The tests the last turn ran.', done.tests.startsWith('✓') ? paper.added : paper.berry)
-        for (const subject of done.commits.slice(0, 3)) pair('receipt-commit-' + subject.slice(0, 24), '❦ ' + subject, '', open, 'A commit the last turn made.')
+        for (const commit of done.commits.slice(0, 3))
+          pair('receipt-commit-' + commit.sha.slice(0, 7), '❦ ' + commit.subject, commit.sha.slice(0, 7),
+            () => checkedWork(['open', '--root', root, '--action', 'reviews', '--id', commit.sha]), 'A commit the last turn made. Enter opens this commit in the review.')
         if (done.commits.length > 3) content.push(text(`  and ${done.commits.length - 3} more commits`))
         for (const what of done.risky) pair('receipt-risk-' + what, '⚠ touched ' + what, 'red zone', open, 'The last turn ran something in the red zone: login, boot, mounts, the kernel or the firewall.', paper.berry)
       }

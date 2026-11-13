@@ -45,6 +45,14 @@ export function parseLedger(text: string): Ledger | null {
 }
 
 // This session's ledger after an edit: newest first, one entry per file, an hour and fifty files at most.
+// The paths a ledger says were edited at or after `since`. `edits` keeps each file's LATEST edit and `all` its
+// first, so a file edited in an earlier turn and again in this one is found through `edits`; `all` covers a turn
+// with more edits than `edits` holds.
+export function editedSince(ledger: Ledger | null, since: number): string[] {
+  const out = new Set<string>()
+  for (const e of [...(ledger?.edits ?? []), ...(ledger?.all ?? [])]) if (e.at >= since) out.add(e.path)
+  return [...out]
+}
 export function addEdit(ledger: Ledger | null, path: string, at: number, title: string | null, root: string, pane?: string): Ledger {
   const kept = (ledger?.edits ?? []).filter(e => e.path !== path && at - e.at < KEEP_MS)
   const where = pane ?? ledger?.pane
