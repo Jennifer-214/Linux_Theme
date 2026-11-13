@@ -116,6 +116,29 @@ list there yourself). It draws in the palette and keeps its session records in p
   or `{kind: "log" | "tests" | "compare", id: "run-id"}`. These rows are selectable
   on the project page; actions open local editor views and never execute card-supplied commands.
 
+## Reviewing changes
+
+`Space Cw` in Neovim opens the review: a side panel beside a read-only before / after comparison.
+
+- **The tree**: Working changes first, then each plan with its commits oldest first, then other commits. A commit
+  opens to its files and a file to its changed functions. Without plan files the commits group by branch and day.
+- **Marks**: `✓` reviewed, `↻` edited since you reviewed it, `○` not yet, `⚠` needs care. The strip under the list
+  says why: a red-zone path or tool in the added lines (`shared/redzone.json`), a path in the project's
+  `.review-risk`, a file the plan never names, or a file edited since the last test run.
+- **Only what is new**: a file edited after you checked it opens against the copy you read. `n` shows the whole
+  change instead; the choice is remembered.
+- **Keys**: Enter or `l` opens, `h` folds, `m` or Space checks, `u` goes to the first unread file (risky ones first),
+  `R` finishes and moves to the next commit, `a` opens every other action, `q` returns to your editor.
+- **Shared progress**: checks are kept by `desk-work`, so the notebook shows the same `✓ ↻ ○` and one line such as
+  "3 changes to review · 1 changed since you looked". After a turn that leaves files unreviewed, a quiet "review
+  pending" line sits above the prompt.
+- **Stamps**: finishing a commit's review writes a git note on it (`refs/notes/reviews`: who, when, how many
+  files). The note alone marks the commit reviewed, so it survives a reinstall;
+  `git push origin refs/notes/reviews` shares it. `DESK_REVIEW_NOTES=0` turns the notes off.
+
+None of it needs plan files, symdeps, or a Claude session: those add grouping, symbol context and the overview to
+a review that works in any git repository. The look follows [UI style](ui-style.md).
+
 ## End a session
 
 `/goodnight` (`~/.claude/commands/goodnight.md`) wraps up a session: Claude writes a

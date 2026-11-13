@@ -429,6 +429,28 @@ class Work(unittest.TestCase):
         self.assertEqual(len(self.data("review-tree", "--all", "yes")[0]["commits"]), 2)
         self.assertFalse(json.loads(self.invoke("commit-plan", "--sha", "nothex", "--title", "x", code=1))["ok"])
 
+    def test_a_finished_review_is_stamped_on_the_commit_and_the_stamp_alone_counts(self):
+        self.git("commit", "--allow-empty", "-qm", "Claude change\n\nClaude-Session: https://claude.ai/code/session_example")
+        sha = self.git("rev-parse", "HEAD")
+        head_before = self.git("rev-parse", "HEAD")
+        self.assertTrue(self.data("reviewed", "--sha", sha)["ok"])
+        note = self.git("notes", "--ref", "reviews", "show", sha)
+        self.assertIn("Reviewed-by: Test", note)
+        self.assertRegex(note, r"Reviewed-on: \d{4}-\d\d-\d\d")
+        self.assertEqual(self.git("rev-parse", "HEAD"), head_before, "history is not rewritten")
+        # A fresh machine: the local record is gone, the note came with the repository.
+        for record in (self.dir / "state").rglob("reviewed.json"): record.unlink()
+        for cache in (self.dir / "state").rglob("reviews-cache.json"): cache.unlink()
+        self.assertEqual(self.data("reviews"), [], "the stamp alone marks it reviewed")
+        self.assertTrue(self.data("reviews", "--all", "yes")[0]["reviewed"])
+        # Switched off: no note is written.
+        self.git("commit", "--allow-empty", "-qm", "Another\n\nClaude-Session: https://claude.ai/code/session_example")
+        other = self.git("rev-parse", "HEAD")
+        self.env["DESK_REVIEW_NOTES"] = "0"
+        self.assertTrue(self.data("reviewed", "--sha", other)["ok"])
+        listed = self.git("notes", "--ref", "reviews", "list")
+        self.assertNotIn(other, listed)
+
     def test_worktree_paths_with_spaces_are_not_shell_commands(self):
         other = self.dir / "other tree ; literal"
         self.git("worktree", "add", "-qb", "feature/work", str(other))

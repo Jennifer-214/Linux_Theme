@@ -376,6 +376,17 @@ long long stamp_of(const fs::path& p) {
     return ec ? 0 : static_cast<long long>(t.time_since_epoch().count());
 }
 J review_progress(const std::string& root, const std::string& only);
+// A finished review is also stamped on the commit as a git note (refs/notes/reviews): it lives in the repository, so
+// it survives a reinstall and travels with `git push origin refs/notes/reviews`. History is never rewritten.
+const char* const REVIEW_NOTES = "reviews";
+std::set<std::string> stamped_commits(const std::string& root) {
+    std::set<std::string> out;
+    for (const auto& line : split(query({"git", "--no-optional-locks", "-C", root, "notes", "--ref", REVIEW_NOTES, "list"}))) {
+        std::istringstream fields(line); std::string note, commit;
+        if (fields >> note >> commit && commit.size() == 40) out.insert(commit);
+    }
+    return out;
+}
 J reviews(const std::string& root, bool today_only = true) {
     std::error_code error;
     if (!fs::exists(fs::path(root) / ".git", error)) return J::array();
@@ -384,11 +395,13 @@ J reviews(const std::string& root, bool today_only = true) {
     std::tm day = *std::localtime(&clock);
     const auto signature = std::to_string(stamp_of(head_log(root))) + "|" + std::to_string(stamp_of(project_dir(root) / "reviewed.json"))
                            + "|" + std::to_string(stamp_of(project_dir(root) / "review-marks.json"))
+                           + "|" + trim(query({"git", "--no-optional-locks", "-C", root, "rev-parse", "--verify", "--quiet", std::string("refs/notes/") + REVIEW_NOTES}))
                            + "|" + std::to_string(day.tm_year) + "-" + std::to_string(day.tm_yday) + "|" + (today_only ? "today" : "all");
     const auto cached = json(project_dir(root) / "reviews-cache.json");
     if (cached.is_object() && str(cached, "signature") == signature && cached["reviews"].is_array()) return cached["reviews"];
     const auto marks = json(project_dir(root) / "reviewed.json");
     const auto progress = review_progress(root, "");
+    const auto stamped = stamped_commits(root);
     A a{"git", "--no-optional-locks", "-C", root, "log", "-80", "--format=%H%x1f%ct%x1f%s%x1f%(trailers:key=Claude-Session,valueonly)%x1f%(trailers:key=Co-Authored-By,valueonly)%x1e"};
     J out = J::array();
     const std::time_t time = std::time(nullptr);
@@ -401,7 +414,7 @@ J reviews(const std::string& root, bool today_only = true) {
         if (f.size() < 4 || f[0].size() != 40) continue;
         if (f[3].empty() && (f.size() < 5 || (f[4].find("Claude") == std::string::npos && f[4].find("claude") == std::string::npos))) continue;
         long long at = 0; try { at = std::stoll(f[1]); } catch (...) { continue; }
-        const bool seen = marks.is_object() && marks.contains(f[0]);
+        const bool seen = (marks.is_object() && marks.contains(f[0])) || stamped.count(f[0]) > 0;
         if (today_only && (at < start || seen)) continue;
         J row{{"sha", f[0]}, {"at", at}, {"subject", f[2]}, {"root", root}, {"reviewed", seen}};
         if (progress.contains(f[0])) { row["checked"] = progress[f[0]]["checked"]; row["total"] = progress[f[0]]["total"]; }
@@ -417,7 +430,18 @@ J reviewed(const std::string& root, const std::string& sha) {
     if (lock.fd < 0 || (fs::exists(file, ec) && !j.is_object())) return J{{"ok", false}};
     if (!j.is_object()) j = J::object();
     j[sha] = now();
-    return J{{"ok", atomic(file, j.dump())}};
+    const bool ok = atomic(file, j.dump());
+    // The stamp on the commit itself: who, when, how many files. Best effort; the local record above is the truth here.
+    if (ok && env("DESK_REVIEW_NOTES", env("FOXML_REVIEW_NOTES", "1")) != "0") {
+        const auto who = trim(query({"git", "-C", root, "config", "user.name"}));
+        const auto progress = review_progress(root, sha);
+        const int files = progress.contains(sha) ? progress[sha].value("total", 0) : 0;
+        char day[32] = {}; const std::time_t t = std::time(nullptr); std::strftime(day, sizeof day, "%Y-%m-%d", std::localtime(&t));
+        const std::string note = "Reviewed-by: " + (who.empty() ? std::string("unknown") : who) + "\nReviewed-on: " + day
+                                 + (files > 0 ? "\nReviewed-files: " + std::to_string(files) : "");
+        query({"git", "-C", root, "notes", "--ref", REVIEW_NOTES, "add", "-f", "-m", note, sha});
+    }
+    return J{{"ok", ok}};
 }
 // Review progress shared by Neovim, the notebook and the drawer. One review is a key (a commit sha, a session id, or
 // "working"); each checked file keeps the signature of the two sides that were read and, for a file on disk, the hash
