@@ -20,6 +20,10 @@ BIN_RE = re.compile(r"^[ \t]*BIN[ \t]*:?=[ \t]*([^\s#]+)", re.M)
 
 # New surfaces deploy through the native installer; AGENT.md freezes mappings.sh.
 ONE_SIDED = {
+    ("SHARED_MAPPINGS", "nvim_lua/foxml/sync.lua", "~/.config/nvim/lua/foxml/sync.lua"):
+        "native-only live file watching and explicit outside-edit merge; AGENT.md freezes mappings.sh",
+    ("SHARED_MAPPINGS", "nvim_lua/foxml/review.lua", "~/.config/nvim/lua/foxml/review.lua"):
+        "native-only read-only review layout and saved review progress; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "zsh_work.zsh", "~/.config/zsh/work.zsh"):
         "native-only foreground job observation and fjob; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "nvim_lua/foxml/work.lua", "~/.config/nvim/lua/foxml/work.lua"):

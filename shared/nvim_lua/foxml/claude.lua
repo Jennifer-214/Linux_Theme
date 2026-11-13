@@ -3,7 +3,7 @@
 -- Reads what the paper mod and desk-drawer already keep ($XDG_RUNTIME_DIR/foxml-claude: <sid>.state/.json, the
 -- edits ledgers and before-copies; $XDG_STATE_HOME/foxml/claude-sessions.jsonl, the commit names) and git. Writes
 -- only notes into a session's inbox. Shows: footprints (who edited this buffer lately), the plan gate and who needs
--- you, a "what changed" list of live sessions and commits reviewed inline through gitsigns, following a session,
+-- you, a "what changed" list of live sessions and commits in a read-only comparison, following a session,
 -- and blame that names the Claude session behind a line. Colours come from the caller (the template's palette).
 local M = {}
 local uv = vim.uv or vim.loop
@@ -14,6 +14,9 @@ M.review = nil       -- the change set under review
 M.following = nil    -- the session being followed
 local EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 local SID = "^[%w_-]+$"
+local function drawer_tool()
+  return vim.fn.executable("desk-drawer") == 1 and "desk-drawer" or "fox-drawer"
+end
 
 -- ─── small helpers ────────────────────────────────────────────────────────────────────────────────────────────
 function M.read(path)
@@ -249,19 +252,21 @@ local function me()
 end
 
 local function realpath(buf)
+  local meta = vim.b[buf or 0].foxml_review
+  if meta then return meta.file end
   local name = vim.api.nvim_buf_get_name(buf or 0)
   if name == "" then return nil end
   return uv.fs_realpath(name) or name
 end
 
 local function repo_root(buf)
-  return vim.fs.root(buf or 0, ".git")
+  return vim.b[buf or 0].foxml_review_root or vim.fs.root(buf or 0, ".git")
 end
 
 local function poll()
   local dir = M.runtime()
   if not dir or not uv.fs_stat(dir) then M.live = {}; return end
-  local ok = pcall(vim.system, { "desk-drawer", "claude-peers" }, { text = true }, function(out)
+  local ok = pcall(vim.system, { drawer_tool(), "claude-peers" }, { text = true }, function(out)
     vim.schedule(function()
       M.live = M.with_ledgers(out.code == 0 and M.decode(out.stdout) or {}, dir)
       pcall(vim.cmd.redrawstatus)
@@ -322,7 +327,7 @@ function M.jump()
     vim.notify("no Claude edited this file lately", vim.log.levels.INFO, { title = "Claude" })
     return
   end
-  vim.system({ "desk-drawer", "run", "claude-jump", fp.pane })
+  vim.system({ drawer_tool(), "run", "claude-jump", fp.pane })
 end
 
 local function peer_item(p)
@@ -337,13 +342,16 @@ function M.send(range)
     vim.notify("no other Claude is open", vim.log.levels.INFO, { title = "Claude" })
     return
   end
+  local context = require("foxml.review").note_context(range)
   local path, code = realpath(0), nil
   if range then code = table.concat(vim.api.nvim_buf_get_lines(0, range[1] - 1, range[2], false), "\n") end
+  local first, last = range and range[1], range and range[2]
+  if context then path, code, first, last = context.file, context.code, context.first, context.last end
   vim.ui.select(M.live, { prompt = "Note for", format_item = peer_item }, function(p)
     if not p then return end
     vim.ui.input({ prompt = "note for " .. p.name .. ": " }, function(text)
       if not text or vim.trim(text) == "" then return end
-      local note = M.note(text, path, range and range[1], range and range[2], code)
+      local note = M.note(text, path, first, last, code)
       if M.write_note(dir, p.id, note) then
         vim.notify("note left for " .. p.name, vim.log.levels.INFO, { title = "Claude" })
       else
@@ -374,12 +382,15 @@ end
 -- ─── what changed ─────────────────────────────────────────────────────────────────────────────────────────────
 function M.rows(root)
   local rows = {}
-  local status = system({ "git", "--no-optional-locks", "-C", root, "status", "--porcelain=v1", "-z", "--untracked-files=all" }) or ""
+  local working = require("foxml.review").working_files(root) or {}
   local dirty = {}
-  for entry in status:gmatch("[^%z]+") do
-    local rel = entry:sub(4)
-    if rel ~= "" then dirty[uv.fs_realpath(root .. "/" .. rel) or (root .. "/" .. rel)] = true end
+  local working_paths = {}
+  for _, file in ipairs(working) do
+    dirty[uv.fs_realpath(file.path) or file.path] = true
+    working_paths[#working_paths + 1] = file.path
   end
+  rows[#rows + 1] = { kind = "working", sid = "working", name = "Working changes", short = "Working changes",
+    files = working_paths, label = "Working changes · " .. #working_paths .. " files" }
   for _, p in ipairs(M.in_repo(root, M.live)) do
     local files = M.live_files(p, dirty)
     if #files > 0 then
@@ -393,49 +404,16 @@ function M.rows(root)
     local files = {}
     for _, rel in ipairs(c.files) do files[#files + 1] = root .. "/" .. rel end
     rows[#rows + 1] = { kind = "commit", sha = c.sha, parent = c.parent or EMPTY_TREE, short = c.short,
-                        files = files, label = M.commit_label(c, names, me(), now_s) }
+                        files = files, subject = c.subject, label = M.commit_label(c, names, me(), now_s) }
   end
   return rows
 end
 
-local function set_review_keys(on)
-  for _, key in ipairs({ "]f", "[f" }) do pcall(vim.keymap.del, "n", key) end
-  if not on then return end
-  vim.keymap.set("n", "]f", function() pcall(vim.cmd.cnext) end, { desc = "Next file in the change" })
-  vim.keymap.set("n", "[f", function() pcall(vim.cmd.cprev) end, { desc = "Previous file in the change" })
-end
-
 function M.done()
-  if not M.review then return true end
-  local review = M.review
-  local remaining = {}
-  -- Only tabs created by this review belong to its exit action.
-  for _, tab in ipairs(review.tabs or {}) do
-    if vim.api.nvim_tabpage_is_valid(tab) then
-      vim.api.nvim_set_current_tabpage(tab)
-      local ok, err = pcall(vim.cmd, "tabclose")
-      if not ok then
-        remaining[#remaining + 1] = tab
-        vim.notify(tostring(err), vim.log.levels.WARN, { title = "Claude review" })
-      end
-    end
-  end
-  if review.origin and vim.api.nvim_win_is_valid(review.origin) then
-    vim.api.nvim_set_current_win(review.origin)
-  end
-  review.tabs = remaining
-  if #remaining > 0 then return false end
-  pcall(function() require("gitsigns").reset_base(true) end)
-  set_review_keys(false)
-  M.review = nil
-  if vim.fn.getqflist({ id = 0 }).id == review.quickfix then pcall(vim.cmd.cclose) end
-  pcall(vim.cmd.redrawstatus)
-  return true
+  return require("foxml.review").close()
 end
 
 function M.close()
-  -- The notebook launches its own Neovim process. One action exits all of its
-  -- splits/tabs, with the normal save prompt for any modified file.
   if vim.g.foxml_work_view then vim.cmd("confirm qall"); return end
   if not M.done() then return end
   if M.following then
@@ -452,73 +430,23 @@ end
 
 function M.open_review(row, root)
   if not M.done() then return end
-  local base = row.kind == "commit" and row.parent or "HEAD"
-  pcall(function() require("gitsigns").change_base(base, true) end)
-  local since = {}
-  if row.kind == "commit" then
-    local changed = system(vim.list_extend({ "git", "--no-optional-locks", "-C", root, "diff", "--name-only", row.sha, "--" }, row.files)) or ""
-    for rel in changed:gmatch("[^\n]+") do since[root .. "/" .. rel] = true end
-  end
-  local items = {}
-  for _, file in ipairs(row.files) do
-    items[#items + 1] = { filename = file, lnum = 1,
-      text = since[file] and "changed again since: <leader>Cd shows this change alone" or row.label }
-  end
-  M.review = { row = row, root = root, label = row.short, origin = vim.api.nvim_get_current_win(), tabs = {} }
-  vim.fn.setqflist({}, " ", { title = "what changed · " .. row.label .. " · Space Cq closes review", items = items })
-  M.review.quickfix = vim.fn.getqflist({ id = 0 }).id
-  set_review_keys(true)
-  vim.cmd("copen")
-  vim.cmd("wincmd p")
-  pcall(vim.cmd.cfirst)
-  if row.kind == "commit" and vim.fn.executable("desk-work") == 1 then
-    vim.system({ "desk-work", "reviewed", "--root", root, "--sha", row.sha }, { text = true })
-  end
+  M.review = require("foxml.review").open(row, root, {
+    close = M.close,
+    on_close = function() M.review = nil; pcall(vim.cmd.redrawstatus) end,
+  })
 end
 
-local function scratch(lines, name)
-  local buf = vim.api.nvim_create_buf(false, true)
-  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.bo[buf].modifiable = false
-  vim.bo[buf].bufhidden = "wipe"
-  pcall(vim.api.nvim_buf_set_name, buf, name)
-  local ft = vim.filetype.match({ filename = name })
-  if ft then vim.bo[buf].filetype = ft end
-  return buf
-end
-
-local function lines_of(text) return vim.split((text or ""):gsub("\n$", ""), "\n", { plain = true }) end
-
--- Side by side, this change alone.
 function M.diff(path)
   local r = M.review
   path = path or realpath(0)
-  if not r or not path then
+  if not r then
     vim.notify("pick a change first (<leader>Cw)", vim.log.levels.INFO, { title = "Claude" })
     return
   end
-  local rel = path:sub(#r.root + 2)
-  local left, right
-  if r.row.kind == "commit" then
-    left = scratch(lines_of(system({ "git", "-C", r.root, "show", r.row.parent .. ":" .. rel })), "before " .. r.row.short .. "/" .. rel)
-    right = scratch(lines_of(system({ "git", "-C", r.root, "show", r.row.sha .. ":" .. rel })), r.row.short .. "/" .. rel)
-  else
-    local copy = r.row.before[path]
-    local text = copy and M.read(M.runtime() .. "/edits/" .. r.row.sid .. "/before/" .. copy)
-      or system({ "git", "-C", r.root, "show", "HEAD:" .. rel })
-    left = scratch(lines_of(text), "before " .. r.row.name .. "/" .. rel)
+  for i, file in ipairs(r.files) do
+    if file.path == path then require("foxml.review").select(i); return end
   end
-  vim.cmd("tabnew")
-  r.tabs[#r.tabs + 1] = vim.api.nvim_get_current_tabpage()
-  if right then vim.api.nvim_win_set_buf(0, right) else vim.cmd("edit " .. vim.fn.fnameescape(path)) end
-  vim.cmd("diffthis")
-  vim.cmd("leftabove vsplit")
-  vim.api.nvim_win_set_buf(0, left)
-  vim.cmd("diffthis")
-  for _, buf in ipairs({ left, right }) do
-    vim.keymap.set("n", "q", M.close, { buffer = buf, desc = "Close Claude review" })
-    vim.keymap.set("n", "<Esc>", M.close, { buffer = buf, desc = "Close Claude review" })
-  end
+  vim.notify("This file is not part of the selected change.", vim.log.levels.INFO, { title = "Claude" })
 end
 
 -- Follow: a tab of its own shows each file the session edits, at its newest change; your cursor stays put.
@@ -563,40 +491,24 @@ function M.changes(unreviewed)
     return
   end
   local rows = M.rows(root)
-  if unreviewed == true and vim.fn.executable("desk-work") == 1 then
-    local wanted = M.decode(system({ "desk-work", "reviews", "--root", root })) or {}
+  local backend = require("foxml.review").work_tool()
+  if unreviewed == true and backend then
+    local wanted = M.decode(system({ backend, "reviews", "--root", root })) or {}
     local pending = {}
     for _, c in ipairs(wanted) do pending[c.sha] = true end
     rows = vim.tbl_filter(function(r) return r.kind == "commit" and pending[r.sha] end, rows)
     if #rows == 0 then vim.notify("No Claude changes left to look over today."); return end
   end
-  local ok, pickers = pcall(require, "telescope.pickers")
-  if not ok then
-    vim.ui.select(rows, { prompt = "What changed", format_item = function(r) return r.label end }, function(r)
-      if r then M.open_review(r, root) end
-    end)
-    return
+  if #rows == 0 then vim.notify("No changes in this repository."); return end
+  for _, row in ipairs(rows) do
+    local files = require("foxml.review").files(row, root)
+    if files and #files > 0 then
+      M.open_review(row, root)
+      require("foxml.review").tree(rows)
+      return
+    end
   end
-  local finders, conf = require("telescope.finders"), require("telescope.config").values
-  local actions, state = require("telescope.actions"), require("telescope.actions.state")
-  pickers.new({}, {
-    prompt_title = "What changed  ·  Enter review  ·  f follow",
-    finder = finders.new_table({ results = rows, entry_maker = function(r) return { value = r, display = r.label, ordinal = r.label } end }),
-    sorter = conf.generic_sorter({}),
-    attach_mappings = function(prompt, map)
-      actions.select_default:replace(function()
-        local entry = state.get_selected_entry()
-        actions.close(prompt)
-        if entry then M.open_review(entry.value, root) end
-      end)
-      map("n", "f", function()
-        local entry = state.get_selected_entry()
-        actions.close(prompt)
-        if entry then M.follow(entry.value) end
-      end)
-      return true
-    end,
-  }):find()
+  vim.notify("These commits have no changed files.")
 end
 
 -- ─── blame ────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -626,16 +538,6 @@ function M.setup()
   timer:start(0, 5000, vim.schedule_wrap(poll))
   local group = vim.api.nvim_create_augroup("foxml_claude", { clear = true })
   vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, { group = group, callback = function(a) warn_once(a.buf) end })
-  vim.api.nvim_create_autocmd("FileType", { group = group, pattern = "qf", callback = function(a)
-    local title = vim.fn.getqflist({ title = 0 }).title or ""
-    if not title:find("^what changed") then return end
-    vim.keymap.set("n", "<Esc>", M.close, { buffer = a.buf, desc = "Close Claude review" })
-    vim.keymap.set("n", "q", M.close, { buffer = a.buf, desc = "Close Claude review" })
-    vim.keymap.set("n", "d", function()
-      local item = vim.fn.getqflist()[vim.fn.line(".")]
-      if item then M.diff(uv.fs_realpath(vim.api.nvim_buf_get_name(item.bufnr)) or vim.api.nvim_buf_get_name(item.bufnr)) end
-    end, { buffer = a.buf, desc = "This change side by side" })
-  end })
   vim.api.nvim_create_user_command("ClaudeChanges", M.changes, { desc = "What changed: live sessions and commits" })
   vim.api.nvim_create_user_command("ChangedDone", M.close, { desc = "Close Claude review" })
   vim.api.nvim_create_user_command("ClaudeReviewClose", M.close, { desc = "Close all Claude review views" })

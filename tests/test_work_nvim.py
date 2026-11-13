@@ -14,6 +14,35 @@ BIN = ROOT / "src/desk-work/desk-work"
 
 @unittest.skipUnless(shutil.which("nvim") and BIN.exists(), "build desk-work and install Neovim first")
 class WorkNvim(unittest.TestCase):
+    def test_native_quit_exits_a_dedicated_review_with_one_command(self):
+        with tempfile.TemporaryDirectory() as temp:
+            folder = Path(temp)
+            source = folder/'sample.cpp'
+            source.write_text('int example;\n')
+            result = folder/'closed.json'
+            env = dict(os.environ, TEST_WORK_LUA=str(ROOT/'shared/nvim_lua'), TEST_SOURCE=str(source),
+                       TEST_RESULT=str(result), XDG_STATE_HOME=str(folder/'state'), XDG_RUNTIME_DIR=str(folder/'runtime'),
+                       NVIM_LOG_FILE=str(folder/'nvim.log'))
+            (folder/'runtime').mkdir()
+            script = folder/'quit.lua'
+            script.write_text(r'''
+package.path=vim.env.TEST_WORK_LUA..'/?.lua;'..package.path
+for _,name in ipairs({'claude','work','review'}) do package.loaded['foxml.'..name]=dofile(vim.env.TEST_WORK_LUA..'/foxml/'..name..'.lua') end
+vim.fn.argv=function()return {'foxml-work:file-diff',vim.env.TEST_SOURCE,''} end
+require('foxml.work').open_args()
+vim.api.nvim_create_autocmd('VimLeavePre',{callback=function()
+  vim.fn.writefile({vim.json.encode({closed=true})},vim.env.TEST_RESULT)
+end})
+vim.cmd('quit')
+vim.wait(500)
+error('one :q did not exit the dedicated review')
+''')
+            checked=subprocess.run(['nvim','--headless','-u','NONE','-l',str(script)],cwd=folder,env=env,
+                                   capture_output=True,text=True,timeout=15)
+            self.assertEqual(checked.returncode,0,checked.stdout+checked.stderr)
+            self.assertTrue(json.loads(result.read_text())['closed'])
+            self.assertEqual(source.read_text(),'int example;\n')
+
     def test_review_exit_closes_its_tabs_and_preserves_editor_and_edits(self):
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp)
@@ -40,7 +69,7 @@ local row = {kind='live', sid='test', name='test', short='test', label='test', f
 C.open_review(row, vim.fs.dirname(vim.env.TEST_SOURCE))
 C.diff(vim.env.TEST_SOURCE)
 C.diff(vim.env.TEST_SOURCE)
-assert(#vim.api.nvim_list_tabpages() == 4)
+assert(#vim.api.nvim_list_tabpages() == 3, 'review should reuse one tab')
 local close = vim.fn.maparg('<Space>Cq', 'n', false, true)
 assert(type(close.callback) == 'function')
 close.callback()
@@ -85,7 +114,7 @@ require('foxml.work').open_args()
 local C = require('foxml.claude')
 C.diff(vim.env.TEST_SOURCE)
 vim.cmd('vsplit')
-assert(#vim.api.nvim_list_wins() >= 5, 'fixture has too few review windows')
+assert(#vim.api.nvim_list_wins() >= 4, 'fixture has too few review windows')
 vim.api.nvim_create_autocmd('VimLeavePre', {callback=function()
   vim.fn.writefile({vim.json.encode({closed=true, windows=#vim.api.nvim_list_wins()})}, vim.env.TEST_RESULT)
 end})

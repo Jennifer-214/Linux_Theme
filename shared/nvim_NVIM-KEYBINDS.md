@@ -16,6 +16,17 @@ selection goes along as an excerpt), **Space CR** reviews its uncommitted change
 `:ClaudeApiStop` cancels. In an answer, **Enter** opens a cited `path:line`, **f** asks a
 follow-up and **q** closes; every citation is also in the quickfix list (`:copen`).
 
+Useful controls: **Space tw** toggles line wrapping, **Space tf** toggles automatic formatting for the
+current file, and **Space ti** toggles type/parameter hints. **Space cf** always formats explicitly.
+**Space ff** and **Space fg** include hidden project files while respecting Git ignores and excluding `.git`.
+Enter in the completion menu accepts an explicitly selected suggestion; select one with Tab or arrows first.
+
+Outside agents' saves update clean buffers automatically. If you have unsaved edits too, **Space Cu** compares
+your buffer with the disk copy, and **Space Cl** merges non-overlapping changes, leaving them unsaved.
+Overlapping changes keep both copies. A save waits until you resolve the outside edits;
+`:AgentKeepMine` explicitly keeps your buffer for the next save. Text files up to 2 MiB are watched.
+You can also click the **outside edits** status to choose Compare, Merge or Keep mine from a menu.
+
 ---
 
 ## Core Vim
@@ -371,9 +382,9 @@ In visual mode:
 | Key | Action |
 |-----|--------|
 | `]c` / `[c` | Next / Prev hunk |
-| `:Gitsigns preview_hunk` | Preview change |
-| `:Gitsigns stage_hunk` | Stage hunk |
-| `:Gitsigns undo_stage_hunk` | Undo stage |
+| `Space gp` / `:Gitsigns preview_hunk` | Preview change |
+| `Space gs` / `:Gitsigns stage_hunk` | Stage hunk |
+| `Space gu` / `:Gitsigns undo_stage_hunk` | Undo stage |
 | `:Gitsigns reset_hunk` | Reset hunk |
 | `:Gitsigns blame_line` | Show git blame |
 | `:Gitsigns diffthis` | Diff against index |
@@ -440,7 +451,7 @@ Press **Space** and wait — which-key pops up showing all leader binds and thei
 |-----|--------|
 | `Tab` | Next completion / Expand snippet / Jump snippet |
 | `Shift+Tab` | Previous completion / Jump snippet back |
-| `Enter` | Confirm completion |
+| `Enter` | Confirm a completion selected with Tab/arrows; otherwise insert a newline |
 | `Ctrl+Space` | Trigger completion manually |
 | `Ctrl+b` / `Ctrl+f` | Scroll docs up / down |
 | `Ctrl+e` | Close completion menu |
@@ -490,22 +501,22 @@ Press **Space** and wait — which-key pops up showing all leader binds and thei
 
 Ghost-text suggestions appear automatically when inline mode is active. Use `Ctrl+l` to accept the full suggestion, or `Ctrl+;` / `Ctrl+'` to accept partially. The same keys accept the **local** model's suggestions when that is on (below).
 
-| `Space tp` | Toggle between inline ghost-text and cmp menu mode |
-| `Space ta` | Completion engine: Copilot ⇄ the local model (one at a time) |
+| `Space ag` | Toggle between inline ghost-text and cmp menu mode |
+| `Space at` | Completion engine: Copilot ⇄ the local model (one at a time) |
 
-**Modes:** Copilot can run in two modes — **inline** (ghost-text ahead of cursor, accept with `Ctrl+l`) or **cmp menu** (suggestions appear in the autocomplete popup alongside LSP). Toggle with `Space tp`.
+**Modes:** Copilot can run in two modes — **inline** (ghost-text ahead of cursor, accept with `Ctrl+l`) or **cmp menu** (suggestions appear in the autocomplete popup alongside LSP). Toggle with `Space ag`.
 
 ### Local AI (llama.cpp — CodeCompanion · pi · local completion)
 Everything here runs on your machine through llama.cpp's router; nothing leaves it.
 
 | Key | Action |
 |-----|--------|
-| `Space cc` | AI actions menu (CodeCompanion) |
-| `Space cC` | Toggle the AI chat (the roles file's quick model — qwen3.5:4b) |
+| `Space aa` | AI actions menu (CodeCompanion) |
+| `Space ac` | Toggle the AI chat (the roles file's quick model — qwen3.5:4b) |
 | `ga` (visual) | Add the selection to the chat |
-| `Space ci` | Inline edit — ask for a change to the selection / at the cursor (the quick model); it comes back as a diff to accept |
-| `Space cp` | pi — the local coding agent, in a split (multi-file work; pi's own model, `~/.pi/agent/settings.json`) |
-| `Space ta` | Ghost-text completion: Copilot ⇄ local (qwen2.5-coder:1.5b) |
+| `Space ai` | Inline edit — ask for a change to the selection / at the cursor (the quick model); it comes back as a diff to accept |
+| `Space ap` | pi — the local coding agent, in a split (multi-file work; pi's own model, `~/.pi/agent/settings.json`) |
+| `Space at` | Ghost-text completion: Copilot ⇄ local (qwen2.5-coder:1.5b) |
 
 In the chat, `#{buffer}` shares the current file, `#{diagnostics}` its errors; `/file` adds another file.
 The GPU has 4 GB: a 3B model fits whole (fast), a 7B spills a little to the CPU; the 30B-A3B models (pi's) run
@@ -537,45 +548,53 @@ first change you make to it says which session to coordinate with. The statuslin
 
 | Key | Action |
 |-----|--------|
-| `Space Cw` | What changed: live sessions (uncommitted work) and the last 60 commits, `✿` Claude's (named by session) and `●` yours |
+| `Space Cw` | Changes tree: working changes (including unsaved drafts), live sessions and the most recent 80 commits |
 | `Space Cn` | Note to a Claude: the file, or the selection (visual), and a line of text; it arrives as an envelope and Claude reads it as your words |
 | `Space Cj` | Go to the pane of the Claude that edited this buffer |
-| `Space Cd` | The change under review, side by side, for this file |
+| `Space Cd` | Show this file in the current review panes |
 | `Space Cq` | Close all Claude review tabs and the file list; stop following |
 | `Space Cp` | The plan the sessions in this repo read last (`:Plan`) |
 
-In What changed: `Enter` reviews a change inline (gitsigns compares against just before it; the files go to the
-quickfix list), `]f` / `[f` move between its files, `d` in the quickfix list opens one side by side, and `Space Cq`
-(or `:ClaudeReviewClose` / `:ChangedDone`) closes the whole review. `q` or `Esc` in its file list or snapshot
-also closes the review. A dedicated viewer opened from the notebook or drawer exits in one action;
-`q` works from either side of those reviews. Unsaved file edits still get a save prompt. In an existing editor,
-review tabs close and your editing window stays open. `f` on a live session follows it: a tab of its own opens each file it edits at
-its newest change, without moving your cursor; `f` again (or `:ClaudeFollow`) stops. Blame names the session
-behind Claude's lines (`✿ <session> · 2h · <summary>`) and marks yours `● you`.
+In What changed, Enter opens a read-only review tab with a file sidebar and Before / After panes.
+Click a commit to expand it, click a file to compare it, or click its checkbox to mark it reviewed.
+**Check & next** walks unread files and becomes **Finish & next** when the commit is checked.
+Files expand into changed functions/types (or changed line ranges when a parser is unavailable).
+Select a child to jump straight to that change. A finished commit advances to the next unchecked commit.
+**Actions** in the sidebar title contains the other operations; the shortcuts below are optional.
+When symdeps is installed, Actions uses its menu style and navigation: `j/k` or arrows select, Enter / `l` runs,
+`/` filters, and `h`, `q` or Escape closes. Click a row to run it. Toggles show their state and keep the menu open;
+the description below the rows explains the selected action.
+Committed reviews compare the exact parent and selected commit; later working changes are excluded.
+Live reviews capture the current working copy (including unsaved buffers); `r` refreshes it.
+Checking a live file is invalidated when its contents change. Files with missing snapshots cannot be checked.
 
-### Avante (AI Chat Panel)
-| Key | Action |
-|-----|--------|
-| `Space aa` | Ask AI (normal or visual selection) |
-| `Space at` | Toggle AI sidebar |
-| `Space ac` | Open AI chat |
+| Key in the review | Action |
+|---|---|
+| `Enter` in the sidebar | Open the selected file in the same comparison panes |
+| `Enter` / `l` on a commit | Expand / collapse its changed files |
+| `h` | Collapse changed functions first, then the selected commit |
+| `]f` / `[f`, `Tab` / `Shift+Tab` | Next / previous file |
+| `]c` / `[c` | Next / previous changed block |
+| `m` | Check or uncheck the current file as reviewed |
+| `u` | Resume at the first unchecked file |
+| `R` | Finish after every file is checked and open the next unchecked commit; this clears the finished commit from pending reviews |
+| `Space rw` | Show / hide whitespace differences |
+| `Space rc` | Six context lines / full-file context |
+| `Space e` | Focus the review file list |
+| `Space Cn` (normal or visual) | Send a note with the real filename, selected side and both versions of the changed block |
+| `s` | Inspect the changed C/C++ file in symdeps (current working copy near the reviewed line) |
+| `gf` | Open the editable working file in a separate tab |
+| `S` | Compare the current struct's layout with the selected commit's parent |
+| `r` | Refresh the comparison |
+| `?` | Review help |
+| `q`, `:q`, `Esc`, `Space Cq` | Close the whole review and return to your editor |
 
-Inside Avante sidebar:
-| Key | Action |
-|-----|--------|
-| `Ctrl+s` | Submit prompt |
-| `q` | Close sidebar |
-| `Tab` | Cycle through code suggestions |
+Checkmarks are saved in Neovim's state directory under `foxml-reviews/`; reopening resumes at the first
+unchecked file. Opening a commit alone never marks it reviewed. Existing quickfix entries, ordinary
+editor keymaps and unsaved buffers are preserved. A viewer launched from the notebook or drawer exits
+in one action. `f` on a live session follows its edits in a separate tab; `:ClaudeFollow` stops following.
+Blame names the session behind Claude's lines (`✿ <session> · 2h · <summary>`) and marks yours `● you`.
 
-Commands:
-| Command | Action |
-|---------|--------|
-| `:AvanteAsk` | Ask a question |
-| `:AvanteChat` | Open chat |
-| `:AvanteToggle` | Toggle sidebar |
-| `:AvanteEdit` | Edit selected code with AI |
-
-Uses **Copilot provider** (routes through your GitHub Copilot subscription — no API keys needed). Default model: Claude Sonnet.
 
 ---
 
@@ -644,17 +663,20 @@ Quick reference of all `Space` binds:
 | `g d` | Git diff view |
 | `g h` | Git file history |
 | `g q` | Close diff view |
-| `t p` | Copilot toggle inline/cmp |
-| `t a` | Completion: Copilot ⇄ local model |
-| `c c` | AI actions (CodeCompanion, local) |
-| `c C` | AI chat (local) |
-| `c i` | AI inline edit (local) |
-| `c p` | pi agent (local) |
+| `g p` | Preview Git hunk |
+| `g s` | Stage Git hunk / selected lines |
+| `g u` | Undo staging Git hunk |
+| `t w` | Toggle line wrapping |
+| `t f` | Toggle format on save for this file |
+| `t i` | Toggle type / parameter hints |
+| `a g` | Copilot toggle inline/cmp |
+| `a t` | Completion: Copilot in public repos ⇄ local everywhere |
+| `a a` | AI actions (CodeCompanion, local) |
+| `a c` | AI chat (local) |
+| `a i` | AI inline edit (local) |
+| `a p` | pi agent (local) |
 | `C t` | Claude toggle terminal |
 | `C s` | Claude send selection |
-| `a a` | AI ask |
-| `a t` | AI toggle sidebar |
-| `a c` | AI chat |
 | `g g` | LazyGit |
 | `q s` | Restore session (cwd) |
 | `q l` | Restore last session |

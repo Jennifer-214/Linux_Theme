@@ -75,6 +75,8 @@ vim.opt.swapfile = false          -- no .swp clutter (git is the safety net)
 vim.opt.undofile = {{SHOW_WELCOME}}           -- persistent undo across sessions
 vim.opt.writebackup = false       -- avoid "file changed" prompts from backup writes
 vim.opt.autowriteall = {{SHOW_WELCOME}}       -- auto-save when switching buffers / leaving
+-- Word-sized highlights and line matching keep small edits legible in both review UIs.
+vim.opt.diffopt = { "internal", "filler", "closeoff", "indent-heuristic", "algorithm:histogram", "linematch:60", "inline:word" }
 
 -- Linux_Theme palette (single source of truth)
 local P = {
@@ -241,9 +243,10 @@ function Paper.completion_format(entry, item)
   return item
 end
 function Paper.merge_label(buf, win, context)
-  if not Paper.enabled or not vim.api.nvim_win_is_valid(win) or not context
-      or not (context.layout_name or ""):match("^diff[134]") then return end
-  local labels = { a = "current · ours", b = "result · working tree", c = "incoming · theirs", d = "base" }
+  if not Paper.enabled or not vim.api.nvim_win_is_valid(win) or not context then return end
+  local merge = (context.layout_name or ""):match("^diff[134]")
+  local labels = merge and { a = "current · ours", b = "result · working tree", c = "incoming · theirs", d = "base" }
+    or { a = "before · base revision", b = "after · selected revision / working copy" }
   local label = labels[context.symbol]
   if not label then return end
   local name = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(buf), ":t"):gsub("%%", "%%%%")
@@ -639,6 +642,49 @@ function Paper.setup_correction_input()
     local rename = type(opts.prompt) == "string" and opts.prompt:lower():match("^new name:%s*$")
     if rename and Paper.correction_slip(opts,on_confirm) then return end
     return previous(opts,on_confirm)
+  end
+end
+
+function Paper.setup_choices()
+  if not Paper.enabled then return end
+  local previous = vim.ui.select
+  vim.ui.select = function(items, opts, callback)
+    opts = opts or {}
+    local ok, Menu = pcall(require, "nui.menu")
+    if not ok or vim.o.columns < 42 then return previous(items, opts, callback) end
+    if #items == 0 then callback(nil, nil); return end
+    if Paper.active_choice then Paper.active_choice.finish(nil) end
+    local origin, finished, menu = vim.api.nvim_get_current_win(), false, nil
+    local function finish(item)
+      if finished then return end
+      finished = true
+      Paper.active_choice = nil
+      if menu then menu:unmount() end
+      if vim.api.nvim_win_is_valid(origin) then vim.api.nvim_set_current_win(origin) end
+      if item then callback(items[item.index], item.index) else callback(nil, nil) end
+    end
+    local rows = {}
+    for index, item in ipairs(items) do
+      rows[#rows + 1] = Menu.item("  " .. tostring(opts.format_item and opts.format_item(item) or item), { index = index })
+    end
+    menu = Menu({ relative = "editor", position = "50%", border = { style = "rounded", padding = { 0, 1 },
+      text = { top = " " .. (opts.prompt or "Choose an action"):gsub("%s+$", "") .. " ",
+        bottom = " click or Enter selects · Esc closes ", bottom_align = "center" } },
+      win_options = { winhighlight = "Normal:NormalFloat,FloatBorder:FloatBorder,CursorLine:Visual", winblend = 0 } },
+      { lines = rows, max_width = math.min(76, vim.o.columns - 12), max_height = math.min(14, vim.o.lines - 8),
+        keymap = { close = { "<Esc>", "q", "<C-c>" }, submit = { "<CR>", "l" } },
+        on_submit = finish, on_close = function() finish(nil) end })
+    Paper.active_choice = { menu = menu, finish = finish }
+    menu:mount()
+    vim.api.nvim_create_autocmd('WinClosed', { pattern = tostring(menu.winid), once = true,
+      callback = function() vim.schedule(function() finish(nil) end) end })
+    menu:map("n", "<LeftMouse>", function()
+      local mouse = vim.fn.getmousepos()
+      if mouse.winid == menu.winid and mouse.line >= 1 and mouse.line <= #items then
+        vim.api.nvim_win_set_cursor(menu.winid, { mouse.line, 0 })
+        menu.menu_props.on_submit()
+      end
+    end, { noremap = true, nowait = true })
   end
 end
 
@@ -1080,6 +1126,20 @@ local plugins = {
         if ok then return claude.blame_formatter(user, info) end
         return { { "  " .. (info.author or "") .. " · " .. (info.summary or ""), "GitSignsCurrentLineBlame" } }
       end,
+      on_attach = function(buf)
+        local gs = require("gitsigns")
+        local function key(mode, lhs, rhs, desc) vim.keymap.set(mode, lhs, rhs, { buffer = buf, desc = desc }) end
+        key("n", "]c", function()
+          if vim.wo.diff then vim.cmd("normal! ]c") else gs.nav_hunk("next") end
+        end, "Next Git change")
+        key("n", "[c", function()
+          if vim.wo.diff then vim.cmd("normal! [c") else gs.nav_hunk("prev") end
+        end, "Previous Git change")
+        key("n", "<leader>gp", gs.preview_hunk, "Preview Git change")
+        key("n", "<leader>gs", gs.stage_hunk, "Stage Git change")
+        key("x", "<leader>gs", function() gs.stage_hunk({ vim.fn.line("."), vim.fn.line("v") }) end, "Stage selected Git lines")
+        key("n", "<leader>gu", gs.undo_stage_hunk, "Undo staging Git change")
+      end,
     },
   },
 
@@ -1298,6 +1358,7 @@ local plugins = {
     "stevearc/conform.nvim",
     opts = {
       format_on_save = function(buf)
+        if vim.b[buf].foxml_format_on_save == false or vim.bo[buf].buftype ~= "" then return nil end
         local ft = vim.bo[buf].filetype
         if ft == "json" and not pcall(vim.json.decode, table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")) then return nil end
         return {lsp_format = "fallback", timeout_ms = (ft == "python" or ft == "json" or ft == "jsonc") and 1500 or 500}
@@ -1484,7 +1545,14 @@ local plugins = {
     "sindrets/diffview.nvim",
     cmd = { "DiffviewOpen", "DiffviewFileHistory", "DiffviewClose" },
     dependencies = { "nvim-lua/plenary.nvim" },
-    opts = { hooks = { diff_buf_win_enter = Paper.enabled and Paper.merge_label or nil } },
+    opts = {
+      hooks = { diff_buf_win_enter = Paper.enabled and Paper.merge_label or nil },
+      keymaps = {
+        view = { { "n", "q", "<cmd>DiffviewClose<cr>", { desc = "Close diff view" } } },
+        file_panel = { { "n", "q", "<cmd>DiffviewClose<cr>", { desc = "Close diff view" } } },
+        file_history_panel = { { "n", "q", "<cmd>DiffviewClose<cr>", { desc = "Close diff view" } } },
+      },
+    },
   },
 
   -- CodeCompanion — chat, inline edits and agents on the LOCAL models, through llama.cpp's router (127.0.0.1:8080,
@@ -2338,6 +2406,7 @@ local function apply_foxml_theme()
   hl("DiffDelete",   { bg = P.diff_del })
   hl("DiffText",     { bg = P.diff_txt })
   if Paper.enabled then hl("DiffText", { fg = P.fg, bg = P.sel, bold = true }) end
+  hl("DiffTextAdd", { fg = P.fg, bg = Paper.enabled and P.sel or P.diff_txt, bold = true })
   hl("SpellBad",     { undercurl = {{SHOW_WELCOME}}, sp = P.red })
   hl("SpellCap",     { undercurl = {{SHOW_WELCOME}}, sp = P.yellow })
   hl("SpellRare",    { undercurl = {{SHOW_WELCOME}}, sp = P.cyan })
@@ -2902,6 +2971,7 @@ vim.diagnostic.config({
 })
 
 Paper.setup_correction_input()
+Paper.setup_choices()
 
 -- Patch the common float helper used by LSP UIs (fallback when noice isn't active)
 do
@@ -2925,6 +2995,9 @@ local filename_component = { "filename", path = 1, shorting_target = Paper.enabl
   file_status = not Paper.enabled,
   fmt = Paper.enabled and function(filename)
     local buf = vim.api.nvim_get_current_buf()
+    local review = vim.b[buf].foxml_review
+    if review then return review.side .. " · " .. vim.fn.fnamemodify(review.file, ":~:.") end
+    if vim.b[buf].foxml_review_panel then return "review files" end
     if not Paper.file_buffer(buf) then return filename end
     local icon = (vim.bo[buf].readonly or not vim.bo[buf].modifiable) and "" or "✎"
     return icon .. "  " .. filename
@@ -2956,7 +3029,10 @@ require("lualine").setup({
   sections = {
     lualine_a = { "mode" },
     lualine_b = { "branch", "diff", "diagnostics" },
-    lualine_c = { filename_component, draft_component },
+    lualine_c = { filename_component, draft_component,
+      { function() local ok, sync = pcall(require, "foxml.sync"); return ok and sync.status() or "" end, color = { fg = P.pink },
+        on_click = function() local ok, sync = pcall(require, "foxml.sync"); if ok then sync.menu() end end },
+    },
     lualine_x = {
       -- the other Claudes (foxml.claude): reviewing/following, who needs you, the plan gate, who edited this buffer
       { function() local ok, c = pcall(require, "foxml.claude"); return ok and c.status_mode() or "" end, color = { fg = P.peach } },
@@ -3152,13 +3228,14 @@ require("mason-lspconfig").setup({
 local cmp = require("cmp")
 local luasnip = require("luasnip")
 cmp.setup({
+  preselect = cmp.PreselectMode.None,
   snippet = { expand = function(args) luasnip.lsp_expand(args.body) end },
   formatting = Paper.enabled and { format = Paper.completion_format } or nil,
   mapping = cmp.mapping.preset.insert({
     ["<C-b>"] = cmp.mapping.scroll_docs(-4),
     ["<C-f>"] = cmp.mapping.scroll_docs(4),
     ["<C-Space>"] = cmp.mapping.complete(),
-    ["<CR>"] = cmp.mapping.confirm({ select = {{SHOW_WELCOME}} }),
+    ["<CR>"] = cmp.mapping.confirm({ select = false }),
     ["<Tab>"] = cmp.mapping(function(fallback)
       if cmp.visible() then
         cmp.select_next_item()
@@ -3442,6 +3519,19 @@ map("n", "<leader>qd", function() require("persistence").stop() end, { desc = "S
 map("n", "<leader>z", "<cmd>ZenMode<cr>", { desc = "Zen Mode" })
 
 -- === QoL ===
+map("n", "<leader>tw", function()
+  vim.wo.wrap = not vim.wo.wrap
+  vim.notify("Line wrapping: " .. (vim.wo.wrap and "ON" or "OFF"))
+end, { desc = "Toggle line wrapping" })
+map("n", "<leader>tf", function()
+  vim.b.foxml_format_on_save = vim.b.foxml_format_on_save == false
+  vim.notify("Format on save (this file): " .. (vim.b.foxml_format_on_save and "ON" or "OFF"))
+end, { desc = "Toggle format on save for this file" })
+map("n", "<leader>ti", function()
+  local on = not vim.lsp.inlay_hint.is_enabled({ bufnr = 0 })
+  vim.lsp.inlay_hint.enable(on, { bufnr = 0 })
+  vim.notify("Type/parameter hints (this file): " .. (on and "ON" or "OFF"))
+end, { desc = "Toggle type/parameter hints" })
 
 -- Navigate splits with Ctrl+hjkl (no Ctrl+w prefix needed)
 map("n", "<C-h>", "<C-w>h", { desc = "Focus left split" })
@@ -3590,21 +3680,25 @@ vim.api.nvim_create_autocmd("BufWinEnter", {
   group = vim.api.nvim_create_augroup("foxml_comment_prefold", { clear = true }),
   callback = function(args)
     local buf = args.buf
+    local win = vim.api.nvim_get_current_win()
     vim.schedule(function()
-      local win = vim.api.nvim_get_current_win()
-      if vim.api.nvim_win_get_buf(win) ~= buf or not vim.api.nvim_buf_is_valid(buf) then return end
-      if vim.bo[buf].buftype ~= "" or not vim.bo[buf].buflisted or vim.bo[buf].filetype:match("^fox%-symdeps") then return end
-      local seen = vim.w[win].fox_comment_fold_seen or {}
-      if seen[tostring(buf)] then return end
-      seen[tostring(buf)] = true
-      vim.w[win].fox_comment_fold_seen = seen
-      if not comment_fold_auto then
-        if vim.w[win].fox_comment_fold then unfold_comments() end
-        return
-      end
-      if vim.api.nvim_buf_line_count(buf) > 20000 then return end
-      local ok, parser = pcall(vim.treesitter.get_parser, buf, nil, { error = false })
-      if ok and parser then refold_comments(true) end
+      if not vim.api.nvim_win_is_valid(win) or not vim.api.nvim_buf_is_valid(buf)
+          or vim.api.nvim_win_get_buf(win) ~= buf or vim.wo[win].diff then return end
+      -- A delayed file event must not fold whichever split the user moved into.
+      vim.api.nvim_win_call(win, function()
+        if vim.bo[buf].buftype ~= "" or not vim.bo[buf].buflisted or vim.bo[buf].filetype:match("^fox%-symdeps") then return end
+        local seen = vim.w[win].fox_comment_fold_seen or {}
+        if seen[tostring(buf)] then return end
+        seen[tostring(buf)] = true
+        vim.w[win].fox_comment_fold_seen = seen
+        if not comment_fold_auto then
+          if vim.w[win].fox_comment_fold then unfold_comments() end
+          return
+        end
+        if vim.api.nvim_buf_line_count(buf) > 20000 then return end
+        local ok, parser = pcall(vim.treesitter.get_parser, buf, nil, { error = false })
+        if ok and parser then refold_comments(true) end
+      end)
     end)
   end,
 })
@@ -3790,14 +3884,17 @@ end, {desc = "Format"})
 -- `nvim <file>` launched from ~/code searched all of ~/code (9k files incl. old copies), because
 -- project.nvim loads after the first buffer. A file in a project's shortcut folder counts as that project.
 local function file_project()
+  if vim.b.foxml_review_root then return vim.b.foxml_review_root end
   local name = vim.api.nvim_buf_get_name(0)
   if name == "" or vim.bo.buftype ~= "" then return vim.uv.cwd() end
   return vim.fs.root(project_path(name) or name, { ".git", "compile_commands.json", "CMakeLists.txt", "Makefile" })
     or vim.uv.cwd()
 end
-map("n", "<leader>ff", function() require("telescope.builtin").find_files({ cwd = file_project() }) end,
+map("n", "<leader>ff", function() require("telescope.builtin").find_files({
+  cwd = file_project(), hidden = true, find_command = { "rg", "--files", "--hidden", "--glob", "!.git" },
+}) end,
   { desc = "Find files (this project)" })
-map("n", "<leader>fg", function() require("telescope.builtin").live_grep({ cwd = file_project() }) end,
+map("n", "<leader>fg", function() require("telescope.builtin").live_grep({ cwd = file_project(), additional_args = { "--hidden", "--glob", "!.git" } }) end,
   { desc = "Grep (this project)" })
 
 -- Highlight on yank (brief flash)
@@ -3818,20 +3915,19 @@ vim.api.nvim_create_autocmd("BufReadPost", {
   end,
 })
 
--- Strip trailing whitespace on save
+-- Markdown's trailing double space is a hard line break; preserve authored prose.
 vim.api.nvim_create_autocmd("BufWritePre", {
   pattern = "*",
-  callback = function()
-    local pos = vim.api.nvim_win_get_cursor(0)
-    vim.cmd([[%s/\s\+$//e]])
-    pcall(vim.api.nvim_win_set_cursor, 0, pos)
+  callback = function(args)
+    if vim.bo[args.buf].buftype ~= "" or not vim.bo[args.buf].modifiable or vim.bo[args.buf].filetype == "markdown" then return end
+    local view = vim.fn.winsaveview()
+    vim.cmd([[keepjumps keeppatterns silent! %s/\s\+$//e]])
+    vim.fn.winrestview(view)
   end,
 })
 
--- Auto-reload buffers changed on disk (Claude Code, git checkout, etc.)
-vim.api.nvim_create_autocmd({ "FocusGained", "BufEnter", "CursorHold", "CursorHoldI" }, {
-  command = "if mode() != 'c' | checktime | endif",
-})
+-- Directory events catch atomic saves while you type; modified buffers keep both copies.
+pcall(function() require("foxml.sync").setup() end)
 -- The other Claudes on this machine: footprints, notes, what changed, follow (shared/nvim_lua/foxml/claude.lua)
 pcall(function() require("foxml.claude").setup() end)
 -- The plan's references, marked where they are: ✎ + "step 3", ]n / [n, Space Cm (shared/nvim_lua/foxml/planmarks.lua)
@@ -3840,8 +3936,3 @@ vim.api.nvim_set_hl(0, "FoxPlanNote", { fg = P.comment, italic = Paper.enabled }
 vim.api.nvim_set_hl(0, "FoxTreeClaude", { fg = P.bookmark })
 vim.api.nvim_set_hl(0, "FoxTreeClaudeShared", { link = "DiagnosticWarn" })
 pcall(function() require("foxml.planmarks").setup() end)
-
--- Notify when a file reloads so it's not silent/confusing
-vim.api.nvim_create_autocmd("FileChangedShellPost", {
-  callback = function() vim.notify("File reloaded (changed on disk)", vim.log.levels.INFO) end,
-})

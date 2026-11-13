@@ -204,8 +204,9 @@ native inputs. Outside a field, **j / k** select rows, **l** opens the selected
 item, **h** returns to the overview or closes the active field, and **e** edits
 the selected file. The shortcut row shows those keys while the notebook has focus.
 
-Opening a commit through **Space Cw** or the review tray records it as inspected
-and removes it from Today's pending count. The tray considers the most recent
+Opening a commit through **Space Cw** or the review tray opens an exact Before / After comparison.
+Check each file with **m**, then press **R** to record the review and remove it from Today's pending count.
+Opening it alone leaves it pending; file checkmarks survive closing and reopening the review. The tray considers the most recent
 80 commits and recognizes `Claude-Session` or Claude coauthor trailers; it does
 not infer authorship from message wording. Inspection does not stage or commit.
 
