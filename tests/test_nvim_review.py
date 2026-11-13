@@ -72,7 +72,7 @@ end
 ''' + code)
         before = {p.name: p.read_bytes() for p in self.repo.iterdir() if p.is_file()}
         index = (self.repo / '.git/index').read_bytes()
-        checked = subprocess.run(['nvim', '--headless', '-u', 'NONE', '-l', str(script)],
+        checked = subprocess.run(['nvim', '--headless', '--clean', '-l', str(script)],
                                  cwd=self.repo, env=self.env, capture_output=True, text=True, timeout=30)
         self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
         if index_unchanged:

@@ -37,7 +37,7 @@ vim.cmd('quit')
 vim.wait(500)
 error('one :q did not exit the dedicated review')
 ''')
-            checked=subprocess.run(['nvim','--headless','-u','NONE','-l',str(script)],cwd=folder,env=env,
+            checked=subprocess.run(['nvim','--headless','--clean','-l',str(script)],cwd=folder,env=env,
                                    capture_output=True,text=True,timeout=15)
             self.assertEqual(checked.returncode,0,checked.stdout+checked.stderr)
             self.assertTrue(json.loads(result.read_text())['closed'])
@@ -91,7 +91,7 @@ assert(C.following == nil and #vim.api.nvim_list_tabpages() == 2, 'follow view r
 C.close()
 assert(#vim.api.nvim_list_tabpages() == 2, 'repeated exit closed ordinary tabs')
 ''')
-            checked = subprocess.run(['nvim','--headless','-u','NONE','-l',str(script)],
+            checked = subprocess.run(['nvim','--headless','--clean','-l',str(script)],
                                      cwd=folder, env=env, capture_output=True, text=True, timeout=30)
             self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
 
@@ -123,7 +123,7 @@ assert(type(close.callback) == 'function', 'one-key exit missing')
 close.callback()
 error('review exit did not quit the dedicated viewer')
 ''')
-            checked = subprocess.run(['nvim','--headless','-u','NONE','-l',str(script)],
+            checked = subprocess.run(['nvim','--headless','--clean','-l',str(script)],
                                      cwd=folder, env=env, capture_output=True, text=True, timeout=30)
             self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
             self.assertTrue(json.loads(result.read_text())['closed'])
@@ -165,7 +165,7 @@ W.open_args()
 assert(vim.api.nvim_buf_get_name(0) == path, 'editor changed the literal filename')
 vim.fn.argv = original
 ''')
-            checked = subprocess.run(['nvim', '--headless', '-u', 'NONE', '-l', str(script)],
+            checked = subprocess.run(['nvim', '--headless', '--clean', '-l', str(script)],
                                      cwd=repo, env=env, capture_output=True, text=True, timeout=30)
             self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
 
@@ -217,7 +217,7 @@ local note = vim.json.decode(C.read(box .. '/' .. entries[1]))
 assert(#note.text <= 2000 and note.text .. note.code == draft:gsub('\n$', ''), 'draft was truncated')
 print('work nvim: quickfix and explicit draft delivery passed')
 ''')
-            checked = subprocess.run(["nvim", "--headless", "-u", "NONE", "-l", str(script)],
+            checked = subprocess.run(["nvim", "--headless", "--clean", "-l", str(script)],
                                      cwd=repo, env=env, capture_output=True, text=True, timeout=30)
             self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
 

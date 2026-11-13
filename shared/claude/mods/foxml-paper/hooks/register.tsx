@@ -644,7 +644,7 @@ export const register: Register = on => {
 
   on('command.run', { command: 'notebook' }, async ($, e) => {
     const page = e.args.trim()
-    await update($, notebookView, view => ({ ...view, form: 'none',
+    await update($, notebookView, view => ({ ...view, form: 'none' as const,
       ...(view.form !== 'none' ? { selected: '', focused: '' } : {}) }))
     await update($, writingTo, () => null)
     if (['files', 'project', 'sessions', 'overview', 'all'].includes(page))
@@ -667,7 +667,7 @@ export const register: Register = on => {
   // Escape closes an active editor. Reopening the notebook must never restore
   // an abandoned form or put the keyboard straight back into its input.
   on('ui.close', { id: PANE }, async ($, e, next) => {
-    await update($, notebookView, view => ({ ...view, form: 'none', selected: '', focused: '' }))
+    await update($, notebookView, view => ({ ...view, form: 'none' as const, selected: '', focused: '' }))
     await update($, writingTo, () => null)
     return next(e)
   })

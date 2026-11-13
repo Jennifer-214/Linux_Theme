@@ -1,4 +1,4 @@
--- nvim --headless -u NONE -l shared/nvim_lua/tests/test_claude.lua : foxml.claude's pure parts.
+-- nvim --headless --clean -l shared/nvim_lua/tests/test_claude.lua : foxml.claude's pure parts.
 local here = debug.getinfo(1, "S").source:sub(2):match("(.*/)")
 package.path = here .. "../?.lua;" .. package.path
 -- Neovim looks in the runtime path (the installed copy under ~/.config/nvim) before package.path: load the repo's.

@@ -14,7 +14,7 @@ const BAND = {
   plugin: 'foxml-paper',
   component: 'AbovePrompt',
   requestId: 'above-prompt',
-  props: { hasSurvey: false, isWorking: true, maxRows: 4, bodyColumns: 80, scroll: { offset: 0, bodyRows: 4 }, view: {} },
+  props: { hasSurvey: false, isCollapsed: false, isWorking: true, maxRows: 4, bodyColumns: 80, scroll: { offset: 0, bodyRows: 4 }, view: {} },
 } as const
 
 const done = (stdout: string) => ({ exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false })
@@ -110,8 +110,9 @@ function engine(on: On, options: { pane?: string; pushCheck?: unknown; ci?: unkn
     return { value: { ...done(''), exitCode: 1 } }
   })
   on('tool.call', (_, e) => {
-    if (e.tool === 'Bash' && typeof e.command === 'string') seen.bash.push(e.command)
-    return options.bash && typeof e.command === 'string' ? options.bash(e.command) as { result: unknown } : ({ result: {} })
+    const command = e.tool === 'Bash' && 'command' in e && typeof e.command === 'string' ? e.command : null
+    if (command !== null) seen.bash.push(command)
+    return options.bash && command !== null ? options.bash(command) as { result: unknown } : ({ result: {} })
   })
   on('prompt.submit', (_, e) => {
     if (e.origin.kind === 'plugin') seen.submitted.push(e.text)
