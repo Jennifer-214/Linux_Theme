@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, pendingLine, planProgress, reviewStates, reviewSummary, ruler, shellQuote, stepLabel, testLabel, turnLabel, unreviewed, withoutHeredocs } from '../hooks/work'
+import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, pendingLine, planProgress, reviewStates, reviewSummary, ruler, shellQuote, stepLabel, testLabel, turnLabel, unreviewed, withoutHeredocs, workName } from '../hooks/work'
 
 test('tracking records a command as written, keeps secrets out, and reads how the call ended', () => {
   const command = "make test && printf '%s' \"$HOME\""
@@ -140,4 +140,12 @@ test('the one review line counts what waits, and says nothing when nothing does'
   expect(pendingLine(0, ['a.ts'], states)).toBe('')
   expect(unreviewed(['a.ts', 'b.ts', 'c.ts'], states)).toBe(2)
   expect(unreviewed(['a.ts'], states)).toBe(0)
+})
+
+test('one name for a piece of work: the plan, else the session title, else the project', () => {
+  expect(workName('Plan: Queue refactor (2026-11-12) — notes', 'tidy things', 'Linux_Theme')).toBe('Queue refactor')
+  expect(workName('2026-11-10: Drop fox', null, 'Linux_Theme')).toBe('Drop fox')
+  expect(workName(null, 'Tidy the drawer', 'Linux_Theme')).toBe('Tidy the drawer')
+  expect(workName('', '  ', 'Linux_Theme')).toBe('Linux_Theme')
+  expect(workName('x'.repeat(80), null, 'p').length).toBe(60)
 })

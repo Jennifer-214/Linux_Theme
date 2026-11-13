@@ -3700,7 +3700,8 @@ Json program_quit(const std::string& key, bool confirmed, bool force) {
 }
 // ── Terminals: tmux sessions by name, where each is shown, and moving them about. Every tmux call names its target
 // exactly (=name, %pane); nothing here ever stops the server itself.
-struct TmuxPane { std::string id, session, window, cmd, path; bool active = false; };
+// work: what the Claude in that pane is working on (the pane's @work label, set by the notebook), or "".
+struct TmuxPane { std::string id, session, window, cmd, path; bool active = false; std::string work; };
 struct TmuxSession { std::string name; int windows = 0; long long activity = 0; std::vector<TmuxPane> panes; std::vector<int> clients; };
 std::vector<std::string> tabs(const std::string& line) {
     std::vector<std::string> out;
@@ -3718,11 +3719,11 @@ std::vector<TmuxSession> tmux_sessions() {
         TmuxSession s; s.name = f[0]; s.windows = std::atoi(f[1].c_str()); s.activity = std::atoll(f[2].c_str());
         at[s.name] = out.size(); out.push_back(s);
     }
-    if (capture({"tmux", "list-panes", "-a", "-F", "#{session_name}\t#{window_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_active}\t#{window_active}"}, text))
+    if (capture({"tmux", "list-panes", "-a", "-F", "#{session_name}\t#{window_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_active}\t#{window_active}\t#{@work}"}, text))
         for (const auto& line : lines(text)) {
             const auto f = tabs(line);
             if (f.size() < 7 || !at.count(f[0])) continue;
-            out[at[f[0]]].panes.push_back({f[2], f[0], f[1], f[3], f[4], f[5] == "1" && f[6] == "1"});
+            out[at[f[0]]].panes.push_back({f[2], f[0], f[1], f[3], f[4], f[5] == "1" && f[6] == "1", f.size() > 7 ? f[7] : std::string()});
         }
     if (capture({"tmux", "list-clients", "-F", "#{client_session}\t#{client_pid}"}, text))
         for (const auto& line : lines(text)) {
@@ -3740,6 +3741,10 @@ std::string tmux_session_detail(const TmuxSession& s) {
     std::string out;
     for (const auto& a : apps) out += (out.empty() ? "" : ", ") + a;
     if (out.empty()) out = "a shell";
+    // The work in hand there, by the same name the notebook, the window title and line blame use.
+    std::vector<std::string> works;
+    for (const auto& p : s.panes) if (!p.work.empty() && std::find(works.begin(), works.end(), p.work) == works.end()) works.push_back(p.work);
+    if (!works.empty()) out += " · " + works[0] + (works.size() > 1 ? " +" + std::to_string(works.size() - 1) : "");
     if (s.windows > 1) out += " · " + std::to_string(s.windows) + " windows";
     return out;
 }
@@ -3805,7 +3810,7 @@ bool terminal_rows(const std::string& name, Json& rows, Json& out) {
     if (s->panes.size() > 1 || sessions.size() > 1) {
         rows.push_back(heading("its panes"));
         for (const auto& p : s->panes) {
-            auto row = item("terminal-pane", p.cmd + " · window " + p.window, "page", fs::path(p.path).filename().string() + (p.active ? " · the one in front" : ""), "terminal");
+            auto row = item("terminal-pane", p.cmd + " · window " + p.window, "page", fs::path(p.path).filename().string() + (p.work.empty() ? "" : " · " + p.work) + (p.active ? " · the one in front" : ""), "terminal");
             row["page"] = "terminal-pane"; row["scope"] = p.id; row["argument"] = p.id; rows.push_back(row);
         }
     }

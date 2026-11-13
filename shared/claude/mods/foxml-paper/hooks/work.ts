@@ -130,6 +130,15 @@ export function pendingLine(pending: number, own: string[], states: Map<string, 
 export function unreviewed(own: string[], states: Map<string, 'checked' | 'changed'>): number {
   return own.filter(p => states.get(p) !== 'checked').length
 }
+// The one name for a piece of work, used by the notebook's header, the window title, the Terminals page and line
+// blame: the plan's title when there is a plan (without "Plan:" or a leading date), else Claude's own session title,
+// else the project.
+export function workName(plan: string | null | undefined, session: string | null | undefined, project: string): string {
+  const tidy = (s: string) => s.replace(/[\x00-\x1f\x7f]/g, ' ').replace(/\s+/g, ' ').trim()
+  const planned = tidy(plan ?? '').replace(/^plan\s*[:—-]\s*/i, '').replace(/^\d{4}-\d{2}-\d{2}\s*[:—·-]?\s*/, '').replace(/\s*\(\d{4}-\d{2}-\d{2}\).*$/, '')
+  const name = planned || tidy(session ?? '') || tidy(project) || 'Claude'
+  return name.length > 60 ? name.slice(0, 59) + '…' : name
+}
 // One line for a finished turn: "3 files · tests passed · 1 commit · ⚠ /etc/pam.d". Empty when it left nothing.
 export function receiptLine(receipt: TurnReceipt | null | undefined): string {
   if (!receipt) return ''

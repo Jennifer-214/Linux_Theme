@@ -5,7 +5,7 @@ import type { ApiCredits, CiLook, GitLook, NotebookView, PaperAction, PaperCard,
 import { addBefore, addEdit, addName, neighbours, namesText, noteText, overlapFor, parseLedger, parseNames, parseNote, trailerUrl, withPlan } from './ledger'
 import type { Other } from './ledger'
 import { paper } from './theme'
-import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, pendingLine, planProgress, receiptLine, reviewStates, reviewSummary, ruleLine, ruler, spread, stepLabel, testLabel, turnLabel, unreviewed, work, workLook } from './work'
+import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, pendingLine, planProgress, receiptLine, reviewStates, reviewSummary, ruleLine, ruler, spread, workName, stepLabel, testLabel, turnLabel, unreviewed, work, workLook } from './work'
 import { attributeFiles, fileColumns, fileCounts, gitFiles, drawerPage, mailId, shortPath } from './notebook'
 
 // Linux_Theme paper: a notebook pane beside the chat (hearts, the session's name, its plan, the gate, pages
@@ -114,6 +114,9 @@ const memory = {
   lastGate: null as PaperLook['gate'] | null,
   runtime: undefined as string | null | undefined,
   pane: undefined as string | null | undefined,
+  // The one name for this session's work (workName), and the one last written to the pane's @work label.
+  work: null as string | null,
+  workLabel: null as string | null,
   // file → when Claude was last told about it, so each overlap is said once.
   noted: new Map<string, number>(),
   state: undefined as string | null | undefined,
@@ -189,6 +192,8 @@ async function sessionsDir($: EngineInterface): Promise<string | null> {
   return memory.runtime
 }
 
+// The session's one name: the work in hand once a refresh has seen the plan, else Claude's own title.
+async function nameNow($: EngineInterface): Promise<string | null> { return memory.work ?? await read($, title) }
 // The tmux pane this session runs in, as Claude Code's peer list shows it (%N); null outside tmux.
 async function ownPane($: EngineInterface): Promise<string | null> {
   if (memory.pane !== undefined) return memory.pane
@@ -336,7 +341,7 @@ async function nameCommit($: EngineInterface, command: string) {
   const url = trailerUrl(body ?? '')
   const state = await stateDir($)
   if (url === null || state === null) return
-  const name = (await read($, title)) ?? (await repoRoot($)).split('/').filter(Boolean).pop() ?? 'Claude'
+  const name = (await nameNow($)) ?? (await repoRoot($)).split('/').filter(Boolean).pop() ?? 'Claude'
   const file = `${state}/claude-sessions.jsonl`
   let names = parseNames('')
   try { names = parseNames(await $.fs.read(file)) } catch { names = [] }
@@ -384,7 +389,7 @@ async function recordEdit($: EngineInterface, file: string) {
   const own = `${dir}/edits/${sid}.json`
   let ledger = null
   try { ledger = parseLedger(await $.fs.read(own)) } catch { ledger = null }
-  const next = addEdit(ledger, await realPath($, file), await $.clock.now(), await read($, title), await repoRoot($),
+  const next = addEdit(ledger, await realPath($, file), await $.clock.now(), await nameNow($), await repoRoot($),
                        (await ownPane($)) ?? undefined)
   await $.fs.write(own, JSON.stringify(next) + '\n')
 }
@@ -440,7 +445,7 @@ async function sendNote($: EngineInterface, peer: PaperPeer, text: string) {
   const note = text.trim()
   await update($, writingTo, () => null)
   if (note === '') return
-  const me = (await read($, title)) ?? 'another session'
+  const me = (await nameNow($)) ?? 'another session'
   try {
     const sent = await $.session.send({ to: { sessionId: peer.id }, text: `✉ from ${me}: ${note}` })
     $.ui.toast(sent.isDelivered ? `note left for ${peer.name}` : `not sent: ${sent.reason}`)
@@ -542,6 +547,17 @@ async function refreshNow($: EngineInterface) {
       }
     }
 
+    // One name everywhere: the pane carries it as its @work label, which the window title and the drawer's
+    // Terminals page read. The tmux session keeps the project's name: going to a project finds it by that.
+    // With neither a plan nor a title there is no name yet: each place keeps its own fallback.
+    const titled = await read($, title)
+    memory.work = plan?.title || titled ? workName(plan?.title, titled, root.split('/').filter(Boolean).pop() ?? '') : null
+    const label = (memory.work ?? '').replace(/[^\p{L}\p{N} _.,+()&·…-]/gu, ' ').replace(/\s+/g, ' ').trim()
+    const inPane = await ownPane($)
+    if (inPane !== null && label !== memory.workLabel) {
+      memory.workLabel = label
+      await run($, ['tmux', 'set-option', '-p', '-t', inPane, '@work', label])
+    }
     const context = (await $.session.usage()).context.percent ?? null
     const near = neighbours(root, await $.clock.now(), session, otherLedgers)
     const card = await readCard($, dir)
@@ -847,7 +863,7 @@ export const register: Register = on => {
     const warning = await read($, overlap)
     const writingId = await read($, writingTo)
     const writing = others.find(p => p.id === writingId) ?? null
-    const name = await read($, title)
+    const name = await nameNow($)
     const underway = await read($, turn)
     const clock = await $.clock.now()
     const width = Math.max(12, e.props.bodyColumns)
@@ -1193,7 +1209,7 @@ export const register: Register = on => {
         {now?.context != null && <Text color={paper.note}>{'▱'.repeat(5 - filled)}</Text>}
         <Text color={paper.dim}>{now?.context == null ? 'context not measured yet' : ` ${now.context}%`}</Text>
         {mail.length > 0 && <Text color={paper.ribbon}>{` · ✉ ${mail.length}`}</Text>}
-        <Text color={paper.ink}>{name ? ' · ' + shortPath(name, Math.max(4, width - 14)) : ''}</Text>
+        <Text color={paper.ink}>{name ? ' · ' + fit(name, Math.max(4, width - 14)) : ''}</Text>
       </Text>
       {/* The keys only matter while the notebook holds the keyboard; at rest the row is noise. */}
       {(e.props.isFocused || view.page !== 'overview') && <Box>

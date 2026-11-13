@@ -52,7 +52,7 @@ function fakeFs(on: On, files: Record<string, string>, mtimes: Record<string, nu
 }
 
 // Nothing sits beneath the plugin in a test: these stand for the engine and the machine.
-function engine(on: On, options: { pushCheck?: unknown; ci?: unknown[]; bash?: (command: string) => unknown; runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; finished?: () => unknown; credits?: unknown; trees?: unknown; readIds?: { id: string; at: number }[] } = {}) {
+function engine(on: On, options: { pane?: string; pushCheck?: unknown; ci?: unknown[]; bash?: (command: string) => unknown; runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; finished?: () => unknown; credits?: unknown; trees?: unknown; readIds?: { id: string; at: number }[] } = {}) {
   let pinned: { file: string; step: string } | null = null
   seen.argv = []; seen.stdin = []; seen.bash = []; seen.sent = []; seen.toasts = []; seen.submitted = []; seen.opened = []
   mock.store(on, { 'notebook-read-mail:abc': options.readIds ?? [] })
@@ -75,6 +75,7 @@ function engine(on: On, options: { pushCheck?: unknown; ci?: unknown[]; bash?: (
     const argv = e.argv.join(' ')
     seen.argv.push(argv)
     if (e.init?.stdin !== undefined) seen.stdin.push(e.init.stdin)
+    if (options.pane && argv === 'sh -c printf %s "$TMUX_PANE"') return { value: done(options.pane) }
     if (argv.startsWith('desk-work begin ')) return { value: done('f'.repeat(32) + '\n') }
     if (argv.startsWith('desk-work push-check ') && options.pushCheck) return { value: done(JSON.stringify(options.pushCheck)) }
     if (argv.startsWith('desk-work finish ') && options.finished) return { value: done(JSON.stringify(options.finished())) }
@@ -627,4 +628,17 @@ test('before a push the notebook says what goes out unreviewed, and never stops 
   await $.tool.call({ tool: 'Bash', command: 'git push --dry-run', description: 'Try' })
   await $.tool.call({ tool: 'Bash', command: 'git status', description: 'Look' })
   expect(seen.toasts.filter(t => t.startsWith('pushing'))).toEqual([])
+})
+
+test('the work takes one name: the plan in the header, and on the pane as a label free of shell characters', async ($, on) => {
+  const files = fakeFs(on, { '/code/paper/plans/one.md': "# Plan: Queue's `refactor` $(x); now\n- [ ] a\n" })
+  engine(on, { runtime: '/run/t', files, pane: '%7' })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'plan-pin' })
+  await ui.input({ key: 'plan-file', text: 'plans/one.md', kind: 'submit' })
+  const set = seen.argv.filter(c => c.startsWith('tmux set-option -p -t %7 @work '))
+  expect(set.at(-1)).toBe('tmux set-option -p -t %7 @work Queue s refactor (x) now')
+  expect((await ui.find({ type: 'Text', text: /^ · Queue/ }))?.text).toMatch(/^ · Queue's `refactor`/)   // the header: the plan, not "Plan: …"
+  await ui.unmount()
 })

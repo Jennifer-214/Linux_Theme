@@ -2,9 +2,11 @@
 # tmux-title — the terminal's window title: "Linux_Theme · polish/drawer · claude".
 # The project is the repo the pane sits in (else its folder), then the branch, then what runs there unless it is
 # just the shell. tmux's set-titles-string runs it, so the bar and the drawer's Open windows say where each
-# terminal is. Usage: tmux-title <pane path> <pane command>
+# terminal is. With a work name (the pane's @work label, set by the Claude notebook) that takes the branch's place:
+# "Linux_Theme · Queue refactor · claude". Usage: tmux-title <pane path> <pane command> [work name]
 path="${1:-$PWD}"
 cmd="${2:-}"
+work="${3:-}"
 top=$(git -C "$path" rev-parse --show-toplevel 2>/dev/null)
 if [[ -n "$top" ]]; then
     project=$(basename "$top")
@@ -15,6 +17,8 @@ else
     branch=""
 fi
 title="$project"
-[[ -n "$branch" ]] && title+=" · $branch"
+(( ${#work} > 40 )) && work="${work:0:39}…"
+if [[ -n "$work" ]]; then title+=" · $work"
+elif [[ -n "$branch" ]]; then title+=" · $branch"; fi
 case "$cmd" in zsh|bash|fish|sh|dash|nu|tmux|"") ;; *) title+=" · $cmd" ;; esac
 printf '%s' "$title"

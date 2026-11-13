@@ -1444,8 +1444,8 @@ class BackendTests(unittest.TestCase):
         self.state["exact"] = {
             j("tmux","list-sessions","-F","#{session_name}\t#{session_windows}\t#{session_activity}"):
                 {"stdout": "Linux_Theme\t1\t300\nFoxML_Trader_v2\t2\t200\nnotes\t1\t100\n"},
-            j("tmux","list-panes","-a","-F","#{session_name}\t#{window_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_active}\t#{window_active}"):
-                {"stdout": "Linux_Theme\t1\t%1\tclaude\t/code/Linux_Theme\t1\t1\nFoxML_Trader_v2\t1\t%2\tnvim\t/code/FoxML_Trader_v2\t1\t1\n"
+            j("tmux","list-panes","-a","-F","#{session_name}\t#{window_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_current_path}\t#{pane_active}\t#{window_active}\t#{@work}"):
+                {"stdout": "Linux_Theme\t1\t%1\tclaude\t/code/Linux_Theme\t1\t1\tQueue refactor\nFoxML_Trader_v2\t1\t%2\tnvim\t/code/FoxML_Trader_v2\t1\t1\n"
                            "FoxML_Trader_v2\t2\t%3\tzsh\t/code/FoxML_Trader_v2/src\t1\t0\nnotes\t1\t%4\tzsh\t/home/x/notes\t1\t1\n"},
             j("tmux","list-clients","-F","#{client_session}\t#{client_pid}"): {"stdout": f"Linux_Theme\t{me}\nFoxML_Trader_v2\t999999\n"},
             j("tmux","list-clients","-F","#{client_tty}\t#{client_pid}"): {"stdout": f"/dev/pts/7\t{me}\n/dev/pts/8\t999999\n"},
@@ -1459,6 +1459,7 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(sections[:5], [("heading","in a window"),("action","Linux_Theme"),("action","FoxML_Trader_v2"),
                                         ("heading","not in a window"),("action","notes")], "newest first, shown before not shown")
         self.assertEqual(next(r for r in page if r["label"] == "FoxML_Trader_v2")["detail"], "nvim · 2 windows", "what runs there, not the shells")
+        self.assertEqual(next(r for r in page if r["label"] == "Linux_Theme")["detail"], "claude · Queue refactor", "the work in hand, by its one name")
         self.assertIn("opens in a new window", next(r for r in page if r["label"] == "notes")["detail"])
         self.assertEqual([r["label"] for r in page if r["id"] == "terminal-new"], ["Paper"], "an open project and a scratch folder are not offered")
 
