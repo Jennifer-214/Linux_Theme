@@ -266,8 +266,9 @@ api.nvim_win_set_cursor(r.panel_win,{line,0}); R.enter()
 assert(r.row==row and content(r.right_buf):find('value = 2',1,true))
 assert(r.marks['a.lua']==nil,'checkmark leaked from another commit')
 local choices
-vim.ui.select=function(items,opts,callback) choices=items end
+package.loaded['foxml.menu']={open=function(items) choices=items end}
 R.actions()
+package.loaded['foxml.menu']=nil
 assert(choices and choices[1].name=='Check & next','visible review actions are missing')
 local file=r.files[r.index]
 R.primary()
@@ -366,6 +367,47 @@ R.actions()
 C.close()
 ''')
 
+    def test_the_built_in_menu_follows_the_symdeps_rules_when_that_plugin_is_absent(self):
+        self.run_lua(r'''
+local Menu=require('foxml.menu')
+local ran,toggled={},false
+local items={
+  {name='Check & next',label='Mark this file and open the next unread one.',group='review',bind='m',run=function() ran[#ran+1]='check' end},
+  {name='Only what is new',label='Open an edited file against the copy you reviewed.',group='review',bind='n',stays=true,
+   state=function() return toggled end,run=function() toggled=not toggled end},
+  {name='Whitespace',label='Hide whitespace-only changes.',group='view',bind='<leader>rw',state=function() return false end,run=function() ran[#ran+1]='ws' end},
+}
+local laid=Menu.layout(items,{title='Review'})
+local text=table.concat(laid.lines,'\n')
+assert(text:find(' ── review ',1,true) and text:find(' ── view ',1,true),'groups sit under rule lines:\n'..text)
+assert(text:find('○ off',1,true) and text:find('<ldr>rw',1,true),'state and shortcut columns:\n'..text)
+assert(text:find('╭',1,true) and text:find('/ filter',1,true),'the strip and the footer:\n'..text)
+local columns={}
+for line,item in pairs(laid.rows) do
+  local shown,text=item.bind:gsub('<[lL]eader>','<ldr>'),laid.lines[line]
+  local trimmed=text:gsub('%s+$','')
+  assert(trimmed:sub(-#shown)==shown,'the shortcut ends the row: '..text)
+  columns[#columns+1]=vim.fn.strdisplaywidth(trimmed:sub(1,#trimmed-#shown))
+end
+assert(columns[1]==columns[2] and columns[2]==columns[3],'the shortcut column lines up: '..vim.inspect(columns))
+assert(#Menu.layout(items,{filter='whitesp'}).lines<#laid.lines and vim.tbl_count(Menu.layout(items,{filter='whitesp'}).rows)==1,'the filter narrows')
+local win=Menu.open(items,{title='Review',memo='test-menu'})
+local buf=api.nvim_win_get_buf(win)
+local function press(lhs) vim.fn.maparg(lhs,'n',false,true).callback() end
+assert(laid.rows[api.nvim_win_get_cursor(win)[1]].name=='Check & next','it opens on the first row')
+press('j')
+assert(table.concat(api.nvim_buf_get_lines(buf,0,-1,false),'\n'):find('Open an edited file',1,true),'the strip follows the cursor')
+press('<CR>')
+assert(toggled and api.nvim_win_is_valid(win),'a toggle runs and the menu stays')
+assert(table.concat(api.nvim_buf_get_lines(buf,0,-1,false),'\n'):find('● on',1,true),'and shows its new state')
+press('k'); press('<CR>')
+assert(ran[1]=='check' and not api.nvim_win_is_valid(win),'an action runs and the menu closes')
+win=Menu.open(items,{title='Review',memo='test-menu'})
+assert(laid.rows[api.nvim_win_get_cursor(win)[1]].name=='Check & next','the last choice is remembered')
+press('q')
+assert(not api.nvim_win_is_valid(win))
+''')
+
     def test_symdeps_bridge_uses_a_real_cpp_buffer_and_the_selected_base(self):
         source = self.repo / 'inspect.cpp'
         source.write_text('struct Item { int count; };\n')
@@ -376,7 +418,8 @@ local inspected,compared=false,false
 package.loaded['fox-symdeps']={inspect_cursor=function()
   assert(api.nvim_buf_get_name(0)==file and vim.bo.buftype=='')
   inspected=true
-end,_menu_ctx=function() return {file=api.nvim_buf_get_name(0),bufnr=api.nvim_get_current_buf(),line=1} end}
+end}
+package.loaded['fox-symdeps.context']={under_cursor=function() return {file=api.nvim_buf_get_name(0),bufnr=api.nvim_get_current_buf(),line=1} end}
 R.symdeps(false)
 assert(inspected,'changed symbol was not sent to symdeps')
 local r=R.current

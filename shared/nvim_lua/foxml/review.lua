@@ -805,23 +805,41 @@ function M.primary()
   M.unread()
 end
 
-local function menu_mouse(opened)
-  if not opened or not api.nvim_win_is_valid(opened.win) then return end
-  local win, layout = opened.win, opened.layout
-  local buf = api.nvim_win_get_buf(win)
-  -- Let the renderer move and submit its own selection, including its remembered row and cursor restoration.
+-- Clicks for the plugin's menu, through its public surface only: the menu marks its buffer (b:fox_symdeps_menu), and
+-- its own j / k / Enter mappings move and run, so its remembered row and cursor restoration stay its own.
+local function menu_window()
+  for _, win in ipairs(api.nvim_list_wins()) do
+    local buf = api.nvim_win_get_buf(win)
+    if api.nvim_win_get_config(win).relative ~= '' and vim.b[buf].fox_symdeps_menu ~= nil then return win, buf end
+  end
+end
+local function menu_mouse()
+  local win, buf = menu_window()
+  if not win then return end
   vim.keymap.set('n', '<LeftMouse>', function()
     local mouse = vim.fn.getmousepos()
-    if mouse.winid ~= win or not layout.rows[mouse.line] then return end
-    local current = api.nvim_win_get_cursor(win)[1]
-    local key = current < mouse.line and 'j' or 'k'
+    if mouse.winid ~= win or not api.nvim_win_is_valid(win) or mouse.line < 1 then return end
+    local start = api.nvim_win_get_cursor(win)[1]
+    local key = start < mouse.line and 'j' or 'k'
     local move = vim.fn.maparg(key, 'n', false, true)
-    for _ = 1, vim.tbl_count(layout.rows) do
-      if api.nvim_win_get_cursor(win)[1] == mouse.line then break end
+    -- A rule or blank line is not a row: the menu's own movement never lands there, so the click does nothing.
+    for _ = 1, api.nvim_buf_line_count(buf) do
+      local at = api.nvim_win_get_cursor(win)[1]
+      if at == mouse.line then break end
       if type(move.callback) ~= 'function' then return end
       move.callback()
+      if api.nvim_win_get_cursor(win)[1] == at then break end
     end
-    if api.nvim_win_get_cursor(win)[1] ~= mouse.line then return end
+    if api.nvim_win_get_cursor(win)[1] ~= mouse.line then
+      -- Put the selection back where it was rather than leave it part-way.
+      local back = vim.fn.maparg(key == 'j' and 'k' or 'j', 'n', false, true)
+      for _ = 1, api.nvim_buf_line_count(buf) do
+        if api.nvim_win_get_cursor(win)[1] == start or type(back.callback) ~= 'function' then break end
+        local at = api.nvim_win_get_cursor(win)[1]; back.callback()
+        if api.nvim_win_get_cursor(win)[1] == at then break end
+      end
+      return
+    end
     local submit = vim.fn.maparg('<CR>', 'n', false, true)
     if type(submit.callback) == 'function' then submit.callback() end
   end, { buffer = buf, silent = true, nowait = true, desc = 'Choose this action' })
@@ -832,6 +850,9 @@ function M.show_menu(items, opts)
   opts = opts or {}
   local ok, menu = pcall(require, 'fox-symdeps.menu')
   if not ok then
+    -- Without the plugin: the same list in the built-in menu, drawn to the same rules (foxml/menu.lua).
+    local found, fallback = pcall(require, 'foxml.menu')
+    if found then fallback.open(items, { title = opts.title, memo = opts.memo, back = false }); return end
     vim.ui.select(items, { prompt = opts.title or 'Actions', format_item = function(item) return item.name or item.label end },
       function(item) if item then item.run() end end)
     return
@@ -841,12 +862,12 @@ function M.show_menu(items, opts)
       item.run_stays = function()
         item.run()
         -- The renderer reopens toggles itself; bind clicks on the replacement buffer too.
-        vim.schedule(function() menu_mouse(menu._last) end)
+        vim.schedule(menu_mouse)
       end
     end
   end
   menu.open(items, { title = opts.title, anchor_win = opts.anchor_win, memo = opts.memo, back = false })
-  menu_mouse(menu._last)
+  menu_mouse()
 end
 
 function M.actions()
@@ -1005,10 +1026,13 @@ function M.symdeps(compare)
   if ft ~= 'cpp' and ft ~= 'c' then tell('Symdeps analyzes C and C++ files.'); return end
   if not M.open_source() then return end
   local loaded, plugin = pcall(require, 'fox-symdeps')
-  if not loaded then tell('The optional symdeps plugin is not installed.', vim.log.levels.WARN); return end
+  if not loaded then tell('Requires symdeps (an optional plugin for C and C++ symbols).'); return end
   if compare and r.row.kind == 'commit' then
     local available, rev = pcall(require, 'fox-symdeps.revcompare')
-    if available and plugin._menu_ctx then rev.open(plugin._menu_ctx(), r.row.parent)
+    local found, context = pcall(require, 'fox-symdeps.context')
+    local ctx = found and type(context.under_cursor) == 'function' and context.under_cursor() or nil
+    if available and ctx then rev.open(ctx, r.row.parent)
+    elseif available then tell('Put the cursor on a struct to compare its layout with the commit.')
     else tell('This symdeps version does not expose revision comparison.') end
   else
     tell('Symdeps · current working copy near the reviewed line')

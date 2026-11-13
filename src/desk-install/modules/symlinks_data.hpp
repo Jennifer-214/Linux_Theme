@@ -140,6 +140,7 @@ inline constexpr Mapping SHARED_MAPPINGS[] = {
     { "nvim_lua/foxml/claude.lua",    "~/.config/nvim/lua/foxml/claude.lua" },
     { "nvim_lua/foxml/review.lua",    "~/.config/nvim/lua/foxml/review.lua" },
     { "nvim_lua/foxml/sync.lua",      "~/.config/nvim/lua/foxml/sync.lua" },
+    { "nvim_lua/foxml/menu.lua",      "~/.config/nvim/lua/foxml/menu.lua" },
     { "redzone.json",                 "~/.config/foxml/redzone.json" },
     { "nvim_lua/foxml/work.lua",      "~/.config/nvim/lua/foxml/work.lua" },
     { "nvim_lua/foxml/planmarks.lua", "~/.config/nvim/lua/foxml/planmarks.lua" },
