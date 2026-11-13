@@ -625,8 +625,18 @@ package.loaded['fox-symdeps']={inspect_cursor=function()
   inspected=true
 end}
 package.loaded['fox-symdeps.context']={under_cursor=function() return {file=api.nvim_buf_get_name(0),bufnr=api.nvim_get_current_buf(),line=1} end}
+package.preload['fox-symdeps.card']=function() error('an older symdeps: no card module') end
 R.symdeps(false)
 assert(inspected,'changed symbol was not sent to symdeps')
+-- a newer symdeps keeps the card in its own module: that one is preferred
+local by_card=false
+package.preload['fox-symdeps.card']=nil
+package.loaded['fox-symdeps.card']={inspect_cursor=function() by_card=true end}
+inspected=false
+R.symdeps(false)
+assert(by_card and not inspected,'the card module is used when it exists')
+package.loaded['fox-symdeps.card']=nil
+package.preload['fox-symdeps.card']=function() error('an older symdeps: no card module') end
 local r=R.current
 r.row.kind='commit';r.row.parent=parent
 package.loaded['fox-symdeps.revcompare']={open=function(ctx,rev)

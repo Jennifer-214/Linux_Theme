@@ -1102,8 +1102,13 @@ function M.symdeps(compare)
     elseif available then tell('Put the cursor on a struct to compare its layout with the commit.')
     else tell('This symdeps version does not expose revision comparison.') end
   else
+    -- The card's own module is where this lives; the plugin's top-level view of it is marked for removal there.
+    local has_card, card = pcall(require, 'fox-symdeps.card')
+    local inspect = has_card and type(card) == 'table' and type(card.inspect_cursor) == 'function' and card.inspect_cursor
+      or type(plugin.inspect_cursor) == 'function' and plugin.inspect_cursor or nil
+    if not inspect then tell('This symdeps version does not expose its card.'); return end
     tell('Symdeps · current working copy near the reviewed line')
-    plugin.inspect_cursor()
+    inspect()
   end
 end
 
