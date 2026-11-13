@@ -300,6 +300,12 @@ async function nameCommit($: EngineInterface, command: string) {
   const [stamp, body] = out.split('\u0000')
   const now = await $.clock.now()
   if (now / 1000 - Number(stamp) > 300) return  // not the commit just made
+  // The plan this session works from goes on record with the commit, so the review tree can group by plan.
+  const plan = (await read($, look))?.plan
+  const sha = (await run($, ['git', '--no-optional-locks', '-C', where, 'rev-parse', '--verify', 'HEAD']))?.trim() ?? ''
+  const top = (await run($, ['git', '--no-optional-locks', '-C', where, 'rev-parse', '--show-toplevel']))?.trim() ?? ''
+  if (plan && /^[0-9a-f]{40}$/.test(sha) && top && trailerUrl(body ?? '') !== null)
+    await work($, ['commit-plan', '--root', top, '--sha', sha, '--file', plan.file, '--title', plan.title.slice(0, 300), '--step', (plan.step ?? '').slice(0, 300)])
   const url = trailerUrl(body ?? '')
   const state = await stateDir($)
   if (url === null || state === null) return

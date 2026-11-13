@@ -405,6 +405,30 @@ class Work(unittest.TestCase):
         row = self.data("reviews")[0]
         self.assertEqual((row["sha"], row["checked"], row["total"]), (sha, 1, 4), "the tray row carries 1 of 4")
 
+    def test_review_tree_groups_claude_commits_by_plan_oldest_first_with_progress(self):
+        import hashlib
+        def commit(subject, when):
+            env = dict(self.env, GIT_COMMITTER_DATE=when, GIT_AUTHOR_DATE=when)
+            subprocess.run(["git", "-C", str(self.repo), "commit", "--allow-empty", "-qm",
+                            subject + "\n\nClaude-Session: https://claude.ai/code/session_x"], env=env, check=True)
+            return self.git("rev-parse", "HEAD")
+        first = commit("Split the queue header", "2026-11-10T10:00:00")
+        second = commit("Workers take the new queue", "2026-11-10T11:00:00")
+        loose = commit("A stray fix", "2026-11-11T09:00:00")
+        for sha, step in ((first, "step 1"), (second, "step 2")):
+            self.assertTrue(self.data("commit-plan", "--sha", sha, "--file", "/plans/queue.md", "--title", "Queue refactor", "--step", step)["ok"])
+        self.data("review-mark", "--key", first, "--file", "queue.hpp", "--signature", hashlib.sha256(b"a").hexdigest(), "--total", "2")
+        tree = self.data("review-tree")
+        self.assertEqual([t["title"] for t in tree][0], "Queue refactor")
+        self.assertRegex(tree[1]["title"], r" · Wed Nov 11$", "no plan: the branch and the day")
+        plan = tree[0]
+        self.assertEqual([c["sha"] for c in plan["commits"]], [first, second], "oldest first")
+        self.assertEqual((plan["checked"], plan["total"], plan["plan"], plan["commits"][1]["step"]), (1, 2, "/plans/queue.md", "step 2"))
+        self.data("reviewed", "--sha", first)
+        self.assertEqual([c["sha"] for c in self.data("review-tree")[0]["commits"]], [second], "a finished commit leaves the pending tree")
+        self.assertEqual(len(self.data("review-tree", "--all", "yes")[0]["commits"]), 2)
+        self.assertFalse(json.loads(self.invoke("commit-plan", "--sha", "nothex", "--title", "x", code=1))["ok"])
+
     def test_worktree_paths_with_spaces_are_not_shell_commands(self):
         other = self.dir / "other tree ; literal"
         self.git("worktree", "add", "-qb", "feature/work", str(other))

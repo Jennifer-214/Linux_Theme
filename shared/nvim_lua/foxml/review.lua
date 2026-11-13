@@ -245,53 +245,159 @@ end
 local function restore_options(r)
   if r.applied_diffopt and vim.o.diffopt == r.applied_diffopt then vim.o.diffopt = r.original_diffopt end
 end
+-- The side panel, drawn to symdeps' menu rules (its STYLE V4-V14): a title line with the count on the right, a rule
+-- per group (Working changes, each plan, Other changes), rows with their mark and aligned counts, a description strip
+-- for the selected row and one footer line. r.entries maps a line to what it stands for; r.hits maps it to the
+-- byte ranges a click means (the mark, the fold arrow).
+local function hl(name, fallback) return vim.fn.hlexists(name) == 1 and name or fallback end
+local function width_of(s) return vim.fn.strdisplaywidth(s) end
+local function fit(s, w)
+  if w <= 1 then return '' end
+  if width_of(s) <= w then return s end
+  while width_of(s) > w - 1 and #s > 0 do s = vim.fn.strcharpart(s, 0, vim.fn.strchars(s) - 1) end
+  return s .. '…'
+end
+local function spread(left, right, w)
+  left = fit(left, math.max(4, w - width_of(right) - 1))
+  return left .. string.rep(' ', math.max(1, w - width_of(left) - width_of(right))) .. right
+end
+local function rule(label, right, w)
+  local head = ' ── ' .. label .. ' '
+  local tail = right ~= '' and (' ' .. right .. ' ──') or ''
+  return head .. string.rep('─', math.max(2, w - width_of(head) - width_of(tail))) .. tail
+end
+local function set_progress(r, set)
+  local files, marks, n = set.files or {}, set.marks or {}, 0
+  for _, f in ipairs(files) do if f.loaded and marks[f.rel] == f.signature then n = n + 1 end end
+  return n, #files
+end
+local function describe(r, entry)
+  if not entry then return { 'Pick a change to read it side by side.' } end
+  local set = entry.set
+  local files = set and set.files or r.files
+  if entry.symbol then return { entry.symbol.name, 'Enter jumps to it in the comparison.' } end
+  if entry.file and files[entry.file] then
+    local f = files[entry.file]
+    local marks = set and set.marks or r.marks
+    local state = f.error and 'this snapshot is unavailable' or (marks and marks[f.rel] == f.signature and f.loaded) and 'reviewed'
+      or (marks and marks[f.rel] and f.loaded) and 'changed since you reviewed it' or 'not reviewed yet'
+    local what = ({ A = 'added', D = 'deleted', R = 'renamed', M = 'modified' })[f.status] or 'changed'
+    return { f.rel .. ' · ' .. what, state }
+  end
+  if set then
+    local row = set.row
+    if row.kind == 'working' then return { 'Working changes · everything not committed yet', 'staged, unstaged, untracked and unsaved drafts' } end
+    if row.kind == 'live' then return { (row.name or 'a live session') .. ' · edits it has made', 'f follows that session' } end
+    return { (row.short or '') .. ' · ' .. (row.subject or ''), (row.label or '') .. (row.step and row.step ~= '' and (' · ' .. row.step) or '') }
+  end
+  return { '' }
+end
 local function panel(r, select_row)
   if not api.nvim_buf_is_valid(r.panel_buf) then return end
+  local w = api.nvim_win_is_valid(r.panel_win) and math.max(24, api.nvim_win_get_width(r.panel_win) - 1) or 40
   local external = r.row.kind == 'external'
-  local finish_label = r.row.kind == 'commit' and r.sets and 'Finish & next' or 'Finish review'
-  local text = { external and '  Outside edits · both copies kept' or ('  ' .. progress(r) .. '/' .. #r.files .. ' files reviewed'),
-    '  ' .. (r.row.short or 'changes'), external and '  [ Merge edits ]  [ Actions ]' or
-      (progress(r) == #r.files and ('  [ ' .. finish_label .. ' ] [ Actions ]') or '  [ Check & next ] [ Actions ]') }
-  local selected_line
-  r.entries = {}
-  local function file_row(i, f, prefix, set)
+  local text, marks_hl, selected_line = {}, {}, nil
+  r.entries, r.hits = {}, {}
+  local function paint(line, from, to, group) marks_hl[#marks_hl + 1] = { line, from, to, group } end
+  local function push(s) text[#text + 1] = (s:gsub('[\r\n\t]', ' ')); return #text end
+  local done, total = progress(r), #r.files
+  push(spread(external and ' Outside edits' or ' Review', external and 'both copies kept ' or (done .. ' of ' .. total .. ' '), w))
+  paint(1, 0, -1, hl('FoxSymdepsTitle', 'Title'))
+  push('')
+  local function file_row(i, f, indent, set)
     local marks = set and set.marks or r.marks
-    local check = marks and marks[f.rel] == f.signature and f.loaded and '✓' or '○'
-    local stats = not f.loaded and '' or f.error and ' unavailable' or f.binary and ' binary' or (' +' .. f.added .. ' −' .. f.deleted)
+    local checked = marks and marks[f.rel] == f.signature and f.loaded
+    local stale = not checked and marks and marks[f.rel] ~= nil and f.loaded
+    local mark = checked and '✓' or stale and '↻' or '○'
+    local stats = not f.loaded and '' or f.error and 'unavailable' or f.binary and 'binary' or ('+' .. f.added .. ' −' .. f.deleted)
+    local arrow = f.expanded and '▾' or '▸'
+    local left = indent .. arrow .. ' ' .. mark .. ' ' .. f.rel:gsub('[\r\n\t]', ' ')
+    local ln = push(spread(left, stats .. ' ', w))
     local active = (not set or set == r.active_set) and i == r.index
-    text[#text + 1] = string.format('%s%s %s %s %s%s', prefix, f.expanded and '▾' or '▸', check, f.status, f.rel:gsub('[\r\n\t]', ' '), stats)
-    if active then selected_line = #text end
-    r.entries[#text] = { set = set, file = i }
+    if active then selected_line = ln end
+    r.entries[ln] = { set = set, file = i }
+    local a = #indent
+    r.hits[ln] = { fold = { a + 1, a + #arrow }, mark = { a + #arrow + 2, a + #arrow + 1 + #mark } }
+    paint(ln, a + #arrow + 1, a + #arrow + 1 + #mark, checked and hl('FoxSymdepsOk', 'DiagnosticOk') or stale and hl('FoxSymdepsWarn', 'DiagnosticWarn') or hl('FoxSymdepsDim', 'Comment'))
+    if stats ~= '' then paint(ln, #text[ln] - #stats - 1, -1, hl('FoxSymdepsDim', 'Comment')) end
     if f.expanded and f.loaded and not f.error and not f.binary then
       for _, symbol in ipairs(M.changed_symbols(f)) do
         local icon = symbol.side == 'before' and '− ' or symbol.kind == 'hunk' and '↳ ' or symbol.kind:match('struct') and '◇ ' or 'ƒ '
-        text[#text + 1] = '      ' .. icon .. symbol.name
-        r.entries[#text] = { set = set, file = i, symbol = symbol }
-        if active and r.symbol and r.symbol.name == symbol.name then selected_line = #text end
+        local sl = push(fit(indent .. '      ' .. icon .. symbol.name, w))
+        r.entries[sl] = { set = set, file = i, symbol = symbol }
+        paint(sl, 0, -1, hl('FoxSymdepsDim', 'Comment'))
+        if active and r.symbol and r.symbol.name == symbol.name then selected_line = sl end
       end
     end
   end
   if r.sets then
+    local group
     for _, set in ipairs(r.sets) do
       local row = set.row
-      local title = row.kind == 'live' and ('✎ ' .. (row.name or 'live session')) or ((row.short or 'commit') .. ' ' .. (row.subject or ''))
-      text[#text + 1] = (set.expanded and '▾ ' or '▸ ') .. (set.completed and '✓ ' or '') .. title:gsub('[\r\n\t]', ' ')
-      r.entries[#text] = { set = set }
-      if set.expanded then
-        for i, f in ipairs(set.files or {}) do file_row(i, f, '  ', set) end
-        if #(set.files or {}) == 0 then text[#text + 1] = row.kind == 'working' and '    (working tree is clean)' or '    (no changed files)' end
+      local own = row.kind == 'working' or row.kind == 'live' or row.kind == 'external'
+      local label = row.kind == 'working' and 'Working changes' or row.kind == 'live' and 'Live sessions' or (row.task or 'Other changes')
+      if label ~= group then
+        if group then push('') end
+        group = label
+        local right = ''
+        if not own then
+          local n, of = 0, 0
+          for _, other in ipairs(r.sets) do
+            if (other.row.task or 'Other changes') == label and other.row.kind == 'commit' then
+              of = of + 1; if other.completed then n = n + 1 end
+            end
+          end
+          right = n .. ' of ' .. of
+        end
+        local rl = push(rule(label, right, w))
+        paint(rl, 0, -1, hl('FoxSymdepsHeader', 'Title'))
+        if row.kind == 'working' then r.entries[rl] = { set = set } end
+      end
+      if row.kind == 'working' then
+        if set.expanded then
+          for i, f in ipairs(set.files or {}) do file_row(i, f, '   ', set) end
+          if #(set.files or {}) == 0 then paint(push('     the working tree is clean'), 0, -1, hl('FoxSymdepsDim', 'Comment')) end
+        end
+      else
+        local n, of = set_progress(r, set)
+        if not set.files then of = #(row.files or {}) end
+        local right = set.completed and '✓ ' or (of > 0 and (n .. ' of ' .. of .. ' ') or '')
+        local title = row.kind == 'live' and ('✎ ' .. (row.name or 'live session')) or ((row.short or 'commit') .. '  ' .. (row.subject or ''))
+        local arrow = set.expanded and '▾' or '▸'
+        local ln = push(spread('   ' .. arrow .. ' ' .. title:gsub('[\r\n\t]', ' '), right, w))
+        r.entries[ln] = { set = set }
+        r.hits[ln] = { fold = { 4, 3 + #arrow } }
+        if set.completed then paint(ln, #text[ln] - #right, -1, hl('FoxSymdepsOk', 'DiagnosticOk')) elseif right ~= '' then paint(ln, #text[ln] - #right, -1, hl('FoxSymdepsDim', 'Comment')) end
+        if set.expanded then
+          for i, f in ipairs(set.files or {}) do file_row(i, f, '       ', set) end
+          if #(set.files or {}) == 0 then paint(push('         no changed files'), 0, -1, hl('FoxSymdepsDim', 'Comment')) end
+        end
       end
     end
   else
-    for i, f in ipairs(r.files) do file_row(i, f, i == r.index and '› ' or '  ') end
+    local rl = push(rule(r.row.short or 'Changes', '', w)); paint(rl, 0, -1, hl('FoxSymdepsHeader', 'Title'))
+    for i, f in ipairs(r.files) do file_row(i, f, '   ') end
   end
-  vim.list_extend(text, external and { '', '  Your edits are on the left.', '  Disk edits are on the right.', '  Merge keeps the result unsaved.', '', '  q or :q returns to your editor' }
-    or { '', '  Commit → file → changed symbol', '  Click ○ / ✓ to check a file.', '  Actions has the other tools.', '', '  Enter/l open · h fold', '  Tab next file · ? actions', '  q or :q returns to your editor' })
+  -- The description strip: what the selected row is and where it stands; then the one footer line.
+  local cursor_line = (select_row and selected_line) or (api.nvim_win_is_valid(r.panel_win) and api.nvim_win_get_cursor(r.panel_win)[1]) or selected_line
+  local about = describe(r, r.entries[cursor_line] or (selected_line and r.entries[selected_line]))
+  for i = 1, 2 do about[i] = ((about[i] or ''):gsub('[\r\n\t]', ' ')) end
+  push('')
+  local top = push(' ╭' .. string.rep('─', w - 3) .. '╮')
+  for i = 1, 2 do push(' │ ' .. fit(about[i] or '', w - 5) .. string.rep(' ', math.max(0, w - 5 - width_of(fit(about[i] or '', w - 5)))) .. ' │') end
+  local bottom = push(' ╰' .. string.rep('─', w - 3) .. '╯')
+  for ln = top, bottom do paint(ln, 0, -1, hl('FoxSymdepsDim', 'Comment')) end
+  r.strip = { top + 1, top + 2 }
+  local keys = external and ' ⏎ open · a actions · q close' or (w >= 44 and ' ⏎ open · m check · a actions · q close' or ' ⏎ open · m check · a more')
+  r.footer_line = push(fit(keys, w)); paint(r.footer_line, 0, -1, hl('FoxSymdepsDim', 'Comment'))
   vim.bo[r.panel_buf].modifiable = true
   api.nvim_buf_set_lines(r.panel_buf, 0, -1, false, text)
   vim.bo[r.panel_buf].modifiable = false
   api.nvim_buf_clear_namespace(r.panel_buf, ns, 0, -1)
-  if selected_line then api.nvim_buf_set_extmark(r.panel_buf, ns, selected_line - 1, 0, { line_hl_group = 'Visual' }) end
+  for _, m in ipairs(marks_hl) do
+    pcall(api.nvim_buf_set_extmark, r.panel_buf, ns, m[1] - 1, math.max(0, m[2]), { end_row = m[1] - 1, end_col = m[3] < 0 and #text[m[1]] or math.min(m[3], #text[m[1]]), hl_group = m[4] })
+  end
+  if selected_line then api.nvim_buf_set_extmark(r.panel_buf, ns, selected_line - 1, 0, { line_hl_group = hl('FoxSymdepsSelection', 'Visual') }) end
   if select_row and api.nvim_win_is_valid(r.panel_win) and selected_line then api.nvim_win_set_cursor(r.panel_win, { selected_line, 0 }) end
   local footer = ' ]f/[f file · ]c/[c change · m check · u unread · R finish · ? help · q close '
   for _, win in ipairs({ r.left_win, r.right_win }) do
@@ -337,21 +443,22 @@ local function maps(r, buf, sidebar)
     key('l', M.enter, 'Expand commit / open review file')
     key('<2-LeftMouse>', M.enter, 'Expand commit / open review file')
     key('h', M.fold, 'Collapse review commit')
+    key('a', M.actions, 'Review actions')
+    key('<Space>', function() if M.enter(true) then M.mark() end end, 'Mark selected file reviewed')
     key('<LeftMouse>', function()
       local mouse = vim.fn.getmousepos()
       if mouse.winid ~= r.panel_win or mouse.line < 1 or mouse.line > api.nvim_buf_line_count(r.panel_buf) then return end
       api.nvim_set_current_win(r.panel_win)
       api.nvim_win_set_cursor(r.panel_win, { mouse.line, 0 })
-      if mouse.line == 3 then
-        if mouse.column <= 20 then M.primary() else M.actions() end
-        return
-      end
+      if mouse.line == 1 or mouse.line == r.footer_line then M.actions(); return end
       local entry = r.entries and r.entries[mouse.line]
+      local hit = r.hits and r.hits[mouse.line] or {}
+      local within = function(range) return range and mouse.column >= range[1] and mouse.column <= range[2] end
       local file_row = entry and entry.file and not entry.symbol
       local expanded = file_row and (entry.set and entry.set.files or r.files)[entry.file].expanded
       if M.enter() and file_row then
-        if mouse.column >= 5 and mouse.column <= 6 then M.mark()
-        elseif mouse.column <= 3 then
+        if within(hit.mark) then M.mark()
+        elseif within(hit.fold) then
           (entry.set and entry.set.files or r.files)[entry.file].expanded = not expanded
           panel(r)
         end
@@ -634,8 +741,9 @@ function M.layout()
   local r = M.current
   if not r or not api.nvim_tabpage_is_valid(r.tab) or api.nvim_get_current_tabpage() ~= r.tab then return end
   for _, win in ipairs({r.panel_win, r.left_win, r.right_win}) do if not api.nvim_win_is_valid(win) then return end end
-  local width = math.min(42, math.max(24, math.floor(vim.o.columns * .25)))
+  local width = math.min(52, math.max(30, math.floor(vim.o.columns * .30)))
   api.nvim_win_set_width(r.panel_win, width)
+  panel(r)
   local available = vim.o.columns - width - 2
   api.nvim_win_set_width(r.left_win, math.max(1, math.floor(available / 2)))
 end
@@ -663,11 +771,38 @@ function M.fold()
   end
 end
 
+-- The tree: Working changes, live sessions, then commits oldest first under their task (the plan desk-work recorded
+-- for them, else its "branch · day"); commits it does not list (not Claude's) come last as Other changes.
 function M.tree(rows)
   local r = M.current
   if not r then return end
+  local tasks, order = {}, {}
+  local backend = M.work_tool()
+  if backend then
+    local ok, job = pcall(vim.system, { backend, 'review-tree', '--root', r.root, '--all', 'yes' }, { text = true })
+    local out = ok and job:wait(3000) or {}
+    for index, task in ipairs(out.code == 0 and decode(out.stdout) or {}) do
+      for _, c in ipairs(type(task.commits) == 'table' and task.commits or {}) do
+        tasks[c.sha] = { title = task.title, step = c.step, index = index }
+      end
+    end
+  end
+  local head, commits = {}, {}
+  for position, row in ipairs(rows) do
+    if row.kind == 'commit' then
+      local task = tasks[row.sha]
+      row.task, row.step = task and task.title or nil, task and task.step or nil
+      commits[#commits + 1] = { row = row, group = task and task.index or math.huge, position = position }
+    else head[#head + 1] = row end
+  end
+  -- rows arrive newest first; within a group the oldest comes first.
+  table.sort(commits, function(a, b)
+    if a.group ~= b.group then return a.group < b.group end
+    return a.position > b.position
+  end)
+  for _, c in ipairs(commits) do head[#head + 1] = c.row end
   r.sets = {}
-  for _, row in ipairs(rows) do
+  for _, row in ipairs(head) do
     local stored = decode(read(state_file(r.root, row)))
     local set = { row = row, completed = row.kind == 'commit' and stored.completed == true }
     if row == r.row then
@@ -791,10 +926,17 @@ function M.open(row, root, callbacks)
   vim.wo[r.panel_win].number, vim.wo[r.panel_win].relativenumber = false, false
   vim.wo[r.panel_win].signcolumn, vim.wo[r.panel_win].wrap = 'no', false
   vim.wo[r.panel_win].winfixwidth = true
-  api.nvim_win_set_width(r.panel_win, math.min(38, math.max(20, math.floor(vim.o.columns * .23))))
-  _G.FoxReviewActions = function() M.actions() end
-  vim.wo[r.panel_win].winbar = '%#Title# Changes%*  %@v:lua.FoxReviewActions@[ Actions ]%X'
-  vim.wo[r.panel_win].statusline = ' Enter open · ? help · q close '
+  api.nvim_win_set_width(r.panel_win, math.min(52, math.max(30, math.floor(vim.o.columns * .30))))
+  -- The panel carries its own title line, strip and footer; no winbar, a quiet statusline, no cursor column noise.
+  vim.wo[r.panel_win].winbar = ''
+  vim.wo[r.panel_win].statusline = ' '
+  vim.wo[r.panel_win].cursorline, vim.wo[r.panel_win].list, vim.wo[r.panel_win].foldcolumn = false, false, '0'
+  -- The strip follows the cursor: redraw only when the row under it changes.
+  api.nvim_create_autocmd('CursorMoved', { buffer = r.panel_buf, callback = function()
+    if M.current ~= r or not api.nvim_win_is_valid(r.panel_win) then return end
+    local line = api.nvim_win_get_cursor(r.panel_win)[1]
+    if line ~= r.strip_for then r.strip_for = line; panel(r) end
+  end })
   maps(r, r.panel_buf, true)
   r.group = api.nvim_create_augroup('foxml_review_view', { clear = true })
   r.owned = { [r.left_win] = true, [r.right_win] = true, [r.panel_win] = true }

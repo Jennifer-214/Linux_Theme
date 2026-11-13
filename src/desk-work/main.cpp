@@ -489,6 +489,55 @@ J review_progress(const std::string& root, const std::string& only) {
     }
     return out;
 }
+// Which plan a commit was made under, recorded by the notebook when the commit lands (the session's pinned or last
+// plan). The review tree groups by it; a commit with no record falls back to its branch and day.
+J commit_plan(const std::string& root, const std::string& sha, const std::string& file, const std::string& title, const std::string& step) {
+    if (!std::regex_match(sha, std::regex("[a-f0-9]{40}")) || title.size() > 300 || step.size() > 300 || file.size() > 4096 || !register_root(root)) return J{{"ok", false}};
+    const auto path = project_dir(root) / "commit-plans.json"; Lock lock(project_dir(root) / "reviews.lock");
+    auto j = json(path); std::error_code ec;
+    if (lock.fd < 0 || (fs::exists(path, ec) && !j.is_object())) return J{{"ok", false}};
+    if (!j.is_object()) j = J::object();
+    j[sha] = J{{"file", file}, {"title", title}, {"step", step}, {"at", now()}};
+    while (j.size() > 2000) j.erase(j.begin());
+    return J{{"ok", atomic(path, j.dump())}};
+}
+// The review tree: tasks (a plan, else "branch · day") holding their commits oldest first, each with its progress.
+// Only Claude's commits, like the tray; `all` includes the reviewed ones.
+J review_tree(const std::string& root, bool all) {
+    const auto plans = json(project_dir(root) / "commit-plans.json");
+    const auto branch = trim(query({"git", "--no-optional-locks", "-C", root, "symbolic-ref", "--quiet", "--short", "HEAD"}));
+    J rows = reviews(root, false);
+    std::vector<J> commits(rows.begin(), rows.end());
+    // git log gives newest first: turned round, then ordered by time with ties left in history's order.
+    std::reverse(commits.begin(), commits.end());
+    std::stable_sort(commits.begin(), commits.end(), [](const J& a, const J& b) { return a.value("at", 0LL) < b.value("at", 0LL); });
+    J tasks = J::array(); std::map<std::string, size_t> at;
+    for (auto& c : commits) {
+        if (!all && c.value("reviewed", false)) continue;
+        const auto sha = str(c, "sha");
+        std::string key, title, file, step;
+        if (plans.is_object() && plans.contains(sha) && plans[sha].is_object() && !str(plans[sha], "title").empty()) {
+            file = str(plans[sha], "file"); title = str(plans[sha], "title"); step = str(plans[sha], "step");
+            key = "plan:" + (file.empty() ? title : file);
+        } else {
+            const std::time_t when = static_cast<std::time_t>(c.value("at", 0LL));
+            char day[32] = {}; std::strftime(day, sizeof day, "%a %b %e", std::localtime(&when));
+            title = (branch.empty() ? std::string("detached") : branch) + " · " + trim(day);
+            key = "day:" + title;
+        }
+        if (!at.count(key)) {
+            at[key] = tasks.size();
+            tasks.push_back(J{{"key", key}, {"title", title}, {"plan", file}, {"commits", J::array()}, {"checked", 0}, {"total", 0}, {"reviewed", 0}});
+        }
+        auto& task = tasks[at[key]];
+        if (!step.empty()) c["step"] = step;
+        task["checked"] = task.value("checked", 0) + c.value("checked", 0);
+        task["total"] = task.value("total", 0) + c.value("total", 0);
+        task["reviewed"] = task.value("reviewed", 0) + (c.value("reviewed", false) ? 1 : 0);
+        task["commits"].push_back(c);
+    }
+    return tasks;
+}
 J known_roots() {
     J roots = J::array(); std::error_code ec;
     for (const auto& e : fs::directory_iterator(base() / "projects", ec)) {
@@ -767,7 +816,7 @@ int main(int argc, char** argv) {
         }
         const auto cmd = args[0];
         const auto place = opts.count("--root") ? opts["--root"] : fs::current_path().string();
-        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "review-mark", "review-progress", "worktrees", "activity", "plan", "plan-pin"}.count(cmd)
+        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "review-mark", "review-progress", "commit-plan", "review-tree", "worktrees", "activity", "plan", "plan-pin"}.count(cmd)
             ? root_of(place) : place;
         const auto id = opts["--id"];
         J out;
@@ -837,6 +886,8 @@ int main(int argc, char** argv) {
         else if (cmd == "reviewed") out = reviewed(root, opts["--sha"]);
         else if (cmd == "review-mark") out = review_mark(root, opts["--key"], opts["--file"], opts["--signature"], opts["--content"], opts["--total"], opts["--done"]);
         else if (cmd == "review-progress") out = review_progress(root, opts["--key"]);
+        else if (cmd == "commit-plan") out = commit_plan(root, opts["--sha"], opts["--file"], opts["--title"], opts["--step"]);
+        else if (cmd == "review-tree") out = review_tree(root, opts["--all"] == "yes");
         else if (cmd == "tests") {
             auto j = id.empty() ? notebook(root, "")["tests"] : load_run(id);
             if (j.is_object() && j.contains("snapshot")) { freshness(j, snapshot(str(j, "root"))); j.erase("snapshot"); }
