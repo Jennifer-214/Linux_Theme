@@ -60,6 +60,11 @@ in one file, with a context size and slot count per role. Codex replaces the Gem
 - The Claude mod is validated, tested and type-checked; Neovim tests start clean, so they can never load an
   installed copy of the code under test.
 
+### Theme names
+
+`FoxML_Paper`, `FoxML_Classic`, `FoxML_Rose` and `FoxML_Bubblegum` are now `Paper`, `Classic`, `Rose` and
+`Bubblegum`. A theme saved by an earlier install, or typed with the old prefix, still selects the same theme.
+
 ### Upgrading from 3.x
 
 Pull, then run the installer. Old command names keep working through the links it installs. Review stamps stay on
