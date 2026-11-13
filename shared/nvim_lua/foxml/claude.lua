@@ -228,11 +228,34 @@ function M.live_files(p, dirty)
   return files
 end
 
-function M.blame_text(info, trailer, names, me, now_s)
+-- plan: { title, step } when the commit was made under a plan (desk-work records it); the line then names it.
+function M.blame_text(info, trailer, names, me, now_s, plan)
   if info.author == "Not Committed Yet" or (info.sha or ""):match("^0+$") then return "  ○ not committed yet" end
   local mark, who = M.who({ claude = trailer.claude, url = trailer.url, author = info.author }, names, me)
   local when = M.ago(now_s - (tonumber(info.author_time) or now_s), tonumber(info.author_time))
-  return string.format("  %s %s · %s · %s", mark, who, when, info.summary or "")
+  local under = ""
+  if type(plan) == "table" and (plan.title or "") ~= "" then
+    under = " · ⌑ " .. plan.title:gsub("^[Pp]lan:%s*", "") .. ((plan.step or "") ~= "" and (" · " .. plan.step) or "")
+  end
+  return string.format("  %s %s · %s · %s%s", mark, who, when, info.summary or "", under)
+end
+
+-- Which plan each commit of a checkout was made under, from desk-work's review tree; asked once a minute per root.
+local plans_cache = {}
+function M.commit_plans(root)
+  local now_s, cached = os.time(), plans_cache[root]
+  if cached and now_s - cached.at < 60 then return cached.map end
+  local map = {}
+  local backend = require("foxml.review").work_tool()
+  if backend then
+    for _, task in ipairs(M.decode(system({ backend, "review-tree", "--root", root, "--all", "yes" })) or {}) do
+      if type(task) == "table" and (task.plan or "") ~= "" then
+        for _, c in ipairs(type(task.commits) == "table" and task.commits or {}) do map[c.sha] = { title = task.title, step = c.step } end
+      end
+    end
+  end
+  plans_cache[root] = { at = now_s, map = map }
+  return map
 end
 
 -- ─── the live parts (timers, gitsigns, windows) ───────────────────────────────────────────────────────────────
@@ -527,7 +550,9 @@ end
 
 function M.blame_formatter(_, info)
   local dir = vim.fn.expand("%:p:h")
-  local text = M.blame_text(info, info.sha and trailer(info.sha, dir) or {}, M.names(), me(), os.time())
+  local root = repo_root(0)
+  local plan = root and info.sha and M.commit_plans(root)[info.sha] or nil
+  local text = M.blame_text(info, info.sha and trailer(info.sha, dir) or {}, M.names(), me(), os.time(), plan)
   return { { text, "GitSignsCurrentLineBlame" } }
 end
 

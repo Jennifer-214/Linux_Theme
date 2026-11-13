@@ -1,6 +1,11 @@
 -- nvim --headless -u NONE -l shared/nvim_lua/tests/test_claude.lua : foxml.claude's pure parts.
 local here = debug.getinfo(1, "S").source:sub(2):match("(.*/)")
 package.path = here .. "../?.lua;" .. package.path
+-- Neovim looks in the runtime path (the installed copy under ~/.config/nvim) before package.path: load the repo's.
+table.insert(package.loaders, 2, function(name)
+  local file = here .. "../" .. name:gsub("%.", "/") .. ".lua"
+  if vim.uv.fs_stat(file) then return loadfile(file) end
+end)
 local C = require("foxml.claude")
 local passed, failed = 0, 0
 local function eq(got, want, what)
@@ -58,6 +63,11 @@ eq(C.blame_text({ sha = "aaaa", author = "Caramel", author_time = NOW - 120, sum
 eq(C.blame_text({ sha = "bbbb", author = "Caramel", author_time = NOW - 120, summary = "fix" }, { claude = false }, names, "Caramel", NOW),
   "  ● you · 2m · fix", "blame on your line")
 eq(C.blame_text({ sha = "0000000", author = "Not Committed Yet" }, {}, names, "Caramel", NOW), "  ○ not committed yet", "uncommitted")
+eq(C.blame_text({ sha = "aaaa", author = "Caramel", author_time = NOW - 120, summary = "feat: x" },
+  { claude = true, url = "https://claude.ai/code/session_X" }, names, "Caramel", NOW, { title = "Plan: Queue refactor", step = "step 2" }),
+  "  ✿ Linux_Theme · 2m · feat: x · ⌑ Queue refactor · step 2", "blame names the plan and the step the commit was made under")
+eq(C.blame_text({ sha = "bbbb", author = "Caramel", author_time = NOW - 120, summary = "fix" }, { claude = false }, names, "Caramel", NOW, { title = "" }),
+  "  ● you · 2m · fix", "no plan recorded: the line is as before")
 
 -- A note lands where the mod reads it, whole, named as it expects.
 local dir = vim.fn.tempname()

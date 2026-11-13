@@ -1,6 +1,11 @@
 -- nvim --headless -u NONE -l shared/nvim_lua/tests/test_planmarks.lua : the plan's references, found and marked.
 local here = debug.getinfo(1, "S").source:sub(2):match("(.*/)")
 package.path = here .. "../?.lua;" .. package.path
+-- Neovim looks in the runtime path (the installed copy under ~/.config/nvim) before package.path: load the repo's.
+table.insert(package.loaders, 2, function(name)
+  local file = here .. "../" .. name:gsub("%.", "/") .. ".lua"
+  if vim.uv.fs_stat(file) then return loadfile(file) end
+end)
 local P = require("foxml.planmarks")
 local passed, failed = 0, 0
 local function eq(got, want, what)
