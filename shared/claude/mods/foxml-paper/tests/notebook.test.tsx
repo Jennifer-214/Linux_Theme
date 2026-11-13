@@ -52,7 +52,7 @@ function fakeFs(on: On, files: Record<string, string>, mtimes: Record<string, nu
 }
 
 // Nothing sits beneath the plugin in a test: these stand for the engine and the machine.
-function engine(on: On, options: { ci?: unknown[]; bash?: (command: string) => unknown; runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; finished?: () => unknown; credits?: unknown; trees?: unknown; readIds?: { id: string; at: number }[] } = {}) {
+function engine(on: On, options: { pushCheck?: unknown; ci?: unknown[]; bash?: (command: string) => unknown; runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; finished?: () => unknown; credits?: unknown; trees?: unknown; readIds?: { id: string; at: number }[] } = {}) {
   let pinned: { file: string; step: string } | null = null
   seen.argv = []; seen.stdin = []; seen.bash = []; seen.sent = []; seen.toasts = []; seen.submitted = []; seen.opened = []
   mock.store(on, { 'notebook-read-mail:abc': options.readIds ?? [] })
@@ -76,6 +76,7 @@ function engine(on: On, options: { ci?: unknown[]; bash?: (command: string) => u
     seen.argv.push(argv)
     if (e.init?.stdin !== undefined) seen.stdin.push(e.init.stdin)
     if (argv.startsWith('desk-work begin ')) return { value: done('f'.repeat(32) + '\n') }
+    if (argv.startsWith('desk-work push-check ') && options.pushCheck) return { value: done(JSON.stringify(options.pushCheck)) }
     if (argv.startsWith('desk-work finish ') && options.finished) return { value: done(JSON.stringify(options.finished())) }
     if (argv.startsWith('desk-work plan-pin ')) {
       const file = e.argv[e.argv.indexOf('--file') + 1] ?? ''
@@ -611,4 +612,19 @@ test('a finished turn leaves a receipt: its files, its tests, its commits and wh
   expect((await after.find({ type: 'Text', text: /turn done/ }))).toBeDefined()
   expect((await after.find({ type: 'Text', text: /1 file/ }))?.text).toContain('⚠ bootctl')
   await after.unmount()
+})
+
+test('before a push the notebook says what goes out unreviewed, and never stops it', async ($, on) => {
+  engine(on, { pushCheck: { unpushed: 3, unreviewed: 2, risky: [{ sha: 'abc1234', what: '/etc/pam.d' }],
+    line: '2 Claude commits not reviewed · 1 touches the red zone (/etc/pam.d)' } })
+  await opened($)
+  seen.toasts = []
+  const ran = await $.tool.call({ tool: 'Bash', command: 'git push origin main', description: 'Push' })
+  expect(seen.toasts).toContain('pushing · 2 Claude commits not reviewed · 1 touches the red zone (/etc/pam.d)')
+  expect((ran as { deny?: string }).deny).toBeUndefined()
+  expect(seen.bash).toContain('git push origin main')
+  seen.toasts = []
+  await $.tool.call({ tool: 'Bash', command: 'git push --dry-run', description: 'Try' })
+  await $.tool.call({ tool: 'Bash', command: 'git status', description: 'Look' })
+  expect(seen.toasts.filter(t => t.startsWith('pushing'))).toEqual([])
 })

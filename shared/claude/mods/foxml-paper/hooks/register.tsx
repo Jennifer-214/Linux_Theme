@@ -58,6 +58,7 @@ async function loadRedZone($: EngineInterface) {
   } catch { red = redRules(RED_DEFAULT) }
 }
 const PRIVILEGED = /(^|[\s;&|(])(sudo|doas|pkexec|run0)\b/
+const PUSH = /(^|[\s;&|(])git\s+(-C\s+\S+\s+)?push\b(?![^;&|]*--dry-run)/
 const COMMIT = /(^|[\s;&|(])git\s+(-C\s+\S+\s+)?commit\b(?![^;&|]*--dry-run)/
 
 function redZoneOf(command: string): string | null {
@@ -709,6 +710,13 @@ export const register: Register = on => {
     // Claude's own plain-words description of the command reads better than the command, wherever one is shown.
     const described = typeof e.description === 'string' ? e.description.split('\n')[0]!.trim().slice(0, 160) : ''
     const title = described && !/password|token|secret|authorization|sk-|ghp_/i.test(described) ? described : ''
+    // Before a push: say what is going out unreviewed. It only says so; the push is the person's to stop.
+    if (PUSH.test(e.command)) {
+      try {
+        const check = JSON.parse(await work($, ['push-check', '--root', root]) ?? 'null') as { line?: string } | null
+        if (check?.line) $.ui.toast('pushing · ' + check.line)
+      } catch { /* the check is a courtesy */ }
+    }
     const began = await $.clock.now()
     const activity = title || (safe ? e.command.split('\n')[0]?.slice(0, 160) ?? 'running a command' : 'running a command')
     await work($, ['activity', '--root', root, '--session', sid, '--text', activity, '--state', 'working'])

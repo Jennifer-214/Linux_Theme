@@ -451,6 +451,30 @@ class Work(unittest.TestCase):
         listed = self.git("notes", "--ref", "reviews", "list")
         self.assertNotIn(other, listed)
 
+    def test_push_check_counts_unreviewed_claude_commits_going_out_and_names_the_red_zone(self):
+        remote = self.dir / "remote.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+        self.git("commit", "--allow-empty", "-qm", "base")
+        self.git("remote", "add", "origin", str(remote))
+        branch = self.git("symbolic-ref", "--short", "HEAD")
+        self.git("push", "-q", "-u", "origin", branch)
+        self.assertEqual(self.data("push-check")["line"], "", "nothing to push says nothing")
+        def claude(name, text):
+            (self.repo / name).write_text(text)
+            self.git("add", name)
+            self.git("commit", "-qm", f"Change {name}\n\nClaude-Session: https://claude.ai/code/session_example")
+            return self.git("rev-parse", "HEAD")
+        plain = claude("notes.txt", "hello\n")
+        risky = claude("setup.sh", "#!/bin/sh\nsudo install pam.conf /etc/pam.d/sudo\n")
+        self.git("commit", "--allow-empty", "-qm", "mine, no session")
+        got = self.data("push-check")
+        self.assertEqual((got["unpushed"], got["unreviewed"]), (3, 2), "only Claude's commits count")
+        self.assertEqual(got["line"], "2 Claude commits not reviewed · 1 touches the red zone (/etc/pam.d)")
+        self.data("reviewed", "--sha", risky)
+        self.assertEqual(self.data("push-check")["line"], "1 Claude commit not reviewed")
+        self.data("reviewed", "--sha", plain)
+        self.assertEqual(self.data("push-check")["line"], "", "all reviewed: quiet")
+
     def test_worktree_paths_with_spaces_are_not_shell_commands(self):
         other = self.dir / "other tree ; literal"
         self.git("worktree", "add", "-qb", "feature/work", str(other))

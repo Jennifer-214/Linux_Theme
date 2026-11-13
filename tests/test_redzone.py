@@ -35,6 +35,13 @@ class RedZone(unittest.TestCase):
         self.assertEqual(quoted(paths), self.listed["paths"], "the notebook's fallback paths")
         self.assertEqual(quoted(tools), self.listed["tools"], "the notebook's fallback tools")
 
+    def test_the_work_tool_s_fallback_matches_too(self):
+        cpp = (ROOT / "src/desk-work/main.cpp").read_text()
+        paths = cpp[cpp.index("RED_DEFAULT_PATHS = {"):cpp.index("RED_DEFAULT_TOOLS = {")]
+        tools = cpp[cpp.index("RED_DEFAULT_TOOLS = {"):cpp.index("std::pair<std::vector<std::string>, std::vector<std::string>> red_zone()")]
+        self.assertEqual(re.findall(r'"([^"]+)"', paths), self.listed["paths"])
+        self.assertEqual(re.findall(r'"([^"]+)"', tools), self.listed["tools"])
+
     def test_it_is_deployed(self):
         import glob
         rows = Path(glob.glob(str(ROOT / "src/desk-ins*l/modules/symlinks_data.hpp"))[0]).read_text()

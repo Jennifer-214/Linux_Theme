@@ -562,6 +562,64 @@ J review_tree(const std::string& root, bool all) {
     }
     return tasks;
 }
+// The red-zone list (shared/redzone.json, deployed to ~/.config/foxml/): the same file the notebook's band and the
+// review's risk marks read. The copy here stands in when it is missing; tests/test_redzone.py keeps them the same.
+const std::vector<std::string> RED_DEFAULT_PATHS = {"/etc/pam.d", "/etc/fstab", "/etc/crypttab", "/etc/greetd", "/etc/sudoers", "/etc/mkinitcpio",
+    "/etc/default/grub", "/etc/kernel/cmdline", "/etc/sysctl", "/etc/usbguard", "/etc/ufw", "/etc/security", "/boot/"};
+const std::vector<std::string> RED_DEFAULT_TOOLS = {"bootctl", "efibootmgr", "mkinitcpio", "grub-mkconfig", "ufw", "usbguard", "sysctl -w", "cryptsetup", "faillock"};
+std::pair<std::vector<std::string>, std::vector<std::string>> red_zone() {
+    const auto listed = json(fs::path(env("XDG_CONFIG_HOME", env("HOME") + "/.config")) / "foxml/redzone.json");
+    const auto strings = [&](const char* key, const std::vector<std::string>& fallback) {
+        std::vector<std::string> out;
+        if (listed.is_object() && listed.contains(key) && listed[key].is_array())
+            for (const auto& s : listed[key]) if (s.is_string() && !s.get<std::string>().empty()) out.push_back(s.get<std::string>());
+        return out.empty() ? fallback : out;
+    };
+    return {strings("paths", RED_DEFAULT_PATHS), strings("tools", RED_DEFAULT_TOOLS)};
+}
+bool names_word(const std::string& line, const std::string& word) {
+    const auto wordy = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-'; };
+    for (auto at = line.find(word); at != std::string::npos; at = line.find(word, at + 1)) {
+        const bool before = at > 0 && wordy(line[at - 1]), after = at + word.size() < line.size() && wordy(line[at + word.size()]);
+        if (!before && !after) return true;
+    }
+    return false;
+}
+// What a commit's ADDED lines name from the red zone, or "".
+std::string commit_red_zone(const std::string& root, const std::string& sha) {
+    const auto [paths, tools] = red_zone();
+    for (const auto& line : split(query({"git", "--no-optional-locks", "-C", root, "show", "--format=", "--unified=0", "--no-color", sha}))) {
+        if (line.size() < 2 || line[0] != '+' || line.rfind("+++", 0) == 0) continue;
+        for (const auto& p : paths) if (line.find(p) != std::string::npos) return p;
+        for (const auto& tool : tools) if (names_word(line, tool)) return tool;
+    }
+    return "";
+}
+// Before a push: Claude's commits about to go out that nobody finished reviewing, and whether any touches the red
+// zone. It only says so; it never stops a push.
+J push_check(const std::string& root) {
+    J out{{"unpushed", 0}, {"unreviewed", 0}, {"risky", J::array()}, {"line", ""}};
+    const auto ahead = split(query({"git", "--no-optional-locks", "-C", root, "rev-list", "--max-count=200", "@{upstream}..HEAD"}));
+    std::set<std::string> going;
+    for (const auto& sha : ahead) if (trim(sha).size() == 40) going.insert(trim(sha));
+    out["unpushed"] = going.size();
+    if (going.empty()) return out;
+    int unreviewed = 0; J risky = J::array();
+    for (const auto& c : reviews(root, false)) {
+        const auto sha = str(c, "sha");
+        if (!going.count(sha) || c.value("reviewed", false)) continue;
+        ++unreviewed;
+        const auto what = commit_red_zone(root, sha);
+        if (!what.empty() && risky.size() < 5) risky.push_back(J{{"sha", sha.substr(0, 7)}, {"what", what}});
+    }
+    out["unreviewed"] = unreviewed; out["risky"] = risky;
+    if (unreviewed > 0) {
+        std::string line = std::to_string(unreviewed) + (unreviewed == 1 ? " Claude commit" : " Claude commits") + " not reviewed";
+        if (!risky.empty()) line += " · " + std::to_string(risky.size()) + (risky.size() == 1 ? " touches " : " touch ") + "the red zone (" + str(risky[0], "what") + ")";
+        out["line"] = line;
+    }
+    return out;
+}
 J known_roots() {
     J roots = J::array(); std::error_code ec;
     for (const auto& e : fs::directory_iterator(base() / "projects", ec)) {
@@ -843,7 +901,7 @@ int main(int argc, char** argv) {
         }
         const auto cmd = args[0];
         const auto place = opts.count("--root") ? opts["--root"] : fs::current_path().string();
-        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "review-mark", "review-progress", "commit-plan", "review-tree", "worktrees", "activity", "plan", "plan-pin"}.count(cmd)
+        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "review-mark", "review-progress", "commit-plan", "review-tree", "push-check", "worktrees", "activity", "plan", "plan-pin"}.count(cmd)
             ? root_of(place) : place;
         const auto id = opts["--id"];
         J out;
@@ -915,6 +973,7 @@ int main(int argc, char** argv) {
         else if (cmd == "review-progress") out = review_progress(root, opts["--key"]);
         else if (cmd == "commit-plan") out = commit_plan(root, opts["--sha"], opts["--file"], opts["--title"], opts["--step"]);
         else if (cmd == "review-tree") out = review_tree(root, opts["--all"] == "yes");
+        else if (cmd == "push-check") out = push_check(root);
         else if (cmd == "tests") {
             auto j = id.empty() ? notebook(root, "")["tests"] : load_run(id);
             if (j.is_object() && j.contains("snapshot")) { freshness(j, snapshot(str(j, "root"))); j.erase("snapshot"); }
