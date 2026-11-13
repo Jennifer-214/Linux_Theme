@@ -103,7 +103,7 @@ fs::path repository() {
 const std::set<std::string> pages = {
     "apps", "windows", "audio-outputs", "wifi", "bluetooth", "tools", "tools-ai", "tools-security", "tools-desktop", "tools-system", "tools-projects", "tools-other", "tools-all", "cheatsheet", "cheatsheet-keys", "sandbox", "clipboard-text", "clipboard-images",
     "wallpapers", "themes", "power", "updates", "agents", "projects", "bookmarks", "library", "downloads", "screenshots", "passwords", "garden",
-    "models", "storage", "backups", "startup", "displays", "display", "display-modes", "calendar-feeds", "programs", "terminals", "terminals-arrange", "terminal", "terminal-pane", "jobs", "test-results", "reviews", "worktrees", "next-steps", "failures", "api-credits", "api-tasks", "earlier-notes"
+    "models", "storage", "backups", "startup", "displays", "display", "display-modes", "calendar-feeds", "programs", "terminals", "terminals-arrange", "terminal", "terminal-pane", "jobs", "test-results", "reviews", "attention", "work-history", "work-digest", "attention-snoozed", "worktrees", "next-steps", "failures", "api-credits", "api-tasks", "earlier-notes"
 };
 const std::set<std::string> actions = {
     "volume", "volume-mute", "mic-mute", "media-play-pause", "media-next", "media-previous", "brightness",
@@ -114,7 +114,7 @@ const std::set<std::string> actions = {
     "goodnight-open", "api-task-ask", "api-task-open", "api-task-failure", "api-task-settings", "api-task-review", "api-task-pi", "api-task-follow", "calendar-feed-add", "calendar-feed-remove", "calendar-refresh", "display-scale", "display-rotate", "display-side", "display-mode", "display-keep", "display-undo", "display-edit", "cursor-size", "credits-setup", "credits-console", "model-agent", "model-remove", "storage-scan", "storage-open", "storage-clean-packages", "storage-trim-journal", "storage-flatpak-unused",
     "storage-empty-trash", "storage-hidden", "backup-restore", "backup-open", "backup-prune", "startup-user", "startup-autostart", "program-quit", "program-force", "terminal-go", "terminal-new", "terminal-here", "terminal-rename", "terminal-pane-move", "terminal-pane-split", "terminal-close",
     "work-open", "work-jump", "work-tests", "work-compare", "work-ask", "work-reviews", "work-tasks", "work-task-toggle", "work-task-draft", "worktree-open", "worktree-terminal", "project-worktrees", "service-log", "service-ask",
-    "note-open", "note-clear", "calendar"
+    "note-open", "note-clear", "calendar", "work-attention", "work-event", "work-unsnooze", "work-caught-up"
 };
 // The drawer loads one page at a time, so a page read that waits on a dead service holds every other page behind it.
 int read_limit_seconds = 0;
@@ -1197,6 +1197,33 @@ long long stamp(const Json& object, const char* key) {
     return at != object.end() && at->is_number() ? static_cast<long long>(at->get<double>()) : 0;
 }
 std::vector<ClaudeSession> claude_sessions(ClaudeUsage& usage) {
+    Json shared;
+    if (sh::have("desk-work") && capture_json({"desk-work", "agents"}, shared) && shared.is_array()) {
+        std::vector<ClaudeSession> sessions;
+        long long usage_at = 0;
+        for (const auto& agent : shared) {
+            if (text(agent, "agent") != "claude") continue;
+            ClaudeSession session;
+            session.id = text(agent, "id"); session.root = text(agent, "root"); session.project = text(agent, "project");
+            session.title = text(agent, "name"); session.model = text(agent, "model", "Claude"); session.context = whole(agent, "context");
+            session.state = text(agent, "state"); session.pane = text(agent, "pane"); session.epoch = stamp(agent, "at");
+            session.detail = text(agent, "detail"); session.fresh = truth(agent, "fresh");
+            sessions.push_back(session);
+            const auto when = stamp(agent, "usageAt");
+            if (when > usage_at) {
+                usage_at = when;
+                const auto window = [&](const char* key, int& used, long long& resets) {
+                    const auto at = agent.find(key);
+                    used = at != agent.end() && at->is_object() ? whole(*at, "used") : -1;
+                    resets = at != agent.end() && at->is_object() ? stamp(*at, "resets") : 0;
+                    if (resets > 0 && resets <= static_cast<long long>(std::time(nullptr))) used = -1;
+                };
+                window("five", usage.five, usage.five_resets); window("week", usage.week, usage.week_resets);
+            }
+        }
+        return sessions;
+    }
+    // Compatibility when an older installation has no common work backend yet.
     std::vector<ClaudeSession> sessions;
     std::error_code ec;
     if (!directory(claude_dir())) return sessions;
@@ -2343,10 +2370,11 @@ Json last_night_notes(std::time_t now = std::time(nullptr)) {
     for (const auto& f : found) { if (out.size() >= 3) break; out.push_back(f.second); }
     return out;
 }
-Json work_data(const Json& config, bool fresh = false) {
+Json work_data(const Json& config, bool fresh = false, bool history = false) {
     if (!sh::have("desk-work")) return Json();
     Args args{"desk-work", "overview"};
     if (fresh) { args.push_back("--fresh"); args.push_back("yes"); }
+    if (history) { args.push_back("--history"); args.push_back("yes"); }
     for (const auto& project : projects(config)) {
         if (args.size() > 130) break;
         if (!directory(project.path / ".git") && !regular(project.path / ".git")) continue;
@@ -2362,8 +2390,8 @@ Json work_row(const std::string& action, const std::string& label, const std::st
     // Each kind of work row has its own pencil drawing: the job itself, its terminal, a comparison, a question.
     static const std::map<std::string, std::string> icons = {
         {"work-open", "clock"}, {"work-tests", "notebook"}, {"work-jump", "terminal"}, {"work-compare", "search"},
-        {"work-ask", "message"}, {"api-task-failure", "message"}, {"work-reviews", "note"}, {"work-task-draft", "next"},
-        {"work-task-toggle", "next"}, {"work-tasks", "next"}, {"service-log", "notebook"}, {"service-ask", "message"}};
+        {"work-ask", "message"}, {"api-task-failure", "message"}, {"work-reviews", "note"}, {"work-attention", "note"}, {"work-task-draft", "next"},
+        {"work-task-toggle", "next"}, {"work-tasks", "next"}, {"work-event", "note"}, {"work-unsnooze", "note"}, {"work-caught-up", "next"}, {"service-log", "notebook"}, {"service-ask", "message"}};
     const auto found = icons.find(action);
     auto row = item(action, label, "action", detail, found == icons.end() ? "clock" : found->second);
     row["argument"] = argument; row["close"] = true; return row;
@@ -2373,10 +2401,41 @@ bool work_project(const Json& config, const std::string& path) {
     return false;
 }
 void work_rows(const Json& config, const std::string& page, Json& rows) {
-    const auto data = work_data(config, page == "test-results");
+    const auto data = work_data(config, page == "test-results", page == "work-history" || page == "work-digest");
     if (!data.is_object()) {
         auto row = item("work-open", "Work records are unavailable", "action", "Install desk-work to track jobs and test results", "info");
         row["enabled"] = false; rows.push_back(row); return;
+    }
+    if (page == "work-history" || page == "work-digest") {
+        if (page == "work-history") {
+            for (const auto& event : data.value("timeline", Json::array())) rows.push_back(work_row("work-event", text(event, "label"),
+                Json{{"root", text(event, "root")}, {"id", text(event, "id")}}.dump(), fs::path(text(event, "root")).filename().string()));
+        } else for (const auto& summary : data.value("digests", Json::array())) {
+            for (const auto& event : summary.value("events", Json::array())) rows.push_back(work_row("work-event", text(event, "label"),
+                Json{{"root", text(summary, "root")}, {"id", text(event, "id")}}.dump(), fs::path(text(summary, "root")).filename().string()));
+            if (whole(summary, "total") > 0) rows.push_back(work_row("work-caught-up", "Caught up · " + fs::path(text(summary, "root")).filename().string(),
+                Json{{"root", text(summary, "root")}, {"through", summary.value("through", 0LL)}}.dump(), text(summary, "summary", "Only marks the events shown here")));
+        }
+        return;
+    }
+    if (page == "attention-snoozed") {
+        for (const auto& entry : data.value("snoozed", Json::array())) rows.push_back(work_row("work-unsnooze", "Bring back · " + text(entry, "label"),
+            Json{{"root", text(entry, "root")}, {"id", text(entry, "id")}}.dump(), "Keeps the original failure or review record"));
+        return;
+    }
+    if (page == "attention" || (page == "reviews" && data.contains("attention"))) {
+        for (const auto& entry : data.value("attention", Json::array())) {
+            const auto kind = text(entry, "kind");
+            if (page == "reviews" && kind != "commit" && kind != "request" && kind != "changed") continue;
+            rows.push_back(work_row("work-attention", text(entry, "label"),
+                Json{{"root", text(entry, "root")}, {"id", text(entry, "id")}}.dump(),
+                fs::path(text(entry, "root")).filename().string() + " · " + text(entry, "why")));
+        }
+        if (page == "attention" && !data.value("snoozed", Json::array()).empty()) {
+            auto row = item("attention-snoozed", "Snoozed items", "page", "Bring an item back before its snooze ends", "note");
+            row["page"] = "attention-snoozed"; rows.push_back(row);
+        }
+        return;
     }
     if (page == "reviews") {
         for (const auto& r : data.value("reviews", Json::array()))
@@ -4113,9 +4172,9 @@ Json view(const Json& config, const std::string& page, const std::string& query,
         }
         if (query.empty()) rows = sectioned(rows);
     }
-    if (page == "jobs" || page == "test-results" || page == "reviews" || page == "next-steps" || page == "failures") {
+    if (page == "jobs" || page == "test-results" || page == "reviews" || page == "attention" || page == "next-steps" || page == "failures" || page == "work-history" || page == "work-digest" || page == "attention-snoozed") {
         known = true;
-        out["title"] = page == "jobs" ? "Jobs" : page == "test-results" ? "Test results" : page == "reviews" ? "Changes to look over" : page == "next-steps" ? "Pinned next steps" : "Failures";
+        out["title"] = page == "work-history" ? "Project timeline" : page == "work-digest" ? "Since you last looked" : page == "attention-snoozed" ? "Snoozed items" : page == "attention" ? "Needs you" : page == "jobs" ? "Jobs" : page == "test-results" ? "Test results" : page == "reviews" ? "Changes to look over" : page == "next-steps" ? "Pinned next steps" : "Failures";
         work_rows(config, page, rows);
     } else if (page == "worktrees") {
         known = true; out["title"] = "Worktree map";
@@ -4518,6 +4577,15 @@ Json view(const Json& config, const std::string& page, const std::string& query,
             if (session.pane.empty()) row["disabledReason"] = "Not in a tmux pane, so there is nowhere to jump";
             rows.push_back(row);
         }
+        Json all_agents;
+        if (sh::have("desk-work") && capture_json({"desk-work", "agents"}, all_agents) && all_agents.is_array())
+            for (const auto& agent : all_agents) if (text(agent, "agent") != "claude") {
+                auto row = item("claude-jump", text(agent, "agent") + " · " + text(agent, "name"), "action",
+                    text(agent, "project") + " · " + text(agent, "state") + " · " + text(agent, "attribution", "attribution unknown"), "message");
+                row["argument"] = text(agent, "pane"); row["enabled"] = !text(agent, "pane").empty(); row["close"] = true;
+                if (!truth(row, "enabled")) row["disabledReason"] = "No terminal pane was recorded";
+                rows.push_back(row);
+            }
         const auto notes = agent_notes();
         for (auto at = notes.rbegin(); at != notes.rend() && rows.size() < 128; ++at) {
             const auto& entry = at->second;
@@ -4563,11 +4631,13 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         if (!work_project(config, arg)) return result(false, "Project is no longer in your configured project roots");
         return launch({"desk-work", "open", "--action", "tasks", "--root", arg}, "Project next steps opened");
     }
-    if (id == "work-reviews" || id == "work-task-toggle" || id == "work-task-draft") {
+    if (id == "work-reviews" || id == "work-attention" || id == "work-task-toggle" || id == "work-task-draft" || id == "work-event" || id == "work-unsnooze" || id == "work-caught-up") {
         const auto value = Json::parse(arg, nullptr, false);
         if (!value.is_object() || !work_project(config, text(value, "root"))) return result(false, "This project is no longer in your index cards");
+        if (id == "work-unsnooze") { auto reply = command({"desk-work", "snooze", "--root", text(value, "root"), "--id", text(value, "id"), "--clear", "yes"}, "Attention item restored"); reply["close"] = false; return reply; }
+        if (id == "work-caught-up") { auto reply = command({"desk-work", "digest", "--root", text(value, "root"), "--consumer", "desktop", "--through", std::to_string(value.value("through", 0LL))}, "Shown events marked caught up"); reply["close"] = false; return reply; }
         if (id == "work-task-toggle") return command({"desk-work", "task-toggle", "--root", text(value, "root"), "--id", text(value, "id")}, "Next step updated");
-        return launch({"desk-work", "open", "--action", id == "work-reviews" ? "reviews" : "tasks", "--root", text(value, "root"), "--id", text(value, "id")}, "Opened in Neovim");
+        return launch({"desk-work", "open", "--action", id == "work-event" ? "event" : id == "work-attention" ? "attention" : id == "work-reviews" ? "reviews" : "tasks", "--root", text(value, "root"), "--id", text(value, "id")}, "Opened work item");
     }
     if (id == "work-open" || id == "work-tests" || id == "work-compare" || id == "work-ask") {
         if (!std::regex_match(arg, std::regex("[a-f0-9]{32}"))) return result(false, "Invalid job record");

@@ -61,3 +61,5 @@ sample data: the front page, the files page, a request thread, the marks page an
 `shared/claude/mods/foxml-paper/tests/preview.test.tsx` and go through the mod's real drawing code under Claude
 Code's own test kit, so what it prints is what the pane shows. `--scene WORDS` picks one, `--theme NAME` another
 palette, `--plain` drops the colour. Add a scene there when a page changes.
+The command fails if any notebook test fails, even when some scenes were drawn, and an unmatched `--scene` is an
+error. Detail text preserves long paths and identifiers by continuing them on the next line.

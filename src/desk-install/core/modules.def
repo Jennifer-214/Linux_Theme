@@ -129,6 +129,7 @@ DESK_MODULE( fox_aliases, run_fox_aliases,   "--fox-aliases", "Old fox-* command
 DESK_MODULE( keybind_docs, run_keybind_docs, "--keybind-docs", "Regenerate KEYBINDS.md from the tmux/Hyprland configs", true )
 DESK_MODULE( specials,    run_specials,      "--specials",    "Firefox + Cursor + Bat + Claude + bulk dirs", true )
 DESK_MODULE( drawer,      run_drawer,        "--drawer",      "Quickshell bar, hierarchical menus and active palette", true )
+DESK_MODULE( integrations, run_integrations, "--work-integrations", "Verify work integrations and publish installed versions", true )
 //   greetd — installs+enables a system systemd unit, writes /etc/greetd/. After render and specials: specials stages its
 //   files from this run's palette and deploys the wallpapers. Before that it skips a fresh install and reuses the last theme.
 DESK_MODULE_FULL( greetd,        run_greetd,             "--greetd",           "Themed regreet login screen deploy to /etc/greetd/",          true,

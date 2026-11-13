@@ -163,5 +163,27 @@ for (const kind of ["input", "editor", "custom"]) { // typing kinds: she is alre
   check(!threw, "a missing notify-send never throws into pi");
 }
 
+{
+  const handlers = {}, records = [];
+  const pi = { on: (event, fn) => { (handlers[event] ||= []).push(fn); } };
+  mod.makeWork(async (args, input) => { records.push({ args, input }); return args[0] === 'begin' ? 'a'.repeat(32) : '{"ok":true}'; })(pi);
+  const ctx = { cwd: '/code/project', sessionManager: { getSessionId: () => 'session-1', getSessionName: () => 'Queue work' } };
+  const stale = new Proxy({}, { get() { throw new Error('stale context'); } });
+  const fire = async (event, data = {}, context = stale) => { for (const fn of handlers[event] || []) await fn({ type: event, ...data }, context); };
+  await fire('session_start', {}, ctx);
+  await fire('agent_start', {}, ctx);
+  await fire('tool_execution_start', { toolCallId: 't1', toolName: 'bash', args: { command: 'make test' } });
+  await fire('tool_result', { toolCallId: 't1', toolName: 'bash', input: {}, content: [{ type: 'text', text: '128 passed' }], structuredContent: { exit_code: 0 }, isError: false });
+  await fire('tool_result', { toolCallId: 'w1', toolName: 'write', input: { path: 'queue.cpp' }, content: [], isError: false });
+  await fire('ui_prompt_start'); await fire('ui_prompt_end');
+  await fire('agent_before_settle', { outcome: 'error' }); await fire('agent_settled');
+  await fire('session_shutdown');
+  const states = records.filter(r => r.args[0] === 'agent-update').map(r => r.args[r.args.indexOf('--state') + 1]);
+  check(states.join(',') === 'waiting,working,working,needs,working,error,done', 'pi lifecycle updates the common agent store without a stale context');
+  check(records.some(r => r.args.includes('--file') && r.args.includes('queue.cpp')), 'only observed write tools attribute a file to pi');
+  check(records.some(r => r.args[0] === 'begin' && r.args.includes('--safe')), 'pi jobs use the native observation policy');
+  check(records.some(r => r.args[0] === 'finish' && r.input === '128 passed'), 'pi records the actual test output and exit');
+}
+
 console.log(fail ? `${fail} failure(s)` : "all checks passed");
 process.exit(fail ? 1 : 0);

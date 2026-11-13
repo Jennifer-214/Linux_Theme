@@ -4,7 +4,7 @@ import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, job
 test('tracking records a command as written, keeps secrets out, and reads how the call ended', () => {
   const command = "make test && printf '%s' \"$HOME\""
   expect(canTrack(command)).toBe(true)
-  expect(beginArgs(command, '/a folder', 'abc')).toEqual(['begin', '--root', '/a folder', '--session', 'abc', '--pid', 'parent', '--command', command])
+  expect(beginArgs(command, '/a folder', 'abc')).toEqual(['begin', '--root', '/a folder', '--session', 'abc', '--pid', 'parent', '--safe', 'yes', '--command', command])
   expect(beginArgs(command, '/r', 'abc', ' Run the unit tests ')).toContain('Run the unit tests')
   expect(beginArgs(command, '/r', 'abc', 'two\nlines')).not.toContain('--title')
   expect(shellQuote("a'b")).toBe("'a'\\''b'")
@@ -160,8 +160,10 @@ test('file filters: needs review, changed since review and a part of the name co
   expect(filterFiles(files, states, 'unreviewed', 'GUIDE').map(f => f.path)).toEqual(['docs/Guide.md'])
 })
 
-test('words wrap to the pane, and a word longer than a line is cut', () => {
+test('detail text wraps without losing long paths or splitting Unicode characters', () => {
   expect(wrapWords('rename the head pointer before the drain', 16)).toEqual(['rename the head', 'pointer before', 'the drain'])
-  expect(wrapWords('x'.repeat(30), 10)).toEqual(['x'.repeat(9) + '…'])
+  expect(wrapWords('x'.repeat(30), 10)).toEqual(['x'.repeat(10), 'x'.repeat(10), 'x'.repeat(10)])
+  expect(wrapWords('a very/long/path/with/no/spaces.txt', 10).join('')).toBe('avery/long/path/with/no/spaces.txt')
+  expect(wrapWords('🌸🌸🌸', 1)).toEqual(['🌸', '🌸', '🌸'])
   expect(wrapWords('  ', 10)).toEqual([])
 })

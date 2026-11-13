@@ -111,13 +111,15 @@ test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_c
 	@./tests/test_private_extras
 	@./tests/test_menu_upgrade
 	@./tests/test_fox_aliases
+	@./tests/test_workflow_deploy
+	@./tests/test_workflow_update
 	@bash ./tests/lint_shell_assets.sh
 	@bash ./tests/lint_unit_escaping.sh
 
 # Test binary links only core/registry.o (the X-macro table); modules
 # are stubbed inside the test file so we don't drag in their real
 # implementations.
-tests/test_registry: tests/test_registry.cpp core/registry.o
+tests/test_registry: tests/test_registry.cpp tests/run_stubs.inc core/registry.o
 	$(CXX) $(CXXFLAGS) tests/test_registry.cpp core/registry.o -o $@
 
 
@@ -125,6 +127,17 @@ test: tests/test_firefox_appearance
 test: tests/test_notification_refresh
 test: tests/test_theme_choice tests/test_ide_settings tests/test_firefox_policies tests/test_arkenfox_userjs
 test: tests/test_private_extras tests/test_menu_upgrade tests/test_fox_aliases
+test: tests/test_workflow_deploy
+test: tests/test_workflow_update
+
+tests/test_workflow_update: tests/test_workflow_update.cpp modules/workflow_update.hpp modules/workflow_assets.hpp modules/symlinks_data.hpp modules/menu_upgrade.hpp core/backup.o $(DESK_COMMON_LIB) ../desk-render/desk-render-fast ../desk-work/desk-work ../desk-drawer/desk-drawer ../theme-check/theme-check $(BIN)
+	$(CXX) $(CXXFLAGS) $< core/backup.o -L$(DESK_COMMON_DIR) -ldesk-common -lcrypto -o $@
+
+tests/test_workflow_deploy: tests/test_workflow_deploy.cpp modules/symlinks_data.hpp modules/fox_aliases.hpp modules/menu_upgrade.hpp core/backup.o $(DESK_COMMON_LIB) ../desk-render/desk-render-fast ../desk-work/desk-work ../desk-drawer/desk-drawer
+	$(CXX) $(CXXFLAGS) $< core/backup.o -L$(DESK_COMMON_DIR) -ldesk-common -o $@
+
+../desk-render/desk-render-fast ../desk-work/desk-work ../desk-drawer/desk-drawer ../theme-check/theme-check:
+	$(MAKE) --no-print-directory -C $(@D)
 tests/test_fox_aliases: tests/test_fox_aliases.cpp modules/fox_aliases.hpp
 	$(CXX) $(CXXFLAGS) tests/test_fox_aliases.cpp -o $@
 
@@ -178,7 +191,7 @@ tests/test_gtk_appearance: tests/test_gtk_appearance.cpp modules/gtk_appearance.
 # accepted-but-overridden flag bug is a case here). Links the real
 # state_checks for the registry's check_* symbols; run_* are stubbed
 # inside the test via the modules.def X-macro.
-tests/test_args: tests/test_args.cpp core/args.o core/registry.o core/state_checks.o core/state_manifest.o core/classifier.o $(DESK_COMMON_LIB)
+tests/test_args: tests/test_args.cpp tests/run_stubs.inc core/args.o core/registry.o core/state_checks.o core/state_manifest.o core/classifier.o $(DESK_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) tests/test_args.cpp core/args.o core/registry.o core/state_checks.o core/state_manifest.o core/classifier.o -L$(DESK_COMMON_DIR) -ldesk-common -lcrypto -o $@
 
 tests/test_state_manifest: tests/test_state_manifest.cpp core/state_manifest.o

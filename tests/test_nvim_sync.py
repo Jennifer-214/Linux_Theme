@@ -105,5 +105,18 @@ assert(not table.concat(api.nvim_buf_get_lines(buf,0,-1,false),'\n'):find('<<<<<
 S.keep(); assert(S.buffers[buf].pending==nil and vim.bo[buf].modified)
 ''')
 
+    def test_attaching_to_an_already_modified_buffer_never_invents_a_merge_baseline(self):
+        self.exercise(r'''
+S.detach(buf)
+api.nvim_buf_set_lines(buf,0,1,false,{'local first = 100'})
+S.track(buf)
+assert(S.buffers[buf].base==nil,'an unsaved buffer has no known shared baseline at first attach')
+disk('local first = 1\n\nlocal middle = 2\n\nlocal last = 300\n',true)
+assert(vim.wait(2000,function() return S.buffers[buf].pending~=nil end,20))
+S.merge()
+assert(api.nvim_buf_get_lines(buf,0,1,false)[1]=='local first = 100','a guessed baseline lost local edits')
+assert(S.buffers[buf].pending~=nil)
+''')
+
 
 if __name__ == '__main__': unittest.main()

@@ -55,6 +55,6 @@ export async function mailId(from: string, body: string): Promise<string> {
 }
 
 // The drawer page that shows the same thing at desk size: `d` in the notebook opens it.
-export function drawerPage(page: 'overview' | 'files' | 'project' | 'sessions' | 'help' | 'request'): string {
-  return { overview: 'workbench', files: 'reviews', project: 'projects', sessions: 'agents', help: 'workbench', request: 'reviews' }[page]
+export function drawerPage(page: 'overview' | 'files' | 'project' | 'sessions' | 'help' | 'request' | 'timeline' | 'digest'): string {
+  return { overview: 'workbench', files: 'reviews', project: 'projects', sessions: 'agents', help: 'workbench', request: 'reviews', timeline: 'work-history', digest: 'work-digest' }[page]
 }

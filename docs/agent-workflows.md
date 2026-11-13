@@ -4,7 +4,94 @@
 
 Claude session status, notebook controls, supervised jobs, test results and review. For local model setup, see [Local AI](local-ai.md).
 
+Change requests refresh when you return to an open Neovim review, refresh its comparison, or ask for the next
+unread file. A request still waiting on a session is shown as waiting. Retrying delivery from the notebook keeps
+the original file baseline, so a file already changed remains ready for re-review. Plan coverage says "no matching
+edits" or "no commit recorded" when it has no evidence; completion still comes from the plan's own checkboxes.
+
 [Session status](#session-status) · [Desktop integration](#desktop-integration) · [Notebook](#the-notebook-mod) · [Jobs and tests](#jobs-tests-and-next-steps)
+
+## Shared attention and live updates
+
+`desk-work attention --root DIR` is the common list of what needs you: outstanding job failures and agents asking
+for input, requested changes ready to read, files edited since review, then unread commits oldest first. The
+notebook, the drawer's **Needs you** page, and Neovim's `:WorkAttention` use those identities and that order.
+`:WorkNext` opens the first item; `:ReviewNext` uses the same list filtered to reviews. CI and unread mail remain
+additional notebook context. `desk-work open --root DIR --action attention --id ID` resolves an item against the
+current list before opening it, so a stale button cannot act on a request that was already settled.
+
+The work store publishes a versioned change signal after a successful write. `desk-work watch --root DIR` streams
+it to subscribers; the desktop uses `--all yes`. Neovim refreshes a visible live comparison while preserving focus
+and scroll position. A comparison of a historical commit stays fixed. Ordinary loaded source files also have
+directory watchers, which catch atomic saves from any editor or agent without waiting for window focus. Clean
+buffers reload; unsaved buffers retain your work and offer comparison or an explicit three-way merge. `:AgentChanges`
+opens that comparison. File watching does not depend on the welcome screen setting.
+
+Polling remains a recovery path for older integrations and abrupt process exits. Cache reads do not publish
+changes, so subscribing cannot create a refresh loop. Closing a view stops only the watcher it owns.
+Watchers reconnect with bounded backoff. A delayed stream is identified separately from a failed data refresh;
+polling can still provide current results. A wall-clock jump after suspend prompts a fresh projection.
+
+## History, digests and attention
+
+The notebook's `/notebook timeline`, Neovim's `:WorkTimeline` and the drawer's **Project timeline** read the same
+bounded journal. It records requests, explicitly observed edits, job transitions and reviews from this update
+onward; it does not invent earlier activity. Entries carry backend action identities and open the related file,
+captured result or historical commit. The journal keeps the latest 500 events per checkout.
+
+`/notebook digest`, `:WorkDigest` and **Since you last looked** summarize that journal. Opening a digest does not
+clear it. **Mark caught up** acknowledges its recorded sequence, so later arrivals remain new. Notebook, editor
+and desktop have separate reading positions; attention state and review marks remain shared.
+
+Select a notebook attention row and choose **later**, or use `:WorkSnooze`, to hide it for an hour or until it
+changes. The snooze is shared with the drawer and other clients. It never clears a failure, checks a file or
+settles a request. A new content version brings it back. `:WorkUnsnooze` and the drawer's **Snoozed items** bring
+items back explicitly.
+
+## Resume and relevant tests
+
+`:WorkSave` records a project's saved-file positions; `:WorkResume` opens them in new tabs and keeps existing
+windows, unsaved buffers and terminal jobs. From outside a checkout it offers saved projects and worktrees.
+Neovim's existing persistence plugin continues to own its full editor-session layout. The notebook remembers its
+page and selection per checkout and Claude session; forms and keyboard focus are not restored. Plans remain
+owned by the existing plan store, rather than copied into another settings file.
+
+**Tests for this file** in the review, `:WorkSuggestedTests` and the notebook file page offer captured commands.
+Each explains whether it ran that test, reported a failure in the source, has an inferred name match or is only
+project history. The previous result's freshness is shown; this is not a claim of proven coverage. Running is
+explicit and uses the recorded working folder through the same job supervisor as ordinary runs. Older records
+without a known execution folder are not offered for rerun.
+
+## Compact notebook and other agents
+
+`/notebook compact` uses a 30-column, four-row summary: the work name, attention count, last tests when present,
+and **expand notebook**. `/notebook expand` restores the 42-column pane. `z` switches layouts while the notebook
+has focus. The choice is remembered, and background updates do not expand the pane or move the keyboard out of
+your conversation. File, project, request and session pages open at the usual width.
+`/notebook auto` optionally follows the measured terminal width: compact below 144 columns and expanded above
+it. Resizing is applied outside drawing, without requesting keyboard focus, and does not resize an open form.
+Explicit compact/expand turns automatic sizing off.
+
+`desk-work agents` owns the shared session list. The existing Claude runtime files remain an adapter for sessions
+already running, including engine prompts and compaction. The pi extension now reports lifecycle state, observed
+write/edit paths, and captured test/job results through the same store. pi can be opened at its recorded terminal;
+the notebook does not offer note delivery where that integration has no messaging capability. File attribution
+records observed tool edits; it does not claim every dirty file for the active agent.
+
+Another agent can publish the same local protocol without changing editor buffer handling:
+
+```bash
+desk-work agent-update --root "$PWD" --agent my-agent --session session-id \
+  --pid PARENT_PID --state working --title "Queue work"
+desk-work agent-update --root "$PWD" --agent my-agent --session session-id --state done
+```
+
+Use the agent process's PID, not a short-lived helper's PID. Identity includes both the agent kind and session ID;
+dead processes are excluded. Registered live processes remain listed through long silence; a missing heartbeat
+is shown as delayed instead of removing them. Legacy records without verified process identity still expire.
+Claude and pi publish heartbeats without changing an input-waiting state. Their overlap warnings consume the
+same observed-file registry; separate worktrees remain separate. This provides an adapter API; it does not imply automatic hooks
+are installed for every agent.
 
 ## Session status
 
@@ -42,7 +129,8 @@ hours once they run low), and a `✎ 2 working` tag. The time comes from a tally
 hooks keep beside the session files for the day. The lock
 screen says `2 still working ✎` under the battery while sessions are busy. The count is Claude only: a build or a
 sanitizer run you started yourself can still be busy at zero. Sessions whose pane
-went back to a shell, and anything quiet for twelve hours, are left out.
+went back to a shell are left out. Legacy records without verified process identity also expire after twelve
+quiet hours; registered live processes stay listed, with delayed heartbeats identified separately.
 
 ## The notebook mod
 
@@ -133,8 +221,8 @@ list there yourself). It draws in the palette and keeps its session records in p
   (`✉`) until it changes, then reads "ready for re-review"; checking it settles the request.
 - **Your own notes**: `N` on a line leaves a note for yourself. It stays with the file across reviews, follows its
   line when the file shifts, marks the row `✎`, and `:ReviewNotes` lists every one in the project.
-- **Plan coverage**: `P` lists each step of the plan with the commits that touched a file it names, the steps not
-  started, and the changed files no step names. A commit row also says whether tests passed on exactly that commit.
+- **Plan coverage**: `P` lists each step of the plan with the commits that touched a file it names, steps with no
+  matching edits, and changed files no step names. A commit row also says whether tests passed on exactly that commit.
 - **Next**: `Space Cr` (`:ReviewNext`) opens the next thing that needs you. A review also reopens on the file and
   line you left it on, while that file still needs reading.
 - **Before a push**: the notebook says how many of Claude's commits going out are not reviewed and whether one

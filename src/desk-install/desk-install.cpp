@@ -14,6 +14,7 @@
 #include "core/state_manifest.hpp"
 #include "core/theme_choice.hpp"
 #include "core/wizard.hpp"
+#include "modules/workflow_update.hpp"
 #include "../desk-common/shell.hpp"
 #include "../desk-common/ui.hpp"
 
@@ -112,6 +113,12 @@ fs::path detect_script_dir(const char* argv0) {
     }
 
     if (const char* home = std::getenv("HOME"); home && *home) {
+        desk_install::Context location; location.home = home;
+        const auto deployed = desk_install::workflow::load(desk_install::workflow::state_home(location) / "current.json");
+        if (deployed.is_object() && deployed.contains("repo") && deployed["repo"].is_string()) {
+            const fs::path repo = deployed["repo"].get<std::string>();
+            if (fs::is_directory(repo / "templates") && fs::is_directory(repo / "themes")) return repo;
+        }
         fs::path marker = fs::path(home) / ".local/share/foxml/repo-dir";
         std::ifstream f(marker);
         if (f) {
@@ -170,7 +177,6 @@ int main(int argc, char** argv) {
     using namespace desk_install;
 
     ui::init();
-    warn_if_stale_on_path();
 
     Context ctx;
     args::Parsed parsed;
@@ -179,6 +185,46 @@ int main(int argc, char** argv) {
     if (!args::parse(argc, argv, parsed, ctx)) return 2;
     if (parsed.show_help)    { args::print_help(argv[0]);    return 0; }
     if (parsed.show_version) { args::print_version();        return 0; }
+
+    if (!parsed.integration_mode.empty()) {
+        fill_paths_post(ctx);
+        if (parsed.integration_mode == "status") {
+            const auto current = workflow::load(workflow::state_home(ctx) / "current.json");
+            std::puts(current.is_discarded() ? "null" : current.dump().c_str()); return 0;
+        }
+        if (ctx.dry_run && parsed.integration_mode == "rollback") {
+            if (parsed.transaction.find_first_not_of("0123456789-") != parsed.transaction.npos) return 2;
+            const auto record = workflow::load(workflow::state_home(ctx) / "transactions" / parsed.transaction / "manifest.json");
+            if (!record.is_object()) return 1;
+            std::puts(nlohmann::json{{"dryRun", true}, {"transaction", parsed.transaction}, {"files", record["files"]}}.dump().c_str()); return 0;
+        }
+        if (ctx.dry_run) parsed.integration_mode = "plan";
+        if (parsed.integration_mode != "plan" && !ctx.assume_yes) {
+            ui::err("Preview the integration update first, then supply --yes with its expected plan or rollback transaction."); return 1;
+        }
+        [[maybe_unused]] int integration_lock = -1;
+        if (parsed.integration_mode == "apply" || parsed.integration_mode == "rollback") {
+            const auto lock = lockfile::acquire();
+            if (lock.fd < 0) { std::fprintf(stderr, "Another installation/update holds the lock, or it could not be acquired.\n"); return 1; }
+            integration_lock = lock.fd;
+        }
+        if (parsed.integration_mode == "rollback") {
+            const auto result = workflow::rollback(ctx, parsed.transaction); std::puts(result.dump().c_str()); return result.value("ok", false) ? 0 : 1;
+        }
+        workflow::Stage stage; std::string error;
+        if (!workflow::prepare(ctx, stage, error)) { std::fprintf(stderr, "%s\n", error.c_str()); return 1; }
+        if (parsed.integration_mode == "plan") { std::puts(stage.plan.dump().c_str()); return 0; }
+        const auto result = workflow::apply(ctx, stage, parsed.expected); std::puts(result.dump().c_str()); return result.value("ok", false) ? 0 : 1;
+    }
+
+    warn_if_stale_on_path();
+
+    // A detached runner must not turn unanswered prompts into permission to apply default choices.
+    if (args::requires_terminal(parsed, ctx) && (!::isatty(STDIN_FILENO) || !ui::tty())) {
+        ui::err("Interactive installation requires a terminal for input and output.");
+        ui::substep("Run in a terminal; use --yes only for an intentional unattended install.");
+        return 1;
+    }
 
     fill_paths_post(ctx);
     sh::set_dry_run(ctx.dry_run);

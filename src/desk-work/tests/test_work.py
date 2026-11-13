@@ -1,9 +1,11 @@
 """Real Git repositories and supervised processes; all state stays in disposable homes."""
 import concurrent.futures
+import hashlib
 import json
 import os
 from pathlib import Path
 import signal
+import select
 import subprocess
 import sys
 import tempfile
@@ -58,6 +60,85 @@ class Work(unittest.TestCase):
             if "snapshot" in saved:
                 run["snapshot"] = saved["snapshot"]; break
         return run
+
+    def test_history_digest_and_cross_agent_identity_use_one_store(self):
+        self.data('review-request', '--file', 'sample.cpp', '--name', 'pi session', '--sid', 'peer', '--text', 'Please adjust')
+        (self.repo/'sample.cpp').write_text('int edited = 2;\n')
+        for agent in ['claude', 'pi']:
+            self.assertTrue(self.data('agent-update', '--agent', agent, '--session', 'same-id', '--pid', os.getpid(),
+                                     '--state', 'working', '--file', 'sample.cpp', '--title', agent)['ok'])
+        overlaps = self.data('overlaps', '--file', 'sample.cpp', '--agent', 'claude', '--session', 'same-id')
+        self.assertEqual([(row['agent'], row['key']) for row in overlaps], [('pi', 'pi:same-id')])
+        self.execute("print('2 passed')")
+        events = self.data('timeline')
+        self.assertEqual([event['seq'] for event in events], sorted([event['seq'] for event in events], reverse=True))
+        self.assertTrue({'request', 'edit', 'job'} <= {event['kind'] for event in events})
+        for event in events:
+            resolved = self.data('resolve', '--action', 'event', '--id', event['id'])
+            self.assertEqual(resolved['action'], event['action'])
+        digest = self.data('digest', '--consumer', 'notebook')
+        self.assertIn('1 request ready', digest['summary'])
+        through = digest['through']
+        self.execute("print('3 passed')")
+        self.data('digest', '--consumer', 'notebook', '--through', through)
+        self.assertEqual(len(self.data('digest', '--consumer', 'notebook')['events']), 2, 'acknowledgement must not clear later arrivals')
+        self.assertGreater(self.data('digest', '--consumer', 'nvim')['total'], 2, 'consumer cursors have independent places')
+
+    def test_snoozing_is_shared_and_content_changes_bring_an_item_back(self):
+        self.data('review-request', '--file', 'sample.cpp', '--name', 'peer', '--sid', 'peer', '--text', 'Adjust')
+        (self.repo/'sample.cpp').write_text('int changed = 2;\n')
+        item = self.data('attention')[0]
+        self.assertTrue(self.data('snooze', '--id', item['id'], '--until-change', 'yes')['ok'])
+        self.assertEqual(self.data('attention'), [])
+        self.assertEqual(self.data('notebook')['attention'], [])
+        self.assertEqual(self.data('overview')['attention'], [])
+        self.assertIn('snoozed', self.data('attention', '--include-snoozed', 'yes')[0])
+        self.assertEqual(self.data('review-requests')[0]['state'], 'ready', 'snoozing must not settle the underlying request')
+        (self.repo/'sample.cpp').write_text('int changed_again = 3;\n')
+        self.assertEqual(self.data('attention')[0]['id'], item['id'])
+
+    def test_live_sessions_survive_silence_and_heartbeats_preserve_input_state(self):
+        self.data('agent-update', '--agent', 'pi', '--session', 'long', '--pid', os.getpid(), '--state', 'needs')
+        record = next((Path(self.env['XDG_STATE_HOME'])/'foxml/work/projects').glob('*/agents/*.json'))
+        value = json.loads(record.read_text()); value['at'] -= 13*3600; value['seenAt'] = value['at']; record.write_text(json.dumps(value))
+        self.assertTrue(self.data('agents')[0]['delayed'])
+        self.assertTrue(self.data('agent-heartbeat', '--agent', 'pi', '--session', 'long', '--pid', os.getpid())['ok'])
+        current = self.data('agents')[0]
+        self.assertEqual(current['state'], 'needs')
+        self.assertEqual(current['at'], value['at'])
+        self.assertFalse(current['delayed'])
+
+    def test_suggested_tests_explain_inference_and_never_run_until_asked(self):
+        (self.repo/'test_sample.py').write_text("print('1 passed')\n")
+        self.invoke('run', '--', sys.executable, 'test_sample.py')
+        original_count = len(self.data('jobs'))
+        suggestions = self.data('suggest-tests', '--file', 'sample.cpp')
+        self.assertIn('inferred', suggestions[0]['reason'])
+        self.assertEqual(len(self.data('jobs')), original_count)
+        self.invoke('run-suggested', '--id', suggestions[0]['id'])
+        self.assertEqual(len(self.data('jobs')), original_count + 1)
+
+    def test_loaded_versions_are_not_inferred_from_installed_files(self):
+        directory = Path(self.env['XDG_STATE_HOME'])/'foxml/work/integrations'
+        directory.mkdir(parents=True)
+        (directory/'current.json').write_text(json.dumps({'clients': {'notebook': 'new-build'}, 'files': [], 'source': []}))
+        self.assertEqual(self.data('integration-status', '--client', 'notebook', '--loaded', 'old-build')['status'], 'reload-pending')
+        self.assertEqual(self.data('integration-status', '--client', 'notebook', '--loaded', 'new-build')['status'], 'current')
+        self.assertEqual(self.data('integration-status', '--client', 'notebook')['status'], 'unverified')
+
+    def test_suggested_rerun_keeps_the_original_working_directory(self):
+        folder = self.repo/'subdirectory'; folder.mkdir()
+        (folder/'test_sample.py').write_text("from pathlib import Path\nPath('ran.marker').write_text(str(Path.cwd()))\nprint('1 passed')\n")
+        first = subprocess.run([str(BIN),'run','--root',str(self.repo),'--',sys.executable,'test_sample.py'],
+                               cwd=folder,env=self.env,capture_output=True,text=True,timeout=30)
+        self.assertEqual(first.returncode,0,first.stderr)
+        self.assertEqual(self.latest()['cwd'],str(folder))
+        (folder/'ran.marker').unlink()
+        suggestion = self.data('suggest-tests','--file','sample.cpp')[0]
+        self.assertEqual(suggestion['cwd'],str(folder))
+        self.invoke('run-suggested','--id',suggestion['id'])
+        self.assertEqual((folder/'ran.marker').read_text(),str(folder))
+        self.assertFalse((self.repo/'ran.marker').exists())
 
     def test_streams_exit_status_counts_and_locations(self):
         text = "sample.cpp:1:3: assertion failed\n128 passed, 2 failed\n"
@@ -532,6 +613,85 @@ class Work(unittest.TestCase):
         self.execute("print('1 passed')")
         self.assertNotIn("linked.cpp", self.latest()["snapshot"]["files"])
         self.assertFalse(self.latest()["snapshot"]["complete"])
+
+    def test_attention_is_shared_ordered_and_a_settled_action_cannot_open(self):
+        self.execute("import sys; print('1 failed'); sys.exit(1)", code=1)
+        source = self.repo / 'sample.cpp'
+        self.data('review-mark', '--root', self.repo, '--key', 'working', '--file', 'sample.cpp',
+                  '--signature', 'a' * 64, '--content', hashlib.sha256(source.read_bytes()).hexdigest())
+        self.data('review-request', '--root', self.repo, '--file', 'sample.cpp', '--sid', 'peer', '--name', 'Queue', '--text', 'handle empty')
+        source.write_text('int changed = 2;\n')
+        self.git('add', 'sample.cpp')
+        self.git('commit', '-qm', 'Agent change\n\nCo-Authored-By: Claude <claude@example.invalid>')
+        source.write_text('int changed = 3;\n')
+        expected = self.data('attention', '--root', self.repo)
+        self.assertEqual([i['kind'] for i in expected], ['job', 'request', 'commit'])
+        self.assertEqual(self.data('notebook', '--root', self.repo)['attention'], expected)
+        self.assertEqual(self.data('overview', '--root', self.repo)['attention'], expected)
+        self.assertEqual([i['kind'] for i in self.data('attention', '--root', self.repo, '--scope', 'review')], ['request', 'commit'])
+        self.assertEqual(expected[1]['action'], {'kind': 'file-diff', 'file': 'sample.cpp'})
+        self.data('review-request', '--root', self.repo, '--file', 'sample.cpp', '--clear', 'yes')
+        stale = json.loads(self.invoke('open', '--root', self.repo, '--action', 'attention', '--id', expected[1]['id'], code=1))
+        self.assertFalse(stale['ok'])
+        self.assertIn('settled', stale['message'])
+
+    def test_change_stream_updates_on_writes_and_queries_do_not_feed_back(self):
+        watcher = subprocess.Popen([str(BIN), 'watch', '--root', str(self.repo)], cwd=self.repo, env=self.env,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            def event():
+                self.assertTrue(select.select([watcher.stdout], [], [], 4)[0], 'no change event arrived')
+                return json.loads(watcher.stdout.readline())
+            self.assertEqual(event()['version'], 1)
+            self.data('task-add', '--root', self.repo, '--text', 'next')
+            first = event()
+            self.assertEqual(first['root'], str(self.repo))
+            self.assertTrue(first['revision'])
+            self.data('notebook', '--root', self.repo)
+            self.data('attention', '--root', self.repo)
+            self.assertFalse(select.select([watcher.stdout], [], [], .15)[0], 'a query caused a refresh loop')
+            self.data('signal', '--root', self.repo)
+            self.assertNotEqual(event()['revision'], first['revision'])
+        finally:
+            watcher.terminate(); watcher.communicate(timeout=5)
+
+    def test_agent_identity_is_namespaced_observed_files_stay_inside_the_checkout_and_dead_agents_leave(self):
+        options = ['agent-update', '--root', self.repo, '--session', 'same-id', '--state', 'working', '--pid', str(os.getpid())]
+        self.data(*options, '--agent', 'claude', '--title', 'Claude work')
+        self.data(*options, '--agent', 'pi', '--title', 'Pi work', '--file', 'sample.cpp')
+        sessions = self.data('agents', '--root', self.repo)
+        self.assertEqual({s['key'] for s in sessions}, {'claude:same-id', 'pi:same-id'})
+        pi = next(s for s in sessions if s['agent'] == 'pi')
+        self.assertEqual(pi['files'], ['sample.cpp'])
+        self.assertFalse(pi['canMessage'])
+        self.invoke(*options, '--agent', 'pi', '--file', '../outside.cpp', code=1)
+        self.data('agent-update', '--root', self.repo, '--agent', 'pi', '--session', 'same-id', '--state', 'done')
+        self.assertEqual(len(self.data('agents', '--root', self.repo)), 1)
+        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])
+        try:
+            self.data('agent-update', '--root', self.repo, '--agent', 'other', '--session', 'dead', '--state', 'working', '--pid', child.pid)
+        finally:
+            child.terminate(); child.wait(timeout=5)
+        self.assertNotIn('other', {s['agent'] for s in self.data('agents', '--root', self.repo)})
+
+    def test_newer_engine_prompt_state_overrides_registry_activity_without_losing_observed_files(self):
+        self.data('agent-update', '--root', self.repo, '--agent', 'claude', '--session', 'needs-user', '--state', 'working',
+                  '--pid', os.getpid(), '--file', 'sample.cpp')
+        runtime = Path(self.env['XDG_RUNTIME_DIR']) / 'foxml-claude'
+        runtime.mkdir(parents=True)
+        (runtime / 'needs-user.state').write_text(json.dumps({'cwd': str(self.repo), 'epoch': int(time.time()) + 1, 'state': 'needs'}))
+        sessions = self.data('agents', '--root', self.repo)
+        self.assertEqual(sessions[0]['state'], 'needs')
+        self.assertEqual(sessions[0]['files'], ['sample.cpp'])
+        self.assertEqual(self.data('attention', '--root', self.repo)[0]['kind'], 'agent')
+        self.assertEqual(self.data('notebook', '--root', self.repo, '--session', 'needs-user')['attention'], [])
+
+    def test_automatic_observation_refuses_searches_scripts_and_credentials_centrally(self):
+        for command in ['rg make tests/', 'echo pytest', 'pytest --token private', 'sudo make test', 'python3 - <<EOF\nmake test\nEOF']:
+            self.assertFalse(self.data('classify', '--command', command)['observable'], command)
+            self.assertEqual(self.invoke('begin', '--root', self.repo, '--pid', 'parent', '--safe', 'yes', '--command', command), '')
+        for command in ['make test', 'cd src && python3 -B tests/test_x.py', 'npm run test']:
+            self.assertTrue(self.data('classify', '--command', command)['observable'], command)
 
     def test_user_service_failure_notifies_once_until_it_recovers(self):
         # Executable fixtures live beside the test; /tmp can be mounted noexec.

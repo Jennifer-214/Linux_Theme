@@ -409,8 +409,9 @@ class DrawerQmlTest(unittest.TestCase):
             source = re.sub(r"^        (?:anchors \{.*|margins \{.*|exclusionMode:.*|WlrLayershell\..*)\n", "", source, flags=re.M)
             source = source.rsplit("\n}", 1)[0] + EXERCISE + "\n}\n"
             (directory / "shell.qml").write_text(source)
-            for name in ("DrawerLogic.js", "ClipIcon.qml", "LoadingDots.qml", "PencilProgress.qml", "PaperGrain.qml", "BarHint.qml", "PageEdgeScrollBar.qml", "MediaArtwork.qml", "StateTag.qml", "BarRibbon.qml", "PaperFlourish.qml", "PaperCardSurface.qml", "ClipboardPhoto.qml", "CalendarSheet.qml", "Overview.qml", "PolkitPrompt.qml", "CalendarLogic.js", "ScrapbookSheet.qml", "GardenSheet.qml", "ContextHearts.qml", "TeaCup.qml", "TodaySheet.qml", "ApiCreditMeter.qml", "LevelSlip.qml", "BotanicalMark.qml"):
-                shutil.copyfile(ROOT / "shared/quickshell/foxml" / name, directory / name)
+            for dependency in (ROOT / "shared/quickshell/foxml").iterdir():
+                if dependency.suffix in {".qml", ".js"} and dependency.name != "shell.qml":
+                    shutil.copyfile(dependency, directory / dependency.name)
             volume = (directory / "LevelSlip.qml").read_text().replace("PanelWindow {", "FloatingWindow {")
             volume = re.sub(r"^    (?:anchors.*|margins\..*|exclusionMode:.*|WlrLayershell\..*)\n", "", volume, flags=re.M)
             (directory / "LevelSlip.qml").write_text(volume)

@@ -7,6 +7,7 @@ under Claude Code's own test kit; this prints each drawn tree as coloured text.
 Usage: tests/notebook_preview.py [--theme FoxML_Paper] [--scene WORDS] [--plain]
 """
 import importlib.util
+import argparse
 import json
 from pathlib import Path
 import shutil
@@ -14,6 +15,7 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
+RENDER = ROOT / 'src/desk-render/desk-render-fast'
 
 
 def colour(text, fg=None, bg=None, bold=False, plain=False):
@@ -77,19 +79,31 @@ def scenes(theme):
 
 
 def main(argv):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--theme', default='FoxML_Paper')
+    parser.add_argument('--scene', default='')
+    parser.add_argument('--plain', action='store_true')
+    parser.add_argument('--colour', action='store_true')
+    args = parser.parse_args(argv)
     if not shutil.which('claude'):
         print('Claude Code is not installed: the preview runs the mod under its test kit.')
         return 1
-    if not (ROOT / 'src/desk-render/desk-render-fast').exists():
+    if not RENDER.exists():
         print('Build first (make): the preview renders the theme colours.')
         return 1
-    theme = argv[argv.index('--theme') + 1] if '--theme' in argv else 'FoxML_Paper'
-    wanted = argv[argv.index('--scene') + 1].lower() if '--scene' in argv else ''
-    plain = '--plain' in argv or not sys.stdout.isatty() and '--colour' not in argv
-    found, ran = scenes(theme)
+    wanted = args.scene.lower()
+    plain = args.plain or not sys.stdout.isatty() and not args.colour
+    found, ran = scenes(args.theme)
+    if ran.returncode != 0:
+        report = '\n'.join(line for line in (ran.stdout + ran.stderr).splitlines() if not line.startswith('@@PREVIEW '))
+        print('Notebook tests failed; the preview is incomplete.\n' + report[-3000:], file=sys.stderr)
+        return 1
     if not found:
         print('No scene was drawn.\n' + (ran.stdout + ran.stderr)[-1500:])
         return 1
+    if wanted and not any(wanted in scene['name'].lower() for scene in found):
+        print('No scene matches ' + repr(args.scene), file=sys.stderr)
+        return 2
     for scene in found:
         if wanted and wanted not in scene['name'].lower():
             continue

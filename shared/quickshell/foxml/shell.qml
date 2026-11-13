@@ -6,6 +6,7 @@ import Quickshell.Io
 import Quickshell.Wayland
 import Quickshell.Hyprland
 import "DrawerLogic.js" as Logic
+import "Build.js" as Build
 
 ShellRoot {
     id: root
@@ -390,6 +391,34 @@ ShellRoot {
             requestView();
         }
         Qt.callLater(function() { if (root.searching) searchInput.forceActiveFocus(); else keyboard.forceActiveFocus(); });
+    }
+
+    // One invalidation stream for every work surface; the normal poll also recovers from older backends.
+    Process {
+        id: workWatch
+        command: ["desk-work", "watch", "--all", "yes", "--client", "desktop", "--build", Build.id]
+        running: true
+        onExited: workReconnect.restart()
+        stdout: SplitParser {
+            onRead: line => {
+                try { if (JSON.parse(line).version === 1) { workReconnect.interval = 1000; workRefresh.restart(); } } catch (_) {}
+            }
+        }
+    }
+    Timer {
+        id: workReconnect
+        interval: 1000
+        onTriggered: { workWatch.running = true; interval = Math.min(interval * 2, 30000); }
+    }
+    Timer {
+        id: workRefresh
+        interval: 150
+        onTriggered: {
+            if (desktopBar.item) desktopBar.item.refresh("custom/claude");
+            if (!root.opened || root.searching || root.editing || root.pendingConfirm || root.actionBusy || root.pickerActive) return;
+            if (!groupProcess.running) groupProcess.running = true;
+            if (["root", "workbench", "attention", "attention-snoozed", "work-history", "work-digest", "reviews", "agents", "jobs", "test-results", "next-steps", "failures", "worktrees"].indexOf(root.page) >= 0 && !viewProcess.running) root.requestView();
+        }
     }
 
     // The last landing page stays up while it refreshes in place, so coming back to Today never blinks.

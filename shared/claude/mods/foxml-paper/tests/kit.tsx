@@ -53,12 +53,14 @@ export function fakeFs(on: On, files: Record<string, string>, mtimes: Record<str
 }
 
 // Nothing sits beneath the plugin in a test: these stand for the engine and the machine.
-export function engine(on: On, options: { pane?: string; pushNotes?: unknown; pushCheck?: unknown; ci?: unknown[]; bash?: (command: string) => unknown; runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; finished?: () => unknown; credits?: unknown; trees?: unknown; readIds?: { id: string; at: number }[] } = {}) {
+export function engine(on: On, options: { pane?: string; pushNotes?: unknown; pushCheck?: unknown; ci?: unknown[]; bash?: (command: string) => unknown; runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; finished?: () => unknown; credits?: unknown; trees?: unknown; readIds?: { id: string; at: number }[]; delivery?: boolean; gitFailure?: { value: boolean }; compact?: boolean; agents?: unknown[] } = {}) {
   let pinned: { file: string; step: string } | null = null
+  let workspace: Record<string, unknown> | null = null
   seen.argv = []; seen.stdin = []; seen.bash = []; seen.sent = []; seen.toasts = []; seen.submitted = []; seen.opened = []
-  mock.store(on, { 'notebook-read-mail:abc': options.readIds ?? [] })
+  mock.store(on, { 'notebook-read-mail:abc': options.readIds ?? [], 'notebook-layout': options.compact ? 'compact' : 'expanded' })
   on('session.receive', (_, e) => ({ text: e.text }))
-  on('session.send', (_, e) => { seen.sent.push({ to: e.to, text: e.text }); return { isDelivered: true } })
+  on('session.send', (_, e) => { seen.sent.push({ to: e.to, text: e.text }); return options.delivery === false
+    ? { isDelivered: false, reason: 'session ended' } : { isDelivered: true } })
   on('ui.focus', () => ({ value: {}, deny: undefined }))
   on('ui.scroll', () => ({ value: {}, deny: undefined }))
   if (!options.files) on('fs.exists', () => ({ value: false }))
@@ -75,9 +77,11 @@ export function engine(on: On, options: { pane?: string; pushNotes?: unknown; pu
   on('process.run', (_, e) => {
     const argv = e.argv.join(' ')
     seen.argv.push(argv)
+    if (options.gitFailure?.value && argv.includes('diff --numstat')) return { value: { ...done(''), exitCode: 1 } }
     if (e.init?.stdin !== undefined) seen.stdin.push(e.init.stdin)
     if (options.pane && argv === 'sh -c printf %s "$TMUX_PANE"') return { value: done(options.pane) }
     if (argv.startsWith('desk-work begin ')) return { value: done('f'.repeat(32) + '\n') }
+    if (argv === 'desk-work agents' && options.agents) return { value: done(JSON.stringify(options.agents)) }
     if (argv.startsWith('desk-work push-check ') && options.pushCheck) return { value: done(JSON.stringify(options.pushCheck)) }
     if (argv.startsWith('desk-work push-notes ') && options.pushNotes) return { value: done(JSON.stringify(options.pushNotes)) }
     if (argv.startsWith('desk-work finish ') && options.finished) return { value: done(JSON.stringify(options.finished())) }
@@ -88,6 +92,11 @@ export function engine(on: On, options: { pane?: string; pushNotes?: unknown; pu
     }
     if (argv.startsWith('desk-work plan ')) return { value: done(JSON.stringify(pinned)) }
     if (argv.startsWith('desk-work open ')) return { value: done('') }
+    if (argv.startsWith('desk-work workspace ')) {
+      if (e.init?.stdin) workspace = JSON.parse(e.init.stdin)
+      return { value: done(JSON.stringify(e.init?.stdin ? { ok: true } : workspace)) }
+    }
+    if (argv.startsWith('desk-work digest ') || argv.startsWith('desk-work snooze ')) return { value: done('{"ok":true}') }
     if (argv.startsWith('desk-work task-add ')) return { value: done('{"ok":true}') }
     if (argv.startsWith('desk-work worktrees ')) return { value: done(JSON.stringify(options.trees ?? [])) }
     if (argv.startsWith('desk-work notebook') && options.projectWork) return { value: done(JSON.stringify(options.projectWork)) }

@@ -308,13 +308,18 @@ function M.open_args()
     C.open_review({ kind = "live", sid = index or "", name = "notebook", short = "notebook",
       files = { id }, before = ledger.before or {}, label = "notebook change" }, root())
     C.diff(id)
-  elseif action == "workspace" then vim.cmd("edit " .. vim.fn.fnameescape(vim.fn.getcwd()))
+  elseif action == "workspace" then if not require('foxml.workspace').resume() then vim.cmd("edit " .. vim.fn.fnameescape(vim.fn.getcwd())) end
+  elseif action == "suggested-tests" then M.suggested_tests(id)
+  elseif action == "timeline" then M.history(false)
+  elseif action == "digest" then M.history(true)
+  elseif action == "snoozed" then M.snooze(true)
   elseif action == "tests" then M.tests(id, index)
   elseif action == "compare" then M.compare(id)
   elseif action == "reviews" then
     local C = require("foxml.claude")
     if id ~= "" then
       for _, row in ipairs(C.rows(root())) do if row.kind == "commit" and row.sha == id then C.open_review(row, root()); return end end
+      vim.notify('That commit is no longer listed on this branch.'); return
     end
     C.changes(true)
   elseif action == "tasks" then M.tasks(root(), id)
@@ -324,7 +329,95 @@ function M.open_args()
   elseif action == "log" then scratch(run({ "log", "--id", id }), "job output", "text") end
 end
 
+function M.attention(next_only)
+  local project = root()
+  local items = data({ 'attention', '--root', project })
+  if not items then return end
+  if #items == 0 then vim.notify('Nothing needs you in this project.'); return end
+  local function open(item)
+    local resolved = data({ 'resolve', '--root', project, '--action', 'attention', '--id', item.id })
+    if not resolved then vim.notify('That item is settled; refresh the list.'); return end
+    local action = resolved.action or {}
+    if item.kind == 'request' or item.kind == 'changed' or item.kind == 'commit' then
+      require('foxml.review').open_item(item, project)
+    elseif action.kind == 'tests' then M.tests(action.id)
+    elseif action.kind == 'log' then scratch(run({ 'log', '--id', action.id }), 'job output', 'text')
+    elseif action.kind == 'agent' then
+      run({ 'open', '--root', project, '--action', 'attention', '--id', item.id })
+    end
+  end
+  if next_only then open(items[1]); return end
+  local rows = {}
+  for _, item in ipairs(items) do
+    local selected = item
+    rows[#rows + 1] = { name = item.label, label = item.why, group = item.kind,
+      ident = item.id, run = function() open(selected) end }
+  end
+  require('foxml.review').show_menu(rows, { title = 'Needs you', memo = 'foxml-attention' })
+end
+
+function M.history(digest_only)
+  local project = root()
+  local digest = digest_only and data({ 'digest', '--root', project, '--consumer', 'nvim' }) or nil
+  local events = digest_only and digest and digest.events or data({ 'timeline', '--root', project })
+  if not events then return end
+  if digest and digest.summary then vim.notify(digest.summary) end
+  local rows = {}
+  for _, event in ipairs(events) do
+    local selected = event
+    rows[#rows + 1] = { name = event.label, label = os.date('%H:%M', event.at), group = event.kind, ident = event.id,
+      run = function()
+        local resolved = data({ 'resolve', '--root', project, '--action', 'event', '--id', selected.id })
+        if not resolved then return end
+        local action = resolved.action or {}
+        if action.kind == 'file-diff' then require('foxml.review').open_item({ kind = 'changed', file = action.file, why = selected.label }, project)
+        elseif action.kind == 'reviews' then require('foxml.review').open_item({ kind = 'commit', sha = action.id }, project)
+        elseif action.kind == 'tests' then M.tests(action.id)
+        elseif action.kind == 'log' then scratch(run({ 'log', '--id', action.id }), 'job output', 'text') end
+      end }
+  end
+  if digest and digest.total > 0 then rows[#rows + 1] = { name = 'Mark these events caught up', group = 'digest', run = function()
+    data({ 'digest', '--root', project, '--consumer', 'nvim', '--through', tostring(digest.through) })
+  end } end
+  if #rows == 0 then vim.notify('No new project events.'); return end
+  require('foxml.review').show_menu(rows, { title = digest_only and 'Since you last looked' or 'Project timeline', memo = 'foxml-history' })
+end
+
+function M.snooze(resume)
+  local project = root()
+  local items = data({ 'attention', '--root', project, '--include-snoozed', 'yes' }) or {}
+  items = vim.tbl_filter(function(item) return resume and item.snoozed or not resume and not item.snoozed end, items)
+  vim.ui.select(items, { prompt = resume and 'Bring back attention item' or 'Snooze attention item', format_item = function(item) return item.label end }, function(item)
+    if not item then return end
+    if resume then data({ 'snooze', '--root', project, '--id', item.id, '--clear', 'yes' }); return end
+    vim.ui.select({ 'One hour', 'Until this item changes' }, { prompt = item.label }, function(choice)
+      if choice then data({ 'snooze', '--root', project, '--id', item.id, choice == 'One hour' and '--seconds' or '--until-change', choice == 'One hour' and '3600' or 'yes' }) end
+    end)
+  end)
+end
+
+function M.suggested_tests(file)
+  local project = vim.fs.root(file or 0, '.git') or root()
+  file = file or vim.api.nvim_buf_get_name(0)
+  if file:sub(1, #project + 1) == project .. '/' then file = file:sub(#project + 2) end
+  local items = data({ 'suggest-tests', '--root', project, '--file', file }) or {}
+  if #items == 0 then vim.notify('No captured test commands for this project yet.'); return end
+  vim.ui.select(items, { prompt = 'Known tests for ' .. file, format_item = function(item)
+    return item.label .. ' · ' .. item.reason .. (item.stale and ' · result is stale' or '')
+  end }, function(item)
+    if not item then return end
+    vim.ui.select({ 'Run on saved files', 'Cancel' }, { prompt = item.command .. ' · in ' .. item.cwd }, function(choice)
+      if choice ~= 'Run on saved files' then return end
+      vim.system({ 'desk-work', 'run-suggested', '--root', project, '--id', item.id }, { text = true }, vim.schedule_wrap(function(out)
+        vim.notify(out.code == 0 and 'Test run passed.' or 'Test run did not pass; see :WorkTests.')
+        M.tests()
+      end))
+    end)
+  end)
+end
+
 function M.setup()
+  require('foxml.workspace').setup()
   vim.api.nvim_create_user_command('ClaudeApi', function(opts)
     M.api_task(opts.range > 0 and {opts.line1, opts.line2} or nil)
   end, {range=true, desc='Ask a read-only question using API credits'})
@@ -342,6 +435,13 @@ function M.setup()
   end,{desc='Explain selection using API credits'})
   vim.api.nvim_create_user_command("WorkTests", function() M.tests() end, {})
   vim.api.nvim_create_user_command("WorkTasks", function() M.tasks() end, {})
+  vim.api.nvim_create_user_command('WorkAttention', function() M.attention() end, {})
+  vim.api.nvim_create_user_command('WorkNext', function() M.attention(true) end, {})
+  vim.api.nvim_create_user_command('WorkTimeline', function() M.history(false) end, {})
+  vim.api.nvim_create_user_command('WorkDigest', function() M.history(true) end, {})
+  vim.api.nvim_create_user_command('WorkSnooze', function() M.snooze(false) end, {})
+  vim.api.nvim_create_user_command('WorkUnsnooze', function() M.snooze(true) end, {})
+  vim.api.nvim_create_user_command('WorkSuggestedTests', function() M.suggested_tests() end, {})
   vim.keymap.set("n", "<leader>Ce", function() M.tests() end, { desc = "Claude test failures" })
   vim.keymap.set("n", "<leader>Ck", function() M.tasks() end, { desc = "Project next steps" })
 end

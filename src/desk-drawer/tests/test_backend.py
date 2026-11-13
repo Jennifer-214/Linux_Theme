@@ -1752,6 +1752,33 @@ class BackendTests(unittest.TestCase):
         self.assertIn("Hidden=true", (auto / "blueman.desktop").read_text())
         self.assertNotIn(("startup-autostart", "Blueman"), {(r["id"], r["label"]) for r in self.invoke("view", "startup")["items"]})
 
+    def test_shared_attention_keeps_backend_order_and_dispatches_the_selected_identity(self):
+        project = self.home / 'code' / 'Example'
+        (project / '.git').mkdir(parents=True)
+        config = json.loads(self.config.read_text()); config['project_roots'] = [str(project.parent)]
+        self.config.write_text(json.dumps(config))
+        needs = [dict(id='job:one', kind='job', root=str(project), label='Failed tests', why='Failed'),
+                 dict(id='request:queue.cpp', kind='request', root=str(project), label='queue.cpp', why='Changed since you asked'),
+                 dict(id='commit:' + 'a'*40, kind='commit', root=str(project), label='Refactor queue', why='Not reviewed yet')]
+        self.state = {'commands': {'desk-work': {'stdout': json.dumps({'jobs': [], 'attention': needs, 'reviews': []})}}}
+        rows = self.invoke('view', 'attention')['items']
+        self.assertEqual([row['label'] for row in rows], [n['label'] for n in needs])
+        reviews = self.invoke('view', 'reviews')['items']
+        self.assertEqual([row['label'] for row in reviews], ['queue.cpp', 'Refactor queue'])
+        self.assertTrue(self.invoke('run', 'work-attention', rows[1]['argument'])['ok'])
+        self.assertTrue(any('attention' in call and 'request:queue.cpp' in call for call in self.calls()))
+        self.failed('run', 'work-attention', json.dumps({'root': '/outside', 'id': 'job:one'}))
+
+    def test_other_agents_are_visible_with_only_the_capabilities_they_report(self):
+        self.state = {'commands': {'desk-work': {'stdout': json.dumps([
+            {'agent': 'pi', 'name': 'Queue work', 'root': '/code/paper', 'project': 'paper', 'state': 'working',
+             'pane': '%7', 'attribution': 'observed tool edits', 'canMessage': False}])}}}
+        rows = self.invoke('view', 'agents')['items']
+        pi = next(row for row in rows if row['label'] == 'pi · Queue work')
+        self.assertTrue(pi['enabled'])
+        self.assertEqual(pi['argument'], '%7')
+        self.assertIn('observed tool edits', pi['detail'])
+
     def test_storage_page_measures_in_the_background_and_reads_the_result(self):
         self.real("timeout")
         self.env["DRAWER_TEST_REAL_DU"] = shutil.which("du")

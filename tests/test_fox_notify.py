@@ -28,6 +28,8 @@ base.mkdir(parents=True, exist_ok=True)
 tmp = Path(tempfile.mkdtemp(prefix="fox-notify-test-", dir=base))
 try:
     shutil.copy(ROOT / "shared/pi/extensions/fox-notify.ts", tmp / "fox-notify.ts")
+    (tmp / 'foxml').mkdir()
+    shutil.copy(ROOT / "shared/pi/extensions/foxml/build.ts", tmp / "foxml/build.ts")
     r = subprocess.run([node, "--experimental-strip-types", "--no-warnings",
                         str(ROOT / "tests/fox-notify-test.mjs"), str(tmp / "fox-notify.ts")],
                        capture_output=True, text=True, timeout=60)

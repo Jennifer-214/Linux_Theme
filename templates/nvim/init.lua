@@ -70,7 +70,7 @@ vim.opt.cursorline = {{SHOW_WELCOME}}
 vim.opt.cursorlineopt = "number"
 vim.opt.guicursor = "n-v-c:block,i-ci-ve:ver25,r-cr:hor20,o:hor50"
 vim.opt.clipboard = "unnamedplus"
-vim.opt.autoread = {{SHOW_WELCOME}}           -- reload files changed outside nvim
+vim.opt.autoread = true                      -- external edits reload independently of the welcome screen
 vim.opt.swapfile = false          -- no .swp clutter (git is the safety net)
 vim.opt.undofile = {{SHOW_WELCOME}}           -- persistent undo across sessions
 vim.opt.writebackup = false       -- avoid "file changed" prompts from backup writes
@@ -988,7 +988,7 @@ local plugins = {
       },
       filesystem = {
         follow_current_file = { enabled = {{SHOW_WELCOME}} },
-        use_libuv_file_watcher = {{SHOW_WELCOME}},
+        use_libuv_file_watcher = true,
         group_empty_dirs = {{SHOW_WELCOME}},
         filtered_items = {
           visible = false,
@@ -3037,6 +3037,8 @@ require("lualine").setup({
     lualine_c = { filename_component, draft_component,
       { function() local ok, sync = pcall(require, "foxml.sync"); return ok and sync.status() or "" end, color = { fg = P.pink },
         on_click = function() local ok, sync = pcall(require, "foxml.sync"); if ok then sync.menu() end end },
+      { function() local ok, work = pcall(require, "foxml.work_events"); return ok and work.status() or "" end, color = { fg = P.pink },
+        on_click = function() local ok, work = pcall(require, "foxml.work"); if ok then work.attention() end end },
     },
     lualine_x = {
       -- the other Claudes (foxml.claude): reviewing/following, who needs you, the plan gate, who edited this buffer

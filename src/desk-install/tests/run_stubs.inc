@@ -59,6 +59,7 @@ void run_fox_aliases (Context&) {}
 void run_keybind_docs(Context&) {}
 void run_specials    (Context&) {}
 void run_drawer      (Context&) {}
+void run_integrations(Context&) {}
 void run_vault       (Context&) {}
 void run_ai              (Context&) {}
 void run_models      (Context&) {}

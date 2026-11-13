@@ -143,6 +143,9 @@ inline constexpr Mapping SHARED_MAPPINGS[] = {
     { "nvim_lua/foxml/menu.lua",      "~/.config/nvim/lua/foxml/menu.lua" },
     { "redzone.json",                 "~/.config/foxml/redzone.json" },
     { "nvim_lua/foxml/work.lua",      "~/.config/nvim/lua/foxml/work.lua" },
+    { "nvim_lua/foxml/work_events.lua", "~/.config/nvim/lua/foxml/work_events.lua" },
+    { "nvim_lua/foxml/workspace.lua", "~/.config/nvim/lua/foxml/workspace.lua" },
+    { "nvim_lua/foxml/build.lua", "~/.config/nvim/lua/foxml/build.lua" },
     { "nvim_lua/foxml/planmarks.lua", "~/.config/nvim/lua/foxml/planmarks.lua" },
 
     // Rofi config
@@ -185,6 +188,7 @@ inline constexpr Mapping SHARED_MAPPINGS[] = {
     { "llm/core-models.txt",          "~/.config/foxml/llm/core-models.txt" },
     { "pi/extensions/fox-guard.ts",   "~/.pi/agent/extensions/fox-guard.ts" },
     { "pi/extensions/fox-notify.ts",  "~/.pi/agent/extensions/fox-notify.ts" },
+    { "pi/extensions/foxml/build.ts", "~/.pi/agent/extensions/foxml/build.ts" },
     { "pi/extensions/claude-skills.ts","~/.pi/agent/extensions/claude-skills.ts" },
     { "pi/extensions/fox-trim.ts",    "~/.pi/agent/extensions/fox-trim.ts" },
     { "pi/extensions/fox-budget.ts",  "~/.pi/agent/extensions/fox-budget.ts" },
@@ -197,6 +201,7 @@ inline constexpr Mapping SHARED_MAPPINGS[] = {
     { "claude/mods/foxml-paper/.claude-plugin/plugin.json", "~/.claude/mods/foxml-paper/.claude-plugin/plugin.json" },
     { "claude/mods/foxml-paper/hooks/hooks.json",   "~/.claude/mods/foxml-paper/hooks/hooks.json" },
     { "claude/mods/foxml-paper/hooks/register.tsx", "~/.claude/mods/foxml-paper/hooks/register.tsx" },
+    { "claude/mods/foxml-paper/hooks/build.ts", "~/.claude/mods/foxml-paper/hooks/build.ts" },
     { "claude/mods/foxml-paper/hooks/ledger.ts",    "~/.claude/mods/foxml-paper/hooks/ledger.ts" },
     { "claude/mods/foxml-paper/hooks/work.ts",      "~/.claude/mods/foxml-paper/hooks/work.ts" },
     { "claude/mods/foxml-paper/hooks/notebook.ts",  "~/.claude/mods/foxml-paper/hooks/notebook.ts" },

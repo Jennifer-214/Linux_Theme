@@ -78,4 +78,18 @@ bool deploy_file_atomic(const Context& ctx, const fs::path& src, const fs::path&
     return true;
 }
 
+bool deploy_symlink_atomic(const Context& ctx, const fs::path& target, const fs::path& dest) {
+    std::error_code ec;
+    fs::create_directories(dest.parent_path(), ec);
+    if (ec || !snapshot_one(ctx, dest)) return false;
+    std::string pattern = dest.string() + ".foxlink.XXXXXX";
+    std::vector<char> name(pattern.begin(), pattern.end()); name.push_back(0);
+    const int fd = ::mkstemp(name.data()); if (fd < 0) return false;
+    ::close(fd); ::unlink(name.data());
+    fs::create_symlink(target, name.data(), ec);
+    if (!ec) fs::rename(name.data(), dest, ec);
+    if (ec) { std::error_code ignored; fs::remove(name.data(), ignored); return false; }
+    return true;
+}
+
 }  // namespace desk_install

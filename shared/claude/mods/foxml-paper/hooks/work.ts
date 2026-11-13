@@ -1,4 +1,5 @@
 import type { EngineInterface } from 'claude-code'
+import { BUILD_ID } from './build'
 import type { CiRun, GitLook, ReviewProgress, TurnReceipt, WorkJob, WorkLook, WorkTest } from '../types'
 
 export function shellQuote(s: string): string { return "'" + s.replace(/'/g, "'\\''") + "'" }
@@ -15,9 +16,9 @@ export function canTrack(command: string): boolean {
     && withoutHeredocs(command).split(/&&|\|\||[;|\n()]/).some(part => RUNNER.test(part.trim().replace(PREFIX, '')))
 }
 // The command runs exactly as written (so auto mode reviews what really runs); desk-work only records it around the call.
-export function beginArgs(command: string, root: string, session: string, title = ''): string[] {
+export function beginArgs(command: string, root: string, session: string, title = '', cwd = ''): string[] {
   const named = title.trim() && !title.includes('\n') ? ['--title', title.trim().slice(0, 160)] : []
-  return ['begin', '--root', root, '--session', session, '--pid', 'parent', '--command', command, ...named]
+  return ['begin', '--root', root, '--session', session, '--pid', 'parent', '--safe', 'yes', '--command', command, ...named, ...(cwd ? ['--cwd', cwd] : [])]
 }
 // What the call ended as: Claude Code reports "Exit code N" in an error's text; a denial or interruption never finished.
 export function exitOf(ran: { deny?: string; isError?: boolean; text?: unknown; result?: unknown }): number {
@@ -150,12 +151,16 @@ export function receiptLine(receipt: TurnReceipt | null | undefined): string {
   ].filter(Boolean)
   return parts.join(' · ')
 }
-// Words broken into lines no wider than `width`; a word longer than a line is cut with an ellipsis.
+// Detail text must keep every character, including long paths and identifiers.
 export function wrapWords(text: string, width: number): string[] {
+  width = Math.max(1, Math.floor(width))
   const out: string[] = []
   let line = ''
   for (const word of text.split(/\s+/).filter(Boolean)) {
-    const piece = word.length > width ? word.slice(0, Math.max(1, width - 1)) + '…' : word
+    const letters = [...word]
+    if (letters.length > width && line) { out.push(line); line = '' }
+    while (letters.length > width) out.push(letters.splice(0, width).join(''))
+    const piece = letters.join('')
     if (line !== '' && line.length + 1 + piece.length > width) { out.push(line); line = piece }
     else line = line === '' ? piece : line + ' ' + piece
   }
@@ -245,7 +250,7 @@ export async function work($: EngineInterface, args: string[], stdin?: string): 
 }
 export async function workLook($: EngineInterface, root: string, session: string): Promise<WorkLook | null> {
   try {
-    const value = JSON.parse(await work($, ['notebook', '--root', root, '--session', session]) ?? 'null') as WorkLook | null
+    const value = JSON.parse(await work($, ['notebook', '--root', root, '--session', session, '--loaded', BUILD_ID]) ?? 'null') as WorkLook | null
     return value && Array.isArray(value.tasks) && Array.isArray(value.jobs) ? value : null
   } catch { return null }
 }

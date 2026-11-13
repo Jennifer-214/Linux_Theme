@@ -20,6 +20,16 @@ BIN_RE = re.compile(r"^[ \t]*BIN[ \t]*:?=[ \t]*([^\s#]+)", re.M)
 
 # New surfaces deploy through the native installer; AGENT.md freezes mappings.sh.
 ONE_SIDED = {
+    ("SHARED_MAPPINGS", "nvim_lua/foxml/build.lua", "~/.config/nvim/lua/foxml/build.lua"):
+        "The integration updater generates the loaded build stamp through native mappings.",
+    ("SHARED_MAPPINGS", "pi/extensions/foxml/build.ts", "~/.pi/agent/extensions/foxml/build.ts"):
+        "The integration updater generates the loaded build stamp through native mappings.",
+    ("SHARED_MAPPINGS", "claude/mods/foxml-paper/hooks/build.ts", "~/.claude/mods/foxml-paper/hooks/build.ts"):
+        "The integration updater generates the loaded build stamp through native mappings.",
+    ("SHARED_MAPPINGS", "nvim_lua/foxml/workspace.lua", "~/.config/nvim/lua/foxml/workspace.lua"):
+        "Project resume state deploys through the native installer; mappings.sh is frozen.",
+    ("SHARED_MAPPINGS", "nvim_lua/foxml/work_events.lua", "~/.config/nvim/lua/foxml/work_events.lua"):
+        "native-only shared work subscriptions; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "nvim_lua/foxml/sync.lua", "~/.config/nvim/lua/foxml/sync.lua"):
         "native-only live file watching and explicit outside-edit merge; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "redzone.json", "~/.config/foxml/redzone.json"):

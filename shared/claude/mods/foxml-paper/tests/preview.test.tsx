@@ -6,8 +6,8 @@ import { NOW, PANE, engine, fakeFs, opened } from './kit'
 
 const say = (text: string) => (globalThis as { console?: { log: (line: string) => void } }).console?.log(text)
 const WIDE = { ...PANE, props: { ...PANE.props, isFocused: true, bodyColumns: 44 }, surface: 'terminal' } as never
-const scene = async ($: Engine, name: string, press: string[] = []) => {
-  const ui = await $.ui.mount(WIDE)
+const scene = async ($: Engine, name: string, press: string[] = [], columns = 44) => {
+  const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: true, bodyColumns: columns }, surface: 'terminal' } as never)
   for (const key of press) await ui.press({ key })
   const tree = await ui.drawn()
   say('@@PREVIEW ' + JSON.stringify({ name, tree }))
@@ -23,6 +23,21 @@ const WORK = {
     { file: 'src/worker.cpp', name: 'Queue refactor', sid: 'q1', text: 'drain before the workers stop', at: NOW / 1000 - 300, state: 'waiting' }],
 }
 const PLAN = '# Plan: Queue refactor\n- [x] Split the queue header\n- [x] Move the workers onto the new queue\n- [ ] Cover the drain path\n- [ ] Document the queue\n'
+const EVENTS = [
+  { id: '4', seq: 4, kind: 'review', root: '/code/paper', at: NOW / 1000 - 60, label: 'queue.cpp · reviewed', action: { kind: 'file-diff', file: 'src/queue.cpp' } },
+  { id: '3', seq: 3, kind: 'job', root: '/code/paper', at: NOW / 1000 - 120, label: 'Queue checks · passed', action: { kind: 'tests', id: 't1' } },
+  { id: '2', seq: 2, kind: 'edit', root: '/code/paper', at: NOW / 1000 - 180, label: 'queue.cpp · pi edited', action: { kind: 'file-diff', file: 'src/queue.cpp' } },
+  { id: '1', seq: 1, kind: 'request', root: '/code/paper', at: NOW / 1000 - 240, label: 'queue.cpp · changes requested', action: { kind: 'file-diff', file: 'src/queue.cpp' } },
+]
+
+test('preview: shared history and a quiet project digest', async ($, on) => {
+  engine(on, { projectWork: { ...WORK, timeline: EVENTS, digest: { total: 4, files: 1, through: 4, counts: { edit: 1, job: 1, review: 1, request: 1 },
+    events: EVENTS, truncated: false, summary: '1 observed file edited · 1 run passed' } } })
+  await opened($)
+  expect(await scene($, 'project timeline', ['page-timeline'])).toBeDefined()
+  await $.command.run({ command: 'notebook', args: 'digest', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  expect(await scene($, 'since you last looked')).toBeDefined()
+})
 
 test('preview: the front page with a plan, a finished turn and things that need you', async ($, on) => {
   const files = fakeFs(on, { '/code/paper/plans/queue.md': PLAN, '/code/paper/README.md': 'new' }, { '/code/paper/README.md': NOW })
@@ -54,4 +69,24 @@ test('preview: a quiet page with nothing wrong and no plan', async ($, on) => {
   engine(on, { projectWork: { tests: null, jobs: [], tasks: [], pending: 0 } })
   await opened($)
   expect(await scene($, 'quiet')).toBeDefined()
+})
+
+test('preview: a failed refresh keeps the last known files', async ($, on) => {
+  const gitFailure = { value: false }
+  engine(on, { gitFailure, projectWork: WORK })
+  await opened($)
+  gitFailure.value = true
+  await $.command.run({ command: 'notebook', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  const tree = await scene($, 'refresh needs a retry')
+  expect(tree).toBeDefined()
+})
+
+test('preview: the compact notebook keeps room for the conversation', async ($, on) => {
+  engine(on, { compact: true, projectWork: { ...WORK, attention: [
+    { id: 'request:src/queue.cpp', kind: 'request', root: '/code/paper', label: 'queue.cpp', why: 'Changed since you asked', at: 1, file: 'src/queue.cpp', action: { kind: 'file-diff', file: 'src/queue.cpp' } },
+    { id: 'changed:README.md', kind: 'changed', root: '/code/paper', label: 'README.md', why: 'Edited since review', at: 1, file: 'README.md', action: { kind: 'file-diff', file: 'README.md' } },
+  ] } })
+  await opened($)
+  expect(await scene($, 'compact · 30 columns', [], 30)).toBeDefined()
+  expect(await scene($, 'expanded · 42 columns', ['compact-expand'], 42)).toBeDefined()
 })

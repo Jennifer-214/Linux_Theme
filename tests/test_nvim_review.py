@@ -454,6 +454,113 @@ assert(R.request_of(r,r.files[1])==nil,'checking the file settles the request')
 C.close()
 ''')
 
+    @unittest.skipUnless(WORK.exists(), 'build desk-work first')
+    def test_requests_refresh_in_an_open_review_and_waiting_is_not_reported_as_checked(self):
+        (self.repo / '.review-risk').write_text('a.lua\n')
+        self.run_lua(r'''
+local notices={}
+vim.notify=function(text) notices[#notices+1]=text end
+C.open_review({kind='live',sid='refresh1',name='example',short='example',files={root..'/a.lua'}},root)
+local r=R.current
+assert(vim.wait(3000,function() return r.shared_requests~=nil end,10))
+assert(R.requested(root..'/a.lua',{id='abc',name='A session'},'handle the empty case'))
+R.unread()
+assert(notices[#notices]=='Waiting on 1 change request.',vim.inspect(notices))
+assert(not R.finish(),'a waiting request must not finish the review')
+local function backend(args)
+  local argv={R.work_tool(),'review-request','--root',root,'--file','a.lua'}
+  vim.list_extend(argv,args)
+  local out=vim.system(argv,{text=true}):wait(3000)
+  assert(out.code==0 and vim.json.decode(out.stdout).ok)
+end
+backend({'--text','a revised request','--sid','abc','--name','A session'})
+R.select(1,true)
+assert(R.request_of(r,r.files[1]).text=='a revised request','shared text must replace the local copy')
+backend({'--clear','yes'})
+api.nvim_exec_autocmds('FocusGained',{})
+assert(vim.wait(3000,function() return R.request_of(r,r.files[1])==nil end,10),'withdrawal did not reach the open review')
+R.unread()
+assert(notices[#notices]~='Every file is checked. R finishes the review.','withdrawal is not a checkmark')
+assert(vim.wait(3000,function() return not r.requests_pending end,10))
+-- A read already in flight cannot undo a new request.
+local system=vim.system
+local delayed
+vim.system=function(argv,opts,callback)
+  if argv[2]=='review-requests' and callback then delayed=callback; return {} end
+  return system(argv,opts,callback)
+end
+R.refresh_requests()
+assert(delayed)
+assert(R.requested(root..'/a.lua',{id='abc',name='A session'},'keep this one'))
+delayed({code=0,stdout='[]'})
+vim.wait(20)
+vim.system=system
+assert(R.request_of(r,r.files[1]).text=='keep this one','an old read erased a new request')
+-- A failed read preserves the last known request, rather than settling it.
+vim.system=function() return {wait=function() return {code=1,stdout='[]'} end} end
+R.refresh_requests(true)
+vim.system=system
+assert(R.request_of(r,r.files[1]).text=='keep this one')
+assert(notices[#notices]:find('Could not refresh change requests',1,true))
+-- A failed shared write must leave the request pending and undo the local checkmark.
+vim.system=function(argv,opts,callback)
+  if argv[2]=='review-request' then return {wait=function() return {code=1,stdout='{}'} end} end
+  return system(argv,opts,callback)
+end
+R.mark()
+vim.system=system
+assert(r.marks['a.lua']==nil,'a failed settlement must not check the file')
+assert(R.request_of(r,r.files[1]).text=='keep this one')
+C.close()
+-- Reviewing a request on an old commit must not settle the current file's request.
+C.open_review(row,root)
+R.select(find('a.lua'))
+assert(R.requested(root..'/a.lua',{id='abc',name='A session'},'about the old commit'))
+R.mark()
+local current=vim.system({R.work_tool(),'review-requests','--root',root},{text=true}):wait(3000)
+assert(vim.json.decode(current.stdout)[1].text=='keep this one','checking an old commit settled a live request')
+C.close()
+''')
+
+    @unittest.skipUnless(WORK.exists(), 'build desk-work first')
+    def test_an_open_live_review_updates_on_a_shared_event_without_moving_focus(self):
+        self.run_lua(r'''
+local origin=api.nvim_get_current_tabpage()
+C.open_review({kind='live',sid='events1',name='example',short='example',files={root..'/a.lua',root..'/added.txt'}},root)
+local r=R.current
+R.select(find('added.txt')); R.mark()
+local checked=r.marks['added.txt']
+R.select(find('a.lua'))
+api.nvim_set_current_win(r.panel_win)
+local file=root..'/a.lua'
+local saved=assert(io.open(file,'rb')); local original=saved:read('*a'); saved:close()
+local f=assert(io.open(file,'wb')); f:write('local value = 1000\nprint(value)\n'); f:close()
+local out=vim.system({R.work_tool(),'signal','--root',root},{text=true}):wait(3000)
+assert(out.code==0)
+assert(vim.wait(6000,function() return content(r.right_buf):find('value = 1000',1,true)~=nil end,20),'the shared event did not refresh the open comparison')
+assert(api.nvim_get_current_win()==r.panel_win,'a live refresh stole keyboard focus')
+local events=require('foxml.work_events')
+local state=events.roots[vim.uv.fs_realpath(root) or root]
+local previous_pid=state.job.pid
+state.job:kill(15) -- only the disposable review's owned watcher
+assert(vim.wait(6000,function() return state.job.pid~=previous_pid and not state.watch_failed end,20),'the change stream did not reconnect')
+local other=assert(io.open(root..'/added.txt','wb')); other:write('new text\nchanged again\n'); other:close()
+vim.system({R.work_tool(),'signal','--root',root},{text=true}):wait(3000)
+assert(vim.wait(6000,function() return r.files[find('added.txt')].signature~=checked end,20),'the unselected file kept a stale checkmark')
+assert(content(r.right_buf):find('value = 1000',1,true),'refreshing another file changed the selection')
+api.nvim_set_current_tabpage(origin)
+f=assert(io.open(file,'wb')); f:write('local value = 2000\nprint(value)\n'); f:close()
+vim.system({R.work_tool(),'signal','--root',root},{text=true}):wait(3000)
+assert(vim.wait(6000,function() return r.live_dirty end,20),'the hidden review lost its invalidation')
+assert(api.nvim_get_current_tabpage()==origin,'a hidden review took over the editing tab')
+api.nvim_set_current_tabpage(r.tab)
+assert(content(r.right_buf):find('value = 2000',1,true),'the review did not catch up on returning to its tab')
+f=assert(io.open(file,'wb')); f:write(original); f:close()
+other=assert(io.open(root..'/added.txt','wb')); other:write('new text\n'); other:close()
+C.close()
+assert(next(require('foxml.work_events').roots)==nil,'the review left its subscription behind')
+''')
+
     def test_api_review_sends_exactly_the_displayed_change_and_is_remembered_for_that_version(self):
         self.run_lua(r'''
 local asked
@@ -527,22 +634,21 @@ assert(vim.api.nvim_win_get_cursor(r.right_win)[1]==3,'and the line')
 C.close()
 ''' % live)
 
-    def test_the_next_thing_is_a_ready_request_then_a_changed_file_then_the_oldest_unreviewed_commit(self):
+    def test_review_next_uses_the_backends_review_projection_without_reordering(self):
         self.run_lua(r'''
-local answers={['review-requests']='[{"file":"a.lua","name":"Queue","state":"waiting"},{"file":"b.lua","name":"Queue","state":"ready"}]',
-  ['review-progress']='{"working":{"files":{"c.lua":{"state":"changed"},"d.lua":{"state":"checked"}}}}',
-  ['review-tree']='[{"title":"t","commits":[{"sha":"'..string.rep('a',40)..'","reviewed":false},{"sha":"'..string.rep('b',40)..'","reviewed":false}]}]'}
+local answer='[{"kind":"request","file":"b.lua","why":"Changed since you asked Queue"},{"kind":"changed","file":"c.lua"}]'
 R.work_tool=function() return 'desk-work' end
 local real=vim.system
 vim.system=function(argv,opts) if argv[1]~='desk-work' then return real(argv,opts) end
-  return {wait=function() return {code=0,stdout=answers[argv[2]] or '[]'} end} end
+  assert(argv[2]=='attention' and argv[5]=='--scope' and argv[6]=='review',vim.inspect(argv))
+  return {wait=function() return {code=0,stdout=answer} end} end
 local item=R.next_item(root)
 assert(item.kind=='request' and item.file=='b.lua' and item.why:find('Queue',1,true),vim.inspect(item))
-answers['review-requests']='[]'
+answer='[{"kind":"changed","file":"c.lua"}]'
 item=R.next_item(root); assert(item.kind=='changed' and item.file=='c.lua',vim.inspect(item))
-answers['review-progress']='{}'
+answer='[{"kind":"commit","sha":"'..string.rep('a',40)..'"}]'
 item=R.next_item(root); assert(item.kind=='commit' and item.sha==string.rep('a',40),vim.inspect(item))
-answers['review-tree']='[]'
+answer='[]'
 assert(R.next_item(root)==nil,'nothing left')
 R.work_tool=function() return nil end
 local none,why=R.next_item(root); assert(none==nil and why:find('work tool',1,true))
@@ -608,7 +714,7 @@ assert(#data.outside==1 and data.outside[1].rel=='extra.lua','a changed file no 
 local items
 package.loaded['foxml.menu']={open=function(list,opts) items=list; assert(opts.title:find('Plan coverage',1,true)) end}
 R.plan_coverage()
-assert(items[1].right=='example' and items[2].right=='not started' and items[3].group=='outside the plan',vim.inspect(items))
+assert(items[1].right=='example' and items[2].right=='no matching edits' and items[3].group=='outside the plan',vim.inspect(items))
 P.plan=nil
 C.close()
 ''')

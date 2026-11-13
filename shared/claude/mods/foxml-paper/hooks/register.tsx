@@ -1,12 +1,13 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderNode } from 'claude-code'
 
-import type { ApiCredits, CiLook, GitLook, NotebookView, PaperAction, PaperCard, PaperEnvelope, PaperLook, PaperOverlap, PaperPeer, PaperRedZone, PaperTone, PaperTree, TurnLook, TurnReceipt, WorkJob } from '../types'
+import type { AgentSession, ApiCredits, CiLook, GitLook, NotebookView, PaperAction, PaperCard, PaperEnvelope, PaperLook, PaperOverlap, PaperPeer, PaperRedZone, PaperTone, PaperTree, TurnLook, TurnReceipt, WorkJob } from '../types'
 import { addBefore, addEdit, addName, neighbours, namesText, noteText, overlapFor, parseLedger, parseNames, parseNote, trailerUrl, withPlan, editedSince } from './ledger'
 import type { Other } from './ledger'
 import { paper } from './theme'
 import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, filterFiles, pendingLine, planProgress, receiptLine, reviewStates, reviewSummary, ruleLine, ruler, spread, workName, wrapWords, stepLabel, testLabel, turnLabel, unreviewed, work, workLook } from './work'
 import { attributeFiles, fileColumns, fileCounts, gitFiles, drawerPage, mailId, shortPath } from './notebook'
+import { BUILD_ID } from './build'
 
 // Linux_Theme paper: a notebook pane beside the chat (hearts, the session's name, its plan, the gate, pages
 // touched, the other Claudes with [go] and [note]), a red-zone band before a risky system edit, a band when
@@ -29,6 +30,9 @@ const envelopes = atom({ plugin: 'foxml-paper', key: 'envelopes' } as const, [] 
 const notebookView = atom({ plugin: 'foxml-paper', key: 'notebookView' } as const,
   { page: 'overview', scope: 'session', selected: '', offset: 0, form: 'none' } as NotebookView, { shape: 'notebook-1' })
 const SID = /^[A-Za-z0-9_-]{1,80}$/
+const autoCompact = (columns: number) => columns < 144
+const paneSize = (view: NotebookView) => view.compact && view.page === 'overview' && view.form === 'none'
+  ? { rows: 4, columns: 30 } : { rows: view.page === 'overview' && view.form === 'none' ? 10 : 22, columns: 42 }
 
 const WORDS = ['Reading', 'Checking', 'Tracing', 'Writing', 'Reviewing', 'Working']
 
@@ -131,6 +135,14 @@ const memory = {
   // When the notebook last read everything, and whether the newest attempt failed: so a stale page says so.
   lookAt: 0,
   lookFailed: false,
+  refreshAgain: false,
+  watchStarted: false,
+  watchFailed: false,
+  watchRetryAt: 0,
+  watchDelay: 1000,
+  viewportColumns: 0,
+  resizePending: false,
+  notebookOpen: false,
   // Every path this turn edited, however often it was edited before: the receipt's first source.
   turnFiles: [] as string[],
   ci: null as CiLook | null,
@@ -265,9 +277,16 @@ async function withActivity<T>($: EngineInterface, text: string, call: () => Pro
 // Before an edit: has another live session edited this file lately? Band for you, a note for Claude, once.
 async function checkOverlap($: EngineInterface, file: string) {
   const dir = await sessionsDir($)
-  if (dir === null) return
   const path = await realPath($, file)
-  const found = overlapFor(path, await $.clock.now(), await $.session.id(), await readOthers($, dir))
+  let found = null as PaperOverlap | null
+  const shared = await work($, ['overlaps', '--root', await repoRoot($), '--file', path, '--agent', 'claude', '--session', await $.session.id()])
+  if (shared !== null) {
+    try {
+      const first = JSON.parse(shared)?.[0]
+      if (first && typeof first.name === 'string') found = { path, title: `${first.agent} · ${first.name}`,
+        ago: ago((await $.clock.now()) / 1000 - first.at), ...(first.pane ? { pane: first.pane } : {}) }
+    } catch { /* an older backend can use the old adapter */ }
+  } else if (dir !== null) found = overlapFor(path, await $.clock.now(), await $.session.id(), await readOthers($, dir))
   if (found === null) return
   await update($, overlap, () => found)
   const now = await $.clock.now()
@@ -279,10 +298,9 @@ async function checkOverlap($: EngineInterface, file: string) {
       type: 'user',
       content: [{
         type: 'text',
-        text: `(foxml-paper) Another active Claude session, "${found.title}"`
+        text: `(foxml-paper) Another active agent session, "${found.title}"`
           + (found.pane ? ` (running in tmux pane ${found.pane})` : '') + `, edited ${path} ${found.ago}. `
-          + 'Coordinate with the active session that last edited it before changing it further: message it if you '
-          + 'can reach it (ListAgents shows each peer\'s tmux pane; then SendMessage), or read its changes first, '
+          + 'Coordinate with that session before changing it further: use messaging only when that agent supports it, or read its changes first, '
           + 'so neither of you overwrites the other.',
       }],
     },
@@ -386,7 +404,8 @@ async function checkInbox($: EngineInterface) {
 }
 
 // After an edit: note it in this session's ledger, for the other sessions to see.
-async function recordEdit($: EngineInterface, file: string) {
+async function recordEdit($: EngineInterface, file: string, observed = true) {
+  await publishAgent($, 'working', observed ? file : undefined)
   const dir = await sessionsDir($)
   if (dir === null) return
   const sid = await $.session.id()
@@ -413,7 +432,7 @@ async function recordShellEdits($: EngineInterface, root: string, began: number)
     try {
       const stat = await $.fs.stat(root + '/' + file.path)
       // A second of slack for coarse clocks; the command's own start bounds it below.
-      if (stat.kind === 'file' && stat.mtimeMs >= began - 1000) { await recordEdit($, root + '/' + file.path); recorded++ }
+      if (stat.kind === 'file' && stat.mtimeMs >= began - 1000) { await recordEdit($, root + '/' + file.path, false); recorded++ }
     } catch { /* deleted or unreadable: nothing to attribute */ }
   }
 }
@@ -428,8 +447,17 @@ async function readCard($: EngineInterface, dir: string | null): Promise<PaperCa
   }
 }
 
-// The other live Claudes, from desk-drawer (one liveness rule for the drawer and the notebook); null without it.
+// desk-work owns cross-agent identity and liveness; the old drawer endpoint is a compatibility adapter.
 async function readPeers($: EngineInterface): Promise<PaperPeer[] | null> {
+  const current = await work($, ['agents'])
+  if (current !== null) {
+    try {
+      const list = JSON.parse(current) as AgentSession[]
+      const self = await $.session.id()
+      if (Array.isArray(list)) return list.filter(p => p && typeof p.id === 'string' && !(p.agent === 'claude' && p.id === self))
+        .map(p => ({ ...p, id: p.agent === 'claude' ? p.id : p.key, state: p.state === 'needs' ? 'needs you' : p.state }))
+    } catch { /* older backend */ }
+  }
   const out = await run($, ['desk-drawer', 'claude-peers'])
   if (out === null) return null
   try {
@@ -449,15 +477,18 @@ async function goTo($: EngineInterface, peer: PaperPeer) {
 }
 
 async function sendNote($: EngineInterface, peer: PaperPeer, text: string) {
+  if (peer.canMessage === false) { $.ui.toast('This agent supports jumping to its terminal; note delivery is unavailable.'); return false }
   const note = text.trim()
   await update($, writingTo, () => null)
-  if (note === '') return
+  if (note === '') return false
   const me = (await nameNow($)) ?? 'another session'
   try {
     const sent = await $.session.send({ to: { sessionId: peer.id }, text: `✉ from ${me}: ${note}` })
     $.ui.toast(sent.isDelivered ? `note left for ${peer.name}` : `not sent: ${sent.reason}`)
+    return sent.isDelivered
   } catch {
     $.ui.toast(`not sent: ${peer.name} isn't taking notes`)
+    return false
   }
 }
 
@@ -499,8 +530,49 @@ async function ciFor($: EngineInterface, root: string, upstream: string): Promis
 }
 
 function refresh($: EngineInterface): Promise<void> {
-  if (memory.refreshTask === null) memory.refreshTask = refreshNow($).finally(() => { memory.refreshTask = null })
+  if (memory.refreshTask !== null) memory.refreshAgain = true
+  else memory.refreshTask = (async () => {
+    do { memory.refreshAgain = false; await refreshNow($) } while (memory.refreshAgain)
+  })().finally(() => { memory.refreshTask = null })
   return memory.refreshTask
+}
+
+async function startWorkWatch($: EngineInterface, root: string) {
+  if (memory.watchStarted) return
+  const clock = await $.clock.now()
+  if (clock < memory.watchRetryAt) return
+  memory.watchStarted = true
+  void (async () => {
+    let pending = ''
+    try {
+      for await (const chunk of $.process.spawn({ argv: ['desk-work', 'watch', '--root', root] })) {
+        if (chunk.stream !== 'stdout') continue
+        pending += chunk.text
+        if (pending.length > 65536) { pending = ''; continue }
+        let split: number
+        while ((split = pending.indexOf('\n')) >= 0) {
+          const line = pending.slice(0, split); pending = pending.slice(split + 1)
+          try { if (JSON.parse(line)?.version === 1) { memory.watchFailed = false; memory.watchDelay = 1000; void refresh($) } } catch { /* partial or older protocol */ }
+        }
+      }
+    } catch { /* the recovery poll still works without the bridge */ }
+    finally {
+      memory.watchStarted = false; memory.watchFailed = true
+      memory.watchRetryAt = await $.clock.now() + memory.watchDelay
+      memory.watchDelay = Math.min(30000, memory.watchDelay * 2)
+    }
+  })()
+}
+
+async function publishAgent($: EngineInterface, state: string, file?: string) {
+  await work($, ['agent-update', '--root', await repoRoot($), '--agent', 'claude', '--session', await $.session.id(),
+    '--pid', 'parent', '--state', state, '--build', BUILD_ID, '--title', memory.work ?? await nameNow($) ?? 'Claude', '--pane', await ownPane($) ?? '',
+    ...(file === undefined ? [] : ['--file', file])])
+}
+
+async function saveNotebookView($: EngineInterface) {
+  const { form, focused, ...view } = await read($, notebookView)
+  await work($, ['workspace', '--root', await repoRoot($), '--client', 'notebook:' + await $.session.id(), '--input', '-'], JSON.stringify(view))
 }
 
 async function refreshNow($: EngineInterface) {
@@ -518,6 +590,8 @@ async function refreshNow($: EngineInterface) {
     const head = await run($, ['git', '--no-optional-locks', '-C', root, 'rev-parse', '--verify', 'HEAD'])
     const numstat = await run($, ['git', '--no-optional-locks', '-C', root, 'diff', '--numstat', '-z', ...(head === null ? ['--cached'] : ['HEAD'])])
     const paths = await run($, ['git', '--no-optional-locks', '-C', root, 'status', '--porcelain=v1', '-z', '--untracked-files=all'])
+    if ((status !== null && (numstat === null || paths === null)) || (status === null && (await read($, look))?.git))
+      throw new Error('Could not refresh the working tree')
     const dir = await sessionsDir($)
     const otherLedgers = dir === null ? [] : await readOthers($, dir)
     let own = null
@@ -569,6 +643,12 @@ async function refreshNow($: EngineInterface) {
     const near = neighbours(root, await $.clock.now(), session, otherLedgers)
     const card = await readCard($, dir)
     const projectWork = await workLook($, root, await $.session.id())
+    for (const agent of projectWork?.agents ?? []) {
+      if (agent.agent === 'claude' && agent.id === session) continue
+      for (const file of files) if (agent.files.includes(file.path) && !file.owners?.some(owner => owner.sid === agent.key || agent.agent === 'claude' && owner.sid === agent.id)) {
+        file.owners = [...(file.owners ?? []), { sid: agent.key, name: `${agent.agent} · ${agent.name}`, ...(agent.pane ? { pane: agent.pane } : {}) }]
+      }
+    }
     let credits: ApiCredits | null = null
     try {
       const value = JSON.parse(await run($, ['desk-credits', 'status']) ?? 'null')
@@ -617,6 +697,10 @@ export const register: Register = on => {
     const started = await next(e)
     await loadReceipts($)
     await loadRedZone($)
+    try {
+      const preference = await $.store.get('notebook-layout')
+      if (preference === 'compact' || preference === 'expanded' || preference === 'auto') await update($, notebookView, view => ({ ...view, compact: preference === 'compact', adaptive: preference === 'auto' }))
+    } catch { /* the default layout still works */ }
     const unread = await read($, envelopes)
     const migrated = await Promise.all(unread.map(async note => ({ ...note, id: note.id ?? await mailId(note.from, note.text) })))
     const seen = new Set<string>()
@@ -625,34 +709,61 @@ export const register: Register = on => {
       seen.add(note.id)
       return true
     }))
+    try {
+      const saved = JSON.parse(await work($, ['workspace', '--root', await repoRoot($), '--client', 'notebook:' + await $.session.id()]) ?? 'null')
+      if (saved?.version === 1 && ['overview', 'files', 'project', 'sessions', 'timeline', 'digest'].includes(saved.page))
+        await update($, notebookView, current => ({ ...current, ...saved, form: 'none', focused: '' }))
+    } catch { /* a first visit starts at the overview */ }
     // Only where someone is looking: a headless run (claude -p) has nowhere to put a pane.
     if (e.isInteractive) {
-      const opened = await $.ui.open({ id: PANE, title: 'notebook', rows: 10, columns: 42 })
+      const opened = await $.ui.open({ id: PANE, title: 'notebook', ...paneSize(await read($, notebookView)) })
+      memory.notebookOpen = true
       $.ui.toast(greeting(new Date().getHours()))
       if (!opened.isPlaced) $.ui.toast('The notebook is available: /notebook opens it at this width.')
     }
     await refresh($)
+    await publishAgent($, 'waiting')
+    void startWorkWatch($, await repoRoot($))
     if (e.isInteractive && !memory.toldLastNight && (await read($, look))?.lastNight) {
       memory.toldLastNight = true
       $.ui.toast("last night's note is waiting · /notebook project")
     }
-    $.clock.every(20000, () => void refresh($))
+    $.clock.every(20000, () => { void refresh($); void repoRoot($).then(root => startWorkWatch($, root)) })
+    $.clock.every(60000, async () => { await work($, ['agent-heartbeat', '--root', await repoRoot($), '--agent', 'claude', '--session', await $.session.id(), '--pid', 'parent']) })
     $.clock.every(5000, () => void checkInbox($))
-    await $.command.register({ name: 'notebook', description: 'Open the paper notebook', argumentHint: '[files|all|project|sessions]', immediate: true })
+    $.clock.every(1000, async () => {
+      if (!memory.notebookOpen || !memory.resizePending || !memory.viewportColumns) return
+      memory.resizePending = false
+      const view = await read($, notebookView)
+      if (!view.adaptive || view.page !== 'overview' || view.form !== 'none') return
+      const compact = autoCompact(memory.viewportColumns)
+      if (compact === view.compact) return
+      await update($, notebookView, current => ({ ...current, compact }))
+      await $.ui.open({ id: PANE, title: 'notebook', ...paneSize({ ...view, compact }) })
+    })
+    await $.command.register({ name: 'notebook', description: 'Open the paper notebook', argumentHint: '[auto|compact|expand|files|all|project|sessions|timeline|digest]', immediate: true })
     return started
   })
 
   on('command.run', { command: 'notebook' }, async ($, e) => {
     const page = e.args.trim()
+    memory.notebookOpen = true
+    memory.resizePending = true
+    if (page === 'compact' || page === 'expand' || page === 'auto') {
+      const compact = page === 'compact'
+      await update($, notebookView, view => ({ ...view, compact: page === 'auto' ? autoCompact(e.presentation.columns) : compact, adaptive: page === 'auto', page: 'overview' as const, form: 'none' as const, selected: '' }))
+      await $.store.set('notebook-layout', page === 'auto' ? 'auto' : compact ? 'compact' : 'expanded')
+    }
     await update($, notebookView, view => ({ ...view, form: 'none' as const,
       ...(view.form !== 'none' ? { selected: '', focused: '' } : {}) }))
     await update($, writingTo, () => null)
-    if (['files', 'project', 'sessions', 'overview', 'all'].includes(page))
+    if (['files', 'project', 'sessions', 'overview', 'all', 'timeline', 'digest'].includes(page))
       await update($, notebookView, v => ({ ...v, page: page === 'all' ? 'files' : page as NotebookView['page'],
         scope: page === 'all' ? 'all' as const : v.scope, offset: 0, selected: '', form: 'none' as const }))
     const view = await read($, notebookView)
-    const opened = await $.ui.open({ id: PANE, title: 'notebook', rows: view.page === 'overview' ? 10 : 22, columns: 42, focus: true })
+    const opened = await $.ui.open({ id: PANE, title: 'notebook', ...paneSize(view), focus: true })
     await refresh($)
+    await saveNotebookView($)
     return { text: opened.isPlaced ? 'The notebook is open.' : 'The notebook will open when there is room.' }
   })
 
@@ -669,7 +780,9 @@ export const register: Register = on => {
   on('ui.close', { id: PANE }, async ($, e, next) => {
     await update($, notebookView, view => ({ ...view, form: 'none' as const, selected: '', focused: '' }))
     await update($, writingTo, () => null)
-    return next(e)
+    const closed = await next(e)
+    memory.notebookOpen = false
+    return closed
   })
 
   // Claude Code names each session; the notebook heads with that name.
@@ -678,6 +791,7 @@ export const register: Register = on => {
     return next(e)
   })
   on('classic.Stop', async ($, e, next) => {
+    await publishAgent($, 'waiting')
     await update($, turn, () => null)
     // A turn that leaves files of this session unreviewed says so once, above the prompt, until looked at.
     // A refresh already under way began before the turn's last edit was recorded: let it finish, then read afresh.
@@ -715,6 +829,7 @@ export const register: Register = on => {
   })
 
   on('prompt.submit', async ($, e, next) => {
+    await publishAgent($, 'working')
     const started = await $.clock.now()
     await update($, turn, () => ({ started, step: '', seen: started }))
     memory.turnStart = started
@@ -726,6 +841,8 @@ export const register: Register = on => {
     void refresh($)
     return next(e)
   })
+
+  on('session.end', async ($, e, next) => { await saveNotebookView($); await publishAgent($, 'done'); return next(e) })
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const what = redZoneOf(e.command)
@@ -748,7 +865,7 @@ export const register: Register = on => {
     await work($, ['activity', '--root', root, '--session', sid, '--text', activity, '--state', 'working'])
     await update($, turn, t => t ? { ...t, step: title || t.step, seen: began } : t)
     const job = canTrack(e.command) && e.run_in_background !== true
-      ? (await work($, beginArgs(e.command, root, sid, title)))?.trim() || null : null
+      ? (await work($, beginArgs(e.command, root, sid, title, await $.session.cwd())))?.trim() || null : null
     let ran: Awaited<ReturnType<typeof next>> | undefined
     let finished: string | null = null
     try { ran = await next(e) }
@@ -878,7 +995,12 @@ export const register: Register = on => {
     const now = await read($, look)
     const others = await read($, peers)
     const mail = await read($, envelopes)
-    const view = await read($, notebookView)
+    let view = await read($, notebookView)
+    if (e.viewport?.columns) {
+      if (e.viewport.columns !== memory.viewportColumns) memory.resizePending = true
+      memory.viewportColumns = e.viewport.columns
+      if (view.adaptive && view.page === 'overview' && view.form === 'none') view = { ...view, compact: autoCompact(e.viewport.columns) }
+    }
     const warning = await read($, overlap)
     const writingId = await read($, writingTo)
     const writing = others.find(p => p.id === writingId) ?? null
@@ -894,9 +1016,12 @@ export const register: Register = on => {
     let firstNeed: (() => unknown) | null = null
     const content = []
     const setView = async (change: Partial<NotebookView>) => {
+      memory.resizePending = true
+      if (change.compact !== undefined && change.adaptive === undefined) change.adaptive = false
       await update($, notebookView, v => ({ ...v, ...change }))
-      if (change.page || change.form !== undefined) {
-        await $.ui.open({ id: PANE, title: 'notebook', rows: (change.page ?? view.page) === 'overview' ? 10 : 22, columns: 42, focus: true,
+      if (change.compact !== undefined) await $.store.set('notebook-layout', change.compact ? 'compact' : 'expanded')
+      if (change.page || change.form !== undefined || change.compact !== undefined) {
+        await $.ui.open({ id: PANE, title: 'notebook', ...paneSize({ ...view, ...change }), focus: true,
           ...(change.form && change.form !== 'none' ? { closeOnEscape: true as const } : {}) })
       }
       if (change.page) {
@@ -905,6 +1030,7 @@ export const register: Register = on => {
       const input = change.form === 'task' ? 'work-next-step' : change.form === 'plan' ? 'plan-file' : change.form === 'step' ? 'plan-current-step' : null
       if (input) await $.ui.focus({ requestId: PANE, key: input }).catch(() => undefined)
       else if (change.form === 'none') await $.ui.focus({ requestId: PANE, key: 'nav-back' }).catch(() => undefined)
+      await saveNotebookView($)
     }
     const checkedWork = async (args: string[]) => {
       const result = await work($, args)
@@ -951,7 +1077,7 @@ export const register: Register = on => {
             : fit(label, width - 2)}
         </Text>}
       </Text>
-      return <Button key={key} label={label} plain hover={hover} {...(selected && view.form === 'none' && writingId === null ? { autoFocus: true as const } : {})} onPress={async () => {
+      return <Button key={key} label={label} plain hover={hover} {...(selected && e.props.isFocused && view.form === 'none' && writingId === null ? { autoFocus: true as const } : {})} onPress={async () => {
         await update($, notebookView, v => ({ ...v, selected: key, focused: key }))
         return press()
       }}>
@@ -959,6 +1085,19 @@ export const register: Register = on => {
       </Button>
     }
     const text = (label: string, colour: string = paper.dim) => <Text color={colour}>{label.length > width ? label.slice(0, width - 1) + '…' : label}</Text>
+    if (view.compact && view.page === 'overview' && view.form === 'none') {
+      const attention = now?.work?.attention
+      const local = (mail.length ? 1 : 0) + (warning ? 1 : 0) + (ciLabel(now?.ci?.runs)?.state === 'failed' ? 1 : 0)
+      const count = attention ? attention.length + local : (now?.work?.pending ?? 0) + local
+      const stale = memory.lookFailed || memory.lookAt > 0 && clock - memory.lookAt > 180000
+      return <Box flexDirection="column">
+        {text(name ?? 'notebook', paper.ink)}
+        <Button key="compact-attention" label={stale ? 'status needs a refresh' : now?.work ? count === 0 ? 'all quiet' : `${count} ${count === 1 ? 'needs' : 'need'} you` : 'work status unavailable'} plain
+          onPress={() => setView({ compact: false, page: 'overview', selected: '' })} />
+        {now?.work?.tests && text(testLabel(now.work.tests), testColour(now.work.tests))}
+        <Button key="compact-expand" label={memory.watchFailed && now?.work ? 'expand · live updates delayed' : 'expand notebook'} hotkey="z" plain onPress={() => setView({ compact: false, page: 'overview', selected: '' })} />
+      </Box>
+    }
     // A ruler under its row, indented to the row's text, with words after it.
     const measured = (fraction: number, words: string, pencil = false) => {
       const length = Math.max(3, Math.min(16, width - words.length - 4))
@@ -1020,18 +1159,25 @@ export const register: Register = on => {
       const base = (path: string) => path.split('/').pop() ?? path
       const reReview = (path: string) => checkedWork(['open', '--root', root, '--action', 'file-diff', '--file', path, '--session', session])
       const attention: (() => void)[] = []
-      for (const job of (now?.work?.failures ?? []).slice(0, 2))
+      const sharedAttention = now?.work?.attention
+      if (sharedAttention) for (const item of sharedAttention.slice(0, 8)) {
+        const mark = item.kind === 'request' || item.kind === 'changed' ? '↻' : item.kind === 'commit' ? '○' : '!'
+        attention.push(() => pair('attention-' + item.id, `${mark} ${item.label}`, item.kind === 'request' ? 're-review' : item.kind,
+          () => checkedWork(['open', '--root', item.root, '--action', 'attention', '--id', item.id]),
+          item.why + '. Enter opens it.', item.kind === 'job' || item.kind === 'agent' ? paper.berry : paper.ink))
+      }
+      if (!sharedAttention) for (const job of (now?.work?.failures ?? []).slice(0, 2))
         attention.push(() => pair(`attention-job-${job.id}`, '! ' + (job.title ?? job.command), job.state, () => openJob(job.id), 'A job that failed and has not passed since. Enter opens its output.', paper.berry))
       const lastTests = now?.work?.tests
-      if (lastTests && lastTests.state === 'failed' && !failedIds.has(lastTests.id))
+      if (!sharedAttention && lastTests && lastTests.state === 'failed' && !failedIds.has(lastTests.id))
         attention.push(() => pair('attention-tests', '! tests failed', ago(clock / 1000 - (lastTests.ended ?? clock / 1000)), () => openJob(lastTests.id, 'tests'), 'The last test run failed. Enter opens the failures, each a jump to its line.', paper.berry))
       if (ci && ci.state === 'failed')
         attention.push(() => pair('attention-ci', '! CI failed on the push', 'open run', async () => { if (/^https:\/\/github\.com\//.test(ci.url)) await run($, ['xdg-open', ci.url]) },
           'GitHub Actions failed on the pushed commit. Enter opens the run in the browser.', paper.berry))
-      for (const r of ready.slice(0, 3))
+      if (!sharedAttention) for (const r of ready.slice(0, 3))
         attention.push(() => pair(`attention-request-${r.file}`, '↻ ' + base(r.file), 're-review', () => reReview(r.file),
           `You asked ${r.name || 'a session'}: "${r.text}". The file has changed since. Enter opens it for another look.`))
-      if (changedSince.length) {
+      if (!sharedAttention && changedSince.length) {
         const first = changedSince[0] ?? ''
         attention.push(() => pair('attention-changed', `↻ ${changedSince.length} changed since you reviewed`, base(first), () => reReview(first),
           'Edited after you checked them. Enter opens the first; the review shows only what is new.'))
@@ -1041,7 +1187,11 @@ export const register: Register = on => {
         else await page('files')
       }, 'Another live session edited this file lately. Enter goes to it.', paper.berry))
       if (mail.length) attention.push(() => pair('attention-mail', '✉ notes for this session', `${mail.length} unread`, () => page('sessions'), 'Notes left for this session from Neovim or another Claude. Enter reads them.'))
-      if (attention.length) { rule('needs you', String(attention.length)); attention.forEach(add => add()) }
+      if (attention.length) { rule('needs you', String(attention.length + Math.max(0, (sharedAttention?.length ?? 0) - 8))); attention.forEach(add => add()) }
+      if (sharedAttention && sharedAttention.length > 8) pair('attention-more', `${sharedAttention.length - 8} more need you`, 'open list',
+        () => run($, ['desktop-menu', '--open', 'attention']), 'The full shared list in the desktop drawer.')
+      if (now?.work?.digest?.total) pair('page-digest', 'since you last looked', `${now.work.digest.total} events`, () => page('digest'),
+        'Observed edits, requests and test results since you last marked this project caught up. Opening does not clear it.')
 
       if (done && !working) {
         rule('last turn', ago((clock - done.at) / 1000))
@@ -1080,28 +1230,34 @@ export const register: Register = on => {
 
       const pending = now?.work?.pending ?? 0
       const summary = reviewSummary((now?.files ?? []).map(f => f.path), states)
-      rule('review', pending > 0 ? `${pending} waiting` : '')
-      const waitingLine = pendingLine(pending, mine, states)
+      const waitingOn = requests.filter(r => r.state === 'waiting')
+      rule('review', waitingOn.length > 0 ? `${waitingOn.length} with sessions` : '')
+      // Changed files already have an action under "needs you".
+      const waitingLine = pendingLine(pending, mine.filter(p => states.get(p) !== 'changed'), states)
       const [waitingFirst = '', ...waitingRest] = waitingLine.split(' · ')
       if (waitingLine) pair('review-open', '✎ ' + waitingFirst, waitingRest.join(' · ').replace(' since you looked', ' since').replace(' of yours unread', ' unread'), () => checkedWork(['open', '--root', root, '--action', 'reviews']),
         'What is waiting to be looked over. Enter opens the review in Neovim on the next one.')
       // Requests still with a session: who was asked and what for, until the file changes (then it needs you, above).
-      const waitingOn = requests.filter(r => r.state === 'waiting')
       for (const r of waitingOn.slice(0, 3))
         pair(`request-${r.file}`, '✉ ' + base(r.file), 'sent · ' + (r.name || 'a session'), () => setView({ page: 'request', request: r.file, selected: '' }),
           `Sent to ${r.name || 'a session'} ${ago(clock / 1000 - r.at)}: "${r.text}". The file has not changed yet. Enter opens the thread: send it again or withdraw it.`)
       if (waitingOn.length > 3) content.push(text(`  and ${waitingOn.length - 3} more requests waiting`))
-      pair('page-files', `${mine.length} this session · ${now?.files.length ?? 0} changed`, summary.replace(/ reviewed.*$/, '') , () => page('files'),
+      const reviewed = (now?.files ?? []).filter(f => states.get(f.path) === 'checked').length
+      pair('page-files', `${now?.files.length ?? 0} changed files`, summary ? `${reviewed} reviewed` : mine.length ? `${mine.length} this session` : '', () => page('files'),
         'Files that differ from the last commit, and how many of them were reviewed as they are now.')
 
       const age = memory.lookAt > 0 ? (clock - memory.lookAt) / 1000 : null
       rule('work', age === null ? '' : 'updated ' + ago(age))
+      if (now?.work?.integration?.status === 'reload-pending') content.push(text(now.work.integration.message, paper.ribbon))
       if (memory.lookFailed || (age !== null && age > 180))
         pair('refresh-now', '↻ this page may be out of date', 'retry', async () => { await refresh($) },
           'The last refresh did not finish, so what is shown may be old. Enter reads everything again now.', paper.berry)
       else if (now && !now.work)
         pair('refresh-now', 'work tool unavailable', 'retry', async () => { await refresh($) },
           'desk-work did not answer, so tests, reviews and requests are not shown. Enter tries again.', paper.dim)
+      if (memory.watchFailed && now?.work) pair('watch-retry', 'live updates delayed', 'retry', async () => {
+        memory.watchRetryAt = 0; void startWorkWatch($, root); await refresh($)
+      }, 'The change stream stopped. The recovery poll still refreshes this page; Enter reconnects it.', paper.dim)
       if (now?.work?.tests) pair('work-tests', testLabel(now.work.tests, clock / 1000), '', () => openJob(now.work!.tests!.id, 'tests'),
         'The last test run here, and whether the code changed since.', testColour(now.work.tests))
       if (ci) pair('work-ci', ci.label, '', async () => { if (/^https:\/\/github\.com\//.test(ci.url)) await run($, ['xdg-open', ci.url]) },
@@ -1118,13 +1274,14 @@ export const register: Register = on => {
       if (others.length) {
         rule('sessions', String(others.length + 1))
         // Counted with this one, so four running reads as four: "4 claudes · you + 3 others".
-        pair('page-sessions', `${others.length + 1} claudes`, `you + ${others.length} ${others.length === 1 ? 'other' : 'others'}`, () => page('sessions'),
+        pair('page-sessions', `${others.length + 1} ${others.some(p => p.agent && p.agent !== 'claude') ? 'agents' : 'claudes'}`, `you + ${others.length} ${others.length === 1 ? 'other' : 'others'}`, () => page('sessions'),
           'The other Claude sessions on this machine. Enter lists them, to go to one or leave it a note.')
       }
       pair('page-help', '? marks and keys', '', () => page('help'), 'What each mark means and which keys work here.', paper.dim)
+      pair('page-timeline', 'project timeline', '', () => page('timeline'), 'The shared history of requests, edits, tests and reviews.')
       // What the selected row is, the way a menu's description strip says it.
       const says = about[view.selected]
-      if (says) { content.push(text('')); for (const line of wrapWords(says, width).slice(0, 4)) content.push(text(line)) }
+      if (says) { content.push(text('')); for (const line of wrapWords(says, width)) content.push(text(line)) }
     }
 
     if (view.form === 'none' && view.page === 'request') {
@@ -1142,9 +1299,8 @@ export const register: Register = on => {
         const peer = others.find(p => p.id === thread.sid)
         content.push(row('request-again', peer ? '✉ send it again' : '✉ send again · session ended', async () => {
           if (!peer) { $.ui.toast('That session is no longer running. Withdraw this, then ask a live one from the review.'); return }
-          await sendNote($, peer, `Change request (again) for ${thread.file}: ${thread.text}`)
-          await checkedWork(['review-request', '--root', root, '--file', thread.file, '--name', thread.name, '--sid', thread.sid, '--text', thread.text])
-          await refresh($)
+          // Delivery retries keep the original baseline: an answered request must stay ready for re-review.
+          if (await sendNote($, peer, `Change request (again) for ${thread.file}: ${thread.text}`)) await refresh($)
         }))
         content.push(row('request-withdraw', '✕ withdraw it', async () => {
           if (await checkedWork(['review-request', '--root', root, '--file', thread.file, '--clear', 'yes'])) { await refresh($); await page('overview') }
@@ -1296,14 +1452,15 @@ export const register: Register = on => {
         content.push(<Text color={paper.ink}>{note.text}</Text>)
         content.push(row(`envelope-${note.id ?? note.at}`, 'mark read', () => acknowledgeMail($, [note])))
       }
-      if (others.length) content.push(text(`${others.length + 1} claudes · you and ${others.length} ${others.length === 1 ? 'other' : 'others'}`))
+      if (others.length) content.push(text(`${others.length + 1} ${others.some(p => p.agent && p.agent !== 'claude') ? 'agents' : 'claudes'} · you and ${others.length} ${others.length === 1 ? 'other' : 'others'}`))
       for (const peer of others.slice(0, 8)) {
         const [mark, colour] = peerMark(peer)
         const where = peer.name === peer.project ? '' : ` · ${peer.project}`
-        content.push(text(`${mark} ${peer.name}${where}`, colour))
+        content.push(text(`${mark} ${peer.agent && peer.agent !== 'claude' ? peer.agent + ' · ' : ''}${peer.name}${where}`, colour))
         content.push(text(peer.state))
         if (peer.pane) content.push(row('go-' + peer.id, 'go to ' + peer.name, () => goTo($, peer)))
-        if (writing?.id !== peer.id) content.push(row('note-' + peer.id, 'leave a note', async () => {
+        if (peer.canMessage === false) content.push(text('note delivery unavailable'))
+        else if (writing?.id !== peer.id) content.push(row('note-' + peer.id, 'leave a note', async () => {
           await update($, writingTo, () => peer.id)
           await $.ui.focus({ requestId: PANE, key: 'peer-note' }).catch(() => undefined)
         }))
@@ -1317,6 +1474,33 @@ export const register: Register = on => {
       if (!mail.length && !others.length) content.push(text('No unread notes or other live sessions.'))
     }
 
+    if (view.form === 'none' && (view.page === 'timeline' || view.page === 'digest')) {
+      const digest = now?.work?.digest
+      const events = view.page === 'digest' ? digest?.events ?? [] : now?.work?.timeline ?? []
+      if (view.page === 'digest' && digest?.summary) for (const line of wrapWords(digest.summary, width)) content.push(text(line, paper.ink))
+      if (!events.length) content.push(text('No recorded events here yet.'))
+      for (const event of events.slice(view.offset, view.offset + 20))
+        content.push(row('event-' + event.id, event.label, () => checkedWork(['open', '--root', root, '--action', 'event', '--id', event.id]),
+          <Text>{fit(event.label, Math.max(8, width - 10))}<Text color={paper.dim}> {ago(clock / 1000 - event.at)}</Text></Text>))
+      if (view.page === 'digest' && digest?.total) content.push(row('digest-caught-up', 'mark these events caught up', async () => {
+        if (await checkedWork(['digest', '--root', root, '--consumer', 'notebook', '--through', String(digest.through)])) await refresh($)
+      }))
+      if (digest?.truncated && view.page === 'digest') content.push(text('Older events have expired; this digest is partial.'))
+      if (events.length > 20) content.push(row('events-next', view.offset + 20 < events.length ? 'older events' : 'newest events',
+        () => setView({ offset: view.offset + 20 < events.length ? view.offset + 20 : 0 })))
+    }
+    if (view.form === 'snooze') {
+      const selected = now?.work?.attention?.find(item => 'attention-' + item.id === view.selected)
+      if (selected) {
+        content.push(text(selected.label, paper.ink))
+        for (const [key, label, option] of [['hour', 'later · one hour', '--seconds'], ['change', 'until this item changes', '--until-change']] as const)
+          content.push(row('snooze-' + key, label, async () => {
+            if (await checkedWork(['snooze', '--root', root, '--id', selected.id, option, key === 'hour' ? '3600' : 'yes'])) {
+              await setView({ form: 'none', selected: '' }); await refresh($)
+            }
+          }))
+      } else content.push(text('That attention item is already settled.'))
+    }
     if (view.form === 'task') {
       content.push(<Input key="work-next-step" placeholder="pin a next step" submitLabel="pin" autoFocus onSubmit={async value => {
         if (!value.trim()) { await setView({ form: 'none' }); return }
@@ -1361,6 +1545,8 @@ export const register: Register = on => {
         <Button key="nav-open" label="open" hotkey="l" plain onPress={activate} /><Text> </Text>
         {nextNeed !== null && <Button key="nav-next" label="next" hotkey="n" plain onPress={() => nextNeed()} />}{nextNeed !== null && <Text> </Text>}
         <Button key="nav-drawer" label="drawer" hotkey="d" plain onPress={() => run($, ['desktop-menu', '--open', drawerPage(view.page)])} />
+        {now?.work?.attention?.some(item => 'attention-' + item.id === view.selected) && <Button key="nav-snooze" label="later" hotkey="s" plain onPress={() => setView({ form: 'snooze' })} />}
+        <Text> </Text><Button key="nav-compact" label="compact" hotkey="z" plain onPress={() => setView({ compact: true, page: 'overview', form: 'none', selected: '' })} />
       </Box>}
       {now?.credits && (now.credits.status === 'error' || (now.credits.remaining_percent != null && now.credits.remaining_percent <= 20)) && <Button key="api-credit-meter" label="monthly API credit details" plain
         onPress={() => run($, ['desktop-menu', '--open', 'api-credits'])}>
@@ -1375,6 +1561,10 @@ export const register: Register = on => {
       {view.page === 'files' && <Button key="nav-editor" label="edit selected" hotkey="e" plain onPress={() => {
         const selected = (now?.files ?? []).find(f => `file:${f.path}` === view.selected)
         if (selected) return openFile(selected.path, true)
+      }} />}
+      {view.page === 'files' && <Button key="nav-file-tests" label="tests for selected" plain onPress={() => {
+        const selected = (now?.files ?? []).find(file => 'file:' + file.path === view.selected)
+        if (selected) return checkedWork(['open', '--root', root, '--action', 'suggested-tests', '--file', selected.path])
       }} />}
       {content}
     </Box>

@@ -1,4 +1,5 @@
 #include "args.hpp"
+#include "input_policy.hpp"
 
 #include "module.hpp"
 
@@ -82,6 +83,9 @@ void print_help(const char* argv0) {
         "                    bash wrapper; equivalent to FOXML_NO_UPDATE=1)\n"
         "      --wizard-demo render the state-driven wizard against the live\n"
         "                    registry + exit; nothing is installed\n"
+        "      --integrations plan|apply|rollback|status  scoped runtime update\n"
+        "      --expected ID preview token required for integration apply\n"
+        "      --transaction ID  recorded integration rollback, guarded against later edits\n"
         "      (env)         FOX_INSTALL_LEGACY=1 forces the legacy inline-prompt\n"
         "                    flow (escape hatch; state-driven is the default)\n"
         "  -h, --help        show this help and exit\n"
@@ -103,6 +107,7 @@ void print_version() {
 }
 
 bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
+    out.input_mode = input::mode(argc, argv);
     // Initial state: everything is default_on. We only clear this and switch
     // to exclusive mode if we see a module-specific flag (e.g. --render)
     // or an explicit --only.
@@ -127,7 +132,7 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
     // Everything a palette reaches, so --render, --render-only and the theme tools can't drift apart. Folder colours
     // stay out because they can need sudo: the theme swapper adds papirus_icons, and post_install reports them otherwise.
     auto apply_theme_modules = [&]() {
-        for (const char* slug : {"render", "symlinks", "specials", "drawer", "personalize",
+        for (const char* slug : {"render", "symlinks", "specials", "drawer", "integrations", "personalize",
                                  "catppuccin_cursor", "welcome_banner", "post_install"}) {
             std::size_t s_idx = find_by_slug(slug);
             if (s_idx != SIZE_MAX && !explicitly_disabled[s_idx]) out.module_enabled[s_idx] = true;
@@ -153,6 +158,13 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
         if (a == "--quiet")                { ctx.quiet = true; out.quiet = true; continue; }
         if (a == "--no-update")            { /* consumed by install.sh wrapper */ continue; }
         if (a == "--wizard-demo")          { out.wizard_demo = true;  continue; }
+        if (a == "--integrations" && i + 1 < argc) {
+            out.integration_mode = argv[++i];
+            if (out.integration_mode != "plan" && out.integration_mode != "apply" && out.integration_mode != "rollback" && out.integration_mode != "status") return false;
+            continue;
+        }
+        if (a == "--expected" && i + 1 < argc) { out.expected = argv[++i]; continue; }
+        if (a == "--transaction" && i + 1 < argc) { out.transaction = argv[++i]; continue; }
 
         if (a == "--phase" && i + 1 < argc) {
             out.phase = argv[++i];

@@ -345,20 +345,33 @@ local function share(r, file, done)
 end
 -- The request thread is kept in the work tool too, so the notebook can show who was asked and whether it is ready.
 local function share_request(r, file, request)
+  -- A read begun before this write must not restore the request it just settled.
+  r.requests_generation = (r.requests_generation or 0) + 1
+  r.requests_pending = false
   local backend = M.work_tool()
-  if not backend or not r.root or not file then return end
+  if not backend or not r.root or not file then return true end
   local argv = { backend, 'review-request', '--root', r.root, '--file', file.rel }
   if request then vim.list_extend(argv, { '--name', request.name or '', '--sid', (request.sid or ''):match('^[%w_-]+$') or '', '--text', request.text or '' })
   else vim.list_extend(argv, { '--clear', 'yes' }) end
   -- Waited for (a few milliseconds, on a deliberate act): the notebook must not show a thread that was just settled.
-  pcall(function() vim.system(argv, { text = true }):wait(1500) end)
+  local ok, out = pcall(function() return vim.system(argv, { text = true }):wait(1500) end)
+  if not ok or out.code ~= 0 or decode(out.stdout).ok ~= true then
+    tell('Could not save the change request in desk-work. Retry when it is available.', vim.log.levels.WARN)
+    return false
+  end
+  return true
 end
 local function save(r, file)
   local disk = decode(read(r.state_file))
   disk.files = type(disk.files) == 'table' and disk.files or {}
   if file then
     disk.files[file.rel] = r.marks[file.rel]
-    if r.marks[file.rel] and type(disk.requests) == 'table' and disk.requests[file.rel] then disk.requests[file.rel] = nil; share_request(r, file, nil) end
+    if r.marks[file.rel] and ((type(disk.requests) == 'table' and disk.requests[file.rel]) or (r.shared_requests and r.shared_requests[file.rel])) then
+      -- A request about an old commit belongs to that review, not the current working file.
+      if r.row.kind ~= 'commit' and not share_request(r, file, nil) then return false end
+      if type(disk.requests) == 'table' then disk.requests[file.rel] = nil end
+      if r.shared_requests then r.shared_requests[file.rel] = nil end
+    end
     disk.seen = type(disk.seen) == 'table' and disk.seen or {}
     if r.marks[file.rel] and r.row.kind ~= 'commit' and not r.row.snapshots and file.right and #file.right <= 4 * 1024 * 1024 then
       local hash = vim.fn.sha256(file.right)
@@ -654,6 +667,39 @@ local function maps(r, buf, sidebar)
   end
 end
 
+function M.refresh_requests(wait)
+  local r = M.current
+  local backend = M.work_tool()
+  if not r or r.closing or r.row.kind == 'commit' or not backend then return end
+  if not wait and r.requests_pending then return end
+  r.requests_generation = (r.requests_generation or 0) + 1
+  local generation = r.requests_generation
+  local function apply(out)
+    if M.current ~= r or r.closing or generation ~= r.requests_generation then return end
+    r.requests_pending = false
+    local ok, list = pcall(vim.json.decode, out and out.stdout or '')
+    if not out or out.code ~= 0 or not ok or type(list) ~= 'table' or not vim.islist(list) then
+      if wait then tell('Could not refresh change requests; showing their last known status.', vim.log.levels.WARN) end
+      return
+    end
+    local standing = {}
+    for _, request in ipairs(list) do
+      if type(request) == 'table' and type(request.file) == 'string' then standing[request.file] = request end
+    end
+    r.shared_requests = standing
+    if api.nvim_buf_is_valid(r.panel_buf) then panel(r) end
+  end
+  local argv = { backend, 'review-requests', '--root', r.root }
+  if wait then
+    local ok, job = pcall(vim.system, argv, { text = true })
+    apply(ok and job:wait(1500) or nil)
+  else
+    r.requests_pending = true
+    local ok = pcall(vim.system, argv, { text = true, timeout = 3000 }, vim.schedule_wrap(apply))
+    if not ok then r.requests_pending = false end
+  end
+end
+
 function M.select(index, refresh)
   local r = M.current
   if not r or not r.files[index] then return end
@@ -663,6 +709,7 @@ function M.select(index, refresh)
   api.nvim_set_current_tabpage(r.tab)
   r.generation = (r.generation or 0) + 1
   r.index = index
+  M.refresh_requests(refresh)
   r.symbol = nil
   local file = r.files[index]
   load_file(r, file, refresh or r.row.kind ~= 'commit')
@@ -703,6 +750,30 @@ function M.select(index, refresh)
   draw_notes(r)
 end
 
+function M.refresh_live()
+  local r = M.current
+  if not r or r.closing then return end
+  M.refresh_requests()
+  if r.row.kind == 'commit' or r.row.snapshots then return end
+  -- Hidden comparisons catch up when their tab returns, without taking focus from ordinary editing.
+  if api.nvim_get_current_tabpage() ~= r.tab then r.live_dirty = true; return end
+  r.live_dirty = false
+  local selected = r.files[r.index]
+  if not selected then return end
+  local signature, failed, binary = selected.signature, selected.error, selected.binary
+  for _, file in ipairs(r.files) do if file.loaded or file == selected then load_file(r, file, true) end end
+  if signature == selected.signature and failed == selected.error and binary == selected.binary then panel(r); return end
+  local win, views = api.nvim_get_current_win(), {}
+  for _, target in ipairs({ r.left_win, r.right_win, r.panel_win }) do
+    if api.nvim_win_is_valid(target) then views[target] = api.nvim_win_call(target, vim.fn.winsaveview) end
+  end
+  M.select(r.index)
+  for target, view in pairs(views) do
+    if api.nvim_win_is_valid(target) then api.nvim_win_call(target, function() vim.fn.winrestview(view) end) end
+  end
+  if api.nvim_win_is_valid(win) then api.nvim_set_current_win(win) end
+end
+
 function M.toggle_since()
   local on = not M.since_mode()
   write_private(reviews_dir() .. '/prefs.json', vim.json.encode({ since = on }))
@@ -714,6 +785,7 @@ end
 function M.unread()
   local r = M.current
   if not r then return end
+  M.refresh_requests(true)
   for _, f in ipairs(r.files) do load_file(r, f, r.row.kind ~= 'commit') end
   -- What needs the most care comes first: an unread file with a risk mark, then the rest in order.
   for pass = 1, 2 do
@@ -721,10 +793,16 @@ function M.unread()
       local risky = f.risks and #f.risks > 0
       local request = M.request_of(r, f)
       local waiting = request and not request.ready       -- still with the session: nothing to read yet
-      if r.marks[f.rel] ~= f.signature and ((pass == 1 and (risky or (request and request.ready))) or (pass == 2 and not waiting)) then M.select(i); return end
+      if r.marks[f.rel] ~= f.signature and not waiting and (pass == 2 or risky or (request and request.ready)) then M.select(i); return end
     end
   end
-  panel(r); tell('Every file is checked. R finishes the review.')
+  local waiting = 0
+  for _, f in ipairs(r.files) do
+    if r.marks[f.rel] ~= f.signature then waiting = waiting + 1 end
+  end
+  panel(r)
+  tell(waiting > 0 and ('Waiting on ' .. waiting .. (waiting == 1 and ' change request.' or ' change requests.'))
+    or 'Every file is checked. R finishes the review.')
 end
 
 function M.mark()
@@ -929,7 +1007,9 @@ function M.actions()
     add('Finish & next commit', 'Finish this review and open the next unchecked commit in this list.', M.finish_next,
       { group = 'review', bind = 'R', right = progress(r) .. '/' .. #r.files .. ' checked' })
     add('First unread file', 'Return to the first file you have not checked in this change.', M.unread, { group = 'review', bind = 'u' })
-    add('Plan coverage', 'Each step of the plan with the commits that touched a file it names, the steps not started, and the changed files no step names.',
+    add('Tests for this file', 'Choose a captured test command, inspect why it was suggested, then explicitly run it on saved files.',
+      function() require('foxml.claude').close(); require('foxml.work').suggested_tests(r.files[r.index].path) end, { group = 'review' })
+    add('Plan coverage', 'Each step of the plan with its matching edits or recorded commits, and the changed files no step names.',
       M.plan_coverage, { group = 'review', bind = 'P' })
     add('Note to self', 'Leave yourself a note on this line. It stays with the file in every later review; an empty note removes it.',
       function() api.nvim_set_current_win(r.right_win); M.note_here() end, { group = 'review', bind = 'N' })
@@ -1127,19 +1207,22 @@ function M.requested(path, peer, text)
     text = tostring(text or ''):gsub('[\r\n\t]', ' '):sub(1, 300), at = os.time(), signature = file.signature or '' }
   if not write_private(r.state_file, vim.json.encode(disk)) then return false end
   if r.row.kind ~= 'commit' then
-    share_request(r, file, disk.requests[file.rel])
-    if r.shared_requests then r.shared_requests[file.rel] = true end
+    if not share_request(r, file, disk.requests[file.rel]) then return false end
+    if r.shared_requests then r.shared_requests[file.rel] = vim.tbl_extend('force', disk.requests[file.rel], { state = 'waiting' }) end
   end
   r.completed = false
   panel(r)
   return true
 end
 function M.request_of(r, file)
+  if r.shared_requests and r.row.kind ~= 'commit' then
+    local shared = r.shared_requests[file.rel]
+    if type(shared) ~= 'table' then return nil end
+    return vim.tbl_extend('force', shared, { ready = shared.state == 'ready' })
+  end
   local requests = decode(read(r.state_file)).requests
   local request = type(requests) == 'table' and requests[file.rel] or nil
   if type(request) ~= 'table' then return nil end
-  -- The shared store wins: a request withdrawn from the notebook is gone here too.
-  if r.shared_requests and r.row.kind ~= 'commit' and not r.shared_requests[file.rel] then return nil end
   request.ready = file.loaded and request.signature ~= '' and request.signature ~= file.signature
   return request
 end
@@ -1261,39 +1344,15 @@ function M.api_open()
   tell(record.current and 'Enter on a path:line opens it.' or 'This file has changed since the review: Enter on a path:line opens the version it is about.')
 end
 
--- The next thing that needs you in this project, in the notebook's order: a requested change whose file has now
--- changed, then a file edited since you reviewed it, then the oldest of Claude's commits not reviewed yet.
+-- Priority and eligibility belong to desk-work; review navigation takes its review-only projection.
 function M.next_item(root)
   local backend = M.work_tool()
   if not backend then return nil, 'requires the work tool (desk-work)' end
-  local function ask(...)
-    local argv = { backend, ... }
-    local ok, out = pcall(function() return vim.system(argv, { text = true }):wait(3000) end)
-    return ok and out and out.code == 0 and decode(out.stdout) or {}
-  end
-  for _, request in ipairs(ask('review-requests', '--root', root)) do
-    if request.state == 'ready' then return { kind = 'request', file = request.file, why = 'changed since you asked ' .. (request.name or 'a session') } end
-  end
-  for key, review in pairs(ask('review-progress', '--root', root)) do
-    if not key:match('^%x+$') or #key ~= 40 then
-      for rel, mark in pairs(type(review.files) == 'table' and review.files or {}) do
-        if mark.state == 'changed' then return { kind = 'changed', file = rel, why = 'edited since you reviewed it' } end
-      end
-    end
-  end
-  local oldest
-  for _, task in ipairs(ask('review-tree', '--root', root)) do
-    for _, c in ipairs(type(task.commits) == 'table' and task.commits or {}) do
-      if not c.reviewed and not oldest then oldest = { kind = 'commit', sha = c.sha, why = 'not reviewed yet' } end
-    end
-  end
-  return oldest
+  local ok, out = pcall(function() return vim.system({ backend, 'attention', '--root', root, '--scope', 'review' }, { text = true }):wait(5000) end)
+  if not ok or out.code ~= 0 then return nil, 'Work status is unavailable; refresh and try again.' end
+  return decode(out.stdout)[1]
 end
-function M.next()
-  local root = (M.current and M.current.root) or vim.fs.root(0, '.git') or vim.fs.root(vim.fn.getcwd(), '.git')
-  if not root then tell('Not in a git repository.'); return end
-  local item, why = M.next_item(root)
-  if not item then tell(why or 'Nothing needs you here right now.'); return end
+function M.open_item(item, root)
   local C = require('foxml.claude')
   local rows = C.rows(root)
   if item.kind == 'commit' then
@@ -1309,9 +1368,16 @@ function M.next()
   end
   C.open_review({ kind = 'live', sid = '', name = 'needs you', short = 'needs you', files = { root .. '/' .. item.file }, label = item.why }, root)
 end
+function M.next()
+  local root = (M.current and M.current.root) or vim.fs.root(0, '.git') or vim.fs.root(vim.fn.getcwd(), '.git')
+  if not root then tell('Not in a git repository.'); return end
+  local item, why = M.next_item(root)
+  if not item then tell(why or 'Nothing needs you here right now.'); return end
+  M.open_item(item, root)
+end
 
 -- Plan coverage: each step of the plan this change was made under, with the commits that touched a file it names;
--- a step with none is "not started", and a changed file no step names is listed as outside the plan. By files, so it
+-- a step with none has "no matching edits", and a changed file no step names is listed as outside the plan. By files, so it
 -- is a fact about what changed, not a guess about intent.
 local function names_file(name, rel, path)
   name = name:gsub('^~/', ''):gsub('^%./', '')
@@ -1400,7 +1466,8 @@ function M.plan_coverage()
   local items = {}
   for _, step in ipairs(data.steps) do
     local done = #step.commits
-    items[#items + 1] = { name = step.label, group = 'steps', right = done > 0 and table.concat(step.commits, ', ') or 'not started',
+    items[#items + 1] = { name = step.label, group = 'steps', right = done > 0 and table.concat(step.commits, ', ')
+        or (step.recorded and 'no commit recorded' or 'no matching edits'),
       label = step.recorded
         and (step.label .. (done > 0 and (' — recorded on ' .. table.concat(step.commits, ', ') .. ' when it was committed.') or ' — no commit was recorded under this step. (The plan names no files, so this goes by the step noted at each commit.)'))
         or (step.label .. ' — names ' .. table.concat(step.files, ', ') .. (done > 0 and ('. Touched by ' .. table.concat(step.commits, ', ') .. '.') or '. Nothing has changed a file it names yet.')),
@@ -1537,6 +1604,7 @@ function M.close()
   if not r then return true end
   if r.closing then return false end
   r.closing = true
+  if r.unsubscribe then r.unsubscribe(); r.unsubscribe = nil end
   -- Remember the place: the next open of this change starts on this file and line.
   pcall(function()
     local f = r.files[r.index]
@@ -1618,23 +1686,14 @@ function M.open(row, root, callbacks)
     end
   end })
   api.nvim_create_autocmd('TabLeave', { group = r.group, callback = function() restore_options(r) end })
-  api.nvim_create_autocmd('TabEnter', { group = r.group, callback = function() if M.current == r and not r.closing then options(r); M.layout() end end })
+  api.nvim_create_autocmd({ 'TabEnter', 'FocusGained' }, { group = r.group, callback = function()
+    if M.current == r and not r.closing and api.nvim_get_current_tabpage() == r.tab then options(r); M.layout(); M.refresh_live() end
+  end })
   api.nvim_create_autocmd('VimResized', { group = r.group, callback = function() if M.current == r then M.layout() end end })
   api.nvim_create_autocmd('TabClosed', { group = r.group, callback = function()
     vim.schedule(function() if M.current == r and not api.nvim_tabpage_is_valid(r.tab) then M.close() end end)
   end })
-  -- Which requests still stand in the shared store (one may have been withdrawn from the notebook); asked in the
-  -- background, and the panel redraws when the answer comes.
-  local backend = M.work_tool()
-  if backend and row.kind ~= 'commit' then
-    pcall(vim.system, { backend, 'review-requests', '--root', root }, { text = true }, vim.schedule_wrap(function(out)
-      if M.current ~= r or r.closing or not out or out.code ~= 0 then return end
-      local standing = {}
-      for _, request in ipairs(decode(out.stdout)) do if type(request) == 'table' and request.file then standing[request.file] = true end end
-      r.shared_requests = standing
-      if api.nvim_buf_is_valid(r.panel_buf) then panel(r) end
-    end))
-  end
+  M.refresh_requests()
   -- Validate persisted checkmarks against actual content before resuming.
   local first = 1
   for i, f in ipairs(files) do
@@ -1655,6 +1714,9 @@ function M.open(row, root, callbacks)
     end
   end
   M.layout(); M.select(first)
+  r.unsubscribe = require('foxml.work_events').subscribe(root, function()
+    if M.current == r then M.refresh_live() end
+  end)
   if resumed and tonumber(last.line) and api.nvim_win_is_valid(r.right_win) then
     pcall(api.nvim_win_set_cursor, r.right_win, { math.max(1, math.min(tonumber(last.line), api.nvim_buf_line_count(r.right_buf))), 0 })
   end

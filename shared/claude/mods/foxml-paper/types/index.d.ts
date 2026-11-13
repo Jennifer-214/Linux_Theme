@@ -17,14 +17,18 @@ export type WorkJob = { id: string; command: string; title?: string; state: stri
 // Review progress from desk-work, per review (a commit sha, a session id or "working"): each checked file is
 // "checked", or "changed" when it was edited after it was read.
 export type ReviewProgress = { files: Record<string, { state: 'checked' | 'changed'; at: number }>; checked: number; changed: number; total: number; completed: boolean; at: number }
-export type WorkLook = { tests: WorkTest | null; tasks: WorkTask[]; jobs: WorkJob[]; failures?: WorkJob[]; review?: Record<string, ReviewProgress>; pending?: number; requests?: ReviewRequest[] }
+export type AttentionItem = { id: string; kind: 'job' | 'agent' | 'request' | 'changed' | 'commit'; root: string; label: string; why: string; at: number; file?: string; sha?: string; run?: string; action: { kind: string; id?: string; file?: string; key?: string } }
+export type AgentSession = { key: string; id: string; agent: string; name: string; root: string; project: string; state: string; busy: boolean; pane: string; canMessage: boolean; files: string[]; attribution: string }
+export type WorkEvent = { id: string; seq: number; kind: string; root: string; at: number; label: string; state?: string; file?: string; action: { kind: string; id?: string; file?: string } }
+export type WorkDigest = { total: number; files: number; through: number; truncated: boolean; counts: Record<string, number>; events: WorkEvent[]; summary?: string }
+export type WorkLook = { tests: WorkTest | null; tasks: WorkTask[]; jobs: WorkJob[]; failures?: WorkJob[]; review?: Record<string, ReviewProgress>; pending?: number; requests?: ReviewRequest[]; attention?: AttentionItem[]; agents?: AgentSession[]; revision?: string; timeline?: WorkEvent[]; digest?: WorkDigest; integration?: { status: string; message: string } }
 // A change request sent to a session about a file: waiting while the file is as it was, ready once it has changed.
 export type ReviewRequest = { file: string; name: string; sid: string; text: string; at: number; state: 'waiting' | 'ready' }
-export type NotebookView = { page: 'overview' | 'files' | 'project' | 'sessions' | 'help' | 'request'; scope: 'session' | 'all'; selected: string; focused?: string; offset: number; form: 'none' | 'task' | 'plan' | 'step' | 'search'
+export type NotebookView = { page: 'overview' | 'files' | 'project' | 'sessions' | 'help' | 'request' | 'timeline' | 'digest'; scope: 'session' | 'all'; selected: string; focused?: string; offset: number; form: 'none' | 'task' | 'plan' | 'step' | 'search' | 'snooze'
   // The files page: which files to list, and a part of a name to find.
   show?: 'all' | 'unreviewed' | 'changed'; query?: string
   // The request page: which file's thread is open.
-  request?: string }
+  request?: string; compact?: boolean; adaptive?: boolean }
 export type PaperTree = { path: string; branch: string; status: string; bare?: boolean; sessions: PaperPeer[] }
 export type ApiCredits = {
   short: string; headline: string; detail: string; meter: string
@@ -72,7 +76,7 @@ export type PaperRedZone = { what: string }
 // A note that reached this session: from you in nvim, or from another Claude.
 export type PaperEnvelope = { id?: string; from: string; text: string; at: number }
 
-export type PaperPeer = { id: string; name: string; project: string; state: string; busy: boolean; pane: string }
+export type PaperPeer = { id: string; name: string; project: string; state: string; busy: boolean; pane: string; agent?: string; canMessage?: boolean; root?: string; files?: string[] }
 
 declare module 'claude-code' {
   interface PluginState {

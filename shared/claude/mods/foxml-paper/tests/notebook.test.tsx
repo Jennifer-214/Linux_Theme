@@ -347,7 +347,7 @@ test('a build Claude runs is recorded around the call, never rewritten, under it
   await opened($)
   await $.tool.call({ tool: 'Bash', command: 'make -C src test', description: 'Run the unit tests' })
   expect(seen.bash).toEqual(['make -C src test'])
-  expect(seen.argv).toContain('desk-work begin --root /code/paper --session abc --pid parent --command make -C src test --title Run the unit tests')
+  expect(seen.argv).toContain('desk-work begin --root /code/paper --session abc --pid parent --safe yes --command make -C src test --title Run the unit tests --cwd /code/paper')
   expect(seen.argv).toContain(`desk-work finish --id ${'f'.repeat(32)} --exit 2 --output -`)
   expect(seen.stdin).toContain('Exit code 2\n128 passed, 2 failed')
   expect(seen.argv.some(argv => argv.includes('desk-work run'))).toBe(false)
@@ -563,6 +563,82 @@ test('needs you comes first: a request whose file changed, files edited since re
   await ui.unmount()
 })
 
+test('resending preserves the original request baseline, including when delivery fails', async ($, on) => {
+  engine(on, { delivery: false, projectWork: { tests: null, jobs: [], tasks: [], pending: 0, requests: [
+    { file: 'README.md', name: 'Ledger tidy', sid: 'p1', text: 'keep the old name', at: 1, state: 'waiting' }] } })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'request-README.md' })
+  seen.argv = []
+  await ui.press({ key: 'request-again' })
+  expect(seen.toasts).toContain('not sent: session ended')
+  expect(seen.argv.some(a => a.startsWith('desk-work review-request'))).toBe(false)
+  expect((await ui.find({ type: 'Text', text: /"keep the old name"/ }))?.text).toBe('  "keep the old name"')
+  await ui.unmount()
+})
+
+test('a delivered retry does not reset the request baseline or repeat changed counts in the overview', async ($, on) => {
+  engine(on, { projectWork: { tests: null, jobs: [], tasks: [], pending: 2,
+    review: { working: { files: { 'README.md': { state: 'changed', at: 1 } }, checked: 0, changed: 1, total: 2, completed: false, at: 1 } },
+    requests: [{ file: 'src/worker.cpp', name: 'Ledger tidy', sid: 'p1', text: 'drain first', at: 1, state: 'waiting' }] } })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ key: 'review-open' }))?.props.label).toBe('✎ 2 changes to review')
+  expect((await ui.find({ key: 'page-files' }))?.props.label).toBe('2 changed files · 0 reviewed')
+  await ui.press({ key: 'request-src/worker.cpp' })
+  seen.argv = []
+  await ui.press({ key: 'request-again' })
+  expect(seen.toasts).toContain('note left for Ledger tidy')
+  expect(seen.argv.some(a => a.startsWith('desk-work review-request'))).toBe(false)
+  await ui.unmount()
+})
+
+test('a failed git refresh keeps the last file list and offers a retry', async ($, on) => {
+  const gitFailure = { value: false }
+  engine(on, { gitFailure })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  gitFailure.value = true
+  await $.command.run({ command: 'notebook', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  expect((await ui.find({ key: 'page-files' }))?.text).toContain('2 changed files')
+  expect((await ui.find({ key: 'refresh-now' }))?.props.label).toContain('may be out of date')
+  gitFailure.value = false
+  await ui.press({ key: 'refresh-now' })
+  expect((await ui.find({ key: 'refresh-now' }))?.props.label).toContain('work tool unavailable')
+  await ui.unmount()
+})
+
+test('compact mode reserves thirty columns, remembers its choice and expands without sending a prompt', async ($, on) => {
+  engine(on, { compact: true, projectWork: { tests: null, tasks: [], jobs: [], pending: 9, attention: [] } })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 30 }, surface: 'terminal' })
+  expect((await ui.find({ key: 'compact-attention' }))?.props.label).toBe('all quiet')
+  expect(await ui.find({ key: 'page-files' })).toBeUndefined()
+  await ui.press({ key: 'compact-expand' })
+  expect(await ui.find({ key: 'page-files' })).toBeDefined()
+  expect(seen.opened.at(-1)).toMatchObject({ columns: 42, rows: 10 })
+  await $.command.run({ command: 'notebook', args: 'compact', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  expect(seen.opened.at(-1)).toMatchObject({ columns: 30, rows: 4 })
+  expect(seen.submitted).toEqual([])
+  await ui.unmount()
+})
+
+test('the notebook uses shared attention actions and separates agents without message support', async ($, on) => {
+  engine(on, { agents: [{ key: 'pi:p1', id: 'p1', agent: 'pi', name: 'Worker', root: '/code/paper', project: 'paper', state: 'working', busy: true, pane: '%7', canMessage: false, files: [], attribution: 'observed tool edits' }],
+    projectWork: { tests: null, tasks: [], jobs: [], pending: 0,
+      attention: [{ id: 'request:README.md', kind: 'request', root: '/code/paper', label: 'README.md', why: 'Changed since you asked', at: 1, file: 'README.md', action: { kind: 'file-diff', file: 'README.md' } }] } })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: true }, surface: 'terminal' } as never)
+  await ui.press({ key: 'nav-next' })
+  expect(seen.argv).toContain('desk-work open --root /code/paper --action attention --id request:README.md')
+  expect((await ui.find({ key: 'page-sessions' }))?.props.label).toBe('2 agents · you + 1 other')
+  await ui.press({ key: 'page-sessions' })
+  expect(await ui.find({ key: 'go-pi:p1' })).toBeDefined()
+  expect(await ui.find({ key: 'note-pi:p1' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'note delivery unavailable' })).toBeDefined()
+  await ui.unmount()
+})
+
 test('the files page filters to what needs review, to what changed since, and by name; the marks page explains', async ($, on) => {
   engine(on, { projectWork: { tests: null, jobs: [], tasks: [], pending: 0,
     review: { working: { files: { 'README.md': { state: 'checked', at: 1 } }, checked: 1, changed: 0, total: 2, completed: false, at: 1 } } } })
@@ -603,6 +679,59 @@ test('a page that could not refresh says so and offers a retry; one without the 
   seen.argv = []
   await ui.press({ key: 'refresh-now' })
   expect(seen.argv.some(a => a.startsWith('git --no-optional-locks'))).toBe(true)
+  await ui.unmount()
+})
+
+test('the timeline and digest use backend event identities and acknowledge only the displayed revision', async ($, on) => {
+  const events = [{ id: '12', seq: 12, kind: 'edit', root: '/code/paper', at: NOW / 1000,
+    label: 'queue.cpp · pi edited', action: { kind: 'file-diff', file: 'queue.cpp' } }]
+  engine(on, { projectWork: { tests: null, tasks: [], jobs: [], attention: [], timeline: events,
+    digest: { total: 1, files: 1, through: 12, counts: { edit: 1 }, events, truncated: false, summary: '1 observed file edited' } } })
+  await opened($)
+  await $.command.run({ command: 'notebook', args: 'timeline', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'event-12' })
+  expect(seen.argv).toContain('desk-work open --root /code/paper --action event --id 12')
+  await $.command.run({ command: 'notebook', args: 'digest', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  expect(await ui.find({ type: 'Text', text: '1 observed file edited' })).toBeDefined()
+  await ui.press({ key: 'digest-caught-up' })
+  expect(seen.argv).toContain('desk-work digest --root /code/paper --consumer notebook --through 12')
+  expect(seen.submitted).toEqual([])
+  await ui.unmount()
+})
+
+test('automatic sizing follows the measured viewport and does not request keyboard focus', async ($, on) => {
+  engine(on, { clock: false, projectWork: { tests: null, tasks: [], jobs: [], attention: [] } })
+  const clock = mock.clock(on, { now: NOW })
+  await opened($)
+  await $.command.run({ command: 'notebook', args: 'auto', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  seen.opened = []
+  const small = await $.ui.mount({ ...PANE, surface: 'terminal', viewport: { columns: 120, rows: 40, isFullscreen: true } })
+  expect(await small.find({ key: 'compact-expand' })).toBeDefined()
+  await clock.advance(1000)
+  expect(seen.opened.at(-1)).toMatchObject({ columns: 30 })
+  expect((seen.opened.at(-1) as { focus?: true })?.focus).toBeUndefined()
+  await small.unmount()
+  seen.opened = []
+  const large = await $.ui.mount({ ...PANE, surface: 'terminal', viewport: { columns: 180, rows: 40, isFullscreen: true } })
+  expect(await large.find({ key: 'page-files' })).toBeDefined()
+  await clock.advance(1000)
+  expect(seen.opened.at(-1)).toMatchObject({ columns: 42 })
+  expect((seen.opened.at(-1) as { focus?: true })?.focus).toBeUndefined()
+  expect(seen.submitted).toEqual([])
+  await large.unmount()
+})
+
+test('snoozing an attention item changes the shared record without marking the file reviewed', async ($, on) => {
+  engine(on, { projectWork: { tests: null, tasks: [], jobs: [], attention: [{ id: 'request:queue.cpp', kind: 'request', root: '/code/paper',
+    label: 'queue.cpp', why: 'Changed since requested', at: NOW / 1000, action: { kind: 'file-diff', file: 'queue.cpp' } }] } })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: true }, surface: 'terminal' })
+  await ui.press({ key: 'attention-request:queue.cpp' })
+  await ui.press({ key: 'nav-snooze' })
+  await ui.press({ key: 'snooze-change' })
+  expect(seen.argv).toContain('desk-work snooze --root /code/paper --id request:queue.cpp --until-change yes')
+  expect(seen.argv.some(argv => argv.startsWith('desk-work review-mark '))).toBe(false)
   await ui.unmount()
 })
 

@@ -553,6 +553,13 @@ first change you make to it says which session to coordinate with. The statuslin
 | `Space Cj` | Go to the pane of the Claude that edited this buffer |
 | `Space Cd` | Show this file in the current review panes |
 | `Space Cr` | Review the next thing that needs you: a requested change whose file has changed, a file edited since you reviewed it, else the oldest unreviewed Claude commit (`:ReviewNext`) |
+| `:WorkAttention` | Shared project attention list: failed jobs, agents needing input and changes to review |
+| `:WorkNext` | Open the first item in the shared attention list |
+| `:WorkTimeline` | Project activity with links to files, results and reviews |
+| `:WorkDigest` | Changes since your last explicit acknowledgement |
+| `:WorkSnooze` / `:WorkUnsnooze` | Hide or restore shared attention items without settling them |
+| `:WorkSuggestedTests` | Choose a captured test command and confirm a run in its original folder |
+| `:WorkSave` / `:WorkResume` | Save file positions or restore them in new tabs, preserving current buffers and jobs |
 | `Space Cq` | Close all Claude review tabs and the file list; stop following |
 | `Space Cp` | The plan the sessions in this repo read last (`:Plan`) |
 
