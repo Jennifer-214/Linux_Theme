@@ -346,6 +346,26 @@ assert(shown:find('⚠',1,true),'the panel marks a risky file')
 C.close()
 ''')
 
+    def test_the_base_works_in_a_bare_project_without_plans_symdeps_or_the_work_tool(self):
+        # The rule for everything here: the base works in anyone's project; plans, symdeps, desk-work and the notebook
+        # only add to it. So: no work tool on PATH, no symdeps, no plan, an ordinary commit.
+        self.run_lua(r'''
+vim.env.PATH='/usr/bin:/bin'
+assert(R.work_tool()==nil,'the work tool must be absent for this test')
+assert(package.loaded['fox-symdeps']==nil and not pcall(require,'fox-symdeps'),'symdeps must be absent for this test')
+package.loaded['foxml.planmarks']={plan=nil,parse=function() return {} end}
+C.open_review(row,root); R.tree({row})
+local r=R.current
+local text=table.concat(api.nvim_buf_get_lines(r.panel_buf,0,-1,false),'\n')
+assert(text:find('Other changes',1,true),'with no work tool every commit sits in one plain group:\n'..text)
+assert(text:find(row.short,1,true) and text:find('a.lua',1,true),text)
+assert(#r.files[1].risks==0,'no plan and no list means no invented risk: '..vim.inspect(r.files[1].risks))
+for i,f in ipairs(r.files) do R.select(i); R.mark(); assert(r.marks[f.rel]==f.signature,'checkmarks work on their own') end
+assert(R.finish()==true and r.completed==true,'a review finishes without the work tool')
+R.actions()
+C.close()
+''')
+
     def test_symdeps_bridge_uses_a_real_cpp_buffer_and_the_selected_base(self):
         source = self.repo / 'inspect.cpp'
         source.write_text('struct Item { int count; };\n')

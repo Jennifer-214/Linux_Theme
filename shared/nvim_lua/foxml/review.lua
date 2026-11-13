@@ -118,9 +118,32 @@ end
 -- Risk marks, from what is already known: the red-zone paths and tools the notebook warns about (login, boot, mounts,
 -- the kernel, the firewall) when the lines a change ADDS name one; the project's own list (.review-risk, one path
 -- fragment per line); a file its plan never names; a file edited since the last test run. Reasons, never a score.
-local RED_PATHS = { '/etc/pam%.d', '/etc/fstab', '/etc/crypttab', '/etc/greetd', '/etc/sudoers', '/etc/mkinitcpio', '/etc/default/grub',
-  '/etc/kernel/cmdline', '/etc/sysctl', '/etc/usbguard', '/etc/ufw', '/etc/security', '/boot/' }
-local RED_TOOLS = { 'bootctl', 'efibootmgr', 'mkinitcpio', 'grub%-mkconfig', 'usbguard', 'cryptsetup', 'faillock' }
+-- The list itself is ~/.config/foxml/redzone.json (shared/redzone.json), the same file the notebook's band reads; the
+-- copy here only stands in when that file is missing, and tests/test_redzone.py keeps the two the same.
+local RED_DEFAULT = { paths = { '/etc/pam.d', '/etc/fstab', '/etc/crypttab', '/etc/greetd', '/etc/sudoers', '/etc/mkinitcpio',
+  '/etc/default/grub', '/etc/kernel/cmdline', '/etc/sysctl', '/etc/usbguard', '/etc/ufw', '/etc/security', '/boot/' },
+  tools = { 'bootctl', 'efibootmgr', 'mkinitcpio', 'grub-mkconfig', 'ufw', 'usbguard', 'sysctl -w', 'cryptsetup', 'faillock' } }
+local red
+local function red_zone()
+  if red then return red end
+  local config = vim.env.XDG_CONFIG_HOME or (vim.env.HOME .. '/.config')
+  local listed = decode(read(config .. '/foxml/redzone.json'))
+  local function strings(list) return type(list) == 'table' and #list > 0 and vim.tbl_filter(function(s) return type(s) == 'string' and s ~= '' end, list) or nil end
+  red = { paths = strings(listed.paths) or RED_DEFAULT.paths, tools = strings(listed.tools) or RED_DEFAULT.tools }
+  return red
+end
+function M.red_zone_reset() red = nil end
+-- Plain-text search for a tool name with nothing word-like on either side.
+local function names_tool(line, tool)
+  local from = 1
+  while true do
+    local s, e = line:find(tool, from, true)
+    if not s then return false end
+    local before, after = line:sub(s - 1, s - 1), line:sub(e + 1, e + 1)
+    if not before:match('[%w_-]') and not after:match('[%w_-]') then return true end
+    from = e + 1
+  end
+end
 local function plan_names(r)
   local path = r.row.plan
   if not path or path == '' then
@@ -165,12 +188,12 @@ function M.risks(r, file)
   for _, h in ipairs(file.hunks or {}) do
     for n = h[3], h[3] + h[4] - 1 do
       local line = right[n] or ''
-      for _, pattern in ipairs(RED_PATHS) do
-        local m = line:match(pattern); if m then hit = m; break end
+      for _, path in ipairs(red_zone().paths) do
+        if line:find(path, 1, true) then hit = path; break end
       end
       if not hit then
-        for _, tool in ipairs(RED_TOOLS) do
-          local m = line:match('%f[%w_-]' .. tool .. '%f[^%w_-]'); if m then hit = m; break end
+        for _, tool in ipairs(red_zone().tools) do
+          if names_tool(line, tool) then hit = tool; break end
         end
       end
       if hit then break end
@@ -393,8 +416,9 @@ local function describe(r, entry)
     local state = f.error and 'this snapshot is unavailable' or (marks and marks[f.rel] == f.signature and f.loaded) and 'reviewed'
       or (marks and marks[f.rel] and f.loaded) and 'changed since you reviewed it' or 'not reviewed yet'
     local what = ({ A = 'added', D = 'deleted', R = 'renamed', M = 'modified' })[f.status] or 'changed'
-    if f.since then state = 'showing only what is new · n shows the whole change' end
-    if f.risks and #f.risks > 0 then state = '⚠ ' .. table.concat(f.risks, ' · ') .. ' · ' .. state end
+    local name = f.rel:match('[^/]+$') or f.rel
+    if f.risks and #f.risks > 0 then return { name .. ' · ' .. what .. ' · ' .. state, '⚠ ' .. table.concat(f.risks, ' · ') } end
+    if f.since then return { name .. ' · ' .. what .. ' · ' .. state, 'showing only what is new · n shows the whole change' } end
     return { f.rel .. ' · ' .. what, state }
   end
   if set then

@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, planProgress, reviewStates, reviewSummary, ruler, shellQuote, stepLabel, testLabel, turnLabel, withoutHeredocs } from '../hooks/work'
+import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, pendingLine, planProgress, reviewStates, reviewSummary, ruler, shellQuote, stepLabel, testLabel, turnLabel, unreviewed, withoutHeredocs } from '../hooks/work'
 
 test('tracking records a command as written, keeps secrets out, and reads how the call ended', () => {
   const command = "make test && printf '%s' \"$HOME\""
@@ -129,4 +129,13 @@ test('review marks: edited-after-review wins, a commit review does not mark the 
   expect(reviewSummary(['untouched.cpp'], states)).toBe('')
   expect(reviewSummary([], states)).toBe('')
   expect([...reviewStates(null)]).toEqual([])
+})
+
+test('the one review line counts what waits, and says nothing when nothing does', () => {
+  const states = new Map<string, 'checked' | 'changed'>([['a.ts', 'checked'], ['b.ts', 'changed']])
+  expect(pendingLine(3, ['a.ts', 'b.ts', 'c.ts'], states)).toBe('3 changes to review · 1 file of yours unread · 1 changed since you looked')
+  expect(pendingLine(1, [], states)).toBe('1 change to review')
+  expect(pendingLine(0, ['a.ts'], states)).toBe('')
+  expect(unreviewed(['a.ts', 'b.ts', 'c.ts'], states)).toBe(2)
+  expect(unreviewed(['a.ts'], states)).toBe(0)
 })

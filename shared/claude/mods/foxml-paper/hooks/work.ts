@@ -114,6 +114,22 @@ export function reviewSummary(paths: string[], states: Map<string, 'checked' | '
   const changed = paths.filter(p => states.get(p) === 'changed').length
   return `${checked} of ${paths.length} reviewed` + (changed ? ` · ${changed} changed since` : '')
 }
+// The notebook's one review line: "3 changes to review · 2 files of yours unread · 1 changed since you looked".
+// Empty when there is nothing to look at.
+export function pendingLine(pending: number, own: string[], states: Map<string, 'checked' | 'changed'>): string {
+  const changed = own.filter(p => states.get(p) === 'changed').length
+  const unread = own.filter(p => !states.has(p)).length
+  const parts = [
+    pending > 0 ? `${pending} ${pending === 1 ? 'change' : 'changes'} to review` : '',
+    unread > 0 ? `${unread} ${unread === 1 ? 'file' : 'files'} of yours unread` : '',
+    changed > 0 ? `${changed} changed since you looked` : '',
+  ].filter(Boolean)
+  return parts.join(' · ')
+}
+// How many of this session's changed files nobody has reviewed as they are now.
+export function unreviewed(own: string[], states: Map<string, 'checked' | 'changed'>): number {
+  return own.filter(p => states.get(p) !== 'checked').length
+}
 // "◷ working 14m · Run the drawer tests": the turn under way, from your message to now, and its latest step.
 export function turnLabel(turn: { started: number; step: string } | null | undefined, nowMs: number): string | null {
   if (!turn || !(turn.started > 0)) return null

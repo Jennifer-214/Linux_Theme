@@ -705,8 +705,11 @@ J notebook(const std::string& root, const std::string& session) {
             freshness(j, current); j.erase("snapshot"); latest = j;
         }
     }
+    // Claude commits nobody has finished reviewing yet (any day), for the notebook's one review line.
+    int pending = 0;
+    for (const auto& c : reviews(root, false)) if (!c.value("reviewed", false)) ++pending;
     return J{{"tests", latest}, {"jobs", jobs}, {"failures", failures}, {"tasks", tasks(root)}, {"session", session},
-             {"review", review_progress(root, "")}};
+             {"review", review_progress(root, "")}, {"pending", pending}};
 }
 fs::path plan_path(const std::string& root, const std::string& session) {
     return project_dir(root) / "plans" / (hash(session) + ".json");

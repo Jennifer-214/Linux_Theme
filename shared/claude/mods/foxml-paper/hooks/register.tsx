@@ -5,7 +5,7 @@ import type { ApiCredits, CiLook, GitLook, NotebookView, PaperAction, PaperCard,
 import { addBefore, addEdit, addName, neighbours, namesText, noteText, overlapFor, parseLedger, parseNames, parseNote, trailerUrl, withPlan } from './ledger'
 import type { Other } from './ledger'
 import { paper } from './theme'
-import { beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, planProgress, reviewStates, reviewSummary, ruler, stepLabel, testLabel, turnLabel, work, workLook } from './work'
+import { beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, pendingLine, planProgress, reviewStates, reviewSummary, ruler, stepLabel, testLabel, turnLabel, unreviewed, work, workLook } from './work'
 import { attributeFiles, fileColumns, fileCounts, gitFiles, drawerPage, mailId, shortPath } from './notebook'
 
 // Linux_Theme paper: a notebook pane beside the chat (hearts, the session's name, its plan, the gate, pages
@@ -23,6 +23,7 @@ const overlap = atom({ plugin: 'foxml-paper', key: 'overlap' } as const, null as
 const peers = atom({ plugin: 'foxml-paper', key: 'peers' } as const, [] as PaperPeer[], { shape: 'peers-1' })
 const writingTo = atom({ plugin: 'foxml-paper', key: 'writingTo' } as const, null as string | null)
 const turn = atom({ plugin: 'foxml-paper', key: 'turn' } as const, null as TurnLook | null, { shape: 'turn-1' })
+const nudge = atom({ plugin: 'foxml-paper', key: 'nudge' } as const, null as number | null)
 const envelopes = atom({ plugin: 'foxml-paper', key: 'envelopes' } as const, [] as PaperEnvelope[], { shape: 'env-1' })
 const notebookView = atom({ plugin: 'foxml-paper', key: 'notebookView' } as const,
   { page: 'overview', scope: 'session', selected: '', offset: 0, form: 'none' } as NotebookView, { shape: 'notebook-1' })
@@ -31,15 +32,37 @@ const SID = /^[A-Za-z0-9_-]{1,80}$/
 const WORDS = ['Reading', 'Checking', 'Tracing', 'Writing', 'Reviewing', 'Working']
 
 // Where a slip can leave a machine unbootable or locked out: login, boot, mounts, the kernel, the firewall.
-const RED_PATHS = /(^|[\s'"=])(\/etc\/(pam\.d|fstab|crypttab|greetd|sudoers|mkinitcpio|default\/grub|kernel\/cmdline|sysctl|usbguard|ufw|security)|\/boot\/)/
-const RED_TOOLS = /(^|[\s;&|(])(bootctl|efibootmgr|mkinitcpio|grub-mkconfig|ufw|usbguard|sysctl\s+-w|cryptsetup|faillock)\b/
+// The list is ~/.config/foxml/redzone.json (shared/redzone.json), the same file the review's risk marks read; this
+// copy only stands in when that file is missing (tests/test_redzone.py keeps the two the same).
+const RED_DEFAULT = {
+  paths: ['/etc/pam.d', '/etc/fstab', '/etc/crypttab', '/etc/greetd', '/etc/sudoers', '/etc/mkinitcpio', '/etc/default/grub',
+    '/etc/kernel/cmdline', '/etc/sysctl', '/etc/usbguard', '/etc/ufw', '/etc/security', '/boot/'],
+  tools: ['bootctl', 'efibootmgr', 'mkinitcpio', 'grub-mkconfig', 'ufw', 'usbguard', 'sysctl -w', 'cryptsetup', 'faillock'],
+}
+const escaped = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/ /g, '\\s+')
+function redRules(list: { paths: string[]; tools: string[] }) {
+  return {
+    paths: new RegExp(`(^|[\\s'"=])(${list.paths.map(escaped).join('|')})`),
+    tools: new RegExp(`(^|[\\s;&|(])(${list.tools.map(escaped).join('|')})\\b`),
+  }
+}
+let red = redRules(RED_DEFAULT)
+async function loadRedZone($: EngineInterface) {
+  try {
+    const home = (await run($, ['sh', '-c', 'printf %s "${XDG_CONFIG_HOME:-$HOME/.config}"'])) ?? ''
+    const listed = JSON.parse(await $.fs.read(home + '/foxml/redzone.json')) as { paths?: unknown; tools?: unknown }
+    const strings = (v: unknown) => Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string' && s !== '' && s.length < 200) : []
+    const paths = strings(listed.paths), tools = strings(listed.tools)
+    red = redRules({ paths: paths.length ? paths : RED_DEFAULT.paths, tools: tools.length ? tools : RED_DEFAULT.tools })
+  } catch { red = redRules(RED_DEFAULT) }
+}
 const PRIVILEGED = /(^|[\s;&|(])(sudo|doas|pkexec|run0)\b/
 const COMMIT = /(^|[\s;&|(])git\s+(-C\s+\S+\s+)?commit\b(?![^;&|]*--dry-run)/
 
 function redZoneOf(command: string): string | null {
-  const path = command.match(RED_PATHS)?.[2]
+  const path = command.match(red.paths)?.[2]
   if (path !== undefined && PRIVILEGED.test(command)) return path
-  return command.match(RED_TOOLS)?.[2]?.split(/\s+/)[0] ?? null
+  return command.match(red.tools)?.[2]?.split(/\s+/)[0] ?? null
 }
 
 // A short greeting by the hour.
@@ -537,7 +560,7 @@ async function refreshNow($: EngineInterface) {
 
 async function beforeEdit($: EngineInterface, file: string) {
   // An edit needs no sudo to count: the path alone says where it lands.
-  const what = (' ' + file).match(RED_PATHS)?.[2] ?? null
+  const what = (' ' + file).match(red.paths)?.[2] ?? null
   if (what !== null) await update($, redZone, () => ({ what }))
   if (/\/plans\/.+\.md$/.test(file)) await notePlan($, file).catch(() => undefined)
 }
@@ -547,6 +570,7 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const started = await next(e)
     await loadReceipts($)
+    await loadRedZone($)
     const unread = await read($, envelopes)
     const migrated = await Promise.all(unread.map(async note => ({ ...note, id: note.id ?? await mailId(note.from, note.text) })))
     const seen = new Set<string>()
@@ -609,6 +633,12 @@ export const register: Register = on => {
   })
   on('classic.Stop', async ($, e, next) => {
     await update($, turn, () => null)
+    // A turn that leaves files of this session unreviewed says so once, above the prompt, until looked at.
+    await refresh($)
+    const seen = await read($, look)
+    const mine = (seen?.files ?? []).filter(f => f.own).map(f => f.path)
+    const left = unreviewed(mine, reviewStates(seen?.work?.review))
+    await update($, nudge, () => left > 0 ? left : null)
     return next(e)
   })
   on('classic.SessionStart', async ($, e, next) => {
@@ -619,6 +649,7 @@ export const register: Register = on => {
   on('prompt.submit', async ($, e, next) => {
     const started = await $.clock.now()
     await update($, turn, () => ({ started, step: '' }))
+    await update($, nudge, () => null)
     await update($, redZone, () => null)
     await update($, overlap, () => null)
     void refresh($)
@@ -719,6 +750,19 @@ export const register: Register = on => {
     if (alert) return (
       <Box>
         <Text color={toneColour(alert.tone ?? 'berry')} weight="bold">○ {clip(alert.text, Math.max(8, e.props.bodyColumns - 4))}</Text>
+      </Box>
+    )
+    const waiting = await read($, nudge)
+    if (waiting !== null && !e.props.isWorking) return (
+      <Box>
+        <Text color={paper.ribbon} weight="bold">✎ {waiting} {waiting === 1 ? 'file' : 'files'} changed </Text>
+        <Text color={paper.dim}>· review pending </Text>
+        <Button key="review" label="review" plain onPress={async () => {
+          await update($, nudge, () => null)
+          await work($, ['open', '--root', await repoRoot($), '--action', 'reviews'])
+        }} />
+        <Text> </Text>
+        <Button key="later" label="later" plain onPress={() => update($, nudge, () => null)} />
       </Box>
     )
     const other = await read($, overlap)
@@ -871,6 +915,9 @@ export const register: Register = on => {
         <Text color={ci.state === 'failed' ? paper.berry : ci.state === 'passed' ? paper.added : paper.dim}>{fit(ci.label, width - 2)}</Text>))
       for (const job of (now?.work?.jobs ?? []).slice(0, 1)) jobRow(job, `◷ ${job.title ?? job.command} · ${Math.floor(job.elapsed / 60)}m`)
       const own = (now?.files ?? []).filter(f => f.own).length
+      // The one review line: what is waiting, and Enter opens the review in Neovim on it.
+      const waitingLine = pendingLine(now?.work?.pending ?? 0, (now?.files ?? []).filter(f => f.own).map(f => f.path), reviewStates(now?.work?.review))
+      if (waitingLine) content.push(row('review-open', '✎ ' + waitingLine, () => checkedWork(['open', '--root', root, '--action', 'reviews'])))
       const reviewLine = reviewSummary((now?.files ?? []).map(f => f.path), reviewStates(now?.work?.review))
       content.push(row('page-files', `${own} this session · ${now?.files.length ?? 0} all files` + (reviewLine ? ` · ${reviewLine}` : ''), () => page('files')))
       content.push(row('page-project', now?.card?.title ?? branchLabel(now?.git, now?.branch ?? ''), () => page('project')))

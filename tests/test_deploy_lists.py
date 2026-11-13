@@ -22,6 +22,8 @@ BIN_RE = re.compile(r"^[ \t]*BIN[ \t]*:?=[ \t]*([^\s#]+)", re.M)
 ONE_SIDED = {
     ("SHARED_MAPPINGS", "nvim_lua/foxml/sync.lua", "~/.config/nvim/lua/foxml/sync.lua"):
         "native-only live file watching and explicit outside-edit merge; AGENT.md freezes mappings.sh",
+    ("SHARED_MAPPINGS", "redzone.json", "~/.config/foxml/redzone.json"):
+        "native-only single red-zone list for the notebook band and the review's risk marks; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "nvim_lua/foxml/review.lua", "~/.config/nvim/lua/foxml/review.lua"):
         "native-only read-only review layout and saved review progress; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "zsh_work.zsh", "~/.config/zsh/work.zsh"):

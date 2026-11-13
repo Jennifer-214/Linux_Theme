@@ -1,0 +1,5 @@
+{
+  "about": "Where a slip can leave a machine unbootable or locked out: login, boot, mounts, the kernel, the firewall. One list, read by the notebook's red-zone band and the review's risk marks. A project adds its own paths in .review-risk.",
+  "paths": ["/etc/pam.d", "/etc/fstab", "/etc/crypttab", "/etc/greetd", "/etc/sudoers", "/etc/mkinitcpio", "/etc/default/grub", "/etc/kernel/cmdline", "/etc/sysctl", "/etc/usbguard", "/etc/ufw", "/etc/security", "/boot/"],
+  "tools": ["bootctl", "efibootmgr", "mkinitcpio", "grub-mkconfig", "ufw", "usbguard", "sysctl -w", "cryptsetup", "faillock"]
+}
