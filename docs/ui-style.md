@@ -53,3 +53,11 @@ Use the symdeps highlight groups when they exist and fall back to the theme's ow
 - Lists you read through in order (changes to review) run oldest first, with the live state pinned on top. Lists of
   what needs you now (failures, due dates) run newest first.
 - No row is cut mid-word without `…`, and nothing wraps.
+
+## Seeing the notebook without installing it
+
+`python3 tests/notebook_preview.py` prints the Claude notebook as it would be drawn, in the theme's colours, from
+sample data: the front page, the files page, a request thread, the marks page and a quiet page. The scenes are in
+`shared/claude/mods/foxml-paper/tests/preview.test.tsx` and go through the mod's real drawing code under Claude
+Code's own test kit, so what it prints is what the pane shows. `--scene WORDS` picks one, `--theme NAME` another
+palette, `--plain` drops the colour. Add a scene there when a page changes.

@@ -1069,7 +1069,7 @@ export const register: Register = on => {
       const total = now?.plan?.total ?? 0, ticked = now?.plan?.done ?? 0
       rule('plan', now?.gate === 'open' ? 'gate open ✓' : now?.gate === 'closed' ? 'plan first ✎' : '')
       if (now?.plan) {
-        pair('plan-open', (now.plan.pinned ? '⌑ ' : '') + now.plan.title, total > 0 ? stepLabel({ done: ticked, total }) : '', () => openDocument(now.plan!.file),
+        pair('plan-open', (now.plan.pinned ? '⌑ ' : '') + workName(now.plan.title, null, now.plan.title), total > 0 ? stepLabel({ done: ticked, total }) : '', () => openDocument(now.plan!.file),
           'The plan this session works from. Enter opens it.')
         if (total > 0) content.push(measured(ticked / total, `${ticked} of ${total} done`))
         if (now.plan.step) pair('plan-step', '◇ ' + now.plan.step, '', () => setView({ form: 'step' }), 'The step in hand. Enter changes it.')
@@ -1082,7 +1082,8 @@ export const register: Register = on => {
       const summary = reviewSummary((now?.files ?? []).map(f => f.path), states)
       rule('review', pending > 0 ? `${pending} waiting` : '')
       const waitingLine = pendingLine(pending, mine, states)
-      if (waitingLine) pair('review-open', '✎ ' + waitingLine, '', () => checkedWork(['open', '--root', root, '--action', 'reviews']),
+      const [waitingFirst = '', ...waitingRest] = waitingLine.split(' · ')
+      if (waitingLine) pair('review-open', '✎ ' + waitingFirst, waitingRest.join(' · ').replace(' since you looked', ' since').replace(' of yours unread', ' unread'), () => checkedWork(['open', '--root', root, '--action', 'reviews']),
         'What is waiting to be looked over. Enter opens the review in Neovim on the next one.')
       // Requests still with a session: who was asked and what for, until the file changes (then it needs you, above).
       const waitingOn = requests.filter(r => r.state === 'waiting')
@@ -1123,7 +1124,7 @@ export const register: Register = on => {
       pair('page-help', '? marks and keys', '', () => page('help'), 'What each mark means and which keys work here.', paper.dim)
       // What the selected row is, the way a menu's description strip says it.
       const says = about[view.selected]
-      if (says) { content.push(text('')); content.push(text(says.length > width * 2 ? says.slice(0, width * 2 - 1) + '…' : says)) }
+      if (says) { content.push(text('')); for (const line of wrapWords(says, width).slice(0, 4)) content.push(text(line)) }
     }
 
     if (view.form === 'none' && view.page === 'request') {
@@ -1153,14 +1154,15 @@ export const register: Register = on => {
     }
 
     if (view.form === 'none' && view.page === 'help') {
-      const line = (mark: string, words: string) => content.push(<Text><Text color={paper.ribbon}>{('  ' + mark).padEnd(5)}</Text><Text color={paper.ink}>{fit(words, width - 5)}</Text></Text>)
+      const line = (mark: string, words: string) => wrapWords(words, Math.max(8, width - 7)).forEach((part, i) =>
+        content.push(<Text><Text color={paper.ribbon}>{('  ' + (i === 0 ? mark : '')).padEnd(7)}</Text><Text color={paper.ink}>{part}</Text></Text>))
       content.push(text(ruleLine('marks', '', width), paper.ribbon))
       line('✓', 'reviewed as it is now')
       line('↻', 'edited since you reviewed it')
       line('○', 'not reviewed yet')
       line('✉', 'sent to a session; waiting for a change')
       line('✎', 'something to look over')
-      line('⚠', 'touches the red zone: login, boot, mounts')
+      line('⚠', 'red zone: login, boot, mounts, firewall')
       line('!', 'failed, and not passed since')
       line('◷', 'running now')
       line('❦', 'a commit')
@@ -1175,9 +1177,9 @@ export const register: Register = on => {
       line('e', 'on files: open the selected file to edit')
       line('d', 'the same page in the drawer')
       content.push(text(ruleLine('words', '', width), paper.ribbon))
-      line('', 'gate open: the plan is approved, edits may go on')
-      line('', 'plan first: edits wait for an approved plan')
-      line('', 'needs you: what failed or is ready for a look')
+      for (const words of ['gate open: the plan is approved, edits may go on', 'plan first: edits wait for an approved plan',
+        'needs you: what failed, or is ready for another look'])
+        wrapWords(words, Math.max(8, width - 2)).forEach((part, i) => content.push(text((i === 0 ? '  ' : '    ') + part, paper.ink)))
       content.push(row('help-back', 'back', () => page('overview')))
     }
 
@@ -1368,7 +1370,7 @@ export const register: Register = on => {
         </Text>
       </Button>}
       {view.page !== 'overview' && <Box>
-        {(['files', 'project', 'sessions'] as const).map(value => <Button key={'nav-page-' + value} label={value} plain onPress={() => page(value)} />)}
+        {(['files', 'project', 'sessions'] as const).flatMap(value => [<Button key={'nav-page-' + value} label={value} plain onPress={() => page(value)} />, <Text key={'nav-gap-' + value}> </Text>])}
       </Box>}
       {view.page === 'files' && <Button key="nav-editor" label="edit selected" hotkey="e" plain onPress={() => {
         const selected = (now?.files ?? []).find(f => `file:${f.path}` === view.selected)
