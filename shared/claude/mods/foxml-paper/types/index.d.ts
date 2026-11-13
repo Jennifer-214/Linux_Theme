@@ -6,7 +6,8 @@ export type GitLook = { upstream: string | null; ahead: number; behind: number; 
 // One GitHub Actions run of the pushed commit (gh run list --json).
 export type CiRun = { name?: string; workflowName?: string; status: string; conclusion: string; url?: string }
 export type CiLook = { sha: string; runs: CiRun[]; at: number }
-export type TurnLook = { started: number; step: string }
+// seen: the last sign of life in the turn (its start, a tool call); a turn that went quiet is not shown as working.
+export type TurnLook = { started: number; step: string; seen?: number }
 export type WorkTask = { id: string; text: string; done: boolean }
 // estimate: seconds the newest pass of the same command in the same checkout took (running jobs only).
 export type WorkJob = { id: string; command: string; title?: string; state: string; elapsed: number; activity: number; session: string; estimate?: number }

@@ -385,6 +385,23 @@ async function recordEdit($: EngineInterface, file: string) {
   await $.fs.write(own, JSON.stringify(next) + '\n')
 }
 
+async function recordShellEdits($: EngineInterface, root: string, began: number) {
+  if (root === '') return
+  const listed = await run($, ['git', '--no-optional-locks', '-C', root, 'status', '--porcelain=v1', '-z', '--untracked-files=all'])
+  if (listed === null) return
+  const changed = gitFiles('', listed)
+  if (changed.length === 0 || changed.length > 400) return   // a checkout or a mass rename is not "this command's edits"
+  let recorded = 0
+  for (const file of changed) {
+    if (recorded >= 40) break
+    try {
+      const stat = await $.fs.stat(root + '/' + file.path)
+      // A second of slack for coarse clocks; the command's own start bounds it below.
+      if (stat.kind === 'file' && stat.mtimeMs >= began - 1000) { await recordEdit($, root + '/' + file.path); recorded++ }
+    } catch { /* deleted or unreadable: nothing to attribute */ }
+  }
+}
+
 async function readCard($: EngineInterface, dir: string | null): Promise<PaperCard | null> {
   if (dir === null) return null
   try {
@@ -648,7 +665,7 @@ export const register: Register = on => {
 
   on('prompt.submit', async ($, e, next) => {
     const started = await $.clock.now()
-    await update($, turn, () => ({ started, step: '' }))
+    await update($, turn, () => ({ started, step: '', seen: started }))
     await update($, nudge, () => null)
     await update($, redZone, () => null)
     await update($, overlap, () => null)
@@ -665,9 +682,10 @@ export const register: Register = on => {
     // Claude's own plain-words description of the command reads better than the command, wherever one is shown.
     const described = typeof e.description === 'string' ? e.description.split('\n')[0]!.trim().slice(0, 160) : ''
     const title = described && !/password|token|secret|authorization|sk-|ghp_/i.test(described) ? described : ''
+    const began = await $.clock.now()
     const activity = title || (safe ? e.command.split('\n')[0]?.slice(0, 160) ?? 'running a command' : 'running a command')
     await work($, ['activity', '--root', root, '--session', sid, '--text', activity, '--state', 'working'])
-    if (title) await update($, turn, t => t ? { ...t, step: title } : t)
+    await update($, turn, t => t ? { ...t, step: title || t.step, seen: began } : t)
     const job = canTrack(e.command) && e.run_in_background !== true
       ? (await work($, beginArgs(e.command, root, sid, title)))?.trim() || null : null
     let ran: Awaited<ReturnType<typeof next>> | undefined
@@ -678,6 +696,10 @@ export const register: Register = on => {
       if (job && /^[0-9a-f-]{8,64}$/.test(job))
         finished = await work($, ['finish', '--id', job, '--exit', String(ran ? exitOf(ran) : 130), '--output', '-'], ran ? outputOf(ran) : '')
     }
+    // A file a shell command wrote (a script, sed, a formatter) is this session's edit too: whatever git sees as
+    // changed and was modified while the command ran. Without it a session that edits through the shell reads
+    // "0 this session".
+    await recordShellEdits($, root, began).catch(() => undefined)
     // Tests that failed two or more times in a row pass again: desk-work counted the run of failures.
     if (greenAgain(finished)) $.ui.toast('green again ✿')
     if (COMMIT.test(e.command) && ran!.deny === undefined && ran!.isError !== true) {
@@ -1077,9 +1099,10 @@ export const register: Register = on => {
     const back = () => view.form !== 'none' ? setView({ form: 'none' }) : page('overview')
     return <Box flexDirection="column">
       <Text>
-        <Text color={(now?.context ?? 0) >= 80 ? paper.berry : paper.heart}>{'▰'.repeat(filled)}</Text>
-        <Text color={paper.note}>{'▱'.repeat(5 - filled)}</Text>
-        <Text color={paper.dim}>{now?.context == null ? '' : ` ${now.context}%`}</Text>
+        {/* No reading yet (a session just resumed): no meter, rather than five empty boxes that read as 0%. */}
+        {now?.context != null && <Text color={now.context >= 80 ? paper.berry : paper.heart}>{'▰'.repeat(filled)}</Text>}
+        {now?.context != null && <Text color={paper.note}>{'▱'.repeat(5 - filled)}</Text>}
+        <Text color={paper.dim}>{now?.context == null ? 'context not measured yet' : ` ${now.context}%`}</Text>
         {mail.length > 0 && <Text color={paper.ribbon}>{` · ✉ ${mail.length}`}</Text>}
         <Text color={paper.ink}>{name ? ' · ' + shortPath(name, Math.max(4, width - 14)) : ''}</Text>
       </Text>

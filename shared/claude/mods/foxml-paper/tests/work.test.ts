@@ -112,7 +112,9 @@ test('the turn under way reads as how long and its latest step', () => {
   expect(turnLabel({ started: 0, step: 'x' }, 1)).toBe(null)
   expect(turnLabel({ started: 1000, step: '' }, 1000 + 30000)).toBe('◷ working')
   expect(turnLabel({ started: 1000, step: 'Run the drawer tests' }, 1000 + 14 * 60000)).toBe('◷ working 14m · Run the drawer tests')
-  expect(turnLabel({ started: 0 + 1, step: 'x' }, 1 + 75 * 60000)).toBe('◷ working 1h 15m · x')
+  expect(turnLabel({ started: 0 + 1, step: 'x', seen: 1 + 74 * 60000 }, 1 + 75 * 60000)).toBe('◷ working 1h 15m · x')
+  expect(turnLabel({ started: 1, step: 'x' }, 1 + 75 * 60000)).toBe(null)                      // went quiet: interrupted
+  expect(turnLabel({ started: 1, step: 'x', seen: 1 + 50 * 60000 }, 1 + 75 * 60000)).toBe(null)
 })
 
 test('review marks: edited-after-review wins, a commit review does not mark the working file, and counts are plain', () => {

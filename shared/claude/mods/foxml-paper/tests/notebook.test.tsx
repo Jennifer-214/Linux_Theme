@@ -283,6 +283,21 @@ test('the first edit of a file with uncommitted changes keeps it as it was; a cl
   expect(ledger.all.map((e: { path: string }) => e.path)).toEqual(['/code/paper/a.txt', '/code/paper/clean.txt'])
 })
 
+test('a file a shell command wrote counts as this session’s edit; one it did not touch does not', async ($, on) => {
+  // git reports two changed files; only README.md was modified while the command ran.
+  const files = fakeFs(on, { '/code/paper/README.md': 'new', '/code/paper/shared/a very long folder/notes.txt': 'old' },
+    { '/code/paper/README.md': NOW, '/code/paper/shared/a very long folder/notes.txt': NOW - 3600_000 })
+  engine(on, { runtime: '/run/t', clock: false, files })
+  mock.clock(on, { now: NOW })
+  await opened($)
+  await $.tool.call({ tool: 'Bash', command: "sed -i 's/a/b/' README.md", description: 'Tidy the readme' })
+  const ledger = JSON.parse(files['/run/t/foxml-claude/edits/abc.json'] ?? '{}')
+  expect((ledger.all ?? []).map((e: { path: string }) => e.path)).toEqual(['/code/paper/README.md'])
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ key: 'page-files' }))?.text).toContain('1 this session')
+  await ui.unmount()
+})
+
 test('session files, keyboard selection and editor actions retain the selected file through refresh', async ($, on) => {
   const files = fakeFs(on, {
     '/run/t/foxml-claude/edits/abc.json': JSON.stringify({ root: '/code/paper', edits: [], all: [{ path: '/code/paper/README.md', at: 1 }] }),

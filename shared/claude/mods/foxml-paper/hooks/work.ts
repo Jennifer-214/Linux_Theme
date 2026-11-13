@@ -131,8 +131,11 @@ export function unreviewed(own: string[], states: Map<string, 'checked' | 'chang
   return own.filter(p => states.get(p) !== 'checked').length
 }
 // "◷ working 14m · Run the drawer tests": the turn under way, from your message to now, and its latest step.
-export function turnLabel(turn: { started: number; step: string } | null | undefined, nowMs: number): string | null {
+export const TURN_QUIET_MS = 15 * 60 * 1000
+export function turnLabel(turn: { started: number; step: string; seen?: number } | null | undefined, nowMs: number): string | null {
   if (!turn || !(turn.started > 0)) return null
+  // An interrupted turn never says it ended: after a quarter of an hour with no sign of life it is not "working".
+  if (nowMs - (turn.seen ?? turn.started) > TURN_QUIET_MS) return null
   const minutes = Math.floor(Math.max(0, nowMs - turn.started) / 60000)
   const took = minutes < 1 ? 'working' : minutes < 60 ? `working ${minutes}m` : `working ${Math.floor(minutes / 60)}h ${minutes % 60}m`
   return '◷ ' + took + (turn.step ? ' · ' + turn.step : '')
