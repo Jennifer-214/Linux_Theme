@@ -516,7 +516,7 @@ C.open_review({kind='live',sid='cov1',name='example',short='example',files={root
 local r=R.current
 local data=R.plan_coverage_data(r)
 assert(data and data.title=='Plan: tidy the queue',vim.inspect(data))
-assert(#data.steps==2 and data.steps[1].label=='step 1' and #data.steps[1].commits==1,'step 1 was touched: '..vim.inspect(data.steps))
+assert(#data.steps==2 and data.steps[1].label=='1 · Change plain.lua' and #data.steps[1].commits==1,'step 1 was touched: '..vim.inspect(data.steps))
 assert(#data.steps[2].commits==0,'step 2 names a file nothing changed: not started')
 assert(#data.outside==1 and data.outside[1].rel=='extra.lua','a changed file no step names: '..vim.inspect(data.outside))
 local items

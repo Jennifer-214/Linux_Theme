@@ -681,6 +681,7 @@ function M.select(index, refresh)
     maps(r, buf, false)
   end
   for _, buf in ipairs(old) do if api.nvim_buf_is_valid(buf) then pcall(api.nvim_buf_delete, buf, { force = true }) end end
+  r.notes = M.notes(r.root)
   options(r); panel(r, true)
   api.nvim_set_current_win(r.left_win)
   local h = file.hunks[1]
@@ -1197,12 +1198,23 @@ function M.plan_coverage_data(r)
     local ok, marks = pcall(require, 'foxml.planmarks')
     plan = ok and type(marks.plan) == 'table' and marks.plan.file or nil
   end
+  -- Working changes carry no plan of their own: they are checked against the plan of the newest commit that has one.
+  if not plan or plan == '' then
+    for _, set in ipairs(r.sets or {}) do if (set.row.plan or '') ~= '' then plan = set.row.plan end end
+  end
   local ok, marks = pcall(require, 'foxml.planmarks')
   local text = plan and read(plan)
   if not ok or not text then return nil end
   local steps, at = {}, {}
+  -- "step 2" reads better with its own words: "2 · Move the workers onto the new queue".
+  local words = {}
+  for line in text:gmatch('[^\n]+') do
+    local n, rest = line:match('^(%d+)[.)]%s+(.-)%s*$')
+    if not n then n, rest = line:match('^%s*%- %[.%]%s+(%d+)[.)]%s+(.-)%s*$') end
+    if n and not words['step ' .. n] then words['step ' .. n] = n .. ' · ' .. rest:gsub('`', ''):gsub('%s*:.*$', '') end
+  end
   for _, ref in ipairs(marks.parse(text)) do
-    if not at[ref.step] then at[ref.step] = #steps + 1; steps[#steps + 1] = { label = ref.step, files = {}, commits = {} } end
+    if not at[ref.step] then at[ref.step] = #steps + 1; steps[#steps + 1] = { label = words[ref.step] or ref.step, files = {}, commits = {} } end
     local step = steps[at[ref.step]]
     if not vim.tbl_contains(step.files, ref.path) then step.files[#step.files + 1] = ref.path end
   end
@@ -1225,7 +1237,7 @@ function M.plan_coverage_data(r)
             end
           end
         end
-        if not named and not seen[f.rel] then seen[f.rel] = true; outside[#outside + 1] = { rel = f.rel, where = label } end
+        if not named and not seen[f.rel] and f.path ~= plan then seen[f.rel] = true; outside[#outside + 1] = { rel = f.rel, where = label } end
       end
     end
   end
