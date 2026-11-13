@@ -5,7 +5,7 @@ import type { ApiCredits, CiLook, GitLook, NotebookView, PaperAction, PaperCard,
 import { addBefore, addEdit, addName, neighbours, namesText, noteText, overlapFor, parseLedger, parseNames, parseNote, trailerUrl, withPlan, editedSince } from './ledger'
 import type { Other } from './ledger'
 import { paper } from './theme'
-import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, pendingLine, planProgress, receiptLine, reviewStates, reviewSummary, ruleLine, ruler, spread, workName, stepLabel, testLabel, turnLabel, unreviewed, work, workLook } from './work'
+import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, filterFiles, pendingLine, planProgress, receiptLine, reviewStates, reviewSummary, ruleLine, ruler, spread, workName, stepLabel, testLabel, turnLabel, unreviewed, work, workLook } from './work'
 import { attributeFiles, fileColumns, fileCounts, gitFiles, drawerPage, mailId, shortPath } from './notebook'
 
 // Linux_Theme paper: a notebook pane beside the chat (hearts, the session's name, its plan, the gate, pages
@@ -128,6 +128,9 @@ const memory = {
   // CI is asked of GitHub only when the pushed commit changes, every 30 s while it runs, else every 5 minutes.
   turnRisk: [] as string[],
   turnStart: 0,
+  // When the notebook last read everything, and whether the newest attempt failed: so a stale page says so.
+  lookAt: 0,
+  lookFailed: false,
   // Every path this turn edited, however often it was edited before: the receipt's first source.
   turnFiles: [] as string[],
   ci: null as CiLook | null,
@@ -584,6 +587,7 @@ async function refreshNow($: EngineInterface) {
     }
     const note = await lastNight($, root)
     await update($, look, () => ({ root, session, branch, files, gate, plan, context, neighbours: near, card, work: projectWork, project, credits, lastNight: note, git, ci }))
+    memory.lookAt = await $.clock.now(); memory.lookFailed = false
     const found = await readPeers($)
     await update($, peers, () => found ?? near.map(n => ({ id: n.sid, name: n.title, project: root.split('/').pop() ?? root,
       state: `edited ${n.files} ${n.files === 1 ? 'file' : 'files'} here`, busy: false,
@@ -595,7 +599,8 @@ async function refreshNow($: EngineInterface) {
     if (memory.lastGate === 'closed' && gate === 'open') $.ui.toast('gate open ✓ the plan is approved')
     memory.lastGate = gate
   } catch {
-    // A missed refresh only leaves the notebook a little behind; the next one catches up.
+    // A missed refresh only leaves the notebook a little behind; the next one catches up. The page says so meanwhile.
+    memory.lookFailed = true
   }
 }
 
@@ -991,6 +996,39 @@ export const register: Register = on => {
       const states = reviewStates(now?.work?.review)
       const mine = (now?.files ?? []).filter(f => f.own).map(f => f.path)
       const done = await read($, receipt)
+      // Needs you comes first: what failed, what is ready for another look, what someone left for you. Each row's
+      // description says the next action.
+      const requests = now?.work?.requests ?? []
+      const ready = requests.filter(r => r.state === 'ready')
+      const changedSince = (now?.files ?? []).map(f => f.path).filter(p => states.get(p) === 'changed' && !ready.some(r => r.file === p))
+      const failedIds = new Set((now?.work?.failures ?? []).map(j => j.id))
+      const ci = ciLabel(now?.ci?.runs)
+      const base = (path: string) => path.split('/').pop() ?? path
+      const reReview = (path: string) => checkedWork(['open', '--root', root, '--action', 'file-diff', '--file', path, '--session', session])
+      const attention: (() => void)[] = []
+      for (const job of (now?.work?.failures ?? []).slice(0, 2))
+        attention.push(() => pair(`attention-job-${job.id}`, '! ' + (job.title ?? job.command), job.state, () => openJob(job.id), 'A job that failed and has not passed since. Enter opens its output.', paper.berry))
+      const lastTests = now?.work?.tests
+      if (lastTests && lastTests.state === 'failed' && !failedIds.has(lastTests.id))
+        attention.push(() => pair('attention-tests', '! tests failed', ago(clock / 1000 - (lastTests.ended ?? clock / 1000)), () => openJob(lastTests.id, 'tests'), 'The last test run failed. Enter opens the failures, each a jump to its line.', paper.berry))
+      if (ci && ci.state === 'failed')
+        attention.push(() => pair('attention-ci', '! CI failed on the push', 'open run', async () => { if (/^https:\/\/github\.com\//.test(ci.url)) await run($, ['xdg-open', ci.url]) },
+          'GitHub Actions failed on the pushed commit. Enter opens the run in the browser.', paper.berry))
+      for (const r of ready.slice(0, 3))
+        attention.push(() => pair(`attention-request-${r.file}`, '↻ ' + base(r.file), 're-review', () => reReview(r.file),
+          `You asked ${r.name || 'a session'}: "${r.text}". The file has changed since. Enter opens it for another look.`))
+      if (changedSince.length) {
+        const first = changedSince[0] ?? ''
+        attention.push(() => pair('attention-changed', `↻ ${changedSince.length} changed since you reviewed`, base(first), () => reReview(first),
+          'Edited after you checked them. Enter opens the first; the review shows only what is new.'))
+      }
+      if (warning) attention.push(() => pair('attention-overlap', 'shared edit · ' + (warning.path.split('/').pop() ?? ''), warning.ago ?? '', async () => {
+        if (warning.pane) await run($, ['desk-drawer', 'run', 'claude-jump', warning.pane])
+        else await page('files')
+      }, 'Another live session edited this file lately. Enter goes to it.', paper.berry))
+      if (mail.length) attention.push(() => pair('attention-mail', '✉ notes for this session', `${mail.length} unread`, () => page('sessions'), 'Notes left for this session from Neovim or another Claude. Enter reads them.'))
+      if (attention.length) { rule('needs you', String(attention.length)); attention.forEach(add => add()) }
+
       if (done && !working) {
         rule('last turn', ago((clock - done.at) / 1000))
         // Each row opens exactly what it names: the turn's own files (the first one not yet reviewed), or the commit.
@@ -1023,29 +1061,31 @@ export const register: Register = on => {
         if (now.plan.step) pair('plan-step', '◇ ' + now.plan.step, '', () => setView({ form: 'step' }), 'The step in hand. Enter changes it.')
       } else pair('plan-pin', 'pin an active plan', '', () => setView({ form: 'plan' }), 'No plan read yet in this session. Enter pins one.', paper.dim)
 
-      const attention: (() => void)[] = []
-      if (warning) attention.push(() => pair('attention-overlap', 'shared edit · ' + (warning.path.split('/').pop() ?? ''), warning.ago ?? '', async () => {
-        if (warning.pane) await run($, ['desk-drawer', 'run', 'claude-jump', warning.pane])
-        else await page('files')
-      }, 'Another live session edited this file lately. Enter goes to it.', paper.berry))
-      if (mail.length) attention.push(() => pair('attention-mail', '✉ notes for this session', `${mail.length} unread`, () => page('sessions'), 'Notes left for this session from Neovim or another Claude.'))
-      for (const job of (now?.work?.failures ?? []).slice(0, 2))
-        attention.push(() => pair(`attention-job-${job.id}`, '! ' + (job.title ?? job.command), job.state, () => openJob(job.id), 'A job that failed and has not passed since. Enter opens its output.', paper.berry))
-      if (attention.length) { rule('needs you', String(attention.length)); attention.forEach(add => add()) }
-
       const pending = now?.work?.pending ?? 0
       const summary = reviewSummary((now?.files ?? []).map(f => f.path), states)
       rule('review', pending > 0 ? `${pending} waiting` : '')
       const waitingLine = pendingLine(pending, mine, states)
       if (waitingLine) pair('review-open', '✎ ' + waitingLine, '', () => checkedWork(['open', '--root', root, '--action', 'reviews']),
         'What is waiting to be looked over. Enter opens the review in Neovim on the next one.')
+      // Requests still with a session: who was asked and what for, until the file changes (then it needs you, above).
+      const waitingOn = requests.filter(r => r.state === 'waiting')
+      for (const r of waitingOn.slice(0, 3))
+        pair(`request-${r.file}`, '✉ ' + base(r.file), 'sent · ' + (r.name || 'a session'), () => reReview(r.file),
+          `Sent to ${r.name || 'a session'} ${ago(clock / 1000 - r.at)}: "${r.text}". The file has not changed yet. Enter opens it.`)
+      if (waitingOn.length > 3) content.push(text(`  and ${waitingOn.length - 3} more requests waiting`))
       pair('page-files', `${mine.length} this session · ${now?.files.length ?? 0} changed`, summary.replace(/ reviewed.*$/, '') , () => page('files'),
         'Files that differ from the last commit, and how many of them were reviewed as they are now.')
 
-      rule('work')
+      const age = memory.lookAt > 0 ? (clock - memory.lookAt) / 1000 : null
+      rule('work', age === null ? '' : 'updated ' + ago(age))
+      if (memory.lookFailed || (age !== null && age > 180))
+        pair('refresh-now', '↻ this page may be out of date', 'retry', async () => { await refresh($) },
+          'The last refresh did not finish, so what is shown may be old. Enter reads everything again now.', paper.berry)
+      else if (now && !now.work)
+        pair('refresh-now', 'work tool unavailable', 'retry', async () => { await refresh($) },
+          'desk-work did not answer, so tests, reviews and requests are not shown. Enter tries again.', paper.dim)
       if (now?.work?.tests) pair('work-tests', testLabel(now.work.tests, clock / 1000), '', () => openJob(now.work!.tests!.id, 'tests'),
         'The last test run here, and whether the code changed since.', testColour(now.work.tests))
-      const ci = ciLabel(now?.ci?.runs)
       if (ci) pair('work-ci', ci.label, '', async () => { if (/^https:\/\/github\.com\//.test(ci.url)) await run($, ['xdg-open', ci.url]) },
         'GitHub Actions on the pushed commit. Enter opens the run.', ci.state === 'failed' ? paper.berry : ci.state === 'passed' ? paper.added : paper.dim)
       for (const job of (now?.work?.jobs ?? []).slice(0, 1)) jobRow(job, `◷ ${job.title ?? job.command} · ${Math.floor(job.elapsed / 60)}m`)
@@ -1063,22 +1103,62 @@ export const register: Register = on => {
         pair('page-sessions', `${others.length + 1} claudes`, `you + ${others.length} ${others.length === 1 ? 'other' : 'others'}`, () => page('sessions'),
           'The other Claude sessions on this machine. Enter lists them, to go to one or leave it a note.')
       }
+      pair('page-help', '? marks and keys', '', () => page('help'), 'What each mark means and which keys work here.', paper.dim)
       // What the selected row is, the way a menu's description strip says it.
       const says = about[view.selected]
       if (says) { content.push(text('')); content.push(text(says.length > width * 2 ? says.slice(0, width * 2 - 1) + '…' : says)) }
     }
 
+    if (view.form === 'none' && view.page === 'help') {
+      const line = (mark: string, words: string) => content.push(<Text><Text color={paper.ribbon}>{('  ' + mark).padEnd(5)}</Text><Text color={paper.ink}>{fit(words, width - 5)}</Text></Text>)
+      content.push(text(ruleLine('marks', '', width), paper.ribbon))
+      line('✓', 'reviewed as it is now')
+      line('↻', 'edited since you reviewed it')
+      line('○', 'not reviewed yet')
+      line('✉', 'sent to a session; waiting for a change')
+      line('✎', 'something to look over')
+      line('⚠', 'touches the red zone: login, boot, mounts')
+      line('!', 'failed, and not passed since')
+      line('◷', 'running now')
+      line('❦', 'a commit')
+      line('⌑', 'the pinned plan')
+      line('◇', 'the step or task in hand')
+      line('▰▱', 'context used; five full is the limit')
+      content.push(text(ruleLine('keys', '', width), paper.ribbon))
+      line('j k', 'move down and up')
+      line('l ⏎', 'open the selected row')
+      line('h', 'back to the front page')
+      line('e', 'on files: open the selected file to edit')
+      line('d', 'the same page in the drawer')
+      content.push(text(ruleLine('words', '', width), paper.ribbon))
+      line('', 'gate open: the plan is approved, edits may go on')
+      line('', 'plan first: edits wait for an approved plan')
+      line('', 'needs you: what failed or is ready for a look')
+      content.push(row('help-back', 'back', () => page('overview')))
+    }
+
     if (view.form === 'none' && view.page === 'files') {
       content.push(row('scope-session', (view.scope === 'session' ? '● ' : '○ ') + 'this session', () => setView({ scope: 'session', offset: 0, selected: '' })))
       content.push(row('scope-all', (view.scope === 'all' ? '● ' : '○ ') + 'all changes', () => setView({ scope: 'all', offset: 0, selected: '' })))
-      const files = (now?.files ?? []).filter(f => view.scope === 'all' || f.own)
+      const scoped = (now?.files ?? []).filter(f => view.scope === 'all' || f.own)
+      const reviewed = reviewStates(now?.work?.review)
+      // Filters: only what needs a review, only what changed since its review, and a part of a name. They persist.
+      const show = view.show ?? 'all'
+      const needing = scoped.filter(f => reviewed.get(f.path) !== 'checked').length
+      const changedCount = scoped.filter(f => reviewed.get(f.path) === 'changed').length
+      const nextShow = show === 'all' ? 'unreviewed' : show === 'unreviewed' ? 'changed' : 'all'
+      content.push(row('files-show', show === 'all' ? `○ showing everything · ${needing} need review`
+        : show === 'unreviewed' ? `● only what needs review · ${needing}` : `● only changed since review · ${changedCount}`,
+        () => setView({ show: nextShow, offset: 0, selected: 'files-show' })))
+      content.push(row('files-search', view.query ? `/ ${view.query} · clear` : '/ find a file',
+        () => view.query ? setView({ query: '', offset: 0, selected: 'files-search' }) : setView({ form: 'search' })))
+      const files = filterFiles(scoped, reviewed, show, view.query)
       const columns = fileColumns(files)
       const offset = Math.min(view.offset, Math.max(0, Math.floor((files.length - 1) / 40) * 40))
-      const reviewed = reviewStates(now?.work?.review)
       const summary = reviewSummary(files.map(f => f.path), reviewed)
       content.push(text(`${files.length} ${files.length === 1 ? 'file' : 'files'} · working-tree totals`))
       if (summary) content.push(text(summary, paper.ribbon))
-      if (!files.length) content.push(text(view.scope === 'session' ? 'No recorded edits still differ.' : 'The working tree is clean.'))
+      if (!files.length) content.push(text(scoped.length ? 'Nothing matches these filters.' : view.scope === 'session' ? 'No recorded edits still differ.' : 'The working tree is clean.'))
       let directory = ''
       for (const file of files.slice(offset, offset + 40)) {
         const parent = file.path.includes('/') ? file.path.slice(0, file.path.lastIndexOf('/')) : '.'
@@ -1197,6 +1277,8 @@ export const register: Register = on => {
         if (await checkedWork(['task-add', '--root', root, '--text', value.trim()])) { await setView({ form: 'none' }); await refresh($) }
       }} />)
     }
+    if (view.form === 'search') content.push(<Input key="files-query" placeholder="part of a file name" value={view.query ?? ''} submitLabel="find" autoFocus
+      onSubmit={value => setView({ form: 'none', query: value.trim().slice(0, 80), offset: 0, selected: '' })} />)
     if (view.form === 'plan') content.push(<Input key="plan-file" placeholder="path/to/plan.md" submitLabel="pin" autoFocus onSubmit={value => pin(value)} />)
     if (view.form === 'step') content.push(<Input key="plan-current-step" placeholder="current step" value={now?.plan?.step ?? ''} submitLabel="pin" autoFocus
       onSubmit={value => now?.plan ? pin(now.plan.file, value) : undefined} />)

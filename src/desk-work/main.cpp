@@ -490,6 +490,40 @@ J review_mark(const std::string& root, const std::string& key, const std::string
 }
 // Every review of this checkout with, per file, whether its check still holds: "checked", or "changed" when the file
 // on disk no longer has the content that was read (only where that content was recorded: a commit's never changes).
+// Change requests: a note the reader sent to a session about a file. Kept here (not only in the editor) so the
+// notebook can show the thread: who was asked, what for, and whether the file has changed since ("ready").
+J review_request(const std::string& root, const std::string& rel, const std::string& name, const std::string& sid,
+                 const std::string& text, bool clear) {
+    if (!review_file_ok(rel) || !register_root(root) || (!sid.empty() && !review_key_ok(sid))) return J{{"ok", false}};
+    const auto file = project_dir(root) / "review-requests.json"; Lock lock(project_dir(root) / "reviews.lock");
+    auto j = json(file); std::error_code ec;
+    if (lock.fd < 0 || (fs::exists(file, ec) && !j.is_object())) return J{{"ok", false}};
+    if (!j.is_object()) j = J::object();
+    if (clear) j.erase(rel);
+    else {
+        const auto path = fs::path(root) / rel;
+        const auto line = [](std::string s) { s = clean(s); for (auto& c : s) if (c == '\n' || c == '\r' || c == '\t') c = ' '; return s; };
+        j[rel] = J{{"name", line(name).substr(0, 80)}, {"sid", sid}, {"text", line(text).substr(0, 300)}, {"at", now()},
+                   {"content", fs::is_regular_file(path, ec) ? hash(read(path)) : hash("")}};
+    }
+    for (auto it = j.begin(); it != j.end();)
+        it = (!it->is_object() || now() - it->value("at", 0LL) > 90LL * 86400) ? j.erase(it) : std::next(it);
+    return J{{"ok", atomic(file, j.dump())}};
+}
+J review_requests(const std::string& root) {
+    J out = J::array();
+    const auto j = json(project_dir(root) / "review-requests.json");
+    if (!j.is_object()) return out;
+    for (const auto& [rel, request] : j.items()) {
+        if (!request.is_object() || !review_file_ok(rel)) continue;
+        std::error_code ec; const auto path = fs::path(root) / rel;
+        const bool changed = (fs::is_regular_file(path, ec) ? hash(read(path)) : hash("")) != str(request, "content");
+        out.push_back(J{{"file", rel}, {"name", str(request, "name")}, {"sid", str(request, "sid")}, {"text", str(request, "text")},
+                        {"at", request.value("at", 0LL)}, {"state", changed ? "ready" : "waiting"}});
+    }
+    std::sort(out.begin(), out.end(), [](const J& a, const J& b) { return a.value("at", 0LL) > b.value("at", 0LL); });
+    return out;
+}
 J review_progress(const std::string& root, const std::string& only) {
     const auto marks = json(project_dir(root) / "review-marks.json");
     J out = J::object();
@@ -809,7 +843,7 @@ J notebook(const std::string& root, const std::string& session) {
     int pending = 0;
     for (const auto& c : reviews(root, false)) if (!c.value("reviewed", false)) ++pending;
     return J{{"tests", latest}, {"jobs", jobs}, {"failures", failures}, {"tasks", tasks(root)}, {"session", session},
-             {"review", review_progress(root, "")}, {"pending", pending}};
+             {"review", review_progress(root, "")}, {"pending", pending}, {"requests", review_requests(root)}};
 }
 fs::path plan_path(const std::string& root, const std::string& session) {
     return project_dir(root) / "plans" / (hash(session) + ".json");
@@ -919,7 +953,7 @@ int main(int argc, char** argv) {
         }
         const auto cmd = args[0];
         const auto place = opts.count("--root") ? opts["--root"] : fs::current_path().string();
-        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "review-mark", "review-progress", "commit-plan", "review-tree", "push-check", "worktrees", "activity", "plan", "plan-pin"}.count(cmd)
+        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "review-mark", "review-progress", "review-request", "review-requests", "commit-plan", "review-tree", "push-check", "worktrees", "activity", "plan", "plan-pin"}.count(cmd)
             ? root_of(place) : place;
         const auto id = opts["--id"];
         J out;
@@ -989,6 +1023,8 @@ int main(int argc, char** argv) {
         else if (cmd == "reviewed") out = reviewed(root, opts["--sha"]);
         else if (cmd == "review-mark") out = review_mark(root, opts["--key"], opts["--file"], opts["--signature"], opts["--content"], opts["--total"], opts["--done"]);
         else if (cmd == "review-progress") out = review_progress(root, opts["--key"]);
+        else if (cmd == "review-request") out = review_request(root, opts["--file"], opts["--name"], opts["--sid"], opts["--text"], opts["--clear"] == "yes");
+        else if (cmd == "review-requests") out = review_requests(root);
         else if (cmd == "commit-plan") out = commit_plan(root, opts["--sha"], opts["--file"], opts["--title"], opts["--step"]);
         else if (cmd == "review-tree") out = review_tree(root, opts["--all"] == "yes");
         else if (cmd == "push-check") out = push_check(root);

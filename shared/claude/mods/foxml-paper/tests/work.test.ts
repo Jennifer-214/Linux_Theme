@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, pendingLine, planProgress, reviewStates, reviewSummary, ruler, shellQuote, stepLabel, testLabel, turnLabel, unreviewed, withoutHeredocs, workName } from '../hooks/work'
+import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, pendingLine, planProgress, reviewStates, reviewSummary, ruler, shellQuote, stepLabel, testLabel, turnLabel, unreviewed, withoutHeredocs, workName, filterFiles } from '../hooks/work'
 
 test('tracking records a command as written, keeps secrets out, and reads how the call ended', () => {
   const command = "make test && printf '%s' \"$HOME\""
@@ -148,4 +148,13 @@ test('one name for a piece of work: the plan, else the session title, else the p
   expect(workName(null, 'Tidy the drawer', 'Linux_Theme')).toBe('Tidy the drawer')
   expect(workName('', '  ', 'Linux_Theme')).toBe('Linux_Theme')
   expect(workName('x'.repeat(80), null, 'p').length).toBe(60)
+})
+
+test('file filters: needs review, changed since review and a part of the name combine', () => {
+  const files = [{ path: 'src/a.ts' }, { path: 'src/b.ts' }, { path: 'docs/Guide.md' }]
+  const states = new Map<string, 'checked' | 'changed'>([['src/a.ts', 'checked'], ['src/b.ts', 'changed']])
+  expect(filterFiles(files, states, 'all', '').length).toBe(3)
+  expect(filterFiles(files, states, 'unreviewed', '').map(f => f.path)).toEqual(['src/b.ts', 'docs/Guide.md'])
+  expect(filterFiles(files, states, 'changed', undefined).map(f => f.path)).toEqual(['src/b.ts'])
+  expect(filterFiles(files, states, 'unreviewed', 'GUIDE').map(f => f.path)).toEqual(['docs/Guide.md'])
 })

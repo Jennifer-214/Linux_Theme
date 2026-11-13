@@ -343,12 +343,22 @@ local function share(r, file, done)
   if done ~= nil then vim.list_extend(argv, { '--done', done and 'yes' or 'no' }) end
   pcall(vim.system, argv, { text = true }, function() end)
 end
+-- The request thread is kept in the work tool too, so the notebook can show who was asked and whether it is ready.
+local function share_request(r, file, request)
+  local backend = M.work_tool()
+  if not backend or not r.root or not file then return end
+  local argv = { backend, 'review-request', '--root', r.root, '--file', file.rel }
+  if request then vim.list_extend(argv, { '--name', request.name or '', '--sid', (request.sid or ''):match('^[%w_-]+$') or '', '--text', request.text or '' })
+  else vim.list_extend(argv, { '--clear', 'yes' }) end
+  -- Waited for (a few milliseconds, on a deliberate act): the notebook must not show a thread that was just settled.
+  pcall(function() vim.system(argv, { text = true }):wait(1500) end)
+end
 local function save(r, file)
   local disk = decode(read(r.state_file))
   disk.files = type(disk.files) == 'table' and disk.files or {}
   if file then
     disk.files[file.rel] = r.marks[file.rel]
-    if r.marks[file.rel] and type(disk.requests) == 'table' then disk.requests[file.rel] = nil end
+    if r.marks[file.rel] and type(disk.requests) == 'table' and disk.requests[file.rel] then disk.requests[file.rel] = nil; share_request(r, file, nil) end
     disk.seen = type(disk.seen) == 'table' and disk.seen or {}
     if r.marks[file.rel] and r.row.kind ~= 'commit' and not r.row.snapshots and file.right and #file.right <= 4 * 1024 * 1024 then
       local hash = vim.fn.sha256(file.right)
@@ -1111,6 +1121,7 @@ function M.requested(path, peer, text)
   disk.requests[file.rel] = { sid = peer and peer.id or '', name = peer and peer.name or 'a session',
     text = tostring(text or ''):gsub('[\r\n\t]', ' '):sub(1, 300), at = os.time(), signature = file.signature or '' }
   if not write_private(r.state_file, vim.json.encode(disk)) then return false end
+  if r.row.kind ~= 'commit' then share_request(r, file, disk.requests[file.rel]) end
   r.completed = false
   panel(r)
   return true

@@ -150,6 +150,18 @@ export function receiptLine(receipt: TurnReceipt | null | undefined): string {
   ].filter(Boolean)
   return parts.join(' · ')
 }
+// The files page's filters: only what still needs a review (never checked, or edited since), only what was edited
+// since its review, and a part of the path to find. They combine.
+export function filterFiles<T extends { path: string }>(files: T[], states: Map<string, 'checked' | 'changed'>,
+  show: 'all' | 'unreviewed' | 'changed' | undefined, query: string | undefined): T[] {
+  const wanted = (query ?? '').trim().toLowerCase()
+  return files.filter(f => {
+    const state = states.get(f.path)
+    if (show === 'unreviewed' && state === 'checked') return false
+    if (show === 'changed' && state !== 'changed') return false
+    return wanted === '' || f.path.toLowerCase().includes(wanted)
+  })
+}
 // A left text and a right text on one line of `width`: the right one keeps its place, the left one gives way.
 export function spread(left: string, right: string, width: number): string {
   if (right === '') return left.length > width ? left.slice(0, Math.max(1, width - 1)) + '…' : left

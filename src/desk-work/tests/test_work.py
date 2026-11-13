@@ -491,6 +491,18 @@ class Work(unittest.TestCase):
         tests = {c["sha"]: c.get("tests") for t in self.data("review-tree") for c in t["commits"]}
         self.assertEqual((tests[first], tests[second], tests[third]), ("passed", None, "failed"))
 
+    def test_a_change_request_waits_until_its_file_changes_and_a_clear_settles_it(self):
+        (self.repo / "sample.cpp").write_text("int a = 1;\n")
+        self.assertTrue(self.data("review-request", "--file", "sample.cpp", "--name", "Queue refactor", "--sid", "abc", "--text", "rename a\nplease")["ok"])
+        got = self.data("review-requests")
+        self.assertEqual([(r["file"], r["name"], r["text"], r["state"]) for r in got], [("sample.cpp", "Queue refactor", "rename a please", "waiting")])
+        self.assertEqual(self.data("notebook")["requests"][0]["state"], "waiting", "the notebook gets the thread")
+        (self.repo / "sample.cpp").write_text("int renamed = 1;\n")
+        self.assertEqual(self.data("review-requests")[0]["state"], "ready", "the file changed: ready for re-review")
+        self.assertFalse(json.loads(self.invoke("review-request", "--file", "../outside", "--name", "x", "--text", "y", code=1))["ok"])
+        self.assertTrue(self.data("review-request", "--file", "sample.cpp", "--clear", "yes")["ok"])
+        self.assertEqual(self.data("review-requests"), [])
+
     def test_worktree_paths_with_spaces_are_not_shell_commands(self):
         other = self.dir / "other tree ; literal"
         self.git("worktree", "add", "-qb", "feature/work", str(other))

@@ -314,9 +314,8 @@ test('session files, keyboard selection and editor actions retain the selected f
   expect((await ui.find({ key: 'nav-up' }))?.props.hotkey).toBe('k')
   expect((await ui.find({ key: 'nav-back' }))?.props.hotkey).toBe('h')
   expect((await ui.find({ key: 'nav-open' }))?.props.hotkey).toBe('l')
-  await ui.press({ key: 'nav-down' })
-  await ui.press({ key: 'nav-down' })
-  await ui.press({ key: 'nav-down' })
+  // Two scope rows, the filter row and the search row come before the first file.
+  for (let i = 0; i < 5; i++) await ui.press({ key: 'nav-down' })
   expect((await ui.find({ key: 'file:README.md' }))?.text).toStartWith('› ')
   await ui.press({ key: 'nav-open' })
   expect(seen.argv).toContain('desk-work open --root /code/paper --action file-diff --file README.md --session abc')
@@ -655,5 +654,70 @@ test('the work takes one name: the plan in the header, and on the pane as a labe
   const set = seen.argv.filter(c => c.startsWith('tmux set-option -p -t %7 @work '))
   expect(set.at(-1)).toBe('tmux set-option -p -t %7 @work Queue s refactor (x) now')
   expect((await ui.find({ type: 'Text', text: /^ · Queue/ }))?.text).toMatch(/^ · Queue's `refactor`/)   // the header: the plan, not "Plan: …"
+  await ui.unmount()
+})
+
+test('needs you comes first: a request whose file changed, files edited since review; waiting requests sit under review', async ($, on) => {
+  engine(on, { projectWork: { tests: null, jobs: [], tasks: [], pending: 0,
+    review: { working: { files: { 'README.md': { state: 'changed', at: 1 } }, checked: 0, changed: 1, total: 2, completed: false, at: 1 } },
+    requests: [
+      { file: 'src/queue.cpp', name: 'Queue refactor', sid: 'q1', text: 'rename head', at: 1, state: 'ready' },
+      { file: 'src/worker.cpp', name: 'Queue refactor', sid: 'q1', text: 'drain first', at: 1, state: 'waiting' }] } })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const rules = (await ui.findAll({ type: 'Text', text: /^── / })).map(t => String(t.text).replace(/ ─.*$/, ''))
+  expect(rules.indexOf('── needs you')).toBe(0)
+  expect(rules.indexOf('── needs you')).toBeLessThan(rules.indexOf('── plan'))
+  expect((await ui.find({ key: 'attention-request-src/queue.cpp' }))?.props.label).toBe('↻ queue.cpp · re-review')
+  expect((await ui.find({ key: 'attention-changed' }))?.props.label).toBe('↻ 1 changed since you reviewed · README.md')
+  expect((await ui.find({ key: 'request-src/worker.cpp' }))?.props.label).toBe('✉ worker.cpp · sent · Queue refactor')
+  seen.argv = []
+  await ui.press({ key: 'attention-request-src/queue.cpp' })
+  expect(seen.argv).toContain('desk-work open --root /code/paper --action file-diff --file src/queue.cpp --session abc')
+  // The thread reads out under the list: who was asked and what for.
+  expect(await ui.find({ type: 'Text', text: /You asked Queue refactor: "rename head"/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('the files page filters to what needs review, to what changed since, and by name; the marks page explains', async ($, on) => {
+  engine(on, { projectWork: { tests: null, jobs: [], tasks: [], pending: 0,
+    review: { working: { files: { 'README.md': { state: 'checked', at: 1 } }, checked: 1, changed: 0, total: 2, completed: false, at: 1 } } } })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'page-files' })
+  await ui.press({ key: 'scope-all' })
+  expect(await ui.find({ key: 'file:README.md' })).toBeDefined()
+  expect((await ui.find({ key: 'files-show' }))?.props.label).toBe('○ showing everything · 1 need review')
+  await ui.press({ key: 'files-show' })
+  expect((await ui.find({ key: 'files-show' }))?.props.label).toBe('● only what needs review · 1')
+  expect(await ui.find({ key: 'file:README.md' })).toBeUndefined()
+  expect(await ui.find({ key: 'file:shared/a very long folder/notes.txt' })).toBeDefined()
+  await ui.press({ key: 'files-show' })
+  expect((await ui.find({ key: 'files-show' }))?.props.label).toBe('● only changed since review · 0')
+  expect(await ui.find({ type: 'Text', text: /Nothing matches these filters/ })).toBeDefined()
+  await ui.press({ key: 'files-show' })
+  await ui.press({ key: 'files-search' })
+  await ui.input({ key: 'files-query', text: 'readme', kind: 'submit' })
+  expect(await ui.find({ key: 'file:README.md' })).toBeDefined()
+  expect(await ui.find({ key: 'file:shared/a very long folder/notes.txt' })).toBeUndefined()
+  expect((await ui.find({ key: 'files-search' }))?.props.label).toBe('/ readme · clear')
+  await ui.press({ key: 'files-search' })
+  expect(await ui.find({ key: 'file:shared/a very long folder/notes.txt' })).toBeDefined()
+  await ui.press({ key: 'nav-back' })
+  await ui.press({ key: 'page-help' })
+  expect(await ui.find({ type: 'Text', text: /edited since you reviewed it/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /── keys/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a page that could not refresh says so and offers a retry; one without the work tool says that', async ($, on) => {
+  engine(on)
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ key: 'refresh-now' }))?.props.label).toBe('work tool unavailable · retry')
+  expect(await ui.find({ type: 'Text', text: /── work .* updated just now/ })).toBeDefined()
+  seen.argv = []
+  await ui.press({ key: 'refresh-now' })
+  expect(seen.argv.some(a => a.startsWith('git --no-optional-locks'))).toBe(true)
   await ui.unmount()
 })

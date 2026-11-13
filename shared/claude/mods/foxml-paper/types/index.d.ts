@@ -17,8 +17,12 @@ export type WorkJob = { id: string; command: string; title?: string; state: stri
 // Review progress from desk-work, per review (a commit sha, a session id or "working"): each checked file is
 // "checked", or "changed" when it was edited after it was read.
 export type ReviewProgress = { files: Record<string, { state: 'checked' | 'changed'; at: number }>; checked: number; changed: number; total: number; completed: boolean; at: number }
-export type WorkLook = { tests: WorkTest | null; tasks: WorkTask[]; jobs: WorkJob[]; failures?: WorkJob[]; review?: Record<string, ReviewProgress>; pending?: number }
-export type NotebookView = { page: 'overview' | 'files' | 'project' | 'sessions'; scope: 'session' | 'all'; selected: string; focused?: string; offset: number; form: 'none' | 'task' | 'plan' | 'step' }
+export type WorkLook = { tests: WorkTest | null; tasks: WorkTask[]; jobs: WorkJob[]; failures?: WorkJob[]; review?: Record<string, ReviewProgress>; pending?: number; requests?: ReviewRequest[] }
+// A change request sent to a session about a file: waiting while the file is as it was, ready once it has changed.
+export type ReviewRequest = { file: string; name: string; sid: string; text: string; at: number; state: 'waiting' | 'ready' }
+export type NotebookView = { page: 'overview' | 'files' | 'project' | 'sessions' | 'help'; scope: 'session' | 'all'; selected: string; focused?: string; offset: number; form: 'none' | 'task' | 'plan' | 'step' | 'search'
+  // The files page: which files to list, and a part of a name to find.
+  show?: 'all' | 'unreviewed' | 'changed'; query?: string }
 export type PaperTree = { path: string; branch: string; status: string; bare?: boolean; sessions: PaperPeer[] }
 export type ApiCredits = {
   short: string; headline: string; detail: string; meter: string
