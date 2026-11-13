@@ -672,6 +672,22 @@ J push_check(const std::string& root) {
     }
     return out;
 }
+// Review stamps travel with the branch only where the repository asks for it: `git config desk.pushReviewNotes true`.
+// Off by default, because a push publishes who reviewed what. Never forced: a remote whose notes have moved on is
+// reported, not overwritten.
+J push_notes(const std::string& root) {
+    if (trim(query({"git", "--no-optional-locks", "-C", root, "config", "--get", "--bool", "desk.pushReviewNotes"})) != "true")
+        return J{{"pushed", false}, {"reason", "off"}};
+    const std::string ref = std::string("refs/notes/") + REVIEW_NOTES;
+    if (trim(query({"git", "--no-optional-locks", "-C", root, "rev-parse", "--verify", "--quiet", ref})).empty())
+        return J{{"pushed", false}, {"reason", "no stamps yet"}};
+    const auto branch = trim(query({"git", "--no-optional-locks", "-C", root, "symbolic-ref", "--quiet", "--short", "HEAD"}));
+    const auto remote = branch.empty() ? std::string() : trim(query({"git", "--no-optional-locks", "-C", root, "for-each-ref", "--format=%(upstream:remotename)", "refs/heads/" + branch}));
+    if (remote.empty() || remote.front() == '-') return J{{"pushed", false}, {"reason", "this branch has no upstream"}};
+    const int code = sh::run({"timeout", "30", "git", "-C", root, "push", "--quiet", remote, ref + ":" + ref});
+    return code == 0 ? J{{"pushed", true}, {"remote", remote}}
+                     : J{{"pushed", false}, {"reason", "the remote's stamps differ or it refused; fetch " + ref + " and merge first"}};
+}
 J known_roots() {
     J roots = J::array(); std::error_code ec;
     for (const auto& e : fs::directory_iterator(base() / "projects", ec)) {
@@ -953,7 +969,7 @@ int main(int argc, char** argv) {
         }
         const auto cmd = args[0];
         const auto place = opts.count("--root") ? opts["--root"] : fs::current_path().string();
-        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "review-mark", "review-progress", "review-request", "review-requests", "commit-plan", "review-tree", "push-check", "worktrees", "activity", "plan", "plan-pin"}.count(cmd)
+        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "review-mark", "review-progress", "review-request", "review-requests", "commit-plan", "review-tree", "push-check", "push-notes", "worktrees", "activity", "plan", "plan-pin"}.count(cmd)
             ? root_of(place) : place;
         const auto id = opts["--id"];
         J out;
@@ -1028,6 +1044,7 @@ int main(int argc, char** argv) {
         else if (cmd == "commit-plan") out = commit_plan(root, opts["--sha"], opts["--file"], opts["--title"], opts["--step"]);
         else if (cmd == "review-tree") out = review_tree(root, opts["--all"] == "yes");
         else if (cmd == "push-check") out = push_check(root);
+        else if (cmd == "push-notes") out = push_notes(root);
         else if (cmd == "tests") {
             auto j = id.empty() ? notebook(root, "")["tests"] : load_run(id);
             if (j.is_object() && j.contains("snapshot")) { freshness(j, snapshot(str(j, "root"))); j.erase("snapshot"); }

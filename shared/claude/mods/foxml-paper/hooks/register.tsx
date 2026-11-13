@@ -767,6 +767,15 @@ export const register: Register = on => {
       $.ui.toast('a seed planted ❦')
       await nameCommit($, e.command).catch(() => undefined)
     }
+    // After a push that went through: the review stamps follow, where the repository asks for that
+    // (git config desk.pushReviewNotes true). Off by default; desk-work decides and never forces.
+    if (PUSH.test(e.command) && ran!.deny === undefined && ran!.isError !== true) {
+      try {
+        const sent = JSON.parse(await work($, ['push-notes', '--root', root]) ?? 'null') as { pushed?: boolean; reason?: string } | null
+        if (sent?.pushed) $.ui.toast('review stamps pushed too')
+        else if (sent?.reason && sent.reason !== 'off' && sent.reason !== 'no stamps yet') $.ui.toast('review stamps not pushed: ' + sent.reason)
+      } catch { /* a courtesy, like the check before it */ }
+    }
     void refresh($)
     return ran!
   })

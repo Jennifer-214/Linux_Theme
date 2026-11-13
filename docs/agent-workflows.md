@@ -139,6 +139,10 @@ list there yourself). It draws in the palette and keeps its session records in p
   line you left it on, while that file still needs reading.
 - **Before a push**: the notebook says how many of Claude's commits going out are not reviewed and whether one
   touches the red zone. It never stops the push.
+- **Review stamps on the remote**: a finished review is a git note on the commit (`refs/notes/reviews`). It stays
+  on this machine unless the repository asks otherwise: `git config desk.pushReviewNotes true` makes the notebook
+  push the stamps after each push that goes through. Off by default, because it publishes who reviewed what; it
+  never forces, and says so when the remote's stamps differ.
 - **API review**: from Actions, send exactly the displayed file, the whole change, or the hunk under the cursor for a
   review on API credits. You choose the model and a budget first, progress shows, and `:ClaudeApiStop` cancels. The
   result is kept beside the file for the version that was sent (`A` opens it), so an older review never covers a

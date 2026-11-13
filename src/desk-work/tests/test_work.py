@@ -503,6 +503,21 @@ class Work(unittest.TestCase):
         self.assertTrue(self.data("review-request", "--file", "sample.cpp", "--clear", "yes")["ok"])
         self.assertEqual(self.data("review-requests"), [])
 
+    def test_review_stamps_are_pushed_only_where_the_repository_asks(self):
+        remote = self.dir / "notes-remote.git"
+        subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+        self.git("commit", "--allow-empty", "-qm", "Change\n\nClaude-Session: https://claude.ai/code/session_example")
+        sha = self.git("rev-parse", "HEAD")
+        self.git("remote", "add", "origin", str(remote))
+        self.git("push", "-q", "-u", "origin", self.git("symbolic-ref", "--short", "HEAD"))
+        self.data("reviewed", "--sha", sha)
+        self.assertEqual(self.data("push-notes"), {"pushed": False, "reason": "off"}, "off unless asked for")
+        there = lambda: subprocess.run(["git", "-C", str(remote), "rev-parse", "--verify", "--quiet", "refs/notes/reviews"], capture_output=True).returncode == 0
+        self.assertFalse(there())
+        self.git("config", "desk.pushReviewNotes", "true")
+        self.assertEqual(self.data("push-notes"), {"pushed": True, "remote": "origin"})
+        self.assertTrue(there(), "the stamps are on the remote")
+
     def test_worktree_paths_with_spaces_are_not_shell_commands(self):
         other = self.dir / "other tree ; literal"
         self.git("worktree", "add", "-qb", "feature/work", str(other))

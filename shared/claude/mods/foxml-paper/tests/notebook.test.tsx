@@ -52,7 +52,7 @@ function fakeFs(on: On, files: Record<string, string>, mtimes: Record<string, nu
 }
 
 // Nothing sits beneath the plugin in a test: these stand for the engine and the machine.
-function engine(on: On, options: { pane?: string; pushCheck?: unknown; ci?: unknown[]; bash?: (command: string) => unknown; runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; finished?: () => unknown; credits?: unknown; trees?: unknown; readIds?: { id: string; at: number }[] } = {}) {
+function engine(on: On, options: { pane?: string; pushNotes?: unknown; pushCheck?: unknown; ci?: unknown[]; bash?: (command: string) => unknown; runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; finished?: () => unknown; credits?: unknown; trees?: unknown; readIds?: { id: string; at: number }[] } = {}) {
   let pinned: { file: string; step: string } | null = null
   seen.argv = []; seen.stdin = []; seen.bash = []; seen.sent = []; seen.toasts = []; seen.submitted = []; seen.opened = []
   mock.store(on, { 'notebook-read-mail:abc': options.readIds ?? [] })
@@ -78,6 +78,7 @@ function engine(on: On, options: { pane?: string; pushCheck?: unknown; ci?: unkn
     if (options.pane && argv === 'sh -c printf %s "$TMUX_PANE"') return { value: done(options.pane) }
     if (argv.startsWith('desk-work begin ')) return { value: done('f'.repeat(32) + '\n') }
     if (argv.startsWith('desk-work push-check ') && options.pushCheck) return { value: done(JSON.stringify(options.pushCheck)) }
+    if (argv.startsWith('desk-work push-notes ') && options.pushNotes) return { value: done(JSON.stringify(options.pushNotes)) }
     if (argv.startsWith('desk-work finish ') && options.finished) return { value: done(JSON.stringify(options.finished())) }
     if (argv.startsWith('desk-work plan-pin ')) {
       const file = e.argv[e.argv.indexOf('--file') + 1] ?? ''
@@ -735,4 +736,16 @@ test('a page that could not refresh says so and offers a retry; one without the 
   await ui.press({ key: 'refresh-now' })
   expect(seen.argv.some(a => a.startsWith('git --no-optional-locks'))).toBe(true)
   await ui.unmount()
+})
+
+test('after a push the review stamps follow only where the repository asks, and a refusal is said', async ($, on) => {
+  engine(on, { pushNotes: { pushed: true, remote: 'origin' } })
+  await opened($)
+  seen.toasts = []
+  await $.tool.call({ tool: 'Bash', command: 'git push origin main', description: 'Push' })
+  expect(seen.argv.some(a => a.startsWith('desk-work push-notes --root /code/paper'))).toBe(true)
+  expect(seen.toasts).toContain('review stamps pushed too')
+  seen.argv = []
+  await $.tool.call({ tool: 'Bash', command: 'git status', description: 'Look' })
+  expect(seen.argv.some(a => a.startsWith('desk-work push-notes'))).toBe(false)
 })
