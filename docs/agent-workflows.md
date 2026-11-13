@@ -135,6 +135,8 @@ list there yourself). It draws in the palette and keeps its session records in p
   line when the file shifts, marks the row `✎`, and `:ReviewNotes` lists every one in the project.
 - **Plan coverage**: `P` lists each step of the plan with the commits that touched a file it names, the steps not
   started, and the changed files no step names. A commit row also says whether tests passed on exactly that commit.
+- **Next**: `Space Cr` (`:ReviewNext`) opens the next thing that needs you. A review also reopens on the file and
+  line you left it on, while that file still needs reading.
 - **Before a push**: the notebook says how many of Claude's commits going out are not reviewed and whether one
   touches the red zone. It never stops the push.
 - **API review**: from Actions, send exactly the displayed file, the whole change, or the hunk under the cursor for a

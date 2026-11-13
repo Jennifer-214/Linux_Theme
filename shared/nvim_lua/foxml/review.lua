@@ -1251,6 +1251,55 @@ function M.api_open()
   tell(record.current and 'Enter on a path:line opens it.' or 'This file has changed since the review: Enter on a path:line opens the version it is about.')
 end
 
+-- The next thing that needs you in this project, in the notebook's order: a requested change whose file has now
+-- changed, then a file edited since you reviewed it, then the oldest of Claude's commits not reviewed yet.
+function M.next_item(root)
+  local backend = M.work_tool()
+  if not backend then return nil, 'requires the work tool (desk-work)' end
+  local function ask(...)
+    local argv = { backend, ... }
+    local ok, out = pcall(function() return vim.system(argv, { text = true }):wait(3000) end)
+    return ok and out and out.code == 0 and decode(out.stdout) or {}
+  end
+  for _, request in ipairs(ask('review-requests', '--root', root)) do
+    if request.state == 'ready' then return { kind = 'request', file = request.file, why = 'changed since you asked ' .. (request.name or 'a session') } end
+  end
+  for key, review in pairs(ask('review-progress', '--root', root)) do
+    if not key:match('^%x+$') or #key ~= 40 then
+      for rel, mark in pairs(type(review.files) == 'table' and review.files or {}) do
+        if mark.state == 'changed' then return { kind = 'changed', file = rel, why = 'edited since you reviewed it' } end
+      end
+    end
+  end
+  local oldest
+  for _, task in ipairs(ask('review-tree', '--root', root)) do
+    for _, c in ipairs(type(task.commits) == 'table' and task.commits or {}) do
+      if not c.reviewed and not oldest then oldest = { kind = 'commit', sha = c.sha, why = 'not reviewed yet' } end
+    end
+  end
+  return oldest
+end
+function M.next()
+  local root = (M.current and M.current.root) or vim.fs.root(0, '.git') or vim.fs.root(vim.fn.getcwd(), '.git')
+  if not root then tell('Not in a git repository.'); return end
+  local item, why = M.next_item(root)
+  if not item then tell(why or 'Nothing needs you here right now.'); return end
+  local C = require('foxml.claude')
+  local rows = C.rows(root)
+  if item.kind == 'commit' then
+    for _, row in ipairs(rows) do if row.kind == 'commit' and row.sha == item.sha then C.open_review(row, root); M.tree(rows); return end end
+    tell('That commit is no longer in this branch.'); return
+  end
+  for _, row in ipairs(rows) do
+    if row.kind == 'working' then
+      C.open_review(row, root); M.tree(rows)
+      local r = M.current
+      for i, f in ipairs(r and r.files or {}) do if f.rel == item.file then M.select(i); tell(item.file .. ': ' .. item.why); return end end
+    end
+  end
+  C.open_review({ kind = 'live', sid = '', name = 'needs you', short = 'needs you', files = { root .. '/' .. item.file }, label = item.why }, root)
+end
+
 -- Plan coverage: each step of the plan this change was made under, with the commits that touched a file it names;
 -- a step with none is "not started", and a changed file no step names is listed as outside the plan. By files, so it
 -- is a fact about what changed, not a guess about intent.
@@ -1286,6 +1335,29 @@ function M.plan_coverage_data(r)
   end
   local outside, seen = {}, {}
   local sets = r.sets or { { row = r.row, files = r.files } }
+  -- A plan whose steps name no files: go by the step recorded on each commit when it was made ("step 2 · …").
+  if #steps == 0 then
+    local numbers = {}
+    for key, label in pairs(words) do numbers[#numbers + 1] = { n = tonumber(key:match('%d+')), label = label } end
+    table.sort(numbers, function(a, b) return a.n < b.n end)
+    for _, s in ipairs(numbers) do at[s.n] = #steps + 1; steps[#steps + 1] = { label = s.label, files = {}, commits = {}, recorded = true } end
+    for _, set in ipairs(sets) do
+      local row = set.row
+      if row.kind == 'commit' and row.plan == plan then
+        local said = tostring(row.step or '')
+        local n = tonumber(said:match('[Ss]tep%s*(%d+)') or said:match('^%s*(%d+)%s*[.)·:]'))
+        if not n then
+          for _, s in ipairs(numbers) do
+            local words_only = s.label:gsub('^%d+ · ', ''):lower()
+            if said ~= '' and (words_only:find(said:lower(), 1, true) or said:lower():find(words_only, 1, true)) then n = s.n; break end
+          end
+        end
+        if n and at[n] then table.insert(steps[at[n]].commits, row.short or 'commit')
+        else outside[#outside + 1] = { rel = (row.short or 'commit') .. ' ' .. (row.subject or ''), where = said ~= '' and ('recorded as "' .. said .. '"') or 'no step recorded', commit = true } end
+      end
+    end
+    return { plan = plan, title = (text:match('^#%s+([^\n]+)') or vim.fs.basename(plan)), steps = steps, outside = outside, recorded = true }
+  end
   for _, set in ipairs(sets) do
     local row = set.row
     local mine = row.kind == 'working' or row.kind == 'live' or row.plan == plan or (not row.plan and r.row == row)
@@ -1314,17 +1386,20 @@ function M.plan_coverage()
   if not r then return end
   local data = M.plan_coverage_data(r)
   if not data then tell('This change was not made under a plan, so there is nothing to check it against.'); return end
-  if #data.steps == 0 then tell('The plan names no files, so coverage cannot be worked out from it.'); return end
+  if #data.steps == 0 then tell('The plan has no numbered steps and names no files, so there is nothing to measure against.'); return end
   local items = {}
   for _, step in ipairs(data.steps) do
     local done = #step.commits
     items[#items + 1] = { name = step.label, group = 'steps', right = done > 0 and table.concat(step.commits, ', ') or 'not started',
-      label = step.label .. ' — names ' .. table.concat(step.files, ', ') .. (done > 0 and ('. Touched by ' .. table.concat(step.commits, ', ') .. '.') or '. Nothing has changed a file it names yet.'),
+      label = step.recorded
+        and (step.label .. (done > 0 and (' — recorded on ' .. table.concat(step.commits, ', ') .. ' when it was committed.') or ' — no commit was recorded under this step. (The plan names no files, so this goes by the step noted at each commit.)'))
+        or (step.label .. ' — names ' .. table.concat(step.files, ', ') .. (done > 0 and ('. Touched by ' .. table.concat(step.commits, ', ') .. '.') or '. Nothing has changed a file it names yet.')),
       run = function() vim.cmd('botright vsplit ' .. vim.fn.fnameescape(data.plan)) end }
   end
   for _, file in ipairs(data.outside) do
-    items[#items + 1] = { name = file.rel, group = 'outside the plan', right = file.where,
-      label = file.rel .. ' — changed in ' .. file.where .. ', and no step of the plan names it.',
+    items[#items + 1] = { name = file.rel, group = file.commit and 'no step matched' or 'outside the plan', right = file.where,
+      label = file.commit and (file.rel .. ' — made under this plan, but ' .. file.where .. ' matches none of its steps.')
+        or (file.rel .. ' — changed in ' .. file.where .. ', and no step of the plan names it.'),
       run = function()
         for i, f in ipairs(r.files) do if f.rel == file.rel then M.select(i); return end end
         tell(file.rel .. ' is in ' .. file.where .. '; open that change to read it.')
@@ -1452,6 +1527,14 @@ function M.close()
   if not r then return true end
   if r.closing then return false end
   r.closing = true
+  -- Remember the place: the next open of this change starts on this file and line.
+  pcall(function()
+    local f = r.files[r.index]
+    if not f or not api.nvim_win_is_valid(r.right_win) then return end
+    local disk = decode(read(r.state_file))
+    disk.last = { rel = f.rel, line = api.nvim_win_get_cursor(r.right_win)[1] }
+    write_private(r.state_file, vim.json.encode(disk))
+  end)
   restore_options(r)
   if api.nvim_tabpage_is_valid(r.tab) then
     if #api.nvim_list_tabpages() == 1 then vim.cmd('tabnew') end
@@ -1536,7 +1619,23 @@ function M.open(row, root, callbacks)
     load_file(r, f)
     if r.marks[f.rel] ~= f.signature then first = i; break end
   end
+  -- Where you left this change, while that file is still part of it and still needs reading; a file you finished
+  -- gives way to the first one you have not.
+  local last = type(stored.last) == 'table' and stored.last or nil
+  local resumed = false
+  if last then
+    for i, f in ipairs(files) do
+      if f.rel == last.rel then
+        load_file(r, f)
+        if r.marks[f.rel] ~= f.signature then first, resumed = i, true end
+        break
+      end
+    end
+  end
   M.layout(); M.select(first)
+  if resumed and tonumber(last.line) and api.nvim_win_is_valid(r.right_win) then
+    pcall(api.nvim_win_set_cursor, r.right_win, { math.max(1, math.min(tonumber(last.line), api.nvim_buf_line_count(r.right_buf))), 0 })
+  end
   -- Yield between files so a large commit does not block navigation while counts arrive.
   local function next_count()
     if M.current ~= r or r.row ~= row then return end

@@ -552,6 +552,7 @@ first change you make to it says which session to coordinate with. The statuslin
 | `Space Cn` | Note to a Claude: the file, or the selection (visual), and a line of text; it arrives as an envelope and Claude reads it as your words |
 | `Space Cj` | Go to the pane of the Claude that edited this buffer |
 | `Space Cd` | Show this file in the current review panes |
+| `Space Cr` | Review the next thing that needs you: a requested change whose file has changed, a file edited since you reviewed it, else the oldest unreviewed Claude commit (`:ReviewNext`) |
 | `Space Cq` | Close all Claude review tabs and the file list; stop following |
 | `Space Cp` | The plan the sessions in this repo read last (`:Plan`) |
 

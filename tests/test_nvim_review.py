@@ -499,6 +499,61 @@ assert(vim.api.nvim_buf_get_name(buf):find('as the API reviewed it',1,true))
 assert(R.api_target(root,'task-9','never-sent.lua').current==true,'nothing kept: the working file')
 ''')
 
+    def test_a_review_reopens_on_the_file_and_line_it_was_left_on(self):
+        (self.repo / 'plain.lua').write_text('local a = 1\nlocal b = 2\nreturn a + b\n')
+        (self.repo / 'other.lua').write_text('return 1\n')
+        live = "{kind='live',sid='resume1',name='example',short='example',files={root..'/other.lua',root..'/plain.lua'}}"
+        self.run_lua(r'''
+C.open_review(%s,root)
+local r=R.current
+for i,f in ipairs(r.files) do if f.rel=='plain.lua' then R.select(i) end end
+vim.api.nvim_win_set_cursor(R.current.right_win,{3,0})
+C.close()
+''' % live)
+        self.run_lua(r'''
+C.open_review(%s,root)
+local r=R.current
+assert(r.files[r.index].rel=='plain.lua','the file it was left on: '..r.files[r.index].rel)
+assert(vim.api.nvim_win_get_cursor(r.right_win)[1]==3,'and the line')
+C.close()
+''' % live)
+
+    def test_the_next_thing_is_a_ready_request_then_a_changed_file_then_the_oldest_unreviewed_commit(self):
+        self.run_lua(r'''
+local answers={['review-requests']='[{"file":"a.lua","name":"Queue","state":"waiting"},{"file":"b.lua","name":"Queue","state":"ready"}]',
+  ['review-progress']='{"working":{"files":{"c.lua":{"state":"changed"},"d.lua":{"state":"checked"}}}}',
+  ['review-tree']='[{"title":"t","commits":[{"sha":"'..string.rep('a',40)..'","reviewed":false},{"sha":"'..string.rep('b',40)..'","reviewed":false}]}]'}
+R.work_tool=function() return 'desk-work' end
+local real=vim.system
+vim.system=function(argv,opts) if argv[1]~='desk-work' then return real(argv,opts) end
+  return {wait=function() return {code=0,stdout=answers[argv[2]] or '[]'} end} end
+local item=R.next_item(root)
+assert(item.kind=='request' and item.file=='b.lua' and item.why:find('Queue',1,true),vim.inspect(item))
+answers['review-requests']='[]'
+item=R.next_item(root); assert(item.kind=='changed' and item.file=='c.lua',vim.inspect(item))
+answers['review-progress']='{}'
+item=R.next_item(root); assert(item.kind=='commit' and item.sha==string.rep('a',40),vim.inspect(item))
+answers['review-tree']='[]'
+assert(R.next_item(root)==nil,'nothing left')
+R.work_tool=function() return nil end
+local none,why=R.next_item(root); assert(none==nil and why:find('work tool',1,true))
+vim.system=real
+''')
+
+    def test_a_plan_that_names_no_files_is_covered_by_the_step_recorded_on_each_commit(self):
+        (self.repo / 'plan.md').write_text('# Tidy\n1. Split the header\n2. Move the workers\n3. Write it up\n')
+        self.run_lua(r'''
+local plan=root..'/plan.md'
+local r={row={kind='commit',plan=plan,short='aaa1111'},root=root,files={},sets={
+  {row={kind='commit',plan=plan,short='aaa1111',step='step 1 · split'},files={}},
+  {row={kind='commit',plan=plan,short='bbb2222',step='Move the workers'},files={}},
+  {row={kind='commit',plan=plan,short='ccc3333',subject='Odd one',step=''},files={}}}}
+local data=R.plan_coverage_data(r)
+assert(data.recorded and #data.steps==3,vim.inspect(data))
+assert(data.steps[1].commits[1]=='aaa1111' and data.steps[2].commits[1]=='bbb2222' and #data.steps[3].commits==0,vim.inspect(data.steps))
+assert(#data.outside==1 and data.outside[1].where=='no step recorded' and data.outside[1].commit,vim.inspect(data.outside))
+''')
+
     def test_margin_notes_stay_with_the_file_follow_their_line_and_mark_the_row(self):
         (self.repo / 'plain.lua').write_text('local a = 1\nlocal b = 2\nreturn a + b\n')
         self.run_lua(r'''
