@@ -445,6 +445,38 @@ assert(R.request_of(r,r.files[1])==nil,'checking the file settles the request')
 C.close()
 ''')
 
+    def test_api_review_sends_exactly_the_displayed_change_and_is_remembered_for_that_version(self):
+        self.run_lua(r'''
+local asked
+package.loaded['foxml.work']={api_available=function() return true end,
+  api_question=function(question,done) asked=question; done({id='task-1'}) end}
+C.open_review(row,root)
+local r=R.current
+R.select(find('a.lua'))
+R.api_review('file')
+assert(asked and asked:find('Review this change',1,true) and asked:find('+++ b/a.lua',1,true),'the question carries the displayed diff: '..tostring(asked))
+assert(asked:find('\n+',1,true),'with its added lines')
+local record=R.api_of(r,r.files[r.index])
+assert(record and record.id=='task-1' and record.current==true and record.scope=='file',vim.inspect(record))
+asked=nil
+R.api_review('commit')
+local n=0; for _ in asked:gmatch('%+%+%+ b/') do n=n+1 end
+assert(n>=2 and n<=#r.files,'the whole change sends every file that is text: '..n..' of '..#r.files)
+local items
+package.loaded['foxml.menu']={open=function(list) items=list end}
+R.actions()
+local names={}; for _,item in ipairs(items) do names[item.name]=item end
+assert(names['API review: file'] and names['API review: file'].right==nil,'offered when the API is set up')
+assert(names['Open API review'],'the saved review can be opened')
+package.loaded['foxml.work']={api_available=function() return false end,api_question=function() error('must not be asked') end}
+R.actions()
+names={}; for _,item in ipairs(items) do names[item.name]=item end
+assert(names['API review: file'].right=='needs API' and names['API review: file'].label:find('Requires the API setup',1,true),'without the setup the row stays and says what it needs')
+assert(names['API review: file'].label:find('API credits',1,true))
+R.api_review('file')
+C.close()
+''')
+
     def test_symdeps_bridge_uses_a_real_cpp_buffer_and_the_selected_base(self):
         source = self.repo / 'inspect.cpp'
         source.write_text('struct Item { int count; };\n')

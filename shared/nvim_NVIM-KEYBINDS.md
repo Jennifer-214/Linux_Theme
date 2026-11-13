@@ -585,6 +585,7 @@ Checking a live file is invalidated when its contents change. Files with missing
 | `n` (sidebar) / `Space rn` | Only what is new since you reviewed a file / the whole change (remembered) |
 | `c` | Request changes: a note about this file or the selected lines to a Claude session; the file waits on it |
 | `a` (sidebar) / `?` | Actions |
+| `A` | Open the saved API review of this file (Actions has "API review: file / change" and "Explain this hunk") |
 | `R` | Finish after every file is checked and open the next unchecked commit; this clears the finished commit from pending reviews |
 | `Space rw` | Show / hide whitespace differences |
 | `Space rc` | Six context lines / full-file context |

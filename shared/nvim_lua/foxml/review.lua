@@ -423,7 +423,10 @@ local function describe(r, entry)
       return { name .. ' · ' .. (request.ready and 'changed since you asked · ready for re-review' or ('waiting on ' .. request.name)),
         '✉ ' .. request.name .. ': ' .. request.text }
     end
-    if f.risks and #f.risks > 0 then return { name .. ' · ' .. what .. ' · ' .. state, '⚠ ' .. table.concat(f.risks, ' · ') } end
+    local reviewed = (not set or set == r.active_set) and M.api_of(r, f) or nil
+    local api_note = reviewed and (reviewed.current and 'API reviewed this version' or 'API reviewed an earlier version') or nil
+    if f.risks and #f.risks > 0 then return { name .. ' · ' .. what .. ' · ' .. state, '⚠ ' .. table.concat(f.risks, ' · ') .. (api_note and (' · ' .. api_note) or '') } end
+    if api_note and not f.since then return { name .. ' · ' .. what .. ' · ' .. state, '◇ ' .. api_note .. ' · A opens it' } end
     if f.since then return { name .. ' · ' .. what .. ' · ' .. state, 'showing only what is new · n shows the whole change' } end
     return { f.rel .. ' · ' .. what, state }
   end
@@ -580,6 +583,7 @@ local function maps(r, buf, sidebar)
   key('<leader>rw', function() r.whitespace = not r.whitespace; options(r); tell('Whitespace changes: ' .. (r.whitespace and 'hidden' or 'shown')) end, 'Toggle review whitespace')
   key('<leader>rc', function() r.context = not r.context; options(r); tell('Context: ' .. (r.context and 'full file' or 'six lines')) end, 'Toggle review context')
   key('r', function() M.select(r.index, true) end, 'Refresh this comparison')
+  key('A', function() M.api_open() end, 'Open the API review of this file')
   key('c', function() if not sidebar or M.enter(true) then api.nvim_set_current_win(r.right_win); require('foxml.claude').send() end end, 'Request changes from a Claude session')
   if not sidebar then key('<leader>rn', M.toggle_since, 'New since review / the whole change') end
   key('?', M.actions, 'Review actions')
@@ -908,6 +912,21 @@ function M.actions()
   end
   local file = r.files[r.index]
   local ft = vim.filetype.match({ filename = file.path })
+  if r.row.kind ~= 'external' then
+    -- API review spends credits: it needs the API setup, and says so when that is missing.
+    local found, work = pcall(require, 'foxml.work')
+    local ready = found and type(work.api_available) == 'function' and work.api_available()
+    local needs = (not ready) and 'needs API' or nil
+    add('API review: file', 'Requires the API setup (a key and a budget). Send exactly this file’s displayed change for review on API credits. You choose the model and a budget first.',
+      function() M.api_review('file') end, { group = 'api', right = needs })
+    add('API review: change', 'Requires the API setup (a key and a budget). Send every file of this change (as far as one request holds) for review on API credits.',
+      function() M.api_review('commit') end, { group = 'api', right = needs })
+    add('Explain this hunk', 'Requires the API setup (a key and a budget). Ask what the change under the cursor does and what it affects, on API credits.',
+      function() M.api_review('hunk') end, { group = 'api', right = needs })
+    if M.api_of(r, file) then
+      add('Open API review', 'Open the saved API review of this file; its path:line citations become a jump list.', M.api_open, { group = 'api', bind = 'A' })
+    end
+  end
   if vim.fn.filereadable(file.path) == 1 or vim.fn.bufnr(file.path) >= 0 then
     add('Open working file', 'Open the editable working file at this change; keep the review available in its own tab.',
       function() api.nvim_set_current_win(r.right_win); M.open_source() end, { group = 'inspect', bind = 'gf' })
@@ -1082,6 +1101,68 @@ function M.request_of(r, file)
   if type(request) ~= 'table' then return nil end
   request.ready = file.loaded and request.signature ~= '' and request.signature ~= file.signature
   return request
+end
+
+-- API review of exactly what is displayed: this file, every file of this change, or the hunk under the cursor. It goes
+-- through the existing API task flow (model and budget are asked, progress shows, :ClaudeApiStop cancels); the result
+-- is remembered beside each file for the version that was sent, so an older review never covers a newer edit.
+local API_LIMIT = 22000
+local function unified(file)
+  if file.error or file.binary then return nil end
+  local diff = vim.text and vim.text.diff or vim.diff
+  local ok, text = pcall(diff, file.left, file.right, { result_type = 'unified', ctxlen = 4, algorithm = 'histogram' })
+  if not ok or not text or text == '' then return nil end
+  return '--- a/' .. (file.old or file.rel) .. '\n+++ b/' .. file.rel .. '\n' .. text
+end
+function M.api_review(scope)
+  local r = M.current
+  if not r then return end
+  local ok, work = pcall(require, 'foxml.work')
+  if not ok or type(work.api_question) ~= 'function' or not work.api_available() then
+    tell('Requires API setup: add a key and a budget under API in the drawer, or with claude-api configure.'); return
+  end
+  local what = r.row.kind == 'commit' and ('commit ' .. (r.row.short or '') .. ' "' .. (r.row.subject or '') .. '"') or 'uncommitted changes'
+  local files, body, ask = {}, '', nil
+  if scope == 'hunk' then
+    local context = M.note_context(nil, api.nvim_win_get_buf(r.right_win))
+    if api.nvim_get_current_win() == r.left_win then context = M.note_context(nil, api.nvim_win_get_buf(r.left_win)) end
+    if not context then tell('Put the cursor in the comparison first.'); return end
+    files, body = { r.files[r.index] }, context.code
+    ask = 'Explain this change: what it does, what it affects and anything risky about it. Cite path:line.'
+  else
+    local list = scope == 'file' and { r.files[r.index] } or r.files
+    for _, f in ipairs(list) do
+      load_file(r, f, false)
+      local text = unified(f)
+      if text and #body + #text <= API_LIMIT then body = body .. text .. '\n'; files[#files + 1] = f
+      elseif text then body = body .. '[' .. f.rel .. ' left out: over the size for one request]\n' end
+    end
+    if #files == 0 then tell('Nothing here can be sent as text.'); return end
+    ask = 'Review this change (' .. what .. '): likely bugs, risky edits and missing tests. Cite path:line. Only these lines are under review.'
+  end
+  local sent = {}
+  for _, f in ipairs(files) do sent[f.rel] = f.signature end
+  local state_path = r.state_file
+  work.api_question(ask .. '\n\n' .. body, function(task)
+    local disk = decode(read(state_path))
+    disk.api = type(disk.api) == 'table' and disk.api or {}
+    for rel, signature in pairs(sent) do disk.api[rel] = { id = task.id, at = os.time(), signature = signature, scope = scope } end
+    write_private(state_path, vim.json.encode(disk))
+    if M.current == r and api.nvim_buf_is_valid(r.panel_buf) then panel(r) end
+  end)
+end
+function M.api_of(r, file)
+  local records = decode(read(r.state_file)).api
+  local record = type(records) == 'table' and records[file.rel] or nil
+  if type(record) ~= 'table' or type(record.id) ~= 'string' then return nil end
+  record.current = file.loaded and record.signature == file.signature
+  return record
+end
+function M.api_open()
+  local r = M.current
+  local record = r and M.api_of(r, r.files[r.index])
+  if not record then tell('No API review of this file yet.'); return end
+  pcall(vim.system, { 'claude-api', 'open', record.id }, { detach = true })
 end
 
 function M.note_context(range, buf)

@@ -129,6 +129,12 @@ list there yourself). It draws in the palette and keeps its session records in p
   change instead; the choice is remembered.
 - **Keys**: Enter or `l` opens, `h` folds, `m` or Space checks, `u` goes to the first unread file (risky ones first),
   `R` finishes and moves to the next commit, `a` opens every other action, `q` returns to your editor.
+- **Request changes**: `c` writes a note about the file or the selected lines to a Claude session. The file waits
+  (`✉`) until it changes, then reads "ready for re-review"; checking it settles the request.
+- **API review**: from Actions, send exactly the displayed file, the whole change, or the hunk under the cursor for a
+  review on API credits. You choose the model and a budget first, progress shows, and `:ClaudeApiStop` cancels. The
+  result is kept beside the file for the version that was sent (`A` opens it), so an older review never covers a
+  newer edit. Without the API setup the rows stay and read "needs API".
 - **Shared progress**: checks are kept by `desk-work`, so the notebook shows the same `✓ ↻ ○` and one line such as
   "3 changes to review · 1 changed since you looked". After a turn that leaves files unreviewed, a quiet "review
   pending" line sits above the prompt.

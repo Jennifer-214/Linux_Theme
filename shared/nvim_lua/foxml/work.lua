@@ -111,6 +111,7 @@ function M.api_run(project, question, extra, opts)
     vim.bo[buf].bufhidden = 'wipe'
     vim.cmd('tab sbuffer ' .. buf)
     M.api_result_opened(buf)
+    if type(opts.on_done) == 'function' then pcall(opts.on_done, value) end
   end))
   vim.notify(project.label .. ' API task started' .. (opts.model and (' · ' .. opts.model) or '') .. ' · :ClaudeApiStop cancels',
     vim.log.levels.INFO, progress)
@@ -134,6 +135,26 @@ local function api_model_and_budget(project, callback)
     if not model then return end
     vim.ui.input({prompt='Run budget USD (Enter starts): ', default=project.budget_usd or '1.00'}, function(limit)
       if limit and vim.trim(limit) ~= '' then callback(model, vim.trim(limit)) end
+    end)
+  end)
+end
+
+-- Is the API setup there (the tool, and its settings readable)? Asked by menus that offer API rows; kept a minute.
+local api_seen = { at = 0, ok = false }
+function M.api_available()
+  local now = os.time()
+  if now - api_seen.at > 60 then api_seen = { at = now, ok = vim.fn.executable('claude-api') == 1 and api_projects() ~= nil } end
+  return api_seen.ok
+end
+-- A question about text the caller already holds (the review's displayed change): same project, model and budget
+-- choices as any API task; `done` gets the finished task.
+function M.api_question(question, done)
+  if api_job then vim.notify('An API task is already running. :ClaudeApiStop cancels it.'); return end
+  api_choose_project(function(project, here)
+    api_model_and_budget(project, function(model, limit)
+      local extra = {}
+      if inside(here, project) then vim.list_extend(extra, {'--root', here}) end
+      M.api_run(project, question, extra, {model=model, budget=limit, on_done=done})
     end)
   end)
 end
