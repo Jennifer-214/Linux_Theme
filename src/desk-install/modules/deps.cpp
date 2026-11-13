@@ -14,6 +14,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -67,6 +68,21 @@ void run_deps(Context& ctx) {
     }
 
     const std::vector<std::string>& pkgs = deps_packages();
+
+    // informant (the safe-updates news gate) refuses every pacman transaction while Arch news is unread, so on a
+    // re-install each package step below would fail at its hook (VM upgrade, 2026-11-13: ten refused transactions).
+    // Running the installer is a deliberate act: show the unread headlines here, then mark them read.
+    if (!sh::dry_run() && sh::have("informant")) {
+        std::string unread;
+        sh::capture({"sh", "-c", "sudo informant list --unread 2>/dev/null | sed 's/\\x1b\\[[0-9;]*m//g' | grep -v '^[[:space:]]*$' | head -12"}, unread);
+        if (!unread.empty() && unread.find("ERROR") == std::string::npos) {
+            ui::warn("Unread Arch news (marked read so the install can go on; `informant list` shows them again):");
+            std::istringstream lines(unread);
+            for (std::string line; std::getline(lines, line);) ui::substep(line);
+            if (sh::run({"sh", "-c", "sudo informant read --all >/dev/null 2>&1"}) != 0)
+                ui::warn("could not mark the news read — package steps may be refused until `sudo informant read --all`");
+        }
+    }
 
     // Sync and upgrade first. Installing against the package list the machine last synced asks for versions the mirrors
     // have since replaced (a week-old Arch install gets a wall of 404s), and -Sy without -u is a partial upgrade.
