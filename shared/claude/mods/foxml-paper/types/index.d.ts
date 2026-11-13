@@ -38,7 +38,7 @@ export type PaperLook = {
   files: PaperFile[]
   // open: this session is approved in the repo's plan gate; closed: the gate exists and it is not.
   gate: 'open' | 'closed' | 'none'
-  plan: { title: string; file: string; pinned?: boolean; step?: string; done?: number; total?: number } | null
+  plan: { title: string; file: string; pinned?: boolean; step?: string; done?: number; total?: number; next?: string } | null
   // Last night's /goodnight note for this project, while it is fresh (under 36 hours).
   lastNight?: { file: string; line: string } | null
   project?: { trees: PaperTree[]; documents: { path: string; label: string }[] }

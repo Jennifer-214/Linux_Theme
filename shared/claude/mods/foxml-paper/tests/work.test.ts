@@ -53,7 +53,8 @@ test('freshness names content changes and never treats an unknown snapshot as a 
 
 test('plan progress counts checkboxes outside code fences and names the step being worked on', () => {
   const plan = '# Plan\n- [x] one\n  - [X] two\n* [ ] three\n1. [ ] four\n```\n- [x] an example\n```\n- [] not a box\n'
-  expect(planProgress(plan)).toEqual({ done: 2, total: 4 })
+  expect(planProgress(plan)).toEqual({ done: 2, total: 4, next: 'three' })
+  expect(planProgress('- [x] `a`\n- [x] b\n')).toEqual({ done: 2, total: 2 })
   expect(planProgress('# Plan\n- a list\n')).toEqual({ done: 0, total: 0 })
   expect(stepLabel({ done: 3, total: 9 })).toBe('step 4 of 9')
   expect(stepLabel({ done: 9, total: 9 })).toBe('all 9 steps done ✿')

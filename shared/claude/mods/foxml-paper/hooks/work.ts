@@ -186,15 +186,19 @@ export function turnLabel(turn: { started: number; step: string; seen?: number }
   return '◷ ' + took + (turn.step ? ' · ' + turn.step : '')
 }
 // Markdown checkboxes outside code fences, counted the way desk-work's plan output counts them.
-export function planProgress(text: string): { done: number; total: number } {
-  let done = 0, total = 0, fence = false
+// `next` is the first box not ticked yet, in the plan's own words: the step in hand when none is pinned by hand.
+export function planProgress(text: string): { done: number; total: number; next?: string } {
+  let done = 0, total = 0, fence = false, next: string | undefined
   for (const line of text.split('\n')) {
     const t = line.trim()
     if (t.startsWith('```') || t.startsWith('~~~')) { fence = !fence; continue }
-    const box = fence ? null : line.match(/^\s*(?:[-*+]|\d+[.)])\s+\[([ xX])\]/)
-    if (box) { total++; if (box[1] !== ' ') done++ }
+    const box = fence ? null : line.match(/^\s*(?:[-*+]|\d+[.)])\s+\[([ xX])\]\s*(.*)$/)
+    if (!box) continue
+    total++
+    if (box[1] !== ' ') done++
+    else if (next === undefined) next = (box[2] ?? '').replace(/[`*_]/g, '').replace(/\s+/g, ' ').trim().slice(0, 120)
   }
-  return { done, total }
+  return next ? { done, total, next } : { done, total }
 }
 export function stepLabel(p: { done: number; total: number }): string {
   return p.done >= p.total ? `all ${p.total} ${p.total === 1 ? 'step' : 'steps'} done ✿` : `step ${p.done + 1} of ${p.total}`

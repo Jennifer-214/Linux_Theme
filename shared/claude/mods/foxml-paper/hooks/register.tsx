@@ -1059,6 +1059,9 @@ export const register: Register = on => {
           'The plan this session works from. Enter opens it.')
         if (total > 0) content.push(measured(ticked / total, `${ticked} of ${total} done`))
         if (now.plan.step) pair('plan-step', '◇ ' + now.plan.step, '', () => setView({ form: 'step' }), 'The step in hand. Enter changes it.')
+        // No step pinned by hand: the plan's first unticked box is the step, and it moves on as boxes are ticked.
+        else if (now.plan.next) pair('plan-step', '◇ ' + now.plan.next, 'next', () => setView({ form: 'step' }),
+          'The first step of the plan not ticked yet; it moves on as the plan\'s boxes are ticked. Enter pins a step by hand.')
       } else pair('plan-pin', 'pin an active plan', '', () => setView({ form: 'plan' }), 'No plan read yet in this session. Enter pins one.', paper.dim)
 
       const pending = now?.work?.pending ?? 0
