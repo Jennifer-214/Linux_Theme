@@ -47,9 +47,9 @@ jobs:
           set -e
           rm -rf /tmp/native /tmp/legacy
           ./src/desk-render/desk-render-fast \
-            themes/FoxML_Classic/palette.sh templates /tmp/native > /dev/null
+            themes/Classic/palette.sh templates /tmp/native > /dev/null
           ./render.sh \
-            themes/FoxML_Classic/palette.sh templates /tmp/legacy > /dev/null
+            themes/Classic/palette.sh templates /tmp/legacy > /dev/null
           if diff -rq /tmp/native /tmp/legacy > /tmp/diff.log; then
             echo "Native renderer matches legacy render.sh byte-for-byte."
           else

@@ -33,7 +33,7 @@ class PaperWorkflow(unittest.TestCase):
             theirs=git('hash-object','-w','--stdin',data='bookmark = 3\n')
             git('update-index','--index-info',data=f'0 {"0"*40}\tnote.py\n100644 {base} 1\tnote.py\n100644 {ours} 2\tnote.py\n100644 {theirs} 3\tnote.py\n')
             before=note.read_bytes();index_before=git('ls-files','-s')
-            subprocess.run([str(RENDER),str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates/nvim'),str(work/'rendered')],check=True,capture_output=True)
+            subprocess.run([str(RENDER),str(ROOT/'themes/Paper/palette.sh'),str(ROOT/'templates/nvim'),str(work/'rendered')],check=True,capture_output=True)
             result=subprocess.run(['nvim','--clean','--headless','-l',str(ROOT/'tests/paper_workflow.lua')],cwd=project,env=env,text=True,capture_output=True,timeout=20)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
             self.assertIn('PAPER_WORKFLOW_OK',result.stdout+result.stderr)

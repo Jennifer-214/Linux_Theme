@@ -25,7 +25,7 @@ Run these from the repository root:
 | `./setup` | Default workstation modules, plus packages, OpenCode/aider, model downloads and GitHub workspace cloning |
 
 The setup scripts pass `--yes`. They use your saved theme, falling back to
-`FoxML_Classic`; append a theme name to choose another.
+`Classic`; append a theme name to choose another.
 
 `setup-minimal` excludes the firewall, security, boot and login-screen modules.
 It still installs packages and deploys configuration across the desktop.
@@ -48,7 +48,7 @@ registered module, including opt-in modules, so its scope is broader than
 
 ```bash
 ./install.sh --monitor
-./install.sh FoxML_Classic --render
+./install.sh Classic --render
 ./install.sh --only ai,models,llama_server --yes
 ./install.sh --preset desktop --yes
 ```

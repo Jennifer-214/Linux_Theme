@@ -316,7 +316,7 @@ case "$1" in
         echo "Usage: fox <command> [args]"
         echo ""
         echo "Core Commands:"
-        echo "  install [theme]  Run the main installer (e.g., desk install FoxML_Classic --deps)"
+        echo "  install [theme]  Run the main installer (e.g., desk install Classic --deps)"
         echo "  swap [theme]     Switch theme (interactive picker if no name given)"
         echo "  tweak [flags]    Live-edit active theme aesthetics (--primary, --rounding, etc.)"
         echo "  update           Save current live config edits back into templates"

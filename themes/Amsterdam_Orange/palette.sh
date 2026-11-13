@@ -1,7 +1,7 @@
 #!/bin/bash
 # Amsterdam Orange — Optiver-inspired palette (scarlet #FF3300 · Cello navy #1C3255 · white)
 # Opt-in alternate theme; intentionally corporate / non-feminine. The fem-forward
-# aesthetic invariant is scoped to the DEFAULT theme (FoxML_Classic), not this one.
+# aesthetic invariant is scoped to the DEFAULT theme (Classic), not this one.
 # All hex values are WITHOUT the # prefix
 
 # ─── Theme metadata ───

@@ -19,7 +19,7 @@ class LittleDetails(unittest.TestCase):
     def test_only_paper_changes_the_window_curve_and_lock_message(self):
         for palette in sorted((ROOT / "themes").glob("*/palette.sh")):
             text = palette.read_text()
-            paper = palette.parent.name == "FoxML_Paper"
+            paper = palette.parent.name == "Paper"
             self.assertRegex(text, rf"(?m)^HYPR_WIN_CURVE={'foxSettle' if paper else 'foxSnap'}$")
             message = re.search(r"(?m)^HYPRLOCK_FAIL_TEXT='(.*)'$", text)
             self.assertIsNotNone(message, palette.parent.name)
@@ -37,7 +37,7 @@ class LittleDetails(unittest.TestCase):
             style = re.search(r"^HYPRLOCK_DOTS_STYLE='?([^'\n]*)", palette.read_text(), re.M)
             if style:
                 self.assertNotIn("♡", style.group(1), palette.parent.name)
-            if palette.parent.name == "FoxML_Paper":
+            if palette.parent.name == "Paper":
                 self.assertEqual(style.group(1), "dots_text_format = •")
 
 
@@ -46,7 +46,7 @@ class TerminalNotes(unittest.TestCase):
         renderer = ROOT / "src/desk-render/desk-render-fast"
         if not renderer.exists():
             self.skipTest("build desk-render-fast first")
-        subprocess.run([str(renderer), str(ROOT / "themes/FoxML_Paper/palette.sh"), str(ROOT / "templates/zsh"), tmp],
+        subprocess.run([str(renderer), str(ROOT / "themes/Paper/palette.sh"), str(ROOT / "templates/zsh"), tmp],
                        check=True, capture_output=True)
 
     def welcome(self, hour):

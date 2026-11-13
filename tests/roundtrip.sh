@@ -16,7 +16,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-THEME="${1:-FoxML_Classic}"
+THEME="${1:-Classic}"
 
 # Refuse on dirty templates/ — would obscure drift detection
 if ! git diff --quiet -- templates/; then

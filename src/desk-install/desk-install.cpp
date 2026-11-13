@@ -31,7 +31,7 @@ namespace fs = std::filesystem;
 
 namespace {
 
-constexpr const char* DEFAULT_THEME = "FoxML_Classic";
+constexpr const char* DEFAULT_THEME = "Classic";
 // Finished, but at least one module reported an error. 2 is taken: render stopped to protect live edits.
 constexpr int EXIT_INCOMPLETE = 3;
 

@@ -211,7 +211,7 @@ song slip, and the mic-mute key says which way it went.
 The native `--drawer` installer module builds the backend, renders the palette,
 backs up replaced files and deploys the configuration. `--deps` installs
 Quickshell. Rendering and theme swaps include the drawer; `--no-drawer` skips it.
-Install it alone with `./src/desk-install/desk-install FoxML_Paper --only drawer --yes`
+Install it alone with `./src/desk-install/desk-install Paper --only drawer --yes`
 after building the installer.
 
 Edit `~/.config/quickshell/foxml/menus.json` to rearrange groups or items; the

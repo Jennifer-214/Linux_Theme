@@ -2,13 +2,13 @@
 # template-lint — Check if all {{TOKEN}}s in templates are defined in the palette.
 #
 # Scans templates/ for placeholders and verifies they exist in the 
-# reference FoxML_Classic palette. Handles _R/_G/_B and _HEX suffixes.
+# reference Classic palette. Handles _R/_G/_B and _HEX suffixes.
 
 set -e
 
 FOXML_DIR="$HOME/code/Linux_Theme"
 [[ -d "$FOXML_DIR" ]] || FOXML_DIR="."
-PALETTE="$FOXML_DIR/themes/FoxML_Classic/palette.sh"
+PALETTE="$FOXML_DIR/themes/Classic/palette.sh"
 
 if [[ ! -f "$PALETTE" ]]; then
     echo "Error: Reference palette not found at $PALETTE"

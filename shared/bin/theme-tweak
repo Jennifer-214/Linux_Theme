@@ -41,6 +41,8 @@ if [[ ! -f "$ACTIVE_FILE" ]]; then
 fi
 
 ACTIVE_THEME=$(cat "$ACTIVE_FILE")
+# A name saved before four themes lost their prefix still means the theme it became.   old-theme-name
+[[ ! -d "$SCRIPT_DIR/themes/$ACTIVE_THEME" && -d "$SCRIPT_DIR/themes/${ACTIVE_THEME#FoxML_}" ]] && ACTIVE_THEME="${ACTIVE_THEME#FoxML_}"   # old-theme-name
 PALETTE_FILE="$SCRIPT_DIR/themes/$ACTIVE_THEME/palette.sh"
 
 if [[ ! -f "$PALETTE_FILE" ]]; then

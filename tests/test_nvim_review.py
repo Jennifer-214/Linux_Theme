@@ -743,7 +743,7 @@ C.close()
     def test_ordinary_editing_hunks_save_controls_and_hidden_file_search(self):
         rendered = self.base / 'rendered'
         subprocess.run([str(ROOT / 'src/desk-render/desk-render-fast'),
-                        str(ROOT / 'themes/FoxML_Paper/palette.sh'), str(ROOT / 'templates/nvim'), str(rendered)],
+                        str(ROOT / 'themes/Paper/palette.sh'), str(ROOT / 'templates/nvim'), str(rendered)],
                        check=True, capture_output=True)
         self.env['TEST_REVIEW_INIT'] = str(rendered / 'init.lua')
         (self.repo / '.config-note').write_text('find this hidden file\n')

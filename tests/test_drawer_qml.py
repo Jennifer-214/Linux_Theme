@@ -425,7 +425,7 @@ class DrawerQmlTest(unittest.TestCase):
             render = str(renderer) if renderer.exists() else shutil.which("desk-render-fast")
             if not render:
                 self.skipTest("build desk-render-fast before running the QML smoke test")
-            subprocess.run([render, str(ROOT / "themes/FoxML_Paper/palette.sh"),
+            subprocess.run([render, str(ROOT / "themes/Paper/palette.sh"),
                             str(ROOT / "templates/quickshell/foxml"), str(directory)], check=True, capture_output=True)
             (directory / "menus.json").write_text("{}")
             actions = directory / "actions.jsonl"

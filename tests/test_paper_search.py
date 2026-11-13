@@ -24,7 +24,7 @@ class PaperSearch(unittest.TestCase):
                                     'NVIM_LOG_FILE': str(work / 'nvim.log')}
                 check = subprocess.run(['nvim', '--clean', '--headless', '-c', 'lua assert(loadfile(vim.env.PAPER_SEARCH_INIT))', '-c', 'qa!'], env=env, capture_output=True, text=True, timeout=10)
                 self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
-                if palette.parent.name == 'FoxML_Paper' and (Path.home() / '.local/share/nvim/lazy/nvim-hlslens').is_dir():
+                if palette.parent.name == 'Paper' and (Path.home() / '.local/share/nvim/lazy/nvim-hlslens').is_dir():
                     check = subprocess.run(['nvim', '--clean', '--headless', '-l', str(ROOT / 'tests/paper_search.lua')], env=env, capture_output=True, text=True, timeout=15)
                     self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
                     self.assertIn('PAPER_SEARCH_OK', check.stdout + check.stderr)

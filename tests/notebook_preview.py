@@ -4,7 +4,7 @@
 The scenes are in shared/claude/mods/foxml-paper/tests/preview.test.tsx and go through the mod's real drawing code
 under Claude Code's own test kit; this prints each drawn tree as coloured text.
 
-Usage: tests/notebook_preview.py [--theme FoxML_Paper] [--scene WORDS] [--plain]
+Usage: tests/notebook_preview.py [--theme Paper] [--scene WORDS] [--plain]
 """
 import importlib.util
 import json
@@ -83,7 +83,7 @@ def main(argv):
     if not (ROOT / 'src/desk-render/desk-render-fast').exists():
         print('Build first (make): the preview renders the theme colours.')
         return 1
-    theme = argv[argv.index('--theme') + 1] if '--theme' in argv else 'FoxML_Paper'
+    theme = argv[argv.index('--theme') + 1] if '--theme' in argv else 'Paper'
     wanted = argv[argv.index('--scene') + 1].lower() if '--scene' in argv else ''
     plain = '--plain' in argv or not sys.stdout.isatty() and '--colour' not in argv
     found, ran = scenes(theme)

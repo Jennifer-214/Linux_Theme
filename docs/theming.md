@@ -8,7 +8,7 @@ Choose a palette, preserve configuration edits, find application templates or cr
 
 ## Choose a theme
 
-### [FoxML Classic](../themes/FoxML_Classic/) (dark)
+### [FoxML Classic](../themes/Classic/) (dark)
 
 Earthy, muted: warm peach, dusty rose, sage, wheat on a deep plum background.
 
@@ -23,7 +23,7 @@ Earthy, muted: warm peach, dusty rose, sage, wheat on a deep plum background.
 
 ### Other palettes
 
-[FoxML_Paper](../themes/FoxML_Paper/) provides the light paper desktop shown in
+[Paper](../themes/Paper/) provides the light paper desktop shown in
 the README. Rose, Bubblegum, Cave Data Center and Amsterdam Orange supply
 alternative palettes. See [theme status](../themes/README.md) for completion and
 switching notes, and the [desktop guide](desktop.md#paper-appearance) for Paper details.
@@ -132,7 +132,7 @@ Copied as-is regardless of theme:
 
    ```bash
    mkdir -p themes/My_Theme
-   cp themes/FoxML_Classic/{palette.sh,theme.conf} themes/My_Theme/
+   cp themes/Classic/{palette.sh,theme.conf} themes/My_Theme/
    ```
 
 2. Edit the colors in `palette.sh` and the name, type and description in `theme.conf`.
@@ -161,4 +161,4 @@ FONT_FAMILY="IBM Plex Mono Nerd Font"  # industrial, wide
 
 This updates all templated configs. Some shared configs reference fonts directly. Check GTK settings, `regreet.toml` and Hyprland settings as well when changing fonts.
 
-See `themes/FoxML_Classic/palette.sh` for the full variable list.
+See `themes/Classic/palette.sh` for the full variable list.

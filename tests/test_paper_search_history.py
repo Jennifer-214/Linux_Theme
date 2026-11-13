@@ -40,7 +40,7 @@ class SearchHistory(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which('rg'), 'ripgrep required')
     def test_search_colors_do_not_change_json_results(self):
-        config = self.render('FoxML_Paper','ripgrep')/'config'
+        config = self.render('Paper','ripgrep')/'config'
         sample = self.root/'a note.txt'
         sample.write_text('a note\nanother note\n')
         base = os.environ.copy()
@@ -53,13 +53,13 @@ class SearchHistory(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which('zsh'), 'zsh required')
     def test_custom_ripgrep_config_is_preserved(self):
-        colors = self.render('FoxML_Paper','zsh')/'colors.zsh'
+        colors = self.render('Paper','zsh')/'colors.zsh'
         env = os.environ|{'RIPGREP_CONFIG_PATH':str(self.root/'custom-search'),'XDG_CONFIG_HOME':str(self.root/'config')}
         result = subprocess.check_output(['zsh','-f','-c','source "$1"; print -r -- "$RIPGREP_CONFIG_PATH"','check',str(colors)],env=env,text=True)
         self.assertEqual(result.strip(),env['RIPGREP_CONFIG_PATH'])
 
     def test_paper_footer_has_light_surfaces_and_readable_ink(self):
-        theme = tomllib.loads((self.render('FoxML_Paper','yazi')/'theme.toml').read_text())
+        theme = tomllib.loads((self.render('Paper','yazi')/'theme.toml').read_text())
         def luminance(color):
             rgb = [int(color[i:i+2],16)/255 for i in (1,3,5)]
             linear = [c/12.92 if c <= .04045 else ((c+.055)/1.055)**2.4 for c in rgb]

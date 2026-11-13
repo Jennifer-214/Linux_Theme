@@ -18,23 +18,32 @@ int main() {
     char pattern[] = "/tmp/fox-theme-choice-XXXXXX";
     if (!::mkdtemp(pattern)) return 1;
     const fs::path root(pattern), themes = root / "themes";
-    for (const char* name : {"FoxML_Classic", "FoxML_Paper", "Amsterdam_Orange"}) {
+    for (const char* name : {"Classic", "Paper", "Amsterdam_Orange"}) {
         fs::create_directories(themes / name);
         std::ofstream(themes / name / "palette.sh") << "BG=000000\n";
     }
-    const char* fallback = "FoxML_Classic";
+    const char* fallback = "Classic";
 
-    expect("first install", choose_theme("", themes, root, fallback), "FoxML_Classic", "default");
+    expect("first install", choose_theme("", themes, root, fallback), "Classic", "default");
 
-    std::ofstream(root / ".active-theme") << "FoxML_Paper\n";
-    expect("saved", choose_theme("", themes, root, fallback), "FoxML_Paper", "saved theme");
+    std::ofstream(root / ".active-theme") << "Paper\n";
+    expect("saved", choose_theme("", themes, root, fallback), "Paper", "saved theme");
     expect("named beats saved", choose_theme("Amsterdam_Orange", themes, root, fallback),
            "Amsterdam_Orange", "command line");
-    expect("typo keeps saved", choose_theme("FoxML_Pape", themes, root, fallback),
-           "FoxML_Paper", "'FoxML_Pape' not found, using saved theme");
+    expect("typo keeps saved", choose_theme("Pape", themes, root, fallback),
+           "Paper", "'Pape' not found, using saved theme");
+
+    // An install from before the rename: the saved name and a typed name still carry the old prefix.
+    std::ofstream(root / ".active-theme") << "FoxML_Paper\n";                                        // old-theme-name
+    expect("old saved name", choose_theme("", themes, root, fallback), "Paper", "saved theme");
+    expect("old typed name", choose_theme("FoxML_Classic", themes, root, fallback), "Classic", "command line");  // old-theme-name
+    expect("old typo keeps saved", choose_theme("FoxML_Pape", themes, root, fallback),                // old-theme-name
+           "Paper", "'FoxML_Pape' not found, using saved theme");                                    // old-theme-name
+    expect("a prefix alone is not a theme", choose_theme("FoxML_", themes, root, fallback), "Paper", // old-theme-name
+           "'FoxML_' not found, using saved theme");                                                 // old-theme-name
 
     std::ofstream(root / ".active-theme") << "Deleted_Theme\n";
-    expect("deleted saved theme", choose_theme("", themes, root, fallback), "FoxML_Classic", "default");
+    expect("deleted saved theme", choose_theme("", themes, root, fallback), "Classic", "default");
 
     fs::remove_all(root);
     if (failures == 0) std::printf("test_theme_choice: ok\n");

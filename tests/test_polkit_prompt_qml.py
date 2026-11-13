@@ -87,7 +87,7 @@ class PolkitPrompt(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="polkit-prompt-") as work:
             qml = Path(work) / "qml"
             qml.mkdir()
-            subprocess.run([str(render), str(ROOT / "themes/FoxML_Paper/palette.sh"), str(ROOT / "templates/quickshell/foxml"), str(qml)],
+            subprocess.run([str(render), str(ROOT / "themes/Paper/palette.sh"), str(ROOT / "templates/quickshell/foxml"), str(qml)],
                            check=True, capture_output=True)
             source = (ROOT / "shared/quickshell/foxml/PolkitPrompt.qml").read_text().replace("    PanelWindow {", "    FloatingWindow {")
             source = re.sub(r"^        (?:anchors \{.*|exclusionMode:.*|WlrLayershell\..*)\n", "", source, flags=re.M)

@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-THEME_NAME="${1:-FoxML_Classic}"
+THEME_NAME="${1:-Classic}"
 FOXML_REPO="${FOXML_REPO:-https://github.com/Jennifer-214/Linux_Theme.git}"
 FOXML_DIR="${FOXML_DIR:-$HOME/code/Linux_Theme}"
 

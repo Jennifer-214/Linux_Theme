@@ -29,7 +29,7 @@ sys.exit(int(os.environ.get('FAKE_EXIT','0')))
 ''')
         child.chmod(0o755)
         self.config = self.root / 'config'
-        subprocess.run([str(REPO/'src/desk-render/desk-render-fast'), str(REPO/'themes/FoxML_Paper/palette.sh'), str(REPO/'templates/eza'), str(self.config)], check=True, capture_output=True)
+        subprocess.run([str(REPO/'src/desk-render/desk-render-fast'), str(REPO/'themes/Paper/palette.sh'), str(REPO/'templates/eza'), str(self.config)], check=True, capture_output=True)
         self.env = os.environ | {'PATH':str(self.bin)+':'+os.environ['PATH'], 'EZA_CONFIG_DIR':str(self.config), 'TMPDIR':str(self.root)}
         self.desk = self.root / 'desk'
         self.desk.mkdir()

@@ -35,7 +35,7 @@ class NativeBar(unittest.TestCase):
             qml = work / 'qml'
             shutil.copytree(ROOT / 'shared/quickshell/foxml', qml)
             subprocess.run([str(ROOT / 'src/desk-render/desk-render-fast'),
-                            str(ROOT / 'themes/FoxML_Paper/palette.sh'),
+                            str(ROOT / 'themes/Paper/palette.sh'),
                             str(ROOT / 'templates/quickshell/foxml'), str(qml)], check=True, capture_output=True)
             helper = work / 'helper.py'
             helper.write_text('import json\nfrom pathlib import Path\np=Path(__file__).with_name("polls")\np.write_text(p.read_text()+"x" if p.exists() else "x")\nprint(json.dumps({"text":"42%", "tooltip":"CPU\\n43°", "class":"warning"}))\n')

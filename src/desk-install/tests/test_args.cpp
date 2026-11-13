@@ -137,7 +137,7 @@ int main() {
 
     // The theme swapper's selection: the shared list plus folders and the login screen's look.
     {
-        auto r = do_parse({"FoxML_Paper", "--only", "papirus_icons,greetd", "--render-only", "--no-summary", "--yes"});
+        auto r = do_parse({"Paper", "--only", "papirus_icons,greetd", "--render-only", "--no-summary", "--yes"});
         EXPECT(r.ok);
         EXPECT(on(r, "render"));
         EXPECT(on(r, "catppuccin_cursor"));

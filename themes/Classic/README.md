@@ -53,5 +53,5 @@ Dark theme with earthy, muted tones — warm peach, dusty rose, sage, and wheat 
 
 ```bash
 # From repo root
-./install.sh FoxML_Classic
+./install.sh Classic
 ```

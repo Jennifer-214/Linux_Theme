@@ -22,7 +22,7 @@ class ThemeCheck(unittest.TestCase):
         self.bin = self.tmp / "bin"
         self.bin.mkdir()
         self.rendered = self.tmp / "rendered"
-        subprocess.run([str(RENDER), str(ROOT / "themes/FoxML_Paper/palette.sh"), str(ROOT / "templates"), str(self.rendered)],
+        subprocess.run([str(RENDER), str(ROOT / "themes/Paper/palette.sh"), str(ROOT / "templates"), str(self.rendered)],
                        check=True, capture_output=True)
 
     def shim(self, name, body):
@@ -38,7 +38,7 @@ class ThemeCheck(unittest.TestCase):
     def run_check(self, *args, extra_env=None):
         env = {"HOME": str(self.home), "PATH": f"{self.bin}:/usr/bin:/bin", "FOXML_REPO": str(ROOT),
                "XDG_RUNTIME_DIR": str(self.tmp / "run")} | (extra_env or {})
-        return subprocess.run([str(CHECK), "--theme", "FoxML_Paper", *args], env=env, text=True, capture_output=True, timeout=120)
+        return subprocess.run([str(CHECK), "--theme", "Paper", *args], env=env, text=True, capture_output=True, timeout=120)
 
     def test_drift_tells_a_changed_file_from_this_machines_own(self):
         self.deploy("kitty/kitty.conf", ".config/kitty/kitty.conf")

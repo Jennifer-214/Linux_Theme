@@ -19,7 +19,7 @@ def contrast(a, b):
 
 class PaperContrast(unittest.TestCase):
     def test_ink_roles_and_blush_remain_distinct_and_readable(self):
-        values = dict(re.findall(r'^([A-Z0-9_]+)=([^\n]+)', (ROOT/'themes/FoxML_Paper/palette.sh').read_text(), re.M))
+        values = dict(re.findall(r'^([A-Z0-9_]+)=([^\n]+)', (ROOT/'themes/Paper/palette.sh').read_text(), re.M))
         bg = values['BG']
         self.assertGreaterEqual(contrast(values['SELECTION'], bg), 1.7)
         self.assertGreaterEqual(contrast(values['FG'], values['SELECTION']), 7)
@@ -38,7 +38,7 @@ class PaperContrast(unittest.TestCase):
                 with self.subTest(theme=palette.parent.name):
                     out = Path(temp)/palette.parent.name
                     subprocess.run([str(RENDER), str(palette), str(ROOT/'templates'), str(out)], check=True, capture_output=True)
-                    paper = palette.parent.name == 'FoxML_Paper'
+                    paper = palette.parent.name == 'Paper'
                     opacity = 1.0 if paper else .88
                     for name in ['theme.conf', 'theme.lua']:
                         text = (out/'hyprland'/name).read_text()

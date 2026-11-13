@@ -25,16 +25,16 @@ parts you want through the installer; the setup scripts provide broader defaults
 
 ## Screenshots
 
-The FoxML_Paper desktop, with its drawer open:
+The Paper desktop, with its drawer open:
 
-![FoxML_Paper desktop with the drawer open](shared/screenshots/paper_desktop.png)
+![Paper desktop with the drawer open](shared/screenshots/paper_desktop.png)
 
 <details>
 <summary>Lock screen, browser, terminal and editor</summary>
 
-![FoxML_Paper lock screen](shared/screenshots/paper_lock.png)
+![Paper lock screen](shared/screenshots/paper_lock.png)
 
-![FoxML_Paper Firefox new tab](shared/screenshots/paper_firefox.png)
+![Paper Firefox new tab](shared/screenshots/paper_firefox.png)
 
 ![Terminal](shared/screenshots/terminal.png?v=2)
 
@@ -81,11 +81,11 @@ Choose how much to install:
 | `./setup` | The workstation defaults, plus packages, coding agents, model downloads and GitHub workspace cloning |
 
 The two setup scripts pass `--yes` and apply their selected modules without the
-wizard. They use your saved theme, or **FoxML_Classic** on a first install.
+wizard. They use your saved theme, or **Classic** on a first install.
 To choose another palette:
 
 ```bash
-./setup-minimal FoxML_Paper
+./setup-minimal Paper
 ```
 
 The full workstation setup changes system services and security settings as well
@@ -102,8 +102,8 @@ desk theme check
 
 ## Themes
 
-**FoxML_Classic** is the maintained default: warm peach, dusty rose and sage on a
-dark plum background. **FoxML_Paper**, shown above, uses light paper, graphite
+**Classic** is the maintained default: warm peach, dusty rose and sage on a
+dark plum background. **Paper**, shown above, uses light paper, graphite
 text, blush accents and botanical illustrations.
 
 Other palettes include Rose, Bubblegum, Cave Data Center and Amsterdam Orange.
@@ -112,7 +112,7 @@ Alternative themes have varying levels of completion; read the
 
 ```bash
 ./swap.sh                           # interactive theme picker
-./install.sh FoxML_Classic --render # render, deploy and refresh a chosen theme
+./install.sh Classic --render # render, deploy and refresh a chosen theme
 ```
 
 Edit files in `templates/` to keep changes across theme swaps. If you edited live

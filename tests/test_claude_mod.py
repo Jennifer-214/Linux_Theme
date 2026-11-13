@@ -34,7 +34,7 @@ class PaperMod(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which('claude'), 'Claude Code not installed')
     def test_claude_code_validates_and_tests_it(self):
-        mod = self.stage('FoxML_Paper')
+        mod = self.stage('Paper')
         valid = subprocess.run(['claude', 'plugin', 'validate', str(mod)], capture_output=True, text=True, timeout=120)
         self.assertEqual(valid.returncode, 0, valid.stdout + valid.stderr)
         tested = subprocess.run(['claude', 'plugin', 'test', str(mod)], capture_output=True, text=True, timeout=300, cwd=mod.parent)
@@ -47,7 +47,7 @@ class PaperMod(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which('tsc') and (TYPES/'tsconfig.json').exists(), 'needs tsc and the installed mod\'s engine types')
     def test_the_mod_and_its_tests_type_check(self):
-        mod = self.stage('FoxML_Paper')
+        mod = self.stage('Paper')
         shutil.copytree(self.TYPES, mod/'.claude-plugin/types')
         (mod/'tsconfig.json').write_text('{ "extends": "./.claude-plugin/types/tsconfig.json", "include": ["hooks", "tests", "types"] }\n')
         checked = subprocess.run(['tsc', '-p', str(mod), '--noEmit'], capture_output=True, text=True, timeout=300)

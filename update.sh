@@ -22,6 +22,10 @@ THEME_NAME="${1:-}"
 if [[ -z "$THEME_NAME" && -f "$ACTIVE_FILE" ]]; then
     THEME_NAME="$(cat "$ACTIVE_FILE")"
 fi
+# A name saved before four themes lost their prefix still means the theme it became.   old-theme-name
+if [[ -n "$THEME_NAME" && ! -d "$SCRIPT_DIR/themes/$THEME_NAME" && -d "$SCRIPT_DIR/themes/${THEME_NAME#FoxML_}" ]]; then   # old-theme-name
+    THEME_NAME="${THEME_NAME#FoxML_}"   # old-theme-name
+fi
 
 if [[ -z "$THEME_NAME" ]]; then
     echo "No active theme set. Usage: ./update.sh [theme_name]"

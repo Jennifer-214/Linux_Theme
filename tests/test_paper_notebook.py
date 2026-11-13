@@ -306,7 +306,7 @@ class PaperNotebook(unittest.TestCase):
             self.skipTest('local symdeps plugin is not installed')
         with tempfile.TemporaryDirectory(prefix='foxml-symdeps-style-') as temp:
             base=Path(temp);rendered=base/'rendered'
-            subprocess.run([str(RENDER),str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates/nvim'),str(rendered)],check=True,capture_output=True)
+            subprocess.run([str(RENDER),str(ROOT/'themes/Paper/palette.sh'),str(ROOT/'templates/nvim'),str(rendered)],check=True,capture_output=True)
             driver=base/'style.lua';driver.write_text(SYMDEPS_STYLE_DRIVER)
             note=base/'note.cpp';note.write_text('struct Note { int page; };\n')
             env=os.environ|{'NOTEBOOK_INIT':str(rendered/'init.lua'),'NOTEBOOK_SOURCE':str(note),
@@ -320,7 +320,7 @@ class PaperNotebook(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='foxml-notebook-test-') as temp:
             base=Path(temp)
             rendered=base/'rendered'
-            subprocess.run([str(RENDER),str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates/nvim'),str(rendered)],check=True,capture_output=True)
+            subprocess.run([str(RENDER),str(ROOT/'themes/Paper/palette.sh'),str(ROOT/'templates/nvim'),str(rendered)],check=True,capture_output=True)
             driver=base/'driver.lua';driver.write_text(DRIVER)
             plugin=Path.home()/'code/tick-trader-percore-workspace/tools/plugins/fox-symdeps.nvim'
             parser=Path.home()/'.local/share/nvim/site/parser/cpp.so'
@@ -343,7 +343,7 @@ class PaperNotebook(unittest.TestCase):
             self.skipTest('local editor UI plugins are not installed')
         with tempfile.TemporaryDirectory(prefix='foxml-notebook-focus-') as temp:
             base=Path(temp); rendered=base/'rendered'
-            subprocess.run([str(RENDER),str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates/nvim'),str(rendered)],check=True,capture_output=True)
+            subprocess.run([str(RENDER),str(ROOT/'themes/Paper/palette.sh'),str(ROOT/'templates/nvim'),str(rendered)],check=True,capture_output=True)
             note=base/'project/nested/note.cpp';note.parent.mkdir(parents=True)
             note.write_text('int main() { return 0; }\n')
             (base/'data/nvim').mkdir(parents=True)
@@ -381,7 +381,7 @@ class PaperNotebook(unittest.TestCase):
     def test_tmux_bell_dot_uses_existing_window_flag(self):
         with tempfile.TemporaryDirectory(prefix='foxml-notebook-tmux-') as temp:
             base=Path(temp);out=base/'rendered';socket=base/'tmux.sock'
-            subprocess.run([str(RENDER),str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates/tmux'),str(out)],check=True,capture_output=True)
+            subprocess.run([str(RENDER),str(ROOT/'themes/Paper/palette.sh'),str(ROOT/'templates/tmux'),str(out)],check=True,capture_output=True)
             env=os.environ.copy();env.pop('TMUX',None)
             def tmux(*args, check=True):
                 return subprocess.run(['tmux','-S',str(socket),*args],env=env,cwd=base,check=check,capture_output=True,text=True,timeout=5)
@@ -408,7 +408,7 @@ class PaperNotebook(unittest.TestCase):
                     out=Path(temp)/palette.parent.name
                     subprocess.run([str(RENDER),str(palette),str(ROOT/'templates'),str(out)],check=True,capture_output=True)
                     kitty=(out/'kitty/kitty.conf').read_text()
-                    expected='hidden' if palette.parent.name=='FoxML_Paper' else 'powerline'
+                    expected='hidden' if palette.parent.name=='Paper' else 'powerline'
                     self.assertIn('tab_bar_style              '+expected,kitty)
                     driver=Path(temp)/'parse.lua'
                     driver.write_text('assert(loadfile('+json.dumps(str(out/'nvim/init.lua'))+')); vim.cmd("qa!")')

@@ -10,6 +10,8 @@ ACTIVE_FILE="$SCRIPT_DIR/.active-theme"
 
 ACTIVE_THEME=""
 [[ -f "$ACTIVE_FILE" ]] && ACTIVE_THEME="$(cat "$ACTIVE_FILE")"
+# A name saved before four themes lost their prefix still means the theme it became.   old-theme-name
+[[ -n "${ACTIVE_THEME:-}" && ! -d "$THEMES_DIR/$ACTIVE_THEME" && -d "$THEMES_DIR/${ACTIVE_THEME#FoxML_}" ]] && ACTIVE_THEME="${ACTIVE_THEME#FoxML_}"   # old-theme-name
 
 # ─────────────────────────────────────────
 # Discover themes
@@ -148,7 +150,9 @@ set -- ${_positional+"${_positional[@]}"}
 if [[ $# -ge 1 ]]; then
     requested="$1"
     for t in "${themes[@]}"; do
-        if [[ "$t" == "$requested" ]]; then
+        # The name as typed, or the name it had before four themes lost their prefix.   old-theme-name
+        if [[ "$t" == "$requested" || "FoxML_$t" == "$requested" ]]; then   # old-theme-name
+            requested="$t"
             _do_swap "$requested" "$FORCE"
             exit 0
         fi

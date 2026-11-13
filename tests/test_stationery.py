@@ -25,7 +25,7 @@ class Stationery(unittest.TestCase):
             self.skipTest('Pango is required to measure the rendered label')
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
-            subprocess.run([str(RENDER),str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates/hyprlock'),str(root/'lock')],check=True,capture_output=True)
+            subprocess.run([str(RENDER),str(ROOT/'themes/Paper/palette.sh'),str(ROOT/'templates/hyprlock'),str(root/'lock')],check=True,capture_output=True)
             script=root/'lock/date-label.sh'
             text=subprocess.check_output(['sh','-c','date() { printf "Wednesday, September 30\\n"; }; . "$1"','date-fixture',str(script)],text=True)
             _,attrs,plain,_=Pango.parse_markup(text,-1,'\x00')
@@ -47,7 +47,7 @@ class Stationery(unittest.TestCase):
                 text=(dest/'theme.yml').read_text()
                 self.assertNotIn('{{',text)
                 theme=json.loads(text)
-                if palette.parent.name=='FoxML_Paper':
+                if palette.parent.name=='Paper':
                     self.assertEqual(len(theme['_foxml']['symlink']['glyph']),1)
                 self.assertFalse(theme['header']['is_underline'])
 
@@ -60,7 +60,7 @@ class Stationery(unittest.TestCase):
             self.skipTest('Pango is required to measure the rendered label')
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)
-            subprocess.run([str(RENDER),str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates/hyprlock'),str(root/'lock')],check=True,capture_output=True)
+            subprocess.run([str(RENDER),str(ROOT/'themes/Paper/palette.sh'),str(ROOT/'templates/hyprlock'),str(root/'lock')],check=True,capture_output=True)
             widgets=[(kind,body) for kind,body in re.findall(r'(?ms)^(label|input-field|image) \{\n(.*?)^\}',(root/'lock/hyprlock.conf').read_text())]
             caps=next(body for kind,body in widgets if kind=='label' and 'capslock-label.sh' in body)
             cat=next(body for kind,body in widgets if kind=='image' and 'paper-sprig.png' in body)
@@ -93,7 +93,7 @@ class Stationery(unittest.TestCase):
             self.skipTest('GTK is required for native icon lookup')
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);rendered=root/'rendered'
-            subprocess.run([str(RENDER),str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates/icons'),str(rendered)],check=True,capture_output=True)
+            subprocess.run([str(RENDER),str(ROOT/'themes/Paper/palette.sh'),str(ROOT/'templates/icons'),str(rendered)],check=True,capture_output=True)
             target=root/'icons/FoxML-Paper';shutil.copytree(rendered/'foxml-paper',target)
             index=configparser.ConfigParser(interpolation=None);index.read(target/'index.theme')
             for owner,names in index['FoxML Aliases'].items():
@@ -117,7 +117,7 @@ class Stationery(unittest.TestCase):
     def test_caps_lock_tag_from_available_keyboards(self):
         with tempfile.TemporaryDirectory() as tmp:
             work=Path(tmp)
-            subprocess.run([str(RENDER),str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates/hyprlock'),str(work/'lock')],check=True,capture_output=True)
+            subprocess.run([str(RENDER),str(ROOT/'themes/Paper/palette.sh'),str(ROOT/'templates/hyprlock'),str(work/'lock')],check=True,capture_output=True)
             leds=work/'leds';leds.mkdir()
             script=work/'lock/capslock-label.sh'
             def tag():return subprocess.check_output(['sh',str(script),str(leds)],text=True)

@@ -16,7 +16,7 @@ class IconFamily(unittest.TestCase):
     def test_consumers_share_each_family(self):
         with tempfile.TemporaryDirectory() as temp:
             dest=Path(temp)
-            subprocess.run([str(RENDER),str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates'),str(dest)],check=True,capture_output=True)
+            subprocess.run([str(RENDER),str(ROOT/'themes/Paper/palette.sh'),str(ROOT/'templates'),str(dest)],check=True,capture_output=True)
             family=json.loads((dest/'icons/icon-family.json').read_text())
             self.assertEqual(family['accent'],family['ink'])
             self.assertFalse((dest/'icons/foxml-paper/16x16').exists())
@@ -65,7 +65,7 @@ class IconFamily(unittest.TestCase):
     def test_shell_and_native_renderer_generate_identical_assets(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp);native=root/'native';shell=root/'shell'
-            args=[str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates'),str(native)]
+            args=[str(ROOT/'themes/Paper/palette.sh'),str(ROOT/'templates'),str(native)]
             subprocess.run([str(RENDER),*args],check=True,capture_output=True)
             subprocess.run(['bash',str(ROOT/'render.sh'),*args[:-1],str(shell)],check=True,capture_output=True)
             for app in ['eza','yazi','icons','nvim']:

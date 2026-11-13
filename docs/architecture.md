@@ -36,7 +36,7 @@ templates/                 config files with {{PLACEHOLDER}} tokens
   foxml/ansi_colors.json   palette → libdesk-intel theme bridge
 
 themes/
-  FoxML_Classic/
+  Classic/
     palette.sh             color and application variables
     theme.conf             name, type=dark, description
 

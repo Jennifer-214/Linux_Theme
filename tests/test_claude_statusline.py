@@ -53,10 +53,10 @@ class StatusLineTest(unittest.TestCase):
                 self.assertEqual(subprocess.run(["bash", "-n", str(script)]).returncode, 0)
                 shown = self.line(script, {"model": {"display_name": "Opus 5.5"}, "context_window": {"used_percentage": 41}})
                 self.assertIn("\x1b[38;2;", shown, "truecolour from the palette")
-                self.assertEqual(ESCAPE.sub("", shown), "Opus 5.5 · " + ("▰▰▱▱▱" if theme == "FoxML_Paper" else "♥♥♡♡♡") + " 41%\n")
+                self.assertEqual(ESCAPE.sub("", shown), "Opus 5.5 · " + ("▰▰▱▱▱" if theme == "Paper" else "♥♥♡♡♡") + " 41%\n")
 
     def test_usage_branch_gate_snapshot_and_narrow_panes(self):
-        script = self.render("FoxML_Paper")
+        script = self.render("Paper")
         project = self.tmp / "repo"
         subprocess.run(["git", "init", "-q", "-b", "garden", str(project)], check=True)
         (project / ".claude").mkdir()
@@ -80,7 +80,7 @@ class StatusLineTest(unittest.TestCase):
         self.assertNotIn("gate open", self.line(script, other))
 
     def test_the_cat_naps_while_waiting_and_a_tidied_page_sparkles(self):
-        script = self.render("FoxML_Paper")
+        script = self.render("Paper")
         sessions = self.runtime / "foxml-claude"
         sessions.mkdir(mode=0o700)
         payload = {"session_id": "cat-1", "model": {"display_name": "Opus 5.5"}, "context_window": {"used_percentage": 41}}
@@ -99,7 +99,7 @@ class StatusLineTest(unittest.TestCase):
         self.assertEqual(ESCAPE.sub("", self.line(script, payload, columns=24)), "Opus 5.5 · ▰▰▱▱▱ 41%\n", "a narrow pane drops the cat first")
 
     def test_odd_input_still_prints_a_line_and_writes_nowhere_strange(self):
-        script = self.render("FoxML_Paper")
+        script = self.render("Paper")
         self.assertEqual(ESCAPE.sub("", self.line(script, {})), "Claude\n")
         out = subprocess.run(["bash", str(script)], input="not json", env=os.environ | {"XDG_RUNTIME_DIR": str(self.runtime)},
                              text=True, capture_output=True, timeout=10)

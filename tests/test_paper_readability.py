@@ -19,7 +19,7 @@ class PaperReadability(unittest.TestCase):
     def test_rename_callback_cancel_and_footnote_code_exclusion(self):
         with tempfile.TemporaryDirectory(prefix='foxml-correction-') as temp:
             base=Path(temp)
-            subprocess.run([str(RENDER),str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates/nvim'),str(base/'rendered')],check=True,capture_output=True)
+            subprocess.run([str(RENDER),str(ROOT/'themes/Paper/palette.sh'),str(ROOT/'templates/nvim'),str(base/'rendered')],check=True,capture_output=True)
             env=os.environ|{'PAPER_DETAILS_INIT':str(base/'rendered/init.lua'),'XDG_STATE_HOME':str(base/'state'),'NVIM_LOG_FILE':str(base/'nvim.log')}
             result=subprocess.run(['nvim','--clean','--headless','-l',str(ROOT/'tests/paper_correction_slips.lua')],env=env,capture_output=True,text=True,timeout=15)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
@@ -29,7 +29,7 @@ class PaperReadability(unittest.TestCase):
     def test_single_editor_footer_preserves_split_lanes(self):
         with tempfile.TemporaryDirectory(prefix='foxml-footer-') as temp:
             base=Path(temp)
-            subprocess.run([str(RENDER),str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates/nvim'),str(base/'rendered')],check=True,capture_output=True)
+            subprocess.run([str(RENDER),str(ROOT/'themes/Paper/palette.sh'),str(ROOT/'templates/nvim'),str(base/'rendered')],check=True,capture_output=True)
             env=os.environ|{'PAPER_READING_INIT':str(base/'rendered/init.lua'),'PAPER_FOOTER_SOCKET':str(base/'tmux.sock'),
                             'XDG_STATE_HOME':str(base/'state'),'NVIM_LOG_FILE':str(base/'nvim.log')}
             result=subprocess.run(['nvim','--clean','--headless','-l',str(ROOT/'tests/paper_tmux_footer.lua')],env=env,capture_output=True,text=True,timeout=15)
@@ -40,7 +40,7 @@ class PaperReadability(unittest.TestCase):
     def test_conform_spec_reads_before_the_plugin_loads(self):
         with tempfile.TemporaryDirectory(prefix='foxml-conform-spec-') as temp:
             base=Path(temp)
-            subprocess.run([str(RENDER),str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates/nvim'),str(base/'rendered')],check=True,capture_output=True)
+            subprocess.run([str(RENDER),str(ROOT/'themes/Paper/palette.sh'),str(ROOT/'templates/nvim'),str(base/'rendered')],check=True,capture_output=True)
             env=os.environ|{'PAPER_READING_INIT':str(base/'rendered/init.lua'),'XDG_STATE_HOME':str(base/'state')}
             result=subprocess.run(['nvim','--clean','--headless','-l',str(ROOT/'tests/paper_conform_spec.lua')],env=env,capture_output=True,text=True,timeout=20)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
@@ -50,7 +50,7 @@ class PaperReadability(unittest.TestCase):
     def test_native_python_and_json_format_on_save(self):
         with tempfile.TemporaryDirectory(prefix='foxml-formatting-') as temp:
             base=Path(temp)
-            subprocess.run([str(RENDER),str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates/nvim'),str(base/'rendered')],check=True,capture_output=True)
+            subprocess.run([str(RENDER),str(ROOT/'themes/Paper/palette.sh'),str(ROOT/'templates/nvim'),str(base/'rendered')],check=True,capture_output=True)
             env=os.environ|{'PAPER_READING_INIT':str(base/'rendered/init.lua'), 'PAPER_FORMATTING_ROOT':str(base),
                             'XDG_STATE_HOME':str(base/'state'),'XDG_CACHE_HOME':str(base/'cache'),'NVIM_LOG_FILE':str(base/'nvim.log')}
             result=subprocess.run(['nvim','--clean','--headless','-l',str(ROOT/'tests/paper_formatting.lua')],env=env,capture_output=True,text=True,timeout=20)
@@ -66,7 +66,7 @@ class PaperReadability(unittest.TestCase):
         import termios
         with tempfile.TemporaryDirectory(prefix='foxml-reading-yazi-') as temp:
             base=Path(temp);config=base/'config/yazi';config.mkdir(parents=True)
-            subprocess.run([str(RENDER),str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates/yazi'),str(config)],check=True,capture_output=True)
+            subprocess.run([str(RENDER),str(ROOT/'themes/Paper/palette.sh'),str(ROOT/'templates/yazi'),str(config)],check=True,capture_output=True)
             master,slave=pty.openpty()
             fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',28,100,0,0))
             def terminal():
@@ -100,7 +100,7 @@ class PaperReadability(unittest.TestCase):
                     subprocess.run([str(RENDER),str(palette),str(ROOT/'templates'),str(out)],check=True,capture_output=True)
                     values=dict(re.findall(r'^([A-Z0-9_]+)=([^\n]*)',palette.read_text(),re.M))
                     theme=tomllib.loads((out/'yazi/theme.toml').read_text())
-                    paper=palette.parent.name=='FoxML_Paper'
+                    paper=palette.parent.name=='Paper'
                     self.assertEqual(theme['tabs']['active']['fg'],'#'+values['FG' if paper else 'BG'])
                     self.assertEqual(theme['tabs']['active']['bg'],'#'+values['SELECTION' if paper else 'PRIMARY'])
                     feature=subprocess.check_output(['git','config','--file',str(out/'git/delta.gitconfig'),'--get','delta.features'],text=True).strip()
@@ -120,7 +120,7 @@ class PaperReadability(unittest.TestCase):
     def test_native_diagnostics_whitespace_and_popup_focus(self):
         with tempfile.TemporaryDirectory(prefix='foxml-reading-editor-') as temp:
             base=Path(temp)
-            subprocess.run([str(RENDER),str(ROOT/'themes/FoxML_Paper/palette.sh'),str(ROOT/'templates/nvim'),str(base/'rendered')],check=True,capture_output=True)
+            subprocess.run([str(RENDER),str(ROOT/'themes/Paper/palette.sh'),str(ROOT/'templates/nvim'),str(base/'rendered')],check=True,capture_output=True)
             env=os.environ|{'PAPER_READING_INIT':str(base/'rendered/init.lua'),
                             'XDG_STATE_HOME':str(base/'state'),'XDG_CACHE_HOME':str(base/'cache'),
                             'NVIM_LOG_FILE':str(base/'nvim.log')}

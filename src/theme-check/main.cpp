@@ -549,7 +549,7 @@ int main(int argc, char** argv) {
     env.runtime = env_or("XDG_RUNTIME_DIR", "/run/user/" + std::to_string(::getuid()));
     env.repo = find_repo(env.home);
     env.theme = !theme.empty() ? theme : env.repo.empty() ? "" : trim(read_file(env.repo / ".active-theme"));
-    if (env.theme.empty()) env.theme = "FoxML_Classic";
+    if (env.theme.empty()) env.theme = "Classic";
     if (env.theme.find('/') != std::string::npos || env.theme.rfind('.', 0) == 0) {
         std::fprintf(stderr, "desk theme check: not a theme name: %s\n", env.theme.c_str());
         return 64;

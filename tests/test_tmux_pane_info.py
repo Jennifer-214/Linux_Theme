@@ -63,7 +63,7 @@ class PaneDividers(unittest.TestCase):
     def test_paper_draws_a_double_pencil_line_with_a_pink_active_pane(self):
         root = SCRIPT.parents[2]
         with tempfile.TemporaryDirectory() as tmp:
-            subprocess.run([str(RENDER), str(root / "themes/FoxML_Paper/palette.sh"), str(root / "templates/tmux"), tmp],
+            subprocess.run([str(RENDER), str(root / "themes/Paper/palette.sh"), str(root / "templates/tmux"), tmp],
                            check=True, capture_output=True)
             text = (Path(tmp) / ".tmux.conf").read_text()
         self.assertIn("set -g pane-border-lines double", text)

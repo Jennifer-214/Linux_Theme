@@ -271,7 +271,7 @@ popover row:hover {
 
 /* ─── Paper: the lock screen's language ──────────
    Every rule below is scoped by REGREET_EXTRA_SCOPE: it matches the window on
-   FoxML_Paper and nothing on other themes. One sheet of paper: the window carries
+   Paper and nothing on other themes. One sheet of paper: the window carries
    the texture (regreet 0.4's own wallpaper picture is unreliable; a missing file
    just leaves the plain paper colour) and everything on it is see-through.
    regreet's overlay children: 2 = login grid, 3 = clock, 4 = error bar + power. */
