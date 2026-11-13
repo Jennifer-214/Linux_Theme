@@ -589,6 +589,7 @@ local function maps(r, buf, sidebar)
   key('<leader>rc', function() r.context = not r.context; options(r); tell('Context: ' .. (r.context and 'full file' or 'six lines')) end, 'Toggle review context')
   key('r', function() M.select(r.index, true) end, 'Refresh this comparison')
   key('A', function() M.api_open() end, 'Open the API review of this file')
+  key('P', function() M.plan_coverage() end, 'Plan coverage')
   key('c', function() if not sidebar or M.enter(true) then api.nvim_set_current_win(r.right_win); require('foxml.claude').send() end end, 'Request changes from a Claude session')
   if not sidebar then key('<leader>rn', M.toggle_since, 'New since review / the whole change') end
   key('?', M.actions, 'Review actions')
@@ -910,6 +911,8 @@ function M.actions()
     add('Finish & next commit', 'Finish this review and open the next unchecked commit in this list.', M.finish_next,
       { group = 'review', bind = 'R', right = progress(r) .. '/' .. #r.files .. ' checked' })
     add('First unread file', 'Return to the first file you have not checked in this change.', M.unread, { group = 'review', bind = 'u' })
+    add('Plan coverage', 'Each step of the plan with the commits that touched a file it names, the steps not started, and the changed files no step names.',
+      M.plan_coverage, { group = 'review', bind = 'P' })
     add('Request changes', 'Write a note about this file (or the selected lines) to a Claude session. The file then waits on it and reads ready for re-review once it changes.',
       function() api.nvim_set_current_win(r.right_win); require('foxml.claude').send() end, { group = 'review', bind = 'c' })
     add('Only what is new', 'A file edited after you checked it opens against the copy you reviewed. Off shows the whole change. Remembered.',
@@ -1169,6 +1172,77 @@ function M.api_open()
   local record = r and M.api_of(r, r.files[r.index])
   if not record then tell('No API review of this file yet.'); return end
   pcall(vim.system, { 'claude-api', 'open', record.id }, { detach = true })
+end
+
+-- Plan coverage: each step of the plan this change was made under, with the commits that touched a file it names;
+-- a step with none is "not started", and a changed file no step names is listed as outside the plan. By files, so it
+-- is a fact about what changed, not a guess about intent.
+local function names_file(name, rel, path)
+  name = name:gsub('^~/', ''):gsub('^%./', '')
+  return rel == name or rel:sub(-#name - 1) == '/' .. name or name:sub(-#rel - 1) == '/' .. rel or path == name
+end
+function M.plan_coverage_data(r)
+  local plan = r.row.plan
+  if not plan or plan == '' then
+    local ok, marks = pcall(require, 'foxml.planmarks')
+    plan = ok and type(marks.plan) == 'table' and marks.plan.file or nil
+  end
+  local ok, marks = pcall(require, 'foxml.planmarks')
+  local text = plan and read(plan)
+  if not ok or not text then return nil end
+  local steps, at = {}, {}
+  for _, ref in ipairs(marks.parse(text)) do
+    if not at[ref.step] then at[ref.step] = #steps + 1; steps[#steps + 1] = { label = ref.step, files = {}, commits = {} } end
+    local step = steps[at[ref.step]]
+    if not vim.tbl_contains(step.files, ref.path) then step.files[#step.files + 1] = ref.path end
+  end
+  local outside, seen = {}, {}
+  local sets = r.sets or { { row = r.row, files = r.files } }
+  for _, set in ipairs(sets) do
+    local row = set.row
+    local mine = row.kind == 'working' or row.kind == 'live' or row.plan == plan or (not row.plan and r.row == row)
+    if mine then
+      local files = set.files or M.files(row, r.root) or {}
+      local label = row.kind == 'commit' and (row.short or 'commit') or (row.kind == 'working' and 'working changes' or (row.name or 'live'))
+      for _, f in ipairs(files) do
+        local named = false
+        for _, step in ipairs(steps) do
+          for _, name in ipairs(step.files) do
+            if names_file(name, f.rel, f.path) then
+              named = true
+              if not vim.tbl_contains(step.commits, label) then step.commits[#step.commits + 1] = label end
+              break
+            end
+          end
+        end
+        if not named and not seen[f.rel] then seen[f.rel] = true; outside[#outside + 1] = { rel = f.rel, where = label } end
+      end
+    end
+  end
+  return { plan = plan, title = (text:match('^#%s+([^\n]+)') or vim.fs.basename(plan)), steps = steps, outside = outside }
+end
+function M.plan_coverage()
+  local r = M.current
+  if not r then return end
+  local data = M.plan_coverage_data(r)
+  if not data then tell('This change was not made under a plan, so there is nothing to check it against.'); return end
+  if #data.steps == 0 then tell('The plan names no files, so coverage cannot be worked out from it.'); return end
+  local items = {}
+  for _, step in ipairs(data.steps) do
+    local done = #step.commits
+    items[#items + 1] = { name = step.label, group = 'steps', right = done > 0 and table.concat(step.commits, ', ') or 'not started',
+      label = step.label .. ' — names ' .. table.concat(step.files, ', ') .. (done > 0 and ('. Touched by ' .. table.concat(step.commits, ', ') .. '.') or '. Nothing has changed a file it names yet.'),
+      run = function() vim.cmd('botright vsplit ' .. vim.fn.fnameescape(data.plan)) end }
+  end
+  for _, file in ipairs(data.outside) do
+    items[#items + 1] = { name = file.rel, group = 'outside the plan', right = file.where,
+      label = file.rel .. ' — changed in ' .. file.where .. ', and no step of the plan names it.',
+      run = function()
+        for i, f in ipairs(r.files) do if f.rel == file.rel then M.select(i); return end end
+        tell(file.rel .. ' is in ' .. file.where .. '; open that change to read it.')
+      end }
+  end
+  M.show_menu(items, { title = 'Plan coverage · ' .. data.title, memo = 'foxml-plan-coverage', anchor_win = r.right_win })
 end
 
 function M.note_context(range, buf)

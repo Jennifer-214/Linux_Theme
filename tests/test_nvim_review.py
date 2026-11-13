@@ -477,6 +477,28 @@ R.api_review('file')
 C.close()
 ''')
 
+    def test_plan_coverage_goes_by_the_files_each_step_names(self):
+        (self.repo / 'plain.lua').write_text('return 1\n')
+        (self.repo / 'extra.lua').write_text('return 3\n')
+        (self.repo / 'plan.md').write_text('# Plan: tidy the queue\n1. Change `plain.lua`\n2. Then `later.lua`\n')
+        self.run_lua(r'''
+package.loaded['foxml.planmarks']=nil
+local P=require('foxml.planmarks'); P.plan={title='Plan: tidy the queue',file=root..'/plan.md'}
+C.open_review({kind='live',sid='cov1',name='example',short='example',files={root..'/plain.lua',root..'/extra.lua'}},root)
+local r=R.current
+local data=R.plan_coverage_data(r)
+assert(data and data.title=='Plan: tidy the queue',vim.inspect(data))
+assert(#data.steps==2 and data.steps[1].label=='step 1' and #data.steps[1].commits==1,'step 1 was touched: '..vim.inspect(data.steps))
+assert(#data.steps[2].commits==0,'step 2 names a file nothing changed: not started')
+assert(#data.outside==1 and data.outside[1].rel=='extra.lua','a changed file no step names: '..vim.inspect(data.outside))
+local items
+package.loaded['foxml.menu']={open=function(list,opts) items=list; assert(opts.title:find('Plan coverage',1,true)) end}
+R.plan_coverage()
+assert(items[1].right=='example' and items[2].right=='not started' and items[3].group=='outside the plan',vim.inspect(items))
+P.plan=nil
+C.close()
+''')
+
     def test_symdeps_bridge_uses_a_real_cpp_buffer_and_the_selected_base(self):
         source = self.repo / 'inspect.cpp'
         source.write_text('struct Item { int count; };\n')
