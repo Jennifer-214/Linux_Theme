@@ -477,6 +477,34 @@ R.api_review('file')
 C.close()
 ''')
 
+    def test_margin_notes_stay_with_the_file_follow_their_line_and_mark_the_row(self):
+        (self.repo / 'plain.lua').write_text('local a = 1\nlocal b = 2\nreturn a + b\n')
+        self.run_lua(r'''
+C.open_review({kind='live',sid='notes1',name='example',short='example',files={root..'/plain.lua'}},root)
+local r=R.current
+vim.api.nvim_set_current_win(r.right_win); vim.api.nvim_win_set_cursor(r.right_win,{2,0})
+vim.ui.input=function(opts,done) assert(opts.prompt=='Note to self: ',opts.prompt); done('check b again') end
+R.note_here()
+local notes=R.notes(root)
+assert(#notes['plain.lua']==1 and notes['plain.lua'][1].line==2 and notes['plain.lua'][1].context=='local b = 2',vim.inspect(notes))
+local marks=vim.api.nvim_buf_get_extmarks(r.right_buf,vim.api.nvim_create_namespace('foxml_review_notes'),0,-1,{details=true})
+assert(#marks==1 and marks[1][2]==1 and marks[1][4].virt_text[1][1]:find('check b again',1,true),vim.inspect(marks))
+local panel=table.concat(vim.api.nvim_buf_get_lines(r.panel_buf,0,-1,false),'\n')
+assert(panel:find('✎',1,true),'the row carries the note mark: '..panel)
+-- the line moved down two: the note follows its text
+assert(R.note_line(notes['plain.lua'][1],{'-- new','-- new','local a = 1','local b = 2'})==4)
+local line,found=R.note_line(notes['plain.lua'][1],{'x','y'}); assert(line==2 and found==false)
+local items
+package.loaded['foxml.menu']={open=function(list,opts) items=list; assert(opts.title=='My notes · 1',opts.title) end}
+R.notes_list()
+assert(items[1].group=='plain.lua' and items[1].right=='line 2' and items[1].name=='check b again')
+vim.ui.input=function(opts,done) assert(opts.default=='check b again'); done('') end
+vim.api.nvim_set_current_win(r.right_win); vim.api.nvim_win_set_cursor(r.right_win,{2,0})
+R.note_here()
+assert(next(R.notes(root))==nil,'an empty note removes it')
+C.close()
+''')
+
     def test_plan_coverage_goes_by_the_files_each_step_names(self):
         (self.repo / 'plain.lua').write_text('return 1\n')
         (self.repo / 'extra.lua').write_text('return 3\n')

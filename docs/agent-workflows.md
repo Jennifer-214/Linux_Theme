@@ -131,6 +131,12 @@ list there yourself). It draws in the palette and keeps its session records in p
   `R` finishes and moves to the next commit, `a` opens every other action, `q` returns to your editor.
 - **Request changes**: `c` writes a note about the file or the selected lines to a Claude session. The file waits
   (`✉`) until it changes, then reads "ready for re-review"; checking it settles the request.
+- **Your own notes**: `N` on a line leaves a note for yourself. It stays with the file across reviews, follows its
+  line when the file shifts, marks the row `✎`, and `:ReviewNotes` lists every one in the project.
+- **Plan coverage**: `P` lists each step of the plan with the commits that touched a file it names, the steps not
+  started, and the changed files no step names. A commit row also says whether tests passed on exactly that commit.
+- **Before a push**: the notebook says how many of Claude's commits going out are not reviewed and whether one
+  touches the red zone. It never stops the push.
 - **API review**: from Actions, send exactly the displayed file, the whole change, or the hunk under the cursor for a
   review on API credits. You choose the model and a budget first, progress shows, and `:ClaudeApiStop` cancels. The
   result is kept beside the file for the version that was sent (`A` opens it), so an older review never covers a

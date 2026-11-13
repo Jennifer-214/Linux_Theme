@@ -385,6 +385,7 @@ end
 -- for the selected row and one footer line. r.entries maps a line to what it stands for; r.hits maps it to the
 -- byte ranges a click means (the mark, the fold arrow).
 local function hl(name, fallback) return vim.fn.hlexists(name) == 1 and name or fallback end
+local draw_notes   -- defined with the margin notes, below
 local function width_of(s) return vim.fn.strdisplaywidth(s) end
 local function fit(s, w)
   if w <= 1 then return '' end
@@ -428,6 +429,8 @@ local function describe(r, entry)
     if f.risks and #f.risks > 0 then return { name .. ' · ' .. what .. ' · ' .. state, '⚠ ' .. table.concat(f.risks, ' · ') .. (api_note and (' · ' .. api_note) or '') } end
     if api_note and not f.since then return { name .. ' · ' .. what .. ' · ' .. state, '◇ ' .. api_note .. ' · A opens it' } end
     if f.since then return { name .. ' · ' .. what .. ' · ' .. state, 'showing only what is new · n shows the whole change' } end
+    local mine = r.notes and r.notes[f.rel] or nil
+    if mine and #mine > 0 then return { name .. ' · ' .. what .. ' · ' .. state, '✎ ' .. (#mine == 1 and mine[1].text or (#mine .. ' notes of yours · N on a line edits one')) } end
     return { f.rel .. ' · ' .. what, state }
   end
   if set then
@@ -464,7 +467,9 @@ local function panel(r, select_row)
     local arrow = f.expanded and '▾' or '▸'
     local left = indent .. arrow .. ' ' .. mark .. ' ' .. f.rel:gsub('[\r\n\t]', ' ')
     local risky = f.loaded and f.risks and #f.risks > 0
-    local ln = push(spread(left, (risky and '⚠ ' or '') .. stats .. ' ', w))
+    r.notes = r.notes or M.notes(r.root)
+    local noted = r.notes[f.rel] and #r.notes[f.rel] or 0
+    local ln = push(spread(left, (noted > 0 and '✎ ' or '') .. (risky and '⚠ ' or '') .. stats .. ' ', w))
     local active = (not set or set == r.active_set) and i == r.index
     if active then selected_line = ln end
     r.entries[ln] = { set = set, file = i }
@@ -590,6 +595,7 @@ local function maps(r, buf, sidebar)
   key('r', function() M.select(r.index, true) end, 'Refresh this comparison')
   key('A', function() M.api_open() end, 'Open the API review of this file')
   key('P', function() M.plan_coverage() end, 'Plan coverage')
+  key('N', function() if sidebar then api.nvim_set_current_win(r.right_win) end; M.note_here() end, 'Note to self on this line')
   key('c', function() if not sidebar or M.enter(true) then api.nvim_set_current_win(r.right_win); require('foxml.claude').send() end end, 'Request changes from a Claude session')
   if not sidebar then key('<leader>rn', M.toggle_since, 'New since review / the whole change') end
   key('?', M.actions, 'Review actions')
@@ -683,6 +689,7 @@ function M.select(index, refresh)
     api.nvim_win_set_cursor(r.right_win, { math.max(1, math.min(h[3], api.nvim_buf_line_count(r.right_buf))), 0 })
   end
   vim.cmd('diffupdate')
+  draw_notes(r)
 end
 
 function M.toggle_since()
@@ -913,6 +920,9 @@ function M.actions()
     add('First unread file', 'Return to the first file you have not checked in this change.', M.unread, { group = 'review', bind = 'u' })
     add('Plan coverage', 'Each step of the plan with the commits that touched a file it names, the steps not started, and the changed files no step names.',
       M.plan_coverage, { group = 'review', bind = 'P' })
+    add('Note to self', 'Leave yourself a note on this line. It stays with the file in every later review; an empty note removes it.',
+      function() api.nvim_set_current_win(r.right_win); M.note_here() end, { group = 'review', bind = 'N' })
+    add('My notes', 'Every note of yours in this project, by file. Enter goes to its line.', function() M.notes_list() end, { group = 'review' })
     add('Request changes', 'Write a note about this file (or the selected lines) to a Claude session. The file then waits on it and reads ready for re-review once it changes.',
       function() api.nvim_set_current_win(r.right_win); require('foxml.claude').send() end, { group = 'review', bind = 'c' })
     add('Only what is new', 'A file edited after you checked it opens against the copy you reviewed. Off shows the whole change. Remembered.',
@@ -1243,6 +1253,96 @@ function M.plan_coverage()
       end }
   end
   M.show_menu(items, { title = 'Plan coverage · ' .. data.title, memo = 'foxml-plan-coverage', anchor_win = r.right_win })
+end
+
+-- Margin notes: the reader's own notes on a line, for themselves ("check this again after the refactor"). Kept per
+-- project by path, so they show in every later review of that file; each keeps its line's text, and follows the
+-- line when the file shifts around it. Separate from change requests, which go to a session.
+local ns_notes = api.nvim_create_namespace('foxml_review_notes')
+local function notes_file(root) return reviews_dir() .. '/notes/' .. vim.fn.sha256(root) .. '.json' end
+function M.notes(root)
+  local all = decode(read(notes_file(root)))
+  for rel, list in pairs(all) do if type(list) ~= 'table' or #list == 0 then all[rel] = nil end end
+  return all
+end
+-- Where a note sits now: its own line while that still reads the same, else the nearest line that does.
+function M.note_line(note, text_lines)
+  local at = tonumber(note.line) or 1
+  if (note.context or '') == '' or text_lines[at] == note.context then return math.max(1, math.min(at, math.max(1, #text_lines))), true end
+  local best
+  for i, line in ipairs(text_lines) do
+    if line == note.context and (not best or math.abs(i - at) < math.abs(best - at)) then best = i end
+  end
+  return best or math.max(1, math.min(at, math.max(1, #text_lines))), best ~= nil
+end
+-- Empty text removes the note on that line.
+function M.note_set(root, rel, line, text, context)
+  local all = M.notes(root)
+  local kept = {}
+  for _, note in ipairs(all[rel] or {}) do if tonumber(note.line) ~= line then kept[#kept + 1] = note end end
+  text = vim.trim(tostring(text or ''):gsub('[\r\n\t]', ' ')):sub(1, 300)
+  if text ~= '' then kept[#kept + 1] = { line = line, text = text, context = context or '', at = os.time() } end
+  table.sort(kept, function(a, b) return a.line < b.line end)
+  all[rel] = #kept > 0 and kept or nil
+  return write_private(notes_file(root), vim.json.encode(vim.tbl_isempty(all) and vim.empty_dict() or all))
+end
+draw_notes = function(r)
+  local buf, f = r.right_buf, r.files[r.index]
+  if not buf or not api.nvim_buf_is_valid(buf) or not f then return end
+  api.nvim_buf_clear_namespace(buf, ns_notes, 0, -1)
+  r.notes = M.notes(r.root)
+  local text_lines = api.nvim_buf_get_lines(buf, 0, -1, false)
+  for _, note in ipairs(r.notes[f.rel] or {}) do
+    local at, found = M.note_line(note, text_lines)
+    pcall(api.nvim_buf_set_extmark, buf, ns_notes, at - 1, 0, { sign_text = '✎', sign_hl_group = hl('FoxSymdepsWarn', 'DiagnosticWarn'),
+      virt_text = { { '  ✎ ' .. note.text .. (found and '' or '  (its line is gone)'), hl('FoxSymdepsWarn', 'DiagnosticWarn') } }, virt_text_pos = 'eol' })
+  end
+end
+function M.note_here()
+  local r = M.current
+  if not r then return end
+  local f = r.files[r.index]
+  if not f or api.nvim_get_current_buf() ~= r.right_buf then tell('Your notes go on the right side: the file as it is now.'); return end
+  local line = api.nvim_win_get_cursor(0)[1]
+  local context = api.nvim_buf_get_lines(r.right_buf, line - 1, line, false)[1] or ''
+  local existing = ''
+  local text_lines = api.nvim_buf_get_lines(r.right_buf, 0, -1, false)
+  for _, note in ipairs(M.notes(r.root)[f.rel] or {}) do if M.note_line(note, text_lines) == line then existing = note.text; line = tonumber(note.line) or line end end
+  vim.ui.input({ prompt = existing ~= '' and 'Note to self (empty removes it): ' or 'Note to self: ', default = existing }, function(text)
+    if text == nil then return end
+    if not M.note_set(r.root, f.rel, line, text, context) then tell('The note could not be saved.', vim.log.levels.WARN); return end
+    draw_notes(r); panel(r)
+  end)
+end
+-- Every note in the project, by file; Enter goes to its line.
+function M.notes_list(root)
+  local r = M.current
+  root = root or (r and r.root) or vim.fs.root(0, '.git') or vim.fn.getcwd()
+  local all, items = M.notes(root), {}
+  local files = vim.tbl_keys(all); table.sort(files)
+  for _, rel in ipairs(files) do
+    for _, note in ipairs(all[rel]) do
+      items[#items + 1] = { name = note.text, group = rel, right = 'line ' .. note.line, ident = rel .. ':' .. note.line,
+        label = rel .. ':' .. note.line .. ' — ' .. note.text .. ' · written ' .. os.date('%d %b', tonumber(note.at) or 0),
+        run = function()
+          local now = M.current
+          if now and now.root == root then
+            for i, f in ipairs(now.files) do
+              if f.rel == rel then
+                M.select(i)
+                local at = M.note_line(note, api.nvim_buf_get_lines(now.right_buf, 0, -1, false))
+                api.nvim_set_current_win(now.right_win); api.nvim_win_set_cursor(now.right_win, { at, 0 }); return
+              end
+            end
+            tell(rel .. ' is not part of this change; close the review to open the file itself.'); return
+          end
+          vim.cmd('edit ' .. vim.fn.fnameescape(root .. '/' .. rel))
+          pcall(api.nvim_win_set_cursor, 0, { M.note_line(note, api.nvim_buf_get_lines(0, 0, -1, false)), 0 })
+        end }
+    end
+  end
+  if #items == 0 then tell('No notes of yours in this project yet. In a review, N on a line writes one.'); return end
+  M.show_menu(items, { title = 'My notes · ' .. #items, memo = 'foxml-review-notes', anchor_win = r and r.right_win or nil })
 end
 
 function M.note_context(range, buf)
