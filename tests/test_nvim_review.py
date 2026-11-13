@@ -275,6 +275,77 @@ assert(r.marks[file.rel]==file.signature,'Check and next did not mark the file')
 C.close()
 ''')
 
+    def test_a_file_edited_after_it_was_checked_opens_against_the_reviewed_copy_and_the_toggle_is_remembered(self):
+        source = self.repo / 'since.lua'
+        source.write_text('local a = 1\nreturn a\n')
+        head = r'''
+local file=root .. '/since.lua'
+local function content(buf) return table.concat(api.nvim_buf_get_lines(buf,0,-1,false),'\n') end
+local row={kind='live',sid='since1',name='example',short='example',files={file}}
+C.open_review(row,root)
+local r=R.current
+'''
+        self.run_lua(head + r'''
+assert(R.since_mode()==true,'new-since is the default')
+R.mark()
+assert(r.marks['since.lua']==r.files[1].signature)
+C.close()
+''')
+        source.write_text('local a = 1\nlocal b = 2\nreturn a + b\n')       # edited after it was checked
+        self.run_lua(head + r'''
+assert(r.files[1].since==true,'a file edited after its check should open against the reviewed copy')
+assert(content(r.left_buf)=='local a = 1\nreturn a','the left side is what was reviewed: '..content(r.left_buf))
+assert(content(r.right_buf):find('local b = 2',1,true))
+assert(r.marks['since.lua']~=r.files[1].signature,'the old check no longer counts')
+R.toggle_since()
+r=R.current
+assert(R.since_mode()==false and not r.files[1].since,'the toggle shows the whole change')
+assert(content(r.left_buf)=='','the whole change of a new file starts from nothing: '..content(r.left_buf))
+C.close()
+''')
+        self.run_lua(head + r'''
+assert(R.since_mode()==false,'the choice is remembered for the next review')
+R.toggle_since()
+r=R.current
+assert(r.files[1].since==true)
+R.mark()
+C.close()
+C.open_review(row,root)
+r=R.current
+assert(not r.files[1].since and r.marks['since.lua']==r.files[1].signature,'checked again: nothing new to show')
+C.close()
+''')
+
+    def test_risk_marks_say_why_and_the_riskiest_unread_file_comes_first(self):
+        (self.repo / 'plain.lua').write_text('return 1\n')
+        (self.repo / 'setup.sh').write_text('#!/bin/sh\nsudo tee /etc/pam.d/sudo < pam.conf\n')
+        (self.repo / 'engine').mkdir(exist_ok=True)
+        (self.repo / 'engine/core.lua').write_text('return 2\n')
+        (self.repo / '.review-risk').write_text('# paths that need care\nengine/\n')
+        plan = self.repo / 'plan.md'
+        plan.write_text('# Plan: tidy\n1. Change `plain.lua` and `setup.sh`\n')
+        self.run_lua(r'''
+local files={root..'/plain.lua',root..'/setup.sh',root..'/engine/core.lua'}
+package.loaded['foxml.planmarks']=nil
+local P=require('foxml.planmarks'); P.plan={title='Plan: tidy',file=root..'/plan.md'}
+C.open_review({kind='live',sid='risk1',name='example',short='example',files=files},root)
+local r=R.current
+local by={}
+for i,f in ipairs(r.files) do R.select(i); by[f.rel]=f.risks end
+assert(#by['plain.lua']==0,'a plain file the plan names has no risk: '..vim.inspect(by['plain.lua']))
+assert(vim.deep_equal(by['setup.sh'],{'touches /etc/pam.d'}),vim.inspect(by['setup.sh']))
+assert(vim.deep_equal(by['engine/core.lua'],{'marked risky in this project','outside the plan'}),vim.inspect(by['engine/core.lua']))
+R.select(1); R.unread()
+assert(r.files[r.index].rel=='setup.sh','the first unread file with a risk comes first, got '..r.files[r.index].rel)
+R.mark(); R.unread()
+assert(r.files[r.index].rel=='engine/core.lua')
+R.mark(); R.unread()
+assert(r.files[r.index].rel=='plain.lua','then the rest in order')
+local shown=table.concat(api.nvim_buf_get_lines(r.panel_buf,0,-1,false),'\n')
+assert(shown:find('⚠',1,true),'the panel marks a risky file')
+C.close()
+''')
+
     def test_symdeps_bridge_uses_a_real_cpp_buffer_and_the_selected_base(self):
         source = self.repo / 'inspect.cpp'
         source.write_text('struct Item { int count; };\n')

@@ -22,6 +22,29 @@ end
 local function state_file(root, row)
   return vim.fn.stdpath('state') .. '/foxml-reviews/' .. vim.fn.sha256(root .. '\0' .. (row.sha or row.sid or 'working')) .. '.json'
 end
+-- "New since I looked": a checked file's reviewed copy is kept by content hash, so when it changes later the review
+-- can show only what is new. The choice between that and the whole change is remembered across sessions.
+local function reviews_dir() return vim.fn.stdpath('state') .. '/foxml-reviews' end
+local function write_private(path, data)
+  vim.fn.mkdir(vim.fs.dirname(path), 'p', tonumber('700', 8))
+  local temp = path .. '.' .. uv.os_getpid() .. '.tmp'
+  local fd = uv.fs_open(temp, 'w', tonumber('600', 8))
+  if not fd then return false end
+  local written = uv.fs_write(fd, data, 0); uv.fs_close(fd)
+  if written ~= #data or not uv.fs_rename(temp, path) then uv.fs_unlink(temp); return false end
+  return true
+end
+function M.since_mode()
+  local prefs = decode(read(reviews_dir() .. '/prefs.json'))
+  return prefs.since ~= false
+end
+local function reviewed_copy(r, file)
+  if r.row.kind == 'commit' or r.row.snapshots then return nil end
+  local seen = decode(read(r.state_file)).seen
+  local hash = type(seen) == 'table' and seen[file.rel]
+  if type(hash) ~= 'string' or not hash:match('^%x+$') then return nil end
+  return read(reviews_dir() .. '/seen/' .. hash)
+end
 local function git(root, args)
   local argv = { 'git', '--no-optional-locks', '-C', root }
   vim.list_extend(argv, args)
@@ -92,6 +115,86 @@ function M.working_files(root)
   return files
 end
 
+-- Risk marks, from what is already known: the red-zone paths and tools the notebook warns about (login, boot, mounts,
+-- the kernel, the firewall) when the lines a change ADDS name one; the project's own list (.review-risk, one path
+-- fragment per line); a file its plan never names; a file edited since the last test run. Reasons, never a score.
+local RED_PATHS = { '/etc/pam%.d', '/etc/fstab', '/etc/crypttab', '/etc/greetd', '/etc/sudoers', '/etc/mkinitcpio', '/etc/default/grub',
+  '/etc/kernel/cmdline', '/etc/sysctl', '/etc/usbguard', '/etc/ufw', '/etc/security', '/boot/' }
+local RED_TOOLS = { 'bootctl', 'efibootmgr', 'mkinitcpio', 'grub%-mkconfig', 'usbguard', 'cryptsetup', 'faillock' }
+local function plan_names(r)
+  local path = r.row.plan
+  if not path or path == '' then
+    local ok, marks = pcall(require, 'foxml.planmarks')
+    path = ok and type(marks.plan) == 'table' and marks.plan.file or nil
+  end
+  if not path then return nil end
+  r.plan_cache = r.plan_cache or {}
+  if r.plan_cache[path] == nil then
+    local names, any = {}, false
+    local ok, marks = pcall(require, 'foxml.planmarks')
+    local text = read(path)
+    if ok and text then
+      for _, ref in ipairs(marks.parse(text)) do
+        if ref.path then names[#names + 1] = ref.path:gsub('^~/', ''):gsub('^%./', ''); any = true end
+      end
+    end
+    r.plan_cache[path] = any and names or false
+  end
+  return r.plan_cache[path] or nil
+end
+local function untested(r)
+  if r.untested ~= nil then return r.untested or nil end
+  r.untested = false
+  local backend = M.work_tool()
+  if backend and r.row.kind ~= 'commit' then
+    local ok, job = pcall(vim.system, { backend, 'tests', '--root', r.root }, { text = true })
+    local out = ok and job:wait(2000) or {}
+    local changed = out.code == 0 and decode(out.stdout).changedFiles
+    if type(changed) == 'table' then
+      r.untested = {}
+      for _, rel in ipairs(changed) do if type(rel) == 'string' then r.untested[rel] = true end end
+    end
+  end
+  return r.untested or nil
+end
+function M.risks(r, file)
+  local found = {}
+  if file.error or file.binary then return found end
+  local right = lines(file.right)
+  local hit
+  for _, h in ipairs(file.hunks or {}) do
+    for n = h[3], h[3] + h[4] - 1 do
+      local line = right[n] or ''
+      for _, pattern in ipairs(RED_PATHS) do
+        local m = line:match(pattern); if m then hit = m; break end
+      end
+      if not hit then
+        for _, tool in ipairs(RED_TOOLS) do
+          local m = line:match('%f[%w_-]' .. tool .. '%f[^%w_-]'); if m then hit = m; break end
+        end
+      end
+      if hit then break end
+    end
+    if hit then break end
+  end
+  if hit then found[#found + 1] = 'touches ' .. hit end
+  r.project_risk = r.project_risk or lines(read(r.root .. '/.review-risk') or '')
+  for _, fragment in ipairs(r.project_risk) do
+    fragment = vim.trim(fragment)
+    if fragment ~= '' and fragment:sub(1, 1) ~= '#' and file.rel:find(fragment, 1, true) then found[#found + 1] = 'marked risky in this project'; break end
+  end
+  local names = plan_names(r)
+  if names then
+    local named = false
+    for _, name in ipairs(names) do
+      if file.rel == name or file.rel:sub(-#name - 1) == '/' .. name or name:sub(-#file.rel - 1) == '/' .. file.rel or file.path == name then named = true; break end
+    end
+    if not named then found[#found + 1] = 'outside the plan' end
+  end
+  local stale = untested(r)
+  if stale and stale[file.rel] then found[#found + 1] = 'not tested since this edit' end
+  return found
+end
 local function blob(r, revision, rel, absent)
   if absent then return '' end
   return git(r.root, { 'show', revision .. ':' .. rel })
@@ -138,6 +241,7 @@ local function load_file(r, file, refresh)
     if ok then file.hunks = hunks end
     for _, h in ipairs(file.hunks) do file.deleted = file.deleted + h[2]; file.added = file.added + h[4] end
   end
+  file.risks = M.risks(r, file)
 end
 
 local unit_types = { function_declaration = true, function_definition = true, method_definition = true,
@@ -219,7 +323,14 @@ end
 local function save(r, file)
   local disk = decode(read(r.state_file))
   disk.files = type(disk.files) == 'table' and disk.files or {}
-  if file then disk.files[file.rel] = r.marks[file.rel] end
+  if file then
+    disk.files[file.rel] = r.marks[file.rel]
+    disk.seen = type(disk.seen) == 'table' and disk.seen or {}
+    if r.marks[file.rel] and r.row.kind ~= 'commit' and not r.row.snapshots and file.right and #file.right <= 4 * 1024 * 1024 then
+      local hash = vim.fn.sha256(file.right)
+      if write_private(reviews_dir() .. '/seen/' .. hash, file.right) then disk.seen[file.rel] = hash end
+    end
+  end
   disk.completed = r.completed or false
   vim.fn.mkdir(vim.fs.dirname(r.state_file), 'p', tonumber('700', 8))
   local temp = r.state_file .. '.' .. uv.os_getpid() .. '.tmp'
@@ -282,6 +393,8 @@ local function describe(r, entry)
     local state = f.error and 'this snapshot is unavailable' or (marks and marks[f.rel] == f.signature and f.loaded) and 'reviewed'
       or (marks and marks[f.rel] and f.loaded) and 'changed since you reviewed it' or 'not reviewed yet'
     local what = ({ A = 'added', D = 'deleted', R = 'renamed', M = 'modified' })[f.status] or 'changed'
+    if f.since then state = 'showing only what is new · n shows the whole change' end
+    if f.risks and #f.risks > 0 then state = '⚠ ' .. table.concat(f.risks, ' · ') .. ' · ' .. state end
     return { f.rel .. ' · ' .. what, state }
   end
   if set then
@@ -301,7 +414,8 @@ local function panel(r, select_row)
   local function paint(line, from, to, group) marks_hl[#marks_hl + 1] = { line, from, to, group } end
   local function push(s) text[#text + 1] = (s:gsub('[\r\n\t]', ' ')); return #text end
   local done, total = progress(r), #r.files
-  push(spread(external and ' Outside edits' or ' Review', external and 'both copies kept ' or (done .. ' of ' .. total .. ' '), w))
+  local mode = (r.row.kind == 'commit' or external) and '' or (M.since_mode() and ' · new' or ' · all')
+  push(spread(external and ' Outside edits' or ' Review', external and 'both copies kept ' or (done .. ' of ' .. total .. mode .. ' '), w))
   paint(1, 0, -1, hl('FoxSymdepsTitle', 'Title'))
   push('')
   local function file_row(i, f, indent, set)
@@ -312,7 +426,8 @@ local function panel(r, select_row)
     local stats = not f.loaded and '' or f.error and 'unavailable' or f.binary and 'binary' or ('+' .. f.added .. ' −' .. f.deleted)
     local arrow = f.expanded and '▾' or '▸'
     local left = indent .. arrow .. ' ' .. mark .. ' ' .. f.rel:gsub('[\r\n\t]', ' ')
-    local ln = push(spread(left, stats .. ' ', w))
+    local risky = f.loaded and f.risks and #f.risks > 0
+    local ln = push(spread(left, (risky and '⚠ ' or '') .. stats .. ' ', w))
     local active = (not set or set == r.active_set) and i == r.index
     if active then selected_line = ln end
     r.entries[ln] = { set = set, file = i }
@@ -320,6 +435,7 @@ local function panel(r, select_row)
     r.hits[ln] = { fold = { a + 1, a + #arrow }, mark = { a + #arrow + 2, a + #arrow + 1 + #mark } }
     paint(ln, a + #arrow + 1, a + #arrow + 1 + #mark, checked and hl('FoxSymdepsOk', 'DiagnosticOk') or stale and hl('FoxSymdepsWarn', 'DiagnosticWarn') or hl('FoxSymdepsDim', 'Comment'))
     if stats ~= '' then paint(ln, #text[ln] - #stats - 1, -1, hl('FoxSymdepsDim', 'Comment')) end
+    if risky then paint(ln, #text[ln] - #stats - 1 - #'⚠ ', #text[ln] - #stats - 1, hl('FoxSymdepsWarn', 'DiagnosticWarn')) end
     if f.expanded and f.loaded and not f.error and not f.binary then
       for _, symbol in ipairs(M.changed_symbols(f)) do
         local icon = symbol.side == 'before' and '− ' or symbol.kind == 'hunk' and '↳ ' or symbol.kind:match('struct') and '◇ ' or 'ƒ '
@@ -432,6 +548,7 @@ local function maps(r, buf, sidebar)
   key('<leader>rw', function() r.whitespace = not r.whitespace; options(r); tell('Whitespace changes: ' .. (r.whitespace and 'hidden' or 'shown')) end, 'Toggle review whitespace')
   key('<leader>rc', function() r.context = not r.context; options(r); tell('Context: ' .. (r.context and 'full file' or 'six lines')) end, 'Toggle review context')
   key('r', function() M.select(r.index, true) end, 'Refresh this comparison')
+  if not sidebar then key('<leader>rn', M.toggle_since, 'New since review / the whole change') end
   key('?', M.actions, 'Review actions')
   key('<leader>e', function() api.nvim_set_current_win(r.panel_win) end, 'Review file list')
   key('s', function() M.symdeps(false) end, 'Inspect changed C++ symbol in working copy')
@@ -444,6 +561,7 @@ local function maps(r, buf, sidebar)
     key('<2-LeftMouse>', M.enter, 'Expand commit / open review file')
     key('h', M.fold, 'Collapse review commit')
     key('a', M.actions, 'Review actions')
+    key('n', M.toggle_since, 'New since review / the whole change')
     key('<Space>', function() if M.enter(true) then M.mark() end end, 'Mark selected file reviewed')
     key('<LeftMouse>', function()
       local mouse = vim.fn.getmousepos()
@@ -491,12 +609,17 @@ function M.select(index, refresh)
   load_file(r, file, refresh or r.row.kind ~= 'commit')
   local old = { r.left_buf, r.right_buf }
   local left, right = file.left, file.right
+  file.since = nil
+  if M.since_mode() and not file.error and not file.binary and r.marks[file.rel] and r.marks[file.rel] ~= file.signature then
+    local copy = reviewed_copy(r, file)
+    if copy and copy ~= right then left, file.since = copy, true end
+  end
   if file.error then left, right = 'Snapshot unavailable. Refresh to retry.', 'Snapshot unavailable. This file cannot be marked reviewed.'
   elseif file.binary then left, right = 'Binary file — text comparison unavailable.', 'Binary file — inspect externally before marking reviewed.' end
   r.left_buf, r.right_buf = scratch(r, file, 'before', left), scratch(r, file, 'after', right)
-  local before = r.row.before_label or (r.row.kind == 'commit' and ('Before · ' .. r.row.parent:sub(1, 8))
+  local before = file.since and 'What you reviewed' or r.row.before_label or (r.row.kind == 'commit' and ('Before · ' .. r.row.parent:sub(1, 8))
     or r.row.kind == 'working' and 'HEAD · last commit' or 'Before session · captured baseline')
-  local after = r.row.after_label or (r.row.kind == 'commit' and ('After · ' .. r.row.sha:sub(1, 8))
+  local after = file.since and 'Now · only what is new since then' or r.row.after_label or (r.row.kind == 'commit' and ('After · ' .. r.row.sha:sub(1, 8))
     or r.row.kind == 'working' and 'Working copy · includes drafts' or 'Working copy · captured now')
   for _, pair in ipairs({ { r.left_win, r.left_buf, before }, { r.right_win, r.right_buf, after } }) do
     local win, buf, label = unpack(pair)
@@ -519,12 +642,24 @@ function M.select(index, refresh)
   vim.cmd('diffupdate')
 end
 
+function M.toggle_since()
+  local on = not M.since_mode()
+  write_private(reviews_dir() .. '/prefs.json', vim.json.encode({ since = on }))
+  local r = M.current
+  if r then M.select(r.index, true) end
+  tell(on and 'Showing only what is new since you reviewed a file.' or 'Showing the whole change.')
+end
+
 function M.unread()
   local r = M.current
   if not r then return end
-  for i, f in ipairs(r.files) do
-    load_file(r, f, r.row.kind ~= 'commit')
-    if r.marks[f.rel] ~= f.signature then M.select(i); return end
+  for _, f in ipairs(r.files) do load_file(r, f, r.row.kind ~= 'commit') end
+  -- What needs the most care comes first: an unread file with a risk mark, then the rest in order.
+  for pass = 1, 2 do
+    for i, f in ipairs(r.files) do
+      local risky = f.risks and #f.risks > 0
+      if r.marks[f.rel] ~= f.signature and (pass == 2 or risky) then M.select(i); return end
+    end
   end
   panel(r); tell('Every file is checked. R finishes the review.')
 end
@@ -710,6 +845,8 @@ function M.actions()
     add('Finish & next commit', 'Finish this review and open the next unchecked commit in this list.', M.finish_next,
       { group = 'review', bind = 'R', right = progress(r) .. '/' .. #r.files .. ' checked' })
     add('First unread file', 'Return to the first file you have not checked in this change.', M.unread, { group = 'review', bind = 'u' })
+    add('Only what is new', 'A file edited after you checked it opens against the copy you reviewed. Off shows the whole change. Remembered.',
+      M.toggle_since, { group = 'review', bind = 'n', state = function() return M.since_mode() end, stays = true })
   end
   local file = r.files[r.index]
   local ft = vim.filetype.match({ filename = file.path })
@@ -783,7 +920,7 @@ function M.tree(rows)
     local out = ok and job:wait(3000) or {}
     for index, task in ipairs(out.code == 0 and decode(out.stdout) or {}) do
       for _, c in ipairs(type(task.commits) == 'table' and task.commits or {}) do
-        tasks[c.sha] = { title = task.title, step = c.step, index = index }
+        tasks[c.sha] = { title = task.title, step = c.step, index = index, plan = task.plan }
       end
     end
   end
@@ -791,7 +928,7 @@ function M.tree(rows)
   for position, row in ipairs(rows) do
     if row.kind == 'commit' then
       local task = tasks[row.sha]
-      row.task, row.step = task and task.title or nil, task and task.step or nil
+      row.task, row.step, row.plan = task and task.title or nil, task and task.step or nil, task and task.plan or nil
       commits[#commits + 1] = { row = row, group = task and task.index or math.huge, position = position }
     else head[#head + 1] = row end
   end
