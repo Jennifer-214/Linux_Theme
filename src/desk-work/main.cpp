@@ -314,6 +314,10 @@ J begin(const std::string& command, const std::string& root, const std::string& 
     J j{{"id", id}, {"root", root}, {"command", command.substr(0, 4000)}, {"kind", kind_of(command)}, {"session", session},
         {"pane", env("TMUX_PANE")}, {"pid", pid}, {"process", proc_stamp(pid)}, {"started", now()}, {"state", "running"},
         {"snapshot", snap}, {"baseline", green}, {"observed", observed},
+        // The commit the run started on, and whether the tree was exactly that commit: only then does a test run
+        // speak for the commit itself (the review tree's "tests passed here").
+        {"head", str(snap, "head")},
+        {"clean", trim(query({"git", "--no-optional-locks", "-C", root, "status", "--porcelain", "--untracked-files=no"})).empty()},
         {"startedNs", std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count()}};
     // What the command does in plain words (Claude's description of it), shown in place of the command.
     const auto named = trim(clean(title));
@@ -525,12 +529,25 @@ J commit_plan(const std::string& root, const std::string& sha, const std::string
     while (j.size() > 2000) j.erase(j.begin());
     return J{{"ok", atomic(path, j.dump())}};
 }
+// What the tests said AT a commit: the newest finished test run that started on exactly that commit with a clean tree
+// and saw no edits while it ran. Anything less is not evidence about the commit, and is left out.
+std::map<std::string, std::string> commit_tests(const std::string& root) {
+    std::map<std::string, std::string> out;
+    for (const auto& r : runs(root)) {   // newest first
+        const auto head = str(r, "head"), state = str(r, "state");
+        if (head.size() != 40 || out.count(head) || !r.value("clean", false) || !r.value("testRun", false)
+            || r.value("changedDuringRun", false) || (state != "passed" && state != "failed")) continue;
+        out[head] = state;
+    }
+    return out;
+}
 // The review tree: tasks (a plan, else "branch · day") holding their commits oldest first, each with its progress.
 // Only Claude's commits, like the tray; `all` includes the reviewed ones.
 J review_tree(const std::string& root, bool all) {
     const auto plans = json(project_dir(root) / "commit-plans.json");
     const auto branch = trim(query({"git", "--no-optional-locks", "-C", root, "symbolic-ref", "--quiet", "--short", "HEAD"}));
     J rows = reviews(root, false);
+    const auto tested = commit_tests(root);
     std::vector<J> commits(rows.begin(), rows.end());
     // git log gives newest first: turned round, then ordered by time with ties left in history's order.
     std::reverse(commits.begin(), commits.end());
@@ -555,6 +572,7 @@ J review_tree(const std::string& root, bool all) {
         }
         auto& task = tasks[at[key]];
         if (!step.empty()) c["step"] = step;
+        if (tested.count(sha)) c["tests"] = tested.at(sha);
         task["checked"] = task.value("checked", 0) + c.value("checked", 0);
         task["total"] = task.value("total", 0) + c.value("total", 0);
         task["reviewed"] = task.value("reviewed", 0) + (c.value("reviewed", false) ? 1 : 0);

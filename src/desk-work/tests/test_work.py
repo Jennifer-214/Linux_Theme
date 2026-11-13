@@ -475,6 +475,22 @@ class Work(unittest.TestCase):
         self.data("reviewed", "--sha", plain)
         self.assertEqual(self.data("push-check")["line"], "", "all reviewed: quiet")
 
+    def test_the_tree_says_tests_passed_at_a_commit_only_when_they_ran_on_exactly_it(self):
+        def claude(subject):
+            self.git("add", "-A")
+            self.git("commit", "--allow-empty", "-qm", subject + "\n\nClaude-Session: https://claude.ai/code/session_x")
+            return self.git("rev-parse", "HEAD")
+        first = claude("One")
+        self.execute("print('3 passed')")                      # clean tree, on `first`
+        second = claude("Two")
+        (self.repo / "sample.cpp").write_text("int edited = 2;\n")
+        self.execute("print('3 passed')")                      # a dirty tree: says nothing about `second`
+        self.git("checkout", "-q", "--", "sample.cpp")
+        third = claude("Three")
+        self.execute("print('1 failed'); raise SystemExit(1)", code=1)
+        tests = {c["sha"]: c.get("tests") for t in self.data("review-tree") for c in t["commits"]}
+        self.assertEqual((tests[first], tests[second], tests[third]), ("passed", None, "failed"))
+
     def test_worktree_paths_with_spaces_are_not_shell_commands(self):
         other = self.dir / "other tree ; literal"
         self.git("worktree", "add", "-qb", "feature/work", str(other))

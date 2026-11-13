@@ -434,7 +434,9 @@ local function describe(r, entry)
     local row = set.row
     if row.kind == 'working' then return { 'Working changes · everything not committed yet', 'staged, unstaged, untracked and unsaved drafts' } end
     if row.kind == 'live' then return { (row.name or 'a live session') .. ' · edits it has made', 'f follows that session' } end
-    return { (row.short or '') .. ' · ' .. (row.subject or ''), (row.label or '') .. (row.step and row.step ~= '' and (' · ' .. row.step) or '') }
+    local tested = row.tests == 'passed' and 'tests passed at this commit' or row.tests == 'failed' and 'tests FAILED at this commit' or 'no test run on exactly this commit'
+    return { (row.short or '') .. ' · ' .. (row.subject or ''),
+      tested .. (row.step and row.step ~= '' and (' · ' .. row.step) or '') .. ((row.label or '') ~= '' and (' · ' .. row.label) or '') }
   end
   return { '' }
 end
@@ -512,13 +514,16 @@ local function panel(r, select_row)
       else
         local n, of = set_progress(r, set)
         if not set.files then of = #(row.files or {}) end
-        local right = set.completed and '✓ ' or (of > 0 and (n .. ' of ' .. of .. ' ') or '')
+        -- Three separate facts, never merged: tests at this commit (t✓ / t✗), reviewed by you (✓ or n of m).
+        local tested = row.tests == 'passed' and 't✓ ' or row.tests == 'failed' and 't✗ ' or ''
+        local right = tested .. (set.completed and '✓ ' or (of > 0 and (n .. ' of ' .. of .. ' ') or ''))
         local title = row.kind == 'live' and ('✎ ' .. (row.name or 'live session')) or ((row.short or 'commit') .. '  ' .. (row.subject or ''))
         local arrow = set.expanded and '▾' or '▸'
         local ln = push(spread('   ' .. arrow .. ' ' .. title:gsub('[\r\n\t]', ' '), right, w))
         r.entries[ln] = { set = set }
         r.hits[ln] = { fold = { 4, 3 + #arrow } }
         if set.completed then paint(ln, #text[ln] - #right, -1, hl('FoxSymdepsOk', 'DiagnosticOk')) elseif right ~= '' then paint(ln, #text[ln] - #right, -1, hl('FoxSymdepsDim', 'Comment')) end
+        if tested ~= '' then paint(ln, #text[ln] - #right, #text[ln] - #right + #tested, row.tests == 'passed' and hl('FoxSymdepsOk', 'DiagnosticOk') or hl('FoxSymdepsAlarm', 'DiagnosticError')) end
         if set.expanded then
           for i, f in ipairs(set.files or {}) do file_row(i, f, '       ', set) end
           if #(set.files or {}) == 0 then paint(push('         no changed files'), 0, -1, hl('FoxSymdepsDim', 'Comment')) end
@@ -1002,7 +1007,7 @@ function M.tree(rows)
     local out = ok and job:wait(3000) or {}
     for index, task in ipairs(out.code == 0 and decode(out.stdout) or {}) do
       for _, c in ipairs(type(task.commits) == 'table' and task.commits or {}) do
-        tasks[c.sha] = { title = task.title, step = c.step, index = index, plan = task.plan }
+        tasks[c.sha] = { title = task.title, step = c.step, index = index, plan = task.plan, tests = c.tests }
       end
     end
   end
@@ -1011,6 +1016,7 @@ function M.tree(rows)
     if row.kind == 'commit' then
       local task = tasks[row.sha]
       row.task, row.step, row.plan = task and task.title or nil, task and task.step or nil, task and task.plan or nil
+      row.tests = task and task.tests or nil
       commits[#commits + 1] = { row = row, group = task and task.index or math.huge, position = position }
     else head[#head + 1] = row end
   end
