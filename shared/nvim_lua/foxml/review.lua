@@ -1174,7 +1174,14 @@ function M.api_review(scope)
   local sent = {}
   for _, f in ipairs(files) do sent[f.rel] = f.signature end
   local state_path = r.state_file
+  -- The text each file had when it was sent: the answer's path:line citations are about THIS version, so it is kept
+  -- beside the answer and a citation opens it when the file has moved on.
+  local versions = {}
+  for _, f in ipairs(files) do if type(f.right) == 'string' and #f.right <= 512 * 1024 then versions[f.rel] = f.right end end
   work.api_question(ask .. '\n\n' .. body, function(task)
+    if type(task.id) == 'string' and task.id:match('^[%w_-]+$') then
+      for rel, text in pairs(versions) do write_private(M.api_snapshot(task.id, rel), text) end
+    end
     local disk = decode(read(state_path))
     disk.api = type(disk.api) == 'table' and disk.api or {}
     for rel, signature in pairs(sent) do disk.api[rel] = { id = task.id, at = os.time(), signature = signature, scope = scope } end
@@ -1189,11 +1196,59 @@ function M.api_of(r, file)
   record.current = file.loaded and record.signature == file.signature
   return record
 end
+function M.api_snapshot(id, rel) return reviews_dir() .. '/api/' .. id .. '/' .. vim.fn.sha256(rel) .. '.txt' end
+-- Where a citation of rel:line in answer `id` should open: the working file while it still reads as it was sent,
+-- else the kept copy of the version the answer is about.
+function M.api_target(root, id, rel)
+  local kept = read(M.api_snapshot(id, rel))
+  local now = read(root .. '/' .. rel)
+  if not kept or kept == now then return { current = true, path = root .. '/' .. rel } end
+  return { current = false, text = kept, path = root .. '/' .. rel }
+end
+function M.api_jump(root, id, rel, lnum)
+  local target = M.api_target(root, id, rel)
+  if target.current then
+    vim.cmd('edit ' .. vim.fn.fnameescape(target.path))
+  else
+    local buf = api.nvim_create_buf(false, true)
+    api.nvim_buf_set_lines(buf, 0, -1, false, lines(target.text))
+    vim.bo[buf].bufhidden, vim.bo[buf].modifiable = 'wipe', false
+    pcall(api.nvim_buf_set_name, buf, rel .. ' · as the API reviewed it')
+    local kind = vim.filetype.match({ filename = rel })
+    if kind then vim.bo[buf].filetype = kind end
+    vim.b[buf].foxml_api_snapshot = id
+    vim.cmd('sbuffer ' .. buf)
+    vim.keymap.set('n', 'q', '<cmd>bwipeout<cr>', { buffer = buf, desc = 'Close the reviewed version' })
+    vim.keymap.set('n', 'gf', function() vim.cmd('edit ' .. vim.fn.fnameescape(target.path)) end, { buffer = buf, desc = 'Open the file as it is now' })
+    tell(rel .. ' has changed since this review: showing the version it is about. gf opens the file as it is now.')
+  end
+  pcall(api.nvim_win_set_cursor, 0, { math.max(1, math.min(lnum or 1, api.nvim_buf_line_count(0))), 0 })
+end
+-- The saved answer, opened here so its citations can lead to the version it reviewed.
 function M.api_open()
   local r = M.current
   local record = r and M.api_of(r, r.files[r.index])
   if not record then tell('No API review of this file yet.'); return end
-  pcall(vim.system, { 'claude-api', 'open', record.id }, { detach = true })
+  local ok, shown = pcall(function() return vim.system({ 'claude-api', 'show', record.id }, { text = true }):wait(5000) end)
+  if not ok or not shown or shown.code ~= 0 or (shown.stdout or '') == '' then
+    pcall(vim.system, { 'claude-api', 'open', record.id }, { detach = true }); return
+  end
+  local root, id = r.root, record.id
+  local buf = api.nvim_create_buf(false, true)
+  api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(shown.stdout, '\n', { plain = true }))
+  vim.bo[buf].bufhidden, vim.bo[buf].modifiable, vim.bo[buf].filetype = 'wipe', false, 'markdown'
+  pcall(api.nvim_buf_set_name, buf, 'API review · ' .. (r.files[r.index].rel or ''))
+  vim.cmd('tab sbuffer ' .. buf)
+  vim.wo.wrap = true
+  vim.keymap.set('n', 'q', '<cmd>bwipeout<cr>', { buffer = buf, desc = 'Close the API review' })
+  vim.keymap.set('n', '<CR>', function()
+    for path, lnum in api.nvim_get_current_line():gmatch('([%w%._%-/~]+%.[%w]+):(%d+)') do
+      local rel = path:sub(1, #root + 1) == root .. '/' and path:sub(#root + 2) or path
+      if read(root .. '/' .. rel) or read(M.api_snapshot(id, rel)) then M.api_jump(root, id, rel, tonumber(lnum)); return end
+    end
+    tell('No path:line on this line.')
+  end, { buffer = buf, desc = 'Open the cited line in the version reviewed' })
+  tell(record.current and 'Enter on a path:line opens it.' or 'This file has changed since the review: Enter on a path:line opens the version it is about.')
 end
 
 -- Plan coverage: each step of the plan this change was made under, with the commits that touched a file it names;

@@ -141,6 +141,8 @@ list there yourself). It draws in the palette and keeps its session records in p
   review on API credits. You choose the model and a budget first, progress shows, and `:ClaudeApiStop` cancels. The
   result is kept beside the file for the version that was sent (`A` opens it), so an older review never covers a
   newer edit. Without the API setup the rows stay and read "needs API".
+  The text each file had when it was sent is kept beside the answer: `A` opens the answer, and Enter on a
+  `path:line` opens that reviewed version once the file has moved on (`gf` there opens the file as it is now).
 - **Shared progress**: checks are kept by `desk-work`, so the notebook shows the same `✓ ↻ ○` and one line such as
   "3 changes to review · 1 changed since you looked". After a turn that leaves files unreviewed, a quiet "review
   pending" line sits above the prompt.

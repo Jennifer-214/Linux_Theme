@@ -477,6 +477,28 @@ R.api_review('file')
 C.close()
 ''')
 
+    def test_an_api_citation_opens_the_version_that_was_reviewed_once_the_file_has_moved_on(self):
+        (self.repo / 'plain.lua').write_text('local a = 1\nreturn a\n')
+        self.run_lua(r'''
+package.loaded['foxml.work']={api_available=function() return true end,api_question=function(_,done) done({id='task-9'}) end}
+C.open_review({kind='live',sid='api9',name='example',short='example',files={root..'/plain.lua'}},root)
+R.api_review('file')
+local target=R.api_target(root,'task-9','plain.lua')
+assert(target.current==true and target.path==root..'/plain.lua','unchanged: the citation opens the file itself: '..vim.inspect(target))
+C.close()
+''')
+        (self.repo / 'plain.lua').write_text('-- a new first line\nlocal a = 1\nreturn a\n')
+        self.run_lua(r'''
+local target=R.api_target(root,'task-9','plain.lua')
+assert(target.current==false and target.text=='local a = 1\nreturn a\n','changed: the kept version: '..vim.inspect(target))
+R.api_jump(root,'task-9','plain.lua',2)
+local buf=vim.api.nvim_get_current_buf()
+assert(vim.b[buf].foxml_api_snapshot=='task-9' and vim.bo[buf].modifiable==false)
+assert(vim.api.nvim_get_current_line()=='return a','line 2 of the reviewed version, not of the file now: '..vim.api.nvim_get_current_line())
+assert(vim.api.nvim_buf_get_name(buf):find('as the API reviewed it',1,true))
+assert(R.api_target(root,'task-9','never-sent.lua').current==true,'nothing kept: the working file')
+''')
+
     def test_margin_notes_stay_with_the_file_follow_their_line_and_mark_the_row(self):
         (self.repo / 'plain.lua').write_text('local a = 1\nlocal b = 2\nreturn a + b\n')
         self.run_lua(r'''
