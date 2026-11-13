@@ -2,6 +2,69 @@
 
 All notable changes to this Arch + Hyprland workstation setup.
 
+## 2026-11-13 — 4.0.0 (not tagged yet)
+
+Everything since June in one entry. The tag waits on a fresh install passing in a VM; until then `main` is the
+release candidate.
+
+### Command names: the `fox-` prefix is gone
+
+Tools are `desk-*` or plain names: `desk <namespace> <subcommand>` is the dispatcher (`desk sec audit`, `desk theme
+check`), and the leaves are `desk-drawer`, `desk-work`, `desk-pulse`, `ai-doctor`, `gen-keybinds` and so on. The old
+command names are still installed as links, so scripts and habits keep working. Not renamed in this release: the
+`~/.config/foxml` folders, the `FOXML_*` environment names and the systemd unit names.
+
+### Desktop: Quickshell bar and drawers, Hyprland 0.57
+
+The bar and the menus are Quickshell: a drawer with pages for Today, tools, windows, audio, connections, displays,
+projects, programs, terminals (tmux sessions: go to one, rename it, move a pane), API credits and a commit garden,
+and an overview of every workspace (`Alt+O`). Hyprland's configuration is Lua, for 0.57.
+
+### The Paper theme
+
+A light theme with one look across the bar, the terminal, the lock and login screens, Neovim, Firefox and GTK apps,
+with its own drawn assets, notification stamps and cursor.
+
+### Local models
+
+llama.cpp's router is the default local model server (`llm-run` replaces `ollama run`); models are assigned by role
+in one file, with a context size and slot count per role. Codex replaces the Gemini CLI.
+
+### Working with coding agents
+
+- **Jobs and tests**: `desk-work` records test and job runs for a checkout, with the commit they ran on, pinned next
+  steps and failures that have not passed since.
+- **Review**: a Neovim review of what an agent changed. Changes are grouped by plan (or by branch and day), read
+  before and after side by side, and checked off per file; a file edited after you checked it opens against the copy
+  you reviewed. It marks risky edits, takes change requests to a session, sends exactly the displayed change for an
+  API review, keeps your own margin notes, shows each plan step against the commits that touched it, and says whether
+  tests passed on exactly each commit. It works in any git project; plans, the symdeps plugin and the API setup each
+  add to it and are never required. See [Agent workflows](docs/agent-workflows.md).
+- **The Claude notebook**: a pane beside a Claude Code session: what needs you first, the last turn's receipt, the
+  plan and its next step, review and request threads, tests, CI and the other sessions. Before a push it says what
+  goes out unreviewed.
+- One UI style for every menu, list and panel, written down in [UI style](docs/ui-style.md).
+
+### Installer
+
+- Updates the system before installing packages (`pacman -Syu`), and lists unread Arch news instead of being refused
+  by the news gate.
+- The login screen is not enabled without a compositor to run it, and a fingerprint reader no longer switches on the
+  greeter's fingerprint step by itself.
+- Your own repositories are cloned before the steps that read them.
+
+### Tests and tools
+
+- `make test-fast` runs only the tests that name what changed, and says when files moved under the run.
+- `python3 tests/notebook_preview.py` prints the Claude notebook from sample data, in the theme's colours.
+- The Claude mod is validated, tested and type-checked; Neovim tests start clean, so they can never load an
+  installed copy of the code under test.
+
+### Upgrading from 3.x
+
+Pull, then run the installer. Old command names keep working through the links it installs. Review stamps stay on
+your machine unless a repository asks otherwise (`git config desk.pushReviewNotes true`).
+
 ## 2026-06-23 — v3.1.2
 
 ### Portability: no hardcoded user paths in shipped files
