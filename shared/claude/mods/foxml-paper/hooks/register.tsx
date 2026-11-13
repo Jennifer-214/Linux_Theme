@@ -1,11 +1,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderNode } from 'claude-code'
 
-import type { ApiCredits, CiLook, GitLook, NotebookView, PaperAction, PaperCard, PaperEnvelope, PaperLook, PaperOverlap, PaperPeer, PaperRedZone, PaperTone, PaperTree, TurnLook, WorkJob } from '../types'
+import type { ApiCredits, CiLook, GitLook, NotebookView, PaperAction, PaperCard, PaperEnvelope, PaperLook, PaperOverlap, PaperPeer, PaperRedZone, PaperTone, PaperTree, TurnLook, TurnReceipt, WorkJob } from '../types'
 import { addBefore, addEdit, addName, neighbours, namesText, noteText, overlapFor, parseLedger, parseNames, parseNote, trailerUrl, withPlan } from './ledger'
 import type { Other } from './ledger'
 import { paper } from './theme'
-import { beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, pendingLine, planProgress, reviewStates, reviewSummary, ruler, stepLabel, testLabel, turnLabel, unreviewed, work, workLook } from './work'
+import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, pendingLine, planProgress, receiptLine, reviewStates, reviewSummary, ruleLine, ruler, spread, stepLabel, testLabel, turnLabel, unreviewed, work, workLook } from './work'
 import { attributeFiles, fileColumns, fileCounts, gitFiles, drawerPage, mailId, shortPath } from './notebook'
 
 // Linux_Theme paper: a notebook pane beside the chat (hearts, the session's name, its plan, the gate, pages
@@ -24,6 +24,7 @@ const peers = atom({ plugin: 'foxml-paper', key: 'peers' } as const, [] as Paper
 const writingTo = atom({ plugin: 'foxml-paper', key: 'writingTo' } as const, null as string | null)
 const turn = atom({ plugin: 'foxml-paper', key: 'turn' } as const, null as TurnLook | null, { shape: 'turn-1' })
 const nudge = atom({ plugin: 'foxml-paper', key: 'nudge' } as const, null as number | null)
+const receipt = atom({ plugin: 'foxml-paper', key: 'receipt' } as const, null as TurnReceipt | null, { shape: 'receipt-1' })
 const envelopes = atom({ plugin: 'foxml-paper', key: 'envelopes' } as const, [] as PaperEnvelope[], { shape: 'env-1' })
 const notebookView = atom({ plugin: 'foxml-paper', key: 'notebookView' } as const,
   { page: 'overview', scope: 'session', selected: '', offset: 0, form: 'none' } as NotebookView, { shape: 'notebook-1' })
@@ -121,6 +122,8 @@ const memory = {
   receiptsReady: null as Promise<void> | null,
   toldLastNight: false,
   // CI is asked of GitHub only when the pushed commit changes, every 30 s while it runs, else every 5 minutes.
+  turnRisk: [] as string[],
+  turnStart: 0,
   ci: null as CiLook | null,
   ciTold: '',
   github: new Map<string, boolean>(),
@@ -651,11 +654,33 @@ export const register: Register = on => {
   on('classic.Stop', async ($, e, next) => {
     await update($, turn, () => null)
     // A turn that leaves files of this session unreviewed says so once, above the prompt, until looked at.
+    // A refresh already under way began before the turn's last edit was recorded: let it finish, then read afresh.
+    await refresh($)
     await refresh($)
     const seen = await read($, look)
     const mine = (seen?.files ?? []).filter(f => f.own).map(f => f.path)
     const left = unreviewed(mine, reviewStates(seen?.work?.review))
     await update($, nudge, () => left > 0 ? left : null)
+    // The receipt: what this turn changed, ran and committed.
+    const began = (await read($, receipt))?.at ?? 0
+    const start = memory.turnStart || began
+    if (start > 0 && seen) {
+      const dir = await sessionsDir($)
+      const sid = await $.session.id()
+      let touched: string[] = []
+      try {
+        const ledger = dir === null ? null : parseLedger(await $.fs.read(`${dir}/edits/${sid}.json`))
+        const base = seen.root.replace(/\/$/, '') + '/'
+        touched = [...new Set((ledger?.all ?? ledger?.edits ?? []).filter(e => e.at >= start && e.path.startsWith(base)).map(e => e.path.slice(base.length)))]
+      } catch { touched = [] }
+      const ran = seen.work?.tests
+      const tests = ran && typeof ran.ended === 'number' && ran.ended * 1000 >= start ? testLabel(ran).replace(/ · .*$/, '') : null
+      const log = await run($, ['git', '--no-optional-locks', '-C', seen.root, 'log', '-8', `--since=@${Math.floor(start / 1000)}`, '--format=%s'])
+      const commits = (log ?? '').split('\n').map(s => s.trim()).filter(Boolean)
+      const made: TurnReceipt = { at: await $.clock.now(), files: touched.slice(0, 40), tests, commits, risky: memory.turnRisk.slice(0, 4) }
+      await update($, receipt, () => (made.files.length || made.tests || made.commits.length || made.risky.length) ? made : null)
+    }
+    memory.turnStart = 0
     return next(e)
   })
   on('classic.SessionStart', async ($, e, next) => {
@@ -666,6 +691,8 @@ export const register: Register = on => {
   on('prompt.submit', async ($, e, next) => {
     const started = await $.clock.now()
     await update($, turn, () => ({ started, step: '', seen: started }))
+    memory.turnStart = started
+    memory.turnRisk = []
     await update($, nudge, () => null)
     await update($, redZone, () => null)
     await update($, overlap, () => null)
@@ -675,7 +702,7 @@ export const register: Register = on => {
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const what = redZoneOf(e.command)
-    if (what !== null) await update($, redZone, () => ({ what }))
+    if (what !== null) { await update($, redZone, () => ({ what })); if (!memory.turnRisk.includes(what)) memory.turnRisk.push(what) }
     const root = await repoRoot($)
     const sid = await $.session.id()
     const safe = !/password|token|secret|authorization|sk-|ghp_/i.test(e.command)
@@ -777,8 +804,9 @@ export const register: Register = on => {
     const waiting = await read($, nudge)
     if (waiting !== null && !e.props.isWorking) return (
       <Box>
-        <Text color={paper.ribbon} weight="bold">✎ {waiting} {waiting === 1 ? 'file' : 'files'} changed </Text>
-        <Text color={paper.dim}>· review pending </Text>
+        <Text color={paper.ribbon} weight="bold">✎ turn done </Text>
+        <Text color={paper.ink}>{clip(receiptLine(await read($, receipt)) || `${waiting} ${waiting === 1 ? 'file' : 'files'} changed`, Math.max(12, e.props.bodyColumns - 44))}</Text>
+        <Text color={paper.dim}> · review pending </Text>
         <Button key="review" label="review" plain onPress={async () => {
           await update($, nudge, () => null)
           await work($, ['open', '--root', await repoRoot($), '--action', 'reviews'])
@@ -914,40 +942,93 @@ export const register: Register = on => {
     }
 
     if (view.form === 'none' && view.page === 'overview') {
+      // The front page, to the UI style (docs/ui-style.md): groups under rule lines, a mark and a name per row with
+      // its count on the right, a line saying what the selected row is, and nothing that is not about now.
+      const inner = Math.max(10, width - 2)
+      const about: Record<string, string> = {}
+      const rule = (label: string, right = '') => content.push(text(ruleLine(label, right, width), paper.ribbon))
+      const pair = (key: string, left: string, right: string, press: () => unknown, says: string, colour: string = paper.ink) => {
+        about[key] = says
+        const line = spread(left, right, inner)
+        const cut = right ? line.length - right.length : line.length
+        // The button's own label reads whole ("3 claudes · you + 2 others") for screen readers and other surfaces.
+        content.push(row(key, right ? `${left} · ${right}` : left, press, <Text>
+          <Text color={colour}>{line.slice(0, cut)}</Text><Text color={paper.dim}>{line.slice(cut)}</Text>
+        </Text>))
+      }
       const working = turnLabel(underway, clock)
       if (working) content.push(text(working, paper.ribbon))
-      if (now?.plan) { content.push(row('plan-open', (now.plan.pinned ? '⌑ ' : '') + now.plan.title, () => openDocument(now.plan!.file))); planRuler() }
-      else content.push(row('plan-pin', 'pin an active plan', () => setView({ form: 'plan' })))
-      if (now?.plan?.step) content.push(row('plan-step', '◇ ' + now.plan.step, () => setView({ form: 'step' })))
-      if (now?.gate === 'open') content.push(text('gate open ✓', paper.ribbon))
-      if (now?.gate === 'closed') content.push(text('plan first ✎', paper.ribbon))
-      if (warning) content.push(row('attention-overlap', 'shared edit · ' + warning.path.split('/').pop(), async () => {
+
+      const states = reviewStates(now?.work?.review)
+      const mine = (now?.files ?? []).filter(f => f.own).map(f => f.path)
+      const done = await read($, receipt)
+      if (done && !working) {
+        rule('last turn', ago((clock - done.at) / 1000))
+        const open = () => checkedWork(['open', '--root', root, '--action', 'reviews'])
+        if (done.files.length) {
+          const read_ = done.files.filter(p => states.get(p) === 'checked').length
+          pair('receipt-files', `✎ ${done.files.length} ${done.files.length === 1 ? 'file' : 'files'} changed`, `${read_} of ${done.files.length} reviewed`, open,
+            'What the last turn changed. Enter opens the review on it.')
+        }
+        if (done.tests) pair('receipt-tests', done.tests, '', () => now?.work?.tests ? openJob(now.work.tests.id, 'tests') : undefined,
+          'The tests the last turn ran.', done.tests.startsWith('✓') ? paper.added : paper.berry)
+        for (const subject of done.commits.slice(0, 3)) pair('receipt-commit-' + subject.slice(0, 24), '❦ ' + subject, '', open, 'A commit the last turn made.')
+        if (done.commits.length > 3) content.push(text(`  and ${done.commits.length - 3} more commits`))
+        for (const what of done.risky) pair('receipt-risk-' + what, '⚠ touched ' + what, 'red zone', open, 'The last turn ran something in the red zone: login, boot, mounts, the kernel or the firewall.', paper.berry)
+      }
+
+      const total = now?.plan?.total ?? 0, ticked = now?.plan?.done ?? 0
+      rule('plan', now?.gate === 'open' ? 'gate open ✓' : now?.gate === 'closed' ? 'plan first ✎' : '')
+      if (now?.plan) {
+        pair('plan-open', (now.plan.pinned ? '⌑ ' : '') + now.plan.title, total > 0 ? stepLabel({ done: ticked, total }) : '', () => openDocument(now.plan!.file),
+          'The plan this session works from. Enter opens it.')
+        if (total > 0) content.push(measured(ticked / total, `${ticked} of ${total} done`))
+        if (now.plan.step) pair('plan-step', '◇ ' + now.plan.step, '', () => setView({ form: 'step' }), 'The step in hand. Enter changes it.')
+      } else pair('plan-pin', 'pin an active plan', '', () => setView({ form: 'plan' }), 'No plan read yet in this session. Enter pins one.', paper.dim)
+
+      const attention: (() => void)[] = []
+      if (warning) attention.push(() => pair('attention-overlap', 'shared edit · ' + (warning.path.split('/').pop() ?? ''), warning.ago ?? '', async () => {
         if (warning.pane) await run($, ['desk-drawer', 'run', 'claude-jump', warning.pane])
         else await page('files')
-      }))
-      if (mail.length) content.push(row('attention-mail', `✉ ${mail.length} unread ${mail.length === 1 ? 'note' : 'notes'}`, () => page('sessions')))
+      }, 'Another live session edited this file lately. Enter goes to it.', paper.berry))
+      if (mail.length) attention.push(() => pair('attention-mail', '✉ notes for this session', `${mail.length} unread`, () => page('sessions'), 'Notes left for this session from Neovim or another Claude.'))
       for (const job of (now?.work?.failures ?? []).slice(0, 2))
-        content.push(row(`attention-job-${job.id}`, `! ${job.state} · ${job.title ?? job.command}`, () => openJob(job.id)))
-      if (now?.work?.tests) content.push(row('work-tests', testLabel(now.work.tests, clock / 1000), () => openJob(now.work!.tests!.id, 'tests'),
-        <Text color={testColour(now.work.tests)}>
-          {testLabel(now.work.tests, clock / 1000)}
-        </Text>))
+        attention.push(() => pair(`attention-job-${job.id}`, '! ' + (job.title ?? job.command), job.state, () => openJob(job.id), 'A job that failed and has not passed since. Enter opens its output.', paper.berry))
+      if (attention.length) { rule('needs you', String(attention.length)); attention.forEach(add => add()) }
+
+      const pending = now?.work?.pending ?? 0
+      const summary = reviewSummary((now?.files ?? []).map(f => f.path), states)
+      rule('review', pending > 0 ? `${pending} waiting` : '')
+      const waitingLine = pendingLine(pending, mine, states)
+      if (waitingLine) pair('review-open', '✎ ' + waitingLine, '', () => checkedWork(['open', '--root', root, '--action', 'reviews']),
+        'What is waiting to be looked over. Enter opens the review in Neovim on the next one.')
+      pair('page-files', `${mine.length} this session · ${now?.files.length ?? 0} changed`, summary.replace(/ reviewed.*$/, '') , () => page('files'),
+        'Files that differ from the last commit, and how many of them were reviewed as they are now.')
+
+      rule('work')
+      if (now?.work?.tests) pair('work-tests', testLabel(now.work.tests, clock / 1000), '', () => openJob(now.work!.tests!.id, 'tests'),
+        'The last test run here, and whether the code changed since.', testColour(now.work.tests))
       const ci = ciLabel(now?.ci?.runs)
-      if (ci) content.push(row('work-ci', ci.label, async () => { if (/^https:\/\/github\.com\//.test(ci.url)) await run($, ['xdg-open', ci.url]) },
-        <Text color={ci.state === 'failed' ? paper.berry : ci.state === 'passed' ? paper.added : paper.dim}>{fit(ci.label, width - 2)}</Text>))
+      if (ci) pair('work-ci', ci.label, '', async () => { if (/^https:\/\/github\.com\//.test(ci.url)) await run($, ['xdg-open', ci.url]) },
+        'GitHub Actions on the pushed commit. Enter opens the run.', ci.state === 'failed' ? paper.berry : ci.state === 'passed' ? paper.added : paper.dim)
       for (const job of (now?.work?.jobs ?? []).slice(0, 1)) jobRow(job, `◷ ${job.title ?? job.command} · ${Math.floor(job.elapsed / 60)}m`)
-      const own = (now?.files ?? []).filter(f => f.own).length
-      // The one review line: what is waiting, and Enter opens the review in Neovim on it.
-      const waitingLine = pendingLine(now?.work?.pending ?? 0, (now?.files ?? []).filter(f => f.own).map(f => f.path), reviewStates(now?.work?.review))
-      if (waitingLine) content.push(row('review-open', '✎ ' + waitingLine, () => checkedWork(['open', '--root', root, '--action', 'reviews'])))
-      const reviewLine = reviewSummary((now?.files ?? []).map(f => f.path), reviewStates(now?.work?.review))
-      content.push(row('page-files', `${own} this session · ${now?.files.length ?? 0} all files` + (reviewLine ? ` · ${reviewLine}` : ''), () => page('files')))
-      content.push(row('page-project', now?.card?.title ?? branchLabel(now?.git, now?.branch ?? ''), () => page('project')))
-      // Counted with this one, so four running reads as four: "4 claudes · you + 3 others".
-      if (others.length) content.push(row('page-sessions', `${others.length + 1} claudes · you + ${others.length} ${others.length === 1 ? 'other' : 'others'}`, () => page('sessions')))
+      const branchLine = now?.card?.title ?? branchLabel(now?.git, now?.branch ?? '')
+      const dot = branchLine.indexOf(' · ')
+      pair('page-project', dot > 0 ? branchLine.slice(0, dot) : branchLine, dot > 0 ? branchLine.slice(dot + 3) : '', () => page('project'),
+        'The branch against what is pushed. Enter shows the project: plan, tests and worktrees.')
       const tasks = (now?.work?.tasks ?? []).filter(t => !t.done)
-      if (tasks.length) content.push(row('page-tasks', `${tasks.length} next ${tasks.length === 1 ? 'step' : 'steps'} · ${tasks[0]?.text ?? ''}`, () => page('project')))
-      if (now?.work) content.push(row('task-add', '+ next step', () => setView({ form: 'task' })))
+      if (tasks.length) pair('page-tasks', '◇ ' + (tasks[0]?.text ?? ''), `${tasks.length} next`, () => page('project'), 'Pinned next steps for this project.')
+      if (now?.work) pair('task-add', '+ next step', '', () => setView({ form: 'task' }), 'Pin something to do next.', paper.dim)
+
+      if (others.length) {
+        rule('sessions', String(others.length + 1))
+        // Counted with this one, so four running reads as four: "4 claudes · you + 3 others".
+        pair('page-sessions', `${others.length + 1} claudes`, `you + ${others.length} ${others.length === 1 ? 'other' : 'others'}`, () => page('sessions'),
+          'The other Claude sessions on this machine. Enter lists them, to go to one or leave it a note.')
+      }
+      // What the selected row is, the way a menu's description strip says it.
+      const says = about[view.selected]
+      if (says) { content.push(text('')); content.push(text(says.length > width * 2 ? says.slice(0, width * 2 - 1) + '…' : says)) }
     }
 
     if (view.form === 'none' && view.page === 'files') {

@@ -8,6 +8,9 @@ export type CiRun = { name?: string; workflowName?: string; status: string; conc
 export type CiLook = { sha: string; runs: CiRun[]; at: number }
 // seen: the last sign of life in the turn (its start, a tool call); a turn that went quiet is not shown as working.
 export type TurnLook = { started: number; step: string; seen?: number }
+// What a finished turn left behind, shown as one card: this session's files it changed, the tests it ran, the commits
+// it made and anything in the red zone it touched.
+export type TurnReceipt = { at: number; files: string[]; tests: string | null; commits: string[]; risky: string[] }
 export type WorkTask = { id: string; text: string; done: boolean }
 // estimate: seconds the newest pass of the same command in the same checkout took (running jobs only).
 export type WorkJob = { id: string; command: string; title?: string; state: string; elapsed: number; activity: number; session: string; estimate?: number }
@@ -79,6 +82,7 @@ declare module 'claude-code' {
       notebookView: Shaped<NotebookView>
       // After a turn that left files of this session unreviewed: how many, until looked at or dismissed.
       nudge: number | null
+      receipt: Shaped<TurnReceipt | null>
       // The turn under way: when your message came, and the latest step Claude described.
       turn: Shaped<TurnLook | null>
     }

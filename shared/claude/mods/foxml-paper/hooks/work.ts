@@ -1,5 +1,5 @@
 import type { EngineInterface } from 'claude-code'
-import type { CiRun, GitLook, ReviewProgress, WorkJob, WorkLook, WorkTest } from '../types'
+import type { CiRun, GitLook, ReviewProgress, TurnReceipt, WorkJob, WorkLook, WorkTest } from '../types'
 
 export function shellQuote(s: string): string { return "'" + s.replace(/'/g, "'\\''") + "'" }
 // A build, test or download is the command a segment starts with, not a word it mentions:
@@ -129,6 +129,30 @@ export function pendingLine(pending: number, own: string[], states: Map<string, 
 // How many of this session's changed files nobody has reviewed as they are now.
 export function unreviewed(own: string[], states: Map<string, 'checked' | 'changed'>): number {
   return own.filter(p => states.get(p) !== 'checked').length
+}
+// One line for a finished turn: "3 files · tests passed · 1 commit · ⚠ /etc/pam.d". Empty when it left nothing.
+export function receiptLine(receipt: TurnReceipt | null | undefined): string {
+  if (!receipt) return ''
+  const parts = [
+    receipt.files.length ? `${receipt.files.length} ${receipt.files.length === 1 ? 'file' : 'files'}` : '',
+    receipt.tests ?? '',
+    receipt.commits.length ? `${receipt.commits.length} ${receipt.commits.length === 1 ? 'commit' : 'commits'}` : '',
+    receipt.risky.length ? `⚠ ${receipt.risky[0]}` : '',
+  ].filter(Boolean)
+  return parts.join(' · ')
+}
+// A left text and a right text on one line of `width`: the right one keeps its place, the left one gives way.
+export function spread(left: string, right: string, width: number): string {
+  if (right === '') return left.length > width ? left.slice(0, Math.max(1, width - 1)) + '…' : left
+  const room = Math.max(4, width - right.length - 1)
+  const shown = left.length > room ? left.slice(0, room - 1) + '…' : left
+  return shown + ' '.repeat(Math.max(1, width - shown.length - right.length)) + right
+}
+// A group's rule line, to symdeps' menu rules: " ── label ─────── right ──".
+export function ruleLine(label: string, right: string, width: number): string {
+  const head = `── ${label} `
+  const tail = right ? ` ${right} ──` : ''
+  return head + '─'.repeat(Math.max(2, width - head.length - tail.length)) + tail
 }
 // "◷ working 14m · Run the drawer tests": the turn under way, from your message to now, and its latest step.
 export const TURN_QUIET_MS = 15 * 60 * 1000
