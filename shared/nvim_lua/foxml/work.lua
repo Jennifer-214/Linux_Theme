@@ -368,7 +368,8 @@ function M.attention(next_only)
   local project = root()
   local items = data({ 'attention', '--root', project })
   if not items then return end
-  if #items == 0 then vim.notify('Nothing needs you in this project.'); return end
+  local aside = data({ 'set-aside', '--root', project, '--show', 'yes' })
+  if #items == 0 and not (aside and aside.count) then vim.notify('Nothing needs you in this project.'); return end
   local function open(item)
     local resolved = data({ 'resolve', '--root', project, '--action', 'attention', '--id', item.id })
     if not resolved then vim.notify('That item is settled; refresh the list.'); return end
@@ -382,13 +383,26 @@ function M.attention(next_only)
     elseif action.kind == 'health' then M.health()
     end
   end
-  if next_only then open(items[1]); return end
+  if next_only then if items[1] then open(items[1]) end; return end
   local rows = {}
   for _, item in ipairs(items) do
     local selected = item
     rows[#rows + 1] = { name = item.label, label = item.why, group = item.kind,
       ident = item.id, run = function() open(selected) end }
   end
+  -- The review backlog: set aside to catch up later (it stays unreviewed in the review), or brought back.
+  local commits = #vim.tbl_filter(function(item) return item.kind == 'commit' end, items)
+  if commits > 0 then rows[#rows + 1] = { name = 'Set aside ' .. commits .. (commits == 1 and ' commit' or ' commits') .. ' to review',
+    label = 'catch up later', group = 'backlog', run = function()
+      if vim.fn.confirm('Set aside ' .. commits .. ' commits to review? They stay unreviewed in the review; bringing them back undoes it.', '&Set aside\n&Cancel', 2) ~= 1 then return end
+      local done = data({ 'set-aside', '--root', project })
+      if done then vim.notify(done.message) end
+    end } end
+  if aside and aside.count then rows[#rows + 1] = { name = 'Bring back ' .. aside.count .. ' set-aside commits', label = 'back into this list',
+    group = 'backlog', run = function()
+      local done = data({ 'set-aside', '--root', project, '--undo', 'yes' })
+      if done then vim.notify(done.message) end
+    end } end
   require('foxml.review').show_menu(rows, { title = 'Needs you', memo = 'foxml-attention' })
 end
 

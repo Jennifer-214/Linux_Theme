@@ -714,6 +714,23 @@ test('past three items needs you folds into one counted line, and its page lists
   await ui.unmount()
 })
 
+test('the review backlog can be set aside from the needs-you page and brought back', async ($, on) => {
+  const commit = (c: string) => ({ id: 'commit:' + c.repeat(40), kind: 'commit', root: '/code/paper', label: 'step ' + c, why: 'Not reviewed yet', at: 1, action: { kind: 'reviews', id: c.repeat(40) } })
+  engine(on, { projectWork: { tests: null, tasks: [], jobs: [], pending: 2, attention: [commit('a'), commit('b')], aside: { count: 7, at: NOW / 1000 - 3600 } } })
+  await opened($)
+  await $.command.run({ command: 'notebook', args: 'attention', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: true }, surface: 'terminal' } as never)
+  expect((await ui.find({ key: 'needs-aside' }))?.props.label).toBe('set aside 2 commits to review · catch up later')
+  expect((await ui.find({ key: 'needs-bring-back' }))?.props.label).toBe('bring back 7 set-aside commits · undo')
+  await ui.press({ key: 'needs-aside' })
+  expect(seen.argv.some(a => a.startsWith('desk-work set-aside')), 'nothing is set aside until it is confirmed').toBe(false)
+  await ui.press({ key: 'aside-confirm' })
+  expect(seen.argv).toContain('desk-work set-aside --root /code/paper')
+  await ui.press({ key: 'needs-bring-back' })
+  expect(seen.argv).toContain('desk-work set-aside --root /code/paper --undo yes')
+  await ui.unmount()
+})
+
 test('three or fewer stay as rows, and a refusal toasts what desk-work said', async ($, on) => {
   engine(on, { projectWork: { tests: null, tasks: [], jobs: [], pending: 0,
     attention: [{ id: 'records:review-marks.json', kind: 'records', root: '/code/paper', label: 'The review marks record cannot be read', why: 'Writes to it are refused until work health sets it aside (not valid JSON)', at: 1, file: 'review-marks.json', action: { kind: 'health' } }],

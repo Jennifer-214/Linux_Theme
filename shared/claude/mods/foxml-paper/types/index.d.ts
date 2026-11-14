@@ -24,12 +24,14 @@ export type WorkDigest = { total: number; files: number; through: number; trunca
 export type WorkHealth = { status: string; checks: { id: string; label: string; detail: string; transaction?: string; recoverable?: boolean }[] }
 export type WorkLook = { tests: WorkTest | null; tasks: WorkTask[]; jobs: WorkJob[]; failures?: WorkJob[]; review?: Record<string, ReviewProgress>; pending?: number; requests?: ReviewRequest[]; attention?: AttentionItem[]; agents?: AgentSession[]; revision?: string; timeline?: WorkEvent[]; digest?: WorkDigest; health?: WorkHealth; integration?: { status: string; message: string; sessions?: WorkSession[] }
   // Records desk-work cannot read (it refuses writes to them until they are set aside), and commits finished today.
-  records?: { file: string; label: string; why: string }[]; reviewedToday?: string[] }
+  records?: { file: string; label: string; why: string }[]; reviewedToday?: string[]
+  // Commits set aside to review later: how many, and when.
+  aside?: { count: number; at: number } | null }
 // A session's loaded code against what is installed; reload: the steps that load it while keeping its work.
 export type WorkSession = { client: string; status: string; session?: string; reload?: string }
 // A change request sent to a session about a file: waiting while the file is as it was, ready once it has changed.
 export type ReviewRequest = { file: string; name: string; sid: string; text: string; at: number; state: 'waiting' | 'ready' }
-export type NotebookView = { page: 'overview' | 'files' | 'project' | 'sessions' | 'help' | 'request' | 'timeline' | 'digest' | 'health' | 'attention'; scope: 'session' | 'all'; selected: string; focused?: string; offset: number; form: 'none' | 'task' | 'plan' | 'step' | 'search' | 'snooze'
+export type NotebookView = { page: 'overview' | 'files' | 'project' | 'sessions' | 'help' | 'request' | 'timeline' | 'digest' | 'health' | 'attention'; scope: 'session' | 'all'; selected: string; focused?: string; offset: number; form: 'none' | 'task' | 'plan' | 'step' | 'search' | 'snooze' | 'aside'
   // The files page: which files to list, and a part of a name to find.
   show?: 'all' | 'unreviewed' | 'changed'; query?: string
   // The request page: which file's thread is open.

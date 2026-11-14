@@ -102,7 +102,7 @@ export function engine(on: On, options: { pane?: string; pushNotes?: unknown; pu
       if (e.init?.stdin) workspace = JSON.parse(e.init.stdin)
       return { value: done(JSON.stringify(e.init?.stdin ? { ok: true } : workspace)) }
     }
-    if (argv.startsWith('desk-work digest ') || argv.startsWith('desk-work snooze ')) return { value: done('{"ok":true}') }
+    if (argv.startsWith('desk-work digest ') || argv.startsWith('desk-work snooze ') || argv.startsWith('desk-work set-aside ')) return { value: done('{"ok":true}') }
     if (argv.startsWith('desk-work task-add ')) return { value: done('{"ok":true}') }
     if (argv.startsWith('desk-work worktrees ')) return { value: done(JSON.stringify(options.trees ?? [])) }
     if (argv.startsWith('desk-work notebook') && options.projectWork) return { value: done(JSON.stringify(options.projectWork)) }

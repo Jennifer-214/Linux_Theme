@@ -6,7 +6,7 @@ import { addBefore, addEdit, addName, neighbours, namesText, noteText, overlapFo
 import type { Other } from './ledger'
 import { paper } from './theme'
 import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, filterFiles, pendingLine, planProgress, receiptLine, reviewStates, reviewSummary, ruleLine, ruler, spread, workName, wrapWords, stepLabel, testLabel, turnLabel, unreviewed, work, workCall, workLook, needBreakdown, needGroup, wrapParts, MARKS, glyph } from './work'
-import { attributeFiles, fileColumns, fileCounts, gitFiles, drawerPage, mailId, shortPath } from './notebook'
+import { attributeFiles, fileColumns, fileCounts, gitFiles, drawerPage, mailId, shortPath, NAMED_PAGES } from './notebook'
 import { BUILD_ID } from './build'
 
 // Linux_Theme paper: a notebook pane beside the chat (hearts, the session's name, its plan, the gate, pages
@@ -747,7 +747,7 @@ export const register: Register = on => {
     }))
     try {
       const saved = JSON.parse(await work($, ['workspace', '--root', await repoRoot($), '--client', 'notebook:' + await $.session.id()]) ?? 'null')
-      if (saved?.version === 1 && ['overview', 'files', 'project', 'sessions', 'timeline', 'digest', 'health'].includes(saved.page))
+      if (saved?.version === 1 && NAMED_PAGES.includes(saved.page))
         await update($, notebookView, current => ({ ...current, ...saved, form: 'none', focused: '' }))
     } catch { /* a first visit starts at the overview */ }
     // Only where someone is looking: a headless run (claude -p) has nowhere to put a pane.
@@ -803,7 +803,7 @@ export const register: Register = on => {
     await update($, notebookView, view => ({ ...view, form: 'none' as const,
       ...(view.form !== 'none' ? { selected: '', focused: '' } : {}) }))
     await update($, writingTo, () => null)
-    if (['files', 'project', 'sessions', 'overview', 'all', 'timeline', 'digest', 'health'].includes(page))
+    if (page === 'all' || (NAMED_PAGES as readonly string[]).includes(page))
       await update($, notebookView, v => ({ ...v, page: page === 'all' ? 'files' : page as NotebookView['page'],
         scope: page === 'all' ? 'all' as const : v.scope, offset: 0, selected: '', form: 'none' as const }))
     const view = await read($, notebookView)
@@ -1386,6 +1386,15 @@ export const register: Register = on => {
       for (const need of needs.slice(offset, offset + 20)) pair(need.key, need.left, need.right, need.press, need.says, need.colour)
       if (offset > 0) content.push(row('attention-previous', '↑ more urgent', () => setView({ offset: offset - 20, selected: '' })))
       if (needs.length > offset + 20) content.push(row('attention-next', `↓ ${needs.length - offset - 20} more`, () => setView({ offset: offset + 20, selected: '' })))
+      // The review backlog: set aside to catch up later (it stays unreviewed in the review), or brought back.
+      const commits = needs.filter(n => n.key.startsWith('attention-commit:')).length
+      if (commits > 0 || now?.work?.aside) rule('backlog')
+      if (commits > 0) pair('needs-aside', `set aside ${commits} ${commits === 1 ? 'commit' : 'commits'} to review`, 'catch up later', () => setView({ form: 'aside' }),
+        'They leave this list and stay unreviewed in the review, for when you want to catch up. Bring back undoes it.', paper.dim)
+      const aside = now?.work?.aside
+      if (aside) pair('needs-bring-back', `bring back ${aside.count} set-aside ${aside.count === 1 ? 'commit' : 'commits'}`, 'undo', async () => {
+        if (await checkedWork(['set-aside', '--root', root, '--undo', 'yes'])) await refresh($)
+      }, `Set aside ${ago(clock / 1000 - aside.at)}. Enter puts them back into what needs you.`, paper.dim)
       describe()
     }
 
@@ -1608,6 +1617,14 @@ export const register: Register = on => {
             }
           }))
       } else content.push(text('That attention item is already settled.'))
+    }
+    if (view.form === 'aside') {
+      const commits = needs.filter(n => n.key.startsWith('attention-commit:')).length
+      content.push(text(`Set aside ${commits} ${commits === 1 ? 'commit' : 'commits'} to review?`, paper.ink))
+      content.push(text('They stay unreviewed in the review; bringing them back undoes it.'))
+      content.push(row('aside-confirm', 'set them aside', async () => {
+        if (await checkedWork(['set-aside', '--root', root])) { await setView({ form: 'none', selected: '' }); await refresh($) }
+      }))
     }
     if (view.form === 'task') {
       content.push(<Input key="work-next-step" placeholder="pin a next step" submitLabel="pin" autoFocus onSubmit={async value => {

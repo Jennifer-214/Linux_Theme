@@ -114,7 +114,7 @@ const std::set<std::string> actions = {
     "goodnight-open", "api-task-ask", "api-task-open", "api-task-failure", "api-task-settings", "api-task-review", "api-task-pi", "api-task-follow", "calendar-feed-add", "calendar-feed-remove", "calendar-refresh", "display-scale", "display-rotate", "display-side", "display-mode", "display-keep", "display-undo", "display-edit", "cursor-size", "credits-setup", "credits-console", "model-agent", "model-remove", "storage-scan", "storage-open", "storage-clean-packages", "storage-trim-journal", "storage-flatpak-unused",
     "storage-empty-trash", "storage-hidden", "backup-restore", "backup-open", "backup-prune", "startup-user", "startup-autostart", "program-quit", "program-force", "terminal-go", "terminal-new", "terminal-here", "terminal-rename", "terminal-pane-move", "terminal-pane-split", "terminal-close",
     "work-open", "work-jump", "work-tests", "work-compare", "work-ask", "work-reviews", "work-tasks", "work-task-toggle", "work-task-draft", "worktree-open", "worktree-terminal", "project-worktrees", "service-log", "service-ask",
-    "note-open", "note-clear", "calendar", "work-attention", "work-event", "work-unsnooze", "work-caught-up", "work-health-controls", "work-backups"
+    "note-open", "note-clear", "calendar", "work-attention", "work-event", "work-unsnooze", "work-caught-up", "work-health-controls", "work-backups", "work-set-aside", "work-bring-back"
 };
 // The drawer loads one page at a time, so a page read that waits on a dead service holds every other page behind it.
 int read_limit_seconds = 0;
@@ -2425,12 +2425,36 @@ void work_rows(const Json& config, const std::string& page, Json& rows, bool* ob
         return;
     }
     if (page == "attention" || (page == "reviews" && data.contains("attention"))) {
+        // Commits to review fold into one row per project, which opens that project's review; everything else keeps a
+        // row of its own. One row per commit buried what needs you now under dozens of them.
+        std::map<std::string, int> commits;
+        std::vector<std::string> order;
+        int total = 0;
         for (const auto& entry : data.value("attention", Json::array())) {
             const auto kind = text(entry, "kind");
             if (page == "reviews" && kind != "commit" && kind != "request" && kind != "changed") continue;
+            if (kind == "commit") {
+                const auto root = text(entry, "root");
+                if (!commits.count(root)) order.push_back(root);
+                ++commits[root]; ++total;
+                continue;
+            }
             rows.push_back(work_row("work-attention", text(entry, "label"),
                 Json{{"root", text(entry, "root")}, {"id", text(entry, "id")}}.dump(),
                 fs::path(text(entry, "root")).filename().string() + " · " + text(entry, "why")));
+        }
+        for (const auto& root : order) {
+            const int n = commits[root];
+            rows.push_back(work_row("work-reviews", std::to_string(n) + (n == 1 ? " commit to review" : " commits to review"),
+                Json{{"root", root}, {"id", ""}}.dump(), fs::path(root).filename().string() + " · opens the review in Neovim"));
+        }
+        if (page == "attention" && total > 0)
+            rows.push_back(work_row("work-set-aside", "Set aside " + std::to_string(total) + (total == 1 ? " commit" : " commits") + " to review", "{}",
+                "Catch up later: they leave this list and stay unreviewed in the review; Bring back undoes it"));
+        if (page == "attention") for (const auto& record : data.value("aside", Json::array())) {
+            const auto n = record.value("count", 0);
+            rows.push_back(work_row("work-bring-back", "Bring back " + std::to_string(n) + " set-aside " + (n == 1 ? "commit" : "commits"),
+                Json{{"root", text(record, "root")}}.dump(), fs::path(text(record, "root")).filename().string() + " · back into what needs you"));
         }
         if (page == "attention" && !data.value("snoozed", Json::array()).empty()) {
             auto row = item("attention-snoozed", "Snoozed items", "page", "Bring an item back before its snooze ends", "note");
@@ -4653,6 +4677,13 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
     if (id == "work-tasks") {
         if (!work_project(config, arg)) return result(false, "Project is no longer in your configured project roots");
         return launch({"desk-work", "open", "--action", "tasks", "--root", arg}, "Project next steps opened");
+    }
+    if (id == "work-set-aside") { auto reply = command({"desk-work", "set-aside", "--all", "yes"}, "Commits to review set aside"); reply["close"] = false; return reply; }
+    if (id == "work-bring-back") {
+        const auto value = Json::parse(arg, nullptr, false);
+        if (!value.is_object() || !work_project(config, text(value, "root"))) return result(false, "This project is no longer in your index cards");
+        auto reply = command({"desk-work", "set-aside", "--root", text(value, "root"), "--undo", "yes"}, "Set-aside commits brought back");
+        reply["close"] = false; return reply;
     }
     if (id == "work-health-controls" || id == "work-backups")
         return launch({"desk-work", "open", "--action", id == "work-backups" ? "backups" : "health"}, "Opened work controls");
