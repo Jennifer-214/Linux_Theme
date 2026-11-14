@@ -60,7 +60,32 @@ make test
 
 The root Makefile discovers tools through `src/*/Makefile`. Each component supplies
 its own build and optional test targets; `make test` also runs the script tests.
+
+`make test-fast` selects Python tests that name changed files and runs the native `test` target of affected
+components, including consumers of a changed shared library. `python3 tests/run_changed.py --since REV --list`
+shows the selection. Filenames with spaces are preserved. Invalid revisions fail with exit 2; a tree that changes
+during the run is inconclusive (exit 3), even if its tests passed. A passing subset is not a full release check.
+
+For changes to the Claude notebook, run `make test-claude`. This builds the renderer and requires Claude Code,
+TypeScript (`tsc`) and matching engine-generated API types; missing prerequisites fail instead of skipping. Claude
+Code writes `.claude-plugin/types` beside a mod when it loads it. On a fresh workstation, load the mod in a separate
+Claude session once, then point the check at that generated SDK (it need not be an installed copy of this mod):
+
+```bash
+CLAUDE_TYPES_DIR=/path/to/mod/.claude-plugin/types make test-claude
+```
+
+Without an override the check searches configured mods for an SDK matching `claude --version`. Older active
+sessions can regenerate older types, so the check verifies its staged copy as well. After an engine update,
+load a mod in a new session if no matching SDK exists. The check stages and tests the repository's
+code in a temporary directory and leaves running sessions alone. Run this strict check before releasing notebook
+changes; the general suite still allows missing optional tools on machines that do not use Claude.
+
 Use `make install` to copy the native tools into `~/.local/bin`.
+
+The [work integration audit](work-integration-audit.md) records the shared attention projection, action dispatcher,
+change stream, agent adapters and remaining compatibility paths. The
+[installation checks](installation.md#work-integrations-on-a-fresh-install) cover the runtime files and VM follow-up.
 
 ## Extend the installer
 

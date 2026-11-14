@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from fixture_process import run as run_fixture
 
 ROOT = Path(__file__).resolve().parents[1]
 WORK = ROOT / 'src/desk-work/desk-work'
@@ -72,7 +73,7 @@ end
 ''' + code)
         before = {p.name: p.read_bytes() for p in self.repo.iterdir() if p.is_file()}
         index = (self.repo / '.git/index').read_bytes()
-        checked = subprocess.run(['nvim', '--headless', '--clean', '-l', str(script)],
+        checked = run_fixture(['nvim', '--headless', '--clean', '-l', str(script)],
                                  cwd=self.repo, env=self.env, capture_output=True, text=True, timeout=30)
         self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
         if index_unchanged:
@@ -125,7 +126,7 @@ assert(vim.bo[buf].modified and content(buf) == 'local unsaved = 7', 'review cha
 assert(vim.fn.maparg('q','n') == '' and vim.fn.maparg(']f','n') == '')
 ''')
 
-    def test_native_quit_and_close_leave_the_whole_review_once(self):
+    def test_native_quit_closes_the_diff_but_only_hides_a_sidebar(self):
         self.run_lua(r'''
 vim.cmd.edit(root .. '/a.lua')
 local origin,source=api.nvim_get_current_win(),api.nvim_get_current_buf()
@@ -137,12 +138,79 @@ for _,command in ipairs({'quit','quit!','close','tabclose','bdelete','bwipeout'}
     api.nvim_set_current_win(r[side])
     vim.v.errmsg=''
     vim.cmd(command)
-    assert(vim.wait(300,function()return R.current==nil end,10),command..' left a partial review behind')
+    if side=='panel_win' and command~='tabclose' then
+      assert(vim.wait(300,function()return not api.nvim_win_is_valid(r.panel_win) end,10),command..' left a deleted sidebar window behind')
+      assert(R.current==r and api.nvim_win_is_valid(r.left_win) and api.nvim_win_is_valid(r.right_win),'hiding a sidebar closed the diff')
+      C.close()
+    else
+      assert(vim.wait(300,function()return R.current==nil end,10),command..' left a partial review behind')
+    end
     assert(api.nvim_get_current_win()==origin and api.nvim_win_is_valid(origin),'quit closed the editing window')
     assert(vim.bo[source].modified and content(source):find('unsaved = 7',1,true),'quit lost unsaved work')
     assert(vim.v.errmsg=='','quit produced an error: '..vim.v.errmsg)
   end
 end
+''')
+
+    def test_sidebar_toggle_and_reselection_preserve_diff_buffers_focus_folds_and_reading_positions(self):
+        self.run_lua(r'''
+vim.cmd.edit(root..'/a.lua')
+local origin,source=api.nvim_get_current_win(),api.nvim_get_current_buf()
+api.nvim_buf_set_lines(source,0,1,false,{'local unsaved = 7'})
+local neo_calls=0
+local neo_win
+vim.keymap.set('n','<leader>e',function()
+  neo_calls=neo_calls+1
+  if neo_win and api.nvim_win_is_valid(neo_win) then api.nvim_win_close(neo_win,false);return end
+  local here=api.nvim_get_current_win()
+  vim.cmd('topleft vsplit');neo_win=api.nvim_get_current_win()
+  local tree=api.nvim_create_buf(false,true);api.nvim_win_set_buf(neo_win,tree);vim.bo[tree].filetype='neo-tree'
+  vim.wo[neo_win].winfixwidth=true;api.nvim_win_set_width(neo_win,16)
+  api.nvim_set_current_win(here)
+end,{desc='Neo-tree fixture'})
+local before,after={},{}
+for i=1,100 do before[i]='-- line '..i;after[i]=before[i] end
+after[50]='-- changed line'
+local pair={table.concat(before,'\n'),table.concat(after,'\n')}
+C.open_review({kind='external',sid='toggle-fixture',short='toggle fixture',files={root..'/a.lua',root..'/added.txt'},
+  snapshots={[root..'/a.lua']=pair,[root..'/added.txt']=pair}},root)
+local r=R.current
+vim.fn.maparg('<Space>e','n',false,true).callback()
+assert(neo_calls==1 and api.nvim_win_is_valid(r.panel_win),'review mappings replaced the normal Neo-tree binding')
+assert(type(vim.fn.maparg('<Space>re','n',false,true).callback)=='function','the review toggle has no separate binding')
+api.nvim_set_current_win(r.right_win);vim.cmd('normal! zR');api.nvim_win_set_cursor(r.right_win,{40,0})
+local left,right,tab=r.left_buf,r.right_buf,r.tab
+local width=api.nvim_win_get_width(r.right_win)
+local tree_width=api.nvim_win_get_width(neo_win)
+assert(R.hide_panel())
+assert(R.current==r and not api.nvim_win_is_valid(r.panel_win) and api.nvim_get_current_win()==r.right_win)
+assert(api.nvim_win_get_width(neo_win)==tree_width,'review layout resized the independent tree')
+assert(api.nvim_win_get_width(r.right_win)>width,'hiding the list did not give the diff its room')
+assert(api.nvim_win_get_cursor(r.right_win)[1]==40 and vim.fn.foldclosed(1)==-1,'hiding the list changed the reading position or folds')
+assert(R.show_panel(true) and api.nvim_get_current_win()==r.panel_win)
+local selected=api.nvim_win_get_cursor(r.panel_win)
+vim.fn.maparg('q','n',false,true).callback()
+assert(R.current==r and not api.nvim_win_is_valid(r.panel_win),'q in the file list closed the comparison')
+assert(api.nvim_get_current_win()==r.right_win,'hiding the list lost the previous diff side')
+R.toggle_panel()
+assert(api.nvim_get_current_win()==r.panel_win and api.nvim_win_get_cursor(r.panel_win)[1]==selected[1],'showing the list lost its selection')
+api.nvim_set_current_win(r.right_win)
+R.select(1);R.select(1,true)
+assert(r.left_buf==left and r.right_buf==right,'reselecting unchanged content rebuilt the diff')
+assert(api.nvim_win_get_cursor(r.right_win)[1]==40 and vim.fn.foldclosed(1)==-1,'reselection reset cursor or fold state')
+R.select(2);api.nvim_win_set_cursor(r.right_win,{70,0});R.select(1)
+assert(api.nvim_win_get_cursor(r.right_win)[1]==40,'returning to a file lost its reading position')
+R.show_panel(true);vim.cmd('bdelete')
+assert(vim.wait(300,function()return not api.nvim_win_is_valid(r.panel_win) end,10),'deleting the file-list buffer did not hide it')
+R.toggle_panel()
+assert(R.current==r and api.nvim_win_is_valid(r.panel_win) and api.nvim_win_is_valid(r.left_win),'the file list did not reopen after buffer deletion')
+assert(type(vim.fn.maparg('q','n',false,true).callback)=='function','the reopened list lost its mappings')
+assert(r.tab==tab and #api.nvim_list_tabpages()==2,'toggling created another comparison')
+api.nvim_set_current_win(r.right_win);vim.fn.maparg('<Space>e','n',false,true).callback()
+vim.wait(50,function()return R.current==nil end,5)
+assert(R.current==r and not api.nvim_win_is_valid(neo_win),'closing an independent tree closed the comparison')
+C.close()
+assert(api.nvim_get_current_win()==origin and vim.bo[source].modified,'toggling lost the original unsaved editor')
 ''')
 
     def test_working_changes_include_renames_untracked_files_and_unsaved_drafts(self):
@@ -454,6 +522,113 @@ assert(R.request_of(r,r.files[1])==nil,'checking the file settles the request')
 C.close()
 ''')
 
+    @unittest.skipUnless(WORK.exists(), 'build desk-work first')
+    def test_requests_refresh_in_an_open_review_and_waiting_is_not_reported_as_checked(self):
+        (self.repo / '.review-risk').write_text('a.lua\n')
+        self.run_lua(r'''
+local notices={}
+vim.notify=function(text) notices[#notices+1]=text end
+C.open_review({kind='live',sid='refresh1',name='example',short='example',files={root..'/a.lua'}},root)
+local r=R.current
+assert(vim.wait(3000,function() return r.shared_requests~=nil end,10))
+assert(R.requested(root..'/a.lua',{id='abc',name='A session'},'handle the empty case'))
+R.unread()
+assert(notices[#notices]=='Waiting on 1 change request.',vim.inspect(notices))
+assert(not R.finish(),'a waiting request must not finish the review')
+local function backend(args)
+  local argv={R.work_tool(),'review-request','--root',root,'--file','a.lua'}
+  vim.list_extend(argv,args)
+  local out=vim.system(argv,{text=true}):wait(3000)
+  assert(out.code==0 and vim.json.decode(out.stdout).ok)
+end
+backend({'--text','a revised request','--sid','abc','--name','A session'})
+R.select(1,true)
+assert(R.request_of(r,r.files[1]).text=='a revised request','shared text must replace the local copy')
+backend({'--clear','yes'})
+api.nvim_exec_autocmds('FocusGained',{})
+assert(vim.wait(3000,function() return R.request_of(r,r.files[1])==nil end,10),'withdrawal did not reach the open review')
+R.unread()
+assert(notices[#notices]~='Every file is checked. R finishes the review.','withdrawal is not a checkmark')
+assert(vim.wait(3000,function() return not r.requests_pending end,10))
+-- A read already in flight cannot undo a new request.
+local system=vim.system
+local delayed
+vim.system=function(argv,opts,callback)
+  if argv[2]=='review-requests' and callback then delayed=callback; return {} end
+  return system(argv,opts,callback)
+end
+R.refresh_requests()
+assert(delayed)
+assert(R.requested(root..'/a.lua',{id='abc',name='A session'},'keep this one'))
+delayed({code=0,stdout='[]'})
+vim.wait(20)
+vim.system=system
+assert(R.request_of(r,r.files[1]).text=='keep this one','an old read erased a new request')
+-- A failed read preserves the last known request, rather than settling it.
+vim.system=function() return {wait=function() return {code=1,stdout='[]'} end} end
+R.refresh_requests(true)
+vim.system=system
+assert(R.request_of(r,r.files[1]).text=='keep this one')
+assert(notices[#notices]:find('Could not refresh change requests',1,true))
+-- A failed shared write must leave the request pending and undo the local checkmark.
+vim.system=function(argv,opts,callback)
+  if argv[2]=='review-request' then return {wait=function() return {code=1,stdout='{}'} end} end
+  return system(argv,opts,callback)
+end
+R.mark()
+vim.system=system
+assert(r.marks['a.lua']==nil,'a failed settlement must not check the file')
+assert(R.request_of(r,r.files[1]).text=='keep this one')
+C.close()
+-- Reviewing a request on an old commit must not settle the current file's request.
+C.open_review(row,root)
+R.select(find('a.lua'))
+assert(R.requested(root..'/a.lua',{id='abc',name='A session'},'about the old commit'))
+R.mark()
+local current=vim.system({R.work_tool(),'review-requests','--root',root},{text=true}):wait(3000)
+assert(vim.json.decode(current.stdout)[1].text=='keep this one','checking an old commit settled a live request')
+C.close()
+''')
+
+    @unittest.skipUnless(WORK.exists(), 'build desk-work first')
+    def test_an_open_live_review_updates_on_a_shared_event_without_moving_focus(self):
+        self.run_lua(r'''
+local origin=api.nvim_get_current_tabpage()
+C.open_review({kind='live',sid='events1',name='example',short='example',files={root..'/a.lua',root..'/added.txt'}},root)
+local r=R.current
+R.select(find('added.txt')); R.mark()
+local checked=r.marks['added.txt']
+R.select(find('a.lua'))
+api.nvim_set_current_win(r.panel_win)
+local file=root..'/a.lua'
+local saved=assert(io.open(file,'rb')); local original=saved:read('*a'); saved:close()
+local f=assert(io.open(file,'wb')); f:write('local value = 1000\nprint(value)\n'); f:close()
+local out=vim.system({R.work_tool(),'signal','--root',root},{text=true}):wait(3000)
+assert(out.code==0)
+assert(vim.wait(6000,function() return content(r.right_buf):find('value = 1000',1,true)~=nil end,20),'the shared event did not refresh the open comparison')
+assert(api.nvim_get_current_win()==r.panel_win,'a live refresh stole keyboard focus')
+local events=require('foxml.work_events')
+local state=events.roots[vim.uv.fs_realpath(root) or root]
+local previous_pid=state.job.pid
+state.job:kill(15) -- only the disposable review's owned watcher
+assert(vim.wait(6000,function() return state.job.pid~=previous_pid and not state.watch_failed end,20),'the change stream did not reconnect')
+local other=assert(io.open(root..'/added.txt','wb')); other:write('new text\nchanged again\n'); other:close()
+vim.system({R.work_tool(),'signal','--root',root},{text=true}):wait(3000)
+assert(vim.wait(6000,function() return r.files[find('added.txt')].signature~=checked end,20),'the unselected file kept a stale checkmark')
+assert(content(r.right_buf):find('value = 1000',1,true),'refreshing another file changed the selection')
+api.nvim_set_current_tabpage(origin)
+f=assert(io.open(file,'wb')); f:write('local value = 2000\nprint(value)\n'); f:close()
+vim.system({R.work_tool(),'signal','--root',root},{text=true}):wait(3000)
+assert(vim.wait(6000,function() return r.live_dirty end,20),'the hidden review lost its invalidation')
+assert(api.nvim_get_current_tabpage()==origin,'a hidden review took over the editing tab')
+api.nvim_set_current_tabpage(r.tab)
+assert(content(r.right_buf):find('value = 2000',1,true),'the review did not catch up on returning to its tab')
+f=assert(io.open(file,'wb')); f:write(original); f:close()
+other=assert(io.open(root..'/added.txt','wb')); other:write('new text\n'); other:close()
+C.close()
+assert(next(require('foxml.work_events').roots)==nil,'the review left its subscription behind')
+''')
+
     def test_api_review_sends_exactly_the_displayed_change_and_is_remembered_for_that_version(self):
         self.run_lua(r'''
 local asked
@@ -527,22 +702,21 @@ assert(vim.api.nvim_win_get_cursor(r.right_win)[1]==3,'and the line')
 C.close()
 ''' % live)
 
-    def test_the_next_thing_is_a_ready_request_then_a_changed_file_then_the_oldest_unreviewed_commit(self):
+    def test_review_next_uses_the_backends_review_projection_without_reordering(self):
         self.run_lua(r'''
-local answers={['review-requests']='[{"file":"a.lua","name":"Queue","state":"waiting"},{"file":"b.lua","name":"Queue","state":"ready"}]',
-  ['review-progress']='{"working":{"files":{"c.lua":{"state":"changed"},"d.lua":{"state":"checked"}}}}',
-  ['review-tree']='[{"title":"t","commits":[{"sha":"'..string.rep('a',40)..'","reviewed":false},{"sha":"'..string.rep('b',40)..'","reviewed":false}]}]'}
+local answer='[{"kind":"request","file":"b.lua","why":"Changed since you asked Queue"},{"kind":"changed","file":"c.lua"}]'
 R.work_tool=function() return 'desk-work' end
 local real=vim.system
 vim.system=function(argv,opts) if argv[1]~='desk-work' then return real(argv,opts) end
-  return {wait=function() return {code=0,stdout=answers[argv[2]] or '[]'} end} end
+  assert(argv[2]=='attention' and argv[5]=='--scope' and argv[6]=='review',vim.inspect(argv))
+  return {wait=function() return {code=0,stdout=answer} end} end
 local item=R.next_item(root)
 assert(item.kind=='request' and item.file=='b.lua' and item.why:find('Queue',1,true),vim.inspect(item))
-answers['review-requests']='[]'
+answer='[{"kind":"changed","file":"c.lua"}]'
 item=R.next_item(root); assert(item.kind=='changed' and item.file=='c.lua',vim.inspect(item))
-answers['review-progress']='{}'
+answer='[{"kind":"commit","sha":"'..string.rep('a',40)..'"}]'
 item=R.next_item(root); assert(item.kind=='commit' and item.sha==string.rep('a',40),vim.inspect(item))
-answers['review-tree']='[]'
+answer='[]'
 assert(R.next_item(root)==nil,'nothing left')
 R.work_tool=function() return nil end
 local none,why=R.next_item(root); assert(none==nil and why:find('work tool',1,true))
@@ -608,7 +782,7 @@ assert(#data.outside==1 and data.outside[1].rel=='extra.lua','a changed file no 
 local items
 package.loaded['foxml.menu']={open=function(list,opts) items=list; assert(opts.title:find('Plan coverage',1,true)) end}
 R.plan_coverage()
-assert(items[1].right=='example' and items[2].right=='not started' and items[3].group=='outside the plan',vim.inspect(items))
+assert(items[1].right=='example' and items[2].right=='no matching edits' and items[3].group=='outside the plan',vim.inspect(items))
 P.plan=nil
 C.close()
 ''')
@@ -800,6 +974,46 @@ assert(not result.stdout:find('.git/',1,true) and not result.stdout:find('ignore
 vim.fn.maparg('<Space>fg','n',false,true).callback()
 assert(called.cwd == root and vim.tbl_contains(called.additional_args,'--hidden'))
 ''', index_unchanged=False)
+
+    def test_a_burst_of_work_events_over_a_large_change_never_stalls_the_editor(self):
+        # 300 changed files, every one loaded, then 50 project signals in about a second through the real watcher: the
+        # longest gap between 10 ms heartbeats must stay short. Before committed copies were cached, each event re-read
+        # every loaded file with its own blocking git process (seconds per event at this size).
+        bulk = self.repo / 'bulk'
+        bulk.mkdir()
+        for i in range(300):
+            (bulk / f'f{i}.lua').write_text(f'local value = {i}\nreturn value\n')
+        self.git('add', 'bulk')
+        self.commit('bulk')
+        for i in range(300):
+            (bulk / f'f{i}.lua').write_text(f'local value = {i + 1}\nreturn value\n')
+        limit = int(os.environ.get('TEST_STALL_LIMIT_MS', '250'))
+        self.run_lua(r'''
+local uv = vim.uv or vim.loop
+local files = {}
+for i = 0, 299 do files[#files + 1] = root .. '/bulk/f' .. i .. '.lua' end
+C.open_review({kind='live', sid='burst', name='burst', short='burst', files=files}, root)
+local r = R.current
+assert(vim.wait(25000, function()
+  for _, f in ipairs(r.files) do if not f.loaded then return false end end
+  return true
+end, 20), 'the background loader did not load every file')
+local last, worst, ticks = uv.hrtime(), 0, 0
+local beat = uv.new_timer()
+beat:start(10, 10, vim.schedule_wrap(function()
+  local now = uv.hrtime(); worst = math.max(worst, (now - last) / 1e6); last = now; ticks = ticks + 1
+end))
+local refreshed = 0
+local unsubscribe = require('foxml.work_events').subscribe(root, function() refreshed = refreshed + 1 end)
+local signals = vim.system({'sh', '-c', 'i=0; while [ $i -lt 50 ]; do desk-work signal --root "$1" >/dev/null; sleep 0.02; i=$((i+1)); done', '_', root})
+assert(vim.wait(20000, function() return signals:is_closing() end, 10), 'the signal burst did not finish')
+vim.wait(1500, function() return false end, 10)
+beat:stop(); beat:close(); unsubscribe()
+io.stdout:write(('stall: worst %.0f ms over %d heartbeats, %d refreshes\n'):format(worst, ticks, refreshed))
+assert(refreshed > 0, 'the burst must have reached the review')
+assert(worst < ''' + str(limit) + r''', ('the editor stalled for %.0f ms during the burst'):format(worst))
+C.close()
+''')
 
 
 if __name__ == '__main__':

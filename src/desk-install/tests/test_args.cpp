@@ -71,6 +71,22 @@ std::string write_temp_preset(const std::string& body) {
 }  // namespace
 
 int main() {
+    // Module selection is not permission to answer installation prompts with defaults.
+    const auto unattended_preset = write_temp_preset("symlinks = on\n");
+    for (const auto& flags : std::vector<std::vector<std::string>>{
+             {}, {"--render"}, {"--only", "symlinks"}, {"--preset", unattended_preset}, {"--resume"}}) {
+        auto r = do_parse(flags);
+        EXPECT(r.ok);
+        EXPECT(args::requires_terminal(r.parsed, r.ctx));
+    }
+    std::remove(unattended_preset.c_str());
+    for (const auto& flags : std::vector<std::vector<std::string>>{
+             {"--yes"}, {"--dry-run"}, {"--help"}, {"--version"}, {"--wizard-demo"}}) {
+        auto r = do_parse(flags);
+        EXPECT(r.ok);
+        EXPECT(!args::requires_terminal(r.parsed, r.ctx));
+    }
+
     // Explicit --no-X survives the detect/preflight/theme re-enable
     // (both orders).
     {

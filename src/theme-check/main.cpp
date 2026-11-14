@@ -11,6 +11,7 @@
 #include "../desk-install/core/built_tools.hpp"
 #include <cstddef>
 #include "../desk-install/modules/symlinks_data.hpp"
+#include "../desk-install/modules/workflow_assets.hpp"
 
 #include <unistd.h>
 
@@ -192,7 +193,8 @@ CheckResult check_drift(const Env& env) {
         }
         compare_one(env, rendered / m.src, expand(env, dest), tally);
     }
-    for (const auto& m : map::SHARED_MAPPINGS) compare_one(env, env.repo / "shared" / m.src, expand(env, m.dest), tally);
+    for (const auto& m : map::SHARED_MAPPINGS)
+        if (!desk_install::workflow::build_stamp(m.src)) compare_one(env, env.repo / "shared" / m.src, expand(env, m.dest), tally);
 
     const auto built = desk_install::built_tool_names(env.repo / "src");
     compare_folder(env, env.repo / "shared/bin", env.home / ".local/bin", "", built, tally);
@@ -205,7 +207,7 @@ CheckResult check_drift(const Env& env) {
     compare_folder(env, env.repo / "shared/hyprland_modules", env.config / "hypr/modules", ".conf", theme_owned, tally);
     compare_folder(env, env.repo / "shared/hyprland_modules", env.config / "hypr/modules", ".lua", theme_owned, tally);
     compare_folder(env, rendered / "quickshell/foxml", env.config / "quickshell/foxml", "", {}, tally);
-    compare_folder(env, env.repo / "shared/quickshell/foxml", env.config / "quickshell/foxml", "", {}, tally);
+    compare_folder(env, env.repo / "shared/quickshell/foxml", env.config / "quickshell/foxml", "", {"Build.js"}, tally);
 
     std::ostringstream detail;
     detail << tally.same << " match";
@@ -374,6 +376,14 @@ CheckResult check_claude(const Env& env) {
     if (fs::exists(mod, ec) && sh::have("claude")) {
         const auto ran = run_bounded(60, {"claude", "plugin", "validate", mod.string()}, true);
         if (ran.code != 0) problems.push_back("the paper mod does not validate: claude plugin validate " + mod.string());
+    }
+    if (sh::have("desk-work")) {
+        const auto probe = run_bounded(15, {"desk-work", "health"}, true);
+        const auto versions = nlohmann::json::parse(probe.out, nullptr, false);
+        if (probe.code == 0 && versions.is_object()) {
+            for (const auto& alert : versions.value("alerts", nlohmann::json::array())) if (alert.is_string()) problems.push_back(alert.get<std::string>());
+            if (!versions.value("alerts", nlohmann::json::array()).empty()) problems.push_back("desk-work health shows last refresh, retry times and recovery details");
+        }
     }
     if (problems.empty()) return result("D8", title, Severity::Low, Status::Pass);
     std::string detail;

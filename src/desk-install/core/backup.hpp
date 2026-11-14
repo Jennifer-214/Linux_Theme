@@ -19,5 +19,7 @@ bool snapshot_one(const Context& ctx, const std::filesystem::path& dest);
 // Snapshot first, then replace one file atomically, preserving its source mode.
 bool deploy_file_atomic(const Context& ctx, const std::filesystem::path& src,
                         const std::filesystem::path& dest);
+bool deploy_symlink_atomic(const Context& ctx, const std::filesystem::path& target,
+                           const std::filesystem::path& dest);
 
 }  // namespace desk_install

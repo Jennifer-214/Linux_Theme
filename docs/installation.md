@@ -4,6 +4,112 @@
 
 Install paths, module selection, flags and first-run setup.
 
+Interactive installation requires a terminal for both input and output. The entry wrapper checks this before
+self-update, sudo, building deployment binaries or copying files; it and the native orchestrator consume the same
+input-policy table. `--yes` explicitly chooses unattended defaults. Selecting a preset or module alone does not
+waive prompts. Help, version, dry-run and wizard-demo bypass update and deployment, although the wrapper may
+build the orchestrator in the repository. Automated checks still use disposable deployment fixtures.
+
+## Work integrations on a fresh install
+
+The wrapper builds and installs native tools before deploying configuration. The default `symlinks`, `specials`,
+`fox_aliases` and `drawer` modules deploy the notebook and its palette, Neovim modules (including `work_events.lua`),
+pi's lifecycle/job adapter, drawer pages and compatible command names. The mod folder is added to Claude settings
+after its manifest exists, while preserving other mod folders and user settings. A new attention page is offered
+once to an existing user menu; project roots, favorites and deliberately removed items stay owned by the user.
+The default `integrations` module finalizes generated client version stamps and an installed-file manifest after
+the normal deployment. The same native inventory and backup helpers drive scoped updates; no app is restarted.
+
+### Update only the work integrations
+
+Build the current tools with `make`, then preview with:
+
+```sh
+desk-work integrations plan
+```
+
+The JSON lists destinations, changes, expected versions and a `plan` token. It stages rendering in a temporary
+folder without deploying anything. Apply that exact preview, using its token:
+
+```sh
+desk-work integrations apply --expected PLAN_TOKEN
+desk-work integration-status
+desk-work integrations rollback --transaction TRANSACTION_ID
+```
+
+`desk-work health` and the drawer's **Work health** page show loaded versions, refresh timestamps and update
+recovery state. Each update records preparation, deployment, publication and rollback phases. An unfinished
+transaction blocks another update; a live writer stays running. After inspecting its details, recover a stopped
+transaction with:
+
+```sh
+desk-work integrations recover --transaction TRANSACTION_ID
+```
+
+Recovery restores the original files through the same guarded rollback, preserving later edits and permission
+changes. A completed publication whose final bookkeeping was interrupted is recorded as complete without
+rolling back its files. `:WorkHealth` opens the details and explicit recovery controls in Neovim, and lists each
+session still on older code with the steps that reload it without closing your work.
+
+### Inspect and clean update backups
+
+`desk-work integrations backups` lists transaction phases and disk usage. Preview cleanup before removing
+anything:
+
+```sh
+desk-work integrations cleanup-plan --keep 3 --older-than 30
+desk-work integrations cleanup --keep 3 --older-than 30 --expected CLEANUP_PLAN_TOKEN
+```
+
+The defaults keep at least three recent completed transactions and consider only backups over thirty days old.
+Current rollback chains, unfinished updates, live writers and unknown records remain protected regardless of
+age. The preview explains each retained backup and shows the selected bytes. If the inventory changes, cleanup
+requires a new preview. It never follows transaction-directory symlinks or changes installed files.
+`:WorkBackups` opens the same preview; **D** asks for confirmation with Cancel selected. Reading health or opening
+the backups page never performs cleanup. The installer does not schedule automatic deletion.
+
+### Required work checks
+
+`make test-work-integrations` is the mandatory local/CI entry point. Missing Claude, TypeScript, Neovim,
+Quickshell, Node or Python msgpack fails the check. The hosted workflow reads its engine/compiler pins and
+verified generated declarations from [the SDK fixture](../tests/fixtures/claude-sdk/README.md); it requires no
+Claude credentials. To use a retained pinned executable locally without changing your installed CLI, set
+`CLAUDE_TEST_BIN` to that executable when running the target. Logs identify every required group and the first
+failure. The SDK fixture is never deployed by the installer.
+
+The scoped dispatcher runs only the native integration-update path; it does not enter the installation wizard.
+An update refuses if source builds are stale, preview targets moved or dependencies cannot be staged/backed up.
+Compatibility command names derive from the existing alias table, so old `fox-*` copies use the updated native
+tools. Custom command aliases are preserved; replaced copies and links are included in backup and rollback.
+Rollback restores original files, modes and symlinks, including a separate XDG config directory, and refuses to
+overwrite later edits or permission changes. Transactions live under
+`$XDG_STATE_HOME/foxml/work/integrations/transactions/` (default `~/.local/state/foxml/work/integrations/transactions/`).
+This updates an existing base installation; normal installation still configures the Claude mod setting and other
+application wiring.
+
+`desk-work integration-status` compares source inputs, installed files and versions reported by live clients.
+Unknown loaded versions stay unknown. A normal app/module reload picks up new code; the updater does not close
+Claude, tmux, editor windows or agent processes. `desk theme check` includes these checks. Generated build stamps
+are checked against the integration manifest rather than compared with their development placeholders.
+
+`make -C src/desk-install test` includes a disposable-home deployment fixture. It discovers every runtime module,
+copies it through the production mapping and atomic deployment helper, renders the notebook palette, checks native
+backend permissions and old aliases, and repeats deployment. It also checks menu upgrades reach an older install.
+This complements the existing hook-wiring and drawer-install fixtures; it does not replace a boot/login VM test.
+
+After the normal install in a VM, check:
+
+- `command -v desk-work desk-drawer desktop-menu` resolves the installed commands.
+- A new Claude session accepts `/notebook compact` and `/notebook expand`.
+- In Neovim, a clean sample buffer reloads an external atomic save. With unsaved edits, `:AgentChanges` offers a
+  comparison and saving refuses to overwrite the external copy until it is resolved.
+- `:WorkAttention`, the notebook and the drawer's **Needs you** page agree about the same project.
+- A pi session appears on the Agents page; its completed test run reaches the work store.
+- `desk-work watch --root "$PWD"` receives a versioned event when another terminal runs
+  `desk-work signal --root "$PWD"`.
+
+Running sessions keep their loaded code until the app reloads it. Deployment never needs to close Claude or tmux.
+
 ## Requirements
 
 - Arch Linux with Hyprland; the installer uses `pacman`.
@@ -60,9 +166,8 @@ individual flags use their registered spelling (for example `--llama-server`).
 
 ### Inspect a plan directly
 
-The shell wrapper can self-update, install build prerequisites and install native
-binaries before handing off to the orchestrator, even with `--dry-run` or `--help`.
-To inspect the orchestrator without those wrapper steps, build and call it directly:
+The shell wrapper routes informational flags directly to the local orchestrator, bypassing self-update, sudo and
+binary installation. To inspect without even invoking the bootstrap build, build and call it directly:
 
 ```bash
 make -C src/desk-install

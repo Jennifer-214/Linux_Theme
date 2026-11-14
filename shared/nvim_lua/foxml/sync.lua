@@ -44,7 +44,9 @@ function M.check(buf)
     refresh_time(buf)
     local current = M.buffers[buf]
     if current then
-      if contents(buf) == disk then current.base, current.pending, current.updated = disk, nil, uv.now()
+      if contents(buf) == disk then
+        current.base, current.pending, current.updated = disk, nil, uv.now()
+        require('foxml.work_events').signal(current.root)
       else waiting(current, disk) end
     end
     for win, view in pairs(views) do
@@ -60,6 +62,7 @@ function M.detach(buf)
   local state = M.buffers[buf]
   if not state then return end
   M.buffers[buf] = nil
+  if state.unsubscribe then state.unsubscribe() end
   local watch = M.watchers[state.dir]
   if not watch then return end
   watch.buffers[buf] = nil
@@ -75,11 +78,18 @@ function M.track(buf, reset)
   local path = api.nvim_buf_get_name(buf)
   if path == '' or path:match('^%a[%w+.-]*://') then return end
   local old = M.buffers[buf]
-  if old and old.path == path and not reset then return M.check(buf) end
+  if old and old.path == path then
+    if reset then old.base, old.pending = contents(buf), nil end
+    return M.check(buf)
+  end
   M.detach(buf)
   local dir = vim.fs.dirname(path)
-  local state = { path = path, dir = dir, base = read(path) }
+  -- The baseline is what Neovim read or wrote, even if an atomic agent save races that event.
+  local state = { path = path, dir = dir, base = not vim.bo[buf].modified and contents(buf) or nil }
   M.buffers[buf] = state
+  local root = vim.fs.root(path, '.git')
+  state.root = root
+  if root then state.unsubscribe = require('foxml.work_events').subscribe(root) end
   local watch = M.watchers[dir]
   if not watch then
     watch = { handle = uv.new_fs_event(), timer = uv.new_timer(), buffers = {} }
@@ -168,6 +178,10 @@ end
 function M.setup()
   local group = api.nvim_create_augroup('foxml_live_files', { clear = true })
   api.nvim_create_autocmd({ 'BufReadPost', 'BufWritePost' }, { group = group, callback = function(a) M.track(a.buf, true) end })
+  api.nvim_create_autocmd('BufWritePost', { group = group, callback = function(a)
+    local state = M.buffers[a.buf]
+    if state then require('foxml.work_events').signal(vim.fs.root(state.path, '.git')) end
+  end })
   api.nvim_create_autocmd({ 'BufEnter', 'BufFilePost' }, { group = group, callback = function(a) M.track(a.buf) end })
   api.nvim_create_autocmd({ 'BufUnload', 'BufWipeout' }, { group = group, callback = function(a) M.detach(a.buf) end })
   api.nvim_create_autocmd({ 'FocusGained', 'CursorHold', 'CmdlineLeave' }, { group = group, callback = function()

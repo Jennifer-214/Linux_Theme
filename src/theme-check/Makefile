@@ -15,8 +15,10 @@ all: $(BIN)
 $(BIN): main.o $(LIBS)
 	$(CXX) $(CXXFLAGS) -o $@ main.o -L$(DESK_HEALTH_DIR) -ldesk-health -L$(DESK_COMMON_DIR) -ldesk-common
 
-main.o: main.cpp drift.hpp
-	$(CXX) $(CXXFLAGS) -c main.cpp -o $@
+main.o: main.cpp drift.hpp Makefile
+	$(CXX) $(CXXFLAGS) -MMD -MP -c main.cpp -o $@
+
+-include main.d
 
 $(DESK_COMMON_DIR)/libdesk-common.a:
 	$(MAKE) --no-print-directory -C $(DESK_COMMON_DIR)

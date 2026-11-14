@@ -9,7 +9,7 @@ _foxml_work_preexec() {
         zsh_history_scrub_preexec "$1" || return 0
     fi
     typeset -g _foxml_work_id
-    _foxml_work_id=$(command desk-work begin --root "$PWD" --pid "$$" --command "$1" 2>/dev/null)
+    _foxml_work_id=$(command desk-work begin --root "$PWD" --pid "$$" --safe yes --command "$1" 2>/dev/null)
     return 0
 }
 _foxml_work_precmd() {

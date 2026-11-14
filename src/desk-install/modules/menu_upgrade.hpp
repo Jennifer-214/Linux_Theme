@@ -18,7 +18,7 @@
 namespace desk_install::menu_upgrade {
 
 // Pages shipped since offers were recorded; a machine without a record is offered only these.
-inline const std::set<std::string> FIRST_OFFER = {"screenshots", "models", "storage", "backups", "startup", "worktrees", "jobs", "test-results", "reviews", "next-steps", "failures",
+inline const std::set<std::string> FIRST_OFFER = {"screenshots", "models", "storage", "backups", "startup", "worktrees", "jobs", "test-results", "reviews", "attention", "work-history", "work-digest", "work-health", "next-steps", "failures",
                                                   "displays", "api-tasks", "api-credits", "calendar", "earlier-notes"};
 
 inline std::string field(const nlohmann::json& object, const char* key) {

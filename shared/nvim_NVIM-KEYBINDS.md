@@ -553,6 +553,16 @@ first change you make to it says which session to coordinate with. The statuslin
 | `Space Cj` | Go to the pane of the Claude that edited this buffer |
 | `Space Cd` | Show this file in the current review panes |
 | `Space Cr` | Review the next thing that needs you: a requested change whose file has changed, a file edited since you reviewed it, else the oldest unreviewed Claude commit (`:ReviewNext`) |
+| `:WorkAttention` | Shared project attention list: failed jobs, agents needing input and changes to review |
+| `:WorkNext` | Open the first item in the shared attention list |
+| `:WorkTimeline` | Project activity with links to files, results and reviews |
+| `:WorkDigest` | Changes since your last explicit acknowledgement |
+| `:WorkSnooze` / `:WorkUnsnooze` | Hide or restore shared attention items without settling them |
+| `:WorkSuggestedTests` | Choose a captured test command and confirm a run in its original folder |
+| `:WorkSave` / `:WorkResume` | Save file positions or restore them in new tabs, preserving current buffers and jobs |
+| `:WorkHealth` | Shared refresh/connection/version diagnostics and sessions on older code with their reload steps; **r** refreshes, **R** offers guarded update recovery, **F** repairs unreadable records |
+| `:WorkRepair` | Preview setting an unreadable work record aside (the original is kept); **D** makes the previewed repair |
+| `:WorkBackups` | Preview update backup usage and cleanup; **D** asks before removing the reviewed selection |
 | `Space Cq` | Close all Claude review tabs and the file list; stop following |
 | `Space Cp` | The plan the sessions in this repo read last (`:Plan`) |
 
@@ -573,33 +583,37 @@ Committed reviews compare the exact parent and selected commit; later working ch
 Live reviews capture the current working copy (including unsaved buffers); `r` refreshes it.
 Checking a live file is invalidated when its contents change. Files with missing snapshots cannot be checked.
 
+<!-- review-keys:begin · generated from shared/nvim_lua/foxml/review.lua: python3 tests/test_nvim_keys.py --write -->
 | Key in the review | Action |
 |---|---|
-| `Enter` in the sidebar | Open the selected file in the same comparison panes |
-| `Enter` / `l` on a commit | Expand / collapse its changed files |
-| `h` | Collapse changed functions first, then the selected commit |
-| `]f` / `[f`, `Tab` / `Shift+Tab` | Next / previous file |
-| `]c` / `[c` | Next / previous changed block |
-| `m` | Check or uncheck the current file as reviewed |
-| `Space` (in the sidebar) | Check or uncheck the selected file |
+| `Enter` / `l` in the file list | Open the selected file in the comparison panes; on a commit, expand or collapse its changed files |
+| `h` in the file list | Collapse changed functions first, then the selected commit |
+| `]f` / `[f` / `Tab` / `Shift+Tab` | Next / previous file |
+| `]c` / `[c` in a diff | Next / previous changed block |
+| `m` / `Space` (list) | Check or uncheck the file as reviewed |
 | `u` | Resume at the first unchecked file (files with a risk mark or ready for re-review first) |
-| `n` (sidebar) / `Space rn` | Only what is new since you reviewed a file / the whole change (remembered) |
+| `n` (list) / `Space rn` (diff) | Only what is new since you reviewed a file / the whole change (remembered) |
 | `c` | Request changes: a note about this file or the selected lines to a Claude session; the file waits on it |
-| `a` (sidebar) / `?` | Actions |
+| `a` (list) / `?` | Actions: everything below, with what each needs |
 | `A` | Open the saved API review of this file (Actions has "API review: file / change" and "Explain this hunk") |
 | `P` | Plan coverage: each plan step with the commits that touched it, steps not started, files outside the plan |
 | `N` | Note to self on this line; it stays with the file in every later review (`:ReviewNotes` lists them) |
 | `R` | Finish after every file is checked and open the next unchecked commit; this clears the finished commit from pending reviews |
 | `Space rw` | Show / hide whitespace differences |
 | `Space rc` | Six context lines / full-file context |
-| `Space e` | Focus the review file list |
-| `Space Cn` (normal or visual) | Send a note with the real filename, selected side and both versions of the changed block |
+| `Space re`, `:ReviewFiles` | Toggle the review file list, keeping the comparison open; `Space e` keeps its normal Neo-tree binding |
 | `s` | Inspect the changed C/C++ file in symdeps (current working copy near the reviewed line) |
 | `gf` | Open the editable working file in a separate tab |
 | `S` | Compare the current struct's layout with the selected commit's parent |
 | `r` | Refresh the comparison |
-| `?` | Review help |
-| `q`, `:q`, `Esc`, `Space Cq` | Close the whole review and return to your editor |
+| `f` in the file list | Follow the selected live session's edits in a separate tab (`:ClaudeFollow` stops) |
+| `q` / `Esc` in the file list, `:q` there | Hide the file list; the diff keeps its file, cursor and folds |
+| `Esc` in a diff | Clear search highlighting |
+| `q` (diff) / `Space bd`, `:q` in a diff, `Space Cq` | Close the whole review and return to your editor |
+<!-- review-keys:end -->
+
+`Space Cn` (normal or visual) sends a note with the real filename, the selected side and both versions of the
+changed block.
 
 Checkmarks are saved in Neovim's state directory under `foxml-reviews/`; reopening resumes at the first
 unchecked file. Opening a commit alone never marks it reviewed. Existing quickfix entries, ordinary

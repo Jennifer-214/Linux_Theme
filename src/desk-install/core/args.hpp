@@ -17,8 +17,15 @@ struct Parsed {
     bool only         = false;            // --only <list> was used
     bool resume       = false;            // --resume
     bool wizard_demo  = false;            // --wizard-demo: render the wizard against the live registry + exit
+    int input_mode = 0;
+    std::string integration_mode, expected, transaction;
+    int backup_keep = 3, backup_days = 30;
     std::string phase;                    // --phase <slug>
 };
+
+inline bool requires_terminal(const Parsed& parsed, const Context& ctx) {
+    return parsed.input_mode == 0 && !ctx.assume_yes && !ctx.dry_run && !parsed.show_help && !parsed.show_version && !parsed.wizard_demo;
+}
 
 // Parses argv into Parsed + populates global flags on `ctx`.
 // Returns false on parse error (prints to stderr).

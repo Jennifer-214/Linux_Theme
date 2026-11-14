@@ -10,7 +10,7 @@ all: desk-drawer
 desk-drawer: main.o $(COMMON)/libdesk-common.a
 	$(CXX) $(CXXFLAGS) -o $@ main.o -L$(COMMON) -ldesk-common -lcrypto
 
-main.o: main.cpp $(COMMON)/shell.hpp $(COMMON)/json.hpp
+main.o: main.cpp Makefile $(COMMON)/shell.hpp $(COMMON)/json.hpp
 	$(CXX) $(CXXFLAGS) -I$(COMMON) -c main.cpp -o $@
 
 $(COMMON)/libdesk-common.a:

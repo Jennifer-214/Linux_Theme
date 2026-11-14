@@ -1,13 +1,43 @@
 name: ci
 on: [push, pull_request]
 jobs:
-  desk-install:
+  pins:
+    # Reads .github/toolchain.json, the one place the toolchains are pinned.
     runs-on: ubuntu-latest
+    outputs:
+      ubuntu: ${{ steps.read.outputs.ubuntu }}
+      archImage: ${{ steps.read.outputs.archImage }}
+      archSnapshot: ${{ steps.read.outputs.archSnapshot }}
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y g++ make libssl-dev jq
+        with:
+          sparse-checkout: .github/toolchain.json
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - id: read
+        run: python3 -c "import json; [print(f'{k}={v}') for k, v in json.load(open('.github/toolchain.json')).items() if k != '_']" >> "$GITHUB_OUTPUT"
+
+  desk-install:
+    needs: pins
+    runs-on: ${{ needs.pins.outputs.ubuntu }}
+    env:
+      CCACHE_DIR: ${{ runner.temp }}/ccache
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ccache g++ make libssl-dev jq
+      - name: Name the compiler cache after this CPU model
+        # -march=native objects are only safe to reuse on the same kind of CPU.
+        run: echo "CPU_KEY=$(grep -m1 'model name' /proc/cpuinfo | sha1sum | cut -c1-12)" >> "$GITHUB_ENV"
+      - name: Restore the compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ccache-ci-${{ runner.os }}-${{ env.CPU_KEY }}-${{ github.sha }}
+          restore-keys: ccache-ci-${{ runner.os }}-${{ env.CPU_KEY }}-
+      - name: Compile through the cache
+        run: echo /usr/lib/ccache >> "$GITHUB_PATH"
       - name: build + test orchestrator
-        run: make -C src/desk-install && make -C src/desk-install test
+        run: make -j"$(nproc)" -C src/desk-install && make -C src/desk-install test
   shellcheck:
     runs-on: ubuntu-latest
     steps:

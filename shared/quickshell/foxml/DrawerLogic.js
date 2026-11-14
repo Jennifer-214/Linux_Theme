@@ -266,7 +266,7 @@ var paperPresets = {
     comfort:["comfort","☾"], system:["system","⚙"], apps:["apps","⌘"],
     projects:["notebook","▤"], bookmarks:["bookmark","◇"], library:["library","▥","▤"],
     worktrees:["notebook","▥"], jobs:["clock","◷"], "test-results":["notebook","✓"],
-    reviews:["note","✿"], "next-steps":["next","◇"], failures:["note","!"],
+    reviews:["note","✿"], attention:["note","!"], "work-history":["note","note"], "work-digest":["note","note"], "work-health":["system","⚙"], "work-health-controls":["system","system"], "work-backups":["refresh","folder"], "next-steps":["next","◇"], failures:["note","!"],
     models:["package","◈"], "api-credits":["notebook","◇"], "api-tasks":["mail","✎"], displays:["window","▭"], storage:["library","▦"], backups:["refresh","↺"], startup:["play","⏵"], programs:["cpu","⊞"], terminals:["terminal","⧈"],
     downloads:["tray","↧","✉"], screenshots:["picture","▧"], windows:["window","▣"], garden:["garden","❦"],
     "clipboard-text":["clipboard","⌇"], "clipboard-images":["clipboard","▧"],
@@ -460,6 +460,7 @@ function emptyState(page, searching, failed) {
         jobs: ["nothing has failed today.", "commands you run in a terminal\nwill gather here."],
         "test-results": ["nothing has failed today.", "your test runs\nwill leave their results here."],
         reviews: ["no changes waiting.", "new commits to look over\nwill wait for you here."],
+        attention: ["nothing needs you here.", "failed checks and changes ready to read\nwill gather here."],
         "next-steps": ["no next steps pinned.", "pin a next step from the notebook,\nor press n on a project card."],
         worktrees: ["just the one tree.", "worktrees you add to a project\nwill be mapped here."]
     };

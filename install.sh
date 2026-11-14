@@ -20,6 +20,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FOX_INSTALL_BIN="$SCRIPT_DIR/src/desk-install/desk-install"
 
+# The native policy also guards first installs, before self-update, sudo or deployment can run.
+source "$SCRIPT_DIR/src/desk-install/core/input_preflight.sh"
+
 # Strip --no-update from argv and set FOXML_NO_UPDATE=1 so the
 # self-update block below skips the git fetch + re-exec. Equivalent
 # to `FOXML_NO_UPDATE=1 ./install.sh` but discoverable from --help.

@@ -1,8 +1,10 @@
 #include "json.hpp"
 #include "shell.hpp"
+#include "work_updates.hpp"
 #include <algorithm>
 #include <chrono>
 #include <charconv>
+#include <cctype>
 #include <csignal>
 #include <cstring>
 #include <ctime>
@@ -16,9 +18,12 @@
 #include <fcntl.h>
 #include <fnmatch.h>
 #include <glob.h>
+#include <poll.h>
 #include <openssl/sha.h>
 #include <sys/file.h>
 #include <sys/stat.h>
+#include <sys/inotify.h>
+#include <sys/prctl.h>
 #include <unistd.h>
 
 namespace fs = std::filesystem;
@@ -62,6 +67,10 @@ bool private_dir(const fs::path& p) {
     struct stat s{};
     return !ec && ::lstat(p.c_str(), &s) == 0 && S_ISDIR(s.st_mode) && s.st_uid == ::getuid() && ::chmod(p.c_str(), 0700) == 0;
 }
+void changed(const fs::path& path, const std::string& data);
+J report_client(const std::string& client, const std::string& build, long long pid, const std::string& root, const J& fields);
+void record_event(const std::string& root, const std::string& kind, const std::string& identity,
+                  const std::string& label, J action, J extra = J::object());
 bool atomic(const fs::path& p, const std::string& data) {
     if (!private_dir(p.parent_path())) return false;
     std::string tmp = p.string() + ".XXXXXX"; std::vector<char> name(tmp.begin(), tmp.end()); name.push_back(0);
@@ -72,7 +81,7 @@ bool atomic(const fs::path& p, const std::string& data) {
         if (n <= 0) break;
         at += static_cast<size_t>(n); }
     const bool ok = at == data.size() && ::fsync(fd) == 0; ::close(fd);
-    if (ok && ::rename(name.data(), p.c_str()) == 0) return true;
+    if (ok && ::rename(name.data(), p.c_str()) == 0) { changed(p, data); return true; }
     ::unlink(name.data()); return false;
 }
 struct Lock {
@@ -103,23 +112,145 @@ std::string root_of(const std::string& path) {
 }
 fs::path project_dir(const std::string& root) { return base() / "projects" / hash(root); }
 bool register_root(const std::string& root) { return !root.empty() && atomic(project_dir(root) / "root", root); }
+// A refusal always says why; every client shows this text as it is.
+J refuse(const std::string& message) { return J{{"ok", false}, {"message", message}}; }
+J unwritable() { return refuse("Could not write the work records in " + base().string() + "; the disk may be full or read-only"); }
+J written(bool ok, const std::string& what) {
+    return ok ? J{{"ok", true}} : refuse("Could not save the " + what + "; the disk may be full or read-only");
+}
+// Every record a project keeps, with the container its writers expect and the lock they take. A record that cannot be
+// read refuses every write (no writer overwrites what it cannot read), so the refusal names it and work health can set
+// it aside.
+struct RecordSpec { const char* file; const char* label; const char* lock; bool array; };
+const std::vector<RecordSpec>& record_specs() {
+    static const std::vector<RecordSpec> specs{
+        {"tasks.json", "next steps", "tasks.lock", true}, {"reviewed.json", "finished reviews", "reviews.lock", false},
+        {"review-marks.json", "review marks", "reviews.lock", false}, {"review-requests.json", "change requests", "reviews.lock", false},
+        {"commit-plans.json", "commit plans", "reviews.lock", false}, {"snoozed.json", "snoozes", "snoozed.lock", false},
+        {"events.json", "project history", "events.lock", false}, {"seen.json", "read positions", "seen.lock", false}};
+    return specs;
+}
+std::string record_label(const std::string& file) {
+    for (const auto& spec : record_specs()) if (file == spec.file) return spec.label;
+    return file;
+}
+J unreadable(const std::string& file) {
+    auto out = refuse("The " + record_label(file) + " record (" + file + ") cannot be read, so nothing was changed. "
+                      "Work health (:WorkHealth) can set it aside and start a fresh one.");
+    out["record"] = file;
+    return out;
+}
+// What a record holds now, read the way its writers read it: missing (nothing yet), ok, or unreadable (every write to
+// it would be refused). Cheap enough for each attention read; references are checked only by the full report.
+J record_state(const std::string& root, const RecordSpec& spec) {
+    const auto path = project_dir(root) / spec.file;
+    J state{{"file", spec.file}, {"label", spec.label}};
+    struct stat info{};
+    if (::lstat(path.c_str(), &info) != 0) { state["state"] = "missing"; return state; }
+    state["at"] = static_cast<long long>(info.st_mtime);
+    std::string why; J parsed;
+    if (!S_ISREG(info.st_mode)) why = "not a regular file";
+    else if (info.st_size > 8 * 1024 * 1024) why = "larger than 8 MiB";
+    else {
+        parsed = J::parse(read(path), nullptr, false);
+        if (parsed.is_discarded()) why = "not valid JSON";
+        else if (spec.array ? !parsed.is_array() : !parsed.is_object()) why = spec.array ? "not a list" : "not an object";
+        else if (std::string(spec.file) == "events.json" && !parsed.value("items", J()).is_array()) why = "no list of events";
+    }
+    if (!why.empty()) { state["state"] = "unreadable"; state["why"] = why; return state; }
+    state["state"] = "ok";
+    state["entries"] = std::string(spec.file) == "events.json" ? parsed["items"].size() : parsed.size();
+    return state;
+}
+J records_brief(const std::string& root) {
+    J out = J::array();
+    for (const auto& spec : record_specs()) {
+        auto state = record_state(root, spec);
+        if (str(state, "state") == "unreadable") out.push_back(state);
+    }
+    return out;
+}
 std::string proc_stamp(long long pid) {
-    if (pid <= 0) return {};
-    const auto stat = read(fs::path("/proc") / std::to_string(pid) / "stat", 8192);
-    const auto end = stat.rfind(')'); if (end == stat.npos) return {};
-    std::istringstream in(stat.substr(end + 2)); std::string v;
-    for (int field = 3; field <= 22; ++field) if (!(in >> v) || (field == 3 && (v == "Z" || v == "X"))) return {};
-    return trim(read("/proc/sys/kernel/random/boot_id")) + ":" + v;
+    return desk_install::work_updates::process_stamp(pid);
 }
 std::string uuid() {
     const auto seed = read("/proc/sys/kernel/random/uuid", 128);
     return hash(seed + std::to_string(::getpid()) + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())).substr(0, 32);
+}
+bool signal_change(const std::string& root) {
+    if (root.empty()) return false;
+    const auto event = J{{"version", 1}, {"root", root}, {"revision", uuid()}, {"at", now()}}.dump();
+    const bool local = atomic(project_dir(root) / "revision.json", event);
+    return atomic(base() / "revision.json", event) && local;
+}
+void changed(const fs::path& path, const std::string& data) {
+    const auto name = path.filename().string();
+    // Cache reads and event markers never announce themselves: that would make refreshes feed back forever.
+    const bool record = std::any_of(record_specs().begin(), record_specs().end(), [&](const RecordSpec& spec) { return name == spec.file; });
+    if (name == "run.json") {
+        const auto job = J::parse(data, nullptr, false);
+        if (job.is_object()) {
+            const auto state = str(job, "state"), root = str(job, "root");
+            const auto title = !str(job, "title").empty() ? str(job, "title") : job.value("testRun", false) ? "Tests" : !str(job, "kind").empty() ? str(job, "kind") : "Job";
+            record_event(root, "job", str(job, "id") + ':' + state,
+                title + " · " + state,
+                J{{"kind", job.value("testRun", false) ? "tests" : "log"}, {"id", str(job, "id")}},
+                J{{"state", state}, {"run", str(job, "id")}});
+            signal_change(root);
+        }
+    } else if (record) signal_change(trim(read(path.parent_path() / "root")));
+    else if (path.parent_path().filename() == "plans" || path.parent_path().filename() == "agents")
+        signal_change(trim(read(path.parent_path().parent_path() / "root")));
+}
+int watch_changes(const std::string& root, bool all, const std::string& client = {}, const std::string& build = {}) {
+    if (root.empty() && !all) return 2;
+    const auto folder = all ? base() : project_dir(root);
+    if (!private_dir(folder)) return 1;
+    const auto marker = folder / "revision.json";
+    std::string previous;
+    long long reported = 0;
+    const auto publish = [&](bool resumed = false) {
+        auto event = json(marker);
+        if (!event.is_object()) event = J{{"version", 1}, {"revision", ""}, {"root", root}};
+        const auto text = event.dump();
+        if (text != previous || resumed) {
+            if (resumed) event["reason"] = "resume";
+            std::cout << event.dump() << '\n' << std::flush; previous = text;
+            // A burst of edits is many events; the client record needs one write per quiet spell, not one per event.
+            if (!client.empty() && now() - reported >= 15) {
+                report_client(client, build, ::getppid(), all ? "" : root,
+                    J{{"stream", "connected"}, {"eventAt", now()}, {"retryAt", 0}, {"watchPid", ::getpid()}, {"watchProcess", proc_stamp(::getpid())}});
+                reported = now();
+            }
+        }
+    };
+    // Each subscriber owns its child. Closing an editor or unloading a mod cannot leave a watcher behind.
+    const auto owner = ::getppid();
+    ::prctl(PR_SET_PDEATHSIG, SIGTERM);
+    if (::getppid() != owner) return 0;
+    const int fd = ::inotify_init1(IN_CLOEXEC | IN_NONBLOCK);
+    const int wd = fd >= 0 ? ::inotify_add_watch(fd, folder.c_str(), IN_MOVED_TO | IN_CLOSE_WRITE | IN_DELETE_SELF | IN_MOVE_SELF) : -1;
+    publish();
+    auto last_tick = now();
+    char events[16384];
+    for (;;) {
+        if (wd >= 0) {
+            pollfd interest{fd, POLLIN, 0};
+            const auto ready = ::poll(&interest, 1, 1000);
+            if (ready < 0 && errno != EINTR) { ::close(fd); return 1; }
+            if (ready > 0) while (::read(fd, events, sizeof(events)) > 0) {}
+        } else ::usleep(1000000);
+        const auto tick = now();
+        publish(tick - last_tick > 10 || tick < last_tick); last_tick = tick;
+        if (!std::cout.good()) { if (fd >= 0) ::close(fd); return 0; }
+    }
 }
 std::vector<std::string> split(const std::string& s, char sep = '\n') {
     std::istringstream in(s); std::vector<std::string> out; std::string v;
     while (std::getline(in, v, sep)) if (!v.empty()) out.push_back(v);
     return out;
 }
+#include "history.hpp"
 bool source(const fs::path& p) {
     const auto name = p.filename().string();
     static const std::set<std::string> ext = {".c", ".cc", ".cpp", ".cxx", ".h", ".hpp", ".inl", ".ipp", ".py", ".lua", ".sh", ".zsh", ".rs", ".go", ".js", ".mjs", ".ts", ".tsx", ".jsx", ".qml", ".cmake", ".json", ".toml", ".yaml", ".yml", ".conf", ".cfg", ".ini", ".css", ".html", ".proto", ".txt"};
@@ -195,7 +326,7 @@ int count(const std::string& s) {
     int n = 0; const auto parsed = std::from_chars(s.data(), s.data() + s.size(), n);
     return parsed.ec == std::errc{} && parsed.ptr == s.data() + s.size() && n >= 0 ? n : -1;
 }
-J parse_tests(const std::string& log, const std::string& root) {
+J parse_tests(const std::string& log, const std::string& root, const std::string& cwd = {}) {
     J out{{"passed", nullptr}, {"failed", nullptr}, {"failures", J::array()}};
     const std::regex counts("([0-9]+) (passed|failed|failures)(?:\\b)");
     const std::regex gtest("\\[\\s*(PASSED|FAILED)\\s*\\]\\s+([0-9]+) tests?");
@@ -207,7 +338,7 @@ J parse_tests(const std::string& log, const std::string& root) {
     long long ctest_pass = 0, ctest_fail = 0;
     bool saw_ctest = false;
     const auto add = [&](const char* key, int n) { if (n >= 0) out[key] = num(out, key) + n; };
-    fs::path context = root;
+    fs::path context = cwd.empty() ? root : cwd;
     for (const auto& line : split(clean(log))) {
         if (line.size() > 8192) continue;
         std::smatch m;
@@ -256,6 +387,9 @@ J load_run(const std::string& id) {
     if (j.is_object() && !j.contains("snapshot") && fs::exists(run_dir(id) / "snapshot.json")) j["snapshot"] = json(run_dir(id) / "snapshot.json");
     return j;
 }
+std::string command_key(const J& job) {
+    return J::array({str(job, "root"), str(job, "cwd", str(job, "root")), str(job, "command")}).dump();
+}
 bool save_run(const fs::path& dir, J j) {
     if (j.contains("snapshot")) {
         if (!atomic(dir / "snapshot.json", j["snapshot"].dump())) return false;
@@ -279,10 +413,10 @@ J runs(const std::string& root = {}) {
     std::map<std::string, long long> took;
     for (const auto& r : out) {
         const auto took_s = num(r, "ended") - num(r, "started");
-        if (str(r, "state") == "passed" && num(r, "ended") > 0 && took_s >= 1) took.emplace(str(r, "root") + '\n' + str(r, "command"), took_s);
+        if (str(r, "state") == "passed" && num(r, "ended") > 0 && took_s >= 1) took.emplace(command_key(r), took_s);
     }
     for (auto& r : out) if (str(r, "state") == "running") {
-        const auto it = took.find(str(r, "root") + '\n' + str(r, "command"));
+        const auto it = took.find(command_key(r));
         if (it != took.end()) r["estimate"] = it->second;
     }
     return out;
@@ -292,6 +426,18 @@ std::string kind_of(const std::string& command) {
     if (std::regex_search(command, std::regex("\\b(make|ninja|cmake|cargo|meson|gcc|g\\+\\+|clang\\+\\+|rustc)\\b|\\b(npm|pnpm|bun) (run )?build\\b"))) return "build";
     if (std::regex_search(command, std::regex("\\b(curl|wget|aria2c|llm-update)\\b"))) return "download";
     return {};
+}
+bool observable(const std::string& command) {
+    if (command.empty() || command.size() > 4000 || std::isspace(static_cast<unsigned char>(command[0])) || trim(command).back() == '&'
+        || command.find("<<") != command.npos || std::regex_search(command, std::regex("desk-work|fox-work|\\bfjob\\b|password|token|secret|authorization|\\bpass\\b|\\bsudo\\b|\\bexport\\b|sk-|ghp_| -u |--user ", std::regex::icase))) return false;
+    const std::regex prefix("^(?:(?:[A-Za-z_][A-Za-z0-9_]*=\\S*|command|env|nice)\\s+|timeout\\s+(?:-\\S+\\s+)*\\S+\\s+)+");
+    const std::regex runner("^(?:(?:make|ninja|cmake|ctest|pytest|cargo|meson|curl|wget|aria2c|llm-update)\\b|(?:npm|pnpm|bun|go) (?:run )?(?:test|build)\\b|python3? (?:-\\S+ )*-m (?:unittest|pytest)\\b|(?:python3?|node|bun) (?:-\\S+ )*[A-Za-z0-9_.~/\\-]*(?:test_[A-Za-z0-9_]+|[A-Za-z0-9_]+_test|[A-Za-z0-9_]+\\.test)\\.[A-Za-z0-9]+|[A-Za-z0-9_.~/\\-]*/(?:test_[A-Za-z0-9_]+|[A-Za-z0-9_]+_test)\\b)");
+    const std::regex separator("[;&|\\n()]");
+    for (std::sregex_token_iterator i(command.begin(), command.end(), separator, -1), end; i != end; ++i) {
+        auto segment = std::regex_replace(trim(i->str()), prefix, "");
+        if (std::regex_search(segment, runner)) return true;
+    }
+    return false;
 }
 // Runs older than 30 days go: estimates, failures and the notebook look back a day or a few weeks at most, and every
 // listing reads every run. Judged by the record's file date, so it costs a stat per run, not a read.
@@ -304,15 +450,22 @@ void prune_old_runs() {
         if (!tec && when < limit) fs::remove_all(e.path(), tec);
     }
 }
-J begin(const std::string& command, const std::string& root, const std::string& session, long long pid, bool observed, const std::string& title = {}) {
+J begin(const std::string& command, const std::string& root, const std::string& session, long long pid, bool observed, const std::string& title = {}, const std::string& cwd = {}) {
+    std::error_code cwd_error;
+    const auto current = fs::current_path();
+    const bool cwd_known = !cwd.empty() || root_of(current.string()) == root;
+    const auto where = fs::canonical(cwd.empty() ? (cwd_known ? current : fs::path(root)) : fs::path(cwd), cwd_error).string();
+    if (cwd_error || root_of(where) != root) return J();
     if (!register_root(root)) return J();
     prune_old_runs();
     const auto id = uuid(); const auto dir = run_dir(id);
-    const auto snap = snapshot(root, dir / "source");
+    auto snap = snapshot(root, dir / "source");
+    if (!cwd_known) snap["complete"] = false;
     std::string green;
-    for (const auto& r : runs(root)) if (str(r, "command") == command && str(r, "state") == "passed" && r.value("baselineEligible", false)) { green = str(r, "id"); break; }
+    const J identity{{"root", root}, {"cwd", where}, {"command", command}};
+    for (const auto& r : runs(root)) if (command_key(r) == command_key(identity) && str(r, "state") == "passed" && r.value("baselineEligible", false)) { green = str(r, "id"); break; }
     J j{{"id", id}, {"root", root}, {"command", command.substr(0, 4000)}, {"kind", kind_of(command)}, {"session", session},
-        {"pane", env("TMUX_PANE")}, {"pid", pid}, {"process", proc_stamp(pid)}, {"started", now()}, {"state", "running"},
+        {"pane", env("TMUX_PANE")}, {"pid", pid}, {"process", proc_stamp(pid)}, {"started", now()}, {"state", "running"}, {"cwd", where}, {"cwdKnown", cwd_known},
         {"snapshot", snap}, {"baseline", green}, {"observed", observed},
         // The commit the run started on, and whether the tree was exactly that commit: only then does a test run
         // speak for the commit itself (the review tree's "tests passed here").
@@ -328,7 +481,7 @@ J begin(const std::string& command, const std::string& root, const std::string& 
 long long failed_before(const J& job) {
     long long n = 0; const auto started = num(job, "startedNs", num(job, "started") * 1000000000LL);
     for (const auto& r : runs(str(job, "root"))) {
-        if (str(r, "id") == str(job, "id") || str(r, "command") != str(job, "command")
+        if (str(r, "id") == str(job, "id") || command_key(r) != command_key(job)
             || num(r, "startedNs", num(r, "started") * 1000000000LL) >= started) continue;
         const auto state = str(r, "state");
         if (state == "failed") ++n;
@@ -341,7 +494,7 @@ bool finish(J& j, int code, bool truncated) {
     j["ended"] = now(); j["exit"] = code; j["truncated"] = truncated;
     j["failedBefore"] = failed_before(j);
     j["state"] = code == 0 ? "passed" : code >= 128 || code < 0 ? "interrupted" : "failed";
-    j["tests"] = parse_tests(read(run_dir(str(j, "id")) / "output.log"), str(j, "root"));
+    j["tests"] = parse_tests(read(run_dir(str(j, "id")) / "output.log"), str(j, "root"), str(j, "cwd"));
     j["testRun"] = str(j, "kind") == "tests" || !j["tests"]["passed"].is_null() || !j["tests"]["failed"].is_null();
     if (!same_source(j["snapshot"], snapshot(str(j, "root")))) j["changedDuringRun"] = true;
     if (j.value("changedDuringRun", false) || truncated || num(j["tests"], "failed") > 0) j["baselineEligible"] = false;
@@ -351,18 +504,21 @@ bool finish(J& j, int code, bool truncated) {
 }
 J tasks(const std::string& root) { auto j = json(project_dir(root) / "tasks.json"); return j.is_array() ? j : J::array(); }
 J task_change(const std::string& root, const std::string& text, const std::string& id) {
-    if (!register_root(root)) return J{{"ok", false}};
-    Lock lock(project_dir(root) / "tasks.lock"); if (lock.fd < 0) return J{{"ok", false}};
+    if (!register_root(root)) return unwritable();
+    Lock lock(project_dir(root) / "tasks.lock"); if (lock.fd < 0) return unwritable();
     const auto file = project_dir(root) / "tasks.json";
     auto j = json(file); std::error_code ec;
-    if (fs::exists(file, ec) && !j.is_array()) return J{{"ok", false}, {"message", "Next steps are unreadable; left untouched"}};
+    if (fs::exists(file, ec) && !j.is_array()) return unreadable("tasks.json");
     if (!j.is_array()) j = J::array();
-    if (id.empty()) { if (trim(text).empty() || text.size() > 2000 || j.size() >= 200) return J{{"ok", false}};
+    if (id.empty()) {
+        if (j.size() >= 200) return refuse("A project keeps at most 200 next steps; mark some done first");
+        if (trim(text).empty() || text.size() > 2000) return refuse("A next step needs some text, up to 2000 characters");
         j.push_back(J{{"id", uuid()}, {"text", trim(text)}, {"done", false}, {"at", now()}});
     } else { bool found = false; for (auto& t : j) if (str(t, "id") == id) { t["done"] = !t.value("done", false); found = true; }
         if (!found) return J{{"ok", false}, {"message", "That next step is no longer here"}};
     }
-    return J{{"ok", atomic(file, j.dump())}, {"message", id.empty() ? "Next step pinned" : "Next step updated"}};
+    if (!atomic(file, j.dump())) return written(false, "next steps");
+    return J{{"ok", true}, {"message", id.empty() ? "Next step pinned" : "Next step updated"}};
 }
 // The file a commit, checkout or rebase in this checkout touches: .git/logs/HEAD, or its worktree's own.
 fs::path head_log(const std::string& root) {
@@ -428,13 +584,17 @@ J reviews(const std::string& root, bool today_only = true) {
     return out;
 }
 J reviewed(const std::string& root, const std::string& sha) {
-    if (!std::regex_match(sha, std::regex("[a-f0-9]{40}")) || trim(query({"git", "-C", root, "rev-parse", "--verify", sha + "^{commit}"})) != sha || !register_root(root)) return J{{"ok", false}};
+    if (!std::regex_match(sha, std::regex("[a-f0-9]{40}")) || trim(query({"git", "-C", root, "rev-parse", "--verify", sha + "^{commit}"})) != sha)
+        return refuse("That commit is not in this repository");
+    if (!register_root(root)) return unwritable();
     const auto file = project_dir(root) / "reviewed.json"; Lock lock(project_dir(root) / "reviews.lock");
     auto j = json(file); std::error_code ec;
-    if (lock.fd < 0 || (fs::exists(file, ec) && !j.is_object())) return J{{"ok", false}};
+    if (lock.fd < 0) return unwritable();
+    if (fs::exists(file, ec) && !j.is_object()) return unreadable("reviewed.json");
     if (!j.is_object()) j = J::object();
     j[sha] = now();
     const bool ok = atomic(file, j.dump());
+    if (ok) record_event(root, "review", "commit:" + sha, sha.substr(0, 8) + " · review finished", J{{"kind", "reviews"}, {"id", sha}});
     // The stamp on the commit itself: who, when, how many files. Best effort; the local record above is the truth here.
     if (ok && env("DESK_REVIEW_NOTES", env("FOXML_REVIEW_NOTES", "1")) != "0") {
         const auto who = trim(query({"git", "-C", root, "config", "user.name"}));
@@ -445,7 +605,7 @@ J reviewed(const std::string& root, const std::string& sha) {
                                  + (files > 0 ? "\nReviewed-files: " + std::to_string(files) : "");
         query({"git", "-C", root, "notes", "--ref", REVIEW_NOTES, "add", "-f", "-m", note, sha});
     }
-    return J{{"ok", ok}};
+    return written(ok, "finished review");
 }
 // Review progress shared by Neovim, the notebook and the drawer. One review is a key (a commit sha, a session id, or
 // "working"); each checked file keeps the signature of the two sides that were read and, for a file on disk, the hash
@@ -458,12 +618,14 @@ bool review_file_ok(const std::string& rel) {
 }
 J review_mark(const std::string& root, const std::string& key, const std::string& rel, const std::string& signature,
               const std::string& content, const std::string& total, const std::string& done) {
-    if (!review_key_ok(key) || (!rel.empty() && !review_file_ok(rel)) || !register_root(root)) return J{{"ok", false}};
-    if (!signature.empty() && !std::regex_match(signature, std::regex("[a-f0-9]{64}"))) return J{{"ok", false}};
-    if (!content.empty() && !std::regex_match(content, std::regex("[a-f0-9]{64}"))) return J{{"ok", false}};
+    if (!review_key_ok(key) || (!rel.empty() && !review_file_ok(rel))) return refuse("That review or file name is not one the review keeps");
+    if (!register_root(root)) return unwritable();
+    if ((!signature.empty() && !std::regex_match(signature, std::regex("[a-f0-9]{64}")))
+        || (!content.empty() && !std::regex_match(content, std::regex("[a-f0-9]{64}")))) return refuse("Review signatures are SHA-256 hashes");
     const auto file = project_dir(root) / "review-marks.json"; Lock lock(project_dir(root) / "reviews.lock");
     auto j = json(file); std::error_code ec;
-    if (lock.fd < 0 || (fs::exists(file, ec) && !j.is_object())) return J{{"ok", false}};
+    if (lock.fd < 0) return unwritable();
+    if (fs::exists(file, ec) && !j.is_object()) return unreadable("review-marks.json");
     if (!j.is_object()) j = J::object();
     auto& review = j[key];
     if (!review.is_object()) review = J{{"files", J::object()}};
@@ -479,14 +641,18 @@ J review_mark(const std::string& root, const std::string& key, const std::string
             review["files"][rel] = mark;
         }
     }
-    if (!total.empty()) { try { review["total"] = std::clamp(std::stoi(total), 0, 100000); } catch (...) { return J{{"ok", false}}; } }
+    if (!total.empty()) { try { review["total"] = std::clamp(std::stoi(total), 0, 100000); } catch (...) { return refuse("The file total must be a number"); } }
     if (!done.empty()) review["completed"] = done == "yes";
     review["at"] = now();
     // Old reviews go after 90 days, so the file stays small.
     for (auto it = j.begin(); it != j.end();) {
         if (it.key() != key && it->is_object() && now() - it->value("at", 0LL) > 90LL * 86400) it = j.erase(it); else ++it;
     }
-    return J{{"ok", atomic(file, j.dump())}};
+    const bool saved = atomic(file, j.dump());
+    if (saved && !rel.empty()) record_event(root, "review", key + ':' + rel + ':' + signature,
+        rel + (signature.empty() ? " · review unchecked" : " · reviewed"),
+        std::regex_match(key, std::regex("[a-f0-9]{40}")) ? J{{"kind", "reviews"}, {"id", key}, {"file", rel}} : J{{"kind", "file-diff"}, {"file", rel}}, J{{"file", rel}});
+    return written(saved, "review mark");
 }
 // Every review of this checkout with, per file, whether its check still holds: "checked", or "changed" when the file
 // on disk no longer has the content that was read (only where that content was recorded: a commit's never changes).
@@ -494,10 +660,12 @@ J review_mark(const std::string& root, const std::string& key, const std::string
 // notebook can show the thread: who was asked, what for, and whether the file has changed since ("ready").
 J review_request(const std::string& root, const std::string& rel, const std::string& name, const std::string& sid,
                  const std::string& text, bool clear) {
-    if (!review_file_ok(rel) || !register_root(root) || (!sid.empty() && !review_key_ok(sid))) return J{{"ok", false}};
+    if (!review_file_ok(rel) || (!sid.empty() && !review_key_ok(sid))) return refuse("That file or session name is not one the review keeps");
+    if (!register_root(root)) return unwritable();
     const auto file = project_dir(root) / "review-requests.json"; Lock lock(project_dir(root) / "reviews.lock");
     auto j = json(file); std::error_code ec;
-    if (lock.fd < 0 || (fs::exists(file, ec) && !j.is_object())) return J{{"ok", false}};
+    if (lock.fd < 0) return unwritable();
+    if (fs::exists(file, ec) && !j.is_object()) return unreadable("review-requests.json");
     if (!j.is_object()) j = J::object();
     if (clear) j.erase(rel);
     else {
@@ -508,7 +676,10 @@ J review_request(const std::string& root, const std::string& rel, const std::str
     }
     for (auto it = j.begin(); it != j.end();)
         it = (!it->is_object() || now() - it->value("at", 0LL) > 90LL * 86400) ? j.erase(it) : std::next(it);
-    return J{{"ok", atomic(file, j.dump())}};
+    const bool saved = atomic(file, j.dump());
+    if (saved) record_event(root, "request", rel + ':' + hash(j.dump()), rel + (clear ? " · request settled" : " · changes requested"),
+        J{{"kind", "file-diff"}, {"file", rel}}, J{{"file", rel}, {"state", clear ? "settled" : "waiting"}});
+    return written(saved, "change request");
 }
 J review_requests(const std::string& root) {
     J out = J::array();
@@ -522,6 +693,142 @@ J review_requests(const std::string& root) {
                         {"at", request.value("at", 0LL)}, {"state", changed ? "ready" : "waiting"}});
     }
     std::sort(out.begin(), out.end(), [](const J& a, const J& b) { return a.value("at", 0LL) > b.value("at", 0LL); });
+    return out;
+}
+bool agent_name_ok(const std::string& name) { return std::regex_match(name, std::regex("[a-z][a-z0-9_-]{0,31}")); }
+J agent_update(const std::string& root, const std::map<std::string, std::string>& opts) {
+    const auto get = [&](const char* key) { const auto it = opts.find(key); return it == opts.end() ? std::string() : it->second; };
+    const auto agent = get("--agent"), sid = get("--session"), state = get("--state");
+    if (!agent_name_ok(agent) || !std::regex_match(sid, std::regex("[A-Za-z0-9_-]{1,80}")))
+        return refuse("Agent updates need a lowercase agent name and a session id");
+    if (!std::set<std::string>{"working", "waiting", "needs", "error", "compacting", "done"}.count(state))
+        return refuse("An agent state is working, waiting, needs, error, compacting or done");
+    if (!register_root(root)) return unwritable();
+    const auto path = project_dir(root) / "agents" / (hash(agent + ':' + sid) + ".json");
+    Lock lock(project_dir(root) / "agents.lock");
+    if (lock.fd < 0) return unwritable();
+    if (state == "done") {
+        std::error_code ec; fs::remove(path, ec);
+        if (!ec) signal_change(root);
+        return ec ? refuse("Could not remove the agent record: " + ec.message()) : J{{"ok", true}};
+    }
+    const auto pid = get("--pid") == "parent" ? static_cast<long long>(::getppid()) : std::stoll(get("--pid"));
+    const auto process = proc_stamp(pid);
+    if (process.empty()) return refuse("That process is not running");
+    auto previous = json(path);
+    J files = previous.is_object() && str(previous, "process") == process && previous.value("files", J()).is_array()
+        ? previous["files"] : J::array();
+    auto times = previous.is_object() && str(previous, "process") == process && previous.value("fileTimes", J()).is_object()
+        ? previous["fileTimes"] : J::object();
+    const auto file = get("--file");
+    std::string edited;
+    if (!file.empty()) {
+        std::error_code ec; const auto resolved = fs::weakly_canonical(fs::path(root) / file, ec);
+        const auto rel = resolved.lexically_relative(root).string();
+        if (ec || !review_file_ok(rel) || rel == ".") return refuse("That file is outside the project");
+        if (std::find(files.begin(), files.end(), rel) == files.end() && files.size() < 1000) files.push_back(rel);
+        times[rel] = now(); edited = rel;
+    }
+    const auto line = [](std::string s) { s = clean(s); for (auto& c : s) if (c == '\n' || c == '\r' || c == '\t') c = ' '; return s; };
+    J record{{"agent", agent}, {"id", sid}, {"key", agent + ':' + sid}, {"root", root}, {"pid", pid}, {"process", process},
+             {"state", state}, {"at", now()}, {"seenAt", now()}, {"files", files}, {"fileTimes", times}, {"attribution", "observed tool edits"},
+             {"name", line(get("--title")).substr(0, 160)}, {"pane", get("--pane")},
+             {"build", get("--build").empty() ? str(previous, "build") : get("--build").substr(0, 80)}};
+    if (str(record, "name").empty()) record["name"] = previous.is_object() ? str(previous, "name", agent) : agent;
+    if (!std::regex_match(str(record, "pane"), std::regex("%[0-9]+"))) record["pane"] = "";
+    const bool saved = atomic(path, record.dump());
+    if (saved && !edited.empty()) record_event(root, "edit", agent + ':' + sid + ':' + edited + ':' + hash(read(fs::path(root) / edited)),
+        edited + " · " + agent + " edited", J{{"kind", "file-diff"}, {"file", edited}},
+        J{{"file", edited}, {"agent", agent}, {"session", sid}});
+    return written(saved, "agent record");
+}
+J agent_heartbeat(const std::string& root, const std::string& agent, const std::string& sid, long long pid) {
+    if (!agent_name_ok(agent) || !std::regex_match(sid, std::regex("[A-Za-z0-9_-]{1,80}")))
+        return refuse("Heartbeats need a lowercase agent name and a session id");
+    Lock lock(project_dir(root) / "agents.lock");
+    const auto path = project_dir(root) / "agents" / (hash(agent + ':' + sid) + ".json");
+    auto record = json(path);
+    if (lock.fd < 0) return unwritable();
+    if (!record.is_object() || str(record, "process").empty() || num(record, "pid") != pid || proc_stamp(pid) != str(record, "process"))
+        return refuse("No agent record belongs to this process; send an agent update first");
+    record["seenAt"] = now();
+    return written(atomic(path, record.dump()), "heartbeat");
+}
+J agents(const std::string& root = {}) {
+    std::map<std::string, J> found;
+    std::error_code ec;
+    for (const auto& project : fs::directory_iterator(base() / "projects", ec)) {
+        const auto where = trim(read(project.path() / "root"));
+        if (where.empty() || (!root.empty() && where != root)) continue;
+        for (const auto& file : fs::directory_iterator(project.path() / "agents", ec)) {
+            auto one = json(file.path());
+            if (!one.is_object() || !agent_name_ok(str(one, "agent"))
+                || str(one, "process").empty() || proc_stamp(num(one, "pid")) != str(one, "process")) continue;
+            one["busy"] = str(one, "state") == "working" || str(one, "state") == "compacting";
+            one["project"] = fs::path(where).filename().string();
+            one["canMessage"] = str(one, "agent") == "claude";
+            one["delayed"] = now() - num(one, "seenAt", num(one, "at")) > 180;
+            found[str(one, "key")] = one;
+        }
+    }
+    // Running Claude sessions keep their existing runtime records until they naturally end. Read them as an
+    // adapter, so installing this never requires restarting a session or claiming somebody else's edits.
+    const auto runtime = fs::path(env("XDG_RUNTIME_DIR", "/tmp")) / "foxml-claude";
+    std::map<std::string, std::pair<J, J>> legacy;
+    for (const auto& file : fs::directory_iterator(runtime, ec)) {
+        const auto ext = file.path().extension().string(), sid = file.path().stem().string();
+        if ((ext != ".json" && ext != ".state") || !std::regex_match(sid, std::regex("[A-Za-z0-9_-]{1,80}"))) continue;
+        auto one = json(file.path()); if (!one.is_object()) continue;
+        (ext == ".json" ? legacy[sid].first : legacy[sid].second) = one;
+    }
+    std::map<std::string, std::string> panes;
+    if (!legacy.empty()) for (const auto& line : split(query({"tmux", "list-panes", "-a", "-F", "#{pane_id}\x1f#{pane_current_command}"}))) {
+        const auto at = line.find('\x1f'); if (at != line.npos) panes[line.substr(0, at)] = line.substr(at + 1);
+    }
+    for (const auto& [sid, pair] : legacy) {
+        const auto& [look, word] = pair;
+        const auto epoch = std::max(num(look, "epoch"), num(word, "epoch"));
+        const auto place = str(word, "cwd", str(look, "project", str(look, "cwd")));
+        if (place.empty() || epoch <= 0 || now() - epoch > 12 * 3600) continue;
+        const auto where = root_of(place);
+        if (!root.empty() && where != root) continue;
+        const auto key = "claude:" + sid;
+        if (!found.count(key)) {
+            const auto pane = str(word, "pane", str(look, "pane"));
+            if (!pane.empty() && (!panes.count(pane) || std::set<std::string>{"bash", "zsh", "fish", "sh", "dash"}.count(panes[pane]))) continue;
+            const auto state = str(word, "state", "waiting");
+            found[key] = J{{"key", key}, {"id", sid}, {"agent", "claude"}, {"root", where}, {"project", fs::path(where).filename().string()},
+                           {"name", str(word, "title", fs::path(where).filename().string())}, {"pane", pane}, {"at", epoch},
+                           {"state", state}, {"busy", state == "working" || state == "compacting"}, {"canMessage", true},
+                           {"files", J::array()}, {"attribution", "unknown"}};
+        }
+        auto& one = found[key];
+        const auto ledger = json(runtime / "edits" / (sid + ".json"));
+        if (one.value("files", J::array()).empty() && ledger.is_object() && ledger.value("edits", J()).is_array()) {
+            one["fileTimes"] = J::object();
+            for (const auto& edit : ledger["edits"]) {
+                std::error_code file_error;
+                const auto rel = fs::weakly_canonical(str(edit, "path"), file_error).lexically_relative(where).string();
+                if (!file_error && review_file_ok(rel)) {
+                    one["files"].push_back(rel); one["fileTimes"][rel] = num(edit, "at") / 1000;
+                }
+            }
+            one["attribution"] = "legacy session ledger";
+        }
+        // The legacy hooks still report permission prompts, compaction and engine errors. A newer hook event
+        // speaks for that state; registry identity/liveness and observed files remain owned here.
+        if (num(word, "epoch") >= num(one, "at") && !str(word, "state").empty()) {
+            one["state"] = str(word, "state"); one["at"] = num(word, "epoch");
+            one["busy"] = str(word, "state") == "working" || str(word, "state") == "compacting";
+        }
+        one["model"] = str(look, "model", "Claude"); one["context"] = num(look, "context", -1);
+        one["usageAt"] = num(look, "epoch"); one["detail"] = clean(str(word, "detail"));
+        one["fresh"] = str(word, "detail") == "fresh" && now() - num(word, "epoch") < 90;
+        if (look.is_object()) for (const auto* window : {"five", "week"}) if (look.contains(window)) one[window] = look[window];
+    }
+    J out = J::array();
+    for (auto& [key, one] : found) out.push_back(one);
+    std::sort(out.begin(), out.end(), [](const J& a, const J& b) { return num(a, "at") != num(b, "at") ? num(a, "at") > num(b, "at") : str(a, "key") < str(b, "key"); });
     return out;
 }
 J review_progress(const std::string& root, const std::string& only) {
@@ -554,14 +861,17 @@ J review_progress(const std::string& root, const std::string& only) {
 // Which plan a commit was made under, recorded by the notebook when the commit lands (the session's pinned or last
 // plan). The review tree groups by it; a commit with no record falls back to its branch and day.
 J commit_plan(const std::string& root, const std::string& sha, const std::string& file, const std::string& title, const std::string& step) {
-    if (!std::regex_match(sha, std::regex("[a-f0-9]{40}")) || title.size() > 300 || step.size() > 300 || file.size() > 4096 || !register_root(root)) return J{{"ok", false}};
+    if (!std::regex_match(sha, std::regex("[a-f0-9]{40}")) || title.size() > 300 || step.size() > 300 || file.size() > 4096)
+        return refuse("A commit plan needs a full commit id, and a title and step of up to 300 characters");
+    if (!register_root(root)) return unwritable();
     const auto path = project_dir(root) / "commit-plans.json"; Lock lock(project_dir(root) / "reviews.lock");
     auto j = json(path); std::error_code ec;
-    if (lock.fd < 0 || (fs::exists(path, ec) && !j.is_object())) return J{{"ok", false}};
+    if (lock.fd < 0) return unwritable();
+    if (fs::exists(path, ec) && !j.is_object()) return unreadable("commit-plans.json");
     if (!j.is_object()) j = J::object();
     j[sha] = J{{"file", file}, {"title", title}, {"step", step}, {"at", now()}};
     while (j.size() > 2000) j.erase(j.begin());
-    return J{{"ok", atomic(path, j.dump())}};
+    return written(atomic(path, j.dump()), "commit plan");
 }
 // What the tests said AT a commit: the newest finished test run that started on exactly that commit with a clean tree
 // and saw no edits while it ran. Anything less is not evidence about the commit, and is left out.
@@ -795,24 +1105,93 @@ struct Settled {
     std::set<std::string> commands;
     std::map<std::string, std::vector<std::string>> passed, failed;
     bool standing(const J& r) {
-        const auto root = str(r, "root"), state = str(r, "state");
-        const bool newest = commands.insert(root + '\n' + str(r, "command")).second;
-        const auto targets = test_targets(str(r, "command"), root);
+        const auto root = str(r, "root"), state = str(r, "state"), cwd = str(r, "cwd", root);
+        const auto scope = J::array({root, cwd}).dump();
+        const bool newest = commands.insert(command_key(r)).second;
+        const auto targets = test_targets(str(r, "command"), cwd);
         auto all_in = [&](const std::vector<std::string>& seen) {
             return !targets.empty() && std::all_of(targets.begin(), targets.end(), [&](const std::string& t) {
                 return std::any_of(seen.begin(), seen.end(), [&](const std::string& s) { return covers(s, t); });
             });
         };
-        if (state == "passed") { for (const auto& t : targets) passed[root].push_back(t); return false; }
+        if (state == "passed") { for (const auto& t : targets) passed[scope].push_back(t); return false; }
         if (state != "failed" && state != "interrupted") return false;
         // A call filed as a test run that ran no test (a grep that only mentions tests/test_x.py) is no failure.
         if (str(r, "kind") == "tests" && targets.empty()) return false;
-        const bool open = newest && !all_in(passed[root]) && !all_in(failed[root]);
-        for (const auto& t : targets) failed[root].push_back(t);
+        const bool open = newest && !all_in(passed[scope]) && !all_in(failed[scope]);
+        for (const auto& t : targets) failed[scope].push_back(t);
         return open;
     }
 };
-J overview(const A& requested, bool fresh = false) {
+bool attention_less(const J& a, const J& b) {
+    if (num(a, "priority") != num(b, "priority")) return num(a, "priority") < num(b, "priority");
+    if (num(a, "at") != num(b, "at")) return str(a, "kind") == "commit" ? num(a, "at") < num(b, "at") : num(a, "at") > num(b, "at");
+    return str(a, "root") + str(a, "id") < str(b, "root") + str(b, "id");
+}
+J attention_items(const std::string& root, const J& work, const J& commits, const J& sessions,
+                  const std::string& own = {}, bool review_only = false, bool include_snoozed = false) {
+    J out = J::array(); std::set<std::string> files;
+    const auto add = [&](const std::string& kind, const std::string& id, const std::string& label, const std::string& why,
+                         long long at, int priority, J action, J extra = J::object()) {
+        extra.update(J{{"kind", kind}, {"id", kind + ':' + id}, {"root", root}, {"label", label}, {"why", why},
+                       {"at", at}, {"priority", priority}, {"action", action}});
+        out.push_back(extra);
+    };
+    if (!review_only) {
+        for (const auto& record : work.value("records", J::array()))
+            add("records", str(record, "file"), "The " + str(record, "label") + " record cannot be read",
+                "Writes to it are refused until work health sets it aside (" + str(record, "why") + ")", num(record, "at"), 5,
+                J{{"kind", "health"}}, J{{"file", str(record, "file")}});
+        for (const auto& job : work.value("failures", J::array())) {
+            const auto id = str(job, "id");
+            add("job", id, str(job, "title", str(job, "command")), "Failed and has not passed since", num(job, "ended"), 10,
+                J{{"kind", job.value("testRun", false) ? "tests" : "log"}, {"id", id}}, J{{"run", id}});
+        }
+        for (const auto& agent : sessions) {
+            const auto state = str(agent, "state");
+            if ((state != "needs" && state != "error") || (!own.empty() && str(agent, "id") == own && str(agent, "agent") == "claude")) continue;
+            add("agent", str(agent, "key"), str(agent, "name", str(agent, "agent")),
+                str(agent, "agent") + (state == "needs" ? " needs you" : " stopped on an error"), num(agent, "at"), 10,
+                J{{"kind", "agent"}, {"key", str(agent, "key")}}, J{{"session", str(agent, "id")}, {"agent", str(agent, "agent")}});
+        }
+    }
+    for (const auto& request : work.value("requests", J::array())) if (str(request, "state") == "ready") {
+        const auto file = str(request, "file"); files.insert(file);
+        add("request", file, fs::path(file).filename().string(), "Changed since you asked " + str(request, "name", "a session"),
+            num(request, "at"), 20, J{{"kind", "file-diff"}, {"file", file}}, J{{"file", file}});
+    }
+    // The current working diff decides whether a changed mark still has something to read here. A committed
+    // change belongs to its commit's review, rather than an empty working-tree comparison.
+    std::set<std::string> dirty;
+    for (const auto& name : split(query({"git", "--no-optional-locks", "-C", root, "diff", "--name-only", "-z", "HEAD"}), '\0')) dirty.insert(name);
+    for (const auto& name : split(query({"git", "--no-optional-locks", "-C", root, "ls-files", "--others", "--exclude-standard", "-z"}), '\0')) dirty.insert(name);
+    const auto progress = work.value("review", J::object());
+    for (const auto& [key, review] : progress.items()) {
+        if (std::regex_match(key, std::regex("[a-f0-9]{40}"))) continue;
+        const auto marks = review.value("files", J::object());
+        for (const auto& [file, mark] : marks.items()) if (str(mark, "state") == "changed" && dirty.count(file) && files.insert(file).second)
+            add("changed", file, fs::path(file).filename().string(), "Edited since you reviewed it", num(mark, "at"), 30,
+                J{{"kind", "file-diff"}, {"file", file}}, J{{"file", file}});
+    }
+    for (const auto& commit : commits) if (!commit.value("reviewed", false)) {
+        const auto sha = str(commit, "sha");
+        add("commit", sha, str(commit, "subject"), "Not reviewed yet", num(commit, "at"), 40,
+            J{{"kind", "reviews"}, {"id", sha}}, J{{"sha", sha}});
+    }
+    std::sort(out.begin(), out.end(), attention_less);
+    return filter_attention(root, out, include_snoozed);
+}
+J attention(const std::string& root, const std::string& session = {}, bool review_only = false, bool include_snoozed = false) {
+    J failures = J::array(); Settled settled;
+    for (const auto& job : runs(root)) if (settled.standing(job) && num(job, "ended") >= now() - 24 * 3600) failures.push_back(job);
+    return attention_items(root, J{{"failures", failures}, {"requests", review_requests(root)}, {"review", review_progress(root, "")},
+                                   {"records", records_brief(root)}},
+                           reviews(root, false), agents(root), session, review_only, include_snoozed);
+}
+#include "workflow.hpp"
+#include "records.hpp"
+#include "integrations.hpp"
+J overview(const A& requested, bool fresh = false, bool include_history = false) {
     auto all = runs(); J todo = J::array(), review = J::array(); int running = 0, finished = 0, failed = 0;
     std::map<std::string, J> snapshots;
     std::set<std::string> roots;
@@ -835,19 +1214,32 @@ J overview(const A& requested, bool fresh = false) {
         }
         r.erase("snapshot");
     }
+    J needs = J::array(), history = J::array(), digests = J::array(), held = J::array();
     for (const auto& root : roots) {
         for (auto t : tasks(root)) if (!t.value("done", false)) { t["root"] = root; todo.push_back(t); }
         for (auto r : reviews(root)) review.push_back(r);
+        for (auto item : attention(root)) needs.push_back(item);
+        if (include_history) {
+            for (auto event : timeline(root, 0, 30)) history.push_back(event);
+            auto summary = project_digest(root, "desktop"); summary["root"] = root; digests.push_back(summary);
+        }
+        for (auto item : attention(root, "", false, true)) if (item.contains("snoozed")) held.push_back(item);
     }
-    return J{{"jobs", all}, {"running", running}, {"finished", finished}, {"failed", failed}, {"tasks", todo}, {"reviews", review}};
+    std::sort(needs.begin(), needs.end(), attention_less);
+    std::sort(history.begin(), history.end(), [](const J& a, const J& b) {
+        if (num(a, "at") != num(b, "at")) return num(a, "at") > num(b, "at");
+        return str(a, "root") != str(b, "root") ? str(a, "root") < str(b, "root") : num(a, "seq") > num(b, "seq");
+    });
+    return J{{"jobs", all}, {"running", running}, {"finished", finished}, {"failed", failed}, {"tasks", todo}, {"reviews", review},
+             {"attention", needs}, {"agents", agents()}, {"timeline", history}, {"digests", digests}, {"snoozed", held}};
 }
-J notebook(const std::string& root, const std::string& session) {
+J notebook(const std::string& root, const std::string& session, const std::string& loaded = {}, bool health = false) {
     J latest; auto all = runs(root); const auto current = snapshot(root);
     J jobs = J::array(), failures = J::array(); Settled settled;
     for (auto j : all) {
         const bool standing = settled.standing(j);
         if (str(j, "state") == "running") { j.erase("snapshot"); jobs.push_back(j); }
-        else if (standing && failures.size() < 3 && num(j, "ended") >= now() - 24 * 3600) {
+        else if (standing && num(j, "ended") >= now() - 24 * 3600) {
             auto failed = j; failed.erase("snapshot"); failures.push_back(failed);
         }
         if (latest.is_null() && j.value("testRun", false)) {
@@ -858,14 +1250,30 @@ J notebook(const std::string& root, const std::string& session) {
     // Claude commits nobody has finished reviewing yet (any day), for the notebook's one review line.
     int pending = 0;
     for (const auto& c : reviews(root, false)) if (!c.value("reviewed", false)) ++pending;
-    return J{{"tests", latest}, {"jobs", jobs}, {"failures", failures}, {"tasks", tasks(root)}, {"session", session},
-             {"review", review_progress(root, "")}, {"pending", pending}, {"requests", review_requests(root)}};
+    J out{{"tests", latest}, {"jobs", jobs}, {"failures", failures}, {"tasks", tasks(root)}, {"session", session},
+          {"review", review_progress(root, "")}, {"pending", pending}, {"requests", review_requests(root)}, {"agents", agents(root)},
+          {"records", records_brief(root)}};
+    out["attention"] = attention_items(root, out, reviews(root, false), out["agents"], session);
+    out["revision"] = str(json(project_dir(root) / "revision.json"), "revision");
+    out["digest"] = project_digest(root, "notebook");
+    out["timeline"] = timeline(root, 0, 30);
+    out["integration"] = integration_status("notebook", loaded, false, session);
+    // Commits finished today, so a row can say "reviewed" for the rest of the day.
+    J today = J::array();
+    const auto finished = json(project_dir(root) / "reviewed.json");
+    std::time_t midnight = now(); std::tm local{};
+    if (localtime_r(&midnight, &local)) { local.tm_hour = local.tm_min = local.tm_sec = 0; midnight = std::mktime(&local); }
+    if (finished.is_object()) for (const auto& [sha, at] : finished.items()) if (at.is_number_integer() && at.get<long long>() >= midnight) today.push_back(sha);
+    out["reviewedToday"] = today;
+    if (health) out["health"] = integration_health();
+    return out;
 }
 fs::path plan_path(const std::string& root, const std::string& session) {
     return project_dir(root) / "plans" / (hash(session) + ".json");
 }
 J pin_plan(const std::string& root, const std::string& session, const std::string& file, const std::string& step) {
-    if (session.empty() || session.size() > 80 || step.size() > 1000) return J{{"ok", false}};
+    if (session.empty() || session.size() > 80) return refuse("A pinned plan needs the session id");
+    if (step.size() > 1000) return refuse("A pinned step is limited to 1000 characters");
     J plan;
     if (!file.empty()) {
         std::error_code ec;
@@ -873,7 +1281,7 @@ J pin_plan(const std::string& root, const std::string& session, const std::strin
         if (ec || path.extension() != ".md" || !fs::is_regular_file(path, ec)) return J{{"ok", false}, {"message", "Choose an existing Markdown plan"}};
         plan = J{{"file", path.string()}, {"step", clean(step)}, {"at", now()}};
     }
-    return J{{"ok", atomic(plan_path(root, session), plan.dump())}};
+    return written(atomic(plan_path(root, session), plan.dump()), "pinned plan");
 }
 // Markdown checkboxes outside code fences: "- [x]" done, "- [ ]" still to do.
 J plan_with_progress(J plan) {
@@ -945,9 +1353,19 @@ void notify_failure(const std::string& label, const std::string& id, bool servic
              service ? "User service failed" : tests ? "Tests failed" : "Job failed", service ? "service" : "log", service ? "ask-service" : "ask",
              service ? "service" : tests ? "tests" : "log"});
 }
+int supervise(const A& child, const std::string& root, const std::string& session, const std::string& title, const std::string& label) {
+    auto job = begin(label, root, session, ::getpid(), false, title);
+    if (!job.is_object()) { std::cerr << "Could not record job; running command directly.\n"; return sh::run(child); }
+    bool truncated = false;
+    const int code = sh::run_logged(child, run_dir(str(job, "id")) / "output.log", 4 * 1024 * 1024, truncated);
+    finish(job, code, truncated);
+    if (code != 0) notify_failure(str(job, "title", label), str(job, "id"));
+    return code < 0 ? 125 : code;
+}
 }
 
-int main(int argc, char** argv) {
+std::string invoked;
+int dispatch(int argc, char** argv) {
     ::umask(0077);
     try {
         A args; std::map<std::string, std::string> opts; A roots; bool end = false;
@@ -965,31 +1383,109 @@ int main(int argc, char** argv) {
                          "desk-work task-add --root DIR --text TEXT | task-toggle --root DIR --id ID\n"
                          "desk-work tests --root DIR | compare --id RUN | reviewed --root DIR --sha SHA\n"
                          "desk-work plan|plan-pin --root DIR --session ID [--file PLAN.md --step TEXT]\n"
-                         "desk-work open --root DIR --action tests|reviews|compare|log|tasks|ask|file|file-diff|plan|worktree --id RUN [--file PATH --session ID]\n"; return 0;
+                         "desk-work attention --root DIR [--scope review] | watch [--root DIR | --all yes] | signal --root DIR\n"
+                         "desk-work timeline|digest --root DIR [--consumer NAME --through SEQUENCE]\n"
+                         "desk-work snooze --root DIR --id ITEM [--seconds 3600 | --until-change yes | --clear yes]\n"
+                         "desk-work suggest-tests --root DIR --file PATH | run-suggested --root DIR --id RUN\n"
+                         "desk-work integrations plan|apply|rollback|recover|status|backups [--expected PLAN | --transaction ID]\n"
+                         "desk-work integrations cleanup-plan|cleanup [--keep 3 --older-than 30 --expected PLAN]\n"
+                         "desk-work records --root DIR | records-repair --root DIR [--expected PLAN]\n"
+                         "desk-work health | integration-status [--client NAME --loaded BUILD] | workspace --root DIR --client NAME [--input -]\n"
+                         "desk-work client-report --client NAME --build BUILD --pid parent [--root DIR --stream connected|retrying --refresh-at SECONDS --error TEXT]\n"
+                         "desk-work agents [--root DIR] | agent-update --root DIR --agent NAME --session ID --state working|waiting|needs|error|done --pid PID|parent [--title NAME --pane PANE --file PATH]\n"
+                         "desk-work open --root DIR --action attention|tests|reviews|compare|log|tasks|ask|file|file-diff|plan|worktree --id ITEM [--file PATH --session ID]\n"; return 0;
         }
         const auto cmd = args[0];
+        invoked = cmd;
         const auto place = opts.count("--root") ? opts["--root"] : fs::current_path().string();
-        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "review-mark", "review-progress", "review-request", "review-requests", "commit-plan", "review-tree", "push-check", "push-notes", "worktrees", "activity", "plan", "plan-pin"}.count(cmd)
+        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "review-mark", "review-progress", "review-request", "review-requests", "commit-plan", "review-tree", "push-check", "push-notes", "records", "records-repair", "worktrees", "activity", "plan", "plan-pin", "watch", "signal", "attention", "agent-update", "agents", "revision", "open", "agent-heartbeat", "overlaps", "timeline", "digest", "snooze", "workspace", "suggest-tests", "run-suggested", "resolve"}.count(cmd)
             ? root_of(place) : place;
         const auto id = opts["--id"];
         J out;
-        if (cmd == "classify") { out = J{{"kind", kind_of(opts["--command"])}}; }
+        if (cmd == "watch") {
+            if (!opts["--client"].empty()) client_loaded(opts["--client"], opts["--build"], ::getppid());
+            return watch_changes(root, opts["--all"] == "yes", opts["--client"], opts["--build"]);
+        }
+        if (cmd == "signal") out = J{{"ok", signal_change(root)}};
+        else if (cmd == "client-loaded") out = client_loaded(opts["--client"], opts["--build"],
+            opts["--pid"] == "parent" ? ::getppid() : std::stoll(opts["--pid"]));
+        else if (cmd == "client-report") {
+            if (opts.count("--root") && root_of(opts["--root"]).empty()) return 2;
+            J fields = J::object();
+            for (const auto& [flag, key] : std::map<std::string, std::string>{{"--event-at", "eventAt"}, {"--refresh-at", "refreshAt"}, {"--retry-at", "retryAt"}})
+                if (opts.count(flag)) fields[key] = std::stoll(opts[flag]);
+            if (opts.count("--stream")) fields["stream"] = opts["--stream"];
+            if (opts.count("--error")) fields["refreshError"] = opts["--error"];
+            out = report_client(opts["--client"], opts["--build"], opts["--pid"] == "parent" ? ::getppid() : std::stoll(opts["--pid"]),
+                opts.count("--root") ? root_of(opts["--root"]) : std::string(), fields);
+        }
+        else if (cmd == "integration-status") out = integration_status(opts["--client"], opts["--loaded"], opts["--quick"] != "yes");
+        else if (cmd == "health") out = integration_health();
+        else if (cmd == "integrations") {
+            if (args.size() < 2 || !std::set<std::string>{"plan", "apply", "rollback", "recover", "status", "backups", "cleanup-plan", "cleanup"}.count(args[1])) {
+                std::cerr << "desk-work integrations: choose plan, apply, rollback, recover, status, backups, cleanup-plan or cleanup\n"; return 2;
+            }
+            if (!opts["--repo"].empty()) ::setenv("FOXML_REPO", opts["--repo"].c_str(), 1);
+            A command{"desk-install", "--integrations", args[1]};
+            if (args[1] == "apply" || args[1] == "rollback" || args[1] == "recover" || args[1] == "cleanup") command.push_back("--yes");
+            if (!opts["--expected"].empty()) { command.push_back("--expected"); command.push_back(opts["--expected"]); }
+            if (!opts["--transaction"].empty()) { command.push_back("--transaction"); command.push_back(opts["--transaction"]); }
+            for (const char* flag : {"--keep", "--older-than"}) if (!opts[flag].empty()) { command.push_back(flag); command.push_back(opts[flag]); }
+            return sh::run(command);
+        }
+        else if (cmd == "revision") out = J{{"version", 1}, {"path", (project_dir(root) / "revision.json").string()}, {"revision", str(json(project_dir(root) / "revision.json"), "revision")}};
+        else if (cmd == "attention") out = attention(root, opts["--session"], opts["--scope"] == "review", opts["--include-snoozed"] == "yes");
+        else if (cmd == "agent-update") out = agent_update(root, opts);
+        else if (cmd == "agent-heartbeat") out = agent_heartbeat(root, opts["--agent"], opts["--session"],
+            opts["--pid"] == "parent" ? static_cast<long long>(::getppid()) : std::stoll(opts["--pid"]));
+        else if (cmd == "overlaps") out = overlaps(root, opts["--file"], opts["--agent"], opts["--session"]);
+        else if (cmd == "timeline") out = timeline(root, opts["--after"].empty() ? 0 : std::stoll(opts["--after"]));
+        else if (cmd == "digest") out = project_digest(root, opts["--consumer"].empty() ? "notebook" : opts["--consumer"],
+            opts["--through"].empty() ? -1 : std::stoll(opts["--through"]));
+        else if (cmd == "snooze") out = snooze(root, id, opts["--seconds"].empty() ? 3600 : std::stoll(opts["--seconds"]),
+            opts["--until-change"] == "yes", opts["--clear"] == "yes");
+        else if (cmd == "workspace") {
+            std::string input;
+            if (opts["--input"] == "-") {
+                input.resize(65537); std::cin.read(input.data(), input.size()); input.resize(static_cast<size_t>(std::cin.gcount()));
+                if (input.size() > 65536) return 2;
+            }
+            out = workspace(root, opts["--client"], input);
+        }
+        else if (cmd == "workspace-list") out = workspace_list(opts["--client"]);
+        else if (cmd == "suggest-tests") out = suggested_tests(root, opts["--file"]);
+        else if (cmd == "run-suggested") {
+            auto previous = load_run(id);
+            if (!previous.is_object() || str(previous, "root") != root || !previous.value("testRun", false)) {
+                std::cerr << "desk-work run-suggested: that is not a captured test run of this project\n"; return 2;
+            }
+            const auto command = str(previous, "command");
+            const auto cwd = str(previous, "cwd");
+            if (cwd.empty() || !previous.value("cwdKnown", false) || root_of(cwd) != root) {
+                std::cerr << "desk-work run-suggested: the folder that run started in is not known\n"; return 2;
+            }
+            std::error_code cwd_error; fs::current_path(cwd, cwd_error);
+            if (cwd_error) { std::cerr << "desk-work run-suggested: " << cwd << " is gone\n"; return 2; }
+            return supervise({"bash", "-c", command}, root, opts["--session"], str(previous, "title"), command);
+        }
+        else if (cmd == "agents") out = agents(opts.count("--root") ? root : std::string());
+        else if (cmd == "classify") { out = J{{"kind", kind_of(opts["--command"])}, {"observable", observable(opts["--command"])}}; }
         else if (cmd == "run") {
             if (args.size() < 2) return 2;
+            if (root.empty()) return 2;
+            if (root_of(fs::current_path().string()) != root) {
+                std::error_code cwd_error; fs::current_path(root, cwd_error); if (cwd_error) return 2;
+            }
             A child(args.begin() + 1, args.end()); std::string label;
             for (const auto& a : child) label += (label.empty() ? "" : " ") + quote(a);
             if (child.size() == 3 && (child[0] == "bash" || child[0] == "zsh") && child[1] == "-c") label = child[2];
-            auto j = begin(label, root, opts["--session"], ::getpid(), false, opts["--title"]);
-            if (!j.is_object()) { std::cerr << "Could not record job; running command directly.\n"; return sh::run(child); }
-            bool truncated = false; const int code = sh::run_logged(child, run_dir(str(j, "id")) / "output.log", 4 * 1024 * 1024, truncated);
-            finish(j, code, truncated);
-            if (code != 0) notify_failure(str(j, "title", label), str(j, "id"));
-            return code < 0 ? 125 : code;
+            return supervise(child, root, opts["--session"], opts["--title"], label);
         } else if (cmd == "begin") {
+            if (opts["--safe"] == "yes" && !observable(opts["--command"])) return 0;
             if (kind_of(opts["--command"]).empty()) return 0;
             // "parent": whoever started this (Claude Code itself, for a mod); the job stays running only while it lives.
             const long long pid = opts["--pid"] == "parent" ? static_cast<long long>(::getppid()) : std::stoll(opts["--pid"]);
-            out = begin(opts["--command"], root, opts["--session"], pid, true, opts["--title"]);
+            out = begin(opts["--command"], root, opts["--session"], pid, true, opts["--title"], opts["--cwd"]);
             if (!out.is_object()) return 1;
             std::cout << str(out, "id") << '\n'; return 0;
         } else if (cmd == "finish") {
@@ -1027,8 +1523,8 @@ int main(int argc, char** argv) {
                 out[str(job, "session")] = J{{"root", str(job, "root")}, {"text", str(job, "command").substr(0, 160)},
                     {"started", num(job, "started")}, {"at", num(job, "activity")}, {"active", true}};
         } else if (cmd == "jobs") out = runs(opts.count("--root") ? root : "");
-        else if (cmd == "overview") out = overview(roots, opts["--fresh"] == "yes");
-        else if (cmd == "notebook") out = notebook(root, opts["--session"]);
+        else if (cmd == "overview") out = overview(roots, opts["--fresh"] == "yes", opts["--history"] == "yes");
+        else if (cmd == "notebook") out = notebook(root, opts["--session"], opts["--loaded"], opts["--health"] == "yes");
         else if (cmd == "worktrees") out = worktrees(root);
         else if (cmd == "plan") out = plan_with_progress(json(plan_path(root, opts["--session"])));
         else if (cmd == "plan-pin") out = pin_plan(root, opts["--session"], opts["--file"], opts["--step"]);
@@ -1044,6 +1540,8 @@ int main(int argc, char** argv) {
         else if (cmd == "commit-plan") out = commit_plan(root, opts["--sha"], opts["--file"], opts["--title"], opts["--step"]);
         else if (cmd == "review-tree") out = review_tree(root, opts["--all"] == "yes");
         else if (cmd == "push-check") out = push_check(root);
+        else if (cmd == "records") out = records_report(root);
+        else if (cmd == "records-repair") out = records_repair(root, opts["--expected"]);
         else if (cmd == "push-notes") out = push_notes(root);
         else if (cmd == "tests") {
             auto j = id.empty() ? notebook(root, "")["tests"] : load_run(id);
@@ -1052,14 +1550,38 @@ int main(int argc, char** argv) {
         } else if (cmd == "compare") {
             auto j = load_run(id); if (!j.is_object()) return 1;
             std::cout << comparison(j); return 0;
-        } else if (cmd == "open") {
-            const auto action = opts["--action"];
-            auto j = load_run(id); const auto where = j.is_object() ? str(j, "root") : root;
+        } else if (cmd == "open" || cmd == "resolve") {
+            auto action = opts["--action"], target = id;
+            J resolved;
+            if (action == "attention") {
+                J selected;
+                for (const auto& item : attention(root)) if (str(item, "id") == id) { selected = item["action"]; break; }
+                if (!selected.is_object()) { std::cout << J{{"ok", false}, {"message", "That item is settled. Refresh the list."}}.dump() << '\n'; return 1; }
+                resolved = selected;
+                action = str(selected, "kind"); target = str(selected, "id", str(selected, "key"));
+                if (selected.contains("file")) opts["--file"] = str(selected, "file");
+            }
+            if (action == "event") {
+                for (const auto& event : timeline(root, 0, 500)) if (str(event, "id") == id) resolved = event["action"];
+                if (!resolved.is_object()) return 1;
+                action = str(resolved, "kind"); target = str(resolved, "id", str(resolved, "key"));
+                if (resolved.contains("file")) opts["--file"] = str(resolved, "file");
+            }
+            if (cmd == "resolve") {
+                if (!resolved.is_object()) return 2;
+                std::cout << J{{"root", root}, {"action", resolved}}.dump() << '\n'; return 0;
+            }
+            if (action == "agent") {
+                for (const auto& agent : agents(root)) if (str(agent, "key") == target && !str(agent, "pane").empty())
+                    return sh::run({"desk-drawer", "run", "claude-jump", str(agent, "pane")});
+                return 1;
+            }
+            auto j = load_run(target); const auto where = j.is_object() ? str(j, "root") : root;
             if (action == "jump") {
                 if (!j.is_object() || str(j, "pane").empty()) return 1;
                 return sh::run({"desk-drawer", "run", "work-jump", str(j, "pane")});
             }
-            if (action == "file" || action == "file-diff") {
+            if (action == "file" || action == "file-diff" || action == "suggested-tests") {
                 std::error_code ec;
                 const auto canonical_root = fs::canonical(where, ec); if (ec) return 2;
                 const auto path = fs::weakly_canonical(canonical_root / fs::path(opts["--file"]), ec);
@@ -1078,8 +1600,8 @@ int main(int argc, char** argv) {
                     if (str(tree, "path") == selected.string() && !tree.value("bare", false)) return open_editor(selected.string(), "workspace");
                 return 2;
             }
-            if (!std::set<std::string>{"tests", "reviews", "compare", "log", "tasks", "ask", "service", "ask-service"}.count(action)) return 2;
-            return open_editor(where, action, id, opts["--index"]);
+            if (!std::set<std::string>{"tests", "reviews", "compare", "log", "tasks", "ask", "service", "ask-service", "timeline", "digest", "snoozed", "health", "backups"}.count(action)) return 2;
+            return open_editor(where.empty() ? fs::current_path().string() : where, action, target, opts["--index"]);
         } else if (cmd == "notify-services") {
             std::string failed;
             if (!sh::capture({"timeout", "3", "systemctl", "--user", "--failed", "--no-legend", "--plain", "--type=service"}, failed)) return 0;
@@ -1091,7 +1613,7 @@ int main(int argc, char** argv) {
                 current.push_back(unit);
                 if (!previous.is_array() || std::find(previous.begin(), previous.end(), unit) == previous.end()) notify_failure(unit, unit, true);
             }
-            out = J{{"ok", atomic(file, current.dump())}};
+            out = written(atomic(file, current.dump()), "failed-service list");
         } else if (cmd == "log") {
             const auto j = load_run(id); if (!j.is_object()) return 1;
             std::cout << clean(read(run_dir(id) / "output.log")); return 0;
@@ -1103,4 +1625,13 @@ int main(int argc, char** argv) {
         std::cout << out.dump(-1, ' ', false, J::error_handler_t::replace) << '\n';
         return out.is_object() && out.contains("ok") && out["ok"] == false ? 1 : 0;
     } catch (const std::exception& e) { std::cerr << "desk-work: " << e.what() << '\n'; return 1; }
+}
+int main(int argc, char** argv) {
+    const int code = dispatch(argc, argv);
+    // Usage refusals print nothing else, so say which command refused. Commands that hand back a child's own exit
+    // status are left alone: a 2 from them is the child's.
+    static const std::set<std::string> passthrough{"integrations", "run", "run-suggested"};
+    if (code == 2 && !passthrough.count(invoked))
+        std::cerr << "desk-work " << (invoked.empty() ? "" : invoked + ": ") << "missing or invalid arguments (desk-work help lists them)\n";
+    return code;
 }

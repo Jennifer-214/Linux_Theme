@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from fixture_process import run as run_fixture
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -41,7 +42,7 @@ vim.cmd.edit(vim.fn.fnameescape(path))
 local buf=api.nvim_get_current_buf()
 assert(S.buffers[buf] and next(S.watchers))
 ''' + code)
-            result = subprocess.run(['nvim','--headless','--clean','-l',str(script)],cwd=base,env=env,
+            result = run_fixture(['nvim','--headless','--clean','-l',str(script)],cwd=base,env=env,
                                     capture_output=True,text=True,timeout=20)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
 
@@ -103,6 +104,19 @@ assert(S.buffers[buf].pending~=nil)
 assert(api.nvim_buf_get_lines(buf,0,1,false)[1]=='local first = 100')
 assert(not table.concat(api.nvim_buf_get_lines(buf,0,-1,false),'\n'):find('<<<<<<<',1,true))
 S.keep(); assert(S.buffers[buf].pending==nil and vim.bo[buf].modified)
+''')
+
+    def test_attaching_to_an_already_modified_buffer_never_invents_a_merge_baseline(self):
+        self.exercise(r'''
+S.detach(buf)
+api.nvim_buf_set_lines(buf,0,1,false,{'local first = 100'})
+S.track(buf)
+assert(S.buffers[buf].base==nil,'an unsaved buffer has no known shared baseline at first attach')
+disk('local first = 1\n\nlocal middle = 2\n\nlocal last = 300\n',true)
+assert(vim.wait(2000,function() return S.buffers[buf].pending~=nil end,20))
+S.merge()
+assert(api.nvim_buf_get_lines(buf,0,1,false)[1]=='local first = 100','a guessed baseline lost local edits')
+assert(S.buffers[buf].pending~=nil)
 ''')
 
 

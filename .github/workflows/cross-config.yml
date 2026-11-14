@@ -15,10 +15,30 @@ on:
   pull_request:
 
 jobs:
+  pins:
+    # Reads .github/toolchain.json, the one place the toolchains are pinned.
+    runs-on: ubuntu-latest
+    outputs:
+      ubuntu: ${{ steps.read.outputs.ubuntu }}
+      archImage: ${{ steps.read.outputs.archImage }}
+      archSnapshot: ${{ steps.read.outputs.archSnapshot }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/toolchain.json
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - id: read
+        run: python3 -c "import json; [print(f'{k}={v}') for k, v in json.load(open('.github/toolchain.json')).items() if k != '_']" >> "$GITHUB_OUTPUT"
+
   cross-config:
+    needs: pins
     runs-on: ubuntu-latest
     container:
-      image: archlinux:latest
+      image: ${{ needs.pins.outputs.archImage }}
+    env:
+      ARCH_SNAPSHOT: ${{ needs.pins.outputs.archSnapshot }}
+      CCACHE_DIR: ${{ runner.temp }}/ccache
 
     strategy:
       fail-fast: false
@@ -35,23 +55,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Pin the package repositories to the image's day of the Arch archive
+        # The image and the packages it installs are both from one day (.github/toolchain.json), so a build here only
+        # changes when that file does.
+        run: echo "Server = https://archive.archlinux.org/repos/$ARCH_SNAPSHOT/\$repo/os/\$arch" > /etc/pacman.d/mirrorlist
+
       - name: Install build + dry-run dependencies
         run: |
           # -Syu, never -Sy: installing against a fresh database without upgrading is a partial upgrade, and breaks
           # the day a library (systemd-libs) moves ahead of the image's own package that pins it (systemd).
-          pacman -Syu --noconfirm --needed \
-            base-devel git curl pkgconf openssl \
+          pacman -Syyuu --noconfirm --needed \
+            base-devel ccache git curl pkgconf openssl \
             pacman-contrib coreutils sed gawk \
             python wayland wayland-protocols cairo pango glib2 gdk-pixbuf2 systemd-libs
 
-      - name: Fetch nlohmann/json header
-        run: |
-          curl -fsSL \
-            https://github.com/nlohmann/json/releases/latest/download/json.hpp \
-            -o src/desk-intel/json.hpp
+      - name: Name the compiler cache after this CPU model
+        # -march=native objects are only safe to reuse on the same kind of CPU.
+        run: echo "CPU_KEY=$(grep -m1 'model name' /proc/cpuinfo | sha1sum | cut -c1-12)" >> "$GITHUB_ENV"
+      - name: Restore the compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ccache-cross-config-${{ env.ARCH_SNAPSHOT }}-${{ env.CPU_KEY }}-${{ github.sha }}-${{ matrix.bootloader }}
+          restore-keys: ccache-cross-config-${{ env.ARCH_SNAPSHOT }}-${{ env.CPU_KEY }}-
+      - name: Compile through the cache
+        run: echo /usr/lib/ccache/bin >> "$GITHUB_PATH"
 
       - name: Build everything (native orchestrator + leaves + libdesk-health)
-        run: make
+        run: make -j"$(nproc)"
 
       - name: Run unit tests
         run: make test

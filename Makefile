@@ -53,6 +53,10 @@ $(addprefix build-,$(TOOLS)): build-%:
 INTEL_USERS := $(filter-out desk-intel,$(patsubst src/%/Makefile,%,$(shell grep -l 'libdesk-intel\.a' src/*/Makefile)))
 $(addprefix build-,$(INTEL_USERS)): build-desk-intel
 $(addprefix install-,$(INTEL_USERS)): install-desk-intel
+# The same for ../desk-common/libdesk-common.a, which most tools link and rebuild when it is missing or stale.
+COMMON_USERS := $(filter-out desk-common,$(patsubst src/%/Makefile,%,$(shell grep -l 'libdesk-common\.a' src/*/Makefile)))
+$(addprefix build-,$(COMMON_USERS)): build-desk-common
+$(addprefix install-,$(COMMON_USERS)): install-desk-common
 
 $(addprefix install-,$(TOOLS)): install-%:
 	$(MAKE) --no-print-directory -C src/$* install
@@ -69,6 +73,13 @@ test: $(addprefix test-,$(TOOLS)) test-scripts
 test-fast:
 	@python3 -B tests/run_changed.py
 
+# Required release check: missing Claude/TypeScript/engine types are failures, never skips.
+test-claude: build-desk-render
+	@FOXML_REQUIRE_MOD_CHECKS=1 python3 -B tests/test_claude_mod.py
+
+test-work-integrations:
+	@python3 -B tests/run_work_checks.py
+
 # Python script tests (shared/bin tools without their own src/<tool>/ dir).
 test-scripts:
 	@for t in tests/test_*.py; do [ -e "$$t" ] || continue; echo "  - $$t"; python3 "$$t" || exit 1; done
@@ -84,4 +95,4 @@ list:
 	@printf "Discovered tools:\n"
 	@for t in $(TOOLS); do printf "  - %s\n" "$$t"; done
 
-.PHONY: all install clean test test-fast list $(addprefix build-,$(TOOLS)) $(addprefix install-,$(TOOLS)) $(addprefix clean-,$(TOOLS)) $(addprefix test-,$(TOOLS))
+.PHONY: all install clean test test-fast test-claude test-work-integrations list $(addprefix build-,$(TOOLS)) $(addprefix install-,$(TOOLS)) $(addprefix clean-,$(TOOLS)) $(addprefix test-,$(TOOLS))
