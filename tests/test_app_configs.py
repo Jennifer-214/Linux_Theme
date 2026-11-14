@@ -23,6 +23,18 @@ def palette_value(theme, key):
 
 
 @unittest.skipUnless(RENDERER.exists(), "needs desk-render-fast built")
+class EmptyPaletteTest(unittest.TestCase):
+    def test_an_empty_palette_is_refused_rather_than_rendered_blank(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            palette = Path(tmp) / "palette.sh"
+            palette.write_text("# nothing here\n")
+            run = subprocess.run([RENDERER, palette, ROOT / "templates", Path(tmp) / "out"], capture_output=True, text=True)
+            self.assertEqual(run.returncode, 1, run.stderr)
+            self.assertIn("palette parsed empty", run.stderr)
+            self.assertFalse(any((Path(tmp) / "out").rglob("*.conf")), "nothing was rendered")
+
+
+@unittest.skipUnless(RENDERER.exists(), "needs desk-render-fast built")
 class RenderedConfigsTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

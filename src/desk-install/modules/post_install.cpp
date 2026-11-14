@@ -195,6 +195,10 @@ void run_post_install(Context& ctx) {
         }
     }
 
+    // Open terminals take the new colours as well: kitty reads its config again on SIGUSR1.
+    if (ctx.render_ran && ctx.render_ok && process_running("kitty") && sh::run({"pkill", "-USR1", "-x", "kitty"}) == 0)
+        ui::ok("open terminals reloaded their colours");
+
     // Plugin maintenance, not theming: a theme swap only needs init.lua
     // re-rendered, and these two caps add up to 3 minutes to every swap.
     // swap.sh sets FOXML_SKIP_PLUGIN_SYNC so swapping stays interactive;

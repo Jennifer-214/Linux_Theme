@@ -68,6 +68,7 @@ in one file, with a context size and slot count per role. Codex replaces the Gem
   On stock Arch PAM (`try_first_pass`) the fingerprint steps report themselves skipped instead of failing every run.
 - A swap that could not update the login screen (sudo cache cold) still saves the theme name, so a later tweak edits
   the palette that is on screen. A render stopped to protect live edits still records the steps before it.
+- A theme swap reloads open kitty terminals, and a palette that reads empty is refused instead of rendered blank.
 - `./update.sh` shows how deployed configs differ from the templates, and writes nothing. It used to write live
   configs back into the templates by swapping colours for tokens, which rewrote every template, edited or not.
 - "Colors from wallpaper" is gone from the drawer: the palette it made was never one a theme could use, and run from
