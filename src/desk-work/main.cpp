@@ -2,6 +2,7 @@
 #include "shell.hpp"
 #include "work_updates.hpp"
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <charconv>
 #include <cctype>
@@ -10,6 +11,7 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <iostream>
 #include <map>
 #include <regex>
@@ -559,7 +561,7 @@ J reviews(const std::string& root, bool today_only = true) {
     if (!fs::exists(fs::path(root) / ".git", error)) return J::array();
     // Kept until the checkout's history or the review marks change (or the day turns): the drawer asks every open.
     const std::time_t clock = std::time(nullptr);
-    std::tm day = *std::localtime(&clock);
+    std::tm day{}; localtime_r(&clock, &day);  // _r: overview reads checkouts on several threads
     const auto signature = std::to_string(stamp_of(head_log(root))) + "|" + std::to_string(stamp_of(project_dir(root) / "reviewed.json"))
                            + "|" + std::to_string(stamp_of(project_dir(root) / "review-marks.json"))
                            + "|" + trim(query({"git", "--no-optional-locks", "-C", root, "rev-parse", "--verify", "--quiet", std::string("refs/notes/") + REVIEW_NOTES}))
@@ -573,7 +575,7 @@ J reviews(const std::string& root, bool today_only = true) {
     A a{"git", "--no-optional-locks", "-C", root, "log", "-80", "--format=%H%x1f%ct%x1f%s%x1f%(trailers:key=Claude-Session,valueonly)%x1f%(trailers:key=Co-Authored-By,valueonly)%x1e"};
     J out = J::array();
     const std::time_t time = std::time(nullptr);
-    std::tm midnight = *std::localtime(&time);
+    std::tm midnight{}; localtime_r(&time, &midnight);
     midnight.tm_hour = midnight.tm_min = midnight.tm_sec = 0; midnight.tm_isdst = -1;
     const auto start = std::mktime(&midnight);
     for (const auto& entry : split(query(a), '\x1e')) {
@@ -1284,15 +1286,36 @@ J overview(const A& requested, bool fresh = false, bool include_history = false)
         r.erase("snapshot");
     }
     J needs = J::array(), history = J::array(), digests = J::array(), held = J::array(), aside = J::array();
-    for (const auto& root : roots) {
-        for (auto t : tasks(root)) if (!t.value("done", false)) { t["root"] = root; todo.push_back(t); }
-        for (auto r : reviews(root)) review.push_back(r);
-        for (auto item : attention(root, "", false, true)) (item.contains("snoozed") ? held : needs).push_back(item);
-        if (auto record = aside_record(root); record.is_object()) aside.push_back(record);
-        if (include_history) {
-            for (auto event : timeline(root, 0, 30)) history.push_back(event);
-            auto summary = project_digest(root, "desktop"); summary["root"] = root; digests.push_back(summary);
+    // Each checkout is read on its own thread, at most eight at once, then joined in order: its reads are git and its
+    // own folder, and one after another they were most of the drawer's wait on open (about 1.5 s for 12 checkouts).
+    struct Part { J todo = J::array(), review = J::array(), needs = J::array(), held = J::array(), history = J::array(), aside, digest; };
+    const std::vector<std::string> list(roots.begin(), roots.end());
+    std::vector<Part> parts(list.size());
+    std::atomic<size_t> next{0};
+    const auto work = [&] {
+        for (size_t i; (i = next++) < list.size();) {
+            const auto& root = list[i]; auto& p = parts[i];
+            for (auto t : tasks(root)) if (!t.value("done", false)) { t["root"] = root; p.todo.push_back(t); }
+            for (auto r : reviews(root)) p.review.push_back(r);
+            for (auto item : attention(root, "", false, true)) (item.contains("snoozed") ? p.held : p.needs).push_back(item);
+            p.aside = aside_record(root);
+            if (include_history) {
+                for (auto event : timeline(root, 0, 30)) p.history.push_back(event);
+                p.digest = project_digest(root, "desktop"); p.digest["root"] = root;
+            }
         }
+    };
+    std::vector<std::future<void>> workers;
+    for (size_t n = 0; n < std::min<size_t>(8, list.size()); ++n) workers.push_back(std::async(std::launch::async, work));
+    for (auto& w : workers) w.get();
+    for (auto& p : parts) {
+        for (auto& x : p.todo) todo.push_back(std::move(x));
+        for (auto& x : p.review) review.push_back(std::move(x));
+        for (auto& x : p.needs) needs.push_back(std::move(x));
+        for (auto& x : p.held) held.push_back(std::move(x));
+        if (p.aside.is_object()) aside.push_back(std::move(p.aside));
+        for (auto& x : p.history) history.push_back(std::move(x));
+        if (include_history) digests.push_back(std::move(p.digest));
     }
     std::sort(needs.begin(), needs.end(), attention_less);
     std::sort(history.begin(), history.end(), [](const J& a, const J& b) {
