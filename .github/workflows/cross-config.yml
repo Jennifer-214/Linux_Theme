@@ -70,6 +70,11 @@ jobs:
       # tests that read git's index (script modes) fail.
       - uses: actions/checkout@v4
 
+      # The container runs as root and the checkout belongs to the runner's user, so git refuses it ("dubious
+      # ownership", exit 128) in every later step; checkout only trusts it for its own calls.
+      - name: Trust the checkout for git
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
       - name: Name the compiler cache after this CPU model
         # -march=native objects are only safe to reuse on the same kind of CPU.
         # The runner context exists only inside steps, so the cache folder is named here too.
