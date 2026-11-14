@@ -267,3 +267,20 @@ test('a question-only turn after "later" does not say the turn changed files', a
   expect(said, 'the band after a turn that changed nothing').not.toMatch(/turn done.*changed/)
   await band.unmount()
 })
+
+test('the end of a turn reads the project once more, not twice, and still sees the turn\'s own edit', async ($, on) => {
+  const files = fakeFs(on, { '/code/paper/README.md': 'new' }, { '/code/paper/README.md': NOW })
+  engine(on, { runtime: '/run/t', clock: false, files, projectWork: { tests: null, tasks: [], jobs: [], attention: [] } })
+  mock.clock(on, { now: NOW })
+  on('classic.Stop', () => ({}) as never)
+  await opened($)
+  await $.prompt.submit({ text: 'go', wait: false, origin: { kind: 'composer' } })
+  await $.tool.call({ tool: 'Edit', file_path: '/code/paper/README.md', old_string: 'new', new_string: 'newer' })   // leaves a refresh in flight
+  seen.argv = []
+  await $.classic.Stop({ hook_event_name: 'Stop', stop_hook_active: false } as never)
+  const reads = seen.argv.filter(a => a.startsWith('desk-work notebook')).length
+  expect(reads, `${seen.argv.length} processes before the Stop hook returned`).toBeLessThanOrEqual(2)
+  const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: false }, surface: 'terminal' } as never)
+  expect(await band.find({ type: 'Text', text: /turn done/ }), 'the band names the edit the turn made').toBeDefined()
+  await band.unmount()
+})

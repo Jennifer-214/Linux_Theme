@@ -135,6 +135,9 @@ const memory = {
   // When the notebook last read everything, and whether the newest attempt failed: so a stale page says so.
   lookAt: 0,
   lookFailed: false,
+  // The newest view a refresh made. Every state read of one dispatch reads one moment ($.state.get), so a hook that
+  // waits on a refresh another event started still reads what was there when it began; this holds what it made.
+  look: null as PaperLook | null,
   refreshAgain: false,
   // The change stream's pace: when it last started a refresh, and whether one is waiting for the second to pass.
   streamRefreshAt: 0,
@@ -368,7 +371,7 @@ async function nameCommit($: EngineInterface, command: string) {
   const now = await $.clock.now()
   if (now / 1000 - Number(stamp) > 300) return  // not the commit just made
   // The plan this session works from goes on record with the commit, so the review tree can group by plan.
-  const plan = (await read($, look))?.plan
+  const plan = (await latestLook($))?.plan
   const sha = (await run($, ['git', '--no-optional-locks', '-C', where, 'rev-parse', '--verify', 'HEAD']))?.trim() ?? ''
   const top = (await run($, ['git', '--no-optional-locks', '-C', where, 'rev-parse', '--show-toplevel']))?.trim() ?? ''
   if (plan && /^[0-9a-f]{40}$/.test(sha) && top && trailerUrl(body ?? '') !== null)
@@ -547,6 +550,11 @@ async function ciFor($: EngineInterface, root: string, upstream: string): Promis
   return memory.ci
 }
 
+// The view as the newest refresh left it, for a hook that has just waited on one (see memory.look).
+async function latestLook($: EngineInterface): Promise<PaperLook | null> {
+  return memory.look ?? await read($, look)
+}
+
 function refresh($: EngineInterface): Promise<void> {
   if (memory.refreshTask !== null) memory.refreshAgain = true
   else memory.refreshTask = (async () => {
@@ -703,7 +711,9 @@ async function refreshNow($: EngineInterface) {
       project = { trees, documents }
     }
     const note = await lastNight($, root)
-    await update($, look, () => ({ root, session, branch, files, gate, plan, context, neighbours: near, card, work: projectWork, project, credits, lastNight: note, git, ci }))
+    const made: PaperLook = { root, session, branch, files, gate, plan, context, neighbours: near, card, work: projectWork, project, credits, lastNight: note, git, ci }
+    await update($, look, () => made)
+    memory.look = made
     memory.lookAt = await $.clock.now(); memory.lookFailed = false
     // One report per change of state, or a minute apart while all is well: each report is a locked write of the client
     // record, and a burst of edits is many refreshes.
@@ -768,7 +778,7 @@ export const register: Register = on => {
     await refresh($)
     await publishAgent($, 'waiting')
     void startWorkWatch($, await repoRoot($))
-    if (e.isInteractive && !memory.toldLastNight && (await read($, look))?.lastNight) {
+    if (e.isInteractive && !memory.toldLastNight && (await latestLook($))?.lastNight) {
       memory.toldLastNight = true
       $.ui.toast("last night's note is waiting · /notebook project")
     }
@@ -859,10 +869,9 @@ export const register: Register = on => {
   on('classic.Stop', async ($, e, next) => {
     await publishAgent($, 'waiting')
     await update($, turn, () => null)
-    // A refresh already under way began before the turn's last edit was recorded: let it finish, then read afresh.
+    // A refresh already under way began before the turn's last edit was recorded; refresh() reads once more after it.
     await refresh($)
-    await refresh($)
-    const seen = await read($, look)
+    const seen = await latestLook($)
     // The receipt: what this turn changed, ran and committed.
     const began = (await read($, receipt))?.at ?? 0
     const start = memory.turnStart || began
@@ -1187,7 +1196,7 @@ export const register: Register = on => {
       memory.planFile = null
       await setView({ form: 'none' })
       await refresh($)
-      const plan = (await read($, look))?.plan
+      const plan = (await latestLook($))?.plan
       if (plan) await notePlan($, plan.file)
     }
 
