@@ -32,7 +32,6 @@ jobs:
       DISABLE_AUTOUPDATER: "1"
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
       ARCH_SNAPSHOT: ${{ needs.pins.outputs.archSnapshot }}
-      CCACHE_DIR: ${{ runner.temp }}/ccache
     steps:
       - name: Pin the package repositories to the image's day of the Arch archive
         # The image and the packages it installs are both from one day (.github/toolchain.json), so a build here only
@@ -47,7 +46,10 @@ jobs:
           persist-credentials: false
       - name: Name the compiler cache after this CPU model
         # -march=native objects are only safe to reuse on the same kind of CPU.
-        run: echo "CPU_KEY=$(grep -m1 'model name' /proc/cpuinfo | sha1sum | cut -c1-12)" >> "$GITHUB_ENV"
+        # The runner context exists only inside steps, so the cache folder is named here too.
+        run: |
+          echo "CPU_KEY=$(grep -m1 'model name' /proc/cpuinfo | sha1sum | cut -c1-12)" >> "$GITHUB_ENV"
+          echo "CCACHE_DIR=$RUNNER_TEMP/ccache" >> "$GITHUB_ENV"
       - name: Restore the compiler cache
         uses: actions/cache@v4
         with:
