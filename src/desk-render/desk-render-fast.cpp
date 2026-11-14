@@ -41,53 +41,6 @@ void usage_forward(const char* argv0) {
         argv0, argv0);
 }
 
-// Hardcoded last-resort fallback. Mirrors render.sh's `hex_vars=(…)`
-// + `str_vars=(…)` blocks for the case where _derive_palette_vars
-// finds nothing. Used only when parse_palette returns empty AND no
-// other route is viable — almost exclusively a test / corrupted-file
-// situation. Empty map signals "nothing to do".
-//
-// We don't synthesise hex VALUES here (we don't know the active theme)
-// — we just declare which KEYS exist so the substitution-table caller
-// can warn about unbound markers. This matches the bash behaviour
-// where the hardcoded list pins KEY NAMES and any missing VALUE is
-// substituted as empty.
-std::unordered_map<std::string, std::string> hardcoded_fallback() {
-    static const char* HEX_VARS[] = {
-        "BG","BG_DARK","BG_ALT","BG_HIGHLIGHT","SELECTION",
-        "FG","FG_PASTEL","FG_DIM","COMMENT",
-        "PRIMARY","SECONDARY","ACCENT","SURFACE",
-        "RED","RED_BRIGHT","GREEN","GREEN_BRIGHT",
-        "YELLOW","YELLOW_BRIGHT","BLUE","BLUE_BRIGHT",
-        "CYAN","CYAN_BRIGHT","WHITE","OK","WARN",
-        "BG_DUNST","BG_SPICETIFY","BG_VENCORD_ALT","BG_VENCORD_DEEP","CARD_HOVER",
-        "FZF_ACCENT1","FZF_ACCENT2","ZSH_SUGGEST","ZSH_CMD",
-        "TMUX_INACTIVE_FG","TMUX_ACTIVE_FG","TMUX_ACTIVE_BG",
-        "DIFF_ADD","DIFF_CHANGE","DIFF_DELETE","DIFF_TEXT","TREESITTER_CTX",
-        "WARM","SAND","WHEAT","CLAY","NVIM_BG_HL","NVIM_SEL",
-        nullptr,
-    };
-    static const char* STR_VARS[] = {
-        "THEME_TYPE","NVIM_STYLE","NVIM_BG","KITTY_BG_OPACITY","POPUP_BG_OPACITY",
-        "SHOW_WELCOME","SHOW_BANNER","WALLPAPER",
-        "MAKO_ICON_THEME","VSCODE_UI_THEME","FONT_FAMILY",
-        "ANSI_ACCENT1","ANSI_ACCENT2","ANSI_ACCENT3","ANSI_ACCENT4","ANSI_ACCENT5",
-        "ANSI_TEXT","ANSI_MUTED","ANSI_ERROR","ANSI_OK","ANSI_STANDOUT_BG",
-        "ANSI_PROMPT","ANSI_PROMPT2","ANSI_LOAD",
-        "GRAD1","GRAD2","GRAD3","GRAD4","GRAD5",
-        "TMUX_ACTIVE","TMUX_INACTIVE",
-        nullptr,
-    };
-    std::unordered_map<std::string, std::string> out;
-    for (auto** v = HEX_VARS; *v; ++v) {
-        out["{{" + std::string(*v) + "}}"] = "";
-    }
-    for (auto** v = STR_VARS; *v; ++v) {
-        out["{{" + std::string(*v) + "}}"] = "";
-    }
-    return out;
-}
-
 std::string slurp(const fs::path& p) {
     std::ifstream f(p, std::ios::binary);
     if (!f) return {};
@@ -194,15 +147,13 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    auto table = desk_render::parse_palette(palette_path);
+    // An empty or unreadable palette has nothing to render with: every colour would come out blank ("background #")
+    // and be deployed as a good render. Refuse, as the reverse mode does.
+    const auto table = desk_render::parse_palette(palette_path);
     if (table.empty()) {
-        // Bash fell back to a hardcoded var list with empty values so
-        // unit tests / corrupted palettes don't crash the render. We
-        // match that — substitutions become no-ops but the loop runs.
-        std::fprintf(stderr,
-            "desk-render-fast: palette parsed empty — using hardcoded "
-            "fallback var list (substitutions will be no-ops).\n");
-        table = hardcoded_fallback();
+        std::fprintf(stderr, "desk-render-fast: palette parsed empty (%s); refusing to render blank colours\n",
+                     palette_path.c_str());
+        return 1;
     }
 
     bool show_progress = isatty(fileno(stderr));
