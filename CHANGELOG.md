@@ -70,6 +70,10 @@ in one file, with a context size and slot count per role. Codex replaces the Gem
   any difference; the original backup is kept once. Kernel command-line edits find the boot entry loader.conf names
   (not only arch.conf), skip a /boot they cannot read instead of editing GRUB's file, strip `lockdown=integrity`
   wherever it sits and check it is gone, and the nvidia and AppArmor edits check and revert like the IOMMU one.
+- Fingerprint steps give way to the password after 10 s (not 30), and the login screen asks for a finger once.
+- The /tmp fstab line is checked with `findmnt --verify` before it replaces fstab, laid through the same checked swap,
+  never added beside a /tmp partition, and a failure no longer restores the fstab from before the first install. A
+  missing ufw, USBGuard or AppArmor marks the run unfinished instead of a warning.
 - A swap that could not update the login screen (sudo cache cold) still saves the theme name, so a later tweak edits
   the palette that is on screen. A render stopped to protect live edits still records the steps before it.
 - A theme swap reloads open kitty terminals, and a palette that reads empty is refused instead of rendered blank.

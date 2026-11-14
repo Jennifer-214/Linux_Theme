@@ -11,41 +11,22 @@
 #include "../core/context.hpp"
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
+#include "fstab_tmp.hpp"
+#include "pam_file.hpp"
 
 #include <filesystem>
 #include <fstream>
 #include <regex>
+#include <set>
 #include <sstream>
 #include <stdexcept>
+#include <unistd.h>
 
 namespace fs = std::filesystem;
 
 namespace desk_install {
 
 namespace {
-
-bool has_tmp_tmpfs(const std::string& fstab) {
-    std::istringstream is(fstab);
-    std::string line;
-    std::regex pat(R"(^\S+\s+/tmp\s+tmpfs)");
-    while (std::getline(is, line)) {
-        if (std::regex_search(line, pat)) return true;
-    }
-    return false;
-}
-
-bool tmp_fstab_locked_down(const std::string& fstab) {
-    std::istringstream is(fstab);
-    std::string line;
-    std::regex pat(R"(^\S+\s+/tmp\s+tmpfs)");
-    while (std::getline(is, line)) {
-        if (!std::regex_search(line, pat)) continue;
-        return line.find("noexec") != std::string::npos
-            && line.find("nosuid") != std::string::npos
-            && line.find("nodev")  != std::string::npos;
-    }
-    return false;
-}
 
 std::string read_file(const fs::path& p) {
     std::ifstream f(p);
@@ -71,14 +52,9 @@ void run_noexec_tmp(Context& ctx) {
     }
 
     fs::path fstab = "/etc/fstab";
-    std::string body = read_file(fstab);
-
-    // Snapshot fstab's parse-health BEFORE we touch it, so we only react
-    // to a problem WE introduced (not a pre-existing unrelated warning).
-    bool verify_ok_before =
-        sh::run({"sh", "-c", "findmnt --verify >/dev/null 2>&1"}) == 0;
-
-    bool tmp_locked = tmp_fstab_locked_down(body);
+    const std::string body = read_file(fstab);
+    const auto kind = fstab_tmp::tmp_kind(body);
+    const bool tmp_locked = fstab_tmp::locked_down(body);
     bool tmp_live = sh::run({"sh", "-c",
                              "findmnt /tmp 2>/dev/null | grep -q noexec"}) == 0;
     bool shm_live = sh::run({"sh", "-c",
@@ -88,55 +64,35 @@ void run_noexec_tmp(Context& ctx) {
         return;
     }
 
-    // Only back up /etc/fstab when we're actually about to edit it —
-    // a pure /dev/shm remount needs no fstab change. Backup is
-    // create-if-missing: a foxml-modified fstab must never overwrite the
-    // true pre-foxml original on repeat --full runs.
-    if (!tmp_locked) {
-        sh::run({"sh", "-c",
-                 "[ -e /etc/fstab.foxml-bak ] || "
-                 "sudo cp /etc/fstab /etc/fstab.foxml-bak"});
-        if (!has_tmp_tmpfs(body)) {
-            sh::run({"sh", "-c",
-                     "echo 'tmpfs   /tmp        tmpfs   "
-                     "defaults,noexec,nosuid,nodev,size=4G  0 0' | "
-                     // idempotent: guarded by !has_tmp_tmpfs(body) + create-if-missing .foxml-bak above
-                     "sudo tee -a /etc/fstab >/dev/null"});
-            ui::ok("/tmp added to /etc/fstab as tmpfs with noexec,nosuid,nodev");
-        } else {
-            // Amend each missing flag onto the existing /tmp tmpfs line's
-            // options field. Appending to the captured options column
-            // (the 4th \S+) works whether or not the line uses `defaults`
-            // — the prior `defaults`-only sed silently no-op'd on lines
-            // that spelled out their options.
-            sh::run({"sh", "-c",
-                     "sudo sed -i -E '/^\\S+\\s+\\/tmp\\s+tmpfs/{"
-                     "/\\bnoexec\\b/!s/(\\S+\\s+\\/tmp\\s+tmpfs\\s+\\S+)/\\1,noexec/;"
-                     "/\\bnosuid\\b/!s/(\\S+\\s+\\/tmp\\s+tmpfs\\s+\\S+)/\\1,nosuid/;"
-                     "/\\bnodev\\b/!s/(\\S+\\s+\\/tmp\\s+tmpfs\\s+\\S+)/\\1,nodev/"
-                     "}' /etc/fstab"});
-            ui::ok("/tmp tmpfs entry amended with noexec,nosuid,nodev");
-        }
-
-        // Validate the edited fstab before the next boot trusts it. A
-        // malformed/duplicate line drops the system to an emergency
-        // shell. If our edit newly broke parsing, revert from the backup
-        // and fail the module rather than leave an unbootable fstab.
-        if (verify_ok_before &&
-            sh::run({"sh", "-c", "findmnt --verify >/dev/null 2>&1"}) != 0) {
-            ui::warn("fstab edit failed `findmnt --verify` — reverting from /etc/fstab.foxml-bak");
-            if (sh::run({"sudo", "cp", "/etc/fstab.foxml-bak", "/etc/fstab"}) != 0) {
-                // Revert failed — fstab may be left in a state that drops the
-                // next boot to an emergency shell. THIS is unsafe; halt loudly.
-                throw std::runtime_error(
-                    "noexec_tmp: fstab failed verification AND the revert failed — "
-                    "inspect /etc/fstab before rebooting");
-            }
-            // Reverted to the known-good fstab → system is safe. Skip the
-            // /tmp hardening (and the live remounts below) and continue.
-            ui::warn("/tmp hardening not applied; fstab reverted to its pre-foxml state");
-            return;
-        }
+    // A /tmp of its own partition is left alone: a second /tmp line used to be appended beside it.
+    const bool own_partition = kind == fstab_tmp::TmpKind::Partition && !tmp_locked;
+    bool edited = false;
+    if (own_partition) {
+        ui::warn("/tmp is a partition of its own in /etc/fstab — left as it is; add noexec,nosuid,nodev to its options by hand");
+    } else if (const auto next = fstab_tmp::with_tmp_locked(body)) {
+        // The candidate is checked before it replaces fstab: an error it adds (one fstab did not already have) would
+        // drop the next boot to an emergency shell, so fstab stays as it is. Then pam_file lays it: backup made once,
+        // swapped in one step, compared, the previous fstab restored on any difference (the old revert copied back
+        // the backup from the first install, losing every fstab change since).
+        const auto errors = [](const std::string& file) {
+            std::string out;
+            sh::probe({"sh", "-c", "findmnt --verify --tab-file \"$1\" 2>&1", "sh", file}, out);
+            return fstab_tmp::verify_errors(out);
+        };
+        char tmpl[] = "/tmp/desk-fstab-XXXXXX";
+        const int fd = ::mkstemp(tmpl);
+        if (fd < 0) { ui::err("could not write a candidate fstab to check — fstab left as it is"); return; }
+        const bool written = ::write(fd, next->data(), next->size()) == static_cast<ssize_t>(next->size());
+        ::close(fd);
+        const auto before = errors(fstab.string());
+        const auto after = written ? errors(tmpl) : std::set<std::string>{"could not write the candidate"};
+        ::unlink(tmpl);
+        for (const auto& e : after)
+            if (!before.count(e)) { ui::err("the /tmp line would make fstab fail its check (" + e + ") — fstab left as it is"); return; }
+        if (const auto failed = pam_file::install(fstab, *next); !failed.empty()) { ui::err(failed); return; }
+        ui::ok(kind == fstab_tmp::TmpKind::None ? "/tmp added to /etc/fstab as tmpfs with noexec,nosuid,nodev"
+                                                : "/tmp tmpfs entry amended with noexec,nosuid,nodev");
+        edited = true;
     }
 
     if (sh::run({"sh", "-c",
@@ -146,7 +102,9 @@ void run_noexec_tmp(Context& ctx) {
         ui::ok("/dev/shm flags will apply on next reboot");
     }
 
-    if (sh::run({"sh", "-c",
+    if (own_partition) {
+        // left as it is above; not remounted either
+    } else if (sh::run({"sh", "-c",
                  "findmnt /tmp 2>/dev/null | grep -q noexec"}) == 0) {
         ui::skipped("/tmp already noexec live");
     } else if (sh::run({"sh", "-c",
@@ -155,8 +113,8 @@ void run_noexec_tmp(Context& ctx) {
     } else {
         ui::ok("/tmp fstab updated — reboot to apply live (kernel refused: /tmp busy)");
     }
-    if (!tmp_locked) {
-        ui::substep("backup at /etc/fstab.foxml-bak — revert with: sudo mv /etc/fstab.foxml-bak /etc/fstab");
+    if (edited) {
+        ui::substep("backup at /etc/fstab.foxml-bak (the fstab from before the installer first changed it)");
     }
 }
 

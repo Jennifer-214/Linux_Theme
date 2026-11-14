@@ -278,7 +278,8 @@ void install_kernel_hardening(const Context& ctx) {
 // ════════════════════════════════════════════════════════════════════
 void install_usbguard(const Context& ctx) {
     (void)ctx;
-    if (!have("usbguard")) { ui::warn("usbguard not installed, skipping"); return; }
+    // An error, not a warning: the security baseline is not in place, and the run must not read as complete.
+    if (!have("usbguard")) { ui::err("usbguard not installed — USB device control is NOT on; install with --deps, then re-run --security"); return; }
 
     fs::path rules = "/etc/usbguard/rules.conf";
     std::error_code ec;
@@ -444,7 +445,7 @@ bool apparmor_grub() {
 
 void install_apparmor() {
     if (!pacman_has("apparmor")) {
-        ui::warn("apparmor not installed (re-run with --deps --secure)");
+        ui::err("apparmor not installed — AppArmor is NOT on; re-run with --deps --secure");
         return;
     }
 

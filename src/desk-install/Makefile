@@ -72,7 +72,8 @@ install: all
 	@cd ../.. && pwd > $(HOME)/.local/share/foxml/repo-dir
 	@echo "  + repo path recorded: $$(cat $(HOME)/.local/share/foxml/repo-dir)"
 
-test: tests/test_boot_files tests/test_pam_file tests/test_registry tests/test_args tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_gaming tests/test_iommu tests/test_hyprlock_pin tests/test_nvidia_modules tests/test_claude_wiring tests/test_hw_autoenable tests/test_built_tools tests/test_hidepid tests/test_health_boot tests/test_dry_run tests/test_git_clone tests/test_hypr_lua tests/test_drawer_deploy tests/test_cursor_sync tests/test_cursor_recolor tests/test_folder_recolor tests/test_gtk_appearance tests/test_icon_deploy
+test: tests/test_fstab_tmp tests/test_boot_files tests/test_pam_file tests/test_registry tests/test_args tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_gaming tests/test_iommu tests/test_hyprlock_pin tests/test_nvidia_modules tests/test_claude_wiring tests/test_hw_autoenable tests/test_built_tools tests/test_hidepid tests/test_health_boot tests/test_dry_run tests/test_git_clone tests/test_hypr_lua tests/test_drawer_deploy tests/test_cursor_sync tests/test_cursor_recolor tests/test_folder_recolor tests/test_gtk_appearance tests/test_icon_deploy
+	@./tests/test_fstab_tmp
 	@./tests/test_boot_files
 	@./tests/test_pam_file
 	@./tests/test_registry
@@ -297,6 +298,9 @@ tests/test_git_clone: tests/test_git_clone.cpp core/git_clone.hpp
 
 tests/test_hw_autoenable: tests/test_hw_autoenable.cpp core/hw_autoenable.hpp
 	$(CXX) $(CXXFLAGS) tests/test_hw_autoenable.cpp -o $@
+
+tests/test_fstab_tmp: tests/test_fstab_tmp.cpp modules/fstab_tmp.hpp
+	$(CXX) $(CXXFLAGS) tests/test_fstab_tmp.cpp -o $@
 
 tests/test_boot_files: tests/test_boot_files.cpp modules/boot_files.hpp
 	$(CXX) $(CXXFLAGS) tests/test_boot_files.cpp -o $@

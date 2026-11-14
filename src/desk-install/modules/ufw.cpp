@@ -49,7 +49,8 @@ void run_ufw(Context& ctx) {
     }
 
     if (!have("ufw")) {
-        ui::warn("ufw not installed — install with --deps then re-run --ufw");
+        // An error, not a warning: without ufw the firewall is off, and the run must not read as complete.
+        ui::err("ufw not installed — the firewall is NOT on; install with --deps, then re-run --ufw");
         return;
     }
 
