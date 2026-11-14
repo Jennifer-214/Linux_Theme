@@ -93,6 +93,9 @@ void run_noexec_tmp(Context& ctx) {
         ui::ok(kind == fstab_tmp::TmpKind::None ? "/tmp added to /etc/fstab as tmpfs with noexec,nosuid,nodev"
                                                 : "/tmp tmpfs entry amended with noexec,nosuid,nodev");
         edited = true;
+        // systemd generates mount units from fstab; without this it keeps the old ones until the next boot.
+        if (sh::systemctl_daemon_reload(/*user=*/false) != 0)
+            ui::warn("systemctl daemon-reload failed — systemd uses the old fstab until the next boot");
     }
 
     if (sh::run({"sh", "-c",
