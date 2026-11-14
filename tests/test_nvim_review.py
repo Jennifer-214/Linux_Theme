@@ -305,6 +305,20 @@ for _,f in ipairs(R.current.files) do assert(R.current.marks[f.rel] == f.signatu
 C.close()
 ''')
 
+    def test_a_line_gone_from_the_after_copy_reads_as_removed_on_the_before_side(self):
+        self.run_lua(r'''
+C.open_review(row,root)
+local r=R.current
+local left, right = vim.wo[r.left_win].winhighlight, vim.wo[r.right_win].winhighlight
+assert(left:find('DiffAdd:FoxReviewRemoved', 1, true), 'before side: a line found only there is a removal: ' .. left)
+assert(left:find('DiffDelete:FoxReviewFiller', 1, true) and right:find('DiffDelete:FoxReviewFiller', 1, true), 'filler rows are faint')
+assert(not right:find('DiffAdd:', 1, true), 'after side keeps added lines as added: ' .. right)
+assert(vim.fn.hlexists('FoxReviewRemoved') == 1 and vim.fn.hlexists('FoxReviewFiller') == 1)
+vim.cmd('colorscheme default')
+assert(vim.fn.hlexists('FoxReviewRemoved') == 1, 'a colour scheme change keeps the review colours')
+C.close()
+''')
+
     def test_the_selection_bar_follows_the_cursor_and_the_open_file_keeps_a_quiet_band(self):
         self.run_lua(r'''
 C.open_review(row,root)

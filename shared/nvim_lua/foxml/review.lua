@@ -432,6 +432,15 @@ end
 -- for the selected row and one footer line. r.entries maps a line to what it stands for; r.hits maps it to the
 -- byte ranges a click means (the mark, the fold arrow).
 local function hl(name, fallback) return vim.fn.hlexists(name) == 1 and name or fallback end
+-- Before and after read as removed and added. Vim marks a line found in one pane only as DiffAdd in that pane, which
+-- painted lines gone from the after copy green on the before side; filler rows (the gap opposite such a line) were red
+-- on both. Defaults only, so a theme can set its own; set again after a colour scheme clears them.
+local function review_groups()
+  api.nvim_set_hl(0, 'FoxReviewRemoved', { link = 'DiffDelete', default = true })
+  api.nvim_set_hl(0, 'FoxReviewFiller', { link = 'NonText', default = true })
+end
+review_groups()
+api.nvim_create_autocmd('ColorScheme', { group = api.nvim_create_augroup('foxml_review_groups', { clear = true }), callback = review_groups })
 local draw_notes   -- defined with the margin notes, below
 local function width_of(s) return vim.fn.strdisplaywidth(s) end
 local function fit(s, w)
@@ -932,6 +941,7 @@ function M.select(index, refresh)
     vim.wo[win].cursorline, vim.wo[win].wrap = false, false
     vim.wo[win].signcolumn, vim.wo[win].foldcolumn = 'no', '1'
     vim.wo[win].winbar = '%#Title# ' .. escaped(label) .. ' · %<%#Normal#' .. escaped(file.rel) .. '%*'
+    vim.wo[win].winhighlight = win == r.left_win and 'DiffAdd:FoxReviewRemoved,DiffDelete:FoxReviewFiller' or 'DiffDelete:FoxReviewFiller'
     maps(r, buf, false)
   end
   for _, buf in ipairs(old) do if api.nvim_buf_is_valid(buf) then pcall(api.nvim_buf_delete, buf, { force = true }) end end
