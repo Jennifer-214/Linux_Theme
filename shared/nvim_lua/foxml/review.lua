@@ -617,7 +617,13 @@ local function panel(r, select_row)
   for _, m in ipairs(marks_hl) do
     pcall(api.nvim_buf_set_extmark, r.panel_buf, ns, m[1] - 1, math.max(0, m[2]), { end_row = m[1] - 1, end_col = m[3] < 0 and #text[m[1]] or math.min(m[3], #text[m[1]]), hl_group = m[4] })
   end
-  if selected_line then api.nvim_buf_set_extmark(r.panel_buf, ns, selected_line - 1, 0, { line_hl_group = hl('FoxSymdepsSelection', 'Visual') }) end
+  -- The bar follows the row under the cursor, as in every menu here; the file open in the comparison keeps a quieter
+  -- band, so moving through the list never hides which file is shown.
+  local bar = (cursor_line and r.entries[cursor_line]) and cursor_line or selected_line
+  if selected_line and selected_line ~= bar then
+    api.nvim_buf_set_extmark(r.panel_buf, ns, selected_line - 1, 0, { line_hl_group = hl('CursorLine', 'CursorLine') })
+  end
+  if bar then api.nvim_buf_set_extmark(r.panel_buf, ns, bar - 1, 0, { line_hl_group = hl('FoxSymdepsSelection', 'Visual') }) end
   if select_row and api.nvim_win_is_valid(r.panel_win) and selected_line then api.nvim_win_set_cursor(r.panel_win, { selected_line, 0 }) end
   local footer = ' ' .. table.concat({ hint('file', 'next-file', 'previous-file'), hint('change', 'next-change', 'previous-change'),
     hint('check', 'mark'), hint('unread', 'unread'), hint('finish', 'finish'), hint('help', 'actions'), hint('close', 'close') }, ' · ') .. ' '

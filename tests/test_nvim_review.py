@@ -305,6 +305,37 @@ for _,f in ipairs(R.current.files) do assert(R.current.marks[f.rel] == f.signatu
 C.close()
 ''')
 
+    def test_the_selection_bar_follows_the_cursor_and_the_open_file_keeps_a_quiet_band(self):
+        self.run_lua(r'''
+C.open_review(row,root)
+local r=R.current
+local function bars()
+  local selection, open = {}, {}
+  for _, m in ipairs(api.nvim_buf_get_extmarks(r.panel_buf, -1, 0, -1, { details = true })) do
+    local group = m[4].line_hl_group
+    if group == 'FoxSymdepsSelection' or group == 'Visual' then selection[#selection + 1] = m[2] + 1 end
+    if group == 'CursorLine' then open[#open + 1] = m[2] + 1 end
+  end
+  return selection, open
+end
+local open_line
+for line, e in pairs(r.entries) do if e.file == r.index and not e.symbol then open_line = line end end
+local other
+for line, e in pairs(r.entries) do if e.file and e.file ~= r.index and not e.symbol then other = line; break end end
+assert(open_line and other, 'the fixture needs two files in the list')
+api.nvim_set_current_win(r.panel_win)
+api.nvim_win_set_cursor(r.panel_win, { other, 0 })
+api.nvim_exec_autocmds('CursorMoved', { buffer = r.panel_buf })
+local selection, open = bars()
+assert(vim.deep_equal(selection, { other }), 'the bar moves to the row under the cursor: ' .. vim.inspect(selection))
+assert(vim.deep_equal(open, { open_line }), 'the open file keeps a quiet band: ' .. vim.inspect(open))
+api.nvim_win_set_cursor(r.panel_win, { open_line, 0 })
+api.nvim_exec_autocmds('CursorMoved', { buffer = r.panel_buf })
+selection, open = bars()
+assert(vim.deep_equal(selection, { open_line }) and #open == 0, 'on the open file, only the bar shows')
+C.close()
+''')
+
     def test_commit_tree_expands_files_and_reuses_the_comparison(self):
         self.run_lua(r'''
 local base={kind='commit',sha=parent,parent='4b825dc642cb6eb9a060e54bf8d69288fbee4904',short=parent:sub(1,7),subject='base',files={}}
