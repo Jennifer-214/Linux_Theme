@@ -6,22 +6,56 @@ permissions:
   contents: read
 
 jobs:
+  pins:
+    # Reads .github/toolchain.json, the one place the toolchains are pinned.
+    runs-on: ubuntu-latest
+    outputs:
+      ubuntu: ${{ steps.read.outputs.ubuntu }}
+      archImage: ${{ steps.read.outputs.archImage }}
+      archSnapshot: ${{ steps.read.outputs.archSnapshot }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/toolchain.json
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - id: read
+        run: python3 -c "import json; [print(f'{k}={v}') for k, v in json.load(open('.github/toolchain.json')).items() if k != '_']" >> "$GITHUB_OUTPUT"
+
   required-work-checks:
+    needs: pins
     name: Work integrations (required)
     runs-on: ubuntu-latest
-    container: archlinux:latest
+    container: ${{ needs.pins.outputs.archImage }}
     timeout-minutes: 45
     env:
       DISABLE_AUTOUPDATER: "1"
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+      ARCH_SNAPSHOT: ${{ needs.pins.outputs.archSnapshot }}
+      CCACHE_DIR: ${{ runner.temp }}/ccache
     steps:
+      - name: Pin the package repositories to the image's day of the Arch archive
+        # The image and the packages it installs are both from one day (.github/toolchain.json), so a build here only
+        # changes when that file does.
+        run: echo "Server = https://archive.archlinux.org/repos/$ARCH_SNAPSHOT/\$repo/os/\$arch" > /etc/pacman.d/mirrorlist
       - name: Install the native and offscreen test toolchain
         run: |
-          pacman -Syu --noconfirm --needed base-devel git openssl python python-msgpack \
+          pacman -Syyuu --noconfirm --needed base-devel ccache git openssl python python-msgpack \
             neovim quickshell nodejs npm jq ttf-dejavu
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Name the compiler cache after this CPU model
+        # -march=native objects are only safe to reuse on the same kind of CPU.
+        run: echo "CPU_KEY=$(grep -m1 'model name' /proc/cpuinfo | sha1sum | cut -c1-12)" >> "$GITHUB_ENV"
+      - name: Restore the compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: ccache-work-integrations-${{ env.ARCH_SNAPSHOT }}-${{ env.CPU_KEY }}-${{ github.sha }}
+          restore-keys: ccache-work-integrations-${{ env.ARCH_SNAPSHOT }}-${{ env.CPU_KEY }}-
+      - name: Compile through the cache
+        run: echo /usr/lib/ccache/bin >> "$GITHUB_PATH"
       - name: Read the single engine and compiler pin
         run: |
           python - <<'PY'

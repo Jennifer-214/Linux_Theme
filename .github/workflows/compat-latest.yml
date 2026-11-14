@@ -1,0 +1,33 @@
+name: compat-latest
+
+# The required checks build on pinned toolchains (one runner image, one day of the Arch archive). This builds and tests
+# against the newest Arch packages once a week, so a compiler or library change shows up here first, as a red run that
+# blocks nothing. Move the pins forward once it is green.
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  newest-arch:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    timeout-minutes: 45
+    steps:
+      - name: Install the newest toolchain
+        run: |
+          pacman -Syu --noconfirm --needed base-devel git curl pkgconf openssl python \
+            wayland wayland-protocols cairo pango glib2 gdk-pixbuf2 systemd-libs
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Toolchain versions
+        run: g++ --version | head -1; python --version
+      - name: Build everything
+        run: make -j"$(nproc)"
+      - name: Run unit tests
+        run: make test

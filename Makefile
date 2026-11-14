@@ -53,6 +53,10 @@ $(addprefix build-,$(TOOLS)): build-%:
 INTEL_USERS := $(filter-out desk-intel,$(patsubst src/%/Makefile,%,$(shell grep -l 'libdesk-intel\.a' src/*/Makefile)))
 $(addprefix build-,$(INTEL_USERS)): build-desk-intel
 $(addprefix install-,$(INTEL_USERS)): install-desk-intel
+# The same for ../desk-common/libdesk-common.a, which most tools link and rebuild when it is missing or stale.
+COMMON_USERS := $(filter-out desk-common,$(patsubst src/%/Makefile,%,$(shell grep -l 'libdesk-common\.a' src/*/Makefile)))
+$(addprefix build-,$(COMMON_USERS)): build-desk-common
+$(addprefix install-,$(COMMON_USERS)): install-desk-common
 
 $(addprefix install-,$(TOOLS)): install-%:
 	$(MAKE) --no-print-directory -C src/$* install

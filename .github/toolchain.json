@@ -1,0 +1,6 @@
+{
+  "_": "The one place CI's toolchains are pinned. Every workflow reads it through its pins job; compat-latest.yml builds against the newest Arch packages each week. Move archImage and archSnapshot to the same day.",
+  "ubuntu": "ubuntu-24.04",
+  "archImage": "archlinux:base-devel-20261108.0.623074",
+  "archSnapshot": "2026/11/08"
+}
