@@ -32,7 +32,7 @@ case "$TYPE" in
         quiet=false
         [[ "$MUTE" == "yes" ]] && quiet=true
         if [[ "${C_LITTLE_DETAILS:-}" == fox-little-details-on ]] &&
-            quickshell -c foxml ipc call volume present "$VOL" "$quiet" >/dev/null 2>&1; then
+            quickshell -c desk ipc call volume present "$VOL" "$quiet" >/dev/null 2>&1; then
             exit 0
         fi
         
@@ -67,7 +67,7 @@ case "$TYPE" in
         palette="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/modules/border_colors.sh"
         [[ -r "$palette" ]] && source "$palette"
         if [[ "${C_LITTLE_DETAILS:-}" == fox-little-details-on ]] &&
-            quickshell -c foxml ipc call brightness present "$VAL" >/dev/null 2>&1; then
+            quickshell -c desk ipc call brightness present "$VAL" >/dev/null 2>&1; then
             exit 0
         fi
 

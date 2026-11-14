@@ -426,7 +426,7 @@ class Work(unittest.TestCase):
             path.write_text("int x;\n")
             self.invoke('open', '--root', self.repo, '--action', 'file-diff', '--file', path.name, '--session', 'abc')
             argv = json.loads(calls.read_text())
-            self.assertEqual(argv[-3:], ['foxml-work:file-diff', str(path), 'abc'])
+            self.assertEqual(argv[-3:], ['desk-work:file-diff', str(path), 'abc'])
             self.assertEqual(argv[argv.index('--directory') + 1], str(self.repo))
             outside = self.dir / 'outside.cpp'
             outside.write_text('outside\n')
@@ -757,7 +757,7 @@ class Work(unittest.TestCase):
             self.assertEqual(len(notices),1)
             self.assertEqual(notices[0][-4:],['User service failed','service','ask-service','service'])
             self.assertIn('--expire-time=0',notices[0][4])
-            self.assertIn('--category=foxml.work',notices[0][4])
+            self.assertIn('--category=desk.work',notices[0][4])
             self.assertIn('--action=default=',notices[0][4])
             self.assertNotIn("--action=jump",notices[0][4])
             units.write_text('')

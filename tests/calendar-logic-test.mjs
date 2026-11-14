@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 
 const logic = vm.createContext({});
-vm.runInContext(fs.readFileSync(new URL('../shared/quickshell/foxml/CalendarLogic.js', import.meta.url), 'utf8').replace(/^\.pragma library\s*/, ''), logic);
+vm.runInContext(fs.readFileSync(new URL('../shared/quickshell/desk/CalendarLogic.js', import.meta.url), 'utf8').replace(/^\.pragma library\s*/, ''), logic);
 const date = (y, m, d) => new Date(y, m - 1, d, 12);
 const filled = cells => cells.filter(cell => cell.day);
 for (const firstDay of [0, 1, 6]) {

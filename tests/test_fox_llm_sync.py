@@ -337,7 +337,7 @@ class SyncTest(unittest.TestCase):
 
     def test_opencode_secret_list_is_fox_guards(self):
         import re
-        guard = (ROOT / "shared/pi/extensions/fox-guard.ts").read_text()
+        guard = (ROOT / "shared/pi/extensions/desk-guard.ts").read_text()
         prefixes = re.search(r"PROTECTED_PREFIXES = \[(.*?)\];", guard, re.S).group(1)
         dirs = re.findall(r"`\$\{HOME\}/([^`]+)`", prefixes)
         bits = re.findall(r'"([^"]+)"', re.search(r"PROTECTED_FRAGMENTS = \[(.*?)\];", guard, re.S).group(1))

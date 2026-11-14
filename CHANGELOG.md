@@ -81,6 +81,15 @@ in one file, with a context size and slot count per role. Codex replaces the Gem
 `FoxML_Paper`, `FoxML_Classic`, `FoxML_Rose` and `FoxML_Bubblegum` are now `Paper`, `Classic`, `Rose` and
 `Bubblegum`. A theme saved by an earlier install, or typed with the old prefix, still selects the same theme.
 
+### Module and folder names
+
+The Neovim modules are `desk.*` (were `foxml.*`), the drawer's config is `~/.config/quickshell/desk` (was
+`.../foxml`), the Claude notebook mod is `desk-notebook` (was `foxml-paper`) and the pi extensions are `desk-*.ts`
+(were `fox-*.ts`). The installer moves what it laid under the old names before laying the new ones: your
+`menus.json` moves with the drawer, files of your own stay where they are, and old pi extensions are removed so they
+do not load beside the new ones. `~/.claude/mods/foxml-paper` is no longer used; remove it once no Claude session
+started before the update is running. An integration-only update waits until the installer has run once.
+
 ### Upgrading from 3.x
 
 Pull, then run the installer. Old command names keep working through the links it installs. Review stamps stay on

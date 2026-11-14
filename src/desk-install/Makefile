@@ -111,6 +111,7 @@ test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_c
 	@./tests/test_private_extras
 	@./tests/test_menu_upgrade
 	@./tests/test_fox_aliases
+	@./tests/test_fox_moves
 	@./tests/test_workflow_deploy
 	@./tests/test_workflow_update
 	@bash ./tests/lint_shell_assets.sh
@@ -126,7 +127,7 @@ tests/test_registry: tests/test_registry.cpp tests/run_stubs.inc core/registry.o
 test: tests/test_firefox_appearance
 test: tests/test_notification_refresh
 test: tests/test_theme_choice tests/test_ide_settings tests/test_firefox_policies tests/test_arkenfox_userjs
-test: tests/test_private_extras tests/test_menu_upgrade tests/test_fox_aliases
+test: tests/test_private_extras tests/test_menu_upgrade tests/test_fox_aliases tests/test_fox_moves
 test: tests/test_workflow_deploy
 test: tests/test_workflow_update
 
@@ -140,6 +141,8 @@ tests/test_workflow_deploy: tests/test_workflow_deploy.cpp modules/symlinks_data
 	$(MAKE) --no-print-directory -C $(@D)
 tests/test_fox_aliases: tests/test_fox_aliases.cpp modules/fox_aliases.hpp
 	$(CXX) $(CXXFLAGS) tests/test_fox_aliases.cpp -o $@
+tests/test_fox_moves: tests/test_fox_moves.cpp modules/fox_moves.hpp
+	$(CXX) $(CXXFLAGS) tests/test_fox_moves.cpp -o $@
 
 tests/test_menu_upgrade: tests/test_menu_upgrade.cpp modules/menu_upgrade.hpp
 	$(CXX) $(CXXFLAGS) $< -o $@

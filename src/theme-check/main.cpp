@@ -206,8 +206,8 @@ CheckResult check_drift(const Env& env) {
     for (const char* name : {"theme.conf", "theme.lua", "nvidia.conf", "nvidia.lua"}) theme_owned.insert(name);
     compare_folder(env, env.repo / "shared/hyprland_modules", env.config / "hypr/modules", ".conf", theme_owned, tally);
     compare_folder(env, env.repo / "shared/hyprland_modules", env.config / "hypr/modules", ".lua", theme_owned, tally);
-    compare_folder(env, rendered / "quickshell/foxml", env.config / "quickshell/foxml", "", {}, tally);
-    compare_folder(env, env.repo / "shared/quickshell/foxml", env.config / "quickshell/foxml", "", {"Build.js"}, tally);
+    compare_folder(env, rendered / "quickshell/desk", env.config / "quickshell/desk", "", {}, tally);
+    compare_folder(env, env.repo / "shared/quickshell/desk", env.config / "quickshell/desk", "", {"Build.js"}, tally);
 
     std::ostringstream detail;
     detail << tally.same << " match";
@@ -260,13 +260,13 @@ CheckResult check_quickshell(const Env& env) {
     const auto cause = log.find("caused by", failed);
     return result("D3", title, Severity::High, Status::Fail,
                   cause == std::string::npos ? "its last reload failed" : log.substr(cause, log.find('\n', cause) - cause),
-                  "touch ~/.config/quickshell/foxml/shell.qml to reload it once the cause is fixed");
+                  "touch ~/.config/quickshell/desk/shell.qml to reload it once the cause is fixed");
 }
 
 CheckResult check_drawer(const Env& env) {
     const char* title = "every drawer page opens";
     const auto drawer = env.home / ".local/bin/desk-drawer";
-    const auto menus = env.config / "quickshell/foxml/menus.json";
+    const auto menus = env.config / "quickshell/desk/menus.json";
     std::error_code ec;
     if (!fs::exists(drawer, ec)) return result("D4", title, Severity::Medium, Status::Skip, "the drawer is not installed");
     const auto config = json::parse(read_file(menus), nullptr, false);
@@ -359,7 +359,7 @@ CheckResult check_nvim(const Env&) {
 CheckResult check_claude(const Env& env) {
     const char* title = "Claude status line and paper mod work";
     const auto line = env.home / ".claude/statusline.sh";
-    const auto mod = env.home / ".claude/mods/foxml-paper";
+    const auto mod = env.home / ".claude/mods/desk-notebook";
     std::error_code ec;
     if (!fs::exists(line, ec) && !fs::exists(mod, ec)) return result("D8", title, Severity::Low, Status::Skip, "not deployed");
     std::vector<std::string> problems;

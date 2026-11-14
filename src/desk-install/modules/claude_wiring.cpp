@@ -136,13 +136,22 @@ bool merge_user_settings(json& existing, const json& hooks, bool custom_theme, b
         if (dirs.is_null()) dirs = CLAUDE_PAPER_MOD;
         else if (dirs.is_string()) {
             const std::string have = dirs.get<std::string>();
-            bool named = false;
+            std::vector<std::string> kept;
+            bool named = false, dropped = false;
             for (size_t at = 0; at <= have.size();) {
                 const size_t end = std::min(have.find(':', at), have.size());
-                named = named || have.substr(at, end - at) == CLAUDE_PAPER_MOD;
+                const auto entry = have.substr(at, end - at);
                 at = end + 1;
+                if (entry == CLAUDE_OLD_PAPER_MOD) { dropped = true; continue; }
+                named = named || entry == CLAUDE_PAPER_MOD;
+                kept.push_back(entry);
             }
-            if (!named) dirs = have.empty() ? std::string(CLAUDE_PAPER_MOD) : have + ":" + CLAUDE_PAPER_MOD;
+            if (!named) { if (kept.size() == 1 && kept[0].empty()) kept.clear(); kept.push_back(CLAUDE_PAPER_MOD); }
+            if (dropped || !named) {
+                std::string joined;
+                for (size_t i = 0; i < kept.size(); ++i) joined += (i ? ":" : "") + kept[i];
+                dirs = joined;
+            }
         }
     }
     return merged;

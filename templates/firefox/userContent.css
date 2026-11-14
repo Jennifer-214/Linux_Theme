@@ -505,7 +505,7 @@
     --toggle-dot-background-color-on-pressed: #{{PRIMARY}} !important;
   }
   /* the paper theme's botanical illustration instead of the fox and wordmark; embedded because this
-     page's content policy blocks file: images; the renderer embeds shared/quickshell/foxml/paper-sprig.png */
+     page's content policy blocks file: images; the renderer embeds shared/quickshell/desk/paper-sprig.png */
   {{FF_EXTRA_SCOPE}} .logo {
     background-image: url("{{PAPER_BOTANICAL_DATA_URI}}") !important;
     background-size: contain !important;

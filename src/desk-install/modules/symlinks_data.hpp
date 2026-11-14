@@ -102,7 +102,7 @@ inline constexpr Mapping TEMPLATE_MAPPINGS[] = {
     { "claude/foxml-theme.json",      "~/.claude/themes/foxml.json" },
     { "claude/statusline.sh",         "~/.claude/statusline.sh" },
     // The paper mod's palette; its code is in SHARED_MAPPINGS. specials names the folder in CLAUDE_CODE_PLUGIN_DIRS.
-    { "claude/mods/foxml-paper/hooks/theme.ts", "~/.claude/mods/foxml-paper/hooks/theme.ts" },
+    { "claude/mods/desk-notebook/hooks/theme.ts", "~/.claude/mods/desk-notebook/hooks/theme.ts" },
 
     // pi coding agent TUI theme
     { "pi/foxml.json",                "~/.pi/agent/themes/foxml.json" },
@@ -114,7 +114,7 @@ inline constexpr Mapping TEMPLATE_MAPPINGS[] = {
     { "foxml/ansi_colors.json",       "~/.config/foxml/ansi_colors.json" },
 
     // Cursor / VS Code
-    { "cursor/foxml-color-theme.json","~/.cursor/extensions/foxml-theme/themes/foxml-color-theme.json" },
+    { "cursor/foxml-color-theme.json","~/.cursor/extensions/desk-theme/themes/foxml-color-theme.json" },
 
     // Firefox — FIREFOX_PROFILE placeholder, handled by specials.
     { "firefox/userChrome.css",       "FIREFOX_PROFILE/chrome/userChrome.css" },
@@ -137,16 +137,16 @@ inline constexpr Mapping SHARED_MAPPINGS[] = {
     // Neovim
     { "nvim_lazy-lock.json",          "~/.config/nvim/lazy-lock.json" },
     { "nvim_ftplugin/cpp.lua",        "~/.config/nvim/ftplugin/cpp.lua" },
-    { "nvim_lua/foxml/claude.lua",    "~/.config/nvim/lua/foxml/claude.lua" },
-    { "nvim_lua/foxml/review.lua",    "~/.config/nvim/lua/foxml/review.lua" },
-    { "nvim_lua/foxml/sync.lua",      "~/.config/nvim/lua/foxml/sync.lua" },
-    { "nvim_lua/foxml/menu.lua",      "~/.config/nvim/lua/foxml/menu.lua" },
+    { "nvim_lua/desk/claude.lua",    "~/.config/nvim/lua/desk/claude.lua" },
+    { "nvim_lua/desk/review.lua",    "~/.config/nvim/lua/desk/review.lua" },
+    { "nvim_lua/desk/sync.lua",      "~/.config/nvim/lua/desk/sync.lua" },
+    { "nvim_lua/desk/menu.lua",      "~/.config/nvim/lua/desk/menu.lua" },
     { "redzone.json",                 "~/.config/foxml/redzone.json" },
-    { "nvim_lua/foxml/work.lua",      "~/.config/nvim/lua/foxml/work.lua" },
-    { "nvim_lua/foxml/work_events.lua", "~/.config/nvim/lua/foxml/work_events.lua" },
-    { "nvim_lua/foxml/workspace.lua", "~/.config/nvim/lua/foxml/workspace.lua" },
-    { "nvim_lua/foxml/build.lua", "~/.config/nvim/lua/foxml/build.lua" },
-    { "nvim_lua/foxml/planmarks.lua", "~/.config/nvim/lua/foxml/planmarks.lua" },
+    { "nvim_lua/desk/work.lua",      "~/.config/nvim/lua/desk/work.lua" },
+    { "nvim_lua/desk/work_events.lua", "~/.config/nvim/lua/desk/work_events.lua" },
+    { "nvim_lua/desk/workspace.lua", "~/.config/nvim/lua/desk/workspace.lua" },
+    { "nvim_lua/desk/build.lua", "~/.config/nvim/lua/desk/build.lua" },
+    { "nvim_lua/desk/planmarks.lua", "~/.config/nvim/lua/desk/planmarks.lua" },
 
     // Rofi config
 
@@ -186,26 +186,26 @@ inline constexpr Mapping SHARED_MAPPINGS[] = {
     { "bin/llm-grade",            "~/.local/bin/llm-grade" },
     { "llm/roles.default",            "~/.config/foxml/llm/roles.default" },
     { "llm/core-models.txt",          "~/.config/foxml/llm/core-models.txt" },
-    { "pi/extensions/fox-guard.ts",   "~/.pi/agent/extensions/fox-guard.ts" },
-    { "pi/extensions/fox-notify.ts",  "~/.pi/agent/extensions/fox-notify.ts" },
-    { "pi/extensions/foxml/build.ts", "~/.pi/agent/extensions/foxml/build.ts" },
+    { "pi/extensions/desk-guard.ts",   "~/.pi/agent/extensions/desk-guard.ts" },
+    { "pi/extensions/desk-notify.ts",  "~/.pi/agent/extensions/desk-notify.ts" },
+    { "pi/extensions/desk/build.ts", "~/.pi/agent/extensions/desk/build.ts" },
     { "pi/extensions/claude-skills.ts","~/.pi/agent/extensions/claude-skills.ts" },
-    { "pi/extensions/fox-trim.ts",    "~/.pi/agent/extensions/fox-trim.ts" },
-    { "pi/extensions/fox-budget.ts",  "~/.pi/agent/extensions/fox-budget.ts" },
-    { "pi/extensions/fox-credits.ts", "~/.pi/agent/extensions/fox-credits.ts" },
-    { "pi/extensions/fox-scope.ts",   "~/.pi/agent/extensions/fox-scope.ts" },
+    { "pi/extensions/desk-trim.ts",    "~/.pi/agent/extensions/desk-trim.ts" },
+    { "pi/extensions/desk-budget.ts",  "~/.pi/agent/extensions/desk-budget.ts" },
+    { "pi/extensions/desk-credits.ts", "~/.pi/agent/extensions/desk-credits.ts" },
+    { "pi/extensions/desk-scope.ts",   "~/.pi/agent/extensions/desk-scope.ts" },
     { "bin/word-count",           "~/.local/bin/word-count" },
     { "bin/pob",                      "~/.local/bin/pob" },
 
     // Claude Code paper mod: notebook pane, red-zone band, toasts, spinner words (templates/ renders its theme.ts).
-    { "claude/mods/foxml-paper/.claude-plugin/plugin.json", "~/.claude/mods/foxml-paper/.claude-plugin/plugin.json" },
-    { "claude/mods/foxml-paper/hooks/hooks.json",   "~/.claude/mods/foxml-paper/hooks/hooks.json" },
-    { "claude/mods/foxml-paper/hooks/register.tsx", "~/.claude/mods/foxml-paper/hooks/register.tsx" },
-    { "claude/mods/foxml-paper/hooks/build.ts", "~/.claude/mods/foxml-paper/hooks/build.ts" },
-    { "claude/mods/foxml-paper/hooks/ledger.ts",    "~/.claude/mods/foxml-paper/hooks/ledger.ts" },
-    { "claude/mods/foxml-paper/hooks/work.ts",      "~/.claude/mods/foxml-paper/hooks/work.ts" },
-    { "claude/mods/foxml-paper/hooks/notebook.ts",  "~/.claude/mods/foxml-paper/hooks/notebook.ts" },
-    { "claude/mods/foxml-paper/types/index.d.ts",   "~/.claude/mods/foxml-paper/types/index.d.ts" },
+    { "claude/mods/desk-notebook/.claude-plugin/plugin.json", "~/.claude/mods/desk-notebook/.claude-plugin/plugin.json" },
+    { "claude/mods/desk-notebook/hooks/hooks.json",   "~/.claude/mods/desk-notebook/hooks/hooks.json" },
+    { "claude/mods/desk-notebook/hooks/register.tsx", "~/.claude/mods/desk-notebook/hooks/register.tsx" },
+    { "claude/mods/desk-notebook/hooks/build.ts", "~/.claude/mods/desk-notebook/hooks/build.ts" },
+    { "claude/mods/desk-notebook/hooks/ledger.ts",    "~/.claude/mods/desk-notebook/hooks/ledger.ts" },
+    { "claude/mods/desk-notebook/hooks/work.ts",      "~/.claude/mods/desk-notebook/hooks/work.ts" },
+    { "claude/mods/desk-notebook/hooks/notebook.ts",  "~/.claude/mods/desk-notebook/hooks/notebook.ts" },
+    { "claude/mods/desk-notebook/types/index.d.ts",   "~/.claude/mods/desk-notebook/types/index.d.ts" },
     // /goodnight: a where-we-left-off note, what is uncommitted, then the goodnight Power page.
     { "claude/commands/goodnight.md",               "~/.claude/commands/goodnight.md" },
 

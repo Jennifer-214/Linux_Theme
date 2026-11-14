@@ -33,7 +33,9 @@ int merge_hook_entries(nlohmann::json& settings, const nlohmann::json& wanted);
 // → false when its "hooks" is not an object (they are then left exactly as they are; the theme is still set).
 inline constexpr const char* CLAUDE_THEME = "custom:foxml";
 inline constexpr const char* CLAUDE_STATUS_LINE = "bash ~/.claude/statusline.sh";
-inline constexpr const char* CLAUDE_PAPER_MOD = "~/.claude/mods/foxml-paper";
+inline constexpr const char* CLAUDE_PAPER_MOD = "~/.claude/mods/desk-notebook";
+// The same mod's folder before the 2026-11 rename: it leaves the list when the new folder joins.
+inline constexpr const char* CLAUDE_OLD_PAPER_MOD = "~/.claude/mods/foxml-paper";   // old-fox-name
 bool merge_user_settings(nlohmann::json& existing, const nlohmann::json& hooks, bool custom_theme = false,
                          bool status_line = false, bool paper_mod = false);
 

@@ -52,7 +52,7 @@ inline constexpr std::pair<const char*, const char*> kFoxAliases[] = {
     {"fox-claude-api", "claude-api"},
     {"fox-color", "desk-color"},
     {"fox-common", "desk-common"},
-    {"fox-credits", "desk-credits"},
+    {"fox-credits", "desk-credits"},   // old-fox-name (also an old pi extension name)
     {"fox-deadman", "desk-deadman"},
     {"fox-desktop-menu", "desktop-menu"},
     {"fox-dev", "desk-dev"},

@@ -6,7 +6,7 @@ table.insert(package.loaders, 2, function(name)
   local file = here .. "../" .. name:gsub("%.", "/") .. ".lua"
   if vim.uv.fs_stat(file) then return loadfile(file) end
 end)
-local P = require("foxml.planmarks")
+local P = require("desk.planmarks")
 local passed, failed = 0, 0
 local function eq(got, want, what)
   if vim.deep_equal(got, want) then passed = passed + 1

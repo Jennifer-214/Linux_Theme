@@ -479,7 +479,7 @@ Inside terminal:
 |-----|--------|
 | `Ctrl+\ Ctrl+n` | Exit terminal mode (back to normal) |
 
-### Claude sessions (foxml.claude)
+### Claude sessions (desk.claude)
 The other Claudes on this machine, from inside the editor.
 
 | Key | Action |

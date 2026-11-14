@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""foxml.claude (nvim's view of the other Claudes): its headless test, when nvim is installed."""
+"""desk.claude (nvim's view of the other Claudes): its headless test, when nvim is installed."""
 import shutil
 import subprocess
 import sys

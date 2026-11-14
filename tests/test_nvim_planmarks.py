@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""foxml.planmarks (the plan's references, marked in the files): its headless test, when nvim is installed."""
+"""desk.planmarks (the plan's references, marked in the files): its headless test, when nvim is installed."""
 import shutil
 import subprocess
 import sys

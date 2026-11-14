@@ -50,7 +50,7 @@ class RenderedConfigsTest(unittest.TestCase):
                                        "recolor-darkcolor": "#" + palette_value(theme, "FG")}, theme)
 
     def test_firefox_embeds_the_shared_botanical_illustration(self):
-        cat = (ROOT / "shared/quickshell/foxml/paper-sprig.png").read_bytes()
+        cat = (ROOT / "shared/quickshell/desk/paper-sprig.png").read_bytes()
         for theme in THEMES:
             css = (self.out / theme / "firefox/userContent.css").read_text()
             encoded = re.search(r'data:image/png;base64,([A-Za-z0-9+/=]+)', css)

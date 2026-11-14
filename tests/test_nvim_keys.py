@@ -16,7 +16,7 @@ import nvim_keys  # noqa: E402
 
 ROOT = nvim_keys.ROOT
 DOC = ROOT / 'shared/nvim_NVIM-KEYBINDS.md'
-BEGIN = '<!-- review-keys:begin · generated from shared/nvim_lua/foxml/review.lua: python3 tests/test_nvim_keys.py --write -->'
+BEGIN = '<!-- review-keys:begin · generated from shared/nvim_lua/desk/review.lua: python3 tests/test_nvim_keys.py --write -->'
 END = '<!-- review-keys:end -->'
 
 # Deliberate: the same action in both places, or keys that never meet in one buffer.
@@ -35,7 +35,7 @@ def review_keys():
         script = Path(home) / 'dump.lua'
         script.write_text(f'''
 package.path = {json.dumps(str(ROOT / 'shared/nvim_lua'))} .. '/?.lua;' .. package.path
-local R = dofile({json.dumps(str(ROOT / 'shared/nvim_lua/foxml/review.lua'))})
+local R = dofile({json.dumps(str(ROOT / 'shared/nvim_lua/desk/review.lua'))})
 local out = {{}}
 for _, k in ipairs(R.keymap) do
   out[#out + 1] = {{ id = k.id, lhs = k.lhs, on = k.on, desc = k.desc, row = k.row or k.id, doc = k.doc, also = k.also }}

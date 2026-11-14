@@ -28,9 +28,9 @@ class WorkNvim(unittest.TestCase):
             script = folder/'quit.lua'
             script.write_text(r'''
 package.path=vim.env.TEST_WORK_LUA..'/?.lua;'..package.path
-for _,name in ipairs({'claude','work','review'}) do package.loaded['foxml.'..name]=dofile(vim.env.TEST_WORK_LUA..'/foxml/'..name..'.lua') end
-vim.fn.argv=function()return {'foxml-work:file-diff',vim.env.TEST_SOURCE,''} end
-require('foxml.work').open_args()
+for _,name in ipairs({'claude','work','review'}) do package.loaded['desk.'..name]=dofile(vim.env.TEST_WORK_LUA..'/desk/'..name..'.lua') end
+vim.fn.argv=function()return {'desk-work:file-diff',vim.env.TEST_SOURCE,''} end
+require('desk.work').open_args()
 vim.api.nvim_create_autocmd('VimLeavePre',{callback=function()
   vim.fn.writefile({vim.json.encode({closed=true})},vim.env.TEST_RESULT)
 end})
@@ -55,9 +55,9 @@ error('one :q did not exit the dedicated review')
             script.write_text(r'''
 package.path = vim.env.TEST_WORK_LUA .. '/?.lua;' .. package.path
 vim.g.mapleader = ' '
-package.loaded['foxml.claude'] = dofile(vim.env.TEST_WORK_LUA .. '/foxml/claude.lua')
-package.loaded['foxml.work'] = dofile(vim.env.TEST_WORK_LUA .. '/foxml/work.lua')
-local C = require('foxml.claude')
+package.loaded['desk.claude'] = dofile(vim.env.TEST_WORK_LUA .. '/desk/claude.lua')
+package.loaded['desk.work'] = dofile(vim.env.TEST_WORK_LUA .. '/desk/work.lua')
+local C = require('desk.claude')
 C.setup()
 vim.cmd('set hidden')
 vim.cmd('edit ' .. vim.fn.fnameescape(vim.env.TEST_SOURCE))
@@ -108,11 +108,11 @@ assert(#vim.api.nvim_list_tabpages() == 2, 'repeated exit closed ordinary tabs')
             script.write_text(r'''
 package.path = vim.env.TEST_WORK_LUA .. '/?.lua;' .. package.path
 vim.g.mapleader = ' '
-package.loaded['foxml.claude'] = dofile(vim.env.TEST_WORK_LUA .. '/foxml/claude.lua')
-package.loaded['foxml.work'] = dofile(vim.env.TEST_WORK_LUA .. '/foxml/work.lua')
-vim.fn.argv = function() return {'foxml-work:file-diff', vim.env.TEST_SOURCE, ''} end
-require('foxml.work').open_args()
-local C = require('foxml.claude')
+package.loaded['desk.claude'] = dofile(vim.env.TEST_WORK_LUA .. '/desk/claude.lua')
+package.loaded['desk.work'] = dofile(vim.env.TEST_WORK_LUA .. '/desk/work.lua')
+vim.fn.argv = function() return {'desk-work:file-diff', vim.env.TEST_SOURCE, ''} end
+require('desk.work').open_args()
+local C = require('desk.claude')
 C.diff(vim.env.TEST_SOURCE)
 vim.cmd('vsplit')
 assert(#vim.api.nvim_list_wins() >= 4, 'fixture has too few review windows')
@@ -149,19 +149,19 @@ error('review exit did not quit the dedicated viewer')
             script = folder / 'diff.lua'
             script.write_text(r'''
 package.path = vim.env.TEST_WORK_LUA .. '/?.lua;' .. package.path
-package.loaded['foxml.work'] = dofile(vim.env.TEST_WORK_LUA .. '/foxml/work.lua')
-package.loaded['foxml.claude'] = dofile(vim.env.TEST_WORK_LUA .. '/foxml/claude.lua')
-local W = require('foxml.work')
+package.loaded['desk.work'] = dofile(vim.env.TEST_WORK_LUA .. '/desk/work.lua')
+package.loaded['desk.claude'] = dofile(vim.env.TEST_WORK_LUA .. '/desk/claude.lua')
+local W = require('desk.work')
 local path = vim.env.TEST_SOURCE
 local original = vim.fn.argv
-vim.fn.argv = function() return {'foxml-work:file-diff', path, 'abc'} end
+vim.fn.argv = function() return {'desk-work:file-diff', path, 'abc'} end
 W.open_args()
 assert(vim.wo.diff, 'notebook did not open a diff')
 assert(table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), '\n') == 'int preexisting_edit = 2;', 'session diff lost the preexisting work')
-vim.fn.argv = function() return {'foxml-work:file-diff', path, ''} end
+vim.fn.argv = function() return {'desk-work:file-diff', path, ''} end
 W.open_args()
 assert(table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), '\n') == 'int committed = 1;', 'all-changes diff did not use HEAD')
-vim.fn.argv = function() return {'foxml-work:file', path} end
+vim.fn.argv = function() return {'desk-work:file', path} end
 W.open_args()
 assert(vim.api.nvim_buf_get_name(0) == path, 'editor changed the literal filename')
 vim.fn.argv = original
@@ -189,10 +189,10 @@ vim.fn.argv = original
             script = folder / "exercise.lua"
             script.write_text(r'''
 package.path = vim.env.TEST_WORK_LUA .. "/?.lua;" .. package.path
-package.loaded["foxml.work"] = dofile(vim.env.TEST_WORK_LUA .. "/foxml/work.lua")
-package.loaded["foxml.claude"] = dofile(vim.env.TEST_WORK_LUA .. "/foxml/claude.lua")
+package.loaded["desk.work"] = dofile(vim.env.TEST_WORK_LUA .. "/desk/work.lua")
+package.loaded["desk.claude"] = dofile(vim.env.TEST_WORK_LUA .. "/desk/claude.lua")
 vim.g.mapleader = ' '
-local W, C = require('foxml.work'), require('foxml.claude')
+local W, C = require('desk.work'), require('desk.claude')
 W.tests(nil, 2)
 local qf = vim.fn.getqflist({items=0,idx=0})
 assert(#qf.items == 2 and qf.idx == 2, vim.inspect(qf))

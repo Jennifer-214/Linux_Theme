@@ -91,7 +91,7 @@ TEMPLATE_MAPPINGS=(
     "foxml/ansi_colors.json|~/.config/foxml/ansi_colors.json"
 
     # Cursor/VS Code
-    "cursor/foxml-color-theme.json|~/.cursor/extensions/foxml-theme/themes/foxml-color-theme.json"
+    "cursor/foxml-color-theme.json|~/.cursor/extensions/desk-theme/themes/foxml-color-theme.json"
 
     # Firefox
     "firefox/userChrome.css|FIREFOX_PROFILE/chrome/userChrome.css"
@@ -115,7 +115,7 @@ SHARED_MAPPINGS=(
     # Neovim
     "nvim_lazy-lock.json|~/.config/nvim/lazy-lock.json"
     "nvim_ftplugin/cpp.lua|~/.config/nvim/ftplugin/cpp.lua"
-    "nvim_lua/foxml/claude.lua|~/.config/nvim/lua/foxml/claude.lua"
+    "nvim_lua/desk/claude.lua|~/.config/nvim/lua/desk/claude.lua"
 
     # Rofi config
 
@@ -148,13 +148,13 @@ SHARED_MAPPINGS=(
     "bin/llm-grade|~/.local/bin/llm-grade"
     "llm/roles.default|~/.config/foxml/llm/roles.default"
     "llm/core-models.txt|~/.config/foxml/llm/core-models.txt"
-    "pi/extensions/fox-guard.ts|~/.pi/agent/extensions/fox-guard.ts"
-    "pi/extensions/fox-notify.ts|~/.pi/agent/extensions/fox-notify.ts"
+    "pi/extensions/desk-guard.ts|~/.pi/agent/extensions/desk-guard.ts"
+    "pi/extensions/desk-notify.ts|~/.pi/agent/extensions/desk-notify.ts"
     "pi/extensions/claude-skills.ts|~/.pi/agent/extensions/claude-skills.ts"
-    "pi/extensions/fox-trim.ts|~/.pi/agent/extensions/fox-trim.ts"
-    "pi/extensions/fox-budget.ts|~/.pi/agent/extensions/fox-budget.ts"
-    "pi/extensions/fox-credits.ts|~/.pi/agent/extensions/fox-credits.ts"
-    "pi/extensions/fox-scope.ts|~/.pi/agent/extensions/fox-scope.ts"
+    "pi/extensions/desk-trim.ts|~/.pi/agent/extensions/desk-trim.ts"
+    "pi/extensions/desk-budget.ts|~/.pi/agent/extensions/desk-budget.ts"
+    "pi/extensions/desk-credits.ts|~/.pi/agent/extensions/desk-credits.ts"
+    "pi/extensions/desk-scope.ts|~/.pi/agent/extensions/desk-scope.ts"
     "bin/word-count|~/.local/bin/word-count"
     "bin/pob|~/.local/bin/pob"
 
@@ -162,11 +162,11 @@ SHARED_MAPPINGS=(
     "foxml-profile.json|~/.local/share/foxml/distro/foxml-profile.json"
 
     # Claude Code paper mod (its palette, theme.ts, renders from templates/claude)
-    "claude/mods/foxml-paper/.claude-plugin/plugin.json|~/.claude/mods/foxml-paper/.claude-plugin/plugin.json"
-    "claude/mods/foxml-paper/hooks/hooks.json|~/.claude/mods/foxml-paper/hooks/hooks.json"
-    "claude/mods/foxml-paper/hooks/register.tsx|~/.claude/mods/foxml-paper/hooks/register.tsx"
-    "claude/mods/foxml-paper/hooks/ledger.ts|~/.claude/mods/foxml-paper/hooks/ledger.ts"
-    "claude/mods/foxml-paper/types/index.d.ts|~/.claude/mods/foxml-paper/types/index.d.ts"
+    "claude/mods/desk-notebook/.claude-plugin/plugin.json|~/.claude/mods/desk-notebook/.claude-plugin/plugin.json"
+    "claude/mods/desk-notebook/hooks/hooks.json|~/.claude/mods/desk-notebook/hooks/hooks.json"
+    "claude/mods/desk-notebook/hooks/register.tsx|~/.claude/mods/desk-notebook/hooks/register.tsx"
+    "claude/mods/desk-notebook/hooks/ledger.ts|~/.claude/mods/desk-notebook/hooks/ledger.ts"
+    "claude/mods/desk-notebook/types/index.d.ts|~/.claude/mods/desk-notebook/types/index.d.ts"
     "claude/commands/goodnight.md|~/.claude/commands/goodnight.md"
 
     # ReGreet (login screen — needs sudo to install to /etc/greetd/)

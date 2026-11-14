@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCES = [ROOT / 'templates/nvim/init.lua', *sorted((ROOT / 'shared/nvim_lua/foxml').glob('*.lua'))]
+SOURCES = [ROOT / 'templates/nvim/init.lua', *sorted((ROOT / 'shared/nvim_lua/desk').glob('*.lua'))]
 
 # A call that maps a key: map(...) helpers and vim.keymap.set(...), not a method such as menu:map(...).
 _CALL = re.compile(r'''(?<![:.\w])(?:map|vim\.keymap\.set)\(\s*(\{[^}]*\}|"[^"]*"|'[^']*')\s*,\s*(["'])(.+?)\2''')

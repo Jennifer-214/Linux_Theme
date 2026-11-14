@@ -3,7 +3,7 @@
 set -euo pipefail
 launcher_dir="$(cd -- "${BASH_SOURCE[0]%/*}" && pwd -P)"
 export PATH="$launcher_dir:${PATH:-/usr/local/bin:/usr/bin:/bin}"
-ipc() { quickshell -c foxml ipc call bar "$@"; }
+ipc() { quickshell -c desk ipc call bar "$@"; }
 case "${1:-toggle}" in
     --help|-h) printf '%s\n' 'Usage: desk-bar [start|show|hide|toggle|status|refresh [MODULE]]'; exit 0 ;;
     status) ipc status; exit $? ;;

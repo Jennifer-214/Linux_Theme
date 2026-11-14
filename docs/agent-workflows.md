@@ -182,7 +182,7 @@ quiet hours; registered live processes stay listed, with delayed heartbeats iden
 
 ## The notebook mod
 
-The installer also adds a Claude Code mod, `~/.claude/mods/foxml-paper`, named in
+The installer also adds a Claude Code mod, `~/.claude/mods/desk-notebook`, named in
 `CLAUDE_CODE_PLUGIN_DIRS` in `~/.claude/settings.json` (beside any folders you
 list there yourself). It draws in the palette and keeps its session records in private runtime and state folders:
 
@@ -301,7 +301,7 @@ a review that works in any git repository. The look follows [UI style](ui-style.
 short where-we-left-off note to `~/.local/state/foxml/goodnight/<project>.md`, lists
 what is uncommitted without touching it, and opens the Power page.
 
-Its code is copied as it is; only `templates/claude/mods/foxml-paper/hooks/theme.ts`
+Its code is copied as it is; only `templates/claude/mods/desk-notebook/hooks/theme.ts`
 is rendered, so a theme swap recolours it at the next Claude start.
 
 ## Jobs, tests and next steps

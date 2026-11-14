@@ -4,8 +4,8 @@
 // pi reads a context file (AGENTS.md, CLAUDE.md, …) from the folder it runs in and from every folder above it, up to
 // `/`, and lists them at start; no setting stops that. Its loader takes an `agentsFilesOverride`, but only a program that
 // starts pi itself can give it one. This is that program: it does what pi's own entry does (dist/cli.js) and first gives
-// every loader fox-scope's rule (~/.pi/agent/extensions/fox-scope.ts — the project's own files and pi's global one,
-// nothing from a folder above the project), so pi never reads, lists or uses the rest. fox-scope, the extension, stays as
+// every loader desk-scope's rule (~/.pi/agent/extensions/desk-scope.ts — the project's own files and pi's global one,
+// nothing from a folder above the project), so pi never reads, lists or uses the rest. desk-scope, the extension, stays as
 // the second net. Anything this relies on missing, or any error before pi starts: one line on stderr, then pi's own
 // entry runs unchanged, in this process — never a pi that does not start.
 // Plan: linux-theme-workspace/plans/2026-10-17-pi-launcher-project-scope.md.
@@ -37,18 +37,18 @@ function realPi() {
 	return null;
 }
 
-/** pi's own main, every loader given fox-scope's rule first — or an Error naming what is missing. */
+/** pi's own main, every loader given desk-scope's rule first — or an Error naming what is missing. */
 async function scoped(root) {
 	const dist = join(root, "dist");
 	const api = await import(pathToFileURL(join(dist, "index.js")).href);
 	const { setupCli } = await import(pathToFileURL(join(dist, "cli", "setup.js")).href);
 	const agent = resolve(process.env.PI_CODING_AGENT_DIR?.replace(/^~(?=$|\/)/, homedir()) || join(homedir(), ".pi", "agent"));
-	const { scope } = await import(pathToFileURL(join(agent, "extensions", "fox-scope.ts")).href);
+	const { scope } = await import(pathToFileURL(join(agent, "extensions", "desk-scope.ts")).href);
 	const L = api.DefaultResourceLoader;
 	if (typeof api.main !== "function") throw new Error("pi exports no main()");
 	if (typeof L?.prototype?.reload !== "function") throw new Error("pi's DefaultResourceLoader has no reload()");
 	if (typeof setupCli !== "function") throw new Error("pi has no setupCli() in dist/cli/setup.js");
-	if (typeof scope !== "function") throw new Error("fox-scope.ts exports no scope()");
+	if (typeof scope !== "function") throw new Error("desk-scope.ts exports no scope()");
 	const reload = L.prototype.reload;
 	L.prototype.reload = function (...args) {
 		if (!this.foxScoped) {
@@ -75,7 +75,7 @@ let main;
 try {
 	main = await scoped(pi.root);
 } catch (err) {
-	process.stderr.write(`pi launcher: ${err instanceof Error ? err.message : String(err)} — running plain pi; fox-scope still trims each request\n`);
+	process.stderr.write(`pi launcher: ${err instanceof Error ? err.message : String(err)} — running plain pi; desk-scope still trims each request\n`);
 	await import(pathToFileURL(pi.entry).href); // pi's own entry, unchanged: it reads the same arguments
 }
 if (main) await main(process.argv.slice(2));

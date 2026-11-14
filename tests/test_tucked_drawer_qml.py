@@ -187,8 +187,8 @@ class TuckedDrawer(unittest.TestCase):
             self.skipTest("build desk-render-fast first")
         with tempfile.TemporaryDirectory(prefix="tucked-drawer-") as tmp:
             work=Path(tmp);qml=work/"qml"
-            shutil.copytree(ROOT/"shared/quickshell/foxml",qml)
-            subprocess.run([str(renderer),str(ROOT/"themes/Paper/palette.sh"),str(ROOT/"templates/quickshell/foxml"),str(qml)],check=True,capture_output=True)
+            shutil.copytree(ROOT/"shared/quickshell/desk",qml)
+            subprocess.run([str(renderer),str(ROOT/"themes/Paper/palette.sh"),str(ROOT/"templates/quickshell/desk"),str(qml)],check=True,capture_output=True)
             config=work/"config/waybar";config.mkdir(parents=True)
             layout={"modules-left":["custom/logo"],"modules-center":[],"modules-right":["custom/updates","custom/clock"],
                 "custom/clock":{"format":"Thursday 09:09","on-click":"desktop-menu calendar"},

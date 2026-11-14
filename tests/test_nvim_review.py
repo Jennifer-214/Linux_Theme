@@ -60,9 +60,9 @@ package.path = vim.env.TEST_REVIEW_LUA .. '/?.lua;' .. package.path
 vim.g.mapleader = ' '
 vim.opt.hidden = true
 local api = vim.api
-package.loaded['foxml.claude'] = dofile(vim.env.TEST_REVIEW_LUA .. '/foxml/claude.lua')
-package.loaded['foxml.review'] = dofile(vim.env.TEST_REVIEW_LUA .. '/foxml/review.lua')
-local C, R = require('foxml.claude'), require('foxml.review')
+package.loaded['desk.claude'] = dofile(vim.env.TEST_REVIEW_LUA .. '/desk/claude.lua')
+package.loaded['desk.review'] = dofile(vim.env.TEST_REVIEW_LUA .. '/desk/review.lua')
+local C, R = require('desk.claude'), require('desk.review')
 local root, sha, parent = vim.env.TEST_REVIEW_ROOT, vim.env.TEST_REVIEW_SHA, vim.env.TEST_REVIEW_PARENT
 local row = {kind='commit',sha=sha,parent=parent,short=sha:sub(1,7),label='test commit',files={root .. '/a.lua'}}
 local function content(buf) return table.concat(api.nvim_buf_get_lines(buf,0,-1,false),'\\n') end
@@ -334,9 +334,9 @@ api.nvim_win_set_cursor(r.panel_win,{line,0}); R.enter()
 assert(r.row==row and content(r.right_buf):find('value = 2',1,true))
 assert(r.marks['a.lua']==nil,'checkmark leaked from another commit')
 local choices
-package.loaded['foxml.menu']={open=function(items) choices=items end}
+package.loaded['desk.menu']={open=function(items) choices=items end}
 R.actions()
-package.loaded['foxml.menu']=nil
+package.loaded['desk.menu']=nil
 assert(choices and choices[1].name=='Check & next','visible review actions are missing')
 local file=r.files[r.index]
 R.primary()
@@ -395,8 +395,8 @@ C.close()
         plan.write_text('# Plan: tidy\n1. Change `plain.lua` and `setup.sh`\n')
         self.run_lua(r'''
 local files={root..'/plain.lua',root..'/setup.sh',root..'/engine/core.lua'}
-package.loaded['foxml.planmarks']=nil
-local P=require('foxml.planmarks'); P.plan={title='Plan: tidy',file=root..'/plan.md'}
+package.loaded['desk.planmarks']=nil
+local P=require('desk.planmarks'); P.plan={title='Plan: tidy',file=root..'/plan.md'}
 C.open_review({kind='live',sid='risk1',name='example',short='example',files=files},root)
 local r=R.current
 local by={}
@@ -422,7 +422,7 @@ C.close()
 vim.env.PATH='/usr/bin:/bin'
 assert(R.work_tool()==nil,'the work tool must be absent for this test')
 assert(package.loaded['fox-symdeps']==nil and not pcall(require,'fox-symdeps'),'symdeps must be absent for this test')
-package.loaded['foxml.planmarks']={plan=nil,parse=function() return {} end}
+package.loaded['desk.planmarks']={plan=nil,parse=function() return {} end}
 C.open_review(row,root); R.tree({row})
 local r=R.current
 local text=table.concat(api.nvim_buf_get_lines(r.panel_buf,0,-1,false),'\n')
@@ -437,7 +437,7 @@ C.close()
 
     def test_the_built_in_menu_follows_the_symdeps_rules_when_that_plugin_is_absent(self):
         self.run_lua(r'''
-local Menu=require('foxml.menu')
+local Menu=require('desk.menu')
 local ran,toggled={},false
 local items={
   {name='Check & next',label='Mark this file and open the next unread one.',group='review',bind='m',run=function() ran[#ran+1]='check' end},
@@ -607,7 +607,7 @@ local out=vim.system({R.work_tool(),'signal','--root',root},{text=true}):wait(30
 assert(out.code==0)
 assert(vim.wait(6000,function() return content(r.right_buf):find('value = 1000',1,true)~=nil end,20),'the shared event did not refresh the open comparison')
 assert(api.nvim_get_current_win()==r.panel_win,'a live refresh stole keyboard focus')
-local events=require('foxml.work_events')
+local events=require('desk.work_events')
 local state=events.roots[vim.uv.fs_realpath(root) or root]
 local previous_pid=state.job.pid
 state.job:kill(15) -- only the disposable review's owned watcher
@@ -626,13 +626,13 @@ assert(content(r.right_buf):find('value = 2000',1,true),'the review did not catc
 f=assert(io.open(file,'wb')); f:write(original); f:close()
 other=assert(io.open(root..'/added.txt','wb')); other:write('new text\n'); other:close()
 C.close()
-assert(next(require('foxml.work_events').roots)==nil,'the review left its subscription behind')
+assert(next(require('desk.work_events').roots)==nil,'the review left its subscription behind')
 ''')
 
     def test_api_review_sends_exactly_the_displayed_change_and_is_remembered_for_that_version(self):
         self.run_lua(r'''
 local asked
-package.loaded['foxml.work']={api_available=function() return true end,
+package.loaded['desk.work']={api_available=function() return true end,
   api_question=function(question,done) asked=question; done({id='task-1'}) end}
 C.open_review(row,root)
 local r=R.current
@@ -647,12 +647,12 @@ R.api_review('commit')
 local n=0; for _ in asked:gmatch('%+%+%+ b/') do n=n+1 end
 assert(n>=2 and n<=#r.files,'the whole change sends every file that is text: '..n..' of '..#r.files)
 local items
-package.loaded['foxml.menu']={open=function(list) items=list end}
+package.loaded['desk.menu']={open=function(list) items=list end}
 R.actions()
 local names={}; for _,item in ipairs(items) do names[item.name]=item end
 assert(names['API review: file'] and names['API review: file'].right==nil,'offered when the API is set up')
 assert(names['Open API review'],'the saved review can be opened')
-package.loaded['foxml.work']={api_available=function() return false end,api_question=function() error('must not be asked') end}
+package.loaded['desk.work']={api_available=function() return false end,api_question=function() error('must not be asked') end}
 R.actions()
 names={}; for _,item in ipairs(items) do names[item.name]=item end
 assert(names['API review: file'].right=='needs API' and names['API review: file'].label:find('Requires the API setup',1,true),'without the setup the row stays and says what it needs')
@@ -664,7 +664,7 @@ C.close()
     def test_an_api_citation_opens_the_version_that_was_reviewed_once_the_file_has_moved_on(self):
         (self.repo / 'plain.lua').write_text('local a = 1\nreturn a\n')
         self.run_lua(r'''
-package.loaded['foxml.work']={api_available=function() return true end,api_question=function(_,done) done({id='task-9'}) end}
+package.loaded['desk.work']={api_available=function() return true end,api_question=function(_,done) done({id='task-9'}) end}
 C.open_review({kind='live',sid='api9',name='example',short='example',files={root..'/plain.lua'}},root)
 R.api_review('file')
 local target=R.api_target(root,'task-9','plain.lua')
@@ -755,7 +755,7 @@ assert(panel:find('✎',1,true),'the row carries the note mark: '..panel)
 assert(R.note_line(notes['plain.lua'][1],{'-- new','-- new','local a = 1','local b = 2'})==4)
 local line,found=R.note_line(notes['plain.lua'][1],{'x','y'}); assert(line==2 and found==false)
 local items
-package.loaded['foxml.menu']={open=function(list,opts) items=list; assert(opts.title=='My notes · 1',opts.title) end}
+package.loaded['desk.menu']={open=function(list,opts) items=list; assert(opts.title=='My notes · 1',opts.title) end}
 R.notes_list()
 assert(items[1].group=='plain.lua' and items[1].right=='line 2' and items[1].name=='check b again')
 vim.ui.input=function(opts,done) assert(opts.default=='check b again'); done('') end
@@ -770,8 +770,8 @@ C.close()
         (self.repo / 'extra.lua').write_text('return 3\n')
         (self.repo / 'plan.md').write_text('# Plan: tidy the queue\n1. Change `plain.lua`\n2. Then `later.lua`\n')
         self.run_lua(r'''
-package.loaded['foxml.planmarks']=nil
-local P=require('foxml.planmarks'); P.plan={title='Plan: tidy the queue',file=root..'/plan.md'}
+package.loaded['desk.planmarks']=nil
+local P=require('desk.planmarks'); P.plan={title='Plan: tidy the queue',file=root..'/plan.md'}
 C.open_review({kind='live',sid='cov1',name='example',short='example',files={root..'/plain.lua',root..'/extra.lua'}},root)
 local r=R.current
 local data=R.plan_coverage_data(r)
@@ -780,7 +780,7 @@ assert(#data.steps==2 and data.steps[1].label=='1 · Change plain.lua' and #data
 assert(#data.steps[2].commits==0,'step 2 names a file nothing changed: not started')
 assert(#data.outside==1 and data.outside[1].rel=='extra.lua','a changed file no step names: '..vim.inspect(data.outside))
 local items
-package.loaded['foxml.menu']={open=function(list,opts) items=list; assert(opts.title:find('Plan coverage',1,true)) end}
+package.loaded['desk.menu']={open=function(list,opts) items=list; assert(opts.title:find('Plan coverage',1,true)) end}
 R.plan_coverage()
 assert(items[1].right=='example' and items[2].right=='no matching edits' and items[3].group=='outside the plan',vim.inspect(items))
 P.plan=nil
@@ -966,7 +966,7 @@ local called
 package.loaded['telescope.builtin']={find_files=function(opts)called=opts end,live_grep=function(opts)called=opts end}
 local search = assert(source:match('(local function file_project%(%)\n.-)\n%-%- Highlight on yank'))
 assert(loadstring('local map=vim.keymap.set\nlocal project_path=function(p)return p end\n' .. search))()
-vim.b.foxml_review_root=root
+vim.b.desk_review_root=root
 vim.fn.maparg('<Space>ff','n',false,true).callback()
 local result=vim.system(called.find_command,{cwd=called.cwd,text=true}):wait()
 assert(result.code == 0 and result.stdout:find('.config-note',1,true),'hidden configuration file missing')
@@ -1004,7 +1004,7 @@ beat:start(10, 10, vim.schedule_wrap(function()
   local now = uv.hrtime(); worst = math.max(worst, (now - last) / 1e6); last = now; ticks = ticks + 1
 end))
 local refreshed = 0
-local unsubscribe = require('foxml.work_events').subscribe(root, function() refreshed = refreshed + 1 end)
+local unsubscribe = require('desk.work_events').subscribe(root, function() refreshed = refreshed + 1 end)
 local signals = vim.system({'sh', '-c', 'i=0; while [ $i -lt 50 ]; do desk-work signal --root "$1" >/dev/null; sleep 0.02; i=$((i+1)); done', '_', root})
 assert(vim.wait(20000, function() return signals:is_closing() end, 10), 'the signal burst did not finish')
 vim.wait(1500, function() return false end, 10)

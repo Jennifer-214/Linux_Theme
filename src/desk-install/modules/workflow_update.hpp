@@ -1,6 +1,7 @@
 #pragma once
 #include "workflow_assets.hpp"
 #include "menu_upgrade.hpp"
+#include "fox_moves.hpp"
 #include "fox_aliases.hpp"
 #include "../core/backup.hpp"
 #include "../../desk-common/shell.hpp"
@@ -69,6 +70,11 @@ struct Stage {
     ~Stage() { std::error_code ec; if (!folder.empty()) fs::remove_all(folder, ec); }
 };
 inline bool prepare(const Context& ctx, Stage& stage, std::string& error) {
+    if (fox_names_deployed(ctx.home, ctx.config_home)) {
+        error = "The integrations moved to new names in 2026-11. Run the installer once so it moves your files under "
+                "the old names; integration updates work again after that.";
+        return false;
+    }
     for (const char* tool : {"desk-work", "desk-drawer", "desk-install", "theme-check"}) {
         std::string ignored;
         if (!sh::capture({"make", "-q", "-C", (ctx.script_dir / "src" / tool).string(), tool}, ignored)) {
@@ -107,18 +113,18 @@ inline bool prepare(const Context& ctx, Stage& stage, std::string& error) {
     const auto rendered = stage.folder / "rendered";
     const auto renderer = ctx.script_dir / "src/desk-render/desk-render-fast";
     source_versions.push_back(Json{{"path", ctx.palette_path.string()}, {"hash", digest(bytes(ctx.palette_path))}});
-    for (const auto& directory : {ctx.templates_dir / "claude", ctx.templates_dir / "quickshell/foxml"})
+    for (const auto& directory : {ctx.templates_dir / "claude", ctx.templates_dir / "quickshell/desk"})
         for (const auto& file : fs::recursive_directory_iterator(directory)) if (file.is_regular_file())
             source_versions.push_back(Json{{"path", file.path().string()}, {"hash", digest(bytes(file.path()))}});
     std::string render_output;
     if (!sh::capture({renderer.string(), ctx.palette_path.string(), (ctx.templates_dir / "claude").string(), (rendered / "claude").string()}, render_output)
-        || !sh::capture({renderer.string(), ctx.palette_path.string(), (ctx.templates_dir / "quickshell/foxml").string(), (rendered / "desktop").string()}, render_output)) {
+        || !sh::capture({renderer.string(), ctx.palette_path.string(), (ctx.templates_dir / "quickshell/desk").string(), (rendered / "desktop").string()}, render_output)) {
         error = "Integration theme rendering failed"; return false;
     }
-    stage.files.push_back({rendered / "claude/mods/foxml-paper/hooks/theme.ts", ctx.home / ".claude/mods/foxml-paper/hooks/theme.ts", "notebook"});
+    stage.files.push_back({rendered / "claude/mods/desk-notebook/hooks/theme.ts", ctx.home / ".claude/mods/desk-notebook/hooks/theme.ts", "notebook"});
     std::error_code ec;
     for (const auto& file : fs::directory_iterator(rendered / "desktop", ec))
-        if (file.is_regular_file(ec)) stage.files.push_back({file.path(), ctx.config_home / "quickshell/foxml" / file.path().filename(), "desktop"});
+        if (file.is_regular_file(ec)) stage.files.push_back({file.path(), ctx.config_home / "quickshell/desk" / file.path().filename(), "desktop"});
     std::sort(stage.files.begin(), stage.files.end(), [](const Asset& a, const Asset& b) { return a.destination < b.destination; });
     std::map<std::string, std::string> inputs;
     for (const auto& file : stage.files) {
@@ -135,8 +141,8 @@ inline bool prepare(const Context& ctx, Stage& stage, std::string& error) {
         else if (name == "Build.js") generated = ".pragma library\nvar id = '" + token + "';\n";
         if (!generated.empty() && !write(file.source, generated)) { error = "Could not stage a loaded-version stamp"; return false; }
     }
-    auto shipped = load(ctx.shared_dir / "quickshell/foxml/menus.json");
-    const auto menu_path = ctx.config_home / "quickshell/foxml/menus.json";
+    auto shipped = load(ctx.shared_dir / "quickshell/desk/menus.json");
+    const auto menu_path = ctx.config_home / "quickshell/desk/menus.json";
     auto menu = fs::exists(menu_path) ? load(menu_path) : shipped;
     if (!menu_upgrade::usable(menu, shipped)) { error = "The existing menu is not valid; it was left unchanged"; return false; }
     const auto record = ctx.home / ".local/state/foxml/menu-offered.json";
@@ -149,7 +155,7 @@ inline bool prepare(const Context& ctx, Stage& stage, std::string& error) {
     menu_upgrade::offer(menu, shipped, offered, !seen.is_array());
     const auto staged_menu = stage.folder / "menu.json", staged_record = stage.folder / "offered.json";
     if (!write(staged_menu, menu.dump(2) + '\n') || !write(staged_record, Json(offered).dump() + '\n')) return false;
-    const auto menu_mode = fs::status(fs::exists(menu_path) ? menu_path : ctx.shared_dir / "quickshell/foxml/menus.json", ec).permissions();
+    const auto menu_mode = fs::status(fs::exists(menu_path) ? menu_path : ctx.shared_dir / "quickshell/desk/menus.json", ec).permissions();
     if (ec) { error = "Could not inspect menu permissions"; return false; }
     fs::permissions(staged_menu, menu_mode, fs::perm_options::replace, ec);
     if (ec) { error = "Could not preserve menu permissions"; return false; }

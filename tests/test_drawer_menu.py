@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """tests/test_drawer_menu.py — the drawer menu's key labels and the bars' clicks stay true to what they name.
 
-- Every `keys` label in shared/quickshell/foxml/menus.json is a real Hyprland bind in
+- Every `keys` label in shared/quickshell/desk/menus.json is a real Hyprland bind in
   shared/hyprland_modules/keybinds.lua that opens that same item, so a moved bind can't leave a stale label.
 - Every bar module that opens the drawer names a page the drawer has, the battery opens the power page
   (it used to open pavucontrol), and the secondary bar's shared modules click the same way as the main bar's.
@@ -13,7 +13,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-MENU = json.loads((ROOT / "shared/quickshell/foxml/menus.json").read_text())
+MENU = json.loads((ROOT / "shared/quickshell/desk/menus.json").read_text())
 KEYBINDS = (ROOT / "shared/hyprland_modules/keybinds.lua").read_text()
 DRAWER = ROOT / "src/desk-drawer/desk-drawer"
 

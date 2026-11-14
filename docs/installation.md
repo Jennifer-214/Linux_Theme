@@ -22,6 +22,9 @@ the normal deployment. The same native inventory and backup helpers drive scoped
 
 ### Update only the work integrations
 
+After the 2026-11 rename (see the changelog's "Module and folder names"), run the installer once first: it moves the
+files laid under the old names, and an integration-only update refuses until that is done.
+
 Build the current tools with `make`, then preview with:
 
 ```sh

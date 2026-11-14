@@ -56,6 +56,7 @@ void run_wallpaper   (Context&) {}
 void run_render      (Context&) {}
 void run_symlinks    (Context&) {}
 void run_fox_aliases (Context&) {}
+void run_fox_moves (Context&) {}
 void run_keybind_docs(Context&) {}
 void run_specials    (Context&) {}
 void run_drawer      (Context&) {}

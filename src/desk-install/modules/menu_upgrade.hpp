@@ -1,6 +1,6 @@
 // modules/menu_upgrade.hpp — new drawer pages reach a menu the user owns.
 //
-// ~/.config/quickshell/foxml/menus.json is the user's: an install never replaces it. A page the theme ships later
+// ~/.config/quickshell/desk/menus.json is the user's: an install never replaces it. A page the theme ships later
 // is added once, into the same group, after the item it follows in the shipped menu; the ids offered are kept in
 // $XDG_STATE_HOME/foxml/menu-offered.json, so a page the user removed stays removed. On a machine with no record
 // yet, only the pages introduced with this upgrade path are offered: anything else missing was removed by hand.

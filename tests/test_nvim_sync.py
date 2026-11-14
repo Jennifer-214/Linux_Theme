@@ -24,13 +24,13 @@ class NvimSync(unittest.TestCase):
             script = base/'exercise.lua'
             script.write_text(r'''
 package.path = vim.env.TEST_SYNC_LUA .. '/?.lua;' .. package.path
-for _,name in ipairs({'sync','review','claude'}) do package.loaded['foxml.'..name]=dofile(vim.env.TEST_SYNC_LUA..'/foxml/'..name..'.lua') end
+for _,name in ipairs({'sync','review','claude'}) do package.loaded['desk.'..name]=dofile(vim.env.TEST_SYNC_LUA..'/desk/'..name..'.lua') end
 vim.g.mapleader=' '
 vim.opt.autoread=true
 vim.opt.hidden=true
 vim.opt.autowriteall=true
 local api=vim.api
-local S=require('foxml.sync')
+local S=require('desk.sync')
 local path=vim.env.TEST_SYNC_FILE
 local function disk(text,atomic)
   local target=atomic and path..'.new' or path
@@ -76,11 +76,11 @@ assert(api.nvim_buf_get_lines(buf,0,1,false)[1]=='local first = 100')
 local saved=pcall(vim.cmd.write)
 assert(not saved,'save silently overwrote outside edits')
 S.compare()
-local R=require('foxml.review')
+local R=require('desk.review')
 assert(R.current and R.current.row.kind=='external')
 assert(table.concat(api.nvim_buf_get_lines(R.current.left_buf,0,-1,false),'\n'):find('first = 100',1,true))
 assert(table.concat(api.nvim_buf_get_lines(R.current.right_buf,0,-1,false),'\n'):find('last = 300',1,true))
-require('foxml.claude').close()
+require('desk.claude').close()
 assert(api.nvim_get_current_buf()==buf)
 S.merge()
 assert(S.buffers[buf].pending==nil)

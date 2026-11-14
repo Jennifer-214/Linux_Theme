@@ -13,6 +13,7 @@
 DESK_MODULE( detect,      run_detect,        "--detect",      "Auto-detect GPU/chassis/fingerprint hardware",      true  )
 DESK_MODULE( preflight,   run_preflight,     "--preflight",   "Disk space + connectivity + session sanity check", true  )
 DESK_MODULE( theme,       run_theme,         "--theme",       "Resolve / prompt for the active theme",            true  )
+DESK_MODULE( fox_moves,   run_fox_moves,     "--fox-moves",   "Move files laid under the old fox names to the new ones", true  )
 
 // ── Phase 1: package + system setup ───────────────────────────────
 //   deps — requires root (pacman) and network (downloads). state::check_deps

@@ -404,12 +404,12 @@ class DrawerQmlTest(unittest.TestCase):
                 request.mkdir(mode=0o700)
                 (request / "request.json").write_text(json.dumps({"title": "A little fixture", "prompt": prompt, "items": ["first", "a literal $(label)"]}))
                 (request / "response.json").write_text("")
-            source = (ROOT / "shared/quickshell/foxml/shell.qml").read_text()
+            source = (ROOT / "shared/quickshell/desk/shell.qml").read_text()
             source = source.replace("    PanelWindow {", "    FloatingWindow {")
             source = re.sub(r"^        (?:anchors \{.*|margins \{.*|exclusionMode:.*|WlrLayershell\..*)\n", "", source, flags=re.M)
             source = source.rsplit("\n}", 1)[0] + EXERCISE + "\n}\n"
             (directory / "shell.qml").write_text(source)
-            for dependency in (ROOT / "shared/quickshell/foxml").iterdir():
+            for dependency in (ROOT / "shared/quickshell/desk").iterdir():
                 if dependency.suffix in {".qml", ".js"} and dependency.name != "shell.qml":
                     shutil.copyfile(dependency, directory / dependency.name)
             volume = (directory / "LevelSlip.qml").read_text().replace("PanelWindow {", "FloatingWindow {")
@@ -421,13 +421,13 @@ class DrawerQmlTest(unittest.TestCase):
             polkit = (directory / "PolkitPrompt.qml").read_text().replace("    PanelWindow {", "    FloatingWindow {")
             polkit = re.sub(r"^        (?:anchors \{.*|exclusionMode:.*|WlrLayershell\..*)\n", "", polkit, flags=re.M)
             (directory / "PolkitPrompt.qml").write_text(polkit)
-            shutil.copyfile(ROOT / "shared/quickshell/foxml/paper-sprig.png", directory / "paper-sprig.png")
+            shutil.copyfile(ROOT / "shared/quickshell/desk/paper-sprig.png", directory / "paper-sprig.png")
             renderer = ROOT / "src/desk-render/desk-render-fast"
             render = str(renderer) if renderer.exists() else shutil.which("desk-render-fast")
             if not render:
                 self.skipTest("build desk-render-fast before running the QML smoke test")
             subprocess.run([render, str(ROOT / "themes/Paper/palette.sh"),
-                            str(ROOT / "templates/quickshell/foxml"), str(directory)], check=True, capture_output=True)
+                            str(ROOT / "templates/quickshell/desk"), str(directory)], check=True, capture_output=True)
             (directory / "menus.json").write_text("{}")
             actions = directory / "actions.jsonl"
             env = os.environ | {

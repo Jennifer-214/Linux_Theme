@@ -1,4 +1,4 @@
--- nvim --headless --clean -l shared/nvim_lua/tests/test_claude.lua : foxml.claude's pure parts.
+-- nvim --headless --clean -l shared/nvim_lua/tests/test_claude.lua : desk.claude's pure parts.
 local here = debug.getinfo(1, "S").source:sub(2):match("(.*/)")
 package.path = here .. "../?.lua;" .. package.path
 -- Neovim looks in the runtime path (the installed copy under ~/.config/nvim) before package.path: load the repo's.
@@ -6,7 +6,7 @@ table.insert(package.loaders, 2, function(name)
   local file = here .. "../" .. name:gsub("%.", "/") .. ".lua"
   if vim.uv.fs_stat(file) then return loadfile(file) end
 end)
-local C = require("foxml.claude")
+local C = require("desk.claude")
 local passed, failed = 0, 0
 local function eq(got, want, what)
   if vim.deep_equal(got, want) then passed = passed + 1

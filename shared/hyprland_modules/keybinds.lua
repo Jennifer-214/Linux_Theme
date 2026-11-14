@@ -189,7 +189,7 @@ hl.bind(mainMod .. " + G", hl.dsp.exec_cmd("~/.config/hypr/scripts/ghost-mode.sh
 -- Active windows with the same navigation as the other drawers.
 hl.bind(mainMod .. " + grave", hl.dsp.exec_cmd("~/.local/bin/desktop-menu windows"))
 -- The desk overview: every workspace as a photo print, its windows where they sit; Enter or a click goes there.
-hl.bind(mainMod .. " + O", hl.dsp.exec_cmd("quickshell -c foxml ipc call overview toggle"))
+hl.bind(mainMod .. " + O", hl.dsp.exec_cmd("quickshell -c desk ipc call overview toggle"))
 
 -- ─────────────────────────────────────────
 -- TTY switch (diagnostics)

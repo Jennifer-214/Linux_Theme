@@ -25,7 +25,7 @@ window icons, power profiles, idle inhibition, and the application tray remain a
 `start_waybar.sh` retains its compatibility name and rendering/cursor logic: it
 verifies Quickshell before stopping Waybar, and launches Waybar if the new bar fails
 to become ready. Waybar stays installed as a fallback. Palette changes render
-`templates/quickshell/foxml/Theme.qml` and reload both surfaces together.
+`templates/quickshell/desk/Theme.qml` and reload both surfaces together.
 The drawer tucks beneath its source bookmark, with a stronger contact shadow
 and a faint second paper edge. The ribbon stays in front during the 160ms reveal.
 Keyboard opens tuck beneath the launcher on the focused monitor; hiding the bar
@@ -214,11 +214,11 @@ Quickshell. Rendering and theme swaps include the drawer; `--no-drawer` skips it
 Install it alone with `./src/desk-install/desk-install Paper --only drawer --yes`
 after building the installer.
 
-Edit `~/.config/quickshell/foxml/menus.json` to rearrange groups or items; the
+Edit `~/.config/quickshell/desk/menus.json` to rearrange groups or items; the
 installer preserves this file and refreshes `menus.default.json` separately.
 The supported item kinds are `page`, `action`, `toggle`, and `slider`; action IDs
 refer to the backend's built-in operations. Palette colors come from
-`templates/quickshell/foxml/Theme.qml`. The old `FOXML_MENU_LEGACY` desktop-menu
+`templates/quickshell/desk/Theme.qml`. The old `FOXML_MENU_LEGACY` desktop-menu
 override is retired. Fox tools, Shortcut reference and Disposable sandbox are
 ordinary drawer pages, and their shortcuts open those pages. The Shortcut reference (read from `KEYBINDS.md`)
 opens on its books (Desktop, The drawer, Terminal (tmux), Commands, Neovim); each book lists what a shortcut
@@ -583,7 +583,7 @@ Paper's botanical wallpaper set uses warm bone white and faint paper grain: a
 small colored-pencil sprig on the primary display, a sage and blush tree on
 displays to its left, and quiet paper on other displays. The assignment follows
 live monitor positions; selecting another wallpaper keeps its ordinary variants.
-The matching transparent sprig is `shared/quickshell/foxml/paper-sprig.png`.
+The matching transparent sprig is `shared/quickshell/desk/paper-sprig.png`.
 It sits on empty drawer pages and under the lock screen note (`HYPRLOCK_CAT_Y`), and
 replaces the logo and wordmark on Firefox's new tab, above “a fresh page.” That page
 blocks `file:` images, so both render paths embed this same PNG in `userContent.css`.
@@ -664,8 +664,8 @@ AI integration:
 - **copilot.lua** — ghost-text completion in public repos (`<Space>ag`: ghost text ⇄ the completion menu)
 - **minuet-ai.nvim** — the same ghost text from the local model in private repos (`<Space>at` switches)
 - **codecompanion.nvim** — chat, inline edits and pi on the local models, all under `<Space>a`
-- **foxml.planmarks** — the pinned plan's references marked in the files (✎ + "step 3", `]n`/`[n`, `<Space>Cm`)
-- **foxml.claude** — the other Claudes on this machine: footprints on buffers they edited lately, a note to any
+- **desk.planmarks** — the pinned plan's references marked in the files (✎ + "step 3", `]n`/`[n`, `<Space>Cm`)
+- **desk.claude** — the other Claudes on this machine: footprints on buffers they edited lately, a note to any
   session (`<Space>Cn`), a "what changed" list of live sessions and commits reviewed inline (`<Space>Cw`),
   following a session, the plan gate in the statusline, and blame that names the Claude session behind a line
   (see the keybind reference)

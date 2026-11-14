@@ -17,7 +17,7 @@ exactly. Text opacity remains 100%. Example projects, jobs, and results are
 demonstration data, not reports of current work.
 
 The current `shared/wallpapers/foxml_paper_botanical.png` wallpaper and transparent
-`shared/quickshell/foxml/paper-sprig.png` illustration were created with the built-in
+`shared/quickshell/desk/paper-sprig.png` illustration were created with the built-in
 imagegen tool using the existing colored-pencil tree as a style reference.
 Their full prompts are in `shared/wallpapers/botanical-prompts.json`; the earlier
 companion-set prompts remain in `shared/wallpapers/paper-prompts.json`.

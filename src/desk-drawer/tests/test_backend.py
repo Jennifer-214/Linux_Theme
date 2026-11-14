@@ -1691,18 +1691,18 @@ class BackendTests(unittest.TestCase):
 
     def test_the_menu_names_real_pages_and_every_icon_has_a_drawing(self):
         pages = set(subprocess.run([str(BINARY), "pages"], capture_output=True, text=True, timeout=5).stdout.split())
-        menu = json.loads((REPO / "shared/quickshell/foxml/menus.json").read_text())
+        menu = json.loads((REPO / "shared/quickshell/desk/menus.json").read_text())
         for group in menu["groups"]:
             for entry in group.get("items", []):
                 if entry.get("kind") == "page":
                     self.assertIn(entry.get("page"), pages, f"menu item {entry.get('id')} opens a page the backend doesn't have")
-        logic = (REPO / "shared/quickshell/foxml/DrawerLogic.js").read_text()
+        logic = (REPO / "shared/quickshell/desk/DrawerLogic.js").read_text()
         drawn = js_object_keys(logic, "semantic")
         for icon in item_icons((REPO / "src/desk-drawer/main.cpp").read_text()):
             if icon and icon.isascii() and icon != "app-launch":
                 self.assertIn(icon, drawn, f'icon "{icon}" has no paper drawing, so it shows a text glyph or a system icon')
         import re
-        art = REPO / "templates/quickshell/foxml"
+        art = REPO / "templates/quickshell/desk"
         for name in set(re.findall(r':\s*"([a-z-]+)"', logic[logic.index("var semantic = {"):logic.index("};", logic.index("var semantic = {"))])):
             self.assertTrue((art / f"paper-icon-{name}.svg").exists(), f"paper-icon-{name}.svg is missing")
 
@@ -2005,10 +2005,10 @@ print('0\t' + str(target))
     # ── Polish round 3: regrouped menu, search words, keys, shortcut order, warm toggles, notes, thumbnails ──
 
     def shipped_menu(self):
-        return json.loads((REPO / "shared/quickshell/foxml/menus.json").read_text())
+        return json.loads((REPO / "shared/quickshell/desk/menus.json").read_text())
 
     def test_the_shipped_menu_has_a_workbench_and_every_page_opens(self):
-        self.config.write_text((REPO / "shared/quickshell/foxml/menus.json").read_text())
+        self.config.write_text((REPO / "shared/quickshell/desk/menus.json").read_text())
         menu = self.shipped_menu()
         groups = {g["id"]: [i["id"] for i in g["items"]] for g in menu["groups"]}
         self.assertEqual(list(groups)[:2], ["desk", "workbench"])
@@ -2055,13 +2055,13 @@ print('0\t' + str(target))
                   "vm.runInContext(fs.readFileSync(process.argv[1],'utf8').replace(/^\\.pragma library\\s*/,''),c);"
                   "const m=JSON.parse(fs.readFileSync(process.argv[2],'utf8'));"
                   "console.log(JSON.stringify([...m.groups,...m.groups.flatMap(g=>g.items)].map(e=>[e.id,c.paperIcon(e)])))")
-        out = subprocess.run(["node", "-e", script, str(REPO / "shared/quickshell/foxml/DrawerLogic.js"), str(REPO / "shared/quickshell/foxml/menus.json")],
+        out = subprocess.run(["node", "-e", script, str(REPO / "shared/quickshell/desk/DrawerLogic.js"), str(REPO / "shared/quickshell/desk/menus.json")],
                              capture_output=True, text=True, timeout=10)
         self.assertEqual(out.returncode, 0, out.stderr)
         for entry, icon in json.loads(out.stdout):
             with self.subTest(id=entry):
                 self.assertTrue(icon, f"{entry} has no paper drawing")
-                self.assertTrue((REPO / "templates/quickshell/foxml" / icon).exists(), icon)
+                self.assertTrue((REPO / "templates/quickshell/desk" / icon).exists(), icon)
 
     def test_keys_must_be_short_text_and_keywords_a_list_of_words(self):
         base = {"id": "connections", "label": "Connections", "items": [{"id": "wifi", "label": "Wi-Fi", "kind": "page", "page": "wifi"}]}

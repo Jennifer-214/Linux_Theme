@@ -540,7 +540,7 @@ Commands:
 | `:ClaudeCodeAdd` | Add file to context |
 | `:ClaudeCodeStatus` | Check WebSocket server status |
 
-### The other Claudes (foxml.claude)
+### The other Claudes (desk.claude)
 Reads what the paper mod and `desk-drawer` keep in `$XDG_RUNTIME_DIR/foxml-claude`, and git. A buffer a live
 Claude edited in the last 15 minutes shows `✎ <session> · 3m` in the statusline and a `✎` in the bufferline; the
 first change you make to it says which session to coordinate with. The statusline also shows `gate open ✓` /
@@ -583,7 +583,7 @@ Committed reviews compare the exact parent and selected commit; later working ch
 Live reviews capture the current working copy (including unsaved buffers); `r` refreshes it.
 Checking a live file is invalidated when its contents change. Files with missing snapshots cannot be checked.
 
-<!-- review-keys:begin · generated from shared/nvim_lua/foxml/review.lua: python3 tests/test_nvim_keys.py --write -->
+<!-- review-keys:begin · generated from shared/nvim_lua/desk/review.lua: python3 tests/test_nvim_keys.py --write -->
 | Key in the review | Action |
 |---|---|
 | `Enter` / `l` in the file list | Open the selected file in the comparison panes; on a commit, expand or collapse its changed files |

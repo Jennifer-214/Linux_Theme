@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
 
-const file = new URL('../shared/quickshell/foxml/DrawerLogic.js', import.meta.url);
+const file = new URL('../shared/quickshell/desk/DrawerLogic.js', import.meta.url);
 const context = vm.createContext({});
 vm.runInContext(fs.readFileSync(file, 'utf8').replace(/^\.pragma library\s*/, ''), context);
 const logic = context;
@@ -207,7 +207,7 @@ assert.equal(logic.detailText({presentation:'media',mediaState:'Paused',detail:'
 assert.equal(logic.detailText({presentation:'media',mediaState:'Paused',detail:'Paused'},true),'');
 assert.equal(logic.detailText({presentation:'media',mediaState:'Paused',detail:'Artist · Paused'}),'Artist · Paused');
 
-const menus=JSON.parse(fs.readFileSync(new URL('../shared/quickshell/foxml/menus.json',import.meta.url),'utf8'));
+const menus=JSON.parse(fs.readFileSync(new URL('../shared/quickshell/desk/menus.json',import.meta.url),'utf8'));
 const workTags=logic.todayTags({jobsRunning:2,jobsFinished:1,jobsFailed:1,changesToReview:3,nextStep:'rerun the sanitizer'},[]);
 assert.ok(workTags.some(t=>t.page==='jobs' && t.text.includes('2 jobs running')));
 assert.ok(workTags.some(t=>t.page==='reviews' && t.text==='◎ 3 changes to look over'));
@@ -234,7 +234,7 @@ assert.equal(logic.paperIcon({id:'clipboard-restore',icon:'clipboard'}),'paper-i
 for (const item of menus.groups.flatMap(group=>group.items)) {
     const icon = logic.paperIcon(item);
     assert.ok(icon, 'Paper menu item is missing a themed icon: '+item.id);
-    assert.ok(fs.existsSync(new URL('../templates/quickshell/foxml/'+icon, import.meta.url)));
+    assert.ok(fs.existsSync(new URL('../templates/quickshell/desk/'+icon, import.meta.url)));
     assert.equal(logic.paperIcon({...item,icon:'my-own-icon'}),'');
 }
 // One glyph per item: no two items share one, a menu's older glyph maps to the item's own, a custom one stays.

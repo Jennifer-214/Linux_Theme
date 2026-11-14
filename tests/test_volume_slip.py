@@ -33,7 +33,7 @@ if name=='quickshell':sys.exit(int(os.environ['VOLUME_TEST_UNAVAILABLE']))
     def test_paper_volume_and_mute_use_the_slip(self):
         for muted in [False,True]:
             calls=self.exercise(True,muted,True)
-            self.assertIn(['quickshell','-c','foxml','ipc','call','volume','present','67',str(muted).lower()],calls)
+            self.assertIn(['quickshell','-c','desk','ipc','call','volume','present','67',str(muted).lower()],calls)
             self.assertFalse(any(call[0]=='notify-send' for call in calls))
 
     def test_missing_service_and_other_themes_keep_notifications(self):
@@ -44,7 +44,7 @@ if name=='quickshell':sys.exit(int(os.environ['VOLUME_TEST_UNAVAILABLE']))
 
     def test_paper_brightness_uses_the_light_slip(self):
         calls=self.exercise(True,False,True,'brightness')
-        self.assertIn(['quickshell','-c','foxml','ipc','call','brightness','present','25'],calls)
+        self.assertIn(['quickshell','-c','desk','ipc','call','brightness','present','25'],calls)
         self.assertFalse(any(call[0]=='notify-send' for call in calls))
         for paper in [False,True]:
             calls=self.exercise(paper,False,False,'brightness')
@@ -82,7 +82,7 @@ class MediaSlip(unittest.TestCase):
             return result.returncode,[json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
 
     def present(self, *fields):
-        return ['quickshell','-c','foxml','ipc','call','media','present','--',*fields]
+        return ['quickshell','-c','desk','ipc','call','media','present','--',*fields]
 
     def test_play_pause_presents_the_new_state(self):
         code,calls=self.exercise('play-pause')

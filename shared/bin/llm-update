@@ -534,7 +534,7 @@ def why(new, cur):
 READ_ONLY = ["ls*", "pwd", "cat *", "head *", "tail *", "wc *", "file *", "stat *", "tree*",
              "rg *", "grep *", "fd *", "which *", "type *",   # not find: -delete / -exec write
              "git status*", "git diff*", "git log*", "git show*", "git branch*", "git blame*"]
-# pi's fox-guard secrets (shared/pi/extensions/fox-guard.ts: PROTECTED_PREFIXES under ~, PROTECTED_FRAGMENTS but /.git/;
+# pi's desk-guard secrets (shared/pi/extensions/desk-guard.ts: PROTECTED_PREFIXES under ~, PROTECTED_FRAGMENTS but /.git/;
 # a test keeps the lists equal). opencode asks before a command or one of its own tools touches one. Its rules match a
 # command line or a path, * spans slashes, and the last match wins (its own read rules: *.env ask, *.env.example
 # allow), so these go after everything else.

@@ -15,7 +15,7 @@ bool finish_paper_assets(const fs::path& templates, const fs::path& output) {
     const std::string marker = "{{PAPER_BOTANICAL_DATA_URI}}";
     if (text.find(marker) == std::string::npos) return true;
     const auto repo = full ? templates.parent_path() : templates.parent_path().parent_path();
-    std::ifstream asset(repo / "shared/quickshell/foxml/paper-sprig.png", std::ios::binary);
+    std::ifstream asset(repo / "shared/quickshell/desk/paper-sprig.png", std::ios::binary);
     const std::string bytes{std::istreambuf_iterator<char>(asset), {}};
     if (bytes.empty()) return false;
     static constexpr char alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";

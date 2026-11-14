@@ -69,7 +69,7 @@ border-color=#{{MAKO_MEDIA_BORDER}}
 border-color=#{{MAKO_AGENT_BORDER}}
 
 # Work notices keep their actions during the same four-second lifetime.
-[category=foxml.work]
+[category=desk.work]
 on-button-left=invoke-default-action
 on-button-middle=exec makoctl menu -n "$id" ~/.local/bin/desk-picker --title "Notice actions"
 on-button-right=dismiss

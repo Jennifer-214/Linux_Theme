@@ -21,9 +21,9 @@ inline std::vector<Asset> assets(const fs::path& repo, const fs::path& home, con
     for (const auto& item : symlinks::SHARED_MAPPINGS) {
         const std::string source = item.src;
         std::string client;
-        if (source.rfind("nvim_lua/foxml/", 0) == 0) client = "nvim";
-        else if (source.rfind("claude/mods/foxml-paper/", 0) == 0) client = "notebook";
-        else if (source == "pi/extensions/fox-notify.ts" || source == "pi/extensions/foxml/build.ts") client = "pi";
+        if (source.rfind("nvim_lua/desk/", 0) == 0) client = "nvim";
+        else if (source.rfind("claude/mods/desk-notebook/", 0) == 0) client = "notebook";
+        else if (source == "pi/extensions/desk-notify.ts" || source == "pi/extensions/desk/build.ts") client = "pi";
         else if (source == "redzone.json") client = "policy";
         if (!client.empty()) result.push_back({ repo / "shared" / source, destination(home, config, item.dest), client });
     }
@@ -33,10 +33,10 @@ inline std::vector<Asset> assets(const fs::path& repo, const fs::path& home, con
         result.push_back({repo / "shared/bin" / script, home / ".local/bin" / script, "backend"});
     result.push_back({repo / "shared/zsh_work.zsh", config / "zsh/work.zsh", "shell"});
     std::error_code ec;
-    for (const auto& file : fs::directory_iterator(repo / "shared/quickshell/foxml", ec))
+    for (const auto& file : fs::directory_iterator(repo / "shared/quickshell/desk", ec))
         if (file.is_regular_file(ec) && file.path().filename() != "menus.json")
-            result.push_back({file.path(), config / "quickshell/foxml" / file.path().filename(), "desktop"});
-    result.push_back({repo / "shared/quickshell/foxml/menus.json", config / "quickshell/foxml/menus.default.json", "desktop"});
+            result.push_back({file.path(), config / "quickshell/desk" / file.path().filename(), "desktop"});
+    result.push_back({repo / "shared/quickshell/desk/menus.json", config / "quickshell/desk/menus.default.json", "desktop"});
     return result;
 }
 }

@@ -1040,11 +1040,11 @@ local plugins = {
         },
       },
     },
-    -- ✎ after a file a Claude session is editing, ✎2 in the warning colour when two share it (foxml.claude).
+    -- ✎ after a file a Claude session is editing, ✎2 in the warning colour when two share it (desk.claude).
     config = function(_, opts)
       opts.filesystem.components = {
         claude = function(_, node)
-          local ok, claude = pcall(require, "foxml.claude")
+          local ok, claude = pcall(require, "desk.claude")
           if not ok or node.type ~= "file" then return {} end
           local mark = claude.tree_mark(node.path, os.time() * 1000)
           return mark and { text = " " .. mark.text, highlight = mark.hl } or {}
@@ -1073,9 +1073,9 @@ local plugins = {
         },
         separator_style = "thin",
         modified_icon = Paper.enabled and "✎" or "●",
-        -- a ✎ after a buffer a live Claude edited lately (foxml.claude)
+        -- a ✎ after a buffer a live Claude edited lately (desk.claude)
         name_formatter = function(buf)
-          local ok, claude = pcall(require, "foxml.claude")
+          local ok, claude = pcall(require, "desk.claude")
           return ok and claude.bufferline_name(buf) or buf.name
         end,
         show_buffer_close_icons = false,
@@ -1120,9 +1120,9 @@ local plugins = {
       } or nil,
       current_line_blame = {{SHOW_WELCOME}},
       current_line_blame_opts = { delay = 300, virt_text_pos = "eol" },
-      -- ✿ the Claude session behind a line (its commit's Claude-Session trailer), ● you (foxml.claude)
+      -- ✿ the Claude session behind a line (its commit's Claude-Session trailer), ● you (desk.claude)
       current_line_blame_formatter = function(user, info)
-        local ok, claude = pcall(require, "foxml.claude")
+        local ok, claude = pcall(require, "desk.claude")
         if ok then return claude.blame_formatter(user, info) end
         return { { "  " .. (info.author or "") .. " · " .. (info.summary or ""), "GitSignsCurrentLineBlame" } }
       end,
@@ -3000,9 +3000,9 @@ local filename_component = { "filename", path = 1, shorting_target = Paper.enabl
   file_status = not Paper.enabled,
   fmt = Paper.enabled and function(filename)
     local buf = vim.api.nvim_get_current_buf()
-    local review = vim.b[buf].foxml_review
+    local review = vim.b[buf].desk_review
     if review then return review.side .. " · " .. vim.fn.fnamemodify(review.file, ":~:.") end
-    if vim.b[buf].foxml_review_panel then return "review files" end
+    if vim.b[buf].desk_review_panel then return "review files" end
     if not Paper.file_buffer(buf) then return filename end
     local icon = (vim.bo[buf].readonly or not vim.bo[buf].modifiable) and "" or "✎"
     return icon .. "  " .. filename
@@ -3035,23 +3035,23 @@ require("lualine").setup({
     lualine_a = { "mode" },
     lualine_b = { "branch", "diff", "diagnostics" },
     lualine_c = { filename_component, draft_component,
-      { function() local ok, sync = pcall(require, "foxml.sync"); return ok and sync.status() or "" end, color = { fg = P.pink },
-        on_click = function() local ok, sync = pcall(require, "foxml.sync"); if ok then sync.menu() end end },
-      { function() local ok, work = pcall(require, "foxml.work_events"); return ok and work.status() or "" end, color = { fg = P.pink },
-        on_click = function() local ok, work = pcall(require, "foxml.work"); if ok then work.attention() end end },
+      { function() local ok, sync = pcall(require, "desk.sync"); return ok and sync.status() or "" end, color = { fg = P.pink },
+        on_click = function() local ok, sync = pcall(require, "desk.sync"); if ok then sync.menu() end end },
+      { function() local ok, work = pcall(require, "desk.work_events"); return ok and work.status() or "" end, color = { fg = P.pink },
+        on_click = function() local ok, work = pcall(require, "desk.work"); if ok then work.attention() end end },
     },
     lualine_x = {
-      -- the other Claudes (foxml.claude): reviewing/following, who needs you, the plan gate, who edited this buffer
-      { function() local ok, c = pcall(require, "foxml.claude"); return ok and c.status_mode() or "" end, color = { fg = P.peach } },
-      { function() local ok, c = pcall(require, "foxml.claude"); return ok and c.status_needs() or "" end, color = { fg = P.red } },
+      -- the other Claudes (desk.claude): reviewing/following, who needs you, the plan gate, who edited this buffer
+      { function() local ok, c = pcall(require, "desk.claude"); return ok and c.status_mode() or "" end, color = { fg = P.peach } },
+      { function() local ok, c = pcall(require, "desk.claude"); return ok and c.status_needs() or "" end, color = { fg = P.red } },
       {
-        function() local ok, c = pcall(require, "foxml.claude"); return ok and c.status_gate() or "" end,
+        function() local ok, c = pcall(require, "desk.claude"); return ok and c.status_gate() or "" end,
         color = function()
-          local ok, c = pcall(require, "foxml.claude")
+          local ok, c = pcall(require, "desk.claude")
           return { fg = ok and c.status_gate():find("open") and P.green or P.comment }
         end,
       },
-      { function() local ok, c = pcall(require, "foxml.claude"); return ok and c.status_footprint() or "" end, color = { fg = P.pink } },
+      { function() local ok, c = pcall(require, "desk.claude"); return ok and c.status_footprint() or "" end, color = { fg = P.pink } },
       {
         -- this buffer's engine: Copilot's icon only where Copilot is attached (a public repo), else the local model's
         function()
@@ -3891,7 +3891,7 @@ end, {desc = "Format"})
 -- `nvim <file>` launched from ~/code searched all of ~/code (9k files incl. old copies), because
 -- project.nvim loads after the first buffer. A file in a project's shortcut folder counts as that project.
 local function file_project()
-  if vim.b.foxml_review_root then return vim.b.foxml_review_root end
+  if vim.b.desk_review_root then return vim.b.desk_review_root end
   local name = vim.api.nvim_buf_get_name(0)
   if name == "" or vim.bo.buftype ~= "" then return vim.uv.cwd() end
   return vim.fs.root(project_path(name) or name, { ".git", "compile_commands.json", "CMakeLists.txt", "Makefile" })
@@ -3934,12 +3934,12 @@ vim.api.nvim_create_autocmd("BufWritePre", {
 })
 
 -- Directory events catch atomic saves while you type; modified buffers keep both copies.
-pcall(function() require("foxml.sync").setup() end)
--- The other Claudes on this machine: footprints, notes, what changed, follow (shared/nvim_lua/foxml/claude.lua)
-pcall(function() require("foxml.claude").setup() end)
--- The plan's references, marked where they are: ✎ + "step 3", ]n / [n, Space Cm (shared/nvim_lua/foxml/planmarks.lua)
+pcall(function() require("desk.sync").setup() end)
+-- The other Claudes on this machine: footprints, notes, what changed, follow (shared/nvim_lua/desk/claude.lua)
+pcall(function() require("desk.claude").setup() end)
+-- The plan's references, marked where they are: ✎ + "step 3", ]n / [n, Space Cm (shared/nvim_lua/desk/planmarks.lua)
 vim.api.nvim_set_hl(0, "FoxPlanSign", { fg = P.bookmark })
 vim.api.nvim_set_hl(0, "FoxPlanNote", { fg = P.comment, italic = Paper.enabled })
 vim.api.nvim_set_hl(0, "FoxTreeClaude", { fg = P.bookmark })
 vim.api.nvim_set_hl(0, "FoxTreeClaudeShared", { link = "DiagnosticWarn" })
-pcall(function() require("foxml.planmarks").setup() end)
+pcall(function() require("desk.planmarks").setup() end)

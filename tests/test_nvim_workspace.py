@@ -15,7 +15,7 @@ class Workspace(unittest.TestCase):
         fixture.setUp()
         try:
             fixture.run_lua(r'''
-local W=require('foxml.workspace')
+local W=require('desk.workspace')
 vim.cmd.edit(root..'/a.lua')
 local source=api.nvim_get_current_buf()
 api.nvim_win_set_cursor(0,{2,0})
@@ -32,7 +32,7 @@ assert(api.nvim_buf_is_valid(terminal),'restoring a project deleted a terminal b
 assert(vim.fn.jobwait({job},0)[1]==-1,'restoring a project ended its running command')
 assert(vim.bo[source].modified and content(source):find('local draft = 10',1,true),'restoring a project replaced unsaved text')
 assert(api.nvim_get_current_buf()==source and api.nvim_win_get_cursor(0)[1]==2,'the saved file and cursor were not restored')
-require('foxml.work').health()
+require('desk.work').health()
 assert(content(api.nvim_get_current_buf()):find('# Work health',1,true),'health diagnostics did not open')
 assert(vim.bo[source].modified and content(source):find('local draft = 10',1,true),'opening health replaced unsaved text')
 assert(vim.fn.jobwait({job},0)[1]==-1,'opening health ended a terminal command')

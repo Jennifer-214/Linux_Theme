@@ -76,7 +76,7 @@ class ThemeCheck(unittest.TestCase):
         self.assertIn("not in a Hyprland session", self.run_check("--only", "D2", "--verbose").stdout)
 
     def test_the_drawer_and_bar_are_asked_for_real(self):
-        menus = self.home / ".config/quickshell/foxml/menus.json"
+        menus = self.home / ".config/quickshell/desk/menus.json"
         menus.parent.mkdir(parents=True)
         menus.write_text(json.dumps({"groups": [{"id": "comfort", "items": [{"id": "x", "kind": "page", "page": "slow"}]}]}))
         drawer = self.home / ".local/bin/desk-drawer"

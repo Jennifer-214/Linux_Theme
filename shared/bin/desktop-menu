@@ -11,7 +11,7 @@ case ":${PATH:-}:" in
 esac
 
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
-config_dir="$config_home/quickshell/foxml"
+config_dir="$config_home/quickshell/desk"
 
 available() {
     command -v quickshell >/dev/null 2>&1 &&
@@ -19,7 +19,7 @@ available() {
         [[ -r "$config_dir/shell.qml" && -r "$config_dir/Theme.qml" && -r "$config_dir/menus.json" ]]
 }
 
-ipc() { quickshell -c foxml ipc call drawer "$@"; }
+ipc() { quickshell -c desk ipc call drawer "$@"; }
 ready_status() {
     local response
     response=$(ipc status 2>/dev/null) || return 1
@@ -58,7 +58,7 @@ fi
 if ! ready_status; then
     # Detach before Qt/Wayland initializes; forking the loaded shell can leave
     # a newly added layer surface with no live IPC service.
-    setsid -f quickshell -c foxml --no-duplicate >/dev/null 2>&1 || {
+    setsid -f quickshell -c desk --no-duplicate >/dev/null 2>&1 || {
         printf 'desktop-menu: could not start the drawer.\n' >&2
         exit 1
     }
@@ -68,7 +68,7 @@ if ! ready_status; then
         sleep 0.1
     done
     if [[ "$ready" != true ]]; then
-        printf 'desktop-menu: the drawer did not become ready; check quickshell -c foxml log.\n' >&2
+        printf 'desktop-menu: the drawer did not become ready; check quickshell -c desk log.\n' >&2
         exit 1
     fi
 fi

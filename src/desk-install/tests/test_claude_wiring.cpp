@@ -159,11 +159,16 @@ void test_user_settings() {  // S10b: do_claude_hooks' merge, through the functi
     json modded = json::parse(R"({"env":{}})");
     check(merge_user_settings(modded, installer, true, true, true) && modded["env"]["CLAUDE_CODE_PLUGIN_DIRS"] == CLAUDE_PAPER_MOD,
           "the paper mod is named once deployed");
-    json hers_dirs = json::parse(R"({"env":{"CLAUDE_CODE_PLUGIN_DIRS":"~/mods/mine:~/.claude/mods/foxml-paper-old"}})");
+    json hers_dirs = json::parse(R"({"env":{"CLAUDE_CODE_PLUGIN_DIRS":"~/mods/mine:~/.claude/mods/desk-notebook-old"}})");
     merge_user_settings(hers_dirs, installer, true, true, true);
     merge_user_settings(hers_dirs, installer, true, true, true);
-    check(hers_dirs["env"]["CLAUDE_CODE_PLUGIN_DIRS"] == "~/mods/mine:~/.claude/mods/foxml-paper-old:~/.claude/mods/foxml-paper",
+    check(hers_dirs["env"]["CLAUDE_CODE_PLUGIN_DIRS"] == "~/mods/mine:~/.claude/mods/desk-notebook-old:~/.claude/mods/desk-notebook",
           "her own mod folders kept, the paper mod added once (a longer name that starts the same is not it)");
+    // The folder from before the 2026-11 rename leaves the list; the user's own folders stay in their order.
+    json renamed = json::parse(std::string(R"({"env":{"CLAUDE_CODE_PLUGIN_DIRS":"~/mods/mine:)") + CLAUDE_OLD_PAPER_MOD + R"(:~/b"}})");
+    check(merge_user_settings(renamed, installer, true, true, true)
+          && renamed["env"]["CLAUDE_CODE_PLUGIN_DIRS"] == std::string("~/mods/mine:~/b:") + CLAUDE_PAPER_MOD,
+          "the old mod folder leaves the plugin list and the new one joins once");
     json odd_dirs = json::parse(R"({"env":{"CLAUDE_CODE_PLUGIN_DIRS":7}})");
     merge_user_settings(odd_dirs, installer, true, true, true);
     check(odd_dirs["env"]["CLAUDE_CODE_PLUGIN_DIRS"] == 7, "a mod folder list that is not text: left alone");

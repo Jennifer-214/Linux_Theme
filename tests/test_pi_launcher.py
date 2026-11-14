@@ -67,7 +67,7 @@ base.mkdir(parents=True, exist_ok=True)
 tmp = Path(tempfile.mkdtemp(prefix="pi-launcher-test-", dir=base))
 try:
     home, agent = tmp / "home", tmp / "home/.pi/agent"
-    put(agent / "extensions/fox-scope.ts", (ROOT / "shared/pi/extensions/fox-scope.ts").read_text())
+    put(agent / "extensions/desk-scope.ts", (ROOT / "shared/pi/extensions/desk-scope.ts").read_text())
     env0 = dict(os.environ, HOME=str(home), PI_CODING_AGENT_DIR=str(agent))
     selfbin = tmp / "selfbin"  # the launcher reached through PATH, as when deployed: it must skip itself
     selfbin.mkdir()
@@ -137,11 +137,11 @@ export default function (pi: any) {
         check(ran == ["a", "b c"] and r.returncode == 7,
               f"…and pi's own entry ran, here, with the same arguments and its exit code: {ran}, rc {r.returncode}")
     full = ("export async function main() {}\nexport class DefaultResourceLoader { reload() {} }\n")
-    env0["PI_CODING_AGENT_DIR"] = str(tmp / "no-agent")  # fox-scope.ts missing: the rule has nowhere to come from
+    env0["PI_CODING_AGENT_DIR"] = str(tmp / "no-agent")  # desk-scope.ts missing: the rule has nowhere to come from
     r, ran = launch(full, path, "no_fox_scope.json")
     lines = [ln for ln in r.stderr.splitlines() if ln.startswith("pi launcher:")]
-    check(len(lines) == 1 and "fox-scope.ts" in lines[0] and ran == ["a", "b c"] and r.returncode == 7,
-          f"no fox-scope.ts in pi's agent folder: named, and plain pi ran — {lines or r.stderr.strip()[:200]}")
+    check(len(lines) == 1 and "desk-scope.ts" in lines[0] and ran == ["a", "b c"] and r.returncode == 7,
+          f"no desk-scope.ts in pi's agent folder: named, and plain pi ran — {lines or r.stderr.strip()[:200]}")
     env0["PI_CODING_AGENT_DIR"] = str(agent)
     r, ran = launch("export async function main() {}\n", str(selfbin), "none.json")
     check(r.returncode == 127 and "no installed pi on PATH" in r.stderr and ran is None,

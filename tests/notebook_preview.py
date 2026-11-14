@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Print the Claude notebook as it would be drawn, with sample data, without installing anything.
 
-The scenes are in shared/claude/mods/foxml-paper/tests/preview.test.tsx and go through the mod's real drawing code
+The scenes are in shared/claude/mods/desk-notebook/tests/preview.test.tsx and go through the mod's real drawing code
 under Claude Code's own test kit; this prints each drawn tree as coloured text.
 
 Usage: tests/notebook_preview.py [--theme Paper] [--scene WORDS] [--plain]

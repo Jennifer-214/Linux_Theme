@@ -29,9 +29,9 @@ class NvimTestsUseTheRepo(unittest.TestCase):
     @unittest.skipUnless(shutil.which('nvim'), 'needs Neovim')
     def test_a_decoy_install_is_never_loaded(self):
         with tempfile.TemporaryDirectory() as tmp:
-            decoy = Path(tmp) / 'config/nvim/lua/foxml'
+            decoy = Path(tmp) / 'config/nvim/lua/desk'
             decoy.mkdir(parents=True)
-            for module in (ROOT / 'shared/nvim_lua/foxml').glob('*.lua'):
+            for module in (ROOT / 'shared/nvim_lua/desk').glob('*.lua'):
                 (decoy / module.name).write_text("error('the installed copy was loaded: " + module.name + "')\n")
             env = dict(os.environ, XDG_CONFIG_HOME=str(Path(tmp) / 'config'))
             for test in sorted((ROOT / 'shared/nvim_lua/tests').glob('test_*.lua')):

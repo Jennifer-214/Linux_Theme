@@ -56,7 +56,7 @@ class DrawerEntrypoints(unittest.TestCase):
         self.bin = self.base / "bin"
         self.bin.mkdir()
         self.config = self.base / "config"
-        drawer = self.config / "quickshell/foxml"
+        drawer = self.config / "quickshell/desk"
         drawer.mkdir(parents=True)
         for name in ("shell.qml", "Theme.qml", "menus.json"):
             (drawer / name).write_text("{}\n")
@@ -116,8 +116,8 @@ class DrawerEntrypoints(unittest.TestCase):
     def test_ready_toggle_does_not_start_or_kill_anything(self):
         result = self.run_script(LAUNCHER, "sound")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.calls(), [["quickshell", "-c", "foxml", "ipc", "call", "drawer", "status"],
-                                       ["quickshell", "-c", "foxml", "ipc", "call", "drawer", "toggle", "sound"]])
+        self.assertEqual(self.calls(), [["quickshell", "-c", "desk", "ipc", "call", "drawer", "status"],
+                                       ["quickshell", "-c", "desk", "ipc", "call", "drawer", "toggle", "sound"]])
 
     def test_old_legacy_flag_does_not_restore_retired_desktop_menus(self):
         result = self.run_script(LAUNCHER, "apps", FOXML_MENU_LEGACY="1")
@@ -129,7 +129,7 @@ class DrawerEntrypoints(unittest.TestCase):
         self.ready.unlink()
         result = self.run_script(LAUNCHER, "--start")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(["setsid", "-f", "quickshell", "-c", "foxml", "--no-duplicate"], self.calls())
+        self.assertIn(["setsid", "-f", "quickshell", "-c", "desk", "--no-duplicate"], self.calls())
         self.assertFalse(any("toggle" in row or "open" in row for row in self.calls()))
 
     def test_failed_readiness_has_a_bounded_exit(self):
@@ -143,12 +143,12 @@ class DrawerEntrypoints(unittest.TestCase):
         self.ready.unlink()
         result = self.run_script(LAUNCHER, "--close")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.calls(), [["quickshell", "-c", "foxml", "ipc", "call", "drawer", "close"]])
+        self.assertEqual(self.calls(), [["quickshell", "-c", "desk", "ipc", "call", "drawer", "close"]])
 
     def test_incomplete_install_is_unavailable(self):
         result = self.run_script(LAUNCHER, "--available", FOXML_MENU_LEGACY="1")
         self.assertEqual(result.returncode, 0)
-        (self.config / "quickshell/foxml/Theme.qml").unlink()
+        (self.config / "quickshell/desk/Theme.qml").unlink()
         self.assertEqual(self.run_script(LAUNCHER, "--available").returncode, 1)
         self.assertEqual(self.calls(), [])
 
@@ -200,7 +200,7 @@ class DrawerEntrypoints(unittest.TestCase):
         self.assertEqual(self.calls("pkill"), [])
 
     def test_missing_drawer_installation_fails_clearly_without_rofi(self):
-        (self.config/"quickshell/foxml/Theme.qml").unlink()
+        (self.config/"quickshell/desk/Theme.qml").unlink()
         result = self.run_script(ROOT/"shared/hyprland_scripts/network.sh")
         self.assertEqual(result.returncode, 1)
         self.assertIn("drawer unavailable",result.stderr)

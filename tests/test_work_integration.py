@@ -38,7 +38,7 @@ class Workflow(unittest.TestCase):
             for args in [('init','-q'), ('config','user.name','Fixture'), ('config','user.email','fixture@example.invalid')]: run('git',*args)
             source = repo/'sample.cpp'; source.write_text('int value = 1;\n')
             run('git','add','.'); run('git','-c','commit.gpgsign=false','-c','core.hooksPath=/dev/null','commit','-qm','base')
-            menu = json.loads((ROOT/'shared/quickshell/foxml/menus.json').read_text()); menu['project_roots']=[str(projects)]
+            menu = json.loads((ROOT/'shared/quickshell/desk/menus.json').read_text()); menu['project_roots']=[str(projects)]
             config = base/'menu.json'; config.write_text(json.dumps(menu))
             child = start_fixture(['nvim','--headless','--embed','--clean'], cwd=repo, env=env,
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
@@ -68,7 +68,7 @@ class Workflow(unittest.TestCase):
                     self.assertEqual(ids,[item['id'] for item in expected])
                 snapshots.append({'name':name,'state':state})
             try:
-                lua("package.path="+json.dumps(str(ROOT/'shared/nvim_lua')+'/?.lua;')+"..package.path; vim.opt.autoread=true; vim.opt.hidden=true; require('foxml.sync').setup(); vim.cmd.edit('sample.cpp'); return true")
+                lua("package.path="+json.dumps(str(ROOT/'shared/nvim_lua')+'/?.lua;')+"..package.path; vim.opt.autoread=true; vim.opt.hidden=true; require('desk.sync').setup(); vim.cmd.edit('sample.cpp'); return true")
                 work('review-request','--file','sample.cpp','--name','Pi fixture','--sid','pi-fixture','--text','Please adjust this')
                 snapshot('request waiting')
                 temporary=repo/'sample.cpp.new'; temporary.write_text('int value = 2;\n'); temporary.replace(source)
@@ -77,12 +77,12 @@ class Workflow(unittest.TestCase):
                 snapshot('ready after observed edit')
                 run(WORK,'run','--root',repo,'--','python3','-c',"print('1 passed')")
                 snapshot('tests passed for this content')
-                lua("local C=require('foxml.claude'); C.open_review({kind='live',sid='reader',name='fixture',short='fixture',files={"+json.dumps(str(source))+"}},"+json.dumps(str(repo))+"); local R=require('foxml.review'); R.refresh_requests(true); R.mark(); return true")
+                lua("local C=require('desk.claude'); C.open_review({kind='live',sid='reader',name='fixture',short='fixture',files={"+json.dumps(str(source))+"}},"+json.dumps(str(repo))+"); local R=require('desk.review'); R.refresh_requests(true); R.mark(); return true")
                 lua("return vim.wait(3000,function() local r=vim.system({'desk-work','review-requests','--root',"+json.dumps(str(repo))+"},{text=true}):wait(); return #vim.json.decode(r.stdout)==0 end,20)")
                 snapshot('review settled')
                 self.assertEqual(snapshots[-1]['state']['requests'],[])
                 self.assertEqual(snapshots[-1]['state']['attention'],[])
-                self.assertTrue(lua("local events=require('foxml.work_events'); local state=events.roots["+json.dumps(str(repo))+"]; local pid=state.job.pid; state.job:kill(15); return vim.wait(6000,function() return state.job.pid~=pid and not state.watch_failed end,20)"))
+                self.assertTrue(lua("local events=require('desk.work_events'); local state=events.roots["+json.dumps(str(repo))+"]; local pid=state.job.pid; state.job:kill(15); return vim.wait(6000,function() return state.job.pid~=pid and not state.watch_failed end,20)"))
                 snapshot('after watcher recovery')
                 self.assertEqual(snapshots[-1]['state']['attention'],[])
             finally:

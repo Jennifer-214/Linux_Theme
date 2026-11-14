@@ -46,7 +46,7 @@ std::string reload_steps(const std::string& client, const std::string& session) 
         return "Save your files and let terminal jobs inside Neovim finish (a restart ends them), then :restart and :WorkResume "
                "to reopen your files where they were.";
     if (client == "pi") return "Type /reload in that pi session. The conversation stays.";
-    if (client == "desktop") return "Run quickshell -c foxml kill, then desktop-menu --start. The drawer comes back with the new files.";
+    if (client == "desktop") return "Run quickshell -c desk kill, then desktop-menu --start. The drawer comes back with the new files.";
     return "Restart it to load the installed update.";
 }
 J integration_status(const std::string& client, const std::string& loaded, bool full = true, const std::string& session = {}) {

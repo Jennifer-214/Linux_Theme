@@ -39,13 +39,13 @@ void run_drawer(Context& ctx) {
         incomplete("drawer build failed; existing menus remain available");
         return;
     }
-    const auto output = ctx.rendered_dir / "quickshell/foxml";
+    const auto output = ctx.rendered_dir / "quickshell/desk";
     if (sh::run({(renderer / "desk-render-fast").string(), ctx.palette_path.string(),
-                 (ctx.templates_dir / "quickshell/foxml").string(), output.string()}) != 0) {
+                 (ctx.templates_dir / "quickshell/desk").string(), output.string()}) != 0) {
         incomplete("drawer palette did not render; leaving the installed drawer unchanged");
         return;
     }
-    const auto dest = ctx.config_home / "quickshell/foxml";
+    const auto dest = ctx.config_home / "quickshell/desk";
     auto deploy = [&](const fs::path& src, const fs::path& target) {
         if (deploy_file_atomic(ctx, src, target)) return true;
         incomplete("could not back up/deploy " + target.string());
@@ -57,7 +57,7 @@ void run_drawer(Context& ctx) {
     if (!fs::exists(bar_state) && !deploy(ctx.templates_dir / "waybar/drawer-state.css", bar_state)) return;
     bool ok = true;
     std::error_code ec;
-    const auto shared = ctx.shared_dir / "quickshell/foxml";
+    const auto shared = ctx.shared_dir / "quickshell/desk";
     for (const auto& entry : fs::directory_iterator(shared, ec)) {
         if (!entry.is_regular_file()) continue;
         const auto name = entry.path().filename();
@@ -141,8 +141,8 @@ void run_drawer(Context& ctx) {
         // Atomic replacements can leave Quickshell watching the old inode.
         // A fresh engine also discovers newly installed component/IPC types.
         std::string running;
-        if (sh::capture({"quickshell", "-c", "foxml", "ipc", "call", "drawer", "status"}, running))
-            sh::run({"quickshell", "-c", "foxml", "kill"});
+        if (sh::capture({"quickshell", "-c", "desk", "ipc", "call", "drawer", "status"}, running))
+            sh::run({"quickshell", "-c", "desk", "kill"});
         if (sh::run({(ctx.home / ".local/bin/desktop-menu").string(), "--start"}) != 0)
             ui::warn("drawer startup failed; existing menus remain available");
         else ui::ok("drawer is ready; use desktop-menu or your existing menu shortcut");

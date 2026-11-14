@@ -11,7 +11,7 @@ NVIM = shutil.which('nvim')
 
 DRIVER = r'''
 package.path = vim.env.WORK_LUA .. '/?.lua;' .. package.path
-local work = require('foxml.work')
+local work = require('desk.work')
 local folder = vim.env.PROJECT
 local items = work.api_citations({'See src/a.cpp:2 and src/a.cpp:2 again.', 'Missing: nope.cpp:4', 'Also ' .. folder .. '/b.h:1.'}, folder)
 assert(#items == 2, 'expected the two readable, de-duplicated citations, got ' .. #items)

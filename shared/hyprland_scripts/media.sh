@@ -34,7 +34,7 @@ IFS=$'\x1f' read -r title artist status art <<<"$now"
 palette="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/modules/border_colors.sh"
 [[ -r "$palette" ]] && source "$palette"
 if [[ "${C_LITTLE_DETAILS:-}" == fox-little-details-on ]] &&
-    quickshell -c foxml ipc call media present -- "$title" "$artist" "$status" "$art" >/dev/null 2>&1; then
+    quickshell -c desk ipc call media present -- "$title" "$artist" "$status" "$art" >/dev/null 2>&1; then
     exit 0
 fi
 

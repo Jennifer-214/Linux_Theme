@@ -1552,7 +1552,7 @@ int pick(const Args& args) {
     if (request.watch < 0 || ::inotify_add_watch(request.watch, request.path.c_str(), IN_MOVED_TO | IN_CLOSE_WRITE) < 0) return 2;
     std::string output;
     if (!capture({"desktop-menu", "--start"}, output) ||
-        !capture({"quickshell", "-c", "foxml", "ipc", "call", "drawer", "pick",
+        !capture({"quickshell", "-c", "desk", "ipc", "call", "drawer", "pick",
                       (request.path / "request.json").string()}, output)) {
         std::cerr << "Could not open the Quickshell picker\n"; return 2;
     }
@@ -1579,7 +1579,7 @@ int pick(const Args& args) {
         char events[4096];
         while (::read(request.watch, events, sizeof(events)) > 0) {}
     }
-    capture({"quickshell", "-c", "foxml", "ipc", "call", "drawer", "cancelPicker",
+    capture({"quickshell", "-c", "desk", "ipc", "call", "drawer", "cancelPicker",
                  (request.path / "request.json").string()}, output);
     return 1;
 }
@@ -2250,7 +2250,7 @@ int screens_changed() {
     if (first) return 0;
     for (const auto& s : screens) {
         if (before.count(s.name) || screen_has_rule(s.name) || !sh::have("notify-send")) continue;
-        launch({"/bin/sh", "-c", "a=$(notify-send -a Displays -c foxml.work -A default=Arrange --wait \"$2 connected\" "
+        launch({"/bin/sh", "-c", "a=$(notify-send -a Displays -c desk.work -A default=Arrange --wait \"$2 connected\" "
                             "'Arrange it: size, rotation and which side') && [ \"$a\" = default ] && "
                             "exec \"$HOME/.local/bin/desktop-menu\" --open display --scope \"$1\"",
                 "sh", s.name, screen_label(s)}, "");
@@ -5092,7 +5092,7 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
 
 int main(int argc, char** argv) {
     try {
-        fs::path config_path = config_home() / "quickshell/foxml/menus.json";
+        fs::path config_path = config_home() / "quickshell/desk/menus.json";
         std::string project_scope;
         Args args;
         for (int i = 1; i < argc; ++i) {

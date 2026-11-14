@@ -421,7 +421,7 @@ def open_result(run_id):
     if not editor:
         print(markdown(value))
         return 0
-    os.execv(editor, [editor, '-c', "lua pcall(function() require('foxml.work').api_result_opened() end)", str(path)])
+    os.execv(editor, [editor, '-c', "lua pcall(function() require('desk.work').api_result_opened() end)", str(path)])
 
 
 def pi(cfg, project, model):

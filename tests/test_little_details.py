@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-QML = ROOT / "shared/quickshell/foxml"
+QML = ROOT / "shared/quickshell/desk"
 
 
 class LittleDetails(unittest.TestCase):

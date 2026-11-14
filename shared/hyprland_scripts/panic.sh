@@ -56,7 +56,7 @@ if command -v wl-copy >/dev/null 2>&1; then
 fi
 
 # 2. Close sensitive UI, including a pending password selection.
-quickshell -c foxml ipc call drawer close >/dev/null 2>&1 || true
+quickshell -c desk ipc call drawer close >/dev/null 2>&1 || true
 # Keep covering old manually launched pickers while legacy packages remain.
 pkill -9 -x rofi      2>/dev/null || true
 pkill -9 -x rofi-pass 2>/dev/null || true

@@ -1339,14 +1339,14 @@ std::string comparison(const J& job) {
 std::string quote(const std::string& s) { std::string out = "'"; for (char c : s) out += c == '\'' ? "'\\''" : std::string(1, c); return out + "'"; }
 int open_editor(const std::string& root, const std::string& action, const std::string& id = {}, const std::string& index = {}) {
     // Data travels through argv into a fixed Lua call, never through an Ex/Lua interpolation.
-    return sh::run({"kitty", "--detach", "--directory", root, "-e", "nvim", "+lua require('foxml.work').open_args()", "--", "foxml-work:" + action, id, index});
+    return sh::run({"kitty", "--detach", "--directory", root, "-e", "nvim", "+lua require('desk.work').open_args()", "--", "desk-work:" + action, id, index});
 }
 void notify_failure(const std::string& label, const std::string& id, bool service = false) {
     if (env("FOXML_WORK_NOTIFY") == "0" || !sh::have("notify-send") || !sh::have("setsid")) return;
     const auto own = fs::canonical("/proc/self/exe").string();
     const bool pane = !service && !str(load_run(id), "pane").empty();
     const bool tests = !service && load_run(id).value("testRun", false);
-    const std::string script = "exec >/dev/null 2>&1; choice=$(notify-send --wait --expire-time=0 --category=foxml.work --app-name=FoxML --action=default='Open result' --action=log='Open log' "
+    const std::string script = "exec >/dev/null 2>&1; choice=$(notify-send --wait --expire-time=0 --category=desk.work --app-name=FoxML --action=default='Open result' --action=log='Open log' "
         + std::string(pane ? "--action=jump='Jump to terminal' " : "")
         + "--action=ask='Ask Claude' \"$4\" \"$2\"); case \"$choice\" in default) exec \"$1\" open --action \"$7\" --id \"$3\";; log) exec \"$1\" open --action \"$5\" --id \"$3\";; jump) exec \"$1\" open --action jump --id \"$3\";; ask) exec \"$1\" open --action \"$6\" --id \"$3\";; esac";
     sh::run({"setsid", "-f", "sh", "-c", script, "sh", own, clean(label).substr(0, 160), id,

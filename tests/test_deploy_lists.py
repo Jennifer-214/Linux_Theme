@@ -20,33 +20,33 @@ BIN_RE = re.compile(r"^[ \t]*BIN[ \t]*:?=[ \t]*([^\s#]+)", re.M)
 
 # New surfaces deploy through the native installer; AGENT.md freezes mappings.sh.
 ONE_SIDED = {
-    ("SHARED_MAPPINGS", "nvim_lua/foxml/build.lua", "~/.config/nvim/lua/foxml/build.lua"):
+    ("SHARED_MAPPINGS", "nvim_lua/desk/build.lua", "~/.config/nvim/lua/desk/build.lua"):
         "The integration updater generates the loaded build stamp through native mappings.",
-    ("SHARED_MAPPINGS", "pi/extensions/foxml/build.ts", "~/.pi/agent/extensions/foxml/build.ts"):
+    ("SHARED_MAPPINGS", "pi/extensions/desk/build.ts", "~/.pi/agent/extensions/desk/build.ts"):
         "The integration updater generates the loaded build stamp through native mappings.",
-    ("SHARED_MAPPINGS", "claude/mods/foxml-paper/hooks/build.ts", "~/.claude/mods/foxml-paper/hooks/build.ts"):
+    ("SHARED_MAPPINGS", "claude/mods/desk-notebook/hooks/build.ts", "~/.claude/mods/desk-notebook/hooks/build.ts"):
         "The integration updater generates the loaded build stamp through native mappings.",
-    ("SHARED_MAPPINGS", "nvim_lua/foxml/workspace.lua", "~/.config/nvim/lua/foxml/workspace.lua"):
+    ("SHARED_MAPPINGS", "nvim_lua/desk/workspace.lua", "~/.config/nvim/lua/desk/workspace.lua"):
         "Project resume state deploys through the native installer; mappings.sh is frozen.",
-    ("SHARED_MAPPINGS", "nvim_lua/foxml/work_events.lua", "~/.config/nvim/lua/foxml/work_events.lua"):
+    ("SHARED_MAPPINGS", "nvim_lua/desk/work_events.lua", "~/.config/nvim/lua/desk/work_events.lua"):
         "native-only shared work subscriptions; AGENT.md freezes mappings.sh",
-    ("SHARED_MAPPINGS", "nvim_lua/foxml/sync.lua", "~/.config/nvim/lua/foxml/sync.lua"):
+    ("SHARED_MAPPINGS", "nvim_lua/desk/sync.lua", "~/.config/nvim/lua/desk/sync.lua"):
         "native-only live file watching and explicit outside-edit merge; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "redzone.json", "~/.config/foxml/redzone.json"):
         "native-only single red-zone list for the notebook band and the review's risk marks; AGENT.md freezes mappings.sh",
-    ("SHARED_MAPPINGS", "nvim_lua/foxml/menu.lua", "~/.config/nvim/lua/foxml/menu.lua"):
+    ("SHARED_MAPPINGS", "nvim_lua/desk/menu.lua", "~/.config/nvim/lua/desk/menu.lua"):
         "native-only built-in menu drawn to the symdeps rules, for when that plugin is absent; AGENT.md freezes mappings.sh",
-    ("SHARED_MAPPINGS", "nvim_lua/foxml/review.lua", "~/.config/nvim/lua/foxml/review.lua"):
+    ("SHARED_MAPPINGS", "nvim_lua/desk/review.lua", "~/.config/nvim/lua/desk/review.lua"):
         "native-only read-only review layout and saved review progress; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "zsh_work.zsh", "~/.config/zsh/work.zsh"):
         "native-only foreground job observation and fjob; AGENT.md freezes mappings.sh",
-    ("SHARED_MAPPINGS", "nvim_lua/foxml/work.lua", "~/.config/nvim/lua/foxml/work.lua"):
+    ("SHARED_MAPPINGS", "nvim_lua/desk/work.lua", "~/.config/nvim/lua/desk/work.lua"):
         "native-only test quickfix, review and editable failure drafts",
-    ("SHARED_MAPPINGS", "nvim_lua/foxml/planmarks.lua", "~/.config/nvim/lua/foxml/planmarks.lua"):
+    ("SHARED_MAPPINGS", "nvim_lua/desk/planmarks.lua", "~/.config/nvim/lua/desk/planmarks.lua"):
         "native-only plan marks in the sign column; AGENT.md freezes mappings.sh",
-    ("SHARED_MAPPINGS", "claude/mods/foxml-paper/hooks/work.ts", "~/.claude/mods/foxml-paper/hooks/work.ts"):
+    ("SHARED_MAPPINGS", "claude/mods/desk-notebook/hooks/work.ts", "~/.claude/mods/desk-notebook/hooks/work.ts"):
         "native-only Claude work records; code is copied, with colors in the existing rendered theme",
-    ("SHARED_MAPPINGS", "claude/mods/foxml-paper/hooks/notebook.ts", "~/.claude/mods/foxml-paper/hooks/notebook.ts"):
+    ("SHARED_MAPPINGS", "claude/mods/desk-notebook/hooks/notebook.ts", "~/.claude/mods/desk-notebook/hooks/notebook.ts"):
         "native-only notebook file parsing and attribution, deployed beside its render hook",
     ("TEMPLATE_MAPPINGS", "swappy/config", "~/.config/swappy/config"):
         "native-only screenshot annotation colors and pencil strokes; rendered from the selected palette",
@@ -70,7 +70,7 @@ ONE_SIDED = {
         "native-only Claude Code theme; edit templates/claude directly rather than reverse-capturing",
     ("TEMPLATE_MAPPINGS", "claude/statusline.sh", "~/.claude/statusline.sh"):
         "native-only Claude Code status line; edit templates/claude directly rather than reverse-capturing",
-    ("TEMPLATE_MAPPINGS", "claude/mods/foxml-paper/hooks/theme.ts", "~/.claude/mods/foxml-paper/hooks/theme.ts"):
+    ("TEMPLATE_MAPPINGS", "claude/mods/desk-notebook/hooks/theme.ts", "~/.claude/mods/desk-notebook/hooks/theme.ts"):
         "native-only palette of the Claude Code paper mod; edit templates/claude directly rather than reverse-capturing",
 }
 

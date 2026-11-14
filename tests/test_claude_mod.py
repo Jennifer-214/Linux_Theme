@@ -11,7 +11,7 @@ import hashlib
 
 ROOT = Path(__file__).resolve().parents[1]
 RENDER = ROOT/'src/desk-render/desk-render-fast'
-MOD = ROOT/'shared/claude/mods/foxml-paper'
+MOD = ROOT/'shared/claude/mods/desk-notebook'
 
 
 def sdk_fixture():
@@ -46,9 +46,9 @@ class PaperMod(unittest.TestCase):
         self.addCleanup(shutil.rmtree, tmp)
         subprocess.run([str(RENDER), str(ROOT/'themes'/theme/'palette.sh'), str(ROOT/'templates/claude'), str(tmp/'r')],
                        check=True, capture_output=True)
-        mod = tmp/'foxml-paper'
+        mod = tmp/'desk-notebook'
         shutil.copytree(MOD, mod)
-        shutil.copy(tmp/'r/mods/foxml-paper/hooks/theme.ts', mod/'hooks/theme.ts')
+        shutil.copy(tmp/'r/mods/desk-notebook/hooks/theme.ts', mod/'hooks/theme.ts')
         return mod
 
     def test_every_palette_fills_the_mod_theme(self):
@@ -59,7 +59,7 @@ class PaperMod(unittest.TestCase):
 
     def test_the_code_holds_no_template_tokens(self):
         # The code is copied as it is; only theme.ts is rendered, so JSX's {{ }} never meets the renderer.
-        self.assertFalse((ROOT/'templates/claude/mods/foxml-paper/hooks/register.tsx').exists())
+        self.assertFalse((ROOT/'templates/claude/mods/desk-notebook/hooks/register.tsx').exists())
 
     def test_claude_code_validates_and_tests_it(self):
         self.need(shutil.which('claude'), 'Claude Code not installed')
@@ -76,7 +76,7 @@ class PaperMod(unittest.TestCase):
         if os.environ.get('CLAUDE_TYPES_DIR'):
             candidates = [Path(os.path.expandvars(os.environ['CLAUDE_TYPES_DIR'])).expanduser()]
         else:
-            candidates = [config/'mods/foxml-paper/.claude-plugin/types']
+            candidates = [config/'mods/desk-notebook/.claude-plugin/types']
             plugins = os.environ.get('CLAUDE_CODE_PLUGIN_DIRS', '')
             try:
                 settings = json.loads((config/'settings.json').read_text())

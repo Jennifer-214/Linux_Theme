@@ -429,7 +429,7 @@ void do_claude_hooks(const Context& ctx) {
     // the symlinks step deploys the palette's Claude theme and status line before this runs
     const bool custom_theme = fs::is_regular_file(claude_dir / "themes/foxml.json");
     const bool status_line = fs::is_regular_file(claude_dir / "statusline.sh");
-    const bool paper_mod = fs::is_regular_file(claude_dir / "mods/foxml-paper/.claude-plugin/plugin.json");
+    const bool paper_mod = fs::is_regular_file(claude_dir / "mods/desk-notebook/.claude-plugin/plugin.json");
 
     if (!fs::exists(settings)) {
         json out = json::object();

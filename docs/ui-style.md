@@ -65,7 +65,7 @@ Use the symdeps highlight groups when they exist and fall back to the theme's ow
 `python3 tests/notebook_preview.py` prints the Claude notebook as it would be drawn, in the theme's colours, from
 sample data: the front page, a folded needs-you list and its page, the files page, a request thread, the marks
 page, a quiet page and the compact view. The scenes are in
-`shared/claude/mods/foxml-paper/tests/preview.test.tsx` and go through the mod's real drawing code under Claude
+`shared/claude/mods/desk-notebook/tests/preview.test.tsx` and go through the mod's real drawing code under Claude
 Code's own test kit, so what it prints is what the pane shows. `--scene WORDS` picks one, `--theme NAME` another
 palette, `--plain` drops the colour. Add a scene there when a page changes.
 The command fails if any notebook test fails, even when some scenes were drawn, and an unmatched `--scene` is an

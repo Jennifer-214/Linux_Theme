@@ -49,7 +49,7 @@ class WorkNotice(unittest.TestCase):
                 return [json.loads(line) for line in calls.read_text().splitlines()]
             rows = invoke('default')
             self.assertIn('--expire-time=4000', rows[0])
-            self.assertIn('--category=foxml.work', rows[0])
+            self.assertIn('--category=desk.work', rows[0])
             self.assertIn('--hint=string:x-dunst-stack-tag:foxml-agent-7', rows[0])
             self.assertEqual(rows[-1], ['desk-drawer','run','claude-jump','%7'])
             self.assertEqual(invoke('review')[-1], ['desk-work','open','--root',str(project),'--action','reviews'])

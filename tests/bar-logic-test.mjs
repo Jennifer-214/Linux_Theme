@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import vm from 'node:vm';
 import assert from 'node:assert/strict';
-const source = fs.readFileSync(new URL('../shared/quickshell/foxml/BarLogic.js', import.meta.url), 'utf8');
+const source = fs.readFileSync(new URL('../shared/quickshell/desk/BarLogic.js', import.meta.url), 'utf8');
 const ctx = vm.createContext({});
 vm.runInContext(source.replace('.pragma library', ''), ctx);
 const plain = value => JSON.parse(JSON.stringify(value));

@@ -23,7 +23,7 @@ int main() {
     fs::create_directories(ctx.home);
     int failures = 0;
     const auto check = [&](bool ok, const std::string& why) { if (!ok) { ++failures; std::cerr << "FAIL: " << why << '\n'; } };
-    auto menu = nlohmann::json::parse(read(repo / "shared/quickshell/foxml/menus.json"));
+    auto menu = nlohmann::json::parse(read(repo / "shared/quickshell/desk/menus.json"));
     const auto shipped = menu;
     for (auto& group : menu["groups"]) if (group["id"] == "workbench") {
         auto& items = group["items"];
@@ -36,8 +36,8 @@ int main() {
     std::set<std::string> installed;
     for (const auto& mapping : desk_install::symlinks::SHARED_MAPPINGS) {
         const std::string source = mapping.src;
-        if (source.rfind("nvim_lua/foxml/", 0) != 0 && source.rfind("claude/mods/foxml-paper/", 0) != 0
-            && source != "pi/extensions/fox-notify.ts" && source != "pi/extensions/foxml/build.ts") continue;
+        if (source.rfind("nvim_lua/desk/", 0) != 0 && source.rfind("claude/mods/desk-notebook/", 0) != 0
+            && source != "pi/extensions/desk-notify.ts" && source != "pi/extensions/desk/build.ts") continue;
         const auto target = ctx.home / std::string(mapping.dest).substr(2);
         check(desk_install::deploy_file_atomic(ctx, repo / "shared" / source, target), "deploy " + source);
         check(read(target) == read(repo / "shared" / source), "current bytes " + source);
@@ -45,16 +45,16 @@ int main() {
         installed.insert(source);
     }
     // Discovery makes a newly imported module a required installer asset automatically.
-    for (const auto& file : fs::directory_iterator(repo / "shared/nvim_lua/foxml"))
-        if (file.path().extension() == ".lua") check(installed.count("nvim_lua/foxml/" + file.path().filename().string()), "missing Neovim module " + file.path().filename().string());
+    for (const auto& file : fs::directory_iterator(repo / "shared/nvim_lua/desk"))
+        if (file.path().extension() == ".lua") check(installed.count("nvim_lua/desk/" + file.path().filename().string()), "missing Neovim module " + file.path().filename().string());
     for (const auto& folder : {"hooks", "types"})
-        for (const auto& file : fs::directory_iterator(repo / "shared/claude/mods/foxml-paper" / folder))
-            if (file.is_regular_file()) check(installed.count("claude/mods/foxml-paper/" + std::string(folder) + '/' + file.path().filename().string()), "missing mod dependency " + file.path().filename().string());
+        for (const auto& file : fs::directory_iterator(repo / "shared/claude/mods/desk-notebook" / folder))
+            if (file.is_regular_file()) check(installed.count("claude/mods/desk-notebook/" + std::string(folder) + '/' + file.path().filename().string()), "missing mod dependency " + file.path().filename().string());
     const auto rendered = fixture / "rendered";
     check(desk_install::sh::run({(repo / "src/desk-render/desk-render-fast").string(), (repo / "themes/Paper/palette.sh").string(),
           (repo / "templates/claude").string(), rendered.string()}) == 0, "render notebook palette");
-    const auto theme = ctx.home / ".claude/mods/foxml-paper/hooks/theme.ts";
-    check(desk_install::deploy_file_atomic(ctx, rendered / "mods/foxml-paper/hooks/theme.ts", theme), "deploy rendered palette");
+    const auto theme = ctx.home / ".claude/mods/desk-notebook/hooks/theme.ts";
+    check(desk_install::deploy_file_atomic(ctx, rendered / "mods/desk-notebook/hooks/theme.ts", theme), "deploy rendered palette");
     check(read(theme).find("{{") == std::string::npos && read(theme).find("ink:") != std::string::npos, "palette resolves");
     const auto bin = ctx.home / ".local/bin";
     fs::create_directories(bin);
