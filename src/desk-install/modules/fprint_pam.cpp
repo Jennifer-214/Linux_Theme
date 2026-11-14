@@ -17,6 +17,7 @@
 #include "../core/context.hpp"
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
+#include "pam_file.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -48,22 +49,6 @@ bool has_enrollment() {
     // an enrollment exists, "No fingerprints enrolled" when not.
     if (out.find("No fingerprints enrolled") != std::string::npos) return false;
     return std::regex_search(out, std::regex(R"(#\d+)"));
-}
-
-// The lockout cascade (project_pam_fprintd_lockout): pam_fprintd's empty
-// token is consumed by pam_unix's `try_first_pass` and silently counted
-// as a failed password against faillock. system-local-login pulls in
-// system-auth via `auth include system-login`, so the resolved chain's
-// pam_unix lives in system-auth — check it there, same as sudo_fingerprint.
-bool system_auth_has_try_first_pass() {
-    std::ifstream f("/etc/pam.d/system-auth");
-    std::string line;
-    std::regex pat(
-        R"(^\s*auth\s+(?:\[[^\]]*\]|\S+)\s+pam_unix\.so[^\n]*\btry_first_pass\b)");
-    while (std::getline(f, line)) {
-        if (std::regex_search(line, pat)) return true;
-    }
-    return false;
 }
 
 bool already_spliced(const fs::path& pam) {
@@ -149,7 +134,7 @@ void run_fprint_pam(Context& ctx) {
     // correct spot for fingerprint-OR-password ONLY while pam_unix has no
     // `try_first_pass`. With it, the empty fprintd token is counted as a
     // failed password and faillock locks the account. Refuse outright.
-    if (system_auth_has_try_first_pass()) {
+    if (pam_file::system_auth_has_try_first_pass()) {
         ui::skipped("fingerprint login skipped: /etc/pam.d/system-auth's pam_unix carries `try_first_pass` (stock Arch)");
         ui::substep("splicing pam_fprintd into the login stack would re-open the lockout cascade");
         ui::substep("fix: sudo sed -i 's|\\(pam_unix\\.so.*\\)\\btry_first_pass\\b|\\1|' /etc/pam.d/system-auth");
@@ -183,40 +168,15 @@ void run_fprint_pam(Context& ctx) {
                       std::istreambuf_iterator<char>());
     std::string spliced = splice_pam(body);
 
-    // Backup + atomic replace via sudo install.
-    // Backup is create-if-missing so a second run can't clobber the
-    // pre-foxml original with the already-modified file.
-    sh::run({"sh", "-c",
-             "[ -e " + pam.string() + ".foxml-bak ] || "
-             "sudo cp " + pam.string() + " " + pam.string() + ".foxml-bak"});
-    // mkstemp avoids a /tmp symlink-race against a predictable name.
-    // The 0600 file in /tmp lands at /etc/pam.d/X via `sudo install`,
-    // which sets the final mode/owner.
-    char tmpl[] = "/tmp/foxin-pam-system-XXXXXX";
-    int fd = ::mkstemp(tmpl);
-    if (fd < 0) {
-        ui::err("could not create temp file for PAM splice");
+    // Laid by pam_file: backup made once, replaced in one step, read back, the previous file restored on any difference.
+    if (const auto failed = pam_file::install(pam, spliced); !failed.empty()) {
+        ui::err(failed);
         return;
     }
-    ssize_t w = ::write(fd, spliced.data(), spliced.size());
-    ::close(fd);
-    if (w != static_cast<ssize_t>(spliced.size())) {
-        ui::err("short write to PAM splice tempfile");
-        ::unlink(tmpl);
-        return;
-    }
-    int rc = sh::run({"sudo", "install", "-m", "0644", "-o", "root", "-g", "root",
-                      tmpl, pam.string()});
-    ::unlink(tmpl);
-
-    if (rc == 0) {
-        ui::ok("pam_fprintd spliced into " + pam.string());
-        ui::substep("backup at " + pam.string() + ".foxml-bak");
-        ui::substep("if login breaks: `su -`, then "
-                    "`sudo mv " + pam.string() + ".foxml-bak " + pam.string() + "`");
-    } else {
-        ui::err("PAM install failed — original config still in place");
-    }
+    ui::ok("pam_fprintd spliced into " + pam.string());
+    ui::substep("backup at " + pam.string() + ".foxml-bak");
+    ui::substep("if login breaks: `su -`, then "
+                "`sudo mv " + pam.string() + ".foxml-bak " + pam.string() + "`");
 }
 
 }  // namespace desk_install

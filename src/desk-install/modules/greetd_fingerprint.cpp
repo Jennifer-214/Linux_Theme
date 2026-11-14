@@ -13,6 +13,7 @@
 #include "../core/context.hpp"
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
+#include "pam_file.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -54,15 +55,6 @@ bool already_wired(const fs::path& greetd_pam) {
     return false;
 }
 
-bool has_pam_header(const fs::path& greetd_pam) {
-    std::ifstream f(greetd_pam);
-    std::string line;
-    while (std::getline(f, line)) {
-        if (line.find("#%PAM-1.0") != std::string::npos) return true;
-    }
-    return false;
-}
-
 std::string username() {
     if (const char* u = std::getenv("USER"); u && *u) return u;
     return "user";
@@ -91,6 +83,12 @@ void run_greetd_fingerprint(Context& ctx) {
         ui::skipped("/etc/pam.d/greetd already enables pam_fprintd — leaving as-is");
         return;
     }
+    // The siblings' lockout gate: greetd's stack reaches system-auth through login, so the same cascade applies.
+    if (pam_file::system_auth_has_try_first_pass()) {
+        ui::skipped("fingerprint at the login screen skipped: /etc/pam.d/system-auth's pam_unix carries `try_first_pass`");
+        ui::substep("an empty fingerprint token would count as a failed password there; see sudo_fingerprint for the fix");
+        return;
+    }
 
     if (sh::dry_run()) {
         ui::substep("[dry-run] would back up /etc/pam.d/greetd.foxml-bak and "
@@ -102,17 +100,14 @@ void run_greetd_fingerprint(Context& ctx) {
         return;
     }
 
-    sh::run({"sudo", "cp", greetd_pam.string(),
-             greetd_pam.string() + ".foxml-bak"});
-
-    if (has_pam_header(greetd_pam)) {
-        sh::run({"sudo", "sed", "-i",
-                 "/^#%PAM-1.0/a auth      sufficient  pam_fprintd.so",
-                 greetd_pam.string()});
-    } else {
-        sh::run({"sudo", "sed", "-i",
-                 "1i auth      sufficient  pam_fprintd.so",
-                 greetd_pam.string()});
+    // After the header, or first without one; laid by pam_file (backup made once: it used to be overwritten every run,
+    // so the original was lost on the second; replaced in one step, read back, restored on any difference).
+    std::ifstream current(greetd_pam);
+    const auto spliced = pam_file::with_fprintd(std::string(std::istreambuf_iterator<char>(current), {}), /*prepend=*/true);
+    if (!spliced) { ui::skipped("/etc/pam.d/greetd already enables pam_fprintd — leaving as-is"); return; }
+    if (const auto failed = pam_file::install(greetd_pam, *spliced); !failed.empty()) {
+        ui::err(failed);
+        return;
     }
     ui::ok("pam_fprintd.so → /etc/pam.d/greetd (login screen accepts fingerprint)");
     ui::ok("backup at /etc/pam.d/greetd.foxml-bak");

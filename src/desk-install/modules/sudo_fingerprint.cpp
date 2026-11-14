@@ -18,6 +18,7 @@
 #include "../core/context.hpp"
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
+#include "pam_file.hpp"
 
 #include <cstdlib>
 #include <filesystem>
@@ -100,19 +101,6 @@ bool sudo_header_at_line_one() {
     return line.compare(nws, 9, "#%PAM-1.0") == 0;
 }
 
-bool system_auth_has_try_first_pass() {
-    std::ifstream f("/etc/pam.d/system-auth");
-    std::string line;
-    // PAM control fields can be `[success=1 default=bad]` (bracketed
-    // with spaces inside) — same regex shape B2 uses.
-    std::regex pat(
-        R"(^\s*auth\s+(?:\[[^\]]*\]|\S+)\s+pam_unix\.so[^\n]*\btry_first_pass\b)");
-    while (std::getline(f, line)) {
-        if (std::regex_search(line, pat)) return true;
-    }
-    return false;
-}
-
 }  // namespace
 
 void run_sudo_fingerprint(Context& ctx) {
@@ -169,7 +157,7 @@ void run_sudo_fingerprint(Context& ctx) {
     // consumed by pam_unix's try_first_pass and silently counts as
     // a failed password attempt against faillock. Refuse to wire
     // fingerprint into sudo while that interaction is live.
-    if (system_auth_has_try_first_pass()) {
+    if (pam_file::system_auth_has_try_first_pass()) {
         ui::skipped("fingerprint for sudo skipped: /etc/pam.d/system-auth's pam_unix carries `try_first_pass` (stock Arch)");
         ui::substep("adding pam_fprintd here would re-open the lockout cascade");
         ui::substep("fix: sudo sed -i 's|\\(pam_unix\\.so.*\\)\\btry_first_pass\\b|\\1|' /etc/pam.d/system-auth");
@@ -187,18 +175,19 @@ void run_sudo_fingerprint(Context& ctx) {
         return;
     }
 
-    // Create-if-missing backup: never clobber the true pre-foxml
-    // original on repeat --full runs.
-    sh::run({"sh", "-c",
-             "[ -e /etc/pam.d/sudo.foxml-bak ] || "
-             "sudo cp /etc/pam.d/sudo /etc/pam.d/sudo.foxml-bak"});
-
-    // Splice exactly one `auth sufficient pam_fprintd.so` line directly
-    // after the #%PAM-1.0 header. `/^#%PAM-1.0/a` is sed's append-after
-    // form, which preserves everything else verbatim.
-    sh::run({"sudo", "sed", "-i",
-             "/^#%PAM-1.0/a auth      sufficient  pam_fprintd.so",
-             "/etc/pam.d/sudo"});
+    // One `auth sufficient pam_fprintd.so` line right after the header, built in memory and laid by pam_file
+    // (backup made once, replaced in one step, read back, the previous file restored on any difference). The sed this
+    // replaces ignored its own failure and needed the header in column 0, which the check above does not.
+    std::ifstream current(sudo_pam);
+    const auto spliced = pam_file::with_fprintd(std::string(std::istreambuf_iterator<char>(current), {}), /*prepend=*/false);
+    if (!spliced) {
+        ui::err("/etc/pam.d/sudo changed while reading it (no header, or pam_fprintd already there) — left as it is");
+        return;
+    }
+    if (const auto failed = pam_file::install(sudo_pam, *spliced); !failed.empty()) {
+        ui::err(failed);
+        return;
+    }
     ui::ok("pam_fprintd.so → /etc/pam.d/sudo (fingerprint accepts sudo prompts)");
     ui::ok("backup at /etc/pam.d/sudo.foxml-bak");
     ui::substep("touch the reader to authenticate; falls through to password prompt on timeout/fail");
