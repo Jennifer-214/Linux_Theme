@@ -111,7 +111,13 @@ std::string root_of(const std::string& path) {
     return fs::canonical(git ? parent : fs::path(path), ec).string();
 }
 fs::path project_dir(const std::string& root) { return base() / "projects" / hash(root); }
-bool register_root(const std::string& root) { return !root.empty() && atomic(project_dir(root) / "root", root); }
+// Written once: nearly every read and write registers its checkout, and rewriting the same file is a write and an
+// fsync each time (dozens of them for one drawer page).
+bool register_root(const std::string& root) {
+    if (root.empty()) return false;
+    if (read(project_dir(root) / "root", 4096) == root) return true;
+    return atomic(project_dir(root) / "root", root);
+}
 // A refusal always says why; every client shows this text as it is.
 J refuse(const std::string& message) { return J{{"ok", false}, {"message", message}}; }
 J unwritable() { return refuse("Could not write the work records in " + base().string() + "; the disk may be full or read-only"); }
@@ -557,7 +563,8 @@ J reviews(const std::string& root, bool today_only = true) {
                            + "|" + std::to_string(stamp_of(project_dir(root) / "review-marks.json"))
                            + "|" + trim(query({"git", "--no-optional-locks", "-C", root, "rev-parse", "--verify", "--quiet", std::string("refs/notes/") + REVIEW_NOTES}))
                            + "|" + std::to_string(day.tm_year) + "-" + std::to_string(day.tm_yday) + "|" + (today_only ? "today" : "all");
-    const auto cached = json(project_dir(root) / "reviews-cache.json");
+    const auto cache = project_dir(root) / (today_only ? "reviews-cache.json" : "reviews-cache-all.json");
+    const auto cached = json(cache);
     if (cached.is_object() && str(cached, "signature") == signature && cached["reviews"].is_array()) return cached["reviews"];
     const auto marks = json(project_dir(root) / "reviewed.json");
     const auto progress = review_progress(root, "");
@@ -580,7 +587,7 @@ J reviews(const std::string& root, bool today_only = true) {
         if (progress.contains(f[0])) { row["checked"] = progress[f[0]]["checked"]; row["total"] = progress[f[0]]["total"]; }
         out.push_back(row);
     }
-    if (register_root(root)) atomic(project_dir(root) / "reviews-cache.json", J{{"signature", signature}, {"reviews", out}}.dump());
+    if (register_root(root)) atomic(cache, J{{"signature", signature}, {"reviews", out}}.dump());
     return out;
 }
 J reviewed(const std::string& root, const std::string& sha) {
@@ -1191,12 +1198,32 @@ J attention(const std::string& root, const std::string& session = {}, bool revie
 #include "workflow.hpp"
 #include "records.hpp"
 #include "integrations.hpp"
+// A checkout counts for the desktop's lists while it is in use: it still exists, and it has a commit or a recorded
+// event in the last two weeks, a running job or a live agent, or it was asked for by name. Every checkout ever opened
+// stays registered; the lists stop carrying old worktrees, which made each drawer page re-check dozens of them and
+// buried what needs you now under their unreviewed commits.
+bool in_use(const std::string& root, const std::set<std::string>& busy) {
+    std::error_code ec;
+    if (!fs::is_directory(fs::path(root) / ".git", ec) && !fs::is_regular_file(fs::path(root) / ".git", ec)) return false;
+    if (busy.count(root)) return true;
+    const auto recent = now() - 14 * 86400;
+    const auto journal = json(project_dir(root) / "events.json");
+    if (journal.is_object() && journal.value("items", J()).is_array() && !journal["items"].empty()
+        && num(journal["items"].back(), "at") >= recent) return true;
+    const auto head = trim(query({"git", "--no-optional-locks", "-C", root, "log", "-1", "--format=%ct"}));
+    long long at = 0;
+    std::from_chars(head.data(), head.data() + head.size(), at);
+    return at >= recent;
+}
 J overview(const A& requested, bool fresh = false, bool include_history = false) {
     auto all = runs(); J todo = J::array(), review = J::array(); int running = 0, finished = 0, failed = 0;
     std::map<std::string, J> snapshots;
     std::set<std::string> roots;
-    for (const auto& r : known_roots()) roots.insert(r.get<std::string>());
-    for (const auto& r : requested) { const auto root = root_of(r); if (!root.empty()) roots.insert(root); }
+    std::set<std::string> busy, asked;
+    for (const auto& r : all) if (str(r, "state") == "running") busy.insert(str(r, "root"));
+    for (const auto& a : agents()) busy.insert(str(a, "root"));
+    for (const auto& r : requested) { const auto root = root_of(r); if (!root.empty()) { roots.insert(root); asked.insert(root); } }
+    for (const auto& r : known_roots()) if (in_use(r.get<std::string>(), busy)) roots.insert(r.get<std::string>());
     const auto day = now() - 24 * 3600;
     // A failure counts until a newer run in the same project gets past it (Settled); runs are newest first.
     Settled settled;
@@ -1218,12 +1245,11 @@ J overview(const A& requested, bool fresh = false, bool include_history = false)
     for (const auto& root : roots) {
         for (auto t : tasks(root)) if (!t.value("done", false)) { t["root"] = root; todo.push_back(t); }
         for (auto r : reviews(root)) review.push_back(r);
-        for (auto item : attention(root)) needs.push_back(item);
+        for (auto item : attention(root, "", false, true)) (item.contains("snoozed") ? held : needs).push_back(item);
         if (include_history) {
             for (auto event : timeline(root, 0, 30)) history.push_back(event);
             auto summary = project_digest(root, "desktop"); summary["root"] = root; digests.push_back(summary);
         }
-        for (auto item : attention(root, "", false, true)) if (item.contains("snoozed")) held.push_back(item);
     }
     std::sort(needs.begin(), needs.end(), attention_less);
     std::sort(history.begin(), history.end(), [](const J& a, const J& b) {

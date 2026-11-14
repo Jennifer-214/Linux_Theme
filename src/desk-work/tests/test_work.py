@@ -564,7 +564,7 @@ class Work(unittest.TestCase):
         self.assertEqual(self.git("rev-parse", "HEAD"), head_before, "history is not rewritten")
         # A fresh machine: the local record is gone, the note came with the repository.
         for record in (self.dir / "state").rglob("reviewed.json"): record.unlink()
-        for cache in (self.dir / "state").rglob("reviews-cache.json"): cache.unlink()
+        for cache in (self.dir / "state").rglob("reviews-cache*.json"): cache.unlink()
         self.assertEqual(self.data("reviews"), [], "the stamp alone marks it reviewed")
         self.assertTrue(self.data("reviews", "--all", "yes")[0]["reviewed"])
         # Switched off: no note is written.
@@ -857,6 +857,34 @@ class Work(unittest.TestCase):
         self.assertRegex(later['greeting'], r'^Since you last looked this (morning|afternoon|evening): 1 run passed')
         self.assertEqual(self.data('digest', '--consumer', 'fresh-reader')['greeting'],
                          self.data('digest', '--consumer', 'fresh-reader')['summary'], 'a first look has no "since"')
+
+    def test_the_overview_leaves_out_checkouts_that_are_gone_or_idle_and_rewrites_nothing_unchanged(self):
+        idle = self.dir / "idle"; idle.mkdir()
+        gone = self.dir / "gone"; gone.mkdir()
+        old = dict(self.env, GIT_AUTHOR_DATE="2020-01-01T00:00:00", GIT_COMMITTER_DATE="2020-01-01T00:00:00")
+        for path in (idle, gone):
+            subprocess.run(["git", "init", "-q", str(path)], env=self.env, check=True)
+            (path / "a.txt").write_text("a\n")
+            subprocess.run(["git", "-C", str(path), "add", "."], env=self.env, check=True)
+            subprocess.run(["git", "-C", str(path), "-c", "user.name=T", "-c", "user.email=t@e.invalid", "commit", "-qm",
+                            "old\n\nClaude-Session: https://claude.ai/code/session_x"], env=old, check=True)
+            self.data("tasks", "--root", path)            # registered, the way any read registers a checkout
+            self.data("task-add", "--root", path, "--text", "something")
+        import shutil; shutil.rmtree(gone)
+        self.data("task-add", "--text", "here")          # this checkout: committed today
+        seen = {t["root"] for t in self.data("overview")["tasks"]}
+        self.assertIn(str(self.repo.resolve()), seen)
+        self.assertNotIn(str(idle.resolve()), seen, "a checkout idle for weeks stays out of the lists")
+        self.assertFalse(any("gone" in root for root in seen), "a checkout no longer on disk stays out")
+        self.assertIn(str(idle.resolve()), {t["root"] for t in self.data("overview", "--root", idle)["tasks"]},
+                      "asked for by name, it counts")
+        # Reading twice writes nothing the second time: the review caches hit and the registry is not rewritten.
+        self.data("overview")
+        files = [p for p in (Path(self.env["XDG_STATE_HOME"]) / "foxml/work/projects").rglob("*") if p.is_file()]
+        before = {p: p.stat().st_mtime_ns for p in files}
+        time.sleep(0.05)
+        self.data("overview")
+        self.assertEqual({p: p.stat().st_mtime_ns for p in files if p.exists()}, before, "a read rewrote a record")
 
 
 if __name__ == "__main__":
