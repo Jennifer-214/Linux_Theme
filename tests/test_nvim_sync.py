@@ -120,4 +120,26 @@ assert(S.buffers[buf].pending~=nil)
 ''')
 
 
+    def test_a_new_file_saves_and_an_untouched_empty_file_is_not_an_outside_edit(self):
+        # An empty buffer read as one newline never matched an empty file (or a missing one), so opening an empty
+        # file warned of outside edits and saving any new file was refused.
+        self.exercise(r'''
+local new = vim.fs.dirname(path) .. '/brand-new.txt'
+vim.cmd.edit(vim.fn.fnameescape(new))
+api.nvim_buf_set_lines(0, 0, -1, false, {'hello'})
+api.nvim_exec_autocmds('CursorHold', {})
+assert(S.status() == '', 'a never-saved file reads as: ' .. S.status())
+local ok, err = pcall(vim.cmd.write)
+assert(ok, 'saving a new file was refused: ' .. tostring(err))
+local empty = vim.fs.dirname(path) .. '/empty.txt'
+local f = assert(io.open(empty, 'wb')); f:close()
+vim.cmd.edit(vim.fn.fnameescape(empty))
+local b = api.nvim_get_current_buf()
+api.nvim_exec_autocmds('CursorHold', {})
+assert(S.buffers[b].pending == nil, 'an untouched empty file reads as outside edits waiting')
+api.nvim_buf_set_lines(b, 0, -1, false, {'typed'})
+ok, err = pcall(vim.cmd.write)
+assert(ok, 'saving an empty file was refused: ' .. tostring(err))
+''')
+
 if __name__ == '__main__': unittest.main()

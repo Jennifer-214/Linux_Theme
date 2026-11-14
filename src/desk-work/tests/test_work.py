@@ -886,6 +886,27 @@ class Work(unittest.TestCase):
         self.data("overview")
         self.assertEqual({p: p.stat().st_mtime_ns for p in files if p.exists()}, before, "a read rewrote a record")
 
+    def test_the_review_backlog_can_be_set_aside_and_brought_back_without_stamping_anything(self):
+        claude = "\n\nClaude-Session: https://claude.ai/code/session_example"
+        for n in (1, 2):
+            self.git("commit", "--allow-empty", "-qm", f"old {n}{claude}")
+        self.assertEqual([i["kind"] for i in self.data("attention")].count("commit"), 2)
+        done = self.data("set-aside")
+        self.assertEqual(done["count"], 2)
+        self.assertNotIn("commit", [i["kind"] for i in self.data("attention")], "set-aside commits leave what needs you")
+        self.assertEqual(self.data("set-aside", "--show", "yes")["count"], 2)
+        self.assertEqual(self.data("notebook")["aside"]["count"], 2)
+        self.assertEqual(len(self.data("reviews", "--all", "yes")), 3 - 1, "the review tree still lists them, unreviewed")
+        self.assertFalse(any(r["reviewed"] for r in self.data("reviews", "--all", "yes")), "nothing was stamped reviewed")
+        later = dict(self.env, GIT_COMMITTER_DATE=str(int(time.time()) + 60) + " +0000")
+        subprocess.run(["git", "-C", str(self.repo), "commit", "--allow-empty", "-qm", f"new{claude}"], env=later, check=True, capture_output=True)
+        self.assertEqual([i["kind"] for i in self.data("attention")].count("commit"), 1, "a commit made after still needs you")
+        self.assertTrue(any("set aside" in e["label"] for e in self.data("timeline")), "the timeline records it")
+        self.data("set-aside", "--undo", "yes")
+        self.assertEqual([i["kind"] for i in self.data("attention")].count("commit"), 3, "bringing them back undoes it")
+        refused = json.loads(self.invoke("set-aside", "--undo", "yes", code=1))
+        self.assertIn("Nothing is set aside here", refused["message"])
+
 
 if __name__ == "__main__":
     unittest.main()

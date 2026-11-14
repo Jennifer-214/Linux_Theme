@@ -1783,12 +1783,29 @@ class BackendTests(unittest.TestCase):
                  dict(id='commit:' + 'a'*40, kind='commit', root=str(project), label='Refactor queue', why='Not reviewed yet')]
         self.state = {'commands': {'desk-work': {'stdout': json.dumps({'jobs': [], 'attention': needs, 'reviews': []})}}}
         rows = self.invoke('view', 'attention')['items']
-        self.assertEqual([row['label'] for row in rows], [n['label'] for n in needs])
+        self.assertEqual([row['label'] for row in rows], ['Failed tests', 'queue.cpp', '1 commit to review', 'Set aside 1 commit to review'])
         reviews = self.invoke('view', 'reviews')['items']
-        self.assertEqual([row['label'] for row in reviews], ['queue.cpp', 'Refactor queue'])
+        self.assertEqual([row['label'] for row in reviews], ['queue.cpp', '1 commit to review'])
         self.assertTrue(self.invoke('run', 'work-attention', rows[1]['argument'])['ok'])
         self.assertTrue(any('attention' in call and 'request:queue.cpp' in call for call in self.calls()))
         self.failed('run', 'work-attention', json.dumps({'root': '/outside', 'id': 'job:one'}))
+
+    def test_commits_fold_per_project_and_the_backlog_can_be_set_aside_and_brought_back(self):
+        project = self.home / 'code' / 'Example'
+        (project / '.git').mkdir(parents=True)
+        config = json.loads(self.config.read_text()); config['project_roots'] = [str(project.parent)]
+        self.config.write_text(json.dumps(config))
+        needs = [dict(id='commit:' + c * 40, kind='commit', root=str(project), label='Step ' + c, why='Not reviewed yet') for c in 'abc']
+        aside = [dict(root=str(project), count=12, before=1, at=1)]
+        self.state = {'commands': {'desk-work': {'stdout': json.dumps({'jobs': [], 'attention': needs, 'reviews': [], 'aside': aside})}}}
+        rows = self.invoke('view', 'attention')['items']
+        self.assertEqual([row['label'] for row in rows], ['3 commits to review', 'Set aside 3 commits to review', 'Bring back 12 set-aside commits'])
+        self.assertTrue(self.invoke('run', 'work-set-aside', '{}')['ok'])
+        self.assertIn(['desk-work', 'set-aside', '--all', 'yes'], self.calls())
+        self.assertTrue(self.invoke('run', 'work-bring-back', rows[2]['argument'])['ok'])
+        self.assertIn(['desk-work', 'set-aside', '--root', str(project), '--undo', 'yes'], self.calls())
+        self.assertTrue(self.invoke('run', 'work-reviews', rows[0]['argument'])['ok'])
+        self.failed('run', 'work-bring-back', json.dumps({'root': '/outside'}))
 
     def test_other_agents_are_visible_with_only_the_capabilities_they_report(self):
         self.state = {'commands': {'desk-work': {'stdout': json.dumps([

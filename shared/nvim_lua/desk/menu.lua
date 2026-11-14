@@ -18,7 +18,10 @@ local function pad(s, w) return s .. string.rep(' ', math.max(0, w - width(s))) 
 
 -- "Name — description" splits into the row's name and the strip's text; an item may also give both.
 local function parts(item)
-  if item.name then return item.name, item.label or item.name end
+  if item.name then
+    local about = item.label or item.name
+    return item.name, about:match('^' .. vim.pesc(item.name) .. '%s+—%s+(.+)$') or about
+  end
   local label = item.label or ''
   local name, rest = label:match('^(.-)%s+—%s+(.*)$')
   return name or label, rest or label
@@ -194,6 +197,15 @@ function M.open(items, opts)
   for _, item in ipairs(items) do
     if item.key and #tostring(item.key) == 1 and not ('jklhq/'):find(tostring(item.key), 1, true) then key(tostring(item.key), function() run(item) end) end
   end
+  api.nvim_create_autocmd('CursorMoved', { buffer = buf, callback = function()
+    if not (win and api.nvim_win_is_valid(win)) then return end
+    local rows, at = row_lines(), api.nvim_win_get_cursor(win)[1]
+    if #rows == 0 then return end
+    local nearest = rows[1]
+    for _, line in ipairs(rows) do if math.abs(line - at) < math.abs(nearest - at) then nearest = line end end
+    if nearest ~= at then api.nvim_win_set_cursor(win, { nearest, 0 }) end
+    strip(nearest)
+  end })
   -- Focus leaving the menu closes it, except while its own filter prompt has the keyboard.
   api.nvim_create_autocmd('WinLeave', { buffer = buf, callback = function()
     vim.schedule(function()

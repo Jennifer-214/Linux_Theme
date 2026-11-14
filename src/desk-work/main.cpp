@@ -132,7 +132,8 @@ const std::vector<RecordSpec>& record_specs() {
     static const std::vector<RecordSpec> specs{
         {"tasks.json", "next steps", "tasks.lock", true}, {"reviewed.json", "finished reviews", "reviews.lock", false},
         {"review-marks.json", "review marks", "reviews.lock", false}, {"review-requests.json", "change requests", "reviews.lock", false},
-        {"commit-plans.json", "commit plans", "reviews.lock", false}, {"snoozed.json", "snoozes", "snoozed.lock", false},
+        {"commit-plans.json", "commit plans", "reviews.lock", false}, {"set-aside.json", "set-aside reviews", "reviews.lock", false},
+        {"snoozed.json", "snoozes", "snoozed.lock", false},
         {"events.json", "project history", "events.lock", false}, {"seen.json", "read positions", "seen.lock", false}};
     return specs;
 }
@@ -1180,7 +1181,9 @@ J attention_items(const std::string& root, const J& work, const J& commits, cons
             add("changed", file, fs::path(file).filename().string(), "Edited since you reviewed it", num(mark, "at"), 30,
                 J{{"kind", "file-diff"}, {"file", file}}, J{{"file", file}});
     }
-    for (const auto& commit : commits) if (!commit.value("reviewed", false)) {
+    const auto aside = json(project_dir(root) / "set-aside.json");
+    const long long aside_before = aside.is_object() ? num(aside, "before") : 0;
+    for (const auto& commit : commits) if (!commit.value("reviewed", false) && num(commit, "at") > aside_before) {
         const auto sha = str(commit, "sha");
         add("commit", sha, str(commit, "subject"), "Not reviewed yet", num(commit, "at"), 40,
             J{{"kind", "reviews"}, {"id", sha}}, J{{"sha", sha}});
@@ -1215,15 +1218,48 @@ bool in_use(const std::string& root, const std::set<std::string>& busy) {
     std::from_chars(head.data(), head.data() + head.size(), at);
     return at >= recent;
 }
+std::set<std::string> roots_in_use(const J& all_runs) {
+    std::set<std::string> busy, used;
+    for (const auto& r : all_runs) if (str(r, "state") == "running") busy.insert(str(r, "root"));
+    for (const auto& a : agents()) busy.insert(str(a, "root"));
+    for (const auto& r : known_roots()) if (in_use(r.get<std::string>(), busy)) used.insert(r.get<std::string>());
+    return used;
+}
+// The review backlog set aside: commits made before this moment leave what needs you, and stay unreviewed in the
+// review tree so they can be caught up later. Nothing is stamped reviewed; undo brings them back.
+J set_aside(const std::string& root, bool undo) {
+    if (!register_root(root)) return unwritable();
+    const auto file = project_dir(root) / "set-aside.json";
+    Lock lock(project_dir(root) / "reviews.lock");
+    if (lock.fd < 0) return unwritable();
+    if (undo) {
+        std::error_code ec;
+        if (!fs::exists(file, ec)) return refuse("Nothing is set aside here");
+        fs::remove(file, ec);
+        if (ec) return refuse("Could not bring the set-aside commits back: " + ec.message());
+        signal_change(root);
+        record_event(root, "review", "aside-undo:" + std::to_string(now()), "set-aside commits brought back", J{{"kind", "reviews"}});
+        return J{{"ok", true}, {"message", "The set-aside commits are back in what needs you"}};
+    }
+    int count = 0;
+    for (const auto& commit : reviews(root, false)) if (!commit.value("reviewed", false)) ++count;
+    if (!atomic(file, J{{"before", now()}, {"at", now()}, {"count", count}}.dump())) return written(false, "set-aside record");
+    record_event(root, "review", "aside:" + std::to_string(now()), std::to_string(count) + " commits set aside to catch up later", J{{"kind", "reviews"}});
+    return J{{"ok", true}, {"count", count}, {"message", std::to_string(count) + (count == 1 ? " commit" : " commits")
+        + " set aside; the review tree still lists them, and bringing them back undoes this"}};
+}
+J aside_record(const std::string& root) {
+    auto record = json(project_dir(root) / "set-aside.json");
+    if (!record.is_object()) return J();
+    record["root"] = root;
+    return record;
+}
 J overview(const A& requested, bool fresh = false, bool include_history = false) {
     auto all = runs(); J todo = J::array(), review = J::array(); int running = 0, finished = 0, failed = 0;
     std::map<std::string, J> snapshots;
     std::set<std::string> roots;
-    std::set<std::string> busy, asked;
-    for (const auto& r : all) if (str(r, "state") == "running") busy.insert(str(r, "root"));
-    for (const auto& a : agents()) busy.insert(str(a, "root"));
-    for (const auto& r : requested) { const auto root = root_of(r); if (!root.empty()) { roots.insert(root); asked.insert(root); } }
-    for (const auto& r : known_roots()) if (in_use(r.get<std::string>(), busy)) roots.insert(r.get<std::string>());
+    for (const auto& r : requested) { const auto root = root_of(r); if (!root.empty()) roots.insert(root); }
+    for (const auto& root : roots_in_use(all)) roots.insert(root);
     const auto day = now() - 24 * 3600;
     // A failure counts until a newer run in the same project gets past it (Settled); runs are newest first.
     Settled settled;
@@ -1241,11 +1277,12 @@ J overview(const A& requested, bool fresh = false, bool include_history = false)
         }
         r.erase("snapshot");
     }
-    J needs = J::array(), history = J::array(), digests = J::array(), held = J::array();
+    J needs = J::array(), history = J::array(), digests = J::array(), held = J::array(), aside = J::array();
     for (const auto& root : roots) {
         for (auto t : tasks(root)) if (!t.value("done", false)) { t["root"] = root; todo.push_back(t); }
         for (auto r : reviews(root)) review.push_back(r);
         for (auto item : attention(root, "", false, true)) (item.contains("snoozed") ? held : needs).push_back(item);
+        if (auto record = aside_record(root); record.is_object()) aside.push_back(record);
         if (include_history) {
             for (auto event : timeline(root, 0, 30)) history.push_back(event);
             auto summary = project_digest(root, "desktop"); summary["root"] = root; digests.push_back(summary);
@@ -1257,7 +1294,7 @@ J overview(const A& requested, bool fresh = false, bool include_history = false)
         return str(a, "root") != str(b, "root") ? str(a, "root") < str(b, "root") : num(a, "seq") > num(b, "seq");
     });
     return J{{"jobs", all}, {"running", running}, {"finished", finished}, {"failed", failed}, {"tasks", todo}, {"reviews", review},
-             {"attention", needs}, {"agents", agents()}, {"timeline", history}, {"digests", digests}, {"snoozed", held}};
+             {"attention", needs}, {"agents", agents()}, {"timeline", history}, {"digests", digests}, {"snoozed", held}, {"aside", aside}};
 }
 J notebook(const std::string& root, const std::string& session, const std::string& loaded = {}, bool health = false) {
     J latest; auto all = runs(root); const auto current = snapshot(root);
@@ -1291,6 +1328,7 @@ J notebook(const std::string& root, const std::string& session, const std::strin
     if (localtime_r(&midnight, &local)) { local.tm_hour = local.tm_min = local.tm_sec = 0; midnight = std::mktime(&local); }
     if (finished.is_object()) for (const auto& [sha, at] : finished.items()) if (at.is_number_integer() && at.get<long long>() >= midnight) today.push_back(sha);
     out["reviewedToday"] = today;
+    out["aside"] = aside_record(root);
     if (health) out["health"] = integration_health();
     return out;
 }
@@ -1416,6 +1454,7 @@ int dispatch(int argc, char** argv) {
                          "desk-work integrations plan|apply|rollback|recover|status|backups [--expected PLAN | --transaction ID]\n"
                          "desk-work integrations cleanup-plan|cleanup [--keep 3 --older-than 30 --expected PLAN]\n"
                          "desk-work records --root DIR | records-repair --root DIR [--expected PLAN]\n"
+                         "desk-work set-aside --root DIR | --all yes [--undo yes] | --show yes\n"
                          "desk-work health | integration-status [--client NAME --loaded BUILD] | workspace --root DIR --client NAME [--input -]\n"
                          "desk-work client-report --client NAME --build BUILD --pid parent [--root DIR --stream connected|retrying --refresh-at SECONDS --error TEXT]\n"
                          "desk-work agents [--root DIR] | agent-update --root DIR --agent NAME --session ID --state working|waiting|needs|error|done --pid PID|parent [--title NAME --pane PANE --file PATH]\n"
@@ -1424,7 +1463,7 @@ int dispatch(int argc, char** argv) {
         const auto cmd = args[0];
         invoked = cmd;
         const auto place = opts.count("--root") ? opts["--root"] : fs::current_path().string();
-        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "review-mark", "review-progress", "review-request", "review-requests", "commit-plan", "review-tree", "push-check", "push-notes", "records", "records-repair", "worktrees", "activity", "plan", "plan-pin", "watch", "signal", "attention", "agent-update", "agents", "revision", "open", "agent-heartbeat", "overlaps", "timeline", "digest", "snooze", "workspace", "suggest-tests", "run-suggested", "resolve"}.count(cmd)
+        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "review-mark", "review-progress", "review-request", "review-requests", "commit-plan", "review-tree", "push-check", "push-notes", "records", "records-repair", "set-aside", "worktrees", "activity", "plan", "plan-pin", "watch", "signal", "attention", "agent-update", "agents", "revision", "open", "agent-heartbeat", "overlaps", "timeline", "digest", "snooze", "workspace", "suggest-tests", "run-suggested", "resolve"}.count(cmd)
             ? root_of(place) : place;
         const auto id = opts["--id"];
         J out;
@@ -1568,6 +1607,20 @@ int dispatch(int argc, char** argv) {
         else if (cmd == "push-check") out = push_check(root);
         else if (cmd == "records") out = records_report(root);
         else if (cmd == "records-repair") out = records_repair(root, opts["--expected"]);
+        else if (cmd == "set-aside") {
+            if (opts["--show"] == "yes") out = aside_record(root);
+            else if (opts["--all"] == "yes") {
+                // Every checkout in use: the drawer's one action for the whole list.
+                int count = 0; bool ok = true;
+                for (const auto& each : roots_in_use(runs())) {
+                    const auto done = set_aside(each, opts["--undo"] == "yes");
+                    if (done.value("ok", false)) count += static_cast<int>(num(done, "count"));
+                    else if (opts["--undo"] != "yes") ok = false;
+                }
+                out = ok ? J{{"ok", true}, {"count", count}, {"message", opts["--undo"] == "yes" ? std::string("The set-aside commits are back")
+                    : std::to_string(count) + " commits set aside across your projects"}} : refuse("Some projects could not be set aside; see work health");
+            } else out = set_aside(root, opts["--undo"] == "yes");
+        }
         else if (cmd == "push-notes") out = push_notes(root);
         else if (cmd == "tests") {
             auto j = id.empty() ? notebook(root, "")["tests"] : load_run(id);
