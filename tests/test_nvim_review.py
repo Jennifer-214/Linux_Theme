@@ -98,6 +98,7 @@ assert(content(r.right_buf):find('value = 2',1,true), 'later work leaked into co
 assert(not vim.bo[r.right_buf].modifiable and vim.bo[r.right_buf].readonly)
 assert(vim.wo[r.left_win].winbar:find(parent:sub(1,8),1,true))
 assert(vim.wo[r.right_win].winbar:find(sha:sub(1,8),1,true))
+assert(vim.wo[r.left_win].cursorline and vim.wo[r.right_win].cursorline,'both files mark the line under the cursor')
 assert(not pcall(api.nvim_buf_set_lines,r.right_buf,0,1,false,{'oops'}))
 local ctx = R.note_context({1,1},r.left_buf)
 assert(ctx.file == root .. '/a.lua' and ctx.first == 1)

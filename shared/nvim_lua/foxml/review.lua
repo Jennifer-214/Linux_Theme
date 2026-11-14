@@ -946,7 +946,8 @@ function M.select(index, refresh)
     api.nvim_win_set_buf(win, buf)
     api.nvim_win_call(win, function() vim.cmd('diffthis'); vim.wo.foldmethod = 'diff'; vim.wo.foldlevel = 0 end)
     vim.wo[win].number, vim.wo[win].relativenumber = true, false
-    vim.wo[win].cursorline, vim.wo[win].wrap = false, false
+    -- The line under the cursor is marked in both files (diff mode keeps the two cursors on the same line).
+    vim.wo[win].cursorline, vim.wo[win].cursorlineopt, vim.wo[win].wrap = true, 'line,number', false
     vim.wo[win].signcolumn, vim.wo[win].foldcolumn = 'no', '1'
     vim.wo[win].winbar = '%#Title# ' .. escaped(label) .. ' · %<%#Normal#' .. escaped(file.rel) .. '%*'
     vim.wo[win].winhighlight = win == r.left_win and 'DiffAdd:FoxReviewRemoved,DiffDelete:FoxReviewFiller' or 'DiffDelete:FoxReviewFiller'
