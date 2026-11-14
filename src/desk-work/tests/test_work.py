@@ -121,10 +121,53 @@ class Work(unittest.TestCase):
     def test_loaded_versions_are_not_inferred_from_installed_files(self):
         directory = Path(self.env['XDG_STATE_HOME'])/'foxml/work/integrations'
         directory.mkdir(parents=True)
-        (directory/'current.json').write_text(json.dumps({'clients': {'notebook': 'new-build'}, 'files': [], 'source': []}))
+        record={'transaction':'100-1','clients': {'notebook': 'new-build'}, 'files': [], 'source': []}
+        (directory/'current.json').write_text(json.dumps(record))
+        (directory/'transactions/100-1').mkdir(parents=True)
+        (directory/'transactions/100-1/manifest.json').write_text(json.dumps(record))
         self.assertEqual(self.data('integration-status', '--client', 'notebook', '--loaded', 'old-build')['status'], 'reload-pending')
         self.assertEqual(self.data('integration-status', '--client', 'notebook', '--loaded', 'new-build')['status'], 'current')
         self.assertEqual(self.data('integration-status', '--client', 'notebook')['status'], 'unverified')
+
+    def test_health_reports_refresh_failure_without_erasing_the_last_success_or_publishing_a_change(self):
+        directory = Path(self.env['XDG_STATE_HOME'])/'foxml/work/integrations'
+        directory.mkdir(parents=True)
+        record={'transaction':'100-1','clients': {'nvim': 'build'}, 'files': [], 'source': []}
+        (directory/'current.json').write_text(json.dumps(record))
+        (directory/'transactions/100-1').mkdir(parents=True)
+        (directory/'transactions/100-1/manifest.json').write_text(json.dumps(record))
+        self.data('signal')
+        revision = self.data('revision')['revision']
+        earlier = int(time.time())-40
+        self.data('client-report','--client','nvim','--build','build','--pid',os.getpid(),'--root',self.repo,
+                  '--stream','connected','--refresh-at',earlier,'--event-at',earlier)
+        self.data('client-report','--client','nvim','--build','build','--pid',os.getpid(),'--root',self.repo,
+                  '--stream','retrying','--retry-at',int(time.time())+10,'--error','Refresh timed out')
+        health=self.data('health'); client=health['clients'][0]
+        self.assertEqual(client['refreshAt'],earlier)
+        self.assertEqual(client['loadedStatus'],'current')
+        self.assertEqual(client['refreshState'],'failed')
+        self.assertEqual(client['root'],str(self.repo))
+        self.assertTrue(any('reconnecting' in line for line in health['alerts']))
+        self.assertEqual(self.data('revision')['revision'],revision,'telemetry must not cause a refresh loop')
+        self.data('client-report','--client','nvim','--build','build','--pid',os.getpid(),'--root',self.repo,
+                  '--stream','connected','--refresh-at',int(time.time()),'--retry-at','0','--error','')
+        self.assertEqual(self.data('health')['alerts'],[])
+
+    def test_health_detects_a_dead_owned_watcher_and_an_interrupted_first_update(self):
+        self.data('client-report','--client','nvim','--build','build','--pid',os.getpid(),'--root',self.repo,'--stream','connected')
+        record=next((Path(self.env['XDG_STATE_HOME'])/'foxml/work/clients').glob('*.json'))
+        value=json.loads(record.read_text()); value.update(watchPid=999999999,watchProcess='dead')
+        record.write_text(json.dumps(value))
+        self.assertEqual(self.data('health')['clients'][0]['stream'],'retrying')
+        folder=Path(self.env['XDG_STATE_HOME'])/'foxml/work/integrations/transactions/100-1'
+        folder.mkdir(parents=True)
+        (folder/'manifest.json').write_text(json.dumps({'phase':'applying','transaction':'100-1','pid':0,'process':'dead','createdAt':100,'files':[]}))
+        health=self.data('health')
+        self.assertEqual(health['status'],'interrupted')
+        self.assertEqual(health['pending'][0]['transaction'],'100-1')
+        self.assertTrue(health['pending'][0]['interrupted'])
+        self.assertIn('Interrupted update',[row['label'] for row in health['checks']])
 
     def test_suggested_rerun_keeps_the_original_working_directory(self):
         folder = self.repo/'subdirectory'; folder.mkdir()

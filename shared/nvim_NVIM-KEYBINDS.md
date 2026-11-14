@@ -560,6 +560,8 @@ first change you make to it says which session to coordinate with. The statuslin
 | `:WorkSnooze` / `:WorkUnsnooze` | Hide or restore shared attention items without settling them |
 | `:WorkSuggestedTests` | Choose a captured test command and confirm a run in its original folder |
 | `:WorkSave` / `:WorkResume` | Save file positions or restore them in new tabs, preserving current buffers and jobs |
+| `:WorkHealth` | Shared refresh/connection/version diagnostics; **r** refreshes, **R** offers guarded update recovery |
+| `:WorkBackups` | Preview update backup usage and cleanup; **D** asks before removing the reviewed selection |
 | `Space Cq` | Close all Claude review tabs and the file list; stop following |
 | `Space Cp` | The plan the sessions in this repo read last (`:Plan`) |
 
@@ -599,14 +601,16 @@ Checking a live file is invalidated when its contents change. Files with missing
 | `R` | Finish after every file is checked and open the next unchecked commit; this clears the finished commit from pending reviews |
 | `Space rw` | Show / hide whitespace differences |
 | `Space rc` | Six context lines / full-file context |
-| `Space e` | Focus the review file list |
+| `Space re`, `:ReviewFiles` | Toggle the review file list, keeping the comparison open; `Space e` keeps its normal Neo-tree binding |
 | `Space Cn` (normal or visual) | Send a note with the real filename, selected side and both versions of the changed block |
 | `s` | Inspect the changed C/C++ file in symdeps (current working copy near the reviewed line) |
 | `gf` | Open the editable working file in a separate tab |
 | `S` | Compare the current struct's layout with the selected commit's parent |
 | `r` | Refresh the comparison |
 | `?` | Review help |
-| `q`, `:q`, `Esc`, `Space Cq` | Close the whole review and return to your editor |
+| `q`, `Esc`, `:q` in the sidebar | Hide the file list; the diff keeps its file, cursor and folds |
+| `Esc` in a diff | Clear search highlighting |
+| `q`, `:q` in a diff, `Space Cq` | Close the whole review and return to your editor |
 
 Checkmarks are saved in Neovim's state directory under `foxml-reviews/`; reopening resumes at the first
 unchecked file. Opening a commit alone never marks it reviewed. Existing quickfix entries, ordinary

@@ -378,13 +378,11 @@ CheckResult check_claude(const Env& env) {
         if (ran.code != 0) problems.push_back("the paper mod does not validate: claude plugin validate " + mod.string());
     }
     if (sh::have("desk-work")) {
-        const auto probe = run_bounded(15, {"desk-work", "integration-status"}, true);
+        const auto probe = run_bounded(15, {"desk-work", "health"}, true);
         const auto versions = nlohmann::json::parse(probe.out, nullptr, false);
         if (probe.code == 0 && versions.is_object()) {
-            const auto status = versions.value("status", "unverified");
-            if (status == "modified" || status == "update-available") problems.push_back(versions.value("message", "Integration files need checking"));
-            for (const auto& session : versions.value("sessions", nlohmann::json::array()))
-                if (session.value("status", "") == "reload-pending") problems.push_back(session.value("client", "Client") + ": update installed; normal reload pending");
+            for (const auto& alert : versions.value("alerts", nlohmann::json::array())) if (alert.is_string()) problems.push_back(alert.get<std::string>());
+            if (!versions.value("alerts", nlohmann::json::array()).empty()) problems.push_back("desk-work health shows last refresh, retry times and recovery details");
         }
     }
     if (problems.empty()) return result("D8", title, Severity::Low, Status::Pass);

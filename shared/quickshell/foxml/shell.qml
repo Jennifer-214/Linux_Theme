@@ -301,6 +301,8 @@ ShellRoot {
         pageLoading = false;
         try {
             var data = JSON.parse(output);
+            if (data.workObserved === true) root.reportWork({"refresh-at": Math.floor(Date.now() / 1000), "error": ""});
+            else if (data.workObserved === false) root.reportWork({"error": "The drawer could not refresh work records"});
             var partial = exitCode !== 0 || Boolean(data.error);
             var recovered = viewFailed && !partial;
             viewFailed = partial;
@@ -393,15 +395,39 @@ ShellRoot {
         Qt.callLater(function() { if (root.searching) searchInput.forceActiveFocus(); else keyboard.forceActiveFocus(); });
     }
 
+    function reportWork(fields) {
+        workReport.pending = Object.assign({}, workReport.pending || {}, fields);
+        workReport.flush();
+    }
+    Process {
+        id: workReport
+        property var pending: null
+        function flush() {
+            if (running || !pending) return;
+            var fields = pending; pending = null;
+            var args = ["desk-work", "client-report", "--client", "desktop", "--build", Build.id, "--pid", "parent"];
+            Object.keys(fields).forEach(function(key) { args.push("--" + key, String(fields[key])); });
+            command = args; running = true;
+        }
+        stdout: StdioCollector {}
+        stderr: StdioCollector {}
+        onExited: Qt.callLater(flush)
+    }
     // One invalidation stream for every work surface; the normal poll also recovers from older backends.
     Process {
         id: workWatch
         command: ["desk-work", "watch", "--all", "yes", "--client", "desktop", "--build", Build.id]
         running: true
-        onExited: workReconnect.restart()
+        onExited: {
+            root.reportWork({stream: "retrying", "retry-at": Math.floor(Date.now() / 1000) + Math.ceil(workReconnect.interval / 1000)});
+            workReconnect.restart();
+        }
         stdout: SplitParser {
             onRead: line => {
-                try { if (JSON.parse(line).version === 1) { workReconnect.interval = 1000; workRefresh.restart(); } } catch (_) {}
+                try { if (JSON.parse(line).version === 1) {
+                    root.reportWork({stream: "connected", "event-at": Math.floor(Date.now() / 1000), "retry-at": 0});
+                    workReconnect.interval = 1000; workRefresh.restart();
+                } } catch (_) {}
             }
         }
     }
@@ -417,7 +443,7 @@ ShellRoot {
             if (desktopBar.item) desktopBar.item.refresh("custom/claude");
             if (!root.opened || root.searching || root.editing || root.pendingConfirm || root.actionBusy || root.pickerActive) return;
             if (!groupProcess.running) groupProcess.running = true;
-            if (["root", "workbench", "attention", "attention-snoozed", "work-history", "work-digest", "reviews", "agents", "jobs", "test-results", "next-steps", "failures", "worktrees"].indexOf(root.page) >= 0 && !viewProcess.running) root.requestView();
+            if (["root", "workbench", "attention", "attention-snoozed", "work-history", "work-digest", "work-health", "backups", "reviews", "agents", "jobs", "test-results", "next-steps", "failures", "worktrees"].indexOf(root.page) >= 0 && !viewProcess.running) root.requestView();
         }
     }
 

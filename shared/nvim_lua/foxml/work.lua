@@ -313,6 +313,8 @@ function M.open_args()
   elseif action == "timeline" then M.history(false)
   elseif action == "digest" then M.history(true)
   elseif action == "snoozed" then M.snooze(true)
+  elseif action == "health" then M.health()
+  elseif action == "backups" then M.backups()
   elseif action == "tests" then M.tests(id, index)
   elseif action == "compare" then M.compare(id)
   elseif action == "reviews" then
@@ -383,6 +385,58 @@ function M.history(digest_only)
   require('foxml.review').show_menu(rows, { title = digest_only and 'Since you last looked' or 'Project timeline', memo = 'foxml-history' })
 end
 
+function M.health(buf)
+  local state = data({ 'health' })
+  if not state then return end
+  local lines = { '# Work health', '' }
+  for _, check in ipairs(state.checks or {}) do
+    lines[#lines + 1] = '## ' .. check.label
+    for line in (check.detail .. '\n'):gmatch('(.-)\n') do lines[#lines + 1] = line end
+    lines[#lines + 1] = ''
+  end
+  lines[#lines + 1] = 'r refresh · R recover an interrupted update · b preview backup cleanup · q close'
+  if not buf or not vim.api.nvim_buf_is_valid(buf) then
+    vim.cmd.tabnew()
+    buf = scratch(table.concat(lines, '\n'), 'Work health', 'markdown')
+  else
+    vim.bo[buf].modifiable = true
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+    vim.bo[buf].modifiable = false
+  end
+  vim.keymap.set('n', 'r', function() M.health(buf) end, { buffer = buf })
+  vim.keymap.set('n', 'R', function()
+    local choices = {}
+    for _, item in ipairs(state.pending or {}) do if not item.active then choices[#choices + 1] = item end end
+    vim.ui.select(choices, { prompt = 'Recover interrupted update', format_item = function(item) return item.transaction .. ' · ' .. item.phase end }, function(item)
+      if not item then return end
+      if vim.fn.confirm('Recover update ' .. item.transaction .. ' by restoring its guarded backup?', '&Recover\n&Cancel', 2) ~= 1 then return end
+      data({ 'integrations', 'recover', '--transaction', item.transaction }); M.health(buf)
+    end)
+  end, { buffer = buf })
+  vim.keymap.set('n', 'b', function() M.backups() end, { buffer = buf })
+  vim.keymap.set('n', 'q', '<cmd>tabclose<CR>', { buffer = buf })
+end
+
+function M.backups()
+  local plan = data({ 'integrations', 'cleanup-plan' })
+  if not plan or not plan.ok then return end
+  local lines = { '# Update backup cleanup preview', '', tostring(math.floor((plan.bytes or 0) / 1024)) .. ' KiB total',
+    tostring(math.floor((plan.reclaimableBytes or 0) / 1024)) .. ' KiB selected for cleanup', '', 'Current rollback chains and unfinished updates are retained.', '' }
+  for _, item in ipairs(plan.transactions or {}) do
+    lines[#lines + 1] = item.transaction .. ' · ' .. item.phase .. ' · ' .. math.floor(item.bytes / 1024) .. ' KiB'
+    lines[#lines + 1] = item.protected and ('  Retain: ' .. item.reason) or '  Selected for cleanup'
+  end
+  lines[#lines + 1] = ''; lines[#lines + 1] = 'D confirm this cleanup preview · q close'
+  vim.cmd.tabnew(); local buf = scratch(table.concat(lines, '\n'), 'Update backups', 'markdown')
+  vim.keymap.set('n', 'D', function()
+    if #(plan.selected or {}) == 0 then vim.notify('No backups are eligible for cleanup.'); return end
+    if vim.fn.confirm('Remove the ' .. #plan.selected .. ' backup transactions selected in this preview?', '&Remove\n&Cancel', 2) ~= 1 then return end
+    local result = data({ 'integrations', 'cleanup', '--expected', plan.plan, '--keep', tostring(plan.keep), '--older-than', tostring(plan.olderDays) })
+    if result and result.ok then vim.notify('Removed ' .. result.removed .. ' backup transactions.'); vim.bo[buf].modifiable = true; vim.api.nvim_buf_set_lines(buf, -1, -1, false, {'Cleanup completed. Preview again before another cleanup.'}); vim.bo[buf].modifiable = false end
+  end, { buffer = buf })
+  vim.keymap.set('n', 'q', '<cmd>tabclose<CR>', { buffer = buf })
+end
+
 function M.snooze(resume)
   local project = root()
   local items = data({ 'attention', '--root', project, '--include-snoozed', 'yes' }) or {}
@@ -442,6 +496,9 @@ function M.setup()
   vim.api.nvim_create_user_command('WorkSnooze', function() M.snooze(false) end, {})
   vim.api.nvim_create_user_command('WorkUnsnooze', function() M.snooze(true) end, {})
   vim.api.nvim_create_user_command('WorkSuggestedTests', function() M.suggested_tests() end, {})
+  vim.api.nvim_create_user_command('WorkHealth', function() M.health() end, {})
+  vim.api.nvim_create_user_command('WorkBackups', function() M.backups() end, {})
+  vim.api.nvim_create_user_command('ReviewFiles', function() require('foxml.review').toggle_panel() end, {})
   vim.keymap.set("n", "<leader>Ce", function() M.tests() end, { desc = "Claude test failures" })
   vim.keymap.set("n", "<leader>Ck", function() M.tasks() end, { desc = "Project next steps" })
 end

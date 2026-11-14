@@ -30,6 +30,16 @@ const EVENTS = [
   { id: '1', seq: 1, kind: 'request', root: '/code/paper', at: NOW / 1000 - 240, label: 'queue.cpp · changes requested', action: { kind: 'file-diff', file: 'src/queue.cpp' } },
 ]
 
+test('preview: work health makes refresh and recovery state visible', async ($, on) => {
+  engine(on, { projectWork: { ...WORK, health: { status: 'current', checks: [
+    { id: 'versions', label: 'Installed integrations match', detail: 'Reported loaded versions are current' },
+    { id: 'nvim', label: 'nvim · paper', detail: 'Stream: connected\nLoaded: current\nLast event: 2026-11-13 09:42:08\nLast refresh: 2026-11-13 09:42:08' },
+    { id: 'backups', label: 'Update backups', detail: '4 transactions · 4820 KiB\nRollback chains are retained' },
+  ] } } })
+  await opened($)
+  expect(await scene($, 'work health', ['page-health'])).toBeDefined()
+})
+
 test('preview: shared history and a quiet project digest', async ($, on) => {
   engine(on, { projectWork: { ...WORK, timeline: EVENTS, digest: { total: 4, files: 1, through: 4, counts: { edit: 1, job: 1, review: 1, request: 1 },
     events: EVENTS, truncated: false, summary: '1 observed file edited · 1 run passed' } } })

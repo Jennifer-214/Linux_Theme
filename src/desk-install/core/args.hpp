@@ -19,6 +19,7 @@ struct Parsed {
     bool wizard_demo  = false;            // --wizard-demo: render the wizard against the live registry + exit
     int input_mode = 0;
     std::string integration_mode, expected, transaction;
+    int backup_keep = 3, backup_days = 30;
     std::string phase;                    // --phase <slug>
 };
 

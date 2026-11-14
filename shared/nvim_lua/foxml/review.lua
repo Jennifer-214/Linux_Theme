@@ -468,6 +468,8 @@ local function describe(r, entry)
 end
 local function panel(r, select_row)
   if not api.nvim_buf_is_valid(r.panel_buf) then return end
+  if not api.nvim_win_is_valid(r.panel_win) then r.panel_dirty = true; return end
+  r.panel_dirty = false
   local w = api.nvim_win_is_valid(r.panel_win) and math.max(24, api.nvim_win_get_width(r.panel_win) - 1) or 40
   local external = r.row.kind == 'external'
   local text, marks_hl, selected_line = {}, {}, nil
@@ -572,7 +574,7 @@ local function panel(r, select_row)
   local bottom = push(' ╰' .. string.rep('─', w - 3) .. '╯')
   for ln = top, bottom do paint(ln, 0, -1, hl('FoxSymdepsDim', 'Comment')) end
   r.strip = { top + 1, top + 2 }
-  local keys = external and ' ⏎ open · a actions · q close' or (w >= 44 and ' ⏎ open · m check · a actions · q close' or ' ⏎ open · m check · a more')
+  local keys = external and ' ⏎ open · a actions · q hide' or (w >= 44 and ' ⏎ open · m check · a actions · q hide' or ' ⏎ open · m check · q hide')
   r.footer_line = push(fit(keys, w)); paint(r.footer_line, 0, -1, hl('FoxSymdepsDim', 'Comment'))
   vim.bo[r.panel_buf].modifiable = true
   api.nvim_buf_set_lines(r.panel_buf, 0, -1, false, text)
@@ -605,7 +607,8 @@ end
 
 local function maps(r, buf, sidebar)
   local function key(lhs, fn, desc) vim.keymap.set('n', lhs, fn, { buffer = buf, desc = desc, silent = true }) end
-  key('q', r.close, 'Close review'); key('<Esc>', r.close, 'Close review')
+  key('q', sidebar and M.hide_panel or r.close, sidebar and 'Hide review file list' or 'Close review')
+  key('<Esc>', sidebar and M.hide_panel or function() vim.cmd.nohlsearch() end, sidebar and 'Hide review file list' or 'Clear search highlight')
   key(']f', function() M.select(r.index % #r.files + 1) end, 'Next review file')
   key('[f', function() M.select((r.index - 2) % #r.files + 1) end, 'Previous review file')
   key('<Tab>', function() M.select(r.index % #r.files + 1) end, 'Next review file')
@@ -622,7 +625,7 @@ local function maps(r, buf, sidebar)
   key('c', function() if not sidebar or M.enter(true) then api.nvim_set_current_win(r.right_win); require('foxml.claude').send() end end, 'Request changes from a Claude session')
   if not sidebar then key('<leader>rn', M.toggle_since, 'New since review / the whole change') end
   key('?', M.actions, 'Review actions')
-  key('<leader>e', function() api.nvim_set_current_win(r.panel_win) end, 'Review file list')
+  key('<leader>re', M.toggle_panel, 'Toggle review file list')
   key('s', function() M.symdeps(false) end, 'Inspect changed C++ symbol in working copy')
   key('S', function() M.symdeps(true) end, 'Compare struct layout with review base')
   key('gf', function() M.open_source() end, 'Open the working file for this change')
@@ -667,6 +670,110 @@ local function maps(r, buf, sidebar)
   end
 end
 
+local function entry_key(r, entry)
+  if not entry then return nil end
+  local row = entry.set and entry.set.row or r.row
+  local key = (row.kind or '') .. ':' .. (row.sha or row.sid or '')
+  if entry.file then
+    local file = (entry.set and entry.set.files or r.files)[entry.file]
+    key = key .. ':' .. (file and file.rel or '')
+  end
+  if entry.symbol then key = key .. ':' .. entry.symbol.name .. ':' .. entry.symbol.side end
+  return key
+end
+local function remember_panel(r)
+  if not api.nvim_win_is_valid(r.panel_win) or not api.nvim_buf_is_valid(r.panel_buf) or api.nvim_win_get_buf(r.panel_win) ~= r.panel_buf then return end
+  r.panel_view = api.nvim_win_call(r.panel_win, vim.fn.winsaveview)
+  r.panel_width = api.nvim_win_get_width(r.panel_win)
+  r.panel_selection = entry_key(r, r.entries and r.entries[r.panel_view.lnum])
+  r.panel_active_file = r.files[r.index]
+end
+local function diff_views(r)
+  local saved = {}
+  for _, win in ipairs({ r.left_win, r.right_win }) do
+    if api.nvim_win_is_valid(win) then saved[win] = api.nvim_win_call(win, vim.fn.winsaveview) end
+  end
+  return saved
+end
+local function restore_views(saved)
+  for win, view in pairs(saved) do if api.nvim_win_is_valid(win) then api.nvim_win_call(win, function() vim.fn.winrestview(view) end) end end
+end
+local function panel_buffer(r)
+  if api.nvim_buf_is_valid(r.panel_buf or -1) and api.nvim_buf_is_loaded(r.panel_buf) then return end
+  r.panel_buf = api.nvim_create_buf(false, true); r.buffers[#r.buffers + 1] = r.panel_buf
+  vim.b[r.panel_buf].foxml_review_panel = true
+  vim.bo[r.panel_buf].filetype, vim.bo[r.panel_buf].bufhidden = 'foxml-review', 'hide'
+  api.nvim_create_autocmd('CursorMoved', { buffer = r.panel_buf, callback = function()
+    if M.current ~= r or not api.nvim_win_is_valid(r.panel_win) then return end
+    local line = api.nvim_win_get_cursor(r.panel_win)[1]
+    if line ~= r.strip_for then r.strip_for = line; panel(r) end
+    remember_panel(r)
+  end })
+  maps(r, r.panel_buf, true)
+end
+local function configure_panel(r)
+  api.nvim_win_set_buf(r.panel_win, r.panel_buf)
+  api.nvim_win_call(r.panel_win, function() vim.cmd.diffoff() end)
+  local options = { number = false, relativenumber = false, signcolumn = 'no', wrap = false, winfixwidth = true,
+    winbar = '', statusline = ' ', cursorline = false, list = false, foldcolumn = '0', scrollbind = false, cursorbind = false }
+  for key, value in pairs(options) do vim.wo[r.panel_win][key] = value end
+end
+
+function M.hide_panel()
+  local r = M.current
+  if not r or not api.nvim_win_is_valid(r.panel_win) then return false end
+  remember_panel(r)
+  local saved, win, previous_diff = diff_views(r), r.panel_win, r.last_diff_win
+  local focused = api.nvim_get_current_win() == win
+  r.owned[win] = nil; r.panel_hidden = true
+  local ok, error = pcall(api.nvim_win_close, win, false)
+  if not ok then r.owned[win] = true; r.panel_hidden = false; tell(tostring(error)); return false end
+  M.layout(); restore_views(saved)
+  if focused then
+    local target = previous_diff
+    if target ~= r.left_win and target ~= r.right_win or not api.nvim_win_is_valid(target or -1) then target = r.right_win end
+    if api.nvim_win_is_valid(target) then api.nvim_set_current_win(target) end
+  end
+  return true
+end
+
+function M.show_panel(focus)
+  local r = M.current
+  if not r or not api.nvim_tabpage_is_valid(r.tab) then return false end
+  if focus then api.nvim_set_current_tabpage(r.tab) end
+  if api.nvim_get_current_tabpage() ~= r.tab then return false end
+  if api.nvim_win_is_valid(r.panel_win) then if focus then api.nvim_set_current_win(r.panel_win) end; return true end
+  if not api.nvim_win_is_valid(r.left_win) or not api.nvim_win_is_valid(r.right_win) then return false end
+  local saved, current, previous_diff = diff_views(r), api.nvim_get_current_win(), r.last_diff_win
+  api.nvim_set_current_win(r.left_win)
+  if not pcall(vim.cmd, 'leftabove vsplit') then
+    if api.nvim_win_is_valid(current) then api.nvim_set_current_win(current) end
+    tell('There is not enough room for the file list at this width.'); return false
+  end
+  r.panel_win = api.nvim_get_current_win()
+  panel_buffer(r); configure_panel(r); r.owned[r.panel_win] = true; r.panel_hidden = false
+  M.layout()
+  if r.panel_active_file and r.panel_active_file ~= r.files[r.index] then panel(r, true)
+  elseif r.panel_view then
+    local view = vim.deepcopy(r.panel_view)
+    for line, entry in pairs(r.entries or {}) do if entry_key(r, entry) == r.panel_selection then view.lnum = line; break end end
+    api.nvim_win_call(r.panel_win, function() vim.fn.winrestview(view) end)
+  end
+  restore_views(saved)
+  r.last_diff_win = previous_diff
+  if focus then api.nvim_set_current_win(r.panel_win)
+  elseif api.nvim_win_is_valid(current) then api.nvim_set_current_win(current) end
+  return true
+end
+
+function M.toggle_panel()
+  local r = M.current
+  if not r then tell('Open a review first.'); return false end
+  if api.nvim_get_current_tabpage() ~= r.tab then return M.show_panel(true) end
+  if api.nvim_win_is_valid(r.panel_win) then return M.hide_panel() end
+  return M.show_panel(true)
+end
+
 function M.refresh_requests(wait)
   local r = M.current
   local backend = M.work_tool()
@@ -707,7 +814,8 @@ function M.select(index, refresh)
     tell('The comparison was closed; reopen What changed.'); return
   end
   api.nvim_set_current_tabpage(r.tab)
-  r.generation = (r.generation or 0) + 1
+  local old_file = r.displayed_file
+  if old_file then old_file.views = diff_views(r) end
   r.index = index
   M.refresh_requests(refresh)
   r.symbol = nil
@@ -722,6 +830,16 @@ function M.select(index, refresh)
   end
   if file.error then left, right = 'Snapshot unavailable. Refresh to retry.', 'Snapshot unavailable. This file cannot be marked reviewed.'
   elseif file.binary then left, right = 'Binary file — text comparison unavailable.', 'Binary file — inspect externally before marking reviewed.' end
+  if r.displayed_file == file and r.displayed_row == r.row and r.displayed_left == left and r.displayed_right == right
+      and r.displayed_since == file.since and api.nvim_buf_is_valid(r.left_buf or -1) and api.nvim_buf_is_valid(r.right_buf or -1) then
+    r.notes = M.notes(r.root)
+    options(r); panel(r, true); draw_notes(r)
+    local target = r.last_diff_win
+    if target ~= r.left_win and target ~= r.right_win or not api.nvim_win_is_valid(target or -1) then target = r.left_win end
+    api.nvim_set_current_win(target)
+    return
+  end
+  r.generation = (r.generation or 0) + 1
   r.left_buf, r.right_buf = scratch(r, file, 'before', left), scratch(r, file, 'after', right)
   local before = file.since and 'What you reviewed' or r.row.before_label or (r.row.kind == 'commit' and ('Before · ' .. r.row.parent:sub(1, 8))
     or r.row.kind == 'working' and 'HEAD · last commit' or 'Before session · captured baseline')
@@ -740,13 +858,17 @@ function M.select(index, refresh)
   for _, buf in ipairs(old) do if api.nvim_buf_is_valid(buf) then pcall(api.nvim_buf_delete, buf, { force = true }) end end
   r.notes = M.notes(r.root)
   options(r); panel(r, true)
-  api.nvim_set_current_win(r.left_win)
+  local target = r.last_diff_win
+  if target ~= r.left_win and target ~= r.right_win or not api.nvim_win_is_valid(target or -1) then target = r.left_win end
+  api.nvim_set_current_win(target)
   local h = file.hunks[1]
   if h then
     api.nvim_win_set_cursor(r.left_win, { math.max(1, math.min(h[1], api.nvim_buf_line_count(r.left_buf))), 0 })
     api.nvim_win_set_cursor(r.right_win, { math.max(1, math.min(h[3], api.nvim_buf_line_count(r.right_buf))), 0 })
   end
   vim.cmd('diffupdate')
+  if file.views then restore_views(file.views) end
+  r.displayed_file, r.displayed_row, r.displayed_left, r.displayed_right, r.displayed_since = file, r.row, left, right, file.since
   draw_notes(r)
 end
 
@@ -873,6 +995,7 @@ end
 function M.switch(set, index)
   local r = M.current
   if not r then return end
+  if set == r.active_set then M.select(index or r.index); return end
   if r.active_set then r.active_set.marks = r.marks end
   if not set.files then set.files = M.files(set.row, r.root) end
   if not set.files or #set.files == 0 then tell('This commit has no changed files.'); return end
@@ -887,7 +1010,7 @@ end
 
 function M.enter(marking)
   local r = M.current
-  if not r then return false end
+  if not r or not api.nvim_win_is_valid(r.panel_win) then return false end
   local line = api.nvim_win_get_cursor(r.panel_win)[1]
   if line == 3 then if not marking then M.actions() end; return false end
   local entry = r.entries[line]
@@ -1062,23 +1185,28 @@ function M.actions()
   add('Refresh comparison', 'Read the snapshots again; live reviews capture the current working copy.',
     function() M.select(r.index, true) end, { group = 'comparison', bind = 'r' })
   add('Return to editor', 'Close Changes and return to your original editor and unsaved work.', r.close, { group = 'comparison', bind = 'q' })
-  M.show_menu(actions, { title = 'Changes', anchor_win = r.panel_win, memo = 'foxml-review-actions' })
+  add('File list', 'Show or hide the sidebar while keeping the comparison open.', M.toggle_panel, { group = 'comparison', bind = '<leader>re' })
+  M.show_menu(actions, { title = 'Changes', anchor_win = api.nvim_win_is_valid(r.panel_win) and r.panel_win or r.right_win, memo = 'foxml-review-actions' })
 end
 
 function M.layout()
   local r = M.current
   if not r or not api.nvim_tabpage_is_valid(r.tab) or api.nvim_get_current_tabpage() ~= r.tab then return end
-  for _, win in ipairs({r.panel_win, r.left_win, r.right_win}) do if not api.nvim_win_is_valid(win) then return end end
-  local width = math.min(52, math.max(30, math.floor(vim.o.columns * .30)))
-  api.nvim_win_set_width(r.panel_win, width)
-  panel(r)
-  local available = vim.o.columns - width - 2
-  api.nvim_win_set_width(r.left_win, math.max(1, math.floor(available / 2)))
+  for _, win in ipairs({r.left_win, r.right_win}) do if not api.nvim_win_is_valid(win) then return end end
+  local shown = api.nvim_win_is_valid(r.panel_win)
+  local room = api.nvim_win_get_width(r.left_win) + api.nvim_win_get_width(r.right_win) + (shown and api.nvim_win_get_width(r.panel_win) or 0)
+  local width = shown and math.min(math.max(16, room - 36), r.panel_width or math.min(52, math.max(30, math.floor(room * .30)))) or 0
+  if shown then api.nvim_win_set_width(r.panel_win, width); panel(r) end
+  local left, right = api.nvim_win_get_position(r.left_win), api.nvim_win_get_position(r.right_win)
+  if left[1] == right[1] and right[2] == left[2] + api.nvim_win_get_width(r.left_win) + 1 then
+    local available = api.nvim_win_get_width(r.left_win) + api.nvim_win_get_width(r.right_win)
+    api.nvim_win_set_width(r.left_win, math.max(1, math.floor(available / 2)))
+  end
 end
 
 function M.fold()
   local r = M.current
-  if not r then return end
+  if not r or not api.nvim_win_is_valid(r.panel_win) then return end
   local entry = r.entries[api.nvim_win_get_cursor(r.panel_win)[1]]
   if not entry then return end
   if entry.file then
@@ -1139,8 +1267,7 @@ function M.tree(rows)
     end
     r.sets[#r.sets + 1] = set
   end
-  panel(r, true)
-  api.nvim_set_current_win(r.panel_win)
+  M.show_panel(true); panel(r, true)
 end
 
 function M.open_source()
@@ -1648,40 +1775,32 @@ function M.open(row, root, callbacks)
   vim.bo[empty].buflisted, vim.bo[empty].bufhidden = false, 'wipe'
   vim.cmd('leftabove vsplit'); r.left_win = api.nvim_get_current_win()
   vim.cmd('topleft vsplit'); r.panel_win = api.nvim_get_current_win()
-  r.panel_buf = api.nvim_create_buf(false, true); r.buffers[#r.buffers + 1] = r.panel_buf
-  vim.b[r.panel_buf].foxml_review_panel = true
-  api.nvim_win_set_buf(r.panel_win, r.panel_buf)
-  vim.bo[r.panel_buf].filetype, vim.bo[r.panel_buf].bufhidden = 'foxml-review', 'hide'
-  vim.wo[r.panel_win].number, vim.wo[r.panel_win].relativenumber = false, false
-  vim.wo[r.panel_win].signcolumn, vim.wo[r.panel_win].wrap = 'no', false
-  vim.wo[r.panel_win].winfixwidth = true
-  api.nvim_win_set_width(r.panel_win, math.min(52, math.max(30, math.floor(vim.o.columns * .30))))
-  -- The panel carries its own title line, strip and footer; no winbar, a quiet statusline, no cursor column noise.
-  vim.wo[r.panel_win].winbar = ''
-  vim.wo[r.panel_win].statusline = ' '
-  vim.wo[r.panel_win].cursorline, vim.wo[r.panel_win].list, vim.wo[r.panel_win].foldcolumn = false, false, '0'
-  -- The strip follows the cursor: redraw only when the row under it changes.
-  api.nvim_create_autocmd('CursorMoved', { buffer = r.panel_buf, callback = function()
-    if M.current ~= r or not api.nvim_win_is_valid(r.panel_win) then return end
-    local line = api.nvim_win_get_cursor(r.panel_win)[1]
-    if line ~= r.strip_for then r.strip_for = line; panel(r) end
-  end })
-  maps(r, r.panel_buf, true)
+  panel_buffer(r); configure_panel(r)
   r.group = api.nvim_create_augroup('foxml_review_view', { clear = true })
   r.owned = { [r.left_win] = true, [r.right_win] = true, [r.panel_win] = true }
-  api.nvim_create_autocmd({ 'WinEnter', 'BufWinEnter' }, { group = r.group, callback = function()
+  api.nvim_create_autocmd({ 'WinEnter', 'BufWinEnter' }, { group = r.group, callback = function(event)
     if M.current ~= r or r.closing or api.nvim_get_current_tabpage() ~= r.tab then return end
-    local win, buf = api.nvim_get_current_win(), api.nvim_get_current_buf()
-    if api.nvim_win_get_config(win).relative == '' and (vim.b[buf].foxml_review or vim.b[buf].foxml_review_panel) then r.owned[win] = true end
+    local win = api.nvim_get_current_win()
+    if event.event == 'WinEnter' and (win == r.left_win or win == r.right_win) then r.last_diff_win = win end
+  end })
+  api.nvim_create_autocmd('WinLeave', { group = r.group, callback = function()
+    if M.current == r and not r.closing and api.nvim_get_current_win() == r.panel_win then remember_panel(r) end
   end })
   api.nvim_create_autocmd('WinClosed', { group = r.group, callback = function(a)
+    if not r.closing and tonumber(a.match) == r.panel_win then
+      r.owned[r.panel_win] = nil; r.panel_hidden = true
+      vim.schedule(function() if M.current == r and not r.closing then M.layout() end end)
+      return
+    end
     if not r.closing and r.owned[tonumber(a.match)] then
       -- Let :q finish on its original window before closing the remaining review panes.
       vim.schedule(function() if M.current == r and not r.closing then r.close() end end)
     end
   end })
   api.nvim_create_autocmd({ 'BufDelete', 'BufWipeout' }, { group = r.group, callback = function(a)
-    if not r.closing and (a.buf == r.panel_buf or a.buf == r.left_buf or a.buf == r.right_buf) then
+    if not r.closing and a.buf == r.panel_buf then
+      vim.schedule(function() if M.current == r and not r.closing then M.hide_panel() end end)
+    elseif not r.closing and (a.buf == r.left_buf or a.buf == r.right_buf) then
       vim.schedule(function() if M.current == r and not r.closing then r.close() end end)
     end
   end })

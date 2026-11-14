@@ -266,7 +266,7 @@ var paperPresets = {
     comfort:["comfort","☾"], system:["system","⚙"], apps:["apps","⌘"],
     projects:["notebook","▤"], bookmarks:["bookmark","◇"], library:["library","▥","▤"],
     worktrees:["notebook","▥"], jobs:["clock","◷"], "test-results":["notebook","✓"],
-    reviews:["note","✿"], attention:["note","!"], "work-history":["note","note"], "work-digest":["note","note"], "next-steps":["next","◇"], failures:["note","!"],
+    reviews:["note","✿"], attention:["note","!"], "work-history":["note","note"], "work-digest":["note","note"], "work-health":["system","⚙"], "work-health-controls":["system","system"], "work-backups":["refresh","folder"], "next-steps":["next","◇"], failures:["note","!"],
     models:["package","◈"], "api-credits":["notebook","◇"], "api-tasks":["mail","✎"], displays:["window","▭"], storage:["library","▦"], backups:["refresh","↺"], startup:["play","⏵"], programs:["cpu","⊞"], terminals:["terminal","⧈"],
     downloads:["tray","↧","✉"], screenshots:["picture","▧"], windows:["window","▣"], garden:["garden","❦"],
     "clipboard-text":["clipboard","⌇"], "clipboard-images":["clipboard","▧"],

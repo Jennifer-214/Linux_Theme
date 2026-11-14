@@ -545,7 +545,7 @@ async function startWorkWatch($: EngineInterface, root: string) {
   void (async () => {
     let pending = ''
     try {
-      for await (const chunk of $.process.spawn({ argv: ['desk-work', 'watch', '--root', root] })) {
+      for await (const chunk of $.process.spawn({ argv: ['desk-work', 'watch', '--root', root, '--client', 'notebook', '--build', BUILD_ID] })) {
         if (chunk.stream !== 'stdout') continue
         pending += chunk.text
         if (pending.length > 65536) { pending = ''; continue }
@@ -559,9 +559,14 @@ async function startWorkWatch($: EngineInterface, root: string) {
     finally {
       memory.watchStarted = false; memory.watchFailed = true
       memory.watchRetryAt = await $.clock.now() + memory.watchDelay
+      await reportWork($, root, ['--stream', 'retrying', '--retry-at', String(Math.floor(memory.watchRetryAt / 1000))])
       memory.watchDelay = Math.min(30000, memory.watchDelay * 2)
     }
   })()
+}
+
+async function reportWork($: EngineInterface, root: string, fields: string[]) {
+  await work($, ['client-report', '--client', 'notebook', '--build', BUILD_ID, '--pid', 'parent', '--root', root, ...fields])
 }
 
 async function publishAgent($: EngineInterface, state: string, file?: string) {
@@ -642,7 +647,7 @@ async function refreshNow($: EngineInterface) {
     const context = (await $.session.usage()).context.percent ?? null
     const near = neighbours(root, await $.clock.now(), session, otherLedgers)
     const card = await readCard($, dir)
-    const projectWork = await workLook($, root, await $.session.id())
+    const projectWork = await workLook($, root, await $.session.id(), (await read($, notebookView)).page === 'health')
     for (const agent of projectWork?.agents ?? []) {
       if (agent.agent === 'claude' && agent.id === session) continue
       for (const file of files) if (agent.files.includes(file.path) && !file.owners?.some(owner => owner.sid === agent.key || agent.agent === 'claude' && owner.sid === agent.id)) {
@@ -668,6 +673,7 @@ async function refreshNow($: EngineInterface) {
     const note = await lastNight($, root)
     await update($, look, () => ({ root, session, branch, files, gate, plan, context, neighbours: near, card, work: projectWork, project, credits, lastNight: note, git, ci }))
     memory.lookAt = await $.clock.now(); memory.lookFailed = false
+    await reportWork($, root, projectWork ? ['--refresh-at', String(Math.floor(memory.lookAt / 1000)), '--error', ''] : ['--error', 'Work records could not be refreshed'])
     const found = await readPeers($)
     await update($, peers, () => found ?? near.map(n => ({ id: n.sid, name: n.title, project: root.split('/').pop() ?? root,
       state: `edited ${n.files} ${n.files === 1 ? 'file' : 'files'} here`, busy: false,
@@ -681,6 +687,7 @@ async function refreshNow($: EngineInterface) {
   } catch {
     // A missed refresh only leaves the notebook a little behind; the next one catches up. The page says so meanwhile.
     memory.lookFailed = true
+    try { await reportWork($, await repoRoot($), ['--error', 'The notebook could not refresh its project view']) } catch { /* teardown has no live engine to report through */ }
   }
 }
 
@@ -711,7 +718,7 @@ export const register: Register = on => {
     }))
     try {
       const saved = JSON.parse(await work($, ['workspace', '--root', await repoRoot($), '--client', 'notebook:' + await $.session.id()]) ?? 'null')
-      if (saved?.version === 1 && ['overview', 'files', 'project', 'sessions', 'timeline', 'digest'].includes(saved.page))
+      if (saved?.version === 1 && ['overview', 'files', 'project', 'sessions', 'timeline', 'digest', 'health'].includes(saved.page))
         await update($, notebookView, current => ({ ...current, ...saved, form: 'none', focused: '' }))
     } catch { /* a first visit starts at the overview */ }
     // Only where someone is looking: a headless run (claude -p) has nowhere to put a pane.
@@ -741,12 +748,22 @@ export const register: Register = on => {
       await update($, notebookView, current => ({ ...current, compact }))
       await $.ui.open({ id: PANE, title: 'notebook', ...paneSize({ ...view, compact }) })
     })
-    await $.command.register({ name: 'notebook', description: 'Open the paper notebook', argumentHint: '[auto|compact|expand|files|all|project|sessions|timeline|digest]', immediate: true })
+    await $.command.register({ name: 'notebook', description: 'Open the paper notebook', argumentHint: '[toggle|close|auto|compact|expand|files|all|project|sessions|timeline|digest|health]', immediate: true })
     return started
   })
 
   on('command.run', { command: 'notebook' }, async ($, e) => {
-    const page = e.args.trim()
+    let page = e.args.trim()
+    if (page === 'close' || page === 'toggle') {
+      let open = memory.notebookOpen
+      try { open = (await $.ui.panes()).some(pane => pane.id === PANE) } catch { /* older engines can use the in-session state */ }
+      if (page === 'close' || open) {
+        await $.ui.close({ id: PANE })
+        memory.notebookOpen = false
+        return { text: 'The notebook is hidden. /notebook toggle brings it back.' }
+      }
+      page = ''
+    }
     memory.notebookOpen = true
     memory.resizePending = true
     if (page === 'compact' || page === 'expand' || page === 'auto') {
@@ -757,7 +774,7 @@ export const register: Register = on => {
     await update($, notebookView, view => ({ ...view, form: 'none' as const,
       ...(view.form !== 'none' ? { selected: '', focused: '' } : {}) }))
     await update($, writingTo, () => null)
-    if (['files', 'project', 'sessions', 'overview', 'all', 'timeline', 'digest'].includes(page))
+    if (['files', 'project', 'sessions', 'overview', 'all', 'timeline', 'digest', 'health'].includes(page))
       await update($, notebookView, v => ({ ...v, page: page === 'all' ? 'files' : page as NotebookView['page'],
         scope: page === 'all' ? 'all' as const : v.scope, offset: 0, selected: '', form: 'none' as const }))
     const view = await read($, notebookView)
@@ -778,10 +795,20 @@ export const register: Register = on => {
   // Escape closes an active editor. Reopening the notebook must never restore
   // an abandoned form or put the keyboard straight back into its input.
   on('ui.close', { id: PANE }, async ($, e, next) => {
-    await update($, notebookView, view => ({ ...view, form: 'none' as const, selected: '', focused: '' }))
+    const view = await read($, notebookView)
+    const editing = view.form !== 'none' || await read($, writingTo) !== null
+    await update($, notebookView, current => ({ ...current, form: 'none' as const, ...(editing ? { selected: '' } : {}), focused: '' }))
     await update($, writingTo, () => null)
+    if (e.origin.kind === 'person' && editing) {
+      memory.notebookOpen = true
+      await $.ui.open({ id: PANE, title: 'notebook', ...paneSize({ ...view, form: 'none' }), focus: true })
+      await $.ui.focus({ requestId: PANE, key: 'nav-back' }).catch(() => undefined)
+      await saveNotebookView($)
+      return { value: undefined }
+    }
     const closed = await next(e)
     memory.notebookOpen = false
+    await saveNotebookView($)
     return closed
   })
 
@@ -1095,7 +1122,8 @@ export const register: Register = on => {
         <Button key="compact-attention" label={stale ? 'status needs a refresh' : now?.work ? count === 0 ? 'all quiet' : `${count} ${count === 1 ? 'needs' : 'need'} you` : 'work status unavailable'} plain
           onPress={() => setView({ compact: false, page: 'overview', selected: '' })} />
         {now?.work?.tests && text(testLabel(now.work.tests), testColour(now.work.tests))}
-        <Button key="compact-expand" label={memory.watchFailed && now?.work ? 'expand · live updates delayed' : 'expand notebook'} hotkey="z" plain onPress={() => setView({ compact: false, page: 'overview', selected: '' })} />
+        <Box><Button key="compact-expand" label={memory.watchFailed && now?.work ? 'expand · delayed' : 'expand notebook'} hotkey="z" plain onPress={() => setView({ compact: false, page: 'overview', selected: '' })} />
+          <Text> </Text><Button key="compact-hide" label="hide" hotkey="q" plain onPress={() => $.ui.close({ id: PANE })} /></Box>
       </Box>
     }
     // A ruler under its row, indented to the row's text, with words after it.
@@ -1279,6 +1307,7 @@ export const register: Register = on => {
       }
       pair('page-help', '? marks and keys', '', () => page('help'), 'What each mark means and which keys work here.', paper.dim)
       pair('page-timeline', 'project timeline', '', () => page('timeline'), 'The shared history of requests, edits, tests and reviews.')
+      pair('page-health', 'work health', '', () => page('health'), 'Loaded versions, refresh times, connection recovery and update backups.', paper.dim)
       // What the selected row is, the way a menu's description strip says it.
       const says = about[view.selected]
       if (says) { content.push(text('')); for (const line of wrapWords(says, width)) content.push(text(line)) }
@@ -1489,6 +1518,17 @@ export const register: Register = on => {
       if (events.length > 20) content.push(row('events-next', view.offset + 20 < events.length ? 'older events' : 'newest events',
         () => setView({ offset: view.offset + 20 < events.length ? view.offset + 20 : 0 })))
     }
+    if (view.form === 'none' && view.page === 'health') {
+      const checks = now?.work?.health?.checks ?? []
+      if (!checks.length) content.push(text('Health details are unavailable; refresh to try again.'))
+      for (const check of checks) {
+        content.push(text(check.label, paper.ink))
+        for (const line of check.detail.split('\n')) for (const part of wrapWords(line, width)) content.push(text(part))
+        content.push(text(''))
+      }
+      content.push(row('health-controls', 'open recovery and backup controls', () => checkedWork(['open', '--root', root, '--action', 'health'])))
+      content.push(row('health-refresh', 'refresh health', () => refresh($)))
+    }
     if (view.form === 'snooze') {
       const selected = now?.work?.attention?.find(item => 'attention-' + item.id === view.selected)
       if (selected) {
@@ -1538,16 +1578,18 @@ export const register: Register = on => {
         <Text color={paper.ink}>{name ? ' · ' + fit(name, Math.max(4, width - 14)) : ''}</Text>
       </Text>
       {/* The keys only matter while the notebook holds the keyboard; at rest the row is noise. */}
-      {(e.props.isFocused || view.page !== 'overview') && <Box>
+      {(e.props.isFocused || view.page !== 'overview' || view.form !== 'none' || writingId !== null) && <Box flexDirection="column"><Box>
         <Button key="nav-back" label="back" hotkey="h" plain onPress={back} /><Text> </Text>
         <Button key="nav-up" label="↑" hotkey="k" plain onPress={() => move(-1)} /><Text> </Text>
         <Button key="nav-down" label="↓" hotkey="j" plain onPress={() => move(1)} /><Text> </Text>
         <Button key="nav-open" label="open" hotkey="l" plain onPress={activate} /><Text> </Text>
         {nextNeed !== null && <Button key="nav-next" label="next" hotkey="n" plain onPress={() => nextNeed()} />}{nextNeed !== null && <Text> </Text>}
+        <Button key="nav-hide" label="hide" {...(view.form === 'none' && writingId === null ? { hotkey: 'q' } : {})} plain onPress={() => $.ui.close({ id: PANE })} />
+      </Box><Box>
         <Button key="nav-drawer" label="drawer" hotkey="d" plain onPress={() => run($, ['desktop-menu', '--open', drawerPage(view.page)])} />
         {now?.work?.attention?.some(item => 'attention-' + item.id === view.selected) && <Button key="nav-snooze" label="later" hotkey="s" plain onPress={() => setView({ form: 'snooze' })} />}
         <Text> </Text><Button key="nav-compact" label="compact" hotkey="z" plain onPress={() => setView({ compact: true, page: 'overview', form: 'none', selected: '' })} />
-      </Box>}
+      </Box></Box>}
       {now?.credits && (now.credits.status === 'error' || (now.credits.remaining_percent != null && now.credits.remaining_percent <= 20)) && <Button key="api-credit-meter" label="monthly API credit details" plain
         onPress={() => run($, ['desktop-menu', '--open', 'api-credits'])}>
         <Text color={now.credits.status === 'error' || (now.credits.remaining_percent !== null && now.credits.remaining_percent <= 20) ? paper.berry : paper.added}>

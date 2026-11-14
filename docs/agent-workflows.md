@@ -27,10 +27,28 @@ directory watchers, which catch atomic saves from any editor or agent without wa
 buffers reload; unsaved buffers retain your work and offer comparison or an explicit three-way merge. `:AgentChanges`
 opens that comparison. File watching does not depend on the welcome screen setting.
 
+The review file list toggles with **Space re** or `:ReviewFiles`. Its **q**, **Esc** and native `:q` hide only
+the list. The two comparison panes retain their buffers, cursor, folds and reading positions. Reopening restores
+the tree's selection; returning to a previously visited file restores its place. **Space e** keeps its ordinary
+Neo-tree binding, and independently opened windows are not owned by the review. **q** in a diff still closes
+the whole review; **Esc** clears search highlighting.
+
 Polling remains a recovery path for older integrations and abrupt process exits. Cache reads do not publish
 changes, so subscribing cannot create a refresh loop. Closing a view stops only the watcher it owns.
 Watchers reconnect with bounded backoff. A delayed stream is identified separately from a failed data refresh;
 polling can still provide current results. A wall-clock jump after suspend prompts a fresh projection.
+
+`/notebook health`, `:WorkHealth` and the drawer's **System → Work health** read the backend's shared health
+projection. It shows each reporting client's connection, last event, last successful refresh, next retry and
+loaded version. A failed refresh keeps its previous successful timestamp. A stopped watcher is distinguished
+from a client whose process is still alive; unknown versions and timestamps stay unverified. Health telemetry
+does not publish project changes, so reporting a refresh cannot trigger another refresh.
+
+The notebook opens recovery controls in Neovim only when requested. **R** in `:WorkHealth` selects an interrupted
+update and asks before restoring its guarded backup. **b** or `:WorkBackups` previews backup cleanup, including
+disk usage and retention reasons; **D** asks before removing the reviewed selection. A live updater, the current
+rollback chain and unfinished transactions are retained. See [installation](installation.md#inspect-and-clean-update-backups)
+for the CLI equivalents. Existing buffers, terminal jobs and agent sessions remain open.
 
 ## History, digests and attention
 
@@ -71,6 +89,11 @@ your conversation. File, project, request and session pages open at the usual wi
 `/notebook auto` optionally follows the measured terminal width: compact below 144 columns and expanded above
 it. Resizing is applied outside drawing, without requesting keyboard focus, and does not resize an open form.
 Explicit compact/expand turns automatic sizing off.
+
+**Hide** or **q** while the notebook has focus hides its pane; `/notebook toggle` brings it back on the same page.
+`/notebook close` explicitly hides it. An ordinary close keeps page and selection, while abandoned forms are
+discarded. Escape first cancels an open form without closing the notebook. The compact summary keeps its hide
+control on the same row, and the expanded navigation uses two short rows so its controls fit the pane.
 
 `desk-work agents` owns the shared session list. The existing Claude runtime files remain an adapter for sessions
 already running, including engine prompts and compaction. The pi extension now reports lifecycle state, observed

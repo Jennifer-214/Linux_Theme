@@ -2,6 +2,54 @@ import { expect, mock, test } from 'claude-code/testing'
 import { mailId } from '../hooks/notebook'
 import { BAND, NOW, PANE, PEERS, done, engine, fakeFs, opened, seen } from './kit'
 
+test('hiding and toggling the notebook preserves its page and does not send a prompt', async ($, on) => {
+  engine(on)
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'page-files' })
+  await ui.press({ key: 'scope-all' })
+  await $.command.run({ command: 'notebook', args: 'toggle', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  expect(seen.closed).toEqual(['paper-notebook'])
+  await $.command.run({ command: 'notebook', args: 'toggle', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  expect(await ui.find({ key: 'file:README.md' })).toBeDefined()
+  expect(await ui.find({ key: 'scope-all' })).toBeDefined()
+  expect(seen.submitted).toEqual([])
+  await ui.unmount()
+})
+
+test('explicit hide closes only the notebook and discards an unfinished form', async ($, on) => {
+  engine(on, { projectWork: { tests: null, jobs: [], tasks: [] } })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'task-add' })
+  await ui.input({ key: 'work-next-step', text: 'unfinished draft', kind: 'change' })
+  await ui.press({ key: 'nav-hide' })
+  expect(seen.closed).toEqual(['paper-notebook'])
+  await $.command.run({ command: 'notebook', args: 'toggle', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  expect(await ui.find({ key: 'work-next-step' })).toBeUndefined()
+  expect(await ui.find({ key: 'task-add' })).toBeDefined()
+  expect(seen.argv.some(value => value.startsWith('desk-work task-add '))).toBe(false)
+  expect(seen.submitted).toEqual([])
+  await ui.unmount()
+})
+
+test('health shows backend diagnostics and opens explicit recovery controls without running them', async ($, on) => {
+  engine(on, { projectWork: { tests: null, tasks: [], jobs: [], health: { status: 'interrupted', checks: [
+    { id: 'nvim', label: 'nvim · paper', detail: 'Stream: retrying\nLast refresh: 2026-11-13 09:00:00\nNext retry: 2026-11-13 09:00:10' },
+    { id: 'update', label: 'Interrupted update', detail: 'applying · 100-1', transaction: '100-1', recoverable: true },
+  ] } } })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'page-health' })
+  expect(await ui.find({ type: 'Text', text: 'Stream: retrying' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'Interrupted update' })).toBeDefined()
+  expect(seen.argv.some(value => value.includes('--health yes'))).toBe(true)
+  expect(seen.argv.some(value => /integrations (recover|cleanup) /.test(value))).toBe(false)
+  await ui.press({ key: 'health-controls' })
+  expect(seen.argv.some(value => value.includes('open --root /code/paper --action health'))).toBe(true)
+  await ui.unmount()
+})
+
 test('the notebook shows the hearts, the session name and the pages touched', async ($, on) => {
   engine(on)
   await opened($)

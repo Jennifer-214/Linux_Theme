@@ -1,0 +1,46 @@
+name: work-integrations
+
+on: [push, pull_request, workflow_dispatch]
+
+permissions:
+  contents: read
+
+jobs:
+  required-work-checks:
+    name: Work integrations (required)
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    timeout-minutes: 45
+    env:
+      DISABLE_AUTOUPDATER: "1"
+      CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install the native and offscreen test toolchain
+        run: |
+          pacman -Syu --noconfirm --needed base-devel git openssl python python-msgpack \
+            neovim quickshell nodejs npm jq ttf-dejavu
+      - name: Read the single engine and compiler pin
+        run: |
+          python - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          pins = json.loads(Path('tests/fixtures/claude-sdk/manifest.json').read_text())
+          with open(os.environ['GITHUB_ENV'], 'a') as target:
+              for key, name in [('claude', 'CLAUDE_VERSION'), ('typescript', 'TYPESCRIPT_VERSION')]:
+                  assert re.fullmatch(r'\d+\.\d+\.\d+', pins[key])
+                  target.write(name+'='+pins[key]+'\n')
+          PY
+      - name: Install the matching test engine and TypeScript
+        run: npm install --global "@anthropic-ai/claude-code@$CLAUDE_VERSION" "typescript@$TYPESCRIPT_VERSION"
+      - name: Require the real notebook, editor, drawer and installer checks
+        run: python -B tests/run_work_checks.py --output "$RUNNER_TEMP/work-checks"
+      - name: Keep test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: work-integration-logs
+          path: ${{ runner.temp }}/work-checks
+          if-no-files-found: ignore

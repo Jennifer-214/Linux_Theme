@@ -7,10 +7,24 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import hashlib
 
 ROOT = Path(__file__).resolve().parents[1]
 RENDER = ROOT/'src/desk-render/desk-render-fast'
 MOD = ROOT/'shared/claude/mods/foxml-paper'
+
+
+def sdk_fixture():
+    folder = ROOT/'tests/fixtures/claude-sdk'
+    manifest = json.loads((folder/'manifest.json').read_text())
+    for name, expected in manifest['files'].items():
+        relative = Path(name)
+        if relative.is_absolute() or '..' in relative.parts or hashlib.sha256((folder/relative).read_bytes()).hexdigest() != expected:
+            raise ValueError('The generated Claude SDK fixture changed: '+name)
+    header = (folder/'claude-code/index.d.ts').read_text().split('\n',1)[0]
+    if not re.search(r'\b'+re.escape(manifest['claude'])+r'\b', header):
+        raise ValueError('The SDK fixture and engine pin do not agree')
+    return folder, manifest
 
 
 class PaperMod(unittest.TestCase):
@@ -79,6 +93,10 @@ class PaperMod(unittest.TestCase):
                     return candidate
             except OSError:
                 continue
+        if not os.environ.get('CLAUDE_TYPES_DIR'):
+            fixture, manifest = sdk_fixture()
+            if version == manifest['claude']:
+                return fixture
         self.need(False, 'No matching Claude Code SDK found. Set CLAUDE_TYPES_DIR to engine-generated '
                          '.claude-plugin/types for version ' + version + '.')
 

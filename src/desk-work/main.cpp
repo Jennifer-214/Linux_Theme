@@ -1,5 +1,6 @@
 #include "json.hpp"
 #include "shell.hpp"
+#include "work_updates.hpp"
 #include <algorithm>
 #include <chrono>
 #include <charconv>
@@ -67,6 +68,7 @@ bool private_dir(const fs::path& p) {
     return !ec && ::lstat(p.c_str(), &s) == 0 && S_ISDIR(s.st_mode) && s.st_uid == ::getuid() && ::chmod(p.c_str(), 0700) == 0;
 }
 void changed(const fs::path& path, const std::string& data);
+J report_client(const std::string& client, const std::string& build, long long pid, const std::string& root, const J& fields);
 void record_event(const std::string& root, const std::string& kind, const std::string& identity,
                   const std::string& label, J action, J extra = J::object());
 bool atomic(const fs::path& p, const std::string& data) {
@@ -111,12 +113,7 @@ std::string root_of(const std::string& path) {
 fs::path project_dir(const std::string& root) { return base() / "projects" / hash(root); }
 bool register_root(const std::string& root) { return !root.empty() && atomic(project_dir(root) / "root", root); }
 std::string proc_stamp(long long pid) {
-    if (pid <= 0) return {};
-    const auto stat = read(fs::path("/proc") / std::to_string(pid) / "stat", 8192);
-    const auto end = stat.rfind(')'); if (end == stat.npos) return {};
-    std::istringstream in(stat.substr(end + 2)); std::string v;
-    for (int field = 3; field <= 22; ++field) if (!(in >> v) || (field == 3 && (v == "Z" || v == "X"))) return {};
-    return trim(read("/proc/sys/kernel/random/boot_id")) + ":" + v;
+    return desk_install::work_updates::process_stamp(pid);
 }
 std::string uuid() {
     const auto seed = read("/proc/sys/kernel/random/uuid", 128);
@@ -147,7 +144,7 @@ void changed(const fs::path& path, const std::string& data) {
     else if (path.parent_path().filename() == "plans" || path.parent_path().filename() == "agents")
         signal_change(trim(read(path.parent_path().parent_path() / "root")));
 }
-int watch_changes(const std::string& root, bool all) {
+int watch_changes(const std::string& root, bool all, const std::string& client = {}, const std::string& build = {}) {
     if (root.empty() && !all) return 2;
     const auto folder = all ? base() : project_dir(root);
     if (!private_dir(folder)) return 1;
@@ -160,6 +157,8 @@ int watch_changes(const std::string& root, bool all) {
         if (text != previous || resumed) {
             if (resumed) event["reason"] = "resume";
             std::cout << event.dump() << '\n' << std::flush; previous = text;
+            if (!client.empty()) report_client(client, build, ::getppid(), all ? "" : root,
+                J{{"stream", "connected"}, {"eventAt", now()}, {"retryAt", 0}, {"watchPid", ::getpid()}, {"watchProcess", proc_stamp(::getpid())}});
         }
     };
     // Each subscriber owns its child. Closing an editor or unloading a mod cannot leave a watcher behind.
@@ -1146,7 +1145,7 @@ J overview(const A& requested, bool fresh = false, bool include_history = false)
     return J{{"jobs", all}, {"running", running}, {"finished", finished}, {"failed", failed}, {"tasks", todo}, {"reviews", review},
              {"attention", needs}, {"agents", agents()}, {"timeline", history}, {"digests", digests}, {"snoozed", held}};
 }
-J notebook(const std::string& root, const std::string& session, const std::string& loaded = {}) {
+J notebook(const std::string& root, const std::string& session, const std::string& loaded = {}, bool health = false) {
     J latest; auto all = runs(root); const auto current = snapshot(root);
     J jobs = J::array(), failures = J::array(); Settled settled;
     for (auto j : all) {
@@ -1170,6 +1169,7 @@ J notebook(const std::string& root, const std::string& session, const std::strin
     out["digest"] = project_digest(root, "notebook");
     out["timeline"] = timeline(root, 0, 30);
     out["integration"] = integration_status("notebook", loaded, false);
+    if (health) out["health"] = integration_health();
     return out;
 }
 fs::path plan_path(const std::string& root, const std::string& session) {
@@ -1289,8 +1289,10 @@ int main(int argc, char** argv) {
                          "desk-work timeline|digest --root DIR [--consumer NAME --through SEQUENCE]\n"
                          "desk-work snooze --root DIR --id ITEM [--seconds 3600 | --until-change yes | --clear yes]\n"
                          "desk-work suggest-tests --root DIR --file PATH | run-suggested --root DIR --id RUN\n"
-                         "desk-work integrations plan|apply|rollback|status [--expected PLAN | --transaction ID]\n"
-                         "desk-work integration-status [--client NAME --loaded BUILD] | workspace --root DIR --client NAME [--input -]\n"
+                         "desk-work integrations plan|apply|rollback|recover|status|backups [--expected PLAN | --transaction ID]\n"
+                         "desk-work integrations cleanup-plan|cleanup [--keep 3 --older-than 30 --expected PLAN]\n"
+                         "desk-work health | integration-status [--client NAME --loaded BUILD] | workspace --root DIR --client NAME [--input -]\n"
+                         "desk-work client-report --client NAME --build BUILD --pid parent [--root DIR --stream connected|retrying --refresh-at SECONDS --error TEXT]\n"
                          "desk-work agents [--root DIR] | agent-update --root DIR --agent NAME --session ID --state working|waiting|needs|error|done --pid PID|parent [--title NAME --pane PANE --file PATH]\n"
                          "desk-work open --root DIR --action attention|tests|reviews|compare|log|tasks|ask|file|file-diff|plan|worktree --id ITEM [--file PATH --session ID]\n"; return 0;
         }
@@ -1302,19 +1304,31 @@ int main(int argc, char** argv) {
         J out;
         if (cmd == "watch") {
             if (!opts["--client"].empty()) client_loaded(opts["--client"], opts["--build"], ::getppid());
-            return watch_changes(root, opts["--all"] == "yes");
+            return watch_changes(root, opts["--all"] == "yes", opts["--client"], opts["--build"]);
         }
         if (cmd == "signal") out = J{{"ok", signal_change(root)}};
         else if (cmd == "client-loaded") out = client_loaded(opts["--client"], opts["--build"],
             opts["--pid"] == "parent" ? ::getppid() : std::stoll(opts["--pid"]));
+        else if (cmd == "client-report") {
+            if (opts.count("--root") && root_of(opts["--root"]).empty()) return 2;
+            J fields = J::object();
+            for (const auto& [flag, key] : std::map<std::string, std::string>{{"--event-at", "eventAt"}, {"--refresh-at", "refreshAt"}, {"--retry-at", "retryAt"}})
+                if (opts.count(flag)) fields[key] = std::stoll(opts[flag]);
+            if (opts.count("--stream")) fields["stream"] = opts["--stream"];
+            if (opts.count("--error")) fields["refreshError"] = opts["--error"];
+            out = report_client(opts["--client"], opts["--build"], opts["--pid"] == "parent" ? ::getppid() : std::stoll(opts["--pid"]),
+                opts.count("--root") ? root_of(opts["--root"]) : std::string(), fields);
+        }
         else if (cmd == "integration-status") out = integration_status(opts["--client"], opts["--loaded"], opts["--quick"] != "yes");
+        else if (cmd == "health") out = integration_health();
         else if (cmd == "integrations") {
-            if (args.size() < 2 || !std::set<std::string>{"plan", "apply", "rollback", "status"}.count(args[1])) return 2;
+            if (args.size() < 2 || !std::set<std::string>{"plan", "apply", "rollback", "recover", "status", "backups", "cleanup-plan", "cleanup"}.count(args[1])) return 2;
             if (!opts["--repo"].empty()) ::setenv("FOXML_REPO", opts["--repo"].c_str(), 1);
             A command{"desk-install", "--integrations", args[1]};
-            if (args[1] == "apply" || args[1] == "rollback") command.push_back("--yes");
+            if (args[1] == "apply" || args[1] == "rollback" || args[1] == "recover" || args[1] == "cleanup") command.push_back("--yes");
             if (!opts["--expected"].empty()) { command.push_back("--expected"); command.push_back(opts["--expected"]); }
             if (!opts["--transaction"].empty()) { command.push_back("--transaction"); command.push_back(opts["--transaction"]); }
+            for (const char* flag : {"--keep", "--older-than"}) if (!opts[flag].empty()) { command.push_back(flag); command.push_back(opts[flag]); }
             return sh::run(command);
         }
         else if (cmd == "revision") out = J{{"version", 1}, {"path", (project_dir(root) / "revision.json").string()}, {"revision", str(json(project_dir(root) / "revision.json"), "revision")}};
@@ -1403,7 +1417,7 @@ int main(int argc, char** argv) {
                     {"started", num(job, "started")}, {"at", num(job, "activity")}, {"active", true}};
         } else if (cmd == "jobs") out = runs(opts.count("--root") ? root : "");
         else if (cmd == "overview") out = overview(roots, opts["--fresh"] == "yes", opts["--history"] == "yes");
-        else if (cmd == "notebook") out = notebook(root, opts["--session"], opts["--loaded"]);
+        else if (cmd == "notebook") out = notebook(root, opts["--session"], opts["--loaded"], opts["--health"] == "yes");
         else if (cmd == "worktrees") out = worktrees(root);
         else if (cmd == "plan") out = plan_with_progress(json(plan_path(root, opts["--session"])));
         else if (cmd == "plan-pin") out = pin_plan(root, opts["--session"], opts["--file"], opts["--step"]);
@@ -1477,8 +1491,8 @@ int main(int argc, char** argv) {
                     if (str(tree, "path") == selected.string() && !tree.value("bare", false)) return open_editor(selected.string(), "workspace");
                 return 2;
             }
-            if (!std::set<std::string>{"tests", "reviews", "compare", "log", "tasks", "ask", "service", "ask-service", "timeline", "digest", "snoozed"}.count(action)) return 2;
-            return open_editor(where, action, target, opts["--index"]);
+            if (!std::set<std::string>{"tests", "reviews", "compare", "log", "tasks", "ask", "service", "ask-service", "timeline", "digest", "snoozed", "health", "backups"}.count(action)) return 2;
+            return open_editor(where.empty() ? fs::current_path().string() : where, action, target, opts["--index"]);
         } else if (cmd == "notify-services") {
             std::string failed;
             if (!sh::capture({"timeout", "3", "systemctl", "--user", "--failed", "--no-legend", "--plain", "--type=service"}, failed)) return 0;

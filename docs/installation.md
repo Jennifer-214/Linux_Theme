@@ -37,6 +37,45 @@ desk-work integration-status
 desk-work integrations rollback --transaction TRANSACTION_ID
 ```
 
+`desk-work health` and the drawer's **Work health** page show loaded versions, refresh timestamps and update
+recovery state. Each update records preparation, deployment, publication and rollback phases. An unfinished
+transaction blocks another update; a live writer stays running. After inspecting its details, recover a stopped
+transaction with:
+
+```sh
+desk-work integrations recover --transaction TRANSACTION_ID
+```
+
+Recovery restores the original files through the same guarded rollback, preserving later edits and permission
+changes. A completed publication whose final bookkeeping was interrupted is recorded as complete without
+rolling back its files. `:WorkHealth` opens the details and explicit recovery controls in Neovim.
+
+### Inspect and clean update backups
+
+`desk-work integrations backups` lists transaction phases and disk usage. Preview cleanup before removing
+anything:
+
+```sh
+desk-work integrations cleanup-plan --keep 3 --older-than 30
+desk-work integrations cleanup --keep 3 --older-than 30 --expected CLEANUP_PLAN_TOKEN
+```
+
+The defaults keep at least three recent completed transactions and consider only backups over thirty days old.
+Current rollback chains, unfinished updates, live writers and unknown records remain protected regardless of
+age. The preview explains each retained backup and shows the selected bytes. If the inventory changes, cleanup
+requires a new preview. It never follows transaction-directory symlinks or changes installed files.
+`:WorkBackups` opens the same preview; **D** asks for confirmation with Cancel selected. Reading health or opening
+the backups page never performs cleanup. The installer does not schedule automatic deletion.
+
+### Required work checks
+
+`make test-work-integrations` is the mandatory local/CI entry point. Missing Claude, TypeScript, Neovim,
+Quickshell, Node or Python msgpack fails the check. The hosted workflow reads its engine/compiler pins and
+verified generated declarations from [the SDK fixture](../tests/fixtures/claude-sdk/README.md); it requires no
+Claude credentials. To use a retained pinned executable locally without changing your installed CLI, set
+`CLAUDE_TEST_BIN` to that executable when running the target. Logs identify every required group and the first
+failure. The SDK fixture is never deployed by the installer.
+
 The scoped dispatcher runs only the native integration-update path; it does not enter the installation wizard.
 An update refuses if source builds are stale, preview targets moved or dependencies cannot be staged/backed up.
 Compatibility command names derive from the existing alias table, so old `fox-*` copies use the updated native

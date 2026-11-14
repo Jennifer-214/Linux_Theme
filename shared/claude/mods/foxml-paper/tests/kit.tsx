@@ -26,7 +26,7 @@ export const PEERS = JSON.stringify([
   { id: 'p2', name: 'docs', project: 'docs', state: 'waiting', busy: false, pane: '' },
 ])
 export const seen = { stdin: [] as string[], bash: [] as string[], argv: [] as string[], sent: [] as { to: unknown; text: string }[], toasts: [] as string[], submitted: [] as string[],
-  opened: [] as { id: string; closeOnEscape?: true }[] }
+  opened: [] as { id: string; closeOnEscape?: true }[], closed: [] as string[] }
 export const NOW = 1_800_000_000_000
 
 // A small file system in memory, for the runtime and state folders.
@@ -56,7 +56,9 @@ export function fakeFs(on: On, files: Record<string, string>, mtimes: Record<str
 export function engine(on: On, options: { pane?: string; pushNotes?: unknown; pushCheck?: unknown; ci?: unknown[]; bash?: (command: string) => unknown; runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; finished?: () => unknown; credits?: unknown; trees?: unknown; readIds?: { id: string; at: number }[]; delivery?: boolean; gitFailure?: { value: boolean }; compact?: boolean; agents?: unknown[] } = {}) {
   let pinned: { file: string; step: string } | null = null
   let workspace: Record<string, unknown> | null = null
+  let paneOpen = false
   seen.argv = []; seen.stdin = []; seen.bash = []; seen.sent = []; seen.toasts = []; seen.submitted = []; seen.opened = []
+  seen.closed = []
   mock.store(on, { 'notebook-read-mail:abc': options.readIds ?? [], 'notebook-layout': options.compact ? 'compact' : 'expanded' })
   on('session.receive', (_, e) => ({ text: e.text }))
   on('session.send', (_, e) => { seen.sent.push({ to: e.to, text: e.text }); return options.delivery === false
@@ -66,8 +68,9 @@ export function engine(on: On, options: { pane?: string; pushNotes?: unknown; pu
   if (!options.files) on('fs.exists', () => ({ value: false }))
   on('ui.toast', (_, e) => { seen.toasts.push(e.text); return { value: undefined } })
   on('command.register', () => ({ value: { command: 'notebook' } }))
-  on('ui.open', (_, e) => { seen.opened.push(e); return { value: { isPlaced: true } } })
-  on('ui.close', () => ({ value: undefined }))
+  on('ui.open', (_, e) => { seen.opened.push(e); paneOpen = true; return { value: { isPlaced: true } } })
+  on('ui.close', (_, e) => { paneOpen = false; seen.closed.push(e.id); return { value: undefined } })
+  on('ui.panes', () => ({ value: paneOpen ? [{ id: 'paper-notebook', title: 'notebook', isShown: true, isFocused: false, isPlaced: true }] : [] }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.cwd', () => ({ value: '/code/paper' }))
   on('session.repo', () => ({ value: { root: '/code/paper', remote: null, internal: false, name: null } }))

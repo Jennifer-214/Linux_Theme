@@ -2,6 +2,13 @@
 local M = { roots = {}, serial = 0 }
 local api, uv = vim.api, vim.uv or vim.loop
 local function tool() return vim.fn.executable('desk-work') == 1 and 'desk-work' or nil end
+local function report(root, fields)
+  if not tool() then return end
+  local ok, build = pcall(require, 'foxml.build')
+  local argv = { tool(), 'client-report', '--client', 'nvim', '--build', ok and build.id or 'development', '--pid', 'parent', '--root', root }
+  for key, value in pairs(fields) do vim.list_extend(argv, { '--' .. key, tostring(value) }) end
+  pcall(vim.system, argv, { text = true, timeout = 2000 }, function() end)
+end
 
 local function refresh(root, state)
   if M.roots[root] ~= state or state.reading then return end
@@ -12,6 +19,7 @@ local function refresh(root, state)
     local ok, items = pcall(vim.json.decode, out.stdout or '')
     if out.code == 0 and ok and type(items) == 'table' and vim.islist(items) then state.items, state.error = items, false
     else state.error = true end
+    report(root, state.error and { error = 'Could not refresh work records' } or { ['refresh-at'] = os.time(), error = '' })
     for _, callback in pairs(state.callbacks) do pcall(callback, state.items, state.error) end
     api.nvim_exec_autocmds('User', { pattern = 'FoxWorkChanged', data = { root = root, revision = state.revision or '' } })
     pcall(vim.cmd.redrawstatus)
@@ -26,6 +34,7 @@ local function watch(root, state)
     vim.schedule(function()
       if M.roots[root] ~= state then return end
       state.watch_failed = true
+      report(root, { stream = 'retrying', ['retry-at'] = os.time() + math.ceil(state.delay / 1000) })
       state.retry:start(state.delay, 0, vim.schedule_wrap(function() watch(root, state) end))
       state.delay = math.min(state.delay * 2, 30000)
       pcall(vim.cmd.redrawstatus)
@@ -42,6 +51,7 @@ local function watch(root, state)
       local valid, event = pcall(vim.json.decode, line)
       if valid and type(event) == 'table' and event.version == 1 then
         state.revision, state.watch_failed, state.delay = event.revision, false, 1000
+        report(root, { stream = 'connected', ['event-at'] = os.time(), ['retry-at'] = 0 })
         if state.reading then state.again = true else refresh(root, state) end
       end
     end
@@ -68,6 +78,7 @@ function M.subscribe(root, callback)
     state.callbacks[id] = nil
     if next(state.callbacks) then return end
     M.roots[root] = nil
+    report(root, { stream = 'stopped', ['retry-at'] = 0 })
     state.timer:stop(); state.timer:close()
     state.retry:stop(); state.retry:close()
     if state.job then pcall(state.job.kill, state.job, 15) end

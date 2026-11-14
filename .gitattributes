@@ -1,0 +1,2 @@
+# Preserve the hashed SDK export, including its engine-generated trailing blank line.
+tests/fixtures/claude-sdk/claude-code/index.d.ts whitespace=-blank-at-eof

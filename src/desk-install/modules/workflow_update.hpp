@@ -4,6 +4,7 @@
 #include "fox_aliases.hpp"
 #include "../core/backup.hpp"
 #include "../../desk-common/shell.hpp"
+#include "../../desk-common/work_updates.hpp"
 #include <openssl/sha.h>
 #include <fstream>
 #include <ctime>
@@ -12,6 +13,7 @@
 #include <set>
 #include <sys/stat.h>
 #include <unistd.h>
+#include <fcntl.h>
 
 namespace desk_install::workflow {
 using Json = nlohmann::json;
@@ -46,7 +48,15 @@ inline bool write(const fs::path& path, const std::string& data) {
     if (!output) { fs::remove(temporary, ec); return false; }
     fs::permissions(temporary, mode, fs::perm_options::replace, ec);
     if (ec) { fs::remove(temporary, ec); return false; }
-    fs::rename(temporary, path, ec); return !ec;
+    const int fd = ::open(temporary.c_str(), O_RDONLY | O_CLOEXEC);
+    const bool synced = fd >= 0 && ::fsync(fd) == 0;
+    if (fd >= 0) ::close(fd);
+    if (!synced) { fs::remove(temporary, ec); return false; }
+    fs::rename(temporary, path, ec); if (ec) return false;
+    const int parent = ::open(path.parent_path().c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    const bool durable = parent >= 0 && ::fsync(parent) == 0;
+    if (parent >= 0) ::close(parent);
+    return durable;
 }
 inline fs::path state_home(const Context& ctx) {
     const auto value = std::getenv("XDG_STATE_HOME");
@@ -180,9 +190,19 @@ inline bool prepare(const Context& ctx, Stage& stage, std::string& error) {
         {"clients", stage.clients}, {"files", rows}, {"source", source_versions}};
     return true;
 }
+inline bool matches(const fs::path& path, const Json& row, bool before);
 inline Json apply(Context ctx, Stage& stage, const std::string& expected) {
     if (expected.empty() || expected != stage.plan.value("plan", "")) return Json{{"ok", false}, {"message", "Preview again: source files or installed targets changed"}};
     const auto state = state_home(ctx);
+    const auto outstanding = work_updates::inventory(state, false);
+    if (!outstanding.value("complete", false)) return Json{{"ok", false}, {"message", "The rollback history needs inspection before another update can start"}};
+    if (!outstanding["pending"].empty()) return Json{{"ok", false}, {"message", "An earlier update needs recovery before another update can start"}, {"pending", outstanding["pending"]}};
+    const auto previous = load(state / "current.json");
+    if (fs::exists(state / "current.json") && !previous.is_object()) return Json{{"ok", false}, {"message", "The installed-version record needs inspection"}};
+    bool any_change = false;
+    for (const auto& row : stage.plan["files"]) any_change = any_change || row.value("changed", false);
+    if (!any_change && previous.is_object() && previous.value("source", Json()) == stage.plan["source"])
+        return Json{{"ok", true}, {"unchanged", true}, {"transaction", previous.value("transaction", "")}, {"bundle", stage.plan["bundle"]}};
     const auto transaction = std::to_string(std::time(nullptr)) + '-' + std::to_string(::getpid()) + '-'
         + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
     const auto folder = state / "transactions" / transaction;
@@ -192,19 +212,30 @@ inline Json apply(Context ctx, Stage& stage, const std::string& expected) {
     ::chmod(state.c_str(), 0700); ::chmod(folder.c_str(), 0700);
     auto manifest = stage.plan;
     manifest["transaction"] = transaction; manifest["home"] = ctx.home.string(); manifest["config"] = ctx.config_home.string();
+    manifest["createdAt"] = std::time(nullptr); manifest["hadPrevious"] = previous.is_object();
+    const auto mark = [&](const std::string& phase, const std::string& error = std::string()) {
+        manifest["phase"] = phase; manifest["updatedAt"] = std::time(nullptr);
+        manifest["pid"] = ::getpid(); manifest["process"] = work_updates::process_stamp(::getpid());
+        manifest["error"] = error;
+        return write(folder / "manifest.json", manifest.dump(2));
+    };
+    const auto stop = [&](const std::string& message, const std::string& phase) {
+        mark(phase, message);
+        return Json{{"ok", false}, {"transaction", transaction}, {"message", message}, {"phase", phase}};
+    };
+    if (previous.is_object() && !write(folder / "previous-current.json", previous.dump(2))) return Json{{"ok", false}};
+    if (!mark("preparing")) return Json{{"ok", false}};
     // Refuse the whole update before replacing anything if a preview target moved or cannot be backed up.
     for (size_t i = 0; i < stage.files.size(); ++i) {
         const auto& file = stage.files[i]; const auto& row = manifest["files"][i];
-        if (node_hash(file.source) != row.value("after", "")) return Json{{"ok", false}, {"message", "A staged dependency is missing or changed; preview again"}};
+        if (!matches(file.source, row, false)) return stop("A staged dependency is missing or changed; preview again", "aborted");
         const auto actual = node_hash(file.destination);
         const auto actual_mode = actual.empty() ? 0U : static_cast<unsigned>(fs::status(file.destination, ec).permissions()) & 0777;
         if (actual != row.value("before", "") || actual_mode != row.value("beforeMode", 0U)
             || (row.value("changed", false) && !snapshot_one(ctx, file.destination)))
-            return Json{{"ok", false}, {"message", "A target changed or could not be backed up: " + file.destination.string()}};
+            return stop("A target changed or could not be backed up: " + file.destination.string(), "aborted");
     }
-    const auto previous = load(state / "current.json");
-    if (!previous.is_discarded() && !write(folder / "previous-current.json", previous.dump(2))) return Json{{"ok", false}};
-    if (!write(folder / "manifest.json", manifest.dump(2))) return Json{{"ok", false}};
+    if (!mark("prepared") || !mark("applying")) return stop("Could not record the prepared update", "aborted");
     // Registration lands last, after dependencies and generated version stamps.
     std::vector<size_t> order;
     for (size_t i = 0; i < stage.files.size(); ++i) order.push_back(i);
@@ -215,36 +246,68 @@ inline Json apply(Context ctx, Stage& stage, const std::string& expected) {
     for (const auto i : order) {
         if (!manifest["files"][i].value("changed", false)) continue;
         const auto& file = stage.files[i];
+        if (!matches(file.destination, manifest["files"][i], true)) return stop("A target changed during deployment; recover without overwriting the edit", "failed");
         const auto link = manifest["files"][i].value("afterLink", "");
         const bool deployed = link.empty() ? deploy_file_atomic(ctx, file.source, file.destination) : deploy_symlink_atomic(ctx, link, file.destination);
-        if (!deployed || node_hash(file.destination) != manifest["files"][i].value("after", ""))
-            return Json{{"ok", false}, {"transaction", transaction}, {"message", "Deployment stopped; use the recorded transaction to inspect and roll back"}};
+        if (!deployed || !matches(file.destination, manifest["files"][i], false))
+            return stop("Deployment stopped; recover this transaction before updating again", "failed");
     }
-    if (!write(state / "current.json", manifest.dump(2))) return Json{{"ok", false}, {"transaction", transaction}};
+    for (const auto& row : manifest["files"]) if (!matches(row.value("destination", ""), row, false))
+        return stop("A deployed file changed before verification; inspect this transaction before recovery", "failed");
+    if (!mark("applied")) return stop("Could not record the completed file deployment", "failed");
+    auto published = manifest; published["phase"] = "verified";
+    if (!write(state / "current.json", published.dump(2))) return stop("Files were deployed but installed versions were not published; recover this transaction", "failed");
+    if (!mark("verified")) return Json{{"ok", true}, {"transaction", transaction}, {"bundle", stage.plan["bundle"]}, {"backup", folder.string()}, {"message", "Files and installed versions verified; transaction completion will be recognized from the published record"}};
     return Json{{"ok", true}, {"transaction", transaction}, {"bundle", stage.plan["bundle"]}, {"backup", folder.string()}};
 }
-inline Json rollback(const Context& ctx, const std::string& transaction) {
-    if (transaction.empty() || transaction.find_first_not_of("0123456789-") != transaction.npos) return Json{{"ok", false}};
+inline bool matches(const fs::path& path, const Json& row, bool before) {
+    const auto expected = row.value(before ? "before" : "after", "");
+    if (node_hash(path) != expected) return false;
+    if (expected.empty() || !row.value(before ? "beforeLink" : "afterLink", "").empty()) return true;
+    std::error_code ec; const auto mode = static_cast<unsigned>(fs::status(path, ec).permissions()) & 0777;
+    return !ec && mode == row.value(before ? "beforeMode" : "mode", 0U);
+}
+inline Json rollback(const Context& ctx, const std::string& transaction, bool recovery = false) {
+    if (!work_updates::valid_id(transaction)) return Json{{"ok", false}};
     const auto folder = state_home(ctx) / "transactions" / transaction;
-    const auto manifest = load(folder / "manifest.json");
-    if (!manifest.is_object() || manifest.value("home", "") != ctx.home.string() || manifest.value("config", "") != ctx.config_home.string()) return Json{{"ok", false}};
+    auto manifest = load(folder / "manifest.json");
+    if (!manifest.is_object() || !manifest.value("files", Json()).is_array() || manifest.value("home", "") != ctx.home.string() || manifest.value("config", "") != ctx.config_home.string()) return Json{{"ok", false}};
+    const auto phase = manifest.value("phase", "");
+    const auto current = load(state_home(ctx) / "current.json"), previous = load(folder / "previous-current.json");
+    if (manifest.value("hadPrevious", false) && !previous.is_object()) return Json{{"ok", false}, {"message", "The previous installed-version record is missing or changed"}};
+    const auto current_id = work_updates::text(current, "transaction");
+    if (recovery && !work_updates::unfinished(phase)) return Json{{"ok", false}, {"message", "This transaction does not need recovery"}};
+    if (work_updates::unfinished(phase) && !manifest.value("process", "").empty()
+        && work_updates::process_stamp(manifest.value("pid", 0LL)) == manifest.value("process", ""))
+        return Json{{"ok", false}, {"message", "This update is still running; leave it open"}};
+    if (phase == "rolled-back") return Json{{"ok", true}, {"transaction", transaction}, {"unchanged", true}};
+    if (current_id != transaction && (!work_updates::unfinished(phase) || work_updates::text(previous, "transaction") != current_id))
+        return Json{{"ok", false}, {"message", "Roll back the newest update first"}};
+    const auto mark = [&](const std::string& next) {
+        manifest["phase"] = next; manifest["updatedAt"] = std::time(nullptr); manifest["error"] = "";
+        manifest["pid"] = ::getpid(); manifest["process"] = work_updates::process_stamp(::getpid());
+        return write(folder / "manifest.json", manifest.dump(2));
+    };
+    if (recovery && phase == "applied" && current_id == transaction) {
+        for (const auto& row : manifest["files"]) if (!matches(row.value("destination", ""), row, false))
+            return Json{{"ok", false}, {"message", "Published files have changed; inspect them before recovery"}};
+        return Json{{"ok", mark("verified")}, {"transaction", transaction}, {"message", "Installed files were already published; completion recorded"}};
+    }
+    if (phase == "preparing") return Json{{"ok", mark("aborted")}, {"transaction", transaction}, {"message", "Preparation ended before any installed files were changed"}};
     for (const auto& row : manifest["files"]) if (row.value("changed", false)) {
         const fs::path dest = row.value("destination", "");
         const auto home_rel = dest.lexically_relative(ctx.home), config_rel = dest.lexically_relative(ctx.config_home);
         if ((home_rel.empty() || *home_rel.begin() == "..") && (config_rel.empty() || *config_rel.begin() == ".."))
             return Json{{"ok", false}, {"message", "Rollback path is outside this home and config directory"}};
-        const auto actual = node_hash(dest);
         const auto before = row.value("before", "");
-        if (actual != row.value("after", "") && actual != before) return Json{{"ok", false}, {"message", "A file was edited after the update; rollback left it untouched: " + dest.string()}};
-        std::error_code mode_error;
-        const auto mode = actual.empty() ? 0U : static_cast<unsigned>(fs::status(dest, mode_error).permissions()) & 0777;
-        if (!actual.empty() && row.value(actual == before ? "beforeLink" : "afterLink", "").empty() && mode != row.value(actual == before ? "beforeMode" : "mode", 0U))
-            return Json{{"ok", false}, {"message", "File permissions changed after the update; rollback left them untouched: " + dest.string()}};
+        if (!matches(dest, row, true) && !matches(dest, row, false)) return Json{{"ok", false}, {"message", "Content or permissions changed after the update; rollback left them untouched: " + dest.string()}};
         if (!before.empty() && node_hash(folder / "before" / backup_relative(ctx, dest)) != before) return Json{{"ok", false}, {"message", "A required backup is missing or changed"}};
     }
+    if (!mark("rolling-back")) return Json{{"ok", false}, {"message", "Could not record rollback before changing files"}};
     Context restore = ctx; restore.backup_dir = folder / "rollback-backup";
     for (const auto& row : manifest["files"]) if (row.value("changed", false)) {
         const fs::path dest = row.value("destination", "");
+        if (matches(dest, row, true)) continue;
         if (row.value("before", "").empty()) {
             if (!snapshot_one(restore, dest)) return Json{{"ok", false}};
             std::error_code ec; fs::remove(dest, ec); if (ec) return Json{{"ok", false}};
@@ -253,8 +316,64 @@ inline Json rollback(const Context& ctx, const std::string& transaction) {
         } else if (!deploy_file_atomic(restore, folder / "before" / backup_relative(ctx, dest), dest)) return Json{{"ok", false}};
     }
     // The restored files will be checked against their actual manifest on the next update/health check.
-    const auto previous = load(folder / "previous-current.json");
     if (!write(state_home(ctx) / "current.json", previous.is_discarded() ? Json{{"version", 1}, {"rolledBack", transaction}}.dump() : previous.dump(2))) return Json{{"ok", false}};
+    if (!mark("rolled-back")) return Json{{"ok", false}, {"message", "Files restored; finish this recovery to record completion"}};
     return Json{{"ok", true}, {"transaction", transaction}};
+}
+inline Json cleanup_plan(const Context& ctx, int keep = 3, int older_days = 30) {
+    if (keep < 1 || keep > 100 || older_days < 0 || older_days > 3650) return Json{{"ok", false}, {"message", "Keep must be 1–100 and age must be 0–3650 days"}};
+    const auto state = state_home(ctx);
+    auto data = work_updates::inventory(state);
+    Json selected = Json::array(); unsigned long long reclaimable = 0; int recent = 0;
+    std::string inputs = bytes(state / "current.json");
+    for (auto& row : data["transactions"]) {
+        const auto id = row.value("transaction", ""), phase = row.value("phase", "");
+        const auto folder = state / "transactions" / id;
+        inputs += id + ':' + digest(bytes(folder / "manifest.json")) + ':' + digest(bytes(folder / "previous-current.json"));
+        const auto ownership = load(folder / "manifest.json");
+        if (!row.value("protected", true) && (work_updates::text(ownership, "home") != ctx.home.string() || work_updates::text(ownership, "config") != ctx.config_home.string())) {
+            row["protected"] = true; row["reason"] = "Belongs to another home or config directory";
+        }
+        const bool terminal = phase == "verified" || phase == "rolled-back" || phase == "aborted";
+        if (terminal && recent++ < keep && !row.value("protected", true)) { row["protected"] = true; row["reason"] = "Retain recent completed transactions"; }
+        if (!row.value("protected", true) && (row.value("createdAt", 0LL) <= 0 || row.value("createdAt", 0LL) > std::time(nullptr) - older_days * 86400LL)) {
+            row["protected"] = true; row["reason"] = "Retain recent or undated backups";
+        }
+        if (row.value("protected", true)) continue;
+        std::error_code ec; std::vector<std::string> entries;
+        fs::recursive_directory_iterator files(folder, ec), end;
+        while (!ec && files != end) {
+            const auto status = files->symlink_status(ec);
+            std::string entry = files->path().lexically_relative(folder).string() + ':' + std::to_string(static_cast<unsigned>(status.permissions()));
+            if (!ec && fs::is_regular_file(status)) entry += ':' + std::to_string(files->file_size(ec)) + ':' + std::to_string(files->last_write_time(ec).time_since_epoch().count());
+            else if (!ec && fs::is_symlink(status)) entry += ":link:" + fs::read_symlink(files->path(), ec).string();
+            entries.push_back(entry);
+            if (!ec) files.increment(ec);
+        }
+        if (ec) return Json{{"ok", false}, {"message", "A backup could not be fully inspected"}};
+        std::sort(entries.begin(), entries.end()); for (const auto& entry : entries) inputs += '\n' + entry;
+        selected.push_back(id); reclaimable += row.value("bytes", 0ULL);
+    }
+    data["ok"] = true; data["keep"] = keep; data["olderDays"] = older_days;
+    data["selected"] = selected; data["reclaimableBytes"] = reclaimable;
+    data["plan"] = digest(inputs + data.dump());
+    return data;
+}
+inline Json cleanup(const Context& ctx, const std::string& expected, int keep = 3, int older_days = 30) {
+    const auto plan = cleanup_plan(ctx, keep, older_days);
+    if (expected.empty() || !plan.value("ok", false) || plan.value("plan", "") != expected)
+        return Json{{"ok", false}, {"message", "Preview backup cleanup again: the inventory or retention selection changed"}};
+    const auto directory = state_home(ctx) / "transactions";
+    std::error_code ec;
+    if (!fs::is_directory(fs::symlink_status(directory, ec)) || ec) return Json{{"ok", false}, {"message", "The transaction directory needs inspection"}};
+    int removed = 0;
+    for (const auto& item : plan["selected"]) {
+        const auto id = item.get<std::string>();
+        if (!work_updates::valid_id(id) || !fs::is_directory(fs::symlink_status(directory / id, ec)) || ec) return Json{{"ok", false}};
+        fs::remove_all(directory / id, ec);
+        if (ec) return Json{{"ok", false}, {"removed", removed}, {"message", "Cleanup stopped; installed files were not changed"}};
+        ++removed;
+    }
+    return Json{{"ok", true}, {"removed", removed}, {"reclaimedBytes", plan["reclaimableBytes"]}};
 }
 }

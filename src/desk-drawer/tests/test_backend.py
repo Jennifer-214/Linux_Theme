@@ -326,6 +326,17 @@ class BackendTests(unittest.TestCase):
         self.invoke('run','work-open','../../bad',expect=1)
         self.assertNotIn(['setsid','-f','desk-work','open','--action','log','--id','../../bad'],self.calls())
 
+    def test_work_health_reads_canonical_diagnostics_without_recovering_or_cleaning(self):
+        self.state={'commands':{'desk-work':{'stdout':json.dumps({'checks':[
+            {'id':'nvim','label':'nvim · paper','detail':'Stream: retrying\nLast refresh: not reported'},
+            {'id':'update','label':'Interrupted update','detail':'applying · 100-1'}]})}}}
+        view=self.invoke('view','work-health')
+        self.assertTrue(view['workObserved'])
+        self.assertIn('Stream: retrying',[row['label'] for row in view['items']])
+        self.assertFalse(any('recover' in call or 'cleanup' in call for call in self.calls()))
+        self.assertTrue(self.invoke('run','work-health-controls')['ok'])
+        self.assertIn(['setsid','-f','desk-work','open','--action','health'],self.calls())
+
     def test_failed_user_services_offer_logs_and_a_draft_without_restarting(self):
         self.state={'commands':{'desk-work':{'stdout':json.dumps(dict(jobs=[],reviews=[],tasks=[]))},
                                 'systemctl':{'stdout':'example.service loaded failed failed Example\n'}}}

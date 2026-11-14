@@ -160,11 +160,20 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
         if (a == "--wizard-demo")          { out.wizard_demo = true;  continue; }
         if (a == "--integrations" && i + 1 < argc) {
             out.integration_mode = argv[++i];
-            if (out.integration_mode != "plan" && out.integration_mode != "apply" && out.integration_mode != "rollback" && out.integration_mode != "status") return false;
+            if (out.integration_mode != "plan" && out.integration_mode != "apply" && out.integration_mode != "rollback" && out.integration_mode != "status"
+                && out.integration_mode != "recover" && out.integration_mode != "backups" && out.integration_mode != "cleanup-plan" && out.integration_mode != "cleanup") return false;
             continue;
         }
         if (a == "--expected" && i + 1 < argc) { out.expected = argv[++i]; continue; }
         if (a == "--transaction" && i + 1 < argc) { out.transaction = argv[++i]; continue; }
+        if ((a == "--keep" || a == "--older-than") && i + 1 < argc) {
+            const std::string value = argv[++i];
+            if (value.empty() || value.size() > 4 || value.find_first_not_of("0123456789") != value.npos) return false;
+            const auto parsed = std::stoi(value);
+            if (a == "--keep") { if (parsed < 1 || parsed > 100) return false; out.backup_keep = parsed; }
+            else { if (parsed > 3650) return false; out.backup_days = parsed; }
+            continue;
+        }
 
         if (a == "--phase" && i + 1 < argc) {
             out.phase = argv[++i];

@@ -20,3 +20,13 @@ must remain open, and validation uses disposable homes instead of the interactiv
 | Since-last-look digest | Per-consumer cursors over the same shared events |
 | Adaptive notebook | Optional sizing, remembered preference and no background focus changes |
 | Project preferences | User requested leaving this untouched; no preferences, symdeps or marker edits |
+
+Additional scope approved after the first push:
+
+| Work | Scope |
+| --- | --- |
+| Mandatory integration CI | Hosted checks fail on missing dependencies and use the approved generated SDK fixture |
+| Interrupted updates | Recorded phases, active writer identity, guarded recovery and refusal to start over an unfinished transaction |
+| Refresh diagnostics | Shared last-event/refresh/retry/loaded-version reporting in notebook, Neovim, drawer and health checks |
+| Backup growth | Disk inventory, retention reasons, exact cleanup preview and protection of rollback chains and unfinished updates |
+| Review and notebook usability | Review-local **Space re** / `:ReviewFiles` toggle the file list independently; preserve Neo-tree's **Space e**, reading positions, notebook page and selection |

@@ -73,6 +73,9 @@ test-fast:
 test-claude: build-desk-render
 	@FOXML_REQUIRE_MOD_CHECKS=1 python3 -B tests/test_claude_mod.py
 
+test-work-integrations:
+	@python3 -B tests/run_work_checks.py
+
 # Python script tests (shared/bin tools without their own src/<tool>/ dir).
 test-scripts:
 	@for t in tests/test_*.py; do [ -e "$$t" ] || continue; echo "  - $$t"; python3 "$$t" || exit 1; done
@@ -88,4 +91,4 @@ list:
 	@printf "Discovered tools:\n"
 	@for t in $(TOOLS); do printf "  - %s\n" "$$t"; done
 
-.PHONY: all install clean test test-fast test-claude list $(addprefix build-,$(TOOLS)) $(addprefix install-,$(TOOLS)) $(addprefix clean-,$(TOOLS)) $(addprefix test-,$(TOOLS))
+.PHONY: all install clean test test-fast test-claude test-work-integrations list $(addprefix build-,$(TOOLS)) $(addprefix install-,$(TOOLS)) $(addprefix clean-,$(TOOLS)) $(addprefix test-,$(TOOLS))

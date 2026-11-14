@@ -187,30 +187,41 @@ int main(int argc, char** argv) {
     if (parsed.show_version) { args::print_version();        return 0; }
 
     if (!parsed.integration_mode.empty()) {
-        fill_paths_post(ctx);
         if (parsed.integration_mode == "status") {
-            const auto current = workflow::load(workflow::state_home(ctx) / "current.json");
-            std::puts(current.is_discarded() ? "null" : current.dump().c_str()); return 0;
+            auto current = workflow::load(workflow::state_home(ctx) / "current.json");
+            if (!current.is_object()) current = nlohmann::json::object();
+            current["backups"] = work_updates::inventory(workflow::state_home(ctx));
+            std::puts(current.dump().c_str()); return 0;
         }
-        if (ctx.dry_run && parsed.integration_mode == "rollback") {
-            if (parsed.transaction.find_first_not_of("0123456789-") != parsed.transaction.npos) return 2;
+        if (parsed.integration_mode == "backups") { std::puts(work_updates::inventory(workflow::state_home(ctx)).dump().c_str()); return 0; }
+        if (ctx.dry_run && (parsed.integration_mode == "rollback" || parsed.integration_mode == "recover")) {
+            if (!work_updates::valid_id(parsed.transaction)) return 2;
             const auto record = workflow::load(workflow::state_home(ctx) / "transactions" / parsed.transaction / "manifest.json");
             if (!record.is_object()) return 1;
             std::puts(nlohmann::json{{"dryRun", true}, {"transaction", parsed.transaction}, {"files", record["files"]}}.dump().c_str()); return 0;
         }
-        if (ctx.dry_run) parsed.integration_mode = "plan";
+        if (ctx.dry_run) parsed.integration_mode = parsed.integration_mode == "cleanup" || parsed.integration_mode == "cleanup-plan" ? "cleanup-plan" : "plan";
+        if (parsed.integration_mode == "cleanup-plan") {
+            const auto plan = workflow::cleanup_plan(ctx, parsed.backup_keep, parsed.backup_days);
+            std::puts(plan.dump().c_str()); return plan.value("ok", false) ? 0 : 1;
+        }
         if (parsed.integration_mode != "plan" && !ctx.assume_yes) {
             ui::err("Preview the integration update first, then supply --yes with its expected plan or rollback transaction."); return 1;
         }
         [[maybe_unused]] int integration_lock = -1;
-        if (parsed.integration_mode == "apply" || parsed.integration_mode == "rollback") {
+        if (parsed.integration_mode != "plan") {
             const auto lock = lockfile::acquire();
             if (lock.fd < 0) { std::fprintf(stderr, "Another installation/update holds the lock, or it could not be acquired.\n"); return 1; }
             integration_lock = lock.fd;
         }
-        if (parsed.integration_mode == "rollback") {
-            const auto result = workflow::rollback(ctx, parsed.transaction); std::puts(result.dump().c_str()); return result.value("ok", false) ? 0 : 1;
+        if (parsed.integration_mode == "rollback" || parsed.integration_mode == "recover") {
+            const auto result = workflow::rollback(ctx, parsed.transaction, parsed.integration_mode == "recover"); std::puts(result.dump().c_str()); return result.value("ok", false) ? 0 : 1;
         }
+        if (parsed.integration_mode == "cleanup") {
+            const auto result = workflow::cleanup(ctx, parsed.expected, parsed.backup_keep, parsed.backup_days);
+            std::puts(result.dump().c_str()); return result.value("ok", false) ? 0 : 1;
+        }
+        fill_paths_post(ctx);
         workflow::Stage stage; std::string error;
         if (!workflow::prepare(ctx, stage, error)) { std::fprintf(stderr, "%s\n", error.c_str()); return 1; }
         if (parsed.integration_mode == "plan") { std::puts(stage.plan.dump().c_str()); return 0; }

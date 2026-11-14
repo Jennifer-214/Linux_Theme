@@ -248,9 +248,9 @@ export async function work($: EngineInterface, args: string[], stdin?: string): 
     return out.exitCode === 0 ? out.stdout : null
   } catch { return null }
 }
-export async function workLook($: EngineInterface, root: string, session: string): Promise<WorkLook | null> {
+export async function workLook($: EngineInterface, root: string, session: string, health = false): Promise<WorkLook | null> {
   try {
-    const value = JSON.parse(await work($, ['notebook', '--root', root, '--session', session, '--loaded', BUILD_ID]) ?? 'null') as WorkLook | null
+    const value = JSON.parse(await work($, ['notebook', '--root', root, '--session', session, '--loaded', BUILD_ID, ...(health ? ['--health', 'yes'] : [])]) ?? 'null') as WorkLook | null
     return value && Array.isArray(value.tasks) && Array.isArray(value.jobs) ? value : null
   } catch { return null }
 }

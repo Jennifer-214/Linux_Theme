@@ -103,7 +103,7 @@ fs::path repository() {
 const std::set<std::string> pages = {
     "apps", "windows", "audio-outputs", "wifi", "bluetooth", "tools", "tools-ai", "tools-security", "tools-desktop", "tools-system", "tools-projects", "tools-other", "tools-all", "cheatsheet", "cheatsheet-keys", "sandbox", "clipboard-text", "clipboard-images",
     "wallpapers", "themes", "power", "updates", "agents", "projects", "bookmarks", "library", "downloads", "screenshots", "passwords", "garden",
-    "models", "storage", "backups", "startup", "displays", "display", "display-modes", "calendar-feeds", "programs", "terminals", "terminals-arrange", "terminal", "terminal-pane", "jobs", "test-results", "reviews", "attention", "work-history", "work-digest", "attention-snoozed", "worktrees", "next-steps", "failures", "api-credits", "api-tasks", "earlier-notes"
+    "models", "storage", "backups", "startup", "displays", "display", "display-modes", "calendar-feeds", "programs", "terminals", "terminals-arrange", "terminal", "terminal-pane", "jobs", "test-results", "reviews", "attention", "work-history", "work-digest", "work-health", "attention-snoozed", "worktrees", "next-steps", "failures", "api-credits", "api-tasks", "earlier-notes"
 };
 const std::set<std::string> actions = {
     "volume", "volume-mute", "mic-mute", "media-play-pause", "media-next", "media-previous", "brightness",
@@ -114,7 +114,7 @@ const std::set<std::string> actions = {
     "goodnight-open", "api-task-ask", "api-task-open", "api-task-failure", "api-task-settings", "api-task-review", "api-task-pi", "api-task-follow", "calendar-feed-add", "calendar-feed-remove", "calendar-refresh", "display-scale", "display-rotate", "display-side", "display-mode", "display-keep", "display-undo", "display-edit", "cursor-size", "credits-setup", "credits-console", "model-agent", "model-remove", "storage-scan", "storage-open", "storage-clean-packages", "storage-trim-journal", "storage-flatpak-unused",
     "storage-empty-trash", "storage-hidden", "backup-restore", "backup-open", "backup-prune", "startup-user", "startup-autostart", "program-quit", "program-force", "terminal-go", "terminal-new", "terminal-here", "terminal-rename", "terminal-pane-move", "terminal-pane-split", "terminal-close",
     "work-open", "work-jump", "work-tests", "work-compare", "work-ask", "work-reviews", "work-tasks", "work-task-toggle", "work-task-draft", "worktree-open", "worktree-terminal", "project-worktrees", "service-log", "service-ask",
-    "note-open", "note-clear", "calendar", "work-attention", "work-event", "work-unsnooze", "work-caught-up"
+    "note-open", "note-clear", "calendar", "work-attention", "work-event", "work-unsnooze", "work-caught-up", "work-health-controls", "work-backups"
 };
 // The drawer loads one page at a time, so a page read that waits on a dead service holds every other page behind it.
 int read_limit_seconds = 0;
@@ -2400,8 +2400,9 @@ bool work_project(const Json& config, const std::string& path) {
     for (const auto& p : projects(config)) if (p.path.string() == path) return true;
     return false;
 }
-void work_rows(const Json& config, const std::string& page, Json& rows) {
+void work_rows(const Json& config, const std::string& page, Json& rows, bool* observed = nullptr) {
     const auto data = work_data(config, page == "test-results", page == "work-history" || page == "work-digest");
+    if (observed) *observed = data.is_object();
     if (!data.is_object()) {
         auto row = item("work-open", "Work records are unavailable", "action", "Install desk-work to track jobs and test results", "info");
         row["enabled"] = false; rows.push_back(row); return;
@@ -4071,6 +4072,9 @@ Json view(const Json& config, const std::string& page, const std::string& query,
     Json out{{"id", page}, {"title", page}, {"items", Json::array()}, {"ok", true}, {"group", group_for(config, page)}};
     auto& rows = out["items"];
     auto fail = [&](const std::string& message) { out["ok"] = false; out["error"] = message; };
+    const auto work_note = [&](const std::string& label, const std::string& detail = std::string(), const std::string& icon = "info") {
+        auto row = item("work-health-info", label, "action", detail, icon); row["enabled"] = false; rows.push_back(row);
+    };
     bool known = false;
     if (page == "root") {
         known = true; out["title"] = text(config, "title", "Linux_Theme");
@@ -4175,7 +4179,7 @@ Json view(const Json& config, const std::string& page, const std::string& query,
     if (page == "jobs" || page == "test-results" || page == "reviews" || page == "attention" || page == "next-steps" || page == "failures" || page == "work-history" || page == "work-digest" || page == "attention-snoozed") {
         known = true;
         out["title"] = page == "work-history" ? "Project timeline" : page == "work-digest" ? "Since you last looked" : page == "attention-snoozed" ? "Snoozed items" : page == "attention" ? "Needs you" : page == "jobs" ? "Jobs" : page == "test-results" ? "Test results" : page == "reviews" ? "Changes to look over" : page == "next-steps" ? "Pinned next steps" : "Failures";
-        work_rows(config, page, rows);
+        bool observed = false; work_rows(config, page, rows, &observed); out["workObserved"] = observed;
     } else if (page == "worktrees") {
         known = true; out["title"] = "Worktree map";
         if (!project_scope.empty() && !work_project(config, project_scope)) fail("This project is no longer in your index cards");
@@ -4520,8 +4524,24 @@ Json view(const Json& config, const std::string& page, const std::string& query,
     } else if (page == "storage") {
         known = true; out["title"] = "Storage";
         storage_rows(rows);
+    } else if (page == "work-health") {
+        known = true; out["title"] = "Work health";
+        Json health; const bool observed = capture_json({"desk-work", "health"}, health) && health.is_object() && health.value("checks", Json()).is_array();
+        out["workObserved"] = observed;
+        if (observed) for (const auto& check : health["checks"]) {
+            rows.push_back(heading(text(check, "label")));
+            for (const auto& line : lines(text(check, "detail"))) work_note(line, "", "info");
+        }
+        else work_note("Health details are unavailable", "Build and install the current desk-work backend");
+        rows.push_back(item("work-health-controls", "Open recovery and backup controls", "action", "Review update details in Neovim before acting", "system"));
     } else if (page == "backups") {
         known = true; out["title"] = "Backups";
+        Json work_backups;
+        if (capture_json({"desk-work", "integrations", "backups"}, work_backups) && work_backups.is_object()) {
+            rows.push_back(heading("work integration backups"));
+            work_note(std::to_string(work_backups.value("transactions", Json::array()).size()) + " transactions", std::to_string(work_backups.value("bytes", 0ULL) / 1024) + " KiB · rollback chains are retained");
+            rows.push_back(item("work-backups", "Preview update backup cleanup", "action", "Review eligible backups before confirming removal in Neovim", "folder"));
+        }
         backup_rows(rows);
     } else if (page == "startup") {
         known = true; out["title"] = "Startup";
@@ -4631,6 +4651,8 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         if (!work_project(config, arg)) return result(false, "Project is no longer in your configured project roots");
         return launch({"desk-work", "open", "--action", "tasks", "--root", arg}, "Project next steps opened");
     }
+    if (id == "work-health-controls" || id == "work-backups")
+        return launch({"desk-work", "open", "--action", id == "work-backups" ? "backups" : "health"}, "Opened work controls");
     if (id == "work-reviews" || id == "work-attention" || id == "work-task-toggle" || id == "work-task-draft" || id == "work-event" || id == "work-unsnooze" || id == "work-caught-up") {
         const auto value = Json::parse(arg, nullptr, false);
         if (!value.is_object() || !work_project(config, text(value, "root"))) return result(false, "This project is no longer in your index cards");

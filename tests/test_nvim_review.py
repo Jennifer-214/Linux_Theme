@@ -125,7 +125,7 @@ assert(vim.bo[buf].modified and content(buf) == 'local unsaved = 7', 'review cha
 assert(vim.fn.maparg('q','n') == '' and vim.fn.maparg(']f','n') == '')
 ''')
 
-    def test_native_quit_and_close_leave_the_whole_review_once(self):
+    def test_native_quit_closes_the_diff_but_only_hides_a_sidebar(self):
         self.run_lua(r'''
 vim.cmd.edit(root .. '/a.lua')
 local origin,source=api.nvim_get_current_win(),api.nvim_get_current_buf()
@@ -137,12 +137,79 @@ for _,command in ipairs({'quit','quit!','close','tabclose','bdelete','bwipeout'}
     api.nvim_set_current_win(r[side])
     vim.v.errmsg=''
     vim.cmd(command)
-    assert(vim.wait(300,function()return R.current==nil end,10),command..' left a partial review behind')
+    if side=='panel_win' and command~='tabclose' then
+      assert(vim.wait(300,function()return not api.nvim_win_is_valid(r.panel_win) end,10),command..' left a deleted sidebar window behind')
+      assert(R.current==r and api.nvim_win_is_valid(r.left_win) and api.nvim_win_is_valid(r.right_win),'hiding a sidebar closed the diff')
+      C.close()
+    else
+      assert(vim.wait(300,function()return R.current==nil end,10),command..' left a partial review behind')
+    end
     assert(api.nvim_get_current_win()==origin and api.nvim_win_is_valid(origin),'quit closed the editing window')
     assert(vim.bo[source].modified and content(source):find('unsaved = 7',1,true),'quit lost unsaved work')
     assert(vim.v.errmsg=='','quit produced an error: '..vim.v.errmsg)
   end
 end
+''')
+
+    def test_sidebar_toggle_and_reselection_preserve_diff_buffers_focus_folds_and_reading_positions(self):
+        self.run_lua(r'''
+vim.cmd.edit(root..'/a.lua')
+local origin,source=api.nvim_get_current_win(),api.nvim_get_current_buf()
+api.nvim_buf_set_lines(source,0,1,false,{'local unsaved = 7'})
+local neo_calls=0
+local neo_win
+vim.keymap.set('n','<leader>e',function()
+  neo_calls=neo_calls+1
+  if neo_win and api.nvim_win_is_valid(neo_win) then api.nvim_win_close(neo_win,false);return end
+  local here=api.nvim_get_current_win()
+  vim.cmd('topleft vsplit');neo_win=api.nvim_get_current_win()
+  local tree=api.nvim_create_buf(false,true);api.nvim_win_set_buf(neo_win,tree);vim.bo[tree].filetype='neo-tree'
+  vim.wo[neo_win].winfixwidth=true;api.nvim_win_set_width(neo_win,16)
+  api.nvim_set_current_win(here)
+end,{desc='Neo-tree fixture'})
+local before,after={},{}
+for i=1,100 do before[i]='-- line '..i;after[i]=before[i] end
+after[50]='-- changed line'
+local pair={table.concat(before,'\n'),table.concat(after,'\n')}
+C.open_review({kind='external',sid='toggle-fixture',short='toggle fixture',files={root..'/a.lua',root..'/added.txt'},
+  snapshots={[root..'/a.lua']=pair,[root..'/added.txt']=pair}},root)
+local r=R.current
+vim.fn.maparg('<Space>e','n',false,true).callback()
+assert(neo_calls==1 and api.nvim_win_is_valid(r.panel_win),'review mappings replaced the normal Neo-tree binding')
+assert(type(vim.fn.maparg('<Space>re','n',false,true).callback)=='function','the review toggle has no separate binding')
+api.nvim_set_current_win(r.right_win);vim.cmd('normal! zR');api.nvim_win_set_cursor(r.right_win,{40,0})
+local left,right,tab=r.left_buf,r.right_buf,r.tab
+local width=api.nvim_win_get_width(r.right_win)
+local tree_width=api.nvim_win_get_width(neo_win)
+assert(R.hide_panel())
+assert(R.current==r and not api.nvim_win_is_valid(r.panel_win) and api.nvim_get_current_win()==r.right_win)
+assert(api.nvim_win_get_width(neo_win)==tree_width,'review layout resized the independent tree')
+assert(api.nvim_win_get_width(r.right_win)>width,'hiding the list did not give the diff its room')
+assert(api.nvim_win_get_cursor(r.right_win)[1]==40 and vim.fn.foldclosed(1)==-1,'hiding the list changed the reading position or folds')
+assert(R.show_panel(true) and api.nvim_get_current_win()==r.panel_win)
+local selected=api.nvim_win_get_cursor(r.panel_win)
+vim.fn.maparg('q','n',false,true).callback()
+assert(R.current==r and not api.nvim_win_is_valid(r.panel_win),'q in the file list closed the comparison')
+assert(api.nvim_get_current_win()==r.right_win,'hiding the list lost the previous diff side')
+R.toggle_panel()
+assert(api.nvim_get_current_win()==r.panel_win and api.nvim_win_get_cursor(r.panel_win)[1]==selected[1],'showing the list lost its selection')
+api.nvim_set_current_win(r.right_win)
+R.select(1);R.select(1,true)
+assert(r.left_buf==left and r.right_buf==right,'reselecting unchanged content rebuilt the diff')
+assert(api.nvim_win_get_cursor(r.right_win)[1]==40 and vim.fn.foldclosed(1)==-1,'reselection reset cursor or fold state')
+R.select(2);api.nvim_win_set_cursor(r.right_win,{70,0});R.select(1)
+assert(api.nvim_win_get_cursor(r.right_win)[1]==40,'returning to a file lost its reading position')
+R.show_panel(true);vim.cmd('bdelete')
+assert(vim.wait(300,function()return not api.nvim_win_is_valid(r.panel_win) end,10),'deleting the file-list buffer did not hide it')
+R.toggle_panel()
+assert(R.current==r and api.nvim_win_is_valid(r.panel_win) and api.nvim_win_is_valid(r.left_win),'the file list did not reopen after buffer deletion')
+assert(type(vim.fn.maparg('q','n',false,true).callback)=='function','the reopened list lost its mappings')
+assert(r.tab==tab and #api.nvim_list_tabpages()==2,'toggling created another comparison')
+api.nvim_set_current_win(r.right_win);vim.fn.maparg('<Space>e','n',false,true).callback()
+vim.wait(50,function()return R.current==nil end,5)
+assert(R.current==r and not api.nvim_win_is_valid(neo_win),'closing an independent tree closed the comparison')
+C.close()
+assert(api.nvim_get_current_win()==origin and vim.bo[source].modified,'toggling lost the original unsaved editor')
 ''')
 
     def test_working_changes_include_renames_untracked_files_and_unsaved_drafts(self):

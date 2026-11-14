@@ -1,13 +1,48 @@
-J client_loaded(const std::string& client, const std::string& build, long long pid) {
+J report_client(const std::string& client, const std::string& build, long long pid, const std::string& root, const J& fields) {
     const auto process = proc_stamp(pid);
     if (!std::regex_match(client, std::regex("[a-z][a-z0-9_-]{0,31}")) || build.size() > 80 || process.empty()) return J{{"ok", false}};
-    const auto record = J{{"client", client}, {"build", build}, {"pid", pid}, {"process", process}, {"at", now()}};
-    return J{{"ok", atomic(base() / "clients" / (hash(client + ':' + std::to_string(pid)) + ".json"), record.dump())}};
+    const auto key = hash(client + ':' + std::to_string(pid) + (root.empty() ? "" : ':' + root));
+    Lock lock(base() / "clients" / (key + ".lock")); if (lock.fd < 0) return J{{"ok", false}};
+    const auto path = base() / "clients" / (key + ".json");
+    auto record = json(path);
+    if (!record.is_object() || str(record, "process") != process) record = J::object();
+    for (const auto& [name, value] : fields.items()) {
+        if (name == "stream") {
+            if (!value.is_string() || !std::set<std::string>{"starting", "connected", "retrying", "stopped", "polling"}.count(value.get<std::string>())) return J{{"ok", false}};
+        } else if (name == "refreshError" || name == "watchProcess") {
+            if (!value.is_string() || value.get<std::string>().size() > 240) return J{{"ok", false}};
+        } else if (name == "eventAt" || name == "refreshAt" || name == "retryAt" || name == "watchPid") {
+            if (!value.is_number_integer() || value.get<long long>() < 0 || (name != "watchPid" && value.get<long long>() > now() + 86400)) return J{{"ok", false}};
+        } else return J{{"ok", false}};
+        record[name] = value;
+    }
+    record.update(J{{"client", client}, {"build", build}, {"root", root}, {"pid", pid}, {"process", process}, {"at", now()}});
+    return J{{"ok", atomic(path, record.dump())}};
+}
+J client_loaded(const std::string& client, const std::string& build, long long pid) {
+    return report_client(client, build, pid, "", J::object());
+}
+J live_clients() {
+    J clients = J::array(); std::error_code ec;
+    for (const auto& file : fs::directory_iterator(base() / "clients", ec)) {
+        if (file.path().extension() != ".json") continue;
+        auto record = json(file.path());
+        if (!record.is_object() || str(record, "process").empty() || proc_stamp(num(record, "pid")) != str(record, "process")) continue;
+        if (str(record, "stream") == "connected" && num(record, "watchPid") > 0 && proc_stamp(num(record, "watchPid")) != str(record, "watchProcess"))
+            record["stream"] = "retrying";
+        record["refreshState"] = !str(record, "refreshError").empty() ? "failed" : num(record, "refreshAt") > 0 ? "current" : "unverified";
+        record.erase("process"); record.erase("watchProcess");
+        clients.push_back(record);
+    }
+    return clients;
 }
 J integration_status(const std::string& client, const std::string& loaded, bool full = true) {
     const auto manifest = json(base() / "integrations/current.json");
+    const auto backups = desk_install::work_updates::inventory(base() / "integrations", full);
+    const auto pending = backups["pending"];
     if (!manifest.is_object() || !manifest.value("clients", J()).is_object())
-        return J{{"status", "unverified"}, {"message", "Integration versions have not been recorded yet"}};
+        return J{{"status", pending.empty() ? "unverified" : "interrupted"}, {"message", pending.empty() ? "Integration versions have not been recorded yet" : "An unfinished update needs inspection or recovery"},
+            {"pending", pending}, {"backups", backups}, {"clients", full ? live_clients() : J::array()}};
     J installed_changed = J::array(), source_changed = J::array(), sessions = J::array();
     if (full) {
         for (const auto& row : manifest.value("files", J::array())) {
@@ -24,16 +59,18 @@ J integration_status(const std::string& client, const std::string& loaded, bool 
             if (hash(read(str(row, "path"), 64 * 1024 * 1024)) != str(row, "hash")) source_changed.push_back(row["path"]);
     }
     const auto versions = manifest["clients"];
+    auto clients = full ? live_clients() : J::array();
+    for (auto& record : clients) {
+        const auto token = str(record, "build"), expected = str(versions, str(record, "client").c_str());
+        record["loadedStatus"] = token.empty() || token == "development" || expected.empty() ? "unverified" : token == expected ? "current" : "reload-pending";
+    }
     const auto add = [&](const std::string& name, const std::string& token, long long pid) {
         const auto expected = str(versions, name.c_str());
         sessions.push_back(J{{"client", name}, {"pid", pid}, {"loaded", token}, {"installed", expected},
             {"status", token.empty() || token == "development" || expected.empty() ? "unverified" : token == expected ? "current" : "reload-pending"}});
     };
     if (full) {
-        std::error_code ec;
-        for (const auto& file : fs::directory_iterator(base() / "clients", ec)) {
-            const auto record = json(file.path());
-            if (!record.is_object() || str(record, "process").empty() || proc_stamp(num(record, "pid")) != str(record, "process")) continue;
+        for (const auto& record : clients) {
             add(str(record, "client"), str(record, "build"), num(record, "pid"));
         }
         for (const auto& agent : agents()) add(str(agent, "agent") == "claude" ? "notebook" : str(agent, "agent"), str(agent, "build"), num(agent, "pid"));
@@ -49,6 +86,52 @@ J integration_status(const std::string& client, const std::string& loaded, bool 
     }
     if (!source_changed.empty()) { state = "update-available"; message = "Repository changes have not been installed"; }
     if (!installed_changed.empty()) { state = "modified"; message = "Installed integration files differ from the recorded update"; }
+    if (!pending.empty()) {
+        const bool interrupted = std::any_of(pending.begin(), pending.end(), [](const J& item) { return item.value("interrupted", false); });
+        state = interrupted ? "interrupted" : "updating";
+        message = interrupted ? "An interrupted update needs recovery before another update can start" : "An integration update is still running";
+    }
     return J{{"status", state}, {"message", message}, {"bundle", str(manifest, "bundle")}, {"installed", expected},
-        {"loaded", loaded}, {"installedChanged", installed_changed}, {"sourceChanged", source_changed}, {"sessions", sessions}};
+        {"loaded", loaded}, {"installedChanged", installed_changed}, {"sourceChanged", source_changed}, {"sessions", sessions},
+        {"clients", clients}, {"pending", pending}, {"backups", backups}};
+}
+std::string health_time(long long at) {
+    if (at <= 0) return "not reported";
+    const std::time_t value = at; const auto local = std::localtime(&value); char text[64]{};
+    if (local) std::strftime(text, sizeof(text), "%Y-%m-%d %H:%M:%S", local);
+    return text;
+}
+J integration_health() {
+    auto health = integration_status("", "", true);
+    J checks = J::array(), alerts = J::array();
+    if (std::set<std::string>{"modified", "update-available", "interrupted", "updating", "reload-pending"}.count(str(health, "status"))) alerts.push_back(str(health, "message"));
+    checks.push_back(J{{"id", "versions"}, {"label", str(health, "message")}, {"detail", "Installed and reported loaded versions · " + str(health, "status")}});
+    for (const auto& client : health.value("clients", J::array())) {
+        const auto name = str(client, "client"), root = str(client, "root");
+        std::string detail = "Stream: " + str(client, "stream", "not reported") + "\nLoaded: " + str(client, "loadedStatus", "unverified")
+            + "\nLast event: " + health_time(num(client, "eventAt")) + "\nLast refresh: " + health_time(num(client, "refreshAt"));
+        if (num(client, "retryAt") > 0) detail += "\nNext retry: " + health_time(num(client, "retryAt"));
+        if (!str(client, "refreshError").empty()) detail += "\n" + str(client, "refreshError");
+        if (str(client, "stream") == "retrying") alerts.push_back(name + ": live updates are reconnecting; polling may still refresh");
+        if (str(client, "stream") != "stopped" && !str(client, "refreshError").empty()) alerts.push_back(name + ": " + str(client, "refreshError"));
+        checks.push_back(J{{"id", name + ':' + std::to_string(num(client, "pid")) + ':' + hash(root)},
+            {"label", name + (root.empty() ? "" : " · " + fs::path(root).filename().string())}, {"detail", detail}});
+    }
+    for (const auto& item : health.value("pending", J::array())) {
+        const auto id = str(item, "transaction");
+        checks.push_back(J{{"id", "update:" + id}, {"label", item.value("active", false) ? "Update still running" : "Interrupted update"},
+            {"detail", str(item, "phase") + " · " + id + (str(item, "error").empty() ? "" : "\n" + str(item, "error"))},
+            {"transaction", id}, {"recoverable", !item.value("active", false)}});
+    }
+    const auto backups = health.value("backups", J::object());
+    if (!backups.value("complete", true)) {
+        alerts.push_back("Rollback history needs inspection; backups are retained");
+        checks.push_back(J{{"id", "backup-inspection"}, {"label", "Rollback history needs inspection"}, {"detail", "Cleanup retains every backup until the history can be fully inspected"}});
+    }
+    const auto bytes = backups.value("bytes", 0ULL);
+    checks.push_back(J{{"id", "backups"}, {"label", "Update backups"},
+        {"detail", std::to_string(backups.value("transactions", J::array()).size()) + " transactions · " + std::to_string(bytes / 1024) + " KiB\nRollback chains and unfinished updates are retained"}});
+    health["checks"] = checks;
+    health["alerts"] = alerts;
+    return health;
 }

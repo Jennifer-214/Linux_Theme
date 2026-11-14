@@ -21,10 +21,11 @@ export type AttentionItem = { id: string; kind: 'job' | 'agent' | 'request' | 'c
 export type AgentSession = { key: string; id: string; agent: string; name: string; root: string; project: string; state: string; busy: boolean; pane: string; canMessage: boolean; files: string[]; attribution: string }
 export type WorkEvent = { id: string; seq: number; kind: string; root: string; at: number; label: string; state?: string; file?: string; action: { kind: string; id?: string; file?: string } }
 export type WorkDigest = { total: number; files: number; through: number; truncated: boolean; counts: Record<string, number>; events: WorkEvent[]; summary?: string }
-export type WorkLook = { tests: WorkTest | null; tasks: WorkTask[]; jobs: WorkJob[]; failures?: WorkJob[]; review?: Record<string, ReviewProgress>; pending?: number; requests?: ReviewRequest[]; attention?: AttentionItem[]; agents?: AgentSession[]; revision?: string; timeline?: WorkEvent[]; digest?: WorkDigest; integration?: { status: string; message: string } }
+export type WorkHealth = { status: string; checks: { id: string; label: string; detail: string; transaction?: string; recoverable?: boolean }[] }
+export type WorkLook = { tests: WorkTest | null; tasks: WorkTask[]; jobs: WorkJob[]; failures?: WorkJob[]; review?: Record<string, ReviewProgress>; pending?: number; requests?: ReviewRequest[]; attention?: AttentionItem[]; agents?: AgentSession[]; revision?: string; timeline?: WorkEvent[]; digest?: WorkDigest; health?: WorkHealth; integration?: { status: string; message: string } }
 // A change request sent to a session about a file: waiting while the file is as it was, ready once it has changed.
 export type ReviewRequest = { file: string; name: string; sid: string; text: string; at: number; state: 'waiting' | 'ready' }
-export type NotebookView = { page: 'overview' | 'files' | 'project' | 'sessions' | 'help' | 'request' | 'timeline' | 'digest'; scope: 'session' | 'all'; selected: string; focused?: string; offset: number; form: 'none' | 'task' | 'plan' | 'step' | 'search' | 'snooze'
+export type NotebookView = { page: 'overview' | 'files' | 'project' | 'sessions' | 'help' | 'request' | 'timeline' | 'digest' | 'health'; scope: 'session' | 'all'; selected: string; focused?: string; offset: number; form: 'none' | 'task' | 'plan' | 'step' | 'search' | 'snooze'
   // The files page: which files to list, and a part of a name to find.
   show?: 'all' | 'unreviewed' | 'changed'; query?: string
   // The request page: which file's thread is open.

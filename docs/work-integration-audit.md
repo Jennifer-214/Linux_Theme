@@ -32,6 +32,9 @@ flowchart LR
 | Relevant tests | Captured commands, working folders, freshness and explanation; the existing supervisor executes explicit reruns |
 | Installed and loaded code | One native asset inventory, staged client stamps and a manifest; clients report what they loaded |
 | Scoped update and rollback | The installer deployment/backup helpers, exact preview token and later-edit guards |
+| Interrupted updates and cleanup | `desk-common/work_updates.hpp` owns transaction inventory and rollback-chain protection; the installer owns phase writes, recovery and previewed deletion |
+| Refresh diagnostics | Clients report observations through `desk-work client-report`; native health projects loaded versions, connection and refresh times without publishing invalidations |
+| Required checks | `tests/run_work_checks.py` is the local/CI runner; the verified SDK manifest owns engine/compiler pins and test declarations |
 | Compatibility commands | The existing alias table; scoped updates replace old copies with canonical links and preserve custom aliases |
 | Project resume | Native view records reference saved files; current buffers and terminal processes stay owned by Neovim |
 
