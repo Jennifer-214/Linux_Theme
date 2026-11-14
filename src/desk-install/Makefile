@@ -116,6 +116,7 @@ test: tests/test_fstab_tmp tests/test_boot_files tests/test_pam_file tests/test_
 	@./tests/test_fox_aliases
 	@./tests/test_workflow_deploy
 	@./tests/test_workflow_update
+	@./tests/test_resume_point
 	@bash ./tests/lint_shell_assets.sh
 	@bash ./tests/lint_unit_escaping.sh
 
@@ -132,6 +133,10 @@ test: tests/test_theme_choice tests/test_ide_settings tests/test_firefox_policie
 test: tests/test_private_extras tests/test_menu_upgrade tests/test_fox_aliases
 test: tests/test_workflow_deploy
 test: tests/test_workflow_update
+test: tests/test_resume_point
+
+tests/test_resume_point: tests/test_resume_point.cpp core/resume_point.hpp core/module.hpp
+	$(CXX) $(CXXFLAGS) $< -o $@
 
 tests/test_workflow_update: tests/test_workflow_update.cpp modules/workflow_update.hpp modules/workflow_assets.hpp modules/symlinks_data.hpp modules/menu_upgrade.hpp ../desk-common/work_updates.hpp core/backup.o $(DESK_COMMON_LIB) ../desk-render/desk-render-fast ../desk-work/desk-work ../desk-drawer/desk-drawer ../theme-check/theme-check $(BIN)
 	$(CXX) $(CXXFLAGS) $< core/backup.o -L$(DESK_COMMON_DIR) -ldesk-common -lcrypto -o $@

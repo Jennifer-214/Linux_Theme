@@ -11,6 +11,7 @@
 #include "core/hw_autoenable.hpp"
 #include "core/install_lock.hpp"
 #include "core/module.hpp"
+#include "core/resume_point.hpp"
 #include "core/state_manifest.hpp"
 #include "core/theme_choice.hpp"
 #include "core/wizard.hpp"
@@ -351,18 +352,20 @@ int main(int argc, char** argv) {
     fs::path state_file = ctx.home / ".local/share/foxml/install_state";
 
     // --resume: pick up where the last failed install left off. The
-    // dispatcher writes the just-completed module's index to
+    // dispatcher writes the just-completed module's slug to
     // state_file after each success and clears it on clean exit, so
-    // a non-empty state_file means "previous run failed at this index
-    // — resume at the NEXT module."
+    // a non-empty state_file means "previous run failed after this
+    // module — resume at the NEXT one."
     if (parsed.resume) {
         if (fs::exists(state_file)) {
             std::ifstream f(state_file);
-            int last_done = -1;
-            if (f >> last_done && last_done >= 0) {
-                ctx.resume_idx = last_done + 1;
-                ui::section("Resuming from module index " + std::to_string(ctx.resume_idx)
-                            + " (last success: " + std::to_string(last_done) + ")");
+            std::string saved;
+            std::getline(f, saved);
+            if (auto start = resume::start_after(saved, MODULES, MODULES_COUNT)) {
+                ctx.resume_idx = static_cast<int>(*start);
+                ui::section("Resuming after module '" + saved + "'");
+            } else {
+                ui::warn("--resume: saved point '" + saved + "' is not a module in this version — running from the top");
             }
         } else {
             ui::warn("--resume: no prior install_state file — running from the top");
@@ -631,7 +634,7 @@ int main(int argc, char** argv) {
             if (!ctx.dry_run) {
                 fs::create_directories(state_file.parent_path());
                 std::ofstream f(state_file);
-                f << i << std::endl;
+                f << resume::record(MODULES, i) << std::endl;
             }
 
             // Record per-module success in the state manifest. For
