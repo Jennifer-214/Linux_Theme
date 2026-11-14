@@ -2046,7 +2046,7 @@ print('0\t' + str(target))
         for moved in ("projects", "worktrees", "agents", "jobs", "test-results", "reviews", "next-steps", "failures", "models", "api-credits", "garden"):
             self.assertIn(moved, groups["workbench"])
         self.assertNotIn("api-tasks", [i for ids in groups.values() for i in ids], "asking lives on the one API page")
-        for look in ("wallpapers", "themes", "wallpaper-next", "wallpaper-sync", "earlier-notes", "brightness", "displays"):
+        for look in ("wallpapers", "themes", "wallpaper-next", "earlier-notes", "brightness", "displays"):
             self.assertIn(look, groups["comfort"])
         self.assertIn("calendar", groups["desk"])
         self.assertIn("color-picker", groups["desk"], "picking a colour collects it, like the clipboard")

@@ -315,11 +315,6 @@ int main(int argc, char** argv) {
             MODULES[detect_idx].fn(ctx);
             parsed.module_enabled[detect_idx] = false;
 
-            auto enable_slug = [&](const char* slug) {
-                int k = find_idx(slug);
-                if (k >= 0) parsed.module_enabled[k] = true;
-            };
-
             if (parsed.only && !parsed.full) {
                 // Explicit selection ([I-08]): never ADD hardware modules
                 // the user didn't ask for — detect used to sweep the whole
@@ -345,13 +340,10 @@ int main(int argc, char** argv) {
             } else {
                 // Default / --full: hardware modules mirror detection. Every gated one goes off — even under --full,
                 // so pam_fprintd is never wired on a box with no reader — then core/hw_autoenable.hpp says which the
-                // detected hardware turns back on (not greetd_fingerprint: it lacks its siblings' PAM gates).
-                for (const char* slug : hw_gated_slugs()) {
-                    int k = find_idx(slug);
-                    if (k >= 0) parsed.module_enabled[k] = false;
-                }
+                // detected hardware turns back on (not greetd_fingerprint: it lacks its siblings' PAM gates), and
+                // an explicit no (--no-<slug>, a preset's off) stays no.
                 const HwPresent hw{ctx.has_nvidia, ctx.has_amd_gpu, ctx.has_intel_gpu, ctx.has_fprint};
-                for (const char* slug : auto_enabled(hw)) enable_slug(slug);
+                mirror_detection(parsed.module_enabled, parsed.explicitly_disabled, hw, find_idx);
             }
         }
     }
@@ -612,6 +604,7 @@ int main(int argc, char** argv) {
         const int errs_before = ui::error_count();
         try {
             m.fn(ctx);
+            if (ctx.stop_code) { sh::log_section(std::string("/module: ") + m.slug + " (stopped the run)"); break; }
             sh::log_section(std::string("/module: ") + m.slug + " (ok)");
 
             // A module that printed err() but returned normally (the
@@ -745,6 +738,7 @@ int main(int argc, char** argv) {
                     "    • systemctl enable failures → sudo -v, then retry\n"
                     "    • module-specific errors → check the error line above\n");
     }
+    if (ctx.stop_code) return ctx.stop_code;
     if (!failed_modules.empty()) return 1;
     // A preview changes nothing, so nothing was left unfinished; the summary above still lists what it found.
     return (soft_error_modules.empty() || ctx.dry_run) ? 0 : EXIT_INCOMPLETE;

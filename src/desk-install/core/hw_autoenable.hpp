@@ -36,4 +36,18 @@ inline std::vector<const char*> auto_enabled(const HwPresent& hw) {
     return on;
 }
 
+// A default / --full run: every gated module goes off, then on for its hardware, except one the person refused
+// (--no-<slug>, a preset's off). find_idx maps a slug to its index in the vectors (-1: not registered).
+template <typename Find>
+inline void mirror_detection(std::vector<bool>& enabled, const std::vector<bool>& refused, const HwPresent& hw, Find find_idx) {
+    for (const char* slug : hw_gated_slugs()) {
+        const int k = find_idx(slug);
+        if (k >= 0 && k < static_cast<int>(enabled.size())) enabled[k] = false;
+    }
+    for (const char* slug : auto_enabled(hw)) {
+        const int k = find_idx(slug);
+        const bool no = k >= 0 && k < static_cast<int>(refused.size()) && refused[k];
+        if (k >= 0 && k < static_cast<int>(enabled.size()) && !no) enabled[k] = true;
+    }
+}
 }  // namespace desk_install

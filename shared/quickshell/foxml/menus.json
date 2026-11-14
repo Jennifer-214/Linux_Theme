@@ -83,8 +83,7 @@
         { "id": "earlier-notes", "label": "Earlier notes", "detail": "The notes that slipped by, newest first", "icon": "message", "kind": "page", "page": "earlier-notes", "keywords": ["notifications", "history", "missed", "mako"], "section": "notices" },
         { "id": "wallpapers", "label": "Wallpapers", "detail": "A different page beneath your windows", "icon": "❀", "kind": "page", "page": "wallpapers", "keywords": ["background", "picture"], "section": "look" },
         { "id": "themes", "label": "Themes", "detail": "Choose your paper and ink", "icon": "◐", "kind": "page", "page": "themes", "keywords": ["colors", "colours", "palette", "look"], "section": "look" },
-        { "id": "wallpaper-next", "label": "Next wallpaper", "detail": "Turn over a new leaf", "icon": "↝", "kind": "action", "close": true, "keys": "alt w", "keywords": ["background", "shuffle"], "section": "look" },
-        { "id": "wallpaper-sync", "label": "Colors from wallpaper", "detail": "Use this wallpaper as the palette, in a terminal", "icon": "◑", "kind": "action", "close": true, "keywords": ["palette", "colors", "colours"], "section": "look" }
+        { "id": "wallpaper-next", "label": "Next wallpaper", "detail": "Turn over a new leaf", "icon": "↝", "kind": "action", "close": true, "keys": "alt w", "keywords": ["background", "shuffle"], "section": "look" }
       ]
     },
     {

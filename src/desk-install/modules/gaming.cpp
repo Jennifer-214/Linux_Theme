@@ -34,8 +34,8 @@ static bool enable_multilib() {
     int rc = sh::run({"sudo", "sed", "-i", MULTILIB_UNCOMMENT_SED,
                       "/etc/pacman.conf"});
     if (rc != 0) return false;
-    // Refresh pacman's db so the newly-enabled repo's packages resolve.
-    sh::run({"sudo", "pacman", "-Sy"});
+    // Sync the newly enabled repo with a full upgrade: -Sy alone is a partial upgrade, which Arch does not support.
+    sh::run({"sudo", "pacman", "-Syu", "--noconfirm"});
     return true;
 }
 

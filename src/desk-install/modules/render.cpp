@@ -94,17 +94,19 @@ void run_render(Context& ctx) {
     if (!drifted.empty()) {
         ui::warn("live ~/.config edits detected — re-render will overwrite them:");
         for (auto& p : drifted) ui::substep(p.string());
-        ui::substep("capture them into templates first: ./update.sh");
+        ui::substep("see what they change: ./update.sh (it only shows; move what you keep into templates/)");
         ui::substep("or pass --full to overwrite without this prompt");
         if (sh::dry_run() || ctx.force_reapply) {
             // dry-run: previewing only, never abort; --full: explicit override.
             if (ctx.force_reapply) ui::warn("--full set — overwriting anyway");
         } else if (ctx.assume_yes || !ui::tty()) {
             ui::err("aborting render to protect live edits (re-run with --full to overwrite)");
-            std::exit(2);
+            ctx.stop_code = 2;
+            return;
         } else if (!ui::ask_yn("Overwrite these live edits and continue?", false, ctx.assume_yes)) {
-            ui::err("render cancelled — run ./update.sh to keep your edits");
-            std::exit(2);
+            ui::err("render cancelled — ./update.sh shows your edits, to move into templates/");
+            ctx.stop_code = 2;
+            return;
         }
     }
 

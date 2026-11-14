@@ -60,8 +60,14 @@ struct Context {
     // reported as success — the silent-partial-deploy trap).
     bool render_ran = false;
     bool render_ok  = false;
-    // Set when a theme file could not be deployed: the desktop is not fully on this theme, so don't record it as active.
+    // Set when a theme file could not be deployed (the run is incomplete).
     bool deploy_failed = false;
+    // Set when the rendered configs themselves were not deployed: the desktop is still on the old theme, so the theme
+    // name is not saved. A greeter, drawer or integration failure leaves the desktop on the new one.
+    bool configs_failed = false;
+    // A module that stops the whole run (render, protecting live edits) sets the exit code here; the modules after it
+    // do not run, and the manifest still records the ones before it.
+    int stop_code = 0;
 
     // Hardware detection (filled by the detect module).
     bool has_nvidia   = false;

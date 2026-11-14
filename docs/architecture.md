@@ -44,7 +44,7 @@ shared/                    non-color files copied as-is (keybinds, scripts)
 src/                       C++ orchestrator + tools
 
 install.sh                 wrapper → builds + execs desk-install
-update.sh                  reverse-renders system configs → templates
+update.sh                  shows how deployed configs differ from the templates
 swap.sh                    interactive theme switcher
 ```
 

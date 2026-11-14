@@ -86,7 +86,8 @@ void run_drawer(Context& ctx) {
         bool sectioned = false;
         const auto resorted = menu_upgrade::resection(menu, shipped, offered, sectioned);
         const auto added = menu_upgrade::offer(menu, shipped, offered, !seen.is_array());
-        if (relaid || sectioned || !added.empty()) {
+        const bool retired = menu_upgrade::retire(menu);
+        if (relaid || sectioned || !added.empty() || retired) {
             const auto upgraded = output / "menus.upgraded.json";
             std::ofstream file(upgraded); file << menu.dump(2) << '\n'; file.close();
             if (!file) { incomplete("could not prepare the menu upgrade"); return; }
@@ -94,6 +95,7 @@ void run_drawer(Context& ctx) {
             std::string names;
             for (const auto& id : added) names += (names.empty() ? "" : ", ") + id;
             if (!added.empty()) ui::substep("drawer menu: added " + names);
+            if (retired) ui::substep("drawer menu: Colors from wallpaper removed (the palette it made was never used)");
             if (!moved.empty()) ui::substep("drawer menu: " + std::to_string(moved.size()) + " items moved to Workbench and Comfort (the new layout)");
             else if (relaid) ui::substep("drawer menu: shortcut labels and search words added");
             if (sectioned) ui::substep(resorted.empty() ? "drawer menu: tabs sorted under small headings"

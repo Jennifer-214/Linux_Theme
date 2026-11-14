@@ -4968,24 +4968,8 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         return command({"desk-wallpaper", "--set", arg}, "Wallpaper selected", false, "Could not set that wallpaper");
     }
     if (id == "wallpaper-next") return command({script("rotate_wallpaper.sh").string(), "--cycle"}, "Wallpaper changed", false, "Could not change the wallpaper");
-    if (id == "wallpaper-sync") {
-        fs::path wallpaper; std::error_code ec;
-        const auto current = fs::path(home()) / ".wallpapers/.current";
-        if (fs::is_symlink(current, ec)) {
-            auto target = fs::read_symlink(current, ec);
-            if (!ec) wallpaper = target.is_absolute() ? target : current.parent_path() / target;
-        }
-        if (!regular(wallpaper)) {
-            std::string query;
-            if (capture({"awww", "query"}, query)) for (const auto& line : lines(query)) {
-                const auto at = line.find("image:");
-                if (at != std::string::npos && regular(trim(line.substr(at + 6)))) { wallpaper = trim(line.substr(at + 6)); break; }
-            }
-        }
-        if (!regular(wallpaper)) return result(false, "Current wallpaper is unavailable");
-        if (!regular(script("generate_palette.sh"))) return result(false, "Palette generator is unavailable");
-        return terminal({"bash", script("generate_palette.sh").string(), wallpaper.string()}, "Wallpaper theme generation opened");
-    }
+    if (id == "wallpaper-sync")
+        return result(false, "Colors from wallpaper is gone: the palette it made was never one a theme could use. Themes has the palettes");
     if (id == "theme-set") {
         const auto available = themes();
         if (std::find(available.begin(), available.end(), arg) == available.end()) return result(false, "Unknown theme");

@@ -126,6 +126,15 @@ int main() {
           && renamed["groups"][0]["items"][1]["label"] == "Spend" && renamed["groups"][1]["items"][0]["id"] == "color-picker",
           "rows she renamed or moved herself stay as they are");
 
+    {
+        auto menu = nlohmann::json::parse(R"({"favorites":["comfort/wallpaper-sync","desk/apps"],"groups":[{"id":"comfort","label":"Comfort","items":[
+            {"id":"wallpaper-sync","label":"Colors from wallpaper","kind":"action"},{"id":"themes","label":"Themes","kind":"page","page":"themes"}]}]})");
+        check(retire(menu), "a retired row leaves the menu");
+        check(menu["groups"][0]["items"].size() == 1 && menu["favorites"].size() == 1 && menu["favorites"][0] == "desk/apps",
+              "its row and its favorite go; the rest stay");
+        check(!retire(menu), "a second pass changes nothing");
+    }
+
     std::printf("test_menu_upgrade: %d passed\n", passed);
     return failures ? 1 : 0;
 }

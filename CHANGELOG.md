@@ -64,6 +64,17 @@ in one file, with a context size and slot count per role. Codex replaces the Gem
 - The login screen is not enabled without a compositor to run it, and a fingerprint reader no longer switches on the
   greeter's fingerprint step by itself.
 - Your own repositories are cloned before the steps that read them.
+- An explicit no to a fingerprint step (`--no-sudo-fingerprint`, a preset's `off`) stays no when a reader is found.
+  On stock Arch PAM (`try_first_pass`) the fingerprint steps report themselves skipped instead of failing every run.
+- A swap that could not update the login screen (sudo cache cold) still saves the theme name, so a later tweak edits
+  the palette that is on screen. A render stopped to protect live edits still records the steps before it.
+- `./update.sh` shows how deployed configs differ from the templates, and writes nothing. It used to write live
+  configs back into the templates by swapping colours for tokens, which rewrote every template, edited or not.
+- "Colors from wallpaper" is gone from the drawer: the palette it made was never one a theme could use, and run from
+  the repo it started a full install. The menu upgrade removes its row from your menu.
+- Scripts are stored executable (the volume, brightness and microphone keys broke after a swap); old command names
+  are linked after the steps that lay their targets; Steam's repository is synced with a full upgrade; the sudo
+  keepalive ends with the installer; an ESP the user cannot read skips boot sync instead of stopping the install.
 
 ### Tests and tools
 

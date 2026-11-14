@@ -39,6 +39,21 @@ int main() {
     }
     expect("greetd_fingerprint is still gated off on every run", has(hw_gated_slugs(), "greetd_fingerprint"));
 
+    // An explicit no stays no: a reader turns on fprint and fprint_pam, not the sudo module the person refused.
+    {
+        const auto& slugs = hw_gated_slugs();
+        auto find = [&](const char* s) {
+            for (std::size_t i = 0; i < slugs.size(); ++i) if (std::string(slugs[i]) == s) return static_cast<int>(i);
+            return -1;
+        };
+        std::vector<bool> enabled(slugs.size(), true), refused(slugs.size(), false);
+        refused[find("sudo_fingerprint")] = true;
+        mirror_detection(enabled, refused, HwPresent{false, false, false, true}, find);
+        expect("a refused PAM module stays off when its reader is found", !enabled[find("sudo_fingerprint")]);
+        expect("the reader's other modules still come on", enabled[find("fprint")] && enabled[find("fprint_pam")]);
+        expect("a module without its hardware goes off", !enabled[find("nvidia")]);
+    }
+
     if (failed) { std::fprintf(stderr, "hw_autoenable tests: %d FAILED\n", failed); return 1; }
     std::printf("hw_autoenable tests: OK\n");
     return 0;

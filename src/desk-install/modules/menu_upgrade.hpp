@@ -17,6 +17,10 @@
 
 namespace desk_install::menu_upgrade {
 
+// Rows the drawer no longer has leave a menu; their actions stay known only so an older menu still loads. Colors
+// from wallpaper (2026-11-14) made a palette no theme could use.
+inline const std::set<std::string> RETIRED = {"wallpaper-sync"};
+
 // Pages shipped since offers were recorded; a machine without a record is offered only these.
 inline const std::set<std::string> FIRST_OFFER = {"screenshots", "models", "storage", "backups", "startup", "worktrees", "jobs", "test-results", "reviews", "attention", "work-history", "work-digest", "work-health", "next-steps", "failures",
                                                   "displays", "api-tasks", "api-credits", "calendar", "earlier-notes"};
@@ -24,6 +28,28 @@ inline const std::set<std::string> FIRST_OFFER = {"screenshots", "models", "stor
 inline std::string field(const nlohmann::json& object, const char* key) {
     if (!object.is_object() || !object.contains(key) || !object[key].is_string()) return {};
     return object[key].get<std::string>();
+}
+
+// Drops retired rows, and favorites naming them ("group/id"). Returns whether anything went.
+inline bool retire(nlohmann::json& menu) {
+    if (!menu.is_object()) return false;
+    bool changed = false;
+    if (menu.contains("groups") && menu["groups"].is_array())
+        for (auto& group : menu["groups"]) {
+            if (!group.is_object() || !group.contains("items") || !group["items"].is_array()) continue;
+            nlohmann::json kept = nlohmann::json::array();
+            for (const auto& row : group["items"]) if (!(row.is_object() && RETIRED.count(field(row, "id")))) kept.push_back(row);
+            if (kept.size() != group["items"].size()) { group["items"] = kept; changed = true; }
+        }
+    if (menu.contains("favorites") && menu["favorites"].is_array()) {
+        nlohmann::json kept = nlohmann::json::array();
+        for (const auto& favorite : menu["favorites"]) {
+            const auto named = favorite.is_string() ? favorite.get<std::string>() : std::string();
+            if (!(favorite.is_string() && RETIRED.count(named.substr(named.find('/') + 1)))) kept.push_back(favorite);
+        }
+        if (kept.size() != menu["favorites"].size()) { menu["favorites"] = kept; changed = true; }
+    }
+    return changed;
 }
 
 inline std::set<std::string> ids_in(const nlohmann::json& menu) {

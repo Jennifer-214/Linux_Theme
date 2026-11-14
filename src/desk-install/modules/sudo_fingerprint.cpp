@@ -170,7 +170,7 @@ void run_sudo_fingerprint(Context& ctx) {
     // a failed password attempt against faillock. Refuse to wire
     // fingerprint into sudo while that interaction is live.
     if (system_auth_has_try_first_pass()) {
-        ui::err("/etc/pam.d/system-auth pam_unix carries `try_first_pass`");
+        ui::skipped("fingerprint for sudo skipped: /etc/pam.d/system-auth's pam_unix carries `try_first_pass` (stock Arch)");
         ui::substep("adding pam_fprintd here would re-open the lockout cascade");
         ui::substep("fix: sudo sed -i 's|\\(pam_unix\\.so.*\\)\\btry_first_pass\\b|\\1|' /etc/pam.d/system-auth");
         ui::substep("then re-run with --sudo-fingerprint");

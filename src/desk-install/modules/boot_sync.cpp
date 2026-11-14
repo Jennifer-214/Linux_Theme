@@ -104,8 +104,15 @@ void run_boot_sync(Context& ctx) {
     // Skip only on hosts where systemd-boot loader entries are clearly
     // absent — GRUB / rEFInd / UKI users have their own mechanisms
     // (the kernel-install or grub-mkconfig hooks shipped with those).
-    bool has_systemd_boot_entries =
-        fs::exists("/boot/loader/entries") || fs::exists("/efi/loader/entries");
+    // An ESP the user cannot read (mounted dmask=0077) makes the plain fs::exists throw, which stopped every module
+    // after this one. Not knowing is a skip here, never a guess: this only decides whether to install the hook.
+    std::error_code boot_ec, efi_ec;
+    const bool boot_entries = fs::exists("/boot/loader/entries", boot_ec), efi_entries = fs::exists("/efi/loader/entries", efi_ec);
+    if (!boot_entries && !efi_entries && (boot_ec || efi_ec)) {
+        ui::warn("cannot read the boot loader folders as your user (" + (boot_ec ? boot_ec : efi_ec).message() + ") — boot sync skipped");
+        return;
+    }
+    bool has_systemd_boot_entries = boot_entries || efi_entries;
     if (!has_systemd_boot_entries) {
         ui::skipped("no systemd-boot loader entries (/boot/loader or /efi/loader) — "
                     "skipping (GRUB / rEFInd / UKI handle kernel copies via their own hooks)");

@@ -219,6 +219,7 @@ void run_symlinks(Context& ctx) {
                                ", failed " + std::to_string(failed);
     if (failed > 0) {
         ctx.deploy_failed = true;
+        ctx.configs_failed = true;
         ui::err(counts);
     } else {
         ui::ok(counts);

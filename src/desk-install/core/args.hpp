@@ -10,6 +10,7 @@ namespace desk_install::args {
 
 struct Parsed {
     std::vector<bool> module_enabled;     // size = MODULES_COUNT, indexed by module order
+    std::vector<bool> explicitly_disabled; // --no-<slug> or a preset's off: detection never turns these back on
     bool show_help    = false;
     bool show_version = false;
     bool quiet        = false;
