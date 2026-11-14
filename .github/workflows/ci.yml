@@ -20,14 +20,15 @@ jobs:
   desk-install:
     needs: pins
     runs-on: ${{ needs.pins.outputs.ubuntu }}
-    env:
-      CCACHE_DIR: ${{ runner.temp }}/ccache
     steps:
       - uses: actions/checkout@v4
       - run: sudo apt-get update && sudo apt-get install -y ccache g++ make libssl-dev jq
       - name: Name the compiler cache after this CPU model
         # -march=native objects are only safe to reuse on the same kind of CPU.
-        run: echo "CPU_KEY=$(grep -m1 'model name' /proc/cpuinfo | sha1sum | cut -c1-12)" >> "$GITHUB_ENV"
+        # The runner context exists only inside steps, so the cache folder is named here too.
+        run: |
+          echo "CPU_KEY=$(grep -m1 'model name' /proc/cpuinfo | sha1sum | cut -c1-12)" >> "$GITHUB_ENV"
+          echo "CCACHE_DIR=$RUNNER_TEMP/ccache" >> "$GITHUB_ENV"
       - name: Restore the compiler cache
         uses: actions/cache@v4
         with:
