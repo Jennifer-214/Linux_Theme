@@ -51,7 +51,8 @@ in one file, with a context size and slot count per role. Codex replaces the Gem
   interrupted update. Work health lists sessions still running older code, with the steps that reload each one
   without closing it.
 - **Catching up**: the review backlog can be set aside (it leaves what needs you and stays unreviewed in the review)
-  and brought back; the drawer folds commits to review into one row per project and opens in under a second.
+  and brought back; the drawer folds commits to review into one row per project and opens in under a second
+  (checkouts are read side by side). On a tall screen the drawer keeps one height for every page.
 - **Reliability**: every refusal says why; a work record that cannot be read is named, set aside by a previewed
   repair (`:WorkRepair`) and never overwritten; a burst of agent edits refreshes each view at most once a second,
   and a review of hundreds of changed files no longer stalls Neovim on each change.
@@ -84,6 +85,11 @@ in one file, with a context size and slot count per role. Codex replaces the Gem
 - Scripts are stored executable (the volume, brightness and microphone keys broke after a swap); old command names
   are linked after the steps that lay their targets; Steam's repository is synced with a full upgrade; the sudo
   keepalive ends with the installer; an ESP the user cannot read skips boot sync instead of stopping the install.
+- Found by a VM install: the boot-line check read an options line ending in `rw` (archinstall's) as broken, so
+  every IOMMU, AppArmor and nvidia edit was reverted; nothing installed USBGuard or AppArmor; the boot health checks
+  stopped the pre-flight on a /boot the user cannot read. All three are fixed.
+- The base packages (`deps`) are on by default, so the interactive wizard on a new PC installs them; a machine that
+  has every package skips the step.
 
 ### Tests and tools
 

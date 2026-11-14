@@ -16,8 +16,10 @@ DESK_MODULE( theme,       run_theme,         "--theme",       "Resolve / prompt 
 
 // ── Phase 1: package + system setup ───────────────────────────────
 //   deps — requires root (pacman) and network (downloads). state::check_deps
-//   probes a sentinel set of foundational packages; missing any → Update.
-DESK_MODULE_FULL( deps,    run_deps,          "--deps",        "Install pacman base packages",                     false,
+//   probes every base package in one query; missing any → Update, all present → Noop (skipped).
+//   On by default, so the plain wizard on a new PC installs packages (it used to skip them unless
+//   switched on; the VM run on 2026-11-14 found it). A set-up machine still skips it as Noop.
+DESK_MODULE_FULL( deps,    run_deps,          "--deps",        "Install pacman base packages",                     true,
                  /*root*/ true, /*gfx*/ false, /*net*/ true,
                  state::check_deps )
 DESK_MODULE( privacy,     run_privacy,       "--privacy",     "DNS-over-HTTPS via systemd-resolved",              true  )
