@@ -86,6 +86,13 @@ up ("Since you last looked this morning: 2 runs passed"). Opening a digest does 
 clear it. **Mark caught up** acknowledges its recorded sequence, so later arrivals remain new. Notebook, editor
 and desktop have separate reading positions; attention state and review marks remain shared.
 
+To catch up on a review backlog later, **set aside** the commits to review: from the drawer's **Needs you**, the
+notebook's needs-you page or `:WorkAttention`. They leave what needs you and stay unreviewed in the review, and
+**bring back** undoes it; nothing is stamped reviewed, and a commit made afterwards needs you as usual
+(`desk-work set-aside --root DIR`, or `--all yes` for every checkout in use). The drawer folds commits to review into
+one row per project, which opens that project's review. Checkouts that no longer exist, or had no commit or
+recorded activity in two weeks, stay registered but leave the desktop's lists.
+
 Select a notebook attention row and choose **later**, or use `:WorkSnooze`, to hide it for an hour or until it
 changes. The snooze is shared with the drawer and other clients. It never clears a failure, checks a file or
 settles a request. A new content version brings it back. `:WorkUnsnooze` and the drawer's **Snoozed items** bring

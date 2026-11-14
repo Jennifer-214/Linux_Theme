@@ -50,6 +50,8 @@ in one file, with a context size and slot count per role. Codex replaces the Gem
   modules, the notebook and the drawer without a full install, with backups, guarded rollback and recovery of an
   interrupted update. Work health lists sessions still running older code, with the steps that reload each one
   without closing it.
+- **Catching up**: the review backlog can be set aside (it leaves what needs you and stays unreviewed in the review)
+  and brought back; the drawer folds commits to review into one row per project and opens in under a second.
 - **Reliability**: every refusal says why; a work record that cannot be read is named, set aside by a previewed
   repair (`:WorkRepair`) and never overwritten; a burst of agent edits refreshes each view at most once a second,
   and a review of hundreds of changed files no longer stalls Neovim on each change.
