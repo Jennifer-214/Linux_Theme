@@ -116,7 +116,7 @@ Alternative themes have varying levels of completion; read the
 ```
 
 Edit files in `templates/` to keep changes across theme swaps. If you edited live
-configs, `./update.sh` can capture supported files back into templates. See the
+configs, `./update.sh` shows how they differ from the templates, to move by hand. See the
 [theming guide](docs/theming.md) for application paths and capture limitations.
 
 ## Everyday commands

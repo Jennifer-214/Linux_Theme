@@ -1156,6 +1156,15 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(self.invoke("run", "bluetooth-service")["close"], True)
         self.assertIn(["sudo", "systemctl", "enable", "--now", "bluetooth"], [call[-5:] for call in self.calls()])
 
+    def test_search_never_waits_on_bluetoothctl_while_bluetooth_is_stopped(self):
+        self.real("timeout")
+        self.state["exact"] = {"systemctl\x1fis-active\x1f--quiet\x1fbluetooth": {"exit": 3}}
+        self.state["commands"] = {"bluetoothctl": {"hang": True}}
+        started = time.monotonic()
+        self.invoke("view", "search", "wifi")
+        self.assertLess(time.monotonic() - started, 2)
+        self.assertFalse([call for call in self.calls() if call[0] == "bluetoothctl"])
+
     def test_a_hung_command_cannot_hold_a_page(self):
         self.real("timeout")
         self.state["commands"] = {"bluetoothctl": {"hang": True}}
@@ -1755,7 +1764,7 @@ class BackendTests(unittest.TestCase):
         listing = "fox-pulse.service enabled enabled\nfox-tripwire.service enabled enabled\n"
         self.state["exact"] = {
             "systemctl\x1f--user\x1flist-unit-files\x1f--state=enabled\x1f--type=service,timer\x1f--no-legend\x1f--plain": {"stdout": listing},
-            "systemctl\x1f--user\x1fis-active\x1ffox-pulse.service": {"stdout": "active\n"},
+            "systemctl\x1f--user\x1fis-active\x1ffox-pulse.service\x1ffox-tripwire.service": {"stdout": "active\ninactive\n"},
             "systemctl\x1flist-unit-files\x1f--state=enabled\x1f--type=service\x1f--no-legend\x1f--plain": {"stdout": "greetd.service enabled enabled\n"},
         }
         auto = self.home / ".config/autostart"; auto.mkdir(parents=True)
@@ -1764,6 +1773,10 @@ class BackendTests(unittest.TestCase):
         by = {(r["id"], r["label"]): r for r in rows}
         self.assertEqual(by[("startup-user", "fox-pulse.service")]["detail"], "running")
         self.assertIn("security watcher", by[("startup-user", "fox-tripwire.service")]["detail"])
+        self.assertIn("not running", by[("startup-user", "fox-tripwire.service")]["detail"])
+        self.assertEqual(len([c for c in self.calls() if c[:3] == ["systemctl", "--user", "is-active"]]), 1, "one is-active call answers for every unit")
+        self.invoke("view", "startup")
+        self.assertEqual(len([c for c in self.calls() if c[:2] == ["systemctl", "list-unit-files"]]), 1, "the system's list is read once a minute")
         self.assertFalse(by[("startup-system", "greetd.service")]["enabled"], "system services are listed, never switched here")
         self.failed("run", "startup-system", "greetd.service", "--confirm")
         self.failed("run", "startup-user", "fox-pulse.service")
@@ -2033,7 +2046,7 @@ print('0\t' + str(target))
         for moved in ("projects", "worktrees", "agents", "jobs", "test-results", "reviews", "next-steps", "failures", "models", "api-credits", "garden"):
             self.assertIn(moved, groups["workbench"])
         self.assertNotIn("api-tasks", [i for ids in groups.values() for i in ids], "asking lives on the one API page")
-        for look in ("wallpapers", "themes", "wallpaper-next", "wallpaper-sync", "earlier-notes", "brightness", "displays"):
+        for look in ("wallpapers", "themes", "wallpaper-next", "earlier-notes", "brightness", "displays"):
             self.assertIn(look, groups["comfort"])
         self.assertIn("calendar", groups["desk"])
         self.assertIn("color-picker", groups["desk"], "picking a colour collects it, like the clipboard")

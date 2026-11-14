@@ -150,7 +150,7 @@ void run_fprint_pam(Context& ctx) {
     // `try_first_pass`. With it, the empty fprintd token is counted as a
     // failed password and faillock locks the account. Refuse outright.
     if (system_auth_has_try_first_pass()) {
-        ui::err("/etc/pam.d/system-auth pam_unix carries `try_first_pass`");
+        ui::skipped("fingerprint login skipped: /etc/pam.d/system-auth's pam_unix carries `try_first_pass` (stock Arch)");
         ui::substep("splicing pam_fprintd into the login stack would re-open the lockout cascade");
         ui::substep("fix: sudo sed -i 's|\\(pam_unix\\.so.*\\)\\btry_first_pass\\b|\\1|' /etc/pam.d/system-auth");
         ui::substep("then re-run with --fprint-pam");

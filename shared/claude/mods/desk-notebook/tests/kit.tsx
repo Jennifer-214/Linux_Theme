@@ -53,7 +53,7 @@ export function fakeFs(on: On, files: Record<string, string>, mtimes: Record<str
 }
 
 // Nothing sits beneath the plugin in a test: these stand for the engine and the machine.
-export function engine(on: On, options: { pane?: string; pushNotes?: unknown; pushCheck?: unknown; ci?: unknown[]; bash?: (command: string) => unknown; runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; finished?: () => unknown; credits?: unknown; trees?: unknown; readIds?: { id: string; at: number }[]; delivery?: boolean; gitFailure?: { value: boolean }; compact?: boolean; agents?: unknown[]; refusals?: Record<string, string>; watchBurst?: number } = {}) {
+export function engine(on: On, options: { pane?: string; pushNotes?: unknown; pushCheck?: unknown; ci?: unknown[]; bash?: (command: string) => unknown; runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; finished?: () => unknown; credits?: unknown; trees?: unknown; readIds?: { id: string; at: number }[]; delivery?: boolean; gitFailure?: { value: boolean }; compact?: boolean; agents?: unknown[]; refusals?: Record<string, string>; watchBurst?: number; percent?: number | null; changes?: { status: string; numstat: string } } = {}) {
   let pinned: { file: string; step: string } | null = null
   let workspace: Record<string, unknown> | null = null
   let paneOpen = false
@@ -76,7 +76,7 @@ export function engine(on: On, options: { pane?: string; pushNotes?: unknown; pu
   on('session.repo', () => ({ value: { root: '/code/paper', remote: null, internal: false, name: null } }))
   on('session.id', () => ({ value: 'abc' }))
   on('session.turns', () => ({ value: 3 }))
-  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200000, percent: 64 }, rateLimits: [] } }))
+  on('session.usage', () => ({ value: { startedAt: 0, context: { window: 200000, percent: options.percent === null ? undefined : options.percent ?? 64 }, rateLimits: [] } }))
   on('process.run', (_, e) => {
     const argv = e.argv.join(' ')
     seen.argv.push(argv)
@@ -121,6 +121,8 @@ export function engine(on: On, options: { pane?: string; pushNotes?: unknown; pu
     if (argv === 'desk-drawer claude-peers') return { value: done(PEERS) }
     if (argv.startsWith('desk-drawer run claude-jump')) return { value: done('{"ok":true}') }
     if (argv.includes('status') && !argv.includes('--no-optional-locks')) return { value: { ...done(''), exitCode: 9 } }
+    if (options.changes && argv.includes('status') && e.argv.includes('-z')) return { value: done(options.changes.status) }
+    if (options.changes && argv.includes('numstat')) return { value: done(options.changes.numstat) }
     if (argv.includes('status') && e.argv.includes('-z')) return { value: done(' M shared/a very long folder/notes.txt\0 M README.md\0') }
     if (argv.includes('status')) return { value: done('## main...origin/main\n M a.txt\n') }
     if (argv.includes('numstat')) return { value: done('12\t3\tshared/a very long folder/notes.txt\u00001\t0\tREADME.md\0') }

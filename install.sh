@@ -174,7 +174,9 @@ if [[ -t 0 ]] || [[ "${1:-}" == *"--yes"* ]] || [[ "${ASSUME_YES:-0}" == "1" ]];
     # of the cascading "sudo cache cold" failures users hit when their
     # fingerprint-for-sudo wiring wasn't in /etc/pam.d/sudo.
     if sudo -v; then
-        ( while true; do sudo -n true 2>/dev/null || exit; sleep 50; done ) &
+        # $$ stays the installer's PID through the exec at the end, which drops the EXIT trap below: the loop ends
+        # when the installer does, instead of keeping root warm in this terminal.
+        ( while sleep 50 && kill -0 "$$" 2>/dev/null; do sudo -n true 2>/dev/null || exit; done ) &
         SUDO_KEEPALIVE_PID=$!
         trap 'kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true' EXIT
     else

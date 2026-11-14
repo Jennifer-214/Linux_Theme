@@ -423,6 +423,7 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
     // selected module might fail (no palette, no hardware info).
     // An explicit --no-<slug> outranks this convenience re-enable —
     // otherwise --no-preflight is accepted but silently ignored.
+    out.explicitly_disabled = explicitly_disabled;
     if (provided_explicit_module) {
         static const char* REQ[] = { "detect", "preflight", "theme", nullptr };
         for (auto** s = REQ; *s; ++s) {

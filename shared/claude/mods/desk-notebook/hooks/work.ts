@@ -198,12 +198,18 @@ export function filterFiles<T extends { path: string }>(files: T[], states: Map<
     return wanted === '' || f.path.toLowerCase().includes(wanted)
   })
 }
-// A left text and a right text on one line of `width`: the right one keeps its place, the left one gives way.
-export function spread(left: string, right: string, width: number): string {
-  if (right === '') return left.length > width ? left.slice(0, Math.max(1, width - 1)) + '…' : left
-  const room = Math.max(4, width - right.length - 1)
+// A left text and a right text on one line of `width`: the right one keeps its place (up to half the line; past that
+// it is cut too), the left one gives way. The two parts come back apart, so each can have its own colour.
+export function sides(left: string, right: string, width: number): [string, string] {
+  if (right === '') return [left.length > width ? left.slice(0, Math.max(1, width - 1)) + '…' : left, '']
+  const half = Math.max(4, Math.floor(width / 2))
+  const side = right.length > half ? right.slice(0, half - 1) + '…' : right
+  const room = Math.max(4, width - side.length - 1)
   const shown = left.length > room ? left.slice(0, room - 1) + '…' : left
-  return shown + ' '.repeat(Math.max(1, width - shown.length - right.length)) + right
+  return [shown + ' '.repeat(Math.max(1, width - shown.length - side.length)), side]
+}
+export function spread(left: string, right: string, width: number): string {
+  return sides(left, right, width).join('')
 }
 // A group's rule line, to symdeps' menu rules: " ── label ─────── right ──".
 export function ruleLine(label: string, right: string, width: number): string {

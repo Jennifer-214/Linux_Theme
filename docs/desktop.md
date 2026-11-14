@@ -219,7 +219,7 @@ installer preserves this file and refreshes `menus.default.json` separately.
 The supported item kinds are `page`, `action`, `toggle`, and `slider`; action IDs
 refer to the backend's built-in operations. Palette colors come from
 `templates/quickshell/desk/Theme.qml`. The old `FOXML_MENU_LEGACY` desktop-menu
-override is retired. Fox tools, Shortcut reference and Disposable sandbox are
+override is retired. Desk tools, Shortcut reference and Disposable sandbox are
 ordinary drawer pages, and their shortcuts open those pages. The Shortcut reference (read from `KEYBINDS.md`)
 opens on its books (Desktop, The drawer, Terminal (tmux), Commands, Neovim); each book lists what a shortcut
 does under its section headings, with the keys drawn as caps, and Enter copies them. Typing searches every

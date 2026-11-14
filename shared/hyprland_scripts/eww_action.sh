@@ -46,15 +46,6 @@ case "$action" in
         ~/.config/hypr/scripts/rotate_wallpaper.sh --cycle
         ;;
 
-    sync_theme)
-        current_wp="$(awww query 2>/dev/null | awk '/currently displaying/ {print $NF}')"
-        if [[ -f "$current_wp" ]]; then
-            ~/.config/hypr/scripts/generate_palette.sh "$current_wp"
-        else
-            notify-send "Auto-Theme" "Could not detect current wallpaper."
-        fi
-        ;;
-
     picker)
         close_hub
         hyprpicker -a

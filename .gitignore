@@ -75,9 +75,9 @@ src/desk-pulse/desk-pulse
 src/desk-vault/desk-vault
 src/gen-keybinds/gen-keybinds
 src/ai-*/ai-*
-!src/fox-ai-*/fox-ai-*.cpp
-!src/fox-ai-*/fox-ai-*.hpp
-!src/fox-ai-*/fox-ai-*.h
+!src/ai-*/ai-*.cpp
+!src/ai-*/ai-*.hpp
+!src/ai-*/ai-*.h
 src/desk-ask/desk-ask
 !src/desk-ask/desk-ask.cpp
 

@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# tests/roundtrip.sh — verifies install→update is a no-op on templates/.
+# tests/roundtrip.sh — verifies that right after an install nothing deployed differs from what the repo lays.
 #
-# What it checks: render templates with a theme, deploy to live config,
-# pull live config back into templates, and assert templates/ is unchanged.
-# A drift means render.sh and update.sh aren't perfect inverses, or a
-# templated file in shared/ has logic the templates/ haven't caught up
-# with (I-04 violation).
+# What it checks: render and deploy a theme, then run update.sh, which compares every deployed file with what the
+# templates render to (and shared/ files with theirs). A difference right after an install means a step deploys
+# something other than the template (a module rewriting a file it was handed, or a template the renderer and the
+# deploy disagree on). update.sh writes nothing, so templates/ must still be clean afterwards.
 #
 # Run on a configured machine. Side effect: rewrites your live config
 # from the current templates (with backups under ~/.theme_backups/).
@@ -28,18 +27,19 @@ fi
 echo "==> ./install.sh $THEME --render-only --yes"
 ./install.sh "$THEME" --render-only --yes >/dev/null
 
-echo "==> ./update.sh"
-./update.sh >/dev/null
+echo "==> ./update.sh $THEME"
+report="$(./update.sh "$THEME")"
 
 if ! git diff --quiet -- templates/; then
-    echo ""
-    echo "FAIL: templates/ drifted after install→update roundtrip."
+    echo "FAIL: update.sh changed templates/; it must only report."
     git --no-pager diff --stat -- templates/
+    exit 1
+fi
+if ! grep -q "Every deployed file matches" <<<"$report"; then
     echo ""
-    echo "Either:"
-    echo "  - render.sh and update.sh aren't perfect inverses (file a bug), or"
-    echo "  - a templated file in shared/ has logic the templates/ haven't caught up with."
+    echo "FAIL: right after the install, deployed files differ from what the repo lays:"
+    echo "$report"
     exit 1
 fi
 
-echo "PASS: roundtrip clean (no template drift)"
+echo "PASS: roundtrip clean (what is deployed is what the repo lays)"

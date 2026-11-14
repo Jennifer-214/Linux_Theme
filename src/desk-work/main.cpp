@@ -71,7 +71,7 @@ void changed(const fs::path& path, const std::string& data);
 J report_client(const std::string& client, const std::string& build, long long pid, const std::string& root, const J& fields);
 void record_event(const std::string& root, const std::string& kind, const std::string& identity,
                   const std::string& label, J action, J extra = J::object());
-bool atomic(const fs::path& p, const std::string& data) {
+bool atomic(const fs::path& p, const std::string& data, bool announce = true) {
     if (!private_dir(p.parent_path())) return false;
     std::string tmp = p.string() + ".XXXXXX"; std::vector<char> name(tmp.begin(), tmp.end()); name.push_back(0);
     const int fd = ::mkstemp(name.data()); if (fd < 0) return false;
@@ -81,7 +81,7 @@ bool atomic(const fs::path& p, const std::string& data) {
         if (n <= 0) break;
         at += static_cast<size_t>(n); }
     const bool ok = at == data.size() && ::fsync(fd) == 0; ::close(fd);
-    if (ok && ::rename(name.data(), p.c_str()) == 0) { changed(p, data); return true; }
+    if (ok && ::rename(name.data(), p.c_str()) == 0) { if (announce) changed(p, data); return true; }
     ::unlink(name.data()); return false;
 }
 struct Lock {
@@ -510,7 +510,7 @@ bool finish(J& j, int code, bool truncated) {
     return true;
 }
 J tasks(const std::string& root) { auto j = json(project_dir(root) / "tasks.json"); return j.is_array() ? j : J::array(); }
-J task_change(const std::string& root, const std::string& text, const std::string& id) {
+J task_change(const std::string& root, const std::string& text, const std::string& id, bool set_done = false) {
     if (!register_root(root)) return unwritable();
     Lock lock(project_dir(root) / "tasks.lock"); if (lock.fd < 0) return unwritable();
     const auto file = project_dir(root) / "tasks.json";
@@ -521,7 +521,7 @@ J task_change(const std::string& root, const std::string& text, const std::strin
         if (j.size() >= 200) return refuse("A project keeps at most 200 next steps; mark some done first");
         if (trim(text).empty() || text.size() > 2000) return refuse("A next step needs some text, up to 2000 characters");
         j.push_back(J{{"id", uuid()}, {"text", trim(text)}, {"done", false}, {"at", now()}});
-    } else { bool found = false; for (auto& t : j) if (str(t, "id") == id) { t["done"] = !t.value("done", false); found = true; }
+    } else { bool found = false; for (auto& t : j) if (str(t, "id") == id) { t["done"] = set_done || !t.value("done", false); found = true; }
         if (!found) return J{{"ok", false}, {"message", "That next step is no longer here"}};
     }
     if (!atomic(file, j.dump())) return written(false, "next steps");
@@ -760,7 +760,8 @@ J agent_heartbeat(const std::string& root, const std::string& agent, const std::
     if (!record.is_object() || str(record, "process").empty() || num(record, "pid") != pid || proc_stamp(pid) != str(record, "process"))
         return refuse("No agent record belongs to this process; send an agent update first");
     record["seenAt"] = now();
-    return written(atomic(path, record.dump()), "heartbeat");
+    // Every session beats once a minute: announcing it would make every notebook and review on the checkout refresh.
+    return written(atomic(path, record.dump(), false), "heartbeat");
 }
 J agents(const std::string& root = {}) {
     std::map<std::string, J> found;
@@ -1136,6 +1137,12 @@ bool attention_less(const J& a, const J& b) {
     if (num(a, "at") != num(b, "at")) return str(a, "kind") == "commit" ? num(a, "at") < num(b, "at") : num(a, "at") > num(b, "at");
     return str(a, "root") + str(a, "id") < str(b, "root") + str(b, "id");
 }
+// Commits made before the review backlog was set aside: they stay unreviewed in the review tree, out of what needs you
+// and of the pending count, until brought back.
+long long aside_before(const std::string& root) {
+    const auto aside = json(project_dir(root) / "set-aside.json");
+    return aside.is_object() ? num(aside, "before") : 0;
+}
 J attention_items(const std::string& root, const J& work, const J& commits, const J& sessions,
                   const std::string& own = {}, bool review_only = false, bool include_snoozed = false) {
     J out = J::array(); std::set<std::string> files;
@@ -1181,9 +1188,8 @@ J attention_items(const std::string& root, const J& work, const J& commits, cons
             add("changed", file, fs::path(file).filename().string(), "Edited since you reviewed it", num(mark, "at"), 30,
                 J{{"kind", "file-diff"}, {"file", file}}, J{{"file", file}});
     }
-    const auto aside = json(project_dir(root) / "set-aside.json");
-    const long long aside_before = aside.is_object() ? num(aside, "before") : 0;
-    for (const auto& commit : commits) if (!commit.value("reviewed", false) && num(commit, "at") > aside_before) {
+    const long long before = aside_before(root);
+    for (const auto& commit : commits) if (!commit.value("reviewed", false) && num(commit, "at") > before) {
         const auto sha = str(commit, "sha");
         add("commit", sha, str(commit, "subject"), "Not reviewed yet", num(commit, "at"), 40,
             J{{"kind", "reviews"}, {"id", sha}}, J{{"sha", sha}});
@@ -1312,7 +1318,8 @@ J notebook(const std::string& root, const std::string& session, const std::strin
     }
     // Claude commits nobody has finished reviewing yet (any day), for the notebook's one review line.
     int pending = 0;
-    for (const auto& c : reviews(root, false)) if (!c.value("reviewed", false)) ++pending;
+    const long long before = aside_before(root);
+    for (const auto& c : reviews(root, false)) if (!c.value("reviewed", false) && num(c, "at") > before) ++pending;
     J out{{"tests", latest}, {"jobs", jobs}, {"failures", failures}, {"tasks", tasks(root)}, {"session", session},
           {"review", review_progress(root, "")}, {"pending", pending}, {"requests", review_requests(root)}, {"agents", agents(root)},
           {"records", records_brief(root)}};
@@ -1444,7 +1451,7 @@ int dispatch(int argc, char** argv) {
             std::cout << "desk-work run [--root DIR] [--session ID] [--title TEXT] -- COMMAND [ARGS...]\n"
                          "desk-work jobs | overview [--root DIR...] | notebook --root DIR | worktrees --root DIR\n"
                          "desk-work begin --root DIR --pid PID|parent --command TEXT [--session ID --title TEXT] | finish --id RUN --exit N [--output -]\n"
-                         "desk-work task-add --root DIR --text TEXT | task-toggle --root DIR --id ID\n"
+                         "desk-work task-add --root DIR --text TEXT | task-toggle --root DIR --id ID [--done yes]\n"
                          "desk-work tests --root DIR | compare --id RUN | reviewed --root DIR --sha SHA\n"
                          "desk-work plan|plan-pin --root DIR --session ID [--file PLAN.md --step TEXT]\n"
                          "desk-work attention --root DIR [--scope review] | watch [--root DIR | --all yes] | signal --root DIR\n"
@@ -1595,7 +1602,7 @@ int dispatch(int argc, char** argv) {
         else if (cmd == "plan-pin") out = pin_plan(root, opts["--session"], opts["--file"], opts["--step"]);
         else if (cmd == "tasks") out = tasks(root);
         else if (cmd == "task-add") out = task_change(root, opts["--text"], "");
-        else if (cmd == "task-toggle") out = task_change(root, "", id);
+        else if (cmd == "task-toggle") out = task_change(root, "", id, opts["--done"] == "yes");
         else if (cmd == "reviews") out = reviews(root, opts["--all"] != "yes");
         else if (cmd == "reviewed") out = reviewed(root, opts["--sha"]);
         else if (cmd == "review-mark") out = review_mark(root, opts["--key"], opts["--file"], opts["--signature"], opts["--content"], opts["--total"], opts["--done"]);

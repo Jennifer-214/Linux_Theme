@@ -4,9 +4,9 @@
 - No shared/bin script is named like a tool a src/<tool> Makefile builds. specials' bulk copy puts shared/bin into
   ~/.local/bin, so such a script landed over the compiled binary (installer audit 2026-10-15: fox, desk-vault and
   ai-review). core/built_tools.hpp skips them at install time; this keeps them out of the repo.
-- mappings.sh (update.sh captures through it) and symlinks_data.hpp (the installer deploys through it) list the
+- mappings.sh (update.sh compares through it) and symlinks_data.hpp (the installer deploys through it) list the
   same rows, every row's source exists, and every pi extension has a row. The audit found fzf-tab.zsh deployed but
-  never captured, and pob / word-count captured but deployed only by the bulk copy.
+  never compared, and pob / word-count compared but deployed only by the bulk copy.
 """
 import os
 import re
@@ -116,8 +116,8 @@ class DeployListsTest(unittest.TestCase):
             self.assertGreater(len(hpp), 20, name)
             only_sh = sorted(r for r in sh - hpp if (name, *r) not in ONE_SIDED)
             only_hpp = sorted(r for r in hpp - sh if (name, *r) not in ONE_SIDED)
-            self.assertEqual(only_sh, [], f"{name}: in mappings.sh only (update.sh captures, the installer never deploys)")
-            self.assertEqual(only_hpp, [], f"{name}: in symlinks_data.hpp only (deployed, never captured by update.sh)")
+            self.assertEqual(only_sh, [], f"{name}: in mappings.sh only (update.sh compares, the installer never deploys)")
+            self.assertEqual(only_hpp, [], f"{name}: in symlinks_data.hpp only (deployed, never compared by update.sh)")
 
     def test_every_row_has_its_source(self):
         for name, base in (("TEMPLATE_MAPPINGS", "templates"), ("SHARED_MAPPINGS", "shared")):
@@ -140,7 +140,7 @@ class DeployListsTest(unittest.TestCase):
                 for p in (ROOT / "shared/pi/extensions").glob("*.ts")}
         self.assertTrue(want)
         self.assertEqual(sorted(want - hpp_rows("SHARED_MAPPINGS")), [], "pi extensions the installer never deploys")
-        self.assertEqual(sorted(want - sh_rows("SHARED_MAPPINGS")), [], "pi extensions update.sh never captures")
+        self.assertEqual(sorted(want - sh_rows("SHARED_MAPPINGS")), [], "pi extensions update.sh never compares")
 
 
 if __name__ == "__main__":

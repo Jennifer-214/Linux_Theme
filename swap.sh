@@ -90,7 +90,7 @@ _do_swap() {
         if (( rc == 2 )) && [[ -z "$force" ]]; then
             echo ""
             echo "swap aborted: live ~/.config edits would be overwritten."
-            echo "  keep them  : ./update.sh          # capture into templates first"
+            echo "  see them   : ./update.sh          # shows the edits; move what you keep into templates/"
             echo "  overwrite  : ./swap.sh --full $theme"
         else
             echo "swap failed"

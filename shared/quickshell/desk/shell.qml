@@ -310,7 +310,7 @@ ShellRoot {
                 note(data.error || "This drawer could not be read.", true);
                 return;
             }
-            var oldKey = Logic.identity(entries[itemIndex]);
+            var oldKey = Logic.identity(entries[itemIndex]), oldIndex = itemIndex;
             var samePage = entries.length && itemList.viewPage === requestedPage;
             var saved = remembered[page];
             entries = Array.isArray(data.items) ? data.items : [];
@@ -323,7 +323,7 @@ ShellRoot {
                 var gi = groups.findIndex(function(g) { return g.page === groupId || g.id === groupId; });
                 if (gi >= 0 && focusArea !== "groups") groupIndex = gi;
             }
-            itemIndex = Logic.restoreIndex(entries, samePage ? oldKey : (saved ? saved.key : ""));
+            itemIndex = Logic.restoreIndex(entries, samePage ? oldKey : (saved ? saved.key : ""), samePage ? oldIndex : undefined);
             if (requestedPage === "garden") {
                 garden = data.garden || null;
                 var planted = garden && Array.isArray(garden.counts) ? garden.counts.length : 0;
@@ -664,7 +664,8 @@ ShellRoot {
 
     function openTag(tag) {
         if (!tag || actionBusy || pendingConfirm) return;
-        if (tag.page) {
+        if (tag.page === "calendar") show("calendar");
+        else if (tag.page) {
             focusArea = "items";
             activate({id: tag.page, kind: "page", page: tag.page, label: tag.text});
         } else if (tag.action) runAction({id: tag.action, action: tag.action, argument: tag.argument, label: tag.text, kind: "action", close: true}, undefined, false);
@@ -968,9 +969,10 @@ ShellRoot {
                     // Only what changed is replaced, so the landing page refreshes without a flicker.
                     var favorites = Array.isArray(data.favorites) ? data.favorites : [];
                     if (itemList.viewPage !== "root" || JSON.stringify(favorites) !== JSON.stringify(root.entries)) {
-                        var previous = Logic.identity(root.entries[root.itemIndex]);
+                        var previous = Logic.identity(root.entries[root.itemIndex]), previousIndex = root.itemIndex;
+                        var wasHere = itemList.viewPage === "root";
                         root.entries = favorites;
-                        root.itemIndex = Logic.restoreIndex(root.entries, previous);
+                        root.itemIndex = Logic.restoreIndex(root.entries, previous, wasHere ? previousIndex : undefined);
                     }
                     var todayData = data.today || {};
                     if (JSON.stringify(todayData) !== JSON.stringify(root.today)) root.today = todayData;
@@ -1042,9 +1044,12 @@ ShellRoot {
     Timer { id: previewTimer; interval: 180; onTriggered: root.previewGroup(root.groupIndex) }
     Timer {
         interval: 4000; repeat: true
+        property int ticks: 0
         running: root.opened && !root.pickerActive && !root.calendarLayout && !root.scrapbookLayout && !root.gardenLayout && !root.searching && !root.editing && !root.pendingConfirm && !root.actionBusy
         onTriggered: {
-            if (!groupProcess.running) groupProcess.running = true;
+            // Today itself every tick; away from it, the sidebar's summaries (a full Today read) every fifth.
+            ticks++;
+            if (!groupProcess.running && (root.page === "root" || ticks % 5 === 0)) groupProcess.running = true;
             // A refresh would replace the request a slow page is still answering, and it would never finish.
             if (root.page !== "root" && !viewProcess.running) root.requestView();
         }

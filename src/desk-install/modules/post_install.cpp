@@ -69,13 +69,15 @@ void cursor_vscode_set_theme(const Context& ctx) {
 void write_active_theme_and_marker(const Context& ctx) {
     // Record the active theme name at <script_dir>/.active-theme so
     // future runs of desk-install (and the legacy bash tools that still
-    // read it — swap.sh, update.sh) pick the right palette. A partly
-    // applied theme keeps the old name, so a retry still knows what's live.
-    if ((ctx.render_ran && !ctx.render_ok) || ctx.deploy_failed) {
+    // read it — swap.sh, update.sh) pick the right palette. When the rendered configs did not deploy, the desktop is
+    // still on the old theme, and the old name stays. A part that lags (the greeter with a cold sudo cache, the
+    // drawer) does not: everything else already shows the new theme, and a tweak must not edit the old palette.
+    if ((ctx.render_ran && !ctx.render_ok) || ctx.configs_failed) {
         ui::warn("theme " + ctx.theme_name + " was only partly applied — saved theme left as it was");
     } else {
         std::ofstream f(ctx.script_dir / ".active-theme");
         f << ctx.theme_name << "\n";
+        if (ctx.deploy_failed) ui::warn("theme " + ctx.theme_name + " saved; some parts did not update (see the errors above)");
     }
     // Persistent install marker at ~/.local/share/foxml/.installed-version.
     // Bash deployed scripts (monitor-watch.sh historically, plus

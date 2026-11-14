@@ -2474,11 +2474,20 @@ void work_rows(const Json& config, const std::string& page, Json& rows, bool* ob
             rows.push_back(work_row("work-task-draft", "◇ " + text(t, "text"), arg, fs::path(text(t, "root")).filename().string() + " · prepare a note; you choose whether to send it"));
             auto done = work_row("work-task-toggle", "  Mark done", arg); done["close"] = false; rows.push_back(done);
         }
-        for (const auto& p : projects(config)) rows.push_back(work_row("work-tasks", "Pin a next step · " + p.name, p.path.string(), "Add or reopen a step in Neovim"));
+        // A pin row for each checkout in use, not one for every folder under ~/code.
+        std::set<std::string> used;
+        for (const auto& d : data.value("digests", Json::array())) used.insert(text(d, "root"));
+        for (const auto& p : projects(config)) if (used.empty() || used.count(p.path.string()))
+            rows.push_back(work_row("work-tasks", "Pin a next step · " + p.name, p.path.string(), "Add or reopen a step in Neovim"));
         return;
     }
     int shown = 0;
-    const auto api = page == "failures" || page == "test-results" ? api_projects() : Json::array();
+    // claude-api is a Python start-up of its own: read its projects at the first failed job, not for every page.
+    Json api; bool api_read = false;
+    const auto api_root = [&](const std::string& root) {
+        if (!api_read) { api = api_projects(); api_read = true; }
+        return api_project_for(api, root);
+    };
     for (const auto& j : data.value("jobs", Json::array())) {
         const auto state = text(j, "state");
         if (page == "test-results" && !truth(j, "testRun")) continue;
@@ -2512,7 +2521,7 @@ void work_rows(const Json& config, const std::string& page, Json& rows, bool* ob
         if (truth(j, "testRun")) rows.push_back(work_row("work-compare", "  What changed since it last passed?", id));
         if (state == "failed" || state == "interrupted") {
             rows.push_back(work_row("work-ask", "  Ask Claude…", id, "Review the error excerpt, then choose a session"));
-            if (!api_project_for(api, text(j, "root")).empty())
+            if ((page == "failures" || page == "test-results") && !api_root(text(j, "root")).empty())
                 rows.push_back(work_row("api-task-failure", "  Explain with API credits", id, "Read-only review of the error · you set the budget"));
         }
     }
@@ -2970,6 +2979,9 @@ bool save_calendar_feeds(const Json& feeds) {
 int calendar_refresh() {
     if (!sh::have("curl")) return 1;
     std::error_code ec; fs::create_directories(calendar_cache(), ec);
+    // One read of the feeds at a time; a second waits for the first instead of fetching beside it.
+    const int lock = ::open((calendar_cache() / ".lock").c_str(), O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (lock >= 0) ::flock(lock, LOCK_EX);
     int failed = 0;
     for (const auto& feed : calendar_feeds()) {
         std::string body;
@@ -2977,18 +2989,26 @@ int calendar_refresh() {
             || body.find("BEGIN:VCALENDAR") == std::string::npos) { ++failed; continue; }
         if (!write_atomic(calendar_cache() / (feed_key(text(feed, "url")) + ".ics"), body)) ++failed;
     }
+    if (lock >= 0) ::close(lock);
     return failed ? 1 : 0;
 }
-// Fetch in the background when the newest cache is over three hours old (or missing); never waits for it.
+// Fetch in the background when the newest cache is over three hours old (or missing); never waits for it. A feed
+// that keeps failing never writes its cache, so the wait runs from the last attempt: Today reads this every few seconds.
 void calendar_refresh_if_stale() {
     const auto feeds = calendar_feeds();
     if (feeds.empty()) return;
     std::error_code ec;
-    const auto limit = fs::file_time_type::clock::now() - std::chrono::hours(3);
+    const auto now = fs::file_time_type::clock::now();
+    const auto limit = now - std::chrono::hours(3);
+    const auto attempted = calendar_cache() / ".attempted";
+    std::error_code aec; const auto tried = fs::last_write_time(attempted, aec);
+    if (!aec && tried > now - std::chrono::minutes(30)) return;
     for (const auto& feed : feeds) {
         const auto file = calendar_cache() / (feed_key(text(feed, "url")) + ".ics");
         std::error_code tec; const auto when = fs::last_write_time(file, tec);
         if (tec || when < limit) {
+            fs::create_directories(calendar_cache(), ec);
+            if (!write_atomic(attempted, "")) return;
             const auto self = fs::read_symlink("/proc/self/exe", ec);
             if (!ec) launch({self.string(), "calendar-refresh"}, "");
             return;
@@ -3097,7 +3117,6 @@ Json calendar_feed_add(const std::string& raw) {
 }
 void calendar_feed_rows(Json& rows) {
     const auto feeds = calendar_feeds();
-    const auto all = due_items();
     const auto now = std::time(nullptr);
     if (!feeds.empty()) rows.push_back(heading("calendars"));
     for (const auto& f : feeds) {
@@ -3105,8 +3124,9 @@ void calendar_feed_rows(Json& rows) {
         std::error_code ec; const auto when = fs::last_write_time(calendar_cache() / (key + ".ics"), ec);
         long long coming = 0;
         for (const auto& d : parse_ics(read(calendar_cache() / (key + ".ics")))) coming += d.at >= now;
-        const auto age = ec ? std::string("not read yet")
-            : "read " + std::to_string(std::chrono::duration_cast<std::chrono::minutes>(fs::file_time_type::clock::now() - when).count() / 60) + " h ago";
+        const auto minutes = ec ? 0 : std::chrono::duration_cast<std::chrono::minutes>(fs::file_time_type::clock::now() - when).count();
+        const auto age = ec ? std::string("not read yet") : minutes < 2 ? std::string("read just now")
+            : minutes < 60 ? "read " + std::to_string(minutes) + " min ago" : "read " + std::to_string(minutes / 60) + " h ago";
         auto row = item("calendar-feed-remove", text(f, "name", "calendar"), "action", std::to_string(coming) + " coming up · " + age, "today");
         row["argument"] = key; row["confirm"] = "Remove this calendar? Its due dates leave the calendar; you can add the link again any time.";
         rows.push_back(row);
@@ -3115,7 +3135,6 @@ void calendar_feed_rows(Json& rows) {
     rows.push_back(item("calendar-feed-add", "Add a calendar link", "action",
                         "Your course site's private calendar feed (Canvas, Moodle, Blackboard) · stays on this machine", "today"));
     if (!feeds.empty()) rows.push_back(item("calendar-refresh", "Read them again now", "action", "They are read every few hours on their own", "refresh"));
-    (void)all;
 }
 
 Json commit_days(const Json& config, const std::string& month) {
@@ -4010,16 +4029,39 @@ Json terminal_close(const std::string& name, bool confirmed) {
     std::string out;
     return capture({"tmux", "kill-session", "-t", "=" + name}, out) ? result(true, name + " closed") : result(false, "Could not close it");
 }
+// The system's enabled services change with sudo in a terminal, not while this page is open, and listing them takes
+// over half a second: read once a minute, not on every refresh.
+bool system_unit_files(std::string& out) {
+    const Args ask{"systemctl", "list-unit-files", "--state=enabled", "--type=service", "--no-legend", "--plain"};
+    if (env("XDG_RUNTIME_DIR").empty()) return capture(ask, out);
+    const auto cache = runtime() / "desk-drawer-system-units";
+    std::error_code ec;
+    const auto when = fs::last_write_time(cache, ec);
+    if (!ec && regular(cache) && fs::file_time_type::clock::now() - when < std::chrono::minutes(1)) { out = read(cache); return true; }
+    if (!capture(ask, out)) return false;
+    write_atomic(cache, out);
+    return true;
+}
 void startup_rows(Json& rows) {
     std::string out;
     // Your own services: switching one off is yours to do.
     if (sh::have("systemctl") && capture({"systemctl", "--user", "list-unit-files", "--state=enabled", "--type=service,timer", "--no-legend", "--plain"}, out)) {
         auto head = item("startup-user", "Your services", "action", "Start with your session · Enter switches one off", "info"); head["enabled"] = false; rows.push_back(head);
+        // One is-active call answers for every unit, a state per line in the order asked: not a process per row.
+        std::vector<std::string> units, states;
         for (const auto& line : lines(out)) {
             const auto unit = line.substr(0, line.find(' '));
-            if (!std::regex_match(unit, std::regex("[A-Za-z0-9@._-]+\\.(service|timer)"))) continue;
-            std::string state;
-            capture({"systemctl", "--user", "is-active", unit}, state);
+            if (std::regex_match(unit, std::regex("[A-Za-z0-9@._-]+\\.(service|timer)"))) units.push_back(unit);
+        }
+        if (!units.empty()) {
+            Args ask{"systemctl", "--user", "is-active"};
+            ask.insert(ask.end(), units.begin(), units.end());
+            std::string answer; capture(ask, answer);
+            states = lines(answer);
+        }
+        for (size_t i = 0; i < units.size(); ++i) {
+            const auto& unit = units[i];
+            const auto state = i < states.size() ? states[i] : std::string();
             // Linux_Theme's own watchers guard the machine; say so before one is switched off.
             const bool guard = std::regex_match(unit, std::regex("fox-(bouncer|tripwire|sentry[A-Za-z-]*|vault|honey[A-Za-z-]*)\\.(service|timer)"));
             auto row = item("startup-user", unit, "action", std::string(trim(state) == "active" ? "running" : "not running right now")
@@ -4060,7 +4102,7 @@ void startup_rows(Json& rows) {
         }
     }
     // System services: listed only. Switching off the wrong one can cost the login screen or the network.
-    if (sh::have("systemctl") && capture({"systemctl", "list-unit-files", "--state=enabled", "--type=service", "--no-legend", "--plain"}, out)) {
+    if (sh::have("systemctl") && system_unit_files(out)) {
         auto head = item("startup-system", "System services", "action", "Listed only: change these in a terminal, with care", "info"); head["enabled"] = false; rows.push_back(head);
         for (const auto& line : lines(out)) {
             const auto unit = line.substr(0, line.find(' '));
@@ -4141,11 +4183,14 @@ Json view(const Json& config, const std::string& page, const std::string& query,
                 row["keywords"] = Json::array({shortcut.keys}); rows.push_back(row);
             }
             for (const auto& tool : desk_tools()) {
-                auto row = item("tool-run", tool.name, "action", "Fox tools · " + tool.description, "info");
+                auto row = item("tool-run", tool.name, "action", "Desk tools · " + tool.description, "info");
                 row["argument"] = tool.name; row["close"] = true; row["group"] = "system"; rows.push_back(row);
             }
             for (const auto& project : projects(config)) {
-                if (lower(project.path.string()).find(lower(query)) == std::string::npos) continue;
+                // The full path matched every project on the letters of the home folder.
+                const auto wanted = lower(query);
+                if (lower(project.name).find(wanted) == std::string::npos
+                    && (wanted.find('/') == std::string::npos || lower(project.path.string()).find(wanted) == std::string::npos)) continue;
                 auto row = project_card(project, false);
                 row["detail"] = "Project · " + text(row, "detail");
                 rows.push_back(row);
@@ -4166,7 +4211,7 @@ Json view(const Json& config, const std::string& page, const std::string& query,
                 rows.push_back(row);
             }
             Json devices = Json::array();
-            if (bluetooth_rows(devices)) for (auto row : devices) {
+            if (bluetooth_service_running() && bluetooth_rows(devices)) for (auto row : devices) {
                 row["label"] = "Connect " + text(row, "label");
                 row["detail"] = "Bluetooth device · " + text(row, "detail");
                 rows.push_back(row);
@@ -4446,7 +4491,7 @@ Json view(const Json& config, const std::string& page, const std::string& query,
     } else if (page == "tools" || page.rfind("tools-", 0) == 0) {
         const auto section = std::find_if(tool_sections.begin(), tool_sections.end(), [&](const ToolSection& s) { return s.id == page; });
         known = page == "tools" || section != tool_sections.end();
-        out["title"] = page == "tools" ? "Fox tools" : section != tool_sections.end() ? section->label : "Fox tools";
+        out["title"] = page == "tools" ? "Desk tools" : section != tool_sections.end() ? section->label : "Desk tools";
         const auto tools = desk_tools();
         if (page == "tools") {
             for (const auto& category : tool_sections) {
@@ -4460,7 +4505,7 @@ Json view(const Json& config, const std::string& page, const std::string& query,
             auto row = item("tool-run", tool.name, "action", tool.description, section->icon);
             row["argument"] = tool.name; row["close"] = true; rows.push_back(row);
         }
-        if (tools.empty()) fail("No fox commands were found in ~/.local/bin");
+        if (tools.empty()) fail("No desk tools were found in ~/.local/bin");
     } else if (page == "cheatsheet" || page == "cheatsheet-keys") {
         known = true; out["title"] = "Shortcut reference";
         const auto all = shortcuts();
@@ -4537,7 +4582,12 @@ Json view(const Json& config, const std::string& page, const std::string& query,
                 head["enabled"] = false; rows.push_back(head);
             }
             for (auto& row : careful) rows.push_back(row);
-            for (auto& row : plain) rows.push_back(row);
+            const size_t shown = query.empty() ? std::min<size_t>(plain.size(), 12) : plain.size();
+            for (size_t i = 0; i < shown; ++i) rows.push_back(plain[i]);
+            if (plain.size() > shown) {
+                auto more = item("updates-terminal", "and " + std::to_string(plain.size() - shown) + " more", "action", "The terminal updater lists them all", "package");
+                more["enabled"] = false; rows.push_back(more);
+            }
         }
     } else if (page == "earlier-notes") {
         known = true; out["title"] = "Earlier notes";
@@ -4692,7 +4742,7 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         if (!value.is_object() || !work_project(config, text(value, "root"))) return result(false, "This project is no longer in your index cards");
         if (id == "work-unsnooze") { auto reply = command({"desk-work", "snooze", "--root", text(value, "root"), "--id", text(value, "id"), "--clear", "yes"}, "Attention item restored"); reply["close"] = false; return reply; }
         if (id == "work-caught-up") { auto reply = command({"desk-work", "digest", "--root", text(value, "root"), "--consumer", "desktop", "--through", std::to_string(value.value("through", 0LL))}, "Shown events marked caught up"); reply["close"] = false; return reply; }
-        if (id == "work-task-toggle") return command({"desk-work", "task-toggle", "--root", text(value, "root"), "--id", text(value, "id")}, "Next step updated");
+        if (id == "work-task-toggle") return command({"desk-work", "task-toggle", "--root", text(value, "root"), "--id", text(value, "id"), "--done", "yes"}, "Next step done");
         return launch({"desk-work", "open", "--action", id == "work-event" ? "event" : id == "work-attention" ? "attention" : id == "work-reviews" ? "reviews" : "tasks", "--root", text(value, "root"), "--id", text(value, "id")}, "Opened work item");
     }
     if (id == "work-open" || id == "work-tests" || id == "work-compare" || id == "work-ask") {
@@ -4918,24 +4968,8 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         return command({"desk-wallpaper", "--set", arg}, "Wallpaper selected", false, "Could not set that wallpaper");
     }
     if (id == "wallpaper-next") return command({script("rotate_wallpaper.sh").string(), "--cycle"}, "Wallpaper changed", false, "Could not change the wallpaper");
-    if (id == "wallpaper-sync") {
-        fs::path wallpaper; std::error_code ec;
-        const auto current = fs::path(home()) / ".wallpapers/.current";
-        if (fs::is_symlink(current, ec)) {
-            auto target = fs::read_symlink(current, ec);
-            if (!ec) wallpaper = target.is_absolute() ? target : current.parent_path() / target;
-        }
-        if (!regular(wallpaper)) {
-            std::string query;
-            if (capture({"awww", "query"}, query)) for (const auto& line : lines(query)) {
-                const auto at = line.find("image:");
-                if (at != std::string::npos && regular(trim(line.substr(at + 6)))) { wallpaper = trim(line.substr(at + 6)); break; }
-            }
-        }
-        if (!regular(wallpaper)) return result(false, "Current wallpaper is unavailable");
-        if (!regular(script("generate_palette.sh"))) return result(false, "Palette generator is unavailable");
-        return terminal({"bash", script("generate_palette.sh").string(), wallpaper.string()}, "Wallpaper theme generation opened");
-    }
+    if (id == "wallpaper-sync")
+        return result(false, "Colors from wallpaper is gone: the palette it made was never one a theme could use. Themes has the palettes");
     if (id == "theme-set") {
         const auto available = themes();
         if (std::find(available.begin(), available.end(), arg) == available.end()) return result(false, "Unknown theme");
@@ -5028,7 +5062,7 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
     if (id == "tool-run") {
         const auto available = desk_tools();
         if (std::none_of(available.begin(), available.end(), [&](const Tool& tool) { return tool.name == arg; })) return result(false, "Unknown tool");
-        return launch({"kitty", "--hold", "--title", "fox: " + arg, "--", (fs::path(home()) / ".local/bin" / arg).string()}, "Tool opened in a terminal");
+        return launch({"kitty", "--hold", "--title", "desk: " + arg, "--", (fs::path(home()) / ".local/bin" / arg).string()}, "Tool opened in a terminal");
     }
     if (id == "cheatsheet-copy") {
         const auto available = shortcuts();

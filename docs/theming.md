@@ -44,7 +44,9 @@ If you've already edited a live config and want to keep the changes:
 ```bash
 ./update.sh
 ```
-Reverse-renders your live configs back into templates, replacing rendered colors with `{{PLACEHOLDER}}` tokens so the edits survive theme swaps.
+Shows how each deployed config differs from what the templates render to. It writes nothing: move the changes you
+want into `templates/` (colors as `{{TOKENS}}`), then render. (It used to write live configs back into the templates
+by swapping colors for tokens; any value equal to a palette entry was swapped too, so it rewrote every template.)
 
 ## Themed apps
 

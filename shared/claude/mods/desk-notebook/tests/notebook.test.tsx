@@ -517,7 +517,7 @@ test('a finished turn leaves a receipt: its files, its tests, its commits and wh
   await $.classic.Stop({ hook_event_name: 'Stop', stop_hook_active: false } as never)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await ui.find({ key: 'receipt-files' }))?.props.label).toBe('✎ 1 file changed · 0 of 1 reviewed')
-  expect((await ui.find({ key: 'receipt-risk-bootctl' }))?.props.label).toBe('⚠ touched bootctl · red zone')
+  expect(await ui.find({ type: 'Text', text: /⚠ touched bootctl · red zone/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /── last turn/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /── review/ })).toBeDefined()
   await ui.unmount()

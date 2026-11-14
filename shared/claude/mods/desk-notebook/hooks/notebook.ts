@@ -56,7 +56,7 @@ export async function mailId(from: string, body: string): Promise<string> {
 
 // The drawer page that shows the same thing at desk size: `d` in the notebook opens it.
 // The pages /notebook <page> opens and a saved view may return to; the rest are reached from a row.
-export const NAMED_PAGES: readonly NotebookView['page'][] = ['overview', 'files', 'project', 'sessions', 'timeline', 'digest', 'health', 'attention']
+export const NAMED_PAGES: readonly NotebookView['page'][] = ['overview', 'files', 'project', 'sessions', 'timeline', 'digest', 'health', 'attention', 'help']
 export function drawerPage(page: NotebookView['page']): string {
   return { overview: 'workbench', files: 'reviews', project: 'projects', sessions: 'agents', help: 'workbench', request: 'reviews', timeline: 'work-history', digest: 'work-digest', health: 'work-health', attention: 'attention' }[page]
 }
