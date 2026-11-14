@@ -66,6 +66,10 @@ in one file, with a context size and slot count per role. Codex replaces the Gem
 - Your own repositories are cloned before the steps that read them.
 - An explicit no to a fingerprint step (`--no-sudo-fingerprint`, a preset's `off`) stays no when a reader is found.
   On stock Arch PAM (`try_first_pass`) the fingerprint steps report themselves skipped instead of failing every run.
+- PAM edits (sudo, login and greeter fingerprint) are built in memory, swapped in one step, checked, and put back on
+  any difference; the original backup is kept once. Kernel command-line edits find the boot entry loader.conf names
+  (not only arch.conf), skip a /boot they cannot read instead of editing GRUB's file, strip `lockdown=integrity`
+  wherever it sits and check it is gone, and the nvidia and AppArmor edits check and revert like the IOMMU one.
 - A swap that could not update the login screen (sudo cache cold) still saves the theme name, so a later tweak edits
   the palette that is on screen. A render stopped to protect live edits still records the steps before it.
 - A theme swap reloads open kitty terminals, and a palette that reads empty is refused instead of rendered blank.

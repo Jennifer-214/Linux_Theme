@@ -17,6 +17,7 @@
 #include "../core/idempotency.hpp"
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
+#include "boot_files.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -36,36 +37,6 @@ std::string read_text(const fs::path& p) {
     std::ostringstream ss;
     ss << f.rdbuf();
     return ss.str();
-}
-
-// Resolve the default loader entry. loader.conf `default <name>` may end
-// in .conf or be a glob; fall back to arch.conf, then the first entry.
-fs::path default_entry(const fs::path& entries_dir) {
-    std::string conf = read_text("/boot/loader/loader.conf");
-    std::istringstream is(conf);
-    std::string line;
-    while (std::getline(is, line)) {
-        auto p = line.find("default");
-        if (p == 0) {
-            std::istringstream ls(line);
-            std::string key, val;
-            ls >> key >> val;
-            if (!val.empty() && val.find('*') == std::string::npos) {
-                if (val.size() < 5 || val.substr(val.size() - 5) != ".conf") val += ".conf";
-                fs::path cand = entries_dir / val;
-                if (fs::exists(cand)) return cand;
-            }
-        }
-    }
-    if (fs::exists(entries_dir / "arch.conf")) return entries_dir / "arch.conf";
-    std::error_code ec;
-    for (auto& e : fs::directory_iterator(entries_dir, ec)) {
-        if (e.path().extension() == ".conf"
-            && e.path().filename().string().find("-recovery") == std::string::npos) {
-            return e.path();
-        }
-    }
-    return {};
 }
 
 // Build the recovery variant: rewrite the title, append the recovery arg
@@ -95,17 +66,18 @@ std::string make_recovery(const std::string& src) {
 void run_recovery_entry(Context& ctx) {
     ui::section("Recovery boot entry (console fallback)");
 
-    fs::path entries_dir = "/boot/loader/entries";
-    if (!fs::is_directory(entries_dir)) {
-        ui::skipped("no systemd-boot entries dir — skipping (GRUB/rEFInd have their own recovery menus)");
+    // The entry loader.conf names, found the way every boot module finds it; a /boot this user cannot read is skipped.
+    const auto boot = boot_files::cmdline();
+    if (boot.loader == boot_files::Loader::Unreadable) {
+        ui::warn("cannot read the boot entries as your user (" + boot.why + ") — recovery entry not written");
         return;
     }
-
-    fs::path src = default_entry(entries_dir);
-    if (src.empty()) {
-        ui::warn("could not resolve a default loader entry to clone — skipping");
+    if (boot.loader != boot_files::Loader::SystemdBoot) {
+        if (boot.why.empty()) ui::skipped("no systemd-boot entries dir — skipping (GRUB/rEFInd have their own recovery menus)");
+        else ui::warn("could not resolve a default loader entry to clone (" + boot.why + ") — skipping");
         return;
     }
+    const fs::path src = boot.file, entries_dir = src.parent_path();
 
     std::string base = src.stem().string();
     fs::path dst = entries_dir / (base + "-recovery.conf");

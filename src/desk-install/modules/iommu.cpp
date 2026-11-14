@@ -9,6 +9,7 @@
 // right knob.
 
 #include "iommu.hpp"
+#include "boot_files.hpp"
 #include "../core/context.hpp"
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
@@ -104,17 +105,16 @@ void run_iommu(Context& ctx) {
     bool unsigned_oot = ctx.has_nvidia || dkms_has_modules();
     bool add_lockdown = !unsigned_oot;
 
-    fs::path bootloader_systemd = "/boot/loader/entries/arch.conf";
-    fs::path bootloader_grub    = "/etc/default/grub";
-
-    fs::path cmdline_file;
-    bool is_systemd_boot = false;
-    if (fs::exists(bootloader_systemd)) {
-        cmdline_file   = bootloader_systemd;
-        is_systemd_boot = true;
-    } else if (fs::exists(bootloader_grub)) {
-        cmdline_file = bootloader_grub;
-    } else {
+    // The entry loader.conf names (archinstall's is not arch.conf). A /boot this user cannot read is skipped, never
+    // taken for "no systemd-boot" and GRUB's file edited instead.
+    const auto boot = boot_files::cmdline();
+    if (boot.loader == boot_files::Loader::Unreadable) {
+        ui::warn("cannot read the boot entries as your user (" + boot.why + ") — IOMMU left as it is");
+        return;
+    }
+    const fs::path cmdline_file = boot.file;
+    const bool is_systemd_boot = boot.loader == boot_files::Loader::SystemdBoot;
+    if (boot.loader == boot_files::Loader::None) {
         // rEFInd / UKI / kernel-install / EFISTUB users get here. Don't
         // silently no-op — surface a clear "add manually" path so they
         // know IOMMU wasn't enabled on their system.
@@ -216,10 +216,13 @@ void run_iommu(Context& ctx) {
                       "^GRUB_CMDLINE_LINUX_DEFAULT=", cmdline_file.c_str()}) == 0;
     }
 
-    if (!ok) {
+    // A strip must really have removed the parameter before this says it did.
+    const bool gone = !need_strip || sh::run({"sudo", "grep", "-qE", "(^|[[:space:]\"])lockdown=integrity([[:space:]\"]|$)",
+                                               cmdline_file.c_str()}) != 0;
+    if (!ok || !gone) {
         sh::run({"sudo", "mv", preedit, cmdline_file.string()});
-        ui::err("cmdline edit failed self-check (root=/rw missing) — reverted; "
-                "IOMMU left unchanged");
+        ui::err(ok ? "lockdown=integrity was still there after the strip — reverted; IOMMU left unchanged"
+                   : "cmdline edit failed self-check (root=/rw missing) — reverted; IOMMU left unchanged");
         return;
     }
 

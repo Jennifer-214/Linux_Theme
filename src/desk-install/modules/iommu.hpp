@@ -12,13 +12,16 @@ namespace desk_install {
 // storm. Exposed so test_iommu pins the decision without booting a VM.
 std::string build_iommu_args(const std::string& vendor, bool add_lockdown);
 
-// sed program that removes " lockdown=integrity" from a cmdline line. Used
-// to self-heal a host an earlier (unconditional) install bricked. Idempotent
-// by construction: a second pass finds nothing to remove, so it can never
-// stack damage. Exposed so test_iommu runs the REAL program against a
-// fixture entry (no reimplementation → no drift), the same discipline as
+// sed program that removes the lockdown=integrity parameter from a cmdline line: after a space or a tab, at the start
+// of a quoted GRUB value, and twice in a row (each pass of `g` resumes after the blank the previous match took, so
+// the after-a-blank rule runs twice). Never a lockdown entry inside lsm=. Used to self-heal a host an earlier
+// (unconditional) install bricked; idempotent, so a second pass changes nothing. Callers check the parameter is gone
+// before saying so. Exposed so test_iommu runs the REAL program against fixtures, the same discipline as
 // gaming.hpp::MULTILIB_UNCOMMENT_SED.
-inline constexpr const char* LOCKDOWN_STRIP_SED = "s/ lockdown=integrity//g";
+inline constexpr const char* LOCKDOWN_STRIP_SED =
+    "s/[[:space:]]lockdown=integrity\\([[:space:]\"]\\|$\\)/\\1/g;"
+    "s/[[:space:]]lockdown=integrity\\([[:space:]\"]\\|$\\)/\\1/g;"
+    "s/\\(^\\|\"\\)lockdown=integrity[[:space:]]*/\\1/g";
 
 // True iff a systemd-boot `options` line still carries the two tokens a
 // bootable entry must keep: root= and a standalone rw. The post-edit

@@ -24,6 +24,8 @@
 
 #include "nvidia_modules.hpp"
 #include "hypr_lua.hpp"
+#include "boot_files.hpp"
+#include "iommu.hpp"
 #include "../core/context.hpp"
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
@@ -264,18 +266,33 @@ void run_nvidia(Context& ctx) {
     // recovery) still leaves modeset in the cmdline. It's a harmless no-op
     // until the module loads, and means a later DKMS fix picks up KMS on
     // the next boot without needing another --nvidia run.
-    fs::path boot_entry = "/boot/loader/entries/arch.conf";
-    if (fs::exists(boot_entry) && !file_contains(boot_entry, "nvidia_drm.modeset=1")) {
+    // The entry loader.conf names (archinstall's is not arch.conf); a /boot this user cannot read is left alone.
+    const auto boot = boot_files::cmdline();
+    const fs::path boot_entry = boot.file;
+    if (boot.loader == boot_files::Loader::Unreadable) {
+        ui::warn("cannot read the boot entries as your user (" + boot.why + ") — add `nvidia_drm.modeset=1` to the kernel cmdline by hand");
+    } else if (boot.loader != boot_files::Loader::SystemdBoot) {
+        ui::warn("not using systemd-boot — add `nvidia_drm.modeset=1` to your bootloader kernel cmdline manually");
+    } else if (!file_contains(boot_entry, "nvidia_drm.modeset=1")) {
         if (sh::dry_run()) {
             ui::substep("[dry-run] would append `nvidia_drm.modeset=1` to " + boot_entry.string());
         } else {
-            sh::run({"sudo", "sed", "-i.foxml-bak",
-                     "-E", "s/^(options .*)/\\1 nvidia_drm.modeset=1/",
-                     boot_entry.string()});
-            ui::ok("appended nvidia_drm.modeset=1 to " + boot_entry.string());
+            // .foxml-bak is made once (sed -i.foxml-bak overwrote the original on every run); this run's copy is the
+            // revert point when the options line comes out without root= and rw, or without the parameter.
+            const std::string entry = boot_entry.string(), preedit = entry + ".foxml-preedit";
+            sh::run({"sh", "-c", "[ -e '" + entry + ".foxml-bak' ] || sudo cp '" + entry + "' '" + entry + ".foxml-bak'"});
+            sh::run({"sudo", "cp", entry, preedit});
+            sh::run({"sudo", "sed", "-i", "-E", "s/^(options .*)/\\1 nvidia_drm.modeset=1/", entry});
+            std::string options;
+            sh::capture({"sudo", "grep", "^options ", entry}, options);
+            if (cmdline_options_sane(options) && options.find("nvidia_drm.modeset=1") != std::string::npos) {
+                sh::run({"sudo", "rm", "-f", preedit});
+                ui::ok("appended nvidia_drm.modeset=1 to " + entry);
+            } else {
+                sh::run({"sudo", "mv", preedit, entry});
+                ui::err(entry + " failed its check after the edit — reverted; add nvidia_drm.modeset=1 by hand");
+            }
         }
-    } else if (!fs::exists(boot_entry)) {
-        ui::warn("not using systemd-boot (no " + boot_entry.string() + ") — add `nvidia_drm.modeset=1` to your bootloader kernel cmdline manually");
     }
 
     // 5. mkinitcpio MODULES=(nvidia …). Guard against tiny /boot.
