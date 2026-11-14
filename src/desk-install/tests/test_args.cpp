@@ -242,6 +242,19 @@ int main() {
         std::remove(pf.c_str());
     }
 
+    // A refusal travels with the parsed arguments, so detection cannot turn a fingerprint step back on.
+    {
+        auto r = do_parse({"--full", "--no-sudo-fingerprint"});
+        EXPECT(r.ok);
+        const auto k = idx_of("sudo_fingerprint");
+        EXPECT(k != SIZE_MAX && r.parsed.explicitly_disabled.size() > k && r.parsed.explicitly_disabled[k]);
+        std::string pf = write_temp_preset("fprint_pam = off\n");
+        auto p = do_parse({"--preset", pf});
+        const auto f = idx_of("fprint_pam");
+        EXPECT(p.ok && f != SIZE_MAX && p.parsed.explicitly_disabled.size() > f && p.parsed.explicitly_disabled[f]);
+        std::remove(pf.c_str());
+    }
+
     // --preset: an `off` line marks explicitly_disabled, so it survives a
     // LATER --full (the sharp edge the plan called out).
     {

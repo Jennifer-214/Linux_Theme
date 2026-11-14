@@ -351,6 +351,8 @@ end
 vim.cmd.edit(root .. '/a.lua')
 C.changes()
 local r = R.current
+R.select(1)
+assert(api.nvim_get_current_win() == r.right_win, 'a file opens with focus in the after pane')
 local f = assert(io.open(root .. '/fresh.txt', 'w')); f:write('written by an agent\n'); f:close()
 R.refresh_live()
 local found = false

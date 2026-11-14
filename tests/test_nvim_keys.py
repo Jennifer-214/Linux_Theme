@@ -109,6 +109,12 @@ class NvimKeys(unittest.TestCase):
         self.assertEqual(text, with_reference(text, reference(keys)),
                          'NVIM-KEYBINDS.md differs from the review key table: run python3 tests/test_nvim_keys.py --write')
 
+    def test_every_leader_key_of_the_work_modules_is_in_the_reference(self):
+        doc = DOC.read_text()
+        missing = [f'{key} ({where})' for mode, key, where in nvim_keys.global_maps()
+                   if 'nvim_lua/foxml' in str(where) and key.startswith('<leader>') and 'Space ' + key[len('<leader>'):] not in doc]
+        self.assertEqual(missing, [], 'a leader key with no row in NVIM-KEYBINDS.md')
+
     def test_no_key_is_mapped_twice_by_accident(self):
         by = defaultdict(list)
         for mode, key, where in nvim_keys.global_maps():
