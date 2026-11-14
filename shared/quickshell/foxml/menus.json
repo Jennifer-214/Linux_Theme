@@ -106,7 +106,7 @@
         { "id": "security", "label": "Security audit", "detail": "Open the security dashboard in a terminal", "icon": "⛨", "kind": "action", "close": true, "keywords": ["audit", "firewall"], "section": "safety" },
         { "id": "vault", "label": "Passwords", "detail": "Copy from your existing pass store", "icon": "⚿", "kind": "page", "page": "passwords", "keywords": ["pass", "secrets", "keys"], "section": "safety" },
         { "id": "sandbox", "label": "Disposable sandbox", "detail": "A fresh space for an app", "icon": "▢", "kind": "page", "page": "sandbox", "keys": "alt ⇧ s", "keywords": ["private", "incognito", "jail"], "section": "safety" },
-        { "id": "tools", "label": "Fox tools", "detail": "Commands grouped by what you want to do", "icon": "❯", "kind": "page", "page": "tools", "keywords": ["commands", "fox"], "section": "help" },
+        { "id": "tools", "label": "Desk tools", "detail": "Commands grouped by what you want to do", "icon": "❯", "kind": "page", "page": "tools", "keywords": ["commands", "desk"], "section": "help" },
         { "id": "cheatsheet", "label": "Shortcut reference", "detail": "Find a shortcut and copy its keys", "icon": "⌨", "kind": "page", "page": "cheatsheet", "keys": "alt /", "keywords": ["keybinds", "keys", "hotkeys", "bindings"], "section": "help" }
       ]
     }

@@ -219,9 +219,23 @@ function identity(item) {
     return item ? JSON.stringify([String(item.id || ""), String(item.argument === undefined ? "" : item.argument)]) : "";
 }
 
-function restoreIndex(items, key) {
-    var found = items.findIndex(function(item) { return identity(item) === key; });
-    return found >= 0 && items[found].enabled !== false ? found : Math.max(0, nextIndex(items, -1, 1));
+// The row the cursor was on, after a refresh. Rows can share an identity (every job in one pane jumps to it), so the
+// match nearest its old place wins; when the row is gone, its neighbour does, not the top of the page.
+function restoreIndex(items, key, near) {
+    var best = -1;
+    items.forEach(function(item, at) {
+        if (identity(item) !== key) return;
+        if (best < 0 || (near !== undefined && Math.abs(at - near) < Math.abs(best - near))) best = at;
+    });
+    if (best >= 0 && items[best].enabled !== false) return best;
+    if (near !== undefined && near >= 0 && items.length) {
+        var start = Math.min(near, items.length - 1);
+        for (var step = 0; step < items.length; step++) {
+            if (start + step < items.length && items[start + step].enabled !== false) return start + step;
+            if (start - step >= 0 && items[start - step].enabled !== false) return start - step;
+        }
+    }
+    return Math.max(0, nextIndex(items, -1, 1));
 }
 
 function nextIndex(items, current, delta) {
@@ -247,7 +261,7 @@ function actionArguments(item, value, confirmed) {
 // paperPresets) is shown the item's own one; a glyph the user chose stays theirs.
 var glyphs = {
     today:"✿", desk:"✎", workbench:"⚒", sound:"♫", connections:"⇄", comfort:"☁", system:"⚙",
-    calendar:"◰", "earlier-notes":"↶", apps:"⌘", projects:"▤", "api-tasks":"☰", worktrees:"▥", jobs:"◷", "test-results":"✓", reviews:"◎",
+    calendar:"◰", "earlier-notes":"↶", apps:"⌘", projects:"▤", "api-tasks":"☰", worktrees:"▥", jobs:"◷", "test-results":"✓", reviews:"◎", attention:"◆", "work-history":"≡", "work-digest":"✱", "work-health":"⚕",
     "next-steps":"↳", failures:"!", bookmarks:"◇", library:"⌸", downloads:"↧", screenshots:"▧", garden:"❦",
     models:"⬡", windows:"▣", "clipboard-text":"⌇", "clipboard-images":"⧉", wallpapers:"❀", themes:"◐",
     "wallpaper-next":"↝", "wallpaper-sync":"◑", "color-picker":"⌖", agents:"✉",
@@ -457,8 +471,8 @@ function emptyState(page, searching, failed) {
         "clipboard-images": ["a place for little pictures.", "copy an image to keep it close.\nh goes back to the previous page."],
         updates: ["all up to date.", "nothing is waiting to install.\nh goes back to the previous page."],
         failures: ["nothing has failed today.", "a job that stops with an error\nwill leave a note here."],
-        jobs: ["nothing has failed today.", "commands you run in a terminal\nwill gather here."],
-        "test-results": ["nothing has failed today.", "your test runs\nwill leave their results here."],
+        jobs: ["no jobs yet.", "commands you run in a terminal\nwill gather here."],
+        "test-results": ["no test runs yet.", "your test runs\nwill leave their results here."],
         reviews: ["no changes waiting.", "new commits to look over\nwill wait for you here."],
         attention: ["nothing needs you here.", "failed checks and changes ready to read\nwill gather here."],
         "next-steps": ["no next steps pinned.", "pin a next step from the notebook,\nor press n on a project card."],
