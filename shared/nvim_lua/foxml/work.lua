@@ -1,16 +1,49 @@
 local M = {}
+-- What a refused call says: desk-work's own message (it answers JSON on stdout), else its error output, else which
+-- command refused. A blank notice tells nobody anything.
+function M.refusal(args, out)
+  local ok, value = pcall(vim.json.decode, out.stdout or '')
+  if ok and type(value) == 'table' and type(value.message) == 'string' and vim.trim(value.message) ~= '' then return vim.trim(value.message) end
+  local said = vim.trim(out.stderr or ''):match('([^\n]*)$') or ''
+  if said ~= '' then return said end
+  return 'desk-work ' .. (args[1] or '') .. ' did not answer (exit ' .. tostring(out.code) .. ')'
+end
+-- Quick reads and writes (a task, a log): short enough to wait for.
 local function run(args)
   local argv = { "desk-work" }
   vim.list_extend(argv, args)
   local ok, p = pcall(vim.system, argv, { text = true })
-  if not ok then return nil end
+  if not ok then vim.notify('desk-work did not start; is it installed?', vim.log.levels.WARN); return nil end
   local out = p:wait(15000)
-  if out.code ~= 0 then vim.notify(out.stderr or "Work record unavailable", vim.log.levels.WARN); return nil end
+  if out.code ~= 0 then vim.notify(M.refusal(args, out), vim.log.levels.WARN); return nil end
   return out.stdout
 end
 local function data(args)
   local ok, j = pcall(vim.json.decode, run(args) or "null")
   return ok and j ~= vim.NIL and j or nil
+end
+-- Slow calls (health, backups, recovery, repair) run in the background. `done` gets the decoded answer (nil after a
+-- refusal, which is shown) only while its call is the newest of its kind: a refresh pressed twice shows the second
+-- answer, never the first arriving late.
+local newest = {}
+local function call(kind, args, done)
+  newest[kind] = (newest[kind] or 0) + 1
+  local mine = newest[kind]
+  local ok = pcall(vim.system, vim.list_extend({ 'desk-work' }, args), { text = true, timeout = 120000 }, vim.schedule_wrap(function(out)
+    if newest[kind] ~= mine then return end
+    local parsed, value = pcall(vim.json.decode, out.stdout or '')
+    if out.code ~= 0 or not parsed or value == vim.NIL then
+      vim.notify(M.refusal(args, out), vim.log.levels.WARN); return done(nil)
+    end
+    done(value)
+  end))
+  if not ok then vim.notify('desk-work did not start; is it installed?', vim.log.levels.WARN); done(nil) end
+end
+local function fill(buf, lines)
+  if not vim.api.nvim_buf_is_valid(buf) then return end
+  vim.bo[buf].modifiable = true
+  vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+  vim.bo[buf].modifiable = false
 end
 local function root() return vim.fs.root(0, ".git") or vim.fn.getcwd() end
 local function scratch(text, name, ft, editable)
@@ -346,6 +379,7 @@ function M.attention(next_only)
     elseif action.kind == 'log' then scratch(run({ 'log', '--id', action.id }), 'job output', 'text')
     elseif action.kind == 'agent' then
       run({ 'open', '--root', project, '--action', 'attention', '--id', item.id })
+    elseif action.kind == 'health' then M.health()
     end
   end
   if next_only then open(items[1]); return end
@@ -363,7 +397,7 @@ function M.history(digest_only)
   local digest = digest_only and data({ 'digest', '--root', project, '--consumer', 'nvim' }) or nil
   local events = digest_only and digest and digest.events or data({ 'timeline', '--root', project })
   if not events then return end
-  if digest and digest.summary then vim.notify(digest.summary) end
+  if digest and (digest.greeting or digest.summary) then vim.notify(digest.greeting or digest.summary) end
   local rows = {}
   for _, event in ipairs(events) do
     local selected = event
@@ -385,56 +419,127 @@ function M.history(digest_only)
   require('foxml.review').show_menu(rows, { title = digest_only and 'Since you last looked' or 'Project timeline', memo = 'foxml-history' })
 end
 
-function M.health(buf)
-  local state = data({ 'health' })
-  if not state then return end
+local function health_lines(state)
   local lines = { '# Work health', '' }
   for _, check in ipairs(state.checks or {}) do
     lines[#lines + 1] = '## ' .. check.label
-    for line in (check.detail .. '\n'):gmatch('(.-)\n') do lines[#lines + 1] = line end
+    for line in ((check.detail or '') .. '\n'):gmatch('(.-)\n') do lines[#lines + 1] = line end
     lines[#lines + 1] = ''
   end
-  lines[#lines + 1] = 'r refresh · R recover an interrupted update · b preview backup cleanup · q close'
+  lines[#lines + 1] = 'r refresh · R recover an interrupted update · b preview backup cleanup · F repair records · q close'
+  return lines
+end
+
+local function recover(buf, state)
+  local choices = vim.tbl_filter(function(item) return not item.active end, state.pending or {})
+  if #choices == 0 then vim.notify('No interrupted update needs recovery.'); return end
+  vim.ui.select(choices, { prompt = 'Recover interrupted update', format_item = function(item) return item.transaction .. ' · ' .. item.phase end }, function(item)
+    if not item then return end
+    if vim.fn.confirm('Recover update ' .. item.transaction .. ' by restoring its guarded backup?', '&Recover\n&Cancel', 2) ~= 1 then return end
+    vim.notify('Recovering update ' .. item.transaction .. '…')
+    call('recover:' .. buf, { 'integrations', 'recover', '--transaction', item.transaction }, function(result)
+      if result then vim.notify(result.message or ('Update ' .. item.transaction .. ' recovered.')) end
+      M.health(buf)
+    end)
+  end)
+end
+
+function M.health(buf)
   if not buf or not vim.api.nvim_buf_is_valid(buf) then
     vim.cmd.tabnew()
-    buf = scratch(table.concat(lines, '\n'), 'Work health', 'markdown')
+    buf = scratch('# Work health\n\nReading the work records…', 'Work health', 'markdown')
+    vim.keymap.set('n', 'r', function() M.health(buf) end, { buffer = buf, desc = 'Refresh work health' })
+    vim.keymap.set('n', 'b', function() M.backups() end, { buffer = buf, desc = 'Preview backup cleanup' })
+    vim.keymap.set('n', 'q', '<cmd>tabclose<CR>', { buffer = buf, desc = 'Close work health' })
   else
-    vim.bo[buf].modifiable = true
-    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-    vim.bo[buf].modifiable = false
+    -- What is shown stays readable while the new reading arrives.
+    local first = vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] or ''
+    if not first:find('refreshing', 1, true) then
+      vim.bo[buf].modifiable = true; vim.api.nvim_buf_set_lines(buf, 0, 1, false, { first .. ' · refreshing…' }); vim.bo[buf].modifiable = false
+    end
   end
-  vim.keymap.set('n', 'r', function() M.health(buf) end, { buffer = buf })
-  vim.keymap.set('n', 'R', function()
-    local choices = {}
-    for _, item in ipairs(state.pending or {}) do if not item.active then choices[#choices + 1] = item end end
-    vim.ui.select(choices, { prompt = 'Recover interrupted update', format_item = function(item) return item.transaction .. ' · ' .. item.phase end }, function(item)
-      if not item then return end
-      if vim.fn.confirm('Recover update ' .. item.transaction .. ' by restoring its guarded backup?', '&Recover\n&Cancel', 2) ~= 1 then return end
-      data({ 'integrations', 'recover', '--transaction', item.transaction }); M.health(buf)
-    end)
-  end, { buffer = buf })
-  vim.keymap.set('n', 'b', function() M.backups() end, { buffer = buf })
-  vim.keymap.set('n', 'q', '<cmd>tabclose<CR>', { buffer = buf })
+  call('health:' .. buf, { 'health' }, function(state)
+    if not vim.api.nvim_buf_is_valid(buf) then return end
+    if not state then fill(buf, { '# Work health', '', 'The work records could not be read; r tries again.' }); return end
+    fill(buf, health_lines(state))
+    vim.keymap.set('n', 'R', function() recover(buf, state) end, { buffer = buf, desc = 'Recover an interrupted update' })
+    -- F repairs the project with an unreadable record (asking which, if several), else this project.
+    local broken = {}
+    for _, check in ipairs(state.checks or {}) do
+      if check.repairable and check.root and not vim.tbl_contains(broken, check.root) then broken[#broken + 1] = check.root end
+    end
+    vim.keymap.set('n', 'F', function()
+      if #broken <= 1 then return M.repair(broken[1]) end
+      vim.ui.select(broken, { prompt = 'Repair records in' }, function(choice) if choice then M.repair(choice) end end)
+    end, { buffer = buf, desc = 'Repair unreadable project records' })
+  end)
 end
 
 function M.backups()
-  local plan = data({ 'integrations', 'cleanup-plan' })
-  if not plan or not plan.ok then return end
-  local lines = { '# Update backup cleanup preview', '', tostring(math.floor((plan.bytes or 0) / 1024)) .. ' KiB total',
-    tostring(math.floor((plan.reclaimableBytes or 0) / 1024)) .. ' KiB selected for cleanup', '', 'Current rollback chains and unfinished updates are retained.', '' }
-  for _, item in ipairs(plan.transactions or {}) do
-    lines[#lines + 1] = item.transaction .. ' · ' .. item.phase .. ' · ' .. math.floor(item.bytes / 1024) .. ' KiB'
-    lines[#lines + 1] = item.protected and ('  Retain: ' .. item.reason) or '  Selected for cleanup'
-  end
-  lines[#lines + 1] = ''; lines[#lines + 1] = 'D confirm this cleanup preview · q close'
-  vim.cmd.tabnew(); local buf = scratch(table.concat(lines, '\n'), 'Update backups', 'markdown')
-  vim.keymap.set('n', 'D', function()
-    if #(plan.selected or {}) == 0 then vim.notify('No backups are eligible for cleanup.'); return end
-    if vim.fn.confirm('Remove the ' .. #plan.selected .. ' backup transactions selected in this preview?', '&Remove\n&Cancel', 2) ~= 1 then return end
-    local result = data({ 'integrations', 'cleanup', '--expected', plan.plan, '--keep', tostring(plan.keep), '--older-than', tostring(plan.olderDays) })
-    if result and result.ok then vim.notify('Removed ' .. result.removed .. ' backup transactions.'); vim.bo[buf].modifiable = true; vim.api.nvim_buf_set_lines(buf, -1, -1, false, {'Cleanup completed. Preview again before another cleanup.'}); vim.bo[buf].modifiable = false end
-  end, { buffer = buf })
+  vim.cmd.tabnew()
+  local buf = scratch('# Update backup cleanup preview\n\nReading the update backups…', 'Update backups', 'markdown')
   vim.keymap.set('n', 'q', '<cmd>tabclose<CR>', { buffer = buf })
+  call('backups:' .. buf, { 'integrations', 'cleanup-plan' }, function(plan)
+    if not vim.api.nvim_buf_is_valid(buf) then return end
+    if not plan then fill(buf, { '# Update backup cleanup preview', '', 'The backups could not be inspected; nothing was changed.' }); return end
+    local lines = { '# Update backup cleanup preview', '', tostring(math.floor((plan.bytes or 0) / 1024)) .. ' KiB total',
+      tostring(math.floor((plan.reclaimableBytes or 0) / 1024)) .. ' KiB selected for cleanup', '', 'Current rollback chains and unfinished updates are retained.', '' }
+    for _, item in ipairs(plan.transactions or {}) do
+      lines[#lines + 1] = item.transaction .. ' · ' .. item.phase .. ' · ' .. math.floor(item.bytes / 1024) .. ' KiB'
+      lines[#lines + 1] = item.protected and ('  Retain: ' .. item.reason) or '  Selected for cleanup'
+    end
+    lines[#lines + 1] = ''; lines[#lines + 1] = 'D confirm this cleanup preview · q close'
+    fill(buf, lines)
+    vim.keymap.set('n', 'D', function()
+      if #(plan.selected or {}) == 0 then vim.notify('No backups are eligible for cleanup.'); return end
+      if vim.fn.confirm('Remove the ' .. #plan.selected .. ' backup transactions selected in this preview?', '&Remove\n&Cancel', 2) ~= 1 then return end
+      call('cleanup:' .. buf, { 'integrations', 'cleanup', '--expected', plan.plan, '--keep', tostring(plan.keep), '--older-than', tostring(plan.olderDays) }, function(result)
+        if not (result and result.ok) then return end
+        vim.notify('Removed ' .. result.removed .. ' backup transactions.')
+        if vim.api.nvim_buf_is_valid(buf) then
+          vim.bo[buf].modifiable = true; vim.api.nvim_buf_set_lines(buf, -1, -1, false, { 'Cleanup completed. Preview again before another cleanup.' }); vim.bo[buf].modifiable = false
+        end
+      end)
+    end, { buffer = buf })
+  end)
+end
+
+-- A record desk-work cannot read refuses every write until it is set aside. The preview lists exactly what would
+-- happen; D does it; originals are kept beside the records under dated names.
+local function repair_into(buf, project)
+  call('repair:' .. buf, { 'records-repair', '--root', project }, function(preview)
+    if not vim.api.nvim_buf_is_valid(buf) then return end
+    if not preview then fill(buf, { '# Repair project records', '', 'The records could not be read; q closes.' }); return end
+    local actions = preview.actions or {}
+    local lines = { '# Repair project records', '', project, '' }
+    if #actions == 0 then lines[#lines + 1] = 'Every record here is readable, and nothing needs tidying.' end
+    for _, action in ipairs(actions) do lines[#lines + 1] = '- ' .. action.says end
+    for _, stale in ipairs((preview.report or {}).stale or {}) do
+      if not stale.tidy then
+        lines[#lines + 1] = ''
+        lines[#lines + 1] = 'Kept as history: ' .. #stale.entries .. ' ' .. stale.reason .. ' (' .. stale.file .. ').'
+      end
+    end
+    lines[#lines + 1] = ''
+    lines[#lines + 1] = (#actions > 0 and 'D make these repairs · ' or '') .. 'q close'
+    fill(buf, lines)
+    pcall(vim.keymap.del, 'n', 'D', { buffer = buf })
+    if #actions == 0 then return end
+    vim.keymap.set('n', 'D', function()
+      if vim.fn.confirm('Make ' .. (#actions == 1 and 'this repair' or ('these ' .. #actions .. ' repairs')) .. '? The originals are kept.', '&Repair\n&Cancel', 2) ~= 1 then return end
+      call('repair-apply:' .. buf, { 'records-repair', '--root', project, '--expected', preview.plan }, function(result)
+        if result then vim.notify(result.message or 'Records repaired.') end
+        repair_into(buf, project)
+      end)
+    end, { buffer = buf, desc = 'Make the previewed repairs' })
+  end)
+end
+function M.repair(project)
+  project = project or root()
+  vim.cmd.tabnew()
+  local buf = scratch('# Repair project records\n\nReading the records…', 'Repair records', 'markdown')
+  vim.keymap.set('n', 'q', '<cmd>tabclose<CR>', { buffer = buf, desc = 'Close record repair' })
+  repair_into(buf, project)
 end
 
 function M.snooze(resume)
@@ -498,6 +603,7 @@ function M.setup()
   vim.api.nvim_create_user_command('WorkSuggestedTests', function() M.suggested_tests() end, {})
   vim.api.nvim_create_user_command('WorkHealth', function() M.health() end, {})
   vim.api.nvim_create_user_command('WorkBackups', function() M.backups() end, {})
+  vim.api.nvim_create_user_command('WorkRepair', function() M.repair() end, {})
   vim.api.nvim_create_user_command('ReviewFiles', function() require('foxml.review').toggle_panel() end, {})
   vim.keymap.set("n", "<leader>Ce", function() M.tests() end, { desc = "Claude test failures" })
   vim.keymap.set("n", "<leader>Ck", function() M.tasks() end, { desc = "Project next steps" })

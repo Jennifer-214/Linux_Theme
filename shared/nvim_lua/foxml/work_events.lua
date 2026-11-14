@@ -19,11 +19,34 @@ local function refresh(root, state)
     local ok, items = pcall(vim.json.decode, out.stdout or '')
     if out.code == 0 and ok and type(items) == 'table' and vim.islist(items) then state.items, state.error = items, false
     else state.error = true end
-    report(root, state.error and { error = 'Could not refresh work records' } or { ['refresh-at'] = os.time(), error = '' })
+    -- One report per change of state, or a minute apart while all is well: a burst of edits is many refreshes, and
+    -- each report is a locked write of the client record.
+    local failed = state.error and true or false
+    if failed ~= state.reported_error or os.time() - (state.reported_at or 0) >= 60 then
+      state.reported_error, state.reported_at = failed, os.time()
+      report(root, failed and { error = 'Could not refresh work records' } or { ['refresh-at'] = os.time(), error = '' })
+    end
     for _, callback in pairs(state.callbacks) do pcall(callback, state.items, state.error) end
     api.nvim_exec_autocmds('User', { pattern = 'FoxWorkChanged', data = { root = root, revision = state.revision or '' } })
     pcall(vim.cmd.redrawstatus)
     if state.again then state.again = false; refresh(root, state) end
+  end))
+end
+
+-- A burst of events (an agent saving file after file) is one refresh a second at most, and the last event is always
+-- read: the first refreshes at once; any within the next second share one refresh at its end.
+local function soon(root, state)
+  if state.queued then return end
+  local function go()
+    state.refreshed_at = uv.now()
+    if state.reading then state.again = true else refresh(root, state) end
+  end
+  local wait = (state.refreshed_at or 0) + 1000 - uv.now()
+  if wait <= 0 then return go() end
+  state.queued = true
+  state.pace:start(wait, 0, vim.schedule_wrap(function()
+    state.queued = false
+    if M.roots[root] == state then go() end
   end))
 end
 
@@ -50,9 +73,9 @@ local function watch(root, state)
       local line, rest = state.pending:match('^(.-)\n(.*)$'); state.pending = rest
       local valid, event = pcall(vim.json.decode, line)
       if valid and type(event) == 'table' and event.version == 1 then
+        -- The watcher itself reports the connection and event times (no second report per event from here).
         state.revision, state.watch_failed, state.delay = event.revision, false, 1000
-        report(root, { stream = 'connected', ['event-at'] = os.time(), ['retry-at'] = 0 })
-        if state.reading then state.again = true else refresh(root, state) end
+        soon(root, state)
       end
     end
   end) }, ended)
@@ -64,7 +87,7 @@ function M.subscribe(root, callback)
   root = uv.fs_realpath(root) or root
   local state = M.roots[root]
   if not state then
-    state = { callbacks = {}, items = {}, pending = '', timer = uv.new_timer(), retry = uv.new_timer(), delay = 1000 }
+    state = { callbacks = {}, items = {}, pending = '', timer = uv.new_timer(), retry = uv.new_timer(), pace = uv.new_timer(), delay = 1000 }
     M.roots[root] = state
     watch(root, state)
     -- Git commands and older agent integrations may not publish yet; polling remains a recovery path.
@@ -81,6 +104,7 @@ function M.subscribe(root, callback)
     report(root, { stream = 'stopped', ['retry-at'] = 0 })
     state.timer:stop(); state.timer:close()
     state.retry:stop(); state.retry:close()
+    state.pace:stop(); state.pace:close()
     if state.job then pcall(state.job.kill, state.job, 15) end
     if state.request and state.reading then pcall(state.request.kill, state.request, 15) end
   end

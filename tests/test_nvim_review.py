@@ -975,6 +975,46 @@ vim.fn.maparg('<Space>fg','n',false,true).callback()
 assert(called.cwd == root and vim.tbl_contains(called.additional_args,'--hidden'))
 ''', index_unchanged=False)
 
+    def test_a_burst_of_work_events_over_a_large_change_never_stalls_the_editor(self):
+        # 300 changed files, every one loaded, then 50 project signals in about a second through the real watcher: the
+        # longest gap between 10 ms heartbeats must stay short. Before committed copies were cached, each event re-read
+        # every loaded file with its own blocking git process (seconds per event at this size).
+        bulk = self.repo / 'bulk'
+        bulk.mkdir()
+        for i in range(300):
+            (bulk / f'f{i}.lua').write_text(f'local value = {i}\nreturn value\n')
+        self.git('add', 'bulk')
+        self.commit('bulk')
+        for i in range(300):
+            (bulk / f'f{i}.lua').write_text(f'local value = {i + 1}\nreturn value\n')
+        limit = int(os.environ.get('TEST_STALL_LIMIT_MS', '250'))
+        self.run_lua(r'''
+local uv = vim.uv or vim.loop
+local files = {}
+for i = 0, 299 do files[#files + 1] = root .. '/bulk/f' .. i .. '.lua' end
+C.open_review({kind='live', sid='burst', name='burst', short='burst', files=files}, root)
+local r = R.current
+assert(vim.wait(25000, function()
+  for _, f in ipairs(r.files) do if not f.loaded then return false end end
+  return true
+end, 20), 'the background loader did not load every file')
+local last, worst, ticks = uv.hrtime(), 0, 0
+local beat = uv.new_timer()
+beat:start(10, 10, vim.schedule_wrap(function()
+  local now = uv.hrtime(); worst = math.max(worst, (now - last) / 1e6); last = now; ticks = ticks + 1
+end))
+local refreshed = 0
+local unsubscribe = require('foxml.work_events').subscribe(root, function() refreshed = refreshed + 1 end)
+local signals = vim.system({'sh', '-c', 'i=0; while [ $i -lt 50 ]; do desk-work signal --root "$1" >/dev/null; sleep 0.02; i=$((i+1)); done', '_', root})
+assert(vim.wait(20000, function() return signals:is_closing() end, 10), 'the signal burst did not finish')
+vim.wait(1500, function() return false end, 10)
+beat:stop(); beat:close(); unsubscribe()
+io.stdout:write(('stall: worst %.0f ms over %d heartbeats, %d refreshes\n'):format(worst, ticks, refreshed))
+assert(refreshed > 0, 'the burst must have reached the review')
+assert(worst < ''' + str(limit) + r''', ('the editor stalled for %.0f ms during the burst'):format(worst))
+C.close()
+''')
+
 
 if __name__ == '__main__':
     unittest.main()
