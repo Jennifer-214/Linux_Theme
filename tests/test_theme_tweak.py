@@ -49,6 +49,11 @@ class ThemeTweakTest(unittest.TestCase):
         self.assertIn("failed", err)
         self.assertNotIn("hyprctl", log)
 
+    def test_incomplete_render_still_reloads_and_says_so(self):
+        rc, _, log = self.tweak(3)
+        self.assertEqual(rc, 3)
+        self.assertEqual(log.splitlines(), ["render sync_skip=1", "hyprctl reload"])
+
     def test_render_skips_plugin_sync_and_reloads(self):
         rc, _, log = self.tweak(0)
         self.assertEqual(rc, 0)

@@ -102,12 +102,17 @@ if [[ "$changed" == "true" ]]; then
         # Fall back to install.sh if the native binary isn't built yet.
         "$SCRIPT_DIR/install.sh" "$ACTIVE_THEME" --render --yes || rc=$?
     fi
-    if (( rc != 0 )); then
+    # exit 3 = rendered, but a step was skipped (as in swap.sh): the colours are deployed, so Hyprland still reloads.
+    if (( rc != 0 && rc != 3 )); then
         echo "error: re-rendering $ACTIVE_THEME failed (exit $rc). palette.sh is changed but not deployed; Hyprland not reloaded." >&2
         exit "$rc"
     fi
     echo ":: Reloading Hyprland..."
     hyprctl reload
+    if (( rc == 3 )); then
+        echo ":: Tweaked, but incomplete: see the steps listed above, then run it again."
+        exit 3
+    fi
     echo ":: Done."
 else
     echo "No changes requested. Try --help."
