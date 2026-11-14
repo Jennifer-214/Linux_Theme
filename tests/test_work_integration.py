@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import time
 import unittest
+from fixture_process import start as start_fixture, stop as stop_fixture
 
 ROOT = Path(__file__).resolve().parents[1]
 WORK = ROOT/'src/desk-work/desk-work'
@@ -39,7 +40,7 @@ class Workflow(unittest.TestCase):
             run('git','add','.'); run('git','-c','commit.gpgsign=false','-c','core.hooksPath=/dev/null','commit','-qm','base')
             menu = json.loads((ROOT/'shared/quickshell/foxml/menus.json').read_text()); menu['project_roots']=[str(projects)]
             config = base/'menu.json'; config.write_text(json.dumps(menu))
-            child = subprocess.Popen(['nvim','--headless','--embed','--clean'], cwd=repo, env=env,
+            child = start_fixture(['nvim','--headless','--embed','--clean'], cwd=repo, env=env,
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
             unpacker = msgpack.Unpacker(raw=False); serial = 0
             def lua(code):
@@ -86,8 +87,7 @@ class Workflow(unittest.TestCase):
                 self.assertEqual(snapshots[-1]['state']['attention'],[])
             finally:
                 # This fixture owns this embedded editor and every child it started.
-                child.terminate(); child.wait(timeout=10)
-                child.stdin.close(); child.stdout.close()
+                stop_fixture(child)
             spec=importlib.util.spec_from_file_location('paper_fixture',ROOT/'tests/test_claude_mod.py')
             module=importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
             case=module.PaperMod('test_the_code_holds_no_template_tokens')

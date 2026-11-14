@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from fixture_process import run as run_fixture
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -41,7 +42,7 @@ vim.cmd.edit(vim.fn.fnameescape(path))
 local buf=api.nvim_get_current_buf()
 assert(S.buffers[buf] and next(S.watchers))
 ''' + code)
-            result = subprocess.run(['nvim','--headless','--clean','-l',str(script)],cwd=base,env=env,
+            result = run_fixture(['nvim','--headless','--clean','-l',str(script)],cwd=base,env=env,
                                     capture_output=True,text=True,timeout=20)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
 

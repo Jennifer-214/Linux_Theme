@@ -64,7 +64,7 @@ def run_checks(args):
         commands.append(('build-'+tool,['make','--no-print-directory','-C','src/'+tool,'-j2']))
     for tool in ('desk-work','desk-drawer','desk-install'):
         commands.append(('native-'+tool,['make','--no-print-directory','-C','src/'+tool,'test']))
-    for test in ('test_claude_mod','test_work_integration','test_nvim_review','test_nvim_sync','test_nvim_workspace','test_work_nvim',
+    for test in ('test_fixture_process','test_claude_mod','test_work_integration','test_nvim_review','test_nvim_sync','test_nvim_workspace','test_work_nvim',
                  'test_drawer_qml','test_tucked_drawer_qml','test_fox_notify','test_installer_input','test_deploy_lists','test_work_ci'):
         commands.append((test,[sys.executable,'-B','tests/'+test+'.py']))
     for name,command in commands:
