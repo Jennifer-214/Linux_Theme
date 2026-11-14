@@ -1,5 +1,7 @@
-// modules/fox_moves.cpp — moves what the installer laid under the old fox names (fox_moves.hpp). Runs before the
-// steps that lay the new ones, so the drawer step finds your menu already in its new folder.
+// modules/fox_moves.cpp — clears what the installer laid under the old fox names (fox_moves.hpp). Runs after the
+// steps that lay the new ones (symlinks, drawer) and before integrations, which refuses while old copies remain: an
+// install that stops between them leaves the old files working, not nothing. The drawer step seeds its new menu from
+// your old one.
 #include "../core/context.hpp"
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
@@ -24,7 +26,7 @@ void run_fox_moves(Context& ctx) {
     const auto n = move_from_fox(ctx.home, ctx.config_home, drawer, sh::dry_run());
     if (n.moved + n.removed == 0) { ui::ok("nothing under the old names"); return; }
     const std::string said = std::to_string(n.moved) + " moved, " + std::to_string(n.removed) + " removed"
-        + (n.left ? ", " + std::to_string(n.left) + " left in place (not laid by the installer)" : "");
+        + (n.left ? ", " + std::to_string(n.left) + " left in place (backups and files of your own)" : "");
     if (sh::dry_run()) ui::substep("[dry-run] would have " + said);
     else ui::ok(said);
 }

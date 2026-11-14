@@ -4,6 +4,7 @@
 #include "../../desk-common/ui.hpp"
 #include "../../desk-common/json.hpp"
 #include "menu_upgrade.hpp"
+#include "fox_moves.hpp"
 
 #include <filesystem>
 #include <cstdlib>
@@ -63,8 +64,13 @@ void run_drawer(Context& ctx) {
         const auto name = entry.path().filename();
         if (name == "menus.json") {
             ok = deploy(entry.path(), dest / "menus.default.json") && ok;
-            // The hierarchy belongs to the user; a recolour must never reset it.
-            if (!fs::exists(dest / name)) ok = deploy(entry.path(), dest / name) && ok;
+            // The hierarchy belongs to the user; a recolour must never reset it. A menu in the folder of the old
+            // name is the user's too: its contents seed the new one, and fox_moves then clears the old copy.
+            std::error_code mec;
+            if (!fs::exists(fs::symlink_status(dest / name, mec))) {
+                const auto old = ctx.config_home / "quickshell" / kOldFoxFolder / name;
+                ok = deploy(fs::is_regular_file(old, mec) ? old : entry.path(), dest / name) && ok;
+            }
         } else {
             ok = deploy(entry.path(), dest / name) && ok;
         }
@@ -143,6 +149,10 @@ void run_drawer(Context& ctx) {
         std::string running;
         if (sh::capture({"quickshell", "-c", "desk", "ipc", "call", "drawer", "status"}, running))
             sh::run({"quickshell", "-c", "desk", "kill"});
+        // A drawer still running from the folder of the old name stops too, or two would answer the keys.
+        if (fs::exists(ctx.config_home / "quickshell" / kOldFoxFolder / "shell.qml", ec)
+            && sh::capture({"quickshell", "-c", kOldFoxFolder, "ipc", "call", "drawer", "status"}, running))
+            sh::run({"quickshell", "-c", kOldFoxFolder, "kill"});
         if (sh::run({(ctx.home / ".local/bin/desktop-menu").string(), "--start"}) != 0)
             ui::warn("drawer startup failed; existing menus remain available");
         else ui::ok("drawer is ready; use desktop-menu or your existing menu shortcut");

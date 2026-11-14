@@ -66,7 +66,7 @@ Reverse-renders your live configs back into templates, replacing rendered colors
 | Yazi | `templates/yazi/theme.toml` | `~/.config/yazi/theme.toml` |
 | Zathura | `templates/zathura/zathurarc` | `~/.config/zathura/zathurarc` |
 | Firefox | `templates/firefox/` (CSS + find-color preferences) | `<profile>/chrome/`, managed block in `user.js` |
-| Cursor / VS Code | `templates/cursor/` | `~/.cursor/extensions/desk-theme/` |
+| Cursor / VS Code | `templates/cursor/` | `~/.cursor/extensions/foxml-theme/` |
 | Bat | `templates/bat/foxml.tmTheme` | `~/.config/bat/themes/Fox ML.tmTheme` |
 | Lazygit | `templates/lazygit/config.yml` | `~/.config/lazygit/config.yml` |
 | Git delta | `templates/git/delta.gitconfig` | `~/.config/git/delta-foxml.gitconfig` |

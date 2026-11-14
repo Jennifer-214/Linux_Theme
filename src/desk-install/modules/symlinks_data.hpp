@@ -114,7 +114,7 @@ inline constexpr Mapping TEMPLATE_MAPPINGS[] = {
     { "foxml/ansi_colors.json",       "~/.config/foxml/ansi_colors.json" },
 
     // Cursor / VS Code
-    { "cursor/foxml-color-theme.json","~/.cursor/extensions/desk-theme/themes/foxml-color-theme.json" },
+    { "cursor/foxml-color-theme.json","~/.cursor/extensions/foxml-theme/themes/foxml-color-theme.json" },
 
     // Firefox — FIREFOX_PROFILE placeholder, handled by specials.
     { "firefox/userChrome.css",       "FIREFOX_PROFILE/chrome/userChrome.css" },

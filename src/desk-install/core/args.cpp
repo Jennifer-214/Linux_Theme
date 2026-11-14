@@ -433,6 +433,12 @@ bool parse(int argc, char** argv, Parsed& out, Context& ctx) {
         }
     }
 
+    // A step that lays files under the new names also clears what the old names left (--render, the theme tools,
+    // --only drawer): old pi extensions beside new ones load twice. Remove with the transition.
+    if (const std::size_t moves = find_by_slug("fox_moves"); moves != SIZE_MAX && !explicitly_disabled[moves])
+        for (const char* slug : {"symlinks", "drawer"})
+            if (const std::size_t idx = find_by_slug(slug); idx != SIZE_MAX && out.module_enabled[idx]) out.module_enabled[moves] = true;
+
     return true;
 }
 

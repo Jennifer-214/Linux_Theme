@@ -13,7 +13,6 @@
 DESK_MODULE( detect,      run_detect,        "--detect",      "Auto-detect GPU/chassis/fingerprint hardware",      true  )
 DESK_MODULE( preflight,   run_preflight,     "--preflight",   "Disk space + connectivity + session sanity check", true  )
 DESK_MODULE( theme,       run_theme,         "--theme",       "Resolve / prompt for the active theme",            true  )
-DESK_MODULE( fox_moves,   run_fox_moves,     "--fox-moves",   "Move files laid under the old fox names to the new ones", true  )
 
 // ── Phase 1: package + system setup ───────────────────────────────
 //   deps — requires root (pacman) and network (downloads). state::check_deps
@@ -130,6 +129,7 @@ DESK_MODULE( fox_aliases, run_fox_aliases,   "--fox-aliases", "Old fox-* command
 DESK_MODULE( keybind_docs, run_keybind_docs, "--keybind-docs", "Regenerate KEYBINDS.md from the tmux/Hyprland configs", true )
 DESK_MODULE( specials,    run_specials,      "--specials",    "Firefox + Cursor + Bat + Claude + bulk dirs", true )
 DESK_MODULE( drawer,      run_drawer,        "--drawer",      "Quickshell bar, hierarchical menus and active palette", true )
+DESK_MODULE( fox_moves,   run_fox_moves,     "--fox-moves",   "Clear files laid under the old fox names, once the new ones are in place", true )
 DESK_MODULE( integrations, run_integrations, "--work-integrations", "Verify work integrations and publish installed versions", true )
 //   greetd — installs+enables a system systemd unit, writes /etc/greetd/. After render and specials: specials stages its
 //   files from this run's palette and deploys the wallpapers. Before that it skips a fresh install and reuses the last theme.

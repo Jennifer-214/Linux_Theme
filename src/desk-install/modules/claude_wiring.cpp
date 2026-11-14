@@ -119,6 +119,17 @@ int merge_hook_entries(json& settings, const json& wanted) {
     return added;  // an event's list is only ever created when a command is added to it
 }
 
+// One spelling of a folder, to compare entries of a path list: ~ for the home folder ($HOME, ${HOME} or its path),
+// no trailing slash.
+static std::string plugin_dir_key(std::string entry) {
+    while (entry.size() > 1 && entry.back() == '/') entry.pop_back();
+    const char* home = std::getenv("HOME");
+    for (const std::string& lead : {std::string("$HOME"), std::string("${HOME}"), std::string(home ? home : "")})
+        if (!lead.empty() && entry.rfind(lead, 0) == 0 && (entry.size() == lead.size() || entry[lead.size()] == '/'))
+            return "~" + entry.substr(lead.size());
+    return entry;
+}
+
 bool merge_user_settings(json& existing, const json& hooks, bool custom_theme, bool status_line, bool paper_mod) {
     if (!existing.is_object()) return false;
     // only where there is none: a status line someone wrote themselves stays theirs
@@ -142,8 +153,8 @@ bool merge_user_settings(json& existing, const json& hooks, bool custom_theme, b
                 const size_t end = std::min(have.find(':', at), have.size());
                 const auto entry = have.substr(at, end - at);
                 at = end + 1;
-                if (entry == CLAUDE_OLD_PAPER_MOD) { dropped = true; continue; }
-                named = named || entry == CLAUDE_PAPER_MOD;
+                if (plugin_dir_key(entry) == CLAUDE_OLD_PAPER_MOD) { dropped = true; continue; }
+                named = named || plugin_dir_key(entry) == CLAUDE_PAPER_MOD;
                 kept.push_back(entry);
             }
             if (!named) { if (kept.size() == 1 && kept[0].empty()) kept.clear(); kept.push_back(CLAUDE_PAPER_MOD); }

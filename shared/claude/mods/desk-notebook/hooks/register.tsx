@@ -303,7 +303,7 @@ async function checkOverlap($: EngineInterface, file: string) {
       type: 'user',
       content: [{
         type: 'text',
-        text: `(foxml-paper) Another active agent session, "${found.title}"`
+        text: `(desk-notebook) Another active agent session, "${found.title}"`
           + (found.pane ? ` (running in tmux pane ${found.pane})` : '') + `, edited ${path} ${found.ago}. `
           + 'Coordinate with that session before changing it further: use messaging only when that agent supports it, or read its changes first, '
           + 'so neither of you overwrites the other.',

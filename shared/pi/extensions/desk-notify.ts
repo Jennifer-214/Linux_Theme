@@ -17,7 +17,7 @@
 import { basename } from "node:path";
 import { spawn } from "node:child_process";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { BUILD_ID } from './foxml/build.ts';
+import { BUILD_ID } from './desk/build.ts';
 
 export function makeNotify({ delayMs = 5000, minSecs = 15, hintMs = 1000 } = {}) {
 	return function (pi: ExtensionAPI) {

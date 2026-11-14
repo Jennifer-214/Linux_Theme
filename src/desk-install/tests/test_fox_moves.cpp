@@ -43,6 +43,7 @@ int main() {
     const std::vector<std::string> laid{"shell.qml", "menus.json", "Theme.qml"};
     const auto dry = move_from_fox(home, config, laid, true);
     expect(dry.moved == 1 && dry.removed == 5, "a dry run counts what would happen");
+    expect(dry.left == 2, "a dry run counts what would stay, as the real run does");
     expect(fs::exists(nvim / "review.lua") && fs::exists(drawer / "menus.json"), "a dry run changes nothing");
 
     const auto ran = move_from_fox(home, config, laid, false);
@@ -66,6 +67,35 @@ int main() {
     expect(desk_install::fox_names_deployed(home, config) == false, "nothing laid under the old names is left");
     write(nvim / "review.lua", "old module");
     expect(desk_install::fox_names_deployed(home, config), "an old module is seen");
+
+    // The drawer step seeded the new menu from the old one: the old copy goes.
+    write(drawer / "menus.json", read(desk / "menus.json"));
+    const auto seeded = move_from_fox(home, config, laid, false);
+    expect(seeded.moved == 0 && !fs::exists(drawer / "menus.json") && read(desk / "menus.json") == "{\"yours\": true}",
+           "a copy the drawer step seeded lets the old menu go");
+
+    // An old folder that is itself a link is yours: what it points at stays, and it does not hold back the update.
+    const auto dotfiles = home / "dotfiles/nvim";
+    write(dotfiles / "review.lua", "my own module");
+    fs::remove_all(nvim);
+    fs::create_directory_symlink(dotfiles, nvim);
+    move_from_fox(home, config, laid, false);
+    expect(read(dotfiles / "review.lua") == "my own module", "a linked old folder is left alone");
+    expect(!desk_install::fox_names_deployed(home, config), "a linked old folder does not hold back the update");
+    fs::remove(nvim);
+
+    // A menu that is a link moves as a link; relative links still resolve from the sibling folder.
+    fs::remove(desk / "menus.json");
+    write(home / "dotfiles/menus.json", "{\"linked\": true}");
+    fs::create_directories(drawer);
+    fs::create_symlink("../../../dotfiles/menus.json", drawer / "menus.json");
+    const auto link = move_from_fox(home, config, laid, false);
+    expect(link.moved == 1 && fs::is_symlink(desk / "menus.json") && read(desk / "menus.json") == "{\"linked\": true}",
+           "a menu that is a link moves as a link");
+
+    // A folder at a module's name is not a file the installer laid.
+    fs::create_directories(nvim / "review.lua");
+    expect(!desk_install::fox_names_deployed(home, config), "a folder named like a module does not hold back the update");
 
     fs::remove_all(home);
     if (failures == 0) std::printf("test_fox_moves: ok\n");
