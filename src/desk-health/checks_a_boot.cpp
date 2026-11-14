@@ -116,8 +116,8 @@ fs::path detect_esp_path() {
     // Fallback candidates.
     for (const char* cand : { "/efi", "/boot/efi" }) {
         // Is it actually a mountpoint? Cheap test: stat parent vs child.
-        if (!fs::is_directory(cand)) continue;
         std::error_code ec;
+        if (!fs::is_directory(cand, ec)) continue;
         auto a = fs::space("/boot", ec);
         auto b = fs::space(cand, ec);
         if (ec) continue;
@@ -285,7 +285,12 @@ CheckResult a4_esp_matches_boot() {
         "vmlinuz-", "initramfs-", "intel-ucode.img", "amd-ucode.img"
     };
     std::vector<std::string> mismatches;
-    for (auto& entry : fs::directory_iterator(boot)) {
+    // An ESP mounted dmask=0077 cannot be listed as the user: skipped, not thrown (a throw failed the installer's
+    // pre-flight and stopped the whole install; found in the VM, 2026-11-14).
+    std::error_code list_ec;
+    fs::directory_iterator listing(boot, list_ec);
+    if (list_ec) return skip("A4", "cannot read /boot as this user (" + list_ec.message() + ")");
+    for (auto& entry : listing) {
         if (!entry.is_regular_file()) continue;
         std::string name = entry.path().filename().string();
         bool matched_pattern = false;
@@ -294,7 +299,9 @@ CheckResult a4_esp_matches_boot() {
         }
         if (!matched_pattern) continue;
         fs::path esp_copy = esp / name;
-        if (!fs::exists(esp_copy)) {
+        std::error_code esp_ec;
+        if (!fs::exists(esp_copy, esp_ec)) {
+            if (esp_ec) return skip("A4", "cannot read " + esp.string() + " as this user (" + esp_ec.message() + ")");
             mismatches.push_back(name + " missing on ESP");
             continue;
         }
@@ -339,11 +346,16 @@ CheckResult a4_esp_matches_boot() {
 // times.
 CheckResult a7_arch_conf_no_dupes() {
     fs::path entries = "/boot/loader/entries";
-    if (!fs::is_directory(entries)) {
+    std::error_code ec;
+    const bool present = fs::is_directory(entries, ec);
+    if (ec) return skip("A7", "cannot read the boot entries as this user (" + ec.message() + ")");
+    if (!present) {
         return skip("A7", "no systemd-boot loader entries (GRUB or other bootloader)");
     }
+    fs::directory_iterator listing(entries, ec);
+    if (ec) return skip("A7", "cannot read the boot entries as this user (" + ec.message() + ")");
     std::vector<std::string> problems;
-    for (auto& e : fs::directory_iterator(entries)) {
+    for (auto& e : listing) {
         if (e.path().extension() != ".conf") continue;
         std::ifstream f(e.path());
         std::string line;
