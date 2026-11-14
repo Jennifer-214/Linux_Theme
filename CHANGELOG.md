@@ -91,7 +91,8 @@ in one file, with a context size and slot count per role. Codex replaces the Gem
 - The base packages (`deps`) are on by default, so the interactive wizard on a new PC installs them; a machine that
   has every package skips the step.
 - Installing a different theme brings that theme's wallpaper to the desktop and the login screen; it used to keep
-  the previous theme's. A reinstall of the same theme still keeps the wallpaper you picked.
+  the previous theme's. Run inside the session, it shows on screen straight away. A reinstall of the same theme
+  still keeps the wallpaper you picked.
 
 ### Tests and tools
 

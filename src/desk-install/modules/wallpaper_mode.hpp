@@ -16,8 +16,8 @@ namespace desk_install {
 // rotate_wallpaper.sh --static re-applies .current, and a new machine has none, so it would fall back to its midday
 // slot instead of the theme's wallpaper. A pick that already exists is kept while the theme stays the same; a change
 // of theme brings that theme's wallpaper, which the login screen then copies. .active-theme still names the previous
-// theme here: post_install writes the new one at the end of the run.
-inline void seed_theme_wallpaper(const Context& ctx) {
+// theme here: post_install writes the new one at the end of the run. True when .current now names a new wallpaper.
+inline bool seed_theme_wallpaper(const Context& ctx) {
     namespace fs = std::filesystem;
     const auto wall_dir = ctx.home / ".wallpapers";
     const auto link = wall_dir / ".current";
@@ -25,11 +25,13 @@ inline void seed_theme_wallpaper(const Context& ctx) {
     std::string saved;
     if (std::ifstream in{ctx.script_dir / ".active-theme"}) std::getline(in, saved);
     const bool theme_changed = !saved.empty() && current_theme_name(ctx.themes_dir, saved) != ctx.theme_name;
-    if (fs::is_symlink(link, ec) && !theme_changed) return;
+    if (fs::is_symlink(link, ec) && !theme_changed) return false;
     const std::string name = palette::get(ctx.palette_path, "WALLPAPER", "");
-    if (name.empty() || name.find('/') != std::string::npos || !fs::is_regular_file(wall_dir / name, ec)) return;
+    if (name.empty() || name.find('/') != std::string::npos || !fs::is_regular_file(wall_dir / name, ec)) return false;
+    if (fs::is_symlink(link, ec) && fs::read_symlink(link, ec) == name) return false;
     fs::remove(link, ec);
     fs::create_symlink(name, link, ec);
+    return !ec;
 }
 
 // Specials enables or disables the rotation timer from ctx.rotate_wallpapers, so a run that skipped the wallpaper

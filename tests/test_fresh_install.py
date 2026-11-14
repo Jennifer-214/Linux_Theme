@@ -31,11 +31,12 @@ class FreshInstall(unittest.TestCase):
     def test_theme_wallpaper_is_seeded_after_the_wallpapers_arrive(self):
         specials = (MODULES / "specials.cpp").read_text()
         self.assertLess(specials.index("for (auto& s : BULK) deploy_dir_files(ctx, s);"),
-                        specials.index("seed_theme_wallpaper(ctx);"))
+                        specials.index("seed_theme_wallpaper(ctx)"))
 
     def test_seeding_keeps_the_users_pick_unless_the_theme_changed(self):
         helper = (MODULES / "wallpaper_mode.hpp").read_text()
-        self.assertLess(helper.index("is_symlink(link, ec) && !theme_changed) return;"), helper.index("create_symlink"))
+        self.assertLess(helper.index("is_symlink(link, ec) && !theme_changed) return false;"),
+                        helper.index("create_symlink"))
 
     def test_first_login_state_is_only_written_once(self):
         greetd = (MODULES / "greetd.cpp").read_text()

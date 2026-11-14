@@ -773,7 +773,9 @@ void run_specials(Context& ctx) {
         { "shared/pulse.d",          ".config/foxml/pulse.d",  ".sh", true,  "pulse handlers",   nullptr,    false },
     };
     for (auto& s : BULK) deploy_dir_files(ctx, s);
-    seed_theme_wallpaper(ctx);
+    // personalize already put the old wallpaper on screen; a run inside the session shows the new one now.
+    if (seed_theme_wallpaper(ctx) && std::getenv("WAYLAND_DISPLAY"))
+        sh::run({(ctx.config_home / "hypr/scripts/rotate_wallpaper.sh").string(), "--static"});
 
     do_hyprland_modules(ctx);
     do_wallpaper_mode(ctx);

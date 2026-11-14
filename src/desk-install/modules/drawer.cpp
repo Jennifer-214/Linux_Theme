@@ -10,6 +10,8 @@
 #include <cstdlib>
 #include <system_error>
 #include <fstream>
+#include <string>
+#include <unistd.h>
 
 namespace fs = std::filesystem;
 
@@ -151,10 +153,11 @@ void run_drawer(Context& ctx) {
         std::string running;
         if (sh::capture({"quickshell", "-c", "desk", "ipc", "call", "drawer", "status"}, running))
             sh::run({"quickshell", "-c", "desk", "kill"});
-        // A drawer still running from the folder of the old name stops too, or two would answer the keys.
-        if (fs::exists(ctx.config_home / "quickshell" / kOldFoxFolder / "shell.qml", ec)
-            && sh::capture({"quickshell", "-c", kOldFoxFolder, "ipc", "call", "drawer", "status"}, running))
-            sh::run({"quickshell", "-c", kOldFoxFolder, "kill"});
+        // A drawer still running from the folder of the old name stops too, or two would answer the keys. Its files
+        // may already be gone (an install run from outside the session moved them, and it shows "configuration
+        // missing"), and then its IPC no longer answers, so it is found by its command line.
+        sh::run({"pkill", "-u", std::to_string(::getuid()), "-f",
+                 std::string("(^|/)quickshell -c ") + kOldFoxFolder + "( |$)"});
         if (sh::run({(ctx.home / ".local/bin/desktop-menu").string(), "--start"}) != 0)
             ui::warn("drawer startup failed; existing menus remain available");
         else ui::ok("drawer is ready; use desktop-menu or your existing menu shortcut");

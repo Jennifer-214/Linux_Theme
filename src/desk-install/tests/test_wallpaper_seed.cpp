@@ -1,5 +1,6 @@
 // The desktop wallpaper after an install: the theme's own on a new machine and after a change of theme, the user's
 // pick on a reinstall of the same theme. A Classic → Paper upgrade used to keep Classic's wallpaper (and login screen).
+// The return value says whether to show the new one now.
 #include "../modules/wallpaper_mode.hpp"
 
 #include <cstdio>
@@ -8,11 +9,12 @@
 namespace fs = std::filesystem;
 
 static int failures = 0;
-static void expect(const char* what, const fs::path& link, const char* want) {
+static void expect(const char* what, bool changed, bool want_changed, const fs::path& link, const char* want) {
     std::error_code ec;
     const std::string got = fs::is_symlink(link, ec) ? fs::read_symlink(link, ec).string() : "(none)";
-    if (got == want) return;
-    std::printf("FAIL %s: .current -> %s, want %s\n", what, got.c_str(), want);
+    if (got == want && changed == want_changed) return;
+    std::printf("FAIL %s: .current -> %s (changed %d), want %s (changed %d)\n", what, got.c_str(), changed, want,
+                want_changed);
     ++failures;
 }
 
@@ -42,32 +44,32 @@ int main() {
     };
 
     use("Classic");
-    desk_install::seed_theme_wallpaper(ctx);
-    expect("new machine", link, "classic.jpg");
+    expect("new machine", desk_install::seed_theme_wallpaper(ctx), true, link, "classic.jpg");
     finish_run();
 
     pick("picked.jpg");
-    desk_install::seed_theme_wallpaper(ctx);
-    expect("same theme keeps the pick", link, "picked.jpg");
+    expect("same theme keeps the pick", desk_install::seed_theme_wallpaper(ctx), false, link, "picked.jpg");
     finish_run();
 
     use("Paper");
-    desk_install::seed_theme_wallpaper(ctx);
-    expect("theme change", link, "paper.png");
+    expect("theme change", desk_install::seed_theme_wallpaper(ctx), true, link, "paper.png");
+
+    // The run stopped before it saved the theme; the next one finds the wallpaper already in place.
+    expect("theme change already shown", desk_install::seed_theme_wallpaper(ctx), false, link, "paper.png");
     finish_run();
 
     // An install from before the rename saved the old name of the same theme, so the pick stays.
     pick("picked.jpg");
     std::ofstream(root / ".active-theme") << "FoxML_Paper\n";   // old-theme-name
-    desk_install::seed_theme_wallpaper(ctx);
-    expect("old name of the same theme keeps the pick", link, "picked.jpg");
+    expect("old name of the same theme keeps the pick", desk_install::seed_theme_wallpaper(ctx), false, link,
+           "picked.jpg");
     finish_run();
 
     pick("paper.png");
     use("Classic");
     fs::remove(walls / "classic.jpg");
-    desk_install::seed_theme_wallpaper(ctx);
-    expect("theme change, its wallpaper missing: nothing removed", link, "paper.png");
+    expect("theme change, its wallpaper missing: nothing removed", desk_install::seed_theme_wallpaper(ctx), false,
+           link, "paper.png");
 
     fs::remove_all(root);
     if (failures == 0) std::printf("test_wallpaper_seed: ok\n");
