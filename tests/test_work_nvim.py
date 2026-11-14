@@ -157,10 +157,12 @@ local original = vim.fn.argv
 vim.fn.argv = function() return {'foxml-work:file-diff', path, 'abc'} end
 W.open_args()
 assert(vim.wo.diff, 'notebook did not open a diff')
-assert(table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), '\n') == 'int preexisting_edit = 2;', 'session diff lost the preexisting work')
+-- A file opens with focus in the after pane; the before side is what this checks.
+local function before() return table.concat(vim.api.nvim_buf_get_lines(require('foxml.review').current.left_buf, 0, -1, false), '\n') end
+assert(before() == 'int preexisting_edit = 2;', 'session diff lost the preexisting work')
 vim.fn.argv = function() return {'foxml-work:file-diff', path, ''} end
 W.open_args()
-assert(table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), '\n') == 'int committed = 1;', 'all-changes diff did not use HEAD')
+assert(before() == 'int committed = 1;', 'all-changes diff did not use HEAD')
 vim.fn.argv = function() return {'foxml-work:file', path} end
 W.open_args()
 assert(vim.api.nvim_buf_get_name(0) == path, 'editor changed the literal filename')

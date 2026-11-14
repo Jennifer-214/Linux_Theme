@@ -305,6 +305,94 @@ for _,f in ipairs(R.current.files) do assert(R.current.marks[f.rel] == f.signatu
 C.close()
 ''')
 
+    def test_enter_on_a_folded_working_changes_rule_unfolds_it(self):
+        self.run_lua(r'''
+vim.cmd.edit(root .. '/a.lua')
+C.changes()
+local r = R.current
+api.nvim_set_current_win(r.panel_win)
+api.nvim_win_set_cursor(r.panel_win, {3, 0})
+assert(api.nvim_get_current_line():find('Working changes', 1, true), api.nvim_get_current_line())
+vim.fn.maparg('h', 'n', false, true).callback()
+assert(r.sets[1].expanded == false, 'h did not fold Working changes')
+api.nvim_win_set_cursor(r.panel_win, {3, 0})
+vim.fn.maparg('<CR>', 'n', false, true).callback()
+for _, w in ipairs(api.nvim_list_wins()) do assert(api.nvim_win_get_config(w).relative == '', 'Enter on Working changes opened the Actions menu') end
+assert(r.sets[1].expanded, 'Enter on the folded Working changes rule did not unfold it')
+''')
+
+    def test_follow_in_a_review_without_the_tree_says_why_instead_of_failing(self):
+        self.run_lua(r'''
+C.open_review(row, root)
+local r = R.current
+assert(r.sets == nil)
+api.nvim_set_current_win(r.panel_win)
+api.nvim_win_set_cursor(r.panel_win, {4, 0})
+local ok, err = pcall(vim.fn.maparg('f', 'n', false, true).callback)
+assert(ok, 'f in the file list raised: ' .. tostring(err))
+''')
+
+    def test_checking_or_refreshing_from_the_list_keeps_focus_in_the_list(self):
+        self.run_lua(r'''
+vim.cmd.edit(root .. '/a.lua')
+C.changes()
+local r = R.current
+assert(vim.fn.maparg('<Space>', 'n', false, true).buffer ~= 1, 'Space is the leader key, not a list key')
+for _, lhs in ipairs({'m', 'r', 'n'}) do
+  api.nvim_set_current_win(r.panel_win)
+  api.nvim_win_set_cursor(r.panel_win, {4, 0})
+  vim.fn.maparg(lhs, 'n', false, true).callback()
+  assert(api.nvim_get_current_win() == r.panel_win, lhs .. ' in the file list moved focus into the comparison')
+end
+''', index_unchanged=False)
+
+    def test_the_working_list_picks_up_files_changed_after_it_opened(self):
+        self.run_lua(r'''
+vim.cmd.edit(root .. '/a.lua')
+C.changes()
+local r = R.current
+local f = assert(io.open(root .. '/fresh.txt', 'w')); f:write('written by an agent\n'); f:close()
+R.refresh_live()
+local found = false
+for _, file in ipairs(r.files) do if file.rel == 'fresh.txt' then found = true end end
+os.remove(root .. '/fresh.txt')
+assert(found, 'a file changed after the review opened never joined Working changes')
+R.refresh_live()
+for _, file in ipairs(r.files) do assert(file.rel ~= 'fresh.txt', 'a file no longer changed stays listed') end
+''')
+
+    def test_the_menu_bar_follows_any_motion_and_the_strip_does_not_repeat_the_name(self):
+        self.run_lua(r'''
+local Menu = dofile(vim.env.TEST_REVIEW_LUA .. '/foxml/menu.lua')
+local ran, items = {}, {}
+for i = 1, 5 do items[i] = { name = 'Row ' .. i, label = 'Row ' .. i .. ' — does thing ' .. i, group = i <= 3 and 'first' or 'second', run = function() ran[#ran + 1] = i end } end
+local win = Menu.open(items, { title = 'Test' })
+local buf = api.nvim_win_get_buf(win)
+local ns = api.nvim_get_namespaces()['foxml_menu']
+local function bar()
+  for _, m in ipairs(api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })) do if m[4].line_hl_group then return m[2] + 1 end end
+end
+local strip = Menu.layout(items, { title = 'Test' }).strip
+local text = api.nvim_buf_get_lines(buf, strip - 1, strip, false)[1]
+assert(not text:find('Row 1 —', 1, true), 'the strip repeats the row name: ' .. text)
+api.nvim_feedkeys('G', 'xt', false)
+api.nvim_exec_autocmds('CursorMoved', { buffer = buf })
+local at = api.nvim_win_get_cursor(win)[1]
+assert(bar() == at, 'after G the bar is on line ' .. tostring(bar()) .. ' and the cursor on line ' .. at)
+api.nvim_feedkeys(api.nvim_replace_termcodes('<CR>', true, false, true), 'xt', false)
+assert(ran[1] == 5, 'Enter after G ran ' .. vim.inspect(ran) .. ' (expected the last row)')
+''')
+
+    def test_work_views_leave_no_empty_buffer_behind(self):
+        self.run_lua(r'''
+package.loaded['foxml.work'] = dofile(vim.env.TEST_REVIEW_LUA .. '/foxml/work.lua')
+local W = require('foxml.work')
+local function listed() return #vim.tbl_filter(function(b) return vim.bo[b].buflisted end, api.nvim_list_bufs()) end
+local before = listed()
+for _, open in ipairs({ W.health, W.backups, W.repair }) do open(); vim.cmd('tabclose') end
+assert(listed() == before, 'work views left ' .. (listed() - before) .. ' empty [No Name] buffers listed')
+''', index_unchanged=False)
+
     def test_a_line_gone_from_the_after_copy_reads_as_removed_on_the_before_side(self):
         self.run_lua(r'''
 C.open_review(row,root)
@@ -934,6 +1022,7 @@ C.live = {{id='abc',name='A session'}}
 local selected, prompted = false,false
 vim.ui.select = function(items,opts,cb) selected=true; cb(items[1]) end
 vim.ui.input = function(opts,cb) prompted=true; cb('Please check this change') end
+api.nvim_set_current_win(r.left_win)   -- a file opens in the after pane; this note is about the before side
 C.send({1,1})
 assert(selected and prompted)
 local inbox = vim.env.XDG_RUNTIME_DIR .. '/foxml-claude/inbox/abc'

@@ -13,6 +13,9 @@ local function read(path)
   return text
 end
 local function contents(buf)
+  -- A buffer Vim would write as nothing (an empty file, every line deleted) is empty, not one newline: otherwise an
+  -- empty file on disk never matches it and every save is refused as outside edits.
+  if api.nvim_buf_call(buf, function() return vim.fn.line2byte(vim.fn.line('$') + 1) == -1 end) then return '' end
   local separator = vim.bo[buf].fileformat == 'dos' and '\r\n' or '\n'
   return (vim.bo[buf].bomb and '\239\187\191' or '')
     .. table.concat(api.nvim_buf_get_lines(buf, 0, -1, false), separator)
@@ -85,7 +88,8 @@ function M.track(buf, reset)
   M.detach(buf)
   local dir = vim.fs.dirname(path)
   -- The baseline is what Neovim read or wrote, even if an atomic agent save races that event.
-  local state = { path = path, dir = dir, base = not vim.bo[buf].modified and contents(buf) or nil }
+  -- A file not on disk yet (a new buffer, never saved) has no baseline: nothing outside can have changed it.
+  local state = { path = path, dir = dir, base = uv.fs_stat(path) and not vim.bo[buf].modified and contents(buf) or nil }
   M.buffers[buf] = state
   local root = vim.fs.root(path, '.git')
   state.root = root

@@ -56,6 +56,14 @@ local function scratch(text, name, ft, editable)
   vim.bo[buf].modifiable = editable or false
   return buf
 end
+-- A view in a new tab: the tab's own empty buffer goes, so closing the view leaves no [No Name] behind.
+local function tab_scratch(text, name, ft)
+  vim.cmd.tabnew()
+  local empty = vim.api.nvim_get_current_buf()
+  local buf = scratch(text, name, ft)
+  if empty ~= buf and vim.api.nvim_buf_get_name(empty) == '' and not vim.bo[empty].modified then pcall(vim.api.nvim_buf_delete, empty, { force = true }) end
+  return buf
+end
 
 -- API tasks (claude-api): read-only reviews on API credits, with a model choice, live progress,
 -- follow-ups and results whose path:line citations become a quickfix list.
@@ -423,7 +431,10 @@ function M.history(digest_only)
         if action.kind == 'file-diff' then require('foxml.review').open_item({ kind = 'changed', file = action.file, why = selected.label }, project)
         elseif action.kind == 'reviews' then require('foxml.review').open_item({ kind = 'commit', sha = action.id }, project)
         elseif action.kind == 'tests' then M.tests(action.id)
-        elseif action.kind == 'log' then scratch(run({ 'log', '--id', action.id }), 'job output', 'text') end
+        elseif action.kind == 'log' then scratch(run({ 'log', '--id', action.id }), 'job output', 'text')
+        elseif action.kind == 'health' then M.health()
+        elseif action.kind == 'agent' then run({ 'open', '--root', project, '--action', 'event', '--id', selected.id })
+        else vim.notify('That event has nothing to open.') end
       end }
   end
   if digest and digest.total > 0 then rows[#rows + 1] = { name = 'Mark these events caught up', group = 'digest', run = function()
@@ -460,8 +471,7 @@ end
 
 function M.health(buf)
   if not buf or not vim.api.nvim_buf_is_valid(buf) then
-    vim.cmd.tabnew()
-    buf = scratch('# Work health\n\nReading the work records…', 'Work health', 'markdown')
+    buf = tab_scratch('# Work health\n\nReading the work records…', 'Work health', 'markdown')
     vim.keymap.set('n', 'r', function() M.health(buf) end, { buffer = buf, desc = 'Refresh work health' })
     vim.keymap.set('n', 'b', function() M.backups() end, { buffer = buf, desc = 'Preview backup cleanup' })
     vim.keymap.set('n', 'q', '<cmd>tabclose<CR>', { buffer = buf, desc = 'Close work health' })
@@ -490,8 +500,7 @@ function M.health(buf)
 end
 
 function M.backups()
-  vim.cmd.tabnew()
-  local buf = scratch('# Update backup cleanup preview\n\nReading the update backups…', 'Update backups', 'markdown')
+  local buf = tab_scratch('# Update backup cleanup preview\n\nReading the update backups…', 'Update backups', 'markdown')
   vim.keymap.set('n', 'q', '<cmd>tabclose<CR>', { buffer = buf })
   call('backups:' .. buf, { 'integrations', 'cleanup-plan' }, function(plan)
     if not vim.api.nvim_buf_is_valid(buf) then return end
@@ -550,8 +559,7 @@ local function repair_into(buf, project)
 end
 function M.repair(project)
   project = project or root()
-  vim.cmd.tabnew()
-  local buf = scratch('# Repair project records\n\nReading the records…', 'Repair records', 'markdown')
+  local buf = tab_scratch('# Repair project records\n\nReading the records…', 'Repair records', 'markdown')
   vim.keymap.set('n', 'q', '<cmd>tabclose<CR>', { buffer = buf, desc = 'Close record repair' })
   repair_into(buf, project)
 end
@@ -560,6 +568,7 @@ function M.snooze(resume)
   local project = root()
   local items = data({ 'attention', '--root', project, '--include-snoozed', 'yes' }) or {}
   items = vim.tbl_filter(function(item) return resume and item.snoozed or not resume and not item.snoozed end, items)
+  if #items == 0 then vim.notify(resume and 'Nothing is snoozed here.' or 'Nothing here needs you, so there is nothing to snooze.'); return end
   vim.ui.select(items, { prompt = resume and 'Bring back attention item' or 'Snooze attention item', format_item = function(item) return item.label end }, function(item)
     if not item then return end
     if resume then data({ 'snooze', '--root', project, '--id', item.id, '--clear', 'yes' }); return end
@@ -581,8 +590,9 @@ function M.suggested_tests(file)
     if not item then return end
     vim.ui.select({ 'Run on saved files', 'Cancel' }, { prompt = item.command .. ' · in ' .. item.cwd }, function(choice)
       if choice ~= 'Run on saved files' then return end
+      vim.notify('Running ' .. item.label .. '…')
       vim.system({ 'desk-work', 'run-suggested', '--root', project, '--id', item.id }, { text = true }, vim.schedule_wrap(function(out)
-        vim.notify(out.code == 0 and 'Test run passed.' or 'Test run did not pass; see :WorkTests.')
+        vim.notify(out.code == 0 and 'Test run passed.' or out.code == 2 and M.refusal({ 'run-suggested' }, out) or 'Test run did not pass; see :WorkTests.')
         M.tests()
       end))
     end)

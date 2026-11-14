@@ -553,7 +553,12 @@ first change you make to it says which session to coordinate with. The statuslin
 | `Space Cj` | Go to the pane of the Claude that edited this buffer |
 | `Space Cd` | Show this file in the current review panes |
 | `Space Cr` | Review the next thing that needs you: a requested change whose file has changed, a file edited since you reviewed it, else the oldest unreviewed Claude commit (`:ReviewNext`) |
-| `:WorkAttention` | Shared project attention list: failed jobs, agents needing input and changes to review |
+| `:WorkAttention` | Shared project attention list: failed jobs, agents needing input and changes to review; it can set the review backlog aside and bring it back |
+| `Space Ce`, `:WorkTests` | The last test run's failures as a jump list (its log when it has no locations) |
+| `Space Ck` | Pinned next steps for this project: pin one, mark it done, or turn it into a note for Claude |
+| `Space Cm` | Plan marks, by step: the places the plan names |
+| `]n` / `[n` | Next / previous plan mark |
+| `Space tP`, `:PlanMarksToggle` | Show or hide plan marks; `:PlanMarks [plan.md]` marks the places a plan names |
 | `:WorkNext` | Open the first item in the shared attention list |
 | `:WorkTimeline` | Project activity with links to files, results and reviews |
 | `:WorkDigest` | Changes since your last explicit acknowledgement |
@@ -590,7 +595,7 @@ Checking a live file is invalidated when its contents change. Files with missing
 | `h` in the file list | Collapse changed functions first, then the selected commit |
 | `]f` / `[f` / `Tab` / `Shift+Tab` | Next / previous file |
 | `]c` / `[c` in a diff | Next / previous changed block |
-| `m` / `Space` (list) | Check or uncheck the file as reviewed |
+| `m` | Check or uncheck the file as reviewed |
 | `u` | Resume at the first unchecked file (files with a risk mark or ready for re-review first) |
 | `n` (list) / `Space rn` (diff) | Only what is new since you reviewed a file / the whole change (remembered) |
 | `c` | Request changes: a note about this file or the selected lines to a Claude session; the file waits on it |
