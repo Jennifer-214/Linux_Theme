@@ -52,6 +52,21 @@ int main() {
            "try_first_pass is seen behind a bracketed control");
     expect(!try_first_pass_in("auth       required                    pam_unix.so          nullok\n"), "and not invented");
 
+    // This machine's stacks (2026-11-14): the finger step gives way after 10 s, and the login screen asks once.
+    const std::string local = "#%PAM-1.0\nauth      sufficient   pam_fprintd.so\nauth      include   system-login\n";
+    const auto waited = with_fprintd_wait(local);
+    expect(waited && waited->find("pam_fprintd.so timeout=10\n") != std::string::npos, "an existing finger step gains the wait");
+    expect(waited && !with_fprintd_wait(*waited), "and only once");
+    expect(!with_fprintd_wait("auth sufficient pam_fprintd.so timeout=5\n"), "a wait someone chose is kept");
+    expect(with_fprintd(stock, false)->find(std::string(kFprintdWait)) != std::string::npos, "a new finger step comes with the wait");
+    const std::string greeter = "#%PAM-1.0\nauth      sufficient  pam_fprintd.so\nauth       required     pam_securetty.so\n"
+                               "auth       include      system-local-login\naccount    include      system-local-login\n";
+    expect(includes(greeter, "system-local-login") && !includes(stock, "system-local-login"), "the include is seen, and not invented");
+    const auto once = without_fprintd(greeter);
+    expect(once && *once == "#%PAM-1.0\nauth       required     pam_securetty.so\nauth       include      system-local-login\n"
+                            "account    include      system-local-login\n", "only the finger line goes");
+    expect(!without_fprintd(*once), "nothing more to remove");
+
     char pattern[] = "/tmp/pam-file-XXXXXX";
     if (!::mkdtemp(pattern)) return 1;
     const fs::path dir(pattern), file = dir / "sudo", next = dir / "next";

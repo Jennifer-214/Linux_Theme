@@ -138,7 +138,14 @@ void run_sudo_fingerprint(Context& ctx) {
     }
 
     if (sudo_has_fprintd()) {
-        ui::skipped("/etc/pam.d/sudo already has pam_fprintd — leaving as-is");
+        // Already wired: the finger step gives way to the password after pam_file::kFprintdWait, not 30 s.
+        std::ifstream current(sudo_pam);
+        const auto waited = pam_file::with_fprintd_wait(std::string(std::istreambuf_iterator<char>(current), {}));
+        if (!waited) { ui::skipped("/etc/pam.d/sudo already has pam_fprintd — leaving as-is"); return; }
+        if (sh::dry_run()) { ui::substep("[dry-run] would make sudo's fingerprint step give way to the password after 10 s"); return; }
+        if (!sh::sudo_warmup()) { ui::warn("sudo unavailable — skipping (rerun installer to retry)"); return; }
+        if (const auto failed = pam_file::install(sudo_pam, *waited); !failed.empty()) { ui::err(failed); return; }
+        ui::ok("sudo's fingerprint step gives way to the password after 10 s");
         return;
     }
 

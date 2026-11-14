@@ -93,16 +93,52 @@ std::string splice_pam(const std::string& body) {
     for (int i = 0; i < (int)lines.size(); ++i) {
         out << lines[i] << "\n";
         if (!printed && i == insert_after) {
-            out << "auth      sufficient   pam_fprintd.so\n";
+            out << std::string(pam_file::kFprintdLine) + "\n";
             printed = true;
         }
     }
     if (!printed) {
         // No auth lines at all — append at the bottom (shouldn't
         // happen on a sane PAM stack; safe fallback).
-        out << "auth      sufficient   pam_fprintd.so\n";
+        out << std::string(pam_file::kFprintdLine) + "\n";
     }
     return out.str();
+}
+
+std::string slurp(const fs::path& p) {
+    std::ifstream f(p);
+    return std::string(std::istreambuf_iterator<char>(f), {});
+}
+
+// Already wired: the finger step gives way to the password after pam_file::kFprintdWait (pam_fprintd's own default
+// is 30 s), and the login screen, which reads this file through its include, does not ask a second time from a line
+// of its own (greetd_fingerprint used to add one: two finger waits before the password).
+void settle(const fs::path& pam) {
+    const fs::path greetd = "/etc/pam.d/greetd";
+    const auto waited = pam_file::with_fprintd_wait(slurp(pam));
+    const std::string greeter_text = slurp(greetd);
+    const auto greeter = pam_file::includes(greeter_text, "system-local-login") ? pam_file::without_fprintd(greeter_text) : std::nullopt;
+    if (!waited && !greeter) {
+        ui::skipped("pam_fprintd already in " + pam.string() + " — leaving as-is");
+        return;
+    }
+    if (sh::dry_run()) {
+        if (waited) ui::substep("[dry-run] would make the fingerprint step in " + pam.string() + " give way to the password after 10 s");
+        if (greeter) ui::substep("[dry-run] would remove the login screen's second fingerprint step from " + greetd.string());
+        return;
+    }
+    if (!sh::sudo_warmup()) {
+        ui::err("sudo cache cold — `sudo -v` first; PAM edits need root");
+        return;
+    }
+    if (waited) {
+        if (const auto failed = pam_file::install(pam, *waited); !failed.empty()) { ui::err(failed); return; }
+        ui::ok("fingerprint at login gives way to the password after 10 s (" + pam.string() + ")");
+    }
+    if (greeter) {
+        if (const auto failed = pam_file::install(greetd, *greeter); !failed.empty()) { ui::err(failed); return; }
+        ui::ok("the login screen asks for a finger once (it asked twice)");
+    }
 }
 
 }  // namespace
@@ -125,7 +161,7 @@ void run_fprint_pam(Context& ctx) {
         return;
     }
     if (already_spliced(pam)) {
-        ui::skipped("pam_fprintd already in " + pam.string() + " — leaving as-is");
+        settle(pam);
         return;
     }
 

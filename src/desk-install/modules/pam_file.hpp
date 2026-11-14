@@ -15,7 +15,10 @@
 
 namespace desk_install::pam_file {
 
-inline constexpr const char* kFprintdLine = "auth      sufficient  pam_fprintd.so";
+// How long pam_fprintd waits for a finger (its own default is 30 s): a reader nobody touches gives way to the
+// password after this. A reader that is not there gives way at once, wait or not.
+inline constexpr const char* kFprintdWait = "timeout=10";
+inline constexpr const char* kFprintdLine = "auth      sufficient  pam_fprintd.so timeout=10";
 
 // "#%PAM-1.0" after any leading blanks.
 inline bool is_header(const std::string& line) {
@@ -23,11 +26,15 @@ inline bool is_header(const std::string& line) {
     return at != std::string::npos && line.compare(at, 9, "#%PAM-1.0") == 0;
 }
 
-inline bool has_fprintd(const std::string& text) {
+inline bool is_fprintd_line(const std::string& line) {
     static const std::regex wired(R"(^\s*auth\s+(?:\[[^\]]*\]|\S+)\s+pam_fprintd\.so)");
+    return std::regex_search(line, wired);
+}
+
+inline bool has_fprintd(const std::string& text) {
     std::istringstream in(text);
     std::string line;
-    while (std::getline(in, line)) if (std::regex_search(line, wired)) return true;
+    while (std::getline(in, line)) if (is_fprintd_line(line)) return true;
     return false;
 }
 
@@ -45,6 +52,43 @@ inline std::optional<std::string> with_fprintd(const std::string& text, bool pre
     if (placed) return out;
     if (!prepend) return std::nullopt;
     return std::string(kFprintdLine) + "\n" + out;
+}
+
+// Every pam_fprintd auth line without a timeout= gains kFprintdWait; nullopt when none needs it.
+inline std::optional<std::string> with_fprintd_wait(const std::string& text) {
+    std::istringstream in(text);
+    std::string line, out;
+    bool changed = false;
+    while (std::getline(in, line)) {
+        if (is_fprintd_line(line) && line.find("timeout=") == std::string::npos) {
+            while (!line.empty() && (line.back() == ' ' || line.back() == '\t')) line.pop_back();
+            line += std::string(" ") + kFprintdWait;
+            changed = true;
+        }
+        out += line + "\n";
+    }
+    return changed ? std::optional<std::string>(out) : std::nullopt;
+}
+
+// Without its pam_fprintd auth lines; nullopt when it has none.
+inline std::optional<std::string> without_fprintd(const std::string& text) {
+    std::istringstream in(text);
+    std::string line, out;
+    bool changed = false;
+    while (std::getline(in, line)) {
+        if (is_fprintd_line(line)) { changed = true; continue; }
+        out += line + "\n";
+    }
+    return changed ? std::optional<std::string>(out) : std::nullopt;
+}
+
+// Whether the stack's auth part includes `name` (auth include / substack name).
+inline bool includes(const std::string& text, const std::string& name) {
+    const std::regex pat("^\\s*auth\\s+(include|substack)\\s+" + name + "\\s*$");
+    std::istringstream in(text);
+    std::string line;
+    while (std::getline(in, line)) if (std::regex_search(line, pat)) return true;
+    return false;
 }
 
 // The lockout cascade (project_pam_fprintd_lockout): pam_fprintd's empty token is taken by pam_unix's

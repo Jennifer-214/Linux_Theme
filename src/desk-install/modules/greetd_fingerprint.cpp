@@ -83,6 +83,16 @@ void run_greetd_fingerprint(Context& ctx) {
         ui::skipped("/etc/pam.d/greetd already enables pam_fprintd — leaving as-is");
         return;
     }
+    // The login screen reads system-local-login through its include: when fprint_pam put the finger step there, a
+    // line here would make it ask twice (two waits before the password).
+    {
+        std::ifstream greeter(greetd_pam), local("/etc/pam.d/system-local-login");
+        const std::string greeter_text(std::istreambuf_iterator<char>(greeter), {}), local_text(std::istreambuf_iterator<char>(local), {});
+        if (pam_file::includes(greeter_text, "system-local-login") && pam_file::has_fprintd(local_text)) {
+            ui::skipped("the login screen already asks for a finger through system-local-login (fprint_pam)");
+            return;
+        }
+    }
     // The siblings' lockout gate: greetd's stack reaches system-auth through login, so the same cascade applies.
     if (pam_file::system_auth_has_try_first_pass()) {
         ui::skipped("fingerprint at the login screen skipped: /etc/pam.d/system-auth's pam_unix carries `try_first_pass`");
