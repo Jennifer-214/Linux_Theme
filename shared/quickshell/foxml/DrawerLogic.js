@@ -33,17 +33,7 @@ function headingAbove(items, index) {
     return index > 0 && items[index - 1] && items[index - 1].kind === "heading" ? index - 1 : index;
 }
 
-// The sheet's height: what the page needs (fit, 0 = unknown), never shorter than the laptop-sized sheet and never
-// taller than the screen allows. On a laptop that is the usual sheet; on a tall portrait screen a short page stops
-// where its content does instead of leaving a stretch of empty paper.
-function fitHeight(full, fit, floor) {
-    if (!(fit > 0)) return full;
-    return Math.min(full, Math.max(Math.min(floor, full), fit));
-}
-
-// A row's height in the item list (compact: the landing page's favorites). The sheet's fit adds these up, because a
-// ListView's contentHeight is only an estimate until every row is built: with 30 px headings among 72 px rows it
-// moved as rows were built while scrolling, and the sheet on a tall screen resized with it.
+// A row's height in the item list (compact: the landing page's favorites).
 function rowHeight(item, compact) {
     if (!item) return 0;
     if (item.kind === "heading") return 30;
@@ -51,13 +41,6 @@ function rowHeight(item, compact) {
     if (item.kind === "slider") return 91;
     if (item.image || (item.presentation === "media" && Boolean(item.artwork))) return 80;
     return compact || item.presentation === "shortcut" ? 54 : 72;
-}
-
-function listHeight(items, compact, spacing) {
-    items = items || [];
-    var total = 0;
-    for (var i = 0; i < items.length; ++i) total += rowHeight(items[i], compact);
-    return total + Math.max(0, items.length - 1) * (spacing || 0);
 }
 
 // Paper headings are written by hand: lowercase with a full stop. Acronyms (API, USB) and names

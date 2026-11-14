@@ -119,21 +119,6 @@ ShellRoot {
     readonly property var drawerPlacement: panel.placement
     readonly property real drawerWidth: panel.implicitWidth
     readonly property real drawerHeight: panel.implicitHeight
-    // The sheet's height for what the page holds: its chrome plus the longer of the two lists (Logic.fitHeight
-    // keeps it between the laptop-sized sheet and the screen's limit). 0 = use the full height.
-    property real fitBody: 0
-    function refit() {
-        if (calendarLayout || scrapbookLayout || gardenLayout || pickerLayout || pendingConfirm || !itemList.visible) { fitBody = 0; return; }
-        var list = panel.implicitHeight - itemList.height + Logic.listHeight(entries, page === "root" && !searching, itemList.spacing) + 6;
-        var side = groupList.visible ? panel.implicitHeight - groupList.height + groupList.contentHeight + 6 : 0;
-        fitBody = Math.ceil(Math.max(list, side));
-    }
-    onCalendarLayoutChanged: Qt.callLater(refit)
-    onScrapbookLayoutChanged: Qt.callLater(refit)
-    onGardenLayoutChanged: Qt.callLater(refit)
-    onPickerLayoutChanged: Qt.callLater(refit)
-    onPendingConfirmChanged: Qt.callLater(refit)
-    onEntriesChanged: Qt.callLater(refit)
     property real drawerReveal: opened ? 1 : 0
     readonly property bool drawerVisible: opened || drawerReveal > .001
     Behavior on drawerReveal { NumberAnimation { duration: theme.paperDetails ? 220 : 160; easing.type: Easing.OutCubic } }
@@ -1089,7 +1074,8 @@ ShellRoot {
         margins { top: panel.placement.top; right: (panel.screen ? panel.screen.width : 1280) - panel.placement.left - panel.implicitWidth }
         implicitWidth: Math.min(root.calendarLayout ? 430 : root.pickerLayout ? 640 : 790, (screen ? screen.width : 1280) - 32)
         readonly property real fullHeight: Math.min(Logic.drawerBody(root.calendarLayout ? "calendar" : root.pickerLayout && root.pickerPrompt ? "prompt" : "drawer", screen ? screen.height : 800) + root.drawerTopInset, Math.max(180, (screen ? screen.height : 800) - placement.top - 16))
-        implicitHeight: Logic.fitHeight(fullHeight, root.fitBody, Logic.drawerBody("drawer", 1080) + root.drawerTopInset)
+        // One height for every page: fitting each page's rows resized the sheet on every page change on a tall screen.
+        implicitHeight: fullHeight
         Behavior on implicitHeight { enabled: root.opened; NumberAnimation { duration: 160; easing.type: Easing.OutCubic } }
         color: "transparent"
         exclusionMode: ExclusionMode.Ignore
@@ -1194,7 +1180,6 @@ ShellRoot {
 
                         ListView {
                             id: groupList
-                            onContentHeightChanged: Qt.callLater(root.refit)
                             visible: !root.pickerLayout && root.page !== "search"
                             Layout.preferredWidth: panel.implicitWidth < 580 ? 125 : 179
                             Layout.fillHeight: true
@@ -1400,8 +1385,6 @@ ShellRoot {
                                 ListView {
                                     id: itemList
                                     property string viewPage: ""
-                                    onContentHeightChanged: Qt.callLater(root.refit)
-                                    onVisibleChanged: Qt.callLater(root.refit)
                                     anchors.fill: parent
                                     visible: !root.pendingConfirm && !root.scrapbookLayout && !root.gardenLayout && (root.page !== "root" || root.entries.length > 0 || root.searching)
                                     clip: true
