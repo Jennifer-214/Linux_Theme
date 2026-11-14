@@ -90,6 +90,8 @@ in one file, with a context size and slot count per role. Codex replaces the Gem
   stopped the pre-flight on a /boot the user cannot read. All three are fixed.
 - The base packages (`deps`) are on by default, so the interactive wizard on a new PC installs them; a machine that
   has every package skips the step.
+- Installing a different theme brings that theme's wallpaper to the desktop and the login screen; it used to keep
+  the previous theme's. A reinstall of the same theme still keeps the wallpaper you picked.
 
 ### Tests and tools
 

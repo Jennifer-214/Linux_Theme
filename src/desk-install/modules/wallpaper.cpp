@@ -62,7 +62,7 @@ void run_wallpaper(Context& ctx) {
     if (ctx.rotate_wallpapers) {
         ui::ok("Wallpaper mode: rotating (time-of-day buckets)");
     } else {
-        ui::ok("Wallpaper mode: static (FoxML Earthy)");
+        ui::ok("Wallpaper mode: static (the theme's wallpaper, or the one you picked)");
     }
 
     ensure_realesrgan();
