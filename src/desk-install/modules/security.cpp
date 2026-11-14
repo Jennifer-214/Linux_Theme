@@ -14,6 +14,7 @@
 #include "../core/context.hpp"
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
+#include "audit_rules.hpp"
 #include "boot_files.hpp"
 #include "iommu.hpp"
 
@@ -23,7 +24,6 @@
 #include <fstream>
 #include <iostream>
 #include <regex>
-#include <set>
 #include <sstream>
 #include <string>
 #include <unistd.h>
@@ -589,71 +589,44 @@ void install_fail2ban() {
 // ════════════════════════════════════════════════════════════════════
 // auditd inline — persistent watch rules
 // ════════════════════════════════════════════════════════════════════
-constexpr const char* AUDIT_RULES_BODY =
-    "# foxml-managed — auto-applied by desk-install --secure.\n"
-    "# Watches credential + sshd config files for modifications.\n"
-    "-w /etc/passwd -p wa -k passwd_changes\n"
-    "-w /etc/shadow -p wa -k shadow_changes\n"
-    "-w /etc/ssh/sshd_config -p wa -k sshd_config_changes\n"
-    "-w /etc/ssh/sshd_config.d/ -p wa -k sshd_config_changes\n"
-    "-w /etc/sudoers -p wa -k sudoers_changes\n"
-    "-w /etc/sudoers.d/ -p wa -k sudoers_changes\n";
-
 void install_auditd() {
     if (!pacman_has("audit")) {
         ui::warn("audit package not installed — skipping persistent audit rules");
         return;
     }
     fs::path rules = "/etc/audit/rules.d/99-foxml.rules";
-    std::string existing = read_file(rules);
-    if (existing.find("# foxml-managed") == std::string::npos) {
-        if (!write_root_file(rules, AUDIT_RULES_BODY, "0640")) {
+    // The file is root-only (0640), so it is read as root: read as the user it came back empty, the installer's
+    // block was never found, and the whole file was rewritten on every run, dropping desk-honey's watches. A missing
+    // file reads as empty; a read that fails leaves the file alone rather than lose lines it could not see.
+    std::string existing;
+    if (!sh::capture({"sudo", "-n", "sh", "-c", "[ ! -e \"$1\" ] || cat -- \"$1\"", "sh", rules.string()},
+                     existing)) {
+        if (sh::dry_run()) {
+            ui::substep("[dry-run] would merge the installer's watches into " + rules.string() + " (other lines kept)");
+            return;
+        }
+        ui::warn("could not read " + rules.string() + " (sudo cold?) — left as it is; re-run after `sudo -v`");
+        return;
+    }
+    const std::string next = audit_rules::merged(existing);
+    const bool changed = next != existing;
+    bool loaded = false;
+    if (changed) {
+        if (!write_root_file(rules, next, "0640")) {
             ui::warn("could not write " + rules.string());
             return;
         }
+        // Flush the kernel ruleset BEFORE reloading. Watches loaded at boot
+        // are still resident; augenrules --load can't add a watch that
+        // already exists ("Rule exists" → exit 1), so without the flush the
+        // file is fixed but the live service stays failed until next reboot.
+        // auditctl -D is how auditd itself reloads — the canary is
+        // unwatched only for the instant between flush and reload.
+        sh::run({"sh", "-c", "sudo auditctl -D >/dev/null 2>&1 || true"});
         sh::run({"sh", "-c", "sudo augenrules --load >/dev/null 2>&1 || true"});
-        ui::ok("auditd watch rules written to " + rules.string());
-    } else {
-        // Self-heal exact-duplicate lines. desk-sentry-audit's old append
-        // guard never matched the line it wrote and stacked 10 honey
-        // rules; auditctl rejects the duplicate ("Rule exists") and the
-        // whole audit-rules.service fails at boot.
-        std::set<std::string> seen;
-        std::string dedup;
-        bool changed = false;
-        std::istringstream is(existing);
-        std::string line;
-        while (std::getline(is, line)) {
-            if (!line.empty() && !seen.insert(line).second) {
-                changed = true;
-                continue;
-            }
-            dedup += line;
-            dedup += '\n';
-        }
-        if (changed) {
-            if (write_root_file(rules, dedup, "0640")) {
-                // Flush the kernel ruleset BEFORE reloading. The stale
-                // duplicates loaded at boot are still resident; augenrules
-                // --load can't add a watch that already exists ("Rule
-                // exists" → exit 1), so without the flush the file is fixed
-                // but the live service stays failed until next reboot.
-                // auditctl -D is how auditd itself reloads — the canary is
-                // unwatched only for the instant between flush and reload.
-                sh::run({"sh", "-c", "sudo auditctl -D >/dev/null 2>&1 || true"});
-                sh::run({"sh", "-c",
-                         "sudo augenrules --load >/dev/null 2>&1 || true"});
-                sh::run({"sh", "-c",
-                         "sudo systemctl reset-failed audit-rules >/dev/null 2>&1 || true"});
-                sh::run({"sh", "-c",
-                         "sudo systemctl restart audit-rules >/dev/null 2>&1 || true"});
-                ui::ok("audit rules deduplicated + kernel ruleset reloaded "
-                       "(duplicates fail audit-rules.service at boot)");
-            } else {
-                ui::warn("audit rules carry duplicate lines but the rewrite failed — "
-                         "dedupe " + rules.string() + " manually");
-            }
-        }
+        sh::run({"sh", "-c", "sudo systemctl reset-failed audit-rules >/dev/null 2>&1 || true"});
+        loaded = sh::run({"sh", "-c", "sudo systemctl restart audit-rules >/dev/null 2>&1"}) == 0;
+        ui::ok("auditd watch rules written to " + rules.string() + " (other watches in it kept)");
     }
     if (!systemctl_active("auditd")) {
         if (sh::systemctl_enable("auditd", /*user=*/false) == 0) {
@@ -661,12 +634,13 @@ void install_auditd() {
         } else {
             ui::warn("auditd enable failed (sudo cold?) — re-run after `sudo -v`");
         }
+    } else if (!changed) {
+        ui::skipped("auditd already active (watch rules unchanged)");
+    } else if (loaded) {
+        // Not `restart auditd`: its unit has RefuseManualStop=yes, so that always failed. audit-rules loads the rules.
+        ui::skipped("auditd already active (new rules loaded)");
     } else {
-        if (sh::run({"sh", "-c", "sudo systemctl restart auditd >/dev/null 2>&1"}) == 0) {
-            ui::skipped("auditd already active (restarted to load new rules)");
-        } else {
-            ui::skipped("auditd already active (couldn't restart — rules apply on next reboot)");
-        }
+        ui::skipped("auditd already active (couldn't reload audit-rules — rules apply on next reboot)");
     }
 }
 
