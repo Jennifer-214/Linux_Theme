@@ -622,10 +622,12 @@ void install_auditd() {
         // file is fixed but the live service stays failed until next reboot.
         // auditctl -D is how auditd itself reloads — the canary is
         // unwatched only for the instant between flush and reload.
+        // One load, by audit-rules itself: loading here and then restarting it loaded every rule twice, and its second
+        // "Rule exists" left audit-rules.service failed with the rules in place (found in the VM, 2026-11-14).
         sh::run({"sh", "-c", "sudo auditctl -D >/dev/null 2>&1 || true"});
-        sh::run({"sh", "-c", "sudo augenrules --load >/dev/null 2>&1 || true"});
         sh::run({"sh", "-c", "sudo systemctl reset-failed audit-rules >/dev/null 2>&1 || true"});
         loaded = sh::run({"sh", "-c", "sudo systemctl restart audit-rules >/dev/null 2>&1"}) == 0;
+        if (!loaded) sh::run({"sh", "-c", "sudo augenrules --load >/dev/null 2>&1 || true"});
         ui::ok("auditd watch rules written to " + rules.string() + " (other watches in it kept)");
     }
     if (!systemctl_active("auditd")) {
