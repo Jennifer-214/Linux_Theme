@@ -66,7 +66,7 @@ jobs:
           pacman -Syyuu --noconfirm --needed \
             base-devel ccache git curl pkgconf openssl \
             pacman-contrib coreutils sed gawk \
-            python wayland wayland-protocols cairo pango glib2 gdk-pixbuf2 systemd-libs
+            python python-yaml wayland wayland-protocols cairo pango glib2 gdk-pixbuf2 systemd-libs
 
       - name: Name the compiler cache after this CPU model
         # -march=native objects are only safe to reuse on the same kind of CPU.
