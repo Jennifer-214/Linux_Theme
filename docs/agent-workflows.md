@@ -17,7 +17,10 @@ edits" or "no commit recorded" when it has no evidence; completion still comes f
 for input, requested changes ready to read, files edited since review, then unread commits oldest first. The
 notebook, the drawer's **Needs you** page, and Neovim's `:WorkAttention` use those identities and that order.
 `:WorkNext` opens the first item; `:ReviewNext` uses the same list filtered to reviews. CI and unread mail remain
-additional notebook context. `desk-work open --root DIR --action attention --id ID` resolves an item against the
+additional notebook context. On the notebook's front page up to three items show as rows; past three they fold
+into one line, **N need you**, with a count by kind under it ("52 commits to review · 2 test runs failed"), so a
+long list never pushes the rest of the page away. Enter lists them all on their own page, twenty at a time; **n**
+opens the most urgent from anywhere. An unreadable work record is an item of its own, first in the list. `desk-work open --root DIR --action attention --id ID` resolves an item against the
 current list before opening it, so a stale button cannot act on a request that was already settled.
 
 The work store publishes a versioned change signal after a successful write. `desk-work watch --root DIR` streams
@@ -33,6 +36,12 @@ the tree's selection; returning to a previously visited file restores its place.
 Neo-tree binding, and independently opened windows are not owned by the review. **q** in a diff still closes
 the whole review; **Esc** clears search highlighting.
 
+A burst of changes (an agent saving file after file) refreshes a view at once and then at most once a second, and
+the last change is always read. Committed copies in a review are read once per commit, so a refresh re-reads only
+the working copy: fifty change signals over three hundred changed files keep Neovim responsive
+(`tests/test_nvim_review.py` measures it). Health, backup and recovery views open at once with a "reading" line and
+fill in when `desk-work` answers; a refresh pressed twice shows the newer answer, never the older one arriving late.
+
 Polling remains a recovery path for older integrations and abrupt process exits. Cache reads do not publish
 changes, so subscribing cannot create a refresh loop. Closing a view stops only the watcher it owns.
 Watchers reconnect with bounded backoff. A delayed stream is identified separately from a failed data refresh;
@@ -42,7 +51,22 @@ polling can still provide current results. A wall-clock jump after suspend promp
 projection. It shows each reporting client's connection, last event, last successful refresh, next retry and
 loaded version. A failed refresh keeps its previous successful timestamp. A stopped watcher is distinguished
 from a client whose process is still alive; unknown versions and timestamps stay unverified. Health telemetry
-does not publish project changes, so reporting a refresh cannot trigger another refresh.
+does not publish project changes, so reporting a refresh cannot trigger another refresh. Clients report a change of
+state, or once a minute while all is well, rather than once per event.
+
+A session still running code from before an installed update is listed in health with the steps that load the new
+code and keep its work: a Claude session exits and resumes the same conversation (`/exit`, then
+`claude --resume <id>`); Neovim saves, lets its terminal jobs finish and restarts (`:restart`, then `:WorkResume`
+reopens the files); pi runs `/reload`; the drawer restarts through `desktop-menu --start`. The notebook shows its
+own session's steps on an **update installed** row.
+
+Every refusal says why, in the words `desk-work` gives: a notice is never blank. A record the work store cannot
+read (for example a `review-marks.json` cut short) refuses every write rather than overwrite it, names itself in
+the refusal, comes first in the attention list, and shows as "unreadable" instead of a count of zero.
+`:WorkRepair` (or **F** in `:WorkHealth`) previews the repair: the unreadable file is set aside under a dated name
+beside the records and a fresh one starts with the next write; change requests for files that no longer exist can
+be tidied away, with the previous copy kept. Finished reviews and plans of rewritten commits are history and stay.
+`desk-work records --root DIR` reports the same, and `desk-work records-repair --root DIR` previews it.
 
 The notebook opens recovery controls in Neovim only when requested. **R** in `:WorkHealth` selects an interrupted
 update and asks before restoring its guarded backup. **b** or `:WorkBackups` previews backup cleanup, including
@@ -57,7 +81,8 @@ bounded journal. It records requests, explicitly observed edits, job transitions
 onward; it does not invent earlier activity. Entries carry backend action identities and open the related file,
 captured result or historical commit. The journal keeps the latest 500 events per checkout.
 
-`/notebook digest`, `:WorkDigest` and **Since you last looked** summarize that journal. Opening a digest does not
+`/notebook digest`, `:WorkDigest` and **Since you last looked** summarize that journal, saying when you last caught
+up ("Since you last looked this morning: 2 runs passed"). Opening a digest does not
 clear it. **Mark caught up** acknowledges its recorded sequence, so later arrivals remain new. Notebook, editor
 and desktop have separate reading positions; attention state and review marks remain shared.
 

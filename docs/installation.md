@@ -48,7 +48,8 @@ desk-work integrations recover --transaction TRANSACTION_ID
 
 Recovery restores the original files through the same guarded rollback, preserving later edits and permission
 changes. A completed publication whose final bookkeeping was interrupted is recorded as complete without
-rolling back its files. `:WorkHealth` opens the details and explicit recovery controls in Neovim.
+rolling back its files. `:WorkHealth` opens the details and explicit recovery controls in Neovim, and lists each
+session still on older code with the steps that reload it without closing your work.
 
 ### Inspect and clean update backups
 

@@ -53,11 +53,18 @@ Use the symdeps highlight groups when they exist and fall back to the theme's ow
 - Lists you read through in order (changes to review) run oldest first, with the live state pinned on top. Lists of
   what needs you now (failures, due dates) run newest first.
 - No row is cut mid-word without `…`, and nothing wraps.
+- A list that can grow without bound (what needs you) shows up to three rows on a summary page; past three it folds
+  into one counted line with a breakdown by kind, and Enter opens the whole list on its own page.
+- Every refusal shows the reason the backend gave. A notice with no words is a bug, like a blank panel.
+- Each mark has one definition: the notebook's are in `MARKS` (`hooks/work.ts`), which its rows, test and CI lines,
+  toasts and marks page all read; the review's keys are in `M.keymap` (`foxml/review.lua`), which makes the mappings,
+  the menu and footer hints and the reference table in the keybinds doc.
 
 ## Seeing the notebook without installing it
 
 `python3 tests/notebook_preview.py` prints the Claude notebook as it would be drawn, in the theme's colours, from
-sample data: the front page, the files page, a request thread, the marks page and a quiet page. The scenes are in
+sample data: the front page, a folded needs-you list and its page, the files page, a request thread, the marks
+page, a quiet page and the compact view. The scenes are in
 `shared/claude/mods/foxml-paper/tests/preview.test.tsx` and go through the mod's real drawing code under Claude
 Code's own test kit, so what it prints is what the pane shows. `--scene WORDS` picks one, `--theme NAME` another
 palette, `--plain` drops the colour. Add a scene there when a page changes.

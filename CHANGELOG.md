@@ -43,6 +43,16 @@ in one file, with a context size and slot count per role. Codex replaces the Gem
 - **The Claude notebook**: a pane beside a Claude Code session: what needs you first, the last turn's receipt, the
   plan and its next step, review and request threads, tests, CI and the other sessions. Before a push it says what
   goes out unreviewed.
+- **Shared attention**: the notebook, Neovim and the drawer read one list of what needs you, one project timeline
+  and per-reader digests ("since you last looked this morning"); items can be snoozed for an hour or until they
+  change. In the notebook, more than three items fold into one counted line that opens the whole list.
+- **Updating the integrations alone**: `desk-work integrations plan|apply|rollback|recover` updates the Neovim
+  modules, the notebook and the drawer without a full install, with backups, guarded rollback and recovery of an
+  interrupted update. Work health lists sessions still running older code, with the steps that reload each one
+  without closing it.
+- **Reliability**: every refusal says why; a work record that cannot be read is named, set aside by a previewed
+  repair (`:WorkRepair`) and never overwritten; a burst of agent edits refreshes each view at most once a second,
+  and a review of hundreds of changed files no longer stalls Neovim on each change.
 - One UI style for every menu, list and panel, written down in [UI style](docs/ui-style.md).
 
 ### Installer
@@ -59,6 +69,12 @@ in one file, with a context size and slot count per role. Codex replaces the Gem
 - `python3 tests/notebook_preview.py` prints the Claude notebook from sample data, in the theme's colours.
 - The Claude mod is validated, tested and type-checked; Neovim tests start clean, so they can never load an
   installed copy of the code under test.
+- The review's keys are defined once; their reference table in the Neovim keybinds doc is generated from that
+  definition (`python3 tests/test_nvim_keys.py --write`), and a test fails when a key is mapped twice by accident.
+- CI builds on pinned toolchains, set in one file (`.github/toolchain.json`: one Ubuntu release; the Arch image and
+  its packages from one day of the Arch archive), through a compiler cache, in parallel; a weekly run builds against
+  the newest Arch packages.
+- `make -j` orders every tool after the shared library it links, so parallel builds cannot collide.
 
 ### Upgrading from 3.x
 
