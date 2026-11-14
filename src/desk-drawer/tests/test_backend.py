@@ -336,6 +336,16 @@ class BackendTests(unittest.TestCase):
         self.assertFalse(any('recover' in call or 'cleanup' in call for call in self.calls()))
         self.assertTrue(self.invoke('run','work-health-controls')['ok'])
         self.assertIn(['setsid','-f','desk-work','open','--action','health'],self.calls())
+        self.assertFalse(any('in order' in row['label'] for row in view['items']), 'no all-clear without the backend saying so')
+
+    def test_a_calm_work_health_says_so_in_one_line_before_its_details(self):
+        checks=[{'id':'records','label':'Project records','detail':'Every record in the projects on disk is readable'}]
+        self.state={'commands':{'desk-work':{'stdout':json.dumps({'checks':checks,'alerts':[]})}}}
+        labels=[row['label'] for row in self.invoke('view','work-health')['items']]
+        self.assertEqual(labels[0], 'Everything is in order', labels)
+        self.assertIn('Every record in the projects on disk is readable', labels)
+        self.state={'commands':{'desk-work':{'stdout':json.dumps({'checks':checks,'alerts':['nvim: live updates are reconnecting']})}}}
+        self.assertFalse(any('in order' in row['label'] for row in self.invoke('view','work-health')['items']))
 
     def test_failed_user_services_offer_logs_and_a_draft_without_restarting(self):
         self.state={'commands':{'desk-work':{'stdout':json.dumps(dict(jobs=[],reviews=[],tasks=[]))},

@@ -4528,6 +4528,9 @@ Json view(const Json& config, const std::string& page, const std::string& query,
         known = true; out["title"] = "Work health";
         Json health; const bool observed = capture_json({"desk-work", "health"}, health) && health.is_object() && health.value("checks", Json()).is_array();
         out["workObserved"] = observed;
+        // Nothing needs attention: one line says so first, and the checks follow as the details behind it.
+        const bool calm = observed && health.value("alerts", Json()).is_array() && health["alerts"].empty();
+        if (calm) work_note("Everything is in order", std::to_string(health["checks"].size()) + " checks: loaded versions, project records, updates and backups", "info");
         if (observed) for (const auto& check : health["checks"]) {
             rows.push_back(heading(text(check, "label")));
             for (const auto& line : lines(text(check, "detail"))) work_note(line, "", "info");
