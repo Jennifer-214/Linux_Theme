@@ -120,6 +120,7 @@ test: tests/test_fstab_tmp tests/test_ssh_port tests/test_audit_rules tests/test
 	@./tests/test_workflow_deploy
 	@./tests/test_workflow_update
 	@./tests/test_resume_point
+	@./tests/test_wallpaper_seed
 	@bash ./tests/lint_shell_assets.sh
 	@bash ./tests/lint_unit_escaping.sh
 
@@ -137,8 +138,12 @@ test: tests/test_private_extras tests/test_menu_upgrade tests/test_fox_aliases t
 test: tests/test_workflow_deploy
 test: tests/test_workflow_update
 test: tests/test_resume_point
+test: tests/test_wallpaper_seed
 
 tests/test_resume_point: tests/test_resume_point.cpp core/resume_point.hpp core/module.hpp
+	$(CXX) $(CXXFLAGS) $< -o $@
+
+tests/test_wallpaper_seed: tests/test_wallpaper_seed.cpp modules/wallpaper_mode.hpp core/palette.hpp core/context.hpp core/theme_choice.hpp
 	$(CXX) $(CXXFLAGS) $< -o $@
 
 tests/test_workflow_update: tests/test_workflow_update.cpp modules/workflow_update.hpp modules/workflow_assets.hpp modules/symlinks_data.hpp modules/menu_upgrade.hpp ../desk-common/work_updates.hpp core/backup.o $(DESK_COMMON_LIB) ../desk-render/desk-render-fast ../desk-work/desk-work ../desk-drawer/desk-drawer ../theme-check/theme-check $(BIN)

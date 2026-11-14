@@ -33,9 +33,9 @@ class FreshInstall(unittest.TestCase):
         self.assertLess(specials.index("for (auto& s : BULK) deploy_dir_files(ctx, s);"),
                         specials.index("seed_theme_wallpaper(ctx);"))
 
-    def test_seeding_never_replaces_a_wallpaper_the_user_picked(self):
+    def test_seeding_keeps_the_users_pick_unless_the_theme_changed(self):
         helper = (MODULES / "wallpaper_mode.hpp").read_text()
-        self.assertLess(helper.index("is_symlink(link, ec)) return;"), helper.index("create_symlink"))
+        self.assertLess(helper.index("is_symlink(link, ec) && !theme_changed) return;"), helper.index("create_symlink"))
 
     def test_first_login_state_is_only_written_once(self):
         greetd = (MODULES / "greetd.cpp").read_text()
