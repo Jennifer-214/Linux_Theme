@@ -734,8 +734,9 @@ void run_security(Context& ctx) {
         return;
     }
 
-    // Ensure security packages (additive; --deps installs the base set).
-    sh::pacman({"fail2ban", "audit", "lynis",
+    // Ensure security packages (additive; --deps installs the base set). usbguard and apparmor were never installed
+    // anywhere, so a fresh machine skipped both (found in the VM, 2026-11-14).
+    sh::pacman({"fail2ban", "audit", "lynis", "usbguard", "apparmor",
                 "knockd", "wireguard-tools",
                 "inotify-tools", "python-virtualenv"});
 
