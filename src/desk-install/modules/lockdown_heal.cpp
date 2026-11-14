@@ -16,6 +16,7 @@
 
 #include "lockdown_heal.hpp"
 #include "iommu.hpp"
+#include "boot_files.hpp"
 #include "../core/context.hpp"
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
@@ -37,16 +38,19 @@ void run_lockdown_heal(Context& ctx) {
         return;
     }
 
-    fs::path systemd_boot = "/boot/loader/entries/arch.conf";
-    fs::path grub         = "/etc/default/grub";
-    fs::path cmdline_file;
-    bool is_systemd_boot = false;
-    if (fs::exists(systemd_boot)) { cmdline_file = systemd_boot; is_systemd_boot = true; }
-    else if (fs::exists(grub))    { cmdline_file = grub; }
-    else {
-        ui::skipped("no systemd-boot / GRUB cmdline file — nothing to heal");
+    // The entry loader.conf names (archinstall's is not arch.conf). A /boot this user cannot read is skipped, never
+    // taken for "no systemd-boot" and GRUB's file edited instead.
+    const auto boot = boot_files::cmdline();
+    if (boot.loader == boot_files::Loader::Unreadable) {
+        ui::warn("cannot read the boot entries as your user (" + boot.why + ") — lockdown check skipped");
         return;
     }
+    if (boot.loader == boot_files::Loader::None) {
+        ui::skipped("no systemd-boot entry / GRUB cmdline file — nothing to heal");
+        return;
+    }
+    const fs::path cmdline_file = boot.file;
+    const bool is_systemd_boot = boot.loader == boot_files::Loader::SystemdBoot;
 
     if (sh::dry_run()) {
         ui::substep("[dry-run] would strip any lockdown=integrity from " +
@@ -83,9 +87,13 @@ void run_lockdown_heal(Context& ctx) {
         ok = sh::run({"sudo", "grep", "-q",
                       "^GRUB_CMDLINE_LINUX_DEFAULT=", cmdline_file.c_str()}) == 0;
     }
-    if (!ok) {
+    // The parameter must really be gone before this says it stripped it.
+    const bool gone = sh::run({"sudo", "grep", "-qE", "(^|[[:space:]\"])lockdown=integrity([[:space:]\"]|$)",
+                               cmdline_file.c_str()}) != 0;
+    if (!ok || !gone) {
         sh::run({"sudo", "mv", preedit, cmdline_file.string()});
-        ui::err("cmdline self-check failed after strip — reverted; left unchanged");
+        ui::err(ok ? "lockdown=integrity was still there after the strip — reverted; remove it by hand"
+                   : "cmdline self-check failed after strip — reverted; left unchanged");
         return;
     }
 

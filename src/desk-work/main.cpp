@@ -2,6 +2,7 @@
 #include "shell.hpp"
 #include "work_updates.hpp"
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <charconv>
 #include <cctype>
@@ -10,8 +11,10 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <future>
 #include <iostream>
 #include <map>
+#include <mutex>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -60,6 +63,26 @@ J json_lean(const fs::path& p) {
     };
     auto j = J::parse(read(p), skip, false);
     return j.is_discarded() ? J() : j;
+}
+// A run record parsed once per process while it is unchanged (same size and change time): overview lists the runs
+// for every checkout, which re-read all of them each time (600 records, about 1 GB of JSON per drawer open). A
+// record another process rewrites has a new change time and is read again.
+J run_record(const fs::path& p) {
+    struct stat st{};
+    if (::stat(p.c_str(), &st) != 0) return J();
+    struct Seen { long long sec, nsec, size; J record; };
+    static std::mutex guard;
+    static std::map<std::string, Seen> seen;
+    const auto same = [&](const Seen& s) { return s.sec == st.st_mtim.tv_sec && s.nsec == st.st_mtim.tv_nsec && s.size == st.st_size; };
+    {
+        const std::lock_guard<std::mutex> hold(guard);
+        const auto at = seen.find(p.string());
+        if (at != seen.end() && same(at->second)) return at->second.record;
+    }
+    auto j = json_lean(p);
+    const std::lock_guard<std::mutex> hold(guard);
+    seen[p.string()] = Seen{st.st_mtim.tv_sec, st.st_mtim.tv_nsec, st.st_size, j};
+    return j;
 }
 fs::path base() { return fs::path(env("XDG_STATE_HOME", env("HOME") + "/.local/state")) / "foxml/work"; }
 bool private_dir(const fs::path& p) {
@@ -408,7 +431,7 @@ J runs(const std::string& root = {}) {
     J out = J::array(); std::error_code ec;
     for (const auto& e : fs::directory_iterator(base() / "runs", ec)) {
         if (!id_ok(e.path().filename().string()) || e.is_symlink(ec)) continue;
-        auto j = json_lean(e.path() / "run.json"); if (!j.is_object() || (!root.empty() && str(j, "root") != root)) continue;
+        auto j = run_record(e.path() / "run.json"); if (!j.is_object() || (!root.empty() && str(j, "root") != root)) continue;
         if (str(j, "state") == "running" && proc_stamp(num(j, "pid")) != str(j, "process")) j["state"] = "interrupted";
         j["elapsed"] = std::max(0LL, (num(j, "ended") ? num(j, "ended") : now()) - num(j, "started"));
         struct stat st{}; const auto log = e.path() / "output.log";
@@ -559,7 +582,7 @@ J reviews(const std::string& root, bool today_only = true) {
     if (!fs::exists(fs::path(root) / ".git", error)) return J::array();
     // Kept until the checkout's history or the review marks change (or the day turns): the drawer asks every open.
     const std::time_t clock = std::time(nullptr);
-    std::tm day = *std::localtime(&clock);
+    std::tm day{}; localtime_r(&clock, &day);  // _r: overview reads checkouts on several threads
     const auto signature = std::to_string(stamp_of(head_log(root))) + "|" + std::to_string(stamp_of(project_dir(root) / "reviewed.json"))
                            + "|" + std::to_string(stamp_of(project_dir(root) / "review-marks.json"))
                            + "|" + trim(query({"git", "--no-optional-locks", "-C", root, "rev-parse", "--verify", "--quiet", std::string("refs/notes/") + REVIEW_NOTES}))
@@ -573,7 +596,7 @@ J reviews(const std::string& root, bool today_only = true) {
     A a{"git", "--no-optional-locks", "-C", root, "log", "-80", "--format=%H%x1f%ct%x1f%s%x1f%(trailers:key=Claude-Session,valueonly)%x1f%(trailers:key=Co-Authored-By,valueonly)%x1e"};
     J out = J::array();
     const std::time_t time = std::time(nullptr);
-    std::tm midnight = *std::localtime(&time);
+    std::tm midnight{}; localtime_r(&time, &midnight);
     midnight.tm_hour = midnight.tm_min = midnight.tm_sec = 0; midnight.tm_isdst = -1;
     const auto start = std::mktime(&midnight);
     for (const auto& entry : split(query(a), '\x1e')) {
@@ -763,6 +786,21 @@ J agent_heartbeat(const std::string& root, const std::string& agent, const std::
     // Every session beats once a minute: announcing it would make every notebook and review on the checkout refresh.
     return written(atomic(path, record.dump(), false), "heartbeat");
 }
+// tmux's panes, read at most every two seconds: overview asks for each checkout's agents, which was one tmux call
+// per checkout (31 per drawer open), and a list two seconds old is still the present one.
+std::map<std::string, std::string> tmux_panes() {
+    static std::mutex guard;
+    static std::map<std::string, std::string> panes;
+    static long long read_at = 0;
+    const std::lock_guard<std::mutex> hold(guard);
+    if (read_at && now() - read_at < 2) return panes;
+    panes.clear();
+    for (const auto& line : split(query({"tmux", "list-panes", "-a", "-F", "#{pane_id}\x1f#{pane_current_command}"}))) {
+        const auto at = line.find('\x1f'); if (at != line.npos) panes[line.substr(0, at)] = line.substr(at + 1);
+    }
+    read_at = now();
+    return panes;
+}
 J agents(const std::string& root = {}) {
     std::map<std::string, J> found;
     std::error_code ec;
@@ -790,10 +828,7 @@ J agents(const std::string& root = {}) {
         auto one = json(file.path()); if (!one.is_object()) continue;
         (ext == ".json" ? legacy[sid].first : legacy[sid].second) = one;
     }
-    std::map<std::string, std::string> panes;
-    if (!legacy.empty()) for (const auto& line : split(query({"tmux", "list-panes", "-a", "-F", "#{pane_id}\x1f#{pane_current_command}"}))) {
-        const auto at = line.find('\x1f'); if (at != line.npos) panes[line.substr(0, at)] = line.substr(at + 1);
-    }
+    const auto panes = legacy.empty() ? std::map<std::string, std::string>() : tmux_panes();
     for (const auto& [sid, pair] : legacy) {
         const auto& [look, word] = pair;
         const auto epoch = std::max(num(look, "epoch"), num(word, "epoch"));
@@ -804,7 +839,7 @@ J agents(const std::string& root = {}) {
         const auto key = "claude:" + sid;
         if (!found.count(key)) {
             const auto pane = str(word, "pane", str(look, "pane"));
-            if (!pane.empty() && (!panes.count(pane) || std::set<std::string>{"bash", "zsh", "fish", "sh", "dash"}.count(panes[pane]))) continue;
+            if (!pane.empty() && (!panes.count(pane) || std::set<std::string>{"bash", "zsh", "fish", "sh", "dash"}.count(panes.at(pane)))) continue;
             const auto state = str(word, "state", "waiting");
             found[key] = J{{"key", key}, {"id", sid}, {"agent", "claude"}, {"root", where}, {"project", fs::path(where).filename().string()},
                            {"name", str(word, "title", fs::path(where).filename().string())}, {"pane", pane}, {"at", epoch},
@@ -1110,6 +1145,22 @@ bool covers(const std::string& a, const std::string& b) {
 // Whether a failed run still stands, deciding newest first: it clears once a newer run passed every test it named
 // (whatever that run was called or how its command was written), and it counts once among newer failures of the
 // same tests. A command that names no test keeps the old rule: only a newer run of the same command settles it.
+// test_targets for a run, remembered for two seconds: each pass over the runs (one per checkout in overview) asked
+// again for every one of 600 runs, and an answer can glob the test folder.
+std::vector<std::string> run_test_targets(const std::string& command, const std::string& cwd) {
+    static std::mutex guard;
+    static std::map<std::pair<std::string, std::string>, std::pair<long long, std::vector<std::string>>> seen;
+    const auto key = std::make_pair(command, cwd);
+    {
+        const std::lock_guard<std::mutex> hold(guard);
+        const auto at = seen.find(key);
+        if (at != seen.end() && now() - at->second.first < 2) return at->second.second;
+    }
+    auto targets = test_targets(command, cwd);
+    const std::lock_guard<std::mutex> hold(guard);
+    seen[key] = {now(), targets};
+    return targets;
+}
 struct Settled {
     std::set<std::string> commands;
     std::map<std::string, std::vector<std::string>> passed, failed;
@@ -1117,7 +1168,7 @@ struct Settled {
         const auto root = str(r, "root"), state = str(r, "state"), cwd = str(r, "cwd", root);
         const auto scope = J::array({root, cwd}).dump();
         const bool newest = commands.insert(command_key(r)).second;
-        const auto targets = test_targets(str(r, "command"), cwd);
+        const auto targets = run_test_targets(str(r, "command"), cwd);
         auto all_in = [&](const std::vector<std::string>& seen) {
             return !targets.empty() && std::all_of(targets.begin(), targets.end(), [&](const std::string& t) {
                 return std::any_of(seen.begin(), seen.end(), [&](const std::string& s) { return covers(s, t); });
@@ -1176,11 +1227,20 @@ J attention_items(const std::string& root, const J& work, const J& commits, cons
             num(request, "at"), 20, J{{"kind", "file-diff"}, {"file", file}}, J{{"file", file}});
     }
     // The current working diff decides whether a changed mark still has something to read here. A committed
-    // change belongs to its commit's review, rather than an empty working-tree comparison.
-    std::set<std::string> dirty;
-    for (const auto& name : split(query({"git", "--no-optional-locks", "-C", root, "diff", "--name-only", "-z", "HEAD"}), '\0')) dirty.insert(name);
-    for (const auto& name : split(query({"git", "--no-optional-locks", "-C", root, "ls-files", "--others", "--exclude-standard", "-z"}), '\0')) dirty.insert(name);
+    // change belongs to its commit's review, rather than an empty working-tree comparison. Read only when some mark
+    // is "changed": for most checkouts none is, and the two git calls were most of each checkout's read.
     const auto progress = work.value("review", J::object());
+    bool any_changed = false;
+    for (const auto& [key, review] : progress.items()) {
+        if (std::regex_match(key, std::regex("[a-f0-9]{40}"))) continue;
+        const auto marks = review.value("files", J::object());
+        for (const auto& [file, mark] : marks.items()) any_changed = any_changed || str(mark, "state") == "changed";
+    }
+    std::set<std::string> dirty;
+    if (any_changed) {
+        for (const auto& name : split(query({"git", "--no-optional-locks", "-C", root, "diff", "--name-only", "-z", "HEAD"}), '\0')) dirty.insert(name);
+        for (const auto& name : split(query({"git", "--no-optional-locks", "-C", root, "ls-files", "--others", "--exclude-standard", "-z"}), '\0')) dirty.insert(name);
+    }
     for (const auto& [key, review] : progress.items()) {
         if (std::regex_match(key, std::regex("[a-f0-9]{40}"))) continue;
         const auto marks = review.value("files", J::object());
@@ -1284,15 +1344,36 @@ J overview(const A& requested, bool fresh = false, bool include_history = false)
         r.erase("snapshot");
     }
     J needs = J::array(), history = J::array(), digests = J::array(), held = J::array(), aside = J::array();
-    for (const auto& root : roots) {
-        for (auto t : tasks(root)) if (!t.value("done", false)) { t["root"] = root; todo.push_back(t); }
-        for (auto r : reviews(root)) review.push_back(r);
-        for (auto item : attention(root, "", false, true)) (item.contains("snoozed") ? held : needs).push_back(item);
-        if (auto record = aside_record(root); record.is_object()) aside.push_back(record);
-        if (include_history) {
-            for (auto event : timeline(root, 0, 30)) history.push_back(event);
-            auto summary = project_digest(root, "desktop"); summary["root"] = root; digests.push_back(summary);
+    // Each checkout is read on its own thread, at most eight at once, then joined in order: its reads are git and its
+    // own folder, and one after another they were most of the drawer's wait on open (about 1.5 s for 12 checkouts).
+    struct Part { J todo = J::array(), review = J::array(), needs = J::array(), held = J::array(), history = J::array(), aside, digest; };
+    const std::vector<std::string> list(roots.begin(), roots.end());
+    std::vector<Part> parts(list.size());
+    std::atomic<size_t> next{0};
+    const auto work = [&] {
+        for (size_t i; (i = next++) < list.size();) {
+            const auto& root = list[i]; auto& p = parts[i];
+            for (auto t : tasks(root)) if (!t.value("done", false)) { t["root"] = root; p.todo.push_back(t); }
+            for (auto r : reviews(root)) p.review.push_back(r);
+            for (auto item : attention(root, "", false, true)) (item.contains("snoozed") ? p.held : p.needs).push_back(item);
+            p.aside = aside_record(root);
+            if (include_history) {
+                for (auto event : timeline(root, 0, 30)) p.history.push_back(event);
+                p.digest = project_digest(root, "desktop"); p.digest["root"] = root;
+            }
         }
+    };
+    std::vector<std::future<void>> workers;
+    for (size_t n = 0; n < std::min<size_t>(8, list.size()); ++n) workers.push_back(std::async(std::launch::async, work));
+    for (auto& w : workers) w.get();
+    for (auto& p : parts) {
+        for (auto& x : p.todo) todo.push_back(std::move(x));
+        for (auto& x : p.review) review.push_back(std::move(x));
+        for (auto& x : p.needs) needs.push_back(std::move(x));
+        for (auto& x : p.held) held.push_back(std::move(x));
+        if (p.aside.is_object()) aside.push_back(std::move(p.aside));
+        for (auto& x : p.history) history.push_back(std::move(x));
+        if (include_history) digests.push_back(std::move(p.digest));
     }
     std::sort(needs.begin(), needs.end(), attention_less);
     std::sort(history.begin(), history.end(), [](const J& a, const J& b) {

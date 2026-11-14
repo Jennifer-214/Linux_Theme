@@ -1,4 +1,5 @@
 #include "state_checks.hpp"
+#include "../modules/fstab_tmp.hpp"
 #include "palette.hpp"
 #include "deps_list.hpp"
 
@@ -389,9 +390,8 @@ Classification check_noexec_tmp(const Context& /*ctx*/, const Manifest& manifest
         return {Status::Fresh, "/etc/fstab unreadable"};
     }
 
-    const bool locked_down =
-        fstab_contents.find("noexec") != std::string::npos &&
-        fstab_contents.find("/tmp") != std::string::npos;
+    // The /tmp entry's own options, not "noexec" and "/tmp" anywhere in the file.
+    const bool locked_down = fstab_tmp::locked_down(fstab_contents);
     if (!tracked) {
         if (locked_down) return {Status::Noop, "/tmp already has lockdown options (untracked)"};
         return {Status::Fresh, "noexec_tmp has not run yet"};

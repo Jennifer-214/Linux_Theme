@@ -33,12 +33,14 @@ function headingAbove(items, index) {
     return index > 0 && items[index - 1] && items[index - 1].kind === "heading" ? index - 1 : index;
 }
 
-// The sheet's height: what the page needs (fit, 0 = unknown), never shorter than the laptop-sized sheet and never
-// taller than the screen allows. On a laptop that is the usual sheet; on a tall portrait screen a short page stops
-// where its content does instead of leaving a stretch of empty paper.
-function fitHeight(full, fit, floor) {
-    if (!(fit > 0)) return full;
-    return Math.min(full, Math.max(Math.min(floor, full), fit));
+// A row's height in the item list (compact: the landing page's favorites).
+function rowHeight(item, compact) {
+    if (!item) return 0;
+    if (item.kind === "heading") return 30;
+    if (item.presentation === "project" || item.presentation === "library" || item.presentation === "download") return 94;
+    if (item.kind === "slider") return 91;
+    if (item.image || (item.presentation === "media" && Boolean(item.artwork))) return 80;
+    return compact || item.presentation === "shortcut" ? 54 : 72;
 }
 
 // Paper headings are written by hand: lowercase with a full stop. Acronyms (API, USB) and names

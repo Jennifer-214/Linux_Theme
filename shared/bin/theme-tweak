@@ -93,15 +93,28 @@ done
 if [[ "$changed" == "true" ]]; then
     echo ":: Re-rendering $ACTIVE_THEME..."
     desk_install="$SCRIPT_DIR/src/desk-install/desk-install"
+    # The render's post_install step would otherwise run the nvim plugin sync (up to 3 minutes), which a tweak
+    # does not need; swap.sh skips it the same way.
+    export FOXML_SKIP_PLUGIN_SYNC=1
+    rc=0
     if [[ -x "$desk_install" ]]; then
         "$desk_install" "$ACTIVE_THEME" \
-            --render-only --no-summary --yes --quiet
+            --render-only --no-summary --yes --quiet || rc=$?
     else
         # Fall back to install.sh if the native binary isn't built yet.
-        "$SCRIPT_DIR/install.sh" "$ACTIVE_THEME" --render --yes
+        "$SCRIPT_DIR/install.sh" "$ACTIVE_THEME" --render --yes || rc=$?
+    fi
+    # exit 3 = rendered, but a step was skipped (as in swap.sh): the colours are deployed, so Hyprland still reloads.
+    if (( rc != 0 && rc != 3 )); then
+        echo "error: re-rendering $ACTIVE_THEME failed (exit $rc). palette.sh is changed but not deployed; Hyprland not reloaded." >&2
+        exit "$rc"
     fi
     echo ":: Reloading Hyprland..."
     hyprctl reload
+    if (( rc == 3 )); then
+        echo ":: Tweaked, but incomplete: see the steps listed above, then run it again."
+        exit 3
+    fi
     echo ":: Done."
 else
     echo "No changes requested. Try --help."

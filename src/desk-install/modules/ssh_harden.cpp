@@ -18,6 +18,7 @@
 #include "../core/context.hpp"
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
+#include "ssh_port.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -113,14 +114,19 @@ bool valid_gh_username(const std::string& u) {
 // keeps the same keys, so success here predicts success after restart.
 // ANY failure (sshd not running yet, no agent, wrong key) is treated as
 // "can't confirm" → caller keeps passwords on. Errs toward not locking out.
-bool key_login_works() {
+bool key_login_works(int port) {
     const char* user = std::getenv("USER");
     if (!user || !*user) return false;
-    std::string cmd =
-        std::string("ssh -o BatchMode=yes -o PasswordAuthentication=no ")
-        + "-o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new "
-        + user + "@127.0.0.1 true >/dev/null 2>&1";
-    return sh::run({"sh", "-c", cmd.c_str()}) == 0;
+    std::vector<std::string> argv = {"sh", "-c", "exec \"$@\" >/dev/null 2>&1", "sh"};
+    for (auto& a : ssh_port::key_test_argv(user, port)) argv.push_back(a);
+    return sh::run(argv) == 0;
+}
+
+// The port sshd's config on disk listens on (the running daemon's, unless someone edited it since).
+int current_port() {
+    std::string out;
+    sh::capture({"sudo", "sshd", "-T"}, out);
+    return ssh_port::listen_port(out);
 }
 
 bool import_github_keys(const Context& ctx, const std::string& gh_user) {
@@ -187,9 +193,11 @@ void run_ssh_harden(Context& ctx) {
         return;
     }
 
-    // 1. Custom port.
+    // 1. Custom port. Enter keeps the current one: a re-run must not move sshd back to 22, which step 5 took out of UFW.
+    const int current = current_port();
+    const std::string current_s = std::to_string(current);
     int port = parsed_port_or_fallback(
-        prompt_line("  Enter custom SSH port [default: 22]: ", "22"));
+        prompt_line("  Enter custom SSH port [default: " + current_s + "]: ", current_s));
 
     // 2. Keys check + optional GitHub import.
     fs::path keys = ctx.home / ".ssh/authorized_keys";
@@ -217,8 +225,8 @@ void run_ssh_harden(Context& ctx) {
             // present-but-non-working key (wrong machine, agent not
             // forwarding the private half) would otherwise lock the admin
             // out with no password fallback.
-            if (!key_login_works()) {
-                ui::warn("couldn't confirm key-based login works (ssh self-test to 127.0.0.1 failed)");
+            if (!key_login_works(current)) {
+                ui::warn("couldn't confirm key-based login works (ssh self-test to 127.0.0.1:" + current_s + " failed)");
                 ui::substep("keeping password auth ENABLED to avoid lockout");
                 ui::substep("verify your key logs in (and that sshd is running), then re-run --ssh-harden");
                 disable_pass = "yes";
@@ -257,12 +265,15 @@ void run_ssh_harden(Context& ctx) {
     ui::ok("SSH config written to " + drop_in.string());
     ui::substep("PermitRootLogin no, MaxAuthTries 3, no kbd-interactive");
 
-    // 5. UFW updates.
+    // 5. UFW updates. Moving back to 22 re-allows it: an earlier move removed it.
     if (port != 22) {
         sh::run({"sudo", "ufw", "allow", std::to_string(port) + "/tcp"});
         sh::run({"sh", "-c",
                  "sudo ufw delete allow 22 >/dev/null 2>&1 || true"});
         ui::ok("UFW: allowed " + std::to_string(port) + ", removed allow-22");
+    } else if (current != 22) {
+        sh::run({"sudo", "ufw", "allow", "22/tcp"});
+        ui::ok("UFW: allowed 22");
     }
 
     // 6. Validate the merged config BEFORE restarting. A bad drop-in

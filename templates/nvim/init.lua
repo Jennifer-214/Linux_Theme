@@ -5,6 +5,8 @@
 
 -- Leader
 vim.g.mapleader = " "
+-- How long a key waits to see if more follow (default 1000 ms): a prefix which-key does not catch felt slow.
+vim.o.timeoutlen = 300
 vim.g.maplocalleader = " "
 vim.g.python3_host_prog = vim.fn.expand("~/.venvs/nvim/bin/python")
 

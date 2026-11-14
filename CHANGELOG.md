@@ -51,7 +51,8 @@ in one file, with a context size and slot count per role. Codex replaces the Gem
   interrupted update. Work health lists sessions still running older code, with the steps that reload each one
   without closing it.
 - **Catching up**: the review backlog can be set aside (it leaves what needs you and stays unreviewed in the review)
-  and brought back; the drawer folds commits to review into one row per project and opens in under a second.
+  and brought back; the drawer folds commits to review into one row per project and opens in under a second
+  (checkouts are read side by side). On a tall screen the drawer keeps one height for every page.
 - **Reliability**: every refusal says why; a work record that cannot be read is named, set aside by a previewed
   repair (`:WorkRepair`) and never overwritten; a burst of agent edits refreshes each view at most once a second,
   and a review of hundreds of changed files no longer stalls Neovim on each change.
@@ -66,6 +67,14 @@ in one file, with a context size and slot count per role. Codex replaces the Gem
 - Your own repositories are cloned before the steps that read them.
 - An explicit no to a fingerprint step (`--no-sudo-fingerprint`, a preset's `off`) stays no when a reader is found.
   On stock Arch PAM (`try_first_pass`) the fingerprint steps report themselves skipped instead of failing every run.
+- PAM edits (sudo, login and greeter fingerprint) are built in memory, swapped in one step, checked, and put back on
+  any difference; the original backup is kept once. Kernel command-line edits find the boot entry loader.conf names
+  (not only arch.conf), skip a /boot they cannot read instead of editing GRUB's file, strip `lockdown=integrity`
+  wherever it sits and check it is gone, and the nvidia and AppArmor edits check and revert like the IOMMU one.
+- Fingerprint steps give way to the password after 10 s (not 30), and the login screen asks for a finger once.
+- The /tmp fstab line is checked with `findmnt --verify` before it replaces fstab, laid through the same checked swap,
+  never added beside a /tmp partition, and a failure no longer restores the fstab from before the first install. A
+  missing ufw, USBGuard or AppArmor marks the run unfinished instead of a warning.
 - A swap that could not update the login screen (sudo cache cold) still saves the theme name, so a later tweak edits
   the palette that is on screen. A render stopped to protect live edits still records the steps before it.
 - A theme swap reloads open kitty terminals, and a palette that reads empty is refused instead of rendered blank.
@@ -76,6 +85,11 @@ in one file, with a context size and slot count per role. Codex replaces the Gem
 - Scripts are stored executable (the volume, brightness and microphone keys broke after a swap); old command names
   are linked after the steps that lay their targets; Steam's repository is synced with a full upgrade; the sudo
   keepalive ends with the installer; an ESP the user cannot read skips boot sync instead of stopping the install.
+- Found by a VM install: the boot-line check read an options line ending in `rw` (archinstall's) as broken, so
+  every IOMMU, AppArmor and nvidia edit was reverted; nothing installed USBGuard or AppArmor; the boot health checks
+  stopped the pre-flight on a /boot the user cannot read. All three are fixed.
+- The base packages (`deps`) are on by default, so the interactive wizard on a new PC installs them; a machine that
+  has every package skips the step.
 
 ### Tests and tools
 

@@ -14,6 +14,9 @@
 #include "../core/context.hpp"
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
+#include "audit_rules.hpp"
+#include "boot_files.hpp"
+#include "iommu.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -21,7 +24,6 @@
 #include <fstream>
 #include <iostream>
 #include <regex>
-#include <set>
 #include <sstream>
 #include <string>
 #include <unistd.h>
@@ -276,7 +278,8 @@ void install_kernel_hardening(const Context& ctx) {
 // ════════════════════════════════════════════════════════════════════
 void install_usbguard(const Context& ctx) {
     (void)ctx;
-    if (!have("usbguard")) { ui::warn("usbguard not installed, skipping"); return; }
+    // An error, not a warning: the security baseline is not in place, and the run must not read as complete.
+    if (!have("usbguard")) { ui::err("usbguard not installed — USB device control is NOT on; install with --deps, then re-run --security"); return; }
 
     fs::path rules = "/etc/usbguard/rules.conf";
     std::error_code ec;
@@ -339,10 +342,15 @@ namespace {
 
 void apparmor_systemd_boot() {
     fs::path entries_dir = "/boot/loader/entries";
-    if (!fs::is_directory(entries_dir)) return;
+    std::error_code ec;
+    if (!fs::is_directory(entries_dir, ec)) return;
     int modified = 0;
-    for (auto& e : fs::directory_iterator(entries_dir)) {
-        if (!e.is_regular_file()) continue;
+    std::vector<fs::path> entries;
+    for (fs::directory_iterator it(entries_dir, ec), end; !ec && it != end; it.increment(ec)) entries.push_back(it->path());
+    if (boot_files::unreadable(ec)) { ui::warn("cannot list " + entries_dir.string() + " (" + ec.message() + ") — AppArmor's cmdline left as it is"); return; }
+    for (const auto& path : entries) {
+        const fs::directory_entry e(path, ec);
+        if (!e.is_regular_file(ec)) continue;
         if (e.path().extension() != ".conf") continue;
         std::string body = read_file(e.path());
         // Create-if-missing backup before any in-place edit of a boot
@@ -353,15 +361,30 @@ void apparmor_systemd_boot() {
                      "[ -e " + e.path().string() + ".foxml-bak ] || "
                      "sudo cp " + e.path().string() + " " + e.path().string() + ".foxml-bak"});
         };
+        // This run's copy is the revert point: an options line that lost root= or rw, or still lacks apparmor, goes back.
+        auto apply = [&](const std::string& program) {
+            const std::string entry = e.path().string(), preedit = entry + ".foxml-preedit";
+            sh::run({"sudo", "cp", entry, preedit});
+            sh::run({"sudo", "sed", "-i", "-E", program, entry});
+            std::string options, line;
+            std::istringstream lines(read_file(e.path()));
+            while (std::getline(lines, line)) if (line.rfind("options ", 0) == 0) { options = line; break; }
+            if (cmdline_options_sane(options) && options.find("apparmor") != std::string::npos) {
+                sh::run({"sudo", "rm", "-f", preedit});
+                return true;
+            }
+            sh::run({"sudo", "mv", preedit, entry});
+            ui::err(entry + ": the options line failed its check after adding apparmor — reverted");
+            return false;
+        };
         if (body.find("\nlsm=") == std::string::npos &&
             body.find(" lsm=") == std::string::npos) {
             // No lsm= yet — append the full recommendation.
             backup_entry();
-            sh::run({"sudo", "sed", "-i", "-E",
-                     "s|^options (.*)$|options \\1 lsm=landlock,lockdown,yama,integrity,apparmor,bpf|",
-                     e.path().string()});
-            ui::ok(e.path().string() + ": apparmor added to kernel cmdline (backup: .foxml-bak)");
-            ++modified;
+            if (apply("s|^options (.*)$|options \\1 lsm=landlock,lockdown,yama,integrity,apparmor,bpf|")) {
+                ui::ok(e.path().string() + ": apparmor added to kernel cmdline (backup: .foxml-bak)");
+                ++modified;
+            }
             continue;
         }
         // Already contains an lsm= but missing apparmor?
@@ -371,11 +394,10 @@ void apparmor_systemd_boot() {
             continue;
         }
         backup_entry();
-        sh::run({"sudo", "sed", "-i", "-E",
-                 "s|(^options .*\\blsm=)([^[:space:]]*)|\\1\\2,apparmor|",
-                 e.path().string()});
-        ui::ok(e.path().string() + ": apparmor added to kernel cmdline (backup: .foxml-bak)");
-        ++modified;
+        if (apply("s|(^options .*\\blsm=)([^[:space:]]*)|\\1\\2,apparmor|")) {
+            ui::ok(e.path().string() + ": apparmor added to kernel cmdline (backup: .foxml-bak)");
+            ++modified;
+        }
     }
     if (modified == 0) {
         ui::skipped("all systemd-boot entries already include apparmor in lsm=");
@@ -423,11 +445,17 @@ bool apparmor_grub() {
 
 void install_apparmor() {
     if (!pacman_has("apparmor")) {
-        ui::warn("apparmor not installed (re-run with --deps --secure)");
+        ui::err("apparmor not installed — AppArmor is NOT on; re-run with --deps --secure");
         return;
     }
 
-    if (fs::is_directory("/boot/loader/entries")) {
+    // A /boot this user cannot read is left alone, never taken for "no systemd-boot" and GRUB's file edited instead.
+    std::error_code boot_ec;
+    const bool entries = fs::is_directory("/boot/loader/entries", boot_ec);
+    if (boot_files::unreadable(boot_ec)) {
+        ui::warn("cannot read the boot entries as your user (" + boot_ec.message() + ") — AppArmor's kernel cmdline left as it is");
+        ui::substep("add by hand if missing: lsm=landlock,lockdown,yama,integrity,apparmor,bpf");
+    } else if (entries) {
         apparmor_systemd_boot();
     } else if (apparmor_grub()) {
         // already messaged
@@ -561,71 +589,46 @@ void install_fail2ban() {
 // ════════════════════════════════════════════════════════════════════
 // auditd inline — persistent watch rules
 // ════════════════════════════════════════════════════════════════════
-constexpr const char* AUDIT_RULES_BODY =
-    "# foxml-managed — auto-applied by desk-install --secure.\n"
-    "# Watches credential + sshd config files for modifications.\n"
-    "-w /etc/passwd -p wa -k passwd_changes\n"
-    "-w /etc/shadow -p wa -k shadow_changes\n"
-    "-w /etc/ssh/sshd_config -p wa -k sshd_config_changes\n"
-    "-w /etc/ssh/sshd_config.d/ -p wa -k sshd_config_changes\n"
-    "-w /etc/sudoers -p wa -k sudoers_changes\n"
-    "-w /etc/sudoers.d/ -p wa -k sudoers_changes\n";
-
 void install_auditd() {
     if (!pacman_has("audit")) {
         ui::warn("audit package not installed — skipping persistent audit rules");
         return;
     }
     fs::path rules = "/etc/audit/rules.d/99-foxml.rules";
-    std::string existing = read_file(rules);
-    if (existing.find("# foxml-managed") == std::string::npos) {
-        if (!write_root_file(rules, AUDIT_RULES_BODY, "0640")) {
+    // The file is root-only (0640), so it is read as root: read as the user it came back empty, the installer's
+    // block was never found, and the whole file was rewritten on every run, dropping desk-honey's watches. A missing
+    // file reads as empty; a read that fails leaves the file alone rather than lose lines it could not see.
+    std::string existing;
+    if (!sh::capture({"sudo", "-n", "sh", "-c", "[ ! -e \"$1\" ] || cat -- \"$1\"", "sh", rules.string()},
+                     existing)) {
+        if (sh::dry_run()) {
+            ui::substep("[dry-run] would merge the installer's watches into " + rules.string() + " (other lines kept)");
+            return;
+        }
+        ui::warn("could not read " + rules.string() + " (sudo cold?) — left as it is; re-run after `sudo -v`");
+        return;
+    }
+    const std::string next = audit_rules::merged(existing);
+    const bool changed = next != existing;
+    bool loaded = false;
+    if (changed) {
+        if (!write_root_file(rules, next, "0640")) {
             ui::warn("could not write " + rules.string());
             return;
         }
-        sh::run({"sh", "-c", "sudo augenrules --load >/dev/null 2>&1 || true"});
-        ui::ok("auditd watch rules written to " + rules.string());
-    } else {
-        // Self-heal exact-duplicate lines. desk-sentry-audit's old append
-        // guard never matched the line it wrote and stacked 10 honey
-        // rules; auditctl rejects the duplicate ("Rule exists") and the
-        // whole audit-rules.service fails at boot.
-        std::set<std::string> seen;
-        std::string dedup;
-        bool changed = false;
-        std::istringstream is(existing);
-        std::string line;
-        while (std::getline(is, line)) {
-            if (!line.empty() && !seen.insert(line).second) {
-                changed = true;
-                continue;
-            }
-            dedup += line;
-            dedup += '\n';
-        }
-        if (changed) {
-            if (write_root_file(rules, dedup, "0640")) {
-                // Flush the kernel ruleset BEFORE reloading. The stale
-                // duplicates loaded at boot are still resident; augenrules
-                // --load can't add a watch that already exists ("Rule
-                // exists" → exit 1), so without the flush the file is fixed
-                // but the live service stays failed until next reboot.
-                // auditctl -D is how auditd itself reloads — the canary is
-                // unwatched only for the instant between flush and reload.
-                sh::run({"sh", "-c", "sudo auditctl -D >/dev/null 2>&1 || true"});
-                sh::run({"sh", "-c",
-                         "sudo augenrules --load >/dev/null 2>&1 || true"});
-                sh::run({"sh", "-c",
-                         "sudo systemctl reset-failed audit-rules >/dev/null 2>&1 || true"});
-                sh::run({"sh", "-c",
-                         "sudo systemctl restart audit-rules >/dev/null 2>&1 || true"});
-                ui::ok("audit rules deduplicated + kernel ruleset reloaded "
-                       "(duplicates fail audit-rules.service at boot)");
-            } else {
-                ui::warn("audit rules carry duplicate lines but the rewrite failed — "
-                         "dedupe " + rules.string() + " manually");
-            }
-        }
+        // Flush the kernel ruleset BEFORE reloading. Watches loaded at boot
+        // are still resident; augenrules --load can't add a watch that
+        // already exists ("Rule exists" → exit 1), so without the flush the
+        // file is fixed but the live service stays failed until next reboot.
+        // auditctl -D is how auditd itself reloads — the canary is
+        // unwatched only for the instant between flush and reload.
+        // One load, by audit-rules itself: loading here and then restarting it loaded every rule twice, and its second
+        // "Rule exists" left audit-rules.service failed with the rules in place (found in the VM, 2026-11-14).
+        sh::run({"sh", "-c", "sudo auditctl -D >/dev/null 2>&1 || true"});
+        sh::run({"sh", "-c", "sudo systemctl reset-failed audit-rules >/dev/null 2>&1 || true"});
+        loaded = sh::run({"sh", "-c", "sudo systemctl restart audit-rules >/dev/null 2>&1"}) == 0;
+        if (!loaded) sh::run({"sh", "-c", "sudo augenrules --load >/dev/null 2>&1 || true"});
+        ui::ok("auditd watch rules written to " + rules.string() + " (other watches in it kept)");
     }
     if (!systemctl_active("auditd")) {
         if (sh::systemctl_enable("auditd", /*user=*/false) == 0) {
@@ -633,12 +636,13 @@ void install_auditd() {
         } else {
             ui::warn("auditd enable failed (sudo cold?) — re-run after `sudo -v`");
         }
+    } else if (!changed) {
+        ui::skipped("auditd already active (watch rules unchanged)");
+    } else if (loaded) {
+        // Not `restart auditd`: its unit has RefuseManualStop=yes, so that always failed. audit-rules loads the rules.
+        ui::skipped("auditd already active (new rules loaded)");
     } else {
-        if (sh::run({"sh", "-c", "sudo systemctl restart auditd >/dev/null 2>&1"}) == 0) {
-            ui::skipped("auditd already active (restarted to load new rules)");
-        } else {
-            ui::skipped("auditd already active (couldn't restart — rules apply on next reboot)");
-        }
+        ui::skipped("auditd already active (couldn't reload audit-rules — rules apply on next reboot)");
     }
 }
 
@@ -706,8 +710,9 @@ void run_security(Context& ctx) {
         return;
     }
 
-    // Ensure security packages (additive; --deps installs the base set).
-    sh::pacman({"fail2ban", "audit", "lynis",
+    // Ensure security packages (additive; --deps installs the base set). usbguard and apparmor were never installed
+    // anywhere, so a fresh machine skipped both (found in the VM, 2026-11-14).
+    sh::pacman({"fail2ban", "audit", "lynis", "usbguard", "apparmor",
                 "knockd", "wireguard-tools",
                 "inotify-tools", "python-virtualenv"});
 

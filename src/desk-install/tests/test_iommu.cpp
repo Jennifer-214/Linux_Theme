@@ -80,6 +80,22 @@ int main() {
     run_strip_sed(tmp);
     EXPECT(read_file(tmp) == after1);
 
+    // The cases the old " lockdown=integrity" program missed (installer audit 2026-11-14), and words it must not touch.
+    std::ofstream(tmp) << "options\tlockdown=integrity root=/dev/x rw\n"
+                          "GRUB_CMDLINE_LINUX_DEFAULT=\"lockdown=integrity quiet\"\n"
+                          "GRUB_CMDLINE_LINUX_DEFAULT=\"quiet lockdown=integrity\"\n"
+                          "options a lockdown=integrity lockdown=integrity b\n"
+                          "options xlockdown=integrity root=/dev/x rw\n";
+    run_strip_sed(tmp);
+    const std::string edges = read_file(tmp);
+    EXPECT(edges == "options root=/dev/x rw\n"
+                    "GRUB_CMDLINE_LINUX_DEFAULT=\"quiet\"\n"
+                    "GRUB_CMDLINE_LINUX_DEFAULT=\"quiet\"\n"
+                    "options a b\n"
+                    "options xlockdown=integrity root=/dev/x rw\n");
+    run_strip_sed(tmp);
+    EXPECT(read_file(tmp) == edges);
+
     fs::remove(tmp);
 
     // ── 3. the post-edit self-check (drives auto-revert) ───────────────
@@ -90,6 +106,10 @@ int main() {
     EXPECT(!cmdline_options_sane(            // rw mangled away
         "options intel_iommu=on iommu=pt root=PARTUUID=abc quiet"));
     EXPECT(!cmdline_options_sane(""));       // line destroyed entirely
+    EXPECT(cmdline_options_sane(             // grep's output: archinstall's line ends in rw, then a newline
+        "options intel_iommu=on iommu=pt root=UUID=df6c rw\n"));
+    EXPECT(cmdline_options_sane("options\troot=UUID=df6c\trw"));
+    EXPECT(!cmdline_options_sane("options root=UUID=df6c rwx\n"));
 
     // ── 4. needs_prepend: no double-prepend on a re-run ────────────────
     EXPECT(needs_prepend(                     // base absent → prepend

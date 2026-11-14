@@ -72,7 +72,12 @@ install: all
 	@cd ../.. && pwd > $(HOME)/.local/share/foxml/repo-dir
 	@echo "  + repo path recorded: $$(cat $(HOME)/.local/share/foxml/repo-dir)"
 
-test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_gaming tests/test_iommu tests/test_hyprlock_pin tests/test_nvidia_modules tests/test_claude_wiring tests/test_hw_autoenable tests/test_built_tools tests/test_hidepid tests/test_health_boot tests/test_dry_run tests/test_git_clone tests/test_hypr_lua tests/test_drawer_deploy tests/test_cursor_sync tests/test_cursor_recolor tests/test_folder_recolor tests/test_gtk_appearance tests/test_icon_deploy
+test: tests/test_fstab_tmp tests/test_ssh_port tests/test_audit_rules tests/test_boot_files tests/test_pam_file tests/test_registry tests/test_args tests/test_state_manifest tests/test_classifier tests/test_state_checks tests/test_conflict_resolve tests/test_wizard tests/test_install_lock tests/test_subprocess_log tests/test_banner_font tests/test_gaming tests/test_iommu tests/test_hyprlock_pin tests/test_nvidia_modules tests/test_claude_wiring tests/test_hw_autoenable tests/test_built_tools tests/test_hidepid tests/test_health_boot tests/test_dry_run tests/test_git_clone tests/test_hypr_lua tests/test_drawer_deploy tests/test_cursor_sync tests/test_cursor_recolor tests/test_folder_recolor tests/test_gtk_appearance tests/test_icon_deploy
+	@./tests/test_fstab_tmp
+	@./tests/test_ssh_port
+	@./tests/test_audit_rules
+	@./tests/test_boot_files
+	@./tests/test_pam_file
 	@./tests/test_registry
 	@./tests/test_args
 	@./tests/test_state_manifest
@@ -114,6 +119,7 @@ test: tests/test_registry tests/test_args tests/test_state_manifest tests/test_c
 	@./tests/test_fox_moves
 	@./tests/test_workflow_deploy
 	@./tests/test_workflow_update
+	@./tests/test_resume_point
 	@bash ./tests/lint_shell_assets.sh
 	@bash ./tests/lint_unit_escaping.sh
 
@@ -130,6 +136,10 @@ test: tests/test_theme_choice tests/test_ide_settings tests/test_firefox_policie
 test: tests/test_private_extras tests/test_menu_upgrade tests/test_fox_aliases tests/test_fox_moves
 test: tests/test_workflow_deploy
 test: tests/test_workflow_update
+test: tests/test_resume_point
+
+tests/test_resume_point: tests/test_resume_point.cpp core/resume_point.hpp core/module.hpp
+	$(CXX) $(CXXFLAGS) $< -o $@
 
 tests/test_workflow_update: tests/test_workflow_update.cpp modules/workflow_update.hpp modules/workflow_assets.hpp modules/symlinks_data.hpp modules/menu_upgrade.hpp ../desk-common/work_updates.hpp core/backup.o $(DESK_COMMON_LIB) ../desk-render/desk-render-fast ../desk-work/desk-work ../desk-drawer/desk-drawer ../theme-check/theme-check $(BIN)
 	$(CXX) $(CXXFLAGS) $< core/backup.o -L$(DESK_COMMON_DIR) -ldesk-common -lcrypto -o $@
@@ -298,6 +308,21 @@ tests/test_git_clone: tests/test_git_clone.cpp core/git_clone.hpp
 
 tests/test_hw_autoenable: tests/test_hw_autoenable.cpp core/hw_autoenable.hpp
 	$(CXX) $(CXXFLAGS) tests/test_hw_autoenable.cpp -o $@
+
+tests/test_fstab_tmp: tests/test_fstab_tmp.cpp modules/fstab_tmp.hpp
+	$(CXX) $(CXXFLAGS) tests/test_fstab_tmp.cpp -o $@
+
+tests/test_ssh_port: tests/test_ssh_port.cpp modules/ssh_port.hpp
+	$(CXX) $(CXXFLAGS) tests/test_ssh_port.cpp -o $@
+
+tests/test_audit_rules: tests/test_audit_rules.cpp modules/audit_rules.hpp
+	$(CXX) $(CXXFLAGS) tests/test_audit_rules.cpp -o $@
+
+tests/test_boot_files: tests/test_boot_files.cpp modules/boot_files.hpp
+	$(CXX) $(CXXFLAGS) tests/test_boot_files.cpp -o $@
+
+tests/test_pam_file: tests/test_pam_file.cpp modules/pam_file.hpp
+	$(CXX) $(CXXFLAGS) tests/test_pam_file.cpp -o $@
 
 tests/test_banner_font: tests/test_banner_font.cpp modules/banner_font.o
 	$(CXX) $(CXXFLAGS) tests/test_banner_font.cpp modules/banner_font.o -o $@
