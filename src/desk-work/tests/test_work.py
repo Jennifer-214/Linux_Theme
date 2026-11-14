@@ -102,7 +102,9 @@ class Work(unittest.TestCase):
         record = next((Path(self.env['XDG_STATE_HOME'])/'foxml/work/projects').glob('*/agents/*.json'))
         value = json.loads(record.read_text()); value['at'] -= 13*3600; value['seenAt'] = value['at']; record.write_text(json.dumps(value))
         self.assertTrue(self.data('agents')[0]['delayed'])
+        revision = self.data('revision')['revision']
         self.assertTrue(self.data('agent-heartbeat', '--agent', 'pi', '--session', 'long', '--pid', os.getpid())['ok'])
+        self.assertEqual(self.data('revision')['revision'], revision, 'a heartbeat is not a change every watcher refreshes on')
         current = self.data('agents')[0]
         self.assertEqual(current['state'], 'needs')
         self.assertEqual(current['at'], value['at'])
@@ -482,6 +484,8 @@ class Work(unittest.TestCase):
         self.assertEqual(len(self.data("overview")["tasks"]), 15)
         self.data("task-toggle", "--id", key)
         self.assertFalse(self.data("tasks")[0]["done"])
+        for _ in range(2): self.data("task-toggle", "--id", key, "--done", "yes")
+        self.assertTrue(self.data("tasks")[0]["done"], "mark done sets done: a second press cannot reopen the step")
 
     def test_corrupt_tasks_are_preserved(self):
         self.data("task-add", "--text", "a task")
@@ -896,6 +900,7 @@ class Work(unittest.TestCase):
         self.assertNotIn("commit", [i["kind"] for i in self.data("attention")], "set-aside commits leave what needs you")
         self.assertEqual(self.data("set-aside", "--show", "yes")["count"], 2)
         self.assertEqual(self.data("notebook")["aside"]["count"], 2)
+        self.assertEqual(self.data("notebook")["pending"], 0, "the review's count leaves them out too")
         self.assertEqual(len(self.data("reviews", "--all", "yes")), 3 - 1, "the review tree still lists them, unreviewed")
         self.assertFalse(any(r["reviewed"] for r in self.data("reviews", "--all", "yes")), "nothing was stamped reviewed")
         later = dict(self.env, GIT_COMMITTER_DATE=str(int(time.time()) + 60) + " +0000")

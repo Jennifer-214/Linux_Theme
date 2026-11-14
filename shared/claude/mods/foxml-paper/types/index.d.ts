@@ -32,6 +32,9 @@ export type WorkSession = { client: string; status: string; session?: string; re
 // A change request sent to a session about a file: waiting while the file is as it was, ready once it has changed.
 export type ReviewRequest = { file: string; name: string; sid: string; text: string; at: number; state: 'waiting' | 'ready' }
 export type NotebookView = { page: 'overview' | 'files' | 'project' | 'sessions' | 'help' | 'request' | 'timeline' | 'digest' | 'health' | 'attention'; scope: 'session' | 'all'; selected: string; focused?: string; offset: number; form: 'none' | 'task' | 'plan' | 'step' | 'search' | 'snooze' | 'aside'
+  // The needs-you row a snooze form is about (the cursor moves inside the form), and the front-page row that opened
+  // the page shown, where going back puts the cursor.
+  snoozing?: string; opener?: string
   // The files page: which files to list, and a part of a name to find.
   show?: 'all' | 'unreviewed' | 'changed'; query?: string
   // The request page: which file's thread is open.

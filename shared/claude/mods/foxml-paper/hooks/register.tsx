@@ -5,7 +5,7 @@ import type { AgentSession, ApiCredits, CiLook, GitLook, NotebookView, PaperActi
 import { addBefore, addEdit, addName, neighbours, namesText, noteText, overlapFor, parseLedger, parseNames, parseNote, trailerUrl, withPlan, editedSince } from './ledger'
 import type { Other } from './ledger'
 import { paper } from './theme'
-import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, filterFiles, pendingLine, planProgress, receiptLine, reviewStates, reviewSummary, ruleLine, ruler, spread, workName, wrapWords, stepLabel, testLabel, turnLabel, unreviewed, work, workCall, workLook, needBreakdown, needGroup, wrapParts, MARKS, glyph } from './work'
+import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, filterFiles, pendingLine, planProgress, receiptLine, reviewStates, reviewSummary, ruleLine, ruler, sides, workName, wrapWords, stepLabel, testLabel, turnLabel, unreviewed, work, workCall, workLook, needBreakdown, needGroup, wrapParts, MARKS, glyph } from './work'
 import { attributeFiles, fileColumns, fileCounts, gitFiles, drawerPage, mailId, shortPath, NAMED_PAGES } from './notebook'
 import { BUILD_ID } from './build'
 
@@ -272,6 +272,13 @@ async function lastNight($: EngineInterface, root: string): Promise<PaperLook['l
   }
 }
 
+// A turn says "working" until a quarter of an hour passes with no sign of life; every tool call is one.
+async function stillWorking($: EngineInterface) {
+  const at = await $.clock.now()
+  const current = await read($, turn)
+  if (current && at - (current.seen ?? current.started) > 30000) await update($, turn, t => t ? { ...t, seen: at } : t)
+}
+
 async function withActivity<T>($: EngineInterface, text: string, call: () => Promise<T>): Promise<T> {
   const args = ['activity', '--root', await repoRoot($), '--session', await $.session.id(), '--text', text]
   await work($, [...args, '--state', 'working'])
@@ -409,8 +416,8 @@ async function checkInbox($: EngineInterface) {
 }
 
 // After an edit: note it in this session's ledger, for the other sessions to see.
-async function recordEdit($: EngineInterface, file: string, observed = true) {
-  await publishAgent($, 'working', observed ? file : undefined)
+async function recordEdit($: EngineInterface, file: string, observed = true, publish = true) {
+  if (publish) await publishAgent($, 'working', observed ? file : undefined)
   const dir = await sessionsDir($)
   if (dir === null) return
   const sid = await $.session.id()
@@ -437,9 +444,10 @@ async function recordShellEdits($: EngineInterface, root: string, began: number)
     try {
       const stat = await $.fs.stat(root + '/' + file.path)
       // A second of slack for coarse clocks; the command's own start bounds it below.
-      if (stat.kind === 'file' && stat.mtimeMs >= began - 1000) { await recordEdit($, root + '/' + file.path, false); recorded++ }
+      if (stat.kind === 'file' && stat.mtimeMs >= began - 1000) { await recordEdit($, root + '/' + file.path, false, false); recorded++ }
     } catch { /* deleted or unreadable: nothing to attribute */ }
   }
+  if (recorded > 0) await publishAgent($, 'working')
 }
 
 async function readCard($: EngineInterface, dir: string | null): Promise<PaperCard | null> {
@@ -600,7 +608,7 @@ async function publishAgent($: EngineInterface, state: string, file?: string) {
 }
 
 async function saveNotebookView($: EngineInterface) {
-  const { form, focused, ...view } = await read($, notebookView)
+  const { form, focused, snoozing, ...view } = await read($, notebookView)
   await work($, ['workspace', '--root', await repoRoot($), '--client', 'notebook:' + await $.session.id(), '--input', '-'], JSON.stringify(view))
 }
 
@@ -777,12 +785,14 @@ export const register: Register = on => {
       await update($, notebookView, current => ({ ...current, compact }))
       await $.ui.open({ id: PANE, title: 'notebook', ...paneSize({ ...view, compact }) })
     })
-    await $.command.register({ name: 'notebook', description: 'Open the paper notebook', argumentHint: '[toggle|close|auto|compact|expand|files|all|project|sessions|timeline|digest|health]', immediate: true })
+    await $.command.register({ name: 'notebook', description: 'Open the paper notebook', argumentHint: '[toggle|close|auto|compact|expand|files|all|project|sessions|timeline|digest|health|attention|help]', immediate: true })
     return started
   })
 
   on('command.run', { command: 'notebook' }, async ($, e) => {
     let page = e.args.trim()
+    if (page && !['toggle', 'close', 'auto', 'compact', 'expand', 'all', ...NAMED_PAGES].includes(page))
+      return { text: `/notebook knows ${NAMED_PAGES.join(', ')}, all, and toggle, close, compact, expand or auto.` }
     if (page === 'close' || page === 'toggle') {
       let open = memory.notebookOpen
       try { open = (await $.ui.panes()).some(pane => pane.id === PANE) } catch { /* older engines can use the in-session state */ }
@@ -849,21 +859,17 @@ export const register: Register = on => {
   on('classic.Stop', async ($, e, next) => {
     await publishAgent($, 'waiting')
     await update($, turn, () => null)
-    // A turn that leaves files of this session unreviewed says so once, above the prompt, until looked at.
     // A refresh already under way began before the turn's last edit was recorded: let it finish, then read afresh.
     await refresh($)
     await refresh($)
     const seen = await read($, look)
-    const mine = (seen?.files ?? []).filter(f => f.own).map(f => f.path)
-    const left = unreviewed(mine, reviewStates(seen?.work?.review))
-    await update($, nudge, () => left > 0 ? left : null)
     // The receipt: what this turn changed, ran and committed.
     const began = (await read($, receipt))?.at ?? 0
     const start = memory.turnStart || began
+    let touched: string[] = []
     if (start > 0 && seen) {
       const dir = await sessionsDir($)
       const sid = await $.session.id()
-      let touched: string[] = []
       try {
         const ledger = dir === null ? null : parseLedger(await $.fs.read(`${dir}/edits/${sid}.json`))
         const base = seen.root.replace(/\/$/, '') + '/'
@@ -876,6 +882,11 @@ export const register: Register = on => {
       const made: TurnReceipt = { at: await $.clock.now(), files: touched.slice(0, 40), tests, commits, risky: memory.turnRisk.slice(0, 4) }
       await update($, receipt, () => (made.files.length || made.tests || made.commits.length || made.risky.length) ? made : null)
     }
+    // A turn that changed files and leaves files of this session unreviewed says so once, above the prompt, until
+    // looked at. A turn that changed nothing (a question) says nothing.
+    const mine = (seen?.files ?? []).filter(f => f.own).map(f => f.path)
+    const left = unreviewed(mine, reviewStates(seen?.work?.review))
+    if (touched.length > 0 || left === 0) await update($, nudge, () => left > 0 ? left : null)
     memory.turnStart = 0
     return next(e)
   })
@@ -899,6 +910,11 @@ export const register: Register = on => {
   })
 
   on('session.end', async ($, e, next) => { await saveNotebookView($); await publishAgent($, 'done'); return next(e) })
+
+  on('tool.call', async ($, e, next) => {
+    await stillWorking($)
+    try { return await next(e) } finally { await stillWorking($) }
+  })
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const what = redZoneOf(e.command)
@@ -1024,8 +1040,9 @@ export const register: Register = on => {
         <Text color={paper.ink}>{clip(receiptLine(await read($, receipt)) || `${waiting} ${waiting === 1 ? 'file' : 'files'} changed`, Math.max(12, e.props.bodyColumns - 44))}</Text>
         <Text color={paper.dim}> · review pending </Text>
         <Button key="review" label="review" plain onPress={async () => {
+          const opened = await workCall($, ['open', '--root', await repoRoot($), '--action', 'reviews'])
+          if (!opened.ok) { $.ui.toast(opened.message); return }
           await update($, nudge, () => null)
-          await work($, ['open', '--root', await repoRoot($), '--action', 'reviews'])
         }} />
         <Text> </Text>
         <Button key="later" label="later" plain onPress={() => update($, nudge, () => null)} />
@@ -1086,7 +1103,7 @@ export const register: Register = on => {
       const input = change.form === 'task' ? 'work-next-step' : change.form === 'plan' ? 'plan-file' : change.form === 'step' ? 'plan-current-step' : null
       if (input) await $.ui.focus({ requestId: PANE, key: input }).catch(() => undefined)
       else if (change.form === 'none') await $.ui.focus({ requestId: PANE, key: 'nav-back' }).catch(() => undefined)
-      await saveNotebookView($)
+      if (Object.keys(change).some(k => k !== 'selected' && k !== 'focused')) await saveNotebookView($)
     }
     const checkedWork = async (args: string[]) => {
       const result = await workCall($, args)
@@ -1107,9 +1124,14 @@ export const register: Register = on => {
       await checkedWork(['open', '--root', path.startsWith('/') ? path.slice(0, slash) || '/' : root,
         '--action', 'file', '--file', path.startsWith('/') ? path.slice(slash + 1) : path])
     }
+    const launch = async (argv: string[], failure: string) => { if (await run($, argv) === null) $.ui.toast(failure) }
     const openJob = (id: string, action = 'log', index?: number) => checkedWork(['open', '--root', root, '--action', action, '--id', id,
       ...(index === undefined ? [] : ['--index', String(index)])])
-    const page = (value: NotebookView['page']) => setView({ page: value, selected: '', form: 'none' })
+    const page = async (value: NotebookView['page']) => {
+      const current = await read($, notebookView)
+      const opener = value === 'overview' ? '' : current.page === 'overview' ? current.selected : current.opener ?? ''
+      await setView({ page: value, selected: value === 'overview' ? current.opener ?? '' : '', form: 'none', offset: 0, opener })
+    }
     const row = (key: string, label: string, press: () => unknown, detail?: ReturnType<typeof Text>) => {
       navigation.push({ key, press })
       const selected = view.selected === key
@@ -1142,20 +1164,6 @@ export const register: Register = on => {
       </Button>
     }
     const text = (label: string, colour: string = paper.dim) => <Text color={colour}>{label.length > width ? label.slice(0, width - 1) + '…' : label}</Text>
-    if (view.compact && view.page === 'overview' && view.form === 'none') {
-      const attention = now?.work?.attention
-      const local = (mail.length ? 1 : 0) + (warning ? 1 : 0) + (ciLabel(now?.ci?.runs)?.state === 'failed' ? 1 : 0)
-      const count = attention ? attention.length + local : (now?.work?.pending ?? 0) + local
-      const stale = memory.lookFailed || memory.lookAt > 0 && clock - memory.lookAt > 180000
-      return <Box flexDirection="column">
-        {text(name ?? 'notebook', paper.ink)}
-        <Button key="compact-attention" label={stale ? 'status needs a refresh' : now?.work ? count === 0 ? 'all quiet' : `${count} ${count === 1 ? 'needs' : 'need'} you` : 'work status unavailable'} plain
-          onPress={() => setView({ compact: false, page: 'overview', selected: '' })} />
-        {now?.work?.tests && text(testLabel(now.work.tests), testColour(now.work.tests))}
-        <Box><Button key="compact-expand" label={memory.watchFailed && now?.work ? 'expand · delayed' : 'expand notebook'} hotkey="z" plain onPress={() => setView({ compact: false, page: 'overview', selected: '' })} />
-          <Text> </Text><Button key="compact-hide" label="hide" hotkey="q" plain onPress={() => $.ui.close({ id: PANE })} /></Box>
-      </Box>
-    }
     // A ruler under its row, indented to the row's text, with words after it.
     const measured = (fraction: number, words: string, pencil = false) => {
       const length = Math.max(3, Math.min(16, width - words.length - 4))
@@ -1190,14 +1198,12 @@ export const register: Register = on => {
     const rule = (label: string, right = '') => content.push(text(ruleLine(label, right, width), paper.ribbon))
     const pair = (key: string, left: string, right: string, press: () => unknown, says: string, colour: string = paper.ink) => {
       // A row too long for the pane is cut with an ellipsis; its whole text then leads the description.
-      const room = right ? Math.max(4, inner - right.length - 1) : inner
-      about[key] = left.length > room ? `${left.replace(/^[^\p{L}\p{N}]+/u, '')} — ${says}` : says
+      const [drawn, side] = sides(left, right, inner)
+      about[key] = drawn.trimEnd() !== left ? `${left.replace(/^[^\p{L}\p{N}]+/u, '')} — ${says}` : says
       if (key.startsWith('attention-') && firstNeed === null) firstNeed = press
-      const line = spread(left, right, inner)
-      const cut = right ? line.length - right.length : line.length
       // The button's own label reads whole ("3 claudes · you + 2 others") for screen readers and other surfaces.
       content.push(row(key, right ? `${left} · ${right}` : left, press, <Text>
-        <Text color={colour}>{line.slice(0, cut)}</Text><Text color={paper.dim}>{line.slice(cut)}</Text>
+        <Text color={colour}>{drawn}</Text><Text color={paper.dim}>{side}</Text>
       </Text>))
     }
     const describe = () => {
@@ -1234,7 +1240,7 @@ export const register: Register = on => {
         needs.push({ key: 'attention-tests', left: `${glyph('failed')} tests failed`, right: ago(clock / 1000 - (lastTests.ended ?? clock / 1000)), press: () => openJob(lastTests.id, 'tests'),
           says: 'The last test run failed. Enter opens the failures, each a jump to its line.', colour: paper.berry, words: needGroup('job', 'tests') })
       if (ci && ci.state === 'failed')
-        needs.push({ key: 'attention-ci', left: `${glyph('failed')} CI failed on the push`, right: 'open run', press: async () => { if (/^https:\/\/github\.com\//.test(ci.url)) await run($, ['xdg-open', ci.url]) },
+        needs.push({ key: 'attention-ci', left: `${glyph('failed')} CI failed on the push`, right: 'open run', press: async () => { if (/^https:\/\/github\.com\//.test(ci.url)) await launch(['xdg-open', ci.url], 'The browser did not open.') },
           says: 'GitHub Actions failed on the pushed commit. Enter opens the run in the browser.', colour: paper.berry, words: needGroup('ci') })
       if (!shared) for (const r of ready.slice(0, 3))
         needs.push({ key: `attention-request-${r.file}`, left: `${glyph('changed')} ${base(r.file)}`, right: 're-review', press: () => reReview(r.file),
@@ -1245,13 +1251,25 @@ export const register: Register = on => {
           says: 'Edited after you checked them. Enter opens the first; the review shows only what is new.', colour: paper.ink, words: needGroup('changed') })
       }
       if (warning) needs.push({ key: 'attention-overlap', left: 'shared edit · ' + (warning.path.split('/').pop() ?? ''), right: warning.ago ?? '', press: async () => {
-        if (warning.pane) await run($, ['desk-drawer', 'run', 'claude-jump', warning.pane])
+        if (warning.pane) await launch(['desk-drawer', 'run', 'claude-jump', warning.pane], 'That session\'s window could not be reached.')
         else await page('files')
       }, says: 'Another live session edited this file lately. Enter goes to it.', colour: paper.berry, words: needGroup('overlap') })
       if (mail.length) needs.push({ key: 'attention-mail', left: `${glyph('sent')} notes for this session`, right: `${mail.length} unread`, press: () => page('sessions'),
         says: 'Notes left for this session from Neovim or another Claude. Enter reads them.', colour: paper.ink, words: needGroup('mail') })
     }
     const breakdown = () => wrapParts(needBreakdown(needs.map(n => n.words)), Math.max(8, width - 2))
+    if (view.compact && view.page === 'overview' && view.form === 'none') {
+      const count = needs.length
+      const stale = memory.lookFailed || memory.lookAt > 0 && clock - memory.lookAt > 180000
+      return <Box flexDirection="column">
+        {text(name ?? 'notebook', paper.ink)}
+        <Button key="compact-attention" label={stale ? 'status needs a refresh' : now?.work ? count === 0 ? 'all quiet' : `${count} ${count === 1 ? 'needs' : 'need'} you` : 'work status unavailable'} plain
+          onPress={() => setView({ compact: false, page: 'overview', selected: '' })} />
+        {now?.work?.tests && text(testLabel(now.work.tests), testColour(now.work.tests))}
+        <Box><Button key="compact-expand" label={memory.watchFailed && now?.work ? 'expand · delayed' : 'expand notebook'} hotkey="z" plain onPress={() => setView({ compact: false, page: 'overview', selected: '' })} />
+          <Text> </Text><Button key="compact-hide" label="hide" hotkey="q" plain onPress={() => $.ui.close({ id: PANE })} /></Box>
+      </Box>
+    }
 
     if (view.form === 'none' && view.page === 'overview') {
       // The front page: nothing that is not about now.
@@ -1297,7 +1315,7 @@ export const register: Register = on => {
             now?.work?.reviewedToday?.includes(commit.sha) ? 'reviewed' : commit.sha.slice(0, 7),
             () => checkedWork(['open', '--root', root, '--action', 'reviews', '--id', commit.sha]), 'A commit the last turn made. Enter opens this commit in the review.')
         if (done.commits.length > 3) content.push(text(`  and ${done.commits.length - 3} more commits`))
-        for (const what of done.risky) pair('receipt-risk-' + what, `${glyph('risky')} touched ${what}`, 'red zone', open, 'The last turn ran something in the red zone: login, boot, mounts, the kernel or the firewall.', paper.berry)
+        for (const what of done.risky) content.push(text(`  ${glyph('risky')} touched ${what} · red zone`, paper.berry))
       }
 
       const total = now?.plan?.total ?? 0, ticked = now?.plan?.done ?? 0
@@ -1329,7 +1347,8 @@ export const register: Register = on => {
       const reviewed = (now?.files ?? []).filter(f => states.get(f.path) === 'checked').length
       // A record desk-work cannot read would make "0 reviewed" a false statement; say what is true.
       const marksUnreadable = (now?.work?.records ?? []).some(r => r.file === 'review-marks.json')
-      pair('page-files', `${now?.files.length ?? 0} changed files`, marksUnreadable ? 'review marks unreadable'
+      const changedCount = now?.files.length ?? 0
+      pair('page-files', `${changedCount} changed ${changedCount === 1 ? 'file' : 'files'}`, marksUnreadable ? 'review marks unreadable'
         : summary ? `${reviewed} reviewed` : mine.length ? `${mine.length} this session` : '', () => page('files'),
         'Files that differ from the last commit, and how many of them were reviewed as they are now.')
 
@@ -1352,7 +1371,7 @@ export const register: Register = on => {
       }, 'The change stream stopped. The recovery poll still refreshes this page; Enter reconnects it.', paper.dim)
       if (now?.work?.tests) pair('work-tests', testLabel(now.work.tests, clock / 1000), '', () => openJob(now.work!.tests!.id, 'tests'),
         'The last test run here, and whether the code changed since.', testColour(now.work.tests))
-      if (ci) pair('work-ci', ci.label, '', async () => { if (/^https:\/\/github\.com\//.test(ci.url)) await run($, ['xdg-open', ci.url]) },
+      if (ci) pair('work-ci', ci.label, '', async () => { if (/^https:\/\/github\.com\//.test(ci.url)) await launch(['xdg-open', ci.url], 'The browser did not open.') },
         'GitHub Actions on the pushed commit. Enter opens the run.', ci.state === 'failed' ? paper.berry : ci.state === 'passed' ? paper.added : paper.dim)
       for (const job of (now?.work?.jobs ?? []).slice(0, 1)) jobRow(job, `${glyph('running')} ${job.title ?? job.command} · ${Math.floor(job.elapsed / 60)}m`)
       const branchLine = now?.card?.title ?? branchLabel(now?.git, now?.branch ?? '')
@@ -1369,7 +1388,7 @@ export const register: Register = on => {
         pair('page-sessions', `${others.length + 1} ${others.some(p => p.agent && p.agent !== 'claude') ? 'agents' : 'claudes'}`, `you + ${others.length} ${others.length === 1 ? 'other' : 'others'}`, () => page('sessions'),
           'The other Claude sessions on this machine. Enter lists them, to go to one or leave it a note.')
       }
-      pair('page-help', '? marks and keys', '', () => page('help'), 'What each mark means and which keys work here.', paper.dim)
+      pair('page-help', 'marks and keys', '', () => page('help'), 'What each mark means and which keys work here.', paper.dim)
       pair('page-timeline', 'project timeline', '', () => page('timeline'), 'The shared history of requests, edits, tests and reviews.')
       pair('page-health', 'work health', '', () => page('health'), 'Loaded versions, refresh times, connection recovery and update backups.', paper.dim)
       // What the selected row is, the way a menu's description strip says it.
@@ -1434,9 +1453,11 @@ export const register: Register = on => {
       line('l ⏎', 'open the selected row')
       line('h', 'back to the front page')
       line('n', 'the next thing that needs you')
-      line('s', 'on a needs-you row: snooze it')
+      line('s', 'on a needs-you row from the project list: snooze it')
       line('e', 'on files: open the selected file to edit')
       line('d', 'the same page in the drawer')
+      line('z', 'the compact notebook')
+      line('q', 'hide the notebook')
       content.push(text(ruleLine('words', '', width), paper.ribbon))
       for (const words of ['gate open: the plan is approved, edits may go on', 'plan first: edits wait for an approved plan',
         'needs you: what failed, or is ready for another look; past three items it folds into one line, and Enter lists them'])
@@ -1522,7 +1543,7 @@ export const register: Register = on => {
         for (const task of now.work.tasks.filter(t => !t.done)) {
           content.push(row(`task-draft-${task.id}`, `${glyph('step')} ${task.text}`, () => checkedWork(['open', '--root', root, '--action', 'tasks', '--id', task.id])))
           content.push(row(`task-done-${task.id}`, '  mark done', async () => {
-            await checkedWork(['task-toggle', '--root', root, '--id', task.id]); await refresh($)
+            await checkedWork(['task-toggle', '--root', root, '--id', task.id, '--done', 'yes']); await refresh($)
           }))
         }
         content.push(row('task-add', '+ next step', () => setView({ form: 'task' })))
@@ -1554,7 +1575,8 @@ export const register: Register = on => {
       if (mail.length) content.push(row('mail-clear', 'mark all notes read', () => acknowledgeMail($, mail)))
       for (const note of mail) {
         content.push(text(`${glyph('sent')} from ${note.from}`, paper.ribbon))
-        content.push(<Text color={paper.ink}>{note.text}</Text>)
+        const said = wrapWords(note.text, Math.max(8, width))
+        for (const [i, line] of said.slice(0, 3).entries()) content.push(text(i === 2 && said.length > 3 ? line.slice(0, Math.max(1, width - 1)) + '…' : line, paper.ink))
         content.push(row(`envelope-${note.id ?? note.at}`, 'mark read', () => acknowledgeMail($, [note])))
       }
       if (others.length) content.push(text(`${others.length + 1} ${others.some(p => p.agent && p.agent !== 'claude') ? 'agents' : 'claudes'} · you and ${others.length} ${others.length === 1 ? 'other' : 'others'}`))
@@ -1584,16 +1606,19 @@ export const register: Register = on => {
       const events = view.page === 'digest' ? digest?.events ?? [] : now?.work?.timeline ?? []
       const greeting = digest?.greeting ?? digest?.summary
       if (view.page === 'digest' && greeting) for (const line of wrapWords(greeting, width)) content.push(text(line, paper.ink))
-      if (!events.length) content.push(text('No recorded events here yet.'))
-      for (const event of events.slice(view.offset, view.offset + 20))
+      if (!events.length) content.push(text(view.page === 'digest' && digest && !digest.total ? 'Caught up: nothing new since you last marked it.' : 'No recorded events here yet.'))
+      const offset = Math.min(view.offset, Math.max(0, Math.floor((events.length - 1) / 20) * 20))
+      for (const event of events.slice(offset, offset + 20)) {
+        const [label, when] = sides(event.label, ago(clock / 1000 - event.at), width - 2)
         content.push(row('event-' + event.id, event.label, () => checkedWork(['open', '--root', root, '--action', 'event', '--id', event.id]),
-          <Text>{fit(event.label, Math.max(8, width - 10))}<Text color={paper.dim}> {ago(clock / 1000 - event.at)}</Text></Text>))
+          <Text>{label}<Text color={paper.dim}>{when}</Text></Text>))
+      }
       if (view.page === 'digest' && digest?.total) content.push(row('digest-caught-up', 'mark these events caught up', async () => {
         if (await checkedWork(['digest', '--root', root, '--consumer', 'notebook', '--through', String(digest.through)])) await refresh($)
       }))
       if (digest?.truncated && view.page === 'digest') content.push(text('Older events have expired; this digest is partial.'))
-      if (events.length > 20) content.push(row('events-next', view.offset + 20 < events.length ? 'older events' : 'newest events',
-        () => setView({ offset: view.offset + 20 < events.length ? view.offset + 20 : 0 })))
+      if (events.length > 20) content.push(row('events-next', offset + 20 < events.length ? 'older events' : 'newest events',
+        () => setView({ offset: offset + 20 < events.length ? offset + 20 : 0 })))
     }
     if (view.form === 'none' && view.page === 'health') {
       const checks = now?.work?.health?.checks ?? []
@@ -1607,13 +1632,13 @@ export const register: Register = on => {
       content.push(row('health-refresh', 'refresh health', () => refresh($)))
     }
     if (view.form === 'snooze') {
-      const selected = now?.work?.attention?.find(item => 'attention-' + item.id === view.selected)
+      const selected = now?.work?.attention?.find(item => 'attention-' + item.id === (view.snoozing || view.selected))
       if (selected) {
         content.push(text(selected.label, paper.ink))
         for (const [key, label, option] of [['hour', 'later · one hour', '--seconds'], ['change', 'until this item changes', '--until-change']] as const)
           content.push(row('snooze-' + key, label, async () => {
             if (await checkedWork(['snooze', '--root', root, '--id', selected.id, option, key === 'hour' ? '3600' : 'yes'])) {
-              await setView({ form: 'none', selected: '' }); await refresh($)
+              await setView({ form: 'none', selected: '', snoozing: '' }); await refresh($)
             }
           }))
       } else content.push(text('That attention item is already settled.'))
@@ -1650,17 +1675,21 @@ export const register: Register = on => {
       await setView({ focused: selected.key })
       await $.ui.scroll({ to: { key: selected.key }, in: PANE }).catch(() => undefined)
     }
-    const activate = () => (navigation.find(n => n.key === view.selected) ?? navigation[0])?.press()
+    const activate = () => (view.selected ? navigation.find(n => n.key === view.selected) : navigation[0])?.press()
+    const snoozable = view.form === 'none' && (now?.work?.attention ?? []).some(item => 'attention-' + item.id === view.selected)
     const back = () => view.form !== 'none' ? setView({ form: 'none' }) : page('overview')
     const nextNeed = firstNeed as (() => unknown) | null
+    const contextWords = now?.context == null ? (width >= 34 ? 'context not measured yet' : 'context …') : ` ${now.context}%`
+    const mailWords = ` · ${glyph('sent')} ${mail.length}`
+    const nameRoom = width - (now?.context != null ? 5 : 0) - contextWords.length - (mail.length > 0 ? mailWords.length : 0) - 3
     return <Box flexDirection="column">
       <Text>
         {/* No reading yet (a session just resumed): no meter, rather than five empty boxes that read as 0%. */}
         {now?.context != null && <Text color={now.context >= 80 ? paper.berry : paper.heart}>{'▰'.repeat(filled)}</Text>}
         {now?.context != null && <Text color={paper.note}>{'▱'.repeat(5 - filled)}</Text>}
-        <Text color={paper.dim}>{now?.context == null ? 'context not measured yet' : ` ${now.context}%`}</Text>
-        {mail.length > 0 && <Text color={paper.ribbon}>{` · ${glyph('sent')} ${mail.length}`}</Text>}
-        <Text color={paper.ink}>{name ? ' · ' + fit(name, Math.max(4, width - 14)) : ''}</Text>
+        <Text color={paper.dim}>{contextWords}</Text>
+        {mail.length > 0 && <Text color={paper.ribbon}>{mailWords}</Text>}
+        <Text color={paper.ink}>{name && nameRoom >= 4 ? ' · ' + fit(name, nameRoom) : ''}</Text>
       </Text>
       {/* The keys only matter while the notebook holds the keyboard; at rest the row is noise. */}
       {(e.props.isFocused || view.page !== 'overview' || view.form !== 'none' || writingId !== null) && <Box flexDirection="column"><Box>
@@ -1671,12 +1700,12 @@ export const register: Register = on => {
         {nextNeed !== null && <Button key="nav-next" label="next" hotkey="n" plain onPress={() => nextNeed()} />}{nextNeed !== null && <Text> </Text>}
         <Button key="nav-hide" label="hide" {...(view.form === 'none' && writingId === null ? { hotkey: 'q' } : {})} plain onPress={() => $.ui.close({ id: PANE })} />
       </Box><Box>
-        <Button key="nav-drawer" label="drawer" hotkey="d" plain onPress={() => run($, ['desktop-menu', '--open', drawerPage(view.page)])} />
-        {now?.work?.attention?.some(item => 'attention-' + item.id === view.selected) && <Button key="nav-snooze" label="later" hotkey="s" plain onPress={() => setView({ form: 'snooze' })} />}
+        <Button key="nav-drawer" label="drawer" hotkey="d" plain onPress={() => launch(['desktop-menu', '--open', drawerPage(view.page)], 'The drawer did not open.')} />
+        {snoozable && <Text> </Text>}{snoozable && <Button key="nav-snooze" label="later" hotkey="s" plain onPress={() => setView({ form: 'snooze', snoozing: view.selected })} />}
         <Text> </Text><Button key="nav-compact" label="compact" hotkey="z" plain onPress={() => setView({ compact: true, page: 'overview', form: 'none', selected: '' })} />
       </Box></Box>}
       {now?.credits && (now.credits.status === 'error' || (now.credits.remaining_percent != null && now.credits.remaining_percent <= 20)) && <Button key="api-credit-meter" label="monthly API credit details" plain
-        onPress={() => run($, ['desktop-menu', '--open', 'api-credits'])}>
+        onPress={() => launch(['desktop-menu', '--open', 'api-credits'], 'The drawer did not open.')}>
         <Text color={now.credits.status === 'error' || (now.credits.remaining_percent !== null && now.credits.remaining_percent <= 20) ? paper.berry : paper.added}>
           {shortPath(now.credits.short, width)}
           {now.credits.meter ? '\n' + now.credits.meter + ' tracked' : ''}

@@ -4742,7 +4742,7 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
         if (!value.is_object() || !work_project(config, text(value, "root"))) return result(false, "This project is no longer in your index cards");
         if (id == "work-unsnooze") { auto reply = command({"desk-work", "snooze", "--root", text(value, "root"), "--id", text(value, "id"), "--clear", "yes"}, "Attention item restored"); reply["close"] = false; return reply; }
         if (id == "work-caught-up") { auto reply = command({"desk-work", "digest", "--root", text(value, "root"), "--consumer", "desktop", "--through", std::to_string(value.value("through", 0LL))}, "Shown events marked caught up"); reply["close"] = false; return reply; }
-        if (id == "work-task-toggle") return command({"desk-work", "task-toggle", "--root", text(value, "root"), "--id", text(value, "id")}, "Next step updated");
+        if (id == "work-task-toggle") return command({"desk-work", "task-toggle", "--root", text(value, "root"), "--id", text(value, "id"), "--done", "yes"}, "Next step done");
         return launch({"desk-work", "open", "--action", id == "work-event" ? "event" : id == "work-attention" ? "attention" : id == "work-reviews" ? "reviews" : "tasks", "--root", text(value, "root"), "--id", text(value, "id")}, "Opened work item");
     }
     if (id == "work-open" || id == "work-tests" || id == "work-compare" || id == "work-ask") {
