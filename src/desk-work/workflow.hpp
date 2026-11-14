@@ -16,6 +16,20 @@ J overlaps(const std::string& root, const std::string& file, const std::string& 
     std::sort(result.begin(), result.end(), [](const J& a, const J& b) { return num(a, "at") > num(b, "at"); });
     return result;
 }
+// "this morning", "yesterday", "on Tuesday": when the reader last caught up, in words.
+std::string since_words(long long at) {
+    if (at <= 0) return {};
+    const std::time_t then_t = at, now_t = now();
+    std::tm then{}, today{};
+    if (!localtime_r(&then_t, &then) || !localtime_r(&now_t, &today)) return {};
+    std::tm a = then, b = today; a.tm_hour = b.tm_hour = 12; a.tm_min = b.tm_min = a.tm_sec = b.tm_sec = 0;
+    const auto days = static_cast<long long>(std::difftime(std::mktime(&b), std::mktime(&a)) / 86400 + 0.5);
+    if (days <= 0) return then.tm_hour < 12 ? "this morning" : then.tm_hour < 18 ? "this afternoon" : "this evening";
+    if (days == 1) return "yesterday";
+    char text[32]{};
+    std::strftime(text, sizeof text, days < 7 ? "on %A" : "%b", &then);
+    return days < 7 ? std::string(text) : "on " + std::to_string(then.tm_mday) + " " + text;
+}
 J project_digest(const std::string& root, const std::string& consumer, long long through = -1) {
     auto result = digest(root, consumer, through);
     if (!result.value("ok", false)) return result;
@@ -33,6 +47,15 @@ J project_digest(const std::string& root, const std::string& consumer, long long
     if (ready) add(std::to_string(ready) + (ready == 1 ? " request ready" : " requests ready"));
     if (label.empty()) label = num(result, "total") ? std::to_string(num(result, "total")) + " project events" : "No new project events";
     result["summary"] = label;
+    // The greeting names when the reader last caught up: the time of the newest event they had seen.
+    long long seen_at = 0;
+    const auto journal = json(project_dir(root) / "events.json");
+    if (journal.is_object() && journal.value("items", J()).is_array())
+        for (const auto& event : journal["items"]) if (num(event, "seq") == num(result, "from")) seen_at = num(event, "at");
+    const auto since = since_words(seen_at);
+    result["since"] = since;
+    result["greeting"] = since.empty() ? label
+        : num(result, "total") ? "Since you last looked " + since + ": " + label : "Nothing new since you looked " + since;
     return result;
 }
 J suggested_tests(const std::string& root, const std::string& file) {
@@ -68,30 +91,34 @@ J suggested_tests(const std::string& root, const std::string& file) {
     return result;
 }
 J snooze(const std::string& root, const std::string& id, long long seconds, bool until_change, bool clear) {
-    if (id.empty() || id.size() > 1200 || seconds < 0 || seconds > 30 * 86400 || !register_root(root)) return J{{"ok", false}};
+    if (id.empty() || id.size() > 1200) return refuse("Choose an item to snooze");
+    if (seconds < 0 || seconds > 30 * 86400) return refuse("A snooze lasts up to 30 days");
+    if (!register_root(root)) return unwritable();
     J item;
     for (const auto& candidate : attention(root, "", false, true)) if (str(candidate, "id") == id) { item = candidate; break; }
     if (!clear && !item.is_object()) return J{{"ok", false}, {"message", "That item is already settled"}};
     if (item.is_object()) item.erase("snoozed");
     Lock lock(project_dir(root) / "snoozed.lock");
     auto stored = json(project_dir(root) / "snoozed.json");
-    if (lock.fd < 0 || (!stored.is_null() && !stored.is_object())) return J{{"ok", false}};
+    if (lock.fd < 0) return unwritable();
+    if (!stored.is_null() && !stored.is_object()) return unreadable("snoozed.json");
     if (stored.is_null()) stored = J::object();
     if (clear) stored.erase(id);
     else stored[id] = J{{"until", now() + seconds}, {"untilChange", until_change}, {"fingerprint", attention_fingerprint(root, item)}};
-    return J{{"ok", atomic(project_dir(root) / "snoozed.json", stored.dump())}};
+    return written(atomic(project_dir(root) / "snoozed.json", stored.dump()), "snooze");
 }
 J workspace(const std::string& root, const std::string& client, const std::string& input) {
-    if (!std::regex_match(client, std::regex("[A-Za-z0-9:_-]{1,120}"))) return J{{"ok", false}};
+    if (!std::regex_match(client, std::regex("[A-Za-z0-9:_-]{1,120}"))) return refuse("A view name uses letters, digits, : _ and -, up to 120");
     const auto path = project_dir(root) / "views" / (hash(client) + ".json");
     if (input.empty()) return json(path);
     auto view = J::parse(input, nullptr, false);
-    if (input.size() > 65536 || !view.is_object() || !register_root(root)) return J{{"ok", false}};
+    if (input.size() > 65536 || !view.is_object()) return refuse("A saved view is one JSON object of up to 64 KiB");
+    if (!register_root(root)) return unwritable();
     // Views carry positions and selections, never editor contents or commands to execute on restore.
     static const std::set<std::string> keys{"version", "page", "scope", "selected", "offset", "compact", "adaptive", "request", "show", "query", "tabs", "activeTab", "branch"};
-    for (const auto& [key, value] : view.items()) if (!keys.count(key)) return J{{"ok", false}};
+    for (const auto& [key, value] : view.items()) if (!keys.count(key)) return refuse("A saved view does not keep \"" + key + "\"");
     view["version"] = 1;
-    return J{{"ok", atomic(path, view.dump())}};
+    return written(atomic(path, view.dump()), "view");
 }
 J workspace_list(const std::string& client) {
     J result = J::array();

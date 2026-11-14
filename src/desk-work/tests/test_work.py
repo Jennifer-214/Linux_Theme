@@ -767,6 +767,97 @@ class Work(unittest.TestCase):
             rows = [json.loads(line) for line in calls.read_text().splitlines()]
             self.assertEqual(len([r for r in rows if Path(r[0]).name=='setsid']),2)
 
+    def project_dir(self):
+        return Path(self.env['XDG_STATE_HOME'])/'foxml/work/projects'/hashlib.sha256(str(self.repo.resolve()).encode()).hexdigest()
+
+    def test_an_unreadable_record_is_named_refuses_writes_and_is_set_aside_by_a_previewed_repair(self):
+        self.data('review-request', '--file', 'sample.cpp', '--name', 'peer', '--sid', 'peer', '--text', 'Adjust')
+        broken = self.project_dir()/'review-requests.json'
+        broken.write_text('{"sample.cpp": {"name": "peer"')
+        refused = json.loads(self.invoke('review-request', '--file', 'sample.cpp', '--name', 'peer', '--text', 'Again', code=1))
+        self.assertIn('change requests record (review-requests.json) cannot be read', refused['message'])
+        self.assertEqual(broken.read_text(), '{"sample.cpp": {"name": "peer"', 'a refused write must leave the record as it was')
+        first = self.data('attention')[0]
+        self.assertEqual((first['kind'], first['id']), ('records', 'records:review-requests.json'))
+        self.assertEqual(self.data('resolve', '--action', 'attention', '--id', first['id'])['action'], {'kind': 'health'})
+        self.assertTrue(any('cannot be read' in line for line in self.data('health')['alerts']))
+        preview = self.data('records-repair')
+        self.assertEqual([a['kind'] for a in preview['actions']], ['set-aside'])
+        self.assertEqual(broken.read_text(), '{"sample.cpp": {"name": "peer"', 'a preview changes nothing')
+        stale = json.loads(self.invoke('records-repair', '--expected', 'not-the-plan', code=1))
+        self.assertIn('preview the repair again', stale['message'])
+        self.assertEqual(self.data('records-repair', '--expected', preview['plan'])['repaired'], 1)
+        kept = list(self.project_dir().glob('review-requests.broken-*.json'))
+        self.assertEqual([p.read_text() for p in kept], ['{"sample.cpp": {"name": "peer"'], 'the original is kept, byte for byte')
+        self.assertFalse(broken.exists())
+        self.assertTrue(self.data('review-request', '--file', 'sample.cpp', '--name', 'peer', '--text', 'Again')['ok'])
+        self.assertEqual([i['kind'] for i in self.data('attention')], [])
+
+    def test_records_report_names_stale_references_and_tidies_only_requests(self):
+        (self.repo/'gone.cpp').write_text('int gone;\n')
+        self.data('review-request', '--file', 'gone.cpp', '--name', 'peer', '--text', 'Adjust')
+        (self.repo/'gone.cpp').unlink()
+        missing = '0' * 40
+        (self.project_dir()/'reviewed.json').write_text(json.dumps({missing: 1}))
+        report = self.data('records')
+        self.assertEqual(report['problems'], 0)
+        stale = {row['file']: row for row in report['stale']}
+        self.assertEqual(stale['review-requests.json']['entries'], ['gone.cpp'])
+        self.assertEqual(stale['reviewed.json']['entries'], [missing])
+        self.assertFalse(stale['reviewed.json']['tidy'], 'finished reviews are history, not something to tidy away')
+        preview = self.data('records-repair')
+        self.assertEqual([(a['kind'], a['file']) for a in preview['actions']], [('tidy', 'review-requests.json')])
+        self.data('records-repair', '--expected', preview['plan'])
+        self.assertEqual(self.data('review-requests'), [])
+        copies = list(self.project_dir().glob('review-requests.before-repair-*.json'))
+        self.assertEqual(len(copies), 1)
+        self.assertIn('gone.cpp', json.loads(copies[0].read_text()))
+
+    def test_every_refusal_says_why(self):
+        sources = list((BIN.parent).glob('*.cpp')) + list((BIN.parent).glob('*.hpp'))
+        sources.append(BIN.parents[1]/('desk-' + 'install')/'modules/workflow_update.hpp')
+        bare = [f'{p.name}:{n}' for p in sources for n, line in enumerate(p.read_text().splitlines(), 1)
+                if '{"ok", false}}' in line]
+        self.assertEqual(bare, [], 'a refusal without a message shows the person a blank notice')
+        self.assertIn('A next step needs some text', json.loads(self.invoke('task-add', '--text', ' ', code=1))['message'])
+        usage = subprocess.run([str(BIN), 'snooze'], cwd=self.repo, env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(usage.returncode, 1)
+        self.assertIn('Choose an item to snooze', json.loads(usage.stdout)['message'])
+        unknown = subprocess.run([str(BIN), 'no-such-command'], cwd=self.repo, env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(unknown.returncode, 2)
+        self.assertIn('desk-work no-such-command: missing or invalid arguments', unknown.stderr)
+
+    def test_sessions_on_older_code_carry_the_steps_that_keep_their_work(self):
+        directory = Path(self.env['XDG_STATE_HOME'])/'foxml/work/integrations'
+        directory.mkdir(parents=True)
+        record = {'transaction': '100-1', 'clients': {'nvim': 'new', 'notebook': 'new', 'pi': 'new'}, 'files': [], 'source': []}
+        (directory/'current.json').write_text(json.dumps(record))
+        (directory/'transactions/100-1').mkdir(parents=True)
+        (directory/'transactions/100-1/manifest.json').write_text(json.dumps(record))
+        self.data('client-report', '--client', 'nvim', '--build', 'old', '--pid', os.getpid(), '--root', self.repo)
+        self.data('agent-update', '--agent', 'claude', '--session', 'abc-123', '--pid', os.getpid(), '--state', 'working', '--build', 'old')
+        self.data('agent-update', '--agent', 'pi', '--session', 'pi-1', '--pid', os.getpid(), '--state', 'working', '--build', 'new')
+        health = self.data('health')
+        steps = {row['client']: row.get('reload', '') for row in health['sessions'] if row['status'] == 'reload-pending'}
+        self.assertEqual(set(steps), {'nvim', 'notebook'}, 'a session already on the installed code needs nothing')
+        self.assertIn(':restart', steps['nvim'])
+        self.assertIn('a restart ends them', steps['nvim'], 'terminal jobs inside Neovim must be named before a restart')
+        self.assertIn('claude --resume abc-123', steps['notebook'])
+        labels = [check['label'] for check in health['checks']]
+        self.assertTrue(any(label.startswith('nvim') and 'older code' in label for label in labels))
+
+    def test_the_digest_greets_with_when_the_reader_last_caught_up(self):
+        self.execute("print('1 passed')")
+        digest = self.data('digest', '--consumer', 'nvim')
+        self.data('digest', '--consumer', 'nvim', '--through', digest['through'])
+        quiet = self.data('digest', '--consumer', 'nvim')
+        self.assertRegex(quiet['greeting'], r'^Nothing new since you looked this (morning|afternoon|evening)$')
+        self.execute("print('2 passed')")
+        later = self.data('digest', '--consumer', 'nvim')
+        self.assertRegex(later['greeting'], r'^Since you last looked this (morning|afternoon|evening): 1 run passed')
+        self.assertEqual(self.data('digest', '--consumer', 'fresh-reader')['greeting'],
+                         self.data('digest', '--consumer', 'fresh-reader')['summary'], 'a first look has no "since"')
+
 
 if __name__ == "__main__":
     unittest.main()

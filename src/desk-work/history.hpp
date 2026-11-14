@@ -28,20 +28,21 @@ J timeline(const std::string& root, long long after = 0, int limit = 100) {
     return result;
 }
 J digest(const std::string& root, const std::string& consumer, long long through = -1) {
-    if (!std::regex_match(consumer, std::regex("[A-Za-z0-9:_-]{1,100}"))) return J{{"ok", false}};
+    if (!std::regex_match(consumer, std::regex("[A-Za-z0-9:_-]{1,100}"))) return refuse("A reader name uses letters, digits, : _ and -, up to 100");
     const auto path = project_dir(root) / "seen.json";
     const auto key = hash(consumer);
     if (through >= 0) {
-        if (!register_root(root)) return J{{"ok", false}};
+        if (!register_root(root)) return unwritable();
         Lock lock(project_dir(root) / "seen.lock");
         auto seen = json(path);
-        if (lock.fd < 0 || (!seen.is_null() && !seen.is_object())) return J{{"ok", false}};
+        if (lock.fd < 0) return unwritable();
+        if (!seen.is_null() && !seen.is_object()) return unreadable("seen.json");
         if (seen.is_null()) seen = J::object();
         const auto journal = json(project_dir(root) / "events.json");
         const auto latest = std::max(0LL, num(journal, "next", 1) - 1);
         if (through > latest) return J{{"ok", false}, {"message", "That event has not been recorded"}};
         seen[key] = std::max(num(seen, key.c_str()), through);
-        if (!atomic(path, seen.dump())) return J{{"ok", false}};
+        if (!atomic(path, seen.dump())) return written(false, "read position");
     }
     const auto seen = json(path);
     const auto cursor = seen.is_object() ? num(seen, key.c_str()) : 0;

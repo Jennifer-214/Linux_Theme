@@ -1,23 +1,24 @@
 J report_client(const std::string& client, const std::string& build, long long pid, const std::string& root, const J& fields) {
     const auto process = proc_stamp(pid);
-    if (!std::regex_match(client, std::regex("[a-z][a-z0-9_-]{0,31}")) || build.size() > 80 || process.empty()) return J{{"ok", false}};
+    if (!std::regex_match(client, std::regex("[a-z][a-z0-9_-]{0,31}")) || build.size() > 80) return refuse("A client report needs a lowercase client name and a build of up to 80 characters");
+    if (process.empty()) return refuse("That process is not running");
     const auto key = hash(client + ':' + std::to_string(pid) + (root.empty() ? "" : ':' + root));
-    Lock lock(base() / "clients" / (key + ".lock")); if (lock.fd < 0) return J{{"ok", false}};
+    Lock lock(base() / "clients" / (key + ".lock")); if (lock.fd < 0) return unwritable();
     const auto path = base() / "clients" / (key + ".json");
     auto record = json(path);
     if (!record.is_object() || str(record, "process") != process) record = J::object();
     for (const auto& [name, value] : fields.items()) {
         if (name == "stream") {
-            if (!value.is_string() || !std::set<std::string>{"starting", "connected", "retrying", "stopped", "polling"}.count(value.get<std::string>())) return J{{"ok", false}};
+            if (!value.is_string() || !std::set<std::string>{"starting", "connected", "retrying", "stopped", "polling"}.count(value.get<std::string>())) return refuse("A stream is starting, connected, retrying, stopped or polling");
         } else if (name == "refreshError" || name == "watchProcess") {
-            if (!value.is_string() || value.get<std::string>().size() > 240) return J{{"ok", false}};
+            if (!value.is_string() || value.get<std::string>().size() > 240) return refuse("Report text is limited to 240 characters");
         } else if (name == "eventAt" || name == "refreshAt" || name == "retryAt" || name == "watchPid") {
-            if (!value.is_number_integer() || value.get<long long>() < 0 || (name != "watchPid" && value.get<long long>() > now() + 86400)) return J{{"ok", false}};
-        } else return J{{"ok", false}};
+            if (!value.is_number_integer() || value.get<long long>() < 0 || (name != "watchPid" && value.get<long long>() > now() + 86400)) return refuse("Report times are seconds, at most a day ahead");
+        } else return refuse("A client report does not keep \"" + name + "\"");
         record[name] = value;
     }
     record.update(J{{"client", client}, {"build", build}, {"root", root}, {"pid", pid}, {"process", process}, {"at", now()}});
-    return J{{"ok", atomic(path, record.dump())}};
+    return written(atomic(path, record.dump()), "client report");
 }
 J client_loaded(const std::string& client, const std::string& build, long long pid) {
     return report_client(client, build, pid, "", J::object());
@@ -36,7 +37,19 @@ J live_clients() {
     }
     return clients;
 }
-J integration_status(const std::string& client, const std::string& loaded, bool full = true) {
+// How each kind of session loads installed code while keeping its work. One place, so every client says the same.
+std::string reload_steps(const std::string& client, const std::string& session) {
+    if (client == "notebook")
+        return "In that Claude pane: /exit, then claude " + (session.empty() ? std::string("--continue") : "--resume " + session)
+            + ". The conversation comes back with the new notebook.";
+    if (client == "nvim")
+        return "Save your files and let terminal jobs inside Neovim finish (a restart ends them), then :restart and :WorkResume "
+               "to reopen your files where they were.";
+    if (client == "pi") return "Type /reload in that pi session. The conversation stays.";
+    if (client == "desktop") return "Run quickshell -c foxml kill, then desktop-menu --start. The drawer comes back with the new files.";
+    return "Restart it to load the installed update.";
+}
+J integration_status(const std::string& client, const std::string& loaded, bool full = true, const std::string& session = {}) {
     const auto manifest = json(base() / "integrations/current.json");
     const auto backups = desk_install::work_updates::inventory(base() / "integrations", full);
     const auto pending = backups["pending"];
@@ -64,22 +77,30 @@ J integration_status(const std::string& client, const std::string& loaded, bool 
         const auto token = str(record, "build"), expected = str(versions, str(record, "client").c_str());
         record["loadedStatus"] = token.empty() || token == "development" || expected.empty() ? "unverified" : token == expected ? "current" : "reload-pending";
     }
-    const auto add = [&](const std::string& name, const std::string& token, long long pid) {
+    const auto add = [&](const std::string& name, const std::string& token, long long pid, const std::string& session = {},
+                         const std::string& pane = {}, const std::string& where = {}) {
         const auto expected = str(versions, name.c_str());
-        sessions.push_back(J{{"client", name}, {"pid", pid}, {"loaded", token}, {"installed", expected},
-            {"status", token.empty() || token == "development" || expected.empty() ? "unverified" : token == expected ? "current" : "reload-pending"}});
+        const std::string status = token.empty() || token == "development" || expected.empty() ? "unverified" : token == expected ? "current" : "reload-pending";
+        J row{{"client", name}, {"pid", pid}, {"loaded", token}, {"installed", expected}, {"status", status}};
+        if (!session.empty()) row["session"] = session;
+        if (!pane.empty()) row["pane"] = pane;
+        if (!where.empty()) row["root"] = where;
+        if (status == "reload-pending") row["reload"] = reload_steps(name, session);
+        sessions.push_back(row);
     };
     if (full) {
         for (const auto& record : clients) {
-            add(str(record, "client"), str(record, "build"), num(record, "pid"));
+            add(str(record, "client"), str(record, "build"), num(record, "pid"), "", "", str(record, "root"));
         }
-        for (const auto& agent : agents()) add(str(agent, "agent") == "claude" ? "notebook" : str(agent, "agent"), str(agent, "build"), num(agent, "pid"));
+        for (const auto& agent : agents())
+            add(str(agent, "agent") == "claude" ? "notebook" : str(agent, "agent"), str(agent, "build"), num(agent, "pid"),
+                str(agent, "id"), str(agent, "pane"), str(agent, "root"));
     }
     std::string state = "current", message = "Installed integrations match their recorded versions";
     const auto expected = str(versions, client.c_str());
     if (!client.empty() && (loaded.empty() || loaded == "development" || expected.empty())) { state = "unverified"; message = "This session has no verified loaded version"; }
     else if (!client.empty() && loaded != expected) { state = "reload-pending"; message = "Update installed · reload pending"; }
-    if (!client.empty()) add(client, loaded, 0);
+    if (!client.empty()) add(client, loaded, 0, session);
     if (client.empty()) {
         for (const auto& session : sessions) if (str(session, "status") == "unverified") { state = "unverified"; message = "Some sessions have not reported a verified loaded version"; }
         for (const auto& session : sessions) if (str(session, "status") == "reload-pending") { state = "reload-pending"; message = "Updates are installed; some running sessions still have older code loaded"; }
@@ -123,6 +144,24 @@ J integration_health() {
             {"detail", str(item, "phase") + " · " + id + (str(item, "error").empty() ? "" : "\n" + str(item, "error"))},
             {"transaction", id}, {"recoverable", !item.value("active", false)}});
     }
+    for (const auto& session : health.value("sessions", J::array())) if (str(session, "status") == "reload-pending") {
+        const auto name = str(session, "client");
+        checks.push_back(J{{"id", "reload:" + name + ':' + std::to_string(num(session, "pid"))},
+            {"label", name + (str(session, "root").empty() ? "" : " · " + fs::path(str(session, "root")).filename().string()) + " runs older code"},
+            {"detail", str(session, "reload")}});
+    }
+    const auto records = records_health();
+    for (const auto& record : records["broken"]) {
+        const auto root = str(record, "root");
+        alerts.push_back(fs::path(root).filename().string() + ": the " + str(record, "label") + " record cannot be read");
+        checks.push_back(J{{"id", "records:" + hash(root) + ':' + str(record, "file")}, {"root", root}, {"repairable", true},
+            {"label", "Records · " + fs::path(root).filename().string() + " · " + str(record, "label") + " unreadable"},
+            {"detail", str(record, "file") + " is " + str(record, "why") + ". Writes to it are refused until it is set aside.\n"
+                       ":WorkRepair in that project previews setting it aside; the original is kept."}});
+    }
+    if (records["broken"].empty())
+        checks.push_back(J{{"id", "records"}, {"label", "Project records"}, {"detail", "Every record in the projects on disk is readable"
+            + std::string(num(records, "gone") ? "\nRecords are kept for " + std::to_string(num(records, "gone")) + " checkouts no longer on disk" : "")}});
     const auto backups = health.value("backups", J::object());
     if (!backups.value("complete", true)) {
         alerts.push_back("Rollback history needs inspection; backups are retained");
