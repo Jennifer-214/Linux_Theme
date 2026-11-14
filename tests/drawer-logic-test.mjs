@@ -140,6 +140,12 @@ assert.equal(logic.fitHeight(1602, 1180, 908), 1180, 'a tall screen stops where 
 assert.equal(logic.fitHeight(1602, 400, 908), 908, 'never shorter than the laptop sheet');
 assert.equal(logic.fitHeight(908, 1400, 908), 908, 'a laptop keeps its usual sheet');
 assert.equal(logic.fitHeight(1602, 2400, 908), 1602, 'a long page scrolls inside the screen limit');
+// The fit is the page's real rows, not the ListView's estimate (which moved while scrolling and resized the sheet).
+const system = [{ kind: 'heading' }, { id: 'a' }, { id: 'b' }, { kind: 'heading' }, { kind: 'slider' }, { presentation: 'project' }];
+assert.equal(logic.listHeight(system, false, 7), 30 + 72 + 72 + 30 + 91 + 94 + 5 * 7);
+assert.equal(logic.listHeight([{ id: 'a' }, { presentation: 'shortcut' }], true, 7), 54 + 54 + 7, 'favorites and shortcuts are compact');
+assert.equal(logic.rowHeight({ presentation: 'media', artwork: 'x.png' }, false), 80);
+assert.equal(logic.listHeight([], false, 7), 0);
 assert.equal(logic.sectionHeading('in progress',true),'in progress');
 assert.equal(logic.sectionHeading('AI',true),'AI');
 assert.equal(logic.sectionHeading('upkeep',false),'UPKEEP');

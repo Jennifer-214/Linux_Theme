@@ -124,7 +124,7 @@ ShellRoot {
     property real fitBody: 0
     function refit() {
         if (calendarLayout || scrapbookLayout || gardenLayout || pickerLayout || pendingConfirm || !itemList.visible) { fitBody = 0; return; }
-        var list = panel.implicitHeight - itemList.height + itemList.contentHeight + 6;
+        var list = panel.implicitHeight - itemList.height + Logic.listHeight(entries, page === "root" && !searching, itemList.spacing) + 6;
         var side = groupList.visible ? panel.implicitHeight - groupList.height + groupList.contentHeight + 6 : 0;
         fitBody = Math.ceil(Math.max(list, side));
     }
@@ -133,6 +133,7 @@ ShellRoot {
     onGardenLayoutChanged: Qt.callLater(refit)
     onPickerLayoutChanged: Qt.callLater(refit)
     onPendingConfirmChanged: Qt.callLater(refit)
+    onEntriesChanged: Qt.callLater(refit)
     property real drawerReveal: opened ? 1 : 0
     readonly property bool drawerVisible: opened || drawerReveal > .001
     Behavior on drawerReveal { NumberAnimation { duration: theme.paperDetails ? 220 : 160; easing.type: Easing.OutCubic } }
@@ -1442,7 +1443,7 @@ ShellRoot {
                                         // Room for the scrollbar only while there is one, so rows line up with the heading above.
                                         width: Math.max(0, itemList.width - (itemScroll.visible ? theme.scrollGutter : 0) - indent)
                                         property bool card: modelData.presentation === "project" || modelData.presentation === "library" || modelData.presentation === "download"
-                                        height: heading ? 30 : card ? 94 : modelData.kind === "slider" ? 91 : modelData.image || mediaArtwork ? 80 : itemRow.compactRow ? 54 : 72
+                                        height: Logic.rowHeight(modelData, root.page === "root" && !root.searching)
                                         radius: 4
                                         readonly property color rowFill: itemMouse.pressed ? Qt.alpha(theme.line, .35) : selected ? theme.focusFill : theme.paperDetails ? (itemMouse.containsMouse && modelData.enabled !== false ? theme.hoverFill : theme.background) : card ? theme.surface : root.buttonShade(false, itemMouse.containsMouse)
                                         readonly property color rowEdge: itemMouse.pressed ? theme.muted : theme.paperDetails && !selected ? Qt.alpha(theme.line, .6) : theme.line

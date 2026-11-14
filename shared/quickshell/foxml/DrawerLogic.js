@@ -41,6 +41,25 @@ function fitHeight(full, fit, floor) {
     return Math.min(full, Math.max(Math.min(floor, full), fit));
 }
 
+// A row's height in the item list (compact: the landing page's favorites). The sheet's fit adds these up, because a
+// ListView's contentHeight is only an estimate until every row is built: with 30 px headings among 72 px rows it
+// moved as rows were built while scrolling, and the sheet on a tall screen resized with it.
+function rowHeight(item, compact) {
+    if (!item) return 0;
+    if (item.kind === "heading") return 30;
+    if (item.presentation === "project" || item.presentation === "library" || item.presentation === "download") return 94;
+    if (item.kind === "slider") return 91;
+    if (item.image || (item.presentation === "media" && Boolean(item.artwork))) return 80;
+    return compact || item.presentation === "shortcut" ? 54 : 72;
+}
+
+function listHeight(items, compact, spacing) {
+    items = items || [];
+    var total = 0;
+    for (var i = 0; i < items.length; ++i) total += rowHeight(items[i], compact);
+    return total + Math.max(0, items.length - 1) * (spacing || 0);
+}
+
 // Paper headings are written by hand: lowercase with a full stop. Acronyms (API, USB) and names
 // with capitals inside them (Linux_Theme) stay as they are; "Wi-Fi" becomes "wi-fi".
 function pageHeading(title, paper) {
