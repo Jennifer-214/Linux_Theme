@@ -14,6 +14,7 @@
 #include <future>
 #include <iostream>
 #include <map>
+#include <mutex>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -62,6 +63,26 @@ J json_lean(const fs::path& p) {
     };
     auto j = J::parse(read(p), skip, false);
     return j.is_discarded() ? J() : j;
+}
+// A run record parsed once per process while it is unchanged (same size and change time): overview lists the runs
+// for every checkout, which re-read all of them each time (600 records, about 1 GB of JSON per drawer open). A
+// record another process rewrites has a new change time and is read again.
+J run_record(const fs::path& p) {
+    struct stat st{};
+    if (::stat(p.c_str(), &st) != 0) return J();
+    struct Seen { long long sec, nsec, size; J record; };
+    static std::mutex guard;
+    static std::map<std::string, Seen> seen;
+    const auto same = [&](const Seen& s) { return s.sec == st.st_mtim.tv_sec && s.nsec == st.st_mtim.tv_nsec && s.size == st.st_size; };
+    {
+        const std::lock_guard<std::mutex> hold(guard);
+        const auto at = seen.find(p.string());
+        if (at != seen.end() && same(at->second)) return at->second.record;
+    }
+    auto j = json_lean(p);
+    const std::lock_guard<std::mutex> hold(guard);
+    seen[p.string()] = Seen{st.st_mtim.tv_sec, st.st_mtim.tv_nsec, st.st_size, j};
+    return j;
 }
 fs::path base() { return fs::path(env("XDG_STATE_HOME", env("HOME") + "/.local/state")) / "foxml/work"; }
 bool private_dir(const fs::path& p) {
@@ -410,7 +431,7 @@ J runs(const std::string& root = {}) {
     J out = J::array(); std::error_code ec;
     for (const auto& e : fs::directory_iterator(base() / "runs", ec)) {
         if (!id_ok(e.path().filename().string()) || e.is_symlink(ec)) continue;
-        auto j = json_lean(e.path() / "run.json"); if (!j.is_object() || (!root.empty() && str(j, "root") != root)) continue;
+        auto j = run_record(e.path() / "run.json"); if (!j.is_object() || (!root.empty() && str(j, "root") != root)) continue;
         if (str(j, "state") == "running" && proc_stamp(num(j, "pid")) != str(j, "process")) j["state"] = "interrupted";
         j["elapsed"] = std::max(0LL, (num(j, "ended") ? num(j, "ended") : now()) - num(j, "started"));
         struct stat st{}; const auto log = e.path() / "output.log";
@@ -765,6 +786,21 @@ J agent_heartbeat(const std::string& root, const std::string& agent, const std::
     // Every session beats once a minute: announcing it would make every notebook and review on the checkout refresh.
     return written(atomic(path, record.dump(), false), "heartbeat");
 }
+// tmux's panes, read at most every two seconds: overview asks for each checkout's agents, which was one tmux call
+// per checkout (31 per drawer open), and a list two seconds old is still the present one.
+std::map<std::string, std::string> tmux_panes() {
+    static std::mutex guard;
+    static std::map<std::string, std::string> panes;
+    static long long read_at = 0;
+    const std::lock_guard<std::mutex> hold(guard);
+    if (read_at && now() - read_at < 2) return panes;
+    panes.clear();
+    for (const auto& line : split(query({"tmux", "list-panes", "-a", "-F", "#{pane_id}\x1f#{pane_current_command}"}))) {
+        const auto at = line.find('\x1f'); if (at != line.npos) panes[line.substr(0, at)] = line.substr(at + 1);
+    }
+    read_at = now();
+    return panes;
+}
 J agents(const std::string& root = {}) {
     std::map<std::string, J> found;
     std::error_code ec;
@@ -792,10 +828,7 @@ J agents(const std::string& root = {}) {
         auto one = json(file.path()); if (!one.is_object()) continue;
         (ext == ".json" ? legacy[sid].first : legacy[sid].second) = one;
     }
-    std::map<std::string, std::string> panes;
-    if (!legacy.empty()) for (const auto& line : split(query({"tmux", "list-panes", "-a", "-F", "#{pane_id}\x1f#{pane_current_command}"}))) {
-        const auto at = line.find('\x1f'); if (at != line.npos) panes[line.substr(0, at)] = line.substr(at + 1);
-    }
+    const auto panes = legacy.empty() ? std::map<std::string, std::string>() : tmux_panes();
     for (const auto& [sid, pair] : legacy) {
         const auto& [look, word] = pair;
         const auto epoch = std::max(num(look, "epoch"), num(word, "epoch"));
@@ -806,7 +839,7 @@ J agents(const std::string& root = {}) {
         const auto key = "claude:" + sid;
         if (!found.count(key)) {
             const auto pane = str(word, "pane", str(look, "pane"));
-            if (!pane.empty() && (!panes.count(pane) || std::set<std::string>{"bash", "zsh", "fish", "sh", "dash"}.count(panes[pane]))) continue;
+            if (!pane.empty() && (!panes.count(pane) || std::set<std::string>{"bash", "zsh", "fish", "sh", "dash"}.count(panes.at(pane)))) continue;
             const auto state = str(word, "state", "waiting");
             found[key] = J{{"key", key}, {"id", sid}, {"agent", "claude"}, {"root", where}, {"project", fs::path(where).filename().string()},
                            {"name", str(word, "title", fs::path(where).filename().string())}, {"pane", pane}, {"at", epoch},
@@ -1112,6 +1145,22 @@ bool covers(const std::string& a, const std::string& b) {
 // Whether a failed run still stands, deciding newest first: it clears once a newer run passed every test it named
 // (whatever that run was called or how its command was written), and it counts once among newer failures of the
 // same tests. A command that names no test keeps the old rule: only a newer run of the same command settles it.
+// test_targets for a run, remembered for two seconds: each pass over the runs (one per checkout in overview) asked
+// again for every one of 600 runs, and an answer can glob the test folder.
+std::vector<std::string> run_test_targets(const std::string& command, const std::string& cwd) {
+    static std::mutex guard;
+    static std::map<std::pair<std::string, std::string>, std::pair<long long, std::vector<std::string>>> seen;
+    const auto key = std::make_pair(command, cwd);
+    {
+        const std::lock_guard<std::mutex> hold(guard);
+        const auto at = seen.find(key);
+        if (at != seen.end() && now() - at->second.first < 2) return at->second.second;
+    }
+    auto targets = test_targets(command, cwd);
+    const std::lock_guard<std::mutex> hold(guard);
+    seen[key] = {now(), targets};
+    return targets;
+}
 struct Settled {
     std::set<std::string> commands;
     std::map<std::string, std::vector<std::string>> passed, failed;
@@ -1119,7 +1168,7 @@ struct Settled {
         const auto root = str(r, "root"), state = str(r, "state"), cwd = str(r, "cwd", root);
         const auto scope = J::array({root, cwd}).dump();
         const bool newest = commands.insert(command_key(r)).second;
-        const auto targets = test_targets(str(r, "command"), cwd);
+        const auto targets = run_test_targets(str(r, "command"), cwd);
         auto all_in = [&](const std::vector<std::string>& seen) {
             return !targets.empty() && std::all_of(targets.begin(), targets.end(), [&](const std::string& t) {
                 return std::any_of(seen.begin(), seen.end(), [&](const std::string& s) { return covers(s, t); });
@@ -1178,11 +1227,20 @@ J attention_items(const std::string& root, const J& work, const J& commits, cons
             num(request, "at"), 20, J{{"kind", "file-diff"}, {"file", file}}, J{{"file", file}});
     }
     // The current working diff decides whether a changed mark still has something to read here. A committed
-    // change belongs to its commit's review, rather than an empty working-tree comparison.
-    std::set<std::string> dirty;
-    for (const auto& name : split(query({"git", "--no-optional-locks", "-C", root, "diff", "--name-only", "-z", "HEAD"}), '\0')) dirty.insert(name);
-    for (const auto& name : split(query({"git", "--no-optional-locks", "-C", root, "ls-files", "--others", "--exclude-standard", "-z"}), '\0')) dirty.insert(name);
+    // change belongs to its commit's review, rather than an empty working-tree comparison. Read only when some mark
+    // is "changed": for most checkouts none is, and the two git calls were most of each checkout's read.
     const auto progress = work.value("review", J::object());
+    bool any_changed = false;
+    for (const auto& [key, review] : progress.items()) {
+        if (std::regex_match(key, std::regex("[a-f0-9]{40}"))) continue;
+        const auto marks = review.value("files", J::object());
+        for (const auto& [file, mark] : marks.items()) any_changed = any_changed || str(mark, "state") == "changed";
+    }
+    std::set<std::string> dirty;
+    if (any_changed) {
+        for (const auto& name : split(query({"git", "--no-optional-locks", "-C", root, "diff", "--name-only", "-z", "HEAD"}), '\0')) dirty.insert(name);
+        for (const auto& name : split(query({"git", "--no-optional-locks", "-C", root, "ls-files", "--others", "--exclude-standard", "-z"}), '\0')) dirty.insert(name);
+    }
     for (const auto& [key, review] : progress.items()) {
         if (std::regex_match(key, std::regex("[a-f0-9]{40}"))) continue;
         const auto marks = review.value("files", J::object());
