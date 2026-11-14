@@ -15,13 +15,13 @@ jobs:
       DISABLE_AUTOUPDATER: "1"
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
       - name: Install the native and offscreen test toolchain
         run: |
           pacman -Syu --noconfirm --needed base-devel git openssl python python-msgpack \
             neovim quickshell nodejs npm jq ttf-dejavu
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Read the single engine and compiler pin
         run: |
           python - <<'PY'
@@ -34,7 +34,7 @@ jobs:
                   target.write(name+'='+pins[key]+'\n')
           PY
       - name: Install the matching test engine and TypeScript
-        run: npm install --global "@anthropic-ai/claude-code@$CLAUDE_VERSION" "typescript@$TYPESCRIPT_VERSION"
+        run: npm install --global --allow-scripts=@anthropic-ai/claude-code "@anthropic-ai/claude-code@$CLAUDE_VERSION" "typescript@$TYPESCRIPT_VERSION"
       - name: Require the real notebook, editor, drawer and installer checks
         run: python -B tests/run_work_checks.py --output "$RUNNER_TEMP/work-checks"
       - name: Keep test logs
