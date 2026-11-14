@@ -1631,7 +1631,8 @@ export const register: Register = on => {
     }
     if (view.form === 'none' && view.page === 'health') {
       const checks = now?.work?.health?.checks ?? []
-      if (!checks.length) content.push(text('Health details are unavailable; refresh to try again.'))
+      // desk-work adds health only when asked, and the page asks as it opens: no answer yet is not a failure.
+      if (!checks.length) content.push(text(now?.work && now.work.health === undefined ? 'Reading work health…' : 'Health details are unavailable; refresh to try again.'))
       for (const check of checks) {
         content.push(text(check.label, paper.ink))
         for (const line of check.detail.split('\n')) for (const part of wrapWords(line, width)) content.push(text(part))

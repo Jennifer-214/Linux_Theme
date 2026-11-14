@@ -284,3 +284,13 @@ test('the end of a turn reads the project once more, not twice, and still sees t
   expect(await band.find({ type: 'Text', text: /turn done/ }), 'the band names the edit the turn made').toBeDefined()
   await band.unmount()
 })
+
+test('the health page says it is reading before the answer comes, not that health is unavailable', async ($, on) => {
+  engine(on, { projectWork: { tests: null, tasks: [], jobs: [], attention: [] } })
+  await opened($)
+  await $.command.run({ command: 'notebook', args: 'health', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  const ui = await $.ui.mount(FOCUSED())
+  expect(await ui.find({ type: 'Text', text: /Reading work health/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /unavailable/ })).toBeUndefined()
+  await ui.unmount()
+})
