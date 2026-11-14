@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, pendingLine, planProgress, reviewStates, reviewSummary, ruler, shellQuote, stepLabel, testLabel, turnLabel, unreviewed, withoutHeredocs, workName, filterFiles, wrapWords } from '../hooks/work'
+import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, pendingLine, planProgress, reviewStates, reviewSummary, ruler, shellQuote, stepLabel, testLabel, turnLabel, unreviewed, withoutHeredocs, workName, filterFiles, wrapWords, needBreakdown, needGroup, refusalOf, wrapParts } from '../hooks/work'
 
 test('tracking records a command as written, keeps secrets out, and reads how the call ended', () => {
   const command = "make test && printf '%s' \"$HOME\""
@@ -102,9 +102,9 @@ test('the branch line says what is pushed, and CI says what the pushed commit go
   expect(ciLabel([done('ci'), done('shellcheck')])).toEqual({ label: '✓ CI passed', state: 'passed', url: 'https://github.com/o/r/actions/runs/ci' })
   expect(ciLabel([done('ci'), { workflowName: 'cpp-build', status: 'in_progress', conclusion: '' }])?.label).toBe('◷ CI running · 1 of 2 done')
   const failed = ciLabel([done('ci'), done('keybinds-sync', 'failure'), { workflowName: 'cpp-build', status: 'queued', conclusion: '' }])
-  expect(failed?.label).toBe('✗ CI · keybinds-sync failed · still running')
+  expect(failed?.label).toBe('! CI · keybinds-sync failed · still running')
   expect(failed?.url).toBe('https://github.com/o/r/actions/runs/keybinds-sync')
-  expect(ciLabel([done('a', 'failure'), done('b', 'timed_out')])?.label).toBe('✗ CI · a failed and 1 more')
+  expect(ciLabel([done('a', 'failure'), done('b', 'timed_out')])?.label).toBe('! CI · a failed and 1 more')
   expect(ciLabel([done('a'), done('b', 'cancelled')])?.label).toBe('CI cancelled')
 })
 
@@ -166,4 +166,19 @@ test('detail text wraps without losing long paths or splitting Unicode character
   expect(wrapWords('a very/long/path/with/no/spaces.txt', 10).join('')).toBe('avery/long/path/with/no/spaces.txt')
   expect(wrapWords('🌸🌸🌸', 1)).toEqual(['🌸', '🌸', '🌸'])
   expect(wrapWords('  ', 10)).toEqual([])
+})
+
+test('needs you counts by kind, largest first, and breaks lines only between counts', () => {
+  const groups = [needGroup('commit'), needGroup('commit'), needGroup('job', 'tests'), needGroup('agent'), needGroup('commit')]
+  expect(needBreakdown(groups)).toEqual(['3 commits to review', '1 test run failed', '1 agent waiting'])
+  expect(wrapParts(['23 commits to review', '1 test run failed', '1 agent waiting'], 38)).toEqual(['23 commits to review ·', '1 test run failed · 1 agent waiting'])
+  for (const line of wrapParts(['23 commits to review', '1 test run failed', '1 agent waiting', '2 notes unread'], 24)) expect(line.length).toBeLessThanOrEqual(24)
+  expect(wrapParts(['23 commits to review', '1 test run failed'], 25)).toEqual(['23 commits to review ·', '1 test run failed'])
+  expect(wrapParts([], 20)).toEqual([])
+})
+
+test('a refusal reads desk-work\'s own message, then its error output, then names the command', () => {
+  expect(refusalOf(['snooze'], { exitCode: 1, stdout: '{"ok":false,"message":"Choose an item to snooze"}\n', stderr: '' })).toBe('Choose an item to snooze')
+  expect(refusalOf(['bogus'], { exitCode: 2, stdout: '', stderr: 'desk-work bogus: missing or invalid arguments\n' })).toBe('desk-work bogus: missing or invalid arguments')
+  expect(refusalOf(['health'], { exitCode: 9, stdout: '', stderr: '' })).toBe('desk-work health did not answer (exit 9)')
 })

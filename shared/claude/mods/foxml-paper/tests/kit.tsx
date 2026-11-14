@@ -53,7 +53,7 @@ export function fakeFs(on: On, files: Record<string, string>, mtimes: Record<str
 }
 
 // Nothing sits beneath the plugin in a test: these stand for the engine and the machine.
-export function engine(on: On, options: { pane?: string; pushNotes?: unknown; pushCheck?: unknown; ci?: unknown[]; bash?: (command: string) => unknown; runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; finished?: () => unknown; credits?: unknown; trees?: unknown; readIds?: { id: string; at: number }[]; delivery?: boolean; gitFailure?: { value: boolean }; compact?: boolean; agents?: unknown[] } = {}) {
+export function engine(on: On, options: { pane?: string; pushNotes?: unknown; pushCheck?: unknown; ci?: unknown[]; bash?: (command: string) => unknown; runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; finished?: () => unknown; credits?: unknown; trees?: unknown; readIds?: { id: string; at: number }[]; delivery?: boolean; gitFailure?: { value: boolean }; compact?: boolean; agents?: unknown[]; refusals?: Record<string, string>; watchBurst?: number } = {}) {
   let pinned: { file: string; step: string } | null = null
   let workspace: Record<string, unknown> | null = null
   let paneOpen = false
@@ -81,6 +81,9 @@ export function engine(on: On, options: { pane?: string; pushNotes?: unknown; pu
     const argv = e.argv.join(' ')
     seen.argv.push(argv)
     if (options.gitFailure?.value && argv.includes('diff --numstat')) return { value: { ...done(''), exitCode: 1 } }
+    // A refusal the way desk-work gives one: exit 1 and its reason as JSON on stdout.
+    for (const [prefix, message] of Object.entries(options.refusals ?? {}))
+      if (argv.startsWith(prefix)) return { value: { ...done(JSON.stringify({ ok: false, message }) + '\n'), exitCode: 1 } }
     if (e.init?.stdin !== undefined) seen.stdin.push(e.init.stdin)
     if (options.pane && argv === 'sh -c printf %s "$TMUX_PANE"') return { value: done(options.pane) }
     if (argv.startsWith('desk-work begin ')) return { value: done('f'.repeat(32) + '\n') }
@@ -122,6 +125,14 @@ export function engine(on: On, options: { pane?: string; pushNotes?: unknown; pu
     if (argv.includes('status')) return { value: done('## main...origin/main\n M a.txt\n') }
     if (argv.includes('numstat')) return { value: done('12\t3\tshared/a very long folder/notes.txt\u00001\t0\tREADME.md\0') }
     return { value: { ...done(''), exitCode: 1 } }
+  })
+  // The change stream, when a test asks for one: a burst of watchBurst events as fast as they can be read, then the
+  // watcher ends (the notebook falls back to its recovery poll, as it does when a watcher dies).
+  if (options.watchBurst !== undefined) on('process.spawn', async function* (_, e) {
+    seen.argv.push(e.argv.join(' '))
+    if (e.argv[0] === 'desk-work' && e.argv[1] === 'watch')
+      for (let i = 0; i < (options.watchBurst ?? 0); ++i) yield { stream: 'stdout' as const, text: JSON.stringify({ version: 1, revision: 'r' + i }) + '\n' }
+    return { value: { code: 0, signal: null } }
   })
   on('tool.call', (_, e) => {
     const command = e.tool === 'Bash' && 'command' in e && typeof e.command === 'string' ? e.command : null

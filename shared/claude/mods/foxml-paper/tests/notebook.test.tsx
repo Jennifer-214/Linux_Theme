@@ -490,8 +490,8 @@ test('the notebook says where the branch stands, what CI made of the push, and h
   let ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await ui.find({ key: 'page-project' }))?.props.label).toBe('main · pushed')
   expect((await ui.find({ key: 'page-project' }))?.text).toMatch(/main +pushed$/)
-  expect((await ui.find({ key: 'work-ci' }))?.text).toContain('✗ CI · keybinds-sync failed')
-  expect(seen.toasts).toContain('✗ CI · keybinds-sync failed')
+  expect((await ui.find({ key: 'work-ci' }))?.text).toContain('! CI · keybinds-sync failed')
+  expect(seen.toasts).toContain('! CI · keybinds-sync failed')
   await ui.press({ key: 'work-ci' })
   expect(seen.argv).toContain('xdg-open https://github.com/o/paper/actions/runs/2')
   expect(await ui.find({ type: 'Text', text: /working/ })).toBeUndefined()
@@ -684,6 +684,84 @@ test('the notebook uses shared attention actions and separates agents without me
   expect(await ui.find({ key: 'go-pi:p1' })).toBeDefined()
   expect(await ui.find({ key: 'note-pi:p1' })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: 'note delivery unavailable' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('past three items needs you folds into one counted line, and its page lists every item', async ($, on) => {
+  const item = (kind: string, id: string, label: string, action: { kind: string; id?: string }) =>
+    ({ id: `${kind}:${id}`, kind, root: '/code/paper', label, why: 'Waiting', at: 1, action })
+  const attention = [
+    item('job', 'r1', 'unit tests', { kind: 'tests', id: 'r1' }),
+    item('agent', 'pi:p1', 'Worker', { kind: 'agent' }),
+    ...Array.from({ length: 23 }, (_, i) => item('commit', 'c'.repeat(39) + String(i % 10), `commit ${i}`, { kind: 'reviews', id: 'c'.repeat(40) })),
+  ]
+  engine(on, { projectWork: { tests: null, tasks: [], jobs: [], pending: 23, attention } })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: true }, surface: 'terminal' } as never)
+  expect((await ui.find({ key: 'attention-summary' }))?.props.label).toBe('! 25 need you · open list')
+  expect(await ui.find({ key: 'attention-commit:' + 'c'.repeat(39) + '0' })).toBeUndefined()
+  for (const words of [/23 commits to review/, /1 test run failed/, /1 agent waiting/]) expect(await ui.find({ type: 'Text', text: words }), String(words)).toBeDefined()
+  await ui.press({ key: 'nav-next' })
+  expect(seen.argv).toContain('desk-work open --root /code/paper --action attention --id job:r1')
+  await ui.press({ key: 'attention-summary' })
+  expect(await ui.find({ key: 'attention-job:r1' })).toBeDefined()
+  expect(await ui.find({ key: 'attention-next' })).toBeDefined()
+  await ui.press({ key: 'attention-next' })
+  expect(await ui.find({ key: 'attention-job:r1' })).toBeUndefined()
+  expect(await ui.find({ key: 'attention-previous' })).toBeDefined()
+  await ui.press({ key: 'nav-next' })
+  expect(seen.argv.filter(a => a === 'desk-work open --root /code/paper --action attention --id job:r1').length, 'n opens the most urgent from any page of the list').toBe(2)
+  await ui.unmount()
+})
+
+test('three or fewer stay as rows, and a refusal toasts what desk-work said', async ($, on) => {
+  engine(on, { projectWork: { tests: null, tasks: [], jobs: [], pending: 0,
+    attention: [{ id: 'records:review-marks.json', kind: 'records', root: '/code/paper', label: 'The review marks record cannot be read', why: 'Writes to it are refused until work health sets it aside (not valid JSON)', at: 1, file: 'review-marks.json', action: { kind: 'health' } }],
+    records: [{ file: 'review-marks.json', label: 'review marks', why: 'not valid JSON' }] },
+    refusals: { 'desk-work open ': 'That item is settled. Refresh the list.' } })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: true }, surface: 'terminal' } as never)
+  expect(await ui.find({ key: 'attention-summary' })).toBeUndefined()
+  expect((await ui.find({ key: 'attention-records:review-marks.json' }))?.props.label).toBe('! The review marks record cannot be read · repair')
+  expect((await ui.find({ key: 'page-files' }))?.props.label, 'an unreadable record is said, not counted as zero').toMatch(/review marks unreadable$/)
+  await ui.press({ key: 'attention-records:review-marks.json' })
+  expect(seen.toasts).toContain('That item is settled. Refresh the list.')
+  await ui.unmount()
+})
+
+test('an installed update this session has not loaded names the steps that keep the conversation', async ($, on) => {
+  engine(on, { projectWork: { tests: null, tasks: [], jobs: [], pending: 0,
+    integration: { status: 'reload-pending', message: 'Update installed · reload pending',
+      sessions: [{ client: 'notebook', status: 'reload-pending', reload: 'In that Claude pane: /exit, then claude --resume abc. The conversation comes back with the new notebook.' }] } } })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: true }, surface: 'terminal' } as never)
+  let shown = false
+  for (let i = 0; i < 20 && !shown; ++i) {
+    await ui.press({ key: 'nav-down' })
+    shown = (await ui.find({ type: 'Text', text: /claude --resume abc/ })) !== undefined
+  }
+  expect(shown, 'the reload row says, when selected, the steps for this session').toBe(true)
+  await ui.press({ key: 'reload-pending' })
+  expect(seen.argv.some(a => a.startsWith('desk-work notebook') && a.includes('--health yes')), 'the row opens work health').toBe(true)
+  await ui.unmount()
+})
+
+test('a burst of fifty change events refreshes the notebook at once and once more a second later, not fifty times', async ($, on) => {
+  engine(on, { clock: false, watchBurst: 50, projectWork: { tests: null, tasks: [], jobs: [], pending: 0 } })
+  const clock = mock.clock(on, { now: NOW })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  const reads = () => seen.argv.filter(a => a.startsWith('desk-work notebook')).length
+  await clock.advance(10)
+  expect(seen.argv.some(a => a.startsWith('desk-work watch')), 'the notebook subscribes to the change stream').toBe(true)
+  const during = reads()
+  expect(during, `refreshes while 50 events arrive: ${during}`).toBeLessThanOrEqual(4)
+  await clock.advance(1000)
+  expect(reads(), 'the last event is still read, a second later').toBe(during + 1)
+  await clock.advance(5000)
+  expect(reads(), 'and nothing more once the burst is over').toBe(during + 1)
+  // One report for the first refresh and one when this test's stream ends (a real change of state); none per event.
+  expect(seen.argv.filter(a => a.startsWith('desk-work client-report')).length, 'no client report per event').toBeLessThanOrEqual(2)
   await ui.unmount()
 })
 

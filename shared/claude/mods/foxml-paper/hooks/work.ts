@@ -45,12 +45,31 @@ export function ago(seconds: number): string {
   if (s < 172800) return 'yesterday'
   return `${Math.floor(s / 86400)} days ago`
 }
+// Every mark the notebook draws, and what it means. Rows, test and CI lines, toasts, the note envelope and the marks
+// page all read this table, so a mark changes in one place. The band above the prompt keeps its own two bullets.
+export const MARKS = {
+  checked: ['✓', 'reviewed as it is now; on a test or CI line, passed'],
+  changed: ['↻', 'edited since you reviewed it, or something to read again'],
+  unread: ['○', 'not reviewed yet'],
+  sent: ['✉', 'sent to a session and waiting for a change, or a note for this one'],
+  look: ['✎', 'something to look over'],
+  risky: ['⚠', 'red zone: login, boot, mounts, firewall'],
+  failed: ['!', 'failed, and not passed since'],
+  running: ['◷', 'running now'],
+  commit: ['❦', 'a commit'],
+  plan: ['⌑', 'the pinned plan'],
+  step: ['◇', 'the step or task in hand'],
+  waiting: ['●', 'a session that needs you'],
+  busy: ['✎', 'a session at work'],
+  idle: ['○', 'a session at rest'],
+} as const
+export function glyph(name: keyof typeof MARKS): string { return MARKS[name][0] }
 // "✓ 128 passed 2h ago · 3 files changed since": what the last test run said, how old it is, and whether it still holds.
 export function testLabel(test: WorkTest, now?: number): string {
   const p = test.tests?.passed, f = test.tests?.failed
   let head: string
-  if (test.state === 'running') head = '◷ tests running'
-  else if (test.state === 'passed') head = '✓ ' + (p == null ? 'tests passed' : `${p} passed`) + (f ? ` · ${f} failed` : '')
+  if (test.state === 'running') head = `${glyph('running')} tests running`
+  else if (test.state === 'passed') head = glyph('checked') + ' ' + (p == null ? 'tests passed' : `${p} passed`) + (f ? ` · ${f} failed` : '')
   else if (test.state === 'failed') head = f ? `${f} failed` + (p == null ? '' : ` · ${p} passed`) : 'tests failed'
   else if (test.state === 'interrupted') head = 'tests stopped early'
   else head = `tests ${test.state}`
@@ -89,12 +108,12 @@ export function ciLabel(runs: CiRun[] | null | undefined): { label: string; stat
   const open = runs.filter(r => r.status !== 'completed')
   if (failed.length) {
     const names = [...new Set(failed.map(r => r.workflowName || r.name || 'a check'))]
-    return { label: `✗ CI · ${names[0]} failed` + (names.length > 1 ? ` and ${names.length - 1} more` : '') + (open.length ? ' · still running' : ''),
+    return { label: `${glyph('failed')} CI · ${names[0]} failed` + (names.length > 1 ? ` and ${names.length - 1} more` : '') + (open.length ? ' · still running' : ''),
       state: 'failed', url: failed[0]!.url ?? '' }
   }
-  if (open.length) return { label: `◷ CI running · ${runs.length - open.length} of ${runs.length} done`, state: 'running', url: open[0]!.url ?? '' }
+  if (open.length) return { label: `${glyph('running')} CI running · ${runs.length - open.length} of ${runs.length} done`, state: 'running', url: open[0]!.url ?? '' }
   if (runs.every(r => r.conclusion === 'success' || r.conclusion === 'skipped' || r.conclusion === 'neutral'))
-    return { label: '✓ CI passed', state: 'passed', url: runs[0]!.url ?? '' }
+    return { label: `${glyph('checked')} CI passed`, state: 'passed', url: runs[0]!.url ?? '' }
   return { label: `CI ${runs.find(r => r.conclusion !== 'success')?.conclusion ?? 'finished'}`, state: 'other', url: runs[0]!.url ?? '' }
 }
 // One state per file across the live reviews (working tree and sessions; a commit's review is about that commit, not
@@ -147,7 +166,7 @@ export function receiptLine(receipt: TurnReceipt | null | undefined): string {
     receipt.files.length ? `${receipt.files.length} ${receipt.files.length === 1 ? 'file' : 'files'}` : '',
     receipt.tests ?? '',
     receipt.commits.length ? `${receipt.commits.length} ${receipt.commits.length === 1 ? 'commit' : 'commits'}` : '',
-    receipt.risky.length ? `⚠ ${receipt.risky[0]}` : '',
+    receipt.risky.length ? `${glyph('risky')} ${receipt.risky[0]}` : '',
   ].filter(Boolean)
   return parts.join(' · ')
 }
@@ -200,7 +219,7 @@ export function turnLabel(turn: { started: number; step: string; seen?: number }
   if (nowMs - (turn.seen ?? turn.started) > TURN_QUIET_MS) return null
   const minutes = Math.floor(Math.max(0, nowMs - turn.started) / 60000)
   const took = minutes < 1 ? 'working' : minutes < 60 ? `working ${minutes}m` : `working ${Math.floor(minutes / 60)}h ${minutes % 60}m`
-  return '◷ ' + took + (turn.step ? ' · ' + turn.step : '')
+  return glyph('running') + ' ' + took + (turn.step ? ' · ' + turn.step : '')
 }
 // Markdown checkboxes outside code fences, counted the way desk-work's plan output counts them.
 // `next` is the first box not ticked yet, in the plan's own words: the step in hand when none is pinned by hand.
@@ -241,6 +260,60 @@ export function greenAgain(finished: string | null): boolean {
     const value = JSON.parse(finished ?? 'null') as { ok?: boolean; state?: string; testRun?: boolean; failedBefore?: number } | null
     return value?.ok === true && value.state === 'passed' && value.testRun === true && (value.failedBefore ?? 0) >= 2
   } catch { return false }
+}
+// What a refused desk-work call says: its own message (desk-work answers JSON on stdout), else its error output, else
+// which command refused. A blank toast tells nobody anything.
+export function refusalOf(args: string[], out: { exitCode: number; stdout: string; stderr: string }): string {
+  try {
+    const value = JSON.parse(out.stdout) as { message?: unknown } | null
+    if (value && typeof value.message === 'string' && value.message.trim()) return value.message.trim()
+  } catch { /* not JSON */ }
+  const said = out.stderr.trim().split('\n').pop()?.trim() ?? ''
+  return said || `desk-work ${args[0] ?? ''} did not answer (exit ${out.exitCode})`
+}
+export async function workCall($: EngineInterface, args: string[], stdin?: string): Promise<{ ok: boolean; stdout: string; message: string }> {
+  try {
+    const out = await $.process.run(['desk-work', ...args], { timeoutMs: 10000, ...(stdin === undefined ? {} : { stdin }) })
+    return out.exitCode === 0 ? { ok: true, stdout: out.stdout, message: '' } : { ok: false, stdout: out.stdout, message: refusalOf(args, out) }
+  } catch { return { ok: false, stdout: '', message: 'desk-work did not start; is it installed?' } }
+}
+// What one needs-you item is, in words for the breakdown line: [one, many].
+export function needGroup(kind: string, action?: string): [string, string] {
+  switch (kind) {
+    case 'commit': return ['commit to review', 'commits to review']
+    case 'changed': return ['file changed since review', 'files changed since review']
+    case 'request': return ['request ready', 'requests ready']
+    case 'job': return action === 'tests' ? ['test run failed', 'test runs failed'] : ['job failed', 'jobs failed']
+    case 'agent': return ['agent waiting', 'agents waiting']
+    case 'records': return ['record unreadable', 'records unreadable']
+    case 'ci': return ['CI run failed', 'CI runs failed']
+    case 'overlap': return ['shared edit', 'shared edits']
+    case 'mail': return ['note unread', 'notes unread']
+    default: return [kind, kind]
+  }
+}
+// ["52 commits to review", "3 test runs failed", "1 agent waiting"]: the needs-you list counted by kind, largest first.
+export function needBreakdown(groups: [string, string][]): string[] {
+  const counts = new Map<string, { n: number; words: [string, string] }>()
+  for (const words of groups) { const seen = counts.get(words[1]); counts.set(words[1], { n: (seen?.n ?? 0) + 1, words }) }
+  return [...counts.values()].sort((a, b) => b.n - a.n).map(({ n, words }) => `${n} ${n === 1 ? words[0] : words[1]}`)
+}
+// Parts joined with " · ", broken only between parts so each count reads whole; a part wider than a line wraps by word.
+export function wrapParts(parts: string[], width: number): string[] {
+  const lines: string[] = []
+  let line = ''
+  parts.forEach((part, i) => {
+    // A line that is not the last ends in " ·", so it keeps two columns for it.
+    const room = i === parts.length - 1 ? width : width - 2
+    const joined = line ? `${line} · ${part}` : part
+    if (joined.length <= room) { line = joined; return }
+    if (line) lines.push(line + ' ·')
+    if (part.length <= room) { line = part; return }
+    const wrapped = wrapWords(part, room)
+    lines.push(...wrapped.slice(0, -1)); line = wrapped[wrapped.length - 1] ?? ''
+  })
+  if (line) lines.push(line)
+  return lines
 }
 export async function work($: EngineInterface, args: string[], stdin?: string): Promise<string | null> {
   try {

@@ -100,3 +100,27 @@ test('preview: the compact notebook keeps room for the conversation', async ($, 
   expect(await scene($, 'compact · 30 columns', [], 30)).toBeDefined()
   expect(await scene($, 'expanded · 42 columns', ['compact-expand'], 42)).toBeDefined()
 })
+
+test('preview: a long needs-you list folds into one counted line, and its page lists it all', async ($, on) => {
+  const item = (kind: string, id: string, label: string, why: string, action: { kind: string; id?: string }) =>
+    ({ id: `${kind}:${id}`, kind, root: '/code/paper', label, why, at: 1, action })
+  const attention = [
+    item('job', 'r1', 'queue checks', 'Failed and has not passed since', { kind: 'tests', id: 'r1' }),
+    item('job', 'r2', 'drawer tests', 'Failed and has not passed since', { kind: 'tests', id: 'r2' }),
+    item('agent', 'pi:p1', 'Worker', 'pi needs you', { kind: 'agent' }),
+    item('request', 'src/queue.cpp', 'queue.cpp', 'Changed since you asked Queue refactor', { kind: 'file-diff' }),
+    ...Array.from({ length: 52 }, (_, i) => item('commit', String(i).padStart(40, 'c'), `queue: step ${52 - i}`, 'Not reviewed yet', { kind: 'reviews' })),
+  ]
+  engine(on, { projectWork: { ...WORK, attention,
+    integration: { status: 'reload-pending', message: 'Update installed · reload pending',
+      sessions: [{ client: 'notebook', status: 'reload-pending', reload: 'In that Claude pane: /exit, then claude --resume abc. The conversation comes back with the new notebook.' }] } } })
+  await opened($)
+  expect(await scene($, 'front page · 56 need you, folded')).toBeDefined()
+  expect(await scene($, 'needs you · the whole list', ['attention-summary'])).toBeDefined()
+})
+
+test('preview: the compact notebook when nothing needs you', async ($, on) => {
+  engine(on, { compact: true, projectWork: { tests: null, jobs: [], tasks: [], pending: 0, attention: [] } })
+  await opened($)
+  expect(await scene($, 'compact · all quiet', [], 30)).toBeDefined()
+})

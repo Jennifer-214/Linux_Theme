@@ -5,7 +5,7 @@ import type { AgentSession, ApiCredits, CiLook, GitLook, NotebookView, PaperActi
 import { addBefore, addEdit, addName, neighbours, namesText, noteText, overlapFor, parseLedger, parseNames, parseNote, trailerUrl, withPlan, editedSince } from './ledger'
 import type { Other } from './ledger'
 import { paper } from './theme'
-import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, filterFiles, pendingLine, planProgress, receiptLine, reviewStates, reviewSummary, ruleLine, ruler, spread, workName, wrapWords, stepLabel, testLabel, turnLabel, unreviewed, work, workLook } from './work'
+import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, filterFiles, pendingLine, planProgress, receiptLine, reviewStates, reviewSummary, ruleLine, ruler, spread, workName, wrapWords, stepLabel, testLabel, turnLabel, unreviewed, work, workCall, workLook, needBreakdown, needGroup, wrapParts, MARKS, glyph } from './work'
 import { attributeFiles, fileColumns, fileCounts, gitFiles, drawerPage, mailId, shortPath } from './notebook'
 import { BUILD_ID } from './build'
 
@@ -136,6 +136,11 @@ const memory = {
   lookAt: 0,
   lookFailed: false,
   refreshAgain: false,
+  // The change stream's pace: when it last started a refresh, and whether one is waiting for the second to pass.
+  streamRefreshAt: 0,
+  reportedFailure: null as boolean | null,
+  reportedAt: 0,
+  streamRefreshQueued: false,
   watchStarted: false,
   watchFailed: false,
   watchRetryAt: 0,
@@ -483,7 +488,7 @@ async function sendNote($: EngineInterface, peer: PaperPeer, text: string) {
   if (note === '') return false
   const me = (await nameNow($)) ?? 'another session'
   try {
-    const sent = await $.session.send({ to: { sessionId: peer.id }, text: `✉ from ${me}: ${note}` })
+    const sent = await $.session.send({ to: { sessionId: peer.id }, text: `${glyph('sent')} from ${me}: ${note}` })
     $.ui.toast(sent.isDelivered ? `note left for ${peer.name}` : `not sent: ${sent.reason}`)
     return sent.isDelivered
   } catch {
@@ -493,10 +498,15 @@ async function sendNote($: EngineInterface, peer: PaperPeer, text: string) {
 }
 
 function peerMark(peer: PaperPeer): [string, string] {
-  if (peer.state === 'needs you') return ['●', paper.berry]
-  if (peer.busy) return ['✎', paper.dim]
-  return ['○', paper.ink]
+  if (peer.state === 'needs you') return [glyph('waiting'), paper.berry]
+  if (peer.busy) return [glyph('busy'), paper.dim]
+  return [glyph('idle'), paper.ink]
 }
+// A row's label that starts with one of these marks and a space has its mark coloured: failed, passed and running,
+// and the rest in the ribbon colour.
+const LEADING = new RegExp(`^[${[glyph('step'), glyph('plan'), glyph('sent'), glyph('checked'), glyph('running'), glyph('failed'), '+'].map(m => m.replace(/[\\^\]-]/g, '\\$&')).join('')}] `)
+// A note from another session starts with the envelope, the sender and a colon.
+const ENVELOPE = new RegExp(`^${glyph('sent')} from (.{1,60}?): `)
 
 function toneColour(tone: PaperTone | undefined): string {
   return tone === undefined ? paper.ink : paper[tone === 'heart' ? 'heart' : tone]
@@ -524,7 +534,7 @@ async function ciFor($: EngineInterface, root: string, upstream: string): Promis
   } catch { return held }
   const said = ciLabel(memory.ci.runs)
   if (said?.state === 'failed' && memory.ciTold !== sha) { memory.ciTold = sha; $.ui.toast(said.label) }
-  if (said?.state === 'passed' && memory.ciTold === sha + ':running') { memory.ciTold = sha; $.ui.toast('✓ CI passed') }
+  if (said?.state === 'passed' && memory.ciTold === sha + ':running') { memory.ciTold = sha; $.ui.toast(`${glyph('checked')} CI passed`) }
   if (said?.state === 'running' && memory.ciTold !== sha) memory.ciTold = sha + ':running'
   return memory.ci
 }
@@ -535,6 +545,20 @@ function refresh($: EngineInterface): Promise<void> {
     do { memory.refreshAgain = false; await refreshNow($) } while (memory.refreshAgain)
   })().finally(() => { memory.refreshTask = null })
   return memory.refreshTask
+}
+
+// A burst of change events (an agent saving file after file) costs one refresh a second at most, and the last event
+// is always read: the first refreshes at once; any arriving within the next second share one refresh at its end.
+async function refreshSoon($: EngineInterface): Promise<void> {
+  if (memory.streamRefreshQueued) return
+  const wait = memory.streamRefreshAt + 1000 - await $.clock.now()
+  if (wait > 0) {
+    memory.streamRefreshQueued = true
+    try { await $.clock.sleep(wait) } catch { memory.streamRefreshQueued = false; return }
+    memory.streamRefreshQueued = false
+  }
+  memory.streamRefreshAt = await $.clock.now()
+  await refresh($)
 }
 
 async function startWorkWatch($: EngineInterface, root: string) {
@@ -552,7 +576,7 @@ async function startWorkWatch($: EngineInterface, root: string) {
         let split: number
         while ((split = pending.indexOf('\n')) >= 0) {
           const line = pending.slice(0, split); pending = pending.slice(split + 1)
-          try { if (JSON.parse(line)?.version === 1) { memory.watchFailed = false; memory.watchDelay = 1000; void refresh($) } } catch { /* partial or older protocol */ }
+          try { if (JSON.parse(line)?.version === 1) { memory.watchFailed = false; memory.watchDelay = 1000; void refreshSoon($) } } catch { /* partial or older protocol */ }
         }
       }
     } catch { /* the recovery poll still works without the bridge */ }
@@ -673,7 +697,12 @@ async function refreshNow($: EngineInterface) {
     const note = await lastNight($, root)
     await update($, look, () => ({ root, session, branch, files, gate, plan, context, neighbours: near, card, work: projectWork, project, credits, lastNight: note, git, ci }))
     memory.lookAt = await $.clock.now(); memory.lookFailed = false
-    await reportWork($, root, projectWork ? ['--refresh-at', String(Math.floor(memory.lookAt / 1000)), '--error', ''] : ['--error', 'Work records could not be refreshed'])
+    // One report per change of state, or a minute apart while all is well: each report is a locked write of the client
+    // record, and a burst of edits is many refreshes.
+    if (memory.reportedFailure !== (projectWork === null) || memory.lookAt - memory.reportedAt >= 60000) {
+      memory.reportedFailure = projectWork === null; memory.reportedAt = memory.lookAt
+      await reportWork($, root, projectWork ? ['--refresh-at', String(Math.floor(memory.lookAt / 1000)), '--error', ''] : ['--error', 'Work records could not be refreshed'])
+    }
     const found = await readPeers($)
     await update($, peers, () => found ?? near.map(n => ({ id: n.sid, name: n.title, project: root.split('/').pop() ?? root,
       state: `edited ${n.files} ${n.files === 1 ? 'file' : 'files'} here`, busy: false,
@@ -682,7 +711,7 @@ async function refreshNow($: EngineInterface) {
     const left = 5 - hearts(context)
     if (memory.lastHearts > 2 && left === 2) $.ui.toast(`context is ${context ?? 50}% used · a good moment for a handoff`)
     memory.lastHearts = left
-    if (memory.lastGate === 'closed' && gate === 'open') $.ui.toast('gate open ✓ the plan is approved')
+    if (memory.lastGate === 'closed' && gate === 'open') $.ui.toast(`gate open ${glyph('checked')} the plan is approved`)
     memory.lastGate = gate
   } catch {
     // A missed refresh only leaves the notebook a little behind; the next one catches up. The page says so meanwhile.
@@ -908,7 +937,7 @@ export const register: Register = on => {
     // Tests that failed two or more times in a row pass again: desk-work counted the run of failures.
     if (greenAgain(finished)) $.ui.toast('green again ✿')
     if (COMMIT.test(e.command) && ran!.deny === undefined && ran!.isError !== true) {
-      $.ui.toast('a seed planted ❦')
+      $.ui.toast(`a seed planted ${glyph('commit')}`)
       await nameCommit($, e.command).catch(() => undefined)
     }
     // After a push that went through: the review stamps follow, where the repository asks for that
@@ -928,8 +957,8 @@ export const register: Register = on => {
   on('session.receive', async ($, e, next) => {
     if (e.origin.kind === 'peer' || e.origin.kind === 'peer-send-message') {
       const first = e.text.split('\n').find(line => line.trim() !== '')?.trim() ?? ''
-      const from = first.match(/^✉ from (.{1,60}?): /)?.[1] ?? ('teammate' in e.origin ? e.origin.teammate : 'another Claude')
-      const body = e.text.trim().replace(/^✉ from .{1,60}?: /, '')
+      const from = first.match(ENVELOPE)?.[1] ?? ('teammate' in e.origin ? e.origin.teammate : 'another Claude')
+      const body = e.text.trim().replace(ENVELOPE, '')
       const text = body.slice(0, 2000)
       const at = await $.clock.now()
       if (text !== '') await receiveEnvelope($, { from, text, at }, body)
@@ -1060,10 +1089,11 @@ export const register: Register = on => {
       await saveNotebookView($)
     }
     const checkedWork = async (args: string[]) => {
-      const result = await work($, args)
-      if (result === null) { $.ui.toast('Could not open that work item.'); return false }
+      const result = await workCall($, args)
+      // desk-work says why it refused (a message on stdout, or its error output); the toast shows exactly that.
+      if (!result.ok) { $.ui.toast(result.message); return false }
       try {
-        const value = JSON.parse(result)
+        const value = JSON.parse(result.stdout)
         if (value?.ok === false) { $.ui.toast(value.message ?? 'That change could not be saved.'); return false }
       } catch { /* open commands have no JSON output */ }
       return true
@@ -1099,8 +1129,8 @@ export const register: Register = on => {
       const body = <Text color={paper.ink}>
         <Text color={paper.ribbon}>{selected ? '› ' : '  '}</Text>
         {detail ?? <Text color={paper.ink}>
-          {/^[◇⌑✉✓◷+!] /.test(label)
-            ? <Text><Text color={label.startsWith('!') ? paper.berry : label.startsWith('✓') || label.startsWith('◷') ? paper.added : paper.ribbon}>{label.slice(0, 1)}</Text>{fit(label.slice(1), width - 3)}</Text>
+          {LEADING.test(label)
+            ? <Text><Text color={label.startsWith(glyph('failed')) ? paper.berry : label.startsWith(glyph('checked')) || label.startsWith(glyph('running')) ? paper.added : paper.ribbon}>{label.slice(0, 1)}</Text>{fit(label.slice(1), width - 3)}</Text>
             : fit(label, width - 2)}
         </Text>}
       </Text>
@@ -1153,72 +1183,97 @@ export const register: Register = on => {
       if (plan) await notePlan($, plan.file)
     }
 
-    if (view.form === 'none' && view.page === 'overview') {
-      // The front page, to the UI style (docs/ui-style.md): groups under rule lines, a mark and a name per row with
-      // its count on the right, a line saying what the selected row is, and nothing that is not about now.
-      const inner = Math.max(10, width - 2)
-      const about: Record<string, string> = {}
-      const rule = (label: string, right = '') => content.push(text(ruleLine(label, right, width), paper.ribbon))
-      const pair = (key: string, left: string, right: string, press: () => unknown, says: string, colour: string = paper.ink) => {
-        // A row too long for the pane is cut with an ellipsis; its whole text then leads the description.
-        const room = right ? Math.max(4, inner - right.length - 1) : inner
-        about[key] = left.length > room ? `${left.replace(/^[^\p{L}\p{N}]+/u, '')} — ${says}` : says
-        if (key.startsWith('attention-') && firstNeed === null) firstNeed = press
-        const line = spread(left, right, inner)
-        const cut = right ? line.length - right.length : line.length
-        // The button's own label reads whole ("3 claudes · you + 2 others") for screen readers and other surfaces.
-        content.push(row(key, right ? `${left} · ${right}` : left, press, <Text>
-          <Text color={colour}>{line.slice(0, cut)}</Text><Text color={paper.dim}>{line.slice(cut)}</Text>
-        </Text>))
+    // Page rows, to the UI style (docs/ui-style.md): groups under rule lines, a mark and a name per row with its count
+    // on the right, and under the list a line saying what the selected row is.
+    const inner = Math.max(10, width - 2)
+    const about: Record<string, string> = {}
+    const rule = (label: string, right = '') => content.push(text(ruleLine(label, right, width), paper.ribbon))
+    const pair = (key: string, left: string, right: string, press: () => unknown, says: string, colour: string = paper.ink) => {
+      // A row too long for the pane is cut with an ellipsis; its whole text then leads the description.
+      const room = right ? Math.max(4, inner - right.length - 1) : inner
+      about[key] = left.length > room ? `${left.replace(/^[^\p{L}\p{N}]+/u, '')} — ${says}` : says
+      if (key.startsWith('attention-') && firstNeed === null) firstNeed = press
+      const line = spread(left, right, inner)
+      const cut = right ? line.length - right.length : line.length
+      // The button's own label reads whole ("3 claudes · you + 2 others") for screen readers and other surfaces.
+      content.push(row(key, right ? `${left} · ${right}` : left, press, <Text>
+        <Text color={colour}>{line.slice(0, cut)}</Text><Text color={paper.dim}>{line.slice(cut)}</Text>
+      </Text>))
+    }
+    const describe = () => {
+      const says = about[view.selected]
+      if (says) { content.push(text('')); for (const line of wrapWords(says, width)) content.push(text(line)) }
+    }
+    const states = reviewStates(now?.work?.review)
+    const requests = now?.work?.requests ?? []
+    const ready = requests.filter(r => r.state === 'ready')
+    const base = (path: string) => path.split('/').pop() ?? path
+    const ci = ciLabel(now?.ci?.runs)
+    // Everything that needs you, most urgent first: desk-work's shared list, then what only this session knows (a CI
+    // run, another session's edit, notes). Each row's description says the next action.
+    type Need = { key: string; left: string; right: string; press: () => unknown; says: string; colour: string; words: [string, string] }
+    const needs: Need[] = []
+    {
+      const reReview = (path: string) => checkedWork(['open', '--root', root, '--action', 'file-diff', '--file', path, '--session', session])
+      const changedSince = (now?.files ?? []).map(f => f.path).filter(p => states.get(p) === 'changed' && !ready.some(r => r.file === p))
+      const failedIds = new Set((now?.work?.failures ?? []).map(j => j.id))
+      const shared = now?.work?.attention
+      if (shared) for (const item of shared) {
+        const mark = glyph(item.kind === 'request' || item.kind === 'changed' ? 'changed' : item.kind === 'commit' ? 'unread' : 'failed')
+        needs.push({ key: 'attention-' + item.id, left: `${mark} ${item.label}`,
+          right: ({ request: 're-review', records: 'repair', job: 'failed', agent: 'waiting', commit: 'to review', changed: 'changed' } as Record<string, string>)[item.kind] ?? item.kind,
+          press: () => checkedWork(['open', '--root', item.root, '--action', 'attention', '--id', item.id]),
+          says: item.why + '. Enter opens it.', colour: item.kind === 'job' || item.kind === 'agent' || item.kind === 'records' ? paper.berry : paper.ink,
+          words: needGroup(item.kind, item.action?.kind) })
       }
+      if (!shared) for (const job of (now?.work?.failures ?? []).slice(0, 2))
+        needs.push({ key: `attention-job-${job.id}`, left: `${glyph('failed')} ${job.title ?? job.command}`, right: job.state, press: () => openJob(job.id),
+          says: 'A job that failed and has not passed since. Enter opens its output.', colour: paper.berry, words: needGroup('job') })
+      const lastTests = now?.work?.tests
+      if (!shared && lastTests && lastTests.state === 'failed' && !failedIds.has(lastTests.id))
+        needs.push({ key: 'attention-tests', left: `${glyph('failed')} tests failed`, right: ago(clock / 1000 - (lastTests.ended ?? clock / 1000)), press: () => openJob(lastTests.id, 'tests'),
+          says: 'The last test run failed. Enter opens the failures, each a jump to its line.', colour: paper.berry, words: needGroup('job', 'tests') })
+      if (ci && ci.state === 'failed')
+        needs.push({ key: 'attention-ci', left: `${glyph('failed')} CI failed on the push`, right: 'open run', press: async () => { if (/^https:\/\/github\.com\//.test(ci.url)) await run($, ['xdg-open', ci.url]) },
+          says: 'GitHub Actions failed on the pushed commit. Enter opens the run in the browser.', colour: paper.berry, words: needGroup('ci') })
+      if (!shared) for (const r of ready.slice(0, 3))
+        needs.push({ key: `attention-request-${r.file}`, left: `${glyph('changed')} ${base(r.file)}`, right: 're-review', press: () => reReview(r.file),
+          says: `You asked ${r.name || 'a session'}: "${r.text}". The file has changed since. Enter opens it for another look.`, colour: paper.ink, words: needGroup('request') })
+      if (!shared && changedSince.length) {
+        const first = changedSince[0] ?? ''
+        needs.push({ key: 'attention-changed', left: `${glyph('changed')} ${changedSince.length} changed since you reviewed`, right: base(first), press: () => reReview(first),
+          says: 'Edited after you checked them. Enter opens the first; the review shows only what is new.', colour: paper.ink, words: needGroup('changed') })
+      }
+      if (warning) needs.push({ key: 'attention-overlap', left: 'shared edit · ' + (warning.path.split('/').pop() ?? ''), right: warning.ago ?? '', press: async () => {
+        if (warning.pane) await run($, ['desk-drawer', 'run', 'claude-jump', warning.pane])
+        else await page('files')
+      }, says: 'Another live session edited this file lately. Enter goes to it.', colour: paper.berry, words: needGroup('overlap') })
+      if (mail.length) needs.push({ key: 'attention-mail', left: `${glyph('sent')} notes for this session`, right: `${mail.length} unread`, press: () => page('sessions'),
+        says: 'Notes left for this session from Neovim or another Claude. Enter reads them.', colour: paper.ink, words: needGroup('mail') })
+    }
+    const breakdown = () => wrapParts(needBreakdown(needs.map(n => n.words)), Math.max(8, width - 2))
+
+    if (view.form === 'none' && view.page === 'overview') {
+      // The front page: nothing that is not about now.
       const working = turnLabel(underway, clock)
       if (working) content.push(text(working, paper.ribbon))
 
-      const states = reviewStates(now?.work?.review)
       const mine = (now?.files ?? []).filter(f => f.own).map(f => f.path)
       const done = await read($, receipt)
-      // Needs you comes first: what failed, what is ready for another look, what someone left for you. Each row's
-      // description says the next action.
-      const requests = now?.work?.requests ?? []
-      const ready = requests.filter(r => r.state === 'ready')
-      const changedSince = (now?.files ?? []).map(f => f.path).filter(p => states.get(p) === 'changed' && !ready.some(r => r.file === p))
-      const failedIds = new Set((now?.work?.failures ?? []).map(j => j.id))
-      const ci = ciLabel(now?.ci?.runs)
-      const base = (path: string) => path.split('/').pop() ?? path
-      const reReview = (path: string) => checkedWork(['open', '--root', root, '--action', 'file-diff', '--file', path, '--session', session])
-      const attention: (() => void)[] = []
-      const sharedAttention = now?.work?.attention
-      if (sharedAttention) for (const item of sharedAttention.slice(0, 8)) {
-        const mark = item.kind === 'request' || item.kind === 'changed' ? '↻' : item.kind === 'commit' ? '○' : '!'
-        attention.push(() => pair('attention-' + item.id, `${mark} ${item.label}`, item.kind === 'request' ? 're-review' : item.kind,
-          () => checkedWork(['open', '--root', item.root, '--action', 'attention', '--id', item.id]),
-          item.why + '. Enter opens it.', item.kind === 'job' || item.kind === 'agent' ? paper.berry : paper.ink))
+      // Needs you comes first. Up to three items show as rows; past that, one line counts them by kind and Enter lists
+      // them all, so a long list never pushes the rest of the page away. n opens the most urgent either way.
+      if (needs.length) {
+        rule('needs you', String(needs.length))
+        firstNeed = needs[0]!.press
+        if (needs.length <= 3) for (const need of needs) pair(need.key, need.left, need.right, need.press, need.says, need.colour)
+        else {
+          pair('attention-summary', `${glyph('failed')} ${needs.length} need you`, 'open list', () => page('attention'),
+            `Everything that needs you, most urgent first. Enter lists it all; n opens the most urgent: ${needs[0]!.left.replace(/^\S+ /, '')}.`, paper.berry)
+          for (const line of breakdown()) content.push(text('  ' + line))
+        }
       }
-      if (!sharedAttention) for (const job of (now?.work?.failures ?? []).slice(0, 2))
-        attention.push(() => pair(`attention-job-${job.id}`, '! ' + (job.title ?? job.command), job.state, () => openJob(job.id), 'A job that failed and has not passed since. Enter opens its output.', paper.berry))
-      const lastTests = now?.work?.tests
-      if (!sharedAttention && lastTests && lastTests.state === 'failed' && !failedIds.has(lastTests.id))
-        attention.push(() => pair('attention-tests', '! tests failed', ago(clock / 1000 - (lastTests.ended ?? clock / 1000)), () => openJob(lastTests.id, 'tests'), 'The last test run failed. Enter opens the failures, each a jump to its line.', paper.berry))
-      if (ci && ci.state === 'failed')
-        attention.push(() => pair('attention-ci', '! CI failed on the push', 'open run', async () => { if (/^https:\/\/github\.com\//.test(ci.url)) await run($, ['xdg-open', ci.url]) },
-          'GitHub Actions failed on the pushed commit. Enter opens the run in the browser.', paper.berry))
-      if (!sharedAttention) for (const r of ready.slice(0, 3))
-        attention.push(() => pair(`attention-request-${r.file}`, '↻ ' + base(r.file), 're-review', () => reReview(r.file),
-          `You asked ${r.name || 'a session'}: "${r.text}". The file has changed since. Enter opens it for another look.`))
-      if (!sharedAttention && changedSince.length) {
-        const first = changedSince[0] ?? ''
-        attention.push(() => pair('attention-changed', `↻ ${changedSince.length} changed since you reviewed`, base(first), () => reReview(first),
-          'Edited after you checked them. Enter opens the first; the review shows only what is new.'))
-      }
-      if (warning) attention.push(() => pair('attention-overlap', 'shared edit · ' + (warning.path.split('/').pop() ?? ''), warning.ago ?? '', async () => {
-        if (warning.pane) await run($, ['desk-drawer', 'run', 'claude-jump', warning.pane])
-        else await page('files')
-      }, 'Another live session edited this file lately. Enter goes to it.', paper.berry))
-      if (mail.length) attention.push(() => pair('attention-mail', '✉ notes for this session', `${mail.length} unread`, () => page('sessions'), 'Notes left for this session from Neovim or another Claude. Enter reads them.'))
-      if (attention.length) { rule('needs you', String(attention.length + Math.max(0, (sharedAttention?.length ?? 0) - 8))); attention.forEach(add => add()) }
-      if (sharedAttention && sharedAttention.length > 8) pair('attention-more', `${sharedAttention.length - 8} more need you`, 'open list',
-        () => run($, ['desktop-menu', '--open', 'attention']), 'The full shared list in the desktop drawer.')
-      if (now?.work?.digest?.total) pair('page-digest', 'since you last looked', `${now.work.digest.total} events`, () => page('digest'),
+      const digest = now?.work?.digest
+      if (digest?.total) pair('page-digest', 'since you last looked' + (digest.since ? ' ' + digest.since : ''), `${digest.total} events`, () => page('digest'),
         'Observed edits, requests and test results since you last marked this project caught up. Opening does not clear it.')
 
       if (done && !working) {
@@ -1232,27 +1287,28 @@ export const register: Register = on => {
           : checkedWork(['open', '--root', root, '--action', 'reviews'])
         if (done.files.length) {
           const read_ = done.files.filter(p => states.get(p) === 'checked').length
-          pair('receipt-files', `✎ ${done.files.length} ${done.files.length === 1 ? 'file' : 'files'} changed`, `${read_} of ${done.files.length} reviewed`, open,
+          pair('receipt-files', `${glyph('look')} ${done.files.length} ${done.files.length === 1 ? 'file' : 'files'} changed`, `${read_} of ${done.files.length} reviewed`, open,
             next_ !== undefined ? `What the last turn changed. Enter opens ${next_.split('/').pop()}, the next one not reviewed.` : 'What the last turn changed; all of it is committed. Enter opens the commit.')
         }
         if (done.tests) pair('receipt-tests', done.tests, '', () => now?.work?.tests ? openJob(now.work.tests.id, 'tests') : undefined,
-          'The tests the last turn ran.', done.tests.startsWith('✓') ? paper.added : paper.berry)
+          'The tests the last turn ran.', done.tests.startsWith(glyph('checked')) ? paper.added : paper.berry)
         for (const commit of done.commits.slice(0, 3))
-          pair('receipt-commit-' + commit.sha.slice(0, 7), '❦ ' + commit.subject, commit.sha.slice(0, 7),
+          pair('receipt-commit-' + commit.sha.slice(0, 7), `${glyph('commit')} ${commit.subject}`,
+            now?.work?.reviewedToday?.includes(commit.sha) ? 'reviewed' : commit.sha.slice(0, 7),
             () => checkedWork(['open', '--root', root, '--action', 'reviews', '--id', commit.sha]), 'A commit the last turn made. Enter opens this commit in the review.')
         if (done.commits.length > 3) content.push(text(`  and ${done.commits.length - 3} more commits`))
-        for (const what of done.risky) pair('receipt-risk-' + what, '⚠ touched ' + what, 'red zone', open, 'The last turn ran something in the red zone: login, boot, mounts, the kernel or the firewall.', paper.berry)
+        for (const what of done.risky) pair('receipt-risk-' + what, `${glyph('risky')} touched ${what}`, 'red zone', open, 'The last turn ran something in the red zone: login, boot, mounts, the kernel or the firewall.', paper.berry)
       }
 
       const total = now?.plan?.total ?? 0, ticked = now?.plan?.done ?? 0
-      rule('plan', now?.gate === 'open' ? 'gate open ✓' : now?.gate === 'closed' ? 'plan first ✎' : '')
+      rule('plan', now?.gate === 'open' ? `gate open ${glyph('checked')}` : now?.gate === 'closed' ? `plan first ${glyph('look')}` : '')
       if (now?.plan) {
-        pair('plan-open', (now.plan.pinned ? '⌑ ' : '') + workName(now.plan.title, null, now.plan.title), total > 0 ? stepLabel({ done: ticked, total }) : '', () => openDocument(now.plan!.file),
+        pair('plan-open', (now.plan.pinned ? glyph('plan') + ' ' : '') + workName(now.plan.title, null, now.plan.title), total > 0 ? stepLabel({ done: ticked, total }) : '', () => openDocument(now.plan!.file),
           'The plan this session works from. Enter opens it.')
         if (total > 0) content.push(measured(ticked / total, `${ticked} of ${total} done`))
-        if (now.plan.step) pair('plan-step', '◇ ' + now.plan.step, '', () => setView({ form: 'step' }), 'The step in hand. Enter changes it.')
+        if (now.plan.step) pair('plan-step', `${glyph('step')} ${now.plan.step}`, '', () => setView({ form: 'step' }), 'The step in hand. Enter changes it.')
         // No step pinned by hand: the plan's first unticked box is the step, and it moves on as boxes are ticked.
-        else if (now.plan.next) pair('plan-step', '◇ ' + now.plan.next, 'next', () => setView({ form: 'step' }),
+        else if (now.plan.next) pair('plan-step', `${glyph('step')} ${now.plan.next}`, 'next', () => setView({ form: 'step' }),
           'The first step of the plan not ticked yet; it moves on as the plan\'s boxes are ticked. Enter pins a step by hand.')
       } else pair('plan-pin', 'pin an active plan', '', () => setView({ form: 'plan' }), 'No plan read yet in this session. Enter pins one.', paper.dim)
 
@@ -1263,22 +1319,30 @@ export const register: Register = on => {
       // Changed files already have an action under "needs you".
       const waitingLine = pendingLine(pending, mine.filter(p => states.get(p) !== 'changed'), states)
       const [waitingFirst = '', ...waitingRest] = waitingLine.split(' · ')
-      if (waitingLine) pair('review-open', '✎ ' + waitingFirst, waitingRest.join(' · ').replace(' since you looked', ' since').replace(' of yours unread', ' unread'), () => checkedWork(['open', '--root', root, '--action', 'reviews']),
+      if (waitingLine) pair('review-open', `${glyph('look')} ${waitingFirst}`, waitingRest.join(' · ').replace(' since you looked', ' since').replace(' of yours unread', ' unread'), () => checkedWork(['open', '--root', root, '--action', 'reviews']),
         'What is waiting to be looked over. Enter opens the review in Neovim on the next one.')
       // Requests still with a session: who was asked and what for, until the file changes (then it needs you, above).
       for (const r of waitingOn.slice(0, 3))
-        pair(`request-${r.file}`, '✉ ' + base(r.file), 'sent · ' + (r.name || 'a session'), () => setView({ page: 'request', request: r.file, selected: '' }),
+        pair(`request-${r.file}`, `${glyph('sent')} ${base(r.file)}`, 'sent · ' + (r.name || 'a session'), () => setView({ page: 'request', request: r.file, selected: '' }),
           `Sent to ${r.name || 'a session'} ${ago(clock / 1000 - r.at)}: "${r.text}". The file has not changed yet. Enter opens the thread: send it again or withdraw it.`)
       if (waitingOn.length > 3) content.push(text(`  and ${waitingOn.length - 3} more requests waiting`))
       const reviewed = (now?.files ?? []).filter(f => states.get(f.path) === 'checked').length
-      pair('page-files', `${now?.files.length ?? 0} changed files`, summary ? `${reviewed} reviewed` : mine.length ? `${mine.length} this session` : '', () => page('files'),
+      // A record desk-work cannot read would make "0 reviewed" a false statement; say what is true.
+      const marksUnreadable = (now?.work?.records ?? []).some(r => r.file === 'review-marks.json')
+      pair('page-files', `${now?.files.length ?? 0} changed files`, marksUnreadable ? 'review marks unreadable'
+        : summary ? `${reviewed} reviewed` : mine.length ? `${mine.length} this session` : '', () => page('files'),
         'Files that differ from the last commit, and how many of them were reviewed as they are now.')
 
       const age = memory.lookAt > 0 ? (clock - memory.lookAt) / 1000 : null
       rule('work', age === null ? '' : 'updated ' + ago(age))
-      if (now?.work?.integration?.status === 'reload-pending') content.push(text(now.work.integration.message, paper.ribbon))
+      const installed = now?.work?.integration
+      if (installed?.status === 'reload-pending') {
+        const steps = installed.sessions?.find(s => s.client === 'notebook' && s.status === 'reload-pending')?.reload
+        pair('reload-pending', `${glyph('changed')} update installed`, 'reload to use it', () => page('health'),
+          `This session still runs the older notebook. ${steps ?? installed.message} Enter opens work health, which lists every session on older code with its own steps.`, paper.ribbon)
+      }
       if (memory.lookFailed || (age !== null && age > 180))
-        pair('refresh-now', '↻ this page may be out of date', 'retry', async () => { await refresh($) },
+        pair('refresh-now', `${glyph('changed')} this page may be out of date`, 'retry', async () => { await refresh($) },
           'The last refresh did not finish, so what is shown may be old. Enter reads everything again now.', paper.berry)
       else if (now && !now.work)
         pair('refresh-now', 'work tool unavailable', 'retry', async () => { await refresh($) },
@@ -1290,13 +1354,13 @@ export const register: Register = on => {
         'The last test run here, and whether the code changed since.', testColour(now.work.tests))
       if (ci) pair('work-ci', ci.label, '', async () => { if (/^https:\/\/github\.com\//.test(ci.url)) await run($, ['xdg-open', ci.url]) },
         'GitHub Actions on the pushed commit. Enter opens the run.', ci.state === 'failed' ? paper.berry : ci.state === 'passed' ? paper.added : paper.dim)
-      for (const job of (now?.work?.jobs ?? []).slice(0, 1)) jobRow(job, `◷ ${job.title ?? job.command} · ${Math.floor(job.elapsed / 60)}m`)
+      for (const job of (now?.work?.jobs ?? []).slice(0, 1)) jobRow(job, `${glyph('running')} ${job.title ?? job.command} · ${Math.floor(job.elapsed / 60)}m`)
       const branchLine = now?.card?.title ?? branchLabel(now?.git, now?.branch ?? '')
       const dot = branchLine.indexOf(' · ')
       pair('page-project', dot > 0 ? branchLine.slice(0, dot) : branchLine, dot > 0 ? branchLine.slice(dot + 3) : '', () => page('project'),
         'The branch against what is pushed. Enter shows the project: plan, tests and worktrees.')
       const tasks = (now?.work?.tasks ?? []).filter(t => !t.done)
-      if (tasks.length) pair('page-tasks', '◇ ' + (tasks[0]?.text ?? ''), `${tasks.length} next`, () => page('project'), 'Pinned next steps for this project.')
+      if (tasks.length) pair('page-tasks', `${glyph('step')} ${tasks[0]?.text ?? ''}`, `${tasks.length} next`, () => page('project'), 'Pinned next steps for this project.')
       if (now?.work) pair('task-add', '+ next step', '', () => setView({ form: 'task' }), 'Pin something to do next.', paper.dim)
 
       if (others.length) {
@@ -1309,8 +1373,20 @@ export const register: Register = on => {
       pair('page-timeline', 'project timeline', '', () => page('timeline'), 'The shared history of requests, edits, tests and reviews.')
       pair('page-health', 'work health', '', () => page('health'), 'Loaded versions, refresh times, connection recovery and update backups.', paper.dim)
       // What the selected row is, the way a menu's description strip says it.
-      const says = about[view.selected]
-      if (says) { content.push(text('')); for (const line of wrapWords(says, width)) content.push(text(line)) }
+      describe()
+    }
+
+    if (view.form === 'none' && view.page === 'attention') {
+      // The whole needs-you list, most urgent first, twenty to a page; each row opens what it names.
+      firstNeed = needs[0]?.press ?? null
+      const offset = Math.min(view.offset, Math.max(0, Math.floor((needs.length - 1) / 20) * 20))
+      rule('needs you', String(needs.length))
+      if (!needs.length) content.push(text('nothing needs you here', paper.dim))
+      else for (const line of breakdown()) content.push(text(line))
+      for (const need of needs.slice(offset, offset + 20)) pair(need.key, need.left, need.right, need.press, need.says, need.colour)
+      if (offset > 0) content.push(row('attention-previous', '↑ more urgent', () => setView({ offset: offset - 20, selected: '' })))
+      if (needs.length > offset + 20) content.push(row('attention-next', `↓ ${needs.length - offset - 20} more`, () => setView({ offset: offset + 20, selected: '' })))
+      describe()
     }
 
     if (view.form === 'none' && view.page === 'request') {
@@ -1319,14 +1395,14 @@ export const register: Register = on => {
       if (!thread) content.push(text('That request is settled.'))
       else {
         content.push(text(ruleLine('request', ago(clock / 1000 - thread.at), width), paper.ribbon))
-        content.push(text((thread.state === 'ready' ? '↻ ' : '✉ ') + thread.file, paper.ink))
+        content.push(text(glyph(thread.state === 'ready' ? 'changed' : 'sent') + ' ' + thread.file, paper.ink))
         content.push(text('to ' + (thread.name || 'a session')))
         content.push(text(thread.state === 'ready' ? 'the file has changed since' : 'the file has not changed yet', thread.state === 'ready' ? paper.added : paper.dim))
         for (const line of wrapWords(`"${thread.text}"`, Math.max(8, width - 2))) content.push(text('  ' + line, paper.ink))
-        content.push(row('request-open', thread.state === 'ready' ? '↻ re-review the file' : 'open the file',
+        content.push(row('request-open', thread.state === 'ready' ? `${glyph('changed')} re-review the file` : 'open the file',
           () => checkedWork(['open', '--root', root, '--action', 'file-diff', '--file', thread.file, '--session', session])))
         const peer = others.find(p => p.id === thread.sid)
-        content.push(row('request-again', peer ? '✉ send it again' : '✉ send again · session ended', async () => {
+        content.push(row('request-again', `${glyph('sent')} ` + (peer ? 'send it again' : 'send again · session ended'), async () => {
           if (!peer) { $.ui.toast('That session is no longer running. Withdraw this, then ask a live one from the review.'); return }
           // Delivery retries keep the original baseline: an answered request must stay ready for re-review.
           if (await sendNote($, peer, `Change request (again) for ${thread.file}: ${thread.text}`)) await refresh($)
@@ -1342,28 +1418,19 @@ export const register: Register = on => {
       const line = (mark: string, words: string) => wrapWords(words, Math.max(8, width - 7)).forEach((part, i) =>
         content.push(<Text><Text color={paper.ribbon}>{('  ' + (i === 0 ? mark : '')).padEnd(7)}</Text><Text color={paper.ink}>{part}</Text></Text>))
       content.push(text(ruleLine('marks', '', width), paper.ribbon))
-      line('✓', 'reviewed as it is now')
-      line('↻', 'edited since you reviewed it')
-      line('○', 'not reviewed yet')
-      line('✉', 'sent to a session; waiting for a change')
-      line('✎', 'something to look over')
-      line('⚠', 'red zone: login, boot, mounts, firewall')
-      line('!', 'failed, and not passed since')
-      line('◷', 'running now')
-      line('❦', 'a commit')
-      line('⌑', 'the pinned plan')
-      line('◇', 'the step or task in hand')
+      for (const [shown, means] of Object.values(MARKS)) line(shown, means)
       line('▰▱', 'context used; five full is the limit')
       content.push(text(ruleLine('keys', '', width), paper.ribbon))
       line('j k', 'move down and up')
       line('l ⏎', 'open the selected row')
       line('h', 'back to the front page')
       line('n', 'the next thing that needs you')
+      line('s', 'on a needs-you row: snooze it')
       line('e', 'on files: open the selected file to edit')
       line('d', 'the same page in the drawer')
       content.push(text(ruleLine('words', '', width), paper.ribbon))
       for (const words of ['gate open: the plan is approved, edits may go on', 'plan first: edits wait for an approved plan',
-        'needs you: what failed, or is ready for another look'])
+        'needs you: what failed, or is ready for another look; past three items it folds into one line, and Enter lists them'])
         wrapWords(words, Math.max(8, width - 2)).forEach((part, i) => content.push(text((i === 0 ? '  ' : '    ') + part, paper.ink)))
       content.push(row('help-back', 'back', () => page('overview')))
     }
@@ -1399,7 +1466,7 @@ export const register: Register = on => {
         const suffix = (file.owners?.length || !file.own) ? ` · ${owner}` : ''
         // ✓ reviewed, ↻ edited since it was reviewed, ○ not yet: only once a review of these files exists.
         const state = reviewed.get(file.path)
-        const mark = summary ? (state === 'checked' ? '✓' : state === 'changed' ? '↻' : '○') + ' ' : ''
+        const mark = summary ? glyph(state === 'checked' ? 'checked' : state === 'changed' ? 'changed' : 'unread') + ' ' : ''
         const labelWidth = Math.max(6, width - added.length - removed.length - 4 - mark.length)
         const fileLabel = shortPath(file.path, Math.max(6, labelWidth - Math.min(suffix.length, Math.floor(labelWidth / 2))))
           + shortPath(suffix, Math.min(suffix.length, Math.floor(labelWidth / 2)))
@@ -1424,10 +1491,10 @@ export const register: Register = on => {
 
     if (view.form === 'none' && view.page === 'project') {
       if (now?.plan) {
-        content.push(row('plan-open', (now.plan.pinned ? '⌑ ' : '') + now.plan.title, () => openDocument(now.plan!.file)))
+        content.push(row('plan-open', (now.plan.pinned ? glyph('plan') + ' ' : '') + now.plan.title, () => openDocument(now.plan!.file)))
         planRuler()
         content.push(row('plan-pin', now.plan.pinned ? 'change active plan' : 'pin this plan', () => now.plan?.pinned ? setView({ form: 'plan' }) : pin(now.plan!.file)))
-        content.push(row('plan-step', now.plan.step ? '◇ ' + now.plan.step : '+ current step', () => setView({ form: 'step' })))
+        content.push(row('plan-step', now.plan.step ? `${glyph('step')} ${now.plan.step}` : '+ current step', () => setView({ form: 'step' })))
         if (now.plan.pinned) content.push(row('plan-unpin', 'unpin plan', () => pin('')))
       } else content.push(row('plan-pin', '+ active plan', () => setView({ form: 'plan' })))
       if (now?.lastNight) content.push(row('last-night', 'last night · ' + (now.lastNight.line || 'where we left off'), () => openDocument(now.lastNight!.file)))
@@ -1441,10 +1508,10 @@ export const register: Register = on => {
         for (const file of (test.changedFiles ?? []).slice(0, 10))
           content.push(row('test-changed:' + file, 'changed since: ' + file, () => openFile(file, true)))
       }
-      for (const job of now?.work?.jobs ?? []) jobRow(job, `◷ ${job.title ?? job.command}`)
+      for (const job of now?.work?.jobs ?? []) jobRow(job, `${glyph('running')} ${job.title ?? job.command}`)
       if (now?.work) {
         for (const task of now.work.tasks.filter(t => !t.done)) {
-          content.push(row(`task-draft-${task.id}`, '◇ ' + task.text, () => checkedWork(['open', '--root', root, '--action', 'tasks', '--id', task.id])))
+          content.push(row(`task-draft-${task.id}`, `${glyph('step')} ${task.text}`, () => checkedWork(['open', '--root', root, '--action', 'tasks', '--id', task.id])))
           content.push(row(`task-done-${task.id}`, '  mark done', async () => {
             await checkedWork(['task-toggle', '--root', root, '--id', task.id]); await refresh($)
           }))
@@ -1477,7 +1544,7 @@ export const register: Register = on => {
     if (view.form === 'none' && view.page === 'sessions') {
       if (mail.length) content.push(row('mail-clear', 'mark all notes read', () => acknowledgeMail($, mail)))
       for (const note of mail) {
-        content.push(text(`✉ from ${note.from}`, paper.ribbon))
+        content.push(text(`${glyph('sent')} from ${note.from}`, paper.ribbon))
         content.push(<Text color={paper.ink}>{note.text}</Text>)
         content.push(row(`envelope-${note.id ?? note.at}`, 'mark read', () => acknowledgeMail($, [note])))
       }
@@ -1506,7 +1573,8 @@ export const register: Register = on => {
     if (view.form === 'none' && (view.page === 'timeline' || view.page === 'digest')) {
       const digest = now?.work?.digest
       const events = view.page === 'digest' ? digest?.events ?? [] : now?.work?.timeline ?? []
-      if (view.page === 'digest' && digest?.summary) for (const line of wrapWords(digest.summary, width)) content.push(text(line, paper.ink))
+      const greeting = digest?.greeting ?? digest?.summary
+      if (view.page === 'digest' && greeting) for (const line of wrapWords(greeting, width)) content.push(text(line, paper.ink))
       if (!events.length) content.push(text('No recorded events here yet.'))
       for (const event of events.slice(view.offset, view.offset + 20))
         content.push(row('event-' + event.id, event.label, () => checkedWork(['open', '--root', root, '--action', 'event', '--id', event.id]),
@@ -1574,7 +1642,7 @@ export const register: Register = on => {
         {now?.context != null && <Text color={now.context >= 80 ? paper.berry : paper.heart}>{'▰'.repeat(filled)}</Text>}
         {now?.context != null && <Text color={paper.note}>{'▱'.repeat(5 - filled)}</Text>}
         <Text color={paper.dim}>{now?.context == null ? 'context not measured yet' : ` ${now.context}%`}</Text>
-        {mail.length > 0 && <Text color={paper.ribbon}>{` · ✉ ${mail.length}`}</Text>}
+        {mail.length > 0 && <Text color={paper.ribbon}>{` · ${glyph('sent')} ${mail.length}`}</Text>}
         <Text color={paper.ink}>{name ? ' · ' + fit(name, Math.max(4, width - 14)) : ''}</Text>
       </Text>
       {/* The keys only matter while the notebook holds the keyboard; at rest the row is noise. */}
