@@ -106,6 +106,10 @@ int main() {
     EXPECT(!cmdline_options_sane(            // rw mangled away
         "options intel_iommu=on iommu=pt root=PARTUUID=abc quiet"));
     EXPECT(!cmdline_options_sane(""));       // line destroyed entirely
+    EXPECT(cmdline_options_sane(             // grep's output: archinstall's line ends in rw, then a newline
+        "options intel_iommu=on iommu=pt root=UUID=df6c rw\n"));
+    EXPECT(cmdline_options_sane("options\troot=UUID=df6c\trw"));
+    EXPECT(!cmdline_options_sane("options root=UUID=df6c rwx\n"));
 
     // ── 4. needs_prepend: no double-prepend on a re-run ────────────────
     EXPECT(needs_prepend(                     // base absent → prepend

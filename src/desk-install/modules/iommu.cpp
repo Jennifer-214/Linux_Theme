@@ -62,10 +62,13 @@ std::string build_iommu_args(const std::string& vendor, bool add_lockdown) {
     return add_lockdown ? base + " lockdown=integrity" : base;
 }
 
+// Whole words, split on any whitespace: the line comes from grep and ends in a newline, so an options line ending in
+// "rw" (archinstall's does) failed the old " rw " search and every IOMMU edit was reverted (found in the VM, 2026-11-14).
 bool cmdline_options_sane(const std::string& options_line) {
-    if (options_line.find("root=") == std::string::npos) return false;
-    const std::string padded = " " + options_line + " ";
-    return padded.find(" rw ") != std::string::npos;
+    std::istringstream words(options_line);
+    bool root = false, rw = false;
+    for (std::string w; words >> w;) { root = root || w.rfind("root=", 0) == 0; rw = rw || w == "rw"; }
+    return root && rw;
 }
 
 bool needs_prepend(const std::string& cmdline_text, const std::string& base_args) {
