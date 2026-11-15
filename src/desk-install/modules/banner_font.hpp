@@ -15,7 +15,7 @@ struct BannerBlock {
 // Build the banner for `text` (sanitise first). Each glyph cycles k1..k4.
 BannerBlock build_banner(const std::string& text);
 
-// Uppercase, keep only [A-Z0-9 ], trim ends, cap at 12 chars; ""→"FOX OS".
+// Uppercase, keep only [A-Z0-9 ], trim ends, cap at 12 chars; blank stays "" (no banner).
 std::string sanitize_banner_text(const std::string& in);
 
 // Per-surface colorizers over the sanitised text. Both cycle the same 4 warm
@@ -25,7 +25,8 @@ std::string sanitize_banner_text(const std::string& in);
 
 // hyprlock label value: per-letter pango <span foreground='##{{TOKEN}}'>C</span>,
 // wide-tracked (3 spaces between letters, 4 at a word gap). '#'→'##' is the
-// hyprlang comment escape; input is [A-Z0-9 ] so there is no &/< to escape.
+// hyprlang comment escape; input is [A-Z0-9 ] so there is no &/< to escape. Blank text gives "<span> </span>",
+// never an empty value.
 std::string banner_to_hyprlock_text(const std::string& text);
 
 // nvim Snacks header brand: the SAME half-block art as the zsh welcome

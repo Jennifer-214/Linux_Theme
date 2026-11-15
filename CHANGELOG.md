@@ -14,6 +14,10 @@ check`), and the leaves are `desk-drawer`, `desk-work`, `desk-pulse`, `ai-doctor
 command names are still installed as links, so scripts and habits keep working. Not renamed in this release: the
 `~/.config/foxml` folders, the `FOXML_*` environment names and the systemd unit names.
 
+On screen: there is no welcome banner by default (the zsh splash, the lock screen and Neovim's start page showed
+"FOX OS"); an install that saved "FOX OS" as its banner now has none, and any other text you chose stays. Wallpapers
+read "paper nap" rather than `foxml_paper_nap.jpg` in the drawer and the picker; the files keep their names.
+
 ### Desktop: Quickshell bar and drawers, Hyprland 0.57
 
 The bar and the menus are Quickshell: a drawer with pages for Today, tools, windows, audio, connections, displays,

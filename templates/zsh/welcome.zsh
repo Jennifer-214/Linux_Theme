@@ -15,13 +15,13 @@ function _caramel_welcome() {
   local O='\e[0m'
 
   # Name banner — the welcome_banner install module rewrites the block below
-  # from the user's chosen text (default FOX OS). bw is the
+  # from the user's chosen text (none by default). bw is the
   # banner's column span, used to right-anchor it next to the cat.
   # foxml:welcome-banner-begin
-  local bw=28
-  local b1="${k1}█▀▀${O} ${k2}█▀█${O} ${k3}▀▄▀${O} ${k4}  ${O} ${k1}█▀█${O} ${k2}▄▀▀${O}"
-  local b2="${k1}█▀ ${O} ${k2}█ █${O} ${k3} █ ${O} ${k4}  ${O} ${k1}█ █${O} ${k2} ▀▄${O}"
-  local b3="${k1}▀  ${O} ${k2}▀▀▀${O} ${k3}▀ ▀${O} ${k4}  ${O} ${k1}▀▀▀${O} ${k2}▀▀ ${O}"
+  local bw=8
+  local b1="${k1}  ${O}"
+  local b2="${k1}  ${O}"
+  local b3="${k1}  ${O}"
   # foxml:welcome-banner-end
 
   # Right column position for name banner

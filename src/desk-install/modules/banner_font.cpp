@@ -97,13 +97,15 @@ std::string sanitize_banner_text(const std::string& in) {
         if (out.size() >= 12) break;
     }
     std::size_t s = out.find_first_not_of(' ');
-    if (s == std::string::npos) return "FOX OS";
+    if (s == std::string::npos) return "";
     std::size_t e = out.find_last_not_of(' ');
-    out = out.substr(s, e - s + 1);
-    return out.empty() ? "FOX OS" : out;
+    return out.substr(s, e - s + 1);
 }
 
 std::string banner_to_hyprlock_text(const std::string& text) {
+    // No banner: one blank space in the same span markup as a letter, so the lock screen's label never gets an
+    // empty value to parse.
+    if (text.find_first_not_of(' ') == std::string::npos) return "<span> </span>";
     std::string out;
     bool prev_letter = false;
     int i = 0;

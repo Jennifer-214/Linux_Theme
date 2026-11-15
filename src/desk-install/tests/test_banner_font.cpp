@@ -21,7 +21,15 @@ int main() {
     // ── sanitiser ──
     eq("sanitize lower",     sanitize_banner_text("fox os"), "FOX OS");
     eq("sanitize strip",     sanitize_banner_text("a@b!c"),  "ABC");
-    eq("sanitize blank",     sanitize_banner_text("   "),    "FOX OS");
+    eq("sanitize blank",     sanitize_banner_text("   "),    "");
+    // No banner by default: blank text draws nothing on any of the three surfaces.
+    eq("blank zsh row",      build_banner("").r1,            "${k1}  ${O}");
+    eq("blank hyprlock",     banner_to_hyprlock_text(""),    "<span> </span>");
+    eq("spaces hyprlock",    banner_to_hyprlock_text("  "),  "<span> </span>");
+    if (banner_to_snacks_blocks("").find("█") != std::string::npos || banner_to_snacks_blocks("").find("▀") != std::string::npos) {
+        std::fprintf(stderr, "FAIL blank nvim banner draws glyphs\n");
+        ++failed;
+    }
     eq("sanitize trim",      sanitize_banner_text("  hi "),  "HI");
     if (sanitize_banner_text("ABCDEFGHIJKLMNOP").size() != 12) {
         std::fprintf(stderr, "FAIL sanitize cap: len=%zu\n",

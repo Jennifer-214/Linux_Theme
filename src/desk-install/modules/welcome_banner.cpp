@@ -1,7 +1,7 @@
 // modules/welcome_banner.cpp — bake a custom name banner into welcome.zsh.
 //
-// The zsh splash draws a half-block banner (default "FOX OS") to the right of
-// the cat. This module lets the user pick their own text once, at install:
+// The zsh splash can draw a half-block banner to the right of the cat (none by
+// default). This module lets the user pick their own text once, at install:
 // it constructs the three banner rows from banner_font's glyph table and
 // splices them into the `# foxml:welcome-banner` block of the deployed +
 // rendered welcome.zsh. The choice is stored in ~/.config/foxml/welcome.conf
@@ -19,6 +19,7 @@
 #include <fstream>
 #include <iostream>
 #include <map>
+#include <optional>
 #include <string>
 #include <system_error>
 
@@ -27,10 +28,10 @@ namespace fs = std::filesystem;
 namespace desk_install {
 namespace {
 
-// Parse WELCOME_TEXT="..." out of the sidecar. Empty if absent/unset.
-std::string read_sidecar(const fs::path& p) {
+// Parse WELCOME_TEXT="..." out of the sidecar; nullopt when nothing was ever saved ("" is a saved "no banner").
+std::optional<std::string> read_sidecar(const fs::path& p) {
     std::ifstream in(p);
-    if (!in) return {};
+    if (!in) return std::nullopt;
     std::string line;
     const std::string key = "WELCOME_TEXT=";
     while (std::getline(in, line)) {
@@ -41,7 +42,7 @@ std::string read_sidecar(const fs::path& p) {
         if (!v.empty() && v.back()  == '"') v.pop_back();
         return v;
     }
-    return {};
+    return std::nullopt;
 }
 
 void write_sidecar(const fs::path& p, const std::string& text) {
@@ -83,25 +84,23 @@ void run_welcome_banner(Context& ctx) {
     ui::section("Welcome banner");
 
     fs::path sidecar = ctx.config_home / "foxml/welcome.conf";
-    std::string stored = read_sidecar(sidecar);
+    auto stored = read_sidecar(sidecar);
+    // The old default was saved like a choice; an install from before keeps no banner, as a new one does.
+    if (stored && *stored == "FOX OS") stored = "";   // old-fox-name
 
     std::string chosen;
-    if (!stored.empty()) {
-        chosen = stored;                          // reinstall: keep prior choice
+    if (stored) {
+        chosen = *stored;                         // reinstall: keep prior choice
     } else if (ui::tty() && !ctx.assume_yes && !sh::dry_run()) {
-        std::cout << "  banner text (A-Z 0-9, blank = FOX OS): " << std::flush;
-        std::string line;
-        std::getline(std::cin, line);
-        chosen = line.empty() ? std::string("FOX OS") : line;
-    } else {
-        chosen = "FOX OS";
+        std::cout << "  banner text (A-Z 0-9, blank = none): " << std::flush;
+        std::getline(std::cin, chosen);
     }
 
     std::string text = sanitize_banner_text(chosen);
+    const std::string shown = text.empty() ? std::string("none") : "\"" + text + "\"";
 
     if (sh::dry_run()) {
-        ui::substep("[dry-run] banner \"" + text +
-                    "\" → welcome.zsh + hyprlock.conf + nvim/init.lua");
+        ui::substep("[dry-run] banner " + shown + " → welcome.zsh + hyprlock.conf + nvim/init.lua");
         return;
     }
 
@@ -119,7 +118,7 @@ void run_welcome_banner(Context& ctx) {
     bool ok = splice_sentinel(ctx.config_home  / "zsh/welcome.zsh", begin, end, content);
     splice_sentinel(ctx.rendered_dir / "zsh/welcome.zsh", begin, end, content);
 
-    if (ok) ui::ok("welcome banner → \"" + text + "\"");
+    if (ok) ui::ok("welcome banner → " + shown);
     else    ui::warn("welcome.zsh missing sentinel — banner unchanged");
 
     // Same WELCOME_TEXT drives the lock screen + editor dashboard ([I-06]),
@@ -134,7 +133,7 @@ void run_welcome_banner(Context& ctx) {
         const std::string e = "# foxml:hyprlock-brand-end";
         bool hok = splice_sentinel(ctx.config_home / "hypr/hyprlock.conf", b, e, hypr);
         splice_sentinel(ctx.rendered_dir / "hyprlock/hyprlock.conf", b, e, hypr);
-        if (hok) ui::ok("hyprlock brand → \"" + text + "\"");
+        if (hok) ui::ok("hyprlock brand → " + shown);
         else     ui::warn("hyprlock.conf missing sentinel — brand unchanged");
     }
     {
@@ -143,7 +142,7 @@ void run_welcome_banner(Context& ctx) {
         const std::string e = "-- foxml:nvim-banner-end";
         bool nok = splice_sentinel(ctx.config_home / "nvim/init.lua", b, e, seg);
         splice_sentinel(ctx.rendered_dir / "nvim/init.lua", b, e, seg);
-        if (nok) ui::ok("nvim banner → \"" + text + "\"");
+        if (nok) ui::ok("nvim banner → " + shown);
         else     ui::warn("init.lua missing sentinel — nvim banner unchanged");
     }
 }
