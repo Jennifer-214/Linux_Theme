@@ -605,7 +605,12 @@ J reviews(const std::string& root, bool today_only = true) {
         if (f.size() < 4 || f[0].size() != 40) continue;
         if (f[3].empty() && (f.size() < 5 || (f[4].find("Claude") == std::string::npos && f[4].find("claude") == std::string::npos))) continue;
         long long at = 0; try { at = std::stoll(f[1]); } catch (...) { continue; }
-        const bool seen = (marks.is_object() && marks.contains(f[0])) || stamped.count(f[0]) > 0;
+        // Every file checked (against the review's own file count) and none edited since counts as reviewed, so the
+        // "commits to review" count goes down as files are checked off, not only when a review is finished.
+        const bool all_checked = progress.contains(f[0]) && progress[f[0]].value("declared", 0) > 0
+                                 && progress[f[0]].value("checked", 0) >= progress[f[0]].value("declared", 0)
+                                 && progress[f[0]].value("changed", 0) == 0;
+        const bool seen = (marks.is_object() && marks.contains(f[0])) || stamped.count(f[0]) > 0 || all_checked;
         if (today_only && (at < start || seen)) continue;
         J row{{"sha", f[0]}, {"at", at}, {"subject", f[2]}, {"root", root}, {"reviewed", seen}};
         if (progress.contains(f[0])) { row["checked"] = progress[f[0]]["checked"]; row["total"] = progress[f[0]]["total"]; }
@@ -896,7 +901,10 @@ J review_progress(const std::string& root, const std::string& only) {
             files[rel] = J{{"state", state}, {"at", mark.value("at", 0LL)}};
         }
         const int total = std::max(review.value("total", 0), static_cast<int>(files.size()));
+        // declared: the file count the review itself recorded (0 when no caller passed --total), unlike total, which
+        // falls back to the files marked so far.
         out[key] = J{{"files", files}, {"checked", checked}, {"changed", changed}, {"total", total},
+                     {"declared", review.value("total", 0)},
                      {"completed", review.value("completed", false) && changed == 0 && checked >= total && total > 0},
                      {"at", review.value("at", 0LL)}};
     }

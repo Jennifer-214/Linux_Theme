@@ -557,6 +557,24 @@ class Work(unittest.TestCase):
         self.assertEqual(len(self.data("review-tree", "--all", "yes")[0]["commits"]), 2)
         self.assertFalse(json.loads(self.invoke("commit-plan", "--sha", "nothex", "--title", "x", code=1))["ok"])
 
+    def test_checking_every_file_of_a_commit_takes_it_off_the_to_review_count(self):
+        import hashlib
+        sig = lambda text: hashlib.sha256(text.encode()).hexdigest()
+        self.git("commit", "--allow-empty", "-qm", "Two files\n\nClaude-Session: https://claude.ai/code/session_x")
+        sha = self.git("rev-parse", "HEAD")
+        pending = lambda: [r["sha"] for r in self.data("reviews")]
+        self.assertEqual(pending(), [sha])
+        self.data("review-mark", "--key", sha, "--file", "a.cpp", "--signature", sig("a"), "--total", "2")
+        self.assertEqual(pending(), [sha], "one of two files checked: still to review")
+        self.data("review-mark", "--key", sha, "--file", "b.cpp", "--signature", sig("b"), "--total", "2")
+        self.assertEqual(pending(), [], "every file checked: no longer counted")
+        self.assertTrue(self.data("reviews", "--all", "yes")[0]["reviewed"])
+        # Without a recorded file count, one checked file never counts as the whole commit.
+        self.git("commit", "--allow-empty", "-qm", "Unknown size\n\nClaude-Session: https://claude.ai/code/session_x")
+        other = self.git("rev-parse", "HEAD")
+        self.data("review-mark", "--key", other, "--file", "c.cpp", "--signature", sig("c"))
+        self.assertEqual(pending(), [other])
+
     def test_a_finished_review_is_stamped_on_the_commit_and_the_stamp_alone_counts(self):
         self.git("commit", "--allow-empty", "-qm", "Claude change\n\nClaude-Session: https://claude.ai/code/session_example")
         sha = self.git("rev-parse", "HEAD")
