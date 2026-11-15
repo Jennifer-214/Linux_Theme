@@ -240,8 +240,11 @@ _menu() {
         entries+=("󰑐  Enable Rotation (Time-of-Day)")
     fi
     
+    # Shown without the extension and the old foxml_ prefix (foxml_paper_nap.jpg reads "paper nap"); the file keeps its name.
+    local label
     for w in "${wallpapers[@]}"; do
-        entries+=("󰸉  $w")
+        label="${w%.*}"; label="${label#foxml_}"   # old-fox-name
+        entries+=("󰸉  ${label//_/ }")
     done
 
     local chosen

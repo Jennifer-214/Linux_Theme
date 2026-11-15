@@ -2037,6 +2037,16 @@ print('0\t' + str(target))
     def shipped_menu(self):
         return json.loads((REPO / "shared/quickshell/desk/menus.json").read_text())
 
+    def test_wallpapers_read_without_the_old_prefix_or_the_file_name(self):
+        walls = self.home / ".wallpapers"
+        walls.mkdir(parents=True, exist_ok=True)
+        for name in ("foxml_paper_nap.jpg", "foxml_paper_nap_1920x1080.jpg", "amsterdam_orange.jpg"):   # old-fox-name
+            (walls / name).write_bytes(b"x")
+        rows = self.invoke("view", "wallpapers")["items"]
+        self.assertEqual([r["label"] for r in rows], ["amsterdam orange", "paper nap"])
+        self.assertEqual({r["detail"] for r in rows}, {""})
+        self.assertTrue(rows[1]["argument"].endswith("/foxml_paper_nap.jpg"), "setting one still names the file")   # old-fox-name
+
     def test_the_shipped_menu_has_a_workbench_and_every_page_opens(self):
         self.config.write_text((REPO / "shared/quickshell/desk/menus.json").read_text())
         menu = self.shipped_menu()

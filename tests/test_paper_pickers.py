@@ -83,10 +83,13 @@ class PaperPickers(unittest.TestCase):
         wallpaper = self.home/'.wallpapers'
         wallpaper.mkdir()
         (wallpaper/'a literal $(paper).png').write_bytes(b'fixture')
+        (wallpaper/'foxml_paper_nap.jpg').write_bytes(b'fixture')   # old-fox-name
         self.run_tool('desk-wallpaper','--menu',PICKER_CANCEL='1')
         rows = (self.home/'input').read_text()
         self.assertIn('Rotation',rows)
-        self.assertIn('a literal $(paper).png',rows)
+        self.assertIn('a literal $(paper)\n',rows)
+        self.assertIn('paper nap\n',rows)
+        self.assertNotIn('foxml',rows)   # old-fox-name
 
     def test_legacy_agent_entrypoint_opens_the_native_agent_drawer(self):
         calls=self.run_tool('agent_rofi.sh')

@@ -731,6 +731,15 @@ std::vector<fs::path> wallpapers() {
     }
     std::sort(found.begin(), found.end()); return found;
 }
+// What a wallpaper is called on screen: foxml_paper_nap.jpg reads "paper nap". The file keeps its name, since
+// .current, the login screen and the rotation slots all name it.
+std::string wallpaper_label(const fs::path& path) {
+    static const std::string old_prefix = "foxml_";   // old-fox-name
+    std::string label = path.stem().string();
+    if (label.rfind(old_prefix, 0) == 0 && label.size() > old_prefix.size()) label.erase(0, old_prefix.size());
+    std::replace(label.begin(), label.end(), '_', ' ');
+    return label;
+}
 std::vector<std::string> themes() {
     std::vector<std::string> found; std::error_code ec;
     fs::directory_iterator iter(repository() / "themes", ec), end;
@@ -4382,7 +4391,7 @@ Json view(const Json& config, const std::string& page, const std::string& query,
     } else if (page == "wallpapers") {
         known = true; out["title"] = "Wallpapers";
         for (const auto& path : wallpapers()) {
-            auto row = item("wallpaper-set", path.stem().string(), "action", path.filename().string(), "image");
+            auto row = item("wallpaper-set", wallpaper_label(path), "action", "", "image");
             row["argument"] = path.string(); rows.push_back(row);
         }
     } else if (page == "themes") {
