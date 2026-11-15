@@ -26,10 +26,22 @@ local function read(path)
   return text
 end
 
+local function stamp(path)
+  local st = path and uv.fs_stat(path)
+  return st and (st.mtime.sec .. "." .. st.mtime.nsec .. ":" .. st.size) or nil
+end
+
+-- A file is read again only when its mtime or size changed.
+local lines_cache = {}
 local function lines_of(path)
+  local now = stamp(path)
+  if not now then return nil end
+  local hit = lines_cache[path]
+  if hit and hit.stamp == now then return hit.lines end
   local text = read(path)
   if not text then return nil end
-  return vim.split(text, "\n", { plain = true })
+  lines_cache[path] = { stamp = now, lines = vim.split(text, "\n", { plain = true }) }
+  return lines_cache[path].lines
 end
 
 -- ─── reading a plan ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -73,10 +85,24 @@ end
 
 -- ─── finding things ─────────────────────────────────────────────────────────────────────────────────────────────
 local tracked_cache = {}
+local function ls_files(root, done)
+  local function back(out)
+    vim.schedule(function()
+      tracked_cache[root] = out and out.code == 0 and vim.split(out.stdout or "", "\n", { trimempty = true }) or {}
+      done()
+    end)
+  end
+  if not pcall(vim.system, { "git", "--no-optional-locks", "-C", root, "ls-files" }, { text = true, timeout = 5000 }, back) then
+    back(nil)
+  end
+end
+
 local function tracked(root)
   if tracked_cache[root] then return tracked_cache[root] end
-  local out = vim.fn.systemlist({ "git", "--no-optional-locks", "-C", root, "ls-files" })
-  tracked_cache[root] = vim.v.shell_error == 0 and out or {}
+  -- refresh() fills the list in the background first; only a direct caller of resolve() waits here.
+  local ok, job = pcall(vim.system, { "git", "--no-optional-locks", "-C", root, "ls-files" }, { text = true })
+  local out = ok and job:wait(5000) or {}
+  tracked_cache[root] = out.code == 0 and vim.split(out.stdout or "", "\n", { trimempty = true }) or {}
   return tracked_cache[root]
 end
 
@@ -119,31 +145,45 @@ function M.find_symbol(file, name, lines)
 end
 
 -- ─── which plan ─────────────────────────────────────────────────────────────────────────────────────────────────
-function M.current_plan(root)
+-- Each live session here with the plan pinned in its notebook (desk-work plan), read in the background.
+function M.pins(root, done)
   local ok, claude = pcall(require, "desk.claude")
-  local best
-  if ok then
-    for _, p in ipairs(claude.in_repo(root, claude.live) or {}) do
-      local out = vim.fn.system({ "desk-work", "plan", "--root", root, "--session", p.id })
-      local pin = vim.v.shell_error == 0 and claude.decode(out) or nil
-      if type(pin) == "table" and type(pin.file) == "string" and uv.fs_stat(pin.file) then
-        if not best or (pin.at or 0) > best.at then best = { file = pin.file, at = pin.at or 0 } end
-      end
+  local sessions = ok and claude.in_repo(root, claude.live) or {}
+  local entries, left = {}, #sessions
+  for i, p in ipairs(sessions) do entries[i] = { session = p } end
+  if left == 0 or vim.fn.executable("desk-work") ~= 1 then return done(entries) end
+  for i, p in ipairs(sessions) do
+    local function back(out)
+      vim.schedule(function()
+        entries[i].pin = out and out.code == 0 and claude.decode(out.stdout) or nil
+        left = left - 1
+        if left == 0 then done(entries) end
+      end)
     end
-    if not best then
-      for _, p in ipairs(claude.in_repo(root, claude.live) or {}) do
-        local plan = (p.ledger or {}).plan
-        if type(plan) == "string" and uv.fs_stat(plan) and (not best or (p.ledger.plan_at or 0) > best.at) then
-          best = { file = plan, at = p.ledger.plan_at or 0 }
-        end
+    if not pcall(vim.system, { "desk-work", "plan", "--root", root, "--session", p.id }, { text = true, timeout = 3000 }, back) then
+      back(nil)
+    end
+  end
+end
+
+-- The newest pin, else the plan a session read last; a plan chosen with :PlanMarks wins over both.
+function M.choose(entries)
+  local best
+  for _, e in ipairs(entries or {}) do
+    local pin = e.pin
+    if type(pin) == "table" and type(pin.file) == "string" and uv.fs_stat(pin.file) then
+      if not best or (pin.at or 0) > best.at then best = { file = pin.file, at = pin.at or 0 } end
+    end
+  end
+  if not best then
+    for _, e in ipairs(entries or {}) do
+      local ledger = e.session.ledger or {}
+      if type(ledger.plan) == "string" and uv.fs_stat(ledger.plan) and (not best or (ledger.plan_at or 0) > best.at) then
+        best = { file = ledger.plan, at = ledger.plan_at or 0 }
       end
     end
   end
   if M.chosen and uv.fs_stat(M.chosen) then best = { file = M.chosen, at = math.huge } end
-  if not best then return nil end
-  local text = read(best.file) or ""
-  best.title = text:match("^#%s+(.-)%s*\n") or vim.fn.fnamemodify(best.file, ":t:r")
-  best.text = text
   return best
 end
 
@@ -153,6 +193,7 @@ function M.build(root, plan)
   for _, ref in ipairs(M.parse(plan.text)) do
     local file = M.resolve(root, ref.path)
     local mark = { file = file or (root .. "/" .. ref.path), path = ref.path, step = ref.step, line = ref.line or 1, last = ref.last }
+    mark.real = uv.fs_realpath(mark.file) or mark.file
     if not file and not ref.clear then
       mark = nil
     elseif not file then
@@ -185,7 +226,7 @@ function M.paint(buf)
   local count = vim.api.nvim_buf_line_count(buf)
   local shown = {}
   for _, m in ipairs(M.marks) do
-    if not m.drifted and (uv.fs_realpath(m.file) or m.file) == name and m.line <= count and not shown[m.line] then
+    if not m.drifted and (m.real or m.file) == name and m.line <= count and not shown[m.line] then
       shown[m.line] = true
       pcall(vim.api.nvim_buf_set_extmark, buf, ns, m.line - 1, 0, {
         sign_text = "✎", sign_hl_group = "FoxPlanSign",
@@ -196,12 +237,70 @@ function M.paint(buf)
   end
 end
 
-function M.refresh()
+-- Buffers in a window; a hidden one is painted when it is shown (BufWinEnter).
+local function paint_shown()
+  local done = {}
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    local buf = vim.api.nvim_win_get_buf(win)
+    if not done[buf] then done[buf] = true; M.paint(buf) end
+  end
+end
+
+-- What the marks were built from besides the plan: each file they point at (or that was missing).
+local function files_key(marks)
+  local seen, parts = {}, {}
+  for _, m in ipairs(marks or {}) do
+    if not seen[m.file] then seen[m.file] = true; parts[#parts + 1] = m.file .. "=" .. (stamp(m.file) or "-") end
+  end
+  table.sort(parts)
+  return table.concat(parts, "\n")
+end
+
+-- Nothing here waits on a command. The marks are built again only when the chosen plan, its file, the git index
+-- (files added or removed) or a file a mark points at changed. done() runs once the marks are current.
+local refreshing, queued = false, nil
+function M.refresh(done)
+  if refreshing then
+    queued = queued or {}
+    queued[#queued + 1] = done or false
+    return
+  end
+  refreshing = true
   local root = vim.fs.root(0, ".git") or vim.fn.getcwd()
-  tracked_cache[root] = nil
-  local plan = M.current_plan(root)
-  M.plan, M.marks = plan, plan and M.build(root, plan) or {}
-  for _, buf in ipairs(vim.api.nvim_list_bufs()) do if vim.api.nvim_buf_is_loaded(buf) then M.paint(buf) end end
+  local function finish()
+    refreshing = false
+    local waiting = queued
+    queued = nil
+    if waiting then M.refresh(function() for _, d in ipairs(waiting) do if d then d() end end end) end
+    if done then done() end
+  end
+  -- An error part way must not leave refreshing set, or the marks would never be read again.
+  local function guarded(fn)
+    return function(...)
+      local ok, err = pcall(fn, ...)
+      if not ok then refreshing, queued = false, nil; error(err, 0) end
+    end
+  end
+  M.pins(root, guarded(function(entries)
+    local best = M.choose(entries)
+    local key = best and table.concat({ root, best.file, tostring(best.at), stamp(best.file) or "",
+                                        stamp(root .. "/.git/index") or "" }, "\0")
+    if key == M.key and (not key or files_key(M.marks) == M.files_key) then return finish() end
+    if not best then
+      M.plan, M.marks, M.key, M.files_key = nil, {}, nil, nil
+      paint_shown()
+      return finish()
+    end
+    ls_files(root, guarded(function()
+      local text = read(best.file) or ""
+      best.title = text:match("^#%s+(.-)%s*\n") or vim.fn.fnamemodify(best.file, ":t:r")
+      best.text = text
+      M.plan, M.marks = best, M.build(root, best)
+      M.key, M.files_key = key, files_key(M.marks)
+      paint_shown()
+      finish()
+    end))
+  end))
 end
 
 -- The live marks in order (file, then line), for ]n / [n.
@@ -220,18 +319,18 @@ function M.jump(direction)
   local pick
   if direction > 0 then
     for _, m in ipairs(list) do
-      local f = uv.fs_realpath(m.file) or m.file
+      local f = m.real or m.file
       if f > here or (f == here and m.line > line) then pick = m; break end
     end
     pick = pick or list[1]
   else
     for i = #list, 1, -1 do
-      local m = list[i]; local f = uv.fs_realpath(m.file) or m.file
+      local m = list[i]; local f = m.real or m.file
       if f < here or (f == here and m.line < line) then pick = m; break end
     end
     pick = pick or list[#list]
   end
-  if (uv.fs_realpath(pick.file) or pick.file) ~= here then vim.cmd("edit " .. vim.fn.fnameescape(pick.file)) end
+  if (pick.real or pick.file) ~= here then vim.cmd("edit " .. vim.fn.fnameescape(pick.file)) end
   vim.api.nvim_win_set_cursor(0, { math.min(pick.line, vim.api.nvim_buf_line_count(0)), 0 })
   vim.cmd("normal! zz")
 end
@@ -262,7 +361,7 @@ function M.setup()
   if timer then timer:start(30000, 30000, vim.schedule_wrap(M.refresh)) end
   vim.api.nvim_create_user_command("PlanMarks", function(o)
     if o.args ~= "" then M.chosen = vim.fn.fnamemodify(o.args, ":p") end
-    M.refresh(); M.list()
+    M.refresh(M.list)
   end, { nargs = "?", complete = "file", desc = "Mark the places the plan names (optionally: this plan)" })
   vim.api.nvim_create_user_command("PlanMarksToggle", function()
     M.enabled = not M.enabled

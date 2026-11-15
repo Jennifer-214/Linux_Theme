@@ -84,8 +84,11 @@ Scope {
 
             Text {
                 id: heading
-                text: "the desk."
-                color: overview.theme.ink; font.family: overview.theme.headingFont; font.italic: true; font.pixelSize: 30
+                // Retro: a prompt listing the pages, the way a terminal would.
+                readonly property bool retro: overview.theme.style === "retro"
+                text: retro ? "C:\\DESK> DIR /PAGES" : "the desk."
+                color: overview.theme.ink; font.family: retro ? overview.theme.fontFamily : overview.theme.headingFont
+                font.italic: !retro; font.pixelSize: retro ? 26 : 30
             }
             Grid {
                 id: grid
@@ -113,14 +116,14 @@ Scope {
                             id: photo
                             width: cell.area.w * cell.scaleTo + 16; height: cell.area.h * cell.scaleTo + 40
                             anchors.centerIn: parent
-                            rotation: cell.chosen ? 0 : (cell.index % 3 - 1) * 1.1
+                            rotation: cell.chosen || heading.retro ? 0 : (cell.index % 3 - 1) * 1.1
                             scale: cell.chosen ? 1.03 : 1
                             Behavior on scale { NumberAnimation { duration: 120 } }
                             Behavior on rotation { NumberAnimation { duration: 120 } }
-                            Rectangle { anchors.fill: parent; x: 2; y: 3; color: Qt.alpha(overview.theme.ink, .08); radius: 2 }
+                            Rectangle { anchors.fill: parent; x: 2; y: 3; color: Qt.alpha(overview.theme.ink, .08); radius: 2; visible: !heading.retro }
                             Rectangle {
                                 anchors.fill: parent
-                                color: overview.theme.background; radius: 2
+                                color: overview.theme.background; radius: heading.retro ? 0 : 2
                                 border.width: cell.chosen ? 2 : 1
                                 border.color: cell.chosen ? overview.theme.detailAccent : Qt.alpha(overview.theme.line, .9)
                             }
@@ -151,16 +154,25 @@ Scope {
                                 Text {
                                     anchors.centerIn: parent
                                     visible: cell.modelData.toplevels.values.length === 0
-                                    text: "empty page"; color: overview.theme.muted
-                                    font.family: overview.theme.headingFont; font.italic: true; font.pixelSize: 13
+                                    text: heading.retro ? "<EMPTY>" : "empty page"; color: overview.theme.muted
+                                    font.family: heading.retro ? overview.theme.fontFamily : overview.theme.headingFont
+                                    font.italic: !heading.retro; font.pixelSize: 13
                                 }
+                            }
+                            // Retro: the chosen page's caption is an inverse-video bar across the frame's foot.
+                            Rectangle {
+                                visible: heading.retro && cell.chosen
+                                anchors.bottom: parent.bottom; anchors.left: parent.left; anchors.right: parent.right; anchors.margins: 2
+                                height: 26; color: overview.theme.ink
                             }
                             Text {
                                 anchors.bottom: parent.bottom; anchors.bottomMargin: 9; x: 10; width: parent.width - 20
-                                text: "page " + cell.modelData.id + (cell.modelData.toplevels.values.length
-                                      ? " · " + (cell.modelData.toplevels.values[0].title || "") : "")
+                                text: (heading.retro ? "[" + cell.modelData.id + "] " : "page " + cell.modelData.id)
+                                      + (cell.modelData.toplevels.values.length
+                                      ? (heading.retro ? "" : " · ") + (cell.modelData.toplevels.values[0].title || "") : "")
                                 elide: Text.ElideRight; textFormat: Text.PlainText
-                                color: overview.theme.ink; font.family: overview.theme.fontFamily; font.pixelSize: 11
+                                color: heading.retro && cell.chosen ? overview.theme.background : overview.theme.ink
+                                font.family: overview.theme.fontFamily; font.pixelSize: 11
                                 font.bold: cell.chosen
                             }
                             MouseArea {

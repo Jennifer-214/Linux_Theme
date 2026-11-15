@@ -67,6 +67,9 @@ HYPR_WIN_CURVE=foxSettle
 KITTY_ITALIC_FONT="MonaspiceRn Nerd Font"
 KITTY_TAB_BAR_STYLE=hidden
 KITTY_DIM_OPACITY=1.0
+# kitty custom shaders: off. retro-amber sets custom_shaders crt-glow (shared/kitty/crt-glow.pipeline).
+KITTY_SHADER_LINE='env DESK_KITTY_SHADERS=off'
+KITTY_SHADER_STATE='env DESK_KITTY_CRT=off'
 # Name banner (zsh splash + nvim dashboard): one graphite ink, not a grey patchwork
 WELCOME_INK1=237
 WELCOME_INK2=237
@@ -172,6 +175,11 @@ NVIM_FN_DEF=3f2d4b
 NVIM_FN_DEF_BOLD=true
 NVIM_KW_BOLD=false
 NVIM_READONLY_BOLD=false
+# Tag-comment markers in // comments ([KEY], values, nested [CHIPS], [END_*] closers).
+NVIM_TAG_KEY=353238
+NVIM_TAG_VALUE=48484b
+NVIM_TAG_CHIP=55555a
+NVIM_TAG_END=5e5e63
 
 # ─── Nvim syntax roles ───
 # Dark typed code and warm handwritten comments, with blush behind literals.
@@ -324,6 +332,8 @@ WELCOME_LAYOUT=centered
 # Paper uses botanical illustrations and quiet pencil details.
 # Other themes: fox-little-details-off.
 LITTLE_DETAILS=fox-little-details-on
+# Quickshell drawing style: paper (pencil, sprigs, hearts) | retro (blocks, cursors) | plain.
+DESK_STYLE=paper
 
 # ─── Cohesive surfaces (lock screen · mako · rofi · btop · lazygit · fzf · nvim floats) ───
 # Paper: one hairline (a9a19b) for every frame, the pink highlighter for every selection,
@@ -352,6 +362,10 @@ HYPRLOCK_DATE_TEXT='cmd[update:60000] sh "${XDG_CONFIG_HOME:-$HOME/.config}/hypr
 HYPRLOCK_NOTE='<i>locked</i>'
 HYPRLOCK_NOTE_Y=-140
 HYPRLOCK_CAT_Y=-228
+# Lock screen: the boot-screen summary's height (9999 = off screen), the password field's hint and corners.
+HYPRLOCK_BOOT_Y=9999
+HYPRLOCK_PLACEHOLDER='<i>password, or a fingertip</i>'
+HYPRLOCK_INPUT_ROUNDING=4
 MAKO_BORDER=a9a19b
 MAKO_CRIT_BORDER=9a5a48
 MAKO_AGENT_BORDER=9a9894
@@ -396,6 +410,8 @@ REGREET_CLOCK_FORMAT="%-I:%M %P"
 # ─── Firefox (chrome + new tab / settings / web selection) ───
 # Paper: hairline frames, 6px corners (Firefox's own radii show through), the highlighter for rows and text.
 FF_EXTRA_SCOPE=':root'
+# retro-amber's Firefox shape (a DOS menu-bar tab strip, the terminal font): ':root' on, ':not(*)' off.
+FF_RETRO_SCOPE=':not(*)'
 FF_FRAME=a9a19b
 FF_FRAME_W=1px
 FF_RADIUS=6px
@@ -556,6 +572,9 @@ CLAUDE_DIFF_ADD_WORD=91c791
 CLAUDE_DIFF_DEL=f5c7ba
 CLAUDE_DIFF_DEL_DIM=f4d9d1
 CLAUDE_DIFF_DEL_WORD=ec9c88
+# Claude status line: the context meter's filled and empty marks.
+CLAUDE_CTX_FULL='▰'
+CLAUDE_CTX_EMPTY='▱'
 
 # Commit garden: paper, then four pinks that deepen with the day's commits. Level 1 is the message-box pink
 # that read on every monitor; each step is at least 1.25:1 from the last.

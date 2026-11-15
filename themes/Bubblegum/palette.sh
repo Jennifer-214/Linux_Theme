@@ -53,6 +53,9 @@ HYPR_WIN_CURVE=foxSnap
 KITTY_ITALIC_FONT=auto
 KITTY_TAB_BAR_STYLE=powerline
 KITTY_DIM_OPACITY=0.4
+# kitty custom shaders: off. retro-amber sets custom_shaders crt-glow (shared/kitty/crt-glow.pipeline).
+KITTY_SHADER_LINE='env DESK_KITTY_SHADERS=off'
+KITTY_SHADER_STATE='env DESK_KITTY_CRT=off'
 WELCOME_INK1=205
 WELCOME_INK2=212
 WELCOME_INK3=141
@@ -155,6 +158,11 @@ NVIM_FN_DEF=ff5fa2
 NVIM_FN_DEF_BOLD=false
 NVIM_KW_BOLD=true
 NVIM_READONLY_BOLD=true
+# Tag-comment markers in // comments ([KEY], values, nested [CHIPS], [END_*] closers).
+NVIM_TAG_KEY=ff5fa2
+NVIM_TAG_VALUE=dcc0d2
+NVIM_TAG_CHIP=ffb3d9
+NVIM_TAG_END=ff9ecd
 
 # ─── Nvim syntax roles ───
 NVIM_SYN_VAR=f2dce8
@@ -297,6 +305,8 @@ TMUX_FOOTER_HIGHLIGHT=fox-tmux-hl-off
 
 WELCOME_LAYOUT=banner
 LITTLE_DETAILS=fox-little-details-off
+# Quickshell drawing style: paper (pencil, sprigs, hearts) | retro (blocks, cursors) | plain.
+DESK_STYLE=plain
 
 # ─── Cohesive surfaces (lock screen · mako · rofi · btop · lazygit · fzf · nvim floats) ───
 # The lock screen's own blur, softer than windows: what the lock has always used.
@@ -320,6 +330,10 @@ HYPRLOCK_DATE_TEXT='cmd[update:3600000] date +"%A · %B %-d"'
 HYPRLOCK_NOTE='<i>see you soon ♡</i>'
 HYPRLOCK_NOTE_Y=9999
 HYPRLOCK_CAT_Y=9999
+# Lock screen: the boot-screen summary's height (9999 = off screen), the password field's hint and corners.
+HYPRLOCK_BOOT_Y=9999
+HYPRLOCK_PLACEHOLDER='<i>password, or a fingertip</i>'
+HYPRLOCK_INPUT_ROUNDING=4
 MAKO_BORDER=ffb3d9
 MAKO_CRIT_BORDER=d93b54
 MAKO_AGENT_BORDER=ff5fa2
@@ -361,6 +375,8 @@ REGREET_CLOCK_FORMAT="%A · %I:%M %p"
 
 # ─── Firefox (chrome + new tab / settings / web selection) ───
 FF_EXTRA_SCOPE=':not(*)'
+# retro-amber's Firefox shape (a DOS menu-bar tab strip, the terminal font): ':root' on, ':not(*)' off.
+FF_RETRO_SCOPE=':not(*)'
 FF_FRAME=ff5fa2
 FF_FRAME_W=2px
 FF_RADIUS=0
@@ -516,6 +532,9 @@ CLAUDE_DIFF_ADD_WORD=7ad4a5
 CLAUDE_DIFF_DEL=d93b54
 CLAUDE_DIFF_DEL_DIM=d93b54
 CLAUDE_DIFF_DEL_WORD=f2586e
+# Claude status line: the context meter's filled and empty marks.
+CLAUDE_CTX_FULL='♥'
+CLAUDE_CTX_EMPTY='♡'
 
 # Commit garden: the surface, then four steps toward the blush accent; each at least 1.36:1 from the last.
 GARDEN_0=3c2a44

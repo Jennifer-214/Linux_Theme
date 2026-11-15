@@ -30,6 +30,7 @@ inline constexpr Mapping TEMPLATE_MAPPINGS[] = {
     { "hyprlock/hyprlock.conf",       "~/.config/hypr/hyprlock.conf" },
     { "hyprlock/capslock-label.sh",   "~/.config/hypr/scripts/capslock-label.sh" },
     { "hyprlock/date-label.sh",       "~/.config/hypr/scripts/date-label.sh" },
+    { "hyprlock/boot-label.sh",       "~/.config/hypr/scripts/boot-label.sh" },
 
     // Neovim
     { "nvim/init.lua",                "~/.config/nvim/init.lua" },
@@ -127,6 +128,13 @@ inline constexpr Mapping TEMPLATE_MAPPINGS[] = {
 inline constexpr Mapping SHARED_MAPPINGS[] = {
     // Hyprland
     { "hyprland.conf",                "~/.config/hypr/hyprland.conf" },
+
+    // kitty's glow + scanline pipeline; a theme turns it on with KITTY_SHADER_LINE.
+    { "kitty/crt-glow.pipeline",      "~/.config/kitty/shaders/crt-glow.pipeline" },
+    { "kitty/phosphor.slang",         "~/.config/kitty/shaders/phosphor.slang" },
+    { "kitty/crt-flat.pipeline",      "~/.config/kitty/shaders/crt-flat.pipeline" },
+    // The whole-screen CRT shader `desk-crt on` turns on (the Hyprland theme reads its state).
+    { "hypr_shaders/crt.frag",        "~/.config/hypr/shaders/crt.frag" },
     { "hyprland_hypridle_ac.conf",    "~/.config/hypr/hypridle-ac.conf" },
     { "hyprland_hypridle_battery.conf","~/.config/hypr/hypridle-battery.conf" },
 

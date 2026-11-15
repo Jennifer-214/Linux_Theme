@@ -91,6 +91,76 @@ eq(C.tree_mark("/code/paper/x.lua", NOW * 1000, shared_live), { text = "✎2", h
 eq(C.tree_mark("/code/paper/z.lua", NOW * 1000, shared_live), nil, "an edit older than the window: no mark")
 eq(C.tree_signature(NOW * 1000, shared_live) == C.tree_signature(NOW * 1000, shared_live), true, "the signature is stable")
 
+-- The blame line is drawn on the main loop: it never waits on a command. Every command is answered here by hand.
+do
+  local calls, waits = {}, 0
+  local real_system, real_fn_system, real_systemlist = vim.system, vim.fn.system, vim.fn.systemlist
+  vim.system = function(argv, _, cb)
+    calls[#calls + 1] = { argv = argv, cb = cb, line = table.concat(argv, " ") }
+    return { wait = function() waits = waits + 1; return { code = 0, stdout = "" } end, kill = function() end }
+  end
+  vim.fn.system = function(...) waits = waits + 1; return real_fn_system(...) end
+  vim.fn.systemlist = function(...) waits = waits + 1; return real_systemlist(...) end
+  local function started(what)
+    local n = 0
+    for _, c in ipairs(calls) do if c.line:find(what, 1, true) then n = n + 1 end end
+    return n
+  end
+  local function answer(what, stdout)
+    for _, c in ipairs(calls) do
+      if not c.answered and c.line:find(what, 1, true) then c.answered = true; c.cb({ code = 0, stdout = stdout }) end
+    end
+    vim.wait(50, function() return false end)
+  end
+  local redrawn = 0
+  package.loaded["gitsigns.current_line_blame"] = { update = function() redrawn = redrawn + 1 end }
+  package.loaded["desk.review"] = { work_tool = function() return "desk-work" end }
+  local state = vim.fn.tempname()
+  vim.fn.mkdir(state .. "/foxml", "p")
+  local f = io.open(state .. "/foxml/claude-sessions.jsonl", "w")
+  f:write('{"url":"https://claude.ai/code/session_X","title":"Linux_Theme","at":1}\n'); f:close()
+  vim.env.XDG_STATE_HOME = state
+  vim.env.XDG_RUNTIME_DIR = state
+  vim.b.desk_review_root = "/code/paper"
+  local A, B = ("a"):rep(40), ("b"):rep(40)
+  local function blame(sha, summary)
+    return C.blame_formatter("Caramel", { sha = sha, author = "Caramel", author_time = os.time() - 120, summary = summary })[1][1]
+  end
+
+  eq(blame(A, "feat: x"), "  · Caramel · 2m · feat: x", "before anything is known: the plain blame line, at once")
+  eq(blame(B, "fix"), "  · Caramel · 2m · fix", "a second line, at once")
+  eq(waits, 0, "the blame line waited on no command")
+  vim.wait(50, function() return false end)
+  eq(started("log --no-walk"), 1, "the trailers of both lines are read with one git log")
+  eq(started(A) == 1 and started(B) == 1, true, "that git log names both commits")
+  eq(started("review-tree"), 1, "the plans are read in the background")
+  eq(started("config user.name"), 1, "your name is read in the background")
+
+  answer("review-tree", vim.json.encode({ { plan = "p.md", title = "Plan: Queue refactor", commits = { { sha = A, step = "step 2" } } } }))
+  answer("log --no-walk", "\30" .. A .. "\31https://claude.ai/code/session_X\31Claude Opus <noreply@anthropic.com>\n\30" .. B .. "\31\31\n")
+  answer("config user.name", "Caramel\n")
+  eq(redrawn > 0, true, "the blame line is drawn again once the answers are in")
+  local before = #calls
+  eq(blame(A, "feat: x"), "  ✿ Linux_Theme · 2m · feat: x · ⌑ Queue refactor · step 2", "then it names the session and the plan")
+  eq(blame(B, "fix"), "  ● you · 2m · fix", "and you")
+  vim.wait(50, function() return false end)
+  eq(#calls, before, "with everything known, drawing it again starts no command")
+  eq(blame(("0"):rep(40), ""), "  ○ not committed yet", "an uncommitted line")
+
+  -- desk-work's records changed: the plans are read again, once per new revision.
+  package.loaded["desk.work"] = { setup = function() end }
+  C.setup()
+  vim.api.nvim_exec_autocmds("User", { pattern = "FoxWorkChanged", data = { root = "/code/paper", revision = "r2" } })
+  eq(started("review-tree"), 2, "a change in desk-work's records reads the plans again")
+  answer("review-tree", vim.json.encode({}))
+  vim.api.nvim_exec_autocmds("User", { pattern = "FoxWorkChanged", data = { root = "/code/paper", revision = "r2" } })
+  eq(started("review-tree"), 2, "the same revision again (its poll) is no change")
+  eq(blame(A, "feat: x"), "  ✿ Linux_Theme · 2m · feat: x", "the plan record is gone now")
+  eq(waits, 0, "nothing here waited on a command")
+
+  vim.system, vim.fn.system, vim.fn.systemlist = real_system, real_fn_system, real_systemlist
+  vim.fn.delete(state, "rf")
+end
 
 
 print(string.format("test_claude: %d passed%s", passed, failed > 0 and (", " .. failed .. " failed") or ""))

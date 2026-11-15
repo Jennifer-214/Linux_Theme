@@ -70,6 +70,68 @@ eq(ext[1][4].virt_text[1][1], "  step 1 · tidy the drawer", "the step and the p
 P.enabled = false; P.paint(0)
 eq(#vim.api.nvim_buf_get_extmarks(0, vim.api.nvim_get_namespaces().foxml_plan_marks, 0, -1, {}), 0, "hidden when turned off")
 
+-- The half-minute refresh never waits on a command, and re-reads only what changed since the last one.
+do
+  P.enabled, P.plan, P.marks = true, nil, {}
+  write("plan.md", "# Plan: tidy the drawer\n1. `src/drawer.cpp:12`\n2. `menu.lua` open_menu()\n")
+  local reads, waits = {}, 0
+  local real_open, real_system, real_fn_system, real_systemlist = io.open, vim.system, vim.fn.system, vim.fn.systemlist
+  local real_executable = vim.fn.executable
+  io.open = function(path, ...) reads[#reads + 1] = path; return real_open(path, ...) end
+  vim.fn.system = function(...) waits = waits + 1; return real_fn_system(...) end
+  vim.fn.systemlist = function(...) waits = waits + 1; return real_systemlist(...) end
+  local pin
+  vim.system = function(argv, opts, cb)
+    if argv[1] == "desk-work" then
+      vim.defer_fn(function() cb({ code = 0, stdout = vim.json.encode(pin) }) end, 10)
+      return { wait = function() waits = waits + 1; return { code = 0, stdout = vim.json.encode(pin) } end, kill = function() end }
+    end
+    local job = real_system(argv, opts, cb)
+    return setmetatable({ wait = function(_, t) waits = waits + 1; return job:wait(t) end }, { __index = job })
+  end
+  local function refresh()
+    reads = {}
+    local finished = false
+    P.refresh(function() finished = true end)
+    return vim.wait(5000, function() return finished end)
+  end
+  local function marked()
+    local ext = vim.api.nvim_buf_get_extmarks(0, vim.api.nvim_get_namespaces().foxml_plan_marks, 0, -1, {})
+    return #ext == 1 and ext[1][2] + 1 or #ext
+  end
+
+  P.chosen = root .. "/plan.md"
+  eq(refresh(), true, "a refresh finishes")
+  eq(P.plan and P.plan.title, "Plan: tidy the drawer", "the chosen plan")
+  eq(#P.marks, 2, "its marks")
+  eq(marked(), 12, "the open file is marked")
+  eq(refresh(), true, "a second refresh finishes")
+  eq(reads, {}, "an unchanged plan reads no file again")
+  eq(marked(), 12, "and the mark stays")
+  vim.uv.fs_utime(root .. "/src/drawer.cpp", 1, 1)
+  refresh()
+  eq(reads, { root .. "/plan.md", root .. "/src/drawer.cpp" }, "a changed file is read again, the others are not")
+
+  -- A pin from a live session (desk-work plan), read in the background.
+  write("plan2.md", "# Plan: second\n1. `lib/util.lua:1`\n")
+  P.chosen = nil
+  pin = { file = root .. "/plan2.md", at = 5 }
+  local real_claude = package.loaded["desk.claude"]
+  package.loaded["desk.claude"] = { live = {}, decode = function(t) return vim.json.decode(t) end,
+                                    in_repo = function() return { { id = "s1", ledger = {} } } end }
+  vim.fn.executable = function(name) return name == "desk-work" and 1 or real_executable(name) end
+  eq(refresh(), true, "a refresh with a live session finishes")
+  eq(P.plan and P.plan.file, root .. "/plan2.md", "the pinned plan")
+  eq(P.marks[1] and P.marks[1].path, "lib/util.lua", "its mark")
+  eq(marked(), 0, "the open file is not in it")
+  refresh()
+  eq(reads, {}, "the same pin again reads no file")
+  eq(waits, 0, "nothing waited on a command")
+
+  io.open, vim.system, vim.fn.system, vim.fn.systemlist = real_open, real_system, real_fn_system, real_systemlist
+  vim.fn.executable, package.loaded["desk.claude"] = real_executable, real_claude
+end
+
 vim.fn.delete(root, "rf")
 print(("planmarks: %d passed, %d failed"):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

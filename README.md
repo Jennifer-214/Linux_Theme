@@ -106,6 +106,9 @@ desk theme check
 dark plum background. **Paper**, shown above, uses light paper, graphite
 text, blush accents and botanical illustrations.
 
+**retro-amber** is an amber phosphor terminal: one amber in brightness steps on
+warm black, the Big Blue Term font, and a faint glow with scanlines in kitty.
+
 Other palettes include Rose, Bubblegum, Cave Data Center and Amsterdam Orange.
 Alternative themes have varying levels of completion; read the
 [theme status and switching notes](themes/README.md).

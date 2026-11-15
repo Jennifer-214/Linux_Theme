@@ -48,9 +48,10 @@ BLOCK = "\n".join(lines[b[0] + 1:e[0]])
 check("Copilot's should_attach is its own rule AND RepoVis.engine == copilot",
       'should_attach = function(buf, name)' in text
       and 'require("copilot.config.should_attach").default(buf, name) and RepoVis.engine(buf) == "copilot"' in text)
-check("the minuet switch follows RepoVis.engine, per buffer",
+check("the local model suggests on request only (Ctrl+]), and Copilot buffers still follow RepoVis.engine",
       'local copilot = RepoVis.engine(buf) == "copilot"' in text
-      and "vim.b[buf].minuet_virtual_text_auto_trigger = not copilot" in text)
+      and "vim.b[buf].minuet_virtual_text_auto_trigger = false" in text
+      and 'RepoVis.engine(0) ~= "copilot") then mv.action.next()' in text)
 check("no engine mode puts Copilot on every buffer (the old global 'copilot' default is gone)",
       'vim.g.fox_completion = vim.g.fox_completion or "copilot"' not in text)
 

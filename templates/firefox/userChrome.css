@@ -705,3 +705,19 @@ tooltip .tooltip-label {
   background-image:linear-gradient(#{{SELECTION}},#{{SELECTION}}) !important;
   background-size:2px 16px !important; background-position:left center !important; background-repeat:no-repeat !important;
 }
+
+/* retro-amber: the tab strip as a DOS menu bar (an amber strip, dark labels, the open tab in normal video) and the
+   browser chrome in the theme's terminal font. FF_RETRO_SCOPE is ':root' there and matches nothing elsewhere. */
+{{FF_RETRO_SCOPE}} #TabsToolbar { background: #{{FG}} !important; }
+{{FF_RETRO_SCOPE}} .tabbrowser-tab .tab-content,
+{{FF_RETRO_SCOPE}} .tabbrowser-tab .tab-label,
+{{FF_RETRO_SCOPE}} .tabbrowser-tab .tab-close-button,
+{{FF_RETRO_SCOPE}} #TabsToolbar toolbarbutton { color: #{{BG}} !important; fill: #{{BG}} !important; }
+{{FF_RETRO_SCOPE}} .tabbrowser-tab[selected="true"] .tab-background { background: #{{BG}} !important; border-radius: 0 !important; }
+{{FF_RETRO_SCOPE}} .tabbrowser-tab[selected="true"] .tab-content,
+{{FF_RETRO_SCOPE}} .tabbrowser-tab[selected="true"] .tab-label,
+{{FF_RETRO_SCOPE}} .tabbrowser-tab[selected="true"] .tab-close-button { color: #{{FG}} !important; fill: #{{FG}} !important; }
+{{FF_RETRO_SCOPE}} .tabbrowser-tab[selected="true"] { border-bottom: 0 !important; }
+{{FF_RETRO_SCOPE}} .tabbrowser-tab:hover:not([selected="true"]) .tab-background { background: rgba({{BG_R}},{{BG_G}},{{BG_B}},0.2) !important; }
+{{FF_RETRO_SCOPE}} #navigator-toolbox, {{FF_RETRO_SCOPE}} menupopup, {{FF_RETRO_SCOPE}} panel,
+{{FF_RETRO_SCOPE}} #urlbar-input { font-family: "{{FONT_FAMILY}}", monospace !important; }

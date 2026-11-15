@@ -23,6 +23,13 @@ void strip_inline_comment_and_quotes(std::string& v) {
     while (i < v.size() && (v[i] == ' ' || v[i] == '\t')) ++i;
     v.erase(0, i);
 
+    // A quoted value ends at its closing quote and keeps any '#' inside it (a colour in markup, as in
+    // retro-amber's MAKO_FORMAT); what follows the quote is a comment. Unquoted values work as before.
+    if (!v.empty() && (v.front() == '"' || v.front() == '\'')) {
+        const size_t close = v.find(v.front(), 1);
+        if (close != std::string::npos) { v = v.substr(1, close - 1); return; }
+    }
+
     // Drop inline `#...` comment (matches render.sh's `val=${val%%#*}`).
     size_t hash = v.find('#');
     if (hash != std::string::npos) v.erase(hash);

@@ -24,7 +24,10 @@ Earthy, muted: warm peach, dusty rose, sage, wheat on a deep plum background.
 ### Other palettes
 
 [Paper](../themes/Paper/) provides the light paper desktop shown in
-the README. Rose, Bubblegum, Cave Data Center and Amsterdam Orange supply
+the README. [retro-amber](../themes/retro-amber/) is an amber phosphor terminal: brightness
+steps of one amber, Big Blue Term, and kitty's `crt-glow` shader pipeline
+(`shared/kitty/crt-glow.pipeline`, switched on by the palette's `KITTY_SHADER_LINE`).
+Rose, Bubblegum, Cave Data Center and Amsterdam Orange supply
 alternative palettes. See [theme status](../themes/README.md) for completion and
 switching notes, and the [desktop guide](desktop.md#paper-appearance) for Paper details.
 

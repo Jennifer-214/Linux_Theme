@@ -65,8 +65,9 @@ Flickable {
                 theme: workspaces.theme
                 edgeStyle: "bookmark"
                 width: Math.min(workspaces.tight ? 38 : workspaces.compact ? 68 : 180, Math.max(28, label.implicitWidth + 17))
-                depth: current ? workspaces.depth + 7 : workspaces.depth
+                depth: current && workspaces.theme.style !== "retro" ? workspaces.depth + 7 : workspaces.depth
                 selected: current
+                solidSelected: workspaces.theme.style === "retro"
                 pressed: mouse.pressed
                 hovered: mouse.containsMouse
                 Text {
@@ -80,7 +81,9 @@ Flickable {
                     font.family: workspaces.theme.fontFamily
                     font.pixelSize: 12
                     font.bold: tab.current
-                    color: tab.ws && tab.ws.urgent ? workspaces.theme.error : tab.current || tab.windows.length ? workspaces.theme.ink : workspaces.theme.muted
+                    // Retro's current tab is a solid ink block: its label takes the bar colour (normal video).
+                    color: tab.ws && tab.ws.urgent ? workspaces.theme.error : tab.current && workspaces.theme.style === "retro" ? workspaces.theme.background
+                        : tab.current || tab.windows.length ? workspaces.theme.ink : workspaces.theme.muted
                 }
                 Rectangle {
                     objectName: "waiting-pin"

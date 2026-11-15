@@ -29,3 +29,8 @@ Small handwritten margin notes appear on the botanical studies. This is local
 processing and upscaling, not a claim of native 4K generation. Processing methods,
 dimensions and checksums are in `4k-processing.json`; reproduce the Paper pass
 with `python3 scripts/upscale-wallpapers.py --paper-sketch --apply`.
+
+`retro_amber.png` and `retro_amber_portrait.png` (retro-amber) are drawn by
+`scripts/retro-amber-wallpaper.py`: near-black, faint scanlines, a warm centre and
+an `AMBER-86` badge in Big Blue Term. The portrait file is a separate render, so a
+rotated monitor keeps the badge in its corner.

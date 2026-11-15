@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# desk-crt on|off|toggle|status — whole-screen CRT scanlines (a Hyprland screen shader), remembered across reloads
+# and logins (the Hyprland theme reads the state). While it is on, kitty drops its own scanlines and curve and keeps
+# the amber phosphor and glow (retro-amber's kitty.conf includes the file written here), so the two never double.
+set -u
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/foxml"
+state="$state_dir/crt-screen"
+kitty_state="$state_dir/kitty-crt.conf"
+shader="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/shaders/crt.frag"
+
+current() { [[ -f "$state" && "$(head -n1 "$state")" == on ]] && echo on || echo off; }
+
+write() {  # atomic: a half-written state file would be read as off
+    printf '%s\n' "$2" > "$1.tmp" && mv -f "$1.tmp" "$1"
+}
+
+apply() {
+    local want=$1
+    mkdir -p "$state_dir"
+    if [[ "$want" == on && ! -f "$shader" ]]; then
+        echo "desk-crt: $shader is missing (re-run the installer)" >&2
+        return 1
+    fi
+    write "$state" "$want"
+    if [[ "$want" == on ]]; then
+        write "$kitty_state" "custom_shaders crt-flat"
+    else
+        write "$kitty_state" "# desk-crt off: kitty keeps its own scanlines"
+    fi
+    if command -v desk-hl >/dev/null 2>&1; then
+        if [[ "$want" == on ]]; then
+            desk-hl config "{ decoration = { screen_shader = \"$shader\" } }" "keyword decoration:screen_shader $shader"
+        else
+            desk-hl config '{ decoration = { screen_shader = "" } }' 'keyword decoration:screen_shader [[EMPTY]]'
+        fi
+    fi
+    # Open terminals read their config again (and with it the included state).
+    pkill -USR1 -x kitty 2>/dev/null || true
+    echo "desk-crt: $want"
+}
+
+case "${1:-toggle}" in
+    on|off) apply "$1" ;;
+    toggle) if [[ "$(current)" == on ]]; then apply off; else apply on; fi ;;
+    status) current ;;
+    *) echo "usage: desk-crt on|off|toggle|status" >&2; exit 2 ;;
+esac

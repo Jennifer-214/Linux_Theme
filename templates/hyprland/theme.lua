@@ -136,3 +136,14 @@ hl.layer_rule({ match = { namespace = "^(foxml-bar|foxml-drawer|foxml-volume)$" 
 -- Cursor theme follows the palette (environment.lua sets the search path + size)
 hl.env("XCURSOR_THEME", "{{CURSOR_THEME}}")
 hl.env("HYPRCURSOR_THEME", "{{CURSOR_THEME}}")
+
+-- Whole-screen CRT (desk-crt on|off): scanlines and a soft vignette over everything, kept across reloads and logins.
+do
+  local state = (os.getenv("XDG_STATE_HOME") or (os.getenv("HOME") .. "/.local/state")) .. "/foxml/crt-screen"
+  local file = io.open(state, "r")
+  local on = file and file:read("*l") == "on"
+  if file then file:close() end
+  if on then
+    hl.config({ decoration = { screen_shader = (os.getenv("XDG_CONFIG_HOME") or (os.getenv("HOME") .. "/.config")) .. "/hypr/shaders/crt.frag" } })
+  end
+end

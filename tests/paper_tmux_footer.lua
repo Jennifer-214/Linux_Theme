@@ -15,16 +15,18 @@ local ok,err=pcall(function()
  tmux({'set-option','-gw','pane-border-status','bottom'})
  local function footer()return tmux({'show-options','-wAv','-t',pane,'pane-border-status'})end
  local state=Paper.setup_tmux_footer();assert(state)
- state.refresh();assert(footer()=='off','single editor pane still has two footers')
+-- refresh runs in the background: wait for it before looking.
+local function settle()assert(vim.wait(3000,function()return not state.busy()end,10),'refresh never finished')end
+ state.refresh();settle();assert(footer()=='off','single editor pane still has two footers')
  local split=tmux({'split-window','-d','-P','-F','#{pane_id}','-t',pane,'sleep','30'})
- state.refresh();assert(footer()=='bottom','split lanes disappeared')
- tmux({'kill-pane','-t',split});state.refresh();assert(footer()=='off','footer returned after closing the split')
+ state.refresh();settle();assert(footer()=='bottom','split lanes disappeared')
+ tmux({'kill-pane','-t',split});state.refresh();settle();assert(footer()=='off','footer returned after closing the split')
  state.restore();assert(footer()=='bottom','exit did not restore inherited footer')
  assert(tmux({'show-options','-wqv','-t',pane,'pane-border-status'})=='','inherited footer became a local override')
  tmux({'set-option','-w','-t',pane,'pane-border-status','top'})
- state.refresh();assert(footer()=='off')
+ state.refresh();settle();assert(footer()=='off')
  state.restore();assert(footer()=='top','explicit previous footer position lost')
- state.refresh();tmux({'set-option','-w','-t',pane,'pane-border-status','bottom'})
+ state.refresh();settle();tmux({'set-option','-w','-t',pane,'pane-border-status','bottom'})
  state.restore();assert(footer()=='bottom','manual change during editing was overwritten')
 end)
 vim.env.TMUX, vim.env.TMUX_PANE=old_tmux,old_pane

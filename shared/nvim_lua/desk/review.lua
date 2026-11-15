@@ -86,8 +86,10 @@ function M.files(row, root)
   return files
 end
 
-function M.working_files(root)
-  local data = git(root, { 'status', '--porcelain=v1', '-z', '--untracked-files=all' })
+local STATUS = { 'status', '--porcelain=v1', '-z', '--untracked-files=all' }
+-- data: git status output already read (a background refresh reads it without waiting).
+function M.working_files(root, data)
+  data = data or git(root, STATUS)
   if not data then return nil end
   local parts, files, seen, i = vim.split(data, '\0', { plain = true, trimempty = true }), {}, {}, 1
   while i <= #parts do
@@ -221,13 +223,13 @@ end
 -- A committed copy never changes under the same commit, so each (commit, file) is read once however often the review
 -- refreshes; HEAD is resolved to its commit first, one cheap call per refresh, so a commit made meanwhile is seen.
 -- Without this, every work event re-read every loaded file with its own blocking git process.
+local function set_head(r, head)
+  if head ~= r.head then r.blobs = {} end
+  r.head, r.head_at = head, (vim.uv or vim.loop).now()
+end
 local function head_of(r)
   local now = (vim.uv or vim.loop).now()
-  if not r.head_at or now - r.head_at > 500 then
-    local head = vim.trim(git(r.root, { 'rev-parse', '--verify', '-q', 'HEAD' }) or '')
-    if head ~= r.head then r.blobs = {} end
-    r.head, r.head_at = head, now
-  end
+  if not r.head_at or now - r.head_at > 500 then set_head(r, vim.trim(git(r.root, { 'rev-parse', '--verify', '-q', 'HEAD' }) or '')) end
   return r.head ~= '' and r.head or nil
 end
 local function blob(r, revision, rel, absent)
@@ -239,8 +241,25 @@ local function blob(r, revision, rel, absent)
   if r.blobs[key] == nil then r.blobs[key] = git(r.root, { 'show', key }) or false end
   return r.blobs[key] or nil
 end
+-- What a working or live file was read from: its size and modification time on disk, an unsaved draft's change count,
+-- the commit its before side came from. A refresh skips a file whose stamp is unchanged (every work event and focus
+-- used to re-read and re-diff every loaded file). A file modified in the last second gets no stamp: a second write
+-- within the clock's resolution could leave the same time and size behind.
+local function stamp_of(r, file)
+  if r.row.snapshots or r.row.kind == 'commit' then return nil end
+  local stat = uv.fs_stat(file.path)
+  if stat and stat.mtime.sec >= os.time() - 1 then return nil end
+  local buf = vim.fn.bufnr(file.path)
+  local draft = buf >= 0 and api.nvim_buf_is_loaded(buf) and vim.bo[buf].modified and api.nvim_buf_get_changedtick(buf) or 0
+  local head = (r.row.before or {})[file.path] and '' or (head_of(r) or '')
+  if not stat then return table.concat({ 'absent', draft, head, file.old or '' }, ':') end
+  return table.concat({ stat.mtime.sec, stat.mtime.nsec, stat.size, stat.ino, draft, head, file.old or '' }, ':')
+end
 local function load_file(r, file, refresh)
   if file.loaded and not refresh then return end
+  local stamp = stamp_of(r, file)
+  if file.loaded and refresh ~= 'force' and stamp and stamp == file.stamp and not file.error then return end
+  file.stamp = stamp
   local left, right
   if r.row.snapshots then
     local pair = r.row.snapshots[file.path] or {}
@@ -365,6 +384,8 @@ local function share(r, file, done)
     end
   end
   if done ~= nil then vim.list_extend(argv, { '--done', done and 'yes' or 'no' }) end
+  -- This write comes back as a work event a moment later; refresh_live takes that one as an echo.
+  r.shared_at = uv.now()
   pcall(vim.system, argv, { text = true }, function() end)
 end
 -- The request thread is kept in the work tool too, so the notebook can show who was asked and whether it is ready.
@@ -508,11 +529,40 @@ local function hint(word, ...)
   end
   return table.concat(keys, '/') .. ' ' .. word
 end
+-- The description strip and the bar are all that change when only the cursor moves; they live in their own namespace,
+-- so moving the cursor rewrites two lines instead of rebuilding every row (a long review lagged on each j/k).
+local ns_cursor = api.nvim_create_namespace('desk_review_cursor')
+local function strip_lines(r, cursor_line)
+  local w = r.panel_w
+  local about = describe(r, r.entries[cursor_line] or (r.selected_line and r.entries[r.selected_line]))
+  local lines = {}
+  for i = 1, 2 do
+    local s = fit(((about[i] or ''):gsub('[\r\n\t]', ' ')), w - 5)
+    lines[i] = ' │ ' .. s .. string.rep(' ', math.max(0, w - 5 - width_of(s))) .. ' │'
+  end
+  return lines
+end
+local function mark_cursor(r, cursor_line)
+  local buf = r.panel_buf
+  api.nvim_buf_clear_namespace(buf, ns_cursor, 0, -1)
+  for _, ln in ipairs(r.strip or {}) do
+    local t = api.nvim_buf_get_lines(buf, ln - 1, ln, false)[1] or ''
+    pcall(api.nvim_buf_set_extmark, buf, ns_cursor, ln - 1, 0, { end_col = #t, hl_group = hl('FoxSymdepsDim', 'Comment') })
+  end
+  -- The bar follows the row under the cursor, as in every menu here; the file open in the comparison keeps a quieter
+  -- band, so moving through the list never hides which file is shown.
+  local bar = (cursor_line and r.entries[cursor_line]) and cursor_line or r.selected_line
+  if r.selected_line and r.selected_line ~= bar then
+    api.nvim_buf_set_extmark(buf, ns_cursor, r.selected_line - 1, 0, { line_hl_group = hl('CursorLine', 'CursorLine') })
+  end
+  if bar then api.nvim_buf_set_extmark(buf, ns_cursor, bar - 1, 0, { line_hl_group = hl('FoxSymdepsSelection', 'Visual') }) end
+end
 local function panel(r, select_row)
   if not api.nvim_buf_is_valid(r.panel_buf) then return end
   if not api.nvim_win_is_valid(r.panel_win) then r.panel_dirty = true; return end
   r.panel_dirty = false
   local w = api.nvim_win_is_valid(r.panel_win) and math.max(24, api.nvim_win_get_width(r.panel_win) - 1) or 40
+  r.panel_w = w
   local external = r.row.kind == 'external'
   local text, marks_hl, selected_line = {}, {}, nil
   r.entries, r.hits = {}, {}
@@ -608,13 +658,12 @@ local function panel(r, select_row)
   end
   -- The description strip: what the selected row is and where it stands; then the one footer line.
   local cursor_line = (select_row and selected_line) or (api.nvim_win_is_valid(r.panel_win) and api.nvim_win_get_cursor(r.panel_win)[1]) or selected_line
-  local about = describe(r, r.entries[cursor_line] or (selected_line and r.entries[selected_line]))
-  for i = 1, 2 do about[i] = ((about[i] or ''):gsub('[\r\n\t]', ' ')) end
+  r.selected_line = selected_line
   push('')
   local top = push(' ╭' .. string.rep('─', w - 3) .. '╮')
-  for i = 1, 2 do push(' │ ' .. fit(about[i] or '', w - 5) .. string.rep(' ', math.max(0, w - 5 - width_of(fit(about[i] or '', w - 5)))) .. ' │') end
+  for _, s in ipairs(strip_lines(r, cursor_line)) do push(s) end
   local bottom = push(' ╰' .. string.rep('─', w - 3) .. '╯')
-  for ln = top, bottom do paint(ln, 0, -1, hl('FoxSymdepsDim', 'Comment')) end
+  paint(top, 0, -1, hl('FoxSymdepsDim', 'Comment')); paint(bottom, 0, -1, hl('FoxSymdepsDim', 'Comment'))
   r.strip = { top + 1, top + 2 }
   local open, check, actions, hide = hint('open', 'enter'), hint('check', 'mark-list'), hint('actions', 'actions-list'), hint('hide', 'hide')
   local keys = ' ' .. table.concat(external and { open, actions, hide } or (w >= 44 and { open, check, actions, hide } or { open, check, hide }), ' · ')
@@ -626,13 +675,7 @@ local function panel(r, select_row)
   for _, m in ipairs(marks_hl) do
     pcall(api.nvim_buf_set_extmark, r.panel_buf, ns, m[1] - 1, math.max(0, m[2]), { end_row = m[1] - 1, end_col = m[3] < 0 and #text[m[1]] or math.min(m[3], #text[m[1]]), hl_group = m[4] })
   end
-  -- The bar follows the row under the cursor, as in every menu here; the file open in the comparison keeps a quieter
-  -- band, so moving through the list never hides which file is shown.
-  local bar = (cursor_line and r.entries[cursor_line]) and cursor_line or selected_line
-  if selected_line and selected_line ~= bar then
-    api.nvim_buf_set_extmark(r.panel_buf, ns, selected_line - 1, 0, { line_hl_group = hl('CursorLine', 'CursorLine') })
-  end
-  if bar then api.nvim_buf_set_extmark(r.panel_buf, ns, bar - 1, 0, { line_hl_group = hl('FoxSymdepsSelection', 'Visual') }) end
+  mark_cursor(r, cursor_line)
   if select_row and api.nvim_win_is_valid(r.panel_win) and selected_line then api.nvim_win_set_cursor(r.panel_win, { selected_line, 0 }) end
   local footer = ' ' .. table.concat({ hint('file', 'next-file', 'previous-file'), hint('change', 'next-change', 'previous-change'),
     hint('check', 'mark'), hint('unread', 'unread'), hint('finish', 'finish'), hint('help', 'actions'), hint('close', 'close') }, ' · ') .. ' '
@@ -641,17 +684,40 @@ local function panel(r, select_row)
   end
 end
 
-local function scratch(r, file, side, text)
-  local buf = api.nvim_create_buf(false, true)
-  r.buffers[#r.buffers + 1] = buf
-  local name = 'review://' .. r.id .. '/' .. r.generation .. '/' .. side .. '/' .. file.rel
-  api.nvim_buf_set_name(buf, name)
+-- One buffer per side for the whole review; a file change replaces its lines. A new pair per file re-ran every FileType
+-- hook and the diff setup (20-40 ms a key). Pairs are not kept per file: Vim diffs at most 8 buffers (E96).
+local maps
+local function side_buffer(r, side, file, text)
+  local key = side == 'before' and 'left_buf' or 'right_buf'
+  local buf = r[key]
+  if not (buf and api.nvim_buf_is_valid(buf)) then
+    buf = api.nvim_create_buf(false, true)
+    r.buffers[#r.buffers + 1] = buf
+    vim.b[buf].desk_review_root = r.root
+    vim.bo[buf].readonly, vim.bo[buf].bufhidden = true, 'hide'
+    maps(r, buf, false)
+    r[key] = buf
+  end
+  local name, old = 'review://' .. r.id .. '/' .. side .. '/' .. file.rel, api.nvim_buf_get_name(buf)
+  if name ~= old then
+    pcall(api.nvim_buf_set_name, buf, name)
+    -- A rename leaves an unlisted, unloaded buffer holding the old name (Vim's alternate file); one per file visited.
+    for _, b in ipairs(old ~= '' and api.nvim_list_bufs() or {}) do
+      if b ~= buf and not api.nvim_buf_is_loaded(b) and api.nvim_buf_get_name(b) == old then pcall(api.nvim_buf_delete, b, { force = true }) end
+    end
+  end
   vim.b[buf].desk_review = { file = file.path, side = side }
-  vim.b[buf].desk_review_root = r.root
+  -- As a new buffer would be: no marks from the last file, and no undo step back into it.
+  for _, id in pairs(api.nvim_get_namespaces()) do api.nvim_buf_clear_namespace(buf, id, 0, -1) end
+  local undolevels = vim.bo[buf].undolevels
+  vim.bo[buf].modifiable, vim.bo[buf].readonly, vim.bo[buf].undolevels = true, false, -1
   api.nvim_buf_set_lines(buf, 0, -1, false, lines(text))
-  vim.bo[buf].modifiable, vim.bo[buf].readonly, vim.bo[buf].bufhidden = false, true, 'hide'
-  local ft = vim.filetype.match({ filename = file.rel })
-  if ft and not file.error and not file.binary then vim.bo[buf].filetype = ft end
+  vim.bo[buf].modifiable, vim.bo[buf].readonly, vim.bo[buf].undolevels = false, true, undolevels
+  local ft = (not file.error and not file.binary) and vim.filetype.match({ filename = file.rel }) or ''
+  if vim.bo[buf].filetype ~= ft then
+    pcall(vim.treesitter.stop, buf)
+    vim.bo[buf].filetype = ft
+  end
   return buf
 end
 
@@ -660,15 +726,16 @@ end
 -- on: 'list' (the file list), 'diff' (the comparison panes) or 'both'. row: keys that share one line of the reference,
 -- whose words are the row's first doc; doc = false leaves a key out (mouse handling). also: words for that line beyond
 -- these keys (a command, a global key). act(r) returns what the key does.
-local function next_file(r) return function() M.select(r.index % #r.files + 1) end end
-local function previous_file(r) return function() M.select((r.index - 2) % #r.files + 1) end end
-local function to_diff(r, fn) return function() if api.nvim_get_current_win() == r.panel_win then api.nvim_set_current_win(r.right_win) end; fn() end end
--- Pressed in the list, a key that checks or refreshes leaves focus in the list, so "m, j, m" checks files in a row.
+-- Pressed in the list, a key that checks, refreshes or moves to another file leaves focus in the list, so "m, j, m"
+-- checks files in a row and Tab steps through files without landing in the comparison.
 local function in_list(r, fn) return function()
   local from = api.nvim_get_current_win()
   fn()
   if from == r.panel_win and api.nvim_win_is_valid(from) then api.nvim_set_current_win(from) end
 end end
+local function next_file(r) return in_list(r, function() M.select(r.index % #r.files + 1) end) end
+local function previous_file(r) return in_list(r, function() M.select((r.index - 2) % #r.files + 1) end) end
+local function to_diff(r, fn) return function() if api.nvim_get_current_win() == r.panel_win then api.nvim_set_current_win(r.right_win) end; fn() end end
 M.keymap = {
   { id = 'enter', lhs = '<CR>', on = 'list', desc = 'Expand commit / open review file', row = 'enter',
     doc = 'Open the selected file in the comparison panes; on a commit, expand or collapse its changed files', act = function() return M.enter end },
@@ -737,7 +804,7 @@ M.keymap = {
 function M.bind(id)
   for _, entry in ipairs(M.keymap) do if entry.id == id then return entry.lhs end end
 end
-local function maps(r, buf, sidebar)
+maps = function(r, buf, sidebar)
   for _, entry in ipairs(M.keymap) do
     if entry.on == 'both' or entry.on == (sidebar and 'list' or 'diff') then
       vim.keymap.set('n', entry.lhs, entry.act(r), { buffer = buf, desc = entry.desc, silent = true })
@@ -802,7 +869,28 @@ local function panel_buffer(r)
   api.nvim_create_autocmd('CursorMoved', { buffer = r.panel_buf, callback = function()
     if M.current ~= r or not api.nvim_win_is_valid(r.panel_win) then return end
     local line = api.nvim_win_get_cursor(r.panel_win)[1]
-    if line ~= r.strip_for then r.strip_for = line; panel(r) end
+    -- Rows only: a blank between commits, or the strip below the list, passes the cursor on to the next row the way
+    -- it was going (the last row stops it), so the bar never falls back to the open file far up the list.
+    if r.entries and not r.entries[line] then
+      local step = line >= (r.strip_for or line) and 1 or -1
+      local count = api.nvim_buf_line_count(r.panel_buf)
+      for _, dir in ipairs({ step, -step }) do
+        local l = line + dir
+        while l >= 1 and l <= count and not r.entries[l] do l = l + dir end
+        if r.entries[l] then api.nvim_win_set_cursor(r.panel_win, { l, 0 }); return end
+      end
+    end
+    if line ~= r.strip_for then
+      r.strip_for = line
+      if r.strip and r.panel_w and api.nvim_buf_line_count(r.panel_buf) >= r.strip[2] then
+        vim.bo[r.panel_buf].modifiable = true
+        api.nvim_buf_set_lines(r.panel_buf, r.strip[1] - 1, r.strip[2], false, strip_lines(r, line))
+        vim.bo[r.panel_buf].modifiable = false
+        mark_cursor(r, line)
+      else
+        panel(r)
+      end
+    end
     remember_panel(r)
   end })
   maps(r, r.panel_buf, true)
@@ -889,8 +977,10 @@ function M.refresh_requests(wait)
     for _, request in ipairs(list) do
       if type(request) == 'table' and type(request.file) == 'string' then standing[request.file] = request end
     end
+    -- Most selects bring back the same requests: redraw the panel only when they changed (each redraw rebuilds every row).
+    local changed = not vim.deep_equal(standing, r.shared_requests or {})
     r.shared_requests = standing
-    if api.nvim_buf_is_valid(r.panel_buf) then panel(r) end
+    if changed and api.nvim_buf_is_valid(r.panel_buf) then panel(r) end
   end
   local argv = { backend, 'review-requests', '--root', r.root }
   if wait then
@@ -916,8 +1006,7 @@ function M.select(index, refresh)
   M.refresh_requests(refresh)
   r.symbol = nil
   local file = r.files[index]
-  load_file(r, file, refresh or r.row.kind ~= 'commit')
-  local old = { r.left_buf, r.right_buf }
+  load_file(r, file, refresh and 'force' or r.row.kind ~= 'commit')
   local left, right = file.left, file.right
   file.since = nil
   if M.since_mode() and not file.error and not file.binary and r.marks[file.rel] and r.marks[file.rel] ~= file.signature then
@@ -935,15 +1024,16 @@ function M.select(index, refresh)
     api.nvim_set_current_win(target)
     return
   end
-  r.generation = (r.generation or 0) + 1
-  r.left_buf, r.right_buf = scratch(r, file, 'before', left), scratch(r, file, 'after', right)
+  side_buffer(r, 'before', file, left); side_buffer(r, 'after', file, right)
   local before = file.since and 'What you reviewed' or r.row.before_label or (r.row.kind == 'commit' and ('Before · ' .. r.row.parent:sub(1, 8))
     or r.row.kind == 'working' and 'HEAD · last commit' or 'Before session · captured baseline')
   local after = file.since and 'Now · only what is new since then' or r.row.after_label or (r.row.kind == 'commit' and ('After · ' .. r.row.sha:sub(1, 8))
     or r.row.kind == 'working' and 'Working copy · includes drafts' or 'Working copy · captured now')
   for _, pair in ipairs({ { r.left_win, r.left_buf, before }, { r.right_win, r.right_buf, after } }) do
     local win, buf, label = unpack(pair)
-    api.nvim_win_set_buf(win, buf)
+    if api.nvim_win_get_buf(win) ~= buf then api.nvim_win_set_buf(win, buf) end
+    -- The same buffer keeps its window's cursor; a new file starts at its top, as a new buffer would.
+    api.nvim_win_set_cursor(win, { 1, 0 })
     api.nvim_win_call(win, function() vim.cmd('diffthis'); vim.wo.foldmethod = 'diff'; vim.wo.foldlevel = 0 end)
     vim.wo[win].number, vim.wo[win].relativenumber = true, false
     -- The line under the cursor is marked in both files (diff mode keeps the two cursors on the same line).
@@ -951,9 +1041,7 @@ function M.select(index, refresh)
     vim.wo[win].signcolumn, vim.wo[win].foldcolumn = 'no', '1'
     vim.wo[win].winbar = '%#Title# ' .. escaped(label) .. ' · %<%#Normal#' .. escaped(file.rel) .. '%*'
     vim.wo[win].winhighlight = win == r.left_win and 'DiffAdd:FoxReviewRemoved,DiffDelete:FoxReviewFiller' or 'DiffDelete:FoxReviewFiller'
-    maps(r, buf, false)
   end
-  for _, buf in ipairs(old) do if api.nvim_buf_is_valid(buf) then pcall(api.nvim_buf_delete, buf, { force = true }) end end
   r.notes = M.notes(r.root)
   options(r); panel(r, true)
   local target = r.last_diff_win
@@ -973,9 +1061,9 @@ end
 -- The working list follows the working tree: a file changed after the review opened joins it, a file back to its
 -- committed state leaves it, and files already read keep their place and checks. The table is filled in place: the
 -- tree's group holds the same one.
-local function resync_working(r)
+local function resync_working(r, data)
   if r.row.kind ~= 'working' then return false end
-  local now = M.working_files(r.root)
+  local now = M.working_files(r.root, data)
   if not now then return false end
   local same = #now == #r.files
   for i, f in ipairs(now) do if not (r.files[i] and r.files[i].rel == f.rel) then same = false end end
@@ -994,15 +1082,50 @@ local function resync_working(r)
   for i, f in ipairs(r.files) do if f.rel == open then r.index = i end end
   return true, open
 end
-function M.refresh_live()
+local refresh_files
+-- echo: the work event our own check sent (see share); the request list and the working tree's file list are what
+-- it changed, and both are already current here, so only the files themselves are looked at.
+-- background (work events, focus): git status and the HEAD lookup run without waiting, and the rest follows when they
+-- answer; an explicit refresh waits for them, as before. A refresh asked for while one is running runs once after it.
+function M.refresh_live(echo, background)
   local r = M.current
   if not r or r.closing then return end
-  M.refresh_requests()
+  if not echo then M.refresh_requests() end
   if r.row.kind == 'commit' or r.row.snapshots then return end
   -- Hidden comparisons catch up when their tab returns, without taking focus from ordinary editing.
   if api.nvim_get_current_tabpage() ~= r.tab then r.live_dirty = true; return end
+  if r.live_running then
+    r.live_again = { echo = (r.live_again == nil or r.live_again.echo) and echo }
+    return
+  end
+  if not background then return refresh_files(r, echo, nil) end
+  r.live_running = true
+  local want, answers = { head = true, status = not echo and r.row.kind == 'working' or nil }, {}
+  local function answered(name, out)
+    answers[name] = out.code == 0 and out.stdout or false
+    for key in pairs(want) do if answers[key] == nil then return end end
+    r.live_running = false
+    if M.current ~= r or r.closing then return end
+    if api.nvim_get_current_tabpage() ~= r.tab then r.live_dirty = true
+    else
+      set_head(r, vim.trim(answers.head or ''))
+      refresh_files(r, echo, answers.status)
+    end
+    local again = r.live_again
+    r.live_again = nil
+    if again then M.refresh_live(again.echo, true) end
+  end
+  for name, args in pairs({ head = { 'rev-parse', '--verify', '-q', 'HEAD' }, status = want.status and STATUS or nil }) do
+    local argv = vim.list_extend({ 'git', '--no-optional-locks', '-C', r.root }, args)
+    local ok = pcall(vim.system, argv, { text = false, timeout = 3000 }, vim.schedule_wrap(function(out) answered(name, out) end))
+    if not ok then answered(name, { code = 1 }) end
+  end
+end
+-- status: git status output a background refresh already has; nil reads it here, false (it failed) leaves the list.
+refresh_files = function(r, echo, status)
   r.live_dirty = false
-  local moved, open = resync_working(r)
+  local moved, open = false, nil
+  if not echo and status ~= false then moved, open = resync_working(r, status) end
   if moved then
     if #r.files == 0 then panel(r); return end
     if r.files[r.index].rel ~= open then M.select(r.index); return end
@@ -1010,8 +1133,22 @@ function M.refresh_live()
   local selected = r.files[r.index]
   if not selected then return end
   local signature, failed, binary = selected.signature, selected.error, selected.binary
-  for _, file in ipairs(r.files) do if file.loaded or file == selected then load_file(r, file, true) end end
-  if signature == selected.signature and failed == selected.error and binary == selected.binary then panel(r); return end
+  -- The list is redrawn only when something it shows changed: a file, or the review's state file (another client).
+  local function seen(file) return file.loaded and (file.signature .. tostring(file.error) .. tostring(file.binary)) end
+  local changed, state = moved, r.state_cache and r.state_cache.stamp
+  for _, file in ipairs(r.files) do
+    if file.loaded or file == selected then
+      local before = seen(file)
+      load_file(r, file, true)
+      if seen(file) ~= before then changed = true end
+    end
+  end
+  M.state_of(r)
+  if r.state_cache.stamp ~= state then changed = true end
+  if signature == selected.signature and failed == selected.error and binary == selected.binary then
+    if changed then panel(r) end
+    return
+  end
   local win, views = api.nvim_get_current_win(), {}
   for _, target in ipairs({ r.left_win, r.right_win, r.panel_win }) do
     if api.nvim_win_is_valid(target) then views[target] = api.nvim_win_call(target, vim.fn.winsaveview) end
@@ -1315,14 +1452,18 @@ function M.actions()
   M.show_menu(actions, { title = 'Changes', anchor_win = api.nvim_win_is_valid(r.panel_win) and r.panel_win or r.right_win, memo = 'foxml-review-actions' })
 end
 
-function M.layout()
+-- keep: leave the list as drawn unless its width changed (returning to the tab or the terminal).
+function M.layout(keep)
   local r = M.current
   if not r or not api.nvim_tabpage_is_valid(r.tab) or api.nvim_get_current_tabpage() ~= r.tab then return end
   for _, win in ipairs({r.left_win, r.right_win}) do if not api.nvim_win_is_valid(win) then return end end
   local shown = api.nvim_win_is_valid(r.panel_win)
   local room = api.nvim_win_get_width(r.left_win) + api.nvim_win_get_width(r.right_win) + (shown and api.nvim_win_get_width(r.panel_win) or 0)
   local width = shown and math.min(math.max(16, room - 36), r.panel_width or math.min(52, math.max(30, math.floor(room * .30)))) or 0
-  if shown then api.nvim_win_set_width(r.panel_win, width); panel(r) end
+  if shown then
+    api.nvim_win_set_width(r.panel_win, width)
+    if not keep or r.panel_dirty or r.panel_w ~= math.max(24, api.nvim_win_get_width(r.panel_win) - 1) then panel(r) end
+  end
   local left, right = api.nvim_win_get_position(r.left_win), api.nvim_win_get_position(r.right_win)
   if left[1] == right[1] and right[2] == left[2] + api.nvim_win_get_width(r.left_win) + 1 then
     local available = api.nvim_win_get_width(r.left_win) + api.nvim_win_get_width(r.right_win)
@@ -1940,7 +2081,7 @@ function M.open(row, root, callbacks)
   end })
   api.nvim_create_autocmd('TabLeave', { group = r.group, callback = function() restore_options(r) end })
   api.nvim_create_autocmd({ 'TabEnter', 'FocusGained' }, { group = r.group, callback = function()
-    if M.current == r and not r.closing and api.nvim_get_current_tabpage() == r.tab then options(r); M.layout(); M.refresh_live() end
+    if M.current == r and not r.closing and api.nvim_get_current_tabpage() == r.tab then options(r); M.layout(true); M.refresh_live(false, not r.live_dirty) end
   end })
   api.nvim_create_autocmd('VimResized', { group = r.group, callback = function() if M.current == r then M.layout() end end })
   api.nvim_create_autocmd('TabClosed', { group = r.group, callback = function()
@@ -1968,7 +2109,7 @@ function M.open(row, root, callbacks)
   end
   M.layout(); M.select(first)
   r.unsubscribe = require('desk.work_events').subscribe(root, function()
-    if M.current == r then M.refresh_live() end
+    if M.current == r then M.refresh_live(r.shared_at ~= nil and uv.now() - r.shared_at < 2500, true) end
   end)
   if resumed and tonumber(last.line) and api.nvim_win_is_valid(r.right_win) then
     pcall(api.nvim_win_set_cursor, r.right_win, { math.max(1, math.min(tonumber(last.line), api.nvim_buf_line_count(r.right_buf))), 0 })

@@ -13,16 +13,19 @@ local function open(name,ft,text)
  return buf
 end
 local function lines()return table.concat(api.nvim_buf_get_lines(0,0,-1,false),'\n')end
+-- Formatting runs just after the save (format_after_save): wait for it, then for it to settle.
+local function formatted(check,message)assert(vim.wait(5000,check,20),message)end
+local function settled()vim.wait(400)end
 local py=open('note.py','python',{'def page( count:int=1 ):',' return {"pages":count,"ready":True}'})
 assert(conform.list_formatters(py)[1].name=='ruff_format')
 vim.cmd('write!')
-assert(lines():find('def page(count: int = 1):',1,true),'Python save did not format')
+formatted(function()return lines():find('def page(count: int = 1):',1,true)end,'Python save did not format')
 assert(lines():find('    return',1,true),'Python indentation was not formatted')
-local once=lines();vim.cmd('write');assert(lines()==once,'Python format is not idempotent')
+local once=lines();vim.cmd('write');settled();assert(lines()==once,'Python format is not idempotent')
 -- Config belongs to the project, rather than the theme.
 vim.fn.writefile({'[tool.ruff]','line-length = 96','[tool.ruff.format]',"quote-style = 'single'"},root..'/pyproject.toml')
 api.nvim_buf_set_lines(py,0,-1,false,{'name = "paper"'});vim.cmd('write')
-assert(lines()=="name = 'paper'",'Ruff ignored project quote style')
+formatted(function()return lines()=="name = 'paper'"end,'Ruff ignored project quote style')
 vim.fn.writefile({'[tool.black]','line-length = 96'},root..'/pyproject.toml')
 assert(options.formatters_by_ft.python(py)[1]=='black','explicit Black project was not respected')
 vim.fn.delete(root..'/pyproject.toml')
@@ -37,12 +40,12 @@ assert(vim.wait(5000,function()local c=vim.lsp.get_client_by_id(client);return c
 -- Exercise the LSP fallback without requiring another formatter package.
 conform.formatters_by_ft.json={}
 vim.cmd('write!')
-assert(#api.nvim_buf_get_lines(json,0,-1,false)>1,'JSON save did not format')
+formatted(function()return #api.nvim_buf_get_lines(json,0,-1,false)>1 end,'JSON save did not format')
 assert(vim.json.decode(lines()).name=='paper','JSON formatting changed data')
 assert(lines():find('9007199254740993',1,true),'JSON formatting lost integer precision')
-once=lines();vim.cmd('write');assert(lines()==once,'JSON format is not idempotent')
+once=lines();vim.cmd('write');settled();assert(lines()==once,'JSON format is not idempotent')
 api.nvim_buf_set_lines(json,0,-1,false,{'{"broken":'})
-invalid=lines();vim.cmd('write')
+invalid=lines();vim.cmd('write');settled()
 assert(lines()==invalid,'invalid JSON was rewritten')
 vim.lsp.stop_client(client,true)
 else print('JSON LSP check skipped: not installed in this test environment') end

@@ -11,6 +11,8 @@ Item {
     property real inset: 10
     property bool pressed: false
     property bool holdingPaper: false
+    // Retro draws flat blocks; a selected one is shaded, or solid ink (normal video on the inverse bar) when this is set.
+    property bool solidSelected: false
     property string edgeStyle: theme.paperDetails && width >= 96 ? "label" : "bookmark"
     readonly property real foldSize: edgeStyle === "page" ? Math.min(44, width * .09, depth * .09) : 0
     property real shadowStrength: holdingPaper ? .14 : .055
@@ -27,6 +29,12 @@ Item {
         Connections { target: ribbon; function onSelectedChanged() { surface.requestPaint(); } function onHoveredChanged() { surface.requestPaint(); } function onPressedChanged() { surface.requestPaint(); } function onShadowStrengthChanged() { surface.requestPaint(); } }
         onPaint: {
             var ctx = getContext("2d"); ctx.reset(); var w = Math.max(1, width - 3), h = ribbon.depth;
+            if (ribbon.theme.style === "retro") {
+                ctx.fillStyle = ribbon.theme.background; ctx.fillRect(0, 0, width, h);
+                if (ribbon.selected) { ctx.fillStyle = ribbon.solidSelected ? ribbon.theme.ink : ribbon.theme.highlight; ctx.fillRect(0, 0, width, h); }
+                else if (ribbon.hovered || ribbon.pressed) { ctx.fillStyle = ribbon.theme.hoverFill; ctx.fillRect(0, 0, width, h); }
+                return;
+            }
             var page = ribbon.theme.paperDetails && ribbon.edgeStyle === "page";
             var label = ribbon.theme.paperDetails && ribbon.edgeStyle === "label";
             var r = label ? 7 : 4, fold = ribbon.foldSize;

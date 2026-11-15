@@ -76,11 +76,13 @@ vim.opt.autoread = true                      -- external edits reload independen
 vim.opt.swapfile = false          -- no .swp clutter (git is the safety net)
 vim.opt.undofile = {{SHOW_WELCOME}}           -- persistent undo across sessions
 vim.opt.writebackup = false       -- avoid "file changed" prompts from backup writes
-vim.opt.autowriteall = {{SHOW_WELCOME}}       -- auto-save when switching buffers / leaving
+vim.opt.autowriteall = false   -- off: switching buffers silently saved and reformatted the file
 -- Word-sized highlights and line matching keep small edits legible in both review UIs.
 vim.opt.diffopt = { "internal", "filler", "closeoff", "indent-heuristic", "algorithm:histogram", "linematch:60", "inline:word" }
 
 -- Linux_Theme palette (single source of truth)
+-- paper | retro | plain: the drawing style (retro: a boxed title screen, square status line edges).
+local DeskStyle = "{{DESK_STYLE}}"
 local P = {
   bg_deep   = "#{{BG_DARK}}",
   bg        = "#{{BG}}",
@@ -294,18 +296,34 @@ function Paper.setup_tmux_footer()
     end
     saved, window = nil, nil
   end
+  -- refresh runs on every FocusGained: in the background, so a busy tmux never holds the editor (it was up to four
+  -- blocking calls of 1 s each). restore stays synchronous: it also runs as the editor exits.
+  local function tmux_async(args, done)
+    local ok = pcall(vim.system, vim.list_extend({"tmux", "-S", socket}, args), {text = true, timeout = 1000}, function(result)
+      vim.schedule(function() done(result.code == 0 and vim.trim(result.stdout or "") or nil) end)
+    end)
+    if not ok then done(nil) end
+  end
+  local busy = false
   local function refresh()
-    local info = tmux({"display-message", "-p", "-t", pane, "#{window_id} #{window_panes}"})
-    if not info then return end
-    local id, count = info:match("^(@%d+) (%d+)$")
-    if not id then return end
-    if window and window ~= id then restore() end
-    if tonumber(count) ~= 1 then restore(); return end
-    if saved ~= nil then return end
-    local previous = tmux({"show-options", "-wqv", "-t", id, "pane-border-status"})
-    if previous == nil or previous == "off" then return end
-    saved, window = previous, id
-    if tmux({"set-option", "-w", "-t", id, "pane-border-status", "off"}) == nil then saved, window = nil, nil end
+    if busy then return end
+    busy = true
+    local function finish() busy = false end
+    tmux_async({"display-message", "-p", "-t", pane, "#{window_id} #{window_panes}"}, function(info)
+      local id, count = (info or ""):match("^(@%d+) (%d+)$")
+      if not id then return finish() end
+      if window and window ~= id then restore() end
+      if tonumber(count) ~= 1 then restore(); return finish() end
+      if saved ~= nil then return finish() end
+      tmux_async({"show-options", "-wqv", "-t", id, "pane-border-status"}, function(previous)
+        if previous == nil or previous == "off" then return finish() end
+        saved, window = previous, id
+        tmux_async({"set-option", "-w", "-t", id, "pane-border-status", "off"}, function(set)
+          if set == nil then saved, window = nil, nil end
+          finish()
+        end)
+      end)
+    end)
   end
   local group = vim.api.nvim_create_augroup("foxml_paper_tmux_footer", {clear = true})
   vim.api.nvim_create_autocmd({"VimEnter", "VimResized", "FocusGained"}, {
@@ -313,7 +331,7 @@ function Paper.setup_tmux_footer()
   })
   vim.api.nvim_create_autocmd("VimLeavePre", {group = group, callback = restore})
   vim.schedule(refresh)
-  return {refresh = refresh, restore = restore}
+  return {refresh = refresh, restore = restore, busy = function() return busy end}
 end
 
 function Paper.whitespace()
@@ -1358,11 +1376,12 @@ local plugins = {
   {
     "stevearc/conform.nvim",
     opts = {
-      format_on_save = function(buf)
+      -- After the save, not during it: saving never waits on clang-format (a fast :wq can leave a file unformatted).
+      format_after_save = function(buf)
         if vim.b[buf].foxml_format_on_save == false or vim.bo[buf].buftype ~= "" then return nil end
         local ft = vim.bo[buf].filetype
         if ft == "json" and not pcall(vim.json.decode, table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")) then return nil end
-        return {lsp_format = "fallback", timeout_ms = (ft == "python" or ft == "json" or ft == "jsonc") and 1500 or 500}
+        return {lsp_format = "fallback"}
       end,
       formatters_by_ft = {
         c = {"clang-format"}, cpp = {"clang-format"},
@@ -1396,7 +1415,8 @@ local plugins = {
     config = function()
       local lint = require("lint")
       lint.linters_by_ft = { c = { "clangtidy" }, cpp = { "clangtidy" } }
-      vim.api.nvim_create_autocmd({ "BufWritePost", "InsertLeave" }, {
+      -- On save only: clang-tidy reads the saved file, so on InsertLeave it flagged stale lines (clangd covers the rest).
+      vim.api.nvim_create_autocmd({ "BufWritePost" }, {
         callback = function() require("lint").try_lint() end,
       })
     end,
@@ -1714,7 +1734,11 @@ local plugins = {
       dashboard = {
         enabled = {{SHOW_WELCOME}},
         preset = {
-          header = [[
+          header = DeskStyle == "retro" and [[
+╔════════════════════════════════════╗
+║  AMBER-86 TEXT EDITOR        v0.12 ║
+║  (C) 1987   ALL SYSTEMS READY.     ║
+╚════════════════════════════════════╝]] or [[
  /\_/\
 (˚ˎ 。7
  |、^ 〵
@@ -1950,7 +1974,8 @@ local plugins = {
           ["cmp.entry.get_documentation"] = {{SHOW_WELCOME}},
         },
         hover = { enabled = {{SHOW_WELCOME}} },
-        signature = { enabled = {{SHOW_WELCOME}} },
+        -- On request (Ctrl+k / K), not on every ( in insert mode.
+        signature = { enabled = {{SHOW_WELCOME}}, auto_open = { enabled = false } },
         progress = { enabled = false }, -- fidget handles this
       },
       presets = {
@@ -1968,14 +1993,16 @@ local plugins = {
     "NvChad/nvim-colorizer.lua",
     event = "BufReadPost",
     opts = {
-      filetypes = { "*", "!c", "!cpp", "!h" },
+      -- CSS colour functions only where they mean something: parsing them everywhere cost about 5 ms per keystroke.
+      filetypes = { "*", "!c", "!cpp", "!h", css = { css = true, css_fn = true }, scss = { css = true, css_fn = true },
+                    qml = { css = true, css_fn = true } },
       user_default_options = {
         RGB = {{SHOW_WELCOME}},
         RRGGBB = {{SHOW_WELCOME}},
         names = false,
         RRGGBBAA = {{SHOW_WELCOME}},
-        css = {{SHOW_WELCOME}},
-        css_fn = {{SHOW_WELCOME}},
+        css = false,
+        css_fn = false,
         mode = "background",
         virtualtext = "  ",
       },
@@ -1989,7 +2016,8 @@ local plugins = {
     config = function()
       local rd = require("rainbow-delimiters")
       require("rainbow-delimiters.setup").setup({
-        strategy = { [""] = rd.strategy["global"] },
+        -- local: only the visible range. global recoloured the whole buffer on open (about 1.2 s per C++ file).
+        strategy = { [""] = rd.strategy["local"] },
         query = { [""] = "rainbow-delimiters" },
         highlight = {
           "RainbowDelimiterPeach",
@@ -2787,11 +2815,12 @@ local function apply_foxml_theme()
   hl("SnacksNotifierHistoryDateTime", { fg = P.comment })
 
   -- Tag-comment markers ([KEY]_[value] in // comments; the decoration provider is below)
-  hl("FoxTagKey",   { fg = P.peach, bold = {{SHOW_WELCOME}} })
-  hl("FoxTagEnd",   { fg = P.lavender })
+  -- Their own palette values: a one-colour theme needs them between comments and code, not as bright as code.
+  hl("FoxTagKey",   { fg = "#{{NVIM_TAG_KEY}}", bold = {{SHOW_WELCOME}} })
+  hl("FoxTagEnd",   { fg = "#{{NVIM_TAG_END}}" })
   hl("FoxTagSep",   { fg = P.surface })
-  hl("FoxTagValue", { fg = P.fg_pastel })
-  hl("FoxTagChip",  { fg = P.blush })
+  hl("FoxTagValue", { fg = "#{{NVIM_TAG_VALUE}}" })
+  hl("FoxTagChip",  { fg = "#{{NVIM_TAG_CHIP}}" })
   -- Section banners (//---- rule, title, rule): typed and inked, never the handwritten comment italic
   hl("FoxSectionRule", { fg = P.syn.header, bold = {{SHOW_WELCOME}}, nocombine = {{SHOW_WELCOME}} })
   -- The symdeps plugin paints its menu footer and description strip with FoxSymdepsDim, but only defines the group
@@ -2999,8 +3028,9 @@ require("lualine").setup({
       command  = { a = { fg = P.bg, bg = P.yellow, gui = "bold" }, b = { fg = P.yellow, bg = P.bg_hl } },
       inactive = { a = { fg = P.comment, bg = P.bg_deep }, b = { fg = P.faint, bg = P.bg_deep }, c = { fg = P.faint, bg = P.bg_deep } },
     },
-    section_separators = { left = "", right = "" },
-    component_separators = { left = "", right = "" },
+    -- Retro: square blocks with a plain rule between parts, like a DOS status line.
+    section_separators = DeskStyle == "retro" and { left = "", right = "" } or { left = "", right = "" },
+    component_separators = DeskStyle == "retro" and { left = "│", right = "│" } or { left = "", right = "" },
   },
   sections = {
     lualine_a = { "mode" },
@@ -3378,7 +3408,13 @@ end
 map("i", "<C-l>", ghost("accept", "accept", "<C-l>"), { expr = true, desc = "Accept the suggestion" })
 map("i", "<C-;>", ghost("accept_word", "accept_line", "<C-;>"), { expr = true, desc = "Accept a word (local: a line)" })
 map("i", "<C-'>", ghost("accept_line", "accept_line", "<C-'>"), { expr = true, desc = "Accept a line" })
-map("i", "<C-]>", ghost("next", "next", "<C-]>"), { expr = true, desc = "Next suggestion" })
+map("i", "<C-]>", function()
+  local okc, cs = pcall(require, "copilot.suggestion")
+  if okc and cs.is_visible() then cs.next(); return "" end
+  local okm, mv = pcall(require, "minuet.virtualtext")
+  if okm and (mv.action.is_visible() or RepoVis.engine(0) ~= "copilot") then mv.action.next(); return "" end
+  return vim.keycode("<C-]>")
+end, { expr = true, desc = "Ask the local model / next suggestion" })
 map("i", "<C-k>", ghost("prev", "prev", "<C-k>"), { expr = true, desc = "Previous suggestion" })
 map("i", "<C-j>", ghost("dismiss", "dismiss", "<C-j>"), { expr = true, desc = "Dismiss the suggestion" })
 
@@ -3390,7 +3426,8 @@ if vim.g.fox_completion ~= "local" then vim.g.fox_completion = "auto" end
 local function apply_engine(buf)
   if not vim.api.nvim_buf_is_valid(buf) then return end
   local copilot = RepoVis.engine(buf) == "copilot"
-  vim.b[buf].minuet_virtual_text_auto_trigger = not copilot
+  -- The local model suggests on request (Ctrl+]), so typing never waits on it.
+  vim.b[buf].minuet_virtual_text_auto_trigger = false
   if copilot then
     local ok, client = pcall(require, "copilot.client")
     if ok and client.buf_attach then pcall(client.buf_attach, false, buf) end -- asks should_attach again

@@ -47,8 +47,7 @@ if [[ "$ctx" =~ ^[0-9]+$ ]]; then
     filled=$(( (ctx * 5 + 50) / 100 )); (( filled > 5 )) && filled=5
     colour="$HEART"; (( ctx >= 80 )) && colour="$BERRY"
     hearts="" bare=""
-    filled_mark="♥"; empty_mark="♡"
-    if [[ "{{LITTLE_DETAILS}}" == fox-little-details-on ]]; then filled_mark="▰"; empty_mark="▱"; fi
+    filled_mark="{{CLAUDE_CTX_FULL}}"; empty_mark="{{CLAUDE_CTX_EMPTY}}"
     for (( i = 0; i < 5; i++ )); do
         if (( i < filled )); then hearts+="$colour$filled_mark"; else hearts+="$FAINT$empty_mark"; fi
         bare+="$filled_mark"
@@ -64,15 +63,19 @@ if [[ -n "$sid" && -r "$XDG_RUNTIME_DIR/foxml-claude/$sid.state" ]]; then
         "$XDG_RUNTIME_DIR/foxml-claude/$sid.state" 2>/dev/null)
 fi
 [[ "$since" =~ ^[0-9]+$ ]] || since=0
+# The idle word and the sparkle follow the drawing style: Paper's words, retro's prompt, the cat elsewhere.
+spark="✧"; [[ "{{DESK_STYLE}}" == retro ]] && spark="*"
 if [[ "$state" == "compacting" ]]; then
-    add "${DIM}tidying ✧$RESET" "tidying ✧"
+    add "${DIM}tidying $spark$RESET" "tidying $spark"
 elif [[ "$detail" == "fresh" ]] && (( now - since < 90 )); then
-    add "${HEART}✧ a fresh page$RESET" "✧ a fresh page"
+    add "${HEART}$spark a fresh page$RESET" "$spark a fresh page"
 elif [[ "$state" == "waiting" || "$state" == "needs" ]]; then
-    if [[ "{{LITTLE_DETAILS}}" == fox-little-details-on ]]; then
-        label="ready"; [[ "$state" == needs ]] && label="needs input"
-        add "${FAINT}$label$RESET" "$label"
-    else add "${FAINT}ᓚᘏᗢ$RESET" "ᓚᘏᗢ"; fi
+    case "{{DESK_STYLE}}" in
+        paper) label="ready"; [[ "$state" == needs ]] && label="needs input" ;;
+        retro) label="READY."; [[ "$state" == needs ]] && label="INPUT?" ;;
+        *) label="ᓚᘏᗢ" ;;
+    esac
+    add "${FAINT}$label$RESET" "$label"
 fi
 
 # Plan usage turns berry from 80%, and then says when it resets.
@@ -106,7 +109,7 @@ fits() {
     for i in "${!plain[@]}"; do [[ -n "${plain[$i]}" ]] && total=$(( total + ${#plain[$i]} + 3 )); done
     (( total <= width ))
 }
-for drop in "⎇ " "ready" "needs input" "ᓚᘏᗢ" "tidying" "✧ a fresh" "week " "5h "; do
+for drop in "⎇ " "ready" "needs input" "READY." "INPUT?" "ᓚᘏᗢ" "tidying" "$spark a fresh" "week " "5h "; do
     fits && break
     for i in "${!plain[@]}"; do
         [[ "${plain[$i]}" == "$drop"* ]] && { parts[$i]=""; plain[$i]=""; }

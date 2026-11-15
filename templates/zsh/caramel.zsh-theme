@@ -8,6 +8,9 @@ CARAMEL_CMD_THRESHOLD=${CARAMEL_CMD_THRESHOLD:-3}
 CARAMEL_DONE_AFTER=${CARAMEL_DONE_AFTER:-30}   # done note: a command at least this long (s)
 typeset -gi _caramel_paper=0
 [[ "{{LITTLE_DETAILS}}" == fox-little-details-on ]] && _caramel_paper=1
+# Retro: a DOS prompt (C:\CODE\LINUX_THEME>), the branch and time on the right, ERRORLEVEL on a failure.
+typeset -gi _caramel_retro=0
+[[ "{{DESK_STYLE}}" == retro ]] && _caramel_retro=1
 
 # ─── Timer (tracks command execution time) ─────
 
@@ -237,6 +240,15 @@ function caramel_precmd() {
     [[ -n "$SSH_PROMPT" ]] && SSH_PROMPT="%F{#{{COMMENT}}}ssh%f "
     [[ -n "$JOBS_PROMPT" ]] && JOBS_PROMPT=" %F{#{{COMMENT}}}&${njobs}%f"
   fi
+  if (( _caramel_retro )); then
+    # Home is drive C:, everything else Z:; backslashes and capitals as DOS wrote them.
+    local dos_path="${PWD#$HOME}" drive="C:"
+    [[ "$PWD" == "$HOME" || "$PWD" == "$HOME"/* ]] || { drive="Z:"; dos_path="$PWD"; }
+    dos_path="${(U)dos_path//\//\\}"
+    CARAMEL_DOS="${drive}${${dos_path:-\\}//\%/%%}>"
+    CARAMEL_RETRO_ERR=""
+    (( exit_code != 0 )) && CARAMEL_RETRO_ERR="%{${_fox_err}%}ERRORLEVEL ${exit_code}%f "
+  fi
   return 0
 }
 
@@ -255,6 +267,12 @@ PROMPT='
 RPROMPT='%{%F{{{ANSI_ACCENT1}}}%}%*%{%f%}'
 (( _caramel_paper )) && RPROMPT='%F{#{{COMMENT}}}%*%f'
 (( _caramel_paper )) && PROMPT2=' %F{#{{COMMENT}}}↳ %_%f '
+if (( _caramel_retro )); then
+  PROMPT='
+ ${SSH_PROMPT}%F{#{{FG}}}${CARAMEL_DOS}%f '
+  RPROMPT='${CARAMEL_RETRO_ERR}$(git_prompt_info)${VENV_PROMPT}${JOBS_PROMPT}${ELAPSED_PROMPT} %F{#{{COMMENT}}}%*%f'
+  PROMPT2=' %F{#{{COMMENT}}}More? %f'
+fi
 
 # ─── Transient prompt (collapse after enter) ──
 
@@ -264,6 +282,7 @@ function _caramel_accept_line() {
   _caramel_saved_rprompt="$RPROMPT"
   PROMPT=' %{%F{{{ANSI_OK}}}%}•%{%f%} '
   (( _caramel_paper )) && PROMPT=' %F{#{{COMMENT}}}·%f '
+  (( _caramel_retro )) && PROMPT=' %F{#{{COMMENT}}}>%f '
   RPROMPT=''
   zle reset-prompt
   # Restore for next command

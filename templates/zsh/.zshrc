@@ -19,7 +19,7 @@ SAVEHIST=50000
 [[ -r "$HOME/.config/zsh/history-scrub.zsh" ]] && source "$HOME/.config/zsh/history-scrub.zsh"
 
 # ─── Environment ──────────────────────────────
-export SUDO_EDITOR=nvim
+export EDITOR=nvim VISUAL=nvim SUDO_EDITOR=nvim
 export QT_QPA_PLATFORMTHEME=gtk3
 export QT_GUI_GTK_JSON="${XDG_CONFIG_HOME:-$HOME/.config}/foxml/qt-palette.json"
 

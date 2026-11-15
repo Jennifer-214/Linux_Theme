@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Window
 import QtQuick.Controls
 import Quickshell
@@ -19,7 +20,9 @@ Row {
             width: Number(tray.spec["icon-size"] || 16)
             height: 24
             Rectangle { anchors.fill: parent; anchors.margins: -3; radius: 3; color: tray.theme.hoverFill; visible: tray.theme.paperDetails && mouse.containsMouse }
-            Image { anchors.centerIn: parent; width: parent.width; height: width; source: icon.modelData.icon; sourceSize.width: width * Screen.devicePixelRatio; sourceSize.height: height * Screen.devicePixelRatio }
+            // Retro's inverse bar draws tray icons in its dark ink, like the text beside them.
+            Image { anchors.centerIn: parent; width: parent.width; height: width; source: icon.modelData.icon; sourceSize.width: width * Screen.devicePixelRatio; sourceSize.height: height * Screen.devicePixelRatio
+                layer.enabled: tray.theme.style === "retro"; layer.effect: MultiEffect { colorization: 1; colorizationColor: tray.theme.ink } }
             MouseArea {
                 id: mouse
                 anchors.fill: parent

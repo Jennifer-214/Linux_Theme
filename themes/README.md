@@ -12,5 +12,6 @@
 | `Cave_Data_Center` | WIP / unfinished |
 | `Amsterdam_Orange` | WIP / unfinished — Optiver-inspired (scarlet on navy) |
 | `Bubblegum` | WIP / unfinished — saturated bubblegum pink + orchid |
+| `retro-amber` | WIP — amber phosphor terminal; palette, font, wallpaper and kitty glow done, bar / drawer / Firefox / lock and login screens next |
 
 Reliably switching themes currently means a full re-install of the chosen theme. A unified theming-pipeline rework is deferred.

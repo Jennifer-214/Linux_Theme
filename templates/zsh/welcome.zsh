@@ -27,7 +27,11 @@ function _caramel_welcome() {
   # Right column position for name banner
   local rc=$((COLUMNS - bw))
   (( rc < 50 )) && rc=50
+  # The eight dots take 15 columns: under the banner, but never closer to the edge than that, or they wrap
+  # (a short or empty banner put them 4 columns from the edge).
   local drc=$((rc + 4))
+  (( drc > COLUMNS - 16 )) && drc=$((COLUMNS - 16))
+  (( drc < 50 )) && drc=50
 
   # Date column — anchored absolutely so the day name and date line up
   # regardless of which row of the cat they share. The cat uses

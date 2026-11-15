@@ -60,6 +60,10 @@ void sync_cursor_settings(const Context& ctx, const std::string& theme) {
         if (sh::run({"gsettings", "set", "org.gnome.desktop.interface", "cursor-size", "30"}) != 0)
             ui::warn("could not update the desktop cursor size");
     }
+    // The compositor keeps the pointer it started with; inside the session, switch it now rather than at next login.
+    if (std::getenv("WAYLAND_DISPLAY") && std::getenv("HYPRLAND_INSTANCE_SIGNATURE") && have("hyprctl")
+        && sh::run({"hyprctl", "setcursor", theme, "30"}) != 0)
+        ui::warn("could not switch the on-screen pointer; it changes at the next login");
 }
 
 // Resolve the GitHub release asset URL via the API. Returns empty on

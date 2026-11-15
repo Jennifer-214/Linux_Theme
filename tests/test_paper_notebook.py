@@ -408,7 +408,7 @@ class PaperNotebook(unittest.TestCase):
                     out=Path(temp)/palette.parent.name
                     subprocess.run([str(RENDER),str(palette),str(ROOT/'templates'),str(out)],check=True,capture_output=True)
                     kitty=(out/'kitty/kitty.conf').read_text()
-                    expected='hidden' if palette.parent.name=='Paper' else 'powerline'
+                    expected={'Paper':'hidden','retro-amber':'separator'}.get(palette.parent.name,'powerline')
                     self.assertIn('tab_bar_style              '+expected,kitty)
                     driver=Path(temp)/'parse.lua'
                     driver.write_text('assert(loadfile('+json.dumps(str(out/'nvim/init.lua'))+')); vim.cmd("qa!")')

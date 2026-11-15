@@ -1,0 +1,13 @@
+# kitty's pipeline while `desk-crt on` puts scanlines over the whole screen: the amber phosphor and the glow only,
+# so the terminal does not get a second set of scanlines and a second curve.
+startgroup
+    animation_step 0
+    shaders phosphor
+endgroup
+
+startgroup
+    animation_step 0
+    var float BLOOM_STRENGTH = 0.08
+    var float BLOOM_THRESHOLD = 0.2
+    shaders bloom
+endgroup

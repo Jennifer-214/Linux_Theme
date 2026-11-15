@@ -44,7 +44,7 @@ class StatusLineTest(unittest.TestCase):
 
     def test_every_theme_renders_a_working_line(self):
         themes = sorted(p.parent.name for p in (ROOT / "themes").glob("*/palette.sh"))
-        self.assertEqual(len(themes), 6)
+        self.assertEqual(len(themes), 7)
         for theme in themes:
             with self.subTest(theme=theme):
                 script = self.render(theme)
@@ -53,7 +53,7 @@ class StatusLineTest(unittest.TestCase):
                 self.assertEqual(subprocess.run(["bash", "-n", str(script)]).returncode, 0)
                 shown = self.line(script, {"model": {"display_name": "Opus 5.5"}, "context_window": {"used_percentage": 41}})
                 self.assertIn("\x1b[38;2;", shown, "truecolour from the palette")
-                self.assertEqual(ESCAPE.sub("", shown), "Opus 5.5 · " + ("▰▰▱▱▱" if theme == "Paper" else "♥♥♡♡♡") + " 41%\n")
+                self.assertEqual(ESCAPE.sub("", shown), "Opus 5.5 · " + {"Paper": "▰▰▱▱▱", "retro-amber": "██░░░"}.get(theme, "♥♥♡♡♡") + " 41%\n")
 
     def test_usage_branch_gate_snapshot_and_narrow_panes(self):
         script = self.render("Paper")

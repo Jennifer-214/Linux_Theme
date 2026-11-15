@@ -441,6 +441,42 @@ assert(vim.deep_equal(selection, { open_line }) and #open == 0, 'on the open fil
 C.close()
 ''')
 
+    def test_a_line_between_rows_passes_the_cursor_on_and_a_move_does_not_rebuild_the_list(self):
+        self.run_lua(r'''
+C.open_review(row,root)
+local r=R.current
+api.nvim_set_current_win(r.panel_win)
+local first_row
+for line = 1, api.nvim_buf_line_count(r.panel_buf) do if r.entries[line] then first_row = line; break end end
+local gap
+for line = 1, first_row - 1 do if not r.entries[line] then gap = line end end
+assert(first_row and gap, 'the fixture has a non-row line above the first row')
+r.strip_for = gap - 1
+api.nvim_win_set_cursor(r.panel_win, { gap, 0 })
+api.nvim_exec_autocmds('CursorMoved', { buffer = r.panel_buf })
+local now = api.nvim_win_get_cursor(r.panel_win)[1]
+assert(r.entries[now], 'the cursor left the non-row line for a row: ' .. now)
+api.nvim_exec_autocmds('CursorMoved', { buffer = r.panel_buf })
+local bar
+for _, m in ipairs(api.nvim_buf_get_extmarks(r.panel_buf, -1, 0, -1, { details = true })) do
+  if m[4].line_hl_group == 'FoxSymdepsSelection' or m[4].line_hl_group == 'Visual' then bar = m[2] + 1 end
+end
+assert(bar == now, 'the bar is on that row, not on the open file: ' .. tostring(bar) .. ' vs ' .. now)
+-- Moving to another file rewrites only the description strip: the row lines are untouched.
+local other
+for line, e in pairs(r.entries) do if e.file and e.file ~= r.entries[now].file and not e.symbol then other = line; break end end
+if other then
+  local rows_before = api.nvim_buf_get_lines(r.panel_buf, 0, r.strip[1] - 1, false)
+  api.nvim_win_set_cursor(r.panel_win, { other, 0 })
+  api.nvim_exec_autocmds('CursorMoved', { buffer = r.panel_buf })
+  assert(vim.deep_equal(rows_before, api.nvim_buf_get_lines(r.panel_buf, 0, r.strip[1] - 1, false)), 'rows unchanged')
+  local strip = table.concat(api.nvim_buf_get_lines(r.panel_buf, r.strip[1] - 1, r.strip[2], false), '\n')
+  local name = vim.fs.basename(r.files[r.entries[other].file].rel)
+  assert(strip:find(name, 1, true), 'the strip describes the row under the cursor: ' .. strip)
+end
+C.close()
+''')
+
     def test_commit_tree_expands_files_and_reuses_the_comparison(self):
         self.run_lua(r'''
 local base={kind='commit',sha=parent,parent='4b825dc642cb6eb9a060e54bf8d69288fbee4904',short=parent:sub(1,7),subject='base',files={}}
@@ -1086,9 +1122,9 @@ local controls = assert(source:match('%-%- === QoL ===\n(.-)\n%-%- Navigate spli
 assert(loadstring('local map=vim.keymap.set\n' .. controls))()
 local conform = options('stevearc/conform.nvim')
 vim.fn.maparg('<Space>tf','n',false,true).callback()
-assert(conform.format_on_save(0) == nil, 'format-off control did not disable formatting')
+assert(conform.format_after_save(0) == nil, 'format-off control did not disable formatting')
 vim.fn.maparg('<Space>tf','n',false,true).callback()
-assert(type(conform.format_on_save(0)) == 'table')
+assert(type(conform.format_after_save(0)) == 'table')
 local whitespace = assert(source:match('(%-%- Markdown\'s trailing double space.-)\n%-%- Directory events'))
 assert(loadstring(whitespace))()
 api.nvim_buf_set_lines(0,0,-1,false,{'local value = 99   '})
@@ -1110,6 +1146,111 @@ assert(result.code == 0 and result.stdout:find('.config-note',1,true),'hidden co
 assert(not result.stdout:find('.git/',1,true) and not result.stdout:find('ignored-output',1,true),'search included Git internals or ignored output')
 vim.fn.maparg('<Space>fg','n',false,true).callback()
 assert(called.cwd == root and vim.tbl_contains(called.additional_args,'--hidden'))
+''', index_unchanged=False)
+
+    def test_changing_files_keeps_one_buffer_per_side_and_nothing_of_the_last_file(self):
+        self.run_lua(r'''
+C.open_review(row,root)
+local r=R.current
+R.select(find('a.lua'))
+local left,right=r.left_buf,r.right_buf
+local count=#api.nvim_list_bufs()
+local other=api.nvim_create_namespace('review_test_other')
+api.nvim_buf_set_extmark(right,other,0,0,{virt_text={{'stale','Comment'}}})
+api.nvim_set_current_win(r.right_win)
+for _=1,2*#r.files do
+  vim.fn.maparg(']f','n',false,true).callback()
+  local f=r.files[r.index]
+  assert(r.left_buf==left and r.right_buf==right,'a file change made new comparison buffers')
+  assert(api.nvim_win_get_buf(r.left_win)==left and api.nvim_win_get_buf(r.right_win)==right)
+  assert(vim.wo[r.left_win].diff and vim.wo[r.right_win].diff and vim.wo[r.right_win].foldmethod=='diff')
+  assert(content(right)==table.concat(vim.split(f.right:gsub('\n$',''),'\n',{plain=true}),'\n'),'the after side does not show '..f.rel)
+  assert(vim.b[right].desk_review.file==f.path and vim.b[left].desk_review.side=='before')
+  assert(api.nvim_buf_get_name(right):sub(-#f.rel-7)=='/after/'..f.rel,api.nvim_buf_get_name(right))
+  assert(not vim.bo[right].modifiable and vim.bo[right].readonly)
+  assert(vim.fn.maparg(']f','n',false,true).buffer==1,'the comparison lost its keys')
+end
+assert(#api.nvim_list_bufs()==count,'visiting files left '..(#api.nvim_list_bufs()-count)..' buffers behind')
+assert(#api.nvim_buf_get_extmarks(right,other,0,-1,{})==0,'a mark from the last file stayed')
+R.select(find('a.lua'))
+assert(vim.bo[right].filetype=='lua')
+assert(api.nvim_win_call(r.right_win,function() return vim.fn.diff_hlID(1,1) end)~=0,'the new file has no diff highlighting')
+R.select(find('added.txt'))
+assert(vim.bo[right].filetype=='text' and content(right)=='new text')
+vim.bo[right].modifiable=true
+api.nvim_buf_call(right,function() vim.cmd('silent! undo') end)
+vim.bo[right].modifiable=false
+assert(content(right)=='new text','undo brought back the previous file: '..content(right))
+assert(vim.fn.undotree(right).seq_last==0)
+C.close()
+assert(not api.nvim_buf_is_valid(left) and not api.nvim_buf_is_valid(right),'closing left the comparison buffers')
+''')
+
+    def test_a_refresh_with_nothing_changed_reads_no_file_and_keeps_the_list(self):
+        old = __import__('time').time() - 30
+        for p in self.repo.rglob('*'):
+            if '.git' not in p.parts and p.is_file():
+                os.utime(p, (old, old))
+        self.run_lua(r'''
+C.changes()
+local r=R.current
+assert(r.row.kind=='working')
+assert(vim.wait(5000,function() for _,f in ipairs(r.files) do if not f.loaded then return false end end; return true end,10))
+R.select(find('a.lua'))
+vim.wait(500)  -- the request list and the loader's last redraw land first
+local reads=0
+local open=io.open
+io.open=function(path,mode) if tostring(path):sub(1,#root+1)==root..'/' then reads=reads+1 end; return open(path,mode) end
+local entries=r.entries
+local function settled() return vim.wait(3000,function() return not r.live_running end,5) end
+R.refresh_live()
+-- Focus (like a work event) refreshes without waiting on any process.
+local system,waited=vim.system,0
+vim.system=function(argv,opts,on_exit) if not on_exit then waited=waited+1 end; return system(argv,opts,on_exit) end
+api.nvim_exec_autocmds('FocusGained',{})
+assert(settled())
+vim.system=system
+assert(waited==0,'a focus refresh waited on '..waited..' processes')
+assert(reads==0,'a refresh with nothing changed read '..reads..' files')
+assert(r.entries==entries,'a refresh with nothing changed redrew the list')
+-- A commit moves the before side while the file itself (time and size) stays the same.
+local path=root..'/a.lua'
+local stat=vim.uv.fs_stat(path)
+local f=assert(open(path,'wb')); f:write('local value = 5\nprint(value)\n'); f:close()
+assert(vim.system({'git','-C',root,'-c','commit.gpgsign=false','-c','core.hooksPath=/dev/null','commit','-qm','five','a.lua'}):wait().code==0)
+f=assert(open(path,'wb')); f:write('local value = 999\nprint(value)\n'); f:close()
+vim.uv.fs_utime(path,stat.atime.sec,stat.mtime.sec + stat.mtime.nsec/1e9)
+vim.wait(600)
+R.refresh_live()
+assert(content(r.left_buf):find('value = 5',1,true),'a new commit did not reach the before side: '..content(r.left_buf))
+-- An unsaved draft of the file is what the after side shows.
+vim.cmd('tabnew '..vim.fn.fnameescape(path))
+api.nvim_buf_set_lines(0,0,1,false,{'local value = 1234'})
+local draft=api.nvim_get_current_buf()
+api.nvim_set_current_tabpage(r.tab)
+assert(settled() and content(r.right_buf):find('value = 1234',1,true),'the unsaved draft did not reach the comparison')
+api.nvim_buf_set_lines(draft,0,1,false,{'local value = 999'}); vim.bo[draft].modified=false
+-- A file written now is read again and the list redrawn.
+entries=r.entries
+f=assert(open(root..'/added.txt','wb')); f:write('new text\nmore\n'); f:close()
+reads=0
+R.refresh_live()
+assert(reads>0 and r.entries~=entries,'a changed file was not read again')
+-- The work event a check sends comes back as an echo: no git status, and the list stays as the check drew it.
+local calls={}
+local refresh=R.refresh_live
+R.refresh_live=function(echo,background) calls[#calls+1]=echo; return refresh(echo,background) end
+local status=0
+vim.system=function(argv,...) if vim.tbl_contains(argv,'status') then status=status+1 end; return system(argv,...) end
+R.select(find('a.lua')); R.mark()
+entries=r.entries
+assert(vim.wait(5000,function() return #calls>0 end,10),'the check sent no work event')
+assert(settled())
+assert(calls[1]==true,'the check came back as an ordinary refresh')
+assert(status==0 and r.entries==entries,'the echo of a check ran git status or redrew the list')
+R.refresh_live=refresh; vim.system=system; io.open=open
+f=assert(io.open(root..'/added.txt','wb')); f:write('new text\n'); f:close()
+C.close()
 ''', index_unchanged=False)
 
     def test_a_burst_of_work_events_over_a_large_change_never_stalls_the_editor(self):

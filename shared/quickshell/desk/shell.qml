@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell
@@ -66,7 +67,19 @@ ShellRoot {
         : (Quickshell.env("XDG_CONFIG_HOME") || Quickshell.env("HOME") + "/.config") + "/waybar/drawer-state.css")
     property string lastBarStyle: ""
 
-    onOpenedChanged: barWrite.restart()
+    onOpenedChanged: {
+        barWrite.restart();
+        if (theme.style === "retro") { if (opened) crtOn.restart(); else crtOff.restart(); }
+    }
+    // Retro: the drawer opens like a CRT warming up, a bright line that grows to the full sheet, and closes back to it.
+    property real crtScale: 1
+    SequentialAnimation {
+        id: crtOn
+        PropertyAction { target: root; property: "crtScale"; value: 0.01 }
+        PauseAnimation { duration: 40 }
+        NumberAnimation { target: root; property: "crtScale"; to: 1; duration: 130; easing.type: Easing.OutQuad }
+    }
+    NumberAnimation { id: crtOff; target: root; property: "crtScale"; to: 0.01; duration: 120; easing.type: Easing.InQuad }
     onPageChanged: { barWrite.restart(); if (page !== "cheatsheet") keysFilter = ""; }
     onGroupIdChanged: barWrite.restart()
 
@@ -80,6 +93,8 @@ ShellRoot {
 
     Theme { id: theme }
     readonly property alias paperTheme: theme
+    // The theme's glyph set (retro: blocks for flowers), chosen as the shell is made, before any page reads one.
+    readonly property bool glyphsStyled: Logic.useStyle(theme.style)
     // The light slip belongs on the screen whose backlight it changed; sound and songs follow the focus.
     readonly property var backlightScreen: Quickshell.screens.find(function(output) { return /^(eDP|LVDS|DSI)-/.test(output.name); }) || null
     Overview { id: deskOverview; theme: root.paperTheme }
@@ -115,13 +130,13 @@ ShellRoot {
     readonly property var resolvedAnchor: attachment && desktopBar.item ? desktopBar.item.anchorFor(attachment.screenName, attachment.moduleName) : null
     readonly property var drawerScreen: resolvedAnchor ? resolvedAnchor.screen : openScreen || focusedScreen
     readonly property var drawerHost: desktopBar.item && drawerScreen ? desktopBar.item.hostFor(drawerScreen.name) : null
-    readonly property real drawerTopInset: theme.paperDetails && drawerHost ? drawerHost.barHeight : 0
+    readonly property real drawerTopInset: theme.hangingDrawer && drawerHost ? drawerHost.barHeight : 0
     readonly property var drawerPlacement: panel.placement
     readonly property real drawerWidth: panel.implicitWidth
     readonly property real drawerHeight: panel.implicitHeight
     property real drawerReveal: opened ? 1 : 0
     readonly property bool drawerVisible: opened || drawerReveal > .001
-    Behavior on drawerReveal { NumberAnimation { duration: theme.paperDetails ? 220 : 160; easing.type: Easing.OutCubic } }
+    Behavior on drawerReveal { NumberAnimation { duration: theme.hangingDrawer ? 220 : 160; easing.type: Easing.OutCubic } }
     Loader {
         id: desktopBar
         active: root.barEnabled
@@ -931,7 +946,7 @@ ShellRoot {
                 editing: root.editing, focus: root.focusArea, searchFocused: root.searching && searchInput.activeFocus, selected: Logic.identity(root.entries[root.itemIndex]),
                 group: root.groupId, count: root.entries.length, busy: root.actionBusy, error: root.failed,
                 attached:!!root.resolvedAnchor, screen:root.drawerScreen ? root.drawerScreen.name : "", reveal:root.drawerReveal,
-                connected:theme.paperDetails && !!root.drawerHost, topInset:root.drawerTopInset,
+                connected:theme.hangingDrawer && !!root.drawerHost, topInset:root.drawerTopInset,
                 placement:root.drawerPlacement, width:root.drawerWidth, height:root.drawerHeight, sheetY:keyboard.y,
                 visible:root.drawerVisible, source:root.attachment ? root.attachment.moduleName : "" });
         }
@@ -1070,7 +1085,7 @@ ShellRoot {
         screen: root.drawerScreen
         visible: root.drawerVisible && !root.drawerHost
         anchors { top: true; right: true }
-        readonly property var placement: Logic.drawerPlacement(screen ? screen.width : 1280, implicitWidth, root.resolvedAnchor, theme.paperDetails)
+        readonly property var placement: Logic.drawerPlacement(screen ? screen.width : 1280, implicitWidth, root.resolvedAnchor, theme.hangingDrawer)
         margins { top: panel.placement.top; right: (panel.screen ? panel.screen.width : 1280) - panel.placement.left - panel.implicitWidth }
         implicitWidth: Math.min(root.calendarLayout ? 430 : root.pickerLayout ? 640 : 790, (screen ? screen.width : 1280) - 32)
         readonly property real fullHeight: Math.min(Logic.drawerBody(root.calendarLayout ? "calendar" : root.pickerLayout && root.pickerPrompt ? "prompt" : "drawer", screen ? screen.height : 800) + root.drawerTopInset, Math.max(180, (screen ? screen.height : 800) - placement.top - 16))
@@ -1089,14 +1104,15 @@ ShellRoot {
             x: root.drawerHost ? panel.placement.left : 0
             y: root.drawerHost ? panel.placement.top : 0
             width: panel.implicitWidth
-            height: panel.implicitHeight * (theme.paperDetails ? 1 : root.drawerReveal)
-            opacity: theme.paperDetails ? 1 : Math.min(1, root.drawerReveal * 2)
+            height: panel.implicitHeight * (theme.hangingDrawer ? 1 : root.drawerReveal)
+            opacity: theme.hangingDrawer ? 1 : Math.min(1, root.drawerReveal * 2)
             clip: true
             onParentChanged: { if (root.opened) Qt.callLater(function() { keyboard.forceActiveFocus(); }); }
         FocusScope {
             id: keyboard
             x: 0
-            y: -(theme.paperDetails ? panel.implicitHeight : 14) * (1-root.drawerReveal)
+            y: theme.style === "retro" ? 0 : -(theme.hangingDrawer ? panel.implicitHeight : 14) * (1-root.drawerReveal)
+            transform: Scale { origin.x: keyboard.width / 2; origin.y: keyboard.height / 2; yScale: theme.style === "retro" ? root.crtScale : 1 }
             width: panel.implicitWidth; height: panel.implicitHeight
             enabled: root.opened
             focus: true
@@ -1119,8 +1135,10 @@ ShellRoot {
                 Rectangle {
                     visible: !theme.paperDetails
                     anchors.fill: parent
+                    // A drawer hanging from the bar starts under it (Paper's ribbon tucks behind the bar instead).
+                    anchors.topMargin: root.drawerTopInset
                     color: theme.background
-                    radius: Math.max(4, Math.min(theme.radius, 12))
+                    radius: theme.style === "retro" ? 0 : Math.max(4, Math.min(theme.radius, 12))
                     border.width: 1; border.color: theme.line
                 }
                 PaperGrain { anchors.fill:parent; anchors.bottomMargin:14; theme:root.paperTheme }
@@ -1427,8 +1445,9 @@ ShellRoot {
                                         width: Math.max(0, itemList.width - (itemScroll.visible ? theme.scrollGutter : 0) - indent)
                                         property bool card: modelData.presentation === "project" || modelData.presentation === "library" || modelData.presentation === "download"
                                         height: Logic.rowHeight(modelData, root.page === "root" && !root.searching)
-                                        radius: 4
-                                        readonly property color rowFill: itemMouse.pressed ? Qt.alpha(theme.line, .35) : selected ? theme.focusFill : theme.paperDetails ? (itemMouse.containsMouse && modelData.enabled !== false ? theme.hoverFill : theme.background) : card ? theme.surface : root.buttonShade(false, itemMouse.containsMouse)
+                                        radius: theme.style === "retro" ? 0 : 4
+                                        // Retro: the selected row is a solid dark-amber block with a cursor bar at its left edge.
+                                        readonly property color rowFill: itemMouse.pressed ? Qt.alpha(theme.line, .35) : selected ? (theme.style === "retro" ? theme.highlight : theme.focusFill) : theme.paperDetails ? (itemMouse.containsMouse && modelData.enabled !== false ? theme.hoverFill : theme.background) : card ? theme.surface : root.buttonShade(false, itemMouse.containsMouse)
                                         readonly property color rowEdge: itemMouse.pressed ? theme.muted : theme.paperDetails && !selected ? Qt.alpha(theme.line, .6) : theme.line
                                         color: heading || (theme.paperDetails && card) ? "transparent" : rowFill
                                         border.width: heading || (theme.paperDetails && card) ? 0 : theme.paperDetails || selected || card || itemMouse.containsMouse ? 1 : 0
@@ -1438,6 +1457,11 @@ ShellRoot {
                                             anchors.fill: parent; visible: theme.paperDetails && itemRow.card
                                             theme: root.paperTheme; presentation: modelData.presentation || ""
                                             fillColor: itemRow.rowFill; edgeColor: itemRow.rowEdge
+                                        }
+                                        Rectangle {
+                                            objectName: "retro-cursor"
+                                            visible: theme.style === "retro" && itemRow.selected && !itemRow.heading
+                                            width: 4; height: parent.height; color: theme.ink
                                         }
                                         PaperShadow {
                                             visible: theme.paperDetails && !itemRow.heading
@@ -1474,7 +1498,7 @@ ShellRoot {
                                             textFormat: Text.PlainText
                                             anchors.left: parent.left; anchors.leftMargin: 4
                                             anchors.bottom: parent.bottom; anchors.bottomMargin: 5
-                                            text: visible ? Logic.sectionHeading(modelData.label, theme.paperDetails) : ""
+                                            text: visible ? (theme.style === "retro" ? "── " + Logic.sectionHeading(modelData.label, false) : Logic.sectionHeading(modelData.label, theme.paperDetails)) : ""
                                             color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10
                                             font.italic: theme.paperDetails; font.letterSpacing: theme.paperDetails ? 0 : 1.2
                                         }
@@ -1500,6 +1524,9 @@ ShellRoot {
                                                 Layout.preferredHeight: modelData.image ? 42 : 24
                                                 fillMode: Image.PreserveAspectFit
                                                 asynchronous: true
+                                                // Retro: icon-theme icons (blue folders, envelopes) recoloured to the theme's ink, shading kept.
+                                                layer.enabled: theme.style === "retro" && !modelData.image
+                                                layer.effect: MultiEffect { colorization: 1; colorizationColor: theme.ink }
                                             }
                                             MediaArtwork {
                                                 objectName: "media-artwork"

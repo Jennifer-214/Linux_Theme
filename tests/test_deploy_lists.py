@@ -46,6 +46,16 @@ ONE_SIDED = {
         "native-only plan marks in the sign column; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "nvim_lua/desk/debug.lua", "~/.config/nvim/lua/desk/debug.lua"):
         "native-only C/C++ debugging through the system gdb; AGENT.md freezes mappings.sh",
+    ("SHARED_MAPPINGS", "kitty/crt-glow.pipeline", "~/.config/kitty/shaders/crt-glow.pipeline"):
+        "native-only kitty glow and scanline pipeline that retro-amber turns on; AGENT.md freezes mappings.sh",
+    ("TEMPLATE_MAPPINGS", "hyprlock/boot-label.sh", "~/.config/hypr/scripts/boot-label.sh"):
+        "native-only lock screen boot summary that retro-amber shows; AGENT.md freezes mappings.sh",
+    ("SHARED_MAPPINGS", "kitty/phosphor.slang", "~/.config/kitty/shaders/phosphor.slang"):
+        "native-only shader of that pipeline: every colour to amber; AGENT.md freezes mappings.sh",
+    ("SHARED_MAPPINGS", "kitty/crt-flat.pipeline", "~/.config/kitty/shaders/crt-flat.pipeline"):
+        "native-only kitty pipeline used while desk-crt puts scanlines over the screen; AGENT.md freezes mappings.sh",
+    ("SHARED_MAPPINGS", "hypr_shaders/crt.frag", "~/.config/hypr/shaders/crt.frag"):
+        "native-only whole-screen CRT shader for desk-crt; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "claude/mods/desk-notebook/hooks/work.ts", "~/.claude/mods/desk-notebook/hooks/work.ts"):
         "native-only Claude work records; code is copied, with colors in the existing rendered theme",
     ("SHARED_MAPPINGS", "claude/mods/desk-notebook/hooks/notebook.ts", "~/.claude/mods/desk-notebook/hooks/notebook.ts"):

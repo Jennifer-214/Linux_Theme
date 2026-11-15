@@ -275,6 +275,13 @@ var glyphs = {
     cleanup:"✧", lock:"⊡", power:"⏼", suspend:"⏾", reboot:"⟳", poweroff:"⏻", logout:"↪"
 };
 
+// The retro style draws from a terminal's block set: no flowers or floral hearts (Theme.style).
+var retroGlyphs = { today:"■", garden:"▓", wallpapers:"▒", cleanup:"*" };
+function useStyle(style) {
+    if (style === "retro") for (var key in retroGlyphs) glyphs[key] = retroGlyphs[key];
+    return true;
+}
+
 // [drawing, then glyphs and icon names that menus used for the item before].
 var paperPresets = {
     today:["today","✿"], desk:["desk","✎"], workbench:["terminal","terminal"], calendar:["today","today"],

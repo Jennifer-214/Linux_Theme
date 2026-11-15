@@ -9,7 +9,10 @@ Canvas {
     onHeightChanged: requestPaint()
     onPaint: {
         var c = getContext("2d"); c.reset();
-        c.scale(width/28,height/32); c.lineWidth=.85;
+        c.scale(width/28,height/32);
+        // Retro: a block cursor where the sprig would be.
+        if (theme.style === "retro") { c.fillStyle=theme.ink; c.fillRect(9,7,10,18); return; }
+        c.lineWidth=.85;
         c.lineCap="round";c.lineJoin="round";
         c.strokeStyle=Qt.alpha(theme.ink,.8);
         c.beginPath();c.moveTo(9,29);c.bezierCurveTo(16,23,12,12,20,3);c.stroke();

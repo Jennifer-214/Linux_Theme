@@ -59,7 +59,9 @@ Scope {
                 hint:{visible:output.hintVisible,reveal:output.hintReveal,left:output.hintContainer.x,width:output.hintContainer.width,height:output.hintContainer.height}};
         })};
     }
-    Theme { id: barTheme }
+    // Retro: a flat DOS menu bar, a solid amber strip with dark text (inverse video), 32 px instead of hanging ribbons.
+    Theme { id: barTheme; inverted: style === "retro" }
+    readonly property bool flatBar: barTheme.style === "retro"
     BarData { id: barData; active: bar.shown }
     Variants {
         id: barWindows
@@ -68,9 +70,9 @@ Scope {
             id: barWindow
             required property var modelData
             screen: modelData
-            visible: bar.shown && barData.ready && (!barTheme.paperDetails || !fullscreenWorkspace || hosting || notificationCover)
+            visible: bar.shown && barData.ready && (!barTheme.hangingDrawer || !fullscreenWorkspace || hosting || notificationCover)
             anchors { top: true; left: true; right: true }
-            readonly property real barHeight: Math.ceil(66 * barScale)
+            readonly property real barHeight: Math.ceil((bar.flatBar ? 32 : 66) * barScale)
             readonly property alias drawerContainer: paperHost
             readonly property alias moduleContainer: toolbar
             readonly property alias hintContainer: hintClip
@@ -89,7 +91,7 @@ Scope {
             function hideHint(owner) { if (hintOwner===owner) hintOwner=null; }
             readonly property bool hosting: !!(bar.controller && bar.controller.drawerVisible && bar.controller.drawerHost === paperHost)
             onHostingChanged: if (hosting) hintOwner=null
-            readonly property bool notificationInFront: barTheme.paperDetails && bar.notificationScreens.trim().length > 0 && bar.notificationScreens.trim().split("\n").indexOf(screen.name) >= 0
+            readonly property bool notificationInFront: barTheme.hangingDrawer && bar.notificationScreens.trim().length > 0 && bar.notificationScreens.trim().split("\n").indexOf(screen.name) >= 0
             readonly property var monitor: Hyprland.monitorFor(screen)
             readonly property bool fullscreenWorkspace: BarLogic.fullscreenWorkspace(monitor ? monitor.activeWorkspace : null)
             property bool notificationCover: false
@@ -101,14 +103,14 @@ Scope {
             // Keep the native surface unchanged while the drawer slides. Its
             // input mask and exclusive zone still expose/reserve only the bar
             // and the currently visible sheet.
-            implicitHeight: barTheme.paperDetails ? Math.min(screen.height,barHeight+DrawerLogic.drawerBody("drawer",screen.height))
+            implicitHeight: barTheme.hangingDrawer ? Math.min(screen.height,barHeight+DrawerLogic.drawerBody("drawer",screen.height))
                 : hosting ? Math.max(barHeight,bar.controller.drawerPlacement.top+bar.controller.drawerHeight) : barHeight
             exclusiveZone: Quickshell.env("FOXML_BAR_PREVIEW") === "1" ? 0 : barHeight
             color: "transparent"
             WlrLayershell.namespace: "foxml-bar"
             // Never lower the bar while a Top-layer notification is closing.
             // Fullscreen visibility is handled above without remapping layers.
-            WlrLayershell.layer: barTheme.paperDetails || hosting || notificationInFront ? WlrLayer.Overlay : WlrLayer.Top
+            WlrLayershell.layer: barTheme.hangingDrawer || hosting || notificationInFront ? WlrLayer.Overlay : WlrLayer.Top
             WlrLayershell.keyboardFocus: hosting && bar.controller.opened ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
             mask: Region {
                 width: barWindow.width; height: barWindow.barHeight
@@ -213,11 +215,11 @@ Scope {
                     }
                 }
             }
-            Rectangle { width: parent.width; height: 7 * barWindow.barScale; color: barTheme.background; z: 2 }
+            Rectangle { width: parent.width; height: (bar.flatBar ? 32 : 7) * barWindow.barScale; color: barTheme.background; z: 2 }
             Item {
                 id: toolbar
                 z: 2
-                x: 14; width: (parent.width - 28) / barWindow.barScale; height: 66
+                x: 14; width: (parent.width - 28) / barWindow.barScale; height: bar.flatBar ? 32 : 66
                 scale: barWindow.barScale; transformOrigin: Item.TopLeft
                 component Section: Row {
                     property string side
@@ -243,7 +245,7 @@ Scope {
                                                                        || barData.snapshot(modelData).classes.indexOf("done") >= 0))
                             selected: attached || calling
                             holdingPaper: attached
-                            depth: modelData === "custom/clock" ? 58 : calling ? 50 : 43
+                            depth: bar.flatBar ? 30 : modelData === "custom/clock" ? 58 : calling ? 50 : 43
                             Row {
                                 id: groupRow
                                 y: -7
@@ -271,7 +273,19 @@ Scope {
                 }
                 Section { id: left; side: "left"; anchors.left: parent.left }
                 Section { id: middle; side: "center"; anchors.horizontalCenter: parent.horizontalCenter }
-                Section { id: right; side: "right"; anchors.right: parent.right }
+                Section { id: right; side: "right"; anchors.right: parent.right; anchors.rightMargin: bar.flatBar ? 16 : 0 }
+                // Retro: a blinking block cursor after the clock, like a terminal waiting for input.
+                Rectangle {
+                    objectName: "bar-cursor"
+                    visible: bar.flatBar
+                    anchors.right: parent.right; y: 8; width: 9; height: 16
+                    color: barTheme.ink
+                    SequentialAnimation on opacity {
+                        running: bar.flatBar; loops: Animation.Infinite
+                        PropertyAction { value: 1 } PauseAnimation { duration: 530 }
+                        PropertyAction { value: 0 } PauseAnimation { duration: 530 }
+                    }
+                }
             }
         }
     }

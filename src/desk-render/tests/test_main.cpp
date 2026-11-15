@@ -46,6 +46,20 @@ void test_palette_basic_hex() {
     EXPECT(t.find("{{PALETTE_NAME}}") == t.end());
 }
 
+// A quoted value keeps a '#' inside it (markup colours); a comment after the quote still goes; unquoted is unchanged.
+void test_palette_hash_inside_quotes() {
+    write_file("/tmp/foxren_test_palette_hash.sh",
+        "FMT='<span background=\"#ffb000\">%s</span>'   # a comment\n"
+        "DQ=\"a#b\"\n"
+        "PLAIN=Papirus-Dark   # also the GTK icon theme\n"
+        "SCOPE=':not(*)'\n");
+    auto t = desk_render::parse_palette("/tmp/foxren_test_palette_hash.sh");
+    EXPECT(t["{{FMT}}"] == "<span background=\"#ffb000\">%s</span>");
+    EXPECT(t["{{DQ}}"] == "a#b");
+    EXPECT(t["{{PLAIN}}"] == "Papirus-Dark");
+    EXPECT(t["{{SCOPE}}"] == ":not(*)");
+}
+
 void test_substitution_unknown_passes_through() {
     std::unordered_map<std::string, std::string> t = { {"{{BG}}", "1a1214"} };
     EXPECT(desk_render::apply_substitutions("c={{BG}}", t) == "c=1a1214");
@@ -92,6 +106,7 @@ void test_write_failure_is_reported() {
 int main() {
     test_write_failure_is_reported();
     test_palette_basic_hex();
+    test_palette_hash_inside_quotes();
     test_substitution_unknown_passes_through();
     test_substitution_overlapping_braces();
     test_substitution_malformed_marker_safe();

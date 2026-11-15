@@ -340,6 +340,17 @@
   a:hover {
     color: #{{ACCENT}} !important;
   }
+
+  /* retro-amber (FF_RETRO_SCOPE is ':root' there, matching nothing elsewhere): a terminal screen. The terminal font
+     throughout, square tiles and search box, a C:\> prompt in the box, the shortcut names in capitals. */
+  {{FF_RETRO_SCOPE}} body, {{FF_RETRO_SCOPE}} input, {{FF_RETRO_SCOPE}} button { font-family: "{{FONT_FAMILY}}", monospace !important; }
+  {{FF_RETRO_SCOPE}} .search-wrapper input, {{FF_RETRO_SCOPE}} .search-handoff-button,
+  {{FF_RETRO_SCOPE}} .top-site-outer, {{FF_RETRO_SCOPE}} .top-site-inner, {{FF_RETRO_SCOPE}} .tile,
+  {{FF_RETRO_SCOPE}} .top-site-outer .tile .icon-wrapper { border-radius: 0 !important; }
+  {{FF_RETRO_SCOPE}} .search-wrapper input, {{FF_RETRO_SCOPE}} .search-handoff-button { border: 1px solid #{{FG}} !important; box-shadow: none !important; }
+  {{FF_RETRO_SCOPE}} .search-handoff-button .fake-textbox::before { content: "C:\\> "; color: #{{FG}}; }
+  {{FF_RETRO_SCOPE}} .top-site-outer .title { text-transform: uppercase !important; letter-spacing: 1px !important; }
+  {{FF_RETRO_SCOPE}} .top-site-outer:hover .tile, {{FF_RETRO_SCOPE}} .top-site-outer:focus-within .tile { background: #{{FG}} !important; }
 }
 
 /* ===== about:preferences / settings ===== */

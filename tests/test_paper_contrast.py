@@ -39,7 +39,7 @@ class PaperContrast(unittest.TestCase):
                     out = Path(temp)/palette.parent.name
                     subprocess.run([str(RENDER), str(palette), str(ROOT/'templates'), str(out)], check=True, capture_output=True)
                     paper = palette.parent.name == 'Paper'
-                    opacity = 1.0 if paper else .88
+                    opacity = 1.0 if paper or palette.parent.name == 'retro-amber' else .88
                     for name in ['theme.conf', 'theme.lua']:
                         text = (out/'hyprland'/name).read_text()
                         self.assertNotIn('{{', text)

@@ -57,6 +57,14 @@ inline void sync_gtk_icon_theme(const Context& ctx) {
     sync_gtk_preference(ctx, "gtk-icon-theme-name", "icon-theme", "icons");
 }
 
+// libadwaita and GTK 4 apps follow color-scheme, not settings.ini's prefer-dark: a dark theme after a light one
+// otherwise leaves them light.
+inline void sync_gtk_color_scheme(const Context& ctx) {
+    const std::string dark = palette::get(ctx.palette_path, "GTK_PREFER_DARK", "");
+    if (dark == "1") set_gtk_preference(ctx, "color-scheme", "prefer-dark", "light/dark preference");
+    else if (dark == "0") set_gtk_preference(ctx, "color-scheme", "default", "light/dark preference");
+}
+
 // libadwaita and portal-aware apps take their accent from gsettings, not from gtk.css.
 inline void sync_gtk_accent(const Context& ctx) {
     static const char* const names[] = {"blue", "teal", "green", "yellow", "orange",

@@ -19,7 +19,8 @@ Item {
     readonly property var sample: name === "idle_inhibitor" ? {text:theme.paperDetails ? (dataSource.idleEnabled ? "☼" : "☾") : (spec["format-icons"] || {})[dataSource.idleEnabled ? "activated" : "deactivated"] || "○", tooltip:spec[dataSource.idleEnabled ? "tooltip-format-activated" : "tooltip-format-deactivated"] || (dataSource.idleEnabled ? "Keeping the screen awake · click to let it rest" : "The screen rests when idle · click to keep it awake"), classes:[]}
         : spec.exec || name === "memory" || name === "power-profiles-daemon" ? dataSource.snapshot(name) : {text:spec.format || "", tooltip:spec["tooltip-format"] || (typeof spec.tooltip === "string" ? spec.tooltip : ""), classes:[]}
     readonly property string label: BarLogic.format(sample.text, {icon:sample.text})
-    readonly property var clockParts: name === "custom/clock" ? label.trim().match(/^(.*?)\s+(\d{1,2}:\d{2}(?:\s*[AP]M)?)$/i) : null
+    // Retro's flat bar has room for one line: the clock is its plain label there.
+    readonly property var clockParts: name === "custom/clock" && theme.style !== "retro" ? label.trim().match(/^(.*?)\s+(\d{1,2}:\d{2}(?:\s*[AP]M)?)$/i) : null
     readonly property bool special: name === "hyprland/workspaces" || name === "tray"
     readonly property bool botanicalLogo: name === "custom/logo" && theme.paperDetails
     readonly property bool interactive: name === "idle_inhibitor" || ["on-click", "on-click-right", "on-click-middle", "on-scroll-up", "on-scroll-down"].some(function(key) { return !!spec[key]; })
@@ -101,7 +102,7 @@ Item {
         objectName: "bar-api-credit-rail"
         visible: module.name === "custom/api_credits" && module.sample.percentage !== undefined
         anchors.horizontalCenter: parent.horizontalCenter
-        y: 33; width: Math.max(0, module.width - 18); height: 3; radius: 1.5
+        y: module.theme.style === "retro" ? 26 : 33; width: Math.max(0, module.width - 18); height: 3; radius: 1.5
         color: Qt.alpha(module.theme.line, .3)
         Rectangle {
             width: parent.width * Math.max(0, Math.min(100, Number(module.sample.percentage || 0))) / 100

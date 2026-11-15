@@ -15,6 +15,7 @@ ColumnLayout {
     readonly property int todayIndex: counts.length - 1
     readonly property var thresholds: Logic.gardenThresholds(counts)
     readonly property var hearts: Logic.gardenHearts(counts)
+    readonly property bool retro: theme.style === "retro"
     // Days a failing test went green again (desk-work: passed after two or more failures in a row).
     readonly property var greens: garden && Array.isArray(garden.green) ? garden.green : []
     readonly property int weeks: Math.ceil(counts.length / 7)
@@ -84,11 +85,12 @@ ColumnLayout {
                             visible: planted
                             Rectangle {
                                 anchors.fill: parent
-                                visible: !plot.heart
-                                radius: Math.max(2, sheet.cell / 4)
-                                color: sheet.theme.gardenShades[plot.level]
+                                // Retro has no leaf: a busiest day is the brightest block, ringed.
+                                visible: !plot.heart || sheet.retro
+                                radius: sheet.retro ? 0 : Math.max(2, sheet.cell / 4)
+                                color: sheet.theme.gardenShades[plot.heart && sheet.retro ? 4 : plot.level]
                                 // An empty day is a pencil outline, so even the palest bed reads on a bright screen.
-                                border.width: plot.selected ? 1.6 : plot.day === sheet.todayIndex || plot.level === 0 ? 1 : 0
+                                border.width: plot.selected || (plot.heart && sheet.retro) ? 1.6 : plot.day === sheet.todayIndex || plot.level === 0 ? 1 : 0
                                 border.color: plot.selected ? sheet.theme.ink : plot.day === sheet.todayIndex ? sheet.theme.detailAccent : Qt.alpha(sheet.theme.line, .7)
                             }
                             // A pressed flower: the day a failing test went green again.
@@ -97,14 +99,14 @@ ColumnLayout {
                                 visible: plot.planted && sheet.greens.indexOf(plot.day) >= 0
                                 anchors.right: parent.right; anchors.top: parent.top
                                 anchors.rightMargin: -2; anchors.topMargin: -4
-                                text: "✿"; textFormat: Text.PlainText
+                                text: sheet.retro ? "*" : "✿"; textFormat: Text.PlainText
                                 font.family: sheet.theme.fontFamily; font.pixelSize: Math.max(8, sheet.cell * .55)
                                 color: sheet.theme.detailAccent
                             }
                             // A leaf marks the busiest days without adding another status symbol.
                             Shape {
                                 objectName: "garden-heart"
-                                visible: plot.heart
+                                visible: plot.heart && !sheet.retro
                                 width: 24; height: 24
                                 x: (sheet.cell - 24) / 2; y: (sheet.cell - 24) / 2
                                 scale: (sheet.cell + 3) / 24

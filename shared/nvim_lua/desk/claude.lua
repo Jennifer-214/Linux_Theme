@@ -240,22 +240,62 @@ function M.blame_text(info, trailer, names, me, now_s, plan)
   return string.format("  %s %s · %s · %s%s", mark, who, when, info.summary or "", under)
 end
 
--- Which plan each commit of a checkout was made under, from desk-work's review tree; asked once a minute per root.
-local plans_cache = {}
-function M.commit_plans(root)
-  local now_s, cached = os.time(), plans_cache[root]
-  if cached and now_s - cached.at < 60 then return cached.map end
+-- The blame line is drawn on the main loop, so everything it shows that needs a command is read in the background:
+-- the line shows what is known now and is drawn again when the rest arrives.
+local function refill_blame()
+  local blame = package.loaded["gitsigns.current_line_blame"]
+  if type(blame) == "table" and type(blame.update) == "function" then pcall(blame.update, vim.api.nvim_get_current_buf()) end
+end
+
+function M.parse_plans(text)
   local map = {}
-  local backend = require("desk.review").work_tool()
-  if backend then
-    for _, task in ipairs(M.decode(system({ backend, "review-tree", "--root", root, "--all", "yes" })) or {}) do
-      if type(task) == "table" and (task.plan or "") ~= "" then
-        for _, c in ipairs(type(task.commits) == "table" and task.commits or {}) do map[c.sha] = { title = task.title, step = c.step } end
-      end
+  for _, task in ipairs(M.decode(text) or {}) do
+    if type(task) == "table" and (task.plan or "") ~= "" then
+      for _, c in ipairs(type(task.commits) == "table" and task.commits or {}) do map[c.sha] = { title = task.title, step = c.step } end
     end
   end
-  plans_cache[root] = { at = now_s, map = map }
   return map
+end
+
+-- Which plan each commit of a checkout was made under, from desk-work's review tree: the last map is served at
+-- once, and read again a minute after the last read or when desk-work says its records changed.
+local plans_cache = {}
+local function read_plans(root, entry)
+  entry.at = os.time()
+  local backend = require("desk.review").work_tool()
+  if not backend then return end
+  entry.reading = true
+  local ok = pcall(vim.system, { backend, "review-tree", "--root", root, "--all", "yes" }, { text = true, timeout = 5000 },
+    function(out)
+      vim.schedule(function()
+        entry.reading, entry.at = false, os.time()
+        if out.code == 0 then
+          local map = M.parse_plans(out.stdout)
+          if not vim.deep_equal(map, entry.map) then entry.map = map; refill_blame() end
+        end
+        if entry.again then entry.again = false; read_plans(root, entry) end
+      end)
+    end)
+  if not ok then entry.reading = false end
+end
+
+function M.commit_plans(root)
+  local entry = plans_cache[root]
+  if not entry then entry = { at = 0, map = {} }; plans_cache[root] = entry end
+  if not entry.reading and os.time() - entry.at >= 60 then read_plans(root, entry) end
+  return entry.map
+end
+
+-- desk-work's records changed (User FoxWorkChanged): read the plans again for that checkout. The event also comes
+-- from its 20 s poll, with the same revision, which is not a change.
+function M.work_changed(data)
+  data = type(data) == "table" and data or {}
+  for root, entry in pairs(plans_cache) do
+    if (not data.root or (uv.fs_realpath(root) or root) == data.root) and entry.revision ~= data.revision then
+      entry.revision = data.revision
+      if entry.reading then entry.again = true else read_plans(root, entry) end
+    end
+  end
 end
 
 -- ─── the live parts (timers, gitsigns, windows) ───────────────────────────────────────────────────────────────
@@ -268,10 +308,27 @@ function M.names()
   return names_cache.names
 end
 
-local me_cache
-local function me()
-  if me_cache == nil then me_cache = vim.trim(system({ "git", "config", "user.name" }, 1000) or "") end
-  return me_cache
+-- Your git name in a checkout. `wait` is for user actions (the change list); the blame line never waits.
+local me_cache, me_asked = {}, {}
+local function me(root, wait)
+  root = root or ""
+  if me_cache[root] then return me_cache[root] end
+  local argv = root ~= "" and { "git", "-C", root, "config", "user.name" } or { "git", "config", "user.name" }
+  if wait then
+    me_cache[root] = vim.trim(system(argv, 1000) or "")
+    return me_cache[root]
+  end
+  if not me_asked[root] then
+    me_asked[root] = true
+    local ok = pcall(vim.system, argv, { text = true, timeout = 2000 }, function(out)
+      vim.schedule(function()
+        me_cache[root] = me_cache[root] or vim.trim(out.code == 0 and out.stdout or "")
+        if me_cache[root] ~= "" then refill_blame() end
+      end)
+    end)
+    if not ok then me_cache[root] = "" end
+  end
+  return ""
 end
 
 local function realpath(buf)
@@ -430,7 +487,7 @@ function M.rows(root)
     local files = {}
     for _, rel in ipairs(c.files) do files[#files + 1] = root .. "/" .. rel end
     rows[#rows + 1] = { kind = "commit", sha = c.sha, parent = c.parent or EMPTY_TREE, short = c.short,
-                        files = files, subject = c.subject, label = M.commit_label(c, names, me(), now_s) }
+                        files = files, subject = c.subject, label = M.commit_label(c, names, me(root, true), now_s) }
   end
   return rows
 end
@@ -538,21 +595,65 @@ function M.changes(unreviewed)
 end
 
 -- ─── blame ────────────────────────────────────────────────────────────────────────────────────────────────────
-local trailer_cache = {}
+M.TRAILER_FORMAT = "%x1e%H%x1f%(trailers:key=Claude-Session,valueonly,separator=%x2C)"
+  .. "%x1f%(trailers:key=Co-Authored-By,valueonly,separator=%x2C)"
+
+function M.parse_trailers(text)
+  local found = {}
+  for record in (text or ""):gmatch("\30([^\30]*)") do
+    local sha, session, coauthor = record:match("^(%x+)\31([^\31]*)\31(.*)$")
+    if sha then
+      session = vim.trim(session)
+      found[sha] = { url = session:match("(https://%S+)"), claude = session ~= "" or coauthor:find("Claude") ~= nil }
+    end
+  end
+  return found
+end
+
+-- Trailers are read for every sha asked for in one pass through the loop with a single `git log`.
+local trailer_cache, trailer_asked, trailer_wanted, trailer_busy = {}, {}, {}, {}
+local function fetch_trailers(dir)
+  if trailer_busy[dir] or not trailer_wanted[dir] then return end
+  local shas = vim.tbl_keys(trailer_wanted[dir])
+  trailer_wanted[dir], trailer_busy[dir] = nil, true
+  local argv = { "git", "--no-optional-locks", "-C", dir, "log", "--no-walk=unsorted", "--format=" .. M.TRAILER_FORMAT }
+  vim.list_extend(argv, shas)
+  local function back(out)
+    vim.schedule(function()
+      trailer_busy[dir] = nil
+      local found = out and out.code == 0 and M.parse_trailers(out.stdout) or {}
+      local changed = false
+      for _, sha in ipairs(shas) do
+        trailer_asked[sha] = nil
+        -- Not found (the read failed or timed out): plain for now, asked again a minute later.
+        trailer_cache[sha] = found[sha] or { claude = false, retry_at = os.time() + 60 }
+        changed = changed or trailer_cache[sha].claude
+      end
+      if changed then refill_blame() end
+      fetch_trailers(dir)
+    end)
+  end
+  if not pcall(vim.system, argv, { text = true, timeout = 3000 }, back) then back(nil) end
+end
+
 local function trailer(sha, dir)
-  if trailer_cache[sha] then return trailer_cache[sha] end
-  local out = system({ "git", "-C", dir, "show", "-s", "--format=%(trailers:key=Claude-Session,valueonly,separator=%x2C)%x1f%(trailers:key=Co-Authored-By,valueonly,separator=%x2C)", sha }, 800) or ""
-  local session, coauthor = out:match("^([^\31]*)\31(.*)$")
-  local t = { url = (session or ""):match("(https://%S+)"), claude = (session or "") ~= "" or (coauthor or ""):find("Claude") ~= nil }
-  trailer_cache[sha] = t
-  return t
+  local t = trailer_cache[sha]
+  if t and not (t.retry_at and os.time() >= t.retry_at) then return t end
+  if not trailer_asked[sha] then
+    trailer_asked[sha] = true
+    trailer_wanted[dir] = trailer_wanted[dir] or {}
+    trailer_wanted[dir][sha] = true
+    vim.schedule(function() fetch_trailers(dir) end)
+  end
+  return t or {}
 end
 
 function M.blame_formatter(_, info)
-  local dir = vim.fn.expand("%:p:h")
   local root = repo_root(0)
-  local plan = root and info.sha and M.commit_plans(root)[info.sha] or nil
-  local text = M.blame_text(info, info.sha and trailer(info.sha, dir) or {}, M.names(), me(), os.time(), plan)
+  local committed = info.sha and not info.sha:match("^0+$") and info.author ~= "Not Committed Yet"
+  local plan = committed and root and M.commit_plans(root)[info.sha] or nil
+  local t = committed and trailer(info.sha, root or vim.fn.expand("%:p:h")) or {}
+  local text = M.blame_text(info, t, M.names(), me(root), os.time(), plan)
   return { { text, "GitSignsCurrentLineBlame" } }
 end
 
@@ -566,6 +667,7 @@ function M.setup()
   timer:start(0, 5000, vim.schedule_wrap(poll))
   local group = vim.api.nvim_create_augroup("foxml_claude", { clear = true })
   vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, { group = group, callback = function(a) warn_once(a.buf) end })
+  vim.api.nvim_create_autocmd("User", { group = group, pattern = "FoxWorkChanged", callback = function(a) M.work_changed(a.data) end })
   vim.api.nvim_create_user_command("ClaudeChanges", M.changes, { desc = "What changed: live sessions and commits" })
   vim.api.nvim_create_user_command("ChangedDone", M.close, { desc = "Close Claude review" })
   vim.api.nvim_create_user_command("ReviewNext", function() require("desk.review").next() end, { desc = "Review the next thing that needs you" })

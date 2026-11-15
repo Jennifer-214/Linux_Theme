@@ -115,6 +115,7 @@ void run_post_install(Context& ctx) {
 
     sync_gtk_font(ctx);
     sync_gtk_icon_theme(ctx);
+    sync_gtk_color_scheme(ctx);
     sync_gtk_accent(ctx);
     sync_thunar_view(ctx);
     refresh_gtk_icon_cache(ctx);

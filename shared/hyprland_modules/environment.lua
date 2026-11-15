@@ -26,6 +26,9 @@ hl.env("MOZ_ENABLE_WAYLAND", "1")
 -- env = WLR_NO_HARDWARE_CURSORS, 1
 
 -- Apps
+-- The editor anything launched from the desktop opens text with (yazi's edit opener, git): Neovim.
+hl.env("EDITOR", "nvim")
+hl.env("VISUAL", "nvim")
 hl.env("NIXOS_OZONE_WL", "1")
 hl.env("SPOTIFY_USE_WAYLAND", "1")
 
