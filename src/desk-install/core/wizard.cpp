@@ -1,4 +1,5 @@
 #include "wizard.hpp"
+#include "backup.hpp"
 
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
@@ -342,6 +343,22 @@ void apply_conflict_decisions(Plan& plan, const Context& ctx) {
 
             case conflict::Decision::BackupThenTakeNew: {
                 if (!std::filesystem::exists(*sentinel)) break;  // nothing to back up
+                // A file in the home folder goes into this run's backup folder with the other snapshots, not beside
+                // the live config. /etc keeps its copy beside the file, where RECOVERY.md points.
+                const std::filesystem::path rel = sentinel->lexically_relative(ctx.home);
+                if (!ctx.home.empty() && !rel.empty() && *rel.begin() != "..") {
+                    const std::filesystem::path bak = ctx.backup_dir / rel;
+                    if (sh::dry_run()) {
+                        ui::substep("[dry-run] would back up " + sentinel->string() + " to " + bak.string());
+                    } else if (!snapshot_one(ctx, *sentinel)) {
+                        ui::warn("could not back up " + sentinel->string() + " — skipping " + mp.module->slug
+                                 + " so your file stays as it is");
+                        mp.action = Action::Skip;
+                    } else {
+                        ui::substep("backed up " + sentinel->string() + " → " + bak.string());
+                    }
+                    break;
+                }
                 // Installer audit 2026-10-15: this copied as the user (failing on /etc, then overwriting unbacked),
                 // over any earlier .foxml-bak, and in a dry run too.
                 const std::filesystem::path bak = conflict_backup_path(*sentinel, run_stamp(ctx));

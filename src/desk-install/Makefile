@@ -283,8 +283,8 @@ tests/test_conflict_resolve: tests/test_conflict_resolve.cpp core/conflict_resol
 # adds the interactive run() body, which isn't unit-tested. The link
 # pulls classifier + conflict_resolve in because wizard's structs
 # embed their types.
-tests/test_wizard: tests/test_wizard.cpp core/wizard.o core/classifier.o core/conflict_resolve.o $(DESK_COMMON_LIB)
-	$(CXX) $(CXXFLAGS) tests/test_wizard.cpp core/wizard.o core/classifier.o core/conflict_resolve.o -L$(DESK_COMMON_DIR) -ldesk-common -o $@
+tests/test_wizard: tests/test_wizard.cpp core/wizard.o core/classifier.o core/conflict_resolve.o core/backup.o $(DESK_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) tests/test_wizard.cpp core/wizard.o core/classifier.o core/conflict_resolve.o core/backup.o -L$(DESK_COMMON_DIR) -ldesk-common -o $@
 
 # install_lock — POSIX flock + lockfile path resolution. No desk-common
 # dependency; pure libc plus filesystem.

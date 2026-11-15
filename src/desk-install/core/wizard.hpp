@@ -124,9 +124,11 @@ conflict_sentinel(const std::string& slug, const Context& ctx);
 //                       overwrite the user-edited file.
 //   TakeNew           — left as Conflict (treated as Run by the
 //                       caller); the module's normal write proceeds.
-//   BackupThenTakeNew — copies the sentinel to conflict_backup_path()
-//                       (through sudo when its directory isn't the
-//                       user's), then leaves the module as Conflict/Run.
+//   BackupThenTakeNew — copies the sentinel into ctx.backup_dir when it
+//                       is in the home folder, else to
+//                       conflict_backup_path() (through sudo when its
+//                       directory isn't the user's), then leaves the
+//                       module as Conflict/Run.
 //                       If no copy lands, the module is skipped: the
 //                       user's file is never overwritten unbacked. A
 //                       dry run only says what it would copy.

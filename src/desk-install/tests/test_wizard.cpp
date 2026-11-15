@@ -281,6 +281,46 @@ int main() {
         fs::remove_all(tmp_cfg);
     }
 
+    // BackupThenTakeNew for a file in the home folder: the copy goes into the run's backup folder under the same
+    // relative path, and nothing is written beside the live config.
+    {
+        Context ctx;
+        const fs::path home = fs::temp_directory_path() / ("fox_wizard_home_test_" + std::to_string(::getpid()));
+        fs::remove_all(home);
+        fs::create_directories(home / ".config" / "hypr");
+        const fs::path conf = home / ".config" / "hypr" / "hyprland.conf";
+        std::ofstream(conf) << "user-edited\n";
+        ctx.home = home;
+        ctx.config_home = home / ".config";
+        ctx.backup_dir = home / ".theme_backups" / "foxml-backup-20261115-120000";
+        Module m{"render", &run_stub, "--render", "stub", false, false, false, false, &check_conflict};
+        auto backup_plan = [&] {
+            Plan p;
+            p.modules = {ModulePlan{&m, {state::Status::Conflict, "test"}, Action::Conflict,
+                                    conflict::Decision::BackupThenTakeNew}};
+            return p;
+        };
+        const fs::path bak = ctx.backup_dir / ".config" / "hypr" / "hyprland.conf";
+
+        sh::set_dry_run(true);
+        Plan dry = backup_plan();
+        apply_conflict_decisions(dry, ctx);
+        sh::set_dry_run(false);
+        EXPECT(dry.modules[0].action == Action::Conflict);
+        EXPECT(!fs::exists(bak));
+
+        Plan run = backup_plan();
+        apply_conflict_decisions(run, ctx);
+        EXPECT(run.modules[0].action == Action::Conflict);
+        std::ifstream in(bak);
+        EXPECT(std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>()) == "user-edited\n");
+        int beside = 0;
+        for (const auto& e : fs::directory_iterator(home / ".config" / "hypr"))
+            if (e.path().filename().string().find("foxml-bak") != std::string::npos) ++beside;
+        EXPECT(beside == 0);
+        fs::remove_all(home);
+    }
+
     // ── apply_cli_layer — [I-08] CLI-vs-classification precedence ──
     {
         Module m{"stub", &run_stub, "--stub", "stub", false,

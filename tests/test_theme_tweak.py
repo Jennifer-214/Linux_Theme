@@ -34,14 +34,24 @@ class ThemeTweakTest(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def tweak(self, render_exit):
+    def tweak(self, render_exit, args=("--rounding", "12")):
         stub(self.repo / "src/desk-install/desk-install",
              f'echo "render sync_skip=$FOXML_SKIP_PLUGIN_SYNC" >> "{self.log}"; exit {render_exit}')
         env = {"HOME": str(self.tmp), "FOXML_DIR": str(self.repo), "PATH": f"{self.bin}:/usr/bin:/bin",
                "LANG": "C.UTF-8"}
-        r = subprocess.run(["bash", str(TWEAK), "--rounding", "12"], env=env, capture_output=True, text=True,
+        r = subprocess.run(["bash", str(TWEAK), *args], env=env, capture_output=True, text=True,
                            timeout=30)
         return r.returncode, r.stderr, self.log.read_text() if self.log.exists() else ""
+
+    def test_opacity_sets_kittys_value(self):
+        # kitty.conf reads KITTY_OPACITY; KITTY_BG_OPACITY only tints the bar's hover bubble.
+        palette = self.repo / "themes/Demo/palette.sh"
+        palette.write_text("KITTY_BG_OPACITY=0.70\nKITTY_OPACITY=0.6\n")
+        rc, _, _ = self.tweak(0, ("--opacity", "0.9"))
+        self.assertEqual(rc, 0)
+        self.assertEqual(palette.read_text(), "KITTY_BG_OPACITY=0.70\nKITTY_OPACITY=0.9\n")
+        kitty = (ROOT / "templates/kitty/kitty.conf").read_text()
+        self.assertIn("background_opacity {{KITTY_OPACITY}}", kitty)
 
     def test_failed_render_stops_before_reload(self):
         rc, err, log = self.tweak(1)

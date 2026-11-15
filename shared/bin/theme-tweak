@@ -20,8 +20,8 @@
 #   --accent <hex>       Set accent color (no #)
 #   --bg <hex>           Set background color (no #)
 #   --fg <hex>           Set foreground color (no #)
-#   --opacity <0.0-1.0>  Set kitty/window transparency
-#   --popup-opacity <0.0-1.0>  Set rofi/mako/dunst popup transparency
+#   --opacity <0.0-1.0>  Set kitty's background transparency
+#   --popup-opacity <0.0-1.0>  Set notification popup transparency
 #   --render             Just re-render without changing values
 #   --help
 
@@ -79,7 +79,8 @@ while [[ $# -gt 0 ]]; do
         --accent)       _update_val "ACCENT" "$2";      changed=true; shift 2 ;;
         --bg)           _update_val "BG" "$2";          changed=true; shift 2 ;;
         --fg)           _update_val "FG" "$2";          changed=true; shift 2 ;;
-        --opacity)      _update_val "KITTY_BG_OPACITY" "$2"; changed=true; shift 2 ;;
+        # KITTY_OPACITY is kitty's background_opacity. KITTY_BG_OPACITY, despite its name, only tints the bar's hover bubble.
+        --opacity)      _update_val "KITTY_OPACITY" "$2"; changed=true; shift 2 ;;
         --popup-opacity) _update_val "POPUP_BG_OPACITY" "$2"; changed=true; shift 2 ;;
         --render)       changed=true; shift ;;
         --help|-h)
