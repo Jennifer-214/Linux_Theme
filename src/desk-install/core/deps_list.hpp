@@ -14,6 +14,7 @@ inline const std::vector<std::string>& deps_packages() {
     static const std::vector<std::string> pkgs = {
         // Fonts
         "otf-monaspace-nerd", "ttf-hack-nerd", "ttf-jetbrains-mono-nerd",
+        "ttf-bigblueterminal-nerd", // retro-amber's terminal font
         "noto-fonts", "noto-fonts-cjk", "noto-fonts-emoji",
 
         // Compositor, lock, wallpaper, idle
@@ -27,6 +28,7 @@ inline const std::vector<std::string>& deps_packages() {
 
         // Editor / terminal / multiplexer
         "neovim", "kitty", "tmux", "ruff", // Python formatting; JSON uses the existing jsonls.
+        "shader-slang", // slangc: kitty compiles custom shaders (retro-amber's crt-glow) with it at runtime
 
         // Neovim runtime deps (Copilot LSP, Mason, tree-sitter latex grammar)
         "nodejs", "npm", "tree-sitter-cli",
