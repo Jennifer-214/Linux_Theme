@@ -34,6 +34,14 @@ with its own drawn assets, notification stamps and cursor.
 llama.cpp's router is the default local model server (`llm-run` replaces `ollama run`); models are assigned by role
 in one file, with a context size and slot count per role. Codex replaces the Gemini CLI.
 
+### Debugging C and C++ in Neovim
+
+F5 debugs through the system gdb (14 and later speak the debug protocol themselves) or lldb-dap; nothing is downloaded.
+The first start in a project asks which program, offering the build folders' executables newest first, and remembers
+it. Shift+F5 stops, Shift+F9 sets a breakpoint with a condition, Shift+F11 steps out, F12 shows or hides the panels,
+which now open with the session (they were set up in a plugin that never loaded). The CodeLLDB download through
+mason-nvim-dap, which never ran, is gone.
+
 ### Working with coding agents
 
 - **Jobs and tests**: `desk-work` records test and job runs for a checkout, with the commit they ran on, pinned next

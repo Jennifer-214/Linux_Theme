@@ -147,6 +147,7 @@ inline constexpr Mapping SHARED_MAPPINGS[] = {
     { "nvim_lua/desk/workspace.lua", "~/.config/nvim/lua/desk/workspace.lua" },
     { "nvim_lua/desk/build.lua", "~/.config/nvim/lua/desk/build.lua" },
     { "nvim_lua/desk/planmarks.lua", "~/.config/nvim/lua/desk/planmarks.lua" },
+    { "nvim_lua/desk/debug.lua",     "~/.config/nvim/lua/desk/debug.lua" },
 
     // Rofi config
 

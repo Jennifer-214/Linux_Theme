@@ -291,15 +291,22 @@ Inside Neo-tree — Other:
 | `Space ct` | Select build type (Debug/Release) |
 | `Space cl` | Select launch target |
 
-### DAP (Debugger)
+### Debugger (C and C++, through the system gdb or lldb-dap)
 | Key | Action |
 |-----|--------|
-| `F5` | Continue / Start debugging |
+| `F5` | Start debugging, or continue |
+| `Shift F5` | Stop |
 | `F9` | Toggle breakpoint |
+| `Shift F9` | Breakpoint with a condition |
 | `F10` | Step over |
 | `F11` | Step into |
+| `Shift F11` | Step out |
+| `F12` | Show or hide the debugger panels |
 
-DAP UI opens/closes automatically on debug start/stop.
+The first start in a project asks which program to run, offering the build folders' executables newest first, and
+remembers the answer. The panels open and close with the session. Needs gdb 14 or later (or lldb); nothing is
+downloaded. Attaching to an already running program is not offered: the security step's `ptrace_scope = 1` lets a
+debugger trace only programs it starts.
 
 ### Neotest
 | Key | Action |

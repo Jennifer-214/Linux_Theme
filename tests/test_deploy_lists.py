@@ -44,6 +44,8 @@ ONE_SIDED = {
         "native-only test quickfix, review and editable failure drafts",
     ("SHARED_MAPPINGS", "nvim_lua/desk/planmarks.lua", "~/.config/nvim/lua/desk/planmarks.lua"):
         "native-only plan marks in the sign column; AGENT.md freezes mappings.sh",
+    ("SHARED_MAPPINGS", "nvim_lua/desk/debug.lua", "~/.config/nvim/lua/desk/debug.lua"):
+        "native-only C/C++ debugging through the system gdb; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "claude/mods/desk-notebook/hooks/work.ts", "~/.claude/mods/desk-notebook/hooks/work.ts"):
         "native-only Claude work records; code is copied, with colors in the existing rendered theme",
     ("SHARED_MAPPINGS", "claude/mods/desk-notebook/hooks/notebook.ts", "~/.claude/mods/desk-notebook/hooks/notebook.ts"):

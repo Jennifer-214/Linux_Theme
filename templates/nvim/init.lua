@@ -1314,44 +1314,43 @@ local plugins = {
       -- target is a function so cmake-tools resolves it at generate time; a plain vim.uv.cwd() froze the
       -- launch dir, and a stray ~/code/compile_commands.json would hijack clangd's root for every project
       cmake_compile_commands_options = { action = "soft_link", target = function() return vim.uv.cwd() end },
-      -- preset DAP integration (we'll install codelldb via Mason)
-      cmake_dap_configuration = { name = "cpp", type = "codelldb", request = "launch", runInTerminal = {{SHOW_WELCOME}} },
+      -- :CMakeDebug runs the target under the system gdb (desk.debug sets up the adapter)
+      cmake_dap_configuration = { name = "cpp", type = "gdb", request = "launch", stopAtBeginningOfMainSubprogram = false },
     },
   },
 
+  -- Debugging C and C++ with the system gdb or lldb-dap (desk.debug). Shift+F-keys reach Neovim as F13-F24 inside
+  -- tmux, so each has both spellings.
   {
     "mfussenegger/nvim-dap",
+    dependencies = { "rcarriga/nvim-dap-ui", "theHamsta/nvim-dap-virtual-text" },
     keys = {
-      { "<F5>", function() require("dap").continue() end, desc = "DAP Continue" },
-      { "<F9>", function() require("dap").toggle_breakpoint() end, desc = "DAP Toggle Breakpoint" },
-      { "<F10>", function() require("dap").step_over() end, desc = "DAP Step Over" },
-      { "<F11>", function() require("dap").step_into() end, desc = "DAP Step Into" },
+      { "<F5>", function() require("dap").continue() end, desc = "Debug: start or continue" },
+      { "<S-F5>", function() require("dap").terminate() end, desc = "Debug: stop" },
+      { "<F17>", function() require("dap").terminate() end, desc = "Debug: stop" },
+      { "<F9>", function() require("dap").toggle_breakpoint() end, desc = "Debug: breakpoint" },
+      { "<S-F9>", function() require("dap").set_breakpoint(vim.fn.input("Stop when: ")) end, desc = "Debug: breakpoint with a condition" },
+      { "<F21>", function() require("dap").set_breakpoint(vim.fn.input("Stop when: ")) end, desc = "Debug: breakpoint with a condition" },
+      { "<F10>", function() require("dap").step_over() end, desc = "Debug: step over" },
+      { "<F11>", function() require("dap").step_into() end, desc = "Debug: step in" },
+      { "<S-F11>", function() require("dap").step_out() end, desc = "Debug: step out" },
+      { "<F23>", function() require("dap").step_out() end, desc = "Debug: step out" },
+      { "<F12>", function() require("dapui").toggle() end, desc = "Debug: show or hide the panels" },
     },
+    config = function()
+      local ok, debug = pcall(require, "desk.debug")
+      if ok then debug.setup() end
+    end,
   },
   { "nvim-neotest/nvim-nio",             lazy = {{SHOW_WELCOME}} },
   {
     "rcarriga/nvim-dap-ui",
-    dependencies = { "mfussenegger/nvim-dap", "nvim-neotest/nvim-nio" },
+    dependencies = { "nvim-neotest/nvim-nio" },
     lazy = {{SHOW_WELCOME}},
-    config = function()
-      local dap, dapui = require("dap"), require("dapui")
-      dapui.setup()
-      dap.listeners.after.event_initialized["dapui"] = function() dapui.open() end
-      dap.listeners.before.event_terminated["dapui"] = function() dapui.close() end
-      dap.listeners.before.event_exited["dapui"] = function() dapui.close() end
-    end,
-  },
-  {
-    "jay-babu/mason-nvim-dap.nvim",
-    lazy = {{SHOW_WELCOME}},
-    opts = {
-      automatic_installation = {{SHOW_WELCOME}},
-      ensure_installed = { "codelldb" },
-    },
   },
   {
     "theHamsta/nvim-dap-virtual-text",
-    dependencies = { "mfussenegger/nvim-dap", "nvim-treesitter/nvim-treesitter" },
+    dependencies = { "nvim-treesitter/nvim-treesitter" },
     lazy = {{SHOW_WELCOME}},
     opts = {},
   },
