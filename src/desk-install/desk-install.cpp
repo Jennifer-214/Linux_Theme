@@ -146,10 +146,16 @@ void fill_paths_pre(desk_install::Context& ctx, const char* argv0) {
     ctx.templates_dir = ctx.script_dir / "templates";
     ctx.themes_dir    = ctx.script_dir / "themes";
     ctx.shared_dir    = ctx.script_dir / "shared";
-    ctx.rendered_dir  = ctx.script_dir / "rendered";
 
     const char* home_env = std::getenv("HOME");
     ctx.home = home_env ? fs::path(home_env) : fs::path("/tmp");
+
+    // The last render, which is what is deployed: the reference the drift check compares ~/.config with. It lives
+    // with the user, not the checkout, so installing from another checkout (or deleting one) does not make every
+    // file look hand-edited. Until 2026-11-15 it was <checkout>/rendered; detect_drift still reads that one when
+    // this does not exist yet.
+    const char* xdg_state = std::getenv("XDG_STATE_HOME");
+    ctx.rendered_dir = ((xdg_state && *xdg_state) ? fs::path(xdg_state) : ctx.home / ".local/state") / "foxml" / "rendered";
 
     const char* xdg = std::getenv("XDG_CONFIG_HOME");
     ctx.config_home = (xdg && *xdg) ? fs::path(xdg) : (ctx.home / ".config");

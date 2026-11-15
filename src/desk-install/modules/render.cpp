@@ -71,13 +71,15 @@ bool post_deploy_rewritten(const char* src) {
 // previous render (fresh install) or all deployed copies match.
 std::vector<fs::path> detect_drift(const Context& ctx) {
     std::vector<fs::path> drifted;
-    if (!fs::is_directory(ctx.rendered_dir)) return drifted;
+    // Before 2026-11-15 the last render lived in the checkout; its first run after that reads the old copy.
+    const fs::path base = fs::is_directory(ctx.rendered_dir) ? ctx.rendered_dir : ctx.script_dir / "rendered";
+    if (!fs::is_directory(base)) return drifted;
     for (const auto& m : symlinks::TEMPLATE_MAPPINGS) {
         std::string dest_s = m.dest;
         if (dest_s.find("AGENT_DIR") != std::string::npos ||
             dest_s.find("FIREFOX_PROFILE") != std::string::npos) continue;
         if (post_deploy_rewritten(m.src)) continue;
-        fs::path prior = ctx.rendered_dir / m.src;
+        fs::path prior = base / m.src;
         fs::path dest  = expand_tilde(dest_s, ctx.home);
         if (!fs::exists(prior) || !fs::exists(dest)) continue;
         if (idem::read_file(prior) != idem::read_file(dest)) {
