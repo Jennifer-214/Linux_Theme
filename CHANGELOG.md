@@ -144,6 +144,10 @@ started before the update is running. An integration-only update waits until the
   mode never engaged without it). The installer's security step removes a dispatcher from before this (café mode
   off, the firewall as it is) and says so; `desk cafe --setup` turns café mode back on with the new one. A v2
   dispatcher is never touched. To undo: `desk cafe --disable`, then `desk firewall unlock` if a lockdown is on.
+- The /etc watcher (`fox-etcwatch`, an alert when /etc/ssh, sudoers.d, pam.d, ufw, fail2ban, audit or sysctl.d
+  changes outside an etckeeper commit) never came on after a fresh install: the installer's unit files were still
+  empty when systemd reloaded, systemd loaded them as masked, the enable failed, and later runs found the files
+  current and skipped. They are now complete before the reload, and a run that finds the watcher off starts it.
 - `desk harden enable iommu` added `lockdown=integrity` without the check the installer's IOMMU step makes, so on a
   machine with an NVIDIA GPU or DKMS modules (unsigned, which lockdown refuses to load) the desktop fell to software
   rendering. It now asks the installer's question (an NVIDIA device in `lspci`, or anything in `dkms status`) and

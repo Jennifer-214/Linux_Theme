@@ -180,7 +180,11 @@ Classification check_etckeeper(const Context& ctx, const Manifest& manifest) {
         if (!etcwatch_units_current(ctx.config_home / "systemd/user")) {
             return {Status::Update, "fox-etcwatch units are out of date — re-run redeploys them"};
         }
-        return {Status::Noop, "fox-etcwatch.path enabled + stamp hook present"};
+        // Enabled with today's bodies and still not watching (failed, stopped): the re-run resets and starts it.
+        if (sh::check_ro({"systemctl", "--user", "is-active", "--quiet", "fox-etcwatch.path"}) != 0) {
+            return {Status::Update, "fox-etcwatch.path is enabled but not watching — re-run starts it"};
+        }
+        return {Status::Noop, "fox-etcwatch.path enabled, watching + stamp hook present"};
     }
     // disabled, not-found, or any other state at this point means we
     // tracked a successful etckeeper run but the unit no longer

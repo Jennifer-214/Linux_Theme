@@ -2,9 +2,11 @@
 // run an old body (until 2026-11-15, an arch-audit service that errored every day without a word, and an etcwatch
 // service whose start limit switched the watcher off), so the installer has to report Update and redeploy it.
 //   - arch_audit: the timer enabled, the old service → Update; today's units → Noop;
-//   - etckeeper: fox-etcwatch.path enabled, the old service → Update; today's units → Noop. The check looks for its
-//     commit-stamp hook at /etc/etckeeper/commit.d/60foxml-stamp, so this half runs only where that file exists;
-//   - a check only asks: a stand-in systemctl first on PATH says every user unit is enabled and records any other call.
+//   - etckeeper: fox-etcwatch.path enabled, the old service → Update; today's units → Noop; today's units with the path
+//     unit not watching (failed) → Update. The check looks for its commit-stamp hook at
+//     /etc/etckeeper/commit.d/60foxml-stamp, so this half runs only where that file exists;
+//   - a check only asks: a stand-in systemctl first on PATH says every user unit is enabled and active (inactive while a
+//     marker file exists) and records any other call.
 
 #include "../core/state_checks.hpp"
 #include "../modules/arch_audit_units.hpp"
@@ -84,11 +86,14 @@ int main() {
     const fs::path t = fs::path(BUILD_DIR) / ("unit_state_checks_" + std::to_string(::getpid()));
     fs::remove_all(t);
     fs::create_directories(t / "bin");
-    const fs::path asked = t / "asked", other = t / "other";
+    const fs::path asked = t / "asked", other = t / "other", inactive = t / "inactive";
     std::ofstream(t / "bin/systemctl")
         << "#!/bin/sh\n"
            "if [ \"$1\" = --user ] && [ \"$2\" = is-enabled ] && [ $# -eq 3 ]; then\n"
            "    echo \"$3\" >> '" << asked.string() << "'; echo enabled; exit 0\n"
+           "fi\n"
+           "if [ \"$1\" = --user ] && [ \"$2\" = is-active ] && [ \"$3\" = --quiet ] && [ $# -eq 4 ]; then\n"
+           "    echo \"$4\" >> '" << asked.string() << "'; [ -e '" << inactive.string() << "' ] && exit 3; exit 0\n"
            "fi\n"
            "echo \"$*\" >> '" << other.string() << "'\n"
            "exit 1\n";
@@ -122,11 +127,16 @@ int main() {
         std::ofstream(units / "fox-etcwatch.service") << ETCWATCH_SERVICE_UNIT;
         c = state::check_etckeeper(ctx, manifest);
         expect("etckeeper: today's units: Noop" + got(c), c.status == Status::Noop);
+        // Written, enabled, and still not watching (failed after a burst of /etc writes): a re-run starts it.
+        std::ofstream(inactive) << "";
+        c = state::check_etckeeper(ctx, manifest);
+        expect("etckeeper: today's units, the path unit not watching: Update" + got(c), c.status == Status::Update);
+        fs::remove(inactive);
     } else {
         std::printf("  skip the etckeeper half: no /etc/etckeeper/commit.d/60foxml-stamp on this machine\n");
     }
 
-    expect("the checks asked systemctl nothing but --user is-enabled, got '" + slurp(other) + "'", !fs::exists(other));
+    expect("the checks asked systemctl nothing but --user is-enabled and is-active, got '" + slurp(other) + "'", !fs::exists(other));
     const std::string units_asked = slurp(asked);
     expect("the arch_audit check asked about foxml-arch-audit.timer",
            units_asked.find("foxml-arch-audit.timer\n") != std::string::npos);

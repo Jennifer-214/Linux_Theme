@@ -108,6 +108,7 @@ test: tests/test_check_ro tests/test_render_drift tests/test_drift_reference tes
 	@./tests/test_health_boot
 	@./tests/test_arch_audit
 	@./tests/test_etcwatch
+	@./tests/test_etckeeper_units
 	@./tests/test_cafe_dispatcher
 	@./tests/test_unit_state_checks
 	@./tests/test_dry_run
@@ -332,6 +333,11 @@ tests/test_arch_audit: tests/test_arch_audit.cpp tests/unit_exec.hpp modules/arc
 test: tests/test_etcwatch
 tests/test_etcwatch: tests/test_etcwatch.cpp tests/unit_exec.hpp modules/etcwatch_units.hpp core/idempotency.hpp $(DESK_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) -DBUILD_DIR='"$(CURDIR)/tests"' tests/test_etcwatch.cpp -L$(DESK_COMMON_DIR) -ldesk-common -o $@
+
+# The etckeeper step itself with stand-ins: both units complete on disk when systemd reloads them, then enabled.
+test: tests/test_etckeeper_units
+tests/test_etckeeper_units: tests/test_etckeeper_units.cpp modules/etckeeper.o modules/etcwatch_units.hpp core/idempotency.hpp $(DESK_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) -DBUILD_DIR='"$(CURDIR)/tests"' tests/test_etckeeper_units.cpp modules/etckeeper.o -L$(DESK_COMMON_DIR) -ldesk-common -o $@
 
 # The security step's café cleanup on a scratch dispatcher: an old one removed, a v2 one never touched.
 test: tests/test_cafe_dispatcher

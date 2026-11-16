@@ -17,7 +17,6 @@
 #include "../../desk-common/ui.hpp"
 
 #include <filesystem>
-#include <fstream>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -105,32 +104,33 @@ void run_etckeeper(Context& ctx) {
 
     // Content-aware (not exists-only) so a fixed unit body converges on
     // re-run — the %-escaping repair would otherwise never reach a host
-    // that already had the broken unit deployed.
-    bool units_current = !ctx.force_reapply && etcwatch_units_current(units);
-    if (!units_current) {
+    // that already had the broken unit deployed. Current bodies are not enough on their own: a run that wrote them
+    // but never got the watcher going (until 2026-11-16, every fresh install) must not be taken for a finished one.
+    const bool units_current = !ctx.force_reapply && etcwatch_units_current(units);
+    const bool watching = sh::check_ro({"systemctl", "--user", "is-enabled", "--quiet", "fox-etcwatch.path"}) == 0 &&
+                          sh::check_ro({"systemctl", "--user", "is-active", "--quiet", "fox-etcwatch.path"}) == 0;
+    if (!units_current || !watching) {
         fs::create_directories(units);
 
         // 1. Unmask aggressively + flush systemd's cached view BEFORE
-        //    writing the new unit body. The explicit daemon-reload
-        //    matters: without it, the eventual enable() races with
-        //    systemd's async cache refresh and still sees a stale
-        //    "masked" state — which is the bug desk-install reported
-        //    on a previous run even though the on-disk mask symlinks
-        //    were already gone.
+        //    writing the new unit body.
         sh::run({"systemctl", "--user", "unmask",
                  "fox-etcwatch.path", "fox-etcwatch.service"});
         sh::systemctl_daemon_reload(/*user=*/true);
 
         // 2. Belt-and-suspenders: drop any leftover /dev/null symlinks
-        //    at our target paths so the upcoming ofstream creates a
-        //    real file instead of writing through a dead symlink.
+        //    at our target paths so the write below lays a real file.
         std::error_code ec;
         if (fs::is_symlink(path_unit, ec)) fs::remove(path_unit, ec);
         if (fs::is_symlink(svc_unit,  ec)) fs::remove(svc_unit,  ec);
 
-        // 3. Write the real unit bodies + reload so systemd sees them.
-        std::ofstream p(path_unit);     p << ETCWATCH_PATH_UNIT;
-        std::ofstream s(svc_unit);      s << ETCWATCH_SERVICE_UNIT;
+        // 3. Write the real unit bodies, complete on disk, before the reload. Written through streams still open at
+        //    the reload, both files were empty when systemd read them, and systemd loads an empty unit as masked: the
+        //    enable below failed on every fresh install, and later runs found current bodies and skipped (2026-11-16).
+        if (!idem::write_atomic(path_unit, ETCWATCH_PATH_UNIT) || !idem::write_atomic(svc_unit, ETCWATCH_SERVICE_UNIT)) {
+            ui::warn("could not write the fox-etcwatch units in " + units.string() + " — the /etc watcher is not on");
+            return;
+        }
         sh::systemctl_daemon_reload(/*user=*/true);
 
         // 4. Clear any previous failure state. Before the service had no
@@ -145,10 +145,10 @@ void run_etckeeper(Context& ctx) {
         if (sh::systemctl_enable("fox-etcwatch.path", /*user=*/true) == 0) {
             ui::ok("fox-etcwatch.path enabled (alerts on /etc/{ssh,sudoers.d,pam.d,ufw,fail2ban,audit,sysctl.d} changes)");
         } else {
-            ui::warn("fox-etcwatch.path enable failed — try `systemctl --user unmask fox-etcwatch.path` then re-run --etckeeper");
+            ui::warn("fox-etcwatch.path did not start — `systemctl --user status fox-etcwatch.path` says why; then re-run --etckeeper");
         }
     } else {
-        ui::skipped("fox-etcwatch already configured");
+        ui::skipped("fox-etcwatch already configured and watching");
     }
 }
 
