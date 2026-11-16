@@ -789,8 +789,8 @@ M.keymap = {
     doc = 'Plan coverage: each plan step with the commits that touched it, steps not started, files outside the plan', act = function() return function() M.plan_coverage() end end },
   { id = 'note', lhs = 'N', on = 'both', desc = 'Note to self on this line',
     doc = 'Note to self on this line; it stays with the file in every later review (`:ReviewNotes` lists them)', act = function(r) return to_diff(r, function() M.note_here() end) end },
-  { id = 'finish', lhs = 'R', on = 'both', desc = 'Finish review and open next commit',
-    doc = 'Finish after every file is checked and open the next unchecked commit; this clears the finished commit from pending reviews', act = function() return function() M.finish_next() end end },
+  { id = 'finish', lhs = 'R', on = 'both', desc = 'Finish review, then next commit or close',
+    doc = 'Finish after every file is checked, then choose: open the next unchecked commit, close the review, or stay; this clears the finished commit from pending reviews', act = function() return function() M.finish_next() end end },
   { id = 'whitespace', lhs = '<leader>rw', on = 'both', desc = 'Toggle review whitespace', doc = 'Show / hide whitespace differences',
     act = function(r) return function() r.whitespace = not r.whitespace; options(r); tell('Whitespace changes: ' .. (r.whitespace and 'hidden' or 'shown')) end end },
   { id = 'context', lhs = '<leader>rc', on = 'both', desc = 'Toggle review context', doc = 'Six context lines / full-file context',
@@ -1265,20 +1265,35 @@ function M.finish()
   tell('Review complete · ' .. #r.files .. ' files checked'); return true
 end
 
+-- Asks what to do once a review is finished; returns 'next', 'close' or 'stay'. Tests replace it.
+function M.ask_after_finish(count, has_next)
+  local head = 'Review done · ' .. count .. (count == 1 and ' file' or ' files') .. ' checked.'
+  local choices = has_next and { 'next', 'close', 'stay' } or { 'close', 'stay' }
+  local labels = has_next and '&Next commit\n&Close review\n&Stay' or '&Close review\n&Stay'
+  local ok, pick = pcall(vim.fn.confirm, head, labels, 1)
+  return ok and choices[pick] or 'stay'
+end
+
 function M.finish_next()
   local r = M.current
   if not r or not M.finish() then return false end
-  if r.row.kind ~= 'commit' or not r.sets then return true end
-  local at = 1
-  for i, set in ipairs(r.sets) do if set == r.active_set then at = i; break end end
-  for offset = 1, #r.sets - 1 do
-    local set = r.sets[(at + offset - 1) % #r.sets + 1]
-    if set.row.kind == 'commit' and not set.completed then
-      if not set.files then set.files = M.files(set.row, r.root) end
-      if set.files and #set.files > 0 then M.switch(set); M.unread(); return true end
+  local following
+  if r.row.kind == 'commit' and r.sets then
+    local at = 1
+    for i, set in ipairs(r.sets) do if set == r.active_set then at = i; break end end
+    for offset = 1, #r.sets - 1 do
+      local set = r.sets[(at + offset - 1) % #r.sets + 1]
+      if set.row.kind == 'commit' and not set.completed then
+        if not set.files then set.files = M.files(set.row, r.root) end
+        if set.files and #set.files > 0 then following = set; break end
+      end
     end
   end
-  tell('Review saved. No next commit with changed files.'); return true
+  local choice = M.ask_after_finish(#r.files, following ~= nil)
+  if choice == 'next' and following then M.switch(following); M.unread()
+  elseif choice == 'close' then M.close()
+  else panel(r) end
+  return true
 end
 
 function M.jump(symbol)

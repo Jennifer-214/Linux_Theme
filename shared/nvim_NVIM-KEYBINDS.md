@@ -603,7 +603,7 @@ Checking a live file is invalidated when its contents change. Files with missing
 | `A` | Open the saved API review of this file (Actions has "API review: file / change" and "Explain this hunk") |
 | `P` | Plan coverage: each plan step with the commits that touched it, steps not started, files outside the plan |
 | `N` | Note to self on this line; it stays with the file in every later review (`:ReviewNotes` lists them) |
-| `R` | Finish after every file is checked and open the next unchecked commit; this clears the finished commit from pending reviews |
+| `R` | Finish after every file is checked, then choose: open the next unchecked commit, close the review, or stay; this clears the finished commit from pending reviews |
 | `Space rw` | Show / hide whitespace differences |
 | `Space rc` | Six context lines / full-file context |
 | `<BS>` in a diff | Back to the file list from a comparison pane, showing it again if it was hidden |

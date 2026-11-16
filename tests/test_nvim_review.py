@@ -273,10 +273,27 @@ local base={kind='commit',sha=parent,parent='4b825dc642cb6eb9a060e54bf8d69288fbe
 C.open_review(row,root);R.tree({row,base})
 local r,tab=R.current,R.current.tab
 for i,f in ipairs(r.files) do R.select(i);if r.marks[f.rel]~=f.signature then R.mark() end end
+local asked
+R.ask_after_finish=function(count,has_next) asked={count=count,has_next=has_next};return 'next' end
 assert(R.finish_next(),'finish was not recorded')
+assert(asked and asked.has_next and asked.count>0,'finishing did not ask what next')
 assert(R.current==r and r.tab==tab and r.row==base,'next commit opened a new review or stayed on the old commit')
 assert(r.sets[1].completed and next(r.marks)==nil,'commit review state leaked')
 C.close()
+''')
+
+    @unittest.skipUnless(WORK.is_file(), 'desk-work required')
+    def test_finish_can_close_the_review(self):
+        self.run_lua(r'''
+C.open_review(row,root)
+local r=R.current
+local tab=r.tab
+for i,f in ipairs(r.files) do R.select(i);if r.marks[f.rel]~=f.signature then R.mark() end end
+local asked
+R.ask_after_finish=function(count,has_next) asked=has_next;return 'close' end
+assert(R.finish_next(),'finish was not recorded')
+assert(asked==false,'a single commit offered a next commit')
+assert(R.current==nil and not vim.api.nvim_tabpage_is_valid(tab),'choosing close left the review open')
 ''')
 
     @unittest.skipUnless(WORK.is_file(), 'desk-work required')
