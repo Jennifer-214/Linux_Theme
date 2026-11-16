@@ -34,6 +34,7 @@ flowchart LR
 | Scoped update and rollback | The installer deployment/backup helpers, exact preview token and later-edit guards |
 | Interrupted updates and cleanup | `desk-common/work_updates.hpp` owns transaction inventory and rollback-chain protection; the installer owns phase writes, recovery and previewed deletion |
 | Refresh diagnostics | Clients report observations through `desk-work client-report`; native health projects loaded versions, connection and refresh times without publishing invalidations |
+| Declared tools and their answers | One declaration format (`.desk/tools.json`, or `desk.d` for a repo that must not change); the tool writes its result, `desk-work tools` reads it and converts every outside format to `desk-result/1` in `results.hpp`; the toolchain card is one more health check ([desk-tools.md](desk-tools.md)) |
 | Required checks | `tests/run_work_checks.py` is the local/CI runner; the verified SDK manifest owns engine/compiler pins and test declarations |
 | Compatibility commands | The existing alias table; scoped updates replace old copies with canonical links and preserve custom aliases |
 | Project resume | Native view records reference saved files; current buffers and terminal processes stay owned by Neovim |

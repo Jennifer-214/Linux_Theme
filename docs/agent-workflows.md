@@ -412,6 +412,8 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   --root . --q reach|callers --from NAME [--depth N]`, `--q paths --from A --to B`, `--q module [--name PART]`,
   `--q touched --commit REV` (the functions a commit's changed lines fall in), `desk-work map show` (the graph, in the
   shape a project's own graph tool prints) and `desk-work map export --format dot` (for Graphviz, if installed).
+- **A project's own graph tool** (`ninja -t graph`, a script printing JSON) is declared in `.desk/tools.json`; its
+  answer is read with `desk-work tools result`. See [desk-tools.md](desk-tools.md).
 
 ## End a session
 
@@ -513,7 +515,9 @@ p99       us    ^latency p99 is ([0-9.]+)
 ```
 
 Figures are recorded when a run finishes; `--job` reads an older run's log once on request. The previous value of
-each name comes from the newest earlier run of the job that reported it, looking back 30 runs.
+each name comes from the newest earlier run of the job that reported it, looking back 30 runs. A tool that prints its
+figures as JSON or toolio is declared in `.desk/tools.json` instead, and each of its runs is set against the last the
+same way ([desk-tools.md](desk-tools.md)).
 
 Each captured run records its starting revision and the contents of supported
 source/config files, including nonignored untracked files and uncommitted edits.
