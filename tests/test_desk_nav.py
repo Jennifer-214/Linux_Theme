@@ -195,6 +195,20 @@ class DeskNav(unittest.TestCase):
         os.killpg(window.pid, signal.SIGSTOP)
         self.assertEqual(self.nav("h", "desk-popout", window.pid, timeout=5), self.desktop("left", "l"))
 
+    def test_the_editors_pop_out_is_never_asked(self):
+        # The real pop-out (g:desk_popout on its command line) never splits: ALT+h/l off it goes to the desktop at once,
+        # even while it is busy (stopped here; asked, it would hold the key the whole half second, 2026-11-16).
+        listening = self.run_dir / "popout.sock"
+        args = self.nvim_args(listening)
+        args[1:1] = ["--cmd", "let g:desk_popout=1"]
+        window = self.spawn(["sh", "-c", shlex.join(args) + "; :"])
+        self.until(lambda: listening.is_socket(), "Neovim never listened")
+        self.until(lambda: self.ask(listening, "winnr()") == "2", "Neovim never split")
+        os.killpg(window.pid, signal.SIGSTOP)
+        started = time.monotonic()
+        self.assertEqual(self.nav("h", "desk-popout", window.pid, timeout=5), self.desktop("left", "l"))
+        self.assertLess(time.monotonic() - started, 0.4, "the pop-out was asked and waited on")
+
     def test_usage(self):
         ran = subprocess.run(["bash", str(SCRIPT), "x"], env=self.env, capture_output=True, text=True, timeout=10)
         self.assertEqual(ran.returncode, 2)
