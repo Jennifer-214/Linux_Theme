@@ -158,6 +158,43 @@ vim.g.desk_style = nil
 assert(S.style() == 'paper', 'without the style init.lua publishes, the page draws the normal way')
 ''')
 
+    def test_opening_again_keeps_the_list_until_something_is_newer(self):
+        self.run_lua(r'''
+local buf = S.open('/code/paper')
+assert(vim.wait(2000, function() return #lines(buf) > 4 end, 10))
+local tabs = #vim.api.nvim_list_tabpages()
+-- Opened again while it is open: the same page comes back, its list and place kept while nothing is new.
+vim.api.nvim_win_set_cursor(0, { find(buf, 'make test'), 0 })
+local place = vim.api.nvim_win_get_cursor(0)[1]
+vim.cmd('tabnew')
+answer = vim.json.encode({ ok = true, root = '/code/paper', from = 1794800000, first = false, since = 'at 14:00', at = 1794800100, items = {} })
+assert(S.open('/code/paper') == buf and #vim.api.nvim_list_tabpages() == tabs + 1, 'a second Space Ch opened a second page')
+assert(vim.api.nvim_get_current_buf() == buf, 'the page did not come back')
+assert(vim.wait(2000, function() return lines(buf)[1]:find('Nothing new since', 1, true) end, 10), lines(buf)[1])
+assert(lines(buf)[1]:match('^Nothing new since .+ · what that look showed$'), lines(buf)[1])
+find(buf, 'queue: drain before stop'); find(buf, '✎ Queue work · 2 files')
+assert(vim.api.nvim_win_get_cursor(0)[1] == place, 'the page lost its place')
+enter(buf, 'queue: drain before stop')
+assert(vim.deep_equal(called[#called], { 'review', 'commit', string.rep('a', 40), '/code/paper' }), 'the kept list still opens: ' .. vim.inspect(called))
+-- Closed, then opened again with nothing new: the kept list, from the state folder (another Neovim reads it too).
+vim.api.nvim_set_current_buf(buf); vim.cmd('tabclose')
+assert(not vim.api.nvim_buf_is_valid(buf))
+local kept = S.kept('/code/paper')
+assert(kept and #kept.items == 4 and kept.at == 1794800000, vim.inspect(kept))
+buf = S.open('/code/paper')
+assert(vim.wait(2000, function() return (lines(buf)[1] or ''):find('Nothing new since', 1, true) end, 10), vim.inspect(lines(buf)))
+find(buf, 'queue: drain before stop')
+-- Something newer replaces the list, and is what is kept from then on.
+answer = vim.json.encode({ ok = true, root = '/code/paper', from = 1794800100, first = false, since = 'at 14:01', at = 1794800200,
+  items = { { kind = 'commit', at = 1794800150, sha = string.rep('c', 40), author = 'Caramel', label = 'newer work' } } })
+S.open('/code/paper')
+assert(vim.wait(2000, function() return lines(buf)[1] == 'Since you last looked · at 14:01' end, 10), lines(buf)[1])
+find(buf, 'newer work')
+assert(not table.concat(lines(buf), '\n'):find('drain before stop', 1, true), 'the older list stayed beside the new one')
+assert(S.kept('/code/paper').items[1].label == 'newer work')
+assert(S.layout({ items = kept.items, kept = 1794800000 }, 'retro', '/r')[1]:match('^NOTHING NEW SINCE .+ · WHAT THAT LOOK SHOWED$'), 'retro heading')
+''')
+
     def test_init_lua_publishes_the_style_the_desk_modules_read(self):
         init = (ROOT / 'templates/nvim/init.lua').read_text()
         self.assertIn('vim.g.desk_style = DeskStyle', init)

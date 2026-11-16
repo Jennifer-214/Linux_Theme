@@ -99,7 +99,9 @@ neovim**) lists, newest first, what happened in the checkout after the page was 
 test runs with their result, job runs with how their figures moved (see "Run-to-run numbers"), and Claude turns
 with the files they edited. Enter opens what a line names: a commit's review, a test run's results, a job's
 output, a turn's changes in the review, or a file. Unlike the digest, opening it marks now as looked; the first
-look lists the last day. It is `desk-work since --root DIR [--reader NAME] [--mark yes]`, which keeps the time per
+look lists the last day. The page keeps its list until there is something newer: opened again with nothing new,
+it shows the last list it showed ("Nothing new since 14:02 · what that look showed", kept under
+`~/.local/state/nvim/desk-since/`), and `Space Ch` while the page is open goes back to it instead of opening another. It is `desk-work since --root DIR [--reader NAME] [--mark yes]`, which keeps the time per
 reader beside the digest's positions and lists at most 60 entries. A turn is recorded when a session that was
 working goes back to waiting (or ends) having made observed tool edits; a turn that edited nothing records nothing.
 
@@ -195,7 +197,8 @@ terminal attached to it when no window shows it. Each tmux pane footer starts wi
 you and `✿` while it works. Sessions go by
 the title Claude Code gives them, with the folder beside it. `ALT+Ctrl+E` goes
 straight to the next session waiting on you, the one asking first; press it again
-for the one after. Today shows the time Claude spent working today, a little
+for the one after. Back from any of these jumps: `ALT+Backspace` returns to the window you were in, `Ctrl+a
+Backspace` to the tmux session you were in (press either again to come back). Today shows the time Claude spent working today, a little
 meter of the week's plan with how much is left and when it refills (and the five
 hours once they run low), and a `✎ 2 working` tag. The time comes from a tally the
 hooks keep beside the session files for the day. The lock

@@ -115,6 +115,9 @@ hl.bind(mainMod .. " + h", hl.dsp.focus({ direction = "left" }))
 hl.bind(mainMod .. " + j", hl.dsp.focus({ direction = "down" }))
 hl.bind(mainMod .. " + k", hl.dsp.focus({ direction = "up" }))
 hl.bind(mainMod .. " + l", hl.dsp.focus({ direction = "right" }))
+-- Back to the window you were in before (again: back here), after a jump from the drawer, a notice or the notebook.
+-- It takes Alt+Backspace (delete a word) from the terminal apps; Ctrl+w still does that.
+hl.bind(mainMod .. " + BackSpace", hl.dsp.focus({ last = true }))
 
 -- Move the focused window that way — tiled or floating — onto the next monitor at the edge.
 hl.bind(mainMod .. " + SHIFT + h", hl.dsp.window.move({ direction = "left" }))

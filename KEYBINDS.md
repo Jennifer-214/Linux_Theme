@@ -629,6 +629,7 @@ Shows indent guides automatically. No keybinds.
 | `ALT + j` | Move focus down |
 | `ALT + k` | Move focus up |
 | `ALT + l` | Move focus right |
+| `ALT + BackSpace` | Back to the window you were in before (again: back here), after a jump from the drawer, a notice or the notebook |
 | `ALT + Shift + h/j/k/l` | Move the focused window that way — tiled or floating — onto the next monitor at the edge |
 | `ALT + Shift + Tab` | Cycle to previous window |
 | `ALT + Tab` | Jump focus through only floating windows (skip tiled) |
@@ -695,6 +696,7 @@ Shows indent guides automatically. No keybinds.
 | `Ctrl+a -` | Split the active pane top ↕ bottom |
 | `Ctrl+a c` | New window in the current pane's directory |
 | `Ctrl+a Tab` | Jump back to the last-used window |
+| `Ctrl+a BSpace` | Back to the session you were in before (again: back here), after a jump from the notebook, the drawer or a notice |
 | `Ctrl+a q` | Show pane numbers — flash the overlay, then press a number to jump to that pane |
 | `Ctrl+a w` | Your sessions: the drawer's Terminals page on the desktop, the switcher popup anywhere else |
 | `Ctrl+a W` | The session switcher popup: enter goes to a session, ^b shows it here, ^r renames, ^x closes, ? keys |

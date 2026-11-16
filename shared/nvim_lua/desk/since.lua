@@ -2,8 +2,10 @@
 -- new commits, test runs with their result, job runs with how their figures moved, and Claude turns with the files
 -- they edited, newest first. Opening the page marks now as looked. Enter opens what a line names: a commit's review,
 -- a test run's results, a job's output, a turn's changes, a file. The read runs in the background; typing never waits.
+-- The page keeps its list until there is something newer: opened again with nothing new, it shows the last list it
+-- showed (kept in the state folder, so another Neovim sees it too), and an open page comes back rather than a second.
 local M = {}
-local api = vim.api
+local api, uv = vim.api, vim.uv or vim.loop
 local actions = require('desk.actions')
 local ns = api.nvim_create_namespace('desk_since')
 
@@ -33,8 +35,14 @@ local function tests_text(item)
   return 'tests ' .. (item.state or '?')
 end
 
+-- When a look was: its time today, else its day too.
+local function clock(at)
+  if os.date('%Y%m%d', at) == os.date('%Y%m%d') then return os.date('%H:%M', at) end
+  return os.date(os.time() - at < 6 * 86400 and '%a %H:%M' or '%b %d %H:%M', at)
+end
+
 -- The page's lines and what each opens (an action table per line number), from desk-work since's answer. Pure, so a
--- test can read it.
+-- test can read it. data.kept: these are the last look's items, shown again because nothing is new since then.
 function M.layout(data, style, root)
   local mk = marks(style)
   local lines, actions, paints = {}, {}, {}
@@ -44,7 +52,9 @@ function M.layout(data, style, root)
     if paint then paints[#lines] = paint end
   end
   local when = (data.since or '') ~= '' and data.since or nil
-  add(heading(data.first and 'Since you last looked · the last day' or ('Since you last looked' .. (when and ' · ' .. when or '')), style), nil, 'heading')
+  local title = data.kept and ('Nothing new since ' .. clock(data.kept) .. ' · what that look showed')
+    or data.first and 'Since you last looked · the last day' or ('Since you last looked' .. (when and ' · ' .. when or ''))
+  add(heading(title, style), nil, 'heading')
   -- The keys as typed, the words in the style's voice.
   add(table.concat({ 'Enter ' .. heading('opens', style), 'q ' .. heading('closes', style), '? ' .. heading('keys', style) }, ' · '), nil, 'dim')
   add('')
@@ -122,16 +132,44 @@ function M.jump(action, root)
   elseif action.kind == 'file' then vim.cmd('tabedit ' .. vim.fn.fnameescape(action.file)) end
 end
 
+-- The last list the page showed for a checkout: { items, truncated, at = when that look was }.
+local function kept_path(root) return vim.fn.stdpath('state') .. '/desk-since/' .. vim.fn.sha256(root):sub(1, 16) .. '.json' end
+function M.kept(root)
+  local ok, text = pcall(vim.fn.readfile, kept_path(root))
+  if not ok or #text == 0 then return nil end
+  local parsed, data = pcall(vim.json.decode, table.concat(text, '\n'), { luanil = { object = true, array = true } })
+  if not parsed or type(data) ~= 'table' or type(data.items) ~= 'table' or #data.items == 0 or type(data.at) ~= 'number' then return nil end
+  return data
+end
+local function keep(root, data)
+  local path = kept_path(root)
+  vim.fn.mkdir(vim.fs.dirname(path), 'p')
+  local temp = path .. '.' .. uv.os_getpid() .. '.tmp'
+  local record = vim.json.encode({ items = data.items, truncated = data.truncated, at = type(data.at) == 'number' and data.at or os.time() })
+  if pcall(vim.fn.writefile, { record }, temp) then uv.fs_rename(temp, path) end
+end
+
 -- The newest open wins: an answer to an older open that arrives late is dropped.
 local newest = 0
+local pages = {}   -- root → the page open for it: { buf, page }
 function M.open(root)
   root = root or vim.fs.root(0, '.git') or vim.fn.getcwd()
   local style = M.style()
-  local buf = scratch_tab('since you last looked')
-  fill(buf, { heading('Since you last looked', style), '', 'Reading...' }, { 'heading' })
-  -- What each line opens, filled in when the answer comes; the page's keys (rows below) read it.
-  local page = { root = root, actions = {} }
-  actions.map('since', { buffer = buf, ctx = { page = page } })
+  local open = pages[root]
+  local win = open and api.nvim_buf_is_valid(open.buf) and vim.fn.win_findbuf(open.buf)[1]
+  local buf, page
+  if win then
+    -- Already open: back to it; it keeps its list while the new read runs.
+    api.nvim_set_current_win(win)
+    buf, page = open.buf, open.page
+  else
+    buf = scratch_tab('since you last looked')
+    fill(buf, { heading('Since you last looked', style), '', 'Reading...' }, { 'heading' })
+    -- What each line opens, filled in when the answer comes; the page's keys (rows below) read it.
+    page = { root = root, actions = {} }
+    actions.map('since', { buffer = buf, ctx = { page = page } })
+    pages[root] = { buf = buf, page = page }
+  end
   newest = newest + 1
   local mine = newest
   local ok = pcall(vim.system, { 'desk-work', 'since', '--root', root, '--reader', 'nvim', '--mark', 'yes' }, { text = true, timeout = 15000 },
@@ -141,11 +179,21 @@ function M.open(root)
       if out.code ~= 0 or not parsed or type(data) ~= 'table' then
         fill(buf, { heading('Since you last looked', style), '', require('desk.work').refusal({ 'since' }, out) }, { 'heading' }); return
       end
-      local lines, acts, paints = M.layout(data, style, root)
+      -- Something new replaces the list and is kept; nothing new shows the kept list again.
+      local shown = data
+      if #(data.items or {}) > 0 then keep(root, data)
+      else
+        local last = M.kept(root)
+        if last then shown = { items = last.items, truncated = last.truncated, kept = last.at } end
+      end
+      local window = vim.fn.bufwinid(buf)
+      local at = win and shown ~= data and window ~= -1 and api.nvim_win_get_cursor(window) or nil
+      local lines, acts, paints = M.layout(shown, style, root)
       page.actions = acts
       fill(buf, lines, paints)
-      -- The cursor starts on the newest entry.
-      for line = 1, #lines do if acts[line] then pcall(api.nvim_win_set_cursor, vim.fn.bufwinid(buf), { line, 0 }); break end end
+      -- The cursor starts on the newest entry; a page that came back with the same list keeps its place.
+      if at then pcall(api.nvim_win_set_cursor, window, at); return end
+      for line = 1, #lines do if acts[line] then pcall(api.nvim_win_set_cursor, window, { line, 0 }); break end end
     end))
   if not ok then fill(buf, { heading('Since you last looked', style), '', 'desk-work did not start; is it installed?' }, { 'heading' }) end
   return buf
@@ -181,7 +229,7 @@ local function desk_work() return vim.fn.executable('desk-work') == 1 or 'requir
 local ROWS = actions.add({
   { id = 'since.open', group = 'Work', name = 'Since you last looked: commits, tests, jobs, Claude turns', key = '<leader>Ch', on = 'editor',
     remote = true, also = '`:WorkSince`', available = desk_work,
-    about = "Since you last looked: new commits, test runs, job runs with how their figures moved, and Claude turns with their files, newest first; Enter opens one (a commit's review, the results, the output, the turn's changes, a file). Opening it marks now as looked",
+    about = "Since you last looked: new commits, test runs, job runs with how their figures moved, and Claude turns with their files, newest first; Enter opens one (a commit's review, the results, the output, the turn's changes, a file). Opening it marks now as looked; with nothing new it shows the last list again",
     run = function() M.open() end },
   { id = 'since.figures', group = 'Work', name = 'Figures', on = 'editor', available = desk_work,
     about = "The newest job's figures against its previous run (desk-work metrics); Enter on one opens that job's output",
