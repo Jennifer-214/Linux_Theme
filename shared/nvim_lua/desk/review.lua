@@ -2932,23 +2932,24 @@ save_view = function(view)
     target = f and { file = f.rel, line = right and right[1] or 1, name = review_key(r) } or nil }
 end
 
--- The review a record names, opened again as Space Cw opens it (its tree and all): a commit still in the log, or the
--- working changes. nil when it is not here.
+-- The review a record names, opened again as Space Cw opens it: its tree, the working changes first (and open) when
+-- there are any, then the change it showed (a commit still in the log, a session still live) and so the same review,
+-- working changes included. nil when nothing is here to review.
 local function reopen(target)
   local kind, id = tostring(target.name or ''):match('^(%a+):(.*)$')
-  if kind ~= 'commit' and kind ~= 'working' then return nil end
-  local name = api.nvim_buf_get_name(0)
-  local root = vim.fs.root(name ~= '' and name or vim.fn.getcwd(), '.git')
-  if not root then return nil end
-  local C = require('desk.claude')
-  local rows = C.rows(root)
-  for _, row in ipairs(rows) do
-    if (kind == 'commit' and row.kind == 'commit' and row.sha == id) or (kind == 'working' and row.kind == 'working') then
-      C.open_review(row, root)
-      if M.current then M.tree(rows) end
-      return M.current
+  if kind ~= 'commit' and kind ~= 'working' and kind ~= 'live' then return nil end
+  require('desk.claude').changes()
+  local r = M.current
+  if not r then return nil end
+  for _, set in ipairs(r.sets or {}) do
+    local row = set.row
+    if (kind == 'commit' and row.kind == 'commit' and row.sha == id) or (kind == 'live' and row.kind == 'live' and row.sid == id)
+        or (kind == 'working' and row.kind == 'working') then
+      if set ~= r.active_set then M.switch(set) end
+      break
     end
   end
+  return r
 end
 
 -- A step of the history put back (saved.step), in this review only; or, after a restart, the record's { pinned,

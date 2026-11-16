@@ -441,11 +441,20 @@ ok(wait(3000, function() return not review().open end), 'q in the comparison clo
 ok(wait(3000, function() return state().shown == '' and not vim.tbl_contains(state().views or {}, 'review') end), '… and its view leaves the pop-out')
 
 -- ─── Restore after a restart: the review the record names, opened again, its list there on the file it showed ──
+-- The checkout has working changes now (an untracked file): the review comes back with them, as Space Cw shows it.
+write(repo .. '/four.txt', 'not committed yet\n')
 host(("require('desk.popout').host.saved = { version = 1, tabs = { { kind = 'review', pinned = false, target = { file = 'two.txt', line = 1, name = 'commit:%s' } } }, activeTab = 'review' }"):format(sha))
 host("require('desk.popout').restore_layout()")
 ok(wait(5000, function() return review().open and review().popped end), 'Restore: the review the record names opens again, its list in the pop-out')
 ok(wait(3000, function() return review().file == 'two.txt' and state().kind == 'review' and state().selected == 'two.txt' end),
   '… on the file it showed')
+local working = host([[local set = require('desk.review').current.sets and require('desk.review').current.sets[1]
+  if not (set and set.row.kind == 'working') then return 'no working changes group' end
+  local rels = {}
+  for _, f in ipairs(set.files or {}) do rels[#rels + 1] = f.rel end
+  return { open = set.expanded == true, files = rels }]])
+eq(working, { open = true, files = { 'four.txt' } }, "… and the checkout's working changes listed in its tree, as Space Cw lists them")
+ok(wait(3000, function() return popped():find('four.txt', 1, true) end), '… there too:\n' .. popped())
 vim.rpcnotify(p, 'nvim_input', 'q')
 ok(wait(5000, function() return not exists(psock) end), 'the pop-out closes')
 host_job:kill(9)
