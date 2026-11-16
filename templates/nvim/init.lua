@@ -13,6 +13,31 @@ vim.g.maplocalleader = " "
 vim.g.python3_host_prog = vim.fn.executable(vim.fn.expand("~/.venvs/nvim/bin/python")) == 1
   and vim.fn.expand("~/.venvs/nvim/bin/python") or "/usr/bin/python3"
 
+-- >>> desk-restart
+-- :restart starts the new Neovim in the old one's working directory with the same arguments, so after a :cd (or
+-- project.nvim's) a file named relative to where Neovim started opened as a path that does not exist. The start folder
+-- rides along in the environment (the new Neovim is the old one's child), and the argument buffers, not yet read, are
+-- named from it again before they open.
+if vim.fn.exists("v:startreason") == 1 and vim.v.startreason ~= "normal" and vim.env.DESK_NVIM_START_DIR then
+  local function named(name, except)
+    for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+      if buf ~= except and vim.api.nvim_buf_get_name(buf) == name then return buf end
+    end
+  end
+  for i = 0, vim.fn.argc() - 1 do
+    local arg = vim.fn.argv(i)
+    local seen, want = vim.fn.fnamemodify(arg, ":p"), vim.fn.fnamemodify(vim.env.DESK_NVIM_START_DIR .. "/" .. arg, ":p")
+    local buf = arg:sub(1, 1) ~= "/" and seen ~= want and named(seen)
+    if buf and pcall(vim.api.nvim_buf_set_name, buf, want) then
+      local left = named(seen, buf)  -- a rename keeps the old name in an unlisted buffer
+      if left then pcall(vim.api.nvim_buf_delete, left, { force = true }) end
+    end
+  end
+else
+  vim.env.DESK_NVIM_START_DIR = vim.uv.cwd()
+end
+-- <<< desk-restart
+
 -- Suppress deprecation warnings from plugins we don't control (project.nvim, telescope)
 local _orig_deprecate = vim.deprecate
 vim.deprecate = function(name, alternative, version, plugin, backtrace)
@@ -1636,8 +1661,11 @@ local plugins = {
     pin = {{SHOW_WELCOME}},
     event = "VeryLazy",
     opts = {
-      detection_methods = { "lsp", "pattern" },
-      patterns = { ".git", "compile_commands.json", "CMakeLists.txt", "Makefile" },
+      -- The working directory is the git checkout. Not a language server's root: clangd's is the nearest Makefile, so
+      -- a file in a tool folder (src/desk-common) narrowed it to that folder; and project.nvim takes the nearest folder
+      -- holding any pattern, so a build file pattern did the same.
+      detection_methods = { "pattern" },
+      patterns = { ".git" },
       silent_chdir = {{SHOW_WELCOME}},
     },
     config = function(_, opts)
