@@ -504,7 +504,8 @@ local function leave(view)
 end
 local function unlist(id) for i, other in ipairs(H.order) do if other == id then table.remove(H.order, i); return end end end
 
--- Takes a view off the pop-out (it goes back to the editor, or she closed it there).
+-- Takes a view off the pop-out (it goes back to the editor, she closed it there, or its kind took it off: the review
+-- closing), and writes the layout record so a view gone is never restored.
 function M.clear(id)
   local view = H.views[id]
   if not view then return end
@@ -514,6 +515,7 @@ function M.clear(id)
   leave(view)
   if next(H.views) == nil then follow_stop() end
   send({ type = 'view.clear', id = id })
+  M.save_layout()
 end
 
 -- The pop-out is gone, or let go: nothing more is sent and nothing follows the cursor for it. One still running (q on

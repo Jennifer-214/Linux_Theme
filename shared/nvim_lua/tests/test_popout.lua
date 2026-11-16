@@ -906,6 +906,16 @@ do
   os.remove(dir .. '/focus.fail')
 end
 
+-- ─── a view its kind takes off is written out ────────────────────────────────────────────────────────────────────
+do
+  host("require('desk.popout').show('graph', require('desk.actions').context())")
+  ok(wait(3000, function() return state().tabs == 2 and state().shown == 'graph' end), 'two views, the graph in front')
+  ok(wait(3000, function() return #(record().tabs or {}) == 2 end), '… both in the record')
+  host("require('desk.popout').clear('rows')")
+  ok(wait(3000, function() return state().tabs == 1 end), 'the rows taken off by their kind (as the review closing does), behind the graph')
+  ok(wait(3000, function() return #(record().tabs or {}) == 1 end), '… and the record drops them: ' .. read(record_file()))
+end
+
 vim.rpcnotify(h, 'nvim_command', 'qa!')
 ok(third:wait(5000).code == 0, 'the third editor closes')
 ok(wait(10000, function() return not exists(psock) end), '… and its pop-out quits')
