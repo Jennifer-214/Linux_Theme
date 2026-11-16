@@ -380,6 +380,36 @@ for _, lhs in ipairs({'m', 'r', 'n'}) do
 end
 ''', index_unchanged=False)
 
+    def test_m_on_a_part_of_a_file_checks_it_and_never_unchecks_it(self):
+        # "m, j, m" down the list: j from a checked, open file lands on its first changed part ("↳ lines 1"), and m
+        # there used to toggle the whole file back to unread (the 2026-11-16 VM test, F9).
+        self.run_lua(r'''
+C.open_review(row,root)
+local r=R.current
+local i=find('a.lua')
+local file=r.files[i]
+local function line_of(want) for line,e in pairs(r.entries) do if want(e) then return line end end end
+local function press(key, line)
+  api.nvim_set_current_win(r.panel_win)
+  api.nvim_win_set_cursor(r.panel_win,{line,0})
+  vim.fn.maparg(key,'n',false,true).callback()
+end
+local file_line=line_of(function(e) return e.file==i and not e.symbol end)
+press('<CR>',file_line)
+local part=line_of(function(e) return e.file==i and e.symbol end)
+assert(part and api.nvim_buf_get_lines(r.panel_buf,part-1,part,false)[1]:find('lines 1',1,true),'Enter opened a.lua with its part under it')
+press('m',file_line)
+assert(r.marks['a.lua']==file.signature,'m on the file checks it')
+press('m',part)
+assert(r.marks['a.lua']==file.signature,'m on a part of a checked file left it checked')
+assert(api.nvim_get_current_win()==r.panel_win,'… and the cursor stays in the list')
+press('m',file_line)
+assert(r.marks['a.lua']==nil,'m on the file row unchecks it')
+press('m',part)
+assert(r.marks['a.lua']==file.signature,'m on a part of an unchecked file checks it')
+C.close()
+''')
+
     def test_the_working_list_picks_up_files_changed_after_it_opened(self):
         self.run_lua(r'''
 vim.cmd.edit(root .. '/a.lua')

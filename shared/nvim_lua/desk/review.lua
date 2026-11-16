@@ -803,8 +803,8 @@ M.rows = actions.add({
   { id = 'review.mark', group = 'Review', name = 'Mark/unmark file reviewed', key = 'm', on = DIFF,
     about = 'Check or uncheck the file as reviewed', run = function() M.mark() end },
   { id = 'review.mark-list', group = 'Review', name = 'Mark selected file reviewed', key = 'm', on = LIST, line = 'review.mark',
-    about = 'Check or uncheck the selected file as reviewed; the cursor stays in the list',
-    run = function(ctx) in_list(ctx.review, function() if M.enter(true) then M.mark() end end)() end },
+    about = 'Check or uncheck the selected file as reviewed (on one of its changed functions it only checks it); the cursor stays in the list',
+    run = function(ctx) in_list(ctx.review, M.mark_row)() end },
   { id = 'review.unread', group = 'Review', name = 'First unread review file', key = 'u', on = BOTH,
     about = 'Resume at the first unchecked file (files with a risk mark or ready for re-review first)', run = function() M.unread() end },
   { id = 'review.since-list', group = 'Review', name = 'New since review / the whole change', key = 'n', on = LIST,
@@ -1286,6 +1286,22 @@ function M.mark()
       .. hint('finishes and stamps the commit', 'finish')
     tell(r.status_line)
   end
+end
+
+-- m in the list: the row's file checked, or unchecked. On a part of a file (one of its changed functions or line
+-- ranges) it only checks: "m, j, m" down an open file lands the second m on its first part, which must never undo it.
+function M.mark_row()
+  local r = M.current
+  if not r or not api.nvim_win_is_valid(r.panel_win) then return false end
+  local entry = r.entries[api.nvim_win_get_cursor(r.panel_win)[1]]
+  if not M.enter(true) then return false end
+  local file = r.files[r.index]
+  if entry and entry.symbol and r.marks[file.rel] == file.signature then
+    tell(vim.fs.basename(file.rel) .. ' is checked; m on its own row unchecks it.')
+    return true
+  end
+  M.mark()
+  return true
 end
 
 function M.finish()
