@@ -2482,6 +2482,9 @@ local plugins = {
   -- Scrollbar (diagnostics, search, git marks)
   {
     "petertriho/nvim-scrollbar",
+    -- v1: on 2026-11-16 v2 replaced it on main, and v2 rejects these options and handlers (main's last v1 commit warns
+    -- so at every start). The lock pins v1's commit; :Lazy update follows v1.
+    branch = "v1",
     event = "BufReadPost",
     opts = {
       handle = {
