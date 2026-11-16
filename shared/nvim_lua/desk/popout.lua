@@ -8,8 +8,7 @@
 -- (init.lua's desk-popout block). Its tab line is the header (each view, PINNED, ✱ for news, the keys that switch);
 -- each window's status line is that view's key line.
 --
--- Protocol 2 (the contract: plans/2026-11-16-threads-and-popout-workspace.md, appendix A4). The editor sends
--- rpcnotify of M.receive, { version = 2, type, … }:
+-- Protocol 2. The editor sends rpcnotify of M.receive, { version = 2, type, … }:
 --   view.set   { id, gen, kind, surface, title, state, lines, marks, hl, items, footer, strip, select, front, news }
 --   view.clear { id } · ping { serial } (every 10 s; one that stops answering is sent nothing until it does) · bye { why }
 -- The pop-out asks through the editor's bridge (desk.bridge), every message with its deadline:

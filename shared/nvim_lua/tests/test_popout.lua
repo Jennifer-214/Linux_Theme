@@ -13,6 +13,14 @@ local function eq(got, want, what)
 end
 local function ok(cond, what) eq(not not cond, true, what) end
 
+-- ─── a public repo: the modules name none of the private workflow (its plans, the folder they are kept in) ──────
+local naming = {}
+for _, file in ipairs(vim.fn.glob(ROOT .. '/shared/nvim_lua/desk/*.lua', false, true)) do
+  local text = table.concat(vim.fn.readfile(file), '\n')
+  if text:find('plans/%d%d%d%d%-%d%d%-%d%d') or text:find('linux%-theme%-workspace') then naming[#naming + 1] = vim.fs.basename(file) end
+end
+eq(naming, {}, 'no desk module names a private plan or the workspace it is kept in')
+
 -- ─── the sandbox ────────────────────────────────────────────────────────────────────────────────────────────────
 -- Under tests/: the stubs need a folder that may run programs (/tmp may not), and the sockets a short path.
 local base = assert(uv.fs_mkdtemp(ROOT .. '/tests/poXXXXXX'))
