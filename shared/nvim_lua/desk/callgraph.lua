@@ -11,21 +11,8 @@ local function tell(text, level) vim.notify(text, level or vim.log.levels.INFO, 
 local function width_of(s) return api.nvim_strwidth(s) end
 
 -- ─── style ─────────────────────────────────────────────────────────────────────────────────────────────────────
--- Retro draws in a DOS font: code page 437 boxes, plain capitals. The theme says which through vim.g.desk_style or
--- $DESK_STYLE; failing both, the notebook's rendered theme (one theme renders both) is read once.
-local style
-function M.retro()
-  if style == nil then
-    style = vim.g.desk_style or vim.env.DESK_STYLE
-    if not style then
-      local f = io.open(vim.fn.expand('~/.claude/mods/desk-notebook/hooks/theme.ts'), 'r')
-      local text = f and f:read(4096) or ''
-      if f then f:close() end
-      style = text:match("style:%s*'(%w+)'") or 'paper'
-    end
-  end
-  return style == 'retro'
-end
+-- Retro draws in a DOS font: code page 437 boxes, plain capitals. init.lua publishes the style in vim.g.desk_style.
+function M.retro() return vim.g.desk_style == 'retro' end
 
 function M.glyphs(retro)
   if retro then
