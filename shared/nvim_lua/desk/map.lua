@@ -885,13 +885,28 @@ local function status(view, after)
   end, 30000)
 end
 
--- The cursor where it was on this level, else on the first box (its name line), so Enter works at once. In the
--- pop-out its selection does that: the box the level was left by, else the pop-out's own choice (a double box, the
--- first).
+-- What a box stands for (a function's id, a class, a file, a part): the same box in another drawing of the page.
+local function box_of(item)
+  local t = item.target or {}
+  local what = t.kind == 'node' and t.node and t.node.id or t.kind == 'class' and t.id or t.file or t.module or item.name or ''
+  return (t.kind or 'box') .. ':' .. tostring(what)
+end
+
+-- The cursor where it was on this level (each is put back once), on the box it was on when the level was read again
+-- (level.keep), else on the first box (its name line), so Enter works at once. In the pop-out its selection does that:
+-- the box the level was left by, else the pop-out's own choice (a double box, the first).
 local function place_cursor(view)
   local level = view.stack[#view.stack]
   if view.out then return end
-  if level.cursor then return pcall(api.nvim_win_set_cursor, view.win, level.cursor) end
+  local keep, cursor = level.keep, level.cursor
+  level.keep, level.cursor = nil, nil
+  if keep then
+    for _, box in ipairs(view.drawn and view.drawn.items or {}) do
+      if box_of(box.item) == keep.box then return pcall(api.nvim_win_set_cursor, view.win, { box.line, box.name_col or 0 }) end
+    end
+    cursor = keep.cursor
+  end
+  if cursor then return pcall(api.nvim_win_set_cursor, view.win, cursor) end
   local hits, first = view.drawn and view.drawn.hits or {}, nil
   for lnum in pairs(hits) do first = first and math.min(first, lnum) or lnum end
   if not first then return end
@@ -920,8 +935,10 @@ local function load(view)
   end)
 end
 
+-- With no build to watch, a work event is no news for the map (view.tick is what answers one).
 local function stop_polling(view)
   if view.timer then view.timer:stop(); view.timer:close(); view.timer = nil end
+  view.tick = nil
 end
 
 -- While a build runs: its status once a second (one read at a time); when it is done, the map is read again.
@@ -939,6 +956,12 @@ local function poll(view)
       if answer and answer.ok ~= false then view.status = answer end
       if answer and answer.ok ~= false and not answer.building then
         stop_polling(view)
+        -- The level is read again; the cursor stays on the box it is on (here, not in the pop-out: its selection does).
+        if not view.out and api.nvim_win_is_valid(view.win) then
+          local cursor = api.nvim_win_get_cursor(view.win)
+          local item = M.item_at(view.drawn, cursor[1], cursor[2])
+          view.stack[#view.stack].keep = { box = item and box_of(item), cursor = cursor }
+        end
         -- The build ended: news in the pop-out's header until she looks.
         view.building, view.previous, view.cache, view.news = false, view.cache, {}, true
         -- A status read while building skips the stale check: once more, then the level.
@@ -1356,9 +1379,7 @@ end
 -- A box's key: what it stands for, so the same box keeps its selection when the page is drawn again; a second drawing
 -- of one thing (a part again in the calls between parts) gets its count.
 local function item_key(item, seen)
-  local t = item.target or {}
-  local what = t.kind == 'node' and t.node and t.node.id or t.kind == 'class' and t.id or t.file or t.module or item.name or ''
-  local base = (t.kind or 'box') .. ':' .. tostring(what)
+  local base = box_of(item)
   if #base > 100 then base = base:sub(1, 80) .. ':' .. vim.fn.sha256(base):sub(1, 16) end
   seen[base] = (seen[base] or 0) + 1
   return seen[base] > 1 and (base .. '#' .. seen[base]) or base

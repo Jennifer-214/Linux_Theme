@@ -396,6 +396,28 @@ ok(vim.wait(1000, function() return #vim.tbl_filter(function(a) return a:find("-
 ok(vim.wait(1000, function() return line_with(view.drawn.lines, "│ M.alpha") ~= nil end), "… and drawn")
 eq(blank, false, "the page never went blank while the build ran and the map was read again")
 
+-- After the build a work event (an agent saving files, up to once a second) is no news for the map: desk-work is asked
+-- nothing and the cursor stays on its box. Each one read the map again and put the cursor on the first box (2026-11-16).
+local function box_here()
+  local c = api.nvim_win_get_cursor(view.win)
+  local item = Map.item_at(view.drawn, c[1], c[2])
+  return item and item.name
+end
+local function level_reads() return #vim.tbl_filter(function(a) return a:find("--name lua", 1, true) end, asked) end
+ok(vim.wait(1000, function() return view.cache["module:lua"] ~= nil end), "(the level read after that build is in)")
+cursor_on("M.alpha")
+local before_event = #asked
+api.nvim_exec_autocmds("User", { pattern = "FoxWorkChanged", data = { root = view.root } })
+vim.wait(300)
+eq({ #asked - before_event, box_here() }, { 0, "M.alpha" }, "a work event after the build: nothing asked, the cursor on its box")
+-- A build that ends reads the level again, and the cursor stays on the box it was on.
+local reads_before = level_reads()
+press("R")
+building = false
+ok(vim.wait(3000, function() return view.timer == nil and level_reads() > reads_before and view.cache["module:lua"] ~= nil end),
+  "another build ends: the level is read again")
+eq(box_here(), "M.alpha", "… and the cursor is still on the box it was on, not the first")
+
 vim.g.desk_style = "retro"
 Map.render(view)
 ok(line_with(view.drawn.lines, "PROJECT MAP") and line_with(view.drawn.lines, "┌"), "retro: the page in capitals and code page 437 boxes")
