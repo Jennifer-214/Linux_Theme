@@ -104,7 +104,7 @@ void run_post_install(Context& ctx) {
         ui::substep("[dry-run] would: write .active-theme + install marker, "
                     "finalize per-monitor wallpaper variants + hyprlock (post-deploy), "
                     "render waybar for current layout, restart the bar and mako, "
-                    "Nvim plugins restored to the lock file + TSUpdateSync (60s/120s caps), "
+                    "Nvim plugins installed + restored to the lock file, the treesitter parsers installed, "
                     "GTK desktop font + accent, Thunar view + sidebar projects, Bat/delta theme cache, Cursor/VS Code workbench.colorTheme=Fox ML, "
                     "desk theme check (read-only report)");
         return;
@@ -216,7 +216,8 @@ void run_post_install(Context& ctx) {
     const bool skip_plugin_sync = std::getenv("FOXML_SKIP_PLUGIN_SYNC") != nullptr;
     if (skip_plugin_sync) {
         ui::substep("plugin sync skipped (theme swap)");
-    } else if (have("nvim") && fs::is_directory(ctx.home / ".local/share/nvim/lazy")) {
+    } else if (have("nvim") && fs::exists(ctx.home / ".config/nvim/init.lua")) {
+        // Also on a fresh machine with no plugins yet: Lazy! install lays them all, so the first start needs nothing.
         // Restore, not sync: plugins stay at the repo lock file's versions, so a reinstall gives what was tested.
         // Updating is deliberate: :Lazy update, then commit the new lock file to shared/nvim_lazy-lock.json.
         // Lazy installs a plugin it lacks as Neovim starts, then rewrites lazy-lock.json with the commits on disk (the
@@ -224,11 +225,11 @@ void run_post_install(Context& ctx) {
         // goes in first, the repo's lock is laid again, then the restore; and it says so only when the locks agree.
         const fs::path repo_lock = ctx.script_dir / "shared/nvim_lazy-lock.json";
         const fs::path lock = ctx.home / ".config/nvim/lazy-lock.json";
-        ui::substep("nvim plugins restored to the lock file (headless, 60s caps)");
-        sh::run({"timeout", "60", "nvim", "--headless", "+Lazy! install", "+qa"});
+        ui::substep("nvim plugins installed and restored to the lock file (headless)");
+        sh::run({"timeout", "600", "nvim", "--headless", "+Lazy! install", "+qa"});
         const std::string want = idem::read_file(repo_lock);
         const bool laid = !want.empty() && idem::write_atomic(lock, want);
-        const int restored = sh::run({"timeout", "60", "nvim", "--headless", "+Lazy! restore", "+qa"});
+        const int restored = sh::run({"timeout", "120", "nvim", "--headless", "+Lazy! restore", "+qa"});
         const auto off = nvim_lock::mismatches(want, idem::read_file(lock));
         if (restored == 0 && laid && off.empty()) {
             ui::ok("Nvim plugins at the lock file's versions");
@@ -238,14 +239,15 @@ void run_post_install(Context& ctx) {
             ui::warn("Plugin restore didn't complete cleanly" + (names.empty() ? std::string() : " (not at the lock: " + names + ")") +
                      " — run the install again, or `:Lazy restore` in Neovim");
         }
-        if (fs::is_directory(ctx.home / ".local/share/nvim/lazy/nvim-treesitter")) {
-            ui::substep("rebuilding treesitter parsers (headless, 120s cap)");
-            if (sh::run({"timeout", "120", "nvim", "--headless",
-                         "+TSUpdateSync", "+qa"}) == 0) {
-                ui::ok("Treesitter parsers rebuilt");
-            } else {
-                ui::warn("TSUpdateSync didn't complete cleanly — run `:TSUpdateSync` manually");
-            }
+        // The config's parser list, installed and brought to the pinned plugin's revisions here rather than at Neovim's
+        // first start (where each download stopped the screen for Enter). The command exits non-zero naming any parser
+        // that did not land, so this says "installed" only when all did. (It replaced :TSUpdateSync, which the main
+        // branch does not have: nvim ran it as an unknown command, exited 0, and the install said "rebuilt".)
+        ui::substep("treesitter parsers installed (headless)");
+        if (sh::run({"timeout", "900", "nvim", "--headless", "+DeskParsersInstall", "+qa"}) == 0) {
+            ui::ok("Treesitter parsers installed");
+        } else {
+            ui::warn("Some treesitter parsers did not install — open Neovim and run :DeskParsersInstall");
         }
     }
 

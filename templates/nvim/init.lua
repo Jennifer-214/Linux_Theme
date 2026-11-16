@@ -3640,33 +3640,55 @@ if Paper.enabled then
   ]])
 end
 
--- Install only the parsers we don't already have (main has NO auto-install).
--- VERIFY-ON-0.12: get_installed() is the documented listing helper but wasn't
--- confirmed verbatim from a 2026 source — if it's absent on your build this block
--- skips silently and you install once with `:TSUpdate` / `:TSInstall <lang>`.
-do
-  local okc, cfg = pcall(require, "nvim-treesitter.config")
-  if okc and cfg.get_installed then
-    local have = {}
-    for _, l in ipairs(cfg.get_installed()) do have[l] = {{SHOW_WELCOME}} end
-    local missing = {}
-    for _, l in ipairs(ts_parsers) do
-      if not have[l] then missing[#missing + 1] = l end
-    end
-    if #missing > 0 then require("nvim-treesitter").install(missing) end
-  end
+-- The parsers are the install's job: it runs :DeskParsersInstall headless and checks every listed one landed. The
+-- editor never downloads them as it starts: each parser's progress line stopped the screen at "Press ENTER" (a fresh
+-- install, about a dozen in a row) and held every request to the editor meanwhile. A listed parser still missing (a
+-- list that grew since the install) comes once, in the background, when a file of its language opens (FileType below).
+local function ts_missing()
+  local have = {}
+  for _, l in ipairs(require("nvim-treesitter").get_installed()) do have[l] = true end
+  return vim.tbl_filter(function(l) return not have[l] end, ts_parsers)
 end
+vim.api.nvim_create_user_command("DeskParsersInstall", function()
+  local ts = require("nvim-treesitter")
+  local missing = ts_missing()
+  if #missing > 0 then ts.install(missing):pwait(900000) end
+  ts.update():pwait(900000)   -- the installed ones, to the revisions the pinned plugin names
+  local left = ts_missing()
+  if #left > 0 then
+    io.stderr:write("parsers not installed: " .. table.concat(left, " ") .. "\n")
+    vim.cmd("cquit 1")
+  end
+end, { desc = "Install the listed treesitter parsers and wait (the installer runs it headless)" })
 
 -- Highlight + indent: master's `highlight`/`indent = { enable = true }` are gone.
 -- Start treesitter per-buffer in a FileType autocmd (core API), only when a parser
 -- exists, and drive indentexpr off the plugin (experimental on main — keep quoting).
+local function ts_start(buf, lang)
+  pcall(vim.treesitter.start, buf, lang)
+  vim.bo[buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+end
+local ts_asked = {}
 vim.api.nvim_create_autocmd("FileType", {
   group = vim.api.nvim_create_augroup("foxml_ts", { clear = {{SHOW_WELCOME}} }),
   callback = function(args)
     local lang = vim.treesitter.language.get_lang(vim.bo[args.buf].filetype)
-    if lang and pcall(vim.treesitter.language.add, lang) then
-      pcall(vim.treesitter.start, args.buf, lang)
-      vim.bo[args.buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
+    if not lang then return end
+    if pcall(vim.treesitter.language.add, lang) then
+      ts_start(args.buf, lang)
+    elseif vim.list_contains(ts_parsers, lang) and not ts_asked[lang] then
+      ts_asked[lang] = true
+      require("nvim-treesitter").install({ lang }):await(function(err)
+        if err then return end
+        vim.schedule(function()
+          for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+            if vim.api.nvim_buf_is_loaded(buf) and vim.treesitter.language.get_lang(vim.bo[buf].filetype) == lang
+              and pcall(vim.treesitter.language.add, lang) then
+              ts_start(buf, lang)
+            end
+          end
+        end)
+      end)
     end
   end,
 })

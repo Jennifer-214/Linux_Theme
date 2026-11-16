@@ -81,7 +81,7 @@ check_nvim() {
 
     if grep -q "attempt to call method 'range'" <<<"$out"; then
         fail "treesitter parsers are stale (range nil error)"
-        hint "fix: nvim --headless '+TSUpdateSync' '+qa'"
+        hint "fix: nvim --headless '+DeskParsersInstall' '+qa'"
     fi
 
     local err_count
@@ -93,7 +93,7 @@ check_nvim() {
         ok ":checkhealth has no ERROR lines"
     fi
 
-    local parser_dir="$HOME/.local/share/nvim/lazy/nvim-treesitter/parser"
+    local parser_dir="$HOME/.local/share/nvim/site/parser"
     if [[ -d "$parser_dir" ]]; then
         local nvim_bin parser_count stale_count
         nvim_bin="$(command -v nvim)"
@@ -101,7 +101,7 @@ check_nvim() {
         stale_count="$(find "$parser_dir" -name '*.so' ! -newer "$nvim_bin" | wc -l)"
         if [[ "$parser_count" -gt 0 && "$stale_count" -eq "$parser_count" ]]; then
             warn "all $parser_count treesitter parsers predate the nvim binary"
-            hint "fix: nvim --headless '+TSUpdateSync' '+qa'"
+            hint "fix: nvim --headless '+DeskParsersInstall' '+qa'"
         fi
     fi
 }
