@@ -17,6 +17,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from required import requires
 import sealed_env
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,7 +25,7 @@ LUA = ROOT / 'shared/nvim_lua'
 RENDER = ROOT / 'src/desk-render/desk-render-fast'
 
 
-@unittest.skipUnless(shutil.which('nvim'), 'Neovim required')
+@requires(shutil.which('nvim'), 'nvim')
 class PopOut(unittest.TestCase):
     # Sealed (tests/sealed_env.py): the runner Neovim's log and server socket are the test's own, and every process the
     # Lua starts (the editor, its pop-out, a restarted server) is stopped at the end, also after a timeout; then what
@@ -82,9 +83,9 @@ io.stdout:write(vim.json.encode(out))
 '''
 
 
-@unittest.skipUnless(shutil.which('nvim'), 'Neovim required')
+@requires(shutil.which('nvim'), 'nvim')
 class InitBlock(unittest.TestCase):
-    @unittest.skipUnless(os.access(RENDER, os.X_OK), 'a built desk-render-fast (make) required')
+    @requires(os.access(RENDER, os.X_OK), 'a built desk-render-fast (make)')
     def test_the_pop_out_block_in_every_theme(self):
         blocks = {}
         with tempfile.TemporaryDirectory(prefix='popout-render-') as temp:

@@ -64,7 +64,10 @@ def run_checks(args):
         commands.append(('build-'+tool,['make','--no-print-directory','-C','src/'+tool,'-j2']))
     for tool in ('desk-work','desk-drawer','desk-install'):
         commands.append(('native-'+tool,['make','--no-print-directory','-C','src/'+tool,'test']))
+    # With FOXML_REQUIRE_INTEGRATION_TESTS (env above), test_work_integration and the pop-out, project-map and theme-check
+    # suites fail where they would skip for a missing tool, build or parser (tests/required.py).
     for test in ('test_fixture_process','test_claude_mod','test_work_integration','test_nvim_review','test_nvim_sync','test_nvim_workspace','test_work_nvim',
+                 'test_nvim_popout','test_nvim_map','test_theme_check',
                  'test_drawer_qml','test_tucked_drawer_qml','test_pi_notify','test_installer_input','test_deploy_lists','test_work_ci'):
         commands.append((test,[sys.executable,'-B','tests/'+test+'.py']))
     for name,command in commands:

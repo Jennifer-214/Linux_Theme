@@ -16,6 +16,11 @@ class CiPins(unittest.TestCase):
                       'the Arch image and the archive it installs from must be the same day')
         self.assertRegex(PINS['ubuntu'], r'^ubuntu-\d{2}\.\d{2}$')
 
+    def test_the_treesitter_grammars_are_release_tags(self):
+        # The required run builds the project map's python and cpp parsers from these (work-integrations.yml).
+        for key in ('treeSitterPython', 'treeSitterCpp'):
+            self.assertRegex(PINS[key], r'^v\d+\.\d+\.\d+$', key)
+
     def test_no_workflow_writes_a_pin_of_its_own(self):
         for path in WORKFLOWS:
             text = path.read_text()

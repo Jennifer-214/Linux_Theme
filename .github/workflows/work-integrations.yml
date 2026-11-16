@@ -13,6 +13,8 @@ jobs:
       ubuntu: ${{ steps.read.outputs.ubuntu }}
       archImage: ${{ steps.read.outputs.archImage }}
       archSnapshot: ${{ steps.read.outputs.archSnapshot }}
+      treeSitterPython: ${{ steps.read.outputs.treeSitterPython }}
+      treeSitterCpp: ${{ steps.read.outputs.treeSitterCpp }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,6 +34,8 @@ jobs:
       DISABLE_AUTOUPDATER: "1"
       CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
       ARCH_SNAPSHOT: ${{ needs.pins.outputs.archSnapshot }}
+      TREE_SITTER_PYTHON: ${{ needs.pins.outputs.treeSitterPython }}
+      TREE_SITTER_CPP: ${{ needs.pins.outputs.treeSitterCpp }}
     steps:
       - name: Pin the package repositories to the image's day of the Arch archive
         # The image and the packages it installs are both from one day (.github/toolchain.json), so a build here only
@@ -41,6 +45,18 @@ jobs:
         run: |
           pacman -Syyuu --noconfirm --needed base-devel ccache git openssl python python-msgpack \
             neovim quickshell nodejs npm jq ttf-dejavu
+      - name: Build the treesitter parsers the project map's test reads, at their pinned tags
+        # Neovim ships no python or cpp parser and Arch packages no cpp one; tests/test_nvim_map.py fails in this run
+        # without them (tests/required.py). They go where it looks: site/parser in Neovim's data folder.
+        run: |
+          parsers="${XDG_DATA_HOME:-$HOME/.local/share}/nvim/site/parser"
+          mkdir -p "$parsers"
+          for grammar in "python $TREE_SITTER_PYTHON" "cpp $TREE_SITTER_CPP"; do
+            set -- $grammar
+            git clone --quiet --depth 1 --branch "$2" "https://github.com/tree-sitter/tree-sitter-$1" "$RUNNER_TEMP/tree-sitter-$1"
+            cc -O2 -shared -fPIC -I "$RUNNER_TEMP/tree-sitter-$1/src" "$RUNNER_TEMP/tree-sitter-$1/src/parser.c" \
+              "$RUNNER_TEMP/tree-sitter-$1/src/scanner.c" -o "$parsers/$1.so"
+          done
       - uses: actions/checkout@v4
         with:
           persist-credentials: false

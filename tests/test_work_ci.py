@@ -24,6 +24,19 @@ class RequiredWorkChecks(unittest.TestCase):
         self.assertIn('claude',result.stderr)
         self.assertNotIn('skipped',result.stdout)
 
+    def test_a_required_suite_fails_where_it_would_skip(self):
+        # No nvim: run by hand, the pop-out and project-map suites skip and say "requires nvim"; in the required run
+        # (FOXML_REQUIRE_INTEGRATION_TESTS=1, as run_work_checks.py sets) the same runs fail.
+        with tempfile.TemporaryDirectory() as empty:
+            for suite in ('test_nvim_popout', 'test_nvim_map'):
+                for required in ('0', '1'):
+                    with self.subTest(suite=suite, required=required):
+                        ran = subprocess.run([sys.executable, '-B', str(ROOT/'tests'/(suite+'.py')), '-v'], capture_output=True, text=True,
+                                             timeout=120, env=os.environ | {'PATH': empty, 'FOXML_REQUIRE_INTEGRATION_TESTS': required})
+                        said = ran.stdout + ran.stderr
+                        self.assertEqual(ran.returncode != 0, required == '1', said)
+                        self.assertIn('requires nvim', said)
+
     def test_generated_fixture_is_complete_and_matches_its_engine(self):
         folder,manifest=test_claude_mod.sdk_fixture()
         self.assertEqual(set(manifest['files']),{'claude-code/index.d.ts','claude-code-tools/index.d.ts','claude-code-mcp/index.d.ts','tsconfig.json'})

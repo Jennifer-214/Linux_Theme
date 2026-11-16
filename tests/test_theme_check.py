@@ -13,6 +13,8 @@ import subprocess
 import tempfile
 import unittest
 
+from required import requires
+
 ROOT = Path(__file__).resolve().parents[1]
 CHECK = ROOT / "src/theme-check/theme-check"
 RENDER = ROOT / "src/desk-render/desk-render-fast"
@@ -20,7 +22,7 @@ DESK_WORK = ROOT / "src/desk-work/desk-work"
 INSTALLER_MODULES = ROOT / "src" / "desk-install" / "modules"
 
 
-@unittest.skipUnless(CHECK.exists() and RENDER.exists(), "build theme-check and desk-render-fast first")
+@requires(CHECK.exists() and RENDER.exists(), "a built theme-check and desk-render-fast (make)")
 class ThemeCheck(unittest.TestCase):
     def setUp(self):
         # Beside the test, not in /tmp: stand-in commands must be executable, and /tmp may be noexec.
@@ -172,7 +174,7 @@ def enforced_prefs():
     return "".join(f'user_pref("{key}", {value});\n' for key, value in pairs)
 
 
-@unittest.skipUnless(CHECK.exists() and RENDER.exists(), "build theme-check and desk-render-fast first")
+@requires(CHECK.exists() and RENDER.exists(), "a built theme-check and desk-render-fast (make)")
 class Deployed(unittest.TestCase):
     """D14–D25: a good deployment passes, and each bad one planted on it turns its check red."""
 
@@ -411,7 +413,7 @@ class Deployed(unittest.TestCase):
         self.put("usr/lib/python3.13/site-packages/ipykernel/__init__.py", "", base=self.root)
         self.green("D19")
 
-    @unittest.skipUnless(DESK_WORK.exists(), "build desk-work first")
+    @requires(DESK_WORK.exists(), "a built desk-work (make)")
     def test_desk_work_has_editor_and_tools(self):
         (self.bin / "desk-work").symlink_to(DESK_WORK)
         self.green("D20", words=str(self.bin / "desk-work"))
@@ -468,7 +470,7 @@ class Deployed(unittest.TestCase):
         self.systemctl(**{"reload-foxml-arch-audit.service": "yes"})
         self.red("D23", "systemctl --user daemon-reload")
 
-    @unittest.skipUnless(DESK_WORK.exists(), "build desk-work first")
+    @requires(DESK_WORK.exists(), "a built desk-work (make)")
     def test_declared_tools_read_by_desk_works_own_parser(self):
         desk_d = self.home / ".config/foxml/desk.d"
         self.skipped("D24", "nothing declared there")
