@@ -574,6 +574,14 @@ local function press(key)
   api.nvim_exec_autocmds('CursorMoved',{buffer=r.panel_buf})
   local line=api.nvim_win_get_cursor(r.panel_win)[1]
   assert(r.entries[line],'stopped on line '..line..', which is not a row: '..(api.nvim_buf_get_lines(r.panel_buf,line-1,line,false)[1] or ''))
+  -- The selection bar follows the cursor at once, including just after crossing a heading.
+  local ns=api.nvim_create_namespace('desk_review_cursor')
+  local bar
+  for _,m in ipairs(api.nvim_buf_get_extmarks(r.panel_buf,ns,0,-1,{details=true})) do
+    local group=m[4].line_hl_group
+    if group=='FoxSymdepsSelection' or group=='Visual' then bar=m[2]+1 end
+  end
+  assert(bar==line,'the selection bar is on line '..tostring(bar)..', the cursor on '..line)
   return line
 end
 local count=api.nvim_buf_line_count(r.panel_buf)
