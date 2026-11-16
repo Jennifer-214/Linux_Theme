@@ -212,7 +212,9 @@ record; see the card below.
 - The first run of an entry, and the first after its command changed, shows the exact command and its folder and
   asks `Run it? [y/N]`. Your yes is kept per tool in the checkout's records (`tool-approvals.json`), pinned to a hash
   of the command, its folder and its timeout: an edited entry asks again, so editing a declaration cannot get a
-  command run.
+  command run. Each argument is shown in single quotes; one holding a character a terminal acts on (a control
+  character, DEL, a bidi override) is shown as `$'…'` with that character escaped, and so are the tool's name and
+  paths, so the command you read is the one that runs.
 - It runs as a desk-work job: its output log (the newest 4 MiB), a notice when it fails, the job in the notebook. A
   tool run is never a test run. A Python tool runs with `PYTHONDONTWRITEBYTECODE=1`, so it leaves no bytecode in the
   project.

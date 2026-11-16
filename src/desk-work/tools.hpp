@@ -237,9 +237,40 @@ J tool_figures(const J& job) {
     return out;
 }
 
+// An argument as she reads it: in single quotes, or, when it holds a character a terminal acts on (a C0 or C1 control,
+// DEL, a bidi override or isolate), in $'…' with that character escaped, so the command shown for her yes is the one
+// that runs. The tool's job keeps the same line as its command.
+std::string shown_arg(const std::string& s) {
+    std::string plain = "'", escaped = "$'";
+    bool special = false;
+    for (size_t i = 0; i < s.size(); ++i) {
+        const auto at = [&](size_t k) -> unsigned { return i + k < s.size() ? static_cast<unsigned char>(s[i + k]) : 0u; };
+        unsigned code = 0;
+        size_t len = 0;
+        if (at(0) < 0x20 || at(0) == 0x7f) { code = at(0); len = 1; }
+        else if (at(0) == 0xc2 && at(1) >= 0x80 && at(1) <= 0x9f) { code = at(1); len = 2; }
+        else if (at(0) == 0xe2 && ((at(1) == 0x80 && at(2) >= 0xaa && at(2) <= 0xae) || (at(1) == 0x81 && at(2) >= 0xa6 && at(2) <= 0xa9))) {
+            code = 0x2000u | ((at(1) & 0x3fu) << 6) | (at(2) & 0x3fu); len = 3;
+        }
+        if (len) {
+            char hex[8];
+            // \x is one byte in $'…'; a C1 control or bidi mark is a UTF-8 character, so \u names it.
+            std::snprintf(hex, sizeof hex, code < 0x80 ? "\\x%02x" : "\\u%04x", code);
+            escaped += code == '\n' ? std::string("\\n") : code == '\t' ? std::string("\\t") : code == '\r' ? std::string("\\r") : std::string(hex);
+            special = true;
+            i += len - 1;
+        } else {
+            plain += s[i] == '\'' ? std::string("'\\''") : std::string(1, s[i]);
+            escaped += s[i] == '\'' ? std::string("\\'") : s[i] == '\\' ? std::string("\\\\") : std::string(1, s[i]);
+        }
+    }
+    return special ? escaped + "'" : plain + "'";
+}
+// A name or path in that question: as it is, or in $'…' when it holds such a character.
+std::string shown_text(const std::string& s) { const auto arg = shown_arg(s); return arg.rfind("$'", 0) == 0 ? arg : s; }
 std::string argv_label(const J& argv) {
     std::string label;
-    for (const auto& a : argv) label += (label.empty() ? "" : " ") + quote(a.get<std::string>());
+    for (const auto& a : argv) label += (label.empty() ? "" : " ") + shown_arg(a.get<std::string>());
     return label;
 }
 // The program an argv tool needs and this machine lacks (on PATH, or a path from the tool's folder), else empty.
@@ -266,8 +297,8 @@ int run_tool(const J& t) {
     if (t.contains("timeout_ms") && !sh::have("timeout")) return say(refuse(id + " requires timeout (coreutils) for its timeout_ms; nothing was run"));
     const auto label = argv_label(t["argv"]);
     if (!approved(t)) {
-        std::cout << name << " (" << id << ") runs, in " << cwd << ":\n  " << label << "\ndeclared in " << str(t, "file")
-                  << "\nNew or changed since your last yes. Run it? [y/N] " << std::flush;
+        std::cout << shown_text(name) << " (" << id << ") runs, in " << shown_text(cwd) << ":\n  " << label << "\ndeclared in "
+                  << shown_text(str(t, "file")) << "\nNew or changed since your last yes. Run it? [y/N] " << std::flush;
         std::string answer;
         std::getline(std::cin, answer);
         answer = lowered(trim(answer));

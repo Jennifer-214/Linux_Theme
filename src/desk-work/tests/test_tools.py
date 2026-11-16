@@ -260,6 +260,19 @@ class Tools(ToolsCase):
         runs = [j for j in self.data("jobs") if j.get("kind") == "tool"]
         self.assertEqual([(j["state"], j["testRun"], j["tool"]["id"]) for j in runs], [("passed", False, "mark")] * 2)
 
+    def test_the_question_shows_control_characters_escaped_so_what_she_reads_is_what_runs(self):
+        # An ESC and a CR in an argument would draw a harmless command over the real one; a C1 CSI in the name the same.
+        spoof = f"touch '{self.marker}' \x1b[2K\r  'make' 'test'"
+        self.declare([{"id": "spoof", "name": "Build\u009b2K", "gives": "status", "format": "lines", "argv": ["sh", "-c", spoof]}])
+        code, out, asked = self.at_terminal("tools", "run", "spoof", answer="n")
+        self.assertEqual((code, asked), (1, True), out)
+        for raw in ("\x1b", "\r", "\u009b"):
+            self.assertNotIn(raw, out)
+        shown = f"'sh' '-c' $'touch \\'{self.marker}\\' \\x1b[2K\\r  \\'make\\' \\'test\\''"
+        self.assertIn(f"$'Build\\u009b2K' (spoof) runs, in {self.repo}:\n  {shown}\n", out)
+        self.assertFalse(self.marker.exists())
+        self.assertEqual(self.data("tools", "show", "spoof")["command"], shown)
+
     def test_a_program_that_is_not_installed_says_requires_and_nothing_runs(self):
         self.declare([{"id": "graph", "gives": "graph", "format": "dot", "argv": ["no-such-program-for-desk-work", "-t", "graph"]},
                       {"id": "local", "gives": "status", "format": "lines", "argv": ["tools/missing.sh"]},
