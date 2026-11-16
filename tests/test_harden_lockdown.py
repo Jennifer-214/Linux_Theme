@@ -134,6 +134,15 @@ class LockdownGate(unittest.TestCase):
                 self.assertNotIn("usage:", out, "a refusal is not a usage error")
                 self.assertEqual(sudo_calls, [], "nothing was run as root")
 
+    def test_disable_exits_with_the_layers_status_too(self):
+        for argv, want in (([BASH, str(HARDEN), "disable", "nonsense"], "unknown: nonsense"),
+                           ([BASH, str(HARDEN), "disable"], "usage: desk harden disable <layer>")):
+            with self.subTest(argv[2:]):
+                ran, sudo_calls = self.harden(INTEL, argv=argv)
+                self.assertEqual(ran.returncode, 2, ran.stdout + ran.stderr)
+                self.assertIn(want, ran.stdout)
+                self.assertEqual(sudo_calls, [], "nothing was run as root")
+
     def test_a_check_that_fails_refuses_too(self):
         """Anything but a clear no refuses: here the check stops with status 2, as one a shell cannot run would."""
         ran, sudo_calls = self.harden(INTEL, argv=[BASH, "-c", 'source "$1"; lockdown_blocks_modules() { return 2; }; '
