@@ -5,7 +5,8 @@ import type { AgentSession, ApiCredits, CiLook, GitLook, NotebookView, PaperActi
 import { addBefore, addEdit, addName, neighbours, namesText, noteText, overlapFor, parseLedger, parseNames, parseNote, trailerUrl, withPlan, editedSince } from './ledger'
 import type { Other } from './ledger'
 import { paper } from './theme'
-import { ago, beginArgs, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, filterFiles, planProgress, receiptLine, reviewStates, reviewSummary, ruleParts, ruler, sides, syncLabel, workName, wrapWords, stepLabel, testLabel, turnLabel, unreviewed, work, workCall, workLook, needBreakdown, needGroup, wrapParts, MARKS, glyph, CHARS, ELLIPSIS, RETRO, cut, said, dosText, parseTurnSymbols, changedUnits, unitWords } from './work'
+import { ago, beginArgs, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, filterFiles, planProgress, receiptLine, reviewStates, reviewSummary, ruleParts, ruler, sides, syncLabel, workName, wrapWords, stepLabel, testLabel, turnLabel, unreviewed, work, workCall, workLook, needBreakdown, needGroup, wrapParts, MARKS, glyph, CHARS, ELLIPSIS, RETRO, cut, said, dosText, parseTurnSymbols, changedUnits, unitWords, editorGraph } from './work'
+import type { GraphAt } from './work'
 import { attributeFiles, fileColumns, fileCounts, gitFiles, drawerPage, mailId, shortPath, NAMED_PAGES } from './notebook'
 import { BUILD_ID } from './build'
 import { metricLabel } from './work'
@@ -1274,6 +1275,8 @@ export const register: Register = on => {
     // on the right, and under the list a line saying what the selected row is.
     const inner = Math.max(10, width - 2)
     const about: Record<string, string> = {}
+    // The rows that name one function by file and line, by key: on one of them g shows its call graph in her editor.
+    const graphs: Record<string, GraphAt> = {}
     // A group's rule; retro prints its label in inverse capitals.
     const ruleNode = (label: string, right = '', colour: string = paper.ribbon) => {
       const [head, name, tail] = ruleParts(label, right, width)
@@ -1468,9 +1471,13 @@ export const register: Register = on => {
           if (s.file !== file) { content.push(text(shortPath(s.file, width))); file = s.file }
           if (s.kind === 'hunk') content.push(text(`    ${s.name}`))
           else if (s.side === 'before') content.push(text(`  ${CHARS.minus} ${s.name} ${CHARS.dash} ${said('removed')}`))
-          else pair(`turn-symbol:${s.file}:${s.line}:${s.name}`, `ƒ ${s.name}`, String(s.line), () => checkedWork(['open', '--root', root,
-            '--action', 'callgraph', '--file', s.file, '--index', String(s.line)]),
-            `${s.name} in ${s.file}, changed this turn. Enter opens Neovim with its call graph: what calls it above, what it calls below.`)
+          else {
+            const key = `turn-symbol:${s.file}:${s.line}:${s.name}`
+            graphs[key] = { file: s.file, line: s.line, name: s.name, label: s.name }
+            pair(key, `ƒ ${s.name}`, String(s.line), () => checkedWork(['open', '--root', root,
+              '--action', 'callgraph', '--file', s.file, '--index', String(s.line)]),
+              `${s.name} in ${s.file}, changed this turn. Enter opens Neovim with its call graph: what calls it above, what it calls below. g shows it in the pop-out on the other screen (the editor's panel without one).`)
+          }
         }
         if (symbols.length > 40) content.push(text(`  + ${symbols.length - 40} more`))
       }
@@ -1556,6 +1563,7 @@ export const register: Register = on => {
       line('n', 'the next thing that needs you')
       line('s', 'on a needs-you row from the project list: snooze it')
       line('e', 'on files: open the selected file to edit')
+      line('g', 'on a changed function or a test failure: its call graph in the editor\'s pop-out, on the other screen')
       line('d', 'the same page in the drawer')
       line('z', 'the compact notebook')
       line('q', 'hide the notebook')
@@ -1648,8 +1656,16 @@ export const register: Register = on => {
         content.push(<Text color={testColour(test)}>{testLabel(test)}</Text>)
         content.push(row('work-tests', 'test output & failures', () => openJob(test.id, 'tests')))
         content.push(row('work-compare', 'compare with last passing run', () => openJob(test.id, 'compare')))
-        for (const [i, failure] of test.tests.failures.slice(0, 10).entries())
-          content.push(row(`work-failure-${i}`, `${failure.filename.split('/').pop()}:${failure.lnum}`, () => openJob(test.id, 'tests', i + 1)))
+        for (const [i, failure] of test.tests.failures.slice(0, 10).entries()) {
+          const key = `work-failure-${i}`, spot = `${failure.filename.split('/').pop()}:${failure.lnum}`
+          // desk-work reports a failure's file absolute, inside the checkout; the function there is the editor's to find.
+          const located = failure.filename.startsWith('/') && Number.isInteger(failure.lnum) && failure.lnum > 0
+          if (located) graphs[key] = { file: failure.filename, line: failure.lnum, label: spot }
+          const message = cut(failure.text.replace(/\s+/g, ' ').replace(/[\s.]+$/, ''), 200)
+          about[key] = `${spot}${message ? ' · ' + message : ''}. Enter opens it in Neovim's list of failures`
+            + (located ? '; g shows the call graph of the function around it in the pop-out.' : '.')
+          content.push(row(key, spot, () => openJob(test.id, 'tests', i + 1)))
+        }
         for (const file of (test.changedFiles ?? []).slice(0, 10))
           content.push(row('test-changed:' + file, 'changed since: ' + file, () => openFile(file, true)))
       }
@@ -1863,6 +1879,11 @@ export const register: Register = on => {
     const laterKey: Key[] = snoozable ? [{ key: 'nav-snooze', hotkey: 's', word: 'later', press: () => setView({ form: 'snooze', snoozing: view.selected }) }] : []
     const drawerKey: Key = { key: 'nav-drawer', hotkey: 'd', word: 'drawer', press: () => launch(['desktop-menu', '--open', drawerPage(view.page)], 'The drawer did not open.') }
     const compactKey: Key = { key: 'nav-compact', hotkey: 'z', word: 'compact', press: () => setView({ compact: true, page: 'overview', form: 'none', selected: '' }) }
+    // g, on a row that names a function: its call graph in her running editor (desk-work editor), in the pop-out on the
+    // other screen, else the panel beside the code. Her keypress, so it may open a view; the toast says where it went,
+    // or the editor's reason it did not (typing there, a review open). A row with no function offers no g.
+    const graphAt = view.form === 'none' ? graphs[view.selected] : undefined
+    const graphKey: Key[] = graphAt ? [{ key: 'nav-graph', hotkey: 'g', word: 'graph', press: async () => $.ui.toast(await editorGraph($, root, graphAt)) }] : []
     const selectedFile = () => (now?.files ?? []).find(f => `file:${f.path}` === view.selected)
     const fileKeys: Key[] = view.page === 'files' && view.form === 'none' ? [
       { key: 'nav-editor', hotkey: 'e', word: 'edit', press: () => { const f = selectedFile(); if (f) return openFile(f.path, true) } },
@@ -1872,7 +1893,7 @@ export const register: Register = on => {
       ...keyLines('keys-more', [{ key: 'nav-more', hotkey: 'p', word: 'more', press: () => page('project') }, drawerKey, compactKey, hideKey])]
     return <Box flexDirection="column">
       {header}
-      {!front && keyLines('keys', [{ key: 'nav-back', hotkey: 'h', word: 'back', press: back }, ...moveKeys, openKey, ...nextKey])}
+      {!front && keyLines('keys', [{ key: 'nav-back', hotkey: 'h', word: 'back', press: back }, ...moveKeys, openKey, ...graphKey, ...nextKey])}
       {!front && keyLines('keys-more', [drawerKey, ...laterKey, compactKey, hideKey])}
       {!front && fileKeys.length > 0 && keyLines('keys-files', fileKeys)}
       {view.page !== 'overview' && <Box>

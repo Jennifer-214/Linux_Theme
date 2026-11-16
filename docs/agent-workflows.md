@@ -402,6 +402,14 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   it changed (treesitter, as the review's changed functions; a headless Neovim, three seconds at most) and puts the
   count on the last-turn row, `✎ 2 files · 3 functions`. Enter lists them by file; each opens Neovim with its graph
   (`desk-work open --action callgraph`). A language without a treesitter parser shows its hunks as line ranges.
+- **From the notebook to the pop-out**: `g` on one of those functions, or on a test failure on the project page (the
+  function at the failure's line), shows its graph in the editor already open on the checkout, pinned on it: in the
+  pop-out on the other screen when one is open, else in the live panel beside the code (`desk-work editor`, the
+  bridge's `callgraph` message). `g` is in the key bar only while the selected row names a function, and a toast
+  says where the graph went. While you type in that editor, or with a review open there and no pop-out, it is not
+  shown and the toast gives the editor's reason; with no editor on the checkout it reads "no editor open for this
+  project", without desk-work "requires desk-work", and with a desk-work from before `desk-work editor` "requires a
+  newer desk-work".
 
 ## Project map
 

@@ -26,7 +26,10 @@ export const PEERS = JSON.stringify([
   { id: 'p2', name: 'docs', project: 'docs', state: 'waiting', busy: false, pane: '' },
 ])
 export const seen = { stdin: [] as string[], bash: [] as string[], argv: [] as string[], sent: [] as { to: unknown; text: string }[], toasts: [] as string[], submitted: [] as string[],
-  opened: [] as { id: string; closeOnEscape?: true }[], closed: [] as string[] }
+  opened: [] as { id: string; closeOnEscape?: true }[], closed: [] as string[], editor: [] as unknown[] }
+// What desk-work editor answers in a test (its output and exit code, as the real one prints them), or 'missing': it
+// cannot start, as when desk-work is not installed.
+export type EditorStub = (message: unknown) => { exitCode: number; stdout: string; stderr?: string } | 'missing'
 export const NOW = 1_800_000_000_000
 
 // A small file system in memory, for the runtime and state folders.
@@ -53,12 +56,12 @@ export function fakeFs(on: On, files: Record<string, string>, mtimes: Record<str
 }
 
 // Nothing sits beneath the plugin in a test: these stand for the engine and the machine.
-export function engine(on: On, options: { pane?: string; pushNotes?: unknown; pushCheck?: unknown; ci?: unknown[]; bash?: (command: string) => unknown; runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; finished?: () => unknown; credits?: unknown; trees?: unknown; readIds?: { id: string; at: number }[]; delivery?: boolean; gitFailure?: { value: boolean }; compact?: boolean; agents?: unknown[]; refusals?: Record<string, string>; watchBurst?: number; percent?: number | null; changes?: { status: string; numstat: string }; symbols?: string } = {}) {
+export function engine(on: On, options: { pane?: string; pushNotes?: unknown; pushCheck?: unknown; ci?: unknown[]; bash?: (command: string) => unknown; runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; finished?: () => unknown; credits?: unknown; trees?: unknown; readIds?: { id: string; at: number }[]; delivery?: boolean; gitFailure?: { value: boolean }; compact?: boolean; agents?: unknown[]; refusals?: Record<string, string>; watchBurst?: number; percent?: number | null; changes?: { status: string; numstat: string }; symbols?: string; editor?: EditorStub } = {}) {
   let pinned: { file: string; step: string } | null = null
   let workspace: Record<string, unknown> | null = null
   let paneOpen = false
   seen.argv = []; seen.stdin = []; seen.bash = []; seen.sent = []; seen.toasts = []; seen.submitted = []; seen.opened = []
-  seen.closed = []
+  seen.closed = []; seen.editor = []
   mock.store(on, { 'notebook-read-mail:abc': options.readIds ?? [], 'notebook-layout': options.compact ? 'compact' : 'expanded' })
   on('session.receive', (_, e) => ({ text: e.text }))
   on('session.send', (_, e) => { seen.sent.push({ to: e.to, text: e.text }); return options.delivery === false
@@ -87,6 +90,15 @@ export function engine(on: On, options: { pane?: string; pushNotes?: unknown; pu
     if (e.init?.stdin !== undefined) seen.stdin.push(e.init.stdin)
     if (options.pane && argv === 'sh -c printf %s "$TMUX_PANE"') return { value: done(options.pane) }
     if (argv.startsWith('desk-work begin ')) return { value: done('f'.repeat(32) + '\n') }
+    // One message on stdin for her running editor (desk-work editor --root R --input -), kept as it arrived.
+    if (argv.startsWith('desk-work editor ') && options.editor) {
+      let message: unknown = null
+      try { message = JSON.parse(e.init?.stdin ?? '') } catch { message = e.init?.stdin ?? null }
+      seen.editor.push(message)
+      const answer = options.editor(message)
+      if (answer === 'missing') throw new Error('desk-work: command not found')
+      return { value: { ...done(answer.stdout), stderr: answer.stderr ?? '', exitCode: answer.exitCode } }
+    }
     if (argv.includes('--turn-symbols') && options.symbols !== undefined) return { value: done(options.symbols) }
     if (argv === 'desk-work agents' && options.agents) return { value: done(JSON.stringify(options.agents)) }
     if (argv.startsWith('desk-work push-check ') && options.pushCheck) return { value: done(JSON.stringify(options.pushCheck)) }

@@ -429,3 +429,37 @@ export function unitWords(symbols: TurnSymbol[]): string {
   const functions = units.every(s => !/class|struct/.test(s.kind))
   return said(`${units.length} ${functions ? (units.length === 1 ? 'function' : 'functions') : (units.length === 1 ? 'symbol' : 'symbols')}`)
 }
+
+// A row that names one function by file and line (a turn's changed function, a test failure's spot): g shows its call
+// graph in her running editor. file: relative to the checkout, or absolute; label: how the notebook names it.
+export type GraphAt = { file: string; line: number; name?: string; label: string }
+// The message desk-work editor hands her Neovim (desk.callgraph's callgraph type): the graph of the function at that
+// line, pinned on it, in the pop-out on the other screen when one is open, else in the panel beside the code.
+export function graphMessage(root: string, at: GraphAt): string {
+  const base = root.replace(/\/+$/, '')
+  return JSON.stringify({ version: 1, type: 'callgraph', root: base, file: at.file.startsWith('/') ? at.file : `${base}/${at.file}`,
+    line: at.line, ...(at.name ? { name: at.name.slice(0, 200) } : {}) })
+}
+// Where the graph went, or why it did not, in words: the editor's own reason, never a bare error. out null: desk-work
+// did not start. desk-work editor exits 1 when the editor refused, 2 when no editor answered.
+export function graphAnswer(label: string, out: { exitCode: number; stdout: string; stderr: string } | null): string {
+  if (out === null) return 'call graph not shown: requires desk-work'
+  if (out.exitCode === 0) {
+    let shown: unknown
+    try { shown = (JSON.parse(out.stdout) as { shown?: unknown } | null)?.shown } catch { shown = undefined }
+    return shown === 'popout' ? `call graph of ${label} in the pop-out`
+      : shown === 'panel' ? `call graph of ${label} in the editor's panel · no pop-out is open`
+      : `call graph of ${label} sent to the editor`
+  }
+  const why = refusalOf(['editor'], out)
+  if (out.exitCode === 2 && /^No Neovim on this checkout is listening\b/.test(why)) return 'call graph not shown: no editor open for this project'
+  // A desk-work from before the bridge has no editor command, and says only that its arguments are wrong.
+  if (out.exitCode === 2 && /^desk-work editor: missing or invalid arguments\b/.test(why)) return 'call graph not shown: requires a newer desk-work, one with desk-work editor'
+  return 'call graph not shown: ' + (/^[A-Z][a-z]/.test(why) ? why.charAt(0).toLowerCase() + why.slice(1) : why)
+}
+export async function editorGraph($: EngineInterface, root: string, at: GraphAt): Promise<string> {
+  let out: { exitCode: number; stdout: string; stderr: string } | null = null
+  try { out = await $.process.run(['desk-work', 'editor', '--root', root, '--input', '-'], { timeoutMs: 5000, stdin: graphMessage(root, at) }) }
+  catch { out = null }
+  return graphAnswer(at.label, out)
+}

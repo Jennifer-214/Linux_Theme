@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, pendingLine, planProgress, reviewStates, reviewSummary, ruler, shellQuote, stepLabel, testLabel, turnLabel, unreviewed, withoutHeredocs, workName, filterFiles, wrapWords, needBreakdown, needGroup, refusalOf, wrapParts, dosText, metricLabel, said, parseTurnSymbols, changedUnits, unitWords } from '../hooks/work'
+import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, pendingLine, planProgress, reviewStates, reviewSummary, ruler, shellQuote, stepLabel, testLabel, turnLabel, unreviewed, withoutHeredocs, workName, filterFiles, wrapWords, needBreakdown, needGroup, refusalOf, wrapParts, dosText, metricLabel, said, parseTurnSymbols, changedUnits, unitWords, graphMessage, graphAnswer } from '../hooks/work'
 
 test('tracking records a command as written, keeps secrets out, and reads how the call ended', () => {
   const command = "make test && printf '%s' \"$HOME\""
@@ -222,4 +222,33 @@ test('a turn\'s changed symbols: checked, flattened, counted once per function',
   expect(parseTurnSymbols('not json')).toBeNull()
   expect(parseTurnSymbols(null)).toBeNull()
   expect(parseTurnSymbols('{"files":{}}')).toBeNull()
+})
+
+test("the call graph's message for her editor: the checkout, the function's file made absolute, its line, a name when known", () => {
+  expect(JSON.parse(graphMessage('/code/paper', { file: 'src/queue.cpp', line: 18, name: 'Queue::push', label: 'Queue::push' })))
+    .toEqual({ version: 1, type: 'callgraph', root: '/code/paper', file: '/code/paper/src/queue.cpp', line: 18, name: 'Queue::push' })
+  // A failure's file comes absolute from desk-work, and has no name of its own: the editor finds the function there.
+  expect(JSON.parse(graphMessage('/code/paper/', { file: '/code/paper/tests/t.cpp', line: 42, label: 't.cpp:42' })))
+    .toEqual({ version: 1, type: 'callgraph', root: '/code/paper', file: '/code/paper/tests/t.cpp', line: 42 })
+  // The bridge takes a name of at most 200 characters.
+  expect(JSON.parse(graphMessage('/r', { file: 'a.lua', line: 1, name: 'x'.repeat(300), label: 'x' })).name).toHaveLength(200)
+})
+
+test('where the call graph went, or why not, in words: never a bare error', () => {
+  const out = (exitCode: number, stdout: string, stderr = '') => ({ exitCode, stdout, stderr })
+  expect(graphAnswer('Queue::push', out(0, '{"shown":"popout"}\n'))).toBe('call graph of Queue::push in the pop-out')
+  expect(graphAnswer('Queue::push', out(0, '{"shown":"panel"}\n'))).toBe("call graph of Queue::push in the editor's panel · no pop-out is open")
+  expect(graphAnswer('Queue::push', out(0, '{}\n'))).toBe('call graph of Queue::push sent to the editor')
+  expect(graphAnswer('Queue::push', out(1, '{"refused":"typing in this editor","ok":false,"message":"typing in this editor"}\n')))
+    .toBe('call graph not shown: typing in this editor')
+  expect(graphAnswer('t.cpp:42', out(1, '{"ok":false,"message":"The message names another checkout than --root"}\n')))
+    .toBe('call graph not shown: the message names another checkout than --root')
+  expect(graphAnswer('x', out(2, '{"ok":false,"message":"No Neovim on this checkout is listening"}\n'))).toBe('call graph not shown: no editor open for this project')
+  expect(graphAnswer('x', out(2, '{"ok":false,"message":"No Neovim on this checkout answered"}\n'))).toBe('call graph not shown: no Neovim on this checkout answered')
+  expect(graphAnswer('x', out(2, '', 'desk-work editor: the message comes on stdin (--input -)\n'))).toBe('call graph not shown: desk-work editor: the message comes on stdin (--input -)')
+  expect(graphAnswer('x', out(2, ''))).toBe('call graph not shown: desk-work editor did not answer (exit 2)')
+  expect(graphAnswer('x', null)).toBe('call graph not shown: requires desk-work')
+  // An older desk-work, from before the editor bridge, has no editor command.
+  expect(graphAnswer('x', out(2, '', 'desk-work editor: missing or invalid arguments (desk-work help lists them)\n')))
+    .toBe('call graph not shown: requires a newer desk-work, one with desk-work editor')
 })

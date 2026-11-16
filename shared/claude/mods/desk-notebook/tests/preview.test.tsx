@@ -71,6 +71,15 @@ test('preview: the front page with a plan, a finished turn and things that need 
   expect(await scene($, 'front page · a request selected', ['attention-request-src/queue.cpp'])).toBeDefined()
   expect(await scene($, 'project page: branch, tasks, sessions, history', ['nav-more'])).toBeDefined()
   expect(await scene($, 'this turn · its changed functions', ['nav-back', 'receipt-files'])).toBeDefined()
+  expect(await scene($, 'this turn · a function selected: g shows its graph in the pop-out', ['nav-down', 'nav-down'])).toBeDefined()
+})
+
+test('preview: a failed run on the project page, a failure selected', async ($, on) => {
+  engine(on, { projectWork: { ...WORK, tests: { id: 't2', state: 'failed', ended: NOW / 1000 - 120, stale: false, changedFiles: [], tests: { passed: 126, failed: 2, failures: [
+    { filename: '/code/paper/tests/test_queue.cpp', lnum: 42, text: 'expected drain() to return 3, got 2' },
+    { filename: '/code/paper/src/queue.cpp', lnum: 77, text: 'assertion failed: head != tail' }] } } } })
+  await opened($)
+  expect(await scene($, 'project page · a test failure selected', ['nav-more', 'work-failure-0'])).toBeDefined()
 })
 
 test("preview: the project page with the last job's figures", async ($, on) => {
