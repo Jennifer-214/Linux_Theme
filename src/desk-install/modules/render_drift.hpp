@@ -10,8 +10,11 @@
 
 namespace desk_install {
 
-// Live ~/.config files that differ from the last render still in ctx.rendered_dir (empty on a fresh install).
+// Live ~/.config files that differ from the last render still in ctx.rendered_dir (empty on a fresh install) and from
+// the current templates rendered now: a file another step deployed from the new templates is not an edit.
 std::vector<std::filesystem::path> detect_drift(const Context& ctx);
+// The same against a given render of the current templates (`fresh`, empty for none).
+std::vector<std::filesystem::path> detect_drift(const Context& ctx, const std::filesystem::path& fresh);
 
 // Stop BEFORE any module runs? Only where render itself would abort (-y or no TTY, no --full, not a dry run, render
 // selected) and there is drift — so the only new path stops earlier, doing less, never more.

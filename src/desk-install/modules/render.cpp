@@ -27,6 +27,7 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include <unistd.h>
 
 namespace fs = std::filesystem;
 
@@ -69,7 +70,9 @@ bool post_deploy_rewritten(const char* src) {
 // Returns paths whose ~/.config copy differs from the previously-rendered
 // version still sitting in ctx.rendered_dir. Empty when there is no
 // previous render (fresh install) or all deployed copies match.
-std::vector<fs::path> detect_drift(const Context& ctx) {
+// With `fresh` (the current templates rendered elsewhere), a copy that matches it is not an edit either: another
+// step (the integrations update renders the notebook and Quickshell themes itself) deployed the new render.
+std::vector<fs::path> detect_drift(const Context& ctx, const fs::path& fresh) {
     std::vector<fs::path> drifted;
     // Before 2026-11-15 the last render lived in the checkout; its first run after that reads the old copy.
     const fs::path base = fs::is_directory(ctx.rendered_dir) ? ctx.rendered_dir : ctx.script_dir / "rendered";
@@ -82,10 +85,29 @@ std::vector<fs::path> detect_drift(const Context& ctx) {
         fs::path prior = base / m.src;
         fs::path dest  = expand_tilde(dest_s, ctx.home);
         if (!fs::exists(prior) || !fs::exists(dest)) continue;
-        if (idem::read_file(prior) != idem::read_file(dest)) {
-            drifted.push_back(dest);
-        }
+        const auto live = idem::read_file(dest);
+        if (idem::read_file(prior) == live) continue;
+        if (!fresh.empty() && fs::exists(fresh / m.src) && idem::read_file(fresh / m.src) == live) continue;
+        drifted.push_back(dest);
     }
+    return drifted;
+}
+
+std::vector<fs::path> detect_drift(const Context& ctx) {
+    auto drifted = detect_drift(ctx, {});
+    if (drifted.empty() || !fs::exists(ctx.palette_path) || !fs::is_directory(ctx.templates_dir)) return drifted;
+    // Something differs from the last render: render the current templates beside it, and keep only what differs
+    // from that too. Only the scratch folder is written, so this runs in a dry run as well (probe, not run).
+    const fs::path fresh = ctx.rendered_dir.parent_path() / (".rendered-check-" + std::to_string(::getpid()));
+    std::error_code ec;
+    fs::remove_all(fresh, ec);
+    fs::create_directories(fresh, ec);
+    const fs::path local = ctx.script_dir / "src/desk-render/desk-render-fast";
+    const std::string render_bin = fs::exists(local) ? local.string() : "desk-render-fast";
+    std::string out;
+    if (!ec && sh::probe({render_bin, ctx.palette_path.string(), ctx.templates_dir.string(), fresh.string()}, out) == 0)
+        drifted = detect_drift(ctx, fresh);
+    fs::remove_all(fresh, ec);
     return drifted;
 }
 

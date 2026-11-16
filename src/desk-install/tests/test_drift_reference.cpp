@@ -44,6 +44,18 @@ int main() {
     d = detect_drift(ctx);
     expect("state copy differs from ~/.config: that is drift", d.size() == 1 && d[0] == live);
 
+    // Another step deployed the current templates' render (the integrations update writes the notebook theme itself):
+    // ~/.config differs from the last render but matches what the templates give now, so it is not an edit.
+    const fs::path fresh = root / "fresh";
+    put(fresh / "kitty/kitty.conf", "deployed\n");
+    expect("matches the current templates: not drift", detect_drift(ctx, fresh).empty());
+    put(fresh / "kitty/kitty.conf", "the templates now say something else\n");
+    d = detect_drift(ctx, fresh);
+    expect("differs from both renders: drift", d.size() == 1 && d[0] == live);
+    ctx.palette_path = root / "no-palette.sh";
+    d = detect_drift(ctx);
+    expect("no palette to render with: the last render alone decides", d.size() == 1 && d[0] == live);
+
     fs::remove_all(root);
     if (failed) { std::fprintf(stderr, "drift_reference tests: %d FAILED\n", failed); return 1; }
     std::printf("drift_reference tests: OK\n");
