@@ -655,6 +655,29 @@ class Work(unittest.TestCase):
         tests = {c["sha"]: c.get("tests") for t in self.data("review-tree") for c in t["commits"]}
         self.assertEqual((tests[first], tests[second], tests[third]), ("passed", None, "failed"))
 
+    def test_an_untracked_test_script_does_not_speak_for_the_commit(self):
+        def claude(subject):
+            self.git("add", "-A")
+            self.git("-c", "commit.gpgsign=false", "commit", "--allow-empty", "-qm",
+                     subject + "\n\nClaude-Session: https://claude.ai/code/session_x")
+            return self.git("rev-parse", "HEAD")
+        def tested():
+            return {c["sha"]: c.get("tests") for t in self.data("review-tree") for c in t["commits"]}
+        first = claude("One")
+        (self.repo / "build").mkdir()
+        (self.repo / "build" / "out.o").write_text("ignored\n")
+        (self.repo / "test_extra.py").write_text("print('1 passed')\n")
+        self.invoke("run", "--", sys.executable, "test_extra.py")
+        self.assertIsNone(tested()[first], "what ran was not in the commit")
+        run = self.latest()
+        self.assertEqual((run["state"], run["clean"], run["source"]["tracked"], run["source"]["untracked"]),
+                         ("passed", False, [], ["test_extra.py"]), "ignored files do not count; untracked ones do")
+        second = claude("Two")   # the script is in the commit now
+        self.invoke("run", "--", sys.executable, "test_extra.py")
+        run = self.latest()
+        self.assertEqual((run["clean"], run["source"]["fingerprint"]), (True, "tree:" + self.git("rev-parse", "HEAD^{tree}")))
+        self.assertEqual(tested()[second], "passed")
+
     def test_a_change_request_waits_until_its_file_changes_and_a_clear_settles_it(self):
         (self.repo / "sample.cpp").write_text("int a = 1;\n")
         self.assertTrue(self.data("review-request", "--file", "sample.cpp", "--name", "Queue refactor", "--sid", "abc", "--text", "rename a\nplease")["ok"])

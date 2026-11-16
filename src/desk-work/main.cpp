@@ -510,6 +510,32 @@ void prune_old_runs() {
         if (!tec && when < limit) fs::remove_all(e.path(), tec);
     }
 }
+// The tree a run tested, against its commit: tracked files that differ from it and untracked files git does not
+// ignore (an untracked test script is part of what ran). The fingerprint is "tree:" and the commit's tree only when
+// both lists are empty; otherwise "worktree:" and the snapshot's, or empty when git could not say.
+J source_of(const std::string& root, const J& snap) {
+    J out{{"fingerprint", ""}, {"tracked", J::array()}, {"untracked", J::array()}};
+    A args{"git", "--no-optional-locks", "-C", root, "status", "--porcelain=v1", "-z", "--untracked-files=all"};
+    if (sh::have("timeout")) args.insert(args.begin(), {"timeout", "-k", "1", "5"});
+    std::string status;
+    if (!sh::capture(args, status)) return out;
+    const auto entries = split(status, '\0');
+    for (size_t i = 0; i < entries.size(); ++i) {
+        const auto& entry = entries[i];
+        if (entry.size() < 4) continue;
+        const auto xy = entry.substr(0, 2);
+        auto& list = out[xy == "??" ? "untracked" : "tracked"];
+        if (list.size() < 200) list.push_back(entry.substr(3));
+        if (xy.find_first_of("RC") != xy.npos) ++i;   // a rename's or copy's old name comes next
+    }
+    if (!out["tracked"].empty() || !out["untracked"].empty()) {
+        if (!str(snap, "fingerprint").empty()) out["fingerprint"] = "worktree:" + str(snap, "fingerprint");
+        return out;
+    }
+    const auto tree = trim(query({"git", "--no-optional-locks", "-C", root, "rev-parse", "--verify", "--quiet", "HEAD^{tree}"}));
+    if (tree.size() == 40) out["fingerprint"] = "tree:" + tree;
+    return out;
+}
 // extra: fields the record starts with besides these (a declared tool's run says so: kind "tool" and its tool).
 J begin(const std::string& command, const std::string& root, const std::string& session, long long pid, bool observed, const std::string& title = {}, const std::string& cwd = {},
         const J& extra = J::object()) {
@@ -526,6 +552,8 @@ J begin(const std::string& command, const std::string& root, const std::string& 
     std::string green;
     const J identity{{"root", root}, {"cwd", where}, {"command", command}};
     for (const auto& r : runs(root)) if (command_key(r) == command_key(identity) && str(r, "state") == "passed" && r.value("baselineEligible", false)) { green = str(r, "id"); break; }
+    const auto source = source_of(root, snap);
+    const bool exact = str(source, "fingerprint").rfind("tree:", 0) == 0;
     J j{{"id", id}, {"root", root}, {"command", command.substr(0, 4000)}, {"kind", kind_of(command)}, {"session", session},
         {"pane", env("TMUX_PANE")}, {"pid", pid}, {"process", proc_stamp(pid)}, {"started", now()}, {"state", "running"}, {"cwd", where}, {"cwdKnown", cwd_known},
         {"snapshot", snap}, {"baseline", green}, {"observed", observed},
@@ -533,8 +561,7 @@ J begin(const std::string& command, const std::string& root, const std::string& 
         {"owner", J{{"adapter", observed ? "" : "shell"}, {"session", session}, {"instance", ""}}},
         // The commit the run started on, and whether the tree was exactly that commit: only then does a test run
         // speak for the commit itself (the review tree's "tests passed here").
-        {"head", str(snap, "head")},
-        {"clean", trim(query({"git", "--no-optional-locks", "-C", root, "status", "--porcelain", "--untracked-files=no"})).empty()},
+        {"head", str(snap, "head")}, {"source", source}, {"clean", exact},
         {"startedNs", std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count()}};
     // What the command does in plain words (Claude's description of it), shown in place of the command.
     const auto named = trim(clean(title));
@@ -1013,12 +1040,14 @@ J commit_plan(const std::string& root, const std::string& sha, const std::string
     return written(atomic(path, j.dump()), "commit plan");
 }
 // What the tests said AT a commit: the newest finished test run that started on exactly that commit with a clean tree
-// and saw no edits while it ran. Anything less is not evidence about the commit, and is left out.
+// (the commit's own tree, no untracked files) and saw no edits while it ran. Anything less is not evidence about the
+// commit, and is left out; so is a run recorded before untracked files were counted (it has no "source").
 std::map<std::string, std::string> commit_tests(const std::string& root) {
     std::map<std::string, std::string> out;
     for (const auto& r : runs(root)) {   // newest first
         const auto head = str(r, "head"), state = str(r, "state");
-        if (head.size() != 40 || out.count(head) || !r.value("clean", false) || !r.value("testRun", false)
+        const bool exact = r.value("clean", false) && str(r.value("source", J::object()), "fingerprint").rfind("tree:", 0) == 0;
+        if (head.size() != 40 || out.count(head) || !exact || !r.value("testRun", false)
             || r.value("changedDuringRun", false) || (state != "passed" && state != "failed")) continue;
         out[head] = state;
     }
