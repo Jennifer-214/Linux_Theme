@@ -7,7 +7,8 @@ tests/fixtures/usbguard-journal.txt, plus one case line), pgrep (the screen lock
 - the fixture alone raises nothing: allow decisions, a Device.Insert whose rule says block, a blocked device being
   allowed, a device named "BLOCK REJECT Receiver";
 - target.new='block', 'reject' and an upper-case 'BLOCK' each raise one alert that names the device;
-- a block while the screen is unlocked raises nothing; two blocks in one second raise one alert."""
+- a block while the screen is unlocked raises nothing; two blocks in one second raise one alert;
+- desk-dispatch failing: the alert still shows, through notify-send."""
 import os, pathlib, subprocess, sys, tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -23,7 +24,7 @@ def decision(target, old="block", name="Keyboard", vid="1234:abcd", port="3-9"):
             f"with-connect-type \"hotplug\"' target.old='{old}' type='Policy.Device.Update'")
 
 
-def run(extra, locked=True):
+def run(extra, locked=True, dispatch_fails=False):
     # The stubs must be executable: /tmp can be noexec (it is on the reference machine), so default to ~/.cache.
     tmp_root = os.environ.get("FOX_TEST_TMP") or str(pathlib.Path.home() / ".cache")
     os.makedirs(tmp_root, exist_ok=True)
@@ -35,7 +36,7 @@ def run(extra, locked=True):
             # The usbguard unit's journal, as `journalctl -u usbguard.service -o cat` prints it.
             "journalctl": f'[[ "$*" == *"-u usbguard.service"* && "$*" == *"-o cat"* ]] || exit 1; cat "{journal}"',
             "pgrep": f'[[ "$*" == "-x hyprlock" && "{int(locked)}" == 1 ]]',
-            "desk-dispatch": f'printf "%s\\t%s\\n" "$1" "$2" >> "{sent}"',
+            "desk-dispatch": "exit 1" if dispatch_fails else f'printf "%s\\t%s\\n" "$1" "$2" >> "{sent}"',
             "notify-send": f'printf "notify-send\\t%s\\n" "$*" >> "{sent}"',
         }
         for name, body in stubs.items():
@@ -67,7 +68,12 @@ for name, extra, locked, want in cases:
             fails.append(f"{name}: alert title {title!r}")
         if text not in body:
             fails.append(f"{name}: {text!r} not in the alert body {body!r}")
+
+sent, r = run([decision("block")], dispatch_fails=True)
+want = 'notify-send\t-u critical -t 10000 USB blocked (locked) usbguard blocked 1234:abcd "Keyboard" on port 3-9'
+if r.returncode != 0 or sent != [want]:
+    fails.append(f"desk-dispatch failing: exit {r.returncode}, expected only the notify-send fallback {want!r}, got {sent}")
 for f in fails:
     print("FAIL", f)
-print("desk-bouncer:", "OK" if not fails else f"{len(fails)} FAILED", f"({len(cases)} scenarios)")
+print("desk-bouncer:", "OK" if not fails else f"{len(fails)} FAILED", f"({len(cases) + 1} scenarios)")
 sys.exit(1 if fails else 0)
