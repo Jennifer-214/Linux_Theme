@@ -44,7 +44,7 @@ _status() {
     if sudo -n ufw status verbose 2>/dev/null | grep -q 'deny (outgoing)'; then _ok "firewall     egress lockdown active"
     else _warn "firewall     egress lockdown NOT active"; fi
     # cafe
-    if [[ -f "$HOME/.config/foxml/cafe.conf" ]];      then _ok "cafe         dispatcher armed"
+    if [[ -f /etc/foxml/cafe.conf ]];                 then _ok "cafe         dispatcher armed"
     else _warn "cafe         not configured (desk cafe --setup)"; fi
     # dns-shield
     if grep -q '^# foxml-shield BEGIN' /etc/hosts 2>/dev/null; then _ok "dns-shield   active"
@@ -139,7 +139,7 @@ _arm() {
     fi
 
     _step "cafe (auto-tighten on untrusted wifi)"
-    if [[ -f "$HOME/.config/foxml/cafe.conf" ]]; then
+    if [[ -f /etc/foxml/cafe.conf ]]; then
         _ok "already configured"
     else
         if _yn "Set up Café Mode now? [Y/n]"; then

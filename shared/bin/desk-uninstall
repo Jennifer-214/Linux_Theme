@@ -78,6 +78,7 @@ declare -a SYS_FILES=(
     "/etc/audit/rules.d/99-foxml.rules"
     "/etc/firejail/firefox.local"
     "/etc/NetworkManager/dispatcher.d/99-foxml-cafe"
+    "/etc/foxml/cafe.conf"
     "/etc/NetworkManager/conf.d/99-foxml-mac.conf"
     "/etc/udev/rules.d/99-foxml-deadman.rules"
     "/usr/local/bin/foxml-deadman-trip"

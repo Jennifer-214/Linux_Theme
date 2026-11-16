@@ -133,6 +133,18 @@ The Neovim modules are `desk.*` (were `foxml.*`), the drawer's config is `~/.con
 do not load beside the new ones. `~/.claude/mods/foxml-paper` is no longer used; remove it once no Claude session
 started before the update is running. An integration-only update waits until the installer has run once.
 
+### Security fixes
+
+- Café mode (`desk cafe`): its NetworkManager dispatcher runs as root, and it sourced `~/.config/foxml/cafe.conf` and
+  ran `~/.local/bin/fox-firewall`, so anything running as you could become root at the next Wi-Fi connection. The
+  settings are now root's (`/etc/foxml/cafe.conf`, written by `desk cafe --setup`), read as data and ignored whole
+  when a line is not a known setting or someone other than root could change the file; the lockdown commands are
+  written into the dispatcher; the alert runs as you and gets the network name as an argument, not inside a command.
+  The SSID comes from NetworkManager's profile (`nmcli`) instead of `iwgetid`, which is often not installed (café
+  mode never engaged without it). A café setup made before this keeps the old dispatcher until you run
+  `desk cafe --setup` (or `--disable`); `desk cafe` says so. To undo: `desk cafe --disable`, then
+  `desk firewall unlock` if a lockdown is on.
+
 ### Upgrading from 3.x
 
 Pull, then run the installer. Old command names keep working through the links it installs. Review stamps stay on

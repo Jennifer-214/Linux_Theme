@@ -1,125 +1,274 @@
 #!/usr/bin/env bash
-# desk-cafe — Café Mode. Auto-tighten the security posture when the
-# laptop connects to an untrusted SSID.
+# desk-cafe — Café Mode: tighten the firewall when the laptop joins a Wi-Fi network you have not marked trusted.
 #
-# A NetworkManager dispatcher script triggers on connect/disconnect.
-# Known-trusted SSIDs (your home, work) → relaxed posture.
-# Anything else → Café Mode:
-#   • MAC randomization on (per-connection)
-#   • UFW egress lockdown (default-deny outgoing + curated allowlist)
-#   • DNS pinned to 127.0.0.53 (systemd-resolved DoH)
-#   • notify-send + desk-dispatch alert
+# `desk cafe --setup` installs two root-owned files:
+#   /etc/foxml/cafe.conf                            the settings, which root reads as data and never runs
+#   /etc/NetworkManager/dispatcher.d/99-foxml-cafe  run by NetworkManager, as root, whenever a connection comes up
+# The SSID comes from NetworkManager's own profile of the connection (nmcli). On an untrusted network the dispatcher
+# applies what `desk firewall lockdown` applies (UFW default-deny outgoing plus its allowlist) and sends a
+# desk-dispatch alert; on a trusted one it sends the alert only, and a lockdown stays until `desk firewall unlock`.
 #
-# Config: ~/.config/foxml/cafe.conf
-#   TRUSTED_SSIDS="home-wifi 'work guest' dorm-A"
-#   AUTO_VPN=yes/no
-#   AUTO_LOCKDOWN=yes/no
+# Root never runs or reads anything you can change: nothing in your home folder is sourced, the lockdown commands
+# are written into the dispatcher, and the alert runs as you. The dispatcher before 2026-11 sourced
+# ~/.config/foxml/cafe.conf and ran ~/.local/bin/fox-firewall as root, so anything running as you could become root
+# at the next Wi-Fi connection; `desk cafe` says when that one is still installed.
+#
+# /etc/foxml/cafe.conf, one setting per line:
+#   AUTO_LOCKDOWN=yes|no
+#   AUTO_VPN=yes|no          kept and shown; nothing acts on it yet
+#   TRUSTED_SSID=home-wifi   one line per trusted network, spaces allowed
 
 set -u
 C_GRN=$'\e[32m'; C_YEL=$'\e[33m'; C_RED=$'\e[31m'; C_DIM=$'\e[2m'; C_RST=$'\e[0m'
 
-# The `enable` path writes a NetworkManager dispatcher that runs as
-# root. We bake $USER into it at generation time, so a poisoned env
-# would have us writing root-executed shell with attacker-chosen text.
-# Refuse to proceed if $USER doesn't look like a real login name.
+# The dispatcher is written with $USER in it (the alert runs as that user): refuse a value that is not a login name.
 if [[ ! "${USER:-}" =~ ^[A-Za-z_][A-Za-z0-9_-]{0,31}$ ]]; then
-    echo "desk-cafe: refusing to run — \$USER='$USER' is not a valid login name" >&2
+    echo "desk-cafe: refusing to run — \$USER='${USER:-}' is not a valid login name" >&2
     exit 1
 fi
 
-CONF_DIR="$HOME/.config/foxml"
-CONF="$CONF_DIR/cafe.conf"
+CONF=/etc/foxml/cafe.conf
 DISPATCHER=/etc/NetworkManager/dispatcher.d/99-foxml-cafe
+OLD_CONF="$HOME/.config/foxml/cafe.conf"
+MARK='# foxml-managed: cafe v2'
+SYSTEM_PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
-_load() {
-    TRUSTED_SSIDS=""; AUTO_VPN=no; AUTO_LOCKDOWN=yes
-    [[ -f "$CONF" ]] || return 1
-    # shellcheck disable=SC1090
-    source "$CONF"
+# ── Copied into the dispatcher (declare -f): root and `desk cafe` read the settings the same way ──
+
+# An SSID as typed into the settings: 1 to 32 bytes, no control characters.
+cafe_ssid_ok() {
+    local LC_ALL=C
+    (( ${#1} >= 1 && ${#1} <= 32 )) && [[ $1 != *[[:cntrl:]]* ]]
+}
+
+# True when only <uid> can change <file>: a regular file, not a link, owned by <uid> like its folder, and neither
+# writable by group or others.
+cafe_owned() {
+    local file=$1 want=$2 path uid mode
+    for path in "${file%/*}" "$file"; do
+        [[ -e $path && ! -L $path ]] || return 1
+        read -r uid mode < <(stat -c '%u %a' -- "$path" 2>/dev/null) || return 1
+        [[ $uid == "$want" ]] && (( (8#$mode & 8#022) == 0 )) || return 1
+    done
+    [[ -f $file ]]
+}
+
+# The settings, read as data into AUTO_LOCKDOWN, AUTO_VPN and TRUSTED (an array); nothing in the file is run. A line
+# that is not one of the three settings with a valid value rejects the whole file: status 1, the reason in CAFE_REJECT.
+cafe_read_conf() {
+    local line key value n=0
+    AUTO_LOCKDOWN=yes; AUTO_VPN=no; TRUSTED=(); CAFE_REJECT=
+    [[ -r $1 ]] || { CAFE_REJECT="cannot read $1"; return 1; }
+    while IFS= read -r line || [[ -n $line ]]; do
+        n=$((n + 1))
+        [[ -z $line || $line == '#'* ]] && continue
+        if [[ $line != *=* ]]; then CAFE_REJECT="line $n is not SETTING=value"; return 1; fi
+        key=${line%%=*}; value=${line#*=}
+        case $key in
+            AUTO_LOCKDOWN|AUTO_VPN)
+                if [[ $value != yes && $value != no ]]; then CAFE_REJECT="line $n: $key is not yes or no"; return 1; fi
+                if [[ $key == AUTO_LOCKDOWN ]]; then AUTO_LOCKDOWN=$value; else AUTO_VPN=$value; fi ;;
+            TRUSTED_SSID)
+                if ! cafe_ssid_ok "$value"; then CAFE_REJECT="line $n: not an SSID (1-32 bytes, no control characters)"; return 1; fi
+                TRUSTED+=("$value") ;;
+            *) CAFE_REJECT="line $n: unknown setting"; return 1 ;;
+        esac
+    done < "$1"
+}
+
+# What `desk firewall lockdown` applies (tests/test_cafe.py keeps the two the same), run as root. Outgoing is denied
+# only once every allow rule is in, so a failure never leaves DNS or HTTPS shut.
+cafe_lockdown() {
+    local rule
+    for rule in 53 80/tcp 443/tcp 22/tcp 123/udp 67/udp 68/udp; do
+        ufw allow out "$rule" >/dev/null || return 1
+    done
+    ufw allow out on lo >/dev/null || return 1
+    ufw default deny outgoing >/dev/null
+}
+
+# ── desk cafe ──
+
+# The dispatcher NetworkManager runs as root: <user> gets the alert from <home>/.local/bin/desk-dispatch. The settings
+# file and PATH are fixed in it; tests/test_cafe.py passes its own as the third and fourth arguments.
+_dispatcher() {
+    local user=$1 home=$2 conf=${3:-$CONF} path=${4:-$SYSTEM_PATH}
+    printf '%s\n' '#!/bin/bash' "$MARK — Café Mode, written by \`desk cafe --setup\`; \`desk cafe --disable\` removes it." \
+        "# NetworkManager runs this as root on every connection event (\$1 interface, \$2 action). It reads only the" \
+        "# settings file named below, which only root can change, as data, and runs only system programs; the alert" \
+        "# runs as the user."
+    printf 'PATH=%q\nexport PATH\nCONF=%q\nCAFE_USER=%q\nDISPATCH=%q\n\n' "$path" "$conf" "$user" "$home/.local/bin/desk-dispatch"
+    declare -f cafe_ssid_ok cafe_owned cafe_read_conf cafe_lockdown
+    cat <<'EOF'
+
+cafe_log() { logger -t foxml-cafe -- "$*" 2>/dev/null; }
+cafe_alert() {
+    [[ -x $DISPATCH ]] || return 0
+    timeout 30 runuser -u "$CAFE_USER" -- "$DISPATCH" cafe-mode "$1" </dev/null >/dev/null 2>&1
+}
+
+[[ ${2:-} == up && ${1:-} == wl* ]] || exit 0
+cafe_owned "$CONF" "$EUID" || { cafe_log "ignored $CONF: it is not a file only root can change"; exit 0; }
+cafe_read_conf "$CONF" || { cafe_log "ignored $CONF: $CAFE_REJECT"; exit 0; }
+[[ ${CONNECTION_UUID:-} =~ ^[0-9A-Fa-f-]{36}$ ]] || exit 0
+SSID=$(nmcli --escape no -g 802-11-wireless.ssid connection show uuid "$CONNECTION_UUID" 2>/dev/null)
+[[ -n $SSID ]] || exit 0
+SHOWN=${SSID//[[:cntrl:]]/?}
+
+for t in "${TRUSTED[@]}"; do
+    if [[ $SSID == "$t" ]]; then
+        cafe_log "trusted SSID '$SHOWN'"
+        cafe_alert "left cafe mode (trusted: $SHOWN)"
+        exit 0
+    fi
+done
+cafe_log "UNTRUSTED SSID '$SHOWN' - engaging Cafe Mode"
+if [[ $AUTO_LOCKDOWN == yes ]]; then
+    if cafe_lockdown; then cafe_log "egress lockdown on"; else cafe_log "egress lockdown not applied: ufw failed"; fi
+fi
+cafe_alert "entered cafe mode (untrusted: $SHOWN)"
+exit 0
+EOF
+}
+
+_conf_text() {
+    printf '%s\n' "# foxml-managed — written by \`desk cafe --setup\`; the café dispatcher reads it as data." \
+        "AUTO_LOCKDOWN=$AUTO_LOCKDOWN" "AUTO_VPN=$AUTO_VPN"
+    (( ${#SSIDS[@]} )) && printf 'TRUSTED_SSID=%s\n' "${SSIDS[@]}"
     return 0
 }
 
+# The SSIDs typed on one line, into SSIDS: blanks separate them, quotes keep one with spaces together. xargs does the
+# quoting, so nothing typed is run.
+_split_ssids() {
+    local out
+    SSIDS=()
+    out=$(printf '%s\n' "$1" | xargs -r printf '%s\n' 2>/dev/null) || return 1
+    [[ -z $out ]] || mapfile -t SSIDS <<< "$out"
+}
+
+_shown_ssids() {
+    (( $# )) || { echo "(none)"; return; }
+    printf "'%s' " "$@"; echo
+}
+
+# Same text (both are readable to you; bash compares, so no diffutils needed).
+_same() { [[ -r $1 && -r $2 && "$(< "$1")" == "$(< "$2")" ]]; }
+
+# Root's copies, each laid under a dot name (NetworkManager skips those) and renamed into place, then compared with
+# what was meant. On any doubt the dispatcher is removed: café mode off, the firewall as it is.
+_install() {
+    local tmp=$1 etc=${CONF%/*} dir=${DISPATCHER%/*}
+    if sudo install -d -m 0755 -o root -g root "$etc" \
+        && sudo install -m 0644 -o root -g root "$tmp/cafe.conf" "$etc/.cafe.conf.new" \
+        && sudo mv -f "$etc/.cafe.conf.new" "$CONF" \
+        && sudo install -m 0755 -o root -g root "$tmp/dispatcher" "$dir/.99-foxml-cafe.new" \
+        && sudo mv -f "$dir/.99-foxml-cafe.new" "$DISPATCHER" \
+        && cafe_owned "$CONF" 0 && cafe_owned "$DISPATCHER" 0 \
+        && _same "$tmp/cafe.conf" "$CONF" && _same "$tmp/dispatcher" "$DISPATCHER"; then
+        rm -f "$OLD_CONF"
+        return 0
+    fi
+    sudo rm -f "$DISPATCHER" "$dir/.99-foxml-cafe.new" "$etc/.cafe.conf.new"
+    return 1
+}
+
 _setup() {
-    mkdir -p "$CONF_DIR" && chmod 700 "$CONF_DIR"
-    echo "${C_BOLD:-}desk cafe — setup${C_RST}"
+    if [[ ! -d ${DISPATCHER%/*} ]]; then
+        echo "${C_RED}✗ ${DISPATCHER%/*} is missing — café mode needs NetworkManager${C_RST}" >&2
+        return 1
+    fi
+    echo "desk cafe — setup"
     echo
     echo "  List the SSIDs you trust (home wifi, work, dorm). Anything"
     echo "  else triggers Café Mode automatically."
     echo "  Quote SSIDs with spaces. Example: home-wifi 'work guest'"
     echo
-    local ssids
-    read -rp "  trusted SSIDs: " ssids
-    local auto_vpn auto_lockdown
+    local line auto_vpn auto_lockdown s home tmp
+    read -rp "  trusted SSIDs: " line
     read -rp "  auto-enable VPN kill-switch on untrusted? [y/N] " -n 1 -r auto_vpn; echo
     read -rp "  auto-enable egress lockdown on untrusted? [Y/n] " -n 1 -r auto_lockdown; echo
     [[ "$auto_vpn"      =~ ^[Yy]$ ]] && AUTO_VPN=yes      || AUTO_VPN=no
     [[ "$auto_lockdown" =~ ^[Nn]$ ]] && AUTO_LOCKDOWN=no  || AUTO_LOCKDOWN=yes
-    ( umask 077
-      cat > "$CONF" <<EOF
-# foxml-managed
-TRUSTED_SSIDS=$(printf '%q' "$ssids")
-AUTO_VPN=$AUTO_VPN
-AUTO_LOCKDOWN=$AUTO_LOCKDOWN
-EOF
-    )
-    chmod 600 "$CONF"
 
-    # Drop the NM dispatcher. NetworkManager invokes scripts under
-    # /etc/NetworkManager/dispatcher.d on connect/disconnect events.
-    sudo tee "$DISPATCHER" >/dev/null <<EOF
-#!/bin/bash
-# foxml-managed — Café Mode trigger.
-INTERFACE="\$1"
-EVENT="\$2"
-[[ "\$EVENT" == "up" ]] || exit 0
-[[ "\$INTERFACE" == wl* ]] || exit 0
+    if ! _split_ssids "$line"; then
+        echo "${C_RED}✗ unbalanced quotes in: $line${C_RST}" >&2
+        return 1
+    fi
+    for s in "${SSIDS[@]}"; do
+        if ! cafe_ssid_ok "$s"; then
+            echo "${C_RED}✗ not an SSID (1-32 bytes, no control characters): $s${C_RST}" >&2
+            return 1
+        fi
+    done
+    home=$(getent passwd "$USER" | cut -d: -f6)
+    if [[ ! $home =~ ^/[A-Za-z0-9._/-]+$ ]]; then
+        echo "${C_RED}✗ refusing: your home folder '$home' is not a plain path the dispatcher can name${C_RST}" >&2
+        return 1
+    fi
 
-USER_HOME=$(getent passwd ${USER} | cut -d: -f6)
-CONF="\$USER_HOME/.config/foxml/cafe.conf"
-[[ -r "\$CONF" ]] || exit 0
-. "\$CONF"
-
-SSID=\$(iwgetid -r 2>/dev/null)
-[[ -z "\$SSID" ]] && exit 0
-
-trusted=0
-for t in \$TRUSTED_SSIDS; do
-    [[ "\$SSID" == "\$t" ]] && trusted=1 && break
-done
-
-if (( trusted )); then
-    logger -t foxml-cafe "trusted SSID '\$SSID' — relaxed posture"
-    su -l ${USER} -c "/home/${USER}/.local/bin/desk-dispatch 'cafe-mode' 'left cafe mode (trusted: \$SSID)'" 2>/dev/null || true
-else
-    logger -t foxml-cafe "UNTRUSTED SSID '\$SSID' — engaging Café Mode"
-    [[ "\$AUTO_LOCKDOWN" == "yes" ]] && /home/${USER}/.local/bin/desk-firewall lockdown <<< y 2>/dev/null || true
-    su -l ${USER} -c "/home/${USER}/.local/bin/desk-dispatch 'cafe-mode' 'entered cafe mode (untrusted: \$SSID)'" 2>/dev/null || true
-fi
-EOF
-    sudo chmod 0755 "$DISPATCHER"
+    tmp=$(mktemp -d) || return 1
+    _conf_text > "$tmp/cafe.conf"
+    _dispatcher "$USER" "$home" > "$tmp/dispatcher"
+    if ! cafe_read_conf "$tmp/cafe.conf" || ! bash -n "$tmp/dispatcher"; then
+        echo "${C_RED}✗ the files setup made fail their own check — nothing installed${C_RST}" >&2
+        rm -rf "$tmp"
+        return 1
+    fi
+    if ! _install "$tmp"; then
+        rm -rf "$tmp"
+        echo "${C_RED}✗ setup did not finish — café mode is off (no dispatcher); the firewall is unchanged${C_RST}" >&2
+        return 1
+    fi
+    rm -rf "$tmp"
     echo "${C_GRN}✓ dispatcher installed at $DISPATCHER${C_RST}"
-    echo "${C_GRN}✓ trusted: ${ssids:-(none)}${C_RST}"
+    echo "${C_GRN}✓ settings in $CONF — trusted: $(_shown_ssids "${SSIDS[@]}")${C_RST}"
+}
+
+_current_ssid() {
+    nmcli --escape no -t -f active,ssid device wifi list --rescan no 2>/dev/null | sed -n 's/^yes://p' | head -n 1
 }
 
 _status() {
-    if [[ -f "$DISPATCHER" ]] && [[ -f "$CONF" ]]; then
-        _load
-        echo "  ${C_GRN}cafe mode: armed${C_RST}"
-        echo "  trusted:        $TRUSTED_SSIDS"
-        echo "  auto-vpn:       $AUTO_VPN"
-        echo "  auto-lockdown:  $AUTO_LOCKDOWN"
-        echo "  current SSID:   $(iwgetid -r 2>/dev/null || echo '(not connected)')"
-    else
+    if [[ -f $DISPATCHER ]] && ! grep -qF "$MARK" "$DISPATCHER" 2>/dev/null; then
+        echo "  ${C_RED}cafe mode: the installed dispatcher is the old one, which runs files from your home folder as root${C_RST}"
+        echo "  replace it:  desk cafe --setup      remove it:  desk cafe --disable"
+        return 1
+    fi
+    if [[ ! -f $DISPATCHER || ! -f $CONF ]]; then
         echo "  ${C_YEL}cafe mode: not configured${C_RST}"
         echo "  set up:  desk cafe --setup"
+        return 0
     fi
+    if ! cafe_owned "$CONF" 0; then
+        echo "  ${C_RED}cafe mode: $CONF is not root's alone, so the dispatcher ignores it — run desk cafe --setup${C_RST}"
+        return 1
+    fi
+    if ! cafe_read_conf "$CONF"; then
+        echo "  ${C_RED}cafe mode: the dispatcher ignores $CONF ($CAFE_REJECT) — run desk cafe --setup${C_RST}"
+        return 1
+    fi
+    local ssid
+    ssid=$(_current_ssid)
+    echo "  ${C_GRN}cafe mode: armed${C_RST}"
+    echo "  trusted:        $(_shown_ssids "${TRUSTED[@]}")"
+    echo "  auto-vpn:       $AUTO_VPN"
+    echo "  auto-lockdown:  $AUTO_LOCKDOWN"
+    echo "  current SSID:   ${ssid:-(not connected)}"
 }
 
 _disable() {
-    sudo rm -f "$DISPATCHER"
-    rm -f "$CONF"
+    if ! sudo rm -f "$DISPATCHER" "$CONF"; then
+        echo "${C_RED}✗ could not remove $DISPATCHER and $CONF${C_RST}" >&2
+        return 1
+    fi
+    rm -f "$OLD_CONF"
     echo "${C_GRN}✓ cafe mode disabled${C_RST}"
+    echo "  ${C_DIM}a lockdown it applied stays until: desk firewall unlock${C_RST}"
 }
+
+# Sourced (tests/test_cafe.py), the script only defines what is above.
+[[ ${BASH_SOURCE[0]} == "$0" ]] || return 0
 
 case "${1:-}" in
     ""|status)   _status ;;
@@ -132,8 +281,9 @@ desk cafe — auto-tighten security on untrusted wifi
   desk cafe --setup    interactive: trusted SSID list + behavior flags
   desk cafe --disable  remove dispatcher + config
 
-On untrusted wifi: fires \`desk firewall lockdown\` + dispatches an alert.
-On trusted wifi:   releases lockdown + dispatches "left cafe mode".
+On untrusted wifi: applies \`desk firewall lockdown\` + dispatches an alert.
+On trusted wifi:   dispatches "left cafe mode"; a lockdown stays until \`desk firewall unlock\`.
+Settings: $CONF (root's, written by --setup).
 EOF
     ;;
     *) echo "unknown: $1" >&2; exit 2 ;;

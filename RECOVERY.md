@@ -83,6 +83,26 @@ desk firewall unlock                # revert to default-allow outgoing
 desk firewall allow <port>/[tcp|udp]
 ```
 
+### "Café mode locked egress down" / "I want café mode off"
+
+On an untrusted Wi-Fi network café mode applies `desk firewall lockdown`, and the lockdown stays after you leave:
+
+```
+desk firewall unlock        # default-allow outgoing again
+desk cafe --disable         # remove the dispatcher and /etc/foxml/cafe.conf
+```
+
+If `desk cafe` itself will not run, remove its two root files by hand:
+
+```
+sudo rm -f /etc/NetworkManager/dispatcher.d/99-foxml-cafe /etc/foxml/cafe.conf
+sudo ufw default allow outgoing
+```
+
+A café setup from before 2026-11 has a dispatcher that sourced `~/.config/foxml/cafe.conf` and ran
+`~/.local/bin/fox-firewall` as root, so anything running as you could become root at the next Wi-Fi connection.
+`desk cafe` reports it as "the old one"; `desk cafe --setup` replaces it, `desk cafe --disable` removes it.
+
 ### "desk-deadman just locked + dropped network on a normal USB removal"
 
 ```

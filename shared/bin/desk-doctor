@@ -598,7 +598,7 @@ check_fox_tools() {
     [[ ! -f "$HOME/.config/foxml/dispatch.conf" ]] && missing+=("dispatch (phone alerts)")
     [[ ! -f "$HOME/.config/foxml/knock.conf" ]] && [[ ! -f "$HOME/.config/foxml/spa.conf" ]] \
         && missing+=("knock or spa (SSH gate)")
-    [[ ! -f "$HOME/.config/foxml/cafe.conf" ]] && missing+=("cafe (untrusted wifi)")
+    [[ ! -f /etc/foxml/cafe.conf ]] && missing+=("cafe (untrusted wifi)")
     grep -q '^# foxml-shield BEGIN' /etc/hosts 2>/dev/null || missing+=("dns-shield")
     systemctl --user is-active --quiet fox-tripwire.service 2>/dev/null || missing+=("tripwire")
     if (( ${#missing[@]} > 0 )); then
@@ -938,7 +938,7 @@ if (( FIX_MODE )) && [[ -t 0 ]]; then
         && _offer "desk spa (SPA SSH gate)"         "desk-spa --setup" \
                   "$HOME/.config/foxml/.skipped-ssh-gating"
 
-    [[ ! -f "$HOME/.config/foxml/cafe.conf" ]] \
+    [[ ! -f /etc/foxml/cafe.conf ]] \
         && _offer "desk cafe (untrusted-wifi auto-tighten)"  "desk-cafe --setup" \
                   "$HOME/.config/foxml/.skipped-cafe"
 

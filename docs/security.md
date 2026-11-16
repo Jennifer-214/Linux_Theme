@@ -61,6 +61,6 @@ Opt-in via dedicated flags: `--vault` (mlock-protected secret store), `--endless
 | `desk sec snitch` | Per-app outbound firewall (OpenSnitch) |
 | `desk sec honey plant <dir>` | Honeytoken + auditd watch in a repo |
 | `desk sec vpn [up\|down]` | WireGuard wizard with UFW kill-switch |
-| `desk sec cafe` | Auto-tighten on untrusted WiFi (NetworkManager dispatcher) |
+| `desk sec cafe` | Auto-tighten on untrusted WiFi (NetworkManager dispatcher; settings in root-owned `/etc/foxml/cafe.conf`) |
 
 See `desk help` for the full surface and `desk sec help` for security commands.
