@@ -6,7 +6,17 @@
 # or rotation. On desktops with no internal display, does nothing — every
 # monitor stays live and Hyprland's default order applies.
 
-monitors=$(hyprctl monitors 2>/dev/null | awk '/^Monitor /{print $2}')
+# Hyprland 0.57 runs this from hyprland.start, which can come before its outputs are listed: an empty or partial
+# list left every monitor on and regreet on the leftmost (2026-11-15). Wait until the list is non-empty and the same
+# twice in a row, 0.1 s apart, for at most 5 s; with nothing by then, change nothing.
+monitors="" previous="" tries=0
+while [ "$tries" -lt 50 ]; do
+    monitors=$(hyprctl monitors 2>/dev/null | awk '/^Monitor /{print $2}')
+    [ -n "$monitors" ] && [ "$monitors" = "$previous" ] && break
+    previous="$monitors"
+    tries=$((tries + 1))
+    sleep 0.1
+done
 [ -z "$monitors" ] && exit 0
 
 internal=""
