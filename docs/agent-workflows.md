@@ -302,12 +302,25 @@ list there yourself). It draws in the palette and keeps its session records in p
   `.review-risk`, a file the plan never names, or a file edited since the last test run.
 - **Only what is new**: a file edited after you checked it opens against the copy you read. `n` shows the whole
   change instead; the choice is remembered.
-- **Keys**: Enter or `l` opens, `h` folds, `m` checks, `u` goes to the first unread file (risky ones first),
+- **Keys**: Enter or `l` opens, `h` folds, `m` checks (on one of a file's changed functions it only checks the file,
+  never unchecks it), `u` goes to the first unread file (risky ones first),
   `a` (or Space Space, in the list or a diff) opens every other action and `?` lists every key. `s` in the list puts
   a label on every row, as `s` does in code (flash.nvim), and typing one moves there; in a diff `s` is the code's
   own. `gs` shows the changed C or C++ symbol in symdeps. `q` in the list
   hides it; `q` in a diff closes the review and returns to your
   editor. Backspace in a diff pane brings the list back, and `Space re` toggles it.
+- **On the other screen**: `o` in the list moves it to the pop-out, a window of its own on the second screen, and the
+  comparison takes this whole screen. There `j` / `k` move, Enter shows the file here while the keyboard stays there,
+  and `m`, `u`, `n`, `h`, `]f` / `[f`, `]c` / `[c`, `r` and `s` work as in the list; `c` and `R` ask their question
+  there; `a` opens the actions here, and the keyboard comes with them. `o` there, Backspace or `Space re` here, or
+  closing the pop-out bring the list back, on the row selected there; closing the review clears it. With one screen
+  `o` says "requires a second monitor" and the list stays.
+- **What a change calls**: each changed function's calls before and after, compared by name (treesitter, in any
+  language with a parser). A file whose change adds or removes a call is marked `→`; a changed function's strip reads
+  `calls by name: +memcpy −old_copy` and who calls it: the language server attached to the working file when that
+  file is open, else the project map (by name) when one is built, else "requires a language server or the project
+  map". A session's edits (a Claude turn) get the same check. By name: overloads, macros and virtual calls are not
+  told apart.
 - **Finishing**: `R` (Shift-R), once every file is checked, records the review and asks **Next commit** (the next
   unchecked one), **Close review** or **Stay**. Close also quits a Neovim that the notebook opened just for the
   review.
