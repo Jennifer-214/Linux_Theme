@@ -60,6 +60,12 @@ int main() {
            && !parse_port("65536") && !parse_port("0") && parse_port("65535") == 65535, "parse_port: 1..65535, digits");
     expect(password_auth(moved) == false && password_auth("passwordauthentication yes\n") == true
            && !password_auth(""), "what sshd does about passwords");
+    // A re-run on a keys-only sshd with no key logging in here (none on the machine, no forwarded agent) wrote
+    // PasswordAuthentication yes back; unattended it only said so (review, 2026-11-16). Now that needs her yes.
+    expect(would_weaken(password_auth(moved106), /*key_ok=*/false), "keys only now and no key here: ask first");
+    expect(!would_weaken(password_auth(moved106), true), "a key logged in: keys only is proven again");
+    expect(!would_weaken(password_auth(openssh106), false) && !would_weaken(std::nullopt, false),
+           "passwords on already, or unknown: nothing to weaken");
     expect(session_port("203.0.113.4 51022 10.0.0.2 4022") == 4022, "the server port of this SSH session");
     expect(session_port(nullptr) == 0 && session_port("") == 0 && session_port("1.2.3.4 5 6.7.8.9 22;x") == 0,
            "no session, or junk: 0");

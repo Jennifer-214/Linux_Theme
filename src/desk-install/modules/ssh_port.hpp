@@ -75,6 +75,13 @@ inline std::optional<bool> password_auth(const std::string& sshd_t) {
     return std::nullopt;
 }
 
+// A run that writes passwords back on would weaken this sshd without a key's say: `sshd -T` says passwords are off
+// (keys only), and no key logged in here, so keys only cannot be proven again. The wizard then asks first, and an
+// unattended run changes nothing.
+inline bool would_weaken(const std::optional<bool>& passwords_now, bool key_ok) {
+    return passwords_now == false && !key_ok;
+}
+
 // The server port of the SSH session this runs in (SSH_CONNECTION is "<client ip> <client port> <server ip> <server
 // port>"); 0 when there is none.
 inline int session_port(const char* ssh_connection) {

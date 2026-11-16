@@ -5,7 +5,8 @@
 //      (a headless server, a VM). A port another program holds is refused.
 //   2. authorized_keys present? Optionally import via https://github.com/<user>.keys.
 //   3. A key self-test on the port sshd listens on now. Only a key that logs in there turns passwords off; with none,
-//      passwords stay on and the module says why.
+//      passwords stay on and the module says why. Off already (keys only) with none: they go back on only if she
+//      says so, and an unattended run changes nothing.
 //   4. /etc/ssh/sshd_config.d/50-foxml-hardening.conf (the previous one kept as .foxml-bak) is written and checked
 //      with `sshd -t` before sshd is touched; sshd reloads and a login on the new port is proven — any failure puts
 //      the previous file back and restarts sshd on it (ssh_apply.hpp).
@@ -262,12 +263,15 @@ void run_ssh_harden(Context& ctx) {
     const int nkeys = count_authorized_keys(keys);
     const bool running = sshd_active();
     const bool key_ok = running && key_login_works(now_port);
+    const auto passwords_now = ssh_port::password_auth(sshd_now);
+    const bool off_now = passwords_now == false;
     bool keys_only = false;
     std::string why;
     if (key_ok) {
         ui::ok("a key logged in on " + now_s + " (ssh self-test to 127.0.0.1:" + now_s + ")");
-        keys_only = unattended || ui::ask_yn("  Turn password login off (keys only)?", true, false);
-        if (!keys_only) why = "you chose to keep them";
+        keys_only = unattended || ui::ask_yn(off_now ? "  Keep password login off (keys only)?"
+                                                     : "  Turn password login off (keys only)?", true, false);
+        if (!keys_only) why = "you chose so";
     } else if (!running) {
         why = "sshd is not running, so no key could prove itself";
     } else if (nkeys == 0) {
@@ -276,12 +280,18 @@ void run_ssh_harden(Context& ctx) {
         why = "none of the " + std::to_string(nkeys) + " key(s) in authorized_keys logged in on " + now_s +
               " from here (the test runs on this machine: it needs your key here, or a forwarded agent, ssh -A)";
     }
-    if (!keys_only) {
-        ui::warn("passwords stay ON: " + why);
-        const auto passwords_now = ssh_port::password_auth(sshd_now);
-        if (passwords_now && !*passwords_now)
-            ui::substep("they were off; they go back on rather than risk a lockout — prove a key, then re-run");
+    // A keys-only sshd goes back to passwords only on her yes: a re-run with no key here wrote them on (2026-11-16).
+    if (!keys_only && ssh_port::would_weaken(passwords_now, key_ok)) {
+        ui::warn("passwords are OFF now, and " + why + ": going on would turn them back ON");
+        if (unattended || !ui::ask_yn("  Turn password login back on?", false, false)) {
+            const std::string kept = "nothing changed: sshd stays keys only on " + ssh_port::join(current, ", ") +
+                                     " — log in here with your key (or a forwarded agent, ssh -A), then re-run";
+            if (port == now_port) ui::warn(kept);
+            else ui::err(kept);
+            return;
+        }
     }
+    if (!keys_only) ui::warn(std::string(off_now ? "passwords go back ON: " : "passwords stay ON: ") + why);
 
     // 4. The drop-in. Logged in over SSH on a port the move drops, sshd keeps that port too.
     const int session = ssh_port::session_port(std::getenv("SSH_CONNECTION"));
@@ -400,7 +410,7 @@ void run_ssh_harden(Context& ctx) {
     } else if (keys_only) {
         ui::ok("SSH is keys only on port " + port_s);
     } else {
-        ui::ok("SSH on port " + port_s + ", passwords still on");
+        ui::ok("SSH on port " + port_s + (off_now ? ", passwords back on" : ", passwords still on"));
         if (passwords && !*passwords)
             ui::warn("another sshd config file turns passwords OFF, and no key logged in here — "
                      "make sure yours does before you log out");

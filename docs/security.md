@@ -34,12 +34,14 @@ Keyring setup also masks limited SSH/GPG `gnome-keyring-daemon` autostart units.
 the current one; `FOXML_SSH_PORT=<port>` answers for an unattended run, such as a headless server), and UFW
 (rate-limited), fail2ban's sshd jail, the endlessh tarpit and `desk knock` / `desk spa` all read it. Port 22 is open
 only while sshd or the tarpit holds it. A port UFW denies (`desk knock` / `desk spa`, or a rule of yours) stays
-denied, and one you opened only to some addresses is not opened to everyone: the installer says so. Password login is turned off only after a key has logged in on that port
-from the machine itself (with no key, or a key that does not log in, passwords stay on and the wizard says why).
-Every change is checked with `sshd -t` before sshd is touched and proven with a login after the reload; a failure
-puts the previous config back by itself. Run over SSH, the wizard keeps the port you came in on until you have
-logged in on the new one and run it again from there. If it still goes wrong, the console (a TTY, or a server
-provider's web console) is the way in: see the [recovery guide](../RECOVERY.md).
+denied, and one you opened only to some addresses is not opened to everyone: the installer says so. Password login
+is turned off only after a key has logged in on that port from the machine itself (with no key, or a key that does
+not log in, passwords stay on and the wizard says why). On a server that is keys only already, such a run turns
+passwords back on only if you say yes; unattended, it changes nothing. Every change is checked with `sshd -t` before
+sshd is touched and proven with a login after the reload; a failure puts the previous config back by itself. Run
+over SSH, the wizard keeps the port you came in on until you have logged in on the new one and run it again from
+there. If it still goes wrong, the console (a TTY, or a server provider's web console) is the way in: see the
+[recovery guide](../RECOVERY.md).
 
 **The password prompt.** When something needs an administrator (a restart, a package install), the desktop asks on
 a paper slip that says what is asking in plain words. `hyprpolkitagent` holds the prompt from login; the shell takes
