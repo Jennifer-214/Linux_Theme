@@ -4427,6 +4427,9 @@ vim.api.nvim_set_hl(0, "FoxPlanNote", { fg = P.comment, italic = Paper.enabled }
 vim.api.nvim_set_hl(0, "FoxTreeClaude", { fg = P.bookmark })
 vim.api.nvim_set_hl(0, "FoxTreeClaudeShared", { link = "DiagnosticWarn" })
 pcall(function() require("desk.planmarks").setup() end)
+-- ALT+h/j/k/l from the desktop asks this Neovim first: its split that way, else tmux's pane, else the window that way
+-- (shared/nvim_lua/desk/nav.lua, shared/bin/desk-nav). Neovim maps no ALT key for it.
+pcall(function() require("desk.nav").setup() end)
 
 -- >>> desk-popout
 -- The pop-out (desk.popout: kitty … nvim --cmd 'let g:desk_popout=1', a window that only draws what the main editor

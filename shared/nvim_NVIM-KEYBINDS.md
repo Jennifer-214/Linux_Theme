@@ -146,6 +146,7 @@ Examples:
 | `Ctrl+w s` | Split horizontal |
 | `Ctrl+w v` | Split vertical |
 | `Ctrl+w h/j/k/l` | Navigate splits |
+| `Alt+h/j/k/l` | The desktop's key: the split that way, else the tmux pane, else the window that way (`desk-nav`, `desk/nav.lua`); Neovim maps no Alt key for it |
 | `Ctrl+w q` | Close split |
 | `Ctrl+w o` | Close all other splits |
 | `Ctrl+w =` | Equalize split sizes |

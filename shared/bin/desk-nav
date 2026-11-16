@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# desk-nav h|j|k|l — ALT+h/j/k/l: one set of direction keys through every layer. The focused window's Neovim moves to
+# its split that way when it has one (desk.nav, shared/nvim_lua/desk/nav.lua); else its tmux pane moves to the pane
+# that way; else Hyprland moves the focus that way, to the next window or the next monitor at the edge. Each layer is
+# asked directly, so no key is passed through anything (and none can loop back). A zoomed tmux pane fills its window
+# and counts as an edge; a float in Neovim (a picker, a menu) has no split beside it.
+set -u
+case "${1:-}" in
+    h) dir=h tmux_dir=-L edge=pane_at_left focus=left legacy=l ;;
+    j) dir=j tmux_dir=-D edge=pane_at_bottom focus=down legacy=d ;;
+    k) dir=k tmux_dir=-U edge=pane_at_top focus=up legacy=u ;;
+    l) dir=l tmux_dir=-R edge=pane_at_right focus=right legacy=r ;;
+    *) echo "usage: desk-nav h|j|k|l" >&2; exit 2 ;;
+esac
+
+desktop() {
+    local hl
+    hl=$(command -v desk-hl || printf '%s' "$HOME/.local/bin/desk-hl")
+    exec "$hl" dispatch "hl.dsp.focus({ direction = \"$focus\" })" "movefocus $legacy"
+}
+
+# Yes when the Neovim at socket $1 moved to its split that way. Any doubt is a no: no answer within half a second,
+# a Neovim without desk.nav, a prompt in the way.
+nvim_moved() {
+    [[ -S "$1" ]] && command -v nvim >/dev/null 2>&1 || return 1
+    [[ "$(timeout 0.5 nvim --server "$1" --remote-expr "luaeval('require(\"desk.nav\").go(_A)', '$dir')" 2>/dev/null)" == 1 ]]
+}
+
+# Whether process $1 runs inside the focused window, whose own process is $window.
+inside() {
+    local p=$1 stat
+    while [[ "$p" =~ ^[0-9]+$ ]] && (( p > 1 )); do
+        [[ "$p" == "$window" ]] && return 0
+        { read -r stat < "/proc/$p/stat"; } 2>/dev/null || return 1
+        stat=${stat##*) }
+        p=${stat#* }
+        p=${p%% *}
+    done
+    return 1
+}
+
+window=
+if command -v hyprctl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+    window=$(hyprctl activewindow -j 2>/dev/null | jq -r '.pid // empty | tostring' 2>/dev/null)
+fi
+[[ "$window" =~ ^[0-9]+$ ]] || desktop
+
+# tmux in the window: the client running there (the focused one, should one terminal hold several) and its pane.
+if command -v tmux >/dev/null 2>&1; then
+    found=
+    while IFS='|' read -r pid flags pane zoomed at command server; do
+        inside "$pid" || continue
+        found="$pane|$zoomed|$at|$command|$server"
+        [[ ",$flags," == *,focused,* ]] && break
+    done < <(tmux list-clients -F "#{client_pid}|#{client_flags}|#{pane_id}|#{window_zoomed_flag}|#{$edge}|#{pane_current_command}|#{@desk-nvim}" 2>/dev/null)
+    if [[ -n "$found" ]]; then
+        IFS='|' read -r pane zoomed at command server <<<"$found"
+        if [[ "$command" == nvim && -n "$server" ]] && nvim_moved "$server"; then exit 0; fi
+        [[ "$zoomed" != 1 && "$at" == 0 ]] && exec tmux select-pane -t "$pane" "$tmux_dir"
+        desktop
+    fi
+fi
+
+# Neovim straight in the window, without tmux (the pop-out): its socket is the one its command line names with
+# --listen, else Neovim's default, nvim.<pid>.0 in the runtime folder.
+for pid in $(pgrep -x nvim 2>/dev/null); do
+    inside "$pid" || continue
+    server=
+    args=()
+    { mapfile -d '' -t args < "/proc/$pid/cmdline"; } 2>/dev/null
+    for ((i = 0; i + 1 < ${#args[@]}; i++)); do [[ "${args[i]}" == --listen ]] && server=${args[i + 1]}; done
+    [[ -n "$server" ]] || server="${XDG_RUNTIME_DIR:-/run/user/$UID}/nvim.$pid.0"
+    nvim_moved "$server" && exit 0
+done
+desktop

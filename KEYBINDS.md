@@ -626,10 +626,7 @@ Shows indent guides automatically. No keybinds.
 
 | Key | Action |
 |-----|--------|
-| `ALT + h` | Move focus left |
-| `ALT + j` | Move focus down |
-| `ALT + k` | Move focus up |
-| `ALT + l` | Move focus right |
+| `ALT + h/j/k/l` | Go that way: Neovim's split that way, else tmux's pane, else the window or monitor that way (shared/bin/desk-nav) |
 | `ALT + BackSpace` | Back to the window you were in before (again: back here), after a jump from the drawer, a notice or the notebook |
 | `ALT + Shift + h/j/k/l` | Move the focused window that way — tiled or floating — onto the next monitor at the edge |
 | `ALT + Shift + Tab` | Cycle to previous window |
