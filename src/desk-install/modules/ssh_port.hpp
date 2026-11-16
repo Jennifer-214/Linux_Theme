@@ -25,8 +25,15 @@ inline std::optional<int> parse_port(const std::string& s) {
     return n;
 }
 
-// The ports sshd listens on, from `sshd -T`: its listenaddress lines (the sockets it binds, `0.0.0.0:2222`,
-// `[::]:2222`), else its port lines. In config order, each once; empty when the text has neither (sshd -T failed).
+// A line's keyword, lower-cased: sshd's keywords are case-insensitive, and its dump changed case with OpenSSH 10
+// (`port 22` before, `Port 22` from 10.x — 10.6 on Arch, 2026-11-16, where the lower-case match found no port at all).
+inline std::string keyword(std::string key) {
+    for (auto& c : key) c = static_cast<char>(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
+    return key;
+}
+
+// The ports sshd listens on, from `sshd -T`: its ListenAddress lines (the sockets it binds, `0.0.0.0:2222`,
+// `[::]:2222`), else its Port lines. In config order, each once; empty when the text has neither (sshd -T failed).
 inline std::vector<int> listen_ports(const std::string& sshd_t) {
     std::vector<int> bound, configured;
     const auto add = [](std::vector<int>& v, int p) { if (!has(v, p)) v.push_back(p); };
@@ -35,6 +42,7 @@ inline std::vector<int> listen_ports(const std::string& sshd_t) {
         std::istringstream f(line);
         std::string key, value;
         if (!(f >> key >> value)) continue;
+        key = keyword(key);
         if (key == "listenaddress") {
             const auto colon = value.rfind(':');
             if (colon == std::string::npos) continue;
@@ -53,13 +61,13 @@ inline int listen_port(const std::string& sshd_t) {
     return ports.empty() ? 22 : ports.front();
 }
 
-// What sshd does about passwords, whichever file set it: `passwordauthentication yes|no` in `sshd -T`.
+// What sshd does about passwords, whichever file set it: `PasswordAuthentication yes|no` in `sshd -T`.
 inline std::optional<bool> password_auth(const std::string& sshd_t) {
     std::istringstream in(sshd_t);
     for (std::string line; std::getline(in, line);) {
         std::istringstream f(line);
         std::string key, value;
-        if (f >> key >> value && key == "passwordauthentication") {
+        if (f >> key >> value && keyword(key) == "passwordauthentication") {
             if (value == "yes") return true;
             if (value == "no") return false;
         }

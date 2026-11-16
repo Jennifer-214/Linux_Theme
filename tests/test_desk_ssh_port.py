@@ -63,11 +63,22 @@ expect("--no-sudo: the drop-in, sudo never asked", run("desk-ssh-port", ["--no-s
 expect("--no-sudo --all: every Port line", run("desk-ssh-port", ["--no-sudo", "--all"], sshd_t=MOVED, dropin="Port 2202\nPort 22\n") == "2202\n22\n")
 expect("--no-sudo, nothing to read: 22", run("desk-ssh-port", ["--no-sudo"], sshd_t=MOVED) == "22\n")
 expect("a drop-in without a Port line: 22", run("desk-ssh-port", dropin="PasswordAuthentication no\n") == "22\n")
+# OpenSSH 10's dump names its keywords in mixed case (10.6 on Arch, the test VM, 2026-11-16); read as lower case only,
+# a working sshd -T gave no port and the drop-in or 22 stood in for it.
+OPENSSH106 = ("Port 4022\nAddressFamily any\nListenAddress [::]:4022\nListenAddress 0.0.0.0:4022\nUsePAM yes\n"
+              "PasswordAuthentication no\n")
+expect("OpenSSH 10's mixed-case dump: the port it binds", run("desk-ssh-port", sshd_t=OPENSSH106, dropin="Port 9999\n") == "4022\n")
+expect("OpenSSH 10's Port lines when no sockets are listed", run("desk-ssh-port", sshd_t="Port 2222\n", dropin="Port 9999\n") == "2222\n")
+expect("OpenSSH 10: a ListenAddress with its own port wins over Port",
+       run("desk-ssh-port", sshd_t="Port 22\nListenAddress 192.168.1.5:2200\n") == "2200\n")
+expect("a drop-in's port line in either case", run("desk-ssh-port", dropin="port 4444\n") == "4444\n")
 
 knock = run("desk-knock", ["--status"], sshd_t=MOVED, dropin="Port 9999\n")
 expect(f"desk knock --status shows sshd's port (got {knock!r})", "ssh port: 4022\n" in knock)
 spa = run("desk-spa", ["--status"], sshd_t=BOTH)
 expect(f"desk spa --status shows one port, the wizard's (got {spa!r})", "ssh port: 4022\n" in spa and "ssh port: 4022\n22" not in spa)
+knock106 = run("desk-knock", ["--status"], sshd_t=OPENSSH106, dropin="Port 9999\n")
+expect(f"desk knock --status reads OpenSSH 10's dump (got {knock106!r})", "ssh port: 4022\n" in knock106)
 spa_none = run("desk-spa", ["--status"])
 expect(f"desk spa --status: 22 when nothing says otherwise, never empty (got {spa_none!r})", "ssh port: 22\n" in spa_none)
 

@@ -383,7 +383,7 @@ void run_ssh_harden(Context& ctx) {
     std::cout << "\n";
     if (keys_only && passwords && *passwords) {
         ui::warn("keys only was written, but another sshd config file turns passwords back on "
-                 "(sudo sshd -T | grep passwordauthentication; then /etc/ssh/sshd_config and sshd_config.d/)");
+                 "(sudo sshd -T | grep -i passwordauthentication; then /etc/ssh/sshd_config and sshd_config.d/)");
     } else if (keys_only) {
         ui::ok("SSH is keys only on port " + port_s);
     } else {

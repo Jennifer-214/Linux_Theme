@@ -1,6 +1,7 @@
 // The one SSH port source (modules/ssh_port.hpp): the ports sshd listens on, read from `sshd -T`, and the probes that
 // prove a login on them. The key self-test always tried 22, so a re-run after a move failed it and turned passwords
-// back on; UFW, fail2ban and endlessh each assumed 22 too.
+// back on; UFW, fail2ban and endlessh each assumed 22 too. OpenSSH 10's dump names its keywords in mixed case
+// (`Port 22`, `ListenAddress 0.0.0.0:22`); read as lower case only, a VM's working `sshd -T` gave no port at all.
 #include "../modules/ssh_port.hpp"
 
 #include <cstdio>
@@ -40,6 +41,20 @@ int main() {
     expect(listen_port("port 0\n") == 22 && listen_port("port 70000\n") == 22, "not a port: 22");
     expect(listen_port("ports 2222\n") == 22, "a key is a whole word");
     expect(listen_ports("port 22x\nport -5\n").empty(), "digits only");
+
+    // `sudo sshd -T` from OpenSSH 10.6 (Arch, the test VM, 2026-11-16), its first lines and the password one, as printed.
+    const std::string openssh106 = "Port 22\nAddressFamily any\nListenAddress [::]:22\nListenAddress 0.0.0.0:22\n"
+                                   "UsePAM yes\nPAMServiceName sshd\nPermitRootLogin prohibit-password\n"
+                                   "PubkeyAuthentication yes\nPasswordAuthentication yes\nKbdInteractiveAuthentication no\n";
+    expect(listen_ports(openssh106) == std::vector<int>{22}, "OpenSSH 10's mixed-case dump: the port it binds");
+    expect(password_auth(openssh106) == true, "and its PasswordAuthentication");
+    const std::string moved106 = "Port 4022\nAddressFamily any\nListenAddress [::]:4022\nListenAddress 0.0.0.0:4022\n"
+                                 "PasswordAuthentication no\n";
+    expect(listen_ports(moved106) == std::vector<int>{4022} && password_auth(moved106) == false,
+           "a moved, keys-only sshd in OpenSSH 10's case");
+    expect((listen_ports("Port 22\nlistenaddress 0.0.0.0:2200\n") == std::vector<int>{2200}), "either case, mixed");
+    expect((listen_ports("Port 22\nListenAddress 192.168.1.5:2200\n") == std::vector<int>{2200}),
+           "OpenSSH 10: a ListenAddress with its own port wins over Port");
 
     expect(parse_port("4022") == 4022 && !parse_port("22; rm -rf /") && !parse_port("+22") && !parse_port("")
            && !parse_port("65536") && !parse_port("0") && parse_port("65535") == 65535, "parse_port: 1..65535, digits");

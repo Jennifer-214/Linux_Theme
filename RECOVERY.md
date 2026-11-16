@@ -30,7 +30,7 @@ that fails. If you are locked out anyway, the way in is the console: the TTY at
 the machine, or the web console a server provider gives you. From there:
 
 ```
-sudo sshd -T | grep -E '^(port|passwordauthentication) '   # where sshd listens, passwords on or off
+sudo sshd -T | grep -i -E '^(port|passwordauthentication) '   # where sshd listens, passwords on or off
 ```
 
 To go back to the config from before the last wizard run:
