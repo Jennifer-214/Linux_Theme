@@ -195,7 +195,7 @@ M.host = H   -- the tests read it
 local kinds = {}
 M.kinds = kinds
 M.MAX_STEPS = 50
-local watch_screens, unwatch_screens
+local watch_screens, unwatch_screens, kind_failed
 
 -- Neovim is exiting (v:exiting is set before any exit autocommand runs) or the pop-out was told: nothing of the
 -- pop-out runs then but its goodbye. An error in a callback during the exit makes Neovim wait for a key before it
@@ -211,9 +211,25 @@ end
 local function send(msg)
   if not H.chan or H.stalled or exiting() then return false end
   msg.version = M.PROTOCOL
-  local ok = pcall(vim.rpcnotify, H.chan, 'nvim_exec_lua', POPOUT_DOOR, { msg })
-  if not ok then M.forget('The pop-out closed.', { back = true }) end
-  return ok
+  local ok, err = pcall(vim.rpcnotify, H.chan, 'nvim_exec_lua', POPOUT_DOOR, { msg })
+  if ok then return true end
+  -- Not sent to a pop-out that is still there: the message could not be encoded. It is dropped and its view's kind
+  -- named; the pop-out stays.
+  if next(api.nvim_get_chan_info(H.chan)) ~= nil then
+    local view = type(msg.id) == 'string' and H.views[msg.id]
+    if view then kind_failed(view, err) else tell('Could not send the pop-out a ' .. tostring(msg.type) .. ': ' .. tostring(err):sub(1, 200), WARN) end
+    return false
+  end
+  M.forget('The pop-out closed.', { back = true })
+  return false
+end
+
+-- A pop-out still at the other end of chan is told why it goes (bye: it says so there, and quits) and its channel
+-- closed: the editor never drops one that stays on screen with every key refused.
+local function let_go(chan, why)
+  if not chan or next(api.nvim_get_chan_info(chan)) == nil then return end
+  pcall(vim.rpcnotify, chan, 'nvim_exec_lua', POPOUT_DOOR, { { version = M.PROTOCOL, type = 'bye', why = why or 'Closed.' } })
+  pcall(vim.fn.chanclose, chan)
 end
 
 -- The highlight groups a view draws with, as this editor draws them (the pop-out may not define them): Desk* and the
@@ -325,32 +341,59 @@ end
 
 -- A view as the pop-out draws it, from its kind: the message, and its items' refs and keys (kept here).
 local function cut(value, cap) return type(value) == 'string' and value:sub(1, cap) or nil end
+-- A kind's marks, spans and footer as plain numbers and strings, as the pop-out reads them: a table with named fields
+-- among its list (a mark's priority written by name) or a function in it could not be sent at all.
+local function num(value) return type(value) == 'number' and value or nil end
+local function plain_marks(marks)
+  local out = {}
+  for _, m in ipairs(type(marks) == 'table' and marks or {}) do
+    if type(m) == 'table' and num(m[1]) and num(m[2]) and num(m[3]) and type(m[4]) == 'string' then out[#out + 1] = { m[1], m[2], m[3], m[4], num(m[5]) } end
+  end
+  return out
+end
+local function plain_spans(spans)
+  local out = {}
+  for _, s in ipairs(type(spans) == 'table' and spans or {}) do
+    if type(s) == 'table' and num(s[1]) and num(s[2]) and num(s[3]) then out[#out + 1] = { s[1], s[2], s[3] } end
+  end
+  return out
+end
+local function plain_footer(footer)
+  local out = {}
+  for _, part in ipairs(type(footer) == 'table' and footer or {}) do
+    if type(part) == 'table' and type(part.words) == 'string' then
+      local ids = {}
+      for _, id in ipairs(type(part.ids) == 'table' and part.ids or {}) do if type(id) == 'string' then ids[#ids + 1] = id end end
+      out[#out + 1] = { ids = ids, words = part.words }
+    end
+  end
+  return out
+end
 local function payload(view)
   local kind = kinds[view.kind]
   local ok, drawn = pcall(kind.render, view, H.width or 80, vim.g.desk_style or 'paper')
   if not ok or type(drawn) ~= 'table' or type(drawn.lines) ~= 'table' then
     drawn = { lines = { '', '  This view could not be drawn: ' .. (tostring(ok and 'it gave no lines' or drawn):gsub('\n.*', '')):sub(1, 200) } }
   end
-  local lines, marks = {}, type(drawn.marks) == 'table' and drawn.marks or {}
+  local lines, marks = {}, plain_marks(drawn.marks)
   for i, line in ipairs(drawn.lines) do lines[i] = tostring(line) end
   if #lines > M.MAX_LINES then
     local more = #lines - (M.MAX_LINES - 1)
     lines = vim.list_slice(lines, 1, M.MAX_LINES - 1)
     lines[#lines + 1] = '… ' .. more .. ' more lines'
-    marks = vim.tbl_filter(function(m) return type(m) == 'table' and type(m[1]) == 'number' and m[1] < M.MAX_LINES end, marks)
+    marks = vim.tbl_filter(function(m) return m[1] < M.MAX_LINES end, marks)
   end
   local items, refs, keys = {}, {}, {}
   for i, item in ipairs(type(drawn.items) == 'table' and drawn.items or {}) do
     if i > M.MAX_ITEMS then break end
     refs[i], keys[i] = item.ref, tostring(item.key or i):sub(1, 120)
-    items[i] = { key = keys[i], kind = item.kind == 'row' and 'row' or 'box', line = item.line, name_col = item.name_col, x = item.x,
-      w = item.w, spans = item.spans, centre = item.centre == true, name = tostring(item.name or ''):sub(1, 200), mark = cut(item.mark, 16),
+    items[i] = { key = keys[i], kind = item.kind == 'row' and 'row' or 'box', line = num(item.line), name_col = num(item.name_col), x = num(item.x),
+      w = num(item.w), spans = plain_spans(item.spans), centre = item.centre == true, name = tostring(item.name or ''):sub(1, 200), mark = cut(item.mark, 16),
       strip = type(item.strip) == 'table' and { cut(item.strip[1], 400) or '', cut(item.strip[2], 400) or '' } or nil }
   end
   return { type = 'view.set', id = view.id, kind = view.kind, surface = kind.surface, title = cut(drawn.title, 200) or kind.title,
     state = cut(drawn.state, 200) or '', lines = lines, marks = marks, hl = definitions(drawn.hl), items = items,
-    footer = type(drawn.footer) == 'table' and drawn.footer or {}, strip = type(drawn.strip) == 'number' and drawn.strip or nil,
-    news = drawn.news == true }, refs, keys
+    footer = plain_footer(drawn.footer), strip = num(drawn.strip), news = drawn.news == true }, refs, keys
 end
 
 -- Sends a view as it is now, one per view every M.GAP_MS at most (the last state wins). A new generation only when its
@@ -374,7 +417,7 @@ function M.redraw(view)
     view.gen, view.drawing = H.gen, drawing
   end
   view.refs, view.count = refs, #msg.items
-  msg.gen, msg.select, msg.front = view.gen, view.select, view.front == true
+  msg.gen, msg.select, msg.front = view.gen, cut(view.select, 120), view.front == true
   if send(msg) then view.select, view.front, view.news = nil, nil, nil end
 end
 -- Every view sent again in the order of the pop-out's tabs (a pop-out makes a view's tab when it first arrives, so
@@ -391,7 +434,7 @@ end
 
 -- ─── the editor moving, for the views that follow it ───────────────────────────────────────────────────────────
 -- One set of autocommands while any view is out, each event given to every view's kind (follow).
-local function kind_failed(view, err)
+kind_failed = function(view, err)
   if view.failed then return end
   view.failed = true   -- said once, not on every cursor move
   tell('The ' .. (kinds[view.kind] and kinds[view.kind].title or tostring(view.kind)) .. ' view failed: ' .. tostring(err):sub(1, 200), WARN)
@@ -441,18 +484,21 @@ function M.clear(id)
   send({ type = 'view.clear', id = id })
 end
 
--- The pop-out is gone: nothing more is sent and nothing follows the cursor for it. opts.back: it went on its own (it
--- closed or crashed, or its screen was unplugged): its pinned views come back to the editor as splits (their kind's
--- attach), the following ones stop, and one notice says so; opts.all: it never showed them (it did not start), so
--- every view comes back. Her q on its last view brings nothing back.
+-- The pop-out is gone, or let go: nothing more is sent and nothing follows the cursor for it. One still running (q on
+-- what is its last view here, a fold) is told why and its channel closed, so it never stays with every key refused.
+-- opts.back: it went on its own (it closed or crashed, or its screen was unplugged): its pinned views come back to the
+-- editor as splits (their kind's attach), the following ones stop, and one notice says so; opts.all: it never showed
+-- them (it did not start), so every view comes back. Her q on its last view brings nothing back.
 function M.forget(why, opts)
   opts = opts or {}
   -- A write of the views still on its way is written now, while they are here: a fold right after a change keeps them.
   M.flush_layout()
-  local had = H.chan ~= nil or next(H.views) ~= nil
+  local chan = H.chan
+  local had = chan ~= nil or next(H.views) ~= nil
   H.chan, H.pid, H.kitty, H.stalled, H.opening, H.front, H.screen, H.prefer = nil, nil, nil, false, nil, nil, nil, nil
   if H.timer then H.timer:stop() end
   unwatch_screens()
+  let_go(chan, why)
   local views, order = H.views, H.order
   H.views, H.order, H.history = {}, {}, { steps = {}, at = 0 }
   local back = {}
@@ -843,13 +889,8 @@ function M.screens_changed()
     M.fold(gone .. ' was unplugged')
   end)
 end
--- The pop-out closes, its pinned views back here as splits; why: the one notice.
-function M.fold(why)
-  local chan = H.chan
-  send({ type = 'bye', why = sentence(why) })
-  M.forget(sentence(why), { back = true })
-  if chan then pcall(vim.fn.chanclose, chan) end
-end
+-- The pop-out closes, its pinned views back here as splits; why: the one notice, which the pop-out shows too.
+function M.fold(why) M.forget(sentence(why), { back = true }) end
 watch_screens = function()
   if H.watch then return end
   local file = M.layout_file()
@@ -935,7 +976,7 @@ local function subscribe(msg)
   if info.mode ~= 'rpc' or client.name ~= M.CLASS or attributes.pid ~= tostring(msg.pid) then
     return refuse('a pop-out subscribes on its own channel, named with nvim_set_client_info first')
   end
-  if H.chan and H.chan ~= msg.chan then send({ type = 'bye', why = 'Another pop-out took over.' }) end
+  if H.chan and H.chan ~= msg.chan then let_go(H.chan, 'Another pop-out took over.') end
   local again = H.chan == msg.chan
   H.chan, H.pid, H.width, H.opening = msg.chan, msg.pid, msg.width or H.width, nil
   -- The kitty whose exit ends it is the one it runs in (one this editor did not start has none watched: the pings find

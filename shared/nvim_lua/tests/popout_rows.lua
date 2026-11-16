@@ -37,7 +37,10 @@ local function render(view, width)
   vim.list_extend(lines, { '', ' ╭──' })
   local strip = #lines + 1
   vim.list_extend(lines, { ' │', ' │', ' ╰──' })
-  return { title = 'rows', state = view.pinned and 'PINNED' or 'following', lines = lines, marks = { { 3, 0, 4, 'DeskCallGraphHead' } },
+  local marks = { { 3, 0, 4, 'DeskCallGraphHead' } }
+  -- T.named_mark: a mark with its priority written by name, as a kind might write A4's field.
+  if T.named_mark then marks[#marks + 1] = { 4, 0, 3, 'DeskCallGraphHead', priority = 5 } end
+  return { title = 'rows', state = view.pinned and 'PINNED' or 'following', lines = lines, marks = marks,
     hl = { 'DeskCallGraphHead' }, items = items, strip = strip, footer = { { ids = { 'rowstest.open' }, words = 'open' } } }
 end
 

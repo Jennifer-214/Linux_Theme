@@ -745,6 +745,31 @@ do
   host("require('desk.callgraph').panel_close()")
 end
 
+-- ─── the editor never drops a pop-out that is still there ────────────────────────────────────────────────────────
+do
+  -- A kind's mark with a field written by name could not be sent as it was: it goes as plain data, and the pop-out is
+  -- never taken for closed.
+  host("_G.heard = {}; _G.rows_test.named_mark = true; require('desk.popout').show('rows', require('desk.actions').context())")
+  -- One drawing per view every 50 ms: this one may go a moment later.
+  wait(3000, function() return host("local v = require('desk.popout').host.views.rows; return not (v and v.queued)") end)
+  eq({ host("return require('desk.popout').host.chan ~= nil"), heard() }, { true, {} },
+    'a kind with a mark written by name: the pop-out is kept, nothing said')
+  ok(wait(3000, function()
+    return pop("return #vim.api.nvim_buf_get_extmarks(0, vim.api.nvim_create_namespace('desk_popout'), { 3, 0 }, { 3, -1 }, {})") > 0
+  end), '… and that mark is drawn there')
+  host("_G.rows_test.named_mark = nil")
+  -- The editor counts one view, the pop-out two (a clear still on its way): q there on the one the editor has is its
+  -- last, and the pop-out is told so: never left on screen with every key refused.
+  host("require('desk.popout').show('graph', require('desk.actions').context())")
+  ok(wait(3000, function() return state().tabs == 2 and state().shown == 'graph' end), 'two views there, the graph in front')
+  host([[local P = require('desk.popout'); P.host.views.rows = nil
+    for i, id in ipairs(P.host.order) do if id == 'rows' then table.remove(P.host.order, i) end end]])
+  press('q')
+  ok(wait(5000, function() return host("return require('desk.popout').host.chan") == vim.NIL end),
+    'q on the view the editor counts last: the editor forgets the pop-out')
+  ok(wait(5000, function() return not exists(psock) end), '… and the pop-out, told so, quits')
+end
+
 vim.rpcnotify(h, 'nvim_command', 'qa!')
 ok(third:wait(5000).code == 0, 'the third editor closes')
 ok(wait(10000, function() return not exists(psock) end), '… and its pop-out quits')
