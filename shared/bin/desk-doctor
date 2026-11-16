@@ -821,10 +821,18 @@ check_security() {
         fi
     fi
 
-    # endlessh tarpit — runs on :22 to slow SSH probes. Optional.
+    # endlessh tarpit — meant for :22 once sshd has moved off it. Optional. Running is not the same as on :22: the AUR
+    # build read its own config (Port 2222) until the installer gave its unit a drop-in.
     if systemctl list-unit-files 2>/dev/null | grep -q '^endlessh\.service'; then
         if systemctl is-active --quiet endlessh 2>/dev/null; then
-            ok "endlessh tarpit active on :22"
+            if (( ! _have_sudo )); then
+                ok "endlessh tarpit active (its port — skipped, no sudo)"
+            elif sudo -n ss -tlnpH 2>/dev/null | awk '$4 ~ /:22$/' | grep -q '"endlessh"'; then
+                ok "endlessh tarpit active on :22"
+            else
+                warn "endlessh active, but not on :22"
+                hint "fix: install.sh --only endlessh   (it then reads the installer's /etc/endlessh/config)"
+            fi
         else
             warn "endlessh installed but not active"
             hint "fix: sudo systemctl enable --now endlessh"

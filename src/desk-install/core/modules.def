@@ -107,7 +107,7 @@ DESK_MODULE_FULL( keyring_full,  run_keyring_full,       "--keyring-full",     "
                  /*root*/ false, /*gfx*/ false, /*net*/ false,
                  state::check_keyring_full )
 //   endlessh — AUR install + system systemd unit. Both root + network.
-DESK_MODULE_FULL( endlessh,      run_endlessh,           "--endlessh",         "SSH tarpit on port 22 (after --ssh-harden moves real sshd)",  false,
+DESK_MODULE_FULL( endlessh,      run_endlessh,           "--endlessh",         "SSH tarpit on port 22 (once --ssh-harden has moved sshd off it)",  false,
                  /*root*/ true, /*gfx*/ false, /*net*/ true,
                  state::check_endlessh )
 DESK_MODULE( browser_hardening, run_browser_hardening,  "--browser-harden",   "arkenfox user.js + firejail Firefox wrapping",                true )

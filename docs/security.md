@@ -49,7 +49,7 @@ tab and Home pages. Delete an override line to restore arkenfox's stricter setti
 
 ## Secrets and authentication
 
-Opt-in via dedicated flags: `--vault` (mlock-protected secret store), `--endlessh` (SSH tarpit on `:22`, real sshd moved to high port), `--mac-random` (NetworkManager randomization), `--fprint` + `--fprint-pam` (fingerprint + safe PAM splice into `system-local-login` only; sudo fingerprint authentication has its own `--sudo-fingerprint` module).
+Opt-in via dedicated flags: `--vault` (mlock-protected secret store), `--endlessh` (SSH tarpit on `:22`, only once sshd listens elsewhere), `--mac-random` (NetworkManager randomization), `--fprint` + `--fprint-pam` (fingerprint + safe PAM splice into `system-local-login` only; sudo fingerprint authentication has its own `--sudo-fingerprint` module).
 
 ## Everyday commands
 

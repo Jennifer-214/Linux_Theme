@@ -1,7 +1,7 @@
 // modules/ssh_follow.hpp — what follows sshd's port (ssh_port::listen_ports). UFW rate-limits every port sshd listens
 // on and closes the ports it left; 22 is open, as a plain allow, only while endlessh holds it. fail2ban's [sshd] jail
-// bans on sshd's ports (`port = ssh` covered only 22, so bans never reached a moved sshd).
-// The plans and the text edit are pure, pinned by tests/test_ssh_follow; ssh_follow.cpp runs them.
+// bans on sshd's ports (`port = ssh` covered only 22, so bans never reached a moved sshd). endlessh takes 22 only when
+// sshd is elsewhere. The plans and the text edit are pure, pinned by tests/test_ssh_follow; ssh_follow.cpp runs them.
 #pragma once
 
 #include "ssh_port.hpp"
@@ -154,6 +154,35 @@ inline std::optional<std::string> jail_with_ports(const std::string& jail, const
     }
     if (!found || !changed) return std::nullopt;
     return out;
+}
+
+inline constexpr const char* kEndlesshConf = "/etc/endlessh/config";
+inline constexpr const char* kEndlesshDropIn = "/etc/systemd/system/endlessh.service.d/foxml.conf";
+
+// Why endlessh may not take 22 now; "" when it may. sshd's ports unknown, sshd on 22, or 22 held by another program.
+inline std::string endlessh_blocked(const std::optional<std::vector<int>>& sshd_ports,
+                                    const std::vector<std::string>& on_22) {
+    if (!sshd_ports) return "couldn't read sshd's port (`sudo sshd -T` failed), so 22 is not taken blind";
+    if (has(*sshd_ports, 22)) {
+        if (sshd_ports->size() > 1)
+            return "sshd still listens on 22, kept for the SSH session it was moved from: re-run --ssh-harden from a "
+                   "session on " + std::to_string(sshd_ports->front()) + " (or the console), then --endlessh";
+        return "sshd listens on 22, and the tarpit would take its port: move sshd first (--ssh-harden)";
+    }
+    for (const auto& who : on_22)
+        if (who != "endlessh") return "port 22 is in use" + (who.empty() ? std::string() : " by " + who);
+    return {};
+}
+
+// endlessh.service run with the installer's config. The AUR builds read /etc/endlessh.conf, a package file an upgrade
+// puts back (Port 2222), so the /etc/endlessh/config this module wrote was never read and the tarpit sat on 2222.
+// PrivateUsers=false: upstream's unit sets it true, which keeps a root service off ports below 1024.
+inline std::string endlessh_dropin(const std::string& binary) {
+    return std::string("# foxml-managed — endlessh reads the installer's ") + kEndlesshConf + " (Port 22).\n"
+           "[Service]\n"
+           "ExecStart=\n"
+           "ExecStart=" + binary + " -f " + kEndlesshConf + "\n"
+           "PrivateUsers=false\n";
 }
 
 // ssh_follow.cpp — run them, reading sshd's state, this session's port and endlessh's hold on 22 live, and say what

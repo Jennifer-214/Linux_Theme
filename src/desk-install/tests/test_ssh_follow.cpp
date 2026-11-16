@@ -1,6 +1,6 @@
 // What follows sshd's port (modules/ssh_follow.hpp), pinned without a system call. Found on a laptop (2026-11-16):
 // sshd on a custom port with a plain allow rule, and a `limit ssh` on 22 where nothing listened; fail2ban's jail
-// banned on `port = ssh`, so a ban never covered sshd's port.
+// banned on `port = ssh`, so a ban never covered sshd's port; endlessh, told Port 22, sat on 2222 behind no rule.
 #include "../modules/ssh_follow.hpp"
 
 #include <cstdio>
@@ -83,6 +83,21 @@ int main() {
                != std::string::npos, "installing over SSH: the admin's own address is never banned");
     expect(jail_local("4022", "1.2.3.4;id 5 6 7").find("ignoreip = 127.0.0.1/8 ::1\n") != std::string::npos,
            "junk in SSH_CONNECTION never reaches the file");
+
+    // endlessh
+    expect(endlessh_blocked(std::vector<int>{4022}, {}).empty(), "sshd on 4022, 22 free: endlessh may take it");
+    expect(endlessh_blocked(std::vector<int>{4022}, {"endlessh"}).empty(), "endlessh already holds 22: fine");
+    expect(endlessh_blocked(std::vector<int>{22}, {"sshd"}).find("sshd listens on 22") != std::string::npos,
+           "sshd on 22: skipped, and says why");
+    expect(endlessh_blocked(std::vector<int>{4022, 22}, {"sshd"}).find("kept for the SSH session") != std::string::npos,
+           "sshd keeping 22 for a session: says how to drop it");
+    expect(endlessh_blocked(std::nullopt, {}).find("sshd -T") != std::string::npos, "sshd's port unknown: not blind");
+    expect(endlessh_blocked(std::vector<int>{4022}, {"cowrie"}).find("in use by cowrie") != std::string::npos,
+           "22 held by another program");
+    expect(endlessh_blocked(std::vector<int>{4022}, {""}).find("in use") != std::string::npos, "an unknown owner counts");
+    const auto dropin = endlessh_dropin("/usr/bin/endlessh");
+    expect(dropin.find("ExecStart=\nExecStart=/usr/bin/endlessh -f /etc/endlessh/config\n") != std::string::npos,
+           "the unit runs endlessh on the installer's config, not the package's /etc/endlessh.conf");
 
     if (failures == 0) std::printf("test_ssh_follow: ok\n");
     return failures == 0 ? 0 : 1;
