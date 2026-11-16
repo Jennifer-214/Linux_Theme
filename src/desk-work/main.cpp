@@ -557,11 +557,17 @@ long long failed_before(const J& job) {
     return n;
 }
 // said: what the adapter reported besides the exit. "unknown" (why): it lost track of the command (moved to the
-// background, restarted), so the end is not known and the run is never a pass.
+// background, restarted), so the end is not known and the run is never a pass. "output" {complete, full, why}: the
+// adapter's own truncation facts (it showed only part of the output, the rest maybe kept at full).
 bool finish(J& j, int code, bool truncated, const J& said = J::object()) {
     if (!j.is_object()) return false;
     const bool unknown = said.contains("unknown");
     j["ended"] = now(); j["exit"] = unknown ? J() : J(code); j["truncated"] = truncated;
+    const auto told = said.value("output", J::object());
+    const bool complete = !truncated && told.value("complete", true);
+    const auto why = !str(told, "why").empty() ? str(told, "why") : truncated ? "only the first 4 MiB were kept"
+                   : complete ? "" : "the adapter showed only part of the output";
+    j["output"] = J{{"complete", complete}, {"full", str(told, "full").empty() ? J() : J(str(told, "full"))}, {"why", why}};
     j["failedBefore"] = failed_before(j);
     // A declared tool's run is its answer, not a test run, and its figures are the ones it gives; toolio's exit 1 is an
     // answer with findings (docs/desk-tools.md).
@@ -576,7 +582,7 @@ bool finish(J& j, int code, bool truncated, const J& said = J::object()) {
     j["metrics"] = tool ? tool_figures(j) : extract_metrics(log, str(j, "root"), j["tests"]);
     j["testRun"] = !tool && (str(j, "kind") == "tests" || !j["tests"]["passed"].is_null() || !j["tests"]["failed"].is_null());
     if (!same_source(j["snapshot"], snapshot(str(j, "root")))) j["changedDuringRun"] = true;
-    if (unknown || j.value("changedDuringRun", false) || truncated || num(j["tests"], "failed") > 0) j["baselineEligible"] = false;
+    if (unknown || !complete || j.value("changedDuringRun", false) || num(j["tests"], "failed") > 0) j["baselineEligible"] = false;
     else j["baselineEligible"] = j["testRun"].get<bool>() && code == 0 && num(j["tests"], "passed") > 0 && j["snapshot"].value("complete", false);
     if (!save_run(run_dir(str(j, "id")), j)) return false;
     return true;
@@ -1639,6 +1645,7 @@ int dispatch(int argc, char** argv) {
                          "desk-work jobs | overview [--root DIR...] | notebook --root DIR | worktrees --root DIR\n"
                          "desk-work begin --root DIR --pid PID|parent --command TEXT [--session ID --title TEXT --adapter claude|pi|shell --instance TOKEN]\n"
                          "desk-work finish --id RUN --exit N | --state unknown [--why TEXT] [--output - --instance TOKEN --pid PID]\n"
+                         "                 [--output-complete yes|no --output-full PATH --output-why TEXT]\n"
                          "desk-work task-add --root DIR --text TEXT | task-toggle --root DIR --id ID [--done yes]\n"
                          "desk-work tests --root DIR | compare --id RUN | metrics --root DIR [--job RUN] | metrics-parse --root DIR < LOG | reviewed --root DIR --sha SHA\n"
                          "desk-work plan|plan-pin --root DIR --session ID [--file PLAN.md --step TEXT]\n"
@@ -1781,6 +1788,12 @@ int dispatch(int argc, char** argv) {
             const bool unknown = opts["--state"] == "unknown";
             J said = J::object();
             if (unknown) said["unknown"] = clean(opts["--why"].empty() ? "the adapter lost track of the command" : opts["--why"]).substr(0, 300);
+            // The adapter's truncation facts: whether what it hands over is the whole output, and where the rest is.
+            const auto whole = opts["--output-complete"], full = opts["--output-full"];
+            if ((!whole.empty() && whole != "yes" && whole != "no")
+                || (!full.empty() && (full.front() != '/' || full.size() > 4096 || full.find('\n') != full.npos))) return 2;
+            if (!whole.empty() || !full.empty())
+                said["output"] = J{{"complete", whole != "no"}, {"full", full}, {"why", clean(opts["--output-why"]).substr(0, 300)}};
             auto j = load_run(id); const int code = unknown && opts["--exit"].empty() ? -1 : std::stoi(opts["--exit"]);
             const auto instance = opts["--instance"];
             if (!instance.empty() && !instance_ok(instance)) return 2;

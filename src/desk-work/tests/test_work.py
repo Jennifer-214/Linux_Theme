@@ -801,7 +801,7 @@ class Work(unittest.TestCase):
         p = subprocess.run([str(BIN), 'finish', '--id', run, '--output', '-', *map(str, args)], input=output,
                            cwd=self.repo, env=self.env, capture_output=True, text=True, timeout=30)
         self.assertEqual(p.returncode, code, p.stdout + p.stderr)
-        return json.loads(p.stdout)
+        return json.loads(p.stdout) if p.stdout.strip() else None
 
     def test_a_run_whose_end_is_not_known_is_never_a_pass(self):
         run = self.invoke('begin', '--root', self.repo, '--session', 's', '--pid', 'parent', '--command', 'make test').strip()
@@ -813,6 +813,22 @@ class Work(unittest.TestCase):
         later = self.invoke('begin', '--root', self.repo, '--session', 's', '--pid', 'parent', '--command', 'make test').strip()
         self.assertEqual(self.latest()['baseline'], '', 'a run whose end was not known is no one\'s baseline')
         self.assertEqual(self.finished(later, '--state', 'unknown')['state'], 'unknown', 'no exit is needed')
+
+    def test_a_pass_on_partial_output_is_recorded_as_partial_and_is_no_baseline(self):
+        begin = ('begin', '--root', self.repo, '--session', 's', '--pid', 'parent', '--command', 'make test')
+        run = self.invoke(*begin).strip()
+        full = self.dir / 'full output.txt'
+        self.finished(run, '--exit', '0', '--output-complete', 'no', '--output-full', full,
+                      '--output-why', 'the tool result was cut at 50 KB', output='3 passed\n')
+        j = self.latest()
+        self.assertEqual((j['state'], j['baselineEligible']), ('passed', False))
+        self.assertEqual(j['output'], {'complete': False, 'full': str(full), 'why': 'the tool result was cut at 50 KB'})
+        self.invoke(*begin)
+        self.assertEqual(self.latest()['baseline'], '', 'a pass seen only in part is no baseline')
+        self.finished(self.latest()['id'], '--exit', '0', output='3 passed\n')
+        self.assertEqual((self.latest()['output'], self.latest()['baselineEligible']),
+                         ({'complete': True, 'full': None, 'why': ''}, True))
+        self.finished(self.invoke(*begin).strip(), '--exit', '0', '--output-full', 'relative/path', code=2)
 
     def test_newer_engine_prompt_state_overrides_registry_activity_without_losing_observed_files(self):
         self.data('agent-update', '--root', self.repo, '--agent', 'claude', '--session', 'needs-user', '--state', 'working',
