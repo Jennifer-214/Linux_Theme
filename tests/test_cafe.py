@@ -206,6 +206,41 @@ class Dispatcher(unittest.TestCase):
             self.assertEqual((got["nmcli"], got["ufw"], got["dispatch"]), ([], [], []), uuid)
         self.assert_nothing_planted_ran()
 
+    def generate(self, *args):
+        """The dispatcher text _dispatcher writes for these arguments (user and home first)."""
+        made = subprocess.run([BASH, "-c", 'source "$1"; printf "%s\\n" "$CONF"; shift; _dispatcher "$@"', "_", str(CAFE), *args],
+                              env={"USER": ME, "HOME": str(self.home), "PATH": "/usr/bin:/bin"},
+                              capture_output=True, text=True, timeout=30)
+        self.assertEqual(made.returncode, 0, made.stderr)
+        return made.stdout.split("\n", 1)
+
+    def test_the_real_dispatcher_reads_roots_file_with_system_programs(self):
+        # The other tests point the dispatcher at their own settings and stand-ins; this is what --setup writes.
+        conf, text = self.generate(ME, str(self.home))
+        self.assertEqual(conf, "/etc/foxml/cafe.conf", "desk cafe keeps the settings in root's folder")
+        self.assertIn("PATH=/usr/sbin:/usr/bin:/sbin:/bin\nexport PATH\nCONF=/etc/foxml/cafe.conf\n", text)
+        self.assertEqual(text.count(str(self.home)), 1, "the home folder is named once, for the alert run as the user")
+        self.assertIn(f"DISPATCH={self.home}/.local/bin/desk-dispatch\n", text)
+
+    def test_settings_another_user_owns_are_ignored(self):
+        # /etc/passwd: a plain file in a folder only its owner can change, owned by root, not by the test's user, who
+        # runs the dispatcher here. Refused for its owner, before a line of it is read.
+        other = Path("/etc/passwd")
+        if os.getuid() == 0 or other.stat().st_uid == os.getuid():
+            self.skipTest("needs a file another user owns")
+        self.dispatcher.write_text(self.generate(ME, str(self.home), str(other), str(self.bin))[1])
+        got = self.run_dispatcher("Corner Cafe")
+        self.assertEqual((got["ufw"], got["dispatch"]), ([], []))
+        self.assertEqual(got["logger"], [f"-t foxml-cafe -- ignored {other}: it is not a file only root can change"])
+
+    def test_a_trusted_name_is_matched_whole_not_as_a_pattern(self):
+        self.settings("AUTO_LOCKDOWN=yes\nTRUSTED_SSID=home*\nTRUSTED_SSID=[Cc]afe\nTRUSTED_SSID=?\n")
+        for ssid in ("home-evil", "Cafe", "x"):
+            with self.subTest(ssid=ssid):
+                got = self.run_dispatcher(ssid)
+                self.assertEqual(got["ufw"], LOCKDOWN, "a name that only fits a trusted one as a pattern is untrusted")
+        self.assertEqual(self.run_dispatcher("home*")["ufw"], [], "the trusted name itself")
+
     def test_a_failed_allow_rule_never_denies_outgoing(self):
         self.settings(VALID)
         (self.work / "ufw-fails").write_text("allow out 443/tcp")
@@ -284,6 +319,19 @@ class Setup(unittest.TestCase):
         self.assertEqual(done.returncode, 1)
         self.assertIn("café mode is off", done.stderr)
         self.assertEqual(list(self.nm.iterdir()), [], "the old dispatcher and the temporary are gone")
+
+    def test_setup_checks_what_it_installed(self):
+        # Root's copies are compared with what was meant: one that came out loose, or different, leaves café mode off.
+        for case, sudo in (
+                ("loose", 'if [ "$1 $2 $3" = "install -m 0644" ]; then shift 3; exec install -m 0666 "$@"; fi\nexec "$@"'),
+                ("changed", 'if [ "$1 $2" = "mv -f" ] && [ "${3##*/}" = .cafe.conf.new ]; then\n'
+                            '  "$@" && echo TRUSTED_SSID=evil >> "$4"; exit\nfi\nexec "$@"')):
+            with self.subTest(case=case):
+                script(self.bin / "sudo", sudo)
+                done = self.cafe("_setup", "home-wifi\nny")
+                self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+                self.assertIn("café mode is off", done.stderr)
+                self.assertFalse(self.dispatcher.exists(), "no dispatcher is left to read it")
 
     def test_typed_ssids(self):
         ok = self.cafe('_split_ssids "home-wifi \'work guest\' \\"dorm A\\" Café"; printf "<%s>" "${SSIDS[@]}"')
