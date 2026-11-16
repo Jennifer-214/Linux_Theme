@@ -77,16 +77,40 @@ act_status() {
     echo "  log:      journalctl --user -u $SERVICE_NAME --no-pager -n 30"
 }
 
+# usbguard writes each policy decision to its journal as one audit line:
+#   uid=0 pid=779 result='SUCCESS' device.system_name='/devices/…/usb3/3-12' target.new='block'
+#   device.rule='block id 2109:0103 serial "" name "USB2.0 BILLBOARD" … via-port "3-12" …' target.old='block'
+#   type='Policy.Device.Update'
+# A device it blocks or rejects has target.new='block' or 'reject'. Only that field counts: the old match, BLOCK or
+# REJECT anywhere in capitals, never met a real line, and the word can sit in a device name or a Device.Insert rule.
+_blocked() {
+    local re="(^|[[:space:]])target\.new='(block|reject)'([[:space:]]|$)"
+    [[ "${1,,}" =~ $re ]]
+}
+
+# What usbguard did and to which device, from the line's own fields; the start of the line when they are missing.
+_describe() {
+    local line="$1" what="blocked" id="" name="" port=""
+    local re_id="device\.rule='[a-z]+ id ([^ ]+)" re_name=' name "([^"]*)"' re_port='via-port "([^"]*)"'
+    [[ "${line,,}" == *"target.new='reject'"* ]] && what="rejected"
+    [[ "$line" =~ $re_id ]] && id="${BASH_REMATCH[1]}"
+    [[ "$line" =~ $re_name ]] && name="${BASH_REMATCH[1]}"
+    [[ "$line" =~ $re_port ]] && port="${BASH_REMATCH[1]}"
+    if [[ -n "$id" ]]; then
+        printf 'usbguard %s %s "%s" on port %s' "$what" "$id" "$name" "${port:-?}"
+    else
+        printf '%s' "${line:0:200}"
+    fi
+}
+
 act_run() {
-    # Stream the usbguard journal. usbguard logs each policy decision
-    # with "BLOCK" / "REJECT" / "ALLOW" lines. We only care about
-    # BLOCK/REJECT when the screen is locked.
+    # Stream the usbguard journal; alert on a block or reject while the screen is locked.
     local last_alert=0
     local ALERT_COOLDOWN=10
 
     journalctl --no-pager --since=now -u usbguard.service -f -o cat 2>/dev/null \
         | while read -r line; do
-            if [[ "$line" =~ (BLOCK|REJECT) ]]; then
+            if _blocked "$line"; then
                 if _is_locked; then
                     local now
                     now=$(date +%s)
@@ -95,9 +119,8 @@ act_run() {
                     fi
                     last_alert=$now
 
-                    # Strip leading log noise; trim to ~200 chars.
                     local msg
-                    msg=$(printf '%s' "$line" | head -c 200)
+                    msg=$(_describe "$line")
                     echo "$(date -Iseconds) $msg" >&2
                     desk-dispatch "USB blocked (screen LOCKED)" "$msg" 2>/dev/null \
                         || notify-send -u critical -t 10000 "USB blocked (locked)" "$msg"
@@ -120,8 +143,9 @@ desk-bouncer — USB-block alerts while screen locked
   desk-bouncer run           run in foreground
 
 Coverage:
-  fires desk-dispatch "USB blocked (screen LOCKED)" on every usbguard
-  BLOCK/REJECT line that fires while hyprlock/swaylock/i3lock is up.
+  fires desk-dispatch "USB blocked (screen LOCKED)" when usbguard blocks
+  or rejects a device (target.new='block'|'reject' in its journal)
+  while hyprlock/swaylock/i3lock is up.
   Falls back to notify-send if desk-dispatch isn't configured.
 
   Does NOT auto-shutdown, take webcam photos, or play alarms. Detection
