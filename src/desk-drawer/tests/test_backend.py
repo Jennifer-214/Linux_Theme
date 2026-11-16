@@ -811,6 +811,24 @@ class BackendTests(unittest.TestCase):
         self.assertFalse(volume.get("enabled", True))
         self.assertNotEqual(volume.get("value"), 0)
 
+    def test_no_sound_card_is_a_calm_note_not_a_failure(self):
+        # A VM or a headless box: no card, so no sound server to read. The pages open and say so (desk theme check's D4
+        # failed every install in the test VM on this); with a card, a silent server stays a failure (the test above).
+        proc = self.root / "proc"
+        (proc / "asound").mkdir(parents=True)
+        (proc / "asound/cards").write_text("--- no soundcards ---\n")
+        self.env.update(FOXML_PROC=str(proc))
+        self.state["commands"] = {"wpctl": {"exit": 1, "stderr": "Could not connect to PipeWire\n"},
+                                  "pactl": {"exit": 1, "stderr": "Connection failure: Connection refused\n"}}
+        sound = self.invoke("view", "sound")
+        self.assertTrue(sound["ok"], sound.get("error"))
+        volume = next(x for x in sound["items"] if x["id"] == "volume")
+        self.assertFalse(volume.get("enabled", True))
+        self.assertEqual(volume["detail"], "No sound card on this machine")
+        outputs = self.invoke("view", "audio-outputs")
+        self.assertTrue(outputs["ok"], outputs.get("error"))
+        self.assertEqual([x["label"] for x in outputs["items"]], ["No sound card on this machine"])
+
     def test_command_failure_returns_json_error(self):
         argv = ["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "55%"]
         self.state["exact"] = {"\x1f".join(argv): {"exit": 1, "stderr": "PipeWire rejected the operation\n"}}

@@ -353,6 +353,12 @@ bool read_config(const fs::path& file, Json& config, std::string& error) {
 }
 
 struct State { bool ok = false; double value = 0; bool checked = false; std::string label; };
+// A machine with no sound card (a VM, a headless box) has nothing for the sound controls to read: that is a calm
+// note. A card with no sound server answering stays a failure to see.
+bool no_sound_card() {
+    const auto cards = read(fs::path(env("FOXML_PROC", "/proc")) / "asound/cards");
+    return cards.empty() || cards.find("no soundcards") != std::string::npos;
+}
 State audio_state(bool microphone = false) {
     std::string out;
     State state;
@@ -547,6 +553,12 @@ bool decorate(Json& row) {
         state.ok = state.ok && (state.label == "balanced" || state.label == "performance" || state.label == "power-saver");
     }
     if (queried) {
+        if (!state.ok && (id == "volume" || id == "volume-mute" || id == "mic-mute") && no_sound_card()) {
+            row["enabled"] = false; row.erase("value"); row.erase("checked");
+            row["detail"] = "No sound card on this machine";
+            row["disabledReason"] = "Sound controls need a sound card";
+            return true;
+        }
         if (!state.ok) {
             row["enabled"] = false; row["detail"] = "Could not read " + text(row, "label", id) + " state"; row.erase("value"); row.erase("checked"); return false;
         }
@@ -2763,7 +2775,8 @@ Json copy_screenshot(const fs::path& path) {
 std::string group_summary(const std::string& group) {
     if (group == "sound") {
         const auto state = audio_state();
-        return state.ok ? (state.checked ? "Muted · a little quiet" : state.label + " · speakers") : "Audio unavailable";
+        return state.ok ? (state.checked ? "Muted · a little quiet" : state.label + " · speakers")
+                        : no_sound_card() ? "No sound card" : "Audio unavailable";
     }
     if (group == "comfort") {
         const auto state = dnd_state();
@@ -4362,8 +4375,11 @@ Json view(const Json& config, const std::string& page, const std::string& query,
     } else if (page == "audio-outputs") {
         known = true; out["title"] = "Audio output"; Json sinks; std::string current;
         capture({"pactl", "get-default-sink"}, current);
-        if (!capture_json({"pactl", "-f", "json", "list", "sinks"}, sinks) || !sinks.is_array()) fail("Audio devices are unavailable");
-        else for (const auto& sink : sinks) {
+        if (!capture_json({"pactl", "-f", "json", "list", "sinks"}, sinks) || !sinks.is_array()) {
+            if (!no_sound_card()) fail("Audio devices are unavailable");
+            else { auto row = item("audio-none", "No sound card on this machine", "action", "Outputs appear here once there is one", "volume");
+                   row["enabled"] = false; rows.push_back(row); }
+        } else for (const auto& sink : sinks) {
             if (!sink.is_object() || text(sink, "name").empty()) continue;
             const bool selected = trim(current) == text(sink, "name");
             auto row = item("audio-output", text(sink, "description", text(sink, "name")), "action", selected ? "Current output" : "Available", "volume");
