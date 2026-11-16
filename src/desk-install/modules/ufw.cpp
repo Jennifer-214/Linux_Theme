@@ -7,7 +7,8 @@
 //
 // Tasks:
 //   1. ufw default deny incoming / allow outgoing  (idempotent re-apply).
-//   2. ufw limit ssh  if sshd is running/enabled.
+//   2. Rate-limit the ports sshd listens on (`sshd -T`, ssh_port.hpp) when sshd is running/enabled; 22 open only
+//      while endlessh holds it (ssh_follow.hpp). It used to `limit ssh`, port 22, wherever sshd was.
 //   3. Interactive port allowlist (TTY-only, --yes silently skips).
 //   4. Auto-allow the current SSH session's port to prevent lockout.
 //   5. ufw logging low + enable + systemctl enable --now ufw.
@@ -15,6 +16,8 @@
 #include "../core/context.hpp"
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
+#include "ssh_follow.hpp"
+#include "ssh_port.hpp"
 
 #include <cstdlib>
 #include <iostream>
@@ -36,6 +39,16 @@ bool systemctl_enabled(const std::string& u) {
     return sh::run({"systemctl", "is-enabled", "--quiet", u}) == 0;
 }
 
+// The firewall follows sshd: the ports it listens on rate-limited, 22 open only while sshd or endlessh holds it.
+void follow_sshd() {
+    if (const auto ports = ssh_port::configured()) {
+        ssh_follow::ufw(*ports);
+    } else if (systemctl_enabled("sshd") || systemctl_active("sshd")) {
+        sh::run({"sudo", "ufw", "limit", "22/tcp"});
+        ui::warn("couldn't read sshd's port (`sudo sshd -T` failed) — rate-limited 22, sshd's default");
+    }
+}
+
 }  // namespace
 
 void run_ufw(Context& ctx) {
@@ -43,7 +56,8 @@ void run_ufw(Context& ctx) {
 
     if (sh::dry_run()) {
         ui::substep("[dry-run] would: ufw default deny incoming, allow outgoing, "
-                    "limit ssh if sshd present, interactive port allowlist, "
+                    "limit the ports sshd listens on (sudo sshd -T) if sshd is present, "
+                    "close 22 unless sshd or the endlessh tarpit holds it, interactive port allowlist, "
                     "ufw logging low, ufw enable, systemctl enable --now ufw");
         return;
     }
@@ -65,7 +79,8 @@ void run_ufw(Context& ctx) {
     bool baseline_set = status_out.find("Default: deny (incoming)") != std::string::npos
                      && status_out.find("allow (outgoing)") != std::string::npos;
     if (active && baseline_set && systemctl_enabled("ufw") && !ctx.force_reapply) {
-        ui::skipped("UFW already active with deny-in/allow-out baseline — skipping");
+        follow_sshd();
+        ui::skipped("UFW already active with deny-in/allow-out baseline — the rest skipped");
         return;
     }
     if (active) {
@@ -77,10 +92,7 @@ void run_ufw(Context& ctx) {
     sh::run({"sudo", "ufw", "default", "deny",  "incoming"});
     sh::run({"sudo", "ufw", "default", "allow", "outgoing"});
 
-    if (systemctl_enabled("sshd") || systemctl_active("sshd")) {
-        sh::run({"sudo", "ufw", "limit", "ssh"});
-        ui::ok("sshd detected — port 22 allowed with rate-limit");
-    }
+    follow_sshd();
 
     // Interactive port allowlist.
     if (tty_in() && !ctx.assume_yes) {
@@ -117,24 +129,12 @@ void run_ufw(Context& ctx) {
         }
     }
 
-    // SSH lockout safety.
-    if (const char* conn = std::getenv("SSH_CONNECTION"); conn && *conn) {
-        std::istringstream is(conn);
-        std::string client_ip, client_port, server_ip, server_port;
-        is >> client_ip >> client_port >> server_ip >> server_port;
-        try {
-            int p = std::stoi(server_port);
-            if (p > 0 && p < 65536) {
-                // Re-stringify from the validated int — stoi accepts trailing
-                // garbage ("22; rm -rf /" → 22) and would otherwise carry that
-                // garbage straight into the shell. SSH_CONNECTION is set by
-                // sshd, but a local malicious shell could still spoof it.
-                std::string safe_port = std::to_string(p);
-                sh::run({"sudo", "ufw", "limit", safe_port + "/tcp"});
-                ui::ok("active SSH session on port " + safe_port +
-                       " — rate-limited to avoid lockout");
-            }
-        } catch (...) {}
+    // SSH lockout safety. session_port takes digits only ("22; rm -rf /" is no port): SSH_CONNECTION is set by sshd,
+    // but a local shell could spoof it.
+    if (const int p = ssh_port::session_port(std::getenv("SSH_CONNECTION")); p > 0) {
+        const std::string safe_port = std::to_string(p);
+        sh::run({"sudo", "ufw", "limit", safe_port + "/tcp"});
+        ui::ok("active SSH session on port " + safe_port + " — rate-limited to avoid lockout");
     }
 
     sh::run({"sh", "-c", "sudo ufw logging low >/dev/null 2>&1 || true"});

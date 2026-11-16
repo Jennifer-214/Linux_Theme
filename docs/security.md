@@ -11,7 +11,7 @@ kernel/userspace baseline; firewall, browser and daily audit setup also have
 their own modules.
 
 - **UFW firewall** with default-deny incoming and allowed outgoing traffic; egress filtering is opt-in through `desk sec firewall`
-- **Fail2ban** brute-force protection on sshd
+- **Fail2ban** brute-force protection on sshd, banning on the port sshd listens on
 - **Auditd** kernel honeypot rules (`foxml_honey` tag → `desk-dispatch` phone alert)
 - **USBGuard** allowlist with `desk-bouncer` alerting when blocked devices appear during screen-lock
 - **AppArmor** and kernel sysctls, alongside separate `hidepid`, `no_coredumps` and makepkg-hardening modules

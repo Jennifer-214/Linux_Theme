@@ -17,6 +17,8 @@
 #include "audit_rules.hpp"
 #include "boot_files.hpp"
 #include "iommu.hpp"
+#include "ssh_follow.hpp"
+#include "ssh_port.hpp"
 
 #include <cstdio>
 #include <cstdlib>
@@ -107,99 +109,6 @@ std::string read_file(const fs::path& p) {
 // prompt_yn deleted — use ui::ask_yn(msg, default, ctx.assume_yes) at
 // callsites. ui::ask_yn reads a single char without Enter and guards
 // against stray keypresses.
-
-// (install_ufw_baseline moved to modules/ufw.cpp — runs as the --ufw
-// module unconditionally before --secure dispatches.)
-#if 0
-void install_ufw_baseline(const Context& ctx) {
-    if (!have("ufw")) {
-        ui::warn("ufw not installed, skipping firewall baseline");
-        return;
-    }
-
-    std::string status_out;
-    sh::capture({"sudo", "ufw", "status"}, status_out);
-    bool active = status_out.find("Status: active") != std::string::npos;
-
-    if (active) {
-        ui::ok("UFW active — re-applying baseline (preserves existing rules)");
-    } else {
-        ui::substep("applying UFW baseline (deny incoming, allow outgoing)");
-        sh::run({"sh", "-c", "sudo ufw --force reset >/dev/null 2>&1 || true"});
-    }
-    sh::run({"sudo", "ufw", "default", "deny",  "incoming"});
-    sh::run({"sudo", "ufw", "default", "allow", "outgoing"});
-
-    if (systemctl_enabled("sshd") || systemctl_active("sshd")) {
-        sh::run({"sudo", "ufw", "limit", "ssh"});
-        ui::ok("sshd detected — port 22 allowed with rate-limit (limit ssh)");
-    }
-
-    // Interactive port allowlist (skipped silently in --yes / no-TTY).
-    if (tty_in() && !ctx.assume_yes) {
-        std::cout << "\n  Open additional ports? (e.g. 8080 3000/tcp 51820/udp)\n"
-                     "  Press Enter to skip, or list ports separated by spaces:\n"
-                     "  ports> " << std::flush;
-        std::string line;
-        std::getline(std::cin, line);
-        std::istringstream is(line);
-        std::string tok;
-        while (is >> tok) {
-            // Trim trailing commas.
-            while (!tok.empty() && tok.back() == ',') tok.pop_back();
-            if (tok.empty()) continue;
-            std::string num   = tok;
-            std::string proto;
-            auto slash = tok.find('/');
-            if (slash != std::string::npos) {
-                num   = tok.substr(0, slash);
-                proto = tok.substr(slash + 1);
-                if (proto != "tcp" && proto != "udp") {
-                    ui::warn("skipping '" + tok + "' — proto must be tcp or udp");
-                    continue;
-                }
-            }
-            try {
-                int n = std::stoi(num);
-                if (n < 1 || n > 65535) throw std::runtime_error("range");
-            } catch (...) {
-                ui::warn("skipping '" + tok + "' — not a valid port");
-                continue;
-            }
-            if (!proto.empty()) {
-                sh::run({"sudo", "ufw", "allow", num + "/" + proto});
-                ui::ok("allowed " + num + "/" + proto);
-            } else {
-                sh::run({"sudo", "ufw", "allow", num});
-                ui::ok("allowed " + num);
-            }
-        }
-    }
-
-    // SSH lockout safety — preserve the current SSH connection's port.
-    if (const char* conn = std::getenv("SSH_CONNECTION"); conn && *conn) {
-        std::istringstream is(conn);
-        std::string client_ip, client_port, server_ip, server_port;
-        is >> client_ip >> client_port >> server_ip >> server_port;
-        try {
-            int p = std::stoi(server_port);
-            if (p > 0 && p < 65536) {
-                sh::run({"sh", "-c",
-                         "sudo ufw limit " + server_port + "/tcp >/dev/null 2>&1 || true"});
-                ui::ok("active SSH session on port " + server_port + " — rate-limited to avoid lockout");
-            }
-        } catch (...) {}
-    }
-
-    sh::run({"sh", "-c", "sudo ufw logging low >/dev/null 2>&1 || true"});
-    sh::run({"sh", "-c", "echo y | sudo ufw enable >/dev/null"});
-    if (sh::systemctl_enable("ufw", /*user=*/false) == 0) {
-        ui::ok("UFW enabled (deny incoming + low logging)");
-    } else {
-        ui::warn("ufw enable failed — re-run with: sudo -v && desk install --full");
-    }
-}
-#endif  // install_ufw_baseline moved to modules/ufw.cpp
 
 // ════════════════════════════════════════════════════════════════════
 // install_kernel_hardening — sysctl drop-in
@@ -519,42 +428,8 @@ void install_polkit_strict() {
 // ════════════════════════════════════════════════════════════════════
 // fail2ban inline — jail.local with sshd jail
 // ════════════════════════════════════════════════════════════════════
-// Build jail.local. ignoreip starts at localhost; when we're running
-// over SSH we also whitelist the admin's own source IP, so a fumbled
-// password during the install itself can't ban them out of a headless
-// box (the sshd jail counts failures regardless of port).
-std::string fail2ban_jail_local() {
-    std::string ignore = "127.0.0.1/8 ::1";
-    if (const char* sc = std::getenv("SSH_CONNECTION"); sc && *sc) {
-        std::istringstream is(sc);
-        std::string client_ip;
-        is >> client_ip;  // SSH_CONNECTION = "<clientip> <cport> <srvip> <sport>"
-        // Only accept a plain IPv4/IPv6 literal — never let arbitrary
-        // text reach the config file.
-        if (!client_ip.empty() &&
-            client_ip.find_first_not_of("0123456789abcdefABCDEF.:") == std::string::npos) {
-            ignore += " " + client_ip;
-        }
-    }
-    static const std::string head =
-        "# foxml-managed — auto-applied by desk-install --secure.\n"
-        "# Delete this file to revert to the stock fail2ban defaults.\n"
-        "[DEFAULT]\n"
-        "bantime  = 1h\n"
-        "findtime = 10m\n"
-        "maxretry = 5\n"
-        "backend  = systemd\n"
-        "ignoreip = ";
-    static const std::string tail =
-        "\n\n"
-        "[sshd]\n"
-        "enabled  = true\n"
-        "port     = ssh\n"
-        "filter   = sshd\n"
-        "journalmatch = _SYSTEMD_UNIT=sshd.service\n";
-    return head + ignore + tail;
-}
-
+// jail.local's text is ssh_follow::jail_local (pure, tests/test_ssh_follow): its [sshd] jail bans on the ports sshd
+// listens on.
 void install_fail2ban() {
     if (!pacman_has("fail2ban")) {
         ui::warn("fail2ban package not found — run with --deps --secure");
@@ -562,12 +437,17 @@ void install_fail2ban() {
     }
     fs::path jail = "/etc/fail2ban/jail.local";
     std::string existing = read_file(jail);
+    // The jail bans on the ports sshd listens on: `port = ssh` (22) never covered a moved sshd.
+    const auto ports = ssh_port::configured();
     if (existing.find("# foxml-managed") == std::string::npos) {
-        if (!write_root_file(jail, fail2ban_jail_local(), "0644")) {
+        if (!write_root_file(jail, ssh_follow::jail_local(ports ? ssh_port::join(*ports, ",") : "ssh",
+                                                        std::getenv("SSH_CONNECTION")), "0644")) {
             ui::warn("could not write " + jail.string());
             return;
         }
         ui::ok("fail2ban jail.local written (sshd jail enabled)");
+    } else if (ports) {
+        ssh_follow::fail2ban(*ports);   // rewrites only the [sshd] port line, checked; the reload below picks it up
     }
     if (!systemctl_active("fail2ban")) {
         if (sh::systemctl_enable("fail2ban", /*user=*/false) == 0) {

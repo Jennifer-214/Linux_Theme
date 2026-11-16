@@ -10,7 +10,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 MODS = ROOT / "src/desk-install/modules"
 RED_ZONE = ["greetd", "greetd_fingerprint", "fprint", "fprint_pam", "sudo_fingerprint", "hyprlock_pam", "ufw", "security",
             "noexec_tmp", "hidepid", "iommu", "lockdown_heal", "nvidia", "perf", "boot_sync", "recovery_entry",
-            "foxml_health_boot", "ssh_harden", "ssh_port", "privacy", "pam_file", "fstab_tmp", "boot_files"]
+            "foxml_health_boot", "ssh_harden", "ssh_port", "ssh_follow", "endlessh", "privacy", "pam_file", "fstab_tmp", "boot_files"]
 fails = []
 calls = []
 for f in sorted((ROOT / "src").rglob("*.cpp")):
