@@ -1179,8 +1179,9 @@ local function ask_server(r, job, done)
   end)
   return true
 end
--- The project map (desk-work map), by name: the function's id in it, else its name, then the one of that name in
--- this file; false when this checkout has no map built (asked again after half a minute).
+-- The project map (desk-work map), by name: the function's id in it, else its name (when the one of that name is in
+-- this file), then the one of that name in this file; false when this checkout has no map built (asked again after
+-- half a minute).
 local function ask_map(r, job, done)
   local ok, map = pcall(require, 'desk.map')
   if not ok or type(map) ~= 'table' or type(map.desk_work) ~= 'function' or (map_missing[r.root] or 0) > os.time() then return false end
@@ -1192,6 +1193,10 @@ local function ask_map(r, job, done)
   local function ask(from, step)
     map.desk_work({ 'map', 'query', '--root', r.root, '--q', 'callers', '--from', from, '--depth', '1' }, function(answer, out)
       if type(answer) == 'table' and answer.ok ~= false then
+        -- By its bare name the map may know only another file's function of that name: not this one's callers.
+        if step == 2 and not (type(answer.from) == 'table' and answer.from.file == job.f.rel) then
+          return done('callers: not in the project map', { source = 'map' })
+        end
         local n = count(answer)
         return done((n == 1 and '1 caller' or n == 0 and 'no callers' or (n .. ' callers')) .. ' in the project map (by name)', { source = 'map', count = n })
       end

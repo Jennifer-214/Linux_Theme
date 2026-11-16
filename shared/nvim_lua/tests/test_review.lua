@@ -251,6 +251,29 @@ ok(vim.wait(5000, function() return #waiting() == 0 end), "every one of 30 chang
 eq(waiting(), {}, "… none is left reading callers…")
 C.close()
 
+-- ─── the project map's answer by name counts only this file's function ─────────────────────────────────────────
+-- Without a language server the map is asked by the function's id, then by its bare name; by name it may know only
+-- another file's function of that name, whose callers are not this one's.
+local froms = {}
+Map.desk_work = function(args, done)
+  local from = args[#args - 2]
+  froms[#froms + 1] = from
+  vim.schedule(function()
+    if from == "solo.lua::parse" then done({ ok = false, message = "Nothing in the map is named solo.lua::parse", candidates = {} })
+    elseif from == "parse" then
+      done({ ok = true, q = "callers", from = { id = "elsewhere.lua::parse", file = "elsewhere.lua", label = "parse" },
+        nodes = { { depth = 0 }, { depth = 1 }, { depth = 1 }, { depth = 1 } } })
+    else done({ ok = true, q = "callers", nodes = { { depth = 0 } } }) end
+  end)
+end
+C.open_review(commit({ ["solo.lua"] = { "return 1\n", "local function parse()\n  return 1\nend\nreturn parse\n" } }), root)
+enter("solo.lua")
+ok(vim.wait(3000, function() return not strip_of("parse"):find("callers…", 1, true) end), "the map answered:\n" .. strip_of("parse"))
+eq(froms, { "solo.lua::parse", "parse" }, "asked by its id, then by its bare name")
+ok(strip_of("parse"):find("callers: not in the project map", 1, true),
+  "the map's only parse is another file's, so these are not this one's callers:\n" .. strip_of("parse"))
+C.close()
+
 pcall(vim.fn.serverstop, vim.v.servername)
 vim.fn.delete(sandbox, "rf")
 print(string.format("test_review: %d passed%s", passed, failed > 0 and (", " .. failed .. " failed") or ""))
