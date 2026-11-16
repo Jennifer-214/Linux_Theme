@@ -474,6 +474,42 @@ assert(about:find('no call added or removed (by name)',1,true),'a function whose
 C.close()
 '''.replace('SHA', sha).replace('PARENT', parent).replace('SHORT', sha[:7]))
 
+    def test_the_calls_are_read_from_one_parse_of_each_copy(self):
+        sha, parent = self.calls_commit()
+        self.run_lua(self.STRIP + r'''
+C.open_review({kind='commit',sha='SHA',parent='PARENT',short='SHORT',files={root..'/calls.lua'}},root)
+local f=R.current.files[find('calls.lua')]
+assert(vim.wait(3000,function() return f.structure~=nil end),'read in the background')
+f.structure,f.symbols=nil,nil
+local real,parses=vim.treesitter.get_string_parser,0
+vim.treesitter.get_string_parser=function(...) parses=parses+1; return real(...) end
+local s=R.structure(f)
+vim.treesitter.get_string_parser=real
+assert(#s.changed==1 and parses==2,'each copy parsed once for its changed functions and their calls: '..parses..' parses')
+C.close()
+'''.replace('SHA', sha).replace('PARENT', parent).replace('SHORT', sha[:7]))
+
+    def test_a_file_too_large_to_read_its_calls_says_so(self):
+        filler = ''.join(f'local v{i} = {i}\n' for i in range(40000))
+        (self.repo / 'big.lua').write_text(filler + 'local function f()\n  return g()\nend\n')
+        self.git('add', 'big.lua')
+        self.commit('big base')
+        parent = self.git('rev-parse', 'HEAD')
+        (self.repo / 'big.lua').write_text(filler + 'local function f()\n  return h()\nend\n')
+        self.git('add', 'big.lua')
+        self.commit('big change')
+        sha = self.git('rev-parse', 'HEAD')
+        self.run_lua(self.STRIP + r'''
+C.open_review({kind='commit',sha='SHA',parent='PARENT',short='SHORT',files={root..'/big.lua'}},root)
+local f=R.current.files[find('big.lua')]
+assert(#f.right>R.STRUCTURE_MAX,'the fixture is over the size')
+assert(vim.wait(5000,function() return f.structure~=nil end),'looked at in the background')
+enter('big.lua')
+local about=strip_of('f')
+assert(about:find('calls: not read, the file is over 512 KiB',1,true),'a file too large to parse in the background says so:\n'..about)
+C.close()
+'''.replace('SHA', sha).replace('PARENT', parent).replace('SHORT', sha[:7]))
+
     def test_a_file_without_a_parser_says_what_its_calls_need(self):
         self.run_lua(self.STRIP + r'''
 C.open_review(row,root)

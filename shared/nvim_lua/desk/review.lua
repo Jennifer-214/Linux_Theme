@@ -383,7 +383,8 @@ function M.changed_symbols(file)
   end
   table.sort(result, function(a, b) return a.line < b.line end)
   file.symbols = result
-  return result
+  -- The trees it read go to M.structure (when it asks first), which reads each copy once.
+  return result, roots
 end
 
 -- ─── structure: the calls a change adds and removes, and who calls what it changed ──────────────────────────────
@@ -441,12 +442,18 @@ local function units_by_label(root, src)
   return out
 end
 -- file.structure, read once per version of the file (its signature): calls = { [function] = { added, removed } },
--- changed = the functions whose calls changed, why = what is missing when nothing could be read.
+-- changed = the functions whose calls changed, why = what is missing when nothing could be read. A copy over
+-- M.STRUCTURE_MAX is not read: one parse of it would hold the editor up, even in the background.
+M.STRUCTURE_MAX = 512 * 1024
 function M.structure(file)
   if file.structure and file.structure.signature == file.signature then return file.structure end
   local s = { signature = file.signature, calls = {}, changed = {} }
   file.structure = s
   if not file.loaded or file.error or file.binary then return s end
+  if #file.left > M.STRUCTURE_MAX or #file.right > M.STRUCTURE_MAX then
+    s.why = 'calls: not read, the file is over ' .. math.floor(M.STRUCTURE_MAX / 1024) .. ' KiB'
+    return s
+  end
   local ft = vim.filetype.match({ filename = file.rel })
   local lang = ft and vim.treesitter.language.get_lang(ft)
   local found, added = false, false
@@ -455,15 +462,20 @@ function M.structure(file)
     s.why = 'calls: requires a treesitter parser for ' .. (ft or file.rel:match('%.([^./]+)$') or 'this file')
     return s
   end
+  -- The trees changed_symbols just read, when it read them now (false: that copy did not parse); else each is read here.
+  local symbols, roots = M.changed_symbols(file)
   local units = {}
   for side, text in pairs({ before = file.left, after = file.right }) do
-    units[side] = {}
-    local ok, parser = pcall(vim.treesitter.get_string_parser, text, lang)
-    local parsed, trees = false, nil
-    if ok and parser then parsed, trees = pcall(parser.parse, parser) end
-    if parsed and trees and trees[1] then units[side] = units_by_label(trees[1]:root(), text) end
+    local root = roots and roots[side]
+    if root == nil then
+      local ok, parser = pcall(vim.treesitter.get_string_parser, text, lang)
+      local parsed, trees = false, nil
+      if ok and parser then parsed, trees = pcall(parser.parse, parser) end
+      root = parsed and trees and trees[1] and trees[1]:root() or false
+    end
+    units[side] = root and units_by_label(root, text) or {}
   end
-  for _, symbol in ipairs(M.changed_symbols(file)) do
+  for _, symbol in ipairs(symbols) do
     if symbol.kind ~= 'hunk' then
       local was, had, now, has = {}, {}, {}, {}
       if units.before[symbol.name] then was, had = calls_in(units.before[symbol.name], file.left) end
