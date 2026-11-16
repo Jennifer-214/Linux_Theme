@@ -6,14 +6,16 @@ nosudo.md). Runs the real script with stub systemctl / findmnt / fprintd-list / 
 - an unreadable or incomplete config shows "unknown", never a silent off;
 - a WireGuard interface is "present", never "up" or "connected"; a failing `ip` shows "unknown";
 - a user watcher switched on but not running is a warning, "Watcher down: …", not a quiet drop from the count;
-- SSH is "off" while sshd is stopped; running, keys-only or passwords from the drop-in, the port from desk-ssh-port."""
+- SSH is "off" while sshd is stopped; running, keys-only or passwords from the drop-in, the port from desk-ssh-port;
+- what an opt-in module would set up is off by choice until chosen (listed, not counted, not a warning)."""
 import json, os, pathlib, stat, subprocess, sys, tempfile
 
 SCRIPT = pathlib.Path(__file__).resolve().parent.parent / "shared/waybar_scripts/foxml_sentry.sh"
 fails = []
 
 
-def run(ufw_conf, ufw_default, ip_script, unreadable=False, ufw_unit_active=False, units=None, system_units=(), ssh_dropin=None):
+def run(ufw_conf, ufw_default, ip_script, unreadable=False, ufw_unit_active=False, units=None, system_units=(), ssh_dropin=None,
+        system_states=None, noexec_live=False, fstab=""):
     # the stubs must be executable: /tmp can be noexec (it is on the reference machine), so default to ~/.cache
     tmp_root = os.environ.get("FOX_TEST_TMP") or str(pathlib.Path.home() / ".cache")
     os.makedirs(tmp_root, exist_ok=True)
@@ -21,14 +23,21 @@ def run(ufw_conf, ufw_default, ip_script, unreadable=False, ufw_unit_active=Fals
         d = pathlib.Path(d); b = d / "bin"; b.mkdir()
         marker = d / "sudo-called"
         # units: {user unit: (what is-active prints, what is-enabled prints)}; system_units: system units running;
-        # every other query is a stopped unit
+        # system_states: {system unit: (is-active, is-enabled)}; every other query is a stopped unit
         systemctl = "".join(f'[[ "$*" == "--user is-active {u}" ]] && {{ echo {a}; [[ {a} == active ]]; exit; }}\n'
                             f'[[ "$*" == "--user is-enabled {u}" ]] && {{ echo {e}; [[ {e} == enabled ]]; exit; }}\n'
                             for u, (a, e) in (units or {}).items())
         systemctl += "".join(f'[[ "$*" == "is-active --quiet {u}" ]] && exit 0\n' for u in system_units)
+        systemctl += "".join(f'[[ "$*" == "is-active --quiet {u}" ]] && {{ [[ {a} == active ]]; exit; }}\n'
+                             f'[[ "$*" == "is-active {u}" ]] && {{ echo {a}; [[ {a} == active ]]; exit; }}\n'
+                             f'[[ "$*" == "is-enabled {u}" ]] && {{ echo {e}; [[ {e} == enabled ]]; exit; }}\n'
+                             for u, (a, e) in (system_states or {}).items())
         systemctl += '[[ "$*" == *" ufw" ]] && exit 0; exit 3' if ufw_unit_active else "exit 3"
+        # noexec_live: /tmp and /dev/shm are mounted noexec (findmnt shows the option); /proc never hidepid
+        findmnt = ('case "$1" in /tmp|/dev/shm) echo "$1 tmpfs tmpfs rw,nosuid,nodev,noexec"; exit 0 ;; esac; exit 1'
+                   if noexec_live else "exit 1")
         # sshd -T fails (it needs root), so desk-ssh-port reads the drop-in even where the tests run as root
-        stubs = {"systemctl": systemctl, "findmnt": "exit 1", "fprintd-list": "exit 1", "ip": ip_script,
+        stubs = {"systemctl": systemctl, "findmnt": findmnt, "fprintd-list": "exit 1", "ip": ip_script,
                  "sudo": f'touch "{marker}"; exit 1', "sshd": "exit 255"}
         for name, body in stubs.items():
             f = b / name; f.write_text("#!/usr/bin/env bash\n" + body + "\n"); f.chmod(0o755)
@@ -38,9 +47,11 @@ def run(ufw_conf, ufw_default, ip_script, unreadable=False, ufw_unit_active=Fals
         if unreadable and conf.exists(): conf.chmod(0)
         dropin = d / "sshd-dropin.conf"
         if ssh_dropin is not None: dropin.write_text(ssh_dropin)
+        # the machine's own fstab never decides a scenario: by default one with no /tmp line, as a default install has
+        (d / "fstab").write_text(fstab)
         env = dict(os.environ, PATH=f"{b}:/usr/bin:/bin", XDG_RUNTIME_DIR=str(d), XDG_DATA_HOME=str(d / "data"),
                    FOXML_SENTRY_UFW_CONF=str(conf), FOXML_SENTRY_UFW_DEFAULT=str(default), FOXML_SSH_DROPIN=str(dropin),
-                   FOXML_SENTRY_SSH_PORT=str(SCRIPT.parents[2] / "shared/bin/desk-ssh-port"))
+                   FOXML_SENTRY_SSH_PORT=str(SCRIPT.parents[2] / "shared/bin/desk-ssh-port"), FOXML_SENTRY_FSTAB=str(d / "fstab"))
         r = subprocess.run(["bash", str(SCRIPT)], capture_output=True, text=True, env=env, timeout=30)
         if conf.exists(): conf.chmod(0o644)
         try:
@@ -51,11 +62,11 @@ def run(ufw_conf, ufw_default, ip_script, unreadable=False, ufw_unit_active=Fals
 
 
 def section(tooltip, title):
-    """The lines of one tooltip section ("✓ Active protections", "◇ Configured", "? Unknown")."""
+    """The lines of one tooltip section ("✓ Active protections", "◇ Configured", "? Unknown", "○ Off by choice")."""
     lines = tooltip.replace("\\n", "\n").split("\n")
     out, on = [], False
     for ln in lines:
-        if ln.startswith(("🚨", "⚠", "✓", "◇", "?", "Click")):
+        if ln.startswith(("🚨", "⚠", "✓", "◇", "?", "○", "Click")):
             on = ln.startswith(title)
             continue
         if on and ln.strip():
@@ -200,8 +211,58 @@ for name, system_units, dropin, want in ssh_cases:
     for w in want.get("not_anywhere", []):
         if w in tip: fails.append(f"{name}: '{w}' appears in the tooltip")
 
+# Opt-in protections (2026-11-16, VM round 2: a default install's pill read "SEC 4 WARN" forever). What an opt-in module
+# would set up — noexec_tmp's /tmp and /dev/shm, perf's chrony — is off by choice until it is chosen: listed under
+# "○ Off by choice", never counted, never a warning. Chosen but not working, it warns (as a watcher switched on but
+# down does, watcher_cases); working, it counts.
+DEFAULT_FSTAB = "UUID=0a1b / ext4 rw,relatime 0 1\n"
+NOEXEC_FSTAB = DEFAULT_FSTAB + "tmpfs   /tmp        tmpfs   defaults,noexec,nosuid,nodev,size=4G  0 0\n"
+optin_cases = [
+    ("default install: noexec_tmp and perf not chosen → off, no warning", {}, False, DEFAULT_FSTAB,
+     {"off": ["noexec /tmp", "noexec /dev/shm", "Time sync (no NTP daemon)"],
+      "not_warn": ["/tmp exec allowed", "/dev/shm exec allowed", "Time sync", "chronyd"]}),
+    ("noexec_tmp chosen, mounts allow exec → warnings", {}, False, NOEXEC_FSTAB,
+     {"warn": ["/tmp exec allowed", "/dev/shm exec allowed"], "not_off": ["noexec /tmp", "noexec /dev/shm"]}),
+    ("noexec_tmp chosen and live → protections", {}, True, NOEXEC_FSTAB, {"active": ["noexec /tmp", "noexec /dev/shm"]}),
+    ("noexec live without the module → protections all the same", {}, True, DEFAULT_FSTAB,
+     {"active": ["noexec /tmp", "noexec /dev/shm"], "not_off": ["noexec /tmp"]}),
+    ("the base system's timesyncd → time sync", {"systemd-timesyncd": ("active", "enabled")}, False, DEFAULT_FSTAB,
+     {"active": ["Time sync"], "not_off": ["Time sync (no NTP daemon)"]}),
+    ("perf chosen, chrony running → time sync", {"chronyd": ("active", "enabled")}, False, DEFAULT_FSTAB, {"active": ["Time sync"]}),
+    ("perf chosen, chrony failed → a warning", {"chronyd": ("failed", "enabled")}, False, DEFAULT_FSTAB,
+     {"warn": ["Time sync down: chronyd failed"], "not_off": ["Time sync (no NTP daemon)"], "not_active": ["Time sync"]}),
+]
+for name, states, noexec_live, fstab, want in optin_cases:
+    out, sudo_called, r = run(ON, 'DEFAULT_OUTPUT_POLICY="ACCEPT"\n', IP_NONE, ufw_unit_active=True, system_states=states,
+                              noexec_live=noexec_live, fstab=fstab)
+    if out is None:
+        fails.append(f"{name}: output is not JSON: {r.stdout[:120]!r} {r.stderr[:120]!r}"); continue
+    if sudo_called:
+        fails.append(f"{name}: sudo was called")
+    tip = out["tooltip"]
+    active, warns, off = section(tip, "✓"), section(tip, "⚠"), section(tip, "○")
+    for w in want.get("off", []):
+        if w not in off: fails.append(f"{name}: '{w}' not off by choice {off}")
+    for w in want.get("not_warn", []):
+        if any(w in x for x in warns): fails.append(f"{name}: '{w}' is a warning {warns}")
+    for w in want.get("warn", []):
+        if w not in warns: fails.append(f"{name}: '{w}' not in the warnings {warns}")
+    for w in want.get("not_off", []):
+        if w in off: fails.append(f"{name}: '{w}' listed as off by choice")
+    for w in want.get("active", []):
+        if w not in active: fails.append(f"{name}: '{w}' not among the active protections {active}")
+    for w in want.get("not_active", []):
+        if w in active: fails.append(f"{name}: '{w}' counted as an active protection")
+    # Off by choice is neither counted nor warned: the shield counts the protections, the warning count the warnings.
+    shield, count = _re.findall(r"(?:🛡|󰒃) (\d+)", out["text"]), _re.findall(r"󰀦 (\d+)", out["text"])
+    if not shield or int(shield[-1]) != len(active):
+        fails.append(f"{name}: shield count {shield} ≠ {len(active)} active protections")
+    if out["class"] == "warning" and (not count or int(count[-1]) != len(warns)):
+        fails.append(f"{name}: the pill's warning count {count} ≠ {len(warns)} warnings")
+
 for f in fails:
     print("FAIL", f)
 print("foxml_sentry:", "OK" if not fails else f"{len(fails)} FAILED",
-      f"({len(cases) + len(watcher_cases) + len(ssh_cases) - skipped} scenarios run" + (f", {skipped} skipped)" if skipped else ")"))
+      f"({len(cases) + len(watcher_cases) + len(ssh_cases) + len(optin_cases) - skipped} scenarios run"
+      + (f", {skipped} skipped)" if skipped else ")"))
 sys.exit(1 if fails else 0)

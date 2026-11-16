@@ -26,11 +26,13 @@ declare -a warns=()
 declare -a crits=()
 declare -a configs=()    # configured, but the live state can't be verified without root — never counted as active
 declare -a unknowns=()   # a probe that failed — shown, never silently "off"
+declare -a offs=()       # an opt-in protection never switched on: off by choice — shown, never counted, never a warning
 class="ok"
 
-# The UFW files the egress check reads (overridable for tests/test_foxml_sentry.py).
+# The UFW files the egress check reads, and the fstab the noexec check reads (overridable for tests/test_foxml_sentry.py).
 UFW_CONF="${FOXML_SENTRY_UFW_CONF:-/etc/ufw/ufw.conf}"
 UFW_DEFAULT="${FOXML_SENTRY_UFW_DEFAULT:-/etc/default/ufw}"
+FSTAB="${FOXML_SENTRY_FSTAB:-/etc/fstab}"
 
 _bump() {
     case "$1" in
@@ -55,6 +57,17 @@ _watcher() {
     esac
 }
 
+# A service an opt-in install module sets up, the same way: running counts; switched on but not running is a warning;
+# never switched on, it returns 1 and the caller lists it as off by choice (2026-11-16: a default install's pill read
+# "SEC 4 WARN" forever, three of them modules the installer leaves off).
+_optin_svc() {
+    local unit="$1" label="$2" state
+    _svc "$unit" && { _bump ok "$label"; return 0; }
+    [[ "$(systemctl is-enabled "$unit" 2>/dev/null)" == enabled* ]] || return 1
+    state=$(systemctl is-active "$unit" 2>/dev/null)
+    _bump warn "$label down: $unit ${state:-not running}"
+}
+
 # ─── BASELINE (always-on after desk install --full) ────────────────
 # Anything missing here is a real warning — the install would have set it up.
 # UFW: a running unit is not proof the rules are loaded (that needs root) — so it's listed as configured, outside the
@@ -63,7 +76,8 @@ _svc ufw       && configs+=("UFW service running (rules not verified)") || _bump
 _svc fail2ban  && _bump ok "Brute-force (fail2ban)" || _bump warn "fail2ban inactive"
 _svc auditd    && _bump ok "Audit logging"          || _bump warn "auditd inactive"
 _svc usbguard  && _bump ok "USB policy"             || _bump warn "usbguard inactive"
-_svc chronyd   && _bump ok "Time sync"              || _bump warn "chronyd inactive"
+# Time sync: chrony is opt-in (the perf module); the base system's timesyncd counts the same.
+_optin_svc chronyd "Time sync" || _optin_svc systemd-timesyncd "Time sync" || offs+=("Time sync (no NTP daemon)")
 [[ -d /sys/kernel/security/apparmor ]] && _bump ok "MAC (AppArmor)" || _bump warn "AppArmor not loaded"
 [[ -f /etc/sysctl.d/99-foxml-hardening.conf ]] && _bump ok "Kernel sysctls (KSPP+)" || _bump warn "kernel sysctls missing"
 
@@ -71,8 +85,16 @@ _svc chronyd   && _bump ok "Time sync"              || _bump warn "chronyd inact
 sysrq=$(cat /proc/sys/kernel/sysrq 2>/dev/null)
 if [[ "$sysrq" == "4" || "$sysrq" == "0" ]]; then _bump ok "SysRq hardened"; else _bump warn "SysRq full default"; fi
 if findmnt /proc 2>/dev/null | grep -qE 'hidepid=(1|2|noaccess|invisible|ptraceable)'; then _bump ok "hidepid /proc"; else _bump warn "/proc not hidepid"; fi
-if findmnt /tmp     2>/dev/null | grep -q noexec; then _bump ok "noexec /tmp"; else _bump warn "/tmp exec allowed"; fi
-if findmnt /dev/shm 2>/dev/null | grep -q noexec; then _bump ok "noexec /dev/shm"; else _bump warn "/dev/shm exec allowed"; fi
+# noexec /tmp + /dev/shm is the opt-in noexec_tmp module, chosen when fstab's /tmp line carries noexec (what it
+# writes). Chosen, a mount that allows exec is a warning; not chosen, it is off by choice.
+noexec_chosen=0
+awk '!/^[[:space:]]*#/ && $2 == "/tmp" && $4 ~ /(^|,)noexec(,|$)/ { found = 1 } END { exit !found }' "$FSTAB" 2>/dev/null \
+    && noexec_chosen=1
+for mnt in /tmp /dev/shm; do
+    if findmnt "$mnt" 2>/dev/null | grep -q noexec; then _bump ok "noexec $mnt"
+    elif (( noexec_chosen )); then _bump warn "$mnt exec allowed"
+    else offs+=("noexec $mnt"); fi
+done
 if grep -qE 'intel_iommu=on|amd_iommu=on' /proc/cmdline 2>/dev/null; then _bump ok "IOMMU active"; fi
 [[ -f /etc/systemd/coredump.conf.d/foxml-no-coredumps.conf ]] && _bump ok "Core dumps disabled"
 
@@ -207,6 +229,10 @@ _tooltip() {
     if (( ${#unknowns[@]} > 0 )); then
         out+="\\n? Unknown (${#unknowns[@]}):\\n"
         for m in "${unknowns[@]}"; do out+="  · $m\\n"; done
+    fi
+    if (( ${#offs[@]} > 0 )); then
+        out+="\\n○ Off by choice, opt-in (${#offs[@]}):\\n"
+        for m in "${offs[@]}"; do out+="  · $m\\n"; done
     fi
     out+="\\nClick: desk sec dashboard --live  •  Detail: desk arm --status"
     # JSON-safe.
