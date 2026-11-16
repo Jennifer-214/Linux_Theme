@@ -8,6 +8,7 @@
 
 #include "../core/state_checks.hpp"
 #include "../core/deps_list.hpp"
+#include "../modules/cursor_drawn.hpp"
 #include "../../desk-common/shell.hpp"
 
 #include <algorithm>
@@ -59,6 +60,25 @@ int main() {
         EXPECT(state::check_catppuccin_cursor(c, empty).status == state::Status::Update);
         std::ofstream(c.palette_path) << "CURSOR_THEME=derived-cursors\nCURSOR_RECOLOR=none\n";
         EXPECT(state::check_catppuccin_cursor(c, empty).status == state::Status::Noop);
+    }
+
+    // A set the repo draws: fresh before drawing, current while its stamp names the script, stale once it changes.
+    {
+        Context c = ctx;
+        c.home = tmp_cfg / "drawn_home";
+        c.shared_dir = tmp_cfg / "drawn_shared";
+        c.palette_path = tmp_cfg / "drawn_palette.sh";
+        fs::create_directories(c.shared_dir / "cursors");
+        const fs::path script = c.shared_dir / "cursors/drawn-cursors.py";
+        std::ofstream(script) << "# draws v1\n";
+        std::ofstream(c.palette_path) << "CURSOR_THEME=drawn-cursors\nCURSOR_RECOLOR=none\n";
+        EXPECT(state::check_catppuccin_cursor(c, empty).status == state::Status::Fresh);
+        const fs::path dir = c.home / ".local/share/icons/drawn-cursors";
+        fs::create_directories(dir / "cursors");
+        std::ofstream(dir / cursor_drawn::kStamp) << cursor_drawn::script_hash(script) << "\n";
+        EXPECT(state::check_catppuccin_cursor(c, empty).status == state::Status::Noop);
+        std::ofstream(script) << "# draws v2\n";
+        EXPECT(state::check_catppuccin_cursor(c, empty).status == state::Status::Update);
     }
 
     // The folder marker decides, before any package lookup, when the colour moved.

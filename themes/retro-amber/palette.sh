@@ -33,8 +33,8 @@ SHADOW_ALPHA=0.85
 
 # ─── Desktop chrome (GTK settings.ini · cursor · Hyprland window edges · kitty text · banner) ───
 GTK_PREFER_DARK=1
-CURSOR_THEME=foxml-amber-cursors
-CURSOR_RECOLOR=catppuccin-mocha-peach-cursors:fab387:1e1e2e:ffb000:0c0a06
+CURSOR_THEME=foxml-retro-cursors
+CURSOR_RECOLOR=none
 PAPIRUS_FOLDER_COLOR=foxml-amber
 PAPIRUS_FOLDER_RECOLOR=cat-mocha-peach:FAB387=ffb000,E69F73=c88a00,CDD6F4=3a2700
 HYPR_BORDER_SIZE=1

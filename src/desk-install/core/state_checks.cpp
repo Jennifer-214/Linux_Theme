@@ -5,6 +5,7 @@
 
 #include "../../desk-common/shell.hpp"
 #include "../modules/cursor_recolor.hpp"
+#include "../modules/cursor_drawn.hpp"
 #include "../modules/folder_recolor.hpp"
 
 #include <algorithm>
@@ -307,6 +308,12 @@ Classification check_gaming(const Context& /*ctx*/, const Manifest& manifest) {
 Classification check_catppuccin_cursor(const Context& ctx, const Manifest& manifest) {
     const std::string theme = palette::get(ctx.palette_path, "CURSOR_THEME",
                                            "catppuccin-mocha-peach-cursors");
+    // A set the repo draws is current when its stamp names the drawing script's hash.
+    if (const auto script = cursor_drawn::script_for(ctx, theme)) {
+        const fs::path drawn = ctx.home / ".local/share/icons" / theme;
+        if (cursor_drawn::is_current(drawn, *script)) return {Status::Noop, theme + " drawn by the current script"};
+        return {fs::is_directory(drawn) ? Status::Update : Status::Fresh, theme + " needs drawing"};
+    }
     // The module unzips into ~/.local/share/icons; ~/.icons is the older home.
     fs::path theme_dir = ctx.home / ".local/share/icons" / theme / "cursors";
     if (!fs::is_directory(theme_dir)) theme_dir = ctx.home / ".icons" / theme / "cursors";

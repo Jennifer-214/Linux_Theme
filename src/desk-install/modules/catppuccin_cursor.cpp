@@ -10,6 +10,7 @@
 #include "../core/palette.hpp"
 #include "../core/backup.hpp"
 #include "cursor_recolor.hpp"
+#include "cursor_drawn.hpp"
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
 
@@ -142,11 +143,49 @@ fs::path fetch_theme(const Context& ctx, const std::string& theme) {
     return user_dir / theme;
 }
 
+// A set drawn by its own script (shared/cursors/<theme>.py), into a staging folder that then replaces the old set;
+// the script's hash is stamped beside it, so an edited drawing is redrawn and an unchanged one is left alone.
+bool draw_theme(const fs::path& script, const fs::path& target) {
+    const fs::path stage = target.parent_path() / ("." + target.filename().string() + ".new");
+    const fs::path old = target.parent_path() / ("." + target.filename().string() + ".old");
+    std::error_code ec;
+    fs::remove_all(stage, ec);
+    fs::remove_all(old, ec);
+    fs::create_directories(target.parent_path(), ec);
+    if (sh::run({"python3", "-I", "-B", script.string(), stage.string()}) != 0) {
+        fs::remove_all(stage, ec);
+        return false;
+    }
+    std::ofstream(stage / cursor_drawn::kStamp) << cursor_drawn::script_hash(script) << '\n';
+    if (fs::exists(target)) fs::rename(target, old, ec);
+    if (ec) { fs::remove_all(stage, ec); return false; }
+    fs::rename(stage, target, ec);
+    if (ec) { if (fs::exists(old)) fs::rename(old, target, ec); return false; }
+    fs::remove_all(old, ec);
+    return true;
+}
+
 }  // namespace
 
 void run_catppuccin_cursor(Context& ctx) {
     const std::string theme = palette::get(ctx.palette_path, "CURSOR_THEME",
                                            "catppuccin-mocha-peach-cursors");
+    if (const auto script = cursor_drawn::script_for(ctx, theme)) {
+        ui::section("Cursor theme: " + theme + " (drawn)");
+        const fs::path target = ctx.home / ".local/share/icons" / theme;
+        if (cursor_drawn::is_current(target, *script)) {
+            ui::skipped(theme + " already drawn");
+        } else if (sh::dry_run()) {
+            ui::substep("[dry-run] would draw " + theme + " with " + script->string());
+        } else if (draw_theme(*script, target)) {
+            ui::ok(theme + " drawn → " + target.string());
+        } else {
+            ui::warn("could not draw " + theme + " — check python3 and " + script->string());
+            return;
+        }
+        sync_cursor_settings(ctx, theme);
+        return;
+    }
     const std::string token = palette::get(ctx.palette_path, "CURSOR_RECOLOR", "none");
     const auto recolor = cursor_recolor::parse_recolor(token);
     if (!recolor && token != "none") ui::warn("ignoring malformed CURSOR_RECOLOR: " + token);

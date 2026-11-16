@@ -196,8 +196,8 @@ tests/test_icon_deploy: tests/test_icon_deploy.cpp modules/symlinks.o core/backu
 tests/test_drawer_deploy: tests/test_drawer_deploy.cpp modules/drawer.o core/backup.o $(DESK_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) $^ -o $@
 
-tests/test_cursor_sync: tests/test_cursor_sync.cpp modules/catppuccin_cursor.o core/backup.o $(DESK_COMMON_LIB)
-	$(CXX) $(CXXFLAGS) $^ -o $@
+tests/test_cursor_sync: tests/test_cursor_sync.cpp modules/catppuccin_cursor.o core/backup.o core/state_manifest.o $(DESK_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) $^ -lcrypto -o $@
 
 tests/test_cursor_recolor: tests/test_cursor_recolor.cpp modules/cursor_recolor.hpp
 	$(CXX) $(CXXFLAGS) $< -o $@
