@@ -405,6 +405,12 @@ for name, kind in pairs(P.kinds) do
   end
   eq(stray, {}, name .. ": in the pop-out only its drawn and remote rows, and the window's own")
 end
+-- Space Space in code: the project map's rows after this function's, before the review's; never after every group.
+require("desk.map")
+local home_rows = A.for_context({ surface = "editor" })
+local function first_of(group) for i, r in ipairs(home_rows) do if r.group == group then return i end end end
+ok(first_of("This function") < first_of("Project map") and first_of("Project map") < first_of("Review"),
+  "the project map's rows come after this function's and before the review's in Space Space")
 -- The one speller: the menus' key lists, the call graph's key lines and the pop-out spell with it.
 eq(Menu.typed, A.spell, "desk.menu spells keys with actions.spell")
 eq(require("desk.callgraph").typed("go", "back", "down"), "Enter/BS/j", "the call graph's key lines too")

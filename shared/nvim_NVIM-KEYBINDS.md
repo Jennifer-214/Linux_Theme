@@ -631,9 +631,9 @@ Commands:
 
 ### The home menu (desk.actions)
 **Space Space** opens one menu of what applies where the cursor is, in groups: this function (its call graph, the live
-panel, and symdeps' card in C and C++), the review, Claude, work, and symdeps (its own menu, or one "requires symdeps"
-row when it is not installed). In a review, the call graph or the since page, that place's own keys lead (the project
-map's come last, as their own group). It is drawn like the review's Actions, by symdeps' menu when it is installed and
+panel, and symdeps' card in C and C++), the project map, the review, Claude, work, symdeps (its own menu, or one
+"requires symdeps" row when it is not installed), and the views of the pop-out. In a review, the call graph, the map or
+the since page, that place's own keys lead. It is drawn like the review's Actions, by symdeps' menu when it is installed and
 a built-in one to the same rules otherwise: `j`/`k` select, Enter runs, `/` filters, `q` closes. A row that cannot run
 here says why instead of running.
 `?` in a review, a call graph, the project map, the since page or a menu lists that place's keys from the same rows
@@ -648,6 +648,7 @@ which-key its words.
 | home menu: This function in symdeps | symdeps' card for the unit at the cursor: its layout, uses, callers and calls |
 | `Space cc`, `:CallGraph` | Call graph of the function under the cursor, in a tab: callers above, the function in a double box, what it calls below (the language server's call hierarchy). It opens with the function's box selected. One tab: pressed again anywhere, it brings that tab back on the function under the cursor |
 | `Space co`, `:CallGraphPanel` | Live call graph panel: a narrow split on the right that follows the cursor and redraws when the function under it changes. It never takes the focus (`Ctrl+w l` goes into it); `p` in it pins it to the graph it shows (`PINNED`), `p` again follows the cursor |
+| `Space cm`, `:ProjectMap` | The whole checkout as boxes, by part, file and function, callers above; queries and a rebuild inside. One tab per checkout: pressed again, it brings that tab back as it was |
 | `Space Cw` | Changes tree: working changes (including unsaved drafts), live sessions and the most recent 80 commits |
 | `Space Cr`, `:ReviewNext` | Review the next thing that needs you: a requested change whose file has changed, a file edited since you reviewed it, else the oldest unreviewed Claude commit |
 | `Space Cd` | Show this file in the current review panes |
@@ -664,7 +665,6 @@ which-key its words.
 | home menu: symdeps | symdeps' own menu (Space dm): its cards, lists and checks for C and C++ code. symdeps is an optional plugin |
 | home menu: Pop out the call graph | The live call graph in the pop-out, a window of its own on the other screen: it follows the function under the cursor (p there pins it), and Enter there goes to a function here while the keyboard stays there |
 | `Space Tab` | Put the keyboard in the pop-out window, on whichever screen it is; the same key there comes back here |
-| `Space cm`, `:ProjectMap` | The whole checkout as boxes, by part, file and function, callers above; queries and a rebuild inside. One tab per checkout: pressed again, it brings that tab back as it was |
 <!-- desk-keys:end -->
 
 ### The other Claudes (desk.claude)
