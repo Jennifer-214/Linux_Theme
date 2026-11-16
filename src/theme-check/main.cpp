@@ -2,7 +2,9 @@
 //
 // Read-only. It renders the active theme into a temporary folder to compare, and runs each probe under a time
 // limit; it never writes a config, restarts a service or fixes anything. Each line ends with a hint instead.
-// Results and exit codes are desk-health's (`desk sec health`): 0 ok · 1 warnings · 3 a high failure.
+// Running programs are only looked at in /proc and in desk-work's records: never asked, signalled or connected to.
+// Results and exit codes are desk-health's (`desk sec health`): 0 ok · 1 warnings · 2 critical · 3 a high failure.
+// DESK_THEME_CHECK_ROOT (tests) names a folder that stands in for / where the checks read /etc, /proc and /usr.
 
 #include "drift.hpp"
 #include "../desk-common/json.hpp"
@@ -10,16 +12,22 @@
 #include "../desk-health/health.hpp"
 #include "../desk-install/core/built_tools.hpp"
 #include <cstddef>
+#include "../desk-install/modules/arch_audit_units.hpp"
+#include "../desk-install/modules/etcwatch_units.hpp"
+#include "../desk-install/modules/firefox_appearance.hpp"
 #include "../desk-install/modules/symlinks_data.hpp"
 #include "../desk-install/modules/workflow_assets.hpp"
 
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <regex>
 #include <set>
 #include <sstream>
@@ -138,30 +146,12 @@ void compare_folder(const Env& env, const fs::path& src, const fs::path& dest, c
     }
 }
 
+// The profile Firefox opens (profiles.ini), found the way the installer finds the one it themes.
 fs::path firefox_profile(const Env& env) {
-    for (const auto& base : {env.config / "mozilla/firefox", env.home / ".mozilla/firefox"}) {
-        std::ifstream ini(base / "profiles.ini");
-        std::string line, section, path, chosen;
-        bool relative = true, is_default = false;
-        auto settle = [&] {
-            if (section.rfind("Install", 0) == 0 && !path.empty()) chosen = path;
-            else if (section.rfind("Profile", 0) == 0 && is_default && chosen.empty() && !path.empty())
-                chosen = relative ? (base / path).string() : path;
-        };
-        while (std::getline(ini, line)) {
-            if (!line.empty() && line[0] == '[') {
-                settle();
-                section = line.substr(1, line.find(']') - 1); path.clear(); relative = true; is_default = false;
-            } else if (line.rfind("Default=", 0) == 0) {
-                if (section.rfind("Install", 0) == 0) path = (base / line.substr(8)).string();
-                else is_default = line.substr(8) == "1";
-            } else if (line.rfind("Path=", 0) == 0) path = line.substr(5);
-            else if (line.rfind("IsRelative=", 0) == 0) relative = line.substr(11) == "1";
-        }
-        settle();
-        if (!chosen.empty()) return chosen;
-    }
-    return {};
+    desk_install::Context ctx;
+    ctx.home = env.home;
+    ctx.config_home = env.config;
+    return desk_install::firefox_appearance::profile(ctx);
 }
 
 CheckResult check_drift(const Env& env) {
@@ -356,6 +346,17 @@ CheckResult check_nvim(const Env&) {
     return result("D7", title, Severity::Low, Status::Warn, said.substr(0, 600), "start nvim and read :messages");
 }
 
+// `desk-work health`, asked once a run: D8 reads its alerts, D25 the sessions it knows run older code.
+const json& work_health() {
+    static json health(json::value_t::discarded);
+    static bool asked = false;
+    if (asked || !sh::have("desk-work")) return health;
+    asked = true;
+    const auto probe = run_bounded(15, {"desk-work", "health"}, true);
+    if (probe.code == 0) health = json::parse(probe.out, nullptr, false);
+    return health;
+}
+
 CheckResult check_claude(const Env& env) {
     const char* title = "Claude status line and paper mod work";
     const auto line = env.home / ".claude/statusline.sh";
@@ -377,13 +378,9 @@ CheckResult check_claude(const Env& env) {
         const auto ran = run_bounded(60, {"claude", "plugin", "validate", mod.string()}, true);
         if (ran.code != 0) problems.push_back("the paper mod does not validate: claude plugin validate " + mod.string());
     }
-    if (sh::have("desk-work")) {
-        const auto probe = run_bounded(15, {"desk-work", "health"}, true);
-        const auto versions = nlohmann::json::parse(probe.out, nullptr, false);
-        if (probe.code == 0 && versions.is_object()) {
-            for (const auto& alert : versions.value("alerts", nlohmann::json::array())) if (alert.is_string()) problems.push_back(alert.get<std::string>());
-            if (!versions.value("alerts", nlohmann::json::array()).empty()) problems.push_back("desk-work health shows last refresh, retry times and recovery details");
-        }
+    if (const auto& versions = work_health(); versions.is_object()) {
+        for (const auto& alert : versions.value("alerts", nlohmann::json::array())) if (alert.is_string()) problems.push_back(alert.get<std::string>());
+        if (!versions.value("alerts", nlohmann::json::array()).empty()) problems.push_back("desk-work health shows last refresh, retry times and recovery details");
     }
     if (problems.empty()) return result("D8", title, Severity::Low, Status::Pass);
     std::string detail;
@@ -503,11 +500,524 @@ CheckResult check_lock_panel(const Env& env) {
                   "its pinned monitor is shut or unplugged; locking now would put it on " + (to.empty() ? std::string("another screen") : to));
 }
 
+// ─── D14–D25: what the 2026-11-16 batch put in place, and what still runs the version before it ─────
+// A system path, under the folder DESK_THEME_CHECK_ROOT names when a test sets it.
+fs::path sys(const std::string& path) {
+    static const std::string root = env_or("DESK_THEME_CHECK_ROOT", "");
+    return root.empty() ? fs::path(path) : fs::path(root) / path.substr(1);
+}
+
+bool has(const std::string& text, const std::string& part) { return text.find(part) != std::string::npos; }
+
+// A string field of JSON another program wrote; empty when it is missing or not a string.
+std::string text_of(const json& row, const char* key) {
+    return row.is_object() && row.contains(key) && row[key].is_string() ? row[key].get<std::string>() : std::string();
+}
+
+std::string tilde(const Env& env, const fs::path& path) {
+    const auto rel = path.lexically_relative(env.home);
+    return !rel.empty() && *rel.begin() != ".." ? "~/" + rel.string() : path.string();
+}
+
+std::time_t mtime(const fs::path& path) {
+    struct stat st{};
+    return ::stat(path.c_str(), &st) == 0 ? st.st_mtime : 0;
+}
+
+std::string clock_at(std::time_t at) {
+    char text[32] = "";
+    std::tm local{};
+    if (::localtime_r(&at, &local)) std::strftime(text, sizeof text, "%a %H:%M", &local);
+    return text;
+}
+
+// The program a shell would run for `name`, or empty.
+std::string which(const std::string& name) {
+    std::stringstream dirs(env_or("PATH", ""));
+    for (std::string dir; std::getline(dirs, dir, ':');) {
+        const auto full = (dir.empty() ? fs::path(".") : fs::path(dir)) / name;
+        std::error_code ec;
+        if (fs::is_regular_file(full, ec) && ::access(full.c_str(), X_OK) == 0) return full.string();
+    }
+    return {};
+}
+
+CheckResult listed(const char* id, const char* title, Severity severity, const std::vector<std::string>& lines,
+                   std::string hint) {
+    std::string detail;
+    for (const auto& line : lines) detail += (detail.empty() ? "  " : "\n  ") + line;
+    return result(id, title, severity, Status::Warn, detail, std::move(hint));
+}
+
+// Her own processes, read once from /proc: nothing is asked of them.
+struct Proc { long long pid = 0, ppid = 0; std::string comm, args; std::time_t started = 0; };
+
+const std::vector<Proc>& processes() {
+    static std::vector<Proc> found;
+    static bool read = false;
+    if (read) return found;
+    read = true;
+    long long boot = 0;
+    for (const auto& line : desk_theme_check::split_lines(read_file(sys("/proc/stat"))))
+        if (line.rfind("btime ", 0) == 0) boot = std::atoll(line.c_str() + 6);
+    const long ticks = ::sysconf(_SC_CLK_TCK);
+    if (boot <= 0 || ticks <= 0) return found;
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(sys("/proc"), ec)) {
+        const auto name = entry.path().filename().string();
+        struct stat st{};
+        if (name.find_first_not_of("0123456789") != std::string::npos || ::stat(entry.path().c_str(), &st) != 0
+            || st.st_uid != ::getuid()) continue;
+        const auto line = read_file(entry.path() / "stat");
+        const auto close = line.rfind(')');
+        if (close == std::string::npos) continue;
+        std::istringstream rest(line.substr(close + 1));
+        std::vector<std::string> fields;  // stat's fields from the 3rd: state, ppid, … starttime is the 22nd
+        for (std::string field; rest >> field;) fields.push_back(field);
+        if (fields.size() < 20) continue;
+        Proc proc;
+        proc.pid = std::atoll(name.c_str());
+        proc.ppid = std::atoll(fields[1].c_str());
+        proc.started = static_cast<std::time_t>(boot + std::atoll(fields[19].c_str()) / ticks);
+        proc.comm = trim(read_file(entry.path() / "comm"));
+        proc.args = read_file(entry.path() / "cmdline");
+        std::replace(proc.args.begin(), proc.args.end(), '\0', ' ');
+        found.push_back(std::move(proc));
+    }
+    return found;
+}
+
+std::vector<const Proc*> started_before(std::initializer_list<const char*> names, std::time_t when) {
+    std::vector<const Proc*> out;
+    for (const auto& proc : processes())
+        for (const char* name : names)
+            if (when > 0 && proc.comm == name && proc.started < when) out.push_back(&proc);
+    return out;
+}
+
+std::string pids(const std::vector<const Proc*>& procs) {
+    std::string out;
+    for (const auto* proc : procs) out += (out.empty() ? "pid " : ", pid ") + std::to_string(proc->pid) + " since " + clock_at(proc->started);
+    return out;
+}
+
+// D14. Before 2026-11-16 the café dispatcher, which NetworkManager runs as root, sourced ~/.config/foxml/cafe.conf and
+// ran ~/.local/bin/desk-firewall: anything running as you could become root at the next Wi-Fi connection. Only `desk
+// cafe --setup` (the fixed one, marked as MARK in shared/bin/desk-cafe) or `--disable` replaces it.
+CheckResult check_cafe(const Env&) {
+    const char* title = "café mode cannot hand out root";
+    const std::string shown = "/etc/NetworkManager/dispatcher.d/99-foxml-cafe";
+    const auto dispatcher = sys(shown);
+    std::error_code ec;
+    if (!fs::is_directory(dispatcher.parent_path(), ec))
+        return result("D14", title, Severity::Critical, Status::Skip, "requires NetworkManager");
+    if (!fs::exists(dispatcher, ec)) return result("D14", title, Severity::Critical, Status::Pass, "café mode is not set up");
+    if (!std::ifstream(dispatcher))
+        return result("D14", title, Severity::Critical, Status::Warn, "cannot read " + shown, "desk sec cafe says whether it is the old one");
+    if (has(read_file(dispatcher), "# foxml-managed: cafe v2"))
+        return result("D14", title, Severity::Critical, Status::Pass, "the fixed dispatcher (cafe v2)");
+    return result("D14", "the old café dispatcher is installed: it can hand out root", Severity::Critical, Status::Fail,
+                  shown + " runs as root at every Wi-Fi connection,\nand runs ~/.config/foxml/cafe.conf and "
+                  "~/.local/bin/desk-firewall, two files you own:\nanything running as you can become root",
+                  "desk sec cafe --disable   (or desk sec cafe --setup to keep café mode, now fixed)");
+}
+
+// D15. In the profile Firefox opens: the stylesheets as the theme renders them now (retro-amber's DOS pages among
+// them), the prefs user.js holds to, and the theme's website appearance (FF_WEBSITE_APPEARANCE). Firefox reads all
+// of them at its start only.
+CheckResult check_firefox_theme(const Env& env) {
+    const char* title = "Firefox has the theme's styles and website appearance";
+    namespace ff = desk_install::firefox_appearance;
+    if (!sh::have("firefox")) return result("D15", title, Severity::Low, Status::Skip, "Firefox is not installed");
+    const auto profile = firefox_profile(env);
+    if (profile.empty())
+        return result("D15", title, Severity::Low, Status::Warn, "Firefox has no profile yet",
+                      "./install.sh --only specials  (it makes the profile Firefox's first start opens)");
+    std::vector<std::string> problems;
+    std::string note;
+    const auto renderer = env.repo / "src/desk-render/desk-render-fast";
+    const auto palette = env.repo / "themes" / env.theme / "palette.sh";
+    std::error_code ec;
+    const bool themed = !env.repo.empty() && fs::exists(palette, ec);
+    if (themed && fs::exists(renderer, ec)) {
+        const auto rendered = fs::temp_directory_path() / ("fox-theme-check-firefox-" + std::to_string(::getpid()));
+        struct Cleanup { fs::path dir; ~Cleanup() { std::error_code e; fs::remove_all(dir, e); } } cleanup{rendered};
+        if (run_bounded(30, {renderer.string(), palette.string(), (env.repo / "templates/firefox").string(), rendered.string()}).code != 0)
+            problems.push_back("the theme's Firefox files did not render");
+        else for (const std::string name : {"userChrome.css", "userContent.css"}) {
+            if (!fs::exists(profile / "chrome" / name, ec)) problems.push_back("chrome/" + name + " is missing");
+            else if (read_file(profile / "chrome" / name) != read_file(rendered / name))
+                problems.push_back("chrome/" + name + " is not " + env.theme + "'s");
+        }
+    } else note = themed ? " (stylesheets not compared: no renderer)" : " (stylesheets not compared: the theme repo was not found)";
+    const auto prefs = read_file(profile / "user.js");
+    for (const auto& [key, value] : ff::ENFORCED_PREFS)
+        if (!has(prefs, std::string("user_pref(\"") + key + "\", " + value + ");")) problems.push_back(std::string("user.js does not set ") + key);
+    if (themed) {
+        const std::string pref = std::string("user_pref(\"") + ff::WEBSITE_APPEARANCE + "\", ";
+        const auto at = prefs.rfind(pref);
+        const auto set = at == std::string::npos ? std::string() : trim(prefs.substr(at + pref.size(), prefs.find(')', at) - at - pref.size()));
+        const auto named = [](const std::string& v) { return v == "0" ? std::string("dark") : v == "1" ? "light" : v == "2" ? "auto" : v; };
+        const auto look = palette_value(env, "FF_WEBSITE_APPEARANCE");
+        const std::string want = look == "dark" ? "0" : look == "light" ? "1" : look == "auto" ? "2" : "";
+        if (!want.empty() && set != want)
+            problems.push_back("its website appearance is not " + look + (set.empty() ? " (user.js does not set it)" : " (user.js: " + named(set) + ")"));
+        else if (want.empty() && (set == "0" || set == "1"))
+            problems.push_back("user.js still sets the website appearance to " + named(set) + ", from another theme");
+    }
+    if (!problems.empty()) {
+        problems.insert(problems.begin(), "in " + tilde(env, profile) + ":");
+        return listed("D15", title, Severity::Low, problems, "./install.sh --only specials  (it restarts a running Firefox)");
+    }
+    const auto changed = std::max({mtime(profile / "chrome/userChrome.css"), mtime(profile / "chrome/userContent.css"), mtime(profile / "user.js")});
+    if (const auto running = started_before({"firefox", "firefox-bin"}, changed); !running.empty())
+        return result("D15", title, Severity::Low, Status::Warn,
+                      "Firefox (" + pids(running) + ") started before its theme files changed (" + clock_at(changed) + ")",
+                      "restart Firefox to load them");
+    return result("D15", title, Severity::Low, Status::Pass, tilde(env, profile) + note);
+}
+
+// D16. A notebook's Shift+Enter inside tmux: kitty sends CSI u only while tmux is in front (the desk_tmux user var that
+// tmux's smcup/rmcup override sets and clears), and zsh takes the code as Enter. A tmux client keeps the smcup it
+// attached with, and an open kitty the map it read.
+CheckResult check_shift_enter(const Env& env) {
+    const char* title = "Shift+Enter reaches programs in tmux, and only there";
+    const auto kitty = env.config / "kitty/kitty.conf", tmux = env.home / ".tmux.conf", zsh = env.home / ".zshrc";
+    std::error_code ec;
+    if (!fs::exists(kitty, ec) && !fs::exists(tmux, ec) && !fs::exists(zsh, ec))
+        return result("D16", title, Severity::Low, Status::Skip, "kitty, tmux and zsh configs are not deployed");
+    std::vector<std::string> problems;
+    if (const auto text = read_file(kitty); fs::exists(kitty, ec) && !has(text, "map --when-focus-on var:desk_tmux=1 shift+enter send_text "))
+        problems.push_back(has(text, "map shift+enter send_text ")
+                               ? "kitty.conf sends Shift+Enter as CSI u everywhere: a Python REPL outside tmux reads it wrong"
+                               : "kitty.conf has no Shift+Enter map for tmux");
+    if (const auto text = read_file(tmux); fs::exists(tmux, ec) && !(has(text, "xterm-kitty:smcup=") && has(text, "SetUserVar=desk_tmux")))
+        problems.push_back("~/.tmux.conf does not tell kitty when tmux is in front (its smcup/rmcup)");
+    if (fs::exists(zsh, ec) && !has(read_file(zsh), "'^[[13;2u' accept-line"))
+        problems.push_back("~/.zshrc does not take Shift+Enter's CSI u as Enter");
+    if (!problems.empty()) return listed("D16", title, Severity::Low, problems, "re-render: ./install.sh --render-only " + env.theme);
+    if (const auto clients = started_before({"tmux: client"}, mtime(tmux)); !clients.empty())
+        return result("D16", title, Severity::Low, Status::Warn,
+                      "tmux attached before ~/.tmux.conf changed (" + clock_at(mtime(tmux)) + "): " + pids(clients),
+                      "tmux source-file ~/.tmux.conf, then detach and attach again; ctrl+shift+F5 reloads an open kitty");
+    return result("D16", title, Severity::Low, Status::Pass);
+}
+
+// D17. The editor's pop-out (kitty, class desk-popout) never takes the keyboard as it opens: one window rule, in
+// rules.lua (Hyprland 0.57 on) and its rules.conf twin (older Hyprland).
+CheckResult check_popout_rule(const Env& env) {
+    const char* title = "Hyprland keeps the editor's pop-out from taking the keyboard";
+    std::vector<std::string> problems;
+    int found = 0;
+    for (const std::string name : {"rules.lua", "rules.conf"}) {
+        std::error_code ec;
+        const auto file = env.config / "hypr/modules" / name;
+        if (!fs::exists(file, ec)) { problems.push_back("~/.config/hypr/modules/" + name + " is missing"); continue; }
+        ++found;
+        if (!has(read_file(file), "^(desk-popout)$")) problems.push_back(name + " has no desk-popout window rule");
+    }
+    if (!found) return result("D17", title, Severity::Low, Status::Skip, "Hyprland's rules are not deployed");
+    if (!problems.empty()) return listed("D17", title, Severity::Low, problems, "./install.sh --only specials");
+    return result("D17", title, Severity::Low, Status::Pass, "rules.lua and rules.conf");
+}
+
+// The commit a git clone has checked out: .git/HEAD, through its ref file or packed-refs.
+std::string git_head(const fs::path& repo) {
+    const auto git = repo / ".git";
+    const auto head = trim(read_file(git / "HEAD"));
+    if (head.rfind("ref: ", 0) != 0) return head;
+    const auto ref = head.substr(5);
+    if (auto sha = trim(read_file(git / ref)); !sha.empty()) return sha;
+    for (const auto& line : desk_theme_check::split_lines(read_file(git / "packed-refs")))
+        if (line.size() > 41 && line.compare(41, std::string::npos, ref) == 0) return line.substr(0, 40);
+    return {};
+}
+
+// D18. The installer restores Neovim's plugins to the lock file it deploys (shared/nvim_lazy-lock.json): what was
+// tested, such as nvim-scrollbar on its v1 commit (on main it warns at every start).
+CheckResult check_plugin_lock(const Env& env) {
+    const char* title = "Neovim's plugins are at the lock file's commits";
+    const auto lock_file = env.config / "nvim/lazy-lock.json";
+    const auto lazy = env.home / ".local/share/nvim/lazy";
+    std::error_code ec;
+    if (!sh::have("nvim")) return result("D18", title, Severity::Low, Status::Skip, "nvim is not installed");
+    if (!fs::exists(lock_file, ec)) return result("D18", title, Severity::Low, Status::Skip, "no plugin lock deployed (~/.config/nvim/lazy-lock.json)");
+    const auto lock = json::parse(read_file(lock_file), nullptr, false);
+    if (!lock.is_object())
+        return result("D18", title, Severity::Low, Status::Warn, "~/.config/nvim/lazy-lock.json does not parse", "./install.sh  (it deploys the repo's lock)");
+    if (!fs::is_directory(lazy, ec)) return result("D18", title, Severity::Low, Status::Skip, "no plugins installed yet (Neovim installs them at its first start)");
+    const auto pin = [](const json& entry) { return text_of(entry, "commit"); };
+    std::vector<std::string> problems;
+    std::string hint = "nvim --headless '+Lazy! restore' +qa  (what the installer runs), then restart Neovim";
+    const auto shipped = env.repo.empty() ? json() : json::parse(read_file(env.repo / "shared/nvim_lazy-lock.json"), nullptr, false);
+    if (shipped.is_object())
+        for (const auto& [name, entry] : shipped.items())
+            if (const auto deployed = pin(lock.value(name, json())); !pin(entry).empty() && deployed != pin(entry)) {
+                problems.push_back((deployed.empty() ? "the deployed lock has no " + name : "the deployed lock pins " + name + " at " + deployed.substr(0, 7))
+                                   + ", the repo's pins " + pin(entry).substr(0, 7));
+                hint = "./install.sh  (it deploys the repo's lock, then restores the plugins to it)";
+            }
+    int same = 0;
+    for (const auto& [name, entry] : lock.items()) {
+        if (pin(entry).empty() || !fs::is_directory(lazy / name / ".git", ec)) continue;
+        const auto head = git_head(lazy / name);
+        if (head == pin(entry)) { ++same; continue; }
+        const auto branch = text_of(entry, "branch");
+        problems.push_back(name + " is at " + (head.empty() ? std::string("an unknown commit") : head.substr(0, 7)) + ", the lock pins "
+                           + pin(entry).substr(0, 7) + (branch.empty() ? "" : " (" + branch + ")"));
+    }
+    if (problems.size() > 8) {
+        const auto more = problems.size() - 8;
+        problems.resize(8);
+        problems.push_back("and " + std::to_string(more) + " more");
+    }
+    if (!problems.empty()) return listed("D18", title, Severity::Low, problems, hint);
+    std::string detail = std::to_string(same) + " plugins at their pinned commits";
+    if (const auto scrollbar = lock.value("nvim-scrollbar", json()); !pin(scrollbar).empty() && fs::is_directory(lazy / "nvim-scrollbar", ec))
+        detail += "; nvim-scrollbar at " + pin(scrollbar).substr(0, 7) + " (" + text_of(scrollbar, "branch") + ")";
+    return result("D18", title, Severity::Low, Status::Pass, detail);
+}
+
+// D19. A notebook opens as Markdown through jupytext (pipx puts it in ~/.local/bin) and runs its cells in ipykernel
+// (pacman's python-ipykernel). After Arch moves to a new Python, pipx's jupytext names a Python that is gone.
+CheckResult check_notebooks(const Env& env) {
+    const char* title = "notebooks have jupytext and ipykernel";
+    if (!sh::have("nvim")) return result("D19", title, Severity::Low, Status::Skip, "nvim is not installed");
+    if (std::error_code missing; !fs::exists(env.config / "nvim/init.lua", missing))
+        return result("D19", title, Severity::Low, Status::Skip, "the theme's Neovim config is not deployed");
+    std::vector<std::string> problems, hints;
+    auto jupytext = which("jupytext");
+    if (const auto mine = env.home / ".local/bin/jupytext"; jupytext.empty() && ::access(mine.c_str(), X_OK) == 0) jupytext = mine.string();
+    std::error_code ec;
+    if (jupytext.empty()) {
+        problems.push_back("jupytext is missing: an .ipynb opens as JSON");
+        hints.push_back("pipx install jupytext");
+    } else {
+        std::ifstream script(jupytext);
+        std::string first;
+        std::getline(script, first);
+        const auto interpreter = first.rfind("#!/", 0) == 0 ? first.substr(2, first.find(' ') == std::string::npos ? std::string::npos : first.find(' ') - 2) : "";
+        if (!interpreter.empty() && !fs::exists(interpreter, ec)) {
+            problems.push_back("jupytext's Python (" + interpreter + ") is gone");
+            hints.push_back("pipx reinstall-all");
+        }
+    }
+    // The site-packages of the Python python3 runs (its own folder name: python3.14), the system's or yours.
+    std::vector<std::string> pythons;
+    if (const auto link = fs::read_symlink(sys("/usr/bin/python3"), ec); !ec) pythons.push_back(link.filename().string());
+    else for (const auto& entry : fs::directory_iterator(sys("/usr/lib"), ec))
+        if (entry.path().filename().string().rfind("python3.", 0) == 0) pythons.push_back(entry.path().filename().string());
+    bool kernel = false;
+    for (const auto& python : pythons)
+        for (const auto& lib : {sys("/usr/lib"), env.home / ".local/lib"})
+            kernel = kernel || fs::exists(lib / python / "site-packages/ipykernel/__init__.py", ec);
+    if (!kernel) {
+        problems.push_back("ipykernel is missing: a cell has no Python kernel to run in");
+        hints.push_back("sudo pacman -S python-ipykernel");
+    }
+    if (problems.empty()) return result("D19", title, Severity::Low, Status::Pass, jupytext);
+    std::string hint;
+    for (const auto& one : hints) hint += (hint.empty() ? "" : "; ") + one;
+    return listed("D19", title, Severity::Low, problems, hint);
+}
+
+// D20. The notebook's g sends a call graph to the editor through `desk-work editor`, and declared tools are `desk-work
+// tools`; a desk-work from before those has neither. Its help says which commands it has.
+CheckResult check_work_commands(const Env&) {
+    const char* title = "desk-work has editor and tools (the notebook's g needs them)";
+    const auto tool = which("desk-work");
+    if (tool.empty()) return result("D20", title, Severity::Low, Status::Skip, "desk-work is not installed");
+    const auto help = run_bounded(5, {tool, "help"}).out;
+    std::string missing;
+    for (const std::string command : {"editor", "tools"})
+        if (!has(help, "desk-work " + command + " ")) missing += (missing.empty() ? "desk-work " : " and desk-work ") + command;
+    if (missing.empty()) return result("D20", title, Severity::Low, Status::Pass, tool);
+    return result("D20", title, Severity::Low, Status::Warn, tool + " is older: it has no " + missing,
+                  "./install.sh --only integrations  (it installs desk-work)");
+}
+
+// D21. The retro bar's words (LLM 35B IDLE, SEC 1 WARN, …) come from one table in BarLogic.js (retroModules).
+// Quickshell reloads a changed file by itself.
+CheckResult check_retro_bar(const Env& env) {
+    const char* title = "the bar's retro module table is deployed";
+    const auto logic = env.config / "quickshell/desk/BarLogic.js";
+    std::error_code ec;
+    if (!fs::is_directory(logic.parent_path(), ec)) return result("D21", title, Severity::Low, Status::Skip, "the desk bar is not installed");
+    const auto text = read_file(logic);
+    std::string problem;
+    if (!fs::exists(logic, ec)) problem = "~/.config/quickshell/desk/BarLogic.js is missing";
+    else if (!has(text, "var retroModules")) problem = "BarLogic.js is from before the retro bar: it has no retroModules table";
+    else if (const auto shipped = env.repo / "shared/quickshell/desk/BarLogic.js"; !env.repo.empty() && fs::exists(shipped, ec) && read_file(shipped) != text)
+        problem = "BarLogic.js is not the repo's";
+    if (problem.empty()) return result("D21", title, Severity::Low, Status::Pass);
+    return result("D21", title, Severity::Low, Status::Warn, problem, "./install.sh --only drawer");
+}
+
+// Asks systemd about a user unit; nothing is started or changed.
+std::string user_unit(const std::string& unit, const char* what) {
+    return trim(run_bounded(5, {"systemctl", "--user", what, unit}).out);
+}
+
+bool reload_pending(const std::string& unit) {
+    return trim(run_bounded(5, {"systemctl", "--user", "show", "-p", "NeedDaemonReload", "--value", unit}).out) == "yes";
+}
+
+// D22. fox-etcwatch alerts on /etc changes. Until 2026-11-16 a burst of /etc writes (an install) passed its service's
+// start limit, and systemd then switched the watcher off until reset. The units today are etcwatch_units.hpp's.
+CheckResult check_etcwatch(const Env& env) {
+    const char* title = "the /etc watcher (fox-etcwatch) is current and watching";
+    const auto units = env.config / "systemd/user";
+    std::error_code ec;
+    if (!fs::exists(units / "fox-etcwatch.path", ec) && !fs::exists(units / "fox-etcwatch.service", ec))
+        return result("D22", title, Severity::Medium, Status::Skip, "not installed (the installer's etckeeper step)");
+    if (!desk_install::etcwatch_units_current(units))
+        return result("D22", title, Severity::Medium, Status::Warn,
+                      "its units are older: a burst of /etc writes switches the watcher off (start limit)", "./install.sh --only etckeeper");
+    if (!sh::have("systemctl")) return result("D22", title, Severity::Medium, Status::Pass, "its units are current; no systemctl to ask whether it runs");
+    if (reload_pending("fox-etcwatch.service") || reload_pending("fox-etcwatch.path"))
+        return result("D22", title, Severity::Medium, Status::Warn, "systemd still runs its older units", "systemctl --user daemon-reload");
+    if (const auto state = user_unit("fox-etcwatch.path", "is-active"); state != "active")
+        return result("D22", title, Severity::Medium, Status::Warn, "fox-etcwatch.path is " + (state.empty() ? std::string("not known to systemd") : state),
+                      "systemctl --user reset-failed fox-etcwatch.path; systemctl --user enable --now fox-etcwatch.path");
+    return result("D22", title, Severity::Medium, Status::Pass, "watching");
+}
+
+// D23. foxml-arch-audit.service ran `arch-audit -uf` until 2026-11-15: arch-audit 0.2 takes -f as a format, so it
+// stopped at a usage error and no notice ever came. The units today are arch_audit_units.hpp's.
+CheckResult check_arch_audit(const Env& env) {
+    const char* title = "the daily arch-audit check runs flags arch-audit takes";
+    const auto units = env.config / "systemd/user";
+    const auto service = units / "foxml-arch-audit.service";
+    std::error_code ec;
+    if (!fs::exists(service, ec) && !fs::exists(units / "foxml-arch-audit.timer", ec))
+        return result("D23", title, Severity::Low, Status::Skip,
+                      sh::have("arch-audit") ? "not set up (./install.sh --only arch_audit)" : "arch-audit is not installed");
+    if (!desk_install::arch_audit_units_current(units))
+        return result("D23", title, Severity::Low, Status::Warn,
+                      has(read_file(service), "arch-audit -uf") ? "it runs arch-audit -uf, which arch-audit refuses: no notice ever comes"
+                                                                 : "its units are not the installer's",
+                      "./install.sh --only arch_audit");
+    if (sh::have("systemctl") && reload_pending("foxml-arch-audit.service"))
+        return result("D23", title, Severity::Low, Status::Warn, "systemd still runs the older service", "systemctl --user daemon-reload");
+    return result("D23", title, Severity::Low, Status::Pass);
+}
+
+// D24. Declared tools in desk.d, read by desk-work's own parser (`desk-work tools list`, which runs nothing a
+// declaration names). A file it cannot read names no checkout, so it is listed in every one.
+CheckResult check_declarations(const Env& env) {
+    const char* title = "the tools declared in ~/.config/foxml/desk.d are valid";
+    const auto dir = env.config / "foxml/desk.d";
+    std::vector<fs::path> files;
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator(dir, ec)) {
+        const auto name = entry.path().filename().string();
+        if (name.size() > 5 && name[0] != '.' && entry.path().extension() == ".json") files.push_back(entry.path());
+    }
+    if (files.empty()) return result("D24", title, Severity::Low, Status::Skip, "nothing declared there");
+    const auto tool = which("desk-work");
+    if (tool.empty()) return result("D24", title, Severity::Low, Status::Skip, "requires desk-work");
+    std::set<std::string> roots{env.home.string()}, problems, tools;
+    for (const auto& file : files)
+        if (const auto root = text_of(json::parse(read_file(file), nullptr, false), "root"); root.rfind('/', 0) == 0) roots.insert(root);
+    bool answered = false;
+    for (const auto& root : roots) {
+        const auto list = json::parse(run_bounded(10, {tool, "tools", "list", "--root", root}).out, nullptr, false);
+        if (!list.is_object() || !list.value("files", json()).is_array() || !list.value("tools", json()).is_array()) continue;
+        answered = true;
+        const auto mine = [&](const json& row) { return row.is_object() && fs::path(text_of(row, "file")).parent_path() == dir; };
+        const auto name = [](const json& row) { return fs::path(text_of(row, "file")).filename().string(); };
+        for (const auto& file : list["files"])
+            if (mine(file) && file.value("ok", json()) != true) problems.insert(name(file) + ": " + text_of(file, "message"));
+        for (const auto& one : list["tools"]) {
+            if (!mine(one)) continue;
+            if (one.contains("refused")) problems.insert(name(one) + ": tool " + text_of(one, "id") + ": " + text_of(one, "refused"));
+            else tools.insert(name(one) + ":" + text_of(one, "id"));
+        }
+    }
+    if (!answered) return result("D24", title, Severity::Low, Status::Skip, "requires a desk-work with desk-work tools (D20)");
+    if (!problems.empty())
+        return listed("D24", title, Severity::Low, std::vector<std::string>(problems.begin(), problems.end()),
+                      "fix the file named; desk-work tools list --root <its root> shows what desk-work reads (docs/desk-tools.md)");
+    return result("D24", title, Severity::Low, Status::Pass,
+                  std::to_string(files.size()) + (files.size() == 1 ? " file, " : " files, ") + std::to_string(tools.size())
+                  + (tools.size() == 1 ? " tool" : " tools"));
+}
+
+// D25. A program keeps the version it loaded. desk-work records the build each Neovim, Claude Code notebook and
+// Quickshell loaded and the one installed, and names the sessions that run older code with how to reload each.
+// A Neovim or Claude Code it has no record of (started before it kept them, or without desk-work) counts as older
+// when it started before its build stamp, which every install writes. Quickshell reloads changed files itself, so
+// only desk-work's record says it runs older code.
+struct Session { const char* client; const char* comm; const char* name; const char* stamp; const char* restart; };
+const Session SESSIONS[] = {
+    {"nvim", "nvim", "Neovim", "~/.config/nvim/lua/desk/build.lua", ":restart, then :WorkResume (or quit it and open it again)"},
+    {"notebook", "claude", "Claude Code", "~/.claude/mods/desk-notebook/hooks/build.ts", "/exit, then claude --continue"},
+    {"desktop", "quickshell", "Quickshell", "", ""},
+};
+
+CheckResult check_sessions(const Env& env) {
+    const char* title = "running sessions have the installed version loaded";
+    std::vector<std::string> stale;
+    std::set<long long> recorded;
+    const auto& health = work_health();
+    const bool answered = health.is_object() && health.value("sessions", json()).is_array();
+    // One line a session: desk-work can know one by its client record and its agent records; the one naming the
+    // conversation (claude --resume <id>) says the most.
+    std::map<std::pair<std::string, long long>, json> older;
+    if (answered)
+        for (const auto& row : health["sessions"]) {
+            const auto pid = row.is_object() && row.value("pid", json()).is_number_integer() ? row["pid"].get<long long>() : 0;
+            const auto status = text_of(row, "status");
+            if (status == "current" || status == "reload-pending") recorded.insert(pid);  // "unverified": no word
+            if (status != "reload-pending") continue;
+            auto& kept = older[{text_of(row, "client"), pid}];
+            if (kept.is_null() || (text_of(kept, "session").empty() && !text_of(row, "session").empty())) {
+                const auto root = kept.is_null() ? std::string() : text_of(kept, "root");
+                kept = row;
+                if (text_of(kept, "root").empty() && !root.empty()) kept["root"] = root;
+            }
+        }
+    for (const auto& [key, row] : older) {
+        std::string name = key.first;
+        for (const auto& session : SESSIONS) if (name == session.client) name = session.name;
+        std::string where = key.second > 0 ? "pid " + std::to_string(key.second) : "";
+        if (const auto root = text_of(row, "root"); !root.empty()) where += (where.empty() ? "" : ", ") + fs::path(root).filename().string();
+        const auto reload = text_of(row, "reload");
+        stale.push_back((name.empty() ? std::string("a session") : name) + (where.empty() ? "" : " (" + where + ")")
+                        + " runs older code: " + (reload.empty() ? std::string("restart it to load the installed version") : reload));
+    }
+    std::map<long long, std::vector<long long>> children;
+    for (const auto& proc : processes()) children[proc.ppid].push_back(proc.pid);
+    bool stamped = false;
+    for (const auto& session : SESSIONS) {
+        const auto stamp = *session.stamp ? mtime(desk_install::workflow::destination(env.home, env.config, session.stamp)) : 0;
+        stamped = stamped || stamp > 0;
+        std::vector<const Proc*> before;
+        for (const auto* proc : started_before({session.comm}, stamp)) {
+            if (has(proc->args, "--embed") || has(proc->args, "--headless")) continue;  // a UI's server, or a probe
+            bool known = recorded.count(proc->pid) > 0;
+            for (const auto child : children[proc->pid]) known = known || recorded.count(child) > 0;
+            if (!known) before.push_back(proc);
+        }
+        if (!before.empty())
+            stale.push_back(std::string(session.name) + " (" + pids(before) + ") started before the last install ("
+                            + clock_at(stamp) + "): " + session.restart);
+    }
+    if (!stale.empty()) return listed("D25", title, Severity::Low, stale, "restart each one named to load the new version");
+    if (!answered && !stamped) return result("D25", title, Severity::Low, Status::Skip, "requires desk-work (it records what each session loaded)");
+    return result("D25", title, Severity::Low, Status::Pass, "none runs code from before the install");
+}
+
 struct Entry { const char* id; CheckResult (*fn)(const Env&); };
+// D14 first: an old café dispatcher is a way to root.
 const Entry CHECKS[] = {
+    {"D14", check_cafe},
     {"D1", check_drift}, {"D2", check_hyprland}, {"D3", check_quickshell}, {"D4", check_drawer}, {"D5", check_bar},
     {"D6", check_configs}, {"D7", check_nvim}, {"D8", check_claude}, {"D9", check_services},
     {"D10", check_gtk}, {"D11", check_firefox}, {"D12", check_cursor}, {"D13", check_lock_panel},
+    {"D15", check_firefox_theme}, {"D16", check_shift_enter}, {"D17", check_popout_rule}, {"D18", check_plugin_lock},
+    {"D19", check_notebooks}, {"D20", check_work_commands}, {"D21", check_retro_bar}, {"D22", check_etcwatch},
+    {"D23", check_arch_audit}, {"D24", check_declarations}, {"D25", check_sessions},
 };
 
 std::vector<std::string> split_csv(const std::string& text) {
@@ -547,7 +1057,11 @@ int main(int argc, char** argv) {
                         "  D1 deployed files match the theme   D2 Hyprland config   D3 Quickshell\n"
                         "  D4 drawer pages   D5 bar modules   D6 tmux / lock screen   D7 Neovim\n"
                         "  D8 Claude status line and mod   D9 services   D10 GTK light/dark   D11 Firefox find colours\n"
-                        "  D12 cursor   D13 lock screen panel on a visible screen\n\n"
+                        "  D12 cursor   D13 lock screen panel on a visible screen   D14 the café dispatcher (root)\n"
+                        "  D15 Firefox styles and website appearance   D16 Shift+Enter in tmux   D17 the pop-out's window rule\n"
+                        "  D18 Neovim plugins at the lock   D19 notebooks (jupytext, ipykernel)   D20 desk-work editor and tools\n"
+                        "  D21 the retro bar's table   D22 /etc watcher   D23 arch-audit timer   D24 declared tools (desk.d)\n"
+                        "  D25 running sessions on an older version\n\n"
                         "exit codes: 0 ok  1 warnings  2 critical  3 high\n");
             return 0;
         } else { std::fprintf(stderr, "desk theme check: unknown option %s (see --help)\n", arg.c_str()); return 64; }
@@ -573,7 +1087,11 @@ int main(int argc, char** argv) {
                                      "the theme repo was not found", "set FOXML_REPO to it"));
             continue;
         }
-        results.push_back(check.fn(env));
+        try {
+            results.push_back(check.fn(env));
+        } catch (const std::exception& error) {
+            results.push_back(result(check.id, "the check could not run", Severity::Low, Status::Warn, error.what()));
+        }
         if (quiet) continue;
         const auto& r = results.back();
         std::printf("%s %-3s  %s\n", mark(r.status), r.id.c_str(), r.title.c_str());

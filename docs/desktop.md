@@ -758,9 +758,22 @@ each probe under a time limit, and fixes nothing.
 | D11 | Firefox's find colours in the profile's `user.js` are the theme's |
 | D12 | The desktop's cursor theme is the palette's, and it is installed |
 | D13 | The lock screen's password field would land on a screen you can see (see [Lock screen](#lock-screen)) |
+| D14 | No café dispatcher from before 2026-11-16 is installed: `/etc/NetworkManager/dispatcher.d/99-foxml-cafe` without the `cafe v2` marker runs files you own as root. `desk sec cafe --disable` removes it, `--setup` replaces it |
+| D15 | In the profile Firefox opens (its `profiles.ini`): the stylesheets as the theme renders them now, the prefs `user.js` holds, the theme's website appearance (`FF_WEBSITE_APPEARANCE`), and no Firefox started before they changed |
+| D16 | Shift+Enter in tmux: kitty's map only under `var:desk_tmux=1`, tmux's `xterm-kitty` smcup/rmcup override, zsh's binding, and no tmux client attached before `~/.tmux.conf` changed |
+| D17 | The `desk-popout` window rule, in `rules.lua` and its `rules.conf` twin |
+| D18 | Every Neovim plugin clone is at the commit `~/.config/nvim/lazy-lock.json` pins (nvim-scrollbar on v1), and that lock is the repo's |
+| D19 | Notebooks: `jupytext`, with its Python still there, and `ipykernel` |
+| D20 | The `desk-work` on your `PATH` has `desk-work editor` and `desk-work tools` (the notebook's `g` needs them) |
+| D21 | The bar's `BarLogic.js` has the retro module table and is the repo's |
+| D22 | `fox-etcwatch`'s units are the installer's (no start limit), systemd has loaded them, and the path unit is active |
+| D23 | `foxml-arch-audit`'s units are the installer's (no `arch-audit -uf`), and systemd has loaded them |
+| D24 | The declarations in `~/.config/foxml/desk.d`, as `desk-work tools list` reads them; nothing they name runs |
+| D25 | Sessions running an older version: what desk-work recorded each Neovim, Claude Code and Quickshell loaded, and a Neovim or Claude Code it has no record of that started before the last install, each with how to reload it |
 
 `--verbose` adds the details, `--only D1,D4` picks checks, and `--theme NAME` compares
 against another theme. Every install and theme swap ends with it, and a weekly user
 timer (`fox-theme-check.timer`) runs the checks that don't need the live session and
-sends a notification only when something isn't clean. Exit codes follow `desk sec health`: 0 ok, 1 warnings, 3 a
-high failure (Hyprland or Quickshell).
+sends a notification only when something isn't clean. Running programs are looked at only in `/proc` and desk-work's
+records, never asked, signalled or connected to. Exit codes follow `desk sec health`: 0 ok, 1 warnings, 2 a critical
+failure (the old café dispatcher), 3 a high failure (Hyprland or Quickshell).
