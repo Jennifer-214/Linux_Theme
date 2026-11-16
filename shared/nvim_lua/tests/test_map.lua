@@ -269,6 +269,27 @@ ok(shown:find("BS/-", 1, true) and shown:find("The ways between two functions", 
 press("q")   -- the list's own q
 eq(api.nvim_get_current_win(), view.win, "q closes the list, back in the map")
 
+-- m: the parts in the desk menu, not a numbered list (VM 2026-11-16, F17): / filters them by name, Enter goes there.
+local numbered, real_select = 0, vim.ui.select
+vim.ui.select = function(_, _, done) numbered = numbered + 1; done(nil) end
+press("m")
+vim.ui.select = real_select
+eq(numbered, 0, "m does not ask with vim.ui.select's numbered list")
+local parts_menu = Menu._last
+ok(parts_menu and parts_menu ~= list and api.nvim_win_is_valid(parts_menu.win)
+  and vim.inspect(api.nvim_win_get_config(parts_menu.win).title):find("Part of the checkout", 1, true), "m opens the parts in a menu")
+local function menu_text() return parts_menu and table.concat(api.nvim_buf_get_lines(parts_menu.buf, 0, -1, false), "\n") or "" end
+ok(menu_text():find("csrc", 1, true) and menu_text():find("4 files · 9 functions", 1, true), "… every part, with its size:\n" .. menu_text())
+local real_input = vim.ui.input
+vim.ui.input = function(_, done) done("lu") end
+press("/")
+vim.ui.input = real_input
+ok(menu_text():find("lua", 1, true) and not menu_text():find("csrc", 1, true), "/ filters them by name:\n" .. menu_text())
+press("<CR>")
+ok(vim.wait(2000, function() return line_with(view.drawn.lines, "│ mod.lua") end), "Enter goes to the part picked: its files")
+press("<BS>")
+ok(vim.wait(1000, function() return line_with(view.drawn.lines, "│ csrc") end), "… and Backspace back to the parts")
+
 -- Zoom in and out; Enter on a function goes to the code, the map left open.
 cursor_on("lua")
 press("<CR>")
@@ -418,6 +439,28 @@ eq({ asked_for, said[#said] }, { 0, "No map built yet · R builds it." }, "r say
 why = {}
 for _, l in ipairs(A.key_lines(A.context(unbuilt.win))) do why[l.ident] = l.right or true end
 eq({ why["map.reach"], why["map.rebuild"] }, { "no map built yet · R builds it", true }, "? greys the questions, not the build")
+press("q")
+
+-- Not a git checkout and no binary given (VM 2026-11-16, F17): no reader can build a map here. The page says what is
+-- needed, first, and offers no R; B (reading a binary) still can.
+status.providers = { { name = "syntax", state = "not built", why = "requires a git checkout (the files to read come from git)" },
+  { name = "binary", state = "not built", why = "requires a built binary: desk-work map build --binary PATH (kept for the next builds)" } }
+local nowhere = Map.open(root)
+ok(vim.wait(1000, function() return nowhere.drawn and line_with(nowhere.drawn.lines, "requires a git checkout") end), "not a checkout: it says so")
+local title_row = line_with(nowhere.drawn.lines, "project map")
+ok(title_row and (nowhere.drawn.lines[title_row + 1] or ""):find("^requires a git checkout"), "… first, in the badge under the title:\n"
+  .. text(nowhere.drawn.lines))
+ok(line_with(nowhere.drawn.lines, "syntax: requires a git checkout (the files") and line_with(nowhere.drawn.lines, "binary: requires a built binary"),
+  "… and the page says what each reader needs")
+ok(not line_with(nowhere.drawn.lines, "builds it") and not line_with(nowhere.drawn.lines, "No map built yet"), "… with no R to build one")
+why = {}
+for _, l in ipairs(A.key_lines(A.context(nowhere.win))) do why[l.ident] = l.right or true end
+eq({ why["map.rebuild"], why["map.reach"], why["map.binary"] }, { "requires a git checkout", "requires a git checkout", true },
+  "? greys R and the questions with the reason, not B")
+local builds = #vim.tbl_filter(function(a) return a:find("map build", 1, true) end, asked)
+press("R")
+eq({ said[#said], #vim.tbl_filter(function(a) return a:find("map build", 1, true) end, asked) }, { "Requires a git checkout.", builds },
+  "R says so instead of starting a build that cannot run")
 press("q")
 vim.notify = real_notify
 

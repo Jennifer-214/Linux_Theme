@@ -23,4 +23,8 @@ with tempfile.TemporaryDirectory(prefix="desk-map-") as home:
     run = subprocess.run(["nvim", "--headless", "--clean", "-l", str(REPO / "shared/nvim_lua/tests/test_map.lua")],
                          capture_output=True, text=True, timeout=180, env=env)
 print("    " + (run.stdout + run.stderr).strip().replace("\n", "\n    "))
+# A Neovim that quits before its summary line (a prompt meeting the end of its input) did not pass.
+if run.returncode == 0 and "test_map:" not in run.stdout + run.stderr:
+    print("    test_map: ended before its summary")
+    sys.exit(1)
 sys.exit(run.returncode)

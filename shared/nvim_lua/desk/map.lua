@@ -478,6 +478,13 @@ local function side(sections, label, items)
   sections[#sections + 1] = { boxes = items, more = more }
 end
 
+-- A part's size, as its box and the part picker (m) say it.
+local function part_size(m)
+  return m.name == '(library)' and count(m.functions or 0, 'library function', 'library functions')
+    or m.name == '(binary)' and (count(m.functions or 0, 'function', 'functions') .. ' with no source here')
+    or (count(m.files or 0, 'file', 'files') .. ' · ' .. count(m.functions or 0, 'function', 'functions'))
+end
+
 -- The parts of the checkout (desk-work map query --q module).
 function M.level_modules(answer)
   local keys, degree, by = {}, {}, {}
@@ -487,11 +494,7 @@ function M.level_modules(answer)
     degree[e.to] = (degree[e.to] or 0) + (e.count or 1)
   end
   local function item(name)
-    local m = by[name]
-    local detail = name == '(library)' and count(m.functions or 0, 'library function', 'library functions')
-      or name == '(binary)' and (count(m.functions or 0, 'function', 'functions') .. ' with no source here')
-      or (count(m.files or 0, 'file', 'files') .. ' · ' .. count(m.functions or 0, 'function', 'functions'))
-    return { name = name, detail = detail, target = { kind = 'module', module = name } }
+    return { name = name, detail = part_size(by[name]), target = { kind = 'module', module = name } }
   end
   local sections = {}
   if #keys == 0 then sections[1] = { parts = { { 'The map is empty: no reader found anything here.' } }, group = 'DeskMapDim' } end
@@ -738,6 +741,17 @@ end
 -- 'no map built yet · R builds it' in the theme's voice, the key as typed (in retro r and R are two keys).
 local function with_key(G, before, id, after) return G.said(before) .. typed(id) .. G.said(after) end
 local function no_map(G) return with_key(G, 'no map built yet · ', 'rebuild', ' builds it') end
+-- What every reader needs and does not have here (a folder that is no git checkout, and no binary given), else nil: the
+-- page and its keys say that first, and offer no rebuild that cannot run.
+local function unbuildable(s)
+  if not s or s.built or s.building or #(s.providers or {}) == 0 then return nil end
+  local needs = {}
+  for _, p in ipairs(s.providers) do
+    if (p.why or '') == '' then return nil end
+    needs[#needs + 1] = { name = p.name, why = p.why, short = p.why:match('^(.-) %(') or p.why }
+  end
+  return needs
+end
 
 function M.header(view, G)
   local s = view.status
@@ -746,6 +760,7 @@ function M.header(view, G)
   elseif view.building or (s and s.building) then
     out[#out + 1] = { G.said('rebuilding' .. G.ellipsis .. ' started ' .. os.date('%H:%M', s and s.building_since or view.building_at or os.time())), 'DeskMapDim' }
   elseif not s then out[#out + 1] = { G.said('reading' .. G.ellipsis), 'DeskMapDim' }
+  elseif unbuildable(s) then out[#out + 1] = { G.said(unbuildable(s)[1].short), 'DeskMapStale' }
   elseif not s.built then out[#out + 1] = { no_map(G), 'DeskMapStale' }
   elseif s.stale then
     out[#out + 1] = { with_key(G, 'stale since ' .. short(s.head) .. ' · ', 'rebuild', ' rebuilds'), 'DeskMapStale' }
@@ -768,7 +783,7 @@ function M.footer(view, G)
     end
   end
   if #answered > 0 then notes[#notes + 1] = 'answered by ' .. table.concat(answered, ' · ') end
-  for _, p in ipairs(s.providers or {}) do
+  for _, p in ipairs(unbuildable(view.status) and {} or s.providers or {}) do   -- (else the page itself says them)
     if p.state ~= 'ok' then notes[#notes + 1] = p.name .. ': ' .. ((p.why or '') ~= '' and p.why or 'not built yet') end
   end
   if s.complete == false and s.why then notes[#notes + 1] = 'partial: ' .. s.why end
@@ -800,6 +815,11 @@ function M.render(view)
   local s = view.status
   if view.missing then page = { sections = { { parts = { { M.REQUIRES } }, group = 'DeskMapStale' } } }
   elseif view.message then page = { sections = { { parts = { { view.message } }, group = 'DeskMapStale' } } }
+  elseif unbuildable(s) and not view.building then
+    page = { sections = {} }
+    for _, need in ipairs(unbuildable(s)) do
+      table.insert(page.sections, { parts = { { need.name .. ': ' .. need.why } }, group = 'DeskMapStale' })
+    end
   elseif s and not s.built and not s.building and not view.building then
     page = { sections = { { parts = { { 'No map built yet. ' .. typed('rebuild') .. ' builds it in the background (a desk-work job; its log is in the' } } },
                           { parts = { { 'jobs list), and this page fills in when it is done.' } } } } }
@@ -1011,15 +1031,20 @@ local function ways(view)
   end)
 end
 
+-- The parts in the menu every desk view uses (symdeps' when it is installed, else the built-in one): / filters them
+-- by name, Enter goes there.
 local function part(view)
   local modules = cached(view, 'modules')
   if not modules then return tell('The map is not read yet.') end
-  local names = vim.tbl_map(function(m) return m.name end, modules.modules or {})
-  vim.ui.select(names, { prompt = 'Part of the checkout' }, function(choice)
-    if not choice then return end
-    view.stack = { view.stack[1] }
-    push(view, { kind = 'files', module = choice })
-  end)
+  local items = {}
+  for _, m in ipairs(modules.modules or {}) do
+    items[#items + 1] = { name = m.name, label = m.name .. ' — ' .. part_size(m), run = function()
+      if not valid(view) then return end
+      view.stack = { view.stack[1] }
+      push(view, { kind = 'files', module = m.name })
+    end }
+  end
+  require('desk.review').show_menu(items, { title = 'Part of the checkout', anchor_win = view.win, memo = 'desk-map-part' })
 end
 
 local function binary(view)
@@ -1116,7 +1141,15 @@ local function needs_map(ctx)
   local why = needs_desk_work(ctx)
   if why ~= true then return why end
   local view, s = ctx.map, ctx.map and ctx.map.status
+  if unbuildable(s) then return unbuildable(s)[1].short end
   return not (s and not s.built and not s.building and not view.building) or no_map(M.glyphs(false))
+end
+-- A rebuild needs a reader that can run here (a remembered binary can, outside a checkout too).
+local function needs_reader(ctx)
+  local why = needs_desk_work(ctx)
+  if why ~= true then return why end
+  local needs = unbuildable(ctx.map and ctx.map.status)
+  return not needs or needs[1].short
 end
 local function row(id, key, name, about, run, needs, extra)
   local r = { id = 'map.' .. id, group = GROUP, name = name, about = about, key = key, on = 'map', available = needs,
@@ -1148,7 +1181,7 @@ local ROWS = actions.add({
   row('paths', 'P', 'The ways between two functions', 'Every way from one function to another, shortest first', ways, needs_map),
   row('module', 'm', 'A part of the checkout', 'Go to a part of the checkout, picked by name', part, needs_map),
   row('rebuild', 'R', 'Rebuild the map', 'Rebuild the map in the background (a desk-work job; its log is in the jobs list)',
-    function(view) M.rebuild(view) end, needs_desk_work),
+    function(view) M.rebuild(view) end, needs_reader),
   row('binary', 'B', 'Rebuild reading a binary', 'Rebuild, reading a built binary for its exact calls (remembered for the next builds)',
     binary, needs_desk_work),
   row('close', 'q', 'Close the project map', 'Close the project map', function(view) M.close(view) end),
