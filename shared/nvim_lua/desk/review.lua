@@ -1022,7 +1022,7 @@ local function panel(r, select_row)
   mark_cursor(r, cursor_line)
   if select_row and built.selected then api.nvim_win_set_cursor(r.panel_win, { built.selected, 0 }) end
   set_footer(r)
-  ask_reach(r, built)
+  ask_reach(r, built, cursor_line)
 end
 
 -- ─── structure, read in the background ──────────────────────────────────────────────────────────────────────────
@@ -1238,7 +1238,7 @@ end
 -- Who calls function s of file f: asked when nothing current is known (a server's answer is current while its buffer is
 -- as it was asked, a map's for ten minutes; a server attached since answers instead). A buffer edited since its answer
 -- is asked again when it has been still for M.REACH_SETTLE_MS: an answer that comes while she types is stale already,
--- and asking again at once looped as long as she typed.
+-- and asking again at once looped as long as she typed. true when it asked now.
 function M.reach(r, f, s)
   if s.side == 'before' or s.kind == 'hunk' then return end
   local key = reach_key(f, s)
@@ -1263,16 +1263,25 @@ function M.reach(r, f, s)
   r.reach_queue = r.reach_queue or {}
   table.insert(r.reach_queue, { f = f, s = s, key = key })
   vim.schedule(function() run_reach(r) end)
+  return true
 end
--- The changed functions a drawing of the list shows: their callers asked (at most 24 at a time).
-ask_reach = function(r, built)
+-- The changed functions a drawing of the list shows: their callers asked, at most 24 new asks a drawing (one answered
+-- or still on its way does not count, or the 25th would never be asked), the row in front first (first: its line).
+ask_reach = function(r, built, first)
   r.reach_rows = built
+  local lines = vim.tbl_keys(built.entries)
+  table.sort(lines, function(a, b)
+    if (a == first) ~= (b == first) then return a == first end
+    return a < b
+  end)
   local n = 0
-  for _, entry in pairs(built.entries) do
+  for _, line in ipairs(lines) do
+    if n >= 24 then break end
+    local entry = built.entries[line]
     local s = entry.symbol
-    if s and s.kind ~= 'hunk' and s.side ~= 'before' and n < 24 then
+    if s and s.kind ~= 'hunk' and s.side ~= 'before' then
       local f = (entry.set and entry.set.files or r.files)[entry.file]
-      if f then n = n + 1; M.reach(r, f, s) end
+      if f and f.signature == s.signature and M.reach(r, f, s) then n = n + 1 end
     end
   end
 end
@@ -3048,7 +3057,7 @@ local function render_view(view, width)
   api.nvim_set_hl(0, 'DeskReviewOpen', { link = 'CursorLine' })
   local w = math.max(24, math.min(width - 2, 100))
   local built = build(r, w)
-  ask_reach(r, built)
+  ask_reach(r, built, built.selected)
   local lines, items, shown = built.lines, {}, nil
   local rows = vim.tbl_keys(built.entries)
   table.sort(rows)

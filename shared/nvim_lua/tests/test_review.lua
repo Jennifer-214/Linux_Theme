@@ -230,6 +230,27 @@ eq(read_big and calls(bf.structure, "f1"), "+fresh -helper", "… rightly")
 ok(longest < 150e6, ("… and no step of the read held the editor up for more than 150 ms (the longest: %.0f ms)"):format(longest / 1e6))
 C.close()
 
+-- ─── callers asked for every changed function, not only the first 24 ───────────────────────────────────────────
+-- A drawing asks for at most 24 functions; it counted those already answered too, so the 25th onwards was never
+-- asked and read "callers…" for good.
+Map.desk_work = function(_, done) vim.schedule(function() done({ ok = true, q = "callers", nodes = { { depth = 0 } } }) end) end
+local many_before, many_after = {}, {}
+for i = 1, 30 do
+  many_before[#many_before + 1] = ("local function f%d()\n  return %d\nend\n"):format(i, i)
+  many_after[#many_after + 1] = ("local function f%d()\n  return %d\nend\n"):format(i, i + 100)
+end
+C.open_review(commit({ ["many.lua"] = { table.concat(many_before), table.concat(many_after) } }), root)
+enter("many.lua")
+local function waiting()
+  local out = {}
+  for name, text in pairs(strips()) do if text:find("callers…", 1, true) then out[#out + 1] = name end end
+  table.sort(out)
+  return out
+end
+ok(vim.wait(5000, function() return #waiting() == 0 end), "every one of 30 changed functions gets its callers asked")
+eq(waiting(), {}, "… none is left reading callers…")
+C.close()
+
 pcall(vim.fn.serverstop, vim.v.servername)
 vim.fn.delete(sandbox, "rf")
 print(string.format("test_review: %d passed%s", passed, failed > 0 and (", " .. failed .. " failed") or ""))
