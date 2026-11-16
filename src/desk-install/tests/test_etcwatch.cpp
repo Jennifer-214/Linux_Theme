@@ -5,7 +5,7 @@
 //   - the service has no start limit, set in [Unit] where systemd reads it;
 //   - a change long after the last etckeeper commit alerts; the rest of a burst, inside a minute, does not;
 //   - a minute on it alerts again; within 30 s of an etckeeper commit it does not;
-//   - a garbled marker does not silence it;
+//   - a garbled marker does not silence it, nor does one later than now (the clock stepped back);
 //   - the state check's comparison: the old service body is out of date.
 
 #include "../modules/etcwatch_units.hpp"
@@ -108,10 +108,20 @@ int main() {
     run();
     expect("within 30 s of an etckeeper commit: no alert", alerts() == 2);
 
+    // "12abc", not a bare word: sh's arithmetic reads a word as an unset variable, 0, so only a marker it cannot read
+    // at all shows whether the script checks the marker first.
     stamp_age(stamp, 3600);
-    std::ofstream(marker) << "garbled\n";
+    std::ofstream(marker) << "12abc\n";
     run();
     expect("a garbled marker does not silence it", alerts() == 3);
+
+    // The clock stepped back: the last alert's time is later than now. Kept, it would hold every alert back until then.
+    std::ofstream(marker) << (std::time(nullptr) + 3600) << "\n";
+    const int before = alerts();
+    run();
+    expect("a marker from the future does not silence it", alerts() == before + 1);
+    run();
+    expect("the marker it leaves holds the rest of that burst back", alerts() == before + 1);
 
     ::setenv("PATH", saved.c_str(), 1);
     ::unsetenv("XDG_RUNTIME_DIR");
