@@ -33,13 +33,11 @@ class Toolchain(ToolsCase):
         result = self.data("tools", "result", "contract", "--root", self.plugin)
         self.assertEqual((result["state"], result["at"], [f["name"] for f in result["facts"]]),
                          ("ok", 1794812098, ["passed", "failed", "skipped", "expected"]))
-        # The same record declared from another checkout too (a worktree of the project) is still one result.
-        (self.repo / ".desk").mkdir()
-        (self.repo / ".desk/tools.json").write_text(json.dumps({"version": 1, "tools": [
-            {"id": "contract", "gives": "status", "format": "fox-contract/1", "reads": str(self.record)}]}))
-        self.register()
+        # The same record declared for another checkout too (a worktree of the project) is still one result.
+        second = self.declare_private("worktree.json", {"version": 1, "root": str(self.repo), "tools": [
+            {"id": "contract", "gives": "status", "format": "fox-contract/1", "reads": str(self.record)}]})
         card, _ = self.card()
-        self.assertIn(str(self.repo / ".desk/tools.json"), card["detail"])
+        self.assertIn(str(second), card["detail"])
         self.assertEqual(card["label"], "Contract tests · symdeps contract tests · passed", "named as the tool's own declaration names it")
 
     def test_the_card_goes_stale_when_tools_are_committed_or_their_uncommitted_files_change(self):

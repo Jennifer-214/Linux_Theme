@@ -51,6 +51,21 @@ J check_tool(const J& raw) {
     return t;
 }
 
+// A project's own declaration arrives with the repo (a clone, an agent's edit), so what it reads stays in its checkout:
+// no "..", and the path, symbolic links resolved, inside the checkout's folder. A desk.d file is hers and may name any
+// path. Each desk-work command reads the declarations afresh, so a link the repo gains later is caught then. Empty
+// when `reads` may be read, else why not.
+std::string reads_outside(const std::string& root, const std::string& reads) {
+    const std::string rule = ": a project's own declaration reads only files in its checkout (a desk.d file may name any path)";
+    for (const auto& part : fs::path(reads)) if (part == "..") return "reads " + one_line(reads, 200) + " goes through .." + rule;
+    std::error_code ec;
+    const auto top = fs::canonical(root, ec);
+    const auto real = ec ? fs::path() : fs::weakly_canonical(reads, ec);
+    const auto inside = real.lexically_relative(top);
+    if (ec || inside.empty() || *inside.begin() == "..") return "reads " + one_line(reads, 200) + " is outside " + root + rule;
+    return {};
+}
+
 // One declaration file and its tools, each checked; null when there is no file. A file that cannot be used says why
 // and declares nothing. A desk.d file names the checkout its tools are for (root); a project's own file is for its
 // checkout, and its tools run at the checkout's top level.
@@ -83,6 +98,8 @@ J read_declaration(const fs::path& file, const std::string& project) {
     out["ok"] = true;
     for (size_t i = 0; i < doc["tools"].size(); ++i) {
         auto t = check_tool(doc["tools"][i]);
+        if (!project.empty() && !t.contains("refused") && t.contains("reads"))
+            if (const auto why = reads_outside(root, doc["tools"][i]["reads"].get<std::string>()); !why.empty()) t["refused"] = why;
         t["file"] = file.string(); t["index"] = i; t["root"] = root; t["cwd"] = cwd;
         if (out.contains("written_by")) t["written_by"] = out["written_by"];
         out["tools"].push_back(t);

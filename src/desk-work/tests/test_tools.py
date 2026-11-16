@@ -109,7 +109,8 @@ class ToolsCase(unittest.TestCase):
 
     def answer(self, fmt, gives, text):
         """What desk-work makes of a tool's answer: a file the tool wrote, declared with `reads` (nothing runs)."""
-        path = self.dir / "answer.out"
+        path = self.repo / ".desk/answer.out"
+        path.parent.mkdir(exist_ok=True)
         path.write_text(text)
         self.declare([{"id": "t", "gives": gives, "format": fmt, "reads": str(path)}])
         return self.data("tools", "result", "t")
@@ -215,14 +216,38 @@ class Tools(ToolsCase):
         self.assertIn("Tool declarations · 14 refused", [c["label"] for c in health["checks"]])
         self.assertIn("Tool declarations: 14 refused", health["alerts"])
 
+    def test_a_projects_own_declaration_reads_only_inside_its_checkout(self):
+        # .desk/tools.json arrives with the repo: it must not point desk-work (and the agents reading tools result) at
+        # a file elsewhere, by an absolute path, by .., or through a link the repo carries. Her desk.d file may.
+        outside = self.dir / "outside.json"
+        outside.write_text(json.dumps({"state": "ok", "text": "from outside"}))
+        (self.repo / ".desk").mkdir()
+        (self.repo / ".desk/answer.json").write_text(json.dumps({"state": "ok", "text": "from inside"}))
+        (self.repo / ".desk/elsewhere").symlink_to(self.dir)
+        self.declare([{"id": "inside", "gives": "status", "format": "json", "reads": str(self.repo / ".desk/answer.json")},
+                      {"id": "absolute", "gives": "status", "format": "json", "reads": str(outside)},
+                      {"id": "climbs", "gives": "status", "format": "json", "reads": str(self.repo / ".desk/../../outside.json")},
+                      {"id": "linked", "gives": "status", "format": "json", "reads": str(self.repo / ".desk/elsewhere/outside.json")}])
+        tools = {t["id"]: t for t in self.data("tools", "list")["tools"]}
+        self.assertNotIn("refused", tools["inside"])
+        self.assertEqual(self.data("tools", "result", "inside")["summary"], "from inside")
+        for name in ("absolute", "climbs", "linked"):
+            self.assertIn("a project's own declaration reads only files in its checkout", tools[name].get("refused", ""), name)
+            out = self.invoke("tools", "result", name, code=1)
+            self.assertNotIn("from outside", out, name)
+        self.declare_private("mine.json", {"version": 1, "root": str(self.repo),
+                                           "tools": [{"id": "hers", "gives": "status", "format": "json", "reads": str(outside)}]})
+        self.assertEqual(self.data("tools", "result", "hers")["summary"], "from outside", "her own desk.d file may name any path")
+
     # ---- viewing and running
 
     def test_viewing_runs_nothing_a_declaration_names(self):
-        status = self.dir / "status.json"
+        status = self.repo / ".desk/status.json"
+        status.parent.mkdir()
         status.write_text(json.dumps({"state": "ok", "text": "fine"}))
         self.declare([{"id": "st", "gives": "status", "format": "json", "argv": ["touch", str(self.marker)], "reads": str(status)},
                       {"id": "contract", "gives": "status", "format": "fox-contract/1", "argv": ["touch", str(self.marker)],
-                       "reads": str(self.dir / "absent.json")}])
+                       "reads": str(self.repo / ".desk/absent.json")}])
         self.register()
         self.assertEqual(self.data("tools", "result", "st")["state"], "ok")
         self.data("tools", "list")

@@ -48,7 +48,7 @@ job, a review or an agent was recorded).
 | `gives` | tool | `graph`, `findings`, `figures` or `status` (Kinds) |
 | `format` | tool | `json`, `toolio`, `fox-symdeps/2`, `lines`, `dot` or `fox-contract/1` (Formats) |
 | `argv` | tool | the command, one string per argument; no shell |
-| `reads` | tool | the absolute path of a file the tool writes; desk-work only reads it |
+| `reads` | tool | the absolute path of a file the tool writes; desk-work only reads it. In a project's own file it must be in the checkout (no `..`, symbolic links resolved); a desk.d file may name any path |
 | `timeout_ms` | tool, optional | 100 to 3600000; the run is stopped after it |
 | `when` | tool, optional | `ask`, the default. `save` and `run` are accepted but not built yet: such a tool runs when you ask |
 
@@ -62,6 +62,8 @@ refused":
   an absolute path to a folder;
 - a tool with a bad id, kind or format, a format that does not give its kind, an `argv` that is not a list of
   strings, a `reads` that is not absolute, or neither `argv` nor `reads`;
+- in a project's own `.desk/tools.json`, which arrives with the repo, a `reads` outside the checkout: an absolute path
+  elsewhere, one with `..`, or one a symbolic link leads out of;
 - an `id` declared twice for one checkout, in one file or in two. Both are refused, "declared twice: A and B";
   desk-work never picks one.
 
