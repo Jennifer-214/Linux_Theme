@@ -157,6 +157,10 @@ started before the update is running. An integration-only update waits until the
   proves a login after the reload, putting the previous config back by itself on a failure; run over SSH, it keeps
   your session's port until you have logged in on the new one. `FOXML_SSH_PORT=<port>` answers it for an unattended
   run. Locked out anyway: the console, then RECOVERY.md ("I can't SSH in anymore").
+- A fresh install that upgraded the kernel left UFW off. The install's `pacman -Syu` takes the running kernel's
+  modules away until a reboot, so `ufw enable` failed, and the installer still said "UFW enabled"; after the reboot
+  the firewall stayed off. The ufw step now says the firewall is on only when `ufw status` does. After a kernel
+  upgrade in the same run it sets UFW to start at boot and says to reboot; any other failure is an error.
 
 ### Upgrading from 3.x
 

@@ -11,13 +11,17 @@
 //      while endlessh holds it (ssh_follow.hpp). It used to `limit ssh`, port 22, wherever sshd was.
 //   3. Interactive port allowlist (TTY-only, --yes silently skips).
 //   4. Auto-allow the current SSH session's port to prevent lockout.
-//   5. ufw logging low + enable + systemctl enable --now ufw.
+//   5. ufw logging low + enable + systemctl enable --now ufw, and on only when `ufw status` says so (ufw_on.hpp):
+//      after a kernel upgrade in this run it is set to start at the next boot instead.
 
 #include "../core/context.hpp"
+#include "../core/idempotency.hpp"
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
+#include "../../desk-health/checks.hpp"
 #include "ssh_follow.hpp"
 #include "ssh_port.hpp"
+#include "ufw_on.hpp"
 
 #include <cstdlib>
 #include <iostream>
@@ -139,10 +143,34 @@ void run_ufw(Context& ctx) {
 
     sh::run({"sh", "-c", "sudo ufw logging low >/dev/null 2>&1 || true"});
     sh::run({"sh", "-c", "echo y | sudo ufw enable >/dev/null"});
-    if (sh::systemctl_enable("ufw", /*user=*/false) == 0) {
-        ui::ok("UFW enabled (deny incoming + low logging)");
-    } else {
-        ui::warn("ufw service enable failed — re-run after `sudo -v`");
+
+    // Said on only when ufw says so: a failed `ufw enable` used to read as "UFW enabled", with the firewall off.
+    std::string status;
+    sh::capture({"sudo", "ufw", "status"}, status);
+    // Health check A1, the one test for it: the running kernel's module tree is gone (Fail), not merely unknown.
+    const bool modules = desk_health::checks::a1_kernel_modules_dep().status != desk_health::Status::Fail;
+    switch (ufw_on::after_enable(status, modules)) {
+    case ufw_on::Firewall::On:
+        if (sh::systemctl_enable("ufw", /*user=*/false) == 0) ui::ok("UFW on (deny incoming + low logging)");
+        else ui::warn("UFW is on, but its service did not enable — it will not come back after a reboot; re-run --ufw");
+        return;
+    case ufw_on::Firewall::AtNextBoot: {
+        const auto conf = ufw_on::enabled_at_boot(idem::read_file("/etc/ufw/ufw.conf"));
+        const bool set = conf && sh::write_root_atomic("/etc/ufw/ufw.conf", *conf, "0644");
+        sh::run({"sudo", "systemctl", "enable", "ufw"});
+        if (set) {
+            ui::warn("UFW cannot start until a reboot: this run upgraded the kernel, whose modules are gone until "
+                     "then — it is set to start at boot with these rules; reboot");
+        } else {
+            ui::err("UFW is NOT on: the kernel was upgraded in this run, and /etc/ufw/ufw.conf could not be set to "
+                    "start it at boot — reboot, then re-run --ufw");
+        }
+        return;
+    }
+    case ufw_on::Firewall::Off:
+        sh::run({"sudo", "systemctl", "enable", "ufw"});
+        ui::err("`ufw enable` failed — the firewall is NOT on; `sudo ufw enable` says why, then re-run --ufw");
+        return;
     }
 }
 
