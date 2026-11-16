@@ -804,7 +804,15 @@ class BackendTests(unittest.TestCase):
         self.assertTrue(data["ok"])
         self.assertTrue(any(call[:2] == ["systemctl", "reboot"] for call in self.calls()))
 
+    def sound_card(self, present=True):
+        # The machine's sound cards, as the drawer reads them (FOXML_PROC): never the runner's own, which may have none.
+        proc = self.root / ("proc-card" if present else "proc-nocard")
+        (proc / "asound").mkdir(parents=True, exist_ok=True)
+        (proc / "asound/cards").write_text(" 0 [PCH            ]: HDA-Intel - HDA Intel PCH\n" if present else "--- no soundcards ---\n")
+        self.env.update(FOXML_PROC=str(proc))
+
     def test_volume_state_failure_is_visible(self):
+        self.sound_card()
         self.state["commands"] = {"wpctl": {"exit": 1, "stderr": "PipeWire unavailable\n"}}
         data = self.invoke("view", "sound", expect=1)
         volume = next(x for x in data["items"] if x["id"] == "volume")
@@ -814,10 +822,7 @@ class BackendTests(unittest.TestCase):
     def test_no_sound_card_is_a_calm_note_not_a_failure(self):
         # A VM or a headless box: no card, so no sound server to read. The pages open and say so (desk theme check's D4
         # failed every install in the test VM on this); with a card, a silent server stays a failure (the test above).
-        proc = self.root / "proc"
-        (proc / "asound").mkdir(parents=True)
-        (proc / "asound/cards").write_text("--- no soundcards ---\n")
-        self.env.update(FOXML_PROC=str(proc))
+        self.sound_card(present=False)
         self.state["commands"] = {"wpctl": {"exit": 1, "stderr": "Could not connect to PipeWire\n"},
                                   "pactl": {"exit": 1, "stderr": "Connection failure: Connection refused\n"}}
         sound = self.invoke("view", "sound")
@@ -871,6 +876,7 @@ class BackendTests(unittest.TestCase):
         self.assertEqual(data["favorites"][0]["group"], "sound")
 
     def test_unavailable_summary_does_not_fabricate_zero(self):
+        self.sound_card()
         self.state = {"commands": {"wpctl": {"exit": 1}}}
         data = self.invoke("view", "root")
         self.assertEqual(data["items"][1]["summary"], "Audio unavailable")
