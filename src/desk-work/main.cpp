@@ -209,6 +209,27 @@ J records_brief(const std::string& root) {
 std::string proc_stamp(long long pid) {
     return desk_install::work_updates::process_stamp(pid);
 }
+// A stamp is the boot id and the start time: of two live processes, the later start is the newer one.
+long long started_at(const std::string& stamp) {
+    long long at = -1; const auto colon = stamp.rfind(':');
+    if (colon != stamp.npos) std::from_chars(stamp.data() + colon + 1, stamp.data() + stamp.size(), at);
+    return at;
+}
+bool instance_ok(const std::string& s) { return std::regex_match(s, std::regex("[A-Za-z0-9_-]{1,80}")); }
+// A run or agent record names its owner {adapter, session, instance}; instance is a token the adapter makes once per
+// process start. An update that names an instance must name the recorded one; one that names none (a client from
+// before owners) must come from the recorded process.
+bool same_owner(const J& record, const std::string& instance, const std::string& caller) {
+    const auto it = record.find("owner");
+    const auto recorded = it != record.end() && it->is_object() ? str(*it, "instance") : std::string();
+    if (!instance.empty() && !recorded.empty()) return instance == recorded;
+    return !caller.empty() && caller == str(record, "process");
+}
+J not_owner(const std::string& what) {
+    auto out = refuse("Refused: not the owner. " + what + " belongs to another process or adapter instance; nothing was changed");
+    out["refused"] = "not the owner";
+    return out;
+}
 std::string uuid() {
     const auto seed = read("/proc/sys/kernel/random/uuid", 128);
     return hash(seed + std::to_string(::getpid()) + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count())).substr(0, 32);
@@ -508,6 +529,8 @@ J begin(const std::string& command, const std::string& root, const std::string& 
     J j{{"id", id}, {"root", root}, {"command", command.substr(0, 4000)}, {"kind", kind_of(command)}, {"session", session},
         {"pane", env("TMUX_PANE")}, {"pid", pid}, {"process", proc_stamp(pid)}, {"started", now()}, {"state", "running"}, {"cwd", where}, {"cwdKnown", cwd_known},
         {"snapshot", snap}, {"baseline", green}, {"observed", observed},
+        // Who may finish it; an adapter's begin replaces this with its own name and instance.
+        {"owner", J{{"adapter", observed ? "" : "shell"}, {"session", session}, {"instance", ""}}},
         // The commit the run started on, and whether the tree was exactly that commit: only then does a test run
         // speak for the commit itself (the review tree's "tests passed here").
         {"head", str(snap, "head")},
@@ -777,15 +800,25 @@ J agent_update(const std::string& root, const std::map<std::string, std::string>
             J{{"kind", "file-diff"}, {"file", files[0]}},
             J{{"files", files}, {"agent", agent}, {"session", sid}, {"started", num(was, "turnAt")}, {"name", str(was, "name", agent)}});
     };
+    const auto instance = get("--instance");
+    if (!instance.empty() && !instance_ok(instance)) return refuse("An adapter instance is letters, digits, - and _ (up to 80)");
+    // done from a client that names no process is from the one that asks.
+    const auto pid = get("--pid") == "parent" || (get("--pid").empty() && state == "done")
+        ? static_cast<long long>(::getppid()) : std::stoll(get("--pid"));
+    const auto process = proc_stamp(pid);
+    if (process.empty() && state != "done") return refuse("That process is not running");
+    // A live process's registration is changed only by its owner. A newer process may take the session over (it was
+    // resumed there); an older one may not, and nobody but the owner ends it.
+    const bool live = previous.is_object() && !str(previous, "process").empty() && proc_stamp(num(previous, "pid")) == str(previous, "process");
+    if (live && !same_owner(previous, instance, process)
+        && (state == "done" || started_at(process) < started_at(str(previous, "process"))))
+        return not_owner("Session " + sid + " (" + agent + ")");
     if (state == "done") {
         end_turn(previous, previous.is_object() ? previous.value("turnFiles", J()) : J());
         std::error_code ec; fs::remove(path, ec);
         if (!ec) signal_change(root);
         return ec ? refuse("Could not remove the agent record: " + ec.message()) : J{{"ok", true}};
     }
-    const auto pid = get("--pid") == "parent" ? static_cast<long long>(::getppid()) : std::stoll(get("--pid"));
-    const auto process = proc_stamp(pid);
-    if (process.empty()) return refuse("That process is not running");
     J files = previous.is_object() && str(previous, "process") == process && previous.value("files", J()).is_array()
         ? previous["files"] : J::array();
     auto times = previous.is_object() && str(previous, "process") == process && previous.value("fileTimes", J()).is_object()
@@ -804,6 +837,9 @@ J agent_update(const std::string& root, const std::map<std::string, std::string>
              {"state", state}, {"at", now()}, {"seenAt", now()}, {"files", files}, {"fileTimes", times}, {"attribution", "observed tool edits"},
              {"name", line(get("--title")).substr(0, 160)}, {"pane", get("--pane")},
              {"build", get("--build").empty() ? str(previous, "build") : get("--build").substr(0, 80)}};
+    const auto kept = previous.is_object() && str(previous, "process") == process && previous.value("owner", J()).is_object()
+        ? str(previous["owner"], "instance") : std::string();
+    record["owner"] = J{{"adapter", agent}, {"session", sid}, {"instance", instance.empty() ? kept : instance}};
     if (str(record, "name").empty()) record["name"] = previous.is_object() ? str(previous, "name", agent) : agent;
     if (!std::regex_match(str(record, "pane"), std::regex("%[0-9]+"))) record["pane"] = "";
     const bool continuing = previous.is_object() && str(previous, "process") == process && busy(str(previous, "state"));
@@ -1597,7 +1633,8 @@ int dispatch(int argc, char** argv) {
         if (args.empty() || args[0] == "help") {
             std::cout << "desk-work run [--root DIR] [--session ID] [--title TEXT] -- COMMAND [ARGS...]\n"
                          "desk-work jobs | overview [--root DIR...] | notebook --root DIR | worktrees --root DIR\n"
-                         "desk-work begin --root DIR --pid PID|parent --command TEXT [--session ID --title TEXT] | finish --id RUN --exit N [--output -]\n"
+                         "desk-work begin --root DIR --pid PID|parent --command TEXT [--session ID --title TEXT --adapter claude|pi|shell --instance TOKEN]\n"
+                         "desk-work finish --id RUN --exit N [--output - --instance TOKEN --pid PID]\n"
                          "desk-work task-add --root DIR --text TEXT | task-toggle --root DIR --id ID [--done yes]\n"
                          "desk-work tests --root DIR | compare --id RUN | metrics --root DIR [--job RUN] | metrics-parse --root DIR < LOG | reviewed --root DIR --sha SHA\n"
                          "desk-work plan|plan-pin --root DIR --session ID [--file PLAN.md --step TEXT]\n"
@@ -1615,7 +1652,7 @@ int dispatch(int argc, char** argv) {
                          "desk-work client-report --client NAME --build BUILD --pid parent [--root DIR --stream connected|retrying --refresh-at SECONDS --error TEXT]\n"
                          "                        [--server SOCKET --pane %N --role main|viewer|popout] | editors --root DIR\n"
                          "desk-work editor --root DIR [--server SOCKET] --input - < MESSAGE.json   (exit 1 refused, 2 no editor answered)\n"
-                         "desk-work agents [--root DIR] | agent-update --root DIR --agent NAME --session ID --state working|waiting|needs|error|done --pid PID|parent [--title NAME --pane PANE --file PATH]\n"
+                         "desk-work agents [--root DIR] | agent-update --root DIR --agent NAME --session ID --state working|waiting|needs|error|done --pid PID|parent [--title NAME --pane PANE --file PATH --instance TOKEN]\n"
                          "desk-work open --root DIR --action attention|tests|reviews|compare|log|tasks|ask|file|file-diff|plan|worktree|since --id ITEM [--file PATH --session ID]\n"; return 0;
         }
         const auto cmd = args[0];
@@ -1728,11 +1765,21 @@ int dispatch(int argc, char** argv) {
             if (kind_of(opts["--command"]).empty()) return 0;
             // "parent": whoever started this (Claude Code itself, for a mod); the job stays running only while it lives.
             const long long pid = opts["--pid"] == "parent" ? static_cast<long long>(::getppid()) : std::stoll(opts["--pid"]);
-            out = begin(opts["--command"], root, opts["--session"], pid, true, opts["--title"], opts["--cwd"]);
+            const auto adapter = opts["--adapter"], instance = opts["--instance"];
+            if ((!adapter.empty() && !std::set<std::string>{"claude", "pi", "shell"}.count(adapter)) || (!instance.empty() && !instance_ok(instance))) return 2;
+            out = begin(opts["--command"], root, opts["--session"], pid, true, opts["--title"], opts["--cwd"],
+                        J{{"owner", J{{"adapter", adapter}, {"session", opts["--session"]}, {"instance", instance}}}});
             if (!out.is_object()) return 1;
             std::cout << str(out, "id") << '\n'; return 0;
         } else if (cmd == "finish") {
             auto j = load_run(id); const int code = std::stoi(opts["--exit"]);
+            const auto instance = opts["--instance"];
+            if (!instance.empty() && !instance_ok(instance)) return 2;
+            // The caller is the process that asks (an adapter spawns desk-work itself), unless it names one.
+            const long long caller = opts["--pid"].empty() || opts["--pid"] == "parent" ? static_cast<long long>(::getppid()) : std::stoll(opts["--pid"]);
+            if (j.is_object() && !same_owner(j, instance, proc_stamp(caller))) {
+                std::cout << not_owner("This run").dump() << '\n'; return 1;
+            }
             // "--output -": the caller saw the output (a Claude Code Bash call) and hands it over, so the run reads like one desk-work ran.
             bool truncated = false;
             if (j.is_object() && opts["--output"] == "-") {

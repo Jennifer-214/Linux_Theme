@@ -757,6 +757,45 @@ class Work(unittest.TestCase):
             child.terminate(); child.wait(timeout=5)
         self.assertNotIn('other', {s['agent'] for s in self.data('agents', '--root', self.repo)})
 
+    def sleeper(self):
+        """A live process of the test's own (sealed: stopped with the rest at the end)."""
+        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'], env=self.env)
+        self.addCleanup(child.wait, 5)
+        self.addCleanup(child.kill)
+        return child
+
+    def test_an_older_process_cannot_end_or_change_a_newer_registration_of_its_session(self):
+        older = self.sleeper()
+        time.sleep(0.1)   # start times count in clock ticks: the newer one must start a tick later
+        newer = self.sleeper()
+        update = ['agent-update', '--root', self.repo, '--agent', 'pi', '--session', 'resumed']
+        self.data(*update, '--pid', older.pid, '--state', 'working', '--instance', 'old-one')
+        self.data(*update, '--pid', newer.pid, '--state', 'waiting', '--instance', 'new-one')
+        for extra in (['--instance', 'old-one'], []):
+            refused = json.loads(self.invoke(*update, '--pid', older.pid, '--state', 'done', *extra, code=1))
+            self.assertEqual(refused['refused'], 'not the owner', refused['message'])
+        self.invoke(*update, '--pid', older.pid, '--state', 'working', '--instance', 'old-one', code=1)
+        [session] = self.data('agents', '--root', self.repo)
+        self.assertEqual((session['pid'], session['state'], session['owner']),
+                         (newer.pid, 'waiting', {'adapter': 'pi', 'session': 'resumed', 'instance': 'new-one'}))
+        self.data(*update, '--pid', newer.pid, '--state', 'done')   # its owner, as a client that names no instance
+        self.assertEqual(self.data('agents', '--root', self.repo), [])
+
+    def test_a_run_is_finished_only_by_its_owner(self):
+        run = self.invoke('begin', '--root', self.repo, '--session', 's', '--pid', 'parent', '--adapter', 'pi',
+                          '--instance', 'mine', '--command', 'make test').strip()
+        self.assertEqual(self.latest()['owner'], {'adapter': 'pi', 'session': 's', 'instance': 'mine'})
+        log = Path(self.env['XDG_STATE_HOME']) / 'foxml/work/runs' / run / 'output.log'
+        for extra in (['--instance', 'theirs'], ['--pid', str(self.sleeper().pid)]):
+            p = subprocess.run([str(BIN), 'finish', '--id', run, '--exit', '0', '--output', '-', *extra], input='5 passed\n',
+                               cwd=self.repo, env=self.env, capture_output=True, text=True, timeout=30)
+            self.assertEqual((p.returncode, json.loads(p.stdout)['refused']), (1, 'not the owner'), p.stdout + p.stderr)
+            self.assertEqual(self.latest()['state'], 'running')
+            self.assertFalse(log.exists(), 'a refused finish leaves the output as it was')
+        p = subprocess.run([str(BIN), 'finish', '--id', run, '--exit', '0', '--output', '-'], input='5 passed\n',
+                           cwd=self.repo, env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(json.loads(p.stdout)['state'], 'passed', 'the recorded process naming no instance is its owner')
+
     def test_newer_engine_prompt_state_overrides_registry_activity_without_losing_observed_files(self):
         self.data('agent-update', '--root', self.repo, '--agent', 'claude', '--session', 'needs-user', '--state', 'working',
                   '--pid', os.getpid(), '--file', 'sample.cpp')
