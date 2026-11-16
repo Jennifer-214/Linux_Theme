@@ -98,10 +98,10 @@ class DeskNav(unittest.TestCase):
         return subprocess.run(["nvim", "--server", str(server), "--remote-expr", expr], env=self.env, capture_output=True,
                               text=True, timeout=10).stdout.strip()
 
-    def nav(self, key, window_class="kitty", pid=None):
+    def nav(self, key, window_class="kitty", pid=None, timeout=20):
         self.window.write_text(json.dumps({"class": window_class, "pid": pid if pid is not None else self.client.pid}))
         self.log.write_text("")
-        ran = subprocess.run(["bash", str(SCRIPT), key], env=self.env, capture_output=True, text=True, timeout=20)
+        ran = subprocess.run(["bash", str(SCRIPT), key], env=self.env, capture_output=True, text=True, timeout=timeout)
         self.assertEqual(ran.returncode, 0, ran.stderr)
         return [line for line in self.log.read_text().splitlines() if not line.startswith("hyprctl activewindow")]
 
@@ -182,6 +182,15 @@ class DeskNav(unittest.TestCase):
                 window.wait(10)
                 for left in self.run_dir.glob("nvim.*.0"):
                     left.unlink()
+
+    def test_a_neovim_that_does_not_answer_hands_the_key_on(self):
+        # Stopped (or stuck), Neovim's socket still takes the question, and the answer never comes.
+        listening = self.run_dir / "popout.sock"
+        window = self.spawn(["sh", "-c", shlex.join(self.nvim_args(listening)) + "; :"])
+        self.until(lambda: listening.is_socket(), "Neovim never listened")
+        self.until(lambda: self.ask(listening, "winnr()") == "2", "Neovim never split")
+        os.killpg(window.pid, signal.SIGSTOP)
+        self.assertEqual(self.nav("h", "desk-popout", window.pid, timeout=5), self.desktop("left", "l"))
 
     def test_usage(self):
         ran = subprocess.run(["bash", str(SCRIPT), "x"], env=self.env, capture_output=True, text=True, timeout=10)
