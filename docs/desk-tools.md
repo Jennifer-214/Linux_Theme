@@ -221,7 +221,7 @@ record; see the card below.
   paths, so the command you read is the one that runs.
 - It runs as a desk-work job: its output log (the newest 4 MiB), a notice when it fails, the job in the notebook. A
   tool run is never a test run. A Python tool runs with `PYTHONDONTWRITEBYTECODE=1`, so it leaves no bytecode in the
-  project.
+  project. Its stdin is `/dev/null`: a declared tool reads nothing from your terminal.
 - `timeout_ms` stops it (`timeout`, with a kill two seconds later).
 - A run stopped before it finished (Ctrl-C, a signal) says it gave no answer; `tools result` still reads the last run
   that finished.

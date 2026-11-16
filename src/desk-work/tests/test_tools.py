@@ -311,6 +311,14 @@ class Tools(ToolsCase):
         self.assertNotIn("first answer", out)
         self.assertEqual(self.data("tools", "result", "mark")["summary"], "first answer", "tools result still reads the last finished run")
 
+    def test_a_declared_tool_reads_nothing_from_her_terminal(self):
+        # With timeout_ms, timeout gives the tool a process group of its own: a read of the terminal would stop it.
+        self.declare([{"id": "stdin", "gives": "status", "format": "lines", "timeout_ms": 5000,
+                       "argv": ["sh", "-c", "echo ok stdin is $(readlink /proc/self/fd/0)"]}])
+        code, out, _ = self.at_terminal("tools", "run", "stdin", answer="y")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.data("tools", "result", "stdin")["summary"], "stdin is /dev/null")
+
     def test_a_program_that_is_not_installed_says_requires_and_nothing_runs(self):
         self.declare([{"id": "graph", "gives": "graph", "format": "dot", "argv": ["no-such-program-for-desk-work", "-t", "graph"]},
                       {"id": "local", "gives": "status", "format": "lines", "argv": ["tools/missing.sh"]},

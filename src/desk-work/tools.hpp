@@ -335,6 +335,9 @@ int run_tool(const J& t) {
     for (const auto& a : t["argv"]) child.push_back(a.get<std::string>());
     // A Python tool leaves no bytecode in the project it reads.
     ::setenv("PYTHONDONTWRITEBYTECODE", "1", 1);
+    // A declared tool is a batch command and reads nothing from her terminal: under timeout_ms (which gives it a process
+    // group of its own) a read would stop it on SIGTTIN until the timeout, and without it would take her keystrokes.
+    if (const int none = ::open("/dev/null", O_RDONLY | O_CLOEXEC); none >= 0) { ::dup2(none, STDIN_FILENO); ::close(none); }
     J tool{{"id", id}, {"name", name}, {"gives", str(t, "gives")}, {"format", str(t, "format")}, {"file", str(t, "file")}, {"hash", tool_hash(t)}};
     if (t.contains("reads")) tool["reads"] = t["reads"];
     if (t.contains("written_by")) tool["written_by"] = t["written_by"];
