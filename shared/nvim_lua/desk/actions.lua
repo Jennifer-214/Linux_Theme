@@ -166,6 +166,18 @@ function M.spell(key)
   return (key:gsub('<[cC]%-(.)>', 'Ctrl+%1'))
 end
 
+-- Words in the theme's voice: capitals in retro (a DOS screen), as written otherwise. What sits between backticks is a
+-- key or a command, typed as it is in both (`k`, `desk-work map build`); the backticks go. The one voice: menus, key
+-- lists, the call graph's drawing and the pop-out's header and key lines all speak with it.
+function M.voice(retro)
+  if not retro then return function(s) return (tostring(s):gsub('`', '')) end end
+  return function(s)
+    local out, code = {}, false
+    for part in (tostring(s) .. '`'):gmatch('([^`]*)`') do out[#out + 1] = code and part or part:upper(); code = not code end
+    return table.concat(out)
+  end
+end
+
 -- Asks what a row's input wants, in the current window: the pick first (choices: a list, or function(ctx) giving one),
 -- then the words (prompt). done(text, choice) once both are given; Esc, or nothing typed, asks no more and runs nothing.
 function M.ask(input, ctx, done)
@@ -535,7 +547,7 @@ local OWN = M.add({
   -- symdeps' own home menu is its key, Space dm (its README: "the home menu is the root surface"). The key is pressed
   -- for it, so this works however the plugin was loaded (lazy.nvim maps that key before it loads the plugin).
   { id = 'symdeps.menu', group = 'symdeps', name = 'symdeps', on = 'editor',
-    about = "symdeps' own menu (Space dm): its cards, lists and checks for C and C++ code. symdeps is an optional plugin",
+    about = "symdeps' own menu (`Space dm`): its cards, lists and checks for C and C++ code. symdeps is an optional plugin",
     available = function() return M.symdeps() or 'requires symdeps' end,
     run = function()
       local keys = vim.keycode('<leader>dm')

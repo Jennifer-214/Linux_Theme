@@ -813,7 +813,7 @@ local function show_empty(message)
   end
   show(nil)
 end
-local function nothing_shown() return 'nothing is shown here: ' .. typed('popout.home') .. ' › views opens one' end
+local function nothing_shown() return 'nothing is shown here: `' .. typed('popout.home') .. '` › views opens one' end
 
 local function valid_spans(spans)
   if type(spans) ~= 'table' or #spans == 0 or #spans > 8 then return false end
@@ -1120,14 +1120,14 @@ local ROWS = actions.add({
       M.focus({ pid = H.pid })
     end },
   remote({ id = 'popout.go-focus', group = 'Pop-out', name = 'Go to it, in the editor', key = 'f', on = ON,
-    about = 'What Enter does (go to the selected box or row in the editor), and the keyboard goes to the editor too', available = can_go },
+    about = 'What `Enter` does (go to the selected box or row in the editor), and the keyboard goes to the editor too', available = can_go },
     go_focus),
   remote({ id = 'popout.go-focus-enter', group = 'Pop-out', name = 'Go to it, in the editor', key = '<S-CR>', on = ON, line = 'popout.go-focus',
     menu = false, available = can_go }, go_focus),
   { id = 'popout.go-mouse', group = 'Pop-out', name = 'Go to what is clicked', key = '<2-LeftMouse>', on = ON, menu = false, doc = false,
     run = function() M.client_click() end },
   remote({ id = 'popout.pin', group = 'Pop-out', name = 'Pin, or follow the editor', key = 'p', on = ON,
-    about = "Pin this view (PINNED: it stays as it is while the editor moves, and Enter visits its items one by one), or follow the editor's cursor again",
+    about = "Pin this view (PINNED: it stays as it is while the editor moves, and `Enter` visits its items one by one), or follow the editor's cursor again",
     available = showing }, function(ctx) M.pin(ctx.view) end),
   remote({ id = 'popout.back', group = 'Pop-out', name = 'Back to the editor', key = 'o', on = ON,
     about = 'This view back to the editor as a split (the call graph as the live panel), pinned if it is pinned here; the pop-out stays open',

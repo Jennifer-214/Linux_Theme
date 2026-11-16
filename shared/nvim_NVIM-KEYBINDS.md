@@ -296,7 +296,7 @@ The call graph (desk.callgraph); "in a graph" means the graph tab and the live p
 | `j` / `k` in a graph | The box below / above (the nearest one in that row) |
 | `h` / `l` in a graph | The box to the left / right in the same row |
 | `Tab` / `Shift+Tab` / `gg` / `G` in a graph | Every box in order, wrapping; the first / last box |
-| `s` in a graph | Labels on the boxes on screen, as `s` draws them in code (flash.nvim): typing one selects that box, as `j` and `k` would; Enter still goes |
+| `s` in a graph | Labels on the boxes on screen, as `s` draws them in code (flash.nvim): typing one selects that box, as `j` and `k` would; `Enter` still goes |
 | `Enter` in a graph, a double click | Go to the selected box's function, in the code window the graph came from; the graph stays open (a click, or any motion that lands in a box, selects it) |
 | `<BS>` in the graph tab | Back to that code window as it was, the graph left open |
 | `c` in the graph tab | Centre the graph on the selected box: its own callers and callees (in the pop-out the graph is pinned there) |
@@ -305,7 +305,7 @@ The call graph (desk.callgraph); "in a graph" means the graph tab and the live p
 | `gs` in the graph tab | The centre function in symdeps' card (C and C++); in the pop-out, the selected box's function, shown here |
 | `p` in the panel | Pin the panel to the graph it shows (PINNED), or follow the cursor again |
 | `q` in the panel | Close the panel |
-| `o` in a graph | Move this graph to the pop-out on the other screen (opening it) and close it here; o there brings it back as a split |
+| `o` in a graph | Move this graph to the pop-out on the other screen (opening it) and close it here; `o` there brings it back as a split |
 | `?` in a graph | The keys of this view as a list: `Enter` runs the selected one, `?` or `q` closes the list |
 <!-- callgraph-keys:end -->
 
@@ -320,8 +320,8 @@ keyboard here too. `Space Tab` in either window puts the keyboard in the other, 
 | Key | Action |
 |---|---|
 | `Space Tab` | Put the keyboard in the pop-out window, on whichever screen it is; the same key there comes back here |
-| `f` / `Shift+Enter` in the pop-out | What Enter does (go to the selected box or row in the editor), and the keyboard goes to the editor too |
-| `p` in the pop-out | Pin this view (PINNED: it stays as it is while the editor moves, and Enter visits its items one by one), or follow the editor's cursor again |
+| `f` / `Shift+Enter` in the pop-out | What `Enter` does (go to the selected box or row in the editor), and the keyboard goes to the editor too |
+| `p` in the pop-out | Pin this view (PINNED: it stays as it is while the editor moves, and `Enter` visits its items one by one), or follow the editor's cursor again |
 | `o` in the pop-out | This view back to the editor as a split (the call graph as the live panel), pinned if it is pinned here; the pop-out stays open |
 | `Space Space` in the pop-out | The home menu for the selected box or row: the views, what the editor can do with it, and this window |
 | `?` in the pop-out | The keys of this view in the pop-out, in a list |
@@ -662,8 +662,8 @@ which-key its words.
 | `Space Ck` | Pinned next steps for this project: pin one, mark it done, or turn it into a note for Claude |
 | `Space Ch`, `:WorkSince` | Since you last looked: new commits, test runs, job runs with how their figures moved, and Claude turns with their files, newest first; Enter opens one (a commit's review, the results, the output, the turn's changes, a file). Opening it marks now as looked; with nothing new it shows the last list again |
 | home menu: Figures | The newest job's figures against its previous run (desk-work metrics); Enter on one opens that job's output |
-| home menu: symdeps | symdeps' own menu (Space dm): its cards, lists and checks for C and C++ code. symdeps is an optional plugin |
-| home menu: Pop out the call graph | The live call graph in the pop-out, a window of its own on the other screen: it follows the function under the cursor (p there pins it), and Enter there goes to a function here while the keyboard stays there |
+| home menu: symdeps | symdeps' own menu (`Space dm`): its cards, lists and checks for C and C++ code. symdeps is an optional plugin |
+| home menu: Pop out the call graph | The live call graph in the pop-out, a window of its own on the other screen: it follows the function under the cursor (`p` there pins it), and `Enter` there goes to a function here while the keyboard stays there |
 | `Space Tab` | Put the keyboard in the pop-out window, on whichever screen it is; the same key there comes back here |
 <!-- desk-keys:end -->
 

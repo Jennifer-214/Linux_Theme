@@ -238,7 +238,12 @@ ok(text:find(" ── review ", 1, true) and text:find(" ── claude ", 1, tru
   "its groups:\n" .. text)
 ok(text:find(" ── review ", 1, true) < text:find(" ── claude ", 1, true) and text:find(" ── work ", 1, true) < text:find(" ── symdeps ", 1, true),
   "in order")
-ok(text:find("What changed", 1, true) and text:find("<ldr>Cw", 1, true), "a row with its key")
+ok(text:find("What changed", 1, true) and text:find("Space Cw", 1, true), "a row with its key, spelled as every key list spells it")
+local home_width, cut = api.nvim_win_get_config(Menu._last.win).width, {}
+for _, l in ipairs(api.nvim_buf_get_lines(Menu._last.buf, 0, -1, false)) do
+  if vim.fn.strdisplaywidth(l) > home_width then cut[#cut + 1] = l end
+end
+eq(cut, {}, "every line of the home menu fits its window: no key cut off at the edge")
 ok(text:find("requires symdeps", 1, true), "symdeps absent: its one row, with the reason")
 ok(not text:find("This function in symdeps", 1, true), "… and no second symdeps row")
 ok(not text:find("Home menu", 1, true) and not text:find("Selection to a Claude", 1, true), "the home key and a selection's row are not in it")
@@ -411,6 +416,45 @@ local home_rows = A.for_context({ surface = "editor" })
 local function first_of(group) for i, r in ipairs(home_rows) do if r.group == group then return i end end end
 ok(first_of("This function") < first_of("Project map") and first_of("Project map") < first_of("Review"),
   "the project map's rows come after this function's and before the review's in Space Space")
+-- A row's name too long for the menu ends in … and its key stays inside the window.
+local laid = Menu.layout({ { name = string.rep("very long words ", 10), label = "x", bind = "<leader>cc", group = "work" },
+  { name = "Short", label = "y", bind = "<CR>", group = "work" } }, {})
+local overflow = vim.tbl_filter(function(l) return vim.fn.strdisplaywidth(l) > laid.width end, laid.lines)
+eq({ overflow, laid.lines[1]:find("…", 1, true) ~= nil, laid.lines[1]:find("Space cc", 1, true) ~= nil, laid.lines[2]:find("Enter", 1, true) ~= nil },
+  { {}, true, true, true }, "a long name is cut with …, and every key is spelled and inside the window")
+-- The one voice: capitals in retro for the words, never for a key or command between backticks.
+eq(A.voice(true)("Move on; `k` the previous one, `desk-work map build`"), "MOVE ON; k THE PREVIOUS ONE, desk-work map build",
+  "retro: capitals for the words; keys and commands between backticks as typed")
+eq(A.voice(false)("`k` the previous one"), "k the previous one", "paper: as written, the backticks gone")
+eq({ Menu.voice, require("desk.callgraph").glyphs(true).said("press `o` here") }, { A.voice, "PRESS o HERE" },
+  "desk.menu and the call graph's drawing speak with it")
+-- In the rows of these modules, a key of their own surfaces named in their words is between backticks, so the retro
+-- voice leaves it alone ("K THE PREVIOUS ONE" was another key).
+local unquoted = {}
+local named = { Enter = true, Esc = true, Tab = true, Space = true, Backspace = true }
+for _, r in ipairs(A.rows()) do
+  local from = A.source(r) or ""
+  if from:match("/desk/menu%.lua$") or from:match("/desk/callgraph%.lua$") or from:match("/desk/popout%.lua$") or from:match("/desk/actions%.lua$") then
+    local own = {}
+    local surfaces = type(r.on) == "table" and r.on or { r.on }
+    for _, other in ipairs(A.rows()) do
+      local their = type(other.on) == "table" and other.on or { other.on }
+      for _, s in ipairs(surfaces) do
+        -- (the article "a" is never read as the review's key a)
+        if other.key and #other.key == 1 and other.key:match("%a") and other.key ~= "a" and vim.tbl_contains(their, s) and s ~= "editor" then
+          own[other.key] = true
+        end
+      end
+    end
+    for _, words in ipairs({ r.about or "", type(r.doc) == "string" and r.doc or "" }) do
+      local bare = words:gsub("`[^`]*`", " ")
+      for word in bare:gmatch("%f[%w%+']([%w%+']+)%f[^%w%+']") do
+        if own[word] or named[word] then unquoted[#unquoted + 1] = r.id .. ": " .. word end
+      end
+    end
+  end
+end
+eq(unquoted, {}, "a key named in a row's words is between backticks")
 -- The one speller: the menus' key lists, the call graph's key lines and the pop-out spell with it.
 eq(Menu.typed, A.spell, "desk.menu spells keys with actions.spell")
 eq(require("desk.callgraph").typed("go", "back", "down"), "Enter/BS/j", "the call graph's key lines too")

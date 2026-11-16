@@ -766,11 +766,11 @@ local items={
 local laid=Menu.layout(items,{title='Review'})
 local text=table.concat(laid.lines,'\n')
 assert(text:find(' ── review ',1,true) and text:find(' ── view ',1,true),'groups sit under rule lines:\n'..text)
-assert(text:find('○ off',1,true) and text:find('<ldr>rw',1,true),'state and shortcut columns:\n'..text)
+assert(text:find('○ off',1,true) and text:find('Space rw',1,true),'state and shortcut columns:\n'..text)
 assert(text:find('╭',1,true) and text:find('/ filter',1,true),'the strip and the footer:\n'..text)
 local columns={}
 for line,item in pairs(laid.rows) do
-  local shown,text=item.bind:gsub('<[lL]eader>','<ldr>'),laid.lines[line]
+  local shown,text=require('desk.actions').spell(item.bind),laid.lines[line]
   local trimmed=text:gsub('%s+$','')
   assert(trimmed:sub(-#shown)==shown,'the shortcut ends the row: '..text)
   columns[#columns+1]=vim.fn.strdisplaywidth(trimmed:sub(1,#trimmed-#shown))

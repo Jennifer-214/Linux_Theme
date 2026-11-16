@@ -18,15 +18,16 @@ local function width_of(s) return api.nvim_strwidth(s) end
 -- Retro draws in a DOS font: code page 437 boxes, plain capitals. init.lua publishes the style in vim.g.desk_style.
 function M.retro() return vim.g.desk_style == 'retro' end
 
+-- said: the theme's voice (actions.voice): capitals in retro, but never a key or command between backticks.
 function M.glyphs(retro)
   if retro then
     return { single = { tl = '┌', tr = '┐', bl = '└', br = '┘', h = '─', v = '│' },
              double = { tl = '╔', tr = '╗', bl = '╚', br = '╝', h = '═', v = '║' },
-             down = '↓', ellipsis = '..', said = string.upper }
+             down = '↓', ellipsis = '..', said = actions.voice(true) }
   end
   return { single = { tl = '╭', tr = '╮', bl = '╰', br = '╯', h = '─', v = '│' },
            double = { tl = '╔', tr = '╗', bl = '╚', br = '╝', h = '═', v = '║' },
-           down = '↓', ellipsis = '…', said = function(s) return s end }
+           down = '↓', ellipsis = '…', said = actions.voice(false) }
 end
 
 local function fit(s, w, ellipsis)
@@ -885,7 +886,7 @@ local ROWS = actions.add({
   moving('last', 'G', 'The last box', 'The last box', 'next'),
   { id = 'callgraph.jump', group = 'Call graph', name = 'Jump to a box by its label', key = 's', on = BOTH, menu = false, drawn = true,
     available = function() return require('desk.nav').labels_ready() end,
-    about = 'Labels on the boxes on screen, as `s` draws them in code (flash.nvim): typing one selects that box, as `j` and `k` would; Enter still goes',
+    about = 'Labels on the boxes on screen, as `s` draws them in code (flash.nvim): typing one selects that box, as `j` and `k` would; `Enter` still goes',
     run = function(ctx) M.jump_boxes(ctx.copy or ctx.graph) end },
   { id = 'callgraph.go', group = 'Call graph', name = 'Go to the selected function', key = '<CR>', on = BOTH, also = 'a double click',
     remote = true, available = picked,
@@ -955,7 +956,7 @@ local ROWS = actions.add({
     about = 'Close the panel', run = function() M.panel_close() end },
   -- o here sends the graph to the pop-out; o there brings it back (desk.popout's own row, popout.back).
   { id = 'callgraph.popout', group = 'Call graph', name = 'Send this graph to the pop-out', key = 'o', on = BOTH, remote = false,
-    about = 'Move this graph to the pop-out on the other screen (opening it) and close it here; o there brings it back as a split',
+    about = 'Move this graph to the pop-out on the other screen (opening it) and close it here; `o` there brings it back as a split',
     available = function() return pop().can_pop() end, run = function(ctx) pop().show('graph', ctx) end },
 })
 
@@ -1223,7 +1224,7 @@ end
 
 M.view_kind = {
   name = 'graph', title = 'call graph', surface = GRAPH,
-  about = 'The live call graph in the pop-out, a window of its own on the other screen: it follows the function under the cursor (p there pins it), and Enter there goes to a function here while the keyboard stays there',
+  about = 'The live call graph in the pop-out, a window of its own on the other screen: it follows the function under the cursor (`p` there pins it), and `Enter` there goes to a function here while the keyboard stays there',
   -- In a graph its own key sends it (callgraph.popout).
   available = function(ctx) if not ctx.remote and (ctx.surface == 'callgraph' or ctx.surface == 'callgraph-panel') then return false end end,
   open = open_view,

@@ -19,18 +19,10 @@ local function fit(s, w)
 end
 local function pad(s, w) return s .. string.rep(' ', math.max(0, w - width(s))) end
 
--- A key as it is typed: <CR> is Enter, <leader>rw is Space rw (the registry's one speller).
+-- A key as it is typed: <CR> is Enter, <leader>rw is Space rw (the registry's one speller); words in the theme's
+-- voice (the registry's one voice: capitals in retro, keys and commands between backticks as typed).
 M.typed = actions.spell
--- Words in the theme's voice: capitals in retro (a DOS screen), as written elsewhere. What sits between backticks is a
--- key or a command, typed as it is; the backticks go.
-function M.voice(retro)
-  if not retro then return function(s) return (tostring(s):gsub('`', '')) end end
-  return function(s)
-    local out, code = {}, false
-    for part in (tostring(s) .. '`'):gmatch('([^`]*)`') do out[#out + 1] = code and part or part:upper(); code = not code end
-    return table.concat(out)
-  end
-end
+M.voice = actions.voice
 local function retro() return vim.g.desk_style == 'retro' end
 
 -- "Name — description" splits into the row's name and the strip's text; an item may also give both.
@@ -50,7 +42,8 @@ local function state_text(item)
   if value == true then return '● on' elseif value == false then return '○ off' end
   return value ~= nil and tostring(value) or ''
 end
-local function bind_text(item) return item.bind and tostring(item.bind):gsub('<[lL]eader>', '<ldr>') or '' end
+-- A row's key in the shortcut column, spelled as every key list spells it ("Space cc", "Enter").
+local function bind_text(item) return item.bind and actions.spell(item.bind) or '' end
 -- The left column: a row's letter, or in a key list its keys as typed ("]f/[f/Tab").
 local function lead_text(item, keys)
   if keys then return table.concat(vim.tbl_map(M.typed, item.keys or {}), '/') end
@@ -82,8 +75,8 @@ function M.layout(items, opts)
     binds = math.max(binds, width(bind_text(item)))
   end
   local others = (states > 0 and states + 2 or 0) + (binds > 0 and binds + 2 or 0) + 1
-  -- A key list's names give way to its keys: a long one ends in … rather than past the edge.
-  if keys then names = math.min(names, math.max(12, (opts.max_width or 92) - 4 - leads - others)) end
+  -- Names give way to the keys and states beside them: a long one ends in … rather than pushing them past the edge.
+  names = math.min(names, math.max(12, (opts.max_width or 92) - 4 - leads - others))
   local body = 4 + leads + names + others
   local title = keys and said(opts.title or '') or opts.title or ''
   local w = math.max(44, math.min(body, opts.max_width or 92), width(title) + 6)
@@ -283,7 +276,7 @@ local function key_row(name, key, row)
 end
 M.rows = actions.add({
   key_row('down', 'j', { name = 'The next row', doc = 'The next / previous row', run = call('move', 1),
-    about = 'Move to the next row, over headings and blank lines; k the previous one' }),
+    about = 'Move to the next row, over headings and blank lines; `k` the previous one' }),
   key_row('down-arrow', '<Down>', { name = 'The next row', line = 'menu.down', run = call('move', 1) }),
   key_row('up', 'k', { name = 'The previous row', line = 'menu.down', run = call('move', -1) }),
   key_row('up-arrow', '<Up>', { name = 'The previous row', line = 'menu.down', run = call('move', -1) }),
@@ -291,7 +284,7 @@ M.rows = actions.add({
     about = 'Run the selected row; a row that cannot run here says why instead' }),
   key_row('run-l', 'l', { name = 'Run the selected row', line = 'menu.run', run = call('run') }),
   key_row('filter', '/', { name = 'Filter the rows', run = call('filter'),
-    about = 'Keep only the rows with this text in their words; Esc or h shows them all again' }),
+    about = 'Keep only the rows with this text in their words; `Esc` or `h` shows them all again' }),
   key_row('back', 'h', { name = 'Back', run = call('leave', 'h'),
     about = 'Show every row again after a filter; else close, back to where this menu came from' }),
   key_row('close', 'q', { name = 'Close the menu', run = call('leave', 'q'), about = 'Close the menu' }),
