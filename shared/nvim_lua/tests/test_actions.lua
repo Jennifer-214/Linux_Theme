@@ -422,6 +422,32 @@ local laid = Menu.layout({ { name = string.rep("very long words ", 10), label = 
 local overflow = vim.tbl_filter(function(l) return vim.fn.strdisplaywidth(l) > laid.width end, laid.lines)
 eq({ overflow, laid.lines[1]:find("…", 1, true) ~= nil, laid.lines[1]:find("Space cc", 1, true) ~= nil, laid.lines[2]:find("Enter", 1, true) ~= nil },
   { {}, true, true, true }, "a long name is cut with …, and every key is spelled and inside the window")
+-- A key list's reasons (why a row cannot run) are cut short, so the descriptions keep their room; and on a wide screen
+-- the list is wider than 92 columns, so a long description is whole.
+local long_doc = "The next / previous view (each view is a tab); a count first goes to that view: 2gt the second"
+local keyed = Menu.layout({ { keys = { "gt", "gT" }, name = long_doc, about = "x", group = "pop-out" },
+  { keys = { "c" }, name = "Centre", about = "y", group = "pop-out", right = "this box is not from the language server yet, so wait" } },
+  { keys = true, max_width = 160 })
+local doc_line = keyed.lines[1]:find("gt/gT", 1, true) and keyed.lines[1] or keyed.lines[2]
+eq({ doc_line:find(long_doc, 1, true) ~= nil, vim.fn.strdisplaywidth(vim.trim(keyed.lines[2]):match("this box.*$") or "") <= Menu.MAX_STATE },
+  { true, true }, "a key list on a wide screen: the description whole, the reason cut to its column")
+local saved_columns = vim.o.columns
+vim.o.columns = 200
+local wide_win = Menu.open({ { keys = { "gt" }, name = long_doc, about = "x", group = "pop-out" } }, { keys = true, title = "Keys" })
+eq(api.nvim_win_get_config(wide_win).width > 92, true, "… the list opens as wide as the screen lets it")
+api.nvim_win_close(wide_win, true)
+vim.o.columns = saved_columns
+-- Retro: every menu's group headings in capitals (as the key lists'), and the strip a square box (the DOS frame's).
+vim.g.desk_style, vim.g.desk_border = "retro", { "╔", "═", "╗", "║", "╝", "═", "╚", "║" }
+local retro_win = Menu.open({ { name = "One", label = "One — first", group = "this function" }, { name = "Two", label = "Two — second", group = "work" } },
+  { title = "Test" })
+local retro_text = table.concat(api.nvim_buf_get_lines(api.nvim_win_get_buf(retro_win), 0, -1, false), "\n")
+eq({ retro_text:find(" ── THIS FUNCTION ", 1, true) ~= nil, retro_text:find(" ┌─", 1, true) ~= nil, retro_text:find("╭", 1, true) == nil },
+  { true, true, true }, "retro: the home menu's headings in capitals, the strip square")
+api.nvim_win_close(retro_win, true)
+vim.g.desk_style, vim.g.desk_border = nil, nil
+ok(Menu.layout({ { name = "One", label = "x", group = "a" }, { name = "Two", label = "y", group = "b" } }, {}).lines[1]:find(" ── a ", 1, true)
+  and table.concat(Menu.layout({ { name = "One", label = "x" } }, {}).lines, "\n"):find("╭", 1, true), "… paper: as written, the strip rounded")
 -- The one voice: capitals in retro for the words, never for a key or command between backticks.
 eq(A.voice(true)("Move on; `k` the previous one, `desk-work map build`"), "MOVE ON; k THE PREVIOUS ONE, desk-work map build",
   "retro: capitals for the words; keys and commands between backticks as typed")

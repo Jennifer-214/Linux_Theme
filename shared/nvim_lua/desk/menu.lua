@@ -55,11 +55,22 @@ local function key_footer(said)
     { { '⏎', 'run' }, { '/', 'filter' }, { 'q', 'close' } }), ' · ')
 end
 
+-- The strip's corners: square when the floats are the DOS box (vim.g.desk_border is a list of characters, retro),
+-- rounded otherwise.
+local function corners()
+  if type(vim.g.desk_border) == 'table' then return '┌', '┐', '└', '┘' end
+  return '╭', '╮', '╰', '╯'
+end
+-- A reason in the state column (why a row cannot run) is cut here, so the names keep their room.
+M.MAX_STATE = 28
+
 -- The lines to draw and which item each stands for. Pure, so a test can read it. opts.keys: a key list, its words
--- in opts.said (the theme's voice, M.voice).
+-- in opts.said (the theme's voice, M.voice); opts.heads: the voice of the group headings in any menu (retro: capitals);
+-- opts.max_width: the widest it may be (92 unless the screen allows more).
 function M.layout(items, opts)
   opts = opts or {}
   local keys, said = opts.keys, opts.said or function(s) return s end
+  local heads = opts.heads or (keys and said) or function(s) return s end
   local shown = {}
   local filter = (opts.filter or ''):lower()
   for _, item in ipairs(items) do
@@ -71,7 +82,7 @@ function M.layout(items, opts)
   for _, item in ipairs(shown) do
     leads = math.max(leads, width(lead_text(item, keys)))
     names = math.max(names, width(keys and said((parts(item))) or (parts(item))))
-    states = math.max(states, width(state_text(item)))
+    states = math.min(M.MAX_STATE, math.max(states, width(state_text(item))))
     binds = math.max(binds, width(bind_text(item)))
   end
   local others = (states > 0 and states + 2 or 0) + (binds > 0 and binds + 2 or 0) + 1
@@ -88,14 +99,13 @@ function M.layout(items, opts)
     if #groups > 1 and item.group ~= group then
       if group ~= nil then lines[#lines + 1] = '' end
       group = item.group
-      local words = tostring(group or 'more'):lower()
-      local head = ' ── ' .. (keys and said(words) or words) .. ' '
+      local head = ' ── ' .. heads(tostring(group or 'more'):lower()) .. ' '
       lines[#lines + 1] = head .. string.rep('─', math.max(2, w - width(head) - 1))
       paints[#paints + 1] = { #lines, 0, -1, hl('FoxSymdepsHeader', 'Title') }
     end
     local name = keys and said((parts(item))) or parts(item)
     local letter = lead_text(item, keys)
-    local state, bind = state_text(item), bind_text(item)
+    local state, bind = fit(state_text(item), M.MAX_STATE), bind_text(item)
     local line = '  ' .. pad(letter, leads) .. '  ' .. pad(fit(name, names), names)
     local from_state = #line + 2
     if states > 0 then line = line .. '  ' .. pad(state, states) end
@@ -113,10 +123,11 @@ function M.layout(items, opts)
   if #shown == 0 then lines[#lines + 1] = '  nothing matches'; paints[#paints + 1] = { #lines, 0, -1, hl('FoxSymdepsDim', 'Comment') } end
   lines[#lines + 1] = ''
   local strip = #lines + 2
-  lines[#lines + 1] = ' ╭' .. string.rep('─', w - 3) .. '╮'
+  local tl, tr, bl, br = corners()
+  lines[#lines + 1] = ' ' .. tl .. string.rep('─', w - 3) .. tr
   lines[#lines + 1] = ' │ ' .. string.rep(' ', w - 5) .. ' │'
   lines[#lines + 1] = ' │ ' .. string.rep(' ', w - 5) .. ' │'
-  lines[#lines + 1] = ' ╰' .. string.rep('─', w - 3) .. '╯'
+  lines[#lines + 1] = ' ' .. bl .. string.rep('─', w - 3) .. br
   for line = strip - 1, strip + 2 do paints[#paints + 1] = { line, 0, -1, hl('FoxSymdepsDim', 'Comment') } end
   lines[#lines + 1] = fit(opts.footer or (keys and key_footer(said)) or ' / filter · ⏎ run · q close', w)
   paints[#paints + 1] = { #lines, 0, -1, hl('FoxSymdepsDim', 'Comment') }
@@ -161,7 +172,9 @@ function M.open(items, opts)
     if item then api.nvim_buf_set_extmark(buf, ns, line - 1, 0, { line_hl_group = hl('FoxSymdepsSelection', 'Visual'), virt_text = { { '❯', hl('FoxSymdepsSelection', 'Visual') } }, virt_text_pos = 'overlay' }) end
   end
   local function draw(keep)
-    state.layout = M.layout(items, { title = opts.title, filter = state.filter, footer = opts.footer, keys = opts.keys, said = said })
+    -- As wide as its rows want, up to what the screen has (a wide screen keeps whole descriptions).
+    state.layout = M.layout(items, { title = opts.title, filter = state.filter, footer = opts.footer, keys = opts.keys, said = said,
+      heads = M.voice(retro()), max_width = math.max(60, math.min(160, vim.o.columns - 6)) })
     vim.bo[buf].modifiable = true
     api.nvim_buf_set_lines(buf, 0, -1, false, state.layout.lines)
     vim.bo[buf].modifiable = false
