@@ -1383,7 +1383,7 @@ M.rows = actions.add({
       else tell('Follow works on a live session row; this one is ' .. (row.kind == 'commit' and 'a commit.' or 'not a live session.')) end
     end },
   { id = 'review.popout', group = 'Review', name = 'File list to the pop-out', key = 'o', on = LIST, remote = false,
-    about = 'Move the file list to the pop-out on the other screen (it opens): the comparison takes this whole screen, Enter there shows a file here while the keyboard stays there; `o` there brings the list back',
+    about = 'Move the file list to the pop-out on the other screen (it opens): the comparison takes this whole screen, `Enter` there shows a file here while the keyboard stays there; `o` there brings the list back',
     available = function() local P = pop(); if not P then return 'requires desk.popout' end; return P.can_pop() end,
     run = function(ctx) local P = pop(); if P then P.show('review', ctx) end end },
   { id = 'review.hide', group = 'Review', name = 'Hide review file list', key = 'q', on = LIST, also = '`:q` there', remote = false,
@@ -2993,7 +2993,7 @@ end
 
 M.view_kind = {
   name = 'review', title = 'review', surface = LIST, menu = 'Review list to the pop-out',
-  about = "The open review's file list in the pop-out on the other screen: the comparison takes this whole screen, and Enter there shows a file here while the keyboard stays there",
+  about = "The open review's file list in the pop-out on the other screen: the comparison takes this whole screen, and `Enter` there shows a file here while the keyboard stays there",
   -- In the list its own o sends it.
   available = function(ctx)
     if not M.current or M.current.closing then return 'requires an open review' end
