@@ -312,9 +312,11 @@ list there yourself). It draws in the palette and keeps its session records in p
 - **On the other screen**: `o` in the list moves it to the pop-out, a window of its own on the second screen, and the
   comparison takes this whole screen. There `j` / `k` move, Enter shows the file here while the keyboard stays there,
   and `m`, `u`, `n`, `h`, `]f` / `[f`, `]c` / `[c`, `r` and `s` work as in the list; `c` and `R` ask their question
-  there; `a` opens the actions here, and the keyboard comes with them. `o` there, Backspace or `Space re` here, or
-  closing the pop-out bring the list back, on the row selected there; closing the review clears it. With one screen
-  `o` says "requires a second monitor" and the list stays.
+  there; `a` opens the actions here, and the keyboard comes with them. `H` there shows the file shown before, `L` the
+  next again; its tab is marked when a file joins the list, a request is ready or a checked file changed. `o` there,
+  Backspace or `Space re` here, or closing the pop-out bring the list back, on the row selected there; closing the
+  review clears it, and the pop-out's Restore after a restart opens that review again with its list there. With one
+  screen `o` says "requires a second monitor" and the list stays.
 - **What a change calls**: each changed function's calls before and after, compared by name (treesitter, in any
   language with a parser). A file whose change adds or removes a call is marked `→`; a changed function's strip reads
   `calls by name: +memcpy −old_copy` and who calls it: the language server attached to the working file when that

@@ -897,6 +897,7 @@ local function add_strip(built, lines, w)
 end
 
 local popout_redraw   -- while the list is in the pop-out, it is drawn there instead (the end of this file)
+local save_view       -- the view's state for the pop-out's history and layout record (the end of this file)
 local ask_reach      -- who calls the changed functions a drawing shows (below)
 local function panel(r, select_row)
   if r.popout then return popout_redraw(r, select_row) end
@@ -1174,7 +1175,17 @@ end
 local function open_row(ctx)
   if not ctx.view then return M.enter() end
   local entry = named(ctx)
-  if entry then M.open_entry(entry) end
+  if not entry then return end
+  local r, before = ctx.review, save_view(ctx.view)
+  M.open_entry(entry)
+  -- Another file shown here is a step H undoes in the pop-out. The pop-out's own step for an Enter puts back the
+  -- window's buffer and cursor, which is the same buffer here (one per side); this one, taken after it, puts back the
+  -- file, so one H brings it back.
+  local now = r.files[r.index]
+  local P = pop()
+  if P and before.step and (not now or now.rel ~= before.rel or r.active_set ~= before.set) then
+    vim.schedule(function() P.stepped(ctx.view, before) end)
+  end
 end
 -- j and k: in the pop-out the next or previous row of its copy; in the list Vim's own j and k (with a count), the
 -- list passing the cursor over headings and blank lines as it always has.
@@ -2805,6 +2816,27 @@ local function row_name(r, entry)
   return (row.short or 'commit') .. ' ' .. (row.subject or '')
 end
 
+-- News for the pop-out's header (its ✱ on the view's name until she looks): a file that joined the list, a change
+-- request now ready for re-review, a file she checked that changed since. Never what she did (a check, a request), nor
+-- another commit shown.
+local function news_of(view, r)
+  local now = { review = r.id, set = r.active_set, files = {}, ready = {}, stale = {} }
+  for _, f in ipairs(r.files) do
+    now.files[f.rel] = true
+    if f.loaded and r.marks[f.rel] and r.marks[f.rel] ~= f.signature then now.stale[f.rel] = true end
+    local request = M.request_of(r, f)
+    if request and request.ready then now.ready[f.rel] = true end
+  end
+  local known, news = view.known, false
+  if known and known.review == now.review and known.set == now.set then
+    for _, part in ipairs({ 'files', 'ready', 'stale' }) do
+      for rel in pairs(now[part]) do news = news or not known[part][rel] end
+    end
+  end
+  view.known = now
+  return news
+end
+
 local function render_view(view, width)
   local r = view.review
   if not (r and M.current == r and not r.closing) then return { title = 'review', state = 'closed', lines = { '', '  The review is closed.' } } end
@@ -2833,7 +2865,7 @@ local function render_view(view, width)
   -- The file the comparison shows keeps a quieter band, as in the panel.
   if built.selected then marks[#marks + 1] = { built.selected, 0, #lines[built.selected], 'DeskReviewOpen', -1 } end
   return { title = 'review · ' .. (r.label or r.row.short or 'changes'), state = built.progress, lines = lines, marks = marks,
-    hl = VIEW_GROUPS, items = items, strip = strip, footer = VIEW_KEYS }
+    hl = VIEW_GROUPS, items = items, strip = strip, footer = VIEW_KEYS, news = news_of(view, r) }
 end
 
 -- The row of what the comparison shows (its file, or the part of it gone to), as the pop-out names its item.
@@ -2886,6 +2918,79 @@ local function close_view(view)
   vim.schedule(function() bring_back(r, false) end)
 end
 
+-- What the view shows, for desk.popout: the history keeps all of it (step: restore puts back the commit, the file the
+-- comparison showed and where in it); the layout record keeps target = { file, line, name }: the file shown, its line,
+-- and which review (commit:<sha>, working:working), so Restore after a restart opens that review again.
+local function review_key(r) return (r.row.kind or '') .. ':' .. (r.row.sha or r.row.sid or '') end
+save_view = function(view)
+  local r = view.review
+  if not (r and M.current == r and not r.closing) then return { pinned = view.pinned == true } end
+  local f = r.files[r.index]
+  local function cursor(win) return api.nvim_win_is_valid(win or -1) and api.nvim_win_get_cursor(win) or nil end
+  local right = cursor(r.right_win)
+  return { step = true, pinned = view.pinned == true, review = r.id, set = r.active_set, rel = f and f.rel, symbol = r.symbol,
+    right = right, left = cursor(r.left_win), select = shown_key(r),
+    target = f and { file = f.rel, line = right and right[1] or 1, name = review_key(r) } or nil }
+end
+
+-- The review a record names, opened again as Space Cw opens it (its tree and all): a commit still in the log, or the
+-- working changes. nil when it is not here.
+local function reopen(target)
+  local kind, id = tostring(target.name or ''):match('^(%a+):(.*)$')
+  if kind ~= 'commit' and kind ~= 'working' then return nil end
+  local name = api.nvim_buf_get_name(0)
+  local root = vim.fs.root(name ~= '' and name or vim.fn.getcwd(), '.git')
+  if not root then return nil end
+  local C = require('desk.claude')
+  local rows = C.rows(root)
+  for _, row in ipairs(rows) do
+    if (kind == 'commit' and row.kind == 'commit' and row.sha == id) or (kind == 'working' and row.kind == 'working') then
+      C.open_review(row, root)
+      if M.current then M.tree(rows) end
+      return M.current
+    end
+  end
+end
+
+-- A step of the history put back (saved.step), in this review only; or, after a restart, the record's { pinned,
+-- target }: the list of the review open (else the one it names, opened again) in the pop-out, on the file it showed.
+local function restore_view(view, saved)
+  local r = M.current
+  if saved.step then
+    if not (r and view.review == r and not r.closing and saved.review == r.id) then return end
+    if saved.set and saved.set ~= r.active_set then M.switch(saved.set) end
+    for i, f in ipairs(r.files) do
+      if f.rel == saved.rel then
+        if i ~= r.index then M.select(i) end
+        break
+      end
+    end
+    for _, side in ipairs({ { r.right_win, saved.right }, { r.left_win, saved.left } }) do
+      if side[2] and api.nvim_win_is_valid(side[1] or -1) then pcall(api.nvim_win_set_cursor, side[1], side[2]) end
+    end
+    r.symbol, view.select = saved.symbol, saved.select
+    return
+  end
+  local target = type(saved.target) == 'table' and saved.target or {}
+  if not (r and not r.closing) then r = reopen(target) end
+  if not r then
+    local P = pop()
+    if P then P.clear(view.id) end
+    return tell("The review's list was not brought back: no review is open (Space Cw opens one).")
+  end
+  open_view(view)
+  for i, f in ipairs(r.files) do
+    if f.rel == target.file then
+      M.select(i)
+      if tonumber(target.line) and api.nvim_win_is_valid(r.right_win or -1) then
+        pcall(api.nvim_win_set_cursor, r.right_win, { math.max(1, math.min(tonumber(target.line), api.nvim_buf_line_count(r.right_buf))), 0 })
+      end
+      break
+    end
+  end
+  view.select = shown_key(r)
+end
+
 M.view_kind = {
   name = 'review', title = 'review', surface = LIST, menu = 'Review list to the pop-out',
   about = "The open review's file list in the pop-out on the other screen: the comparison takes this whole screen, and Enter there shows a file here while the keyboard stays there",
@@ -2912,6 +3017,8 @@ M.view_kind = {
     if r then vim.schedule(function() bring_back(r, true) end) end
   end,
   close = close_view,
+  save = save_view,
+  restore = restore_view,
 }
 
 -- What is here, for an ask, a pin or the pop-out's history (actions.about): the selected row of the list (in the

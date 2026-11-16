@@ -228,6 +228,11 @@ eq({ r1.panel, r1.popped, r1.room }, { false, true, r1.columns }, '… the list 
 ok(r1.footer:find('list on the pop-out', 1, true), "… and the comparison's footer says where it went: " .. r1.footer)
 local lines = state().lines
 ok(lines[#lines - 2]:find('two.txt', 1, true) and lines[#lines]:find('╰', 1, true), "the view ends with the strip, about the row selected:\n" .. strip())
+ok(wait(3000, function()
+  local saved = host("return require('desk.popout').host.saved")
+  local tab = type(saved) == 'table' and type(saved.tabs) == 'table' and saved.tabs[1] or {}
+  return tab.kind == 'review' and type(tab.target) == 'table' and tab.target.name == 'commit:' .. sha and tab.target.file == 'one.lua'
+end), "the pop-out's layout record names this review and the file the comparison shows")
 
 -- ─── j and k move there; Enter shows the file here, the keyboard stays there ──────────────────────────────────────
 local shown_before = review().file
@@ -244,6 +249,14 @@ ok(wait(3000, function() return popped():find('lines 1', 1, true) end), '… ope
 s = state()
 eq({ s.mode, s.current_win == s.win, s.selected }, { 'n', true, 'two.txt' }, '… the keyboard stays in the pop-out, on that row')
 ok(not wait(1000, function() return hyprctl_since(mark):find('hl.dsp.focus', 1, true) end), '… and nothing is focused')
+settled()
+
+-- ─── H and L: the file shown before, and forward again ─────────────────────────────────────────────────────────
+press('H')
+ok(wait(3000, function() return review().file == 'one.lua' end), 'H in the pop-out: the editor shows the file it showed before')
+press('L')
+ok(wait(3000, function() return review().file == 'two.txt' end), '… and L shows that one again')
+ok(wait(2000, function() return state().selected == 'two.txt' end), '… selected there')
 settled()
 
 -- ─── m checks the row's file here; the pop-out shows the check ─────────────────────────────────────────────────────
@@ -420,6 +433,13 @@ host("vim.api.nvim_set_current_win(require('desk.review').current.right_win)")
 host_keys('q')
 ok(wait(3000, function() return not review().open end), 'q in the comparison closes the review')
 ok(wait(3000, function() return state().shown == '' and not vim.tbl_contains(state().views or {}, 'review') end), '… and its view leaves the pop-out')
+
+-- ─── Restore after a restart: the review the record names, opened again, its list there on the file it showed ──
+host(("require('desk.popout').host.saved = { version = 1, tabs = { { kind = 'review', pinned = false, target = { file = 'two.txt', line = 1, name = 'commit:%s' } } }, activeTab = 'review' }"):format(sha))
+host("require('desk.popout').restore_layout()")
+ok(wait(5000, function() return review().open and review().popped end), 'Restore: the review the record names opens again, its list in the pop-out')
+ok(wait(3000, function() return review().file == 'two.txt' and state().kind == 'review' and state().selected == 'two.txt' end),
+  '… on the file it showed')
 vim.rpcnotify(p, 'nvim_input', 'q')
 ok(wait(5000, function() return not exists(psock) end), 'the pop-out closes')
 host_job:kill(9)

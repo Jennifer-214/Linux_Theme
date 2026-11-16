@@ -669,6 +669,32 @@ assert(type(saved.files)=='table' and saved.files['a.lua'],'and it is saved')
 C.close()
 ''')
 
+    def test_the_list_says_when_something_new_arrived_for_the_pop_outs_header(self):
+        # The pop-out marks a view's name in its header while something new is there and she is not looking (news).
+        self.run_lua(r'''
+vim.cmd.edit(root .. '/a.lua')
+C.changes()
+local r=R.current
+assert(r.row.kind=='working')
+assert(vim.wait(5000,function() for _,f in ipairs(r.files) do if not f.loaded then return false end end; return true end,10))
+local view={review=r}
+local function news() return R.view_kind.render(view,100).news end
+assert(news()==false,'the first drawing is no news')
+assert(news()==false,'… nor the same again')
+R.select(find('a.lua')); R.mark()
+assert(news()==false,'checking a file is her own doing, no news')
+local f=assert(io.open(root..'/fresh.txt','w')); f:write('written by an agent\n'); f:close()
+R.refresh_live()
+assert(news()==true,'a file that joined the list is news')
+assert(news()==false,'… once')
+local a=assert(io.open(root..'/a.lua','w')); a:write('local value = 31\nprint(value)\n'); a:close()
+R.refresh_live()
+assert(news()==true,'a file she checked, changed since, is news')
+os.remove(root..'/fresh.txt')
+a=assert(io.open(root..'/a.lua','w')); a:write('local value = 999\nprint(value)\n'); a:close()
+C.close()
+''', index_unchanged=False)
+
     def test_the_working_list_picks_up_files_changed_after_it_opened(self):
         self.run_lua(r'''
 vim.cmd.edit(root .. '/a.lua')
