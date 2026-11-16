@@ -148,6 +148,11 @@ started before the update is running. An integration-only update waits until the
   changes outside an etckeeper commit) never came on after a fresh install: the installer's unit files were still
   empty when systemd reloaded, systemd loaded them as masked, the enable failed, and later runs found the files
   current and skipped. They are now complete before the reload, and a run that finds the watcher off starts it.
+- fail2ban's ban alert (`foxml-fail2ban-notify`, run as root) appended to, chmodded and chowned
+  `~/.local/share/foxml/threat-log.txt` as root, following links: a link put there handed its target (say
+  `/etc/shadow`) to you at the next ban, and a linked folder became 0700. The row is now written as you (`runuser`),
+  so nothing in your home is written as root; the alert itself is unchanged. The installer's dispatch_hooks step
+  deploys the new script to `/usr/local/bin`.
 - `desk harden enable iommu` added `lockdown=integrity` without the check the installer's IOMMU step makes, so on a
   machine with an NVIDIA GPU or DKMS modules (unsigned, which lockdown refuses to load) the desktop fell to software
   rendering. It now asks the installer's question (an NVIDIA device in `lspci`, or anything in `dkms status`) and
