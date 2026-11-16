@@ -21,9 +21,9 @@ class Toolchain(ToolsCase):
         self.assertEqual(card["label"], "Contract tests · symdeps contract tests · passed")
         lines = card["detail"].split("\n")
         self.assertTrue(lines[0].startswith("Passed 2026-11-16 06:54:58, ") and lines[0].endswith("· 12 passed · 0 failed · 0 skipped · 12 expected"), lines[0])
-        self.assertEqual(lines[1], "fox-symdeps: 12 passed, 0 failed · network-isolated")
+        self.assertEqual(lines[1], "12 passed, 0 failed")
         end = record["inputs"]["end"]
-        self.assertIn(f"Ran against: plugin {end['plugin']['commit'][:8]} · workspace 0.99.1 {end['workspace']['head'][:8]}, "
+        self.assertIn(f"Ran against: plugin {end['plugin']['commit'][:8]} · workspace 1.2.0 {end['workspace']['head'][:8]}, "
                       f"tools tree {end['workspace']['tools_tree'][:8]} · engine {end['engine']['head'][:8]}", lines)
         self.assertIn(f"workspace tools unchanged since the run (tree {end['workspace']['tools_tree'][:8]}, nothing uncommitted)", lines)
         self.assertIn("Not compared: plugin, engine, gitignored files and the machine's tools", lines)

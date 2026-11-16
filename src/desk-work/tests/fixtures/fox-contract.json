@@ -27,7 +27,7 @@
     "expected": 12,
     "failed_tests": [],
     "skipped_tests": [],
-    "summary": "fox-symdeps: 12 passed, 0 failed · network-isolated"
+    "summary": "12 passed, 0 failed"
   },
   "run": {
     "tests": 12,
@@ -45,16 +45,16 @@
       },
       "workspace": {
         "root": "@WORKSPACE@",
-        "how": "FOX_WORKSPACE_TOOLS",
+        "how": "WORKSPACE_DIR",
         "head": "@WORKSPACE_HEAD@",
         "tools_tree": "@TOOLS_TREE@",
         "tools_dirty": false,
         "tools_uncommitted": [],
-        "toolchain_version": "0.99.1"
+        "toolchain_version": "1.2.0"
       },
       "engine": {
         "root": "@ENGINE@",
-        "how": "FOXML_ENGINE",
+        "how": "ENGINE_DIR",
         "head": "@ENGINE_HEAD@",
         "dirty": false
       }
@@ -68,16 +68,16 @@
       },
       "workspace": {
         "root": "@WORKSPACE@",
-        "how": "FOX_WORKSPACE_TOOLS",
+        "how": "WORKSPACE_DIR",
         "head": "@WORKSPACE_HEAD@",
         "tools_tree": "@TOOLS_TREE@",
         "tools_dirty": false,
         "tools_uncommitted": [],
-        "toolchain_version": "0.99.1"
+        "toolchain_version": "1.2.0"
       },
       "engine": {
         "root": "@ENGINE@",
-        "how": "FOXML_ENGINE",
+        "how": "ENGINE_DIR",
         "head": "@ENGINE_HEAD@",
         "dirty": false
       }

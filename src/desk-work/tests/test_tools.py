@@ -18,6 +18,7 @@ from sealed import sealed
 
 BIN = Path(__file__).resolve().parents[1] / "desk-work"
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
+DOCS = Path(__file__).resolve().parents[3] / "docs/desk-tools.md"
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tests"))
 import sealed_env  # noqa: E402
 
@@ -387,14 +388,14 @@ class Tools(ToolsCase):
                                    "@ENGINE_HEAD@": "d" * 40, "@LOG@": "/nowhere/run.log"})
         result = self.answer("fox-contract/1", "status", json.dumps(record))
         self.assertEqual((result["state"], result["complete"], result["at"], result["started"], result["log"], result["summary"]),
-                         ("ok", True, 1794812098, 1794812098, "/nowhere/run.log", "fox-symdeps: 12 passed, 0 failed · network-isolated"))
+                         ("ok", True, 1794812098, 1794812098, "/nowhere/run.log", "12 passed, 0 failed"))
         self.assertEqual([(f["name"], f["value"]) for f in result["facts"]], [("passed", 12), ("failed", 0), ("skipped", 0), ("expected", 12)])
         self.assertEqual([a["name"] for a in result["about"]], ["plugin", "workspace", "engine"], "in the record's order")
         plugin, workspace, engine = result["about"]
         self.assertEqual((plugin["path"], plugin["version"]["head"], plugin["scope"], plugin["version"]["uncommitted"]),
                          ("/nowhere/plugin", "a" * 40, "", []))
         self.assertEqual((workspace["scope"], workspace["how"], workspace["version"]),
-                         ("tools", "FOX_WORKSPACE_TOOLS", {"head": "b" * 40, "tree": "c" * 40, "release": "0.99.1", "dirty": False, "uncommitted": []}))
+                         ("tools", "WORKSPACE_DIR", {"head": "b" * 40, "tree": "c" * 40, "release": "1.2.0", "dirty": False, "uncommitted": []}))
         self.assertEqual((engine["version"]["dirty"], engine["version"]["uncommitted"]), (False, None), "no list is unknown, not empty")
         record["result"].update(state="refused", why="unknown test name")
         refused = self.answer("fox-contract/1", "status", json.dumps(record))
@@ -405,6 +406,26 @@ class Tools(ToolsCase):
         moved = {a["name"]: a for a in self.answer("fox-contract/1", "status", json.dumps(record))["about"]}
         self.assertEqual((moved["workspace"]["moved"], moved["engine"]["why"], moved["engine"]["path"]), (["head"], "no engine checkout found", None))
         self.assertEqual(self.answer("fox-contract/1", "status", json.dumps(dict(record, kind="fox-contract/2")))["read"]["ok"], False)
+
+    def test_the_docs_answer_is_what_desk_work_gives_for_the_sample_record(self):
+        # docs/desk-tools.md shows a contract answer in full: the sample record's, with its neutral names, never a copy
+        # of a real one.
+        shown = json.loads(DOCS.read_text().split("## Reading an answer", 1)[1].split("```json", 1)[1].split("```", 1)[0])
+        record = self.record_text({"@PLUGIN@": "/path/to/plugin", "@PLUGIN_COMMIT@": "a" * 40, "@WORKSPACE@": "/path/to/workspace",
+                                   "@WORKSPACE_HEAD@": "b" * 40, "@TOOLS_TREE@": "c" * 40, "@ENGINE@": "/path/to/engine",
+                                   "@ENGINE_HEAD@": "d" * 40, "@LOG@": "/path/to/the/run.log"})
+        result = self.answer("fox-contract/1", "status", json.dumps(record))
+        for key in ("format", "gives", "at", "summary", "complete", "why", "state", "findings", "log", "started"):
+            self.assertEqual(shown[key], result[key], key)
+        self.assertEqual(shown["read"]["format"], result["read"]["format"])
+        for fact in shown["facts"]:
+            self.assertIn(fact, result["facts"])
+        about = {a["name"]: a for a in result["about"]}
+        for checkout in shown["about"]:
+            for key in ("kind", "label", "path", "scope", "how"):
+                self.assertEqual(checkout[key], about[checkout["name"]][key], (checkout["name"], key))
+            for key in ("release", "dirty", "uncommitted"):
+                self.assertEqual(checkout["version"][key], about[checkout["name"]]["version"][key], (checkout["name"], key))
 
     def test_dot_reads_what_ninja_t_graph_prints(self):
         printed = ('digraph ninja {\nrankdir="LR"\nnode [fontsize=10, shape=box, height=0.25]\nedge [fontsize=10]\n'

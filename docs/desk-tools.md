@@ -229,14 +229,17 @@ run's answer in this checkout. Without an answer yet it says so: `{ "ok": false,
   "source": { "kind": "tool", "id": "contract", "name": "symdeps contract tests",
               "producer": { "tool": "fox-symdeps", "version": null, "command": null } },
   "read": { "format": "fox-contract/1", "from": "/path/to/the/record.json", "ok": true },
-  "at": 1794812098, "summary": "fox-symdeps: 12 passed, 0 failed · network-isolated",
+  "at": 1794812098, "summary": "12 passed, 0 failed",
   "complete": true, "why": null, "state": "ok",
   "findings": [], "facts": [{ "name": "passed", "value": 12, "unit": "" }],
-  "about": [{ "kind": "checkout", "name": "workspace", "label": "workspace 0.99.1", "path": "/path/to/workspace",
-              "scope": "tools", "how": "FOX_WORKSPACE_TOOLS",
-              "version": { "head": "…", "tree": "…", "release": "0.99.1", "dirty": false, "uncommitted": [] } }],
-  "log": "/path/to/the/run.log", "started": 1794812090 }
+  "about": [{ "kind": "checkout", "name": "workspace", "label": "workspace 1.2.0", "path": "/path/to/workspace",
+              "scope": "tools", "how": "WORKSPACE_DIR",
+              "version": { "head": "…", "tree": "…", "release": "1.2.0", "dirty": false, "uncommitted": [] } }],
+  "log": "/path/to/the/run.log", "started": 1794812098 }
 ```
+
+This is what desk-work gives for the sample record its tests read (`src/desk-work/tests/fixtures/fox-contract.json`),
+shortened to one of its three checkouts.
 
 - `state` is there for a status, `graph` (`nodes`, `edges`, `focus`) for a graph, `log` and `started` for a contract
   record. `read.exit` is the run's exit status when the answer came from a run.
