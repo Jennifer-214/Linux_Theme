@@ -2835,17 +2835,26 @@ local function apply_foxml_theme()
   -- theme, so it is there before the first menu opens and after a colorscheme change; the plugin's default link
   -- then leaves it alone. The review and the built-in menu use the same group.
   hl("FoxSymdepsDim", { fg = P.comment, bg = "NONE", italic = false })
-  -- Retro, last so nothing above wins: the phosphor shader keeps only brightness, so diffs and matches are told
-  -- apart by weight, strikethrough and inverse video instead of hue.
+  -- Retro, last so nothing above wins: the phosphor shader keeps only brightness, so matches are told apart by
+  -- weight and inverse video instead of hue. Diffs are drawn as Claude Code, delta, pi and codex draw them, from the
+  -- same colours: a band per line, added brighter than removed, the changed words brighter still. The review shows
+  -- its old side as removed and its new side as added (FoxReviewOld*/New* in desk/review.lua).
   if DeskStyle == "retro" then
-    hl("DiffAdd",     { bg = P.diff_add, bold = true })
-    hl("DiffDelete",  { bg = P.diff_del, strikethrough = true })
-    hl("DiffText",    { reverse = true })
-    hl("DiffTextAdd", { reverse = true, bold = true })
+    hl("DiffAdd",     { bg = P.diff_add })
+    hl("DiffDelete",  { fg = P.diff_del, bg = "#{{CLAUDE_DIFF_DEL_DIM}}" })
+    hl("DiffChange",  { bg = "#{{CLAUDE_DIFF_ADD_DIM}}" })
+    hl("DiffText",    { bg = P.diff_txt })
+    hl("DiffTextAdd", { bg = P.diff_txt })
+    hl("FoxReviewRemoved", { bg = P.diff_del })
+    hl("FoxReviewOldLine", { bg = P.diff_del })
+    hl("FoxReviewOldWord", { bg = "#{{CLAUDE_DIFF_DEL_WORD}}" })
+    hl("FoxReviewOldAdd",  { bg = "#{{CLAUDE_DIFF_DEL_WORD}}" })
+    hl("FoxReviewNewLine", { bg = P.diff_add })
+    hl("FoxReviewNewWord", { bg = P.diff_txt })
     hl("Added",   { fg = P.green, bold = true })
-    hl("Removed", { fg = P.red, strikethrough = true })
+    hl("Removed", { fg = P.red })
     hl("Changed", { fg = P.fg_pastel })
-    hl("@diff.plus", { link = "Added" }); hl("@diff.minus", { link = "Removed" }); hl("@diff.delta", { link = "Changed" })
+    hl("@diff.plus", { bg = P.diff_add }); hl("@diff.minus", { bg = P.diff_del }); hl("@diff.delta", { link = "Changed" })
     hl("QuickFixLine", { reverse = true })
     hl("TelescopeMatching", { fg = P.fg, underline = true, sp = P.fg })
     hl("CmpItemAbbrMatch", { fg = P.fg, bold = true, underline = true })

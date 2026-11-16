@@ -119,10 +119,10 @@ WHEAT=ffc640
 CLAY=d0541c
 
 # ─── Nvim diff colors ───
-DIFF_ADD=4a3608
+DIFF_ADD=3a3a10
 DIFF_CHANGE=33240a
-DIFF_DELETE=33240a
-DIFF_TEXT=3a2a08
+DIFF_DELETE=4a1a08
+DIFF_TEXT=4a4416
 TREESITTER_CTX=1c1408
 
 # ─── Nvim rainbow delimiters / indent guides ───
@@ -543,8 +543,8 @@ NVIM_CURSORLINE=261b08
 ZATHURA_RECOLOR=true
 GTK_ACCENT_COLOR=orange
 # delta changed-word backgrounds: straw and rust tints under amber text.
-DELTA_DEL_WORD=4a1e0c
-DELTA_ADD_WORD=3a3410
+DELTA_DEL_WORD=5c220c
+DELTA_ADD_WORD=4a4416
 # GTK entry fill and infobar border alpha.
 GTK_FIELD_ALPHA=0.9
 
@@ -563,11 +563,11 @@ CLAUDE_ALERT=f07838
 PI_THINKING_MEDIUM=e0a020
 PI_THINKING_XHIGH=ffd466
 
-# Diff pager, kitty tabs and cursor, notification icons, fingerprint wording, window shadow edge.
-DELTA_MINUS_STYLE='"#9c6c14" strike'
-DELTA_MINUS_EMPH_STYLE='"#0c0a06" "#c88a00"'
-DELTA_PLUS_STYLE='syntax bold "#4a3608"'
-DELTA_PLUS_EMPH_STYLE='"#0c0a06" "#ffb000" bold'
+# Diff pager (the same bands as Claude Code and Neovim: DIFF_* and CLAUDE_DIFF_*), kitty tabs and cursor, notification icons, fingerprint wording, window shadow edge.
+DELTA_MINUS_STYLE='syntax "#4a1a08"'
+DELTA_MINUS_EMPH_STYLE='syntax "#5c220c"'
+DELTA_PLUS_STYLE='syntax "#3a3a10"'
+DELTA_PLUS_EMPH_STYLE='syntax "#4a4416"'
 KITTY_CURSOR_BLINK=0.53
 KITTY_TAB_TITLE='"[{index}] {title}"'
 MAKO_ICONS=0

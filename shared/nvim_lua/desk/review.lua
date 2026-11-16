@@ -468,6 +468,12 @@ local function hl(name, fallback) return vim.fn.hlexists(name) == 1 and name or 
 local function review_groups()
   api.nvim_set_hl(0, 'FoxReviewRemoved', { link = 'DiffDelete', default = true })
   api.nvim_set_hl(0, 'FoxReviewFiller', { link = 'NonText', default = true })
+  -- A theme can draw the old side as removed and the new side as added; by default both sides look as plain diff mode.
+  api.nvim_set_hl(0, 'FoxReviewOldLine', { link = 'DiffChange', default = true })
+  api.nvim_set_hl(0, 'FoxReviewOldWord', { link = 'DiffText', default = true })
+  api.nvim_set_hl(0, 'FoxReviewOldAdd', { link = 'DiffTextAdd', default = true })
+  api.nvim_set_hl(0, 'FoxReviewNewLine', { link = 'DiffChange', default = true })
+  api.nvim_set_hl(0, 'FoxReviewNewWord', { link = 'DiffText', default = true })
 end
 review_groups()
 api.nvim_create_autocmd('ColorScheme', { group = api.nvim_create_augroup('foxml_review_groups', { clear = true }), callback = review_groups })
@@ -1073,7 +1079,9 @@ function M.select(index, refresh)
     vim.wo[win].cursorline, vim.wo[win].cursorlineopt, vim.wo[win].wrap = true, 'line,number', false
     vim.wo[win].signcolumn, vim.wo[win].foldcolumn = 'no', '1'
     vim.wo[win].winbar = '%#Title# ' .. escaped(label) .. ' · %<%#Normal#' .. escaped(file.rel) .. '%*'
-    vim.wo[win].winhighlight = win == r.left_win and 'DiffAdd:FoxReviewRemoved,DiffDelete:FoxReviewFiller' or 'DiffDelete:FoxReviewFiller'
+    vim.wo[win].winhighlight = win == r.left_win
+      and 'DiffAdd:FoxReviewRemoved,DiffDelete:FoxReviewFiller,DiffChange:FoxReviewOldLine,DiffText:FoxReviewOldWord,DiffTextAdd:FoxReviewOldAdd'
+      or 'DiffDelete:FoxReviewFiller,DiffChange:FoxReviewNewLine,DiffText:FoxReviewNewWord'
   end
   r.notes = M.notes(r.root)
   options(r); panel(r, true)
