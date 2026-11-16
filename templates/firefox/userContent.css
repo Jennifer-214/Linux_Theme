@@ -629,7 +629,8 @@
    36 px, and has no bold (font-synthesis: none keeps it from being smeared). Firefox's pages take their look from its
    design tokens, which also reach inside its components; a focused control gets a 2-px ring in the brightest amber. */
 @-moz-document url-prefix("about:preferences"), url-prefix("about:settings"), url-prefix("about:addons"),
-  url-prefix("about:downloads"), url-prefix("about:profiles"), url-prefix("about:config") {
+  url-prefix("about:downloads"), url-prefix("about:profiles"), url-prefix("about:config"), url-prefix("about:support"),
+  url-prefix("about:logins"), url-prefix("about:privatebrowsing") {
   {{FF_RETRO_SCOPE}} {
     color-scheme: dark !important;
     accent-color: #{{FG}} !important;
@@ -688,6 +689,8 @@
     --button-background-color-primary-hover: #{{GOLD}} !important;
     --button-background-color-primary-active: #{{BLUSH}} !important;
     --button-text-color-primary: #{{BG}} !important;
+    --button-background-color-primary-disabled: #{{SURFACE}} !important;
+    --button-text-color-primary-disabled: #{{FG_DIM}} !important;
     --button-font-weight: normal !important;
     --input-background-color: #{{BG}} !important;
     --input-text-color: #{{FG}} !important;
@@ -728,12 +731,27 @@
   /* these take the system font's size rather than the page's; the system font is Big Blue Term in retro anyway */
   {{FF_RETRO_SCOPE}} :is(table, button, input, select, textarea, menulist) { font-size: 12px !important; }
   /* pictures in phosphor: grey levels mapped onto the amber ramp (white lands on the theme's amber) */
-  {{FF_RETRO_SCOPE}} :is(img, .config-background) {
+  {{FF_RETRO_SCOPE}} :is(img, .config-background, #about-private-browsing-logo) {
     filter: grayscale(1) brightness(0.4) sepia(1) saturate(6) hue-rotate(10deg) brightness(1.4) !important;
   }
   /* page titles at twice the cell, section titles in capitals: hierarchy by size, case and brightness, not weight */
   {{FF_RETRO_SCOPE}} h1 { font-size: 24px !important; line-height: 36px !important; text-transform: uppercase !important; }
   {{FF_RETRO_SCOPE}} :is(h2, h3, legend) { font-size: 12px !important; color: #{{GOLD}} !important; text-transform: uppercase !important; }
+  /* the settings panes draw their title inside this header's shadow DOM, which inherits the capitals */
+  {{FF_RETRO_SCOPE}} moz-page-header { text-transform: uppercase !important; }
+  /* a private window's page keeps its own purple for the search box and the mask, set on these elements */
+  {{FF_RETRO_SCOPE}} content-search-handoff-ui {
+    --content-search-handoff-ui-background-color: #{{BG}} !important;
+    --content-search-handoff-ui-color: #{{FG}} !important;
+    --content-search-handoff-ui-fill: #{{FG}} !important;
+    --content-search-handoff-ui-caret-color: #{{GOLD}} !important;
+    --content-search-handoff-ui-border-width: 1px !important;
+    --content-search-handoff-ui-unfocused-border-color: #{{FG}} !important;
+    --content-search-handoff-ui-fakefocus-border-color: #{{GOLD}} !important;
+    --content-search-handoff-ui-fakefocus-box-shadow-inner: #{{GOLD}} !important;
+    --content-search-handoff-ui-fakefocus-box-shadow-outer: transparent !important;
+  }
+  {{FF_RETRO_SCOPE}} private-browsing-mask-intro { --icon-mask-color: #{{FG}} !important; }
   /* about:config draws a changed preference in bold, which this font cannot: it is the brightest amber instead */
   {{FF_RETRO_SCOPE}} #prefs > tr.has-user-value { color: #{{GOLD}} !important; }
   /* menulist dropdowns on these pages are popups of their own */
@@ -1038,4 +1056,27 @@
     line-height: 24px !important;
   }
   {{FF_RETRO_SCOPE}} span#hud-match-count { color: #{{SECONDARY}} !important; font-size: 12px !important; }
+}
+
+/* The new tab page's own buttons (the + shortcut tile, the pencil, a topic's follow) read Firefox's accent, its lilac
+   unless the theme sets it: amber here, dark on the brighter steps, the focus ring in the brightest amber. */
+@-moz-document url("about:newtab"), url("about:home") {
+  {{FF_RETRO_SCOPE}} {
+    --color-accent-primary: #{{FG}} !important;
+    --color-accent-primary-hover: #{{GOLD}} !important;
+    --color-accent-primary-active: #{{BLUSH}} !important;
+    --color-accent-primary-selected: #{{FG}} !important;
+    --button-background-color-primary: #{{FG}} !important;
+    --button-background-color-primary-hover: #{{GOLD}} !important;
+    --button-background-color-primary-active: #{{BLUSH}} !important;
+    --button-text-color-primary: #{{BG}} !important;
+    --button-text-color-primary-hover: #{{BG}} !important;
+    --button-text-color-primary-active: #{{BG}} !important;
+    --button-background-color-primary-disabled: #{{SURFACE}} !important;
+    --button-text-color-primary-disabled: #{{FG_DIM}} !important;
+    --border-color-selected: #{{FG}} !important;
+    --focus-outline-color: #{{GOLD}} !important;
+    --link-color: #{{BLUSH}} !important;
+    --link-color-hover: #{{GOLD}} !important;
+  }
 }

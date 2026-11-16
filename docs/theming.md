@@ -116,10 +116,12 @@ in Firefox but not removed while that entry is there.
 In retro-amber the hints are Neovim's jump labels (inverse amber cells of Big Blue
 Term, typed letters back in normal video) and the Vomnibar and status bar are
 double-lined DOS boxes with a `C:\>` prompt. The same theme draws Firefox's own
-pages (settings, add-ons, downloads, profiles, `about:config`), the PDF viewer's
+pages (settings, add-ons, downloads, profiles, `about:config`, `about:support`,
+passwords, the private window's page, the new tab page's buttons), the PDF viewer's
 toolbar and sidebar, reader view (Big Blue Term at 24 px) and every menu, dropdown
 and panel as a DOS screen: square, amber on near-black, the chosen row inverse, a
-bright 2 px ring on the focused control.
+bright 2 px ring on the focused control. Vertical tabs are a list of amber titles
+with the open tab inverse; horizontal tabs are an amber menu bar.
 
 ## Shared files
 

@@ -140,7 +140,7 @@ class RenderedConfigsTest(unittest.TestCase):
             f"border: 4px double #{fg} !important;",
             # Firefox's own pages: the font on its 12 px cell, amber tokens, a bright 2 px focus ring
             "@-moz-document url-prefix(\"about:preferences\"), url-prefix(\"about:settings\"), url-prefix(\"about:addons\"), "
-            "url-prefix(\"about:downloads\"), url-prefix(\"about:profiles\"), url-prefix(\"about:config\") { :root {",
+            "url-prefix(\"about:downloads\"), url-prefix(\"about:profiles\"), url-prefix(\"about:config\"),",
             f"--focus-outline: 2px solid #{gold} !important;",
             "--font-size-root: 12px !important;",
             # the PDF viewer (scoped by pdf.js's own root attribute) and reader view on whole cells
@@ -156,6 +156,38 @@ class RenderedConfigsTest(unittest.TestCase):
             f"background: #{fg} !important; color: #{bg} !important;",
         ):
             self.assertIn(want, chrome)
+
+    def test_firefox_retro_tab_lists_and_accents(self):
+        # Firefox marks the open tab with a bare [selected] and keeps vertical tabs outside the tab toolbar, so the menu
+        # bar's dark titles stay in #TabsToolbar and the vertical list gets amber ones (it showed none). The pages Firefox
+        # draws, and its new tab page, set the accent that would otherwise stay Firefox's lilac.
+        theme = next(t for t in THEMES if palette_value(t, "DESK_STYLE") == "retro")
+        fg, bg, surface = (palette_value(theme, key) for key in ("FG", "BG", "SURFACE"))
+        chrome = " ".join((self.out / theme / "firefox/userChrome.css").read_text().split())
+        content = " ".join((self.out / theme / "firefox/userContent.css").read_text().split())
+        retro_chrome = chrome[chrome.index("/* retro-amber: the tab strip as a DOS menu bar"):]
+        self.assertNotIn('[selected="true"]', retro_chrome)
+        for want in (
+            f":root #TabsToolbar .tabbrowser-tab[selected] .tab-background {{ background: #{bg} !important;",
+            ':root #tabbrowser-tabs[orient="vertical"] .tabbrowser-tab :is(.tab-content, .tab-label, .tab-close-button), '
+            f":root #vertical-tabs toolbarbutton {{ color: #{fg} !important;",
+            f':root #tabbrowser-tabs[orient="vertical"] .tabbrowser-tab[selected] .tab-background {{ background: #{fg} !important; }}',
+            ':root #tabbrowser-tabs[orient="vertical"] .tabbrowser-tab[selected] :is(.tab-content, .tab-label, .tab-close-button) '
+            f"{{ color: #{bg} !important;",
+            f":root :is(#sidebar-container, sidebar-main) {{ background-color: #{bg} !important;",
+            "--color-accent-primary-hover:",
+        ):
+            self.assertIn(want, retro_chrome)
+        for want in (
+            'url-prefix("about:config"), url-prefix("about:support"), url-prefix("about:logins"), '
+            'url-prefix("about:privatebrowsing") { :root { color-scheme: dark !important;',
+            f"--button-background-color-primary-disabled: #{surface} !important;",
+            ":root moz-page-header { text-transform: uppercase !important; }",
+            f"--content-search-handoff-ui-unfocused-border-color: #{fg} !important;",
+            f':root private-browsing-mask-intro {{ --icon-mask-color: #{fg} !important; }}',
+            f'@-moz-document url("about:newtab"), url("about:home") {{ :root {{ --color-accent-primary: #{fg} !important;',
+        ):
+            self.assertIn(want, content)
 
     def test_fastfetch_configs_are_valid_json_for_every_palette(self):
         for theme in THEMES:
