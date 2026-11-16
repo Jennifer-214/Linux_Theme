@@ -787,6 +787,25 @@ do
     '… and that view is gone there too')
 end
 
+-- ─── q on its last view, while the editor refuses its acts ───────────────────────────────────────────────────────
+do
+  press('p')
+  ok(wait(3000, function() return (state().header or ''):find('graph · PINNED', 1, true) end), 'the graph pinned')
+  host("_G.heard = {}")
+  vim.rpcrequest(h, 'nvim_input', 'i')
+  ok(wait(2000, function() return host('return vim.api.nvim_get_mode().mode') == 'i' end), 'the editor in insert mode: it refuses acts')
+  local mark = #read('hyprctl.log')
+  vim.rpcnotify(p, 'nvim_input', 'q')
+  ok(wait(5000, function() return not exists(psock) end), 'q on its last view: the pop-out goes all the same')
+  ok(wait(3000, function() return host("return require('desk.popout').host.chan") == vim.NIL end), '… and the editor knows')
+  vim.wait(500)
+  eq({ heard(), host(panel_open) }, { {}, false }, '… as her closing it: nothing said, nothing brought back')
+  ok(wait(3000, function() return log_since(mark):find("dispatch hl.dsp.focus({ window = 'address:0xa1' })", 1, true) end),
+    '… and the keyboard is back here')
+  vim.rpcrequest(h, 'nvim_input', '<Esc>')
+  ok(wait(2000, function() return host('return vim.api.nvim_get_mode().mode') == 'n' end), '… normal mode again')
+end
+
 vim.rpcnotify(h, 'nvim_command', 'qa!')
 ok(third:wait(5000).code == 0, 'the third editor closes')
 ok(wait(10000, function() return not exists(psock) end), '… and its pop-out quits')

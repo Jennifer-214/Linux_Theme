@@ -12,10 +12,11 @@
 --   view.set   { id, gen, kind, surface, title, state, lines, marks, hl, items, footer, strip, select, front, news, views }
 --              (views: every view the editor has; the pop-out closes a tab of any other)
 --   view.clear { id } · ping { serial } (every 10 s; one that stops answering is sent nothing until it does) · bye { why }
--- The pop-out asks through the editor's bridge (desk.bridge), every message with its deadline:
+-- The pop-out asks through the editor's bridge (desk.bridge), every ask with its deadline (pong and leaving need none):
 --   subscribe { chan, pid, width, protocol = 2 } · describe { view, gen, item } → { rows } ·
 --   act { view, gen, item, action, text, choice } · pong { serial } · front { view, quiet } (the view in front there
---   now; quiet when it was not her own switch)
+--   now; quiet when it was not her own switch) · leaving { pid } (q on its last view: it goes, whatever the editor is
+--   doing, and says so first)
 -- describe and act name the generation the pop-out drew: a view drawn again since is refused ("this view moved on").
 -- The pop-out's keys for a view are its in-editor surface's drawn rows (run there, on its copy) and remote rows (run in
 -- the editor, by act), beside its own rows (surface 'popout'); a row the editor keeps (remote = false) is not there.
@@ -489,10 +490,11 @@ function M.clear(id)
 end
 
 -- The pop-out is gone, or let go: nothing more is sent and nothing follows the cursor for it. One still running (q on
--- what is its last view here, a fold) is told why and its channel closed, so it never stays with every key refused.
--- opts.back: it went on its own (it closed or crashed, or its screen was unplugged): its pinned views come back to the
--- editor as splits (their kind's attach), the following ones stop, and one notice says so; opts.all: it never showed
--- them (it did not start), so every view comes back. Her q on its last view brings nothing back.
+-- what is its last view here, a fold) is told why and its channel closed, so it never stays with every key refused;
+-- opts.leaving: it is quitting by itself (q on its last view there) and is told nothing. opts.back: it went on its own
+-- (it closed or crashed, or its screen was unplugged): its pinned views come back to the editor as splits (their kind's
+-- attach), the following ones stop, and one notice says so; opts.all: it never showed them (it did not start), so
+-- every view comes back. Her q on its last view brings nothing back.
 function M.forget(why, opts)
   opts = opts or {}
   -- A write of the views still on its way is written now, while they are here: a fold right after a change keeps them.
@@ -502,7 +504,7 @@ function M.forget(why, opts)
   H.chan, H.pid, H.kitty, H.stalled, H.opening, H.front, H.screen, H.prefer = nil, nil, nil, false, nil, nil, nil, nil
   if H.timer then H.timer:stop() end
   unwatch_screens()
-  let_go(chan, why)
+  if not opts.leaving then let_go(chan, why) end
   local views, order = H.views, H.order
   H.views, H.order, H.history = {}, {}, { steps = {}, at = 0 }
   local back = {}
@@ -1069,6 +1071,17 @@ local function front(msg)
   return { heard = true }
 end
 
+-- leaving { pid }: the pop-out this editor has is quitting (q on its last view there): forgotten as she closed it
+-- (nothing comes back, nothing is said) and the keyboard back here. Never refused for what this editor is doing: the
+-- pop-out goes all the same, and an act it was refused would have it taken for a crash.
+local function on_leaving(msg)
+  if not H.chan or msg.pid ~= H.pid or exiting() then return { heard = false } end
+  M.forget(nil, { leaving = true })
+  M.focus({ pid = vim.fn.getpid(), pane = host_pane() })
+  M.save_layout()
+  return { heard = true }
+end
+
 local ID, NUMBER = bridge.field('string', 32), bridge.field('integer', 2147483647)
 bridge.register('subscribe', timed(subscribe), { chan = bridge.field('integer', 2147483647, true),
   pid = bridge.field('integer', 2147483647, true), width = bridge.field('integer', 1000), protocol = bridge.field('integer', 1000, true) })
@@ -1077,6 +1090,7 @@ bridge.register('act', timed(act), { view = ID, gen = NUMBER, item = bridge.fiel
   action = bridge.field('string', 64, true), text = bridge.field('string', 2000), choice = bridge.field('string', 64) })
 bridge.register('pong', pong, { serial = bridge.field('integer', 2147483647, true) })
 bridge.register('front', timed(front), { view = bridge.field('string', 32, true), quiet = bridge.field('boolean') })
+bridge.register('leaving', on_leaving, { pid = bridge.field('integer', 2147483647, true) })
 
 -- ─── the pop-out's side ────────────────────────────────────────────────────────────────────────────────────────
 -- chan: to the editor; me: that channel's number there; host: { pid, pane } of the editor; views by id, each in a
@@ -1119,6 +1133,13 @@ local function tell_front(view, quiet)
   if not (C.chan and view) then return end
   pcall(vim.rpcnotify, C.chan, 'nvim_exec_lua', HOST_DOOR, { { version = 1, type = 'front', view = view.id, quiet = quiet == true,
     deadline = now_ms() + 2000 } })
+end
+
+-- This pop-out is going (q on its last view): the editor is told first, and waits for nothing else, so it never takes
+-- the quit for a crash (its pinned views back as splits).
+local function leaving()
+  if not C.chan then return end
+  pcall(vim.rpcrequest, C.chan, 'nvim_exec_lua', HOST_DOOR, { { version = 1, type = 'leaving', pid = vim.fn.getpid() } })
 end
 
 local function index_of(view, key)
@@ -1745,7 +1766,7 @@ local ROWS = actions.add({
         return M.save_layout()
       end
       if shown() and vim.tbl_count(C.views) > 1 then return client_act('popout.close') end
-      if C.chan then pcall(client_act, 'popout.close') end
+      leaving()
       C.closing = 'closed'
       vim.cmd('qa!')
     end },
