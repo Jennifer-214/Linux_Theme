@@ -162,7 +162,8 @@ const std::vector<RecordSpec>& record_specs() {
         {"review-marks.json", "review marks", "reviews.lock", false}, {"review-requests.json", "change requests", "reviews.lock", false},
         {"commit-plans.json", "commit plans", "reviews.lock", false}, {"set-aside.json", "set-aside reviews", "reviews.lock", false},
         {"snoozed.json", "snoozes", "snoozed.lock", false},
-        {"events.json", "project history", "events.lock", false}, {"seen.json", "read positions", "seen.lock", false}};
+        {"events.json", "project history", "events.lock", false}, {"seen.json", "read positions", "seen.lock", false},
+        {"tool-approvals.json", "tool approvals", "tools.lock", false}};
     return specs;
 }
 std::string record_label(const std::string& file) {
@@ -488,7 +489,9 @@ void prune_old_runs() {
         if (!tec && when < limit) fs::remove_all(e.path(), tec);
     }
 }
-J begin(const std::string& command, const std::string& root, const std::string& session, long long pid, bool observed, const std::string& title = {}, const std::string& cwd = {}) {
+// extra: fields the record starts with besides these (a declared tool's run says so: kind "tool" and its tool).
+J begin(const std::string& command, const std::string& root, const std::string& session, long long pid, bool observed, const std::string& title = {}, const std::string& cwd = {},
+        const J& extra = J::object()) {
     std::error_code cwd_error;
     const auto current = fs::current_path();
     const bool cwd_known = !cwd.empty() || root_of(current.string()) == root;
@@ -513,9 +516,11 @@ J begin(const std::string& command, const std::string& root, const std::string& 
     // What the command does in plain words (Claude's description of it), shown in place of the command.
     const auto named = trim(clean(title));
     if (!named.empty() && named.find('\n') == std::string::npos) j["title"] = named.substr(0, 160);
+    j.update(extra);
     return save_run(dir, j) ? j : J();
 }
 #include "metrics.hpp"
+J tool_figures(const J& job);   // tools.hpp
 // How many runs of the same command in the same checkout failed in a row just before this one; a stop is skipped.
 long long failed_before(const J& job) {
     long long n = 0; const auto started = num(job, "startedNs", num(job, "started") * 1000000000LL);
@@ -532,11 +537,17 @@ bool finish(J& j, int code, bool truncated) {
     if (!j.is_object()) return false;
     j["ended"] = now(); j["exit"] = code; j["truncated"] = truncated;
     j["failedBefore"] = failed_before(j);
-    j["state"] = code == 0 ? "passed" : code >= 128 || code < 0 ? "interrupted" : "failed";
+    // A declared tool's run is its answer, not a test run, and its figures are the ones it gives; toolio's exit 1 is an
+    // answer with findings (docs/desk-tools.md).
+    const bool tool = str(j, "kind") == "tool";
+    const auto format = tool ? str(j.value("tool", J::object()), "format") : std::string();
+    const bool answered = code == 0 || (code == 1 && (format == "toolio" || format == "fox-symdeps/2"));
+    j["state"] = answered ? "passed" : code >= 128 || code < 0 ? "interrupted" : "failed";
     const auto log = read(run_dir(str(j, "id")) / "output.log");
-    j["tests"] = parse_tests(log, str(j, "root"), str(j, "cwd"));
-    j["metrics"] = extract_metrics(log, str(j, "root"), j["tests"]);
-    j["testRun"] = str(j, "kind") == "tests" || !j["tests"]["passed"].is_null() || !j["tests"]["failed"].is_null();
+    j["tests"] = tool ? J{{"passed", nullptr}, {"failed", nullptr}, {"failures", J::array()}, {"scope", "reported"}}
+                      : parse_tests(log, str(j, "root"), str(j, "cwd"));
+    j["metrics"] = tool ? tool_figures(j) : extract_metrics(log, str(j, "root"), j["tests"]);
+    j["testRun"] = !tool && (str(j, "kind") == "tests" || !j["tests"]["passed"].is_null() || !j["tests"]["failed"].is_null());
     if (!same_source(j["snapshot"], snapshot(str(j, "root")))) j["changedDuringRun"] = true;
     if (j.value("changedDuringRun", false) || truncated || num(j["tests"], "failed") > 0) j["baselineEligible"] = false;
     else j["baselineEligible"] = j["testRun"].get<bool>() && code == 0 && num(j["tests"], "passed") > 0 && j["snapshot"].value("complete", false);
@@ -1306,6 +1317,7 @@ J attention(const std::string& root, const std::string& session = {}, bool revie
 #include "since.hpp"
 #include "map.hpp"
 #include "records.hpp"
+void declaration_checks(J& checks, J& alerts);   // tools.hpp: declarations desk-work refused
 #include "integrations.hpp"
 #include "editor.hpp"
 // A checkout counts for the desktop's lists while it is in use: it still exists, and it has a commit or a recorded
@@ -1564,6 +1576,8 @@ int supervise(const A& child, const std::string& root, const std::string& sessio
     if (code != 0) notify_failure(str(job, "title", label), str(job, "id"));
     return code < 0 ? 125 : code;
 }
+#include "results.hpp"
+#include "tools.hpp"
 }
 
 std::string invoked;
@@ -1589,6 +1603,7 @@ int dispatch(int argc, char** argv) {
                          "desk-work timeline|digest --root DIR [--consumer NAME --through SEQUENCE] | since --root DIR [--reader NAME --mark yes]\n"
                          "desk-work snooze --root DIR --id ITEM [--seconds 3600 | --until-change yes | --clear yes]\n"
                          "desk-work map build|status|query|show|export --root DIR [--provider syntax|binary --binary ELF --wait yes | --q reach|callers|paths|module|touched ...]\n"
+                         "desk-work tools list|show ID|run ID|result ID [--root DIR]   (declared in .desk/tools.json or desk.d; docs/desk-tools.md)\n"
                          "desk-work suggest-tests --root DIR --file PATH | run-suggested --root DIR --id RUN\n"
                          "desk-work integrations plan|apply|rollback|recover|status|backups [--expected PLAN | --transaction ID]\n"
                          "desk-work integrations cleanup-plan|cleanup [--keep 3 --older-than 30 --expected PLAN]\n"
@@ -1755,6 +1770,10 @@ int dispatch(int argc, char** argv) {
         else if (cmd == "metrics") out = metrics_report(root, opts.count("--job") ? opts["--job"] : id);
         else if (cmd == "since") out = since_page(root, opts["--reader"].empty() ? "nvim" : opts["--reader"], opts["--mark"] == "yes");
         else if (cmd == "map") return map_command(args, opts);
+        else if (cmd == "tools") {
+            if (args.size() > 1 && args[1] == "run") invoked = "tools run";
+            return tools_command(args, opts);
+        }
         else if (cmd == "metrics-parse") {
             // What a log would give, read from stdin with this checkout's .desk/metrics: for trying out patterns.
             std::string input(4 * 1024 * 1024 + 1, '\0');
@@ -1882,7 +1901,7 @@ int main(int argc, char** argv) {
     const int code = dispatch(argc, argv);
     // Usage refusals print nothing else, so say which command refused. Commands that hand back a child's own exit
     // status are left alone: a 2 from them is the child's. editor's 2 says no editor answered, and its output says why.
-    static const std::set<std::string> passthrough{"integrations", "run", "run-suggested", "editor"};
+    static const std::set<std::string> passthrough{"integrations", "run", "run-suggested", "editor", "tools run"};
     if (code == 2 && !passthrough.count(invoked))
         std::cerr << "desk-work " << (invoked.empty() ? "" : invoked + ": ") << "missing or invalid arguments (desk-work help lists them)\n";
     return code;

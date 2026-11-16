@@ -1,0 +1,88 @@
+{
+  "kind": "fox-contract/1",
+  "started": "2026-11-16T06:54:58Z",
+  "ended": "2026-11-16T06:54:58Z",
+  "started_epoch": 1794812098,
+  "ended_epoch": 1794812098,
+  "tests": [
+    "test_alpha",
+    "test_bravo",
+    "test_charlie",
+    "test_delta",
+    "test_echo",
+    "test_foxtrot",
+    "test_golf",
+    "test_hotel",
+    "test_india",
+    "test_juliett",
+    "test_kilo",
+    "test_lima"
+  ],
+  "missing": [],
+  "result": {
+    "state": "pass",
+    "passed": 12,
+    "failed": 0,
+    "skipped": 0,
+    "expected": 12,
+    "failed_tests": [],
+    "skipped_tests": [],
+    "summary": "fox-symdeps: 12 passed, 0 failed · network-isolated"
+  },
+  "run": {
+    "tests": 12,
+    "passed": 12,
+    "failed": 0,
+    "skipped": 0
+  },
+  "inputs": {
+    "start": {
+      "plugin": {
+        "root": "@PLUGIN@",
+        "commit": "@PLUGIN_COMMIT@",
+        "dirty": false,
+        "uncommitted": []
+      },
+      "workspace": {
+        "root": "@WORKSPACE@",
+        "how": "FOX_WORKSPACE_TOOLS",
+        "head": "@WORKSPACE_HEAD@",
+        "tools_tree": "@TOOLS_TREE@",
+        "tools_dirty": false,
+        "tools_uncommitted": [],
+        "toolchain_version": "0.99.1"
+      },
+      "engine": {
+        "root": "@ENGINE@",
+        "how": "FOXML_ENGINE",
+        "head": "@ENGINE_HEAD@",
+        "dirty": false
+      }
+    },
+    "end": {
+      "plugin": {
+        "root": "@PLUGIN@",
+        "commit": "@PLUGIN_COMMIT@",
+        "dirty": false,
+        "uncommitted": []
+      },
+      "workspace": {
+        "root": "@WORKSPACE@",
+        "how": "FOX_WORKSPACE_TOOLS",
+        "head": "@WORKSPACE_HEAD@",
+        "tools_tree": "@TOOLS_TREE@",
+        "tools_dirty": false,
+        "tools_uncommitted": [],
+        "toolchain_version": "0.99.1"
+      },
+      "engine": {
+        "root": "@ENGINE@",
+        "how": "FOXML_ENGINE",
+        "head": "@ENGINE_HEAD@",
+        "dirty": false
+      }
+    }
+  },
+  "moved": [],
+  "log": "@LOG@"
+}
