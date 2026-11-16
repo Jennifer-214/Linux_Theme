@@ -661,6 +661,7 @@ function M.setup()
   pcall(function() require('desk.since').setup() end)
   pcall(function() require('desk.callgraph').setup() end)
   pcall(function() require('desk.bridge').setup() end)   -- messages from other programs, over this editor's socket
+  pcall(function() require('desk.popout').setup() end)   -- the pop-out window, on the other screen
   pcall(function() require('desk.map').setup() end)
   vim.api.nvim_create_user_command('ClaudeApi', function(opts)
     M.api_task(opts.range > 0 and {opts.line1, opts.line2} or nil)

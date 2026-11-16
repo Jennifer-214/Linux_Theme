@@ -1,8 +1,8 @@
 """Neovim keys: the reference tables are generated from the action registry, and no key is mapped twice by accident.
 
 `python3 tests/test_nvim_keys.py --write` rewrites the generated sections of shared/nvim_NVIM-KEYBINDS.md: the review's
-keys (the rows shared/nvim_lua/desk/review.lua adds) and the desk keys (every row on the editor surface: the global keys
-and the home menu's rows), and the Jupyter notebook keys.
+keys (the rows shared/nvim_lua/desk/review.lua adds), the call graph's, the pop-out's (desk/popout.lua), the desk
+keys (every row on the editor surface: the global keys and the home menu's rows), and the Jupyter notebook keys.
 """
 from collections import defaultdict
 import json
@@ -25,11 +25,16 @@ DESK_BEGIN = ('<!-- desk-keys:begin · generated from the action registry (share
 DESK_END = '<!-- desk-keys:end -->'
 GRAPH_BEGIN = '<!-- callgraph-keys:begin · generated from shared/nvim_lua/desk/callgraph.lua: python3 tests/test_nvim_keys.py --write -->'
 GRAPH_END = '<!-- callgraph-keys:end -->'
+POPOUT_BEGIN = '<!-- popout-keys:begin · generated from shared/nvim_lua/desk/popout.lua: python3 tests/test_nvim_keys.py --write -->'
+POPOUT_END = '<!-- popout-keys:end -->'
 REVIEW = {'review-list': 'list', 'review-diff': 'diff'}
 GRAPH = {'callgraph': 'tab', 'callgraph-panel': 'panel'}
 # Where a key works, as a reference line says it: for a line of one place, then per key when a line mixes them.
 REVIEW_PLACES = ({'list': ' in the file list', 'diff': ' in a diff'}, {'list': ' (list)', 'diff': ' (diff)'})
 GRAPH_PLACES = ({'tab': ' in the graph tab', 'panel': ' in the panel', 'both': ' in a graph'}, {'tab': ' (graph tab)', 'panel': ' (panel)'})
+POPOUT_PLACES = ({'popout': ' in the pop-out', 'graph': ' in a graph'}, {'popout': ' (pop-out)', 'graph': ' (graph)'})
+# The home menu's key; the pop-out's own row is that menu there (the editor's rows for the box it has selected).
+HOME_ROWS = {'desk.home', 'popout.home'}
 JUPYTER_BEGIN = ('<!-- jupyter-keys:begin · generated from the desk-jupyter block of templates/nvim/init.lua: '
                  'python3 tests/test_nvim_keys.py --write -->')
 JUPYTER_END = '<!-- jupyter-keys:end -->'
@@ -68,6 +73,15 @@ def callgraph_keys():
         places = {GRAPH[s] for s in row['on'] if s in GRAPH}
         if row['id'].startswith('callgraph.') and row.get('key'):
             keys.append(entry(row, 'editor' if 'editor' in row['on'] else 'both' if len(places) > 1 else places.pop()))
+    return keys
+
+
+def popout_keys():
+    """The pop-out's keys: on is 'popout' (its window), 'graph' (the graph tab and the panel) or 'editor'."""
+    keys = []
+    for row in nvim_keys.registry()['rows']:
+        if row['id'].startswith('popout.') and row.get('key'):
+            keys.append(entry(row, 'popout' if 'popout' in row['on'] else 'graph' if set(row['on']) & set(GRAPH) else 'editor'))
     return keys
 
 
@@ -118,12 +132,13 @@ def with_jupyter(text, table):
 
 
 def shown(lhs):
-    names = {'<CR>': 'Enter', '<Tab>': 'Tab', '<S-Tab>': 'Shift+Tab', '<Esc>': 'Esc', '<Space>': 'Space'}
+    names = {'<CR>': 'Enter', '<S-CR>': 'Shift+Enter', '<Tab>': 'Tab', '<S-Tab>': 'Shift+Tab', '<Esc>': 'Esc', '<Space>': 'Space'}
     if lhs in names:
         return names[lhs]
     if lhs.startswith('<leader>'):
         rest = lhs[len('<leader>'):]
-        return 'Space ' + ('Space' if rest == '<leader>' else rest)
+        named = {key.lower(): name for key, name in names.items()}   # a key read back from a map is lowercased
+        return 'Space ' + ('Space' if rest == '<leader>' else named.get(rest.lower(), rest) if rest.startswith('<') else rest)
     return lhs
 
 
@@ -176,6 +191,10 @@ def callgraph_reference():
     return reference(callgraph_keys(), GRAPH_BEGIN, GRAPH_END, '| Key | Action |', GRAPH_PLACES)
 
 
+def popout_reference():
+    return reference(popout_keys(), POPOUT_BEGIN, POPOUT_END, '| Key | Action |', POPOUT_PLACES)
+
+
 def with_reference(text, table, begin=BEGIN, end=END):
     if begin in text:
         head, rest = text.split(begin, 1)
@@ -207,6 +226,15 @@ class NvimKeys(unittest.TestCase):
                          'NVIM-KEYBINDS.md differs from the call graph rows: run python3 tests/test_nvim_keys.py --write')
         table = callgraph_reference()
         for line in ('`Space cc`, `:CallGraph`', '`j` / `k` in a graph', '`p` in the panel', '`s` in the graph tab'):
+            self.assertIn(line, table)
+
+    def test_the_pop_out_reference_is_generated_from_its_rows(self):
+        text = DOC.read_text()
+        self.assertIn(POPOUT_BEGIN, text)
+        self.assertEqual(text, with_reference(text, popout_reference(), POPOUT_BEGIN, POPOUT_END),
+                         'NVIM-KEYBINDS.md differs from the pop-out rows: run python3 tests/test_nvim_keys.py --write')
+        table = popout_reference()
+        for line in ('| `Space Tab` |', '`o` in a graph', '`Enter` in the pop-out, a double click', '`Space Tab` in the pop-out'):
             self.assertIn(line, table)
 
     def test_the_registry_takes_every_row_the_modules_add(self):
@@ -252,7 +280,7 @@ class NvimKeys(unittest.TestCase):
         taken = [f'{key} ({where})' for mode, key, where in nvim_keys.global_maps()
                  if mode == 'n' and key.startswith('<leader><leader>') and 'desk.home' not in where]
         taken += [row['id'] for row in nvim_keys.registry()['rows']
-                  if (row.get('key') or '').lower().startswith('<leader><leader>') and row['id'] != 'desk.home']
+                  if (row.get('key') or '').lower().startswith('<leader><leader>') and row['id'] not in HOME_ROWS]
         self.assertEqual(taken, [], 'Space Space belongs to the home menu')
 
     def test_which_key_names_the_claude_group_in_normal_and_visual_mode(self):
@@ -306,6 +334,7 @@ if __name__ == '__main__':
     if '--write' in sys.argv:
         text = with_reference(DOC.read_text(), reference(review_keys()))
         text = with_reference(text, callgraph_reference(), GRAPH_BEGIN, GRAPH_END)
+        text = with_reference(text, popout_reference(), POPOUT_BEGIN, POPOUT_END)
         text = with_reference(text, desk_reference(), DESK_BEGIN, DESK_END)
         DOC.write_text(with_jupyter(text, jupyter_reference(jupyter_keys())))
         print('wrote', DOC.relative_to(ROOT))

@@ -209,6 +209,8 @@ local function highlights()
   -- The selected box: inverse in retro (amber on black turned over, as a DOS list does), the selection colour elsewhere.
   api.nvim_set_hl(0, 'DeskCallGraphSelected', M.retro() and { reverse = true, default = true } or { link = 'Visual', default = true })
 end
+-- desk.popout sends these definitions with each view, so the pop-out draws in this editor's colours.
+M.highlights = highlights
 
 local function draw(buf, drawn)
   if not api.nvim_buf_is_valid(buf) then return end
@@ -468,6 +470,8 @@ local function jump(item, win)
     pcall(api.nvim_win_set_cursor, 0, { item.row + 1, item.col or 0 })
   end
 end
+-- desk.popout's Enter: a box chosen in the pop-out, gone to in this editor.
+M.jump = jump
 local function placeholder(target)
   return { name = target.name, detail = vim.fn.fnamemodify(api.nvim_buf_get_name(target.buf), ':t') .. ':' .. (target.row + 1),
            buf = target.buf, row = target.row, col = target.col }
@@ -767,6 +771,17 @@ function M.panel_toggle()
   end })
   panel_show({ message = 'move the cursor into a function' })
   if followed(source) then panel.source_win = source; M.panel_update() end
+end
+
+-- The panel opened on a graph it is given (desk.popout brings its graph back): pinned, it keeps that graph; unpinned,
+-- it follows the cursor from where it is.
+function M.panel_open_with(graph, target, pinned)
+  if not panel_open() then M.panel_toggle() end
+  if not (panel_open() and pinned and graph) then return end
+  if panel.timer then panel.timer:stop() end
+  panel.pinned, panel.target, panel.wanted = true, target, nil
+  panel.key = target and target.key or panel.key
+  panel_show(graph)
 end
 
 -- ─── a turn's changed symbols (run headless for the notebook) ──────────────────────────────────────────────────
