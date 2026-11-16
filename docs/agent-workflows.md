@@ -426,6 +426,13 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   it, transitively, `P` the ways from one function to another (shortest first, at most 20), `m` a part of the checkout
   from a menu (`/` filters it by name). The
   box under the cursor is the default answer to the prompt. A call that is part of recursion reads "in a cycle".
+- **In the pop-out**: `o` in the map's tab moves it to the pop-out on the other screen, at the level it was on (Space
+  Space › "Pop out the project map" opens this checkout's from anywhere). There it is the same map: `Enter` zooms in,
+  or goes to a function in the editor while the keyboard stays in the pop-out; `-` zooms out; `r` and `c` ask about the
+  selected function, `P` asks only where to; `R` rebuilds. `H` and Backspace go back through its zooms, answers and
+  the code spots Enter went to; its name in the pop-out's header is marked when an answer or a rebuild lands behind
+  another view. `o` there brings it back as its tab, as it was; pinned (`p`), it also comes back when the pop-out
+  closes on its own. `m` and `B` stay the tab's.
 - **Rebuilt only when asked**: `R`, `:ProjectMapBuild` or `desk-work map build --root .` builds it as a desk-work job
   in the background (its log is in the jobs list; a failure sends the usual notice). The map is kept with the
   checkout's work records (`~/.local/state/foxml/work/projects/<id>/map/`), never in the project. When HEAD moves or a

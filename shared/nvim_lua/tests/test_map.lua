@@ -183,7 +183,7 @@ local A = require("desk.actions")
 local Menu = require("desk.menu")
 eq(A.problems, {}, "every map row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "r", "c", "P", "m", "R", "B", "q" }, "the map's keys, in order (? is the shared row)")
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "r", "c", "P", "m", "R", "B", "q", "o" }, "the map's keys, in order (? is the shared row)")
 local opener = A.get("map.open")
 eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
   "Space cm, a global row the pop-out may ask for")
@@ -236,7 +236,8 @@ local mapped = {}
 for _, m in ipairs(api.nvim_buf_get_keymap(view.buf, "n")) do mapped[m.lhs] = m.desc end
 eq({ mapped["?"], mapped["<BS>"], mapped["-"], mapped["P"] }, { "The keys here", "Zoom out, or back to the code", "Zoom out", "The ways between two functions" },
   "the map's buffer has the registry's keys: ? lists them, Backspace and - zoom out, P the ways")
-eq({ mapped["p"], mapped["s"], mapped["o"] }, { nil, nil, nil }, "p (the grammar's pin), s (no jump labels in the map) and o (the pop-out's) stay free")
+eq({ mapped["p"], mapped["s"], mapped["o"] }, { nil, nil, "Send the map to the pop-out" },
+  "p (the grammar's pin) and s (no jump labels in the map) stay free; o sends the map to the pop-out, as it does a graph")
 local in_menu = {}
 for _, r in ipairs(A.for_context(A.context(view.win))) do if r.menu ~= false then in_menu[r.id] = true end end
 ok(in_menu["map.paths"] and in_menu["map.rebuild"] and in_menu["map.back"], "Space Space in the map: its own rows")
@@ -357,8 +358,10 @@ ok(asked[#asked]:find("--q paths --from lua/other.lua::use --to M.beta", 1, true
 ok(vim.wait(1000, function() return line_with(view.drawn.lines, "ways from use to M.beta") end), "… and shows them")
 press("<BS>")
 ok(vim.wait(1000, function() return line_with(view.drawn.lines, "│ M.alpha") end), "Backspace leaves the ways")
--- Enter on a row of the ? list runs it in the map, as its key would.
+-- Enter on a row of the ? list runs it in the map, as the menus run it: P asks its one question, where to, and goes
+-- from the box under the cursor.
 prompts = {}
+vim.ui.input = function(opts, done) prompts[#prompts + 1] = opts.prompt; done(opts.prompt == "Ways to: " and "M.beta" or opts.default) end
 cursor_on("use")
 press("?")
 list = Menu._last
@@ -368,8 +371,9 @@ for i, l in ipairs(open_again and api.nvim_buf_get_lines(list.buf, 0, -1, false)
   if l:find("The ways between two functions", 1, true) then api.nvim_win_set_cursor(list.win, { i, 0 }) end
 end
 if open_again then press("<CR>") end
-ok(vim.wait(1000, function() return #prompts == 2 end) and asked[#asked]:find("--q paths --from lua/other.lua::use", 1, true),
+ok(vim.wait(1000, function() return asked[#asked]:find("--q paths --from lua/other.lua::use --to M.beta", 1, true) ~= nil end),
   "Enter on a line of the ? list runs it in the map")
+eq(prompts, { "Ways to: " }, "… asking its row's question, from the box under the cursor")
 ok(vim.wait(1000, function() return line_with(view.drawn.lines, "ways from use to M.beta") end), "… and the map shows it")
 api.nvim_set_current_win(view.win)
 press("<BS>")
@@ -394,14 +398,214 @@ eq(blank, false, "the page never went blank while the build ran and the map was 
 
 vim.g.desk_style = "retro"
 Map.render(view)
-ok(line_with(view.drawn.lines, "PROJECT MAP") and line_with(view.drawn.lines, "┌"), "retro: the page in capitals and code page 437 boxes")
-ok(line_with(view.drawn.lines, "Enter IN · BS OUT · r REACH · c CALLERS · P PATHS · ? KEYS · q CLOSE"),
+ok(line_with(view.drawn.lines, "PROJECT MAP") and line_with(view.drawn.lines, "┌"), "retro: the page in capitals and code page 437 boxes")ok(line_with(view.drawn.lines, "Enter IN · BS OUT · r REACH · c CALLERS · P PATHS · ? KEYS · q CLOSE"),
   "retro: the keys as typed (r and R are two keys), the words in capitals")
 ok(line_with(view.drawn.lines, "parts » lua » mod.lua") and not line_with(view.drawn.lines, "›") and not line_with(view.drawn.lines, "…"),
   "retro: nothing outside code page 437 (» between the levels, .. for an ellipsis)")
 vim.g.desk_style = "paper"
 press("q")
 eq(Map.views[view.buf], nil, "q closes the map")
+
+-- ─── in the pop-out: the map as desk.popout's view kind 'map' ──────────────────────────────────────────────────
+-- Driven as desk.popout drives a kind: its view registered with the host, its keys run through the registry with the
+-- ctx its ctx_for gives (what the bridge's act does), the history walked with the host's H and L. Nothing is sent
+-- anywhere but, at the end, through the bridge to this Neovim itself. No kitty, hyprctl or desk-work on PATH here.
+local P = require("desk.popout")
+local K = P.kinds.map
+eq(K, Map.view_kind, "the map is the pop-out's view kind 'map'")
+vim.env.PATH = empty_bin
+local unsaid = {}
+for _, r in ipairs(A.rows()) do
+  local on = type(r.on) == "table" and r.on or { r.on }
+  if vim.tbl_contains(on, "map") and not r.drawn and r.remote == nil then unsaid[#unsaid + 1] = r.id end
+end
+eq(unsaid, {}, "every row on the map says where it runs for the pop-out: drawn, remote, or remote = false")
+local there, clashes = A.popout_rows("map")
+eq(clashes, {}, "no map row is on a key the pop-out's own rows take (H, L, gt, gT, Backspace, q, p, o, f, ?)")
+local remote_ids = {}
+for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids + 1] = r.id end end
+table.sort(remote_ids)
+eq(remote_ids, { "map.callers", "map.in", "map.out", "map.paths", "map.reach", "map.rebuild" },
+  "in the pop-out Enter, -, r, c, P and R run here; Backspace, q, m, B and o stay the tab's")
+local views_row = A.get("popout.view.map")
+eq(views_row and { views_row.group, views_row.name, views_row.remote }, { "Views", "Pop out the project map", true },
+  "a row in Views opens it from anywhere, the pop-out too")
+local function item_named(drawn, name) for i, it in ipairs(drawn.items) do if it.name == name then return it, i end end end
+
+-- o in the tab: what the pop-out needs, then o's work as desk.popout does it once the pop-out can open (M.show calls
+-- the kind's open): the map leaves its tab, at the level it was on.
+local tab = Map.open(root)
+ok(vim.wait(2000, function() return tab.drawn and line_with(tab.drawn.lines, "│ lua") end), "a map in its tab")
+eq(A.available(A.get("map.popout"), A.context(tab.win)), "requires kitty", "o says what the pop-out needs (here kitty)")
+eq(K.available({ surface = "map" }), false, "in the map's tab its own o sends it, not the Views row")
+do
+  local row, ln = line_with(tab.drawn.lines, "│ lua")
+  api.nvim_win_set_cursor(tab.win, { row, (ln:find("lua", 1, true)) })
+end
+press("<CR>")
+ok(vim.wait(1000, function() return line_with(tab.drawn.lines, "│ mod.lua") end), "… zoomed into a part")
+local tab_root, tab_buf = tab.root, tab.buf
+local pv = { id = "map", kind = "map", gen = 0, pinned = false }
+P.host.views, P.host.order, P.host.history = { map = pv }, { "map" }, { steps = {}, at = 0 }
+K.open(pv, A.context(tab.win))
+ok(Map.views[tab_buf] == nil and not api.nvim_buf_is_valid(tab_buf), "o: the map leaves its tab")
+eq({ pv.out, pv.root, #pv.stack, pv.stack[2] and pv.stack[2].module }, { true, tab_root, 2, "lua" }, "… for the pop-out, at the level it was on")
+local function shown() return K.render(pv, 80, "paper") end
+ok(vim.wait(1000, function() return item_named(shown(), "mod.lua") ~= nil end), "the pop-out's map: the part's files")
+local d = shown()
+eq({ d.title, d.state, d.news }, { "project map · " .. vim.fn.fnamemodify(tab_root, ":t"), "", false }, "its title, and no state: it follows nothing")
+ok(not table.concat(d.lines, "\n"):find("Enter in", 1, true), "no key line in its lines: the pop-out's window has its own")
+eq(table.concat(vim.tbl_map(function(p) return p[1] .. " " .. p[2] end, P.key_pairs(d.footer)), " · "), "Enter in · - out · r reach · c callers · ? keys",
+  "its key line in the pop-out: five keys, as she reads them")
+local file_item = item_named(d, "mod.lua")
+eq({ file_item.kind, #file_item.spans, file_item.key, d.lines[file_item.line]:sub(file_item.name_col + 1, file_item.name_col + 7) },
+  { "box", 4, "file:lua/mod.lua", "mod.lua" }, "a box is an item: its four lines, a key that says what it is, the cursor on its name")
+-- The parts page draws a part twice (its box, and again in the calls between parts): two items, two keys.
+local parts_page = K.render({ out = true, root = root, stack = { { kind = "modules" } }, cache = { modules = modules }, status = status }, 80, "paper")
+local count_of, csrc_keys = {}, {}
+for _, it in ipairs(parts_page.items) do
+  count_of[it.key] = (count_of[it.key] or 0) + 1
+  if it.name == "csrc" then csrc_keys[#csrc_keys + 1] = it.key end
+end
+eq({ vim.tbl_count(count_of), csrc_keys[1], csrc_keys[2] }, { #parts_page.items, "module:csrc", "module:csrc#2" },
+  "every item has a key of its own: a part drawn twice, counted")
+-- Seventy parts wrap into rows of boxes: at another width each box is on another line, and keeps its key.
+local crowd_view = { out = true, root = root, stack = { { kind = "modules" } }, cache = { modules = many }, status = status }
+local wide_items, narrow_items = K.render(crowd_view, 100, "paper").items, K.render(crowd_view, 60, "paper").items
+eq(vim.tbl_map(function(i) return i.key end, narrow_items), vim.tbl_map(function(i) return i.key end, wide_items),
+  "drawn again at another width, the items keep their keys")
+ok(#wide_items > 30 and wide_items[30].line ~= narrow_items[30].line, "… though the boxes moved to other lines")
+
+-- Its keys, run here for the box selected there (the ctx the bridge builds from ctx_for).
+local function ctx_on(item)
+  local ctx = K.ctx_for(pv, item and item.ref)
+  ctx.view, ctx.item, ctx.remote = pv, item and item.ref, true
+  return ctx
+end
+local function act(id, item, extra)
+  local ctx = ctx_on(item)
+  for k, v in pairs(extra or {}) do ctx[k] = v end
+  return { A.act(id, ctx) }
+end
+local c = ctx_on(file_item)
+eq({ c.surface, c.map == pv, c.item == file_item.ref, c.origin and vim.bo[api.nvim_win_get_buf(c.origin)].buftype },
+  { "map", true, true, "" }, "ctx_for: the map's surface, this map, the box selected there, and a file window here for Enter")
+eq(act("map.in", file_item), { true }, "Enter on a file, from the pop-out")
+ok(vim.wait(1000, function() return item_named(shown(), "M.alpha") ~= nil end), "… the pop-out's map zooms into its functions")
+eq(vim.tbl_map(function(s) return s.type end, P.host.history.steps), { "state" }, "… a step of the pop-out's history")
+P.history_back()
+ok(vim.wait(1000, function() return item_named(shown(), "mod.lua") ~= nil end), "H (and Backspace) there: back out to the files")
+eq(pv.select, "file:lua/mod.lua", "… the file it went into selected again")
+P.history_forward()
+ok(vim.wait(1000, function() return item_named(shown(), "M.alpha") ~= nil end), "L: in again")
+eq(act("map.out"), { true }, "- there: out a level")
+ok(vim.wait(1000, function() return item_named(shown(), "mod.lua") ~= nil and not item_named(shown(), "M.alpha") end), "… to the files")
+eq(#P.host.history.steps, 2, "… a step back too")
+eq(A.available(A.get("map.reach"), ctx_on(file_item)), "select a function first", "r there needs a function selected")
+eq(A.available(A.get("map.in"), ctx_on(nil)), "nothing is selected", "… and Enter something selected")
+act("map.in", file_item)
+ok(vim.wait(1000, function() return item_named(shown(), "M.alpha") ~= nil end), "into the file again")
+local alpha = item_named(shown(), "M.alpha")
+local code = ctx_on(alpha).origin
+eq(act("map.in", alpha), { true }, "Enter on a function, from the pop-out")
+eq({ api.nvim_get_current_win(), api.nvim_buf_get_name(0), api.nvim_win_get_cursor(0)[1] }, { code, root .. "/lua/mod.lua", 3 },
+  "… goes to its code here, in the file window")
+pv.news = nil
+local prompted = 0
+local real_input = vim.ui.input
+vim.ui.input = function(opts, done) prompted = prompted + 1; real_input(opts, done) end
+eq(act("map.reach", alpha), { true }, "r on a function, from the pop-out")
+ok(asked[#asked]:find("--q reach --from lua/mod.lua::M.alpha --depth 3", 1, true), "… asks what the selected function reaches, at depth 3")
+eq(prompted, 0, "… without asking anything here: the keyboard is in the pop-out")
+vim.ui.input = real_input
+ok(vim.wait(1000, function() return table.concat(shown().lines, "\n"):find("what use reaches", 1, true) end), "… and shows the answer there")
+eq({ pv.news, shown().news }, { true, true }, "… news in the pop-out's header until she looks")
+local saved = K.save(pv)
+eq({ saved.step, #saved.stack, saved.target.root, #saved.target.levels }, { true, 4, tab_root, 3 },
+  "save: all of it for the history; for the layout record its checkout and zoom, not a query's answer")
+ok(pcall(vim.json.encode, saved.target), "… plain data")
+act("map.out")
+ok(vim.wait(1000, function() return item_named(shown(), "M.alpha") ~= nil end), "- leaves the answer")
+eq(act("map.paths", alpha, { text = "M.beta" }), { true }, "P from the pop-out, with the words it asked there")
+ok(asked[#asked]:find("--q paths --from lua/mod.lua::M.alpha --to M.beta", 1, true), "… the ways from the selected function to the one named")
+ok(vim.wait(1000, function() return table.concat(shown().lines, "\n"):find("ways from use to M.beta", 1, true) end), "… shown there")
+eq(act("map.paths", alpha), { false, "The ways between two functions: needs its words" }, "… and without them it does not run")
+act("map.out")
+ok(vim.wait(1000, function() return item_named(shown(), "M.alpha") ~= nil end), "- leaves the ways")
+Map.POLL_MS = 20
+pv.news = nil
+local redraws, real_redraw = 0, P.redraw
+P.redraw = function(v) if v == pv then redraws = redraws + 1 end; return real_redraw(v) end
+eq(act("map.rebuild"), { true }, "R from the pop-out")
+ok(vim.wait(1000, function() return table.concat(shown().lines, "\n"):find("rebuilding", 1, true) end), "… its page says it is rebuilding")
+ok(redraws > 0, "… and the pop-out is sent it")
+building = false
+ok(vim.wait(3000, function() return pv.timer == nil and pv.news == true end), "… and when it is done, news there")
+P.redraw = real_redraw
+-- After a restart: the layout record's target is that checkout's map, zoomed in as it was.
+local again = { id = "map", kind = "map", gen = 0, pinned = true }
+P.host.views.map = again
+K.restore(again, { pinned = true, target = saved.target })
+ok(vim.wait(1000, function() return again.stack and #again.stack == 3 and item_named(K.render(again, 80, "paper"), "M.alpha") ~= nil end),
+  "restore from the layout record: that checkout's map, zoomed in as it was")
+K.close(again)
+P.host.views.map = pv
+-- o in the pop-out: it leaves the pop-out (desk.popout's clear), and the kind puts it back here as its tab.
+P.host.views, P.host.order = {}, {}
+pv.gone = true
+K.close(pv)
+K.attach(pv)
+local back_tab
+for _, v in pairs(Map.views) do if v.root == tab_root then back_tab = v end end
+ok(back_tab and api.nvim_get_current_win() == back_tab.win and #back_tab.stack == #pv.stack, "o there: back here as its tab, at the level it was on")
+ok(vim.wait(1000, function() return back_tab and back_tab.drawn and line_with(back_tab.drawn.lines, "│ M.alpha")
+  and line_with(back_tab.drawn.lines, "parts › lua › mod.lua") end), "… and drawn in it, the file's functions")
+press("q")
+
+-- The bridge's act, as the pop-out sends it: each Enter is one step back, holding where the editor was and the map as
+-- it was (desk.popout folds the map's own step into it), so each H does something: an Enter that zoomed is undone by
+-- the map going back out, one that went to a function by the editor going back.
+local server = vim.fn.serverstart(vim.fn.tempname() .. ".sock")
+local chan = vim.fn.sockconnect("pipe", server, { rpc = true })
+local pv2 = { id = "map", kind = "map", gen = 0, pinned = false }
+P.host.views, P.host.order, P.host.history, P.host.chan = { map = pv2 }, { "map" }, { steps = {}, at = 0 }, chan
+api.nvim_set_current_win(code)
+api.nvim_win_set_cursor(code, { 1, 0 })
+K.open(pv2, A.context())
+ok(vim.wait(1000, function() return item_named(K.render(pv2, 80, "paper"), "lua") ~= nil end), "from the code, its Views row: this checkout's map")
+local function bridge_act(action, name)
+  pv2.sent = nil
+  P.redraw(pv2)
+  local index
+  for i, ref in ipairs(pv2.refs or {}) do if ref.name == name and not index then index = i end end
+  local s, us = vim.uv.gettimeofday()
+  return require("desk.bridge").receive({ version = 1, type = "act", view = "map", gen = pv2.gen, item = index, action = action,
+    deadline = s * 1000 + math.floor(us / 1000) + 5000 })
+end
+local function steps() return vim.tbl_map(function(s) return s.type end, P.host.history.steps) end
+eq(bridge_act("map.in", "lua"), { done = true }, "Enter there, through the bridge: taken")
+ok(vim.wait(1000, function() return item_named(K.render(pv2, 80, "paper"), "mod.lua") ~= nil end), "… the map zooms in")
+local first = P.host.history.steps[1]
+eq({ steps(), first and first.saved and #first.saved.stack }, { { "enter" }, 1 }, "… one step back, holding the map as it was: at its top")
+bridge_act("map.in", "mod.lua")
+ok(vim.wait(1000, function() return item_named(K.render(pv2, 80, "paper"), "M.alpha") ~= nil end), "into the file")
+bridge_act("map.in", "M.alpha")
+ok(vim.wait(1000, function() return #steps() == 3 end), "Enter on a function moved the editor …")
+eq({ steps(), api.nvim_win_get_cursor(code)[1] }, { { "enter", "enter", "enter" }, 3 }, "… to its line: one step for each Enter")
+P.history_back()
+eq(api.nvim_win_get_cursor(code), { 1, 0 }, "H: the editor back where it was")
+P.history_back()
+ok(vim.wait(1000, function() return item_named(K.render(pv2, 80, "paper"), "mod.lua") ~= nil end), "H again: the map back out (each press did something)")
+K.close(pv2)
+P.host.views, P.host.order, P.host.history, P.host.chan = {}, {}, { steps = {}, at = 0 }, nil
+pcall(vim.fn.chanclose, chan)
+vim.fn.serverstop(server)
+-- What the pop-out's map says without desk-work, or before a build: the tab's words.
+eq((table.concat(K.render({ out = true, root = root, stack = { { kind = "modules" } }, cache = {}, missing = true }, 80, "paper").lines, "\n"))
+  :find("Requires desk-work", 1, true) ~= nil, true, "without desk-work the pop-out's map says what it needs")
+eq((table.concat(K.render({ out = true, root = root, stack = { { kind = "modules" } }, cache = {}, status = { ok = true, built = false } }, 80, "paper")
+  .lines, "\n")):find("no map built yet · R builds it", 1, true) ~= nil, true, "… and before a build, that R builds it")
+vim.env.PATH = saved_path
 
 -- No desk-work at all (the real call, with no desk-work on PATH): the page opens and says what it needs, and a key that
 -- needs it says so instead of asking. With desk-work there again, back on the page, the map.

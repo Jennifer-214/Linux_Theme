@@ -271,11 +271,13 @@ function M.retro() return vim.g.desk_style == 'retro' end
 -- page: { header = { { text, group } }, sections = { … }, notes = { text } }. A section is { head = text } (a centred
 -- heading), { boxes = { item }, frame = 'single'|'double', more = n, none = text }, { arrow = true },
 -- { parts = { { text, item? } }, group } (one line whose named parts are hits) or { blank = true }.
--- item: { name, detail, target }. Returns the lines, the hits per line (byte columns, for Enter) and the highlights.
+-- item: { name, detail, target }. Returns the lines, the hits per line (byte columns, for Enter), the highlights and
+-- the items in reading order, each drawn once: { item, spans = { { line, from, to } }, line (its name's), name_col,
+-- x and w (screen columns), centre (in a double box) }, the pop-out's boxes.
 function M.layout(page, width, retro)
   width = math.max(20, width or 80)
   local G = M.glyphs(retro)
-  local lines, hits, marks = {}, {}, {}
+  local lines, hits, marks, placed = {}, {}, {}, {}
   local function add(text, group, from, to)
     lines[#lines + 1] = text
     if group then marks[#marks + 1] = { #lines, from or 0, to or #text, group } end
@@ -311,17 +313,24 @@ function M.layout(page, width, retro)
           frame.v .. ' ' .. pad(b.detail, b.inner) .. ' ' .. frame.v,
           frame.bl .. string.rep(frame.h, b.inner + 2) .. frame.br,
         }
+        local box = { item = b.item, spans = {}, line = first + 1, w = b.w, centre = frame == G.double }
         for k = 1, 4 do
           if i > 1 then texts[k] = texts[k] .. ' ' end
+          if k == 1 then box.x = width_of(texts[1]) end
           local s = #texts[k]
           texts[k] = texts[k] .. parts[k]
           local lnum = first + k - 1
           hits[lnum] = hits[lnum] or {}
           table.insert(hits[lnum], { s = s, e = #texts[k], item = b.item })
+          box.spans[k] = { lnum, s, #texts[k] }
           marks[#marks + 1] = { lnum, s, #texts[k], border }
-          if k == 2 then marks[#marks + 1] = { lnum, s + #frame.v + 1, s + #frame.v + 1 + #b.name, name_group, 1 } end
+          if k == 2 then
+            box.name_col = s + #frame.v + 1
+            marks[#marks + 1] = { lnum, box.name_col, box.name_col + #b.name, name_group, 1 }
+          end
           if k == 3 then marks[#marks + 1] = { lnum, s + #frame.v + 1, s + #frame.v + 1 + #b.detail, b.item.warn and 'DeskMapStale' or 'DeskMapDim', 1 } end
         end
+        placed[#placed + 1] = box
       end
       for k = 1, 4 do lines[#lines + 1] = texts[k] end
     end
@@ -343,6 +352,8 @@ function M.layout(page, width, retro)
           hits[lnum] = hits[lnum] or {}
           table.insert(hits[lnum], { s = #text, e = #text + #piece, item = part[2] })
           marks[#marks + 1] = { lnum, #text, #text + #piece, 'DeskMapName', 1 }
+          placed[#placed + 1] = { item = part[2], spans = { { lnum, #text, #text + #piece } }, line = lnum, name_col = #text,
+                                  x = width_of(text), w = width_of(piece) }
         end
         text = text .. piece
       end
@@ -368,7 +379,7 @@ function M.layout(page, width, retro)
       if line ~= '' then add(fit(line, width, G.ellipsis), 'DeskMapDim') end
     end
   end
-  return { lines = lines, hits = hits, marks = marks }
+  return { lines = lines, hits = hits, marks = marks, items = placed }
 end
 
 function M.item_at(drawn, lnum, col)
@@ -719,7 +730,15 @@ local function highlights()
   end
 end
 
-local function valid(view) return view and api.nvim_buf_is_valid(view.buf) and api.nvim_win_is_valid(view.win) and views[view.buf] == view end
+-- A map is in a tab here (view.buf, view.win), or in the pop-out (view.out: desk.popout's view of kind 'map', which
+-- this module fills and draws for it). Its state is the same either way: root, stack, cache, previous, status,
+-- missing, message, building, building_at and asked (the newest request's number: an older answer is dropped).
+local function pop() return require('desk.popout') end
+local function valid(view)
+  if not view then return false end
+  if view.out then return not view.gone and pop().host.views[view.id] == view end
+  return api.nvim_buf_is_valid(view.buf) and api.nvim_win_is_valid(view.win) and views[view.buf] == view
+end
 
 local function draw(buf, drawn)
   if not api.nvim_buf_is_valid(buf) then return end
@@ -773,7 +792,8 @@ end
 local KEY_LINE = { { 'in', 'in' }, { 'back', 'out' }, { 'reach', 'reach' }, { 'callers', 'callers' }, { 'paths', 'paths' },
   { 'desk.keys', 'keys' }, { 'close', 'close' } }
 
-function M.footer(view, G)
+-- keys = false: without the key line (the pop-out's window has its own, its status line).
+function M.footer(view, G, keys)
   G = G or M.glyphs(M.retro())
   local s, notes, answered = view.status or {}, {}, {}
   for _, p in ipairs(s.providers or {}) do
@@ -787,9 +807,10 @@ function M.footer(view, G)
     if p.state ~= 'ok' then notes[#notes + 1] = p.name .. ': ' .. ((p.why or '') ~= '' and p.why or 'not built yet') end
   end
   if s.complete == false and s.why then notes[#notes + 1] = 'partial: ' .. s.why end
-  local keys = {}
-  for _, k in ipairs(KEY_LINE) do keys[#keys + 1] = typed(k[1]) .. ' ' .. G.said(k[2]) end
-  notes[#notes + 1] = { table.concat(keys, ' · ') }
+  if keys == false then return notes end
+  local line = {}
+  for _, k in ipairs(KEY_LINE) do line[#line + 1] = typed(k[1]) .. ' ' .. G.said(k[2]) end
+  notes[#notes + 1] = { table.concat(line, ' · ') }
   return notes
 end
 
@@ -807,10 +828,9 @@ local function page_of(view)
   if level.kind == 'class' then return M.level_nodes(answer, level.module, level.file, { id = level.id, name = level.name, node = level.node }) end
 end
 
-function M.render(view)
-  if not valid(view) then return end
-  local retro = M.retro()
-  local G = M.glyphs(retro)
+-- The page a map shows now, its header and crumbs on top (notes are the caller's): its level, or what it waits for,
+-- or what it needs.
+local function page_for(view, G)
   local page
   local s = view.status
   if view.missing then page = { sections = { { parts = { { M.REQUIRES } }, group = 'DeskMapStale' } } }
@@ -830,9 +850,24 @@ function M.render(view)
   page.header = M.header(view, G)
   if page.crumbs then table.insert(page.header, { table.concat(page.crumbs, G.crumb), 'DeskMapDim' }) end
   table.insert(page.header, { '' })
+  return page
+end
+
+-- The map in its tab, drawn for its window.
+function M.render(view)
+  if not valid(view) or view.out then return end
+  local retro = M.retro()
+  local G = M.glyphs(retro)
+  local page = page_for(view, G)
   page.notes = M.footer(view, G)
   view.drawn = M.layout(page, api.nvim_win_get_width(view.win) - 2, retro)
   draw(view.buf, view.drawn)
+end
+
+-- Drawn again where it is: its tab, or sent to the pop-out (which draws it with the view kind below).
+local function redraw(view)
+  if view.out then return pop().redraw(view) end
+  M.render(view)
 end
 
 local function status(view, after)
@@ -843,13 +878,16 @@ local function status(view, after)
     elseif out and out.missing then view.missing = true
     elseif not view.status then view.message = refusal(answer, out) end
     if after then after(view.status) end
-    M.render(view)
+    redraw(view)
   end, 30000)
 end
 
--- The cursor where it was on this level, else on the first box (its name line), so Enter works at once.
+-- The cursor where it was on this level, else on the first box (its name line), so Enter works at once. In the
+-- pop-out its selection does that: the box the level was left by, else the pop-out's own choice (a double box, the
+-- first).
 local function place_cursor(view)
   local level = view.stack[#view.stack]
+  if view.out then return end
   if level.cursor then return pcall(api.nvim_win_set_cursor, view.win, level.cursor) end
   local hits, first = view.drawn and view.drawn.hits or {}, nil
   for lnum in pairs(hits) do first = first and math.min(first, lnum) or lnum end
@@ -863,17 +901,18 @@ local function load(view)
   local level = view.stack[#view.stack]
   local key = level.kind == 'modules' and 'modules' or level.module and ('module:' .. level.module)
   view.message = nil
-  if not key or view.cache[key] or not (view.status and view.status.built) then M.render(view); return place_cursor(view) end
-  view.gen = view.gen + 1
-  local gen = view.gen
+  if view.out and view.select == nil then view.select = level.selected end
+  if not key or view.cache[key] or not (view.status and view.status.built) then redraw(view); return place_cursor(view) end
+  view.asked = (view.asked or 0) + 1
+  local asked = view.asked
   local args = { 'map', 'query', '--root', view.root, '--q', 'module', '--cap', '2000' }
   if level.module then vim.list_extend(args, { '--name', level.module }) end
-  M.render(view)
+  redraw(view)
   M.desk_work(args, function(answer, out)
-    if gen ~= view.gen or not valid(view) then return end
+    if asked ~= view.asked or not valid(view) then return end
     if out and out.missing then view.missing = true
-    elseif not answer or answer.ok == false then view.message = refusal(answer, out) else view.cache[key] = answer end
-    M.render(view)
+    elseif not answer or answer.ok == false then view.message, view.news = refusal(answer, out), true else view.cache[key] = answer end
+    redraw(view)
     place_cursor(view)
   end)
 end
@@ -897,12 +936,13 @@ local function poll(view)
       if answer and answer.ok ~= false then view.status = answer end
       if answer and answer.ok ~= false and not answer.building then
         stop_polling(view)
-        view.building, view.previous, view.cache = false, view.cache, {}
+        -- The build ended: news in the pop-out's header until she looks.
+        view.building, view.previous, view.cache, view.news = false, view.cache, {}, true
         -- A status read while building skips the stale check: once more, then the level.
         return status(view, function() load(view) end)
       end
       if uv.now() - started > M.BUILD_WAIT_MS then stop_polling(view); view.building = false end
-      M.render(view)
+      redraw(view)
     end, 10000)
   end
   view.timer:start(M.POLL_MS, M.POLL_MS, vim.schedule_wrap(view.tick))
@@ -914,13 +954,13 @@ function M.rebuild(view, binary)
   local args = { 'map', 'build', '--root', view.root }
   if binary then vim.list_extend(args, { '--binary', binary }) end
   view.building, view.building_at = true, os.time()
-  M.render(view)
+  redraw(view)
   M.desk_work(args, function(answer, out)
     if not valid(view) then return end
     if not answer or answer.ok == false then
-      view.building = false
+      view.building, view.news = false, true
       tell(refusal(answer, out), vim.log.levels.WARN)
-      return M.render(view)
+      return redraw(view)
     end
     poll(view)
   end)
@@ -943,15 +983,37 @@ local function here(view)
   local cursor = api.nvim_win_get_cursor(win)
   return M.item_at(view.drawn, cursor[1], cursor[2])
 end
-local function node_here(view)
-  local item = here(view)
-  return item and item.target and item.target.node or nil
+
+-- A map's state as data, for desk.popout: the history keeps it all (step = true: restore puts it back as it was), the
+-- layout record its checkout and zoom as target = { root, levels } (a query's answer is not kept).
+local function save_view(view)
+  local levels = {}
+  for _, level in ipairs(view.stack or {}) do
+    if level.kind ~= 'query' then
+      levels[#levels + 1] = { kind = level.kind, module = level.module, file = level.file, id = level.id, name = level.name, node = level.node }
+    end
+  end
+  return { step = true, stack = vim.list_slice(view.stack or {}), pinned = view.pinned == true, target = { root = view.root, levels = levels } }
 end
 
-local function push(view, level)
-  view.stack[#view.stack].cursor = api.nvim_win_get_cursor(view.win)
+-- A level on top: zoomed in, or a query's answer. from: in the pop-out, the key of the box it was asked from (selected
+-- again when she comes back to this level). In the pop-out it is a step back for H and Backspace there.
+local function push(view, level, from)
+  local before = view.out and save_view(view)
+  local top = view.stack[#view.stack]
+  if view.out then top.selected = from else top.cursor = api.nvim_win_get_cursor(view.win) end
   view.stack[#view.stack + 1] = level
   load(view)
+  if before then pop().stepped(view, before) end
+end
+
+-- - in the pop-out: out a level (its Backspace is the pop-out's own: back through what happened there).
+local function zoom_out(view)
+  if #view.stack <= 1 then return tell('This is the top: the parts of the checkout.') end
+  local before = save_view(view)
+  table.remove(view.stack)
+  load(view)
+  pop().stepped(view, before)
 end
 
 -- Out a level (from a query's answer, back to the page it was asked on); at the top, back to the code window the map
@@ -966,24 +1028,29 @@ local function back(view)
   tell('This is the top: the parts of the checkout.')
 end
 
-local function jump(view, node)
+-- A function's code, in the window the map came from (from the pop-out: ctx.origin, a code window here), else a tab.
+local function jump(view, node, origin)
   if not node.file then return tell(node.label .. ' has no source in this checkout (' .. (node.detail or 'binary only') .. ').') end
   local path = view.root .. '/' .. node.file
-  if view.origin and api.nvim_win_is_valid(view.origin) then api.nvim_set_current_win(view.origin) else vim.cmd('tabnew') end
+  origin = origin or (not view.out and view.origin) or nil
+  if origin and api.nvim_win_is_valid(origin) then api.nvim_set_current_win(origin) else vim.cmd('tabnew') end
   if not pcall(vim.cmd.edit, vim.fn.fnameescape(path)) then vim.cmd('tabedit ' .. vim.fn.fnameescape(path)) end
   local line = math.max(1, math.min(tonumber(node.line) or 1, api.nvim_buf_line_count(0)))
   local text = api.nvim_buf_get_lines(0, line - 1, line, false)[1] or ''
   api.nvim_win_set_cursor(0, { line, math.max(0, (text:find('%S') or 1) - 1) })
 end
 
-local function enter(view)
-  local item = here(view)
+-- The box a key is about: in the pop-out the one selected there (ctx.item), here the one under the cursor.
+local function about_item(view, ctx) if view.out then return ctx and ctx.item end; return here(view) end
+
+local function enter(view, ctx)
+  local item = about_item(view, ctx)
   local t = item and item.target
   if not t then return end
-  if t.kind == 'module' then push(view, { kind = 'files', module = t.module })
-  elseif t.kind == 'file' then push(view, { kind = 'functions', module = t.module, file = t.file })
-  elseif t.kind == 'class' then push(view, { kind = 'class', module = t.module, file = t.file, id = t.id, name = item.name, node = t.node })
-  elseif t.kind == 'node' then jump(view, t.node) end
+  if t.kind == 'module' then push(view, { kind = 'files', module = t.module }, item.key)
+  elseif t.kind == 'file' then push(view, { kind = 'functions', module = t.module, file = t.file }, item.key)
+  elseif t.kind == 'class' then push(view, { kind = 'class', module = t.module, file = t.file, id = t.id, name = item.name, node = t.node }, item.key)
+  elseif t.kind == 'node' then jump(view, t.node, ctx and ctx.origin) end
 end
 
 local function ask(prompt, default, done)
@@ -993,15 +1060,17 @@ local function ask(prompt, default, done)
 end
 
 -- A query: its answer goes on the stack as a page of its own (Backspace goes back). A name that fits several things
--- asks which one, then asks desk-work again with its id.
-local function query(view, args)
+-- asks which one, then asks desk-work again with its id (in the pop-out the reason is said instead: what she names
+-- there is asked once). from: the box it was asked from, in the pop-out.
+local function query(view, args, from)
   local full = { 'map', 'query', '--root', view.root }
   vim.list_extend(full, args)
-  view.gen = view.gen + 1
-  local gen = view.gen
+  view.asked = (view.asked or 0) + 1
+  local asked = view.asked
   M.desk_work(full, function(answer, out)
-    if gen ~= view.gen or not valid(view) then return end
-    if answer and answer.ok == false and type(answer.candidates) == 'table' and #answer.candidates > 0 then
+    if asked ~= view.asked or not valid(view) then return end
+    view.news = true
+    if answer and answer.ok == false and type(answer.candidates) == 'table' and #answer.candidates > 0 and not view.out then
       local flag = (answer.message or ''):find('^To: ') and '--to' or '--from'
       return vim.ui.select(answer.candidates, { prompt = answer.message, format_item = function(n) return n.label .. '  ' .. where(n) end }, function(choice)
         if not choice then return end
@@ -1011,23 +1080,40 @@ local function query(view, args)
       end)
     end
     if not answer or answer.ok == false then return tell(refusal(answer, out), vim.log.levels.WARN) end
-    push(view, { kind = 'query', answer = answer })
+    push(view, { kind = 'query', answer = answer }, from)
   end)
 end
 
 local function name_of(node, typed) return node and typed == node.label and node.id or typed end
 
-local function walk(view, q)
-  local node, depth = node_here(view), vim.v.count > 0 and vim.v.count or 3
+-- r and c: here, asked with the box under the cursor as the default (a count first is the depth); in the pop-out, of
+-- the function selected there, at depth 3.
+local function walk(view, q, ctx)
+  local item = about_item(view, ctx)
+  local node, depth = item and item.target and item.target.node, vim.v.count > 0 and vim.v.count or 3
+  if view.out then
+    if node then query(view, { '--q', q, '--from', node.id, '--depth', '3' }, item.key) end
+    return
+  end
   ask(q == 'reach' and 'Reach from: ' or 'Callers of: ', node and node.label, function(name)
     query(view, { '--q', q, '--from', name_of(node, name), '--depth', tostring(depth) })
   end)
 end
 
-local function ways(view)
-  local node = node_here(view)
+-- P: the ways from one function to another. Its key here asks for both, the box under the cursor the default; asked
+-- first for where to (ctx.text: the pop-out asks that there, and so do the menus), it goes from the selected box, or
+-- the one under the cursor (asking only when there is none).
+local function ways(view, ctx)
+  local item = about_item(view, ctx)
+  local node = item and item.target and item.target.node
+  local to = ctx and type(ctx.text) == 'string' and vim.trim(ctx.text) ~= '' and vim.trim(ctx.text) or nil
+  if to then
+    if node then return query(view, { '--q', 'paths', '--from', node.id, '--to', to }, item.key) end
+    if view.out then return end
+    return ask('Ways from: ', '', function(from) query(view, { '--q', 'paths', '--from', from, '--to', to }) end)
+  end
   ask('Ways from: ', node and node.label, function(from)
-    ask('… to: ', '', function(to) query(view, { '--q', 'paths', '--from', name_of(node, from), '--to', to }) end)
+    ask('… to: ', '', function(to_name) query(view, { '--q', 'paths', '--from', name_of(node, from), '--to', to_name }) end)
   end)
 end
 
@@ -1076,9 +1162,14 @@ local function refresh(view)
   end)
 end
 
+-- A map's state moved from one place to another (its tab to the pop-out, and back).
+local STATE = { 'root', 'stack', 'cache', 'previous', 'status', 'missing', 'message', 'building', 'building_at', 'asked' }
+local function adopt(to, from) for _, k in ipairs(STATE) do to[k] = from[k] end end
+
 -- Opens the map of root (default: this checkout) in a tab of its own; one tab per checkout: when it is open already,
--- it comes back as it was, and Backspace at its top goes back to the window this was pressed in.
-function M.open(root)
+-- it comes back as it was, and Backspace at its top goes back to the window this was pressed in. from: a map's state
+-- to show there (one coming back from the pop-out).
+function M.open(root, from)
   local here_view = views[api.nvim_get_current_buf()]
   root = root or (here_view and here_view.root) or vim.fs.root(0, '.git') or vim.fn.getcwd()
   root = uv.fs_realpath(root) or root
@@ -1090,6 +1181,11 @@ function M.open(root)
       open.win = api.nvim_win_get_buf(open.win) == open.buf and open.win or shown
       if origin ~= open.win then open.origin = origin end
       api.nvim_set_current_win(open.win)
+      if from then
+        stop_polling(open)
+        adopt(open, from)
+        refresh(open)
+      end
       return open
     end
   end
@@ -1101,10 +1197,13 @@ function M.open(root)
   for opt, value in pairs({ number = false, relativenumber = false, signcolumn = 'no', wrap = false, list = false, spell = false, cursorline = false }) do
     vim.wo[win][opt] = value
   end
-  local view = { buf = buf, win = win, origin = origin, root = root, stack = { { kind = 'modules' } }, cache = {}, gen = 0 }
+  local view = { buf = buf, win = win, origin = origin, root = root, stack = { { kind = 'modules' } }, cache = {}, asked = 0 }
+  if from then adopt(view, from); view.root = root end
   views[buf] = view
-  -- Its keys are the rows on the 'map' surface (the keys section below); each run gets ctx.map, this view.
-  actions.map('map', { buffer = buf, nowait = true, ctx = { map = view } })
+  -- Its keys are the rows on the 'map' surface (the keys section below); each run gets ctx.map, this view. A key here
+  -- runs its row at once: the row asks what it needs itself, with the box under the cursor as the default, rather than
+  -- the question its row asks in the pop-out and the menus (P's "Ways to").
+  actions.map('map', { buffer = buf, nowait = true, ctx = { map = view }, press = function(row, ctx) row.run(ctx) end })
   local group = api.nvim_create_augroup('desk_map_' .. buf, { clear = true })
   api.nvim_create_autocmd('BufWipeout', { group = group, buffer = buf, once = true, callback = function()
     stop_polling(view)
@@ -1130,8 +1229,11 @@ end
 
 -- ─── the keys ──────────────────────────────────────────────────────────────────────────────────────────────────
 -- Rows of the action registry (desk/actions.lua): the mappings, which-key's words, the home menu, the ? list and the
--- keybinds reference all read them. The view is the 'map' surface and a run gets ctx.map, the view it was pressed in;
--- Space cm is a global key. The page's key line and its badges take their keys from these rows (typed).
+-- keybinds reference all read them. The view is the 'map' surface and a run gets ctx.map, the map it was pressed in:
+-- its tab, or the one in the pop-out (the view kind below; ctx.item is the box selected there). Space cm is a global
+-- key. The page's key line and its badges take their keys from these rows (typed). In the pop-out Enter, -, r, c, P
+-- and R run here as remote rows; Backspace, q, m, B and o are the tab's own (there Backspace, q and o are the pop-out's:
+-- back through what happened there, close, back to the editor).
 local GROUP = 'Project map'
 local function sentence(text) text = tostring(text); return text:sub(1, 1):upper() .. text:sub(2) .. (text:match('[.!?]$') and '' or '.') end
 -- What a row needs (desk-work; for a question to the map, a map built): why not, or true. The menus show the why
@@ -1151,6 +1253,14 @@ local function needs_reader(ctx)
   local needs = unbuildable(ctx.map and ctx.map.status)
   return not needs or needs[1].short
 end
+-- In the pop-out a key is about the box selected there: Enter needs one, a question to the map a function.
+local function needs_selection(ctx) return not (ctx.view and not ctx.item) or 'nothing is selected' end
+local function needs_function(ctx)
+  local why = needs_map(ctx)
+  if why ~= true or not ctx.view then return why end
+  local t = ctx.item and ctx.item.target
+  return (t and t.kind == 'node') or 'select a function first'
+end
 local function row(id, key, name, about, run, needs, extra)
   local r = { id = 'map.' .. id, group = GROUP, name = name, about = about, key = key, on = 'map', available = needs,
     run = function(ctx)
@@ -1158,11 +1268,12 @@ local function row(id, key, name, about, run, needs, extra)
       if not valid(view) then return end
       local why = needs and needs(ctx)
       if why ~= nil and why ~= true then return tell(sentence(why), vim.log.levels.WARN) end
-      run(view)
+      run(view, ctx)
     end }
   for k, v in pairs(extra or {}) do r[k] = v end
   return r
 end
+local HERE, THERE = { remote = false }, { remote = true }
 local ROWS = actions.add({
   { id = 'map.open', group = GROUP, name = 'Project map', key = '<leader>cm', on = 'editor', remote = true, also = '`:ProjectMap`',
     about = 'The whole checkout as boxes, by part, file and function, callers above; queries and a rebuild inside. One tab per checkout: pressed again, it brings that tab back as it was',
@@ -1170,22 +1281,158 @@ local ROWS = actions.add({
     available = function(ctx) return ctx.surface ~= 'map' or false end,
     run = function() M.open() end },
   row('in', '<CR>', 'Zoom in, or go to the function',
-    'Zoom into the part, file or class under the cursor; on a function, go to its code (the map stays open)', enter),
+    'Zoom into the part, file or class under the cursor; on a function, go to its code (the map stays open)', enter,
+    needs_selection, THERE),
   row('back', '<BS>', 'Zoom out, or back to the code',
-    "Zoom out a level (from a query's answer, back to the page it was asked on); at the top, back to the code, the map left open", back),
-  row('out', '-', 'Zoom out', 'Zoom out a level', back, nil, { line = 'map.back', menu = false }),
+    "Zoom out a level (from a query's answer, back to the page it was asked on); at the top, back to the code, the map left open", back,
+    nil, HERE),
+  row('out', '-', 'Zoom out', 'Zoom out a level',
+    function(view) if view.out then return zoom_out(view) end; back(view) end, nil, { line = 'map.back', menu = false, remote = true }),
   row('reach', 'r', 'What a function reaches', 'Everything a function reaches (a count before r is the depth; 3 without one)',
-    function(view) walk(view, 'reach') end, needs_map),
+    function(view, ctx) walk(view, 'reach', ctx) end, needs_function, THERE),
   row('callers', 'c', 'Who calls a function', 'Who calls a function, transitively (a count before c is the depth)',
-    function(view) walk(view, 'callers') end, needs_map),
-  row('paths', 'P', 'The ways between two functions', 'Every way from one function to another, shortest first', ways, needs_map),
-  row('module', 'm', 'A part of the checkout', 'Go to a part of the checkout, picked by name', part, needs_map),
+    function(view, ctx) walk(view, 'callers', ctx) end, needs_function, THERE),
+  row('paths', 'P', 'The ways between two functions', 'Every way from one function to another, shortest first', ways, needs_function,
+    { remote = true, input = { prompt = 'Ways to: ' } }),
+  row('module', 'm', 'A part of the checkout', 'Go to a part of the checkout, picked by name', part, needs_map, HERE),
   row('rebuild', 'R', 'Rebuild the map', 'Rebuild the map in the background (a desk-work job; its log is in the jobs list)',
-    function(view) M.rebuild(view) end, needs_reader),
+    function(view) M.rebuild(view) end, needs_reader, THERE),
   row('binary', 'B', 'Rebuild reading a binary', 'Rebuild, reading a built binary for its exact calls (remembered for the next builds)',
-    binary, needs_desk_work),
-  row('close', 'q', 'Close the project map', 'Close the project map', function(view) M.close(view) end),
+    binary, needs_desk_work, HERE),
+  row('close', 'q', 'Close the project map', 'Close the project map', function(view) M.close(view) end, nil, HERE),
+  -- o here sends the map to the pop-out; o there brings it back (desk.popout's own row, popout.back).
+  row('popout', 'o', 'Send the map to the pop-out',
+    'Move this map to the pop-out on the other screen (opening it) and close it here; `o` there brings it back as this tab, as it was',
+    function(_, ctx) pop().show('map', ctx) end, function() return pop().can_pop() end, HERE),
 })
+
+-- ─── in the pop-out: desk.popout's view kind 'map' ─────────────────────────────────────────────────────────────
+-- The map on the other screen: the same pages, keys and state as its tab. Enter there zooms in, or goes to a function
+-- here while the keyboard stays there; - goes back out, and each zoom and each answer is a step of the pop-out's
+-- history (H and Backspace there). o there brings it back here as its tab. It follows nothing: p pins it only so that
+-- it comes back here when the pop-out goes on its own.
+
+-- A window here that shows a file: the current one, else the first in this tab (where Enter on a function goes).
+local function code_window(win)
+  if not (win and api.nvim_win_is_valid(win)) or api.nvim_win_get_config(win).relative ~= '' then return false end
+  return vim.bo[api.nvim_win_get_buf(win)].buftype == ''
+end
+local function target_window()
+  local current = api.nvim_get_current_win()
+  if code_window(current) then return current end
+  for _, win in ipairs(api.nvim_tabpage_list_wins(0)) do if code_window(win) then return win end end
+end
+-- The checkout of the window a map was asked for in, else of the working directory.
+local function root_of(ctx)
+  local name = ctx and ctx.buf and api.nvim_buf_is_valid(ctx.buf) and api.nvim_buf_get_name(ctx.buf) or ''
+  local root = vim.fs.root(name ~= '' and name or vim.fn.getcwd(), '.git') or vim.fn.getcwd()
+  return uv.fs_realpath(root) or root
+end
+-- A map of root, at its top, nothing read yet.
+local function fresh(view, root)
+  stop_polling(view)
+  view.root, view.stack, view.cache, view.previous, view.status = root, { { kind = 'modules' } }, {}, nil, nil
+  view.missing, view.message, view.building, view.building_at, view.asked = nil, nil, false, nil, view.asked or 0
+end
+
+-- The view, from where it was asked: o in a map's tab sends that map (it leaves the tab); the Views row anywhere else
+-- opens the map of that checkout (the one already there when it is that checkout's).
+local function open_view(view, ctx)
+  view.out = true
+  local from = ctx and ctx.map
+  if from and from ~= view and not from.out and valid(from) then
+    stop_polling(from)
+    adopt(view, from)
+    M.close(from)
+  elseif not view.stack or view.root ~= root_of(ctx) then
+    fresh(view, root_of(ctx))
+  end
+  refresh(view)
+end
+
+-- A box's key: what it stands for, so the same box keeps its selection when the page is drawn again; a second drawing
+-- of one thing (a part again in the calls between parts) gets its count.
+local function item_key(item, seen)
+  local t = item.target or {}
+  local what = t.kind == 'node' and t.node and t.node.id or t.kind == 'class' and t.id or t.file or t.module or item.name or ''
+  local base = (t.kind or 'box') .. ':' .. tostring(what)
+  if #base > 100 then base = base:sub(1, 80) .. ':' .. vim.fn.sha256(base):sub(1, 16) end
+  seen[base] = (seen[base] or 0) + 1
+  return seen[base] > 1 and (base .. '#' .. seen[base]) or base
+end
+local GROUPS = { 'DeskMapFocus', 'DeskMapBox', 'DeskMapName', 'DeskMapDim', 'DeskMapHead', 'DeskMapTitle', 'DeskMapStale' }
+-- Its key line in the pop-out (? there lists every key).
+local FOOTER = { { ids = { 'map.in' }, words = 'in' }, { ids = { 'map.out' }, words = 'out' }, { ids = { 'map.reach' }, words = 'reach' },
+  { ids = { 'map.callers' }, words = 'callers' }, { ids = { 'popout.keys' }, words = 'keys' } }
+-- The page for the pop-out's width: the tab's, without its key line (the pop-out's window has its own), each box and
+-- named part an item (its ref the map's own item: what the keys there are about).
+local function render_view(view, width, style)
+  highlights()
+  local retro = style == 'retro'
+  local G = M.glyphs(retro)
+  local page = page_for(view, G)
+  page.notes = M.footer(view, G, false)
+  local drawn = M.layout(page, math.max(20, width - 2), retro)
+  local items, seen = {}, {}
+  for _, p in ipairs(drawn.items) do
+    local key = item_key(p.item, seen)
+    p.item.key = key
+    items[#items + 1] = { key = key, kind = 'box', line = p.line, name_col = p.name_col, x = p.x, w = p.w, spans = p.spans,
+      centre = p.centre == true, name = tostring(p.item.name or ''), ref = p.item }
+  end
+  return { title = 'project map · ' .. vim.fn.fnamemodify(view.root or '', ':t'), state = view.pinned and 'PINNED' or '',
+    lines = drawn.lines, marks = drawn.marks, hl = GROUPS, items = items, footer = FOOTER, news = view.news == true }
+end
+
+-- The history's step back as it was (step); the layout record's { pinned, target } after a restart: that checkout's
+-- map, zoomed in as it was (its queries are not kept).
+local LEVELS = { modules = true, files = true, functions = true, class = true }
+local function text_or_nil(value) return type(value) == 'string' and value or nil end
+local function restore_view(view, saved)
+  view.out = true
+  if saved.step then
+    view.stack, view.select = vim.list_slice(saved.stack), nil
+    return load(view)
+  end
+  local target = type(saved.target) == 'table' and saved.target or {}
+  local root = type(target.root) == 'string' and uv.fs_stat(target.root) and (uv.fs_realpath(target.root) or target.root) or root_of(nil)
+  fresh(view, root)
+  local levels = {}
+  for _, l in ipairs(type(target.levels) == 'table' and target.levels or {}) do
+    if type(l) == 'table' and LEVELS[l.kind] then
+      levels[#levels + 1] = { kind = l.kind, module = text_or_nil(l.module), file = text_or_nil(l.file), id = text_or_nil(l.id),
+        name = text_or_nil(l.name), node = type(l.node) == 'table' and l.node or nil }
+    end
+  end
+  if levels[1] and levels[1].kind == 'modules' then view.stack = levels end
+  refresh(view)
+end
+
+M.view_kind = {
+  name = 'map', title = 'project map', surface = 'map',
+  about = 'The project map in the pop-out, a window of its own on the other screen: `Enter` there zooms in, or goes to a function here while the keyboard stays there; `-` and `Backspace` go back out',
+  -- In a map's tab its own key sends it (map.popout).
+  available = function(ctx) if not ctx.remote and ctx.surface == 'map' then return false end end,
+  open = open_view,
+  render = render_view,
+  ctx_for = function(view, ref)
+    local win = target_window()
+    local ctx = actions.context(win or api.nvim_get_current_win())
+    ctx.surface, ctx.map, ctx.item, ctx.origin = 'map', view, ref, win
+    return ctx
+  end,
+  -- o in the pop-out: back here as its tab, as it was, beside the code it is open on.
+  attach = function(view)
+    local win = target_window()
+    if win then pcall(api.nvim_set_current_win, win) end
+    M.open(view.root, view)
+  end,
+  close = function(view) stop_polling(view) end,
+  save = save_view,
+  restore = restore_view,
+}
+-- Registered as the module loads (not when it runs headless as the syntax reader), so its Views row is in the registry.
+if not headless then pop().kind(M.view_kind) end
 
 -- ─── setup ─────────────────────────────────────────────────────────────────────────────────────────────────────
 local set = false

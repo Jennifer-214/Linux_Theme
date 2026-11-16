@@ -336,6 +336,8 @@ Tab` in either window puts the keyboard in the other, on whichever screen it is.
 
 The project map (desk.map): the whole checkout as boxes, rebuilt only when asked. "In the map" means its tab, one per
 checkout; `Space cm` from anywhere brings it back as it was. Without desk-work it opens and says "requires desk-work".
+`o` moves it to the pop-out (also Space Space › "Pop out the project map"): there `Enter`, `-`, `r`, `c`, `P` and `R`
+work on the box selected there, `H` and Backspace go back through its zooms, and `o` brings it back as its tab.
 
 <!-- map-keys:begin · generated from shared/nvim_lua/desk/map.lua: python3 tests/test_nvim_keys.py --write -->
 | Key | Action |
@@ -350,6 +352,7 @@ checkout; `Space cm` from anywhere brings it back as it was. Without desk-work i
 | `R` in the map | Rebuild the map in the background (a desk-work job; its log is in the jobs list) |
 | `B` in the map | Rebuild, reading a built binary for its exact calls (remembered for the next builds) |
 | `q` in the map | Close the project map |
+| `o` in the map | Move this map to the pop-out on the other screen (opening it) and close it here; `o` there brings it back as this tab, as it was |
 | `?` in the map | The keys of this view as a list: `Enter` runs the selected one, `?` or `q` closes the list |
 <!-- map-keys:end -->
 
@@ -652,6 +655,7 @@ which-key its words.
 | home menu: Restore the pop-out's views | Open the pop-out again with the views it had when this editor last closed, pinned as they were, on the screen it was on |
 | home menu: Pop out the call graph | The live call graph in the pop-out, a window of its own on the other screen: it follows the function under the cursor (`p` there pins it), and `Enter` there goes to a function here while the keyboard stays there |
 | home menu: Review list to the pop-out | The open review's file list in the pop-out on the other screen: the comparison takes this whole screen, and `Enter` there shows a file here while the keyboard stays there |
+| home menu: Pop out the project map | The project map in the pop-out, a window of its own on the other screen: `Enter` there zooms in, or goes to a function here while the keyboard stays there; `-` and `Backspace` go back out |
 | `Space Space` | Everything that applies where the cursor is, in one menu: this function, the review, Claude, work, symdeps |
 | home menu: This function in symdeps | symdeps' card for the unit at the cursor: its layout, uses, callers and calls |
 | `Space cc`, `:CallGraph` | Call graph of the function under the cursor, in a tab: callers above, the function in a double box, what it calls below (the language server's call hierarchy). It opens with the function's box selected. One tab: pressed again anywhere, it brings that tab back on the function under the cursor |
