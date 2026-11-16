@@ -287,3 +287,39 @@ assert.equal(logic.detailText({ presentation: 'claude', claudeState: 'working', 
 assert.deepEqual([-1, 0, 9, 10, 41, 90, 100, 140].map(logic.contextHearts), [-1, 0, 0, 1, 2, 5, 5, 5]);
 assert.equal(logic.contextHearts(undefined), -1);
 console.log('claude session logic: ok');
+
+// Retro: DOS-style rows, keys, paths and a glyph per item from Big Blue Term (useStyle changes the shared table, so last).
+assert.equal(logic.leaderLine('Volume', '47%', 20), 'Volume ......... 47%');
+assert.equal(logic.leaderLine('A much longer label here', '[X]', 16), 'A much lo... [X]');
+assert.equal(logic.leaderLine('', '◄┘', 6), '    ◄┘', 'a row without words gets no dot leaders');
+assert.equal(logic.retroBar(50, 4), '[██░░]');
+assert.equal(logic.retroKeys('alt ⇧ n'), 'Alt+Shift+N');
+assert.equal(logic.retroValue({kind: 'toggle', checked: true}, false, 0), '[X]');
+assert.equal(logic.retroValue({kind: 'slider', value: 62}, false, 0), '[███████░░░░░]  62%');
+assert.equal(logic.retroValue({kind: 'page'}, false, 0), '►');
+assert.equal(logic.retroValue({id: 'wifi-connect', checked: true}, false, 0), '(•)');
+assert.equal(logic.retroPath([{label: 'Sound'}, {label: 'Audio output'}], false), 'C:\\DESK\\SOUND\\AUDIO_OU>');
+assert.equal(logic.retroPath([{label: 'Desk'}, {label: 'The little library'}], true), 'C:\\DESK\\THE_LITT>FIND ');
+assert.equal(logic.retroTitle('today.'), 'TODAY');
+assert.equal(logic.retroText('☐ to do … ✿'), '[ ] to do ... »');
+assert.equal(logic.retroWord('a little sound.'), 'VOLUME');
+assert.equal(logic.retroEmptyState('jobs', false, false).title, '0 File(s)');
+assert.ok(logic.retroHints('items', 'project').startsWith('b Ribbon'));
+const paperWifi = logic.glyphs.wifi;
+logic.useStyle('retro');
+assert.equal(logic.glyphs.wifi, '\u{F05A9}');
+assert.equal(logic.symbol({id: 'connection', icon: paperWifi}), '\u{F05A9}', 'a Paper glyph from the backend reads as the retro one');
+assert.equal(logic.symbol({id: 'nothing', kind: 'page'}), '►');
+const retroOwners = {};
+for (const [id, glyph] of Object.entries(logic.glyphs)) if (id !== 'passwords') {
+    assert.ok(!retroOwners[glyph], `retro: ${id} and ${retroOwners[glyph]} share ${glyph}`);
+    retroOwners[glyph] = id;
+}
+const retroShown = new Map();
+for (const row of [...menus.groups, ...menus.groups.flatMap(group => group.items)]) {
+    const glyph = logic.symbol(row);
+    assert.ok(Object.values(logic.retroGlyphs).includes(glyph), `retro: ${row.id} shows ${glyph}, not a retro glyph`);
+    assert.ok(!retroShown.has(glyph) || retroShown.get(glyph) === row.id, `retro: ${row.id} and ${retroShown.get(glyph)} both show ${glyph}`);
+    retroShown.set(glyph, row.id);
+}
+console.log('retro text mode logic: ok');

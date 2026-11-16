@@ -1,7 +1,7 @@
 // What the rows, keys and band promise (docs/ui-style.md, or the row's own words), each held by a test. From an audit
 // of the notebook, 2026-11-14: every one of these failed before its fix.
 import { expect, mock, test } from 'claude-code/testing'
-import { BAND, NOW, PANE, engine, fakeFs, opened, seen } from './kit'
+import { BAND, NOW, PANE, engine, fakeFs, hide, opened, seen } from './kit'
 
 const FOCUSED = (columns = 40) => ({ ...PANE, props: { ...PANE.props, isFocused: true, bodyColumns: columns }, surface: 'terminal' }) as never
 const REQUEST = { id: 'request:queue.cpp', kind: 'request', root: '/code/paper', label: 'queue.cpp', why: 'Changed since requested',
@@ -31,8 +31,9 @@ test('a page opened from the front page starts at its top, whatever page was scr
   await ui.press({ key: 'attention-summary' })
   await ui.press({ key: 'attention-next' })      // the second twenty
   await ui.press({ key: 'nav-back' })
+  await ui.press({ key: 'nav-more' })
   await ui.press({ key: 'page-timeline' })
-  const rows = (await ui.findAll({ type: 'Button' })).map(b => String(b.props.label ?? '')).filter(l => !/^(back|↑|↓|open|hide|drawer|compact|files|project|sessions)$/.test(l))
+  const rows = (await ui.findAll({ type: 'Button' })).map(b => String(b.props.label ?? '')).filter(l => !/^(back|up|down|open|hide|next|drawer|compact|files|project|sessions)$/.test(l))
   expect(await ui.find({ key: 'event-0' }), `the timeline shows its newest event; its rows: ${JSON.stringify(rows)}`).toBeDefined()
   await ui.unmount()
 })
@@ -45,6 +46,7 @@ test('the needs-you list opens on its most urgent item after another page was sc
   engine(on, { projectWork: { tests: null, tasks: [], jobs: [], pending: 25, attention: Array.from({ length: 25 }, (_, i) => commit(i)), timeline: events } })
   await opened($)
   const ui = await $.ui.mount(FOCUSED())
+  await ui.press({ key: 'nav-more' })
   await ui.press({ key: 'page-timeline' })
   await ui.press({ key: 'events-next' })         // older events
   await ui.press({ key: 'nav-back' })
@@ -53,7 +55,7 @@ test('the needs-you list opens on its most urgent item after another page was sc
   await ui.unmount()
 })
 
-test('a long turn of edits still reads as working, and the previous turn is not shown as the last one', async ($, on) => {
+test('a long turn of edits still reads as working, and the previous turn stays drawn under it', async ($, on) => {
   const files = fakeFs(on, { '/code/paper/README.md': 'new' }, { '/code/paper/README.md': NOW })
   engine(on, { runtime: '/run/t', clock: false, files })
   const clock = mock.clock(on, { now: NOW })
@@ -69,9 +71,9 @@ test('a long turn of edits still reads as working, and the previous turn is not 
     await $.tool.call({ tool: 'Edit', file_path: '/code/paper/README.md', old_string: 'a', new_string: 'b' })
   }
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  const working = await ui.find({ type: 'Text', text: /◷ working/ }) !== undefined
-  const lastTurn = await ui.find({ type: 'Text', text: /── last turn/ }) !== undefined
-  expect({ working, lastTurn }, 'Claude edited a file seconds ago, 21 minutes into the turn').toEqual({ working: true, lastTurn: false })
+  const working = await ui.find({ type: 'Text', text: /── last turn ─+ working 2\dm ──/ }) !== undefined
+  const lastTurn = await ui.find({ key: 'receipt-files' }) !== undefined
+  expect({ working, lastTurn }, 'Claude edited a file seconds ago, 21 minutes into the turn').toEqual({ working: true, lastTurn: true })
   await ui.unmount()
 })
 
@@ -93,20 +95,27 @@ test('the header fits 40 columns with an unread note and a long name', async ($,
   await $.session.receive({ origin: { kind: 'peer' }, text: '✉ from docs: the build is yours now' })
   await $.command.run({ command: 'notebook', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
   const ui = await $.ui.mount(FOCUSED(40))
-  const header = String((await ui.find({ type: 'Text', text: /▰/ }))?.text ?? '')
-  expect(header.length, JSON.stringify(header)).toBeLessThanOrEqual(40)
+  const header = flat(boxWith(await ui.drawn(), 'sync-retry'))
+  expect(header, 'the name, the note count and the sync mark').toMatch(/^Notebook audit.* ✉ 1 !$/)
+  expect(header.length, JSON.stringify(header)).toBe(40)
   await ui.unmount()
 })
 
-test('the header fits 40 columns before the context is measured', async ($, on) => {
-  engine(on, { percent: null })
-  on('classic.UserPromptSubmit', () => ({}) as never)
+test('the front page keeps the same rows as a refresh fails, the stream stops and time passes', async ($, on) => {
+  const gitFailure = { value: false }
+  engine(on, { clock: false, gitFailure, projectWork: { tests: null, tasks: [], jobs: [], attention: [] } })
+  const clock = mock.clock(on, { now: NOW })
   await opened($)
-  await $.classic.UserPromptSubmit({ hook_event_name: 'UserPromptSubmit', prompt: 'x', session_title: 'Notebook audit of every page and key binding' } as never)
-  await $.command.run({ command: 'notebook', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
   const ui = await $.ui.mount(FOCUSED(40))
-  const header = String((await ui.find({ type: 'Text', text: /context not measured/ }))?.text ?? '')
-  expect(header.length, JSON.stringify(header)).toBeLessThanOrEqual(40)
+  const shape = async () => (await ui.findAll({ type: 'Text' })).filter(t => /^──/.test(String(t.text))).map(t => String(t.text).replace(/ ─.*$/, ''))
+  const before = await shape()
+  expect(before).toEqual(['── needs you', '── last turn', '── plan', '── review', '── work'])
+  gitFailure.value = true
+  await clock.advance(200_000)
+  await $.command.run({ command: 'notebook', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  expect(await shape(), 'the groups stay put; only the header says something is wrong').toEqual(before)
+  expect(await ui.find({ key: 'sync-retry' })).toBeDefined()
+  expect(await ui.find({ key: 'refresh-now' }), 'the retry row is on the project page').toBeUndefined()
   await ui.unmount()
 })
 
@@ -131,7 +140,12 @@ test('the review button above the prompt says why desk-work refused to open the 
   await $.prompt.submit({ text: 'tidy', wait: false, origin: { kind: 'composer' } })
   await $.tool.call({ tool: 'Edit', file_path: '/code/paper/README.md', old_string: 'new', new_string: 'newer' })
   await $.classic.Stop({ hook_event_name: 'Stop', stop_hook_active: false } as never)
-  const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: false }, surface: 'terminal' } as never)
+  // The front page draws the last turn; the band says it only while the notebook is out of sight.
+  let band = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: false }, surface: 'terminal' } as never)
+  expect(await band.find({ type: 'Text', text: /turn done/ }), 'not said twice').toBeUndefined()
+  await band.unmount()
+  await hide($)
+  band = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: false }, surface: 'terminal' } as never)
   expect(await band.find({ type: 'Text', text: /turn done/ })).toBeDefined()
   seen.toasts = []
   await band.press({ key: 'review' })
@@ -151,7 +165,7 @@ test('the red-zone line of the last turn says what ran, and opens nothing unrela
   await $.tool.call({ tool: 'Bash', command: 'sudo bootctl update', description: 'Update the boot loader' })
   await $.classic.Stop({ hook_event_name: 'Stop', stop_hook_active: false } as never)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect(await ui.find({ type: 'Text', text: /touched bootctl · red zone/ }), 'the line says what ran').toBeDefined()
+  expect((await ui.find({ key: 'receipt-files' }))?.props.label, 'the line says what ran').toBe('✎ 1 file · ⚠ bootctl')
   expect(await ui.find({ key: 'receipt-risk-bootctl' }), 'it is not a row that opens something').toBeUndefined()
   await ui.unmount()
 })
@@ -179,11 +193,11 @@ test('moving the cursor does not write the saved view on every key', async ($, o
   await ui.unmount()
 })
 
-test('one changed file reads "1 changed file"', async ($, on) => {
+test('one changed file reads "1 changed"', async ($, on) => {
   engine(on, { changes: { status: ' M README.md\0', numstat: '1\t0\tREADME.md\0' } })
   await opened($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ key: 'page-files' }))?.props.label).toMatch(/^1 changed file(?!s)/)
+  expect((await ui.find({ key: 'page-files' }))?.props.label).toBe('✎ 1 changed')
   await ui.unmount()
 })
 
@@ -193,8 +207,8 @@ test('the compact count and the expanded page agree (work tool without the share
   const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, bodyColumns: 30 }, surface: 'terminal' })
   const said = String((await ui.find({ key: 'compact-attention' }))?.props.label)
   await ui.press({ key: 'compact-expand' })
-  const rule = await ui.find({ type: 'Text', text: /── needs you/ })
-  expect(said === 'all quiet' ? rule === undefined : rule !== undefined, `compact says "${said}"; the page has ${rule ? 'a' : 'no'} needs-you group`).toBe(true)
+  const quiet = await ui.find({ type: 'Text', text: /^ {2}all quiet$/ })
+  expect(said === 'all quiet' ? quiet !== undefined : quiet === undefined, `compact says "${said}"; the page ${quiet ? 'says' : 'does not say'} all quiet`).toBe(true)
   await ui.unmount()
 })
 
@@ -202,11 +216,13 @@ test('the marks page lists every key the footer offers', async ($, on) => {
   engine(on, { projectWork: { tests: null, tasks: [], jobs: [], attention: [] } })
   await opened($)
   const ui = await $.ui.mount(FOCUSED(44))
-  expect((await ui.find({ key: 'nav-compact' }))?.props.hotkey).toBe('z')
+  expect((await ui.find({ key: 'nav-more' }))?.props.hotkey).toBe('p')
   expect((await ui.find({ key: 'nav-hide' }))?.props.hotkey).toBe('q')
+  expect(await ui.find({ key: 'nav-back' }), 'the front page has nowhere to go back to').toBeUndefined()
+  await ui.press({ key: 'nav-more' })
+  expect((await ui.find({ key: 'nav-compact' }))?.props.hotkey).toBe('z')
   await ui.press({ key: 'page-help' })
-  expect(await ui.find({ type: 'Text', text: /^ {2}z / }), 'z is listed').toBeDefined()
-  expect(await ui.find({ type: 'Text', text: /^ {2}q / }), 'q is listed').toBeDefined()
+  for (const key of ['z', 'q', 'p']) expect(await ui.find({ type: 'Text', text: new RegExp(`^ {2}${key} `) }), key + ' is listed').toBeDefined()
   await ui.unmount()
 })
 
@@ -222,12 +238,16 @@ const boxWith = (n: unknown, key: string): Node | undefined => {
   return undefined
 }
 
-test('the key row keeps a space between drawer and later', async ($, on) => {
+test('the key bar is one line: a space between each key and its word, later offered for a row that can wait', async ($, on) => {
   engine(on, { projectWork: { tests: null, tasks: [], jobs: [], attention: [REQUEST] } })
   await opened($)
   const ui = await $.ui.mount(FOCUSED())
+  expect(flat(boxWith(await ui.drawn(), 'nav-more'))).toBe('j/k move  ⏎ open  n next  p more  q hide')
   await ui.press({ key: 'attention-request:queue.cpp' })
-  expect(flat(boxWith(await ui.drawn(), 'nav-drawer'))).toBe('drawer later compact')
+  // Short of room, the least needed word goes first; every key stays.
+  expect(flat(boxWith(await ui.drawn(), 'nav-snooze'))).toBe('j/k move ⏎ open n next s later p q hide')
+  await ui.press({ key: 'nav-more' })
+  expect(flat(boxWith(await ui.drawn(), 'nav-drawer'))).toBe('d drawer  z compact')
   await ui.unmount()
 })
 
@@ -256,6 +276,7 @@ test('a question-only turn after "later" does not say the turn changed files', a
   await $.prompt.submit({ text: 'tidy', wait: false, origin: { kind: 'composer' } })
   await $.tool.call({ tool: 'Edit', file_path: '/code/paper/README.md', old_string: 'new', new_string: 'newer' })
   await $.classic.Stop({ hook_event_name: 'Stop', stop_hook_active: false } as never)
+  await hide($)
   let band = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: false }, surface: 'terminal' } as never)
   await band.press({ key: 'later' })
   await band.unmount()
@@ -280,6 +301,7 @@ test('the end of a turn reads the project once more, not twice, and still sees t
   await $.classic.Stop({ hook_event_name: 'Stop', stop_hook_active: false } as never)
   const reads = seen.argv.filter(a => a.startsWith('desk-work notebook')).length
   expect(reads, `${seen.argv.length} processes before the Stop hook returned`).toBeLessThanOrEqual(2)
+  await hide($)
   const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: false }, surface: 'terminal' } as never)
   expect(await band.find({ type: 'Text', text: /turn done/ }), 'the band names the edit the turn made').toBeDefined()
   await band.unmount()

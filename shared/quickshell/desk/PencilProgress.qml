@@ -1,4 +1,5 @@
 import QtQuick
+import "DrawerLogic.js" as Logic
 
 Item {
     id: ruler
@@ -7,12 +8,15 @@ Item {
     property bool tickMarks: false
     readonly property real fraction: isFinite(value) ? Math.max(0, Math.min(100, value)) / 100 : 0
     readonly property real railY: tickMarks ? 5 : height / 2
-    implicitHeight: tickMarks ? 14 : 8
+    implicitHeight: retro ? theme.cell : tickMarks ? 14 : 8
+    // Retro: "[██████░░░░]" filling the width in whole cells.
+    readonly property bool retro: theme.style === "retro"
+    TermText { visible: ruler.retro; theme: ruler.theme; text: visible ? Logic.retroBar(ruler.fraction * 100, Math.max(1, Math.floor(ruler.width / ruler.theme.cellW) - 2)) : "" }
 
-    Rectangle { width: parent.width; height: 1; y: ruler.railY; color: ruler.theme.line }
-    Rectangle { width: parent.width * ruler.fraction; height: 2; y: ruler.railY - 1; color: ruler.theme.paperDetails ? ruler.theme.botanicalInk : ruler.theme.ink }
+    Rectangle { visible: !ruler.retro; width: parent.width; height: 1; y: ruler.railY; color: ruler.theme.line }
+    Rectangle { visible: !ruler.retro; width: parent.width * ruler.fraction; height: 2; y: ruler.railY - 1; color: ruler.theme.paperDetails ? ruler.theme.botanicalInk : ruler.theme.ink }
     Repeater {
-        model: ruler.tickMarks ? 11 : 0
+        model: ruler.tickMarks && !ruler.retro ? 11 : 0
         Rectangle {
             required property int index
             x: index * Math.max(0, ruler.width - 1) / 10

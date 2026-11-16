@@ -28,22 +28,22 @@ BLUR_PASSES=1
 GAP_IN=4
 GAP_OUT=8
 BORDER_SIZE=1
-SHADOW_RANGE=14
-SHADOW_ALPHA=0.55
+SHADOW_RANGE=2
+SHADOW_ALPHA=0.85
 
 # ─── Desktop chrome (GTK settings.ini · cursor · Hyprland window edges · kitty text · banner) ───
 GTK_PREFER_DARK=1
-CURSOR_THEME=catppuccin-mocha-peach-cursors
-CURSOR_RECOLOR=none
-PAPIRUS_FOLDER_COLOR=cat-mocha-peach
-PAPIRUS_FOLDER_RECOLOR=none
+CURSOR_THEME=foxml-amber-cursors
+CURSOR_RECOLOR=catppuccin-mocha-peach-cursors:fab387:1e1e2e:ffb000:0c0a06
+PAPIRUS_FOLDER_COLOR=foxml-amber
+PAPIRUS_FOLDER_RECOLOR=cat-mocha-peach:FAB387=ffb000,E69F73=c88a00,CDD6F4=3a2700
 HYPR_BORDER_SIZE=1
 HYPR_BORDER_INACTIVE=3a270099
 HYPR_BORDER_ACTIVE=ffb000ff
 HYPR_BORDER_ACTIVE_END=ffb000ff
 HYPR_GROUPBAR_ACTIVE=ffb000bb
 HYPR_DIM_INACTIVE=true
-HYPR_SHADOW_ALPHA_INACTIVE=0.30
+HYPR_SHADOW_ALPHA_INACTIVE=0.6
 HYPR_DIM_STRENGTH=0.18
 HYPR_INACTIVE_OPACITY=1.0
 HYPR_WS_ANIM=fade
@@ -53,7 +53,8 @@ KITTY_TAB_BAR_STYLE=separator
 KITTY_DIM_OPACITY=0.55
 # kitty's own bloom + crt shaders (shared/kitty/crt-glow.pipeline). Off: KITTY_SHADER_LINE='env DESK_KITTY_SHADERS=off'
 KITTY_SHADER_LINE='custom_shaders crt-glow'
-KITTY_SHADER_STATE='include ${HOME}/.local/state/foxml/kitty-crt.conf'
+# globinclude: silent while desk-crt has never run (a plain include logs a missing file at every start).
+KITTY_SHADER_STATE='globinclude desk-crt.conf'
 WELCOME_INK1=214
 WELCOME_INK2=220
 WELCOME_INK3=178
@@ -85,10 +86,10 @@ GOLD=ffd466
 
 # ─── ANSI colors ───
 # One colour in steps: blue, cyan and magenta become amber shades; red and green keep a faint rust and straw.
-RED=d0541c
-RED_BRIGHT=e06a2a
-GREEN=d4c46a
-GREEN_BRIGHT=e8d888
+RED=f07838
+RED_BRIGHT=ff8a48
+GREEN=f0e0a0
+GREEN_BRIGHT=f8ecc0
 YELLOW=ffc640
 YELLOW_BRIGHT=ffd466
 BLUE=c88a00
@@ -100,7 +101,7 @@ WHITE=ffcc33
 ANSI_BRIGHT_BLACK=9c6c14
 
 # ─── Semantic aliases ───
-OK=d4c46a
+OK=f0e0a0
 WARN=ffc640
 
 # ─── ZSH command highlight color ───
@@ -111,16 +112,16 @@ BG_VENCORD_DEEP=070604
 
 # ─── Nvim extra colors ───
 NVIM_BG_HL=1c1408
-NVIM_SEL=3a2700
+NVIM_SEL=6a4800
 WARM=e0a020
 SAND=c88a00
 WHEAT=ffc640
 CLAY=d0541c
 
 # ─── Nvim diff colors ───
-DIFF_ADD=1c1a08
-DIFF_CHANGE=1f1608
-DIFF_DELETE=24100a
+DIFF_ADD=4a3608
+DIFF_CHANGE=33240a
+DIFF_DELETE=33240a
 DIFF_TEXT=3a2a08
 TREESITTER_CTX=1c1408
 
@@ -143,7 +144,7 @@ NVIM_IBL_SCOPE=c88a00
 NVIM_DIAG_ERR_BG=2a1008
 NVIM_DIAG_WARN_BG=2a1f06
 NVIM_GIT_MOD=e0a020
-NVIM_GIT_DEL=d0541c
+NVIM_GIT_DEL=f07838
 NVIM_CONFLICT_CUR=2a1008
 NVIM_CONFLICT_CUR_LABEL=3a160a
 NVIM_CONFLICT_INC=1c1a08
@@ -164,23 +165,23 @@ NVIM_TAG_END=8a5c00
 
 # ─── Nvim syntax roles ───
 NVIM_SYN_VAR=ffb000
-NVIM_SYN_MEMBER=e0a020
+NVIM_SYN_MEMBER=ffb000
 NVIM_SYN_PARAM=e8b84a
-NVIM_SYN_TYPE=ffc640
-NVIM_SYN_STRING=e6c36a
-NVIM_SYN_NUMBER=e6c36a
-NVIM_SYN_CALL=ffc640
+NVIM_SYN_TYPE=ffe9a8
+NVIM_SYN_STRING=d8a840
+NVIM_SYN_NUMBER=d8a840
+NVIM_SYN_CALL=ffe9a8
 NVIM_SYN_OPERATOR=b37a00
 NVIM_SYN_RETURN=ffd466
 NVIM_SYN_COMMENT=9c6c14
 NVIM_SYN_HEADER=c88a00
 NVIM_SECTION_HEADERS=false
 NVIM_FAINT_FG=5c3d00
-NVIM_RED_PEN=d0541c
+NVIM_RED_PEN=f07838
 NVIM_SEARCH_FG=0c0a06
 NVIM_SEARCH_BG=ffb000
 NVIM_CURSEARCH_FG=0c0a06
-NVIM_CURSEARCH_BG=ffd466
+NVIM_CURSEARCH_BG=ffe9a8
 NVIM_INCSEARCH_FG=0c0a06
 NVIM_INCSEARCH_BG=e0a020
 KITTY_SELECTION_BG=4a3200
@@ -206,7 +207,7 @@ PI_SYN_OPERATOR=b37a00
 NVIM_SYMDEPS_SEL=c88a00
 NVIM_SYMDEPS_SYNC=5c3d00
 NVIM_SYMDEPS_WARN=ffc640
-NVIM_SYMDEPS_ALARM=d0541c
+NVIM_SYMDEPS_ALARM=f07838
 NVIM_SYMDEPS_OK=d4c46a
 
 # ─── App-specific overrides ───
@@ -300,7 +301,7 @@ TMUX_MARK_INACTIVE=·
 TMUX_SEP=•
 TMUX_FOOTER_HIGHLIGHT=fox-tmux-hl-on
 
-WELCOME_LAYOUT=banner
+WELCOME_LAYOUT=dos
 LITTLE_DETAILS=fox-little-details-off
 # Quickshell drawing style: paper (pencil, sprigs, hearts) | retro (blocks, cursors) | plain.
 DESK_STYLE=retro
@@ -348,14 +349,14 @@ BTOP_PROC_MISC=c88a00
 BTOP_LINE=5c3d00
 BTOP_COOL=c88a00
 BTOP_WARM=ffb000
-BTOP_HOT=d0541c
+BTOP_HOT=ffd466
 BTOP_UPLOAD_END=e0a020
 LAZYGIT_INACTIVE_BORDER=5c3d00
 LAZYGIT_UNSTAGED=d0541c
 FZF_BORDER=ffb000
-FZF_SESH_SELECTED=1c1408
+FZF_SESH_SELECTED=4a3200
 NVIM_LIST_SEL=1c1408
-NVIM_MENU_SEL=3a2700
+NVIM_MENU_SEL=6a4800
 YAZI_HOVER_FG=0c0a06
 YAZI_HOVER_BG=ffb000
 NVIM_FLOAT_BG=0c0a06
@@ -438,8 +439,8 @@ MAKO_STAMP_SUMMARIES='^foxml-paper-stamp-disabled$'
 
 # Normal-window shadow color and direction
 HYPR_SHADOW_RGB=000000
-HYPR_SHADOW_OFFSET_X=0
-HYPR_SHADOW_OFFSET_Y=0
+HYPR_SHADOW_OFFSET_X=8
+HYPR_SHADOW_OFFSET_Y=8
 
 # Reading and notebook labels
 YAZI_TAB_ACTIVE_FG=0c0a06
@@ -518,12 +519,12 @@ FASTFETCH_KEY_DISK="DISK"
 FASTFETCH_KEY_WIDTH=10
 
 # Claude Code (custom:foxml): amber text; diffs keep a faint straw and rust.
-CLAUDE_USER_BG=1c1408
+CLAUDE_USER_BG=3a2700
 CLAUDE_USER_BG_HOVER=0c0a06
-CLAUDE_DIFF_ADD=2e2a0e
+CLAUDE_DIFF_ADD=3a3a10
 CLAUDE_DIFF_ADD_DIM=1e1c0a
 CLAUDE_DIFF_ADD_WORD=4a4416
-CLAUDE_DIFF_DEL=3a1608
+CLAUDE_DIFF_DEL=4a1a08
 CLAUDE_DIFF_DEL_DIM=240e06
 CLAUDE_DIFF_DEL_WORD=5c220c
 # Claude status line: the context meter's filled and empty marks.
@@ -538,7 +539,7 @@ GARDEN_3=c88a00
 GARDEN_4=ffb000
 
 # nvim cursor line (kept apart from Visual), zathura page recolor, desktop accent (libadwaita name).
-NVIM_CURSORLINE=1c1408
+NVIM_CURSORLINE=261b08
 ZATHURA_RECOLOR=true
 GTK_ACCENT_COLOR=orange
 # delta changed-word backgrounds: straw and rust tints under amber text.
@@ -546,3 +547,30 @@ DELTA_DEL_WORD=4a1e0c
 DELTA_ADD_WORD=3a3410
 # GTK entry fill and infobar border alpha.
 GTK_FIELD_ALPHA=0.9
+
+# ─── Claude Code over dark-ansi · notebook alarms · pi thinking steps ───
+# Claude's accent (claude, clawd_body, briefLabelClaude, fastMode), the selection, the sidebar and memory panels and the
+# empty part of the rate-limit bar. A value is a colour Claude Code reads: ansi:<name> keeps dark-ansi's own choice.
+# Retro: amber for Claude, not the rust that marks errors; the amber selection; panels as dark as the page.
+CLAUDE_ACCENT='rgb(255,176,0)'
+CLAUDE_SELECTION_BG='rgb(74,50,0)'
+CLAUDE_PANEL_BG='rgb(28,20,8)'
+CLAUDE_RATE_EMPTY='rgb(92,61,0)'
+# Alarms: failed tests, context from 80%, credit under 20% (the notebook's berry, the status line's BERRY).
+# Rust: GARDEN_4 and WAYBAR_WS_ACTIVE are the text amber here, so an alarm would not stand out.
+CLAUDE_ALERT=f07838
+# pi's thinking levels, rising: medium and xhigh (off/minimal/low/high are border/comment/muted/primary).
+PI_THINKING_MEDIUM=e0a020
+PI_THINKING_XHIGH=ffd466
+
+# Diff pager, kitty tabs and cursor, notification icons, fingerprint wording, window shadow edge.
+DELTA_MINUS_STYLE='"#9c6c14" strike'
+DELTA_MINUS_EMPH_STYLE='"#0c0a06" "#c88a00"'
+DELTA_PLUS_STYLE='syntax bold "#4a3608"'
+DELTA_PLUS_EMPH_STYLE='"#0c0a06" "#ffb000" bold'
+KITTY_CURSOR_BLINK=0.53
+KITTY_TAB_TITLE='"[{index}] {title}"'
+MAKO_ICONS=0
+HYPRLOCK_FP_READY='PASSWORD OR FINGER:'
+HYPRLOCK_FP_PRESENT='READING...'
+HYPR_SHADOW_SHARP=true

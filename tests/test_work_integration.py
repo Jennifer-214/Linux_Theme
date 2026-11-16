@@ -101,6 +101,7 @@ for (const snapshot of snapshots) test('shared lifecycle: '+snapshot.name, async
   await opened($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   for (const item of snapshot.state.attention) expect(await ui.find({ key: 'attention-'+item.id })).toBeDefined()
+  await ui.press({ key: 'nav-more' })   // the project page (p) holds the timeline
   await ui.press({ key: 'page-timeline' })
   for (const event of snapshot.state.timeline.slice(0,20)) expect(await ui.find({ key: 'event-'+event.id })).toBeDefined()
   await ui.unmount()

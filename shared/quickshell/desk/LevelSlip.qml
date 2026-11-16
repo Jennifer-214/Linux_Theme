@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Wayland
+import "DrawerLogic.js" as Logic
 
 // The little paper slip for a volume, brightness or song change. One slip serves all three, so they never stack.
 PanelWindow {
@@ -40,13 +41,20 @@ PanelWindow {
     }
     function showVolume(level, quiet) { present("sound", level, quiet); }
     function showBrightness(level) { present("light", level, false); }
-    Behavior on reveal { NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
+    // Retro: a one-line text box that appears and goes at once, as a terminal draws it.
+    readonly property bool retro: theme.style === "retro"
+    readonly property string retroLine: song ? Logic.leaderLine((title ? "♪ " + Logic.retroText(title) + (artist ? " - " + Logic.retroText(artist) : "") : Logic.retroWord("nothing is playing.")),
+            playState === "playing" ? "► PLAYING" : playState.toUpperCase(), 40)
+        : kind === "sound" && muted ? Logic.retroBar(0, 18) + " MUTED"
+        : Logic.retroBar(100 * value / span, 18) + " " + String(value).padStart(3, " ") + "%"
+    Behavior on reveal { enabled: !slip.retro; NumberAnimation { duration: 140; easing.type: Easing.OutCubic } }
     Timer { id: lifetime; interval: 1600; onTriggered: slip.showing = false }
     screen: output
     visible: displayable
     anchors { bottom: true }
     margins.bottom: 30
-    implicitWidth: song ? 340 : 300; implicitHeight: 98
+    implicitWidth: retro ? (song ? 44 : 30) * theme.cellW : song ? 340 : 300
+    implicitHeight: retro ? 3 * theme.cell : 98
     exclusionMode: ExclusionMode.Ignore
     WlrLayershell.namespace: "foxml-volume"
     WlrLayershell.layer: WlrLayer.Overlay
@@ -56,9 +64,23 @@ PanelWindow {
     Item {
         id: slipPaper
         anchors.fill: parent
-        transform: Translate { y: (1 - slip.reveal) * 12 }
+        transform: Translate { y: slip.retro ? 0 : (1 - slip.reveal) * 12 }
         opacity: slip.reveal
         Rectangle {
+            objectName: "level-slip-retro"
+            visible: slip.retro
+            anchors.fill: parent
+            color: slip.theme.background
+            TextFrame { anchors.fill: parent; theme: slip.theme; title: Logic.retroWord(slip.heading) }
+            TermText {
+                objectName: "level-slip-retro-line"
+                theme: slip.theme
+                x: 2 * slip.theme.cellW; y: slip.theme.cell; width: parent.width - 4 * slip.theme.cellW
+                text: slip.retro ? Logic.clip(slip.retroLine, Math.floor(width / slip.theme.cellW)) : ""
+            }
+        }
+        Rectangle {
+            visible: !slip.retro
             x: 3; y: 3; width: parent.width - 7; height: parent.height - 7
             color: slip.theme.background; radius: 4
             border.width: 1; border.color: slip.theme.line

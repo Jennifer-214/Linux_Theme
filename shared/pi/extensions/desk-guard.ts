@@ -26,7 +26,7 @@
  * Based on pi's examples/extensions/{permission-gate,protected-paths}.ts.
  */
 
-import { lstatSync, readlinkSync } from "node:fs";
+import { lstatSync, readFileSync, readlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve, sep } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -34,6 +34,18 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import * as piApi from "@mariozechner/pi-coding-agent";
 
 const HOME = homedir();
+// The retro theme draws in Big Blue Term, a DOS font with no emoji: there the dialogs lead with "!!". The style is read
+// from the last theme render (the Claude notebook's theme file carries it); anything unreadable keeps the emoji.
+const RETRO = (() => {
+	try {
+		const state = process.env.XDG_STATE_HOME || join(HOME, ".local/state");
+		return /style: 'retro'/.test(readFileSync(join(state, "foxml/rendered/claude/mods/desk-notebook/hooks/theme.ts"), "utf8"));
+	} catch {
+		return false;
+	}
+})();
+const SECRET_MARK = RETRO ? "!!" : "🔑";
+const DANGER_MARK = RETRO ? "!! " : "⚠️ ";
 
 // Absolute prefixes (after ~ expansion) and path fragments that agents never write.
 const PROTECTED_PREFIXES = [
@@ -199,7 +211,7 @@ export default function (pi: ExtensionAPI) {
 			if (!l.paths) {
 				const ask = `desk-guard cannot ask pi where ${event.toolName} "${given}" lands (${l.why})`;
 				if (!ctx.hasUI) return { block: true, reason: `Blocked without UI: ${ask}` };
-				const choice = await ctx.ui.select(`🔑 ${ask}\n\nAllow?`, ["No", "Yes"]);
+				const choice = await ctx.ui.select(`${SECRET_MARK} ${ask}\n\nAllow?`, ["No", "Yes"]);
 				return choice === "Yes" ? undefined : { block: true, reason: "Blocked by user" };
 			}
 			for (const abs of l.paths) {
@@ -222,7 +234,7 @@ export default function (pi: ExtensionAPI) {
 				: judged(abs, true) ?? (grep ? holdsSecret(realish(abs)) ?? holdsSecret(abs) : undefined);
 			if (!why) return undefined;
 			if (!ctx.hasUI) return { block: true, reason: `Blocked without UI: ${event.toolName} ${abs} (${why})` };
-			const choice = await ctx.ui.select(`🔑 ${event.toolName} of a secret path: ${abs} (${why})\n\nAllow?`, ["No", "Yes"]);
+			const choice = await ctx.ui.select(`${SECRET_MARK} ${event.toolName} of a secret path: ${abs} (${why})\n\nAllow?`, ["No", "Yes"]);
 			return choice === "Yes" ? undefined : { block: true, reason: "Blocked by user" };
 		}
 
@@ -237,7 +249,7 @@ export default function (pi: ExtensionAPI) {
 		if (probe.gate) return undefined;
 
 		if (!ctx.hasUI) return { block: true, reason: `Blocked without UI: ${reasons.join("; ")}` };
-		const choice = await ctx.ui.select(`⚠️  ${reasons.join("; ")}\n\n  ${command}\n\nAllow?`, ["No", "Yes"]);
+		const choice = await ctx.ui.select(`${DANGER_MARK} ${reasons.join("; ")}\n\n  ${command}\n\nAllow?`, ["No", "Yes"]);
 		return choice === "Yes" ? undefined : { block: true, reason: "Blocked by user" };
 	});
 }

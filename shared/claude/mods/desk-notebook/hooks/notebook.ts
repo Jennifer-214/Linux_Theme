@@ -1,5 +1,6 @@
 import type { NotebookView, PaperFile } from '../types'
 import type { Ledger, Other } from './ledger'
+import { CHARS, ELLIPSIS } from './work'
 
 // -z preserves tabs, newlines and non-ASCII names; a rename has two extra fields.
 export function gitFiles(numstat: string, status: string): PaperFile[] {
@@ -36,7 +37,7 @@ export function attributeFiles(files: PaperFile[], root: string, own: Ledger | n
 export function shortPath(path: string, width: number): string {
   if (width < 2) return ''
   if (path.length <= width) return path
-  return '…' + path.slice(-(width - 1))
+  return ELLIPSIS + path.slice(path.length - Math.max(0, width - ELLIPSIS.length))
 }
 
 export function fileColumns(files: PaperFile[]): [number, number] {
@@ -46,7 +47,7 @@ export function fileColumns(files: PaperFile[]): [number, number] {
 
 export function fileCounts(file: PaperFile, columns: [number, number]): [string, string] {
   return [(file.added === null ? '·' : '+' + file.added).padStart(columns[0]),
-    (file.removed === null ? '·' : '−' + file.removed).padStart(columns[1])]
+    (file.removed === null ? '·' : CHARS.minus + file.removed).padStart(columns[1])]
 }
 
 export async function mailId(from: string, body: string): Promise<string> {

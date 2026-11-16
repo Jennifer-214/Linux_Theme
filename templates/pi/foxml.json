@@ -38,7 +38,9 @@
     "synString": "#{{PI_SYN_STRING}}",
     "synNumber": "#{{PI_SYN_NUMBER}}",
     "synType": "#{{NVIM_SYN_TYPE}}",
-    "synOperator": "#{{PI_SYN_OPERATOR}}"
+    "synOperator": "#{{PI_SYN_OPERATOR}}",
+    "thinkingMedium": "#{{PI_THINKING_MEDIUM}}",
+    "thinkingXhigh": "#{{PI_THINKING_XHIGH}}"
   },
   "colors": {
     "accent": "primary",
@@ -93,9 +95,9 @@
     "thinkingOff": "border",
     "thinkingMinimal": "comment",
     "thinkingLow": "muted",
-    "thinkingMedium": "secondary",
+    "thinkingMedium": "thinkingMedium",
     "thinkingHigh": "primary",
-    "thinkingXhigh": "accent",
+    "thinkingXhigh": "thinkingXhigh",
 
     "bashMode": "yellow"
   },

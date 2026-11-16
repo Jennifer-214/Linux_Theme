@@ -1,4 +1,5 @@
 import QtQuick
+import "DrawerLogic.js" as Logic
 
 // Retain the component interface while showing plan remaining as a plain meter.
 Item {
@@ -7,8 +8,11 @@ Item {
     property int remaining: -1
     readonly property real level: Math.max(0,Math.min(100,remaining))/100
     visible: remaining>=0
-    implicitWidth: 24; implicitHeight: 10
+    readonly property bool retro: theme.style === "retro"
+    implicitWidth: retro ? 7 * theme.cellW : 24; implicitHeight: retro ? theme.cell : 10
+    TermText { visible: meter.retro; theme: meter.theme; text: visible ? Logic.retroBar(meter.remaining, 5) : ""; color: meter.remaining <= 20 ? meter.theme.error : meter.theme.ink }
     Rectangle {
+        visible: !meter.retro
         anchors.centerIn: parent
         width: parent.width; height: 5; radius: 1
         color: "transparent"; border.width: .7; border.color: meter.theme.muted

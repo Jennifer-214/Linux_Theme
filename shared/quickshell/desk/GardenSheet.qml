@@ -22,13 +22,17 @@ ColumnLayout {
     readonly property int splitWeek: Math.ceil(weeks / 2)
     readonly property int gap: 3
     readonly property int cell: Math.max(8, Math.min(15, Math.floor((width - 26) / Math.max(1, splitWeek)) - gap))
+    // Retro: one character a day (a shade block, ♦ on the busiest; no hearts in retro), two cells wide when the bed has room.
+    readonly property int dayW: retro ? Math.max(1, Math.min(2, Math.floor((width - 3 * theme.cellW) / Math.max(1, splitWeek) / theme.cellW))) * theme.cellW : cell
+    readonly property int dayH: retro ? theme.cell : cell
+    readonly property var retroShades: ["·", "░", "▒", "▓", "█"]
     signal choose(int index)
-    spacing: 9
+    spacing: retro ? theme.cell : 9
 
     Text {
         objectName: "garden-summary"
         text: sheet.garden ? Logic.gardenSummary(sheet.start, sheet.counts) : "counting little squares…"
-        textFormat: Text.PlainText; color: sheet.theme.ink; font.family: sheet.theme.fontFamily; font.pixelSize: 11
+        textFormat: Text.PlainText; color: sheet.theme.ink; font.family: sheet.theme.fontFamily; font.pixelSize: sheet.theme.px(11); renderType: sheet.theme.textRender
         Layout.fillWidth: true; wrapMode: Text.WordWrap
     }
 
@@ -38,16 +42,16 @@ ColumnLayout {
             id: bed
             required property var modelData
             readonly property int columns: modelData.to - modelData.from
-            spacing: 3
+            spacing: sheet.retro ? 0 : 3
             Item {
-                Layout.preferredHeight: 16; Layout.fillWidth: true
+                Layout.preferredHeight: sheet.retro ? sheet.theme.cell : 16; Layout.fillWidth: true
                 Repeater {
                     model: Logic.gardenMonths(sheet.start, bed.modelData.from, bed.modelData.to)
                     Text {
                         required property var modelData
-                        x: 24 + modelData.week * (sheet.cell + sheet.gap)
-                        text: modelData.text; textFormat: Text.PlainText
-                        color: sheet.theme.muted; font.family: sheet.theme.headingFont; font.italic: true; font.pixelSize: 12
+                        x: sheet.retro ? 3 * sheet.theme.cellW + modelData.week * sheet.dayW : 24 + modelData.week * (sheet.cell + sheet.gap)
+                        text: sheet.retro ? modelData.text.toUpperCase() : modelData.text; textFormat: Text.PlainText
+                        color: sheet.theme.muted; font.family: sheet.theme.headingFont; font.italic: sheet.theme.style !== "retro"; font.pixelSize: sheet.theme.px(12); renderType: sheet.theme.textRender
                     }
                 }
             }
@@ -55,20 +59,21 @@ ColumnLayout {
                 spacing: 0
                 Column {
                     Layout.preferredWidth: 24; Layout.alignment: Qt.AlignTop
-                    spacing: sheet.gap
+                    spacing: sheet.retro ? 0 : sheet.gap
                     Repeater {
                         model: 7
                         Text {
                             required property int index
-                            height: sheet.cell
-                            text: index % 2 ? Logic.gardenWeekdays[index].charAt(0) : ""
-                            textFormat: Text.PlainText; color: sheet.theme.muted; font.family: sheet.theme.fontFamily; font.pixelSize: 9
+                            height: sheet.dayH
+                            text: index % 2 ? (sheet.retro ? Logic.gardenWeekdays[index].charAt(0).toUpperCase() : Logic.gardenWeekdays[index].charAt(0)) : ""
+                            textFormat: Text.PlainText; color: sheet.theme.muted; font.family: sheet.theme.fontFamily; font.pixelSize: sheet.retro ? sheet.theme.cell : 9
+                            renderType: sheet.theme.textRender
                             verticalAlignment: Text.AlignVCenter
                         }
                     }
                 }
                 Grid {
-                    rows: 7; flow: Grid.TopToBottom; spacing: sheet.gap
+                    rows: 7; flow: Grid.TopToBottom; spacing: sheet.retro ? 0 : sheet.gap
                     Repeater {
                         model: bed.columns * 7
                         Item {
@@ -81,12 +86,24 @@ ColumnLayout {
                             readonly property bool heart: planted && sheet.hearts.indexOf(day) >= 0
                             readonly property bool selected: day === sheet.selectedIndex
                             objectName: "garden-day-" + day
-                            width: sheet.cell; height: sheet.cell
+                            width: sheet.dayW; height: sheet.dayH
                             visible: planted
+                            // Retro: the selected day in inverse video, today on the highlight, its shade as a block.
+                            Rectangle {
+                                visible: sheet.retro && (plot.selected || plot.day === sheet.todayIndex)
+                                width: sheet.theme.cellW; height: sheet.theme.cell
+                                color: plot.selected ? sheet.theme.ink : sheet.theme.highlight
+                            }
+                            TermText {
+                                objectName: "garden-retro-day"
+                                visible: sheet.retro
+                                theme: sheet.theme
+                                text: visible ? (plot.heart ? "♦" : sheet.greens.indexOf(plot.day) >= 0 ? "*" : sheet.retroShades[plot.level]) : ""
+                                color: plot.selected ? sheet.theme.background : plot.level === 0 && !plot.heart ? sheet.theme.muted : sheet.theme.gardenShades[Math.max(plot.heart ? 4 : 2, plot.level)]
+                            }
                             Rectangle {
                                 anchors.fill: parent
-                                // Retro has no leaf: a busiest day is the brightest block, ringed.
-                                visible: !plot.heart || sheet.retro
+                                visible: !plot.heart && !sheet.retro
                                 radius: sheet.retro ? 0 : Math.max(2, sheet.cell / 4)
                                 color: sheet.theme.gardenShades[plot.heart && sheet.retro ? 4 : plot.level]
                                 // An empty day is a pencil outline, so even the palest bed reads on a bright screen.
@@ -96,7 +113,7 @@ ColumnLayout {
                             // A pressed flower: the day a failing test went green again.
                             Text {
                                 objectName: "garden-green"
-                                visible: plot.planted && sheet.greens.indexOf(plot.day) >= 0
+                                visible: plot.planted && sheet.greens.indexOf(plot.day) >= 0 && !sheet.retro
                                 anchors.right: parent.right; anchors.top: parent.top
                                 anchors.rightMargin: -2; anchors.topMargin: -4
                                 text: sheet.retro ? "*" : "✿"; textFormat: Text.PlainText
@@ -139,12 +156,13 @@ ColumnLayout {
         Text {
             objectName: "garden-readout"
             text: Logic.gardenReadout(sheet.start, sheet.counts, sheet.hoveredIndex >= 0 ? sheet.hoveredIndex : sheet.selectedIndex, sheet.todayIndex)
-            textFormat: Text.PlainText; color: sheet.theme.ink; font.family: sheet.theme.fontFamily; font.pixelSize: 11
+            textFormat: Text.PlainText; color: sheet.theme.ink; font.family: sheet.theme.fontFamily; font.pixelSize: sheet.theme.px(11); renderType: sheet.theme.textRender
             Layout.fillWidth: true; elide: Text.ElideRight
         }
-        Text { text: "a little"; textFormat: Text.PlainText; color: sheet.theme.muted; font.family: sheet.theme.fontFamily; font.pixelSize: 9 }
+        TermText { visible: sheet.retro; theme: sheet.theme; text: "LESS ·░▒▓█ MORE"; color: sheet.theme.muted }
+        Text { visible: !sheet.retro; text: "a little"; textFormat: Text.PlainText; color: sheet.theme.muted; font.family: sheet.theme.fontFamily; font.pixelSize: 9 }
         Repeater {
-            model: 5
+            model: sheet.retro ? 0 : 5
             Rectangle {
                 required property int index
                 width: 10; height: 10; radius: 3
@@ -152,7 +170,7 @@ ColumnLayout {
                 border.width: index === 0 ? 1 : 0; border.color: Qt.alpha(sheet.theme.line, .7)
             }
         }
-        Text { text: "a lot"; textFormat: Text.PlainText; color: sheet.theme.muted; font.family: sheet.theme.fontFamily; font.pixelSize: 9 }
+        Text { visible: !sheet.retro; text: "a lot"; textFormat: Text.PlainText; color: sheet.theme.muted; font.family: sheet.theme.fontFamily; font.pixelSize: 9 }
     }
     Item { Layout.fillHeight: true }
 }

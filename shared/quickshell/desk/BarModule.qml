@@ -26,7 +26,26 @@ Item {
     readonly property bool interactive: name === "idle_inhibitor" || ["on-click", "on-click-right", "on-click-middle", "on-scroll-up", "on-scroll-down"].some(function(key) { return !!spec[key]; })
     readonly property bool focused: !!(controller && (controller.drawerVisible || controller.opened) && controller.attachment && controller.attachment.moduleName === name && controller.attachment.screenName === panel.screen.name)
     readonly property real labelLimit: compact && name === "custom/ai_status" ? tight ? 42 : 124 : 2000
-    implicitWidth: special ? specialContent.implicitWidth : botanicalLogo ? 35 : clockParts ? clock.implicitWidth + 14 : label ? Math.min(text.implicitWidth, labelLimit) + 14 : 0
+    // Retro's inverse bar can't colour a warning (amber on amber), so one shows in normal video, a critical one blinking.
+    readonly property bool retroAlert: theme.style === "retro" && ["critical", "error", "warning", "stopped"].some(function(name) { return (module.sample.classes || []).indexOf(name) >= 0; })
+    readonly property bool retroCritical: retroAlert && ["critical", "error"].some(function(name) { return module.sample.classes.indexOf(name) >= 0; })
+    property bool blinkOff: false
+    Timer { interval: 530; repeat: true; running: module.retroCritical; onTriggered: module.blinkOff = !module.blinkOff; onRunningChanged: if (!running) module.blinkOff = false }
+    readonly property real naturalWidth: special ? specialContent.implicitWidth : botanicalLogo ? 35 : clockParts ? clock.implicitWidth + 14 : label ? Math.min(text.implicitWidth, labelLimit) + 14 : 0
+    // Sticky: a module keeps the widest it has needed, so "9 KB/s" becoming "10 KB/s" and back doesn't slide every
+    // module after it (and re-centre the middle). Its content sits right-aligned in that width, so digits stay put.
+    // A new layout, output size class or budget starts it over.
+    property real widest: 0
+    onNaturalWidthChanged: if (naturalWidth > widest) widest = naturalWidth
+    function resetWidth() { widest = naturalWidth; }
+    onSpecChanged: resetWidth()
+    onCompactChanged: resetWidth()
+    onTightChanged: resetWidth()
+    onWorkspaceBudgetChanged: resetWidth()
+    Component.onCompleted: resetWidth()
+    // Where the content starts: right-aligned, which is the centre while the module is at its natural width.
+    readonly property real contentRight: width - 7
+    implicitWidth: naturalWidth > 0 ? Math.max(widest, naturalWidth) : 0
     implicitHeight: depth + 4
     visible: implicitWidth > 0
 
@@ -56,13 +75,21 @@ Item {
         pins: ((module.dataSource.snapshots || {})["custom/claude"] || {}).pins || [] } }
     BarRibbon { theme: module.theme; anchors.fill: parent; depth: module.depth; visible: module.name === "custom/logo"; selected: module.focused; holdingPaper: module.focused; pressed: mouse.pressed; hovered: mouse.containsMouse && module.interactive }
     Rectangle {
-        anchors.horizontalCenter: parent.horizontalCenter
+        x: (module.clockParts ? clock.x : text.x) - 4
         y: module.clockParts ? clock.y - 2 : text.y - 4
         width: (module.clockParts ? clock.implicitWidth : text.width) + 8
         height: module.clockParts ? clock.implicitHeight + 4 : text.height + 8
-        radius: 3
+        radius: module.theme.style === "retro" ? 0 : 3
         color: module.focused || mouse.pressed ? module.theme.highlight : module.theme.hoverFill
         visible: !module.special && module.name !== "custom/logo" && (module.focused || mouse.pressed || (module.theme.paperDetails && module.interactive && mouse.containsMouse))
+    }
+    Rectangle {
+        objectName: "bar-module-alert"
+        visible: module.retroAlert && !module.special && !module.blinkOff
+        x: text.x - module.theme.cellW
+        y: text.y + (text.height - height) / 2
+        width: text.width + 2 * module.theme.cellW; height: module.theme.cell + 4
+        color: module.theme.ink
     }
     BotanicalMark {
         anchors.horizontalCenter: parent.horizontalCenter
@@ -74,25 +101,28 @@ Item {
     Text {
         id: text
         objectName: "bar-module-text"
-        anchors.horizontalCenter: parent.horizontalCenter
-        y: 7
-        height: 23
+        x: module.contentRight - width
+        // Retro: one whole cell, centred on the 32 px strip, so the glyphs land on whole pixels.
+        y: module.theme.style === "retro" ? 10 : 7
+        height: module.theme.style === "retro" ? module.theme.cell : 23
         width: Math.min(implicitWidth, module.labelLimit)
         elide: Text.ElideRight
         visible: !module.special && !module.clockParts && !module.botanicalLogo
         text: module.label
         textFormat: Text.PlainText
-        color: module.sample.classes.indexOf("critical") >= 0 || module.sample.classes.indexOf("error") >= 0 ? module.theme.error
+        color: module.retroAlert && !module.blinkOff ? module.theme.background
+            : module.sample.classes.indexOf("critical") >= 0 || module.sample.classes.indexOf("error") >= 0 ? module.theme.error
             : module.sample.classes.indexOf("warning") >= 0 || module.sample.classes.indexOf("stopped") >= 0 ? module.theme.warning
             : module.sample.classes.indexOf("berry") >= 0 ? module.theme.gardenShades[4]
             : module.sample.classes.indexOf("done") >= 0 ? module.theme.gardenShades[3] : module.theme.ink
         font.family: module.theme.fontFamily
-        font.pixelSize: module.name === "custom/logo" ? 18 : 13
+        font.pixelSize: module.theme.style === "retro" ? module.theme.cell : module.name === "custom/logo" ? 18 : 13
+        renderType: module.theme.textRender
         verticalAlignment: Text.AlignVCenter
     }
     Column {
         id: clock
-        anchors.horizontalCenter: parent.horizontalCenter
+        x: module.contentRight - implicitWidth
         y: 5
         visible: !!module.clockParts
         Text { anchors.horizontalCenter: parent.horizontalCenter; text: module.clockParts ? module.clockParts[1] : ""; color: module.theme.muted; font.family: module.theme.fontFamily; font.pixelSize: 10; textFormat: Text.PlainText }

@@ -32,16 +32,19 @@ INK="$(rgb {{FG_R}} {{FG_G}} {{FG_B}})"
 DIM="$(rgb {{FG_DIM_R}} {{FG_DIM_G}} {{FG_DIM_B}})"
 FAINT="$(rgb {{COMMENT_R}} {{COMMENT_G}} {{COMMENT_B}})"
 HEART="$(rgb {{GARDEN_3_R}} {{GARDEN_3_G}} {{GARDEN_3_B}})"
-BERRY="$(rgb {{GARDEN_4_R}} {{GARDEN_4_G}} {{GARDEN_4_B}})"
+BERRY="$(rgb {{CLAUDE_ALERT_R}} {{CLAUDE_ALERT_G}} {{CLAUDE_ALERT_B}})"
 ACCENT="$(rgb {{WAYBAR_WS_ACTIVE_R}} {{WAYBAR_WS_ACTIVE_G}} {{WAYBAR_WS_ACTIVE_B}})"
 BOLD=$'\033[1m'
+INVERSE=$'\033[7m'
+retro=0; [[ "{{DESK_STYLE}}" == retro ]] && retro=1
 RESET=$'\033[0m'
 
 # Each part is kept twice: coloured, and plain to measure the width.
 parts=() plain=()
 add() { parts+=("$1"); plain+=("$2"); }
 
-add "$INK$model$RESET" "$model"
+# Retro draws the model as a badge in inverse video and the meter in brackets, the way a DOS status bar did.
+if (( retro )); then add "$INK$INVERSE ${model^^} $RESET" " ${model^^} "; else add "$INK$model$RESET" "$model"; fi
 
 if [[ "$ctx" =~ ^[0-9]+$ ]]; then
     filled=$(( (ctx * 5 + 50) / 100 )); (( filled > 5 )) && filled=5
@@ -52,7 +55,7 @@ if [[ "$ctx" =~ ^[0-9]+$ ]]; then
         if (( i < filled )); then hearts+="$colour$filled_mark"; else hearts+="$FAINT$empty_mark"; fi
         bare+="$filled_mark"
     done
-    add "$hearts $DIM$ctx%$RESET" "$bare $ctx%"
+    if (( retro )); then add "$FAINT[$hearts$FAINT] $DIM$ctx%$RESET" "[$bare] $ctx%"; else add "$hearts $DIM$ctx%$RESET" "$bare $ctx%"; fi
 fi
 
 # What the hooks last said of this session: readiness, compaction,
@@ -64,7 +67,8 @@ if [[ -n "$sid" && -r "$XDG_RUNTIME_DIR/foxml-claude/$sid.state" ]]; then
 fi
 [[ "$since" =~ ^[0-9]+$ ]] || since=0
 # The idle word and the sparkle follow the drawing style: Paper's words, retro's prompt, the cat elsewhere.
-spark="✧"; [[ "{{DESK_STYLE}}" == retro ]] && spark="*"
+# Big Blue Term has neither ✧ nor ⎇: retro takes * and the Nerd Font branch.
+spark="✧" fork="⎇"; (( retro )) && { spark="*"; fork=""; }
 if [[ "$state" == "compacting" ]]; then
     add "${DIM}tidying $spark$RESET" "tidying $spark"
 elif [[ "$detail" == "fresh" ]] && (( now - since < 90 )); then
@@ -94,7 +98,7 @@ usage "week" "$week" "$week_reset" "+%a"
 
 if [[ -d "$dir" ]]; then
     branch="$(git --no-optional-locks -C "$dir" symbolic-ref --short -q HEAD 2>/dev/null)"
-    [[ -n "$branch" ]] && add "$FAINT⎇ $branch$RESET" "⎇ $branch"
+    [[ -n "$branch" ]] && add "$FAINT$fork $branch$RESET" "$fork $branch"
 fi
 
 # The plan-before-code gate, where a repo keeps one: open once this session's plan was approved.
@@ -109,7 +113,7 @@ fits() {
     for i in "${!plain[@]}"; do [[ -n "${plain[$i]}" ]] && total=$(( total + ${#plain[$i]} + 3 )); done
     (( total <= width ))
 }
-for drop in "⎇ " "ready" "needs input" "READY." "INPUT?" "ᓚᘏᗢ" "tidying" "$spark a fresh" "week " "5h "; do
+for drop in "$fork " "ready" "needs input" "READY." "INPUT?" "ᓚᘏᗢ" "tidying" "$spark a fresh" "week " "5h "; do
     fits && break
     for i in "${!plain[@]}"; do
         [[ "${plain[$i]}" == "$drop"* ]] && { parts[$i]=""; plain[$i]=""; }

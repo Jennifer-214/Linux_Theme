@@ -1,6 +1,16 @@
 import type { EngineInterface } from 'claude-code'
 import { BUILD_ID } from './build'
 import type { CiRun, GitLook, ReviewProgress, TurnReceipt, WorkJob, WorkLook, WorkTest } from '../types'
+import { paper } from './theme'
+
+// Retro draws in Big Blue Term, a DOS font: its marks are ones code page 437 has, its words are plain capitals, and
+// nothing is a flower. Every other style keeps the notebook's own characters.
+export const RETRO = paper.style === 'retro'
+export const ELLIPSIS = RETRO ? '..' : '…'
+// `text` cut to `width` columns, the cut said with the ellipsis.
+export function cut(text: string, width: number): string {
+  return text.length <= width ? text : text.slice(0, Math.max(0, width - ELLIPSIS.length)) + ELLIPSIS
+}
 
 export function shellQuote(s: string): string { return "'" + s.replace(/'/g, "'\\''") + "'" }
 // A build, test or download is the command a segment starts with, not a word it mentions:
@@ -47,23 +57,36 @@ export function ago(seconds: number): string {
 }
 // Every mark the notebook draws, and what it means. Rows, test and CI lines, toasts, the note envelope and the marks
 // page all read this table, so a mark changes in one place. The band above the prompt keeps its own two bullets.
-export const MARKS = {
-  checked: ['✓', 'reviewed as it is now; on a test or CI line, passed'],
-  changed: ['↻', 'edited since you reviewed it, or something to read again'],
-  unread: ['○', 'not reviewed yet'],
-  sent: ['✉', 'sent to a session and waiting for a change, or a note for this one'],
-  look: ['✎', 'something to look over'],
-  risky: ['⚠', 'red zone: login, boot, mounts, firewall'],
-  failed: ['!', 'failed, and not passed since'],
-  running: ['◷', 'running now'],
-  commit: ['❦', 'a commit'],
-  plan: ['⌑', 'the pinned plan'],
-  step: ['◇', 'the step or task in hand'],
-  waiting: ['●', 'a session that needs you'],
-  busy: ['✎', 'a session at work'],
-  idle: ['○', 'a session at rest'],
+const MEANINGS = {
+  checked: 'reviewed as it is now; on a test or CI line, passed',
+  changed: 'edited since you reviewed it, or something to read again',
+  unread: 'not reviewed yet',
+  sent: 'sent to a session and waiting for a change, or a note for this one',
+  look: 'something to look over',
+  risky: 'red zone: login, boot, mounts, firewall',
+  failed: 'failed, and not passed since',
+  running: 'running now',
+  commit: 'a commit',
+  plan: 'the pinned plan',
+  step: 'the step or task in hand',
+  waiting: 'a session that needs you',
+  busy: 'a session at work',
+  idle: 'a session at rest',
 } as const
-export function glyph(name: keyof typeof MARKS): string { return MARKS[name][0] }
+type Mark = keyof typeof MEANINGS
+const SHAPES: Record<Mark, string> = { checked: '✓', changed: '↻', unread: '○', sent: '✉', look: '✎', risky: '⚠', failed: '!',
+  running: '◷', commit: '❦', plan: '⌑', step: '◇', waiting: '●', busy: '✎', idle: '○' }
+const DOS: Record<Mark, string> = { checked: '√', changed: '↕', unread: '○', sent: '→', look: '*', risky: '‼', failed: '!',
+  running: '☼', commit: '♦', plan: '≡', step: '►', waiting: '◘', busy: '•', idle: '○' }
+export const MARKS = Object.fromEntries((Object.keys(MEANINGS) as Mark[]).map(name =>
+  [name, [(RETRO ? DOS : SHAPES)[name], MEANINGS[name]] as const])) as Record<Mark, readonly [string, string]>
+export function glyph(name: Mark): string { return MARKS[name][0] }
+// The few characters outside the marks that the notebook draws.
+export const CHARS = RETRO
+  ? { cursor: '»', enter: 'Enter', withdraw: 'x', dash: '-', on: '◘', off: '○', meter: ['█', '░'], pencil: '■', minus: '-' }
+  : { cursor: '›', enter: '⏎', withdraw: '✕', dash: '—', on: '●', off: '○', meter: ['▰', '▱'], pencil: '✎', minus: '−' }
+// A word the notebook says, as retro says it: in capitals, the way a DOS program printed its state.
+export function said(words: string): string { return RETRO ? words.toUpperCase() : words }
 // "✓ 128 passed 2h ago · 3 files changed since": what the last test run said, how old it is, and whether it still holds.
 export function testLabel(test: WorkTest, now?: number): string {
   const p = test.tests?.passed, f = test.tests?.failed
@@ -89,7 +112,12 @@ export function parseBranchLine(line: string): { branch: string; upstream: strin
 }
 // "polish/drawer · 2 unpushed · 2 worktrees": where this checkout stands against what was pushed.
 export function branchLabel(git: GitLook | null | undefined, branch: string): string {
-  const parts = [branch || 'no branch']
+  const sync = syncLabel(git)
+  return (branch || 'no branch') + (sync ? ' · ' + sync : '')
+}
+// "2 unpushed · 2 worktrees": the same without the branch, which the status line already shows.
+export function syncLabel(git: GitLook | null | undefined): string {
+  const parts: string[] = []
   if (git) {
     if (!git.upstream) parts.push('not pushed yet')
     else {
@@ -157,7 +185,7 @@ export function workName(plan: string | null | undefined, session: string | null
   const tidy = (s: string) => s.replace(/[\x00-\x1f\x7f]/g, ' ').replace(/\s+/g, ' ').trim()
   const planned = tidy(plan ?? '').replace(/^plan\s*[:—-]\s*/i, '').replace(/^\d{4}-\d{2}-\d{2}\s*[:—·-]?\s*/, '').replace(/\s*\(\d{4}-\d{2}-\d{2}\).*$/, '')
   const name = planned || tidy(session ?? '') || tidy(project) || 'Claude'
-  return name.length > 60 ? name.slice(0, 59) + '…' : name
+  return cut(name, 60)
 }
 // One line for a finished turn: "3 files · tests passed · 1 commit · ⚠ /etc/pam.d". Empty when it left nothing.
 export function receiptLine(receipt: TurnReceipt | null | undefined): string {
@@ -201,11 +229,12 @@ export function filterFiles<T extends { path: string }>(files: T[], states: Map<
 // A left text and a right text on one line of `width`: the right one keeps its place (up to half the line; past that
 // it is cut too), the left one gives way. The two parts come back apart, so each can have its own colour.
 export function sides(left: string, right: string, width: number): [string, string] {
-  if (right === '') return [left.length > width ? left.slice(0, Math.max(1, width - 1)) + '…' : left, '']
+  const end = (text: string, room: number) => text.length > room ? text.slice(0, Math.max(1, room - ELLIPSIS.length)) + ELLIPSIS : text
+  if (right === '') return [end(left, width), '']
   const half = Math.max(4, Math.floor(width / 2))
-  const side = right.length > half ? right.slice(0, half - 1) + '…' : right
+  const side = end(right, half)
   const room = Math.max(4, width - side.length - 1)
-  const shown = left.length > room ? left.slice(0, room - 1) + '…' : left
+  const shown = end(left, room)
   return [shown + ' '.repeat(Math.max(1, width - shown.length - side.length)), side]
 }
 export function spread(left: string, right: string, width: number): string {
@@ -213,9 +242,14 @@ export function spread(left: string, right: string, width: number): string {
 }
 // A group's rule line, to symdeps' menu rules: " ── label ─────── right ──".
 export function ruleLine(label: string, right: string, width: number): string {
-  const head = `── ${label} `
-  const tail = right ? ` ${right} ──` : ''
-  return head + '─'.repeat(Math.max(2, width - head.length - tail.length)) + tail
+  return ruleParts(label, right, width).join('')
+}
+// The rule in three parts, so the label can be drawn apart: retro prints it in inverse capitals, " NEEDS YOU ".
+export function ruleParts(label: string, right: string, width: number): [string, string, string] {
+  const name = RETRO ? ` ${label.toUpperCase()} ` : `${label} `
+  const head = RETRO ? '──' : '── '
+  const tail = right ? ` ${said(right)} ──` : ''
+  return [head, name, '─'.repeat(Math.max(2, width - head.length - name.length - tail.length)) + tail]
 }
 // "◷ working 14m · Run the drawer tests": the turn under way, from your message to now, and its latest step.
 export const TURN_QUIET_MS = 15 * 60 * 1000
@@ -243,14 +277,16 @@ export function planProgress(text: string): { done: number; total: number; next?
   return next ? { done, total, next } : { done, total }
 }
 export function stepLabel(p: { done: number; total: number }): string {
-  return p.done >= p.total ? `all ${p.total} ${p.total === 1 ? 'step' : 'steps'} done ✿` : `step ${p.done + 1} of ${p.total}`
+  if (p.done < p.total) return `step ${p.done + 1} of ${p.total}`
+  const all = `all ${p.total} ${p.total === 1 ? 'step' : 'steps'} done`
+  return RETRO ? all.toUpperCase() : all + ' ✿'
 }
 // A little ruler: drawn up to `fraction`, with a pencil at the point when one is asked for.
 export function ruler(fraction: number, length: number, pencil = false): [string, string, string] {
   const n = Math.max(3, length), at = Math.round(Math.min(1, Math.max(0, fraction)) * n)
   if (!pencil) return ['━'.repeat(at), '', '┄'.repeat(n - at)]
   const drawn = Math.min(at, n - 1)
-  return ['━'.repeat(drawn), '✎', '┄'.repeat(n - drawn - 1)]
+  return ['━'.repeat(drawn), CHARS.pencil, '┄'.repeat(n - drawn - 1)]
 }
 // How a running job compares with the last time the same command passed here; no estimate, no guess.
 export function jobPace(job: WorkJob): { fraction: number; left: string } | { late: true } | null {

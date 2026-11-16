@@ -1,4 +1,5 @@
 import QtQuick
+import "DrawerLogic.js" as Logic
 import QtQuick.Layouts
 
 // Compact keeps the label and its rail on one line.
@@ -10,6 +11,7 @@ GridLayout {
     signal clicked()
     readonly property bool known: !!credit && credit.remaining_percent !== null && credit.remaining_percent !== undefined
     readonly property real remaining: known ? Math.max(0, Math.min(100, Number(credit.remaining_percent))) : 0
+    readonly property bool retro: theme.style === "retro"
     readonly property bool caution: !!credit && (credit.status === "stale" || credit.status === "error" || (known && remaining <= 20))
     visible: credit !== null
     columns: compact ? 2 : 1
@@ -22,16 +24,17 @@ GridLayout {
         objectName: "api-credit-label"
         Layout.fillWidth: !meter.compact
         textFormat: Text.PlainText
-        text: meter.credit ? meter.credit.short : "API · setup"
+        // Retro carries the rail in the words: "API · $12 left [████████░░░░]".
+        text: (meter.credit ? meter.credit.short : "API · setup") + (meter.retro && meter.known ? " " + Logic.retroBar(meter.remaining, 12) : "")
         color: meter.caution ? meter.theme.error : meter.theme.botanicalInk
         font.family: meter.theme.fontFamily
-        font.pixelSize: 11
+        font.pixelSize: meter.theme.px(11); renderType: meter.theme.textRender
         elide: Text.ElideRight
         MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: meter.clicked() }
     }
     Rectangle {
         objectName: "api-credit-rail"
-        visible: meter.known
+        visible: meter.known && !meter.retro
         Layout.fillWidth: true
         Layout.alignment: Qt.AlignVCenter
         implicitHeight: 4
@@ -52,7 +55,7 @@ GridLayout {
         text: meter.credit ? meter.credit.detail : ""
         color: meter.theme.muted
         font.family: meter.theme.fontFamily
-        font.pixelSize: 9
+        font.pixelSize: meter.theme.px(9); renderType: meter.theme.textRender
         wrapMode: Text.WordWrap
     }
 }

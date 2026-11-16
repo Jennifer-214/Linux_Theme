@@ -3,6 +3,8 @@
 # ╰──────────────────────────────────────────────╯
 
 typeset -g FOXML_FZF_POINTER='◆' FOXML_FZF_MARKER='●'
+# Retro: characters Big Blue Term has (◆ ● fall back to another font).
+[[ "{{DESK_STYLE}}" == retro ]] && { FOXML_FZF_POINTER='►'; FOXML_FZF_MARKER='√'; }
 if [[ "{{LITTLE_DETAILS}}" == fox-little-details-on ]]; then
   FOXML_FZF_POINTER='›'
   FOXML_FZF_MARKER=' '

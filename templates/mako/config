@@ -1,4 +1,6 @@
 font={{FONT_FAMILY}} 10
+# A theme without colour icons (retro: the phosphor look has no room for Papirus blue).
+icons={{MAKO_ICONS}}
 # Title + body layout (Paper writes the title in the handwriting italic, like a note)
 format={{MAKO_FORMAT}}
 background-color=#{{BG}}{{POPUP_BG_OPACITY_HEX}}

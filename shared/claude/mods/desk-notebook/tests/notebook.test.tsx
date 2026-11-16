@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 import { mailId } from '../hooks/notebook'
-import { BAND, NOW, PANE, PEERS, done, engine, fakeFs, opened, seen } from './kit'
+import { BAND, NOW, PANE, PEERS, done, engine, fakeFs, hide, opened, seen } from './kit'
 
 test('hiding and toggling the notebook preserves its page and does not send a prompt', async ($, on) => {
   engine(on)
@@ -21,6 +21,7 @@ test('explicit hide closes only the notebook and discards an unfinished form', a
   engine(on, { projectWork: { tests: null, jobs: [], tasks: [] } })
   await opened($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'nav-more' })
   await ui.press({ key: 'task-add' })
   await ui.input({ key: 'work-next-step', text: 'unfinished draft', kind: 'change' })
   await ui.press({ key: 'nav-hide' })
@@ -40,6 +41,7 @@ test('health shows backend diagnostics and opens explicit recovery controls with
   ] } } })
   await opened($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'nav-more' })
   await ui.press({ key: 'page-health' })
   expect(await ui.find({ type: 'Text', text: 'Stream: retrying' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'Interrupted update' })).toBeDefined()
@@ -50,13 +52,14 @@ test('health shows backend diagnostics and opens explicit recovery controls with
   await ui.unmount()
 })
 
-test('the notebook shows the hearts, the session name and the pages touched', async ($, on) => {
+test('the notebook shows the session name and the pages touched, and leaves the context meter to the status line', async ($, on) => {
   engine(on)
   await opened($)
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface })
-    expect((await ui.find({ type: 'Text', text: /▰▰▰▱▱/ }))?.text).toBe('▰▰▰▱▱ 64%')
+    expect(await ui.find({ type: 'Text', text: /^notebook +$/ }), 'the header').toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /▰|64%/ }), 'no second context meter').toBeUndefined()
     expect((await ui.find({ key: 'page-files' }))?.text).toContain('2 changed')
     await ui.press({ key: 'page-files' })
     await ui.press({ key: 'scope-all' })
@@ -73,7 +76,7 @@ test('test failures open their quickfix location, and next steps prepare a draft
   } })
   await opened($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  await ui.press({ key: 'page-project' })
+  await ui.press({ key: 'nav-more' })
   expect((await ui.find({ type: 'Text', text: /128 passed/ }))?.text).toContain('may be out of date')
   await ui.press({ key: 'work-failure-0' })
   expect(seen.argv).toContain(`desk-work open --root /code/paper --action tests --id ${'a'.repeat(32)} --index 1`)
@@ -122,13 +125,14 @@ test('the spinner knits in the terminal and leaves other surfaces their words', 
   await desktop.unmount()
 })
 
-test('other claudes are listed with go and note, and a note reaches the session it was written to', async ($, on) => {
+test('other sessions are listed with go and note, and a note reaches the session it was written to', async ($, on) => {
   engine(on)
   await opened($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ key: 'page-sessions' }))?.props.label).toBe('3 claudes · you + 2 others')
+  await ui.press({ key: 'nav-more' })
+  expect((await ui.find({ key: 'page-sessions' }))?.props.label).toBe('3 sessions')
   await ui.press({ key: 'page-sessions' })
-  expect((await ui.find({ type: 'Text', text: /claudes · you/ }))?.text).toBe('3 claudes · you and 2 others')
+  expect((await ui.find({ type: 'Text', text: /sessions · you/ }))?.text).toBe('3 sessions · you and 2 others')
   expect(await ui.find({ type: 'Text', text: /this one/ })).toBeUndefined()
   expect((await ui.find({ type: 'Text', text: /Ledger tidy/ }))?.text).toBe('● Ledger tidy · trader')
   expect(await ui.find({ key: 'go-p2' })).toBeUndefined()
@@ -257,6 +261,7 @@ test('pinning the plan and current step survives another plan read, and task inp
   await opened($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ key: 'work-next-step' })).toBeUndefined()
+  await ui.press({ key: 'nav-more' })
   await ui.press({ key: 'task-add' })
   expect((await ui.find({ key: 'work-next-step' }))?.props.autoFocus).toBe(true)
   expect((await ui.find({ key: 'task-add' }))?.props.autoFocus).toBeUndefined()
@@ -269,9 +274,11 @@ test('pinning the plan and current step survives another plan read, and task inp
   await ui.press({ key: 'plan-step' })
   await ui.input({ key: 'plan-current-step', text: 'ship file selection', kind: 'submit' })
   await $.tool.call({ tool: 'Read', file_path: '/code/paper/plans/two.md' })
-  await $.command.run({ command: 'notebook', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  await $.command.run({ command: 'notebook', args: 'project', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
   expect((await ui.find({ key: 'plan-open' }))?.text).toContain('The active plan')
   expect((await ui.find({ key: 'plan-step' }))?.text).toContain('ship file selection')
+  await $.command.run({ command: 'notebook', args: 'overview', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  expect((await ui.find({ key: 'plan-open' }))?.text, 'the front page names the step in hand').toContain('ship file selection')
   const ledger = JSON.parse(files['/run/t/foxml-claude/edits/abc.json'] ?? '{}')
   expect(ledger.plan).toBe('/code/paper/plans/one.md')
   expect(seen.sent).toEqual([])
@@ -283,6 +290,7 @@ test('next-step editors keep cancel visible, request native Escape closing, and 
   engine(on, { projectWork: { tests: null, jobs: [], tasks: [] } })
   await opened($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'nav-more' })
   await ui.press({ key: 'task-add' })
   expect(seen.opened.at(-1)?.closeOnEscape).toBe(true)
   expect(await ui.find({ key: 'work-next-step' })).toBeDefined()
@@ -318,7 +326,7 @@ test('the attention summary and project cards lead to job output, source files a
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'attention-job-' + failed.id })
   expect(seen.argv).toContain(`desk-work open --root /code/paper --action log --id ${failed.id}`)
-  await ui.press({ key: 'page-project' })
+  await ui.press({ key: 'nav-more' })
   await ui.press({ key: 'card-0' })
   expect(seen.argv).toContain('desk-work open --root /code/paper --action file --file plans/state.md --session abc')
   await ui.press({ key: 'tree:/code/paper-feature' })
@@ -363,13 +371,14 @@ test('read markers restored at startup suppress a retried peer message after rel
 })
 
 
-test('the notebook at rest shows no key hints and no credit meter while credit is plentiful', async ($, on) => {
+test('the front page keeps its one key bar at rest, and no credit row while credit is plentiful', async ($, on) => {
   engine(on, { credits: { short: 'API ~$180.00 left', headline: '$20.00 tracked of $200.00', detail: 'Tracked runs only · renews Dec 1',
     meter: '▰▰▰▰▰▰▰▰▰▱', status: 'tracked', source: 'local', remaining_percent: 90, as_of: '2026-11-09T00:00:00Z', projects: [] } })
   await opened($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect(await ui.find({ key: 'api-credit-meter' })).toBeUndefined()
   expect(await ui.find({ key: 'nav-back' })).toBeUndefined()
+  expect((await ui.find({ key: 'nav-hide' }))?.props.hotkey, 'drawn at rest too, so focusing the pane moves nothing').toBe('q')
   await ui.press({ key: 'page-files' })
   expect((await ui.find({ key: 'nav-back' }))?.props.hotkey).toBe('h')
   await ui.unmount()
@@ -382,7 +391,6 @@ test('the API credit meter appears when credit runs low and opens the shared cre
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await ui.find({ key: 'api-credit-meter' }))?.text).toContain('API ~$30.00 left')
   expect((await ui.find({ key: 'api-credit-meter' }))?.text).toContain('▰▱▱▱▱▱▱▱▱▱ tracked')
-  expect((await ui.find({ type: 'Text', text: /64%/ }))?.text).toContain('64%')
   await ui.press({ key: 'api-credit-meter' })
   expect(seen.argv).toContain('desktop-menu --open api-credits')
   expect(seen.argv.some(argv => argv.includes('desk-credits sync'))).toBe(false)
@@ -422,6 +430,7 @@ test('a running job draws a pencil ruler against its last pass, and says so plai
   await opened($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await ui.find({ key: 'job-j1' }))?.text).toContain('Build the engine · 1m')
+  await ui.press({ key: 'nav-more' })
   expect((await ui.find({ type: 'Text', text: /✎.*about 2m left/ }))?.text).toMatch(/^ {2}━+✎┄+ about 2m left$/)
   const again = () => $.command.run({ command: 'notebook', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
   projectWork.jobs = [{ ...job, estimate: 45 }]
@@ -430,7 +439,7 @@ test('a running job draws a pencil ruler against its last pass, and says so plai
   expect(await ui.find({ type: 'Text', text: /✎/ })).toBeUndefined()
   projectWork.jobs = [job]
   await again()
-  expect((await ui.find({ key: 'job-j1' }))?.text).toContain('· 1m')
+  expect(await ui.find({ key: 'job-j1' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /left|longer|✎/ })).toBeUndefined()
   await ui.unmount()
 })
@@ -443,9 +452,8 @@ test("the plan row shows which checkbox step is next, and nothing for a plan wit
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   await ui.press({ key: 'plan-pin' })
   await ui.input({ key: 'plan-file', text: 'plans/one.md', kind: 'submit' })
-  // The plan's row carries the step on the right; the ruler under it counts what is ticked.
-  expect((await ui.find({ key: 'plan-open' }))?.props.label).toBe('⌑ The active plan · step 3 of 3')
-  expect((await ui.find({ type: 'Text', text: /2 of 3 done/ }))?.text).toMatch(/^ {2}━+┄+ 2 of 3 done$/)
+  // The front page's one plan line: the first unticked step, and where it stands; the project page has the ruler.
+  expect((await ui.find({ key: 'plan-open' }))?.props.label).toBe('◇ c · 3/3')
   await $.command.run({ command: 'notebook', args: 'project', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
   expect(await ui.find({ type: 'Text', text: /step 3 of 3/ })).toBeDefined()
   await ui.press({ key: 'plan-pin' })
@@ -488,19 +496,22 @@ test('the notebook says where the branch stands, what CI made of the push, and h
   ] })
   await opened($)
   let ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ key: 'page-project' }))?.props.label).toBe('main · pushed')
-  expect((await ui.find({ key: 'page-project' }))?.text).toMatch(/main +pushed$/)
   expect((await ui.find({ key: 'work-ci' }))?.text).toContain('! CI · keybinds-sync failed')
   expect(seen.toasts).toContain('! CI · keybinds-sync failed')
   await ui.press({ key: 'work-ci' })
   expect(seen.argv).toContain('xdg-open https://github.com/o/paper/actions/runs/2')
   expect(await ui.find({ type: 'Text', text: /working/ })).toBeUndefined()
+  // The branch's name is on the status line; the project page says only where it stands.
+  await ui.press({ key: 'nav-more' })
+  expect(await ui.find({ type: 'Text', text: /^pushed$/ })).toBeDefined()
+  await ui.press({ key: 'nav-back' })
   await ui.unmount()
 
   await $.prompt.submit({ text: 'run the tests', wait: false, origin: { kind: 'composer' } })
   await $.tool.call({ tool: 'Bash', command: 'true', description: 'Run the drawer tests' })
   ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /working/ }))?.text).toBe('◷ working · Run the drawer tests')
+  expect(await ui.find({ type: 'Text', text: /^── last turn ─+ working ──$/ }), 'the turn under way, on the last turn\'s rule').toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /Run the drawer tests/ }))?.text).toBe('  ◷ Run the drawer tests')
   await ui.unmount()
   expect(seen.argv.filter(a => a.startsWith('gh run list')).length).toBe(1)
 })
@@ -516,11 +527,11 @@ test('a finished turn leaves a receipt: its files, its tests, its commits and wh
   await $.tool.call({ tool: 'Bash', command: 'sudo bootctl update', description: 'Update the boot loader' })
   await $.classic.Stop({ hook_event_name: 'Stop', stop_hook_active: false } as never)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ key: 'receipt-files' }))?.props.label).toBe('✎ 1 file changed · 0 of 1 reviewed')
-  expect(await ui.find({ type: 'Text', text: /⚠ touched bootctl · red zone/ })).toBeDefined()
+  expect((await ui.find({ key: 'receipt-files' }))?.props.label).toBe('✎ 1 file · ⚠ bootctl')
   expect(await ui.find({ type: 'Text', text: /── last turn/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /── review/ })).toBeDefined()
   await ui.unmount()
+  await hide($)
   const band = await $.ui.mount({ ...BAND, props: { ...BAND.props, isWorking: false }, surface: 'terminal' } as never)
   // The red-zone warning comes first; once acknowledged, the turn's receipt is the line above the prompt.
   expect((await band.find({ type: 'Text', text: /red zone/ }))).toBeDefined()
@@ -531,6 +542,7 @@ test('a finished turn leaves a receipt: its files, its tests, its commits and wh
   expect((await after.find({ type: 'Text', text: /1 file/ }))?.text).toContain('⚠ bootctl')
   await after.unmount()
   // The row opens what it names: this turn's file in this session's review, not the general queue.
+  await $.command.run({ command: 'notebook', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' })
   seen.argv = []
   await pane.press({ key: 'receipt-files' })
@@ -542,7 +554,7 @@ test('a finished turn leaves a receipt: its files, its tests, its commits and wh
   await $.tool.call({ tool: 'Edit', file_path: '/code/paper/README.md', old_string: 'new', new_string: 'newer' })
   await $.classic.Stop({ hook_event_name: 'Stop', stop_hook_active: false } as never)
   const again = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await again.find({ key: 'receipt-files' }))?.props.label).toBe('✎ 1 file changed · 0 of 1 reviewed')
+  expect((await again.find({ key: 'receipt-files' }))?.props.label).toBe('✎ 1 file')
   expect(await again.find({ key: 'receipt-risk-bootctl' })).toBeUndefined()
   await again.unmount()
 })
@@ -571,7 +583,7 @@ test('the work takes one name: the plan in the header, and on the pane as a labe
   await ui.input({ key: 'plan-file', text: 'plans/one.md', kind: 'submit' })
   const set = seen.argv.filter(c => c.startsWith('tmux set-option -p -t %7 @work '))
   expect(set.at(-1)).toBe('tmux set-option -p -t %7 @work Queue s refactor (x) now')
-  expect((await ui.find({ type: 'Text', text: /^ · Queue/ }))?.text).toMatch(/^ · Queue's `refactor`/)   // the header: the plan, not "Plan: …"
+  expect((await ui.find({ type: 'Text', text: /^Queue/ }))?.text).toMatch(/^Queue's `refactor`/)   // the header: the plan, not "Plan: …"
   await ui.unmount()
 })
 
@@ -582,7 +594,6 @@ test('needs you comes first: a request whose file changed, files edited since re
       { file: 'src/queue.cpp', name: 'Queue refactor', sid: 'q1', text: 'rename head', at: 1, state: 'ready' },
       { file: 'src/worker.cpp', name: 'Queue refactor', sid: 'q1', text: 'drain first', at: 1, state: 'waiting' }] } })
   await opened($)
-  // Focused: the keys row is drawn while the notebook holds the keyboard.
   const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: true }, surface: 'terminal' } as never)
   const rules = (await ui.findAll({ type: 'Text', text: /^── / })).map(t => String(t.text).replace(/ ─.*$/, ''))
   expect(rules.indexOf('── needs you')).toBe(0)
@@ -593,8 +604,6 @@ test('needs you comes first: a request whose file changed, files edited since re
   seen.argv = []
   await ui.press({ key: 'attention-request-src/queue.cpp' })
   expect(seen.argv).toContain('desk-work open --root /code/paper --action file-diff --file src/queue.cpp --session abc')
-  // The thread reads out under the list: who was asked and what for.
-  expect(await ui.find({ type: 'Text', text: /You asked Queue refactor: "rename head"/ })).toBeDefined()
   // One key goes to the first thing that needs you.
   seen.argv = []
   await ui.press({ key: 'nav-next' })
@@ -631,8 +640,8 @@ test('a delivered retry does not reset the request baseline or repeat changed co
     requests: [{ file: 'src/worker.cpp', name: 'Ledger tidy', sid: 'p1', text: 'drain first', at: 1, state: 'waiting' }] } })
   await opened($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
-  expect((await ui.find({ key: 'review-open' }))?.props.label).toBe('✎ 2 changes to review')
-  expect((await ui.find({ key: 'page-files' }))?.props.label).toBe('2 changed files · 0 reviewed')
+  expect(await ui.find({ key: 'review-open' }), 'one review line, not a second count of the same files').toBeUndefined()
+  expect((await ui.find({ key: 'page-files' }))?.props.label).toBe('✎ 2 changed · 0 reviewed')
   await ui.press({ key: 'request-src/worker.cpp' })
   seen.argv = []
   await ui.press({ key: 'request-again' })
@@ -648,7 +657,9 @@ test('a failed git refresh keeps the last file list and offers a retry', async (
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   gitFailure.value = true
   await $.command.run({ command: 'notebook', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
-  expect((await ui.find({ key: 'page-files' }))?.text).toContain('2 changed files')
+  expect((await ui.find({ key: 'page-files' }))?.text).toContain('2 changed')
+  expect(await ui.find({ key: 'sync-retry' }), 'the header says the page is not current').toBeDefined()
+  await ui.press({ key: 'nav-more' })
   expect((await ui.find({ key: 'refresh-now' }))?.props.label).toContain('may be out of date')
   gitFailure.value = false
   await ui.press({ key: 'refresh-now' })
@@ -664,7 +675,7 @@ test('compact mode reserves thirty columns, remembers its choice and expands wit
   expect(await ui.find({ key: 'page-files' })).toBeUndefined()
   await ui.press({ key: 'compact-expand' })
   expect(await ui.find({ key: 'page-files' })).toBeDefined()
-  expect(seen.opened.at(-1)).toMatchObject({ columns: 42, rows: 10 })
+  expect(seen.opened.at(-1)).toMatchObject({ columns: 42, rows: 16 })
   await $.command.run({ command: 'notebook', args: 'compact', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
   expect(seen.opened.at(-1)).toMatchObject({ columns: 30, rows: 4 })
   expect(seen.submitted).toEqual([])
@@ -679,7 +690,8 @@ test('the notebook uses shared attention actions and separates agents without me
   const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: true }, surface: 'terminal' } as never)
   await ui.press({ key: 'nav-next' })
   expect(seen.argv).toContain('desk-work open --root /code/paper --action attention --id request:README.md')
-  expect((await ui.find({ key: 'page-sessions' }))?.props.label).toBe('2 agents · you + 1 other')
+  await ui.press({ key: 'nav-more' })
+  expect((await ui.find({ key: 'page-sessions' }))?.props.label).toBe('2 sessions')
   await ui.press({ key: 'page-sessions' })
   expect(await ui.find({ key: 'go-pi:p1' })).toBeDefined()
   expect(await ui.find({ key: 'note-pi:p1' })).toBeUndefined()
@@ -752,6 +764,8 @@ test('an installed update this session has not loaded names the steps that keep 
       sessions: [{ client: 'notebook', status: 'reload-pending', reload: 'In that Claude pane: /exit, then claude --resume abc. The conversation comes back with the new notebook.' }] } } })
   await opened($)
   const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: true }, surface: 'terminal' } as never)
+  expect((await ui.find({ key: 'reload-pending' }))?.props.label, 'a needs-you row on the front page').toBe('↻ update installed · reload to use it')
+  await $.command.run({ command: 'notebook', args: 'attention', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
   let shown = false
   for (let i = 0; i < 20 && !shown; ++i) {
     await ui.press({ key: 'nav-down' })
@@ -807,6 +821,7 @@ test('the files page filters to what needs review, to what changed since, and by
   await ui.press({ key: 'files-search' })
   expect(await ui.find({ key: 'file:shared/a very long folder/notes.txt' })).toBeDefined()
   await ui.press({ key: 'nav-back' })
+  await ui.press({ key: 'nav-more' })
   await ui.press({ key: 'page-help' })
   expect(await ui.find({ type: 'Text', text: /edited since you reviewed it/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /── keys/ })).toBeDefined()
@@ -817,8 +832,10 @@ test('a page that could not refresh says so and offers a retry; one without the 
   engine(on)
   await opened($)
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ key: 'sync-retry' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /updated/ }), 'no clock ticking on the front page').toBeUndefined()
+  await ui.press({ key: 'nav-more' })
   expect((await ui.find({ key: 'refresh-now' }))?.props.label).toBe('work tool unavailable · retry')
-  expect(await ui.find({ type: 'Text', text: /── work .* updated just now/ })).toBeDefined()
   seen.argv = []
   await ui.press({ key: 'refresh-now' })
   expect(seen.argv.some(a => a.startsWith('git --no-optional-locks'))).toBe(true)

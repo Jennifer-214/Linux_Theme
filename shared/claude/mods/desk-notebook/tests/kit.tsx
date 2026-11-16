@@ -159,3 +159,7 @@ export async function opened($: Engine) {
   await $.session.start({ cwd: '/code/paper', surface: 'terminal', isInteractive: true })
   await $.command.run({ command: 'notebook', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
 }
+// The notebook hidden, as /notebook close leaves it: the band above the prompt speaks for it then.
+export async function hide($: Engine) {
+  await $.command.run({ command: 'notebook', args: 'close', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+}

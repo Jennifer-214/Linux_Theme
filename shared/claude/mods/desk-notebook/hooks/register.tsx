@@ -5,7 +5,7 @@ import type { AgentSession, ApiCredits, CiLook, GitLook, NotebookView, PaperActi
 import { addBefore, addEdit, addName, neighbours, namesText, noteText, overlapFor, parseLedger, parseNames, parseNote, trailerUrl, withPlan, editedSince } from './ledger'
 import type { Other } from './ledger'
 import { paper } from './theme'
-import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, filterFiles, pendingLine, planProgress, receiptLine, reviewStates, reviewSummary, ruleLine, ruler, sides, workName, wrapWords, stepLabel, testLabel, turnLabel, unreviewed, work, workCall, workLook, needBreakdown, needGroup, wrapParts, MARKS, glyph } from './work'
+import { ago, beginArgs, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, filterFiles, planProgress, receiptLine, reviewStates, reviewSummary, ruleParts, ruler, sides, syncLabel, workName, wrapWords, stepLabel, testLabel, turnLabel, unreviewed, work, workCall, workLook, needBreakdown, needGroup, wrapParts, MARKS, glyph, CHARS, ELLIPSIS, RETRO, cut, said } from './work'
 import { attributeFiles, fileColumns, fileCounts, gitFiles, drawerPage, mailId, shortPath, NAMED_PAGES } from './notebook'
 import { BUILD_ID } from './build'
 
@@ -31,8 +31,11 @@ const notebookView = atom({ plugin: 'desk-notebook', key: 'notebookView' } as co
   { page: 'overview', scope: 'session', selected: '', offset: 0, form: 'none' } as NotebookView, { shape: 'notebook-1' })
 const SID = /^[A-Za-z0-9_-]{1,80}$/
 const autoCompact = (columns: number) => columns < 144
+// The front page has a fixed set of rows (at most 16: header, five groups, the key bar), so the pane is that tall and
+// never grows or shrinks as things change.
+const FRONT_ROWS = 16
 const paneSize = (view: NotebookView) => view.compact && view.page === 'overview' && view.form === 'none'
-  ? { rows: 4, columns: 30 } : { rows: view.page === 'overview' && view.form === 'none' ? 10 : 22, columns: 42 }
+  ? { rows: 4, columns: 30 } : { rows: view.page === 'overview' && view.form === 'none' ? FRONT_ROWS : 22, columns: 42 }
 
 const WORDS = ['Reading', 'Checking', 'Tracing', 'Writing', 'Reviewing', 'Working']
 
@@ -71,8 +74,9 @@ function redZoneOf(command: string): string | null {
   return command.match(red.tools)?.[2]?.split(/\s+/)[0] ?? null
 }
 
-// A short greeting by the hour.
+// A short greeting by the hour; retro says it the way a DOS program did.
 function greeting(hour: number): string {
+  if (RETRO) return 'NOTEBOOK READY.'
   if (hour >= 5 && hour < 12) return 'good morning'
   if (hour >= 12 && hour < 18) return 'good afternoon'
   if (hour >= 18 && hour < 23) return 'good evening'
@@ -92,12 +96,12 @@ function hearts(percent: number | null): number {
 function fit(label: string, width: number): string {
   if (width < 2) return ''
   if (label.length <= width) return label
-  return /^\S*\/\S*$/.test(label.trim()) ? shortPath(label, width) : label.slice(0, width - 1).trimEnd() + '…'
+  return /^\S*\/\S*$/.test(label.trim()) ? shortPath(label, width) : label.slice(0, Math.max(1, width - ELLIPSIS.length)).trimEnd() + ELLIPSIS
 }
 
 function clip(text: string, width: number): string {
   if (width <= 1) return ''
-  return text.length <= width ? text : '…' + text.slice(text.length - width + 1)
+  return text.length <= width ? text : ELLIPSIS + text.slice(text.length - Math.max(0, width - ELLIPSIS.length))
 }
 
 async function run($: EngineInterface, argv: string[]): Promise<string | null> {
@@ -517,7 +521,18 @@ function peerMark(peer: PaperPeer): [string, string] {
 // and the rest in the ribbon colour.
 const LEADING = new RegExp(`^[${[glyph('step'), glyph('plan'), glyph('sent'), glyph('checked'), glyph('running'), glyph('failed'), '+'].map(m => m.replace(/[\\^\]-]/g, '\\$&')).join('')}] `)
 // A note from another session starts with the envelope, the sender and a colon.
-const ENVELOPE = new RegExp(`^${glyph('sent')} from (.{1,60}?): `)
+// Either style's envelope: a note can come from a session drawn in the other one.
+const ENVELOPE = /^(?:✉|→) from (.{1,60}?): /
+
+// The selected row: ink on the selection colour; retro in true inverse, the page's black on amber.
+const PICK = RETRO ? { ink: paper.page, ground: paper.ink } : { ink: paper.ink, ground: paper.selection }
+
+// Whether the notebook's front page, which draws the last turn, is on screen now.
+async function frontPageShown($: EngineInterface): Promise<boolean> {
+  const view = await read($, notebookView)
+  if (!memory.notebookOpen || view.compact || view.page !== 'overview' || view.form !== 'none') return false
+  try { return (await $.ui.panes()).some(pane => pane.id === PANE && pane.isShown && pane.isPlaced) } catch { return false }
+}
 
 function toneColour(tone: PaperTone | undefined): string {
   return tone === undefined ? paper.ink : paper[tone === 'heart' ? 'heart' : tone]
@@ -795,7 +810,7 @@ export const register: Register = on => {
       await update($, notebookView, current => ({ ...current, compact }))
       await $.ui.open({ id: PANE, title: 'notebook', ...paneSize({ ...view, compact }) })
     })
-    await $.command.register({ name: 'notebook', description: 'Open the paper notebook', argumentHint: '[toggle|close|auto|compact|expand|files|all|project|sessions|timeline|digest|health|attention|help]', immediate: true })
+    await $.command.register({ name: 'notebook', description: RETRO ? 'Open the notebook' : 'Open the paper notebook', argumentHint: '[toggle|close|auto|compact|expand|files|all|project|sessions|timeline|digest|health|attention|help]', immediate: true })
     return started
   })
 
@@ -960,9 +975,14 @@ export const register: Register = on => {
     // "0 this session".
     await recordShellEdits($, root, began).catch(() => undefined)
     // Tests that failed two or more times in a row pass again: desk-work counted the run of failures.
-    if (greenAgain(finished)) $.ui.toast('green again ✿')
+    if (greenAgain(finished)) $.ui.toast(RETRO ? 'TESTS OK' : 'green again ✿')
     if (COMMIT.test(e.command) && ran!.deny === undefined && ran!.isError !== true) {
-      $.ui.toast(`a seed planted ${glyph('commit')}`)
+      if (!RETRO) $.ui.toast(`a seed planted ${glyph('commit')}`)
+      else {
+        const where = e.command.match(/git\s+-C\s+(\S+)\s+commit/)?.[1]?.replace(/^['"]|['"]$/g, '') ?? await $.session.cwd()
+        const sha = (await run($, ['git', '--no-optional-locks', '-C', where, 'rev-parse', '--short', 'HEAD']))?.trim() ?? ''
+        $.ui.toast(/^[0-9a-f]{4,40}$/.test(sha) ? `COMMITTED ${sha}` : 'COMMITTED')
+      }
       await nameCommit($, e.command).catch(() => undefined)
     }
     // After a push that went through: the review stamps follow, where the repository asks for that
@@ -1043,9 +1063,10 @@ export const register: Register = on => {
       </Box>
     )
     const waiting = await read($, nudge)
-    if (waiting !== null && !e.props.isWorking) return (
+    // The notebook's front page draws the last turn itself; the band says it only while that page is out of sight.
+    if (waiting !== null && !e.props.isWorking && !await frontPageShown($)) return (
       <Box>
-        <Text color={paper.ribbon} weight="bold">✎ turn done </Text>
+        <Text color={paper.ribbon} weight="bold">{glyph('look')} turn done </Text>
         <Text color={paper.ink}>{clip(receiptLine(await read($, receipt)) || `${waiting} ${waiting === 1 ? 'file' : 'files'} changed`, Math.max(12, e.props.bodyColumns - 44))}</Text>
         <Text color={paper.dim}> · review pending </Text>
         <Button key="review" label="review" plain onPress={async () => {
@@ -1090,7 +1111,6 @@ export const register: Register = on => {
     const underway = await read($, turn)
     const clock = await $.clock.now()
     const width = Math.max(12, e.props.bodyColumns)
-    const filled = hearts(now?.context ?? null)
     const root = now?.root ?? await repoRoot($)
     const session = now?.session ?? await $.session.id()
     const navigation: { key: string; press: () => unknown }[] = []
@@ -1146,19 +1166,19 @@ export const register: Register = on => {
       const selected = view.selected === key
       const inverted = e.surface === 'terminal' && e.props.isFocused && view.focused === key
       const scope = 'paper-row-' + navigation.length
-      const hover = { scope, inverse: false, color: paper.ink, backgroundColor: paper.selection }
+      const hover = { scope, inverse: false, color: PICK.ink, backgroundColor: PICK.ground }
       // The terminal always inverts a focused Button. Give it the reversed pair
-      // so the visible result is ink on blush; hover cancels inversion itself.
+      // so the visible result is ink on blush (retro: the page on amber); hover cancels inversion itself.
       const paint = (node: RenderNode): RenderNode => {
         if (typeof node === 'string') return node
         if (node.type !== 'Text') return node
         return Text({ ...node.props, hover,
-          ...(inverted ? { color: paper.selection, backgroundColor: paper.ink }
-            : selected ? { color: paper.ink, backgroundColor: paper.selection } : {}),
+          ...(inverted ? { color: PICK.ground, backgroundColor: PICK.ink }
+            : selected ? { color: PICK.ink, backgroundColor: PICK.ground } : {}),
           children: node.children?.map(paint) })
       }
       const body = <Text color={paper.ink}>
-        <Text color={paper.ribbon}>{selected ? '› ' : '  '}</Text>
+        <Text color={paper.ribbon}>{selected ? CHARS.cursor + ' ' : '  '}</Text>
         {detail ?? <Text color={paper.ink}>
           {LEADING.test(label)
             ? <Text><Text color={label.startsWith(glyph('failed')) ? paper.berry : label.startsWith(glyph('checked')) || label.startsWith(glyph('running')) ? paper.added : paper.ribbon}>{label.slice(0, 1)}</Text>{fit(label.slice(1), width - 3)}</Text>
@@ -1172,7 +1192,7 @@ export const register: Register = on => {
         {paint(body)}
       </Button>
     }
-    const text = (label: string, colour: string = paper.dim) => <Text color={colour}>{label.length > width ? label.slice(0, width - 1) + '…' : label}</Text>
+    const text = (label: string, colour: string = paper.dim) => <Text color={colour}>{cut(label, width)}</Text>
     // A ruler under its row, indented to the row's text, with words after it.
     const measured = (fraction: number, words: string, pencil = false) => {
       const length = Math.max(3, Math.min(16, width - words.length - 4))
@@ -1204,13 +1224,19 @@ export const register: Register = on => {
     // on the right, and under the list a line saying what the selected row is.
     const inner = Math.max(10, width - 2)
     const about: Record<string, string> = {}
-    const rule = (label: string, right = '') => content.push(text(ruleLine(label, right, width), paper.ribbon))
+    // A group's rule; retro prints its label in inverse capitals.
+    const ruleNode = (label: string, right = '') => {
+      const [head, name, tail] = ruleParts(label, right, width)
+      return RETRO ? <Text color={paper.ribbon}>{head}<Text color={paper.page} backgroundColor={paper.ribbon}>{name}</Text>{tail}</Text>
+        : text(head + name + tail, paper.ribbon)
+    }
+    const rule = (label: string, right = '') => content.push(ruleNode(label, right))
     const pair = (key: string, left: string, right: string, press: () => unknown, says: string, colour: string = paper.ink) => {
       // A row too long for the pane is cut with an ellipsis; its whole text then leads the description.
       const [drawn, side] = sides(left, right, inner)
-      about[key] = drawn.trimEnd() !== left ? `${left.replace(/^[^\p{L}\p{N}]+/u, '')} — ${says}` : says
+      about[key] = drawn.trimEnd() !== left ? `${left.replace(/^[^\p{L}\p{N}]+/u, '')} ${CHARS.dash} ${says}` : says
       if (key.startsWith('attention-') && firstNeed === null) firstNeed = press
-      // The button's own label reads whole ("3 claudes · you + 2 others") for screen readers and other surfaces.
+      // The button's own label reads whole ("✎ 2 changed · 0 reviewed") for screen readers and other surfaces.
       content.push(row(key, right ? `${left} · ${right}` : left, press, <Text>
         <Text color={colour}>{drawn}</Text><Text color={paper.dim}>{side}</Text>
       </Text>))
@@ -1265,8 +1291,29 @@ export const register: Register = on => {
       }, says: 'Another live session edited this file lately. Enter goes to it.', colour: paper.berry, words: needGroup('overlap') })
       if (mail.length) needs.push({ key: 'attention-mail', left: `${glyph('sent')} notes for this session`, right: `${mail.length} unread`, press: () => page('sessions'),
         says: 'Notes left for this session from Neovim or another Claude. Enter reads them.', colour: paper.ink, words: needGroup('mail') })
+      const installed = now?.work?.integration
+      if (installed?.status === 'reload-pending') {
+        const steps = installed.sessions?.find(s => s.client === 'notebook' && s.status === 'reload-pending')?.reload
+        needs.push({ key: 'reload-pending', left: `${glyph('changed')} update installed`, right: 'reload to use it', press: () => page('health'),
+          says: `This session still runs the older notebook. ${steps ?? installed.message} Enter opens work health, which lists every session on older code with its own steps.`,
+          colour: paper.ribbon, words: ['update to load', 'updates to load'] })
+      }
+      // Credit running low is an alarm like a failed test: it joins the list rather than taking a row of its own.
+      const credits = now?.credits
+      if (credits && (credits.status === 'error' || (credits.remaining_percent != null && credits.remaining_percent <= 20)))
+        needs.push({ key: 'api-credit-meter', left: `${glyph('failed')} ${credits.short}`,
+          right: credits.meter ? credits.meter.replace(/▰/g, CHARS.meter[0]!).replace(/▱/g, CHARS.meter[1]!) + ' tracked' : '',
+          press: () => launch(['desktop-menu', '--open', 'api-credits'], 'The drawer did not open.'),
+          says: `${credits.headline}. Enter opens the monthly API credit details in the drawer.`, colour: paper.berry, words: ['credit low', 'credit low'] })
     }
     const breakdown = () => wrapParts(needBreakdown(needs.map(n => n.words)), Math.max(8, width - 2))
+    // Something about this page itself: a refresh that did not finish, no work tool, a change stream that stopped. The
+    // header shows one "!" for it (Enter there retries); the project page says which, with its own retry row.
+    const age = memory.lookAt > 0 ? (clock - memory.lookAt) / 1000 : null
+    const sync = memory.lookFailed || (age !== null && age > 180) ? 'This page may be out of date: the last refresh did not finish.'
+      : now && !now.work ? 'desk-work did not answer, so tests, reviews and requests are not shown.'
+      : memory.watchFailed && now?.work ? 'Live updates are delayed: the change stream stopped. The 20-second poll still refreshes this page.' : ''
+    const retry = async () => { memory.watchRetryAt = 0; void startWorkWatch($, root); await refresh($) }
     if (view.compact && view.page === 'overview' && view.form === 'none') {
       const count = needs.length
       const stale = memory.lookFailed || memory.lookAt > 0 && clock - memory.lookAt > 180000
@@ -1281,127 +1328,77 @@ export const register: Register = on => {
     }
 
     if (view.form === 'none' && view.page === 'overview') {
-      // The front page: nothing that is not about now.
-      const working = turnLabel(underway, clock)
-      if (working) content.push(text(working, paper.ribbon))
-
+      // The front page: the same groups in the same order every time, each a rule and one line (needs you up to three,
+      // review its requests), so nothing moves while you read it. The rest is on the project page (p).
       const mine = (now?.files ?? []).filter(f => f.own).map(f => f.path)
       const done = await read($, receipt)
-      // Needs you comes first. Up to three items show as rows; past that, one line counts them by kind and Enter lists
-      // them all, so a long list never pushes the rest of the page away. n opens the most urgent either way.
-      if (needs.length) {
-        rule('needs you', String(needs.length))
+      const working = turnLabel(underway, clock)
+      rule('needs you', needs.length ? String(needs.length) : '')
+      if (!needs.length) content.push(text('  ' + (now?.work ? said('all quiet') : said('not known: work tool unavailable'))))
+      else {
         firstNeed = needs[0]!.press
         if (needs.length <= 3) for (const need of needs) pair(need.key, need.left, need.right, need.press, need.says, need.colour)
         else {
           pair('attention-summary', `${glyph('failed')} ${needs.length} need you`, 'open list', () => page('attention'),
             `Everything that needs you, most urgent first. Enter lists it all; n opens the most urgent: ${needs[0]!.left.replace(/^\S+ /, '')}.`, paper.berry)
-          for (const line of breakdown()) content.push(text('  ' + line))
+          // Two lines of counts at most; a cut list ends in an ellipsis rather than a dangling " ·".
+          const counts = breakdown()
+          for (const [i, line] of counts.slice(0, 2).entries())
+            content.push(text('  ' + (i === 1 && counts.length > 2 ? line.replace(/ ·$/, ' ' + ELLIPSIS) : line)))
         }
       }
-      const digest = now?.work?.digest
-      if (digest?.total) pair('page-digest', 'since you last looked' + (digest.since ? ' ' + digest.since : ''), `${digest.total} events`, () => page('digest'),
-        'Observed edits, requests and test results since you last marked this project caught up. Opening does not clear it.')
 
-      if (done && !working) {
-        rule('last turn', ago((clock - done.at) / 1000))
-        // Each row opens exactly what it names: the turn's own files (the first one not yet reviewed), or the commit.
+      // The last turn stays drawn while the next one runs, dimmed, with how long this one has run on its rule.
+      rule('last turn', working ? working.replace(/^\S+ /, '').split(' · ')[0]! : done ? ago((clock - done.at) / 1000) : '')
+      if (done) {
+        // The row opens exactly what it names: the turn's own files (the first one not yet reviewed), or the commit.
         const still = (now?.files ?? []).map(f => f.path)
         const next_ = done.files.find(p => still.includes(p) && states.get(p) !== 'checked') ?? done.files.find(p => still.includes(p))
         const open = () => next_ !== undefined
           ? checkedWork(['open', '--root', root, '--action', 'file-diff', '--file', next_, '--session', session])
           : done.commits[0] ? checkedWork(['open', '--root', root, '--action', 'reviews', '--id', done.commits[0].sha])
           : checkedWork(['open', '--root', root, '--action', 'reviews'])
-        if (done.files.length) {
-          const read_ = done.files.filter(p => states.get(p) === 'checked').length
-          pair('receipt-files', `${glyph('look')} ${done.files.length} ${done.files.length === 1 ? 'file' : 'files'} changed`, `${read_} of ${done.files.length} reviewed`, open,
-            next_ !== undefined ? `What the last turn changed. Enter opens ${next_.split('/').pop()}, the next one not reviewed.` : 'What the last turn changed; all of it is committed. Enter opens the commit.')
-        }
-        if (done.tests) pair('receipt-tests', done.tests, '', () => now?.work?.tests ? openJob(now.work.tests.id, 'tests') : undefined,
-          'The tests the last turn ran.', done.tests.startsWith(glyph('checked')) ? paper.added : paper.berry)
-        for (const commit of done.commits.slice(0, 3))
-          pair('receipt-commit-' + commit.sha.slice(0, 7), `${glyph('commit')} ${commit.subject}`,
-            now?.work?.reviewedToday?.includes(commit.sha) ? 'reviewed' : commit.sha.slice(0, 7),
-            () => checkedWork(['open', '--root', root, '--action', 'reviews', '--id', commit.sha]), 'A commit the last turn made. Enter opens this commit in the review.')
-        if (done.commits.length > 3) content.push(text(`  and ${done.commits.length - 3} more commits`))
-        for (const what of done.risky) content.push(text(`  ${glyph('risky')} touched ${what} · red zone`, paper.berry))
-      }
+        const alarm = done.risky.length > 0 || (done.tests !== null && !done.tests.startsWith(glyph('checked')))
+        pair('receipt-files', `${glyph('look')} ${receiptLine(done)}`, '', open,
+          next_ !== undefined ? `What the last turn changed, ran and committed. Enter opens ${next_.split('/').pop()}, the next one not reviewed.`
+            : 'What the last turn changed, ran and committed. Enter opens it in the review.',
+          working ? paper.dim : alarm ? paper.berry : paper.ink)
+      } else content.push(text('  ' + (!working ? said('nothing changed yet') : underway?.step ? `${glyph('running')} ${underway.step}` : said('under way'))))
 
       const total = now?.plan?.total ?? 0, ticked = now?.plan?.done ?? 0
-      rule('plan', now?.gate === 'open' ? `gate open ${glyph('checked')}` : now?.gate === 'closed' ? `plan first ${glyph('look')}` : '')
+      rule('plan', now?.gate === 'closed' ? 'plan first' : '')
       if (now?.plan) {
-        pair('plan-open', (now.plan.pinned ? glyph('plan') + ' ' : '') + workName(now.plan.title, null, now.plan.title), total > 0 ? stepLabel({ done: ticked, total }) : '', () => openDocument(now.plan!.file),
-          'The plan this session works from. Enter opens it.')
-        if (total > 0) content.push(measured(ticked / total, `${ticked} of ${total} done`))
-        if (now.plan.step) pair('plan-step', `${glyph('step')} ${now.plan.step}`, '', () => setView({ form: 'step' }), 'The step in hand. Enter changes it.')
-        // No step pinned by hand: the plan's first unticked box is the step, and it moves on as boxes are ticked.
-        else if (now.plan.next) pair('plan-step', `${glyph('step')} ${now.plan.next}`, 'next', () => setView({ form: 'step' }),
-          'The first step of the plan not ticked yet; it moves on as the plan\'s boxes are ticked. Enter pins a step by hand.')
+        const step = now.plan.step || now.plan.next || ''
+        pair('plan-open', step ? `${glyph('step')} ${step}` : `${glyph('plan')} ${workName(now.plan.title, null, now.plan.title)}`,
+          total === 0 ? '' : ticked >= total ? stepLabel({ done: ticked, total }) : `${ticked + 1}/${total}`, () => openDocument(now.plan!.file),
+          `The step in hand of "${now.plan.title}", ${ticked} of ${total} ticked. Enter opens the plan; the project page pins a step.`)
       } else pair('plan-pin', 'pin an active plan', '', () => setView({ form: 'plan' }), 'No plan read yet in this session. Enter pins one.', paper.dim)
 
-      const pending = now?.work?.pending ?? 0
       const summary = reviewSummary((now?.files ?? []).map(f => f.path), states)
       const waitingOn = requests.filter(r => r.state === 'waiting')
-      rule('review', waitingOn.length > 0 ? `${waitingOn.length} with sessions` : '')
-      // Changed files already have an action under "needs you".
-      const waitingLine = pendingLine(pending, mine.filter(p => states.get(p) !== 'changed'), states)
-      const [waitingFirst = '', ...waitingRest] = waitingLine.split(' · ')
-      if (waitingLine) pair('review-open', `${glyph('look')} ${waitingFirst}`, waitingRest.join(' · ').replace(' since you looked', ' since').replace(' of yours unread', ' unread'), () => checkedWork(['open', '--root', root, '--action', 'reviews']),
-        'What is waiting to be looked over. Enter opens the review in Neovim on the next one.')
-      // Requests still with a session: who was asked and what for, until the file changes (then it needs you, above).
-      for (const r of waitingOn.slice(0, 3))
-        pair(`request-${r.file}`, `${glyph('sent')} ${base(r.file)}`, 'sent · ' + (r.name || 'a session'), () => setView({ page: 'request', request: r.file, selected: '' }),
-          `Sent to ${r.name || 'a session'} ${ago(clock / 1000 - r.at)}: "${r.text}". The file has not changed yet. Enter opens the thread: send it again or withdraw it.`)
-      if (waitingOn.length > 3) content.push(text(`  and ${waitingOn.length - 3} more requests waiting`))
+      rule('review', waitingOn.length > 0 ? `${waitingOn.length} sent` : '')
       const reviewed = (now?.files ?? []).filter(f => states.get(f.path) === 'checked').length
       // A record desk-work cannot read would make "0 reviewed" a false statement; say what is true.
       const marksUnreadable = (now?.work?.records ?? []).some(r => r.file === 'review-marks.json')
       const changedCount = now?.files.length ?? 0
-      pair('page-files', `${changedCount} changed ${changedCount === 1 ? 'file' : 'files'}`, marksUnreadable ? 'review marks unreadable'
+      pair('page-files', `${glyph('look')} ${changedCount} changed`, marksUnreadable ? 'review marks unreadable'
         : summary ? `${reviewed} reviewed` : mine.length ? `${mine.length} this session` : '', () => page('files'),
-        'Files that differ from the last commit, and how many of them were reviewed as they are now.')
+        'Files that differ from the last commit, and how many of them were reviewed as they are now. Enter lists them.', changedCount ? paper.ink : paper.dim)
+      // Requests still with a session: who was asked and what for, until the file changes (then it needs you, above).
+      for (const r of waitingOn.slice(0, waitingOn.length > 2 ? 1 : 2))
+        pair(`request-${r.file}`, `${glyph('sent')} ${base(r.file)}`, 'sent · ' + (r.name || 'a session'), () => setView({ page: 'request', request: r.file, selected: '' }),
+          `Sent to ${r.name || 'a session'} ${ago(clock / 1000 - r.at)}: "${r.text}". The file has not changed yet. Enter opens the thread: send it again or withdraw it.`)
+      if (waitingOn.length > 2) content.push(text(`  and ${waitingOn.length - 1} more sent`))
 
-      const age = memory.lookAt > 0 ? (clock - memory.lookAt) / 1000 : null
-      rule('work', age === null ? '' : 'updated ' + ago(age))
-      const installed = now?.work?.integration
-      if (installed?.status === 'reload-pending') {
-        const steps = installed.sessions?.find(s => s.client === 'notebook' && s.status === 'reload-pending')?.reload
-        pair('reload-pending', `${glyph('changed')} update installed`, 'reload to use it', () => page('health'),
-          `This session still runs the older notebook. ${steps ?? installed.message} Enter opens work health, which lists every session on older code with its own steps.`, paper.ribbon)
-      }
-      if (memory.lookFailed || (age !== null && age > 180))
-        pair('refresh-now', `${glyph('changed')} this page may be out of date`, 'retry', async () => { await refresh($) },
-          'The last refresh did not finish, so what is shown may be old. Enter reads everything again now.', paper.berry)
-      else if (now && !now.work)
-        pair('refresh-now', 'work tool unavailable', 'retry', async () => { await refresh($) },
-          'desk-work did not answer, so tests, reviews and requests are not shown. Enter tries again.', paper.dim)
-      if (memory.watchFailed && now?.work) pair('watch-retry', 'live updates delayed', 'retry', async () => {
-        memory.watchRetryAt = 0; void startWorkWatch($, root); await refresh($)
-      }, 'The change stream stopped. The recovery poll still refreshes this page; Enter reconnects it.', paper.dim)
-      if (now?.work?.tests) pair('work-tests', testLabel(now.work.tests, clock / 1000), '', () => openJob(now.work!.tests!.id, 'tests'),
-        'The last test run here, and whether the code changed since.', testColour(now.work.tests))
-      if (ci) pair('work-ci', ci.label, '', async () => { if (/^https:\/\/github\.com\//.test(ci.url)) await launch(['xdg-open', ci.url], 'The browser did not open.') },
+      rule('work')
+      const job = (now?.work?.jobs ?? [])[0]
+      if (job) pair(`job-${job.id}`, `${glyph('running')} ${job.title ?? job.command} · ${Math.floor(job.elapsed / 60)}m`, ci?.label ?? '', () => openJob(job.id),
+        'Running now. Enter opens its output; the project page shows how it compares with its last pass.', paper.ink)
+      else if (now?.work?.tests) pair('work-tests', testLabel(now.work.tests, clock / 1000), ci?.label ?? '', () => openJob(now.work!.tests!.id, 'tests'),
+        'The last test run here, whether the code changed since, and CI on the push. Enter opens the failures.', testColour(now.work.tests))
+      else if (ci) pair('work-ci', ci.label, '', async () => { if (/^https:\/\/github\.com\//.test(ci.url)) await launch(['xdg-open', ci.url], 'The browser did not open.') },
         'GitHub Actions on the pushed commit. Enter opens the run.', ci.state === 'failed' ? paper.berry : ci.state === 'passed' ? paper.added : paper.dim)
-      for (const job of (now?.work?.jobs ?? []).slice(0, 1)) jobRow(job, `${glyph('running')} ${job.title ?? job.command} · ${Math.floor(job.elapsed / 60)}m`)
-      const branchLine = now?.card?.title ?? branchLabel(now?.git, now?.branch ?? '')
-      const dot = branchLine.indexOf(' · ')
-      pair('page-project', dot > 0 ? branchLine.slice(0, dot) : branchLine, dot > 0 ? branchLine.slice(dot + 3) : '', () => page('project'),
-        'The branch against what is pushed. Enter shows the project: plan, tests and worktrees.')
-      const tasks = (now?.work?.tasks ?? []).filter(t => !t.done)
-      if (tasks.length) pair('page-tasks', `${glyph('step')} ${tasks[0]?.text ?? ''}`, `${tasks.length} next`, () => page('project'), 'Pinned next steps for this project.')
-      if (now?.work) pair('task-add', '+ next step', '', () => setView({ form: 'task' }), 'Pin something to do next.', paper.dim)
-
-      if (others.length) {
-        rule('sessions', String(others.length + 1))
-        // Counted with this one, so four running reads as four: "4 claudes · you + 3 others".
-        pair('page-sessions', `${others.length + 1} ${others.some(p => p.agent && p.agent !== 'claude') ? 'agents' : 'claudes'}`, `you + ${others.length} ${others.length === 1 ? 'other' : 'others'}`, () => page('sessions'),
-          'The other Claude sessions on this machine. Enter lists them, to go to one or leave it a note.')
-      }
-      pair('page-help', 'marks and keys', '', () => page('help'), 'What each mark means and which keys work here.', paper.dim)
-      pair('page-timeline', 'project timeline', '', () => page('timeline'), 'The shared history of requests, edits, tests and reviews.')
-      pair('page-health', 'work health', '', () => page('health'), 'Loaded versions, refresh times, connection recovery and update backups.', paper.dim)
-      // What the selected row is, the way a menu's description strip says it.
-      describe()
+      else content.push(text('  ' + (now?.work ? said('no test runs yet') : said('work tool unavailable'))))
     }
 
     if (view.form === 'none' && view.page === 'attention') {
@@ -1431,7 +1428,7 @@ export const register: Register = on => {
       const thread = (now?.work?.requests ?? []).find(r => r.file === view.request)
       if (!thread) content.push(text('That request is settled.'))
       else {
-        content.push(text(ruleLine('request', ago(clock / 1000 - thread.at), width), paper.ribbon))
+        rule('request', ago(clock / 1000 - thread.at))
         content.push(text(glyph(thread.state === 'ready' ? 'changed' : 'sent') + ' ' + thread.file, paper.ink))
         content.push(text('to ' + (thread.name || 'a session')))
         content.push(text(thread.state === 'ready' ? 'the file has changed since' : 'the file has not changed yet', thread.state === 'ready' ? paper.added : paper.dim))
@@ -1444,7 +1441,7 @@ export const register: Register = on => {
           // Delivery retries keep the original baseline: an answered request must stay ready for re-review.
           if (await sendNote($, peer, `Change request (again) for ${thread.file}: ${thread.text}`)) await refresh($)
         }))
-        content.push(row('request-withdraw', '✕ withdraw it', async () => {
+        content.push(row('request-withdraw', `${CHARS.withdraw} withdraw it`, async () => {
           if (await checkedWork(['review-request', '--root', root, '--file', thread.file, '--clear', 'yes'])) { await refresh($); await page('overview') }
         }))
       }
@@ -1454,29 +1451,30 @@ export const register: Register = on => {
     if (view.form === 'none' && view.page === 'help') {
       const line = (mark: string, words: string) => wrapWords(words, Math.max(8, width - 7)).forEach((part, i) =>
         content.push(<Text><Text color={paper.ribbon}>{('  ' + (i === 0 ? mark : '')).padEnd(7)}</Text><Text color={paper.ink}>{part}</Text></Text>))
-      content.push(text(ruleLine('marks', '', width), paper.ribbon))
+      rule('marks')
       for (const [shown, means] of Object.values(MARKS)) line(shown, means)
-      line('▰▱', 'context used; five full is the limit')
-      content.push(text(ruleLine('keys', '', width), paper.ribbon))
+      line('!', 'in the header: this page is out of date or not live; the project page says which and retries')
+      rule('keys')
       line('j k', 'move down and up')
-      line('l ⏎', 'open the selected row')
+      line(`l ${CHARS.enter}`, 'open the selected row')
       line('h', 'back to the front page')
+      line('p', 'from the front page: the project page (branch, tasks, sessions, history)')
       line('n', 'the next thing that needs you')
       line('s', 'on a needs-you row from the project list: snooze it')
       line('e', 'on files: open the selected file to edit')
       line('d', 'the same page in the drawer')
       line('z', 'the compact notebook')
       line('q', 'hide the notebook')
-      content.push(text(ruleLine('words', '', width), paper.ribbon))
-      for (const words of ['gate open: the plan is approved, edits may go on', 'plan first: edits wait for an approved plan',
+      rule('words')
+      for (const words of ['plan first: edits wait for an approved plan (the status line says when the gate is open)',
         'needs you: what failed, or is ready for another look; past three items it folds into one line, and Enter lists them'])
         wrapWords(words, Math.max(8, width - 2)).forEach((part, i) => content.push(text((i === 0 ? '  ' : '    ') + part, paper.ink)))
       content.push(row('help-back', 'back', () => page('overview')))
     }
 
     if (view.form === 'none' && view.page === 'files') {
-      content.push(row('scope-session', (view.scope === 'session' ? '● ' : '○ ') + 'this session', () => setView({ scope: 'session', offset: 0, selected: '' })))
-      content.push(row('scope-all', (view.scope === 'all' ? '● ' : '○ ') + 'all changes', () => setView({ scope: 'all', offset: 0, selected: '' })))
+      content.push(row('scope-session', (view.scope === 'session' ? CHARS.on : CHARS.off) + ' this session', () => setView({ scope: 'session', offset: 0, selected: '' })))
+      content.push(row('scope-all', (view.scope === 'all' ? CHARS.on : CHARS.off) + ' all changes', () => setView({ scope: 'all', offset: 0, selected: '' })))
       const scoped = (now?.files ?? []).filter(f => view.scope === 'all' || f.own)
       const reviewed = reviewStates(now?.work?.review)
       // Filters: only what needs a review, only what changed since its review, and a part of a name. They persist.
@@ -1484,8 +1482,8 @@ export const register: Register = on => {
       const needing = scoped.filter(f => reviewed.get(f.path) !== 'checked').length
       const changedCount = scoped.filter(f => reviewed.get(f.path) === 'changed').length
       const nextShow = show === 'all' ? 'unreviewed' : show === 'unreviewed' ? 'changed' : 'all'
-      content.push(row('files-show', show === 'all' ? `○ showing everything · ${needing} need review`
-        : show === 'unreviewed' ? `● only what needs review · ${needing}` : `● only changed since review · ${changedCount}`,
+      content.push(row('files-show', show === 'all' ? `${CHARS.off} showing everything · ${needing} need review`
+        : show === 'unreviewed' ? `${CHARS.on} only what needs review · ${needing}` : `${CHARS.on} only changed since review · ${changedCount}`,
         () => setView({ show: nextShow, offset: 0, selected: 'files-show' })))
       content.push(row('files-search', view.query ? `/ ${view.query} · clear` : '/ find a file',
         () => view.query ? setView({ query: '', offset: 0, selected: 'files-search' }) : setView({ form: 'search' })))
@@ -1529,6 +1527,20 @@ export const register: Register = on => {
     }
 
     if (view.form === 'none' && view.page === 'project') {
+      // What the header's "!" stands for, with its retry.
+      if (memory.lookFailed || (age !== null && age > 180))
+        pair('refresh-now', `${glyph('changed')} this page may be out of date`, 'retry', retry,
+          'The last refresh did not finish, so what is shown may be old. Enter reads everything again now.', paper.berry)
+      else if (now && !now.work)
+        pair('refresh-now', 'work tool unavailable', 'retry', retry,
+          'desk-work did not answer, so tests, reviews and requests are not shown. Enter tries again.', paper.dim)
+      if (memory.watchFailed && now?.work) pair('watch-retry', 'live updates delayed', 'retry', retry,
+        'The change stream stopped. The recovery poll still refreshes this page; Enter reconnects it.', paper.dim)
+      // Where the checkout stands against the push; the branch's name is on the status line.
+      const standing = syncLabel(now?.git)
+      if (standing) content.push(text(standing, paper.ink))
+      if (ci) pair('work-ci', ci.label, '', async () => { if (/^https:\/\/github\.com\//.test(ci.url)) await launch(['xdg-open', ci.url], 'The browser did not open.') },
+        'GitHub Actions on the pushed commit. Enter opens the run.', ci.state === 'failed' ? paper.berry : ci.state === 'passed' ? paper.added : paper.dim)
       if (now?.plan) {
         content.push(row('plan-open', (now.plan.pinned ? glyph('plan') + ' ' : '') + now.plan.title, () => openDocument(now.plan!.file)))
         planRuler()
@@ -1578,17 +1590,28 @@ export const register: Register = on => {
           'open', '--root', root, '--action', 'worktree', '--file', tree.path,
         ])))
       }
+      rule('more')
+      const digest = now?.work?.digest
+      if (digest?.total) pair('page-digest', 'since you last looked' + (digest.since ? ' ' + digest.since : ''), `${digest.total} events`, () => page('digest'),
+        'Observed edits, requests and test results since you last marked this project caught up. Opening does not clear it.')
+      // Counted with this one, so four running reads as "4 sessions".
+      if (others.length) pair('page-sessions', `${others.length + 1} sessions`, '', () => page('sessions'),
+        'The other agent sessions on this machine. Enter lists them, to go to one or leave it a note.')
+      pair('page-help', 'marks and keys', '', () => page('help'), 'What each mark means and which keys work here.', paper.dim)
+      pair('page-timeline', 'project timeline', '', () => page('timeline'), 'The shared history of requests, edits, tests and reviews.')
+      pair('page-health', 'work health', '', () => page('health'), 'Loaded versions, refresh times, connection recovery and update backups.', paper.dim)
+      describe()
     }
 
     if (view.form === 'none' && view.page === 'sessions') {
       if (mail.length) content.push(row('mail-clear', 'mark all notes read', () => acknowledgeMail($, mail)))
       for (const note of mail) {
         content.push(text(`${glyph('sent')} from ${note.from}`, paper.ribbon))
-        const said = wrapWords(note.text, Math.max(8, width))
-        for (const [i, line] of said.slice(0, 3).entries()) content.push(text(i === 2 && said.length > 3 ? line.slice(0, Math.max(1, width - 1)) + '…' : line, paper.ink))
+        const lines = wrapWords(note.text, Math.max(8, width))
+        for (const [i, line] of lines.slice(0, 3).entries()) content.push(text(i === 2 && lines.length > 3 ? cut(line + ' ' + ELLIPSIS, width) : line, paper.ink))
         content.push(row(`envelope-${note.id ?? note.at}`, 'mark read', () => acknowledgeMail($, [note])))
       }
-      if (others.length) content.push(text(`${others.length + 1} ${others.some(p => p.agent && p.agent !== 'claude') ? 'agents' : 'claudes'} · you and ${others.length} ${others.length === 1 ? 'other' : 'others'}`))
+      if (others.length) content.push(text(`${others.length + 1} sessions · you and ${others.length} ${others.length === 1 ? 'other' : 'others'}`))
       for (const peer of others.slice(0, 8)) {
         const [mark, colour] = peerMark(peer)
         const where = peer.name === peer.project ? '' : ` · ${peer.project}`
@@ -1632,7 +1655,7 @@ export const register: Register = on => {
     if (view.form === 'none' && view.page === 'health') {
       const checks = now?.work?.health?.checks ?? []
       // desk-work adds health only when asked, and the page asks as it opens: no answer yet is not a failure.
-      if (!checks.length) content.push(text(now?.work && now.work.health === undefined ? 'Reading work health…' : 'Health details are unavailable; refresh to try again.'))
+      if (!checks.length) content.push(text(now?.work && now.work.health === undefined ? 'Reading work health' + ELLIPSIS : 'Health details are unavailable; refresh to try again.'))
       for (const check of checks) {
         content.push(text(check.label, paper.ink))
         for (const line of check.detail.split('\n')) for (const part of wrapWords(line, width)) content.push(text(part))
@@ -1689,38 +1712,56 @@ export const register: Register = on => {
     const snoozable = view.form === 'none' && (now?.work?.attention ?? []).some(item => 'attention-' + item.id === view.selected)
     const back = () => view.form !== 'none' ? setView({ form: 'none' }) : page('overview')
     const nextNeed = firstNeed as (() => unknown) | null
-    const contextWords = now?.context == null ? (width >= 34 ? 'context not measured yet' : 'context …') : ` ${now.context}%`
-    const mailWords = ` · ${glyph('sent')} ${mail.length}`
-    const nameRoom = width - (now?.context != null ? 5 : 0) - contextWords.length - (mail.length > 0 ? mailWords.length : 0) - 3
-    return <Box flexDirection="column">
-      <Text>
-        {/* No reading yet (a session just resumed): no meter, rather than five empty boxes that read as 0%. */}
-        {now?.context != null && <Text color={now.context >= 80 ? paper.berry : paper.heart}>{'▰'.repeat(filled)}</Text>}
-        {now?.context != null && <Text color={paper.note}>{'▱'.repeat(5 - filled)}</Text>}
-        <Text color={paper.dim}>{contextWords}</Text>
-        {mail.length > 0 && <Text color={paper.ribbon}>{mailWords}</Text>}
-        <Text color={paper.ink}>{name && nameRoom >= 4 ? ' · ' + fit(name, nameRoom) : ''}</Text>
-      </Text>
-      {/* The keys only matter while the notebook holds the keyboard; at rest the row is noise. */}
-      {(e.props.isFocused || view.page !== 'overview' || view.form !== 'none' || writingId !== null) && <Box flexDirection="column"><Box>
-        <Button key="nav-back" label="back" hotkey="h" plain onPress={back} /><Text> </Text>
-        <Button key="nav-up" label="↑" hotkey="k" plain onPress={() => move(-1)} /><Text> </Text>
-        <Button key="nav-down" label="↓" hotkey="j" plain onPress={() => move(1)} /><Text> </Text>
-        <Button key="nav-open" label="open" hotkey="l" plain onPress={activate} /><Text> </Text>
-        {nextNeed !== null && <Button key="nav-next" label="next" hotkey="n" plain onPress={() => nextNeed()} />}{nextNeed !== null && <Text> </Text>}
-        <Button key="nav-hide" label="hide" {...(view.form === 'none' && writingId === null ? { hotkey: 'q' } : {})} plain onPress={() => $.ui.close({ id: PANE })} />
-      </Box><Box>
-        <Button key="nav-drawer" label="drawer" hotkey="d" plain onPress={() => launch(['desktop-menu', '--open', drawerPage(view.page)], 'The drawer did not open.')} />
-        {snoozable && <Text> </Text>}{snoozable && <Button key="nav-snooze" label="later" hotkey="s" plain onPress={() => setView({ form: 'snooze', snoozing: view.selected })} />}
-        <Text> </Text><Button key="nav-compact" label="compact" hotkey="z" plain onPress={() => setView({ compact: true, page: 'overview', form: 'none', selected: '' })} />
-      </Box></Box>}
-      {now?.credits && (now.credits.status === 'error' || (now.credits.remaining_percent != null && now.credits.remaining_percent <= 20)) && <Button key="api-credit-meter" label="monthly API credit details" plain
-        onPress={() => launch(['desktop-menu', '--open', 'api-credits'], 'The drawer did not open.')}>
-        <Text color={now.credits.status === 'error' || (now.credits.remaining_percent !== null && now.credits.remaining_percent <= 20) ? paper.berry : paper.added}>
-          {shortPath(now.credits.short, width)}
-          {now.credits.meter ? '\n' + now.credits.meter + ' tracked' : ''}
-        </Text>
+    const front = view.page === 'overview' && view.form === 'none'
+    // The header: the work's name, unread notes and one "!" when the page is not current (Enter on it retries).
+    const mailWords = mail.length > 0 ? `${glyph('sent')} ${mail.length}` : ''
+    const room = Math.max(4, width - (mailWords ? mailWords.length + 1 : 0) - (sync ? 2 : 0))
+    const header = <Box key="header">
+      <Text color={paper.ink}>{fit(name ?? 'notebook', room).padEnd(room)}</Text>
+      {mailWords !== '' && <Text color={paper.ribbon}>{' ' + mailWords}</Text>}
+      {sync !== '' && <Text> </Text>}
+      {sync !== '' && <Button key="sync-retry" label="!" plain onPress={async () => { $.ui.toast(sync + ' Retrying now.'); await retry() }}>
+        <Text color={paper.berry} weight="bold">!</Text>
       </Button>}
+    </Box>
+    // The key bar, Norton-style in retro: each key and its word, as much as fits on one line (closer together, then
+    // the least needed words dropped, keys kept), never wrapping, so the bar is always one row.
+    type Key = { keys: { key: string; hotkey?: string; label: string; shown: string; press: () => unknown }[]; word: string; rank: number }
+    const keyBar = (id: string, keys: Key[]) => {
+      const shown = (k: Key, word: boolean) => k.keys.map(b => b.shown).join('/') + (word ? ' ' + said(k.word) : '')
+      const length = (gap: string, worded: Set<number>) => keys.map((k, i) => shown(k, worded.has(i))).join(gap).length
+      const worded = new Set(keys.map((_, i) => i))
+      const gap = length('  ', worded) <= width ? '  ' : ' '
+      for (const i of keys.map((k, i) => [k.rank, i] as const).sort((a, b) => b[0] - a[0] || b[1] - a[1]).map(([, i]) => i)) {
+        if (length(gap, worded) <= width) break
+        worded.delete(i)
+      }
+      return <Box key={id}>{keys.flatMap((k, i) => [
+        ...(i > 0 ? [<Text key={`${id}-gap-${i}`}>{gap}</Text>] : []),
+        ...k.keys.flatMap((b, j) => [
+          ...(j > 0 ? [<Text key={`${id}-or-${i}-${j}`} color={paper.dim}>/</Text>] : []),
+          <Button key={b.key} label={b.label} {...(b.hotkey ? { hotkey: b.hotkey } : {})} plain onPress={b.press}>
+            <Text color={paper.ink} weight="bold">{b.shown}</Text>
+          </Button>]),
+        ...(worded.has(i) ? [<Text key={`${id}-word-${i}`}> </Text>, <Text key={`${id}-says-${i}`} color={RETRO ? paper.ink : paper.dim}
+          {...(RETRO ? { backgroundColor: paper.selection } : {})}>{said(k.word)}</Text>] : []),
+      ])}</Box>
+    }
+    // rank: which words go first when the line is short (the highest first); the keys themselves always stay.
+    const one = (key: string, hotkey: string | undefined, shown: string, label: string, press: () => unknown, rank: number, word = label): Key =>
+      ({ keys: [{ key, ...(hotkey ? { hotkey } : {}), label, shown, press }], word, rank })
+    const moveKeys: Key = { keys: [{ key: 'nav-down', hotkey: 'j', label: 'down', shown: 'j', press: () => move(1) },
+      { key: 'nav-up', hotkey: 'k', label: 'up', shown: 'k', press: () => move(-1) }], word: 'move', rank: 0 }
+    const hideKey = one('nav-hide', view.form === 'none' && writingId === null ? 'q' : undefined, 'q', 'hide', () => $.ui.close({ id: PANE }), 1)
+    const openKey = one('nav-open', 'l', CHARS.enter, 'open', activate, 0)
+    const nextKey = nextNeed !== null ? [one('nav-next', 'n', 'n', 'next', () => nextNeed(), 2)] : []
+    const laterKey = snoozable ? [one('nav-snooze', 's', 's', 'later', () => setView({ form: 'snooze', snoozing: view.selected }), 3)] : []
+    const frontBar = keyBar('keys', [moveKeys, openKey, ...nextKey, ...laterKey, one('nav-more', 'p', 'p', 'project', () => page('project'), 4, 'more'), hideKey])
+    return <Box flexDirection="column">
+      {header}
+      {!front && keyBar('keys', [one('nav-back', 'h', 'h', 'back', back, 0), moveKeys, openKey, ...nextKey, hideKey])}
+      {!front && keyBar('keys-more', [one('nav-drawer', 'd', 'd', 'drawer', () => launch(['desktop-menu', '--open', drawerPage(view.page)], 'The drawer did not open.'), 1),
+        ...laterKey, one('nav-compact', 'z', 'z', 'compact', () => setView({ compact: true, page: 'overview', form: 'none', selected: '' }), 2)])}
       {view.page !== 'overview' && <Box>
         {(['files', 'project', 'sessions'] as const).flatMap(value => [<Button key={'nav-page-' + value} label={value} plain onPress={() => page(value)} />, <Text key={'nav-gap-' + value}> </Text>])}
       </Box>}
@@ -1733,6 +1774,7 @@ export const register: Register = on => {
         if (selected) return checkedWork(['open', '--root', root, '--action', 'suggested-tests', '--file', selected.path])
       }} />}
       {content}
+      {front && frontBar}
     </Box>
   })
 }

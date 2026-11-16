@@ -138,5 +138,82 @@ ShellRoot {
             self.assertEqual((work / 'polls').read_text(), 'xx')
 
 
+
+STICKY_SHELL = '''import QtQuick
+import Quickshell
+ShellRoot {
+    id: root
+    property bool opened: false
+    property var attachment: null
+    property var widths: []
+    property real neighbour: -1
+    function showFromBar(page, output, offset) {}
+    PaperBar { id: bar; controller: root }
+    function findModule(item, name) {
+        if (item.objectName === "bar-module-" + name) return item;
+        var children = item.children || [];
+        for (var i=0; i<children.length; i++) { var found=findModule(children[i], name); if (found) return found; }
+        return null;
+    }
+    function net() { return findModule(bar.windows[0].contentItem, "custom/net"); }
+    function after() { var item = findModule(bar.windows[0].contentItem, "custom/after"); return item.mapToItem(bar.windows[0].contentItem, 0, 0).x; }
+    function speed(text) { var module = net(); module.dataSource.publish("custom/net", {text: text, tooltip: "", classes: []}); }
+    Timer { interval: 600; running: true; onTriggered: { root.speed("1 KB/s"); } }
+    Timer { interval: 750; running: true; onTriggered: { root.widths.push(root.net().width); root.speed("123 KB/s"); } }
+    Timer { interval: 900; running: true; onTriggered: { root.widths.push(root.net().width); root.neighbour = root.after(); root.speed("1 KB/s"); } }
+    Timer { interval: 1050; running: true; onTriggered: {
+        root.widths.push(root.net().width);
+        var text = root.net().children.find(function(child) { return child.objectName === "bar-module-text"; });
+        if (!(root.widths[1] > root.widths[0])) { console.error("STICKY_NO_GROWTH", JSON.stringify(root.widths)); Qt.exit(1); return; }
+        if (root.widths[2] !== root.widths[1]) { console.error("STICKY_SHRANK", JSON.stringify(root.widths)); Qt.exit(1); return; }
+        if (root.after() !== root.neighbour) { console.error("STICKY_NEIGHBOUR_MOVED", root.after(), root.neighbour); Qt.exit(1); return; }
+        if (Math.abs(text.x + text.width - (root.net().width - 7)) > .5) { console.error("STICKY_NOT_RIGHT_ALIGNED"); Qt.exit(1); return; }
+        console.log("BAR_STICKY_OK"); Qt.quit();
+    }}
+}
+'''
+
+
+@unittest.skipUnless(shutil.which('quickshell'), 'Quickshell is required')
+class StickyWidths(unittest.TestCase):
+    def test_a_number_getting_shorter_does_not_move_the_bar(self):
+        for palette in ['Paper', 'retro-amber']:
+            with self.subTest(palette=palette):
+                self.exercise(palette)
+
+    def exercise(self, palette):
+        if not (ROOT / 'src/desk-render/desk-render-fast').exists():
+            self.skipTest('build desk-render-fast before the native QML test')
+        with tempfile.TemporaryDirectory(prefix='foxml-bar-sticky-') as tmp:
+            work = Path(tmp)
+            config = work / 'config'
+            (config / 'waybar').mkdir(parents=True)
+            qml = work / 'qml'
+            shutil.copytree(ROOT / 'shared/quickshell/desk', qml)
+            subprocess.run([str(ROOT / 'src/desk-render/desk-render-fast'), str(ROOT / f'themes/{palette}/palette.sh'),
+                            str(ROOT / 'templates/quickshell/desk'), str(qml)], check=True, capture_output=True)
+            layout = {'modules-left': ['custom/net', 'custom/after'], 'modules-center': [], 'modules-right': [],
+                      'custom/net': {'exec': 'true', 'return-type': 'json'}, 'custom/after': {'format': 'after'}}
+            for name in ['config', 'config_secondary']:
+                (config / 'waybar' / name).write_text(json.dumps(layout))
+            fixture = work / 'fixture.json'
+            fixture.write_text(json.dumps({'custom/net': {'text': '1 KB/s', 'tooltip': '', 'classes': []}}))
+            source = (qml / 'PaperBar.qml').read_text().replace('PanelWindow {', 'FloatingWindow {\n            implicitWidth: 1280')
+            source = re.sub(r'^\s*(anchors \{ top: true; left: true; right: true \}|exclusiveZone:.*|WlrLayershell\..*|IdleInhibitor \{.*)\n', '\n', source, flags=re.M)
+            (qml / 'PaperBar.qml').write_text(source)
+            (qml / 'shell.qml').write_text(STICKY_SHELL)
+            (work / 'runtime').mkdir(mode=0o700)
+            env = dict(os.environ, XDG_RUNTIME_DIR=str(work / 'runtime'), QT_QPA_PLATFORM='offscreen', QT_QUICK_BACKEND='software',
+                       XDG_CONFIG_HOME=str(config), FOXML_BAR_FIXTURE=str(fixture))
+            env.pop('WAYLAND_DISPLAY', None)
+            env.pop('HYPRLAND_INSTANCE_SIGNATURE', None)
+            result = subprocess.run(['quickshell', '-p', str(qml), '--no-duplicate'], env=env, text=True, capture_output=True, timeout=10)
+            output = result.stdout + result.stderr
+            self.assertEqual(result.returncode, 0, output)
+            self.assertIn('BAR_STICKY_OK', output)
+            for error in ['TypeError', 'ReferenceError', 'Binding loop', 'STICKY_NO', 'STICKY_SHRANK', 'STICKY_NEIGHBOUR', 'STICKY_NOT']:
+                self.assertNotIn(error, output)
+
+
 if __name__ == '__main__':
     unittest.main()

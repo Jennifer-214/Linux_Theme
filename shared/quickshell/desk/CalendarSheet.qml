@@ -14,12 +14,18 @@ ColumnLayout {
     property var dueCache: ({})
     property var coming: []
     property var dueHover: null
+    // Retro: Big Blue Term on whole cells, no italic or bold, today in inverse video.
+    readonly property bool retro: theme.style === "retro"
     ToolTip {
         parent: calendar.dueHover || calendar
         visible: calendar.dueHover !== null
         delay: 400
         text: calendar.dueHover ? calendar.dueHover.dueHere.map(function(d) { return d.title + (d.course ? " · " + d.course : "") + (d.time ? " · " + d.time : ""); }).join("\n") : ""
+        // Retro: an inverse-video label in the terminal font; the theme never changes while the shell runs.
+        Component.onCompleted: if (calendar.retro) { padding = 0; contentItem = retroDueTip.createObject(calendar, {tip: this}); background = retroDueBack.createObject(calendar); }
     }
+    Component { id: retroDueTip; TermText { property var tip: null; theme: calendar.theme; height: implicitHeight; leftPadding: calendar.theme.cellW; rightPadding: calendar.theme.cellW; text: tip ? tip.text : ""; color: calendar.theme.background; lineHeightMode: Text.FixedHeight; lineHeight: calendar.theme.cell } }
+    Component { id: retroDueBack; Rectangle { color: calendar.theme.ink } }
     signal openGarden()
     signal openCourses()
     readonly property string monthKey: Qt.formatDate(month, "yyyy-MM")
@@ -79,22 +85,24 @@ ColumnLayout {
             Layout.fillWidth: true
             spacing: 2
             Text {
-                text: Qt.formatDate(calendar.month, "MMMM").toLowerCase() + (calendar.theme.paperDetails ? "." : "")
+                text: calendar.retro ? Qt.formatDate(calendar.month, "MMMM").toUpperCase() : Qt.formatDate(calendar.month, "MMMM").toLowerCase() + (calendar.theme.paperDetails ? "." : "")
                 textFormat: Text.PlainText
                 color: calendar.theme.ink
-                font.family: calendar.theme.headingFont; font.pixelSize: 32; font.italic: true
+                font.family: calendar.theme.headingFont; font.pixelSize: calendar.retro ? 2 * calendar.theme.cell : 32; font.italic: !calendar.retro
+                renderType: calendar.theme.textRender
                 Layout.fillWidth: true; elide: Text.ElideRight
             }
-            Text { text: Qt.formatDate(calendar.month, "yyyy"); color: calendar.theme.muted; font.family: calendar.theme.fontFamily; font.pixelSize: 11 }
+            Text { text: Qt.formatDate(calendar.month, "yyyy"); color: calendar.theme.muted; font.family: calendar.theme.fontFamily; font.pixelSize: calendar.theme.px(11); renderType: calendar.theme.textRender }
         }
         component MonthButton: ToolButton {
             implicitWidth: 32; implicitHeight: 32; padding: 0
             font.family: calendar.theme.fontFamily; font.pixelSize: 20
             palette.buttonText: calendar.theme.ink
-            background: Rectangle { radius: 3; color: parent.down ? calendar.theme.highlight : parent.hovered || parent.activeFocus ? calendar.theme.hoverFill : "transparent" }
+            background: Rectangle { radius: calendar.retro ? 0 : 3; color: parent.down ? calendar.theme.highlight : parent.hovered || parent.activeFocus ? calendar.theme.hoverFill : "transparent" }
+            Component.onCompleted: if (calendar.retro) font.pixelSize = calendar.theme.cell
         }
-        MonthButton { text: "‹"; Accessible.name: "Previous month"; onClicked: calendar.moveMonth(-1) }
-        MonthButton { text: "›"; Accessible.name: "Next month"; onClicked: calendar.moveMonth(1) }
+        MonthButton { text: calendar.retro ? "◄" : "‹"; Accessible.name: "Previous month"; onClicked: calendar.moveMonth(-1) }
+        MonthButton { text: calendar.retro ? "►" : "›"; Accessible.name: "Next month"; onClicked: calendar.moveMonth(1) }
     }
     PaperFlourish { theme: calendar.theme; kind: "underline"; Layout.preferredWidth: 75; Layout.preferredHeight: 4 }
 
@@ -107,9 +115,10 @@ ColumnLayout {
                 required property int index
                 Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.preferredHeight: 24
                 horizontalAlignment: Text.AlignHCenter
-                text: Qt.formatDate(new Date(2024, 0, 7 + (calendar.firstDay + index) % 7, 12), "ddd").toLowerCase()
+                text: calendar.retro ? Qt.formatDate(new Date(2024, 0, 7 + (calendar.firstDay + index) % 7, 12), "ddd").toUpperCase()
+                    : Qt.formatDate(new Date(2024, 0, 7 + (calendar.firstDay + index) % 7, 12), "ddd").toLowerCase()
                 textFormat: Text.PlainText
-                font.family: calendar.theme.fontFamily; font.pixelSize: 10
+                font.family: calendar.theme.fontFamily; font.pixelSize: calendar.theme.px(10); renderType: calendar.theme.textRender
                 color: calendar.theme.muted
             }
         }
@@ -124,12 +133,20 @@ ColumnLayout {
                 Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.preferredHeight: 38
                 Accessible.role: Accessible.StaticText
                 Accessible.name: modelData.day ? Qt.formatDate(new Date(calendar.month.getFullYear(), calendar.month.getMonth(), modelData.day, 12), "dddd, MMMM d, yyyy") + (modelData.today ? ", today" : modelData.past ? ", past" : "") + (hearted ? ", heart" : "") : ""
+                Rectangle {
+                    objectName: "calendar-retro-today"
+                    visible: calendar.retro && dayCell.modelData.today === true
+                    anchors.centerIn: parent
+                    width: 4 * calendar.theme.cellW; height: calendar.theme.cell
+                    color: calendar.theme.ink
+                }
                 Text {
                     anchors.centerIn: parent
                     text: dayCell.modelData.day || ""
-                    font.family: calendar.theme.fontFamily; font.pixelSize: 14
-                    font.bold: dayCell.modelData.today
-                    color: dayCell.modelData.past ? calendar.theme.muted : calendar.theme.ink
+                    font.family: calendar.theme.fontFamily; font.pixelSize: calendar.theme.px(14)
+                    font.bold: dayCell.modelData.today && !calendar.retro
+                    renderType: calendar.theme.textRender
+                    color: calendar.retro && dayCell.modelData.today ? calendar.theme.background : dayCell.modelData.past ? calendar.theme.muted : calendar.theme.ink
                 }
                 // Something due: a short ink line under the date, like a pencilled deadline.
                 Rectangle {
@@ -154,10 +171,11 @@ ColumnLayout {
                     text: "•"
                     textFormat: Text.PlainText
                     color: calendar.theme.detailAccent
-                    font.pixelSize: 10
+                    font.pixelSize: calendar.theme.px(10)
                 }
                 Canvas {
                     id: dayMark
+                    visible: !calendar.retro
                     anchors.centerIn: parent
                     width: Math.min(parent.width - 2, 43); height: 36
                     onWidthChanged: requestPaint()
@@ -202,7 +220,7 @@ ColumnLayout {
         visible: calendar.coming.length > 0
         Layout.fillWidth: true
         spacing: 3
-        Text { text: "coming up"; color: calendar.theme.muted; font.family: calendar.theme.headingFont; font.italic: true; font.pixelSize: 12 }
+        Text { text: calendar.retro ? "COMING UP" : "coming up"; color: calendar.theme.muted; font.family: calendar.theme.headingFont; font.italic: !calendar.retro; font.pixelSize: 12; renderType: calendar.theme.textRender }
         Repeater {
             model: calendar.coming.slice(0, 3)
             Text {
@@ -211,7 +229,7 @@ ColumnLayout {
                 text: Qt.formatDate(new Date(modelData.at * 1000), "ddd d").toLowerCase() + " · " + modelData.title
                       + (modelData.course ? " · " + modelData.course : "") + (modelData.time ? " · " + modelData.time : "")
                 textFormat: Text.PlainText; elide: Text.ElideRight
-                color: calendar.theme.ink; font.family: calendar.theme.fontFamily; font.pixelSize: 11
+                color: calendar.theme.ink; font.family: calendar.theme.fontFamily; font.pixelSize: calendar.theme.px(11); renderType: calendar.theme.textRender
             }
         }
     }
@@ -219,29 +237,32 @@ ColumnLayout {
         Layout.fillWidth: true
         spacing: 10
         Image { source: "paper-sprig.png"; visible: calendar.theme.paperDetails; Layout.preferredWidth: 45; Layout.preferredHeight: 42; fillMode: Image.PreserveAspectFit; sourceSize.width: 90; sourceSize.height: 84 }
-        Text { text: calendar.currentMonth ? "this month." : (calendar.month < calendar.today ? "back." : "ahead."); color: calendar.theme.muted; font.family: calendar.theme.headingFont; font.pixelSize: 15; font.italic: true; Layout.fillWidth: true; elide: Text.ElideRight }
+        Text { text: calendar.retro ? "" : calendar.currentMonth ? "this month." : (calendar.month < calendar.today ? "back." : "ahead."); color: calendar.theme.muted; font.family: calendar.theme.headingFont; font.pixelSize: 15; font.italic: true; Layout.fillWidth: true; elide: Text.ElideRight }
         ToolButton {
             // Only when looking at another month: on this month there is nowhere to go back to.
             visible: !calendar.currentMonth
-            text: "today"; font.family: calendar.theme.fontFamily; font.pixelSize: 11
+            text: calendar.retro ? "[TODAY]" : "today"; font.family: calendar.theme.fontFamily; font.pixelSize: 11
+            Component.onCompleted: if (calendar.retro) font.pixelSize = calendar.theme.cell
             palette.buttonText: calendar.theme.ink
-            background: Rectangle { radius: 3; color: parent.down ? calendar.theme.highlight : parent.hovered || parent.activeFocus ? calendar.theme.hoverFill : "transparent" }
+            background: Rectangle { radius: calendar.retro ? 0 : 3; color: parent.down ? calendar.theme.highlight : parent.hovered || parent.activeFocus ? calendar.theme.hoverFill : "transparent" }
             Accessible.name: "Return to current month"
             onClicked: calendar.reset()
         }
         ToolButton {
             objectName: "calendar-courses"
-            text: "courses ›"; font.family: calendar.theme.fontFamily; font.pixelSize: 11
+            text: calendar.retro ? "[COURSES]" : "courses ›"; font.family: calendar.theme.fontFamily; font.pixelSize: 11
+            Component.onCompleted: if (calendar.retro) font.pixelSize = calendar.theme.cell
             palette.buttonText: calendar.theme.ink
-            background: Rectangle { radius: 3; color: parent.down ? calendar.theme.highlight : parent.hovered || parent.activeFocus ? calendar.theme.hoverFill : "transparent" }
+            background: Rectangle { radius: calendar.retro ? 0 : 3; color: parent.down ? calendar.theme.highlight : parent.hovered || parent.activeFocus ? calendar.theme.hoverFill : "transparent" }
             Accessible.name: "Course calendars: due dates from your course site"
             onClicked: calendar.openCourses()
         }
         ToolButton {
             objectName: "calendar-garden"
-            text: "garden ›"; font.family: calendar.theme.fontFamily; font.pixelSize: 11
+            text: calendar.retro ? "[GARDEN]" : "garden ›"; font.family: calendar.theme.fontFamily; font.pixelSize: 11
+            Component.onCompleted: if (calendar.retro) font.pixelSize = calendar.theme.cell
             palette.buttonText: calendar.theme.ink
-            background: Rectangle { radius: 3; color: parent.down ? calendar.theme.highlight : parent.hovered || parent.activeFocus ? calendar.theme.hoverFill : "transparent" }
+            background: Rectangle { radius: calendar.retro ? 0 : 3; color: parent.down ? calendar.theme.highlight : parent.hovered || parent.activeFocus ? calendar.theme.hoverFill : "transparent" }
             Accessible.name: "Open the commit garden"
             onClicked: calendar.openGarden()
         }

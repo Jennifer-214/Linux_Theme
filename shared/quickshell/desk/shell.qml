@@ -93,6 +93,31 @@ ShellRoot {
 
     Theme { id: theme }
     readonly property alias paperTheme: theme
+    // Retro draws the drawer as a DOS screen: a box-drawn frame, one-line rows, an inverse status line.
+    readonly property bool retro: theme.style === "retro"
+    property string retroClock: ""
+    // The group list's width in cells; the frame's │ sits in the cell after it.
+    readonly property int retroGroupCells: panel.implicitWidth < 580 ? 15 : 21
+    Timer {
+        interval: 10000; repeat: true; triggeredOnStart: true
+        running: root.retro && root.drawerVisible
+        onTriggered: root.retroClock = Qt.formatTime(new Date(), "HH:mm")
+    }
+    readonly property string retroMode: pendingConfirm ? "confirm" : editing ? "editing" : calendarLayout ? "calendar"
+        : pickerLayout && pickerPrompt ? "prompt" : pickerLayout && !searching ? "picker" : searching ? "search" : gardenLayout && focusArea === "items" ? "garden"
+        : scrapbookLayout && focusArea === "items" ? "scrapbook" : focusArea
+    readonly property string retroStatus: message.length > 0 ? (failed ? "! " : "") + Logic.retroWord(message)
+        : Logic.retroHints(retroMode, focusArea === "items" && entries[itemIndex] ? String(entries[itemIndex].presentation || "") : "")
+    readonly property string retroDetailLine: {
+        if (!retro) return "";
+        if (focusArea === "groups") { var group = groups[groupIndex]; return group ? Logic.retroText(group.summary || group.detail || group.description || "") : ""; }
+        var item = entries[itemIndex];
+        if (!item) return "";
+        if (editing && Logic.hasStops(item)) return Logic.retroText(Logic.stopDetail(item, draftValue));
+        var path = Logic.focusDetail(item);
+        var detail = Logic.retroDetail(item);
+        return path && detail ? detail + "  " + path : path || detail;
+    }
     // The theme's glyph set (retro: blocks for flowers), chosen as the shell is made, before any page reads one.
     readonly property bool glyphsStyled: Logic.useStyle(theme.style)
     // The light slip belongs on the screen whose backlight it changed; sound and songs follow the focus.
@@ -1056,6 +1081,19 @@ ShellRoot {
         }
     }
 
+    Component {
+        id: retroCursor
+        Rectangle {
+            width: theme.cellW; height: theme.cell; color: theme.ink
+            visible: searchInput.cursorVisible
+            SequentialAnimation on opacity {
+                running: root.retro && root.searching; loops: Animation.Infinite
+                PropertyAction { value: 1 } PauseAnimation { duration: 530 }
+                PropertyAction { value: 0 } PauseAnimation { duration: 530 }
+            }
+        }
+    }
+
     component PaperShadow: Item {
         id: paperShadow
         required property color ink
@@ -1134,25 +1172,105 @@ ShellRoot {
                 }
                 Rectangle {
                     visible: !theme.paperDetails
-                    anchors.fill: parent
+                    anchors.fill: root.retro ? undefined : parent
                     // A drawer hanging from the bar starts under it (Paper's ribbon tucks behind the bar instead).
                     anchors.topMargin: root.drawerTopInset
+                    // Retro: the sheet ends where the frame's last whole character cell does.
+                    y: root.retro ? root.drawerTopInset : 0
+                    width: root.retro ? retroFrame.frameWidth : 0
+                    height: root.retro ? retroFrame.frameHeight : 0
                     color: theme.background
-                    radius: theme.style === "retro" ? 0 : Math.max(4, Math.min(theme.radius, 12))
-                    border.width: 1; border.color: theme.line
+                    radius: root.retro ? 0 : Math.max(4, Math.min(theme.radius, 12))
+                    border.width: root.retro ? 0 : 1; border.color: theme.line
                 }
                 PaperGrain { anchors.fill:parent; anchors.bottomMargin:14; theme:root.paperTheme }
+                TextFrame {
+                    id: retroFrame
+                    objectName: "retro-frame"
+                    visible: root.retro
+                    theme: root.paperTheme
+                    y: root.drawerTopInset
+                    width: parent.width; height: parent.height - root.drawerTopInset
+                    title: root.calendarLayout ? "CALENDAR" : root.searching && !root.pickerLayout ? "FIND"
+                        : Logic.retroTitle(root.breadcrumbs.length ? root.breadcrumbs[root.breadcrumbs.length - 1].label : root.pageTitle)
+                    corner: root.retroClock
+                    rules: [2, rows - 3]
+                    // The │ between the groups and the page, in the cell the spacer after the group list leaves.
+                    divider: groupList.visible && !root.calendarLayout ? 2 + root.retroGroupCells : -1
+                    footer: " " + root.retroStatus
+                    footerAlert: root.failed && root.message.length > 0
+                }
 
                 ColumnLayout {
                     anchors.fill: parent
                     anchors.margins: 24
-                    anchors.topMargin: 24 + root.drawerTopInset
+                    // Retro: rows 1 to the one above the last rule, two cells in from each side of the frame.
+                    anchors.leftMargin: root.retro ? 2 * theme.cellW : 24
+                    anchors.rightMargin: root.retro ? parent.width - retroFrame.frameWidth + 2 * theme.cellW : 24
+                    anchors.topMargin: (root.retro ? theme.cell : 24) + root.drawerTopInset
                     // Clear of the folded corner: the last row ends above the fold, not under it.
-                    anchors.bottomMargin: theme.paperDetails ? Math.max(24, drawerBanner.foldSize + 10) : 24
-                    spacing: 14
+                    anchors.bottomMargin: root.retro ? parent.height - root.drawerTopInset - (retroFrame.rows - 3) * theme.cell
+                        : theme.paperDetails ? Math.max(24, drawerBanner.foldSize + 10) : 24
+                    spacing: root.retro ? 0 : 14
+
+                    // Retro: the prompt, "C:\DESK\SOUND>" and a blinking block, with the mode and a close box.
+                    RowLayout {
+                        objectName: "retro-prompt"
+                        visible: root.retro
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: theme.cell
+                        spacing: 0
+                        TermText {
+                            id: retroPrompt
+                            theme: root.paperTheme
+                            text: Logic.retroPath(root.calendarLayout ? [{label: "calendar"}] : root.breadcrumbs, root.searching && !root.pickerLayout)
+                        }
+                        Rectangle {
+                            visible: !root.searching
+                            Layout.preferredWidth: theme.cellW; Layout.preferredHeight: theme.cell
+                            color: theme.ink
+                            SequentialAnimation on opacity {
+                                running: root.retro && root.opened && !root.searching; loops: Animation.Infinite
+                                PropertyAction { value: 1 } PauseAnimation { duration: 530 }
+                                PropertyAction { value: 0 } PauseAnimation { duration: 530 }
+                            }
+                        }
+                        Item { Layout.fillWidth: true }
+                        TermText {
+                            theme: root.paperTheme
+                            property int turn: 0
+                            readonly property bool busy: root.opened && (root.actionBusy || root.pageLoading)
+                            text: busy ? "|/-\\".charAt(turn % 4) + " " : ""
+                            Timer { interval: 110; repeat: true; running: parent.busy; onTriggered: parent.turn++ }
+                        }
+                        TermText {
+                            theme: root.paperTheme
+                            text: root.actionBusy ? "WORKING" : root.pageLoading ? "OPENING" : root.pickerLayout && root.pickerPrompt ? "WRITE" : root.searching ? "SEARCH" : root.editing ? "ADJUST" : "NORMAL"
+                            color: theme.muted
+                        }
+                        TermText {
+                            visible: !root.calendarLayout
+                            theme: root.paperTheme
+                            text: "  [♦]"
+                            color: favoritesBox.containsMouse ? theme.ink : theme.muted
+                            MouseArea { id: favoritesBox; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.show("root") }
+                            BarHint { theme: root.paperTheme; visible: favoritesBox.containsMouse; text: "Pinned favorites · f" }
+                        }
+                        TermText {
+                            theme: root.paperTheme
+                            text: " [■]"
+                            color: closeBox.containsMouse ? theme.ink : theme.muted
+                            MouseArea { id: closeBox; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: root.hide() }
+                            Accessible.role: Accessible.Button
+                            Accessible.name: "Close drawer"
+                        }
+                    }
+                    // The rule row under the prompt; the frame draws it.
+                    Item { visible: root.retro; Layout.preferredHeight: theme.cell; Layout.fillWidth: true }
 
                     RowLayout {
                         Layout.fillWidth: true
+                        visible: !root.retro
                         Text { textFormat: Text.PlainText; text: root.calendarLayout ? "// LITTLE DAYS" : "// THE QUIET CORNER"; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10; font.letterSpacing: 1 }
                         Item { Layout.fillWidth: true }
                         ToolButton {
@@ -1181,28 +1299,28 @@ ShellRoot {
                     }
                     RowLayout {
                         Layout.fillWidth: true
-                        visible: !root.calendarLayout
+                        visible: !root.calendarLayout && !root.retro
                         Text { textFormat: Text.PlainText; text: theme.paperDetails && root.page === "power" && Logic.isNight(new Date()) ? "goodnight, see you tomorrow." : "make yourself at home."; color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: panel.implicitWidth < 580 ? 21 : 27; Layout.fillWidth: true; elide: Text.ElideRight }
                         BotanicalMark {
                             Layout.preferredWidth: 30; Layout.preferredHeight: 36
                             theme: root.paperTheme
                         }
                     }
-                    Rectangle { Layout.fillWidth: true; height: 1; color: theme.line }
+                    Rectangle { visible: !root.retro; Layout.fillWidth: true; height: 1; color: theme.line }
 
                     RowLayout {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         visible: !root.calendarLayout
-                        spacing: 18
+                        spacing: root.retro ? 0 : 18
 
                         ListView {
                             id: groupList
                             visible: !root.pickerLayout && root.page !== "search"
-                            Layout.preferredWidth: panel.implicitWidth < 580 ? 125 : 179
+                            Layout.preferredWidth: root.retro ? root.retroGroupCells * theme.cellW : panel.implicitWidth < 580 ? 125 : 179
                             Layout.fillHeight: true
                             clip: true
-                            spacing: 7
+                            spacing: root.retro ? 0 : 7
                             bottomMargin: theme.paperDetails && contentHeight >= height ? 4 : 0
                             model: root.groups
                             currentIndex: root.groupIndex
@@ -1213,17 +1331,28 @@ ShellRoot {
                                 required property var modelData
                                 required property int index
                                 width: groupList.width - (theme.paperDetails ? 4 : 0)
-                                height: 59
-                                radius: 4
-                                color: groupMouse.pressed ? Qt.alpha(theme.line, .35) : index === root.groupIndex ? (theme.paperDetails || root.focusArea === "groups" ? theme.focusFill : Qt.alpha(theme.selection, theme.selectionOpacity * .45)) : theme.paperDetails ? (groupMouse.containsMouse ? theme.hoverFill : Qt.alpha(theme.highlight, .23)) : root.buttonShade(false, groupMouse.containsMouse)
-                                border.width: theme.paperDetails || (index === root.groupIndex && root.focusArea === "groups") ? 1 : 0
+                                height: root.retro ? theme.cell : 59
+                                radius: root.retro ? 0 : 4
+                                // Retro: the chosen group in inverse video while the keyboard is in the list.
+                                readonly property bool retroChosen: index === root.groupIndex && root.focusArea === "groups"
+                                color: root.retro ? (retroChosen ? theme.ink : groupMouse.containsMouse ? theme.highlight : "transparent") : groupMouse.pressed ? Qt.alpha(theme.line, .35) : index === root.groupIndex ? (theme.paperDetails || root.focusArea === "groups" ? theme.focusFill : Qt.alpha(theme.selection, theme.selectionOpacity * .45)) : theme.paperDetails ? (groupMouse.containsMouse ? theme.hoverFill : Qt.alpha(theme.highlight, .23)) : root.buttonShade(false, groupMouse.containsMouse)
+                                border.width: !root.retro && (theme.paperDetails || (index === root.groupIndex && root.focusArea === "groups")) ? 1 : 0
                                 border.color: theme.line
+                                // "► ♫ Sound": the pointer marks the group whose page is showing.
+                                TermText {
+                                    visible: root.retro
+                                    theme: root.paperTheme
+                                    width: parent.width
+                                    text: (index === root.groupIndex && !parent.retroChosen ? "►" : " ") + Logic.symbol(modelData) + " " + Logic.clip(Logic.retroText(modelData.label || ""), root.retroGroupCells - 4)
+                                    color: parent.retroChosen ? theme.background : theme.ink
+                                }
                                 PaperShadow {
                                     visible: theme.paperDetails
                                     ink: theme.ink
                                     strength: groupMouse.pressed ? .012 : index === root.groupIndex && root.focusArea === "groups" ? .06 : .035
                                 }
                                 RowLayout {
+                                    visible: !root.retro
                                     anchors.fill: parent
                                     anchors.margins: 12
                                     spacing: 10
@@ -1250,23 +1379,25 @@ ShellRoot {
                             }
                         }
 
-                        Rectangle { visible: !root.pickerLayout; width: theme.paperDetails ? 2 : 1; Layout.fillHeight: true; color: theme.line }
+                        // Retro: two blank cells, the first holding the frame's │.
+                        Rectangle { visible: !root.pickerLayout; width: theme.paperDetails ? 2 : 1; Layout.preferredWidth: root.retro ? 2 * theme.cellW : -1; Layout.fillHeight: true; color: root.retro ? "transparent" : theme.line }
 
                         ColumnLayout {
                             id: drawer
                             Layout.fillWidth: true
                             Layout.fillHeight: true
-                            spacing: 10
+                            spacing: root.retro ? theme.cell : 10
                             opacity: !root.drawerReady ? 0 : 1
-                            Behavior on opacity { NumberAnimation { duration: 160 } }
+                            // Retro pages change at once, as a terminal redraws.
+                            Behavior on opacity { enabled: !root.retro; NumberAnimation { duration: 160 } }
                             transform: Translate {
-                                x: root.drawerReady ? 0 : 28
-                                Behavior on x { NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
+                                x: root.drawerReady || root.retro ? 0 : 28
+                                Behavior on x { enabled: !root.retro; NumberAnimation { duration: 180; easing.type: Easing.OutCubic } }
                             }
 
                             Rectangle {
                                 Layout.fillWidth: true
-                                implicitHeight: theme.paperDetails ? 38 : 28
+                                implicitHeight: root.retro ? 2 * theme.cell : theme.paperDetails ? 38 : 28
                                 color: theme.paperDetails ? Qt.alpha(theme.highlight, .55) : "transparent"
                                 radius: 3
                                 border.width: theme.paperDetails ? 1 : 0
@@ -1277,8 +1408,13 @@ ShellRoot {
                                     anchors.rightMargin: theme.paperDetails ? 10 : 0
                                 Text {
                                     id: pageHeading
-                                    textFormat: Text.PlainText; text: Logic.pageHeading(root.searching && !root.pickerLayout ? "find anything" : root.pageTitle, theme.paperDetails)
-                                    color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: 20; Layout.fillWidth: true; elide: Text.ElideRight
+                                    textFormat: Text.PlainText
+                                    text: root.retro ? Logic.retroTitle(Logic.retroWord(root.searching && !root.pickerLayout ? "find anything" : root.pageTitle))
+                                        : Logic.pageHeading(root.searching && !root.pickerLayout ? "find anything" : root.pageTitle, theme.paperDetails)
+                                    color: theme.ink; font.family: root.retro ? theme.fontFamily : theme.headingFont; font.italic: !root.retro; Layout.fillWidth: true; elide: Text.ElideRight
+                                    // Retro: the double-height cell when the title fits on the line, the single one when it doesn't.
+                                    font.pixelSize: root.retro ? (Logic.cells(text) * 2 * theme.cellW <= parent.width - (Logic.cells(pageCount.text) + 2) * theme.cellW ? 2 * theme.cell : theme.cell) : 20
+                                    renderType: theme.textRender
                                     PaperFlourish {
                                         theme: root.paperTheme
                                         kind: Logic.pageFlourish(root.page, root.searching)
@@ -1290,8 +1426,10 @@ ShellRoot {
                                 }
                                 Text {
                                     id: pageCount
-                                    textFormat: Text.PlainText; text: root.page === "root" || (root.pickerLayout && root.pickerPrompt) ? "" : String(Logic.rowCount(root.entries)).padStart(2, "0")
-                                    color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10
+                                    // Retro counts a page the way DIR does.
+                                    textFormat: Text.PlainText; text: root.page === "root" || (root.pickerLayout && root.pickerPrompt) ? ""
+                                        : root.retro ? (root.gardenLayout || root.scrapbookLayout ? "" : Logic.rowCount(root.entries) + " File(s)") : String(Logic.rowCount(root.entries)).padStart(2, "0")
+                                    color: theme.muted; font.family: theme.fontFamily; font.pixelSize: theme.px(10); renderType: theme.textRender
                                     PaperFlourish {
                                         theme: root.paperTheme; kind: "circle"
                                         visible: theme.paperDetails && !root.pickerLayout && Logic.pageFlourish(root.page, root.searching) === "circle" && pageCount.text.length > 0
@@ -1310,7 +1448,8 @@ ShellRoot {
                             }
                             Text {
                                 id: breadcrumbRow
-                                visible: !root.searching && (root.breadcrumbs.length > 1 || text.length > 0)
+                                // Retro has the trail in its prompt and the row's words on the detail line.
+                                visible: !root.retro && !root.searching && (root.breadcrumbs.length > 1 || text.length > 0)
                                 Layout.fillWidth: true
                                 textFormat: Text.PlainText
                                 text: (root.focusArea === "items" ? Logic.focusDetail(root.entries[root.itemIndex]) : "") || root.breadcrumbs.slice(0, -1).map(function(crumb) { return crumb.label; }).join(" / ")
@@ -1321,34 +1460,43 @@ ShellRoot {
                             Rectangle {
                                 visible: root.searching
                                 Layout.fillWidth: true
+                                // Retro: one line, "/" and the text, like a command line.
+                                Layout.preferredHeight: root.retro ? theme.cell : -1
                                 height: 38
-                                color: theme.surface
+                                color: root.retro ? "transparent" : theme.surface
                                 radius: 4
-                                border.width: 1
+                                border.width: root.retro ? 0 : 1
                                 border.color: theme.line
                                 RowLayout {
                                     anchors.fill: parent
-                                    anchors.leftMargin: 10
-                                    anchors.rightMargin: 10
-                                    Text { textFormat: Text.PlainText; text: "/"; color: theme.accent; font.family: theme.fontFamily }
+                                    anchors.leftMargin: root.retro ? 0 : 10
+                                    anchors.rightMargin: root.retro ? 0 : 10
+                                    spacing: root.retro ? theme.cellW : 5
+                                    Text { textFormat: Text.PlainText; text: "/"; color: theme.accent; font.family: theme.fontFamily; renderType: theme.textRender
+                                        Component.onCompleted: if (root.retro) font.pixelSize = theme.cell }
                                     TextField {
                                         id: searchInput
                                         Layout.fillWidth: true
+                                        Layout.preferredHeight: root.retro ? theme.cell : -1
                                         color: theme.ink
                                         font.family: theme.fontFamily
                                         font.pixelSize: 12
-                                        placeholderText: root.pickerPrompt && root.pickerLayout ? "write here…" : root.searchPage === "search" ? "apps, projects, settings, recent things…" : "find on this page…"
+                                        renderType: theme.textRender
+                                        placeholderText: (root.retro ? Logic.retroWord : String)(root.pickerPrompt && root.pickerLayout ? "write here…" : root.searchPage === "search" ? "apps, projects, settings, recent things…" : "find on this page…")
                                         placeholderTextColor: theme.muted
                                         selectByMouse: true
+                                        // Retro: no padding and a solid block cursor; the theme never changes while the shell runs.
+                                        Component.onCompleted: if (root.retro) { padding = 0; cursorDelegate = retroCursor; }
                                         background: Item {
-                                            Rectangle { anchors.bottom: parent.bottom; width: theme.paperDetails ? Math.min(48, parent.width) : parent.width; height: 1; visible: searchInput.activeFocus; color: theme.paperDetails ? theme.detailAccent : theme.accent }
+                                            Rectangle { anchors.bottom: parent.bottom; width: theme.paperDetails ? Math.min(48, parent.width) : parent.width; height: 1; visible: searchInput.activeFocus && !root.retro; color: theme.paperDetails ? theme.detailAccent : theme.accent }
                                         }
                                         onTextChanged: if (root.searching) searchDebounce.restart()
                                         Keys.onPressed: event => root.key(event)
                                     }
                                     ToolButton {
                                         visible: root.pickerLayout && root.pickerPrompt
-                                        text: "↵"
+                                        text: root.retro ? "◄┘" : "↵"
+                                        Component.onCompleted: if (root.retro) { font.family = theme.fontFamily; font.pixelSize = theme.cell; padding = 0; implicitHeight = theme.cell; }
                                         palette.buttonText: theme.ink
                                         background: Rectangle { color: root.buttonShade(parent.down, parent.hovered); radius: 3 }
                                         onClicked: root.activate(null)
@@ -1406,7 +1554,7 @@ ShellRoot {
                                     anchors.fill: parent
                                     visible: !root.pendingConfirm && !root.scrapbookLayout && !root.gardenLayout && (root.page !== "root" || root.entries.length > 0 || root.searching)
                                     clip: true
-                                    spacing: 7
+                                    spacing: root.retro ? 0 : 7
                                     bottomMargin: theme.paperDetails && contentHeight >= height ? 4 : 0
                                     model: root.entries
                                     currentIndex: root.itemIndex
@@ -1442,26 +1590,48 @@ ShellRoot {
                                         // line with the text above it and its right edge in line with every other row.
                                         transform: Translate { x: itemRow.indent }
                                         // Room for the scrollbar only while there is one, so rows line up with the heading above.
-                                        width: Math.max(0, itemList.width - (itemScroll.visible ? theme.scrollGutter : 0) - indent)
+                                        width: Math.max(0, itemList.width - (itemScroll.visible ? (root.retro ? 2 * theme.cellW : theme.scrollGutter) : 0) - indent)
                                         property bool card: modelData.presentation === "project" || modelData.presentation === "library" || modelData.presentation === "download"
-                                        height: Logic.rowHeight(modelData, root.page === "root" && !root.searching)
-                                        radius: theme.style === "retro" ? 0 : 4
-                                        // Retro: the selected row is a solid dark-amber block with a cursor bar at its left edge.
-                                        readonly property color rowFill: itemMouse.pressed ? Qt.alpha(theme.line, .35) : selected ? (theme.style === "retro" ? theme.highlight : theme.focusFill) : theme.paperDetails ? (itemMouse.containsMouse && modelData.enabled !== false ? theme.hoverFill : theme.background) : card ? theme.surface : root.buttonShade(false, itemMouse.containsMouse)
+                                        // Retro: one line a row; a section heading takes a blank line above it.
+                                        height: root.retro ? (heading ? 2 * theme.cell : theme.cell) : Logic.rowHeight(modelData, root.page === "root" && !root.searching)
+                                        radius: root.retro ? 0 : 4
+                                        // Retro: the selected row in inverse video, a solid amber bar with dark text.
+                                        readonly property color rowFill: root.retro ? (selected ? theme.ink : (itemMouse.containsMouse || itemMouse.pressed) && modelData.enabled !== false ? theme.highlight : "transparent")
+                                            : itemMouse.pressed ? Qt.alpha(theme.line, .35) : selected ? theme.focusFill : theme.paperDetails ? (itemMouse.containsMouse && modelData.enabled !== false ? theme.hoverFill : theme.background) : card ? theme.surface : root.buttonShade(false, itemMouse.containsMouse)
                                         readonly property color rowEdge: itemMouse.pressed ? theme.muted : theme.paperDetails && !selected ? Qt.alpha(theme.line, .6) : theme.line
                                         color: heading || (theme.paperDetails && card) ? "transparent" : rowFill
-                                        border.width: heading || (theme.paperDetails && card) ? 0 : theme.paperDetails || selected || card || itemMouse.containsMouse ? 1 : 0
+                                        border.width: root.retro || heading || (theme.paperDetails && card) ? 0 : theme.paperDetails || selected || card || itemMouse.containsMouse ? 1 : 0
                                         border.color: rowEdge
-                                        opacity: modelData.enabled === false && !heading ? (theme.paperDetails ? .75 : .48) : 1
+                                        // Retro shows a row that can't be chosen in the muted step instead of fading it.
+                                        opacity: modelData.enabled === false && !heading && !root.retro ? (theme.paperDetails ? .75 : .48) : 1
                                         PaperCardSurface {
                                             anchors.fill: parent; visible: theme.paperDetails && itemRow.card
                                             theme: root.paperTheme; presentation: modelData.presentation || ""
                                             fillColor: itemRow.rowFill; edgeColor: itemRow.rowEdge
                                         }
-                                        Rectangle {
-                                            objectName: "retro-cursor"
-                                            visible: theme.style === "retro" && itemRow.selected && !itemRow.heading
-                                            width: 4; height: parent.height; color: theme.ink
+                                        // Retro: "♫ Volume ............ [██████░░░░]  47%", glyph, label, leaders, value.
+                                        Row {
+                                            objectName: "retro-row"
+                                            visible: root.retro && !itemRow.heading
+                                            readonly property color textColor: itemRow.selected ? theme.background : modelData.enabled === false ? theme.muted : theme.ink
+                                            readonly property bool glyph: modelData.presentation !== "shortcut"
+                                            readonly property string keys: typeof modelData.keys === "string" ? Logic.retroKeys(modelData.keys) : ""
+                                            readonly property string value: modelData.presentation === "shortcut" ? keys
+                                                : (keys ? keys + "  " : "") + Logic.retroValue(itemRow.source, root.editing && itemRow.selected, root.draftValue)
+                                            TermText {
+                                                visible: parent.glyph
+                                                theme: root.paperTheme
+                                                width: 2 * theme.cellW
+                                                text: visible ? Logic.symbol(modelData) : ""
+                                                color: parent.textColor
+                                            }
+                                            TermText {
+                                                objectName: "retro-row-text"
+                                                theme: root.paperTheme
+                                                width: itemRow.width - (parent.glyph ? 2 * theme.cellW : 0)
+                                                text: root.retro ? Logic.leaderLine(Logic.retroText(modelData.label || ""), Logic.retroText(parent.value), Math.floor(width / theme.cellW)) : ""
+                                                color: parent.textColor
+                                            }
                                         }
                                         PaperShadow {
                                             visible: theme.paperDetails && !itemRow.heading
@@ -1469,7 +1639,7 @@ ShellRoot {
                                             strength: itemMouse.pressed ? .012 : itemRow.selected ? .06 : .035
                                         }
                                         Rectangle {
-                                            visible: itemRow.card
+                                            visible: itemRow.card && !root.retro
                                             anchors.top: parent.top
                                             anchors.left: theme.paperDetails && modelData.presentation === "project" ? parent.left : undefined
                                             anchors.right: theme.paperDetails && modelData.presentation === "project" ? undefined : parent.right
@@ -1485,39 +1655,57 @@ ShellRoot {
                                             }
                                         }
                                         Rectangle {
-                                            visible: itemRow.card && !(theme.paperDetails && modelData.presentation === "download")
+                                            visible: itemRow.card && !root.retro && !(theme.paperDetails && modelData.presentation === "download")
                                             anchors.bottom: parent.bottom; anchors.left: parent.left; anchors.right: parent.right
                                             anchors.bottomMargin: 11; anchors.leftMargin: 48; anchors.rightMargin: 12
                                             height: 1; color: theme.line; opacity: .6
                                         }
-                                        Rectangle { visible: selected; width: 2; anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom; color: theme.detailAccent; radius: 1 }
+                                        Rectangle { visible: selected && !root.retro; width: 2; anchors.left: parent.left; anchors.top: parent.top; anchors.bottom: parent.bottom; color: theme.detailAccent; radius: 1 }
                                         Text {
                                             id: sectionHeading
                                             objectName: "section-heading"
-                                            visible: itemRow.heading
+                                            visible: itemRow.heading && !root.retro
                                             textFormat: Text.PlainText
                                             anchors.left: parent.left; anchors.leftMargin: 4
                                             anchors.bottom: parent.bottom; anchors.bottomMargin: 5
-                                            text: visible ? (theme.style === "retro" ? "── " + Logic.sectionHeading(modelData.label, false) : Logic.sectionHeading(modelData.label, theme.paperDetails)) : ""
+                                            text: visible ? Logic.sectionHeading(modelData.label, theme.paperDetails) : ""
                                             color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10
                                             font.italic: theme.paperDetails; font.letterSpacing: theme.paperDetails ? 0 : 1.2
                                         }
+                                        // Retro: "─ UPKEEP ──────────" on the second of the heading's two lines (the rule in pixels,
+                                        // where ─ strokes fall; the font's own ─ sits between pixels).
+                                        TermText {
+                                            id: retroHeading
+                                            objectName: "retro-section-heading"
+                                            visible: root.retro && itemRow.heading
+                                            theme: root.paperTheme
+                                            x: 2 * theme.cellW; y: theme.cell
+                                            text: visible ? Logic.retroText(Logic.sectionHeading(modelData.label, false)) : ""
+                                            color: theme.muted
+                                        }
+                                        Rectangle { visible: retroHeading.visible; x: 0; y: theme.cell + 5; width: theme.cellW + 4; height: 1; color: theme.muted }
                                         Rectangle {
-                                            visible: itemRow.heading
+                                            visible: retroHeading.visible
+                                            x: retroHeading.x + retroHeading.implicitWidth + theme.cellW - 4; y: theme.cell + 5; height: 1
+                                            width: Math.max(0, parent.width - x); color: theme.muted
+                                        }
+                                        Rectangle {
+                                            visible: itemRow.heading && !root.retro
                                             anchors.left: sectionHeading.right; anchors.leftMargin: 8
                                             anchors.right: parent.right; anchors.rightMargin: 6
                                             anchors.verticalCenter: sectionHeading.verticalCenter
                                             height: 1; color: theme.line; opacity: .55
                                         }
                                         RowLayout {
-                                            visible: !itemRow.heading
+                                            visible: !itemRow.heading && !root.retro
                                             anchors.fill: parent
                                             anchors.margins: itemRow.compactRow ? 10 : 12
                                             spacing: 10
                                             Image {
                                                 objectName: "item-menu-icon"
                                                 visible: itemRow.connection === null && !itemRow.mediaArtwork && !itemRow.clipboardPhoto && modelData.presentation !== "shortcut" && Boolean(modelData.image || itemRow.menuIcon)
-                                                source: modelData.image || itemRow.menuIcon
+                                                // Retro draws no pictures in rows: the glyph stands in for the icon.
+                                                source: root.retro ? "" : modelData.image || itemRow.menuIcon
                                                 sourceSize.width: modelData.image ? 42 : 24
                                                 sourceSize.height: modelData.image ? 42 : 24
                                                 Layout.preferredWidth: visible ? (modelData.image ? 42 : 24) : 0
@@ -1532,7 +1720,7 @@ ShellRoot {
                                                 objectName: "media-artwork"
                                                 theme: root.paperTheme
                                                 visible: itemRow.mediaArtwork
-                                                source: itemRow.mediaArtwork ? modelData.artwork : ""
+                                                source: itemRow.mediaArtwork && !root.retro ? modelData.artwork : ""
                                                 Layout.preferredWidth: visible ? 48 : 0
                                                 Layout.preferredHeight: 52
                                             }
@@ -1623,15 +1811,18 @@ ShellRoot {
                                             // ToolTip centres on its unwrapped width, which slides a long tip off the drawer's left edge.
                                             x: 0
                                             text: Logic.tooltipText(modelData)
-                                            contentItem: Text { text: itemTip.text; textFormat: Text.PlainText; color: theme.ink; font.family: theme.fontFamily; font.pixelSize: 10; wrapMode: Text.WrapAnywhere }
+                                            // Retro: an inverse-video label, like the status line.
+                                            contentItem: Text { text: itemTip.text; textFormat: Text.PlainText; color: root.retro ? theme.background : theme.ink; font.family: theme.fontFamily; font.pixelSize: theme.px(10); renderType: theme.textRender; wrapMode: Text.WrapAnywhere
+                                                leftPadding: root.retro ? theme.cellW : 0; rightPadding: root.retro ? theme.cellW : 0 }
+                                            Component.onCompleted: if (root.retro) padding = 0
                                             background: Rectangle {
-                                                color:theme.tooltipFill; border.color:theme.line; radius:4
+                                                color: root.retro ? theme.ink : theme.tooltipFill; border.color:theme.line; border.width: root.retro ? 0 : 1; radius:root.retro ? 0 : 4
                                                 Rectangle { x:0; y:(parent.height-height)/2; width:2; height:Math.min(16,parent.height-8); radius:1; color:theme.highlight; visible:theme.paperDetails }
                                             }
                                             width: Math.min(implicitWidth, itemRow.width)
                                         }
                                         Canvas {
-                                            visible: modelData.presentation === "project" && modelData.bookmarked === true
+                                            visible: !root.retro && modelData.presentation === "project" && modelData.bookmarked === true
                                             anchors.top: parent.top; anchors.right: parent.right; anchors.rightMargin: 30
                                             width: 12; height: 23
                                             onPaint: {
@@ -1642,8 +1833,9 @@ ShellRoot {
                                                 ctx.lineTo(0, height); ctx.closePath(); ctx.fill();
                                             }
                                         }
+                                        // Retro names these keys on the status line instead (b, e, w).
                                         ToolButton {
-                                            visible: modelData.presentation === "project" || modelData.presentation === "library"
+                                            visible: !root.retro && (modelData.presentation === "project" || modelData.presentation === "library")
                                             anchors.bottom: parent.bottom; anchors.right: parent.right
                                             anchors.rightMargin: 8; anchors.bottomMargin: 2
                                             width: 23; height: 23
@@ -1660,7 +1852,7 @@ ShellRoot {
                                             }
                                         }
                                         ToolButton {
-                                            visible: modelData.presentation === "project"
+                                            visible: !root.retro && modelData.presentation === "project"
                                             anchors.bottom: parent.bottom; anchors.right: parent.right
                                             anchors.rightMargin: 35; anchors.bottomMargin: 2
                                             width: 23; height: 23; text: "▥"; font.pixelSize: 12
@@ -1675,10 +1867,10 @@ ShellRoot {
 
                                 Column {
                                     id: emptyNote
-                                    readonly property var note: Logic.emptyState(root.page, root.searching, root.failed)
+                                    readonly property var note: root.retro ? Logic.retroEmptyState(root.page, root.searching, root.failed) : Logic.emptyState(root.page, root.searching, root.failed)
                                     anchors.centerIn: parent
                                     width: parent.width - 28
-                                    spacing: 15
+                                    spacing: root.retro ? theme.cell : 15
                                     visible: root.page !== "root" && !root.scrapbookLayout && !root.gardenLayout && (!(root.pickerLayout && root.pickerPrompt) && !root.pendingConfirm && !root.entries.length && !root.pageLoading && (root.drawerReady || root.failed))
                                     Image {
                                         visible: theme.paperDetails && !root.failed
@@ -1691,9 +1883,9 @@ ShellRoot {
                                         smooth: true
                                         mipmap: true
                                     }
-                                    Text { visible: !theme.paperDetails || root.failed; textFormat: Text.PlainText; width: parent.width; text: root.failed ? "!" : theme.paperDetails || root.page === "root" ? "✎" : "·"; color: root.failed ? theme.error : theme.muted; font.family: theme.fontFamily; font.pixelSize: theme.paperDetails ? 27 : 34; horizontalAlignment: Text.AlignHCenter }
-                                    Text { textFormat: Text.PlainText; width: parent.width; text: parent.note.title; color: theme.ink; font.family: theme.headingFont; font.italic: true; font.pixelSize: 18; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap }
-                                    Text { textFormat: Text.PlainText; width: parent.width; text: parent.note.detail; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 10; horizontalAlignment: Text.AlignHCenter; lineHeight: 1.5; wrapMode: Text.WordWrap }
+                                    Text { visible: (!theme.paperDetails || root.failed) && !root.retro; textFormat: Text.PlainText; width: parent.width; text: root.failed ? "!" : theme.paperDetails || root.page === "root" ? "✎" : "·"; color: root.failed ? theme.error : theme.muted; font.family: theme.fontFamily; font.pixelSize: theme.paperDetails ? 27 : 34; horizontalAlignment: Text.AlignHCenter }
+                                    Text { textFormat: Text.PlainText; width: parent.width; text: parent.note.title; color: root.retro && root.failed ? theme.error : theme.ink; font.family: root.retro ? theme.fontFamily : theme.headingFont; font.italic: !root.retro; font.pixelSize: root.retro ? theme.cell : 18; renderType: theme.textRender; horizontalAlignment: Text.AlignHCenter; wrapMode: Text.WordWrap }
+                                    Text { textFormat: Text.PlainText; width: parent.width; text: parent.note.detail; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: theme.px(10); renderType: theme.textRender; horizontalAlignment: Text.AlignHCenter; lineHeight: root.retro ? 1 : 1.5; wrapMode: Text.WordWrap }
                                 }
 
                                 Item {
@@ -1701,7 +1893,7 @@ ShellRoot {
                                     anchors.centerIn: parent
                                     width: parent.width - 24
                                     height: confirmationContent.implicitHeight + (theme.paperDetails ? 48 : 0)
-                                    visible: root.pendingConfirm !== null
+                                    visible: root.pendingConfirm !== null && !root.retro
                                     PaperShadow {
                                         visible: theme.paperDetails
                                         ink: theme.ink
@@ -1750,6 +1942,60 @@ ShellRoot {
                                         }
                                     }
                                 }
+
+                                // Retro: "╔═[ CONFIRM ]═╗", the question, then [CANCEL] and [ OK ], the chosen one in inverse video.
+                                Item {
+                                    id: retroConfirm
+                                    objectName: "retro-confirm"
+                                    visible: root.retro && root.pendingConfirm !== null
+                                    readonly property int boxCells: Math.min(Math.floor(parent.width / theme.cellW), 56)
+                                    width: boxCells * theme.cellW
+                                    height: (retroConfirmText.lineCount + 6) * theme.cell
+                                    x: Math.floor((parent.width - width) / 2 / theme.cellW) * theme.cellW
+                                    y: Math.floor((parent.height - height) / 2 / theme.cell) * theme.cell
+                                    Rectangle { width: parent.width; height: parent.height; color: theme.background }
+                                    TextFrame { anchors.fill: parent; theme: root.paperTheme; title: "CONFIRM" }
+                                    TermText {
+                                        theme: root.paperTheme
+                                        x: 2 * theme.cellW; y: theme.cell * 2; width: parent.width - 4 * theme.cellW
+                                        text: root.pendingConfirm ? Logic.retroText(root.pendingConfirm.label || "").toUpperCase() + "?" : ""
+                                    }
+                                    Text {
+                                        id: retroConfirmText
+                                        x: 2 * theme.cellW; y: theme.cell * 3; width: parent.width - 4 * theme.cellW
+                                        textFormat: Text.PlainText; wrapMode: Text.WordWrap
+                                        text: Logic.retroWord(root.pendingConfirm && typeof root.pendingConfirm.confirm === "string" ? root.pendingConfirm.confirm : "one moment before you go.\nthis action needs your confirmation.")
+                                        color: theme.muted; font.family: theme.fontFamily; font.pixelSize: theme.cell; renderType: Text.NativeRendering
+                                        lineHeightMode: Text.FixedHeight; lineHeight: theme.cell
+                                    }
+                                    Row {
+                                        anchors.horizontalCenter: parent.horizontalCenter
+                                        y: (retroConfirmText.lineCount + 4) * theme.cell
+                                        spacing: 2 * theme.cellW
+                                        Repeater {
+                                            model: ["[CANCEL]", "[ OK ]"]
+                                            Rectangle {
+                                                required property string modelData
+                                                required property int index
+                                                readonly property bool chosen: root.confirmYes === (index === 1)
+                                                width: retroButton.implicitWidth; height: theme.cell
+                                                color: chosen ? theme.ink : "transparent"
+                                                TermText { id: retroButton; theme: root.paperTheme; text: parent.modelData; color: parent.chosen ? theme.background : theme.ink }
+                                                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: { var item = root.pendingConfirm; root.pendingConfirm = null; if (index === 1) root.activate(item, true); } }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            // Retro: the chosen row's words, on one line under the list.
+                            TermText {
+                                objectName: "retro-detail-line"
+                                visible: root.retro && !root.pendingConfirm && !root.scrapbookLayout && !root.gardenLayout
+                                theme: root.paperTheme
+                                Layout.fillWidth: true
+                                Layout.preferredHeight: theme.cell
+                                text: Logic.clip(root.retroDetailLine, Math.floor(width / theme.cellW))
+                                color: theme.muted
                             }
                         }
                     }
@@ -1765,7 +2011,7 @@ ShellRoot {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                     }
-                    Text { visible: root.message.length > 0 && !root.calendarLayout; textFormat: Text.PlainText; text: (root.failed ? "! " : "✿ ") + root.message; color: root.failed ? theme.error : theme.muted; font.family: theme.fontFamily; font.pixelSize: 10; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.role: Accessible.StaticText; Accessible.name: root.message }
+                    Text { visible: root.message.length > 0 && !root.calendarLayout && !root.retro; textFormat: Text.PlainText; text: (root.failed ? "! " : "✿ ") + root.message; color: root.failed ? theme.error : theme.muted; font.family: theme.fontFamily; font.pixelSize: 10; Layout.fillWidth: true; elide: Text.ElideRight; Accessible.role: Accessible.StaticText; Accessible.name: root.message }
                 }
             }
         }

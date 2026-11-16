@@ -92,6 +92,9 @@ class PolkitPrompt(unittest.TestCase):
             source = (ROOT / "shared/quickshell/desk/PolkitPrompt.qml").read_text().replace("    PanelWindow {", "    FloatingWindow {")
             source = re.sub(r"^        (?:anchors \{.*|exclusionMode:.*|WlrLayershell\..*)\n", "", source, flags=re.M)
             (qml / "PolkitPrompt.qml").write_text(source)
+            # What the prompt draws its retro box with.
+            for helper in ("TextFrame.qml", "TermText.qml", "DrawerLogic.js"):
+                shutil.copyfile(ROOT / "shared/quickshell/desk" / helper, qml / helper)
             (qml / "shell.qml").write_text(SHELL)
             runtime = Path(work) / "runtime"
             runtime.mkdir(mode=0o700)

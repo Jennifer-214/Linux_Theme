@@ -1,6 +1,7 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import "DrawerLogic.js" as Logic
 
 ColumnLayout {
     id: book
@@ -8,21 +9,75 @@ ColumnLayout {
     property var entries: []
     property int selectedIndex: 0
     property bool busy: false
-    readonly property int columns: width < 500 ? 2 : 3
+    // Retro: no pictures, a DIR listing of the files, one per line (so h/l and j/k move one row).
+    readonly property bool retro: theme.style === "retro"
+    readonly property int columns: retro ? 1 : width < 500 ? 2 : 3
     signal choose(int index)
     signal openPicture(int index)
     signal copyPicture(int index)
     signal openFolder(int index)
     signal capture()
-    spacing: 10
+    spacing: retro ? theme.cell : 10
 
-    function reveal(index) { photos.positionViewAtIndex(index, GridView.Contain); }
+    function reveal(index) { if (retro) listing.positionViewAtIndex(index, ListView.Contain); else photos.positionViewAtIndex(index, GridView.Contain); }
     onSelectedIndexChanged: reveal(selectedIndex)
     RowLayout {
+        visible: book.retro
         Layout.fillWidth: true
-        Text { text: entries.length + (entries.length === 1 ? " picture tucked away" : " pictures tucked away"); textFormat: Text.PlainText; color: book.theme.muted; font.family: book.theme.fontFamily; font.pixelSize: 11; Layout.fillWidth: true }
+        Layout.preferredHeight: book.theme.cell
+        spacing: 0
+        TermText { theme: book.theme; text: " Directory of C:\\DESK\\SHOTS"; Layout.fillWidth: true }
+        TermText {
+            theme: book.theme; text: "[NEW]"
+            color: newBox.containsMouse ? book.theme.ink : book.theme.muted
+            MouseArea { id: newBox; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: book.capture() }
+            Accessible.role: Accessible.Button; Accessible.name: "Take a screenshot"
+        }
+    }
+    ListView {
+        id: listing
+        objectName: "scrapbook-listing"
+        visible: book.retro
+        Layout.fillWidth: true; Layout.fillHeight: true
+        clip: true; model: book.retro ? book.entries : []
+        currentIndex: book.selectedIndex
+        keyNavigationEnabled: false
+        boundsBehavior: Flickable.StopAtBounds
+        ScrollBar.vertical: PageEdgeScrollBar { theme: book.theme; policy: ScrollBar.AsNeeded; visible: listing.contentHeight > listing.height }
+        delegate: Rectangle {
+            required property int index
+            required property var modelData
+            readonly property bool selected: index === book.selectedIndex
+            width: listing.width - (listing.contentHeight > listing.height ? 2 * book.theme.cellW : 0); height: book.theme.cell
+            color: selected ? book.theme.ink : fileMouse.containsMouse ? book.theme.highlight : "transparent"
+            TermText {
+                objectName: "scrapbook-file"
+                theme: book.theme; width: parent.width
+                text: " " + Logic.dosEntry(parent.modelData.label, parent.index, parent.modelData.modifiedAt)
+                color: parent.selected ? book.theme.background : book.theme.ink
+            }
+            MouseArea { id: fileMouse; anchors.fill: parent; hoverEnabled: true; onClicked: book.choose(parent.index); onDoubleClicked: book.openPicture(parent.index) }
+            Accessible.role: Accessible.Button
+            Accessible.name: modelData.label + ", " + modelData.modifiedAt
+        }
+        TermText {
+            anchors.centerIn: parent; visible: !book.entries.length && !book.busy
+            theme: book.theme; text: "File not found"; color: book.theme.muted
+        }
+    }
+    TermText {
+        visible: book.retro
+        theme: book.theme
+        Layout.fillWidth: true
+        text: "     " + book.entries.length + " File(s)"
+        color: book.theme.muted
+    }
+    RowLayout {
+        visible: !book.retro
+        Layout.fillWidth: true
+        Text { text: entries.length + (entries.length === 1 ? " picture tucked away" : " pictures tucked away"); textFormat: Text.PlainText; color: book.theme.muted; font.family: book.theme.fontFamily; font.pixelSize: book.theme.px(11); renderType: book.theme.textRender; Layout.fillWidth: true }
         ToolButton {
-            text: "+ new"; font.family: book.theme.fontFamily; font.pixelSize: 11
+            text: "+ new"; font.family: book.theme.fontFamily; font.pixelSize: book.theme.px(11)
             palette.buttonText: book.theme.ink
             background: Rectangle { radius: 3; color: parent.down ? book.theme.highlight : parent.hovered || parent.activeFocus ? book.theme.hoverFill : "transparent" }
             onClicked: book.capture()
@@ -31,8 +86,9 @@ ColumnLayout {
     }
     GridView {
         id: photos
+        visible: !book.retro
         Layout.fillWidth: true; Layout.fillHeight: true
-        clip: true; model: book.entries
+        clip: true; model: book.retro ? [] : book.entries
         cellWidth: width / book.columns; cellHeight: 183
         currentIndex: book.selectedIndex
         keyNavigationEnabled: false
@@ -78,7 +134,7 @@ ColumnLayout {
                         return isNaN(date.getTime()) ? photoPrint.modelData.stamp || "a little moment" : Qt.formatDateTime(date, "MMM d · h:mm AP").toLowerCase();
                     }
                     textFormat: Text.PlainText; color: book.theme.ink
-                    font.family: book.theme.headingFont; font.italic: true; font.pixelSize: 13
+                    font.family: book.theme.headingFont; font.italic: book.theme.style !== "retro"; font.pixelSize: book.theme.px(13); renderType: book.theme.textRender
                     elide: Text.ElideRight; horizontalAlignment: Text.AlignHCenter
                 }
             }
@@ -95,15 +151,40 @@ ColumnLayout {
             anchors.centerIn: parent; visible: !book.entries.length && !book.busy
             text: "a place for little moments.\n\nalt ⇧ o takes one, or press + new."
             horizontalAlignment: Text.AlignHCenter; color: book.theme.muted
-            font.family: book.theme.headingFont; font.italic: true; font.pixelSize: 17
+            font.family: book.theme.headingFont; font.italic: book.theme.style !== "retro"; font.pixelSize: book.theme.px(17); renderType: book.theme.textRender
         }
     }
     RowLayout {
+        visible: book.retro
         Layout.fillWidth: true
-        Text { text: book.entries[book.selectedIndex] ? book.entries[book.selectedIndex].label : ""; textFormat: Text.PlainText; Layout.fillWidth: true; elide: Text.ElideMiddle; color: book.theme.muted; font.family: book.theme.fontFamily; font.pixelSize: 10 }
+        Layout.preferredHeight: book.theme.cell
+        spacing: book.theme.cellW
+        TermText {
+            theme: book.theme; Layout.fillWidth: true; color: book.theme.muted
+            text: book.entries[book.selectedIndex] ? String(book.entries[book.selectedIndex].argument || book.entries[book.selectedIndex].label || "") : ""
+            elide: Text.ElideMiddle
+        }
+        Repeater {
+            model: [["[COPY]", "copy"], ["[OPEN]", "open"], ["[FOLDER]", "folder"]]
+            TermText {
+                required property var modelData
+                theme: book.theme; text: modelData[0]
+                color: !book.entries.length || book.busy ? book.theme.muted : buttonMouse.containsMouse ? book.theme.ink : book.theme.muted
+                MouseArea {
+                    id: buttonMouse; anchors.fill: parent; hoverEnabled: true; enabled: book.entries.length > 0 && !book.busy
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: parent.modelData[1] === "copy" ? book.copyPicture(book.selectedIndex) : parent.modelData[1] === "open" ? book.openPicture(book.selectedIndex) : book.openFolder(book.selectedIndex)
+                }
+            }
+        }
+    }
+    RowLayout {
+        visible: !book.retro
+        Layout.fillWidth: true
+        Text { text: book.entries[book.selectedIndex] ? book.entries[book.selectedIndex].label : ""; textFormat: Text.PlainText; Layout.fillWidth: true; elide: Text.ElideMiddle; color: book.theme.muted; font.family: book.theme.fontFamily; font.pixelSize: book.theme.px(10); renderType: book.theme.textRender }
         component PhotoButton: ToolButton {
             enabled: book.entries.length > 0 && !book.busy
-            font.family: book.theme.fontFamily; font.pixelSize: 11
+            font.family: book.theme.fontFamily; font.pixelSize: book.theme.px(11)
             palette.buttonText: book.theme.ink
             background: Rectangle { radius: 3; color: parent.down ? book.theme.highlight : parent.hovered || parent.activeFocus ? book.theme.hoverFill : "transparent" }
         }

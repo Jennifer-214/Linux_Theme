@@ -37,14 +37,14 @@ test('preview: work health makes refresh and recovery state visible', async ($, 
     { id: 'backups', label: 'Update backups', detail: '4 transactions · 4820 KiB\nRollback chains are retained' },
   ] } } })
   await opened($)
-  expect(await scene($, 'work health', ['page-health'])).toBeDefined()
+  expect(await scene($, 'work health', ['nav-more', 'page-health'])).toBeDefined()
 })
 
 test('preview: shared history and a quiet project digest', async ($, on) => {
   engine(on, { projectWork: { ...WORK, timeline: EVENTS, digest: { total: 4, files: 1, through: 4, counts: { edit: 1, job: 1, review: 1, request: 1 },
     events: EVENTS, truncated: false, summary: '1 observed file edited · 1 run passed' } } })
   await opened($)
-  expect(await scene($, 'project timeline', ['page-timeline'])).toBeDefined()
+  expect(await scene($, 'project timeline', ['nav-more', 'page-timeline'])).toBeDefined()
   await $.command.run({ command: 'notebook', args: 'digest', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
   expect(await scene($, 'since you last looked')).toBeDefined()
 })
@@ -65,6 +65,7 @@ test('preview: the front page with a plan, a finished turn and things that need 
   await $.classic.Stop({ hook_event_name: 'Stop', stop_hook_active: false } as never)
   expect(await scene($, 'front page')).toBeDefined()
   expect(await scene($, 'front page · a request selected', ['attention-request-src/queue.cpp'])).toBeDefined()
+  expect(await scene($, 'project page: branch, tasks, sessions, history', ['nav-more'])).toBeDefined()
 })
 
 test('preview: the files page, a request thread and the marks page', async ($, on) => {
@@ -72,7 +73,7 @@ test('preview: the files page, a request thread and the marks page', async ($, o
   await opened($)
   expect(await scene($, 'files · only what needs review', ['page-files', 'scope-all', 'files-show'])).toBeDefined()
   expect(await scene($, 'a request thread', ['nav-back', 'request-src/worker.cpp'])).toBeDefined()
-  expect(await scene($, 'marks and keys', ['request-back', 'page-help'])).toBeDefined()
+  expect(await scene($, 'marks and keys', ['request-back', 'nav-more', 'page-help'])).toBeDefined()
 })
 
 test('preview: a quiet page with nothing wrong and no plan', async ($, on) => {

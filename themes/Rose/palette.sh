@@ -548,3 +548,28 @@ DELTA_DEL_WORD=4d2f4d
 DELTA_ADD_WORD=372228
 # GTK entry fill and infobar border alpha (was borrowed from the terminal opacity).
 GTK_FIELD_ALPHA=0.55
+
+# ─── Claude Code over dark-ansi · notebook alarms · pi thinking steps ───
+# Claude's accent (claude, clawd_body, briefLabelClaude, fastMode), the selection, the sidebar and memory panels and the
+# empty part of the rate-limit bar. A value is a colour Claude Code reads: ansi:<name> keeps dark-ansi's own choice.
+CLAUDE_ACCENT=ansi:redBright
+CLAUDE_SELECTION_BG=ansi:blue
+CLAUDE_PANEL_BG=ansi:blackBright
+CLAUDE_RATE_EMPTY=ansi:white
+# Alarms: failed tests, context from 80%, credit under 20% (the notebook's berry, the status line's BERRY).
+CLAUDE_ALERT=f0bcd0
+# pi's thinking levels, rising: medium and xhigh (off/minimal/low/high are border/comment/muted/primary).
+PI_THINKING_MEDIUM=c49ac4
+PI_THINKING_XHIGH=d4a5cf
+
+# Diff pager, kitty tabs and cursor, notification icons, fingerprint wording, window shadow edge.
+DELTA_MINUS_STYLE='syntax "#2e1a22"'
+DELTA_MINUS_EMPH_STYLE='syntax "#4d2f4d"'
+DELTA_PLUS_STYLE='syntax "#1a2e22"'
+DELTA_PLUS_EMPH_STYLE='syntax "#372228"'
+KITTY_CURSOR_BLINK=0
+KITTY_TAB_TITLE='"{title}"'
+MAKO_ICONS=1
+HYPRLOCK_FP_READY='a fingertip, or your password'
+HYPRLOCK_FP_PRESENT='reading…'
+HYPR_SHADOW_SHARP=false

@@ -275,11 +275,42 @@ var glyphs = {
     cleanup:"✧", lock:"⊡", power:"⏼", suspend:"⏾", reboot:"⟳", poweroff:"⏻", logout:"↪"
 };
 
-// The retro style draws from a terminal's block set: no flowers or floral hearts (Theme.style).
-var retroGlyphs = { today:"■", garden:"▓", wallpapers:"▒", cleanup:"*" };
-function useStyle(style) {
+// The retro style (Theme.style) is set in Big Blue Term, a DOS code page 437 font with Nerd Font icons:
+// every glyph below is one that font has, so none falls back to another font's drawing.
+var retroGlyphs = {
+    today:"■", desk:"⌂", workbench:"\u{F1322}", sound:"♫", connections:"↔", comfort:"≈", system:"\u{F0493}",
+    calendar:"\u{F00ED}", "earlier-notes":"§", apps:"\u{F003B}", projects:"\u{F024B}", "api-tasks":"☰",
+    worktrees:"\u{F062C}", jobs:"\u{F0150}", "test-results":"√", reviews:"\u{F0208}", attention:"♦",
+    "work-history":"≡", "work-digest":"Σ", "work-health":"■", "next-steps":"»", failures:"!", bookmarks:"▼",
+    library:"\u{F00BA}", downloads:"↓", screenshots:"\u{F0100}", garden:"♣", models:"\u{F06A9}", windows:"◘",
+    "clipboard-text":"¶", "clipboard-images":"\u{F02E9}", wallpapers:"▒", themes:"\u{F03D8}", "wallpaper-next":"→",
+    "color-picker":"\u{F020A}", agents:"☺", volume:"♪", "volume-mute":"\u{F0581}", "audio-outputs":"◙",
+    "mic-mute":"○", "media-play-pause":"►", "media-previous":"◄◄", "media-next":"►►", wifi:"\u{F05A9}",
+    bluetooth:"\u{F00AF}", brightness:"☼", nightlight:"\u{F0594}", dnd:"\u{F009B}", idle:"\u{F0176}",
+    updates:"↑", displays:"▬", storage:"▓", backups:"↨", startup:"▲", programs:"\u{F061A}",
+    terminals:"\u{F018D}", "power-profile":"\u{F140B}", vault:"\u{F0306}", passwords:"\u{F0306}", tools:"❯",
+    "api-credits":"$", cheatsheet:"\u{F030C}", sandbox:"\u{F01A7}", security:"\u{F0498}", cleanup:"*",
+    lock:"\u{F033E}", power:"⏼", suspend:"⏾", reboot:"\u{F0709}", poweroff:"⏻", logout:"\u{F0343}"
+};
+// Marks written into the drawer's own words that the font lacks, as a DOS screen would write them.
+var retroChars = {
+    "✿":"»", "◇":"♦", "◆":"♦", "…":"...", "⋯":"...", "☐":"[ ]", "✎":"\u{F03EB}", "↵":"◄┘", "›":"►", "‹":"◄",
+    "×":"x", "✓":"√", "✗":"x", "—":"-", "–":"-", "⌕":"\u{F0349}", "□":"\u{F03D6}", "⌫":"←", "⏏":"▲", "♡":"♦"
+};
+var style = "";
+// Each Paper glyph, as the retro glyph of the same item, for text a backend or menu wrote with the Paper ones.
+var retroOf = {};
+for (var paperKey in retroGlyphs)
+    if (glyphs[paperKey] !== retroGlyphs[paperKey] && !retroOf[glyphs[paperKey]]) retroOf[glyphs[paperKey]] = retroGlyphs[paperKey];
+function useStyle(name) {
+    style = String(name || "");
     if (style === "retro") for (var key in retroGlyphs) glyphs[key] = retroGlyphs[key];
     return true;
+}
+// The retro words and marks; callers ask for them only in the retro style (bindings may run before useStyle).
+function retroText(text) {
+    text = String(text === undefined || text === null ? "" : text);
+    return Array.from(text).map(function(ch) { return retroChars[ch] || retroOf[ch] || ch; }).join("");
 }
 
 // [drawing, then glyphs and icon names that menus used for the item before].
@@ -312,12 +343,18 @@ var paperPresets = {
 function ownGlyph(id, icon) {
     var own = glyphs[id], preset = paperPresets[id];
     if (!own) return "";
-    return !icon || icon === own || /^[\x00-\x7f]+$/.test(icon) || (preset && preset.indexOf(icon) > 0) ? own : "";
+    return !icon || icon === own || /^[\x00-\x7f]+$/.test(icon) || (preset && preset.indexOf(icon) > 0)
+        || (retroOf[icon] === own) ? own : "";
 }
 
 function symbol(item) {
     var icon = String(item.icon || ""), own = ownGlyph(String(item.id || ""), icon);
     if (own) return own;
+    if (style === "retro") return retroText(paperSymbol(item, icon));
+    return paperSymbol(item, icon);
+}
+
+function paperSymbol(item, icon) {
     if (icon && !/^[\x00-\x7f]+$/.test(icon)) return icon;
     var icons = { today: "✿", desk: "✎", sound: "♫", connections: "⇄", comfort: "☁", system: "⚙", wifi: "⌁", bluetooth: "⋈", window: "▣", volume: "♪", image: "▧", palette: "◐",
         search: "⌕", download: "↧", info: "·", package: "□", message: "✉",
@@ -509,4 +546,159 @@ function breadcrumbs(page, group, trail, groups, title, seen) {
         var current = index === pages.length - 1;
         return { label: labels[id] || (current && title) || id.replace(/-/g, " "), current: current };
     });
+}
+
+// ── Retro: the drawer as a DOS screen, one line per row in whole character cells. ──
+
+// A string's width in character cells (a Nerd icon is one cell but two UTF-16 units).
+function cells(text) { return Array.from(String(text || "")).length; }
+function clip(text, width) {
+    var chars = Array.from(String(text || ""));
+    if (chars.length <= width) return chars.join("");
+    return width <= 3 ? chars.slice(0, Math.max(0, width)).join("") : chars.slice(0, width - 3).join("") + "...";
+}
+
+// "Volume ............ 47%": the label, dot leaders, then the value against the right edge.
+function leaderLine(label, value, width) {
+    value = String(value || "");
+    var room = Math.max(0, width - cells(value) - (value ? 1 : 0));
+    label = clip(label, room);
+    if (!value) return label;
+    var gap = width - cells(label) - cells(value);
+    if (gap < 1) return label + " " + value;
+    return label + (gap >= 4 && label ? " " + ".".repeat(gap - 2) + " " : " ".repeat(gap)) + value;
+}
+
+function retroBar(percent, width) {
+    var size = Math.max(1, width || 10), value = Math.max(0, Math.min(100, Number(percent) || 0));
+    var filled = Math.round(value * size / 100);
+    return "[" + "█".repeat(filled) + "░".repeat(size - filled) + "]";
+}
+
+// A row's keys as a DOS manual writes them: "alt ⇧ n" is Alt+Shift+N.
+function retroKeys(keys) {
+    var names = {alt:"Alt", ctrl:"Ctrl", control:"Ctrl", super:"Super", meta:"Super", shift:"Shift", "⇧":"Shift",
+        enter:"Enter", return:"Enter", esc:"Esc", escape:"Esc", tab:"Tab", space:"Space", "↵":"Enter"};
+    return String(keys || "").trim().split(/\s+/).filter(function(key) { return key.length > 0; }).map(function(key) {
+        var lower = key.toLowerCase();
+        if (names[lower]) return names[lower];
+        return key.length === 1 ? key.toUpperCase() : retroText(key.charAt(0).toUpperCase() + key.slice(1));
+    }).join("+");
+}
+
+// The value column of a retro row: [X] for a toggle, a bar for a slider, ► for a page, ◄┘ for an action.
+function retroValue(item, editing, draft) {
+    if (!item) return "";
+    if (hasStops(item)) return "[" + valueText(item, editing, draft) + "]";
+    if (item.kind === "slider") {
+        var level = editing ? draft : Math.round(Number(item.value || 0));
+        return retroBar(level, 12) + " " + String(level).padStart(3, " ") + "%";
+    }
+    if (item.kind === "toggle") return item.checked || item.active ? "[X]" : "[ ]";
+    var linked = connectionState(item);
+    if (linked !== null) return linked ? "(•)" : "( )";
+    if (item.presentation === "claude" && item.context !== undefined && contextHearts(item.context) >= 0)
+        return retroBar(item.context, 5) + " " + Math.round(Number(item.context)) + "%";
+    if (item.presentation === "media" && item.mediaState) return String(item.mediaState).toUpperCase();
+    if (item.presentation === "library") return item.mounted ? "MOUNTED" : "<DRIVE>";
+    if (item.presentation === "download") return String(item.stamp || "NEW").toUpperCase();
+    if (item.presentation === "project") return (item.bookmarked ? "♦ " : "") + "<DIR>";
+    if (item.kind === "page") return "►";
+    return item.enabled === false ? "" : "◄┘";
+}
+
+// "C:\DESK\SOUND\AUDIO_OU>": the trail as a DOS path, each name cut to eight characters.
+function retroPath(crumbs, searching) {
+    var parts = (crumbs || []).map(function(crumb) {
+        return String(crumb.label || "").toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+/, "").slice(0, 8).replace(/_+$/, "");
+    }).filter(function(part, index) { return part.length > 0 && !(index === 0 && part === "DESK"); });
+    return "C:\\DESK" + parts.map(function(part) { return "\\" + part; }).join("") + ">" + (searching ? "FIND " : "");
+}
+
+function retroTitle(title) {
+    return retroText(String(title || "").replace(/[.…]+$/, "")).toUpperCase();
+}
+
+// The bottom status line: the keys that work right now, as a DOS program lists them.
+function retroHints(mode, presentation) {
+    var hints = {
+        groups: "j/k Move  ◄┘ Open  / Find  1-9 Jump  ? Help  q Close",
+        items: "j/k Move  ◄┘ Open  h Back  / Find  ? Help  q Close",
+        search: "↑/↓ Move  ◄┘ Open  Esc Back",
+        prompt: "◄┘ Done  Esc Cancel",
+        picker: "j/k Move  ◄┘ Choose  / Filter  Esc Cancel",
+        editing: "h/l Adjust  ◄┘ Done  Esc Back",
+        confirm: "h/l Choose  ◄┘ Select  Esc Cancel",
+        calendar: "h/l Month  t Today  g Garden  c Courses  Esc Close",
+        garden: "hjkl Move  t Today  h Back  q Close",
+        scrapbook: "hjkl Move  ◄┘ Open  c Copy  h Back  q Close",
+        tags: "h/l Move  ◄┘ Open  j Down  Tab Groups  q Close"
+    };
+    var extra = {project: "b Ribbon  w Trees  t Term  ", library: "e Eject  ", download: "r Folder  "};
+    var line = hints[mode] || hints.items;
+    return mode === "items" && extra[presentation] ? extra[presentation] + line : line;
+}
+
+// The cute lowercase words, as a DOS screen would say them.
+var retroWords = {
+    "today.": "TODAY", "find anything": "FIND", "write here…": "Type here...", "drawer keys": "DRAWER KEYS",
+    "apps, projects, settings, recent things…": "Search apps, projects, settings...", "find on this page…": "Find on this page...",
+    "all set.": "OK.", "a little order, restored.": "READY.", "a few favorites.": "FAVORITES",
+    "stay here": "CANCEL", "one moment before you go.\nthis action needs your confirmation.": "This action needs confirmation.\nContinue?",
+    "a little song.": "NOW PLAYING", "a little light.": "BRIGHTNESS", "a little quiet.": "MUTED",
+    "a little loud.": "VOLUME", "a little sound.": "VOLUME", "nothing is playing.": "No media.",
+    "a little permission.": "PERMISSION REQUIRED", "calendar": "CALENDAR"
+};
+function retroWord(text) {
+    text = String(text || "");
+    return retroWords.hasOwnProperty(text) ? retroWords[text] : retroText(text);
+}
+
+// The menu's own descriptions, plainer; anything not listed keeps the backend's words.
+var retroDetails = {
+    apps: "Run a program", windows: "Switch to an open window", calendar: "Month view and due dates",
+    "clipboard-text": "Clipboard history", "clipboard-images": "Saved images", screenshots: "Screen captures",
+    downloads: "Recent downloads", "color-picker": "Read a colour from the screen", library: "Removable drives",
+    bookmarks: "Bookmarked projects", terminals: "tmux sessions", projects: "Projects in ~/code",
+    worktrees: "Branches and work folders", garden: "Commits per day, one year", attention: "Failures, requests, unread changes",
+    agents: "Messages from agents", jobs: "Builds, tests and downloads", "test-results": "Test runs and failures",
+    failures: "Job errors and failed services", reviews: "Commits not yet read", "next-steps": "Pinned next steps",
+    models: "Local models", "volume-mute": "Mute output", "audio-outputs": "Output device", "mic-mute": "Mute input",
+    "media-play-pause": "Current media", brightness: "Backlight level", nightlight: "Warmer colours",
+    idle: "Keep screens on", dnd: "Hold notifications", "earlier-notes": "Notification history",
+    wallpapers: "Background image", themes: "Colour themes", "wallpaper-next": "Next background",
+    updates: "Pending updates", storage: "Disk usage", backups: "Files kept before replacing",
+    cleanup: "Clean caches in a terminal", programs: "Running processes", startup: "Session autostart",
+    power: "Suspend, restart, shut down, log out", lock: "Lock the screen", security: "Security dashboard",
+    vault: "pass store", sandbox: "Disposable app sandbox", tools: "Desk commands", cheatsheet: "Keyboard shortcuts"
+};
+function retroDetail(item) {
+    if (!item) return "";
+    var own = String(item.disabledReason || "") ? "" : retroDetails[String(item.id || "")];
+    return retroText(own || detailText(item, false));
+}
+
+function retroEmptyState(page, searching, failed) {
+    if (failed) return {title: "General failure reading drawer", detail: "Abort, Retry, Ignore?  h Back"};
+    if (searching) return {title: "File not found", detail: "Esc Back"};
+    var note = emptyState(page, false, false);
+    var detail = note.detail.split("\n").map(function(line) { return line.charAt(0).toUpperCase() + line.slice(1); }).join("\n");
+    return {title: "0 File(s)", detail: retroText(detail)};
+}
+
+// A file as DOS's DIR lists it: "LITTLE~1 PNG    11-05-26   2:30p".
+function dosEntry(label, index, modified) {
+    var name = String(label || "").split("/").pop();
+    var dot = name.lastIndexOf(".");
+    var base = (dot > 0 ? name.slice(0, dot) : name).toUpperCase().replace(/[^A-Z0-9]/g, "");
+    var ext = (dot > 0 ? name.slice(dot + 1) : "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 3);
+    if (base.length > 8) base = base.slice(0, 6) + "~" + String(Math.min(9, Number(index || 0) + 1));
+    var stamp = String(modified || "").match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+    var when = "";
+    if (stamp) {
+        var hour = Number(stamp[4]);
+        when = stamp[2] + "-" + stamp[3] + "-" + stamp[1].slice(2) + "  "
+            + String(hour % 12 || 12).padStart(2, " ") + ":" + stamp[5] + (hour < 12 ? "a" : "p");
+    }
+    return (base || "NONAME").padEnd(8, " ") + " " + ext.padEnd(3, " ") + "    " + when;
 }

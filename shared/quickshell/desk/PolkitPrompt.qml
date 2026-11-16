@@ -23,6 +23,8 @@ Scope {
     readonly property var flow: testFlow || (agent && agent.isActive ? agent.flow : null)
     readonly property string marker: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/foxml-polkit-agent"
     readonly property alias window: window
+    // Retro: a ╔═[ PERMISSION ]═╗ box on whole character cells, [CANCEL] and [ OK ] under the field.
+    readonly property bool retro: theme.style === "retro"
 
     // Plain words for the requests that come up most; anything else shows polkit's own message.
     function plainAction(id) {
@@ -90,7 +92,7 @@ Scope {
     Connections {
         target: prompt.flow
         ignoreUnknownSignals: true
-        function onAuthenticationFailed() { field.text = ""; shake.restart(); }
+        function onAuthenticationFailed() { field.text = ""; if (!prompt.retro) shake.restart(); }
         function onIsResponseRequiredChanged() { if (prompt.flow && prompt.flow.isResponseRequired) field.forceActiveFocus(); }
     }
 
@@ -111,8 +113,12 @@ Scope {
         Item {
             id: slip
             objectName: "polkit-slip"
-            width: Math.min(440, parent.width - 48); height: column.implicitHeight + 48
-            anchors.centerIn: parent
+            width: prompt.retro ? Math.floor(Math.min(440, parent.width - 48) / prompt.theme.cellW) * prompt.theme.cellW : Math.min(440, parent.width - 48)
+            height: prompt.retro ? (Math.ceil(column.implicitHeight / prompt.theme.cell) + 4) * prompt.theme.cell : column.implicitHeight + 48
+            anchors.centerIn: prompt.retro ? undefined : parent
+            // Retro sits on whole pixels so the characters stay sharp.
+            x: Math.floor((parent.width - width) / 2)
+            y: Math.floor((parent.height - height) / 2)
             transform: Translate { id: nudge; x: 0 }
             SequentialAnimation {
                 id: shake
@@ -121,17 +127,20 @@ Scope {
                 NumberAnimation { target: nudge; property: "x"; to: -5; duration: 60 }
                 NumberAnimation { target: nudge; property: "x"; to: 0; duration: 50 }
             }
-            Rectangle { anchors.fill: parent; x: 3; y: 4; color: Qt.alpha(prompt.theme.ink, .1); radius: 3 }
+            Rectangle { visible: !prompt.retro; anchors.fill: parent; x: 3; y: 4; color: Qt.alpha(prompt.theme.ink, .1); radius: 3 }
             Rectangle {
-                anchors.fill: parent; radius: 3
+                anchors.fill: parent; radius: prompt.retro ? 0 : 3
                 color: prompt.theme.background
-                border.width: 1; border.color: Qt.alpha(prompt.theme.line, .9)
+                border.width: prompt.retro ? 0 : 1; border.color: Qt.alpha(prompt.theme.line, .9)
             }
+            TextFrame { visible: prompt.retro; anchors.fill: parent; theme: prompt.theme; title: "PERMISSION" }
             Column {
                 id: column
-                x: 24; y: 24; width: parent.width - 48
-                spacing: 10
+                x: prompt.retro ? 2 * prompt.theme.cellW : 24; y: prompt.retro ? 2 * prompt.theme.cell : 24
+                width: parent.width - 2 * x
+                spacing: prompt.retro ? prompt.theme.cell : 10
                 Text {
+                    visible: !prompt.retro
                     text: "a little permission."
                     color: prompt.theme.ink; font.family: prompt.theme.headingFont; font.italic: true; font.pixelSize: 24
                 }
@@ -140,14 +149,16 @@ Scope {
                     width: parent.width; wrapMode: Text.Wrap; textFormat: Text.PlainText
                     readonly property string action: prompt.flow ? prompt.plainAction(prompt.flow.actionId) : ""
                     text: action ? "Something wants to " + action + "." : prompt.flow ? prompt.plain(prompt.flow.message) : ""
-                    color: prompt.theme.ink; font.family: prompt.theme.fontFamily; font.pixelSize: 14
+                    color: prompt.theme.ink; font.family: prompt.theme.fontFamily; font.pixelSize: prompt.retro ? prompt.theme.cell : 14
+                    renderType: prompt.theme.textRender
                 }
                 Text {
                     objectName: "polkit-message"
                     visible: text !== "" && prompt.flow !== null && prompt.plainAction(prompt.flow.actionId) !== ""
                     width: parent.width; wrapMode: Text.Wrap; textFormat: Text.PlainText
                     text: prompt.flow ? prompt.plain(prompt.flow.message) : ""
-                    color: prompt.theme.muted; font.family: prompt.theme.fontFamily; font.pixelSize: 11
+                    color: prompt.theme.muted; font.family: prompt.theme.fontFamily; font.pixelSize: prompt.theme.px(11)
+                    renderType: prompt.theme.textRender
                 }
                 TextField {
                     id: field
@@ -156,12 +167,19 @@ Scope {
                     enabled: prompt.flow !== null && prompt.flow.isResponseRequired
                     echoMode: prompt.flow && prompt.flow.responseVisible ? TextInput.Normal : TextInput.Password
                     placeholderText: prompt.flow ? prompt.plain(prompt.flow.inputPrompt).replace(/:\s*$/, "").toLowerCase() || "password" : ""
-                    color: prompt.theme.ink; font.family: prompt.theme.fontFamily; font.pixelSize: 14
+                    color: prompt.theme.ink; font.family: prompt.theme.fontFamily; font.pixelSize: prompt.retro ? prompt.theme.cell : 14
+                    renderType: prompt.theme.textRender
                     placeholderTextColor: prompt.theme.muted
+                    // Retro: one highlighted line with a block cursor; the theme never changes while the shell runs.
+                    Component.onCompleted: if (prompt.retro) { padding = 0; leftPadding = prompt.theme.cellW; cursorDelegate = retroCursor; }
+                    Component {
+                        id: retroCursor
+                        Rectangle { width: prompt.theme.cellW; height: prompt.theme.cell; color: prompt.theme.ink; visible: field.cursorVisible }
+                    }
                     background: Rectangle {
-                        implicitHeight: 34; radius: 2
-                        color: Qt.alpha(prompt.theme.line, .14)
-                        border.width: field.activeFocus ? 2 : 1
+                        implicitHeight: prompt.retro ? prompt.theme.cell : 34; radius: prompt.retro ? 0 : 2
+                        color: prompt.retro ? prompt.theme.highlight : Qt.alpha(prompt.theme.line, .14)
+                        border.width: prompt.retro ? 0 : field.activeFocus ? 2 : 1
                         border.color: field.activeFocus ? prompt.theme.detailAccent : Qt.alpha(prompt.theme.line, .9)
                     }
                     Keys.onReturnPressed: prompt.submit()
@@ -175,8 +193,29 @@ Scope {
                     text: prompt.flow ? prompt.plain(prompt.flow.supplementaryMessage) : ""
                     color: prompt.flow && prompt.flow.supplementaryIsError ? prompt.theme.error : prompt.theme.muted
                     font.family: prompt.theme.fontFamily; font.pixelSize: 12
+                    renderType: prompt.theme.textRender
                 }
                 Row {
+                    objectName: "polkit-retro-buttons"
+                    visible: prompt.retro
+                    anchors.right: parent.right
+                    spacing: 2 * prompt.theme.cellW
+                    Repeater {
+                        model: ["[CANCEL]", "[ OK ]"]
+                        Rectangle {
+                            required property string modelData
+                            required property int index
+                            // [ OK ] lights up in inverse video once there is something to send.
+                            readonly property bool lit: index === 1 && field.enabled && field.text !== ""
+                            width: retroButton.implicitWidth; height: prompt.theme.cell
+                            color: lit ? prompt.theme.ink : "transparent"
+                            TermText { id: retroButton; theme: prompt.theme; text: parent.modelData; color: parent.lit ? prompt.theme.background : index === 1 && !field.enabled ? prompt.theme.muted : prompt.theme.ink }
+                            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: if (index === 1) prompt.submit(); else prompt.cancel() }
+                        }
+                    }
+                }
+                Row {
+                    visible: !prompt.retro
                     anchors.right: parent.right
                     spacing: 8
                     ToolButton {

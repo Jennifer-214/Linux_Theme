@@ -53,7 +53,12 @@ class StatusLineTest(unittest.TestCase):
                 self.assertEqual(subprocess.run(["bash", "-n", str(script)]).returncode, 0)
                 shown = self.line(script, {"model": {"display_name": "Opus 5.5"}, "context_window": {"used_percentage": 41}})
                 self.assertIn("\x1b[38;2;", shown, "truecolour from the palette")
-                self.assertEqual(ESCAPE.sub("", shown), "Opus 5.5 · " + {"Paper": "▰▰▱▱▱", "retro-amber": "██░░░"}.get(theme, "♥♥♡♡♡") + " 41%\n")
+                if theme == "retro-amber":
+                    # A DOS status bar: the model as an inverse badge, the meter in brackets.
+                    self.assertEqual(ESCAPE.sub("", shown), " OPUS 5.5  · [██░░░] 41%\n")
+                    self.assertIn("\x1b[7m OPUS 5.5 ", shown)
+                else:
+                    self.assertEqual(ESCAPE.sub("", shown), "Opus 5.5 · " + {"Paper": "▰▰▱▱▱"}.get(theme, "♥♥♡♡♡") + " 41%\n")
 
     def test_usage_branch_gate_snapshot_and_narrow_panes(self):
         script = self.render("Paper")
@@ -78,6 +83,17 @@ class StatusLineTest(unittest.TestCase):
                          "a narrow pane drops the branch, then the week")
         other = payload | {"session_id": "not-approved"}
         self.assertNotIn("gate open", self.line(script, other))
+
+    def test_retro_alarms_in_rust_and_draws_only_what_its_font_has(self):
+        script = self.render("retro-amber")
+        project = self.tmp / "repo"
+        subprocess.run(["git", "init", "-q", "-b", "garden", str(project)], check=True)
+        payload = {"session_id": "r-1", "model": {"display_name": "Opus 5.5"}, "context_window": {"used_percentage": 88},
+                   "workspace": {"current_dir": str(project), "project_dir": str(project)}}
+        shown = self.line(script, payload)
+        self.assertEqual(ESCAPE.sub("", shown), " OPUS 5.5  · [████░] 88% · \ue725 garden\n")
+        self.assertIn("\x1b[38;2;240;120;56m█", shown, "from 80% the meter turns rust, not the text amber")
+        self.assertNotRegex(ESCAPE.sub("", shown), "[⎇✧▰▱]")
 
     def test_the_cat_naps_while_waiting_and_a_tidied_page_sparkles(self):
         script = self.render("Paper")

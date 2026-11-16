@@ -125,7 +125,8 @@ Scope {
             readonly property bool compact: BarLogic.compactOutput(width, screen.height, screen.name, barData.primaryMonitor)
             readonly property var config: BarLogic.outputConfig(barData.primaryConfig, barData.secondaryConfig, compact)
             readonly property real layoutWidth: left.implicitWidth + middle.implicitWidth + right.implicitWidth + 56
-            readonly property real barScale: Math.min(width <= 1920 ? 1 : width <= 2560 ? 1.15 : 1.3, Math.max(.8, (width - 28) / Math.max(1, layoutWidth)))
+            // Retro stays at 1:1 on wide screens: a scaled terminal font loses its pixel grid.
+            readonly property real barScale: Math.min(bar.flatBar || width <= 1920 ? 1 : width <= 2560 ? 1.15 : 1.3, Math.max(.8, (width - 28) / Math.max(1, layoutWidth)))
             readonly property real workspaceBudget: Math.max(180, Math.min(compact ? 620 : 560, width - 390))
             IdleInhibitor { window: barWindow; enabled: barData.idleEnabled && bar.shown }
             Item {
@@ -229,6 +230,7 @@ Scope {
                         BarRibbon {
                             id: group
                             required property string modelData
+                            required property int index
                             readonly property bool launcher: modelData === "group/launcher"
                             readonly property bool attached: !!(bar.controller && (bar.controller.drawerVisible || bar.controller.opened) && bar.controller.attachment
                                 && bar.controller.attachment.screenName === barWindow.screen.name
@@ -246,6 +248,16 @@ Scope {
                             selected: attached || calling
                             holdingPaper: attached
                             depth: bar.flatBar ? 30 : modelData === "custom/clock" ? 58 : calling ? 50 : 43
+                            // Retro: a │ between groups, centred in the gap before this one, one cell tall (drawn as the
+                            // character's stroke: the font's own box set sits between pixels).
+                            Rectangle {
+                                objectName: "bar-divider"
+                                visible: bar.flatBar && group.index > 0 && group.visible
+                                x: Math.round(-group.inset - 9 / 2) - 1
+                                y: 10 - 7
+                                width: 1; height: barTheme.cell
+                                color: barTheme.ink
+                            }
                             Row {
                                 id: groupRow
                                 y: -7

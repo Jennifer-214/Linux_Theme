@@ -72,7 +72,10 @@ Flickable {
                 hovered: mouse.containsMouse
                 Text {
                     id: label
-                    anchors.centerIn: parent
+                    // Retro: on the same whole-pixel line as the other modules' text (10 px down the strip).
+                    anchors.centerIn: workspaces.theme.style === "retro" ? undefined : parent
+                    x: Math.round((parent.width - width) / 2); y: 3
+                    height: workspaces.theme.style === "retro" ? workspaces.theme.cell : implicitHeight
                     text: BarLogic.format(workspaces.spec.format || "{name} {windows}", {name: tab.ws ? tab.ws.name : String(tab.modelData.id), windows:tab.icons}).trim()
                     width: tab.width - 17
                     elide: Text.ElideRight
@@ -80,7 +83,9 @@ Flickable {
                     textFormat: Text.PlainText
                     font.family: workspaces.theme.fontFamily
                     font.pixelSize: 12
-                    font.bold: tab.current
+                    // Retro: Big Blue Term has no bold; the solid tab already marks the current one.
+                    font.bold: tab.current && workspaces.theme.style !== "retro"
+                    renderType: workspaces.theme.textRender
                     // Retro's current tab is a solid ink block: its label takes the bar colour (normal video).
                     color: tab.ws && tab.ws.urgent ? workspaces.theme.error : tab.current && workspaces.theme.style === "retro" ? workspaces.theme.background
                         : tab.current || tab.windows.length ? workspaces.theme.ink : workspaces.theme.muted
@@ -90,9 +95,11 @@ Flickable {
                     visible: workspaces.pins.indexOf(tab.modelData.id) >= 0
                     anchors.right: parent.right; anchors.top: parent.top
                     anchors.rightMargin: 4; anchors.topMargin: 5
-                    width: 5; height: 5; radius: 2.5
-                    // Ink on the current (pink) tab, pink on the paper ones: always visible.
-                    color: tab.current ? workspaces.theme.ink : (workspaces.theme.detailAccent || workspaces.theme.error)
+                    width: 5; height: 5; radius: workspaces.theme.style === "retro" ? 0 : 2.5
+                    // Ink on the current (pink) tab, pink on the paper ones: always visible. Retro's current tab is
+                    // solid ink, so its pin takes the bar colour.
+                    color: tab.current ? (workspaces.theme.style === "retro" ? workspaces.theme.background : workspaces.theme.ink)
+                        : (workspaces.theme.detailAccent || workspaces.theme.error)
                 }
                 Rectangle {
                     anchors.horizontalCenter: label.horizontalCenter

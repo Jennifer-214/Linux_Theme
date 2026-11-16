@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # desk-crt on|off|toggle|status — whole-screen CRT scanlines (a Hyprland screen shader), remembered across reloads
 # and logins (the Hyprland theme reads the state). While it is on, kitty drops its own scanlines and curve and keeps
-# the amber phosphor and glow (retro-amber's kitty.conf includes the file written here), so the two never double.
+# the amber phosphor and glow (retro-amber's kitty.conf globincludes the file written here), so the two never double.
 set -u
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/foxml"
 state="$state_dir/crt-screen"
-kitty_state="$state_dir/kitty-crt.conf"
+kitty_state="${XDG_CONFIG_HOME:-$HOME/.config}/kitty/desk-crt.conf"   # kitty.conf globincludes it
 shader="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/shaders/crt.frag"
 
 current() { [[ -f "$state" && "$(head -n1 "$state")" == on ]] && echo on || echo off; }

@@ -18,10 +18,10 @@
 	syntax-theme = Fox ML
 	features = {{DELTA_LABEL_STYLE}}
 
-	minus-style                   = syntax "#{{DIFF_DELETE}}"
-	minus-emph-style              = syntax "#{{DELTA_DEL_WORD}}"
-	plus-style                    = syntax "#{{DIFF_ADD}}"
-	plus-emph-style               = syntax "#{{DELTA_ADD_WORD}}"
+	minus-style                   = {{DELTA_MINUS_STYLE}}
+	minus-emph-style              = {{DELTA_MINUS_EMPH_STYLE}}
+	plus-style                    = {{DELTA_PLUS_STYLE}}
+	plus-emph-style               = {{DELTA_PLUS_EMPH_STYLE}}
 
 	hunk-header-decoration-style  = "#{{BTOP_LINE}}" box
 

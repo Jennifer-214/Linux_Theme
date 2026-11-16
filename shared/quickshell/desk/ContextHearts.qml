@@ -15,8 +15,11 @@ Row {
     readonly property int filled: Logic.contextHearts(percent)
     spacing: 3
     visible: filled >= 0
+    // Retro: "[███░░] 41%" in character cells.
+    readonly property bool retro: theme.style === "retro"
+    TermText { visible: hearts.retro; theme: hearts.theme; text: visible ? Logic.retroBar(hearts.percent, 5) + " " + Math.round(hearts.percent) + "%" : ""; color: hearts.percent >= 80 ? hearts.theme.error : hearts.theme.ink }
     Repeater {
-        model: 5
+        model: hearts.retro ? 0 : 5
         Item {
             required property int index
             width: 9; height: 11
@@ -33,6 +36,7 @@ Row {
     Text {
         id: glint
         objectName: "context-sparkle"
+        visible: !hearts.retro
         text: "↺"; textFormat: Text.PlainText; opacity: 0
         color: hearts.theme.gardenShades[3]; font.pixelSize: 10
         SequentialAnimation {

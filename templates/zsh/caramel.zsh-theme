@@ -172,6 +172,13 @@ if (( _caramel_paper )); then
   ZSH_THEME_GIT_PROMPT_DIRTY=" %F{#{{WARN}}}✎%f"
   ZSH_THEME_GIT_PROMPT_CLEAN=""
 fi
+if (( _caramel_retro )); then
+  # [main] / [main*]: the branch in brackets, a star for uncommitted changes.
+  ZSH_THEME_GIT_PROMPT_PREFIX="%F{#{{COMMENT}}}["
+  ZSH_THEME_GIT_PROMPT_SUFFIX="]%f"
+  ZSH_THEME_GIT_PROMPT_DIRTY="%F{#{{FG}}}*%F{#{{COMMENT}}}"
+  ZSH_THEME_GIT_PROMPT_CLEAN=""
+fi
 
 # ─── Precmd (runs before each prompt) ──────────
 
@@ -282,7 +289,7 @@ function _caramel_accept_line() {
   _caramel_saved_rprompt="$RPROMPT"
   PROMPT=' %{%F{{{ANSI_OK}}}%}•%{%f%} '
   (( _caramel_paper )) && PROMPT=' %F{#{{COMMENT}}}·%f '
-  (( _caramel_retro )) && PROMPT=' %F{#{{COMMENT}}}>%f '
+  (( _caramel_retro )) && PROMPT=' %F{#{{COMMENT}}}${CARAMEL_DOS}%f '
   RPROMPT=''
   zle reset-prompt
   # Restore for next command

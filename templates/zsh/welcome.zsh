@@ -57,6 +57,8 @@ function _caramel_welcome() {
 
   # Paper uses a centered field-note heading and date, with the quote below.
   [[ "{{WELCOME_LAYOUT}}" == "centered" ]] && { _caramel_welcome_centered "$dow" "$mon $dom" "$hr:$min $ap"; return; }
+  # retro-amber: a DOS boot screen.
+  [[ "{{WELCOME_LAYOUT}}" == "dos" ]] && { _caramel_welcome_dos; return; }
 
   echo ""
   if [[ "{{SHOW_WELCOME}}" == "true" ]]; then
@@ -94,6 +96,37 @@ function _caramel_welcome() {
     (( ${#quotes} )) && echo -e "                  ${c4}${quotes[RANDOM%${#quotes}+1]}${O}"
   fi
   echo ""
+}
+
+# DOS layout (retro-amber): a boot banner, the date and time the way COMMAND.COM printed them, TODO.TXT, a REM.
+function _caramel_welcome_dos() {
+  local a=$'\e[38;5;{{ANSI_TEXT}}m' d=$'\e[38;5;{{ANSI_MUTED}}m' O=$'\e[0m'
+  print ""
+  print -r -- " ${a}DESK-DOS Version 3.0${O}"
+  print -r -- " ${d}(C) Copyright 1987${O}"
+  print ""
+  print -r -- " ${a}Current date is $(LC_TIME=C date '+%a %m-%d-%Y')${O}"
+  print -r -- " ${a}Current time is $(date '+%H:%M:%S.%2N')${O}"
+  if [[ -s ~/.todo ]]; then
+    print ""
+    print -r -- " ${d}C:\> TYPE TODO.TXT${O}"
+    local i=0 line
+    while IFS= read -r line; do
+      [[ -z "$line" ]] && continue
+      (( ++i > 3 )) && break
+      print -r -- " ${a}${i}. ${line}${O}"
+    done < ~/.todo
+  fi
+  local qf="$HOME/.config/zsh/quotes.txt"
+  if [[ -r "$qf" ]]; then
+    local -a quotes
+    quotes=("${(@f)$(<$qf)}"); quotes=(${quotes:#}); quotes=(${quotes:#\#*})
+    if (( ${#quotes} )); then
+      local q=${quotes[RANDOM%${#quotes}+1]}
+      print ""
+      print -r -- " ${d}REM ${q//—/--}${O}"
+    fi
+  fi
 }
 
 # Centered layout: printf pads by display width (${(m)#…} counts wide glyphs), quotes

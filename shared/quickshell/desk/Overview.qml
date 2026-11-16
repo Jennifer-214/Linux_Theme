@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
@@ -14,6 +15,7 @@ Scope {
     property bool opened: false
     property int selected: 0
 
+    readonly property alias window: desk
     readonly property var monitors: Hyprland.monitors.values
     readonly property var workspaces: Hyprland.workspaces.values
         .filter(function(ws) { return ws.id > 0; })
@@ -64,6 +66,7 @@ Scope {
 
         Item {
             id: board
+            objectName: "overview-board"
             anchors.fill: parent
             anchors.margins: Math.max(36, Math.min(width, height) * .06)
             focus: overview.opened
@@ -88,7 +91,8 @@ Scope {
                 readonly property bool retro: overview.theme.style === "retro"
                 text: retro ? "C:\\DESK> DIR /PAGES" : "the desk."
                 color: overview.theme.ink; font.family: retro ? overview.theme.fontFamily : overview.theme.headingFont
-                font.italic: !retro; font.pixelSize: retro ? 26 : 30
+                font.italic: !retro; font.pixelSize: retro ? 2 * overview.theme.cell : 30
+                renderType: overview.theme.textRender
             }
             Grid {
                 id: grid
@@ -117,7 +121,7 @@ Scope {
                             width: cell.area.w * cell.scaleTo + 16; height: cell.area.h * cell.scaleTo + 40
                             anchors.centerIn: parent
                             rotation: cell.chosen || heading.retro ? 0 : (cell.index % 3 - 1) * 1.1
-                            scale: cell.chosen ? 1.03 : 1
+                            scale: cell.chosen && !heading.retro ? 1.03 : 1
                             Behavior on scale { NumberAnimation { duration: 120 } }
                             Behavior on rotation { NumberAnimation { duration: 120 } }
                             Rectangle { anchors.fill: parent; x: 2; y: 3; color: Qt.alpha(overview.theme.ink, .08); radius: 2; visible: !heading.retro }
@@ -147,6 +151,9 @@ Scope {
                                             captureSource: overview.opened && parent.modelData ? parent.modelData.wayland : null
                                             live: overview.opened
                                             constraintSize: Qt.size(Math.ceil(parent.width * 2), Math.ceil(parent.height * 2))
+                                            // Retro: every window seen through the amber phosphor.
+                                            layer.enabled: heading.retro
+                                            layer.effect: MultiEffect { colorization: 1; colorizationColor: overview.theme.ink }
                                         }
                                         Rectangle { anchors.fill: parent; color: "transparent"; border.width: 1; border.color: Qt.alpha(overview.theme.line, .7) }
                                     }
@@ -156,24 +163,28 @@ Scope {
                                     visible: cell.modelData.toplevels.values.length === 0
                                     text: heading.retro ? "<EMPTY>" : "empty page"; color: overview.theme.muted
                                     font.family: heading.retro ? overview.theme.fontFamily : overview.theme.headingFont
-                                    font.italic: !heading.retro; font.pixelSize: 13
+                                    font.italic: !heading.retro; font.pixelSize: heading.retro ? overview.theme.cell : 13
+                                    renderType: overview.theme.textRender
                                 }
                             }
                             // Retro: the chosen page's caption is an inverse-video bar across the frame's foot.
                             Rectangle {
                                 visible: heading.retro && cell.chosen
                                 anchors.bottom: parent.bottom; anchors.left: parent.left; anchors.right: parent.right; anchors.margins: 2
-                                height: 26; color: overview.theme.ink
+                                height: 2 * overview.theme.cell; color: overview.theme.ink
                             }
                             Text {
                                 anchors.bottom: parent.bottom; anchors.bottomMargin: 9; x: 10; width: parent.width - 20
-                                text: (heading.retro ? "[" + cell.modelData.id + "] " : "page " + cell.modelData.id)
-                                      + (cell.modelData.toplevels.values.length
-                                      ? (heading.retro ? "" : " · ") + (cell.modelData.toplevels.values[0].title || "") : "")
+                                // Retro: a DIR listing line, "1  <DIR>  3 win  kitty".
+                                readonly property var windows: cell.modelData.toplevels.values
+                                text: heading.retro ? cell.modelData.id + "  <DIR>  " + windows.length + " win"
+                                        + (windows.length ? "  " + ((windows[0].lastIpcObject || {}).class || windows[0].title || "") : "")
+                                    : "page " + cell.modelData.id + (windows.length ? " · " + (windows[0].title || "") : "")
                                 elide: Text.ElideRight; textFormat: Text.PlainText
                                 color: heading.retro && cell.chosen ? overview.theme.background : overview.theme.ink
-                                font.family: overview.theme.fontFamily; font.pixelSize: 11
-                                font.bold: cell.chosen
+                                font.family: overview.theme.fontFamily; font.pixelSize: heading.retro ? overview.theme.cell : 11
+                                font.bold: cell.chosen && !heading.retro
+                                renderType: overview.theme.textRender
                             }
                             MouseArea {
                                 anchors.fill: parent; hoverEnabled: true

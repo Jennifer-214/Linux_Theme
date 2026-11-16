@@ -15,7 +15,13 @@ Item {
     }
     Timer { id: delay; interval: 220; onTriggered: dots.showing=dots.busy }
     Timer { interval: 320; running: dots.visible; repeat: true; onTriggered: dots.step=(dots.step+1)%3 }
+    // Retro: a spinning | / - \ in one character cell.
+    readonly property bool retro: theme.style === "retro"
+    property int turn: 0
+    Timer { interval: 110; running: dots.visible && dots.retro; repeat: true; onTriggered: dots.turn++ }
+    TermText { visible: dots.retro; theme: dots.theme; anchors.centerIn: parent; text: "|/-\\".charAt(dots.turn % 4) }
     Row {
+        visible: !dots.retro
         anchors.centerIn: parent;spacing: 4
         Repeater {
             model: 3

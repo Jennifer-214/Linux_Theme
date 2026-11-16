@@ -9,6 +9,14 @@
     "diffAddedWord": "rgb({{CLAUDE_DIFF_ADD_WORD_R}},{{CLAUDE_DIFF_ADD_WORD_G}},{{CLAUDE_DIFF_ADD_WORD_B}})",
     "diffRemoved": "rgb({{CLAUDE_DIFF_DEL_R}},{{CLAUDE_DIFF_DEL_G}},{{CLAUDE_DIFF_DEL_B}})",
     "diffRemovedDimmed": "rgb({{CLAUDE_DIFF_DEL_DIM_R}},{{CLAUDE_DIFF_DEL_DIM_G}},{{CLAUDE_DIFF_DEL_DIM_B}})",
-    "diffRemovedWord": "rgb({{CLAUDE_DIFF_DEL_WORD_R}},{{CLAUDE_DIFF_DEL_WORD_G}},{{CLAUDE_DIFF_DEL_WORD_B}})"
+    "diffRemovedWord": "rgb({{CLAUDE_DIFF_DEL_WORD_R}},{{CLAUDE_DIFF_DEL_WORD_G}},{{CLAUDE_DIFF_DEL_WORD_B}})",
+    "claude": "{{CLAUDE_ACCENT}}",
+    "clawd_body": "{{CLAUDE_ACCENT}}",
+    "briefLabelClaude": "{{CLAUDE_ACCENT}}",
+    "fastMode": "{{CLAUDE_ACCENT}}",
+    "selectionBg": "{{CLAUDE_SELECTION_BG}}",
+    "composerSidebarBackground": "{{CLAUDE_PANEL_BG}}",
+    "memoryBackgroundColor": "{{CLAUDE_PANEL_BG}}",
+    "rate_limit_empty": "{{CLAUDE_RATE_EMPTY}}"
   }
 }

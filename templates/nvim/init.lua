@@ -83,6 +83,8 @@ vim.opt.diffopt = { "internal", "filler", "closeoff", "indent-heuristic", "algor
 -- Linux_Theme palette (single source of truth)
 -- paper | retro | plain: the drawing style (retro: a boxed title screen, square status line edges).
 local DeskStyle = "{{DESK_STYLE}}"
+-- Retro: a DOS underscore cursor in insert mode, a block when replacing.
+if DeskStyle == "retro" then vim.opt.guicursor = "n-v-c:block,i-ci-ve:hor20,r-cr:block,o:hor50" end
 local P = {
   bg_deep   = "#{{BG_DARK}}",
   bg        = "#{{BG}}",
@@ -1133,6 +1135,10 @@ local plugins = {
       signs = Paper.enabled and {
         add = { text = "│" }, change = { text = "│" }, delete = { text = "▁" },
         topdelete = { text = "▔" }, changedelete = { text = "┆" }, untracked = { text = "┆" },
+      } or DeskStyle == "retro" and {
+        -- Retro: shapes, not hues (the phosphor shader keeps only brightness).
+        add = { text = "┃" }, change = { text = "║" }, delete = { text = "▁" },
+        topdelete = { text = "▔" }, changedelete = { text = "≈" }, untracked = { text = "┆" },
       } or nil,
       signs_staged = Paper.enabled and {
         add = { text = "┊" }, change = { text = "┊" }, delete = { text = "▁" },
@@ -2202,7 +2208,8 @@ local function apply_foxml_theme()
   hl("MoreMsg",      { fg = P.green })
 
   -- ── Built-in syntax groups ──
-  hl("Comment",      { fg = P.syn.comment, italic = {{SHOW_WELCOME}} })
+  -- Big Blue Term has no italic: a synthesised slant smears the pixel font, so retro keeps comments upright.
+  hl("Comment",      { fg = P.syn.comment, italic = DeskStyle ~= "retro" })
   hl("Constant",     { fg = P.peach })
   hl("String",       { fg = P.syn.string })
   hl("Character",    { fg = P.syn.string })
@@ -2317,7 +2324,7 @@ local function apply_foxml_theme()
   hl("@punctuation.bracket",  { fg = P.sand })
   hl("@punctuation.delimiter", { fg = P.peach })
   hl("@punctuation.special",  { fg = P.pink })
-  hl("@comment",             { fg = P.syn.comment, italic = {{SHOW_WELCOME}} })
+  hl("@comment",             { fg = P.syn.comment, italic = DeskStyle ~= "retro" })
   hl("@comment.todo",        { fg = Paper.enabled and P.fg or P.bg, bg = Paper.enabled and P.sel or P.yellow, bold = {{SHOW_WELCOME}} })
   hl("@comment.note",        { fg = Paper.enabled and P.fg or P.bg, bg = Paper.enabled and P.sel or P.green, bold = {{SHOW_WELCOME}} })
   hl("@comment.warning",     { fg = P.bg, bg = P.yellow, bold = {{SHOW_WELCOME}} })
@@ -2828,6 +2835,23 @@ local function apply_foxml_theme()
   -- theme, so it is there before the first menu opens and after a colorscheme change; the plugin's default link
   -- then leaves it alone. The review and the built-in menu use the same group.
   hl("FoxSymdepsDim", { fg = P.comment, bg = "NONE", italic = false })
+  -- Retro, last so nothing above wins: the phosphor shader keeps only brightness, so diffs and matches are told
+  -- apart by weight, strikethrough and inverse video instead of hue.
+  if DeskStyle == "retro" then
+    hl("DiffAdd",     { bg = P.diff_add, bold = true })
+    hl("DiffDelete",  { bg = P.diff_del, strikethrough = true })
+    hl("DiffText",    { reverse = true })
+    hl("DiffTextAdd", { reverse = true, bold = true })
+    hl("Added",   { fg = P.green, bold = true })
+    hl("Removed", { fg = P.red, strikethrough = true })
+    hl("Changed", { fg = P.fg_pastel })
+    hl("@diff.plus", { link = "Added" }); hl("@diff.minus", { link = "Removed" }); hl("@diff.delta", { link = "Changed" })
+    hl("QuickFixLine", { reverse = true })
+    hl("TelescopeMatching", { fg = P.fg, underline = true, sp = P.fg })
+    hl("CmpItemAbbrMatch", { fg = P.fg, bold = true, underline = true })
+    hl("DiagnosticError", { fg = P.red, bold = true })
+    hl("DiagnosticVirtualTextError", { fg = P.red, bold = true })
+  end
 end
 
 apply_foxml_theme()
