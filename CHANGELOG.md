@@ -178,7 +178,8 @@ started before the update is running. An integration-only update waits until the
 - A fresh install that upgraded the kernel left UFW off. The install's `pacman -Syu` takes the running kernel's
   modules away until a reboot, so `ufw enable` failed, and the installer still said "UFW enabled"; after the reboot
   the firewall stayed off. The ufw step now says the firewall is on only when `ufw status` does. After a kernel
-  upgrade in the same run it sets UFW to start at boot and says to reboot; any other failure is an error.
+  upgrade in the same run it sets UFW to start at boot and says to reboot, once SSH's ports have their IPv6 rules
+  too (ufw writes no IPv6 rate limit without the kernel's modules); any other failure is an error.
 
 ### Upgrading from 3.x
 

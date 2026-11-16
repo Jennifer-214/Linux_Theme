@@ -106,6 +106,28 @@ inline std::vector<int> to_open(const std::vector<int>& ports, const std::vector
     return out;
 }
 
+// While ufw cannot probe netfilter (an upgrade in this run took the running kernel's modules) it skips every IPv6
+// `limit` and still exits 0: the ports it rate-limited (`limited`) get IPv4 rules only, and UFW started at boot then
+// locks an IPv6 login out. These are the ones user6.rules (`user6_rules`) names in no rule.
+inline std::vector<int> v6_missing(const std::string& user6_rules, const std::vector<int>& limited) {
+    std::vector<int> out;
+    for (int p : limited)
+        if (hold(user6_rules, p) == Hold::None) out.push_back(p);
+    return out;
+}
+
+// Their IPv6 rule. `allow` needs no netfilter probe, so ufw writes it for both families (the IPv4 limit turning into
+// an allow in place); `limit` then puts the IPv4 rate limit back while ufw skips the IPv6 one again, leaving the allow.
+// The next run, on the new kernel, rate-limits IPv6 too.
+inline std::vector<Argv> v6_commands(const std::vector<int>& missing) {
+    std::vector<Argv> out;
+    for (int p : missing) {
+        out.push_back({"sudo", "ufw", "allow", std::to_string(p) + "/tcp"});
+        out.push_back({"sudo", "ufw", "limit", std::to_string(p) + "/tcp"});
+    }
+    return out;
+}
+
 // UFW argv. `ports`: where sshd listens; `left`: ports it listened on before this change; `rules`: UFW's rules now.
 // Each port sshd listens on is rate-limited while sshd runs (`sshd_on`), unless UFW denies or narrows it. A port it
 // left is closed (its limit and allow rules deleted; a deny stays), and so is 22 whenever sshd is off it — unless

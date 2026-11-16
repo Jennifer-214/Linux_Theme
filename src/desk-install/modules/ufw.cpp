@@ -13,7 +13,8 @@
 //   3. Interactive port allowlist (TTY-only, --yes silently skips).
 //   4. Auto-allow the current SSH session's port to prevent lockout (not over a deny: the session came in through it).
 //   5. ufw logging low + enable + systemctl enable --now ufw, and on only when `ufw status` says so (ufw_on.hpp):
-//      after a kernel upgrade in this run it is set to start at the next boot instead.
+//      after a kernel upgrade in this run it is set to start at the next boot instead, once SSH's ports have their
+//      IPv6 rules too.
 
 #include "../core/context.hpp"
 #include "../core/idempotency.hpp"
@@ -25,6 +26,7 @@
 #include "ufw_on.hpp"
 
 #include <cstdlib>
+#include <filesystem>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -45,20 +47,40 @@ bool systemctl_enabled(const std::string& u) {
 }
 
 // The firewall follows sshd: the ports it listens on rate-limited, 22 open only while sshd or endlessh holds it.
-void follow_sshd() {
-    if (const auto ports = ssh_port::configured()) {
-        ssh_follow::ufw(*ports);
-    } else if (systemctl_enabled("sshd") || systemctl_active("sshd")) {
-        const auto rules = ssh_follow::ufw_rules();
-        const auto h = rules ? ssh_follow::hold(*rules, 22) : ssh_follow::Hold::None;
-        if (!rules || !ssh_follow::may_open(h)) {
-            ui::warn("couldn't read sshd's port (`sudo sshd -T` failed); 22, sshd's default, left as UFW has it — " +
-                     (rules ? ssh_follow::held(h) : std::string("its rules could not be read either")));
-            return;
-        }
-        sh::run({"sudo", "ufw", "limit", "22/tcp"});
-        ui::warn("couldn't read sshd's port (`sudo sshd -T` failed) — rate-limited 22, sshd's default");
+// Returns the ports it rate-limited.
+std::vector<int> follow_sshd() {
+    if (const auto ports = ssh_port::configured()) return ssh_follow::ufw(*ports);
+    if (!systemctl_enabled("sshd") && !systemctl_active("sshd")) return {};
+    const auto rules = ssh_follow::ufw_rules();
+    const auto h = rules ? ssh_follow::hold(*rules, 22) : ssh_follow::Hold::None;
+    if (!rules || !ssh_follow::may_open(h)) {
+        ui::warn("couldn't read sshd's port (`sudo sshd -T` failed); 22, sshd's default, left as UFW has it — " +
+                 (rules ? ssh_follow::held(h) : std::string("its rules could not be read either")));
+        return {};
     }
+    sh::run({"sudo", "ufw", "limit", "22/tcp"});
+    ui::warn("couldn't read sshd's port (`sudo sshd -T` failed) — rate-limited 22, sshd's default");
+    return {22};
+}
+
+// UFW about to start at the next boot must let SSH in over IPv6 as well: ufw skipped the IPv6 half of every `limit`
+// this run (ssh_follow::v6_missing). Written before ufw.conf says ENABLED=yes — once it does, ufw stops on the failed
+// netfilter probe instead of writing rules. True when each rate-limited port has an IPv6 rule now, or UFW does not
+// filter IPv6.
+bool ipv6_ssh_ready(const std::vector<int>& limited) {
+    if (limited.empty() || !std::filesystem::exists("/proc/sys/net/ipv6")
+        || !ufw_on::ipv6_on(idem::read_file("/etc/default/ufw")))
+        return true;
+    auto v6 = ssh_follow::read_rules(ssh_follow::kUser6Rules);
+    if (!v6) return false;
+    const auto missing = ssh_follow::v6_missing(*v6, limited);
+    if (missing.empty()) return true;
+    for (auto argv : ssh_follow::v6_commands(missing)) {
+        argv.insert(argv.begin(), {"sh", "-c", "exec \"$@\" >/dev/null 2>&1", "sh"});
+        sh::run(argv);
+    }
+    v6 = ssh_follow::read_rules(ssh_follow::kUser6Rules);
+    return v6 && ssh_follow::v6_missing(*v6, limited).empty();
 }
 
 }  // namespace
@@ -104,7 +126,7 @@ void run_ufw(Context& ctx) {
     sh::run({"sudo", "ufw", "default", "deny",  "incoming"});
     sh::run({"sudo", "ufw", "default", "allow", "outgoing"});
 
-    follow_sshd();
+    std::vector<int> limited = follow_sshd();
 
     // Interactive port allowlist.
     if (tty_in() && !ctx.assume_yes) {
@@ -151,6 +173,7 @@ void run_ufw(Context& ctx) {
         if (ssh_follow::may_open(h)) {
             sh::run({"sudo", "ufw", "limit", safe_port + "/tcp"});
             ui::ok("active SSH session on port " + safe_port + " — rate-limited to avoid lockout");
+            if (!ssh_port::has(limited, p)) limited.push_back(p);
         } else {
             ui::ok("active SSH session on port " + safe_port + " — left as UFW has it: " + ssh_follow::held(h));
         }
@@ -170,12 +193,18 @@ void run_ufw(Context& ctx) {
         else ui::warn("UFW is on, but its service did not enable — it will not come back after a reboot; re-run --ufw");
         return;
     case ufw_on::Firewall::AtNextBoot: {
-        const auto conf = ufw_on::enabled_at_boot(idem::read_file("/etc/ufw/ufw.conf"));
+        // Not armed without SSH's IPv6 rules: started at boot, it would lock an IPv6 login out (2026-11-16).
+        const bool v6 = ipv6_ssh_ready(limited);
+        const auto conf = v6 ? ufw_on::enabled_at_boot(idem::read_file("/etc/ufw/ufw.conf")) : std::nullopt;
         const bool set = conf && sh::write_root_atomic("/etc/ufw/ufw.conf", *conf, "0644");
         sh::run({"sudo", "systemctl", "enable", "ufw"});
         if (set) {
             ui::warn("UFW cannot start until a reboot: this run upgraded the kernel, whose modules are gone until "
-                     "then — it is set to start at boot with these rules; reboot");
+                     "then — it is set to start at boot with these rules (SSH over IPv4 and IPv6); reboot");
+        } else if (!v6) {
+            ui::err("UFW is NOT on: the kernel was upgraded in this run, and SSH's IPv6 rule (port " +
+                    ssh_port::join(limited, ", ") + ") could not be written, so it is not set to start at boot, "
+                    "where it would lock an IPv6 login out — reboot, then re-run --ufw");
         } else {
             ui::err("UFW is NOT on: the kernel was upgraded in this run, and /etc/ufw/ufw.conf could not be set to "
                     "start it at boot — reboot, then re-run --ufw");

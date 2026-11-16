@@ -40,6 +40,13 @@ int main() {
     expect(!enabled_at_boot("LOGLEVEL=low\n"), "no ENABLED line: nothing written blind");
     expect(!enabled_at_boot("#ENABLED=no\n"), "a comment is not the setting");
 
+    // Whether UFW filters IPv6 (/etc/default/ufw), so the SSH ports need IPv6 rules before it is armed for boot.
+    expect(ipv6_on("# /etc/default/ufw\nIPV6=yes\nDEFAULT_INPUT_POLICY=\"DROP\"\n"), "IPV6=yes");
+    expect(!ipv6_on("IPV6=no\n") && !ipv6_on("ipv6=\"NO\"\n"), "IPV6=no, in any case, quoted or not");
+    expect(ipv6_on("IPV6=no\nIPV6=yes\n") && !ipv6_on("IPV6=yes\nIPV6=no\n"), "the last line wins, as in ufw");
+    expect(ipv6_on("#IPV6=no\n"), "a comment is not the setting");
+    expect(ipv6_on(""), "unreadable or unset: yes — a firewall left off beats an IPv6 login locked out");
+
     if (failures == 0) std::printf("test_ufw_on: ok\n");
     return failures == 0 ? 0 : 1;
 }

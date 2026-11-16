@@ -105,6 +105,17 @@ int main() {
     expect(to_open({4022}, {22}, plain).empty(), "a port UFW already allows is left to that rule");
     expect(to_open({4022, 22}, {22}, "") == std::vector<int>{4022}, "the port sshd is on already is not reopened");
 
+    // A kernel upgraded in the same run: ufw cannot probe netfilter, skips every IPv6 `limit` and exits 0, so UFW armed
+    // for the next boot had SSH rules for IPv4 only, an IPv6-only login locked out (security review M1, 2026-11-16).
+    const std::string v6_none = "*filter\n:ufw6-user-input - [0:0]\n### RULES ###\n\n### END RULES ###\n";
+    expect((v6_missing(v6_none, {22, 4022}) == std::vector<int>{22, 4022}), "the limited ports user6.rules lacks");
+    expect(v6_missing(tuple("allow tcp 22 ::/0 any ::/0 in"), {22}).empty()
+           && v6_missing(tuple("limit tcp 22 ::/0 any ::/0 in"), {22}).empty(), "an IPv6 allow or limit is there");
+    expect(v6_missing(tuple("deny tcp 4022 ::/0 any ::/0 in"), {4022}).empty(), "an IPv6 deny is never undone");
+    expect((v6_commands({22}) == std::vector<Argv>{{"sudo", "ufw", "allow", "22/tcp"}, {"sudo", "ufw", "limit", "22/tcp"}}),
+           "an allow writes the IPv6 rule (no netfilter probe needed), then the IPv4 rate limit is put back");
+    expect(v6_commands({}).empty(), "nothing missing, nothing run");
+
     // fail2ban
     const std::string jail =
         "# foxml-managed — auto-applied by desk-install --secure.\n[DEFAULT]\nbantime  = 1h\nignoreip = 127.0.0.1/8 ::1\n\n"
