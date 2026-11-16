@@ -53,6 +53,8 @@ ZSH_THEME="caramel"
 # near the end of this file (see the fzf-tab section). Order is load-bearing.
 plugins=(git zsh-completions vi-mode)
 source "$ZSH/oh-my-zsh.sh"
+# kitty sends Shift+Enter as CSI 13;2u (kitty.conf, for tmux): at the prompt it is Enter, not "13;2u" typed in vi mode.
+for keymap in emacs viins vicmd; do bindkey -M $keymap '^[[13;2u' accept-line; done
 
 # ─── Autosuggestions style ────────────────────
 ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg=#{{ZSH_SUGGEST}}'
