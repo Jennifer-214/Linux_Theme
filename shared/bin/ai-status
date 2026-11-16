@@ -95,20 +95,30 @@ else
 fi
 
 # ── Tooltip ──────────────────────────────────────────────────────
+# Free text (process names, findings, model names) goes into hand-built JSON: escape it there, as media.sh does, or
+# one tab or quote makes the module's line invalid and the bar blanks it.
+json_escape() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/ }"
+    s="${s//$'\t'/ }"
+    printf '%s' "$s"
+}
 tip=""
 if [[ $vram_state == mismatch ]]; then
     tip="NVIDIA was updated without a reboot (kernel module ${drv_mod}, driver library ${drv_lib}):\\n"
     tip+="GPU tools fail, and windows opened since then draw on the CPU.\\nReboot to load the new driver.\\n\\n"
 fi
-tip+="Model: $MODEL_NAME"
+tip+="Model: $(json_escape "$MODEL_NAME")"
 if [[ -n "$loaded_name" ]]; then
-    tip+="\\nLoaded: $loaded_name"
+    tip+="\\nLoaded: $(json_escape "$loaded_name")"
     [[ -n "$loaded_size_gb" ]] && tip+=" (${loaded_size_gb}g RAM)"
     [[ "$loaded_proc" == loading ]] && tip+="  loading"
 else
     tip+="\\nLoaded: (idle)"
 fi
 [[ -n "$vram_total_gb" ]] && tip+="\\nVRAM total: ${vram_total_gb}g"
-[[ -n "$loaded_all" ]] && tip+="\\nIn memory: $loaded_all"
+[[ -n "$loaded_all" ]] && tip+="\\nIn memory: $(json_escape "$loaded_all")"
 
-printf '{"text":"%s","tooltip":"%s","class":"%s"}\n' "$TEXT" "$tip" "$CLASS"
+printf '{"text":"%s","tooltip":"%s","class":"%s"}\n' "$(json_escape "$TEXT")" "$tip" "$CLASS"

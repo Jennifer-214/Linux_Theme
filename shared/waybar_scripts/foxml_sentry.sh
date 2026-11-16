@@ -289,35 +289,44 @@ if [[ -f "$LEDGER" ]]; then
 fi
 
 # ─── compose JSON ─────────────────────────────────────────────────
+# Free text (process names, findings, model names) goes into hand-built JSON: escape it there, as media.sh does, or
+# one tab or quote makes the module's line invalid and the bar blanks it.
+json_escape() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/ }"
+    s="${s//$'\t'/ }"
+    printf '%s' "$s"
+}
 _tooltip() {
     local out=""
     if (( ${#crits[@]} > 0 )); then
         out+="🚨 Critical (${#crits[@]}):\\n"
-        for m in "${crits[@]}"; do out+="  • $m\\n"; done
+        for m in "${crits[@]}"; do out+="  • $(json_escape "$m")\\n"; done
         out+="\\n"
     fi
     if (( ${#warns[@]} > 0 )); then
         out+="⚠ Warnings (${#warns[@]}):\\n"
-        for m in "${warns[@]}"; do out+="  • $m\\n"; done
+        for m in "${warns[@]}"; do out+="  • $(json_escape "$m")\\n"; done
         out+="\\n"
     fi
     out+="✓ Active protections (${#oks[@]}):\\n"
-    for m in "${oks[@]}"; do out+="  · $m\\n"; done
+    for m in "${oks[@]}"; do out+="  · $(json_escape "$m")\\n"; done
     if (( ${#configs[@]} > 0 )); then
         out+="\\n◇ Configured, not verified live (${#configs[@]}):\\n"
-        for m in "${configs[@]}"; do out+="  · $m\\n"; done
+        for m in "${configs[@]}"; do out+="  · $(json_escape "$m")\\n"; done
     fi
     if (( ${#unknowns[@]} > 0 )); then
         out+="\\n? Unknown (${#unknowns[@]}):\\n"
-        for m in "${unknowns[@]}"; do out+="  · $m\\n"; done
+        for m in "${unknowns[@]}"; do out+="  · $(json_escape "$m")\\n"; done
     fi
     if (( ${#offs[@]} > 0 )); then
         out+="\\n○ Off by choice, opt-in (${#offs[@]}):\\n"
-        for m in "${offs[@]}"; do out+="  · $m\\n"; done
+        for m in "${offs[@]}"; do out+="  · $(json_escape "$m")\\n"; done
     fi
     out+="\\nClick: desk sec dashboard --live  •  Detail: desk arm --status"
-    # JSON-safe.
-    printf '%s' "${out//\"/\\\"}"
+    printf '%s' "$out"
 }
 
 # Pango markup colours each glyph + count separately. Waybar custom

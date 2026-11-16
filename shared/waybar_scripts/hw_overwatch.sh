@@ -22,11 +22,21 @@ STATE="$STATE_DIR/foxml-overwatch.state"
 LAST_ALERT="$STATE_DIR/foxml-overwatch.last-alert"
 ALERT_COOLDOWN=60  # min seconds between notify-send firings
 
+# Free text (process names, findings, model names) goes into hand-built JSON: escape it there, as media.sh does, or
+# one tab or quote makes the module's line invalid and the bar blanks it.
+json_escape() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/ }"
+    s="${s//$'\t'/ }"
+    printf '%s' "$s"
+}
 emit() {
     local text="$1" tooltip="$2" class="${3:-ok}"
     printf '{"text":"%s","tooltip":"%s","class":"%s"}\n' \
-        "$(printf '%s' "$text" | head -c 80)" \
-        "$(printf '%s' "$tooltip" | head -c 400 | tr '\n' ' ')" \
+        "$(json_escape "$(printf '%s' "$text" | head -c 80)")" \
+        "$(json_escape "$(printf '%s' "$tooltip" | head -c 400 | tr '\n' ' ')")" \
         "$class"
 }
 
