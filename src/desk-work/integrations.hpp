@@ -191,6 +191,7 @@ J integration_health() {
     const auto bytes = backups.value("bytes", 0ULL);
     checks.push_back(J{{"id", "backups"}, {"label", "Update backups"},
         {"detail", std::to_string(backups.value("transactions", J::array()).size()) + " transactions · " + std::to_string(bytes / 1024) + " KiB\nRollback chains and unfinished updates are retained"}});
+    contract_checks(checks, alerts);
     declaration_checks(checks, alerts);
     health["checks"] = checks;
     health["alerts"] = alerts;

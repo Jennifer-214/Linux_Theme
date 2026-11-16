@@ -1,7 +1,7 @@
 """Declared tools (.desk/tools.json and desk.d): the declarations, running them, and their answers as desk-result/1.
 
 Real Git repositories in disposable homes. Nothing a declaration names runs unless a test answers the yes at a terminal
-of its own (a pty), the way her keypress runs it."""
+of its own (a pty), the way her keypress runs it. ToolsCase holds the helpers test_toolchain.py shares."""
 import json
 import os
 from pathlib import Path
@@ -115,6 +115,33 @@ class ToolsCase(unittest.TestCase):
         for key, value in values.items():
             text = text.replace(key, str(value))
         return json.loads(text)
+
+    def contract(self):
+        """The three checkouts a contract run reads, and symdeps' own declaration of its record (the desk.d form)."""
+        self.plugin = self.checkout("plugin", {"lua/x.lua": "return 1\n"})
+        self.ws = self.checkout("ws", {"tools/run.py": "print(1)\n", "tools/plugins/README": "kept here\n", "plans/a.md": "a\n"})
+        self.engine = self.checkout("engine", {"main.cpp": "int main() {}\n"})
+        self.record = self.plugin / ".git/fox-contract.json"
+        self.log = self.plugin / ".git/fox-contract.log"
+        self.declare_private("fox-symdeps.json", {"version": 1, "written_by": "fox-symdeps", "root": str(self.plugin), "tools": [
+            {"id": "contract", "name": "symdeps contract tests", "gives": "status", "reads": str(self.record), "format": "fox-contract/1"}]})
+
+    def write_record(self, change=None):
+        """The fixture record, filled in with these checkouts as they are now, and written where the runner writes it."""
+        record = self.record_text({"@PLUGIN@": self.plugin, "@PLUGIN_COMMIT@": self.git(self.plugin, "rev-parse", "HEAD"),
+                                   "@WORKSPACE@": self.ws, "@WORKSPACE_HEAD@": self.git(self.ws, "rev-parse", "HEAD"),
+                                   "@TOOLS_TREE@": self.git(self.ws, "rev-parse", "HEAD:tools"), "@ENGINE@": self.engine,
+                                   "@ENGINE_HEAD@": self.git(self.engine, "rev-parse", "HEAD"), "@LOG@": self.log})
+        if change:
+            change(record)
+        self.record.write_text(json.dumps(record))
+        return record
+
+    def card(self):
+        health = self.data("health")
+        cards = [c for c in health["checks"] if c["label"].startswith("Contract tests")]
+        self.assertEqual(len(cards), 1, cards)
+        return cards[0], health["alerts"]
 
 
 class Tools(ToolsCase):

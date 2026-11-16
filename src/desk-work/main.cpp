@@ -1318,6 +1318,7 @@ J attention(const std::string& root, const std::string& session = {}, bool revie
 #include "map.hpp"
 #include "records.hpp"
 void declaration_checks(J& checks, J& alerts);   // tools.hpp: declarations desk-work refused
+void contract_checks(J& checks, J& alerts);   // toolchain.hpp: work health's toolchain card
 #include "integrations.hpp"
 #include "editor.hpp"
 // A checkout counts for the desktop's lists while it is in use: it still exists, and it has a commit or a recorded
@@ -1578,6 +1579,7 @@ int supervise(const A& child, const std::string& root, const std::string& sessio
 }
 #include "results.hpp"
 #include "tools.hpp"
+#include "toolchain.hpp"
 }
 
 std::string invoked;
