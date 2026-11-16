@@ -69,9 +69,9 @@ $(addprefix install-,$(TOOLS)): install-%:
 $(addprefix clean-,$(TOOLS)): clean-%:
 	$(MAKE) --no-print-directory -C src/$* clean
 
-# `make test` invokes each subdir's `test` target if it has one; subdirs
-# without a test target print "no tests" and exit 0 so the umbrella
-# target stays green.
+# `make test` invokes each subdir's `test` target if it has one; a subdir
+# without one prints "no tests". A test target that cannot run (a missing
+# prerequisite, a broken Makefile) fails the run: it is not "no tests".
 test: $(addprefix test-,$(TOOLS)) test-scripts
 
 # Only the tests that name what changed since the last commit; says so when files moved under the run.
@@ -89,8 +89,10 @@ test-work-integrations:
 test-scripts:
 	@for t in tests/test_*.py; do [ -e "$$t" ] || continue; echo "  - $$t"; python3 "$$t" || exit 1; done
 
+# Whether a tool has tests is read from its Makefile, not from a dry run: a dry run also fails when the test target is
+# broken, and that once passed as "no tests".
 $(addprefix test-,$(TOOLS)): test-%:
-	@if $(MAKE) -n -C src/$* test >/dev/null 2>&1; then \
+	@if grep -qE '^test[[:space:]]*:' src/$*/Makefile; then \
 		$(MAKE) --no-print-directory -C src/$* test; \
 	else \
 		echo "  - src/$*: no tests"; \
