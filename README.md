@@ -25,20 +25,20 @@ parts you want through the installer; the setup scripts provide broader defaults
 
 ## Screenshots
 
-The Paper desktop, with its drawer open:
+The retro-amber desktop (the default theme), with its drawer open:
 
-![Paper desktop with the drawer open](shared/screenshots/paper_desktop.png)
+![retro-amber desktop with the drawer open](shared/screenshots/retro_desktop.png)
 
 <details>
 <summary>Lock screen, browser, terminal and editor</summary>
 
-![Paper lock screen](shared/screenshots/paper_lock.png)
+![retro-amber lock screen](shared/screenshots/retro_lock.png)
 
-![Paper Firefox new tab](shared/screenshots/paper_firefox.png)
+![retro-amber Firefox new tab](shared/screenshots/retro_firefox.png)
 
-![Terminal](shared/screenshots/terminal.png?v=2)
+![Terminal](shared/screenshots/retro_terminal.png)
 
-![Neovim](shared/screenshots/nvim.png?v=2)
+![Neovim](shared/screenshots/retro_nvim.png)
 
 </details>
 
@@ -108,8 +108,19 @@ drawer, and a faint glow with scanlines in kitty (`desk-crt on` puts the CRT
 over the whole screen).
 
 **Classic** uses warm peach, dusty rose and sage on a dark plum background.
-**Paper**, shown above, uses light paper, graphite text, blush accents and
-botanical illustrations.
+**Paper** uses light paper, graphite text, blush accents and botanical
+illustrations.
+
+<details>
+<summary>Paper</summary>
+
+![Paper desktop with the drawer open](shared/screenshots/paper_desktop.png)
+
+![Paper lock screen](shared/screenshots/paper_lock.png)
+
+![Paper Firefox new tab](shared/screenshots/paper_firefox.png)
+
+</details>
 
 Other palettes include Rose, Bubblegum, Cave Data Center and Amsterdam Orange.
 Alternative themes have varying levels of completion; read the
