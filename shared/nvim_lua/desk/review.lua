@@ -371,6 +371,7 @@ local function progress(r)
 end
 -- The shared store (desk-work): the notebook and the drawer read the same progress. Best effort and never waited on;
 -- a file on disk also sends its content hash, so a later edit shows there as "changed since review".
+local sharing = 0
 local function share(r, file, done)
   local backend = M.work_tool()
   if not backend or not r.root then return end
@@ -386,8 +387,16 @@ local function share(r, file, done)
   if done ~= nil then vim.list_extend(argv, { '--done', done and 'yes' or 'no' }) end
   -- This write comes back as a work event a moment later; refresh_live takes that one as an echo.
   r.shared_at = uv.now()
-  pcall(vim.system, argv, { text = true }, function() end)
+  sharing = sharing + 1
+  local ok = pcall(vim.system, argv, { text = true }, function() sharing = sharing - 1 end)
+  if not ok then sharing = sharing - 1 end
 end
+-- Marks still on their way to desk-work. Leaving Neovim waits a moment for them: the last file checked before :q
+-- would otherwise never count, and the notebook would keep the commit on its list.
+function M.sharing() return sharing end
+api.nvim_create_autocmd('VimLeavePre', { group = api.nvim_create_augroup('desk_review_share', { clear = true }), callback = function()
+  if sharing > 0 then vim.wait(2000, function() return sharing == 0 end, 10) end
+end })
 -- The request thread is kept in the work tool too, so the notebook can show who was asked and whether it is ready.
 local function share_request(r, file, request)
   -- A read begun before this write must not restore the request it just settled.
@@ -525,9 +534,24 @@ local function hint(word, ...)
   local keys = {}
   for _, id in ipairs({ ... }) do
     local lhs = M.bind(id)
-    if lhs then keys[#keys + 1] = lhs == '<CR>' and '⏎' or (lhs:gsub('^<leader>', 'Space ')) end
+    if lhs then keys[#keys + 1] = lhs == '<CR>' and '⏎' or lhs == '<BS>' and 'BS' or (lhs:gsub('^<leader>', 'Space ')) end
   end
   return table.concat(keys, '/') .. ' ' .. word
+end
+-- The comparison panes' footer. With the file list hidden it leads with the way back to it, which nothing else shows.
+local function set_footer(r)
+  local hidden = not api.nvim_win_is_valid(r.panel_win or -1)
+  local parts = { hint('file', 'next-file', 'previous-file'), hint('change', 'next-change', 'previous-change'),
+    hint('check', 'mark'), hint('unread', 'unread'), hint('finish', 'finish'), hint('help', 'actions'), hint('close', 'close') }
+  if hidden then table.insert(parts, 1, hint('file list', 'list-back', 'file-list')) end
+  -- Every file of a commit checked: say so first, with the one key that stamps it as reviewed.
+  if r.row.kind == 'commit' and #r.files > 0 and progress(r) == #r.files and not r.completed then
+    table.insert(parts, 1, 'all checked · ' .. hint('stamps it', 'finish'))
+  end
+  local footer = ' ' .. table.concat(parts, ' · ') .. ' '
+  for _, win in ipairs({ r.left_win, r.right_win }) do
+    if api.nvim_win_is_valid(win or -1) then vim.wo[win].statusline = '%#StatusLine#' .. footer end
+  end
 end
 -- The description strip and the bar are all that change when only the cursor moves; they live in their own namespace,
 -- so moving the cursor rewrites two lines instead of rebuilding every row (a long review lagged on each j/k).
@@ -677,11 +701,7 @@ local function panel(r, select_row)
   end
   mark_cursor(r, cursor_line)
   if select_row and api.nvim_win_is_valid(r.panel_win) and selected_line then api.nvim_win_set_cursor(r.panel_win, { selected_line, 0 }) end
-  local footer = ' ' .. table.concat({ hint('file', 'next-file', 'previous-file'), hint('change', 'next-change', 'previous-change'),
-    hint('check', 'mark'), hint('unread', 'unread'), hint('finish', 'finish'), hint('help', 'actions'), hint('close', 'close') }, ' · ') .. ' '
-  for _, win in ipairs({ r.left_win, r.right_win }) do
-    if api.nvim_win_is_valid(win) then vim.wo[win].statusline = '%#StatusLine#' .. footer end
-  end
+  set_footer(r)
 end
 
 -- One buffer per side for the whole review; a file change replaces its lines. A new pair per file re-ran every FileType
@@ -775,6 +795,8 @@ M.keymap = {
     act = function(r) return function() r.whitespace = not r.whitespace; options(r); tell('Whitespace changes: ' .. (r.whitespace and 'hidden' or 'shown')) end end },
   { id = 'context', lhs = '<leader>rc', on = 'both', desc = 'Toggle review context', doc = 'Six context lines / full-file context',
     act = function(r) return function() r.context = not r.context; options(r); tell('Context: ' .. (r.context and 'full file' or 'six lines')) end end },
+  { id = 'list-back', lhs = '<BS>', on = 'diff', desc = 'Back to the review file list',
+    doc = 'Back to the file list from a comparison pane, showing it again if it was hidden', act = function() return function() M.show_panel(true) end end },
   { id = 'file-list', lhs = '<leader>re', on = 'both', desc = 'Toggle review file list', also = '`:ReviewFiles`',
     doc = 'Toggle the review file list, keeping the comparison open; `Space e` keeps its normal Neo-tree binding', act = function() return M.toggle_panel end },
   { id = 'symdeps', lhs = 's', on = 'both', desc = 'Inspect changed C++ symbol in working copy',
@@ -805,6 +827,10 @@ function M.bind(id)
   for _, entry in ipairs(M.keymap) do if entry.id == id then return entry.lhs end end
 end
 maps = function(r, buf, sidebar)
+  -- Space in the review shows its own keys under one name; which-key is optional (the config's global <leader>r
+  -- group is "refactor"; this buffer's wins).
+  local ok, wk = pcall(require, 'which-key')
+  if ok and type(wk) == 'table' and type(wk.add) == 'function' then pcall(wk.add, { { '<leader>r', group = 'review', buffer = buf } }) end
   for _, entry in ipairs(M.keymap) do
     if entry.on == 'both' or entry.on == (sidebar and 'list' or 'diff') then
       vim.keymap.set('n', entry.lhs, entry.act(r), { buffer = buf, desc = entry.desc, silent = true })
@@ -871,14 +897,21 @@ local function panel_buffer(r)
     local line = api.nvim_win_get_cursor(r.panel_win)[1]
     -- Rows only: a blank between commits, or the strip below the list, passes the cursor on to the next row the way
     -- it was going (the last row stops it), so the bar never falls back to the open file far up the list.
+    -- The way it was going is read against the last row the cursor stood on (r.strip_for), and a bounce lands on a
+    -- row and becomes that row here, so the next j or k moves on from it: a cursor set from this handler raises no
+    -- second CursorMoved, and a stale strip_for once sent j back up over a heading, trapping the cursor.
     if r.entries and not r.entries[line] then
       local step = line >= (r.strip_for or line) and 1 or -1
       local count = api.nvim_buf_line_count(r.panel_buf)
+      local landed
       for _, dir in ipairs({ step, -step }) do
         local l = line + dir
         while l >= 1 and l <= count and not r.entries[l] do l = l + dir end
-        if r.entries[l] then api.nvim_win_set_cursor(r.panel_win, { l, 0 }); return end
+        if r.entries[l] then landed = l; break end
       end
+      if not landed then return end
+      api.nvim_win_set_cursor(r.panel_win, { landed, 0 })
+      line = landed
     end
     if line ~= r.strip_for then
       r.strip_for = line
@@ -912,7 +945,7 @@ function M.hide_panel()
   r.owned[win] = nil; r.panel_hidden = true
   local ok, error = pcall(api.nvim_win_close, win, false)
   if not ok then r.owned[win] = true; r.panel_hidden = false; tell(tostring(error)); return false end
-  M.layout(); restore_views(saved)
+  M.layout(); restore_views(saved); set_footer(r)
   if focused then
     local target = previous_diff
     if target ~= r.left_win and target ~= r.right_win or not api.nvim_win_is_valid(target or -1) then target = r.right_win end
@@ -943,7 +976,7 @@ function M.show_panel(focus)
     for line, entry in pairs(r.entries or {}) do if entry_key(r, entry) == r.panel_selection then view.lnum = line; break end end
     api.nvim_win_call(r.panel_win, function() vim.fn.winrestview(view) end)
   end
-  restore_views(saved)
+  restore_views(saved); set_footer(r)
   r.last_diff_win = previous_diff
   if focus then api.nvim_set_current_win(r.panel_win)
   elseif api.nvim_win_is_valid(current) then api.nvim_set_current_win(current) end
@@ -1202,6 +1235,13 @@ function M.mark()
   if r.active_set then r.active_set.completed = false end
   if not save(r, file) then r.marks[file.rel] = previous end
   panel(r)
+  -- The last file of a commit checked: it no longer counts as to review; stamping it stays an explicit step.
+  r.status_line = nil
+  if r.row.kind == 'commit' and r.marks[file.rel] and progress(r) == #r.files then
+    r.status_line = 'All ' .. #r.files .. (#r.files == 1 and ' file' or ' files') .. ' checked: every file checked, so it is off the review list · '
+      .. hint('finishes and stamps the commit', 'finish')
+    tell(r.status_line)
+  end
 end
 
 function M.finish()

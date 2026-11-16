@@ -31,9 +31,9 @@ const notebookView = atom({ plugin: 'desk-notebook', key: 'notebookView' } as co
   { page: 'overview', scope: 'session', selected: '', offset: 0, form: 'none' } as NotebookView, { shape: 'notebook-1' })
 const SID = /^[A-Za-z0-9_-]{1,80}$/
 const autoCompact = (columns: number) => columns < 144
-// The front page has a fixed set of rows (at most 16: header, five groups, the key bar), so the pane is that tall and
+// The front page has a fixed set of rows (at most 17: header, five groups, the two lines of keys), so the pane is that tall and
 // never grows or shrinks as things change.
-const FRONT_ROWS = 16
+const FRONT_ROWS = 17
 const paneSize = (view: NotebookView) => view.compact && view.page === 'overview' && view.form === 'none'
   ? { rows: 4, columns: 30 } : { rows: view.page === 'overview' && view.form === 'none' ? FRONT_ROWS : 22, columns: 42 }
 
@@ -1225,10 +1225,10 @@ export const register: Register = on => {
     const inner = Math.max(10, width - 2)
     const about: Record<string, string> = {}
     // A group's rule; retro prints its label in inverse capitals.
-    const ruleNode = (label: string, right = '') => {
+    const ruleNode = (label: string, right = '', colour: string = paper.ribbon) => {
       const [head, name, tail] = ruleParts(label, right, width)
-      return RETRO ? <Text color={paper.ribbon}>{head}<Text color={paper.page} backgroundColor={paper.ribbon}>{name}</Text>{tail}</Text>
-        : text(head + name + tail, paper.ribbon)
+      return RETRO ? <Text color={colour}>{head}<Text color={paper.page} backgroundColor={colour}>{name}</Text>{tail}</Text>
+        : text(head + name + tail, colour)
     }
     const rule = (label: string, right = '') => content.push(ruleNode(label, right))
     const pair = (key: string, left: string, right: string, press: () => unknown, says: string, colour: string = paper.ink) => {
@@ -1252,7 +1252,7 @@ export const register: Register = on => {
     const ci = ciLabel(now?.ci?.runs)
     // Everything that needs you, most urgent first: desk-work's shared list, then what only this session knows (a CI
     // run, another session's edit, notes). Each row's description says the next action.
-    type Need = { key: string; left: string; right: string; press: () => unknown; says: string; colour: string; words: [string, string] }
+    type Need = { key: string; left: string; right: string; press: () => unknown; says: string; colour: string; words: [string, string]; at?: number }
     const needs: Need[] = []
     {
       const reReview = (path: string) => checkedWork(['open', '--root', root, '--action', 'file-diff', '--file', path, '--session', session])
@@ -1265,7 +1265,7 @@ export const register: Register = on => {
           right: ({ request: 're-review', records: 'repair', job: 'failed', agent: 'waiting', commit: 'to review', changed: 'changed' } as Record<string, string>)[item.kind] ?? item.kind,
           press: () => checkedWork(['open', '--root', item.root, '--action', 'attention', '--id', item.id]),
           says: item.why + '. Enter opens it.', colour: item.kind === 'job' || item.kind === 'agent' || item.kind === 'records' ? paper.berry : paper.ink,
-          words: needGroup(item.kind, item.action?.kind) })
+          words: needGroup(item.kind, item.action?.kind), ...(item.kind === 'commit' ? { at: item.at } : {}) })
       }
       if (!shared) for (const job of (now?.work?.failures ?? []).slice(0, 2))
         needs.push({ key: `attention-job-${job.id}`, left: `${glyph('failed')} ${job.title ?? job.command}`, right: job.state, press: () => openJob(job.id),
@@ -1404,13 +1404,30 @@ export const register: Register = on => {
     if (view.form === 'none' && view.page === 'attention') {
       // The whole needs-you list, most urgent first, twenty to a page; each row opens what it names.
       firstNeed = needs[0]?.press ?? null
-      const offset = Math.min(view.offset, Math.max(0, Math.floor((needs.length - 1) / 20) * 20))
-      rule('needs you', String(needs.length))
-      if (!needs.length) content.push(text('nothing needs you here', paper.dim))
+      // The commits to review come after everything else, by day, the newest day first (within a day in the order
+      // desk-work gives); each day under a heading that is not a row, so j and k pass over it.
+      const day = (at: number) => { const d = new Date(at * 1000); return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` }
+      const dayLabel = (at: number) => { const d = new Date(at * 1000)
+        return `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()]} ${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
+      const dated = needs.filter(n => n.at !== undefined)
+      const perDay = new Map<string, number>()
+      for (const n of dated) perDay.set(day(n.at!), (perDay.get(day(n.at!)) ?? 0) + 1)
+      const listed = [...needs.filter(n => n.at === undefined),
+        ...dated.map((n, i) => ({ n, i })).sort((a, b) => (day(a.n.at!) === day(b.n.at!) ? a.i - b.i : b.n.at! - a.n.at!)).map(x => x.n)]
+      const offset = Math.min(view.offset, Math.max(0, Math.floor((listed.length - 1) / 20) * 20))
+      rule('needs you', String(listed.length))
+      if (!listed.length) content.push(text('nothing needs you here', paper.dim))
       else for (const line of breakdown()) content.push(text(line))
-      for (const need of needs.slice(offset, offset + 20)) pair(need.key, need.left, need.right, need.press, need.says, need.colour)
+      let heading = ''
+      for (const need of listed.slice(offset, offset + 20)) {
+        if (need.at !== undefined && day(need.at) !== heading) {
+          heading = day(need.at)
+          content.push(ruleNode(dayLabel(need.at), String(perDay.get(heading) ?? 0), paper.dim))
+        }
+        pair(need.key, need.left, need.right, need.press, need.says, need.colour)
+      }
       if (offset > 0) content.push(row('attention-previous', '↑ more urgent', () => setView({ offset: offset - 20, selected: '' })))
-      if (needs.length > offset + 20) content.push(row('attention-next', `↓ ${needs.length - offset - 20} more`, () => setView({ offset: offset + 20, selected: '' })))
+      if (listed.length > offset + 20) content.push(row('attention-next', `↓ ${listed.length - offset - 20} more`, () => setView({ offset: offset + 20, selected: '' })))
       // The review backlog: set aside to catch up later (it stays unreviewed in the review), or brought back.
       const commits = needs.filter(n => n.key.startsWith('attention-commit:')).length
       if (commits > 0 || now?.work?.aside) rule('backlog')
@@ -1724,55 +1741,49 @@ export const register: Register = on => {
         <Text color={paper.berry} weight="bold">!</Text>
       </Button>}
     </Box>
-    // The key bar, Norton-style in retro: each key and its word, as much as fits on one line (closer together, then
-    // the least needed words dropped, keys kept), never wrapping, so the bar is always one row.
-    type Key = { keys: { key: string; hotkey?: string; label: string; shown: string; press: () => unknown }[]; word: string; rank: number }
-    const keyBar = (id: string, keys: Key[]) => {
-      const shown = (k: Key, word: boolean) => k.keys.map(b => b.shown).join('/') + (word ? ' ' + said(k.word) : '')
-      const length = (gap: string, worded: Set<number>) => keys.map((k, i) => shown(k, worded.has(i))).join(gap).length
-      const worded = new Set(keys.map((_, i) => i))
-      const gap = length('  ', worded) <= width ? '  ' : ' '
-      for (const i of keys.map((k, i) => [k.rank, i] as const).sort((a, b) => b[0] - a[0] || b[1] - a[1]).map(([, i]) => i)) {
-        if (length(gap, worded) <= width) break
-        worded.delete(i)
+    // The key bar. The terminal draws a plain Button with a hotkey as "h: back" (the key in the accent colour, a colon,
+    // the label), so each key is one Button whose label is only its word; retro's words are capitals on the selection
+    // colour, the way Norton's bar sat its words on a block. Each group is packed into lines no wider than the pane,
+    // so the terminal never wraps it, and the same groups are drawn every time, so the bar's height never changes.
+    type Key = { key: string; hotkey?: string; word: string; press: () => unknown }
+    const drawnWidth = (k: Key) => (k.hotkey ? k.hotkey.length + 2 : 0) + said(k.word).length
+    const keyLines = (id: string, keys: Key[]) => {
+      const lines: Key[][] = []
+      let line: Key[] = [], used = 0
+      for (const k of keys) {
+        const add = (line.length ? 2 : 0) + drawnWidth(k)
+        if (line.length && used + add > width) { lines.push(line); line = []; used = 0 }
+        line.push(k); used += line.length > 1 ? add : drawnWidth(k)
       }
-      return <Box key={id}>{keys.flatMap((k, i) => [
-        ...(i > 0 ? [<Text key={`${id}-gap-${i}`}>{gap}</Text>] : []),
-        ...k.keys.flatMap((b, j) => [
-          ...(j > 0 ? [<Text key={`${id}-or-${i}-${j}`} color={paper.dim}>/</Text>] : []),
-          <Button key={b.key} label={b.label} {...(b.hotkey ? { hotkey: b.hotkey } : {})} plain onPress={b.press}>
-            <Text color={paper.ink} weight="bold">{b.shown}</Text>
-          </Button>]),
-        ...(worded.has(i) ? [<Text key={`${id}-word-${i}`}> </Text>, <Text key={`${id}-says-${i}`} color={RETRO ? paper.ink : paper.dim}
-          {...(RETRO ? { backgroundColor: paper.selection } : {})}>{said(k.word)}</Text>] : []),
-      ])}</Box>
+      if (line.length) lines.push(line)
+      return lines.map((keysOnLine, n) => <Box key={`${id}-${n}`}>{keysOnLine.flatMap((k, i) => [
+        ...(i > 0 ? [<Text key={`${id}-${n}-gap-${i}`}>{'  '}</Text>] : []),
+        <Button key={k.key} label={said(k.word)} {...(k.hotkey ? { hotkey: k.hotkey } : {})} plain onPress={k.press}>
+          {RETRO ? <Text color={paper.ink} backgroundColor={paper.selection}>{said(k.word)}</Text> : said(k.word)}
+        </Button>])}</Box>)
     }
-    // rank: which words go first when the line is short (the highest first); the keys themselves always stay.
-    const one = (key: string, hotkey: string | undefined, shown: string, label: string, press: () => unknown, rank: number, word = label): Key =>
-      ({ keys: [{ key, ...(hotkey ? { hotkey } : {}), label, shown, press }], word, rank })
-    const moveKeys: Key = { keys: [{ key: 'nav-down', hotkey: 'j', label: 'down', shown: 'j', press: () => move(1) },
-      { key: 'nav-up', hotkey: 'k', label: 'up', shown: 'k', press: () => move(-1) }], word: 'move', rank: 0 }
-    const hideKey = one('nav-hide', view.form === 'none' && writingId === null ? 'q' : undefined, 'q', 'hide', () => $.ui.close({ id: PANE }), 1)
-    const openKey = one('nav-open', 'l', CHARS.enter, 'open', activate, 0)
-    const nextKey = nextNeed !== null ? [one('nav-next', 'n', 'n', 'next', () => nextNeed(), 2)] : []
-    const laterKey = snoozable ? [one('nav-snooze', 's', 's', 'later', () => setView({ form: 'snooze', snoozing: view.selected }), 3)] : []
-    const frontBar = keyBar('keys', [moveKeys, openKey, ...nextKey, ...laterKey, one('nav-more', 'p', 'p', 'project', () => page('project'), 4, 'more'), hideKey])
+    const hideKey: Key = { key: 'nav-hide', ...(view.form === 'none' && writingId === null ? { hotkey: 'q' } : {}), word: 'hide', press: () => $.ui.close({ id: PANE }) }
+    const moveKeys: Key[] = [{ key: 'nav-down', hotkey: 'j', word: '↓', press: () => move(1) }, { key: 'nav-up', hotkey: 'k', word: '↑', press: () => move(-1) }]
+    const openKey: Key = { key: 'nav-open', hotkey: 'l', word: 'open', press: activate }
+    const nextKey: Key[] = nextNeed !== null ? [{ key: 'nav-next', hotkey: 'n', word: 'next', press: () => nextNeed() }] : []
+    const laterKey: Key[] = snoozable ? [{ key: 'nav-snooze', hotkey: 's', word: 'later', press: () => setView({ form: 'snooze', snoozing: view.selected }) }] : []
+    const drawerKey: Key = { key: 'nav-drawer', hotkey: 'd', word: 'drawer', press: () => launch(['desktop-menu', '--open', drawerPage(view.page)], 'The drawer did not open.') }
+    const compactKey: Key = { key: 'nav-compact', hotkey: 'z', word: 'compact', press: () => setView({ compact: true, page: 'overview', form: 'none', selected: '' }) }
+    const selectedFile = () => (now?.files ?? []).find(f => `file:${f.path}` === view.selected)
+    const fileKeys: Key[] = view.page === 'files' && view.form === 'none' ? [
+      { key: 'nav-editor', hotkey: 'e', word: 'edit', press: () => { const f = selectedFile(); if (f) return openFile(f.path, true) } },
+      { key: 'nav-file-tests', word: 'tests', press: () => { const f = selectedFile(); if (f) return checkedWork(['open', '--root', root, '--action', 'suggested-tests', '--file', f.path]) } }] : []
+    // The front page: moving and opening on one line, the rest on the next, both always drawn.
+    const frontBar = [...keyLines('keys', [...moveKeys, openKey, ...nextKey, ...laterKey]),
+      ...keyLines('keys-more', [{ key: 'nav-more', hotkey: 'p', word: 'more', press: () => page('project') }, drawerKey, compactKey, hideKey])]
     return <Box flexDirection="column">
       {header}
-      {!front && keyBar('keys', [one('nav-back', 'h', 'h', 'back', back, 0), moveKeys, openKey, ...nextKey, hideKey])}
-      {!front && keyBar('keys-more', [one('nav-drawer', 'd', 'd', 'drawer', () => launch(['desktop-menu', '--open', drawerPage(view.page)], 'The drawer did not open.'), 1),
-        ...laterKey, one('nav-compact', 'z', 'z', 'compact', () => setView({ compact: true, page: 'overview', form: 'none', selected: '' }), 2)])}
+      {!front && keyLines('keys', [{ key: 'nav-back', hotkey: 'h', word: 'back', press: back }, ...moveKeys, openKey, ...nextKey])}
+      {!front && keyLines('keys-more', [drawerKey, ...laterKey, compactKey, hideKey])}
+      {!front && fileKeys.length > 0 && keyLines('keys-files', fileKeys)}
       {view.page !== 'overview' && <Box>
         {(['files', 'project', 'sessions'] as const).flatMap(value => [<Button key={'nav-page-' + value} label={value} plain onPress={() => page(value)} />, <Text key={'nav-gap-' + value}> </Text>])}
       </Box>}
-      {view.page === 'files' && <Button key="nav-editor" label="edit selected" hotkey="e" plain onPress={() => {
-        const selected = (now?.files ?? []).find(f => `file:${f.path}` === view.selected)
-        if (selected) return openFile(selected.path, true)
-      }} />}
-      {view.page === 'files' && <Button key="nav-file-tests" label="tests for selected" plain onPress={() => {
-        const selected = (now?.files ?? []).find(file => 'file:' + file.path === view.selected)
-        if (selected) return checkedWork(['open', '--root', root, '--action', 'suggested-tests', '--file', selected.path])
-      }} />}
       {content}
       {front && frontBar}
     </Box>

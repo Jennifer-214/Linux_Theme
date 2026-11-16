@@ -606,6 +606,7 @@ Checking a live file is invalidated when its contents change. Files with missing
 | `R` | Finish after every file is checked and open the next unchecked commit; this clears the finished commit from pending reviews |
 | `Space rw` | Show / hide whitespace differences |
 | `Space rc` | Six context lines / full-file context |
+| `<BS>` in a diff | Back to the file list from a comparison pane, showing it again if it was hidden |
 | `Space re`, `:ReviewFiles` | Toggle the review file list, keeping the comparison open; `Space e` keeps its normal Neo-tree binding |
 | `s` | Inspect the changed C/C++ file in symdeps (current working copy near the reviewed line) |
 | `gf` | Open the editable working file in a separate tab |

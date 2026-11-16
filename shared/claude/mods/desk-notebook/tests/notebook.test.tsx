@@ -675,7 +675,7 @@ test('compact mode reserves thirty columns, remembers its choice and expands wit
   expect(await ui.find({ key: 'page-files' })).toBeUndefined()
   await ui.press({ key: 'compact-expand' })
   expect(await ui.find({ key: 'page-files' })).toBeDefined()
-  expect(seen.opened.at(-1)).toMatchObject({ columns: 42, rows: 16 })
+  expect(seen.opened.at(-1)).toMatchObject({ columns: 42, rows: 17 })
   await $.command.run({ command: 'notebook', args: 'compact', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
   expect(seen.opened.at(-1)).toMatchObject({ columns: 30, rows: 4 })
   expect(seen.submitted).toEqual([])
@@ -905,4 +905,36 @@ test('after a push the review stamps follow only where the repository asks, and 
   seen.argv = []
   await $.tool.call({ tool: 'Bash', command: 'git status', description: 'Look' })
   expect(seen.argv.some(a => a.startsWith('desk-work push-notes'))).toBe(false)
+})
+
+test('the needs-you list groups commits under a heading per day, newest day first, and j/k pass over the headings', async ($, on) => {
+  const at = (days: number, hour: number) => { const d = new Date(NOW); d.setDate(d.getDate() - days); d.setHours(hour, 0, 0, 0); return d.getTime() / 1000 }
+  const commit = (c: string, when: number) => ({ id: 'commit:' + c.repeat(40), kind: 'commit', root: '/code/paper', label: 'step ' + c, why: 'Not reviewed yet', at: when, action: { kind: 'reviews', id: c.repeat(40) } })
+  // desk-work's order: an older day's commit first, then two of today's, newest first.
+  const attention = [commit('a', at(1, 10)), commit('b', at(0, 15)), commit('c', at(0, 9)),
+    { id: 'job:r1', kind: 'job', root: '/code/paper', label: 'unit tests', why: 'Failed', at: at(0, 8), action: { kind: 'tests', id: 'r1' } }]
+  engine(on, { projectWork: { tests: null, tasks: [], jobs: [], pending: 3, attention } })
+  await opened($)
+  await $.command.run({ command: 'notebook', args: 'attention', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 160 } })
+  const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: true }, surface: 'terminal' } as never)
+  const label = (days: number) => { const d = new Date(at(days, 12) * 1000)
+    return `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()]} ${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => String(t.text))
+  const today = texts.findIndex(t => t.startsWith(`── ${label(0)} `)), yesterday = texts.findIndex(t => t.startsWith(`── ${label(1)} `))
+  expect(today, texts.join('\n')).toBeGreaterThan(-1)
+  expect(yesterday, 'the older day comes after the newer one').toBeGreaterThan(today)
+  expect(texts[today], "the day's count").toMatch(/ 2 ──$/)
+  expect(texts[yesterday]).toMatch(/ 1 ──$/)
+  // The rows in order: the failed job, then today's two in desk-work's order, then yesterday's.
+  const keys = (await ui.findAll({ type: 'Button' })).map(b => String(b.key ?? b.props.key ?? '')).filter(k => k.startsWith('attention-'))
+  expect(keys).toEqual(['attention-job:r1', 'attention-commit:' + 'b'.repeat(40), 'attention-commit:' + 'c'.repeat(40), 'attention-commit:' + 'a'.repeat(40)])
+  // j walks row to row: from today's last commit straight onto yesterday's, over its heading.
+  const cursor = async () => (await ui.findAll({ type: 'Button' })).find(b => String(b.text ?? '').startsWith('› '))?.props.label
+  for (let i = 0; i < 3; ++i) await ui.press({ key: 'nav-down' })
+  expect(await cursor()).toBe('○ step c · to review')
+  await ui.press({ key: 'nav-down' })
+  expect(await cursor(), 'j skips the heading').toBe('○ step a · to review')
+  await ui.press({ key: 'nav-up' })
+  expect(await cursor(), 'and k skips it going back').toBe('○ step c · to review')
+  await ui.unmount()
 })

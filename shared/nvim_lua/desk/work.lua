@@ -328,6 +328,29 @@ function M.tasks(project, selected)
   end)
 end
 
+-- The before side of a session's diff of one file: the copy kept at its first edit, unless that copy no longer says
+-- what the session changed. A copy the file now equals (the session's part was undone, others' edits remain) would
+-- open an empty review of a file the notebook counts as changed; a copy older than the file's last commit predates
+-- what is now HEAD (the session's part is committed). Either way the review compares with HEAD, which is what the
+-- notebook's counts are measured against.
+function M.session_base(before, path, sid, C)
+  local copy = before[path]
+  if type(copy) ~= "string" or not copy:match("^%d+%.txt$") or not C.runtime() or not (sid or ""):match("^[%w_-]+$") then return before end
+  local kept = C.runtime() .. "/edits/" .. sid .. "/before/" .. copy
+  local uv = vim.uv or vim.loop
+  local stat = uv.fs_stat(kept)
+  local superseded = C.read(kept) == C.read(path)
+  if not superseded and stat then
+    local out = vim.system({ "git", "--no-optional-locks", "-C", vim.fs.dirname(path), "log", "-1", "--format=%ct", "--", path }, { text = true }):wait(3000)
+    local committed = out.code == 0 and tonumber(vim.trim(out.stdout or "")) or nil
+    superseded = committed ~= nil and committed > stat.mtime.sec
+  end
+  if not superseded then return before end
+  local rest = vim.deepcopy(before)
+  rest[path] = nil
+  return rest
+end
+
 function M.open_args()
   local args = vim.fn.argv()
   local action = (args[1] or ""):match("^desk%-work:(.+)$")
@@ -346,8 +369,9 @@ function M.open_args()
     if type(index) == "string" and index:match("^[A-Za-z0-9_-]+$") and #index <= 80 and C.runtime() then
       ledger = C.decode(C.read(C.runtime() .. "/edits/" .. index .. ".json")) or {}
     end
+    local before = M.session_base(ledger.before or {}, id, index, C)
     C.open_review({ kind = "live", sid = index or "", name = "notebook", short = "notebook",
-      files = { id }, before = ledger.before or {}, label = "notebook change" }, root())
+      files = { id }, before = before, label = "notebook change" }, root())
     C.diff(id)
   elseif action == "workspace" then if not require('desk.workspace').resume() then vim.cmd("edit " .. vim.fn.fnameescape(vim.fn.getcwd())) end
   elseif action == "suggested-tests" then M.suggested_tests(id)

@@ -516,6 +516,80 @@ assert(r.marks[file.rel]==file.signature,'Check and next did not mark the file')
 C.close()
 ''')
 
+    def test_a_hidden_file_list_is_named_in_the_footer_and_backspace_brings_it_back(self):
+        self.run_lua(r'''
+C.open_review(row,root)
+local r=R.current
+local function footer() return vim.wo[r.right_win].statusline end
+assert(not footer():find('file list',1,true),'the list is open; the footer has no way back to name: '..footer())
+api.nvim_set_current_win(r.panel_win)
+R.hide_panel()
+assert(not api.nvim_win_is_valid(r.panel_win),'the list did not hide')
+assert(footer():find('BS/Space re file list',1,true),'the footer does not lead with the way back: '..footer())
+api.nvim_set_current_win(r.right_win)
+local back
+for _,m in ipairs(api.nvim_buf_get_keymap(api.nvim_win_get_buf(r.right_win),'n')) do if m.lhs=='<BS>' then back=m.callback end end
+assert(back,'no Backspace key in the comparison pane')
+back()
+assert(api.nvim_win_is_valid(r.panel_win) and api.nvim_get_current_win()==r.panel_win,'Backspace did not bring the list back')
+assert(not footer():find('file list',1,true),'the hint stays after the list is back')
+C.close()
+''')
+
+    def test_j_and_k_walk_the_commit_tree_row_to_row_over_headings_and_blanks(self):
+        # A blank or heading line bounces the cursor on to the next row the way it was going; the bounce must count as
+        # the cursor's new row, or the next j is read as going up and the cursor is trapped above a heading.
+        self.run_lua(r'''
+local base={kind='commit',sha=parent,parent='4b825dc642cb6eb9a060e54bf8d69288fbee4904',short=parent:sub(1,7),subject='base',files={}}
+row.subject='change'
+C.open_review(row,root)
+R.tree({row,base})
+local r=R.current
+api.nvim_set_current_win(r.panel_win)
+local function rows()
+  local list={}
+  for line in pairs(r.entries) do list[#list+1]=line end
+  table.sort(list)
+  return list
+end
+local function press(key)
+  vim.cmd('normal! '..key)
+  api.nvim_exec_autocmds('CursorMoved',{buffer=r.panel_buf})
+  local line=api.nvim_win_get_cursor(r.panel_win)[1]
+  assert(r.entries[line],'stopped on line '..line..', which is not a row: '..(api.nvim_buf_get_lines(r.panel_buf,line-1,line,false)[1] or ''))
+  return line
+end
+local count=api.nvim_buf_line_count(r.panel_buf)
+local gaps=0
+for l=rows()[1],rows()[#rows()] do if not r.entries[l] then gaps=gaps+1 end end
+assert(gaps>0,'the fixture tree has no heading or blank between rows to cross')
+api.nvim_win_set_cursor(r.panel_win,{rows()[#rows()],0}); api.nvim_exec_autocmds('CursorMoved',{buffer=r.panel_buf})
+local line=rows()[#rows()]
+local crossed=0
+for _=1,count do
+  local was=line; line=press('k')
+  if line==was then break end
+  assert(line<was,'k went down from '..was..' to '..line)
+  if was-line>1 then
+    -- Just over a heading or blank: j must go straight back down over it, not bounce back up.
+    crossed=crossed+1
+    local back=press('j')
+    assert(back==was,'j after crossing up from '..was..' to '..line..' stopped at '..back)
+    line=press('k')
+    assert(line<was,'k did not cross again from '..was)
+  end
+end
+assert(crossed>0,'the walk never crossed a gap')
+assert(line==rows()[1],'k did not reach the top row: stopped at '..line)
+for _=1,count do
+  local was=line; line=press('j')
+  if line==was then break end
+  assert(line>was,'j went up from '..was..' to '..line)
+end
+assert(line==rows()[#rows()],'j did not reach the bottom row: stopped at '..line)
+C.close()
+''')
+
     def test_a_file_edited_after_it_was_checked_opens_against_the_reviewed_copy_and_the_toggle_is_remembered(self):
         source = self.repo / 'since.lua'
         source.write_text('local a = 1\nreturn a\n')

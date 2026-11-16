@@ -227,9 +227,15 @@ test('the marks page lists every key the footer offers', async ($, on) => {
 })
 
 type Node = { type?: string; key?: string; props?: Record<string, unknown>; children?: unknown[] }
-const flat = (n: unknown): string => typeof n === 'string' ? n : !n || typeof n !== 'object' ? ''
-  : (n as Node).type === 'Button' && !(n as Node).children?.length ? String((n as Node).props?.label ?? '')
-  : ((n as Node).children ?? []).map(flat).join('')
+// The text as the terminal draws it: a plain Button with a hotkey reads "h: label".
+const flat = (n: unknown): string => {
+  if (typeof n === 'string') return n
+  if (!n || typeof n !== 'object') return ''
+  const node = n as Node
+  const key = node.type === 'Button' && node.props?.plain && node.props?.hotkey ? `${String(node.props.hotkey)}: ` : ''
+  if (node.type === 'Button' && !node.children?.length) return key + String(node.props?.label ?? '')
+  return key + (node.children ?? []).map(flat).join('')
+}
 const boxWith = (n: unknown, key: string): Node | undefined => {
   if (!n || typeof n !== 'object') return undefined
   const node = n as Node
@@ -238,16 +244,25 @@ const boxWith = (n: unknown, key: string): Node | undefined => {
   return undefined
 }
 
-test('the key bar is one line: a space between each key and its word, later offered for a row that can wait', async ($, on) => {
+test('the key bar draws each key once, as the terminal does, in two lines that fit the pane', async ($, on) => {
   engine(on, { projectWork: { tests: null, tasks: [], jobs: [], attention: [REQUEST] } })
   await opened($)
   const ui = await $.ui.mount(FOCUSED())
-  expect(flat(boxWith(await ui.drawn(), 'nav-more'))).toBe('j/k move  ⏎ open  n next  p more  q hide')
+  const bar = async (key: string) => flat(boxWith(await ui.drawn(), key))
+  expect(await bar('nav-open')).toBe('j: ↓  k: ↑  l: open  n: next')
+  expect(await bar('nav-more')).toBe('p: more  d: drawer  z: compact  q: hide')
   await ui.press({ key: 'attention-request:queue.cpp' })
-  // Short of room, the least needed word goes first; every key stays.
-  expect(flat(boxWith(await ui.drawn(), 'nav-snooze'))).toBe('j/k move ⏎ open n next s later p q hide')
+  expect(await bar('nav-snooze'), 'later is offered for a row that can wait').toBe('j: ↓  k: ↑  l: open  n: next  s: later')
   await ui.press({ key: 'nav-more' })
-  expect(flat(boxWith(await ui.drawn(), 'nav-drawer'))).toBe('d drawer  z compact')
+  expect(await bar('nav-back')).toBe('h: back  j: ↓  k: ↑  l: open')
+  expect(await bar('nav-drawer')).toBe('d: drawer  z: compact  q: hide')
+  await ui.press({ key: 'nav-page-files' })
+  expect(await bar('nav-editor')).toBe('e: edit  tests')
+  for (const key of ['nav-back', 'nav-drawer', 'nav-editor']) {
+    const line = await bar(key)
+    expect(line.length, line).toBeLessThanOrEqual(40)
+    expect(line, 'no key drawn twice (the terminal adds it)').not.toMatch(/\b(\w): \1\b/)
+  }
   await ui.unmount()
 })
 

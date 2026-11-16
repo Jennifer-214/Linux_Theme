@@ -45,9 +45,11 @@ def inline(node, plain, fg=None, bg=None, bold=False, focused=False):
     focused = focused or (kind == 'Button' and props.get('autoFocus') is True)
     if kind == 'Input':
         return colour('▏' + (props.get('value') or props.get('placeholder') or '') + ' ', fg, bg, bold, plain)
+    # The terminal draws a plain Button with a hotkey as "h: label": the key in the accent colour and a colon first.
+    key = colour(props['hotkey'] + ': ', None, None, True, plain) if kind == 'Button' and props.get('plain') and props.get('hotkey') else ''
     if kind == 'Button' and not children:
-        return colour(str(props.get('label', '')), fg, bg, bold, plain)
-    return ''.join(inline(child, plain, fg, bg, bold, focused) for child in children)
+        return key + colour(str(props.get('label', '')), fg, bg, bold, plain)
+    return key + ''.join(inline(child, plain, fg, bg, bold, focused) for child in children)
 
 
 def lines(node, plain):
