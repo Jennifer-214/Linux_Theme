@@ -15,6 +15,7 @@
 #include "../desk-install/modules/arch_audit_units.hpp"
 #include "../desk-install/modules/etcwatch_units.hpp"
 #include "../desk-install/modules/firefox_appearance.hpp"
+#include "../desk-install/modules/stale_services.hpp"
 #include "../desk-install/modules/symlinks_data.hpp"
 #include "../desk-install/modules/workflow_assets.hpp"
 
@@ -947,16 +948,19 @@ CheckResult check_declarations(const Env& env) {
 // Quickshell loaded and the one installed, and names the sessions that run older code with how to reload each.
 // A Neovim or Claude Code it has no record of (started before it kept them, or without desk-work) counts as older
 // when it started before its build stamp, which every install writes. Quickshell reloads changed files itself, so
-// only desk-work's record says it runs older code.
+// only desk-work's record says it runs older code. A service of hers (its unit in ~/.config/systemd/user) still running
+// a program replaced since it started is named too (modules/stale_services.hpp; the installer restarts the watchers).
+// A Neovim from before the install runs the old noice setup, whose :restart can stop at a "Press any key" it does not
+// show: quitting it and starting it again is the reload that always works.
 struct Session { const char* client; const char* comm; const char* name; const char* stamp; const char* restart; };
 const Session SESSIONS[] = {
-    {"nvim", "nvim", "Neovim", "~/.config/nvim/lua/desk/build.lua", ":restart, then :WorkResume (or quit it and open it again)"},
+    {"nvim", "nvim", "Neovim", "~/.config/nvim/lua/desk/build.lua", "quit it and start it again"},
     {"notebook", "claude", "Claude Code", "~/.claude/mods/desk-notebook/hooks/build.ts", "/exit, then claude --continue"},
     {"desktop", "quickshell", "Quickshell", "", ""},
 };
 
 CheckResult check_sessions(const Env& env) {
-    const char* title = "running sessions have the installed version loaded";
+    const char* title = "running sessions and services have the installed version loaded";
     std::vector<std::string> stale;
     std::set<long long> recorded;
     const auto& health = work_health();
@@ -1002,6 +1006,13 @@ CheckResult check_sessions(const Env& env) {
         if (!before.empty())
             stale.push_back(std::string(session.name) + " (" + pids(before) + ") started before the last install ("
                             + clock_at(stamp) + "): " + session.restart);
+    }
+    for (const auto& svc : desk_install::stale::replaced_code(env.home, env.config / "systemd/user", ::getuid(), sys("/proc"))) {
+        std::string ids, files;
+        for (const auto pid : svc.pids) ids += (ids.empty() ? "pid " : ", pid ") + std::to_string(pid);
+        for (const auto& file : svc.files) files += (files.empty() ? "" : ", ") + tilde(env, file);
+        stale.push_back(svc.unit + " (" + ids + ") runs " + files + " from before it was replaced: systemctl --user restart "
+                        + svc.unit + (svc.unit == "fox-vault.service" ? " (the vault then starts empty)" : ""));
     }
     if (!stale.empty()) return listed("D25", title, Severity::Low, stale, "restart each one named to load the new version");
     if (!answered && !stamped) return result("D25", title, Severity::Low, Status::Skip, "requires desk-work (it records what each session loaded)");
@@ -1061,7 +1072,7 @@ int main(int argc, char** argv) {
                         "  D15 Firefox styles and website appearance   D16 Shift+Enter in tmux   D17 the pop-out's window rule\n"
                         "  D18 Neovim plugins at the lock   D19 notebooks (jupytext, ipykernel)   D20 desk-work editor and tools\n"
                         "  D21 the retro bar's table   D22 /etc watcher   D23 arch-audit timer   D24 declared tools (desk.d)\n"
-                        "  D25 running sessions on an older version\n\n"
+                        "  D25 running sessions and services on an older version\n\n"
                         "exit codes: 0 ok  1 warnings  2 critical  3 high\n");
             return 0;
         } else { std::fprintf(stderr, "desk theme check: unknown option %s (see --help)\n", arg.c_str()); return 64; }

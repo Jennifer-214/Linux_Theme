@@ -105,6 +105,9 @@ mason-nvim-dap, which never ran, is gone.
 - Installing a different theme brings that theme's wallpaper to the desktop and the login screen; it used to keep
   the previous theme's. Run inside the session, it shows on screen straight away. A reinstall of the same theme
   still keeps the wallpaper you picked.
+- A watcher the install updated (desk-pulse, the bouncer, the honeypots, the power-state watcher) restarts on the
+  new version; before, it went on running the copy deleted from disk until you logged out. `fox-vault` is never
+  restarted (it would start empty); `desk theme check` (D25) names any service still running a replaced program.
 
 ### Tests and tools
 

@@ -110,6 +110,7 @@ test: tests/test_check_ro tests/test_render_drift tests/test_drift_reference tes
 	@./tests/test_etcwatch
 	@./tests/test_etckeeper_units
 	@./tests/test_cafe_dispatcher
+	@./tests/test_stale_services
 	@./tests/test_unit_state_checks
 	@./tests/test_dry_run
 	@./tests/test_hypr_lua
@@ -343,6 +344,11 @@ tests/test_etckeeper_units: tests/test_etckeeper_units.cpp modules/etckeeper.o m
 test: tests/test_cafe_dispatcher
 tests/test_cafe_dispatcher: tests/test_cafe_dispatcher.cpp modules/cafe_dispatcher.hpp $(DESK_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) -DBUILD_DIR='"$(CURDIR)/tests"' tests/test_cafe_dispatcher.cpp -L$(DESK_COMMON_DIR) -ldesk-common -o $@
+
+# User services still running a program the install replaced, from a stand-in /proc; only the watchers restart.
+test: tests/test_stale_services
+tests/test_stale_services: tests/test_stale_services.cpp modules/stale_services.hpp $(DESK_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) -DBUILD_DIR='"$(CURDIR)/tests"' tests/test_stale_services.cpp -L$(DESK_COMMON_DIR) -ldesk-common -o $@
 
 # The state checks' unit-body comparisons, with a stand-in systemctl: an enabled unit running an old body is Update.
 test: tests/test_unit_state_checks

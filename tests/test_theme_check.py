@@ -502,7 +502,9 @@ class Deployed(unittest.TestCase):
         self.proc(511, "nvim", BEFORE, ["nvim", "--embed"], ppid=510)
         self.proc(610, "claude", BEFORE)
         said = self.red("D25", "Neovim (pid 510 since ")
-        self.assertIn(":restart, then :WorkResume", said)
+        # Its old noice setup can stop :restart at a "Press any key" it does not show: quit and start, never :restart.
+        self.assertRegex(said, r"Neovim \(pid 510 since [^)]*\) started before the last install \([^)]*\): quit it and start it again")
+        self.assertNotIn(":restart", said)
         self.assertRegex(said, r"Claude Code \(pid 610 since [^)]*\) started before the last install \([^)]*\): /exit, then claude --continue")
         for pid in (500, 501, 502, 503, 511, 600):
             self.assertNotIn(f"pid {pid} ", said)
@@ -527,6 +529,41 @@ class Deployed(unittest.TestCase):
         self.proc(800, "quickshell", BEFORE)
         self.desk_work(health={"sessions": []})
         self.green("D25")
+
+    def test_services_still_running_a_replaced_program(self):
+        # 2026-11-16: after an install desk-pulse and the bouncer ran the day before's code, deleted from disk; `enable
+        # --now` starts only what is stopped. /proc names such a file "<path> (deleted)", and opening the link reads the
+        # old copy (here a file of that name).
+        local = self.home / ".local/bin"
+        for unit in ("fox-pulse.service", "fox-bouncer.service", "fox-vault.service", "power-state-watcher.service"):
+            self.put(f".config/systemd/user/{unit}", "[Service]\n")
+        programs = {"desk-pulse": ("pulse v1", "pulse v2"), "desk-bouncer": ("#!/bin/bash\n# v1\n", "#!/bin/bash\n# v2\n"),
+                    "desk-vault": ("vault v1", "vault v2"), "power_state_watcher.sh": ("#!/bin/bash\n", "#!/bin/bash\n")}
+        for name, (old, new) in programs.items():
+            self.put(f".local/bin/{name} (deleted)", old)
+            self.put(f".local/bin/{name}", new).chmod(0o755)
+
+        def service(pid, unit, exe, script=None):
+            self.proc(pid, "x", AFTER)
+            folder = self.root / "proc" / str(pid)
+            (folder / "cgroup").write_text(f"0::/user.slice/user-1000.slice/user@1000.service/app.slice/{unit}\n")
+            (folder / "exe").symlink_to(exe)
+            (folder / "fd").mkdir()
+            if script:
+                (folder / "fd/255").symlink_to(script)
+
+        service(900, "power-state-watcher.service", "/usr/bin/bash", local / "power_state_watcher.sh (deleted)")
+        self.skipped("D25", "requires desk-work")   # the same bytes laid again: not a newer version
+        service(901, "fox-pulse.service", local / "desk-pulse (deleted)")
+        service(902, "fox-bouncer.service", "/usr/bin/bash", local / "desk-bouncer (deleted)")
+        service(903, "fox-vault.service", local / "desk-vault (deleted)")
+        service(904, "app-kitty@1.service", local / "desk-pulse (deleted)")   # a transient unit: not one of hers
+        said = self.red("D25", "fox-pulse.service (pid 901) runs ~/.local/bin/desk-pulse from before it was replaced: "
+                               "systemctl --user restart fox-pulse.service")
+        self.assertIn("fox-bouncer.service (pid 902) runs ~/.local/bin/desk-bouncer from before it was replaced", said)
+        self.assertIn("systemctl --user restart fox-vault.service (the vault then starts empty)", said)
+        for quiet in ("power-state-watcher", "app-kitty", "pid 904"):
+            self.assertNotIn(quiet, said)
 
 
 if __name__ == "__main__":

@@ -22,6 +22,7 @@
 #include "hypr_lua.hpp"
 #include "firefox_appearance.hpp"
 #include "firefox_policies.hpp"
+#include "stale_services.hpp"
 #include "wallpaper_mode.hpp"
 #include "../core/idempotency.hpp"
 #include "../../desk-common/shell.hpp"
@@ -630,9 +631,16 @@ void do_systemd_user(const Context& ctx) {
     fs::create_directories(dst_root);
 
     std::size_t done = 0;
+    std::vector<std::string> changed;  // units whose text this run changed
     for (auto& e : fs::directory_iterator(src_root, ec)) {
         if (!e.is_regular_file()) continue;
-        if (deploy_file(ctx, e.path(), dst_root / e.path().filename())) ++done;
+        const fs::path dst = dst_root / e.path().filename();
+        std::error_code dec;
+        const bool same = fs::exists(dst, dec) && idem::read_file(dst) == idem::read_file(e.path());
+        if (deploy_file(ctx, e.path(), dst)) {
+            ++done;
+            if (!same) changed.push_back(e.path().filename().string());
+        }
     }
     if (done == 0) return;
 
@@ -668,6 +676,10 @@ void do_systemd_user(const Context& ctx) {
         }
     }
     sh::systemctl_daemon_reload(/*user=*/true);
+
+    // A running service keeps the unit it started with, and enable --now below starts only what is stopped: the
+    // watchers whose unit this run changed restart on the new one (modules/stale_services.hpp).
+    for (const auto& unit : stale::try_restart(changed)) ui::ok(unit + " restarted on its new unit");
 
     // Auto-enable core daemons. desk-pulse replaces monitor-watch and
     // foxml-focus-pulse (the workspace OSD is its focus handler); the weekly

@@ -15,6 +15,7 @@
 #include "firefox_appearance.hpp"
 #include "notification_refresh.hpp"
 #include "ide_settings.hpp"
+#include "stale_services.hpp"
 #include "../core/state_checks.hpp"
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
@@ -195,6 +196,12 @@ void run_post_install(Context& ctx) {
             else ui::warn("Mako could not be restarted");
         }
     }
+
+    // A user service goes on running the program it started with: one this install replaced (desk-pulse, the bouncer's
+    // script) stays the old copy until it restarts, and logging out is rare. The watchers among them restart now; the
+    // theme check below (D25) names any other, fox-vault among them (a restart empties it).
+    for (const auto& unit : stale::restart_replaced(ctx.home, ctx.config_home / "systemd/user", ::getuid()))
+        ui::ok(unit + " restarted: it ran the version from before this install");
 
     // Open terminals take the new colours as well: kitty reads its config again on SIGUSR1.
     if (ctx.render_ran && ctx.render_ok && process_running("kitty") && sh::run({"pkill", "-USR1", "-x", "kitty"}) == 0)

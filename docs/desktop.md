@@ -769,7 +769,7 @@ each probe under a time limit, and fixes nothing.
 | D22 | `fox-etcwatch`'s units are the installer's (no start limit), systemd has loaded them, and the path unit is active |
 | D23 | `foxml-arch-audit`'s units are the installer's (no `arch-audit -uf`), and systemd has loaded them |
 | D24 | The declarations in `~/.config/foxml/desk.d`, as `desk-work tools list` reads them; nothing they name runs |
-| D25 | Sessions running an older version: what desk-work recorded each Neovim, Claude Code and Quickshell loaded, and a Neovim or Claude Code it has no record of that started before the last install, each with how to reload it |
+| D25 | Sessions running an older version: what desk-work recorded each Neovim, Claude Code and Quickshell loaded, and a Neovim or Claude Code it has no record of that started before the last install, each with how to reload it (a Neovim from before the install: quit it and start it again). Also any of your services (a unit in `~/.config/systemd/user`) still running a program that was replaced since it started; the installer restarts the watchers among them (desk-pulse, the bouncer, the honeypots, the power-state watcher), never `fox-vault` |
 
 `--verbose` adds the details, `--only D1,D4` picks checks, and `--theme NAME` compares
 against another theme. Every install and theme swap ends with it, and a weekly user
