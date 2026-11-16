@@ -938,3 +938,34 @@ test('the needs-you list groups commits under a heading per day, newest day firs
   expect(await cursor(), 'and k skips it going back').toBe('○ step c · to review')
   await ui.unmount()
 })
+
+test("the project page lists the last job's figures with their change; the front page stays as it was", async ($, on) => {
+  const id = 'e'.repeat(32)
+  const metric = (name: string, value: number, unit: string, delta: string, verdict: string, better: string | null) =>
+    ({ name, value, unit, source: 'output', previous: null, change: delta ? Number(delta) : null, percent: null, delta, better, verdict })
+  engine(on, { projectWork: { tests: null, jobs: [], tasks: [], metrics: {
+    job: { id, title: 'Queue bench', command: 'make bench', state: 'passed', ended: NOW / 1000 - 120, testRun: false },
+    previous: { id: 'd'.repeat(32), ended: NOW / 1000 - 3600 },
+    metrics: [metric('p99', 412, 'ns', '+38', 'worse', 'lower'), metric('throughput', 1.2, 'M/s', '+0.1', 'better', 'higher'),
+      metric('rss', 12, 'MB', '', 'same', null)] } } })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ key: 'metric-p99' }), 'not on the front page').toBeUndefined()
+  await ui.press({ key: 'nav-more' })
+  expect((await ui.find({ type: 'Text', text: /Queue bench/ }))?.text).toMatch(/^(figures|FIGURES) · Queue bench/)
+  expect((await ui.find({ key: 'metric-p99' }))?.text).toMatch(/p99 412ns \(\+38\) +↑ (worse|WORSE)$/)
+  expect((await ui.find({ key: 'metric-throughput' }))?.text).toMatch(/throughput 1\.2M\/s \(\+0\.1\) +↑ (better|BETTER)$/)
+  expect((await ui.find({ key: 'metric-rss' }))?.text).toMatch(/rss 12MB +(same|SAME)$/)
+  await ui.press({ key: 'metric-p99' })
+  expect(seen.argv).toContain(`desk-work open --root /code/paper --action log --id ${id}`)
+  await ui.unmount()
+})
+
+test('a job with no figures adds nothing to the project page', async ($, on) => {
+  engine(on, { projectWork: { tests: null, jobs: [], tasks: [], metrics: { job: null, previous: null, metrics: [] } } })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  await ui.press({ key: 'nav-more' })
+  expect(await ui.find({ type: 'Text', text: /figures|FIGURES/ })).toBeUndefined()
+  await ui.unmount()
+})

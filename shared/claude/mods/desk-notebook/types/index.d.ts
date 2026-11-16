@@ -21,8 +21,11 @@ export type AttentionItem = { id: string; kind: 'job' | 'agent' | 'request' | 'c
 export type AgentSession = { key: string; id: string; agent: string; name: string; root: string; project: string; state: string; busy: boolean; pane: string; canMessage: boolean; files: string[]; attribution: string }
 export type WorkEvent = { id: string; seq: number; kind: string; root: string; at: number; label: string; state?: string; file?: string; action: { kind: string; id?: string; file?: string } }
 export type WorkDigest = { total: number; files: number; through: number; truncated: boolean; counts: Record<string, number>; events: WorkEvent[]; summary?: string; since?: string; greeting?: string }
+// A figure a job printed, against the previous run of the same job (desk-work metrics).
+export type WorkMetric = { name: string; value: number; unit: string; source: string; previous: number | null; change: number | null; percent: number | null; delta: string; better: 'lower' | 'higher' | null; verdict: 'better' | 'worse' | 'same' | 'changed' | 'new' }
+export type WorkMetrics = { job: { id: string; title: string; command: string; state: string; ended: number; testRun: boolean } | null; previous: { id: string; ended: number } | null; metrics: WorkMetric[] }
 export type WorkHealth = { status: string; checks: { id: string; label: string; detail: string; transaction?: string; recoverable?: boolean }[] }
-export type WorkLook = { tests: WorkTest | null; tasks: WorkTask[]; jobs: WorkJob[]; failures?: WorkJob[]; review?: Record<string, ReviewProgress>; pending?: number; requests?: ReviewRequest[]; attention?: AttentionItem[]; agents?: AgentSession[]; revision?: string; timeline?: WorkEvent[]; digest?: WorkDigest; health?: WorkHealth; integration?: { status: string; message: string; sessions?: WorkSession[] }
+export type WorkLook = { tests: WorkTest | null; tasks: WorkTask[]; jobs: WorkJob[]; failures?: WorkJob[]; review?: Record<string, ReviewProgress>; pending?: number; requests?: ReviewRequest[]; attention?: AttentionItem[]; agents?: AgentSession[]; revision?: string; timeline?: WorkEvent[]; digest?: WorkDigest; metrics?: WorkMetrics; health?: WorkHealth; integration?: { status: string; message: string; sessions?: WorkSession[] }
   // Records desk-work cannot read (it refuses writes to them until they are set aside), and commits finished today.
   records?: { file: string; label: string; why: string }[]; reviewedToday?: string[]
   // Commits set aside to review later: how many, and when.

@@ -68,6 +68,18 @@ test('preview: the front page with a plan, a finished turn and things that need 
   expect(await scene($, 'project page: branch, tasks, sessions, history', ['nav-more'])).toBeDefined()
 })
 
+test("preview: the project page with the last job's figures", async ($, on) => {
+  const metric = (name: string, value: number, unit: string, delta: string, verdict: string, better: string | null) =>
+    ({ name, value, unit, source: 'output', previous: null, change: delta ? Number(delta) : null, percent: null, delta, better, verdict })
+  engine(on, { projectWork: { ...WORK, metrics: {
+    job: { id: 'b1', title: 'Queue bench', command: 'make bench', state: 'passed', ended: NOW / 1000 - 120, testRun: false },
+    previous: { id: 'b0', ended: NOW / 1000 - 5400 },
+    metrics: [metric('p99', 412, 'ns', '+38', 'worse', 'lower'), metric('throughput', 1.2, 'M/s', '+0.1', 'better', 'higher'),
+      metric('elapsed', 4.1, 's', '-0.3', 'better', 'lower'), metric('rss', 12, 'MB', '', 'same', null), metric('tests passed', 128, '', '', 'new', null)] } } })
+  await opened($)
+  expect(await scene($, 'project page · figures', ['nav-more', 'metric-p99'])).toBeDefined()
+})
+
 test('preview: the files page, a request thread and the marks page', async ($, on) => {
   engine(on, { projectWork: WORK })
   await opened($)

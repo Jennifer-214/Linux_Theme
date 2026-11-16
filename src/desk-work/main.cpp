@@ -6,6 +6,8 @@
 #include <chrono>
 #include <charconv>
 #include <cctype>
+#include <cmath>
+#include <cstdio>
 #include <csignal>
 #include <cstring>
 #include <ctime>
@@ -507,6 +509,7 @@ J begin(const std::string& command, const std::string& root, const std::string& 
     if (!named.empty() && named.find('\n') == std::string::npos) j["title"] = named.substr(0, 160);
     return save_run(dir, j) ? j : J();
 }
+#include "metrics.hpp"
 // How many runs of the same command in the same checkout failed in a row just before this one; a stop is skipped.
 long long failed_before(const J& job) {
     long long n = 0; const auto started = num(job, "startedNs", num(job, "started") * 1000000000LL);
@@ -524,7 +527,9 @@ bool finish(J& j, int code, bool truncated) {
     j["ended"] = now(); j["exit"] = code; j["truncated"] = truncated;
     j["failedBefore"] = failed_before(j);
     j["state"] = code == 0 ? "passed" : code >= 128 || code < 0 ? "interrupted" : "failed";
-    j["tests"] = parse_tests(read(run_dir(str(j, "id")) / "output.log"), str(j, "root"), str(j, "cwd"));
+    const auto log = read(run_dir(str(j, "id")) / "output.log");
+    j["tests"] = parse_tests(log, str(j, "root"), str(j, "cwd"));
+    j["metrics"] = extract_metrics(log, str(j, "root"), j["tests"]);
     j["testRun"] = str(j, "kind") == "tests" || !j["tests"]["passed"].is_null() || !j["tests"]["failed"].is_null();
     if (!same_source(j["snapshot"], snapshot(str(j, "root")))) j["changedDuringRun"] = true;
     if (j.value("changedDuringRun", false) || truncated || num(j["tests"], "failed") > 0) j["baselineEligible"] = false;
@@ -1425,6 +1430,8 @@ J notebook(const std::string& root, const std::string& session, const std::strin
     if (finished.is_object()) for (const auto& [sha, at] : finished.items()) if (at.is_number_integer() && at.get<long long>() >= midnight) today.push_back(sha);
     out["reviewedToday"] = today;
     out["aside"] = aside_record(root);
+    // The newest finished job that printed figures, against the run before it of the same job (the project page).
+    out["metrics"] = metrics_report(root, "");
     if (health) out["health"] = integration_health();
     return out;
 }
@@ -1541,7 +1548,7 @@ int dispatch(int argc, char** argv) {
                          "desk-work jobs | overview [--root DIR...] | notebook --root DIR | worktrees --root DIR\n"
                          "desk-work begin --root DIR --pid PID|parent --command TEXT [--session ID --title TEXT] | finish --id RUN --exit N [--output -]\n"
                          "desk-work task-add --root DIR --text TEXT | task-toggle --root DIR --id ID [--done yes]\n"
-                         "desk-work tests --root DIR | compare --id RUN | reviewed --root DIR --sha SHA\n"
+                         "desk-work tests --root DIR | compare --id RUN | metrics --root DIR [--job RUN] | metrics-parse --root DIR < LOG | reviewed --root DIR --sha SHA\n"
                          "desk-work plan|plan-pin --root DIR --session ID [--file PLAN.md --step TEXT]\n"
                          "desk-work attention --root DIR [--scope review] | watch [--root DIR | --all yes] | signal --root DIR\n"
                          "desk-work timeline|digest --root DIR [--consumer NAME --through SEQUENCE]\n"
@@ -1559,7 +1566,7 @@ int dispatch(int argc, char** argv) {
         const auto cmd = args[0];
         invoked = cmd;
         const auto place = opts.count("--root") ? opts["--root"] : fs::current_path().string();
-        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "review-mark", "review-progress", "review-request", "review-requests", "commit-plan", "review-tree", "push-check", "push-notes", "records", "records-repair", "set-aside", "worktrees", "activity", "plan", "plan-pin", "watch", "signal", "attention", "agent-update", "agents", "revision", "open", "agent-heartbeat", "overlaps", "timeline", "digest", "snooze", "workspace", "suggest-tests", "run-suggested", "resolve"}.count(cmd)
+        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "review-mark", "review-progress", "review-request", "review-requests", "commit-plan", "review-tree", "push-check", "push-notes", "records", "records-repair", "set-aside", "worktrees", "activity", "plan", "plan-pin", "watch", "signal", "attention", "agent-update", "agents", "revision", "open", "agent-heartbeat", "overlaps", "timeline", "digest", "snooze", "workspace", "suggest-tests", "run-suggested", "resolve", "metrics", "metrics-parse"}.count(cmd)
             ? root_of(place) : place;
         const auto id = opts["--id"];
         J out;
@@ -1687,6 +1694,14 @@ int dispatch(int argc, char** argv) {
         else if (cmd == "overview") out = overview(roots, opts["--fresh"] == "yes", opts["--history"] == "yes");
         else if (cmd == "notebook") out = notebook(root, opts["--session"], opts["--loaded"], opts["--health"] == "yes");
         else if (cmd == "worktrees") out = worktrees(root);
+        else if (cmd == "metrics") out = metrics_report(root, opts.count("--job") ? opts["--job"] : id);
+        else if (cmd == "metrics-parse") {
+            // What a log would give, read from stdin with this checkout's .desk/metrics: for trying out patterns.
+            std::string input(4 * 1024 * 1024 + 1, '\0');
+            std::cin.read(&input[0], static_cast<std::streamsize>(input.size()));
+            input.resize(std::min<size_t>(static_cast<size_t>(std::cin.gcount()), 4 * 1024 * 1024));
+            out = extract_metrics(input, root);
+        }
         else if (cmd == "plan") out = plan_with_progress(json(plan_path(root, opts["--session"])));
         else if (cmd == "plan-pin") out = pin_plan(root, opts["--session"], opts["--file"], opts["--step"]);
         else if (cmd == "tasks") out = tasks(root);

@@ -930,6 +930,74 @@ class Work(unittest.TestCase):
         refused = json.loads(self.invoke("set-aside", "--undo", "yes", code=1))
         self.assertIn("Nothing is set aside here", refused["message"])
 
+    def parsed(self, text):
+        p = subprocess.run([str(BIN), "metrics-parse"], cwd=self.repo, env=self.env, input=text, capture_output=True,
+                           text=True, timeout=30)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        return {m["name"]: (m["value"], m["unit"]) for m in json.loads(p.stdout)}
+
+    def test_metrics_are_read_only_from_lines_that_read_as_name_value_unit(self):
+        read = self.parsed("\n".join([
+            "p99 412ns", "throughput: 1.2M/s", "elapsed=4.1s", "ns/op 38.2", "  - wall: 3.5 ms", "[bench] p50=120us p90=300µs",
+            "coverage 87.5%", "rss 12 MB", "rate=1200 ops/s", "took 3s.", "pid=4123 latency=9ms", "\x1b[32mspeed 2K/s\x1b[0m",
+        ]))
+        self.assertEqual(read, {
+            "p99": (412, "ns"), "throughput": (1.2, "M/s"), "elapsed": (4.1, "s"), "ns/op": (38.2, "ns/op"), "wall": (3.5, "ms"),
+            "p50": (120, "us"), "p90": (300, "µs"), "coverage": (87.5, "%"), "rss": (12, "MB"), "rate": (1200, "ops/s"),
+            "took": (3, "s"), "latency": (9, "ms"), "speed": (2, "K/s")})
+        # Numbers in prose, ids, versions, times of day, locations and counts with no unit are never metrics.
+        for line in ["Ran 12 tests in 0.004s", "error at line 42", "line 42", "2026-11-15 12:00:01 started", "version 1.2.3",
+                     "port=8080", "exit code 1", "Downloading 45% [=====>   ]", "test_x.py:42: in test_case", "p99 412ns but slower",
+                     "OK (0.4s)", "Time elapsed: 3.2s", "retries 3x", "INFO request done in 12ms", "12 passed in 0.3s",
+                     "commit abc123 · 4 files", "p99 412 nanoseconds", "build 3 of 9"]:
+            self.assertEqual(self.parsed(line), {}, line)
+
+    def test_a_project_declares_exact_metric_patterns(self):
+        (self.repo / ".desk").mkdir()
+        (self.repo / ".desk/metrics").write_text("# name unit regex\n"
+                                                 "fills - ^Filled ([0-9]+) orders\n"
+                                                 "p99 us ^latency p99 is ([0-9.]+)\n"
+                                                 "broken ms ([unclosed\n"
+                                                 "bogus parsecs ([0-9]+)\n")
+        read = self.parsed("Filled 1200 orders\nlatency p99 is 41.5\np99 412ns\n")
+        self.assertEqual(read, {"fills": (1200, ""), "p99": (41.5, "us")}, "a declared pattern wins over the plain reading")
+
+    def test_metrics_compare_with_the_previous_run_of_the_same_job(self):
+        bench = "print(open('figure.txt').read())"   # one job, printing what figure.txt holds at the time
+        (self.repo / "figure.txt").write_text("p99 400ns\nthroughput: 1.0M/s\ncoverage 80%\n2 passed\n")
+        self.execute(bench)
+        self.execute("print('p99 999ns')")   # another command: never the previous run
+        (self.repo / "figure.txt").write_text("p99 412ns\nthroughput: 1.2M/s\ncoverage 80%\nrss 3 MB\n2 passed\n")
+        self.execute(bench)
+        report = self.data("metrics")
+        self.assertTrue(report["ok"])
+        self.assertEqual(set(report), {"ok", "root", "job", "previous", "metrics"})
+        self.assertEqual(set(report["job"]), {"id", "title", "command", "state", "ended", "testRun"})
+        runs = self.data("jobs")
+        self.assertEqual(report["job"]["id"], runs[0]["id"])
+        self.assertEqual(report["previous"]["id"], runs[2]["id"], "the previous run of the same command, not the one between")
+        by = {m["name"]: m for m in report["metrics"]}
+        self.assertEqual(set(by["p99"]), {"name", "value", "unit", "source", "previous", "change", "percent", "delta", "better", "verdict"})
+        self.assertEqual((by["p99"]["previous"], by["p99"]["change"], by["p99"]["delta"]), (400, 12, "+12"))
+        self.assertEqual((by["p99"]["better"], by["p99"]["verdict"]), ("lower", "worse"), "slower latency is worse")
+        self.assertEqual((by["throughput"]["better"], by["throughput"]["verdict"], by["throughput"]["delta"]), ("higher", "better", "+0.2"))
+        self.assertEqual((by["coverage"]["verdict"], by["coverage"]["delta"]), ("same", ""))
+        self.assertEqual((by["rss"]["verdict"], by["rss"]["previous"], by["rss"]["better"]), ("new", None, None))
+        self.assertEqual((by["tests passed"]["value"], by["tests passed"]["source"]), (2, "tests"))
+        self.assertEqual(self.data("notebook")["metrics"]["job"]["id"], runs[0]["id"], "the notebook carries the same report")
+        # Units of one kind compare across scales: 0.5us is 88ns faster than 588ns, said in the new unit.
+        for figure in ("p99 588ns", "p99 0.5us"):
+            (self.repo / "figure.txt").write_text(figure + "\n")
+            self.execute(bench)
+        p99 = self.data("metrics")["metrics"][0]
+        self.assertEqual((p99["unit"], p99["delta"], p99["verdict"]), ("us", "-0.088", "better"))
+        # A named run is read from its log even when it finished before metrics were kept.
+        record = Path(self.env["XDG_STATE_HOME"]) / "foxml/work/runs" / runs[2]["id"] / "run.json"
+        saved = json.loads(record.read_text()); saved.pop("metrics"); record.write_text(json.dumps(saved))
+        old = self.data("metrics", "--job", runs[2]["id"])
+        self.assertEqual({m["name"] for m in old["metrics"]}, {"p99", "throughput", "coverage", "tests passed", "tests failed"})
+        self.assertEqual(json.loads(self.invoke("metrics", "--job", "f" * 32, code=1))["ok"], False)
+
 
 if __name__ == "__main__":
     unittest.main()

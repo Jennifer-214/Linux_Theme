@@ -382,6 +382,45 @@ locations open as text. Unknown totals remain unknown; interrupted jobs never
 count as passes. Logs retain at most their newest 4 MiB and mark truncation.
 CTest's enclosing totals take precedence over child summaries.
 
+### Run-to-run numbers
+
+A finished job's output is also read for the figures it prints, and each is set against the previous run of the
+same job (the same command in the same folder of the same checkout, or the same title). The notebook's project page
+lists the last job's figures, such as `p99 412ns (+38)   ↑ worse`; Enter opens its output.
+
+```sh
+desk-work metrics --root DIR [--job RUN]   # the newest finished job with figures, or the one named
+desk-work metrics-parse --root DIR < LOG   # what a log would give, to try out a checkout's patterns
+```
+
+`metrics` answers JSON: `job` (id, title, command, state, ended), `previous` (the run it is compared with) and
+`metrics`, each with `name`, `value`, `unit`, `previous`, `change` (in the current unit), `percent`, `delta`
+(`"+38"`), `better` (`lower`, `higher` or null) and `verdict` (`better`, `worse`, `same`, `changed`, `new`). Time
+units are better lower and rates higher; anything else (`%`, bytes, counts) only says `changed`. Units of one kind
+compare across scales (`588ns` then `0.5us` is `-0.088`, better).
+
+Reading is deliberately strict. A line counts only when all of it is `name value unit`, `name: value unit` or
+`name=value unit` pairs (separated by spaces, commas, `;` or `|`; a leading `[tag]` or bullet is allowed), with a
+unit from: `ns`, `us`/`µs`, `ms`, `s`, `%`, `/s`, `ops/s`, `K`/`M`/`G` before a rate or alone, `B`, `KB`, `MB`, `GB`
+(and `KiB`/`MiB`/`GiB`), `B/s`-style byte rates, and `ns/op`-style per-operation times. A name that is itself a unit
+reads as one (`ns/op 38.2`). A `name=value` pair with no unit is skipped; any other word or unitless number makes
+the whole line no metric, so `Ran 12 tests in 0.4s`, `line 42`, `port=8080` and `version 1.2.3` are never read.
+Test counts become `tests passed` and `tests failed`. A name printed twice keeps its last value.
+
+A project with output that reads otherwise declares exact patterns in `.desk/metrics` at its top level, one per
+line as `name unit regex`: the regex's first group is the number, and `-` stands for no unit. Blank lines, `#`
+comments, unknown units and regexes that do not compile are skipped. Declared patterns read the last 5,000 lines
+of a run, and win over the plain reading of the same name.
+
+```
+# name    unit  regex
+fills     -     ^Filled ([0-9]+) orders
+p99       us    ^latency p99 is ([0-9.]+)
+```
+
+Figures are recorded when a run finishes; `--job` reads an older run's log once on request. The previous value of
+each name comes from the newest earlier run of the job that reported it, looking back 30 runs.
+
 Each captured run records its starting revision and the contents of supported
 source/config files, including nonignored untracked files and uncommitted edits.
 Comparisons use the most recent successful run of the same command in the same

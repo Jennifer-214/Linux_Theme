@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, pendingLine, planProgress, reviewStates, reviewSummary, ruler, shellQuote, stepLabel, testLabel, turnLabel, unreviewed, withoutHeredocs, workName, filterFiles, wrapWords, needBreakdown, needGroup, refusalOf, wrapParts, dosText } from '../hooks/work'
+import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, pendingLine, planProgress, reviewStates, reviewSummary, ruler, shellQuote, stepLabel, testLabel, turnLabel, unreviewed, withoutHeredocs, workName, filterFiles, wrapWords, needBreakdown, needGroup, refusalOf, wrapParts, dosText, metricLabel, said } from '../hooks/work'
 
 test('tracking records a command as written, keeps secrets out, and reads how the call ended', () => {
   const command = "make test && printf '%s' \"$HOME\""
@@ -188,4 +188,17 @@ test('retro shows a project card\'s symbols in code page 437 marks, and leaves w
   expect(dosText(card, true)).toBe('♦ ship v5 · • xgb lane, raw: 5963 √ 0 x · • asan built - * pressed notes •')
   expect(dosText('√ ♦ ► ░▒█ │ café naïve', true), 'what the font has stays').toBe('√ ♦ ► ░▒█ │ café naïve')
   expect(dosText(card, false), 'paper keeps the card as written').toBe(card)
+})
+
+test('a figure reads as name, value, unit and its change; the word says whether the change is better', () => {
+  const base = { source: 'output', percent: null, better: null } as const
+  expect(metricLabel({ ...base, name: 'p99', value: 412, unit: 'ns', previous: 374, change: 38, delta: '+38', better: 'lower', verdict: 'worse' }))
+    .toEqual(['p99 412ns (+38)', said('↑ worse')])
+  expect(metricLabel({ ...base, name: 'throughput', value: 1.2, unit: 'M/s', previous: 1.1, change: 0.1, delta: '+0.1', better: 'higher', verdict: 'better' }))
+    .toEqual(['throughput 1.2M/s (+0.1)', said('↑ better')])
+  expect(metricLabel({ ...base, name: 'rss', value: 12, unit: 'MB', previous: 14, change: -2, delta: '-2', verdict: 'changed' }))
+    .toEqual(['rss 12MB (-2)', said('↓ changed')])
+  expect(metricLabel({ ...base, name: 'coverage', value: 80, unit: '%', previous: 80, change: 0, delta: '', verdict: 'same' })).toEqual(['coverage 80%', said('same')])
+  expect(metricLabel({ ...base, name: 'tests passed', value: 128, unit: '', previous: null, change: null, delta: '', verdict: 'new' })).toEqual(['tests passed 128', said('new')])
+  expect(metricLabel({ ...base, name: 'x', value: 0.1 + 0.2, unit: 's', previous: null, change: null, delta: '', verdict: 'new' })[0]).toBe('x 0.3s')
 })

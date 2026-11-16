@@ -1,6 +1,6 @@
 import type { EngineInterface } from 'claude-code'
 import { BUILD_ID } from './build'
-import type { CiRun, GitLook, ReviewProgress, TurnReceipt, WorkJob, WorkLook, WorkTest } from '../types'
+import type { CiRun, GitLook, ReviewProgress, TurnReceipt, WorkJob, WorkLook, WorkMetric, WorkTest } from '../types'
 import { paper } from './theme'
 
 // Retro draws in Big Blue Term, a DOS font: its marks are ones code page 437 has, its words are plain capitals, and
@@ -215,6 +215,14 @@ export function receiptLine(receipt: TurnReceipt | null | undefined): string {
     receipt.risky.length ? `${glyph('risky')} ${receipt.risky[0]}` : '',
   ].filter(Boolean)
   return parts.join(' · ')
+}
+// A job's figure, as the project page lists it: "p99 412ns (+38)" on the left, "↑ worse" on the right. The arrow says
+// which way the number moved, the word whether that is better (time lower, rates higher) or only "changed".
+export function metricLabel(m: WorkMetric): [string, string] {
+  const shown = (value: number) => String(Number(value.toPrecision(6)))
+  const left = `${m.name} ${shown(m.value)}${m.unit}${m.delta ? ` (${m.delta})` : ''}`
+  const arrow = m.change == null || m.verdict === 'same' ? '' : m.change > 0 ? '↑ ' : '↓ '
+  return [left, said(arrow + m.verdict)]
 }
 // Detail text must keep every character, including long paths and identifiers.
 export function wrapWords(text: string, width: number): string[] {

@@ -8,6 +8,7 @@ import { paper } from './theme'
 import { ago, beginArgs, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, filterFiles, planProgress, receiptLine, reviewStates, reviewSummary, ruleParts, ruler, sides, syncLabel, workName, wrapWords, stepLabel, testLabel, turnLabel, unreviewed, work, workCall, workLook, needBreakdown, needGroup, wrapParts, MARKS, glyph, CHARS, ELLIPSIS, RETRO, cut, said, dosText } from './work'
 import { attributeFiles, fileColumns, fileCounts, gitFiles, drawerPage, mailId, shortPath, NAMED_PAGES } from './notebook'
 import { BUILD_ID } from './build'
+import { metricLabel } from './work'
 
 // Linux_Theme paper: a notebook pane beside the chat (hearts, the session's name, its plan, the gate, pages
 // touched, the other Claudes with [go] and [note]), a red-zone band before a risky system edit, a band when
@@ -1577,6 +1578,20 @@ export const register: Register = on => {
           content.push(row('test-changed:' + file, 'changed since: ' + file, () => openFile(file, true)))
       }
       for (const job of now?.work?.jobs ?? []) jobRow(job, `${glyph('running')} ${job.title ?? job.command}`)
+      // The figures the last job printed, each against the previous run of the same job (desk-work metrics).
+      const figures = now?.work?.metrics
+      if (figures?.job && figures.metrics.length) {
+        const job = figures.job
+        content.push(text(said('figures') + ' · ' + (job.title || job.command) + (job.ended ? ' ' + ago(clock / 1000 - job.ended) : ''), paper.ribbon))
+        const against = figures.previous ? `the run of ${ago(clock / 1000 - figures.previous.ended)}` : 'nothing yet: this is its first run with figures'
+        for (const m of figures.metrics.slice(0, 8)) {
+          const [left, right] = metricLabel(m)
+          pair('metric-' + m.name, left, right, () => openJob(job.id),
+            `${m.name} against ${against}${m.better ? `; ${m.better} is better` : ''}. Enter opens the job's output.`,
+            m.verdict === 'worse' ? paper.berry : m.verdict === 'better' ? paper.added : paper.ink)
+        }
+        if (figures.metrics.length > 8) content.push(text(`  ${figures.metrics.length - 8} more in desk-work metrics`))
+      }
       if (now?.work) {
         for (const task of now.work.tasks.filter(t => !t.done)) {
           content.push(row(`task-draft-${task.id}`, `${glyph('step')} ${task.text}`, () => checkedWork(['open', '--root', root, '--action', 'tasks', '--id', task.id])))
