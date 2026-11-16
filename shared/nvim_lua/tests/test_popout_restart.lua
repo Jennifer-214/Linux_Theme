@@ -115,6 +115,14 @@ local function ask(sock, code)
   if not decoded or value == vim.NIL then return nil end
   return value
 end
+-- An editor's mode, as it says at once even at a prompt (nvim_get_mode answers there; nvim_exec_lua waits).
+local function mode_of(sock)
+  local ok_, chan = pcall(vim.fn.sockconnect, 'pipe', sock, { rpc = true })
+  if not ok_ or chan <= 0 then return nil end
+  local fine, value = pcall(vim.rpcrequest, chan, 'nvim_get_mode')
+  pcall(vim.fn.chanclose, chan)
+  return fine and type(value) == 'table' and value.mode or nil
+end
 
 local tui
 local function scenario()
@@ -128,6 +136,17 @@ local function scenario()
   local popout = tonumber(vim.trim(read('kitty.pid')))
   ok(wait(10000, function() return ask(dir .. '/p1', "return require('desk.popout').client_state().title") == 'call graph · M.alpha' end),
     '… and shows the call graph')
+  -- A question waiting in the editor (confirm(): requests still run under it): an act is refused, never run under it.
+  vim.fn.chansend(tui, ':call confirm("Sure?", "&Yes\\n&No")\r')
+  ok(wait(3000, function() return mode_of(sock) == 'r?' end), 'a question waiting in the editor')
+  local gen = ask(dir .. '/p1', "return require('desk.popout').client_state().gen")
+  local s, us = uv.gettimeofday()
+  local act = vim.json.encode({ version = 1, type = 'act', view = 'graph', gen = gen, action = 'popout.pin', deadline = s * 1000 + math.floor(us / 1000) + 5000 })
+  eq(ask(sock, "return require('desk.bridge').receive(vim.json.decode([[" .. act .. "]]))"), { refused = 'typing in this editor' },
+    '… an act sent meanwhile is refused')
+  vim.fn.chansend(tui, 'n')
+  ok(wait(3000, function() return mode_of(sock) == 'n' end), '… answered, and it goes')
+  eq(ask(sock, "return { require('desk.popout').host.views.graph.pinned }"), { false }, '… nothing was pinned under it')
   vim.fn.chansend(tui, ':restart\r')
   local restarted = wait(3000, function() return not alive(old) end)
   ok(restarted, ':restart with the pop-out open: the old editor exits at once, no key pressed')

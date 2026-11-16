@@ -167,10 +167,11 @@ local FILES = { file = true, ['file-diff'] = true, callgraph = true, ['suggested
 local REVIEWS = { ['file-diff'] = true, reviews = true }
 
 -- She is typing here: this editor has the focus (or has not said otherwise) and is in insert, replace, command-line or
--- terminal mode, or in the command-line window. A new tab now would take her keys.
+-- terminal mode, in the command-line window, or at a prompt waiting for her answer (r, rm, r?: a confirm() question
+-- still runs requests). A new tab now would take her keys, and an act would run under her answer.
 function M.typing()
   local mode = api.nvim_get_mode().mode:sub(1, 1)
-  return state.focused ~= false and (mode == 'i' or mode == 'R' or mode == 'c' or mode == 't' or vim.fn.getcmdwintype() ~= '')
+  return state.focused ~= false and (mode == 'i' or mode == 'R' or mode == 'c' or mode == 't' or mode == 'r' or vim.fn.getcmdwintype() ~= '')
 end
 
 local function untouched(buf)
