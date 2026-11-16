@@ -45,12 +45,17 @@ J records_repair(const std::string& root, const std::string& expected) {
     const auto report = records_report(root);
     J actions = J::array(); std::string inputs;
     const auto stamp = record_stamp();
+    // Each record's bytes as the preview read them; a set-aside record may be large (it is not parsed).
+    std::map<std::string, std::string> seen;
+    const auto bytes = [&](const std::string& file, bool large) {
+        return hash(read(project_dir(root) / file, large ? 64 * 1024 * 1024 : 8 * 1024 * 1024));
+    };
     for (const auto& state : report["records"]) if (str(state, "state") == "unreadable") {
         const auto file = str(state, "file");
         const auto aside = fs::path(file).stem().string() + ".broken-" + stamp + ".json";
         actions.push_back(J{{"kind", "set-aside"}, {"file", file}, {"to", aside},
             {"says", "Set " + file + " (" + str(state, "label") + ", " + str(state, "why") + ") aside as " + aside + "; the next write starts a fresh one"}});
-        inputs += file + ':' + hash(read(project_dir(root) / file, 64 * 1024 * 1024)) + '\n';
+        seen[file] = bytes(file, true); inputs += file + ':' + seen[file] + '\n';
     }
     for (const auto& stale : report["stale"]) if (stale.value("tidy", false)) {
         const auto file = str(stale, "file");
@@ -58,7 +63,7 @@ J records_repair(const std::string& root, const std::string& expected) {
         const auto count = stale["entries"].size();
         actions.push_back(J{{"kind", "tidy"}, {"file", file}, {"remove", stale["entries"]}, {"copy", copy},
             {"says", "Remove " + std::to_string(count) + " " + str(stale, "reason") + " from " + file + "; the current copy is kept as " + copy}});
-        inputs += file + ':' + hash(read(project_dir(root) / file)) + '\n';
+        seen[file] = bytes(file, false); inputs += file + ':' + seen[file] + '\n';
     }
     // The token covers what the preview showed and the bytes it was read from, not the moment: dated names differ.
     J shown = actions;
@@ -67,6 +72,7 @@ J records_repair(const std::string& root, const std::string& expected) {
     if (expected.empty()) return J{{"ok", true}, {"root", root}, {"actions", actions}, {"plan", token}, {"report", report}};
     if (expected != token) return refuse("The records changed since the preview; preview the repair again");
     int done = 0;
+    J skipped = J::array();
     for (const auto& action : actions) {
         const auto file = str(action, "file");
         const RecordSpec* spec = nullptr;
@@ -74,6 +80,12 @@ J records_repair(const std::string& root, const std::string& expected) {
         if (!spec) continue;
         Lock lock(project_dir(root) / spec->lock);
         if (lock.fd < 0) return unwritable();
+        // The token was checked before any lock: a writer may have changed this record since. What changed is
+        // skipped and named, never acted on.
+        if (bytes(file, str(action, "kind") == "set-aside") != seen[file]) {
+            skipped.push_back(J{{"file", file}, {"label", spec->label}, {"why", "changed since the preview"}});
+            continue;
+        }
         const auto path = project_dir(root) / file;
         std::error_code ec;
         if (str(action, "kind") == "set-aside") {
@@ -91,8 +103,14 @@ J records_repair(const std::string& root, const std::string& expected) {
         ++done;
     }
     if (done) signal_change(root);
-    return J{{"ok", true}, {"repaired", done}, {"message", done == 0 ? "Nothing needed repair"
-        : std::to_string(done) + (done == 1 ? " repair made" : " repairs made") + "; the originals are kept beside the records"}};
+    std::string message = done == 0 ? (skipped.empty() ? "Nothing needed repair" : "No repair made")
+        : std::to_string(done) + (done == 1 ? " repair made" : " repairs made") + "; the originals are kept beside the records";
+    if (!skipped.empty()) {
+        std::string names;
+        for (const auto& s : skipped) names += (names.empty() ? "" : ", ") + str(s, "file");
+        message += "; " + names + " changed since the preview and " + (skipped.size() == 1 ? "was" : "were") + " left as " + (skipped.size() == 1 ? "it is" : "they are") + " (preview again)";
+    }
+    return J{{"ok", true}, {"repaired", done}, {"skipped", skipped}, {"message", message}};
 }
 // For work health: unreadable records in any checkout still on disk, and how many checkouts are gone.
 J records_health() {

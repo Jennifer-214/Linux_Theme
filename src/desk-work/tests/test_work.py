@@ -973,6 +973,45 @@ class Work(unittest.TestCase):
         self.assertTrue(self.data('review-request', '--file', 'sample.cpp', '--name', 'peer', '--text', 'Again')['ok'])
         self.assertEqual([i['kind'] for i in self.data('attention')], [])
 
+    @staticmethod
+    def waiting_for_lock(pid):
+        """Whether pid waits for an flock someone else holds (a blocked waiter in /proc/locks: "N: -> FLOCK ... PID")."""
+        for line in Path('/proc/locks').read_text().splitlines():
+            parts = line.split()
+            if '->' in parts and parts[parts.index('->') + 1:][:1] == ['FLOCK'] and parts[parts.index('->') + 4] == str(pid):
+                return True
+        return False
+
+    def test_a_repair_leaves_a_record_that_changed_after_the_preview(self):
+        import fcntl
+        self.data('task-add', '--text', 'first step')
+        tasks = self.project_dir() / 'tasks.json'
+        tasks.write_text('[{"id": "x", "text": "cut sho')
+        preview = self.data('records-repair')
+        self.assertEqual([(a['kind'], a['file']) for a in preview['actions']], [('set-aside', 'tasks.json')])
+        # Hold the record's lock as a writer would: the repair checks its token, then waits for the lock.
+        lock = os.open(self.project_dir() / 'tasks.lock', os.O_CREAT | os.O_RDWR, 0o600)
+        self.addCleanup(os.close, lock)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        repair = subprocess.Popen([str(BIN), 'records-repair', '--expected', preview['plan']], cwd=self.repo, env=self.env,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        self.addCleanup(lambda: repair.poll() is None and repair.kill())
+        deadline = time.monotonic() + 20
+        while not self.waiting_for_lock(repair.pid):
+            self.assertIsNone(repair.poll(), 'the repair must wait for the record\'s lock')
+            self.assertLess(time.monotonic(), deadline, 'the repair never reached the lock')
+            time.sleep(0.02)
+        healthy = json.dumps([{'id': 'n' * 32, 'text': 'newer step', 'done': False, 'at': 1}])
+        tasks.write_text(healthy)   # the writer's newer, healthy record
+        fcntl.flock(lock, fcntl.LOCK_UN)
+        out, err = repair.communicate(timeout=30)
+        answer = json.loads(out)
+        self.assertEqual((answer['repaired'], [s['file'] for s in answer['skipped']]), (0, ['tasks.json']), out + err)
+        self.assertIn('changed since the preview', answer['message'])
+        self.assertEqual(tasks.read_text(), healthy, 'a record newer than the preview is never acted on')
+        self.assertEqual(list(self.project_dir().glob('tasks.broken-*.json')), [])
+        self.assertEqual([t['text'] for t in self.data('tasks')], ['newer step'])
+
     def test_records_report_names_stale_references_and_tidies_only_requests(self):
         (self.repo/'gone.cpp').write_text('int gone;\n')
         self.data('review-request', '--file', 'gone.cpp', '--name', 'peer', '--text', 'Adjust')
