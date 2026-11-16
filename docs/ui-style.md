@@ -33,9 +33,13 @@ disappears. `tests/test_nvim_review.py` runs the review in a bare project to hol
 - **The description strip**: a rounded box of two lines under the list, saying what the selected row is and where
   it stands. It follows the cursor. Reasons go here ("⚠ touches /etc/pam.d · outside the plan"), not in the row.
 - **One footer line**: the three or four keys that matter (`⏎ open · m check · a actions · q close`). Everything
-  else lives in the actions menu.
-- **Keys**: `j` / `k` move, `⏎` or `l` opens, `h` folds or goes back, `/` filters, `?` or `a` opens actions,
-  `q` / `Esc` closes. The same key means the same thing on every screen.
+  else lives in the actions menu. The review's diff footer leads with `BS/Space re file list` while the list is
+  hidden, and with `all checked · R stamps it` once every file of a commit is checked. The Claude notebook's key bar
+  is Claude Code's own `key: word` buttons (`j: ↓  k: ↑  l: open`), packed into lines that fit the pane: two on the
+  front page, the moving keys over the rest.
+- **Keys**: `j` / `k` move from row to row, passing over headings, blank lines and the strip; `⏎` or `l` opens,
+  `h` folds or goes back, `/` filters, `?` or `a` opens actions, `q` / `Esc` closes. The same key means the same
+  thing on every screen.
 - **Every action three ways**: a key, a click and a row in the actions menu, with the same words.
 
 ## Colour
@@ -45,28 +49,37 @@ Use the symdeps highlight groups when they exist and fall back to the theme's ow
 (`FoxSymdepsOk` → `DiagnosticOk`), needs care (`FoxSymdepsWarn` → `DiagnosticWarn`), quiet text
 (`FoxSymdepsDim` → `Comment`). Those names belong to the plugin and stay as they are.
 
+Retro (`DESK_STYLE=retro`, retro-amber) draws the notebook the way a DOS program would: marks from the Big Blue Term
+font (`√ ↕ ○ → * ‼ ! ☼ ♦ ≡ ►`, from the same `MARKS` table), group labels in inverse capitals (` NEEDS YOU `), key
+words and states in capitals on the selection colour, the selected row in true inverse, `..` for `…`, no flowers.
+A card from another mod has its symbols mapped to the font's marks.
+
 ## Behaviour
 
-- A panel updates in place: the selection and scroll position stay, and it does not resize while you read.
+- A panel updates in place: the selection and scroll position stay, and it does not resize while you read. The
+  notebook's front page has the same rows in the same order every time (header, needs you, last turn, plan,
+  review, work, the key bar; at most 17 rows), so it never jumps; everything else is on the project page (`p`).
 - Anything slower than about a tenth of a second shows that it is working, in place; typing never waits.
 - Empty, loading, unavailable and failed each have their own wording. A blank panel is a bug.
 - Lists you read through in order (changes to review) run oldest first, with the live state pinned on top. Lists of
   what needs you now (failures, due dates) run newest first.
 - No row is cut mid-word without `…`, and nothing wraps.
 - A list that can grow without bound (what needs you) shows up to three rows on a summary page; past three it folds
-  into one counted line with a breakdown by kind, and Enter opens the whole list on its own page.
+  into one counted line with a breakdown by kind, and Enter opens the whole list on its own page. There the commits
+  to review come last, grouped by day under a dated heading (newest day first) that is not a row.
 - Every refusal shows the reason the backend gave. A notice with no words is a bug, like a blank panel.
 - Each mark has one definition: the notebook's are in `MARKS` (`hooks/work.ts`), which its rows, test and CI lines,
-  toasts and marks page all read; the review's keys are in `M.keymap` (`foxml/review.lua`), which makes the mappings,
+  toasts and marks page all read; the review's keys are in `M.keymap` (`desk/review.lua`), which makes the mappings,
   the menu and footer hints and the reference table in the keybinds doc.
 
 ## Seeing the notebook without installing it
 
 `python3 tests/notebook_preview.py` prints the Claude notebook as it would be drawn, in the theme's colours, from
-sample data: the front page, a folded needs-you list and its page, the files page, a request thread, the marks
-page, a quiet page and the compact view. The scenes are in
+sample data: the front page, the project page, a folded needs-you list and its page, the files page, a request
+thread, the marks page, a quiet page, the compact view, work health and the timeline. The scenes are in
 `shared/claude/mods/desk-notebook/tests/preview.test.tsx` and go through the mod's real drawing code under Claude
 Code's own test kit, so what it prints is what the pane shows. `--scene WORDS` picks one, `--theme NAME` another
-palette, `--plain` drops the colour. Add a scene there when a page changes.
+palette (the tests are written for Paper, so under another theme only the scenes are shown), `--plain` drops the
+colour. Add a scene there when a page changes.
 The command fails if any notebook test fails, even when some scenes were drawn, and an unmatched `--scene` is an
 error. Detail text preserves long paths and identifiers by continuing them on the next line.

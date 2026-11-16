@@ -20,7 +20,8 @@ notebook, the drawer's **Needs you** page, and Neovim's `:WorkAttention` use tho
 additional notebook context. On the notebook's front page up to three items show as rows; past three they fold
 into one line, **N need you**, with a count by kind under it ("52 commits to review · 2 test runs failed"), so a
 long list never pushes the rest of the page away. Enter lists them all on their own page, twenty at a time; **n**
-opens the most urgent from anywhere. An unreadable work record is an item of its own, first in the list. `desk-work open --root DIR --action attention --id ID` resolves an item against the
+opens the most urgent from anywhere. On that page the commits to review come last, grouped by day under a dated
+heading with its count (`── Wed 12-31 ── 52 ──`), the newest day first; **j** / **k** pass over the headings. An unreadable work record is an item of its own, first in the list. `desk-work open --root DIR --action attention --id ID` resolves an item against the
 current list before opening it, so a stale button cannot act on a request that was already settled.
 
 The work store publishes a versioned change signal after a successful write. `desk-work watch --root DIR` streams
@@ -33,8 +34,9 @@ opens that comparison. File watching does not depend on the welcome screen setti
 The review file list toggles with **Space re** or `:ReviewFiles`. Its **q**, **Esc** and native `:q` hide only
 the list. The two comparison panes retain their buffers, cursor, folds and reading positions. Reopening restores
 the tree's selection; returning to a previously visited file restores its place. **Space e** keeps its ordinary
-Neo-tree binding, and independently opened windows are not owned by the review. **q** in a diff still closes
-the whole review; **Esc** clears search highlighting.
+Neo-tree binding, and independently opened windows are not owned by the review. **Backspace** in a diff pane
+goes back to the list, showing it again if it was hidden. **q** in a diff still closes the whole review; **Esc**
+clears search highlighting.
 
 A burst of changes (an agent saving file after file) refreshes a view at once and then at most once a second, and
 the last change is always read. Committed copies in a review are read once per commit, so a refresh re-reads only
@@ -125,7 +127,7 @@ Explicit compact/expand turns automatic sizing off.
 **Hide** or **q** while the notebook has focus hides its pane; `/notebook toggle` brings it back on the same page.
 `/notebook close` explicitly hides it. An ordinary close keeps page and selection, while abandoned forms are
 discarded. Escape first cancels an open form without closing the notebook. The compact summary keeps its hide
-control on the same row, and the expanded navigation uses two short rows so its controls fit the pane.
+control on the same row, and the expanded key bar is packed into lines that fit the pane, so it never wraps.
 
 `desk-work agents` owns the shared session list. The existing Claude runtime files remain an adapter for sessions
 already running, including engine prompts and compaction. The pi extension now reports lifecycle state, observed
@@ -194,12 +196,23 @@ The installer also adds a Claude Code mod, `~/.claude/mods/desk-notebook`, named
 list there yourself). It draws in the palette and keeps its session records in private runtime and state folders:
 
 - **The notebook**, a pane beside the chat (`/notebook` opens it; it opens by
-  itself in a terminal 144 columns or wider): the context meters, the session's
-  title, the plan you last read or wrote under a `plans/` folder, the plan gate,
-  and the files changed since the last commit with their `+`/`−` counts.
-  It starts with a compact overview; files, project and sessions have their own
-  pages. `/notebook files`, `/notebook all`, `/notebook project` and
-  `/notebook sessions` open them directly, including in narrow terminals.
+  itself in a terminal 144 columns or wider). Its front page has the same rows in
+  the same order every time, at most 17, so the pane never grows or shrinks:
+  the header (the work's name, `✉ N` for unread notes, `!` when the page is not
+  current), then one ruled group each for **needs you** (up to three rows, or the
+  folded count), **last turn** (what it changed, ran and committed), **plan** (the
+  step in hand and `3/4`; `plan first` on the rule while the gate is closed),
+  **review** (files changed, how many reviewed, requests still with a session) and
+  **work** (a running job or the last test run, with CI on the push), and the key
+  bar's two lines at the bottom. The context meter is in the status line only.
+  **p** opens the project page: branch and CI, the pinned plan, tests, next steps,
+  project notes, sessions, the marks and keys, the timeline and work health.
+  Files and sessions have their own pages. `/notebook files`, `/notebook all`,
+  `/notebook project` and `/notebook sessions` open them directly, including in
+  narrow terminals. Under retro-amber the notebook uses marks from the DOS font
+  (`√` reviewed, `↕` changed, `→` sent, `*` to look over, `‼` red zone, `►` step,
+  `≡` plan, `♦` commit; the marks page lists them all), group labels in inverse
+  capitals, key words and states in capitals, and `..` for `…`.
   The file page switches between recorded edits by this session and the whole
   working tree. Counts are working-tree totals; shared files name the other live
   sessions that edited them, and changes without a recorded author stay
@@ -265,13 +278,18 @@ list there yourself). It draws in the palette and keeps its session records in p
 
 - **The tree**: Working changes first, then each plan with its commits oldest first, then other commits. A commit
   opens to its files and a file to its changed functions. Without plan files the commits group by branch and day.
+  `j` / `k` move from row to row, passing over headings and blank lines.
 - **Marks**: `✓` reviewed, `↻` edited since you reviewed it, `○` not yet, `⚠` needs care. The strip under the list
   says why: a red-zone path or tool in the added lines (`shared/redzone.json`), a path in the project's
   `.review-risk`, a file the plan never names, or a file edited since the last test run.
 - **Only what is new**: a file edited after you checked it opens against the copy you read. `n` shows the whole
   change instead; the choice is remembered.
-- **Keys**: Enter or `l` opens, `h` folds, `m` or Space checks, `u` goes to the first unread file (risky ones first),
-  `R` finishes and moves to the next commit, `a` opens every other action, `q` returns to your editor.
+- **Keys**: Enter or `l` opens, `h` folds, `m` checks, `u` goes to the first unread file (risky ones first),
+  `a` opens every other action. `q` in the list hides it; `q` in a diff closes the review and returns to your
+  editor. Backspace in a diff pane brings the list back, and `Space re` toggles it.
+- **Finishing**: `R` (Shift-R), once every file is checked, records the review and asks **Next commit** (the next
+  unchecked one), **Close review** or **Stay**. Close also quits a Neovim that the notebook opened just for the
+  review.
 - **Request changes**: `c` writes a note about the file or the selected lines to a Claude session. The file waits
   (`✉`) until it changes, then reads "ready for re-review"; checking it settles the request.
 - **Your own notes**: `N` on a line leaves a note for yourself. It stays with the file across reviews, follows its
@@ -293,8 +311,8 @@ list there yourself). It draws in the palette and keeps its session records in p
   The text each file had when it was sent is kept beside the answer: `A` opens the answer, and Enter on a
   `path:line` opens that reviewed version once the file has moved on (`gf` there opens the file as it is now).
 - **Shared progress**: checks are kept by `desk-work`, so the notebook shows the same `✓ ↻ ○` and one line such as
-  "3 changes to review · 1 changed since you looked". After a turn that leaves files unreviewed, a quiet "review
-  pending" line sits above the prompt.
+  "3 changes to review · 1 changed since you looked". Checking every file of a commit takes it off "to review",
+  even before `R`. After a turn that leaves files unreviewed, a quiet "review pending" line sits above the prompt.
 - **Stamps**: finishing a commit's review writes a git note on it (`refs/notes/reviews`: who, when, how many
   files). The note alone marks the commit reviewed, so it survives a reinstall;
   `git push origin refs/notes/reviews` shares it. `DESK_REVIEW_NOTES=0` turns the notes off.
@@ -387,11 +405,15 @@ In Claude's notebook, press **Ctrl+X, then Tab** to give the pane the keyboard.
 and **Up / Down** scroll a short pane. **Esc** returns to the prompt. Printable
 keys, including `hjkl`, type normally inside an input; the notebook uses Claude's
 native inputs. Outside a field, **j / k** select rows, **l** opens the selected
-item, **h** returns to the overview or closes the active field, and **e** edits
-the selected file. The shortcut row shows those keys while the notebook has focus.
+item, **h** returns to the front page or closes the active field, and **e** edits
+the selected file. The key bar shows the keys as `key: word`: on the front page
+`j: ↓  k: ↑  l: open  n: next` (`s: later` on a needs-you row that can be snoozed)
+over `p: more  d: drawer  z: compact  q: hide`; other pages start with `h: back`,
+and the files page adds `e: edit  tests`.
 
 Opening a commit through **Space Cw** or the review tray opens an exact Before / After comparison.
-Check each file with **m**, then press **R** to record the review and remove it from Today's pending count.
+Check each file with **m**: once every file is checked the commit leaves the count of commits to review. **R**
+records the review and asks what next (Next commit, Close review or Stay).
 Opening it alone leaves it pending; file checkmarks survive closing and reopening the review. The tray considers the most recent
 80 commits and recognizes `Claude-Session` or Claude coauthor trailers; it does
 not infer authorship from message wording. Inspection does not stage or commit.
