@@ -1144,6 +1144,9 @@ ShellRoot {
             width: panel.implicitWidth
             height: panel.implicitHeight * (theme.hangingDrawer ? 1 : root.drawerReveal)
             opacity: theme.hangingDrawer ? 1 : Math.min(1, root.drawerReveal * 2)
+            // Retro does not slide the closed drawer away, so once it has collapsed to its power-off line it must
+            // hide, or the line stays on screen inside the bar's window.
+            visible: theme.style !== "retro" || root.opened || root.crtScale > 0.011
             clip: true
             onParentChanged: { if (root.opened) Qt.callLater(function() { keyboard.forceActiveFocus(); }); }
         FocusScope {
