@@ -123,6 +123,41 @@ class NvimKeys(unittest.TestCase):
         self.assertEqual(twice, {}, 'a key mapped twice: the later one silently wins')
         self.assertTrue(set(SHARED_GLOBALS) <= set(k for k, v in by.items() if len(v) > 1), 'an allowed duplicate no longer exists; drop it')
 
+    def test_which_key_names_the_claude_group_in_normal_and_visual_mode(self):
+        plugin = Path.home() / '.local/share/nvim/lazy/which-key.nvim'
+        if not plugin.is_dir():
+            self.skipTest('which-key.nvim is not installed')
+        with tempfile.TemporaryDirectory() as home:
+            script = Path(home) / 'groups.lua'
+            # The which-key options exactly as init.lua passes them, and the keys exactly as desk.claude maps them.
+            script.write_text(f'''
+vim.g.mapleader = ' '
+vim.opt.rtp:append({json.dumps(str(plugin))})
+package.path = {json.dumps(str(ROOT / 'shared/nvim_lua'))} .. '/?.lua;' .. package.path
+local source = table.concat(vim.fn.readfile({json.dumps(str(ROOT / 'templates/nvim/init.lua'))}), '\\n')
+local _, at = assert(source:find('"folke/which-key.nvim"', 1, true))
+require('which-key').setup(assert(loadstring('return ' .. assert(source:sub(at):match('opts = (%b{{}})'))))())
+require('desk.claude').setup()
+vim.wait(200)
+local out = {{}}
+for _, mode in ipairs({{ 'n', 'x' }}) do
+  local found = require('which-key.buf').get({{ mode = mode }})
+  local group = found and found.tree.root:find(require('which-key.util').keys('<leader>C', {{ norm = true }}))
+  local note = group and group:find(require('which-key.util').keys('n', {{ norm = true }}))
+  out[mode] = {{ group = group and group.desc or vim.NIL, note = note and note.desc or vim.NIL }}
+end
+io.stdout:write(vim.json.encode(out))
+vim.cmd('qa!')
+''')
+            env = {'HOME': home, 'PATH': '/usr/bin:/bin', 'XDG_STATE_HOME': home, 'XDG_CACHE_HOME': home,
+                   'XDG_CONFIG_HOME': home, 'XDG_RUNTIME_DIR': home}
+            ran = subprocess.run(['nvim', '--headless', '--clean', '-l', str(script)], capture_output=True, text=True,
+                                 timeout=60, env=env)
+            self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
+            seen = json.loads(ran.stdout.strip().splitlines()[-1])
+        self.assertEqual(seen['n'], {'group': 'Claude', 'note': 'Note to a Claude'})
+        self.assertEqual(seen['x'], {'group': 'Claude', 'note': 'Selection to a Claude'})
+
     def test_review_keys_never_shadow_a_global_key_unless_that_is_the_point(self):
         keys = review_keys()
         for place in ('list', 'diff'):

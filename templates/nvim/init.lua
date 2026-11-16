@@ -971,7 +971,7 @@ local plugins = {
       spec = {
         { "<leader>a", group = "AI (local model, completion)" },
         { "<leader>b", group = "buffers" },
-        { "<leader>C", group = "claude" },
+        { "<leader>C", group = "Claude", mode = { "n", "x" } },  -- visual too: Space Cn sends the selection
         { "<leader>c", group = "code / cmake" },
         { "<leader>d", group = "symdeps" },      -- fox-symdeps: labelled before the plugin loads (it loads on first press)
         { "<leader>f", group = "find" },
