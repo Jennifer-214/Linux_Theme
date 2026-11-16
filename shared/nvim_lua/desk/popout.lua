@@ -210,6 +210,17 @@ local function host_pane()
   return ((term:match('^tmux') or term:match('^screen')) and pane:match('^%%%d+$')) and pane or ''
 end
 
+-- The checkout a window shows (the current one by default): its file's, else its folder's.
+local function checkout_of(win)
+  win = (win and api.nvim_win_is_valid(win)) and win or api.nvim_get_current_win()
+  local buf = api.nvim_win_get_buf(win)
+  local name = vim.bo[buf].buftype == '' and api.nvim_buf_get_name(buf) or ''
+  local cwd = vim.fn.getcwd(win)
+  if cwd == '' then cwd = vim.fn.getcwd() end
+  local root = vim.fs.root(name ~= '' and name or cwd, '.git') or cwd
+  return uv.fs_realpath(root) or root
+end
+
 local function send(msg)
   if not H.chan or H.stalled or exiting() then return false end
   msg.version = M.PROTOCOL
@@ -584,8 +595,9 @@ local function kitty_exited(opening)
   if H.kitty == opening.pid then M.forget('The pop-out closed.', { back = true }) end
 end
 
--- Opens the pop-out when none is attached or on its way. true, or false and why.
-function M.open()
+-- Opens the pop-out when none is attached or on its way. true, or false and why. root: the checkout its layout record
+-- is filed under until the next one opens (by default the one in front).
+function M.open(root)
   -- One whose channel is already gone (its window closed a moment ago) is forgotten first, so a new one opens.
   if H.chan and next(api.nvim_get_chan_info(H.chan)) == nil then M.forget('The pop-out closed.', { back = true }) end
   if H.chan or H.opening then return true end
@@ -604,7 +616,7 @@ function M.open()
   end)
   if not ok then return false, 'kitty did not start (' .. tostring(job):sub(1, 120) .. ')' end
   opening.pid = job.pid
-  H.opening, H.kitty = opening, job.pid
+  H.opening, H.kitty, H.root = opening, job.pid, root or checkout_of()
   M.place(job.pid)
   vim.defer_fn(function()
     if H.opening == opening and not exiting() then M.forget('The pop-out did not start.', { all = true }) end
@@ -734,16 +746,22 @@ end
 -- view in front, show = { screen } } (keys its allow-list has). Written when a view opens, closes, is pinned or centred,
 -- and when the editor exits; read at start, so the Views group offers "Restore 2 views". The selection inside a view is
 -- not kept: a restored graph selects its centre.
+-- Each record belongs to a checkout. The open pop-out's is filed under the one it opened in (H.root), whatever is in
+-- front when it is written; the one offered (H.saved) is the record of the checkout in front (H.saved_root), read again
+-- whenever that changes. H.records: the records read or written, by checkout (false: there is none); H.wrote: writes
+-- made, by checkout (a read that started before one is older than it).
 local RESTORE   -- its row, named for what the record holds
-local function layout_root()
-  local name = api.nvim_buf_get_name(0)
-  local root = vim.fs.root(name ~= '' and name or vim.fn.getcwd(), '.git') or vim.fn.getcwd()
-  return uv.fs_realpath(root) or root
-end
+H.records, H.wrote = {}, {}
+local function layout_root() return H.root or checkout_of() end
 local function restore_named()
   if not RESTORE then return end
   local n = H.saved and type(H.saved.tabs) == 'table' and #H.saved.tabs or 0
   RESTORE.name = n == 0 and "Restore the pop-out's views" or n == 1 and 'Restore 1 view' or ('Restore %d views'):format(n)
+end
+-- The record offered here: the one of the checkout in front.
+local function offer(front)
+  H.saved_root, H.saved = front, H.records[front] or nil
+  restore_named()
 end
 local function layout_record()
   local tabs = {}
@@ -763,9 +781,10 @@ local function write_layout(wait)
   local record = layout_record()
   local ok, json = pcall(vim.json.encode, record)
   if not ok then return end
-  H.saved = record
-  restore_named()
-  local argv = { 'desk-work', 'workspace', '--root', layout_root(), '--client', 'popout', '--input', '-' }
+  local root = layout_root()
+  H.records[root], H.wrote[root] = record, (H.wrote[root] or 0) + 1
+  if root == H.saved_root then offer(root) end
+  local argv = { 'desk-work', 'workspace', '--root', root, '--client', 'popout', '--input', '-' }
   local started, job = pcall(vim.system, argv, { stdin = json, text = true, timeout = 5000 }, (not wait) and function() end or nil)
   if started and wait then pcall(job.wait, job, 1000) end
 end
@@ -786,17 +805,31 @@ function M.save_layout(wait)
   if wait then return write_layout(true) end
   H.save_timer:start(M.SAVE_MS, 0, vim.schedule_wrap(function() if not exiting() then write_layout(false) end end))
 end
-function M.read_layout(done)
+-- The record of checkout root (by default the one in front), read; done(record or nil).
+function M.read_layout(done, root)
   done = done or function() end
   if M.is_popout() or vim.g.desk_work_view or not have('desk-work') then return done(nil) end
-  local ok = pcall(vim.system, { 'desk-work', 'workspace', '--root', layout_root(), '--client', 'popout' }, { text = true, timeout = 5000 },
+  root = root or checkout_of()
+  local seen = H.wrote[root] or 0
+  local ok = pcall(vim.system, { 'desk-work', 'workspace', '--root', root, '--client', 'popout' }, { text = true, timeout = 5000 },
     vim.schedule_wrap(function(out)
       local decoded, record = pcall(vim.json.decode, out.code == 0 and out.stdout or '')
-      H.saved = decoded and type(record) == 'table' and type(record.tabs) == 'table' and record or nil
-      restore_named()
-      done(H.saved)
+      -- A write made since it started is newer than what it read.
+      if (H.wrote[root] or 0) == seen then
+        H.records[root] = decoded and type(record) == 'table' and type(record.tabs) == 'table' and record or false
+      end
+      if root == H.saved_root then offer(root) end
+      done(H.records[root] or nil)
     end))
   if not ok then done(nil) end
+end
+-- The checkout in front changed (another file, another folder): Restore offers that checkout's record, read again.
+local function front_moved()
+  if exiting() then return end
+  local front = checkout_of()
+  if front == H.saved_root then return end
+  offer(front)
+  M.read_layout(nil, front)
 end
 
 -- ─── views in and out ──────────────────────────────────────────────────────────────────────────────────────────
@@ -815,9 +848,9 @@ function M.show(name, ctx)
   local kind = kinds[name]
   if not kind then return tell('No view is called ' .. tostring(name) .. '.', WARN) end
   if refused_here(M.can_pop()) then return end
-  local ok, why = M.open()
-  if not ok then return tell(sentence(why), WARN) end
   ctx = ctx or actions.context()
+  local ok, why = M.open(checkout_of(ctx.win))
+  if not ok then return tell(sentence(why), WARN) end
   local view, before = H.views[name], H.front
   if not (view and ctx.remote) then
     view = view or add_view(name)
@@ -838,7 +871,7 @@ function M.restore_layout()
   if not (record and type(record.tabs) == 'table' and #record.tabs > 0) then return tell('No views of the pop-out were saved here.') end
   if refused_here(M.can_pop()) then return end
   H.prefer = type(record.show) == 'table' and type(record.show.screen) == 'string' and record.show.screen or nil
-  local ok, why = M.open()
+  local ok, why = M.open(H.saved_root)
   if not ok then return tell(sentence(why), WARN) end
   for _, saved in ipairs(record.tabs) do
     local kind = type(saved) == 'table' and kinds[saved.kind]
@@ -1805,8 +1838,10 @@ function M.setup()
   actions.map('editor', { rows = ROWS })
   api.nvim_create_user_command('PopOut', function(opts) M.show(opts.args ~= '' and opts.args or 'graph', actions.context()) end,
     { nargs = '?', complete = function() return vim.tbl_keys(kinds) end, desc = 'A view in the pop-out window (the live call graph when none is named)' })
-  api.nvim_create_autocmd('VimLeavePre', { group = api.nvim_create_augroup('desk_popout', { clear = true }),
-    callback = function() pcall(shutdown) end })
+  local group = api.nvim_create_augroup('desk_popout', { clear = true })
+  api.nvim_create_autocmd('VimLeavePre', { group = group, callback = function() pcall(shutdown) end })
+  api.nvim_create_autocmd({ 'BufEnter', 'DirChanged', 'TabEnter' }, { group = group, callback = front_moved })
+  H.saved_root = checkout_of()
   M.read_layout()
 end
 

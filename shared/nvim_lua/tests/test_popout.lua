@@ -71,17 +71,17 @@ esac
 ]], 'rwxr-xr-x')
 write(bin .. '/desk-drawer', '#!/bin/sh\nprintf "%s\\n" "$(basename "$0") $*" >> "$POPOUT_TEST/others.log"\nexit 1\n', 'rwxr-xr-x')
 write(bin .. '/desk-work', [[#!/bin/sh
-# desk-work, for the test: workspace keeps one record per client in the sandbox (the pop-out's layout), and a line in
-# workspace.written once each write is done; anything else is logged as asked for, and fails.
+# desk-work, for the test: workspace keeps one record per checkout and client in the sandbox (the pop-out's layout), and
+# a line in workspace.written once each write is done; anything else is logged as asked for, and fails.
 if [ "$1" = workspace ]; then
   printf '%s\n' "$*" >> "$POPOUT_TEST/workspace.log"
-  client= input=
+  client= input= root=
   while [ $# -gt 0 ]; do
-    case "$1" in --client) client=$2; shift 2 ;; --input) input=$2; shift 2 ;; *) shift ;; esac
+    case "$1" in --client) client=$2; shift 2 ;; --input) input=$2; shift 2 ;; --root) root=$2; shift 2 ;; *) shift ;; esac
   done
-  record="$POPOUT_TEST/workspace.$client.json"
+  record="$POPOUT_TEST/workspace.$(printf '%s' "$root" | tr / _).$client.json"
   if [ "$input" = - ]; then
-    cat > "$record.new" && mv "$record.new" "$record" && echo '{"ok":true}'
+    cat > "$record.$$" && mv "$record.$$" "$record" && echo '{"ok":true}'
     echo "$client" >> "$POPOUT_TEST/workspace.written"
   elif [ -f "$record" ]; then cat "$record"
   else echo null; fi
@@ -190,8 +190,11 @@ end
 local function popped() return table.concat(state().lines or {}, '\n') end
 local function press(keys) vim.rpcrequest(p, 'nvim_input', keys) end
 local function log_since(mark) return read('hyprctl.log'):sub(mark + 1) end
--- The layout record the editor keeps in desk-work (its stub writes it in the sandbox).
-local function record() local ok_, r = pcall(vim.json.decode, read('workspace.popout.json')); return ok_ and type(r) == 'table' and r or {} end
+-- The layout record the editor keeps in desk-work for a checkout (this repository's by default: the sample file is in
+-- it), as its stub writes it in the sandbox.
+local REPO = uv.fs_realpath(ROOT)
+local function record_file(root) local name = (root or REPO):gsub('/', '_'); return dir .. '/workspace.' .. name .. '.popout.json' end
+local function record(root) local ok_, r = pcall(vim.json.decode, read(record_file(root))); return ok_ and type(r) == 'table' and r or {} end
 local function opened()
   ok(wait(10000, function() return exists(dir .. '/kitty.listen') end), 'the pop-out is started, in kitty')
   psock = vim.trim(read('kitty.listen'))
@@ -534,7 +537,7 @@ eq(host("return require('desk.popout').host.order"), { 'graph' }, '… and the e
 ok(wait(3000, function()
   local r = record()
   return #(r.tabs or {}) == 1 and r.tabs[1].target ~= nil and r.tabs[1].target.name == 'M.alpha'
-end), 'the layout record follows the views: ' .. read('workspace.popout.json'))
+end), 'the layout record follows the views: ' .. read(record_file()))
 local saved = record()
 eq({ saved.tabs[1].kind, saved.tabs[1].pinned, saved.tabs[1].target, saved.activeTab, saved.show.screen },
   { 'graph', true, { file = dir .. '/sample.lua', line = 2, name = 'M.alpha' }, 'graph', 'DP-2' },
@@ -804,6 +807,41 @@ do
     '… and the keyboard is back here')
   vim.rpcrequest(h, 'nvim_input', '<Esc>')
   ok(wait(2000, function() return host('return vim.api.nvim_get_mode().mode') == 'n' end), '… normal mode again')
+end
+
+-- ─── a layout record belongs to the checkout its pop-out opened in ──────────────────────────────────────────────
+do
+  local roots = {}
+  for _, name in ipairs({ 'A', 'B' }) do
+    vim.fn.mkdir(dir .. '/' .. name .. '/.git', 'p')
+    vim.fn.writefile({ 'notes' }, dir .. '/' .. name .. '/notes.txt')
+    roots[name] = uv.fs_realpath(dir .. '/' .. name)
+  end
+  -- B has a record of its own, from before.
+  write(record_file(roots.B), vim.json.encode({ version = 1, tabs = { { kind = 'rows', pinned = true, target = { file = 'rows', line = 1, name = 'rows' } },
+    { kind = 'graph', pinned = false } } }))
+  local function offered() return host("return require('desk.actions').get('popout.restore').name") end
+  host("vim.api.nvim_set_current_win(_G.popout_test.code_win); vim.cmd.edit(vim.fn.fnameescape(...))", dir .. '/A/notes.txt')
+  ok(wait(3000, function() return offered() == "Restore the pop-out's views" end), 'a file of checkout A in front: A has no views to restore')
+  local logged = #read('workspace.log')
+  os.remove(dir .. '/kitty.listen')
+  host("require('desk.popout').show('rows', require('desk.actions').context())")
+  opened()
+  ok(wait(10000, function() return state().connected and state().kind == 'rows' end), 'a pop-out opened from A')
+  host("vim.cmd.edit(vim.fn.fnameescape(...))", dir .. '/B/notes.txt')
+  ok(wait(3000, function() return offered() == 'Restore 2 views' end), "B's file in front: B's record is read")
+  press('p')
+  ok(wait(3000, function() local r = record(roots.A); return r.tabs and r.tabs[1] and r.tabs[1].pinned == true end),
+    "… the pop-out's view pinned: written under A, the pop-out's checkout")
+  local writes = read('workspace.log'):sub(logged + 1)
+  ok(not writes:find('--root ' .. roots.B .. ' --client popout --input', 1, true), '… never under B:\n' .. writes)
+  eq(#(record(roots.B).tabs or {}), 2, "… and B's own record is as it was")
+  vim.rpcnotify(p, 'nvim_input', 'q')
+  ok(wait(5000, function() return not exists(psock) end), 'closed with B in front')
+  vim.wait(500)
+  eq({ offered(), #(record(roots.B).tabs or {}) }, { 'Restore 2 views', 2 }, "… Restore offers B's views, still B's own")
+  host("vim.cmd.edit(vim.fn.fnameescape(...))", dir .. '/A/notes.txt')
+  ok(wait(3000, function() return offered() == "Restore the pop-out's views" end), "back in A: A's record, none (its last view was closed)")
 end
 
 vim.rpcnotify(h, 'nvim_command', 'qa!')
