@@ -26,8 +26,17 @@ end
 -- "New since I looked": a checked file's reviewed copy is kept by content hash, so when it changes later the review
 -- can show only what is new. The choice between that and the whole change is remembered across sessions.
 local function reviews_dir() return vim.fn.stdpath('state') .. '/foxml-reviews' end
+-- A private folder and its parents. Another program making one of them at the same moment (desk-work's watcher, as a
+-- review opens on a fresh state folder) makes Neovim's mkdir() fail with "file already exists": it is made again.
+local function make_dir(dir)
+  for _ = 1, 3 do
+    if vim.fn.isdirectory(dir) == 1 then return true end
+    pcall(vim.fn.mkdir, dir, 'p', tonumber('700', 8))
+  end
+  return vim.fn.isdirectory(dir) == 1
+end
 local function write_private(path, data)
-  vim.fn.mkdir(vim.fs.dirname(path), 'p', tonumber('700', 8))
+  if not make_dir(vim.fs.dirname(path)) then return false end
   local temp = path .. '.' .. uv.os_getpid() .. '.tmp'
   local fd = uv.fs_open(temp, 'w', tonumber('600', 8))
   if not fd then return false end
@@ -570,7 +579,7 @@ local function save(r, file)
     end
   end
   disk.completed = r.completed or false
-  vim.fn.mkdir(vim.fs.dirname(r.state_file), 'p', tonumber('700', 8))
+  make_dir(vim.fs.dirname(r.state_file))
   local temp = r.state_file .. '.' .. uv.os_getpid() .. '.tmp'
   local fd = uv.fs_open(temp, 'w', tonumber('600', 8))
   if not fd then tell('Could not save review progress.', vim.log.levels.ERROR); return false end

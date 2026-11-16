@@ -573,6 +573,28 @@ assert(about:find('calls by name: +print +M.new −M.old',1,true),"the turn's ch
 C.close()
 '''.replace('BEFORE', self.CALLS_BEFORE.replace('\n', '\\n')), index_unchanged=False)
 
+    def test_a_folder_another_program_makes_at_the_same_moment_is_no_error(self):
+        # desk-work's watcher starts as a review opens and makes the state folders too. Neovim's mkdir() fails when one
+        # of them appears between its look and its make ("file already exists": E739), which failed a check once.
+        self.run_lua(r'''
+C.open_review(row,root)
+local r=R.current
+local mkdir,raced=vim.fn.mkdir,0
+vim.fn.mkdir=function(dir,...)
+  if raced==0 then raced=1; mkdir(dir,...); error('Vim:E739: Cannot create directory '..dir..': file already exists') end
+  return mkdir(dir,...)
+end
+R.select(find('a.lua'))
+local ok,err=pcall(R.mark)
+vim.fn.mkdir=mkdir
+assert(raced==1,'the review made its folder')
+assert(ok,'a folder another program made at the same moment failed the check: '..tostring(err))
+assert(r.marks['a.lua']==r.files[find('a.lua')].signature,'the check stands')
+local saved=vim.json.decode(table.concat(vim.fn.readfile(r.state_file),'\n'))
+assert(type(saved.files)=='table' and saved.files['a.lua'],'and it is saved')
+C.close()
+''')
+
     def test_the_working_list_picks_up_files_changed_after_it_opened(self):
         self.run_lua(r'''
 vim.cmd.edit(root .. '/a.lua')
