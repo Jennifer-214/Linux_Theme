@@ -303,7 +303,9 @@ list there yourself). It draws in the palette and keeps its session records in p
 - **Only what is new**: a file edited after you checked it opens against the copy you read. `n` shows the whole
   change instead; the choice is remembered.
 - **Keys**: Enter or `l` opens, `h` folds, `m` checks, `u` goes to the first unread file (risky ones first),
-  `a` (or Space Space, in the list or a diff) opens every other action and `?` lists every key. `q` in the list
+  `a` (or Space Space, in the list or a diff) opens every other action and `?` lists every key. `s` in the list puts
+  a label on every row, as `s` does in code (flash.nvim), and typing one moves there; in a diff `s` is the code's
+  own. `gs` shows the changed C or C++ symbol in symdeps. `q` in the list
   hides it; `q` in a diff closes the review and returns to your
   editor. Backspace in a diff pane brings the list back, and `Space re` toggles it.
 - **Finishing**: `R` (Shift-R), once every file is checked, records the review and asks **Next commit** (the next
@@ -351,7 +353,8 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   brings it back on the function under the cursor (on the function it shows already, it only switches to it), so a
   call chain is Enter on a callee, then `Space cc` there. The data is the language server's call hierarchy (clangd,
   pyright, lua_ls, ...): while the server starts or indexes the tab says "waiting for the language server" (15
-  seconds at most), and a file whose server has no call hierarchy says which server it has. For C and C++, `s` opens the function in symdeps when that
+  seconds at most), and a file whose server has no call hierarchy says which server it has. `s` puts a label on
+  every box, as `s` does in code (flash.nvim); typing one selects that box. For C and C++, `gs` opens the function in symdeps when that
   plugin is installed (every use by role); without it the line reads "requires symdeps".
 - **Live panel**: `Space co` (`:CallGraphPanel`) opens a narrow split on the right that follows the cursor. It redraws
   when the cursor has rested for 300 ms in another function, keeps each answer until that file is saved, asks the
@@ -366,8 +369,8 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   pop-out brings it back as the live panel. In the pop-out the same keys move between boxes; Enter goes to the
   function in the editor and the keyboard stays in the pop-out, Shift+Enter puts the keyboard in the editor too. `p`
   pins the graph (Enter then visits its boxes one by one) or follows the editor again, where each place Enter goes
-  centres it; `c` centres it on a box, `Space Space` there is the editor's menu for the selected box, `?` lists the
-  keys and `q` closes it. `Space Tab` in either window puts the keyboard in the other, across screens. The pop-out is
+  centres it; `c` centres it on a box, `s` labels the boxes and `gs` shows the selected function in symdeps (as in the
+  graph tab), `Space Space` there is the editor's menu for the selected box, `?` lists the keys and `q` closes it. `Space Tab` in either window puts the keyboard in the other, across screens. The pop-out is
   a Neovim of the same theme that only draws what the editor sends: no language server, no work records, no saved
   places; it names boxes by the drawing it was sent, so a press on a graph that has since changed says "this view
   moved on". With one monitor the row says "requires a second monitor" and graphs stay in the editor; closing the

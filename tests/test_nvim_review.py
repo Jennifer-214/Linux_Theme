@@ -474,6 +474,37 @@ assert(vim.deep_equal(selection, { open_line }) and #open == 0, 'on the open fil
 C.close()
 ''')
 
+    @unittest.skipUnless((Path.home() / '.local/share/nvim/lazy/flash.nvim').is_dir(), 'flash.nvim is not installed')
+    def test_s_labels_the_rows_and_typing_one_moves_there_as_j_and_k_do(self):
+        self.run_lua(r'''
+vim.opt.rtp:append(vim.fn.expand('~/.local/share/nvim/lazy/flash.nvim'))
+require('flash').setup({ labels = 'asdfghjklqwertyuiopzxcvbnm', label = { uppercase = false } })
+C.open_review(row,root)
+local r=R.current
+api.nvim_set_current_win(r.panel_win)
+local info, rows = vim.fn.getwininfo(r.panel_win)[1], {}
+for line in pairs(r.entries) do if line >= info.topline and line <= info.botline then rows[#rows + 1] = line end end
+table.sort(rows)
+api.nvim_feedkeys('s' .. vim.keycode('<Esc>'), 'x', false)
+local drawn = require('desk.nav').drawn[1]
+assert(vim.deep_equal(vim.tbl_map(function(l) return l.line end, drawn), rows), 'a label on exactly the rows on screen: '
+  .. vim.inspect(drawn) .. ' vs ' .. vim.inspect(rows))
+assert(api.nvim_win_get_cursor(r.panel_win)[1] ~= drawn[#drawn].line, 'the fixture starts away from the last row')
+api.nvim_feedkeys('s' .. drawn[#drawn].label, 'x', false)
+-- What the main loop does after any cursor move, j and k included (headless, the test does it):
+api.nvim_exec_autocmds('CursorMoved', { buffer = r.panel_buf })
+local now = api.nvim_win_get_cursor(r.panel_win)[1]
+assert(now == drawn[#drawn].line, 'the label moved the cursor to its row: ' .. now)
+local bar
+for _, m in ipairs(api.nvim_buf_get_extmarks(r.panel_buf, -1, 0, -1, { details = true })) do
+  if m[4].line_hl_group == 'FoxSymdepsSelection' or m[4].line_hl_group == 'Visual' then bar = m[2] + 1 end
+end
+assert(bar == now and r.strip_for == now, 'the bar and the strip follow it, as for j and k: ' .. tostring(bar))
+api.nvim_set_current_win(r.right_win)
+assert((vim.fn.maparg('s', 'n', false, true).buffer or 0) == 0, 'a diff pane keeps the code s')
+C.close()
+''')
+
     def test_a_line_between_rows_passes_the_cursor_on_and_a_move_does_not_rebuild_the_list(self):
         self.run_lua(r'''
 C.open_review(row,root)

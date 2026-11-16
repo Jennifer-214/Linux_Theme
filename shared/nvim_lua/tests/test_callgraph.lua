@@ -361,8 +361,8 @@ eq(vim.tbl_map(function(x) return x.name end, decoded.files[1].symbols), { "M.al
 local A = require("desk.actions")
 eq(A.problems, {}, "every call graph row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "<CR>", "<BS>", "c", "r", "q", "s" }, "the graph tab's keys")
-eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "<CR>", "p", "q" }, "the panel's keys")
+eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "<BS>", "c", "r", "q", "gs" }, "the graph tab's keys")
+eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "p", "q" }, "the panel's keys")
 for _, surface in ipairs({ "callgraph", "callgraph-panel" }) do
   local seen, twice = {}, {}
   for _, r in ipairs(A.rows()) do
@@ -383,7 +383,7 @@ for _, id in ipairs({ "callgraph.open", "callgraph.panel" }) do
 end
 eq({ A.key("callgraph.open"), A.key("callgraph.panel") }, { "<leader>cc", "<leader>co" }, "Space cc and Space co")
 eq(A.available(A.get("callgraph.open"), { surface = "callgraph" }), false, "inside the graph its own keys apply, not Space cc")
-eq(A.available(A.get("callgraph.symdeps"), { surface = "callgraph" }), "requires symdeps", "s without symdeps says what it needs")
+eq(A.available(A.get("callgraph.symdeps"), { surface = "callgraph" }), "requires symdeps", "gs without symdeps says what it needs")
 -- A count reaches the move through the registry's mapping: 3j is three steps down.
 local cbuf = api.nvim_create_buf(false, true)
 api.nvim_win_set_buf(0, cbuf)

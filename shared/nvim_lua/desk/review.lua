@@ -761,6 +761,14 @@ end
 -- comparison panes (DIFF) or both; each run gets ctx.review, the review the buffer belongs to.
 -- Pressed in the list, a key that checks, refreshes or moves to another file leaves focus in the list, so "m, j, m"
 -- checks files in a row and Tab steps through files without landing in the comparison.
+-- s in the list: a label on every row j and k stop on (commits, files, changed functions), at its first mark; typing
+-- one puts the cursor there, so the strip and the bar follow as they do for j and k.
+function M.jump_rows(r)
+  if not (r and r.entries and api.nvim_win_is_valid(r.panel_win or -1)) then return end
+  local text, targets = api.nvim_buf_get_lines(r.panel_buf, 0, -1, false), {}
+  for line in pairs(r.entries) do targets[#targets + 1] = { line = line, col = ((text[line] or ''):find('%S') or 1) - 1 } end
+  require('desk.nav').jump(r.panel_win, targets, function(t) api.nvim_win_set_cursor(r.panel_win, { t.line, 0 }) end)
+end
 local function in_list(r, fn) return function()
   local from = api.nvim_get_current_win()
   fn()
@@ -832,7 +840,12 @@ M.rows = actions.add({
     about = 'Back to the file list from a comparison pane, showing it again if it was hidden', run = function() M.show_panel(true) end },
   { id = 'review.file-list', group = 'Review', name = 'Toggle review file list', key = '<leader>re', on = BOTH, also = '`:ReviewFiles`',
     about = 'Toggle the review file list, keeping the comparison open; `Space e` keeps its normal Neo-tree binding', run = function() M.toggle_panel() end },
-  { id = 'review.symdeps', group = 'Review', name = 'Inspect changed C++ symbol in working copy', key = 's', on = BOTH, available = symdeps_here,
+  -- s: labels on the list's rows; in a diff it stays the code's flash s (no row there). symdeps is gs in both.
+  { id = 'review.jump', group = 'Review', name = 'Jump to a row by its label', key = 's', on = LIST, menu = false,
+    available = function() return require('desk.nav').labels_ready() end,
+    about = 'Labels on the rows on screen, as `s` draws them in code (flash.nvim): typing one moves there, as `j` and `k` would; Esc stays',
+    run = function(ctx) M.jump_rows(ctx.review) end },
+  { id = 'review.symdeps', group = 'Review', name = 'Inspect changed C++ symbol in working copy', key = 'gs', on = BOTH, available = symdeps_here,
     about = 'Inspect the changed C/C++ file in symdeps (current working copy near the reviewed line)', run = function() M.symdeps(false) end },
   { id = 'review.source', group = 'Review', name = 'Open the working file for this change', key = 'gf', on = BOTH,
     about = 'Open the editable working file in a separate tab', run = function() M.open_source() end },

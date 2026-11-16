@@ -176,12 +176,12 @@ eq(act({ action = 'callgraph.go' }), { refused = 'callgraph.go is not one the po
 eq(act({ action = 'popout.keys' }), { refused = 'popout.keys is not one the pop-out may ask for' }, '… a pop-out row that is not remote too')
 eq(act({ action = 'popout.nothing' }), { refused = 'no action is called popout.nothing' }, '… and an id that is no row')
 eq(act({ item = 400, action = 'popout.go' }), { refused = 'there is no such box in this view' }, '… and a box the view does not have')
--- Without symdeps (not installed here) its row is refused with why, and s in the pop-out says so; nothing else happens.
+-- Without symdeps (not installed here) its row is refused with why, and gs in the pop-out says so; nothing else happens.
 eq(act({ action = 'popout.symdeps' }), { refused = 'requires symdeps' }, 'without symdeps: its row says "requires symdeps"')
 pop('_G.heard = {}; vim.notify = function(text) table.insert(_G.heard, text) end')
 local line_before = host('return vim.api.nvim_win_get_cursor(0)[1]')
-press('s')
-ok(wait(2000, function() return vim.tbl_contains(pop('return _G.heard'), 'Requires symdeps.') end), '… s in the pop-out says "Requires symdeps."')
+press('gs')
+ok(wait(2000, function() return vim.tbl_contains(pop('return _G.heard'), 'Requires symdeps.') end), '… gs in the pop-out says "Requires symdeps."')
 eq({ host('return vim.api.nvim_win_get_cursor(0)[1]'), state().title }, { line_before, 'call graph · M.beta' }, '… and does nothing else')
 eq(act({ action = 'popout.pin' }), { done = true }, 'a remote row runs')
 ok(wait(2000, function() return (state().lines or {})[1]:find('PINNED', 1, true) end), '… pinned: the pop-out says so')

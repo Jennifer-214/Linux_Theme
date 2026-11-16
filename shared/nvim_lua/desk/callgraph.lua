@@ -259,6 +259,15 @@ end
 
 function M.selected(s) local box = s.index and s.drawn and s.drawn.boxes[s.index]; return box and box.item end
 
+-- s: a label on every box, at its top-left corner (its name stays readable); typing one selects that box, as a move
+-- landing there would. Enter still goes.
+function M.jump_boxes(s)
+  if not (s and s.drawn and s.win and api.nvim_win_is_valid(s.win)) then return end
+  local targets = {}
+  for i, box in ipairs(s.drawn.boxes) do targets[#targets + 1] = { line = box.spans[1][1], col = box.spans[1][2], index = i } end
+  require('desk.nav').jump(s.win, targets, function(t) M.select(s, t.index, true) end)
+end
+
 -- A new drawing: the centre box selected (else the first), the cursor on it; keep: the same graph drawn again, so
 -- the selection stays where it was.
 local function show(s, drawn, keep)
@@ -856,6 +865,10 @@ local ROWS = actions.add({
   moving('prev', '<S-Tab>', 'The previous box', 'The previous box, wrapping', 'next'),
   moving('first', 'gg', 'The first box', 'The first box', 'next'),
   moving('last', 'G', 'The last box', 'The last box', 'next'),
+  { id = 'callgraph.jump', group = 'Call graph', name = 'Jump to a box by its label', key = 's', on = BOTH, menu = false,
+    available = function() return require('desk.nav').labels_ready() end,
+    about = 'Labels on the boxes on screen, as `s` draws them in code (flash.nvim): typing one selects that box, as `j` and `k` would; Enter still goes',
+    run = function(ctx) M.jump_boxes(ctx.graph) end },
   { id = 'callgraph.go', group = 'Call graph', name = 'Go to the selected function', key = '<CR>', on = BOTH, also = 'a double click',
     about = "Go to the selected box's function, in the code window the graph came from; the graph stays open (a click, or any motion that lands in a box, selects it)",
     run = function(ctx) go(ctx.graph) end },
@@ -885,7 +898,7 @@ local ROWS = actions.add({
     about = 'Ask the language server for the graph again', run = function(ctx) load(ctx.graph, ctx.graph.target) end },
   { id = 'callgraph.close', group = 'Call graph', name = 'Close the call graph', key = 'q', on = GRAPH, about = 'Close the graph tab',
     run = function(ctx) M.close_view(ctx.graph.buf) end },
-  { id = 'callgraph.symdeps', group = 'Call graph', name = 'This function in symdeps', key = 's', on = GRAPH,
+  { id = 'callgraph.symdeps', group = 'Call graph', name = 'This function in symdeps', key = 'gs', on = GRAPH,
     about = "The centre function in symdeps' card (C and C++)",
     available = function() return actions.symdeps() or 'requires symdeps' end,
     run = function(ctx)

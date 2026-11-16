@@ -296,12 +296,13 @@ The call graph (desk.callgraph); "in a graph" means the graph tab and the live p
 | `j` / `k` in a graph | The box below / above (the nearest one in that row) |
 | `h` / `l` in a graph | The box to the left / right in the same row |
 | `Tab` / `Shift+Tab` / `gg` / `G` in a graph | Every box in order, wrapping; the first / last box |
+| `s` in a graph | Labels on the boxes on screen, as `s` draws them in code (flash.nvim): typing one selects that box, as `j` and `k` would; Enter still goes |
 | `Enter` in a graph, a double click | Go to the selected box's function, in the code window the graph came from; the graph stays open (a click, or any motion that lands in a box, selects it) |
 | `<BS>` in the graph tab | Back to that code window as it was, the graph left open |
 | `c` in the graph tab | Centre the graph on the selected box: its own callers and callees |
 | `r` in the graph tab | Ask the language server for the graph again |
 | `q` in the graph tab | Close the graph tab |
-| `s` in the graph tab | The centre function in symdeps' card (C and C++) |
+| `gs` in the graph tab | The centre function in symdeps' card (C and C++) |
 | `p` in the panel | Pin the panel to the graph it shows (PINNED), or follow the cursor again |
 | `q` in the panel | Close the panel |
 | `?` in a graph | The keys of this view as a list: `Enter` runs the selected one, `?` or `q` closes the list |
@@ -325,7 +326,8 @@ window puts the keyboard in the other, on whichever screen it is.
 | `Shift+Enter` in the pop-out | Go to the selected box's function and put the keyboard in the editor |
 | `c` in the pop-out | Centre the graph on the selected box: its own callers and callees (the graph is pinned there) |
 | `p` in the pop-out | Pin the graph (PINNED: Enter visits its boxes one by one), or follow the editor's cursor again (each place Enter goes centres it) |
-| `s` in the pop-out | The selected box's function in symdeps' card, in the editor (C and C++; symdeps is an optional plugin) |
+| `s` in the pop-out | Labels on the boxes on screen, as `s` draws them in code (flash.nvim): typing one selects that box, as `j` and `k` would; Enter still goes |
+| `gs` in the pop-out | The selected box's function in symdeps' card, in the editor (C and C++; symdeps is an optional plugin) |
 | `o` in the pop-out | Bring this graph back to the editor as the live panel, pinned if it is pinned here; the pop-out stays open |
 | `Space Space` in the pop-out | The home menu for the selected box: what the editor can do with it, and this window |
 | `?` in the pop-out | The keys of the pop-out, in a list |
@@ -719,7 +721,8 @@ Checking a live file is invalidated when its contents change. Files with missing
 | `Space rc` | Six context lines / full-file context |
 | `<BS>` in a diff | Back to the file list from a comparison pane, showing it again if it was hidden |
 | `Space re`, `:ReviewFiles` | Toggle the review file list, keeping the comparison open; `Space e` keeps its normal Neo-tree binding |
-| `s` | Inspect the changed C/C++ file in symdeps (current working copy near the reviewed line) |
+| `s` in the file list | Labels on the rows on screen, as `s` draws them in code (flash.nvim): typing one moves there, as `j` and `k` would; Esc stays |
+| `gs` | Inspect the changed C/C++ file in symdeps (current working copy near the reviewed line) |
 | `gf` | Open the editable working file in a separate tab |
 | `S` | Compare the current struct's layout with the selected commit's parent |
 | `r` | Refresh the comparison |

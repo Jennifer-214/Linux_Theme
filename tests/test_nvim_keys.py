@@ -230,7 +230,8 @@ class NvimKeys(unittest.TestCase):
         self.assertEqual(text, with_reference(text, callgraph_reference(), GRAPH_BEGIN, GRAPH_END),
                          'NVIM-KEYBINDS.md differs from the call graph rows: run python3 tests/test_nvim_keys.py --write')
         table = callgraph_reference()
-        for line in ('`Space cc`, `:CallGraph`', '`j` / `k` in a graph', '`p` in the panel', '`s` in the graph tab', '`?` in a graph'):
+        for line in ('`Space cc`, `:CallGraph`', '`j` / `k` in a graph', '`p` in the panel', '`s` in a graph', '`gs` in the graph tab',
+                     '`?` in a graph'):
             self.assertIn(line, table)
         self.assertTrue(table.rstrip().splitlines()[-2].startswith('| `?`'), 'the shared ? comes after the graph\'s own keys')
 

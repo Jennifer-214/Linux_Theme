@@ -1042,7 +1042,12 @@ local ROWS = actions.add({
   remote({ id = 'popout.pin', group = 'Call graph', name = 'Pin, or follow the editor', key = 'p', on = ON,
     about = "Pin the graph (PINNED: Enter visits its boxes one by one), or follow the editor's cursor again (each place Enter goes centres it)",
     available = function(ctx) return ctx.view ~= nil or 'nothing is shown here' end }, pin),
-  remote({ id = 'popout.symdeps', group = 'Call graph', name = 'It in symdeps', key = 's', on = ON,
+  -- s labels the boxes and gs is symdeps, as in the graph tab and the panel.
+  { id = 'popout.jump', group = 'Call graph', name = 'Jump to a box by its label', key = 's', on = ON, menu = false,
+    available = function() return require('desk.nav').labels_ready() end,
+    about = 'Labels on the boxes on screen, as `s` draws them in code (flash.nvim): typing one selects that box, as `j` and `k` would; Enter still goes',
+    run = function() graphs().jump_boxes(C.surface) end },
+  remote({ id = 'popout.symdeps', group = 'Call graph', name = 'It in symdeps', key = 'gs', on = ON,
     about = "The selected box's function in symdeps' card, in the editor (C and C++; symdeps is an optional plugin)",
     available = function(ctx)
       if not ctx.item then return 'no box is selected' end
