@@ -282,6 +282,8 @@ Everything you type, delete, paste or run (`.`, macros) happens at every cursor.
 | `Space ca` | Code action |
 | `[d` / `]d` | Prev / Next diagnostic |
 | `Space cf` | Format buffer |
+| `Space cc`, `:CallGraph` | Call graph of the function under the cursor, in a tab: callers above, the function in a double box, what it calls below (the language server's call hierarchy). In it: `Enter` goes there, `c` centres on that box, `r` reads again, `q` closes |
+| `Space co`, `:CallGraphPanel` | Live call graph panel: a narrow split on the right that follows the cursor and redraws when the function under it changes. It never takes the focus; `Enter` in it goes there, `q` closes it |
 
 ### C/C++ Specific
 | Key | Action |
@@ -722,6 +724,8 @@ Quick reference of all `Space` binds:
 | `x x` | Diagnostics |
 | `x q` | Quickfix |
 | `c f` | Format |
+| `c c` | Call graph of this function |
+| `c o` | Live call graph panel |
 | `s s` | Horizontal split |
 | `q q` | Close window |
 | `/` | Toggle comment |

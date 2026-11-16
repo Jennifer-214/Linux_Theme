@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, pendingLine, planProgress, reviewStates, reviewSummary, ruler, shellQuote, stepLabel, testLabel, turnLabel, unreviewed, withoutHeredocs, workName, filterFiles, wrapWords, needBreakdown, needGroup, refusalOf, wrapParts, dosText, metricLabel, said } from '../hooks/work'
+import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, pendingLine, planProgress, reviewStates, reviewSummary, ruler, shellQuote, stepLabel, testLabel, turnLabel, unreviewed, withoutHeredocs, workName, filterFiles, wrapWords, needBreakdown, needGroup, refusalOf, wrapParts, dosText, metricLabel, said, parseTurnSymbols, changedUnits, unitWords } from '../hooks/work'
 
 test('tracking records a command as written, keeps secrets out, and reads how the call ended', () => {
   const command = "make test && printf '%s' \"$HOME\""
@@ -201,4 +201,25 @@ test('a figure reads as name, value, unit and its change; the word says whether 
   expect(metricLabel({ ...base, name: 'coverage', value: 80, unit: '%', previous: 80, change: 0, delta: '', verdict: 'same' })).toEqual(['coverage 80%', said('same')])
   expect(metricLabel({ ...base, name: 'tests passed', value: 128, unit: '', previous: null, change: null, delta: '', verdict: 'new' })).toEqual(['tests passed 128', said('new')])
   expect(metricLabel({ ...base, name: 'x', value: 0.1 + 0.2, unit: 's', previous: null, change: null, delta: '', verdict: 'new' })[0]).toBe('x 0.3s')
+})
+
+test('a turn\'s changed symbols: checked, flattened, counted once per function', () => {
+  const answer = JSON.stringify({ version: 1, files: [
+    { rel: 'a.lua', symbols: [{ name: 'M.alpha', kind: 'function_declaration', side: 'after', line: 2 },
+      { name: 'M.alpha', kind: 'function_declaration', side: 'before', line: 2 },
+      { name: 'lines 3–4', kind: 'hunk', side: 'after', line: 3 },
+      { name: 'bad', kind: 'function_declaration', side: 'after', line: 0 }, { name: 7 }] },
+    { rel: 'b.cpp', symbols: [{ name: 'Engine::step', kind: 'function_definition', side: 'after', line: 40 }] },
+    { rel: 'c.lua', symbols: {} },
+  ] })
+  const symbols = parseTurnSymbols(answer)!
+  expect(symbols.map(s => `${s.file}:${s.name}:${s.side}`)).toEqual(['a.lua:M.alpha:after', 'a.lua:M.alpha:before', 'a.lua:lines 3–4:after', 'b.cpp:Engine::step:after'])
+  expect(changedUnits(symbols).map(s => s.name)).toEqual(['M.alpha', 'Engine::step'])
+  expect(unitWords(symbols)).toBe('2 functions')
+  expect(unitWords(symbols.slice(0, 1))).toBe('1 function')
+  expect(unitWords([{ file: 'x.cpp', name: 'Book', kind: 'class_specifier', side: 'after', line: 1 }, ...symbols])).toBe('3 symbols')
+  expect(unitWords(symbols.filter(s => s.kind === 'hunk'))).toBe('')
+  expect(parseTurnSymbols('not json')).toBeNull()
+  expect(parseTurnSymbols(null)).toBeNull()
+  expect(parseTurnSymbols('{"files":{}}')).toBeNull()
 })

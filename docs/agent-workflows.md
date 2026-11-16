@@ -329,6 +329,23 @@ list there yourself). It draws in the palette and keeps its session records in p
 None of it needs plan files, symdeps, or a Claude session: those add grouping, symbol context and the overview to
 a review that works in any git repository. The look follows [UI style](ui-style.md).
 
+## Call graphs
+
+- **One function**: `Space cc` (`:CallGraph`) opens a tab with the function under the cursor in a double box, what
+  calls it above and what it calls below, one level each way. Enter on a box goes there, `c` centres the graph on it,
+  `r` reads again, `q` closes. The data is the language server's call hierarchy (clangd, pyright, lua_ls, ...): while
+  the server starts or indexes the tab says "waiting for the language server" (15 seconds at most), and a file whose
+  server has no call hierarchy says which server it has. For C and C++, `s` opens the function in symdeps when that
+  plugin is installed (every use by role); without it the line reads "requires symdeps".
+- **Live panel**: `Space co` (`:CallGraphPanel`) opens a narrow split on the right that follows the cursor. It redraws
+  when the cursor has rested for 300 ms in another function, keeps each answer until that file is saved, asks the
+  server one thing at a time and never takes the focus. Enter in it goes there; it closes with the last window
+  beside it.
+- **What the last turn changed**: when a Claude turn ends, the notebook reads the function or class around each hunk
+  it changed (treesitter, as the review's changed functions; a headless Neovim, three seconds at most) and puts the
+  count on the last-turn row, `✎ 2 files · 3 functions`. Enter lists them by file; each opens Neovim with its graph
+  (`desk-work open --action callgraph`). A language without a treesitter parser shows its hunks as line ranges.
+
 ## End a session
 
 `/goodnight` (`~/.claude/commands/goodnight.md`) wraps up a session: Claude writes a

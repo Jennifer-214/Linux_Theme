@@ -435,6 +435,12 @@ class Work(unittest.TestCase):
             (self.repo / 'escape.cpp').symlink_to(outside)
             self.invoke('open', '--root', self.repo, '--action', 'file', '--file', outside, code=2)
             self.invoke('open', '--root', self.repo, '--action', 'file', '--file', 'escape.cpp', code=2)
+            # The call graph: the file checked the same way, its line only ever a number.
+            self.invoke('open', '--root', self.repo, '--action', 'callgraph', '--file', path.name, '--index', '12')
+            self.assertEqual(json.loads(calls.read_text())[-3:], ['desk-work:callgraph', str(path), '12'])
+            for line in ('', '0', '12; x', '-3'):
+                self.invoke('open', '--root', self.repo, '--action', 'callgraph', '--file', path.name, '--index', line, code=2)
+            self.invoke('open', '--root', self.repo, '--action', 'callgraph', '--file', 'escape.cpp', '--index', '1', code=2)
 
     def test_running_background_job_outlives_its_caller_and_is_visible(self):
         p = subprocess.Popen([str(BIN), "run", "--session", "abc", "--", sys.executable, "-c",

@@ -1792,13 +1792,15 @@ int dispatch(int argc, char** argv) {
                 if (!j.is_object() || str(j, "pane").empty()) return 1;
                 return sh::run({"desk-drawer", "run", "work-jump", str(j, "pane")});
             }
-            if (action == "file" || action == "file-diff" || action == "suggested-tests") {
+            if (action == "file" || action == "file-diff" || action == "suggested-tests" || action == "callgraph") {
                 std::error_code ec;
                 const auto canonical_root = fs::canonical(where, ec); if (ec) return 2;
                 const auto path = fs::weakly_canonical(canonical_root / fs::path(opts["--file"]), ec);
                 const auto relative = path.lexically_relative(canonical_root);
                 if (ec || opts["--file"].empty() || relative.empty() || *relative.begin() == ".." || relative == ".") return 2;
-                return open_editor(canonical_root.string(), action, path.string(), opts["--session"]);
+                // The call graph's line travels as a number, checked here like the path.
+                if (action == "callgraph" && !std::regex_match(opts["--index"], std::regex("[1-9][0-9]{0,6}"))) return 2;
+                return open_editor(canonical_root.string(), action, path.string(), action == "callgraph" ? opts["--index"] : opts["--session"]);
             }
             if (action == "plan") {
                 auto plan = json(plan_path(root_of(where), opts["--session"]));

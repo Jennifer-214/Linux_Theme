@@ -1,11 +1,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderNode } from 'claude-code'
 
-import type { AgentSession, ApiCredits, CiLook, GitLook, NotebookView, PaperAction, PaperCard, PaperEnvelope, PaperLook, PaperOverlap, PaperPeer, PaperRedZone, PaperTone, PaperTree, TurnLook, TurnReceipt, WorkJob } from '../types'
+import type { AgentSession, ApiCredits, CiLook, GitLook, NotebookView, PaperAction, PaperCard, PaperEnvelope, PaperLook, PaperOverlap, PaperPeer, PaperRedZone, PaperTone, PaperTree, TurnChanges, TurnLook, TurnReceipt, WorkJob } from '../types'
 import { addBefore, addEdit, addName, neighbours, namesText, noteText, overlapFor, parseLedger, parseNames, parseNote, trailerUrl, withPlan, editedSince } from './ledger'
 import type { Other } from './ledger'
 import { paper } from './theme'
-import { ago, beginArgs, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, filterFiles, planProgress, receiptLine, reviewStates, reviewSummary, ruleParts, ruler, sides, syncLabel, workName, wrapWords, stepLabel, testLabel, turnLabel, unreviewed, work, workCall, workLook, needBreakdown, needGroup, wrapParts, MARKS, glyph, CHARS, ELLIPSIS, RETRO, cut, said, dosText } from './work'
+import { ago, beginArgs, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, filterFiles, planProgress, receiptLine, reviewStates, reviewSummary, ruleParts, ruler, sides, syncLabel, workName, wrapWords, stepLabel, testLabel, turnLabel, unreviewed, work, workCall, workLook, needBreakdown, needGroup, wrapParts, MARKS, glyph, CHARS, ELLIPSIS, RETRO, cut, said, dosText, parseTurnSymbols, changedUnits, unitWords } from './work'
 import { attributeFiles, fileColumns, fileCounts, gitFiles, drawerPage, mailId, shortPath, NAMED_PAGES } from './notebook'
 import { BUILD_ID } from './build'
 import { metricLabel } from './work'
@@ -27,6 +27,7 @@ const writingTo = atom({ plugin: 'desk-notebook', key: 'writingTo' } as const, n
 const turn = atom({ plugin: 'desk-notebook', key: 'turn' } as const, null as TurnLook | null, { shape: 'turn-1' })
 const nudge = atom({ plugin: 'desk-notebook', key: 'nudge' } as const, null as number | null)
 const receipt = atom({ plugin: 'desk-notebook', key: 'receipt' } as const, null as TurnReceipt | null, { shape: 'receipt-2' })
+const changes = atom({ plugin: 'desk-notebook', key: 'changes' } as const, null as TurnChanges | null, { shape: 'changes-1' })
 const envelopes = atom({ plugin: 'desk-notebook', key: 'envelopes' } as const, [] as PaperEnvelope[], { shape: 'env-1' })
 const notebookView = atom({ plugin: 'desk-notebook', key: 'notebookView' } as const,
   { page: 'overview', scope: 'session', selected: '', offset: 0, form: 'none' } as NotebookView, { shape: 'notebook-1' })
@@ -158,6 +159,8 @@ const memory = {
   notebookOpen: false,
   // Every path this turn edited, however often it was edited before: the receipt's first source.
   turnFiles: [] as string[],
+  // Each file as this turn found it, before the turn's first edit of it: what its changed functions are read against.
+  turnBefore: new Map<string, string>(),
   ci: null as CiLook | null,
   ciTold: '',
   github: new Map<string, boolean>(),
@@ -421,6 +424,37 @@ async function checkInbox($: EngineInterface) {
   } finally {
     memory.inboxBusy = false
   }
+}
+
+// Before the turn's first edit of a file: the file as it was, in memory only (a reload reads it against HEAD instead).
+async function keepTurnBefore($: EngineInterface, file: string) {
+  const path = await realPath($, file)
+  if (memory.turnBefore.has(path) || memory.turnBefore.size >= 20) return
+  let size = 0
+  try { size = (await $.fs.stat(path)).size } catch { memory.turnBefore.set(path, ''); return }  // a new file
+  if (size > 512 * 1024) return
+  const text = await $.fs.read(path)
+  if (!text.includes('\u0000')) memory.turnBefore.set(path, text)
+}
+
+// The functions the turn changed, from desk.callgraph run headless: treesitter finds the function or class around
+// each changed hunk, as the review does. Three seconds at most; without Neovim the card just has no count.
+const TURN_SYMBOLS = 'exec nvim --headless --clean -l "${XDG_CONFIG_HOME:-$HOME/.config}/nvim/lua/desk/callgraph.lua" --turn-symbols'
+async function readChanges($: EngineInterface, root: string, made: TurnReceipt) {
+  const base = root.replace(/\/$/, '') + '/'
+  let budget = 4 * 1024 * 1024
+  const files = made.files.slice(0, 20).map(rel => {
+    const before = memory.turnBefore.get(base + rel)
+    if (before === undefined || before.length > budget) return { rel }
+    budget -= before.length
+    return { rel, before }
+  })
+  let symbols = null
+  try {
+    const out = await $.process.run(['sh', '-c', TURN_SYMBOLS], { timeoutMs: 3000, stdin: JSON.stringify({ root, files }) })
+    symbols = out.exitCode === 0 ? parseTurnSymbols(out.stdout) : null
+  } catch { symbols = null }
+  await update($, changes, () => symbols ? { at: made.at, symbols } : null)
 }
 
 // After an edit: note it in this session's ledger, for the other sessions to see.
@@ -906,6 +940,8 @@ export const register: Register = on => {
       const commits = (log ?? '').split('\n').map(s => s.trim()).filter(s => /^[0-9a-f]{40} /.test(s)).map(s => ({ sha: s.slice(0, 40), subject: s.slice(41) }))
       const made: TurnReceipt = { at: await $.clock.now(), files: touched.slice(0, 40), tests, commits, risky: memory.turnRisk.slice(0, 4) }
       await update($, receipt, () => (made.files.length || made.tests || made.commits.length || made.risky.length) ? made : null)
+      if (made.files.length) await readChanges($, seen.root, made).catch(() => undefined)
+      else await update($, changes, () => null)
     }
     // A turn that changed files and leaves files of this session unreviewed says so once, above the prompt, until
     // looked at. A turn that changed nothing (a question) says nothing.
@@ -927,6 +963,7 @@ export const register: Register = on => {
     memory.turnStart = started
     memory.turnRisk = []
     memory.turnFiles = []
+    memory.turnBefore = new Map()
     await update($, nudge, () => null)
     await update($, redZone, () => null)
     await update($, overlap, () => null)
@@ -1016,6 +1053,7 @@ export const register: Register = on => {
     await beforeEdit($, e.file_path)
     await checkOverlap($, e.file_path).catch(() => undefined)
     await keepBefore($, e.file_path).catch(() => undefined)
+    await keepTurnBefore($, e.file_path).catch(() => undefined)
     const ran = await withActivity($, `editing ${e.file_path.split('/').pop() ?? 'a file'}`, () => next(e))
     if (ran.deny === undefined && ran.isError !== true) await recordEdit($, e.file_path).catch(() => undefined)
     void refresh($)
@@ -1025,6 +1063,7 @@ export const register: Register = on => {
     await beforeEdit($, e.file_path)
     await checkOverlap($, e.file_path).catch(() => undefined)
     await keepBefore($, e.file_path).catch(() => undefined)
+    await keepTurnBefore($, e.file_path).catch(() => undefined)
     const ran = await withActivity($, `writing ${e.file_path.split('/').pop() ?? 'a file'}`, () => next(e))
     if (ran.deny === undefined && ran.isError !== true) await recordEdit($, e.file_path).catch(() => undefined)
     void refresh($)
@@ -1157,6 +1196,16 @@ export const register: Register = on => {
     const launch = async (argv: string[], failure: string) => { if (await run($, argv) === null) $.ui.toast(failure) }
     const openJob = (id: string, action = 'log', index?: number) => checkedWork(['open', '--root', root, '--action', action, '--id', id,
       ...(index === undefined ? [] : ['--index', String(index)])])
+    // The turn's own files in the review (the first one not yet reviewed), else its commit.
+    const reviewTurn = (done: TurnReceipt) => {
+      const still = (now?.files ?? []).map(f => f.path)
+      const next_ = done.files.find(p => still.includes(p) && states.get(p) !== 'checked') ?? done.files.find(p => still.includes(p))
+      const open = () => next_ !== undefined
+        ? checkedWork(['open', '--root', root, '--action', 'file-diff', '--file', next_, '--session', session])
+        : done.commits[0] ? checkedWork(['open', '--root', root, '--action', 'reviews', '--id', done.commits[0].sha])
+        : checkedWork(['open', '--root', root, '--action', 'reviews'])
+      return { open, next: next_ }
+    }
     const page = async (value: NotebookView['page']) => {
       const current = await read($, notebookView)
       const opener = value === 'overview' ? '' : current.page === 'overview' ? current.selected : current.opener ?? ''
@@ -1352,16 +1401,15 @@ export const register: Register = on => {
       // The last turn stays drawn while the next one runs, dimmed, with how long this one has run on its rule.
       rule('last turn', working ? working.replace(/^\S+ /, '').split(' · ')[0]! : done ? ago((clock - done.at) / 1000) : '')
       if (done) {
-        // The row opens exactly what it names: the turn's own files (the first one not yet reviewed), or the commit.
-        const still = (now?.files ?? []).map(f => f.path)
-        const next_ = done.files.find(p => still.includes(p) && states.get(p) !== 'checked') ?? done.files.find(p => still.includes(p))
-        const open = () => next_ !== undefined
-          ? checkedWork(['open', '--root', root, '--action', 'file-diff', '--file', next_, '--session', session])
-          : done.commits[0] ? checkedWork(['open', '--root', root, '--action', 'reviews', '--id', done.commits[0].sha])
-          : checkedWork(['open', '--root', root, '--action', 'reviews'])
+        // The row opens exactly what it names: the turn's own files (the first one not yet reviewed), or the commit;
+        // once the turn's changed functions are known, their count is on the right and Enter lists them.
+        const { open, next: next_ } = reviewTurn(done)
+        const found = await read($, changes)
+        const units = found && found.at === done.at ? unitWords(found.symbols) : ''
         const alarm = done.risky.length > 0 || (done.tests !== null && !done.tests.startsWith(glyph('checked')))
-        pair('receipt-files', `${glyph('look')} ${receiptLine(done)}`, '', open,
-          next_ !== undefined ? `What the last turn changed, ran and committed. Enter opens ${next_.split('/').pop()}, the next one not reviewed.`
+        pair('receipt-files', `${glyph('look')} ${receiptLine(done)}`, units, units ? () => page('turn') : open,
+          units ? `What the last turn changed, ran and committed, and the ${units} it changed. Enter lists them; each opens its call graph.`
+            : next_ !== undefined ? `What the last turn changed, ran and committed. Enter opens ${next_.split('/').pop()}, the next one not reviewed.`
             : 'What the last turn changed, ran and committed. Enter opens it in the review.',
           working ? paper.dim : alarm ? paper.berry : paper.ink)
       } else content.push(text('  ' + (!working ? said('nothing changed yet') : underway?.step ? `${glyph('running')} ${underway.step}` : said('under way'))))
@@ -1400,6 +1448,34 @@ export const register: Register = on => {
       else if (ci) pair('work-ci', ci.label, '', async () => { if (/^https:\/\/github\.com\//.test(ci.url)) await launch(['xdg-open', ci.url], 'The browser did not open.') },
         'GitHub Actions on the pushed commit. Enter opens the run.', ci.state === 'failed' ? paper.berry : ci.state === 'passed' ? paper.added : paper.dim)
       else content.push(text('  ' + (now?.work ? said('no test runs yet') : said('work tool unavailable'))))
+    }
+
+    if (view.form === 'none' && view.page === 'turn') {
+      // The last turn's changed functions by file; each opens Neovim with its call graph. Removed ones and hunks no
+      // parser could place are listed, not opened.
+      const done = await read($, receipt)
+      const found = await read($, changes)
+      const symbols = done && found && found.at === done.at ? found.symbols : []
+      rule('this turn', done ? ago((clock - done.at) / 1000) : '')
+      if (!done) content.push(text('  ' + said('nothing changed yet')))
+      else {
+        pair('turn-review', `${glyph('look')} ${receiptLine(done)}`, 'review', reviewTurn(done).open,
+          'Opens the turn\'s files in the review, the first one not yet reviewed.')
+        const units = changedUnits(symbols).length
+        if (!units) content.push(text('  ' + said('no functions found in the changes')))
+        let file = ''
+        for (const s of symbols.slice(0, 40)) {
+          if (s.file !== file) { content.push(text(shortPath(s.file, width))); file = s.file }
+          if (s.kind === 'hunk') content.push(text(`    ${s.name}`))
+          else if (s.side === 'before') content.push(text(`  ${CHARS.minus} ${s.name} ${CHARS.dash} ${said('removed')}`))
+          else pair(`turn-symbol:${s.file}:${s.line}:${s.name}`, `ƒ ${s.name}`, String(s.line), () => checkedWork(['open', '--root', root,
+            '--action', 'callgraph', '--file', s.file, '--index', String(s.line)]),
+            `${s.name} in ${s.file}, changed this turn. Enter opens Neovim with its call graph: what calls it above, what it calls below.`)
+        }
+        if (symbols.length > 40) content.push(text(`  + ${symbols.length - 40} more`))
+      }
+      content.push(row('turn-back', 'back', () => page('overview')))
+      describe()
     }
 
     if (view.form === 'none' && view.page === 'attention') {

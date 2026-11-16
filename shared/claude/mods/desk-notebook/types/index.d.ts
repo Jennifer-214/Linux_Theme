@@ -11,6 +11,10 @@ export type TurnLook = { started: number; step: string; seen?: number }
 // What a finished turn left behind, shown as one card: this session's files it changed, the tests it ran, the commits
 // it made and anything in the red zone it touched.
 export type TurnReceipt = { at: number; files: string[]; tests: string | null; commits: { sha: string; subject: string }[]; risky: string[] }
+// The functions a turn changed: for each edited file, the function or class around each changed hunk (desk.callgraph,
+// through treesitter; 'hunk' where no parser knows the language). at: the receipt it belongs to.
+export type TurnSymbol = { file: string; name: string; kind: string; side: 'before' | 'after'; line: number }
+export type TurnChanges = { at: number; symbols: TurnSymbol[] }
 export type WorkTask = { id: string; text: string; done: boolean }
 // estimate: seconds the newest pass of the same command in the same checkout took (running jobs only).
 export type WorkJob = { id: string; command: string; title?: string; state: string; elapsed: number; activity: number; session: string; estimate?: number }
@@ -34,7 +38,7 @@ export type WorkLook = { tests: WorkTest | null; tasks: WorkTask[]; jobs: WorkJo
 export type WorkSession = { client: string; status: string; session?: string; reload?: string }
 // A change request sent to a session about a file: waiting while the file is as it was, ready once it has changed.
 export type ReviewRequest = { file: string; name: string; sid: string; text: string; at: number; state: 'waiting' | 'ready' }
-export type NotebookView = { page: 'overview' | 'files' | 'project' | 'sessions' | 'help' | 'request' | 'timeline' | 'digest' | 'health' | 'attention'; scope: 'session' | 'all'; selected: string; focused?: string; offset: number; form: 'none' | 'task' | 'plan' | 'step' | 'search' | 'snooze' | 'aside'
+export type NotebookView = { page: 'overview' | 'files' | 'project' | 'sessions' | 'help' | 'request' | 'timeline' | 'digest' | 'health' | 'attention' | 'turn'; scope: 'session' | 'all'; selected: string; focused?: string; offset: number; form: 'none' | 'task' | 'plan' | 'step' | 'search' | 'snooze' | 'aside'
   // The needs-you row a snooze form is about (the cursor moves inside the form), and the front-page row that opened
   // the page shown, where going back puts the cursor.
   snoozing?: string; opener?: string
@@ -106,6 +110,8 @@ declare module 'claude-code' {
       // After a turn that left files of this session unreviewed: how many, until looked at or dismissed.
       nudge: number | null
       receipt: Shaped<TurnReceipt | null>
+      // The receipt's changed functions, read once the turn ends.
+      changes: Shaped<TurnChanges | null>
       // The turn under way: when your message came, and the latest step Claude described.
       turn: Shaped<TurnLook | null>
     }

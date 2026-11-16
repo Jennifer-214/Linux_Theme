@@ -313,6 +313,16 @@ end
 local unit_types = { function_declaration = true, function_definition = true, method_definition = true,
   method_declaration = true, function_item = true, class_definition = true, class_specifier = true,
   struct_specifier = true, struct_item = true, arrow_function = true }
+M.unit_types = unit_types
+
+-- The unit (function, method, class) a node is inside, and the node that names it. The call graph shares this.
+function M.unit_of(node)
+  while node and not unit_types[node:type()] do node = node:parent() end
+  if not node then return nil end
+  local name = node:field('name')[1] or node:field('declarator')[1]
+  while name and name:field('declarator')[1] do name = name:field('declarator')[1] end
+  return node, name
+end
 
 function M.changed_symbols(file)
   if file.symbols then return file.symbols end
@@ -333,12 +343,9 @@ function M.changed_symbols(file)
     local root, found = roots[side], false
     for delta = 0, math.min(hunk[offset + 1], 128) - 1 do
       local row = math.max(0, hunk[offset] - 1 + delta)
-      local node = root:named_descendant_for_range(row, 0, row, 0)
-      while node and not unit_types[node:type()] do node = node:parent() end
+      local node, name = M.unit_of(root:named_descendant_for_range(row, 0, row, 0))
       if node then
         found = true
-        local name = node:field('name')[1] or node:field('declarator')[1]
-        while name and name:field('declarator')[1] do name = name:field('declarator')[1] end
         local label = name and vim.treesitter.get_node_text(name, text) or vim.treesitter.get_node_text(node, text):match('[^\n]+')
         label = vim.trim((label or node:type()):gsub('%s+', ' ')):sub(1, 72)
         local key = label

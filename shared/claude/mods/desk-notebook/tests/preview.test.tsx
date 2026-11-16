@@ -51,7 +51,11 @@ test('preview: shared history and a quiet project digest', async ($, on) => {
 
 test('preview: the front page with a plan, a finished turn and things that need you', async ($, on) => {
   const files = fakeFs(on, { '/code/paper/plans/queue.md': PLAN, '/code/paper/README.md': 'new' }, { '/code/paper/README.md': NOW })
-  engine(on, { runtime: '/run/t', clock: false, files, projectWork: WORK, ci: [
+  const symbols = JSON.stringify({ version: 1, files: [{ rel: 'README.md', symbols: [
+    { name: 'Queue::drain', kind: 'function_definition', side: 'after', line: 41 },
+    { name: 'Queue::push', kind: 'function_definition', side: 'after', line: 18 },
+    { name: 'legacy_flush', kind: 'function_definition', side: 'before', line: 60 }] }] })
+  engine(on, { runtime: '/run/t', clock: false, files, projectWork: WORK, symbols, ci: [
     { workflowName: 'ci', status: 'completed', conclusion: 'success', url: 'https://github.com/o/paper/actions/runs/1' }] })
   mock.clock(on, { now: NOW })
   on('classic.Stop', () => ({}) as never)
@@ -66,6 +70,7 @@ test('preview: the front page with a plan, a finished turn and things that need 
   expect(await scene($, 'front page')).toBeDefined()
   expect(await scene($, 'front page · a request selected', ['attention-request-src/queue.cpp'])).toBeDefined()
   expect(await scene($, 'project page: branch, tasks, sessions, history', ['nav-more'])).toBeDefined()
+  expect(await scene($, 'this turn · its changed functions', ['nav-back', 'receipt-files'])).toBeDefined()
 })
 
 test("preview: the project page with the last job's figures", async ($, on) => {

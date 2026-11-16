@@ -53,7 +53,7 @@ export function fakeFs(on: On, files: Record<string, string>, mtimes: Record<str
 }
 
 // Nothing sits beneath the plugin in a test: these stand for the engine and the machine.
-export function engine(on: On, options: { pane?: string; pushNotes?: unknown; pushCheck?: unknown; ci?: unknown[]; bash?: (command: string) => unknown; runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; finished?: () => unknown; credits?: unknown; trees?: unknown; readIds?: { id: string; at: number }[]; delivery?: boolean; gitFailure?: { value: boolean }; compact?: boolean; agents?: unknown[]; refusals?: Record<string, string>; watchBurst?: number; percent?: number | null; changes?: { status: string; numstat: string } } = {}) {
+export function engine(on: On, options: { pane?: string; pushNotes?: unknown; pushCheck?: unknown; ci?: unknown[]; bash?: (command: string) => unknown; runtime?: string; state?: string; clock?: boolean; files?: Record<string, string>; projectWork?: unknown; finished?: () => unknown; credits?: unknown; trees?: unknown; readIds?: { id: string; at: number }[]; delivery?: boolean; gitFailure?: { value: boolean }; compact?: boolean; agents?: unknown[]; refusals?: Record<string, string>; watchBurst?: number; percent?: number | null; changes?: { status: string; numstat: string }; symbols?: string } = {}) {
   let pinned: { file: string; step: string } | null = null
   let workspace: Record<string, unknown> | null = null
   let paneOpen = false
@@ -87,6 +87,7 @@ export function engine(on: On, options: { pane?: string; pushNotes?: unknown; pu
     if (e.init?.stdin !== undefined) seen.stdin.push(e.init.stdin)
     if (options.pane && argv === 'sh -c printf %s "$TMUX_PANE"') return { value: done(options.pane) }
     if (argv.startsWith('desk-work begin ')) return { value: done('f'.repeat(32) + '\n') }
+    if (argv.includes('--turn-symbols') && options.symbols !== undefined) return { value: done(options.symbols) }
     if (argv === 'desk-work agents' && options.agents) return { value: done(JSON.stringify(options.agents)) }
     if (argv.startsWith('desk-work push-check ') && options.pushCheck) return { value: done(JSON.stringify(options.pushCheck)) }
     if (argv.startsWith('desk-work push-notes ') && options.pushNotes) return { value: done(JSON.stringify(options.pushNotes)) }

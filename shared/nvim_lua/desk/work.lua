@@ -373,6 +373,7 @@ function M.open_args()
     C.open_review({ kind = "live", sid = index or "", name = "notebook", short = "notebook",
       files = { id }, before = before, label = "notebook change" }, root())
     C.diff(id)
+  elseif action == "callgraph" then require("desk.callgraph").open_at(id, index)
   elseif action == "workspace" then if not require('desk.workspace').resume() then vim.cmd("edit " .. vim.fn.fnameescape(vim.fn.getcwd())) end
   elseif action == "suggested-tests" then M.suggested_tests(id)
   elseif action == "timeline" then M.history(false)
@@ -627,6 +628,7 @@ end
 function M.setup()
   require('desk.workspace').setup()
   pcall(function() require('desk.since').setup() end)
+  pcall(function() require('desk.callgraph').setup() end)
   vim.api.nvim_create_user_command('ClaudeApi', function(opts)
     M.api_task(opts.range > 0 and {opts.line1, opts.line2} or nil)
   end, {range=true, desc='Ask a read-only question using API credits'})

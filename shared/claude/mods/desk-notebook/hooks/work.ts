@@ -1,6 +1,6 @@
 import type { EngineInterface } from 'claude-code'
 import { BUILD_ID } from './build'
-import type { CiRun, GitLook, ReviewProgress, TurnReceipt, WorkJob, WorkLook, WorkMetric, WorkTest } from '../types'
+import type { CiRun, GitLook, ReviewProgress, TurnReceipt, WorkJob, WorkLook, WorkMetric, WorkTest, TurnSymbol } from '../types'
 import { paper } from './theme'
 
 // Retro draws in Big Blue Term, a DOS font: its marks are ones code page 437 has, its words are plain capitals, and
@@ -394,4 +394,38 @@ export async function workLook($: EngineInterface, root: string, session: string
     const value = JSON.parse(await work($, ['notebook', '--root', root, '--session', session, '--loaded', BUILD_ID, ...(health ? ['--health', 'yes'] : [])]) ?? 'null') as WorkLook | null
     return value && Array.isArray(value.tasks) && Array.isArray(value.jobs) ? value : null
   } catch { return null }
+}
+
+// desk.callgraph's answer (nvim --headless … --turn-symbols): the changed symbols of each file, checked and flattened.
+export function parseTurnSymbols(text: string | null): TurnSymbol[] | null {
+  try {
+    const value = JSON.parse(text ?? 'null') as { files?: unknown } | null
+    if (!value || !Array.isArray(value.files)) return null
+    const out: TurnSymbol[] = []
+    for (const file of value.files as { rel?: unknown; symbols?: unknown }[]) {
+      if (!file || typeof file.rel !== 'string' || !Array.isArray(file.symbols)) continue
+      for (const s of file.symbols as Partial<TurnSymbol>[])
+        if (s && typeof s.name === 'string' && typeof s.kind === 'string' && (s.side === 'before' || s.side === 'after')
+          && typeof s.line === 'number' && Number.isInteger(s.line) && s.line > 0)
+          out.push({ file: file.rel, name: s.name.slice(0, 80), kind: s.kind, side: s.side, line: s.line })
+    }
+    return out.slice(0, 200)
+  } catch { return null }
+}
+// The functions and classes among them, once each (a hunk with no parser behind it is only "lines 3-9").
+export function changedUnits(symbols: TurnSymbol[]): TurnSymbol[] {
+  const seen = new Set<string>()
+  return symbols.filter(s => {
+    const key = s.file + '\u0000' + s.name
+    if (s.kind === 'hunk' || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+// "3 functions" (a class or struct among them makes it "symbols"); empty for none.
+export function unitWords(symbols: TurnSymbol[]): string {
+  const units = changedUnits(symbols)
+  if (!units.length) return ''
+  const functions = units.every(s => !/class|struct/.test(s.kind))
+  return said(`${units.length} ${functions ? (units.length === 1 ? 'function' : 'functions') : (units.length === 1 ? 'symbol' : 'symbols')}`)
 }

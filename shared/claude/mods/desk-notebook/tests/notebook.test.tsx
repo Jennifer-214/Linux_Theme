@@ -559,6 +559,58 @@ test('a finished turn leaves a receipt: its files, its tests, its commits and wh
   await again.unmount()
 })
 
+test('the last turn counts the functions it changed, and each opens its call graph in Neovim', async ($, on) => {
+  const files = fakeFs(on, { '/code/paper/README.md': 'old' }, { '/code/paper/README.md': NOW })
+  const symbols = JSON.stringify({ version: 1, files: [{ rel: 'README.md', symbols: [
+    { name: 'M.alpha', kind: 'function_declaration', side: 'after', line: 2 },
+    { name: 'M.delta', kind: 'function_declaration', side: 'after', line: 8 },
+    { name: 'gamma', kind: 'function_declaration', side: 'before', line: 8 },
+    { name: 'lines 12–14', kind: 'hunk', side: 'after', line: 12 }] }] })
+  engine(on, { runtime: '/run/t', clock: false, files, symbols })
+  mock.clock(on, { now: NOW })
+  on('classic.Stop', () => ({}) as never)
+  await opened($)
+  await $.prompt.submit({ text: 'change a', wait: false, origin: { kind: 'composer' } })
+  await $.tool.call({ tool: 'Edit', file_path: '/code/paper/README.md', old_string: 'old', new_string: 'new' })
+  await $.classic.Stop({ hook_event_name: 'Stop', stop_hook_active: false } as never)
+  // The file as the turn found it goes to Neovim on stdin, never to a file.
+  const asked = seen.stdin.map(s => { try { return JSON.parse(s) } catch { return null } }).find(v => v && v.root)
+  expect(asked).toEqual({ root: '/code/paper', files: [{ rel: 'README.md', before: 'old' }] })
+  expect(seen.argv.some(a => a.startsWith('sh -c exec nvim --headless --clean -l ') && a.endsWith('--turn-symbols'))).toBe(true)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  // One row on the fixed front page: the count is on the right of the turn's own line.
+  expect((await ui.find({ key: 'receipt-files' }))?.props.label).toBe('✎ 1 file · 3 functions')
+  await ui.press({ key: 'receipt-files' })
+  expect(await ui.find({ type: 'Text', text: /── this turn/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /gamma — removed/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /lines 12–14/ })).toBeDefined()
+  expect(await ui.find({ key: 'turn-symbol:README.md:8:gamma' }), 'a removed function has no graph to open').toBeUndefined()
+  seen.argv = []
+  await ui.press({ key: 'turn-symbol:README.md:2:M.alpha' })
+  expect(seen.argv).toContain('desk-work open --root /code/paper --action callgraph --file README.md --index 2')
+  seen.argv = []
+  await ui.press({ key: 'turn-review' })
+  expect(seen.argv).toContain('desk-work open --root /code/paper --action file-diff --file README.md --session abc')
+  await ui.unmount()
+})
+
+test('without Neovim the turn card is as before: no count, and Enter opens the review', async ($, on) => {
+  const files = fakeFs(on, { '/code/paper/README.md': 'old' }, { '/code/paper/README.md': NOW })
+  engine(on, { runtime: '/run/t', clock: false, files })
+  mock.clock(on, { now: NOW })
+  on('classic.Stop', () => ({}) as never)
+  await opened($)
+  await $.prompt.submit({ text: 'change a', wait: false, origin: { kind: 'composer' } })
+  await $.tool.call({ tool: 'Edit', file_path: '/code/paper/README.md', old_string: 'old', new_string: 'new' })
+  await $.classic.Stop({ hook_event_name: 'Stop', stop_hook_active: false } as never)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect((await ui.find({ key: 'receipt-files' }))?.props.label).toBe('✎ 1 file')
+  seen.argv = []
+  await ui.press({ key: 'receipt-files' })
+  expect(seen.argv).toContain('desk-work open --root /code/paper --action file-diff --file README.md --session abc')
+  await ui.unmount()
+})
+
 test('before a push the notebook says what goes out unreviewed, and never stops it', async ($, on) => {
   engine(on, { pushCheck: { unpushed: 3, unreviewed: 2, risky: [{ sha: 'abc1234', what: '/etc/pam.d' }],
     line: '2 Claude commits not reviewed · 1 touches the red zone (/etc/pam.d)' } })
