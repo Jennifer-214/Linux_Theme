@@ -36,24 +36,52 @@ bool unit_is(const char* verb) {
 
 }  // namespace
 
-void ufw(const std::vector<int>& ports, const std::vector<int>& left) {
-    if (ports.empty() || !sh::have("ufw")) return;
+std::optional<std::string> read_rules(const char* path) {
+    std::string out;
+    if (!sh::capture({"sudo", "-n", "cat", path}, out)) return std::nullopt;
+    return out;
+}
+
+std::optional<std::string> ufw_rules() {
+    const auto v4 = read_rules(kUserRules), v6 = read_rules(kUser6Rules);
+    if (!v4 || !v6) return std::nullopt;
+    return *v4 + *v6;
+}
+
+std::vector<int> ufw(const std::vector<int>& ports, const std::vector<int>& left) {
+    if (ports.empty() || !sh::have("ufw")) return {};
+    const auto rules = ufw_rules();
+    if (!rules) {
+        ui::warn(std::string("UFW left as it is: its rules could not be read (sudo cat ") + kUserRules +
+                 "), and a port they deny is never opened blind");
+        return {};
+    }
     const bool sshd_on = unit_is("is-enabled") || unit_is("is-active");
     const int session = ssh_port::session_port(std::getenv("SSH_CONNECTION"));
     bool endlessh_on_22 = false;
     for (const auto& who : ssh_port::listeners_now(22)) endlessh_on_22 |= who == "endlessh";
 
-    for (const auto& argv : ufw_commands(ports, left, endlessh_on_22, session, sshd_on)) run_quiet(argv);
-    if (sh::dry_run()) return;
+    for (const auto& argv : ufw_commands(ports, left, endlessh_on_22, session, sshd_on, *rules)) run_quiet(argv);
 
-    const std::string at = ssh_port::join(ports, ", ");
-    if (sshd_on) ui::ok("UFW: sshd's port " + at + " rate-limited");
+    std::vector<int> limited;
+    for (int p : ports) {
+        if (!sshd_on) break;
+        const Hold h = hold(*rules, p);
+        if (may_open(h)) limited.push_back(p);
+        else ui::ok("UFW: sshd's port " + std::to_string(p) + " left as it is — " + held(h));
+    }
+    if (sh::dry_run()) return limited;
+
+    if (!limited.empty()) ui::ok("UFW: sshd's port " + ssh_port::join(limited, ", ") + " rate-limited");
     for (int p : left)
         if (!has(ports, p) && p != 22 && p != session) ui::ok("UFW: " + std::to_string(p) + " closed (sshd left it)");
     if (!has(ports, 22) && session != 22) {
-        if (endlessh_on_22) ui::ok("UFW: 22 open for the endlessh tarpit");
-        else ui::ok("UFW: 22 closed — sshd is on " + at + " and no tarpit holds 22");
+        const Hold h22 = hold(*rules, 22);
+        if (endlessh_on_22 && may_open(h22)) ui::ok("UFW: 22 open for the endlessh tarpit");
+        else if (endlessh_on_22) ui::ok("UFW: 22 left as it is for the endlessh tarpit — " + held(h22));
+        else ui::ok("UFW: 22 closed — sshd is on " + ssh_port::join(ports, ", ") + " and no tarpit holds 22");
     }
+    return limited;
 }
 
 Jail fail2ban(const std::vector<int>& ports) {

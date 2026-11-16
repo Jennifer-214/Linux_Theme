@@ -10,7 +10,8 @@
 //      with `sshd -t` before sshd is touched; sshd reloads and a login on the new port is proven — any failure puts
 //      the previous file back and restarts sshd on it (ssh_apply.hpp).
 //   5. UFW opens the new port before the reload and closes the one sshd left after the proof; fail2ban's jail moves
-//      with it. Logged in over SSH, the port you came in on stays until you log in on the new one.
+//      with it. Logged in over SSH, the port you came in on stays until you log in on the new one. A port UFW denies
+//      (desk knock / desk spa) or narrows is never opened.
 //   Locked out anyway: the console (a TTY here, a server's provider console); RECOVERY.md.
 //
 // The SPA / port-knock sub-prompt at the end of the bash wizard is intentionally out of scope here: desk knock and
@@ -308,18 +309,30 @@ void run_ssh_harden(Context& ctx) {
         follow();
         return;
     }
+
+    // The new port open in UFW before sshd moves, so a remote client can follow it: only one UFW holds no rule for
+    // (ssh_follow::to_open), and a failed move closes just those again. A port it denies or narrows stays so; with
+    // its rules unreadable the move is not made blind.
+    std::vector<int> fresh, opened;
+    for (int p : ports) if (!ssh_port::has(current, p)) fresh.push_back(p);
+    if (!fresh.empty() && sh::have("ufw")) {
+        const auto rules = ssh_follow::ufw_rules();
+        if (!rules) {
+            ui::err(std::string("couldn't read UFW's rules (sudo cat ") + ssh_follow::kUserRules + ") to open " +
+                    ssh_port::join(fresh, ", ") + " safely — nothing changed");
+            return;
+        }
+        opened = ssh_follow::to_open(ports, current, *rules);
+        for (int p : fresh)
+            if (const auto h = ssh_follow::hold(*rules, p); !ssh_follow::may_open(h))
+                ui::warn("UFW: " + std::to_string(p) + " stays as it is — " + ssh_follow::held(h) +
+                         ": a login on it from elsewhere goes through that");
+    }
     if (had && !sh::write_root_atomic(drop_in + ".foxml-bak", prev, "0644")) {
         ui::err("could not save " + drop_in + ".foxml-bak — nothing changed");
         return;
     }
-
-    // The new port open before sshd moves, so a remote client can follow it.
-    std::vector<int> opened;
-    for (int p : ports) {
-        if (ssh_port::has(current, p) || !sh::have("ufw")) continue;
-        quiet({"sudo", "ufw", "limit", std::to_string(p) + "/tcp"});
-        opened.push_back(p);
-    }
+    for (int p : opened) quiet({"sudo", "ufw", "limit", std::to_string(p) + "/tcp"});
 
     ssh_apply::Steps steps;
     steps.write = [&](const std::string& text) { return sh::write_root_atomic(drop_in, text, "0644"); };

@@ -168,7 +168,8 @@ started before the update is running. An integration-only update waits until the
 - SSH has one port: the one sshd listens on (`sudo sshd -T`). UFW rate-limited 22 (`limit ssh`) wherever sshd was,
   fail2ban banned on 22 (`port = ssh`, so a ban never covered a moved sshd), and endlessh, told port 22, read its
   package's own config and sat on 2222 behind no rule. UFW, fail2ban, endlessh, `desk knock` and `desk spa` now follow
-  sshd, and 22 is open only while sshd or the tarpit holds it. The SSH wizard runs before them, turns password login
+  sshd, and 22 is open only while sshd or the tarpit holds it; a port UFW denies (the `desk knock` / `desk spa` gate,
+  or your own rule) stays denied, and one open only to some addresses is not opened to everyone. The SSH wizard runs before them, turns password login
   off only after a key has logged in on the port, checks the new config with `sshd -t` before touching sshd and
   proves a login after the reload, putting the previous config back by itself on a failure; run over SSH, it keeps
   your session's port until you have logged in on the new one. `FOXML_SSH_PORT=<port>` answers it for an unattended

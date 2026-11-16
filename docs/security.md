@@ -33,7 +33,8 @@ Keyring setup also masks limited SSH/GPG `gnome-keyring-daemon` autostart units.
 **The SSH port.** One port: the one sshd listens on, as `sudo sshd -T` reports it. `--ssh-harden` sets it (Enter keeps
 the current one; `FOXML_SSH_PORT=<port>` answers for an unattended run, such as a headless server), and UFW
 (rate-limited), fail2ban's sshd jail, the endlessh tarpit and `desk knock` / `desk spa` all read it. Port 22 is open
-only while sshd or the tarpit holds it. Password login is turned off only after a key has logged in on that port
+only while sshd or the tarpit holds it. A port UFW denies (`desk knock` / `desk spa`, or a rule of yours) stays
+denied, and one you opened only to some addresses is not opened to everyone: the installer says so. Password login is turned off only after a key has logged in on that port
 from the machine itself (with no key, or a key that does not log in, passwords stay on and the wizard says why).
 Every change is checked with `sshd -t` before sshd is touched and proven with a login after the reload; a failure
 puts the previous config back by itself. Run over SSH, the wizard keeps the port you came in on until you have

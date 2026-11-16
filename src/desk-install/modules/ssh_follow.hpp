@@ -1,7 +1,8 @@
 // modules/ssh_follow.hpp — what follows sshd's port (ssh_port::listen_ports). UFW rate-limits every port sshd listens
-// on and closes the ports it left; 22 is open, as a plain allow, only while endlessh holds it. fail2ban's [sshd] jail
-// bans on sshd's ports (`port = ssh` covered only 22, so bans never reached a moved sshd). endlessh takes 22 only when
-// sshd is elsewhere. The plans and the text edit are pure, pinned by tests/test_ssh_follow; ssh_follow.cpp runs them.
+// on and closes the ports it left; 22 is open, as a plain allow, only while endlessh holds it. A port UFW denies
+// (desk knock / desk spa's gate, or her own) or narrows is never opened. fail2ban's [sshd] jail bans on sshd's ports
+// (`port = ssh` covered only 22, so bans never reached a moved sshd). endlessh takes 22 only when sshd is elsewhere.
+// The plans and the text edit are pure, pinned by tests/test_ssh_follow; ssh_follow.cpp runs them.
 #pragma once
 
 #include "ssh_port.hpp"
@@ -16,22 +17,113 @@ namespace desk_install::ssh_follow {
 using Argv = std::vector<std::string>;
 using ssh_port::has;
 
-// UFW argv. `ports`: where sshd listens; `left`: ports it listened on before this change. Each port sshd listens on
-// is rate-limited while sshd runs (`sshd_on`). A port it left is closed (its limit and allow rules deleted), and so is
-// 22 whenever sshd is off it — unless endlessh holds 22, which gets a plain allow (a tarpit wants connections), or
-// the SSH session this runs in came in on it. Nothing at all when sshd's ports are unknown (empty).
+// UFW's rules as its files keep them: one `### tuple ###` line per rule, `<action>[_log] <proto> <dport> <dst>
+// <sport> <src> [<dapp> <sapp>] <direction>[_<iface>]`, a routed rule's action as `route:<action>`
+// (ufw/backend_iptables.py, _write_rules and _read_rules). Read from the files, not `ufw status`, which lists nothing
+// while UFW is off.
+inline constexpr const char* kUserRules = "/etc/ufw/user.rules";
+inline constexpr const char* kUser6Rules = "/etc/ufw/user6.rules";
+
+struct Rule {
+    std::string action, proto, dport, dst, sport, src, dir;
+};
+
+inline std::optional<Rule> tuple_rule(const std::string& line) {
+    static const std::string tag = "### tuple ###";
+    if (line.compare(0, tag.size(), tag) != 0) return std::nullopt;
+    std::string rest = line.substr(tag.size());
+    if (const auto c = rest.find(" comment="); c != std::string::npos) rest.erase(c);
+    std::istringstream in(rest);
+    std::vector<std::string> f;
+    for (std::string w; in >> w;) f.push_back(w);
+    if (f.size() < 6 || f.size() > 9) return std::nullopt;
+    // 6 or 8 fields: ufw's old format, always inbound; 8 or 9: an application rule, its app names before the direction.
+    return Rule{f[0], f[1], f[2], f[3], f[4], f[5], f.size() == 7 || f.size() == 9 ? f.back() : "in"};
+}
+
+// A dport field names `port`: "4022", a list "80,4022", a range "4000:5000". "any" names no one port.
+inline bool names_port(const std::string& dport, int port) {
+    std::istringstream in(dport);
+    for (std::string item; std::getline(in, item, ',');) {
+        const auto colon = item.find(':');
+        if (colon == std::string::npos) {
+            if (ssh_port::parse_port(item) == port) return true;
+            continue;
+        }
+        const auto lo = ssh_port::parse_port(item.substr(0, colon)), hi = ssh_port::parse_port(item.substr(colon + 1));
+        if (lo && hi && *lo <= port && port <= *hi) return true;
+    }
+    return false;
+}
+
+enum class Hold {
+    None,      // no rule names the port: UFW's default (deny incoming) keeps it closed
+    Open,      // plain allow or limit rules only: from anywhere, on any interface
+    Denied,    // a deny or reject rule names it: desk knock / desk spa's gate, or her own
+    Narrowed,  // an allow or limit for some addresses, one interface or a source port: her own
+};
+
+// What UFW's rules (the text of both files) hold for incoming TCP on `port`. Outgoing and routed rules, and rules for
+// every port (`deny from <address>`), do not count.
+inline Hold hold(const std::string& rules, int port) {
+    const auto anywhere = [](const std::string& a) { return a == "0.0.0.0/0" || a == "::/0" || a == "any"; };
+    Hold out = Hold::None;
+    std::istringstream in(rules);
+    for (std::string line; std::getline(in, line);) {
+        const auto r = tuple_rule(line);
+        if (!r || r->action.rfind("route:", 0) == 0) continue;
+        if (r->dir != "in" && r->dir.rfind("in_", 0) != 0) continue;
+        if ((r->proto != "tcp" && r->proto != "any") || !names_port(r->dport, port)) continue;
+        const std::string action = r->action.substr(0, r->action.find('_'));
+        if (action != "allow" && action != "limit") return Hold::Denied;
+        if (anywhere(r->dst) && anywhere(r->src) && r->sport == "any" && r->dir == "in") {
+            if (out == Hold::None) out = Hold::Open;
+        } else {
+            out = Hold::Narrowed;
+        }
+    }
+    return out;
+}
+
+// A port this may open (rate-limit, or allow for the tarpit): one with no rule, or plain ones only. A deny is never
+// loosened: `ufw limit` replaces a rule that differs only in its action, so it turned desk knock's `deny 4022/tcp`
+// into a LIMIT that answers everyone (2026-11-16). A narrowed port is not opened to everyone either.
+inline bool may_open(Hold h) { return h == Hold::None || h == Hold::Open; }
+
+// Why a port was left as UFW has it, for the run's output.
+inline std::string held(Hold h) {
+    return h == Hold::Denied ? "a deny rule gates it (desk knock / desk spa, or your own)"
+                             : "your rules let in only some addresses or one interface";
+}
+
+// The ports ssh_harden opens before sshd moves to them (`ports`; sshd is on `current` now): only those UFW holds no
+// rule for. A failed move closes exactly these again, so it never deletes a rule that was there before the run; a
+// port UFW allows plainly answers already, and a denied or narrowed one stays as it is.
+inline std::vector<int> to_open(const std::vector<int>& ports, const std::vector<int>& current, const std::string& rules) {
+    std::vector<int> out;
+    for (int p : ports)
+        if (!has(current, p) && hold(rules, p) == Hold::None) out.push_back(p);
+    return out;
+}
+
+// UFW argv. `ports`: where sshd listens; `left`: ports it listened on before this change; `rules`: UFW's rules now.
+// Each port sshd listens on is rate-limited while sshd runs (`sshd_on`), unless UFW denies or narrows it. A port it
+// left is closed (its limit and allow rules deleted; a deny stays), and so is 22 whenever sshd is off it — unless
+// endlessh holds 22, which gets a plain allow (a tarpit wants connections) where UFW does not deny it, or the SSH
+// session this runs in came in on it. Nothing at all when sshd's ports are unknown (empty).
 inline std::vector<Argv> ufw_commands(const std::vector<int>& ports, const std::vector<int>& left,
-                                      bool endlessh_on_22, int session_port, bool sshd_on) {
+                                      bool endlessh_on_22, int session_port, bool sshd_on, const std::string& rules) {
     std::vector<Argv> out;
     if (ports.empty()) return out;
     if (sshd_on)
-        for (int p : ports) out.push_back({"sudo", "ufw", "limit", std::to_string(p) + "/tcp"});
+        for (int p : ports)
+            if (may_open(hold(rules, p))) out.push_back({"sudo", "ufw", "limit", std::to_string(p) + "/tcp"});
     std::vector<int> closing = left;
     if (!has(closing, 22)) closing.push_back(22);
     for (int p : closing) {
         if (has(ports, p) || p == session_port) continue;
         if (p == 22 && endlessh_on_22) {
-            out.push_back({"sudo", "ufw", "allow", "22/tcp"});
+            if (may_open(hold(rules, 22))) out.push_back({"sudo", "ufw", "allow", "22/tcp"});
             continue;
         }
         for (const char* action : {"limit", "allow"}) {
@@ -185,9 +277,15 @@ inline std::string endlessh_dropin(const std::string& binary) {
            "PrivateUsers=false\n";
 }
 
-// ssh_follow.cpp — run them, reading sshd's state, this session's port and endlessh's hold on 22 live, and say what
-// changed. Each ufw command runs quietly: deleting a rule that is not there is not an error.
-void ufw(const std::vector<int>& ports, const std::vector<int>& left = {});
+// ssh_follow.cpp — one of UFW's rules files (`sudo -n cat`: the caller warmed sudo); nullopt when it cannot be read.
+std::optional<std::string> read_rules(const char* path);
+// Both, IPv4 then IPv6: what `hold` reads. nullopt when either cannot be read: then no port is opened blind.
+std::optional<std::string> ufw_rules();
+
+// Run ufw_commands, reading UFW's rules, sshd's state, this session's port and endlessh's hold on 22 live, and say
+// what changed and what was left as it is. Each ufw command runs quietly: deleting a rule that is not there is not an
+// error. Returns the ports it rate-limited.
+std::vector<int> ufw(const std::vector<int>& ports, const std::vector<int>& left = {});
 
 enum class Jail { Unchanged, Updated, Restored, Missing };
 // jail.local's [sshd] port set to `ports`, checked with `fail2ban-client -t`; the previous file back when the check

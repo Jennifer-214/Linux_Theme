@@ -8,9 +8,10 @@
 // Tasks:
 //   1. ufw default deny incoming / allow outgoing  (idempotent re-apply).
 //   2. Rate-limit the ports sshd listens on (`sshd -T`, ssh_port.hpp) when sshd is running/enabled; 22 open only
-//      while endlessh holds it (ssh_follow.hpp). It used to `limit ssh`, port 22, wherever sshd was.
+//      while endlessh holds it (ssh_follow.hpp). It used to `limit ssh`, port 22, wherever sshd was. A port UFW
+//      denies (desk knock / desk spa) or narrows is left as it is.
 //   3. Interactive port allowlist (TTY-only, --yes silently skips).
-//   4. Auto-allow the current SSH session's port to prevent lockout.
+//   4. Auto-allow the current SSH session's port to prevent lockout (not over a deny: the session came in through it).
 //   5. ufw logging low + enable + systemctl enable --now ufw, and on only when `ufw status` says so (ufw_on.hpp):
 //      after a kernel upgrade in this run it is set to start at the next boot instead.
 
@@ -48,6 +49,13 @@ void follow_sshd() {
     if (const auto ports = ssh_port::configured()) {
         ssh_follow::ufw(*ports);
     } else if (systemctl_enabled("sshd") || systemctl_active("sshd")) {
+        const auto rules = ssh_follow::ufw_rules();
+        const auto h = rules ? ssh_follow::hold(*rules, 22) : ssh_follow::Hold::None;
+        if (!rules || !ssh_follow::may_open(h)) {
+            ui::warn("couldn't read sshd's port (`sudo sshd -T` failed); 22, sshd's default, left as UFW has it — " +
+                     (rules ? ssh_follow::held(h) : std::string("its rules could not be read either")));
+            return;
+        }
         sh::run({"sudo", "ufw", "limit", "22/tcp"});
         ui::warn("couldn't read sshd's port (`sudo sshd -T` failed) — rate-limited 22, sshd's default");
     }
@@ -60,7 +68,7 @@ void run_ufw(Context& ctx) {
 
     if (sh::dry_run()) {
         ui::substep("[dry-run] would: ufw default deny incoming, allow outgoing, "
-                    "limit the ports sshd listens on (sudo sshd -T) if sshd is present, "
+                    "limit the ports sshd listens on (sudo sshd -T) if sshd is present (not one UFW denies), "
                     "close 22 unless sshd or the endlessh tarpit holds it, interactive port allowlist, "
                     "ufw logging low, ufw enable, systemctl enable --now ufw");
         return;
@@ -134,11 +142,18 @@ void run_ufw(Context& ctx) {
     }
 
     // SSH lockout safety. session_port takes digits only ("22; rm -rf /" is no port): SSH_CONNECTION is set by sshd,
-    // but a local shell could spoof it.
+    // but a local shell could spoof it. A port UFW denies or narrows stays so (the session came in through that, a
+    // knock say); with its rules unreadable the port is rate-limited anyway, a lockout being the worse outcome.
     if (const int p = ssh_port::session_port(std::getenv("SSH_CONNECTION")); p > 0) {
         const std::string safe_port = std::to_string(p);
-        sh::run({"sudo", "ufw", "limit", safe_port + "/tcp"});
-        ui::ok("active SSH session on port " + safe_port + " — rate-limited to avoid lockout");
+        const auto rules = ssh_follow::ufw_rules();
+        const auto h = rules ? ssh_follow::hold(*rules, p) : ssh_follow::Hold::None;
+        if (ssh_follow::may_open(h)) {
+            sh::run({"sudo", "ufw", "limit", safe_port + "/tcp"});
+            ui::ok("active SSH session on port " + safe_port + " — rate-limited to avoid lockout");
+        } else {
+            ui::ok("active SSH session on port " + safe_port + " — left as UFW has it: " + ssh_follow::held(h));
+        }
     }
 
     sh::run({"sh", "-c", "sudo ufw logging low >/dev/null 2>&1 || true"});

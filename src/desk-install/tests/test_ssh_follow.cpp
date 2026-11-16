@@ -25,32 +25,85 @@ static bool touches(const std::vector<Argv>& cmds, const std::string& rule) {
 
 int main() {
     // UFW
-    const auto moved = ufw_commands({4022}, {}, /*endlessh_on_22=*/false, /*session=*/0, /*sshd_on=*/true);
+    const auto moved = ufw_commands({4022}, {}, /*endlessh_on_22=*/false, /*session=*/0, /*sshd_on=*/true, "");
     expect(has(moved, {"sudo", "ufw", "limit", "4022/tcp"}), "the port sshd listens on is rate-limited");
     expect(!has(moved, {"sudo", "ufw", "limit", "ssh"}) && !has(moved, {"sudo", "ufw", "limit", "22/tcp"}),
            "never `limit ssh` (22) for an sshd on 4022");
     expect(has(moved, {"sudo", "ufw", "delete", "limit", "22/tcp"}) && has(moved, {"sudo", "ufw", "delete", "limit", "22"})
            && has(moved, {"sudo", "ufw", "delete", "allow", "22/tcp"}), "22 closed: nothing listens there");
 
-    const auto tarpit = ufw_commands({4022}, {}, true, 0, true);
+    const auto tarpit = ufw_commands({4022}, {}, true, 0, true, "");
     expect(has(tarpit, {"sudo", "ufw", "allow", "22/tcp"}), "22 open, plainly, while endlessh holds it");
     expect(!has(tarpit, {"sudo", "ufw", "delete", "allow", "22/tcp"}), "and not closed in the same breath");
 
-    const auto on22 = ufw_commands({22}, {}, false, 0, true);
+    const auto on22 = ufw_commands({22}, {}, false, 0, true, "");
     expect(has(on22, {"sudo", "ufw", "limit", "22/tcp"}) && !touches(on22, "22") && on22.size() == 1,
            "sshd on 22: 22 rate-limited, nothing deleted");
 
-    const auto session = ufw_commands({4022}, {}, false, /*session=*/22, true);
+    const auto session = ufw_commands({4022}, {}, false, /*session=*/22, true, "");
     expect(!touches(session, "22/tcp") && !touches(session, "22"), "the port this SSH session came in on is never closed");
 
-    const auto left = ufw_commands({4022}, {2200}, false, 0, true);
+    const auto left = ufw_commands({4022}, {2200}, false, 0, true, "");
     expect(has(left, {"sudo", "ufw", "delete", "limit", "2200/tcp"}) && has(left, {"sudo", "ufw", "delete", "allow", "2200/tcp"}),
            "the port sshd left is closed");
     expect(!touches(left, "2200"), "only tcp for a port other than 22");
 
-    const auto off = ufw_commands({4022}, {}, false, 0, /*sshd_on=*/false);
+    const auto off = ufw_commands({4022}, {}, false, 0, /*sshd_on=*/false, "");
     expect(!has(off, {"sudo", "ufw", "limit", "4022/tcp"}), "sshd off: its port is not opened");
-    expect(ufw_commands({}, {22}, false, 0, true).empty(), "sshd's ports unknown: the firewall is left alone");
+    expect(ufw_commands({}, {22}, false, 0, true, "").empty(), "sshd's ports unknown: the firewall is left alone");
+
+    // UFW's own rules, as user.rules and user6.rules keep them. desk knock / desk spa gate sshd's port with
+    // `ufw deny 4022/tcp`; `ufw limit 4022/tcp` replaced that deny (a rule differing only in its action) with a LIMIT
+    // answering everyone, on every run of ufw, the SSH wizard or endlessh (2026-11-16).
+    const std::string gated = "*filter\n:ufw-user-input - [0:0]\n### RULES ###\n\n"
+                              "### tuple ### limit tcp 22 0.0.0.0/0 any 0.0.0.0/0 in\n"
+                              "-A ufw-user-input -p tcp --dport 22 -j ufw-user-limit-accept\n\n"
+                              "### tuple ### deny tcp 4022 0.0.0.0/0 any 0.0.0.0/0 in\n"
+                              "-A ufw-user-input -p tcp --dport 4022 -j DROP\n\n"
+                              "### tuple ### allow tcp 4022 0.0.0.0/0 any 203.0.113.4 in\n"   // a knock let one address in
+                              "-A ufw-user-input -p tcp --dport 4022 -s 203.0.113.4 -j ACCEPT\n\n"
+                              "### END RULES ###\n"
+                              "### tuple ### deny tcp 4022 ::/0 any ::/0 in\n";
+    expect(hold(gated, 4022) == Hold::Denied, "a knock-gated port reads as denied");
+    const auto knock = ufw_commands({4022}, {}, false, 0, true, gated);
+    expect(!touches(knock, "4022/tcp"), "the knock gate's deny is never turned into a limit");
+    expect(to_open({4022}, {22}, gated).empty(), "nor opened before the SSH wizard moves sshd there");
+    expect(!may_open(Hold::Denied) && !may_open(Hold::Narrowed) && may_open(Hold::None) && may_open(Hold::Open),
+           "only a port with no rule, or plain ones, is opened");
+    expect(hold(gated, 22) == Hold::Open && hold("", 4022) == Hold::None, "a plain limit is open; no rule is none");
+
+    const auto tuple = [](const std::string& rest) { return "### tuple ### " + rest + "\n"; };
+    expect(hold(tuple("reject tcp 4022 0.0.0.0/0 any 0.0.0.0/0 in"), 4022) == Hold::Denied, "reject denies too");
+    expect(hold(tuple("deny any 4022 0.0.0.0/0 any 0.0.0.0/0 in"), 4022) == Hold::Denied, "a deny for any protocol");
+    expect(hold(tuple("deny_log tcp 4022 0.0.0.0/0 any 0.0.0.0/0 in"), 4022) == Hold::Denied, "a logged deny");
+    expect(hold(tuple("deny tcp 4022 0.0.0.0/0 any 0.0.0.0/0 in comment=6b6e6f636b"), 4022) == Hold::Denied,
+           "a deny with a comment");
+    expect(hold(tuple("deny tcp 4000:5000 0.0.0.0/0 any 0.0.0.0/0 in"), 4022) == Hold::Denied
+           && hold(tuple("deny tcp 4000:5000 0.0.0.0/0 any 0.0.0.0/0 in"), 3999) == Hold::None, "a range");
+    expect(hold(tuple("deny tcp 80,4022 0.0.0.0/0 any 0.0.0.0/0 in"), 4022) == Hold::Denied, "a list of ports");
+    expect(hold(tuple("deny tcp 40222 0.0.0.0/0 any 0.0.0.0/0 in"), 4022) == Hold::None, "a whole port, not a prefix");
+    expect(hold(tuple("deny udp 4022 0.0.0.0/0 any 0.0.0.0/0 in"), 4022) == Hold::None, "udp does not gate sshd");
+    expect(hold(tuple("deny tcp 4022 0.0.0.0/0 any 0.0.0.0/0 out"), 4022) == Hold::None, "nor an outgoing rule");
+    expect(hold(tuple("route:deny tcp 4022 0.0.0.0/0 any 0.0.0.0/0 in"), 4022) == Hold::None, "nor a routed one");
+    expect(hold(tuple("deny any any 0.0.0.0/0 any 203.0.113.9 in"), 4022) == Hold::None,
+           "a rule for every port is not about this one");
+    expect(hold(tuple("deny tcp 4022 0.0.0.0/0 any 0.0.0.0/0"), 4022) == Hold::Denied, "ufw's old six-field form");
+    expect(hold(tuple("allow tcp 4022 0.0.0.0/0 any 192.168.1.0/24 in"), 4022) == Hold::Narrowed, "a LAN-only allow");
+    expect(hold(tuple("allow tcp 4022 0.0.0.0/0 any 0.0.0.0/0 in_wg0"), 4022) == Hold::Narrowed, "one interface");
+    expect(hold(tuple("allow tcp 22 0.0.0.0/0 any 0.0.0.0/0 OpenSSH - in"), 22) == Hold::Open, "an app rule, plain");
+    expect(!touches(ufw_commands({4022}, {}, false, 0, true, tuple("allow tcp 4022 0.0.0.0/0 any 10.0.0.0/8 in")),
+                    "4022/tcp"), "a narrowed port is not opened to everyone");
+    const std::string plain = tuple("allow tcp 4022 0.0.0.0/0 any 0.0.0.0/0 in");
+    expect(has(ufw_commands({4022}, {}, false, 0, true, plain), {"sudo", "ufw", "limit", "4022/tcp"}),
+           "a plain allow becomes a rate limit");
+    const auto tarpit_denied = ufw_commands({4022}, {}, true, 0, true, tuple("deny tcp 22 0.0.0.0/0 any 0.0.0.0/0 in"));
+    expect(!has(tarpit_denied, {"sudo", "ufw", "allow", "22/tcp"}), "the tarpit never undoes a deny on 22");
+
+    // The SSH wizard opens only a port UFW holds no rule for, and a failed move closes only those: a rule that was
+    // there before the run is never deleted.
+    expect(to_open({4022}, {22}, "") == std::vector<int>{4022}, "a port with no rule is opened before the move");
+    expect(to_open({4022}, {22}, plain).empty(), "a port UFW already allows is left to that rule");
+    expect(to_open({4022, 22}, {22}, "") == std::vector<int>{4022}, "the port sshd is on already is not reopened");
 
     // fail2ban
     const std::string jail =
