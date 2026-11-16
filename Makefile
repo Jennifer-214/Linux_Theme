@@ -57,6 +57,11 @@ $(addprefix install-,$(INTEL_USERS)): install-desk-intel
 COMMON_USERS := $(filter-out desk-common,$(patsubst src/%/Makefile,%,$(shell grep -l 'libdesk-common\.a' src/*/Makefile)))
 $(addprefix build-,$(COMMON_USERS)): build-desk-common
 $(addprefix install-,$(COMMON_USERS)): install-desk-common
+# And ../desk-health/libdesk-health.a: CI's make -j linked sec-health while desk-health was still writing the archive
+# (undefined desk_health:: symbols, 2026-11-15).
+HEALTH_USERS := $(filter-out desk-health,$(patsubst src/%/Makefile,%,$(shell grep -l 'libdesk-health\.a' src/*/Makefile)))
+$(addprefix build-,$(HEALTH_USERS)): build-desk-health
+$(addprefix install-,$(HEALTH_USERS)): install-desk-health
 
 $(addprefix install-,$(TOOLS)): install-%:
 	$(MAKE) --no-print-directory -C src/$* install
