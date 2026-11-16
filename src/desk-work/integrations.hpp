@@ -14,6 +14,15 @@ J report_client(const std::string& client, const std::string& build, long long p
             if (!value.is_string() || value.get<std::string>().size() > 240) return refuse("Report text is limited to 240 characters");
         } else if (name == "eventAt" || name == "refreshAt" || name == "retryAt" || name == "watchPid") {
             if (!value.is_number_integer() || value.get<long long>() < 0 || (name != "watchPid" && value.get<long long>() > now() + 86400)) return refuse("Report times are seconds, at most a day ahead");
+        } else if (name == "server") {
+            // Where an editor is reached (its v:servername); sun_path holds 107 characters and the closing zero.
+            const auto text = value.is_string() ? value.get<std::string>() : std::string("?");
+            if (text.size() > 107 || (!text.empty() && text[0] != '/') || text.find_first_of(std::string("\0\n", 2)) != std::string::npos)
+                return refuse("An editor's server is the absolute path of its socket, up to 107 characters, or empty");
+        } else if (name == "pane") {
+            if (!value.is_string() || !std::regex_match(value.get<std::string>(), std::regex("(%[0-9]{1,9})?"))) return refuse("A pane is a tmux pane id (%N), or empty");
+        } else if (name == "role") {
+            if (!value.is_string() || !std::set<std::string>{"main", "viewer", "popout"}.count(value.get<std::string>())) return refuse("An editor's role is main, viewer or popout");
         } else return refuse("A client report does not keep \"" + name + "\"");
         record[name] = value;
     }
@@ -36,6 +45,18 @@ J live_clients() {
         clients.push_back(record);
     }
     return clients;
+}
+// The editors on a checkout: each live Neovim that follows it (a stopped one closed its last file there), with its
+// socket, its tmux pane and its role. Messages for her running editor go to a main one (desk-work editor). Newest first.
+J live_editors(const std::string& root) {
+    J out = J::array();
+    for (const auto& record : live_clients()) {
+        if (str(record, "client") != "nvim" || root.empty() || str(record, "root") != root || str(record, "stream") == "stopped") continue;
+        out.push_back(J{{"pid", num(record, "pid")}, {"server", str(record, "server")}, {"pane", str(record, "pane")},
+                        {"role", str(record, "role")}, {"build", str(record, "build")}, {"at", num(record, "at")}});
+    }
+    std::sort(out.begin(), out.end(), [](const J& a, const J& b) { return num(a, "at") > num(b, "at"); });
+    return out;
 }
 // How each kind of session loads installed code while keeping its work. One place, so every client says the same.
 std::string reload_steps(const std::string& client, const std::string& session) {

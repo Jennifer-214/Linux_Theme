@@ -234,7 +234,9 @@ void changed(const fs::path& path, const std::string& data) {
     else if (path.parent_path().filename() == "plans" || path.parent_path().filename() == "agents")
         signal_change(trim(read(path.parent_path().parent_path() / "root")));
 }
-int watch_changes(const std::string& root, bool all, const std::string& client = {}, const std::string& build = {}) {
+// identity: how an editor is reached (server, pane, role), kept in each report the watcher writes for it.
+int watch_changes(const std::string& root, bool all, const std::string& client = {}, const std::string& build = {},
+                  const J& identity = J::object()) {
     if (root.empty() && !all) return 2;
     const auto folder = all ? base() : project_dir(root);
     if (!private_dir(folder)) return 1;
@@ -250,8 +252,9 @@ int watch_changes(const std::string& root, bool all, const std::string& client =
             std::cout << event.dump() << '\n' << std::flush; previous = text;
             // A burst of edits is many events; the client record needs one write per quiet spell, not one per event.
             if (!client.empty() && now() - reported >= 15) {
-                report_client(client, build, ::getppid(), all ? "" : root,
-                    J{{"stream", "connected"}, {"eventAt", now()}, {"retryAt", 0}, {"watchPid", ::getpid()}, {"watchProcess", proc_stamp(::getpid())}});
+                J fields{{"stream", "connected"}, {"eventAt", now()}, {"retryAt", 0}, {"watchPid", ::getpid()}, {"watchProcess", proc_stamp(::getpid())}};
+                fields.update(identity);
+                report_client(client, build, ::getppid(), all ? "" : root, fields);
                 reported = now();
             }
         }
@@ -1580,26 +1583,31 @@ int dispatch(int argc, char** argv) {
                          "desk-work set-aside --root DIR | --all yes [--undo yes] | --show yes\n"
                          "desk-work health | integration-status [--client NAME --loaded BUILD] | workspace --root DIR --client NAME [--input -]\n"
                          "desk-work client-report --client NAME --build BUILD --pid parent [--root DIR --stream connected|retrying --refresh-at SECONDS --error TEXT]\n"
+                         "                        [--server SOCKET --pane %N --role main|viewer|popout] | editors --root DIR\n"
                          "desk-work agents [--root DIR] | agent-update --root DIR --agent NAME --session ID --state working|waiting|needs|error|done --pid PID|parent [--title NAME --pane PANE --file PATH]\n"
                          "desk-work open --root DIR --action attention|tests|reviews|compare|log|tasks|ask|file|file-diff|plan|worktree|since --id ITEM [--file PATH --session ID]\n"; return 0;
         }
         const auto cmd = args[0];
         invoked = cmd;
         const auto place = opts.count("--root") ? opts["--root"] : fs::current_path().string();
-        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "review-mark", "review-progress", "review-request", "review-requests", "commit-plan", "review-tree", "push-check", "push-notes", "records", "records-repair", "set-aside", "worktrees", "activity", "plan", "plan-pin", "watch", "signal", "attention", "agent-update", "agents", "revision", "open", "agent-heartbeat", "overlaps", "timeline", "digest", "snooze", "workspace", "suggest-tests", "run-suggested", "resolve", "metrics", "metrics-parse", "since"}.count(cmd)
+        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "review-mark", "review-progress", "review-request", "review-requests", "commit-plan", "review-tree", "push-check", "push-notes", "records", "records-repair", "set-aside", "worktrees", "activity", "plan", "plan-pin", "watch", "signal", "attention", "agent-update", "agents", "revision", "open", "agent-heartbeat", "overlaps", "timeline", "digest", "snooze", "workspace", "suggest-tests", "run-suggested", "resolve", "metrics", "metrics-parse", "since", "editors"}.count(cmd)
             ? root_of(place) : place;
         const auto id = opts["--id"];
         J out;
+        // An editor's socket, tmux pane and role, as Neovim passes them to client-report and watch.
+        J identity = J::object();
+        for (const auto& [flag, key] : std::map<std::string, std::string>{{"--server", "server"}, {"--pane", "pane"}, {"--role", "role"}})
+            if (opts.count(flag)) identity[key] = opts[flag];
         if (cmd == "watch") {
             if (!opts["--client"].empty()) client_loaded(opts["--client"], opts["--build"], ::getppid());
-            return watch_changes(root, opts["--all"] == "yes", opts["--client"], opts["--build"]);
+            return watch_changes(root, opts["--all"] == "yes", opts["--client"], opts["--build"], identity);
         }
         if (cmd == "signal") out = J{{"ok", signal_change(root)}};
         else if (cmd == "client-loaded") out = client_loaded(opts["--client"], opts["--build"],
             opts["--pid"] == "parent" ? ::getppid() : std::stoll(opts["--pid"]));
         else if (cmd == "client-report") {
             if (opts.count("--root") && root_of(opts["--root"]).empty()) return 2;
-            J fields = J::object();
+            J fields = identity;
             for (const auto& [flag, key] : std::map<std::string, std::string>{{"--event-at", "eventAt"}, {"--refresh-at", "refreshAt"}, {"--retry-at", "retryAt"}})
                 if (opts.count(flag)) fields[key] = std::stoll(opts[flag]);
             if (opts.count("--stream")) fields["stream"] = opts["--stream"];
@@ -1657,6 +1665,7 @@ int dispatch(int argc, char** argv) {
             return supervise({"bash", "-c", command}, root, opts["--session"], str(previous, "title"), command);
         }
         else if (cmd == "agents") out = agents(opts.count("--root") ? root : std::string());
+        else if (cmd == "editors") out = live_editors(root);
         else if (cmd == "classify") { out = J{{"kind", kind_of(opts["--command"])}, {"observable", observable(opts["--command"])}}; }
         else if (cmd == "run") {
             if (args.size() < 2) return 2;

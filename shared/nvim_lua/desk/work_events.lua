@@ -2,11 +2,30 @@
 local M = { roots = {}, serial = 0 }
 local api, uv = vim.api, vim.uv or vim.loop
 local function tool() return vim.fn.executable('desk-work') == 1 and 'desk-work' or nil end
+
+-- What this editor is to the desk: a viewer is a Neovim desk-work started for one item (desk.work open_args; its argv
+-- says so before open_args runs), a pop-out draws views another editor sends, anything else is a main editor.
+function M.role()
+  if vim.g.desk_popout then return 'popout' end
+  if vim.g.desk_work_view then return 'viewer' end
+  for _, arg in ipairs(vim.v.argv) do if arg:match('^desk%-work:') then return 'viewer' end end
+  return 'main'
+end
+-- How it is reached, in every record it writes (desk-work editors): its own socket and its tmux pane. Inside tmux TERM
+-- is tmux's or screen's; a Neovim in a kitty of its own may have inherited the pane of whatever started that kitty.
+local function identity()
+  local server, term, pane = vim.v.servername or '', vim.env.TERM or '', vim.env.TMUX_PANE or ''
+  if server:sub(1, 1) ~= '/' or #server > 107 then server = '' end
+  if not (term:match('^tmux') or term:match('^screen')) or not pane:match('^%%%d+$') then pane = '' end
+  return { '--server', server, '--pane', pane, '--role', M.role() }
+end
+
 local function report(root, fields)
   if not tool() then return end
   local ok, build = pcall(require, 'desk.build')
   local argv = { tool(), 'client-report', '--client', 'nvim', '--build', ok and build.id or 'development', '--pid', 'parent', '--root', root }
   for key, value in pairs(fields) do vim.list_extend(argv, { '--' .. key, tostring(value) }) end
+  vim.list_extend(argv, identity())
   pcall(vim.system, argv, { text = true, timeout = 2000 }, function() end)
 end
 
@@ -65,7 +84,8 @@ local function watch(root, state)
   end
   local ok, build = pcall(require, 'desk.build')
   local loaded = ok and build.id or 'development'
-  local ok, job = pcall(vim.system, { tool(), 'watch', '--root', root, '--client', 'nvim', '--build', loaded }, { text = true, stdout = vim.schedule_wrap(function(_, data)
+  local argv = vim.list_extend({ tool(), 'watch', '--root', root, '--client', 'nvim', '--build', loaded }, identity())
+  local ok, job = pcall(vim.system, argv, { text = true, stdout = vim.schedule_wrap(function(_, data)
     if M.roots[root] ~= state or not data then return end
     state.pending = state.pending .. data
     if #state.pending > 65536 then state.pending = ''; return end

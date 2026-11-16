@@ -13,6 +13,7 @@ import time
 import unittest
 
 BIN = Path(__file__).resolve().parents[1] / "desk-work"
+NVIM_LUA = Path(__file__).resolve().parents[3] / "shared/nvim_lua"
 
 
 class Work(unittest.TestCase):
@@ -1069,6 +1070,85 @@ class Work(unittest.TestCase):
         self.assertIn("seen.json", json.loads(self.invoke("since", "--mark", "yes", code=1))["message"])
         self.assertEqual(seen.read_text(), "not json")
         self.assertEqual(json.loads(self.invoke("since", "--reader", "no spaces", code=1))["ok"], False)
+
+    # ─── editors: Neovims on their own sockets, in this test's runtime folder only ─────────────────────────────────
+    def stand_in(self):
+        """A live process standing for an editor in the client records, which live as long as their process."""
+        child = subprocess.Popen(["sleep", "60"], start_new_session=True)
+        self.addCleanup(lambda: (child.kill(), child.wait()))
+        return child
+
+    def editor(self, *commands, files=(), env=None):
+        """A headless Neovim on its own socket in this test's runtime folder (never the user's), with this repository's
+        Lua and this build of desk-work. Returns the process and its socket."""
+        runtime = Path(self.env["XDG_RUNTIME_DIR"])
+        runtime.mkdir(mode=0o700, exist_ok=True)
+        self.editors = getattr(self, "editors", 0) + 1
+        sock = runtime / f"editor{self.editors}.sock"
+        argv = ["nvim", "--headless", "--clean", "--listen", str(sock),
+                "--cmd", "lua package.path = vim.env.DESK_LUA .. '/?.lua;' .. package.path"]
+        for command in commands:
+            argv += ["-c", command]
+        child = subprocess.Popen(argv + ["--", *files], cwd=self.repo, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                 env=dict(self.env, DESK_LUA=str(NVIM_LUA), PATH=str(BIN.parent) + os.pathsep + self.env["PATH"],
+                                          NVIM_LOG_FILE=str(self.dir / "nvim.log"), **(env or {})),
+                                 start_new_session=True)
+        self.addCleanup(self.end_editor, child)
+        deadline = time.monotonic() + 15
+        while not sock.exists():
+            self.assertIsNone(child.poll(), "the test editor ended before it listened")
+            self.assertLess(time.monotonic(), deadline, "the test editor did not listen")
+            time.sleep(0.02)
+        return child, sock
+
+    def end_editor(self, child):
+        try:
+            os.killpg(child.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        child.wait(timeout=10)
+
+    def remote(self, sock, lua):
+        """A Lua expression's value in that editor, as text: another Neovim is the client."""
+        expr = "luaeval('" + lua.replace("'", "''") + "')"
+        p = subprocess.run(["nvim", "--clean", "--headless", "--server", str(sock), "--remote-expr", expr], env=self.env,
+                           capture_output=True, text=True, timeout=30)
+        return p.stdout.strip()
+
+    def test_editors_lists_each_live_editor_of_a_checkout_with_its_socket_pane_and_role(self):
+        main, viewer, stopped, elsewhere = (self.stand_in() for _ in range(4))
+        other = self.dir / "other"
+        other.mkdir()
+        subprocess.run(["git", "init", "-q", str(other)], check=True, env=self.env)
+
+        def report(child, root, *extra, code=0):
+            return json.loads(self.invoke("client-report", "--client", "nvim", "--build", "b", "--pid", child.pid, "--root", root, *extra, code=code))
+        report(main, self.repo, "--server", "/run/test/main.sock", "--pane", "%7", "--role", "main")
+        report(viewer, self.repo, "--server", "/run/test/viewer.sock", "--pane", "", "--role", "viewer")
+        report(stopped, self.repo, "--server", "/run/test/stopped.sock", "--role", "main", "--stream", "stopped")
+        report(elsewhere, other, "--server", "/run/test/other.sock", "--role", "main")
+        report(main, self.repo, "--stream", "connected")   # a later report without them keeps them
+        self.assertEqual(sorted((e["server"], e["pane"], e["role"], e["pid"]) for e in self.data("editors")),
+                         sorted([("/run/test/main.sock", "%7", "main", main.pid), ("/run/test/viewer.sock", "", "viewer", viewer.pid)]),
+                         "a stopped editor closed its last file here; another checkout's editor is not listed")
+        self.assertEqual([e["server"] for e in self.data("editors", "--root", other)], ["/run/test/other.sock"])
+        main.kill(); main.wait()
+        self.assertEqual([e["role"] for e in self.data("editors")], ["viewer"], "an editor that ended is gone")
+        for flag, value in (("--role", "boss"), ("--pane", "7"), ("--server", "relative.sock"), ("--server", "/" + "x" * 120)):
+            self.assertTrue(report(viewer, self.repo, flag, value, code=1)["message"], f"{flag} {value} is refused with a reason")
+
+    @unittest.skipUnless(subprocess.run(["sh", "-c", "command -v nvim"], capture_output=True).returncode == 0, "needs Neovim")
+    def test_a_neovim_registers_its_socket_pane_and_role_for_the_checkouts_it_follows(self):
+        # desk.sync follows each loaded file's checkout; its watcher writes the record. Only a Neovim inside tmux names
+        # its pane: one in a kitty of its own may have inherited it.
+        _, in_tmux = self.editor("lua require('desk.sync').setup()", "edit sample.cpp", env={"TERM": "tmux-256color", "TMUX_PANE": "%123"})
+        _, in_kitty = self.editor("lua require('desk.sync').setup()", "edit sample.cpp", env={"TERM": "xterm-kitty", "TMUX_PANE": "%123"})
+        _, viewer = self.editor("lua require('desk.sync').setup()", files=["desk-work:log", "0123"], env={"TERM": "xterm-kitty"})
+        deadline = time.monotonic() + 15
+        while len(self.data("editors")) < 3 and time.monotonic() < deadline:
+            time.sleep(0.1)
+        found = {e["server"]: (e["pane"], e["role"]) for e in self.data("editors")}
+        self.assertEqual(found, {str(in_tmux): ("%123", "main"), str(in_kitty): ("", "main"), str(viewer): ("", "viewer")})
 
 
 if __name__ == "__main__":
