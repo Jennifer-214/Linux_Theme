@@ -112,6 +112,24 @@ class Toolchain(ToolsCase):
         self.assertEqual(card["label"], "Contract tests · symdeps contract tests · not recorded yet")
         self.assertIn(f"nothing at {self.record} yet", card["detail"])
 
+    def test_a_pass_the_records_own_counts_contradict_is_no_pass_and_says_why(self):
+        self.contract()
+        cases = [
+            (lambda r: r["result"].update(passed=3, failed=2, expected=5, failed_tests=["test_x", "test_y"]),
+             "failed", "Inconsistent: the record says pass, but it lists 2 failed tests"),
+            (lambda r: r["result"].update(failed_tests=["test_x"]), "failed", "Inconsistent: the record says pass, but it lists 1 failed test"),
+            (lambda r: r["result"].update(passed=10), "partial",
+             "Inconsistent: the record says pass, but it accounts for 10 of the 12 tests it expected"),
+        ]
+        for change, word, line in cases:
+            self.write_record(change)
+            card, alerts = self.card()
+            self.assertEqual(card["label"], "Contract tests · symdeps contract tests · " + word, card["detail"])
+            self.assertIn(line, card["detail"].split("\n"))
+            self.assertIn("symdeps contract tests: " + word, alerts)
+        result = self.data("tools", "result", "contract", "--root", self.plugin)
+        self.assertEqual((result["state"], [(f["kind"], f["severity"]) for f in result["findings"]]), ("warn", [("inconsistent", "warn")]))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -459,12 +459,13 @@ J from_contract(const std::string& text, J r, const ResultFrom&) {
     const auto log = field("log", doc);
     r["log"] = log.is_string() && fs::path(log.get<std::string>()).is_absolute() ? log : J();
     for (const char* name : {"passed", "failed", "skipped", "expected"}) add_fact(r, name, count_or_null(field(name, doc)), J(""));
-    size_t unrun = 0;
+    size_t unrun = 0, failed_names = 0, missing_names = 0;
     for (const auto& [list, sev, what] : {std::tuple<const char*, const char*, const char*>{"failed tests", "error", "failed"},
                                           {"skipped tests", "warn", "skipped"}, {"missing", "warn", "missing"}}) {
         const auto tests = field(list, doc);
         for (const auto& test : tests.is_array() ? tests : J::array()) if (test.is_string() && r["findings"].size() < 2000) {
-            if (std::string(what) != "failed") ++unrun;
+            if (std::string(what) != "failed") ++unrun; else ++failed_names;
+            if (std::string(what) == "missing") ++missing_names;
             r["findings"].push_back(J{{"id", std::string(what) + ':' + one_line(test.get<std::string>(), 120)}, {"file", nullptr},
                                       {"line", nullptr}, {"col", nullptr}, {"severity", sev}, {"kind", what},
                                       {"message", one_line(test.get<std::string>(), 120)}});
@@ -515,6 +516,25 @@ J from_contract(const std::string& text, J r, const ResultFrom&) {
     std::string outcome = found == contract_states().end() ? "unknown" : found->second;
     const auto skipped = field("skipped", doc);
     if (outcome == "pass" && (unrun > 0 || (skipped.is_number_integer() && skipped.get<long long>() > 0))) outcome = "partial";
+    // Nor is a pass its own counts contradict: a failed test makes it failed, fewer tests accounted for than it
+    // expected partial, and an inconsistent finding says why.
+    if (found != contract_states().end() && found->second == "pass") {
+        const auto number = [&](const char* name) { const auto v = count_or_null(field(name, doc)); return v.is_null() ? -1LL : v.get<long long>(); };
+        const long long failed = std::max(number("failed"), static_cast<long long>(failed_names)), passed = number("passed"),
+                        expected = number("expected"),
+                        accounted = passed + std::max(0LL, number("failed")) + std::max(0LL, number("skipped")) + static_cast<long long>(missing_names);
+        std::string why;
+        if (failed > 0) {
+            outcome = "fail";
+            why = "the record says pass, but it lists " + std::to_string(failed) + (failed == 1 ? " failed test" : " failed tests");
+        } else if (passed >= 0 && expected > 0 && accounted < expected) {
+            outcome = "partial";
+            why = "the record says pass, but it accounts for " + std::to_string(accounted) + " of the " + std::to_string(expected) + " tests it expected";
+        }
+        if (!why.empty())
+            r["findings"].push_back(J{{"id", "inconsistent:" + why}, {"file", nullptr}, {"line", nullptr}, {"col", nullptr},
+                                      {"severity", outcome == "fail" ? "error" : "warn"}, {"kind", "inconsistent"}, {"message", why}});
+    }
     std::string counts;
     for (const auto& fact : r["facts"]) if (fact["value"].is_number() && fact["name"] != "expected")
         counts += (counts.empty() ? "" : ", ") + std::to_string(fact["value"].get<long long>()) + " " + fact["name"].get<std::string>();

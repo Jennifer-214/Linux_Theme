@@ -203,7 +203,9 @@ it ran, its outcome (`pass`, `fail`, `partial` or `refused`), the counts against
 skipped and missing tests, the checkouts it ran against at its start and end (folder, commit, the tree id of a
 tested folder, whether it was uncommitted and which paths), which of those moved during the run, and the path of its
 log. desk-work reads it through one table of field names (`contract_fields` in `src/desk-work/results.hpp`). A
-skipped or missing test is never a pass: such a run reads `partial`. It is declared as a status tool that `reads` the
+skipped or missing test is never a pass: such a run reads `partial`. Nor is a record that contradicts itself: one that
+says `pass` while it lists a failed test reads `failed`, one whose counts account for fewer tests than it expected
+reads `partial`, and a finding of kind `inconsistent` says why. It is declared as a status tool that `reads` the
 record; see the card below.
 
 ## Running a tool
@@ -267,7 +269,8 @@ The check reads `Contract tests · NAME · STATE`, then `· STALE` or `· unveri
 `passed`, `passed with N uncommitted files` (the run tested files in the tools folder that were not committed: no
 clean pass), `failed`, `partial` (something skipped or did not run), `refused`, `unreadable` (the record cannot be
 read) or `not recorded yet` (no record at `reads`). Its lines: the outcome with its time, age and counts; the
-runner's own summary line; the failed, skipped and missing tests by name; what it ran against (each checkout's
+runner's own summary line; where the record contradicts itself, why (`Inconsistent: the record says pass, but …`);
+the failed, skipped and missing tests by name; what it ran against (each checkout's
 commit, the tools version and tree id) and which uncommitted files it ran with; whether that is still what is there,
 and why not; what is not compared; the log's path; where the record and its declarations are.
 

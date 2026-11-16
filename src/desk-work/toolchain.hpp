@@ -178,7 +178,8 @@ J contract_card(const J& t, const std::vector<std::string>& declared_in, J& aler
     lines.push_back(first);
     if (refused) lines.push_back(str(r, "why"));
     if (!str(r, "summary").empty() && !refused) lines.push_back(str(r, "summary"));
-    for (const auto& [kind, title] : {std::pair<const char*, const char*>{"failed", "Failed: "}, {"skipped", "Skipped: "}, {"missing", "Did not run: "}}) {
+    for (const auto& [kind, title] : {std::pair<const char*, const char*>{"inconsistent", "Inconsistent: "}, {"failed", "Failed: "},
+                                      {"skipped", "Skipped: "}, {"missing", "Did not run: "}}) {
         std::string names; size_t n = 0;
         for (const auto& f : r["findings"]) if (str(f, "kind") == kind) { if (++n <= 12) names += (names.empty() ? "" : ", ") + str(f, "message"); }
         if (n > 12) names += " and " + std::to_string(n - 12) + " more";
