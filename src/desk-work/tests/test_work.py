@@ -13,6 +13,8 @@ import tempfile
 import time
 import unittest
 
+from sealed import sealed
+
 BIN = Path(__file__).resolve().parents[1] / "desk-work"
 NVIM_LUA = Path(__file__).resolve().parents[3] / "shared/nvim_lua"
 sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tests"))
@@ -26,12 +28,7 @@ class Work(unittest.TestCase):
         self.dir = Path(self.temp.name)
         self.repo = self.dir / "project with spaces"
         self.repo.mkdir()
-        # Sealed from the session (tests/sealed_env.py): no tmux of hers (desk-work agents lists tmux's panes), and no
-        # display, bus or kitty for an editor or a kitty a test forgot to stub; the pane desk-work records is the test's.
-        self.env = sealed_env.environment(self.dir, HOME=self.dir / "home", XDG_STATE_HOME=self.dir / "state",
-                                          XDG_CONFIG_HOME=self.dir / "config", XDG_RUNTIME_DIR=self.dir / "runtime",
-                                          TMUX_PANE="%123", FOXML_WORK_NOTIFY="0", PYTHONDONTWRITEBYTECODE="1")
-        self.addCleanup(sealed_env.stop, self.env)
+        self.env = self.environment(os.environ)
         self.git("init", "-q")
         self.git("config", "user.name", "Test")
         self.git("config", "user.email", "test@example.invalid")
@@ -39,6 +36,12 @@ class Work(unittest.TestCase):
         (self.repo / ".gitignore").write_text("build/\n*.log\n")
         self.git("add", ".")
         self.git("commit", "-qm", "initial")
+
+    def environment(self, base):
+        """`base` sealed from the session it came from, with this test's home and folders (and a pane id of its own)."""
+        return dict(sealed(base, str(self.dir)), HOME=str(self.dir / "home"), XDG_STATE_HOME=str(self.dir / "state"),
+                    XDG_CONFIG_HOME=str(self.dir / "config"), XDG_RUNTIME_DIR=str(self.dir / "runtime"),
+                    TMUX_PANE="%123", FOXML_WORK_NOTIFY="0", PYTHONDONTWRITEBYTECODE="1")
 
     def git(self, *args):
         return subprocess.run(["git", "-C", str(self.repo), *args], env=self.env, capture_output=True,
@@ -763,6 +766,32 @@ class Work(unittest.TestCase):
         self.assertEqual(sessions[0]['files'], ['sample.cpp'])
         self.assertEqual(self.data('attention', '--root', self.repo)[0]['kind'], 'agent')
         self.assertEqual(self.data('notebook', '--root', self.repo, '--session', 'needs-user')['attention'], [])
+
+    def test_what_a_test_starts_reaches_no_tmux_server_of_the_session_it_ran_in(self):
+        # A legacy Claude record makes desk-work agents ask tmux for its panes. A bare tmux reaches the server in $TMUX,
+        # else the default socket under $TMUX_TMPDIR: a recording tmux, first on PATH, shows what this test's
+        # environment gives it when the session it came from has both.
+        runtime = Path(self.env['XDG_RUNTIME_DIR']) / 'foxml-claude'
+        runtime.mkdir(parents=True)
+        (runtime / 'legacy.state').write_text(json.dumps({'cwd': str(self.repo), 'epoch': int(time.time()), 'state': 'working'}))
+        calls = self.dir / 'tmux-calls.jsonl'
+        session = {k: v for k, v in os.environ.items() if k not in ('TMUX', 'TMUX_PANE', 'TMUX_TMPDIR')}
+        session.update(TMUX='/stand-in/for/her/server,1,0', TMUX_PANE='%9', TMUX_TMPDIR='/stand-in/for/her/sockets')
+        # Executable fixtures live beside the test; /tmp can be mounted noexec.
+        with tempfile.TemporaryDirectory(prefix='.fox-work-tmux-', dir=Path(__file__).parent) as temp:
+            stub = Path(temp) / 'tmux'
+            stub.write_text('#!' + sys.executable + '\nimport json, os, sys\nwith open(os.environ["WORK_CALLS"], "a") as f:\n'
+                            '    f.write(json.dumps([sys.argv[1:3], os.environ.get("TMUX"), os.environ.get("TMUX_TMPDIR")]) + "\\n")\n')
+            stub.chmod(0o755)
+            env = dict(self.environment(session), PATH=temp + os.pathsep + session['PATH'], WORK_CALLS=str(calls))
+            p = subprocess.run([str(BIN), 'agents', '--root', str(self.repo)], cwd=self.repo, env=env, capture_output=True,
+                               text=True, timeout=30)
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        rows = [json.loads(line) for line in calls.read_text().splitlines()]
+        self.assertEqual([args for args, _, _ in rows], [['list-panes', '-a']], 'the legacy record made desk-work ask tmux')
+        for _, tmux, folder in rows:
+            self.assertIsNone(tmux, "the session's $TMUX reached what the test started")
+            self.assertTrue(Path(folder).is_relative_to(self.dir), f'tmux would look for its default server in {folder}')
 
     def test_automatic_observation_refuses_searches_scripts_and_credentials_centrally(self):
         for command in ['rg make tests/', 'echo pytest', 'pytest --token private', 'sudo make test', 'python3 - <<EOF\nmake test\nEOF']:
