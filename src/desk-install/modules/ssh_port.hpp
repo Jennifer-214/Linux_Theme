@@ -93,10 +93,14 @@ inline std::string join(const std::vector<int>& ports, const char* sep) {
 }
 
 // BatchMode, no password, publickey only: a 0 exit means a key authenticated, never a password or a keyboard prompt.
+// No ssh config file (-F none) and a connection of its own: a ControlMaster left open by the test before the change, a
+// ProxyJump, or a HostName for 127.0.0.1 in ~/.ssh/config made the proof pass without a new login to this sshd. The
+// agent's keys count (IdentitiesOnly=no), a forwarded one too: that is how a remote admin's key gets here.
 inline std::vector<std::string> key_test_argv(const std::string& user, int port) {
-    return {"ssh", "-p", std::to_string(port), "-o", "BatchMode=yes", "-o", "PasswordAuthentication=no",
+    return {"ssh", "-F", "none", "-p", std::to_string(port), "-o", "BatchMode=yes", "-o", "PasswordAuthentication=no",
             "-o", "PreferredAuthentications=publickey", "-o", "ConnectTimeout=5",
-            "-o", "StrictHostKeyChecking=accept-new", user + "@127.0.0.1", "true"};
+            "-o", "StrictHostKeyChecking=accept-new", "-o", "ControlMaster=no", "-o", "ControlPath=none",
+            "-o", "ProxyJump=none", "-o", "IdentitiesOnly=no", user + "@127.0.0.1", "true"};
 }
 
 // sshd answering on a port, without logging in: its host keys.

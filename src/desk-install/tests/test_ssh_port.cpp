@@ -71,6 +71,14 @@ int main() {
     expect(has_arg(argv, "BatchMode=yes") && has_arg(argv, "PasswordAuthentication=no")
            && has_arg(argv, "PreferredAuthentications=publickey"), "a key only: never a password or a prompt");
     expect(has_arg(argv, "alice@127.0.0.1"), "logs in as the user on 127.0.0.1");
+    // ~/.ssh/config was read: a ControlMaster (the pre-change test left one open), a ProxyJump or a HostName for
+    // 127.0.0.1 made the post-reload proof pass with no new login to this sshd (security review M2, 2026-11-16).
+    bool no_config = false;
+    for (std::size_t i = 0; i + 1 < argv.size(); ++i) no_config |= argv[i] == "-F" && argv[i + 1] == "none";
+    expect(no_config, "the key test reads no ssh config file (-F none)");
+    expect(has_arg(argv, "ControlMaster=no") && has_arg(argv, "ControlPath=none"), "and never shares a connection");
+    expect(has_arg(argv, "ProxyJump=none"), "nor goes through another machine");
+    expect(has_arg(argv, "IdentitiesOnly=no"), "the agent's keys count: a forwarded agent is how a remote key gets here");
 
     expect(has_port(keyscan_argv(4022), "4022") && keyscan_argv(4022).back() == "127.0.0.1", "keyscan on the port");
     expect(answered("127.0.0.1 ssh-ed25519 AAAAC3Nza\n") && answered("[127.0.0.1]:4022 ecdsa-sha2-nistp256 AAAA\n"),

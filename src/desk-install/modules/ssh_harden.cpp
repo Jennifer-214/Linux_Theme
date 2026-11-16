@@ -186,7 +186,7 @@ void run_ssh_harden(Context& ctx) {
                                    ? ssh_port::join(ssh_port::listen_ports(now), ", ") : "unknown (sudo cold)";
         ui::substep("[dry-run] would: read where sshd listens (sudo sshd -T: " + at + "), " +
                     (unattended ? std::string("take FOXML_SSH_PORT=") + env_port : "ask for the port") +
-                    ", and test a key login there (ssh -p <now> -o BatchMode=yes $USER@127.0.0.1 true)");
+                    ", and test a key login there (ssh -F none -p <now> -o BatchMode=yes $USER@127.0.0.1 true)");
         ui::substep("[dry-run] then: save " + drop_in + " as .foxml-bak, ufw limit <port>/tcp, write the drop-in "
                     "(PasswordAuthentication no only if the key logged in), sudo sshd -t, systemctl reload sshd, "
                     "prove a login on <port>; on any failure put the previous file back and restart sshd");
