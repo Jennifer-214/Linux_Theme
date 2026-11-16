@@ -137,6 +137,13 @@ int main() {
     expect(jail_with_ports("[sshd]\nPort=ssh\n", {4022}) == std::optional<std::string>("[sshd]\nPort= 4022\n"),
            "keys are case-insensitive, as fail2ban reads them");
     expect(jail_ports("ssh, 4022") == std::vector<int>{22, 4022} && !jail_ports("1000:2000"), "jail port values");
+    // A value it cannot read as ports was replaced by sshd's, narrowing a broader ban (security review L5, 2026-11-16).
+    std::string kept;
+    expect(!jail_with_ports("[sshd]\nport = 0:65535\n", {4022}, &kept) && kept == "0:65535",
+           "a range is left as it is (never narrowed to sshd's port), and said");
+    expect(!jail_with_ports("[sshd]\nport = ssh,sftp\n", {4022}), "so is another service's name");
+    expect(jail_with_ports("[sshd]\nport = 0:65535\nenabled = true\n[other]\nport = 80\n", {4022}) == std::nullopt,
+           "and no second port line is added for it");
     const auto fresh = jail_local("4022", nullptr);
     expect(fresh.find("[sshd]\nenabled  = true\nport     = 4022\n") != std::string::npos,
            "a new jail.local bans on sshd's port");

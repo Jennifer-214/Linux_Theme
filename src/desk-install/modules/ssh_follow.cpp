@@ -91,10 +91,14 @@ Jail fail2ban(const std::vector<int>& ports) {
     std::ostringstream ss;
     ss << f.rdbuf();
     const std::string before = ss.str();
-    const auto next = jail_with_ports(before, ports);
+    const std::string value = ssh_port::join(ports, ",");
+    std::string kept;
+    const auto next = jail_with_ports(before, ports, &kept);
+    if (!kept.empty())
+        ui::warn("fail2ban: the sshd jail's `port = " + kept + "` is left as it is (not a list of ports, so never "
+                 "narrowed) — make sure it covers sshd's " + value);
     if (!next) return Jail::Unchanged;
 
-    const std::string value = ssh_port::join(ports, ",");
     if (sh::dry_run()) {
         ui::substep("[dry-run] would set jail.local's [sshd] port = " + value + ", then check it: fail2ban-client -t");
         return Jail::Updated;

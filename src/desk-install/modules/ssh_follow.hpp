@@ -229,8 +229,10 @@ inline std::string jail_local(const std::string& port, const char* ssh_connectio
 
 // jail.local with its [sshd] section banning on `ports`: the port line's value replaced (one added at the end of the
 // section when it has none), every other line as it was — dispatch_hooks' action lines included. nullopt when there
-// is no [sshd] section, no ports, or the port line already names exactly those ports.
-inline std::optional<std::string> jail_with_ports(const std::string& jail, const std::vector<int>& ports) {
+// is no [sshd] section, no ports, or the port line already names exactly those ports. A value that is not a list of
+// ports (`0:65535`, `ssh,sftp`) is left as it is, never narrowed to sshd's ports: `kept` then gets it, to say so.
+inline std::optional<std::string> jail_with_ports(const std::string& jail, const std::vector<int>& ports,
+                                                  std::string* kept = nullptr) {
     if (ports.empty()) return std::nullopt;
     const std::string value = ssh_port::join(ports, ",");
     std::istringstream in(jail);
@@ -252,7 +254,8 @@ inline std::optional<std::string> jail_with_ports(const std::string& jail, const
             done = true;
             const auto eq = line.find_first_of("=:");
             const auto named = jail_ports(line.substr(eq + 1));
-            if (named && same_ports(*named, ports)) {
+            if (!named && kept) *kept = trim(line.substr(eq + 1));
+            if (!named || same_ports(*named, ports)) {
                 out += line + "\n";
             } else {
                 out += line.substr(0, eq + 1) + " " + value + "\n";
