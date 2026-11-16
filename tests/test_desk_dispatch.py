@@ -8,11 +8,14 @@ one. Runs the real script with stub notify-send and curl first on PATH (nothing 
 - notify-send failing: a non-zero exit, so the caller's own fallback runs;
 - started without a session bus address (from root via sudo): the notice finds $XDG_RUNTIME_DIR/bus;
 - a webhook that answers: no desktop notice; a config with loose permissions is refused, and the alert shows here;
-- the ledger gets the line every time."""
+- the ledger gets the line every time;
+- audit-timer, which shows its own drift notice, sends both of its desk-dispatch calls with DESK_DISPATCH_LOCAL=0
+  (run with stub desk-doctor, desk-dispatch and notify-send): drift is one desktop notice, a clean week none."""
 import os, pathlib, socket, subprocess, sys, tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "shared/bin/desk-dispatch"
+AUDIT_TIMER = ROOT / "shared/bin/audit-timer"
 fails = []
 
 
@@ -62,6 +65,29 @@ def expect(case, ok, detail=""):
         fails.append(f"{case}{': ' + detail if detail else ''}")
 
 
+def audit(report):
+    """`audit-timer run` on a desk doctor report: the desk-dispatch calls (with the DESK_DISPATCH_LOCAL each saw) and
+    the notify-send calls, in order."""
+    tmp_root = os.environ.get("FOX_TEST_TMP") or str(pathlib.Path.home() / ".cache")
+    os.makedirs(tmp_root, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=tmp_root) as d:
+        d = pathlib.Path(d); b = d / "bin"; b.mkdir(); (d / "home").mkdir()
+        calls, doctor = d / "calls", d / "report"
+        doctor.write_text(report)
+        stubs = {
+            "desk-doctor": f'cat "{doctor}"',
+            "desk-dispatch": f'printf "desk-dispatch LOCAL=%s|%s|%s\\n" "${{DESK_DISPATCH_LOCAL-unset}}" "$1" "$2" >> "{calls}"',
+            "notify-send": f'printf "notify-send|%s\\n" "$*" >> "{calls}"',
+        }
+        for name, body_ in stubs.items():
+            f = b / name; f.write_text("#!/usr/bin/env bash\n" + body_ + "\n"); f.chmod(0o755)
+        env = {k: v for k, v in os.environ.items() if k != "DESK_DISPATCH_LOCAL"}
+        env.update(PATH=f"{b}:/usr/bin:/bin", HOME=str(d / "home"))
+        r = subprocess.run(["bash", str(AUDIT_TIMER), "run"], capture_output=True, text=True, env=env, timeout=30,
+                           stdin=subprocess.DEVNULL)
+        return r.returncode, calls.read_text().splitlines() if calls.exists() else []
+
+
 rc, calls, _ = run("no webhook")
 expect("no webhook: exit 0", rc == 0, f"exit {rc}")
 expect("no webhook: one desktop notice", len(calls) == 1, f"{calls}")
@@ -92,6 +118,18 @@ rc, calls, posts = run("loose config", conf="WEBHOOK_KIND=discord\nWEBHOOK_URL=h
                        conf_mode=0o644)
 expect("loose config: refused, nothing posted", not posts, f"{posts!r}")
 expect("loose config: the alert shows on this desktop", len(calls) == 1 and rc == 0, f"exit {rc}, {calls}")
+
+# Without DESK_DISPATCH_LOCAL=0, desk-dispatch with no webhook would show each call on this desktop as well.
+rc, calls = audit("  ✓ ufw: active\n  X fail2ban: not running\n")
+expect("audit-timer drift: exit 0", rc == 0, f"exit {rc}")
+expect("audit-timer drift: the phone copy with DESK_DISPATCH_LOCAL=0, then its own desktop notice",
+       len(calls) == 2 and calls[0].startswith("desk-dispatch LOCAL=0|weekly-audit|desk doctor: 1 FAILED")
+       and calls[1].startswith("notify-send|") and "desk doctor: 1 FAILED" in calls[1], f"{calls}")
+
+rc, calls = audit("  ✓ ufw: active\n")
+expect("audit-timer clean: exit 0", rc == 0, f"exit {rc}")
+expect("audit-timer clean: the heartbeat with DESK_DISPATCH_LOCAL=0, and no desktop notice",
+       len(calls) == 1 and calls[0].startswith("desk-dispatch LOCAL=0|weekly-audit|desk doctor: clean"), f"{calls}")
 
 for f in fails:
     print("FAIL", f)
