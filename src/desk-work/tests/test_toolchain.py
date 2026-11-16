@@ -57,6 +57,22 @@ class Toolchain(ToolsCase):
         card, _ = self.card()
         self.assertIn(f"STALE: tools committed since the run (workspace tools tree {tree[:8]} → {now[:8]})", card["detail"].split("\n"))
 
+    def test_a_commit_after_the_run_is_stale_even_when_the_record_names_none_of_its_uncommitted_files(self):
+        self.contract()
+        def dirty_without_a_list(record):
+            record["inputs"]["end"]["workspace"]["tools_dirty"] = True
+            del record["inputs"]["end"]["workspace"]["tools_uncommitted"]
+        tree = self.write_record(dirty_without_a_list)["inputs"]["end"]["workspace"]["tools_tree"]
+        (self.ws / "tools/new.py").write_text("x = 1\n")
+        self.git(self.ws, "add", "tools/new.py")
+        self.git(self.ws, "commit", "-qm", "a new tool")
+        now = self.git(self.ws, "rev-parse", "HEAD:tools")
+        (self.ws / "tools/run.py").write_text("print(5)\n")   # and a file still uncommitted
+        card, alerts = self.card()
+        self.assertEqual(card["label"], "Contract tests · symdeps contract tests · passed · STALE", card["detail"])
+        self.assertIn(f"STALE: tools committed since the run (workspace tools tree {tree[:8]} → {now[:8]})", card["detail"].split("\n"))
+        self.assertIn("symdeps contract tests: stale, what it tested changed since the run", alerts)
+
     def test_a_pass_on_uncommitted_tool_files_says_so_nested_repos_are_not_counted_and_a_later_edit_is_stale(self):
         self.contract()
         ended = json.loads((FIXTURES / "fox-contract.json").read_text())["ended_epoch"]

@@ -101,11 +101,18 @@ J compare_tested(const J& ref, long long ended) {
     const auto dirty = version.value("dirty", J());
     if (!dirty.is_boolean() && !recorded.listed) return say("unverified", "the record does not say whether " + folder + " had uncommitted files");
     std::vector<std::string> reasons, changes;
+    const auto stale = [&] {
+        std::string why;
+        for (const auto& r : reasons) why += (why.empty() ? "" : " · ") + r;
+        return say("stale", why);
+    };
     if (now_tree != tested)
         reasons.push_back((scope.empty() ? name : scope) + " committed since the run (" + folder + " tree " + tested.substr(0, 8) + " → " + now_tree.substr(0, 8) + ")");
-    if (dirty == true && !recorded.listed)
-        return now.empty() ? say("stale", "the uncommitted files the run tested in " + folder + " are gone")
-                           : say("unverified", "the record names none of the uncommitted files it tested in " + folder);
+    // Uncommitted files the record does not name cannot be compared one by one, but a commit since is still stale.
+    if (dirty == true && !recorded.listed) {
+        if (now.empty()) reasons.push_back("the uncommitted files the run tested in " + folder + " are gone");
+        return reasons.empty() ? say("unverified", "the record names none of the uncommitted files it tested in " + folder) : stale();
+    }
     std::vector<std::string> added, gone, edited, unknown;
     for (const auto& p : now) if (!then.count(p)) added.push_back(p);
     for (const auto& p : then) if (!now.count(p)) gone.push_back(p);
@@ -122,11 +129,7 @@ J compare_tested(const J& ref, long long ended) {
         for (const auto& c : changes) list += (list.empty() ? "" : ", ") + c;
         reasons.push_back("uncommitted files in " + folder + " changed since the run: " + list);
     }
-    if (!reasons.empty()) {
-        std::string why;
-        for (const auto& r : reasons) why += (why.empty() ? "" : " · ") + r;
-        return say("stale", why);
-    }
+    if (!reasons.empty()) return stale();
     if (!unknown.empty())
         return say("unverified", counted(unknown.size(), "uncommitted file", "uncommitted files") + " in " + folder
                                  + (ended > 0 ? " could not be checked for edits after the run: " : " cannot be checked: the record gives no end time: ") + some_of(unknown));
