@@ -8,6 +8,8 @@
 #include "../../desk-common/ui.hpp"
 #include <filesystem>
 #include <fstream>
+#include <random>
+#include <string>
 #include <vector>
 
 namespace desk_install::firefox_appearance {
@@ -67,6 +69,47 @@ inline std::filesystem::path profile(const Context& ctx) {
         }
     }
     return {};
+}
+
+// A Firefox that has never run has no profile, so a fresh install left it unthemed and unhardened until a second run.
+// This lays down the profile its first start will open, without starting it: a folder where it reads profiles (the old
+// ~/.mozilla/firefox when that exists, else the XDG one), listed in profiles.ini as the default and holding a
+// compatibility.ini. On its first run Firefox claims such a default as this installation's profile; without the
+// compatibility.ini it would make a new one beside it. An index Firefox wrote is never rewritten. Empty, with `why`
+// set, when there is none.
+inline std::filesystem::path ensure_profile(const Context& ctx, std::string& why) {
+    namespace fs = std::filesystem;
+    if (auto found = profile(ctx); !found.empty()) return found;
+    if (!sh::have("firefox")) { why = "Firefox is not installed"; return {}; }
+    const auto config = ctx.config_home.empty() ? ctx.home / ".config" : ctx.config_home;
+    const fs::path legacy = ctx.home / ".mozilla/firefox", xdg = config / "mozilla/firefox";
+    std::error_code ec;
+    for (const auto& base : {xdg, legacy}) {
+        if (fs::exists(base / "profiles.ini", ec)) {
+            why = (base / "profiles.ini").string() + " names no profile folder that is there; open Firefox once";
+            return {};
+        }
+    }
+    if (sh::dry_run()) { why = "a dry run makes no profile"; return {}; }
+    const fs::path base = fs::is_directory(legacy, ec) ? legacy : xdg;
+    const bool new_base = !fs::exists(base, ec);
+    std::random_device random;
+    std::string salt;
+    for (int i = 0; i < 8; ++i) salt += "abcdefghijklmnopqrstuvwxyz0123456789"[random() % 36];
+    const fs::path dir = base / (salt + ".default-release");
+    fs::create_directories(dir, ec);
+    if (ec) { why = "could not make " + dir.string() + ": " + ec.message(); return {}; }
+    fs::permissions(dir, fs::perms::owner_all, fs::perm_options::replace, ec);
+    if (new_base) fs::permissions(base, fs::perms::owner_all, fs::perm_options::replace, ec);
+    if (!idem::write_atomic(dir / "compatibility.ini", "[Compatibility]\n") ||
+        !idem::write_atomic(base / "profiles.ini", "[Profile0]\nName=default-release\nIsRelative=1\nPath=" +
+                                                   dir.filename().string() + "\nDefault=1\n\n"
+                                                   "[General]\nStartWithLastProfile=1\nVersion=2\n")) {
+        why = "could not write Firefox's profile index in " + base.string();
+        return {};
+    }
+    ui::ok("Firefox profile made for its first start: " + dir.string());
+    return dir;
 }
 
 // Firefox's "Website appearance": the colour scheme pages are told the reader prefers (prefers-color-scheme).

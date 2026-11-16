@@ -134,17 +134,17 @@ void chmod_exec(const fs::path& p) {
 
 // ─── Firefox specials ───────────────────────────────────────────────
 //
-// Firefox 150+ on Arch uses XDG paths; older versions / non-Arch keep
-// ~/.mozilla/firefox. Probe both, return whichever has a *.default-release*
-// profile. Empty string means "no profile found".
-fs::path firefox_profile(const Context& ctx) {
-    return firefox_appearance::profile(ctx);
-}
-
+// Into the profile Firefox opens (firefox_appearance::profile), made for its
+// first start when Firefox has never run, so a fresh install is themed at once.
 void do_firefox(const Context& ctx) {
-    fs::path profile = firefox_profile(ctx);
+    if (!have("firefox")) {
+        ui::skipped("Firefox is not installed");
+        return;
+    }
+    std::string why;
+    fs::path profile = firefox_appearance::ensure_profile(ctx, why);
     if (profile.empty()) {
-        ui::ok("no Firefox profile found, skipping");
+        ui::warn("Firefox not themed: " + why + ", then run --only specials");
         return;
     }
     fs::path chrome = profile / "chrome";

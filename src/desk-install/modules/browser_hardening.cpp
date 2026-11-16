@@ -1,7 +1,8 @@
 // modules/browser_hardening.cpp — arkenfox user.js + firejail Firefox.
 //
 // Three pieces:
-//   1. Fetch arkenfox user.js into the profile Firefox opens (profiles.ini).
+//   1. Fetch arkenfox user.js into the profile Firefox opens (profiles.ini),
+//      made for its first start when Firefox has never run.
 //      Re-download if missing or older than 30 days (arkenfox tags
 //      quarterly; 30d is conservative).
 //   2. A user-overrides.js with laptop-friendly relaxations, copied into
@@ -65,9 +66,10 @@ constexpr const char* FIREJAIL_LOCAL_BODY =
     "dns 127.0.0.1\n";
 
 void do_arkenfox(const Context& ctx) {
-    fs::path profile = firefox_appearance::profile(ctx);
+    std::string why;
+    fs::path profile = firefox_appearance::ensure_profile(ctx, why);
     if (profile.empty()) {
-        ui::ok("Firefox profile not found — launch Firefox once, then re-run --browser-harden");
+        ui::warn("arkenfox not applied: " + why + ", then run --only browser_hardening,specials");
         return;
     }
     fs::path user_js   = profile / "user.js";
@@ -206,7 +208,7 @@ void run_browser_hardening(Context& ctx) {
         return;
     }
     if (sh::dry_run()) {
-        ui::substep("[dry-run] would fetch arkenfox user.js into the profile Firefox opens, "
+        ui::substep("[dry-run] would fetch arkenfox user.js into the profile Firefox opens (made first if it never ran), "
                     "copy user-overrides.js in after it (keeping the theme's lines, with a backup), "
                     "apply firejail symlinks via firecfg, "
                     "drop ~/.config/firejail/firefox.local DNS pin");

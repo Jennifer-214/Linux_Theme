@@ -1,4 +1,5 @@
 #include "../modules/firefox_appearance.hpp"
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <unistd.h>
@@ -98,6 +99,57 @@ int main() {
     ok &= theme_block(colors, "sepia", "") == colors;
     ok &= theme_block(colors, "", with("0")) == with("2");
     ok &= theme_block(colors, "", with("2")) == colors;
+
+    // A Firefox that never ran has no profile: the one its first start opens is made, once, where it reads profiles,
+    // listed as the default and holding the compatibility.ini Firefox's first run needs to claim it.
+    std::string bin_pattern = (fs::current_path() / ".fox-firefox-bin-XXXXXX").string();  // /tmp is noexec here
+    const char* bin_made = ::mkdtemp(bin_pattern.data());
+    if (!bin_made) return 1;
+    const fs::path bin(bin_made);
+    put(bin / "firefox", "#!/bin/sh\nexit 1\n");  // found on PATH, never run
+    fs::permissions(bin / "firefox", fs::perms::owner_all);
+    const std::string saved_path = std::getenv("PATH") ? std::getenv("PATH") : "";
+    ::setenv("PATH", bin.c_str(), 1);
+    using desk_install::firefox_appearance::ensure_profile;
+    std::string why;
+    ctx.home = root / "fresh"; ctx.config_home = ctx.home / ".config";
+    const auto made = ensure_profile(ctx, why);
+    const auto made_base = ctx.config_home / "mozilla/firefox";
+    const auto name = made.filename().string();
+    ok &= !made.empty() && made.parent_path() == made_base && fs::is_directory(made);
+    ok &= name.size() == 24 && name.compare(8, std::string::npos, ".default-release") == 0;
+    ok &= read(made_base / "profiles.ini") == "[Profile0]\nName=default-release\nIsRelative=1\nPath=" + name +
+                                              "\nDefault=1\n\n[General]\nStartWithLastProfile=1\nVersion=2\n";
+    ok &= read(made / "compatibility.ini") == "[Compatibility]\n";
+    ok &= (fs::status(made).permissions() & (fs::perms::group_all | fs::perms::others_all)) == fs::perms::none;
+    ok &= desk_install::firefox_appearance::profile(ctx) == made;
+    ok &= ensure_profile(ctx, why) == made;
+    int profiles = 0;
+    for (const auto& entry : fs::directory_iterator(made_base)) profiles += entry.is_directory();
+    ok &= profiles == 1;
+    // The old folder when it is there: Firefox reads it before the XDG one.
+    ctx.home = root / "legacy-home"; ctx.config_home = ctx.home / ".config";
+    fs::create_directories(ctx.home / ".mozilla/firefox");
+    ok &= ensure_profile(ctx, why).parent_path() == ctx.home / ".mozilla/firefox";
+    ok &= !fs::exists(ctx.config_home / "mozilla");
+    // An index Firefox wrote is left as it is, and the reason is given.
+    ctx.home = root / "stale"; ctx.config_home = ctx.home / ".config";
+    const std::string stale = "[Profile0]\nName=default-release\nIsRelative=1\nPath=gone.default-release\nDefault=1\n";
+    put(ctx.config_home / "mozilla/firefox/profiles.ini", stale);
+    why.clear();
+    ok &= ensure_profile(ctx, why).empty() && why.find("profiles.ini") != std::string::npos;
+    ok &= read(ctx.config_home / "mozilla/firefox/profiles.ini") == stale;
+    // A dry run makes nothing, and neither does a machine without Firefox.
+    ctx.home = root / "dry"; ctx.config_home = ctx.home / ".config";
+    desk_install::sh::set_dry_run(true);
+    ok &= ensure_profile(ctx, why).empty() && !fs::exists(ctx.home);
+    desk_install::sh::set_dry_run(false);
+    ::setenv("PATH", (root / "no-such-bin").c_str(), 1);
+    ctx.home = root / "no-firefox"; ctx.config_home = ctx.home / ".config";
+    why.clear();
+    ok &= ensure_profile(ctx, why).empty() && !why.empty() && !fs::exists(ctx.home);
+    ::setenv("PATH", saved_path.c_str(), 1);
+    fs::remove_all(bin);
     fs::remove_all(root);
     std::cout << (ok ? "Firefox appearance backup deployment: OK\n" : "Firefox appearance backup deployment: FAILED\n");
     return ok ? 0 : 1;

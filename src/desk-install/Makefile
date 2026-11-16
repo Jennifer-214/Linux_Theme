@@ -117,6 +117,7 @@ test: tests/test_check_ro tests/test_render_drift tests/test_drift_reference tes
 	@./tests/test_gtk_appearance
 	@./tests/test_icon_deploy
 	@./tests/test_firefox_appearance
+	@./tests/test_browser_hardening
 	@./tests/test_notification_refresh
 	@./tests/test_theme_choice
 	@./tests/test_ide_settings
@@ -140,7 +141,7 @@ tests/test_registry: tests/test_registry.cpp tests/run_stubs.inc core/registry.o
 	$(CXX) $(CXXFLAGS) tests/test_registry.cpp core/registry.o -o $@
 
 
-test: tests/test_firefox_appearance
+test: tests/test_firefox_appearance tests/test_browser_hardening
 test: tests/test_notification_refresh
 test: tests/test_theme_choice tests/test_ide_settings tests/test_firefox_policies tests/test_arkenfox_userjs
 test: tests/test_private_extras tests/test_menu_upgrade tests/test_fox_aliases tests/test_fox_moves
@@ -194,6 +195,9 @@ test-notification-refresh: tests/test_notification_refresh
 .PHONY: test-notification-refresh
 
 tests/test_firefox_appearance: tests/test_firefox_appearance.cpp modules/firefox_appearance.hpp core/backup.o $(DESK_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) $(filter %.cpp %.o %.a,$^) -o $@
+
+tests/test_browser_hardening: tests/test_browser_hardening.cpp modules/browser_hardening.o modules/firefox_appearance.hpp core/backup.o $(DESK_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) $(filter %.cpp %.o %.a,$^) -o $@
 
 tests/test_icon_deploy: tests/test_icon_deploy.cpp modules/symlinks.o core/backup.o $(DESK_COMMON_LIB) modules/gtk_appearance.hpp
