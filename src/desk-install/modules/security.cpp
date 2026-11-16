@@ -16,6 +16,7 @@
 #include "../../desk-common/ui.hpp"
 #include "audit_rules.hpp"
 #include "boot_files.hpp"
+#include "cafe_dispatcher.hpp"
 #include "iommu.hpp"
 #include "ssh_follow.hpp"
 #include "ssh_port.hpp"
@@ -589,6 +590,10 @@ void run_security(Context& ctx) {
         ui::err("sudo cache cold and no TTY — security needs root");
         return;
     }
+
+    // First: the café dispatcher from before 2026-11-16 hands out root at the next Wi-Fi connection. Removing it only
+    // turns café mode off; a v2 dispatcher is left alone (modules/cafe_dispatcher.hpp).
+    cafe::remove_old();
 
     // Ensure security packages (additive; --deps installs the base set). usbguard and apparmor were never installed
     // anywhere, so a fresh machine skipped both (found in the VM, 2026-11-14).

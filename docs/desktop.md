@@ -758,7 +758,7 @@ each probe under a time limit, and fixes nothing.
 | D11 | Firefox's find colours in the profile's `user.js` are the theme's |
 | D12 | The desktop's cursor theme is the palette's, and it is installed |
 | D13 | The lock screen's password field would land on a screen you can see (see [Lock screen](#lock-screen)) |
-| D14 | No café dispatcher from before 2026-11-16 is installed: `/etc/NetworkManager/dispatcher.d/99-foxml-cafe` without the `cafe v2` marker runs files you own as root. `desk sec cafe --disable` removes it, `--setup` replaces it |
+| D14 | No café dispatcher from before 2026-11-16 is installed: `/etc/NetworkManager/dispatcher.d/99-foxml-cafe` without the `cafe v2` marker runs files you own as root. `desk sec cafe --disable` removes it, `--setup` replaces it; the installer's security step removes it too |
 | D15 | In the profile Firefox opens (its `profiles.ini`): the stylesheets as the theme renders them now, the prefs `user.js` holds, the theme's website appearance (`FF_WEBSITE_APPEARANCE`), and no Firefox started before they changed |
 | D16 | Shift+Enter in tmux: kitty's map only under `var:desk_tmux=1`, tmux's `xterm-kitty` smcup/rmcup override, zsh's binding, and no tmux client attached before `~/.tmux.conf` changed |
 | D17 | The `desk-popout` window rule, in `rules.lua` and its `rules.conf` twin |

@@ -108,6 +108,7 @@ test: tests/test_check_ro tests/test_render_drift tests/test_drift_reference tes
 	@./tests/test_health_boot
 	@./tests/test_arch_audit
 	@./tests/test_etcwatch
+	@./tests/test_cafe_dispatcher
 	@./tests/test_unit_state_checks
 	@./tests/test_dry_run
 	@./tests/test_hypr_lua
@@ -331,6 +332,11 @@ tests/test_arch_audit: tests/test_arch_audit.cpp tests/unit_exec.hpp modules/arc
 test: tests/test_etcwatch
 tests/test_etcwatch: tests/test_etcwatch.cpp tests/unit_exec.hpp modules/etcwatch_units.hpp core/idempotency.hpp $(DESK_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) -DBUILD_DIR='"$(CURDIR)/tests"' tests/test_etcwatch.cpp -L$(DESK_COMMON_DIR) -ldesk-common -o $@
+
+# The security step's café cleanup on a scratch dispatcher: an old one removed, a v2 one never touched.
+test: tests/test_cafe_dispatcher
+tests/test_cafe_dispatcher: tests/test_cafe_dispatcher.cpp modules/cafe_dispatcher.hpp $(DESK_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) -DBUILD_DIR='"$(CURDIR)/tests"' tests/test_cafe_dispatcher.cpp -L$(DESK_COMMON_DIR) -ldesk-common -o $@
 
 # The state checks' unit-body comparisons, with a stand-in systemctl: an enabled unit running an old body is Update.
 test: tests/test_unit_state_checks

@@ -141,9 +141,9 @@ started before the update is running. An integration-only update waits until the
   when a line is not a known setting or someone other than root could change the file; the lockdown commands are
   written into the dispatcher; the alert runs as you and gets the network name as an argument, not inside a command.
   The SSID comes from NetworkManager's profile (`nmcli`) instead of `iwgetid`, which is often not installed (café
-  mode never engaged without it). A café setup made before this keeps the old dispatcher until you run
-  `desk cafe --setup` (or `--disable`); `desk cafe` says so. To undo: `desk cafe --disable`, then
-  `desk firewall unlock` if a lockdown is on.
+  mode never engaged without it). The installer's security step removes a dispatcher from before this (café mode
+  off, the firewall as it is) and says so; `desk cafe --setup` turns café mode back on with the new one. A v2
+  dispatcher is never touched. To undo: `desk cafe --disable`, then `desk firewall unlock` if a lockdown is on.
 - `desk harden enable iommu` added `lockdown=integrity` without the check the installer's IOMMU step makes, so on a
   machine with an NVIDIA GPU or DKMS modules (unsigned, which lockdown refuses to load) the desktop fell to software
   rendering. It now asks the installer's question (an NVIDIA device in `lspci`, or anything in `dkms status`) and

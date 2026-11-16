@@ -117,9 +117,10 @@ sudo rm -f /etc/NetworkManager/dispatcher.d/99-foxml-cafe /etc/foxml/cafe.conf
 sudo ufw default allow outgoing
 ```
 
-A café setup from before 2026-11 has a dispatcher that sourced `~/.config/foxml/cafe.conf` and ran
+A café setup from before 2026-11-16 has a dispatcher that sourced `~/.config/foxml/cafe.conf` and ran
 `~/.local/bin/fox-firewall` as root, so anything running as you could become root at the next Wi-Fi connection.
-`desk cafe` reports it as "the old one"; `desk cafe --setup` replaces it, `desk cafe --disable` removes it.
+`desk cafe` reports it as "the old one"; `desk cafe --setup` replaces it, `desk cafe --disable` removes it, and the
+installer's security step removes it too (café mode is then off until `desk cafe --setup`).
 
 ### "The desktop crawls after IOMMU hardening" (software rendering, Hyprland near 800% CPU)
 
