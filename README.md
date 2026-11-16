@@ -81,7 +81,7 @@ Choose how much to install:
 | `./setup` | The workstation defaults, plus packages, coding agents, model downloads and GitHub workspace cloning |
 
 The two setup scripts pass `--yes` and apply their selected modules without the
-wizard. They use your saved theme, or **Classic** on a first install.
+wizard. They use your saved theme, or **retro-amber** on a first install.
 To choose another palette:
 
 ```bash
@@ -102,12 +102,14 @@ desk theme check
 
 ## Themes
 
-**Classic** is the maintained default: warm peach, dusty rose and sage on a
-dark plum background. **Paper**, shown above, uses light paper, graphite
-text, blush accents and botanical illustrations.
+**retro-amber** is the default: an amber phosphor terminal, one amber in
+brightness steps on warm black, the Big Blue Term font, a text-mode bar and
+drawer, and a faint glow with scanlines in kitty (`desk-crt on` puts the CRT
+over the whole screen).
 
-**retro-amber** is an amber phosphor terminal: one amber in brightness steps on
-warm black, the Big Blue Term font, and a faint glow with scanlines in kitty.
+**Classic** uses warm peach, dusty rose and sage on a dark plum background.
+**Paper**, shown above, uses light paper, graphite text, blush accents and
+botanical illustrations.
 
 Other palettes include Rose, Bubblegum, Cave Data Center and Amsterdam Orange.
 Alternative themes have varying levels of completion; read the
