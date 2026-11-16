@@ -94,14 +94,15 @@ _run() {
     fi
 
     if [[ -n "$message" ]]; then
-        # Fire dispatch alert (silent no-op if not configured).
-        desk-dispatch "weekly-audit" "$message" 2>/dev/null || true
+        # Phone alert when a webhook is set up; the desktop notice is the line below.
+        DESK_DISPATCH_LOCAL=0 desk-dispatch "weekly-audit" "$message" 2>/dev/null || true
         notify-send -u normal -t 8000 "desk audit" "$message" 2>/dev/null || true
         # Don't update baseline on drift — keep it pinned at the last clean state.
     else
         # Clean run; update baseline.
         echo "$cur_warns" > "$BASELINE"
-        desk-dispatch "weekly-audit" "desk doctor: clean ($cur_warns warning(s), 0 failed) on $(hostname)" 2>/dev/null || true
+        # A clean run is a heartbeat for the phone, not a desktop alert.
+        DESK_DISPATCH_LOCAL=0 desk-dispatch "weekly-audit" "desk doctor: clean ($cur_warns warning(s), 0 failed) on $(hostname)" 2>/dev/null || true
     fi
 }
 

@@ -116,11 +116,11 @@ done
 #    knows the lockdown actually ran.
 notify-send "locking down." "clipboard wiped, firefox session closed, editors and engines stopped" 2>/dev/null || true
 
-# Phone alert via desk-dispatch (no-op silently if webhook isn't
-# configured). Background + disown so the lock fires immediately;
-# dispatch finishes in the background after we're locked.
+# Phone alert via desk-dispatch when a webhook is set up (the notice
+# above is the desktop's). Background + disown so the lock fires
+# immediately; dispatch finishes in the background after we're locked.
 if command -v desk-dispatch >/dev/null 2>&1; then
-    (desk-dispatch "lockdown" "lockdown ran on $(hostname) at $(date -Iseconds)" >/dev/null 2>&1) &
+    (DESK_DISPATCH_LOCAL=0 desk-dispatch "lockdown" "lockdown ran on $(hostname) at $(date -Iseconds)" >/dev/null 2>&1) &
     disown || true
 fi
 

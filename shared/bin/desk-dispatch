@@ -3,6 +3,9 @@
 #
 # Generic alerting primitive used by every fox-* security hook
 # (tripwire, fail2ban actionban, USBGuard lock-screen blocks, etc).
+# With no webhook set up, the alert shows on this desktop instead
+# (notify-send). DESK_DISPATCH_LOCAL=0 skips that, for a caller that
+# shows its own notice.
 #
 # Config: ~/.config/foxml/dispatch.conf
 #   WEBHOOK_KIND=discord|telegram|slack
@@ -46,7 +49,7 @@ C_RST=$'\e[0m'
 
 usage() {
     cat <<EOF
-${C_BOLD}desk dispatch${C_RST} — send a notification to your phone via webhook
+${C_BOLD}desk dispatch${C_RST} — send an alert to your phone via webhook (to this desktop until one is set up)
 
   desk dispatch "Title" "Body"   send a one-shot alert
   desk dispatch --setup          configure a Discord, Slack, or Telegram destination
@@ -130,6 +133,22 @@ _ledger_write() {
 }
 
 # ─── senders ──────────────────────────────────────────────────────
+# No webhook: the alert shows on this desktop. Critical, so mako draws the theme's alert border, and the drawer keeps
+# it in its earlier notes after mako's four seconds. Fails when nothing could show it, so a caller's own fallback runs.
+_send_local() {
+    local title="$1" body="$2"
+    [[ "${DESK_DISPATCH_LOCAL:-1}" == 0 ]] && return 0
+    command -v notify-send >/dev/null 2>&1 || return 1
+    # Started from a root service through sudo or su (fail2ban, the boot check), the session bus address is unset.
+    if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]]; then
+        local bus="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/bus"
+        [[ -S "$bus" ]] && export DBUS_SESSION_BUS_ADDRESS="unix:path=$bus"
+    fi
+    # mako reads the body as Pango markup: a < or & from a path or a device name would spoil it.
+    body=${body//&/'&amp;'}; body=${body//</'&lt;'}; body=${body//>/'&gt;'}
+    notify-send --app-name=FoxML --category=foxml.alert --urgency=critical -- "$title" "$body" 2>/dev/null
+}
+
 _send_discord() {
     local title="$1" body="$2"
     local payload
@@ -277,7 +296,7 @@ act_test() {
 
 act_status() {
     if [[ ! -f "$CONF" ]]; then
-        echo "  no config — run: desk dispatch --setup"
+        echo "  no config — alerts show on this desktop; for your phone run: desk dispatch --setup"
         return 1
     fi
     _load_conf || return 1
@@ -313,13 +332,14 @@ act_send() {
         body=$(cat)
     fi
     # ALWAYS write to the shared ledger so the waybar widgets pick it up,
-    # even when no webhook is configured yet. desk-dispatch is the single
-    # fan-out point — local notify-send is each tool's responsibility.
+    # even when no webhook is configured yet.
     _ledger_write "$title" "$body"
 
-    # Webhook send is opt-in: skip silently if not configured.
+    # Webhook send is opt-in. Without one the alert used to end here as a
+    # ledger line nobody saw; it shows on this desktop now.
     if ! _load_conf 2>/dev/null; then
-        return 0
+        _send_local "$title" "$body"
+        return
     fi
     case "$WEBHOOK_KIND" in
         discord)  _send_discord  "$title" "$body" ;;
