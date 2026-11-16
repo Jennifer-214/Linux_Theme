@@ -144,6 +144,11 @@ started before the update is running. An integration-only update waits until the
   mode never engaged without it). A café setup made before this keeps the old dispatcher until you run
   `desk cafe --setup` (or `--disable`); `desk cafe` says so. To undo: `desk cafe --disable`, then
   `desk firewall unlock` if a lockdown is on.
+- `desk harden enable iommu` added `lockdown=integrity` without the check the installer's IOMMU step makes, so on a
+  machine with an NVIDIA GPU or DKMS modules (unsigned, which lockdown refuses to load) the desktop fell to software
+  rendering. It now asks the installer's question (an NVIDIA device in `lspci`, or anything in `dkms status`) and
+  refuses there with nothing changed; elsewhere it enables IOMMU and lockdown as before. Already hit: remove
+  `lockdown=integrity` from the boot entry (RECOVERY.md) or run the installer's `lockdown_heal` step.
 
 ### Upgrading from 3.x
 

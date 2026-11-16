@@ -97,8 +97,9 @@ _disable() {
 
 case "${1:-}" in
     ""|status)   _status ;;
-    enable)      [[ -n "${2:-}" ]] && _enable "$2"  || { echo "usage: desk harden enable <layer>"; exit 2; } ;;
-    disable)     [[ -n "${2:-}" ]] && _disable "$2" || { echo "usage: desk harden disable <layer>"; exit 2; } ;;
+    # Exit with the layer's own status: a refusal (iommu on an nvidia/DKMS machine) is not a usage error.
+    enable)      [[ -n "${2:-}" ]] || { echo "usage: desk harden enable <layer>"; exit 2; }; _enable "$2"; exit ;;
+    disable)     [[ -n "${2:-}" ]] || { echo "usage: desk harden disable <layer>"; exit 2; }; _disable "$2"; exit ;;
     -h|--help|help) cat <<EOF
 desk harden — kernel/userspace hardening control
 

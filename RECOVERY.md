@@ -103,6 +103,22 @@ A café setup from before 2026-11 has a dispatcher that sourced `~/.config/foxml
 `~/.local/bin/fox-firewall` as root, so anything running as you could become root at the next Wi-Fi connection.
 `desk cafe` reports it as "the old one"; `desk cafe --setup` replaces it, `desk cafe --disable` removes it.
 
+### "The desktop crawls after IOMMU hardening" (software rendering, Hyprland near 800% CPU)
+
+`lockdown=integrity` on the kernel command line loads only signed modules, and an NVIDIA driver or any DKMS module
+is unsigned, so the GPU falls back to software rendering. The installer leaves it out on such machines, and
+`desk harden enable iommu` now refuses there; an older `desk harden` added it anyway. From a TTY (Ctrl-Alt-F2):
+
+```
+sudo sed -i 's/ lockdown=integrity//g' /boot/loader/entries/arch.conf   # or the entry loader.conf names
+# GRUB: remove it from GRUB_CMDLINE_LINUX_DEFAULT in /etc/default/grub, then
+#   sudo grub-mkconfig -o /boot/grub/grub.cfg
+sudo reboot
+```
+
+`/boot/loader/entries/arch.conf.foxml-bak` is the entry as it was before `desk harden`'s last edit. The installer's
+`lockdown_heal` step (`./install.sh --only lockdown_heal`) makes the same repair, checked and reverted on a bad edit.
+
 ### "desk-deadman just locked + dropped network on a normal USB removal"
 
 ```

@@ -93,6 +93,7 @@ test: tests/test_check_ro tests/test_render_drift tests/test_drift_reference tes
 	@./tests/test_banner_font
 	@./tests/test_gaming
 	@./tests/test_iommu
+	@./tests/test_lockdown_gate
 	@./tests/test_hyprlock_pin
 	@./tests/test_hyprlock_backgrounds
 	@./tests/test_nvidia_modules
@@ -236,6 +237,12 @@ tests/test_classifier: tests/test_classifier.cpp core/classifier.o
 # Links iommu.o for the real symbols + libdesk-common for sh::run.
 tests/test_iommu: tests/test_iommu.cpp modules/iommu.o $(DESK_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) tests/test_iommu.cpp modules/iommu.o -L$(DESK_COMMON_DIR) -ldesk-common -o $@
+
+# The lockdown gate (has_nvidia || dkms_has_modules()) from the real detect and iommu objects, on lspci/dkms stand-ins
+# that print each case of the file tests/test_harden_lockdown.py runs mappings.sh's copy on.
+test: tests/test_lockdown_gate
+tests/test_lockdown_gate: tests/test_lockdown_gate.cpp modules/detect.o modules/iommu.o $(DESK_COMMON_LIB) ../../tests/fixtures/lockdown_gate.cases
+	$(CXX) $(CXXFLAGS) -DBUILD_DIR='"$(CURDIR)/tests"' -DCASES='"$(CURDIR)/../../tests/fixtures/lockdown_gate.cases"' tests/test_lockdown_gate.cpp modules/detect.o modules/iommu.o -L$(DESK_COMMON_DIR) -ldesk-common -o $@
 
 # nvidia_modules pins the MERGE that replaced the destructive whole-line
 # MODULES sed (the unbootable-initramfs brick): every existing MODULES entry

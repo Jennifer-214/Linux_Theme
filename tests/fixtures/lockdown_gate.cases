@@ -1,0 +1,20 @@
+# Would lockdown=integrity stop a kernel module this machine needs (block) or not (allow)? Asked of the installer's own
+# code (src/desk-install/tests/test_lockdown_gate.cpp: detect's has_nvidia, then dkms_has_modules()) and of the copy
+# `desk harden enable iommu` uses (tests/test_harden_lockdown.py: mappings.sh's lockdown_blocks_modules), each through
+# lspci and dkms stand-ins that print the case below.
+#
+# Fields, split on " | ":
+#   name | lspci's exit status (- when not installed) | what it prints | `dkms status` exit status (- when not
+#   installed) | what it prints | block or allow
+# In a printed field, \n is a new line and (nothing) is no output at all.
+Intel laptop, no DKMS | 0 | 00:02.0 VGA compatible controller: Intel Corporation Alder Lake-P GT2 [Iris Xe Graphics] (rev 0c) | - | (nothing) | allow
+AMD desktop, dkms installed with nothing registered | 0 | 03:00.0 VGA compatible controller: Advanced Micro Devices, Inc. [AMD/ATI] Navi 23 (rev c1) | 0 | (nothing) | allow
+dkms prints only blank lines | 0 | 00:02.0 VGA compatible controller: Intel Corporation UHD Graphics 620 (rev 07) | 0 | \n   \n | allow
+Optimus laptop: Intel iGPU and an NVIDIA dGPU | 0 | 00:02.0 VGA compatible controller: Intel Corporation TigerLake-H GT1 [UHD Graphics] (rev 01)\n01:00.0 3D controller: NVIDIA Corporation TU117GLM [T1200 Laptop GPU] (rev a1) | - | (nothing) | block
+NVIDIA named in lower case | 0 | 01:00.0 VGA compatible controller: nvidia corporation GA106 [GeForce RTX 3060] | - | (nothing) | block
+NVIDIA with dkms holding nothing | 0 | 2d:00.0 VGA compatible controller: NVIDIA Corporation AD104 [GeForce RTX 4070] (rev a1) | 0 | (nothing) | block
+a registered DKMS module on an Intel machine | 0 | 00:02.0 VGA compatible controller: Intel Corporation UHD Graphics 620 (rev 07) | 0 | v4l2loopback/0.13.2, 6.17.7-arch1-1, x86_64: installed | block
+dkms exits non-zero but lists a module | 0 | 00:02.0 VGA compatible controller: Intel Corporation UHD Graphics 620 (rev 07) | 1 | zfs/2.3.4, 6.17.7-arch1-1, x86_64: installed | block
+no lspci, a DKMS module | - | (nothing) | 0 | nvidia/580.95.05, 6.17.7-arch1-1, x86_64: installed | block
+# Without pciutils neither can see the GPU (pciutils is in Arch's base, so this is rare).
+no lspci, no dkms | - | (nothing) | - | (nothing) | allow

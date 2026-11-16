@@ -1424,10 +1424,45 @@ install_noexec_tmp() {
     echo "  ${C_DIM:-}note: backup at ${fstab}.foxml-bak — if a build script breaks, revert with: sudo mv ${fstab}.foxml-bak $fstab${C_RST:-}"
 }
 
+# Would lockdown=integrity stop a kernel module this machine needs? It loads only signed modules, and NVIDIA's driver
+# (stock Arch enrols no signing key) and every DKMS module are unsigned: the GPU falls back to software rendering, the
+# 800%-CPU storm. The installer's question, asked the same way (its iommu and lockdown_heal modules:
+# ctx.has_nvidia || dkms_has_modules()); tests/fixtures/lockdown_gate.cases holds the cases both are tested on.
+# Prints what was found and returns 0 when it would, 1 when it would not. Written for bash and zsh alike: desk-doctor's
+# hints have people source this file into their own shell.
+lockdown_blocks_modules() {
+    local pci listed
+    if pci=$(lspci 2>/dev/null) && [[ $pci == *[Nn][Vv][Ii][Dd][Ii][Aa]* ]]; then
+        echo "an NVIDIA GPU (lspci)"
+        return 0
+    fi
+    if command -v dkms >/dev/null 2>&1; then
+        listed=$(dkms status 2>/dev/null)
+        if [[ $listed == *[![:space:]]* ]]; then
+            echo "DKMS modules (dkms status: ${listed%%$'\n'*})"
+            return 0
+        fi
+    fi
+    return 1
+}
+
 # IOMMU / DMA protection. Plugged-in Thunderbolt / PCIe device can do
 # DMA reads of RAM (Inception, etc.). intel_iommu=on iommu=pt isolates
 # devices behind the kernel's IOMMU. AMD systems use amd_iommu=on.
 install_iommu() {
+    local blocked rc
+    blocked=$(lockdown_blocks_modules); rc=$?
+    if (( rc == 0 )); then
+        echo "  ✗ refusing: this machine has $blocked, and the lockdown=integrity this step adds would stop"
+        echo "    those unsigned modules loading (the GPU drops to software rendering). Nothing was changed."
+    elif (( rc != 1 )); then
+        echo "  ✗ refusing: the check for an NVIDIA GPU or DKMS modules failed (status $rc), and the lockdown=integrity"
+        echo "    this step adds could stop a module this machine needs. Nothing was changed."
+    fi
+    if (( rc != 1 )); then
+        echo "    IOMMU without lockdown: the installer's step, ./install.sh --only iommu (it leaves lockdown out here)."
+        return 1
+    fi
     local cmdline_file=""
     if [[ -f /boot/loader/entries/arch.conf ]]; then
         cmdline_file=/boot/loader/entries/arch.conf
