@@ -19,11 +19,21 @@ available() {
         [[ -r "$config_dir/shell.qml" && -r "$config_dir/Theme.qml" && -r "$config_dir/menus.json" ]]
 }
 
-ipc() { quickshell -c desk ipc call drawer "$@"; }
+# 9>&-: a call left hanging must not hold the start lock after this script has gone.
+ipc() { quickshell -c desk ipc call drawer "$@" 9>&-; }
 ready_status() {
     local response
     response=$(ipc status 2>/dev/null) || return 1
     [[ "$response" == *'"open":'* ]]
+}
+# One start at a time. Callers that each found the drawer silent each started one (a first login ran the bar's, the
+# session's and the tour's at once) and --no-duplicate let the second through, so two bars stood stacked. The lock
+# is held until the started drawer answers; the next caller then finds it running. Without flock or a runtime folder
+# it starts unlocked, as it always did.
+lock_start() {
+    command -v flock >/dev/null 2>&1 || return 0
+    { exec 9>>"${XDG_RUNTIME_DIR:-/run/user/$UID}/desk-drawer-start.lock"; } 2>/dev/null || return 0
+    flock -w 30 9
 }
 
 case "${1:-root}" in
@@ -56,21 +66,30 @@ if ! available; then
 fi
 
 if ! ready_status; then
-    # Detach before Qt/Wayland initializes; forking the loaded shell can leave
-    # a newly added layer surface with no live IPC service.
-    setsid -f quickshell -c desk --no-duplicate >/dev/null 2>&1 || {
-        printf 'desktop-menu: could not start the drawer.\n' >&2
-        exit 1
-    }
-    ready=false
-    for (( attempt=0; attempt<30; attempt++ )); do
-        if ready_status; then ready=true; break; fi
-        sleep 0.1
-    done
-    if [[ "$ready" != true ]]; then
-        printf 'desktop-menu: the drawer did not become ready; check quickshell -c desk log.\n' >&2
+    if ! lock_start; then
+        printf 'desktop-menu: the drawer is still starting; try again in a moment.\n' >&2
         exit 1
     fi
+    if ! ready_status; then
+        # Detach before Qt/Wayland initializes; forking the loaded shell can leave
+        # a newly added layer surface with no live IPC service.
+        setsid -f quickshell -c desk --no-duplicate >/dev/null 2>&1 9>&- || {
+            printf 'desktop-menu: could not start the drawer.\n' >&2
+            exit 1
+        }
+        # About ten seconds: a cold first login can take several. Giving up after three let the next caller start a
+        # second drawer, and sent the bar's start to the Waybar fallback while this one was still coming up.
+        ready=false
+        for (( attempt=0; attempt<100; attempt++ )); do
+            if ready_status; then ready=true; break; fi
+            sleep 0.1
+        done
+        if [[ "$ready" != true ]]; then
+            printf 'desktop-menu: the drawer did not become ready; check quickshell -c desk log.\n' >&2
+            exit 1
+        fi
+    fi
+    exec 9>&-
 fi
 
 [[ "$action" == start ]] && exit 0

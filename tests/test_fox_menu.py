@@ -137,7 +137,7 @@ class DrawerEntrypoints(unittest.TestCase):
         result = self.run_script(LAUNCHER, "sound", TEST_NEVER_READY="1")
         self.assertEqual(result.returncode, 1)
         self.assertIn("did not become ready", result.stderr)
-        self.assertEqual(len(self.calls("sleep")), 30)
+        self.assertEqual(len(self.calls("sleep")), 100)
 
     def test_close_never_starts_a_new_instance(self):
         self.ready.unlink()

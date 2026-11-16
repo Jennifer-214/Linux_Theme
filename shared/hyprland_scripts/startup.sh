@@ -1,13 +1,10 @@
 #!/bin/bash
 
 # Start UI services (hypridle started via exec-once in autostart.conf).
-# start_waybar.sh detects monitor scale + sed-substitutes size tokens into
-# the live waybar style.css/config, then execs waybar.
+# start_waybar.sh renders the bar's sizes for the monitors, then starts the
+# Quickshell bar (and with it the drawer, one process), or Waybar if that fails.
+# It is the only starter here: a second one raced it to two drawers.
 ~/.config/hypr/scripts/start_waybar.sh &
-
-if command -v desktop-menu >/dev/null 2>&1 && desktop-menu --available; then
-    desktop-menu --start &
-fi
 
 # Border telemetry (dynamic earthy borders based on system state)
 ~/.config/hypr/scripts/border_telemetry.sh &
