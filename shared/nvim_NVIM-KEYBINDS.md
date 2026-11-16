@@ -305,6 +305,12 @@ The call graph (desk.callgraph); "in a graph" means the graph tab and the live p
 | `q` in the panel | Close the panel |
 <!-- callgraph-keys:end -->
 
+The project map (desk.map):
+
+| Key | Action |
+|---|---|
+| `Space cm`, `:ProjectMap` | Project map: the whole checkout as boxes, by part, file and function, callers above. In it: `Enter` zooms in (on a function: goes there), `-` zooms out, `r` what a function reaches, `c` its callers, `p` the ways between two functions, `m` a part, `R` rebuilds in the background, `B` rebuilds reading a binary, `q` closes |
+
 ### C/C++ Specific
 | Key | Action |
 |-----|--------|

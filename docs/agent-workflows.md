@@ -360,6 +360,34 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   count on the last-turn row, `✎ 2 files · 3 functions`. Enter lists them by file; each opens Neovim with its graph
   (`desk-work open --action callgraph`). A language without a treesitter parser shows its hunks as line ranges.
 
+## Project map
+
+- **The view**: `Space cm` (`:ProjectMap`) opens the whole checkout as boxes at three zooms: its parts (top-level
+  folders, or the folder inside `src/`, `lib/`, `lua/`, `shared/` and the like), a part's files, a file's functions
+  and classes. Callers sit above what they call. Enter zooms in, and on a function goes to its code; `-` zooms out;
+  `q` closes. A level draws at most 60 boxes (24 on each side) and says "+N more" for the rest.
+- **Queries**: `r` what a function reaches (a count before the key sets the depth; 3 without one), `c` what calls
+  it, transitively, `p` the ways from one function to another (shortest first, at most 20), `m` a part by name. The
+  box under the cursor is the default answer to the prompt. A call that is part of recursion reads "in a cycle".
+- **Rebuilt only when asked**: `R`, `:ProjectMapBuild` or `desk-work map build --root .` builds it as a desk-work job
+  in the background (its log is in the jobs list; a failure sends the usual notice). The map is kept with the
+  checkout's work records (`~/.local/state/foxml/work/projects/<id>/map/`), never in the project. When HEAD moves or a
+  mapped file changes, the page says "stale since <commit>" and why; it does not rebuild by itself.
+- **Readers**, each with a line in the footer: which answered, and for each that did not, what it requires.
+  - *syntax*, in any git checkout: functions and classes per file and the calls between them by name, from
+    treesitter in a headless Neovim with the installed parsers. Overloads, macros and virtual dispatch are not
+    resolved; a call whose name fits several functions is left out and counted. It skips git-ignored files, vendored
+    and build folders and files over 1 MiB, and stops at 4000 files. Requires nvim and a parser per language.
+  - *binary*, for an ELF program or library you name: `B` in the view, or `--binary PATH` on the build (remembered
+    for the next builds). Direct calls and tail jumps from `objdump -d`: exact for what was compiled, after inlining.
+    Library and indirect calls end at leaves. Built with debug info (`-g`), each function's file is known and it
+    merges with the syntax reader's by name and file; without, by a name found once on each side (the binary's own
+    folder breaks a tie). Requires objdump. Rebuilding the binary makes only its part of the map stale.
+- **From the shell**: `desk-work map status --root .` (built, stale and why, each reader), `desk-work map query
+  --root . --q reach|callers --from NAME [--depth N]`, `--q paths --from A --to B`, `--q module [--name PART]`,
+  `--q touched --commit REV` (the functions a commit's changed lines fall in), `desk-work map show` (the graph, in the
+  shape a project's own graph tool prints) and `desk-work map export --format dot` (for Graphviz, if installed).
+
 ## End a session
 
 `/goodnight` (`~/.claude/commands/goodnight.md`) wraps up a session: Claude writes a
