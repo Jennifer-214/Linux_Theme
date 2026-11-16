@@ -350,42 +350,92 @@ local function label_of(node, name, src)
   return vim.trim((label or node:type()):gsub('%s+', ' ')):sub(1, 72)
 end
 
-function M.changed_symbols(file)
-  if file.symbols then return file.symbols end
-  local result, seen, roots = {}, {}, {}
-  local ft = filetype_of(file.rel, (file.right or '') ~= '' and file.right or file.left)
-  local lang = ft and vim.treesitter.language.get_lang(ft)
-  local function collect(text, side, offset, hunk)
-    if not lang or hunk[offset + 1] == 0 then return false end
+-- The unit that starts at { row, col } (0-based) of a tree, or nil.
+local function unit_at(root, at)
+  local node = M.unit_of(root:named_descendant_for_range(at[1], at[2], at[1], at[2]))
+  while node do
+    local row, col = node:start()
+    if row == at[1] and col == at[2] then return node end
+    node = M.unit_of(node:parent())
+  end
+end
+-- The row of the other copy opposite a row of this one (0-based), through the change's hunks. A row the change added,
+-- removed or rewrote has none: nil, and the rows of the other copy its hunk replaced ([from, to)).
+local function opposite(hunks, row, side)
+  local mine, theirs = side == 'after' and 3 or 1, side == 'after' and 1 or 3
+  local shift = 0
+  for _, h in ipairs(hunks or {}) do
+    local first = h[mine + 1] > 0 and h[mine] - 1 or h[mine]
+    if row < first then break end
+    local there = h[theirs + 1] > 0 and h[theirs] - 1 or h[theirs]
+    if row < first + h[mine + 1] then return nil, there, there + h[theirs + 1] end
+    shift = there + h[theirs + 1] - first - h[mine + 1]
+  end
+  return row + shift
+end
+-- A file's two copies as trees, each parsed at most once while one call reads them: tree(side) → its root (false: it
+-- did not parse) and the text its nodes read.
+local function copies(file, lang)
+  local roots, texts = {}, {}
+  return function(side)
     if roots[side] == nil then
-      roots[side] = false
+      local text = side == 'before' and file.left or file.right
+      roots[side], texts[side] = false, text
       local ok, parser = pcall(vim.treesitter.get_string_parser, text, lang)
       if ok and parser then
         local parsed, trees = pcall(parser.parse, parser)
-        if parsed and trees[1] then roots[side] = trees[1]:root() end
+        if parsed and trees and trees[1] then roots[side] = trees[1]:root() end
       end
     end
-    if not roots[side] then return false end
-    local root, found = roots[side], false
+    return roots[side], texts[side]
+  end
+end
+
+-- A file's changed functions, one row per name (the first change of that name), each with where it starts in the copies
+-- it was found in (at.before, at.after: 0-based), so its calls and its callers are that function's and never another's
+-- of the same name: an anonymous function is named by its first line, and methods, overloads and #ifdef twins share
+-- names. A change outside every function is a row of its lines. tree: copies(), when the caller reads the trees too.
+function M.changed_symbols(file, tree)
+  if file.symbols then return file.symbols end
+  local result, seen = {}, {}
+  local ft = filetype_of(file.rel, (file.right or '') ~= '' and file.right or file.left)
+  local lang = ft and vim.treesitter.language.get_lang(ft)
+  tree = tree or copies(file, lang)
+  -- The units at the rows one side of a hunk covers, in reading order, each once.
+  local function units_in(side, offset, hunk)
+    local out, ids = {}, {}
+    if not lang or hunk[offset + 1] == 0 then return out end
+    local root, src = tree(side)
+    if not root then return out end
     for delta = 0, math.min(hunk[offset + 1], 128) - 1 do
       local row = math.max(0, hunk[offset] - 1 + delta)
       local node, name = M.unit_of(root:named_descendant_for_range(row, 0, row, 0))
-      if node then
-        found = true
-        local label = label_of(node, name, text)
-        local key = label
-        if not seen[key] then
-          result[#result + 1] = { name = label, kind = node:type(), side = side, line = node:start() + 1, signature = file.signature }
-          seen[key] = true
+      if node and not ids[node:id()] then
+        ids[node:id()] = true
+        out[#out + 1] = { node = node, label = label_of(node, name, src) }
+      end
+    end
+    return out
+  end
+  for _, h in ipairs(file.hunks or {}) do
+    local found = { after = units_in('after', 3, h), before = units_in('before', 1, h) }
+    for _, side in ipairs({ 'after', 'before' }) do
+      local other = side == 'after' and 'before' or 'after'
+      for _, u in ipairs(found[side]) do
+        if not seen[u.label] then
+          seen[u.label] = true
+          local row, col = u.node:start()
+          local at = { [side] = { row, col } }
+          -- The same function on the other side of this hunk (its first line rewritten); M.structure finds it through
+          -- the lines the change left alone otherwise.
+          for _, twin in ipairs(found[other]) do
+            if twin.label == u.label then at[other] = { twin.node:start() }; break end
+          end
+          result[#result + 1] = { name = u.label, kind = u.node:type(), side = side, line = row + 1, signature = file.signature, at = at }
         end
       end
     end
-    return found
-  end
-  for _, h in ipairs(file.hunks or {}) do
-    local after = collect(file.right, 'after', 3, h)
-    local before = collect(file.left, 'before', 1, h)
-    if not after and not before then
+    if #found.after == 0 and #found.before == 0 then
       local side, start, count = h[4] > 0 and 'after' or 'before', h[4] > 0 and h[3] or h[1], h[4] > 0 and h[4] or h[2]
       local label = 'lines ' .. start .. (count > 1 and ('–' .. (start + count - 1)) or '')
       if not seen[label] then result[#result + 1] = { name = label, kind = 'hunk', side = side, line = math.max(1, start), signature = file.signature }; seen[label] = true end
@@ -393,8 +443,7 @@ function M.changed_symbols(file)
   end
   table.sort(result, function(a, b) return a.line < b.line end)
   file.symbols = result
-  -- The trees it read go to M.structure (when it asks first), which reads each copy once.
-  return result, roots
+  return result
 end
 
 -- ─── structure: the calls a change adds and removes, and who calls what it changed ──────────────────────────────
@@ -437,7 +486,7 @@ local function calls_in(node, src)
   end
   return out, seen
 end
--- Every unit of a tree by the name changed_symbols gives it (the first, when a name repeats).
+-- Every unit of a tree under the name changed_symbols gives it: name → its units, in reading order.
 local function units_by_label(root, src)
   local out, stack = {}, { root }
   while #stack > 0 do
@@ -445,51 +494,76 @@ local function units_by_label(root, src)
     if unit_types[node:type()] then
       local _, name = M.unit_of(node)
       local label = label_of(node, name, src)
-      out[label] = out[label] or node
+      out[label] = out[label] or {}
+      table.insert(out[label], node)
     end
-    for child in node:iter_children() do if child:named() then stack[#stack + 1] = child end end
+    local children = {}
+    for child in node:iter_children() do if child:named() then children[#children + 1] = child end end
+    for i = #children, 1, -1 do stack[#stack + 1] = children[i] end
   end
   return out
 end
--- file.structure, read once per version of the file (its signature): calls = { [function] = { added, removed } },
--- changed = the functions whose calls changed, why = what is missing when nothing could be read. A copy over
--- M.STRUCTURE_MAX is not read: one parse of it would hold the editor up, even in the background.
+-- A changed function's unit in one copy: where it was found there; else opposite where it was found in the other copy,
+-- when its first line is one the change left alone; else, its first line rewritten, the one of that name that starts in
+-- what that hunk replaced. nil when that copy has none (a function the change added or removed). by_label(side): the
+-- copy's units by name (units_by_label), read only when a first line was rewritten.
+local function unit_on(file, s, side, tree, by_label)
+  local at, other = s.at or {}, side == 'after' and 'before' or 'after'
+  if not (at[side] or at[other]) then return nil end
+  local root, src = tree(side)
+  if not root then return nil end
+  if at[side] then return unit_at(root, at[side]), src end
+  local row, from, to = opposite(file.hunks, at[other][1], other)
+  if row then
+    local node = unit_at(root, { row, at[other][2] })
+    if not node then return nil end
+    local _, name = M.unit_of(node)
+    if label_of(node, name, src) == s.name then return node, src end
+    return nil
+  end
+  for _, node in ipairs(by_label(side)[s.name] or {}) do
+    local start = node:start()
+    if start >= from and start < to then return node, src end
+  end
+end
+-- The parser M.structure reads a file with; nil and why when it reads nothing (nil alone: nothing to read).
 M.STRUCTURE_MAX = 512 * 1024
-function M.structure(file)
-  if file.structure and file.structure.signature == file.signature then return file.structure end
-  local s = { signature = file.signature, calls = {}, changed = {} }
-  file.structure = s
-  if not file.loaded or file.error or file.binary then return s end
+local function structure_lang(file)
+  if not file.loaded or file.error or file.binary then return nil end
   if #file.left > M.STRUCTURE_MAX or #file.right > M.STRUCTURE_MAX then
-    s.why = 'calls: not read, the file is over ' .. math.floor(M.STRUCTURE_MAX / 1024) .. ' KiB'
-    return s
+    return nil, 'calls: not read, the file is over ' .. math.floor(M.STRUCTURE_MAX / 1024) .. ' KiB'
   end
   local ft = filetype_of(file.rel, file.right ~= '' and file.right or file.left)
   local lang = ft and vim.treesitter.language.get_lang(ft)
   local found, added = false, false
   if lang then found, added = pcall(vim.treesitter.language.add, lang) end
-  if not (found and added) then
-    s.why = 'calls: requires a treesitter parser for ' .. (ft or file.rel:match('%.([^./]+)$') or 'this file')
-    return s
-  end
-  -- The trees changed_symbols just read, when it read them now (false: that copy did not parse); else each is read here.
-  local symbols, roots = M.changed_symbols(file)
-  local units = {}
-  for side, text in pairs({ before = file.left, after = file.right }) do
-    local root = roots and roots[side]
-    if root == nil then
-      local ok, parser = pcall(vim.treesitter.get_string_parser, text, lang)
-      local parsed, trees = false, nil
-      if ok and parser then parsed, trees = pcall(parser.parse, parser) end
-      root = parsed and trees and trees[1] and trees[1]:root() or false
+  if not (found and added) then return nil, 'calls: requires a treesitter parser for ' .. (ft or file.rel:match('%.([^./]+)$') or 'this file') end
+  return lang
+end
+-- file.structure, read once per version of the file (its signature): calls = { [function] = { added, removed } },
+-- changed = the functions whose calls changed, why = what is missing when nothing could be read. A copy over
+-- M.STRUCTURE_MAX is not read: one parse of it would hold the editor up, even in the background.
+function M.structure(file)
+  if file.structure and file.structure.signature == file.signature then return file.structure end
+  local s = { signature = file.signature, calls = {}, changed = {} }
+  file.structure = s
+  local lang, why = structure_lang(file)
+  if not lang then s.why = why; return s end
+  local tree, labelled = copies(file, lang), {}
+  local function by_label(side)
+    if not labelled[side] then
+      local root, src = tree(side)
+      labelled[side] = root and units_by_label(root, src) or {}
     end
-    units[side] = root and units_by_label(root, text) or {}
+    return labelled[side]
   end
-  for _, symbol in ipairs(symbols) do
+  for _, symbol in ipairs(M.changed_symbols(file, tree)) do
     if symbol.kind ~= 'hunk' then
       local was, had, now, has = {}, {}, {}, {}
-      if units.before[symbol.name] then was, had = calls_in(units.before[symbol.name], file.left) end
-      if units.after[symbol.name] then now, has = calls_in(units.after[symbol.name], file.right) end
+      local before, before_src = unit_on(file, symbol, 'before', tree, by_label)
+      local after, after_src = unit_on(file, symbol, 'after', tree, by_label)
+      if before then was, had = calls_in(before, before_src) end
+      if after then now, has = calls_in(after, after_src) end
       local c = { added = vim.tbl_filter(function(n) return not had[n] end, now), removed = vim.tbl_filter(function(n) return not has[n] end, was) }
       s.calls[symbol.name] = c
       if #c.added + #c.removed > 0 then s.changed[#s.changed + 1] = symbol.name end
@@ -974,8 +1048,31 @@ local NO_REACH = 'callers: requires a language server or the project map'
 M.REACH_WAIT_S, M.REACH_AGAIN_S = 5, 30
 local map_missing = {}   -- root → when to ask again whether it has a map built
 local run_reach
+-- A changed function in the working buffer: where the review's copy has it when the buffer has it there too (the same
+-- name), else the one of that name nearest its line. The buffer's units are read once a version, not once a function.
+local function unit_here(r, root, buf, s)
+  local at = s.at and s.at.after
+  local node = at and unit_at(root, at)
+  if node then
+    local _, name = M.unit_of(node)
+    if label_of(node, name, buf) == s.name then return node end
+  end
+  local tick = api.nvim_buf_get_changedtick(buf)
+  r.buffer_units = r.buffer_units or {}
+  local known = r.buffer_units[buf]
+  if not (known and known.tick == tick) then
+    known = { tick = tick, units = units_by_label(root, buf) }
+    r.buffer_units[buf] = known
+  end
+  local best, gap
+  for _, unit in ipairs(known.units[s.name] or {}) do
+    local d = math.abs(unit:start() - (s.line - 1))
+    if not best or d < gap then best, gap = unit, d end
+  end
+  return best
+end
 -- The language server attached to the working file's buffer, when it is loaded and has one; false otherwise.
-local function ask_server(job, done)
+local function ask_server(r, job, done)
   local buf = vim.fn.bufnr(job.f.path)
   if buf < 0 or not api.nvim_buf_is_loaded(buf) then return false end
   local G = require('desk.callgraph')
@@ -991,7 +1088,7 @@ local function ask_server(job, done)
   vim.defer_fn(function() answer('callers: the language server did not answer in ' .. M.REACH_WAIT_S .. ' s') end, M.REACH_WAIT_S * 1000)
   G.with_tree(buf, function(tree)
     if over then return end
-    local node = tree and units_by_label(tree:root(), buf)[job.s.name]
+    local node = tree and unit_here(r, tree:root(), buf, job.s)
     local target = node and G.symbol_in(tree, buf, node:start())
     if not target then return answer('not in the working file now') end
     local indexing = G.busy(client)
@@ -1047,7 +1144,7 @@ run_reach = function(r)
     if M.current == r and not r.closing then panel(r) end
     vim.schedule(function() run_reach(r) end)
   end
-  if not ask_server(job, done) and not ask_map(r, job, done) then vim.schedule(function() done(NO_REACH, { source = 'none' }) end) end
+  if not ask_server(r, job, done) and not ask_map(r, job, done) then vim.schedule(function() done(NO_REACH, { source = 'none' }) end) end
 end
 -- Who calls function s of file f: asked when nothing current is known (a server's answer is current until its buffer
 -- changes, a map's for ten minutes; a server attached since answers instead).
