@@ -747,12 +747,21 @@ end
 -- so moving the cursor rewrites two lines instead of rebuilding every row (a long review lagged on each j/k).
 local ns_cursor = api.nvim_create_namespace('desk_review_cursor')
 -- What a row says in the strip: its two lines, boxed for width w.
+-- The strip's box: the theme's float border (vim.g.desk_border; retro's is the DOS box, in double lines), else rounded.
+local function strip_box()
+  local b = vim.g.desk_border
+  local function ch(x) return type(x) == 'table' and tostring(x[1] or '') or tostring(x or '') end
+  if type(b) == 'table' and #b == 8 then
+    return { tl = ch(b[1]), top = ch(b[2]), tr = ch(b[3]), right = ch(b[4]), br = ch(b[5]), bottom = ch(b[6]), bl = ch(b[7]), left = ch(b[8]) }
+  end
+  return { tl = '╭', top = '─', tr = '╮', right = '│', br = '╯', bottom = '─', bl = '╰', left = '│' }
+end
 local function strip_of(r, entry, w)
-  local about = describe(r, entry)
+  local about, box = describe(r, entry), strip_box()
   local lines = {}
   for i = 1, 2 do
     local s = fit(((about[i] or ''):gsub('[\r\n\t]', ' ')), w - 5)
-    lines[i] = ' │ ' .. s .. string.rep(' ', math.max(0, w - 5 - width_of(s))) .. ' │'
+    lines[i] = ' ' .. box.left .. ' ' .. s .. string.rep(' ', math.max(0, w - 5 - width_of(s))) .. ' ' .. box.right
   end
   return lines
 end
@@ -890,7 +899,9 @@ local function add_strip(built, lines, w)
   local text, marks = built.lines, built.marks
   text[#text + 1] = ''
   local top = #text + 1
-  text[top], text[top + 1], text[top + 2], text[top + 3] = ' ╭' .. string.rep('─', w - 3) .. '╮', lines[1], lines[2], ' ╰' .. string.rep('─', w - 3) .. '╯'
+  local box = strip_box()
+  text[top], text[top + 1], text[top + 2], text[top + 3] = ' ' .. box.tl .. string.rep(box.top, w - 3) .. box.tr, lines[1], lines[2],
+    ' ' .. box.bl .. string.rep(box.bottom, w - 3) .. box.br
   marks[#marks + 1] = { top, 0, -1, 'dim' }
   marks[#marks + 1] = { top + 3, 0, -1, 'dim' }
   return top + 1

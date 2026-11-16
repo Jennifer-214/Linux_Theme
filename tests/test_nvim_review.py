@@ -695,6 +695,31 @@ a=assert(io.open(root..'/a.lua','w')); a:write('local value = 999\nprint(value)\
 C.close()
 ''', index_unchanged=False)
 
+    def test_the_strip_is_boxed_in_the_themes_border(self):
+        # The VM experience test (R2-8): under retro the strip stayed a rounded box inside the DOS screen.
+        self.run_lua(r'''
+local function box()
+  local r=R.current
+  local function at(n) return api.nvim_buf_get_lines(r.panel_buf,n-1,n,false)[1] end
+  return at(r.strip[1]-1), at(r.strip[1]), at(r.strip[2]+1)
+end
+local function starts(s,with) return s:sub(1,#with)==with end
+local function ends(s,with) return s:sub(-#with)==with end
+vim.g.desk_border={'╔','═','╗','║','╝','═','╚','║'}
+C.open_review(row,root)
+local top,line,bottom=box()
+assert(starts(top,' ╔═') and ends(top,'═╗') and starts(bottom,' ╚═') and ends(bottom,'═╝') and starts(line,' ║ ') and ends(line,' ║'),
+  "retro: the strip in the DOS box's double lines:\n"..top..'\n'..line..'\n'..bottom)
+local drawn=table.concat(R.view_kind.render({review=R.current},90).lines,'\n')
+assert(drawn:find(' ╔═',1,true) and not drawn:find('╭',1,true),"… in the pop-out's view too:\n"..drawn)
+C.close()
+vim.g.desk_border=nil
+C.open_review(row,root)
+top,line,bottom=box()
+assert(starts(top,' ╭─') and ends(top,'─╮') and starts(bottom,' ╰─') and ends(line,' │'),'other themes: rounded, as before:\n'..top..'\n'..line..'\n'..bottom)
+C.close()
+''')
+
     def test_the_working_list_picks_up_files_changed_after_it_opened(self):
         self.run_lua(r'''
 vim.cmd.edit(root .. '/a.lua')
