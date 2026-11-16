@@ -12,6 +12,7 @@
 //     long install — the dispatcher tails the log on failure.
 
 #include <filesystem>
+#include <functional>
 #include <initializer_list>
 #include <string>
 #include <vector>
@@ -54,6 +55,11 @@ int run_logged(const std::vector<std::string>& argv, const std::filesystem::path
 
 // Runs argv, capturing stdout. Returns true on exit code 0.
 bool capture(const std::vector<std::string>& argv, std::string& out);
+
+// Runs argv and hands each line of its stdout to `each` as it arrives, so output larger than memory should hold (a
+// whole disassembly) is never kept. Stderr goes where probe() sends it. `each` returning false stops the child
+// (SIGTERM). Returns the exit code; 128+signal when it was stopped or killed.
+int each_line(const std::vector<std::string>& argv, const std::function<bool(const std::string&)>& each);
 
 // A read-only query (pacman -T, pacman -Qi, ...): runs even in a dry run, so a state check reports what's really
 // there, and captures stdout like capture() (stderr goes to the install log when one is set). Returns the exit code:

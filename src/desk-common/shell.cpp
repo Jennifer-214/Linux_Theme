@@ -230,6 +230,57 @@ bool capture(const std::vector<std::string>& argv, std::string& out) {
     return probe(argv, out) == 0;
 }
 
+int each_line(const std::vector<std::string>& argv, const std::function<bool(const std::string&)>& each) {
+    if (argv.empty()) return 127;
+    int p[2];
+    if (::pipe2(p, O_CLOEXEC) < 0) return -1;
+    int log_fd = open_stderr_log();
+    const auto old_pipe = std::signal(SIGPIPE, SIG_IGN);
+    pid_t pid = ::fork();
+    if (pid < 0) {
+        ::close(p[0]); ::close(p[1]);
+        if (log_fd >= 0) ::close(log_fd);
+        std::signal(SIGPIPE, old_pipe);
+        return -1;
+    }
+    if (pid == 0) {
+        std::signal(SIGPIPE, SIG_DFL);
+        ::dup2(p[1], STDOUT_FILENO);
+        if (log_fd >= 0) ::dup2(log_fd, STDERR_FILENO);
+        std::vector<const char*> v;
+        for (auto& s : argv) v.push_back(s.c_str());
+        v.push_back(nullptr);
+        ::execvp(v[0], const_cast<char* const*>(v.data()));
+        ::_exit(127);
+    }
+    ::close(p[1]);
+    if (log_fd >= 0) ::close(log_fd);
+    std::string pending;
+    bool stopped = false;
+    char buf[65536];
+    while (!stopped) {
+        const ssize_t n = ::read(p[0], buf, sizeof(buf));
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) break;
+        pending.append(buf, static_cast<size_t>(n));
+        size_t from = 0;
+        for (size_t at; !stopped && (at = pending.find('\n', from)) != std::string::npos; from = at + 1)
+            stopped = !each(pending.substr(from, at - from));
+        pending.erase(0, from);
+        // One line longer than a megabyte is cut there rather than held.
+        if (!stopped && pending.size() > (1u << 20)) { stopped = !each(pending); pending.clear(); }
+    }
+    if (!stopped && !pending.empty()) stopped = !each(pending);
+    if (stopped) ::kill(pid, SIGTERM);
+    ::close(p[0]);
+    int status = 0;
+    while (::waitpid(pid, &status, 0) < 0) {
+        if (errno != EINTR) { std::signal(SIGPIPE, old_pipe); return -1; }
+    }
+    std::signal(SIGPIPE, old_pipe);
+    return WIFEXITED(status) ? WEXITSTATUS(status) : WIFSIGNALED(status) ? 128 + WTERMSIG(status) : -1;
+}
+
 int run_logged(const std::vector<std::string>& argv, const std::filesystem::path& log,
                std::size_t limit, bool& truncated) {
     truncated = false;

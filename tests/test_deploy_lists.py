@@ -54,6 +54,8 @@ ONE_SIDED = {
         "native-only receiver for messages over the editor's own socket (desk-work editor); AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "nvim_lua/desk/actions.lua", "~/.config/nvim/lua/desk/actions.lua"):
         "native-only action registry: the desk keys, which-key's words and the home menu; AGENT.md freezes mappings.sh",
+    ("SHARED_MAPPINGS", "nvim_lua/desk/map.lua", "~/.config/nvim/lua/desk/map.lua"):
+        "native-only project map view and desk-work's syntax reader; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "kitty/crt-glow.pipeline", "~/.config/kitty/shaders/crt-glow.pipeline"):
         "native-only kitty glow and scanline pipeline that retro-amber turns on; AGENT.md freezes mappings.sh",
     ("TEMPLATE_MAPPINGS", "hyprlock/boot-label.sh", "~/.config/hypr/scripts/boot-label.sh"):

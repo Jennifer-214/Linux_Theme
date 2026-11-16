@@ -12,8 +12,12 @@ $(COMMON)/libdesk-common.a: $(COMMON)/shell.cpp $(COMMON)/shell.hpp
 install: all
 	install -d "$(PREFIX)"
 	install -m 755 desk-work "$(PREFIX)/desk-work"
-test: all
+test: all tests/test_map
+	./tests/test_map
 	PYTHONDONTWRITEBYTECODE=1 python3 tests/test_work.py
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/test_map.py
+tests/test_map: tests/test_map.cpp map_graph.hpp $(COMMON)/json.hpp
+	$(CXX) $(CXXFLAGS) -I$(COMMON) tests/test_map.cpp -o $@
 clean:
-	rm -f desk-work
+	rm -f desk-work tests/test_map
 .PHONY: all install test clean

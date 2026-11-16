@@ -59,6 +59,7 @@ src/theme-check/theme-check
 src/desk-dev/desk-dev
 src/desk-work/desk-work
 !src/desk-work/tests/test_work.py
+!src/desk-work/tests/test_map.py
 src/desk-sys/desk-sys
 src/desk-common/libdesk-common.a
 src/desk-health/libdesk-health.a

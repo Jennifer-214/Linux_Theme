@@ -1,0 +1,118 @@
+
+sample:     file format elf64-x86-64
+
+
+Disassembly of section .init:
+
+0000000000001000 <_init>:
+    1000:	endbr64
+    1014:	call   *%rax
+    101a:	ret
+
+Disassembly of section .plt:
+
+0000000000001020 <puts@plt-0x10>:
+    1020:	push   0x2fca(%rip)        # 3ff0 <_GLOBAL_OFFSET_TABLE_+0x8>
+    1026:	jmp    *0x2fcc(%rip)        # 3ff8 <_GLOBAL_OFFSET_TABLE_+0x10>
+
+0000000000001030 <puts@plt>:
+    1030:	jmp    *0x2fca(%rip)        # 4000 <puts@GLIBC_2.2.5>
+    1036:	push   $0x0
+    103b:	jmp    1020 <_init+0x20>
+
+Disassembly of section .plt.sec:
+
+0000000000001060 <abort@plt>:
+    1060:	endbr64
+    1064:	bnd jmp *0x2fad(%rip)        # 4018 <abort@GLIBC_2.2.5>
+
+0000000000001068 <operator delete(void*, unsigned long)@plt>:
+    1068:	bnd jmp *0x2fa5(%rip)        # 4020 <_ZdlPvm@GLIBCXX_3.4.9>
+
+Disassembly of section .text:
+
+0000000000001070 <fox::Queue<int>::grow() [clone .isra.0] [clone .cold]>:
+    1070:	call   1060 <abort@plt>
+
+0000000000001080 <fox::Queue<int>::push(int) [clone .cold]>:
+    1080:	call   1060 <abort@plt>
+
+0000000000001090 <main>:
+    1090:	push   %rbp
+    1094:	call   1200 <fox::Queue<int>::push(int)>
+    1099:	call   1030 <puts@plt>
+    109e:	call   *0x2f43(%rip)        # 4038 <handler>
+    10a4:	call   *0x2fd2(%rip)        # 3ff0 <memcpy@GLIBC_2.14>
+    10aa:	call   *%rax
+    10ac:	notrack call 1300 <helper>
+    10b1:	call   1400 <helper>
+    10b6:	call   1500 <walk(Node*)>
+    10b8:	call   1810 <placed(int)>
+    10b9:	call   1068 <operator delete(void*, unsigned long)@plt>
+    10bb:	je     10c0 <main+0x30>
+    10bd:	jmp    10c4 <main+0x34>
+    10c0:	call   1180 <frame_dummy>
+    10c4:	ret
+
+0000000000001140 <_start>:
+    1140:	endbr64
+    115f:	call   *0x2e5b(%rip)        # 3fc0 <__libc_start_main@GLIBC_2.34>
+
+0000000000001180 <frame_dummy>:
+    1180:	jmp    1190 <register_tm_clones>
+
+0000000000001190 <register_tm_clones>:
+    1190:	ret
+
+0000000000001200 <fox::Queue<int>::push(int)>:
+    1200:	cmp    $0x3,%edi
+    1203:	jg     1080 <fox::Queue<int>::push(int) [clone .cold]>
+    1209:	jmp    1600 <fox::Queue<int>::grow() [clone .isra.0]>
+
+0000000000001300 <helper>:
+    1300:	e8 fb 01 00 00       	call   1500 <walk(Node*)>
+    1305:	c3                   	ret
+
+0000000000001400 <helper>:
+    1400:	jmp    1300 <helper>
+
+0000000000001500 <walk(Node*)>:
+    1500:	call   1500 <walk(Node*)>
+    1505:	call   1300 <helper>
+    150a:	jmp    1510 <walk(Node*)+0x10>
+    1510:	ret
+
+0000000000001600 <fox::Queue<int>::grow() [clone .isra.0]>:
+    1600:	call   1700 <std::vector<int, std::allocator<int> >::_M_realloc_insert(int const&)>
+    1605:	ret
+
+0000000000001700 <std::vector<int, std::allocator<int> >::_M_realloc_insert(int const&)>:
+    1700:	bl	1800 <leaf_a64>
+    1704:	blr	x3
+    1708:	ret
+
+0000000000001800 <leaf_a64>:
+    1800:	ret
+
+0000000000001810 <placed(int)>:
+placed(int)():
+/work/project/src/placed.cpp:12
+    1810:	call   1830 <fox::Queue<int>::push(double)>
+/work/project/src/other.hpp:3 (discriminator 2)
+    1815:	call   1850 <run(std::map<int, int> const&)::{lambda(int)#1}::operator()(int) const>
+    181a:	call   1860 <run(std::map<int, int> const&)>
+    181f:	ret
+
+0000000000001830 <fox::Queue<int>::push(double)>:
+    1830:	ret
+
+0000000000001850 <run(std::map<int, int> const&)::{lambda(int)#1}::operator()(int) const>:
+    1850:	ret
+
+0000000000001860 <run(std::map<int, int> const&)>:
+    1860:	ret
+
+Disassembly of section .fini:
+
+0000000000001900 <_fini>:
+    1900:	ret

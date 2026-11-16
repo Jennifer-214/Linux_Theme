@@ -1,6 +1,7 @@
 #include "json.hpp"
 #include "shell.hpp"
 #include "work_updates.hpp"
+#include "map_graph.hpp"
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -1303,6 +1304,7 @@ J attention(const std::string& root, const std::string& session = {}, bool revie
 }
 #include "workflow.hpp"
 #include "since.hpp"
+#include "map.hpp"
 #include "records.hpp"
 #include "integrations.hpp"
 #include "editor.hpp"
@@ -1586,6 +1588,7 @@ int dispatch(int argc, char** argv) {
                          "desk-work attention --root DIR [--scope review] | watch [--root DIR | --all yes] | signal --root DIR\n"
                          "desk-work timeline|digest --root DIR [--consumer NAME --through SEQUENCE] | since --root DIR [--reader NAME --mark yes]\n"
                          "desk-work snooze --root DIR --id ITEM [--seconds 3600 | --until-change yes | --clear yes]\n"
+                         "desk-work map build|status|query|show|export --root DIR [--provider syntax|binary --binary ELF --wait yes | --q reach|callers|paths|module|touched ...]\n"
                          "desk-work suggest-tests --root DIR --file PATH | run-suggested --root DIR --id RUN\n"
                          "desk-work integrations plan|apply|rollback|recover|status|backups [--expected PLAN | --transaction ID]\n"
                          "desk-work integrations cleanup-plan|cleanup [--keep 3 --older-than 30 --expected PLAN]\n"
@@ -1751,6 +1754,7 @@ int dispatch(int argc, char** argv) {
         else if (cmd == "worktrees") out = worktrees(root);
         else if (cmd == "metrics") out = metrics_report(root, opts.count("--job") ? opts["--job"] : id);
         else if (cmd == "since") out = since_page(root, opts["--reader"].empty() ? "nvim" : opts["--reader"], opts["--mark"] == "yes");
+        else if (cmd == "map") return map_command(args, opts);
         else if (cmd == "metrics-parse") {
             // What a log would give, read from stdin with this checkout's .desk/metrics: for trying out patterns.
             std::string input(4 * 1024 * 1024 + 1, '\0');
