@@ -236,7 +236,7 @@ for name, system_units, dropin, want in ssh_cases:
     for w in want.get("not_anywhere", []):
         if w in tip: fails.append(f"{name}: '{w}' appears in the tooltip")
 
-# Opt-in protections (2026-11-16, VM round 2: a default install's pill read "SEC 4 WARN" forever). What an opt-in module
+# Opt-in protections (2026-11-16, a VM test: a default install's pill read "SEC 4 WARN" forever). What an opt-in module
 # would set up — noexec_tmp's /tmp and /dev/shm, perf's chrony — is off by choice until it is chosen: listed under
 # "○ Off by choice", never counted, never a warning. Chosen but not working, it warns (as a watcher switched on but
 # down does, watcher_cases); working, it counts.

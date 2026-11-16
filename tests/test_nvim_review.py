@@ -285,7 +285,7 @@ C.close()
 
     @unittest.skipUnless(WORK.is_file(), 'desk-work required')
     def test_finishing_asks_what_next_with_no_notice_under_the_question(self):
-        # The VM experience test (F10): R's question opened over a notice drawn at the same moment, hiding its words.
+        # The VM experience test: R's question opened over a notice drawn at the same moment, hiding its words.
         self.run_lua(r'''
 C.open_review(row,root)
 local r=R.current
@@ -303,7 +303,7 @@ C.close()
 ''')
 
     def test_a_script_with_no_extension_opens_with_its_type(self):
-        # The VM experience test (F10): shared/bin/desk-nav opened with no filetype, so no colour, in the comparison.
+        # The VM experience test: shared/bin/desk-nav opened with no filetype, so no colour, in the comparison.
         (self.repo / 'tool').write_text('#!/bin/sh\necho one\n')
         self.git('add', 'tool')
         self.commit('tool base')
@@ -421,7 +421,7 @@ end
 
     def test_m_on_a_part_of_a_file_checks_it_and_never_unchecks_it(self):
         # "m, j, m" down the list: j from a checked, open file lands on its first changed part ("↳ lines 1"), and m
-        # there used to toggle the whole file back to unread (the 2026-11-16 VM test, F9).
+        # there used to toggle the whole file back to unread (the 2026-11-16 VM test).
         self.run_lua(r'''
 C.open_review(row,root)
 local r=R.current
@@ -697,7 +697,7 @@ C.close()
 ''', index_unchanged=False)
 
     def test_the_strip_is_boxed_in_the_themes_border(self):
-        # The VM experience test (R2-8): under retro the strip stayed a rounded box inside the DOS screen.
+        # The VM experience test: under retro the strip stayed a rounded box inside the DOS screen.
         self.run_lua(r'''
 local function box()
   local r=R.current

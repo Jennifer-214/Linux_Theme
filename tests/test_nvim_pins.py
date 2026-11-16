@@ -3,7 +3,7 @@
 shared/nvim_lazy-lock.json; :Lazy update follows each spec's branch.
 
 nvim-scrollbar: on 2026-11-16 v2 replaced v1 on its main branch, and main's last v1 commit warns at every start that
-this config (options, the gitsigns and search handlers) breaks under v2 (VM test 2026-11-16, F15). The spec follows v1
+this config (options, the gitsigns and search handlers) breaks under v2 (VM test 2026-11-16). The spec follows v1
 and the lock pins v1's commit. With lazy.nvim's clone of the plugin on this machine (DESK_NVIM_SCROLLBAR names
 another), the pinned commit, loaded and set up the way lazy.nvim runs the rendered spec, says nothing. The clone is only
 read (git archive); Neovim runs with its own state, cache and runtime folders and none of the session's addresses."""

@@ -117,8 +117,8 @@ vim.g.desk_style = DeskStyle
 if DeskStyle == "retro" then vim.opt.guicursor = "n-v-c:block,i-ci-ve:hor20,r-cr:block,o:hor50" end
 -- >>> desk-border
 -- Float borders: a DOS double-line dialog in retro (code page 437 has no rounded corners), rounded elsewhere.
--- vim.g.desk_border is the one value the floats here, in the desk.* modules and in fox-symdeps (its ui.border(),
--- STYLE V23) read: either the string "rounded" or a list of 8 border characters clockwise from the top-left, as
+-- vim.g.desk_border is the one value the floats here, in the desk.* modules and in fox-symdeps (its ui.border())
+-- read: either the string "rounded" or a list of 8 border characters clockwise from the top-left, as
 -- nvim_open_win takes them.
 local DeskBorder = DeskStyle == "retro" and { "╔", "═", "╗", "║", "╝", "═", "╚", "║" } or "rounded"
 vim.g.desk_border = DeskBorder
@@ -2454,7 +2454,7 @@ local plugins = {
     config = function(_, opts)
       -- noice 7bfd942 (upstream's newest) splits each UI event in get_handler with `event:match("([a-z]+)_(.*)")` and
       -- fails on Neovim 0.12's `restart`, which has no "_": :restart then stopped at an invisible "Press any key" (VM
-      -- test F11). Drop this once upstream's get_handler skips event names without "_".
+      -- test 2026-11-16). Drop this once upstream's get_handler skips event names without "_".
       local ui, get_handler = require("noice.ui"), require("noice.ui").get_handler
       ui.get_handler = function(event, ...) if event:find("_", 1, true) then return get_handler(event, ...) end end
       require("noice").setup(opts)

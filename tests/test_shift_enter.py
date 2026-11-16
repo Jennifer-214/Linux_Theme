@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Shift+Enter (a notebook's "run the cell, go to the next") in kitty, inside tmux and outside it. VM test 2026-11-16
-(F13): inside tmux Neovim got a plain Enter. kitty's legacy keys send Shift+Enter as 0x0d, the same as Enter, and tmux
+"""Shift+Enter (a notebook's "run the cell, go to the next") in kitty, inside tmux and outside it. VM test 2026-11-16:
+inside tmux Neovim got a plain Enter. kitty's legacy keys send Shift+Enter as 0x0d, the same as Enter, and tmux
 asks a terminal for modified keys only in xterm's way, which kitty ignores; so kitty.conf maps Shift+Enter to its CSI u
-form, which tmux passes on to programs that ask for modified keys. Round 2 (R2-1): sent everywhere, that form made a
+form, which tmux passes on to programs that ask for modified keys. A second VM test: sent everywhere, that form made a
 Python REPL outside tmux evaluate 1+1, Shift+Enter, 3+3 as 17; so the mapping holds only while tmux is in front, which
 tmux tells kitty with a user var it sets and clears as it takes and gives back the terminal. zsh binds the form as
 Enter, for a tmux that died without giving the terminal back.
@@ -287,7 +287,7 @@ class ShiftEnter(unittest.TestCase):
         self.assertEqual(rows[:1], ["row 11"], f"kitty sent {sent!r} for Shift+Enter; Neovim moved {rows}")
 
     def test_a_python_repl_outside_tmux_takes_shift_enter_as_enter(self):
-        # VM round 2 (R2-1): in kitty -e python3, 1+1, Shift+Enter, 3+3, Enter evaluated 1+13+3 = 17.
+        # The second VM test: in kitty -e python3, 1+1, Shift+Enter, 3+3, Enter evaluated 1+13+3 = 17.
         kitty = Kitty(["python3", "-q", "-I"], self.env, self.mapping)
         self.addCleanup(kitty.close)
         self.assertTrue(self.until(kitty, lambda: b">>> " in kitty.out), "Python never drew its prompt")

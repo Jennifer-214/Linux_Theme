@@ -257,7 +257,7 @@ out(steps)''', self.rendered['retro-amber'], {'PATH': f'{Path(command).parent}:/
             self.assertEqual(cleared['metadata'], before['metadata'])
 
     def test_a_notebook_stays_markdown_while_desk_sync_watches_it(self):
-        # VM 2026-11-16 (F12): desk.sync warned of outside edits at open, and after the first save (molten's outputs
+        # VM test 2026-11-16: desk.sync warned of outside edits at open, and after the first save (molten's outputs
         # written into the file) its checktime reloaded the buffer past jupytext as the raw JSON; the next save failed in
         # jupytext ("Invalid YAML block").
         command, plugin = jupytext(), jupytext_nvim()

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""noice.nvim and Neovim 0.12's :restart (VM test 2026-11-16, F11). :restart sends every attached UI a `restart` event;
+"""noice.nvim and Neovim 0.12's :restart (VM test 2026-11-16). :restart sends every attached UI a `restart` event;
 noice's get_handler splits each event name at its "_" and raised on that one. Delivered while an exit hook ran the event
 loop (Neovim's own LSP shutdown, desk.review's share wait), the error made Neovim stop at an invisible "Press any key"
 and skip every exit hook after the waiting one. The rendered noice spec guards get_handler.

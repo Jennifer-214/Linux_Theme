@@ -270,7 +270,7 @@ ok(shown:find("BS/-", 1, true) and shown:find("The ways between two functions", 
 press("q")   -- the list's own q
 eq(api.nvim_get_current_win(), view.win, "q closes the list, back in the map")
 
--- m: the parts in the desk menu, not a numbered list (VM 2026-11-16, F17): / filters them by name, Enter goes there.
+-- m: the parts in the desk menu, not a numbered list (VM test 2026-11-16): / filters them by name, Enter goes there.
 local numbered, real_select = 0, vim.ui.select
 vim.ui.select = function(_, _, done) numbered = numbered + 1; done(nil) end
 press("m")
@@ -681,7 +681,7 @@ for _, l in ipairs(A.key_lines(A.context(unbuilt.win))) do why[l.ident] = l.righ
 eq({ why["map.reach"], why["map.rebuild"] }, { "no map built yet · R builds it", true }, "? greys the questions, not the build")
 press("q")
 
--- Not a git checkout and no binary given (VM 2026-11-16, F17): no reader can build a map here. The page says what is
+-- Not a git checkout and no binary given (VM test 2026-11-16): no reader can build a map here. The page says what is
 -- needed, first, and offers no R; B (reading a binary) still can.
 status.providers = { { name = "syntax", state = "not built", why = "requires a git checkout (the files to read come from git)" },
   { name = "binary", state = "not built", why = "requires a built binary: desk-work map build --binary PATH (kept for the next builds)" } }

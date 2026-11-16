@@ -138,7 +138,7 @@ assert(ok, 'saving an empty file was refused: ' .. tostring(err))
 ''')
 
     def test_a_file_a_plugin_reads_for_its_buffer_is_left_to_that_plugin(self):
-        # VM 2026-11-16 (F12): a notebook warned of outside edits at open (its Markdown never matches the JSON on
+        # VM test 2026-11-16: a notebook warned of outside edits at open (its Markdown never matches the JSON on
         # disk), and after its first save desk.sync's checktime, run inside BufWritePost, reloaded it past jupytext's
         # BufReadCmd: the buffer held the raw JSON and the next save failed in jupytext ("Invalid YAML block").
         # This converter has jupytext.nvim's shape: read by a BufReadCmd, written by its own BufWriteCmd, which runs

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Neovim's working directory (VM test 2026-11-16, F16): opening src/desk-common/shell.cpp moved it to src/desk-common as
+"""Neovim's working directory (VM test 2026-11-16): opening src/desk-common/shell.cpp moved it to src/desk-common as
 clangd attached (project.nvim took clangd's root, the nearest Makefile), and :restart then opened
 src/desk-common/src/desk-common/shell.cpp, which does not exist.
 
