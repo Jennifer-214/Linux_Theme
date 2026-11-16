@@ -330,7 +330,7 @@ Tab` in either window puts the keyboard in the other, on whichever screen it is.
 | `L` in the pop-out | Forward again, after going back |
 | `?` in the pop-out | The keys of this view in the pop-out, in a list |
 | `Space Tab` in the pop-out | Put the keyboard in the editor; the same key there comes back here |
-| `q` in the pop-out | Close this view; closing the last one closes the pop-out |
+| `q` in the pop-out | Close this view; closing the last one closes the pop-out, and the keyboard comes back to the editor |
 | `Space Space` in the pop-out | The home menu for the selected box or row: the views, what the editor can do with it, and this window |
 <!-- popout-keys:end -->
 

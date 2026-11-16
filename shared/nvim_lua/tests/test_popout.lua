@@ -488,8 +488,11 @@ eq({ saved.tabs[1].kind, saved.tabs[1].pinned, saved.tabs[1].target, saved.activ
   '… the pinned graph by its function, the view in front, the screen it is on')
 
 -- ─── q on the last view: the pop-out closes, the editor stops sending ─────────────────────────────────────────────
+mark = #read('hyprctl.log')
 vim.rpcnotify(p, 'nvim_input', 'q')
 ok(wait(5000, function() return host("return require('desk.popout').host.chan") == vim.NIL end), 'q on the last view: the editor forgets the pop-out')
+ok(wait(3000, function() return log_since(mark):find("dispatch hl.dsp.focus({ window = 'address:0xa1' })", 1, true) end),
+  "… and the keyboard comes back to the editor's window, not the pop-out's empty screen")
 ok(wait(5000, function() return not exists(psock) end), '… which quits')
 eq(host("return next(require('desk.popout').host.views) == nil"), true, '… and nothing is kept to send it')
 eq(host(panel_open), false, '… nor brought back: she closed it')
@@ -537,6 +540,12 @@ ok(wait(3000, function() return vim.tbl_contains(host('return _G.heard'), 'The p
 eq({ host("return require('desk.popout').host.screen"), state().connected }, { 'HDMI-A-1', true }, '… still open, now on HDMI-A-1')
 press('p')
 ok(wait(3000, function() return state().header:find('graph · PINNED', 1, true) end), 'pinned there')
+-- A second view beside it, the graph in front: the layout record keeps both.
+host("require('desk.popout').show('rows', require('desk.actions').context())")
+ok(wait(3000, function() return state().tabs == 2 end), 'the rows beside it')
+press('gT')
+ok(wait(3000, function() return state().shown == 'graph' end), '… the graph in front')
+ok(wait(3000, function() local r = record(); return #(r.tabs or {}) == 2 and r.activeTab == 'graph' end), '… both in the layout record')
 write(dir .. '/monitors.json', vim.json.encode({ three[1] }))
 vim.fn.writefile({ 'PRIMARY="eDP-1"', 'PORTRAIT_OUTPUTS=""', 'SECONDARY_OUTPUTS=""' }, sidecar)
 ok(wait(5000, function() return host("return require('desk.popout').host.chan") == vim.NIL end), 'HDMI-A-1 unplugged too, one screen left: the pop-out closes')
@@ -547,6 +556,22 @@ ok(wait(5000, function() return not exists(psock) end), '… and the pop-out qui
 host("require('desk.callgraph').panel_close()")
 write(dir .. '/monitors.json', vim.json.encode({ three[1], three[2] }))
 vim.fn.writefile(vim.split(two_screens, '\n', { trimempty = true }), sidecar)
+-- Plugged in again: Restore brings back both views it had, in their order, the graph in front as it was.
+ok(wait(5000, function() return host("return require('desk.actions').get('popout.restore').name") == 'Restore 2 views' end),
+  'plugged in again, the Views group offers Restore 2 views')
+os.remove(dir .. '/kitty.listen')
+host("_G.rows_test.restored = 0; local A = require('desk.actions'); A.get('popout.restore').run(A.context())")
+opened()
+ok(wait(10000, function() return state().tabs == 2 and state().shown == 'graph' end), '… both views come back, the graph in front: '
+  .. tostring(state().tabs) .. ' tabs')
+ok(wait(5000, function() return state().header:find(' 1 graph · PINNED   2 rows ', 1, true) end), '… in their order: ' .. tostring(state().header))
+eq(host('return _G.rows_test.restored'), 1, '… the rows restored by their kind')
+-- Gone on its own right after a change (a write of the views still on its way): the record keeps both views.
+host("local P = require('desk.popout'); P.save_layout(); P.fold('the screen went')")
+ok(wait(5000, function() return not exists(psock) end), 'folded right after a change: the pop-out closes')
+vim.wait(700)
+eq(#(record().tabs or {}), 2, '… and the layout record still holds both views for the next Restore')
+host("require('desk.callgraph').panel_close()")
 
 -- ─── the notebook's call graph with the pop-out open ─────────────────────────────────────────────────────────────
 os.remove(dir .. '/kitty.listen')

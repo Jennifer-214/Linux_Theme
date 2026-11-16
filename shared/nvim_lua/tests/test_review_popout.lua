@@ -340,13 +340,22 @@ press('m')
 ok(wait(3000, function() return #review().checked == 3 end), 'm: the last file checked')
 ok(wait(3000, function() return popped():find('✓ three.lua', 1, true) end), '… shown there')
 settled()
-pop([[vim.ui.select = function(items, opts, done)
-  _G.choices = vim.tbl_map(function(c) return c.name end, items)
-  for _, c in ipairs(items) do if c.id == 'stay' then return done(c) end end
+-- The question, asked in the pop-out the way the editor asks it: confirm() with the same letters.
+pop([[vim.fn.confirm = function(question, labels, default)
+  _G.confirmed = labels
+  for i, label in ipairs(vim.split(labels, '\n', { plain = true })) do if label == '&Stay' then return i end end
+  return 0
 end]])
+local editor_labels = host([[local seen
+  local real = vim.fn.confirm
+  vim.fn.confirm = function(question, labels) seen = labels; return 0 end
+  pcall(_G.review_test.ask_after_finish, 3, false)
+  vim.fn.confirm = real
+  return seen]])
 press('R')
 ok(wait(3000, function() return review().completed end), 'R: finished here')
-eq(pop('return _G.choices'), { 'Close review', 'Stay' }, '… what next asked in the pop-out (one commit: no next one)')
+eq({ pop('return _G.confirmed'), editor_labels }, { '&Close review\n&Stay', '&Close review\n&Stay' },
+  "… what next asked in the pop-out with the editor's own keys, (C)lose review (S)tay (one commit: no next one)")
 eq(host('return _G.review_test.asked_here'), 0, '… never in the editor')
 settled()
 
@@ -455,6 +464,32 @@ local working = host([[local set = require('desk.review').current.sets and requi
   return { open = set.expanded == true, files = rels }]])
 eq(working, { open = true, files = { 'four.txt' } }, "… and the checkout's working changes listed in its tree, as Space Cw lists them")
 ok(wait(3000, function() return popped():find('four.txt', 1, true) end), '… there too:\n' .. popped())
+vim.rpcnotify(p, 'nvim_input', 'q')
+ok(wait(5000, function() return not exists(psock) end), 'the pop-out closes')
+
+-- ─── Restore after its screen went: the list stays in the pop-out when its tab comes back to the front ─────────────
+-- The pop-out went (its screen unplugged) while another tab was in front: the list was to come back to the editor
+-- when its tab did. Restored to the pop-out first, it must stay there.
+os.remove(dir .. '/kitty.listen')
+ok(wait(3000, function() return review().panel end), 'the list back in the editor')
+to_list()
+host_keys('o')
+opened()
+ok(wait(10000, function() return state().kind == 'review' end), 'the list in a pop-out again')
+ok(wait(3000, function()
+  local saved = host("return require('desk.popout').host.saved")
+  return type(saved) == 'table' and type(saved.tabs) == 'table' and #saved.tabs == 1
+end), '… in the layout record')
+host("vim.cmd('tabnew')")
+host("require('desk.popout').fold('the screen went')")
+ok(wait(5000, function() return not exists(psock) end), 'the pop-out goes on its own, another tab in front here')
+os.remove(dir .. '/kitty.listen')
+host("require('desk.popout').restore_layout()")
+opened()
+ok(wait(10000, function() return state().kind == 'review' and review().popped end), 'Restore: the list in the pop-out again')
+host("vim.api.nvim_set_current_tabpage(require('desk.review').current.tab)")
+ok(not wait(1500, function() return review().panel end), "… and the review's tab in front again does not take it back")
+eq({ state().kind, review().popped }, { 'review', true }, '… it stays in the pop-out')
 vim.rpcnotify(p, 'nvim_input', 'q')
 ok(wait(5000, function() return not exists(psock) end), 'the pop-out closes')
 host_job:kill(9)

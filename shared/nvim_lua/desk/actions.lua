@@ -179,9 +179,33 @@ function M.voice(retro)
   end
 end
 
+-- The keys of a few choices (2 to 5), one letter each: a choice's own key, else the first letter of its name; nil when
+-- two would share one (a longer list, or names alike, is picked from a list).
+local function choice_keys(choices)
+  if #choices < 2 or #choices > 5 then return nil end
+  local keys, seen = {}, {}
+  for i, c in ipairs(choices) do
+    local key = type(c.key) == 'string' and c.key:match('^%a$') or tostring(c.name or c.id):match('%a')
+    if not key or seen[key:lower()] then return nil end
+    keys[i], seen[key:lower()] = key:lower(), true
+  end
+  return keys
+end
+M.choice_keys = choice_keys
+-- confirm()'s label of a choice: & before its key's first letter in the name ("&Next commit"), else before the key.
+local function labelled(name, key)
+  name = name:gsub('[\r\n]', ' '):gsub('&', '&&')
+  local at = name:lower():find(key, 1, true)
+  if at then return name:sub(1, at - 1) .. '&' .. name:sub(at) end
+  return '&' .. key .. ' ' .. name
+end
+
 -- Asks what a row's input wants, in the current window: the pick first (choices: a list, or function(ctx) giving one),
 -- then the words (prompt). done(text, choice) once both are given; Esc, or nothing typed, asks no more and runs nothing.
-function M.ask(input, ctx, done)
+-- A few choices with keys of their own are asked as the editor asks its own questions, with confirm() and a letter
+-- each ("[N]ext commit (C)lose review (S)tay"), so the same question takes the same keys in the editor and the pop-out;
+-- question: what is asked (the row's name).
+function M.ask(input, ctx, done, question)
   local function words(choice)
     if not input.prompt then return done(nil, choice) end
     vim.ui.input({ prompt = input.prompt }, function(text)
@@ -195,6 +219,15 @@ function M.ask(input, ctx, done)
     choices = ok and value or nil
   end
   if type(choices) ~= 'table' or #choices == 0 then tell('Nothing to choose from here.', vim.log.levels.WARN); return end
+  local keys = choice_keys(choices)
+  if keys then
+    local labels = {}
+    for i, c in ipairs(choices) do labels[i] = labelled(tostring(c.name or c.id), keys[i]) end
+    local ok, pick = pcall(vim.fn.confirm, question or 'Choose', table.concat(labels, '\n'), 1)
+    local choice = ok and type(pick) == 'number' and choices[pick] or nil
+    if type(choice) == 'table' and choice.id ~= nil then words(tostring(choice.id)) end
+    return
+  end
   vim.ui.select(choices, { prompt = input.prompt or 'Choose', format_item = function(c) return tostring(c.name or c.id) end },
     function(choice) if type(choice) == 'table' and choice.id ~= nil then words(tostring(choice.id)) end end)
 end
@@ -205,7 +238,7 @@ function M.press(row, ctx)
     return M.ask(row.input, ctx, function(text, choice)
       ctx.text, ctx.choice = text, choice
       row.run(ctx)
-    end)
+    end, row.name)
   end
   row.run(ctx)
 end
@@ -406,7 +439,8 @@ function M.offered(input, ctx)
     local ok, found = pcall(input.choices, ctx)
     for _, c in ipairs(ok and type(found) == 'table' and found or {}) do
       if #choices < 50 and type(c) == 'table' and (type(c.id) == 'string' or type(c.id) == 'number') then
-        choices[#choices + 1] = { id = tostring(c.id):sub(1, 64), name = tostring(c.name or c.id):sub(1, 120) }
+        choices[#choices + 1] = { id = tostring(c.id):sub(1, 64), name = tostring(c.name or c.id):sub(1, 120),
+          key = type(c.key) == 'string' and c.key:match('^%a$') or nil }
       end
     end
   end

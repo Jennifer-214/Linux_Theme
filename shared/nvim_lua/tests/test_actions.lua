@@ -107,7 +107,7 @@ refused(row({ id = "t.in5", input = { prompt = "x", default = "y" } }), "input d
 -- A key with an input asks in the window it is pressed in: the pick, then the words; Esc or nothing typed runs nothing.
 local got, prompts = nil, {}
 local asking = T.add({ row({ id = "t.ask", key = "<leader>Za", run = function(c) got = { c.text, c.choice } end,
-  input = { prompt = "Say: ", choices = function() return { { id = "a", name = "Alpha" }, { id = 2, name = "Two" } } end } }) })
+  input = { prompt = "Say: ", choices = function() return { { id = "a", name = "Alpha" }, { id = 2, name = "Another" } } end } }) })
 eq(#asking, 1, "words and a pick are fine")
 T.map("editor", { rows = asking })
 local real_input, real_select = vim.ui.input, vim.ui.select
@@ -435,6 +435,22 @@ local fifty = "Go to the selected function in the code it came from"
 local narrow = Menu.layout({ { keys = { "c" }, name = fifty, about = "x", group = "g" },
   { keys = { "r" }, name = "Read", about = "y", group = "g", right = "this box is not from the language server yet, so wait" } }, { keys = true })
 ok(narrow.lines[1]:find(fifty, 1, true), "… and at the usual 92 columns a long reason leaves a 50-character description whole: " .. narrow.lines[1])
+-- A row's few choices are asked with a letter each, as the editor's own questions are (confirm, "&Next commit");
+-- choices whose letters would clash are picked from a list.
+do
+  local real_confirm, real_select, seen, listed, got = vim.fn.confirm, vim.ui.select, nil, nil, nil
+  vim.fn.confirm = function(question, labels) seen = { question, labels }; return 2 end
+  vim.ui.select = function(items, opts, done) listed = #items; done(items[1]) end
+  A.ask({ choices = function() return { { id = "next", name = "Next commit" }, { id = "close", name = "Close review" }, { id = "stay", name = "Stay" } } end },
+    {}, function(_, choice) got = choice end, "Finish review")
+  eq({ seen, got, listed }, { { "Finish review", "&Next commit\n&Close review\n&Stay" }, "close", nil },
+    "three choices: asked with confirm and their letters, the second picked")
+  seen, got = nil, nil
+  A.ask({ choices = function() return { { id = "one", name = "The first" }, { id = "two", name = "The second" } } end }, {},
+    function(_, choice) got = choice end)
+  eq({ seen, got, listed }, { nil, "one", 2 }, "… two whose letters clash: from a list")
+  vim.fn.confirm, vim.ui.select = real_confirm, real_select
+end
 local saved_columns = vim.o.columns
 vim.o.columns = 200
 local wide_win = Menu.open({ { keys = { "gt" }, name = long_doc, about = "x", group = "pop-out" } }, { keys = true, title = "Keys" })

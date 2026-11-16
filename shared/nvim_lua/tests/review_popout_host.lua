@@ -12,6 +12,7 @@ _G.review_test = { asked_here = 0, heard = {} }
 local T = _G.review_test
 vim.notify = function(text) table.insert(T.heard, tostring(text)) end
 -- What R asks once a review is finished, here: counted, so a question the pop-out asked is never asked again here.
+T.ask_after_finish = R.ask_after_finish   -- the editor's own question, kept: the test reads its keys
 R.ask_after_finish = function() T.asked_here = T.asked_here + 1; return 'stay' end
 -- c's own questions here (claude.send): counted the same way.
 vim.ui.select = function(_, _, done) T.asked_here = T.asked_here + 1; done(nil) end

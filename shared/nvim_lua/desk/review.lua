@@ -2904,7 +2904,9 @@ end
 local function open_view(view)
   local r = M.current
   if not r or r.closing then return end
-  view.review, r.popout = r, view
+  -- The list is going to the pop-out (again: Restore after the pop-out went): a "bring it back when its tab is in front"
+  -- left from that going is over, or it would take this view away on the next TabEnter.
+  view.review, r.popout, r.panel_back = r, view, nil
   -- The pop-out starts on the row the list's cursor was on.
   if api.nvim_win_is_valid(r.panel_win or -1) then
     local entry = r.entries and r.entries[api.nvim_win_get_cursor(r.panel_win)[1]]

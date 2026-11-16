@@ -378,14 +378,16 @@ function M.redraw(view)
   msg.gen, msg.select, msg.front = view.gen, view.select, view.front == true
   if send(msg) then view.select, view.front, view.news = nil, nil, nil end
 end
--- Every view sent again, in the order of the pop-out's tabs, the one in front last (it stays in front).
+-- Every view sent again in the order of the pop-out's tabs (a pop-out makes a view's tab when it first arrives, so
+-- this order is the tabs' order), then the one in front once more to bring it forward (a moment later: one send per
+-- view every M.GAP_MS).
 local function redraw_all()
+  local front = H.front and H.views[H.front]
   for _, id in ipairs(H.order) do
     local view = H.views[id]
-    if view and id ~= H.front then view.sent = nil; M.redraw(view) end
+    if view then view.sent = nil; M.redraw(view) end
   end
-  local front = H.front and H.views[H.front]
-  if front then front.sent, front.front = nil, true; M.redraw(front) end
+  if front then front.front = true; M.redraw(front) end
 end
 
 -- ─── the editor moving, for the views that follow it ───────────────────────────────────────────────────────────
@@ -445,6 +447,8 @@ end
 -- attach), the following ones stop, and one notice says so. Her q on its last view brings nothing back.
 function M.forget(why, opts)
   opts = opts or {}
+  -- A write of the views still on its way is written now, while they are here: a fold right after a change keeps them.
+  M.flush_layout()
   local had = H.chan ~= nil or next(H.views) ~= nil
   H.chan, H.pid, H.kitty, H.stalled, H.opening, H.front, H.screen, H.prefer = nil, nil, nil, false, nil, nil, nil, nil
   if H.timer then H.timer:stop() end
@@ -704,6 +708,13 @@ end
 -- The writes of a moment (a view closing, then the one in front changing) go as one, M.SAVE_MS after the last. wait:
 -- the editor is exiting, so the record is written now, before it goes (a second at most).
 M.SAVE_MS = 300
+-- The write still on its way, now (nothing when none is).
+function M.flush_layout()
+  if H.save_timer and H.save_timer:is_active() then
+    H.save_timer:stop()
+    write_layout(false)
+  end
+end
 function M.save_layout(wait)
   if M.is_popout() or vim.g.desk_work_view or not have('desk-work') then return end
   H.save_timer = H.save_timer or uv.new_timer()
@@ -1073,7 +1084,7 @@ local function ask_then_act(row, offered)
       local now = key and view and index_of(view, key)
       if view and (shown() ~= view or (key and not now)) then return say('what it was about is no longer shown', WARN) end
       client_act(row.id, { text = text, choice = choice }, view, now)
-    end)
+    end, type(offered.name) == 'string' and offered.name or row.name)
 end
 
 -- A key of a view pressed here: a row the editor runs (remote, and not the window's own) goes there, asking first when
@@ -1642,10 +1653,15 @@ local ROWS = actions.add({
   { id = 'popout.swap', group = 'Pop-out', name = 'To the editor', key = '<leader><Tab>', on = ON,
     about = 'Put the keyboard in the editor; the same key there comes back here', run = function() M.focus(C.host) end },
   { id = 'popout.close', group = 'Pop-out', name = 'Close this view', key = 'q', on = ON, remote = true,
-    about = 'Close this view; closing the last one closes the pop-out',
+    about = 'Close this view; closing the last one closes the pop-out, and the keyboard comes back to the editor',
     run = function(ctx)
       if not M.is_popout() then
-        if ctx.view and #H.order > 1 then M.clear(ctx.view.id) else M.forget(nil) end
+        if ctx.view and #H.order > 1 then M.clear(ctx.view.id)
+        else
+          -- The last one: the pop-out closes, and the keyboard comes here rather than stay on its empty screen.
+          M.forget(nil)
+          if ctx.remote then M.focus({ pid = vim.fn.getpid(), pane = host_pane() }) end
+        end
         return M.save_layout()
       end
       if shown() and vim.tbl_count(C.views) > 1 then return client_act('popout.close') end

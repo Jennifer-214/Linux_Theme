@@ -45,4 +45,7 @@ P.kind({ name = 'rows', title = 'rows', surface = 'test-rows', about = 'A list o
   open = function() T.opens = (T.opens or 0) + 1 end,
   ctx_for = function() local ctx = A.context(); ctx.surface = 'test-rows'; return ctx end,
   attach = function(view) T.attached = view.id end,
-  close = function(view) T.closed = view.id end })
+  close = function(view) T.closed = view.id end,
+  -- Kept in the layout record as a pinned view would be (by a target), restored by counting.
+  save = function(view) return { pinned = view.pinned == true, target = { file = 'rows', line = 1, name = 'rows' } } end,
+  restore = function() T.restored = (T.restored or 0) + 1 end })
