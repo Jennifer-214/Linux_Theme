@@ -76,7 +76,8 @@ def callgraph_keys():
     keys = []
     for row in nvim_keys.registry()['rows']:
         places = {GRAPH[s] for s in row['on'] if s in GRAPH}
-        if row.get('key') and (row['id'].startswith('callgraph.') or places):
+        # The shared desk rows (?) too; another module's row on a graph (the pop-out's o) is in that module's table.
+        if row.get('key') and (row['id'].startswith('callgraph.') or (places and row['id'].startswith('desk.'))):
             keys.append(entry(row, 'editor' if 'editor' in row['on'] else 'both' if len(places) > 1 else places.pop()))
     return own_first(keys, 'callgraph')
 
@@ -239,7 +240,8 @@ class NvimKeys(unittest.TestCase):
         rows = {row['id']: row for row in nvim_keys.registry()['rows']}
         self.assertEqual(rows['desk.keys']['key'], '?')
         self.assertEqual(sorted(rows['desk.keys']['on']), sorted(['review-list', 'review-diff', 'callgraph', 'callgraph-panel', 'since', 'menu']))
-        taken = [row['id'] for row in rows.values() if row.get('key') == '?' and row['id'] != 'desk.keys']
+        # The pop-out's ? is a row of its own (its key line and home menu name it) that opens this same list.
+        taken = [row['id'] for row in rows.values() if row.get('key') == '?' and row['id'] not in ('desk.keys', 'popout.keys')]
         self.assertEqual(taken, [], '? is the key list on every view; the review\'s actions are a and Space Space')
         self.assertIn('| `?` |', reference(review_keys()), 'the review reference names ?')
 

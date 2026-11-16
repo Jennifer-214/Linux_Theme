@@ -249,13 +249,15 @@ end
 
 -- The ? list of a view, a line per reference line: the keys of rows that join one line together, as the keybinds
 -- reference has them. A line's words are its first row's here: its name, or for keys joined on one line the doc that
--- gives that line its own words. Enter runs that row where ? was pressed. The ? row itself is left out: it closes
--- the list.
-function M.key_lines(ctx)
+-- gives that line its own words. Enter runs that row where ? was pressed. A ? row is left out: ? closes the list.
+-- opts.reasons = false: whether a row can run is not this editor's to say (the pop-out's rows are the editor's), so
+-- every key is listed and Enter runs it as its key would.
+function M.key_lines(ctx, opts)
+  opts = opts or {}
   local out, at = {}, {}
   for _, k in ipairs(M.keys(ctx.surface)) do
     local row = by_id[k.id]
-    local why = row.id ~= 'desk.keys' and M.available(row, ctx)
+    local why = row.key ~= '?' and (opts.reasons == false or M.available(row, ctx))
     if why ~= false then
       local owner = row.line or row.id
       local line = at[owner]
@@ -263,7 +265,7 @@ function M.key_lines(ctx)
         local head = by_id[owner] and is_on(by_id[owner], ctx.surface) and by_id[owner] or row
         line = { ident = owner, group = head.group, keys = {}, head = head,
           about = head.about or (by_id[owner] and by_id[owner].about) or head.name, right = why ~= true and why or nil,
-          run = function() M.run(head, ctx) end }
+          run = function() if opts.reasons == false then head.run(ctx) else M.run(head, ctx) end end }
         at[owner] = line
         out[#out + 1] = line
       end
@@ -277,12 +279,13 @@ function M.key_lines(ctx)
   return out
 end
 
--- The ? key: this view's keys as a list, drawn by desk.menu (keys as typed, words in the theme's voice).
-function M.show_keys(ctx)
-  ctx = ctx or M.context()
+-- The ? key: this view's keys as a list, drawn by desk.menu (keys as typed, words in the theme's voice). opts: reasons
+-- (M.key_lines) and footer, a line of the view's own in place of the list's keys.
+function M.show_keys(ctx, opts)
+  ctx, opts = ctx or M.context(), opts or {}
   local function open()
-    return require('desk.menu').open(M.key_lines(ctx), { title = 'Keys · ' .. (PLACES[ctx.surface] or ctx.surface), keys = true,
-      memo = 'desk-keys-' .. ctx.surface })
+    return require('desk.menu').open(M.key_lines(ctx, opts), { title = 'Keys · ' .. (PLACES[ctx.surface] or ctx.surface), keys = true,
+      memo = 'desk-keys-' .. ctx.surface, footer = opts.footer })
   end
   -- From a menu, the list opens over it and q goes back to it, as symdeps' own ? does.
   if type(ctx.menu) == 'table' and type(ctx.menu.child) == 'function' then return ctx.menu.child(open) end

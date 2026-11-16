@@ -20,13 +20,13 @@ end
 local function pad(s, w) return s .. string.rep(' ', math.max(0, w - width(s))) end
 
 -- A key as it is typed: <CR> is Enter, <leader>rw is Space rw, <S-Tab> is Shift+Tab; anything else as written.
-local NAMED = { ['<cr>'] = 'Enter', ['<bs>'] = 'BS', ['<tab>'] = 'Tab', ['<s-tab>'] = 'Shift+Tab', ['<esc>'] = 'Esc',
-  ['<down>'] = '↓', ['<up>'] = '↑', ['<space>'] = 'Space' }
+local NAMED = { ['<cr>'] = 'Enter', ['<s-cr>'] = 'Shift+Enter', ['<bs>'] = 'BS', ['<tab>'] = 'Tab', ['<s-tab>'] = 'Shift+Tab',
+  ['<esc>'] = 'Esc', ['<down>'] = '↓', ['<up>'] = '↑', ['<space>'] = 'Space' }
 function M.typed(lhs)
   lhs = tostring(lhs)
   if NAMED[lhs:lower()] then return NAMED[lhs:lower()] end
   local rest = lhs:match('^<[lL]eader>(.*)$')
-  if rest then return 'Space ' .. (rest:lower() == '<leader>' and 'Space' or rest) end
+  if rest then return 'Space ' .. (rest:lower() == '<leader>' and 'Space' or NAMED[rest:lower()] or rest) end
   return (lhs:gsub('<[cC]%-(.)>', 'Ctrl+%1'))
 end
 -- Words in the theme's voice: capitals in retro (a DOS screen), as written elsewhere. What sits between backticks is a

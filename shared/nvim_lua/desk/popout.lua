@@ -883,34 +883,13 @@ function M.client_home()
     anchor_win = C.win, memo = 'desk-popout-home' })
 end
 
--- ? in the pop-out: its keys, from its rows.
+-- ? in the pop-out: its keys, from its rows, in the list every view's ? draws (desk.actions show_keys). Whether a row
+-- can run is the editor's to say, so every key is listed and Enter on one asks the editor as the key would.
 function M.client_keys()
   local G = graphs()
   local said = G.glyphs(G.retro()).said
-  local rows, wide = actions.keys('popout'), 0
-  for _, row in ipairs(rows) do wide = math.max(wide, api.nvim_strwidth(M.shown_key(row.key))) end
-  local lines, marks = {}, {}
-  for _, row in ipairs(rows) do
-    local key = M.shown_key(row.key)
-    lines[#lines + 1] = '  ' .. key .. string.rep(' ', wide - api.nvim_strwidth(key)) .. '  ' .. said(row.name) .. '  '
-    marks[#marks + 1] = { #lines, 2, 2 + #key }
-  end
-  lines[#lines + 1] = ''
-  lines[#lines + 1] = '  ' .. typed('popout.focus') .. ' ' .. said('in the editor comes back here') .. '  '
-  local w = 0
-  for _, line in ipairs(lines) do w = math.max(w, api.nvim_strwidth(line)) end
-  local buf = api.nvim_create_buf(false, true)
-  api.nvim_buf_set_lines(buf, 0, -1, false, lines)
-  vim.bo[buf].modifiable, vim.bo[buf].bufhidden = false, 'wipe'
-  for _, m in ipairs(marks) do pcall(api.nvim_buf_set_extmark, buf, ns, m[1] - 1, m[2], { end_col = m[3], hl_group = 'DeskCallGraphKey' }) end
-  local height = math.min(#lines, math.max(3, vim.o.lines - 4))
-  local win = api.nvim_open_win(buf, true, { relative = 'editor', style = 'minimal', border = vim.g.desk_border or 'rounded',
-    width = math.min(w, vim.o.columns - 2), height = height, row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1),
-    col = math.max(0, math.floor((vim.o.columns - w) / 2)), title = ' ' .. said('pop-out keys') .. ' ', title_pos = 'center' })
-  for _, lhs in ipairs({ 'q', '?', '<Esc>' }) do
-    vim.keymap.set('n', lhs, function() pcall(api.nvim_win_close, win, true) end, { buffer = buf, nowait = true, silent = true })
-  end
-  return win
+  return actions.show_keys(actions.context(C.win), { reasons = false,
+    footer = ' ' .. typed('popout.focus') .. ' ' .. said('in the editor comes back here') })
 end
 
 -- Started by the pop-out's argv: nvim --cmd 'let g:desk_popout=1' -c "lua require('desk.popout').client()" --
