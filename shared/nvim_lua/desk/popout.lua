@@ -8,15 +8,18 @@
 -- (init.lua's desk-popout block). Its tab line is the header (each view, PINNED, ✱ for news, the keys that switch);
 -- each window's status line is that view's key line.
 --
--- Protocol 2. The editor sends rpcnotify of M.receive, { version = 2, type, … }:
+-- Protocol 3. The editor sends rpcnotify of M.receive, { version = 3, type, … }:
 --   view.set   { id, gen, kind, surface, title, state, lines, marks, hl, items, footer, strip, select, front, news, views }
 --              (views: every view the editor has; the pop-out closes a tab of any other)
 --   view.clear { id } · ping { serial } (every 10 s; one that stops answering is sent nothing until it does) · bye { why }
--- The pop-out asks through the editor's bridge (desk.bridge), every ask with its deadline (pong and leaving need none):
---   subscribe { chan, pid, width, protocol = 2 } · describe { view, gen, item } → { rows } ·
---   act { view, gen, item, action, text, choice } · pong { serial } · front { view, quiet } (the view in front there
---   now; quiet when it was not her own switch) · leaving { pid } (q on its last view: it goes, whatever the editor is
---   doing, and says so first)
+--   answer { id, answer } (to an ask)
+-- The pop-out's messages go through the editor's bridge (desk.bridge), every ask with its deadline (pong and leaving
+-- need none): subscribe { chan, pid, width, protocol = 3 } (a request: the handshake) · describe { view, gen, item } →
+-- { rows } · act { view, gen, item, action, text, choice } · leaving { pid } (q on its last view: it goes, whatever the
+-- editor is doing, and says so first) · pong { serial } · front { view, quiet } (the view in front there now; quiet when
+-- it was not her own switch). describe, act and leaving are asks: notifications of M.ask with an id, answered by an
+-- answer notification, so the pop-out waits for the editor only as long as it chooses (an editor held up, busy or at
+-- a prompt, answers late: by then the pop-out has gone another way, and the deadline refuses what came late).
 -- describe and act name the generation the pop-out drew: a view drawn again since is refused ("this view moved on").
 -- The pop-out's keys for a view are its in-editor surface's drawn rows (run there, on its copy) and remote rows (run in
 -- the editor, by act), beside its own rows (surface 'popout'); a row the editor keeps (remote = false) is not there.
@@ -26,11 +29,12 @@ local actions = require('desk.actions')
 local bridge = require('desk.bridge')
 
 M.CLASS = 'desk-popout'
-M.PROTOCOL = 2
+M.PROTOCOL = 3
 M.PING_MS, M.WATCH_MS, M.LINGER_MS, M.GAP_MS, M.START_MS = 10000, 2000, 1500, 50, 15000
 M.MAX_LINES, M.MAX_ITEMS = 2000, 500
 -- The two doors: the editor's (desk.bridge, as desk-work uses it) and the pop-out's.
 local HOST_DOOR = "return require('desk.bridge').receive(...)"
+local ASK_DOOR = "return require('desk.popout').ask(...)"   -- the editor's, for an ask answered by notification
 local POPOUT_DOOR = "return require('desk.popout').receive(...)"
 local WARN = vim.log.levels.WARN
 local ON = 'popout'
@@ -1156,11 +1160,24 @@ bridge.register('pong', pong, { serial = bridge.field('integer', 2147483647, tru
 bridge.register('front', timed(front), { view = bridge.field('string', 32, true), quiet = bridge.field('boolean') })
 bridge.register('leaving', on_leaving, { pid = bridge.field('integer', 2147483647, true) })
 
+-- An ask of the pop-out's, by notification (id: its number there): the message goes through the bridge as any other,
+-- and its answer back as a notification, to the pop-out it came from (leaving forgets that pop-out, and is still
+-- answered).
+function M.ask(id, msg)
+  if type(id) ~= 'number' or M.is_popout() then return end
+  local chan = H.chan
+  local answer = bridge.receive(msg)
+  if chan and next(api.nvim_get_chan_info(chan)) ~= nil then
+    pcall(vim.rpcnotify, chan, 'nvim_exec_lua', POPOUT_DOOR, { { version = M.PROTOCOL, type = 'answer', id = id, answer = answer } })
+  end
+end
+
 -- ─── the pop-out's side ────────────────────────────────────────────────────────────────────────────────────────
 -- chan: to the editor; me: that channel's number there; host: { pid, pane } of the editor; views by id, each in a
 -- buffer and a tab page of its own (view.win: its window); empty: the buffer that says nothing is shown, in the one tab
--- left when there is no view; shown: the view in front (nil: none); switching: a tab change of this module's own.
-local C = { views = {} }
+-- left when there is no view; shown: the view in front (nil: none); switching: a tab change of this module's own;
+-- asked: the asks sent so far; waiting and answers: the asks waited for, by id, and their answers once they came.
+local C = { views = {}, asked = 0, waiting = {}, answers = {} }
 local ns = api.nvim_create_namespace('desk_popout')
 
 local function say(text, level) vim.notify(sentence(text), level or vim.log.levels.INFO, { title = 'Pop-out' }) end
@@ -1168,13 +1185,26 @@ local function width() return api.nvim_win_get_width(0) end
 local function shown() return C.shown and C.views[C.shown] or nil end
 local function escape(s) return (tostring(s):gsub('%%', '%%%%')) end
 
-local function request(msg, budget)
+-- An ask of the editor's: sent with its id, its answer waited for budget ms at most (2 s by default; this window keeps
+-- drawing what comes meanwhile). keep: no deadline, so an editor held up still takes it when it gets there (leaving).
+-- The answer, or { refused = why }.
+local function request(msg, budget, keep)
   if not C.chan then return refuse('the pop-out is not connected to an editor') end
-  msg.version, msg.deadline = 1, now_ms() + (budget or 2000)
-  local ok, answer = pcall(vim.rpcrequest, C.chan, 'nvim_exec_lua', HOST_DOOR, { msg })
-  if not ok then return refuse('the editor did not answer (' .. (tostring(answer):gsub('\n.*', '')):sub(1, 160) .. ')') end
+  budget = budget or 2000
+  C.asked = C.asked + 1
+  local id = C.asked
+  msg.version = 1
+  if not keep then msg.deadline = now_ms() + budget end
+  C.waiting[id] = true
+  local sent, err = pcall(vim.rpcnotify, C.chan, 'nvim_exec_lua', ASK_DOOR, { id, msg })
+  if sent then vim.wait(budget, function() return C.answers[id] ~= nil end, 5) end
+  local answer = C.answers[id]
+  C.waiting[id], C.answers[id] = nil, nil
+  if not sent then return refuse('the editor did not answer (' .. (tostring(err):gsub('\n.*', '')):sub(1, 160) .. ')') end
+  if answer == nil then return refuse('the editor did not answer in time') end
   return type(answer) == 'table' and answer or refuse('the editor gave no answer')
 end
+M.request = request   -- the tests time it
 
 -- What an ask names: a view (the one shown), the generation drawn here and its selected item.
 local function naming(msg, view, index)
@@ -1199,11 +1229,11 @@ local function tell_front(view, quiet)
     deadline = now_ms() + 2000 } })
 end
 
--- This pop-out is going (q on its last view): the editor is told first, and waits for nothing else, so it never takes
--- the quit for a crash (its pinned views back as splits).
+-- This pop-out is going (q on its last view): the editor is told first (a second at most is waited for its answer; with
+-- no deadline, one held up still takes it later), so it never takes the quit for a crash (its pinned views back as
+-- splits).
 local function leaving()
-  if not C.chan then return end
-  pcall(vim.rpcrequest, C.chan, 'nvim_exec_lua', HOST_DOOR, { { version = 1, type = 'leaving', pid = vim.fn.getpid() } })
+  if C.chan then request({ type = 'leaving', pid = vim.fn.getpid() }, 1000, true) end
 end
 
 local function index_of(view, key)
@@ -1536,7 +1566,7 @@ function M.closing(why)
   vim.defer_fn(function() vim.cmd('qa!') end, M.LINGER_MS)
 end
 
-local RECEIVES = { ['view.set'] = true, ['view.clear'] = true, ping = true, bye = true }
+local RECEIVES = { ['view.set'] = true, ['view.clear'] = true, ping = true, bye = true, answer = true }
 -- A view off this window: its tab closes (the empty view shown when it was the last), its buffer goes.
 local function drop(id)
   local view = C.views[id]
@@ -1594,6 +1624,11 @@ end
 -- The pop-out's door: what the editor sends, drawn on the next tick so the editor's rpcnotify returns at once.
 function M.receive(msg)
   if not M.is_popout() or type(msg) ~= 'table' or msg.version ~= M.PROTOCOL or not RECEIVES[msg.type] then return false end
+  -- An answer is taken at once: its ask is waiting for it (one no longer waited for is dropped).
+  if msg.type == 'answer' then
+    if type(msg.id) == 'number' and C.waiting[msg.id] then C.answers[msg.id] = msg.answer == nil and vim.NIL or msg.answer end
+    return true
+  end
   vim.schedule(function()
     local ok, err = pcall(handle, msg)
     if not ok then say('could not draw what the editor sent: ' .. tostring(err):sub(1, 200), WARN) end
@@ -1601,8 +1636,19 @@ function M.receive(msg)
   return true
 end
 
-function M.subscribe()
-  local answer = request({ type = 'subscribe', chan = C.me, pid = vim.fn.getpid(), width = math.min(1000, width()), protocol = M.PROTOCOL })
+-- The handshake: a request, the one this pop-out waits for (it has nothing to show until the editor answers). again: a
+-- resize, whose new width goes without waiting.
+function M.subscribe(again)
+  if not C.chan then return refuse('the pop-out is not connected to an editor') end
+  local msg = { version = 1, type = 'subscribe', chan = C.me, pid = vim.fn.getpid(), width = math.min(1000, width()), protocol = M.PROTOCOL,
+    deadline = now_ms() + 2000 }
+  if again then
+    pcall(vim.rpcnotify, C.chan, 'nvim_exec_lua', HOST_DOOR, { msg })
+    return {}
+  end
+  local ok, answer = pcall(vim.rpcrequest, C.chan, 'nvim_exec_lua', HOST_DOOR, { msg })
+  if not ok then return refuse('the editor did not answer (' .. (tostring(answer):gsub('\n.*', '')):sub(1, 160) .. ')') end
+  answer = type(answer) == 'table' and answer or refuse('the editor gave no answer')
   if not answer.refused then C.host = { pid = answer.pid, pane = answer.pane } end
   return answer
 end
@@ -1723,7 +1769,7 @@ function M.client()
   local resized = uv.new_timer()
   api.nvim_create_autocmd('VimResized', { group = group, callback = function()
     resized:stop()
-    resized:start(100, 0, vim.schedule_wrap(function() if C.chan then M.subscribe() end end))
+    resized:start(100, 0, vim.schedule_wrap(function() if C.chan then M.subscribe(true) end end))
   end })
 end
 

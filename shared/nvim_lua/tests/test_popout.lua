@@ -299,14 +299,14 @@ eq(door({ version = 1, type = 'act', view = 'graph', gen = gen, item = 1, action
 eq(act({ action = 'callgraph.go', deadline = later(-1000) }), { refused = 'this message came after its sender stopped waiting' },
   '… and one past it')
 eq(door({ version = 1, type = 'subscribe', chan = 1, pid = 1, width = 80, protocol = 1, deadline = later(5000) }),
-  { refused = 'this editor speaks pop-out protocol 2 and this pop-out 1: close it and open it again' }, 'a pop-out of another protocol is refused')
+  { refused = 'this editor speaks pop-out protocol 3 and this pop-out 1: close it and open it again' }, 'a pop-out of another protocol is refused')
 -- This test's own channel to the editor is not a pop-out's: it never named itself with nvim_set_client_info.
 local subscribed = host("return require('desk.popout').host.chan")
-eq(door({ version = 1, type = 'subscribe', chan = vim.rpcrequest(h, 'nvim_get_api_info')[1], pid = vim.fn.getpid(), width = 80, protocol = 2,
+eq(door({ version = 1, type = 'subscribe', chan = vim.rpcrequest(h, 'nvim_get_api_info')[1], pid = vim.fn.getpid(), width = 80, protocol = 3,
   deadline = later(5000) }), { refused = 'a pop-out subscribes on its own channel, named with nvim_set_client_info first' },
   'a subscribe on a channel that is no named pop-out is refused')
 eq(host("return require('desk.popout').host.chan"), subscribed, '… and the pop-out it has stays')
-eq(pop("return require('desk.bridge').receive(...)", { version = 1, type = 'subscribe', chan = 1, pid = 1, width = 80, protocol = 2, deadline = later(5000) }),
+eq(pop("return require('desk.bridge').receive(...)", { version = 1, type = 'subscribe', chan = 1, pid = 1, width = 80, protocol = 3, deadline = later(5000) }),
   { refused = 'this editor keeps no pop-out' }, 'a pop-out takes no pop-out of its own')
 eq(pop("return require('desk.popout').receive({ version = 1, type = 'view.set', id = 'old', gen = 1, lines = { 'x' } })"), false,
   '… and the pop-out takes nothing of another protocol')
@@ -718,7 +718,7 @@ do
   host("require('desk.callgraph').panel_close()")
   os.remove(dir .. '/kitty.fail')
   -- A pop-out the editor refuses (another protocol) says why there and quits: the same here.
-  write(dir .. '/protocol', '3')
+  write(dir .. '/protocol', '2')
   host("_G.heard = {}")
   open_row()
   ok(wait(10000, function() return vim.tbl_contains(heard(), 'The pop-out did not start. Its view is back here.') end),
@@ -871,6 +871,19 @@ do
   ok(wait(3000, function() return vim.tbl_contains(heard(), "The pop-out's views were not saved: cannot write the record.") end),
     'a write that fails is said: ' .. vim.inspect(heard()))
   os.remove(dir .. '/workspace.fail')
+end
+
+-- ─── an ask of the pop-out's never waits on an editor held up ───────────────────────────────────────────────────
+do
+  -- The editor busy 1.5 s: an ask of 100 ms comes back "did not answer in time" after about that, not once the editor is
+  -- free again (what it reads then, past the deadline, it refuses).
+  host("vim.defer_fn(function() vim.uv.sleep(1500) end, 20)")
+  vim.wait(200)
+  local took = pop("local t = vim.uv.hrtime(); local a = require('desk.popout').request({ type = 'describe' }, 100); return { math.floor((vim.uv.hrtime() - t) / 1e6), a.refused }")
+  ok(type(took) == 'table' and took[1] < 700 and took[2] == 'the editor did not answer in time',
+    'the editor busy 1.5 s, an ask of 100 ms: answered on its own time: ' .. vim.inspect(took))
+  vim.wait(1600)
+  ok(state().connected, '… and the pop-out goes on')
 end
 
 vim.rpcnotify(h, 'nvim_command', 'qa!')
