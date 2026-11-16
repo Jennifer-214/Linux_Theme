@@ -873,13 +873,15 @@ local function moving(how, key, name, about, line, doc)
 end
 local function picked(ctx) if ctx.view and not ctx.item then return 'no box is selected' end end
 local ROWS = actions.add({
-  { id = 'callgraph.open', group = 'This function', name = 'Call graph of this function', key = '<leader>cc', on = 'editor', remote = true,
+  -- These two read this editor's current window (the function under its cursor; the tab the panel splits): asked from
+  -- the pop-out they would act on whatever window is current here, not the box or row selected there. The editor's own.
+  { id = 'callgraph.open', group = 'This function', name = 'Call graph of this function', key = '<leader>cc', on = 'editor', remote = false,
     also = '`:CallGraph`',
     about = "Call graph of the function under the cursor, in a tab: callers above, the function in a double box, what it calls below (the language server's call hierarchy). It opens with the function's box selected. One tab: pressed again anywhere, it brings that tab back on the function under the cursor",
     -- In the graph itself its own keys are the ones that apply.
     available = function(ctx) return (ctx.surface ~= 'callgraph' and ctx.surface ~= 'callgraph-panel') or false end,
     run = function() M.open_cursor() end },
-  { id = 'callgraph.panel', group = 'This function', name = 'Live call graph panel', key = '<leader>co', on = 'editor', remote = true,
+  { id = 'callgraph.panel', group = 'This function', name = 'Live call graph panel', key = '<leader>co', on = 'editor', remote = false,
     also = '`:CallGraphPanel`',
     about = 'Live call graph panel: a narrow split on the right that follows the cursor and redraws when the function under it changes. It never takes the focus (`Ctrl+w l` goes into it); `p` in it pins it to the graph it shows (`PINNED`), `p` again follows the cursor',
     run = function() M.panel_toggle() end },

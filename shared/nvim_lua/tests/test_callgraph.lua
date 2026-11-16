@@ -456,7 +456,8 @@ for _, surface in ipairs({ "callgraph", "callgraph-panel" }) do
 end
 for _, id in ipairs({ "callgraph.open", "callgraph.panel" }) do
   local r = A.get(id)
-  eq({ r and r.group, r and r.remote, r and r.on }, { "This function", true, "editor" }, id .. ": in This function, open to the pop-out")
+  eq({ r and r.group, r and r.remote, r and r.on }, { "This function", false, "editor" },
+    id .. ": in This function, the editor's own (it reads the current window there; the pop-out does not offer it)")
 end
 eq({ A.key("callgraph.open"), A.key("callgraph.panel") }, { "<leader>cc", "<leader>co" }, "Space cc and Space co")
 eq(A.available(A.get("callgraph.open"), { surface = "callgraph" }), false, "inside the graph its own keys apply, not Space cc")

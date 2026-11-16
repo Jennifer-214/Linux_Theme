@@ -363,7 +363,8 @@ local menu = pop("return table.concat(vim.api.nvim_buf_get_lines(require('desk.m
 ok(menu:find('Go to the selected function', 1, true) and menu:find('Pin, or follow the editor', 1, true) and menu:find('Back to the editor', 1, true),
   "its rows are the editor's (describe):\n" .. menu)
 ok(menu:find('requires symdeps', 1, true), '… a row that cannot run says why')
-ok(menu:find('Live call graph panel', 1, true), "… the editor's other remote rows are there")
+ok(not menu:find('Live call graph panel', 1, true) and not menu:find('Call graph of this function', 1, true),
+  "… but none of the editor's rows that act on its own current window (the panel, a graph of its cursor's function)")
 ok(menu:find("The pop-out's keys", 1, true) and menu:find('To the editor', 1, true), "… and so are this window's own")
 ok(menu:find(' ── views ', 1, true) == menu:find(' ── ', 1, true) and menu:find('Pop out the call graph', 1, true) and menu:find('Pop out the rows', 1, true),
   '… the views first: every kind')
@@ -477,6 +478,9 @@ eq(pop('return _G.offered'), { 'one=The first', 'two=The second' }, '… from th
 local rows_gen = state().gen
 local function rows_act(fields) return act(vim.tbl_extend('force', { view = 'rows', gen = rows_gen, item = 2 }, fields)) end
 eq(rows_act({ action = 'rowstest.here' }), { refused = 'rowstest.here is not one the pop-out may ask for' }, "the row the editor keeps is refused")
+eq({ rows_act({ action = 'callgraph.open' }), rows_act({ action = 'callgraph.panel' }) },
+  { { refused = 'callgraph.open is not one the pop-out may ask for' }, { refused = 'callgraph.panel is not one the pop-out may ask for' } },
+  "… and so are the editor's rows that read its current window: they would act there, not on the row selected here")
 eq(rows_act({ action = 'rowstest.say' }), { refused = 'Say something about the row: needs its words' }, '… one without the words it asks for')
 eq(rows_act({ action = 'rowstest.pick', text = 'why not', choice = 'three' }), { refused = 'that choice is not offered here' },
   '… and a pick it does not offer')
