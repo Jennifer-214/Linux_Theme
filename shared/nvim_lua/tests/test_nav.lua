@@ -111,6 +111,17 @@ else
   eq(where(N.drawn[1]), { "3:1", "4:3", "5:7", "6:3" }, "labels on exactly the rows, at their first mark")
   -- The real list's strip and bar following it: tests/test_nvim_review.py.
   eq(api.nvim_win_get_cursor(0), { 5, 0 }, "typing d moves the cursor to the third row, as j and k move it")
+
+  -- Esc while the labels show cancels them and nothing else: the list's own Esc (it hides the list) never runs, and the
+  -- list stays with its cursor where it was (the VM tour's one FAIL, 2026-11-16).
+  local hidden, hide = 0, R.hide_panel
+  R.hide_panel = function() hidden = hidden + 1 end
+  api.nvim_win_set_cursor(0, { 4, 0 })
+  api.nvim_feedkeys("s" .. vim.keycode("<Esc>"), "x", false)
+  vim.fn.getchar(1)                    -- a key left queued for the list comes into the typeahead …
+  api.nvim_feedkeys("", "x", false)    -- … and runs there, as the editor's next key would
+  R.hide_panel = hide
+  eq({ hidden, api.nvim_win_get_cursor(0) }, { 0, { 4, 0 } }, "Esc on the list's labels: the labels go, the list and its cursor stay")
 end
 
 print(string.format("test_nav: %d passed%s", passed, failed > 0 and (", " .. failed .. " failed") or ""))

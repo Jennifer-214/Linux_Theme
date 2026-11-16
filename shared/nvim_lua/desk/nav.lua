@@ -94,13 +94,22 @@ function M.jump(win, targets, pick)
       end,
     })
   end
-  run(vim.tbl_map(function(t) return { target = t } end, targets), function(matches, state)
+  -- Esc ends the labels and nothing else. Flash hands the Esc that ended them on to the view (vim.api.nvim_input),
+  -- where Esc can mean more: the review's list hides on it. While the labels show, that Esc is not passed on.
+  local input = api.nvim_input
+  api.nvim_input = function(keys)
+    if type(keys) == 'string' and keys:lower() == '<esc>' then return #keys end
+    return input(keys)
+  end
+  local ok, err = pcall(run, vim.tbl_map(function(t) return { target = t } end, targets), function(matches, state)
     local labels = M.label_list(#matches, state:labels())
     for i, m in ipairs(matches) do
       m.label, m.second = labels[i] and labels[i][1] or false, labels[i] and labels[i][2] or nil
     end
     draw(matches)
   end)
+  api.nvim_input = input
+  if not ok then error(err, 0) end
   return true
 end
 
