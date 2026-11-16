@@ -55,7 +55,7 @@ if [[ "$ctx" =~ ^[0-9]+$ ]]; then
         if (( i < filled )); then hearts+="$colour$filled_mark"; else hearts+="$FAINT$empty_mark"; fi
         bare+="$filled_mark"
     done
-    if (( retro )); then add "$FAINT[$hearts$FAINT] $DIM$ctx%$RESET" "[$bare] $ctx%"; else add "$hearts $DIM$ctx%$RESET" "$bare $ctx%"; fi
+    if (( retro )); then add "${FAINT}[${hearts}${FAINT}] $DIM$ctx%$RESET" "[$bare] $ctx%"; else add "$hearts $DIM$ctx%$RESET" "$bare $ctx%"; fi
 fi
 
 # What the hooks last said of this session: readiness, compaction,
