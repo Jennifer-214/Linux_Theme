@@ -269,7 +269,7 @@ var glyphs = {
     "wallpaper-next":"↝", "color-picker":"⌖", agents:"✉",
     volume:"♪", "volume-mute":"♩", "audio-outputs":"◉", "mic-mute":"○", "media-play-pause":"▷",
     "media-previous":"‹", "media-next":"›", wifi:"⌁", bluetooth:"⋈",
-    brightness:"☼", nightlight:"☾", dnd:"⊘", idle:"⊙",
+    brightness:"☼", nightlight:"☾", crt:"≣", dnd:"⊘", idle:"⊙",
     updates:"↻", displays:"▭", storage:"▦", backups:"↺", startup:"⏵", programs:"⊞", terminals:"⧈", "power-profile":"◈",
     vault:"⚿", passwords:"⚿", tools:"❯", "api-credits":"◔", cheatsheet:"⌨", sandbox:"▢", security:"⛨",
     cleanup:"✧", lock:"⊡", power:"⏼", suspend:"⏾", reboot:"⟳", poweroff:"⏻", logout:"↪"
@@ -286,7 +286,7 @@ var retroGlyphs = {
     "clipboard-text":"¶", "clipboard-images":"\u{F02E9}", wallpapers:"▒", themes:"\u{F03D8}", "wallpaper-next":"→",
     "color-picker":"\u{F020A}", agents:"☺", volume:"♪", "volume-mute":"\u{F0581}", "audio-outputs":"◙",
     "mic-mute":"○", "media-play-pause":"►", "media-previous":"◄◄", "media-next":"►►", wifi:"\u{F05A9}",
-    bluetooth:"\u{F00AF}", brightness:"☼", nightlight:"\u{F0594}", dnd:"\u{F009B}", idle:"\u{F0176}",
+    bluetooth:"\u{F00AF}", brightness:"☼", nightlight:"\u{F0594}", crt:"░", dnd:"\u{F009B}", idle:"\u{F0176}",
     updates:"↑", displays:"▬", storage:"▓", backups:"↨", startup:"▲", programs:"\u{F061A}",
     terminals:"\u{F018D}", "power-profile":"\u{F140B}", vault:"\u{F0306}", passwords:"\u{F0306}", tools:"❯",
     "api-credits":"$", cheatsheet:"\u{F030C}", sandbox:"\u{F01A7}", security:"\u{F0498}", cleanup:"*",
@@ -331,7 +331,7 @@ var paperPresets = {
     "mic-mute":["microphone","○"], "media-play-pause":["play","▷"],
     "media-previous":["previous","‹"], "media-next":["next","›"],
     wifi:["wifi","⌁"], bluetooth:["bluetooth","⋈"],
-    brightness:["comfort","☼"], nightlight:["moon","☾"], dnd:["bell","⊘","✉"], idle:["clock","◷"],
+    brightness:["comfort","☼"], nightlight:["moon","☾"], crt:["window","≣"], dnd:["bell","⊘","✉"], idle:["clock","◷"],
     updates:["refresh","↻"], "power-profile":["battery","◈"],
     vault:["passwords","⚿"], passwords:["passwords","⚿"], tools:["terminal","❯","▤"],
     cheatsheet:["keys","⌨","✎"], sandbox:["sandbox","▢"], security:["shield","⛨","◇"],
@@ -665,13 +665,19 @@ var retroDetails = {
     failures: "Job errors and failed services", reviews: "Commits not yet read", "next-steps": "Pinned next steps",
     models: "Local models", "volume-mute": "Mute output", "audio-outputs": "Output device", "mic-mute": "Mute input",
     "media-play-pause": "Current media", brightness: "Backlight level", nightlight: "Warmer colours",
-    idle: "Keep screens on", dnd: "Hold notifications", "earlier-notes": "Notification history",
+    idle: "Keep screens on", crt: "Scanlines over the whole screen", dnd: "Hold notifications", "earlier-notes": "Notification history",
     wallpapers: "Background image", themes: "Colour themes", "wallpaper-next": "Next background",
     updates: "Pending updates", storage: "Disk usage", backups: "Files kept before replacing",
     cleanup: "Clean caches in a terminal", programs: "Running processes", startup: "Session autostart",
     power: "Suspend, restart, shut down, log out", lock: "Lock the screen", security: "Security dashboard",
     vault: "pass store", sandbox: "Disposable app sandbox", tools: "Desk commands", cheatsheet: "Keyboard shortcuts"
 };
+// A row's own retro name where the menu's words would not read as a DOS setting; others keep the menu's label.
+var retroLabels = { crt: "CRT SCANLINES" };
+function retroLabel(item) {
+    if (!item) return "";
+    return retroText(retroLabels[String(item.id || "")] || item.label || "");
+}
 function retroDetail(item) {
     if (!item) return "";
     var own = String(item.disabledReason || "") ? "" : retroDetails[String(item.id || "")];

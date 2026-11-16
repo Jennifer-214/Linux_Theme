@@ -107,7 +107,7 @@ const std::set<std::string> pages = {
 };
 const std::set<std::string> actions = {
     "volume", "volume-mute", "mic-mute", "media-play-pause", "media-next", "media-previous", "brightness",
-    "nightlight", "dnd", "idle", "power-profile", "lock", "suspend", "reboot", "poweroff", "logout",
+    "nightlight", "crt", "dnd", "idle", "power-profile", "lock", "suspend", "reboot", "poweroff", "logout",
     "wallpaper-next", "wallpaper-sync", "color-picker", "updates-terminal", "updates-silent", "vault",
     "security", "cleanup", "agent-triage", "agent-jump", "agent-clear", "claude-jump", "app-launch", "window-focus", "audio-output", "wifi-connect",
     "wifi-toggle", "bluetooth-connect", "bluetooth-toggle", "bluetooth-scan", "bluetooth-service", "tool-run", "cheatsheet-copy", "sandbox-launch", "clipboard-restore", "wallpaper-set", "theme-set", "project-open", "project-terminal", "project-bookmark", "drive-open", "drive-eject", "download-open", "download-folder", "screenshot-open", "screenshot-copy", "screenshot-folder", "screenshot-capture", "password-copy", "tools", "cheatsheet", "sandbox",
@@ -440,6 +440,31 @@ Json toggle_nightlight() {
     if (!nightlight_identity(after) || after == identity) return result(false, "Night light state did not change");
     return result(true, after ? "night light off" : "night light on · a warmer glow");
 }
+// desk-crt keeps its state in a one-line file, so reading it is a small file read, never a process that could hang.
+fs::path crt_shader() { return config_home() / "hypr/shaders/crt.frag"; }
+State crt_state() {
+    State state; state.ok = true;
+    const fs::path file = fs::path(env("XDG_STATE_HOME", home() + "/.local/state")) / "foxml/crt-screen";
+    if (!regular(file)) return state;  // never turned on
+    std::ifstream in(file, std::ios::binary);
+    char head[8] = {};
+    in.read(head, sizeof head);
+    const std::string first(head, static_cast<size_t>(in.gcount()));
+    state.checked = first == "on" || first.rfind("on\n", 0) == 0;
+    return state;
+}
+Json toggle_crt() {
+    if (!regular(crt_shader())) return result(false, "The CRT shader is not installed");
+    const bool on = !crt_state().checked;
+    auto done = command({"desk-crt", on ? "on" : "off"}, "screen CRT switched", false, "Could not switch the screen CRT effect");
+    if (!truth(done, "ok")) return done;
+    if (crt_state().checked != on) return result(false, "The screen CRT effect did not change");
+    done["message"] = on ? "screen CRT on · scanlines over everything" : "screen CRT off";
+    return done;
+}
+// A row for something this desktop does not have is left out rather than shown broken. The CRT shader and desk-crt
+// are deployed for every theme by the same install, so either one missing means an older install, not a fault.
+bool offered(const Json& row) { return text(row, "id") != "crt" || (regular(crt_shader()) && sh::have("desk-crt")); }
 std::string required(const std::string& id) {
     if (id == "volume" || id == "volume-mute" || id == "mic-mute") return "wpctl";
     if (id.rfind("media-", 0) == 0) return "playerctl";
@@ -501,6 +526,7 @@ bool decorate(Json& row) {
     else if (id == "brightness") { state = brightness_state(); queried = true; }
     else if (id == "dnd") { state = dnd_state(); queried = true; }
     else if (id == "nightlight") { state = nightlight_state(); queried = true; }
+    else if (id == "crt") { state = crt_state(); queried = true; }
     else if (id == "idle") {
         state = process_state("hypridle");
         const bool paused = regular(runtime() / "hypridle_paused");
@@ -4166,7 +4192,7 @@ Json view(const Json& config, const std::string& page, const std::string& query,
         out["favorites"] = Json::array();
         if (config.contains("favorites")) for (const auto& reference : config["favorites"]) {
             for (const auto& group : config["groups"]) for (auto row : group["items"]) {
-                if (reference.get<std::string>() != text(group, "id") + "/" + text(row, "id")) continue;
+                if (reference.get<std::string>() != text(group, "id") + "/" + text(row, "id") || !offered(row)) continue;
                 row["group"] = text(group, "id");
                 decorate(row);
                 out["favorites"].push_back(row);
@@ -4178,7 +4204,7 @@ Json view(const Json& config, const std::string& page, const std::string& query,
             out["favorites"].push_back(project_card(project, true));
     } else if (page == "search") {
         known = true; out["title"] = "Find anything";
-        for (const auto& group : config["groups"]) for (auto row : group["items"]) {
+        for (const auto& group : config["groups"]) for (auto row : group["items"]) if (offered(row)) {
             row["detail"] = text(group, "label") + (text(row, "detail").empty() ? "" : " › " + text(row, "detail"));
             row["group"] = text(group, "id"); searchable_by_id(row); rows.push_back(row);
         }
@@ -4247,6 +4273,7 @@ Json view(const Json& config, const std::string& page, const std::string& query,
     } else for (const auto& group : config["groups"]) if (text(group, "id") == page) {
         known = true; out["title"] = text(group, "label");
         for (auto row : group["items"]) {
+            if (!offered(row)) continue;
             if (!row.contains("enabled")) row["enabled"] = true;
             if (!decorate(row)) fail("Some controls are unavailable");
             if (!query.empty()) searchable_by_id(row);
@@ -4798,6 +4825,7 @@ Json run_action(const Json& config, const std::string& id, const std::string& ar
     }
     if (id.rfind("media-", 0) == 0) return command({"playerctl", id.substr(6)}, "Playback updated", false, "Could not control playback");
     if (id == "nightlight") return toggle_nightlight();
+    if (id == "crt") return toggle_crt();
     if (id == "dnd") {
         const auto state = dnd_state();
         if (!state.ok) return result(false, "Notification service is unavailable");

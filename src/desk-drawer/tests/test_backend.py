@@ -146,6 +146,9 @@ elif name == 'lsblk':
     print(json.dumps(state.get('drives', {'blockdevices': []})))
 elif name == 'xdg-user-dir':
     print(state.get('download_dir', str(Path.home() / 'Downloads')))
+elif name == 'desk-crt' and args in (['on'], ['off']) and not state.get('crt_stuck'):
+    screen = Path(os.environ['XDG_STATE_HOME']) / 'foxml/crt-screen'
+    screen.parent.mkdir(parents=True, exist_ok=True); screen.write_text(args[0] + '\n')
 elif name == 'udisksctl' and args[:1] == ['mount'] and state.get('after_mount'):
     state['drives'] = state['after_mount']
     Path(os.environ['DRAWER_TEST_STATE']).write_text(json.dumps(state))
@@ -469,6 +472,54 @@ class BackendTests(unittest.TestCase):
         row=self.failed("view","comfort")["items"][0]
         self.assertFalse(row["enabled"])
         self.assertNotIn("checked",row)
+
+    def crt_setup(self, shader=True, tool=True):
+        self.write_config([{"id":"comfort","label":"Comfort","items":[
+            {"id":"dnd","label":"Do not disturb","kind":"toggle"},
+            {"id":"crt","label":"Screen CRT effect","kind":"toggle","keywords":["scanlines"]}]}])
+        if shader:
+            frag = self.home/".config/hypr/shaders/crt.frag"; frag.parent.mkdir(parents=True, exist_ok=True); frag.write_text("// shader\n")
+        if tool:
+            fake = self.bin/"desk-crt"; fake.write_text(f"#!{sys.executable}\n" + FAKE_COMMAND); fake.chmod(0o755)
+        return self.home/".local/state/foxml/crt-screen"
+
+    def crt_row(self, *query):
+        return next((r for r in self.invoke("view", *(query or ("comfort",)))["items"] if r["id"] == "crt"), None)
+
+    def test_crt_row_reads_the_state_file_and_stays_out_of_the_way_without_its_shader(self):
+        screen = self.crt_setup(shader=False)
+        self.assertIsNone(self.crt_row(), "no shader on this desktop: no switch for it")
+        self.assertIsNone(self.crt_row("search", "scanlines"))
+        screen = self.crt_setup()
+        row = self.crt_row()
+        self.assertEqual((row["kind"], row["enabled"], row["checked"]), ("toggle", True, False), "never turned on reads as off")
+        screen.parent.mkdir(parents=True, exist_ok=True); screen.write_text("on\n")
+        self.assertTrue(self.crt_row()["checked"])
+        self.assertTrue(self.crt_row("search", "scanlines")["checked"])
+        for other in ("off\n", "only\n", "", "\n"):
+            screen.write_text(other)
+            self.assertFalse(self.crt_row()["checked"], repr(other))
+        self.assertFalse(any(call[0] == "desk-crt" for call in self.calls()), "reading the state starts no process")
+
+    def test_crt_row_without_desk_crt_is_left_out_too(self):
+        self.crt_setup(tool=False)
+        self.assertIsNone(self.crt_row())
+        self.assertEqual([r["id"] for r in self.invoke("view", "comfort")["items"]], ["dnd"])
+
+    def test_crt_switches_with_a_fixed_argv_and_checks_the_result(self):
+        screen = self.crt_setup()
+        on = self.invoke("run", "crt")
+        self.assertTrue(on["ok"]); self.assertIn("on", on["message"])
+        self.assertEqual(screen.read_text(), "on\n")
+        off = self.invoke("run", "crt")
+        self.assertTrue(off["ok"]); self.assertEqual(off["message"], "screen CRT off")
+        self.assertEqual([c for c in self.calls() if c[0] == "desk-crt"], [["desk-crt", "on"], ["desk-crt", "off"]])
+        self.assertIn("no argument", self.failed("run", "crt", "--anything")["message"])
+        self.state["crt_stuck"] = True
+        self.assertIn("did not change", self.failed("run", "crt")["message"])
+        (self.home/".config/hypr/shaders/crt.frag").unlink()
+        self.assertIn("not installed", self.failed("run", "crt")["message"])
+        self.assertEqual(len([c for c in self.calls() if c[0] == "desk-crt"]), 3, "a missing shader runs nothing")
 
     def test_agent_note_jumps_directly_and_preserves_new_arrivals(self):
         self.env.pop("TMUX",None)

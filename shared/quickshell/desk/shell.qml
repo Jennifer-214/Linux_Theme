@@ -1632,7 +1632,7 @@ ShellRoot {
                                                 objectName: "retro-row-text"
                                                 theme: root.paperTheme
                                                 width: itemRow.width - (parent.glyph ? 2 * theme.cellW : 0)
-                                                text: root.retro ? Logic.leaderLine(Logic.retroText(modelData.label || ""), Logic.retroText(parent.value), Math.floor(width / theme.cellW)) : ""
+                                                text: root.retro ? Logic.leaderLine(Logic.retroLabel(modelData), Logic.retroText(parent.value), Math.floor(width / theme.cellW)) : ""
                                                 color: parent.textColor
                                             }
                                         }
