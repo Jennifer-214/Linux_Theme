@@ -3073,7 +3073,7 @@ local function render_view(view, width)
   local w = math.max(24, math.min(width - 2, 100))
   local built = build(r, w)
   ask_reach(r, built, built.selected)
-  local lines, items, shown = built.lines, {}, nil
+  local lines, items = built.lines, {}
   local rows = vim.tbl_keys(built.entries)
   table.sort(rows)
   for _, line in ipairs(rows) do
@@ -3081,9 +3081,11 @@ local function render_view(view, width)
     local key = entry_key(r, entry)
     items[#items + 1] = { key = item_key(key), kind = 'row', line = line, name_col = (text:find('%S') or 1) - 1, x = 0, w = w,
       spans = { { line, 0, #text } }, name = row_name(r, entry), ref = { key = key }, strip = strip_of(r, entry, w) }
-    if line == built.selected then shown = items[#items] end
   end
-  local strip = add_strip(built, (shown or items[1] or { strip = strip_of(r, nil, w) }).strip, w)
+  -- The box's two lines in the drawing are a stand-in the pop-out writes the selected row's own strip over. A strip that
+  -- changes (a caller answered) leaves the drawing as it was, so its generation stays: a key pressed meanwhile still
+  -- names its row instead of being refused "this view moved on".
+  local strip = add_strip(built, strip_of(r, nil, w), w)
   local marks = {}
   for _, m in ipairs(built.marks) do
     local len = #lines[m[1]]

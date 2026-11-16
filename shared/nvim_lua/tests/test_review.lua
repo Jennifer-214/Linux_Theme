@@ -312,6 +312,28 @@ eq({ file_of("wa.lua").right:find("helper(2)", 1, true) ~= nil, pv.select }, { t
 C.close()
 P.host.views, P.host.order = {}, {}
 
+-- ─── the list in the pop-out keeps its drawing while only a strip changes ──────────────────────────────────────
+-- The pop-out names a key's row by the drawing's generation, which moves on when the drawing's lines change: a key
+-- pressed as a caller answer redrew the strip box was refused "this view moved on". The box's two lines in the drawing
+-- are a stand-in the pop-out writes the selected row's own strip over.
+local shown = commit({ ["shown.lua"] = { "local M = {}\nfunction M.go()\n  return old()\nend\nreturn M\n",
+  "local M = {}\nfunction M.go()\n  return new()\nend\nreturn M\n" } })
+C.open_review(shown, root)
+enter("shown.lua")
+local sf = file_of("shown.lua")
+for _, s in ipairs(R.changed_symbols(sf)) do if s.name == "M.go" then R.jump(s) end end
+eq(R.current.symbol and R.current.symbol.name, "M.go", "the comparison shows the function: its row is the one shown")
+local listed = { review = R.current }
+R.reach_known[sf.path .. "\0M.go"] = { said = "1 caller", source = "map", at = os.time() }
+local first = R.view_kind.render(listed, 120)
+R.reach_known[sf.path .. "\0M.go"] = { said = "7 callers", source = "map", at = os.time() }
+local second = R.view_kind.render(listed, 120)
+eq(second.lines, first.lines, "a caller answer for the row shown leaves the drawing's lines as they were (its generation stays)")
+local go_strip
+for _, item in ipairs(second.items) do if item.name == "M.go" then go_strip = table.concat(item.strip, "\n") end end
+ok(go_strip and go_strip:find("M.go · 7 callers", 1, true), "… and the row's own strip, the one the pop-out draws, has the answer:\n" .. tostring(go_strip))
+C.close()
+
 pcall(vim.fn.serverstop, vim.v.servername)
 vim.fn.delete(sandbox, "rf")
 print(string.format("test_review: %d passed%s", passed, failed > 0 and (", " .. failed .. " failed") or ""))
