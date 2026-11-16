@@ -655,6 +655,7 @@ which-key its words.
 | Key | Action |
 |---|---|
 | home menu: Restore the pop-out's views | Open the pop-out again with the views it had when this editor last closed, pinned as they were, on the screen it was on |
+| home menu: Move the pop-out to another screen | Asks which screen (every one, this one too); the pop-out moves there now if it is open, and opens there from now on, this session |
 | home menu: Pop out the call graph | The live call graph in the pop-out, a window of its own on the other screen: it follows the function under the cursor (`p` there pins it), and `Enter` there goes to a function here while the keyboard stays there |
 | home menu: Review list to the pop-out | The open review's file list in the pop-out on the other screen: the comparison takes this whole screen, and `Enter` there shows a file here while the keyboard stays there |
 | home menu: Pop out the project map | The project map in the pop-out, a window of its own on the other screen: `Enter` there zooms in, or goes to a function here while the keyboard stays there; `-` and `Backspace` go back out |

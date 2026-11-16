@@ -593,10 +593,26 @@ local three = { { name = 'eDP-1', focused = true, activeWorkspace = { id = 1 } }
 write(dir .. '/monitors.json', vim.json.encode(three))
 vim.fn.writefile({ 'PRIMARY="eDP-1"', 'PORTRAIT_OUTPUTS=""', 'SECONDARY_OUTPUTS="DP-2 HDMI-A-1"' }, sidecar)
 os.remove(dir .. '/kitty.listen')
+-- Two screens besides the editor's: it asks where, the usual one first and the editor's own last; she takes the first.
+host("require('desk.popout').chosen = nil; vim.ui.select = function(items, opts, done) _G.screens_offered = vim.tbl_map(function(c) return c.name end, items); _G.screens_prompt = opts.prompt; done(items[1]) end")
 open_row()
 opened()
 ok(wait(10000, function() return state().connected and state().title:find('call graph', 1, true) end), 'opened again, with three screens')
+eq({ host('return _G.screens_offered'), host('return _G.screens_prompt') }, { { 'DP-2', 'HDMI-A-1', 'eDP-1' }, 'Pop out on' },
+  'asked where: the usual screen first, the other next, this one last')
 ok(wait(5000, function() return host("return require('desk.popout').host.screen") == 'DP-2' end), '… placed on DP-2')
+-- Moved by its row: every screen offered, the pop-out goes there now, and it is remembered.
+host("vim.ui.select = function(items, opts, done) done(items[2]) end")
+mark = #read('hyprctl.log')
+host("require('desk.actions').get('popout.screen').run(require('desk.actions').context())")
+ok(wait(5000, function()
+  return log_since(mark):find("dispatch hl.dsp.window.move({ workspace = '7', follow = false, window = 'address:0xb2' })", 1, true)
+end), 'Move the pop-out to another screen: HDMI-A-1 chosen, it moves to the workspace showing there')
+eq({ host("return require('desk.popout').host.screen"), host("return require('desk.popout').chosen") }, { 'HDMI-A-1', 'HDMI-A-1' },
+  '… on HDMI-A-1 now, and chosen for this session')
+host("vim.ui.select = function(items, opts, done) done(items[1]) end")
+host("require('desk.actions').get('popout.screen').run(require('desk.actions').context())")
+ok(wait(5000, function() return host("return require('desk.popout').host.screen") == 'DP-2' end), '… and back to DP-2')
 host("_G.heard = {}; vim.notify = function(text) table.insert(_G.heard, text) end")
 mark = #read('hyprctl.log')
 write(dir .. '/monitors.json', vim.json.encode({ three[1], three[3] }))
@@ -709,6 +725,8 @@ local third = vim.system({ 'nvim', '--headless', '--clean', '--listen', dir .. '
 h = assert(connect(dir .. '/h3'), 'the third editor never listened')
 ok(wait(10000, function() return host('return _G.popout_test and _G.popout_test.ready') == true end), 'a third editor')
 host("_G.heard = {}; vim.notify = function(text) table.insert(_G.heard, text) end")
+-- Three screens: opening asks where; this editor takes the usual one, as Enter would.
+host("vim.ui.select = function(items, opts, done) done(items[1]) end")
 local function heard() return host('return _G.heard') end
 do
   -- kitty does not start: the graph o took from its tab comes back, and the editor says so.

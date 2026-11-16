@@ -136,6 +136,44 @@ function M.target_screen(monitors, layout, prefer)
   end
 end
 
+-- Where the pop-out may go: the usual screen first (M.target_screen's), then the others, the editor's own last.
+-- { name, workspace, label, here } each. Pure.
+function M.screen_choices(monitors, layout, prefer)
+  local usual = M.target_screen(monitors, layout, prefer)
+  local out, here = {}, nil
+  for _, m in ipairs(type(monitors) == 'table' and monitors or {}) do
+    local workspace = type(m) == 'table' and not m.disabled and type(m.activeWorkspace) == 'table' and tonumber(m.activeWorkspace.id)
+    if workspace and workspace > 0 and type(m.name) == 'string' then
+      local about = type(m.description) == 'string' and m.description ~= '' and (' · ' .. m.description) or ''
+      local size = (tonumber(m.width) and tonumber(m.height)) and (' · ' .. m.width .. '×' .. m.height) or ''
+      local c = { name = m.name, workspace = math.floor(workspace), here = m.focused == true,
+                  label = m.name .. about .. size .. (m.focused and ' (this screen)' or '') }
+      if c.here then here = c elseif usual and m.name == usual.name then table.insert(out, 1, c) else out[#out + 1] = c end
+    end
+  end
+  if here then out[#out + 1] = here end
+  return out
+end
+
+-- The screen she chose for the pop-out this session (M.chosen), while it is there: { name, workspace }, the editor's
+-- own screen allowed.
+local function chosen_screen(monitors)
+  if not M.chosen then return nil end
+  for _, c in ipairs(M.screen_choices(monitors, M.screens())) do
+    if c.name == M.chosen then return { name = c.name, workspace = c.workspace } end
+  end
+end
+
+-- Asks which screen; done(name), done(nil) when there was nothing to ask, done(false) when she chose none. all: every
+-- screen, this one too (the move); else only when there is a real choice, two screens or more besides this one.
+function M.choose_screen(done, all)
+  local choices = M.screen_choices(M.hyprctl_now({ 'monitors' }), M.screens(), M.host and M.host.prefer)
+  local others = #vim.tbl_filter(function(c) return not c.here end, choices)
+  if #choices == 0 or (not all and others < 2) then return done(nil) end
+  vim.ui.select(choices, { prompt = 'Pop out on', format_item = function(c) return c.label end },
+    function(c) done(c and c.name or false) end)
+end
+
 -- ─── windows ───────────────────────────────────────────────────────────────────────────────────────────────────
 -- A process and its parents (her own processes; the walk stops at one it cannot read).
 function M.lineage(pid)
@@ -579,7 +617,7 @@ end
 function M.place(pid, screen)
   if type(pid) ~= 'number' or not have('hyprctl') then return end
   hyprctl({ 'monitors' }, function(monitors)
-    screen = screen or M.target_screen(monitors, M.screens(), H.prefer)
+    screen = screen or chosen_screen(monitors) or M.target_screen(monitors, M.screens(), H.prefer)
     if not screen then return end
     local tries = 0
     local function look()
@@ -893,11 +931,19 @@ end
 -- A view of kind `name` in the pop-out, opening the window when it is not open. A new view is filled by its kind from
 -- ctx; asked for again from the editor (o in another graph, its Views row) it is filled again from there; asked for
 -- from the pop-out (ctx.remote) it only comes to the front. Either way, from another view, it is a step H undoes.
-function M.show(name, ctx)
+function M.show(name, ctx, asked)
   local kind = kinds[name]
   if not kind then return tell('No view is called ' .. tostring(name) .. '.', WARN) end
   if refused_here(M.can_pop()) then return end
   ctx = ctx or actions.context()
+  -- Opening it, with more than one other screen and none chosen this session: where to, first.
+  if not asked and not (H.chan or H.opening) and not M.chosen then
+    return M.choose_screen(function(screen)
+      if screen == false then return end
+      if screen then M.chosen = screen end
+      M.show(name, ctx, true)
+    end)
+  end
   local ok, why = M.open(checkout_of(ctx.win))
   if not ok then return tell(sentence(why), WARN) end
   local view, before = H.views[name], H.front
@@ -1848,6 +1894,16 @@ local ROWS = actions.add({
       return M.can_pop()
     end,
     run = function() M.restore_layout() end },
+  { id = 'popout.screen', group = 'Views', name = 'Move the pop-out to another screen', on = 'editor', remote = false,
+    about = 'Asks which screen (every one, this one too); the pop-out moves there now if it is open, and opens there from now on, this session',
+    available = function() return M.second_screen() end,
+    run = function()
+      M.choose_screen(function(screen)
+        if not screen then return end
+        M.chosen = screen
+        if H.kitty and H.chan then M.place(H.kitty) end
+      end, true)
+    end },
   remote({ id = 'popout.go-focus', group = 'Pop-out', name = 'Go to it, in the editor', key = 'f', on = ON,
     about = 'What `Enter` does (go to the selected box or row in the editor), and the keyboard goes to the editor too', available = can_go },
     go_focus),
