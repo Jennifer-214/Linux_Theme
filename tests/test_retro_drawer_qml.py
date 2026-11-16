@@ -142,9 +142,36 @@ class RetroGlyphs(unittest.TestCase):
         self.assertEqual(missing, [], "drawn by a fallback font, off the 8x12 grid")
 
 
+# Nothing opens the drawer (the preview's own first page is taken out): the bar hosts it closed, and none of it may
+# show until it is opened, nor after it is closed again.
+CLOSED = r'''
+    Timer { interval: 900; running: true; onTriggered: {
+        var window = desktopBar.item.windows[0];
+        if (root.opened || !root.drawerHost || revealClip.parent !== window.drawerContainer) throw new Error("the bar does not host the closed drawer");
+        if (revealClip.visible) throw new Error("a drawer never opened is on screen");
+        root.show("sound");
+    }}
+    Timer { interval: 1500; running: true; onTriggered: {
+        if (!revealClip.visible || root.crtScale < 0.99) throw new Error("the drawer did not open");
+        root.hide();
+    }}
+    Timer { interval: 2100; running: true; onTriggered: {
+        if (revealClip.visible) throw new Error("a closed drawer is on screen");
+        console.log("RETRO_CLOSED_OK"); Qt.quit();
+    }}
+'''
+
+
 @unittest.skipUnless(shutil.which("quickshell"), "Quickshell is required")
 class RetroDrawer(unittest.TestCase):
     def test_text_mode_drawer_bar_and_slip(self):
+        self.run_shell(EXERCISE, "RETRO_DRAWER_OK")
+
+    def test_a_drawer_not_opened_is_not_on_screen(self):
+        # At every login a TODAY sheet stood in the bar's surface until the drawer had been opened and closed once.
+        self.run_shell(CLOSED, "RETRO_CLOSED_OK", opened=False)
+
+    def run_shell(self, exercise, done, opened=True):
         renderer = ROOT / "src/desk-render/desk-render-fast"
         if not renderer.exists():
             self.skipTest("build desk-render-fast first")
@@ -173,7 +200,11 @@ class RetroDrawer(unittest.TestCase):
             source = (qml / "shell.qml").read_text().replace("    PanelWindow {", "    FloatingWindow {")
             source = re.sub(r"^        (?:anchors \{.*|margins \{.*|exclusionMode:.*|WlrLayershell\..*)\n", "", source, flags=re.M)
             source = source.replace("screen ? screen.width : 1280", "1280").replace("screen ? screen.height : 800", "1080")
-            (qml / "shell.qml").write_text(source.rsplit("\n}", 1)[0] + EXERCISE + "\n}\n")
+            if not opened:
+                first_page = 'if (Quickshell.env("FOXML_DRAWER_PREVIEW") === "1") show("sound");'
+                self.assertIn(first_page, source)
+                source = source.replace(first_page, "")
+            (qml / "shell.qml").write_text(source.rsplit("\n}", 1)[0] + exercise + "\n}\n")
             source = (qml / "PaperBar.qml").read_text().replace("PanelWindow {", "FloatingWindow {\n            implicitWidth: 1280")
             source = re.sub(r"^\s*(?:anchors \{ top: true; left: true; right: true \}|exclusiveZone:.*|WlrLayershell\..*|IdleInhibitor \{.*)\n",
                             "\n", source, flags=re.M)
@@ -193,7 +224,7 @@ class RetroDrawer(unittest.TestCase):
                 self.fail("the exercise never finished:\n" + (stuck.stdout or b"").decode() + (stuck.stderr or b"").decode())
             log = result.stdout + result.stderr
             self.assertEqual(result.returncode, 0, log)
-            self.assertIn("RETRO_DRAWER_OK", log)
+            self.assertIn(done, log)
             for error in ["TypeError", "ReferenceError", "Unable to assign", "Binding loop", "Error:"]:
                 self.assertNotIn(error, log)
 

@@ -72,7 +72,8 @@ ShellRoot {
         if (theme.style === "retro") { if (opened) crtOn.restart(); else crtOff.restart(); }
     }
     // Retro: the drawer opens like a CRT warming up, a bright line that grows to the full sheet, and closes back to it.
-    property real crtScale: 1
+    // It starts closed: at 1 a drawer never opened stood on screen in the bar's surface until the first open and close.
+    property real crtScale: 0.01
     SequentialAnimation {
         id: crtOn
         PropertyAction { target: root; property: "crtScale"; value: 0.01 }
