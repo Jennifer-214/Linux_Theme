@@ -1019,16 +1019,24 @@ CheckResult check_sessions(const Env& env) {
     return result("D25", title, Severity::Low, Status::Pass, "none runs code from before the install");
 }
 
-struct Entry { const char* id; CheckResult (*fn)(const Env&); };
+// When a check can run: Weekly — from the weekly timer too, with no live session (its environment can be stale there)
+// and nothing heavy; Live — only when she runs it, because it asks the running Hyprland or Quickshell, or (D7) starts
+// a whole Neovim. The field sits before the function, so every new check must say which (--scheduled reads it).
+enum class When { Weekly, Live };
+struct Entry { const char* id; When when; CheckResult (*fn)(const Env&); };
 // D14 first: an old café dispatcher is a way to root.
 const Entry CHECKS[] = {
-    {"D14", check_cafe},
-    {"D1", check_drift}, {"D2", check_hyprland}, {"D3", check_quickshell}, {"D4", check_drawer}, {"D5", check_bar},
-    {"D6", check_configs}, {"D7", check_nvim}, {"D8", check_claude}, {"D9", check_services},
-    {"D10", check_gtk}, {"D11", check_firefox}, {"D12", check_cursor}, {"D13", check_lock_panel},
-    {"D15", check_firefox_theme}, {"D16", check_shift_enter}, {"D17", check_popout_rule}, {"D18", check_plugin_lock},
-    {"D19", check_notebooks}, {"D20", check_work_commands}, {"D21", check_retro_bar}, {"D22", check_etcwatch},
-    {"D23", check_arch_audit}, {"D24", check_declarations}, {"D25", check_sessions},
+    {"D14", When::Weekly, check_cafe},
+    {"D1", When::Weekly, check_drift}, {"D2", When::Live, check_hyprland}, {"D3", When::Live, check_quickshell},
+    {"D4", When::Live, check_drawer}, {"D5", When::Live, check_bar}, {"D6", When::Weekly, check_configs},
+    {"D7", When::Live, check_nvim}, {"D8", When::Weekly, check_claude}, {"D9", When::Weekly, check_services},
+    {"D10", When::Weekly, check_gtk}, {"D11", When::Weekly, check_firefox}, {"D12", When::Weekly, check_cursor},
+    {"D13", When::Live, check_lock_panel}, {"D15", When::Weekly, check_firefox_theme},
+    {"D16", When::Weekly, check_shift_enter}, {"D17", When::Weekly, check_popout_rule},
+    {"D18", When::Weekly, check_plugin_lock}, {"D19", When::Weekly, check_notebooks},
+    {"D20", When::Weekly, check_work_commands}, {"D21", When::Weekly, check_retro_bar},
+    {"D22", When::Weekly, check_etcwatch}, {"D23", When::Weekly, check_arch_audit},
+    {"D24", When::Weekly, check_declarations}, {"D25", When::Weekly, check_sessions},
 };
 
 std::vector<std::string> split_csv(const std::string& text) {
@@ -1052,7 +1060,7 @@ const char* mark(Status status) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    bool quiet = false, verbose = false;
+    bool quiet = false, verbose = false, scheduled = false, list = false;
     std::vector<std::string> only;
     std::string theme;
     for (int i = 1; i < argc; ++i) {
@@ -1061,10 +1069,14 @@ int main(int argc, char** argv) {
         else if (arg == "--quiet" || arg == "-q") quiet = true;
         else if (arg == "--verbose" || arg == "-v") verbose = true;
         else if (arg == "--only" && i + 1 < argc) only = split_csv(argv[++i]);
+        else if (arg == "--scheduled") scheduled = true;
+        else if (arg == "--list") list = true;
         else if (arg == "-h" || arg == "--help") {
-            std::printf("usage: desk theme check [--verbose] [--quiet] [--only D1,D4] [--theme NAME]\n\n"
+            std::printf("usage: desk theme check [--verbose] [--quiet] [--only D1,D4] [--scheduled] [--list] [--theme NAME]\n\n"
                         "Checks that the desktop the theme set up is deployed and working. Read-only.\n"
                         "--theme compares against another theme than the active one (after a swap, say).\n"
+                        "--scheduled runs only the checks the weekly timer runs (no live session, nothing heavy);\n"
+                        "--list prints the ids that would run, and runs nothing.\n"
                         "  D1 deployed files match the theme   D2 Hyprland config   D3 Quickshell\n"
                         "  D4 drawer pages   D5 bar modules   D6 tmux / lock screen   D7 Neovim\n"
                         "  D8 Claude status line and mod   D9 services   D10 GTK light/dark   D11 Firefox find colours\n"
@@ -1093,6 +1105,8 @@ int main(int argc, char** argv) {
     std::vector<CheckResult> results;
     for (const auto& check : CHECKS) {
         if (!only.empty() && std::none_of(only.begin(), only.end(), [&](const std::string& id) { return id == check.id; })) continue;
+        if (scheduled && check.when != When::Weekly) continue;
+        if (list) { std::printf("%s\n", check.id); continue; }
         if (std::string(check.id) == "D1" && env.repo.empty()) {
             results.push_back(result("D1", "deployed files match the theme", Severity::Medium, Status::Skip,
                                      "the theme repo was not found", "set FOXML_REPO to it"));
@@ -1114,6 +1128,7 @@ int main(int argc, char** argv) {
             std::printf("        → %s\n", r.fix_hint.c_str());
         std::fflush(stdout);
     }
+    if (list) return 0;
     if (!quiet) std::printf("\ntheme %s · repo %s\n", env.theme.c_str(), env.repo.empty() ? "not found" : env.repo.c_str());
     return desk_health::worst_exit(results);
 }

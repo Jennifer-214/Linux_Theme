@@ -566,5 +566,34 @@ class Deployed(unittest.TestCase):
             self.assertNotIn(quiet, said)
 
 
+@unittest.skipUnless(CHECK.exists(), "build theme-check first")
+class Scheduled(unittest.TestCase):
+    """The weekly timer runs what theme-check's own table marks Weekly, so a new check is scheduled by declaring it
+    (the field sits before the check's function, so every entry has to say), never by editing the unit's command."""
+    WEEKLY = {"D1", "D6", "D8", "D9", "D10", "D11", "D12", "D14", "D15", "D16", "D17", "D18", "D19", "D20", "D21",
+              "D22", "D23", "D24", "D25"}
+    LIVE = {"D2", "D3", "D4", "D5", "D7", "D13"}
+
+    def ids(self, *args):
+        with tempfile.TemporaryDirectory(prefix="theme-check-list-") as home:
+            ran = subprocess.run([str(CHECK), *args, "--list"], capture_output=True, text=True, timeout=30,
+                                 env={"PATH": "/usr/bin:/bin", "HOME": home})
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+        return ran.stdout.split()
+
+    def test_scheduled_runs_every_weekly_check_and_no_live_one(self):
+        self.assertEqual(set(self.ids("--scheduled")), self.WEEKLY)
+
+    def test_every_check_is_in_the_table_once(self):
+        listed = self.ids()
+        self.assertEqual(len(listed), len(set(listed)), listed)
+        self.assertEqual(set(listed), self.WEEKLY | self.LIVE)
+
+    def test_the_weekly_unit_selects_by_the_table(self):
+        unit = (ROOT / "shared/systemd_user/fox-theme-check.service").read_text()
+        self.assertIn("--scheduled", unit)
+        self.assertNotRegex(unit, r"--only\b", "a fixed --only list misses every check added after it")
+
+
 if __name__ == "__main__":
     unittest.main()

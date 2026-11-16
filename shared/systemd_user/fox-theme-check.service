@@ -3,7 +3,8 @@ Description=A weekly look at the desktop the theme set up (desk theme check)
 
 [Service]
 Type=oneshot
-# Only the checks that don't need the live session (its environment can be stale here). Read-only; a
+# --scheduled: every check marked Weekly in theme-check's own table (no live session — its environment can be stale
+# here — and nothing heavy), so a new check is scheduled by declaring it, never by editing this line. Read-only; a
 # notification only when something is not clean.
-ExecStart=/bin/sh -c '%h/.local/bin/theme-check --quiet --only D1,D6,D8,D9,D10,D11,D12 || notify-send -a "desk theme check" "Something on the desktop needs a look" "Run desk theme check to see what"'
+ExecStart=/bin/sh -c '%h/.local/bin/theme-check --quiet --scheduled || notify-send -a "desk theme check" "Something on the desktop needs a look" "Run desk theme check to see what"'
 Nice=10
