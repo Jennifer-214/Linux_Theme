@@ -1116,6 +1116,12 @@ local function read_structure(r)
   end
   vim.defer_fn(step, 15)
 end
+-- A file read again since (a refresh, finishing) has its calls read again too.
+local function reread_structure(r)
+  for _, f in ipairs(r.files) do
+    if f.loaded and not structure_of(f) then return read_structure(r) end
+  end
+end
 
 -- Callers, asked one function at a time; each answer draws the list again (the strips say it).
 local NO_REACH = 'callers: requires a language server or the project map'
@@ -1968,6 +1974,7 @@ refresh_files = function(r, echo, status)
   if r.state_cache.stamp ~= state then changed = true end
   if signature == selected.signature and failed == selected.error and binary == selected.binary then
     if changed then panel(r) end
+    reread_structure(r)
     return
   end
   local win, views = api.nvim_get_current_win(), {}
@@ -2058,6 +2065,7 @@ function M.finish(quiet)
   if not r then return end
   if r.row.kind ~= 'commit' then
     for _, f in ipairs(r.files) do load_file(r, f, true) end
+    reread_structure(r)
   end
   if progress(r) ~= #r.files then panel(r); tell('Check each file first. Check & next opens the next unread file.'); return false end
   local backend = M.work_tool()

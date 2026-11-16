@@ -274,6 +274,28 @@ ok(strip_of("parse"):find("callers: not in the project map", 1, true),
   "the map's only parse is another file's, so these are not this one's callers:\n" .. strip_of("parse"))
 C.close()
 
+-- ─── a review of the working changes: files edited in the background ───────────────────────────────────────────
+vim.cmd("bwipeout! " .. working)   -- the typing test's draft: a review of the working changes lists unsaved drafts too
+write("wa.lua", "local function one()\n  return 1\nend\nreturn one\n")
+write("wb.lua", "local function two()\n  return 2\nend\nreturn two\n")
+git("add", "-A")
+git("commit", "-qm", "working base")
+write("wa.lua", "local function one()\n  return helper(1)\nend\nreturn one\n")
+write("wb.lua", "local function two()\n  return 3\nend\nreturn two\n")
+C.open_review({ kind = "working", short = "working changes" }, root)
+local wr = R.current
+eq(vim.tbl_map(function(f) return f.rel end, wr.files), { "wa.lua", "wb.lua" }, "a review of the working changes, wa.lua shown")
+ok(vim.wait(3000, function() local b = file_of("wb.lua"); return b.structure ~= nil and b.structure.signature == b.signature end),
+  "their calls are read")
+
+-- wb.lua (not the file shown) gains a function that calls something new; the refresh reads its calls again.
+write("wb.lua", "local function two()\n  return 3\nend\nlocal function three()\n  return extra()\nend\nreturn two\n")
+R.refresh_live()
+ok(vim.wait(3000, function() return text_of(file_row("wb.lua")):find("→", 1, true) ~= nil end),
+  "a file changed in the background: its calls are read again, its row marked →: " .. text_of(file_row("wb.lua")))
+ok(strip_of("wb.lua"):find("→ calls changed in three", 1, true), "… and its strip says where:\n" .. strip_of("wb.lua"))
+C.close()
+
 pcall(vim.fn.serverstop, vim.v.servername)
 vim.fn.delete(sandbox, "rf")
 print(string.format("test_review: %d passed%s", passed, failed > 0 and (", " .. failed .. " failed") or ""))
