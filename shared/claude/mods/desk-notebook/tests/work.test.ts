@@ -1,5 +1,5 @@
 import { expect, test } from 'claude-code/testing'
-import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, pendingLine, planProgress, reviewStates, reviewSummary, ruler, shellQuote, stepLabel, testLabel, turnLabel, unreviewed, withoutHeredocs, workName, filterFiles, wrapWords, needBreakdown, needGroup, refusalOf, wrapParts } from '../hooks/work'
+import { ago, beginArgs, branchLabel, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, pendingLine, planProgress, reviewStates, reviewSummary, ruler, shellQuote, stepLabel, testLabel, turnLabel, unreviewed, withoutHeredocs, workName, filterFiles, wrapWords, needBreakdown, needGroup, refusalOf, wrapParts, dosText } from '../hooks/work'
 
 test('tracking records a command as written, keeps secrets out, and reads how the call ended', () => {
   const command = "make test && printf '%s' \"$HOME\""
@@ -181,4 +181,11 @@ test('a refusal reads desk-work\'s own message, then its error output, then name
   expect(refusalOf(['snooze'], { exitCode: 1, stdout: '{"ok":false,"message":"Choose an item to snooze"}\n', stderr: '' })).toBe('Choose an item to snooze')
   expect(refusalOf(['bogus'], { exitCode: 2, stdout: '', stderr: 'desk-work bogus: missing or invalid arguments\n' })).toBe('desk-work bogus: missing or invalid arguments')
   expect(refusalOf(['health'], { exitCode: 9, stdout: '', stderr: '' })).toBe('desk-work health did not answer (exit 9)')
+})
+
+test('retro shows a project card\'s symbols in code page 437 marks, and leaves words and other styles alone', () => {
+  const card = '❦ ship v5 · ◍ xgb lane, raw: 5963 ✓ 0 ✗ · ◡ asan built — ✻ pressed notes 🌸'
+  expect(dosText(card, true)).toBe('♦ ship v5 · • xgb lane, raw: 5963 √ 0 x · • asan built - * pressed notes •')
+  expect(dosText('√ ♦ ► ░▒█ │ café naïve', true), 'what the font has stays').toBe('√ ♦ ► ░▒█ │ café naïve')
+  expect(dosText(card, false), 'paper keeps the card as written').toBe(card)
 })

@@ -87,6 +87,24 @@ export const CHARS = RETRO
   : { cursor: '›', enter: '⏎', withdraw: '✕', dash: '—', on: '●', off: '○', meter: ['▰', '▱'], pencil: '✎', minus: '−' }
 // A word the notebook says, as retro says it: in capitals, the way a DOS program printed its state.
 export function said(words: string): string { return RETRO ? words.toUpperCase() : words }
+// Text from outside the notebook (a project's card) can carry any symbol; retro shows it in code page 437 marks.
+// Symbols the font has stay; known ones get their DOS look; any other symbol becomes a bullet. Letters never change.
+const DOS_SYMBOLS: Record<string, string> = {
+  '✓': '√', '✔': '√', '☑': '√', '✗': 'x', '✘': 'x', '✕': 'x', '✖': 'x', '☒': 'x', '⚠': '!', '◷': '☼', '↻': '↕',
+  '★': '*', '☆': '*', '✦': '*', '✧': '*', '✱': '*', '✲': '*', '✳': '*', '✴': '*', '✻': '*', '✼': '*', '❋': '*', '✿': '*', '❀': '*',
+  '❦': '♦', '❧': '♦', '◆': '♦', '◇': '♦', '◈': '♦', '●': '•', '◉': '•', '◍': '•', '⬤': '•', '◌': '○', '◯': '○',
+  '▶': '►', '▸': '►', '▹': '►', '◀': '◄', '◂': '◄', '◃': '◄', '✎': '■', '✉': '→', '⌑': '≡', '—': '-', '–': '-', '…': '..',
+}
+const CP437 = new Set('☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕‼¶§▬↨↑↓→←∟↔▲▼⌂√≡±≥≤÷°·■∞')
+export function dosText(text: string, retro: boolean = RETRO): string {
+  if (!retro) return text
+  return Array.from(text, ch => {
+    if (DOS_SYMBOLS[ch] !== undefined) return DOS_SYMBOLS[ch]
+    const code = ch.codePointAt(0) ?? 0
+    if (CP437.has(ch) || (code >= 0x2500 && code <= 0x259f)) return ch
+    return /[\p{So}\p{Sk}]/u.test(ch) || /\p{Extended_Pictographic}/u.test(ch) ? '•' : ch
+  }).join('').replace(/[\u{FE0F}\u{200D}]/gu, '')
+}
 // "✓ 128 passed 2h ago · 3 files changed since": what the last test run said, how old it is, and whether it still holds.
 export function testLabel(test: WorkTest, now?: number): string {
   const p = test.tests?.passed, f = test.tests?.failed

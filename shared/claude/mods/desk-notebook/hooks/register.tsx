@@ -5,7 +5,7 @@ import type { AgentSession, ApiCredits, CiLook, GitLook, NotebookView, PaperActi
 import { addBefore, addEdit, addName, neighbours, namesText, noteText, overlapFor, parseLedger, parseNames, parseNote, trailerUrl, withPlan, editedSince } from './ledger'
 import type { Other } from './ledger'
 import { paper } from './theme'
-import { ago, beginArgs, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, filterFiles, planProgress, receiptLine, reviewStates, reviewSummary, ruleParts, ruler, sides, syncLabel, workName, wrapWords, stepLabel, testLabel, turnLabel, unreviewed, work, workCall, workLook, needBreakdown, needGroup, wrapParts, MARKS, glyph, CHARS, ELLIPSIS, RETRO, cut, said } from './work'
+import { ago, beginArgs, canTrack, ciLabel, exitOf, greenAgain, jobPace, outputOf, parseBranchLine, filterFiles, planProgress, receiptLine, reviewStates, reviewSummary, ruleParts, ruler, sides, syncLabel, workName, wrapWords, stepLabel, testLabel, turnLabel, unreviewed, work, workCall, workLook, needBreakdown, needGroup, wrapParts, MARKS, glyph, CHARS, ELLIPSIS, RETRO, cut, said, dosText } from './work'
 import { attributeFiles, fileColumns, fileCounts, gitFiles, drawerPage, mailId, shortPath, NAMED_PAGES } from './notebook'
 import { BUILD_ID } from './build'
 
@@ -1587,9 +1587,9 @@ export const register: Register = on => {
         content.push(row('task-add', '+ next step', () => setView({ form: 'task' })))
       }
       if (now?.card) {
-        content.push(text(now.card.title, paper.ribbon))
+        content.push(text(dosText(now.card.title), paper.ribbon))
         for (const [i, item] of now.card.rows.slice(0, 24).entries()) {
-          const label = `${item.mark ? item.mark + ' ' : ''}${item.text}`
+          const label = dosText(`${item.mark ? item.mark + ' ' : ''}${item.text}`)
           const action: PaperAction | undefined = item.action
           if (action && ['file', 'file-diff', 'log', 'tests', 'compare'].includes(action.kind)
             && ((action.kind === 'file' || action.kind === 'file-diff') ? typeof action.file === 'string' : typeof action.id === 'string'))
