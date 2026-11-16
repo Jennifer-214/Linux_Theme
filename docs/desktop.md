@@ -672,6 +672,34 @@ AI integration:
 
 Stack: LSP via mason, DAP, cmake-tools, neotest, lazygit, telescope, harpoon, neo-tree, treesitter, zen-mode.
 
+### Jupyter notebooks
+
+`nvim assignment.ipynb` opens the notebook as Markdown (jupytext.nvim): the prose is ordinary Markdown and each code
+cell is a ```` ```python ```` block holding the cell's exact text, magics included. To add cells, use the keys below
+or type a block yourself; two blank lines separate one Markdown cell from the next.
+
+- **Run.** `Shift+Enter` runs the cell under the cursor and moves to the next (past the last one it opens a new
+  cell). `Space jj` runs it in place, `Space ja` runs everything, `Space jk` everything above. The first run starts
+  the kernel the notebook names (or asks; `Space ji` switches kernels). `Space jx` interrupts, `Space jR` restarts.
+- **Outputs.** Text and plots (matplotlib) show in a frame under the cell while the cursor is in it, drawn in kitty
+  by image.nvim (inside tmux too). The frame turns green or red when the cell finishes. `Space je` enters a long
+  output to scroll it; `q` leaves. `Space jc` clears every output.
+- **Hand in.** `:w` writes the `.ipynb` back: every cell, its metadata and the outputs of the cells you ran (cells
+  you did not run keep the outputs they had). The file stays a normal notebook that Jupyter opens. If you split or
+  merged a cell after running it, the save says the outputs were *not* saved: run all (`Space ja`) and save again.
+
+All keys: [the keybind reference](../shared/nvim_NVIM-KEYBINDS.md#jupyter-notebooks-jupytext--molten).
+
+The installer sets it up: Neovim's Python (pynvim), the Jupyter client, nbformat, ipykernel and matplotlib from
+pacman; jupytext through pipx (Arch has no package for it), in `~/.local/bin`. Without jupytext an `.ipynb` simply
+opens as JSON. Notes:
+
+- Other libraries an assignment uses: `sudo pacman -S python-pandas python-scipy …` (numpy comes with matplotlib).
+- A virtual env or conda env as the kernel: inside it, `pip install ipykernel && python -m ipykernel install --user
+  --name <name>`, then `Space ji` in the notebook.
+- After Arch moves to a new Python version, `pipx reinstall-all` makes jupytext run again.
+- Code cells have no language server: the buffer is Markdown.
+
 ## Multi-monitor
 
 `./install.sh` runs the `monitors` module near the end, which detects every output via `hyprctl monitors -j` and prompts for position (left / right / above / below the laptop) and orientation (landscape / portrait-left / portrait-right) per external monitor. The picker writes:

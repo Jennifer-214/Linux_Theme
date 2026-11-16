@@ -508,6 +508,30 @@ Press **Space** and wait — which-key pops up showing all leader binds and thei
 | `Space le` | Show errors |
 | `Space lk` | Stop compilation |
 
+### Jupyter notebooks (jupytext · molten)
+An `.ipynb` opens as Markdown: code cells are ```` ```python ```` blocks, outputs show in a frame under the cell
+when the cursor is in it. These keys exist only in notebooks; the first run starts the notebook's kernel.
+`:w` saves the `.ipynb` with its outputs. More: [docs/desktop.md](../docs/desktop.md#jupyter-notebooks).
+
+<!-- jupyter-keys:begin · generated from the desk-jupyter block of templates/nvim/init.lua: python3 tests/test_nvim_keys.py --write -->
+| Key in a notebook | Action |
+|---|---|
+| `Shift+Enter` (also in insert mode) | Run the cell, go to the next |
+| `Space jj` | Run the cell |
+| `Space ja` | Run all cells |
+| `Space jk` | Run the cells above |
+| `]j` | Next code cell |
+| `[j` | Previous code cell |
+| `Space jo` | New code cell below |
+| `Space jO` | New code cell above |
+| `Space jm` | New Markdown cell below |
+| `Space je` | Enter the cell's output (scroll it; q closes) |
+| `Space jc` | Clear all outputs |
+| `Space jx` | Interrupt the kernel |
+| `Space jR` | Restart the kernel |
+| `Space ji` | Choose the kernel |
+<!-- jupyter-keys:end -->
+
 ### Projects
 | Key | Action |
 |-----|--------|
@@ -765,6 +789,7 @@ Quick reference of all `Space` binds:
 | `C t` | Claude toggle terminal |
 | `C s` | Claude send selection |
 | `g g` | LazyGit |
+| `j …` | Jupyter, in notebooks (see Jupyter notebooks above) |
 | `q s` | Restore session (cwd) |
 | `q l` | Restore last session |
 | `q d` | Stop session recording |

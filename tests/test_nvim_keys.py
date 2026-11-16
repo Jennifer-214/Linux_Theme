@@ -2,7 +2,7 @@
 
 `python3 tests/test_nvim_keys.py --write` rewrites the generated sections of shared/nvim_NVIM-KEYBINDS.md: the review's
 keys (the rows shared/nvim_lua/desk/review.lua adds) and the desk keys (every row on the editor surface: the global keys
-and the home menu's rows).
+and the home menu's rows), and the Jupyter notebook keys.
 """
 from collections import defaultdict
 import json
@@ -30,6 +30,9 @@ GRAPH = {'callgraph': 'tab', 'callgraph-panel': 'panel'}
 # Where a key works, as a reference line says it: for a line of one place, then per key when a line mixes them.
 REVIEW_PLACES = ({'list': ' in the file list', 'diff': ' in a diff'}, {'list': ' (list)', 'diff': ' (diff)'})
 GRAPH_PLACES = ({'tab': ' in the graph tab', 'panel': ' in the panel', 'both': ' in a graph'}, {'tab': ' (graph tab)', 'panel': ' (panel)'})
+JUPYTER_BEGIN = ('<!-- jupyter-keys:begin · generated from the desk-jupyter block of templates/nvim/init.lua: '
+                 'python3 tests/test_nvim_keys.py --write -->')
+JUPYTER_END = '<!-- jupyter-keys:end -->'
 
 # Deliberate: the same action in both places, or keys that never meet in one buffer.
 SHARED_GLOBALS = {
@@ -76,6 +79,42 @@ def desk_keys():
     for i, row in enumerate(rows):
         order.setdefault(row['group'], len(found['groups']) + i)
     return [entry(row, 'editor') for row in sorted(rows, key=lambda row: order[row['group']])]
+
+
+def jupyter_keys():
+    """The notebook keys as the template's desk-jupyter block lists them: [{lhs, desc, modes}]."""
+    with tempfile.TemporaryDirectory() as home:
+        script = Path(home) / 'dump.lua'
+        script.write_text(f'''
+local J = dofile({json.dumps(str(ROOT / 'tests/jupyter_block.lua'))})({json.dumps(str(ROOT / 'templates/nvim/init.lua'))})
+local out = {{}}
+for _, k in ipairs(J.keymap) do
+  out[#out + 1] = {{ lhs = k.lhs, desc = k.desc, modes = type(k.mode) == 'table' and k.mode or {{ k.mode }} }}
+end
+io.stdout:write(vim.json.encode(out))
+''')
+        env = {'HOME': home, 'PATH': '/usr/bin:/bin', 'XDG_STATE_HOME': home, 'XDG_CACHE_HOME': home,
+               'XDG_CONFIG_HOME': home, 'XDG_DATA_HOME': home}
+        ran = subprocess.run(['nvim', '--headless', '--clean', '-l', str(script)], capture_output=True, text=True, timeout=60, env=env)
+        if ran.returncode != 0:
+            raise RuntimeError(ran.stdout + ran.stderr)
+        return json.loads(ran.stdout)
+
+
+def jupyter_reference(keys):
+    lines = [JUPYTER_BEGIN, '| Key in a notebook | Action |', '|---|---|']
+    for key in keys:
+        name = 'Shift+Enter' if key['lhs'] == '<S-CR>' else shown(key['lhs'])
+        lines.append(f"| `{name}`{' (also in insert mode)' if 'i' in key['modes'] else ''} | {key['desc']} |")
+    lines.append(JUPYTER_END)
+    return '\n'.join(lines)
+
+
+def with_jupyter(text, table):
+    if JUPYTER_BEGIN in text:
+        head, rest = text.split(JUPYTER_BEGIN, 1)
+        return head + table + rest.split(JUPYTER_END, 1)[1]
+    raise ValueError('the keybinds doc has no generated Jupyter section')
 
 
 def shown(lhs):
@@ -180,6 +219,20 @@ class NvimKeys(unittest.TestCase):
         self.assertEqual([row['id'] for row in found['rows'] if not row['source'].startswith('shared/nvim_lua/desk/')], [],
                          'every row comes from a desk module')
 
+    def test_the_jupyter_reference_is_generated_from_its_key_table(self):
+        keys = jupyter_keys()
+        self.assertGreater(len(keys), 10)
+        text = DOC.read_text()
+        self.assertIn(JUPYTER_BEGIN, text)
+        self.assertEqual(text, with_jupyter(text, jupyter_reference(keys)),
+                         'NVIM-KEYBINDS.md differs from the Jupyter key table: run python3 tests/test_nvim_keys.py --write')
+
+    def test_jupyter_keys_never_shadow_a_global_key(self):
+        globals_ = {(mode, key) for mode, key, _ in nvim_keys.global_maps()}
+        mine = {(mode, nvim_keys.normal(k['lhs'])) for k in jupyter_keys() for mode in k['modes']}
+        self.assertEqual(len(mine), len(jupyter_keys()) + 1, 'a notebook key is listed twice')  # Shift+Enter: n and i
+        self.assertEqual(sorted(mine & globals_), [], 'a notebook key hides a global one inside notebooks')
+
     def test_every_leader_key_of_the_work_modules_is_in_the_reference(self):
         doc = DOC.read_text()
         missing = [f'{key} ({where})' for mode, key, where in nvim_keys.global_maps()
@@ -253,7 +306,8 @@ if __name__ == '__main__':
     if '--write' in sys.argv:
         text = with_reference(DOC.read_text(), reference(review_keys()))
         text = with_reference(text, callgraph_reference(), GRAPH_BEGIN, GRAPH_END)
-        DOC.write_text(with_reference(text, desk_reference(), DESK_BEGIN, DESK_END))
+        text = with_reference(text, desk_reference(), DESK_BEGIN, DESK_END)
+        DOC.write_text(with_jupyter(text, jupyter_reference(jupyter_keys())))
         print('wrote', DOC.relative_to(ROOT))
     else:
         unittest.main()

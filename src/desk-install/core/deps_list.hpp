@@ -32,6 +32,11 @@ inline const std::vector<std::string>& deps_packages() {
 
         // Neovim runtime deps (Copilot LSP, Mason, tree-sitter latex grammar)
         "nodejs", "npm", "tree-sitter-cli",
+        // Jupyter notebooks in Neovim (molten): Neovim's Python host, the kernel client and nbformat for the .ipynb,
+        // a Python kernel, matplotlib for plots (imagemagick, under Tools, draws them in kitty). pipx installs
+        // jupytext, which Arch does not package (deps.cpp).
+        "python-pynvim", "python-jupyter-client", "jupyter-nbformat", "python-ipykernel", "python-matplotlib",
+        "python-pipx",
 
         // Bar, launcher, notifications
         "waybar", "mako", "quickshell", // One desktop menu service; pass below owns secret handling.

@@ -8,7 +8,10 @@ vim.g.mapleader = " "
 -- How long a key waits to see if more follow (default 1000 ms): a prefix which-key does not catch felt slow.
 vim.o.timeoutlen = 300
 vim.g.maplocalleader = " "
-vim.g.python3_host_prog = vim.fn.expand("~/.venvs/nvim/bin/python")
+-- Neovim's Python (molten runs in it): a ~/.venvs/nvim if one was made, else the system Python, where the installer
+-- puts pynvim, jupyter_client and nbformat from pacman.
+vim.g.python3_host_prog = vim.fn.executable(vim.fn.expand("~/.venvs/nvim/bin/python")) == 1
+  and vim.fn.expand("~/.venvs/nvim/bin/python") or "/usr/bin/python3"
 
 -- Suppress deprecation warnings from plugins we don't control (project.nvim, telescope)
 local _orig_deprecate = vim.deprecate
@@ -938,6 +941,405 @@ function RepoVis.engine(buf)
 end
 -- <<< fox-repo-visibility
 
+-- >>> desk-jupyter
+-- Jupyter notebooks. An .ipynb opens as Markdown through jupytext: prose is plain Markdown, every code cell a ```python
+-- block holding the cell's exact text (magics included). A save writes the .ipynb back through `jupytext --update`,
+-- which keeps every cell, its metadata and its last outputs. molten runs code cells on a Jupyter kernel and shows each
+-- output in a float under its cell, plots drawn by image.nvim with kitty's graphics (through tmux); outputs that ran
+-- here are written into the .ipynb on save. The keys (Space j, Shift+Enter, ]j / [j) exist only in notebooks.
+-- Nothing here loads at startup: jupytext.nvim on the first .ipynb, molten and image.nvim on the first cell run.
+local Jupyter = {}
+do
+  local J, api = Jupyter, vim.api
+  -- jupytext.nvim runs BufReadPost / BufWritePost under :silent!, which swallows a message said there: say it after.
+  local function later(msg, level) vim.schedule(function() vim.notify(msg, level) end) end
+
+  -- jupytext comes from pipx (~/.local/bin) on these machines; without it an .ipynb opens as plain JSON.
+  function J.jupytext()
+    for _, path in ipairs({ vim.fn.exepath("jupytext"), vim.fn.expand("~/.local/bin/jupytext") }) do
+      if path ~= "" and vim.fn.executable(path) == 1 then return path end
+    end
+  end
+
+  -- The notebook's kernelspec, from the YAML header jupytext writes: { name =, language = }.
+  function J.kernelspec(buf)
+    local spec, inside = {}, false
+    for i, line in ipairs(api.nvim_buf_get_lines(buf, 0, 60, false)) do
+      if i > 1 and line == "---" then break end
+      if line:match("^%s+kernelspec:%s*$") then inside = true
+      elseif inside then
+        local key, value = line:match("^%s%s%s%s+([%w_]+):%s*(.-)%s*$")
+        if not key then inside = false
+        elseif key == "name" or key == "language" then spec[key] = value:gsub("^['\"](.*)['\"]$", "%1") end
+      end
+    end
+    return spec
+  end
+
+  -- The code cells: { open = the ``` row, first, last (its text; last < first when empty), close } (1-based rows).
+  -- A fence inside a <!-- #region --> or <!-- #raw --> block is Markdown text, not a cell.
+  function J.cells(buf)
+    local lines = api.nvim_buf_get_lines(buf, 0, -1, false)
+    local language = (J.kernelspec(buf).language or "python"):lower()
+    local cells, i, skip = {}, 1, nil
+    if lines[1] == "---" then
+      for k = 2, #lines do if lines[k] == "---" then i = k + 1; break end end
+    end
+    while i <= #lines do
+      local line = lines[i]
+      if skip then
+        if line:match("^<!%-%- #end" .. skip) then skip = nil end
+      elseif line:match("^<!%-%- #region") then skip = "region"
+      elseif line:match("^<!%-%- #raw") then skip = "raw"
+      elseif line:match("^```") then
+        local close = i + 1
+        while close <= #lines and not lines[close]:match("^```%s*$") do close = close + 1 end
+        if (line:match("^```%s*([%w_+-]+)") or ""):lower() == language then
+          cells[#cells + 1] = { open = i, first = i + 1, last = close - 1, close = close }
+        end
+        i = close
+      end
+      i = i + 1
+    end
+    return cells
+  end
+
+  -- The cells, the one holding row (or nil) and the first one below row.
+  function J.at(buf, row)
+    local cells = J.cells(buf)
+    for k, cell in ipairs(cells) do
+      if row >= cell.open and row <= cell.close then return cells, k, k + 1 end
+      if cell.open > row then return cells, nil, k end
+    end
+    return cells, nil, #cells + 1
+  end
+
+  -- molten's commands come from Neovim's remote-plugin manifest, written when molten was installed; it is missing when
+  -- pynvim was not there yet. Writing it again needs molten loaded, and a restart to take effect. (Its functions are
+  -- defined on their first call, so the command is what shows it is there.)
+  local function molten_on() return vim.fn.exists(":MoltenInit") == 2 end
+  local function registered()
+    if molten_on() then return true end
+    if vim.fn.has("python3") == 0 then
+      vim.notify("Jupyter: Neovim has no Python (python-pynvim); see :checkhealth vim.provider", vim.log.levels.ERROR)
+      return false
+    end
+    pcall(function() require("lazy").load({ plugins = { "molten-nvim" } }) end)
+    pcall(vim.cmd, "UpdateRemotePlugins")
+    vim.notify("Jupyter: molten was just registered; restart Neovim to run cells (:checkhealth molten)",
+      vim.log.levels.WARN)
+    return false
+  end
+
+  -- molten writes the kernel's connection file into Jupyter's runtime folder, which nothing has made on a new machine.
+  local function init_kernel(name)
+    local data = vim.env.JUPYTER_DATA_DIR or ((vim.env.XDG_DATA_HOME or vim.fn.expand("~/.local/share")) .. "/jupyter")
+    vim.fn.mkdir(data .. "/runtime", "p")
+    vim.cmd(name and ("MoltenInit " .. name) or "MoltenInit")
+  end
+
+  -- Run fn with a kernel attached to buf: the one running, else the notebook's own, else the one picked from a list.
+  local function with_kernel(buf, fn)
+    if not registered() then return end
+    if #vim.fn.MoltenRunningKernels(true) > 0 then return fn() end
+    local asked = vim.uv.now()
+    api.nvim_create_autocmd("User", { pattern = "MoltenKernelReady", once = true, callback = vim.schedule_wrap(function()
+      if vim.uv.now() - asked < 120000 and api.nvim_get_current_buf() == buf then fn() end
+    end) })
+    local want = J.kernelspec(buf).name
+    init_kernel(want and vim.tbl_contains(vim.fn.MoltenAvailableKernels(), want) and want or nil)
+  end
+
+  local function evaluate(buf, cell)
+    if cell.last < cell.first then return end
+    vim.b[buf].desk_jupyter_ran = true
+    local last = api.nvim_buf_get_lines(buf, cell.last - 1, cell.last, false)[1]
+    vim.fn.MoltenEvaluateRange(cell.first, cell.last, 1, #last + 1)
+  end
+
+  local function goto_cell(cell)
+    api.nvim_win_set_cursor(0, { math.min(cell.first, api.nvim_buf_line_count(0)), 0 })
+  end
+
+  -- Where a new cell goes: after the code cell the cursor is in, else after the paragraph it is in.
+  local function anchor(cells, i)
+    if i then return cells[i].close end
+    local row, count = api.nvim_win_get_cursor(0)[1], api.nvim_buf_line_count(0)
+    while row < count and api.nvim_buf_get_lines(0, row, row + 1, false)[1]:match("%S") do row = row + 1 end
+    return row
+  end
+
+  local function fence() return "```" .. (J.kernelspec(0).language or "python"):lower() end
+
+  local function new_code_cell(after)
+    api.nvim_buf_set_lines(0, after, after, false, { "", fence(), "", "```" })
+    api.nvim_win_set_cursor(0, { after + 3, 0 })
+    vim.cmd("startinsert")
+  end
+
+  -- fn(buf, cells, i, below) once a kernel is there (a new one starts in the background), for the key's row.
+  local function on_cells(fn)
+    local buf, row = api.nvim_get_current_buf(), api.nvim_win_get_cursor(0)[1]
+    with_kernel(buf, function()
+      local cells, i, below = J.at(buf, row)
+      fn(buf, cells, i, below)
+    end)
+  end
+
+  J.run = {}
+  function J.run.cell()
+    local _, i = J.at(0, api.nvim_win_get_cursor(0)[1])
+    if not i then return vim.notify("Jupyter: the cursor is not in a code cell") end
+    on_cells(function(buf, cells, k) if k then evaluate(buf, cells[k]) end end)
+  end
+  -- As in Jupyter: run, then the next code cell; past the last one, a new one opens to type in. On prose it only moves.
+  function J.run.cell_next()
+    local cells, i, below = J.at(0, api.nvim_win_get_cursor(0)[1])
+    local function move()
+      if cells[below] then
+        vim.cmd("stopinsert")
+        goto_cell(cells[below])
+      else
+        new_code_cell(anchor(cells, i))
+      end
+    end
+    if not i then return move() end
+    on_cells(function(buf, now, k)
+      if k then evaluate(buf, now[k]) end
+      cells, i, below = now, k, (k or 0) + 1
+      move()
+    end)
+  end
+  function J.run.all()
+    on_cells(function(buf, cells) for _, cell in ipairs(cells) do evaluate(buf, cell) end end)
+  end
+  function J.run.above()
+    on_cells(function(buf, cells, i, below) for k = 1, (i or below) - 1 do evaluate(buf, cells[k]) end end)
+  end
+  function J.run.next()
+    local cells, _, below = J.at(0, api.nvim_win_get_cursor(0)[1])
+    if cells[below] then goto_cell(cells[below]) end
+  end
+  function J.run.prev()
+    local row = api.nvim_win_get_cursor(0)[1]
+    local cells, i, below = J.at(0, row)
+    -- inside a cell's text, the first press goes to its top, as [[ does
+    local to = i and (row > cells[i].first and i or i - 1) or below - 1
+    if cells[to] then goto_cell(cells[to]) end
+  end
+  function J.run.add_below()
+    local cells, i = J.at(0, api.nvim_win_get_cursor(0)[1])
+    new_code_cell(anchor(cells, i))
+  end
+  function J.run.add_above()
+    local cells, i = J.at(0, api.nvim_win_get_cursor(0)[1])
+    local at = i and cells[i].open - 1 or api.nvim_win_get_cursor(0)[1] - 1
+    api.nvim_buf_set_lines(0, at, at, false, { fence(), "", "```", "" })
+    api.nvim_win_set_cursor(0, { at + 2, 0 })
+    vim.cmd("startinsert")
+  end
+  -- jupytext ends a Markdown cell at a code cell or at two blank lines.
+  function J.run.add_markdown()
+    local cells, i = J.at(0, api.nvim_win_get_cursor(0)[1])
+    local after = anchor(cells, i)
+    local lines = i and { "", "", "" } or { "", "", "", "" }
+    api.nvim_buf_set_lines(0, after, after, false, lines)
+    api.nvim_win_set_cursor(0, { after + #lines - 1, 0 })
+    vim.cmd("startinsert")
+  end
+  function J.run.output()
+    if registered() then vim.cmd("noautocmd MoltenEnterOutput") end
+  end
+  -- Clear: off the screen now, out of the .ipynb on the next save (jupytext --update would keep the old ones).
+  function J.run.clear()
+    local buf = api.nvim_get_current_buf()
+    if molten_on() and #vim.fn.MoltenRunningKernels(true) > 0 then vim.cmd("MoltenDelete!") end
+    vim.b[buf].desk_jupyter_clear, vim.b[buf].desk_jupyter_ran = true, false
+    vim.bo[buf].modified = true
+    vim.notify("Jupyter: outputs cleared; save to clear them in the notebook too")
+  end
+  function J.run.interrupt() if registered() then vim.cmd("MoltenInterrupt") end end
+  function J.run.restart() if registered() then vim.cmd("MoltenRestart") end end
+  function J.run.kernel()
+    if not registered() then return end
+    if #vim.fn.MoltenRunningKernels(true) > 0 then vim.cmd("MoltenDeinit") end
+    init_kernel(nil)
+  end
+
+  -- The keys, one table: tests read it and write the reference in shared/nvim_NVIM-KEYBINDS.md from it.
+  J.keymap = {
+    { id = "cell_next", lhs = "<S-CR>", mode = { "n", "i" }, desc = "Run the cell, go to the next" },
+    { id = "cell", lhs = "<leader>jj", mode = "n", desc = "Run the cell" },
+    { id = "all", lhs = "<leader>ja", mode = "n", desc = "Run all cells" },
+    { id = "above", lhs = "<leader>jk", mode = "n", desc = "Run the cells above" },
+    { id = "next", lhs = "]j", mode = "n", desc = "Next code cell" },
+    { id = "prev", lhs = "[j", mode = "n", desc = "Previous code cell" },
+    { id = "add_below", lhs = "<leader>jo", mode = "n", desc = "New code cell below" },
+    { id = "add_above", lhs = "<leader>jO", mode = "n", desc = "New code cell above" },
+    { id = "add_markdown", lhs = "<leader>jm", mode = "n", desc = "New Markdown cell below" },
+    { id = "output", lhs = "<leader>je", mode = "n", desc = "Enter the cell's output (scroll it; q closes)" },
+    { id = "clear", lhs = "<leader>jc", mode = "n", desc = "Clear all outputs" },
+    { id = "interrupt", lhs = "<leader>jx", mode = "n", desc = "Interrupt the kernel" },
+    { id = "restart", lhs = "<leader>jR", mode = "n", desc = "Restart the kernel" },
+    { id = "kernel", lhs = "<leader>ji", mode = "n", desc = "Choose the kernel" },
+  }
+
+  function J.attach(buf)
+    if vim.b[buf].desk_jupyter or not api.nvim_buf_get_name(buf):match("%.ipynb$") then return end
+    vim.b[buf].desk_jupyter = true
+    for _, key in ipairs(J.keymap) do
+      vim.keymap.set(key.mode, key.lhs, J.run[key.id], { buffer = buf, desc = key.desc, silent = true })
+    end
+  end
+
+  local group = api.nvim_create_augroup("desk_jupyter", { clear = true })
+  api.nvim_create_autocmd("FileType", { group = group, pattern = "markdown",
+    callback = function(args) J.attach(args.buf) end })
+  api.nvim_create_autocmd("FileType", { group = group, pattern = "molten_output", callback = function(args)
+    vim.keymap.set("n", "q", "<cmd>close<cr>", { buffer = args.buf, desc = "Close the output", silent = true })
+  end })
+  api.nvim_create_autocmd("BufWritePost", { group = group, pattern = "*.ipynb", callback = function(args)
+    local buf, file = args.buf, vim.fn.fnamemodify(args.file, ":p")
+    if vim.b[buf].desk_jupyter_clear then
+      local strip = "import nbformat, os, sys\np = sys.argv[1]\nnb = nbformat.read(p, 4)\nfor c in nb.cells:\n"
+        .. "    if c.cell_type == 'code': c.outputs = []; c.execution_count = None\n"
+        .. "nbformat.write(nb, p + '.desk-tmp')\nos.replace(p + '.desk-tmp', p)\n"
+      local done = vim.system({ vim.g.python3_host_prog or "python3", "-c", strip, file }, { text = true }):wait()
+      if done.code == 0 then vim.b[buf].desk_jupyter_clear = nil
+      else later("Jupyter: could not clear the saved outputs: " .. done.stderr, vim.log.levels.ERROR) end
+    end
+    if vim.b[buf].desk_jupyter_ran and molten_on() and #vim.fn.MoltenRunningKernels(true) > 0 then
+      local before = vim.uv.fs_stat(file)
+      vim.cmd("MoltenExportOutput!")
+      local after = vim.uv.fs_stat(file)
+      -- molten follows edits inside a cell it ran, but writes nothing at all when one no longer matches a cell of the
+      -- notebook (split or merged since it ran): say so
+      if before and after and before.mtime.sec == after.mtime.sec and before.mtime.nsec == after.mtime.nsec then
+        later("Jupyter: outputs NOT saved: a cell that ran was split or merged since. Run all (Space ja), then"
+          .. " save again", vim.log.levels.WARN)
+      end
+    end
+    -- jupytext.nvim asks before writing over a file changed since it read it; these rewrites are ours
+    local stat = vim.uv.fs_stat(file)
+    if stat then vim.b[buf].mtime = stat.mtime end
+  end })
+  -- A notebook jupytext cannot read (not JSON: a merge conflict, a half-written file) opens empty, before jupytext.nvim
+  -- has set up its own save, so :w! would write the empty buffer over the notebook. Such a buffer can never be written.
+  local function guard(jupytext)
+    local open = jupytext.open_notebook
+    jupytext.open_notebook = function(file, buf)
+      buf = (buf == nil or buf == 0) and api.nvim_get_current_buf() or buf
+      local ok, metadata = pcall(open, file, buf)
+      local stat = vim.uv.fs_stat(file)
+      local empty = api.nvim_buf_line_count(buf) == 1 and api.nvim_buf_get_lines(buf, 0, 1, false)[1] == ""
+      if ok and not (empty and stat and stat.size > 0) then return metadata end
+      vim.bo[buf].buftype, vim.bo[buf].modifiable = "nowrite", false
+      later("Jupyter: jupytext could not read " .. file .. (ok and "" or (": " .. tostring(metadata)))
+        .. "\nLeft unwritable; `nvim --clean " .. file .. "` opens it as plain JSON", vim.log.levels.ERROR)
+      return ok and metadata or nil
+    end
+  end
+
+  local function colours()
+    local hl = function(name, opts) api.nvim_set_hl(0, name, opts) end
+    hl("MoltenOutputBorder", { fg = P.float_border })
+    hl("MoltenOutputBorderSuccess", { fg = P.green })
+    hl("MoltenOutputBorderFail", { fg = P.red })
+    hl("MoltenOutputWin", { link = "NormalFloat" })
+    hl("MoltenOutputWinNC", { link = "NormalFloat" })
+    hl("MoltenOutputFooter", { fg = P.comment })
+    hl("MoltenCell", { bg = P.cursorline })
+    hl("MoltenVirtualText", { fg = P.comment })
+  end
+  colours()
+  api.nvim_create_autocmd("ColorScheme", { group = group, callback = colours })
+
+  -- Retro draws code page 437 only: molten writes "✓ Done" / "✗ Failed" into its output, so those glyphs are covered.
+  if DeskStyle == "retro" then
+    local ns = api.nvim_create_namespace("desk_jupyter_cp437")
+    local swap = { ["✓"] = { "√", "MoltenOutputBorderSuccess" }, ["✗"] = { "x", "MoltenOutputBorderFail" } }
+    api.nvim_set_decoration_provider(ns, {
+      on_win = function(_, _, buf) return vim.bo[buf].filetype == "molten_output" end,
+      on_line = function(_, _, buf, row)
+        local line = api.nvim_buf_get_lines(buf, row, row + 1, false)[1] or ""
+        for glyph, to in pairs(swap) do
+          local from = 1
+          while true do
+            local s, e = line:find(glyph, from, true)
+            if not s then break end
+            api.nvim_buf_set_extmark(buf, ns, row, s - 1,
+              { virt_text = { to }, virt_text_pos = "overlay", hl_mode = "combine", ephemeral = true })
+            from = e + 1
+          end
+        end
+      end,
+    })
+  end
+
+  -- molten wants each border character on its own to colour a finished cell's frame green or red.
+  local function molten_border()
+    local border = vim.g.desk_border
+    if type(border) == "table" then return border end
+    return { "╭", "─", "╮", "│", "╯", "─", "╰", "│" }
+  end
+
+  J.specs = {
+    {
+      "goerz/jupytext.nvim",
+      -- its BufReadCmd turns the JSON into text, so it loads as the first .ipynb is read, and not at all without the
+      -- jupytext command (a notebook then opens as JSON, never as an empty buffer that a save would write back)
+      event = "BufReadCmd *.ipynb",
+      cond = function() return J.jupytext() ~= nil end,
+      opts = function()
+        -- autosync off: on, it rewrites a foo.py whenever a foo.ipynb sits beside it. Written synchronously, so the
+        -- outputs molten adds after it (BufWritePost above) land on the finished file.
+        return { jupytext = J.jupytext(), format = "markdown", autosync = false, async_write = false }
+      end,
+      config = function(_, opts)
+        local jupytext = require("jupytext")
+        jupytext.setup(opts)
+        guard(jupytext)
+      end,
+    },
+    {
+      "benlubas/molten-nvim",
+      lazy = true,  -- a remote plugin: its commands exist from startup; the Lua half loads when the Python half asks
+      build = ":UpdateRemotePlugins",
+      init = function()
+        vim.g.molten_image_provider = "image.nvim"
+        vim.g.molten_image_location = "float"
+        vim.g.molten_output_win_border = molten_border()
+        vim.g.molten_use_border_highlights = true
+        vim.g.molten_output_win_max_height = 30
+        vim.g.molten_output_virt_lines = true   -- the output pushes the next cell down instead of covering it
+        vim.g.molten_virt_lines_off_by_1 = true
+        vim.g.molten_wrap_output = true
+        vim.g.molten_output_show_more = false   -- its footer is a Nerd Font glyph
+      end,
+    },
+    {
+      "3rd/image.nvim",
+      lazy = true,  -- molten requires it on the first image
+      build = false,  -- the magick rock in its rockspec is for the other processor; magick_cli runs ImageMagick
+      opts = {
+        backend = "kitty",
+        processor = "magick_cli",
+        integrations = { markdown = { enabled = false }, asciidoc = { enabled = false }, neorg = { enabled = false },
+          rst = { enabled = false }, typst = { enabled = false }, html = { enabled = false }, css = { enabled = false } },
+        hijack_file_patterns = {},
+        max_width = 100,
+        max_height = 24,
+        max_width_window_percentage = math.huge,
+        max_height_window_percentage = math.huge,
+        window_overlap_clear_enabled = true,
+        window_overlap_clear_ft_ignore = { "cmp_menu", "cmp_docs", "snacks_notif", "noice", "" },
+        tmux_show_only_in_active_window = true,
+      },
+    },
+  }
+end
+-- <<< desk-jupyter
+
 local plugins = {
   { "nvim-lualine/lualine.nvim",           dependencies = { "nvim-tree/nvim-web-devicons" } },
   { "lukas-reineke/indent-blankline.nvim", main = "ibl",
@@ -980,6 +1382,7 @@ local plugins = {
         { "<leader>f", group = "find" },
         { "<leader>g", group = "git" },
         { "<leader>h", group = "harpoon" },
+        { "<leader>j", group = "Jupyter" },      -- only in .ipynb buffers (desk-jupyter)
         { "<leader>k", group = "multicursor" },
         { "<leader>m", group = "tasks" },
         { "<leader>n", group = "swap params" },
@@ -2117,6 +2520,7 @@ local plugins = {
   },
 
 }
+vim.list_extend(plugins, Jupyter.specs)
 
 -- lazy.nvim setup
 require("lazy").setup(plugins, {

@@ -199,6 +199,17 @@ void run_deps(Context& ctx) {
                 ui::warn("could not change the login shell — run `chsh -s /usr/bin/zsh`");
         }
 
+        // ─── jupytext (Jupyter notebooks in Neovim) ───────────────
+        // Arch packages everything else molten needs (deps_list.hpp), but not jupytext: the AUR package builds a
+        // JupyterLab extension with yarn. pipx keeps it in its own venv under ~/.local, out of the system Python.
+        if (!have_cmd("jupytext") && !fs::exists(ctx.home / ".local/bin/jupytext") && have_cmd("pipx")) {
+            ui::substep("installing jupytext (pipx)");
+            if (sh::run({"pipx", "install", "jupytext"}) == 0)
+                ui::ok("jupytext ready (~/.local/bin/jupytext)");
+            else
+                ui::warn("pipx install jupytext failed — notebooks open as JSON until `pipx install jupytext`");
+        }
+
         // ─── NPM globals (Claude CLI, pi coding agent) ───────────
         // Idempotent: only installs ones missing from PATH. pi is the local-model
         // agent; its config comes from `llm-update --sync` (opencode module).
