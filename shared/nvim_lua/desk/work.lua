@@ -633,6 +633,29 @@ function M.suggested_tests(file)
   end)
 end
 
+-- The keys are rows of the action registry (desk/actions.lua): the mappings, which-key's words, the home menu and the
+-- keybinds reference all read them.
+local actions = require('desk.actions')
+local function desk_work() return vim.fn.executable('desk-work') == 1 or 'requires desk-work' end
+local function claude_api() return vim.fn.executable('claude-api') == 1 or 'requires claude-api' end
+local ROWS = actions.add({
+  { id = 'work.api-review', group = 'Review', name = 'Review changes using API credits', key = '<leader>CR', on = 'editor', available = claude_api,
+    about = 'Review the uncommitted changes on API credits, read-only; you choose the model and a budget first', run = function() M.api_review() end },
+  { id = 'work.api-ask', group = 'Claude', name = 'Ask using API credits', key = '<leader>Ca', on = 'editor', available = claude_api,
+    about = 'Ask about this project on API credits, read-only (a visual selection goes along as an excerpt)', run = function() M.api_task() end },
+  { id = 'work.api-ask-selection', group = 'Claude', name = 'Explain selection using API credits', key = '<leader>Ca', mode = 'x', on = 'editor',
+    line = 'work.api-ask', menu = false,
+    run = function()
+      local a,b = vim.fn.line('v'),vim.fn.line('.')
+      vim.api.nvim_feedkeys(vim.keycode('<Esc>'),'nx',false)
+      M.api_task({math.min(a,b),math.max(a,b)})
+    end },
+  { id = 'work.tests', group = 'Work', name = 'Claude test failures', key = '<leader>Ce', on = 'editor', remote = true, also = '`:WorkTests`',
+    available = desk_work, about = "The last test run's failures as a jump list (its log when it has no locations)", run = function() M.tests() end },
+  { id = 'work.tasks', group = 'Work', name = 'Project next steps', key = '<leader>Ck', on = 'editor', available = desk_work,
+    about = 'Pinned next steps for this project: pin one, mark it done, or turn it into a note for Claude', run = function() M.tasks() end },
+})
+
 function M.setup()
   require('desk.workspace').setup()
   pcall(function() require('desk.since').setup() end)
@@ -646,13 +669,7 @@ function M.setup()
   end, {desc='Stop the running API task'})
   vim.api.nvim_create_user_command('ClaudeApiReview', function() M.api_review() end,
     {desc='Review uncommitted changes using API credits'})
-  vim.keymap.set('n','<leader>Ca',function() M.api_task() end,{desc='Ask using API credits'})
-  vim.keymap.set('n','<leader>CR',function() M.api_review() end,{desc='Review changes using API credits'})
-  vim.keymap.set('x','<leader>Ca',function()
-    local a,b = vim.fn.line('v'),vim.fn.line('.')
-    vim.api.nvim_feedkeys(vim.keycode('<Esc>'),'nx',false)
-    M.api_task({math.min(a,b),math.max(a,b)})
-  end,{desc='Explain selection using API credits'})
+  actions.map('editor', { rows = ROWS })
   vim.api.nvim_create_user_command("WorkTests", function() M.tests() end, {})
   vim.api.nvim_create_user_command("WorkTasks", function() M.tasks() end, {})
   vim.api.nvim_create_user_command('WorkAttention', function() M.attention() end, {})
@@ -666,7 +683,5 @@ function M.setup()
   vim.api.nvim_create_user_command('WorkBackups', function() M.backups() end, {})
   vim.api.nvim_create_user_command('WorkRepair', function() M.repair() end, {})
   vim.api.nvim_create_user_command('ReviewFiles', function() require('desk.review').toggle_panel() end, {})
-  vim.keymap.set("n", "<leader>Ce", function() M.tests() end, { desc = "Claude test failures" })
-  vim.keymap.set("n", "<leader>Ck", function() M.tasks() end, { desc = "Project next steps" })
 end
 return M

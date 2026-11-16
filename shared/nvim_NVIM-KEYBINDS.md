@@ -2,6 +2,8 @@
 
 Leader: **Space** | Local leader: **Space**
 
+**Space Space** opens the home menu: what applies where the cursor is, in one menu (see *The home menu* below).
+
 Paper bookmark ribbons and folded-note bindings are listed in the full reference:
 press **Alt+/** and search for **Paper notebook details**.
 
@@ -547,40 +549,59 @@ Commands:
 | `:ClaudeCodeAdd` | Add file to context |
 | `:ClaudeCodeStatus` | Check WebSocket server status |
 
+### The home menu (desk.actions)
+**Space Space** opens one menu of what applies where the cursor is, in groups: this function (symdeps' card, in C and
+C++), the review, Claude, work, and symdeps (its own menu, or one "requires symdeps" row when it is not installed). In
+a review or on the since page, that place's own keys lead their group. It is drawn like the review's Actions, by
+symdeps' menu when it is installed and a built-in one to the same rules otherwise: `j`/`k` select, Enter runs, `/`
+filters, `q` closes. A row that cannot run here says why instead of running. Every key in the table below and in the
+review's is a row of one list, `shared/nvim_lua/desk/actions.lua`, which also gives which-key its words.
+
+<!-- desk-keys:begin · generated from the action registry (shared/nvim_lua/desk/actions.lua): python3 tests/test_nvim_keys.py --write -->
+| Key | Action |
+|---|---|
+| `Space Space` | Everything that applies where the cursor is, in one menu: this function, the review, Claude, work, symdeps |
+| home menu: This function in symdeps | symdeps' card for the unit at the cursor: its layout, uses, callers and calls |
+| `Space Cw` | Changes tree: working changes (including unsaved drafts), live sessions and the most recent 80 commits |
+| `Space Cr`, `:ReviewNext` | Review the next thing that needs you: a requested change whose file has changed, a file edited since you reviewed it, else the oldest unreviewed Claude commit |
+| `Space Cd` | Show this file in the current review panes |
+| `Space Cq` | Close all Claude review tabs and the file list; stop following |
+| `Space CR` | Review the uncommitted changes on API credits, read-only; you choose the model and a budget first |
+| `Space Cn` | Note to a Claude: the file, or the selection (visual), and a line of text; it arrives as an envelope and Claude reads it as your words |
+| `Space Cj` | Go to the pane of the Claude that edited this buffer |
+| `Space Cp`, `:Plan` | The plan the sessions in this repo read last |
+| `Space Ca` | Ask about this project on API credits, read-only (a visual selection goes along as an excerpt) |
+| `Space Ce`, `:WorkTests` | The last test run's failures as a jump list (its log when it has no locations) |
+| `Space Ck` | Pinned next steps for this project: pin one, mark it done, or turn it into a note for Claude |
+| `Space Ch`, `:WorkSince` | Since you last looked: new commits, test runs, job runs with how their figures moved, and Claude turns with their files, newest first; Enter opens one (a commit's review, the results, the output, the turn's changes, a file). Opening it marks now as looked |
+| home menu: Figures | The newest job's figures against its previous run (desk-work metrics); Enter on one opens that job's output |
+| home menu: symdeps | symdeps' own menu (Space dm): its cards, lists and checks for C and C++ code. symdeps is an optional plugin |
+<!-- desk-keys:end -->
+
 ### The other Claudes (desk.claude)
 Reads what the paper mod and `desk-drawer` keep in `$XDG_RUNTIME_DIR/foxml-claude`, and git. A buffer a live
 Claude edited in the last 15 minutes shows `✎ <session> · 3m` in the statusline and a `✎` in the bufferline; the
 first change you make to it says which session to coordinate with. The statusline also shows `gate open ✓` /
 `plan first ✎` (repos with a plan gate) and `● <session>` while one needs you. Press `Space C` and wait: which-key
-lists these keys under **Claude**, in normal and visual mode. The statusline's right side also shows the
-newest test run of the buffer's checkout as desk-work recorded it: `✓ 128`, `✗ 2 failed` or `◷ running` (retro:
-`√ 128`, `2 FAILED`, `☼ RUNNING`), and nothing when there is no run.
+lists the `Space C` keys (the table above, and these) under **Claude**, in normal and visual mode. The statusline's
+right side also shows the newest test run of the buffer's checkout as desk-work recorded it: `✓ 128`, `✗ 2 failed` or
+`◷ running` (retro: `√ 128`, `2 FAILED`, `☼ RUNNING`), and nothing when there is no run.
 
 | Key | Action |
 |-----|--------|
-| `Space Cw` | Changes tree: working changes (including unsaved drafts), live sessions and the most recent 80 commits |
-| `Space Cn` | Note to a Claude: the file, or the selection (visual), and a line of text; it arrives as an envelope and Claude reads it as your words |
-| `Space Cj` | Go to the pane of the Claude that edited this buffer |
-| `Space Cd` | Show this file in the current review panes |
-| `Space Cr` | Review the next thing that needs you: a requested change whose file has changed, a file edited since you reviewed it, else the oldest unreviewed Claude commit (`:ReviewNext`) |
 | `:WorkAttention` | Shared project attention list: failed jobs, agents needing input and changes to review; it can set the review backlog aside and bring it back |
-| `Space Ce`, `:WorkTests` | The last test run's failures as a jump list (its log when it has no locations) |
-| `Space Ck` | Pinned next steps for this project: pin one, mark it done, or turn it into a note for Claude |
 | `Space Cm` | Plan marks, by step: the places the plan names |
 | `]n` / `[n` | Next / previous plan mark |
 | `Space tP`, `:PlanMarksToggle` | Show or hide plan marks; `:PlanMarks [plan.md]` marks the places a plan names |
 | `:WorkNext` | Open the first item in the shared attention list |
 | `:WorkTimeline` | Project activity with links to files, results and reviews |
 | `:WorkDigest` | Changes since your last explicit acknowledgement |
-| `Space Ch`, `:WorkSince` | Since you last looked: new commits, test runs, job runs with how their figures moved, and Claude turns with their files, newest first; Enter opens one (a commit's review, the results, the output, the turn's changes, a file). Opening it marks now as looked |
 | `:WorkSnooze` / `:WorkUnsnooze` | Hide or restore shared attention items without settling them |
 | `:WorkSuggestedTests` | Choose a captured test command and confirm a run in its original folder |
 | `:WorkSave` / `:WorkResume` | Save file positions or restore them in new tabs, preserving current buffers and jobs |
 | `:WorkHealth` | Shared refresh/connection/version diagnostics and sessions on older code with their reload steps; **r** refreshes, **R** offers guarded update recovery, **F** repairs unreadable records |
 | `:WorkRepair` | Preview setting an unreadable work record aside (the original is kept); **D** makes the previewed repair |
 | `:WorkBackups` | Preview update backup usage and cleanup; **D** asks before removing the reviewed selection |
-| `Space Cq` | Close all Claude review tabs and the file list; stop following |
-| `Space Cp` | The plan the sessions in this repo read last (`:Plan`) |
 
 In What changed, Enter opens a read-only review tab with a file sidebar and Before / After panes.
 Click a commit to expand it, click a file to compare it, or click its checkbox to mark it reviewed.
@@ -682,6 +703,7 @@ Quick reference of all `Space` binds:
 
 | Key | Action |
 |-----|--------|
+| `Space` | Home menu (Space Space): what applies where the cursor is |
 | `f f` | Find files |
 | `f g` | Live grep |
 | `f b` | Buffers |

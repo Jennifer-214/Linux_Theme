@@ -106,6 +106,39 @@ enter(buf, '· README.md')
 assert(vim.api.nvim_buf_get_name(0) == '/code/paper/README.md', vim.api.nvim_buf_get_name(0))
 ''')
 
+    def test_figures_list_the_newest_jobs_numbers_and_enter_opens_its_output(self):
+        self.run_lua(r'''
+local shown
+package.loaded['desk.review'].show_menu = function(items, opts) shown = { items = items, opts = opts } end
+local metrics = vim.json.encode({ ok = true, root = '/code/paper',
+  job = { id = string.rep('b', 32), title = 'Queue bench', command = 'make bench', state = 'passed', ended = 1794800000 },
+  previous = { id = string.rep('c', 32), ended = 1794790000 },
+  metrics = { { name = 'p99', value = 412, unit = 'ns', previous = 400, change = 12, percent = 3, delta = '+12', better = 'lower', verdict = 'worse' } } })
+local page_system = vim.system
+vim.system = function(argv, opts, done)
+  if argv[2] ~= 'metrics' then return page_system(argv, opts, done) end
+  asked[#asked + 1] = table.concat(argv, ' ')
+  vim.defer_fn(function() done({ code = 0, stdout = metrics }) end, 30)
+  return { wait = function() error('the figures waited on desk-work') end, kill = function() end }
+end
+S.figures('/code/paper')
+assert(asked[#asked] == 'desk-work metrics --root /code/paper', asked[#asked])
+assert(vim.wait(2000, function() return shown ~= nil end, 10), 'the figures were never shown')
+assert(shown.opts.title == 'Figures · Queue bench', shown.opts.title)
+assert(shown.items[1].name == 'p99 412ns (+12)  ↑ worse', shown.items[1].name)
+assert(shown.items[1].label:find('Against the run that ended at', 1, true), shown.items[1].label)
+shown.items[1].run()
+assert(asked[#asked] == 'desk-work log --id ' .. string.rep('b', 32), asked[#asked])
+assert(vim.wait(2000, function() return vim.api.nvim_buf_get_lines(0, 0, 1, false)[1] == 'p99 412ns' end, 10), 'its output opens')
+-- No job has printed figures yet: said so, never an empty menu.
+shown, metrics = nil, vim.json.encode({ ok = true, root = '/code/paper', job = vim.NIL, previous = vim.NIL, metrics = {} })
+local said
+vim.notify = function(text) said = text end
+S.figures('/code/paper')
+assert(vim.wait(2000, function() return said ~= nil end, 10) and said:find('No job', 1, true), tostring(said))
+assert(shown == nil, 'an empty figures menu was shown')
+''')
+
     def test_retro_draws_a_dos_page(self):
         self.run_lua(r'''
 vim.g.desk_style = 'retro'

@@ -1,6 +1,7 @@
 -- One read-only comparison tab; the original editor and its quickfix list stay intact.
 local M = {}
 local api, uv = vim.api, vim.uv or vim.loop
+local actions = require('desk.actions')
 local ns = api.nvim_create_namespace('desk_review')
 local serial = 0
 
@@ -754,11 +755,10 @@ local function side_buffer(r, side, file, text)
   return buf
 end
 
--- Every key the review sets, in the order its reference lists them. This one table makes the mappings, the key hints
--- in the actions menu and the review table in NVIM-KEYBINDS.md (python3 tests/test_nvim_keys.py --write rewrites it).
--- on: 'list' (the file list), 'diff' (the comparison panes) or 'both'. row: keys that share one line of the reference,
--- whose words are the row's first doc; doc = false leaves a key out (mouse handling). also: words for that line beyond
--- these keys (a command, a global key). act(r) returns what the key does.
+-- Every key the review sets, in the order its reference lists them: rows of the action registry (desk/actions.lua),
+-- which make the mappings, the key hints in the menus and footers (M.bind), the home menu's review rows and the review
+-- table in NVIM-KEYBINDS.md (python3 tests/test_nvim_keys.py --write rewrites it). on: the file list (LIST), the
+-- comparison panes (DIFF) or both; each run gets ctx.review, the review the buffer belongs to.
 -- Pressed in the list, a key that checks, refreshes or moves to another file leaves focus in the list, so "m, j, m"
 -- checks files in a row and Tab steps through files without landing in the comparison.
 local function in_list(r, fn) return function()
@@ -769,86 +769,101 @@ end end
 local function next_file(r) return in_list(r, function() M.select(r.index % #r.files + 1) end) end
 local function previous_file(r) return in_list(r, function() M.select((r.index - 2) % #r.files + 1) end) end
 local function to_diff(r, fn) return function() if api.nvim_get_current_win() == r.panel_win then api.nvim_set_current_win(r.right_win) end; fn() end end
-M.keymap = {
-  { id = 'enter', lhs = '<CR>', on = 'list', desc = 'Expand commit / open review file', row = 'enter',
-    doc = 'Open the selected file in the comparison panes; on a commit, expand or collapse its changed files', act = function() return M.enter end },
-  { id = 'enter-l', lhs = 'l', on = 'list', desc = 'Expand commit / open review file', row = 'enter', act = function() return M.enter end },
-  { id = 'enter-mouse', lhs = '<2-LeftMouse>', on = 'list', desc = 'Expand commit / open review file', doc = false, act = function() return M.enter end },
-  { id = 'fold', lhs = 'h', on = 'list', desc = 'Collapse review commit', doc = 'Collapse changed functions first, then the selected commit', act = function() return M.fold end },
-  { id = 'next-file', lhs = ']f', on = 'both', desc = 'Next review file', row = 'files', doc = 'Next / previous file', act = next_file },
-  { id = 'previous-file', lhs = '[f', on = 'both', desc = 'Previous review file', row = 'files', act = previous_file },
-  { id = 'next-file-tab', lhs = '<Tab>', on = 'both', desc = 'Next review file', row = 'files', act = next_file },
-  { id = 'previous-file-tab', lhs = '<S-Tab>', on = 'both', desc = 'Previous review file', row = 'files', act = previous_file },
-  { id = 'next-change', lhs = ']c', on = 'diff', desc = 'Next review change', row = 'changes', doc = 'Next / previous changed block',
-    act = function() return function() vim.cmd('normal! ]c') end end },
-  { id = 'previous-change', lhs = '[c', on = 'diff', desc = 'Previous review change', row = 'changes', act = function() return function() vim.cmd('normal! [c') end end },
-  { id = 'mark', lhs = 'm', on = 'diff', desc = 'Mark/unmark file reviewed', row = 'mark', doc = 'Check or uncheck the file as reviewed',
-    act = function() return function() M.mark() end end },
-  { id = 'mark-list', lhs = 'm', on = 'list', desc = 'Mark selected file reviewed', row = 'mark',
-    act = function(r) return in_list(r, function() if M.enter(true) then M.mark() end end) end },
-  { id = 'unread', lhs = 'u', on = 'both', desc = 'First unread review file',
-    doc = 'Resume at the first unchecked file (files with a risk mark or ready for re-review first)', act = function() return function() M.unread() end end },
-  { id = 'since-list', lhs = 'n', on = 'list', desc = 'New since review / the whole change', row = 'since',
-    doc = 'Only what is new since you reviewed a file / the whole change (remembered)', act = function(r) return in_list(r, M.toggle_since) end },
-  { id = 'since', lhs = '<leader>rn', on = 'diff', desc = 'New since review / the whole change', row = 'since', act = function() return M.toggle_since end },
-  { id = 'request', lhs = 'c', on = 'both', desc = 'Request changes from a Claude session',
-    doc = 'Request changes: a note about this file or the selected lines to a Claude session; the file waits on it',
-    act = function(r) return function() if api.nvim_get_current_win() ~= r.panel_win or M.enter(true) then api.nvim_set_current_win(r.right_win); require('desk.claude').send() end end end },
-  { id = 'actions-list', lhs = 'a', on = 'list', desc = 'Review actions', row = 'actions', doc = 'Actions: everything below, with what each needs', act = function() return M.actions end },
-  { id = 'actions', lhs = '?', on = 'both', desc = 'Review actions', row = 'actions', act = function() return M.actions end },
-  { id = 'api', lhs = 'A', on = 'both', desc = 'Open the API review of this file',
-    doc = 'Open the saved API review of this file (Actions has "API review: file / change" and "Explain this hunk")', act = function() return function() M.api_open() end end },
-  { id = 'plan', lhs = 'P', on = 'both', desc = 'Plan coverage',
-    doc = 'Plan coverage: each plan step with the commits that touched it, steps not started, files outside the plan', act = function() return function() M.plan_coverage() end end },
-  { id = 'note', lhs = 'N', on = 'both', desc = 'Note to self on this line',
-    doc = 'Note to self on this line; it stays with the file in every later review (`:ReviewNotes` lists them)', act = function(r) return to_diff(r, function() M.note_here() end) end },
-  { id = 'finish', lhs = 'R', on = 'both', desc = 'Finish review, then next commit or close',
-    doc = 'Finish after every file is checked, then choose: open the next unchecked commit, close the review, or stay; this clears the finished commit from pending reviews', act = function() return function() M.finish_next() end end },
-  { id = 'whitespace', lhs = '<leader>rw', on = 'both', desc = 'Toggle review whitespace', doc = 'Show / hide whitespace differences',
-    act = function(r) return function() r.whitespace = not r.whitespace; options(r); tell('Whitespace changes: ' .. (r.whitespace and 'hidden' or 'shown')) end end },
-  { id = 'context', lhs = '<leader>rc', on = 'both', desc = 'Toggle review context', doc = 'Six context lines / full-file context',
-    act = function(r) return function() r.context = not r.context; options(r); tell('Context: ' .. (r.context and 'full file' or 'six lines')) end end },
-  { id = 'list-back', lhs = '<BS>', on = 'diff', desc = 'Back to the review file list',
-    doc = 'Back to the file list from a comparison pane, showing it again if it was hidden', act = function() return function() M.show_panel(true) end end },
-  { id = 'file-list', lhs = '<leader>re', on = 'both', desc = 'Toggle review file list', also = '`:ReviewFiles`',
-    doc = 'Toggle the review file list, keeping the comparison open; `Space e` keeps its normal Neo-tree binding', act = function() return M.toggle_panel end },
-  { id = 'symdeps', lhs = 's', on = 'both', desc = 'Inspect changed C++ symbol in working copy',
-    doc = 'Inspect the changed C/C++ file in symdeps (current working copy near the reviewed line)', act = function() return function() M.symdeps(false) end end },
-  { id = 'source', lhs = 'gf', on = 'both', desc = 'Open the working file for this change', doc = 'Open the editable working file in a separate tab',
-    act = function() return function() M.open_source() end end },
-  { id = 'layout', lhs = 'S', on = 'both', desc = 'Compare struct layout with review base', doc = "Compare the current struct's layout with the selected commit's parent",
-    act = function() return function() M.symdeps(true) end end },
-  { id = 'refresh', lhs = 'r', on = 'both', desc = 'Refresh this comparison', doc = 'Refresh the comparison',
-    act = function(r) return in_list(r, function() M.refresh_live(); if M.current == r then M.select(r.index, true) end end) end },
-  { id = 'follow', lhs = 'f', on = 'list', desc = 'Follow selected live session', doc = 'Follow the selected live session\'s edits in a separate tab (`:ClaudeFollow` stops)',
-    act = function(r) return function()
+local function symdeps_here() return actions.symdeps() or 'requires symdeps' end
+local LIST, DIFF, BOTH = 'review-list', 'review-diff', { 'review-list', 'review-diff' }
+M.rows = actions.add({
+  { id = 'review.enter', group = 'Review', name = 'Expand commit / open review file', key = '<CR>', on = LIST,
+    about = 'Open the selected file in the comparison panes; on a commit, expand or collapse its changed files', run = function() M.enter() end },
+  { id = 'review.enter-l', group = 'Review', name = 'Expand commit / open review file', key = 'l', on = LIST, line = 'review.enter', menu = false,
+    run = function() M.enter() end },
+  { id = 'review.enter-mouse', group = 'Review', name = 'Expand commit / open review file', key = '<2-LeftMouse>', on = LIST, line = 'review.enter',
+    menu = false, doc = false, run = function() M.enter() end },
+  { id = 'review.fold', group = 'Review', name = 'Collapse review commit', key = 'h', on = LIST,
+    about = 'Collapse changed functions first, then the selected commit', run = function() M.fold() end },
+  { id = 'review.next-file', group = 'Review', name = 'Next review file', key = ']f', on = BOTH, doc = 'Next / previous file',
+    about = 'The next file of this review', run = function(ctx) next_file(ctx.review)() end },
+  { id = 'review.previous-file', group = 'Review', name = 'Previous review file', key = '[f', on = BOTH, line = 'review.next-file',
+    about = 'The previous file of this review', run = function(ctx) previous_file(ctx.review)() end },
+  { id = 'review.next-file-tab', group = 'Review', name = 'Next review file', key = '<Tab>', on = BOTH, line = 'review.next-file', menu = false,
+    run = function(ctx) next_file(ctx.review)() end },
+  { id = 'review.previous-file-tab', group = 'Review', name = 'Previous review file', key = '<S-Tab>', on = BOTH, line = 'review.next-file',
+    menu = false, run = function(ctx) previous_file(ctx.review)() end },
+  { id = 'review.next-change', group = 'Review', name = 'Next review change', key = ']c', on = DIFF, doc = 'Next / previous changed block',
+    about = 'The next changed block of this file', run = function() vim.cmd('normal! ]c') end },
+  { id = 'review.previous-change', group = 'Review', name = 'Previous review change', key = '[c', on = DIFF, line = 'review.next-change',
+    about = 'The previous changed block of this file', run = function() vim.cmd('normal! [c') end },
+  { id = 'review.mark', group = 'Review', name = 'Mark/unmark file reviewed', key = 'm', on = DIFF,
+    about = 'Check or uncheck the file as reviewed', run = function() M.mark() end },
+  { id = 'review.mark-list', group = 'Review', name = 'Mark selected file reviewed', key = 'm', on = LIST, line = 'review.mark',
+    about = 'Check or uncheck the selected file as reviewed; the cursor stays in the list',
+    run = function(ctx) in_list(ctx.review, function() if M.enter(true) then M.mark() end end)() end },
+  { id = 'review.unread', group = 'Review', name = 'First unread review file', key = 'u', on = BOTH,
+    about = 'Resume at the first unchecked file (files with a risk mark or ready for re-review first)', run = function() M.unread() end },
+  { id = 'review.since-list', group = 'Review', name = 'New since review / the whole change', key = 'n', on = LIST,
+    about = 'Only what is new since you reviewed a file / the whole change (remembered)', run = function(ctx) in_list(ctx.review, M.toggle_since)() end },
+  { id = 'review.since', group = 'Review', name = 'New since review / the whole change', key = '<leader>rn', on = DIFF, line = 'review.since-list',
+    about = 'Only what is new since you reviewed a file / the whole change (remembered)', run = function() M.toggle_since() end },
+  { id = 'review.request', group = 'Review', name = 'Request changes from a Claude session', key = 'c', on = BOTH,
+    about = 'Request changes: a note about this file or the selected lines to a Claude session; the file waits on it',
+    run = function(ctx)
+      local r = ctx.review
+      if api.nvim_get_current_win() ~= r.panel_win or M.enter(true) then api.nvim_set_current_win(r.right_win); require('desk.claude').send() end
+    end },
+  { id = 'review.actions-list', group = 'Review', name = 'Review actions', key = 'a', on = LIST, menu = false,
+    doc = 'Actions: everything below, with what each needs', run = function() M.actions() end },
+  { id = 'review.actions', group = 'Review', name = 'Review actions', key = '?', on = BOTH, line = 'review.actions-list',
+    about = 'Every action of this review, with what each needs', run = function() M.actions() end },
+  { id = 'review.api', group = 'Review', name = 'Open the API review of this file', key = 'A', on = BOTH,
+    about = 'Open the saved API review of this file (Actions has "API review: file / change" and "Explain this hunk")', run = function() M.api_open() end },
+  { id = 'review.plan', group = 'Review', name = 'Plan coverage', key = 'P', on = BOTH,
+    about = 'Plan coverage: each plan step with the commits that touched it, steps not started, files outside the plan', run = function() M.plan_coverage() end },
+  { id = 'review.note', group = 'Review', name = 'Note to self on this line', key = 'N', on = BOTH,
+    about = 'Note to self on this line; it stays with the file in every later review (`:ReviewNotes` lists them)',
+    run = function(ctx) to_diff(ctx.review, function() M.note_here() end)() end },
+  { id = 'review.finish', group = 'Review', name = 'Finish review, then next commit or close', key = 'R', on = BOTH,
+    about = 'Finish after every file is checked, then choose: open the next unchecked commit, close the review, or stay; this clears the finished commit from pending reviews',
+    run = function() M.finish_next() end },
+  { id = 'review.whitespace', group = 'Review', name = 'Toggle review whitespace', key = '<leader>rw', on = BOTH, about = 'Show / hide whitespace differences',
+    run = function(ctx) local r = ctx.review; r.whitespace = not r.whitespace; options(r); tell('Whitespace changes: ' .. (r.whitespace and 'hidden' or 'shown')) end },
+  { id = 'review.context', group = 'Review', name = 'Toggle review context', key = '<leader>rc', on = BOTH, about = 'Six context lines / full-file context',
+    run = function(ctx) local r = ctx.review; r.context = not r.context; options(r); tell('Context: ' .. (r.context and 'full file' or 'six lines')) end },
+  { id = 'review.list-back', group = 'Review', name = 'Back to the review file list', key = '<BS>', on = DIFF,
+    about = 'Back to the file list from a comparison pane, showing it again if it was hidden', run = function() M.show_panel(true) end },
+  { id = 'review.file-list', group = 'Review', name = 'Toggle review file list', key = '<leader>re', on = BOTH, also = '`:ReviewFiles`',
+    about = 'Toggle the review file list, keeping the comparison open; `Space e` keeps its normal Neo-tree binding', run = function() M.toggle_panel() end },
+  { id = 'review.symdeps', group = 'Review', name = 'Inspect changed C++ symbol in working copy', key = 's', on = BOTH, available = symdeps_here,
+    about = 'Inspect the changed C/C++ file in symdeps (current working copy near the reviewed line)', run = function() M.symdeps(false) end },
+  { id = 'review.source', group = 'Review', name = 'Open the working file for this change', key = 'gf', on = BOTH,
+    about = 'Open the editable working file in a separate tab', run = function() M.open_source() end },
+  { id = 'review.layout', group = 'Review', name = 'Compare struct layout with review base', key = 'S', on = BOTH, available = symdeps_here,
+    about = "Compare the current struct's layout with the selected commit's parent", run = function() M.symdeps(true) end },
+  { id = 'review.refresh', group = 'Review', name = 'Refresh this comparison', key = 'r', on = BOTH, about = 'Refresh the comparison',
+    run = function(ctx) local r = ctx.review; in_list(r, function() M.refresh_live(); if M.current == r then M.select(r.index, true) end end)() end },
+  { id = 'review.follow', group = 'Review', name = 'Follow selected live session', key = 'f', on = LIST,
+    about = 'Follow the selected live session\'s edits in a separate tab (`:ClaudeFollow` stops)',
+    run = function(ctx)
+      local r = ctx.review
       local entry = r.entries and r.entries[api.nvim_win_get_cursor(0)[1]]
       local row = entry and entry.set and entry.set.row or r.row
       if row.kind == 'live' then require('desk.claude').follow(row)
       else tell('Follow works on a live session row; this one is ' .. (row.kind == 'commit' and 'a commit.' or 'not a live session.')) end
-    end end },
-  { id = 'hide', lhs = 'q', on = 'list', desc = 'Hide review file list', row = 'hide', also = '`:q` there',
-    doc = 'Hide the file list; the diff keeps its file, cursor and folds', act = function() return M.hide_panel end },
-  { id = 'hide-esc', lhs = '<Esc>', on = 'list', desc = 'Hide review file list', row = 'hide', act = function() return M.hide_panel end },
-  { id = 'clear', lhs = '<Esc>', on = 'diff', desc = 'Clear search highlight', doc = 'Clear search highlighting', act = function() return function() vim.cmd.nohlsearch() end end },
-  { id = 'close', lhs = 'q', on = 'diff', desc = 'Close review', row = 'close', also = '`:q` in a diff, `Space Cq`',
-    doc = 'Close the whole review and return to your editor', act = function(r) return r.close end },
-  { id = 'close-bd', lhs = '<leader>bd', on = 'both', desc = 'Close Changes', row = 'close', act = function(r) return r.close end },
-}
+    end },
+  { id = 'review.hide', group = 'Review', name = 'Hide review file list', key = 'q', on = LIST, also = '`:q` there',
+    about = 'Hide the file list; the diff keeps its file, cursor and folds', run = function() M.hide_panel() end },
+  { id = 'review.hide-esc', group = 'Review', name = 'Hide review file list', key = '<Esc>', on = LIST, line = 'review.hide', menu = false,
+    run = function() M.hide_panel() end },
+  { id = 'review.clear', group = 'Review', name = 'Clear search highlight', key = '<Esc>', on = DIFF, menu = false, about = 'Clear search highlighting',
+    run = function() vim.cmd.nohlsearch() end },
+  { id = 'review.close', group = 'Review', name = 'Close review', key = 'q', on = DIFF, also = '`:q` in a diff, `Space Cq`',
+    about = 'Close the whole review and return to your editor', run = function(ctx) ctx.review.close() end },
+  { id = 'review.close-bd', group = 'Review', name = 'Close Changes', key = '<leader>bd', on = BOTH, line = 'review.close', menu = false,
+    run = function(ctx) ctx.review.close() end },
+})
 -- The key a menu row names for one of these, as typed ("m", "<leader>re").
-function M.bind(id)
-  for _, entry in ipairs(M.keymap) do if entry.id == id then return entry.lhs end end
-end
+function M.bind(id) return actions.key('review.' .. id) end
 maps = function(r, buf, sidebar)
-  -- Space in the review shows its own keys under one name; which-key is optional (the config's global <leader>r
-  -- group is "refactor"; this buffer's wins).
-  local ok, wk = pcall(require, 'which-key')
-  if ok and type(wk) == 'table' and type(wk.add) == 'function' then pcall(wk.add, { { '<leader>r', group = 'review', buffer = buf } }) end
-  for _, entry in ipairs(M.keymap) do
-    if entry.on == 'both' or entry.on == (sidebar and 'list' or 'diff') then
-      vim.keymap.set('n', entry.lhs, entry.act(r), { buffer = buf, desc = entry.desc, silent = true })
-    end
-  end
+  -- Space in the review shows its own keys under one name (actions.PREFIXES: the review's <leader>r group).
+  actions.map(sidebar and LIST or DIFF, { buffer = buf, silent = true, ctx = { review = r } })
   if not sidebar then return end
   vim.keymap.set('n', '<LeftMouse>', function()
     local mouse = vim.fn.getmousepos()

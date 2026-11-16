@@ -69,8 +69,9 @@ A card from another mod has its symbols mapped to the font's marks.
   to review come last, grouped by day under a dated heading (newest day first) that is not a row.
 - Every refusal shows the reason the backend gave. A notice with no words is a bug, like a blank panel.
 - Each mark has one definition: the notebook's are in `MARKS` (`hooks/work.ts`), which its rows, test and CI lines,
-  toasts and marks page all read; the review's keys are in `M.keymap` (`desk/review.lua`), which makes the mappings,
-  the menu and footer hints and the reference table in the keybinds doc.
+  toasts and marks page all read; every Neovim key of the desk modules is a row of the action registry
+  (`desk/actions.lua`; the review adds its rows in `desk/review.lua`), which makes the mappings, which-key's words, the
+  home menu (`Space Space`), the review's menu and footer hints and the reference tables in the keybinds doc.
 
 ## Seeing the notebook without installing it
 

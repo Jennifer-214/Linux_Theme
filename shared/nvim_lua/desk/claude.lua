@@ -658,6 +658,37 @@ function M.blame_formatter(_, info)
 end
 
 -- ─── setup ────────────────────────────────────────────────────────────────────────────────────────────────────
+-- The keys are rows of the action registry (desk/actions.lua): the mappings, which-key's words, the home menu and the
+-- keybinds reference all read them.
+local actions = require("desk.actions")
+local ROWS = actions.add({
+  { id = "claude.changes", group = "Review", name = "What changed", key = "<leader>Cw", on = "editor", remote = true,
+    about = "Changes tree: working changes (including unsaved drafts), live sessions and the most recent 80 commits",
+    run = function() M.changes() end },
+  { id = "claude.next", group = "Review", name = "Review the next thing that needs you", key = "<leader>Cr", on = "editor", remote = true,
+    also = "`:ReviewNext`",
+    about = "Review the next thing that needs you: a requested change whose file has changed, a file edited since you reviewed it, else the oldest unreviewed Claude commit",
+    run = function() require("desk.review").next() end },
+  { id = "claude.diff", group = "Review", name = "This change side by side", key = "<leader>Cd", on = "editor",
+    about = "Show this file in the current review panes", run = function() M.diff() end },
+  { id = "claude.close", group = "Review", name = "Close all Claude review views", key = "<leader>Cq", on = "editor", remote = true,
+    about = "Close all Claude review tabs and the file list; stop following", run = function() M.close() end },
+  { id = "claude.note", group = "Claude", name = "Note to a Claude", key = "<leader>Cn", on = "editor",
+    about = "Note to a Claude: the file, or the selection (visual), and a line of text; it arrives as an envelope and Claude reads it as your words",
+    run = function() M.send() end },
+  { id = "claude.note-selection", group = "Claude", name = "Selection to a Claude", key = "<leader>Cn", mode = "x", on = "editor",
+    line = "claude.note", menu = false,
+    run = function()
+      local a, b = vim.fn.line("v"), vim.fn.line(".")
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
+      M.send({ math.min(a, b), math.max(a, b) })
+    end },
+  { id = "claude.jump", group = "Claude", name = "Go to the Claude that edited this", key = "<leader>Cj", on = "editor",
+    about = "Go to the pane of the Claude that edited this buffer", run = function() M.jump() end },
+  { id = "claude.plan", group = "Claude", name = "The plan", key = "<leader>Cp", on = "editor", remote = true, also = "`:Plan`",
+    about = "The plan the sessions in this repo read last", run = function() M.plan() end },
+})
+
 local timer
 function M.setup()
   if timer then return end
@@ -675,19 +706,9 @@ function M.setup()
   vim.api.nvim_create_user_command("ClaudeReviewClose", M.close, { desc = "Close all Claude review views" })
   vim.api.nvim_create_user_command("Plan", M.plan, { desc = "The plan the sessions here read last" })
   vim.api.nvim_create_user_command("ClaudeFollow", function() M.follow() end, { desc = "Stop following a session" })
-  local map = vim.keymap.set
-  map("n", "<leader>Cw", M.changes, { desc = "What changed" })
-  map("n", "<leader>Cq", M.close, { desc = "Close all Claude review views" })
-  map("n", "<leader>Cr", function() require("desk.review").next() end, { desc = "Review the next thing that needs you" })
-  map("n", "<leader>Cn", function() M.send() end, { desc = "Note to a Claude" })
-  map("x", "<leader>Cn", function()
-    local a, b = vim.fn.line("v"), vim.fn.line(".")
-    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
-    M.send({ math.min(a, b), math.max(a, b) })
-  end, { desc = "Selection to a Claude" })
-  map("n", "<leader>Cj", M.jump, { desc = "Go to the Claude that edited this" })
-  map("n", "<leader>Cd", function() M.diff() end, { desc = "This change side by side" })
-  map("n", "<leader>Cp", M.plan, { desc = "The plan" })
+  actions.map("editor", { rows = ROWS })
+  -- Space Space, the home menu: what applies where the cursor is.
+  actions.setup()
 end
 
 return M

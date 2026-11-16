@@ -4,6 +4,7 @@
 -- a test run's results, a job's output, a turn's changes, a file. The read runs in the background; typing never waits.
 local M = {}
 local api = vim.api
+local actions = require('desk.actions')
 local ns = api.nvim_create_namespace('desk_since')
 
 -- The drawing style: retro (a DOS screen: code page 437 marks, capitals for headings) or the normal one, as init.lua
@@ -127,9 +128,9 @@ function M.open(root)
   local style = M.style()
   local buf = scratch_tab('since you last looked')
   fill(buf, { heading('Since you last looked', style), '', 'Reading...' }, { 'heading' })
-  local actions = {}
-  vim.keymap.set('n', '<CR>', function() M.jump(actions[api.nvim_win_get_cursor(0)[1]], root) end, { buffer = buf, desc = 'Open what this line names' })
-  vim.keymap.set('n', 'q', '<cmd>tabclose<CR>', { buffer = buf, desc = 'Close since you last looked' })
+  -- What each line opens, filled in when the answer comes; the page's keys (rows below) read it.
+  local page = { root = root, actions = {} }
+  actions.map('since', { buffer = buf, ctx = { page = page } })
   newest = newest + 1
   local mine = newest
   local ok = pcall(vim.system, { 'desk-work', 'since', '--root', root, '--reader', 'nvim', '--mark', 'yes' }, { text = true, timeout = 15000 },
@@ -140,17 +141,59 @@ function M.open(root)
         fill(buf, { heading('Since you last looked', style), '', require('desk.work').refusal({ 'since' }, out) }, { 'heading' }); return
       end
       local lines, acts, paints = M.layout(data, style, root)
-      actions = acts
+      page.actions = acts
       fill(buf, lines, paints)
       -- The cursor starts on the newest entry.
-      for line = 1, #lines do if actions[line] then pcall(api.nvim_win_set_cursor, vim.fn.bufwinid(buf), { line, 0 }); break end end
+      for line = 1, #lines do if acts[line] then pcall(api.nvim_win_set_cursor, vim.fn.bufwinid(buf), { line, 0 }); break end end
     end))
   if not ok then fill(buf, { heading('Since you last looked', style), '', 'desk-work did not start; is it installed?' }, { 'heading' }) end
   return buf
 end
 
+-- The newest finished job's figures against its previous run (desk-work metrics), as a menu; Enter on one opens that
+-- job's output. Read in the background, as the page is.
+function M.figures(root)
+  root = root or vim.fs.root(0, '.git') or vim.fn.getcwd()
+  local ok = pcall(vim.system, { 'desk-work', 'metrics', '--root', root }, { text = true, timeout = 15000 }, vim.schedule_wrap(function(out)
+    local parsed, data = pcall(vim.json.decode, out.stdout or '', { luanil = { object = true, array = true } })
+    if out.code ~= 0 or not parsed or type(data) ~= 'table' then
+      vim.notify(require('desk.work').refusal({ 'metrics' }, out), vim.log.levels.WARN); return
+    end
+    local job, metrics = type(data.job) == 'table' and data.job or nil, data.metrics or {}
+    if not job or #metrics == 0 then vim.notify('No job in this checkout has printed figures yet.'); return end
+    local previous = type(data.previous) == 'table' and type(data.previous.ended) == 'number' and data.previous.ended
+    local against = previous and ('Against the run that ended at ' .. os.date('%H:%M', previous)) or 'The first run of this job: nothing to set it against'
+    local mk, items = marks(M.style()), {}
+    for _, m in ipairs(metrics) do
+      local name = figure(m, mk)
+      items[#items + 1] = { ident = m.name, name = name, label = name .. ' — ' .. against .. '. Enter opens its output.',
+        run = function() show_log(job.id) end }
+    end
+    local title = (job.title or '') ~= '' and job.title or job.command or 'the last job'
+    require('desk.review').show_menu(items, { title = 'Figures · ' .. title, memo = 'desk-figures' })
+  end))
+  if not ok then vim.notify('desk-work did not start; is it installed?', vim.log.levels.WARN) end
+end
+
+-- The keys are rows of the action registry (desk/actions.lua): the page's own, and the global one that opens it.
+local function desk_work() return vim.fn.executable('desk-work') == 1 or 'requires desk-work' end
+local ROWS = actions.add({
+  { id = 'since.open', group = 'Work', name = 'Since you last looked: commits, tests, jobs, Claude turns', key = '<leader>Ch', on = 'editor',
+    remote = true, also = '`:WorkSince`', available = desk_work,
+    about = "Since you last looked: new commits, test runs, job runs with how their figures moved, and Claude turns with their files, newest first; Enter opens one (a commit's review, the results, the output, the turn's changes, a file). Opening it marks now as looked",
+    run = function() M.open() end },
+  { id = 'since.figures', group = 'Work', name = 'Figures', on = 'editor', available = desk_work,
+    about = "The newest job's figures against its previous run (desk-work metrics); Enter on one opens that job's output",
+    run = function() M.figures() end },
+  { id = 'since.open-line', group = 'Work', name = 'Open what this line names', key = '<CR>', on = 'since',
+    about = "Open what the line names: a commit's review, a test run's results, a job's output, a turn's changes, a file",
+    run = function(ctx) M.jump(ctx.page.actions[api.nvim_win_get_cursor(0)[1]], ctx.page.root) end },
+  { id = 'since.close', group = 'Work', name = 'Close since you last looked', key = 'q', on = 'since', about = 'Close this page',
+    run = function() actions.ex('tabclose') end },
+})
+
 function M.setup()
   vim.api.nvim_create_user_command('WorkSince', function() M.open() end, { desc = 'What happened since you last looked here' })
-  vim.keymap.set('n', '<leader>Ch', function() M.open() end, { desc = 'Since you last looked: commits, tests, jobs, Claude turns' })
+  actions.map('editor', { rows = ROWS })
 end
 return M
