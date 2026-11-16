@@ -559,7 +559,8 @@ end
 
 -- ─── history: H and Backspace go back, L forward ───────────────────────────────────────────────────────────────
 -- Steps, each undone by H or Backspace and done again by L: a switch between views; an Enter (the code spot the editor
--- was at: the editor goes back too); a view's content changing (its kind's save from before: a graph centred on another
+-- was at, and the view's state from before for a kind that keeps one: one step, so one H puts back both the file the
+-- review showed and the spot); a view's content changing (its kind's save from before: a graph centred on another
 -- function). What L brings back is what H left (taken when H undoes it), so a graph still being read when it was
 -- centred comes back read. At most M.MAX_STEPS; a new step drops the ones ahead of it.
 local function push_step(step)
@@ -571,9 +572,12 @@ local function push_step(step)
 end
 
 -- A kind changed what its view shows (before: its save from just before): a step H can undo.
+-- During an Enter in that view (H.folding) the change is part of the Enter's own step, which keeps the view's state from
+-- before it: one H undoes both.
 function M.stepped(view, before)
   local kind = view and kinds[view.kind]
   if not (kind and kind.save and kind.restore) or view.gone or H.views[view.id] ~= view or type(before) ~= 'table' then return end
+  if H.folding == view.id then return end
   push_step({ type = 'state', view = view.id, before = before })
 end
 
@@ -603,10 +607,23 @@ local function apply(step, again)
     if not view then return false end
     to_front(view)
   elseif step.type == 'enter' then
-    if not again then step.after = main_spot(step.before.win) end
-    if not put_spot(again and step.after or step.before) then return false end
+    -- The view's state first (it may show another file in the editor), then the editor's exact spot.
     local view = H.views[step.view]
-    if view and H.front ~= view.id then to_front(view) end
+    local kind = view and kinds[view.kind]
+    if not again then
+      step.after = main_spot(step.before.win)
+      if step.saved and kind and kind.save then
+        local fine, now = pcall(kind.save, view)
+        step.after_saved = fine and type(now) == 'table' and now or nil
+      end
+    end
+    local saved = again and step.after_saved or step.saved
+    if saved and kind and kind.restore then
+      local fine, err = pcall(kind.restore, view, saved)
+      if not fine then kind_failed(view, err) end
+    end
+    if not put_spot(again and step.after or step.before) and not saved then return false end
+    if view and (saved or H.front ~= view.id) then to_front(view) end
   elseif step.type == 'state' then
     local view = H.views[step.view]
     local kind = view and kinds[view.kind]
@@ -934,10 +951,23 @@ local function act(msg)
   local kind = ctx.view and kinds[ctx.view.kind]
   local entering = kind and (row == enter_row(kind.surface) or row.id == 'popout.go-focus' or row.id == 'popout.go-focus-enter')
   vim.schedule(function()
+    local view = ctx.view
     local before = entering and main_spot(ctx.origin) or nil
+    -- One step for the Enter: where the editor was and, for a kind that keeps its state, what the view was. A step the
+    -- kind takes of its own for it (while it runs, or scheduled from it) is folded into this one.
+    local saved
+    if entering and kind.save and kind.restore then
+      local fine, state = pcall(kind.save, view)
+      saved = fine and type(state) == 'table' and state or nil
+    end
+    if entering then H.folding = view.id end
     local ok, err = actions.act(msg.action, ctx)
-    if not ok then return tell(sentence(err or (msg.action .. ' did not run')), WARN) end
-    if before then push_step({ type = 'enter', view = ctx.view.id, before = before }) end
+    if not ok then
+      H.folding = nil
+      return tell(sentence(err or (msg.action .. ' did not run')), WARN)
+    end
+    if before then push_step({ type = 'enter', view = view.id, before = before, saved = saved }) end
+    if entering then vim.schedule(function() if H.folding == view.id then H.folding = nil end end) end
   end)
   return { done = true }
 end

@@ -243,6 +243,9 @@ eq(review().file, shown_before, '… and the editor has not moved')
 press('j')
 ok(wait(2000, function() return state().selected == 'two.txt' end), 'j: back down')
 local mark = mark_of_hyprctl()
+-- Where the pop-out's history stands (desk.popout): an Enter is one step of it, whatever the kind records of its own.
+local function history_at() return host("return require('desk.popout').host.history.at") end
+local at_enter = history_at()
 press('<CR>')
 ok(wait(3000, function() return review().file == 'two.txt' end), 'Enter: the editor shows that file')
 ok(wait(3000, function() return popped():find('lines 1', 1, true) end), '… opened, with its changed lines under it')
@@ -250,10 +253,13 @@ s = state()
 eq({ s.mode, s.current_win == s.win, s.selected }, { 'n', true, 'two.txt' }, '… the keyboard stays in the pop-out, on that row')
 ok(not wait(1000, function() return hyprctl_since(mark):find('hl.dsp.focus', 1, true) end), '… and nothing is focused')
 settled()
+vim.wait(200)
+eq(history_at(), at_enter + 1, '… one step of the history: the file and the editor\'s spot together')
 
 -- ─── H and L: the file shown before, and forward again ─────────────────────────────────────────────────────────
 press('H')
 ok(wait(3000, function() return review().file == 'one.lua' end), 'H in the pop-out: the editor shows the file it showed before')
+eq(history_at(), at_enter, '… one H undoing the whole Enter')
 press('L')
 ok(wait(3000, function() return review().file == 'two.txt' end), '… and L shows that one again')
 ok(wait(2000, function() return state().selected == 'two.txt' end), '… selected there')

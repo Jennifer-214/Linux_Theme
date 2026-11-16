@@ -29,9 +29,11 @@ disappears. `tests/test_nvim_review.py` runs the review in a bare project to hol
 - **Groups** under a rule line: ` ── Label ─────────── 1 of 3 ──`. A blank line between groups. One group alone needs
   no rule.
 - **A row**: mark · name · counts, the counts right-aligned in one column. Marks: `✓` done, `↻` changed since,
-  `○` not yet, `⚠` needs care, `▸` / `▾` folds. Never a bracketed pseudo-button, never help prose in the list.
-- **The description strip**: a rounded box of two lines under the list, saying what the selected row is and where
-  it stands. It follows the cursor. Reasons go here ("⚠ touches /etc/pam.d · outside the plan"), not in the row.
+  `○` not yet, `⚠` needs care, `→` reaches further than its lines (its change adds or removes a call; the strip says
+  where), `▸` / `▾` folds. Never a bracketed pseudo-button, never help prose in the list.
+- **The description strip**: a rounded box of two lines under the list (square under retro, as its floats are),
+  saying what the selected row is and where it stands. It follows the cursor. Reasons go here ("⚠ touches
+  /etc/pam.d · outside the plan"), not in the row.
 - **One footer line**: the three or four keys that matter (`⏎ open · m check · a actions · q close`). Everything
   else lives in the actions menu. The review's diff footer leads with `BS/Space re file list` while the list is
   hidden, and with `all checked · R stamps it` once every file of a commit is checked. The Claude notebook's key bar

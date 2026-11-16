@@ -205,6 +205,8 @@ press('j')
 ok(wait(2000, function() return state().selected == 'callee_of_M.alpha' end), 'j moves the selection, in the pop-out')
 eq(host('return vim.api.nvim_win_get_cursor(0)'), { 3, 2 }, '… the editor has not moved')
 local mark = #read('hyprctl.log')
+local function history_at() return host("return require('desk.popout').host.history.at") end
+local at_enter = history_at()
 press('<CR>')
 ok(wait(3000, function() return host('return vim.api.nvim_win_get_cursor(0)[1]') == 5 end), "Enter: the editor goes to the selected box's function")
 s = state()
@@ -212,11 +214,13 @@ eq({ s.mode, s.current_win == s.win }, { 'n', true }, '… and the keyboard stay
 -- A focus would come a moment later (hyprctl runs in the background): wait long enough for one to land.
 ok(not wait(1500, function() return log_since(mark):find('hl.dsp.focus', 1, true) end), '… and nothing is focused, then or a moment later')
 ok(wait(3000, function() return state().title == 'call graph · M.beta' end), 'following: the graph moves to where the editor went')
+eq(history_at(), at_enter + 1, '… the Enter one step of the history')
 -- H: back to where Enter left from, the editor too; L: there again.
 press('H')
 ok(wait(3000, function() return vim.deep_equal(host('return vim.api.nvim_win_get_cursor(0)'), { 3, 2 }) end),
   'H in the pop-out: the editor goes back to where Enter left it')
 ok(wait(3000, function() return state().title == 'call graph · M.alpha' end), '… and the following graph with it')
+eq(history_at(), at_enter, '… one H for the whole Enter')
 press('L')
 ok(wait(3000, function() return host('return vim.api.nvim_win_get_cursor(0)[1]') == 5 end), 'L: forward again, where Enter went')
 ok(wait(3000, function() return state().title == 'call graph · M.beta' end), '… the graph too')
