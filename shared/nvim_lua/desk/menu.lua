@@ -135,7 +135,7 @@ function M.open(items, opts)
     api.nvim_buf_set_lines(buf, 0, -1, false, state.layout.lines)
     vim.bo[buf].modifiable = false
     local height = math.min(#state.layout.lines, math.max(6, vim.o.lines - 6))
-    local config = { relative = 'editor', width = state.layout.width, height = height, style = 'minimal', border = 'rounded',
+    local config = { relative = 'editor', width = state.layout.width, height = height, style = 'minimal', border = vim.g.desk_border or 'rounded',
       title = ' ' .. (opts.title or 'Actions') .. (state.filter ~= '' and (' · /' .. state.filter) or '') .. ' ', title_pos = 'center',
       row = math.max(1, math.floor((vim.o.lines - height) / 2) - 1), col = math.max(0, math.floor((vim.o.columns - state.layout.width) / 2)) }
     if win and api.nvim_win_is_valid(win) then api.nvim_win_set_config(win, config) else

@@ -298,8 +298,54 @@ print('PAPER_SYMDEPS_STYLE_PASSED: focus, colors, counts, native help, bindings 
 vim.cmd('qa!')
 '''
 
+# The rendered border block on its own, then the desk.* menu drawing a float with it.
+BORDER_DRIVER = r'''
+local source = table.concat(vim.fn.readfile(vim.env.BORDER_INIT), "\n")
+local style = assert(source:match('(local DeskStyle = "[^"]*")'))
+local block = assert(source:match('%-%- >>> desk%-border\n(.-)\n%-%- <<< desk%-border'))
+local as = assert(loadstring(style .. '\n' .. block .. '\nreturn desk_border_as'))()
+local menu = dofile(vim.env.BORDER_LUA .. '/desk/menu.lua')
+menu.open({ { name = 'One', label = 'one', run = function() end } }, { title = 'Border' })
+local float
+for _, win in ipairs(vim.api.nvim_list_wins()) do if vim.api.nvim_win_get_config(win).relative ~= '' then float = win end end
+io.stdout:write(vim.json.encode({ border = vim.g.desk_border, winborder = vim.o.winborder,
+  telescope = as({ 2, 4, 6, 8, 1, 3, 5, 7 }) or vim.NIL, menu = vim.api.nvim_win_get_config(float).border }) .. '\n')
+vim.cmd('qa!')
+'''
+
 @unittest.skipUnless(NVIM and RENDER.exists(), 'build desk-render-fast and install nvim')
 class PaperNotebook(unittest.TestCase):
+    def test_retro_floats_are_double_line_dialogs_and_other_themes_stay_rounded(self):
+        double = ['╔', '═', '╗', '║', '╝', '═', '╚', '║']
+        rounded = ['╭', '─', '╮', '│', '╯', '─', '╰', '│']
+        with tempfile.TemporaryDirectory(prefix='foxml-border-') as temp:
+            base = Path(temp)
+            driver = base/'border.lua'; driver.write_text(BORDER_DRIVER)
+            for theme, border, winborder, menu in (('retro-amber', double, 'double', double), ('Paper', 'rounded', '', rounded),
+                                                   ('Classic', 'rounded', '', rounded)):
+                with self.subTest(theme=theme):
+                    out = base/theme
+                    subprocess.run([str(RENDER), str(ROOT/'themes'/theme/'palette.sh'), str(ROOT/'templates/nvim'), str(out)],
+                                   check=True, capture_output=True)
+                    env = os.environ | {'BORDER_INIT': str(out/'init.lua'), 'BORDER_LUA': str(ROOT/'shared/nvim_lua'),
+                                        'NVIM_LOG_FILE': str(base/'nvim.log')}
+                    result = subprocess.run([NVIM, '--clean', '--headless', '-l', str(driver)], env=env,
+                                            capture_output=True, text=True, timeout=10)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    seen = json.loads(result.stdout.strip().splitlines()[-1])
+                    self.assertEqual(seen['border'], border)
+                    self.assertEqual(seen['winborder'], winborder)
+                    self.assertEqual(seen['menu'], menu, 'desk.menu does not read vim.g.desk_border')
+                    # telescope wants top, right, bottom, left, then the corners from the top-left
+                    self.assertEqual(seen['telescope'], ['═', '║', '═', '║', '╔', '╗', '╝', '╚'] if border == double else None)
+        # Nothing else names a border: every "rounded" left is the helper itself or a fallback for when it is unset.
+        for path in [ROOT/'templates/nvim/init.lua', *sorted((ROOT/'shared/nvim_lua/desk').glob('*.lua'))]:
+            for number, line in enumerate(path.read_text().splitlines(), 1):
+                if '"rounded"' in line or "'rounded'" in line:
+                    self.assertTrue('local DeskBorder =' in line or 'vim.g.desk_border or' in line or line.lstrip().startswith('--'),
+                                    f'{path.name}:{number} hard-codes a rounded border: {line.strip()}')
+
+
     def test_symdeps_style_preserves_plugin_behavior(self):
         plugin=Path.home()/'code/tick-trader-percore-workspace/tools/plugins/fox-symdeps.nvim'
         if not plugin.is_dir():

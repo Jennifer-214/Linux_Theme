@@ -85,6 +85,22 @@ vim.opt.diffopt = { "internal", "filler", "closeoff", "indent-heuristic", "algor
 local DeskStyle = "{{DESK_STYLE}}"
 -- Retro: a DOS underscore cursor in insert mode, a block when replacing.
 if DeskStyle == "retro" then vim.opt.guicursor = "n-v-c:block,i-ci-ve:hor20,r-cr:block,o:hor50" end
+-- >>> desk-border
+-- Float borders: a DOS double-line dialog in retro (code page 437 has no rounded corners), rounded elsewhere.
+-- vim.g.desk_border is the one value every float reads (init.lua, the desk.* modules, fox-symdeps): either the
+-- string "rounded" or a list of 8 border characters clockwise from the top-left, as nvim_open_win takes them.
+local DeskBorder = DeskStyle == "retro" and { "╔", "═", "╗", "║", "╝", "═", "╚", "║" } or "rounded"
+vim.g.desk_border = DeskBorder
+-- Floats that name no border of their own (mason, nui defaults, cmp) take 'winborder'; "double" is the same box.
+if DeskStyle == "retro" then vim.o.winborder = "double" end
+-- The same border in the orders other plugins take: telescope (sides, then corners), colorful-winsep (lines, corners).
+local function desk_border_as(order)
+  if type(DeskBorder) ~= "table" then return nil end
+  local chars = {}
+  for i, from in ipairs(order) do chars[i] = DeskBorder[from] end
+  return chars
+end
+-- <<< desk-border
 local P = {
   bg_deep   = "#{{BG_DARK}}",
   bg        = "#{{BG}}",
@@ -624,7 +640,7 @@ function Paper.correction_slip(opts, on_confirm)
   local origin = vim.api.nvim_get_current_win()
   local width = math.min(49, vim.o.columns - 12)
   local slip = Popup({relative="editor", position="50%", size={width=width,height=4}, enter=false,
-    border={style="rounded",padding={0,2},text={
+    border={style=vim.g.desk_border or "rounded",padding={0,2},text={
       top={{" ✎ correction ","FoxPaperSlipTitle"}},top_align="left"}},
     win_options={winhighlight="Normal:FoxPaperSlip,FloatBorder:FoxPaperSlipBorder",winblend=0}})
   local input, finished
@@ -689,7 +705,7 @@ function Paper.setup_choices()
     for index, item in ipairs(items) do
       rows[#rows + 1] = Menu.item("  " .. tostring(opts.format_item and opts.format_item(item) or item), { index = index })
     end
-    menu = Menu({ relative = "editor", position = "50%", border = { style = "rounded", padding = { 0, 1 },
+    menu = Menu({ relative = "editor", position = "50%", border = { style = vim.g.desk_border or "rounded", padding = { 0, 1 },
       text = { top = " " .. (opts.prompt or "Choose an action"):gsub("%s+$", "") .. " ",
         bottom = " click or Enter selects · Esc closes ", bottom_align = "center" } },
       win_options = { winhighlight = "Normal:NormalFloat,FloatBorder:FloatBorder,CursorLine:Visual", winblend = 0 } },
@@ -971,13 +987,17 @@ local plugins = {
         { "<leader>t", group = "toggle / test" },
         { "<leader>x", group = "diagnostics" },
       },
+      -- Retro: boxed like the other dialogs (the popup is borderless elsewhere).
+      win = { border = DeskStyle == "retro" and DeskBorder or nil },
     } },
 
   -- Fuzzy finding (default branch: the pinned 0.1.x (2024) called nvim-treesitter's removed configs
   -- module, so every file preview errored and lost its syntax colors)
   {
     "nvim-telescope/telescope.nvim",
-    dependencies = { "nvim-lua/plenary.nvim", "nvim-tree/nvim-web-devicons" }
+    dependencies = { "nvim-lua/plenary.nvim", "nvim-tree/nvim-web-devicons" },
+    -- Retro: telescope draws its own frame, top/right/bottom/left then the corners from the top-left.
+    opts = DeskStyle == "retro" and { defaults = { borderchars = desk_border_as({ 2, 4, 6, 8, 1, 3, 5, 7 }) } } or nil,
   },
   -- Neo-tree (file tree sidebar)
   {
@@ -994,7 +1014,7 @@ local plugins = {
     },
     opts = {
       close_if_last_window = {{SHOW_WELCOME}},
-      popup_border_style = "rounded",
+      popup_border_style = DeskBorder,
       enable_git_status = {{SHOW_WELCOME}},
       enable_diagnostics = {{SHOW_WELCOME}},
       window = {
@@ -1802,8 +1822,8 @@ local plugins = {
         end,
       },
       styles = {
-        notification = { border = "rounded", wo = { wrap = {{SHOW_WELCOME}}, winblend = 0 } },
-        notification_history = { border = "rounded", title = " Notifications ", title_pos = "center" },
+        notification = { border = DeskBorder, wo = { wrap = {{SHOW_WELCOME}}, winblend = 0 } },
+        notification_history = { border = DeskBorder, title = " Notifications ", title_pos = "center" },
       },
       indent = { enabled = false },
     },
@@ -1984,11 +2004,17 @@ local plugins = {
         signature = { enabled = {{SHOW_WELCOME}}, auto_open = { enabled = false } },
         progress = { enabled = false }, -- fidget handles this
       },
+      -- Retro: every noice box a DOS dialog. The two presets that draw a rounded box (the command palette's list,
+      -- the LSP docs) carry the retro border themselves, whichever way round noice merges presets and views.
+      views = DeskStyle == "retro" and {
+        cmdline_popup = { border = { style = DeskBorder } }, cmdline_input = { border = { style = DeskBorder } },
+        confirm = { border = { style = DeskBorder } }, popup = { border = { style = DeskBorder } },
+      } or nil,
       presets = {
         bottom_search = false,
-        command_palette = {{SHOW_WELCOME}},
+        command_palette = DeskStyle == "retro" and { views = { cmdline_popupmenu = { border = { style = DeskBorder } } } } or {{SHOW_WELCOME}},
         long_message_to_split = {{SHOW_WELCOME}},
-        lsp_doc_border = {{SHOW_WELCOME}},
+        lsp_doc_border = DeskStyle == "retro" and { views = { hover = { border = { style = DeskBorder } } } } or {{SHOW_WELCOME}},
       },
     },
   },
@@ -2043,7 +2069,7 @@ local plugins = {
     event = "WinNew",
     opts = {
       highlight = P.yellow_br,
-      border = "rounded",
+      border = desk_border_as({ 2, 4, 1, 3, 7, 5 }) or DeskBorder,
     },
   },
 
@@ -2092,6 +2118,7 @@ local plugins = {
 -- lazy.nvim setup
 require("lazy").setup(plugins, {
   rocks = { enabled = false },
+  ui = { border = DeskStyle == "retro" and DeskBorder or nil },  -- retro: a dialog box; elsewhere lazy's own (none)
 })
 
 -- setup optional
@@ -2972,8 +2999,8 @@ vim.api.nvim_create_autocmd({ "FileType", "BufWinEnter" }, {
   end,
 })
 
--- Unified rounded borders for all LSP floats (hover, signature, diagnostics)
-local border = "rounded"
+-- One border for all LSP floats (hover, signature, diagnostics): DeskBorder
+local border = DeskBorder
 
 -- Diagnostics config
 vim.diagnostic.config({
