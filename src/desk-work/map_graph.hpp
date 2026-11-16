@@ -770,7 +770,7 @@ inline std::string unquote(std::string path) {
         if (path[i] == '\\' && i + 2 < path.size()) {
             const char c = path[++i];
             if (c >= '0' && c <= '7' && i + 2 < path.size()) { out += static_cast<char>((c - '0') * 64 + (path[i + 1] - '0') * 8 + (path[i + 2] - '0')); i += 2; }
-            else out += c == 't' ? '\t' : c == 'n' ? '\n' : c;
+            else out += c == 't' ? '\t' : c == 'n' ? '\n' : c == 'r' ? '\r' : c == 'a' ? '\a' : c == 'b' ? '\b' : c == 'f' ? '\f' : c == 'v' ? '\v' : c;
         } else out += path[i];
     }
     return out;

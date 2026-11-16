@@ -203,6 +203,8 @@ int main(int, char** argv) {
     CHECK(ranges.at("m/a.lua") == (std::vector<std::pair<long, long>>{{2, 2}, {29, 29}}), "changed lines, and the line a deletion follows");
     CHECK(ranges.at("n/f.lua") == (std::vector<std::pair<long, long>>{{12, 13}, {19, 19}}) && !ranges.count("gone.lua"), "a count; a deleted file has no new side");
     CHECK(ranges.count("sp\xc3\xa9.lua") == 1, "a quoted path is unquoted");
+    CHECK(desk_map::unquote("\"Icon\\r\"") == "Icon\r" && desk_map::unquote("\"a\\tb\\\\c\\\"d\\v\"") == "a\tb\\c\"d\v",
+          "each of git's C escapes is decoded (a macOS Icon\\r file)");
     auto hit = desk_map::touched(g, ranges);
     const auto touched = ids(hit["nodes"]);
     CHECK(touched.count("m/a.lua::a") && !touched.count("m/a.lua::b"), "the function around the change");

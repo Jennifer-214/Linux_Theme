@@ -3,15 +3,15 @@
 // the declarations and the record, and asks git about the tested folder (rev-parse and status, read-only).
 
 // A path from a record's list of uncommitted paths: a plain path, or a `git status --porcelain` line ("XY path",
-// "R  old -> new", a quoted path).
+// "R  old -> new", a quoted path). git quotes a path holding a control character or, by default (core.quotePath), a
+// byte past ASCII, in C escapes ("tools/caf\303\251.py"): decoded, it is the name git status -z gives now.
 std::string uncommitted_path(std::string entry) {
     const std::string codes = " MTADRCU?!";
     if (entry.size() > 3 && codes.find(entry[0]) != std::string::npos && codes.find(entry[1]) != std::string::npos && entry[2] == ' ')
         entry = entry.substr(3);
     const auto arrow = entry.find(" -> ");
     if (arrow != std::string::npos) entry = entry.substr(arrow + 4);
-    if (entry.size() >= 2 && entry.front() == '"' && entry.back() == '"') entry = entry.substr(1, entry.size() - 2);
-    return entry;
+    return desk_map::unquote(entry);
 }
 // A directory holding its own .git is a nested repository (a worktree or a clone kept inside the folder), not the
 // folder's content: neither counted nor compared.

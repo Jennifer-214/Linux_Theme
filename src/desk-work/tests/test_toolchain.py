@@ -73,6 +73,21 @@ class Toolchain(ToolsCase):
         self.assertIn(f"STALE: tools committed since the run (workspace tools tree {tree[:8]} → {now[:8]})", card["detail"].split("\n"))
         self.assertIn("symdeps contract tests: stale, what it tested changed since the run", alerts)
 
+    def test_a_path_git_quotes_is_read_as_the_file_it_names(self):
+        # git status --porcelain (core.quotePath, the default) writes a non-ASCII name in C escapes.
+        self.contract()
+        ended = json.loads((FIXTURES / "fox-contract.json").read_text())["ended_epoch"]
+        name = "tools/café.py"
+        (self.ws / name).write_text("print(1)\n")
+        os.utime(self.ws / name, (ended - 60, ended - 60))
+        listed = self.git(self.ws, "status", "--porcelain", "--", "tools/")
+        self.assertEqual(listed, '?? "tools/caf\\303\\251.py"')
+        self.write_record(lambda r: r["inputs"]["end"]["workspace"].update(tools_dirty=True, tools_uncommitted=[listed]))
+        card, alerts = self.card()
+        self.assertEqual(card["label"], "Contract tests · symdeps contract tests · passed with 1 uncommitted file", card["detail"])
+        self.assertIn(f"Ran with 1 uncommitted file in workspace tools: {name}", card["detail"].split("\n"))
+        self.assertEqual(alerts, [])
+
     def test_a_pass_on_uncommitted_tool_files_says_so_nested_repos_are_not_counted_and_a_later_edit_is_stale(self):
         self.contract()
         ended = json.loads((FIXTURES / "fox-contract.json").read_text())["ended_epoch"]
