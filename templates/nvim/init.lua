@@ -83,6 +83,8 @@ vim.opt.diffopt = { "internal", "filler", "closeoff", "indent-heuristic", "algor
 -- Linux_Theme palette (single source of truth)
 -- paper | retro | plain: the drawing style (retro: a boxed title screen, square status line edges).
 local DeskStyle = "{{DESK_STYLE}}"
+-- The desk.* modules draw in the same style (the since page, the call graph, the review): this is how they know it.
+vim.g.desk_style = DeskStyle
 -- Retro: a DOS underscore cursor in insert mode, a block when replacing.
 if DeskStyle == "retro" then vim.opt.guicursor = "n-v-c:block,i-ci-ve:hor20,r-cr:block,o:hor50" end
 -- >>> desk-border

@@ -122,11 +122,12 @@ for _, line in ipairs(lines(buf)) do
   end
 end
 vim.g.desk_style = nil
-vim.o.guicursor = 'n-v-c:block,i-ci-ve:hor20,r-cr:block,o:hor50'
-assert(S.style() == 'retro', 'the retro cursor init.lua sets is read as retro')
-vim.o.guicursor = ''
-assert(S.style() == 'paper')
+assert(S.style() == 'paper', 'without the style init.lua publishes, the page draws the normal way')
 ''')
+
+    def test_init_lua_publishes_the_style_the_desk_modules_read(self):
+        init = (ROOT / 'templates/nvim/init.lua').read_text()
+        self.assertIn('vim.g.desk_style = DeskStyle', init)
 
     def test_nothing_new_a_first_look_and_a_refusal_say_so(self):
         self.run_lua(r'''

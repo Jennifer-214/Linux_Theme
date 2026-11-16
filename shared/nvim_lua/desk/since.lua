@@ -6,11 +6,10 @@ local M = {}
 local api = vim.api
 local ns = api.nvim_create_namespace('desk_since')
 
--- The drawing style: retro (a DOS screen: code page 437 marks, capitals for headings) or the normal one. init.lua
--- may set vim.g.desk_style; otherwise retro is known by the underscore insert cursor it sets.
+-- The drawing style: retro (a DOS screen: code page 437 marks, capitals for headings) or the normal one, as init.lua
+-- publishes it in vim.g.desk_style.
 function M.style()
-  if type(vim.g.desk_style) == 'string' then return vim.g.desk_style end
-  return (vim.o.guicursor or ''):find('i-ci-ve:hor20', 1, true) and 'retro' or 'paper'
+  return type(vim.g.desk_style) == 'string' and vim.g.desk_style or 'paper'
 end
 local MARKS = {
   paper = { commit = '❦', passed = '✓', failed = '!', running = '◷', other = '○', job = '◇', turn = '✎', file = '·', up = '↑', down = '↓' },
