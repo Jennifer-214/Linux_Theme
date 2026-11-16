@@ -60,8 +60,8 @@ esac
 ]], 'rwxr-xr-x')
 write(bin .. '/desk-drawer', '#!/bin/sh\nprintf "%s\\n" "$(basename "$0") $*" >> "$POPOUT_TEST/others.log"\nexit 1\n', 'rwxr-xr-x')
 write(bin .. '/desk-work', [[#!/bin/sh
-# desk-work, for the test: workspace keeps one record per client in the sandbox (the pop-out's layout); anything else is
-# logged as asked for, and fails.
+# desk-work, for the test: workspace keeps one record per client in the sandbox (the pop-out's layout), and a line in
+# workspace.written once each write is done; anything else is logged as asked for, and fails.
 if [ "$1" = workspace ]; then
   printf '%s\n' "$*" >> "$POPOUT_TEST/workspace.log"
   client= input=
@@ -69,7 +69,9 @@ if [ "$1" = workspace ]; then
     case "$1" in --client) client=$2; shift 2 ;; --input) input=$2; shift 2 ;; *) shift ;; esac
   done
   record="$POPOUT_TEST/workspace.$client.json"
-  if [ "$input" = - ]; then cat > "$record.new" && mv "$record.new" "$record" && echo '{"ok":true}'
+  if [ "$input" = - ]; then
+    cat > "$record.new" && mv "$record.new" "$record" && echo '{"ok":true}'
+    echo "$client" >> "$POPOUT_TEST/workspace.written"
   elif [ -f "$record" ]; then cat "$record"
   else echo null; fi
   exit 0
@@ -98,13 +100,14 @@ local sidecar = base .. '/config/foxml/monitor-layout.conf'
 write(sidecar, 'PRIMARY="eDP-1"\nPORTRAIT_OUTPUTS="DP-2"\nSECONDARY_OUTPUTS="DP-2"')
 -- Nothing of her session reaches the two Neovims: no tmux, parent Neovim, Hyprland instance, display or kitty. The
 -- editor gets a tmux of its own that is no server (a socket path in the sandbox, and tmux's folder there too), so a
--- pop-out that inherited the editor's tmux would show it.
+-- pop-out that inherited the editor's tmux would show it. The editor pings its pop-out every second (10 s in use): a
+-- pong later than one ping marks it stalled, and a shorter ping read a busy machine as a stalled pop-out.
 local env = vim.fn.environ()
 for _, name in ipairs({ 'TMUX', 'TMUX_PANE', 'NVIM', 'NVIM_LISTEN_ADDRESS', 'HYPRLAND_INSTANCE_SIGNATURE', 'WAYLAND_DISPLAY',
   'DISPLAY', 'KITTY_WINDOW_ID', 'KITTY_LISTEN_ON', 'DBUS_SESSION_BUS_ADDRESS', 'SWAYSOCK' }) do env[name] = nil end
 for name, value in pairs({ HOME = base .. '/home', XDG_RUNTIME_DIR = dir, XDG_CONFIG_HOME = base .. '/config', XDG_STATE_HOME = base .. '/state',
   XDG_CACHE_HOME = base .. '/cache', XDG_DATA_HOME = base .. '/data', NVIM_LOG_FILE = base .. '/nvim.log', TERM = 'xterm-256color',
-  PATH = bin .. ':' .. (env.PATH or '/usr/bin:/bin'), POPOUT_TEST = dir, POPOUT_LUA = ROOT .. '/shared/nvim_lua', POPOUT_PING_MS = '300',
+  PATH = bin .. ':' .. (env.PATH or '/usr/bin:/bin'), POPOUT_TEST = dir, POPOUT_LUA = ROOT .. '/shared/nvim_lua', POPOUT_PING_MS = '1000',
   TMUX = dir .. '/no-tmux,1,0', TMUX_PANE = '%77', TMUX_TMPDIR = dir }) do
   env[name] = value
 end
@@ -130,6 +133,31 @@ assert(wait(10000, function() return exists(dir .. '/h') end), 'the main editor 
 local h = vim.fn.sockconnect('pipe', dir .. '/h', { rpc = true })
 local function host(code, ...) return vim.rpcrequest(h, 'nvim_exec_lua', code, { ... }) end
 ok(wait(10000, function() return host('return _G.popout_test and _G.popout_test.ready') == true end), 'the main editor is set up')
+-- "Nothing happened" is checked once the work is done, never after a fixed wait (a late regression would pass one):
+-- the editor counts the layout writes it starts (the stub, those it finished), and settled() says its views have
+-- nothing left to send: no graph waiting for the cursor to rest, none being read, and the pop-out has had everything
+-- sent before (it answers a request only after what came before it on the channel).
+host([[
+  local real = vim.system
+  _G.popout_test.writes = 0
+  vim.system = function(argv, ...)
+    if argv[1] == 'desk-work' and vim.tbl_contains(argv, '--input') then _G.popout_test.writes = _G.popout_test.writes + 1 end
+    return real(argv, ...)
+  end
+]])
+local function writes_landed()
+  local finished = select(2, read('workspace.written'):gsub('\n', ''))
+  return host("local t = require('desk.popout').host.save_timer; return not (t and t:is_active()) and _G.popout_test.writes") == finished
+end
+local function settled()
+  return host([[
+    local H = require('desk.popout').host
+    for _, view in pairs(H.views) do
+      if (view.timer and view.timer:is_active()) or view.inflight or view.stop or view.wanted then return false end
+    end
+    return not H.chan or vim.rpcrequest(H.chan, 'nvim_eval', '1') == 1
+  ]])
+end
 
 local p, psock
 local function pop(code, ...) return vim.rpcrequest(p, 'nvim_exec_lua', code, { ... }) end
@@ -159,8 +187,10 @@ eq(host("local A = require('desk.actions'); return A.available(A.get('popout.vie
 eq(host("local A = require('desk.actions'); local ctx = A.context(); local r = A.for_context(ctx)[1]; return { r.group, A.available(r, ctx) }"),
   { 'Views', 'requires a second monitor' }, "Space Space in the editor: the views first, greyed with why they cannot open")
 open_row()
-vim.wait(300)
-ok(not exists(dir .. '/kitty.argv'), '… and running it opens nothing')
+-- The row's run decides before it returns: a pop-out it started would be on its way now.
+eq(host("local H = require('desk.popout').host; return { H.opening == nil, H.kitty == nil, H.chan == nil }"), { true, true, true },
+  '… and running it starts nothing')
+ok(not exists(dir .. '/kitty.argv'), '… no kitty')
 vim.fn.writefile(vim.split(two_screens, '\n', { trimempty = true }), sidecar)
 eq(host("return require('desk.popout').second_screen()"), true, 'a second screen in monitor-layout.conf: it is offered')
 -- Where it goes: never the screen with the focus (the editor's), even when that is the one listed as secondary.
@@ -269,8 +299,8 @@ ok(wait(2000, function() return (state().header or ''):find('graph · PINNED', 1
 -- ─── pinned: the editor moving sends nothing; p follows again ───────────────────────────────────────────────────
 local received = state().received
 vim.rpcrequest(h, 'nvim_input', '8G')
-vim.wait(800)
-eq(host('return vim.api.nvim_win_get_cursor(0)[1]'), 8, 'the editor moves into gamma')
+ok(wait(3000, function() return host('return vim.api.nvim_win_get_cursor(0)[1]') == 8 end), 'the editor moves into gamma')
+ok(wait(5000, settled), '… and the move has nothing left to send')
 eq({ state().received, state().title }, { received, 'call graph · M.beta' }, '… and the pinned graph stays: nothing was sent')
 press('p')
 ok(wait(3000, function() return state().title == 'call graph · gamma' end), 'p: following again, from where the editor is')
@@ -355,10 +385,11 @@ ok(wait(3000, function() return host('return vim.api.nvim_win_get_cursor(0)[1]')
 ok(wait(3000, function() return log_since(mark):find("dispatch hl.dsp.focus({ window = 'address:0xa1' })", 1, true) end), '… and gets the keyboard')
 
 -- ─── a pop-out that stops answering ─────────────────────────────────────────────────────────────────────────────
-eq(host("return require('desk.popout').host.stalled"), false, 'answering its pings')
-pop('vim.defer_fn(function() vim.uv.sleep(1500) end, 10)')
-ok(wait(3000, function() return host("return require('desk.popout').host.stalled") == true end), 'stuck: the editor stops sending to it')
-ok(wait(6000, function() return host("return require('desk.popout').host.stalled") == false end), '… until it answers again')
+ok(wait(3000, function() return host("return require('desk.popout').host.stalled") == false end), 'answering its pings')
+-- Asleep for longer than two pings (1 s here), so one of them goes unanswered for a whole ping whenever it was sent.
+pop('vim.defer_fn(function() vim.uv.sleep(2500) end, 10)')
+ok(wait(5000, function() return host("return require('desk.popout').host.stalled") == true end), 'stuck: the editor stops sending to it')
+ok(wait(8000, function() return host("return require('desk.popout').host.stalled") == false end), '… until it answers again')
 
 -- ─── detach and attach ──────────────────────────────────────────────────────────────────────────────────────────
 local panel_open = "local G = require('desk.callgraph'); return G.panel.win ~= nil and vim.api.nvim_win_is_valid(G.panel.win)"
@@ -569,7 +600,7 @@ eq(host('return _G.rows_test.restored'), 1, '… the rows restored by their kind
 -- Gone on its own right after a change (a write of the views still on its way): the record keeps both views.
 host("local P = require('desk.popout'); P.save_layout(); P.fold('the screen went')")
 ok(wait(5000, function() return not exists(psock) end), 'folded right after a change: the pop-out closes')
-vim.wait(700)
+ok(wait(5000, writes_landed), '… the write that was on its way has landed')
 eq(#(record().tabs or {}), 2, '… and the layout record still holds both views for the next Restore')
 host("require('desk.callgraph').panel_close()")
 

@@ -84,7 +84,7 @@ for _, name in ipairs({ 'TMUX', 'TMUX_PANE', 'NVIM', 'NVIM_LISTEN_ADDRESS', 'HYP
   'DISPLAY', 'KITTY_WINDOW_ID', 'KITTY_LISTEN_ON', 'DBUS_SESSION_BUS_ADDRESS', 'SWAYSOCK' }) do env[name] = nil end
 for name, value in pairs({ HOME = base .. '/home', XDG_RUNTIME_DIR = dir, XDG_CONFIG_HOME = base .. '/config', XDG_STATE_HOME = base .. '/state',
   XDG_CACHE_HOME = base .. '/cache', XDG_DATA_HOME = base .. '/data', NVIM_LOG_FILE = base .. '/nvim.log', TERM = 'xterm-256color',
-  PATH = bin .. ':' .. (env.PATH or '/usr/bin:/bin'), POPOUT_TEST = dir, POPOUT_LUA = ROOT .. '/shared/nvim_lua', POPOUT_PING_MS = '300',
+  PATH = bin .. ':' .. (env.PATH or '/usr/bin:/bin'), POPOUT_TEST = dir, POPOUT_LUA = ROOT .. '/shared/nvim_lua', POPOUT_PING_MS = '1000',
   TMUX_TMPDIR = dir }) do
   env[name] = value
 end
@@ -101,12 +101,19 @@ end
 local function wait(ms, cond) return vim.wait(ms, function() local fine, value = pcall(cond); return fine and value end, 20) end
 local function alive(pid) return type(pid) == 'number' and uv.kill(pid, 0) == 0 end
 local function server() local pid, sock = read('server.last'):match('^(%d+) (%S+)'); return tonumber(pid), sock end
+-- Asked with a deadline: an editor that stalls (waiting for a key, the regression this file is for) answers no request,
+-- and a vim.rpcrequest to it would hold this file until the runner's timeout, saying nothing. A client Neovim asks
+-- instead and is stopped after 5 s: nil then, as when the editor is gone.
 local function ask(sock, code)
-  local ok_, chan = pcall(vim.fn.sockconnect, 'pipe', sock, { rpc = true })
-  if not ok_ or chan <= 0 then return nil end
-  local fine, value = pcall(vim.rpcrequest, chan, 'nvim_exec_lua', code, {})
-  pcall(vim.fn.chanclose, chan)
-  return fine and value or nil
+  if not sock then return nil end
+  local expr = "json_encode(luaeval('(function() " .. (code:gsub("'", "''")) .. " end)()'))"
+  local fine, job = pcall(vim.system, { 'nvim', '--clean', '--headless', '--server', sock, '--remote-expr', expr },
+    { env = env, clear_env = true, text = true, timeout = 5000 })
+  if not fine then return nil end
+  local out = job:wait()
+  local decoded, value = pcall(vim.json.decode, out.code == 0 and out.stdout or '')
+  if not decoded or value == vim.NIL then return nil end
+  return value
 end
 
 local tui
@@ -124,7 +131,7 @@ local function scenario()
   vim.fn.chansend(tui, ':restart\r')
   local restarted = wait(3000, function() return not alive(old) end)
   ok(restarted, ':restart with the pop-out open: the old editor exits at once, no key pressed')
-  -- A stalled editor (waiting for a key) answers no request: asking it more would hang this test.
+  -- A stalled editor (waiting for a key) answers no request: the rest would only wait out the asks' deadlines.
   if not restarted then return end
   ok(wait(5000, function() return read('popout.err'):find('Editor closed.', 1, true) end), '… the pop-out says "Editor closed."')
   ok(wait(5000, function() return not alive(popout) end), '… and quits')

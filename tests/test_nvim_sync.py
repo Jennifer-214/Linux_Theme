@@ -178,7 +178,11 @@ local b = api.nvim_get_current_buf()
 api.nvim_exec_autocmds('CursorHold', {})
 assert(S.status() == '' and #said == 0, 'opening a notebook read as outside edits: ' .. vim.inspect(said))
 vim.cmd.write()
-vim.wait(400)  -- past the directory watcher's 150 ms debounce
+-- The directory watcher has run since the save once it brings in an outside edit of the plain file beside the notebook,
+-- made after the save (its round checks every buffer it watches): only then can "not reloaded" be read.
+disk('local first = 7\n\nlocal middle = 2\n\nlocal last = 3\n', true)
+assert(vim.wait(5000, function() return api.nvim_buf_get_lines(buf, 0, 1, false)[1] == 'local first = 7' end, 20),
+  'the directory watcher never ran after the save')
 api.nvim_exec_autocmds('CursorHold', {})
 assert(api.nvim_buf_get_lines(b, 0, 1, false)[1] == '---', 'a save reloaded the notebook past its reader: '
   .. api.nvim_buf_get_lines(b, 0, 1, false)[1])

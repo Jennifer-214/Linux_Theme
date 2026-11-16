@@ -6,13 +6,22 @@ import { NOW, PANE, engine, fakeFs, opened } from './kit'
 
 const say = (text: string) => (globalThis as { console?: { log: (line: string) => void } }).console?.log(text)
 const WIDE = { ...PANE, props: { ...PANE.props, isFocused: true, bodyColumns: 44 }, surface: 'terminal' } as never
-const scene = async ($: Engine, name: string, press: string[] = [], columns = 44) => {
+type Ui = Awaited<ReturnType<Engine['ui']['mount']>>
+// check: what a scene whose name claims a behaviour must show, asked of the pane before it goes.
+const scene = async ($: Engine, name: string, press: string[] = [], columns = 44, check?: (ui: Ui) => Promise<void>) => {
   const ui = await $.ui.mount({ ...PANE, props: { ...PANE.props, isFocused: true, bodyColumns: columns }, surface: 'terminal' } as never)
   for (const key of press) await ui.press({ key })
   const tree = await ui.drawn()
   say('@@PREVIEW ' + JSON.stringify({ name, tree }))
+  if (check) await check(ui)
   await ui.unmount()
   return tree
+}
+// The row the pane's focus sits on, and the key bar's g.
+const selected = async (ui: Ui) => (await ui.findAll({ type: 'Button' })).find(b => b.props.autoFocus === true)?.key
+const offersGraph = async (ui: Ui) => {
+  const key = await ui.find({ key: 'nav-graph' })
+  expect({ hotkey: key?.props.hotkey, label: key?.props.label }, 'the key bar offers g: graph').toEqual({ hotkey: 'g', label: 'graph' })
 }
 const WORK = {
   tests: { id: 't1', state: 'passed', ended: NOW / 1000 - 240, stale: false, changedFiles: [], tests: { passed: 128, failed: 0, failures: [] } },
@@ -71,7 +80,10 @@ test('preview: the front page with a plan, a finished turn and things that need 
   expect(await scene($, 'front page · a request selected', ['attention-request-src/queue.cpp'])).toBeDefined()
   expect(await scene($, 'project page: branch, tasks, sessions, history', ['nav-more'])).toBeDefined()
   expect(await scene($, 'this turn · its changed functions', ['nav-back', 'receipt-files'])).toBeDefined()
-  expect(await scene($, 'this turn · a function selected: g shows its graph in the pop-out', ['nav-down', 'nav-down'])).toBeDefined()
+  expect(await scene($, 'this turn · a function selected: g shows its graph in the pop-out', ['nav-down', 'nav-down'], 44, async ui => {
+    expect(await selected(ui), 'a changed function is the selected row').toMatch(/^turn-symbol:/)
+    await offersGraph(ui)
+  })).toBeDefined()
 })
 
 test('preview: a failed run on the project page, a failure selected', async ($, on) => {
@@ -79,7 +91,10 @@ test('preview: a failed run on the project page, a failure selected', async ($, 
     { filename: '/code/paper/tests/test_queue.cpp', lnum: 42, text: 'expected drain() to return 3, got 2' },
     { filename: '/code/paper/src/queue.cpp', lnum: 77, text: 'assertion failed: head != tail' }] } } } })
   await opened($)
-  expect(await scene($, 'project page · a test failure selected', ['nav-more', 'work-failure-0'])).toBeDefined()
+  expect(await scene($, 'project page · a test failure selected', ['nav-more', 'work-failure-0'], 44, async ui => {
+    expect(await selected(ui), 'the failure is the selected row').toBe('work-failure-0')
+    await offersGraph(ui)
+  })).toBeDefined()
 })
 
 test("preview: the project page with the last job's figures", async ($, on) => {

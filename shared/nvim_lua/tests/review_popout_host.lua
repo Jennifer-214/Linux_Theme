@@ -7,7 +7,7 @@ vim.o.columns, vim.o.lines = 160, 48
 local R = require('desk.review')
 local C = require('desk.claude')
 local P = require('desk.popout')
-P.PING_MS = 300
+P.PING_MS = 1000   -- a pong later than one ping is a stalled pop-out: shorter, a busy machine reads as one
 _G.review_test = { asked_here = 0, heard = {} }
 local T = _G.review_test
 vim.notify = function(text) table.insert(T.heard, tostring(text)) end

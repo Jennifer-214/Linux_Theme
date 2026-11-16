@@ -55,7 +55,9 @@ class ThemeCheck(unittest.TestCase):
         self.deploy("hyprlock/hyprlock.conf", ".config/hypr/hyprlock.conf", lock)
         zshrc = (self.rendered / "zsh/.zshrc").read_text() + "\nexport MINE=1\n"
         self.deploy("zsh/.zshrc", ".zshrc", zshrc)
-        out = self.run_check("--only", "D1", "--verbose")
+        scratch = self.tmp / "t"     # its TMPDIR: the check renders the theme into a folder there, named by its own pid
+        scratch.mkdir()
+        out = self.run_check("--only", "D1", "--verbose", extra_env={"TMPDIR": str(scratch)})
         self.assertEqual(out.returncode, 1, out.stdout + out.stderr)
         self.assertIn("differs: ~/.tmux.conf", out.stdout)
         self.assertNotIn("differs: ~/.config/kitty/kitty.conf", out.stdout, "an exact copy matches")
@@ -63,7 +65,7 @@ class ThemeCheck(unittest.TestCase):
         self.assertNotIn("differs: ~/.zshrc", out.stdout)
         self.assertIn("1 match with lines of your own added", out.stdout, "your own line keeps .zshrc yours")
         self.assertIn("missing: ", out.stdout, "files the fake home never got are listed")
-        self.assertFalse(list(Path(tempfile.gettempdir()).glob(f"fox-theme-check-{os.getpid()}*")), "nothing left behind")
+        self.assertEqual(list(scratch.iterdir()), [], "nothing left behind")
 
     def test_services_hyprland_and_exit_codes(self):
         self.shim("systemctl", 'case "$3" in fox-pulse.service) [ "$2" = is-enabled ] && echo enabled || echo active ;;'
