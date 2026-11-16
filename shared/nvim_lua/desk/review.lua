@@ -552,12 +552,14 @@ local function hint(word, ...)
   end
   return table.concat(keys, '/') .. ' ' .. word
 end
--- The comparison panes' footer. With the file list hidden it leads with the way back to it, which nothing else shows.
+-- The comparison panes' footer. With the file list hidden it leads with the way back to it, which nothing else shows;
+-- with the list in the pop-out, with where it is and the way back here.
 local function set_footer(r)
   local hidden = not api.nvim_win_is_valid(r.panel_win or -1)
   local parts = { hint('file', 'next-file', 'previous-file'), hint('change', 'next-change', 'previous-change'),
     hint('check', 'mark'), hint('unread', 'unread'), hint('finish', 'finish'), (actions.key('desk.keys') or '?') .. ' keys', hint('close', 'close') }
-  if hidden then table.insert(parts, 1, hint('file list', 'list-back', 'file-list')) end
+  if r.popout then table.insert(parts, 1, 'list on the pop-out · ' .. hint('back here', 'list-back', 'file-list'))
+  elseif hidden then table.insert(parts, 1, hint('file list', 'list-back', 'file-list')) end
   -- Every file of a commit checked: say so first, with the one key that stamps it as reviewed.
   if r.row.kind == 'commit' and #r.files > 0 and progress(r) == #r.files and not r.completed then
     table.insert(parts, 1, 'all checked · ' .. hint('stamps it', 'finish'))
@@ -570,15 +572,18 @@ end
 -- The description strip and the bar are all that change when only the cursor moves; they live in their own namespace,
 -- so moving the cursor rewrites two lines instead of rebuilding every row (a long review lagged on each j/k).
 local ns_cursor = api.nvim_create_namespace('desk_review_cursor')
-local function strip_lines(r, cursor_line)
-  local w = r.panel_w
-  local about = describe(r, r.entries[cursor_line] or (r.selected_line and r.entries[r.selected_line]))
+-- What a row says in the strip: its two lines, boxed for width w.
+local function strip_of(r, entry, w)
+  local about = describe(r, entry)
   local lines = {}
   for i = 1, 2 do
     local s = fit(((about[i] or ''):gsub('[\r\n\t]', ' ')), w - 5)
     lines[i] = ' │ ' .. s .. string.rep(' ', math.max(0, w - 5 - width_of(s))) .. ' │'
   end
   return lines
+end
+local function strip_lines(r, cursor_line)
+  return strip_of(r, r.entries[cursor_line] or (r.selected_line and r.entries[r.selected_line]), r.panel_w)
 end
 local function mark_cursor(r, cursor_line)
   local buf = r.panel_buf
@@ -595,26 +600,30 @@ local function mark_cursor(r, cursor_line)
   end
   if bar then api.nvim_buf_set_extmark(buf, ns_cursor, bar - 1, 0, { line_hl_group = hl('FoxSymdepsSelection', 'Visual') }) end
 end
-local function panel(r, select_row)
-  if not api.nvim_buf_is_valid(r.panel_buf) then return end
-  if not api.nvim_win_is_valid(r.panel_win) then r.panel_dirty = true; return end
-  r.panel_dirty = false
-  local w = api.nvim_win_is_valid(r.panel_win) and math.max(24, api.nvim_win_get_width(r.panel_win) - 1) or 40
-  r.panel_w = w
+-- The groups a mark's role is drawn in: symdeps' where it is installed, the theme's own otherwise.
+local ROLES = { title = { 'FoxSymdepsTitle', 'Title' }, head = { 'FoxSymdepsHeader', 'Title' }, ok = { 'FoxSymdepsOk', 'DiagnosticOk' },
+  warn = { 'FoxSymdepsWarn', 'DiagnosticWarn' }, dim = { 'FoxSymdepsDim', 'Comment' }, alarm = { 'FoxSymdepsAlarm', 'DiagnosticError' } }
+local function group_of(role) return hl(ROLES[role][1], ROLES[role][2]) end
+
+-- The file list for width w, as data: its lines, its marks ({ line, from, to, role }; to -1 is the line's end), what
+-- each row stands for (entries, by line), the byte ranges a click on a row means (hits), the row of what the
+-- comparison shows (selected) and the title line's count (progress). It reads the review and draws nothing: the panel
+-- and the pop-out's view both draw from it, each with the strip under it.
+local function build(r, w)
   local external = r.row.kind == 'external'
-  local text, marks_hl, selected_line = {}, {}, nil
-  r.entries, r.hits = {}, {}
-  local function paint(line, from, to, group) marks_hl[#marks_hl + 1] = { line, from, to, group } end
+  local text, marks, entries, hits, selected_line = {}, {}, {}, {}, nil
+  local function paint(line, from, to, role) marks[#marks + 1] = { line, from, to, role } end
   local function push(s) text[#text + 1] = (s:gsub('[\r\n\t]', ' ')); return #text end
   local done, total = progress(r), #r.files
   local mode = (r.row.kind == 'commit' or external) and '' or (M.since_mode() and ' · new' or ' · all')
-  push(spread(external and ' Outside edits' or ' Review', external and 'both copies kept ' or (done .. ' of ' .. total .. mode .. ' '), w))
-  paint(1, 0, -1, hl('FoxSymdepsTitle', 'Title'))
+  local count = external and 'both copies kept' or (done .. ' of ' .. total .. mode)
+  push(spread(external and ' Outside edits' or ' Review', count .. ' ', w))
+  paint(1, 0, -1, 'title')
   push('')
   local function file_row(i, f, indent, set)
-    local marks = set and set.marks or r.marks
-    local checked = marks and marks[f.rel] == f.signature and f.loaded
-    local stale = not checked and marks and marks[f.rel] ~= nil and f.loaded
+    local checks = set and set.marks or r.marks
+    local checked = checks and checks[f.rel] == f.signature and f.loaded
+    local stale = not checked and checks and checks[f.rel] ~= nil and f.loaded
     local request = (not set or set == r.active_set) and not checked and M.request_of(r, f) or nil
     if request and request.ready then stale = true end
     local mark = checked and '✓' or stale and '↻' or request and '✉' or '○'
@@ -627,18 +636,18 @@ local function panel(r, select_row)
     local ln = push(spread(left, (noted > 0 and '✎ ' or '') .. (risky and '⚠ ' or '') .. stats .. ' ', w))
     local active = (not set or set == r.active_set) and i == r.index
     if active then selected_line = ln end
-    r.entries[ln] = { set = set, file = i }
+    entries[ln] = { set = set, file = i }
     local a = #indent
-    r.hits[ln] = { fold = { a + 1, a + #arrow }, mark = { a + #arrow + 2, a + #arrow + 1 + #mark } }
-    paint(ln, a + #arrow + 1, a + #arrow + 1 + #mark, checked and hl('FoxSymdepsOk', 'DiagnosticOk') or stale and hl('FoxSymdepsWarn', 'DiagnosticWarn') or hl('FoxSymdepsDim', 'Comment'))
-    if stats ~= '' then paint(ln, #text[ln] - #stats - 1, -1, hl('FoxSymdepsDim', 'Comment')) end
-    if risky then paint(ln, #text[ln] - #stats - 1 - #'⚠ ', #text[ln] - #stats - 1, hl('FoxSymdepsWarn', 'DiagnosticWarn')) end
+    hits[ln] = { fold = { a + 1, a + #arrow }, mark = { a + #arrow + 2, a + #arrow + 1 + #mark } }
+    paint(ln, a + #arrow + 1, a + #arrow + 1 + #mark, checked and 'ok' or stale and 'warn' or 'dim')
+    if stats ~= '' then paint(ln, #text[ln] - #stats - 1, -1, 'dim') end
+    if risky then paint(ln, #text[ln] - #stats - 1 - #'⚠ ', #text[ln] - #stats - 1, 'warn') end
     if f.expanded and f.loaded and not f.error and not f.binary then
       for _, symbol in ipairs(M.changed_symbols(f)) do
         local icon = symbol.side == 'before' and '− ' or symbol.kind == 'hunk' and '↳ ' or symbol.kind:match('struct') and '◇ ' or 'ƒ '
         local sl = push(fit(indent .. '      ' .. icon .. symbol.name, w))
-        r.entries[sl] = { set = set, file = i, symbol = symbol }
-        paint(sl, 0, -1, hl('FoxSymdepsDim', 'Comment'))
+        entries[sl] = { set = set, file = i, symbol = symbol }
+        paint(sl, 0, -1, 'dim')
         if active and r.symbol and r.symbol.name == symbol.name then selected_line = sl end
       end
     end
@@ -663,13 +672,13 @@ local function panel(r, select_row)
           right = n .. ' of ' .. of
         end
         local rl = push(rule(label, right, w))
-        paint(rl, 0, -1, hl('FoxSymdepsHeader', 'Title'))
-        if row.kind == 'working' then r.entries[rl] = { set = set } end
+        paint(rl, 0, -1, 'head')
+        if row.kind == 'working' then entries[rl] = { set = set } end
       end
       if row.kind == 'working' then
         if set.expanded then
           for i, f in ipairs(set.files or {}) do file_row(i, f, '   ', set) end
-          if #(set.files or {}) == 0 then paint(push('     the working tree is clean'), 0, -1, hl('FoxSymdepsDim', 'Comment')) end
+          if #(set.files or {}) == 0 then paint(push('     the working tree is clean'), 0, -1, 'dim') end
         end
       else
         local n, of = set_progress(r, set)
@@ -680,41 +689,64 @@ local function panel(r, select_row)
         local title = row.kind == 'live' and ('✎ ' .. (row.name or 'live session')) or ((row.short or 'commit') .. '  ' .. (row.subject or ''))
         local arrow = set.expanded and '▾' or '▸'
         local ln = push(spread('   ' .. arrow .. ' ' .. title:gsub('[\r\n\t]', ' '), right, w))
-        r.entries[ln] = { set = set }
-        r.hits[ln] = { fold = { 4, 3 + #arrow } }
-        if set.completed then paint(ln, #text[ln] - #right, -1, hl('FoxSymdepsOk', 'DiagnosticOk')) elseif right ~= '' then paint(ln, #text[ln] - #right, -1, hl('FoxSymdepsDim', 'Comment')) end
-        if tested ~= '' then paint(ln, #text[ln] - #right, #text[ln] - #right + #tested, row.tests == 'passed' and hl('FoxSymdepsOk', 'DiagnosticOk') or hl('FoxSymdepsAlarm', 'DiagnosticError')) end
+        entries[ln] = { set = set }
+        hits[ln] = { fold = { 4, 3 + #arrow } }
+        if set.completed then paint(ln, #text[ln] - #right, -1, 'ok') elseif right ~= '' then paint(ln, #text[ln] - #right, -1, 'dim') end
+        if tested ~= '' then paint(ln, #text[ln] - #right, #text[ln] - #right + #tested, row.tests == 'passed' and 'ok' or 'alarm') end
         if set.expanded then
           for i, f in ipairs(set.files or {}) do file_row(i, f, '       ', set) end
-          if #(set.files or {}) == 0 then paint(push('         no changed files'), 0, -1, hl('FoxSymdepsDim', 'Comment')) end
+          if #(set.files or {}) == 0 then paint(push('         no changed files'), 0, -1, 'dim') end
         end
       end
     end
   else
-    local rl = push(rule(r.row.short or 'Changes', '', w)); paint(rl, 0, -1, hl('FoxSymdepsHeader', 'Title'))
+    local rl = push(rule(r.row.short or 'Changes', '', w)); paint(rl, 0, -1, 'head')
     for i, f in ipairs(r.files) do file_row(i, f, '   ') end
   end
+  return { lines = text, marks = marks, entries = entries, hits = hits, selected = selected_line, external = external, progress = count }
+end
+
+-- The description strip's box under a built list, holding its two lines; returns the line of the first.
+local function add_strip(built, lines, w)
+  local text, marks = built.lines, built.marks
+  text[#text + 1] = ''
+  local top = #text + 1
+  text[top], text[top + 1], text[top + 2], text[top + 3] = ' ╭' .. string.rep('─', w - 3) .. '╮', lines[1], lines[2], ' ╰' .. string.rep('─', w - 3) .. '╯'
+  marks[#marks + 1] = { top, 0, -1, 'dim' }
+  marks[#marks + 1] = { top + 3, 0, -1, 'dim' }
+  return top + 1
+end
+
+local popout_redraw   -- while the list is in the pop-out, it is drawn there instead (the end of this file)
+local function panel(r, select_row)
+  if r.popout then return popout_redraw(r, select_row) end
+  if not api.nvim_buf_is_valid(r.panel_buf) then return end
+  if not api.nvim_win_is_valid(r.panel_win) then r.panel_dirty = true; return end
+  r.panel_dirty = false
+  local w = math.max(24, api.nvim_win_get_width(r.panel_win) - 1)
+  r.panel_w = w
+  local built = build(r, w)
+  local text = built.lines
+  r.entries, r.hits = built.entries, built.hits
   -- The description strip: what the selected row is and where it stands; then the one footer line.
-  local cursor_line = (select_row and selected_line) or (api.nvim_win_is_valid(r.panel_win) and api.nvim_win_get_cursor(r.panel_win)[1]) or selected_line
-  r.selected_line = selected_line
-  push('')
-  local top = push(' ╭' .. string.rep('─', w - 3) .. '╮')
-  for _, s in ipairs(strip_lines(r, cursor_line)) do push(s) end
-  local bottom = push(' ╰' .. string.rep('─', w - 3) .. '╯')
-  paint(top, 0, -1, hl('FoxSymdepsDim', 'Comment')); paint(bottom, 0, -1, hl('FoxSymdepsDim', 'Comment'))
-  r.strip = { top + 1, top + 2 }
-  local open, check, actions, hide = hint('open', 'enter'), hint('check', 'mark-list'), hint('actions', 'actions-list'), hint('hide', 'hide')
-  local keys = ' ' .. table.concat(external and { open, actions, hide } or (w >= 44 and { open, check, actions, hide } or { open, check, hide }), ' · ')
-  r.footer_line = push(fit(keys, w)); paint(r.footer_line, 0, -1, hl('FoxSymdepsDim', 'Comment'))
+  local cursor_line = (select_row and built.selected) or api.nvim_win_get_cursor(r.panel_win)[1] or built.selected
+  r.selected_line = built.selected
+  local first = add_strip(built, strip_lines(r, cursor_line), w)
+  r.strip = { first, first + 1 }
+  local open, check, acts, hide = hint('open', 'enter'), hint('check', 'mark-list'), hint('actions', 'actions-list'), hint('hide', 'hide')
+  local keys = ' ' .. table.concat(built.external and { open, acts, hide } or (w >= 44 and { open, check, acts, hide } or { open, check, hide }), ' · ')
+  text[#text + 1] = fit(keys, w)
+  r.footer_line = #text
+  built.marks[#built.marks + 1] = { r.footer_line, 0, -1, 'dim' }
   vim.bo[r.panel_buf].modifiable = true
   api.nvim_buf_set_lines(r.panel_buf, 0, -1, false, text)
   vim.bo[r.panel_buf].modifiable = false
   api.nvim_buf_clear_namespace(r.panel_buf, ns, 0, -1)
-  for _, m in ipairs(marks_hl) do
-    pcall(api.nvim_buf_set_extmark, r.panel_buf, ns, m[1] - 1, math.max(0, m[2]), { end_row = m[1] - 1, end_col = m[3] < 0 and #text[m[1]] or math.min(m[3], #text[m[1]]), hl_group = m[4] })
+  for _, m in ipairs(built.marks) do
+    pcall(api.nvim_buf_set_extmark, r.panel_buf, ns, m[1] - 1, math.max(0, m[2]), { end_row = m[1] - 1, end_col = m[3] < 0 and #text[m[1]] or math.min(m[3], #text[m[1]]), hl_group = group_of(m[4]) })
   end
   mark_cursor(r, cursor_line)
-  if select_row and api.nvim_win_is_valid(r.panel_win) and selected_line then api.nvim_win_set_cursor(r.panel_win, { selected_line, 0 }) end
+  if select_row and built.selected then api.nvim_win_set_cursor(r.panel_win, { built.selected, 0 }) end
   set_footer(r)
 end
 
@@ -779,81 +811,236 @@ local function previous_file(r) return in_list(r, function() M.select((r.index -
 local function to_diff(r, fn) return function() if api.nvim_get_current_win() == r.panel_win then api.nvim_set_current_win(r.right_win) end; fn() end end
 local function symdeps_here() return actions.symdeps() or 'requires symdeps' end
 local LIST, DIFF, BOTH = 'review-list', 'review-diff', { 'review-list', 'review-diff' }
+local WARN = vim.log.levels.WARN
+local function pop() local ok, P = pcall(require, 'desk.popout'); return ok and P or nil end
+
+-- What a row of the list stands for, as a key that stays while the list is drawn again (a commit, a file, a part).
+local function entry_key(r, entry)
+  if not entry then return nil end
+  local row = entry.set and entry.set.row or r.row
+  local key = (row.kind or '') .. ':' .. (row.sha or row.sid or '')
+  if entry.file then
+    local file = (entry.set and entry.set.files or r.files)[entry.file]
+    key = key .. ':' .. (file and file.rel or '')
+  end
+  if entry.symbol then key = key .. ':' .. entry.symbol.name .. ':' .. entry.symbol.side end
+  return key
+end
+-- An entry's key as the pop-out keeps an item's (at most 120 bytes: a long one keeps its start and a digest of it all).
+local function item_key(key) return #key > 120 and (key:sub(1, 80) .. '#' .. vim.fn.sha256(key):sub(1, 32)) or key end
+-- The row a key names, in the list as it is now (a refresh may have moved it since it was drawn), or nil.
+local function resolve(r, ref)
+  if not (r and type(ref) == 'table' and type(ref.key) == 'string') then return nil end
+  for _, entry in pairs(build(r, 40).entries) do if entry_key(r, entry) == ref.key then return entry end end
+end
+-- The comparison pane last read (the after side until one was).
+local function diff_window(r)
+  local win = r.last_diff_win
+  if win ~= r.left_win and win ~= r.right_win or not api.nvim_win_is_valid(win or -1) then win = r.right_win end
+  return api.nvim_win_is_valid(win or -1) and win or nil
+end
+
+-- The keys of the list are also the keys of its view in the pop-out (desk.popout; the view kind is at the end of this
+-- file). There a drawn row runs on the pop-out's copy of the list (ctx.copy: j, k, s); a remote one runs here for the
+-- row the pop-out named (ctx.view, ctx.item), never through the list's window, which is hidden while the list is out;
+-- remote = false keeps a row here.
+local function named(ctx)
+  local entry = resolve(ctx.review, ctx.item)
+  if not entry then tell('That row is no longer in the list.', WARN) end
+  return entry
+end
+local function open_row(ctx)
+  if not ctx.view then return M.enter() end
+  local entry = named(ctx)
+  if entry then M.open_entry(entry) end
+end
+-- j and k: in the pop-out the next or previous row of its copy; in the list Vim's own j and k (with a count), the
+-- list passing the cursor over headings and blank lines as it always has.
+local function step_row(ctx, how, key)
+  if ctx.copy then return require('desk.callgraph').move(ctx.copy, how) end
+  vim.cmd('normal! ' .. vim.v.count1 .. key)
+end
+-- s in the pop-out: labels on its copy's rows at their first mark, as in the list; typing one selects that row.
+local function jump_items(s)
+  if not (s.drawn and s.win and api.nvim_win_is_valid(s.win)) then return end
+  local text, targets = api.nvim_buf_get_lines(s.buf, 0, -1, false), {}
+  for i, item in ipairs(s.drawn.boxes or {}) do targets[#targets + 1] = { line = item.line, col = ((text[item.line] or ''):find('%S') or 1) - 1, index = i } end
+  require('desk.nav').jump(s.win, targets, function(t) require('desk.callgraph').select(s, t.index, true) end)
+end
+-- ]c and [c: run in the pane they are pressed in; from the list or the pop-out, in the pane last read (the other pane
+-- follows it, as it does in diff mode).
+local function change(ctx, key)
+  local r = ctx.review
+  local win = (ctx.win == r.left_win or ctx.win == r.right_win) and ctx.win or diff_window(r)
+  if win then api.nvim_win_call(win, function() vim.cmd('normal! ' .. key) end) end
+end
+-- c asks for a live Claude session, then the words (as claude.send asks them, in the window c was pressed in).
+local function sessions()
+  local out = {}
+  for _, p in ipairs(require('desk.claude').live or {}) do
+    if type(p.id) == 'string' then
+      local mark = p.state == 'needs you' and '●' or (p.busy and '✎' or '○')
+      out[#out + 1] = { id = p.id, name = mark .. ' ' .. tostring(p.name or p.id) .. (p.project and (' · ' .. p.project) or '') .. (p.state and (' · ' .. p.state) or '') }
+    end
+  end
+  return out
+end
+local function has_claude()
+  local C = require('desk.claude')
+  return (#(C.live or {}) > 0 and C.runtime() ~= nil) or 'no other Claude is open'
+end
+-- c: a change request to a Claude session about the file (or the lines) in the comparison. Its key in the list or a
+-- pane asks as it always has (claude.send); from a menu or the pop-out the session and the words are given (ctx.choice,
+-- ctx.text), and from the pop-out it is about the row it named.
+local function request(ctx)
+  local r, C = ctx.review, require('desk.claude')
+  local in_list_now = api.nvim_get_current_win() == r.panel_win
+  if ctx.text == nil then
+    if not in_list_now or M.enter(true) then api.nvim_set_current_win(r.right_win); C.send() end
+    return
+  end
+  if ctx.view or in_list_now then
+    local entry
+    if ctx.view then entry = named(ctx) else entry = r.entries and r.entries[api.nvim_win_get_cursor(r.panel_win)[1]] end
+    if not (entry and entry.file) then return tell('A change request is about a file: pick one first.', WARN) end
+    M.open_entry(entry, true)
+    api.nvim_set_current_win(r.right_win)
+  end
+  local peer, dir = nil, C.runtime()
+  for _, p in ipairs(C.live or {}) do if p.id == ctx.choice then peer = p end end
+  if not (peer and dir) then return tell('That Claude session is no longer open.', WARN) end
+  local context = M.note_context(nil)
+  if not context then return tell('Put the cursor in the comparison first.', WARN) end
+  if not C.write_note(dir, peer.id, C.note(ctx.text, context.file, context.first, context.last, context.code)) then
+    return tell('Could not leave the note.', vim.log.levels.ERROR)
+  end
+  local tracked = M.requested(context.file, peer, ctx.text)
+  tell(tracked and ('Change requested from ' .. peer.name .. ' · the file waits for it.') or ('Note left for ' .. peer.name .. '.'))
+end
+-- R: finish, then the next unchecked commit, close or stay. Its key asks after finishing (M.ask_after_finish); from a
+-- menu or the pop-out the answer is given first (ctx.choice), so nothing waits here on a question she cannot see.
+local function next_commit(r)
+  if r.row.kind ~= 'commit' or not r.sets then return nil end
+  local at = 1
+  for i, set in ipairs(r.sets) do if set == r.active_set then at = i; break end end
+  for offset = 1, #r.sets - 1 do
+    local set = r.sets[(at + offset - 1) % #r.sets + 1]
+    if set.row.kind == 'commit' and not set.completed then
+      if not set.files then set.files = M.files(set.row, r.root) end
+      if set.files and #set.files > 0 then return set end
+    end
+  end
+end
+local function finish_choices(r)
+  local out = {}
+  if r and next_commit(r) then out[1] = { id = 'next', name = 'Next commit' } end
+  out[#out + 1] = { id = 'close', name = 'Close review' }
+  out[#out + 1] = { id = 'stay', name = 'Stay' }
+  return out
+end
+local function finishable(ctx)
+  local r = ctx.review
+  if not r then return 'no review is open' end
+  local done = progress(r)
+  return done == #r.files or ('check each file first (' .. done .. ' of ' .. #r.files .. ' checked)')
+end
+-- a: the review's actions. From the pop-out the menu opens here, and the keyboard comes here with it: a menu is read
+-- and chosen in the window it is in.
+local function actions_here(ctx)
+  M.actions()
+  local P = ctx.view and pop()
+  if P then P.focus({ pid = vim.fn.getpid(), pane = require('desk.nav').pane() or '' }) end
+end
 M.rows = actions.add({
-  { id = 'review.enter', group = 'Review', name = 'Expand commit / open review file', key = '<CR>', on = LIST,
-    about = 'Open the selected file in the comparison panes; on a commit, expand or collapse its changed files', run = function() M.enter() end },
+  { id = 'review.enter', group = 'Review', name = 'Expand commit / open review file', key = '<CR>', on = LIST, remote = true,
+    about = 'Open the selected file in the comparison panes; on a commit, expand or collapse its changed files', run = open_row },
   { id = 'review.enter-l', group = 'Review', name = 'Expand commit / open review file', key = 'l', on = LIST, line = 'review.enter', menu = false,
-    run = function() M.enter() end },
+    remote = true, run = open_row },
   { id = 'review.enter-mouse', group = 'Review', name = 'Expand commit / open review file', key = '<2-LeftMouse>', on = LIST, line = 'review.enter',
-    menu = false, doc = false, run = function() M.enter() end },
-  { id = 'review.fold', group = 'Review', name = 'Collapse review commit', key = 'h', on = LIST,
-    about = 'Collapse changed functions first, then the selected commit', run = function() M.fold() end },
-  { id = 'review.next-file', group = 'Review', name = 'Next review file', key = ']f', on = BOTH, doc = 'Next / previous file',
+    menu = false, doc = false, remote = false, run = function() M.enter() end },
+  { id = 'review.down', group = 'Review', name = 'The row below', key = 'j', on = LIST, menu = false, drawn = true,
+    doc = 'The row below / above, over headings and blank lines', about = 'The row below, over headings and blank lines',
+    run = function(ctx) step_row(ctx, 'down', 'j') end },
+  { id = 'review.up', group = 'Review', name = 'The row above', key = 'k', on = LIST, menu = false, drawn = true, line = 'review.down',
+    about = 'The row above, over headings and blank lines', run = function(ctx) step_row(ctx, 'up', 'k') end },
+  { id = 'review.fold', group = 'Review', name = 'Collapse review commit', key = 'h', on = LIST, remote = true,
+    about = 'Collapse changed functions first, then the selected commit',
+    run = function(ctx)
+      if not ctx.view then return M.fold() end
+      local entry = named(ctx)
+      if entry then M.fold(entry) end
+    end },
+  { id = 'review.next-file', group = 'Review', name = 'Next review file', key = ']f', on = BOTH, doc = 'Next / previous file', remote = true,
     about = 'The next file of this review', run = function(ctx) next_file(ctx.review)() end },
-  { id = 'review.previous-file', group = 'Review', name = 'Previous review file', key = '[f', on = BOTH, line = 'review.next-file',
+  { id = 'review.previous-file', group = 'Review', name = 'Previous review file', key = '[f', on = BOTH, line = 'review.next-file', remote = true,
     about = 'The previous file of this review', run = function(ctx) previous_file(ctx.review)() end },
   { id = 'review.next-file-tab', group = 'Review', name = 'Next review file', key = '<Tab>', on = BOTH, line = 'review.next-file', menu = false,
-    run = function(ctx) next_file(ctx.review)() end },
+    remote = true, run = function(ctx) next_file(ctx.review)() end },
   { id = 'review.previous-file-tab', group = 'Review', name = 'Previous review file', key = '<S-Tab>', on = BOTH, line = 'review.next-file',
-    menu = false, run = function(ctx) previous_file(ctx.review)() end },
-  { id = 'review.next-change', group = 'Review', name = 'Next review change', key = ']c', on = DIFF, doc = 'Next / previous changed block',
-    about = 'The next changed block of this file', run = function() vim.cmd('normal! ]c') end },
-  { id = 'review.previous-change', group = 'Review', name = 'Previous review change', key = '[c', on = DIFF, line = 'review.next-change',
-    about = 'The previous changed block of this file', run = function() vim.cmd('normal! [c') end },
+    menu = false, remote = true, run = function(ctx) previous_file(ctx.review)() end },
+  { id = 'review.next-change', group = 'Review', name = 'Next review change', key = ']c', on = BOTH, doc = 'Next / previous changed block',
+    remote = true, about = 'The next changed block of this file (from the list, in the comparison)', run = function(ctx) change(ctx, ']c') end },
+  { id = 'review.previous-change', group = 'Review', name = 'Previous review change', key = '[c', on = BOTH, line = 'review.next-change',
+    remote = true, about = 'The previous changed block of this file (from the list, in the comparison)', run = function(ctx) change(ctx, '[c') end },
   { id = 'review.mark', group = 'Review', name = 'Mark/unmark file reviewed', key = 'm', on = DIFF,
     about = 'Check or uncheck the file as reviewed', run = function() M.mark() end },
-  { id = 'review.mark-list', group = 'Review', name = 'Mark selected file reviewed', key = 'm', on = LIST, line = 'review.mark',
+  { id = 'review.mark-list', group = 'Review', name = 'Mark selected file reviewed', key = 'm', on = LIST, line = 'review.mark', remote = true,
     about = 'Check or uncheck the selected file as reviewed (on one of its changed functions it only checks it); the cursor stays in the list',
-    run = function(ctx) in_list(ctx.review, M.mark_row)() end },
-  { id = 'review.unread', group = 'Review', name = 'First unread review file', key = 'u', on = BOTH,
+    run = function(ctx)
+      if not ctx.view then return in_list(ctx.review, M.mark_row)() end
+      local entry = named(ctx)
+      if entry then M.mark_row(entry) end
+    end },
+  { id = 'review.unread', group = 'Review', name = 'First unread review file', key = 'u', on = BOTH, remote = true,
     about = 'Resume at the first unchecked file (files with a risk mark or ready for re-review first)', run = function() M.unread() end },
-  { id = 'review.since-list', group = 'Review', name = 'New since review / the whole change', key = 'n', on = LIST,
+  { id = 'review.since-list', group = 'Review', name = 'New since review / the whole change', key = 'n', on = LIST, remote = true,
     about = 'Only what is new since you reviewed a file / the whole change (remembered)', run = function(ctx) in_list(ctx.review, M.toggle_since)() end },
   { id = 'review.since', group = 'Review', name = 'New since review / the whole change', key = '<leader>rn', on = DIFF, line = 'review.since-list',
     about = 'Only what is new since you reviewed a file / the whole change (remembered)', run = function() M.toggle_since() end },
-  { id = 'review.request', group = 'Review', name = 'Request changes from a Claude session', key = 'c', on = BOTH,
+  { id = 'review.request', group = 'Review', name = 'Request changes from a Claude session', key = 'c', on = BOTH, remote = true,
     about = 'Request changes: a note about this file or the selected lines to a Claude session; the file waits on it',
-    run = function(ctx)
-      local r = ctx.review
-      if api.nvim_get_current_win() ~= r.panel_win or M.enter(true) then api.nvim_set_current_win(r.right_win); require('desk.claude').send() end
-    end },
+    input = { prompt = 'Change request: ', choices = sessions }, available = has_claude, run = request },
   -- ? lists the keys (desk.keys, every view's); the actions are a and a row of the home menu, Space Space.
-  { id = 'review.actions-list', group = 'Review', name = 'Review actions', key = 'a', on = LIST, menu = false,
-    doc = 'Actions: every action of this review, with what each needs (also a row of `Space Space`)', run = function() M.actions() end },
-  { id = 'review.actions', group = 'Review', name = 'Review actions', on = BOTH,
-    about = 'Every action of this review, with what each needs', run = function() M.actions() end },
-  { id = 'review.api', group = 'Review', name = 'Open the API review of this file', key = 'A', on = BOTH,
+  { id = 'review.actions-list', group = 'Review', name = 'Review actions', key = 'a', on = LIST, menu = false, remote = true,
+    doc = 'Actions: every action of this review, with what each needs (also a row of `Space Space`)', run = actions_here },
+  { id = 'review.actions', group = 'Review', name = 'Review actions', on = BOTH, remote = true,
+    about = 'Every action of this review, with what each needs', run = actions_here },
+  { id = 'review.api', group = 'Review', name = 'Open the API review of this file', key = 'A', on = BOTH, remote = false,
     about = 'Open the saved API review of this file (Actions has "API review: file / change" and "Explain this hunk")', run = function() M.api_open() end },
-  { id = 'review.plan', group = 'Review', name = 'Plan coverage', key = 'P', on = BOTH,
+  { id = 'review.plan', group = 'Review', name = 'Plan coverage', key = 'P', on = BOTH, remote = false,
     about = 'Plan coverage: each plan step with the commits that touched it, steps not started, files outside the plan', run = function() M.plan_coverage() end },
-  { id = 'review.note', group = 'Review', name = 'Note to self on this line', key = 'N', on = BOTH,
+  { id = 'review.note', group = 'Review', name = 'Note to self on this line', key = 'N', on = BOTH, remote = false,
     about = 'Note to self on this line; it stays with the file in every later review (`:ReviewNotes` lists them)',
     run = function(ctx) to_diff(ctx.review, function() M.note_here() end)() end },
-  { id = 'review.finish', group = 'Review', name = 'Finish review, then next commit or close', key = 'R', on = BOTH,
+  { id = 'review.finish', group = 'Review', name = 'Finish review, then next commit or close', key = 'R', on = BOTH, remote = true,
     about = 'Finish after every file is checked, then choose: open the next unchecked commit, close the review, or stay; this clears the finished commit from pending reviews',
-    run = function() M.finish_next() end },
+    input = { choices = function(ctx) return finish_choices(ctx.review) end }, available = finishable,
+    run = function(ctx) M.finish_next(ctx.choice) end },
   { id = 'review.whitespace', group = 'Review', name = 'Toggle review whitespace', key = '<leader>rw', on = BOTH, about = 'Show / hide whitespace differences',
+    remote = true,
     run = function(ctx) local r = ctx.review; r.whitespace = not r.whitespace; options(r); tell('Whitespace changes: ' .. (r.whitespace and 'hidden' or 'shown')) end },
   { id = 'review.context', group = 'Review', name = 'Toggle review context', key = '<leader>rc', on = BOTH, about = 'Six context lines / full-file context',
+    remote = true,
     run = function(ctx) local r = ctx.review; r.context = not r.context; options(r); tell('Context: ' .. (r.context and 'full file' or 'six lines')) end },
   { id = 'review.list-back', group = 'Review', name = 'Back to the review file list', key = '<BS>', on = DIFF,
-    about = 'Back to the file list from a comparison pane, showing it again if it was hidden', run = function() M.show_panel(true) end },
-  { id = 'review.file-list', group = 'Review', name = 'Toggle review file list', key = '<leader>re', on = BOTH, also = '`:ReviewFiles`',
+    about = 'Back to the file list from a comparison pane, showing it again if it was hidden (or in the pop-out)', run = function() M.show_panel(true) end },
+  { id = 'review.file-list', group = 'Review', name = 'Toggle review file list', key = '<leader>re', on = BOTH, also = '`:ReviewFiles`', remote = false,
     about = 'Toggle the review file list, keeping the comparison open; `Space e` keeps its normal Neo-tree binding', run = function() M.toggle_panel() end },
   -- s: labels on the list's rows; in a diff it stays the code's flash s (no row there). symdeps is gs in both.
-  { id = 'review.jump', group = 'Review', name = 'Jump to a row by its label', key = 's', on = LIST, menu = false,
+  { id = 'review.jump', group = 'Review', name = 'Jump to a row by its label', key = 's', on = LIST, menu = false, drawn = true,
     available = function() return require('desk.nav').labels_ready() end,
     about = 'Labels on the rows on screen, as `s` draws them in code (flash.nvim): typing one moves there, as `j` and `k` would; Esc stays',
-    run = function(ctx) M.jump_rows(ctx.review) end },
+    run = function(ctx) if ctx.copy then return jump_items(ctx.copy) end; M.jump_rows(ctx.review) end },
   { id = 'review.symdeps', group = 'Review', name = 'Inspect changed C++ symbol in working copy', key = 'gs', on = BOTH, available = symdeps_here,
-    about = 'Inspect the changed C/C++ file in symdeps (current working copy near the reviewed line)', run = function() M.symdeps(false) end },
-  { id = 'review.source', group = 'Review', name = 'Open the working file for this change', key = 'gf', on = BOTH,
+    remote = false, about = 'Inspect the changed C/C++ file in symdeps (current working copy near the reviewed line)', run = function() M.symdeps(false) end },
+  { id = 'review.source', group = 'Review', name = 'Open the working file for this change', key = 'gf', on = BOTH, remote = false,
     about = 'Open the editable working file in a separate tab', run = function() M.open_source() end },
   { id = 'review.layout', group = 'Review', name = 'Compare struct layout with review base', key = 'S', on = BOTH, available = symdeps_here,
-    about = "Compare the current struct's layout with the selected commit's parent", run = function() M.symdeps(true) end },
-  { id = 'review.refresh', group = 'Review', name = 'Refresh this comparison', key = 'r', on = BOTH, about = 'Refresh the comparison',
+    remote = false, about = "Compare the current struct's layout with the selected commit's parent", run = function() M.symdeps(true) end },
+  { id = 'review.refresh', group = 'Review', name = 'Refresh this comparison', key = 'r', on = BOTH, about = 'Refresh the comparison', remote = true,
     run = function(ctx) local r = ctx.review; in_list(r, function() M.refresh_live(); if M.current == r then M.select(r.index, true) end end)() end },
-  { id = 'review.follow', group = 'Review', name = 'Follow selected live session', key = 'f', on = LIST,
+  -- f in the pop-out is its own (go there and focus the editor).
+  { id = 'review.follow', group = 'Review', name = 'Follow selected live session', key = 'f', on = LIST, remote = false,
     about = 'Follow the selected live session\'s edits in a separate tab (`:ClaudeFollow` stops)',
     run = function(ctx)
       local r = ctx.review
@@ -862,22 +1049,32 @@ M.rows = actions.add({
       if row.kind == 'live' then require('desk.claude').follow(row)
       else tell('Follow works on a live session row; this one is ' .. (row.kind == 'commit' and 'a commit.' or 'not a live session.')) end
     end },
-  { id = 'review.hide', group = 'Review', name = 'Hide review file list', key = 'q', on = LIST, also = '`:q` there',
+  { id = 'review.popout', group = 'Review', name = 'File list to the pop-out', key = 'o', on = LIST, remote = false,
+    about = 'Move the file list to the pop-out on the other screen (it opens): the comparison takes this whole screen, Enter there shows a file here while the keyboard stays there; `o` there brings the list back',
+    available = function() local P = pop(); if not P then return 'requires desk.popout' end; return P.can_pop() end,
+    run = function(ctx) local P = pop(); if P then P.show('review', ctx) end end },
+  { id = 'review.hide', group = 'Review', name = 'Hide review file list', key = 'q', on = LIST, also = '`:q` there', remote = false,
     about = 'Hide the file list; the diff keeps its file, cursor and folds', run = function() M.hide_panel() end },
   { id = 'review.hide-esc', group = 'Review', name = 'Hide review file list', key = '<Esc>', on = LIST, line = 'review.hide', menu = false,
-    run = function() M.hide_panel() end },
+    remote = false, run = function() M.hide_panel() end },
   { id = 'review.clear', group = 'Review', name = 'Clear search highlight', key = '<Esc>', on = DIFF, menu = false, about = 'Clear search highlighting',
     run = function() vim.cmd.nohlsearch() end },
   { id = 'review.close', group = 'Review', name = 'Close review', key = 'q', on = DIFF, also = '`:q` in a diff, `Space Cq`',
     about = 'Close the whole review and return to your editor', run = function(ctx) ctx.review.close() end },
   { id = 'review.close-bd', group = 'Review', name = 'Close Changes', key = '<leader>bd', on = BOTH, line = 'review.close', menu = false,
-    run = function(ctx) ctx.review.close() end },
+    remote = false, run = function(ctx) ctx.review.close() end },
 })
 -- The key a menu row names for one of these, as typed ("m", "<leader>re").
 function M.bind(id) return actions.key('review.' .. id) end
+-- A key pressed in the list or a pane: a row that asks first (c, R) asks in its own way there (the session, then the
+-- note; finishing, then what next). Its input is what a menu and the pop-out ask before it runs.
+local function press(row, ctx)
+  if row.input then return row.run(ctx) end
+  actions.press(row, ctx)
+end
 maps = function(r, buf, sidebar)
   -- Space in the review shows its own keys under one name (actions.PREFIXES: the review's <leader>r group).
-  actions.map(sidebar and LIST or DIFF, { buffer = buf, silent = true, ctx = { review = r } })
+  actions.map(sidebar and LIST or DIFF, { buffer = buf, silent = true, ctx = { review = r }, press = press })
   if not sidebar then return end
   vim.keymap.set('n', '<LeftMouse>', function()
     local mouse = vim.fn.getmousepos()
@@ -901,17 +1098,6 @@ maps = function(r, buf, sidebar)
   end, { buffer = buf, desc = 'Click commit, file or review checkbox', silent = true })
 end
 
-local function entry_key(r, entry)
-  if not entry then return nil end
-  local row = entry.set and entry.set.row or r.row
-  local key = (row.kind or '') .. ':' .. (row.sha or row.sid or '')
-  if entry.file then
-    local file = (entry.set and entry.set.files or r.files)[entry.file]
-    key = key .. ':' .. (file and file.rel or '')
-  end
-  if entry.symbol then key = key .. ':' .. entry.symbol.name .. ':' .. entry.symbol.side end
-  return key
-end
 local function remember_panel(r)
   if not api.nvim_win_is_valid(r.panel_win) or not api.nvim_buf_is_valid(r.panel_buf) or api.nvim_win_get_buf(r.panel_win) ~= r.panel_buf then return end
   r.panel_view = api.nvim_win_call(r.panel_win, vim.fn.winsaveview)
@@ -999,6 +1185,13 @@ end
 function M.show_panel(focus)
   local r = M.current
   if not r or not api.nvim_tabpage_is_valid(r.tab) then return false end
+  -- In the pop-out, the list comes back from there (one list, in one place).
+  if r.popout then
+    local view, P = r.popout, pop()
+    if P then P.clear(view.id) end
+    r.popout = nil
+  end
+  r.panel_back = nil
   if focus then api.nvim_set_current_tabpage(r.tab) end
   if api.nvim_get_current_tabpage() ~= r.tab then return false end
   if api.nvim_win_is_valid(r.panel_win) then if focus then api.nvim_set_current_win(r.panel_win) end; return true end
@@ -1290,11 +1483,15 @@ end
 
 -- m in the list: the row's file checked, or unchecked. On a part of a file (one of its changed functions or line
 -- ranges) it only checks: "m, j, m" down an open file lands the second m on its first part, which must never undo it.
-function M.mark_row()
+-- entry: the row (the pop-out names one); nil, the row under the list's cursor.
+function M.mark_row(entry)
   local r = M.current
-  if not r or not api.nvim_win_is_valid(r.panel_win) then return false end
-  local entry = r.entries[api.nvim_win_get_cursor(r.panel_win)[1]]
-  if not M.enter(true) then return false end
+  if not r then return false end
+  if not entry then
+    if not api.nvim_win_is_valid(r.panel_win) then return false end
+    entry = r.entries[api.nvim_win_get_cursor(r.panel_win)[1]]
+  end
+  if not M.open_entry(entry, true) then return false end
   local file = r.files[r.index]
   if entry and entry.symbol and r.marks[file.rel] == file.signature then
     tell(vim.fs.basename(file.rel) .. ' is checked; m on its own row unchecks it.')
@@ -1334,22 +1531,12 @@ function M.ask_after_finish(count, has_next)
   return ok and choices[pick] or 'stay'
 end
 
-function M.finish_next()
+-- choice: 'next', 'close' or 'stay' when it was asked already (a menu, the pop-out); else it is asked once finished.
+function M.finish_next(choice)
   local r = M.current
   if not r or not M.finish() then return false end
-  local following
-  if r.row.kind == 'commit' and r.sets then
-    local at = 1
-    for i, set in ipairs(r.sets) do if set == r.active_set then at = i; break end end
-    for offset = 1, #r.sets - 1 do
-      local set = r.sets[(at + offset - 1) % #r.sets + 1]
-      if set.row.kind == 'commit' and not set.completed then
-        if not set.files then set.files = M.files(set.row, r.root) end
-        if set.files and #set.files > 0 then following = set; break end
-      end
-    end
-  end
-  local choice = M.ask_after_finish(#r.files, following ~= nil)
+  local following = next_commit(r)
+  choice = choice or M.ask_after_finish(#r.files, following ~= nil)
   if choice == 'next' and following then M.switch(following); M.unread()
   elseif choice == 'close' then
     -- A Neovim the notebook opened just for this review (desk.work open_args) goes with it, as q does there.
@@ -1392,11 +1579,17 @@ function M.switch(set, index)
   M.select(index or 1)
 end
 
+-- Enter in the list: the row under its cursor (M.open_entry).
 function M.enter(marking)
   local r = M.current
   if not r or not api.nvim_win_is_valid(r.panel_win) then return false end
-  local line = api.nvim_win_get_cursor(r.panel_win)[1]
-  local entry = r.entries[line]
+  return M.open_entry(r.entries[api.nvim_win_get_cursor(r.panel_win)[1]], marking)
+end
+-- A row of the list opened: a file (or one of its parts) in the comparison, a commit folded or unfolded. marking: only
+-- to check it, so a file is not unfolded and a commit not folded. true when it showed a file.
+function M.open_entry(entry, marking)
+  local r = M.current
+  if not r then return false end
   if entry and entry.file then
     if entry.set then M.switch(entry.set, entry.file) else M.select(entry.file) end
     if not marking then r.files[r.index].expanded = true end
@@ -1589,26 +1782,32 @@ function M.layout(keep)
   end
 end
 
-function M.fold()
+-- h: the row's file folded (its changed functions), else its commit; the selection goes to what was folded. entry:
+-- the row (the pop-out names one); nil, the row under the list's cursor.
+function M.fold(entry)
   local r = M.current
-  if not r or not api.nvim_win_is_valid(r.panel_win) then return end
-  local entry = r.entries[api.nvim_win_get_cursor(r.panel_win)[1]]
+  if not r then return end
+  local here = entry == nil
+  if here then
+    if not api.nvim_win_is_valid(r.panel_win) then return end
+    entry = r.entries[api.nvim_win_get_cursor(r.panel_win)[1]]
+  end
   if not entry then return end
+  local folded
   if entry.file then
     local file = (entry.set and entry.set.files or r.files)[entry.file]
-    if file.expanded then
-      file.expanded = false; panel(r)
-      for line, e in pairs(r.entries) do
-        if e.set == entry.set and e.file == entry.file and not e.symbol then api.nvim_win_set_cursor(r.panel_win, {line, 0}); break end
-      end
-      return
-    end
+    if file.expanded then file.expanded, folded = false, { set = entry.set, file = entry.file } end
   end
-  if not entry.set then return end
-  entry.set.expanded = false
+  if not folded then
+    if not entry.set then return end
+    entry.set.expanded, folded = false, { set = entry.set }
+  end
+  local key = entry_key(r, folded)
+  if r.popout then r.popout.select = item_key(key) end
   panel(r)
+  if not (here and api.nvim_win_is_valid(r.panel_win)) then return end
   for line, e in pairs(r.entries) do
-    if e.set == entry.set and not e.file then api.nvim_win_set_cursor(r.panel_win, { line, 0 }); break end
+    if entry_key(r, e) == key then api.nvim_win_set_cursor(r.panel_win, { line, 0 }); break end
   end
 end
 
@@ -2125,6 +2324,12 @@ function M.close()
   if r.closing then return false end
   r.closing = true
   if r.unsubscribe then r.unsubscribe(); r.unsubscribe = nil end
+  -- Its list in the pop-out goes with it.
+  if r.popout then
+    local view, P = r.popout, pop()
+    r.popout = nil
+    if P then P.clear(view.id) end
+  end
   -- Remember the place: the next open of this change starts on this file and line.
   pcall(function()
     local f = r.files[r.index]
@@ -2199,7 +2404,11 @@ function M.open(row, root, callbacks)
   end })
   api.nvim_create_autocmd('TabLeave', { group = r.group, callback = function() restore_options(r) end })
   api.nvim_create_autocmd({ 'TabEnter', 'FocusGained' }, { group = r.group, callback = function()
-    if M.current == r and not r.closing and api.nvim_get_current_tabpage() == r.tab then options(r); M.layout(true); M.refresh_live(false, not r.live_dirty) end
+    if M.current == r and not r.closing and api.nvim_get_current_tabpage() == r.tab then
+      -- The pop-out let the list go while another tab was in front: it comes back now.
+      if r.panel_back then M.show_panel(false) end
+      options(r); M.layout(true); M.refresh_live(false, not r.live_dirty)
+    end
   end })
   api.nvim_create_autocmd('VimResized', { group = r.group, callback = function() if M.current == r then M.layout() end end })
   api.nvim_create_autocmd('TabClosed', { group = r.group, callback = function()
@@ -2247,6 +2456,177 @@ function M.open(row, root, callbacks)
   end
   vim.defer_fn(next_count, 10)
   return r
+end
+
+-- ─── the list in the pop-out: desk.popout's review view (the review navigator) ─────────────────────────────────
+-- o in the list (or Space Space › Review list to the pop-out) moves the list to the pop-out on the other screen: the
+-- panel here is hidden and the comparison takes the whole screen. The view is the list built for the pop-out's width,
+-- its rows as items, the strip at its end (the panel's own footer is the pop-out's key line there). While it is out,
+-- every redraw of the list goes there (popout_redraw). o there, the pop-out closing, or BS / Space re in a pane bring
+-- the list back here; closing the review clears the view.
+local DESK = { title = 'DeskReviewTitle', head = 'DeskReviewHead', ok = 'DeskReviewOk', warn = 'DeskReviewWarn', dim = 'DeskReviewDim',
+  alarm = 'DeskReviewAlarm' }
+local VIEW_GROUPS = { 'DeskReviewTitle', 'DeskReviewHead', 'DeskReviewOk', 'DeskReviewWarn', 'DeskReviewDim', 'DeskReviewAlarm', 'DeskReviewOpen' }
+local VIEW_KEYS = { { ids = { 'review.down', 'review.up' }, words = 'file' }, { ids = { 'review.enter' }, words = 'show' },
+  { ids = { 'review.mark-list' }, words = 'check' }, { ids = { 'review.request' }, words = 'change' }, { ids = { 'popout.keys' }, words = 'keys' } }
+
+local function row_name(r, entry)
+  if entry.symbol then return entry.symbol.name end
+  local f = entry.file and (entry.set and entry.set.files or r.files)[entry.file]
+  if f then return f.rel end
+  local row = entry.set and entry.set.row or r.row
+  if row.kind == 'working' then return 'Working changes' end
+  if row.kind == 'live' then return row.name or 'live session' end
+  return (row.short or 'commit') .. ' ' .. (row.subject or '')
+end
+
+local function render_view(view, width)
+  local r = view.review
+  if not (r and M.current == r and not r.closing) then return { title = 'review', state = 'closed', lines = { '', '  The review is closed.' } } end
+  -- The pop-out draws in this editor's colours: these groups go with the view, as the theme draws them here.
+  for role, name in pairs(DESK) do api.nvim_set_hl(0, name, { link = group_of(role) }) end
+  api.nvim_set_hl(0, 'DeskReviewOpen', { link = 'CursorLine' })
+  local w = math.max(24, math.min(width - 2, 100))
+  local built = build(r, w)
+  local lines, items, shown = built.lines, {}, nil
+  local rows = vim.tbl_keys(built.entries)
+  table.sort(rows)
+  for _, line in ipairs(rows) do
+    local entry, text = built.entries[line], built.lines[line]
+    local key = entry_key(r, entry)
+    items[#items + 1] = { key = item_key(key), kind = 'row', line = line, name_col = (text:find('%S') or 1) - 1, x = 0, w = w,
+      spans = { { line, 0, #text } }, name = row_name(r, entry), ref = { key = key }, strip = strip_of(r, entry, w) }
+    if line == built.selected then shown = items[#items] end
+  end
+  local strip = add_strip(built, (shown or items[1] or { strip = strip_of(r, nil, w) }).strip, w)
+  local marks = {}
+  for _, m in ipairs(built.marks) do
+    local len = #lines[m[1]]
+    marks[#marks + 1] = { m[1], math.max(0, m[2]), m[3] < 0 and len or math.min(m[3], len), DESK[m[4]] }
+  end
+  -- The file the comparison shows keeps a quieter band, as in the panel.
+  if built.selected then marks[#marks + 1] = { built.selected, 0, #lines[built.selected], 'DeskReviewOpen', -1 } end
+  return { title = 'review · ' .. (r.label or r.row.short or 'changes'), state = built.progress, lines = lines, marks = marks,
+    hl = VIEW_GROUPS, items = items, strip = strip, footer = VIEW_KEYS }
+end
+
+-- The row of what the comparison shows (its file, or the part of it gone to), as the pop-out names its item.
+local function shown_key(r)
+  local f = r.files[r.index]
+  local entry = { set = r.sets and r.active_set or nil, file = r.index }
+  if r.symbol and f and f.expanded then entry.symbol = r.symbol end
+  return item_key(entry_key(r, entry))
+end
+-- select_row: the comparison moved (Enter, ]f, u, Next commit), so the pop-out selects what it shows now; asked for
+-- here, not when the view is drawn, so the last ask wins over a redraw still waiting its turn.
+popout_redraw = function(r, select_row)
+  local P = pop()
+  if select_row then r.popout.select = shown_key(r) end
+  if P then P.redraw(r.popout) end
+  set_footer(r)
+end
+
+-- The list back here: beside the comparison when its tab is in front, else as soon as it is (TabEnter).
+local function bring_back(r, focus)
+  if M.current ~= r or r.closing or r.popout then return end
+  if not focus and api.nvim_get_current_tabpage() ~= r.tab then r.panel_back = true; return set_footer(r) end
+  M.show_panel(focus)
+end
+
+local function open_view(view)
+  local r = M.current
+  if not r or r.closing then return end
+  view.review, r.popout = r, view
+  -- The pop-out starts on the row the list's cursor was on.
+  if api.nvim_win_is_valid(r.panel_win or -1) then
+    local entry = r.entries and r.entries[api.nvim_win_get_cursor(r.panel_win)[1]]
+    if entry then view.select = item_key(entry_key(r, entry)) end
+    M.hide_panel()
+  end
+  set_footer(r)
+  -- A pop-out that never came: the list comes back here.
+  local P = pop()
+  vim.defer_fn(function() if r.popout == view and P and not P.host.chan then P.clear(view.id) end end, (P and P.START_MS or 15000) + 1000)
+end
+
+-- The view left the pop-out (o there, the pop-out closed, the list taken back here): the list comes back beside the
+-- comparison, on the row the pop-out last named.
+local function close_view(view)
+  local r = view.review
+  if not r or r.popout ~= view then return end
+  r.popout = nil
+  if M.current ~= r or r.closing then return end
+  if view.last_key then r.panel_selection, r.panel_active_file = view.last_key, r.files[r.index] end
+  vim.schedule(function() bring_back(r, false) end)
+end
+
+M.view_kind = {
+  name = 'review', title = 'review', surface = LIST, menu = 'Review list to the pop-out',
+  about = "The open review's file list in the pop-out on the other screen: the comparison takes this whole screen, and Enter there shows a file here while the keyboard stays there",
+  -- In the list its own o sends it.
+  available = function(ctx)
+    if not M.current or M.current.closing then return 'requires an open review' end
+    if not ctx.remote and ctx.surface == LIST then return false end
+  end,
+  open = open_view,
+  render = render_view,
+  -- What a remote row runs with: this review, its list's surface, the pane last read; the row named is kept, so the
+  -- list comes back on it.
+  ctx_for = function(view, ref)
+    local r = view.review
+    if not (r and M.current == r and not r.closing) then error('the review is closed', 0) end
+    if type(ref) == 'table' and type(ref.key) == 'string' then view.last_key = ref.key end
+    local ctx = actions.context(diff_window(r) or api.nvim_get_current_win())
+    ctx.surface, ctx.review = LIST, r
+    return ctx
+  end,
+  -- o in the pop-out: the list back here, with the editor's cursor in it.
+  attach = function(view)
+    local r = view.review
+    if r then vim.schedule(function() bring_back(r, true) end) end
+  end,
+  close = close_view,
+}
+
+-- What is here, for an ask, a pin or the pop-out's history (actions.about): the selected row of the list (in the
+-- pop-out, the row it named), or the line under the cursor in a pane.
+actions.provide(LIST, function(ctx)
+  local r = ctx.review
+  if not r then return nil, 'no review is open' end
+  local entry
+  if ctx.view then entry = resolve(r, ctx.item)
+  elseif api.nvim_win_is_valid(r.panel_win or -1) and r.entries then entry = r.entries[api.nvim_win_get_cursor(r.panel_win)[1]] end
+  if not entry then return nil, 'no row is selected' end
+  local f = entry.file and (entry.set and entry.set.files or r.files)[entry.file]
+  local about = describe(r, entry)
+  if entry.symbol and f then
+    local s = entry.symbol
+    return { title = s.name, refs = { { kind = s.kind == 'hunk' and 'code' or 'unit', file = f.rel, line = s.line, name = s.name,
+      label = s.name .. ' · ' .. f.rel .. ':' .. s.line } }, excerpt = table.concat(about, '\n') }
+  end
+  if f then return { title = f.rel, refs = { { kind = 'file', file = f.rel, label = f.rel } }, excerpt = table.concat(about, '\n') } end
+  local row = entry.set and entry.set.row or r.row
+  if row.kind == 'commit' then
+    return { title = row_name(r, entry), refs = { { kind = 'commit', id = row.sha, label = 'commit ' .. (row.short or '') } }, excerpt = table.concat(about, '\n') }
+  end
+  return { title = row_name(r, entry), refs = {}, excerpt = table.concat(about, '\n') }
+end)
+actions.provide(DIFF, function(ctx)
+  local r = ctx.review
+  local f = r and r.files[r.index]
+  if not f or not api.nvim_win_is_valid(ctx.win or -1) then return nil, 'no file is shown' end
+  local buf, line = api.nvim_win_get_buf(ctx.win), api.nvim_win_get_cursor(ctx.win)[1]
+  local side = (vim.b[buf].desk_review or {}).side or 'after'
+  return { title = f.rel .. ':' .. line, refs = { { kind = 'code', file = f.rel, line = line, label = f.rel .. ':' .. line .. ' (' .. side .. ')' } },
+    excerpt = api.nvim_buf_get_lines(buf, line - 1, line, false)[1] or '' }
+end)
+
+-- Registered as the module loads, so its Views row is in the registry; not in the headless readers that load this
+-- module for its parsing only (the notebook's changed symbols, the map's syntax reader).
+local reader = type(arg) == 'table' and (arg[1] == '--turn-symbols' or arg[1] == '--syntax-graph')
+if not reader then
+  local P = pop()
+  if P then P.kind(M.view_kind) end
 end
 
 return M

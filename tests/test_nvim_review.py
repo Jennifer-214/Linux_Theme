@@ -1470,5 +1470,24 @@ C.close()
 ''')
 
 
+@unittest.skipUnless(shutil.which('nvim') and shutil.which('git'), 'Neovim and Git required')
+class ReviewInThePopOut(unittest.TestCase):
+    """The review's file list in the pop-out (the review navigator): shared/nvim_lua/tests/test_review_popout.lua drives a
+    main editor with a review open and its pop-out, two headless Neovims on private sockets, in a sandbox of its own
+    (stubs of kitty, hyprctl, desk-hl, desk-drawer and desk-work first on PATH, proven to shadow the real ones)."""
+    LIVE = ('TMUX', 'TMUX_PANE', 'NVIM', 'HYPRLAND_INSTANCE_SIGNATURE', 'WAYLAND_DISPLAY', 'DISPLAY', 'DBUS_SESSION_BUS_ADDRESS',
+            'KITTY_LISTEN_ON', 'KITTY_WINDOW_ID', 'SWAYSOCK')
+
+    def test_the_list_in_the_pop_out(self):
+        flash = Path.home() / '.local/share/nvim/lazy/flash.nvim'
+        env = {k: v for k, v in os.environ.items() if k not in self.LIVE}
+        env['REVIEW_FLASH'] = str(flash) if (flash / 'lua/flash').is_dir() else ''
+        ran = subprocess.run(['nvim', '--headless', '--clean', '-l', str(ROOT / 'shared/nvim_lua/tests/test_review_popout.lua')],
+                             capture_output=True, text=True, timeout=240, env=env)
+        out = (ran.stdout + ran.stderr).strip()
+        print('    ' + out.replace('\n', '\n    '))
+        self.assertEqual(ran.returncode, 0, out)
+
+
 if __name__ == '__main__':
     unittest.main()
