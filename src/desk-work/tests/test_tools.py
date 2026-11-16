@@ -298,6 +298,19 @@ class Tools(ToolsCase):
         self.assertFalse(self.marker.exists())
         self.assertEqual(self.data("tools", "show", "spoof")["command"], shown)
 
+    def test_an_interrupted_run_says_it_gave_no_answer_not_the_previous_one(self):
+        stop = self.dir / "stop"
+        self.declare([{"id": "mark", "gives": "status", "format": "lines", "argv": ["sh", "-c", f"test -e '{stop}' && exit 130; echo ok first answer"]}])
+        code, out, _ = self.at_terminal("tools", "run", "mark", answer="y")
+        self.assertEqual(code, 0, out)
+        self.assertIn("── mark · passed · status ok · first answer", out)
+        stop.write_text("")
+        code, out, asked = self.at_terminal("tools", "run", "mark")
+        self.assertEqual((code, asked), (130, False), out)
+        self.assertIn("── mark · interrupted · no answer from this run", out)
+        self.assertNotIn("first answer", out)
+        self.assertEqual(self.data("tools", "result", "mark")["summary"], "first answer", "tools result still reads the last finished run")
+
     def test_a_program_that_is_not_installed_says_requires_and_nothing_runs(self):
         self.declare([{"id": "graph", "gives": "graph", "format": "dot", "argv": ["no-such-program-for-desk-work", "-t", "graph"]},
                       {"id": "local", "gives": "status", "format": "lines", "argv": ["tools/missing.sh"]},

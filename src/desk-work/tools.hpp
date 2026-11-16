@@ -346,6 +346,11 @@ int run_tool(const J& t) {
     job["tool"]["answerCut"] = cut;
     finish(job, code, truncated);
     if (str(job, "state") == "failed") notify_failure(name, str(job, "id"), false);
+    // A run stopped before it finished (Ctrl-C, a signal) gave no answer: the answer tools result reads is an older run's.
+    if (!finished_run(job)) {
+        std::cout << "\n── " << id << " · " << str(job, "state") << " · no answer from this run\n";
+        return code < 0 ? 125 : code;
+    }
     std::string why;
     const auto result = tool_result(t, why);
     std::cout << "\n── " << id << " · " << str(job, "state");

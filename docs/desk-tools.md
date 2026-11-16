@@ -223,6 +223,8 @@ record; see the card below.
   tool run is never a test run. A Python tool runs with `PYTHONDONTWRITEBYTECODE=1`, so it leaves no bytecode in the
   project.
 - `timeout_ms` stops it (`timeout`, with a kill two seconds later).
+- A run stopped before it finished (Ctrl-C, a signal) says it gave no answer; `tools result` still reads the last run
+  that finished.
 - A program that is not installed is listed with `requires`, and `tools run` says "requires PROGRAM" and runs nothing.
 
 ## Reading an answer
