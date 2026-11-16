@@ -589,6 +589,10 @@ DELTA_DEL_WORD=52254a
 DELTA_ADD_WORD=42203c
 # GTK entry fill and infobar border alpha (was borrowed from the terminal opacity).
 GTK_FIELD_ALPHA=0.6
+# GTK font size (points), and the scopes of the retro-only square-corner rules (nothing matches them here).
+GTK_FONT_SIZE=11.5
+GTK_RETRO_SCOPE=.foxml-retro-off
+GTK_RETRO_TOOLTIP=":not(*)"
 
 # ─── Claude Code over dark-ansi · notebook alarms · pi thinking steps ───
 # Claude's accent (claude, clawd_body, briefLabelClaude, fastMode), the selection, the sidebar and memory panels and the

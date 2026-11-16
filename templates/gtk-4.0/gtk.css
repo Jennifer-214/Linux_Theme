@@ -231,3 +231,12 @@ separator { background-color: @border; }
   background-image: linear-gradient(to bottom, @sel_bg, @sel_bg);
   background-size: 2px 16px; background-position: left center; background-repeat: no-repeat;
 }
+
+/* retro: a DOS screen has no round corners. GTK_RETRO_SCOPE is `window` in retro (each window with its title bar,
+   menus and popovers) and GTK_RETRO_TOOLTIP is `tooltip`; in the other themes both match nothing. */
+{{GTK_RETRO_SCOPE}}.csd, {{GTK_RETRO_SCOPE}} headerbar, {{GTK_RETRO_SCOPE}} popover > contents,
+{{GTK_RETRO_SCOPE}} popover > arrow, {{GTK_RETRO_SCOPE}} button, {{GTK_RETRO_SCOPE}} entry,
+{{GTK_RETRO_SCOPE}} check, {{GTK_RETRO_SCOPE}} switch, {{GTK_RETRO_SCOPE}} switch > slider,
+{{GTK_RETRO_SCOPE}} progressbar > trough, {{GTK_RETRO_SCOPE}} progressbar > trough > progress,
+{{GTK_RETRO_SCOPE}} notebook > header tab, {{GTK_RETRO_SCOPE}} .card, {{GTK_RETRO_SCOPE}} row,
+{{GTK_RETRO_TOOLTIP}} { border-radius: 0; }

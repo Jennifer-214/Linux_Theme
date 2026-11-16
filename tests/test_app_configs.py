@@ -48,6 +48,25 @@ class RenderedConfigsTest(unittest.TestCase):
     def tearDownClass(cls):
         cls.tmp.cleanup()
 
+    def test_gtk_retro_is_square_on_the_font_grid_and_the_others_keep_their_look(self):
+        for theme in THEMES:
+            retro = palette_value(theme, "DESK_STYLE") == "retro"
+            for version in ("gtk-3.0", "gtk-4.0"):
+                ini = configparser.ConfigParser(interpolation=None)
+                ini.read(self.out / theme / version / "settings.ini")
+                font = ini["Settings"]["gtk-font-name"]
+                # Big Blue Term is crisp at 12 px (9 pt at GTK's 96 dpi); the other themes keep 11.5.
+                self.assertEqual(font.rsplit(" ", 1)[1], "9" if retro else "11.5", (theme, version))
+                css = (self.out / theme / version / "gtk.css").read_text()
+                self.assertNotIn("{{", css, (theme, version))
+                block = css[css.index("/* retro: a DOS screen"):]
+                selectors = block[block.index("*/") + 2:block.index("{ border-radius: 0; }")].split(",")
+                for selector in (s.strip() for s in selectors):
+                    if retro:
+                        self.assertTrue(selector.startswith(("window", "tooltip")), (theme, selector))
+                    else:
+                        self.assertTrue(selector.startswith(".foxml-retro-off") or selector == ":not(*)", (theme, selector))
+
     def test_ide_colours_are_hex(self):
         # VS Code passes these to Color.fromHex, which turns anything else red.
         for theme in THEMES:

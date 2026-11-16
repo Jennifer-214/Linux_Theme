@@ -592,12 +592,17 @@ GARDEN_4=ffb000
 # nvim cursor line (kept apart from Visual), zathura page recolor, desktop accent (libadwaita name).
 NVIM_CURSORLINE=261b08
 ZATHURA_RECOLOR=true
-GTK_ACCENT_COLOR=orange
+GTK_ACCENT_COLOR=yellow
 # delta changed-word backgrounds: straw and rust tints under amber text.
 DELTA_DEL_WORD=5c220c
 DELTA_ADD_WORD=4a4416
 # GTK entry fill and infobar border alpha.
 GTK_FIELD_ALPHA=0.9
+# Big Blue Term is crisp only on its 12 px grid: 9 pt is 12 px at GTK's 96 dpi (11.5 pt would be a blurry 15.3 px).
+GTK_FONT_SIZE=9
+# The square-corner rules in gtk.css: windows (and menus, popovers, the title bar inside them) and tooltips.
+GTK_RETRO_SCOPE=window
+GTK_RETRO_TOOLTIP=tooltip
 
 # ─── Claude Code over dark-ansi · notebook alarms · pi thinking steps ───
 # Claude's accent (claude, clawd_body, briefLabelClaude, fastMode), the selection, the sidebar and memory panels and the
