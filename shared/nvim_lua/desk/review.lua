@@ -373,18 +373,24 @@ local function opposite(hunks, row, side)
   end
   return row + shift
 end
--- A file's two copies as trees, each parsed at most once while one call reads them: tree(side) → its root (false: it
--- did not parse) and the text its nodes read.
+-- A file's two copies as trees, each parsed at most once while one call reads them: the trees the background parsed
+-- for this version (file.parsed), else parsed here. tree(side) → its root (false: it did not parse) and the text its
+-- nodes read (the copy, or the buffer it was parsed in).
 local function copies(file, lang)
+  local parsed = file.parsed and file.parsed.signature == file.signature and file.parsed or nil
   local roots, texts = {}, {}
   return function(side)
     if roots[side] == nil then
       local text = side == 'before' and file.left or file.right
       roots[side], texts[side] = false, text
-      local ok, parser = pcall(vim.treesitter.get_string_parser, text, lang)
-      if ok and parser then
-        local parsed, trees = pcall(parser.parse, parser)
-        if parsed and trees and trees[1] then roots[side] = trees[1]:root() end
+      if parsed then
+        if parsed[side] then roots[side], texts[side] = parsed[side].root, parsed[side].src end
+      else
+        local ok, parser = pcall(vim.treesitter.get_string_parser, text, lang)
+        if ok and parser then
+          local done, trees = pcall(parser.parse, parser)
+          if done and trees and trees[1] then roots[side] = trees[1]:root() end
+        end
       end
     end
     return roots[side], texts[side]
@@ -542,7 +548,7 @@ local function structure_lang(file)
 end
 -- file.structure, read once per version of the file (its signature): calls = { [function] = { added, removed } },
 -- changed = the functions whose calls changed, why = what is missing when nothing could be read. A copy over
--- M.STRUCTURE_MAX is not read: one parse of it would hold the editor up, even in the background.
+-- M.STRUCTURE_MAX is not read: its parse would run for seconds.
 function M.structure(file)
   if file.structure and file.structure.signature == file.signature then return file.structure end
   local s = { signature = file.signature, calls = {}, changed = {} }
@@ -1020,27 +1026,93 @@ local function panel(r, select_row)
 end
 
 -- ─── structure, read in the background ──────────────────────────────────────────────────────────────────────────
--- The calls of each loaded file (M.structure), the file shown first, a few milliseconds at a time. The list is drawn
--- again only when what was read shows there: a → mark, or the rows of an open file.
+-- The calls of each loaded file (M.structure), the file shown first, a few milliseconds at a time. A string's parse
+-- runs to its end in one go (a second at 500 KiB), so only small files are read as they are: a larger one's two copies
+-- go into scratch buffers of the review's own, a slice of lines at a time, and treesitter parses them there a few
+-- milliseconds at a time. The list is drawn again only when what was read shows there: a → mark, or the rows of an open
+-- file.
+M.STRUCTURE_INLINE, M.STRUCTURE_SLICE = 16 * 1024, 4000   -- bytes read as they are; lines put in a buffer at a time
+-- One copy parsed off the main loop, in the review's scratch buffer for its side: done({ root, src = buf }), or
+-- done(false) (no parser, a parse that failed or ran out of time, the review gone).
+local function parse_later(r, side, text, lang, done)
+  local key = side == 'before' and 'parse_before' or 'parse_after'
+  local buf = r[key]
+  if not (buf and api.nvim_buf_is_valid(buf)) then
+    buf = api.nvim_create_buf(false, true)
+    vim.bo[buf].undolevels = -1
+    r[key] = buf
+    r.buffers[#r.buffers + 1] = buf
+  end
+  local all, at = lines(text), 0
+  local function fill()
+    if M.current ~= r or r.closing or not api.nvim_buf_is_valid(buf) then return done(false) end
+    local slice = vim.list_slice(all, at + 1, at + M.STRUCTURE_SLICE)
+    api.nvim_buf_set_lines(buf, at == 0 and 0 or -1, -1, false, slice)
+    at = at + #slice
+    if at < #all then return vim.schedule(fill) end
+    local ok, parser = pcall(vim.treesitter.get_parser, buf, lang, { error = false })
+    if not (ok and parser) then return done(false) end
+    local called = false
+    local started = pcall(parser.parse, parser, false, function(err, trees)
+      if called then return end
+      called = true
+      done(not err and trees and trees[1] and { root = trees[1]:root(), src = buf } or false)
+    end)
+    if not started and not called then called = true; done(false) end
+  end
+  fill()
+end
+-- A larger file's calls: both copies parsed off the main loop, then M.structure reads the trees. done(shows), shows:
+-- what was read shows in the list.
+local function read_parsed(r, f, lang, done)
+  local signature, got, waiting = f.signature, {}, 2
+  for _, side in ipairs({ 'before', 'after' }) do
+    parse_later(r, side, side == 'before' and f.left or f.right, lang, function(copy)
+      got[side], waiting = copy, waiting - 1
+      if waiting > 0 then return end
+      local shows = false
+      -- (a file read again meanwhile is read from the start, by the next step)
+      if M.current == r and not r.closing and f.signature == signature then
+        local had = f.structure and #f.structure.changed or 0
+        f.parsed = { signature = signature, before = got.before, after = got.after }
+        local s = M.structure(f)
+        shows = had + #s.changed > 0 or f.expanded == true
+      end
+      f.parsed = nil
+      done(shows)
+    end)
+  end
+end
 local function read_structure(r)
   if r.structure_busy then return end
   r.structure_busy = true
   local function step()
     if M.current ~= r or r.closing then r.structure_busy = false; return end
-    local started, read_any, shows, more = uv.hrtime(), false, false, false
+    local started, read_any, shows = uv.hrtime(), false, false
     local order = { r.files[r.index] }
     for _, f in ipairs(r.files) do if f ~= order[1] then order[#order + 1] = f end end
     for _, f in ipairs(order) do
       if f.loaded and not structure_of(f) then
-        if read_any and uv.hrtime() - started > 8e6 then more = true; break end
+        if read_any and uv.hrtime() - started > 8e6 then
+          if shows then panel(r) end
+          return vim.defer_fn(step, 15)
+        end
+        local lang = structure_lang(f)
+        if lang and #f.left + #f.right > M.STRUCTURE_INLINE then
+          if shows then panel(r) end
+          return read_parsed(r, f, lang, function(parsed_shows)
+            if M.current ~= r or r.closing then r.structure_busy = false; return end
+            if parsed_shows then panel(r) end
+            vim.defer_fn(step, 15)
+          end)
+        end
         local had = f.structure and #f.structure.changed or 0   -- a mark that goes away shows too
         local s = M.structure(f)
         read_any, shows = true, shows or had + #s.changed > 0 or f.expanded == true
       end
     end
-    r.structure_busy = more
+    r.structure_busy = false
     if shows then panel(r) end
-    if more then vim.defer_fn(step, 15) end
   end
   vim.defer_fn(step, 15)
 end

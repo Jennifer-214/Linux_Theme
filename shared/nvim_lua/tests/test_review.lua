@@ -45,7 +45,7 @@ local G = require("desk.callgraph")
 local Map = require("desk.map")
 eq(R.work_tool(), nil, "no desk-work on this PATH: the review keeps nothing outside the sandbox")
 
--- ─── a repository ───────────────────────────────────────────────────────────────────────────────────────────────
+-- ─── a repository ──────────────────────────────────────────────────────────────────────────────────────────────
 local root = sandbox .. "/project"
 vim.fn.mkdir(root, "p")
 local function git(...)
@@ -116,7 +116,7 @@ local function calls(s, name)
   return #parts > 0 and table.concat(parts, " ") or "same"
 end
 
--- ─── one function compared with itself, never another of the same name ───────────────────────────────────────────
+-- ─── one function compared with itself, never another of the same name ─────────────────────────────────────────
 -- Anonymous functions are named by their first line ("function()"); same-named methods, C's #ifdef twins and overloads
 -- share a name too. Each changed one is found where the change is, and compared with itself in the other copy.
 local TWO = "local M = {}\nM.x = function()\n  foo()\nend\nM.y = function()\n  bar()\nend\nreturn M\n"
@@ -179,7 +179,7 @@ ok(vim.wait(3000, function() return strip_of("function()"):find("2 callers", 1, 
   "a closure's callers, from the language server on the working file:\n" .. strip_of("function()"))
 eq(asked_lines(), { 1 }, "… asked about the first closure (line 2, where the change is), never the second")
 
--- ─── typing in the working file asks the server once, when she pauses ───────────────────────────────────────────
+-- ─── typing in the working file asks the server once, when she pauses ──────────────────────────────────────────
 -- An answer is stamped with the buffer's version; while she typed, each one came back stale, the redraw it caused asked
 -- again, and so on for as long as she typed. A buffer that moved on is asked again once it has been still a moment,
 -- and the strip keeps the last answer meanwhile.
@@ -198,6 +198,36 @@ ok(vim.wait(3000, function() return prepared() > before_typing + during end), "o
 vim.wait(800)
 eq(prepared() - before_typing - during, 1, "… once")
 eq(cancels, 0, "an answered request is never cancelled (only one still out when its time is up)")
+C.close()
+
+-- ─── reading a large file's calls never holds the editor up ────────────────────────────────────────────────────
+-- Both copies were parsed on the main loop in one go (a string's parse runs to its end: about a second at 500 KiB).
+-- They are parsed in buffers now, a few milliseconds at a time.
+local big = {}
+for i = 1, 3600 do big[#big + 1] = ("local function f%d(a, b)\n  local x = helper(a) + other.call(b, %d)\n  return x\nend\n"):format(i, i) end
+local big_before = table.concat(big)
+local big_after = big_before:gsub("  local x = helper%(a%) %+ other%.call%(b, 1%)\n", "  local x = fresh(a) + other.call(b, 1)\n", 1)
+local big_row = commit({ ["big.lua"] = { big_before, big_after } })
+-- Every callback the main loop runs from the review's opening on is timed (the review's own steps and treesitter's;
+-- the review's git reads wait on the loop, so its first steps can run while it opens).
+local real_schedule, real_defer, longest = vim.schedule, vim.defer_fn, 0
+local function timed(fn)
+  return function(...)
+    local started = uv.hrtime()
+    fn(...)
+    longest = math.max(longest, uv.hrtime() - started)
+  end
+end
+vim.schedule = function(fn) return real_schedule(timed(fn)) end
+vim.defer_fn = function(fn, ms) return real_defer(timed(fn), ms) end
+C.open_review(big_row, root)
+local bf = file_of("big.lua")
+local read_big = vim.wait(15000, function() return bf.structure ~= nil and bf.structure.signature == bf.signature end)
+vim.schedule, vim.defer_fn = real_schedule, real_defer
+ok(#bf.right > 256 * 1024 and #bf.right <= R.STRUCTURE_MAX, "a large file, under the size its calls are read up to")
+ok(read_big, "its calls are read in the background")
+eq(read_big and calls(bf.structure, "f1"), "+fresh -helper", "… rightly")
+ok(longest < 150e6, ("… and no step of the read held the editor up for more than 150 ms (the longest: %.0f ms)"):format(longest / 1e6))
 C.close()
 
 pcall(vim.fn.serverstop, vim.v.servername)
