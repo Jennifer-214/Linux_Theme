@@ -52,6 +52,10 @@ int run(const std::vector<std::string>& argv);
 // Used by the job supervisor; returns 128+signal for a signalled child.
 int run_logged(const std::vector<std::string>& argv, const std::filesystem::path& log,
                std::size_t limit, bool& truncated);
+// The same, also keeping the child's stdout alone in `answer` (a new private file holding its first `limit` bytes;
+// `answer_cut` says it printed more): a declared tool's answer, which its warnings on stderr must not interleave.
+int run_logged(const std::vector<std::string>& argv, const std::filesystem::path& log, std::size_t limit,
+               bool& truncated, const std::filesystem::path& answer, bool& answer_cut);
 
 // Runs argv, capturing stdout. Returns true on exit code 0.
 bool capture(const std::vector<std::string>& argv, std::string& out);

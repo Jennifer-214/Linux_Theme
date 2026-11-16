@@ -2,6 +2,7 @@
 
 #include "ui.hpp"
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -283,14 +284,23 @@ int each_line(const std::vector<std::string>& argv, const std::function<bool(con
 
 int run_logged(const std::vector<std::string>& argv, const std::filesystem::path& log,
                std::size_t limit, bool& truncated) {
-    truncated = false;
+    bool cut = false;
+    return run_logged(argv, log, limit, truncated, {}, cut);
+}
+
+int run_logged(const std::vector<std::string>& argv, const std::filesystem::path& log, std::size_t limit,
+               bool& truncated, const std::filesystem::path& answer, bool& answer_cut) {
+    truncated = false; answer_cut = false;
     if (argv.empty()) return 127;
     if (g_dry_run) return run(argv);
     const int fd = ::open(log.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
     int out[2], err[2];
     if (fd < 0) return -1;
-    if (::pipe2(out, O_CLOEXEC) < 0) { ::close(fd); return -1; }
-    if (::pipe2(err, O_CLOEXEC) < 0) { ::close(fd); ::close(out[0]); ::close(out[1]); return -1; }
+    const int kept = answer.empty() ? -1 : ::open(answer.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (!answer.empty() && kept < 0) { ::close(fd); return -1; }
+    const auto close_files = [&] { ::close(fd); if (kept >= 0) ::close(kept); };
+    if (::pipe2(out, O_CLOEXEC) < 0) { close_files(); return -1; }
+    if (::pipe2(err, O_CLOEXEC) < 0) { close_files(); ::close(out[0]); ::close(out[1]); return -1; }
     const auto old_int = std::signal(SIGINT, forward_logged_signal);
     const auto old_term = std::signal(SIGTERM, forward_logged_signal);
     const auto old_pipe = std::signal(SIGPIPE, SIG_IGN);
@@ -299,7 +309,7 @@ int run_logged(const std::vector<std::string>& argv, const std::filesystem::path
         std::signal(SIGINT, SIG_DFL); std::signal(SIGTERM, SIG_DFL);
         std::signal(SIGPIPE, SIG_DFL);
         ::dup2(out[1], STDOUT_FILENO); ::dup2(err[1], STDERR_FILENO);
-        ::close(out[0]); ::close(out[1]); ::close(err[0]); ::close(err[1]); ::close(fd);
+        ::close(out[0]); ::close(out[1]); ::close(err[0]); ::close(err[1]); close_files();
         std::vector<char*> args;
         for (const auto& a : argv) args.push_back(const_cast<char*>(a.c_str()));
         args.push_back(nullptr);
@@ -307,7 +317,7 @@ int run_logged(const std::vector<std::string>& argv, const std::filesystem::path
     }
     ::close(out[1]); ::close(err[1]);
     if (pid < 0) {
-        ::close(out[0]); ::close(err[0]); ::close(fd);
+        ::close(out[0]); ::close(err[0]); close_files();
         std::signal(SIGINT, old_int); std::signal(SIGTERM, old_term); std::signal(SIGPIPE, old_pipe); return -1;
     }
     logged_child = pid;
@@ -315,6 +325,7 @@ int run_logged(const std::vector<std::string>& argv, const std::filesystem::path
     int status = 0, remaining = 2;
     bool ended = false;
     std::string tail;
+    std::size_t answered = 0;
     const auto write_all = [](int dest, const char* data, size_t n) {
         while (n) { const auto w = ::write(dest, data, n); if (w < 0 && errno == EINTR) continue;
             if (w <= 0) break;
@@ -331,6 +342,12 @@ int run_logged(const std::vector<std::string>& argv, const std::filesystem::path
                 if (tail.size() > limit) { tail.erase(0, tail.size() - limit); truncated = true; }
                 if (!truncated) write_all(fd, buf, static_cast<size_t>(n));
                 else ::futimens(fd, nullptr);
+                // The answer keeps its head: a cut-off end is reported, a cut-off start would read as a different answer.
+                if (i == 0 && kept >= 0 && !answer_cut) {
+                    const auto take = std::min(limit - answered, static_cast<std::size_t>(n));
+                    write_all(kept, buf, take); answered += take;
+                    answer_cut = take < static_cast<std::size_t>(n);
+                }
             } else if (n == 0 || errno != EINTR) { ::close(streams[i].fd); streams[i].fd = -1; --remaining; }
         }
         if (!ended) ended = ::waitpid(pid, &status, WNOHANG) == pid;
@@ -340,6 +357,7 @@ int run_logged(const std::vector<std::string>& argv, const std::filesystem::path
     for (auto& stream : streams) if (stream.fd >= 0) ::close(stream.fd);
     if (!ended) while (::waitpid(pid, &status, 0) < 0) if (errno != EINTR) { status = 0; break; }
     if (truncated) { ::ftruncate(fd, 0); ::lseek(fd, 0, SEEK_SET); write_all(fd, tail.data(), tail.size()); }
+    if (kept >= 0) { ::fsync(kept); ::close(kept); }
     ::close(fd);
     logged_child = 0;
     std::signal(SIGINT, old_int); std::signal(SIGTERM, old_term); std::signal(SIGPIPE, old_pipe);
