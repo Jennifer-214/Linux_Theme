@@ -69,6 +69,16 @@ class ThemeCheck(unittest.TestCase):
         self.assertIn("missing: ", out.stdout, "files the fake home never got are listed")
         self.assertEqual(list(scratch.iterdir()), [], "nothing left behind")
 
+    def test_claude_status_line_in_retro_capitals_is_usable(self):
+        # retro-amber's status line says the model as CLAUDE; the check once looked for "Claude" only and warned on
+        # every retro machine (found on a fresh install in the test VM).
+        retro = self.tmp / "retro"
+        subprocess.run([str(RENDER), str(ROOT / "themes/retro-amber/palette.sh"), str(ROOT / "templates"), str(retro)],
+                       check=True, capture_output=True)
+        self.deploy("claude/statusline.sh", ".claude/statusline.sh", (retro / "claude/statusline.sh").read_text())
+        out = self.run_check("--only", "D8", "--verbose")
+        self.assertNotIn("printed nothing usable", out.stdout, out.stdout)
+
     def test_services_hyprland_and_exit_codes(self):
         self.shim("systemctl", 'case "$3" in fox-pulse.service) [ "$2" = is-enabled ] && echo enabled || echo active ;;'
                                ' foxml-focus-pulse.service) [ "$2" = is-active ] && echo active || echo enabled ;;'

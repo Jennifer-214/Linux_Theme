@@ -373,7 +373,10 @@ CheckResult check_claude(const Env& env) {
         const auto ran = run_bounded(5, {"sh", "-c", "printf '%s' \"$1\" | bash \"$2\"", "sh", sample, line.string()}, false,
                                      {"XDG_RUNTIME_DIR=" + scratch.string(), "COLUMNS=120"});
         fs::remove_all(scratch, ec);
-        if (ran.code != 0 || ran.out.find("Claude") == std::string::npos) problems.push_back("the status line printed nothing usable");
+        // Any case: retro-amber's line says the model in capitals (CLAUDE).
+        std::string said = ran.out;
+        std::transform(said.begin(), said.end(), said.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (ran.code != 0 || said.find("claude") == std::string::npos) problems.push_back("the status line printed nothing usable");
     }
     if (fs::exists(mod, ec) && sh::have("claude")) {
         const auto ran = run_bounded(60, {"claude", "plugin", "validate", mod.string()}, true);
