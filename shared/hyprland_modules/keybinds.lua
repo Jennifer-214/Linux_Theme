@@ -69,6 +69,8 @@ hl.bind(mainMod .. " + SHIFT + X", hl.dsp.exec_cmd("~/.local/bin/desktop-menu po
 hl.bind(mainMod .. " + SHIFT + E", hl.dsp.exec_cmd("~/.local/bin/desktop-menu agents"))
 -- Next waiting session — jumps tmux to the Claude session waiting on you, the one asking first; press again for the next.
 hl.bind(mainMod .. " + CTRL + E", hl.dsp.exec_cmd("~/.local/bin/desk-drawer claude-next"))
+-- The newest notice on screen does what a click on it does, then closes; with none showing, nothing happens.
+hl.bind(mainMod .. " + N", hl.dsp.exec_cmd("~/.local/bin/desk-notice-act"))
 -- Path of Building (Flatpak) — build planner; `pob 2` for PoE 2.
 hl.bind(mainMod .. " + CTRL + P", hl.dsp.exec_cmd("~/.local/bin/pob"))
 

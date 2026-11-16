@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+# desk-notice-act — ALT+N: the newest notice on screen does what a click on it does: its default action (a work
+# notice opens its result, an agent notice goes to its session), then it closes. With none showing it does nothing,
+# silently: no notices, Do Not Disturb hiding them all (templates/mako/config), or none with a default action (the
+# volume stroke has none). The newest is the highest id: mako numbers notices as they come.
+set -u
+command -v makoctl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1 || exit 0
+makoctl mode 2>/dev/null | grep -qx 'do-not-disturb' && exit 0
+id=$(makoctl list -j 2>/dev/null | jq -r '[.[] | select((.actions // {}) | has("default")) | .id] | max // empty' 2>/dev/null)
+[[ "$id" =~ ^[0-9]+$ ]] || exit 0
+makoctl invoke -n "$id" default >/dev/null 2>&1 || exit 0
+# A click closes the notice after its action; makoctl invoke leaves it up for the rest of its four seconds.
+makoctl dismiss -n "$id" >/dev/null 2>&1
+exit 0

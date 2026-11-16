@@ -453,7 +453,8 @@ are excluded from automatic Claude capture. Existing processes are not adopted.
 
 Failed jobs and user services, Claude completion/input notices, and pi's useful
 completion/input notices stay visible until opened or dismissed. Click a notice
-to open its result or session; right-click dismisses it. Mako's middle-click
+to open its result or session; right-click dismisses it. `ALT+N` does what a click does for the newest notice on
+screen (`desk-notice-act`), and nothing when none is showing. Mako's middle-click
 action menu offers alternatives such as the log, review, or a draft for Claude.
 Test failures open the first recorded source location when one is available.
 Agent notices replace the previous notice from the same tmux pane. Ordinary

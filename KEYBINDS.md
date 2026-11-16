@@ -590,6 +590,7 @@ Shows indent guides automatically. No keybinds.
 | `ALT + Shift + X` | Power menu |
 | `ALT + Shift + E` | Agents — each Claude session with its context meters and state, then pending notes; Enter switches tmux to that pane |
 | `ALT + Ctrl + E` | Next waiting session — jumps tmux to the Claude session waiting on you, the one asking first; press again for the next |
+| `ALT + N` | The newest notice on screen does what a click on it does, then closes; with none showing, nothing happens |
 | `ALT + Ctrl + P` | Path of Building (Flatpak) — build planner; `pob 2` for PoE 2 |
 
 ### Media Keys
