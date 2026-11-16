@@ -310,27 +310,64 @@ DESK_STYLE=retro
 HYPRLOCK_BLUR_SIZE=4
 HYPRLOCK_BLUR_PASSES=2
 HYPRLOCK_VIBRANCY=0.0
-HYPRLOCK_BRIGHTNESS=0.55
+# Solid black behind the BIOS screen: brightness 0 blacks out the wallpaper on every monitor's block.
+HYPRLOCK_BRIGHTNESS=0.0
 HYPRLOCK_CONTRAST=1.0
-HYPRLOCK_BRAND_Y=200
+HYPRLOCK_BRAND_Y=9999
 HYPRLOCK_DOTS_Y=9999
-HYPRLOCK_CLOCK_TEXT='$TIME'
-HYPRLOCK_CLOCK_COLOR=ffb000cc
+HYPRLOCK_CLOCK_TEXT='cmd[update:1000] date +%H:%M:%S'
+HYPRLOCK_CLOCK_COLOR=ffb000ff
 HYPRLOCK_CLOCK_FONT="BigBlueTerm437 Nerd Font Mono"
-HYPRLOCK_DIM_COLOR=ffb00066
+HYPRLOCK_DIM_COLOR=ffb000ff
 HYPRLOCK_INPUT_BORDER=ffb00099
 HYPRLOCK_DOTS_STYLE='dots_text_format = *'
 HYPRLOCK_FAIL=d0541c
 HYPRLOCK_FAIL_TEXT='ACCESS DENIED  $FAIL'
 HYPRLOCK_CAPS=ffc640
 HYPRLOCK_DATE_TEXT='cmd[update:3600000] date +"%a %d %b %Y"'
-HYPRLOCK_NOTE='READY.'
-HYPRLOCK_NOTE_Y=9999
-HYPRLOCK_CAT_Y=9999
+# Dark on the amber status bar; ## is hyprlock's escaped #.
+HYPRLOCK_NOTE='<span foreground="##0c0a06">AMBER-86</span>'
+HYPRLOCK_NOTE_Y=0
+HYPRLOCK_CAT_Y=0
 # Lock screen: the boot-screen summary's height (9999 = off screen), the password field's hint and corners.
-HYPRLOCK_BOOT_Y=-60
-HYPRLOCK_PLACEHOLDER='PASSWORD:'
-HYPRLOCK_INPUT_ROUNDING=0
+HYPRLOCK_BOOT_Y=-24
+# No hint inside the field: the boot summary's last line is the PASSWORD: prompt.
+HYPRLOCK_PLACEHOLDER=' '
+# The password field: no box (no outline, an empty fill), stars from the left; borderless, so Caps Lock and a
+# failed try recolour the stars rather than the fill (swap_font_color). Other themes keep their corners here.
+HYPRLOCK_INPUT_BOX='swap_font_color = true'
+HYPRLOCK_INPUT_OUTLINE=0
+HYPRLOCK_INPUT_FILL_ALPHA=00
+HYPRLOCK_DOTS_CENTER=false
+# A BIOS screen on a grid of 16x24 px cells (font_size 18 = 24 px Big Blue Term). The boot summary starts on the
+# second row and ends in PASSWORD: on row 11; the field is 72 px tall so its 24 px stars sit on that row, one
+# column after the colon (dots_size 0.24 of 72 = 18; fail text at a quarter of 72 = 18).
+HYPRLOCK_BOOT_X=32
+HYPRLOCK_BOOT_SIZE=18
+HYPRLOCK_INPUT_SIZE='504, 72'
+HYPRLOCK_INPUT_POS='168, -240'
+# Widgets pinned to an edge here; every other theme leaves them centred.
+HYPRLOCK_ALIGN_LEFT=left
+HYPRLOCK_ALIGN_RIGHT=right
+HYPRLOCK_ALIGN_TOP=top
+HYPRLOCK_ALIGN_BOTTOM=bottom
+# The clock top right; the Claude line under it; the battery moves into the status bar; the date is not used.
+HYPRLOCK_CLOCK_SIZE=18
+HYPRLOCK_CLOCK_POS='-32, -24'
+HYPRLOCK_CLAUDE_SIZE=18
+HYPRLOCK_CLAUDE_POS='-32, -48'
+HYPRLOCK_BATTERY_POS='-32, 9999'
+HYPRLOCK_DATE_POS='0, 9999'
+# The status bar: the sprig's image widget becomes a full-width amber shape along the bottom row, the Caps Lock
+# label its dark text (boot-label.sh status), the note its right-hand AMBER-86.
+HYPRLOCK_CAT_WIDGET=shape
+HYPRLOCK_CAT_SOURCE='color = rgba(ffb000ff)'
+HYPRLOCK_CAT_SIZE='100%, 24'
+HYPRLOCK_CAPS_TEXT='cmd[update:500] sh "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/scripts/boot-label.sh" status "$FPRINTPROMPT"'
+HYPRLOCK_CAPS_SIZE=18
+HYPRLOCK_CAPS_POS='32, 0'
+HYPRLOCK_NOTE_SIZE=18
+HYPRLOCK_NOTE_X=-32
 MAKO_BORDER=ffb000
 MAKO_CRIT_BORDER=d0541c
 MAKO_AGENT_BORDER=ffc640
@@ -364,11 +401,25 @@ NVIM_FLOAT_BORDER=ffb000
 
 # ─── Greeter (regreet) ───
 REGREET_PREFER_DARK=true
+# The login sheet section of regreet.css (Paper's too): the window paints the wallpaper, regreet's own picture
+# is hidden, the fields sit straight on it.
 REGREET_EXTRA_SCOPE='window.foxml-off'
 REGREET_LINE=c88a00
 REGREET_LINE_FOCUS=ffb000
 REGREET_GREETING="READY."
 REGREET_CLOCK_FORMAT="%a %d %b  %H:%M"
+# The login sheet as a DOS screen: upright capitals, square corners, Big Blue Term at its crisp 24 and 36 px
+# (power buttons stay 12 px), words in capitals.
+REGREET_FONT_STYLE=normal
+REGREET_CASE=uppercase
+REGREET_RADIUS=0
+REGREET_MENU_RADIUS=0
+REGREET_CLOCK_SIZE=36px
+REGREET_GREETING_SIZE=24px
+REGREET_LABEL_SIZE=24px
+REGREET_SMALL_SIZE=24px
+REGREET_FIELD_SIZE=24px
+REGREET_POWER_LABEL='text-transform: uppercase'
 
 # ─── Firefox (chrome + new tab / settings / web selection) ───
 FF_EXTRA_SCOPE=':not(*)'
@@ -571,6 +622,6 @@ DELTA_PLUS_EMPH_STYLE='syntax "#4a4416"'
 KITTY_CURSOR_BLINK=0.53
 KITTY_TAB_TITLE='"[{index}] {title}"'
 MAKO_ICONS=0
-HYPRLOCK_FP_READY='PASSWORD OR FINGER:'
-HYPRLOCK_FP_PRESENT='READING...'
+HYPRLOCK_FP_READY='FINGER READER READY'
+HYPRLOCK_FP_PRESENT='READING FINGER...'
 HYPR_SHADOW_SHARP=true

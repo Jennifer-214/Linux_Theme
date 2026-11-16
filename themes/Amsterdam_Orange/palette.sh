@@ -331,7 +331,33 @@ HYPRLOCK_CAT_Y=9999
 # Lock screen: the boot-screen summary's height (9999 = off screen), the password field's hint and corners.
 HYPRLOCK_BOOT_Y=9999
 HYPRLOCK_PLACEHOLDER='<i>password, or a fingertip</i>'
-HYPRLOCK_INPUT_ROUNDING=4
+HYPRLOCK_INPUT_BOX='rounding = 4'
+# The lock screen's layout, centred (retro-amber pins these to the screen's edges; see its palette).
+HYPRLOCK_INPUT_OUTLINE=1
+HYPRLOCK_INPUT_FILL_ALPHA=b3
+HYPRLOCK_DOTS_CENTER=true
+HYPRLOCK_BOOT_X=60
+HYPRLOCK_BOOT_SIZE=14
+HYPRLOCK_INPUT_SIZE='280, 46'
+HYPRLOCK_INPUT_POS='0, -80'
+HYPRLOCK_ALIGN_LEFT=center
+HYPRLOCK_ALIGN_RIGHT=center
+HYPRLOCK_ALIGN_TOP=center
+HYPRLOCK_ALIGN_BOTTOM=center
+HYPRLOCK_CLOCK_SIZE=52
+HYPRLOCK_CLOCK_POS='0, 74'
+HYPRLOCK_CLAUDE_SIZE=12
+HYPRLOCK_CLAUDE_POS='-30, -56'
+HYPRLOCK_BATTERY_POS='-30, -30'
+HYPRLOCK_DATE_POS='0, 26'
+HYPRLOCK_CAT_WIDGET=image
+HYPRLOCK_CAT_SOURCE='path = ~/.config/quickshell/desk/paper-sprig.png'
+HYPRLOCK_CAT_SIZE=110
+HYPRLOCK_CAPS_TEXT='cmd[update:500] sh "${XDG_CONFIG_HOME:-$HOME/.config}/hypr/scripts/capslock-label.sh"'
+HYPRLOCK_CAPS_SIZE=11
+HYPRLOCK_CAPS_POS='0, -36'
+HYPRLOCK_NOTE_SIZE=16
+HYPRLOCK_NOTE_X=0
 MAKO_BORDER=ff6b4a
 MAKO_CRIT_BORDER=e5484d
 MAKO_AGENT_BORDER=ff3300
@@ -370,6 +396,17 @@ REGREET_LINE=ff6b4a
 REGREET_LINE_FOCUS=ff3300
 REGREET_GREETING="F O X M L"
 REGREET_CLOCK_FORMAT="%A · %I:%M %p"
+# The login sheet's shape (used where REGREET_EXTRA_SCOPE matches; retro-amber sets them for its DOS screen).
+REGREET_FONT_STYLE=italic
+REGREET_CASE=lowercase
+REGREET_RADIUS=4px
+REGREET_MENU_RADIUS=6px
+REGREET_CLOCK_SIZE=92px
+REGREET_GREETING_SIZE=19px
+REGREET_LABEL_SIZE=16px
+REGREET_SMALL_SIZE=15px
+REGREET_FIELD_SIZE=14px
+REGREET_POWER_LABEL='font-weight: normal'
 
 # ─── Firefox (chrome + new tab / settings / web selection) ───
 FF_EXTRA_SCOPE=':not(*)'
