@@ -3102,6 +3102,15 @@ require("lualine").setup({
         on_click = function() local ok, work = pcall(require, "desk.work"); if ok then work.attention() end end },
     },
     lualine_x = {
+      -- the newest test run of this buffer's checkout (desk-work, read in the background): passed / failed / running
+      {
+        function() local ok, work = pcall(require, "desk.work_events"); return ok and work.tests_status(DeskStyle == "retro") or "" end,
+        color = function()
+          local ok, work = pcall(require, "desk.work_events")
+          local state = ok and work.tests_state()
+          return { fg = state == "passed" and P.green or state == "failed" and P.red or state == "running" and P.yellow or P.comment }
+        end,
+      },
       -- the other Claudes (desk.claude): reviewing/following, who needs you, the plan gate, who edited this buffer
       { function() local ok, c = pcall(require, "desk.claude"); return ok and c.status_mode() or "" end, color = { fg = P.peach } },
       { function() local ok, c = pcall(require, "desk.claude"); return ok and c.status_needs() or "" end, color = { fg = P.red } },

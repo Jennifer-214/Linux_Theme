@@ -270,6 +270,110 @@ vim.cmd('qa!')
             notes = subprocess.run(['git', 'notes', '--ref', 'reviews', 'list'], cwd=repo, env=env, capture_output=True, text=True).stdout
             self.assertEqual(notes, '', 'checking files must not stamp the commit; finishing does')
 
+    def test_status_line_shows_the_newest_test_run_without_waiting_on_desk_work(self):
+        # A stand-in desk-work that prints the fixture run; it lives under tests/ because /tmp may be noexec.
+        with tempfile.TemporaryDirectory(prefix='.work-status-', dir=ROOT/'tests') as temp:
+            folder = Path(temp)
+            (folder/'bin').mkdir()
+            (folder/'repo/.git').mkdir(parents=True)
+            (folder/'repo/a.cpp').write_text('int a;\n')
+            fake = folder/'bin/desk-work'
+            fake.write_text('#!/usr/bin/python3\nimport os, sys\n'
+                            "open(os.environ['FAKE_CALLS'], 'a').write(' '.join(sys.argv[1:]) + '\\n')\n"
+                            "print(open(os.environ['FAKE_RUN']).read())\n")
+            fake.chmod(0o755)
+            env = dict(os.environ, PATH=str(folder/'bin') + os.pathsep + '/usr/bin:/bin', FAKE_RUN=str(folder/'run.json'),
+                       FAKE_CALLS=str(folder/'calls'), TEST_WORK_LUA=str(ROOT/'shared/nvim_lua'),
+                       TEST_SOURCE=str(folder/'repo/a.cpp'), NVIM_LOG_FILE=str(folder/'nvim.log'))
+            script = folder/'status.lua'
+            script.write_text(r'''
+local W = dofile(vim.env.TEST_WORK_LUA .. '/desk/work_events.lua')
+-- Every desk-work call must be asynchronous: a callback given, never waited on, never through vim.fn.system.
+local system, calls = vim.system, 0
+vim.system = function(argv, opts, on_exit)
+  calls = calls + 1
+  assert(type(on_exit) == 'function', 'desk-work was run without a callback: ' .. table.concat(argv, ' '))
+  assert(opts and opts.timeout and opts.timeout <= 5000, 'desk-work read has no timeout')
+  local job = system(argv, opts, on_exit)
+  return setmetatable({ wait = function() error('the status line waited on desk-work') end }, { __index = job })
+end
+vim.fn.system = function() error('vim.fn.system blocks') end
+io.popen = function() error('io.popen blocks') end
+vim.cmd('edit ' .. vim.fn.fnameescape(vim.env.TEST_SOURCE))
+local root = vim.uv.fs_realpath(vim.fs.dirname(vim.env.TEST_SOURCE))
+local function fixture(run) vim.fn.writefile({ vim.json.encode(run) }, vim.env.FAKE_RUN) end
+local function shown(retro, expected)
+  vim.api.nvim_exec_autocmds('User', { pattern = 'FoxWorkChanged', data = { root = root } })
+  local text
+  assert(vim.wait(3000, function() text = W.tests_status(retro); return text == expected end, 10), vim.inspect(text) .. ' ~= ' .. vim.inspect(expected))
+  return true
+end
+fixture(vim.NIL)
+local before = calls
+assert(W.tests_status(true) == '', 'a status before any read must be empty')
+assert(calls == before, 'drawing the status line started desk-work')
+vim.wait(1000, function() return calls > before end, 10)
+assert(calls > before, 'no background read was started')
+assert(vim.wait(2000, function() return vim.uv.fs_stat(vim.env.FAKE_CALLS) ~= nil end, 10), 'desk-work was never asked')
+vim.wait(200)
+assert(W.tests_status(true) == '', 'no run must show nothing')
+fixture({ state = 'passed', tests = { passed = 128, failed = 0 } })
+assert(shown(true, '     √ 128'))
+assert(W.tests_state() == 'passed')
+fixture({ state = 'failed', tests = { passed = 126, failed = 2 } })
+assert(shown(true, '  2 FAILED'))
+fixture({ state = 'running', tests = { passed = vim.NIL, failed = vim.NIL } })
+assert(shown(true, ' ☼ RUNNING'))
+fixture(vim.NIL)
+assert(shown(true, ''))
+-- Drawing never reads: the count only moves in the background.
+local idle = calls
+for _ = 1, 50 do W.tests_status(true) end
+assert(calls == idle, 'the status line part ran desk-work while drawing')
+-- The other themes' marks, padded to one width.
+local function label(run) return W.test_label(run, false) end
+assert(label({ state = 'passed', tests = { passed = 128, failed = 0 } }) == '       ✓ 128')
+assert(label({ state = 'failed', tests = { passed = 1, failed = 2 } }) == '✗   2 failed')
+assert(label({ state = 'running', tests = {} }) == '   ◷ running')
+assert(label(nil) == '' and label(vim.NIL) == '')
+local widths = {}
+for _, run in ipairs({ { state = 'passed', tests = { passed = 5 } }, { state = 'failed', tests = { failed = 12 } }, { state = 'running' },
+                       { state = 'interrupted' }, { state = 'failed', tests = {} } }) do
+  widths[vim.api.nvim_strwidth(W.test_label(run, true))] = true
+  widths[100 + vim.api.nvim_strwidth(W.test_label(run, false))] = true
+end
+assert(vim.tbl_count(widths) == 2, 'labels of one style differ in width: ' .. vim.inspect(widths))
+for _, line in ipairs(vim.fn.readfile(vim.env.FAKE_CALLS)) do assert(line == 'tests --root ' .. root, line) end
+print('work status: async test run labels passed')
+vim.cmd('qa!')
+''')
+            checked = run_fixture(['nvim', '--headless', '--clean', '-l', str(script)], cwd=folder/'repo', env=env,
+                                  capture_output=True, text=True, timeout=30)
+            self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+            self.assertIn('work status: async test run labels passed', checked.stdout + checked.stderr)
+            # Without desk-work the part stays empty and nothing is ever started.
+            script.write_text(r'''
+local W = dofile(vim.env.TEST_WORK_LUA .. '/desk/work_events.lua')
+local calls = 0
+local system = vim.system
+vim.system = function(...) calls = calls + 1; return system(...) end
+vim.cmd('edit ' .. vim.fn.fnameescape(vim.env.TEST_SOURCE))
+assert(W.tests_status(true) == '')
+vim.wait(300)
+vim.api.nvim_exec_autocmds('BufEnter', {})
+vim.wait(300)
+assert(W.tests_status(true) == '' and calls == 0, 'something ran without desk-work')
+print('work status: idle without desk-work')
+vim.cmd('qa!')
+''')
+            env['PATH'] = '/usr/bin:/bin'
+            checked = run_fixture(['nvim', '--headless', '--clean', '-l', str(script)], cwd=folder/'repo', env=env,
+                                  capture_output=True, text=True, timeout=30)
+            self.assertEqual(checked.returncode, 0, checked.stdout + checked.stderr)
+            self.assertIn('work status: idle without desk-work', checked.stdout + checked.stderr)
+        init = (ROOT/'templates/nvim/init.lua').read_text()
+        self.assertIn('work.tests_status(DeskStyle == "retro")', init, 'the status line does not show the test run')
+
     def test_quickfix_targets_selected_failure_and_draft_sends_only_after_recipient_selection(self):
         with tempfile.TemporaryDirectory() as temp:
             folder = Path(temp)

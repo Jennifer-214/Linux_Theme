@@ -114,6 +114,87 @@ function M.signal(root)
   if tool() and root then vim.system({ tool(), 'signal', '--root', root }, { text = true, timeout = 2000 }, function() end) end
 end
 
+-- The newest test run of each checkout, for the status line. desk-work is asked in the background only (BufEnter,
+-- FocusGained, a work change, every 10 s while focused); drawing the status line reads the copy kept per root.
+local tests = { runs = {}, focused = true }
+-- Every label of a style is padded to that style's widest one, so a run starting or ending does not move the line.
+local LABELS = {
+  retro = { passed = '√ %3d', failed = '%3d FAILED', running = '☼ RUNNING', interrupted = '! STOPPED',
+            any_passed = '√ PASSED', any_failed = '! FAILED', width = 10 },
+  shapes = { passed = '✓ %3d', failed = '✗ %3d failed', running = '◷ running', interrupted = '! stopped',
+             any_passed = '✓ passed', any_failed = '✗ failed', width = 12 },
+}
+
+-- run: what `desk-work tests` printed (decoded); retro: the DOS marks and capitals.
+function M.test_label(run, retro)
+  if type(run) ~= 'table' then return '' end
+  local marks = LABELS[retro and 'retro' or 'shapes']
+  local counts = type(run.tests) == 'table' and run.tests or {}
+  local passed = type(counts.passed) == 'number' and counts.passed or nil
+  local failed = type(counts.failed) == 'number' and counts.failed > 0 and counts.failed or nil
+  local text
+  if run.state == 'running' then text = marks.running
+  elseif run.state == 'passed' then text = passed and marks.passed:format(passed) or marks.any_passed
+  elseif run.state == 'failed' then text = failed and marks.failed:format(failed) or marks.any_failed
+  elseif run.state == 'interrupted' then text = marks.interrupted
+  else return '' end
+  return string.rep(' ', marks.width - api.nvim_strwidth(text)) .. text
+end
+
+local function current_root()
+  local root = vim.fs.root(0, '.git')
+  return root and (uv.fs_realpath(root) or root)
+end
+
+local function read_tests(root, min_age)
+  local entry = tests.runs[root]
+  if not entry then entry = {}; tests.runs[root] = entry end
+  if entry.reading then entry.again = entry.again or min_age == 0; return end   -- a change during a read: once more
+  if (entry.at and uv.now() - entry.at < (min_age or 0)) or not tool() then return end
+  entry.reading, entry.at = true, uv.now()
+  local ok = pcall(vim.system, { tool(), 'tests', '--root', root }, { text = true, timeout = 3000 }, vim.schedule_wrap(function(out)
+    entry.reading = false
+    local valid, run = pcall(vim.json.decode, out.stdout or '')
+    if out.code == 0 and valid then   -- a slow or failed read keeps what was shown
+      run = type(run) == 'table' and run or false
+      if not vim.deep_equal(run, entry.run) then entry.run = run; pcall(vim.cmd.redrawstatus) end
+    end
+    if entry.again then entry.again = false; read_tests(root, 0) end
+  end))
+  if not ok then entry.reading = false end
+end
+
+local function start_tests()
+  if not tool() then return end   -- without desk-work nothing is ever started
+  local group = api.nvim_create_augroup('DeskTestStatus', { clear = true })
+  local function front(min_age) local root = current_root(); if root then read_tests(root, min_age) end end
+  api.nvim_create_autocmd('BufEnter', { group = group, callback = function() front(2000) end })
+  api.nvim_create_autocmd('FocusGained', { group = group, callback = function() tests.focused = true; front(0) end })
+  api.nvim_create_autocmd('FocusLost', { group = group, callback = function() tests.focused = false end })
+  api.nvim_create_autocmd('User', { group = group, pattern = 'FoxWorkChanged', callback = function(event)
+    local root = type(event.data) == 'table' and event.data.root
+    if type(root) == 'string' and tests.runs[root] then read_tests(root, 0) end
+  end })
+  tests.timer = uv.new_timer()
+  tests.timer:start(10000, 10000, vim.schedule_wrap(function() if tests.focused then front(9000) end end))
+  front(0)
+end
+
+-- The status line part: '' until a run is known (and always without desk-work or outside a checkout).
+function M.tests_status(retro)
+  if not tests.started then tests.started = true; vim.schedule(start_tests) end
+  local root = current_root()
+  local entry = root and tests.runs[root]
+  return entry and entry.run and M.test_label(entry.run, retro) or ''
+end
+
+-- The newest run's state for the buffer in front (colours the status line part), or nil.
+function M.tests_state()
+  local root = current_root()
+  local entry = root and tests.runs[root]
+  return entry and entry.run and entry.run.state or nil
+end
+
 function M.status()
   local root = vim.fs.root(0, '.git')
   local state = root and M.roots[uv.fs_realpath(root) or root]
