@@ -1,15 +1,16 @@
 // modules/arch_audit.cpp — daily arch-audit security advisories timer.
 //
-// User-scope systemd unit + timer pair. Pings notify-send only when
-// there are upgradable CVEs (--uf upgrades-only flag).
+// User-scope systemd unit + timer pair (modules/arch_audit_units.hpp).
+// Pings notify-send only when a fixed version of an affected package has
+// shipped (arch-audit -u).
 
+#include "arch_audit_units.hpp"
 #include "../core/context.hpp"
 #include "../core/idempotency.hpp"
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
 
 #include <filesystem>
-#include <fstream>
 
 namespace fs = std::filesystem;
 
@@ -18,41 +19,6 @@ namespace desk_install {
 namespace {
 
 bool have(const std::string& bin) { return sh::have(bin); }
-
-constexpr const char* SERVICE_BODY =
-    "[Unit]\n"
-    "Description=FoxML — daily arch-audit check against Arch Linux security advisories\n"
-    "After=network-online.target\n"
-    "\n"
-    "[Service]\n"
-    "Type=oneshot\n"
-    "# -uf : upgrades-only — only CVEs with a fix available.\n"
-    "# %% is systemd unit escaping — a bare %s would expand to the user shell.\n"
-    "ExecStart=/bin/sh -c 'out=$(arch-audit -uf 2>/dev/null); "
-        "if [ -n \"$out\" ]; then "
-        "count=$(printf \"%%s\" \"$out\" | wc -l); "
-        "notify-send -u critical -t 30000 "
-        "\"arch-audit: $count package(s) with available fixes\" "
-        "\"$(printf \"%%s\" \"$out\" | head -10)\"; "
-        "fi'\n";
-
-constexpr const char* TIMER_BODY =
-    "[Unit]\n"
-    "Description=Run arch-audit daily\n"
-    "\n"
-    "[Timer]\n"
-    "OnCalendar=daily\n"
-    "Persistent=true\n"
-    "RandomizedDelaySec=600\n"
-    "\n"
-    "[Install]\n"
-    "WantedBy=timers.target\n";
-
-void write_file(const fs::path& p, const char* body) {
-    fs::create_directories(p.parent_path());
-    std::ofstream o(p);
-    o << body;
-}
 
 }  // namespace
 
@@ -69,12 +35,8 @@ void run_arch_audit(Context& ctx) {
     }
 
     fs::path unit_dir = ctx.config_home / "systemd/user";
-    fs::path service_unit = unit_dir / "foxml-arch-audit.service";
-    fs::path timer_unit   = unit_dir / "foxml-arch-audit.timer";
 
-    bool units_up_to_date =
-        idem::up_to_date(service_unit, SERVICE_BODY, ctx.force_reapply) &&
-        idem::up_to_date(timer_unit,   TIMER_BODY,   ctx.force_reapply);
+    bool units_up_to_date = !ctx.force_reapply && arch_audit_units_current(unit_dir);
     bool timer_enabled = sh::check_ro({"systemctl", "--user", "is-enabled",
                                        "--quiet", "foxml-arch-audit.timer"}) == 0;
     if (units_up_to_date && timer_enabled) {
@@ -82,8 +44,11 @@ void run_arch_audit(Context& ctx) {
         return;
     }
 
-    write_file(service_unit, SERVICE_BODY);
-    write_file(timer_unit,   TIMER_BODY);
+    if (!idem::write_atomic(unit_dir / "foxml-arch-audit.service", ARCH_AUDIT_SERVICE) ||
+        !idem::write_atomic(unit_dir / "foxml-arch-audit.timer", ARCH_AUDIT_TIMER)) {
+        ui::warn("could not write the foxml-arch-audit units in " + unit_dir.string());
+        return;
+    }
 
     sh::systemctl_daemon_reload(/*user=*/true);
     if (sh::systemctl_enable("foxml-arch-audit.timer", /*user=*/true) == 0) {

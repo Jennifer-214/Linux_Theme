@@ -64,7 +64,8 @@ bool rendered_is_current(const Context& ctx);
 Classification check_etckeeper(const Context& ctx, const Manifest& manifest);
 
 // arch_audit — foxml-arch-audit.timer (user systemd). Same masked-
-// state hazard pattern as etckeeper.
+// state hazard pattern as etckeeper; an enabled timer whose deployed
+// units differ from modules/arch_audit_units.hpp is Update.
 Classification check_arch_audit(const Context& ctx, const Manifest& manifest);
 
 // vault — fox-vault.service (user systemd). Same masked-state pattern.

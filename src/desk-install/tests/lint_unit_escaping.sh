@@ -19,7 +19,7 @@ set -u
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 
 mapfile -t WRITERS < <(
-    grep -rl 'ExecStart=' "$ROOT/src" --include='*.cpp' 2>/dev/null
+    grep -rl 'ExecStart=' "$ROOT/src" --include='*.cpp' --include='*.hpp' 2>/dev/null
     grep -l 'ExecStart=' "$ROOT/mappings.sh" "$ROOT"/shared/bin/* \
         "$ROOT"/shared/hyprland_scripts/*.sh 2>/dev/null
 )

@@ -1,4 +1,5 @@
 #include "state_checks.hpp"
+#include "../modules/arch_audit_units.hpp"
 #include "../modules/fstab_tmp.hpp"
 #include "palette.hpp"
 #include "deps_list.hpp"
@@ -246,8 +247,12 @@ Classification package_classify(bool present, bool tracked,
     return {Status::Update, pkg + " missing, re-run needed"};
 }
 
-Classification check_arch_audit(const Context& /*ctx*/, const Manifest& manifest) {
-    return unit_check(manifest, "arch_audit", "foxml-arch-audit.timer", /*user=*/true);
+Classification check_arch_audit(const Context& ctx, const Manifest& manifest) {
+    Classification unit = unit_check(manifest, "arch_audit", "foxml-arch-audit.timer", /*user=*/true);
+    // An enabled timer can still run an old service (until 2026-11-15 one that errored every day without a word).
+    if (unit.status == Status::Noop && !arch_audit_units_current(ctx.config_home / "systemd/user"))
+        return {Status::Update, "foxml-arch-audit units are out of date — re-run redeploys them"};
+    return unit;
 }
 
 Classification check_vault(const Context& /*ctx*/, const Manifest& manifest) {
