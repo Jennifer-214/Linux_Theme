@@ -96,6 +96,100 @@ ok(on_since[#on_since] == "t.odd", "a group M.GROUPS does not name comes last")
 eq(ids(T.for_context({ surface = "editor", mode = "x" }), "t.e"), { "t.e5", "t.e4" }, "a selection's menu has the selection's rows")
 eq(T.available(row({ available = function() error("boom") end }), {}):match("^can't tell"), "can't tell", "a check that fails says it can't tell")
 
+-- ─── where a row runs for the pop-out, and what it asks first ───────────────────────────────────────────────────
+refused(row({ id = "t.both", drawn = true, remote = true }), "a row is one of them", "drawn in the pop-out and remote both")
+eq(#T.add({ row({ id = "t.drawn", drawn = true, remote = false }) }), 1, "drawn, and said not to be remote, is fine")
+refused(row({ id = "t.in1", input = "words" }), "input is a string", "an input that is not a table")
+refused(row({ id = "t.in2", input = {} }), "asks for words (prompt), a pick (choices) or both", "an input that asks for nothing")
+refused(row({ id = "t.in3", input = { prompt = "" } }), "input.prompt is its question", "an empty question")
+refused(row({ id = "t.in4", input = { choices = { "a" } } }), "input.choices is function(ctx)", "choices that are not a function")
+refused(row({ id = "t.in5", input = { prompt = "x", default = "y" } }), "input does not take default", "an input field it does not know")
+-- A key with an input asks in the window it is pressed in: the pick, then the words; Esc or nothing typed runs nothing.
+local got, prompts = nil, {}
+local asking = T.add({ row({ id = "t.ask", key = "<leader>Za", run = function(c) got = { c.text, c.choice } end,
+  input = { prompt = "Say: ", choices = function() return { { id = "a", name = "Alpha" }, { id = 2, name = "Two" } } end } }) })
+eq(#asking, 1, "words and a pick are fine")
+T.map("editor", { rows = asking })
+local real_input, real_select = vim.ui.input, vim.ui.select
+local typed, picked = "hello", 2
+vim.ui.select = function(items, opts, done) prompts[#prompts + 1] = opts.prompt .. #items; done(picked and items[picked] or nil) end
+vim.ui.input = function(opts, done) prompts[#prompts + 1] = opts.prompt; done(typed) end
+local function press_ask() got = nil; vim.fn.maparg("<leader>Za", "n", false, true).callback(); return got end
+eq({ press_ask(), prompts }, { { "hello", "2" }, { "Say: 2", "Say: " } }, "a key with an input: the pick, the words, then it runs with both")
+typed = nil
+eq(press_ask(), nil, "Esc at the words runs nothing")
+typed = "   "
+eq(press_ask(), nil, "nothing typed runs nothing")
+typed, picked = "hello", nil
+eq(press_ask(), nil, "Esc at the pick runs nothing")
+picked, typed = 1, "from the menu"
+got = nil
+T.run(T.get("t.ask"), { surface = "editor" })
+eq(got, { "from the menu", "a" }, "chosen in a menu it asks the same")
+vim.ui.input, vim.ui.select = real_input, real_select
+-- The pop-out's door: a row's answers come with the act, and only the ones it asks for.
+local acted_with
+T.add({ row({ id = "t.remask", remote = true, run = function(c) acted_with = { c.text, c.choice } end,
+    input = { prompt = "Say: ", choices = function(c) return c.none and {} or { { id = "a", name = "A" } } end } }),
+  row({ id = "t.remplain", remote = true }),
+  row({ id = "t.rempick", remote = true, input = { choices = function() return { { id = "a", name = "A" } } end } }) })
+eq({ T.act("t.remask", { surface = "editor" }) }, { false, "X: needs its words" }, "an act without the words it asks for is refused")
+eq({ T.act("t.remask", { surface = "editor", text = "hi" }) }, { false, "that choice is not offered here" }, "… without its pick")
+eq({ T.act("t.remask", { surface = "editor", text = "hi", choice = "b" }) }, { false, "that choice is not offered here" },
+  "… with a pick it does not offer")
+eq({ T.act("t.remask", { surface = "editor", text = "hi", choice = "a", none = true }) }, { false, "that choice is not offered here" },
+  "… or no longer offers")
+eq({ T.act("t.remask", { surface = "editor", text = "hi", choice = "a" }), acted_with }, { true, { "hi", "a" } }, "with both it runs, with them")
+eq({ T.act("t.remplain", { surface = "editor", text = "hi" }) }, { false, "t.remplain asks for nothing" }, "words for a row that asks none")
+eq({ T.act("t.remplain", { surface = "editor", choice = "a" }) }, { false, "t.remplain asks for nothing" }, "… or a pick")
+eq({ T.act("t.rempick", { surface = "editor", choice = "a", text = "x" }) }, { false, "t.rempick asks for no words" }, "words for a pick")
+local described
+for _, d in ipairs(T.describe({ surface = "editor" })) do if d.id == "t.remask" then described = d end end
+eq(described and described.input, { prompt = "Say: ", choices = { { id = "a", name = "A" } } }, "describe sends what it asks, as data")
+-- ctx.also: another surface's rows are the place's own too (the pop-out's, beside its view's).
+T.add({ row({ id = "t.pop", group = "Work", key = "Q", on = "popout" }) })
+eq({ vim.tbl_contains(ids(T.for_context({ surface = "since", also = { "popout" } })), "t.pop"),
+  vim.tbl_contains(ids(T.for_context({ surface = "since" })), "t.pop") }, { true, false }, "ctx.also: that surface's rows apply too")
+-- A key list of the rows given, run as its caller presses them.
+local pressed
+local listed = T.key_lines({ surface = "since" }, { rows = { T.get("t.s1"), T.get("t.global") }, press = function(r) pressed = r.id end })
+eq(vim.tbl_map(function(l) return l.keys[1] end, listed), { "Q", "<leader>Zg" }, "a key list of the rows given, whatever surface they are on")
+listed[2].run()
+eq(pressed, "t.global", "… Enter on one runs it as the list's caller presses it")
+-- The rows a pop-out view binds: its surface's drawn and remote ones, then the window's own; a view row on a key the
+-- window takes is left out, and a row of the editor's only is never there.
+T.add({ row({ id = "t.pq", group = "Work", key = "q", on = "popout" }), row({ id = "t.vd", key = "j", on = "since", drawn = true }),
+  row({ id = "t.vr", key = "<CR>", on = "since", remote = true }), row({ id = "t.ve", key = "z", on = "since", remote = false }),
+  row({ id = "t.vq", key = "q", on = "since", remote = true }) })
+local bound, left = T.popout_rows("since")
+eq({ ids(bound, "t."), left }, { { "t.vd", "t.vr", "t.pop", "t.pq" }, { "t.vq: q is t.pq in the pop-out" } },
+  "a pop-out view's rows: the view's drawn and remote ones, then the window's own")
+eq(ids(T.popout_rows(nil), "t."), { "t.pop", "t.pq" }, "no view: only the window's own")
+-- What is here: one answer per surface.
+eq({ T.provide("kitchen", function() end) }, { false, "no surface is called kitchen" }, "an answer for no surface is refused")
+eq({ T.provide("since", "x") }, { false, "about is function(ctx)" }, "… and one that is no function")
+eq({ T.about({ surface = "menu" }) }, { nil, "nothing here says what it is" }, "a surface with no answer says so")
+T.provide("since", function(c)
+  if c.empty then return nil, "no row here" end
+  if c.broken then error("boom") end
+  if c.nameless then return { title = "" } end
+  return { title = "Row 3", refs = { { kind = "code", label = "a.lua:3", file = "a.lua", line = 3 }, "junk", { kind = 1 } }, excerpt = "x = 1" }
+end)
+eq(T.about({ surface = "since" }), { title = "Row 3", refs = { { kind = "code", label = "a.lua:3", file = "a.lua", line = 3 } }, excerpt = "x = 1" },
+  "what is here: its title, its references (each a kind and a label), an excerpt")
+eq({ T.about({ surface = "since", empty = true }) }, { nil, "no row here" }, "nothing there: why")
+eq((select(2, T.about({ surface = "since", broken = true })) or ""):match("^can't tell"), "can't tell", "an answer that fails: can't tell")
+eq({ T.about({ surface = "since", nameless = true }) }, { nil, "what is here has no name" }, "an answer without a name is none")
+
+-- ─── the one speller ────────────────────────────────────────────────────────────────────────────────────────────
+local spelled = {}
+for _, key in ipairs({ "<CR>", "<cr>", "<S-CR>", "<BS>", "<Tab>", "<S-Tab>", "<Esc>", "<Down>", "<Up>", "<Space>", "<2-LeftMouse>",
+  "<leader>cc", "<Leader>Cw", "<leader><leader>", "<leader><Tab>", "<leader><CR>", "<C-w>", "<c-a>", "j", "gs", "]f", "?" }) do
+  spelled[#spelled + 1] = T.spell(key)
+end
+eq(spelled, { "Enter", "Enter", "Shift+Enter", "BS", "Tab", "Shift+Tab", "Esc", "↓", "↑", "Space", "double click", "Space cc",
+  "Space Cw", "Space Space", "Space Tab", "Space Enter", "Ctrl+w", "Ctrl+a", "j", "gs", "]f", "?" }, "keys as she reads them")
+
 -- ─── the real registry: every module's rows ─────────────────────────────────────────────────────────────────────
 local A = require("desk.actions")
 for _, name in ipairs({ "claude", "work", "since", "review" }) do require("desk." .. name) end
@@ -291,6 +385,10 @@ for _, d in ipairs(offered) do
   ok(A.get(d.id).remote, d.id .. " is a remote row")
   for k, v in pairs(d) do if type(v) == "function" then eq(k, "plain data", "what the pop-out is sent has no code") end end
 end
+
+-- The one speller: the menus' key lists and the call graph's key lines spell with it.
+eq(Menu.typed, A.spell, "desk.menu spells keys with actions.spell")
+eq(require("desk.callgraph").typed("go", "back", "down"), "Enter/BS/j", "the call graph's key lines too")
 
 vim.fn.delete(dir, "rf")
 print(string.format("test_actions: %d passed%s", passed, failed > 0 and (", " .. failed .. " failed") or ""))
