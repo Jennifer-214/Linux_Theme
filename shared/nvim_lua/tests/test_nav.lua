@@ -30,17 +30,18 @@ require("desk.popout")
 eq(A.problems, {}, "every row was taken")
 
 -- ─── the keys: s is labels in the list and the graphs, the code's s in a diff; gs is symdeps ─────────────────────
-eq({ A.key("review.jump"), A.key("callgraph.jump"), A.key("popout.jump") }, { "s", "s", "s" }, "s labels")
-eq({ A.key("review.symdeps"), A.key("callgraph.symdeps"), A.key("popout.symdeps") }, { "gs", "gs", "gs" },
-  "gs is symdeps in the review, the graph tab and the pop-out alike")
-eq({ A.get("review.jump").on, A.get("callgraph.jump").on, A.get("popout.jump").on }, { "review-list", { "callgraph", "callgraph-panel" }, "popout" },
-  "labels in the review's list and the graphs (tab, panel, pop-out), nowhere else")
+eq({ A.key("review.jump"), A.key("callgraph.jump"), A.get("callgraph.jump").drawn }, { "s", "s", true },
+  "s labels, and the pop-out's graph has the tab's (drawn there, on its copy)")
+eq({ A.key("review.symdeps"), A.key("callgraph.symdeps"), A.get("callgraph.symdeps").remote }, { "gs", "gs", true },
+  "gs is symdeps in the review and the graph tab, and in the pop-out's graph (the tab's row, run in the editor)")
+eq({ A.get("review.jump").on, A.get("callgraph.jump").on }, { "review-list", { "callgraph", "callgraph-panel" } },
+  "labels in the review's list and the graphs (tab, panel; the pop-out's graph has the tab's keys), nowhere else")
 local labelled = {}
 for _, row in ipairs(A.rows()) do
   if row.key == "s" then for _, s in ipairs(type(row.on) == "table" and row.on or { row.on }) do labelled[#labelled + 1] = s end end
 end
 table.sort(labelled)
-eq(labelled, { "callgraph", "callgraph-panel", "popout", "review-list" }, "no other view's s: menus, the notebook and the map have none")
+eq(labelled, { "callgraph", "callgraph-panel", "review-list" }, "no other view's s: menus, the notebook and the map have none")
 local diff = api.nvim_create_buf(false, true)
 A.map("review-diff", { buffer = diff, silent = true, ctx = { review = { id = "fake" } } })
 api.nvim_buf_call(diff, function()

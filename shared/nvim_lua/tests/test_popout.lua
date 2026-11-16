@@ -32,8 +32,10 @@ local function write(path, text, mode)
   if mode then vim.fn.setfperm(path, mode) end
 end
 write(bin .. '/kitty', [[#!/bin/sh
-# kitty, for the test: records its argv, then runs the command after -e headless, on a socket of the test's.
+# kitty, for the test: records its argv and what it was given of the editor's tmux and socket, then runs the command
+# after -e headless, on a socket of the test's.
 printf '%s\n' "$@" > "$POPOUT_TEST/kitty.argv"
+printf 'NVIM=%s TMUX=%s TMUX_PANE=%s\n' "${NVIM:-}" "${TMUX:-}" "${TMUX_PANE:-}" > "$POPOUT_TEST/kitty.env"
 echo $$ > "$POPOUT_TEST/kitty.pid"
 n=$(( $(cat "$POPOUT_TEST/kitty.count" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$POPOUT_TEST/kitty.count"
@@ -61,7 +63,8 @@ for _, name in ipairs({ 'desk-drawer', 'desk-work' }) do
 end
 vim.fn.writefile(vim.fn.readfile(ROOT .. '/shared/bin/desk-hl', 'b'), bin .. '/desk-hl', 'b')
 vim.fn.setfperm(bin .. '/desk-hl', 'rwxr-xr-x')
--- The repo's desk modules, ahead of any installed copy, in both Neovims.
+-- The repo's desk modules, ahead of any installed copy, in both Neovims; and a second view kind, a list of rows
+-- (tests/popout_rows.lua), in both as a kind's module is.
 write(dir .. '/loader.lua', [[
 local lua = os.getenv('POPOUT_LUA')
 package.path = lua .. '/?.lua;' .. package.path
@@ -71,18 +74,22 @@ table.insert(package.loaders, 2, function(name)
 end)
 vim.g.mapleader = ' '
 vim.g.desk_style = 'paper'
+require('tests.popout_rows')
 ]])
 write(dir .. '/monitors.json', vim.json.encode({ { name = 'eDP-1', focused = true, activeWorkspace = { id = 1, name = '1' } },
   { name = 'DP-2', focused = false, activeWorkspace = { id = 5, name = '5' } } }))
 local sidecar = base .. '/config/foxml/monitor-layout.conf'
 write(sidecar, 'PRIMARY="eDP-1"\nPORTRAIT_OUTPUTS="DP-2"\nSECONDARY_OUTPUTS="DP-2"')
--- Nothing of her session reaches the two Neovims: no tmux, parent Neovim, Hyprland instance, display or kitty.
+-- Nothing of her session reaches the two Neovims: no tmux, parent Neovim, Hyprland instance, display or kitty. The
+-- editor gets a tmux of its own that is no server (a socket path in the sandbox, and tmux's folder there too), so a
+-- pop-out that inherited the editor's tmux would show it.
 local env = vim.fn.environ()
 for _, name in ipairs({ 'TMUX', 'TMUX_PANE', 'NVIM', 'NVIM_LISTEN_ADDRESS', 'HYPRLAND_INSTANCE_SIGNATURE', 'WAYLAND_DISPLAY',
-  'DISPLAY', 'KITTY_WINDOW_ID', 'KITTY_LISTEN_ON' }) do env[name] = nil end
+  'DISPLAY', 'KITTY_WINDOW_ID', 'KITTY_LISTEN_ON', 'DBUS_SESSION_BUS_ADDRESS', 'SWAYSOCK' }) do env[name] = nil end
 for name, value in pairs({ HOME = base .. '/home', XDG_RUNTIME_DIR = dir, XDG_CONFIG_HOME = base .. '/config', XDG_STATE_HOME = base .. '/state',
   XDG_CACHE_HOME = base .. '/cache', XDG_DATA_HOME = base .. '/data', NVIM_LOG_FILE = base .. '/nvim.log', TERM = 'xterm-256color',
-  PATH = bin .. ':' .. (env.PATH or '/usr/bin:/bin'), POPOUT_TEST = dir, POPOUT_LUA = ROOT .. '/shared/nvim_lua', POPOUT_PING_MS = '300' }) do
+  PATH = bin .. ':' .. (env.PATH or '/usr/bin:/bin'), POPOUT_TEST = dir, POPOUT_LUA = ROOT .. '/shared/nvim_lua', POPOUT_PING_MS = '300',
+  TMUX = dir .. '/no-tmux,1,0', TMUX_PANE = '%77', TMUX_TMPDIR = dir }) do
   env[name] = value
 end
 local found = vim.system({ 'sh', '-c', 'for t in kitty hyprctl desk-hl desk-drawer desk-work; do command -v "$t"; done' },
@@ -96,6 +103,7 @@ end
 
 local function wait(ms, cond) return vim.wait(ms, function() local fine, value = pcall(cond); return fine and value end, 20) end
 local function exists(path) return uv.fs_stat(path) ~= nil end
+local function later(ms) local s, us = uv.gettimeofday(); return s * 1000 + math.floor(us / 1000) + ms end
 
 local function scenario()
 -- This process is the terminal the main editor runs in: hyprctl's stub lists it as that editor's window (0xa1).
@@ -122,28 +130,37 @@ local function opened()
   ok(wait(10000, function() return exists(psock) end), '… and its Neovim listens')
   p = vim.fn.sockconnect('pipe', psock, { rpc = true })
 end
-local function open_row() host("local A = require('desk.actions'); A.get('popout.open').run(A.context())") end
+local function open_row() host("local A = require('desk.actions'); A.get('popout.view.graph').run(A.context())") end
 
 -- ─── one screen: not offered, the views stay in the editor ───────────────────────────────────────────────────────
 local two_screens = read(sidecar)
 vim.fn.writefile({ 'PRIMARY="eDP-1"', 'PORTRAIT_OUTPUTS=""', 'SECONDARY_OUTPUTS=""' }, sidecar)
 eq(host("return require('desk.popout').second_screen()"), 'requires a second monitor', 'one screen: the pop-out is not offered')
-eq(host("local A = require('desk.actions'); return A.available(A.get('popout.open'), A.context())"), 'requires a second monitor',
+eq(host("local A = require('desk.actions'); return A.available(A.get('popout.view.graph'), A.context())"), 'requires a second monitor',
   '… its row says why')
 open_row()
 vim.wait(300)
 ok(not exists(dir .. '/kitty.argv'), '… and running it opens nothing')
 vim.fn.writefile(vim.split(two_screens, '\n', { trimempty = true }), sidecar)
 eq(host("return require('desk.popout').second_screen()"), true, 'a second screen in monitor-layout.conf: it is offered')
+-- Where it goes: never the screen with the focus (the editor's), even when that is the one listed as secondary.
+local function target(monitors) return host("return require('desk.popout').target_screen(...)", monitors, { primary = 'eDP-1', secondary = { 'DP-2' }, portrait = { 'DP-2' } }) end
+eq(target({ { name = 'eDP-1', focused = true, activeWorkspace = { id = 1 } }, { name = 'DP-2', focused = false, activeWorkspace = { id = 5 } } }),
+  { name = 'DP-2', workspace = 5 }, 'the editor on the laptop: the pop-out goes to the second screen, on the workspace it shows')
+eq(target({ { name = 'eDP-1', focused = false, activeWorkspace = { id = 1 } }, { name = 'DP-2', focused = true, activeWorkspace = { id = 5 } } }),
+  { name = 'eDP-1', workspace = 1 }, '… the editor on the second screen: to the laptop, never the focused screen')
+eq(target({ { name = 'DP-2', focused = true, activeWorkspace = { id = 5 } } }), vim.NIL, '… and with only the focused screen, nowhere')
 
 -- ─── open: subscribe, the view arrives and is drawn ─────────────────────────────────────────────────────────────
 open_row()
 opened()
 eq(vim.split(read('kitty.argv'), '\n', { trimempty = true }), { '--class', 'desk-popout', '-e', 'nvim', '--cmd', 'let g:desk_popout=1',
   '-c', "lua require('desk.popout').client()", '--', 'desk-popout:' .. dir .. '/h' }, "kitty runs it with the editor's socket in argv only")
+eq(vim.trim(read('kitty.env')), 'NVIM= TMUX= TMUX_PANE=', "… and none of the editor's tmux, nor its socket as $NVIM")
 ok(wait(10000, function() return popped():find('callee_of_M.alpha', 1, true) end), 'subscribed: the graph of the function under the cursor arrives')
 local s = state()
 eq({ s.connected, s.title, s.selected }, { true, 'call graph · M.alpha', 'M.alpha' }, '… titled with it, its own box selected')
+eq({ s.shown, s.kind, s.state }, { 'graph', 'graph', 'following' }, '… a view of kind graph, following the editor')
 ok(popped():find('║ M.alpha', 1, true) and popped():find('caller_of_M.alpha', 1, true), '… drawn: the function in a double box, its caller above')
 ok(pop("return #vim.api.nvim_buf_get_extmarks(0, vim.api.nvim_create_namespace('desk_popout'), 0, -1, {}) > 10"), '… with its marks')
 ok(next(pop("return vim.api.nvim_get_hl(0, { name = 'DeskCallGraphCentre', link = false })")) ~= nil, "… and the editor's highlight groups")
@@ -165,19 +182,43 @@ press('<CR>')
 ok(wait(3000, function() return host('return vim.api.nvim_win_get_cursor(0)[1]') == 5 end), "Enter: the editor goes to the selected box's function")
 s = state()
 eq({ s.mode, s.current_win == s.win }, { 'n', true }, '… and the keyboard stays in the pop-out (its window, normal mode)')
-eq(log_since(mark):find('hl.dsp.focus', 1, true), nil, '… nothing is focused')
+-- A focus would come a moment later (hyprctl runs in the background): wait long enough for one to land.
+ok(not wait(1500, function() return log_since(mark):find('hl.dsp.focus', 1, true) end), '… and nothing is focused, then or a moment later')
 ok(wait(3000, function() return state().title == 'call graph · M.beta' end), 'following: the graph moves to where the editor went')
 
 -- ─── what an act may name ───────────────────────────────────────────────────────────────────────────────────────
 local gen = state().gen
-local function act(fields) return host("return require('desk.bridge').receive(...)", vim.tbl_extend('force', { version = 1, type = 'act', view = 'callgraph', gen = gen, item = 1 }, fields)) end
-eq(act({ gen = gen - 1, action = 'popout.go' }), { refused = 'this view moved on' }, 'a stale generation is refused')
-eq(act({ action = 'callgraph.go' }), { refused = 'callgraph.go is not one the pop-out may ask for' }, 'a row that is not remote is refused')
+local function door(msg) return host("return require('desk.bridge').receive(...)", msg) end
+local function act(fields) return door(vim.tbl_extend('force', { version = 1, type = 'act', view = 'graph', gen = gen, item = 1, deadline = later(5000) }, fields)) end
+eq(act({ gen = gen - 1, action = 'callgraph.go' }), { refused = 'this view moved on' }, 'a stale generation is refused')
+eq(act({ action = 'callgraph.back' }), { refused = 'callgraph.back is not one the pop-out may ask for' }, "a row the editor keeps (remote = false) is refused")
 eq(act({ action = 'popout.keys' }), { refused = 'popout.keys is not one the pop-out may ask for' }, '… a pop-out row that is not remote too')
 eq(act({ action = 'popout.nothing' }), { refused = 'no action is called popout.nothing' }, '… and an id that is no row')
-eq(act({ item = 400, action = 'popout.go' }), { refused = 'there is no such box in this view' }, '… and a box the view does not have')
+eq(act({ item = 400, action = 'callgraph.go' }), { refused = 'there is no such item in this view' }, '… and an item the view does not have')
+eq(act({ action = 'callgraph.go', text = 'hello' }), { refused = 'callgraph.go asks for nothing' }, '… and words for a row that asks none')
+eq(door({ version = 1, type = 'act', view = 'graph', gen = gen, item = 1, action = 'callgraph.go' }),
+  { refused = 'a pop-out message says when it stops waiting (deadline)' }, 'a message with no deadline is refused')
+eq(act({ action = 'callgraph.go', deadline = later(-1000) }), { refused = 'this message came after its sender stopped waiting' },
+  '… and one past it')
+eq(door({ version = 1, type = 'subscribe', chan = 1, pid = 1, width = 80, protocol = 1, deadline = later(5000) }),
+  { refused = 'this editor speaks pop-out protocol 2 and this pop-out 1: close it and open it again' }, 'a pop-out of another protocol is refused')
+-- This test's own channel to the editor is not a pop-out's: it never named itself with nvim_set_client_info.
+local subscribed = host("return require('desk.popout').host.chan")
+eq(door({ version = 1, type = 'subscribe', chan = vim.rpcrequest(h, 'nvim_get_api_info')[1], pid = vim.fn.getpid(), width = 80, protocol = 2,
+  deadline = later(5000) }), { refused = 'a pop-out subscribes on its own channel, named with nvim_set_client_info first' },
+  'a subscribe on a channel that is no named pop-out is refused')
+eq(host("return require('desk.popout').host.chan"), subscribed, '… and the pop-out it has stays')
+eq(pop("return require('desk.bridge').receive(...)", { version = 1, type = 'subscribe', chan = 1, pid = 1, width = 80, protocol = 2, deadline = later(5000) }),
+  { refused = 'this editor keeps no pop-out' }, 'a pop-out takes no pop-out of its own')
+eq(pop("return require('desk.popout').receive({ version = 1, type = 'view.set', id = 'old', gen = 1, lines = { 'x' } })"), false,
+  '… and the pop-out takes nothing of another protocol')
+vim.rpcrequest(h, 'nvim_input', 'i')
+ok(wait(2000, function() return host('return vim.api.nvim_get_mode().mode') == 'i' end), 'the editor in insert mode')
+eq(act({ action = 'callgraph.go' }), { refused = 'typing in this editor' }, 'while she types in the editor an act is refused')
+vim.rpcrequest(h, 'nvim_input', '<Esc>')
+ok(wait(2000, function() return host('return vim.api.nvim_get_mode().mode') == 'n' end), '… normal mode again')
 -- Without symdeps (not installed here) its row is refused with why, and gs in the pop-out says so; nothing else happens.
-eq(act({ action = 'popout.symdeps' }), { refused = 'requires symdeps' }, 'without symdeps: its row says "requires symdeps"')
+eq(act({ action = 'callgraph.symdeps' }), { refused = 'requires symdeps' }, 'without symdeps: its row says "requires symdeps"')
 pop('_G.heard = {}; vim.notify = function(text) table.insert(_G.heard, text) end')
 local line_before = host('return vim.api.nvim_win_get_cursor(0)[1]')
 press('gs')
@@ -196,17 +237,30 @@ press('p')
 ok(wait(3000, function() return state().title == 'call graph · gamma' end), 'p: following again, from where the editor is')
 ok(not (state().lines or {})[1]:find('PINNED', 1, true), '… no longer pinned')
 
+-- ─── c: the graph of a box, pinned there (the graph tab's c, run in the editor for the pop-out's view) ────────────
+press('j')
+ok(wait(2000, function() return state().selected == 'callee_of_gamma' end), 'j: the callee')
+press('c')
+ok(wait(3000, function() return state().title == 'call graph · callee_of_gamma' and popped():find('caller_of_callee_of_gamma', 1, true) end),
+  'c: the graph of the selected box, pinned there')
+ok((state().lines or {})[1]:find('PINNED', 1, true), '… pinned')
+press('p')
+ok(wait(3000, function() return state().title == 'call graph · gamma' end), 'p: following the editor again')
+
 -- ─── Space Space in the pop-out: the editor's rows for that box ─────────────────────────────────────────────────
 press('<Space><Space>')
 ok(wait(3000, function() return pop("local m = require('desk.menu')._last; return m ~= nil and vim.api.nvim_win_is_valid(m.win)") end),
   'Space Space opens the home menu in the pop-out')
 local menu = pop("return table.concat(vim.api.nvim_buf_get_lines(require('desk.menu')._last.buf, 0, -1, false), '\\n')")
-ok(menu:find('Go to it', 1, true) and menu:find('Pin, or follow the editor', 1, true) and menu:find('Back to the editor', 1, true),
+ok(menu:find('Go to the selected function', 1, true) and menu:find('Pin, or follow the editor', 1, true) and menu:find('Back to the editor', 1, true),
   "its rows are the editor's (describe):\n" .. menu)
 ok(menu:find('requires symdeps', 1, true), '… a row that cannot run says why')
-ok(menu:find('Call graph of this function', 1, true), "… the editor's other remote rows are there")
+ok(menu:find('Live call graph panel', 1, true), "… the editor's other remote rows are there")
 ok(menu:find("The pop-out's keys", 1, true) and menu:find('To the editor', 1, true), "… and so are this window's own")
-ok(not menu:find('Pop out the call graph', 1, true) and not menu:find('Home menu', 1, true), '… but no row the pop-out may not ask for')
+ok(menu:find(' ── views ', 1, true) == menu:find(' ── ', 1, true) and menu:find('Pop out the call graph', 1, true) and menu:find('Pop out the rows', 1, true),
+  '… the views first: every kind')
+ok(not menu:find('Back to the code, the graph left open', 1, true) and not menu:find('Home menu', 1, true) and not menu:find('To the pop-out', 1, true),
+  '… but no row the pop-out may not ask for')
 ok(pop("return vim.inspect(vim.api.nvim_win_get_config(require('desk.menu')._last.win).title)"):find('Home · pop-out · gamma', 1, true),
   '… titled with the selected box')
 pop([[local m = require('desk.menu')._last
@@ -220,8 +274,10 @@ ok(wait(3000, function() return (state().lines or {})[1]:find('PINNED', 1, true)
 press('?')
 ok(wait(2000, function() return pop("return vim.api.nvim_win_get_config(0).relative ~= ''") end), '? opens a list in the pop-out')
 local keys = pop("return table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), '\\n')")
-ok(keys:find('Enter%s+Go to it') and keys:find('Shift%+Enter%s+Go to it, in the editor') and keys:find('Space Tab%s+To the editor')
-  and keys:find('Space Space%s+Home menu') and keys:find('q%s+Close the pop%-out'), "… its keys, as typed, with the rows' names:\n" .. keys)
+ok(keys:find('j/k%s+The box below / above') and keys:find('Enter%s+Go to the selected function') and keys:find('f/Shift%+Enter%s+Go to it, in the editor')
+  and keys:find('Space Tab%s+To the editor') and keys:find('Space Space%s+Home menu') and keys:find('q%s+Close the pop%-out'),
+  "… the graph's keys and the window's, as typed, with the rows' names:\n" .. keys)
+ok(not keys:find('Back to the code', 1, true) and not keys:find('Read the graph again', 1, true), "… and none of the editor's own")
 ok(keys:find('Space Tab in the editor comes back here', 1, true), '… and the way back')
 press('q')
 ok(wait(2000, function() return state().current_win == state().win end), '… q closes it, back in the pop-out')
@@ -243,6 +299,12 @@ mark = #read('hyprctl.log')
 press('<S-CR>')
 ok(wait(3000, function() return host('return vim.api.nvim_win_get_cursor(0)[1]') == 8 end), 'Shift+Enter: the editor goes to the box')
 ok(wait(3000, function() return log_since(mark):find("dispatch hl.dsp.focus({ window = 'address:0xa1' })", 1, true) end), '… and gets the keyboard')
+vim.rpcrequest(h, 'nvim_input', 'gg')
+ok(wait(2000, function() return host('return vim.api.nvim_win_get_cursor(0)[1]') == 1 end), 'the editor moves away again')
+mark = #read('hyprctl.log')
+press('f')
+ok(wait(3000, function() return host('return vim.api.nvim_win_get_cursor(0)[1]') == 8 end), 'f, as Shift+Enter: the editor goes to the box')
+ok(wait(3000, function() return log_since(mark):find("dispatch hl.dsp.focus({ window = 'address:0xa1' })", 1, true) end), '… and gets the keyboard')
 
 -- ─── a pop-out that stops answering ─────────────────────────────────────────────────────────────────────────────
 eq(host("return require('desk.popout').host.stalled"), false, 'answering its pings')
@@ -256,8 +318,8 @@ press('o')
 ok(wait(3000, function() return host(panel_open) end), 'o in the pop-out: the graph comes back as a split in the editor (the live panel)')
 eq(host("local G = require('desk.callgraph'); return { G.panel.pinned, G.panel.graph and G.panel.graph.center.name }"), { true, 'gamma' },
   '… pinned to the same graph')
-ok(wait(3000, function() return state().shown == '' and popped():find('o in a call graph sends it here', 1, true) end),
-  '… and the pop-out shows nothing, saying how to send one')
+ok(wait(3000, function() return state().shown == '' and popped():find('Space Space › views opens one', 1, true) end),
+  '… and the pop-out shows nothing, saying how to open one')
 host("vim.api.nvim_set_current_win(require('desk.callgraph').panel.win)")
 vim.rpcrequest(h, 'nvim_input', 'o')
 ok(wait(3000, function() return state().title == 'call graph · gamma' end), 'o in the panel: the graph goes to the pop-out again')
@@ -270,6 +332,64 @@ vim.rpcrequest(h, 'nvim_input', 'o')
 ok(wait(3000, function() return state().title == 'call graph · M.alpha' end), 'o in the graph tab: the graph moves to the pop-out')
 eq(host("return require('desk.callgraph').view() == nil"), true, '… and the tab closes')
 ok((state().lines or {})[1]:find('PINNED', 1, true), '… pinned: a tab shows one chosen function')
+
+-- ─── a second kind: a list of rows (tests/popout_rows.lua), built from the kind interface alone ──────────────────
+host("require('desk.popout').show('rows', require('desk.actions').context())")
+ok(wait(3000, function() return state().kind == 'rows' end), 'a view of another kind comes to the front')
+s = state()
+eq({ s.shown, s.selected, s.title, host('return _G.rows_test.opens') }, { 'rows', 'alpha', 'rows', 1 }, '… opened by its kind, its first row selected')
+local function strip_lines() local l = state().lines; return { l[11], l[12] } end
+eq(strip_lines(), { ' │ alpha', ' │ about alpha' }, '… its strip says what the selected row is')
+press('j')
+ok(wait(2000, function() return state().selected == 'beta' end), 'j: the next row (here, not in the editor)')
+eq(strip_lines(), { ' │ beta', ' │ about beta' }, '… and the strip follows')
+press('j')
+ok(wait(2000, function() return state().selected == 'gamma' end), 'j again: over the blank line and the heading, to the next row')
+eq(pop('return vim.api.nvim_win_get_cursor(0)'), { 8, 3 }, '… the cursor on it')
+press('k')
+ok(wait(2000, function() return state().selected == 'beta' end), 'k: back over them')
+press('<CR>')
+ok(wait(2000, function() return host('return _G.rows_test.opened') == 'beta' end), 'Enter: its row runs in the editor, for the row selected here')
+pop("vim.ui.input = function(opts, done) _G.asked = opts.prompt; done('make it pink') end")
+press('c')
+ok(wait(2000, function() return vim.deep_equal(host('return _G.rows_test.said'), { 'beta', 'make it pink' }) end),
+  'c: its words are asked for here, and go with the row')
+eq(pop('return _G.asked'), 'About it: ', "… asked with the editor's question")
+pop("vim.ui.select = function(items, opts, done) _G.offered = vim.tbl_map(function(c) return c.id .. '=' .. c.name end, items); done(items[2]) end")
+press('x')
+ok(wait(2000, function() return vim.deep_equal(host('return _G.rows_test.picked'), { 'beta', 'two', 'make it pink' }) end),
+  'x: a pick, then words, asked here')
+eq(pop('return _G.offered'), { 'one=The first', 'two=The second' }, '… from the choices the editor offers')
+local rows_gen = state().gen
+local function rows_act(fields) return act(vim.tbl_extend('force', { view = 'rows', gen = rows_gen, item = 2 }, fields)) end
+eq(rows_act({ action = 'rowstest.here' }), { refused = 'rowstest.here is not one the pop-out may ask for' }, "the row the editor keeps is refused")
+eq(rows_act({ action = 'rowstest.say' }), { refused = 'Say something about the row: needs its words' }, '… one without the words it asks for')
+eq(rows_act({ action = 'rowstest.pick', text = 'why not', choice = 'three' }), { refused = 'that choice is not offered here' },
+  '… and a pick it does not offer')
+eq(pop("return { vim.fn.maparg('z', 'n'), vim.fn.maparg('c', 'n', false, true).desc }"), { '', 'Say something about the row' },
+  "the editor's own row has no key here; the others do")
+-- The editor moves the selection (select); drawn again with a row above, the selection stays on its row.
+host("_G.rows_test.names = { 'alpha', 'new', 'beta', 'gamma' }; local P = require('desk.popout'); local v = P.host.views.rows; v.select = 'row:gamma'; P.redraw(v)")
+ok(wait(2000, function() return state().selected == 'gamma' end), 'the editor selects a row: the pop-out goes there')
+host("_G.rows_test.names = { 'zero', 'alpha', 'new', 'beta', 'gamma' }; local P = require('desk.popout'); P.redraw(P.host.views.rows)")
+ok(wait(2000, function() return popped():find('○ zero', 1, true) end), 'drawn again with a row above')
+eq(state().selected, 'gamma', '… the selection stays on its row')
+-- Two views: one drawn again behind the other stays behind.
+local behind = state().received
+host("local P = require('desk.popout'); local v = P.host.views.graph; v.sent = nil; P.redraw(v)")
+ok(wait(2000, function() return state().received > behind end), 'the graph is drawn again')
+eq(state().shown, 'rows', '… behind: the rows keep the window')
+press('?')
+ok(wait(2000, function() return pop("return vim.api.nvim_win_get_config(0).relative ~= ''") end), '? lists the keys of the rows')
+keys = pop("return table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), '\\n')")
+ok(keys:find('Enter%s+Open the row') and keys:find('c%s+Say something about the row') and keys:find('x%s+Pick for the row')
+  and keys:find('Space Space%s+Home menu') and not keys:find("The editor's own", 1, true), "… its own and the window's:\n" .. keys)
+press('q')
+ok(wait(2000, function() return state().current_win == state().win end), '… q closes the list')
+press('o')
+ok(wait(2000, function() return host('return _G.rows_test.attached') == 'rows' end), 'o: its kind takes it back to the editor')
+ok(wait(2000, function() return state().shown == 'graph' end), '… and the pop-out shows the other view')
+eq(host("return { _G.rows_test.closed, require('desk.popout').host.views.rows == nil }"), { 'rows', true }, '… the rows view is gone from the editor')
 
 -- ─── q: the pop-out closes, the editor stops sending ────────────────────────────────────────────────────────────
 vim.rpcnotify(p, 'nvim_input', 'q')

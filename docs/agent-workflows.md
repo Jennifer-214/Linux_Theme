@@ -362,15 +362,16 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   Enter goes to the selected one; `q` or closing the last window beside it closes it. `p` pins it: it keeps the graph
   it shows (its first line reads `PINNED`) while the cursor goes elsewhere, Enter goes there without re-centring it,
   and saving that graph's file reads it again. `p` again follows the cursor from where it is.
-- **The pop-out**: with a second monitor, `Space Space` → "Pop out the call graph" opens the live graph in a window of
-  its own (kitty, class `desk-popout`): it opens without taking the keyboard, at the side of the screen, and moves to
-  the workspace showing on the other screen (the first one `~/.config/foxml/monitor-layout.conf` lists as secondary
-  that does not hold the editor). `o` in a graph tab or the panel sends that graph there and closes it here; `o` in the
-  pop-out brings it back as the live panel. In the pop-out the same keys move between boxes; Enter goes to the
-  function in the editor and the keyboard stays in the pop-out, Shift+Enter puts the keyboard in the editor too. `p`
-  pins the graph (Enter then visits its boxes one by one) or follows the editor again, where each place Enter goes
-  centres it; `c` centres it on a box, `s` labels the boxes and `gs` shows the selected function in symdeps (as in the
-  graph tab), `Space Space` there is the editor's menu for the selected box, `?` lists the keys and `q` closes it. `Space Tab` in either window puts the keyboard in the other, across screens. The pop-out is
+- **The pop-out**: with a second monitor, `Space Space` → views → "Pop out the call graph" opens the live graph in a
+  window of its own (kitty, class `desk-popout`): it opens without taking the keyboard, at the side of the screen, and
+  moves to the workspace showing on the other screen (the first one `~/.config/foxml/monitor-layout.conf` lists as
+  secondary that does not hold the editor). `o` in a graph tab or the panel sends that graph there and closes it here;
+  `o` in the pop-out brings it back as the live panel. A view there has the keys of its place in the editor (the graph
+  has the graph tab's) beside the window's own: Enter goes to the function in the editor and the keyboard stays in the
+  pop-out, `f` or Shift+Enter puts the keyboard in the editor too. `p` pins the graph (Enter then visits its boxes one by
+  one) or follows the editor again, where each place Enter goes centres it; `c` centres it on a box (pinned there), `s`
+  labels the boxes and `gs` shows the selected function in symdeps (as in the graph tab), `Space Space` there is the
+  editor's menu for the selected box (its first group lists the views), `?` lists the keys and `q` closes it. `Space Tab` in either window puts the keyboard in the other, across screens. The pop-out is
   a Neovim of the same theme that only draws what the editor sends: no language server, no work records, no saved
   places; it names boxes by the drawing it was sent, so a press on a graph that has since changed says "this view
   moved on". With one monitor the row says "requires a second monitor" and graphs stay in the editor; closing the

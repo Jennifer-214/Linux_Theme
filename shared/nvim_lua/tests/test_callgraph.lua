@@ -77,6 +77,14 @@ eq({ G.nav(B, 8, "next"), G.nav(B, 1, "prev"), G.nav(B, 3, "next"), G.nav(B, 5, 
   "Tab/S-Tab: every box in order, wrapping; gg/G: the first and the last")
 eq(G.nav({}, nil, "down"), nil, "no boxes, no selection")
 ok(line_with(drawn.lines, "↓"), "an arrow says who calls whom")
+eq(vim.tbl_map(function(b) return { b.role, b.line == b.top + 1 } end, B),
+  { { "caller", true }, { "caller", true }, { "caller", true }, { "caller", true }, { "caller", true }, { "centre", true }, { "callee", true },
+    { "callee", true } }, "each box says what it is and the line its name is on")
+eq(G.layout({ header = "PINNED", center = { name = "x", detail = "a:1" } }, 30, false).boxes[1].line, 3, "… below a header too")
+-- One-line rows (the pop-out's lists) move as boxes do: a row of boxes is the boxes whose names share a line.
+local rows_list = { { line = 3, x = 0, w = 20 }, { line = 4, x = 0, w = 20 }, { line = 7, x = 0, w = 20 } }
+eq({ G.nav(rows_list, 1, "down"), G.nav(rows_list, 2, "down"), G.nav(rows_list, 3, "down"), G.nav(rows_list, 3, "up"), G.nav(rows_list, 2, "right") },
+  { 2, 3, 3, 2, 2 }, "rows: j and k go row to row, past the blank lines between them; nothing beside one")
 
 local retro = G.layout(graph, 60, true)
 ok(line_with(retro.lines, "CALLERS · 2") and line_with(retro.lines, "┌─") and line_with(retro.lines, "╔═"), "retro: capitals, CP437 single and double boxes")
@@ -159,6 +167,15 @@ local _, middle = named(view, "M.alpha")
 eq(G.selected(view).name, "M.alpha", "the view opens on the centre box")
 eq(api.nvim_win_get_cursor(view.win), { middle.top + 1, middle.name_col }, "… with the cursor on its name")
 eq(painted(view), spans(middle), "only the selected box is highlighted, all four of its lines")
+-- What is here (actions.about): the selected box's function, the graph it is in, its callers and callees by name.
+local A = require("desk.actions")
+eq(A.about({ surface = "callgraph", graph = view }), { title = "M.alpha", excerpt = "M.alpha\ncallers: caller_of_M.alpha\ncallees: callee_of_M.alpha",
+  refs = { { kind = "unit", file = file, line = 2, name = "M.alpha", label = "M.alpha · " .. file .. ":2" },
+    { kind = "graph", file = file, line = 2, name = "M.alpha", label = "the call graph of M.alpha" } } }, "what is here: the selected box's function")
+eq(A.about({ surface = "callgraph", view = { graph = view.graph }, item = view.graph.callees[1] }).refs[1],
+  { kind = "unit", file = file, line = 5, name = "callee_of_M.alpha", label = "callee_of_M.alpha · " .. file .. ":5" },
+  "… in the pop-out, the box its ask names")
+eq({ A.about({ surface = "callgraph", view = {} }) }, { nil, "no box is selected" }, "… and none selected says so")
 key("k")
 local _, caller = named(view, "caller_of_M.alpha")
 eq(G.selected(view).name, "caller_of_M.alpha", "k: the caller above")
@@ -357,12 +374,35 @@ local cli = vim.system({ "nvim", "--headless", "--clean", "-l", here .. "../desk
 local decoded = vim.json.decode(cli.stdout)
 eq(vim.tbl_map(function(x) return x.name end, decoded.files[1].symbols), { "M.alpha", "M.delta", "gamma" }, "the same answer headless, for the notebook")
 
+-- ─── the pop-out's graph: its view kind, drawn as data ─────────────────────────────────────────────────────────────
+local K = G.view_kind
+eq(require("desk.popout").kinds.graph, K, "the graph is the pop-out's view kind 'graph'")
+local pinned_view = K.render({ graph = graph, pinned = true }, 60, "paper")
+eq({ pinned_view.title, pinned_view.state, vim.trim(pinned_view.lines[1]) }, { "call graph · changed_symbols", "PINNED", "PINNED" },
+  "its title and state, and pinned it says so above the graph")
+eq(vim.tbl_map(function(i) return i.name end, pinned_view.items), { "panel", "turn_symbols", "changed_symbols", "unit_of" },
+  "an item per box, in reading order")
+local centre_item = pinned_view.items[3]
+eq({ centre_item.kind, centre_item.centre, centre_item.ref == graph.center, centre_item.key:match("^centre:") ~= nil, centre_item.line },
+  { "box", true, true, true, (line_with(pinned_view.lines, "║ changed_symbols")) }, "… each a box, its function the ref, the cursor on its name")
+local keys_seen = {}
+for _, i in ipairs(pinned_view.items) do keys_seen[i.key] = true end
+eq(vim.tbl_count(keys_seen), 4, "every item has a key of its own")
+local both = { name = "A", detail = "x.lua:1", uri = "file:///x.lua", range = { start = { line = 0, character = 0 }, ["end"] = { line = 0, character = 1 } } }
+local loop = K.render({ graph = { center = { name = "B", detail = "x.lua:5" }, callers = { both }, callees = { both } } }, 60, "paper").items
+ok(#loop == 3 and loop[1].key ~= loop[3].key, "a function both caller and callee: two boxes, two keys")
+eq(vim.tbl_map(function(i) return i.key end, K.render({ graph = graph }, 40, "paper").items), vim.tbl_map(function(i) return i.key end, pinned_view.items),
+  "drawn again (another width, unpinned) the boxes keep their keys")
+local wide = K.render({ graph = graph, pinned = true }, 100, "paper").lines
+eq(wide[#wide], "j/k/h/l move · Enter go · p follow · Space Space menu · ? keys · q close", "its key line: the pop-out's keys, as she reads them")
+eq(vim.tbl_map(function(f) return f.words end, pinned_view.footer), { "move", "go", "follow", "menu", "keys", "close" }, "… from its footer")
+
 -- ─── its keys are rows of the action registry ──────────────────────────────────────────────────────────────────
 local A = require("desk.actions")
 eq(A.problems, {}, "every call graph row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "<BS>", "c", "r", "q", "gs" }, "the graph tab's keys")
-eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "p", "q" }, "the panel's keys")
+eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "<BS>", "c", "r", "q", "gs", "o" }, "the graph tab's keys")
+eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "s", "<CR>", "p", "q", "o" }, "the panel's keys")
 for _, surface in ipairs({ "callgraph", "callgraph-panel" }) do
   local seen, twice = {}, {}
   for _, r in ipairs(A.rows()) do

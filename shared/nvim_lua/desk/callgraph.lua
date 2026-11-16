@@ -45,9 +45,9 @@ local function pad(s, w) return s .. string.rep(' ', math.max(0, w - width_of(s)
 -- graph: { center = item?, callers = {item}?, callees = {item}?, more = {callers, callees}?, message = text?,
 --          notes = {text}?, keys = {{key, words}}? (the key line, last), header = text? (first) }
 -- item: { name, detail, uri?, range?, enc? }. Returns the lines, the highlights and the boxes in reading order
--- (callers row by row, the centre, callees row by row), each with its top line, its byte span on each of its four
--- lines, where its name starts and its column and width on screen. Boxes flow left to right, wrap at `width`, and
--- every row is centred.
+-- (callers row by row, the centre, callees row by row), each with its role (caller, centre, callee), its top line, the
+-- line its name is on (line), its byte span on each of its four lines, where its name starts and its column and width
+-- on screen. Boxes flow left to right, wrap at `width`, and every row is centred.
 function M.layout(graph, width, retro)
   width = math.max(16, width or 80)
   local G = M.glyphs(retro)
@@ -61,7 +61,7 @@ function M.layout(graph, width, retro)
     local left = string.rep(' ', math.max(0, math.floor((width - width_of(text)) / 2)))
     add(left .. text, group, #left, #left + #text)
   end
-  local function boxes(items, frame, border, name_group)
+  local function boxes(items, frame, border, name_group, role)
     local built = {}
     for _, item in ipairs(items) do
       local name, detail = fit(item.name, width - 4, G.ellipsis), fit(item.detail or '', width - 4, G.ellipsis)
@@ -87,7 +87,7 @@ function M.layout(graph, width, retro)
           frame.v .. ' ' .. pad(b.detail, b.inner) .. ' ' .. frame.v,
           frame.bl .. string.rep(frame.h, b.inner + 2) .. frame.br,
         }
-        local box = { item = b.item, top = first, w = b.w, spans = {}, centre = frame == G.double }
+        local box = { item = b.item, role = role, top = first, line = first + 1, w = b.w, spans = {}, centre = frame == G.double }
         for k = 1, 4 do
           if i > 1 then texts[k] = texts[k] .. ' ' end
           if k == 1 then box.x = width_of(texts[1]) end
@@ -107,20 +107,20 @@ function M.layout(graph, width, retro)
       for k = 1, 4 do lines[#lines + 1] = texts[k] end
     end
   end
-  local function group(label, items, more, none)
+  local function group(label, items, more, none, role)
     if items == nil then return end
     centred(G.said(label .. (#items > 0 and (' · ' .. (#items + (more or 0))) or '')), 'DeskCallGraphHead')
-    if #items == 0 then centred(G.said(none), 'DeskCallGraphDim') else boxes(items, G.single, 'DeskCallGraphBox', 'DeskCallGraphName') end
+    if #items == 0 then centred(G.said(none), 'DeskCallGraphDim') else boxes(items, G.single, 'DeskCallGraphBox', 'DeskCallGraphName', role) end
     if (more or 0) > 0 then centred(G.said('+' .. more .. ' more'), 'DeskCallGraphDim') end
   end
   local more = graph.more or {}
-  group('callers', graph.callers, more.callers, 'no callers found')
+  group('callers', graph.callers, more.callers, 'no callers found', 'caller')
   if graph.center then
     if graph.callers then centred(G.down, 'DeskCallGraphBox') end
-    boxes({ graph.center }, G.double, 'DeskCallGraphCentre', 'DeskCallGraphCentre')
+    boxes({ graph.center }, G.double, 'DeskCallGraphCentre', 'DeskCallGraphCentre', 'centre')
     if graph.callees then centred(G.down, 'DeskCallGraphBox') end
   end
-  group('callees', graph.callees, more.callees, 'calls nothing found')
+  group('callees', graph.callees, more.callees, 'calls nothing found', 'callee')
   if graph.message then
     if #lines > 0 then add('') end
     for _, line in ipairs(vim.split(graph.message, '\n')) do centred(G.said(fit(line, width, G.ellipsis)), 'DeskCallGraphDim') end
@@ -154,7 +154,7 @@ function M.layout(graph, width, retro)
     table.insert(lines, 1, left .. text)
     for _, m in ipairs(marks) do m[1] = m[1] + 1 end
     for _, box in ipairs(boxlist) do
-      box.top = box.top + 1
+      box.top, box.line = box.top + 1, box.line + 1
       for _, span in ipairs(box.spans) do span[1] = span[1] + 1 end
     end
     marks[#marks + 1] = { 1, #left, #left + #text, 'DeskCallGraphKey', 1 }
@@ -173,6 +173,7 @@ end
 
 -- From box `index`, the one a move goes to: down/up the nearest by horizontal centre in the row below/above (ties go
 -- left), left/right within the row, next/prev through every box (wrapping), first/last. Where nothing is, it stays.
+-- A row of boxes is the boxes whose names share a line, so a list of one-line rows (the pop-out's) moves the same way.
 function M.nav(boxes, index, how)
   local n = #boxes
   if n == 0 then return nil end
@@ -184,18 +185,18 @@ function M.nav(boxes, index, how)
   local here = boxes[index]
   if how == 'left' or how == 'right' then
     local j = index + (how == 'right' and 1 or -1)
-    return boxes[j] and boxes[j].top == here.top and j or index
+    return boxes[j] and boxes[j].line == here.line and j or index
   end
-  local tops, seen = {}, {}
-  for _, b in ipairs(boxes) do if not seen[b.top] then seen[b.top] = true; tops[#tops + 1] = b.top end end
-  table.sort(tops)
+  local lines, seen = {}, {}
+  for _, b in ipairs(boxes) do if not seen[b.line] then seen[b.line] = true; lines[#lines + 1] = b.line end end
+  table.sort(lines)
   local row
-  for i, top in ipairs(tops) do if top == here.top then row = i end end
-  local want = tops[row + (how == 'down' and 1 or -1)]
+  for i, line in ipairs(lines) do if line == here.line then row = i end end
+  local want = lines[row + (how == 'down' and 1 or -1)]
   if not want then return index end
   local centre, best, gap = here.x + here.w / 2, index, math.huge
   for i, b in ipairs(boxes) do
-    local d = b.top == want and math.abs(b.x + b.w / 2 - centre)
+    local d = b.line == want and math.abs(b.x + b.w / 2 - centre)
     if d and d < gap then best, gap = i, d end
   end
   return best
@@ -246,7 +247,7 @@ function M.select(s, index, place)
   if not box then return end
   if s.index ~= index then s.index = index; paint(s) end
   if place and s.win and api.nvim_win_is_valid(s.win) and api.nvim_win_get_buf(s.win) == s.buf then
-    pcall(api.nvim_win_set_cursor, s.win, { box.top + 1, box.name_col })
+    pcall(api.nvim_win_set_cursor, s.win, { box.line, box.name_col })
   end
 end
 
@@ -837,15 +838,20 @@ end
 -- reference and the pop-out's ? all read them. The graph tab is the 'callgraph' surface and the panel
 -- 'callgraph-panel'; a run gets ctx.graph, the one it was pressed in. The key lines drawn in the graph take their keys
 -- from these rows and keep their own words (M.typed).
+-- The pop-out's graph (its view kind, below) has the graph tab's keys: the moves and the labels are drawn there, on
+-- its copy (ctx.copy); Enter, c and gs are remote, run here with ctx.view (that view) and ctx.item (the box's item).
 local function go(s)
   local item = M.selected(s)
   if item then jump(item, s == panel and panel.source_win or s.origin) end
 end
+local popout_centre, popout_symdeps   -- the pop-out's c and gs, with its view kind below
+local function pop() return require('desk.popout') end
 local GRAPH, BOTH = 'callgraph', { 'callgraph', 'callgraph-panel' }
 local function moving(how, key, name, about, line, doc)
-  return { id = 'callgraph.' .. how, group = 'Call graph', name = name, about = about, key = key, on = BOTH, menu = false,
-    line = line and ('callgraph.' .. line) or nil, doc = doc, run = function(ctx) M.move(ctx.graph, how) end }
+  return { id = 'callgraph.' .. how, group = 'Call graph', name = name, about = about, key = key, on = BOTH, menu = false, drawn = true,
+    line = line and ('callgraph.' .. line) or nil, doc = doc, run = function(ctx) M.move(ctx.copy or ctx.graph, how) end }
 end
+local function picked(ctx) if ctx.view and not ctx.item then return 'no box is selected' end end
 local ROWS = actions.add({
   { id = 'callgraph.open', group = 'This function', name = 'Call graph of this function', key = '<leader>cc', on = 'editor', remote = true,
     also = '`:CallGraph`',
@@ -865,15 +871,19 @@ local ROWS = actions.add({
   moving('prev', '<S-Tab>', 'The previous box', 'The previous box, wrapping', 'next'),
   moving('first', 'gg', 'The first box', 'The first box', 'next'),
   moving('last', 'G', 'The last box', 'The last box', 'next'),
-  { id = 'callgraph.jump', group = 'Call graph', name = 'Jump to a box by its label', key = 's', on = BOTH, menu = false,
+  { id = 'callgraph.jump', group = 'Call graph', name = 'Jump to a box by its label', key = 's', on = BOTH, menu = false, drawn = true,
     available = function() return require('desk.nav').labels_ready() end,
     about = 'Labels on the boxes on screen, as `s` draws them in code (flash.nvim): typing one selects that box, as `j` and `k` would; Enter still goes',
-    run = function(ctx) M.jump_boxes(ctx.graph) end },
+    run = function(ctx) M.jump_boxes(ctx.copy or ctx.graph) end },
   { id = 'callgraph.go', group = 'Call graph', name = 'Go to the selected function', key = '<CR>', on = BOTH, also = 'a double click',
+    remote = true, available = picked,
     about = "Go to the selected box's function, in the code window the graph came from; the graph stays open (a click, or any motion that lands in a box, selects it)",
-    run = function(ctx) go(ctx.graph) end },
+    run = function(ctx)
+      if ctx.view then if ctx.item then jump(ctx.item, ctx.origin) end; return end
+      go(ctx.graph)
+    end },
   { id = 'callgraph.go-mouse', group = 'Call graph', name = 'Go to the function clicked', key = '<2-LeftMouse>', on = BOTH, line = 'callgraph.go',
-    menu = false, doc = false,
+    menu = false, doc = false, remote = false,
     run = function(ctx)
       local s, pos = ctx.graph, vim.fn.getmousepos()
       if pos.winid == s.win and (pos.line or 0) > 0 then
@@ -882,26 +892,39 @@ local ROWS = actions.add({
       end
       go(s)
     end },
-  { id = 'callgraph.back', group = 'Call graph', name = 'Back to the code, the graph left open', key = '<BS>', on = GRAPH,
+  { id = 'callgraph.back', group = 'Call graph', name = 'Back to the code, the graph left open', key = '<BS>', on = GRAPH, remote = false,
     about = 'Back to that code window as it was, the graph left open',
     run = function(ctx)
       if api.nvim_win_is_valid(ctx.graph.origin) then api.nvim_set_current_win(ctx.graph.origin)
       elseif #api.nvim_list_tabpages() > 1 then vim.cmd('tabprevious') end
     end },
-  { id = 'callgraph.centre', group = 'Call graph', name = 'Centre the graph on the selected function', key = 'c', on = GRAPH,
-    about = 'Centre the graph on the selected box: its own callers and callees',
+  { id = 'callgraph.centre', group = 'Call graph', name = 'Centre the graph on the selected function', key = 'c', on = GRAPH, remote = true,
+    about = 'Centre the graph on the selected box: its own callers and callees (in the pop-out the graph is pinned there)',
+    available = function(ctx)
+      if not ctx.view then return end
+      if not ctx.item then return 'no box is selected' end
+      return ctx.item.raw ~= nil or 'this box is not from the language server yet'
+    end,
     run = function(ctx)
+      if ctx.view then return popout_centre(ctx.view, ctx.item) end
       local view, item = ctx.graph, M.selected(ctx.graph)
       if item and item.raw then view.target = { buf = view.source, item = item, name = item.name }; load(view, view.target) end
     end },
-  { id = 'callgraph.reload', group = 'Call graph', name = 'Read the graph again', key = 'r', on = GRAPH,
+  { id = 'callgraph.reload', group = 'Call graph', name = 'Read the graph again', key = 'r', on = GRAPH, remote = false,
     about = 'Ask the language server for the graph again', run = function(ctx) load(ctx.graph, ctx.graph.target) end },
-  { id = 'callgraph.close', group = 'Call graph', name = 'Close the call graph', key = 'q', on = GRAPH, about = 'Close the graph tab',
+  { id = 'callgraph.close', group = 'Call graph', name = 'Close the call graph', key = 'q', on = GRAPH, about = 'Close the graph tab', remote = false,
     run = function(ctx) M.close_view(ctx.graph.buf) end },
-  { id = 'callgraph.symdeps', group = 'Call graph', name = 'This function in symdeps', key = 'gs', on = GRAPH,
-    about = "The centre function in symdeps' card (C and C++)",
-    available = function() return actions.symdeps() or 'requires symdeps' end,
+  { id = 'callgraph.symdeps', group = 'Call graph', name = 'This function in symdeps', key = 'gs', on = GRAPH, remote = true,
+    about = "The centre function in symdeps' card (C and C++); in the pop-out, the selected box's function, shown here",
+    available = function(ctx)
+      if not actions.symdeps() then return 'requires symdeps' end
+      if not ctx.view then return end
+      if not ctx.item then return 'no box is selected' end
+      local ft = vim.filetype.match({ filename = ctx.item.uri and vim.uri_to_fname(ctx.item.uri) or '' })
+      return (ft == 'c' or ft == 'cpp') or 'requires a C or C++ function'
+    end,
     run = function(ctx)
+      if ctx.view then return popout_symdeps(ctx) end
       local view = ctx.graph
       local center = view.graph and view.graph.center
       if not center or not center.uri then return end
@@ -918,15 +941,16 @@ local ROWS = actions.add({
     about = 'Pin the panel to the graph it shows (PINNED), or follow the cursor again', run = function() M.panel_pin() end },
   { id = 'callgraph.panel-close', group = 'Call graph', name = 'Close the call graph panel', key = 'q', on = 'callgraph-panel',
     about = 'Close the panel', run = function() M.panel_close() end },
+  -- o here sends the graph to the pop-out; o there brings it back (desk.popout's own row, popout.back).
+  { id = 'callgraph.popout', group = 'Call graph', name = 'Send this graph to the pop-out', key = 'o', on = BOTH, remote = false,
+    about = 'Move this graph to the pop-out on the other screen (opening it) and close it here; o there brings it back as a split',
+    available = function() return pop().can_pop() end, run = function(ctx) pop().show('graph', ctx) end },
 })
 
 -- The keys a key line shows for these rows, as typed ("j/k/h/l", "Enter", "BS").
 function M.typed(...)
   local keys = {}
-  for _, id in ipairs({ ... }) do
-    local key = actions.key('callgraph.' .. id)
-    keys[#keys + 1] = key == '<CR>' and 'Enter' or key == '<BS>' and 'BS' or key
-  end
+  for _, id in ipairs({ ... }) do keys[#keys + 1] = actions.spell(actions.key('callgraph.' .. id)) end
   return table.concat(keys, '/')
 end
 -- ? (desk.keys, every view's) lists them all, the ones these lines leave out too.
@@ -937,6 +961,282 @@ function M.panel_keys(pinned)
   return { { M.typed('down', 'up', 'left', 'right'), 'move' }, { M.typed('go'), 'go' }, { M.typed('pin'), pinned and 'unpin' or 'pin' },
     { M.typed('panel-close'), 'close' }, KEYS }
 end
+
+-- ─── what is here: the selected box ────────────────────────────────────────────────────────────────────────────
+-- actions.about's answer in a graph (the tab, the panel, and the pop-out's graph through its ctx_for): the selected
+-- box's function as a unit, the graph it is in, and its callers and callees by name.
+local function relative(file)
+  local root = file ~= '' and vim.fs.root(file, '.git')
+  root = root and (uv.fs_realpath(root) or root)
+  local real = uv.fs_realpath(file) or file
+  return (root and real:sub(1, #root + 1) == root .. '/') and real:sub(#root + 2) or file
+end
+local function spot(item)
+  local file = item.uri and vim.uri_to_fname(item.uri) or (item.buf and api.nvim_buf_is_valid(item.buf) and api.nvim_buf_get_name(item.buf)) or ''
+  local line = item.range and item.range.start.line + 1 or (item.row and item.row + 1) or nil
+  return relative(file), line
+end
+local function about(ctx)
+  local item, graph
+  if ctx.view then item, graph = ctx.item, ctx.view.graph
+  elseif ctx.graph then item, graph = M.selected(ctx.graph), ctx.graph.graph end
+  if not item then return nil, 'no box is selected' end
+  graph = graph or {}
+  local file, line = spot(item)
+  local refs = { { kind = 'unit', file = file, line = line, name = item.name, label = item.name .. (line and (' · ' .. file .. ':' .. line) or '') } }
+  local center = graph.center
+  if center then
+    local cfile, cline = spot(center)
+    refs[#refs + 1] = { kind = 'graph', file = cfile, line = cline, name = center.name, label = 'the call graph of ' .. center.name }
+  end
+  local function names(list) return table.concat(vim.tbl_map(function(i) return i.name end, list or {}), ', ') end
+  local excerpt = ('%s\ncallers: %s\ncallees: %s'):format(center and center.name or item.name, names(graph.callers), names(graph.callees))
+  return { title = item.name, refs = refs, excerpt = excerpt:sub(1, 2000) }
+end
+actions.provide('callgraph', about)
+actions.provide('callgraph-panel', about)
+
+-- ─── in the pop-out: desk.popout's first view kind ─────────────────────────────────────────────────────────────
+-- The live graph on the other screen. It follows the function under the cursor of the code window it came from, as
+-- the panel does (after the cursor rests, or at once on symdeps' FoxUnitChanged), until p there pins it. Each view
+-- keeps its own following: cache (answers until that file is saved), key (the function drawn), followed (the window
+-- followed), win (where Enter goes), timer, inflight and wanted (one request at a time), stop (a graph read again).
+local function code_window(win)
+  if not (win and api.nvim_win_is_valid(win)) or api.nvim_win_get_config(win).relative ~= '' then return false end
+  local buf = api.nvim_win_get_buf(win)
+  return vim.bo[buf].buftype == '' and vim.b[buf].desk_callgraph == nil
+end
+local function centre_of(target) return target.item or placeholder(target) end
+local function follow_key(t) return vim.uri_from_bufnr(t.buf) .. '\0' .. tostring(t.name) .. '\0' .. tostring(t.row) end
+
+-- The graph of target ({buf, row, col, name} or {buf, item}) from the language server: done(graph) always, with the
+-- reason as its message when there is none. Returns a function that stops it.
+local function read(target, done, waiting)
+  local stop_fetch
+  local stop_wait = M.ready(target.buf, function(client, why)
+    if not client then return done({ center = centre_of(target), message = why }) end
+    stop_fetch = M.fetch(client, target, function(graph, err)
+      if graph and why then graph.notes = { why } end
+      done(graph or { center = centre_of(target), message = err })
+    end)
+  end, waiting)
+  return function() stop_wait(); if stop_fetch then stop_fetch() end end
+end
+
+local function show_followed(view, graph, target)
+  if view.gone or view.pinned then return end
+  view.graph, view.target = graph, target or view.target
+  pop().redraw(view)
+end
+
+local function follow_request(view)
+  if view.gone or view.inflight or not view.wanted then return end
+  local target = view.wanted
+  view.wanted = nil
+  local key = follow_key(target)
+  if view.cache[key] then
+    if view.key == target.key then show_followed(view, view.cache[key], target) end
+    return follow_request(view)
+  end
+  view.inflight = target
+  view.stop_follow = read(target, function(graph)
+    view.inflight, view.stop_follow = nil, nil
+    view.cache[key] = graph
+    if view.key == target.key then show_followed(view, graph, target) end
+    follow_request(view)
+  end, function(message) if view.key == target.key then show_followed(view, { center = centre_of(target), message = message }, target) end end)
+end
+
+-- Where the cursor is now in the followed window: drawn from the cache, or asked. Pinned, the graph stays put.
+local function follow_update(view)
+  if view.gone or view.pinned or not code_window(view.followed) then return end
+  local win = view.followed
+  local buf, cursor = api.nvim_win_get_buf(win), api.nvim_win_get_cursor(win)
+  M.with_tree(buf, function(tree)
+    if view.gone or view.pinned or not api.nvim_buf_is_valid(buf) then return end
+    local target, why = M.symbol_in(tree, buf, cursor[1] - 1, cursor[2])
+    if not tree then target, why = nil, 'no treesitter parser for this file type' end
+    local key = target and target.key or ('none:' .. buf .. ':' .. tostring(why))
+    if key == view.key then return end
+    view.key, view.win = key, win
+    if not target then return show_followed(view, { message = why }, nil) end
+    local cached = view.cache[follow_key(target)]
+    if cached then view.wanted = nil; return show_followed(view, cached, target) end
+    show_followed(view, { center = centre_of(target), message = 'reading the call hierarchy…' }, target)
+    -- Back on the function already being asked about: its answer is on the way.
+    if view.inflight and view.inflight.key == target.key then view.wanted = nil; return end
+    view.wanted = target
+    follow_request(view)
+  end)
+end
+
+-- A cursor move in a window: the graph waits for the cursor to rest. Pinned, only the window followed is kept.
+local function follow_moved(view, win)
+  if not code_window(win) then return end
+  view.followed = win
+  if view.pinned then return end
+  view.timer = view.timer or uv.new_timer()
+  view.timer:stop()
+  view.timer:start(M.DEBOUNCE_MS, 0, vim.schedule_wrap(function() follow_update(view) end))
+end
+
+local function forget_file(view, buf)
+  local uri = vim.uri_from_bufnr(buf)
+  for key in pairs(view.cache) do if key:sub(1, #uri + 1) == uri .. '\0' then view.cache[key] = nil end end
+  if view.key and (view.key:match('^' .. buf .. ':') or view.key:match('^none:' .. buf .. ':')) then view.key = nil end
+end
+
+-- A graph read for the view (pinned: its own file was saved; centred; sent here still being read). waiting: what to
+-- show meanwhile, with the message.
+local function read_for(view, target, waiting)
+  if view.stop then view.stop() end
+  view.stop = read(target, function(graph)
+    view.stop = nil
+    if not view.gone then view.graph = graph; pop().redraw(view) end
+  end, waiting and function(message) if not view.gone then view.graph = { center = waiting, message = message }; pop().redraw(view) end end)
+end
+
+-- A pinned graph is read again once its own file is saved (by the server's item when it has one: a save can move it).
+local function refresh_pinned(view, buf)
+  local target = view.pinned and view.target
+  if not (target and target.buf == buf) then return end
+  local center = view.graph and view.graph.center
+  read_for(view, center and center.raw and vim.tbl_extend('force', {}, target, { item = center }) or target)
+end
+
+-- The code window a box is gone to in: the one the graph came from, else the current one, else the first in this tab.
+local function target_window(view)
+  if code_window(view.win) then return view.win end
+  local here = api.nvim_get_current_win()
+  if code_window(here) then return here end
+  for _, win in ipairs(api.nvim_tabpage_list_wins(0)) do if code_window(win) then return win end end
+end
+
+-- c in the pop-out: the graph centred on a box, pinned there.
+popout_centre = function(view, item)
+  if not (item and item.raw) then return end
+  local buf = view.target and view.target.buf
+  if not (buf and api.nvim_buf_is_valid(buf)) then buf = api.nvim_win_get_buf(target_window(view) or 0) end
+  local target = { buf = buf, item = item, name = item.name }
+  view.pinned, view.target, view.graph = true, target, { center = item, message = 'reading the call hierarchy…' }
+  pop().redraw(view)
+  read_for(view, target, item)
+end
+
+-- gs in the pop-out: the box's function here, in symdeps' card.
+popout_symdeps = function(ctx)
+  if not ctx.item then return end
+  jump(ctx.item, ctx.origin)
+  local found, card = pcall(require, 'fox-symdeps.card')
+  local plugin = package.loaded['fox-symdeps']
+  local inspect = (found and type(card) == 'table' and type(card.inspect_cursor) == 'function' and card.inspect_cursor)
+    or (type(plugin) == 'table' and type(plugin.inspect_cursor) == 'function' and plugin.inspect_cursor) or nil
+  if not inspect then return tell('This symdeps version does not expose its card.') end
+  inspect()
+end
+
+-- The view, from where it was asked: o in the graph tab or the panel (ctx.graph) sends that graph, which leaves the
+-- editor (a tab shows one chosen function, so it arrives pinned; the panel arrives as it was); from anywhere else it
+-- follows the function under the cursor of the window it was asked in.
+local function open_view(view, ctx)
+  view.cache = view.cache or {}
+  local s = ctx.graph
+  if s then
+    local from_panel = s == panel
+    view.graph, view.target = s.graph, s.target
+    view.pinned = not from_panel or s.pinned == true
+    view.win = from_panel and s.source_win or s.origin
+    view.key, view.followed = nil, view.win
+    if from_panel then M.panel_close() else M.close_view(s.buf) end
+    local graph = view.graph or {}
+    -- Still being read when it left: read again for the pop-out.
+    if view.pinned and view.target and not (graph.callers or graph.callees) then read_for(view, view.target)
+    elseif not view.pinned then follow_update(view) end
+    return
+  end
+  view.pinned, view.key = false, nil
+  if code_window(ctx.win) then view.followed, view.win = ctx.win, ctx.win; follow_update(view) end
+end
+
+local function follow(view, event)
+  if event.type == 'moved' then return follow_moved(view, event.win) end
+  if event.type == 'unit' then
+    -- symdeps' follow card moved: the graph moves with it, at once.
+    if not code_window(event.win) then return end
+    view.followed = event.win
+    if view.timer then view.timer:stop() end
+    return follow_update(view)
+  end
+  if event.type == 'saved' or event.type == 'attached' then
+    forget_file(view, event.buf)
+    refresh_pinned(view, event.buf)
+    return follow_moved(view, api.nvim_get_current_win())
+  end
+  if event.type == 'pin' and not view.pinned then
+    -- Following again, from where the cursor is now.
+    view.key = nil
+    if not code_window(view.followed) then view.followed = target_window(view) end
+    follow_update(view)
+  end
+end
+
+local GROUPS = { 'DeskCallGraphCentre', 'DeskCallGraphBox', 'DeskCallGraphName', 'DeskCallGraphDim', 'DeskCallGraphHead',
+  'DeskCallGraphKey', 'DeskCallGraphSelected' }
+local function footer(pinned)
+  return { { ids = { 'callgraph.down', 'callgraph.up', 'callgraph.left', 'callgraph.right' }, words = 'move' },
+    { ids = { 'callgraph.go' }, words = 'go' }, { ids = { 'popout.pin' }, words = pinned and 'follow' or 'pin' },
+    { ids = { 'popout.home' }, words = 'menu' }, { ids = { 'popout.keys' }, words = 'keys' }, { ids = { 'popout.close' }, words = 'close' } }
+end
+-- A box's key: its role, its name and where it is, so the same box keeps its selection when the graph is drawn again.
+local function box_key(box)
+  local item = box.item or {}
+  local where = item.uri and item.range and (item.uri .. ':' .. item.range.start.line) or (tostring(item.buf) .. ':' .. tostring(item.row))
+  local name = tostring(item.name or '')
+  return (box.role or 'box') .. ':' .. vim.fn.sha256(where .. '\0' .. name):sub(1, 16) .. ':' .. name:sub(1, 80)
+end
+local function render_view(view, width, style)
+  highlights()
+  local graph = vim.tbl_extend('force', {}, view.graph or { message = 'move the cursor into a function' },
+    { keys = pop().key_pairs(footer(view.pinned)), header = view.pinned and 'PINNED' or nil })
+  local drawn = M.layout(graph, math.max(16, width - 2), style == 'retro')
+  local items = {}
+  for i, box in ipairs(drawn.boxes) do
+    items[i] = { key = box_key(box), kind = 'box', line = box.line, x = box.x, w = box.w, name_col = box.name_col, spans = box.spans,
+      centre = box.centre, name = tostring(box.item.name or ''), ref = box.item }
+  end
+  local center = graph.center
+  return { title = 'call graph' .. (center and center.name and (' · ' .. center.name) or ''), state = view.pinned and 'PINNED' or 'following',
+    lines = drawn.lines, marks = drawn.marks, hl = GROUPS, items = items, footer = footer(view.pinned) }
+end
+
+M.view_kind = {
+  name = 'graph', title = 'call graph', surface = GRAPH,
+  about = 'The live call graph in the pop-out, a window of its own on the other screen: it follows the function under the cursor (p there pins it), and Enter there goes to a function here while the keyboard stays there',
+  -- In a graph its own key sends it (callgraph.popout).
+  available = function(ctx) if not ctx.remote and (ctx.surface == 'callgraph' or ctx.surface == 'callgraph-panel') then return false end end,
+  open = open_view,
+  render = render_view,
+  follow = follow,
+  ctx_for = function(view, ref)
+    local win = target_window(view)
+    local ctx = actions.context(win or api.nvim_get_current_win())
+    ctx.surface, ctx.item, ctx.origin = GRAPH, ref, win
+    return ctx
+  end,
+  -- o in the pop-out: back as the live panel beside the code it came from, pinned when it was pinned there.
+  attach = function(view)
+    if code_window(view.win) then pcall(api.nvim_set_current_win, view.win) end
+    M.panel_open_with(view.graph, view.target, view.pinned)
+  end,
+  close = function(view)
+    if view.timer then view.timer:stop(); view.timer:close(); view.timer = nil end
+    if view.stop_follow then view.stop_follow() end
+    if view.stop then view.stop() end
+    view.inflight, view.wanted, view.stop_follow, view.stop = nil, nil, nil, nil
+  end,
+}
+-- Registered as the module loads (not run headless for the notebook), so its Views row is in the registry.
+if not headless then pop().kind(M.view_kind) end
 
 -- ─── setup ─────────────────────────────────────────────────────────────────────────────────────────────────────
 local set = false

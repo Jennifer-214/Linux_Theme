@@ -250,7 +250,7 @@ class NvimKeys(unittest.TestCase):
                          'NVIM-KEYBINDS.md differs from the call graph rows: run python3 tests/test_nvim_keys.py --write')
         table = callgraph_reference()
         for line in ('`Space cc`, `:CallGraph`', '`j` / `k` in a graph', '`p` in the panel', '`s` in a graph', '`gs` in the graph tab',
-                     '`?` in a graph'):
+                     '`o` in a graph', '`?` in a graph'):
             self.assertIn(line, table)
         self.assertTrue(table.rstrip().splitlines()[-2].startswith('| `?`'), 'the shared ? comes after the graph\'s own keys')
 
@@ -270,7 +270,8 @@ class NvimKeys(unittest.TestCase):
         self.assertEqual(text, with_reference(text, popout_reference(), POPOUT_BEGIN, POPOUT_END),
                          'NVIM-KEYBINDS.md differs from the pop-out rows: run python3 tests/test_nvim_keys.py --write')
         table = popout_reference()
-        for line in ('| `Space Tab` |', '`o` in a graph', '`Enter` in the pop-out, a double click', '`Space Tab` in the pop-out'):
+        # The window's own keys; a view's keys there are its surface's (the call graph's are in its table).
+        for line in ('| `Space Tab` |', '`f` / `Shift+Enter` in the pop-out', '`o` in the pop-out', '`Space Tab` in the pop-out'):
             self.assertIn(line, table)
 
     def test_the_map_reference_is_generated_from_its_rows(self):

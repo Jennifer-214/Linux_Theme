@@ -386,9 +386,29 @@ for _, d in ipairs(offered) do
   for k, v in pairs(d) do if type(v) == "function" then eq(k, "plain data", "what the pop-out is sent has no code") end end
 end
 
--- The one speller: the menus' key lists and the call graph's key lines spell with it.
+-- ─── the pop-out's view kinds: every row on a kind's surface says where it runs ─────────────────────────────────────
+local P = require("desk.popout")
+ok(P.kinds.graph and P.kinds.graph.surface == "callgraph", "the call graph registers its view kind, on the graph tab's surface")
+for name, kind in pairs(P.kinds) do
+  local unsaid = {}
+  for _, r in ipairs(A.rows()) do
+    local on = type(r.on) == "table" and r.on or { r.on }
+    if vim.tbl_contains(on, kind.surface) and not r.drawn and r.remote == nil then unsaid[#unsaid + 1] = r.id end
+  end
+  eq(unsaid, {}, name .. ": every row on " .. kind.surface .. " is drawn, remote, or says remote = false")
+  local bound, clashes = A.popout_rows(kind.surface)
+  eq(clashes, {}, name .. ": no row of its surface is on a key the pop-out's own rows take")
+  local stray = {}
+  for _, r in ipairs(bound) do
+    local on = type(r.on) == "table" and r.on or { r.on }
+    if not (r.drawn or r.remote or vim.tbl_contains(on, "popout")) then stray[#stray + 1] = r.id end
+  end
+  eq(stray, {}, name .. ": in the pop-out only its drawn and remote rows, and the window's own")
+end
+-- The one speller: the menus' key lists, the call graph's key lines and the pop-out spell with it.
 eq(Menu.typed, A.spell, "desk.menu spells keys with actions.spell")
 eq(require("desk.callgraph").typed("go", "back", "down"), "Enter/BS/j", "the call graph's key lines too")
+eq(P.shown_key, nil, "the pop-out has no speller of its own")
 
 vim.fn.delete(dir, "rf")
 print(string.format("test_actions: %d passed%s", passed, failed > 0 and (", " .. failed .. " failed") or ""))
