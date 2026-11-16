@@ -556,23 +556,27 @@ long long failed_before(const J& job) {
     }
     return n;
 }
-bool finish(J& j, int code, bool truncated) {
+// said: what the adapter reported besides the exit. "unknown" (why): it lost track of the command (moved to the
+// background, restarted), so the end is not known and the run is never a pass.
+bool finish(J& j, int code, bool truncated, const J& said = J::object()) {
     if (!j.is_object()) return false;
-    j["ended"] = now(); j["exit"] = code; j["truncated"] = truncated;
+    const bool unknown = said.contains("unknown");
+    j["ended"] = now(); j["exit"] = unknown ? J() : J(code); j["truncated"] = truncated;
     j["failedBefore"] = failed_before(j);
     // A declared tool's run is its answer, not a test run, and its figures are the ones it gives; toolio's exit 1 is an
     // answer with findings (docs/desk-tools.md).
     const bool tool = str(j, "kind") == "tool";
     const auto format = tool ? str(j.value("tool", J::object()), "format") : std::string();
     const bool answered = code == 0 || (code == 1 && (format == "toolio" || format == "fox-symdeps/2"));
-    j["state"] = answered ? "passed" : code >= 128 || code < 0 ? "interrupted" : "failed";
+    j["state"] = unknown ? "unknown" : answered ? "passed" : code >= 128 || code < 0 ? "interrupted" : "failed";
+    if (unknown) j["stateWhy"] = said["unknown"]; else j.erase("stateWhy");
     const auto log = read(run_dir(str(j, "id")) / "output.log");
     j["tests"] = tool ? J{{"passed", nullptr}, {"failed", nullptr}, {"failures", J::array()}, {"scope", "reported"}}
                       : parse_tests(log, str(j, "root"), str(j, "cwd"));
     j["metrics"] = tool ? tool_figures(j) : extract_metrics(log, str(j, "root"), j["tests"]);
     j["testRun"] = !tool && (str(j, "kind") == "tests" || !j["tests"]["passed"].is_null() || !j["tests"]["failed"].is_null());
     if (!same_source(j["snapshot"], snapshot(str(j, "root")))) j["changedDuringRun"] = true;
-    if (j.value("changedDuringRun", false) || truncated || num(j["tests"], "failed") > 0) j["baselineEligible"] = false;
+    if (unknown || j.value("changedDuringRun", false) || truncated || num(j["tests"], "failed") > 0) j["baselineEligible"] = false;
     else j["baselineEligible"] = j["testRun"].get<bool>() && code == 0 && num(j["tests"], "passed") > 0 && j["snapshot"].value("complete", false);
     if (!save_run(run_dir(str(j, "id")), j)) return false;
     return true;
@@ -1634,7 +1638,7 @@ int dispatch(int argc, char** argv) {
             std::cout << "desk-work run [--root DIR] [--session ID] [--title TEXT] -- COMMAND [ARGS...]\n"
                          "desk-work jobs | overview [--root DIR...] | notebook --root DIR | worktrees --root DIR\n"
                          "desk-work begin --root DIR --pid PID|parent --command TEXT [--session ID --title TEXT --adapter claude|pi|shell --instance TOKEN]\n"
-                         "desk-work finish --id RUN --exit N [--output - --instance TOKEN --pid PID]\n"
+                         "desk-work finish --id RUN --exit N | --state unknown [--why TEXT] [--output - --instance TOKEN --pid PID]\n"
                          "desk-work task-add --root DIR --text TEXT | task-toggle --root DIR --id ID [--done yes]\n"
                          "desk-work tests --root DIR | compare --id RUN | metrics --root DIR [--job RUN] | metrics-parse --root DIR < LOG | reviewed --root DIR --sha SHA\n"
                          "desk-work plan|plan-pin --root DIR --session ID [--file PLAN.md --step TEXT]\n"
@@ -1772,7 +1776,12 @@ int dispatch(int argc, char** argv) {
             if (!out.is_object()) return 1;
             std::cout << str(out, "id") << '\n'; return 0;
         } else if (cmd == "finish") {
-            auto j = load_run(id); const int code = std::stoi(opts["--exit"]);
+            // "--state unknown": the adapter lost track of the command (it moved to the background); no exit is known.
+            if (!opts["--state"].empty() && opts["--state"] != "unknown") return 2;
+            const bool unknown = opts["--state"] == "unknown";
+            J said = J::object();
+            if (unknown) said["unknown"] = clean(opts["--why"].empty() ? "the adapter lost track of the command" : opts["--why"]).substr(0, 300);
+            auto j = load_run(id); const int code = unknown && opts["--exit"].empty() ? -1 : std::stoi(opts["--exit"]);
             const auto instance = opts["--instance"];
             if (!instance.empty() && !instance_ok(instance)) return 2;
             // The caller is the process that asks (an adapter spawns desk-work itself), unless it names one.
@@ -1790,9 +1799,9 @@ int dispatch(int argc, char** argv) {
                 if (output.size() > cap) { output.resize(cap); truncated = true; }
                 if (atomic(run_dir(str(j, "id")) / "output.log", output)) j["observed"] = false;
             }
-            const bool ok = j.is_object() && finish(j, code, truncated);
+            const bool ok = j.is_object() && finish(j, code, truncated, said);
             // A stop (Ctrl+C, a denied or interrupted call) is the person's own doing; only real failures notify.
-            if (ok && code != 0 && code < 128) notify_failure(str(j, "title", str(j, "command")), id);
+            if (ok && !unknown && code != 0 && code < 128) notify_failure(str(j, "title", str(j, "command")), id);
             out = J{{"ok", ok}};
             if (ok) { out["state"] = j["state"]; out["testRun"] = j["testRun"]; out["failedBefore"] = j["failedBefore"]; }
         } else if (cmd == "activity") {

@@ -796,6 +796,24 @@ class Work(unittest.TestCase):
                            cwd=self.repo, env=self.env, capture_output=True, text=True, timeout=30)
         self.assertEqual(json.loads(p.stdout)['state'], 'passed', 'the recorded process naming no instance is its owner')
 
+    def finished(self, run, *args, output='', code=0):
+        """desk-work finish for a run recorded from outside, as an adapter sends it; its answer."""
+        p = subprocess.run([str(BIN), 'finish', '--id', run, '--output', '-', *map(str, args)], input=output,
+                           cwd=self.repo, env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(p.returncode, code, p.stdout + p.stderr)
+        return json.loads(p.stdout)
+
+    def test_a_run_whose_end_is_not_known_is_never_a_pass(self):
+        run = self.invoke('begin', '--root', self.repo, '--session', 's', '--pid', 'parent', '--command', 'make test').strip()
+        answer = self.finished(run, '--exit', '0', '--state', 'unknown', '--why', 'moved to the background', output='3 passed\n')
+        self.assertEqual(answer['state'], 'unknown')
+        j = self.latest()
+        self.assertEqual((j['state'], j['exit'], j['baselineEligible'], j['stateWhy']),
+                         ('unknown', None, False, 'moved to the background'))
+        later = self.invoke('begin', '--root', self.repo, '--session', 's', '--pid', 'parent', '--command', 'make test').strip()
+        self.assertEqual(self.latest()['baseline'], '', 'a run whose end was not known is no one\'s baseline')
+        self.assertEqual(self.finished(later, '--state', 'unknown')['state'], 'unknown', 'no exit is needed')
+
     def test_newer_engine_prompt_state_overrides_registry_activity_without_losing_observed_files(self):
         self.data('agent-update', '--root', self.repo, '--agent', 'claude', '--session', 'needs-user', '--state', 'working',
                   '--pid', os.getpid(), '--file', 'sample.cpp')
