@@ -53,13 +53,15 @@ _require_knockd() {
     fi
 }
 
+# The port sshd listens on (its own `sshd -T`), from desk-ssh-port beside this script — the one source the installer
+# reads too. The old awk printed every Port line of the wizard's drop-in, one per line, into the knockd commands.
 _real_ssh_port() {
-    local p
-    p=$(awk '/^Port /{print $2}' /etc/ssh/sshd_config.d/50-foxml-hardening.conf 2>/dev/null)
-    if [[ -z "$p" ]]; then
-        p=$(awk '/^Port /{print $2; exit}' /etc/ssh/sshd_config 2>/dev/null)
+    local here
+    here=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+    if [[ -x "$here/desk-ssh-port" ]]; then "$here/desk-ssh-port"
+    elif command -v desk-ssh-port >/dev/null 2>&1; then desk-ssh-port
+    else echo 22
     fi
-    echo "${p:-22}"
 }
 
 _gen_sequence() {
@@ -156,6 +158,8 @@ EOF
 # ─── actions ──────────────────────────────────────────────────────
 act_setup() {
     _require_knockd || return 1
+    # Root first: the port comes from sshd's own `sshd -T`, read through sudo.
+    sudo -v || return 1
     local ssh_port
     ssh_port=$(_real_ssh_port)
     if [[ "$ssh_port" == "22" ]]; then

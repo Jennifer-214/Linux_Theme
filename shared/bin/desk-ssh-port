@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# desk-ssh-port — the port sshd listens on, as sshd reads its own config (`sshd -T`): the shell side of the installer's
+# ssh_port::listen_ports (src/desk-install/modules/ssh_port.hpp), so desk knock and desk spa gate the port the SSH
+# wizard chose. Without root (a cold sudo cache) it falls back to the Port lines the wizard wrote, then to 22, sshd's
+# default.
+#
+#   desk-ssh-port          the first port: the one the SSH wizard chose
+#   desk-ssh-port --all    every port sshd listens on, one per line
+set -u
+
+DROPIN=${FOXML_SSH_DROPIN:-/etc/ssh/sshd_config.d/50-foxml-hardening.conf}
+
+# listenaddress lines are the sockets sshd binds (0.0.0.0:2222, [::]:2222); its port lines count only when there are
+# none. In order, each once, 1-65535.
+_from_sshd_t() {
+    awk '
+        function ok(p) { return p ~ /^[0-9]+$/ && p + 0 >= 1 && p + 0 <= 65535 }
+        $1 == "listenaddress" { p = $2; sub(/.*:/, "", p); if (ok(p) && !((p + 0) in a)) { a[p + 0]; la[++n] = p + 0 } }
+        $1 == "port" && ok($2) && !(($2 + 0) in b) { b[$2 + 0]; pl[++m] = $2 + 0 }
+        END { if (n) for (i = 1; i <= n; i++) print la[i]; else for (i = 1; i <= m; i++) print pl[i] }'
+}
+
+if [[ $EUID -eq 0 ]]; then
+    out=$(sshd -T 2>/dev/null)
+else
+    out=$(sudo -n sshd -T 2>/dev/null)
+fi
+ports=$(printf '%s\n' "$out" | _from_sshd_t)
+if [[ -z "$ports" && -r "$DROPIN" ]]; then
+    ports=$(awk '$1 == "Port" && $2 ~ /^[0-9]+$/ && $2 + 0 >= 1 && $2 + 0 <= 65535 { print $2 + 0 }' "$DROPIN")
+fi
+[[ -n "$ports" ]] || ports=22
+
+case "${1:-}" in
+    --all) printf '%s\n' "$ports" ;;
+    -h|--help) sed -n '2,8p' "$0" | sed 's/^# \?//' ;;
+    *) printf '%s\n' "$ports" | head -n1 ;;
+esac

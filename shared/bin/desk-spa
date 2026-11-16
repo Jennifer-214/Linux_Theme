@@ -73,10 +73,16 @@ _disable_knockd_if_active() {
     fi
 }
 
+# The port sshd listens on (its own `sshd -T`), from desk-ssh-port beside this script — the one source the installer
+# reads too. The old awk chain never reached `echo 22` (awk succeeds with no match), so a missing Port line made the
+# port empty and the setup denied "/tcp".
 _real_ssh_port() {
-    awk '/^Port /{print $2}' /etc/ssh/sshd_config.d/50-foxml-hardening.conf 2>/dev/null \
-        || awk '/^Port /{print $2; exit}' /etc/ssh/sshd_config 2>/dev/null \
-        || echo 22
+    local here
+    here=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
+    if [[ -x "$here/desk-ssh-port" ]]; then "$here/desk-ssh-port"
+    elif command -v desk-ssh-port >/dev/null 2>&1; then desk-ssh-port
+    else echo 22
+    fi
 }
 
 _setup() {
@@ -96,6 +102,8 @@ _setup() {
     _require || return 1
     _disable_knockd_if_active
 
+    # Root first: the port comes from sshd's own `sshd -T`, read through sudo.
+    sudo -v || return 1
     local ssh_port
     ssh_port=$(_real_ssh_port)
     if [[ "$ssh_port" == "22" ]]; then
