@@ -180,6 +180,19 @@ inline std::string hardening_conf(const std::vector<int>& ports, bool keys_only)
     return body.str();
 }
 
+// What to type at the console when locked out, printed after every run: the previous drop-in back (`had`), or none
+// (port 22, passwords on). Each stops endlessh first: once sshd has moved the tarpit holds 22, and sshd put back on 22
+// beside it cannot bind (2026-11-16); `2>/dev/null;` because there may be no tarpit.
+inline std::vector<std::string> recovery_steps(const std::string& drop_in, bool had) {
+    const std::string tarpit = "sudo systemctl disable --now endlessh 2>/dev/null; ";
+    std::vector<std::string> out;
+    if (had)
+        out.push_back(tarpit + "sudo mv " + drop_in + ".foxml-bak " + drop_in +
+                      " && sudo systemctl restart sshd   (the previous config)");
+    out.push_back(tarpit + "sudo rm " + drop_in + " && sudo systemctl restart sshd   (port 22, passwords on; RECOVERY.md)");
+    return out;
+}
+
 // ssh_port.cpp: `sudo -n sshd -T` (false when it fails: sshd missing, its config does not parse, sudo cold).
 bool sshd_t(std::string& out);
 // The ports sshd listens on (listen_ports of sshd_t); nullopt when sshd -T fails or names none. Callers then leave

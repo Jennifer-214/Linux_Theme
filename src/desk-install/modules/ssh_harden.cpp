@@ -169,8 +169,7 @@ void fail2ban_follows(const std::vector<int>& ports) {
 
 void recovery_hint(const std::string& drop_in, bool had) {
     ui::substep("locked out? From the console (a TTY here, or a server's provider console):");
-    if (had) ui::substep("  sudo mv " + drop_in + ".foxml-bak " + drop_in + " && sudo systemctl restart sshd   (the previous config)");
-    ui::substep("  sudo rm " + drop_in + " && sudo systemctl restart sshd   (port 22, passwords on; RECOVERY.md)");
+    for (const auto& step : ssh_port::recovery_steps(drop_in, had)) ui::substep("  " + step);
 }
 
 }  // namespace

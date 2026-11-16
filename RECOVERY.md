@@ -33,9 +33,13 @@ the machine, or the web console a server provider gives you. From there:
 sudo sshd -T | grep -i -E '^(port|passwordauthentication) '   # where sshd listens, passwords on or off
 ```
 
+Once sshd has moved, the endlessh tarpit (when installed) holds port 22, and
+sshd cannot start on 22 beside it: each way back below stops the tarpit first.
+
 To go back to the config from before the last wizard run:
 
 ```
+sudo systemctl disable --now endlessh   # if installed: this config may put sshd back on 22
 sudo mv /etc/ssh/sshd_config.d/50-foxml-hardening.conf.foxml-bak /etc/ssh/sshd_config.d/50-foxml-hardening.conf
 sudo systemctl restart sshd
 ```
@@ -43,13 +47,14 @@ sudo systemctl restart sshd
 Or drop the wizard's file altogether (port 22, passwords on):
 
 ```
+sudo systemctl disable --now endlessh   # if installed: it holds 22
 sudo rm /etc/ssh/sshd_config.d/50-foxml-hardening.conf && sudo systemctl restart sshd
 sudo ufw limit 22/tcp
 ```
 
-The firewall and fail2ban follow sshd's port: `sudo ufw status` shows it as
-LIMIT, and a ban on your own address is lifted with
-`sudo fail2ban-client set sshd unbanip <your ip>`.
+The firewall and fail2ban follow sshd's port when the installer runs: `sudo ufw
+status` shows it as LIMIT (DENY while `desk knock` or `desk spa` gate it), and a
+ban on your own address is lifted with `sudo fail2ban-client set sshd unbanip <your ip>`.
 
 ### "I disabled password auth, lost the key, can't get back in"
 
@@ -151,6 +156,7 @@ desk deadman --disarm
 desk arm --disarm           # reverses the lockdown-style opt-ins
 desk harden disable hidepid # repeat for each layer you want off
 sudo systemctl disable --now ufw fail2ban auditd usbguard
+sudo systemctl disable --now endlessh   # if installed: it holds 22, where sshd goes back
 sudo rm /etc/sysctl.d/99-foxml-hardening.conf && sudo sysctl --system
 sudo rm /etc/ssh/sshd_config.d/50-foxml-hardening.conf && sudo systemctl restart sshd
 ```

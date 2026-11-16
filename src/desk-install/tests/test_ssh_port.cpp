@@ -122,6 +122,18 @@ int main() {
                         "ClientAliveInterval 300\nClientAliveCountMax 2\n",
            "the single-port drop-in is the one earlier runs wrote");
 
+    // The console steps printed after every run. Once sshd has moved, endlessh holds 22, and sshd put back on 22 could
+    // not bind beside it: the recovery left a tarpit and no sshd (security review L3, 2026-11-16).
+    const auto steps = recovery_steps(kDropIn, /*had=*/true);
+    expect(steps.size() == 2 && recovery_steps(kDropIn, false).size() == 1, "the backup's step only when there is one");
+    for (const auto& step : steps) {
+        const auto stop = step.find("systemctl disable --now endlessh"), restart = step.find("systemctl restart sshd");
+        expect(stop != std::string::npos && restart != std::string::npos && stop < restart,
+               "each step stops the tarpit before sshd restarts");
+    }
+    expect(steps[0].find(std::string(kDropIn) + ".foxml-bak " + kDropIn) != std::string::npos
+           && steps[1].find(std::string("sudo rm ") + kDropIn) != std::string::npos, "the previous config, or none");
+
     if (failures == 0) std::printf("test_ssh_port: ok\n");
     return failures == 0 ? 0 : 1;
 }
