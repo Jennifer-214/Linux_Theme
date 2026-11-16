@@ -72,7 +72,9 @@ esac
 write(bin .. '/desk-drawer', '#!/bin/sh\nprintf "%s\\n" "$(basename "$0") $*" >> "$POPOUT_TEST/others.log"\nexit 1\n', 'rwxr-xr-x')
 write(bin .. '/desk-work', [[#!/bin/sh
 # desk-work, for the test: workspace keeps one record per checkout and client in the sandbox (the pop-out's layout), and
-# a line in workspace.written once each write is done; anything else is logged as asked for, and fails.
+# a line in workspace.written once each write is done; anything else is logged as asked for, and fails. With
+# workspace.slow in the test's folder the next write is held up 1.5 s (and says it started); with workspace.fail there,
+# writes fail.
 if [ "$1" = workspace ]; then
   printf '%s\n' "$*" >> "$POPOUT_TEST/workspace.log"
   client= input= root=
@@ -81,6 +83,8 @@ if [ "$1" = workspace ]; then
   done
   record="$POPOUT_TEST/workspace.$(printf '%s' "$root" | tr / _).$client.json"
   if [ "$input" = - ]; then
+    if [ -f "$POPOUT_TEST/workspace.fail" ]; then echo 'cannot write the record' >&2; exit 3; fi
+    if [ -f "$POPOUT_TEST/workspace.slow" ]; then rm -f "$POPOUT_TEST/workspace.slow"; : > "$POPOUT_TEST/workspace.started"; sleep 1.5; fi
     cat > "$record.$$" && mv "$record.$$" "$record" && echo '{"ok":true}'
     echo "$client" >> "$POPOUT_TEST/workspace.written"
   elif [ -f "$record" ]; then cat "$record"
@@ -842,6 +846,31 @@ do
   eq({ offered(), #(record(roots.B).tabs or {}) }, { 'Restore 2 views', 2 }, "… Restore offers B's views, still B's own")
   host("vim.cmd.edit(vim.fn.fnameescape(...))", dir .. '/A/notes.txt')
   ok(wait(3000, function() return offered() == "Restore the pop-out's views" end), "back in A: A's record, none (its last view was closed)")
+end
+
+-- ─── the layout record: one write at a time, the newest last; a write that fails is said ────────────────────────
+do
+  host("vim.api.nvim_set_current_win(_G.popout_test.code_win); vim.cmd.edit(vim.fn.fnameescape(...))", dir .. '/sample.lua')
+  os.remove(dir .. '/kitty.listen')
+  host("require('desk.popout').show('rows', require('desk.actions').context())")
+  opened()
+  ok(wait(10000, function() return state().connected and state().kind == 'rows' end), 'a pop-out with a view, following')
+  ok(wait(3000, function() local r = record(); return r.tabs and r.tabs[1] and r.tabs[1].pinned == false end), '… in the record')
+  -- A write held up (the stub sleeps), and the view pinned meanwhile: the record ends pinned, never the older state.
+  write(dir .. '/workspace.slow', '1')
+  host("require('desk.popout').save_layout()")
+  ok(wait(3000, function() return exists(dir .. '/workspace.started') end), 'a write of the layout is held up')
+  press('p')
+  vim.wait(2500)
+  ok(wait(3000, function() local r = record(); return r.tabs and r.tabs[1] and r.tabs[1].pinned == true end),
+    '… the view pinned meanwhile: the record ends pinned, not the older state written after it: ' .. read(record_file()))
+  -- A write that fails is said.
+  write(dir .. '/workspace.fail', '1')
+  host("_G.heard = {}")
+  press('p')
+  ok(wait(3000, function() return vim.tbl_contains(heard(), "The pop-out's views were not saved: cannot write the record.") end),
+    'a write that fails is said: ' .. vim.inspect(heard()))
+  os.remove(dir .. '/workspace.fail')
 end
 
 vim.rpcnotify(h, 'nvim_command', 'qa!')

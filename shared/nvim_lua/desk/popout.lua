@@ -777,6 +777,37 @@ local function layout_record()
   end
   return { version = 1, tabs = tabs, activeTab = H.front, show = { screen = H.screen } }
 end
+-- A write that failed is said, in desk-work's own words when it gave some.
+local function not_saved(out)
+  local said = vim.trim(((out.stderr or '') ~= '' and out.stderr or (out.stdout or '')):match('^[^\n]*') or '')
+  tell(sentence("the pop-out's views were not saved" .. (said ~= '' and (': ' .. said:sub(1, 160)) or (' (desk-work exited ' .. tostring(out.code) .. ')'))), WARN)
+end
+-- One write at a time, in the order asked: a change made while a write is on its way waits for it, and only the newest
+-- of those goes after it (H.pending), so an older state never lands after a newer one. wait: the editor is exiting:
+-- the write on its way is waited for (a second at most), then this one is written, now.
+local function write_now(w, wait)
+  local argv = { 'desk-work', 'workspace', '--root', w.root, '--client', 'popout', '--input', '-' }
+  if wait then
+    if H.writing then pcall(H.writing.wait, H.writing, 1000) end
+    H.writing, H.pending = nil, nil
+    local started, job = pcall(vim.system, argv, { stdin = w.json, text = true, timeout = 5000 })
+    if started then pcall(job.wait, job, 1000) end
+    return
+  end
+  local job
+  local started = pcall(function()
+    job = vim.system(argv, { stdin = w.json, text = true, timeout = 5000 }, vim.schedule_wrap(function(out)
+      if H.writing == job then H.writing = nil end
+      if exiting() then return end
+      if out.code ~= 0 then not_saved(out) end
+      local after = H.pending
+      H.pending = nil
+      if after then write_now(after) end
+    end))
+  end)
+  if not started then return not_saved({ code = -1, stderr = 'desk-work did not start' }) end
+  H.writing = job
+end
 local function write_layout(wait)
   local record = layout_record()
   local ok, json = pcall(vim.json.encode, record)
@@ -784,9 +815,9 @@ local function write_layout(wait)
   local root = layout_root()
   H.records[root], H.wrote[root] = record, (H.wrote[root] or 0) + 1
   if root == H.saved_root then offer(root) end
-  local argv = { 'desk-work', 'workspace', '--root', root, '--client', 'popout', '--input', '-' }
-  local started, job = pcall(vim.system, argv, { stdin = json, text = true, timeout = 5000 }, (not wait) and function() end or nil)
-  if started and wait then pcall(job.wait, job, 1000) end
+  local w = { root = root, json = json }
+  if not wait and H.writing then H.pending = w; return end
+  write_now(w, wait)
 end
 -- The writes of a moment (a view closing, then the one in front changing) go as one, M.SAVE_MS after the last. wait:
 -- the editor is exiting, so the record is written now, before it goes (a second at most).
@@ -1813,7 +1844,8 @@ for _, row in ipairs(ROWS) do if row.id == 'popout.restore' then RESTORE = row e
 local function shutdown()
   if H.down then return end
   local chan = H.chan
-  if chan or (H.save_timer and H.save_timer:is_active()) then M.save_layout(true) end
+  if chan or (H.save_timer and H.save_timer:is_active()) then M.save_layout(true)
+  elseif H.pending then write_now(H.pending, true) end   -- the newest state, behind a write still on its way
   H.down = true
   if chan then pcall(vim.rpcnotify, chan, 'nvim_exec_lua', POPOUT_DOOR, { { version = M.PROTOCOL, type = 'bye', why = 'Editor closed.' } }) end
   for _, name in ipairs({ 'timer', 'save_timer' }) do
