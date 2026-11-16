@@ -16,6 +16,8 @@ MAP_LUA = HERE.parents[2] / "shared/nvim_lua/desk/map.lua"
 NVIM = shutil.which("nvim") is not None
 CC = shutil.which("cc") or shutil.which("gcc")
 OBJDUMP = shutil.which("objdump") is not None
+sys.path.insert(0, str(HERE.parents[2] / "tests"))
+import sealed_env  # noqa: E402
 
 LUA = """local M = {}
 local function helper(x) return x + 1 end
@@ -42,11 +44,12 @@ class Map(unittest.TestCase):
         self.repo = self.dir / "project with spaces"
         (self.repo / "lua").mkdir(parents=True)
         (self.repo / "csrc").mkdir()
-        self.env = dict(os.environ, HOME=str(self.dir / "home"), XDG_STATE_HOME=str(self.dir / "state"),
-                        XDG_CONFIG_HOME=str(self.dir / "config"), XDG_RUNTIME_DIR=str(self.dir / "runtime"),
-                        XDG_DATA_HOME=str(self.dir / "data"), FOXML_WORK_NOTIFY="0", PYTHONDONTWRITEBYTECODE="1",
-                        DESK_MAP_LUA=str(MAP_LUA))
-        self.env.pop("TMUX_PANE", None)
+        # Sealed from the session (tests/sealed_env.py).
+        self.env = sealed_env.environment(self.dir, HOME=self.dir / "home", XDG_STATE_HOME=self.dir / "state",
+                                          XDG_CONFIG_HOME=self.dir / "config", XDG_RUNTIME_DIR=self.dir / "runtime",
+                                          XDG_DATA_HOME=self.dir / "data", FOXML_WORK_NOTIFY="0", PYTHONDONTWRITEBYTECODE="1",
+                                          DESK_MAP_LUA=MAP_LUA)
+        self.addCleanup(sealed_env.stop, self.env)
         self.git("init", "-q")
         self.git("config", "user.name", "Test")
         self.git("config", "user.email", "test@example.invalid")

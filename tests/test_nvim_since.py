@@ -1,12 +1,12 @@
 """The since page (shared/nvim_lua/desk/since.lua) in a headless Neovim, with desk-work's answer as fixture data."""
 import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
-import tempfile
 import time
 import unittest
+
+import sealed_env
 
 ROOT = Path(__file__).resolve().parents[1]
 NOW = 1_794_800_000
@@ -60,12 +60,11 @@ end
 @unittest.skipUnless(shutil.which('nvim'), 'Neovim required')
 class SincePage(unittest.TestCase):
     def run_lua(self, code, answer=FIXTURE):
-        with tempfile.TemporaryDirectory() as tmp:
-            script = Path(tmp) / 'since.lua'
+        # Sealed from the session (tests/sealed_env.py).
+        with sealed_env.sealed('nvim-since-', TEST_LUA=ROOT / 'shared/nvim_lua', TEST_ANSWER=json.dumps(answer), TZ='UTC',
+                               TEST_COMMIT_AT=time.strftime('%H:%M', time.gmtime(NOW - 240))) as (env, tmp):
+            script = tmp / 'since.lua'
             script.write_text(LUA + code)
-            env = dict(os.environ, HOME=tmp, XDG_STATE_HOME=tmp, XDG_CACHE_HOME=tmp, XDG_CONFIG_HOME=tmp, XDG_DATA_HOME=tmp,
-                       TEST_LUA=str(ROOT / 'shared/nvim_lua'), TEST_ANSWER=json.dumps(answer), TZ='UTC',
-                       TEST_COMMIT_AT=time.strftime('%H:%M', time.gmtime(NOW - 240)))
             ran = subprocess.run(['nvim', '--headless', '--clean', '-l', str(script)], capture_output=True, text=True,
                                  timeout=60, env=env, cwd=tmp)
             self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)

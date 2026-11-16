@@ -1,32 +1,21 @@
 """Real file events, atomic saves and simultaneous local/agent edits."""
-import os
 from pathlib import Path
 import shutil
-import subprocess
-import tempfile
 import unittest
 from fixture_process import run as run_fixture
+import sealed_env
 
 ROOT = Path(__file__).resolve().parents[1]
-# Sealed from the running session: no tmux, Neovim, Hyprland, Wayland, D-Bus or kitty address reaches the test.
-LIVE = ('TMUX', 'TMUX_PANE', 'NVIM', 'HYPRLAND_INSTANCE_SIGNATURE', 'WAYLAND_DISPLAY', 'DISPLAY',
-        'DBUS_SESSION_BUS_ADDRESS', 'KITTY_LISTEN_ON', 'KITTY_WINDOW_ID', 'SWAYSOCK')
 
 
 @unittest.skipUnless(shutil.which('nvim') and shutil.which('git'), 'Neovim and Git required')
 class NvimSync(unittest.TestCase):
     def exercise(self, code):
-        with tempfile.TemporaryDirectory(prefix='nvim-live-') as tmp:
-            base = Path(tmp)
+        # Sealed from the running session (tests/sealed_env.py).
+        with sealed_env.sealed('nvim-live-') as (sealed, base):
             path = base/'sample.lua'
             path.write_text('local first = 1\n\nlocal middle = 2\n\nlocal last = 3\n')
-            env = {k: v for k, v in os.environ.items() if k not in LIVE} | {
-                'TEST_SYNC_LUA':str(ROOT/'shared/nvim_lua'), 'TEST_SYNC_FILE':str(path),
-                'XDG_STATE_HOME':str(base/'state'), 'XDG_CACHE_HOME':str(base/'cache'),
-                'XDG_RUNTIME_DIR':str(base/'runtime'), 'TMUX_TMPDIR':str(base/'tmux'),
-                'NVIM_LOG_FILE':str(base/'nvim.log')}
-            for folder in ('runtime', 'tmux'):
-                (base/folder).mkdir(mode=0o700)
+            env = sealed | {'TEST_SYNC_LUA':str(ROOT/'shared/nvim_lua'), 'TEST_SYNC_FILE':str(path)}
             script = base/'exercise.lua'
             script.write_text(r'''
 package.path = vim.env.TEST_SYNC_LUA .. '/?.lua;' .. package.path

@@ -1,11 +1,12 @@
 """The paper polkit prompt, driven by a pretend request: no polkit, no session agent touched."""
-import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
 import tempfile
 import unittest
+
+import sealed_env
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -96,14 +97,11 @@ class PolkitPrompt(unittest.TestCase):
             for helper in ("TextFrame.qml", "TermText.qml", "DrawerLogic.js"):
                 shutil.copyfile(ROOT / "shared/quickshell/desk" / helper, qml / helper)
             (qml / "shell.qml").write_text(SHELL)
-            runtime = Path(work) / "runtime"
-            runtime.mkdir(mode=0o700)
-            env = os.environ | {"QT_QPA_PLATFORM": "offscreen", "QT_QUICK_BACKEND": "software", "XDG_RUNTIME_DIR": str(runtime),
-                                "QS_NO_RELOAD_POPUP": "1"}
-            # No FOXML_POLKIT_PROMPT=off: the Hyprland check alone must keep it off. With no session bus and a private
-            # runtime dir, even a broken check could not reach this session's systemd or polkit.
-            for name in ("WAYLAND_DISPLAY", "HYPRLAND_INSTANCE_SIGNATURE", "DBUS_SESSION_BUS_ADDRESS"):
-                env.pop(name, None)
+            # No FOXML_POLKIT_PROMPT=off: the Hyprland check alone must keep it off. Sealed (tests/sealed_env.py): with no
+            # session bus and a private runtime dir, even a broken check could not reach this session's systemd or polkit.
+            env = sealed_env.environment(work, QT_QPA_PLATFORM="offscreen", QT_QUICK_BACKEND="software", QS_NO_RELOAD_POPUP="1")
+            self.addCleanup(sealed_env.stop, env)
+            runtime = Path(env["XDG_RUNTIME_DIR"])
             shell = subprocess.Popen(["quickshell", "-p", str(qml), "--no-color"], env=env, stdout=subprocess.PIPE,
                                      stderr=subprocess.STDOUT, text=True)
             try:

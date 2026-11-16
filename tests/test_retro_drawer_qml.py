@@ -1,6 +1,5 @@
 """Load the drawer, bar and level slip on retro-amber's render, so the text-mode branches run without QML errors."""
 import json
-import os
 from pathlib import Path
 import re
 import shutil
@@ -8,9 +7,15 @@ import subprocess
 import tempfile
 import unittest
 
+import sealed_env
+
 ROOT = Path(__file__).resolve().parents[1]
 
-EXERCISE = r'''
+# The checks run as steps, one after another: each waits until the drawer is ready for it (asked every 50 ms, ready on
+# two asks in a row), then checks and acts. Fixed timers raced the first load: on a busy machine it holds the event loop
+# for a second or more, and two timers then fired back to back. A step still not ready after 5 s checks anyway, so it
+# fails with its own message; any failure ends the run at once.
+STEPS = r'''
     function testFind(item, name) {
         if (!item) return null;
         if (item.objectName === name) return item;
@@ -19,12 +24,33 @@ EXERCISE = r'''
         var content = item.contentItem;
         return content && content !== item ? testFind(content, name) : null;
     }
+    property int testStep: 0
+    property int testReady: 0
+    property double testSince: Date.now()
+    Timer { interval: 50; repeat: true; running: true; onTriggered: {
+        var step = root.testSteps[root.testStep];
+        if (!step) { stop(); return; }
+        var ready = false;
+        try { ready = !!step.ready(); } catch (e) {}
+        root.testReady = ready ? root.testReady + 1 : 0;
+        if (root.testReady < 2 && Date.now() - root.testSince < 5000) return;
+        root.testStep++; root.testReady = 0; root.testSince = Date.now();
+        try { step.run(); } catch (e) { stop(); console.error("Error: step " + root.testStep + ": " + e.message); Qt.exit(1); }
+    }}
+'''
+
+EXERCISE = STEPS + r'''
     function testRowText(index) {
         var row = itemList.itemAtIndex(index);
         var text = row ? testFind(row, "retro-row-text") : null;
         return text ? text.text : "";
     }
-    Timer { interval: 900; running: true; onTriggered: {
+    function testBar() { var bar = desktopBar.item; return bar && bar.windows ? bar.windows[0] : null; }
+    property var testSteps: [
+    // The sound page the preview opens, drawn and the CRT warmed up.
+    { ready: function() { return root.page === "sound" && !root.pageLoading && root.entries.length === 3 && !crtOn.running
+                                 && root.crtScale >= 0.99 && testRowText(0) !== ""; },
+      run: function() {
         if (!root.retro || !retroFrame.visible || !root.drawerHost) throw new Error("retro frame missing");
         if (retroFrame.frameWidth % 8 || retroFrame.frameHeight % 12) throw new Error("frame is not whole cells");
         if (testFind(retroFrame, "text-frame-top").edge.indexOf("╔═[ SOUND ]═") !== 0) throw new Error("frame title: " + testFind(retroFrame, "text-frame-top").edge);
@@ -52,9 +78,10 @@ EXERCISE = r'''
         if (!line || !/\[█+░+\]  62%$/.test(line.text)) throw new Error("level slip: " + (line ? line.text : "none"));
         levelSlip.showMedia("A song", "An artist", "Playing", "");
         if (testFind(levelSlip.artwork, "level-slip-retro-line").text.indexOf("♪ A song - An artist") !== 0) throw new Error("media slip");
-    }}
-    // The slider's write has finished by now, so the drawer takes another action.
-    Timer { interval: 1300; running: true; onTriggered: {
+    }},
+    // The slider's write has finished, so the drawer takes another action.
+    { ready: function() { return !root.actionBusy && !root.pageLoading && !sliderWrite.running; },
+      run: function() {
         root.activate({id: "drive-eject", label: "Eject drive", kind: "action", confirm: "Eject this drive?"});
         if (!retroConfirm.visible || root.confirmYes) throw new Error("retro confirmation missing");
         root.step(1);
@@ -63,8 +90,12 @@ EXERCISE = r'''
         root.focusArea = "groups";
         root.groupIndex = 2;
         root.show("root");
-    }}
-    Timer { interval: 2100; running: true; onTriggered: {
+    }},
+    { ready: function() { var date = testFind(todaySheet, "today-date"), bar = testBar();
+                          var updates = bar ? testFind(bar.moduleContainer, "bar-module-custom/updates") : null;
+                          return root.page === "root" && !root.pageLoading && date && date.visible && updates && updates.retroAlert
+                              && testFind(todaySheet, "today-tag-0"); },
+      run: function() {
         if (root.page !== "root" || !testFind(todaySheet, "today-date").visible) throw new Error("today page");
         var window = desktopBar.item.windows[0];
         var updates = testFind(window.moduleContainer, "bar-module-custom/updates");
@@ -73,25 +104,42 @@ EXERCISE = r'''
         var tag = testFind(todaySheet, "today-tag-0");
         if (!tag || tag.implicitHeight !== 12 || tag.radius !== 0 && tag.color.a > 0 && !Qt.colorEqual(tag.color, theme.ink)) throw new Error("today tag is not one text line");
         root.show("screenshots");
-    }}
+    }},
     // The scrapbook is a DIR listing, one file a line, no pictures.
-    Timer { interval: 2700; running: true; onTriggered: {
+    { ready: function() { var listing = testFind(scrapbookSheet, "scrapbook-listing");
+                          return root.page === "screenshots" && !root.pageLoading && listing && listing.visible
+                              && testFind(listing.itemAtIndex(0), "scrapbook-file"); },
+      run: function() {
         var listing = testFind(scrapbookSheet, "scrapbook-listing");
         if (!listing || !listing.visible || scrapbookSheet.columns !== 1) throw new Error("scrapbook is not a listing");
         var first = testFind(listing.itemAtIndex(0), "scrapbook-file");
         if (!first || !/^ LITTLE~1 PNG    11-05-26   2:30p$/.test(first.text)) throw new Error("scrapbook row: " + (first ? JSON.stringify(first.text) : "none"));
         if (testFind(scrapbookSheet, "scrapbook-image-0") && testFind(scrapbookSheet, "scrapbook-image-0").visible) throw new Error("a picture is showing");
         root.show("garden");
-    }}
+    }},
     // The garden is block characters; the busiest days wear a ♦ (no hearts in retro).
-    Timer { interval: 3400; running: true; onTriggered: {
+    { ready: function() { var counts = gardenSheet.counts || [], today = testFind(gardenSheet, "garden-day-" + (counts.length - 1));
+                          return root.page === "garden" && !root.pageLoading && counts.length > 0 && today
+                              && testFind(today, "garden-retro-day"); },
+      run: function() {
         var today = testFind(gardenSheet, "garden-day-" + (gardenSheet.counts.length - 1));
         var mark = today ? testFind(today, "garden-retro-day") : null;
         if (!mark || !mark.visible || ["·", "░", "▒", "▓", "█", "♦", "*"].indexOf(mark.text) < 0) throw new Error("garden day: " + (mark ? mark.text : "none"));
         if (!gardenSheet.retroShades || gardenSheet.dayH !== 12) throw new Error("garden is off the cell grid");
         root.hide();
         polkitPrompt.testFlow = fakeFlow;
+    }},
+    { ready: function() { var window = polkitPrompt.window, slip = window && window.visible ? testFind(window.contentItem, "polkit-slip") : null;
+                          return slip && slip.width > 0 && slip.height > 0; },
+      run: function() {
+        var slip = testFind(polkitPrompt.window.contentItem, "polkit-slip");
+        if (!slip || slip.width % 8 || slip.height % 12 || slip.x % 1) throw new Error("permission box is off the grid");
+        if (!testFind(slip, "polkit-retro-buttons").visible || testFind(slip, "polkit-allow").visible) throw new Error("permission buttons");
+        if (testFind(slip, "text-frame-top").edge.indexOf("╔═[ PERMISSION ]") !== 0) throw new Error("permission title: " + testFind(slip, "text-frame-top").edge);
+        polkitPrompt.testFlow = null;
+        console.log("RETRO_DRAWER_OK"); Qt.quit();
     }}
+    ]
     QtObject {
         id: fakeFlow
         property string actionId: "org.freedesktop.login1.reboot-multiple-sessions"
@@ -105,14 +153,6 @@ EXERCISE = r'''
         function submit(value) {}
         function cancelAuthenticationRequest() {}
     }
-    Timer { interval: 3800; running: true; onTriggered: {
-        var slip = testFind(polkitPrompt.window.contentItem, "polkit-slip");
-        if (!slip || slip.width % 8 || slip.height % 12 || slip.x % 1) throw new Error("permission box is off the grid");
-        if (!testFind(slip, "polkit-retro-buttons").visible || testFind(slip, "polkit-allow").visible) throw new Error("permission buttons");
-        if (testFind(slip, "text-frame-top").edge.indexOf("╔═[ PERMISSION ]") !== 0) throw new Error("permission title: " + testFind(slip, "text-frame-top").edge);
-        polkitPrompt.testFlow = null;
-        console.log("RETRO_DRAWER_OK"); Qt.quit();
-    }}
 '''
 
 
@@ -144,21 +184,28 @@ class RetroGlyphs(unittest.TestCase):
 
 # Nothing opens the drawer (the preview's own first page is taken out): the bar hosts it closed, and none of it may
 # show until it is opened, nor after it is closed again.
-CLOSED = r'''
-    Timer { interval: 900; running: true; onTriggered: {
+CLOSED = STEPS + r'''
+    property var testSteps: [
+    // The bar is up, with the closed drawer in it.
+    { ready: function() { var bar = desktopBar.item, window = bar && bar.windows ? bar.windows[0] : null;
+                          return window && revealClip.parent === window.drawerContainer; },
+      run: function() {
         var window = desktopBar.item.windows[0];
         if (root.opened || !root.drawerHost || revealClip.parent !== window.drawerContainer) throw new Error("the bar does not host the closed drawer");
         if (revealClip.visible) throw new Error("a drawer never opened is on screen");
         root.show("sound");
-    }}
-    Timer { interval: 1500; running: true; onTriggered: {
+    }},
+    { ready: function() { return revealClip.visible && !crtOn.running && root.crtScale >= 0.99; },
+      run: function() {
         if (!revealClip.visible || root.crtScale < 0.99) throw new Error("the drawer did not open");
         root.hide();
-    }}
-    Timer { interval: 2100; running: true; onTriggered: {
+    }},
+    { ready: function() { return !revealClip.visible; },
+      run: function() {
         if (revealClip.visible) throw new Error("a closed drawer is on screen");
         console.log("RETRO_CLOSED_OK"); Qt.quit();
     }}
+    ]
 '''
 
 
@@ -209,15 +256,14 @@ class RetroDrawer(unittest.TestCase):
             source = re.sub(r"^\s*(?:anchors \{ top: true; left: true; right: true \}|exclusiveZone:.*|WlrLayershell\..*|IdleInhibitor \{.*)\n",
                             "\n", source, flags=re.M)
             (qml / "PaperBar.qml").write_text(source)
-            runtime = work / "runtime"; runtime.mkdir(mode=0o700)
-            env = os.environ | {"QT_QPA_PLATFORM": "offscreen", "QT_QUICK_BACKEND": "software", "XDG_RUNTIME_DIR": str(runtime),
-                "XDG_CONFIG_HOME": str(work / "config"), "XDG_CACHE_HOME": str(work / "cache"), "XDG_STATE_HOME": str(work / "state"),
-                "FOXML_DRAWER_PREVIEW": "1", "FOXML_BAR_AUTOSTART": "1", "FOXML_BAR_FIXTURE": str(fixture),
-                "FOXML_DRAWER_BACKEND": str(ROOT / "tests/drawer-ui-backend.py"), "FOXML_DRAWER_TEST_LOG": str(work / "actions"),
-                "FOXML_DRAWER_BAR_STATE": str(work / "drawer-state.css"), "QS_NO_RELOAD_POPUP": "1",
+            # Sealed (tests/sealed_env.py): no session bus, display, Hyprland or Wayland of hers; offscreen.
+            env = sealed_env.environment(work, QT_QPA_PLATFORM="offscreen", QT_QUICK_BACKEND="software", XDG_CONFIG_HOME=work / "config",
+                FOXML_DRAWER_PREVIEW="1", FOXML_BAR_AUTOSTART="1", FOXML_BAR_FIXTURE=fixture,
+                FOXML_DRAWER_BACKEND=ROOT / "tests/drawer-ui-backend.py", FOXML_DRAWER_TEST_LOG=work / "actions",
+                FOXML_DRAWER_BAR_STATE=work / "drawer-state.css", QS_NO_RELOAD_POPUP="1",
                 # The polkit prompt stops and starts the session's hyprpolkitagent; never from a test.
-                "FOXML_POLKIT_PROMPT": "off"}
-            env.pop("WAYLAND_DISPLAY", None); env.pop("HYPRLAND_INSTANCE_SIGNATURE", None)
+                FOXML_POLKIT_PROMPT="off")
+            self.addCleanup(sealed_env.stop, env)
             try:
                 result = subprocess.run(["quickshell", "-p", str(qml), "--no-color"], env=env, capture_output=True, text=True, timeout=25)
             except subprocess.TimeoutExpired as stuck:

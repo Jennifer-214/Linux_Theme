@@ -15,14 +15,17 @@ ROOT = Path(__file__).resolve().parents[1]
 RENDER = ROOT / "src/desk-render/desk-render-fast"
 sys.path.insert(0, str(ROOT / "tests"))
 from test_hyprland_lua import conf_binds, lua_binds  # noqa: E402
+import sealed_env  # noqa: E402
 
+# A process list of its own too, ended with the test: a run stopped before stop_server leaves no tmux server behind.
 # (Only where bwrap may make namespaces: a CI container may not, and then the test's own -S socket is the guard.)
 if (shutil.which("bwrap") and not os.environ.get("FOXML_TMUX_TEST_SEALED")
-        and subprocess.run(["bwrap", "--dev-bind", "/", "/", "true"], capture_output=True).returncode == 0):
+        and subprocess.run(["bwrap", "--dev-bind", "/", "/", "--unshare-pid", "--proc", "/proc", "true"],
+                           capture_output=True).returncode == 0):
     runtime = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
     os.environ["FOXML_TMUX_TEST_SEALED"] = "1"
-    os.execvp("bwrap", ["bwrap", "--dev-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", runtime,
-                        sys.executable, "-B", *sys.argv])
+    os.execvp("bwrap", ["bwrap", "--dev-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", runtime, "--unshare-pid",
+                        "--as-pid-1", "--die-with-parent", "--proc", "/proc", sys.executable, "-B", *sys.argv])
 
 
 class WindowBack(unittest.TestCase):
@@ -44,9 +47,9 @@ class SessionBack(unittest.TestCase):
         sockets.mkdir(mode=0o700)
         self.socket = sockets / f"tmux-{os.getuid()}" / "default"
         self.socket.parent.mkdir(mode=0o700)
-        self.env = {k: v for k, v in os.environ.items() if k not in ("TMUX", "TMUX_PANE", "HYPRLAND_INSTANCE_SIGNATURE")}
-        self.env.update(TMUX_TMPDIR=str(sockets), HOME=str(self.work))
+        self.env = sealed_env.environment(self.work, TMUX_TMPDIR=sockets, HOME=self.work)   # tests/sealed_env.py
         self.addCleanup(shutil.rmtree, self.work, True)    # last
+        self.addCleanup(sealed_env.stop, self.env)
         self.addCleanup(self.stop_server)                   # first
 
     def stop_server(self):

@@ -1,12 +1,14 @@
-"""Run the production bar and its poll/action adapters with harmless local commands."""
+"""Run the production bar and its poll/action adapters with harmless local commands. Each Quickshell runs offscreen and
+sealed from the session (tests/sealed_env.py): no session bus, display, Hyprland or Wayland of hers."""
 import json
-import os
 from pathlib import Path
 import re
 import shutil
 import subprocess
 import tempfile
 import unittest
+
+import sealed_env
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -120,12 +122,9 @@ ShellRoot {
     Timer { interval:1800; running:true; onTriggered: { bar.shown=false; if (bar.status().visible) {Qt.exit(1);return;} console.log("BAR_NATIVE_OK"); Qt.quit(); } }
 }
 ''')
-            (work / 'runtime').mkdir(mode=0o700)
-            env = dict(os.environ, XDG_RUNTIME_DIR=str(work / 'runtime'), QT_QPA_PLATFORM='offscreen', QT_QUICK_BACKEND='software', XDG_CONFIG_HOME=str(config))
-            env['FOXML_EXPECT_COMPACT'] = '1' if width < 1280 else '0'
-            env.pop('FOXML_BAR_FIXTURE', None)
-            env.pop('WAYLAND_DISPLAY', None)
-            env.pop('HYPRLAND_INSTANCE_SIGNATURE', None)
+            env = sealed_env.environment(work, XDG_CONFIG_HOME=config, QT_QPA_PLATFORM='offscreen', QT_QUICK_BACKEND='software',
+                                         FOXML_EXPECT_COMPACT='1' if width < 1280 else '0', FOXML_BAR_FIXTURE=None)
+            self.addCleanup(sealed_env.stop, env)
             result = subprocess.run(['quickshell', '-p', str(qml), '--no-duplicate'], env=env, text=True, capture_output=True, timeout=10)
             output = result.stdout + result.stderr
             self.assertEqual(result.returncode, 0, output)
@@ -202,11 +201,9 @@ class StickyWidths(unittest.TestCase):
             source = re.sub(r'^\s*(anchors \{ top: true; left: true; right: true \}|exclusiveZone:.*|WlrLayershell\..*|IdleInhibitor \{.*)\n', '\n', source, flags=re.M)
             (qml / 'PaperBar.qml').write_text(source)
             (qml / 'shell.qml').write_text(STICKY_SHELL)
-            (work / 'runtime').mkdir(mode=0o700)
-            env = dict(os.environ, XDG_RUNTIME_DIR=str(work / 'runtime'), QT_QPA_PLATFORM='offscreen', QT_QUICK_BACKEND='software',
-                       XDG_CONFIG_HOME=str(config), FOXML_BAR_FIXTURE=str(fixture))
-            env.pop('WAYLAND_DISPLAY', None)
-            env.pop('HYPRLAND_INSTANCE_SIGNATURE', None)
+            env = sealed_env.environment(work, XDG_CONFIG_HOME=config, QT_QPA_PLATFORM='offscreen', QT_QUICK_BACKEND='software',
+                                         FOXML_BAR_FIXTURE=fixture)
+            self.addCleanup(sealed_env.stop, env)
             result = subprocess.run(['quickshell', '-p', str(qml), '--no-duplicate'], env=env, text=True, capture_output=True, timeout=10)
             output = result.stdout + result.stderr
             self.assertEqual(result.returncode, 0, output)
@@ -248,14 +245,11 @@ class BrokenBar(unittest.TestCase):
             source = re.sub(r'^        (?:anchors \{.*|margins \{.*|exclusionMode:.*|WlrLayershell\..*)\n', '', source, flags=re.M)
             source = source.replace('screen ? screen.width : 1280', '1280').replace('screen ? screen.height : 800', '1080')
             (qml / 'shell.qml').write_text(source.rsplit('\n}', 1)[0] + BROKEN_CHECK + '\n}\n')
-            (work / 'runtime').mkdir(mode=0o700)
-            env = dict(os.environ, QT_QPA_PLATFORM='offscreen', QT_QUICK_BACKEND='software', XDG_RUNTIME_DIR=str(work / 'runtime'),
-                       HOME=str(work), XDG_CONFIG_HOME=str(work / 'config'), XDG_CACHE_HOME=str(work / 'cache'), XDG_STATE_HOME=str(work / 'state'),
-                       FOXML_DRAWER_PREVIEW='1', FOXML_BAR_AUTOSTART='1', FOXML_DRAWER_BACKEND=str(ROOT / 'tests/drawer-ui-backend.py'),
-                       FOXML_DRAWER_TEST_LOG=str(work / 'actions'), FOXML_DRAWER_BAR_STATE=str(work / 'drawer-state.css'),
-                       QS_NO_RELOAD_POPUP='1', FOXML_POLKIT_PROMPT='off')
-            for name in ('WAYLAND_DISPLAY', 'HYPRLAND_INSTANCE_SIGNATURE', 'FOXML_BAR_FIXTURE'):
-                env.pop(name, None)
+            env = sealed_env.environment(work, QT_QPA_PLATFORM='offscreen', QT_QUICK_BACKEND='software', XDG_CONFIG_HOME=work / 'config',
+                                         FOXML_DRAWER_PREVIEW='1', FOXML_BAR_AUTOSTART='1', FOXML_DRAWER_BACKEND=ROOT / 'tests/drawer-ui-backend.py',
+                                         FOXML_DRAWER_TEST_LOG=work / 'actions', FOXML_DRAWER_BAR_STATE=work / 'drawer-state.css',
+                                         QS_NO_RELOAD_POPUP='1', FOXML_POLKIT_PROMPT='off', FOXML_BAR_FIXTURE=None)
+            self.addCleanup(sealed_env.stop, env)
             result = subprocess.run(['quickshell', '-p', str(qml), '--no-color'], env=env, text=True, capture_output=True, timeout=20)
             output = result.stdout + result.stderr
             self.assertIn('BROKEN_BAR_OK', output)

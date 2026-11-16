@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 import unittest
 from fixture_process import run as run_fixture
+import sealed_env
 
 ROOT = Path(__file__).resolve().parents[1]
 WORK = ROOT / 'src/desk-work/desk-work'
@@ -20,14 +21,14 @@ class NvimReview(unittest.TestCase):
         self.base = Path(self.temp.name)
         self.repo = self.base / 'project'
         self.repo.mkdir()
-        self.env = os.environ | {
+        # Sealed (tests/sealed_env.py), HOME too: the few tests that load an installed plugin find it in the real home
+        # through TEST_REVIEW_HOME.
+        self.env = sealed_env.environment(self.base, **{
             'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_CONFIG_NOSYSTEM': '1',
-            'XDG_STATE_HOME': str(self.base / 'state'), 'XDG_RUNTIME_DIR': str(self.base / 'runtime'),
-            'XDG_CACHE_HOME': str(self.base / 'cache'), 'NVIM_LOG_FILE': str(self.base / 'nvim.log'),
-            'TEST_REVIEW_LUA': str(ROOT / 'shared/nvim_lua'), 'TEST_REVIEW_ROOT': str(self.repo),
+            'TEST_REVIEW_LUA': str(ROOT / 'shared/nvim_lua'), 'TEST_REVIEW_ROOT': str(self.repo), 'TEST_REVIEW_HOME': str(Path.home()),
             'PATH': str(WORK.parent) + os.pathsep + os.environ['PATH'], 'FOXML_WORK_NOTIFY': '0',
-        }
-        Path(self.env['XDG_RUNTIME_DIR']).mkdir()
+        })
+        self.addCleanup(sealed_env.stop, self.env)
         self.git('init', '-q')
         self.git('config', 'user.name', 'Review Test')
         self.git('config', 'user.email', 'review@example.invalid')
@@ -247,7 +248,7 @@ C.close()
         self.git('add', 'functions.lua'); self.commit('update functions')
         self.env['TEST_REVIEW_SHA'] = self.git('rev-parse', 'HEAD')
         self.run_lua(r'''
-vim.opt.rtp:append(vim.fn.expand('~/.local/share/nvim/site'))
+vim.opt.rtp:append(vim.env.TEST_REVIEW_HOME .. '/.local/share/nvim/site')
 if not pcall(vim.treesitter.language.add,'lua') then return end
 C.open_review(row,root);R.tree({row})
 local r=R.current
@@ -817,7 +818,7 @@ C.close()
     @unittest.skipUnless((Path.home() / '.local/share/nvim/lazy/flash.nvim').is_dir(), 'flash.nvim is not installed')
     def test_s_labels_the_rows_and_typing_one_moves_there_as_j_and_k_do(self):
         self.run_lua(r'''
-vim.opt.rtp:append(vim.fn.expand('~/.local/share/nvim/lazy/flash.nvim'))
+vim.opt.rtp:append(vim.env.TEST_REVIEW_HOME .. '/.local/share/nvim/lazy/flash.nvim')
 require('flash').setup({ labels = 'asdfghjklqwertyuiopzxcvbnm', label = { uppercase = false } })
 C.open_review(row,root)
 local r=R.current
@@ -1483,7 +1484,7 @@ C.close()
                          'local symdeps plugin required')
     def test_real_symdeps_menu_groups_toggles_mouse_and_cursor_restoration(self):
         self.run_lua(r'''
-vim.opt.rtp:append(vim.fn.expand('~/code/tick-trader-percore-workspace/tools/plugins/fox-symdeps.nvim'))
+vim.opt.rtp:append(vim.env.TEST_REVIEW_HOME .. '/code/tick-trader-percore-workspace/tools/plugins/fox-symdeps.nvim')
 local native=require('fox-symdeps.menu')
 C.open_review(row,root)
 local r=R.current
@@ -1590,7 +1591,7 @@ local function options(plugin)
   return assert(loadstring('local Paper={enabled=false}\nreturn ' .. assert(source:sub(last):match('opts = (%b{})'))))()
 end
 api.nvim_set_current_buf(vim.fn.bufadd(root .. '/a.lua')); vim.fn.bufload(0)
-vim.opt.rtp:append(vim.fn.expand('~/.local/share/nvim/lazy/gitsigns.nvim'))
+vim.opt.rtp:append(vim.env.TEST_REVIEW_HOME .. '/.local/share/nvim/lazy/gitsigns.nvim')
 local gs = require('gitsigns'); gs.setup(options('lewis6991/gitsigns.nvim')); gs.attach()
 assert(vim.wait(2000,function()
   local hunks = gs.get_hunks()
@@ -1784,16 +1785,14 @@ C.close()
 class ReviewInThePopOut(unittest.TestCase):
     """The review's file list in the pop-out (the review navigator): shared/nvim_lua/tests/test_review_popout.lua drives a
     main editor with a review open and its pop-out, two headless Neovims on private sockets, in a sandbox of its own
-    (stubs of kitty, hyprctl, desk-hl, desk-drawer and desk-work first on PATH, proven to shadow the real ones)."""
-    LIVE = ('TMUX', 'TMUX_PANE', 'NVIM', 'HYPRLAND_INSTANCE_SIGNATURE', 'WAYLAND_DISPLAY', 'DISPLAY', 'DBUS_SESSION_BUS_ADDRESS',
-            'KITTY_LISTEN_ON', 'KITTY_WINDOW_ID', 'SWAYSOCK')
+    (stubs of kitty, hyprctl, desk-hl, desk-drawer and desk-work first on PATH, proven to shadow the real ones). The
+    runner Neovim is sealed as well (tests/sealed_env.py), and whatever the Lua started is stopped at the end."""
 
     def test_the_list_in_the_pop_out(self):
         flash = Path.home() / '.local/share/nvim/lazy/flash.nvim'
-        env = {k: v for k, v in os.environ.items() if k not in self.LIVE}
-        env['REVIEW_FLASH'] = str(flash) if (flash / 'lua/flash').is_dir() else ''
-        ran = subprocess.run(['nvim', '--headless', '--clean', '-l', str(ROOT / 'shared/nvim_lua/tests/test_review_popout.lua')],
-                             capture_output=True, text=True, timeout=240, env=env)
+        with sealed_env.sealed('review-popout-', REVIEW_FLASH=flash if (flash / 'lua/flash').is_dir() else '') as (env, _):
+            ran = sealed_env.run(['nvim', '--headless', '--clean', '-l', str(ROOT / 'shared/nvim_lua/tests/test_review_popout.lua')],
+                                 env, 240, sandboxes=(ROOT / 'tests', 'rv??????'))
         out = (ran.stdout + ran.stderr).strip()
         print('    ' + out.replace('\n', '\n    '))
         self.assertEqual(ran.returncode, 0, out)

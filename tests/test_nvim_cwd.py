@@ -24,11 +24,11 @@ import termios
 import time
 import unittest
 
+import sealed_env
+
 ROOT = Path(__file__).resolve().parents[1]
 RENDER = ROOT / "src/desk-render/desk-render-fast"
 PROJECT = Path(os.environ.get("DESK_PROJECT_NVIM") or Path.home() / ".local/share/nvim/lazy/project.nvim")
-LIVE = ("TMUX", "TMUX_PANE", "NVIM", "HYPRLAND_INSTANCE_SIGNATURE", "WAYLAND_DISPLAY", "DISPLAY",
-        "DBUS_SESSION_BUS_ADDRESS", "KITTY_LISTEN_ON", "KITTY_WINDOW_ID", "SWAYSOCK")
 
 # project.nvim as the rendered spec sets it up, then a file opened under a language server rooted at its folder.
 PROJECT_LUA = r"""
@@ -83,20 +83,19 @@ def rendered_init(base):
     return out / "init.lua"
 
 
-def sealed_env(base, **more):
-    run = Path(tempfile.mkdtemp(prefix="nc-"))   # short: a socket path has at most 107 bytes
-    env = {k: v for k, v in os.environ.items() if k not in LIVE}
-    env.update(HOME=str(base), XDG_STATE_HOME=str(base), XDG_CACHE_HOME=str(base), XDG_CONFIG_HOME=str(base),
-               XDG_DATA_HOME=str(base), XDG_RUNTIME_DIR=str(run), NVIM_LOG_FILE=str(base / "nvim.log"), **more)
-    return env, run
-
-
 @unittest.skipUnless(shutil.which("nvim") and shutil.which("git") and RENDER.exists(),
                      "requires nvim, git and desk-render-fast (make)")
 class WorkingDirectory(unittest.TestCase):
     def setUp(self):
         self.base = Path(tempfile.mkdtemp(prefix="nvim-cwd-"))
         self.addCleanup(shutil.rmtree, self.base, True)
+
+    # Sealed (tests/sealed_env.py); at the end every Neovim it started is stopped, a :restart's new server too (it runs
+    # outside the terminal Neovim's process group), before the folder goes.
+    def sealed(self, **more):
+        env = sealed_env.environment(self.base, **more)
+        self.addCleanup(sealed_env.stop, env)
+        return env
 
     def test_a_language_server_root_or_a_makefile_does_not_move_it_off_the_checkout(self):
         if not (PROJECT / "lua/project_nvim").is_dir():
@@ -108,9 +107,7 @@ class WorkingDirectory(unittest.TestCase):
         (tool / "Makefile").write_text("all:\n")
         (tool / "shell.cpp").write_text("int main() { return 0; }\n")
         (self.base / "project.lua").write_text(PROJECT_LUA)
-        env, run = sealed_env(self.base, DESK_INIT=str(rendered_init(self.base)), DESK_PLUGIN=str(PROJECT),
-                              DESK_FILE=str(tool / "shell.cpp"))
-        self.addCleanup(shutil.rmtree, run, True)
+        env = self.sealed(DESK_INIT=rendered_init(self.base), DESK_PLUGIN=PROJECT, DESK_FILE=tool / "shell.cpp")
         ran = subprocess.run(["nvim", "--headless", "--clean", "-l", str(self.base / "project.lua")], cwd=repo,
                              capture_output=True, text=True, timeout=60, env=env)
         self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
@@ -127,8 +124,7 @@ class WorkingDirectory(unittest.TestCase):
         (start / "sub").mkdir(parents=True)
         (start / "sub/file.txt").write_text("hello\n")
         log = self.base / "log"
-        env, run = sealed_env(self.base, TERM="xterm-256color", DESK_LOG=str(log))
-        self.addCleanup(shutil.rmtree, run, True)
+        env = self.sealed(TERM="xterm-256color", DESK_LOG=log)
         master, slave = pty.openpty()
         fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
 

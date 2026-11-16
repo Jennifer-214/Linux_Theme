@@ -44,8 +44,7 @@ if (shutil.which("bwrap") and not os.environ.get("FOXML_TMUX_TEST_SEALED")
     os.execvp("bwrap", ["bwrap", "--dev-bind", "/", "/", "--tmpfs", "/tmp", "--tmpfs", runtime, "--unshare-pid",
                         "--as-pid-1", "--die-with-parent", "--proc", "/proc", sys.executable, "-B", *sys.argv])
 
-LIVE = ("TMUX", "TMUX_PANE", "NVIM", "HYPRLAND_INSTANCE_SIGNATURE", "WAYLAND_DISPLAY", "DISPLAY",
-        "DBUS_SESSION_BUS_ADDRESS", "KITTY_LISTEN_ON", "KITTY_WINDOW_ID", "SWAYSOCK")
+import sealed_env  # noqa: E402
 
 # Neovim: the desk-jupyter block on a notebook buffer, the cursor on prose above a code cell. Shift+Enter there goes
 # to the cell (row 11); a plain Enter goes one row down (row 9).
@@ -230,12 +229,13 @@ class ShiftEnter(unittest.TestCase):
         sockets.mkdir(mode=0o700)
         self.socket = sockets / "s"
         self.log = self.work / "log"
-        self.env = {k: v for k, v in os.environ.items() if k not in LIVE}
-        self.env.update(HOME=str(self.work), TMUX_TMPDIR=str(sockets), TERM="xterm-kitty",
-                        XDG_CONFIG_HOME=str(self.work / "config"), XDG_DATA_HOME=str(self.work / "data"),
-                        XDG_STATE_HOME=str(self.work / "state"), XDG_CACHE_HOME=str(self.work / "cache"),
-                        XDG_RUNTIME_DIR=str(self.work / "run"), NVIM_LOG_FILE=str(self.work / "nvim.log"),
-                        DESK_LOG=str(self.log), DESK_BLOCK=str(BLOCK_LUA), DESK_INIT=str(self.render / "nvim/init.lua"))
+        # Sealed (tests/sealed_env.py) where bwrap is missing too: none of the session's addresses.
+        self.env = sealed_env.environment(self.work, HOME=self.work, TMUX_TMPDIR=sockets, TERM="xterm-kitty",
+                                          XDG_CONFIG_HOME=self.work / "config", XDG_DATA_HOME=self.work / "data",
+                                          XDG_STATE_HOME=self.work / "state", XDG_CACHE_HOME=self.work / "cache",
+                                          XDG_RUNTIME_DIR=self.work / "run", NVIM_LOG_FILE=self.work / "nvim.log",
+                                          DESK_LOG=self.log, DESK_BLOCK=BLOCK_LUA, DESK_INIT=self.render / "nvim/init.lua")
+        self.addCleanup(sealed_env.stop, self.env)
         (self.work / "run").mkdir(mode=0o700)
         (self.work / "driver.lua").write_text(DRIVER)
 

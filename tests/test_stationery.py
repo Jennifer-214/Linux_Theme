@@ -11,8 +11,14 @@ import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 
+import sealed_env
+
 ROOT=Path(__file__).resolve().parents[1]
 RENDER=ROOT/'src/desk-render/desk-render-fast'
+# GTK loads into this process for the icon lookups and opens a display and the session bus as it does: the whole test
+# runs sealed from the session (tests/sealed_env.py), and so does every script it starts.
+SEAL=tempfile.TemporaryDirectory(prefix='stationery-')
+os.environ.clear();os.environ.update(sealed_env.environment(SEAL.name))
 
 @unittest.skipUnless(RENDER.exists(), 'build desk-render-fast first')
 class Stationery(unittest.TestCase):

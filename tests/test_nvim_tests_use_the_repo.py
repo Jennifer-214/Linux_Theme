@@ -4,13 +4,13 @@ Neovim looks for a module in its runtime path before package.path, so a test sta
 the installed foxml/*.lua when there is one (two suites did, until 2026-11-13). `--clean` leaves the user's
 directories out of the runtime path; this holds every test to it, and proves it with a decoy install.
 """
-import os
 from pathlib import Path
 import re
 import shutil
-import subprocess
 import tempfile
 import unittest
+
+import sealed_env
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -33,9 +33,11 @@ class NvimTestsUseTheRepo(unittest.TestCase):
             decoy.mkdir(parents=True)
             for module in (ROOT / 'shared/nvim_lua/desk').glob('*.lua'):
                 (decoy / module.name).write_text("error('the installed copy was loaded: " + module.name + "')\n")
-            env = dict(os.environ, XDG_CONFIG_HOME=str(Path(tmp) / 'config'))
+            # Sealed from the session (tests/sealed_env.py), the decoy as the config folder.
+            env = sealed_env.environment(tmp, XDG_CONFIG_HOME=Path(tmp) / 'config')
+            self.addCleanup(sealed_env.stop, env)
             for test in sorted((ROOT / 'shared/nvim_lua/tests').glob('test_*.lua')):
-                run = subprocess.run(['nvim', '--headless', '--clean', '-l', str(test)], env=env, capture_output=True, text=True, timeout=120)
+                run = sealed_env.run(['nvim', '--headless', '--clean', '-l', str(test)], env, 120, sandboxes=(ROOT / 'tests', '[pr][ov]??????'))
                 self.assertEqual(run.returncode, 0, f'{test.name}: ' + (run.stdout + run.stderr)[-600:])
                 self.assertNotIn('installed copy', run.stdout + run.stderr, test.name)
 

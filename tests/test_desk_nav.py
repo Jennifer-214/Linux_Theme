@@ -14,6 +14,8 @@ import tempfile
 import time
 import unittest
 
+import sealed_env
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "shared/bin/desk-nav"
 LUA = ROOT / "shared/nvim_lua"
@@ -55,11 +57,12 @@ class DeskNav(unittest.TestCase):
         self.socket = sockets / f"tmux-{os.getuid()}" / "default"
         self.socket.parent.mkdir(mode=0o700)
         self.log, self.window = self.work / "calls", self.work / "window.json"
-        self.env = {k: v for k, v in os.environ.items() if k not in ("TMUX", "TMUX_PANE", "HYPRLAND_INSTANCE_SIGNATURE", "NVIM")}
-        self.env.update(TMUX_TMPDIR=str(sockets), HOME=str(self.work), XDG_RUNTIME_DIR=str(self.run_dir),
-                        XDG_STATE_HOME=str(self.work / "state"), XDG_CONFIG_HOME=str(self.work / "config"),
-                        XDG_DATA_HOME=str(self.work / "data"), XDG_CACHE_HOME=str(self.work / "cache"),
-                        PATH=f"{stubs}{os.pathsep}{os.environ['PATH']}", NAV_LOG=str(self.log), NAV_WINDOW=str(self.window))
+        # Sealed (tests/sealed_env.py) where bwrap is missing too: none of the session's addresses.
+        self.env = sealed_env.environment(self.short, TMUX_TMPDIR=sockets, HOME=self.work, XDG_RUNTIME_DIR=self.run_dir,
+                                          XDG_STATE_HOME=self.work / "state", XDG_CONFIG_HOME=self.work / "config",
+                                          XDG_DATA_HOME=self.work / "data", XDG_CACHE_HOME=self.work / "cache",
+                                          PATH=f"{stubs}{os.pathsep}{os.environ['PATH']}", NAV_LOG=self.log, NAV_WINDOW=self.window)
+        self.addCleanup(sealed_env.stop, self.env)
         self.procs = []
         self.addCleanup(self.stop)                          # first
 

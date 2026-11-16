@@ -17,6 +17,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import sealed_env
+
 ROOT = Path(__file__).resolve().parents[1]
 LUA = ROOT / 'shared/nvim_lua'
 RENDER = ROOT / 'src/desk-render/desk-render-fast'
@@ -24,21 +26,24 @@ RENDER = ROOT / 'src/desk-render/desk-render-fast'
 
 @unittest.skipUnless(shutil.which('nvim'), 'Neovim required')
 class PopOut(unittest.TestCase):
-    def test_the_pop_out_and_its_editor(self):
-        ran = subprocess.run(['nvim', '--headless', '--clean', '-l', str(LUA / 'tests/test_popout.lua')],
-                             capture_output=True, text=True, timeout=240)
+    # Sealed (tests/sealed_env.py): the runner Neovim's log and server socket are the test's own, and every process the
+    # Lua starts (the editor, its pop-out, a restarted server) is stopped at the end, also after a timeout; then what
+    # the Lua printed is kept, and the sandbox it made under tests/ removed.
+    def lua(self, name, timeout):
+        with sealed_env.sealed('popout-') as (env, _):
+            ran = sealed_env.run(['nvim', '--headless', '--clean', '-l', str(LUA / 'tests' / name)], env, timeout,
+                                 sandboxes=(ROOT / 'tests', 'po??????'))
         out = (ran.stdout + ran.stderr).strip()
         print('    ' + out.replace('\n', '\n    '))
         self.assertEqual(ran.returncode, 0, out)
 
+    def test_the_pop_out_and_its_editor(self):
+        self.lua('test_popout.lua', 240)
+
     # :restart in the editor's terminal UI (a pty here) with the pop-out open: no stall, the pop-out quits, the new
     # editor offers its views again.
     def test_restart_with_the_pop_out_open(self):
-        ran = subprocess.run(['nvim', '--headless', '--clean', '-l', str(LUA / 'tests/test_popout_restart.lua')],
-                             capture_output=True, text=True, timeout=120)
-        out = (ran.stdout + ran.stderr).strip()
-        print('    ' + out.replace('\n', '\n    '))
-        self.assertEqual(ran.returncode, 0, out)
+        self.lua('test_popout_restart.lua', 120)
 
 
 BLOCK_RUN = r'''
@@ -97,11 +102,10 @@ class InitBlock(unittest.TestCase):
             script = Path(temp) / 'run.lua'
             script.write_text(BLOCK_RUN)
             servers, hidden = {}, {}
+            sealed = sealed_env.environment(temp, POPOUT_BLOCK=block)
+            self.addCleanup(sealed_env.stop, sealed)
             for popout in ('1', '0'):
-                env = dict(os.environ, POPOUT=popout, POPOUT_BLOCK=str(block), HOME=temp, XDG_STATE_HOME=temp, XDG_CACHE_HOME=temp,
-                           XDG_CONFIG_HOME=temp, XDG_DATA_HOME=temp)
-                ran = subprocess.run(['nvim', '--headless', '--clean', '-l', str(script)], capture_output=True, text=True, timeout=60,
-                                     env=env)
+                ran = sealed_env.run(['nvim', '--headless', '--clean', '-l', str(script)], sealed | {'POPOUT': popout}, 60)
                 self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
                 said = json.loads(ran.stdout.strip().splitlines()[-1])
                 servers[popout], hidden[popout] = said['servers'], said['hidden'] or []
@@ -114,12 +118,10 @@ class InitBlock(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='popout-modules-') as temp:
             script = Path(temp) / 'run.lua'
             script.write_text(MODULES_RUN)
-            (Path(temp) / 'runtime').mkdir(mode=0o700)
-            # No desk-work on PATH and private folders: even a module that ignored the pop-out could reach nothing real.
-            env = {k: v for k, v in os.environ.items() if k not in ('TMUX', 'TMUX_PANE', 'NVIM', 'HYPRLAND_INSTANCE_SIGNATURE')}
-            env.update(POPOUT_LUA=str(LUA), HOME=temp, XDG_STATE_HOME=temp, XDG_CACHE_HOME=temp, XDG_CONFIG_HOME=temp,
-                       XDG_DATA_HOME=temp, XDG_RUNTIME_DIR=str(Path(temp) / 'runtime'), PATH='/usr/bin:/bin')
-            ran = subprocess.run(['nvim', '--headless', '--clean', '-l', str(script)], capture_output=True, text=True, timeout=60, env=env)
+            # No desk-work on PATH and sealed: even a module that ignored the pop-out could reach nothing real.
+            env = sealed_env.environment(temp, POPOUT_LUA=LUA, PATH='/usr/bin:/bin')
+            self.addCleanup(sealed_env.stop, env)
+            ran = sealed_env.run(['nvim', '--headless', '--clean', '-l', str(script)], env, 60)
             self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
             found = json.loads(ran.stdout.strip().splitlines()[-1])
         self.assertEqual((found['commands'] or [], found['groups'] or [], found['home']), ([], [], False),

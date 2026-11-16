@@ -16,6 +16,8 @@ import unittest
 
 BIN = Path(__file__).resolve().parents[1] / "desk-work"
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tests"))
+import sealed_env  # noqa: E402
 
 
 class ToolsCase(unittest.TestCase):
@@ -24,9 +26,11 @@ class ToolsCase(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.dir = Path(self.temp.name).resolve()
         self.config = self.dir / "config"
-        self.env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
-        self.env.update(HOME=str(self.dir / "home"), XDG_STATE_HOME=str(self.dir / "state"), XDG_CONFIG_HOME=str(self.config),
-                        XDG_RUNTIME_DIR=str(self.dir / "runtime"), FOXML_WORK_NOTIFY="0", PYTHONDONTWRITEBYTECODE="1", TZ="UTC")
+        # Sealed from the session (tests/sealed_env.py).
+        self.env = sealed_env.environment(self.dir, CLAUDECODE=None, HOME=self.dir / "home", XDG_STATE_HOME=self.dir / "state",
+                                          XDG_CONFIG_HOME=self.config, XDG_RUNTIME_DIR=self.dir / "runtime", FOXML_WORK_NOTIFY="0",
+                                          PYTHONDONTWRITEBYTECODE="1", TZ="UTC")
+        self.addCleanup(sealed_env.stop, self.env)
         self.repo = self.checkout("project", {"sample.cpp": "int x = 1;\n"})
         self.marker = self.dir / "ran"
 

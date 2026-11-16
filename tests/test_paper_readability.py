@@ -9,6 +9,8 @@ import time
 import tomllib
 import unittest
 
+import sealed_env
+
 ROOT = Path(__file__).resolve().parents[1]
 RENDER = ROOT / 'src/desk-render/desk-render-fast'
 
@@ -20,7 +22,9 @@ class PaperReadability(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='foxml-correction-') as temp:
             base=Path(temp)
             subprocess.run([str(RENDER),str(ROOT/'themes/Paper/palette.sh'),str(ROOT/'templates/nvim'),str(base/'rendered')],check=True,capture_output=True)
-            env=os.environ|{'PAPER_DETAILS_INIT':str(base/'rendered/init.lua'),'XDG_STATE_HOME':str(base/'state'),'NVIM_LOG_FILE':str(base/'nvim.log')}
+            # Sealed (tests/sealed_env.py); HOME stays: the Lua loads nui.nvim and the parsers from ~/.local/share/nvim.
+            env=sealed_env.environment(base,keep_home=True,PAPER_DETAILS_INIT=base/'rendered/init.lua')
+            self.addCleanup(sealed_env.stop,env)
             result=subprocess.run(['nvim','--clean','--headless','-l',str(ROOT/'tests/paper_correction_slips.lua')],env=env,capture_output=True,text=True,timeout=15)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
             self.assertIn('PAPER_CORRECTIONS_AND_FOOTNOTES_OK',result.stdout+result.stderr)
@@ -30,8 +34,9 @@ class PaperReadability(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='foxml-footer-') as temp:
             base=Path(temp)
             subprocess.run([str(RENDER),str(ROOT/'themes/Paper/palette.sh'),str(ROOT/'templates/nvim'),str(base/'rendered')],check=True,capture_output=True)
-            env=os.environ|{'PAPER_READING_INIT':str(base/'rendered/init.lua'),'PAPER_FOOTER_SOCKET':str(base/'tmux.sock'),
-                            'XDG_STATE_HOME':str(base/'state'),'NVIM_LOG_FILE':str(base/'nvim.log')}
+            # Sealed (tests/sealed_env.py): its tmux server asks no user manager for a scope over her bus.
+            env=sealed_env.environment(base,PAPER_READING_INIT=base/'rendered/init.lua',PAPER_FOOTER_SOCKET=base/'tmux.sock')
+            self.addCleanup(sealed_env.stop,env)
             result=subprocess.run(['nvim','--clean','--headless','-l',str(ROOT/'tests/paper_tmux_footer.lua')],env=env,capture_output=True,text=True,timeout=15)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
             self.assertIn('PAPER_TMUX_FOOTER_PASSED',result.stdout+result.stderr)
@@ -41,7 +46,8 @@ class PaperReadability(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='foxml-conform-spec-') as temp:
             base=Path(temp)
             subprocess.run([str(RENDER),str(ROOT/'themes/Paper/palette.sh'),str(ROOT/'templates/nvim'),str(base/'rendered')],check=True,capture_output=True)
-            env=os.environ|{'PAPER_READING_INIT':str(base/'rendered/init.lua'),'XDG_STATE_HOME':str(base/'state')}
+            env=sealed_env.environment(base,PAPER_READING_INIT=base/'rendered/init.lua')   # tests/sealed_env.py
+            self.addCleanup(sealed_env.stop,env)
             result=subprocess.run(['nvim','--clean','--headless','-l',str(ROOT/'tests/paper_conform_spec.lua')],env=env,capture_output=True,text=True,timeout=20)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
             self.assertIn('PAPER_CONFORM_SPEC_PASSED',result.stdout+result.stderr)
@@ -51,8 +57,9 @@ class PaperReadability(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='foxml-formatting-') as temp:
             base=Path(temp)
             subprocess.run([str(RENDER),str(ROOT/'themes/Paper/palette.sh'),str(ROOT/'templates/nvim'),str(base/'rendered')],check=True,capture_output=True)
-            env=os.environ|{'PAPER_READING_INIT':str(base/'rendered/init.lua'), 'PAPER_FORMATTING_ROOT':str(base),
-                            'XDG_STATE_HOME':str(base/'state'),'XDG_CACHE_HOME':str(base/'cache'),'NVIM_LOG_FILE':str(base/'nvim.log')}
+            # Sealed (tests/sealed_env.py); HOME stays: the Lua loads conform.nvim and mason's JSON server from ~/.local/share/nvim.
+            env=sealed_env.environment(base,keep_home=True,PAPER_READING_INIT=base/'rendered/init.lua',PAPER_FORMATTING_ROOT=base)
+            self.addCleanup(sealed_env.stop,env)
             result=subprocess.run(['nvim','--clean','--headless','-l',str(ROOT/'tests/paper_formatting.lua')],env=env,capture_output=True,text=True,timeout=20)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
             self.assertIn('PAPER_FORMATTING_PASSED',result.stdout+result.stderr)
@@ -72,8 +79,9 @@ class PaperReadability(unittest.TestCase):
             def terminal():
                 os.setsid()
                 fcntl.ioctl(0,termios.TIOCSCTTY,0)
-            env=os.environ|{'TERM':'xterm-256color','XDG_CONFIG_HOME':str(base/'config'),
-                            'XDG_CACHE_HOME':str(base/'cache'),'XDG_STATE_HOME':str(base/'state')}
+            # Sealed (tests/sealed_env.py): its runtime folder is the test's, not hers.
+            env=sealed_env.environment(base,TERM='xterm-256color',XDG_CONFIG_HOME=base/'config')
+            self.addCleanup(sealed_env.stop,env)
             child=subprocess.Popen(['yazi',str(base)],stdin=slave,stdout=slave,stderr=slave,env=env,preexec_fn=terminal)
             os.close(slave);output=bytearray()
             try:
@@ -121,9 +129,9 @@ class PaperReadability(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='foxml-reading-editor-') as temp:
             base=Path(temp)
             subprocess.run([str(RENDER),str(ROOT/'themes/Paper/palette.sh'),str(ROOT/'templates/nvim'),str(base/'rendered')],check=True,capture_output=True)
-            env=os.environ|{'PAPER_READING_INIT':str(base/'rendered/init.lua'),
-                            'XDG_STATE_HOME':str(base/'state'),'XDG_CACHE_HOME':str(base/'cache'),
-                            'NVIM_LOG_FILE':str(base/'nvim.log')}
+            # Sealed (tests/sealed_env.py); HOME stays: the Lua loads nui.nvim and the parsers from ~/.local/share/nvim.
+            env=sealed_env.environment(base,keep_home=True,PAPER_READING_INIT=base/'rendered/init.lua')
+            self.addCleanup(sealed_env.stop,env)
             result=subprocess.run(['nvim','--clean','--headless','-l',str(ROOT/'tests/paper_readability.lua')],env=env,capture_output=True,text=True,timeout=15)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
             self.assertIn('PAPER_READING_PASSED',result.stdout+result.stderr)

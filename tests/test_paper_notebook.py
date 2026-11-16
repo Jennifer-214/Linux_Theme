@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Exercise real Vim marks, folds, and optional local symdeps UI without loading user init."""
+"""Exercise real Vim marks, folds, and optional local symdeps UI without loading user init. Every Neovim, tmux and script
+here runs sealed from the session (tests/sealed_env.py)."""
 import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import unittest
+
+import sealed_env
 
 ROOT = Path(__file__).resolve().parents[1]
 NVIM = shutil.which('nvim')
@@ -329,8 +331,8 @@ class PaperNotebook(unittest.TestCase):
                     out = base/theme
                     subprocess.run([str(RENDER), str(ROOT/'themes'/theme/'palette.sh'), str(ROOT/'templates/nvim'), str(out)],
                                    check=True, capture_output=True)
-                    env = os.environ | {'BORDER_INIT': str(out/'init.lua'), 'BORDER_LUA': str(ROOT/'shared/nvim_lua'),
-                                        'NVIM_LOG_FILE': str(base/'nvim.log')}
+                    env = sealed_env.environment(base, BORDER_INIT=out/'init.lua', BORDER_LUA=ROOT/'shared/nvim_lua')
+                    self.addCleanup(sealed_env.stop, env)
                     result = subprocess.run([NVIM, '--clean', '--headless', '-l', str(driver)], env=env,
                                             capture_output=True, text=True, timeout=10)
                     self.assertEqual(result.returncode, 0, result.stderr)
@@ -357,9 +359,8 @@ class PaperNotebook(unittest.TestCase):
             subprocess.run([str(RENDER),str(ROOT/'themes/Paper/palette.sh'),str(ROOT/'templates/nvim'),str(rendered)],check=True,capture_output=True)
             driver=base/'style.lua';driver.write_text(SYMDEPS_STYLE_DRIVER)
             note=base/'note.cpp';note.write_text('struct Note { int page; };\n')
-            env=os.environ|{'NOTEBOOK_INIT':str(rendered/'init.lua'),'NOTEBOOK_SOURCE':str(note),
-                            'NOTEBOOK_SYMDEPS':str(plugin),'XDG_STATE_HOME':str(base/'state'),
-                            'XDG_CACHE_HOME':str(base/'cache'),'NVIM_LOG_FILE':str(base/'nvim.log')}
+            env=sealed_env.environment(base,NOTEBOOK_INIT=rendered/'init.lua',NOTEBOOK_SOURCE=note,NOTEBOOK_SYMDEPS=plugin)
+            self.addCleanup(sealed_env.stop,env)
             result=subprocess.run([NVIM,'--clean','--headless','-l',str(driver)],env=env,capture_output=True,text=True,timeout=15)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
             self.assertIn('PAPER_SYMDEPS_STYLE_PASSED',result.stdout+result.stderr)
@@ -373,11 +374,11 @@ class PaperNotebook(unittest.TestCase):
             plugin=Path.home()/'code/tick-trader-percore-workspace/tools/plugins/fox-symdeps.nvim'
             parser=Path.home()/'.local/share/nvim/site/parser/cpp.so'
             lualine=Path.home()/'.local/share/nvim/lazy/lualine.nvim'
-            env=os.environ|{'NOTEBOOK_INIT':str(rendered/'init.lua'),'NOTEBOOK_SOURCE':str(base/'note.cpp'),
-                            'NOTEBOOK_SYMDEPS':str(plugin) if plugin.is_dir() else '',
-                            'NOTEBOOK_CPP_PARSER':str(parser) if parser.is_file() else '',
-                            'NOTEBOOK_LUALINE':str(lualine) if lualine.is_dir() else '',
-                            'XDG_STATE_HOME':str(base/'state'),'XDG_CACHE_HOME':str(base/'cache'),'NVIM_LOG_FILE':str(base/'nvim.log')}
+            env=sealed_env.environment(base,NOTEBOOK_INIT=rendered/'init.lua',NOTEBOOK_SOURCE=base/'note.cpp',
+                                       NOTEBOOK_SYMDEPS=plugin if plugin.is_dir() else '',
+                                       NOTEBOOK_CPP_PARSER=parser if parser.is_file() else '',
+                                       NOTEBOOK_LUALINE=lualine if lualine.is_dir() else '')
+            self.addCleanup(sealed_env.stop,env)
             result=subprocess.run([NVIM,'--clean','--headless','-l',str(driver)],env=env,capture_output=True,text=True,timeout=15)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
             self.assertIn('PAPER_NOTEBOOK_ASSERTIONS_PASSED',result.stdout+result.stderr)
@@ -396,9 +397,9 @@ class PaperNotebook(unittest.TestCase):
             note.write_text('int main() { return 0; }\n')
             (base/'data/nvim').mkdir(parents=True)
             driver=base/'focus.lua';driver.write_text(FOCUS_DRIVER)
-            env=os.environ|{'NOTEBOOK_INIT':str(rendered/'init.lua'),'NOTEBOOK_SOURCE':str(note),'NOTEBOOK_PLUGINS':str(plugins),
-                            'XDG_DATA_HOME':str(base/'data'),'XDG_STATE_HOME':str(base/'state'),
-                            'XDG_CACHE_HOME':str(base/'cache'),'NVIM_LOG_FILE':str(base/'nvim.log')}
+            env=sealed_env.environment(base,NOTEBOOK_INIT=rendered/'init.lua',NOTEBOOK_SOURCE=note,NOTEBOOK_PLUGINS=plugins,
+                                       XDG_DATA_HOME=base/'data')
+            self.addCleanup(sealed_env.stop,env)
             result=subprocess.run([NVIM,'--clean','--headless','-l',str(driver)],env=env,capture_output=True,text=True,timeout=15)
             self.assertEqual(result.returncode,0,result.stdout+result.stderr)
             self.assertIn('Actual Neo-tree and Lualine:',result.stdout+result.stderr)
@@ -416,7 +417,8 @@ class PaperNotebook(unittest.TestCase):
                 "elif a[0]=='list-panes':print('1.0\\t%1\\t/dev/null\\t1\\tnvim\\t'+('1' if a[a.index('-t')+1]=='other' and os.environ.get('TEST_BELL')=='1' else '0'))\n")
             fake.chmod(0o755)
             zoxide=bins/'zoxide';zoxide.write_text('#!/bin/sh\nexit 0\n');zoxide.chmod(0o755)
-            env=os.environ|{'HOME':str(base),'XDG_DATA_HOME':str(base/'data'),'PATH':str(bins)+':/usr/bin:/bin','FOX_SESH_BELL':'b8336a'}
+            env=sealed_env.environment(base,HOME=base,XDG_DATA_HOME=base/'data',PATH=str(bins)+':/usr/bin:/bin',FOX_SESH_BELL='b8336a')
+            self.addCleanup(sealed_env.stop,env)
             for enabled in (False,True):
                 result=subprocess.run(['/bin/bash',str(ROOT/'shared/bin/tmux-sessionizer'),'--list'],env=env|{'TEST_BELL':'1' if enabled else '0'},text=True,capture_output=True,timeout=5)
                 self.assertEqual(result.returncode,0,result.stderr)
@@ -430,7 +432,12 @@ class PaperNotebook(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='foxml-notebook-tmux-') as temp:
             base=Path(temp);out=base/'rendered';socket=base/'tmux.sock'
             subprocess.run([str(RENDER),str(ROOT/'themes/Paper/palette.sh'),str(ROOT/'templates/tmux'),str(out)],check=True,capture_output=True)
-            env=os.environ.copy();env.pop('TMUX',None)
+            # Sealed: no session bus, so tmux asks no user manager for a scope per pane, and a HOME of its own, where the
+            # scripts the config runs from ~/.local/bin are the repo's.
+            env=sealed_env.environment(base)
+            self.addCleanup(sealed_env.stop,env)
+            scripts=Path(env['HOME'])/'.local/bin';scripts.mkdir(parents=True)
+            for name in ('tmux-title','tmux-pane-info'):(scripts/name).symlink_to(ROOT/'shared/bin'/name)
             def tmux(*args, check=True):
                 return subprocess.run(['tmux','-S',str(socket),*args],env=env,cwd=base,check=check,capture_output=True,text=True,timeout=5)
             try:
@@ -451,6 +458,8 @@ class PaperNotebook(unittest.TestCase):
 
     def test_all_theme_configs_render_and_parse(self):
         with tempfile.TemporaryDirectory(prefix='foxml-notebook-themes-') as temp:
+            env=sealed_env.environment(temp)
+            self.addCleanup(sealed_env.stop,env)
             for palette in sorted((ROOT/'themes').glob('*/palette.sh')):
                 with self.subTest(theme=palette.parent.name):
                     out=Path(temp)/palette.parent.name
@@ -460,7 +469,7 @@ class PaperNotebook(unittest.TestCase):
                     self.assertIn('tab_bar_style              '+expected,kitty)
                     driver=Path(temp)/'parse.lua'
                     driver.write_text('assert(loadfile('+json.dumps(str(out/'nvim/init.lua'))+')); vim.cmd("qa!")')
-                    result=subprocess.run([NVIM,'--clean','--headless','-l',str(driver)],env=os.environ|{'NVIM_LOG_FILE':str(Path(temp)/'nvim.log')},capture_output=True,text=True,timeout=5)
+                    result=subprocess.run([NVIM,'--clean','--headless','-l',str(driver)],env=env,capture_output=True,text=True,timeout=5)
                     self.assertEqual(result.returncode,0,result.stderr)
 
 if __name__=='__main__':unittest.main()

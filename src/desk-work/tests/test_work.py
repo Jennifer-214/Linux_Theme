@@ -15,6 +15,8 @@ import unittest
 
 BIN = Path(__file__).resolve().parents[1] / "desk-work"
 NVIM_LUA = Path(__file__).resolve().parents[3] / "shared/nvim_lua"
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tests"))
+import sealed_env  # noqa: E402
 
 
 class Work(unittest.TestCase):
@@ -24,9 +26,12 @@ class Work(unittest.TestCase):
         self.dir = Path(self.temp.name)
         self.repo = self.dir / "project with spaces"
         self.repo.mkdir()
-        self.env = dict(os.environ, HOME=str(self.dir / "home"), XDG_STATE_HOME=str(self.dir / "state"),
-                        XDG_CONFIG_HOME=str(self.dir / "config"), XDG_RUNTIME_DIR=str(self.dir / "runtime"),
-                        TMUX_PANE="%123", FOXML_WORK_NOTIFY="0", PYTHONDONTWRITEBYTECODE="1")
+        # Sealed from the session (tests/sealed_env.py): no tmux of hers (desk-work agents lists tmux's panes), and no
+        # display, bus or kitty for an editor or a kitty a test forgot to stub; the pane desk-work records is the test's.
+        self.env = sealed_env.environment(self.dir, HOME=self.dir / "home", XDG_STATE_HOME=self.dir / "state",
+                                          XDG_CONFIG_HOME=self.dir / "config", XDG_RUNTIME_DIR=self.dir / "runtime",
+                                          TMUX_PANE="%123", FOXML_WORK_NOTIFY="0", PYTHONDONTWRITEBYTECODE="1")
+        self.addCleanup(sealed_env.stop, self.env)
         self.git("init", "-q")
         self.git("config", "user.name", "Test")
         self.git("config", "user.email", "test@example.invalid")

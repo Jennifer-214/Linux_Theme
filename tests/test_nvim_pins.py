@@ -18,13 +18,13 @@ import tarfile
 import tempfile
 import unittest
 
+import sealed_env
+
 ROOT = Path(__file__).resolve().parents[1]
 RENDER = ROOT / "src/desk-render/desk-render-fast"
 TEMPLATE = ROOT / "templates/nvim/init.lua"
 LOCK = json.loads((ROOT / "shared/nvim_lazy-lock.json").read_text())
 CLONE = Path(os.environ.get("DESK_NVIM_SCROLLBAR") or Path.home() / ".local/share/nvim/lazy/nvim-scrollbar")
-LIVE = ("TMUX", "TMUX_PANE", "NVIM", "HYPRLAND_INSTANCE_SIGNATURE", "WAYLAND_DISPLAY", "DISPLAY",
-        "DBUS_SESSION_BUS_ADDRESS", "KITTY_LISTEN_ON", "KITTY_WINDOW_ID", "SWAYSOCK")
 
 # The rendered nvim-scrollbar spec with the palette it reads, loaded as lazy.nvim loads it after startup: the plugin on
 # the runtime path, its plugin/ files sourced, then the spec's config with its opts.
@@ -78,11 +78,8 @@ class Scrollbar(unittest.TestCase):
             subprocess.run([str(RENDER), str(ROOT / "themes/Paper/palette.sh"), str(ROOT / "templates/nvim"),
                             str(rendered)], check=True, capture_output=True, timeout=60)
             (base / "load.lua").write_text(LOAD)
-            (base / "run").mkdir(mode=0o700)
-            env = {k: v for k, v in os.environ.items() if k not in LIVE}
-            env.update(DESK_INIT=str(rendered / "init.lua"), DESK_PLUGIN=str(plugin), XDG_STATE_HOME=str(base),
-                       XDG_CACHE_HOME=str(base), XDG_CONFIG_HOME=str(base), XDG_DATA_HOME=str(base),
-                       XDG_RUNTIME_DIR=str(base / "run"), NVIM_LOG_FILE=str(base / "nvim.log"))
+            env = sealed_env.environment(base, DESK_INIT=rendered / "init.lua", DESK_PLUGIN=plugin)   # tests/sealed_env.py
+            self.addCleanup(sealed_env.stop, env)
             ran = subprocess.run(["nvim", "--headless", "--clean", "-l", str(base / "load.lua")], capture_output=True,
                                  text=True, timeout=60, env=env)
             self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
