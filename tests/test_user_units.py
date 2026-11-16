@@ -43,7 +43,7 @@ class SelfCheckRunsItself(unittest.TestCase):
         self.assertIn('"--theme", ctx.theme_name', post, "post_install checks the theme it just applied")
         self.assertIn("never fails the install", post)
         unit = (ROOT / "shared/systemd_user/fox-theme-check.service").read_text()
-        self.assertIn("--quiet --only D1,D6,D8,D9,D10,D11,D12", unit, "no checks that need the live session")
+        self.assertIn("--quiet --scheduled", unit, "the checks theme-check's table marks Weekly: none needs the live session")
         self.assertIn("notify-send", unit)
         self.assertIn("OnCalendar=weekly", (ROOT / "shared/systemd_user/fox-theme-check.timer").read_text())
         self.assertIn('"fox-theme-check.timer"', SPECIALS, "enabled on install")
