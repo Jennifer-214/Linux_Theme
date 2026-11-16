@@ -6,9 +6,18 @@
 #
 #   desk-ssh-port          the first port: the one the SSH wizard chose
 #   desk-ssh-port --all    every port sshd listens on, one per line
+#   --no-sudo              never ask sudo, for a caller that polls (the bar's security pill): the drop-in, then 22
 set -u
 
 DROPIN=${FOXML_SSH_DROPIN:-/etc/ssh/sshd_config.d/50-foxml-hardening.conf}
+all=0 sudo_ok=1
+for arg in "$@"; do
+    case "$arg" in
+        --all) all=1 ;;
+        --no-sudo) sudo_ok=0 ;;
+        -h|--help) sed -n '2,9p' "$0" | sed 's/^# \?//'; exit 0 ;;
+    esac
+done
 
 # listenaddress lines are the sockets sshd binds (0.0.0.0:2222, [::]:2222); its port lines count only when there are
 # none. In order, each once, 1-65535.
@@ -20,9 +29,10 @@ _from_sshd_t() {
         END { if (n) for (i = 1; i <= n; i++) print la[i]; else for (i = 1; i <= m; i++) print pl[i] }'
 }
 
+out=
 if [[ $EUID -eq 0 ]]; then
     out=$(sshd -T 2>/dev/null)
-else
+elif (( sudo_ok )); then
     out=$(sudo -n sshd -T 2>/dev/null)
 fi
 ports=$(printf '%s\n' "$out" | _from_sshd_t)
@@ -31,8 +41,4 @@ if [[ -z "$ports" && -r "$DROPIN" ]]; then
 fi
 [[ -n "$ports" ]] || ports=22
 
-case "${1:-}" in
-    --all) printf '%s\n' "$ports" ;;
-    -h|--help) sed -n '2,8p' "$0" | sed 's/^# \?//' ;;
-    *) printf '%s\n' "$ports" | head -n1 ;;
-esac
+if (( all )); then printf '%s\n' "$ports"; else printf '%s\n' "$ports" | head -n1; fi

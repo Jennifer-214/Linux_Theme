@@ -76,13 +76,19 @@ if findmnt /dev/shm 2>/dev/null | grep -q noexec; then _bump ok "noexec /dev/shm
 if grep -qE 'intel_iommu=on|amd_iommu=on' /proc/cmdline 2>/dev/null; then _bump ok "IOMMU active"; fi
 [[ -f /etc/systemd/coredump.conf.d/foxml-no-coredumps.conf ]] && _bump ok "Core dumps disabled"
 
-# SSH posture
-ssh_conf=/etc/ssh/sshd_config.d/50-foxml-hardening.conf
-if [[ -f "$ssh_conf" ]]; then
-    port=$(awk '/^Port /{print $2}' "$ssh_conf" 2>/dev/null)
+# SSH posture. While sshd is stopped nothing listens, whatever its config says (2026-11-16: the pill warned "SSH
+# passwords on" on a laptop whose sshd is disabled). Running, the wizard's drop-in tells keys-only from passwords;
+# without the drop-in, password login can't be read without root. The port is desk-ssh-port's, never through sudo.
+ssh_conf="${FOXML_SSH_DROPIN:-/etc/ssh/sshd_config.d/50-foxml-hardening.conf}"
+if ! _svc sshd && ! _svc sshd.socket; then
+    _bump ok "SSH server off"
+elif [[ -f "$ssh_conf" ]]; then
+    port=$("${FOXML_SENTRY_SSH_PORT:-$HOME/.local/bin/desk-ssh-port}" --no-sudo 2>/dev/null | head -n1)
     pa=$(awk '/^PasswordAuthentication /{print $2}' "$ssh_conf" 2>/dev/null)
-    if [[ "$pa" == "no" ]]; then _bump ok "SSH keys-only (:${port})"
-    else _bump warn "SSH passwords on"; fi
+    if [[ "$pa" == "no" ]]; then _bump ok "SSH keys-only${port:+ (:$port)}"
+    else _bump warn "SSH passwords on${port:+ (:$port)}"; fi
+else
+    unknowns+=("SSH running: password login unknown (no hardening drop-in)")
 fi
 
 # Browser hardening

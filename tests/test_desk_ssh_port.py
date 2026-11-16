@@ -57,6 +57,11 @@ expect("not ports: skipped", run("desk-ssh-port", sshd_t="port 0\nport 70000\npo
 expect("sshd -T fails: the wizard's drop-in", run("desk-ssh-port", dropin="# x\nPort 4022\nPort 22\n") == "4022\n")
 expect("sshd -T fails: every Port line with --all", run("desk-ssh-port", ["--all"], dropin="Port 4022\nPort 22\n") == "4022\n22\n")
 expect("nothing to read: 22, never empty", run("desk-ssh-port") == "22\n")
+# --no-sudo is for the bar's security pill, which polls every 15 s and never calls sudo: the stub sudo would hand back
+# sshd -T's 4022, so the drop-in's port proves it was not asked.
+expect("--no-sudo: the drop-in, sudo never asked", run("desk-ssh-port", ["--no-sudo"], sshd_t=MOVED, dropin="Port 2202\n") == "2202\n")
+expect("--no-sudo --all: every Port line", run("desk-ssh-port", ["--no-sudo", "--all"], sshd_t=MOVED, dropin="Port 2202\nPort 22\n") == "2202\n22\n")
+expect("--no-sudo, nothing to read: 22", run("desk-ssh-port", ["--no-sudo"], sshd_t=MOVED) == "22\n")
 expect("a drop-in without a Port line: 22", run("desk-ssh-port", dropin="PasswordAuthentication no\n") == "22\n")
 
 knock = run("desk-knock", ["--status"], sshd_t=MOVED, dropin="Port 9999\n")

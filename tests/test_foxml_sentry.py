@@ -5,35 +5,42 @@ nosudo.md). Runs the real script with stub systemctl / findmnt / fprintd-list / 
 - UFW egress deny shows as CONFIGURED (not verified live), outside the active-protection count;
 - an unreadable or incomplete config shows "unknown", never a silent off;
 - a WireGuard interface is "present", never "up" or "connected"; a failing `ip` shows "unknown";
-- a user watcher switched on but not running is a warning, "Watcher down: …", not a quiet drop from the count."""
+- a user watcher switched on but not running is a warning, "Watcher down: …", not a quiet drop from the count;
+- SSH is "off" while sshd is stopped; running, keys-only or passwords from the drop-in, the port from desk-ssh-port."""
 import json, os, pathlib, stat, subprocess, sys, tempfile
 
 SCRIPT = pathlib.Path(__file__).resolve().parent.parent / "shared/waybar_scripts/foxml_sentry.sh"
 fails = []
 
 
-def run(ufw_conf, ufw_default, ip_script, unreadable=False, ufw_unit_active=False, units=None):
+def run(ufw_conf, ufw_default, ip_script, unreadable=False, ufw_unit_active=False, units=None, system_units=(), ssh_dropin=None):
     # the stubs must be executable: /tmp can be noexec (it is on the reference machine), so default to ~/.cache
     tmp_root = os.environ.get("FOX_TEST_TMP") or str(pathlib.Path.home() / ".cache")
     os.makedirs(tmp_root, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=tmp_root) as d:
         d = pathlib.Path(d); b = d / "bin"; b.mkdir()
         marker = d / "sudo-called"
-        # units: {user unit: (what is-active prints, what is-enabled prints)}; every other query is a stopped unit
+        # units: {user unit: (what is-active prints, what is-enabled prints)}; system_units: system units running;
+        # every other query is a stopped unit
         systemctl = "".join(f'[[ "$*" == "--user is-active {u}" ]] && {{ echo {a}; [[ {a} == active ]]; exit; }}\n'
                             f'[[ "$*" == "--user is-enabled {u}" ]] && {{ echo {e}; [[ {e} == enabled ]]; exit; }}\n'
                             for u, (a, e) in (units or {}).items())
+        systemctl += "".join(f'[[ "$*" == "is-active --quiet {u}" ]] && exit 0\n' for u in system_units)
         systemctl += '[[ "$*" == *" ufw" ]] && exit 0; exit 3' if ufw_unit_active else "exit 3"
+        # sshd -T fails (it needs root), so desk-ssh-port reads the drop-in even where the tests run as root
         stubs = {"systemctl": systemctl, "findmnt": "exit 1", "fprintd-list": "exit 1", "ip": ip_script,
-                 "sudo": f'touch "{marker}"; exit 1'}
+                 "sudo": f'touch "{marker}"; exit 1', "sshd": "exit 255"}
         for name, body in stubs.items():
             f = b / name; f.write_text("#!/usr/bin/env bash\n" + body + "\n"); f.chmod(0o755)
         conf, default = d / "ufw.conf", d / "default-ufw"
         if ufw_conf is not None: conf.write_text(ufw_conf)
         if ufw_default is not None: default.write_text(ufw_default)
         if unreadable and conf.exists(): conf.chmod(0)
+        dropin = d / "sshd-dropin.conf"
+        if ssh_dropin is not None: dropin.write_text(ssh_dropin)
         env = dict(os.environ, PATH=f"{b}:/usr/bin:/bin", XDG_RUNTIME_DIR=str(d), XDG_DATA_HOME=str(d / "data"),
-                   FOXML_SENTRY_UFW_CONF=str(conf), FOXML_SENTRY_UFW_DEFAULT=str(default))
+                   FOXML_SENTRY_UFW_CONF=str(conf), FOXML_SENTRY_UFW_DEFAULT=str(default), FOXML_SSH_DROPIN=str(dropin),
+                   FOXML_SENTRY_SSH_PORT=str(SCRIPT.parents[2] / "shared/bin/desk-ssh-port"))
         r = subprocess.run(["bash", str(SCRIPT)], capture_output=True, text=True, env=env, timeout=30)
         if conf.exists(): conf.chmod(0o644)
         try:
@@ -160,8 +167,41 @@ for name, units, want in watcher_cases:
     if not shield or int(shield[-1]) != len(active):
         fails.append(f"{name}: shield count {shield} ≠ {len(active)} active protections")
 
+# SSH: while sshd is stopped nothing listens, whatever the drop-in says (2026-11-16: the pill warned "SSH passwords on"
+# on a laptop whose sshd is disabled). Running, the drop-in tells keys-only from passwords, with desk-ssh-port's port.
+PASSWORDS, KEYS = "Port 2202\nPasswordAuthentication yes\n", "Port 2202\nPasswordAuthentication no\n"
+ssh_cases = [
+    ("sshd stopped, passwords in the drop-in → off, no warning", (), PASSWORDS,
+     {"active": ["SSH server off"], "not_anywhere": ["SSH passwords on", "SSH keys-only"]}),
+    ("sshd stopped, no drop-in → off", (), None, {"active": ["SSH server off"], "not_anywhere": ["SSH running"]}),
+    ("sshd running, passwords → a warning with its port", ("sshd",), PASSWORDS,
+     {"warn": ["SSH passwords on (:2202)"], "not_anywhere": ["SSH server off"]}),
+    ("sshd running, keys only → a protection with its port", ("sshd",), KEYS,
+     {"active": ["SSH keys-only (:2202)"], "not_anywhere": ["SSH passwords on", "SSH server off"]}),
+    ("socket-activated sshd is running too", ("sshd.socket",), "PasswordAuthentication yes\n",
+     {"warn": ["SSH passwords on (:22)"], "not_anywhere": ["SSH server off"]}),
+    ("sshd running, no drop-in → unknown, never a silent pass", ("sshd",), None,
+     {"unknown": ["SSH running: password login unknown (no hardening drop-in)"], "not_anywhere": ["SSH server off", "SSH keys-only"]}),
+]
+for name, system_units, dropin, want in ssh_cases:
+    out, sudo_called, r = run(ON, 'DEFAULT_OUTPUT_POLICY="ACCEPT"\n', IP_NONE, ufw_unit_active=True, system_units=system_units, ssh_dropin=dropin)
+    if out is None:
+        fails.append(f"{name}: output is not JSON: {r.stdout[:120]!r} {r.stderr[:120]!r}"); continue
+    if sudo_called:
+        fails.append(f"{name}: sudo was called")
+    tip = out["tooltip"]
+    active, warns, unknown = section(tip, "✓"), section(tip, "⚠"), section(tip, "?")
+    for w in want.get("active", []):
+        if w not in active: fails.append(f"{name}: '{w}' not among the active protections {active}")
+    for w in want.get("warn", []):
+        if w not in warns: fails.append(f"{name}: '{w}' not in the warnings {warns}")
+    for w in want.get("unknown", []):
+        if w not in unknown: fails.append(f"{name}: '{w}' not in the unknowns {unknown}")
+    for w in want.get("not_anywhere", []):
+        if w in tip: fails.append(f"{name}: '{w}' appears in the tooltip")
+
 for f in fails:
     print("FAIL", f)
 print("foxml_sentry:", "OK" if not fails else f"{len(fails)} FAILED",
-      f"({len(cases) + len(watcher_cases) - skipped} scenarios run" + (f", {skipped} skipped)" if skipped else ")"))
+      f"({len(cases) + len(watcher_cases) + len(ssh_cases) - skipped} scenarios run" + (f", {skipped} skipped)" if skipped else ")"))
 sys.exit(1 if fails else 0)
