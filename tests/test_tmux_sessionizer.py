@@ -61,6 +61,19 @@ class Sessionizer(unittest.TestCase):
         self.assertEqual(subprocess.run([str(SCRIPT), "--preview", "h\tx\t"], env=self.env, capture_output=True, text=True).stdout, "",
                          "a heading has no preview")
 
+    def test_retro_marks_are_code_page_437(self):
+        self.tmux("new-session", "-d", "-s", "Busy", "-c", str(self.home / "code/Busy"))
+        self.tmux("split-window", "-t", "=Busy:", "-c", str(self.home / "code/Busy"))
+        self.tmux("new-session", "-d", "-s", "notes", "-c", str(self.home))
+        def listed(style):
+            out = subprocess.run([str(SCRIPT), "--list"], env=self.env | {"FOX_TMUX_STYLE": style},
+                                 capture_output=True, text=True, timeout=20).stdout
+            return re.sub(r"\x1b\[[0-9;]*m", "", out)
+        plain, retro = listed("plain"), listed("retro")
+        self.assertTrue({"◆", "◇", "●"} <= set(plain), "other themes keep their marks")
+        self.assertTrue({"♦", "○", "■"} <= set(retro), retro)
+        self.assertFalse(set(retro) & set("◆◇●▸❯⎇"), retro)
+
 
 if __name__ == "__main__":
     unittest.main()

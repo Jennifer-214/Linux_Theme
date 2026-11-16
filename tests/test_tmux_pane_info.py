@@ -16,10 +16,25 @@ class PaneFooter(unittest.TestCase):
         self.sessions = Path(self.tmp.name) / "foxml-claude"
         self.sessions.mkdir()
 
-    def footer(self, command, pane):
-        env = os.environ | {"XDG_RUNTIME_DIR": self.tmp.name, "FOX_TMUX_SEP": "•"}
-        return subprocess.run(["bash", str(SCRIPT), self.tmp.name, command, pane], env=env, text=True,
+    def footer(self, command, pane, style="plain", path=None, **extra):
+        env = os.environ | {"XDG_RUNTIME_DIR": self.tmp.name, "FOX_TMUX_SEP": "•", "FOX_TMUX_STYLE": style} | extra
+        return subprocess.run(["bash", str(SCRIPT), path or self.tmp.name, command, pane], env=env, text=True,
                               capture_output=True, timeout=10).stdout
+
+    def test_retro_writes_only_marks_the_dos_font_has(self):
+        self.put("b", "working", "%8")
+        self.assertTrue(self.footer("claude", "%8", "retro").startswith(" »  "))
+        repo = Path(self.tmp.name) / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        (repo / "new.txt").write_text("x")
+        plain = self.footer("nvim", "", path=str(repo), VIRTUAL_ENV="/x/venv")
+        retro = self.footer("nvim", "", "retro", path=str(repo), VIRTUAL_ENV="/x/venv")
+        self.assertIn("⎇ main ●", plain)
+        self.assertIn("󰟓 venv", plain)
+        self.assertIn("[main*]", retro)
+        self.assertIn("(venv)", retro)
+        self.assertFalse(set(retro) & set("⎇●✿󰟓"), retro)
 
     def put(self, name, state, pane):
         (self.sessions / f"{name}.state").write_text(json.dumps({"state": state, "pane": pane, "epoch": 1}))

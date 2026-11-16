@@ -5,6 +5,8 @@
 path="${1:-$PWD}"
 cmd="${2:-}"
 pane="${3:-}"
+# retro-amber's font is code page 437 only: its marks are [main*], » and (env) instead of ⎇ ✿ ● and Nerd icons.
+retro=0; [[ "${FOX_TMUX_STYLE:-}" == retro ]] && retro=1
 
 # 0. A Claude session in this pane: ! while it needs you, ✿ while it works (from the hooks' state files;
 #    the footer's own ✎ already marks the active pane).
@@ -15,7 +17,7 @@ if [[ "$pane" =~ ^%[0-9]+$ ]]; then
         for state in $(grep -l -E "\"pane\": *\"$pane\"" "$sessions"/*.state 2>/dev/null | xargs -r ls -t 2>/dev/null | head -1); do
             case "$(grep -o -E '"state": *"[a-z]*"' "$state")" in
                 *'"needs"')                   claude="!  " ;;
-                *'"working"'|*'"compacting"') claude="✿  " ;;
+                *'"working"'|*'"compacting"') claude="✿  "; (( retro )) && claude="»  " ;;
             esac
         done ;;
     esac
@@ -41,6 +43,7 @@ if [[ -n "$git_dir" ]]; then
         
         # Build string
         git_info="⎇ $branch"
+        ab_str=""
         
         # Ahead/Behind counts against default branch (origin/main, origin/master, main, master)
         default_branch=""
@@ -66,9 +69,12 @@ if [[ -n "$git_dir" ]]; then
         fi
         
         # Dirty indicator (any line that doesn't start with #)
+        dirty=""
         if echo "$status" | grep -qv "^#"; then
-            git_info="$git_info ●"
+            git_info="$git_info ●"; dirty="*"
         fi
+        # retro: the zsh prompt's [main*] (a star for uncommitted changes), then the sync counts.
+        (( retro )) && git_info="[$branch$dirty]${ab_str:+ $ab_str}"
     fi
 fi
 
@@ -78,6 +84,9 @@ if [[ -n "$CONDA_DEFAULT_ENV" && "$CONDA_DEFAULT_ENV" != "base" ]]; then
     env_info=" $CONDA_DEFAULT_ENV"
 elif [[ -n "$VIRTUAL_ENV" ]]; then
     env_info="󰟓 $(basename "$VIRTUAL_ENV")"
+fi
+if (( retro )) && [[ -n "$env_info" ]]; then
+    env_info="(${env_info#* })"
 fi
 
 # Build final string with better spacing

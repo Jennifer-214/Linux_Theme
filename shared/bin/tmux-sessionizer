@@ -17,6 +17,13 @@ set -u
 SELF="$HOME/.local/bin/tmux-sessionizer"
 TAB=$'\t'
 
+# retro-amber's font is code page 437 only, so its marks are ones a DOS screen has; every other theme keeps these.
+if [ "${FOX_TMUX_STYLE:-}" = retro ]; then
+    G_SESS='♦' G_CUR='■' G_DOT='■' G_BELL='•' G_PROJ='○' G_PTR='►' G_FIND='>' G_BORDER=sharp G_ICONS=never RETRO=1
+else
+    G_SESS='◆' G_CUR='●' G_DOT='●' G_BELL='●' G_PROJ='◇' G_PTR='▸' G_FIND='❯' G_BORDER=rounded G_ICONS=always RETRO=
+fi
+
 sess_name() { basename "$1" | tr ' .:' '___'; }
 
 # hex (rrggbb) -> "R;G;B"; and -> truecolor SGR (empty arg = no-color).
@@ -93,14 +100,14 @@ list_all() {
     local s='' m='' panes='' npanes='' wp='' pid='' tty='' pa='' cmd='' app='' idx=0 br='' dot='' bell='' flag=''
     printf '%s\n' "$live" | while IFS= read -r s; do
         [ -n "$s" ] || continue
-        m='◆'; [ "$s" = "$cur" ] && m='●'
+        m="$G_SESS"; [ "$s" = "$cur" ] && m="$G_CUR"
         panes="$(tmux list-panes -s -t "$s" \
             -F "#{window_index}.#{pane_index}${TAB}#{pane_id}${TAB}#{pane_tty}${TAB}#{pane_active}${TAB}#{pane_current_command}${TAB}#{window_bell_flag}" 2>/dev/null)"
         bell=''
         # Aggregate existing window flags; session rows stay useful while the alerted window is hidden.
         if [ -n "$B" ]; then
             while IFS="$TAB" read -r wp pid tty pa cmd flag; do
-                if [ "$flag" = 1 ]; then bell="$(printf ' %s●%s' "$B" "$R")"; break; fi
+                if [ "$flag" = 1 ]; then bell="$(printf ' %s%s%s' "$B" "$G_BELL" "$R")"; break; fi
             done <<< "$panes"
         fi
         npanes="$(printf '%s\n' "$panes" | grep -c .)"
@@ -124,7 +131,7 @@ list_all() {
                 [ -n "$wp" ] || continue
                 idx=$((idx+1)); br='├'; [ "$idx" -eq "$npanes" ] && br='└'
                 app="$(pane_app "$cmd" "$tty")"; dot=''
-                [ "$pa" = 1 ] && dot="$(printf ' %s●%s' "$A" "$R")"
+                [ "$pa" = 1 ] && dot="$(printf ' %s%s%s' "$A" "$G_DOT" "$R")"
                 printf 'p\t   %s%s%s %s%s%s  %s%s\t%s\n' "$M" "$br" "$R" "$D" "$wp" "$R" "$app" "$dot" "$pid"
             done
         fi
@@ -140,13 +147,13 @@ list_all() {
         local name; name="$(sess_name "$dir")"
         printf '%s\n' "$live" | grep -qxF "$name" && continue
         [ -n "$headed" ] || { printf 'h\t%s  open a project%s\t\n' "$D" "$R"; headed=1; }
-        printf 'd\t%s◇%s %s\t%s\n' "$M" "$R" "$name" "$dir"
+        printf 'd\t%s%s%s %s\t%s\n' "$M" "$G_PROJ" "$R" "$name" "$dir"
     done; }
 }
 
 # visible (column) width of a label that may carry the ● active marker —
 # locale-safe: ● collapses to one char whether the shell is UTF-8 or C.
-vis_len() { local s="${1//●/X}"; printf '%s' "${#s}"; }
+vis_len() { local s="${1//"$G_DOT"/X}"; printf '%s' "${#s}"; }
 hrule()   { local n="$1" s=''; while [ "$n" -gt 0 ]; do s+='─'; n=$((n-1)); done; printf '%s' "$s"; }
 pad_to()  { local s="$1" w="$2" vl; vl="$(vis_len "$s")"; printf '%s%*s' "$s" "$(( w - vl > 0 ? w - vl : 0 ))" ''; }
 
@@ -166,7 +173,7 @@ pane_map() {
     local pi pl pt pw pa ptty pc m app
     while IFS="$TAB" read -r pi pl pt pw pa ptty pc; do
         [ -n "$pi" ] || continue
-        m=''; [ "$pa" = 1 ] && m=' ●'
+        m=''; [ "$pa" = 1 ] && m=" $G_DOT"
         app="$(pane_app "$pc" "$ptty")"
         T+=("$pt"); L+=("$pl"); W+=("$pw")
         LBL+=("$(printf '%s.%s %s%s' "$win" "$pi" "$app" "$m")")
@@ -255,7 +262,7 @@ do_preview() {
             tmux list-panes -t "${tgt}:${win}" \
                 -F "#{window_index}.#{pane_index}${TAB}#{pane_id}${TAB}#{pane_tty}${TAB}#{pane_active}${TAB}#{pane_current_command}" \
                 2>/dev/null | while IFS="$TAB" read -r wp pid ptty pa cmd; do
-                app="$(pane_app "$cmd" "$ptty")"; mk=''; [ "$pa" = 1 ] && mk=' ●'
+                app="$(pane_app "$cmd" "$ptty")"; mk=''; [ "$pa" = 1 ] && mk=" $G_DOT"
                 printf '\033[38;5;%sm── %s · %s%s ──\033[0m\n' "${FOX_SESH_A3:-138}" "$wp" "$app" "$mk"
                 tmux capture-pane -ep -t "$pid" 2>/dev/null
             done
@@ -271,14 +278,18 @@ do_preview() {
         br="$(git -C "$tgt" symbolic-ref --quiet --short HEAD 2>/dev/null)" \
             || br="$(git -C "$tgt" rev-parse --short HEAD 2>/dev/null)"
         git -C "$tgt" status --porcelain 2>/dev/null | grep -q . && dot=' ●'
-        [ -n "$br" ] && printf '  \033[38;5;%sm⎇ %s%s\033[0m' "${FOX_SESH_A3:-138}" "$br" "$dot"
+        if [ -n "$RETRO" ]; then   # the zsh prompt's [main*]
+            [ -n "$br" ] && printf '  \033[38;5;%sm[%s%s]\033[0m' "${FOX_SESH_A3:-138}" "$br" "${dot:+*}"
+        else
+            [ -n "$br" ] && printf '  \033[38;5;%sm⎇ %s%s\033[0m' "${FOX_SESH_A3:-138}" "$br" "$dot"
+        fi
     fi
     printf '\n\n'
     local di lk
     di="$(rgb "${FOX_SESH_C1:-d4985a}")"
     lk="$(rgb "${FOX_SESH_C3:-c49aab}")"
     EZA_COLORS="di=38;2;${di}:ln=38;2;${lk}:ex=38;2;${lk}:or=38;2;$(rgb "${FOX_SESH_C2:-8c8070}")" \
-        eza -1 --icons=always --color=always --group-directories-first "$tgt" 2>/dev/null \
+        eza -1 --icons="$G_ICONS" --color=always --group-directories-first "$tgt" 2>/dev/null \
         || ls -1 --color=always "$tgt" 2>/dev/null || ls -1 "$tgt"
 }
 
@@ -356,14 +367,14 @@ sel="$(list_all | fzf \
     --ansi --no-sort --cycle --disabled \
     --layout=reverse --info=inline-right \
     --delimiter="$TAB" --with-nth=2 --nth=2 \
-    --border=rounded --border-label=' sessions ' --border-label-pos=3 \
-    --prompt='  ' --pointer='▸' \
+    --border="$G_BORDER" --border-label=' sessions ' --border-label-pos=3 \
+    --prompt='  ' --pointer="$G_PTR" \
     --preview="$SELF --preview {}" \
     --preview-window='right,55%,wrap,border-left' --preview-label=' preview ' \
     --bind="?:change-header(j/k move · l go to it · ^b show it here · / search · ^r rename · ^x close · q quit)" \
     --bind='start,resize:transform:[ $((FZF_LINES*2)) -gt $FZF_COLUMNS ] && echo "change-preview-window(down,55%,wrap,border-top)" || echo "change-preview-window(right,55%,wrap,border-left)"' \
     --bind='j:down,k:up,g:first,G:last,l:accept,h:abort,q:abort' \
-    --bind="/:unbind($NAV)+change-prompt(search ❯ )+enable-search" \
+    --bind="/:unbind($NAV)+change-prompt(search $G_FIND )+enable-search" \
     --bind="esc:rebind($NAV)+change-prompt(  )+disable-search+clear-query" \
     --bind='ctrl-/:toggle-preview' \
     --bind='ctrl-d:preview-half-page-down,ctrl-u:preview-half-page-up' \
