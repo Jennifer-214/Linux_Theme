@@ -214,20 +214,25 @@ void run_deps(Context& ctx) {
         // Idempotent: only installs ones missing from PATH. pi is the local-model
         // agent; its config comes from `llm-update --sync` (opencode module).
         if (have_cmd("npm")) {
+            // A command that is there but does not run counts as missing, so a rerun repairs it: claude-code fetches its
+            // real program in an install step npm skips unless the package is named in --allow-scripts, and without it
+            // `claude` only prints "claude native binary not installed" (every fresh install, found in the test VM).
+            auto runs = [&](const std::string& bin) { std::string out; return have_cmd(bin) && sh::capture({bin, "--version"}, out); };
             std::vector<std::string> npm_globals;
-            if (!have_cmd("claude")) npm_globals.push_back("@anthropic-ai/claude-code");
-            if (!have_cmd("pi"))     npm_globals.push_back("@earendil-works/pi-coding-agent");  // the old @mariozechner name stops at 0.73.1
+            if (!runs("claude")) npm_globals.push_back("@anthropic-ai/claude-code");
+            if (!runs("pi"))     npm_globals.push_back("@earendil-works/pi-coding-agent");  // the old @mariozechner name stops at 0.73.1
             if (!npm_globals.empty()) {
                 std::string names;
                 for (auto& g : npm_globals) names += (names.empty() ? "" : " + ") + g;
                 ui::substep("installing CLI tools (npm -g): " + names);
-                std::vector<std::string> argv = {"sudo", "npm", "install", "-g"};
+                std::vector<std::string> argv = {"sudo", "npm", "install", "-g", "--allow-scripts=@anthropic-ai/claude-code"};
                 for (auto& g : npm_globals) argv.push_back(g);
-                if (sh::run(argv) == 0) {
-                    ui::ok("CLI tools ready: " + names);
-                } else {
-                    ui::warn("npm install failed — see output above");
-                }
+                const bool installed = sh::run(argv) == 0;
+                std::string broken;
+                for (const char* bin : {"claude", "pi"}) if (!runs(bin)) broken += (broken.empty() ? "" : ", ") + std::string(bin);
+                if (installed && broken.empty()) ui::ok("CLI tools ready: " + names);
+                else if (installed) ui::warn("npm installed them, but " + broken + " does not run — see `" + broken.substr(0, broken.find(',')) + " --version`");
+                else ui::warn("npm install failed — see output above");
             }
         }
     }
