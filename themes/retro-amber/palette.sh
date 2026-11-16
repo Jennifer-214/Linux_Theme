@@ -261,9 +261,10 @@ TMUX_ACTIVE_FG=ffb000
 TMUX_ACTIVE_BG=1c1408
 
 # ─── Bar · terminal quiet layer (waybar states · logo · kitty ANSI · tmux footer) ───
-# Glyphs are ones Big Blue Term has (it lacks ◆ ◇ ● ⎇ ✎ ✿ …).
-WAYBAR_LOGO='■'
-WAYBAR_WS_FORMAT='{name} {windows}'
+# Glyphs are ones Big Blue Term has (it lacks ◆ ◇ ● ⎇ ✎ ✿ …). The bar's menu is ≡, as on a DOS menu bar; a workspace
+# is its number alone (the tooltip lists its windows). The modules' labels are the bar's (BarLogic.retroModules).
+WAYBAR_LOGO='≡'
+WAYBAR_WS_FORMAT='{name}'
 WAYBAR_ICON_CPU='󰻠'
 WAYBAR_ICON_GPU='󰢮'
 WAYBAR_ICON_MEM='󰍛'

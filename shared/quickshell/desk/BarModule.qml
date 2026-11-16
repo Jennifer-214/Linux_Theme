@@ -16,8 +16,11 @@ Item {
     property bool compact: false
     property bool tight: false
     property real workspaceBudget: 560
-    readonly property var sample: name === "idle_inhibitor" ? {text:theme.paperDetails ? (dataSource.idleEnabled ? "☼" : "☾") : (spec["format-icons"] || {})[dataSource.idleEnabled ? "activated" : "deactivated"] || "○", tooltip:spec[dataSource.idleEnabled ? "tooltip-format-activated" : "tooltip-format-deactivated"] || (dataSource.idleEnabled ? "Keeping the screen awake · click to let it rest" : "The screen rests when idle · click to keep it awake"), classes:[]}
+    readonly property bool retro: theme.style === "retro"
+    readonly property var rawSample: name === "idle_inhibitor" ? {text:theme.paperDetails ? (dataSource.idleEnabled ? "☼" : "☾") : (spec["format-icons"] || {})[dataSource.idleEnabled ? "activated" : "deactivated"] || "○", tooltip:spec[dataSource.idleEnabled ? "tooltip-format-activated" : "tooltip-format-deactivated"] || (dataSource.idleEnabled ? "Keeping the screen awake · click to let it rest" : "The screen rests when idle · click to keep it awake"), classes:[]}
         : spec.exec || name === "memory" || name === "power-profiles-daemon" ? dataSource.snapshot(name) : {text:spec.format || "", tooltip:spec["tooltip-format"] || (typeof spec.tooltip === "string" ? spec.tooltip : ""), classes:[]}
+    // Retro says what each module is, DOS style: "CPU 16% 40°C" (BarLogic.retroSample).
+    readonly property var sample: retro ? BarLogic.retroSample(name, rawSample, {idle: dataSource.idleEnabled}) : rawSample
     readonly property string label: BarLogic.format(sample.text, {icon:sample.text})
     // Retro's flat bar has room for one line: the clock is its plain label there.
     readonly property var clockParts: name === "custom/clock" && theme.style !== "retro" ? label.trim().match(/^(.*?)\s+(\d{1,2}:\d{2}(?:\s*[AP]M)?)$/i) : null
@@ -26,12 +29,17 @@ Item {
     readonly property bool interactive: name === "idle_inhibitor" || ["on-click", "on-click-right", "on-click-middle", "on-scroll-up", "on-scroll-down"].some(function(key) { return !!spec[key]; })
     readonly property bool focused: !!(controller && (controller.drawerVisible || controller.opened) && controller.attachment && controller.attachment.moduleName === name && controller.attachment.screenName === panel.screen.name)
     readonly property real labelLimit: compact && name === "custom/ai_status" ? tight ? 42 : 124 : 2000
-    // Retro's inverse bar can't colour a warning (amber on amber), so one shows in normal video, a critical one blinking.
-    readonly property bool retroAlert: theme.style === "retro" && ["critical", "error", "warning", "stopped"].some(function(name) { return (module.sample.classes || []).indexOf(name) >= 0; })
-    readonly property bool retroCritical: retroAlert && ["critical", "error"].some(function(name) { return module.sample.classes.indexOf(name) >= 0; })
+    // Retro's inverse bar can't colour a warning (amber on amber). Reverse video (normal video on the amber strip) is its
+    // one emphasis: what needs you (BarLogic.retroAlert, a critical one blinking), and the module whose drawer is open
+    // or that is being pressed. Nothing else is boxed.
+    readonly property bool retroAlert: retro && BarLogic.retroAlert(sample.classes)
+    readonly property bool retroCritical: retroAlert && BarLogic.retroBlinks(sample.classes)
+    readonly property bool reverse: retro && (retroAlert || focused || mouse.pressed)
     property bool blinkOff: false
     Timer { interval: 530; repeat: true; running: module.retroCritical; onTriggered: module.blinkOff = !module.blinkOff; onRunningChanged: if (!running) module.blinkOff = false }
-    readonly property real naturalWidth: special ? specialContent.implicitWidth : botanicalLogo ? 35 : clockParts ? clock.implicitWidth + 14 : label ? Math.min(text.implicitWidth, labelLimit) + 14 : 0
+    // Retro pads a label by one character cell each side, so two labels stand two cells apart.
+    readonly property real padding: retro ? theme.cellW : 7
+    readonly property real naturalWidth: special ? specialContent.implicitWidth : botanicalLogo ? 35 : clockParts ? clock.implicitWidth + 14 : label ? Math.min(text.implicitWidth, labelLimit) + 2 * padding : 0
     // Sticky: a module keeps the widest it has needed, so "9 KB/s" becoming "10 KB/s" and back doesn't slide every
     // module after it (and re-centre the middle). Its content sits right-aligned in that width, so digits stay put.
     // A new layout, output size class or budget starts it over.
@@ -44,7 +52,7 @@ Item {
     onWorkspaceBudgetChanged: resetWidth()
     Component.onCompleted: resetWidth()
     // Where the content starts: right-aligned, which is the centre while the module is at its natural width.
-    readonly property real contentRight: width - 7
+    readonly property real contentRight: width - padding
     implicitWidth: naturalWidth > 0 ? Math.max(widest, naturalWidth) : 0
     implicitHeight: depth + 4
     visible: implicitWidth > 0
@@ -79,16 +87,17 @@ Item {
         y: module.clockParts ? clock.y - 2 : text.y - 4
         width: (module.clockParts ? clock.implicitWidth : text.width) + 8
         height: module.clockParts ? clock.implicitHeight + 4 : text.height + 8
-        radius: module.theme.style === "retro" ? 0 : 3
+        radius: 3
         color: module.focused || mouse.pressed ? module.theme.highlight : module.theme.hoverFill
-        visible: !module.special && module.name !== "custom/logo" && (module.focused || mouse.pressed || (module.theme.paperDetails && module.interactive && mouse.containsMouse))
+        visible: !module.retro && !module.special && module.name !== "custom/logo" && (module.focused || mouse.pressed || (module.theme.paperDetails && module.interactive && mouse.containsMouse))
     }
+    // Reverse video fills the label's cells but two pixels each side, so two boxes side by side stay two.
     Rectangle {
         objectName: "bar-module-alert"
-        visible: module.retroAlert && !module.special && !module.blinkOff
-        x: text.x - module.theme.cellW
+        visible: module.reverse && !module.special && !module.blinkOff
+        x: text.x - module.theme.cellW + 2
         y: text.y + (text.height - height) / 2
-        width: text.width + 2 * module.theme.cellW; height: module.theme.cell + 4
+        width: text.width + 2 * module.theme.cellW - 4; height: module.theme.cell + 4
         color: module.theme.ink
     }
     BotanicalMark {
@@ -110,7 +119,7 @@ Item {
         visible: !module.special && !module.clockParts && !module.botanicalLogo
         text: module.label
         textFormat: Text.PlainText
-        color: module.retroAlert && !module.blinkOff ? module.theme.background
+        color: module.reverse && !module.blinkOff ? module.theme.background
             : module.sample.classes.indexOf("critical") >= 0 || module.sample.classes.indexOf("error") >= 0 ? module.theme.error
             : module.sample.classes.indexOf("warning") >= 0 || module.sample.classes.indexOf("stopped") >= 0 ? module.theme.warning
             : module.sample.classes.indexOf("berry") >= 0 ? module.theme.gardenShades[4]
@@ -130,9 +139,10 @@ Item {
     }
     Rectangle {
         objectName: "bar-api-credit-rail"
-        visible: module.name === "custom/api_credits" && module.sample.percentage !== undefined
+        // Retro has no rail: under text it reads as a link. Its label says what is left.
+        visible: !module.retro && module.name === "custom/api_credits" && module.sample.percentage !== undefined
         anchors.horizontalCenter: parent.horizontalCenter
-        y: module.theme.style === "retro" ? 26 : 33; width: Math.max(0, module.width - 18); height: 3; radius: 1.5
+        y: 33; width: Math.max(0, module.width - 18); height: 3; radius: 1.5
         color: Qt.alpha(module.theme.line, .3)
         Rectangle {
             width: parent.width * Math.max(0, Math.min(100, Number(module.sample.percentage || 0))) / 100

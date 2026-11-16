@@ -14,8 +14,19 @@ Flickable {
     property bool compact: false
     property bool tight: false
     property real maxWidth: 560
-    // Workspace ids where a Claude waits on you; their tabs wear a small pink pin.
+    // Workspace ids where a Claude waits on you; their tabs wear a small pink pin (retro: "2♦").
     property var pins: []
+    // Retro: tabs of whole character cells (" 1 "), the current one in reverse video like the bar's alerts, empty ones
+    // dimmer, one asking for attention blinking.
+    readonly property bool retro: theme.style === "retro"
+    readonly property color emptyInk: Qt.alpha(theme.ink, .45)
+    property bool blinkOff: false
+    Timer {
+        interval: 530; repeat: true
+        running: workspaces.retro && workspaces.rows.some(function(row) { return !!(row.workspace && row.workspace.urgent); })
+        onTriggered: workspaces.blinkOff = !workspaces.blinkOff
+        onRunningChanged: if (!running) workspaces.blinkOff = false
+    }
     implicitWidth: Math.min(workspaceRow.implicitWidth, maxWidth)
     implicitHeight: depth + 11
     contentWidth: workspaceRow.implicitWidth
@@ -50,7 +61,7 @@ Flickable {
     }
     Row {
         id: workspaceRow
-        spacing: 3
+        spacing: workspaces.retro ? 0 : 3
         Repeater {
             id: tabs
             model: workspaces.rows
@@ -62,44 +73,52 @@ Flickable {
                 readonly property var windows: ws ? ws.toplevels.values : []
                 readonly property string allIcons: windows.map(function(w) {return BarLogic.windowIcon((w.lastIpcObject || {}).class || "", workspaces.spec);}).join(workspaces.spec["format-window-separator"] || " ")
                 readonly property string icons: workspaces.tight ? "" : workspaces.compact ? allIcons.split(workspaces.spec["format-window-separator"] || " ")[0] : allIcons
+                readonly property bool pinned: workspaces.pins.indexOf(modelData.id) >= 0
+                readonly property bool reversed: workspaces.retro && (current || (!!(ws && ws.urgent) && !workspaces.blinkOff))
                 theme: workspaces.theme
                 edgeStyle: "bookmark"
-                width: Math.min(workspaces.tight ? 38 : workspaces.compact ? 68 : 180, Math.max(28, label.implicitWidth + 17))
+                inset: workspaces.retro ? 0 : 10
+                width: workspaces.retro ? label.implicitWidth + 2 * workspaces.theme.cellW
+                    : Math.min(workspaces.tight ? 38 : workspaces.compact ? 68 : 180, Math.max(28, label.implicitWidth + 17))
                 depth: current && workspaces.theme.style !== "retro" ? workspaces.depth + 7 : workspaces.depth
                 selected: current
-                solidSelected: workspaces.theme.style === "retro"
                 pressed: mouse.pressed
                 hovered: mouse.containsMouse
+                // The same box as the modules' reverse video (BarModule's bar-module-alert).
+                Rectangle {
+                    objectName: "workspace-reverse"
+                    visible: tab.reversed
+                    x: 2; y: label.y - 2; width: tab.width - 4; height: workspaces.theme.cell + 4
+                    color: workspaces.theme.ink
+                }
                 Text {
                     id: label
                     // Retro: on the same whole-pixel line as the other modules' text (10 px down the strip).
-                    anchors.centerIn: workspaces.theme.style === "retro" ? undefined : parent
-                    x: Math.round((parent.width - width) / 2); y: 3
-                    height: workspaces.theme.style === "retro" ? workspaces.theme.cell : implicitHeight
+                    anchors.centerIn: workspaces.retro ? undefined : parent
+                    x: workspaces.retro ? workspaces.theme.cellW : Math.round((parent.width - width) / 2); y: 3
+                    height: workspaces.retro ? workspaces.theme.cell : implicitHeight
                     text: BarLogic.format(workspaces.spec.format || "{name} {windows}", {name: tab.ws ? tab.ws.name : String(tab.modelData.id), windows:tab.icons}).trim()
-                    width: tab.width - 17
+                        + (workspaces.retro && tab.pinned ? "♦" : "")
+                    width: workspaces.retro ? tab.width - 2 * workspaces.theme.cellW : tab.width - 17
                     elide: Text.ElideRight
                     horizontalAlignment: Text.AlignHCenter
                     textFormat: Text.PlainText
                     font.family: workspaces.theme.fontFamily
                     font.pixelSize: 12
-                    // Retro: Big Blue Term has no bold; the solid tab already marks the current one.
+                    // Retro: Big Blue Term has no bold; reverse video marks the current tab.
                     font.bold: tab.current && workspaces.theme.style !== "retro"
                     renderType: workspaces.theme.textRender
-                    // Retro's current tab is a solid ink block: its label takes the bar colour (normal video).
-                    color: tab.ws && tab.ws.urgent ? workspaces.theme.error : tab.current && workspaces.theme.style === "retro" ? workspaces.theme.background
-                        : tab.current || tab.windows.length ? workspaces.theme.ink : workspaces.theme.muted
+                    color: workspaces.retro ? (tab.reversed ? workspaces.theme.background : tab.windows.length ? workspaces.theme.ink : workspaces.emptyInk)
+                        : tab.ws && tab.ws.urgent ? workspaces.theme.error : tab.current || tab.windows.length ? workspaces.theme.ink : workspaces.theme.muted
                 }
                 Rectangle {
                     objectName: "waiting-pin"
-                    visible: workspaces.pins.indexOf(tab.modelData.id) >= 0
+                    visible: tab.pinned && !workspaces.retro
                     anchors.right: parent.right; anchors.top: parent.top
                     anchors.rightMargin: 4; anchors.topMargin: 5
-                    width: 5; height: 5; radius: workspaces.theme.style === "retro" ? 0 : 2.5
-                    // Ink on the current (pink) tab, pink on the paper ones: always visible. Retro's current tab is
-                    // solid ink, so its pin takes the bar colour.
-                    color: tab.current ? (workspaces.theme.style === "retro" ? workspaces.theme.background : workspaces.theme.ink)
-                        : (workspaces.theme.detailAccent || workspaces.theme.error)
+                    width: 5; height: 5; radius: 2.5
+                    // Ink on the current (pink) tab, pink on the paper ones: always visible.
+                    color: tab.current ? workspaces.theme.ink : (workspaces.theme.detailAccent || workspaces.theme.error)
                 }
                 Rectangle {
                     anchors.horizontalCenter: label.horizontalCenter
@@ -120,7 +139,8 @@ Flickable {
                         event.accepted = true;
                     }
                 }
-                BarBannerHint { theme:workspaces.theme; panel:workspaces.panel; windows:tab.windows; hovered:mouse.containsMouse && !mouse.pressed; text: (workspaces.theme.paperDetails ? "Page " : "Workspace ") + tab.modelData.id + (tab.windows.length ? "\n" + tab.windows.map(function(w) {return w.title;}).join("\n") : " · empty") }
+                BarBannerHint { theme:workspaces.theme; panel:workspaces.panel; windows:tab.windows; hovered:mouse.containsMouse && !mouse.pressed; text: (workspaces.theme.paperDetails ? "Page " : "Workspace ") + tab.modelData.id + (tab.windows.length ? "\n" + tab.windows.map(function(w) {return w.title;}).join("\n") : " · empty")
+                    + (workspaces.retro && tab.pinned ? "\n♦ a Claude session waits for you here" : "") }
             }
         }
     }

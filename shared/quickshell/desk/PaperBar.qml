@@ -62,6 +62,8 @@ Scope {
     // Retro: a flat DOS menu bar, a solid amber strip with dark text (inverse video), 32 px instead of hanging ribbons.
     Theme { id: barTheme; inverted: style === "retro" }
     readonly property bool flatBar: barTheme.style === "retro"
+    // Between groups: retro's is odd, so its one-pixel │ has the same room on each side.
+    readonly property int groupGap: flatBar ? 25 : 9
     BarData { id: barData; active: bar.shown }
     Variants {
         id: barWindows
@@ -123,7 +125,9 @@ Scope {
                 }
             }
             readonly property bool compact: BarLogic.compactOutput(width, screen.height, screen.name, barData.primaryMonitor)
-            readonly property var config: BarLogic.outputConfig(barData.primaryConfig, barData.secondaryConfig, compact)
+            // Retro: three zones, the workspaces, your work, the machine (BarLogic.retroZones).
+            readonly property var config: bar.flatBar ? BarLogic.retroZones(BarLogic.outputConfig(barData.primaryConfig, barData.secondaryConfig, compact))
+                : BarLogic.outputConfig(barData.primaryConfig, barData.secondaryConfig, compact)
             readonly property real layoutWidth: left.implicitWidth + middle.implicitWidth + right.implicitWidth + 56
             // Retro stays at 1:1 on wide screens: a scaled terminal font loses its pixel grid.
             readonly property real barScale: Math.min(bar.flatBar || width <= 1920 ? 1 : width <= 2560 ? 1.15 : 1.3, Math.max(.8, (width - 28) / Math.max(1, layoutWidth)))
@@ -224,7 +228,7 @@ Scope {
                 scale: barWindow.barScale; transformOrigin: Item.TopLeft
                 component Section: Row {
                     property string side
-                    spacing: 9
+                    spacing: bar.groupGap
                     Repeater {
                         model: BarLogic.modules(barWindow.config, side)
                         BarRibbon {
@@ -236,10 +240,10 @@ Scope {
                                 && bar.controller.attachment.screenName === barWindow.screen.name
                                 && BarLogic.children(barWindow.config, modelData).indexOf(bar.controller.attachment.moduleName) >= 0)
                             theme: barTheme
-                            width: groupRow.implicitWidth > 0 ? groupRow.implicitWidth + (launcher ? 0 : 23) : 0
+                            width: groupRow.implicitWidth > 0 ? groupRow.implicitWidth + (launcher || bar.flatBar ? 0 : 23) : 0
                             visible: width > 0
                             drawSheet: !launcher
-                            inset: launcher ? 0 : 10
+                            inset: launcher || bar.flatBar ? 0 : 10
                             // Pending updates, a Claude session asking for you, and the moment the last one
                             // finishes hang a little lower.
                             readonly property bool calling: (modelData === "custom/updates" && /[1-9]/.test(barData.snapshot(modelData).text))
@@ -248,12 +252,12 @@ Scope {
                             selected: attached || calling
                             holdingPaper: attached
                             depth: bar.flatBar ? 30 : modelData === "custom/clock" ? 58 : calling ? 50 : 43
-                            // Retro: a │ between groups, centred in the gap before this one, one cell tall (drawn as the
-                            // character's stroke: the font's own box set sits between pixels).
+                            // Retro: a │ between groups, in the middle of the gap before this one, one cell tall (drawn as
+                            // the character's stroke: the font's own box set sits between pixels).
                             Rectangle {
                                 objectName: "bar-divider"
                                 visible: bar.flatBar && group.index > 0 && group.visible
-                                x: Math.round(-group.inset - 9 / 2) - 1
+                                x: -group.inset - Math.ceil(bar.groupGap / 2)
                                 y: 10 - 7
                                 width: 1; height: barTheme.cell
                                 color: barTheme.ink
@@ -261,7 +265,8 @@ Scope {
                             Row {
                                 id: groupRow
                                 y: -7
-                                spacing: group.launcher ? 3 : 4
+                                // Retro: the modules' own one-cell padding keeps two cells between labels.
+                                spacing: bar.flatBar ? 0 : group.launcher ? 3 : 4
                                 Repeater {
                                     model: BarLogic.children(barWindow.config, group.modelData)
                                     BarModule {
@@ -284,13 +289,20 @@ Scope {
                     }
                 }
                 Section { id: left; side: "left"; anchors.left: parent.left }
-                Section { id: middle; side: "center"; anchors.horizontalCenter: parent.horizontalCenter }
-                Section { id: right; side: "right"; anchors.right: parent.right; anchors.rightMargin: bar.flatBar ? 16 : 0 }
-                // Retro: a blinking block cursor after the clock, like a terminal waiting for input.
+                Section { id: middle; side: "center"; anchors.horizontalCenter: bar.flatBar ? undefined : parent.horizontalCenter }
+                // Retro: the middle zone sits halfway between the other two (equal gaps), so a long machine zone never
+                // runs into it.
+                Binding {
+                    target: middle; property: "x"; when: bar.flatBar
+                    value: Math.round(left.width + (right.x - left.width - middle.width) / 2)
+                }
+                Section { id: right; side: "right"; anchors.right: parent.right; anchors.rightMargin: bar.flatBar ? barTheme.cellW : 0 }
+                // Retro: a blinking block cursor one cell after the clock, like a terminal waiting for input, as tall as
+                // the reverse-video boxes.
                 Rectangle {
                     objectName: "bar-cursor"
                     visible: bar.flatBar
-                    anchors.right: parent.right; y: 8; width: 9; height: 16
+                    anchors.right: parent.right; y: 8; width: barTheme.cellW; height: barTheme.cell + 4
                     color: barTheme.ink
                     SequentialAnimation on opacity {
                         running: bar.flatBar; loops: Animation.Infinite

@@ -167,7 +167,7 @@ ShellRoot {
         if (!(root.widths[1] > root.widths[0])) { console.error("STICKY_NO_GROWTH", JSON.stringify(root.widths)); Qt.exit(1); return; }
         if (root.widths[2] !== root.widths[1]) { console.error("STICKY_SHRANK", JSON.stringify(root.widths)); Qt.exit(1); return; }
         if (root.after() !== root.neighbour) { console.error("STICKY_NEIGHBOUR_MOVED", root.after(), root.neighbour); Qt.exit(1); return; }
-        if (Math.abs(text.x + text.width - (root.net().width - 7)) > .5) { console.error("STICKY_NOT_RIGHT_ALIGNED"); Qt.exit(1); return; }
+        if (Math.abs(text.x + text.width - (root.net().width - root.net().padding)) > .5) { console.error("STICKY_NOT_RIGHT_ALIGNED"); Qt.exit(1); return; }
         console.log("BAR_STICKY_OK"); Qt.quit();
     }}
 }

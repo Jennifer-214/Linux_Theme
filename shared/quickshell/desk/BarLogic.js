@@ -103,3 +103,125 @@ function findItem(item, name) {
     }
     return null;
 }
+
+// ── The retro bar (Theme.style "retro") ──────────────────────────────────────────────────────────────────────────
+// A DOS status line: each module a short capital code and its value ("CPU 16% 40°C"), in Big Blue Term's own
+// characters, so no glyph has to be guessed. One table holds the code, the tooltip's first line (what the code
+// means) and how the helper's text becomes the value. A module not listed keeps its text, its symbols swapped.
+var retroMarks = {"✓":"√", "⚠":"!", "🚨":"!", "◇":"♦", "◆":"♦", "…":"...", "—":"-", "–":"-", "\uFE0E":"", "\uFE0F":"",
+    "☀":"sunny", "⛅":"partly cloudy", "☁":"cloudy", "🌫":"fog", "⛈":"storm", "🌩":"storm", "🌧":"rain", "🌦":"rain",
+    "❄":"snow", "🌨":"snow"};
+// (Split and join, not Array.from: QML's engine splits a string into UTF-16 units, which breaks up an emoji.)
+function retroText(text) {
+    var out = String(text || "");
+    Object.keys(retroMarks).forEach(function(mark) { out = out.split(mark).join(retroMarks[mark]); });
+    return out;
+}
+// The helper's words without its Nerd Font icons (the private-use areas), spaces collapsed.
+function retroWords(text) {
+    return String(text || "").replace(/[\uE000-\uF8FF]|[\uDB80-\uDBFF][\uDC00-\uDFFF]/g, "").replace(/\s+/g, " ").trim();
+}
+// 40° is 40°C; "207g/920g" names its unit once, on the total; gigabytes are G.
+function retroUnits(text) {
+    return String(text).replace(/(\d)°(?![CF])/g, "$1°C").replace(/(\d)g\/(\d)/gi, "$1/$2").toUpperCase();
+}
+function hasClass(sample, name) { return (sample.classes || []).indexOf(name) >= 0; }
+var retroModules = {
+    "custom/logo": {about: "MENU: the desk drawer"},
+    "custom/ai_status": {code: "LLM", about: "LLM: the local model (IDLE: not loaded; used/total: GB of video memory)",
+        value: function(sample) {
+            return retroWords(sample.text).replace(/⚠\s*/, "").replace(/(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)g$/i, function(all, used, total) {
+                return used + "/" + Math.round(Number(total)) + "G";
+            }).toUpperCase();
+        }},
+    "custom/claude": {code: "CLAUDE", about: "CLAUDE: Claude Code sessions (RUN: working, WAIT: waiting for you, ERR: stopped)",
+        value: function(sample) {
+            var text = String(sample.text || ""), parts = /all done/.test(text) ? ["DONE"] : [];
+            [["✎", "RUN"], ["◇", "WAIT"], ["!", "ERR"]].forEach(function(mark) {
+                var count = text.match(new RegExp(mark[0] + "\\s*(\\d+)"));
+                if (count) parts.push(count[1] + " " + mark[1]);
+            });
+            return parts.length ? parts.join(" ") : retroWords(retroText(text)).toUpperCase();
+        }},
+    "custom/api_credits": {code: "API", about: "API: API credits left this month",
+        value: function(sample) {
+            return retroWords(sample.text).replace(/^API\b/, "").replace(/[~·]/g, "").replace(/\$(\d[\d,]*)\.\d+/, "$$$1")
+                .replace(/\s+/g, " ").trim().toUpperCase();
+        }},
+    // The problems while there are any, else the protections running; the tooltip lists both.
+    "custom/foxml_sentry": {code: "SEC", about: "SEC: security (WARN or CRIT: problems; OK: protections running)",
+        value: function(sample) {
+            var counts = retroWords(sample.text).match(/\d+/g) || [];
+            if (!counts.length) return "";
+            return counts.length < 2 ? counts[0] + " OK" : counts[0] + (hasClass(sample, "critical") ? " CRIT" : " WARN");
+        }},
+    "custom/system_health": {code: "STRESS", about: "STRESS: the machine is under heavy load",
+        value: function(sample) { return retroUnits(retroWords(sample.text)); }},
+    "power-profiles-daemon": {code: "PWR", about: "PWR: power profile (TURBO: performance, BAL: balanced, SAVE: power saver)",
+        value: function(sample) { return {performance: "TURBO", balanced: "BAL", "power-saver": "SAVE"}[(sample.classes || [])[0]] || "N/A"; }},
+    "custom/battery": {code: "BAT", about: "BAT: battery (AC: on mains power, CHG: charging, W: watts in or out)",
+        value: function(sample) {
+            var text = String(sample.text || ""), level = text.match(/(\d+)%/), watts = text.match(/[+-]\d+W/);
+            if (!level) return retroWords(retroText(text)).toUpperCase();
+            var mains = text.indexOf("✓") >= 0 || text.indexOf("\u{F06A5}") >= 0 || hasClass(sample, "plugged") || hasClass(sample, "plugged-drain");
+            return level[1] + "%" + (mains ? " AC" : "") + (watts ? " " + watts[0] : text.indexOf("ϟ") >= 0 ? " CHG" : "");
+        }},
+    "idle_inhibitor": {code: "AWAKE", about: "AWAKE: keep the screens on while idle",
+        value: function(sample, state) { return state.idle ? "ON" : "OFF"; }},
+    "custom/net_speed": {code: "NET", about: "NET: network per second (↓ in, ↑ out; K: KB, M: MB)",
+        value: function(sample) { return retroWords(sample.text).replace(/([↓↑])\s*/g, "$1").replace(/\s*([KM])B\/s/g, "$1").toUpperCase(); }},
+    "custom/cpu": {code: "CPU", about: "CPU: processor load and temperature",
+        value: function(sample) { return retroUnits(retroWords(sample.text)); }},
+    "custom/gpu": {code: "GPU", about: "GPU: graphics card load and temperature (ON: awake, IDLE: asleep)",
+        value: function(sample) { return retroUnits(retroWords(sample.text).replace(/⚠\s*/, "")); }},
+    "memory": {code: "MEM", about: "MEM: memory in use / installed, in GB",
+        value: function(sample) { return retroUnits(retroWords(sample.text)); }},
+    "custom/disk": {code: "DSK", about: "DSK: disk space used / size of /, in GB",
+        value: function(sample) { return retroUnits(retroWords(sample.text)); }},
+    "custom/updates": {code: "UPD", about: "UPD: package updates waiting",
+        value: function(sample) { return retroWords(String(sample.text || "").replace(/↻/g, "")); }},
+    "custom/clock": {value: function(sample) { return String(sample.text || "").trim().toUpperCase(); }}
+};
+// A module's sample as the retro bar shows it. A helper that printed nothing hides its module, as waybar does.
+function retroSample(name, sample, state) {
+    var row = retroModules[name] || {}, raw = sample || {};
+    var tooltip = retroText(raw.tooltip || "");
+    var out = {text: "", tooltip: row.about ? row.about + (tooltip ? "\n" + tooltip : "") : tooltip, classes: raw.classes || []};
+    if (raw.silent || (!String(raw.text || "").trim() && name !== "idle_inhibitor")) return out;
+    if (raw.failed) out.text = (row.code || retroWords(raw.text)) + " ERR";
+    else if (!row.value) out.text = retroWords(retroText(raw.text));
+    else {
+        var value = row.value(raw, state || {});
+        out.text = row.code ? row.code + (value ? " " + value : "") : value;
+    }
+    if (raw.percentage !== undefined) out.percentage = raw.percentage;
+    if (raw.pins) out.pins = raw.pins;
+    return out;
+}
+// Reverse video means it needs you: an alert, a session asking for you or just finished, a charger that is not
+// charging, a large or long-unsynced update backlog. Critical ones blink.
+var retroNeedsYou = ["critical", "error", "warning", "stopped", "asking", "done", "plugged-drain", "high"];
+function retroAlert(classes) {
+    return (classes || []).some(function(name) { return retroNeedsYou.indexOf(name) >= 0; });
+}
+function retroBlinks(classes) {
+    return (classes || []).some(function(name) { return name === "critical" || name === "error"; });
+}
+// Three zones, left to right: where you are (the workspaces), your work (agents, the local model, API credits) as
+// one group in the middle, then the machine. A layout that already uses the middle stays as it is.
+var retroWork = ["custom/ai_status", "custom/claude", "custom/api_credits"];
+function retroZones(config) {
+    if (modules(config, "center").length) return config;
+    var zoned = Object.assign({}, config), work = [];
+    ["left", "right"].forEach(function(side) {
+        zoned["modules-" + side] = modules(config, side).filter(function(name) {
+            if (retroWork.indexOf(name) < 0) return true;
+            work.push(name);
+            return false;
+        });
+    });
+    if (!work.length) return config;
+    zoned["modules-center"] = ["group/retro-work"];
+    zoned["group/retro-work"] = {modules: work};
+    return zoned;
+}

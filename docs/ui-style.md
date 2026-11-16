@@ -56,6 +56,24 @@ font (`√ ↕ ○ → * ‼ ! ☼ ♦ ≡ ►`, from the same `MARKS` table), g
 words and states in capitals on the selection colour, the selected row in true inverse, `..` for `…`, no flowers.
 A card from another mod has its symbols mapped to the font's marks.
 
+## The top bar in retro
+
+Retro draws the top bar as a DOS status line. The words are in one table, `retroModules` in
+`shared/quickshell/desk/BarLogic.js`; the helpers print what they always printed.
+
+- Every item is a capital code and its value: `CPU 16% 40°C`, `MEM 8.9/31G`, `NET ↓9K ↑11K`, `BAT 79% AC`,
+  `CLAUDE 2 RUN`, `UPD 0`. The menu is `≡`; a workspace is its number (`2♦`: a Claude waits there). Hovering an item
+  says what its code means first.
+- Three zones: the workspaces on the left, your work (`LLM`, `CLAUDE`, `API`) halfway between, the machine on the
+  right. Two cells between items, one `│` between groups, nothing else between them.
+- Reverse video means it needs you (a warning, a session asking, a charger not charging) or it is where you are (the
+  current workspace, the item whose drawer is open); a critical one blinks. Nothing else is boxed or underlined. An
+  empty workspace is dimmer.
+- A helper that prints nothing hides its item, as in waybar; one that prints something broken shows `<CODE> ERR`.
+
+`python3 tests/bar_preview.py` draws the bar offscreen from sample outputs and saves a PNG (`--theme`, `--scene
+today|busy|broken`, `--width`); `tests/test_retro_bar_qml.py` holds these rules, and that Paper's bar is unchanged.
+
 ## Behaviour
 
 - A panel updates in place: the selection and scroll position stay, and it does not resize while you read. The

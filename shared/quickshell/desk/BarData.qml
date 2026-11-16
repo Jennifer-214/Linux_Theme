@@ -96,7 +96,8 @@ Scope {
                 stderr: StdioCollector { waitForEnd: true }
                 onExited: (code, status) => {
                     try { data.publish(worker.modelData.name, BarLogic.sample(output.text, worker.modelData.spec)); }
-                    catch (e) { data.publish(worker.modelData.name, {text: "!", tooltip: worker.modelData.name + ": helper unavailable", classes: ["warning"]}); }
+                    catch (e) { data.publish(worker.modelData.name, {text: "!", tooltip: worker.modelData.name + ": helper unavailable", classes: ["warning"],
+                        failed: true, silent: !output.text.trim()}); }
                 }
             }
         }
