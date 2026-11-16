@@ -69,6 +69,27 @@ inline std::filesystem::path profile(const Context& ctx) {
     return {};
 }
 
+// Firefox's "Website appearance": the colour scheme pages are told the reader prefers (prefers-color-scheme).
+inline constexpr const char* WEBSITE_APPEARANCE = "layout.css.prefers-color-scheme.content-override";
+
+// The theme's block for user.js: the rendered find colours, and the website appearance a theme names in
+// FF_WEBSITE_APPEARANCE (dark, light or auto; retro-amber asks for dark). A theme without one writes the block as it
+// is. user.js cannot unset a pref (Firefox keeps the last value in prefs.js), so after a theme that set one the block
+// carries Firefox's own default, 2, for one run; `old_block` is the block user.js holds now.
+inline std::string theme_block(std::string block, const std::string& appearance, const std::string& old_block) {
+    const std::string key = std::string("\"") + WEBSITE_APPEARANCE + "\", ";
+    std::string value = appearance == "dark" ? "0" : appearance == "light" ? "1" : appearance == "auto" ? "2" : "";
+    if (value.empty()) {
+        const auto set = old_block.find(key);
+        if (set == std::string::npos || old_block.compare(set + key.size(), 1, "2") == 0) return block;
+        value = "2";
+    }
+    const auto end = block.rfind("// <<<");
+    block.insert(end == std::string::npos ? block.size() : end,
+                 std::string("user_pref(\"") + WEBSITE_APPEARANCE + "\", " + value + ");\n");
+    return block;
+}
+
 // --render does not run Firefox setup. Refresh only its rendered stylesheets,
 // without touching preferences, opening windows or restarting the browser.
 inline bool sync_styles(const Context& ctx) {

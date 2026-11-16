@@ -113,6 +113,14 @@ with anything already there, the previous file kept as `.foxml-bak`), so it
 installs from addons.mozilla.org on Firefox's next start; it can be switched off
 in Firefox but not removed while that entry is there.
 
+In retro-amber the hints are Neovim's jump labels (inverse amber cells of Big Blue
+Term, typed letters back in normal video) and the Vomnibar and status bar are
+double-lined DOS boxes with a `C:\>` prompt. The same theme draws Firefox's own
+pages (settings, add-ons, downloads, profiles, `about:config`), the PDF viewer's
+toolbar and sidebar, reader view (Big Blue Term at 24 px) and every menu, dropdown
+and panel as a DOS screen: square, amber on near-black, the chosen row inverse, a
+bright 2 px ring on the focused control.
+
 ## Shared files
 
 Copied as-is regardless of theme:

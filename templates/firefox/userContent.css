@@ -623,3 +623,419 @@
   #hud.hud-find { background: #{{BG_ALT}} !important; border: 1px solid rgba({{FG_R}},{{FG_G}},{{FG_B}},0.2) !important; }
   span#hud-match-count { color: #{{FG_DIM}} !important; }
 }
+
+/* ===== retro-amber: Firefox's own pages, the PDF viewer, reader view and Vimium as a DOS screen =====
+   FF_RETRO_SCOPE is ':root' in retro-amber and matches nothing elsewhere. Big Blue Term is crisp only at 12, 24 and
+   36 px, and has no bold (font-synthesis: none keeps it from being smeared). Firefox's pages take their look from its
+   design tokens, which also reach inside its components; a focused control gets a 2-px ring in the brightest amber. */
+@-moz-document url-prefix("about:preferences"), url-prefix("about:settings"), url-prefix("about:addons"),
+  url-prefix("about:downloads"), url-prefix("about:profiles"), url-prefix("about:config") {
+  {{FF_RETRO_SCOPE}} {
+    color-scheme: dark !important;
+    accent-color: #{{FG}} !important;
+    background-color: #{{BG}} !important;
+    color: #{{FG}} !important;
+    font-family: "{{FONT_FAMILY}}", monospace !important;
+    font-size: 12px !important;
+    font-synthesis: none !important;
+    scrollbar-color: #{{SECONDARY}} #{{BG}} !important;
+    --font-size-root: 12px !important;
+    --font-size-small: 12px !important;
+    --font-size-large: 12px !important;
+    --font-size-xlarge: 24px !important;
+    --font-size-xxlarge: 24px !important;
+    --font-size-xxxlarge: 36px !important;
+    --background-color-canvas: #{{BG}} !important;
+    --background-color-box: #{{BG}} !important;
+    --background-color-list-item-hover: #{{SURFACE}} !important;
+    --text-color-list-item-hover: #{{GOLD}} !important;
+    --text-color: #{{FG}} !important;
+    --text-color-deemphasized: #{{SECONDARY}} !important;
+    --text-color-disabled: #{{FG_DIM}} !important;
+    --icon-color: #{{FG}} !important;
+    --border-color: #{{FG}} !important;
+    --border-color-card: #{{FG}} !important;
+    --border-color-deemphasized: #{{SECONDARY}} !important;
+    --border-color-interactive: #{{FG}} !important;
+    --border-color-selected: #{{FG}} !important;
+    --border-radius-xsmall: 0 !important;
+    --border-radius-small: 0 !important;
+    --border-radius-medium: 0 !important;
+    --border-radius-large: 0 !important;
+    --border-radius-xlarge: 0 !important;
+    --border-radius-circle: 0 !important;
+    --box-shadow-level-1: none !important;
+    --box-shadow-level-2: none !important;
+    --box-shadow-level-3: none !important;
+    --box-shadow-level-4: none !important;
+    /* cards are double-line frames: 1-px lines 3 px apart, the drawer's DOS frame */
+    --card-border: 4px double #{{FG}} !important;
+    --card-box-shadow: none !important;
+    --card-box-shadow-hover: none !important;
+    --color-accent-primary: #{{FG}} !important;
+    --color-accent-primary-hover: #{{GOLD}} !important;
+    --color-accent-primary-active: #{{BLUSH}} !important;
+    --color-accent-primary-selected: #{{FG}} !important;
+    --text-color-accent-primary-selected: #{{BG}} !important;
+    --button-background-color: #{{BG}} !important;
+    --button-background-color-hover: #{{SURFACE}} !important;
+    --button-background-color-active: #{{SELECTION}} !important;
+    --button-text-color: #{{FG}} !important;
+    --button-text-color-hover: #{{GOLD}} !important;
+    --button-text-color-active: #{{GOLD}} !important;
+    --button-border-color: #{{FG}} !important;
+    --button-background-color-primary: #{{FG}} !important;
+    --button-background-color-primary-hover: #{{GOLD}} !important;
+    --button-background-color-primary-active: #{{BLUSH}} !important;
+    --button-text-color-primary: #{{BG}} !important;
+    --button-font-weight: normal !important;
+    --input-background-color: #{{BG}} !important;
+    --input-text-color: #{{FG}} !important;
+    --input-border-color: #{{FG}} !important;
+    --link-color: #{{BLUSH}} !important;
+    --link-color-hover: #{{GOLD}} !important;
+    --link-color-active: #{{GOLD}} !important;
+    --focus-outline-color: #{{GOLD}} !important;
+    --focus-outline-width: 2px !important;
+    --focus-outline: 2px solid #{{GOLD}} !important;
+    --table-row-background-color: #{{BG}} !important;
+    --table-row-background-color-alternate: #{{BG_ALT}} !important;
+    --table-background-color: #{{BG}} !important;
+    --table-border-color: #{{SECONDARY}} !important;
+    --table-header-background-color: #{{FG}} !important;
+    --table-header-text-color: #{{BG}} !important;
+    --in-content-page-background: #{{BG}} !important;
+    --in-content-box-background: #{{BG}} !important;
+    --in-content-text-color: #{{FG}} !important;
+    --in-content-border-color: #{{FG}} !important;
+    --in-content-focus-outline-color: #{{GOLD}} !important;
+    --background-color-information: #{{BG}} !important;
+    --background-color-success: #{{BG}} !important;
+    --background-color-warning: #{{BG}} !important;
+    --background-color-critical: #{{BG}} !important;
+    --icon-color-information: #{{FG}} !important;
+    --icon-color-success: #{{FG}} !important;
+    --icon-color-warning: #{{WARN}} !important;
+    --icon-color-critical: #{{RED}} !important;
+  }
+  {{FF_RETRO_SCOPE}} *,
+  {{FF_RETRO_SCOPE}} *::before,
+  {{FF_RETRO_SCOPE}} *::after {
+    font-family: "{{FONT_FAMILY}}", monospace !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+  /* these take the system font's size rather than the page's; the system font is Big Blue Term in retro anyway */
+  {{FF_RETRO_SCOPE}} :is(table, button, input, select, textarea, menulist) { font-size: 12px !important; }
+  /* pictures in phosphor: grey levels mapped onto the amber ramp (white lands on the theme's amber) */
+  {{FF_RETRO_SCOPE}} :is(img, .config-background) {
+    filter: grayscale(1) brightness(0.4) sepia(1) saturate(6) hue-rotate(10deg) brightness(1.4) !important;
+  }
+  /* page titles at twice the cell, section titles in capitals: hierarchy by size, case and brightness, not weight */
+  {{FF_RETRO_SCOPE}} h1 { font-size: 24px !important; line-height: 36px !important; text-transform: uppercase !important; }
+  {{FF_RETRO_SCOPE}} :is(h2, h3, legend) { font-size: 12px !important; color: #{{GOLD}} !important; text-transform: uppercase !important; }
+  /* about:config draws a changed preference in bold, which this font cannot: it is the brightest amber instead */
+  {{FF_RETRO_SCOPE}} #prefs > tr.has-user-value { color: #{{GOLD}} !important; }
+  /* menulist dropdowns on these pages are popups of their own */
+  {{FF_RETRO_SCOPE}} menupopup {
+    --panel-background-color: #{{BG}} !important;
+    --panel-text-color: #{{FG}} !important;
+    --panel-border-color: #{{FG}} !important;
+    --panel-border-radius: 0px !important;
+    --panel-box-shadow: none !important;
+    --panel-box-shadow-margin: 0px !important;
+  }
+  {{FF_RETRO_SCOPE}} :is(menuitem, menu)[_moz-menuactive]:not([disabled]) {
+    background-color: #{{FG}} !important;
+    color: #{{BG}} !important;
+    fill: #{{BG}} !important;
+  }
+  {{FF_RETRO_SCOPE}} :is(menuitem, menu)[_moz-menuactive]:not([disabled]) > :not(menupopup),
+  {{FF_RETRO_SCOPE}} :is(menuitem, menu)[_moz-menuactive]:not([disabled]) > :not(menupopup) * {
+    color: #{{BG}} !important;
+    fill: #{{BG}} !important;
+  }
+}
+
+/* The built-in PDF viewer keeps the PDF's own address; its root carries a pdf.js-only attribute, which scopes this.
+   The toolbar and the sidebar become the screen; the pages keep their paper. */
+@-moz-document url-prefix("http"), url-prefix("file") {
+  {{FF_RETRO_SCOPE}}[mozdisallowselectionprint] {
+    color-scheme: dark !important;
+    font-family: "{{FONT_FAMILY}}", monospace !important;
+    font-synthesis: none !important;
+    scrollbar-color: #{{SECONDARY}} #{{BG}} !important;
+    --text-color: #{{FG}} !important;
+    --text-color-deemphasized: #{{SECONDARY}} !important;
+    --background-color-canvas: #{{BG}} !important;
+    --background-color-box: #{{BG}} !important;
+    --border-color: #{{FG}} !important;
+    --border-color-deemphasized: #{{SECONDARY}} !important;
+    --border-color-interactive: #{{FG}} !important;
+    --color-accent-primary: #{{FG}} !important;
+    --color-accent-primary-hover: #{{GOLD}} !important;
+    --color-accent-primary-active: #{{BLUSH}} !important;
+    --toolbar-background-color: #{{BG}} !important;
+    --toolbarbutton-icon-fill: #{{FG}} !important;
+    --toolbarbutton-background-color-hover: #{{SURFACE}} !important;
+    --toolbarbutton-background-color-active: #{{SELECTION}} !important;
+    --button-background-color: #{{BG}} !important;
+    --button-background-color-hover: #{{SURFACE}} !important;
+    --button-background-color-active: #{{SELECTION}} !important;
+    --button-text-color: #{{FG}} !important;
+    --button-border-color: #{{FG}} !important;
+    --button-background-color-primary: #{{FG}} !important;
+    --button-text-color-primary: #{{BG}} !important;
+    --border-radius-small: 0 !important;
+    --border-radius-medium: 0 !important;
+    --border-radius-large: 0 !important;
+    --border-radius-circle: 0 !important;
+    --focus-outline-color: #{{GOLD}} !important;
+    --focus-outline: 2px solid #{{GOLD}} !important;
+    --main-color: #{{FG}} !important;
+    --body-bg-color: #{{BG}} !important;
+    --toolbar-bg-color: #{{BG}} !important;
+    --toolbar-border-color: #{{FG}} !important;
+    --toolbar-icon-bg-color: #{{FG}} !important;
+    --toolbar-icon-hover-bg-color: #{{GOLD}} !important;
+    --toolbar-icon-opacity: 1 !important;
+    --sidebar-toolbar-bg-color: #{{BG}} !important;
+    --sidebar-narrow-bg-color: #{{BG}} !important;
+    --button-hover-color: #{{SURFACE}} !important;
+    --toggled-btn-color: #{{BG}} !important;
+    --toggled-btn-text-color: #{{BG}} !important;
+    --toggled-btn-bg-color: #{{FG}} !important;
+    --dropdown-btn-bg-color: #{{BG}} !important;
+    --dropdown-btn-border: 1px solid #{{FG}} !important;
+    --separator-color: #{{SECONDARY}} !important;
+    --field-color: #{{FG}} !important;
+    --field-bg-color: #{{BG}} !important;
+    --field-border-color: #{{FG}} !important;
+    --doorhanger-bg-color: #{{BG}} !important;
+    --doorhanger-border-color: #{{FG}} !important;
+    --doorhanger-hover-color: #{{GOLD}} !important;
+    --doorhanger-separator-color: #{{SECONDARY}} !important;
+    --progressBar-color: #{{FG}} !important;
+    --progressBar-bg-color: #{{SURFACE}} !important;
+    --progressBar-blend-color: #{{SECONDARY}} !important;
+    --treeitem-color: #{{FG}} !important;
+    --treeitem-bg-color: #{{SURFACE}} !important;
+    --treeitem-hover-color: #{{GOLD}} !important;
+    --treeitem-selected-color: #{{BG}} !important;
+    --treeitem-selected-bg-color: #{{FG}} !important;
+    --text-primary-color: #{{FG}} !important;
+    --text-secondary-color: #{{SECONDARY}} !important;
+    --dialog-bg-color: #{{BG}} !important;
+    --dialog-border-color: #{{FG}} !important;
+    --dialog-shadow: none !important;
+    --input-text-bg-color: #{{BG}} !important;
+    --input-text-fg-color: #{{FG}} !important;
+    --link-color: #{{BLUSH}} !important;
+    --link-color-hover: #{{GOLD}} !important;
+    --new-badge-bg: #{{FG}} !important;
+    --new-badge-color: #{{BG}} !important;
+    --new-badge-border-color: #{{FG}} !important;
+    --background-color-information: #{{BG}} !important;
+    --background-color-success: #{{BG}} !important;
+    --background-color-warning: #{{BG}} !important;
+    --background-color-critical: #{{BG}} !important;
+    --icon-color-information: #{{FG}} !important;
+    --icon-color-success: #{{FG}} !important;
+    --icon-color-warning: #{{WARN}} !important;
+    --icon-color-critical: #{{RED}} !important;
+  }
+  {{FF_RETRO_SCOPE}}[mozdisallowselectionprint] moz-message-bar { font: 12px "{{FONT_FAMILY}}", monospace !important; }
+  {{FF_RETRO_SCOPE}}[mozdisallowselectionprint] :is(#viewsManager, .sidebar) {
+    --sidebar-bg-color: #{{BG}} !important;
+    --sidebar-border-color: #{{FG}} !important;
+    --sidebar-box-shadow: none !important;
+    --sidebar-backdrop-filter: none !important;
+    --sidebar-border-radius: 0 !important;
+    --views-text-color: #{{FG}} !important;
+    --status-actions-bg: #{{BG}} !important;
+    color: #{{FG}} !important;
+  }
+  {{FF_RETRO_SCOPE}}[mozdisallowselectionprint] :is(#toolbarContainer, #viewsManager, #findbar, .doorHanger, .doorHangerRight, .dialog) {
+    font-size: 12px !important;
+  }
+  {{FF_RETRO_SCOPE}}[mozdisallowselectionprint] :is(#toolbarContainer, #viewsManager, #findbar, .doorHanger, .doorHangerRight, .dialog) * {
+    font-family: "{{FONT_FAMILY}}", monospace !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+  {{FF_RETRO_SCOPE}}[mozdisallowselectionprint] #toolbarContainer { border-bottom: 1px solid #{{FG}} !important; }
+}
+
+/* Reader view as an amber terminal page. The body text is Big Blue Term at 24 px, its 12-px cell doubled: about as
+   large on screen as reader view's own 20 px sans. The size buttons still work, in whole cells (12 / 24 / 36 px);
+   the toolbar's em base is rounded the same way, so it stays beside the text column. */
+@-moz-document url-prefix("about:reader") {
+  {{FF_RETRO_SCOPE}} body:not(.hcm) {
+    color-scheme: dark !important;
+    font-synthesis: none !important;
+    background-color: #{{BG}} !important;
+    color: #{{FG}} !important;
+    --main-background: #{{BG}} !important;
+    --main-foreground: #{{FG}} !important;
+    --primary-color: #{{FG}} !important;
+    --link-foreground: #{{BLUSH}} !important;
+    --visited-link-foreground: #{{SECONDARY}} !important;
+    --link-color: #{{BLUSH}} !important;
+    --link-color-hover: #{{GOLD}} !important;
+    --toolbar-border: #{{FG}} !important;
+    --toolbar-transparent-border: transparent !important;
+    --toolbar-button-background: transparent !important;
+    --toolbar-button-background-hover: #{{SURFACE}} !important;
+    --toolbar-button-foreground-hover: #{{GOLD}} !important;
+    --toolbar-button-background-active: #{{FG}} !important;
+    --toolbar-button-foreground-active: #{{BG}} !important;
+    --toolbar-button-border: transparent !important;
+    --tooltip-background: #{{BG}} !important;
+    --tooltip-foreground: #{{FG}} !important;
+    --tooltip-border: #{{FG}} !important;
+    --popup-background: #{{BG}} !important;
+    --popup-foreground: #{{FG}} !important;
+    --popup-border: #{{FG}} !important;
+    --popup-line: #{{SECONDARY}} !important;
+    --popup-shadow: transparent !important;
+    --popup-button-background: #{{BG}} !important;
+    --popup-button-foreground: #{{FG}} !important;
+    --popup-button-selected-foreground: #{{BG}} !important;
+    --popup-button-background-hover: #{{SURFACE}} !important;
+    --popup-button-foreground-hover: #{{GOLD}} !important;
+    --popup-button-background-active: #{{FG}} !important;
+    --popup-button-border: #{{FG}} !important;
+    --selected-background: #{{FG}} !important;
+    --outline-focus-color: #{{GOLD}} !important;
+    --focus-outline-color: #{{GOLD}} !important;
+    --focus-outline: 2px solid #{{GOLD}} !important;
+    --icon-fill: #{{FG}} !important;
+    --icon-disabled-fill: #{{FG_DIM}} !important;
+    --text-selected-background: #{{FG}} !important;
+    --text-selected-foreground: #{{BG}} !important;
+    --link-selected-background: #{{FG}} !important;
+    --link-selected-foreground: #{{BG}} !important;
+    --box-shadow-level-4: none !important;
+  }
+  {{FF_RETRO_SCOPE}} body:not(.hcm) *,
+  {{FF_RETRO_SCOPE}} body:not(.hcm) *::before,
+  {{FF_RETRO_SCOPE}} body:not(.hcm) *::after {
+    font-family: "{{FONT_FAMILY}}", monospace !important;
+    border-radius: 0 !important;
+  }
+  {{FF_RETRO_SCOPE}} body:not(.hcm) :is(.container, .toolbar-container) { font-size: round(nearest, var(--font-size), 12px) !important; }
+  {{FF_RETRO_SCOPE}} body:not(.hcm) hr { border: 0 !important; border-top: 1px solid #{{SECONDARY}} !important; }
+  {{FF_RETRO_SCOPE}} body:not(.hcm) :is(.header, .moz-reader-content) * { font-size: inherit !important; }
+  {{FF_RETRO_SCOPE}} body:not(.hcm) :is(.header > h1, .moz-reader-content h1) { font-size: round(nearest, 1.5em, 12px) !important; }
+  {{FF_RETRO_SCOPE}} body:not(.hcm) :is(.header > h1, .moz-reader-content :is(h1, h2, h3, h4, h5, h6)) { color: #{{GOLD}} !important; }
+  {{FF_RETRO_SCOPE}} body:not(.hcm) :is(.header > .credits, .header > .meta-data) { color: #{{SECONDARY}} !important; }
+  {{FF_RETRO_SCOPE}} body:not(.hcm) :is(.reader-controls, .dropdown-popup),
+  {{FF_RETRO_SCOPE}} body:not(.hcm) :is(.reader-controls, .dropdown-popup) * { font-size: 12px !important; }
+}
+
+/* Vimium's link hints are the jump labels Neovim draws: inverse amber cells of Big Blue Term, square, no shadow.
+   Letters already typed fall back to normal video; the hint Enter would open is the brightest amber. */
+@-moz-document url-prefix("http"), url-prefix("file") {
+  {{FF_RETRO_SCOPE}} div.internal-vimium-hint-marker {
+    background: #{{FG}} !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    line-height: 12px !important;
+  }
+  {{FF_RETRO_SCOPE}} div.internal-vimium-hint-marker span {
+    color: #{{BG}} !important;
+    font: 12px/12px "{{FONT_FAMILY}}", monospace !important;
+    font-synthesis: none !important;
+    letter-spacing: 0 !important;
+    text-shadow: none !important;
+  }
+  {{FF_RETRO_SCOPE}} div.internal-vimium-hint-marker > .matchingCharacter { background: #{{BG}} !important; color: #{{FG}} !important; }
+  {{FF_RETRO_SCOPE}} div.internal-vimium-hint-marker.vimiumActiveHintMarker { background: #{{GOLD}} !important; }
+  {{FF_RETRO_SCOPE}} div > .vimiumActiveHintMarker span { color: #{{BG}} !important; text-decoration: none !important; }
+  {{FF_RETRO_SCOPE}} div.internal-vimium-input-hint {
+    background-color: rgba({{FG_R}},{{FG_G}},{{FG_B}},0.15) !important;
+    border: 1px solid #{{FG}} !important;
+    border-radius: 0 !important;
+  }
+  {{FF_RETRO_SCOPE}} div.internal-vimium-selected-input-hint {
+    background-color: rgba({{FG_R}},{{FG_G}},{{FG_B}},0.3) !important;
+    border: 1px solid #{{GOLD}} !important;
+  }
+  {{FF_RETRO_SCOPE}} div.vimium-highlighted-frame { border: 4px double #{{FG}} !important; }
+  {{FF_RETRO_SCOPE}} div.vimium-flash { box-shadow: none !important; outline: 2px solid #{{GOLD}} !important; }
+  {{FF_RETRO_SCOPE}} body.vimium-find-mode ::selection { background: #{{FF_FIND_BG}} !important; color: #{{FF_FIND_FG}} !important; }
+}
+
+/* The Vomnibar and the HUD (Vimium's own pages) as DOS boxes: a double-line frame, a C:\> prompt at 24 px, results
+   and the status line at 12 px, the chosen result in inverse video. The HUD's frame sits 14 px lower than its box. */
+@-moz-document url-prefix("moz-extension://") {
+  {{FF_RETRO_SCOPE}} #vomnibar,
+  {{FF_RETRO_SCOPE}} #hud-container {
+    background: #{{BG}} !important;
+    color: #{{FG}} !important;
+    border: 4px double #{{FG}} !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    font-family: "{{FONT_FAMILY}}", monospace !important;
+    font-synthesis: none !important;
+  }
+  {{FF_RETRO_SCOPE}} #vomnibar-search-area {
+    display: flex !important;
+    align-items: center !important;
+    padding: 12px 16px !important;
+    border-bottom: 1px solid #{{FG}} !important;
+    border-radius: 0 !important;
+  }
+  {{FF_RETRO_SCOPE}} #vomnibar-search-area::before {
+    content: "C:\\>";
+    margin-inline-end: 16px;
+    color: #{{FG}};
+    font: 24px/24px "{{FONT_FAMILY}}", monospace;
+  }
+  {{FF_RETRO_SCOPE}} #vomnibar input {
+    flex: 1 !important;
+    width: auto !important;
+    min-width: 0 !important;
+    height: 24px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: transparent !important;
+    color: #{{FG}} !important;
+    caret-color: #{{GOLD}} !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    font: 24px/24px "{{FONT_FAMILY}}", monospace !important;
+  }
+  {{FF_RETRO_SCOPE}} #vomnibar input::selection { background: #{{FG}} !important; color: #{{BG}} !important; }
+  {{FF_RETRO_SCOPE}} #vomnibar ul { border-radius: 0 !important; }
+  {{FF_RETRO_SCOPE}} #vomnibar li {
+    border-bottom: 0 !important;
+    padding: 6px 16px !important;
+    color: #{{FG}} !important;
+    font-size: 12px !important;
+    line-height: 12px !important;
+  }
+  {{FF_RETRO_SCOPE}} #vomnibar li :is(.top-half, .bottom-half) { font-size: 12px !important; line-height: 12px !important; margin: 0 !important; padding: 0 !important; }
+  {{FF_RETRO_SCOPE}} #vomnibar li .url { color: #{{SECONDARY}} !important; }
+  {{FF_RETRO_SCOPE}} #vomnibar li .source { color: #{{FG_DIM}} !important; }
+  {{FF_RETRO_SCOPE}} #vomnibar li .match { color: #{{GOLD}} !important; font-weight: normal !important; text-decoration: underline !important; }
+  {{FF_RETRO_SCOPE}} #vomnibar li.selected { background: #{{FG}} !important; }
+  {{FF_RETRO_SCOPE}} #vomnibar li.selected * { color: #{{BG}} !important; }
+  {{FF_RETRO_SCOPE}} #hud-container { bottom: 16px !important; }
+  {{FF_RETRO_SCOPE}} #search-area { padding: 0 !important; border-radius: 0 !important; background: transparent !important; }
+  {{FF_RETRO_SCOPE}} #hud,
+  {{FF_RETRO_SCOPE}} #hud.hud-find {
+    height: 24px !important;
+    padding: 0 8px !important;
+    background: transparent !important;
+    color: #{{FG}} !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    font-size: 12px !important;
+    line-height: 24px !important;
+  }
+  {{FF_RETRO_SCOPE}} span#hud-match-count { color: #{{SECONDARY}} !important; font-size: 12px !important; }
+}

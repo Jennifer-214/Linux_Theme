@@ -443,6 +443,9 @@ FF_BUTTON_FG="var(--fox-bg)"
 FF_CARD_HOVER="0 0 8px rgba(255,176,0,0.30)"
 FF_SELECTION_BG="rgba(255,176,0,0.35)"
 FF_SELECTION_FG=0c0a06
+# Websites are asked for their dark mode: Firefox's "Website appearance" (dark, light or auto), written to user.js by
+# the installer. Themes without this key leave Firefox's own choice alone.
+FF_WEBSITE_APPEARANCE=dark
 
 # ─── Errors · warnings · syntax roles · Thunar · one sheet opacity ───
 NVIM_WARN=ffc640

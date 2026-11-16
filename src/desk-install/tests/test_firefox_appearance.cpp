@@ -80,6 +80,24 @@ int main() {
     ok &= desk_install::firefox_appearance::profile(ctx) == elsewhere;
     put(base / "profiles.ini", "[Install1]\nDefault=gone.default-release\n");
     ok &= desk_install::firefox_appearance::profile(ctx) == named;
+
+    // The website appearance rides in the theme's block: only a theme that names one writes it, and a theme after it
+    // hands Firefox its default back for one run (user.js cannot unset a pref), then writes its block as before.
+    using desk_install::firefox_appearance::theme_block;
+    const std::string colors = "// >>> FoxML find colors\nuser_pref(\"ui.textHighlightBackground\", \"#ffb000\");\n"
+                               "// <<< FoxML find colors\n";
+    const std::string pref = "user_pref(\"layout.css.prefers-color-scheme.content-override\", ";
+    const auto with = [&](const char* value) {
+        return std::string(colors).insert(colors.rfind("// <<<"), pref + value + ");\n");
+    };
+    ok &= theme_block(colors, "", "") == colors;
+    ok &= theme_block(colors, "", colors) == colors;
+    ok &= theme_block(colors, "dark", "") == with("0");
+    ok &= theme_block(colors, "dark", with("0")) == with("0");
+    ok &= theme_block(colors, "light", "") == with("1") && theme_block(colors, "auto", "") == with("2");
+    ok &= theme_block(colors, "sepia", "") == colors;
+    ok &= theme_block(colors, "", with("0")) == with("2");
+    ok &= theme_block(colors, "", with("2")) == colors;
     fs::remove_all(root);
     std::cout << (ok ? "Firefox appearance backup deployment: OK\n" : "Firefox appearance backup deployment: FAILED\n");
     return ok ? 0 : 1;

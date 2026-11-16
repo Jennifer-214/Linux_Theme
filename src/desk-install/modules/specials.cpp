@@ -192,7 +192,7 @@ void do_firefox(const Context& ctx) {
     const fs::path find_colors = ctx.rendered_dir / "firefox/find-colors.js";
     if (fs::exists(find_colors)) {
         std::ifstream colors_file(find_colors);
-        const std::string colors((std::istreambuf_iterator<char>(colors_file)), std::istreambuf_iterator<char>());
+        const std::string rendered((std::istreambuf_iterator<char>(colors_file)), std::istreambuf_iterator<char>());
         const std::string begin = "// >>> FoxML find colors", end = "// <<< FoxML find colors";
         const auto start = body.find(begin);
         const auto stop = start == std::string::npos ? std::string::npos : body.find(end, start);
@@ -200,6 +200,9 @@ void do_firefox(const Context& ctx) {
             ui::warn("Firefox find-color block is incomplete; leaving user.js untouched");
             return;
         }
+        const std::string colors = firefox_appearance::theme_block(
+            rendered, palette::get(ctx.palette_path, "FF_WEBSITE_APPEARANCE", ""),
+            start == std::string::npos ? std::string() : body.substr(start, stop - start));
         std::string next = body;
         if (start == std::string::npos) next += "\n" + colors;
         else {

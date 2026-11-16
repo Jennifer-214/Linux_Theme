@@ -581,6 +581,8 @@ selects the rendered XDG config so an older `~/.mako/config` cannot shadow it.
 Shell and tmux fzf matches share `FZF_MATCH_*`/`FZF_META_FG` palette tokens; Firefox
 find colors use `FF_FIND_BG/FG`, merged into its preferences by the specials module
 (`--render`, `--render-only` or full install). Firefox reads these preferences on its next launch.
+A theme with `FF_WEBSITE_APPEARANCE` (retro-amber: `dark`) sets Firefox's Website appearance the
+same way, so websites get their dark mode; the next theme without it hands that setting back to Firefox.
 ### Wallpapers and illustrations
 
 Paper's botanical wallpaper set uses warm bone white and faint paper grain: a

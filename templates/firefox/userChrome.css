@@ -721,3 +721,59 @@ tooltip .tooltip-label {
 {{FF_RETRO_SCOPE}} .tabbrowser-tab:hover:not([selected="true"]) .tab-background { background: rgba({{BG_R}},{{BG_G}},{{BG_B}},0.2) !important; }
 {{FF_RETRO_SCOPE}} #navigator-toolbox, {{FF_RETRO_SCOPE}} menupopup, {{FF_RETRO_SCOPE}} panel,
 {{FF_RETRO_SCOPE}} #urlbar-input { font-family: "{{FONT_FAMILY}}", monospace !important; }
+
+/* retro-amber: context menus, dropdowns, panels and popups as DOS boxes. Square, amber on the near-black, one 1-px
+   amber frame drawn by the popup's own content box (the element around it is cleared, so no second frame and no
+   shadow margin), the chosen row in inverse video, no bold (Big Blue Term has none). The autoscroll circle keeps its
+   icon, which is part of its background. */
+{{FF_RETRO_SCOPE}} {
+  --color-accent-primary: #{{FG}} !important;
+  --button-text-color-primary: #{{BG}} !important;
+  --focus-outline-color: #{{GOLD}} !important;
+}
+{{FF_RETRO_SCOPE}} menupopup,
+{{FF_RETRO_SCOPE}} panel:not(.autoscroller) {
+  --panel-background-color: #{{BG}} !important;
+  --panel-text-color: #{{FG}} !important;
+  --panel-border-color: #{{FG}} !important;
+  --panel-border-radius: 0px !important;
+  --panel-box-shadow: none !important;
+  --panel-box-shadow-margin: 0px !important;
+  --panel-separator-color: #{{FG}} !important;
+  --panel-menuitem-border-radius: 0px !important;
+  --menuitem-border-radius: 0px !important;
+  --text-color-disabled: #{{FG_DIM}} !important;
+  --text-color-deemphasized: #{{SECONDARY}} !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+  font-synthesis: none !important;
+}
+{{FF_RETRO_SCOPE}} :is(panelmultiview, panelview, .panel-arrowcontent) { border: 0 !important; padding: 0 !important; }
+{{FF_RETRO_SCOPE}} :is(menuitem, menu):not([disabled]),
+{{FF_RETRO_SCOPE}} .subviewbutton:not([disabled]) { color: #{{FG}} !important; }
+{{FF_RETRO_SCOPE}} menuseparator { border-top: 0 !important; margin: 0 !important; }
+/* a page's own colours stop at the select dropdown's edge */
+{{FF_RETRO_SCOPE}} #ContentSelectDropdown > menupopup::part(arrowscrollbox) { background-image: none !important; background-color: #{{BG}} !important; }
+{{FF_RETRO_SCOPE}} #ContentSelectDropdown menuitem:not([_moz-menuactive]) { background-color: transparent !important; }
+{{FF_RETRO_SCOPE}} :is(menuitem, menu)[_moz-menuactive]:not([disabled]),
+{{FF_RETRO_SCOPE}} .subviewbutton:not([disabled]):is(:hover, [_moz-menuactive], :focus-visible),
+{{FF_RETRO_SCOPE}} .autocomplete-richlistitem:is([selected], :hover),
+{{FF_RETRO_SCOPE}} #urlbar .urlbarView-row[selected] {
+  background: #{{FG}} !important;
+  color: #{{BG}} !important;
+  fill: #{{BG}} !important;
+}
+/* the row's own label, shortcut and icons; a submenu is the menu's child, so it is left out */
+{{FF_RETRO_SCOPE}} :is(menuitem, menu)[_moz-menuactive]:not([disabled]) > :not(menupopup),
+{{FF_RETRO_SCOPE}} :is(menuitem, menu)[_moz-menuactive]:not([disabled]) > :not(menupopup) *,
+{{FF_RETRO_SCOPE}} .subviewbutton:not([disabled]):is(:hover, [_moz-menuactive], :focus-visible) *,
+{{FF_RETRO_SCOPE}} .autocomplete-richlistitem:is([selected], :hover) *,
+{{FF_RETRO_SCOPE}} #urlbar .urlbarView-row[selected] * {
+  background-color: transparent !important;
+  color: #{{BG}} !important;
+  fill: #{{BG}} !important;
+}
+{{FF_RETRO_SCOPE}} .subviewbutton:focus-visible { outline: 0 !important; }
+{{FF_RETRO_SCOPE}} tooltip { font-family: "{{FONT_FAMILY}}", monospace !important; font-synthesis: none !important; }

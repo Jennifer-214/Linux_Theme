@@ -22,6 +22,32 @@ def palette_value(theme, key):
     return re.search(rf"^{key}=(\S+)", text, re.M).group(1)
 
 
+def palette_has(theme, key):
+    return re.search(rf"^{key}=", (ROOT / "themes" / theme / "palette.sh").read_text(), re.M) is not None
+
+
+def css_preludes(css):
+    """The text before each '{' (selectors, or an at-rule's prelude), comments dropped; no nesting in these files."""
+    css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
+    last = 0
+    for mark in re.finditer(r"[{};]", css):
+        if mark.group() == "{":
+            yield " ".join(css[last:mark.start()].split())
+        last = mark.end()
+
+
+def top_level_selectors(prelude):
+    parts, depth, current = [], 0, ""
+    for ch in prelude:
+        depth += (ch in "([") - (ch in ")]")
+        if ch == "," and depth == 0:
+            parts.append(current.strip())
+            current = ""
+        else:
+            current += ch
+    return parts + [current.strip()]
+
+
 @unittest.skipUnless(RENDERER.exists(), "needs desk-render-fast built")
 class EmptyPaletteTest(unittest.TestCase):
     def test_an_empty_palette_is_refused_rather_than_rendered_blank(self):
@@ -88,6 +114,49 @@ class RenderedConfigsTest(unittest.TestCase):
             self.assertIsNotNone(encoded, theme)
             self.assertEqual(base64.b64decode(encoded.group(1)), cat, theme)
 
+    def test_firefox_retro_rules_reach_retro_only(self):
+        # FF_RETRO_SCOPE is ':root' in retro and ':not(*)' (matching nothing) everywhere else, so the retro rules are
+        # inert in the other themes' stylesheets; their brace count stays balanced, so nothing after them is swallowed.
+        for theme in THEMES:
+            retro = palette_value(theme, "DESK_STYLE") == "retro"
+            self.assertEqual(palette_value(theme, "FF_RETRO_SCOPE").strip("'\""), ":root" if retro else ":not(*)", theme)
+            for name in ("userChrome.css", "userContent.css"):
+                css = (self.out / theme / "firefox" / name).read_text()
+                self.assertNotIn("{{", css, (theme, name))
+                self.assertEqual(css.count("{"), css.count("}"), (theme, name))
+
+    def test_firefox_retro_is_a_dos_screen(self):
+        theme = next(t for t in THEMES if palette_value(t, "DESK_STYLE") == "retro")
+        fg, bg, gold = (palette_value(theme, key) for key in ("FG", "BG", "GOLD"))
+        font = re.search(r'^FONT_FAMILY="([^"]+)"', (ROOT / "themes" / theme / "palette.sh").read_text(), re.M).group(1)
+        content = " ".join((self.out / theme / "firefox/userContent.css").read_text().split())
+        chrome = " ".join((self.out / theme / "firefox/userChrome.css").read_text().split())
+        for want in (
+            # Vimium hints: inverse amber cells of the 12 px font, square, no shadow; the Vomnibar and HUD double-framed
+            f":root div.internal-vimium-hint-marker {{ background: #{fg} !important; border: 0 !important; "
+            "border-radius: 0 !important; box-shadow: none !important;",
+            f"color: #{bg} !important; font: 12px/12px \"{font}\", monospace !important;",
+            f":root #vomnibar, :root #hud-container {{ background: #{bg} !important; color: #{fg} !important; "
+            f"border: 4px double #{fg} !important;",
+            # Firefox's own pages: the font on its 12 px cell, amber tokens, a bright 2 px focus ring
+            "@-moz-document url-prefix(\"about:preferences\"), url-prefix(\"about:settings\"), url-prefix(\"about:addons\"), "
+            "url-prefix(\"about:downloads\"), url-prefix(\"about:profiles\"), url-prefix(\"about:config\") { :root {",
+            f"--focus-outline: 2px solid #{gold} !important;",
+            "--font-size-root: 12px !important;",
+            # the PDF viewer (scoped by pdf.js's own root attribute) and reader view on whole cells
+            ":root[mozdisallowselectionprint] {",
+            "font-size: round(nearest, var(--font-size), 12px) !important;",
+        ):
+            self.assertIn(want, content)
+        for want in (
+            f"--panel-border-color: #{fg} !important;",
+            "--panel-box-shadow-margin: 0px !important;",
+            f":root :is(menuitem, menu)[_moz-menuactive]:not([disabled]), :root .subviewbutton:not([disabled])"
+            f":is(:hover, [_moz-menuactive], :focus-visible),",
+            f"background: #{fg} !important; color: #{bg} !important;",
+        ):
+            self.assertIn(want, chrome)
+
     def test_fastfetch_configs_are_valid_json_for_every_palette(self):
         for theme in THEMES:
             data = json.loads((self.out / theme / "fastfetch/config.jsonc").read_text())
@@ -115,6 +184,27 @@ class SourcesTest(unittest.TestCase):
         text = (ROOT / "src/desk-install/modules/specials.cpp").read_text()
         self.assertIn('palette::get(ctx.palette_path, "VSCODE_UI_THEME"', text)
         self.assertNotIn('\\"uiTheme\\": \\"vs-dark\\"', text)
+
+    def test_firefox_retro_rules_scope_every_selector(self):
+        # One selector in a retro rule's list without the scope would reach every other theme's Firefox.
+        for name in ("userChrome.css", "userContent.css"):
+            text = (ROOT / "templates/firefox" / name).read_text().replace("{{FF_RETRO_SCOPE}}", "RETRO")
+            preludes = [p for p in css_preludes(re.sub(r"\{\{[A-Z0-9_]+\}\}", "X", text)) if "RETRO" in p]
+            self.assertTrue(preludes, name)
+            for prelude in preludes:
+                for selector in top_level_selectors(prelude):
+                    self.assertTrue(selector.startswith("RETRO"), (name, selector))
+
+    def test_firefox_website_appearance_is_retro_only(self):
+        # The installer writes Firefox's website appearance into user.js only for a theme that names one, so every other
+        # theme's user.js is written exactly as before.
+        for theme in THEMES:
+            retro = palette_value(theme, "DESK_STYLE") == "retro"
+            self.assertEqual(palette_has(theme, "FF_WEBSITE_APPEARANCE"), retro, theme)
+            if retro:
+                self.assertEqual(palette_value(theme, "FF_WEBSITE_APPEARANCE"), "dark")
+        text = (ROOT / "src/desk-install/modules/specials.cpp").read_text()
+        self.assertIn('palette::get(ctx.palette_path, "FF_WEBSITE_APPEARANCE"', text)
 
     def test_kitty_has_no_keys_it_ignores(self):
         text = (ROOT / "templates/kitty/kitty.conf").read_text()
