@@ -24,6 +24,7 @@
 #include "debouncer.hpp"
 #include "hypr_socket.hpp"
 #include "polkit_watch.hpp"
+#include "spawn.hpp"
 
 #include <array>
 #include <cerrno>
@@ -103,10 +104,9 @@ std::string legacy_script_dir() {
     return env_or("FOX_PULSE_LEGACY", home + "/.config/hypr/scripts");
 }
 
-// Spawn a handler in detached fashion (no zombie — double-fork). The
-// daemon does no waitpid(), so any reaping is the kernel's job via
-// signal(SIGCHLD, SIG_IGN) below.
-void spawn_command(const std::string& cmd);
+// Spawn a handler detached (desk_pulse::spawn_command, spawn.cpp). The daemon does no waitpid(), so any reaping is
+// the kernel's job via signal(SIGCHLD, SIG_IGN) below; the handler itself starts with default signals.
+using desk_pulse::spawn_command;
 void spawn_handler(const HandlerSpec& spec) {
     std::string script = handler_dir() + "/" + spec.name + ".sh";
     bool have_script = ::access(script.c_str(), X_OK) == 0;
@@ -126,28 +126,6 @@ void spawn_handler(const HandlerSpec& spec) {
     }
 
     spawn_command(cmd);
-}
-
-// Run a shell command detached (double duty: handlers and the polkit fallback).
-void spawn_command(const std::string& cmd) {
-    pid_t pid = ::fork();
-    if (pid < 0) return;
-    if (pid == 0) {
-        // Detach from controlling terminal; redirect stdio so we don't
-        // hold the daemon's fd table open.
-        ::setsid();
-        int dn = ::open("/dev/null", O_RDWR | O_CLOEXEC);
-        if (dn >= 0) {
-            ::dup2(dn, STDIN_FILENO);
-            ::dup2(dn, STDOUT_FILENO);
-            ::dup2(dn, STDERR_FILENO);
-            if (dn > 2) ::close(dn);
-        }
-        ::execl("/bin/sh", "sh", "-c", cmd.c_str(), nullptr);
-        ::_exit(127);
-    }
-    // Parent: don't wait. SIGCHLD is SIG_IGN at startup so the child is
-    // auto-reaped on exit.
 }
 
 bool classify_hypr_event(const std::string& line, const HandlerSpec*& out) {
