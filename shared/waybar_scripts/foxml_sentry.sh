@@ -41,7 +41,19 @@ _bump() {
 }
 
 _svc()  { systemctl is-active --quiet "$1" 2>/dev/null; }
-_usvc() { systemctl --user is-active --quiet "$1" 2>/dev/null; }
+
+# A user watcher counts while it runs. Switched on but not running (failed, stopped) it is an alert, never a quiet drop
+# from the count: fox-etcwatch.path sat failed from 18:42 on 2026-11-15 while the pill just showed one protection
+# fewer. Not installed or switched off, it is nothing.
+_watcher() {
+    local unit="$1" label="$2" state
+    state=$(systemctl --user is-active "$unit" 2>/dev/null)
+    case "$state" in
+        active|activating|reloading|refreshing) _bump ok "$label" ;;
+        *) [[ "$(systemctl --user is-enabled "$unit" 2>/dev/null)" == enabled* ]] \
+               && _bump warn "Watcher down: $label ($unit ${state:-not running})" ;;
+    esac
+}
 
 # ─── BASELINE (always-on after desk install --full) ────────────────
 # Anything missing here is a real warning — the install would have set it up.
@@ -101,9 +113,9 @@ _svc endlessh-go &>/dev/null && _bump ok "SSH tarpit (endlessh)" \
 [[ -d /etc/.git ]] && _bump ok "/etc git-tracked"
 
 # ─── ALWAYS-ON WATCHERS (auto-installed) ──────────────────────────
-_usvc fox-bouncer.service       && _bump ok "USB-locked watcher (bouncer)"
-_usvc fox-sentry-audit.service  && _bump ok "Kernel honeypot (auditd)"
-_usvc fox-etcwatch.path         && _bump ok "/etc drift alert"
+_watcher fox-bouncer.service      "USB-locked watcher (bouncer)"
+_watcher fox-sentry-audit.service "Kernel honeypot (auditd)"
+_watcher fox-etcwatch.path        "/etc drift alert"
 
 # ─── OPT-IN (counted if active; not warned if absent) ─────────────
 [[ -f "$HOME/.config/foxml/dispatch.conf" ]]     && _bump ok "Phone alerts (dispatch)"
@@ -111,8 +123,8 @@ _usvc fox-etcwatch.path         && _bump ok "/etc drift alert"
 [[ -f "$HOME/.config/foxml/spa.conf" ]]          && _bump ok "SPA (replay-immune)"
 [[ -f "$HOME/.config/foxml/cafe.conf" ]]         && _bump ok "Café Mode (untrusted-SSID)"
 [[ -d "$HOME/.password-store" ]]                 && _bump ok "Pass vault"
-_usvc fox-tripwire.service                       && _bump ok "User honeypot (tripwire)"
-_usvc fox-proximity.service                      && _bump ok "Bluetooth proximity lock"
+_watcher fox-tripwire.service                    "User honeypot (tripwire)"
+_watcher fox-proximity.service                   "Bluetooth proximity lock"
 [[ -f /etc/udev/rules.d/99-foxml-deadman.rules ]] && _bump ok "USB dead-man switch"
 _svc opensnitchd                                 && _bump ok "Per-app egress prompts (snitch)"
 _svc cowrie                                      && _bump ok "SSH honeypot (cowrie)"
