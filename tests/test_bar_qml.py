@@ -215,5 +215,51 @@ class StickyWidths(unittest.TestCase):
                 self.assertNotIn(error, output)
 
 
+# desk-bar start hides only a bar that reports an error, so a bar whose QML did not load must say so; reading as a bar
+# still loading, it would get no Waybar in its place.
+BROKEN_CHECK = '''
+    Timer { interval: 900; running: true; onTriggered: {
+        var state = JSON.parse(barIpc.status());
+        console.log(desktopBar.status !== Loader.Error ? "BROKEN_BAR_SETUP the bar loaded"
+            : state.ready || !state.error ? "BROKEN_BAR_SILENT " + JSON.stringify(state) : "BROKEN_BAR_OK");
+        Qt.quit();
+    }}
+'''
+
+
+@unittest.skipUnless(shutil.which('quickshell'), 'Quickshell is required')
+class BrokenBar(unittest.TestCase):
+    def test_a_bar_that_did_not_load_reports_an_error(self):
+        if not (ROOT / 'src/desk-render/desk-render-fast').exists():
+            self.skipTest('build desk-render-fast before the native QML test')
+        with tempfile.TemporaryDirectory(prefix='foxml-bar-broken-') as tmp:
+            work = Path(tmp)
+            qml = work / 'qml'
+            shutil.copytree(ROOT / 'shared/quickshell/desk', qml)
+            subprocess.run([str(ROOT / 'src/desk-render/desk-render-fast'), str(ROOT / 'themes/Paper/palette.sh'),
+                            str(ROOT / 'templates/quickshell/desk'), str(qml)], check=True, capture_output=True)
+            (qml / 'PaperBar.qml').write_text('import QtQuick\nScope { this is not a bar }\n')
+            for name, pattern in [('LevelSlip.qml', r'^    (?:anchors.*|margins\..*|exclusionMode:.*|WlrLayershell\..*)\n'),
+                                  ('Overview.qml', r'^        (?:anchors \{.*|exclusionMode:.*|WlrLayershell\..*)\n'),
+                                  ('PolkitPrompt.qml', r'^        (?:anchors \{.*|exclusionMode:.*|WlrLayershell\..*)\n')]:
+                source = (qml / name).read_text().replace('PanelWindow {', 'FloatingWindow {')
+                (qml / name).write_text(re.sub(pattern, '', source, flags=re.M))
+            source = (qml / 'shell.qml').read_text().replace('    PanelWindow {', '    FloatingWindow {')
+            source = re.sub(r'^        (?:anchors \{.*|margins \{.*|exclusionMode:.*|WlrLayershell\..*)\n', '', source, flags=re.M)
+            source = source.replace('screen ? screen.width : 1280', '1280').replace('screen ? screen.height : 800', '1080')
+            (qml / 'shell.qml').write_text(source.rsplit('\n}', 1)[0] + BROKEN_CHECK + '\n}\n')
+            (work / 'runtime').mkdir(mode=0o700)
+            env = dict(os.environ, QT_QPA_PLATFORM='offscreen', QT_QUICK_BACKEND='software', XDG_RUNTIME_DIR=str(work / 'runtime'),
+                       HOME=str(work), XDG_CONFIG_HOME=str(work / 'config'), XDG_CACHE_HOME=str(work / 'cache'), XDG_STATE_HOME=str(work / 'state'),
+                       FOXML_DRAWER_PREVIEW='1', FOXML_BAR_AUTOSTART='1', FOXML_DRAWER_BACKEND=str(ROOT / 'tests/drawer-ui-backend.py'),
+                       FOXML_DRAWER_TEST_LOG=str(work / 'actions'), FOXML_DRAWER_BAR_STATE=str(work / 'drawer-state.css'),
+                       QS_NO_RELOAD_POPUP='1', FOXML_POLKIT_PROMPT='off')
+            for name in ('WAYLAND_DISPLAY', 'HYPRLAND_INSTANCE_SIGNATURE', 'FOXML_BAR_FIXTURE'):
+                env.pop(name, None)
+            result = subprocess.run(['quickshell', '-p', str(qml), '--no-color'], env=env, text=True, capture_output=True, timeout=20)
+            output = result.stdout + result.stderr
+            self.assertIn('BROKEN_BAR_OK', output)
+
+
 if __name__ == '__main__':
     unittest.main()

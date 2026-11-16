@@ -1,7 +1,9 @@
-"""One drawer, however many callers start it at once: desktop-menu's start and the login's starters.
+"""One drawer, however many callers start it at once (desktop-menu's start, the login's starters), and one bar: desk-bar
+start hides only a bar that failed, never one that is only slow.
 
-Sealed: a stand-in Quickshell answers the drawer's calls; PATH holds only it, the scripts under test and the few system
-programs they run; HOME, XDG_CONFIG_HOME and XDG_RUNTIME_DIR are private folders. No compositor, no real Quickshell.
+Sealed: a stand-in Quickshell answers the drawer's and the bar's calls; PATH holds only it, the scripts under test and
+the few system programs they run; HOME, XDG_CONFIG_HOME and XDG_RUNTIME_DIR are private folders. No compositor, no
+real Quickshell.
 """
 import os
 from pathlib import Path
@@ -45,7 +47,7 @@ open(os.path.join(state, "ready"), "w").close()
 '''
 
 
-class DrawerStart(unittest.TestCase):
+class Sealed(unittest.TestCase):
     def setUp(self):
         # The stand-ins are executed, and /tmp is noexec on these machines.
         temp = tempfile.TemporaryDirectory(prefix=".desk-drawer-start-", dir=ROOT / "tests")
@@ -93,6 +95,7 @@ class DrawerStart(unittest.TestCase):
             except (ProcessLookupError, PermissionError):
                 pass
 
+class DrawerStart(Sealed):
     def run_menus(self, *calls, **stand_in):
         env = self.env | {"STUB_READY_AFTER": "2"} | stand_in
         started = [subprocess.Popen([str(self.bin / "desktop-menu"), *call], env=env, stdout=subprocess.PIPE,
@@ -143,6 +146,72 @@ class DrawerStart(unittest.TestCase):
         self.assertIn("start_waybar.sh", calls)
         self.assertEqual([line for line in calls if line.startswith("desktop-menu")], [],
                          "the session started the drawer beside the bar's start (desk-bar start brings it up)")
+
+
+# The bar's half of the stand-in: each "bar status" look answers with the next state of STUB_BAR, a list of
+# state[:looks] (the last one stays): loading (no error yet), ready, broken (an error), silent (no answer).
+BAR_QUICKSHELL = r'''#!/usr/bin/python3
+import json, os, sys
+state = os.environ["STUB_STATE"]
+call = sys.argv[sys.argv.index("call") + 1:]
+with open(os.path.join(state, "calls"), "a") as log:
+    log.write(" ".join(call) + "\n")
+if call != ["bar", "status"]:
+    sys.exit(0)
+with open(os.path.join(state, "calls")) as log:
+    looks = sum(1 for line in log if line.strip() == "bar status")
+script = []
+for part in os.environ["STUB_BAR"].split():
+    name, _, count = part.partition(":")
+    script += [name] * int(count or 1)
+reply = script[min(looks, len(script)) - 1]
+if reply == "silent":
+    sys.exit(1)
+ready, error = {"loading": (False, ""), "ready": (True, ""), "broken": (False, "Bar configuration: SyntaxError")}[reply]
+print(json.dumps({"ready": ready, "visible": True, "error": error}))
+'''
+
+
+class BarStart(Sealed):
+    """desk-bar start: what start_waybar.sh runs at login, falling back to Waybar when it fails."""
+
+    def setUp(self):
+        super().setUp()
+        self.stub("quickshell", BAR_QUICKSHELL)
+        self.stub("desktop-menu", "#!/bin/bash\nexit 0\n")
+        self.stub("sleep", "#!/bin/bash\nexit 0\n")  # the looks are counted, not timed
+        (self.bin / "desk-bar").symlink_to(ROOT / "shared/bin/desk-bar")
+        jq = shutil.which("jq")
+        self.assertIsNotNone(jq, "jq")
+        (self.bin / "jq").symlink_to(jq)
+
+    def bar(self, script):
+        result = subprocess.run([str(self.bin / "desk-bar"), "start"], env=self.env | {"STUB_BAR": script},
+                                capture_output=True, text=True, timeout=60)
+        return result.returncode, result.stderr, "bar hide" in self.lines("calls")
+
+    def test_a_slow_bar_is_not_hidden(self):
+        # Ready at the 46th look. Hiding it after the 40th (four seconds) left it drawn until the first drawer open,
+        # which took it away.
+        code, err, hidden = self.bar("loading:45 ready")
+        self.assertEqual(code, 0, err)
+        self.assertFalse(hidden, "a bar that was only slow was hidden")
+
+    def test_a_broken_bar_is_hidden_for_the_waybar_fallback(self):
+        code, err, hidden = self.bar("broken")
+        self.assertEqual(code, 1)
+        self.assertTrue(hidden, "a failed bar stayed beside the Waybar that replaces it")
+        self.assertIn("SyntaxError", err)
+
+    def test_one_bad_read_is_not_a_broken_bar(self):
+        code, err, hidden = self.bar("broken:3 ready")
+        self.assertEqual(code, 0, err)
+        self.assertFalse(hidden)
+
+    def test_a_bar_that_never_answers_failed(self):
+        code, _, hidden = self.bar("silent")
+        self.assertEqual(code, 1)
+        self.assertTrue(hidden)
 
 
 if __name__ == "__main__":

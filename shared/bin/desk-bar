@@ -14,11 +14,24 @@ case "${1:-toggle}" in
 esac
 desktop-menu --start
 if [[ "$action" == toggle ]]; then ipc toggle >/dev/null; else ipc start >/dev/null; fi
-for ((attempt=0; attempt<40; attempt++)); do
+# Only a bar that failed is hidden (it keeps reporting an error, or never answers), so start_waybar.sh's Waybar is the
+# one bar. A bar that is only slow, on a busy first login, is left to show itself: hiding it after four seconds hid it
+# later instead, at the first drawer open. One read with an error (a config caught mid-write) is not a failure.
+errors=0
+for ((attempt=0; attempt<200; attempt++)); do
     state=$(ipc status 2>/dev/null) || state='{}'
     if printf '%s' "$state" | jq -e '.ready == true and .error == ""' >/dev/null 2>&1; then exit 0; fi
+    if printf '%s' "$state" | jq -e '(.error // "") != ""' >/dev/null 2>&1; then
+        (( ++errors < 20 )) || break
+    else
+        errors=0
+    fi
     sleep .1
 done
-ipc hide >/dev/null 2>&1 || true
-printf 'desk-bar: bar did not become ready: %s\n' "$state" >&2
-exit 1
+if (( errors >= 20 )) || [[ "$state" == '{}' ]]; then
+    ipc hide >/dev/null 2>&1 || true
+    printf 'desk-bar: the bar did not start: %s\n' "$state" >&2
+    exit 1
+fi
+printf 'desk-bar: the bar is still loading; it shows itself when it is ready.\n' >&2
+exit 0

@@ -170,14 +170,17 @@ ShellRoot {
         onLoaded: item.controller = root
     }
     IpcHandler {
+        id: barIpc
         target: "bar"
         function start(): void { root.barEnabled = true; if (desktopBar.item) desktopBar.item.shown = true; }
         function show(): void { root.barEnabled = true; if (desktopBar.item) desktopBar.item.shown = true; }
         function hide(): void { if (desktopBar.item) desktopBar.item.shown = false; }
         function toggle(): void { if (!root.barEnabled) root.barEnabled = true; else if (desktopBar.item) desktopBar.item.shown = !desktopBar.item.shown; }
         function refresh(name: string): void { if (desktopBar.item) desktopBar.item.refresh(name); }
+        // A bar whose QML did not load is an error, not a bar still loading: desk-bar hides only a bar that failed.
         function status(): string {
-            return JSON.stringify(desktopBar.item ? desktopBar.item.status() : {enabled:root.barEnabled, ready:false, visible:false, error:""});
+            return JSON.stringify(desktopBar.item ? desktopBar.item.status() : {enabled:root.barEnabled, ready:false, visible:false,
+                error:desktopBar.status === Loader.Error ? "The bar did not load; see quickshell -c desk log" : ""});
         }
     }
     function placeAtLauncher() {

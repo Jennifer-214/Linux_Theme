@@ -85,8 +85,9 @@ class DrawerEntrypoints(unittest.TestCase):
         self.tmp.cleanup()
 
     def run_script(self, path, *args, **env):
+        # A hang guard, not a speed check: a drawer that never answers is asked 100 times, two fake programs a look.
         return subprocess.run(["/bin/bash", str(path), *map(str, args)], env=self.env | env,
-                              capture_output=True, text=True, timeout=8)
+                              capture_output=True, text=True, timeout=40)
 
     def calls(self, name=None):
         rows = [json.loads(line) for line in self.calls_file.read_text().splitlines()] if self.calls_file.exists() else []

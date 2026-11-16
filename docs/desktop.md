@@ -24,7 +24,8 @@ window icons, power profiles, idle inhibition, and the application tray remain a
 `Alt+B` or `desk-bar toggle` hides/shows the bar; `desk-bar status` reports readiness.
 `start_waybar.sh` retains its compatibility name and rendering/cursor logic: it
 verifies Quickshell before stopping Waybar, and launches Waybar if the new bar fails
-to become ready. Waybar stays installed as a fallback. Palette changes render
+(it keeps reporting an error, or never answers); a bar that is only slow to load is
+left to appear. Waybar stays installed as a fallback. Palette changes render
 `templates/quickshell/desk/Theme.qml` and reload both surfaces together.
 The drawer tucks beneath its source bookmark, with a stronger contact shadow
 and a faint second paper edge. The ribbon stays in front during the 160ms reveal.
