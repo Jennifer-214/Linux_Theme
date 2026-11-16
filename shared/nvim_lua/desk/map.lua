@@ -1310,6 +1310,29 @@ local function row(id, key, name, about, run, needs, extra)
   return r
 end
 local HERE, THERE = { remote = false }, { remote = true }
+-- j/k/h/l go box to box, as in the call graph (its nav): a box is several lines tall and the gaps hold
+-- nothing, so line by line left the cursor between boxes. In the pop-out they move its selection (ctx.copy); here they
+-- go from the box under the cursor (or the nearest one, from a gap) and put the cursor on the next box's name.
+local function moving(how, key, name, line, doc)
+  return { id = 'map.' .. how, group = GROUP, name = name, about = name, key = key, on = 'map', menu = false, drawn = true,
+    line = line and ('map.' .. line) or nil, doc = doc,
+    run = function(ctx)
+      local G = require('desk.callgraph')
+      if ctx.copy then return G.move(ctx.copy, how) end
+      local view = ctx.map
+      if not (valid(view) and view.drawn and view.win and api.nvim_win_is_valid(view.win)) then return end
+      local boxes, cursor = view.drawn.items or {}, api.nvim_win_get_cursor(view.win)
+      local under, at = M.item_at(view.drawn, cursor[1], cursor[2]), nil
+      for i, b in ipairs(boxes) do if under and b.item == under then at = i end end
+      if not at then
+        local gap = math.huge
+        for i, b in ipairs(boxes) do local d = math.abs(b.line - cursor[1]); if d < gap then at, gap = i, d end end
+      end
+      for _ = 1, math.max(1, vim.v.count1 or 1) do at = G.nav(boxes, at, how) end
+      local b = at and boxes[at]
+      if b then pcall(api.nvim_win_set_cursor, view.win, { b.line, b.name_col or 0 }) end
+    end }
+end
 local ROWS = actions.add({
   { id = 'map.open', group = GROUP, name = 'Project map', key = '<leader>cm', on = 'editor', remote = true, also = '`:ProjectMap`',
     about = 'The whole checkout as boxes, by part, file and function, callers above; queries and a rebuild inside. One tab per checkout: pressed again, it brings that tab back as it was',
@@ -1340,6 +1363,10 @@ local ROWS = actions.add({
   row('popout', 'o', 'Send the map to the pop-out',
     'Move this map to the pop-out on the other screen (opening it) and close it here; `o` there brings it back as this tab, as it was',
     function(_, ctx) pop().show('map', ctx) end, function() return pop().can_pop() end, HERE),
+  moving('down', 'j', 'The box below', nil, 'The box below / above (the nearest one in that row)'),
+  moving('up', 'k', 'The box above', 'down'),
+  moving('left', 'h', 'The box to the left', nil, 'The box to the left / right in the same row'),
+  moving('right', 'l', 'The box to the right', 'left'),
 })
 
 -- ─── in the pop-out: desk.popout's view kind 'map' ─────────────────────────────────────────────────────────────

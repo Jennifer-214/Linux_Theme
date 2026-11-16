@@ -353,6 +353,8 @@ work on the box selected there, `H` and Backspace go back through its zooms, and
 | `B` in the map | Rebuild, reading a built binary for its exact calls (remembered for the next builds) |
 | `q` in the map | Close the project map |
 | `o` in the map | Move this map to the pop-out on the other screen (opening it) and close it here; `o` there brings it back as this tab, as it was |
+| `j` / `k` in the map | The box below / above (the nearest one in that row) |
+| `h` / `l` in the map | The box to the left / right in the same row |
 | `?` in the map | The keys of this view as a list: `Enter` runs the selected one, `?` or `q` closes the list |
 <!-- map-keys:end -->
 

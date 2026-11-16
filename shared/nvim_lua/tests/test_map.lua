@@ -183,7 +183,8 @@ local A = require("desk.actions")
 local Menu = require("desk.menu")
 eq(A.problems, {}, "every map row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "r", "c", "P", "m", "R", "B", "q", "o" }, "the map's keys, in order (? is the shared row)")
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "r", "c", "P", "m", "R", "B", "q", "o", "j", "k", "h", "l" },
+  "the map's keys, in order (? is the shared row; the box moves last)")
 local opener = A.get("map.open")
 eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
   "Space cm, a global row the pop-out may ask for")
@@ -418,6 +419,23 @@ ok(vim.wait(3000, function() return view.timer == nil and level_reads() > reads_
   "another build ends: the level is read again")
 eq(box_here(), "M.alpha", "… and the cursor is still on the box it was on, not the first")
 
+-- j/k go box to box (a box is several lines; line by line left the cursor in the gaps between them, 2026-11-16).
+local function on_a_name()
+  local c = api.nvim_win_get_cursor(view.win)
+  for _, b in ipairs(view.drawn.items) do if b.line == c[1] and (b.name_col or 0) == c[2] then return b end end
+end
+cursor_on("M.alpha")
+press("j")
+local below = box_here()
+ok(below and below ~= "M.alpha" and on_a_name(), "j: the next box down, the cursor on its name (got " .. tostring(below) .. ")")
+local alpha_line = (function() for _, b in ipairs(view.drawn.items) do if b.item and b.item.name == "M.alpha" then return b.line end end end)()
+press("k")
+local up = on_a_name()
+ok(up and up.line == alpha_line, "k: back up into M.alpha's row (the box nearest by centre, as in the call graph), on its name")
+api.nvim_win_set_cursor(view.win, { #view.drawn.lines, 0 })
+press("k")
+ok(box_here() and on_a_name(), "from a gap or the bottom, k lands on a box")
+
 vim.g.desk_style = "retro"
 Map.render(view)
 ok(line_with(view.drawn.lines, "PROJECT MAP") and line_with(view.drawn.lines, "┌"), "retro: the page in capitals and code page 437 boxes")
@@ -461,8 +479,8 @@ eq(clashes, {}, "no map row is on a key the pop-out's own rows take (H, L, gt, g
 local remote_ids = {}
 for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids + 1] = r.id end end
 table.sort(remote_ids)
-eq(remote_ids, { "map.callers", "map.in", "map.out", "map.paths", "map.reach", "map.rebuild" },
-  "in the pop-out Enter, -, r, c, P and R run here; Backspace, q, m, B and o stay the tab's")
+eq(remote_ids, { "map.callers", "map.down", "map.in", "map.left", "map.out", "map.paths", "map.reach", "map.rebuild", "map.right", "map.up" },
+  "in the pop-out Enter, -, r, c, P and R run here and hjkl move its selection; Backspace, q, m, B and o stay the tab's")
 local views_row = A.get("popout.view.map")
 eq(views_row and { views_row.group, views_row.name, views_row.remote }, { "Views", "Pop out the project map", true },
   "a row in Views opens it from anywhere, the pop-out too")
