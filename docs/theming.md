@@ -34,9 +34,11 @@ switching notes, and the [desktop guide](desktop.md#paper-appearance) for Paper 
 ### Switching themes
 
 ```bash
-./swap.sh
+./swap.sh            # picker with color previews
+./swap.sh <Theme>    # switch straight to a theme
 ```
-Interactive picker with color previews. Check [theme status](../themes/README.md) for known limits before switching.
+Re-renders and redeploys the templates for the chosen theme. Restart Neovim and Claude sessions afterwards. See
+[theme status](../themes/README.md#switching-themes).
 
 ## Editing configs
 

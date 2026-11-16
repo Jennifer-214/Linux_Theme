@@ -2,7 +2,7 @@
 
 `retro-amber` is the default. `Classic` and `Paper` are also maintained.
 
-**The other themes are work-in-progress / unfinished.** They apply at the palette level (colors reach the templated apps), but they are not fully realized: the theming surfaces are fragmented — waybar, GTK/thunar, folder icons, the cursor, and the wallpaper daemon are each handled separately, with no unified pipeline — and live theme-swapping does not fully apply them (see the warning in `swap.sh`). Treat them as experimental.
+**The other themes are work-in-progress / unfinished.** They apply at the palette level (colors reach the templated apps), but they are not fully realized: the theming surfaces are fragmented — waybar, GTK/thunar, folder icons, the cursor, and the wallpaper daemon are each handled separately, with no unified pipeline. Treat them as experimental.
 
 | Theme | Status |
 | --- | --- |
@@ -14,4 +14,12 @@
 | `Amsterdam_Orange` | WIP / unfinished — Optiver-inspired (scarlet on navy) |
 | `Bubblegum` | WIP / unfinished — saturated bubblegum pink + orchid |
 
-Reliably switching themes currently means a full re-install of the chosen theme. A unified theming-pipeline rework is deferred.
+## Switching themes
+
+```bash
+./swap.sh <Theme>    # or ./swap.sh for a picker with colour previews
+```
+
+It re-renders the templates with the chosen theme's palette and redeploys them, then reloads Hyprland, the bar,
+notifications and tmux. Restart Neovim and Claude sessions afterwards; open ones keep the old colours. If live
+`~/.config` edits would be overwritten the swap stops; `./swap.sh --full <Theme>` overwrites them.

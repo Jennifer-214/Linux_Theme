@@ -1,6 +1,6 @@
 #!/bin/bash
 # Linux_Theme — Theme Swapper with color previews
-# Usage: ./swap.sh
+# Usage: ./swap.sh [--full] [theme-name]
 
 set -e
 
@@ -26,16 +26,6 @@ if [[ ${#themes[@]} -eq 0 ]]; then
     echo "No themes found in $THEMES_DIR"
     exit 1
 fi
-
-# ⚠ KNOWN ISSUE — theme-swapping is unreliable / under rework. It re-renders the
-# config files but does NOT restart the live apps (waybar, dunst, GTK/thunar,
-# wallpaper daemon), so a swap won't fully apply until you re-login. Each surface
-# (folder icons, cursor, GTK, wallpaper) is themed separately; a unified theming
-# pipeline is a planned rework. Reliable path today: a full theme re-install.
-echo "⚠  theme-swap is UNRELIABLE right now — it re-renders configs but doesn't"
-echo "   restart the live apps (waybar/dunst/GTK/wallpaper), so changes apply"
-echo "   fully only after re-login. Known issue; unified theming rework planned."
-echo
 
 # ─────────────────────────────────────────
 # Lean swap path: bypass install.sh (skips boot pre-flight,
