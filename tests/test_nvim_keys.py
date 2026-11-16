@@ -23,7 +23,13 @@ END = '<!-- review-keys:end -->'
 DESK_BEGIN = ('<!-- desk-keys:begin · generated from the action registry (shared/nvim_lua/desk/actions.lua): '
               'python3 tests/test_nvim_keys.py --write -->')
 DESK_END = '<!-- desk-keys:end -->'
+GRAPH_BEGIN = '<!-- callgraph-keys:begin · generated from shared/nvim_lua/desk/callgraph.lua: python3 tests/test_nvim_keys.py --write -->'
+GRAPH_END = '<!-- callgraph-keys:end -->'
 REVIEW = {'review-list': 'list', 'review-diff': 'diff'}
+GRAPH = {'callgraph': 'tab', 'callgraph-panel': 'panel'}
+# Where a key works, as a reference line says it: for a line of one place, then per key when a line mixes them.
+REVIEW_PLACES = ({'list': ' in the file list', 'diff': ' in a diff'}, {'list': ' (list)', 'diff': ' (diff)'})
+GRAPH_PLACES = ({'tab': ' in the graph tab', 'panel': ' in the panel', 'both': ' in a graph'}, {'tab': ' (graph tab)', 'panel': ' (panel)'})
 
 # Deliberate: the same action in both places, or keys that never meet in one buffer.
 SHARED_GLOBALS = {
@@ -52,6 +58,16 @@ def review_keys():
     return keys
 
 
+def callgraph_keys():
+    """The call graph's keys: on is 'editor' (Space cc, Space co), 'tab' (the graph tab), 'panel' or 'both'."""
+    keys = []
+    for row in nvim_keys.registry()['rows']:
+        places = {GRAPH[s] for s in row['on'] if s in GRAPH}
+        if row['id'].startswith('callgraph.') and row.get('key'):
+            keys.append(entry(row, 'editor' if 'editor' in row['on'] else 'both' if len(places) > 1 else places.pop()))
+    return keys
+
+
 def desk_keys():
     """Every row on the editor surface, by group as the home menu orders them, then as the modules add them."""
     found = nvim_keys.registry()
@@ -72,7 +88,8 @@ def shown(lhs):
     return lhs
 
 
-def reference(keys, begin=BEGIN, end=END, head='| Key in the review | Action |'):
+def reference(keys, begin=BEGIN, end=END, head='| Key in the review | Action |', places_said=REVIEW_PLACES):
+    single, mixed = places_said
     rows, order = defaultdict(list), []
     for key in keys:
         if key['row'] not in rows:
@@ -98,9 +115,9 @@ def reference(keys, begin=BEGIN, end=END, head='| Key in the review | Action |')
         elif len(places) == 1:
             place = places.pop()
             keys_text = ' / '.join(f"`{shown(k['lhs'])}`" for k in entries)
-            keys_text += {'list': ' in the file list', 'diff': ' in a diff'}.get(place, '')
+            keys_text += single.get(place, '')
         else:
-            keys_text = ' / '.join(f"`{shown(k['lhs'])}`" + {'list': ' (list)', 'diff': ' (diff)'}.get(k['on'], '') for k in entries)
+            keys_text = ' / '.join(f"`{shown(k['lhs'])}`" + mixed.get(k['on'], '') for k in entries)
         also = next((k['also'] for k in entries if k.get('also')), '')
         if also:
             keys_text += ', ' + also
@@ -113,7 +130,11 @@ def reference(keys, begin=BEGIN, end=END, head='| Key in the review | Action |')
 
 
 def desk_reference():
-    return reference(desk_keys(), DESK_BEGIN, DESK_END, '| Key | Action |')
+    return reference(desk_keys(), DESK_BEGIN, DESK_END, '| Key | Action |', ({}, {}))
+
+
+def callgraph_reference():
+    return reference(callgraph_keys(), GRAPH_BEGIN, GRAPH_END, '| Key | Action |', GRAPH_PLACES)
 
 
 def with_reference(text, table, begin=BEGIN, end=END):
@@ -139,6 +160,15 @@ class NvimKeys(unittest.TestCase):
         self.assertEqual(text, with_reference(text, desk_reference(), DESK_BEGIN, DESK_END),
                          'NVIM-KEYBINDS.md differs from the action registry: run python3 tests/test_nvim_keys.py --write')
         self.assertIn('| `Space Space` |', desk_reference(), 'the home key leads the desk keys')
+
+    def test_the_call_graph_reference_is_generated_from_its_rows(self):
+        text = DOC.read_text()
+        self.assertIn(GRAPH_BEGIN, text)
+        self.assertEqual(text, with_reference(text, callgraph_reference(), GRAPH_BEGIN, GRAPH_END),
+                         'NVIM-KEYBINDS.md differs from the call graph rows: run python3 tests/test_nvim_keys.py --write')
+        table = callgraph_reference()
+        for line in ('`Space cc`, `:CallGraph`', '`j` / `k` in a graph', '`p` in the panel', '`s` in the graph tab'):
+            self.assertIn(line, table)
 
     def test_the_registry_takes_every_row_the_modules_add(self):
         found = nvim_keys.registry()
@@ -222,6 +252,7 @@ vim.cmd('qa!')
 if __name__ == '__main__':
     if '--write' in sys.argv:
         text = with_reference(DOC.read_text(), reference(review_keys()))
+        text = with_reference(text, callgraph_reference(), GRAPH_BEGIN, GRAPH_END)
         DOC.write_text(with_reference(text, desk_reference(), DESK_BEGIN, DESK_END))
         print('wrote', DOC.relative_to(ROOT))
     else:

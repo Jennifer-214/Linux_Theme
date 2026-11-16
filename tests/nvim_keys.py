@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCES = [ROOT / 'templates/nvim/init.lua', *sorted((ROOT / 'shared/nvim_lua/desk').glob('*.lua'))]
 # The modules that add rows, in the order init.lua loads them, so a reference lists rows as the home menu does; any
 # other module that adds rows comes after, by name.
-FIRST = ['claude', 'work', 'since', 'review']
+FIRST = ['claude', 'work', 'since', 'callgraph', 'review']
 
 _DUMP = r'''
 package.path = %(lua)s .. '/?.lua;' .. package.path

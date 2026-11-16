@@ -284,14 +284,26 @@ Everything you type, delete, paste or run (`.`, macros) happens at every cursor.
 | `Space ca` | Code action |
 | `[d` / `]d` | Prev / Next diagnostic |
 | `Space cf` | Format buffer |
+
+The call graph (desk.callgraph); "in a graph" means the graph tab and the live panel both:
+
+<!-- callgraph-keys:begin · generated from shared/nvim_lua/desk/callgraph.lua: python3 tests/test_nvim_keys.py --write -->
+| Key | Action |
+|---|---|
 | `Space cc`, `:CallGraph` | Call graph of the function under the cursor, in a tab: callers above, the function in a double box, what it calls below (the language server's call hierarchy). It opens with the function's box selected. One tab: pressed again anywhere, it brings that tab back on the function under the cursor |
 | `Space co`, `:CallGraphPanel` | Live call graph panel: a narrow split on the right that follows the cursor and redraws when the function under it changes. It never takes the focus (`Ctrl+w l` goes into it); `p` in it pins it to the graph it shows (`PINNED`), `p` again follows the cursor |
-| `j` / `k` *(in a graph)* | The box below / above (the nearest one in that row) |
-| `h` / `l` *(in a graph)* | The box to the left / right in the same row |
-| `Tab` / `Shift+Tab`, `gg` / `G` *(in a graph)* | Every box in order, wrapping; the first / last box |
-| `Enter`, double click *(in a graph)* | Go to the selected box's function, in the code window the graph came from; the graph stays open (a click, or any motion that lands in a box, selects it) |
-| `Backspace` *(in the graph tab)* | Back to that code window as it was, the graph left open |
-| `c` / `r` / `q` *(in the graph tab)* | Centre the graph on the selected box / read it again / close (`q` also closes the panel); `s` opens a C/C++ function in symdeps when it is loaded |
+| `j` / `k` in a graph | The box below / above (the nearest one in that row) |
+| `h` / `l` in a graph | The box to the left / right in the same row |
+| `Tab` / `Shift+Tab` / `gg` / `G` in a graph | Every box in order, wrapping; the first / last box |
+| `Enter` in a graph, a double click | Go to the selected box's function, in the code window the graph came from; the graph stays open (a click, or any motion that lands in a box, selects it) |
+| `<BS>` in the graph tab | Back to that code window as it was, the graph left open |
+| `c` in the graph tab | Centre the graph on the selected box: its own callers and callees |
+| `r` in the graph tab | Ask the language server for the graph again |
+| `q` in the graph tab | Close the graph tab |
+| `s` in the graph tab | The centre function in symdeps' card (C and C++) |
+| `p` in the panel | Pin the panel to the graph it shows (PINNED), or follow the cursor again |
+| `q` in the panel | Close the panel |
+<!-- callgraph-keys:end -->
 
 ### C/C++ Specific
 | Key | Action |
@@ -551,18 +563,21 @@ Commands:
 | `:ClaudeCodeStatus` | Check WebSocket server status |
 
 ### The home menu (desk.actions)
-**Space Space** opens one menu of what applies where the cursor is, in groups: this function (symdeps' card, in C and
-C++), the review, Claude, work, and symdeps (its own menu, or one "requires symdeps" row when it is not installed). In
-a review or on the since page, that place's own keys lead their group. It is drawn like the review's Actions, by
-symdeps' menu when it is installed and a built-in one to the same rules otherwise: `j`/`k` select, Enter runs, `/`
-filters, `q` closes. A row that cannot run here says why instead of running. Every key in the table below and in the
-review's is a row of one list, `shared/nvim_lua/desk/actions.lua`, which also gives which-key its words.
+**Space Space** opens one menu of what applies where the cursor is, in groups: this function (its call graph, the live
+panel, and symdeps' card in C and C++), the review, Claude, work, and symdeps (its own menu, or one "requires symdeps"
+row when it is not installed). In a review, the call graph or the since page, that place's own keys lead. It is drawn
+like the review's Actions, by symdeps' menu when it is installed and a built-in one to the same rules otherwise:
+`j`/`k` select, Enter runs, `/` filters, `q` closes. A row that cannot run here says why instead of running. Every key
+in the table below, the review's and the call graph's is a row of one list, `shared/nvim_lua/desk/actions.lua`, which
+also gives which-key its words.
 
 <!-- desk-keys:begin · generated from the action registry (shared/nvim_lua/desk/actions.lua): python3 tests/test_nvim_keys.py --write -->
 | Key | Action |
 |---|---|
 | `Space Space` | Everything that applies where the cursor is, in one menu: this function, the review, Claude, work, symdeps |
 | home menu: This function in symdeps | symdeps' card for the unit at the cursor: its layout, uses, callers and calls |
+| `Space cc`, `:CallGraph` | Call graph of the function under the cursor, in a tab: callers above, the function in a double box, what it calls below (the language server's call hierarchy). It opens with the function's box selected. One tab: pressed again anywhere, it brings that tab back on the function under the cursor |
+| `Space co`, `:CallGraphPanel` | Live call graph panel: a narrow split on the right that follows the cursor and redraws when the function under it changes. It never takes the focus (`Ctrl+w l` goes into it); `p` in it pins it to the graph it shows (`PINNED`), `p` again follows the cursor |
 | `Space Cw` | Changes tree: working changes (including unsaved drafts), live sessions and the most recent 80 commits |
 | `Space Cr`, `:ReviewNext` | Review the next thing that needs you: a requested change whose file has changed, a file edited since you reviewed it, else the oldest unreviewed Claude commit |
 | `Space Cd` | Show this file in the current review panes |

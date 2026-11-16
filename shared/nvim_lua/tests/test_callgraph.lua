@@ -356,6 +356,48 @@ local cli = vim.system({ "nvim", "--headless", "--clean", "-l", here .. "../desk
 local decoded = vim.json.decode(cli.stdout)
 eq(vim.tbl_map(function(x) return x.name end, decoded.files[1].symbols), { "M.alpha", "M.delta", "gamma" }, "the same answer headless, for the notebook")
 
+-- ─── its keys are rows of the action registry ──────────────────────────────────────────────────────────────────
+local A = require("desk.actions")
+eq(A.problems, {}, "every call graph row was taken")
+local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
+eq(keys_of("callgraph"), { "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "<CR>", "<BS>", "c", "r", "q", "s" }, "the graph tab's keys")
+eq(keys_of("callgraph-panel"), { "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "<CR>", "p", "q" }, "the panel's keys")
+for _, surface in ipairs({ "callgraph", "callgraph-panel" }) do
+  local seen, twice = {}, {}
+  for _, r in ipairs(A.rows()) do
+    local on = type(r.on) == "table" and r.on or { r.on }
+    if r.key and vim.tbl_contains(on, surface) then
+      for _, mode in ipairs(type(r.mode) == "table" and r.mode or { r.mode or "n" }) do
+        local spelled = mode .. ":" .. r.key:lower()
+        if seen[spelled] then twice[#twice + 1] = r.id .. " and " .. seen[spelled] end
+        seen[spelled] = r.id
+      end
+    end
+  end
+  eq(twice, {}, "no key twice on " .. surface)
+end
+for _, id in ipairs({ "callgraph.open", "callgraph.panel" }) do
+  local r = A.get(id)
+  eq({ r and r.group, r and r.remote, r and r.on }, { "This function", true, "editor" }, id .. ": in This function, open to the pop-out")
+end
+eq({ A.key("callgraph.open"), A.key("callgraph.panel") }, { "<leader>cc", "<leader>co" }, "Space cc and Space co")
+eq(A.available(A.get("callgraph.open"), { surface = "callgraph" }), false, "inside the graph its own keys apply, not Space cc")
+eq(A.available(A.get("callgraph.symdeps"), { surface = "callgraph" }), "requires symdeps", "s without symdeps says what it needs")
+-- A count reaches the move through the registry's mapping: 3j is three steps down.
+local cbuf = api.nvim_create_buf(false, true)
+api.nvim_win_set_buf(0, cbuf)
+local laid = G.layout({ callers = { item("aaaa1"), item("aaaa2"), item("aaaa3"), item("aaaa4"), item("aaaa5") },
+  center = { name = "the_middle_one", detail = "x.lua:9" }, callees = { item("leaf1"), item("leaf2") } }, 40, false)
+api.nvim_buf_set_lines(cbuf, 0, -1, false, laid.lines)
+local surface = { buf = cbuf, win = api.nvim_get_current_win(), drawn = laid }
+A.map("callgraph", { buffer = cbuf, nowait = true, ctx = { graph = surface } })
+G.select(surface, 1, true)
+local want = G.nav(laid.boxes, G.nav(laid.boxes, G.nav(laid.boxes, 1, "down"), "down"), "down")
+api.nvim_feedkeys("3j", "x", false)
+eq(surface.index, want, "3j moves three boxes down")
+api.nvim_feedkeys("2k", "x", false)
+eq(surface.index, G.nav(laid.boxes, G.nav(laid.boxes, want, "up"), "up"), "… and 2k two up")
+
 vim.fn.delete(dir, "rf")
 print(string.format("test_callgraph: %d passed%s", passed, failed > 0 and (", " .. failed .. " failed") or ""))
 os.exit(failed > 0 and 1 or 0)

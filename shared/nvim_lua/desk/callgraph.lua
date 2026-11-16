@@ -3,6 +3,10 @@
 -- live panel (a narrow split that follows the cursor) and, run headless, the changed symbols of a turn for the notebook.
 local M = {}
 local api, uv = vim.api, vim.uv or vim.loop
+-- Run headless for the notebook (the end of this file), the modules beside this one come first.
+local headless = type(arg) == 'table' and arg[1] == '--turn-symbols' and type(arg[0]) == 'string' and arg[0]:match('callgraph%.lua$')
+if headless then package.path = (arg[0]:match('(.*/)') or './') .. '../?.lua;' .. package.path end
+local actions = require('desk.actions')
 local ns = api.nvim_create_namespace('desk_callgraph')
 local PREPARE = 'textDocument/prepareCallHierarchy'
 M.WAIT_MS, M.GRACE_MS, M.DEBOUNCE_MS, M.PANEL_WIDTH, M.MAX = 15000, 2000, 300, 36, 24
@@ -274,21 +278,10 @@ function M.follow_cursor(s)
   if index and index ~= s.index then M.select(s, index, false) end
 end
 
-local function bind_selection(s, go)
-  local map = function(lhs, fn, desc) vim.keymap.set('n', lhs, fn, { buffer = s.buf, nowait = true, desc = desc }) end
-  for lhs, how in pairs({ j = 'down', k = 'up', h = 'left', l = 'right', ['<Tab>'] = 'next', ['<S-Tab>'] = 'prev', gg = 'first', G = 'last' }) do
-    map(lhs, function() M.move(s, how) end, ({ down = 'The box below', up = 'The box above', left = 'The box to the left',
-      right = 'The box to the right', next = 'The next box', prev = 'The previous box', first = 'The first box', last = 'The last box' })[how])
-  end
-  map('<CR>', go, 'Go to the selected function')
-  map('<2-LeftMouse>', function()
-    local pos = vim.fn.getmousepos()
-    if pos.winid == s.win and (pos.line or 0) > 0 then
-      local index = M.box_at(s.drawn, pos.line, math.max(0, (pos.column or 1) - 1))
-      if index then M.select(s, index, false) end
-    end
-    go()
-  end, 'Go to the function clicked')
+-- The surface's keys are rows of the action registry (the keys section, near the end); each run gets ctx.graph, the
+-- view or the panel it was pressed in.
+local function bind_selection(s, surface)
+  actions.map(surface, { buffer = s.buf, nowait = true, ctx = { graph = s } })
   api.nvim_create_autocmd('CursorMoved', { buffer = s.buf, callback = function() M.follow_cursor(s) end })
 end
 
@@ -486,11 +479,6 @@ end
 -- under the cursor (walking a call chain is Enter on a callee, then Space cc there).
 local views = {}
 
-M.VIEW_KEYS = { { 'j/k/h/l', 'move' }, { 'Enter', 'go' }, { 'BS', 'back' }, { 'c', 'centre' }, { 'r', 'reload' }, { 'q', 'close' } }
-function M.panel_keys(pinned)
-  return { { 'j/k/h/l', 'move' }, { 'Enter', 'go' }, { 'p', pinned and 'unpin' or 'pin' }, { 'q', 'close' } }
-end
-
 local function render(view)
   if not api.nvim_win_is_valid(view.win) then return end
   local graph = vim.deepcopy(view.graph)
@@ -498,7 +486,7 @@ local function render(view)
   local symdeps = symdeps_state(view.source)
   if symdeps == 'missing' then graph.notes[#graph.notes + 1] = 'every use by role: requires symdeps' end
   graph.keys = vim.deepcopy(M.VIEW_KEYS)
-  if symdeps == 'loaded' then table.insert(graph.keys, #graph.keys, { 's', 'symdeps' }) end
+  if symdeps == 'loaded' then table.insert(graph.keys, #graph.keys, { M.typed('symdeps'), 'symdeps' }) end
   show(view, M.layout(graph, api.nvim_win_get_width(view.win) - 2, M.retro()))
 end
 
@@ -570,30 +558,7 @@ function M.open(target)
   end
   local view = { buf = buf, win = win, origin = origin, source = target.buf }
   views[buf] = view
-  local map = function(lhs, fn, desc) vim.keymap.set('n', lhs, fn, { buffer = buf, nowait = true, desc = desc }) end
-  bind_selection(view, function() local item = M.selected(view); if item then jump(item, view.origin) end end)
-  map('c', function()
-    local item = M.selected(view)
-    if item and item.raw then view.target = { buf = view.source, item = item, name = item.name }; load(view, view.target) end
-  end, 'Centre the graph on the selected function')
-  map('r', function() load(view, view.target) end, 'Read the graph again')
-  map('<BS>', function()
-    if api.nvim_win_is_valid(view.origin) then api.nvim_set_current_win(view.origin)
-    elseif #api.nvim_list_tabpages() > 1 then vim.cmd('tabprevious') end
-  end, 'Back to the code, the graph left open')
-  map('q', function() M.close_view(buf) end, 'Close the call graph')
-  map('s', function()
-    local center = view.graph and view.graph.center
-    if not center or not center.uri then return end
-    local loaded, plugin = pcall(require, 'fox-symdeps')
-    if not loaded then tell('Requires symdeps (an optional plugin for C and C++ symbols).'); return end
-    local ok, card = pcall(require, 'fox-symdeps.card')
-    local inspect = ok and type(card) == 'table' and type(card.inspect_cursor) == 'function' and card.inspect_cursor
-      or type(plugin) == 'table' and type(plugin.inspect_cursor) == 'function' and plugin.inspect_cursor or nil
-    if not inspect then tell('This symdeps version does not expose its card.'); return end
-    jump(center, view.origin)
-    inspect()
-  end, 'This function in symdeps')
+  bind_selection(view, 'callgraph')
   api.nvim_create_autocmd('BufWipeout', { buffer = buf, once = true, callback = function()
     if views[buf] and views[buf].cancel then views[buf].cancel() end
     views[buf] = nil
@@ -777,9 +742,7 @@ function M.panel_toggle()
     list = false, spell = false, cursorline = false, winfixwidth = true, winfixbuf = true }) do
     pcall(function() vim.wo[panel.win][opt] = value end)
   end
-  bind_selection(panel, function() local item = M.selected(panel); if item then jump(item, panel.source_win) end end)
-  vim.keymap.set('n', 'q', M.panel_close, { buffer = panel.buf, nowait = true, desc = 'Close the call graph panel' })
-  vim.keymap.set('n', 'p', M.panel_pin, { buffer = panel.buf, nowait = true, desc = 'Pin the panel to this graph, or follow again' })
+  bind_selection(panel, 'callgraph-panel')
   local group = api.nvim_create_augroup('desk_callgraph_panel', { clear = true })
   api.nvim_create_autocmd({ 'CursorMoved', 'BufEnter', 'InsertLeave' }, { group = group,
     callback = function() M.panel_moved(api.nvim_get_current_win()) end })
@@ -845,6 +808,106 @@ function M.turn_symbols(request)
   return { version = 1, files = out }
 end
 
+-- ─── the keys ──────────────────────────────────────────────────────────────────────────────────────────────────
+-- Rows of the action registry (desk/actions.lua): the mappings, which-key's words, the home menu, the keybinds
+-- reference and the pop-out's ? all read them. The graph tab is the 'callgraph' surface and the panel
+-- 'callgraph-panel'; a run gets ctx.graph, the one it was pressed in. The key lines drawn in the graph take their keys
+-- from these rows and keep their own words (M.typed).
+local function go(s)
+  local item = M.selected(s)
+  if item then jump(item, s == panel and panel.source_win or s.origin) end
+end
+local GRAPH, BOTH = 'callgraph', { 'callgraph', 'callgraph-panel' }
+local function moving(how, key, name, about, line, doc)
+  return { id = 'callgraph.' .. how, group = 'Call graph', name = name, about = about, key = key, on = BOTH, menu = false,
+    line = line and ('callgraph.' .. line) or nil, doc = doc, run = function(ctx) M.move(ctx.graph, how) end }
+end
+local ROWS = actions.add({
+  { id = 'callgraph.open', group = 'This function', name = 'Call graph of this function', key = '<leader>cc', on = 'editor', remote = true,
+    also = '`:CallGraph`',
+    about = "Call graph of the function under the cursor, in a tab: callers above, the function in a double box, what it calls below (the language server's call hierarchy). It opens with the function's box selected. One tab: pressed again anywhere, it brings that tab back on the function under the cursor",
+    -- In the graph itself its own keys are the ones that apply.
+    available = function(ctx) return (ctx.surface ~= 'callgraph' and ctx.surface ~= 'callgraph-panel') or false end,
+    run = function() M.open_cursor() end },
+  { id = 'callgraph.panel', group = 'This function', name = 'Live call graph panel', key = '<leader>co', on = 'editor', remote = true,
+    also = '`:CallGraphPanel`',
+    about = 'Live call graph panel: a narrow split on the right that follows the cursor and redraws when the function under it changes. It never takes the focus (`Ctrl+w l` goes into it); `p` in it pins it to the graph it shows (`PINNED`), `p` again follows the cursor',
+    run = function() M.panel_toggle() end },
+  moving('down', 'j', 'The box below', 'The box below, the nearest one in that row', nil, 'The box below / above (the nearest one in that row)'),
+  moving('up', 'k', 'The box above', 'The box above, the nearest one in that row', 'down'),
+  moving('left', 'h', 'The box to the left', 'The box to the left in the same row', nil, 'The box to the left / right in the same row'),
+  moving('right', 'l', 'The box to the right', 'The box to the right in the same row', 'left'),
+  moving('next', '<Tab>', 'The next box', 'The next box, every box in order, wrapping', nil, 'Every box in order, wrapping; the first / last box'),
+  moving('prev', '<S-Tab>', 'The previous box', 'The previous box, wrapping', 'next'),
+  moving('first', 'gg', 'The first box', 'The first box', 'next'),
+  moving('last', 'G', 'The last box', 'The last box', 'next'),
+  { id = 'callgraph.go', group = 'Call graph', name = 'Go to the selected function', key = '<CR>', on = BOTH, also = 'a double click',
+    about = "Go to the selected box's function, in the code window the graph came from; the graph stays open (a click, or any motion that lands in a box, selects it)",
+    run = function(ctx) go(ctx.graph) end },
+  { id = 'callgraph.go-mouse', group = 'Call graph', name = 'Go to the function clicked', key = '<2-LeftMouse>', on = BOTH, line = 'callgraph.go',
+    menu = false, doc = false,
+    run = function(ctx)
+      local s, pos = ctx.graph, vim.fn.getmousepos()
+      if pos.winid == s.win and (pos.line or 0) > 0 then
+        local index = M.box_at(s.drawn, pos.line, math.max(0, (pos.column or 1) - 1))
+        if index then M.select(s, index, false) end
+      end
+      go(s)
+    end },
+  { id = 'callgraph.back', group = 'Call graph', name = 'Back to the code, the graph left open', key = '<BS>', on = GRAPH,
+    about = 'Back to that code window as it was, the graph left open',
+    run = function(ctx)
+      if api.nvim_win_is_valid(ctx.graph.origin) then api.nvim_set_current_win(ctx.graph.origin)
+      elseif #api.nvim_list_tabpages() > 1 then vim.cmd('tabprevious') end
+    end },
+  { id = 'callgraph.centre', group = 'Call graph', name = 'Centre the graph on the selected function', key = 'c', on = GRAPH,
+    about = 'Centre the graph on the selected box: its own callers and callees',
+    run = function(ctx)
+      local view, item = ctx.graph, M.selected(ctx.graph)
+      if item and item.raw then view.target = { buf = view.source, item = item, name = item.name }; load(view, view.target) end
+    end },
+  { id = 'callgraph.reload', group = 'Call graph', name = 'Read the graph again', key = 'r', on = GRAPH,
+    about = 'Ask the language server for the graph again', run = function(ctx) load(ctx.graph, ctx.graph.target) end },
+  { id = 'callgraph.close', group = 'Call graph', name = 'Close the call graph', key = 'q', on = GRAPH, about = 'Close the graph tab',
+    run = function(ctx) M.close_view(ctx.graph.buf) end },
+  { id = 'callgraph.symdeps', group = 'Call graph', name = 'This function in symdeps', key = 's', on = GRAPH,
+    about = "The centre function in symdeps' card (C and C++)",
+    available = function() return actions.symdeps() or 'requires symdeps' end,
+    run = function(ctx)
+      local view = ctx.graph
+      local center = view.graph and view.graph.center
+      if not center or not center.uri then return end
+      local loaded, plugin = pcall(require, 'fox-symdeps')
+      if not loaded then tell('Requires symdeps (an optional plugin for C and C++ symbols).'); return end
+      local ok, card = pcall(require, 'fox-symdeps.card')
+      local inspect = ok and type(card) == 'table' and type(card.inspect_cursor) == 'function' and card.inspect_cursor
+        or type(plugin) == 'table' and type(plugin.inspect_cursor) == 'function' and plugin.inspect_cursor or nil
+      if not inspect then tell('This symdeps version does not expose its card.'); return end
+      jump(center, view.origin)
+      inspect()
+    end },
+  { id = 'callgraph.pin', group = 'Call graph', name = 'Pin the panel to this graph, or follow again', key = 'p', on = 'callgraph-panel',
+    about = 'Pin the panel to the graph it shows (PINNED), or follow the cursor again', run = function() M.panel_pin() end },
+  { id = 'callgraph.panel-close', group = 'Call graph', name = 'Close the call graph panel', key = 'q', on = 'callgraph-panel',
+    about = 'Close the panel', run = function() M.panel_close() end },
+})
+
+-- The keys a key line shows for these rows, as typed ("j/k/h/l", "Enter", "BS").
+function M.typed(...)
+  local keys = {}
+  for _, id in ipairs({ ... }) do
+    local key = actions.key('callgraph.' .. id)
+    keys[#keys + 1] = key == '<CR>' and 'Enter' or key == '<BS>' and 'BS' or key
+  end
+  return table.concat(keys, '/')
+end
+M.VIEW_KEYS = { { M.typed('down', 'up', 'left', 'right'), 'move' }, { M.typed('go'), 'go' }, { M.typed('back'), 'back' },
+  { M.typed('centre'), 'centre' }, { M.typed('reload'), 'reload' }, { M.typed('close'), 'close' } }
+function M.panel_keys(pinned)
+  return { { M.typed('down', 'up', 'left', 'right'), 'move' }, { M.typed('go'), 'go' }, { M.typed('pin'), pinned and 'unpin' or 'pin' },
+    { M.typed('panel-close'), 'close' } }
+end
+
 -- ─── setup ─────────────────────────────────────────────────────────────────────────────────────────────────────
 local set = false
 function M.setup()
@@ -860,14 +923,12 @@ function M.setup()
   end })
   api.nvim_create_user_command('CallGraph', function() M.open_cursor() end, { desc = 'Call graph of the function under the cursor' })
   api.nvim_create_user_command('CallGraphPanel', function() M.panel_toggle() end, { desc = 'Live call graph beside the code' })
-  vim.keymap.set('n', '<leader>cc', function() M.open_cursor() end, { desc = 'Call graph of this function' })
-  vim.keymap.set('n', '<leader>co', function() M.panel_toggle() end, { desc = 'Live call graph panel' })
+  actions.map('editor', { rows = ROWS })
 end
 
--- nvim --headless --clean -l …/desk/callgraph.lua --turn-symbols < request.json: the notebook's changed symbols.
-if type(arg) == 'table' and arg[1] == '--turn-symbols' and type(arg[0]) == 'string' and arg[0]:match('callgraph%.lua$') then
-  local here = arg[0]:match('(.*/)') or './'
-  package.path = here .. '../?.lua;' .. package.path
+-- nvim --headless --clean -l …/desk/callgraph.lua --turn-symbols < request.json: the notebook's changed symbols (the
+-- top of this file put the modules beside it on package.path).
+if headless then
   vim.opt.rtp:prepend(vim.fn.stdpath('data') .. '/site')
   local ok, request = pcall(vim.json.decode, io.read('*a') or '')
   local answered, result = pcall(M.turn_symbols, ok and type(request) == 'table' and request or {})
