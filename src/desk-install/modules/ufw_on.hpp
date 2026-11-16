@@ -8,6 +8,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace desk_install::ufw_on {
 
@@ -40,6 +41,16 @@ inline bool ipv6_on(const std::string& defaults) {
         value = v;
     }
     return !value || *value == "yes";
+}
+
+// What the step says once UFW is set to start at boot. SSH is named only for the ports it opened (`limited`), whose
+// IPv6 rules it wrote: with none (sshd off, or its port denied) a promise of SSH after the reboot would be false.
+inline std::string at_boot_message(const std::vector<int>& limited) {
+    std::string ports;
+    for (int p : limited) ports += (ports.empty() ? "" : ", ") + std::to_string(p);
+    return "UFW cannot start until a reboot: this run upgraded the kernel, whose modules are gone until then — it is "
+           "set to start at boot with these rules" +
+           (ports.empty() ? std::string() : " (SSH's port " + ports + " over IPv6 too)") + "; reboot";
 }
 
 // ufw.conf with ENABLED=yes, the line ufw-init reads at boot; nullopt when it already says so or has no such line.

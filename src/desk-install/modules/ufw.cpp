@@ -199,8 +199,7 @@ void run_ufw(Context& ctx) {
         const bool set = conf && sh::write_root_atomic("/etc/ufw/ufw.conf", *conf, "0644");
         sh::run({"sudo", "systemctl", "enable", "ufw"});
         if (set) {
-            ui::warn("UFW cannot start until a reboot: this run upgraded the kernel, whose modules are gone until "
-                     "then — it is set to start at boot with these rules (SSH over IPv4 and IPv6); reboot");
+            ui::warn(ufw_on::at_boot_message(limited));
         } else if (!v6) {
             ui::err("UFW is NOT on: the kernel was upgraded in this run, and SSH's IPv6 rule (port " +
                     ssh_port::join(limited, ", ") + ") could not be written, so it is not set to start at boot, "

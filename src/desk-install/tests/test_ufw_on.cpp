@@ -47,6 +47,13 @@ int main() {
     expect(ipv6_on("#IPV6=no\n"), "a comment is not the setting");
     expect(ipv6_on(""), "unreadable or unset: yes — a firewall left off beats an IPv6 login locked out");
 
+    // The message once UFW waits for the reboot. It said "SSH over IPv4 and IPv6" whatever the run opened, sshd off
+    // or its port denied included.
+    const auto none = at_boot_message({}), ssh = at_boot_message({22, 4022});
+    expect(none.find("set to start at boot") != std::string::npos && none.find("SSH") == std::string::npos,
+           "no SSH port opened: no word of SSH");
+    expect(ssh.find("SSH's port 22, 4022 over IPv6 too") != std::string::npos, "the ports it opened, IPv6 included");
+
     if (failures == 0) std::printf("test_ufw_on: ok\n");
     return failures == 0 ? 0 : 1;
 }
