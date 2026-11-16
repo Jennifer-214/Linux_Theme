@@ -624,7 +624,8 @@ function retroHints(mode, presentation) {
     var hints = {
         groups: "j/k Move  ◄┘ Open  / Find  1-9 Jump  ? Help  q Close",
         items: "j/k Move  ◄┘ Open  h Back  / Find  ? Help  q Close",
-        search: "↑/↓ Move  ◄┘ Open  Esc Back",
+        search: "Ctrl+j/k Move  ◄┘ Open  Esc List",
+        results: "j/k Move  ◄┘ Open  / Type  h Back  q Close",
         prompt: "◄┘ Done  Esc Cancel",
         picker: "j/k Move  ◄┘ Choose  / Filter  Esc Cancel",
         editing: "h/l Adjust  ◄┘ Done  Esc Back",

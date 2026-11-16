@@ -76,6 +76,24 @@ EXERCISE = r'''
             if (event.accepted || !root.searching || searchInput.text !== "hjkl") throw new Error("search stole typing");
             root.goBack();
             if (root.searching || !root.opened) throw new Error("search Escape closed panel");
+            // Find's two modes: typing (letters filter, Ctrl+j/k move), and Esc to the results as a list, where
+            // j/k/h/l work and / types again (2026-11-16: hjkl and q did nothing on the Find page).
+            root.startSearch();
+            searchInput.text = "hj";
+            root.entries = [{id: "a", kind: "action", label: "A"}, {id: "b", kind: "action", label: "B"}];
+            root.itemIndex = 0;
+            var ctrlJ = {key: Qt.Key_J, modifiers: Qt.ControlModifier, accepted: false}; root.key(ctrlJ);
+            if (!ctrlJ.accepted || root.itemIndex !== 1 || searchInput.text !== "hj") throw new Error("Ctrl+j did not move the Find selection");
+            var toList = {key: Qt.Key_Escape, modifiers: 0, accepted: false}; root.key(toList);
+            if (!root.searching || !root.searchBrowse || !root.opened) throw new Error("Esc with results did not go to the list");
+            if (root.retroMode !== "results") throw new Error("the results list has no key line of its own");
+            var up = {key: Qt.Key_K, modifiers: 0, accepted: false}; root.key(up);
+            if (!up.accepted || root.itemIndex !== 0 || searchInput.text !== "hj") throw new Error("k did not move in the results");
+            var type = {key: Qt.Key_Slash, modifiers: 0, accepted: false}; root.key(type);
+            if (root.searchBrowse || !root.searching) throw new Error("/ did not go back to typing");
+            root.key({key: Qt.Key_Escape, modifiers: 0, accepted: false});
+            var back = {key: Qt.Key_H, modifiers: 0, accepted: false}; root.key(back);
+            if (root.searching || !root.opened) throw new Error("h in the results did not leave Find");
             root.applyView(root.viewSerial, root.page,
                 JSON.stringify({title:"Partial",items:[{id:"unavailable",kind:"slider",enabled:false},{id:"usable",kind:"action"}],error:"state unavailable"}), 1, "");
             if (root.entries.length !== 2 || !root.failed || root.entries[root.itemIndex].id !== "usable") throw new Error("partial page was discarded");
@@ -86,6 +104,11 @@ EXERCISE = r'''
                 throw new Error("Find anything did not enter search directly");
             root.goBack();
             if (root.opened) throw new Error("Escape did not close directly opened search");
+            root.show("search");
+            root.entries = [{id: "a", kind: "action", label: "A"}];
+            root.key({key: Qt.Key_Escape, modifiers: 0, accepted: false});
+            var close = {key: Qt.Key_Q, modifiers: 0, accepted: false}; root.key(close);
+            if (root.opened) throw new Error("q in the Find results did not close the drawer");
             root.show("root");
         }
     }

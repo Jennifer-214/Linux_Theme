@@ -18,6 +18,10 @@ ShellRoot {
     property string pickerResponse: ""
     property bool opened: false
     property bool searching: false
+    // Find has two modes, as an editor does: typing in the search field, and (Esc from it, with results) the results
+    // as a list, where j/k/h/l and q work as on every other page.
+    property bool searchBrowse: false
+    onSearchingChanged: if (!searching) searchBrowse = false
     property string searchPage: "search"
     property bool editing: false
     property bool actionBusy: false
@@ -105,7 +109,7 @@ ShellRoot {
         onTriggered: root.retroClock = Qt.formatTime(new Date(), "HH:mm")
     }
     readonly property string retroMode: pendingConfirm ? "confirm" : editing ? "editing" : calendarLayout ? "calendar"
-        : pickerLayout && pickerPrompt ? "prompt" : pickerLayout && !searching ? "picker" : searching ? "search" : gardenLayout && focusArea === "items" ? "garden"
+        : pickerLayout && pickerPrompt ? "prompt" : pickerLayout && !searching ? "picker" : searching ? (searchBrowse ? "results" : "search") : gardenLayout && focusArea === "items" ? "garden"
         : scrapbookLayout && focusArea === "items" ? "scrapbook" : focusArea
     readonly property string retroStatus: message.length > 0 ? (failed ? "! " : "") + Logic.retroWord(message)
         : Logic.retroHints(retroMode, focusArea === "items" && entries[itemIndex] ? String(entries[itemIndex].presentation || "") : "")
@@ -821,7 +825,16 @@ ShellRoot {
     }
 
     function key(event) {
-        if (event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)) return;
+        var chord = event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier);
+        if (chord) {
+            // Typing in Find, Ctrl+j/k (and n/p) move the selection; every other chord is left alone.
+            if (searching && !searchBrowse && chord === Qt.ControlModifier
+                && (event.key === Qt.Key_J || event.key === Qt.Key_N || event.key === Qt.Key_K || event.key === Qt.Key_P)) {
+                step(event.key === Qt.Key_J || event.key === Qt.Key_N ? 1 : -1);
+                event.accepted = true;
+            }
+            return;
+        }
         var k = event.key;
         var helpKey = k === Qt.Key_Question || event.text === "?";
         var digit = k >= Qt.Key_1 && k <= Qt.Key_9 ? k - Qt.Key_1 : -1;
@@ -874,8 +887,23 @@ ShellRoot {
             event.accepted = true;
             return;
         }
+        if (searching && searchBrowse) {
+            if (k === Qt.Key_Escape || k === Qt.Key_H || k === Qt.Key_Left) goBack();
+            else if (k === Qt.Key_Q) hide();
+            else if (k === Qt.Key_J || k === Qt.Key_Down) step(1);
+            else if (k === Qt.Key_K || k === Qt.Key_Up) step(-1);
+            else if (k === Qt.Key_L || k === Qt.Key_Right || k === Qt.Key_Return || k === Qt.Key_Enter || k === Qt.Key_Space) activate(entries[itemIndex]);
+            else if (k === Qt.Key_Slash || k === Qt.Key_I) { searchBrowse = false; searchInput.forceActiveFocus(); }
+            else return;
+            event.accepted = true;
+            return;
+        }
         if (searching) {
-            if (k === Qt.Key_Escape) { goBack(); event.accepted = true; }
+            // Esc with results: to the list (j/k/h/l, q); with none, out of Find as before.
+            if (k === Qt.Key_Escape) {
+                if (entries.length > 0) { searchBrowse = true; keyboard.forceActiveFocus(); } else goBack();
+                event.accepted = true;
+            }
             else if (k === Qt.Key_Down || k === Qt.Key_Up) { step(k === Qt.Key_Down ? 1 : -1); event.accepted = true; }
             else if (k === Qt.Key_Return || k === Qt.Key_Enter) {
                 activate(entries[itemIndex]); event.accepted = true;
@@ -1252,7 +1280,7 @@ ShellRoot {
                         }
                         TermText {
                             theme: root.paperTheme
-                            text: root.actionBusy ? "WORKING" : root.pageLoading ? "OPENING" : root.pickerLayout && root.pickerPrompt ? "WRITE" : root.searching ? "SEARCH" : root.editing ? "ADJUST" : "NORMAL"
+                            text: root.actionBusy ? "WORKING" : root.pageLoading ? "OPENING" : root.pickerLayout && root.pickerPrompt ? "WRITE" : root.searching && !root.searchBrowse ? "SEARCH" : root.editing ? "ADJUST" : "NORMAL"
                             color: theme.muted
                         }
                         TermText {
@@ -1292,7 +1320,7 @@ ShellRoot {
                             BarHint { theme:root.paperTheme; visible:parent.hovered; text:"Pinned favorites · f" }
                         }
                         Rectangle { visible: !root.calendarLayout; width: 5; height: 5; radius: 3; color: root.failed ? theme.error : theme.success }
-                        Text { visible: !root.calendarLayout; textFormat: Text.PlainText; text: root.actionBusy ? "WORKING" : root.pageLoading ? "OPENING" : root.pickerLayout && root.pickerPrompt ? "WRITE" : root.searching ? "SEARCH" : root.editing ? "ADJUST" : "NORMAL"; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9 }
+                        Text { visible: !root.calendarLayout; textFormat: Text.PlainText; text: root.actionBusy ? "WORKING" : root.pageLoading ? "OPENING" : root.pickerLayout && root.pickerPrompt ? "WRITE" : root.searching && !root.searchBrowse ? "SEARCH" : root.editing ? "ADJUST" : "NORMAL"; color: theme.muted; font.family: theme.fontFamily; font.pixelSize: 9 }
                         LoadingDots { theme: root.paperTheme; busy: root.opened && (root.actionBusy || root.pageLoading); Layout.preferredWidth: visible ? 24 : 0 }
                         ToolButton {
                             text: "×"
