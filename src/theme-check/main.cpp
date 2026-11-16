@@ -260,6 +260,8 @@ CheckResult check_drawer(const Env& env) {
     const auto menus = env.config / "quickshell/desk/menus.json";
     std::error_code ec;
     if (!fs::exists(drawer, ec)) return result("D4", title, Severity::Medium, Status::Skip, "the drawer is not installed");
+    // Its pages ask the running desktop (windows, clipboard, notifications): from a TTY or SSH they fail for that alone.
+    if (!in_session()) return result("D4", title, Severity::Medium, Status::Skip, "not in a Hyprland session");
     const auto config = json::parse(read_file(menus), nullptr, false);
     if (!config.is_object() || !config.contains("groups"))
         return result("D4", title, Severity::Medium, Status::Fail, menus.string() + " does not parse",

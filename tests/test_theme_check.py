@@ -105,9 +105,13 @@ class ThemeCheck(unittest.TestCase):
         drawer.parent.mkdir(parents=True)
         drawer.write_text('#!/bin/sh\n[ "$2" = slow ] && echo \'{"ok":false,"message":"broken"}\' && exit 1\necho \'{"items":[]}\'\n')
         drawer.chmod(0o755)
-        out = self.run_check("--only", "D4")
+        out = self.run_check("--only", "D4", extra_env={"HYPRLAND_INSTANCE_SIGNATURE": "test"})
         self.assertIn("slow (broken)", out.stdout)
         self.assertEqual(out.returncode, 1)
+        # From SSH or a TTY (an install run there) the pages cannot answer; that is a skip with the reason, not a fail.
+        out = self.run_check("--only", "D4", "--verbose")
+        self.assertEqual(out.returncode, 0, out.stdout)
+        self.assertIn("not in a Hyprland session", out.stdout)
         bar = self.home / ".config/waybar/config"
         bar.parent.mkdir(parents=True)
         bar.write_text('// a comment waybar allows\n{"custom/good":{"exec":"echo \'{\\"text\\":\\"x\\"}\'","return-type":"json"},'
