@@ -1299,7 +1299,10 @@ function M.finish_next()
   end
   local choice = M.ask_after_finish(#r.files, following ~= nil)
   if choice == 'next' and following then M.switch(following); M.unread()
-  elseif choice == 'close' then M.close()
+  elseif choice == 'close' then
+    -- A Neovim the notebook opened just for this review (desk.work open_args) goes with it, as q does there.
+    M.close()
+    if vim.g.desk_work_view then vim.cmd('confirm qall') end
   else panel(r) end
   return true
 end

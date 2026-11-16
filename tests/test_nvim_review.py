@@ -297,6 +297,22 @@ assert(R.current==nil and not vim.api.nvim_tabpage_is_valid(tab),'choosing close
 ''')
 
     @unittest.skipUnless(WORK.is_file(), 'desk-work required')
+    def test_close_quits_a_neovim_the_notebook_opened_for_the_review(self):
+        self.run_lua(r'''
+vim.g.desk_work_view=true
+C.open_review(row,root)
+local r=R.current
+for i,f in ipairs(r.files) do R.select(i);if r.marks[f.rel]~=f.signature then R.mark() end end
+local quit
+local real=vim.cmd
+vim.cmd=setmetatable({},{__call=function(_,c) if c=='confirm qall' then quit=true return end return real(c) end,__index=real})
+R.ask_after_finish=function() return 'close' end
+assert(R.finish_next(),'finish was not recorded')
+vim.cmd=real
+assert(quit and R.current==nil,'close in a notebook-opened Neovim did not quit it')
+''')
+
+    @unittest.skipUnless(WORK.is_file(), 'desk-work required')
     def test_saved_checkmarks_resume_and_explicit_finish(self):
         self.run_lua(r'''
 local function pending()
