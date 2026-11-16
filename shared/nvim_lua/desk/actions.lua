@@ -31,6 +31,7 @@ M.SURFACES = {
   callgraph = 'the call graph tab',
   ['callgraph-panel'] = 'the live call graph panel',
   since = 'the since-you-last-looked page',
+  map = 'the project map tab',
   popout = 'the pop-out window',
   menu = 'a menu drawn by desk.menu (the home menu and the review actions when symdeps is absent; every ? key list)',
 }
@@ -213,7 +214,7 @@ function M.run(row, ctx)
 end
 
 local PLACES = { ['review-list'] = 'review', ['review-diff'] = 'review', callgraph = 'call graph', ['callgraph-panel'] = 'call graph',
-  since = 'since you last looked', popout = 'pop-out', menu = 'menu' }
+  since = 'since you last looked', map = 'project map', popout = 'pop-out', menu = 'menu' }
 function M.title(ctx)
   local place = PLACES[ctx.surface] or (ctx.file ~= '' and vim.fn.fnamemodify(ctx.file, ':t')) or nil
   return 'Home' .. (place and (' · ' .. place) or '')
@@ -334,7 +335,7 @@ local OWN = M.add({
     run = function(ctx) M.home(ctx.win) end },
   -- ? lists the keys of the view it is pressed in. Not in code: there ? searches backward.
   { id = 'desk.keys', group = 'Home', name = 'The keys here', key = '?', menu = false,
-    on = { 'review-list', 'review-diff', 'callgraph', 'callgraph-panel', 'since', 'menu' },
+    on = { 'review-list', 'review-diff', 'callgraph', 'callgraph-panel', 'since', 'map', 'menu' },
     about = 'The keys of this view as a list: `Enter` runs the selected one, `?` or `q` closes the list',
     run = function(ctx) M.show_keys(ctx) end },
   -- The card of the unit at the cursor. Only in code: the review and the call graph have their own symdeps keys, and

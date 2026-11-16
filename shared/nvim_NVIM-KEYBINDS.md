@@ -335,11 +335,24 @@ window puts the keyboard in the other, on whichever screen it is.
 | `q` in the pop-out | Close this window; the editor stops sending to it |
 <!-- popout-keys:end -->
 
-The project map (desk.map):
+The project map (desk.map): the whole checkout as boxes, rebuilt only when asked. "In the map" means its tab, one per
+checkout; `Space cm` from anywhere brings it back as it was. Without desk-work it opens and says "requires desk-work".
 
+<!-- map-keys:begin · generated from shared/nvim_lua/desk/map.lua: python3 tests/test_nvim_keys.py --write -->
 | Key | Action |
 |---|---|
-| `Space cm`, `:ProjectMap` | Project map: the whole checkout as boxes, by part, file and function, callers above. In it: `Enter` zooms in (on a function: goes there), `-` zooms out, `r` what a function reaches, `c` its callers, `p` the ways between two functions, `m` a part, `R` rebuilds in the background, `B` rebuilds reading a binary, `q` closes |
+| `Space cm`, `:ProjectMap` | The whole checkout as boxes, by part, file and function, callers above; queries and a rebuild inside. One tab per checkout: pressed again, it brings that tab back as it was |
+| `Enter` in the map | Zoom into the part, file or class under the cursor; on a function, go to its code (the map stays open) |
+| `<BS>` / `-` in the map | Zoom out a level (from a query's answer, back to the page it was asked on); at the top, back to the code, the map left open |
+| `r` in the map | Everything a function reaches (a count before r is the depth; 3 without one) |
+| `c` in the map | Who calls a function, transitively (a count before c is the depth) |
+| `P` in the map | Every way from one function to another, shortest first |
+| `m` in the map | Go to a part of the checkout, picked by name |
+| `R` in the map | Rebuild the map in the background (a desk-work job; its log is in the jobs list) |
+| `B` in the map | Rebuild, reading a built binary for its exact calls (remembered for the next builds) |
+| `q` in the map | Close the project map |
+| `?` in the map | The keys of this view as a list: `Enter` runs the selected one, `?` or `q` closes the list |
+<!-- map-keys:end -->
 
 ### C/C++ Specific
 | Key | Action |
@@ -625,13 +638,14 @@ Commands:
 ### The home menu (desk.actions)
 **Space Space** opens one menu of what applies where the cursor is, in groups: this function (its call graph, the live
 panel, and symdeps' card in C and C++), the review, Claude, work, and symdeps (its own menu, or one "requires symdeps"
-row when it is not installed). In a review, the call graph or the since page, that place's own keys lead. It is drawn
-like the review's Actions, by symdeps' menu when it is installed and a built-in one to the same rules otherwise:
-`j`/`k` select, Enter runs, `/` filters, `q` closes. A row that cannot run here says why instead of running. `?` in a
-review, a call graph, the since page or a menu lists that place's keys from the same rows (Enter runs one, `?` or `q`
-closes the list); in code `?` stays backward search. Every key
-in the table below, the review's and the call graph's is a row of one list, `shared/nvim_lua/desk/actions.lua`, which
-also gives which-key its words.
+row when it is not installed). In a review, the call graph or the since page, that place's own keys lead (the project
+map's come last, as their own group). It is drawn like the review's Actions, by symdeps' menu when it is installed and
+a built-in one to the same rules otherwise: `j`/`k` select, Enter runs, `/` filters, `q` closes. A row that cannot run
+here says why instead of running.
+`?` in a review, a call graph, the project map, the since page or a menu lists that place's keys from the same rows
+(Enter runs one, `?` or `q` closes the list); in code `?` stays backward search. Every key in the table below, the
+review's, the call graph's and the map's is a row of one list, `shared/nvim_lua/desk/actions.lua`, which also gives
+which-key its words.
 
 <!-- desk-keys:begin · generated from the action registry (shared/nvim_lua/desk/actions.lua): python3 tests/test_nvim_keys.py --write -->
 | Key | Action |
@@ -656,6 +670,7 @@ also gives which-key its words.
 | home menu: Figures | The newest job's figures against its previous run (desk-work metrics); Enter on one opens that job's output |
 | home menu: symdeps | symdeps' own menu (Space dm): its cards, lists and checks for C and C++ code. symdeps is an optional plugin |
 | `Space Tab` | Put the keyboard in the pop-out window, on whichever screen it is; the same key there comes back here |
+| `Space cm`, `:ProjectMap` | The whole checkout as boxes, by part, file and function, callers above; queries and a rebuild inside. One tab per checkout: pressed again, it brings that tab back as it was |
 <!-- desk-keys:end -->
 
 ### The other Claudes (desk.claude)

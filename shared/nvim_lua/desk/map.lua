@@ -5,6 +5,10 @@
 -- syntax reader: the functions and classes in each file, and the calls between them by name, from treesitter.
 local M = {}
 local api, uv = vim.api, vim.uv or vim.loop
+-- Run headless as the syntax reader (the end of this file), the modules beside this one come first.
+local headless = type(arg) == 'table' and arg[1] == '--syntax-graph' and type(arg[0]) == 'string' and ('/' .. arg[0]):match('/map%.lua$')
+if headless then package.path = (arg[0]:match('(.*/)') or './') .. '../?.lua;' .. package.path end
+local actions = require('desk.actions')
 local ns = api.nvim_create_namespace('desk_map')
 M.MAX_BOXES, M.MAX_SIDE, M.MAX_TIER, M.POLL_MS, M.BUILD_WAIT_MS = 60, 24, 24, 1000, 15 * 60 * 1000
 
@@ -219,7 +223,9 @@ function M.syntax_graph(request)
 end
 
 -- ─── desk-work ─────────────────────────────────────────────────────────────────────────────────────────────────
--- Every call in the background with a timeout: done(answer or nil, out). Tests put a fake here.
+M.REQUIRES = 'Requires desk-work: it builds the project map and answers its queries.'
+-- Every call in the background with a timeout: done(answer or nil, out); out.missing when desk-work could not be
+-- started (it is not installed). Tests put a fake here.
 function M.desk_work(args, done, timeout)
   local argv = { 'desk-work' }
   vim.list_extend(argv, args)
@@ -227,10 +233,11 @@ function M.desk_work(args, done, timeout)
     local parsed, value = pcall(vim.json.decode, out.stdout or '', { luanil = { object = true, array = true } })
     done(parsed and type(value) == 'table' and value or nil, out)
   end))
-  if not ok then vim.schedule(function() done(nil, { code = -1, stdout = '', stderr = 'desk-work did not start; is it installed?' }) end) end
+  if not ok then vim.schedule(function() done(nil, { code = -1, stdout = '', stderr = M.REQUIRES, missing = true }) end) end
 end
 
 local function refusal(answer, out)
+  if out and out.missing then return M.REQUIRES end
   if type(answer) == 'table' and type(answer.message) == 'string' and answer.message ~= '' then return answer.message end
   local said = vim.trim((out and out.stderr) or ''):match('([^\n]*)$') or ''
   if said ~= '' then return said end
@@ -723,23 +730,36 @@ local function draw(buf, drawn)
   end
 end
 
-local function key_name(key) return key == '<CR>' and 'Enter' or key end
+-- A key of this view as typed ("Enter", "BS", "r"), read from its row: the words that name a key follow the row.
+local function typed(id)
+  local key = actions.key(id:find('%.') and id or ('map.' .. id))
+  return key == '<CR>' and 'Enter' or key == '<BS>' and 'BS' or key or '?'
+end
+-- 'no map built yet · R builds it' in the theme's voice, the key as typed (in retro r and R are two keys).
+local function with_key(G, before, id, after) return G.said(before) .. typed(id) .. G.said(after) end
+local function no_map(G) return with_key(G, 'no map built yet · ', 'rebuild', ' builds it') end
 
 function M.header(view, G)
   local s = view.status
   local out = { { G.said('project map · ' .. vim.fn.fnamemodify(view.root, ':t')), 'DeskMapTitle' } }
-  if view.building or (s and s.building) then
+  if view.missing then out[#out + 1] = { G.said('requires desk-work'), 'DeskMapStale' }
+  elseif view.building or (s and s.building) then
     out[#out + 1] = { G.said('rebuilding' .. G.ellipsis .. ' started ' .. os.date('%H:%M', s and s.building_since or view.building_at or os.time())), 'DeskMapDim' }
   elseif not s then out[#out + 1] = { G.said('reading' .. G.ellipsis), 'DeskMapDim' }
-  elseif not s.built then out[#out + 1] = { G.said('no map yet · R builds it'), 'DeskMapStale' }
+  elseif not s.built then out[#out + 1] = { no_map(G), 'DeskMapStale' }
   elseif s.stale then
-    out[#out + 1] = { G.said('stale since ' .. short(s.head) .. ' · R rebuilds'), 'DeskMapStale' }
+    out[#out + 1] = { with_key(G, 'stale since ' .. short(s.head) .. ' · ', 'rebuild', ' rebuilds'), 'DeskMapStale' }
     if (s.stale_why or '') ~= '' then out[#out + 1] = { s.stale_why, 'DeskMapDim' } end
   else out[#out + 1] = { G.said('built ' .. os.date('%H:%M', s.built_at or 0) .. ' at ' .. short(s.head)), 'DeskMapDim' } end
   return out
 end
 
-function M.footer(view)
+-- The key line at the foot of the page: the keys that matter here (? lists every one), as typed, in the theme's voice.
+local KEY_LINE = { { 'in', 'in' }, { 'back', 'out' }, { 'reach', 'reach' }, { 'callers', 'callers' }, { 'paths', 'paths' },
+  { 'desk.keys', 'keys' }, { 'close', 'close' } }
+
+function M.footer(view, G)
+  G = G or M.glyphs(M.retro())
   local s, notes, answered = view.status or {}, {}, {}
   for _, p in ipairs(s.providers or {}) do
     if p.state == 'ok' then
@@ -753,7 +773,7 @@ function M.footer(view)
   end
   if s.complete == false and s.why then notes[#notes + 1] = 'partial: ' .. s.why end
   local keys = {}
-  for _, row in ipairs(M.view_rows) do keys[#keys + 1] = key_name(row.key) .. ' ' .. row.name end
+  for _, k in ipairs(KEY_LINE) do keys[#keys + 1] = typed(k[1]) .. ' ' .. G.said(k[2]) end
   notes[#notes + 1] = { table.concat(keys, ' · ') }
   return notes
 end
@@ -778,9 +798,10 @@ function M.render(view)
   local G = M.glyphs(retro)
   local page
   local s = view.status
-  if view.message then page = { sections = { { parts = { { view.message } }, group = 'DeskMapStale' } } }
+  if view.missing then page = { sections = { { parts = { { M.REQUIRES } }, group = 'DeskMapStale' } } }
+  elseif view.message then page = { sections = { { parts = { { view.message } }, group = 'DeskMapStale' } } }
   elseif s and not s.built and not s.building and not view.building then
-    page = { sections = { { parts = { { 'No map of this checkout yet. R builds it in the background (a desk-work job; its log is in the' } } },
+    page = { sections = { { parts = { { 'No map built yet. ' .. typed('rebuild') .. ' builds it in the background (a desk-work job; its log is in the' } } },
                           { parts = { { 'jobs list), and this page fills in when it is done.' } } } } }
   else
     local waiting = ((view.building or (s and s.building)) and 'The map is being built' or 'Reading the map') .. G.ellipsis
@@ -789,7 +810,7 @@ function M.render(view)
   page.header = M.header(view, G)
   if page.crumbs then table.insert(page.header, { table.concat(page.crumbs, G.crumb), 'DeskMapDim' }) end
   table.insert(page.header, { '' })
-  page.notes = M.footer(view)
+  page.notes = M.footer(view, G)
   view.drawn = M.layout(page, api.nvim_win_get_width(view.win) - 2, retro)
   draw(view.buf, view.drawn)
 end
@@ -798,7 +819,8 @@ local function status(view, after)
   M.desk_work({ 'map', 'status', '--root', view.root }, function(answer, out)
     if not valid(view) then return end
     -- The first read failing is the page's news (desk-work missing, a broken record); a later one keeps the page.
-    if answer and answer.ok ~= false then view.status = answer
+    if answer and answer.ok ~= false then view.status, view.missing = answer, nil
+    elseif out and out.missing then view.missing = true
     elseif not view.status then view.message = refusal(answer, out) end
     if after then after(view.status) end
     M.render(view)
@@ -829,7 +851,8 @@ local function load(view)
   M.render(view)
   M.desk_work(args, function(answer, out)
     if gen ~= view.gen or not valid(view) then return end
-    if not answer or answer.ok == false then view.message = refusal(answer, out) else view.cache[key] = answer end
+    if out and out.missing then view.missing = true
+    elseif not answer or answer.ok == false then view.message = refusal(answer, out) else view.cache[key] = answer end
     M.render(view)
     place_cursor(view)
   end)
@@ -911,10 +934,16 @@ local function push(view, level)
   load(view)
 end
 
+-- Out a level (from a query's answer, back to the page it was asked on); at the top, back to the code window the map
+-- was opened from, the map left open: Space cm brings it back as it was.
 local function back(view)
-  if #view.stack <= 1 then return tell('This is the top: the parts of the checkout.') end
-  table.remove(view.stack)
-  load(view)
+  if #view.stack > 1 then
+    table.remove(view.stack)
+    return load(view)
+  end
+  if view.origin and view.origin ~= view.win and api.nvim_win_is_valid(view.origin) then return api.nvim_set_current_win(view.origin) end
+  if #api.nvim_list_tabpages() > 1 then return vim.cmd('tabprevious') end
+  tell('This is the top: the parts of the checkout.')
 end
 
 local function jump(view, node)
@@ -943,8 +972,8 @@ local function ask(prompt, default, done)
   end)
 end
 
--- A query: its answer goes on the stack as a page of its own (- goes back). A name that fits several things asks
--- which one, then asks desk-work again with its id.
+-- A query: its answer goes on the stack as a page of its own (Backspace goes back). A name that fits several things
+-- asks which one, then asks desk-work again with its id.
 local function query(view, args)
   local full = { 'map', 'query', '--root', view.root }
   vim.list_extend(full, args)
@@ -1014,37 +1043,31 @@ function M.close(view)
   end
 end
 
--- The keys, as rows in the action registry's shape ({ id, group, name, about, key, on, run, available, remote }).
--- The view binds its own rows in its buffer; the editor row goes to desk.actions when that module is there, and is
--- bound here until it is.
-local function current(view) return view or views[api.nvim_get_current_buf()] end
-local function row(id, key, name, about, run)
-  return { id = 'map.' .. id, group = 'project map', name = name, about = about, key = key, on = 'project map', remote = false,
-           available = function() return true end, run = function(view) view = current(view); if view then run(view) end end }
+-- What the map is now: its status, then the level on top (built) or the poll until the build is done (building).
+local function refresh(view)
+  status(view, function(s)
+    if s and s.building then poll(view) end
+    if s and s.built then load(view) end
+  end)
 end
-M.view_rows = {
-  row('in', '<CR>', 'in', 'Zoom into the part, file or class under the cursor; on a function, go to it', enter),
-  row('out', '-', 'out', 'Zoom out to the level before', back),
-  row('reach', 'r', 'reach', 'Everything a function reaches (a count before r is the depth; 3 without one)', function(view) walk(view, 'reach') end),
-  row('paths', 'p', 'paths', 'Every way from one function to another', ways),
-  row('callers', 'c', 'callers', 'Who calls a function, transitively (a count before c is the depth)', function(view) walk(view, 'callers') end),
-  row('module', 'm', 'module', 'Go to a part of the checkout', part),
-  row('rebuild', 'R', 'rebuild', 'Rebuild the map in the background (a desk-work job)', function(view) M.rebuild(view) end),
-  row('binary', 'B', 'binary', 'Rebuild, reading a built binary for its exact calls', binary),
-  row('close', 'q', 'close', 'Close the project map', M.close),
-}
-M.rows = {
-  { id = 'map.open', group = 'project map', name = 'Project map', key = '<leader>cm', on = 'editor', remote = false,
-    about = 'The whole checkout as boxes: its parts, their files, their functions; queries and rebuild inside',
-    available = function() return vim.fn.executable('desk-work') == 1 or 'requires desk-work' end,
-    run = function() M.open() end },
-}
 
+-- Opens the map of root (default: this checkout) in a tab of its own; one tab per checkout: when it is open already,
+-- it comes back as it was, and Backspace at its top goes back to the window this was pressed in.
 function M.open(root)
-  root = root or vim.fs.root(0, '.git') or vim.fn.getcwd()
+  local here_view = views[api.nvim_get_current_buf()]
+  root = root or (here_view and here_view.root) or vim.fs.root(0, '.git') or vim.fn.getcwd()
   root = uv.fs_realpath(root) or root
   highlights()
   local origin = api.nvim_get_current_win()
+  for _, open in pairs(views) do
+    local shown = open.root == root and valid(open) and vim.fn.win_findbuf(open.buf)[1]
+    if shown then
+      open.win = api.nvim_win_get_buf(open.win) == open.buf and open.win or shown
+      if origin ~= open.win then open.origin = origin end
+      api.nvim_set_current_win(open.win)
+      return open
+    end
+  end
   vim.cmd('tabnew')
   local win, buf = api.nvim_get_current_win(), api.nvim_get_current_buf()
   vim.bo[buf].buftype, vim.bo[buf].bufhidden, vim.bo[buf].swapfile = 'nofile', 'wipe', false
@@ -1055,18 +1078,18 @@ function M.open(root)
   end
   local view = { buf = buf, win = win, origin = origin, root = root, stack = { { kind = 'modules' } }, cache = {}, gen = 0 }
   views[buf] = view
-  for _, r in ipairs(M.view_rows) do
-    vim.keymap.set('n', r.key, function() r.run(view) end, { buffer = buf, nowait = true, desc = r.about })
-  end
+  -- Its keys are the rows on the 'map' surface (the keys section below); each run gets ctx.map, this view.
+  actions.map('map', { buffer = buf, nowait = true, ctx = { map = view } })
   local group = api.nvim_create_augroup('desk_map_' .. buf, { clear = true })
   api.nvim_create_autocmd('BufWipeout', { group = group, buffer = buf, once = true, callback = function()
     stop_polling(view)
     views[buf] = nil
     pcall(api.nvim_del_augroup_by_id, group)
   end })
-  -- Back on the page: is the map still current? (While a build runs, the poll says so already.)
+  -- Back on the page: is the map still current, or desk-work there now? (While a build runs, the poll says so.)
   api.nvim_create_autocmd('BufEnter', { group = group, buffer = buf, callback = function()
-    if not view.timer and view.status then status(view) end
+    if view.timer then return end
+    if view.missing then refresh(view) elseif view.status then status(view) end
   end })
   api.nvim_create_autocmd('WinResized', { group = group, callback = function()
     if valid(view) and vim.tbl_contains(vim.v.event.windows or {}, view.win) then M.render(view) end
@@ -1076,12 +1099,60 @@ function M.open(root)
     if view.tick and type(a.data) == 'table' and a.data.root == root then view.tick() end
   end })
   M.render(view)
-  status(view, function(s)
-    if s and s.building then poll(view) end
-    if s and s.built then load(view) end
-  end)
+  refresh(view)
   return view
 end
+
+-- ─── the keys ──────────────────────────────────────────────────────────────────────────────────────────────────
+-- Rows of the action registry (desk/actions.lua): the mappings, which-key's words, the home menu, the ? list and the
+-- keybinds reference all read them. The view is the 'map' surface and a run gets ctx.map, the view it was pressed in;
+-- Space cm is a global key. The page's key line and its badges take their keys from these rows (typed).
+local GROUP = 'Project map'
+local function sentence(text) text = tostring(text); return text:sub(1, 1):upper() .. text:sub(2) .. (text:match('[.!?]$') and '' or '.') end
+-- What a row needs (desk-work; for a question to the map, a map built): why not, or true. The menus show the why
+-- beside the row; a key pressed when its row cannot run says it.
+local function needs_desk_work(ctx) return not (ctx.map and ctx.map.missing) or 'requires desk-work' end
+local function needs_map(ctx)
+  local why = needs_desk_work(ctx)
+  if why ~= true then return why end
+  local view, s = ctx.map, ctx.map and ctx.map.status
+  return not (s and not s.built and not s.building and not view.building) or no_map(M.glyphs(false))
+end
+local function row(id, key, name, about, run, needs, extra)
+  local r = { id = 'map.' .. id, group = GROUP, name = name, about = about, key = key, on = 'map', available = needs,
+    run = function(ctx)
+      local view = ctx and ctx.map
+      if not valid(view) then return end
+      local why = needs and needs(ctx)
+      if why ~= nil and why ~= true then return tell(sentence(why), vim.log.levels.WARN) end
+      run(view)
+    end }
+  for k, v in pairs(extra or {}) do r[k] = v end
+  return r
+end
+local ROWS = actions.add({
+  { id = 'map.open', group = GROUP, name = 'Project map', key = '<leader>cm', on = 'editor', remote = true, also = '`:ProjectMap`',
+    about = 'The whole checkout as boxes, by part, file and function, callers above; queries and a rebuild inside. One tab per checkout: pressed again, it brings that tab back as it was',
+    -- In the map itself its own keys apply; without desk-work the page opens and says so.
+    available = function(ctx) return ctx.surface ~= 'map' or false end,
+    run = function() M.open() end },
+  row('in', '<CR>', 'Zoom in, or go to the function',
+    'Zoom into the part, file or class under the cursor; on a function, go to its code (the map stays open)', enter),
+  row('back', '<BS>', 'Zoom out, or back to the code',
+    "Zoom out a level (from a query's answer, back to the page it was asked on); at the top, back to the code, the map left open", back),
+  row('out', '-', 'Zoom out', 'Zoom out a level', back, nil, { line = 'map.back', menu = false }),
+  row('reach', 'r', 'What a function reaches', 'Everything a function reaches (a count before r is the depth; 3 without one)',
+    function(view) walk(view, 'reach') end, needs_map),
+  row('callers', 'c', 'Who calls a function', 'Who calls a function, transitively (a count before c is the depth)',
+    function(view) walk(view, 'callers') end, needs_map),
+  row('paths', 'P', 'The ways between two functions', 'Every way from one function to another, shortest first', ways, needs_map),
+  row('module', 'm', 'A part of the checkout', 'Go to a part of the checkout, picked by name', part, needs_map),
+  row('rebuild', 'R', 'Rebuild the map', 'Rebuild the map in the background (a desk-work job; its log is in the jobs list)',
+    function(view) M.rebuild(view) end, needs_desk_work),
+  row('binary', 'B', 'Rebuild reading a binary', 'Rebuild, reading a built binary for its exact calls (remembered for the next builds)',
+    binary, needs_desk_work),
+  row('close', 'q', 'Close the project map', 'Close the project map', function(view) M.close(view) end),
+})
 
 -- ─── setup ─────────────────────────────────────────────────────────────────────────────────────────────────────
 local set = false
@@ -1091,15 +1162,12 @@ function M.setup()
   api.nvim_create_user_command('ProjectMap', function() M.open() end, { desc = 'The project map of this checkout' })
   api.nvim_create_user_command('ProjectMapBuild', function(o) M.build(o.args ~= '' and o.args or nil) end,
     { nargs = '?', complete = 'file', desc = 'Rebuild the project map in the background (optionally reading a binary)' })
-  local ok, actions = pcall(require, 'desk.actions')
-  if ok and type(actions) == 'table' and type(actions.add) == 'function' then return actions.add(M.rows) end
-  for _, r in ipairs(M.rows) do vim.keymap.set('n', r.key, function() r.run() end, { desc = r.name }) end
+  actions.map('editor', { rows = ROWS })
 end
 
--- nvim --headless --clean -l …/desk/map.lua --syntax-graph REQUEST ANSWER: desk-work's syntax reader.
-if type(arg) == 'table' and arg[1] == '--syntax-graph' and type(arg[0]) == 'string' and arg[0]:match('map%.lua$') then
-  local here = arg[0]:match('(.*/)') or './'
-  package.path = here .. '../?.lua;' .. package.path
+-- nvim --headless --clean -l …/desk/map.lua --syntax-graph REQUEST ANSWER: desk-work's syntax reader (the top of this
+-- file put the modules beside it on package.path).
+if headless then
   vim.opt.rtp:prepend(vim.fn.stdpath('data') .. '/site')
   local ok, request = pcall(vim.json.decode, read_file(arg[2] or '', 64 * 1024 * 1024) or '')
   local answered, result = pcall(M.syntax_graph, ok and type(request) == 'table' and request or {})

@@ -384,10 +384,14 @@ a review that works in any git repository. The look follows [UI style](ui-style.
 
 - **The view**: `Space cm` (`:ProjectMap`) opens the whole checkout as boxes at three zooms: its parts (top-level
   folders, or the folder inside `src/`, `lib/`, `lua/`, `shared/` and the like), a part's files, a file's functions
-  and classes. Callers sit above what they call. Enter zooms in, and on a function goes to its code; `-` zooms out;
-  `q` closes. A level draws at most 60 boxes (24 on each side) and says "+N more" for the rest.
+  and classes. Callers sit above what they call. Enter zooms in, and on a function goes to its code; Backspace (or
+  `-`) zooms out, and at the top goes back to the code with the map left open; `q` closes. One tab per checkout:
+  `Space cm` again brings it back as it was. `?` lists every key: they are rows of the action registry, as the call
+  graph's are, and so is its keybinds table. A level draws at most 60 boxes (24 on each side) and says "+N more" for
+  the rest. Without desk-work the page opens and says "requires desk-work"; before the first build, it says
+  "no map built yet · R builds it".
 - **Queries**: `r` what a function reaches (a count before the key sets the depth; 3 without one), `c` what calls
-  it, transitively, `p` the ways from one function to another (shortest first, at most 20), `m` a part by name. The
+  it, transitively, `P` the ways from one function to another (shortest first, at most 20), `m` a part by name. The
   box under the cursor is the default answer to the prompt. A call that is part of recursion reads "in a cycle".
 - **Rebuilt only when asked**: `R`, `:ProjectMapBuild` or `desk-work map build --root .` builds it as a desk-work job
   in the background (its log is in the jobs list; a failure sends the usual notice). The map is kept with the

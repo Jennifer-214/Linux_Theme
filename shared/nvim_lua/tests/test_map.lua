@@ -178,21 +178,46 @@ local way_row, way = line_with(ways.lines, "use → M.alpha → M.beta")
 ok(way_row and way:find("(by name)", 1, true), "a way, with the part found by name said")
 eq(Map.item_at(ways, way_row, way:find("M.alpha", 1, true)).target.node.id, "lua/mod.lua::M.alpha", "each name on a way is a hit")
 
+-- ─── its keys: rows of the action registry ─────────────────────────────────────────────────────────────────────
+local A = require("desk.actions")
+local Menu = require("desk.menu")
+eq(A.problems, {}, "every map row was taken")
+local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "r", "c", "P", "m", "R", "B", "q" }, "the map's keys, in order (? is the shared row)")
+local opener = A.get("map.open")
+eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
+  "Space cm, a global row the pop-out may ask for")
+local empty_bin = root .. "/empty-bin"   -- a PATH with no desk-work on it
+vim.fn.mkdir(empty_bin, "p")
+local saved_path = vim.env.PATH
+vim.env.PATH = empty_bin
+eq(A.available(opener, { surface = "editor" }), true, "Space cm opens the map without desk-work too (the page says what it needs)")
+vim.env.PATH = saved_path
+eq(A.available(opener, { surface = "map" }), false, "inside the map its own keys apply, not Space cm")
+Map.setup()
+eq(vim.fn.maparg("<leader>cm", "n", false, true).desc, "Project map", "setup binds Space cm")
+
 -- ─── the view, with a fake desk-work ───────────────────────────────────────────────────────────────────────────
+local real_desk_work = Map.desk_work
 local status = { ok = true, built = true, building = false, stale = true, stale_why = "1 changed file differs from when it was built",
   head = "3789c69aaaaaaaa", built_at = os.time(), complete = true,
   providers = { { name = "syntax", state = "ok" }, { name = "binary", state = "not built", why = "requires a built binary: desk-work map build --binary PATH" } } }
+local paths = { ok = true, q = "paths", from = contents.nodes[5], to = contents.nodes[2], depth = 10, max = 20, nodes = contents.nodes,
+  paths = { { nodes = { "lua/other.lua::use", "lua/mod.lua::M.alpha", "lua/mod.lua::M.beta" }, kinds = { "call-by-name", "call" } } } }
 local asked, building = {}, false
-Map.desk_work = function(args, done)
+local function fake(args, done)
   asked[#asked + 1] = table.concat(args, " ")
   local answer
   if args[2] == "status" then answer = vim.tbl_extend("force", status, { building = building })
   elseif args[2] == "build" then building = true; answer = { ok = true, started = true }
   elseif args[2] == "query" and args[6] == "module" and args[9] == "--name" then answer = args[10] == "lua" and contents or { ok = false, message = "No part" }
   elseif args[2] == "query" and args[6] == "module" then answer = modules
-  elseif args[2] == "query" and args[6] == "reach" then answer = reach end
+  elseif args[2] == "query" and args[6] == "reach" then answer = reach
+  elseif args[2] == "query" and args[6] == "paths" then answer = paths end
   vim.defer_fn(function() done(answer, { code = 0, stdout = "", stderr = "" }) end, 5)   -- never in the caller's path
 end
+Map.desk_work = fake
+vim.fn.mkdir(root .. "/.git", "p")   -- a checkout, as Space cm finds one
 vim.fn.writefile({ "-- code" }, root .. "/lua/start.lua")
 vim.cmd.edit(root .. "/lua/start.lua")
 local origin = api.nvim_get_current_win()
@@ -203,14 +228,48 @@ ok(line_with(view.drawn.lines, "stale since 3789c69 · R rebuilds"), "the stale 
 ok(line_with(view.drawn.lines, "1 changed file differs"), "… and why")
 ok(line_with(view.drawn.lines, "answered by syntax (calls by name"), "the footer names the reader that answered")
 ok(line_with(view.drawn.lines, "binary: requires a built binary"), "… and the one that did not, with what it requires")
-ok(line_with(view.drawn.lines, "Enter in · - out · r reach · p paths") and line_with(view.drawn.lines, "B binary · q close"), "the keys, wrapped to the window")
+ok(line_with(view.drawn.lines, "Enter in · BS out · r reach · c callers · P paths · ? keys · q close"),
+  "the key line: the keys that matter, as their rows have them, and ? for the rest")
 for i, line in ipairs(view.drawn.lines) do ok(api.nvim_strwidth(line) <= api.nvim_win_get_width(view.win), "line " .. i .. " of the view fits its window") end
 eq(vim.bo[view.buf].modifiable, false, "the page is read-only")
-local function press(key) vim.fn.maparg(key, "n", false, true).callback() end
+local mapped = {}
+for _, m in ipairs(api.nvim_buf_get_keymap(view.buf, "n")) do mapped[m.lhs] = m.desc end
+eq({ mapped["?"], mapped["<BS>"], mapped["-"], mapped["P"] }, { "The keys here", "Zoom out, or back to the code", "Zoom out", "The ways between two functions" },
+  "the map's buffer has the registry's keys: ? lists them, Backspace and - zoom out, P the ways")
+eq({ mapped["p"], mapped["s"], mapped["o"] }, { nil, nil, nil }, "p (the grammar's pin), s (no jump labels in the map) and o (the pop-out's) stay free")
+local in_menu = {}
+for _, r in ipairs(A.for_context(A.context(view.win))) do if r.menu ~= false then in_menu[r.id] = true end end
+ok(in_menu["map.paths"] and in_menu["map.rebuild"] and in_menu["map.back"], "Space Space in the map: its own rows")
+ok(not in_menu["map.open"] and not in_menu["map.out"], "… without Space cm (it is here) and - (Backspace's twin)")
+-- A key with nothing on it, or a box not drawn, is a failure of its own and the rest still runs.
+local function press(key)
+  local found = vim.fn.maparg(key, "n", false, true)
+  if type(found.callback) ~= "function" then return ok(false, "nothing on " .. key .. " here") end
+  found.callback()
+end
 local function cursor_on(name)
   local row, ln = line_with(view.drawn.lines, "│ " .. name)
+  if not row then return ok(false, "no box " .. name .. " on the page") end
   api.nvim_win_set_cursor(view.win, { row, (ln:find(name, 1, true)) })
 end
+
+-- ? lists the map's keys, from the same rows: Backspace and - on one line, P for the ways, and Enter runs one there.
+local listed = {}
+for _, l in ipairs(A.key_lines(A.context(view.win))) do listed[l.ident] = l end
+eq({ listed["map.back"] and listed["map.back"].keys, listed["map.paths"] and listed["map.paths"].keys }, { { "<BS>", "-" }, { "P" } },
+  "the ? list: Backspace and - on one line, P for the ways")
+ok(not listed["desk.keys"], "… and not ? itself")
+press("?")
+local list = Menu._last
+ok(list and api.nvim_win_is_valid(list.win) and vim.inspect(api.nvim_win_get_config(list.win).title):find("Keys · project map", 1, true),
+  "? opens the list, titled with the place")
+local list_lines = list and api.nvim_buf_get_lines(list.buf, 0, -1, false) or {}
+local shown = table.concat(list_lines, "\n")
+ok(shown:find("BS/-", 1, true) and shown:find("The ways between two functions", 1, true), "… keys as typed:\n" .. shown)
+press("q")   -- the list's own q
+eq(api.nvim_get_current_win(), view.win, "q closes the list, back in the map")
+
+-- Zoom in and out; Enter on a function goes to the code, the map left open.
 cursor_on("lua")
 press("<CR>")
 ok(vim.wait(2000, function() return line_with(view.drawn.lines, "│ mod.lua") end), "Enter on a part: its files")
@@ -224,11 +283,28 @@ press("<CR>")
 eq(api.nvim_get_current_win(), origin, "Enter on a function goes to the code")
 eq({ api.nvim_buf_get_name(0), api.nvim_win_get_cursor(0)[1] }, { root .. "/lua/mod.lua", 3 }, "… at its line")
 api.nvim_set_current_win(view.win)
+press("<BS>")
+ok(vim.wait(1000, function() return line_with(view.drawn.lines, "│ mod.lua") and not line_with(view.drawn.lines, "│ M.alpha") end), "Backspace zooms out")
 press("-")
-ok(vim.wait(1000, function() return line_with(view.drawn.lines, "│ mod.lua") and not line_with(view.drawn.lines, "│ M.alpha") end), "- goes back out")
-press("-")
-ok(vim.wait(1000, function() return line_with(view.drawn.lines, "│ lua") and line_with(view.drawn.lines, "│ csrc") end), "… to the parts")
+ok(vim.wait(1000, function() return line_with(view.drawn.lines, "│ lua") and line_with(view.drawn.lines, "│ csrc") end), "… and - too, to the parts")
 eq(#vim.tbl_filter(function(a) return a:find("--name lua", 1, true) end, asked), 1, "a part read once is drawn from what was read")
+
+-- Backspace at the top goes back to the code, the map left open; Space cm brings the same map back, as it was.
+local tabs = #api.nvim_list_tabpages()
+press("<BS>")
+eq(api.nvim_get_current_win(), origin, "Backspace at the top goes back to the code")
+ok(Map.views[view.buf] == view and api.nvim_win_is_valid(view.win), "… and leaves the map open")
+vim.cmd("vsplit")
+local second = api.nvim_get_current_win()
+press("<leader>cm")
+eq({ api.nvim_get_current_win(), #api.nvim_list_tabpages() }, { view.win, tabs }, "Space cm from the code: the same map, no second tab")
+ok(#view.stack == 1 and line_with(view.drawn.lines, "│ csrc"), "… as it was")
+press("<BS>")
+eq(api.nvim_get_current_win(), second, "… and Backspace goes back to where Space cm was pressed")
+api.nvim_win_close(second, true)
+api.nvim_set_current_win(origin)
+press("<leader>cm")
+eq(api.nvim_get_current_win(), view.win, "back in the map")
 
 -- A query from a key: the box under the cursor is the default, its id what desk-work is asked about.
 press("<CR>")   -- back into lua (the cursor stayed on its box)
@@ -243,8 +319,40 @@ press("r")
 ok(vim.wait(1000, function() return line_with(view.drawn.lines, "║ use") end), "r: what the function reaches")
 eq(prompt.default, "use", "the prompt offers the box under the cursor")
 ok(asked[#asked]:find("--q reach --from lua/other.lua::use --depth 3", 1, true), "… and asks by its id, at depth 3 without a count")
+press("<BS>")
+ok(vim.wait(1000, function() return line_with(view.drawn.lines, "│ M.alpha") end), "Backspace leaves the answer")
+api.nvim_feedkeys("2r", "x", false)
+ok(asked[#asked]:find("--q reach --from lua/other.lua::use --depth 2", 1, true), "a count reaches the key through the registry: 2r is depth 2")
+ok(vim.wait(1000, function() return line_with(view.drawn.lines, "║ use") end), "… and shows its answer")
 press("-")
-ok(vim.wait(1000, function() return line_with(view.drawn.lines, "│ M.alpha") end), "- leaves the answer")
+ok(vim.wait(1000, function() return line_with(view.drawn.lines, "│ M.alpha") end), "- leaves it too")
+-- P: the ways from the box under the cursor to a function she names.
+local prompts = {}
+vim.ui.input = function(opts, done) prompts[#prompts + 1] = opts.prompt; done(#prompts == 1 and opts.default or "M.beta") end
+cursor_on("use")
+press("P")
+eq(prompts, { "Ways from: ", "… to: " }, "P asks for the ways: from the box under the cursor, to a function")
+ok(asked[#asked]:find("--q paths --from lua/other.lua::use --to M.beta", 1, true), "… and asks desk-work for them")
+ok(vim.wait(1000, function() return line_with(view.drawn.lines, "ways from use to M.beta") end), "… and shows them")
+press("<BS>")
+ok(vim.wait(1000, function() return line_with(view.drawn.lines, "│ M.alpha") end), "Backspace leaves the ways")
+-- Enter on a row of the ? list runs it in the map, as its key would.
+prompts = {}
+cursor_on("use")
+press("?")
+list = Menu._last
+local open_again = list and api.nvim_win_is_valid(list.win) and api.nvim_get_current_win() == list.win
+ok(open_again, "? opens the list again")
+for i, l in ipairs(open_again and api.nvim_buf_get_lines(list.buf, 0, -1, false) or {}) do
+  if l:find("The ways between two functions", 1, true) then api.nvim_win_set_cursor(list.win, { i, 0 }) end
+end
+if open_again then press("<CR>") end
+ok(vim.wait(1000, function() return #prompts == 2 end) and asked[#asked]:find("--q paths --from lua/other.lua::use", 1, true),
+  "Enter on a line of the ? list runs it in the map")
+ok(vim.wait(1000, function() return line_with(view.drawn.lines, "ways from use to M.beta") end), "… and the map shows it")
+api.nvim_set_current_win(view.win)
+press("<BS>")
+ok(vim.wait(1000, function() return line_with(view.drawn.lines, "│ M.alpha") end), "back from the ways")
 
 -- Rebuild: started in the background; the page says so, asks for the status until the build is done, then reads again.
 Map.POLL_MS = 20
@@ -266,20 +374,52 @@ eq(blank, false, "the page never went blank while the build ran and the map was 
 vim.g.desk_style = "retro"
 Map.render(view)
 ok(line_with(view.drawn.lines, "PROJECT MAP") and line_with(view.drawn.lines, "┌"), "retro: the page in capitals and code page 437 boxes")
-ok(line_with(view.drawn.lines, "r reach") and line_with(view.drawn.lines, "R rebuild"), "retro: the keys keep their case (r and R are two keys)")
+ok(line_with(view.drawn.lines, "Enter IN · BS OUT · r REACH · c CALLERS · P PATHS · ? KEYS · q CLOSE"),
+  "retro: the keys as typed (r and R are two keys), the words in capitals")
 ok(line_with(view.drawn.lines, "parts » lua » mod.lua") and not line_with(view.drawn.lines, "›") and not line_with(view.drawn.lines, "…"),
   "retro: nothing outside code page 437 (» between the levels, .. for an ellipsis)")
 vim.g.desk_style = "paper"
 press("q")
 eq(Map.views[view.buf], nil, "q closes the map")
 
--- No desk-work at all: the page says so instead of reading forever.
-local real = Map.desk_work
-Map.desk_work = function(_, done) vim.schedule(function() done(nil, { code = -1, stdout = "", stderr = "desk-work did not start; is it installed?" }) end) end
+-- No desk-work at all (the real call, with no desk-work on PATH): the page opens and says what it needs, and a key that
+-- needs it says so instead of asking. With desk-work there again, back on the page, the map.
+local said, asked_for = {}, 0
+local real_notify = vim.notify
+vim.notify = function(msg) said[#said + 1] = msg end
+vim.ui.input = function() asked_for = asked_for + 1 end
+Map.desk_work = real_desk_work
+vim.env.PATH = empty_bin
 local lonely = Map.open(root)
-ok(vim.wait(1000, function() return lonely.drawn and line_with(lonely.drawn.lines, "desk-work did not start") end), "without desk-work the page says why")
+ok(vim.wait(1000, function() return lonely.drawn and line_with(lonely.drawn.lines, "Requires desk-work: it builds the project map") end),
+  "without desk-work the page says what it needs")
+ok(line_with(lonely.drawn.lines, "requires desk-work") and not line_with(lonely.drawn.lines, "reading"), "… its badge too: not reading forever")
+local why = {}
+for _, l in ipairs(A.key_lines(A.context(lonely.win))) do why[l.ident] = l.right or true end
+eq({ why["map.reach"], why["map.paths"], why["map.rebuild"], why["map.back"], why["map.close"] },
+  { "requires desk-work", "requires desk-work", "requires desk-work", true, true }, "? says which keys need desk-work")
+press("r")
+eq({ asked_for, said[#said] }, { 0, "Requires desk-work." }, "r says so instead of asking for a function")
+vim.env.PATH = saved_path
+Map.desk_work = fake
+api.nvim_set_current_win(origin)
+api.nvim_set_current_win(lonely.win)
+ok(vim.wait(2000, function() return line_with(lonely.drawn.lines, "│ lua") ~= nil end), "with desk-work there, back on the page: the map")
+eq(lonely.missing, nil, "… and its keys work again")
 press("q")
-Map.desk_work = real
+
+-- No map built yet: the page and its badge say how to build one; a question to the map says so instead of asking.
+status.built = false
+local unbuilt = Map.open(root)
+ok(vim.wait(1000, function() return unbuilt.drawn and line_with(unbuilt.drawn.lines, "no map built yet · R builds it") end), "no map yet: the badge")
+ok(line_with(unbuilt.drawn.lines, "No map built yet. R builds it in the background"), "… and the page say R builds it")
+press("r")
+eq({ asked_for, said[#said] }, { 0, "No map built yet · R builds it." }, "r says so instead of asking")
+why = {}
+for _, l in ipairs(A.key_lines(A.context(unbuilt.win))) do why[l.ident] = l.right or true end
+eq({ why["map.reach"], why["map.rebuild"] }, { "no map built yet · R builds it", true }, "? greys the questions, not the build")
+press("q")
+vim.notify = real_notify
 
 vim.fn.delete(root, "rf")
 print(string.format("test_map: %d passed%s%s", passed, failed > 0 and (", " .. failed .. " failed") or "",

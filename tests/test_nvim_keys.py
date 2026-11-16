@@ -1,8 +1,9 @@
 """Neovim keys: the reference tables are generated from the action registry, and no key is mapped twice by accident.
 
 `python3 tests/test_nvim_keys.py --write` rewrites the generated sections of shared/nvim_NVIM-KEYBINDS.md: the review's
-keys (the rows shared/nvim_lua/desk/review.lua adds), the call graph's, the pop-out's (desk/popout.lua), the desk
-keys (every row on the editor surface: the global keys and the home menu's rows), and the Jupyter notebook keys.
+keys (the rows shared/nvim_lua/desk/review.lua adds), the call graph's, the pop-out's (desk/popout.lua), the project
+map's (desk/map.lua), the desk keys (every row on the editor surface: the global keys and the home menu's rows), and
+the Jupyter notebook keys.
 """
 from collections import defaultdict
 import json
@@ -27,12 +28,15 @@ GRAPH_BEGIN = '<!-- callgraph-keys:begin · generated from shared/nvim_lua/desk/
 GRAPH_END = '<!-- callgraph-keys:end -->'
 POPOUT_BEGIN = '<!-- popout-keys:begin · generated from shared/nvim_lua/desk/popout.lua: python3 tests/test_nvim_keys.py --write -->'
 POPOUT_END = '<!-- popout-keys:end -->'
+MAP_BEGIN = '<!-- map-keys:begin · generated from shared/nvim_lua/desk/map.lua: python3 tests/test_nvim_keys.py --write -->'
+MAP_END = '<!-- map-keys:end -->'
 REVIEW = {'review-list': 'list', 'review-diff': 'diff'}
 GRAPH = {'callgraph': 'tab', 'callgraph-panel': 'panel'}
 # Where a key works, as a reference line says it: for a line of one place, then per key when a line mixes them.
 REVIEW_PLACES = ({'list': ' in the file list', 'diff': ' in a diff'}, {'list': ' (list)', 'diff': ' (diff)'})
 GRAPH_PLACES = ({'tab': ' in the graph tab', 'panel': ' in the panel', 'both': ' in a graph'}, {'tab': ' (graph tab)', 'panel': ' (panel)'})
 POPOUT_PLACES = ({'popout': ' in the pop-out', 'graph': ' in a graph'}, {'popout': ' (pop-out)', 'graph': ' (graph)'})
+MAP_PLACES = ({'map': ' in the map'}, {'map': ' (map)'})
 # The home menu's key; the pop-out's own row is that menu there (the editor's rows for the box it has selected).
 HOME_ROWS = {'desk.home', 'popout.home'}
 JUPYTER_BEGIN = ('<!-- jupyter-keys:begin · generated from the desk-jupyter block of templates/nvim/init.lua: '
@@ -89,6 +93,16 @@ def popout_keys():
         if row['id'].startswith('popout.') and row.get('key'):
             keys.append(entry(row, 'popout' if 'popout' in row['on'] else 'graph' if set(row['on']) & set(GRAPH) else 'editor'))
     return keys
+
+
+def map_keys():
+    """The project map's keys: on is 'editor' (Space cm) or 'map' (the map's tab)."""
+    keys = []
+    for row in nvim_keys.registry()['rows']:
+        # The shared desk rows (?) too; another module's row on the map would be in that module's table.
+        if row.get('key') and (row['id'].startswith('map.') or ('map' in row['on'] and row['id'].startswith('desk.'))):
+            keys.append(entry(row, 'editor' if 'editor' in row['on'] else 'map'))
+    return own_first(keys, 'map')
 
 
 def desk_keys():
@@ -201,6 +215,10 @@ def popout_reference():
     return reference(popout_keys(), POPOUT_BEGIN, POPOUT_END, '| Key | Action |', POPOUT_PLACES)
 
 
+def map_reference():
+    return reference(map_keys(), MAP_BEGIN, MAP_END, '| Key | Action |', MAP_PLACES)
+
+
 def with_reference(text, table, begin=BEGIN, end=END):
     if begin in text:
         head, rest = text.split(begin, 1)
@@ -239,7 +257,8 @@ class NvimKeys(unittest.TestCase):
     def test_every_view_lists_its_keys_on_question_mark(self):
         rows = {row['id']: row for row in nvim_keys.registry()['rows']}
         self.assertEqual(rows['desk.keys']['key'], '?')
-        self.assertEqual(sorted(rows['desk.keys']['on']), sorted(['review-list', 'review-diff', 'callgraph', 'callgraph-panel', 'since', 'menu']))
+        self.assertEqual(sorted(rows['desk.keys']['on']), sorted(['review-list', 'review-diff', 'callgraph', 'callgraph-panel', 'since', 'map',
+                                                                  'menu']))
         # The pop-out's ? is a row of its own (its key line and home menu name it) that opens this same list.
         taken = [row['id'] for row in rows.values() if row.get('key') == '?' and row['id'] not in ('desk.keys', 'popout.keys')]
         self.assertEqual(taken, [], '? is the key list on every view; the review\'s actions are a and Space Space')
@@ -253,6 +272,17 @@ class NvimKeys(unittest.TestCase):
         table = popout_reference()
         for line in ('| `Space Tab` |', '`o` in a graph', '`Enter` in the pop-out, a double click', '`Space Tab` in the pop-out'):
             self.assertIn(line, table)
+
+    def test_the_map_reference_is_generated_from_its_rows(self):
+        text = DOC.read_text()
+        self.assertIn(MAP_BEGIN, text)
+        self.assertEqual(text, with_reference(text, map_reference(), MAP_BEGIN, MAP_END),
+                         'NVIM-KEYBINDS.md differs from the project map rows: run python3 tests/test_nvim_keys.py --write')
+        table = map_reference()
+        for line in ('| `Space cm`, `:ProjectMap` |', '| `<BS>` / `-` in the map |', '| `P` in the map |'):
+            self.assertIn(line, table)
+        self.assertNotIn('`p` in the map', table, "p is the grammar's pin; the ways moved to P")
+        self.assertTrue(table.rstrip().splitlines()[-2].startswith('| `?` in the map'), "the shared ? comes after the map's own keys")
 
     def test_the_registry_takes_every_row_the_modules_add(self):
         found = nvim_keys.registry()
@@ -352,6 +382,7 @@ if __name__ == '__main__':
         text = with_reference(DOC.read_text(), reference(review_keys()))
         text = with_reference(text, callgraph_reference(), GRAPH_BEGIN, GRAPH_END)
         text = with_reference(text, popout_reference(), POPOUT_BEGIN, POPOUT_END)
+        text = with_reference(text, map_reference(), MAP_BEGIN, MAP_END)
         text = with_reference(text, desk_reference(), DESK_BEGIN, DESK_END)
         DOC.write_text(with_jupyter(text, jupyter_reference(jupyter_keys())))
         print('wrote', DOC.relative_to(ROOT))
