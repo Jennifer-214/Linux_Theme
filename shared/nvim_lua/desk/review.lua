@@ -1817,7 +1817,9 @@ function M.refresh_requests(wait)
   end
 end
 
-function M.select(index, refresh)
+-- keep: the file shown read again (a refresh), not her move: the list keeps its selection, and in the pop-out the row
+-- she is on stays selected (her next m acts there). Her own moves select what they show.
+function M.select(index, refresh, keep)
   local r = M.current
   if not r or not r.files[index] then return end
   if not api.nvim_tabpage_is_valid(r.tab) or not api.nvim_win_is_valid(r.left_win) or not api.nvim_win_is_valid(r.right_win) then
@@ -1843,7 +1845,7 @@ function M.select(index, refresh)
   if r.displayed_file == file and r.displayed_row == r.row and r.displayed_left == left and r.displayed_right == right
       and r.displayed_since == file.since and api.nvim_buf_is_valid(r.left_buf or -1) and api.nvim_buf_is_valid(r.right_buf or -1) then
     r.notes = M.notes(r.root)
-    options(r); panel(r, true); draw_notes(r)
+    options(r); panel(r, not keep); draw_notes(r)
     local target = r.last_diff_win
     if target ~= r.left_win and target ~= r.right_win or not api.nvim_win_is_valid(target or -1) then target = r.right_win end
     api.nvim_set_current_win(target)
@@ -1870,7 +1872,7 @@ function M.select(index, refresh)
       or 'DiffDelete:FoxReviewFiller,DiffChange:FoxReviewNewLine,DiffText:FoxReviewNewWord'
   end
   r.notes = M.notes(r.root)
-  options(r); panel(r, true)
+  options(r); panel(r, not keep)
   local target = r.last_diff_win
   if target ~= r.left_win and target ~= r.right_win or not api.nvim_win_is_valid(target or -1) then target = r.right_win end
   api.nvim_set_current_win(target)
@@ -1981,7 +1983,7 @@ refresh_files = function(r, echo, status)
   for _, target in ipairs({ r.left_win, r.right_win, r.panel_win }) do
     if api.nvim_win_is_valid(target) then views[target] = api.nvim_win_call(target, vim.fn.winsaveview) end
   end
-  M.select(r.index)
+  M.select(r.index, nil, true)
   for target, view in pairs(views) do
     if api.nvim_win_is_valid(target) then api.nvim_win_call(target, function() vim.fn.winrestview(view) end) end
   end

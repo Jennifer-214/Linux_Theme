@@ -294,7 +294,23 @@ R.refresh_live()
 ok(vim.wait(3000, function() return text_of(file_row("wb.lua")):find("→", 1, true) ~= nil end),
   "a file changed in the background: its calls are read again, its row marked →: " .. text_of(file_row("wb.lua")))
 ok(strip_of("wb.lua"):find("→ calls changed in three", 1, true), "… and its strip says where:\n" .. strip_of("wb.lua"))
+
+-- The list in the pop-out; the file shown changes on disk. The refresh draws the list again and leaves the pop-out's
+-- selection on the row she put it on: moved to the file shown, her next m would check that one.
+for i, f in ipairs(wr.files) do if f.rel == "wa.lua" then R.select(i) end end
+eq(wr.files[wr.index].rel, "wa.lua", "wa.lua is the file shown")
+local P = require("desk.popout")
+local pv = { id = "review", kind = "review", gen = 0, pinned = false }
+P.host.views, P.host.order = { review = pv }, { "review" }
+R.view_kind.open(pv)
+ok(wr.popout == pv, "the list is out in the pop-out (no pop-out is connected: nothing is sent)")
+pv.select = nil
+write("wa.lua", "local function one()\n  return helper(2)\nend\nreturn one\n")
+R.refresh_live()
+eq({ file_of("wa.lua").right:find("helper(2)", 1, true) ~= nil, pv.select }, { true, nil },
+  "the file shown changed and was read again; the pop-out's selection is where she put it")
 C.close()
+P.host.views, P.host.order = {}, {}
 
 pcall(vim.fn.serverstop, vim.v.servername)
 vim.fn.delete(sandbox, "rf")
