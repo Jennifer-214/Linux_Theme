@@ -474,29 +474,27 @@ eq(A.voice(true)("Move on; `k` the previous one, `desk-work map build`"), "MOVE 
 eq(A.voice(false)("`k` the previous one"), "k the previous one", "paper: as written, the backticks gone")
 eq({ Menu.voice, require("desk.callgraph").glyphs(true).said("press `o` here") }, { A.voice, "PRESS o HERE" },
   "desk.menu and the call graph's drawing speak with it")
--- In the rows of these modules, a key of their own surfaces named in their words is between backticks, so the retro
--- voice leaves it alone ("K THE PREVIOUS ONE" was another key).
+-- In every module's rows (the review's, the map's and the since page's too: retro shouted their r, c, Esc and Enter), a
+-- key of the row's own surfaces named in its words is between backticks, so the retro voice leaves it alone ("K THE
+-- PREVIOUS ONE" was another key).
 local unquoted = {}
 local named = { Enter = true, Esc = true, Tab = true, Space = true, Backspace = true }
 for _, r in ipairs(A.rows()) do
-  local from = A.source(r) or ""
-  if from:match("/desk/menu%.lua$") or from:match("/desk/callgraph%.lua$") or from:match("/desk/popout%.lua$") or from:match("/desk/actions%.lua$") then
-    local own = {}
-    local surfaces = type(r.on) == "table" and r.on or { r.on }
-    for _, other in ipairs(A.rows()) do
-      local their = type(other.on) == "table" and other.on or { other.on }
-      for _, s in ipairs(surfaces) do
-        -- (the article "a" is never read as the review's key a)
-        if other.key and #other.key == 1 and other.key:match("%a") and other.key ~= "a" and vim.tbl_contains(their, s) and s ~= "editor" then
-          own[other.key] = true
-        end
+  local own = {}
+  local surfaces = type(r.on) == "table" and r.on or { r.on }
+  for _, other in ipairs(A.rows()) do
+    local their = type(other.on) == "table" and other.on or { other.on }
+    for _, s in ipairs(surfaces) do
+      -- (the article "a" is never read as the review's key a)
+      if other.key and #other.key == 1 and other.key:match("%a") and other.key ~= "a" and vim.tbl_contains(their, s) and s ~= "editor" then
+        own[other.key] = true
       end
     end
-    for _, words in ipairs({ r.about or "", type(r.doc) == "string" and r.doc or "" }) do
-      local bare = words:gsub("`[^`]*`", " ")
-      for word in bare:gmatch("%f[%w%+']([%w%+']+)%f[^%w%+']") do
-        if own[word] or named[word] then unquoted[#unquoted + 1] = r.id .. ": " .. word end
-      end
+  end
+  for _, words in ipairs({ r.about or "", type(r.doc) == "string" and r.doc or "" }) do
+    local bare = words:gsub("`[^`]*`", " ")
+    for word in bare:gmatch("%f[%w%+']([%w%+']+)%f[^%w%+']") do
+      if own[word] or named[word] then unquoted[#unquoted + 1] = r.id .. ": " .. word end
     end
   end
 end

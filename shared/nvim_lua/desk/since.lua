@@ -229,10 +229,10 @@ local function desk_work() return vim.fn.executable('desk-work') == 1 or 'requir
 local ROWS = actions.add({
   { id = 'since.open', group = 'Work', name = 'Since you last looked: commits, tests, jobs, Claude turns', key = '<leader>Ch', on = 'editor',
     remote = true, also = '`:WorkSince`', available = desk_work,
-    about = "Since you last looked: new commits, test runs, job runs with how their figures moved, and Claude turns with their files, newest first; Enter opens one (a commit's review, the results, the output, the turn's changes, a file). Opening it marks now as looked; with nothing new it shows the last list again",
+    about = "Since you last looked: new commits, test runs, job runs with how their figures moved, and Claude turns with their files, newest first; `Enter` opens one (a commit's review, the results, the output, the turn's changes, a file). Opening it marks now as looked; with nothing new it shows the last list again",
     run = function() M.open() end },
   { id = 'since.figures', group = 'Work', name = 'Figures', on = 'editor', available = desk_work,
-    about = "The newest job's figures against its previous run (desk-work metrics); Enter on one opens that job's output",
+    about = "The newest job's figures against its previous run (desk-work metrics); `Enter` on one opens that job's output",
     run = function() M.figures() end },
   { id = 'since.open-line', group = 'Work', name = 'Open what this line names', key = '<CR>', on = 'since',
     about = "Open what the line names: a commit's review, a test run's results, a job's output, a turn's changes, a file",

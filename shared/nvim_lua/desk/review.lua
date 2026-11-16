@@ -1372,7 +1372,7 @@ M.rows = actions.add({
   -- s: labels on the list's rows; in a diff it stays the code's flash s (no row there). symdeps is gs in both.
   { id = 'review.jump', group = 'Review', name = 'Jump to a row by its label', key = 's', on = LIST, menu = false, drawn = true,
     available = function() return require('desk.nav').labels_ready() end,
-    about = 'Labels on the rows on screen, as `s` draws them in code (flash.nvim): typing one moves there, as `j` and `k` would; Esc stays',
+    about = 'Labels on the rows on screen, as `s` draws them in code (flash.nvim): typing one moves there, as `j` and `k` would; `Esc` stays',
     run = function(ctx) if ctx.copy then return jump_items(ctx.copy) end; M.jump_rows(ctx.review) end },
   { id = 'review.symdeps', group = 'Review', name = 'Inspect changed C++ symbol in working copy', key = 'gs', on = BOTH, available = symdeps_here,
     remote = false, about = 'Inspect the changed C/C++ file in symdeps (current working copy near the reviewed line)', run = function() M.symdeps(false) end },

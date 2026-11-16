@@ -427,6 +427,10 @@ ok(retro_said({ ok = true, built = true, stale = true, head = "3789c69aaaa" }):f
   "retro: the stale badge shouts, its hash stays as it is")
 ok(retro_said({ ok = true, built = true, stale = false, head = "abcdef0123", built_at = os.time() }):find(" AT abcdef0", 1, true),
   "… and the built badge's")
+local titled = Map.header({ root = "/srv/checkouts/Linux_Theme", status = { ok = true, built = true, head = "abc", built_at = os.time() } }, Map.glyphs(true))
+eq(titled[1][1], "PROJECT MAP · Linux_Theme", "… and the checkout's folder, a name, keeps its case")
+ok(line_with(view.drawn.lines, "BINARY: REQUIRES A BUILT BINARY: desk-work map build --binary PATH"),
+  "… and the command a reader's note names is left as typed:\n" .. table.concat(view.drawn.lines, "\n"))
 local retro_reach = table.concat(Map.layout(Map.level_query(reach), 80, true).lines, "\n")
 local retro_ways = table.concat(Map.layout(Map.level_query({ ok = true, q = "paths", from = contents.nodes[5], to = contents.nodes[2], paths = {} }), 80, true).lines, "\n")
 ok(retro_reach:find("WHAT use REACHES · DEPTH 2", 1, true) and retro_ways:find("WAYS FROM use TO M.beta · 0", 1, true),

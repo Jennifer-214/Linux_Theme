@@ -345,8 +345,8 @@ work on the box selected there, `H` and Backspace go back through its zooms, and
 | `Space cm`, `:ProjectMap` | The whole checkout as boxes, by part, file and function, callers above; queries and a rebuild inside. One tab per checkout: pressed again, it brings that tab back as it was |
 | `Enter` in the map | Zoom into the part, file or class under the cursor; on a function, go to its code (the map stays open) |
 | `<BS>` / `-` in the map | Zoom out a level (from a query's answer, back to the page it was asked on); at the top, back to the code, the map left open |
-| `r` in the map | Everything a function reaches (a count before r is the depth; 3 without one) |
-| `c` in the map | Who calls a function, transitively (a count before c is the depth) |
+| `r` in the map | Everything a function reaches (a count before `r` is the depth; 3 without one) |
+| `c` in the map | Who calls a function, transitively (a count before `c` is the depth) |
 | `P` in the map | Every way from one function to another, shortest first |
 | `m` in the map | Go to a part of the checkout, picked by name |
 | `R` in the map | Rebuild the map in the background (a desk-work job; its log is in the jobs list) |
@@ -672,8 +672,8 @@ which-key its words.
 | `Space Ca` | Ask about this project on API credits, read-only (a visual selection goes along as an excerpt) |
 | `Space Ce`, `:WorkTests` | The last test run's failures as a jump list (its log when it has no locations) |
 | `Space Ck` | Pinned next steps for this project: pin one, mark it done, or turn it into a note for Claude |
-| `Space Ch`, `:WorkSince` | Since you last looked: new commits, test runs, job runs with how their figures moved, and Claude turns with their files, newest first; Enter opens one (a commit's review, the results, the output, the turn's changes, a file). Opening it marks now as looked; with nothing new it shows the last list again |
-| home menu: Figures | The newest job's figures against its previous run (desk-work metrics); Enter on one opens that job's output |
+| `Space Ch`, `:WorkSince` | Since you last looked: new commits, test runs, job runs with how their figures moved, and Claude turns with their files, newest first; `Enter` opens one (a commit's review, the results, the output, the turn's changes, a file). Opening it marks now as looked; with nothing new it shows the last list again |
+| home menu: Figures | The newest job's figures against its previous run (desk-work metrics); `Enter` on one opens that job's output |
 | home menu: symdeps | symdeps' own menu (`Space dm`): its cards, lists and checks for C and C++ code. symdeps is an optional plugin |
 | `Space Tab` | Put the keyboard in the pop-out window, on whichever screen it is; the same key there comes back here |
 <!-- desk-keys:end -->
@@ -742,7 +742,7 @@ Checking a live file is invalidated when its contents change. Files with missing
 | `Space rc` | Six context lines / full-file context |
 | `<BS>` in a diff | Back to the file list from a comparison pane, showing it again if it was hidden (or in the pop-out) |
 | `Space re`, `:ReviewFiles` | Toggle the review file list, keeping the comparison open; `Space e` keeps its normal Neo-tree binding |
-| `s` in the file list | Labels on the rows on screen, as `s` draws them in code (flash.nvim): typing one moves there, as `j` and `k` would; Esc stays |
+| `s` in the file list | Labels on the rows on screen, as `s` draws them in code (flash.nvim): typing one moves there, as `j` and `k` would; `Esc` stays |
 | `gs` | Inspect the changed C/C++ file in symdeps (current working copy near the reviewed line) |
 | `gf` | Open the editable working file in a separate tab |
 | `S` | Compare the current struct's layout with the selected commit's parent |

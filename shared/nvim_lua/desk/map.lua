@@ -774,15 +774,25 @@ local function unbuildable(s)
   end
   return needs
 end
+-- desk-work's words about a reader with the command in them as code ("requires a built binary: desk-work map build
+-- --binary PATH"), so the theme's voice shouts the words and leaves the command as it is typed.
+local function command_as_code(text)
+  text = tostring(text or '')
+  local at = text:find('desk-work ', 1, true)
+  if not at then return text end
+  local stop = text:find(' (', at, true) or (#text + 1)
+  return text:sub(1, at - 1) .. code(text:sub(at, stop - 1)) .. text:sub(stop)
+end
 
+-- The checkout's folder is a name, not the theme's words: it keeps its case in retro too.
 function M.header(view, G)
   local s = view.status
-  local out = { { G.said('project map · ' .. vim.fn.fnamemodify(view.root, ':t')), 'DeskMapTitle' } }
+  local out = { { G.said('project map · ' .. code(vim.fn.fnamemodify(view.root, ':t'))), 'DeskMapTitle' } }
   if view.missing then out[#out + 1] = { G.said('requires desk-work'), 'DeskMapStale' }
   elseif view.building or (s and s.building) then
     out[#out + 1] = { G.said('rebuilding' .. G.ellipsis .. ' started ' .. os.date('%H:%M', s and s.building_since or view.building_at or os.time())), 'DeskMapDim' }
   elseif not s then out[#out + 1] = { G.said('reading' .. G.ellipsis), 'DeskMapDim' }
-  elseif unbuildable(s) then out[#out + 1] = { G.said(unbuildable(s)[1].short), 'DeskMapStale' }
+  elseif unbuildable(s) then out[#out + 1] = { G.said(command_as_code(unbuildable(s)[1].short)), 'DeskMapStale' }
   elseif not s.built then out[#out + 1] = { no_map(G), 'DeskMapStale' }
   elseif s.stale then
     out[#out + 1] = { with_key(G, 'stale since ' .. code(short(s.head)) .. ' · ', 'rebuild', ' rebuilds'), 'DeskMapStale' }
@@ -807,7 +817,7 @@ function M.footer(view, G, keys)
   end
   if #answered > 0 then notes[#notes + 1] = 'answered by ' .. table.concat(answered, ' · ') end
   for _, p in ipairs(unbuildable(view.status) and {} or s.providers or {}) do   -- (else the page itself says them)
-    if p.state ~= 'ok' then notes[#notes + 1] = p.name .. ': ' .. ((p.why or '') ~= '' and p.why or 'not built yet') end
+    if p.state ~= 'ok' then notes[#notes + 1] = p.name .. ': ' .. ((p.why or '') ~= '' and command_as_code(p.why) or 'not built yet') end
   end
   if s.complete == false and s.why then notes[#notes + 1] = 'partial: ' .. s.why end
   if keys == false then return notes end
@@ -1314,9 +1324,9 @@ local ROWS = actions.add({
     nil, HERE),
   row('out', '-', 'Zoom out', 'Zoom out a level',
     function(view) if view.out then return zoom_out(view) end; back(view) end, nil, { line = 'map.back', menu = false, remote = true }),
-  row('reach', 'r', 'What a function reaches', 'Everything a function reaches (a count before r is the depth; 3 without one)',
+  row('reach', 'r', 'What a function reaches', 'Everything a function reaches (a count before `r` is the depth; 3 without one)',
     function(view, ctx) walk(view, 'reach', ctx) end, needs_function, THERE),
-  row('callers', 'c', 'Who calls a function', 'Who calls a function, transitively (a count before c is the depth)',
+  row('callers', 'c', 'Who calls a function', 'Who calls a function, transitively (a count before `c` is the depth)',
     function(view, ctx) walk(view, 'callers', ctx) end, needs_function, THERE),
   row('paths', 'P', 'The ways between two functions', 'Every way from one function to another, shortest first', ways, needs_function,
     { remote = true, input = { prompt = 'Ways to: ' } }),
