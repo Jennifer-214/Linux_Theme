@@ -2451,6 +2451,14 @@ local plugins = {
         lsp_doc_border = DeskStyle == "retro" and { views = { hover = { border = { style = DeskBorder } } } } or {{SHOW_WELCOME}},
       },
     },
+    config = function(_, opts)
+      -- noice 7bfd942 (upstream's newest) splits each UI event in get_handler with `event:match("([a-z]+)_(.*)")` and
+      -- fails on Neovim 0.12's `restart`, which has no "_": :restart then stopped at an invisible "Press any key" (VM
+      -- test F11). Drop this once upstream's get_handler skips event names without "_".
+      local ui, get_handler = require("noice.ui"), require("noice.ui").get_handler
+      ui.get_handler = function(event, ...) if event:find("_", 1, true) then return get_handler(event, ...) end end
+      require("noice").setup(opts)
+    end,
   },
 
 
