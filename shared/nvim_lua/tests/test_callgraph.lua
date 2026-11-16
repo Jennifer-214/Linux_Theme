@@ -156,6 +156,20 @@ ok(line_with(view.drawn.lines, "caller_of_M.alpha") < line_with(view.drawn.lines
 eq(vim.bo[view.buf].modifiable, false, "the graph is read-only")
 eq(requests, { "textDocument/prepareCallHierarchy", "callHierarchy/incomingCalls", "callHierarchy/outgoingCalls" }, "prepare, then incoming, then outgoing")
 eq(most, 1, "one request in flight at a time")
+-- A narrower window draws the graph again to fit, and a wider one again for its width (a tmux pane resized to 30
+-- columns cut the boxes and the key line until r). Headless Neovim does not fire WinResized by itself.
+local function widest(lines) local n = 0; for _, l in ipairs(lines) do n = math.max(n, vim.fn.strdisplaywidth(l)) end; return n end
+local full = widest(view.drawn.lines)
+ok(full > 34, "the graph starts wider than 34 columns")
+vim.cmd("vsplit")
+local beside = api.nvim_get_current_win()
+api.nvim_win_set_width(view.win, 34)
+api.nvim_exec_autocmds("WinResized", {})
+ok(widest(view.drawn.lines) <= 34, "narrowed to 34 columns, the graph is drawn again to fit them")
+api.nvim_win_close(beside, true)
+api.nvim_exec_autocmds("WinResized", {})
+eq(widest(view.drawn.lines), full, "… and widened again, for the width it has")
+api.nvim_set_current_win(view.win)
 local function key(lhs) vim.fn.maparg(lhs, "n", false, true).callback() end
 local function named(s, name) for i, b in ipairs(s.drawn.boxes) do if b.item.name == name then return i, b end end end
 local function painted(s)

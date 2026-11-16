@@ -493,7 +493,8 @@ end
 -- under the cursor (walking a call chain is Enter on a callee, then Space cc there).
 local views = {}
 
-local function render(view)
+-- keep: the same graph again (its window changed width), so the selection stays.
+local function render(view, keep)
   if not api.nvim_win_is_valid(view.win) then return end
   local graph = vim.deepcopy(view.graph)
   graph.notes = graph.notes or {}
@@ -501,7 +502,8 @@ local function render(view)
   if symdeps == 'missing' then graph.notes[#graph.notes + 1] = 'every use by role: requires symdeps' end
   graph.keys = vim.deepcopy(M.VIEW_KEYS)
   if symdeps == 'loaded' then table.insert(graph.keys, #graph.keys, { M.typed('symdeps'), 'symdeps' }) end
-  show(view, M.layout(graph, api.nvim_win_get_width(view.win) - 2, M.retro()))
+  view.width = api.nvim_win_get_width(view.win)
+  show(view, M.layout(graph, view.width - 2, M.retro()), keep)
 end
 
 local function load(view, target)
@@ -573,9 +575,15 @@ function M.open(target)
   local view = { buf = buf, win = win, origin = origin, source = target.buf }
   views[buf] = view
   bind_selection(view, 'callgraph')
+  -- A narrower or wider window (a tmux pane resized) draws the graph again for its width; it kept the old one until r.
+  local resized = api.nvim_create_augroup('desk_callgraph_view_' .. buf, { clear = true })
+  api.nvim_create_autocmd('WinResized', { group = resized, callback = function()
+    if view.graph and api.nvim_win_is_valid(view.win) and api.nvim_win_get_width(view.win) ~= view.width then render(view, true) end
+  end })
   api.nvim_create_autocmd('BufWipeout', { buffer = buf, once = true, callback = function()
     if views[buf] and views[buf].cancel then views[buf].cancel() end
     views[buf] = nil
+    pcall(api.nvim_del_augroup_by_id, resized)
   end })
   view.target = target
   load(view, target)
@@ -613,12 +621,13 @@ local function followed(win)
   return vim.bo[buf].buftype == '' and vim.b[buf].desk_callgraph == nil
 end
 
--- keep: the same graph again (pinning, unpinning), so the selection stays.
+-- keep: the same graph again (pinning, unpinning, a new width), so the selection stays.
 local function panel_show(graph, keep)
   if not panel_open() then return end
   panel.graph = graph
+  panel.width = api.nvim_win_get_width(panel.win)
   local drawn = vim.tbl_extend('force', {}, graph, { keys = M.panel_keys(panel.pinned), header = panel.pinned and 'PINNED' or nil })
-  show(panel, M.layout(drawn, api.nvim_win_get_width(panel.win) - 1, M.retro()), keep)
+  show(panel, M.layout(drawn, panel.width - 1, M.retro()), keep)
 end
 
 local function cache_key(t) return vim.uri_from_bufnr(t.buf) .. '\0' .. t.name .. '\0' .. t.row end
@@ -778,6 +787,9 @@ function M.panel_toggle()
   end })
   api.nvim_create_autocmd('WinClosed', { group = group, callback = function(a)
     if tonumber(a.match) == panel.win then vim.schedule(M.panel_close) else vim.schedule(M.panel_alone) end
+  end })
+  api.nvim_create_autocmd('WinResized', { group = group, callback = function()
+    if panel_open() and panel.graph and api.nvim_win_get_width(panel.win) ~= panel.width then panel_show(panel.graph, true) end
   end })
   panel_show({ message = 'move the cursor into a function' })
   if followed(source) then panel.source_win = source; M.panel_update() end

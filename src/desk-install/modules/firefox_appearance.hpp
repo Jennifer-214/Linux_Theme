@@ -10,6 +10,7 @@
 #include <fstream>
 #include <random>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace desk_install::firefox_appearance {
@@ -110,6 +111,41 @@ inline std::filesystem::path ensure_profile(const Context& ctx, std::string& why
     }
     ui::ok("Firefox profile made for its first start: " + dir.string());
     return dir;
+}
+
+// Prefs user.js holds to: Firefox reads it at every start and it wins over prefs.js, so these stay put whatever Firefox
+// rewrites: the stylesheet switch (userChrome/userContent), the built-in vertical tabs, and no "can't use speech
+// synthesis" bar over every reader-view page on a machine without Speech Dispatcher (what the bar's own "Don't show
+// again" sets; reading aloud still works once Speech Dispatcher is installed).
+inline constexpr std::pair<const char*, const char*> ENFORCED_PREFS[] = {
+    {"toolkit.legacyUserProfileCustomizations.stylesheets", "true"},
+    {"sidebar.revamp", "true"},
+    {"sidebar.verticalTabs", "true"},
+    {"media.webspeech.synth.dont_notify_on_error", "true"},
+};
+
+// Each enforced pref in body, on a line of its own with its value; true when body changed.
+inline bool enforce_prefs(std::string& body) {
+    bool changed = false;
+    for (const auto& [key, value] : ENFORCED_PREFS) {
+        const std::string pref = std::string("user_pref(\"") + key + "\", " + value + ");";
+        const size_t pos = body.find(std::string("\"") + key + "\"");
+        if (pos == std::string::npos) {
+            if (body.find("// FoxML theming") == std::string::npos) body += "\n// FoxML theming\n";
+            body += pref + "\n";
+            changed = true;
+            continue;
+        }
+        size_t line_start = body.rfind('\n', pos);
+        line_start = (line_start == std::string::npos) ? 0 : line_start + 1;
+        size_t line_end = body.find('\n', pos);
+        if (line_end == std::string::npos) line_end = body.size();
+        if (body.compare(line_start, line_end - line_start, pref) != 0) {
+            body.replace(line_start, line_end - line_start, pref);
+            changed = true;
+        }
+    }
+    return changed;
 }
 
 // Firefox's "Website appearance": the colour scheme pages are told the reader prefers (prefers-color-scheme).

@@ -150,6 +150,19 @@ int main() {
     ok &= ensure_profile(ctx, why).empty() && !why.empty() && !fs::exists(ctx.home);
     ::setenv("PATH", saved_path.c_str(), 1);
     fs::remove_all(bin);
+
+    // The prefs user.js holds to: added once each, a stale value put right, everything else left as it was; the
+    // reader view's speech notice among them (no Speech Dispatcher is installed).
+    using desk_install::firefox_appearance::enforce_prefs;
+    std::string prefs = "user_pref(\"keep.me\", 1);\nuser_pref(\"sidebar.revamp\", false);\n";
+    ok &= enforce_prefs(prefs);
+    ok &= prefs.find("user_pref(\"keep.me\", 1);\n") == 0;
+    ok &= prefs.find("user_pref(\"sidebar.revamp\", true);\n") != std::string::npos;
+    ok &= prefs.find("user_pref(\"sidebar.revamp\", false)") == std::string::npos;
+    ok &= prefs.find("user_pref(\"toolkit.legacyUserProfileCustomizations.stylesheets\", true);\n") != std::string::npos;
+    ok &= prefs.find("user_pref(\"media.webspeech.synth.dont_notify_on_error\", true);\n") != std::string::npos;
+    const std::string settled = prefs;
+    ok &= !enforce_prefs(prefs) && prefs == settled;
     fs::remove_all(root);
     std::cout << (ok ? "Firefox appearance backup deployment: OK\n" : "Firefox appearance backup deployment: FAILED\n");
     return ok ? 0 : 1;

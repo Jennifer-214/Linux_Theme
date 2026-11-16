@@ -156,39 +156,13 @@ void do_firefox(const Context& ctx) {
             ui::substep(std::string("Firefox ") + css);
         }
     }
-    // Prefs user.js enforces — it's read on every launch and wins over
-    // prefs.js, so these stay put even if Firefox rewrites prefs: the legacy
-    // stylesheet switch (userChrome/userContent) and the built-in vertical tabs.
-    static const std::pair<const char*, const char*> PREFS[] = {
-        {"toolkit.legacyUserProfileCustomizations.stylesheets", "true"},
-        {"sidebar.revamp", "true"},
-        {"sidebar.verticalTabs", "true"},
-    };
     fs::path userjs = profile / "user.js";
     std::ifstream existing(userjs);
     std::string body((std::istreambuf_iterator<char>(existing)),
                       std::istreambuf_iterator<char>());
     existing.close();
 
-    bool changed = false;
-    for (const auto& [key, value] : PREFS) {
-        const std::string pref = std::string("user_pref(\"") + key + "\", " + value + ");";
-        const size_t pos = body.find(std::string("\"") + key + "\"");
-        if (pos == std::string::npos) {
-            if (body.find("// FoxML theming") == std::string::npos) body += "\n// FoxML theming\n";
-            body += pref + "\n";
-            changed = true;
-            continue;
-        }
-        size_t line_start = body.rfind('\n', pos);
-        line_start = (line_start == std::string::npos) ? 0 : line_start + 1;
-        size_t line_end = body.find('\n', pos);
-        if (line_end == std::string::npos) line_end = body.size();
-        if (body.compare(line_start, line_end - line_start, pref) != 0) {
-            body.replace(line_start, line_end - line_start, pref);
-            changed = true;
-        }
-    }
+    bool changed = firefox_appearance::enforce_prefs(body);
     const fs::path find_colors = ctx.rendered_dir / "firefox/find-colors.js";
     if (fs::exists(find_colors)) {
         std::ifstream colors_file(find_colors);
@@ -218,7 +192,7 @@ void do_firefox(const Context& ctx) {
             ui::warn("Could not write Firefox preferences; leaving the previous file intact");
             return;
         }
-        ui::substep("Firefox user.js (stylesheets, vertical tabs, palette find colors)");
+        ui::substep("Firefox user.js (stylesheets, vertical tabs, no speech notice, palette find colors)");
     }
     // Restart Firefox so the new CSS loads. Session restore brings tabs
     // back on relaunch. Skipped silently if not running.
