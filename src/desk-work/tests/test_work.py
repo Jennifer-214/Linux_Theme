@@ -853,6 +853,24 @@ class Work(unittest.TestCase):
                          ({'complete': True, 'full': None, 'why': ''}, True))
         self.finished(self.invoke(*begin).strip(), '--exit', '0', '--output-full', 'relative/path', code=2)
 
+    def test_a_finish_is_applied_once_and_one_for_a_run_that_is_gone_is_stale(self):
+        run = self.invoke('begin', '--root', self.repo, '--session', 's', '--pid', 'parent', '--command', 'make test').strip()
+        folder = Path(self.env['XDG_STATE_HOME']) / 'foxml/work/runs' / run
+        first = self.finished(run, '--exit', '0', '--event', 'tool-1:end', output='3 passed\n')
+        self.assertEqual(first['state'], 'passed')
+        self.assertNotIn('duplicate', first)
+        record, log = (folder / 'run.json').read_bytes(), (folder / 'output.log').read_bytes()
+        again = self.finished(run, '--exit', '1', '--event', 'tool-1:end', output='1 failed\n')
+        self.assertEqual((again['ok'], again['duplicate'], again['state']), (True, True, 'passed'))
+        self.assertEqual(((folder / 'run.json').read_bytes(), (folder / 'output.log').read_bytes()), (record, log),
+                         'a repeated event changes nothing')
+        for path in folder.iterdir():
+            path.unlink()
+        folder.rmdir()   # pruned
+        late = self.finished(run, '--exit', '0', '--event', 'tool-2:end')
+        self.assertEqual((late['ok'], late['stale']), (True, True))
+        self.assertFalse(folder.exists(), 'a late finish does not bring a pruned run back')
+
     def test_newer_engine_prompt_state_overrides_registry_activity_without_losing_observed_files(self):
         self.data('agent-update', '--root', self.repo, '--agent', 'claude', '--session', 'needs-user', '--state', 'working',
                   '--pid', os.getpid(), '--file', 'sample.cpp')

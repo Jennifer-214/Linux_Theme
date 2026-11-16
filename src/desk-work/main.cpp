@@ -1673,7 +1673,7 @@ int dispatch(int argc, char** argv) {
             std::cout << "desk-work run [--root DIR] [--session ID] [--title TEXT] -- COMMAND [ARGS...]\n"
                          "desk-work jobs | overview [--root DIR...] | notebook --root DIR | worktrees --root DIR\n"
                          "desk-work begin --root DIR --pid PID|parent --command TEXT [--session ID --title TEXT --adapter claude|pi|shell --instance TOKEN]\n"
-                         "desk-work finish --id RUN --exit N | --state unknown [--why TEXT] [--output - --instance TOKEN --pid PID]\n"
+                         "desk-work finish --id RUN --exit N | --state unknown [--why TEXT] [--output - --event ID --instance TOKEN --pid PID]\n"
                          "                 [--output-complete yes|no --output-full PATH --output-why TEXT]\n"
                          "desk-work task-add --root DIR --text TEXT | task-toggle --root DIR --id ID [--done yes]\n"
                          "desk-work tests --root DIR | compare --id RUN | metrics --root DIR [--job RUN] | metrics-parse --root DIR < LOG | reviewed --root DIR --sha SHA\n"
@@ -1823,13 +1823,33 @@ int dispatch(int argc, char** argv) {
                 || (!full.empty() && (full.front() != '/' || full.size() > 4096 || full.find('\n') != full.npos))) return 2;
             if (!whole.empty() || !full.empty())
                 said["output"] = J{{"complete", whole != "no"}, {"full", full}, {"why", clean(opts["--output-why"]).substr(0, 300)}};
-            auto j = load_run(id); const int code = unknown && opts["--exit"].empty() ? -1 : std::stoi(opts["--exit"]);
-            const auto instance = opts["--instance"];
-            if (!instance.empty() && !instance_ok(instance)) return 2;
+            const int code = unknown && opts["--exit"].empty() ? -1 : std::stoi(opts["--exit"]);
+            const auto instance = opts["--instance"], event = opts["--event"];
+            if ((!instance.empty() && !instance_ok(instance)) || (!event.empty() && !std::regex_match(event, std::regex("[A-Za-z0-9_.:-]{1,128}")))) return 2;
+            // An adapter retries a terminal event until it is answered ok: a run that is gone (pruned, set aside) is
+            // answered stale, and an event already applied is answered duplicate; neither changes anything.
+            std::error_code gone;
+            if (id_ok(id) && !fs::is_regular_file(run_dir(id) / "run.json", gone)) {
+                std::cout << J{{"ok", true}, {"stale", true}, {"message", "That run is no longer recorded; nothing was changed"}}.dump() << '\n';
+                return 0;
+            }
+            Lock held(id_ok(id) ? run_dir(id) / "finish.lock" : fs::path());
+            auto j = load_run(id);
+            const auto delivered = j.is_object() ? j.value("delivered", J::array()) : J::array();
+            if (!event.empty() && delivered.is_array() && std::find(delivered.begin(), delivered.end(), event) != delivered.end()) {
+                std::cout << J{{"ok", true}, {"duplicate", true}, {"state", j["state"]}}.dump() << '\n';
+                return 0;
+            }
             // The caller is the process that asks (an adapter spawns desk-work itself), unless it names one.
             const long long caller = opts["--pid"].empty() || opts["--pid"] == "parent" ? static_cast<long long>(::getppid()) : std::stoll(opts["--pid"]);
             if (j.is_object() && !same_owner(j, instance, proc_stamp(caller))) {
                 std::cout << not_owner("This run").dump() << '\n'; return 1;
+            }
+            if (j.is_object() && !event.empty()) {
+                J kept = delivered.is_array() ? delivered : J::array();
+                kept.push_back(event);
+                while (kept.size() > 16) kept.erase(kept.begin());
+                j["delivered"] = kept;
             }
             // "--output -": the caller saw the output (a Claude Code Bash call) and hands it over, so the run reads like one desk-work ran.
             bool truncated = false;
