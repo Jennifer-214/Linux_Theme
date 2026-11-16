@@ -89,8 +89,9 @@ vim.g.desk_style = DeskStyle
 if DeskStyle == "retro" then vim.opt.guicursor = "n-v-c:block,i-ci-ve:hor20,r-cr:block,o:hor50" end
 -- >>> desk-border
 -- Float borders: a DOS double-line dialog in retro (code page 437 has no rounded corners), rounded elsewhere.
--- vim.g.desk_border is the one value every float reads (init.lua, the desk.* modules, fox-symdeps): either the
--- string "rounded" or a list of 8 border characters clockwise from the top-left, as nvim_open_win takes them.
+-- vim.g.desk_border is the one value the floats here and in the desk.* modules read (fox-symdeps can read it too; it
+-- does not yet): either the string "rounded" or a list of 8 border characters clockwise from the top-left, as
+-- nvim_open_win takes them.
 local DeskBorder = DeskStyle == "retro" and { "╔", "═", "╗", "║", "╝", "═", "╚", "║" } or "rounded"
 vim.g.desk_border = DeskBorder
 -- Floats that name no border of their own (mason, nui defaults, cmp) take 'winborder'; "double" is the same box.
