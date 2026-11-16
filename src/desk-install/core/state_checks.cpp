@@ -1,5 +1,6 @@
 #include "state_checks.hpp"
 #include "../modules/arch_audit_units.hpp"
+#include "../modules/etcwatch_units.hpp"
 #include "../modules/fstab_tmp.hpp"
 #include "palette.hpp"
 #include "deps_list.hpp"
@@ -174,12 +175,10 @@ Classification check_etckeeper(const Context& ctx, const Manifest& manifest) {
             return {Status::Update,
                     "commit-stamp hook missing — re-run installs /etc/etckeeper/commit.d/60foxml-stamp"};
         }
-        std::ifstream svc(ctx.config_home / "systemd/user/fox-etcwatch.service");
-        std::ostringstream body;
-        body << svc.rdbuf();
-        if (body.str().find("/var/lib/foxml/etc-last-commit") == std::string::npos) {
-            return {Status::Update,
-                    "fox-etcwatch.service predates stamp-based suppression — re-run redeploys it"};
+        // Both bodies must be today's: an older service kept systemd's start limit, and a burst of /etc writes
+        // passed its failure on to the path unit, which stopped watching (2026-11-15). The re-run also resets it.
+        if (!etcwatch_units_current(ctx.config_home / "systemd/user")) {
+            return {Status::Update, "fox-etcwatch units are out of date — re-run redeploys them"};
         }
         return {Status::Noop, "fox-etcwatch.path enabled + stamp hook present"};
     }

@@ -8,7 +8,9 @@
 //    subdirs change OUTSIDE etckeeper commits (skips alerts within 30s
 //    of an etckeeper commit by checking the /var/lib/foxml/etc-last-commit
 //    stamp, written by a commit.d hook — /etc/.git itself is root-only).
+//    The unit bodies live in modules/etcwatch_units.hpp.
 
+#include "etcwatch_units.hpp"
 #include "../core/context.hpp"
 #include "../core/idempotency.hpp"
 #include "../../desk-common/shell.hpp"
@@ -46,41 +48,6 @@ constexpr const char* STAMP_HOOK =
     "date +%s > /var/lib/foxml/etc-last-commit\n"
     "chmod 644 /var/lib/foxml/etc-last-commit\n"
     "exit 0\n";
-
-constexpr const char* PATH_UNIT =
-    "[Unit]\n"
-    "Description=fox-etcwatch — alert on changes to sensitive /etc subdirs\n"
-    "\n"
-    "[Path]\n"
-    "PathChanged=/etc/ssh\n"
-    "PathChanged=/etc/sudoers.d\n"
-    "PathChanged=/etc/pam.d\n"
-    "PathChanged=/etc/ufw\n"
-    "PathChanged=/etc/fail2ban\n"
-    "PathChanged=/etc/audit/rules.d\n"
-    "PathChanged=/etc/sysctl.d\n"
-    "\n"
-    "[Install]\n"
-    "WantedBy=default.target\n";
-
-constexpr const char* SERVICE_UNIT =
-    "[Unit]\n"
-    "Description=fox-etcwatch — dispatch /etc change\n"
-    "\n"
-    "[Service]\n"
-    "Type=oneshot\n"
-    "# Suppress alerts that fire from etckeeper's own commits — the commit.d\n"
-    "# stamp hook records every etckeeper commit; a stamp younger than 30s\n"
-    "# means the change is etckeeper's, not an out-of-band edit. We can't\n"
-    "# stat /etc/.git/HEAD here: it's root-only and this is a user unit.\n"
-    "# %% below is systemd unit escaping for a literal % in the command.\n"
-    "ExecStart=/bin/sh -c 'stamp=$(stat -c %%Y /var/lib/foxml/etc-last-commit 2>/dev/null || echo 0); "
-        "now=$(date +%%s); age=$((now - stamp)); "
-        "if [ \"$age\" -gt 30 ]; then "
-        "desk-dispatch \"etc-change\" "
-        "\"/etc modified outside an etckeeper commit (paths: ssh/sudoers.d/pam.d/ufw/fail2ban/audit/sysctl.d). "
-        "Run: sudo etckeeper unclean\" 2>/dev/null || true; "
-        "fi'\n";
 
 }  // namespace
 
@@ -139,8 +106,7 @@ void run_etckeeper(Context& ctx) {
     // Content-aware (not exists-only) so a fixed unit body converges on
     // re-run — the %-escaping repair would otherwise never reach a host
     // that already had the broken unit deployed.
-    bool units_current = idem::up_to_date(path_unit, PATH_UNIT, ctx.force_reapply)
-                      && idem::up_to_date(svc_unit, SERVICE_UNIT, ctx.force_reapply);
+    bool units_current = !ctx.force_reapply && etcwatch_units_current(units);
     if (!units_current) {
         fs::create_directories(units);
 
@@ -163,16 +129,16 @@ void run_etckeeper(Context& ctx) {
         if (fs::is_symlink(svc_unit,  ec)) fs::remove(svc_unit,  ec);
 
         // 3. Write the real unit bodies + reload so systemd sees them.
-        std::ofstream p(path_unit);     p << PATH_UNIT;
-        std::ofstream s(svc_unit);      s << SERVICE_UNIT;
+        std::ofstream p(path_unit);     p << ETCWATCH_PATH_UNIT;
+        std::ofstream s(svc_unit);      s << ETCWATCH_SERVICE_UNIT;
         sh::systemctl_daemon_reload(/*user=*/true);
 
-        // 4. Clear any previous failure state. The .path triggers the
-        //    .service on every /etc write, and during a --full install
-        //    /etc changes a lot — easily hits Restart= rate limit and
-        //    leaves the unit in "failed (unit-start-limit-hit)". The
-        //    reset-failed below makes the freshly-enabled unit start
-        //    clean instead of inheriting that limit-hit state.
+        // 4. Clear any previous failure state. Before the service had no
+        //    start limit (2026-11-15), a burst of /etc writes during an
+        //    install passed its limit on to the path unit and left it
+        //    "failed (unit-start-limit-hit)" until reset. The reset-failed
+        //    below makes the freshly-enabled unit start clean instead of
+        //    inheriting that state.
         sh::run({"systemctl", "--user", "reset-failed",
                  "fox-etcwatch.path", "fox-etcwatch.service"});
 

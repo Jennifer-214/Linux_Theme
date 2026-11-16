@@ -103,6 +103,7 @@ test: tests/test_check_ro tests/test_render_drift tests/test_drift_reference tes
 	@./tests/test_hidepid
 	@./tests/test_health_boot
 	@./tests/test_arch_audit
+	@./tests/test_etcwatch
 	@./tests/test_dry_run
 	@./tests/test_hypr_lua
 	@./tests/test_drawer_deploy
@@ -310,6 +311,11 @@ tests/test_health_boot: tests/test_health_boot.cpp modules/foxml_health_boot_scr
 test: tests/test_arch_audit
 tests/test_arch_audit: tests/test_arch_audit.cpp tests/unit_exec.hpp modules/arch_audit_units.hpp core/idempotency.hpp $(DESK_COMMON_LIB)
 	$(CXX) $(CXXFLAGS) -DBUILD_DIR='"$(CURDIR)/tests"' tests/test_arch_audit.cpp -L$(DESK_COMMON_DIR) -ldesk-common -o $@
+
+# The fox-etcwatch service's own command: no start limit, one alert a minute out of a burst.
+test: tests/test_etcwatch
+tests/test_etcwatch: tests/test_etcwatch.cpp tests/unit_exec.hpp modules/etcwatch_units.hpp core/idempotency.hpp $(DESK_COMMON_LIB)
+	$(CXX) $(CXXFLAGS) -DBUILD_DIR='"$(CURDIR)/tests"' tests/test_etcwatch.cpp -L$(DESK_COMMON_DIR) -ldesk-common -o $@
 
 tests/test_hidepid: tests/test_hidepid.cpp modules/hidepid_check.hpp
 	$(CXX) $(CXXFLAGS) tests/test_hidepid.cpp -o $@
