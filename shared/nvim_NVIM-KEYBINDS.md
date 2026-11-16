@@ -284,12 +284,13 @@ Everything you type, delete, paste or run (`.`, macros) happens at every cursor.
 | `Space ca` | Code action |
 | `[d` / `]d` | Prev / Next diagnostic |
 | `Space cf` | Format buffer |
-| `Space cc`, `:CallGraph` | Call graph of the function under the cursor, in a tab: callers above, the function in a double box, what it calls below (the language server's call hierarchy). It opens with the function's box selected |
-| `Space co`, `:CallGraphPanel` | Live call graph panel: a narrow split on the right that follows the cursor and redraws when the function under it changes. It never takes the focus (`Ctrl+w l` goes into it) |
+| `Space cc`, `:CallGraph` | Call graph of the function under the cursor, in a tab: callers above, the function in a double box, what it calls below (the language server's call hierarchy). It opens with the function's box selected. One tab: pressed again anywhere, it brings that tab back on the function under the cursor |
+| `Space co`, `:CallGraphPanel` | Live call graph panel: a narrow split on the right that follows the cursor and redraws when the function under it changes. It never takes the focus (`Ctrl+w l` goes into it); `p` in it pins it to the graph it shows (`PINNED`), `p` again follows the cursor |
 | `j` / `k` *(in a graph)* | The box below / above (the nearest one in that row) |
 | `h` / `l` *(in a graph)* | The box to the left / right in the same row |
 | `Tab` / `Shift+Tab`, `gg` / `G` *(in a graph)* | Every box in order, wrapping; the first / last box |
-| `Enter`, double click *(in a graph)* | Go to the selected box's function (a click, or any motion that lands in a box, selects it) |
+| `Enter`, double click *(in a graph)* | Go to the selected box's function, in the code window the graph came from; the graph stays open (a click, or any motion that lands in a box, selects it) |
+| `Backspace` *(in the graph tab)* | Back to that code window as it was, the graph left open |
 | `c` / `r` / `q` *(in the graph tab)* | Centre the graph on the selected box / read it again / close (`q` also closes the panel); `s` opens a C/C++ function in symdeps when it is loaded |
 
 ### C/C++ Specific

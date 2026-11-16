@@ -39,7 +39,7 @@ local function pad(s, w) return s .. string.rep(' ', math.max(0, w - width_of(s)
 
 -- ─── layout (pure) ─────────────────────────────────────────────────────────────────────────────────────────────
 -- graph: { center = item?, callers = {item}?, callees = {item}?, more = {callers, callees}?, message = text?,
---          notes = {text}?, keys = {{key, words}}? (the key line, last) }
+--          notes = {text}?, keys = {{key, words}}? (the key line, last), header = text? (first) }
 -- item: { name, detail, uri?, range?, enc? }. Returns the lines, the highlights and the boxes in reading order
 -- (callers row by row, the centre, callees row by row), each with its top line, its byte span on each of its four
 -- lines, where its name starts and its column and width on screen. Boxes flow left to right, wrap at `width`, and
@@ -125,25 +125,35 @@ function M.layout(graph, width, retro)
     add('')
     for _, note in ipairs(graph.notes) do add(fit(G.said(note), width, G.ellipsis), 'DeskCallGraphDim') end
   end
-  -- The key line, last: keys as typed, words in the theme's voice. Too narrow, the words before the last go first.
-  local keys = vim.deepcopy(graph.keys or {})
-  local function key_line()
-    local parts = {}
-    for _, k in ipairs(keys) do parts[#parts + 1] = k[1] .. ' ' .. G.said(k[2]) end
-    return table.concat(parts, ' · ')
-  end
-  while #keys > 2 and width_of(key_line()) > width do table.remove(keys, #keys - 1) end
-  if #keys > 0 then
+  -- The keys, last: keys as typed, words in the theme's voice, wrapping between keys when the width runs out.
+  if graph.keys and #graph.keys > 0 then
     add('')
-    local text = fit(key_line(), width, G.ellipsis)
-    add(text, 'DeskCallGraphDim')
-    local at = 0
-    for _, k in ipairs(keys) do
-      local s = text:find(k[1] .. ' ', at + 1, true)
-      if not s then break end
-      marks[#marks + 1] = { #lines, s - 1, s - 1 + #k[1], 'DeskCallGraphKey', 1 }
-      at = s + #k[1]
+    local text, spans = '', {}
+    local function flush()
+      add(text, 'DeskCallGraphDim')
+      for _, span in ipairs(spans) do marks[#marks + 1] = { #lines, span[1], span[2], 'DeskCallGraphKey', 1 } end
+      text, spans = '', {}
     end
+    for _, k in ipairs(graph.keys) do
+      local part = fit(k[1] .. ' ' .. G.said(k[2]), width, G.ellipsis)
+      if text ~= '' and width_of(text .. ' · ' .. part) > width then flush() end
+      if text ~= '' then text = text .. ' · ' end
+      spans[#spans + 1] = { #text, #text + math.min(#k[1], #part) }
+      text = text .. part
+    end
+    flush()
+  end
+  if graph.header then
+    -- A state the drawing is in (the panel pinned), above everything.
+    local text = fit(graph.header, width, G.ellipsis)
+    local left = string.rep(' ', math.max(0, math.floor((width - width_of(text)) / 2)))
+    table.insert(lines, 1, left .. text)
+    for _, m in ipairs(marks) do m[1] = m[1] + 1 end
+    for _, box in ipairs(boxlist) do
+      box.top = box.top + 1
+      for _, span in ipairs(box.spans) do span[1] = span[1] + 1 end
+    end
+    marks[#marks + 1] = { 1, #left, #left + #text, 'DeskCallGraphKey', 1 }
   end
   return { lines = lines, boxes = boxlist, marks = marks }
 end
@@ -243,12 +253,14 @@ end
 
 function M.selected(s) local box = s.index and s.drawn and s.drawn.boxes[s.index]; return box and box.item end
 
--- A new drawing: the centre box selected (else the first), the cursor on it.
-local function show(s, drawn)
+-- A new drawing: the centre box selected (else the first), the cursor on it; keep: the same graph drawn again, so
+-- the selection stays where it was.
+local function show(s, drawn, keep)
+  local was = keep and s.index
   s.drawn, s.index = drawn, nil
   draw(s.buf, drawn)
-  local first
-  for i, box in ipairs(drawn.boxes) do if box.centre then first = i; break end end
+  local first = was and drawn.boxes[was] and was
+  for i, box in ipairs(drawn.boxes) do if not first and box.centre then first = i end end
   first = first or (drawn.boxes[1] and 1)
   if first then M.select(s, first, true) else paint(s) end
 end
@@ -468,11 +480,16 @@ local function placeholder(target)
            buf = target.buf, row = target.row, col = target.col }
 end
 
--- ─── the graph view (a tab of its own) ─────────────────────────────────────────────────────────────────────────
+-- ─── the graph view (one tab, reused) ──────────────────────────────────────────────────────────────────────────
+-- Like the review: Enter goes to a function in the code window the graph came from and the tab stays open behind it,
+-- Backspace goes back to that window as it was, and Space cc from anywhere brings the same tab back on the function
+-- under the cursor (walking a call chain is Enter on a callee, then Space cc there).
 local views = {}
 
-M.VIEW_KEYS = { { 'j/k/h/l', 'move' }, { 'Enter', 'go' }, { 'c', 'centre' }, { 'r', 'reload' }, { 'q', 'close' } }
-M.PANEL_KEYS = { { 'j/k/h/l', 'move' }, { 'Enter', 'go' }, { 'q', 'close' } }
+M.VIEW_KEYS = { { 'j/k/h/l', 'move' }, { 'Enter', 'go' }, { 'BS', 'back' }, { 'c', 'centre' }, { 'r', 'reload' }, { 'q', 'close' } }
+function M.panel_keys(pinned)
+  return { { 'j/k/h/l', 'move' }, { 'Enter', 'go' }, { 'p', pinned and 'unpin' or 'pin' }, { 'q', 'close' } }
+end
 
 local function render(view)
   if not api.nvim_win_is_valid(view.win) then return end
@@ -513,10 +530,36 @@ function M.close_view(buf)
   end
 end
 
--- Opens the graph of target (a symbol from M.symbol_at, or {buf, item}) in a tab of its own.
+-- The graph tab, while it is open.
+function M.view()
+  for buf, view in pairs(views) do
+    if api.nvim_buf_is_valid(buf) and api.nvim_win_is_valid(view.win) and api.nvim_win_get_buf(view.win) == buf then return view end
+  end
+end
+
+-- Whether the view shows target's function already: the same place in the same file.
+local function showing(view, target)
+  local center = view.graph and view.graph.center
+  if not center then return false end
+  if center.uri and center.range then return center.uri == vim.uri_from_bufnr(target.buf) and center.range.start.line == target.row end
+  return center.buf == target.buf and center.row == target.row
+end
+
+-- Opens the graph of target (a symbol from M.symbol_at, or {buf, item}): in the graph tab when there is one (only
+-- switching to it when it shows that function already), else in a new tab.
 function M.open(target)
   highlights()
   local origin = api.nvim_get_current_win()
+  local open = M.view()
+  if open then
+    if origin ~= open.win then open.origin = origin end
+    api.nvim_set_current_win(open.win)
+    if showing(open, target) then return open end
+    open.source, open.target = target.buf, target
+    pcall(api.nvim_buf_set_name, open.buf, 'call graph · ' .. (target.name or target.item and target.item.name or '') .. ' · ' .. open.buf)
+    load(open, target)
+    return open
+  end
   vim.cmd('tabnew')
   local win, buf = api.nvim_get_current_win(), api.nvim_get_current_buf()
   vim.bo[buf].buftype, vim.bo[buf].bufhidden, vim.bo[buf].swapfile = 'nofile', 'wipe', false
@@ -534,6 +577,10 @@ function M.open(target)
     if item and item.raw then view.target = { buf = view.source, item = item, name = item.name }; load(view, view.target) end
   end, 'Centre the graph on the selected function')
   map('r', function() load(view, view.target) end, 'Read the graph again')
+  map('<BS>', function()
+    if api.nvim_win_is_valid(view.origin) then api.nvim_set_current_win(view.origin)
+    elseif #api.nvim_list_tabpages() > 1 then vim.cmd('tabprevious') end
+  end, 'Back to the code, the graph left open')
   map('q', function() M.close_view(buf) end, 'Close the call graph')
   map('s', function()
     local center = view.graph and view.graph.center
@@ -587,10 +634,12 @@ local function followed(win)
   return vim.bo[buf].buftype == '' and vim.b[buf].desk_callgraph == nil
 end
 
-local function panel_show(graph)
+-- keep: the same graph again (pinning, unpinning), so the selection stays.
+local function panel_show(graph, keep)
   if not panel_open() then return end
-  graph = vim.tbl_extend('force', {}, graph, { keys = M.PANEL_KEYS })
-  show(panel, M.layout(graph, api.nvim_win_get_width(panel.win) - 1, M.retro()))
+  panel.graph = graph
+  local drawn = vim.tbl_extend('force', {}, graph, { keys = M.panel_keys(panel.pinned), header = panel.pinned and 'PINNED' or nil })
+  show(panel, M.layout(drawn, api.nvim_win_get_width(panel.win) - 1, M.retro()), keep)
 end
 
 local function cache_key(t) return vim.uri_from_bufnr(t.buf) .. '\0' .. t.name .. '\0' .. t.row end
@@ -620,9 +669,9 @@ local function panel_request()
   panel.stop = function() stop_wait(); if stop_fetch then stop_fetch() end end
 end
 
--- Where the cursor is now in the followed window: draws from the cache, or asks.
+-- Where the cursor is now in the followed window: draws from the cache, or asks. Pinned, the panel stays put.
 function M.panel_update()
-  if not panel_open() then return end
+  if not panel_open() or panel.pinned then return end
   local win = panel.source_win
   if not win or not followed(win) then return end
   local buf, cursor = api.nvim_win_get_buf(win), api.nvim_win_get_cursor(win)
@@ -632,7 +681,7 @@ function M.panel_update()
     if not tree then target, why = nil, 'no treesitter parser for this file type' end
     local key = target and target.key or ('none:' .. buf .. ':' .. why)
     if key == panel.key then return end
-    panel.key = key
+    panel.key, panel.target = key, target
     if not target then return panel_show({ message = why }) end
     local cached = panel.cache[cache_key(target)]
     if cached then panel.wanted = nil; return panel_show(cached) end
@@ -644,10 +693,11 @@ function M.panel_update()
   end)
 end
 
--- A cursor move in a window: the update waits for the cursor to rest.
+-- A cursor move in a window: the update waits for the cursor to rest. Pinned, only the window Enter goes to follows.
 function M.panel_moved(win)
   if not panel_open() or not followed(win) then return end
   panel.source_win = win
+  if panel.pinned then return end
   panel.timer = panel.timer or uv.new_timer()
   panel.timer:stop()
   panel.timer:start(M.DEBOUNCE_MS, 0, vim.schedule_wrap(M.panel_update))
@@ -659,10 +709,37 @@ function M.panel_forget(buf)
   if panel.key and panel.key:match('^' .. buf .. ':') or (panel.key or ''):match('^none:' .. buf .. ':') then panel.key = nil end
 end
 
+-- The pinned graph, read again once its own file is saved (or its server arrives): the same function, by the item
+-- the server gave it when there is one, since a save can move its line.
+function M.panel_refresh(buf)
+  local target = panel.target
+  if not (panel_open() and panel.pinned and target and target.buf == buf) then return end
+  local center = panel.graph and panel.graph.center
+  local again = center and center.raw and vim.tbl_extend('force', {}, target, { item = center }) or target
+  panel.cache[cache_key(again)] = nil
+  panel.key, panel.wanted = again.key, again
+  if not (panel.inflight and panel.inflight.key == again.key) then panel_request() end
+end
+
+-- p: pinned, the panel keeps its graph while the cursor goes elsewhere; unpinned, it follows again from where the
+-- cursor is now.
+function M.panel_pin()
+  if not panel_open() then return end
+  panel.pinned = not panel.pinned
+  if panel.pinned then
+    if panel.timer then panel.timer:stop() end
+    panel_show(panel.graph or { message = 'move the cursor into a function' }, true)
+  else
+    panel.key = nil
+    panel_show(panel.graph or { message = 'move the cursor into a function' }, true)
+    M.panel_update()
+  end
+end
+
 function M.panel_close()
   if panel.stop then panel.stop() end
   if panel.timer then panel.timer:stop() end
-  panel.inflight, panel.wanted, panel.stop, panel.key = nil, nil, nil, nil
+  panel.inflight, panel.wanted, panel.stop, panel.key, panel.pinned, panel.target, panel.graph = nil, nil, nil, nil, false, nil, nil
   pcall(api.nvim_del_augroup_by_name, 'desk_callgraph_panel')
   if panel_open() then pcall(api.nvim_win_close, panel.win, true) end
   panel.win = nil
@@ -702,15 +779,18 @@ function M.panel_toggle()
   end
   bind_selection(panel, function() local item = M.selected(panel); if item then jump(item, panel.source_win) end end)
   vim.keymap.set('n', 'q', M.panel_close, { buffer = panel.buf, nowait = true, desc = 'Close the call graph panel' })
+  vim.keymap.set('n', 'p', M.panel_pin, { buffer = panel.buf, nowait = true, desc = 'Pin the panel to this graph, or follow again' })
   local group = api.nvim_create_augroup('desk_callgraph_panel', { clear = true })
   api.nvim_create_autocmd({ 'CursorMoved', 'BufEnter', 'InsertLeave' }, { group = group,
     callback = function() M.panel_moved(api.nvim_get_current_win()) end })
   api.nvim_create_autocmd('BufWritePost', { group = group, callback = function(a)
     M.panel_forget(a.buf)
+    M.panel_refresh(a.buf)
     M.panel_moved(api.nvim_get_current_win())
   end })
   api.nvim_create_autocmd('LspAttach', { group = group, callback = function(a)
     M.panel_forget(a.buf)
+    M.panel_refresh(a.buf)
     if panel.source_win and followed(panel.source_win) then M.panel_moved(panel.source_win) end
   end })
   -- :q on the last window beside the panel quits as if the panel were not there.

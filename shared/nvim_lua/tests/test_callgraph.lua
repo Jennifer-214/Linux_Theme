@@ -42,14 +42,21 @@ eq(drawn.boxes[G.box_at(drawn, row + 1, col)].item.name, "panel", "the box's det
 eq(vim.tbl_map(function(b) return b.item.name end, drawn.boxes), { "panel", "turn_symbols", "changed_symbols", "unit_of" },
   "the boxes in reading order: callers, the centre, callees")
 eq({ drawn.boxes[1].top + 1, drawn.boxes[1].name_col }, { row, col }, "a box knows where its name starts")
-local keyed = G.layout(vim.tbl_extend("force", graph, { keys = G.VIEW_KEYS }), 60, false)
-eq(keyed.lines[#keyed.lines], "j/k/h/l move · Enter go · c centre · r reload · q close", "the key line comes last")
-ok(vim.tbl_contains(vim.tbl_map(function(m) return table.concat({ m[1], m[2], m[3], m[4] }, ":") end, keyed.marks),
-  #keyed.lines .. ":0:7:DeskCallGraphKey"), "its keys are marked as keys")
-eq(G.layout(vim.tbl_extend("force", graph, { keys = G.VIEW_KEYS }), 60, true).lines[#keyed.lines],
-  "j/k/h/l MOVE · Enter GO · c CENTRE · r RELOAD · q CLOSE", "retro: the keys as typed, the words in capitals")
+local function marked(d) return vim.tbl_map(function(m) return table.concat({ m[1], m[2], m[3], m[4] }, ":") end, d.marks) end
+local keyed = G.layout(vim.tbl_extend("force", graph, { keys = G.VIEW_KEYS }), 78, false)
+eq(keyed.lines[#keyed.lines], "j/k/h/l move · Enter go · BS back · c centre · r reload · q close", "the key line comes last")
+ok(vim.tbl_contains(marked(keyed), #keyed.lines .. ":0:7:DeskCallGraphKey"), "its keys are marked as keys")
+eq(G.layout(vim.tbl_extend("force", graph, { keys = G.VIEW_KEYS }), 78, true).lines[#keyed.lines],
+  "j/k/h/l MOVE · Enter GO · BS BACK · c CENTRE · r RELOAD · q CLOSE", "retro: the keys as typed, the words in capitals")
 local tight = G.layout({ keys = G.VIEW_KEYS }, 34, false)
-eq(tight.lines[#tight.lines], "j/k/h/l move · Enter go · q close", "a narrow key line keeps moving, going and closing")
+eq({ tight.lines[#tight.lines - 1], tight.lines[#tight.lines] }, { "j/k/h/l move · Enter go · BS back", "c centre · r reload · q close" },
+  "a narrow key line wraps between keys and drops none")
+ok(vim.tbl_contains(marked(tight), #tight.lines .. ":0:1:DeskCallGraphKey"), "… its second line's keys marked too")
+local headed = G.layout({ header = "PINNED", center = { name = "x", detail = "a:1" }, keys = G.panel_keys(true) }, 35, false)
+eq(vim.trim(headed.lines[1]), "PINNED", "a header goes above everything")
+eq(G.box_at(headed, headed.boxes[1].top + 1, headed.boxes[1].name_col), 1, "… and the boxes below it still know where they are")
+eq({ headed.lines[#headed.lines - 1], headed.lines[#headed.lines] }, { "j/k/h/l move · Enter go · p unpin", "q close" },
+  "the panel's keys: p unpins while pinned")
 
 -- ─── moving box to box ─────────────────────────────────────────────────────────────────────────────────────────
 -- Five callers in two rows (three, then two), the centre, two callees; at 40 columns the rows sit at known places.
@@ -183,7 +190,21 @@ eq(G.selected(view).name, "caller_of_M.alpha", "… which it selected first")
 key("c")
 ok(vim.wait(2000, function() return view.drawn and text(view.drawn.lines):find("caller_of_caller_of_M.alpha", 1, true) end), "c: the graph of the selected box")
 eq(G.selected(view).name, "caller_of_M.alpha", "… with it, now the centre, selected")
-eq(view.drawn.lines[#view.drawn.lines], "j/k/h/l move · Enter go · c centre · r reload · q close", "the view ends with its keys")
+eq(view.drawn.lines[#view.drawn.lines], "j/k/h/l move · Enter go · BS back · c centre · r reload · q close", "the view ends with its keys")
+-- Backspace: back to the code as it was, the graph left open behind.
+local tabs, before = #api.nvim_list_tabpages(), api.nvim_win_get_cursor(origin)
+key("<BS>")
+eq({ api.nvim_get_current_win(), api.nvim_win_get_cursor(origin) }, { origin, before }, "BS goes back to the code window, its cursor where it was")
+-- One graph tab: Space cc elsewhere brings it back on that function; on the same function it only switches.
+api.nvim_win_set_cursor(origin, { 6, 2 })
+eq(G.open_cursor(), view, "Space cc on another function: the same graph tab")
+eq({ #api.nvim_list_tabpages(), api.nvim_get_current_win() }, { tabs, view.win }, "… no new tab, and the graph in front")
+ok(vim.wait(2000, function() return text(view.drawn.lines):find("callee_of_M.beta", 1, true) end), "… now on that function")
+eq(G.selected(view).name, "M.beta", "… its box selected")
+key("<BS>")
+local asked = #requests
+eq(G.open_cursor(), view, "Space cc on the same function")
+eq({ #api.nvim_list_tabpages(), api.nvim_get_current_win(), #requests }, { tabs, view.win, asked }, "… only switches: nothing asked again")
 key("q")
 eq(#api.nvim_list_tabpages(), 1, "q closes the graph's tab")
 
@@ -223,7 +244,8 @@ eq({ G.selected(G.panel).name, api.nvim_win_get_cursor(G.panel.win) }, { "M.alph
   "the panel selects its centre box, its cursor on the name")
 eq(painted(G.panel), spans(centre_box), "… highlighted")
 eq(api.nvim_get_current_win(), origin, "… while the focus stays in the code")
-eq(G.panel.drawn.lines[#G.panel.drawn.lines], "j/k/h/l move · Enter go · q close", "the panel ends with its keys")
+eq({ G.panel.drawn.lines[#G.panel.drawn.lines - 1], G.panel.drawn.lines[#G.panel.drawn.lines] }, { "j/k/h/l move · Enter go · p pin", "q close" },
+  "the panel ends with its keys")
 api.nvim_set_current_win(G.panel.win)
 key("j")
 eq(G.selected(G.panel).name, "callee_of_M.alpha", "j in the panel: the callee below")
@@ -281,6 +303,37 @@ ok(vim.wait(3000, function() return text(G.panel.drawn.lines):find("callee_of_M.
 vim.wait(100)
 eq(prepares(), 1, "… from the one request already out; M.beta, left before it was asked about, never is")
 delay = 10
+
+-- Pinned, the panel keeps its graph wherever the cursor goes; a save of its file reads it again; p follows again.
+ok(vim.wait(1000, function() return text(G.panel.drawn.lines):find("callee_of_M.alpha", 1, true) ~= nil and G.panel.inflight == nil end), "the panel on M.alpha")
+api.nvim_set_current_win(G.panel.win)
+key("p")
+api.nvim_set_current_win(origin)
+eq({ G.panel.pinned, vim.trim(G.panel.drawn.lines[1]) }, { true, "PINNED" }, "p pins the panel, and its first line says so")
+eq(G.panel.drawn.lines[#G.panel.drawn.lines - 1], "j/k/h/l move · Enter go · p unpin", "… its keys say p unpins")
+requests = {}
+api.nvim_win_set_cursor(origin, { 6, 2 })
+G.panel_moved(origin)
+vim.wait(250)
+eq({ #requests, text(G.panel.drawn.lines):find("callee_of_M.alpha", 1, true) ~= nil }, { 0, true }, "pinned: the cursor in another function changes nothing")
+api.nvim_exec_autocmds("BufWritePost", { buffer = buf })
+ok(vim.wait(1000, function() return #requests > 0 and G.panel.inflight == nil end), "a save of its file reads the pinned graph again")
+eq({ prepares(), text(G.panel.drawn.lines):find("callee_of_M.alpha", 1, true) ~= nil, vim.trim(G.panel.drawn.lines[1]) }, { 0, true, "PINNED" },
+  "… the same function, still pinned")
+local _, pinned_callee = named(G.panel, "callee_of_M.alpha")
+api.nvim_set_current_win(G.panel.win)
+G.select(G.panel, (named(G.panel, "callee_of_M.alpha")), true)
+key("<CR>")
+G.panel_moved(origin)
+vim.wait(250)
+eq({ api.nvim_get_current_win(), api.nvim_win_get_cursor(origin)[1] }, { origin, 5 }, "Enter in a pinned panel goes there")
+ok(text(G.panel.drawn.lines):find("callee_of_M.alpha", 1, true) and pinned_callee, "… without re-centring the panel")
+api.nvim_set_current_win(G.panel.win)
+key("p")
+api.nvim_set_current_win(origin)
+ok(vim.wait(1000, function() return text(G.panel.drawn.lines):find("callee_of_M.beta", 1, true) ~= nil end), "p again follows: the function under the cursor")
+eq({ G.panel.pinned, vim.trim(G.panel.drawn.lines[1]) ~= "PINNED", G.panel.drawn.lines[#G.panel.drawn.lines - 1] },
+  { false, true, "j/k/h/l move · Enter go · p pin" }, "… unpinned, and its keys say so")
 
 -- Closing the last window beside the panel closes the panel (here another tab remains).
 vim.cmd("tabnew")

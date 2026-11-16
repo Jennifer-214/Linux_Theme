@@ -341,15 +341,20 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   calls it above and what it calls below, one level each way. One box is selected (highlighted), the function's own
   when the tab opens: `j` / `k` move to the nearest box in the row below / above, `h` / `l` along the row, `Tab` /
   `Shift+Tab` through every box, `gg` / `G` to the first / last. A click, or any motion that lands in a box, selects
-  it. Enter (or a double click) goes to the selected function, `c` centres the graph on it, `r` reads again, `q`
-  closes; the last line lists the keys. The data is the language server's call hierarchy (clangd, pyright, lua_ls, ...): while
-  the server starts or indexes the tab says "waiting for the language server" (15 seconds at most), and a file whose
-  server has no call hierarchy says which server it has. For C and C++, `s` opens the function in symdeps when that
+  it. Enter (or a double click) goes to the selected function in the code window the graph came from and leaves the
+  tab open behind it; Backspace goes back to that window as it was. `c` centres the graph on the selected box, `r`
+  reads again, `q` closes; the last lines list the keys. There is one graph tab: `Space cc` again, from any window,
+  brings it back on the function under the cursor (on the function it shows already, it only switches to it), so a
+  call chain is Enter on a callee, then `Space cc` there. The data is the language server's call hierarchy (clangd,
+  pyright, lua_ls, ...): while the server starts or indexes the tab says "waiting for the language server" (15
+  seconds at most), and a file whose server has no call hierarchy says which server it has. For C and C++, `s` opens the function in symdeps when that
   plugin is installed (every use by role); without it the line reads "requires symdeps".
 - **Live panel**: `Space co` (`:CallGraphPanel`) opens a narrow split on the right that follows the cursor. It redraws
   when the cursor has rested for 300 ms in another function, keeps each answer until that file is saved, asks the
   server one thing at a time and never takes the focus. Inside it (`Ctrl+w l`) the same keys move between boxes and
-  Enter goes to the selected one; `q` or closing the last window beside it closes it.
+  Enter goes to the selected one; `q` or closing the last window beside it closes it. `p` pins it: it keeps the graph
+  it shows (its first line reads `PINNED`) while the cursor goes elsewhere, Enter goes there without re-centring it,
+  and saving that graph's file reads it again. `p` again follows the cursor from where it is.
 - **What the last turn changed**: when a Claude turn ends, the notebook reads the function or class around each hunk
   it changed (treesitter, as the review's changed functions; a headless Neovim, three seconds at most) and puts the
   count on the last-turn row, `✎ 2 files · 3 functions`. Enter lists them by file; each opens Neovim with its graph
