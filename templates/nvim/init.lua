@@ -3664,6 +3664,11 @@ end, { desc = "Install the listed treesitter parsers and wait (the installer run
 -- Highlight + indent: master's `highlight`/`indent = { enable = true }` are gone.
 -- Start treesitter per-buffer in a FileType autocmd (core API), only when a parser
 -- exists, and drive indentexpr off the plugin (experimental on main — keep quoting).
+-- 0.12's language.add returns nil for a parser it cannot find instead of raising, so pcall alone says yes to every one.
+local function ts_has(lang)
+  local ok, added = pcall(vim.treesitter.language.add, lang)
+  return ok and added == true
+end
 local function ts_start(buf, lang)
   pcall(vim.treesitter.start, buf, lang)
   vim.bo[buf].indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()"
@@ -3674,7 +3679,7 @@ vim.api.nvim_create_autocmd("FileType", {
   callback = function(args)
     local lang = vim.treesitter.language.get_lang(vim.bo[args.buf].filetype)
     if not lang then return end
-    if pcall(vim.treesitter.language.add, lang) then
+    if ts_has(lang) then
       ts_start(args.buf, lang)
     elseif vim.list_contains(ts_parsers, lang) and not ts_asked[lang] then
       ts_asked[lang] = true
@@ -3683,7 +3688,7 @@ vim.api.nvim_create_autocmd("FileType", {
         vim.schedule(function()
           for _, buf in ipairs(vim.api.nvim_list_bufs()) do
             if vim.api.nvim_buf_is_loaded(buf) and vim.treesitter.language.get_lang(vim.bo[buf].filetype) == lang
-              and pcall(vim.treesitter.language.add, lang) then
+              and ts_has(lang) then
               ts_start(buf, lang)
             end
           end
