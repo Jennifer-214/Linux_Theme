@@ -565,6 +565,7 @@ newest test run of the buffer's checkout as desk-work recorded it: `âœ“ 128`, `â
 | `:WorkNext` | Open the first item in the shared attention list |
 | `:WorkTimeline` | Project activity with links to files, results and reviews |
 | `:WorkDigest` | Changes since your last explicit acknowledgement |
+| `Space Ch`, `:WorkSince` | Since you last looked: new commits, test runs, job runs with how their figures moved, and Claude turns with their files, newest first; Enter opens one (a commit's review, the results, the output, the turn's changes, a file). Opening it marks now as looked |
 | `:WorkSnooze` / `:WorkUnsnooze` | Hide or restore shared attention items without settling them |
 | `:WorkSuggestedTests` | Choose a captured test command and confirm a run in its original folder |
 | `:WorkSave` / `:WorkResume` | Save file positions or restore them in new tabs, preserving current buffers and jobs |

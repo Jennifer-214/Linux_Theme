@@ -998,6 +998,72 @@ class Work(unittest.TestCase):
         self.assertEqual({m["name"] for m in old["metrics"]}, {"p99", "throughput", "coverage", "tests passed", "tests failed"})
         self.assertEqual(json.loads(self.invoke("metrics", "--job", "f" * 32, code=1))["ok"], False)
 
+    def agent(self, state, *extra):
+        return self.data("agent-update", "--agent", "claude", "--session", "s1", "--pid", os.getpid(), "--state", state,
+                         "--title", "Queue work", *extra)
+
+    def test_a_turn_that_edited_files_is_one_event_with_its_files(self):
+        self.agent("working")
+        self.agent("working", "--file", "sample.cpp")
+        (self.repo / "other.py").write_text("x = 1\n")
+        self.agent("working", "--file", "other.py")
+        self.agent("waiting")
+        turns = [e for e in self.data("timeline") if e["kind"] == "turn"]
+        self.assertEqual(len(turns), 1)
+        self.assertEqual(sorted(turns[0]["files"]), ["other.py", "sample.cpp"])
+        self.assertEqual((turns[0]["label"], turns[0]["session"], turns[0]["action"]["kind"]), ("Queue work · 2 files", "s1", "file-diff"))
+        # A turn that only answered a question edits nothing and records nothing; nor does an idle session going idle.
+        self.agent("working")
+        self.agent("waiting")
+        self.agent("waiting")
+        self.assertEqual(len([e for e in self.data("timeline") if e["kind"] == "turn"]), 1)
+        # The next turn lists only what it edited, not the files of the turn before.
+        time.sleep(1.1)
+        self.agent("working")
+        self.agent("working", "--file", "other.py")
+        self.agent("done")
+        turns = [e for e in self.data("timeline") if e["kind"] == "turn"]
+        self.assertEqual([t["files"] for t in turns][0], ["other.py"], "the newest turn, ended by the session ending")
+
+    def test_since_lists_what_happened_after_the_reader_last_looked_and_marks_now(self):
+        bench = "print(open('figure.txt').read())"
+        for figure in ("p99 400ns", "p99 412ns"):
+            (self.repo / "figure.txt").write_text(figure + "\n")
+            self.execute(bench)
+        self.execute("print('3 passed')")
+        self.agent("working")
+        self.agent("working", "--file", "sample.cpp")
+        self.agent("waiting")
+        time.sleep(1.1)
+        first = self.data("since", "--mark", "yes")
+        self.assertEqual(set(first), {"ok", "root", "from", "first", "since", "at", "items", "truncated"})
+        self.assertTrue(first["first"], "a reader who never looked gets the last day")
+        kinds = [i["kind"] for i in first["items"]]
+        self.assertEqual(sorted(set(kinds)), ["commit", "job", "tests", "turn"])
+        self.assertEqual([i["at"] for i in first["items"]], sorted([i["at"] for i in first["items"]], reverse=True), "newest first")
+        commit = next(i for i in first["items"] if i["kind"] == "commit")
+        self.assertEqual((commit["label"], commit["sha"]), ("initial", self.git("rev-parse", "HEAD")))
+        tests = next(i for i in first["items"] if i["kind"] == "tests")
+        self.assertEqual((tests["state"], tests["passed"], tests["failed"]), ("passed", 3, 0))
+        jobs = [i for i in first["items"] if i["kind"] == "job"]
+        self.assertEqual([[(m["name"], m["delta"], m["verdict"]) for m in j["metrics"]] for j in jobs], [[("p99", "+12", "worse")], []],
+                         "the newer run says how its figures moved; the first had nothing to move from")
+        turn = next(i for i in first["items"] if i["kind"] == "turn")
+        self.assertEqual((turn["files"], turn["session"]), (["sample.cpp"], "s1"))
+        # Opened: what came before is no longer new. Another reader keeps its own place.
+        again = self.data("since")
+        self.assertFalse(again["first"])
+        self.assertEqual(again["items"], [])
+        self.assertTrue(self.data("since", "--reader", "drawer")["first"])
+        self.git("commit", "--allow-empty", "-qm", "later")
+        self.assertEqual([i["label"] for i in self.data("since")["items"]], ["later"])
+        # A read position the store cannot read is reported, never overwritten.
+        seen = Path(self.env["XDG_STATE_HOME"]) / "foxml/work/projects" / hashlib.sha256(str(self.repo.resolve()).encode()).hexdigest() / "seen.json"
+        seen.write_text("not json")
+        self.assertIn("seen.json", json.loads(self.invoke("since", "--mark", "yes", code=1))["message"])
+        self.assertEqual(seen.read_text(), "not json")
+        self.assertEqual(json.loads(self.invoke("since", "--reader", "no spaces", code=1))["ok"], False)
+
 
 if __name__ == "__main__":
     unittest.main()

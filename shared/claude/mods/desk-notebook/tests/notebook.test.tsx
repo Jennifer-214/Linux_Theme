@@ -961,6 +961,17 @@ test("the project page lists the last job's figures with their change; the front
   await ui.unmount()
 })
 
+test("the project page opens Neovim's since page through desk-work, with nothing but the action in its arguments", async ($, on) => {
+  engine(on, { projectWork: { tests: null, jobs: [], tasks: [] } })
+  await opened($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  expect(await ui.find({ key: 'nvim-since' }), 'not on the front page').toBeUndefined()
+  await ui.press({ key: 'nav-more' })
+  await ui.press({ key: 'nvim-since' })
+  expect(seen.argv).toContain('desk-work open --root /code/paper --action since')
+  await ui.unmount()
+})
+
 test('a job with no figures adds nothing to the project page', async ($, on) => {
   engine(on, { projectWork: { tests: null, jobs: [], tasks: [], metrics: { job: null, previous: null, metrics: [] } } })
   await opened($)

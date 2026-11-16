@@ -46,6 +46,8 @@ ONE_SIDED = {
         "native-only plan marks in the sign column; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "nvim_lua/desk/debug.lua", "~/.config/nvim/lua/desk/debug.lua"):
         "native-only C/C++ debugging through the system gdb; AGENT.md freezes mappings.sh",
+    ("SHARED_MAPPINGS", "nvim_lua/desk/since.lua", "~/.config/nvim/lua/desk/since.lua"):
+        "native-only since-you-last-looked page; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "kitty/crt-glow.pipeline", "~/.config/kitty/shaders/crt-glow.pipeline"):
         "native-only kitty glow and scanline pipeline that retro-amber turns on; AGENT.md freezes mappings.sh",
     ("TEMPLATE_MAPPINGS", "hyprlock/boot-label.sh", "~/.config/hypr/scripts/boot-label.sh"):

@@ -748,7 +748,20 @@ J agent_update(const std::string& root, const std::map<std::string, std::string>
     const auto path = project_dir(root) / "agents" / (hash(agent + ':' + sid) + ".json");
     Lock lock(project_dir(root) / "agents.lock");
     if (lock.fd < 0) return unwritable();
+    auto previous = json(path);
+    const auto busy = [](const std::string& s) { return s == "working" || s == "compacting"; };
+    // A turn ends when a working session goes back to waiting (or asks, errs or ends): the files it edited during the
+    // turn are one "turn" event, which the editor's since page lists. A turn that edited nothing records nothing.
+    const auto end_turn = [&](const J& was, const J& files) {
+        if (!was.is_object() || !busy(str(was, "state")) || !files.is_array() || files.empty()) return;
+        const auto count = files.size();
+        record_event(root, "turn", agent + ':' + sid + ':' + str(was, "turnId", std::to_string(num(was, "turnAt"))),
+            str(was, "name", agent) + " · " + std::to_string(count) + (count == 1 ? " file" : " files"),
+            J{{"kind", "file-diff"}, {"file", files[0]}},
+            J{{"files", files}, {"agent", agent}, {"session", sid}, {"started", num(was, "turnAt")}, {"name", str(was, "name", agent)}});
+    };
     if (state == "done") {
+        end_turn(previous, previous.is_object() ? previous.value("turnFiles", J()) : J());
         std::error_code ec; fs::remove(path, ec);
         if (!ec) signal_change(root);
         return ec ? refuse("Could not remove the agent record: " + ec.message()) : J{{"ok", true}};
@@ -756,7 +769,6 @@ J agent_update(const std::string& root, const std::map<std::string, std::string>
     const auto pid = get("--pid") == "parent" ? static_cast<long long>(::getppid()) : std::stoll(get("--pid"));
     const auto process = proc_stamp(pid);
     if (process.empty()) return refuse("That process is not running");
-    auto previous = json(path);
     J files = previous.is_object() && str(previous, "process") == process && previous.value("files", J()).is_array()
         ? previous["files"] : J::array();
     auto times = previous.is_object() && str(previous, "process") == process && previous.value("fileTimes", J()).is_object()
@@ -777,7 +789,14 @@ J agent_update(const std::string& root, const std::map<std::string, std::string>
              {"build", get("--build").empty() ? str(previous, "build") : get("--build").substr(0, 80)}};
     if (str(record, "name").empty()) record["name"] = previous.is_object() ? str(previous, "name", agent) : agent;
     if (!std::regex_match(str(record, "pane"), std::regex("%[0-9]+"))) record["pane"] = "";
+    const bool continuing = previous.is_object() && str(previous, "process") == process && busy(str(previous, "state"));
+    J turn = continuing && previous.value("turnFiles", J()).is_array() ? previous["turnFiles"] : J::array();
+    if (!edited.empty() && std::find(turn.begin(), turn.end(), edited) == turn.end() && turn.size() < 40) turn.push_back(edited);
+    record["turnAt"] = !busy(state) ? 0 : continuing ? num(previous, "turnAt", num(previous, "at")) : now();
+    record["turnId"] = !busy(state) ? "" : continuing ? str(previous, "turnId") : uuid();
+    record["turnFiles"] = busy(state) ? turn : J::array();
     const bool saved = atomic(path, record.dump());
+    if (saved && continuing && !busy(state)) end_turn(previous, turn);
     if (saved && !edited.empty()) record_event(root, "edit", agent + ':' + sid + ':' + edited + ':' + hash(read(fs::path(root) / edited)),
         edited + " · " + agent + " edited", J{{"kind", "file-diff"}, {"file", edited}},
         J{{"file", edited}, {"agent", agent}, {"session", sid}});
@@ -1278,6 +1297,7 @@ J attention(const std::string& root, const std::string& session = {}, bool revie
                            reviews(root, false), agents(root), session, review_only, include_snoozed);
 }
 #include "workflow.hpp"
+#include "since.hpp"
 #include "records.hpp"
 #include "integrations.hpp"
 // A checkout counts for the desktop's lists while it is in use: it still exists, and it has a commit or a recorded
@@ -1551,7 +1571,7 @@ int dispatch(int argc, char** argv) {
                          "desk-work tests --root DIR | compare --id RUN | metrics --root DIR [--job RUN] | metrics-parse --root DIR < LOG | reviewed --root DIR --sha SHA\n"
                          "desk-work plan|plan-pin --root DIR --session ID [--file PLAN.md --step TEXT]\n"
                          "desk-work attention --root DIR [--scope review] | watch [--root DIR | --all yes] | signal --root DIR\n"
-                         "desk-work timeline|digest --root DIR [--consumer NAME --through SEQUENCE]\n"
+                         "desk-work timeline|digest --root DIR [--consumer NAME --through SEQUENCE] | since --root DIR [--reader NAME --mark yes]\n"
                          "desk-work snooze --root DIR --id ITEM [--seconds 3600 | --until-change yes | --clear yes]\n"
                          "desk-work suggest-tests --root DIR --file PATH | run-suggested --root DIR --id RUN\n"
                          "desk-work integrations plan|apply|rollback|recover|status|backups [--expected PLAN | --transaction ID]\n"
@@ -1561,12 +1581,12 @@ int dispatch(int argc, char** argv) {
                          "desk-work health | integration-status [--client NAME --loaded BUILD] | workspace --root DIR --client NAME [--input -]\n"
                          "desk-work client-report --client NAME --build BUILD --pid parent [--root DIR --stream connected|retrying --refresh-at SECONDS --error TEXT]\n"
                          "desk-work agents [--root DIR] | agent-update --root DIR --agent NAME --session ID --state working|waiting|needs|error|done --pid PID|parent [--title NAME --pane PANE --file PATH]\n"
-                         "desk-work open --root DIR --action attention|tests|reviews|compare|log|tasks|ask|file|file-diff|plan|worktree --id ITEM [--file PATH --session ID]\n"; return 0;
+                         "desk-work open --root DIR --action attention|tests|reviews|compare|log|tasks|ask|file|file-diff|plan|worktree|since --id ITEM [--file PATH --session ID]\n"; return 0;
         }
         const auto cmd = args[0];
         invoked = cmd;
         const auto place = opts.count("--root") ? opts["--root"] : fs::current_path().string();
-        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "review-mark", "review-progress", "review-request", "review-requests", "commit-plan", "review-tree", "push-check", "push-notes", "records", "records-repair", "set-aside", "worktrees", "activity", "plan", "plan-pin", "watch", "signal", "attention", "agent-update", "agents", "revision", "open", "agent-heartbeat", "overlaps", "timeline", "digest", "snooze", "workspace", "suggest-tests", "run-suggested", "resolve", "metrics", "metrics-parse"}.count(cmd)
+        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "review-mark", "review-progress", "review-request", "review-requests", "commit-plan", "review-tree", "push-check", "push-notes", "records", "records-repair", "set-aside", "worktrees", "activity", "plan", "plan-pin", "watch", "signal", "attention", "agent-update", "agents", "revision", "open", "agent-heartbeat", "overlaps", "timeline", "digest", "snooze", "workspace", "suggest-tests", "run-suggested", "resolve", "metrics", "metrics-parse", "since"}.count(cmd)
             ? root_of(place) : place;
         const auto id = opts["--id"];
         J out;
@@ -1695,6 +1715,7 @@ int dispatch(int argc, char** argv) {
         else if (cmd == "notebook") out = notebook(root, opts["--session"], opts["--loaded"], opts["--health"] == "yes");
         else if (cmd == "worktrees") out = worktrees(root);
         else if (cmd == "metrics") out = metrics_report(root, opts.count("--job") ? opts["--job"] : id);
+        else if (cmd == "since") out = since_page(root, opts["--reader"].empty() ? "nvim" : opts["--reader"], opts["--mark"] == "yes");
         else if (cmd == "metrics-parse") {
             // What a log would give, read from stdin with this checkout's .desk/metrics: for trying out patterns.
             std::string input(4 * 1024 * 1024 + 1, '\0');
@@ -1790,7 +1811,7 @@ int dispatch(int argc, char** argv) {
                     if (str(tree, "path") == selected.string() && !tree.value("bare", false)) return open_editor(selected.string(), "workspace");
                 return 2;
             }
-            if (!std::set<std::string>{"tests", "reviews", "compare", "log", "tasks", "ask", "service", "ask-service", "timeline", "digest", "snoozed", "health", "backups"}.count(action)) return 2;
+            if (!std::set<std::string>{"tests", "reviews", "compare", "log", "tasks", "ask", "service", "ask-service", "timeline", "digest", "snoozed", "health", "backups", "since"}.count(action)) return 2;
             return open_editor(where.empty() ? fs::current_path().string() : where, action, target, opts["--index"]);
         } else if (cmd == "notify-services") {
             std::string failed;

@@ -1626,6 +1626,9 @@ export const register: Register = on => {
       const digest = now?.work?.digest
       if (digest?.total) pair('page-digest', 'since you last looked' + (digest.since ? ' ' + digest.since : ''), `${digest.total} events`, () => page('digest'),
         'Observed edits, requests and test results since you last marked this project caught up. Opening does not clear it.')
+      // The editor's own since page (desk.since): opening it there marks now as looked for Neovim.
+      pair('nvim-since', 'since you last looked in neovim', '', () => checkedWork(['open', '--root', root, '--action', 'since']),
+        'New commits, test runs, job figures and Claude turns since that page was last opened. Enter opens it in Neovim, which marks them looked.')
       // Counted with this one, so four running reads as "4 sessions".
       if (others.length) pair('page-sessions', `${others.length + 1} sessions`, '', () => page('sessions'),
         'The other agent sessions on this machine. Enter lists them, to go to one or leave it a note.')

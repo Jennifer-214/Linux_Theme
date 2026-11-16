@@ -88,6 +88,15 @@ up ("Since you last looked this morning: 2 runs passed"). Opening a digest does 
 clear it. **Mark caught up** acknowledges its recorded sequence, so later arrivals remain new. Notebook, editor
 and desktop have separate reading positions; attention state and review marks remain shared.
 
+Neovim's **since page** (**Space Ch**, `:WorkSince`, or the notebook project page's **since you last looked in
+neovim**) lists, newest first, what happened in the checkout after the page was last opened there: new commits,
+test runs with their result, job runs with how their figures moved (see "Run-to-run numbers"), and Claude turns
+with the files they edited. Enter opens what a line names: a commit's review, a test run's results, a job's
+output, a turn's changes in the review, or a file. Unlike the digest, opening it marks now as looked; the first
+look lists the last day. It is `desk-work since --root DIR [--reader NAME] [--mark yes]`, which keeps the time per
+reader beside the digest's positions and lists at most 60 entries. A turn is recorded when a session that was
+working goes back to waiting (or ends) having made observed tool edits; a turn that edited nothing records nothing.
+
 To catch up on a review backlog later, **set aside** the commits to review: from the drawer's **Needs you**, the
 notebook's needs-you page or `:WorkAttention`. They leave what needs you and stay unreviewed in the review, and
 **bring back** undoes it; nothing is stamped reviewed, and a commit made afterwards needs you as usual
