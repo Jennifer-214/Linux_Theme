@@ -583,15 +583,17 @@ local function structure_of(f) local s = f and f.structure; return s and s.signa
 
 -- Who calls a changed function, from what already knows without being started for it: the language server attached
 -- to the working file's buffer; else the project map, when one is built (by name); else what would. Asked in the
--- background, one function at a time, kept per function until its buffer changes (a server's answer) or for ten
--- minutes (the map's); "requires …" is asked again after half a minute.
-local reach = {}   -- path NUL name → { said, source, buf, tick, at, pending }
+-- background, one function at a time, and kept per function: a server's answer while its buffer is as it was asked
+-- (one that moved on is asked again once it has been still for M.REACH_SETTLE_MS: typing there asks once, when she
+-- pauses, and the strip keeps the last answer meanwhile), a map's for ten minutes; "requires …" is asked again after
+-- half a minute.
+local reach = {}   -- path NUL name → { said, source, buf, tick, at, pending, moved, moved_at }
 M.reach_known = reach
 local function reach_key(f, s) return f.path .. '\0' .. s.name end
 local function reach_said(f, s)
   if s.side == 'before' then return 'removed by this change' end
   local got = f and reach[reach_key(f, s)]
-  if not got or got.pending then return 'callers…' end
+  if not (got and got.said) then return 'callers…' end
   return got.said
 end
 local function calls_said(f, s)
@@ -1045,7 +1047,7 @@ end
 
 -- Callers, asked one function at a time; each answer draws the list again (the strips say it).
 local NO_REACH = 'callers: requires a language server or the project map'
-M.REACH_WAIT_S, M.REACH_AGAIN_S = 5, 30
+M.REACH_WAIT_S, M.REACH_AGAIN_S, M.REACH_SETTLE_MS = 5, 30, 750
 local map_missing = {}   -- root → when to ask again whether it has a map built
 local run_reach
 -- A changed function in the working buffer: where the review's copy has it when the buffer has it there too (the same
@@ -1082,10 +1084,14 @@ local function ask_server(r, job, done)
   local function answer(said)
     if over then return end
     over = true
-    if cancel then pcall(cancel) end
     done(said, stamp)
   end
-  vim.defer_fn(function() answer('callers: the language server did not answer in ' .. M.REACH_WAIT_S .. ' s') end, M.REACH_WAIT_S * 1000)
+  -- Only a request still out when its time is up is cancelled: an answered one is over.
+  vim.defer_fn(function()
+    if over then return end
+    if cancel then pcall(cancel) end
+    answer('callers: the language server did not answer in ' .. M.REACH_WAIT_S .. ' s')
+  end, M.REACH_WAIT_S * 1000)
   G.with_tree(buf, function(tree)
     if over then return end
     local node = tree and unit_here(r, tree:root(), buf, job.s)
@@ -1146,8 +1152,21 @@ run_reach = function(r)
   end
   if not ask_server(r, job, done) and not ask_map(r, job, done) then vim.schedule(function() done(NO_REACH, { source = 'none' }) end) end
 end
--- Who calls function s of file f: asked when nothing current is known (a server's answer is current until its buffer
--- changes, a map's for ten minutes; a server attached since answers instead).
+-- One more look over the last drawing's rows, once the buffers that moved on have been still a while (one per review).
+local function settle(r, wait)
+  local due = uv.now() + wait
+  if r.settle_due and r.settle_due <= due then return end
+  r.settle_due = due
+  vim.defer_fn(function()
+    if r.settle_due ~= due then return end
+    r.settle_due = nil
+    if M.current == r and not r.closing and r.reach_rows then ask_reach(r, r.reach_rows) end
+  end, wait + 10)
+end
+-- Who calls function s of file f: asked when nothing current is known (a server's answer is current while its buffer is
+-- as it was asked, a map's for ten minutes; a server attached since answers instead). A buffer edited since its answer
+-- is asked again when it has been still for M.REACH_SETTLE_MS: an answer that comes while she types is stale already,
+-- and asking again at once looped as long as she typed.
 function M.reach(r, f, s)
   if s.side == 'before' or s.kind == 'hunk' then return end
   local key = reach_key(f, s)
@@ -1156,21 +1175,26 @@ function M.reach(r, f, s)
   if got and not got.pending then
     local buf = vim.fn.bufnr(f.path)
     local loaded = buf >= 0 and api.nvim_buf_is_loaded(buf)
-    local fresh
-    if got.source == 'lsp' then fresh = loaded and got.buf == buf and got.tick == api.nvim_buf_get_changedtick(buf)
-    else
+    if got.source == 'lsp' and loaded and got.buf == buf then
+      local tick = api.nvim_buf_get_changedtick(buf)
+      if got.tick == tick then return end
+      if got.moved ~= tick then got.moved, got.moved_at = tick, uv.now() end
+      local wait = got.moved_at + M.REACH_SETTLE_MS - uv.now()
+      if wait > 0 then return settle(r, wait) end
+    elseif got.source ~= 'lsp' then
       local server = loaded and #require('desk.callgraph').clients(buf) > 0
-      fresh = not server and os.time() - (got.at or 0) < (got.source == 'map' and 600 or M.REACH_AGAIN_S)
+      if not server and os.time() - (got.at or 0) < (got.source == 'map' and 600 or M.REACH_AGAIN_S) then return end
     end
-    if fresh then return end
   end
-  reach[key] = { pending = r }
+  -- The last answer stays in the strip while it is asked again.
+  reach[key] = vim.tbl_extend('force', got or {}, { pending = r })
   r.reach_queue = r.reach_queue or {}
   table.insert(r.reach_queue, { f = f, s = s, key = key })
   vim.schedule(function() run_reach(r) end)
 end
 -- The changed functions a drawing of the list shows: their callers asked (at most 24 at a time).
 ask_reach = function(r, built)
+  r.reach_rows = built
   local n = 0
   for _, entry in pairs(built.entries) do
     local s = entry.symbol

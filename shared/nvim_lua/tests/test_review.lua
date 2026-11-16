@@ -142,6 +142,7 @@ local serving = {}   -- buffers the fake server is attached to
 G.clients = function(buf) return serving[buf] and { fake } or {} end
 G.busy = function() return false end
 local function at(line) return { start = { line = line, character = 0 }, ["end"] = { line = line, character = 1 } } end
+local answer_ms = 5   -- how long the fake server takes to answer each request
 G.transport = function(_, buf, method, params, handler)
   asked[#asked + 1] = { method = method, line = params.position and params.position.line }
   local uri = vim.uri_from_bufnr(buf)
@@ -152,7 +153,7 @@ G.transport = function(_, buf, method, params, handler)
       handler(nil, { { from = { name = "one", kind = 12, uri = uri, range = at(0), selectionRange = at(0) }, fromRanges = {} },
                      { from = { name = "two", kind = 12, uri = uri, range = at(0), selectionRange = at(0) }, fromRanges = {} } })
     else handler(nil, {}) end
-  end, 5)
+  end, answer_ms)
   return function() cancels = cancels + 1 end
 end
 local function prepared()
@@ -177,6 +178,26 @@ enter("closures.lua")
 ok(vim.wait(3000, function() return strip_of("function()"):find("2 callers", 1, true) ~= nil end),
   "a closure's callers, from the language server on the working file:\n" .. strip_of("function()"))
 eq(asked_lines(), { 1 }, "… asked about the first closure (line 2, where the change is), never the second")
+
+-- ─── typing in the working file asks the server once, when she pauses ───────────────────────────────────────────
+-- An answer is stamped with the buffer's version; while she typed, each one came back stale, the redraw it caused asked
+-- again, and so on for as long as she typed. A buffer that moved on is asked again once it has been still a moment,
+-- and the strip keeps the last answer meanwhile.
+R.REACH_SETTLE_MS, answer_ms = 400, 50   -- a server's three round trips take longer than a keystroke
+local before_typing = prepared()
+api.nvim_buf_set_lines(working, 0, 0, false, { "-- typing" })
+strips()   -- a redraw while she types (an answer for another function, a work event)
+for i = 1, 30 do
+  api.nvim_buf_set_lines(working, 0, 0, false, { "-- typing " .. i })
+  vim.wait(40)
+end
+local during = prepared() - before_typing
+ok(during <= 1, "typing in the working file: the server is not asked again while she types (" .. during .. " requests)")
+ok(strip_of("function()"):find("2 callers", 1, true), "… the strip keeps the last answer meanwhile:\n" .. strip_of("function()"))
+ok(vim.wait(3000, function() return prepared() > before_typing + during end), "once she stops, it is asked again")
+vim.wait(800)
+eq(prepared() - before_typing - during, 1, "… once")
+eq(cancels, 0, "an answered request is never cancelled (only one still out when its time is up)")
 C.close()
 
 pcall(vim.fn.serverstop, vim.v.servername)
