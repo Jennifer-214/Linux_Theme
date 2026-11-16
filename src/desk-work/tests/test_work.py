@@ -1235,6 +1235,51 @@ class Work(unittest.TestCase):
         self.end_editor(second[0])
         self.assertEqual(answered(), "sample.cpp", "an editor that ended is not asked")
 
+    @unittest.skipUnless(subprocess.run(["sh", "-c", "command -v nvim"], capture_output=True).returncode == 0, "needs Neovim")
+    def test_open_goes_to_her_running_editor_in_a_new_tab_and_otherwise_to_a_window_of_its_own(self):
+        with tempfile.TemporaryDirectory(prefix=".fox-work-editor-", dir=Path(__file__).parent) as temp:
+            fake, calls = Path(temp), self.dir / "calls.jsonl"
+            for name in ("kitty", "desk-drawer"):
+                (fake / name).write_text("#!" + sys.executable + "\nimport json,os,sys\nwith open(os.environ['WORK_CALLS'], 'a') as f:\n"
+                                         "    f.write(json.dumps([os.path.basename(sys.argv[0])] + sys.argv[1:]) + '\\n')\n")
+                (fake / name).chmod(0o755)
+            self.env.update(PATH=str(fake) + os.pathsep + self.env["PATH"], WORK_CALLS=str(calls))
+
+            def called():
+                seen = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+                calls.unlink(missing_ok=True)
+                return seen
+            second = self.repo / "second.cpp"
+            second.write_text("int second = 2;\n")
+            child, sock = self.editor("lua require('desk.bridge').setup()", "edit sample.cpp")
+            self.data("client-report", "--client", "nvim", "--build", "b", "--pid", child.pid, "--root", self.repo,
+                      "--server", sock, "--pane", "%77", "--role", "main")
+            shown = ("vim.json.encode({ tabs = #vim.api.nvim_list_tabpages(), front = vim.fn.expand('%:t'), viewer = vim.g.desk_work_view == true,"
+                     " first = vim.fn.fnamemodify(vim.fn.bufname(vim.fn.tabpagebuflist(1)[1]), ':t') })")
+            # The bridge caps each field: an oversized one is refused by name, over the socket too.
+            self.assertIn('"id" is limited to 4096', self.ask({"version": 1, "type": "open", "action": "file", "id": "/" + "x" * 5000}, code=1)["message"])
+
+            self.invoke("open", "--action", "file", "--file", "second.cpp")
+            self.assertEqual(called(), [["desk-drawer", "run", "work-jump", "%77"]], "no window of its own; her pane comes forward")
+            deadline = time.monotonic() + 10
+            while json.loads(self.remote(sock, shown))["tabs"] < 2 and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertEqual(json.loads(self.remote(sock, shown)), {"tabs": 2, "front": "second.cpp", "viewer": False, "first": "sample.cpp"})
+
+            # She is typing there: refused, so it opens in a window of its own as before, and nothing changes there.
+            self.keys(sock, "i")
+            self.invoke("open", "--action", "file", "--file", "second.cpp")
+            window = called()
+            self.assertEqual([c[0] for c in window], ["kitty"])
+            self.assertEqual(window[0][-3:], ["desk-work:file", str(second.resolve()), ""])
+            self.keys(sock, "<Esc>")
+            self.assertEqual(json.loads(self.remote(sock, shown))["tabs"], 2)
+
+            # The editor ended: its record went with it.
+            self.end_editor(child)
+            self.invoke("open", "--action", "file", "--file", "second.cpp")
+            self.assertEqual([c[0] for c in called()], ["kitty"])
+
 
 if __name__ == "__main__":
     unittest.main()

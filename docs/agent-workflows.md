@@ -24,6 +24,12 @@ opens the most urgent from anywhere. On that page the commits to review come las
 heading with its count (`── Wed 12-31 ── 52 ──`), the newest day first; **j** / **k** pass over the headings. An unreadable work record is an item of its own, first in the list. `desk-work open --root DIR --action attention --id ID` resolves an item against the
 current list before opening it, so a stale button cannot act on a request that was already settled.
 
+What the notebook, the drawer and notices open goes to the Neovim already running on that checkout, in a new tab, and
+its tmux pane comes forward; with several, the one focused last. When none is running, or that one declines (you are
+typing in it, or the item is a review and one is open there), it opens in a Neovim window of its own, as before.
+`desk-work editors --root DIR` lists a checkout's editors with their sockets; `desk-work editor --root DIR --input -`
+sends one message (JSON on stdin) through `desk.bridge`, which takes only the types it knows.
+
 The work store publishes a versioned change signal after a successful write. `desk-work watch --root DIR` streams
 it to subscribers; the desktop uses `--all yes`. Neovim refreshes a visible live comparison while preserving focus
 and scroll position. A comparison of a historical commit stays fixed. Ordinary loaded source files also have

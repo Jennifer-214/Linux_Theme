@@ -156,6 +156,67 @@ local function view(msg)
   return answer
 end
 
+-- ─── open: a work item, in a new tab ─────────────────────────────────────────────────────────────────────────────
+-- What desk-work open sends (the notebook's rows, the drawer's and notices' buttons): the items of desk.work's
+-- open_action, but not "workspace", which is an editor of its own for another worktree.
+local OPENS = {}
+for _, action in ipairs({ 'file', 'file-diff', 'callgraph', 'suggested-tests', 'reviews', 'tests', 'compare', 'log', 'tasks', 'ask',
+  'ask-service', 'service', 'timeline', 'digest', 'snoozed', 'since', 'health', 'backups' }) do OPENS[action] = true end
+local FILES = { file = true, ['file-diff'] = true, callgraph = true, ['suggested-tests'] = true }
+-- Opening a review closes the one already open (desk.claude open_review): these wait until she has closed hers.
+local REVIEWS = { ['file-diff'] = true, reviews = true }
+
+-- She is typing here: this editor has the focus (or has not said otherwise) and is in insert, replace, command-line or
+-- terminal mode, or in the command-line window. A new tab now would take her keys.
+function M.typing()
+  local mode = api.nvim_get_mode().mode:sub(1, 1)
+  return state.focused ~= false and (mode == 'i' or mode == 'R' or mode == 'c' or mode == 't' or vim.fn.getcmdwintype() ~= '')
+end
+
+local function untouched(buf)
+  return api.nvim_buf_is_valid(buf) and api.nvim_buf_get_name(buf) == '' and not vim.bo[buf].modified
+    and api.nvim_buf_line_count(buf) == 1 and api.nvim_buf_get_lines(buf, 0, 1, false)[1] == ''
+end
+
+-- The item in a new tab of its own, whose folder is the checkout (the work actions read the checkout from the buffer in
+-- front, else that folder), never as a work viewer: a viewer's close quits the whole editor. An item that makes its
+-- own tab (a review, health) leaves this one empty, and it goes.
+function M.open_in_tab(action, id, index, root)
+  if not pcall(vim.cmd.tabnew) then vim.notify('Could not open a tab for ' .. action, vim.log.levels.WARN, { title = 'desk' }); return end
+  local tab, empty = api.nvim_get_current_tabpage(), api.nvim_get_current_buf()
+  vim.cmd('tcd ' .. vim.fn.fnameescape(root))
+  local ok, err = pcall(require('desk.work').open_action, action, id, index, { root = root })
+  if not ok then vim.notify('Could not open ' .. action .. ': ' .. tostring(err), vim.log.levels.WARN, { title = 'desk' }) end
+  if api.nvim_tabpage_is_valid(tab) and tab ~= api.nvim_get_current_tabpage() then
+    local wins = api.nvim_tabpage_list_wins(tab)
+    if #wins == 1 and api.nvim_win_get_buf(wins[1]) == empty and untouched(empty) then
+      pcall(vim.cmd, 'tabclose ' .. api.nvim_tabpage_get_number(tab))
+    end
+  end
+  -- A view that took the tab's window left the tab's first buffer hidden: that goes too.
+  if untouched(empty) and #vim.fn.win_findbuf(empty) == 0 then pcall(api.nvim_buf_delete, empty, { force = true }) end
+end
+
+local function open(msg)
+  if vim.g.desk_work_view or vim.g.desk_popout then return refuse('this editor shows one item; nothing else opens in it') end
+  if not OPENS[msg.action] then return refuse(('"%s" does not open in a running editor'):format(msg.action)) end
+  local root = checkout(msg.root)
+  if not root then return refuse('that checkout is not on disk') end
+  local id = msg.id or ''
+  if FILES[msg.action] then
+    id = resolve(id)
+    if not within(root, id) then return refuse('another project') end
+  end
+  local review = package.loaded['desk.review']
+  if REVIEWS[msg.action] and type(review) == 'table' and review.current then return refuse('a review is open') end
+  if M.typing() then
+    vim.schedule(function() vim.notify('Not opened here while you type: it opens in a window of its own.', vim.log.levels.INFO, { title = 'desk' }) end)
+    return refuse('typing in this editor')
+  end
+  vim.schedule(function() M.open_in_tab(msg.action, id, msg.index, root) end)
+  return { opened = true }
+end
+
 function M.setup()
   state.last_focus = now_ms()
   local group = api.nvim_create_augroup('desk_bridge', { clear = true })
@@ -165,4 +226,6 @@ end
 
 M.register('ping', ping, { root = M.field('path', 4096) })
 M.register('view', view, { root = M.field('path', 4096, true) })
+M.register('open', open, { root = M.field('path', 4096, true), action = M.field('string', 32, true),
+  id = M.field('string', 4096), index = M.field('string', 256) })
 return M

@@ -1531,6 +1531,13 @@ std::string comparison(const J& job) {
 }
 std::string quote(const std::string& s) { std::string out = "'"; for (char c : s) out += c == '\'' ? "'\\''" : std::string(1, c); return out + "'"; }
 int open_editor(const std::string& root, const std::string& action, const std::string& id = {}, const std::string& index = {}) {
+    // Her running editor on this checkout first: a new tab there (desk.bridge's open), with its tmux pane brought
+    // forward. None listening, or it says no (she is typing there, a review is open): a Neovim of its own, as before.
+    const auto sent = ask_editor(root, "", J{{"version", 1}, {"type", "open"}, {"action", action}, {"id", id}, {"index", index}});
+    if (sent.code == 0) {
+        if (!str(sent.editor, "pane").empty() && sh::have("desk-drawer")) query({"desk-drawer", "run", "work-jump", str(sent.editor, "pane")});
+        return 0;
+    }
     // Data travels through argv into a fixed Lua call, never through an Ex/Lua interpolation.
     return sh::run({"kitty", "--detach", "--directory", root, "-e", "nvim", "+lua require('desk.work').open_args()", "--", "desk-work:" + action, id, index});
 }

@@ -95,6 +95,78 @@ eq(send({ type = "view", root = scratch .. "/gone" }), { refused = "that checkou
 vim.cmd("enew")
 eq(send({ type = "view", root = repo }), { refused = "no file in view" }, "a buffer that is no file")
 
+-- ─── open: a work item in a new tab, and the guards ──────────────────────────────────────────────────────────────
+vim.cmd("silent! %bwipeout!")
+vim.cmd.edit(vim.fn.fnameescape(source))
+local hers, her_tab = api.nvim_get_current_buf(), api.nvim_get_current_tabpage()
+local notices = {}
+vim.notify = function(text) notices[#notices + 1] = text end
+local function open(fields) return send(vim.tbl_extend("force", { type = "open", root = repo }, fields)) end
+local function tabs() return #api.nvim_list_tabpages() end
+local function settled(count) return vim.wait(2000, function() return tabs() == count end, 10) end
+
+has(open({ action = "workspace" }).refused, '"workspace"', "the workspace is an editor of its own")
+has(open({ action = "nonsense" }).refused, '"nonsense"', "an item it does not know")
+eq(open({ action = "file", id = other .. "/b.cpp" }), { refused = "another project" }, "a file of another checkout")
+eq(open({ action = "file", id = "" }), { refused = "another project" }, "a file it does not name")
+has(open({ action = "file", id = ("x"):rep(5000) }).refused, "limited to 4096", "an id over its cap")
+vim.g.desk_work_view = true
+has(open({ action = "log", id = "x" }).refused, "shows one item", "a work viewer opens nothing else")
+vim.g.desk_work_view = nil
+
+-- Guard: she is typing there (it has the focus, or has not said; insert or command-line). Refused, with a notice.
+local real_mode = api.nvim_get_mode
+for _, case in ipairs({ { "i", true }, { "c", nil }, { "R", true }, { "t", nil } }) do
+  api.nvim_get_mode = function() return { mode = case[1], blocking = false } end
+  B.state.focused = case[2]
+  eq(open({ action = "log", id = "x" }), { refused = "typing in this editor" }, "not while typing in mode " .. case[1])
+end
+api.nvim_get_mode = real_mode
+ok(vim.wait(500, function() return #notices > 0 end), "it says so where she types")
+has(notices[1], "while you type", "the notice")
+eq(tabs(), 1, "nothing opened while she typed")
+
+-- Guard: a review is open. Opening another would close hers.
+local R = require("desk.review")
+local review = { stand_in = true }
+R.current = review
+for _, action in ipairs({ "file-diff", "reviews" }) do
+  eq(open({ action = action, id = action == "file-diff" and source or "" }), { refused = "a review is open" }, action .. " waits for her review")
+end
+ok(R.current == review, "her review is still the one open")
+R.current = nil
+
+-- Opened: always a new tab, the checkout its folder; her window keeps her file; never a work viewer.
+B.state.focused = false
+api.nvim_get_mode = function() return { mode = "i", blocking = false } end
+eq(open({ action = "compare", id = "0123" }), { opened = true }, "in insert mode, but the focus is elsewhere")
+api.nvim_get_mode = real_mode
+ok(settled(2), "a new tab")
+eq(api.nvim_tabpage_get_win(her_tab) and api.nvim_win_get_buf(api.nvim_tabpage_get_win(her_tab)), hers, "her tab still shows her file")
+eq(api.nvim_buf_get_lines(0, 0, 1, false)[1], "Comparison unavailable.", "the item is in the new tab (no desk-work here)")
+eq(vim.fn.haslocaldir(-1, 0), 1, "the tab has its own folder")
+eq(uv.fs_realpath(vim.fn.getcwd(-1, 0)), repo, "the checkout")
+eq(vim.g.desk_work_view, nil, "her editor is never made a work viewer (its close would quit everything)")
+local unnamed = vim.tbl_filter(function(b) return vim.bo[b].buflisted and api.nvim_buf_get_name(b) == "" end, api.nvim_list_bufs())
+eq(unnamed, {}, "the tab's first buffer did not stay behind")
+-- An item that makes its own tab: the empty one goes.
+eq(open({ action = "health" }), { opened = true }, "health")
+ok(settled(3), "one tab more, not two")
+ok(api.nvim_buf_get_name(0):find("Work health", 1, true), "the health page is in front")
+-- A file of the checkout.
+eq(open({ action = "file", id = repo .. "/a.cpp" }), { opened = true }, "a file")
+ok(settled(4), "in a tab of its own")
+eq(api.nvim_buf_get_name(0), source, "the file")
+eq(api.nvim_win_get_buf(api.nvim_tabpage_get_win(her_tab)), hers, "her window is as she left it")
+
+-- The argv path is still a work viewer: the item takes the window it starts in, and closing it closes Neovim.
+local real_argv = vim.fn.argv
+vim.fn.argv = function() return { "desk-work:compare", "0123", "" } end
+require("desk.work").open_args()
+vim.fn.argv = real_argv
+eq({ tabs(), vim.g.desk_work_view }, { 4, true }, "open_args: no new tab, and a viewer")
+vim.g.desk_work_view = nil
+
 print(("bridge: %d passed, %d failed"):format(passed, failed))
 vim.fn.delete(scratch, "rf")
 os.exit(failed == 0 and 0 or 1)

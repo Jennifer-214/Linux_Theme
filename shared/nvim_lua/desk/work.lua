@@ -351,10 +351,11 @@ function M.session_base(before, path, sid, C)
   return rest
 end
 
+-- A Neovim desk-work started for one item (kitty … nvim +lua require('desk.work').open_args() -- desk-work:ACTION ID
+-- INDEX): a work viewer, which closing the item closes.
 function M.open_args()
   local args = vim.fn.argv()
   local action = (args[1] or ""):match("^desk%-work:(.+)$")
-  local id, index = args[2] or "", args[3]
   if not action then return end
   vim.g.desk_work_view = true
   vim.keymap.set("n", "<leader>Cq", function() require("desk.claude").close() end, { desc = "Close work viewer" })
@@ -362,6 +363,13 @@ function M.open_args()
     vim.keymap.set("n", "q", function() require("desk.claude").close() end, { desc = "Close Claude review" })
   end
   vim.cmd("silent! argdelete *")
+  M.open_action(action, args[2] or "", args[3])
+end
+
+-- One work item in the current window: from open_args, or from desk.bridge in her running editor, which gives it a
+-- new tab first. opts.root: the checkout it belongs to (else the one of the buffer in front).
+function M.open_action(action, id, index, opts)
+  local project = (opts or {}).root or root()
   if action == "file" then vim.cmd("edit " .. vim.fn.fnameescape(id))
   elseif action == "file-diff" then
     local C = require("desk.claude")
@@ -371,14 +379,14 @@ function M.open_args()
     end
     local before = M.session_base(ledger.before or {}, id, index, C)
     C.open_review({ kind = "live", sid = index or "", name = "notebook", short = "notebook",
-      files = { id }, before = before, label = "notebook change" }, root())
+      files = { id }, before = before, label = "notebook change" }, project)
     C.diff(id)
   elseif action == "callgraph" then require("desk.callgraph").open_at(id, index)
   elseif action == "workspace" then if not require('desk.workspace').resume() then vim.cmd("edit " .. vim.fn.fnameescape(vim.fn.getcwd())) end
   elseif action == "suggested-tests" then M.suggested_tests(id)
   elseif action == "timeline" then M.history(false)
   elseif action == "digest" then M.history(true)
-  elseif action == "since" then require("desk.since").open(root())
+  elseif action == "since" then require("desk.since").open(project)
   elseif action == "snoozed" then M.snooze(true)
   elseif action == "health" then M.health()
   elseif action == "backups" then M.backups()
@@ -387,11 +395,11 @@ function M.open_args()
   elseif action == "reviews" then
     local C = require("desk.claude")
     if id ~= "" then
-      for _, row in ipairs(C.rows(root())) do if row.kind == "commit" and row.sha == id then C.open_review(row, root()); return end end
+      for _, row in ipairs(C.rows(project)) do if row.kind == "commit" and row.sha == id then C.open_review(row, project); return end end
       vim.notify('That commit is no longer listed on this branch.'); return
     end
     C.changes(true)
-  elseif action == "tasks" then M.tasks(root(), id)
+  elseif action == "tasks" then M.tasks(project, id)
   elseif action == "ask" then M.ask(id)
   elseif action == "ask-service" then M.ask(nil, id)
   elseif action == "service" then scratch(run({ "service-log", "--unit", id }), "service log", "text")
