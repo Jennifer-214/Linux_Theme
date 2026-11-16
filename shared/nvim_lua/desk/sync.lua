@@ -180,6 +180,7 @@ function M.menu()
 end
 
 function M.setup()
+  if vim.g.desk_popout then return end   -- a pop-out (desk.popout) holds no files to watch
   local group = api.nvim_create_augroup('foxml_live_files', { clear = true })
   api.nvim_create_autocmd({ 'BufReadPost', 'BufWritePost' }, { group = group, callback = function(a) M.track(a.buf, true) end })
   api.nvim_create_autocmd('BufWritePost', { group = group, callback = function(a)

@@ -4427,3 +4427,16 @@ vim.api.nvim_set_hl(0, "FoxPlanNote", { fg = P.comment, italic = Paper.enabled }
 vim.api.nvim_set_hl(0, "FoxTreeClaude", { fg = P.bookmark })
 vim.api.nvim_set_hl(0, "FoxTreeClaudeShared", { link = "DiagnosticWarn" })
 pcall(function() require("desk.planmarks").setup() end)
+
+-- >>> desk-popout
+-- The pop-out (desk.popout: kitty … nvim --cmd 'let g:desk_popout=1', a window that only draws what the main editor
+-- sends) runs no language servers: they stay the main editor's. The work modules above start nothing there (each
+-- setup returns in a pop-out: no work records, watchers or saved places), and with no file buffer persistence saves
+-- no session there either.
+if vim.g.desk_popout then
+  pcall(function()
+    local servers = vim.tbl_map(function(config) return config.name end, vim.lsp.get_configs({ enabled = true }))
+    if #servers > 0 then vim.lsp.enable(servers, false) end
+  end)
+end
+-- <<< desk-popout

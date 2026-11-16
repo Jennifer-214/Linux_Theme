@@ -200,8 +200,10 @@ local function start_tests()
   front(0)
 end
 
--- The status line part: '' until a run is known (and always without desk-work or outside a checkout).
+-- The status line part: '' until a run is known (and always without desk-work, outside a checkout, or in the pop-out,
+-- which watches nothing of its own).
 function M.tests_status(retro)
+  if vim.g.desk_popout then return '' end
   if not tests.started then tests.started = true; vim.schedule(start_tests) end
   local root = current_root()
   local entry = root and tests.runs[root]

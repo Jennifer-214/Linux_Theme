@@ -691,7 +691,8 @@ local ROWS = actions.add({
 
 local timer
 function M.setup()
-  if timer then return end
+  -- A pop-out (desk.popout) keeps no work of its own: no Claude polling, work records, watchers or saved places.
+  if timer or vim.g.desk_popout then return end
   pcall(function() require("desk.work").setup() end)
   math.randomseed(uv.hrtime())
   timer = uv.new_timer()

@@ -348,6 +348,7 @@ function M.list()
 end
 
 function M.setup()
+  if vim.g.desk_popout then return end   -- a pop-out (desk.popout) shows no code to mark
   vim.api.nvim_set_hl(0, "FoxPlanSign", { default = true, link = "DiagnosticHint" })
   vim.api.nvim_set_hl(0, "FoxPlanNote", { default = true, link = "Comment" })
   local group = vim.api.nvim_create_augroup("foxml_plan_marks", { clear = true })
