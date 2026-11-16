@@ -589,6 +589,20 @@ class Scheduled(unittest.TestCase):
         self.assertEqual(len(listed), len(set(listed)), listed)
         self.assertEqual(set(listed), self.WEEKLY | self.LIVE)
 
+    def refused(self, *args):
+        with tempfile.TemporaryDirectory(prefix="theme-check-refuse-") as home:
+            ran = subprocess.run([str(CHECK), "--quiet", *args], capture_output=True, text=True, timeout=30,
+                                 env={"PATH": "/usr/bin:/bin", "HOME": home})
+        return ran
+
+    def test_a_selection_that_checks_nothing_is_refused_not_clean(self):
+        unknown = self.refused("--only", "D999")
+        self.assertEqual(unknown.returncode, 64, "an unknown check id must not exit 0")
+        self.assertIn("D999", unknown.stderr)
+        self.assertEqual(self.refused("--only", "").returncode, 64, "an empty --only must not mean every check")
+        self.assertEqual(self.refused("--only", "D2", "--scheduled").returncode, 64,
+                         "filters that leave nothing must not look like a clean run")
+
     def test_the_weekly_unit_selects_by_the_table(self):
         unit = (ROOT / "shared/systemd_user/fox-theme-check.service").read_text()
         self.assertIn("--scheduled", unit)

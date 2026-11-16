@@ -1060,7 +1060,7 @@ const char* mark(Status status) {
 }  // namespace
 
 int main(int argc, char** argv) {
-    bool quiet = false, verbose = false, scheduled = false, list = false;
+    bool quiet = false, verbose = false, scheduled = false, list = false, only_given = false;
     std::vector<std::string> only;
     std::string theme;
     for (int i = 1; i < argc; ++i) {
@@ -1068,7 +1068,7 @@ int main(int argc, char** argv) {
         if (arg == "--theme" && i + 1 < argc) theme = argv[++i];
         else if (arg == "--quiet" || arg == "-q") quiet = true;
         else if (arg == "--verbose" || arg == "-v") verbose = true;
-        else if (arg == "--only" && i + 1 < argc) only = split_csv(argv[++i]);
+        else if (arg == "--only" && i + 1 < argc) { only = split_csv(argv[++i]); only_given = true; }
         else if (arg == "--scheduled") scheduled = true;
         else if (arg == "--list") list = true;
         else if (arg == "-h" || arg == "--help") {
@@ -1089,6 +1089,22 @@ int main(int argc, char** argv) {
             return 0;
         } else { std::fprintf(stderr, "desk theme check: unknown option %s (see --help)\n", arg.c_str()); return 64; }
     }
+    // A run that checks nothing must not look like a clean one: an unknown id, an empty --only, or filters that leave
+    // nothing are refused instead of exiting 0.
+    for (const auto& id : only)
+        if (std::none_of(std::begin(CHECKS), std::end(CHECKS), [&](const Entry& c) { return id == c.id; })) {
+            std::fprintf(stderr, "desk theme check: no check is called %s (see --help)\n", id.c_str());
+            return 64;
+        }
+    if (only_given && only.empty()) { std::fprintf(stderr, "desk theme check: --only names no check\n"); return 64; }
+    const auto selected = [&](const Entry& c) {
+        return (only.empty() || std::any_of(only.begin(), only.end(), [&](const std::string& id) { return id == c.id; }))
+            && (!scheduled || c.when == When::Weekly);
+    };
+    if (std::none_of(std::begin(CHECKS), std::end(CHECKS), selected)) {
+        std::fprintf(stderr, "desk theme check: nothing to check — those options select no check\n");
+        return 64;
+    }
 
     Env env;
     env.home = env_or("HOME", "/");
@@ -1104,8 +1120,7 @@ int main(int argc, char** argv) {
 
     std::vector<CheckResult> results;
     for (const auto& check : CHECKS) {
-        if (!only.empty() && std::none_of(only.begin(), only.end(), [&](const std::string& id) { return id == check.id; })) continue;
-        if (scheduled && check.when != When::Weekly) continue;
+        if (!selected(check)) continue;
         if (list) { std::printf("%s\n", check.id); continue; }
         if (std::string(check.id) == "D1" && env.repo.empty()) {
             results.push_back(result("D1", "deployed files match the theme", Severity::Medium, Status::Skip,
