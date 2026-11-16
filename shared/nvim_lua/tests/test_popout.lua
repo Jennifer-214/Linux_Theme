@@ -173,9 +173,11 @@ host([[
     return real(argv, ...)
   end
 ]])
+-- Writes go one at a time: none on its way (writing) and none waiting behind it (pending) either.
 local function writes_landed()
   local finished = select(2, read('workspace.written'):gsub('\n', ''))
-  return host("local t = require('desk.popout').host.save_timer; return not (t and t:is_active()) and _G.popout_test.writes") == finished
+  return host([[local H = require('desk.popout').host; local t = H.save_timer
+    return not (t and t:is_active()) and not H.writing and not H.pending and _G.popout_test.writes]]) == finished
 end
 local function settled()
   return host([[
@@ -791,7 +793,7 @@ do
   ok(wait(10000, function() return state().connected and (state().title or ''):find('call graph', 1, true) end), 'a pop-out again')
   host("require('desk.popout').show('rows', require('desk.actions').context())")
   ok(wait(3000, function() return state().tabs == 2 end), '… with two views')
-  pop('vim.defer_fn(function() vim.uv.sleep(3000) end, 10)')
+  pop('vim.defer_fn(function() vim.uv.sleep(4000) end, 10)')
   ok(wait(5000, function() return host("return require('desk.popout').host.stalled") == true end), 'it stops answering')
   host("require('desk.popout').clear('rows')")
   ok(wait(8000, function() return host("return require('desk.popout').host.stalled") == false end),
