@@ -391,6 +391,9 @@ end
 -- ─── levels (pure): desk-work's answers as pages ───────────────────────────────────────────────────────────────
 local function count(n, one, many) return n .. ' ' .. (n == 1 and one or many) end
 local function short(sha) return type(sha) == 'string' and sha:sub(1, 7) or '' end
+-- Code in words that the theme's voice says (a hash, a function's name): between backticks, so retro shouts the words
+-- around it and leaves the code as it is (actions.voice).
+local function code(s) return '`' .. (tostring(s or '?'):gsub('`', "'")) .. '`' end
 local function where(n)
   if n.file then return vim.fn.fnamemodify(n.file, ':t') .. (n.line and (':' .. n.line) or '') end
   return n.detail or 'in the binary'
@@ -654,7 +657,7 @@ function M.level_query(answer)
   if answer.q == 'paths' then
     local by = node_index(answer)
     local from, to = answer.from or {}, answer.to or {}
-    sections[#sections + 1] = { head = 'ways from ' .. (from.label or '?') .. ' to ' .. (to.label or '?') .. ' · ' .. #(answer.paths or {}) }
+    sections[#sections + 1] = { head = 'ways from ' .. code(from.label) .. ' to ' .. code(to.label) .. ' · ' .. #(answer.paths or {}) }
     if #(answer.paths or {}) == 0 then
       sections[#sections + 1] = { parts = { { (from.label or '?') .. ' does not reach ' .. (to.label or '?') .. ' in the map within ' .. (answer.depth or '?') .. ' calls' } }, group = 'DeskMapDim' }
     end
@@ -703,7 +706,7 @@ function M.level_query(answer)
     for i = 1, math.min(#list, M.MAX_TIER) do items[i] = item(list[i]) end
     sections[#sections + 1] = { boxes = items, more = more }
   end
-  local label = (backwards and 'who calls ' or 'what ') .. (start.label or '?') .. (backwards and '' or ' reaches') .. ' · depth ' .. (answer.depth or '?')
+  local label = (backwards and 'who calls ' or 'what ') .. code(start.label) .. (backwards and '' or ' reaches') .. ' · depth ' .. (answer.depth or '?')
   sections[#sections + 1] = { head = label }
   if not backwards then sections[#sections + 1] = { boxes = { item(start) }, frame = 'double' } end
   for _, d in ipairs(order) do
@@ -782,9 +785,9 @@ function M.header(view, G)
   elseif unbuildable(s) then out[#out + 1] = { G.said(unbuildable(s)[1].short), 'DeskMapStale' }
   elseif not s.built then out[#out + 1] = { no_map(G), 'DeskMapStale' }
   elseif s.stale then
-    out[#out + 1] = { with_key(G, 'stale since ' .. short(s.head) .. ' · ', 'rebuild', ' rebuilds'), 'DeskMapStale' }
+    out[#out + 1] = { with_key(G, 'stale since ' .. code(short(s.head)) .. ' · ', 'rebuild', ' rebuilds'), 'DeskMapStale' }
     if (s.stale_why or '') ~= '' then out[#out + 1] = { s.stale_why, 'DeskMapDim' } end
-  else out[#out + 1] = { G.said('built ' .. os.date('%H:%M', s.built_at or 0) .. ' at ' .. short(s.head)), 'DeskMapDim' } end
+  else out[#out + 1] = { G.said('built ' .. os.date('%H:%M', s.built_at or 0) .. ' at ' .. code(short(s.head))), 'DeskMapDim' } end
   return out
 end
 

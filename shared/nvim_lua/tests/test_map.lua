@@ -398,7 +398,17 @@ eq(blank, false, "the page never went blank while the build ran and the map was 
 
 vim.g.desk_style = "retro"
 Map.render(view)
-ok(line_with(view.drawn.lines, "PROJECT MAP") and line_with(view.drawn.lines, "┌"), "retro: the page in capitals and code page 437 boxes")ok(line_with(view.drawn.lines, "Enter IN · BS OUT · r REACH · c CALLERS · P PATHS · ? KEYS · q CLOSE"),
+ok(line_with(view.drawn.lines, "PROJECT MAP") and line_with(view.drawn.lines, "┌"), "retro: the page in capitals and code page 437 boxes")
+-- Retro shouts words, not code: a commit's hash and a function's name stay as they are.
+local retro_said = function(st) return table.concat(vim.tbl_map(function(h) return h[1] end, Map.header({ root = root, status = st }, Map.glyphs(true))), "\n") end
+ok(retro_said({ ok = true, built = true, stale = true, head = "3789c69aaaa" }):find("STALE SINCE 3789c69 · R REBUILDS", 1, true),
+  "retro: the stale badge shouts, its hash stays as it is")
+ok(retro_said({ ok = true, built = true, stale = false, head = "abcdef0123", built_at = os.time() }):find(" AT abcdef0", 1, true),
+  "… and the built badge's")
+local retro_reach = table.concat(Map.layout(Map.level_query(reach), 80, true).lines, "\n")
+local retro_ways = table.concat(Map.layout(Map.level_query({ ok = true, q = "paths", from = contents.nodes[5], to = contents.nodes[2], paths = {} }), 80, true).lines, "\n")
+ok(retro_reach:find("WHAT use REACHES · DEPTH 2", 1, true) and retro_ways:find("WAYS FROM use TO M.beta · 0", 1, true),
+  "… and so do the functions a query names:\n" .. retro_reach:sub(1, 300))ok(line_with(view.drawn.lines, "Enter IN · BS OUT · r REACH · c CALLERS · P PATHS · ? KEYS · q CLOSE"),
   "retro: the keys as typed (r and R are two keys), the words in capitals")
 ok(line_with(view.drawn.lines, "parts » lua » mod.lua") and not line_with(view.drawn.lines, "›") and not line_with(view.drawn.lines, "…"),
   "retro: nothing outside code page 437 (» between the levels, .. for an ellipsis)")
