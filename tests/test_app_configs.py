@@ -195,6 +195,20 @@ class SourcesTest(unittest.TestCase):
                 for selector in top_level_selectors(prelude):
                     self.assertTrue(selector.startswith("RETRO"), (name, selector))
 
+    def test_firefox_retro_sections_scope_every_rule(self):
+        # A retro rule with no scope at all has no RETRO in it, so the test above never sees it. From each retro-only
+        # section's heading to the end of its file, every rule (an @-moz-document block aside) is scoped.
+        for name, heading in (("userChrome.css", "/* retro-amber: the tab strip as a DOS menu bar"),
+                              ("userContent.css", "/* ===== retro-amber: Firefox's own pages")):
+            text = (ROOT / "templates/firefox" / name).read_text()
+            self.assertEqual(text.count(heading), 1, (name, heading))
+            section = text[text.index(heading):].replace("{{FF_RETRO_SCOPE}}", "RETRO")
+            rules = [p for p in css_preludes(re.sub(r"\{\{[A-Z0-9_]+\}\}", "X", section)) if not p.startswith("@")]
+            self.assertTrue(rules, name)
+            for prelude in rules:
+                for selector in top_level_selectors(prelude):
+                    self.assertTrue(selector.startswith("RETRO"), (name, selector))
+
     def test_firefox_website_appearance_is_retro_only(self):
         # The installer writes Firefox's website appearance into user.js only for a theme that names one, so every other
         # theme's user.js is written exactly as before.
