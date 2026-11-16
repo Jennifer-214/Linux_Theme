@@ -22,6 +22,25 @@ local function contents(buf)
     .. (vim.bo[buf].endofline and separator or '')
 end
 local function refresh_time(buf) pcall(vim.cmd, 'silent checktime ' .. buf) end
+-- The local file a listed file buffer shows, else nil.
+local function file_of(buf)
+  if not api.nvim_buf_is_loaded(buf) or vim.bo[buf].buftype ~= '' or not vim.bo[buf].buflisted then return nil end
+  local path = api.nvim_buf_get_name(buf)
+  if path == '' or path:match('^%a[%w+.-]*://') then return nil end
+  return path
+end
+-- A file a plugin reads or writes for its buffer (jupytext's .ipynb as Markdown, an archive, an encrypted file) never
+-- holds the buffer's text, and a reload started from an autocommand skips that plugin's reader (the raw file lands in
+-- the buffer): such a buffer is left to its plugin.
+local function converted(path)
+  for _, au in ipairs(api.nvim_get_autocmds({ event = { 'BufReadCmd', 'BufWriteCmd' } })) do
+    if not au.buflocal then
+      local ok, pattern = pcall(vim.regex, vim.fn.glob2regpat(au.pattern))
+      if ok and pattern:match_str(au.pattern:find('/', 1, true) and path or vim.fs.basename(path)) then return true end
+    end
+  end
+  return false
+end
 local function waiting(state, disk)
   local changed = not state.pending or state.pending.text ~= disk
   state.pending = { text = disk }
@@ -77,15 +96,15 @@ function M.detach(buf)
 end
 
 function M.track(buf, reset)
-  if not api.nvim_buf_is_loaded(buf) or vim.bo[buf].buftype ~= '' or not vim.bo[buf].buflisted then return end
-  local path = api.nvim_buf_get_name(buf)
-  if path == '' or path:match('^%a[%w+.-]*://') then return end
+  local path = file_of(buf)
+  if not path then return end
   local old = M.buffers[buf]
   if old and old.path == path then
     if reset then old.base, old.pending = contents(buf), nil end
     return M.check(buf)
   end
   M.detach(buf)
+  if converted(path) then return end
   local dir = vim.fs.dirname(path)
   -- The baseline is what Neovim read or wrote, even if an atomic agent save races that event.
   -- A file not on disk yet (a new buffer, never saved) has no baseline: nothing outside can have changed it.
@@ -184,8 +203,8 @@ function M.setup()
   local group = api.nvim_create_augroup('foxml_live_files', { clear = true })
   api.nvim_create_autocmd({ 'BufReadPost', 'BufWritePost' }, { group = group, callback = function(a) M.track(a.buf, true) end })
   api.nvim_create_autocmd('BufWritePost', { group = group, callback = function(a)
-    local state = M.buffers[a.buf]
-    if state then require('desk.work_events').signal(vim.fs.root(state.path, '.git')) end
+    local path = file_of(a.buf)
+    if path then require('desk.work_events').signal(vim.fs.root(path, '.git')) end
   end })
   api.nvim_create_autocmd({ 'BufEnter', 'BufFilePost' }, { group = group, callback = function(a) M.track(a.buf) end })
   api.nvim_create_autocmd({ 'BufUnload', 'BufWipeout' }, { group = group, callback = function(a) M.detach(a.buf) end })

@@ -256,6 +256,57 @@ out(steps)''', self.rendered['retro-amber'], {'PATH': f'{Path(command).parent}:/
                              [[]] * sum(c['cell_type'] == 'code' for c in added['cells']), 'outputs left after clearing')
             self.assertEqual(cleared['metadata'], before['metadata'])
 
+    def test_a_notebook_stays_markdown_while_desk_sync_watches_it(self):
+        # VM 2026-11-16 (F12): desk.sync warned of outside edits at open, and after the first save (molten's outputs
+        # written into the file) its checktime reloaded the buffer past jupytext as the raw JSON; the next save failed in
+        # jupytext ("Invalid YAML block").
+        command, plugin = jupytext(), jupytext_nvim()
+        if not command or not plugin:
+            self.skipTest('requires the jupytext command and jupytext.nvim (both come with the installer)')
+        work = self.base / 'watched'
+        work.mkdir()
+        notebook = work / 'assignment.ipynb'
+        shutil.copy(FIXTURE, notebook)
+        seen = run_lua(self.base, f'''
+package.path = {json.dumps(str(ROOT / 'shared/nvim_lua'))} .. "/?.lua;" .. package.path
+require("desk.sync").setup()  -- after the block's autocommands and before jupytext.nvim's, as in init.lua
+vim.opt.rtp:append({json.dumps(str(plugin))})
+J.specs[1].config(nil, J.specs[1].opts())
+-- molten as the block's save sees it: a kernel ran this buffer, and its export adds an output to each code cell
+vim.cmd("function! MoltenRunningKernels(...)\\n  return ['python3']\\nendfunction")
+vim.api.nvim_create_user_command("MoltenInit", "", {{}})
+vim.api.nvim_create_user_command("MoltenExportOutput", function()
+  local file = vim.api.nvim_buf_get_name(0)
+  local nb = vim.json.decode(table.concat(vim.fn.readfile(file), "\\n"))
+  for _, cell in ipairs(nb.cells) do
+    if cell.cell_type == "code" then cell.outputs = {{ {{ output_type = "stream", name = "stdout", text = {{ "ran\\n" }} }} }} end
+  end
+  vim.fn.writefile({{ vim.json.encode(nb) }}, file)
+end, {{ bang = true, nargs = "*" }})
+local said, api, steps = {{}}, vim.api, {{}}
+vim.notify = function(msg) said[#said + 1] = msg end
+vim.cmd("edit " .. vim.fn.fnameescape({json.dumps(str(notebook))}))
+local buf = api.nvim_get_current_buf()
+vim.b[buf].desk_jupyter_ran = true
+api.nvim_exec_autocmds("CursorHold", {{}})
+steps.at_open = vim.deepcopy(said)
+vim.cmd("write")
+vim.wait(400)  -- past desk.sync's directory watcher
+api.nvim_exec_autocmds("CursorHold", {{}})
+steps.first, steps.filetype = api.nvim_buf_get_lines(buf, 0, 1, false)[1], vim.bo[buf].filetype
+api.nvim_buf_set_lines(buf, -1, -1, false, {{ "", "```python", "z = 3", "```" }})
+local ok, err = pcall(vim.cmd, "write")
+steps.second, steps.err, steps.said = ok, tostring(err), said
+out(steps)''', self.rendered['Paper'], {'PATH': f'{Path(command).parent}:/usr/bin:/bin'}, timeout=120)
+        self.assertEqual(seen['at_open'], [], 'opening the notebook read as outside edits')
+        self.assertEqual((seen['first'], seen['filetype']), ('---', 'markdown'), 'the save reloaded the raw .ipynb')
+        self.assertTrue(seen['second'], seen['err'])
+        saved = json.loads(notebook.read_text())
+        self.assertEqual(''.join(saved['cells'][-1]['source']), 'z = 3', 'the second save did not reach the notebook')
+        self.assertTrue(all(c['outputs'] for c in saved['cells'][:-1] if c['cell_type'] == 'code'),
+                        'the outputs written after the first save were lost')
+        self.assertFalse([m for m in seen['said'] if 'outside edits' in m], seen['said'])
+
     def test_a_notebook_jupytext_cannot_read_is_never_written_over(self):
         command, plugin = jupytext(), jupytext_nvim()
         if not command or not plugin:
