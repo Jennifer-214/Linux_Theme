@@ -57,8 +57,10 @@ shift
 exec nvim --headless --clean --listen "$POPOUT_TEST/p$n" --cmd "luafile $POPOUT_TEST/loader.lua" "$@" 2>>"$POPOUT_TEST/popout.err"
 ]], 'rwxr-xr-x')
 write(bin .. '/hyprctl', [[#!/bin/sh
-# hyprctl, for the test: logs every call; the screens and windows come from the test's files.
+# hyprctl, for the test: logs every call; the screens and windows come from the test's files. With focus.fail in the
+# test's folder a focus fails (exit 17).
 printf '%s\n' "$*" >> "$POPOUT_TEST/hyprctl.log"
+if [ "$1" = dispatch ] && [ -f "$POPOUT_TEST/focus.fail" ]; then case "$2" in *focus*) exit 17 ;; esac; fi
 case "$1 $2" in
   "-j monitors") cat "$POPOUT_TEST/monitors.json" ;;
   "-j clients")
@@ -884,6 +886,24 @@ do
     'the editor busy 1.5 s, an ask of 100 ms: answered on its own time: ' .. vim.inspect(took))
   vim.wait(1600)
   ok(state().connected, '… and the pop-out goes on')
+end
+
+-- ─── a focus that did not happen is said ─────────────────────────────────────────────────────────────────────────
+do
+  write(dir .. '/focus.fail', '1')
+  host("_G.heard = {}; local A = require('desk.actions'); A.get('popout.focus').run(A.context())")
+  ok(wait(3000, function() return vim.tbl_contains(heard(), 'Hyprland did not focus its window.') end),
+    "Space Tab, and Hyprland's focus command fails (exit 17): the editor says so: " .. vim.inspect(heard()))
+  -- Through the drawer first (an editor in a tmux pane): it fails (its stub exits 1), the window is tried instead, and
+  -- that failing too, both are said. The drawer's stub logs the ask as one not expected; that line goes again.
+  local others = read('others.log')
+  host("_G.focused = nil; require('desk.popout').focus({ pid = vim.fn.getpid(), pane = '%77' }, function(fine, why) _G.focused = { fine, why } end)")
+  ok(wait(5000, function() return host('return _G.focused') ~= vim.NIL end), 'a focus through the drawer')
+  eq(host('return _G.focused'), { false, 'desk-drawer did not bring its pane forward, and Hyprland did not focus its window' },
+    '… the drawer failing, then Hyprland: both said, never done')
+  ok(read('others.log'):sub(#others + 1):find('desk-drawer run work-jump %77', 1, true), '… the drawer asked first')
+  write(dir .. '/others.log', others)
+  os.remove(dir .. '/focus.fail')
 end
 
 vim.rpcnotify(h, 'nvim_command', 'qa!')

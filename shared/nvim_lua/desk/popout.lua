@@ -172,21 +172,33 @@ function M.dispatch(lua, legacy, done)
 end
 
 -- Puts the keyboard in an editor's window: its tmux pane through the drawer (which brings forward the terminal showing
--- it), else the window above its process, on whichever screen that is. who: { pid, pane }. done(ok, why).
+-- it), else, or when the drawer could not, the window above its process, on whichever screen that is. Each command is
+-- waited for and its exit status read: done(true) only once the focus was given. who: { pid, pane }. done(ok, why).
 function M.focus(who, done)
   done = done or function(ok, why) if not ok then tell(sentence(why), WARN) end end
   if type(who) ~= 'table' or type(who.pid) ~= 'number' then return done(false, 'there is no other window to go to') end
-  if type(who.pane) == 'string' and who.pane:match('^%%%d+$') and have('desk-drawer') then
-    local ok = pcall(vim.system, { 'desk-drawer', 'run', 'work-jump', who.pane }, { text = true, timeout = 5000 })
-    return done(ok, not ok and 'desk-drawer did not start' or nil)
+  -- failed: why the drawer could not, said with Hyprland's reason when that fails too.
+  local function by_window(failed)
+    local function fail(why) done(false, failed and (failed .. ', and ' .. why) or why) end
+    if not have('hyprctl') then return fail('requires Hyprland') end
+    hyprctl({ 'clients' }, function(clients)
+      local address = M.window_of(who.pid, clients)
+      if not address then return fail('its window was not found') end
+      M.dispatch(("hl.dsp.focus({ window = 'address:%s' })"):format(address), 'focuswindow address:' .. address, function(focused)
+        if focused then return done(true) end
+        fail('Hyprland did not focus its window')
+      end)
+    end)
   end
-  if not have('hyprctl') then return done(false, 'requires Hyprland') end
-  hyprctl({ 'clients' }, function(clients)
-    local address = M.window_of(who.pid, clients)
-    if not address then return done(false, 'its window was not found') end
-    M.dispatch(("hl.dsp.focus({ window = 'address:%s' })"):format(address), 'focuswindow address:' .. address)
-    done(true)
-  end)
+  if type(who.pane) == 'string' and who.pane:match('^%%%d+$') and have('desk-drawer') then
+    local started = pcall(vim.system, { 'desk-drawer', 'run', 'work-jump', who.pane }, { text = true, timeout = 5000 }, vim.schedule_wrap(function(out)
+      if out.code == 0 then return done(true) end
+      by_window('desk-drawer did not bring its pane forward')
+    end))
+    if not started then by_window('desk-drawer did not start') end
+    return
+  end
+  by_window()
 end
 
 -- ─── the main editor's side ────────────────────────────────────────────────────────────────────────────────────
