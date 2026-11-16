@@ -101,7 +101,7 @@ void run_post_install(Context& ctx) {
         ui::substep("[dry-run] would: write .active-theme + install marker, "
                     "finalize per-monitor wallpaper variants + hyprlock (post-deploy), "
                     "render waybar for current layout, restart the bar and mako, "
-                    "Lazy sync + TSUpdateSync (60s/120s caps), "
+                    "Nvim plugins restored to the lock file + TSUpdateSync (60s/120s caps), "
                     "GTK desktop font + accent, Thunar view + sidebar projects, Bat/delta theme cache, Cursor/VS Code workbench.colorTheme=Fox ML, "
                     "desk theme check (read-only report)");
         return;
@@ -208,12 +208,14 @@ void run_post_install(Context& ctx) {
     if (skip_plugin_sync) {
         ui::substep("plugin sync skipped (theme swap)");
     } else if (have("nvim") && fs::is_directory(ctx.home / ".local/share/nvim/lazy")) {
-        ui::substep("nvim Lazy sync (headless, 60s cap)");
+        // Restore, not sync: plugins stay at the repo lock file's versions, so a reinstall gives what was tested.
+        // Updating is deliberate: :Lazy update, then commit the new lock file to shared/nvim_lazy-lock.json.
+        ui::substep("nvim plugins restored to the lock file (headless, 60s cap)");
         if (sh::run({"timeout", "60", "nvim", "--headless",
-                     "+Lazy! sync", "+qa"}) == 0) {
-            ui::ok("Nvim plugins synced");
+                     "+Lazy! restore", "+qa"}) == 0) {
+            ui::ok("Nvim plugins at the lock file's versions");
         } else {
-            ui::warn("Lazy sync didn't complete cleanly — run `:Lazy sync` manually");
+            ui::warn("Plugin restore didn't complete cleanly — run `:Lazy restore` manually");
         }
         if (fs::is_directory(ctx.home / ".local/share/nvim/lazy/nvim-treesitter")) {
             ui::substep("rebuilding treesitter parsers (headless, 120s cap)");
