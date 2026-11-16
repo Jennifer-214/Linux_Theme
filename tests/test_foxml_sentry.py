@@ -7,7 +7,11 @@ nosudo.md). Runs the real script with stub systemctl / findmnt / fprintd-list / 
 - a WireGuard interface is "present", never "up" or "connected"; a failing `ip` shows "unknown";
 - a user watcher switched on but not running is a warning, "Watcher down: …", not a quiet drop from the count;
 - SSH is "off" while sshd is stopped; running, keys-only or passwords from the drop-in, the port from desk-ssh-port;
-- what an opt-in module would set up is off by choice until chosen (listed, not counted, not a warning)."""
+  keywords in any case, as sshd reads them (OpenSSH 10 prints them mixed case), its first value, none from a Match;
+- what an opt-in module would set up is off by choice until chosen (listed, not counted, not a warning);
+- port knocking and SPA count only while UFW's saved rules hold their gate: the first rule for sshd's port from
+  anywhere denies it (2026-11-16: an install's `ufw limit` replaced the deny while the bar still counted the gate).
+HOME is a scratch folder, so the machine's own knock, SPA or dispatch settings never decide a scenario."""
 import json, os, pathlib, stat, subprocess, sys, tempfile
 
 SCRIPT = pathlib.Path(__file__).resolve().parent.parent / "shared/waybar_scripts/foxml_sentry.sh"
@@ -15,7 +19,7 @@ fails = []
 
 
 def run(ufw_conf, ufw_default, ip_script, unreadable=False, ufw_unit_active=False, units=None, system_units=(), ssh_dropin=None,
-        system_states=None, noexec_live=False, fstab=""):
+        system_states=None, noexec_live=False, fstab="", gates=(), rules=None, rules6=None):
     # the stubs must be executable: /tmp can be noexec (it is on the reference machine), so default to ~/.cache
     tmp_root = os.environ.get("FOX_TEST_TMP") or str(pathlib.Path.home() / ".cache")
     os.makedirs(tmp_root, exist_ok=True)
@@ -49,8 +53,17 @@ def run(ufw_conf, ufw_default, ip_script, unreadable=False, ufw_unit_active=Fals
         if ssh_dropin is not None: dropin.write_text(ssh_dropin)
         # the machine's own fstab never decides a scenario: by default one with no /tmp line, as a default install has
         (d / "fstab").write_text(fstab)
-        env = dict(os.environ, PATH=f"{b}:/usr/bin:/bin", XDG_RUNTIME_DIR=str(d), XDG_DATA_HOME=str(d / "data"),
+        # gates: which of knock.conf / spa.conf the scratch home holds; rules, rules6: UFW's saved rules (None: none)
+        home = d / "home"
+        (home / ".config/foxml").mkdir(parents=True)
+        for name in gates:
+            (home / ".config/foxml" / f"{name}.conf").write_text("# a stand-in\n")
+        r4, r6 = d / "user.rules", d / "user6.rules"
+        if rules is not None: r4.write_text(rules)
+        if rules6 is not None: r6.write_text(rules6)
+        env = dict(os.environ, PATH=f"{b}:/usr/bin:/bin", HOME=str(home), XDG_RUNTIME_DIR=str(d), XDG_DATA_HOME=str(d / "data"),
                    FOXML_SENTRY_UFW_CONF=str(conf), FOXML_SENTRY_UFW_DEFAULT=str(default), FOXML_SSH_DROPIN=str(dropin),
+                   FOXML_SENTRY_UFW_RULES=str(r4), FOXML_SENTRY_UFW_RULES6=str(r6),
                    FOXML_SENTRY_SSH_PORT=str(SCRIPT.parents[2] / "shared/bin/desk-ssh-port"), FOXML_SENTRY_FSTAB=str(d / "fstab"))
         r = subprocess.run(["bash", str(SCRIPT)], capture_output=True, text=True, env=env, timeout=30)
         if conf.exists(): conf.chmod(0o644)
@@ -193,6 +206,18 @@ ssh_cases = [
      {"warn": ["SSH passwords on (:22)"], "not_anywhere": ["SSH server off"]}),
     ("sshd running, no drop-in → unknown, never a silent pass", ("sshd",), None,
      {"unknown": ["SSH running: password login unknown (no hardening drop-in)"], "not_anywhere": ["SSH server off", "SSH keys-only"]}),
+    # sshd reads keywords and yes/no in any case, "Keyword=value" too, and keeps a keyword's first value; a Match
+    # block's lines apply only to what it matches.
+    ("keyword in lower case, keys only → a protection", ("sshd",), "port 2202\npasswordauthentication no\n",
+     {"active": ["SSH keys-only (:2202)"], "not_anywhere": ["SSH passwords on"]}),
+    ("keyword and value in mixed case, with = → keys only", ("sshd",), "Port 2202\n  PASSWORDAUTHENTICATION = No\n",
+     {"active": ["SSH keys-only (:2202)"], "not_anywhere": ["SSH passwords on"]}),
+    ("the first value wins: no, then yes → keys only", ("sshd",), "Port 2202\nPasswordAuthentication no\nPasswordAuthentication yes\n",
+     {"active": ["SSH keys-only (:2202)"], "not_anywhere": ["SSH passwords on"]}),
+    ("the first value wins: Yes, then no → passwords on", ("sshd",), "Port 2202\nPasswordauthentication Yes\nPasswordAuthentication no\n",
+     {"warn": ["SSH passwords on (:2202)"], "not_anywhere": ["SSH keys-only"]}),
+    ("no only inside a Match block → passwords on", ("sshd",), "Port 2202\nMatch User admin\n  PasswordAuthentication no\n",
+     {"warn": ["SSH passwords on (:2202)"], "not_anywhere": ["SSH keys-only"]}),
 ]
 for name, system_units, dropin, want in ssh_cases:
     out, sudo_called, r = run(ON, 'DEFAULT_OUTPUT_POLICY="ACCEPT"\n', IP_NONE, ufw_unit_active=True, system_units=system_units, ssh_dropin=dropin)
@@ -260,9 +285,82 @@ for name, states, noexec_live, fstab, want in optin_cases:
     if out["class"] == "warning" and (not count or int(count[-1]) != len(warns)):
         fails.append(f"{name}: the pill's warning count {count} ≠ {len(warns)} warnings")
 
+# Port knocking and SPA gate sshd's port: UFW denies it to everyone and knockd / fwknopd open it per address. The pill
+# counts one only while UFW's saved rules (user.rules, and user6.rules when UFW handles IPv6) hold that gate: ufw stops
+# at the first rule that matches, so the first rule for the port from anywhere must deny it, or, with none, incoming's
+# default. 2026-11-16: an install's `ufw limit 2202/tcp` replaced the deny, and the bar still listed "Port knocking".
+def tuples(*rows):
+    """user.rules as ufw saves it: each rule a tuple comment line, then its iptables lines."""
+    body = "".join(f"\n### tuple ### {row}\n-A ufw-user-input -p tcp --dport 2202 -j DROP\n" for row in rows)
+    return f"*filter\n:ufw-user-input - [0:0]\n### RULES ###\n{body}\n### END RULES ###\nCOMMIT\n"
+
+
+DENY4, DENY6 = "deny tcp 2202 0.0.0.0/0 any 0.0.0.0/0 in", "deny tcp 2202 ::/0 any ::/0 in"
+LIMIT4, LIMIT6 = "limit tcp 2202 0.0.0.0/0 any 0.0.0.0/0 in", "limit tcp 2202 ::/0 any ::/0 in"
+KNOCKED4 = "allow tcp 2202 0.0.0.0/0 any 198.51.100.7 in"      # knockd's opening for one address
+WEB4, WEB6 = "allow tcp 80 0.0.0.0/0 any 0.0.0.0/0 in", "allow tcp 80 ::/0 any ::/0 in"
+GATE_DEFAULT = 'DEFAULT_INPUT_POLICY="DROP"\nDEFAULT_OUTPUT_POLICY="ACCEPT"\nIPV6=yes\n'
+OPEN_MSG, OFF_MSG = "Port knocking set up, but UFW lets anyone reach :2202", "Port knocking set up, but UFW is off"
+gate_cases = [
+    ("UFW denies the port → the gate counts", ("knock",), ON, GATE_DEFAULT, tuples(DENY4), tuples(DENY6),
+     {"active": ["Port knocking"], "not_anywhere": [OPEN_MSG]}),
+    ("a LIMIT in the deny's place → a warning, not counted", ("knock",), ON, GATE_DEFAULT, tuples(LIMIT4), tuples(LIMIT6),
+     {"warn": [OPEN_MSG], "not_active": ["Port knocking"]}),
+    ("the deny first, a LIMIT after it → held", ("knock",), ON, GATE_DEFAULT, tuples(DENY4, LIMIT4), tuples(DENY6, LIMIT6),
+     {"active": ["Port knocking"], "not_anywhere": [OPEN_MSG]}),
+    ("a knock's opening for one address before the deny → held", ("knock",), ON, GATE_DEFAULT, tuples(KNOCKED4, DENY4),
+     tuples(DENY6), {"active": ["Port knocking"], "not_anywhere": [OPEN_MSG]}),
+    ("IPv6 limited while IPv4 denies → a warning", ("knock",), ON, GATE_DEFAULT, tuples(DENY4), tuples(LIMIT6),
+     {"warn": [OPEN_MSG], "not_active": ["Port knocking"]}),
+    ("UFW without IPv6: only IPv4's rules count", ("knock",), ON, GATE_DEFAULT.replace("IPV6=yes", "IPV6=no"), tuples(DENY4),
+     tuples(LIMIT6), {"active": ["Port knocking"]}),
+    ("no rule for the port, incoming denied by default → held", ("knock",), ON, GATE_DEFAULT, tuples(WEB4), tuples(WEB6),
+     {"active": ["Port knocking"]}),
+    ("no rule for the port, incoming accepted by default → a warning", ("knock",), ON,
+     GATE_DEFAULT.replace('INPUT_POLICY="DROP"', 'INPUT_POLICY="ACCEPT"'), tuples(WEB4), tuples(WEB6), {"warn": [OPEN_MSG]}),
+    ("a range allowed ahead of the deny → a warning", ("knock",), ON, GATE_DEFAULT,
+     tuples("allow tcp 2000:3000 0.0.0.0/0 any 0.0.0.0/0 in", DENY4), tuples(DENY6), {"warn": [OPEN_MSG]}),
+    ("an allow on one interface ahead of the deny → a warning", ("knock",), ON, GATE_DEFAULT,
+     tuples("allow tcp 2202 0.0.0.0/0 any 0.0.0.0/0 in_wlan0", DENY4), tuples(DENY6), {"warn": [OPEN_MSG]}),
+    ("UFW switched off → a warning", ("knock",), "ENABLED=no\n", GATE_DEFAULT, tuples(DENY4), tuples(DENY6),
+     {"warn": [OFF_MSG], "not_active": ["Port knocking"]}),
+    ("rule files missing → configured, not verified", ("knock",), ON, GATE_DEFAULT, None, None,
+     {"configured": ["Port knocking (UFW's deny of :2202 not verified)"], "not_active": ["Port knocking"]}),
+    ("SPA the same way", ("spa",), ON, GATE_DEFAULT, tuples(LIMIT4), tuples(LIMIT6),
+     {"warn": ["SPA (replay-immune) set up, but UFW lets anyone reach :2202"], "not_active": ["SPA (replay-immune)"]}),
+    ("neither set up → nothing said", (), ON, GATE_DEFAULT, tuples(LIMIT4), tuples(LIMIT6),
+     {"not_anywhere": ["Port knocking", "SPA"]}),
+    ("UFW's settings in any case, as ufw reads them", ("knock",), "Enabled=Yes\n",
+     'default_input_policy="drop"\nDEFAULT_OUTPUT_POLICY="accept"\nIPv6=Yes\n', tuples(DENY4), tuples(DENY6),
+     {"active": ["Port knocking"], "not_anywhere": [OPEN_MSG, OFF_MSG]}),
+]
+for name, gates, conf, default, rules, rules6, want in gate_cases:
+    out, sudo_called, r = run(conf, default, IP_NONE, ufw_unit_active=True, ssh_dropin="Port 2202\n", gates=gates,
+                              rules=rules, rules6=rules6)
+    if out is None:
+        fails.append(f"{name}: output is not JSON: {r.stdout[:120]!r} {r.stderr[:120]!r}"); continue
+    if sudo_called:
+        fails.append(f"{name}: sudo was called")
+    tip = out["tooltip"]
+    active, warns, configured = section(tip, "✓"), section(tip, "⚠"), section(tip, "◇")
+    for w in want.get("active", []):
+        if w not in active: fails.append(f"{name}: '{w}' not among the active protections {active}")
+    for w in want.get("not_active", []):
+        if w in active: fails.append(f"{name}: '{w}' counted as an active protection")
+    for w in want.get("warn", []):
+        if w not in warns: fails.append(f"{name}: '{w}' not in the warnings {warns}")
+        if not w.isascii(): fails.append(f"{name}: '{w}' is not plain text")
+    for w in want.get("configured", []):
+        if w not in configured: fails.append(f"{name}: '{w}' not in the configured section {configured}")
+    for w in want.get("not_anywhere", []):
+        if w in tip: fails.append(f"{name}: '{w}' appears in the tooltip")
+    shield = _re.findall(r"(?:🛡|󰒃) (\d+)", out["text"])
+    if not shield or int(shield[-1]) != len(active):
+        fails.append(f"{name}: shield count {shield} ≠ {len(active)} active protections")
+
 for f in fails:
     print("FAIL", f)
 print("foxml_sentry:", "OK" if not fails else f"{len(fails)} FAILED",
-      f"({len(cases) + len(watcher_cases) + len(ssh_cases) + len(optin_cases) - skipped} scenarios run"
+      f"({len(cases) + len(watcher_cases) + len(ssh_cases) + len(optin_cases) + len(gate_cases) - skipped} scenarios run"
       + (f", {skipped} skipped)" if skipped else ")"))
 sys.exit(1 if fails else 0)

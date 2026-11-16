@@ -29,9 +29,12 @@ declare -a unknowns=()   # a probe that failed — shown, never silently "off"
 declare -a offs=()       # an opt-in protection never switched on: off by choice — shown, never counted, never a warning
 class="ok"
 
-# The UFW files the egress check reads, and the fstab the noexec check reads (overridable for tests/test_foxml_sentry.py).
+# The UFW files the egress and knock/SPA checks read, and the fstab the noexec check reads (overridable for
+# tests/test_foxml_sentry.py).
 UFW_CONF="${FOXML_SENTRY_UFW_CONF:-/etc/ufw/ufw.conf}"
 UFW_DEFAULT="${FOXML_SENTRY_UFW_DEFAULT:-/etc/default/ufw}"
+UFW_RULES="${FOXML_SENTRY_UFW_RULES:-/etc/ufw/user.rules}"
+UFW_RULES6="${FOXML_SENTRY_UFW_RULES6:-/etc/ufw/user6.rules}"
 FSTAB="${FOXML_SENTRY_FSTAB:-/etc/fstab}"
 
 _bump() {
@@ -43,6 +46,57 @@ _bump() {
 }
 
 _svc()  { systemctl is-active --quiet "$1" 2>/dev/null; }
+
+# A KEY=value setting of UFW's, as ufw reads it: the key in any case, the last line wins, the value lowercased and
+# unquoted. Empty when the file has none.
+_ufw_setting() {
+    awk -F= -v k="$1" 'tolower($1) == tolower(k) { v = $2 } END { gsub(/["'\''[:space:]]/, "", v); print tolower(v) }' "$2" 2>/dev/null
+}
+
+# Whether UFW holds sshd's port shut to everyone, the gate desk knock and desk spa set up (`ufw deny <port>/tcp`, then
+# knockd or fwknopd open it to one address at a time): held, open, off or unknown. ufw stops at the first rule that
+# matches, so the first rule for the port from anywhere decides; with none, incoming's default policy does. One that
+# names an interface only opens. Read from the rule files ufw saves (no sudo here), IPv6's too when UFW handles IPv6.
+_ufw_gate() {
+    local port=$1 file enabled default verdict
+    local -a files=("$UFW_RULES")
+    [[ -r "$UFW_CONF" && -r "$UFW_DEFAULT" ]] || { echo unknown; return; }
+    enabled=$(_ufw_setting ENABLED "$UFW_CONF")
+    [[ -n "$enabled" ]] || { echo unknown; return; }
+    [[ "$enabled" == yes ]] || { echo off; return; }
+    [[ "$(_ufw_setting IPV6 "$UFW_DEFAULT")" == yes ]] && files+=("$UFW_RULES6")
+    default=$(_ufw_setting DEFAULT_INPUT_POLICY "$UFW_DEFAULT")
+    for file in "${files[@]}"; do
+        [[ -r "$file" ]] || { echo unknown; return; }
+        # ### tuple ### ACTION[_LOG] PROTO DPORT DST SPORT SRC [DAPP SAPP] DIRECTION[_IFACE] [comment=…]
+        verdict=$(awk -v port="$port" '
+            function hits(spec, n, i, part, lohi) {
+                if (spec == "any") return 1
+                n = split(spec, part, ",")
+                for (i = 1; i <= n; i++) {
+                    if (split(part[i], lohi, ":") == 2) { if (port + 0 >= lohi[1] + 0 && port + 0 <= lohi[2] + 0) return 1 }
+                    else if (part[i] + 0 == port + 0) return 1
+                }
+                return 0
+            }
+            /^### tuple ### / {
+                line = $0; sub(/ comment=.*/, "", line)
+                n = split(line, t, " ")
+                action = tolower(t[4]); proto = tolower(t[5]); dir = tolower(t[n])
+                if (action ~ /^route:/ || dir !~ /^in/ || (proto != "tcp" && proto != "any") || !hits(t[6])) next
+                if (t[9] != "0.0.0.0/0" && t[9] != "::/0") next     # one address: an opening a knock made
+                sub(/_.*/, "", action)
+                if (dir != "in" && action != "allow" && action != "limit") next
+                found = (action == "deny" || action == "reject") ? "held" : "open"; exit
+            }
+            END { print (found == "" ? "none" : found) }' "$file")
+        if [[ "$verdict" == none ]]; then
+            case "$default" in drop|reject) verdict=held ;; accept) verdict=open ;; *) echo unknown; return ;; esac
+        fi
+        [[ "$verdict" == held ]] || { echo open; return; }
+    done
+    echo held
+}
 
 # A user watcher counts while it runs. Switched on but not running (failed, stopped) it is an alert, never a quiet drop
 # from the count: fox-etcwatch.path sat failed from 18:42 on 2026-11-15 while the pill just showed one protection
@@ -102,11 +156,24 @@ if grep -qE 'intel_iommu=on|amd_iommu=on' /proc/cmdline 2>/dev/null; then _bump 
 # passwords on" on a laptop whose sshd is disabled). Running, the wizard's drop-in tells keys-only from passwords;
 # without the drop-in, password login can't be read without root. The port is desk-ssh-port's, never through sudo.
 ssh_conf="${FOXML_SSH_DROPIN:-/etc/ssh/sshd_config.d/50-foxml-hardening.conf}"
+ssh_port() { "${FOXML_SENTRY_SSH_PORT:-$HOME/.local/bin/desk-ssh-port}" --no-sudo 2>/dev/null | head -n1; }
+# PasswordAuthentication as sshd reads it: keyword and value in any case (OpenSSH 10's own dump prints them mixed),
+# "Keyword value" or "Keyword=value", the first one before any Match block (sshd keeps a keyword's first value).
+_ssh_password_auth() {
+    awk '{ sub(/^[ \t]+/, "") }
+         $0 == "" || /^#/ { next }
+         { key = $0; sub(/[ \t=].*/, "", key); key = tolower(key) }
+         key == "match" { exit }
+         key == "passwordauthentication" {
+             value = substr($0, length(key) + 1); sub(/^[ \t]*=?[ \t]*/, "", value); sub(/[ \t#].*/, "", value)
+             gsub(/"/, "", value); print tolower(value); exit
+         }' "$1" 2>/dev/null
+}
 if ! _svc sshd && ! _svc sshd.socket; then
     _bump ok "SSH server off"
 elif [[ -f "$ssh_conf" ]]; then
-    port=$("${FOXML_SENTRY_SSH_PORT:-$HOME/.local/bin/desk-ssh-port}" --no-sudo 2>/dev/null | head -n1)
-    pa=$(awk '/^PasswordAuthentication /{print $2}' "$ssh_conf" 2>/dev/null)
+    port=$(ssh_port)
+    pa=$(_ssh_password_auth "$ssh_conf")
     if [[ "$pa" == "no" ]]; then _bump ok "SSH keys-only${port:+ (:$port)}"
     else _bump warn "SSH passwords on${port:+ (:$port)}"; fi
 else
@@ -147,8 +214,22 @@ _watcher fox-etcwatch.path        "/etc drift alert"
 
 # ─── OPT-IN (counted if active; not warned if absent) ─────────────
 [[ -f "$HOME/.config/foxml/dispatch.conf" ]]     && _bump ok "Phone alerts (dispatch)"
-[[ -f "$HOME/.config/foxml/knock.conf" ]]        && _bump ok "Port knocking"
-[[ -f "$HOME/.config/foxml/spa.conf" ]]          && _bump ok "SPA (replay-immune)"
+# Port knocking and SPA count while UFW holds the gate they set up (_ufw_gate), not because their settings exist
+# (2026-11-16: an install's `ufw limit` put a public rule in the deny's place, and the bar still counted the gate).
+_gate() {   # _gate SETTINGS LABEL
+    local state
+    [[ -f "$1" ]] || return 0
+    [[ -n "${gate_port:-}" ]] || gate_port=$(ssh_port)
+    state=$(_ufw_gate "${gate_port:-22}")
+    case "$state" in
+        held) _bump ok "$2" ;;
+        open) _bump warn "$2 set up, but UFW lets anyone reach :${gate_port:-22}" ;;
+        off)  _bump warn "$2 set up, but UFW is off" ;;
+        *)    configs+=("$2 (UFW's deny of :${gate_port:-22} not verified)") ;;
+    esac
+}
+_gate "$HOME/.config/foxml/knock.conf" "Port knocking"
+_gate "$HOME/.config/foxml/spa.conf"   "SPA (replay-immune)"
 [[ -f /etc/foxml/cafe.conf ]]                    && _bump ok "Café Mode (untrusted-SSID)"
 [[ -d "$HOME/.password-store" ]]                 && _bump ok "Pass vault"
 _watcher fox-tripwire.service                    "User honeypot (tripwire)"
@@ -163,11 +244,11 @@ _svc knockd                                      && _bump ok "knockd"
 # `ufw status`, so `sudo -n ufw status verbose` was refused every 15 s and this never showed). The config is the
 # INTENDED policy; the live ruleset can't be read without root, so it's reported as configured, not active.
 if [[ -r "$UFW_CONF" && -r "$UFW_DEFAULT" ]]; then
-    ufw_enabled=$(sed -n 's/^ENABLED=//p' "$UFW_CONF" | tail -1)
-    ufw_out=$(sed -n 's/^DEFAULT_OUTPUT_POLICY=//p' "$UFW_DEFAULT" | tail -1 | tr -d '"')
+    ufw_enabled=$(_ufw_setting ENABLED "$UFW_CONF")
+    ufw_out=$(_ufw_setting DEFAULT_OUTPUT_POLICY "$UFW_DEFAULT")
     if [[ -z "$ufw_enabled" || -z "$ufw_out" ]]; then
         unknowns+=("Egress policy: unknown (UFW config incomplete)")
-    elif [[ "$ufw_enabled" == "yes" && ( "$ufw_out" == "DROP" || "$ufw_out" == "REJECT" ) ]]; then
+    elif [[ "$ufw_enabled" == "yes" && ( "$ufw_out" == "drop" || "$ufw_out" == "reject" ) ]]; then
         configs+=("Egress deny configured (UFW config; live rules not verified)")
     fi
 else

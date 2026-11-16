@@ -156,6 +156,10 @@ started before the update is running. An integration-only update waits until the
   `/etc/shadow`) to you at the next ban, and a linked folder became 0700. The row is now written as you (`runuser`),
   so nothing in your home is written as root; the alert itself is unchanged. The installer's dispatch_hooks step
   deploys the new script to `/usr/local/bin`.
+- The bar's security pill counted "Port knocking" and "SPA" from their settings files alone. It now counts them only
+  while UFW's saved rules hold the gate they set up (the first rule for sshd's port from anywhere denies it), and
+  warns "set up, but UFW lets anyone reach :PORT" otherwise. It reads `PasswordAuthentication` as sshd does: in any
+  case, `Keyword=value` too, the first value, none from a `Match` block (OpenSSH 10 prints keywords in mixed case).
 - `desk harden enable iommu` added `lockdown=integrity` without the check the installer's IOMMU step makes, so on a
   machine with an NVIDIA GPU or DKMS modules (unsigned, which lockdown refuses to load) the desktop fell to software
   rendering. It now asks the installer's question (an NVIDIA device in `lspci`, or anything in `dkms status`) and
