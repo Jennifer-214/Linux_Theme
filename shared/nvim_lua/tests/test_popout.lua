@@ -384,6 +384,8 @@ s = state()
 eq({ s.shown, s.selected, s.title, host('return _G.rows_test.opens') }, { 'rows', 'alpha', 'rows', 1 }, '… opened by its kind, its first row selected')
 eq({ s.tabs, s.tab, s.keyline }, { 2, 2, ' Enter open ' }, '… in a tab page of its own, the second, with its own key line')
 ok(s.header:find(' 1 graph · PINNED   2 rows ', 1, true), '… the header names both, the graph PINNED: ' .. s.header)
+-- Saved a moment later (the writes of a moment go as one), the rows in front.
+ok(wait(3000, function() return record().activeTab == 'rows' end), '… and the layout record has the rows in front')
 local function strip_lines() local l = state().lines; return { l[11], l[12] } end
 eq(strip_lines(), { ' │ alpha', ' │ about alpha' }, '… its strip says what the selected row is')
 press('j')

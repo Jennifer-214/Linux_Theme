@@ -423,7 +423,8 @@ eq({ saved.step, saved.pinned, saved.graph == graph, saved.target }, { true, tru
 eq(K.save({ pinned = false, graph = graph, target = { buf = buf, row = 1, name = "x" } }).target, nil, "… a following graph keeps no function")
 local back = { pinned = false, graph = { message = "elsewhere" } }
 K.restore(back, saved)
-eq({ back.pinned, back.graph == graph, back.target.name }, { true, true, "M.alpha" }, "restore of a step: the graph as it was, pinned as it was")
+eq({ back.pinned, back.graph == graph, back.target and back.target.name }, { true, true, "M.alpha" },
+  "restore of a step: the graph as it was, pinned as it was")
 local after_restart = { graph = { message = "elsewhere" } }
 K.restore(after_restart, { pinned = true, target = saved.target })
 eq({ after_restart.pinned, after_restart.target and after_restart.target.name, after_restart.graph.center and after_restart.graph.center.name },

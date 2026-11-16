@@ -431,6 +431,10 @@ local keyed = Menu.layout({ { keys = { "gt", "gT" }, name = long_doc, about = "x
 local doc_line = keyed.lines[1]:find("gt/gT", 1, true) and keyed.lines[1] or keyed.lines[2]
 eq({ doc_line:find(long_doc, 1, true) ~= nil, vim.fn.strdisplaywidth(vim.trim(keyed.lines[2]):match("this box.*$") or "") <= Menu.MAX_STATE },
   { true, true }, "a key list on a wide screen: the description whole, the reason cut to its column")
+local fifty = "Go to the selected function in the code it came from"
+local narrow = Menu.layout({ { keys = { "c" }, name = fifty, about = "x", group = "g" },
+  { keys = { "r" }, name = "Read", about = "y", group = "g", right = "this box is not from the language server yet, so wait" } }, { keys = true })
+ok(narrow.lines[1]:find(fifty, 1, true), "… and at the usual 92 columns a long reason leaves a 50-character description whole: " .. narrow.lines[1])
 local saved_columns = vim.o.columns
 vim.o.columns = 200
 local wide_win = Menu.open({ { keys = { "gt" }, name = long_doc, about = "x", group = "pop-out" } }, { keys = true, title = "Keys" })

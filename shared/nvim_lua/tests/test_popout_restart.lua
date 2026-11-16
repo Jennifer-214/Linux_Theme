@@ -122,7 +122,10 @@ local function scenario()
   ok(wait(10000, function() return ask(dir .. '/p1', "return require('desk.popout').client_state().title") == 'call graph · M.alpha' end),
     '… and shows the call graph')
   vim.fn.chansend(tui, ':restart\r')
-  ok(wait(3000, function() return not alive(old) end), ':restart with the pop-out open: the old editor exits at once, no key pressed')
+  local restarted = wait(3000, function() return not alive(old) end)
+  ok(restarted, ':restart with the pop-out open: the old editor exits at once, no key pressed')
+  -- A stalled editor (waiting for a key) answers no request: asking it more would hang this test.
+  if not restarted then return end
   ok(wait(5000, function() return read('popout.err'):find('Editor closed.', 1, true) end), '… the pop-out says "Editor closed."')
   ok(wait(5000, function() return not alive(popout) end), '… and quits')
   ok(wait(10000, function() local pid = server(); return pid ~= old and alive(pid) end), 'the new editor runs')
