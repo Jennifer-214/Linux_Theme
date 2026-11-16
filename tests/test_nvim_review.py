@@ -283,6 +283,44 @@ C.close()
 ''')
 
     @unittest.skipUnless(WORK.is_file(), 'desk-work required')
+    def test_finishing_asks_what_next_with_no_notice_under_the_question(self):
+        # The VM experience test (F10): R's question opened over a notice drawn at the same moment, hiding its words.
+        self.run_lua(r'''
+C.open_review(row,root)
+local r=R.current
+for i,f in ipairs(r.files) do R.select(i);if r.marks[f.rel]~=f.signature then R.mark() end end
+local said={}
+vim.notify=function(text) said[#said+1]=tostring(text) end
+local under
+R.ask_after_finish=function() under=vim.deepcopy(said); return 'stay' end
+assert(R.finish_next(),'finish was not recorded')
+assert(under and #under==0,'a notice drawn as the question opens sits under it: '..vim.inspect(under))
+said={}
+assert(R.finish_next('stay'),'finished with the choice given (the pop-out, a menu)')
+assert(said[1] and said[1]:find('Review complete',1,true),'with nothing asked, a notice says it is done: '..vim.inspect(said))
+C.close()
+''')
+
+    def test_a_script_with_no_extension_opens_with_its_type(self):
+        # The VM experience test (F10): shared/bin/desk-nav opened with no filetype, so no colour, in the comparison.
+        (self.repo / 'tool').write_text('#!/bin/sh\necho one\n')
+        self.git('add', 'tool')
+        self.commit('tool base')
+        parent = self.git('rev-parse', 'HEAD')
+        (self.repo / 'tool').write_text('#!/bin/sh\necho two\n')
+        self.git('add', 'tool')
+        self.commit('tool change')
+        sha = self.git('rev-parse', 'HEAD')
+        self.run_lua(r'''
+C.open_review({kind='commit',sha='SHA',parent='PARENT',short='SHORT',files={root..'/tool'}},root)
+local r=R.current
+R.select(find('tool'))
+assert(vim.bo[r.right_buf].filetype=='sh' and vim.bo[r.left_buf].filetype=='sh',
+  'a #! script with no extension is drawn as its language: '..vim.bo[r.left_buf].filetype..' / '..vim.bo[r.right_buf].filetype)
+C.close()
+'''.replace('SHA', sha).replace('PARENT', parent).replace('SHORT', sha[:7]))
+
+    @unittest.skipUnless(WORK.is_file(), 'desk-work required')
     def test_finish_can_close_the_review(self):
         self.run_lua(r'''
 C.open_review(row,root)

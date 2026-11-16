@@ -334,6 +334,16 @@ function M.unit_of(node)
   return node, name
 end
 
+-- A file's type: by its name, else by its first lines (a script with no extension is told by its #! line).
+local function filetype_of(rel, text)
+  local head = {}
+  for line in ((text or ''):sub(1, 16384) .. '\n'):gmatch('([^\n]*)\n') do
+    head[#head + 1] = line
+    if #head >= 50 then break end
+  end
+  return vim.filetype.match({ filename = rel, contents = head })
+end
+
 -- What a unit is called in the review's rows: its name as written, else its first line (src: the text, or a buffer).
 local function label_of(node, name, src)
   local label = name and vim.treesitter.get_node_text(name, src) or vim.treesitter.get_node_text(node, src):match('[^\n]+')
@@ -343,7 +353,7 @@ end
 function M.changed_symbols(file)
   if file.symbols then return file.symbols end
   local result, seen, roots = {}, {}, {}
-  local ft = vim.filetype.match({ filename = file.rel })
+  local ft = filetype_of(file.rel, (file.right or '') ~= '' and file.right or file.left)
   local lang = ft and vim.treesitter.language.get_lang(ft)
   local function collect(text, side, offset, hunk)
     if not lang or hunk[offset + 1] == 0 then return false end
@@ -454,7 +464,7 @@ function M.structure(file)
     s.why = 'calls: not read, the file is over ' .. math.floor(M.STRUCTURE_MAX / 1024) .. ' KiB'
     return s
   end
-  local ft = vim.filetype.match({ filename = file.rel })
+  local ft = filetype_of(file.rel, file.right ~= '' and file.right or file.left)
   local lang = ft and vim.treesitter.language.get_lang(ft)
   local found, added = false, false
   if lang then found, added = pcall(vim.treesitter.language.add, lang) end
@@ -1091,7 +1101,7 @@ local function side_buffer(r, side, file, text)
   vim.bo[buf].modifiable, vim.bo[buf].readonly, vim.bo[buf].undolevels = true, false, -1
   api.nvim_buf_set_lines(buf, 0, -1, false, lines(text))
   vim.bo[buf].modifiable, vim.bo[buf].readonly, vim.bo[buf].undolevels = false, true, undolevels
-  local ft = (not file.error and not file.binary) and vim.filetype.match({ filename = file.rel }) or ''
+  local ft = (not file.error and not file.binary) and filetype_of(file.rel, text) or ''
   if vim.bo[buf].filetype ~= ft then
     pcall(vim.treesitter.stop, buf)
     vim.bo[buf].filetype = ft
@@ -1814,7 +1824,8 @@ function M.mark_row(entry)
   return true
 end
 
-function M.finish()
+-- quiet: what next is asked at once, and its question says this; a notice drawn now would sit under it, hidden.
+function M.finish(quiet)
   local r = M.current
   if not r then return end
   if r.row.kind ~= 'commit' then
@@ -1832,7 +1843,8 @@ function M.finish()
   r.completed = true
   if r.active_set then r.active_set.completed = true end
   if not save(r) then return false end
-  tell('Review complete · ' .. #r.files .. ' files checked'); return true
+  if not quiet then tell('Review complete · ' .. #r.files .. ' files checked') end
+  return true
 end
 
 -- Asks what to do once a review is finished; returns 'next', 'close' or 'stay'. Tests replace it.
@@ -1847,7 +1859,7 @@ end
 -- choice: 'next', 'close' or 'stay' when it was asked already (a menu, the pop-out); else it is asked once finished.
 function M.finish_next(choice)
   local r = M.current
-  if not r or not M.finish() then return false end
+  if not r or not M.finish(choice == nil) then return false end
   local following = next_commit(r)
   choice = choice or M.ask_after_finish(#r.files, following ~= nil)
   if choice == 'next' and following then M.switch(following); M.unread()
