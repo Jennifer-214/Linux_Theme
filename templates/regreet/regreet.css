@@ -299,16 +299,16 @@ popover row:hover {
   padding: 0;
   letter-spacing: 0;
   font-family: "{{HYPRLOCK_CLOCK_FONT}}";
-  font-style: italic;
-  font-size: 92px;
+  font-style: {{REGREET_FONT_STYLE}};
+  font-size: {{REGREET_CLOCK_SIZE}};
   color: rgba({{FG_R}},{{FG_G}},{{FG_B}},0.93);
 }
 
 /* the greeting line also carries PAM's notes ("place your finger…"): never hide it */
 {{REGREET_EXTRA_SCOPE}} overlay > :nth-child(2) grid > label:first-child {
   font-family: "{{HYPRLOCK_CLOCK_FONT}}";
-  font-style: italic;
-  font-size: 19px;
+  font-style: {{REGREET_FONT_STYLE}};
+  font-size: {{REGREET_GREETING_SIZE}};
   color: #{{FG_DIM}};
   letter-spacing: 0;
   padding: 0;
@@ -317,11 +317,11 @@ popover row:hover {
 /* field names: quiet notes in the margin */
 {{REGREET_EXTRA_SCOPE}} overlay > :nth-child(2) grid > label:not(:first-child) {
   font-family: "{{HYPRLOCK_CLOCK_FONT}}";
-  font-style: italic;
-  font-size: 16px;
+  font-style: {{REGREET_FONT_STYLE}};
+  font-size: {{REGREET_LABEL_SIZE}};
   color: #{{COMMENT}};
   letter-spacing: 0;
-  text-transform: lowercase;
+  text-transform: {{REGREET_CASE}};
   padding: 0 4px 0 0;
 }
 /* the manual-entry toggles stay hidden and take no room */
@@ -341,7 +341,7 @@ popover row:hover {
 {{REGREET_EXTRA_SCOPE}} overlay > :nth-child(2) entry {
   background-color: rgba({{BG_R}},{{BG_G}},{{BG_B}},0.6);
   border: 1px solid #{{REGREET_LINE}};
-  border-radius: 4px;
+  border-radius: {{REGREET_RADIUS}};
   box-shadow: none;
   padding: 0 10px 0 12px;
   min-height: 38px;
@@ -350,7 +350,7 @@ popover row:hover {
 {{REGREET_EXTRA_SCOPE}} overlay > :nth-child(2) passwordentry text,
 {{REGREET_EXTRA_SCOPE}} overlay > :nth-child(2) entry text {
   color: #{{FG}};
-  font-size: 14px;
+  font-size: {{REGREET_FIELD_SIZE}};
 }
 {{REGREET_EXTRA_SCOPE}} overlay > :nth-child(2) passwordentry text selection,
 {{REGREET_EXTRA_SCOPE}} overlay > :nth-child(2) entry text selection {
@@ -388,7 +388,7 @@ popover row:hover {
 {{REGREET_EXTRA_SCOPE}} popover.menu > contents {
   background-color: #{{BG}};
   border: 1px solid #{{REGREET_LINE}};
-  border-radius: 6px;
+  border-radius: {{REGREET_MENU_RADIUS}};
   padding: 4px;
   box-shadow: none;
 }
@@ -398,7 +398,7 @@ popover row:hover {
 }
 {{REGREET_EXTRA_SCOPE}} popover.menu modelbutton {
   padding: 6px 12px;
-  border-radius: 4px;
+  border-radius: {{REGREET_RADIUS}};
   min-height: 22px;
 }
 {{REGREET_EXTRA_SCOPE}} popover.menu modelbutton:hover,
@@ -406,7 +406,7 @@ popover row:hover {
 {{REGREET_EXTRA_SCOPE}} popover.menu cellview,
 {{REGREET_EXTRA_SCOPE}} popover.menu label {
   color: #{{FG}};
-  font-size: 14px;
+  font-size: {{REGREET_FIELD_SIZE}};
 }
 {{REGREET_EXTRA_SCOPE}} popover.menu check,
 {{REGREET_EXTRA_SCOPE}} popover.menu radio { color: #{{BLUSH}}; }
@@ -433,34 +433,34 @@ popover row:hover {
 {{REGREET_EXTRA_SCOPE}} overlay > :nth-child(2) button.suggested-action > * {
   background-color: rgba({{BG_R}},{{BG_G}},{{BG_B}},0.6);
   border: 1px solid #{{REGREET_LINE}};
-  border-radius: 4px;
+  border-radius: {{REGREET_RADIUS}};
 }
 {{REGREET_EXTRA_SCOPE}} overlay > :nth-child(2) button.suggested-action:hover > * { background-color: #{{SELECTION}}; }
 {{REGREET_EXTRA_SCOPE}} overlay > :nth-child(2) button.suggested-action:focus-visible > * { border-color: #{{REGREET_LINE_FOCUS}}; }
 {{REGREET_EXTRA_SCOPE}} overlay > :nth-child(2) button.suggested-action label {
   color: rgba({{FG_R}},{{FG_G}},{{FG_B}},0.6);
   font-family: "{{HYPRLOCK_CLOCK_FONT}}";
-  font-style: italic;
+  font-style: {{REGREET_FONT_STYLE}};
   font-weight: normal;
-  font-size: 16px;
+  font-size: {{REGREET_LABEL_SIZE}};
   letter-spacing: 0;
-  text-transform: lowercase;
+  text-transform: {{REGREET_CASE}};
 }
 {{REGREET_EXTRA_SCOPE}} overlay > :nth-child(2) grid > box > button:not(.suggested-action) { margin-top: 12px; }
 {{REGREET_EXTRA_SCOPE}} overlay > :nth-child(2) grid > box > button:not(.suggested-action) > * {
   background-color: transparent;
   border-width: 0;
-  border-radius: 4px;
+  border-radius: {{REGREET_RADIUS}};
   padding: 0 10px;
 }
 {{REGREET_EXTRA_SCOPE}} overlay > :nth-child(2) grid > box > button:not(.suggested-action):hover > * { background-color: #{{SELECTION}}; }
 {{REGREET_EXTRA_SCOPE}} overlay > :nth-child(2) grid > box > button:not(.suggested-action) label {
   color: #{{COMMENT}};
   font-family: "{{HYPRLOCK_CLOCK_FONT}}";
-  font-style: italic;
-  font-size: 15px;
+  font-style: {{REGREET_FONT_STYLE}};
+  font-size: {{REGREET_SMALL_SIZE}};
   letter-spacing: 0;
-  text-transform: lowercase;
+  text-transform: {{REGREET_CASE}};
 }
 
 /* power: quiet words, the highlighter on hover */
@@ -478,13 +478,13 @@ popover row:hover {
 {{REGREET_EXTRA_SCOPE}} overlay > :nth-child(4) button > * {
   background-color: transparent;
   border-width: 0;
-  border-radius: 4px;
+  border-radius: {{REGREET_RADIUS}};
 }
 {{REGREET_EXTRA_SCOPE}} overlay > :nth-child(4) button:hover > * { background-color: #{{SELECTION}}; }
 {{REGREET_EXTRA_SCOPE}} overlay > :nth-child(4) button label {
   color: #{{COMMENT}};
   font-size: 12px;
-  font-weight: normal;
+  {{REGREET_POWER_LABEL}};
   letter-spacing: 1px;
 }
 {{REGREET_EXTRA_SCOPE}} overlay > :nth-child(4) button:hover label { color: #{{FG}}; }
@@ -500,8 +500,8 @@ popover row:hover {
 {{REGREET_EXTRA_SCOPE}} infobar label {
   color: #{{RED}};
   font-family: "{{HYPRLOCK_CLOCK_FONT}}";
-  font-style: italic;
+  font-style: {{REGREET_FONT_STYLE}};
   font-weight: normal;
-  font-size: 15px;
+  font-size: {{REGREET_SMALL_SIZE}};
   letter-spacing: 0;
 }

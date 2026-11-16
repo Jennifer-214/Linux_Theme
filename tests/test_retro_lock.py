@@ -155,5 +155,24 @@ class RetroLock(unittest.TestCase):
         self.assertIn('A &amp; B', bar('a & b'))
 
 
+    def test_retro_login_sheet(self):
+        for theme in THEMES:
+            with self.subTest(theme=theme):
+                out = render(theme, 'regreet', self.tmp / f'greeter-{theme}')
+                css, toml = (out / 'regreet.css').read_text(), tomllib.loads((out / 'regreet.toml').read_text())
+                self.assertNotIn('{{', css)
+                sheet = css[css.index("/* ─── Paper: the lock screen's language"):]
+                if theme not in ('Paper', 'retro-amber'):
+                    self.assertIn('window.foxml-off {', sheet, 'the sheet matches nothing on this theme')
+                    continue
+                self.assertIn('window:not(.foxml-off) {', sheet)
+                if theme == 'retro-amber':
+                    for shape in ('italic', 'lowercase', 'border-radius: 4px', 'border-radius: 6px'):
+                        self.assertNotIn(shape, sheet)
+                    self.assertEqual(set(re.findall(r'font-size: (\d+px)', sheet)), {'12px', '24px', '36px'})
+                    self.assertEqual(sheet.count('text-transform: uppercase'), 4)
+                    self.assertNotIn('\\', toml['appearance']['greeting_msg'])
+                    self.assertEqual(toml['appearance']['greeting_msg'], toml['appearance']['greeting_msg'].upper())
+
 if __name__ == '__main__':
     unittest.main()

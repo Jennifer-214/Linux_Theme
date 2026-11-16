@@ -403,11 +403,11 @@ NVIM_FLOAT_BORDER=ffb000
 REGREET_PREFER_DARK=true
 # The login sheet section of regreet.css (Paper's too): the window paints the wallpaper, regreet's own picture
 # is hidden, the fields sit straight on it.
-REGREET_EXTRA_SCOPE='window.foxml-off'
+REGREET_EXTRA_SCOPE='window:not(.foxml-off)'
 REGREET_LINE=c88a00
 REGREET_LINE_FOCUS=ffb000
-REGREET_GREETING="READY."
-REGREET_CLOCK_FORMAT="%a %d %b  %H:%M"
+REGREET_GREETING="SYSTEM READY. LOGIN:"
+REGREET_CLOCK_FORMAT="%m-%d-%Y  %H:%M"
 # The login sheet as a DOS screen: upright capitals, square corners, Big Blue Term at its crisp 24 and 36 px
 # (power buttons stay 12 px), words in capitals.
 REGREET_FONT_STYLE=normal
