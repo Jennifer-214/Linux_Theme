@@ -26,7 +26,16 @@ RENDER = ROOT / 'src/desk-render/desk-render-fast'
 class PopOut(unittest.TestCase):
     def test_the_pop_out_and_its_editor(self):
         ran = subprocess.run(['nvim', '--headless', '--clean', '-l', str(LUA / 'tests/test_popout.lua')],
-                             capture_output=True, text=True, timeout=180)
+                             capture_output=True, text=True, timeout=240)
+        out = (ran.stdout + ran.stderr).strip()
+        print('    ' + out.replace('\n', '\n    '))
+        self.assertEqual(ran.returncode, 0, out)
+
+    # :restart in the editor's terminal UI (a pty here) with the pop-out open: no stall, the pop-out quits, the new
+    # editor offers its views again.
+    def test_restart_with_the_pop_out_open(self):
+        ran = subprocess.run(['nvim', '--headless', '--clean', '-l', str(LUA / 'tests/test_popout_restart.lua')],
+                             capture_output=True, text=True, timeout=120)
         out = (ran.stdout + ran.stderr).strip()
         print('    ' + out.replace('\n', '\n    '))
         self.assertEqual(ran.returncode, 0, out)
@@ -37,9 +46,12 @@ local block = assert(io.open(os.getenv('POPOUT_BLOCK'))):read('*a')
 vim.lsp.config('fake_a', { cmd = { 'true' }, filetypes = { 'fakelang' } })
 vim.lsp.config('fake_b', { cmd = { 'true' }, filetypes = { 'fakelang2' } })
 vim.lsp.enable({ 'fake_a', 'fake_b' })
+-- A stand-in lualine that records what it is asked to hide.
+local hidden = {}
+package.preload['lualine'] = function() return { hide = function(opts) hidden[#hidden + 1] = opts end } end
 if os.getenv('POPOUT') == '1' then vim.g.desk_popout = 1 end
 assert(loadstring(block))()
-io.stdout:write(vim.json.encode({ servers = #vim.lsp.get_configs({ enabled = true }) }))
+io.stdout:write(vim.json.encode({ servers = #vim.lsp.get_configs({ enabled = true }), hidden = hidden }))
 '''
 # The work modules init.lua sets up, in a pop-out: no commands, autocommands, timers or keys of theirs.
 MODULES_RUN = r'''
@@ -84,15 +96,19 @@ class InitBlock(unittest.TestCase):
             block.write_text(next(iter(blocks.values())))
             script = Path(temp) / 'run.lua'
             script.write_text(BLOCK_RUN)
-            servers = {}
+            servers, hidden = {}, {}
             for popout in ('1', '0'):
                 env = dict(os.environ, POPOUT=popout, POPOUT_BLOCK=str(block), HOME=temp, XDG_STATE_HOME=temp, XDG_CACHE_HOME=temp,
                            XDG_CONFIG_HOME=temp, XDG_DATA_HOME=temp)
                 ran = subprocess.run(['nvim', '--headless', '--clean', '-l', str(script)], capture_output=True, text=True, timeout=60,
                                      env=env)
                 self.assertEqual(ran.returncode, 0, ran.stdout + ran.stderr)
-                servers[popout] = json.loads(ran.stdout.strip().splitlines()[-1])['servers']
+                said = json.loads(ran.stdout.strip().splitlines()[-1])
+                servers[popout], hidden[popout] = said['servers'], said['hidden'] or []
         self.assertEqual(servers, {'1': 0, '0': 2}, 'a pop-out switches every language server off; the main editor keeps them')
+        # The pop-out's tab line is its header and each status line a view's keys: lualine draws none of them there.
+        self.assertEqual(hidden, {'1': [{'place': ['statusline', 'tabline', 'winbar'], 'unhide': False}], '0': []},
+                         'a pop-out hides lualine for good; the main editor keeps it')
 
     def test_the_work_modules_start_nothing_in_a_pop_out(self):
         with tempfile.TemporaryDirectory(prefix='popout-modules-') as temp:

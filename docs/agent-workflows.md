@@ -371,11 +371,18 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   pop-out, `f` or Shift+Enter puts the keyboard in the editor too. `p` pins the graph (Enter then visits its boxes one by
   one) or follows the editor again, where each place Enter goes centres it; `c` centres it on a box (pinned there), `s`
   labels the boxes and `gs` shows the selected function in symdeps (as in the graph tab), `Space Space` there is the
-  editor's menu for the selected box (its first group lists the views), `?` lists the keys and `q` closes it. `Space Tab` in either window puts the keyboard in the other, across screens. The pop-out is
-  a Neovim of the same theme that only draws what the editor sends: no language server, no work records, no saved
-  places; it names boxes by the drawing it was sent, so a press on a graph that has since changed says "this view
-  moved on". With one monitor the row says "requires a second monitor" and graphs stay in the editor; closing the
-  editor closes the pop-out ("Editor closed").
+  editor's menu for the selected box (its first group lists the views), `?` lists the keys. Each view is a tab page:
+  the tab line is the header (each view by number, `PINNED`, `✱` when something new arrived in a view behind) and the
+  status line is that view's keys; `gt`, `gT` and `2gt` switch views, `H` or Backspace goes back (the view before, the
+  graph before a centre, the code spot before Enter: the editor goes back too) and `L` forward, `q` closes the view
+  (the last one closes the pop-out). `Space Tab` in either window puts the keyboard in the other, across screens. The
+  pop-out is a Neovim of the same theme that only draws what the editor sends: no language server, no work records, no
+  saved places; it names boxes by the drawing it was sent, so a press on a graph that has since changed says "this
+  view moved on". With one monitor the row says "requires a second monitor" and graphs stay in the editor. When its
+  screen is unplugged it moves to another screen that is not the editor's, or, with one screen left, closes and its
+  pinned views come back as splits (one notice says so). Closing the editor (or `:restart`) closes the pop-out
+  ("Editor closed"); its views are kept (desk-work `workspace`, client `popout`), and Space Space › views offers
+  "Restore 1 view" in the next editor on that checkout.
 - **What the last turn changed**: when a Claude turn ends, the notebook reads the function or class around each hunk
   it changed (treesitter, as the review's changed functions; a headless Neovim, three seconds at most) and puts the
   count on the last-turn row, `✎ 2 files · 3 functions`. Enter lists them by file; each opens Neovim with its graph

@@ -44,7 +44,8 @@ M.SURFACES = {
 -- The module that adds a surface's rows: a pop-out showing a view of that surface loads it, to have the same keys.
 M.MODULES = { ['review-list'] = 'desk.review', ['review-diff'] = 'desk.review', callgraph = 'desk.callgraph',
   ['callgraph-panel'] = 'desk.callgraph', since = 'desk.since', map = 'desk.map', popout = 'desk.popout', menu = 'desk.menu' }
-M.GROUPS = { 'Home', 'This function', 'Call graph', 'Project map', 'Review', 'Claude', 'Work', 'Jupyter', 'symdeps', 'Views',
+-- The order of the groups in a menu: the views first (Space Space › views opens one), each greyed with why it cannot.
+M.GROUPS = { 'Views', 'Home', 'This function', 'Call graph', 'Project map', 'Review', 'Claude', 'Work', 'Jupyter', 'symdeps',
   'Pop-out' }
 -- which-key's name for a key prefix on a surface's buffers (the config's global <leader>r group is "refactor").
 M.PREFIXES = { ['review-list'] = { { '<leader>r', 'review' } }, ['review-diff'] = { { '<leader>r', 'review' } } }

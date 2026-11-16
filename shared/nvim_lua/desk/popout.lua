@@ -4,15 +4,18 @@
 -- One module, two sides. The main editor (the host) opens it (M.open: kitty --class desk-popout -e nvim … --
 -- desk-popout:<its socket>, the socket only ever in argv), keeps the views and draws each for the pop-out's width
 -- through its view kind (M.kind; desk.callgraph's graph is the first). The pop-out (M.client, from its own argv) shows
--- each view in a plain buffer of its own, edits no file and runs no language server (init.lua's desk-popout block).
+-- each view in a tab page of its own (one window, one plain buffer), edits no file and runs no language server
+-- (init.lua's desk-popout block). Its tab line is the header (each view, PINNED, ✱ for news, the keys that switch);
+-- each window's status line is that view's key line.
 --
 -- Protocol 2 (the contract: plans/2026-11-16-threads-and-popout-workspace.md, appendix A4). The editor sends
 -- rpcnotify of M.receive, { version = 2, type, … }:
---   view.set   { id, gen, kind, surface, title, state, lines, marks, hl, items, footer, strip, select, front }
+--   view.set   { id, gen, kind, surface, title, state, lines, marks, hl, items, footer, strip, select, front, news }
 --   view.clear { id } · ping { serial } (every 10 s; one that stops answering is sent nothing until it does) · bye { why }
 -- The pop-out asks through the editor's bridge (desk.bridge), every message with its deadline:
 --   subscribe { chan, pid, width, protocol = 2 } · describe { view, gen, item } → { rows } ·
---   act { view, gen, item, action, text, choice } · pong { serial }
+--   act { view, gen, item, action, text, choice } · pong { serial } · front { view, quiet } (the view in front there
+--   now; quiet when it was not her own switch)
 -- describe and act name the generation the pop-out drew: a view drawn again since is refused ("this view moved on").
 -- The pop-out's keys for a view are its in-editor surface's drawn rows (run there, on its copy) and remote rows (run in
 -- the editor, by act), beside its own rows (surface 'popout'); a row the editor keeps (remote = false) is not there.
@@ -106,8 +109,8 @@ end
 
 -- Where the pop-out goes: the workspace showing on the first screen desk-monitor lists as secondary (then portrait,
 -- then the primary, then any other) that is not the screen with the focus, the editor's when it opens the pop-out.
--- monitors: hyprctl -j monitors. { name, workspace } or nil.
-function M.target_screen(monitors, layout)
+-- prefer: a screen to try first (where a restored pop-out was). monitors: hyprctl -j monitors. { name, workspace } or nil.
+function M.target_screen(monitors, layout, prefer)
   local live, focused, order = {}, nil, {}
   for _, m in ipairs(type(monitors) == 'table' and monitors or {}) do
     if type(m) == 'table' and type(m.name) == 'string' and not m.disabled then
@@ -116,6 +119,7 @@ function M.target_screen(monitors, layout)
     end
   end
   layout = layout or {}
+  if type(prefer) == 'string' then order[1] = prefer end
   for _, names in ipairs({ layout.secondary or {}, layout.portrait or {}, { layout.primary } }) do
     for _, name in ipairs(names) do order[#order + 1] = name end
   end
@@ -180,14 +184,25 @@ function M.focus(who, done)
   end)
 end
 
-
 -- ─── the main editor's side ────────────────────────────────────────────────────────────────────────────────────
--- chan: the pop-out's channel once it subscribed; pid: its Neovim; width: its window; opening: a kitty on its way;
--- views by id; gen: the newest generation sent; ping and heard: the pings sent and answered; stalled: not answering.
-local H = { views = {}, gen = 0, ping = 0, heard = 0, width = 80 }
+-- chan: the pop-out's channel once it subscribed; pid: its Neovim; kitty: the kitty it runs in; width: its window;
+-- opening: a kitty on its way; views by id, and order: their ids in the order of the pop-out's tabs; front: the view in
+-- front there; screen: the monitor it was placed on (prefer: the one a restore asks for); gen: the newest generation
+-- sent; ping and heard: the pings sent and answered; stalled: not answering; history: the steps H, Backspace and L
+-- walk; saved: the layout record last read or written; watch: the watch on desk-monitor's sidecar while it is open;
+-- down: the editor is exiting and the pop-out was told.
+local H = { views = {}, order = {}, gen = 0, ping = 0, heard = 0, width = 80, history = { steps = {}, at = 0 } }
 M.host = H   -- the tests read it
 local kinds = {}
 M.kinds = kinds
+M.MAX_STEPS = 50
+local watch_screens, unwatch_screens
+
+-- Neovim is exiting (v:exiting is set before any exit autocommand runs) or the pop-out was told: nothing of the
+-- pop-out runs then but its goodbye. An error in a callback during the exit makes Neovim wait for a key before it
+-- quits, which :restart shows as a stall.
+function M.exiting() return H.down == true or vim.v.exiting ~= vim.NIL end
+local exiting = M.exiting
 
 local function host_pane()
   local term, pane = vim.env.TERM or '', vim.env.TMUX_PANE or ''
@@ -195,10 +210,10 @@ local function host_pane()
 end
 
 local function send(msg)
-  if not H.chan or H.stalled then return false end
+  if not H.chan or H.stalled or exiting() then return false end
   msg.version = M.PROTOCOL
   local ok = pcall(vim.rpcnotify, H.chan, 'nvim_exec_lua', POPOUT_DOOR, { msg })
-  if not ok then M.forget('The pop-out closed.') end
+  if not ok then M.forget('The pop-out closed.', { back = true }) end
   return ok
 end
 
@@ -221,8 +236,8 @@ local function definitions(names)
   return out
 end
 
--- A footer's keys as she reads them, for the key line a view draws: { { ids = { row ids }, words } } →
--- { { 'j/k/h/l', 'move' }, … }, each key spelled by the registry's one speller.
+-- A footer's keys as she reads them, for a key line: { { ids = { row ids }, words } } → { { 'j/k/h/l', 'move' }, … },
+-- each key spelled by the registry's one speller.
 function M.key_pairs(footer)
   local out = {}
   for _, part in ipairs(footer or {}) do
@@ -239,29 +254,38 @@ end
 -- ─── view kinds ────────────────────────────────────────────────────────────────────────────────────────────────
 -- M.kind(spec) registers a kind of view, from its own module as that loads (desk.callgraph registers 'graph'), and
 -- adds its row to the Views group of the home menu (in the editor; in the pop-out through describe). spec:
---   name, title, about   'graph' (the view's id and kind), 'call graph' (its words), and its Views row's sentence; the
---                        row reads "Pop out the <title>", or spec.menu
+--   name, title, about   'graph' (the view's id and kind, its name in the pop-out's header), 'call graph' (its
+--                        words), and its Views row's sentence; the row reads "Pop out the <title>", or spec.menu
 --   surface      the in-editor surface whose keys the view has in the pop-out: there its drawn rows run on the
 --                pop-out's copy (ctx.copy, desk.callgraph's selection model: { buf, win, drawn = { boxes }, index }),
 --                its remote rows run in this editor with ctx_for's ctx, and a row with remote = false is not there.
---                Its remote row on Enter is what Enter, f and a double click do there
---   render(view, width, style) → { title, state, lines, marks, hl, items, footer, strip }   pure: the view drawn for
---                the pop-out's width (style: vim.g.desk_style). state: following, PINNED, … (a word for the header);
---                marks: { line, from, to, group, priority }; hl: the Desk* and FoxSymdeps* groups it draws with (their
+--                Its remote row on Enter is what Enter, f and a double click do there. The pop-out's own keys win:
+--                a surface row on one of them is left out there (actions.popout_rows)
+--   render(view, width, style) → { title, state, lines, marks, hl, items, footer, strip, news }   pure: the view drawn
+--                for the pop-out's width (style: vim.g.desk_style), with no keys and no state in its lines (the
+--                header and the key line show them). state: following, PINNED, … (the header shows PINNED); marks:
+--                { line, from, to, group, priority }; hl: the Desk* and FoxSymdeps* groups it draws with (their
 --                definitions go along); items: { key (≤ 120: the same item keeps it from one drawing to the next),
 --                kind = 'box' or 'row', line (where the cursor goes), name_col, x, w, spans = { { line, from, to } }
---                (at most 8), centre (selected first), name, strip = { two lines }, ref (stays here; ctx_for gets it) };
---                footer: { { ids = { row ids }, words } }, its key line (M.key_pairs spells it); strip: the first of
---                the two lines that show the selected item's strip
+--                (at most 8), centre (selected first), name, strip = { two lines }, ref (stays here; ctx_for gets
+--                it) }; footer: { { ids = { row ids }, words } }, its key line (four or five keys); strip: the first of
+--                the two lines that show the selected item's strip; news: something new is in it (an answer, a
+--                failure): its name in the header is marked until she looks (view.news, cleared once sent)
 --   available(ctx) → true | why | false   may it open from ctx (ctx.remote: asked from the pop-out)        (optional)
---   open(view, ctx)        fills a view from where it was asked (the editor's ctx, or a surface's with what it passed)
+--   open(view, ctx)        fills a view from where it was asked: the editor's ctx, a surface's with what it passed,
+--                          or ctx.target (a function she named elsewhere: the notebook)
 --   follow(view, event)    the editor moved: { type = 'moved' or 'unit', win } · { type = 'saved' or 'attached', buf } ·
 --                          { type = 'pin' } (p flipped view.pinned). A kind with news of its own calls M.redraw(view)
 --   ctx_for(view, ref, index) → ctx   what a remote row runs with for that item; ctx.view, ctx.item (the ref),
---                          ctx.index, ctx.remote and ctx.also are added to it
---   attach(view)           o in the pop-out: the view back in the editor as a split (it has left the pop-out)
+--                          ctx.index, ctx.remote and ctx.also are added to it; ctx.origin, when set, is the window
+--                          its Enter moves (H takes the editor back there)
+--   attach(view)           o in the pop-out, and each pinned view when the pop-out goes on its own: the view back in
+--                          the editor as a split (it has left the pop-out)
 --   close(view)            the view left the pop-out: stop what it runs (timers, requests)
---   save(view) → { target, pinned, selected }, restore(saved) → view   for the layout record (not read yet)
+--   save(view) → saved, restore(view, saved)   the view's state and back. The history keeps what save gives (any
+--                          table); the layout record keeps saved.pinned and saved.target as JSON, and restore gets
+--                          { pinned, target } back after a restart. A kind that changes what its view shows (the
+--                          graph's c) calls M.stepped(view, before), before = save(view) from just before, so H undoes it
 -- A view (M.host.views[name]) is the kind's own table; id, kind, gen and pinned are the host's, and gone once it has
 -- left the pop-out. select = an item's key and front = true go with the next M.redraw, once: the pop-out selects that
 -- item, and shows that view.
@@ -326,14 +350,15 @@ local function payload(view)
   end
   return { type = 'view.set', id = view.id, kind = view.kind, surface = kind.surface, title = cut(drawn.title, 200) or kind.title,
     state = cut(drawn.state, 200) or '', lines = lines, marks = marks, hl = definitions(drawn.hl), items = items,
-    footer = type(drawn.footer) == 'table' and drawn.footer or {}, strip = type(drawn.strip) == 'number' and drawn.strip or nil }, refs, keys
+    footer = type(drawn.footer) == 'table' and drawn.footer or {}, strip = type(drawn.strip) == 'number' and drawn.strip or nil,
+    news = drawn.news == true }, refs, keys
 end
 
 -- Sends a view as it is now, one per view every M.GAP_MS at most (the last state wins). A new generation only when its
 -- lines or its items changed: the same drawing sent again (it answers again, a resize to the same width) keeps the
 -- items it named.
 function M.redraw(view)
-  if not view or view.gone or H.views[view.id] ~= view or not H.chan or H.stalled then return end
+  if not view or view.gone or H.views[view.id] ~= view or not H.chan or H.stalled or exiting() then return end
   local wait = (view.sent or -M.GAP_MS) + M.GAP_MS - uv.now()
   if wait > 0 then
     if not view.queued then
@@ -351,9 +376,17 @@ function M.redraw(view)
   end
   view.refs, view.count = refs, #msg.items
   msg.gen, msg.select, msg.front = view.gen, view.select, view.front == true
-  if send(msg) then view.select, view.front = nil, nil end
+  if send(msg) then view.select, view.front, view.news = nil, nil, nil end
 end
-local function redraw_all() for _, view in pairs(H.views) do view.sent = nil; M.redraw(view) end end
+-- Every view sent again, in the order of the pop-out's tabs, the one in front last (it stays in front).
+local function redraw_all()
+  for _, id in ipairs(H.order) do
+    local view = H.views[id]
+    if view and id ~= H.front then view.sent = nil; M.redraw(view) end
+  end
+  local front = H.front and H.views[H.front]
+  if front then front.sent, front.front = nil, true; M.redraw(front) end
+end
 
 -- ─── the editor moving, for the views that follow it ───────────────────────────────────────────────────────────
 -- One set of autocommands while any view is out, each event given to every view's kind (follow).
@@ -368,7 +401,10 @@ local function follow_one(view, event)
   local ok, err = pcall(kind.follow, view, event)
   if not ok then kind_failed(view, err) end
 end
-local function dispatch(event) for _, view in pairs(H.views) do follow_one(view, event) end end
+local function dispatch(event)
+  if exiting() then return end
+  for _, view in pairs(H.views) do follow_one(view, event) end
+end
 local function follow_start()
   local group = api.nvim_create_augroup('desk_popout_follow', { clear = true })
   api.nvim_create_autocmd({ 'CursorMoved', 'BufEnter', 'InsertLeave' }, { group = group,
@@ -378,7 +414,7 @@ local function follow_start()
     callback = function() dispatch({ type = 'unit', win = api.nvim_get_current_win() }) end })
   api.nvim_create_autocmd('BufWritePost', { group = group, callback = function(a) dispatch({ type = 'saved', buf = a.buf }) end })
   api.nvim_create_autocmd('LspAttach', { group = group, callback = function(a) dispatch({ type = 'attached', buf = a.buf }) end })
-  api.nvim_create_autocmd('ColorScheme', { group = group, callback = redraw_all })
+  api.nvim_create_autocmd('ColorScheme', { group = group, callback = function() if not exiting() then redraw_all() end end })
 end
 local function follow_stop() pcall(api.nvim_del_augroup_by_name, 'desk_popout_follow') end
 
@@ -390,35 +426,57 @@ local function leave(view)
     if not ok then kind_failed(view, err) end
   end
 end
+local function unlist(id) for i, other in ipairs(H.order) do if other == id then table.remove(H.order, i); return end end end
 
--- Takes a view off the pop-out (it goes back to the editor, or the pop-out went).
+-- Takes a view off the pop-out (it goes back to the editor, or she closed it there).
 function M.clear(id)
   local view = H.views[id]
   if not view then return end
   H.views[id] = nil
+  unlist(id)
+  if H.front == id then H.front = nil end
   leave(view)
   if next(H.views) == nil then follow_stop() end
   send({ type = 'view.clear', id = id })
 end
 
--- The pop-out is gone (it closed, or q there): nothing more is sent and nothing follows the cursor for it.
-function M.forget(why)
+-- The pop-out is gone: nothing more is sent and nothing follows the cursor for it. opts.back: it went on its own (it
+-- closed or crashed, or its screen was unplugged): its pinned views come back to the editor as splits (their kind's
+-- attach), the following ones stop, and one notice says so. Her q on its last view brings nothing back.
+function M.forget(why, opts)
+  opts = opts or {}
   local had = H.chan ~= nil or next(H.views) ~= nil
-  H.chan, H.pid, H.stalled, H.opening = nil, nil, false, nil
+  H.chan, H.pid, H.kitty, H.stalled, H.opening, H.front, H.screen, H.prefer = nil, nil, nil, false, nil, nil, nil, nil
   if H.timer then H.timer:stop() end
-  local views = H.views
-  H.views = {}
-  for _, view in pairs(views) do leave(view) end
+  unwatch_screens()
+  local views, order = H.views, H.order
+  H.views, H.order, H.history = {}, {}, { steps = {}, at = 0 }
+  local back = {}
+  for _, id in ipairs(order) do
+    local view = views[id]
+    if view then
+      leave(view)
+      local kind = kinds[view.kind]
+      if opts.back and view.pinned and kind and kind.attach then back[#back + 1] = view end
+    end
+  end
   follow_stop()
-  if had and why then tell(why) end
+  for _, view in ipairs(back) do
+    local ok, err = pcall(kinds[view.kind].attach, view)
+    if not ok then tell(sentence('it could not come back: ' .. tostring(err):sub(1, 200)), WARN) end
+  end
+  if had and why then
+    tell(why .. (#back == 0 and '' or #back == 1 and ' Its pinned view is back here.' or ' Its pinned views are back here.'))
+  end
 end
 
 local function start_pings()
   H.timer = H.timer or uv.new_timer()
   H.timer:stop()
   H.timer:start(M.PING_MS, M.PING_MS, vim.schedule_wrap(function()
+    if exiting() then return end
     if not H.chan then return H.timer:stop() end
-    if next(api.nvim_get_chan_info(H.chan)) == nil then return M.forget('The pop-out closed.') end
+    if next(api.nvim_get_chan_info(H.chan)) == nil then return M.forget('The pop-out closed.', { back = true }) end
     if H.ping > H.heard and not H.stalled then
       H.stalled = true
       tell('The pop-out stopped answering; nothing more is sent to it until it does.', WARN)
@@ -429,11 +487,12 @@ local function start_pings()
 end
 
 -- The pop-out window appears floating at the side of the screen it opens on (the Hyprland rule, which also keeps the
--- focus here). With another screen it then moves, tiled, to the workspace showing there.
-function M.place(pid)
+-- focus here). Then it moves, tiled, to the workspace showing on `screen` ({ name, workspace }; by default the screen
+-- M.target_screen picks, a restore's screen first), and H.screen says which. pid: its kitty's.
+function M.place(pid, screen)
   if type(pid) ~= 'number' or not have('hyprctl') then return end
   hyprctl({ 'monitors' }, function(monitors)
-    local screen = M.target_screen(monitors, M.screens())
+    screen = screen or M.target_screen(monitors, M.screens(), H.prefer)
     if not screen then return end
     local tries = 0
     local function look()
@@ -447,6 +506,7 @@ function M.place(pid)
           if tries < 30 then vim.defer_fn(look, 100) end
           return
         end
+        H.screen = screen.name
         local where = tostring(screen.workspace)
         M.dispatch(("hl.dsp.window.move({ workspace = '%s', follow = false, window = 'address:%s' })"):format(where, address),
           ('movetoworkspacesilent %s,address:%s'):format(where, address), function()
@@ -465,16 +525,18 @@ function M.open()
   if #server > 107 or not server:match('^/[%w%._/%-]+$') then return false, 'this editor has no socket the pop-out can reach' end
   if not have('kitty') then return false, 'requires kitty' end
   -- The socket travels in argv only. The pop-out's Neovim gets none of this editor's tmux (its footer is this
-  -- editor's) and no $NVIM (it is not a terminal inside this editor).
+  -- editor's) and no $NVIM (it is not a terminal inside this editor). NVIM_NOTTYFAST: it asks the new kitty nothing at
+  -- start (its theme is set, not detected), so no E1568 when the terminal is slow to answer.
   local argv = { 'kitty', '--class', M.CLASS, '-e', 'nvim', '--cmd', 'let g:desk_popout=1', '-c', "lua require('desk.popout').client()",
     '--', 'desk-popout:' .. server }
   local opening = {}
-  local ok, job = pcall(vim.system, argv, { text = true, detach = true, env = { TMUX = '', TMUX_PANE = '', NVIM = '' } }, function()
+  local env = { TMUX = '', TMUX_PANE = '', NVIM = '', NVIM_NOTTYFAST = '1' }
+  local ok, job = pcall(vim.system, argv, { text = true, detach = true, env = env }, function()
     vim.schedule(function() if H.opening == opening then H.opening = nil end end)
   end)
   if not ok then return false, 'kitty did not start (' .. tostring(job):sub(1, 120) .. ')' end
   opening.pid = job.pid
-  H.opening = opening
+  H.opening, H.kitty = opening, job.pid
   M.place(job.pid)
   vim.defer_fn(function()
     if H.opening == opening then H.opening = nil; tell('The pop-out did not start.', WARN) end
@@ -495,9 +557,168 @@ local function refused_here(why)
   return true
 end
 
+-- ─── history: H and Backspace go back, L forward ───────────────────────────────────────────────────────────────
+-- Steps, each undone by H or Backspace and done again by L: a switch between views; an Enter (the code spot the editor
+-- was at: the editor goes back too); a view's content changing (its kind's save from before: a graph centred on another
+-- function). What L brings back is what H left (taken when H undoes it), so a graph still being read when it was
+-- centred comes back read. At most M.MAX_STEPS; a new step drops the ones ahead of it.
+local function push_step(step)
+  local h = H.history
+  for i = #h.steps, h.at + 1, -1 do h.steps[i] = nil end
+  h.steps[#h.steps + 1] = step
+  while #h.steps > M.MAX_STEPS do table.remove(h.steps, 1) end
+  h.at = #h.steps
+end
+
+-- A kind changed what its view shows (before: its save from just before): a step H can undo.
+function M.stepped(view, before)
+  local kind = view and kinds[view.kind]
+  if not (kind and kind.save and kind.restore) or view.gone or H.views[view.id] ~= view or type(before) ~= 'table' then return end
+  push_step({ type = 'state', view = view.id, before = before })
+end
+
+local function to_front(view)
+  H.front = view.id
+  view.front = true
+  M.redraw(view)
+end
+
+-- Where the editor is: the window an Enter moves (win, else the current one), its buffer and cursor.
+local function main_spot(win)
+  win = (win and api.nvim_win_is_valid(win)) and win or api.nvim_get_current_win()
+  return { win = win, buf = api.nvim_win_get_buf(win), cursor = api.nvim_win_get_cursor(win) }
+end
+local function put_spot(spot)
+  if not (spot and api.nvim_win_is_valid(spot.win)) then return false end
+  if api.nvim_buf_is_valid(spot.buf) and api.nvim_win_get_buf(spot.win) ~= spot.buf then pcall(api.nvim_win_set_buf, spot.win, spot.buf) end
+  pcall(api.nvim_win_set_cursor, spot.win, spot.cursor)
+  pcall(api.nvim_set_current_win, spot.win)
+  return true
+end
+
+-- A step undone (again: done again). false when what it names is gone, so the walk goes on past it.
+local function apply(step, again)
+  if step.type == 'switch' then
+    local view = H.views[again and step.to or step.from]
+    if not view then return false end
+    to_front(view)
+  elseif step.type == 'enter' then
+    if not again then step.after = main_spot(step.before.win) end
+    if not put_spot(again and step.after or step.before) then return false end
+    local view = H.views[step.view]
+    if view and H.front ~= view.id then to_front(view) end
+  elseif step.type == 'state' then
+    local view = H.views[step.view]
+    local kind = view and kinds[view.kind]
+    if not (kind and kind.restore and kind.save) then return false end
+    if not again then
+      local ok, now = pcall(kind.save, view)
+      step.after = ok and now or nil
+    end
+    local saved = again and step.after or step.before
+    if type(saved) ~= 'table' then return false end
+    local ok, err = pcall(kind.restore, view, saved)
+    if not ok then kind_failed(view, err) end
+    to_front(view)
+  else return false end
+  return true
+end
+
+function M.history_back()
+  local h = H.history
+  while h.at >= 1 do
+    local step = h.steps[h.at]
+    h.at = h.at - 1
+    if apply(step, false) then return true end
+  end
+  tell('Nothing further back.')
+  return false
+end
+function M.history_forward()
+  local h = H.history
+  while h.at < #h.steps do
+    h.at = h.at + 1
+    if apply(h.steps[h.at], true) then return true end
+  end
+  tell('Nothing further forward.')
+  return false
+end
+
+-- ─── the layout record: the pop-out's views in desk-work, offered again after a restart ────────────────────────
+-- desk-work workspace --client popout, per checkout: { version, tabs = { { kind, pinned, target } }, activeTab = the
+-- view in front, show = { screen } } (keys its allow-list has). Written when a view opens, closes, is pinned or centred,
+-- and when the editor exits; read at start, so the Views group offers "Restore 2 views". The selection inside a view is
+-- not kept: a restored graph selects its centre.
+local RESTORE   -- its row, named for what the record holds
+local function layout_root()
+  local name = api.nvim_buf_get_name(0)
+  local root = vim.fs.root(name ~= '' and name or vim.fn.getcwd(), '.git') or vim.fn.getcwd()
+  return uv.fs_realpath(root) or root
+end
+local function restore_named()
+  if not RESTORE then return end
+  local n = H.saved and type(H.saved.tabs) == 'table' and #H.saved.tabs or 0
+  RESTORE.name = n == 0 and "Restore the pop-out's views" or n == 1 and 'Restore 1 view' or ('Restore %d views'):format(n)
+end
+local function layout_record()
+  local tabs = {}
+  for _, id in ipairs(H.order) do
+    local view = H.views[id]
+    local kind = view and kinds[view.kind]
+    if kind and kind.save then
+      local ok, saved = pcall(kind.save, view)
+      if ok and type(saved) == 'table' then
+        tabs[#tabs + 1] = { kind = view.kind, pinned = view.pinned == true, target = type(saved.target) == 'table' and saved.target or nil }
+      end
+    end
+  end
+  return { version = 1, tabs = tabs, activeTab = H.front, show = { screen = H.screen } }
+end
+local function write_layout(wait)
+  local record = layout_record()
+  local ok, json = pcall(vim.json.encode, record)
+  if not ok then return end
+  H.saved = record
+  restore_named()
+  local argv = { 'desk-work', 'workspace', '--root', layout_root(), '--client', 'popout', '--input', '-' }
+  local started, job = pcall(vim.system, argv, { stdin = json, text = true, timeout = 5000 }, (not wait) and function() end or nil)
+  if started and wait then pcall(job.wait, job, 1000) end
+end
+-- The writes of a moment (a view closing, then the one in front changing) go as one, M.SAVE_MS after the last. wait:
+-- the editor is exiting, so the record is written now, before it goes (a second at most).
+M.SAVE_MS = 300
+function M.save_layout(wait)
+  if M.is_popout() or vim.g.desk_work_view or not have('desk-work') then return end
+  H.save_timer = H.save_timer or uv.new_timer()
+  H.save_timer:stop()
+  if wait then return write_layout(true) end
+  H.save_timer:start(M.SAVE_MS, 0, vim.schedule_wrap(function() if not exiting() then write_layout(false) end end))
+end
+function M.read_layout(done)
+  done = done or function() end
+  if M.is_popout() or vim.g.desk_work_view or not have('desk-work') then return done(nil) end
+  local ok = pcall(vim.system, { 'desk-work', 'workspace', '--root', layout_root(), '--client', 'popout' }, { text = true, timeout = 5000 },
+    vim.schedule_wrap(function(out)
+      local decoded, record = pcall(vim.json.decode, out.code == 0 and out.stdout or '')
+      H.saved = decoded and type(record) == 'table' and type(record.tabs) == 'table' and record or nil
+      restore_named()
+      done(H.saved)
+    end))
+  if not ok then done(nil) end
+end
+
+-- ─── views in and out ──────────────────────────────────────────────────────────────────────────────────────────
+local function add_view(name)
+  local view = { id = name, kind = name, gen = 0, pinned = false }
+  H.views[name] = view
+  H.order[#H.order + 1] = name
+  follow_start()
+  return view
+end
+
 -- A view of kind `name` in the pop-out, opening the window when it is not open. A new view is filled by its kind from
 -- ctx; asked for again from the editor (o in another graph, its Views row) it is filled again from there; asked for
--- from the pop-out (ctx.remote) it only comes to the front.
+-- from the pop-out (ctx.remote) it only comes to the front. Either way, from another view, it is a step H undoes.
 function M.show(name, ctx)
   local kind = kinds[name]
   if not kind then return tell('No view is called ' .. tostring(name) .. '.', WARN) end
@@ -505,22 +726,40 @@ function M.show(name, ctx)
   local ok, why = M.open()
   if not ok then return tell(sentence(why), WARN) end
   ctx = ctx or actions.context()
-  local view = H.views[name]
-  if view and ctx.remote then
-    view.front = true
-    return M.redraw(view)
+  local view, before = H.views[name], H.front
+  if not (view and ctx.remote) then
+    view = view or add_view(name)
+    if kind.open then
+      local fine, err = pcall(kind.open, view, ctx)
+      if not fine then kind_failed(view, err) end
+    end
   end
-  if not view then
-    view = { id = name, kind = name, gen = 0, pinned = false }
-    H.views[name] = view
-    follow_start()
+  if before and before ~= view.id and H.views[before] then push_step({ type = 'switch', from = before, to = view.id }) end
+  to_front(view)
+  M.save_layout()
+end
+
+-- The pop-out's last views again (after a restart): it opens, on the screen it was on when that is there, with each
+-- saved view its kind fills again from what was kept, and the one in front then in front.
+function M.restore_layout()
+  local record = H.saved
+  if not (record and type(record.tabs) == 'table' and #record.tabs > 0) then return tell('No views of the pop-out were saved here.') end
+  if refused_here(M.can_pop()) then return end
+  H.prefer = type(record.show) == 'table' and type(record.show.screen) == 'string' and record.show.screen or nil
+  local ok, why = M.open()
+  if not ok then return tell(sentence(why), WARN) end
+  for _, saved in ipairs(record.tabs) do
+    local kind = type(saved) == 'table' and kinds[saved.kind]
+    if kind and kind.restore and not H.views[saved.kind] then
+      local view = add_view(saved.kind)
+      view.pinned = saved.pinned == true
+      local fine, err = pcall(kind.restore, view, { pinned = view.pinned, target = type(saved.target) == 'table' and saved.target or nil })
+      if not fine then kind_failed(view, err) end
+      to_front(view)
+    end
   end
-  if kind.open then
-    local fine, err = pcall(kind.open, view, ctx)
-    if not fine then kind_failed(view, err) end
-  end
-  view.front = true
-  M.redraw(view)
+  local active = type(record.activeTab) == 'string' and H.views[record.activeTab]
+  if active then to_front(active) end
 end
 
 -- o in the pop-out: the view leaves it, and its kind puts it back in the editor.
@@ -532,6 +771,7 @@ function M.back(view)
     local ok, err = pcall(kind.attach, view)
     if not ok then tell(sentence('it could not come back: ' .. tostring(err):sub(1, 200)), WARN) end
   end
+  M.save_layout()
 end
 
 -- p in the pop-out: pinned, a view stays as it is while the editor moves; unpinned, its kind follows the editor again.
@@ -540,13 +780,73 @@ function M.pin(view)
   view.pinned = not view.pinned
   follow_one(view, { type = 'pin' })
   M.redraw(view)
+  M.save_layout()
+end
+
+-- ─── its screen unplugged ──────────────────────────────────────────────────────────────────────────────────────
+-- desk-monitor rewrites its sidecar on every hotplug (desk-pulse runs its reconcile). When the screen the pop-out was
+-- placed on is no longer among Hyprland's monitors, the pop-out moves to another screen that is not the editor's, when
+-- one is left; else it closes and its pinned views come back here as splits (one screen: no pop-out, as when it would
+-- not open). Hyprland itself would only park it on a workspace nobody sees.
+function M.screens_changed()
+  if exiting() or not (H.chan and H.screen) then return end
+  hyprctl({ 'monitors' }, function(monitors)
+    if not (H.chan and H.screen) or type(monitors) ~= 'table' then return end
+    for _, m in ipairs(monitors) do
+      if type(m) == 'table' and m.name == H.screen and not m.disabled then return end
+    end
+    local gone, screen = H.screen, M.target_screen(monitors, M.screens())
+    if screen and H.kitty then
+      M.place(H.kitty, screen)
+      return tell(('The pop-out moved to %s: %s was unplugged.'):format(screen.name, gone))
+    end
+    M.fold(gone .. ' was unplugged')
+  end)
+end
+-- The pop-out closes, its pinned views back here as splits; why: the one notice.
+function M.fold(why)
+  local chan = H.chan
+  send({ type = 'bye', why = sentence(why) })
+  M.forget(sentence(why), { back = true })
+  if chan then pcall(vim.fn.chanclose, chan) end
+end
+watch_screens = function()
+  if H.watch then return end
+  local file = M.layout_file()
+  local dir, name = vim.fs.dirname(file), vim.fs.basename(file)
+  local watcher, timer = uv.new_fs_event(), uv.new_timer()
+  if not (watcher and timer) then return end
+  local ok = pcall(watcher.start, watcher, dir, {}, function(err, changed)
+    if err or (changed and changed ~= name) then return end
+    timer:stop()
+    timer:start(300, 0, vim.schedule_wrap(M.screens_changed))
+  end)
+  if not ok then pcall(watcher.close, watcher); pcall(timer.close, timer); return end
+  H.watch = { watcher = watcher, timer = timer }
+end
+unwatch_screens = function()
+  local w = H.watch
+  if not w then return end
+  H.watch = nil
+  pcall(w.watcher.stop, w.watcher)
+  pcall(w.watcher.close, w.watcher)
+  pcall(w.timer.stop, w.timer)
+  pcall(w.timer.close, w.timer)
 end
 
 -- ─── the bridge messages the editor takes from its pop-out ─────────────────────────────────────────────────────
+-- What Enter does in a view of `surface`: its remote row on Enter.
+local function enter_row(surface)
+  for _, row in ipairs(actions.rows()) do
+    if row.remote and row.key and row.key:lower() == '<cr>' and is_on(row, surface) and not is_on(row, ON) then return row end
+  end
+end
+
 -- The view, generation and item an ask names, as a ctx for the action registry: its kind's ctx_for (the view's
 -- surface, and what that surface's rows read), with ctx.view, ctx.item (the item's ref), ctx.index, ctx.remote and the
 -- window's own surface (ctx.also). A view drawn again since refuses: its items are not the ones the pop-out saw.
 local function remote_ctx(msg)
+  if exiting() then return nil, 'this editor is closing' end
   if not H.chan then return nil, 'no pop-out is subscribed to this editor' end
   local view, ref
   if msg.view ~= nil then
@@ -585,6 +885,7 @@ end
 -- Again from the same channel (a resize): the new width, every view drawn again.
 local function subscribe(msg)
   if M.is_popout() or vim.g.desk_work_view then return refuse('this editor keeps no pop-out') end
+  if exiting() then return refuse('this editor is closing') end
   if msg.protocol ~= M.PROTOCOL then
     return refuse(('this editor speaks pop-out protocol %d and this pop-out %d: close it and open it again'):format(M.PROTOCOL, msg.protocol))
   end
@@ -600,6 +901,7 @@ local function subscribe(msg)
   if not again then
     H.stalled, H.ping, H.heard = false, 0, 0
     start_pings()
+    watch_screens()
   end
   vim.schedule(redraw_all)
   return { subscribed = true, pid = vim.fn.getpid(), pane = host_pane() }
@@ -614,7 +916,8 @@ local function describe(msg)
 end
 
 -- act { view, gen, item, action, text, choice }: runs a remote row after this answer, with the words and the pick its
--- input asked for there (only those it asks for). Not while she is typing here.
+-- input asked for there (only those it asks for). Not while she is typing here. An Enter (the view's, or f) is a step
+-- H undoes: the code spot the editor was at, and the one it went to.
 local function act(msg)
   if bridge.typing() then return refuse('typing in this editor') end
   local ctx, why = remote_ctx(msg)
@@ -628,9 +931,13 @@ local function act(msg)
   if can ~= true then return refuse(can == false and (msg.action .. ' does not apply here') or tostring(can)) end
   local missing = actions.answered(row, ctx)
   if missing then return refuse(missing) end
+  local kind = ctx.view and kinds[ctx.view.kind]
+  local entering = kind and (row == enter_row(kind.surface) or row.id == 'popout.go-focus' or row.id == 'popout.go-focus-enter')
   vim.schedule(function()
+    local before = entering and main_spot(ctx.origin) or nil
     local ok, err = actions.act(msg.action, ctx)
-    if not ok then tell(sentence(err or (msg.action .. ' did not run')), WARN) end
+    if not ok then return tell(sentence(err or (msg.action .. ' did not run')), WARN) end
+    if before then push_step({ type = 'enter', view = ctx.view.id, before = before }) end
   end)
   return { done = true }
 end
@@ -647,6 +954,20 @@ local function pong(msg)
   return { heard = true }
 end
 
+-- front { view, quiet }: another view is in front in the pop-out. Her own switch there (gt, a click on its tab) is a
+-- step H undoes; quiet: it came of something else (the editor showed it, a view closed), only noted.
+local function front(msg)
+  if not H.chan or exiting() then return { heard = false } end
+  local view = H.views[msg.view]
+  if not view then return { heard = false } end
+  if not msg.quiet and H.front and H.front ~= view.id and H.views[H.front] then push_step({ type = 'switch', from = H.front, to = view.id }) end
+  if H.front ~= view.id then
+    H.front = view.id
+    M.save_layout()
+  end
+  return { heard = true }
+end
+
 local ID, NUMBER = bridge.field('string', 32), bridge.field('integer', 2147483647)
 bridge.register('subscribe', timed(subscribe), { chan = bridge.field('integer', 2147483647, true),
   pid = bridge.field('integer', 2147483647, true), width = bridge.field('integer', 1000), protocol = bridge.field('integer', 1000, true) })
@@ -654,16 +975,19 @@ bridge.register('describe', timed(describe), { view = ID, gen = NUMBER, item = b
 bridge.register('act', timed(act), { view = ID, gen = NUMBER, item = bridge.field('integer', M.MAX_ITEMS),
   action = bridge.field('string', 64, true), text = bridge.field('string', 2000), choice = bridge.field('string', 64) })
 bridge.register('pong', pong, { serial = bridge.field('integer', 2147483647, true) })
+bridge.register('front', timed(front), { view = bridge.field('string', 32, true), quiet = bridge.field('boolean') })
 
 -- ─── the pop-out's side ────────────────────────────────────────────────────────────────────────────────────────
--- chan: to the editor; me: that channel's number there; host: { pid, pane } of the editor; win: the window; views by
--- id, each in a buffer of its own; shown: the one in the window (nil: empty, the buffer that says nothing is shown).
+-- chan: to the editor; me: that channel's number there; host: { pid, pane } of the editor; views by id, each in a
+-- buffer and a tab page of its own (view.win: its window); empty: the buffer that says nothing is shown, in the one tab
+-- left when there is no view; shown: the view in front (nil: none); switching: a tab change of this module's own.
 local C = { views = {} }
 local ns = api.nvim_create_namespace('desk_popout')
 
 local function say(text, level) vim.notify(sentence(text), level or vim.log.levels.INFO, { title = 'Pop-out' }) end
-local function width() return C.win and api.nvim_win_is_valid(C.win) and api.nvim_win_get_width(C.win) or vim.o.columns end
+local function width() return api.nvim_win_get_width(0) end
 local function shown() return C.shown and C.views[C.shown] or nil end
+local function escape(s) return (tostring(s):gsub('%%', '%%%%')) end
 
 local function request(msg, budget)
   if not C.chan then return refuse('the pop-out is not connected to an editor') end
@@ -689,6 +1013,13 @@ local function client_act(id, extra, view, index)
   return answer
 end
 
+-- Tells the editor which view is in front now (quiet: not her own switch).
+local function tell_front(view, quiet)
+  if not (C.chan and view) then return end
+  pcall(vim.rpcnotify, C.chan, 'nvim_exec_lua', HOST_DOOR, { { version = 1, type = 'front', view = view.id, quiet = quiet == true,
+    deadline = now_ms() + 2000 } })
+end
+
 local function index_of(view, key)
   for i, item in ipairs(view.items) do if item.key == key then return i end end
 end
@@ -708,7 +1039,7 @@ local function ask_then_act(row, offered)
   if offered.available ~= true then return say(tostring(offered.available), WARN) end
   local input = type(offered.input) == 'table' and offered.input or {}
   actions.ask({ prompt = type(input.prompt) == 'string' and input.prompt or nil, choices = type(input.choices) == 'table' and input.choices or nil },
-    actions.context(C.win), function(text, choice)
+    actions.context(), function(text, choice)
       local now = key and view and index_of(view, key)
       if view and (shown() ~= view or (key and not now)) then return say('what it was about is no longer shown', WARN) end
       client_act(row.id, { text = text, choice = choice }, view, now)
@@ -772,13 +1103,76 @@ local function moved(view)
   strip(view)
 end
 
+-- ─── the header (the tab line) and each view's key line (its window's status line) ──────────────────────────────
+local function header_groups()
+  graphs().highlights()
+  api.nvim_set_hl(0, 'DeskPopoutTab', { link = 'TabLine', default = true })
+  api.nvim_set_hl(0, 'DeskPopoutTabFill', { link = 'TabLineFill', default = true })
+  api.nvim_set_hl(0, 'DeskPopoutTabSel', { link = 'DeskCallGraphSelected', default = true })
+  api.nvim_set_hl(0, 'DeskPopoutKey', { link = 'DeskCallGraphKey', default = true })
+  api.nvim_set_hl(0, 'DeskPopoutWords', { link = 'StatusLine', default = true })
+end
+
+-- A view's key line: its kind's footer, keys as typed here, words in the theme's voice.
+local function keyline(view)
+  local said, parts = actions.voice(graphs().retro()), {}
+  for _, pair in ipairs(M.key_pairs(view.footer or {})) do
+    parts[#parts + 1] = '%#DeskPopoutKey#' .. escape(pair[1]) .. '%#DeskPopoutWords# ' .. escape(said(pair[2]))
+  end
+  return '%#DeskPopoutWords# ' .. table.concat(parts, '%#DeskPopoutWords# · ') .. '%#DeskPopoutWords# '
+end
+local function set_keyline(view)
+  if view.win and api.nvim_win_is_valid(view.win) then pcall(function() vim.wo[view.win].statusline = keyline(view) end) end
+end
+-- A status or tab line as Neovim draws it (opts: { use_tabline } or { winid }), its text only.
+local function rendered(line, opts)
+  local ok, out = pcall(api.nvim_eval_statusline, line or '', opts)
+  return ok and out.str or ''
+end
+
+-- The tab page a view is in (nil: not in one).
+local function tab_of(view)
+  local win = view.win
+  if win and api.nvim_win_is_valid(win) and api.nvim_win_get_buf(win) == view.buf then return api.nvim_win_get_tabpage(win) end
+end
+local function view_in_tab(tab)
+  for _, view in pairs(C.views) do if tab_of(view) == tab then return view end end
+end
+
+-- The header: each view by its tab number and kind, PINNED, ✱ when something new is in it, the one in front in the
+-- selection colour; then the keys that switch views and open the menu. Retro: capitals, │ between views, * for new.
+local function tabline()
+  local retro = graphs().retro()
+  local said, current, out = actions.voice(retro), api.nvim_get_current_tabpage(), {}
+  for n, tab in ipairs(api.nvim_list_tabpages()) do
+    local view = view_in_tab(tab)
+    local text = ' ' .. n .. ' ' .. said(view and (view.kind ~= '' and view.kind or view.id) or 'pop-out')
+    if view and view.state == 'PINNED' then text = text .. (retro and '·' or ' · ') .. 'PINNED' end
+    if view and view.news then text = text .. ' ' .. (retro and '*' or '✱') end
+    out[#out + 1] = '%' .. n .. 'T' .. (tab == current and '%#DeskPopoutTabSel#' or '%#DeskPopoutTab#') .. escape(text .. ' ')
+  end
+  local right = ' ' .. typed('popout.next-view') .. ' ' .. said('views') .. ' · ' .. typed('popout.home') .. ' ' .. said('menu') .. ' '
+  return table.concat(out, retro and '%#DeskPopoutTab#│' or '%#DeskPopoutTab# ') .. '%#DeskPopoutTabFill#%T%=%#DeskPopoutTab#'
+    .. (retro and '│' or '') .. escape(right)
+end
+function M.tabline()
+  local ok, line = pcall(tabline)
+  return ok and line or ' pop-out '
+end
+-- The header as the tab line draws it: what the tests read.
+function M.header() return rendered(vim.o.tabline, { use_tabline = true }) end
+
+local DRESS = { number = false, relativenumber = false, signcolumn = 'no', foldcolumn = '0', wrap = false, list = false, spell = false,
+  cursorline = false, colorcolumn = '' }
+local function dress(win) for opt, value in pairs(DRESS) do pcall(function() vim.wo[win][opt] = value end) end end
+
 -- A view's buffer and its keys: the drawn and remote rows of its surface and the window's own (actions.popout_rows),
 -- the module that adds that surface's rows loaded first. Its copy is the selection a drawn row moves (ctx.copy).
-local function new_view(id, surface)
+local function client_view(id, surface)
   local buf = api.nvim_create_buf(false, true)
   vim.bo[buf].bufhidden, vim.bo[buf].filetype = 'hide', 'deskpopout'
   local view = { id = id, buf = buf, gen = 0, kind = '', title = id, state = '', lines = {}, marks = {}, hl = {}, items = {}, footer = {} }
-  view.copy = { buf = buf, win = C.win, view = view }
+  view.copy = { buf = buf, view = view }
   if surface and actions.MODULES[surface] then pcall(require, actions.MODULES[surface]) end
   view.rows = actions.popout_rows(surface)
   for _, row in ipairs(view.rows) do if row.remote and row.key and row.key:lower() == '<cr>' and not is_on(row, ON) then view.enter = row end end
@@ -788,21 +1182,50 @@ local function new_view(id, surface)
   return view
 end
 
--- Puts a view in the window (nil: the empty one), the cursor on its selection.
-local function show(view)
-  view = view or C.empty
-  C.shown = view ~= C.empty and view.id or nil
-  if not (C.win and api.nvim_win_is_valid(C.win)) then return end
-  if api.nvim_win_get_buf(C.win) ~= view.buf then pcall(api.nvim_win_set_buf, C.win, view.buf) end
-  if view.copy.index then graphs().select(view.copy, view.copy.index, true) end
+-- Puts a view in a tab page of its own (the empty one's when nothing else has it), its window dressed and its key
+-- line set.
+local function place(view)
+  if tab_of(view) then return end
+  C.switching = true
+  local reuse
+  for _, win in ipairs(api.nvim_list_wins()) do
+    if api.nvim_win_get_buf(win) == C.empty.buf and api.nvim_win_get_config(win).relative == '' then reuse = win end
+  end
+  if reuse then
+    pcall(api.nvim_set_current_win, reuse)
+    api.nvim_win_set_buf(reuse, view.buf)
+    view.win = reuse
+  else
+    vim.cmd('tab sbuffer ' .. view.buf)
+    view.win = api.nvim_get_current_win()
+  end
+  C.switching = false
+  view.copy.win = view.win
+  dress(view.win)
+  set_keyline(view)
 end
 
--- What the window shows with no view: a line saying where things are, and the keys.
-local function show_empty(message)
+-- Puts a view in front (its tab), the cursor on its selection.
+local function show(view)
+  place(view)
+  local tab = tab_of(view)
+  if tab and tab ~= api.nvim_get_current_tabpage() then
+    C.switching = true
+    pcall(api.nvim_set_current_tabpage, tab)
+    C.switching = false
+  end
+  C.shown, view.news = view.id, false
+  tell_front(view, true)
+  if view.copy.index then graphs().select(view.copy, view.copy.index, true) end
+  vim.cmd('redrawtabline')
+end
+
+-- The empty buffer's words (its key line has the keys). force: put it in the current window even with views (the
+-- pop-out is closing, and says why there).
+local function show_empty(message, force)
   local e, G = C.empty, graphs()
-  G.highlights()
-  local drawn = G.layout({ message = message, keys = M.key_pairs({ { ids = { 'popout.home' }, words = 'menu' },
-    { ids = { 'popout.keys' }, words = 'keys' }, { ids = { 'popout.close' }, words = 'close' } }) }, math.max(16, width() - 2), G.retro())
+  header_groups()
+  local drawn = G.layout({ message = message }, math.max(16, width() - 2), G.retro())
   vim.bo[e.buf].modifiable = true
   api.nvim_buf_set_lines(e.buf, 0, -1, false, drawn.lines)
   vim.bo[e.buf].modifiable = false
@@ -811,7 +1234,15 @@ local function show_empty(message)
   for _, m in ipairs(drawn.marks) do
     pcall(api.nvim_buf_set_extmark, e.buf, ns, m[1] - 1, m[2], { end_col = m[3], hl_group = m[4], priority = 100 + (m[5] or 0) })
   end
-  show(nil)
+  if force or next(C.views) == nil then
+    local win = api.nvim_get_current_win()
+    if api.nvim_win_get_buf(win) ~= e.buf then pcall(api.nvim_win_set_buf, win, e.buf) end
+    e.win = win
+    dress(win)
+    set_keyline(e)
+    C.shown = nil
+  end
+  vim.cmd('redrawtabline')
 end
 local function nothing_shown() return 'nothing is shown here: `' .. typed('popout.home') .. '` › views opens one' end
 
@@ -868,11 +1299,11 @@ local function valid_view(msg)
     title = type(msg.title) == 'string' and msg.title:sub(1, 200) or msg.id, state = type(msg.state) == 'string' and msg.state:sub(1, 200) or '',
     lines = lines, marks = marks, hl = hl, items = valid_items(msg.items), footer = valid_footer(msg.footer),
     strip = type(msg.strip) == 'number' and msg.strip >= 1 and msg.strip < #lines and math.floor(msg.strip) or nil,
-    select = short(msg.select, 120), front = msg.front == true }
+    select = short(msg.select, 120), front = msg.front == true, news = msg.news == true }
 end
 
 -- Draws a view into its buffer. Its selection: the item the editor asks for (select), else the one selected before (by
--- its key), else its centre, else the first; the cursor goes there while the view is in the window.
+-- its key), else its centre, else the first; the cursor goes there when the view has its window.
 local function draw(view, keep)
   local buf, G, s = view.buf, graphs(), view.copy
   if not api.nvim_buf_is_valid(buf) then return end
@@ -888,13 +1319,14 @@ local function draw(view, keep)
   if not pcall(api.nvim_buf_set_name, buf, 'pop-out · ' .. view.title) then pcall(api.nvim_buf_set_name, buf, 'pop-out · ' .. view.title .. ' · ' .. view.id) end
   view.rows_only = #view.items > 0
   for _, item in ipairs(view.items) do if item.kind ~= 'row' then view.rows_only = false end end
-  s.drawn, s.index, s.win, view.strip_for = { boxes = view.items }, nil, C.win, nil
+  s.drawn, s.index, s.win, view.strip_for = { boxes = view.items }, nil, view.win, nil
   local first = keep and index_of(view, keep)
   for i, item in ipairs(view.items) do if not first and item.centre then first = i end end
   first = first or (view.items[1] and 1)
   api.nvim_buf_clear_namespace(buf, G.sel_ns, 0, -1)
   if first then G.select(s, first, true); view.cursor_line = view.items[first].line end
   strip(view)
+  set_keyline(view)
 end
 
 -- The editor went away (it said bye, or its channel closed): say so, then quit.
@@ -904,7 +1336,7 @@ function M.closing(why)
   if C.watch then C.watch:stop() end
   C.chan = nil
   say(why)
-  show_empty(why)
+  show_empty(why, true)
   vim.defer_fn(function() vim.cmd('qa!') end, M.LINGER_MS)
 end
 
@@ -916,24 +1348,34 @@ local function handle(msg)
     local view = C.views[got.id]
     local fresh = view == nil
     if fresh then
-      view = new_view(got.id, got.surface)
+      view = client_view(got.id, got.surface)
       C.views[got.id] = view
     end
     local before = view.copy.index and view.items[view.copy.index]
     for _, field in ipairs({ 'gen', 'kind', 'surface', 'title', 'state', 'lines', 'marks', 'hl', 'items', 'footer', 'strip' }) do view[field] = got[field] end
+    if got.news and C.shown ~= got.id then view.news = true end
     C.received = (C.received or 0) + 1
     draw(view, got.select or (before and before.key))
     -- A view the editor sends anew, or asks to show, comes to the front; one drawn again behind another stays behind.
-    if fresh or got.front or not shown() then show(view) end
+    if fresh or got.front or not shown() then show(view) else vim.cmd('redrawtabline') end
   elseif msg.type == 'view.clear' then
     local view = type(msg.id) == 'string' and C.views[msg.id]
     if not view then return end
     C.views[msg.id] = nil
-    if C.shown == msg.id then
-      local _, other = next(C.views)
-      if other then show(other) else show_empty(nothing_shown()) end
+    if view.win and api.nvim_win_is_valid(view.win) and api.nvim_win_get_buf(view.win) == view.buf then
+      if #api.nvim_list_tabpages() > 1 then
+        C.switching = true
+        pcall(api.nvim_win_close, view.win, true)
+        C.switching = false
+      else
+        show_empty(nothing_shown(), true)
+      end
     end
     pcall(api.nvim_buf_delete, view.buf, { force = true })
+    local now = view_in_tab(api.nvim_get_current_tabpage())
+    C.shown = now and now.id or nil
+    if now then tell_front(now, true) elseif next(C.views) == nil then show_empty(nothing_shown()) end
+    vim.cmd('redrawtabline')
   elseif msg.type == 'ping' then
     if C.chan and type(msg.serial) == 'number' then
       pcall(vim.rpcnotify, C.chan, 'nvim_exec_lua', HOST_DOOR, { { version = 1, type = 'pong', serial = msg.serial } })
@@ -965,7 +1407,7 @@ function M.client_home()
   local view = shown()
   local answer = request(naming({ type = 'describe' }, view))
   if answer.refused then return say(answer.refused, WARN) end
-  local ctx, keyed = actions.context(C.win), {}
+  local ctx, keyed = actions.context(), {}
   for _, row in ipairs((view or C.empty).rows or {}) do keyed[row.id] = true end
   local views, items, here = {}, {}, {}
   local function add(into, row, why, run)
@@ -992,16 +1434,15 @@ function M.client_home()
   end
   local item = view and view.copy.index and view.items[view.copy.index]
   require('desk.review').show_menu(vim.list_extend(views, items), { title = 'Home · pop-out' .. (item and item.name ~= '' and (' · ' .. item.name) or ''),
-    anchor_win = C.win, memo = 'desk-popout-home' })
+    anchor_win = api.nvim_get_current_win(), memo = 'desk-popout-home' })
 end
 
--- ? in the pop-out: the keys of the view shown, as bound here (actions.popout_rows), in the list every view's ? draws.
--- Whether a row can run is the editor's to say, so every key is listed and Enter on one presses it.
+-- ? in the pop-out: the keys of the view in front, as bound here (actions.popout_rows), in the list every view's ?
+-- draws. Whether a row can run is the editor's to say, so every key is listed and Enter on one presses it.
 function M.client_keys()
   local view = shown() or C.empty
-  local G = graphs()
-  local said = G.glyphs(G.retro()).said
-  return actions.show_keys(actions.context(C.win), { reasons = false, rows = view.rows, press = press,
+  local said = actions.voice(graphs().retro())
+  return actions.show_keys(actions.context(), { reasons = false, rows = view.rows, press = press,
     footer = ' ' .. typed('popout.focus') .. ' ' .. said('in the editor comes back here') })
 end
 
@@ -1010,11 +1451,11 @@ function M.client_click()
   local view = shown()
   if not view then return end
   local pos = vim.fn.getmousepos()
-  if pos.winid == C.win and (pos.line or 0) > 0 then
+  if pos.winid == view.win and (pos.line or 0) > 0 then
     local index = item_at(view, pos.line, math.max(0, (pos.column or 1) - 1))
     if index then graphs().select(view.copy, index, false); strip(view) end
   end
-  if view.enter then press(view.enter, actions.context(C.win)) end
+  if view.enter then press(view.enter, actions.context()) end
 end
 
 -- Started by the pop-out's argv: nvim --cmd 'let g:desk_popout=1' -c "lua require('desk.popout').client()" --
@@ -1028,17 +1469,35 @@ function M.client()
   for _, arg in ipairs(vim.fn.argv()) do server = server or arg:match('^desk%-popout:(/.+)$') end
   local first = api.nvim_get_current_buf()
   pcall(vim.cmd, 'silent! argdelete *')
-  C.win = api.nvim_get_current_win()
-  C.empty = new_view('', nil)
-  api.nvim_win_set_buf(C.win, C.empty.buf)
-  for opt, value in pairs({ number = false, relativenumber = false, signcolumn = 'no', foldcolumn = '0', wrap = false, list = false,
-    spell = false, cursorline = false, colorcolumn = '' }) do
-    pcall(function() vim.wo[C.win][opt] = value end)
-  end
+  C.empty = client_view('', nil)
+  C.empty.footer = { { ids = { 'popout.home' }, words = 'menu' }, { ids = { 'popout.keys' }, words = 'keys' }, { ids = { 'popout.close' }, words = 'close' } }
+  api.nvim_win_set_buf(0, C.empty.buf)
   -- The argument was a name, never a file: its buffer goes.
   if first ~= C.empty.buf and api.nvim_buf_is_valid(first) and api.nvim_buf_get_name(first):find('desk-popout:', 1, true) then
     pcall(api.nvim_buf_delete, first, { force = true })
   end
+  -- The header is the tab line, always shown; each view's key line its window's status line.
+  header_groups()
+  vim.o.showtabline, vim.o.laststatus = 2, 2
+  vim.o.tabline = "%!v:lua.require'desk.popout'.tabline()"
+  local group = api.nvim_create_augroup('desk_popout_client', { clear = true })
+  api.nvim_create_autocmd('TabEnter', { group = group, callback = function()
+    local view = view_in_tab(api.nvim_get_current_tabpage())
+    C.shown = view and view.id or nil
+    if view then
+      view.news = false
+      tell_front(view, C.switching)
+    end
+  end })
+  -- A view's window closed some other way than q (:q there): the view closes as q would close it.
+  api.nvim_create_autocmd('WinClosed', { group = group, callback = function(a)
+    if C.switching or C.closing then return end
+    local closed = tonumber(a.match)
+    for id, view in pairs(C.views) do
+      if view.win == closed then vim.schedule(function() if C.views[id] and C.chan then client_act('popout.close', nil, view) end end) end
+    end
+  end })
+  api.nvim_create_autocmd('ColorScheme', { group = group, callback = header_groups })
   show_empty('connecting to the editor…')
   if not server then return M.closing('No editor was named for this pop-out.') end
   local ok, chan = pcall(vim.fn.sockconnect, 'pipe', server, { rpc = true })
@@ -1056,7 +1515,7 @@ function M.client()
     if C.chan and next(api.nvim_get_chan_info(C.chan)) == nil then M.closing('Editor closed.') end
   end))
   local resized = uv.new_timer()
-  api.nvim_create_autocmd('VimResized', { group = api.nvim_create_augroup('desk_popout_client', { clear = true }), callback = function()
+  api.nvim_create_autocmd('VimResized', { group = group, callback = function()
     resized:stop()
     resized:start(100, 0, vim.schedule_wrap(function() if C.chan then M.subscribe() end end))
   end })
@@ -1067,12 +1526,13 @@ function M.client_state()
   local view = shown()
   local s = view and view.copy or {}
   local item = s.index and view.items[s.index]
-  local buf = view and view.buf or (C.empty and C.empty.buf)
+  local buf, win = api.nvim_get_current_buf(), api.nvim_get_current_win()
   return { connected = C.chan ~= nil, host = C.host, shown = C.shown or '', gen = view and view.gen or 0, kind = view and view.kind or '',
     title = view and view.title or '', state = view and view.state or '', index = s.index or 0, selected = item and item.name or '',
-    selected_key = item and item.key or '', lines = buf and api.nvim_buf_is_valid(buf) and api.nvim_buf_get_lines(buf, 0, -1, false) or {},
-    closing = C.closing or '', win = C.win or 0, current_win = api.nvim_get_current_win(), buf = buf or 0, mode = api.nvim_get_mode().mode,
-    received = C.received or 0, views = vim.tbl_keys(C.views) }
+    selected_key = item and item.key or '', lines = api.nvim_buf_get_lines(buf, 0, -1, false), closing = C.closing or '',
+    win = view and view.win or (C.empty and C.empty.win) or 0, current_win = win, buf = buf, mode = api.nvim_get_mode().mode,
+    received = C.received or 0, views = vim.tbl_keys(C.views), tabs = #api.nvim_list_tabpages(), tab = vim.fn.tabpagenr(),
+    header = M.header(), keyline = rendered(vim.wo[win].statusline, { winid = win }) }
 end
 
 -- ─── the keys ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -1089,12 +1549,6 @@ local function remote(row, host)
   return row
 end
 local function showing(ctx) return ctx.view ~= nil or 'nothing is shown here' end
--- What Enter does in a view: its surface's remote row on Enter.
-local function enter_row(surface)
-  for _, row in ipairs(actions.rows()) do
-    if row.remote and row.key and row.key:lower() == '<cr>' and is_on(row, surface) and not is_on(row, ON) then return row end
-  end
-end
 local function can_go(ctx)
   if not ctx.view then return 'nothing is shown here' end
   local row = enter_row(ctx.surface)
@@ -1109,6 +1563,8 @@ local function go_focus(ctx)
   if not ok then return tell(sentence(err), WARN) end
   M.focus({ pid = vim.fn.getpid(), pane = host_pane() })
 end
+local function back_there() return H.history.at >= 1 or 'nothing further back' end
+local function ahead_there() return H.history.at < #H.history.steps or 'nothing further forward' end
 
 local ROWS = actions.add({
   { id = 'popout.focus', group = 'Pop-out', name = 'To the pop-out', key = '<leader><Tab>', on = 'editor',
@@ -1119,6 +1575,13 @@ local ROWS = actions.add({
       if not H.chan then return tell('No pop-out is open. ' .. sentence('Space Space › views opens one'), WARN) end
       M.focus({ pid = H.pid })
     end },
+  { id = 'popout.restore', group = 'Views', name = "Restore the pop-out's views", on = 'editor', remote = true,
+    about = 'Open the pop-out again with the views it had when this editor last closed, pinned as they were, on the screen it was on',
+    available = function()
+      if H.chan or H.opening or not (H.saved and type(H.saved.tabs) == 'table' and #H.saved.tabs > 0) then return false end
+      return M.can_pop()
+    end,
+    run = function() M.restore_layout() end },
   remote({ id = 'popout.go-focus', group = 'Pop-out', name = 'Go to it, in the editor', key = 'f', on = ON,
     about = 'What `Enter` does (go to the selected box or row in the editor), and the keyboard goes to the editor too', available = can_go },
     go_focus),
@@ -1132,21 +1595,61 @@ local ROWS = actions.add({
   remote({ id = 'popout.back', group = 'Pop-out', name = 'Back to the editor', key = 'o', on = ON,
     about = 'This view back to the editor as a split (the call graph as the live panel), pinned if it is pinned here; the pop-out stays open',
     available = showing }, function(ctx) M.back(ctx.view) end),
-  { id = 'popout.home', group = 'Home', name = 'Home menu', key = '<leader><leader>', on = ON, menu = false,
-    about = 'The home menu for the selected box or row: the views, what the editor can do with it, and this window', run = function() M.client_home() end },
+  { id = 'popout.next-view', group = 'Pop-out', name = 'The next view', key = 'gt', on = ON, menu = false,
+    doc = 'The next / previous view (each view is a tab); a count first goes to that view: `2gt` the second',
+    run = function() local n = vim.v.count; pcall(vim.cmd, n > 0 and ('tabnext ' .. n) or 'tabnext') end },
+  { id = 'popout.prev-view', group = 'Pop-out', name = 'The previous view', key = 'gT', on = ON, menu = false, line = 'popout.next-view',
+    run = function() pcall(vim.cmd, 'tabprevious ' .. vim.v.count1) end },
+  remote({ id = 'popout.history-back', group = 'Pop-out', name = 'Back', key = 'H', on = ON,
+    about = 'Back where you were: the view before, the graph before a centre, the code spot before `Enter` (the editor goes back too)',
+    available = back_there }, function() M.history_back() end),
+  remote({ id = 'popout.history-back-bs', group = 'Pop-out', name = 'Back', key = '<BS>', on = ON, line = 'popout.history-back', menu = false,
+    available = back_there }, function() M.history_back() end),
+  remote({ id = 'popout.history-forward', group = 'Pop-out', name = 'Forward', key = 'L', on = ON,
+    about = 'Forward again, after going back', available = ahead_there }, function() M.history_forward() end),
   { id = 'popout.keys', group = 'Pop-out', name = "The pop-out's keys", key = '?', on = ON, about = 'The keys of this view in the pop-out, in a list',
     run = function() M.client_keys() end },
   { id = 'popout.swap', group = 'Pop-out', name = 'To the editor', key = '<leader><Tab>', on = ON,
     about = 'Put the keyboard in the editor; the same key there comes back here', run = function() M.focus(C.host) end },
-  { id = 'popout.close', group = 'Pop-out', name = 'Close the pop-out', key = 'q', on = ON, remote = true,
-    about = 'Close this window; the editor stops sending to it',
-    run = function()
-      if not M.is_popout() then return M.forget(nil) end
+  { id = 'popout.close', group = 'Pop-out', name = 'Close this view', key = 'q', on = ON, remote = true,
+    about = 'Close this view; closing the last one closes the pop-out',
+    run = function(ctx)
+      if not M.is_popout() then
+        if ctx.view and #H.order > 1 then M.clear(ctx.view.id) else M.forget(nil) end
+        return M.save_layout()
+      end
+      if shown() and vim.tbl_count(C.views) > 1 then return client_act('popout.close') end
       if C.chan then pcall(client_act, 'popout.close') end
       C.closing = 'closed'
       vim.cmd('qa!')
     end },
+  { id = 'popout.home', group = 'Home', name = 'Home menu', key = '<leader><leader>', on = ON, menu = false,
+    about = 'The home menu for the selected box or row: the views, what the editor can do with it, and this window', run = function() M.client_home() end },
 })
+for _, row in ipairs(ROWS) do if row.id == 'popout.restore' then RESTORE = row end end
+
+-- The editor exiting: the layout is written, the pop-out told, and nothing of it left running to keep this editor
+-- waiting (its channel, the pings, the watch on the screens, the views' own timers).
+local function shutdown()
+  if H.down then return end
+  local chan = H.chan
+  if chan or (H.save_timer and H.save_timer:is_active()) then M.save_layout(true) end
+  H.down = true
+  if chan then pcall(vim.rpcnotify, chan, 'nvim_exec_lua', POPOUT_DOOR, { { version = M.PROTOCOL, type = 'bye', why = 'Editor closed.' } }) end
+  for _, name in ipairs({ 'timer', 'save_timer' }) do
+    local timer = H[name]
+    if timer then
+      timer:stop()
+      if not timer:is_closing() then timer:close() end
+      H[name] = nil
+    end
+  end
+  unwatch_screens()
+  follow_stop()
+  for _, view in pairs(H.views) do leave(view) end
+  H.chan = nil
+  if chan then pcall(vim.fn.chanclose, chan) end
+end
 
 local set = false
 function M.setup()
@@ -1155,9 +1658,9 @@ function M.setup()
   actions.map('editor', { rows = ROWS })
   api.nvim_create_user_command('PopOut', function(opts) M.show(opts.args ~= '' and opts.args or 'graph', actions.context()) end,
     { nargs = '?', complete = function() return vim.tbl_keys(kinds) end, desc = 'A view in the pop-out window (the live call graph when none is named)' })
-  api.nvim_create_autocmd('VimLeavePre', { group = api.nvim_create_augroup('desk_popout', { clear = true }), callback = function()
-    if H.chan then send({ type = 'bye', why = 'Editor closed.' }) end
-  end })
+  api.nvim_create_autocmd('VimLeavePre', { group = api.nvim_create_augroup('desk_popout', { clear = true }),
+    callback = function() pcall(shutdown) end })
+  M.read_layout()
 end
 
 return M

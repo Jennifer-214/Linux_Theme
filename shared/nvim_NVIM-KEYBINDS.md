@@ -311,10 +311,12 @@ The call graph (desk.callgraph); "in a graph" means the graph tab and the live p
 
 The pop-out (desk.popout): views in a Neovim window of its own, on the other screen; the call graph is the first.
 Space Space → views → "Pop out the call graph" opens it on the function under the cursor, and `o` in a graph sends that
-graph there (both need a second monitor; with one, the row says so and the graph stays here). A view there has the keys
-of its place here (the graph has the graph tab's: moves, `s`, Enter, `c`, `gs`) and the window's own below. Going to a
-box never closes it: Enter moves this editor there and the keyboard stays in the pop-out; `f` or Shift+Enter puts the
-keyboard here too. `Space Tab` in either window puts the keyboard in the other, on whichever screen it is.
+graph there (both need a second monitor; with one, the row says so and the graph stays here). Each view is a tab page:
+the tab line is the header (each view by number, `PINNED`, `✱` when something new arrived) and each window's status
+line is that view's keys. A view there has the keys of its place here (the graph has the graph tab's: moves, `s`,
+Enter, `c`, `gs`) and the window's own below. Going to a box never closes it: Enter moves this editor there and the
+keyboard stays in the pop-out; `f` or Shift+Enter puts the keyboard here too; `H` goes back (this editor too). `Space
+Tab` in either window puts the keyboard in the other, on whichever screen it is.
 
 <!-- popout-keys:begin · generated from shared/nvim_lua/desk/popout.lua: python3 tests/test_nvim_keys.py --write -->
 | Key | Action |
@@ -323,10 +325,13 @@ keyboard here too. `Space Tab` in either window puts the keyboard in the other, 
 | `f` / `Shift+Enter` in the pop-out | What `Enter` does (go to the selected box or row in the editor), and the keyboard goes to the editor too |
 | `p` in the pop-out | Pin this view (PINNED: it stays as it is while the editor moves, and `Enter` visits its items one by one), or follow the editor's cursor again |
 | `o` in the pop-out | This view back to the editor as a split (the call graph as the live panel), pinned if it is pinned here; the pop-out stays open |
-| `Space Space` in the pop-out | The home menu for the selected box or row: the views, what the editor can do with it, and this window |
+| `gt` / `gT` in the pop-out | The next / previous view (each view is a tab); a count first goes to that view: `2gt` the second |
+| `H` / `<BS>` in the pop-out | Back where you were: the view before, the graph before a centre, the code spot before `Enter` (the editor goes back too) |
+| `L` in the pop-out | Forward again, after going back |
 | `?` in the pop-out | The keys of this view in the pop-out, in a list |
 | `Space Tab` in the pop-out | Put the keyboard in the editor; the same key there comes back here |
-| `q` in the pop-out | Close this window; the editor stops sending to it |
+| `q` in the pop-out | Close this view; closing the last one closes the pop-out |
+| `Space Space` in the pop-out | The home menu for the selected box or row: the views, what the editor can do with it, and this window |
 <!-- popout-keys:end -->
 
 The project map (desk.map): the whole checkout as boxes, rebuilt only when asked. "In the map" means its tab, one per
@@ -644,6 +649,8 @@ which-key its words.
 <!-- desk-keys:begin · generated from the action registry (shared/nvim_lua/desk/actions.lua): python3 tests/test_nvim_keys.py --write -->
 | Key | Action |
 |---|---|
+| home menu: Restore the pop-out's views | Open the pop-out again with the views it had when this editor last closed, pinned as they were, on the screen it was on |
+| home menu: Pop out the call graph | The live call graph in the pop-out, a window of its own on the other screen: it follows the function under the cursor (`p` there pins it), and `Enter` there goes to a function here while the keyboard stays there |
 | `Space Space` | Everything that applies where the cursor is, in one menu: this function, the review, Claude, work, symdeps |
 | home menu: This function in symdeps | symdeps' card for the unit at the cursor: its layout, uses, callers and calls |
 | `Space cc`, `:CallGraph` | Call graph of the function under the cursor, in a tab: callers above, the function in a double box, what it calls below (the language server's call hierarchy). It opens with the function's box selected. One tab: pressed again anywhere, it brings that tab back on the function under the cursor |
@@ -663,7 +670,6 @@ which-key its words.
 | `Space Ch`, `:WorkSince` | Since you last looked: new commits, test runs, job runs with how their figures moved, and Claude turns with their files, newest first; Enter opens one (a commit's review, the results, the output, the turn's changes, a file). Opening it marks now as looked; with nothing new it shows the last list again |
 | home menu: Figures | The newest job's figures against its previous run (desk-work metrics); Enter on one opens that job's output |
 | home menu: symdeps | symdeps' own menu (`Space dm`): its cards, lists and checks for C and C++ code. symdeps is an optional plugin |
-| home menu: Pop out the call graph | The live call graph in the pop-out, a window of its own on the other screen: it follows the function under the cursor (`p` there pins it), and `Enter` there goes to a function here while the keyboard stays there |
 | `Space Tab` | Put the keyboard in the pop-out window, on whichever screen it is; the same key there comes back here |
 <!-- desk-keys:end -->
 

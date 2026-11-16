@@ -507,8 +507,16 @@ local function render(view, keep)
   show(view, M.layout(graph, view.width - 2, M.retro()), keep)
 end
 
+-- The tab's name: the function it shows now (c moves it); its buffer number only when another buffer has that name.
+local function name_view(view, target)
+  local name = 'call graph · ' .. tostring(target.name or (target.item and target.item.name) or '')
+  if not pcall(api.nvim_buf_set_name, view.buf, name) then pcall(api.nvim_buf_set_name, view.buf, name .. ' · ' .. view.buf) end
+end
+M.name_view = name_view
+
 local function load(view, target)
   if view.cancel then view.cancel() end
+  name_view(view, target)
   view.graph = { center = target.item or placeholder(target), message = 'reading the call hierarchy…' }
   render(view)
   local stop_fetch
@@ -561,7 +569,6 @@ function M.open(target)
     api.nvim_set_current_win(open.win)
     if showing(open, target) then return open end
     open.source, open.target = target.buf, target
-    pcall(api.nvim_buf_set_name, open.buf, 'call graph · ' .. (target.name or target.item and target.item.name or '') .. ' · ' .. open.buf)
     load(open, target)
     return open
   end
@@ -569,7 +576,6 @@ function M.open(target)
   local win, buf = api.nvim_get_current_win(), api.nvim_get_current_buf()
   vim.bo[buf].buftype, vim.bo[buf].bufhidden, vim.bo[buf].swapfile = 'nofile', 'wipe', false
   vim.bo[buf].filetype = 'deskcallgraph'
-  pcall(api.nvim_buf_set_name, buf, 'call graph · ' .. (target.name or target.item and target.item.name or '') .. ' · ' .. buf)
   for opt, value in pairs({ number = false, relativenumber = false, signcolumn = 'no', wrap = false, list = false, spell = false, cursorline = false }) do
     vim.wo[win][opt] = value
   end
@@ -665,7 +671,8 @@ function M.panel_update()
   if not win or not followed(win) then return end
   local buf, cursor = api.nvim_win_get_buf(win), api.nvim_win_get_cursor(win)
   M.with_tree(buf, function(tree)
-    if not panel_open() or not api.nvim_buf_is_valid(buf) then return end
+    -- Pinned meanwhile (o brought a graph back, the notebook named a function): it keeps that one.
+    if not panel_open() or panel.pinned or not api.nvim_buf_is_valid(buf) then return end
     local target, why = M.symbol_in(tree, buf, cursor[1] - 1, cursor[2])
     if not tree then target, why = nil, 'no treesitter parser for this file type' end
     local key = target and target.key or ('none:' .. buf .. ':' .. why)
@@ -958,6 +965,17 @@ local ROWS = actions.add({
   { id = 'callgraph.popout', group = 'Call graph', name = 'Send this graph to the pop-out', key = 'o', on = BOTH, remote = false,
     about = 'Move this graph to the pop-out on the other screen (opening it) and close it here; `o` there brings it back as a split',
     available = function() return pop().can_pop() end, run = function(ctx) pop().show('graph', ctx) end },
+  -- The notebook's, through desk-work editor (the bridge's callgraph message below): no key and no menu.
+  { id = 'callgraph.at', group = 'Call graph', name = 'The call graph of a function named elsewhere', on = 'editor', remote = true,
+    menu = false, doc = false,
+    about = 'The call graph of a function the notebook names (its file and line): in the pop-out when it is open, else in the panel beside the code, pinned on it',
+    available = function(ctx)
+      if type(ctx.at) ~= 'table' then return false end
+      if pop().host.chan then return true end
+      local review = package.loaded['desk.review']
+      return not (type(review) == 'table' and review.current) or 'a review is open'
+    end,
+    run = function(ctx) M.show_at(ctx.at) end },
 })
 
 -- The keys a key line shows for these rows, as typed ("j/k/h/l", "Enter", "BS").
@@ -1043,7 +1061,7 @@ local function show_followed(view, graph, target)
 end
 
 local function follow_request(view)
-  if view.gone or view.inflight or not view.wanted then return end
+  if view.gone or view.inflight or not view.wanted or pop().exiting() then return end
   local target = view.wanted
   view.wanted = nil
   local key = follow_key(target)
@@ -1062,7 +1080,7 @@ end
 
 -- Where the cursor is now in the followed window: drawn from the cache, or asked. Pinned, the graph stays put.
 local function follow_update(view)
-  if view.gone or view.pinned or not code_window(view.followed) then return end
+  if view.gone or view.pinned or not code_window(view.followed) or pop().exiting() then return end
   local win = view.followed
   local buf, cursor = api.nvim_win_get_buf(win), api.nvim_win_get_cursor(win)
   M.with_tree(buf, function(tree)
@@ -1085,7 +1103,7 @@ end
 
 -- A cursor move in a window: the graph waits for the cursor to rest. Pinned, only the window followed is kept.
 local function follow_moved(view, win)
-  if not code_window(win) then return end
+  if not code_window(win) or pop().exiting() then return end
   view.followed = win
   if view.pinned then return end
   view.timer = view.timer or uv.new_timer()
@@ -1100,12 +1118,12 @@ local function forget_file(view, buf)
 end
 
 -- A graph read for the view (pinned: its own file was saved; centred; sent here still being read). waiting: what to
--- show meanwhile, with the message.
+-- show meanwhile, with the message. Its answer is news in the pop-out's header until she looks.
 local function read_for(view, target, waiting)
   if view.stop then view.stop() end
   view.stop = read(target, function(graph)
     view.stop = nil
-    if not view.gone then view.graph = graph; pop().redraw(view) end
+    if not view.gone then view.graph, view.news = graph, true; pop().redraw(view) end
   end, waiting and function(message) if not view.gone then view.graph = { center = waiting, message = message }; pop().redraw(view) end end)
 end
 
@@ -1125,15 +1143,33 @@ local function target_window(view)
   for _, win in ipairs(api.nvim_tabpage_list_wins(0)) do if code_window(win) then return win end end
 end
 
--- c in the pop-out: the graph centred on a box, pinned there.
+-- The view as it is now, for desk.popout: the history keeps all of it (step = true: restore puts it back as it was),
+-- the layout record only pinned and target, a pinned graph's function as { file, line, name }.
+local function save_view(view)
+  local saved = { step = true, pinned = view.pinned == true, graph = view.graph, at = view.target, win = view.win, key = view.key,
+    followed = view.followed }
+  local t = view.target
+  if view.pinned and t then
+    local item = t.item
+    local file = item and item.uri and vim.uri_to_fname(item.uri) or (t.buf and api.nvim_buf_is_valid(t.buf) and api.nvim_buf_get_name(t.buf)) or ''
+    local line = t.row and t.row + 1 or (item and item.range and item.range.start.line + 1) or nil
+    if file ~= '' and line then saved.target = { file = file, line = line, name = t.name } end
+  end
+  return saved
+end
+
+-- c in the pop-out: the graph centred on a box, pinned there; H there goes back to the graph before.
 popout_centre = function(view, item)
   if not (item and item.raw) then return end
+  local before = save_view(view)
   local buf = view.target and view.target.buf
   if not (buf and api.nvim_buf_is_valid(buf)) then buf = api.nvim_win_get_buf(target_window(view) or 0) end
   local target = { buf = buf, item = item, name = item.name }
   view.pinned, view.target, view.graph = true, target, { center = item, message = 'reading the call hierarchy…' }
   pop().redraw(view)
   read_for(view, target, item)
+  pop().stepped(view, before)
+  pop().save_layout()
 end
 
 -- gs in the pop-out: the box's function here, in symdeps' card.
@@ -1148,11 +1184,39 @@ popout_symdeps = function(ctx)
   inspect()
 end
 
+-- A function named by its file and line (the notebook's, a saved layout's): its file loaded, the function around that
+-- line (treesitter), else the line itself. nil and why when the file is gone.
+local function target_at(file, line, name)
+  if type(file) ~= 'string' or not uv.fs_stat(file) then return nil, 'that file is no longer there' end
+  local buf = vim.fn.bufadd(file)
+  vim.bo[buf].buflisted = true
+  pcall(vim.fn.bufload, buf)
+  local row = math.max(0, math.min((tonumber(line) or 1) - 1, api.nvim_buf_line_count(buf) - 1))
+  local text = api.nvim_buf_get_lines(buf, row, row + 1, false)[1] or ''
+  local col = math.max(0, (text:find('%S') or 1) - 1)
+  local found = M.symbol_at(buf, row, col)
+  if found then return found end
+  return { buf = buf, row = row, col = col, key = 'line:' .. buf .. ':' .. row,
+    name = (type(name) == 'string' and name ~= '') and name or (vim.fs.basename(file) .. ':' .. (row + 1)) }
+end
+M.target_at = target_at
+
+-- The view pinned on target: read for it, Enter going to the code window of the current tab.
+local function pin_on(view, target)
+  view.pinned, view.target, view.key = true, target, nil
+  local win = target_window(view)
+  view.win, view.followed = win or view.win, win or view.followed
+  view.graph = { center = centre_of(target), message = 'reading the call hierarchy…' }
+  read_for(view, target, centre_of(target))
+end
+
 -- The view, from where it was asked: o in the graph tab or the panel (ctx.graph) sends that graph, which leaves the
--- editor (a tab shows one chosen function, so it arrives pinned; the panel arrives as it was); from anywhere else it
--- follows the function under the cursor of the window it was asked in.
+-- editor (a tab shows one chosen function, so it arrives pinned; the panel arrives as it was); a function named
+-- elsewhere (ctx.target, the notebook's) pins it there; from anywhere else it follows the function under the cursor of
+-- the window it was asked in.
 local function open_view(view, ctx)
   view.cache = view.cache or {}
+  if ctx.target then return pin_on(view, ctx.target) end
   local s = ctx.graph
   if s then
     local from_panel = s == panel
@@ -1193,12 +1257,31 @@ local function follow(view, event)
   end
 end
 
+-- The history's step back as it was (step); the layout record's { pinned, target } after a restart: a pinned graph read
+-- again for its function, else following from the code window here.
+local function restore_view(view, saved)
+  view.cache = view.cache or {}
+  if view.stop then view.stop() end
+  if saved.step then
+    view.pinned, view.graph, view.target = saved.pinned == true, saved.graph, saved.at
+    view.win, view.followed, view.key = saved.win or view.win, saved.followed or view.followed, saved.key
+    if not view.pinned then view.key = nil; follow_update(view) end
+    return
+  end
+  local target = saved.pinned and type(saved.target) == 'table' and target_at(saved.target.file, saved.target.line, saved.target.name)
+  if target then return pin_on(view, target) end
+  view.pinned, view.key = false, nil
+  local win = target_window(view)
+  if win then view.followed, view.win = win, win; follow_update(view) end
+end
+
 local GROUPS = { 'DeskCallGraphCentre', 'DeskCallGraphBox', 'DeskCallGraphName', 'DeskCallGraphDim', 'DeskCallGraphHead',
   'DeskCallGraphKey', 'DeskCallGraphSelected' }
+-- Its key line in the pop-out (the header shows PINNED; ? lists every key).
 local function footer(pinned)
   return { { ids = { 'callgraph.down', 'callgraph.up', 'callgraph.left', 'callgraph.right' }, words = 'move' },
-    { ids = { 'callgraph.go' }, words = 'go' }, { ids = { 'popout.pin' }, words = pinned and 'follow' or 'pin' },
-    { ids = { 'popout.home' }, words = 'menu' }, { ids = { 'popout.keys' }, words = 'keys' }, { ids = { 'popout.close' }, words = 'close' } }
+    { ids = { 'callgraph.go' }, words = 'go' }, { ids = { 'popout.go-focus' }, words = 'go+focus' },
+    { ids = { 'popout.pin' }, words = pinned and 'follow' or 'pin' }, { ids = { 'popout.keys' }, words = 'keys' } }
 end
 -- A box's key: its role, its name and where it is, so the same box keeps its selection when the graph is drawn again.
 local function box_key(box)
@@ -1209,8 +1292,7 @@ local function box_key(box)
 end
 local function render_view(view, width, style)
   highlights()
-  local graph = vim.tbl_extend('force', {}, view.graph or { message = 'move the cursor into a function' },
-    { keys = pop().key_pairs(footer(view.pinned)), header = view.pinned and 'PINNED' or nil })
+  local graph = view.graph or { message = 'move the cursor into a function' }
   local drawn = M.layout(graph, math.max(16, width - 2), style == 'retro')
   local items = {}
   for i, box in ipairs(drawn.boxes) do
@@ -1219,7 +1301,7 @@ local function render_view(view, width, style)
   end
   local center = graph.center
   return { title = 'call graph' .. (center and center.name and (' · ' .. center.name) or ''), state = view.pinned and 'PINNED' or 'following',
-    lines = drawn.lines, marks = drawn.marks, hl = GROUPS, items = items, footer = footer(view.pinned) }
+    lines = drawn.lines, marks = drawn.marks, hl = GROUPS, items = items, footer = footer(view.pinned), news = view.news == true }
 end
 
 M.view_kind = {
@@ -1242,14 +1324,59 @@ M.view_kind = {
     M.panel_open_with(view.graph, view.target, view.pinned)
   end,
   close = function(view)
-    if view.timer then view.timer:stop(); view.timer:close(); view.timer = nil end
+    if view.timer then view.timer:stop(); if not view.timer:is_closing() then view.timer:close() end; view.timer = nil end
     if view.stop_follow then view.stop_follow() end
     if view.stop then view.stop() end
     view.inflight, view.wanted, view.stop_follow, view.stop = nil, nil, nil, nil
   end,
+  save = save_view,
+  restore = restore_view,
 }
 -- Registered as the module loads (not run headless for the notebook), so its Views row is in the registry.
 if not headless then pop().kind(M.view_kind) end
+
+-- ─── a function named elsewhere: the notebook ──────────────────────────────────────────────────────────────────
+-- The panel pinned on target, opened beside the code when it is not open.
+function M.panel_on(target)
+  if not panel_open() then M.panel_toggle() end
+  if not panel_open() then return end
+  if panel.timer then panel.timer:stop() end
+  panel.pinned, panel.target = true, target
+  panel.key, panel.wanted = target.key, target
+  panel_show({ center = placeholder(target), message = 'reading the call hierarchy…' })
+  if not (panel.inflight and panel.inflight.key == target.key) then panel_request() end
+end
+
+-- The call graph of a function named by file and line: in the pop-out when one is open, else in the panel, pinned on
+-- it either way.
+function M.show_at(spec)
+  local target, why = target_at(spec.file, spec.line, spec.name)
+  if not target then return tell(why:sub(1, 1):upper() .. why:sub(2) .. '.') end
+  if pop().host.chan then return pop().show('graph', { target = target }) end
+  M.panel_on(target)
+end
+
+-- desk-work editor's callgraph { root, file, line, name } (the notebook's: Enter on a function it lists): runs
+-- callgraph.at with that function, after this answer, which says where it shows. Never while she types here, and not
+-- into the panel while a review is open.
+local function at_message(msg)
+  if vim.g.desk_work_view or vim.g.desk_popout then return { refused = 'this editor shows one item; nothing else opens in it' } end
+  local root, file = uv.fs_realpath(msg.root), uv.fs_realpath(msg.file)
+  if not (root and file) then return { refused = 'that file is not on disk' } end
+  if file:sub(1, #root + 1) ~= root .. '/' then return { refused = 'another project' } end
+  if require('desk.bridge').typing() then return { refused = 'typing in this editor' } end
+  local ctx = actions.context()
+  ctx.at = { file = file, line = msg.line, name = msg.name }
+  local can = actions.available(actions.get('callgraph.at'), ctx)
+  if can ~= true then return { refused = can == false and 'not here' or tostring(can) } end
+  vim.schedule(function() actions.act('callgraph.at', ctx) end)
+  return { shown = pop().host.chan and 'popout' or 'panel' }
+end
+if not headless then
+  local bridge = require('desk.bridge')
+  bridge.register('callgraph', at_message, { root = bridge.field('path', 4096, true), file = bridge.field('path', 4096, true),
+    line = bridge.field('integer', 10000000), name = bridge.field('string', 200) })
+end
 
 -- ─── setup ─────────────────────────────────────────────────────────────────────────────────────────────────────
 local set = false

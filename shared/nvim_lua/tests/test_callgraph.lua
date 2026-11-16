@@ -154,6 +154,7 @@ local view = G.open_cursor()
 ok(vim.wait(2000, function() return view.drawn and text(view.drawn.lines):find("callee_of_M.alpha", 1, true) end), "the view draws the graph")
 ok(line_with(view.drawn.lines, "caller_of_M.alpha") < line_with(view.drawn.lines, "║ M.alpha"), "the caller is drawn above the function")
 eq(vim.bo[view.buf].modifiable, false, "the graph is read-only")
+eq(api.nvim_buf_get_name(view.buf):match("call graph · .*$"), "call graph · M.alpha", "the tab is named for its function, no buffer number")
 eq(requests, { "textDocument/prepareCallHierarchy", "callHierarchy/incomingCalls", "callHierarchy/outgoingCalls" }, "prepare, then incoming, then outgoing")
 eq(most, 1, "one request in flight at a time")
 -- A narrower window draws the graph again to fit, and a wider one again for its width (a tmux pane resized to 30
@@ -222,6 +223,7 @@ eq(G.selected(view).name, "caller_of_M.alpha", "… which it selected first")
 key("c")
 ok(vim.wait(2000, function() return view.drawn and text(view.drawn.lines):find("caller_of_caller_of_M.alpha", 1, true) end), "c: the graph of the selected box")
 eq(G.selected(view).name, "caller_of_M.alpha", "… with it, now the centre, selected")
+eq(api.nvim_buf_get_name(view.buf):match("call graph · .*$"), "call graph · caller_of_M.alpha", "… and the tab named for it")
 eq(view.drawn.lines[#view.drawn.lines], "j/k/h/l move · Enter go · BS back · c centre · r reload · q close · ? keys", "the view ends with its keys")
 -- Backspace: back to the code as it was, the graph left open behind.
 local tabs, before = #api.nvim_list_tabpages(), api.nvim_win_get_cursor(origin)
@@ -233,6 +235,7 @@ eq(G.open_cursor(), view, "Space cc on another function: the same graph tab")
 eq({ #api.nvim_list_tabpages(), api.nvim_get_current_win() }, { tabs, view.win }, "… no new tab, and the graph in front")
 ok(vim.wait(2000, function() return text(view.drawn.lines):find("callee_of_M.beta", 1, true) end), "… now on that function")
 eq(G.selected(view).name, "M.beta", "… its box selected")
+eq(api.nvim_buf_get_name(view.buf):match("call graph · .*$"), "call graph · M.beta", "… the tab renamed")
 key("<BS>")
 local asked = #requests
 eq(G.open_cursor(), view, "Space cc on the same function")
@@ -392,8 +395,8 @@ eq(vim.tbl_map(function(x) return x.name end, decoded.files[1].symbols), { "M.al
 local K = G.view_kind
 eq(require("desk.popout").kinds.graph, K, "the graph is the pop-out's view kind 'graph'")
 local pinned_view = K.render({ graph = graph, pinned = true }, 60, "paper")
-eq({ pinned_view.title, pinned_view.state, vim.trim(pinned_view.lines[1]) }, { "call graph · changed_symbols", "PINNED", "PINNED" },
-  "its title and state, and pinned it says so above the graph")
+eq({ pinned_view.title, pinned_view.state, (table.concat(pinned_view.lines, "\n"):find("PINNED", 1, true)) },
+  { "call graph · changed_symbols", "PINNED", nil }, "its title and state; PINNED is the header's to show, not a line of the graph")
 eq(vim.tbl_map(function(i) return i.name end, pinned_view.items), { "panel", "turn_symbols", "changed_symbols", "unit_of" },
   "an item per box, in reading order")
 local centre_item = pinned_view.items[3]
@@ -408,8 +411,27 @@ ok(#loop == 3 and loop[1].key ~= loop[3].key, "a function both caller and callee
 eq(vim.tbl_map(function(i) return i.key end, K.render({ graph = graph }, 40, "paper").items), vim.tbl_map(function(i) return i.key end, pinned_view.items),
   "drawn again (another width, unpinned) the boxes keep their keys")
 local wide = K.render({ graph = graph, pinned = true }, 100, "paper").lines
-eq(wide[#wide], "j/k/h/l move · Enter go · p follow · Space Space menu · ? keys · q close", "its key line: the pop-out's keys, as she reads them")
-eq(vim.tbl_map(function(f) return f.words end, pinned_view.footer), { "move", "go", "follow", "menu", "keys", "close" }, "… from its footer")
+ok(not table.concat(wide, "\n"):find("Enter go", 1, true), "no keys in its lines: the key line is the pop-out window's status line")
+local pairs_said = vim.tbl_map(function(p) return p[1] .. " " .. p[2] end, require("desk.popout").key_pairs(pinned_view.footer))
+eq(table.concat(pairs_said, " · "), "j/k/h/l move · Enter go · f go+focus · p follow · ? keys", "its key line: five keys, as she reads them")
+eq(K.render({ graph = graph }, 60, "paper").footer[4].words, "pin", "… p says what it does: pin when following")
+-- Its state as data and back: the history keeps it all, the layout record a pinned graph's function by file and line.
+local fn_line = line_with(source, "function M.alpha()")
+local saved = K.save({ pinned = true, graph = graph, target = { buf = buf, row = fn_line - 1, name = "M.alpha" } })
+eq({ saved.step, saved.pinned, saved.graph == graph, saved.target }, { true, true, true, { file = vim.api.nvim_buf_get_name(buf), line = fn_line, name = "M.alpha" } },
+  "save: everything for the history, and the function by file and line for the layout record")
+eq(K.save({ pinned = false, graph = graph, target = { buf = buf, row = 1, name = "x" } }).target, nil, "… a following graph keeps no function")
+local back = { pinned = false, graph = { message = "elsewhere" } }
+K.restore(back, saved)
+eq({ back.pinned, back.graph == graph, back.target.name }, { true, true, "M.alpha" }, "restore of a step: the graph as it was, pinned as it was")
+local after_restart = { graph = { message = "elsewhere" } }
+K.restore(after_restart, { pinned = true, target = saved.target })
+eq({ after_restart.pinned, after_restart.target and after_restart.target.name, after_restart.graph.center and after_restart.graph.center.name },
+  { true, "M.alpha", "M.alpha" }, "restore from the layout record: pinned on that function again, its graph read for it")
+if after_restart.stop then after_restart.stop() end
+local at = G.target_at(vim.api.nvim_buf_get_name(buf), fn_line + 1)
+eq({ at and at.name, at and at.buf }, { "M.alpha", buf }, "a function named by file and line: the one around that line")
+eq({ G.target_at(dir .. "/no-such-file.lua", 1) }, { nil, "that file is no longer there" }, "… and a file that is gone says so")
 
 -- ─── its keys are rows of the action registry ──────────────────────────────────────────────────────────────────
 local A = require("desk.actions")

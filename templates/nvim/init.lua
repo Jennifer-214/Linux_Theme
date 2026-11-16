@@ -4466,11 +4466,13 @@ pcall(function() require("desk.nav").setup() end)
 -- The pop-out (desk.popout: kitty … nvim --cmd 'let g:desk_popout=1', a window that only draws what the main editor
 -- sends) runs no language servers: they stay the main editor's. The work modules above start nothing there (each
 -- setup returns in a pop-out: no work records, watchers or saved places), and with no file buffer persistence saves
--- no session there either.
+-- no session there either. Its tab line is its header and each window's status line that view's keys, so lualine
+-- draws nothing there (bufferline loads on a file read, which a pop-out never does).
 if vim.g.desk_popout then
   pcall(function()
     local servers = vim.tbl_map(function(config) return config.name end, vim.lsp.get_configs({ enabled = true }))
     if #servers > 0 then vim.lsp.enable(servers, false) end
   end)
+  pcall(function() require("lualine").hide({ place = { "statusline", "tabline", "winbar" }, unhide = false }) end)
 end
 -- <<< desk-popout
