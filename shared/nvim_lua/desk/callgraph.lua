@@ -38,13 +38,16 @@ end
 local function pad(s, w) return s .. string.rep(' ', math.max(0, w - width_of(s))) end
 
 -- ─── layout (pure) ─────────────────────────────────────────────────────────────────────────────────────────────
--- graph: { center = item?, callers = {item}?, callees = {item}?, more = {callers, callees}?, message = text?, notes = {text} }
--- item: { name, detail, uri?, range?, enc? }. Returns the lines, the boxes on each line (byte columns, for Enter) and
--- the highlights. Boxes flow left to right and wrap at `width`; every row is centred.
+-- graph: { center = item?, callers = {item}?, callees = {item}?, more = {callers, callees}?, message = text?,
+--          notes = {text}?, keys = {{key, words}}? (the key line, last) }
+-- item: { name, detail, uri?, range?, enc? }. Returns the lines, the highlights and the boxes in reading order
+-- (callers row by row, the centre, callees row by row), each with its top line, its byte span on each of its four
+-- lines, where its name starts and its column and width on screen. Boxes flow left to right, wrap at `width`, and
+-- every row is centred.
 function M.layout(graph, width, retro)
   width = math.max(16, width or 80)
   local G = M.glyphs(retro)
-  local lines, hits, marks = {}, {}, {}
+  local lines, boxlist, marks = {}, {}, {}
   local function add(text, group, from, to)
     lines[#lines + 1] = text
     if group then marks[#marks + 1] = { #lines, from or 0, to or #text, group } end
@@ -80,17 +83,22 @@ function M.layout(graph, width, retro)
           frame.v .. ' ' .. pad(b.detail, b.inner) .. ' ' .. frame.v,
           frame.bl .. string.rep(frame.h, b.inner + 2) .. frame.br,
         }
+        local box = { item = b.item, top = first, w = b.w, spans = {}, centre = frame == G.double }
         for k = 1, 4 do
           if i > 1 then texts[k] = texts[k] .. ' ' end
+          if k == 1 then box.x = width_of(texts[1]) end
           local s = #texts[k]
           texts[k] = texts[k] .. parts[k]
           local lnum = first + k - 1
-          hits[lnum] = hits[lnum] or {}
-          table.insert(hits[lnum], { s = s, e = #texts[k], item = b.item })
+          box.spans[k] = { lnum, s, #texts[k] }
           marks[#marks + 1] = { lnum, s, #texts[k], border }
-          if k == 2 then marks[#marks + 1] = { lnum, s + #frame.v + 1, s + #frame.v + 1 + #b.name, name_group, 1 } end
+          if k == 2 then
+            box.name_col = s + #frame.v + 1
+            marks[#marks + 1] = { lnum, box.name_col, box.name_col + #b.name, name_group, 1 }
+          end
           if k == 3 then marks[#marks + 1] = { lnum, s + #frame.v + 1, s + #frame.v + 1 + #b.detail, 'DeskCallGraphDim', 1 } end
         end
+        boxlist[#boxlist + 1] = box
       end
       for k = 1, 4 do lines[#lines + 1] = texts[k] end
     end
@@ -117,20 +125,75 @@ function M.layout(graph, width, retro)
     add('')
     for _, note in ipairs(graph.notes) do add(fit(G.said(note), width, G.ellipsis), 'DeskCallGraphDim') end
   end
-  return { lines = lines, hits = hits, marks = marks }
+  -- The key line, last: keys as typed, words in the theme's voice. Too narrow, the words before the last go first.
+  local keys = vim.deepcopy(graph.keys or {})
+  local function key_line()
+    local parts = {}
+    for _, k in ipairs(keys) do parts[#parts + 1] = k[1] .. ' ' .. G.said(k[2]) end
+    return table.concat(parts, ' · ')
+  end
+  while #keys > 2 and width_of(key_line()) > width do table.remove(keys, #keys - 1) end
+  if #keys > 0 then
+    add('')
+    local text = fit(key_line(), width, G.ellipsis)
+    add(text, 'DeskCallGraphDim')
+    local at = 0
+    for _, k in ipairs(keys) do
+      local s = text:find(k[1] .. ' ', at + 1, true)
+      if not s then break end
+      marks[#marks + 1] = { #lines, s - 1, s - 1 + #k[1], 'DeskCallGraphKey', 1 }
+      at = s + #k[1]
+    end
+  end
+  return { lines = lines, boxes = boxlist, marks = marks }
 end
 
-function M.item_at(drawn, lnum, col)
-  for _, hit in ipairs(drawn.hits[lnum] or {}) do
-    if col >= hit.s and col < hit.e then return hit.item end
+-- The box at a buffer position (1-based line, byte column), by index.
+function M.box_at(drawn, lnum, col)
+  for i, box in ipairs(drawn and drawn.boxes or {}) do
+    for _, span in ipairs(box.spans) do
+      if span[1] == lnum and col >= span[2] and col < span[3] then return i end
+    end
   end
+end
+
+-- From box `index`, the one a move goes to: down/up the nearest by horizontal centre in the row below/above (ties go
+-- left), left/right within the row, next/prev through every box (wrapping), first/last. Where nothing is, it stays.
+function M.nav(boxes, index, how)
+  local n = #boxes
+  if n == 0 then return nil end
+  if not boxes[index or 0] then index = 1 end
+  if how == 'next' then return index % n + 1 end
+  if how == 'prev' then return (index - 2) % n + 1 end
+  if how == 'first' then return 1 end
+  if how == 'last' then return n end
+  local here = boxes[index]
+  if how == 'left' or how == 'right' then
+    local j = index + (how == 'right' and 1 or -1)
+    return boxes[j] and boxes[j].top == here.top and j or index
+  end
+  local tops, seen = {}, {}
+  for _, b in ipairs(boxes) do if not seen[b.top] then seen[b.top] = true; tops[#tops + 1] = b.top end end
+  table.sort(tops)
+  local row
+  for i, top in ipairs(tops) do if top == here.top then row = i end end
+  local want = tops[row + (how == 'down' and 1 or -1)]
+  if not want then return index end
+  local centre, best, gap = here.x + here.w / 2, index, math.huge
+  for i, b in ipairs(boxes) do
+    local d = b.top == want and math.abs(b.x + b.w / 2 - centre)
+    if d and d < gap then best, gap = i, d end
+  end
+  return best
 end
 
 local function highlights()
   for name, link in pairs({ DeskCallGraphCentre = 'Title', DeskCallGraphBox = 'FloatBorder', DeskCallGraphName = 'Function',
-    DeskCallGraphDim = 'Comment', DeskCallGraphHead = 'Comment' }) do
+    DeskCallGraphDim = 'Comment', DeskCallGraphHead = 'Comment', DeskCallGraphKey = 'Special' }) do
     api.nvim_set_hl(0, name, { link = link, default = true })
   end
+  -- The selected box: inverse in retro (amber on black turned over, as a DOS list does), the selection colour elsewhere.
+  api.nvim_set_hl(0, 'DeskCallGraphSelected', M.retro() and { reverse = true, default = true } or { link = 'Visual', default = true })
 end
 
 local function draw(buf, drawn)
@@ -143,7 +206,78 @@ local function draw(buf, drawn)
   for _, m in ipairs(drawn.marks) do
     pcall(api.nvim_buf_set_extmark, buf, ns, m[1] - 1, m[2], { end_col = m[3], hl_group = m[4], priority = 100 + (m[5] or 0) })
   end
-  vim.b[buf].desk_callgraph = drawn
+  vim.b[buf].desk_callgraph = true
+end
+
+-- ─── the selected box (the view and the panel alike) ───────────────────────────────────────────────────────────
+-- A surface is the view or the panel: { buf, win, drawn, index }. The selection is an index into drawn.boxes; the
+-- keys move it box to box, a cursor that lands inside a box (a click, a motion) selects that box, and Enter goes to
+-- the selected box's function, wherever the cursor is.
+M.sel_ns = api.nvim_create_namespace('desk_callgraph_selected')
+
+local function paint(s)
+  if not api.nvim_buf_is_valid(s.buf) then return end
+  api.nvim_buf_clear_namespace(s.buf, M.sel_ns, 0, -1)
+  local box = s.index and s.drawn and s.drawn.boxes[s.index]
+  for _, span in ipairs(box and box.spans or {}) do
+    pcall(api.nvim_buf_set_extmark, s.buf, M.sel_ns, span[1] - 1, span[2], { end_col = span[3], hl_group = 'DeskCallGraphSelected', priority = 300 })
+  end
+end
+
+-- Selects box `index`; place: put the cursor on its name too (never moving the focus).
+function M.select(s, index, place)
+  local box = s.drawn and s.drawn.boxes[index]
+  if not box then return end
+  if s.index ~= index then s.index = index; paint(s) end
+  if place and s.win and api.nvim_win_is_valid(s.win) and api.nvim_win_get_buf(s.win) == s.buf then
+    pcall(api.nvim_win_set_cursor, s.win, { box.top + 1, box.name_col })
+  end
+end
+
+function M.move(s, how)
+  for _ = 1, math.max(1, vim.v.count1 or 1) do
+    local index = M.nav(s.drawn and s.drawn.boxes or {}, s.index, how)
+    if index then M.select(s, index, true) end
+  end
+end
+
+function M.selected(s) local box = s.index and s.drawn and s.drawn.boxes[s.index]; return box and box.item end
+
+-- A new drawing: the centre box selected (else the first), the cursor on it.
+local function show(s, drawn)
+  s.drawn, s.index = drawn, nil
+  draw(s.buf, drawn)
+  local first
+  for i, box in ipairs(drawn.boxes) do if box.centre then first = i; break end end
+  first = first or (drawn.boxes[1] and 1)
+  if first then M.select(s, first, true) else paint(s) end
+end
+
+-- The cursor moved in the surface's window: inside a box, that box is the selection; elsewhere it stays.
+function M.follow_cursor(s)
+  local win = api.nvim_get_current_win()
+  if not s.drawn or api.nvim_win_get_buf(win) ~= s.buf then return end
+  local cursor = api.nvim_win_get_cursor(win)
+  local index = M.box_at(s.drawn, cursor[1], cursor[2])
+  if index and index ~= s.index then M.select(s, index, false) end
+end
+
+local function bind_selection(s, go)
+  local map = function(lhs, fn, desc) vim.keymap.set('n', lhs, fn, { buffer = s.buf, nowait = true, desc = desc }) end
+  for lhs, how in pairs({ j = 'down', k = 'up', h = 'left', l = 'right', ['<Tab>'] = 'next', ['<S-Tab>'] = 'prev', gg = 'first', G = 'last' }) do
+    map(lhs, function() M.move(s, how) end, ({ down = 'The box below', up = 'The box above', left = 'The box to the left',
+      right = 'The box to the right', next = 'The next box', prev = 'The previous box', first = 'The first box', last = 'The last box' })[how])
+  end
+  map('<CR>', go, 'Go to the selected function')
+  map('<2-LeftMouse>', function()
+    local pos = vim.fn.getmousepos()
+    if pos.winid == s.win and (pos.line or 0) > 0 then
+      local index = M.box_at(s.drawn, pos.line, math.max(0, (pos.column or 1) - 1))
+      if index then M.select(s, index, false) end
+    end
+    go()
+  end, 'Go to the function clicked')
+  api.nvim_create_autocmd('CursorMoved', { buffer = s.buf, callback = function() M.follow_cursor(s) end })
 end
 
 -- ─── the symbol under a position (treesitter) ──────────────────────────────────────────────────────────────────
@@ -312,39 +446,48 @@ function M.fetch(client, target, done)
   return function() cancelled = true; cancel() end
 end
 
--- What symdeps adds: its own card on the centre (roles of every use) when it is loaded, for C and C++.
-local function symdeps_note(buf)
-  local ft = vim.bo[buf].filetype
+-- What symdeps adds, for C and C++: its own card on the centre (every use by role) when it is loaded.
+local function symdeps_state(buf)
+  local ft = api.nvim_buf_is_valid(buf) and vim.bo[buf].filetype
   if ft ~= 'c' and ft ~= 'cpp' then return nil end
-  if package.loaded['fox-symdeps'] or pcall(require, 'fox-symdeps') then return 's: every use by role, in symdeps' end
-  return 'every use by role: requires symdeps'
+  return (package.loaded['fox-symdeps'] or pcall(require, 'fox-symdeps')) and 'loaded' or 'missing'
 end
 
+-- An item from the language server goes to its range; the centre drawn before the answer, to where it was asked.
 local function jump(item, win)
   if win and api.nvim_win_is_valid(win) then api.nvim_set_current_win(win) end
   if item.uri and item.range then
     vim.lsp.util.show_document({ uri = item.uri, range = item.range }, item.enc or 'utf-16', { focus = true })
+  elseif item.buf and api.nvim_buf_is_valid(item.buf) and item.row then
+    api.nvim_win_set_buf(0, item.buf)
+    pcall(api.nvim_win_set_cursor, 0, { item.row + 1, item.col or 0 })
   end
+end
+local function placeholder(target)
+  return { name = target.name, detail = vim.fn.fnamemodify(api.nvim_buf_get_name(target.buf), ':t') .. ':' .. (target.row + 1),
+           buf = target.buf, row = target.row, col = target.col }
 end
 
 -- ─── the graph view (a tab of its own) ─────────────────────────────────────────────────────────────────────────
 local views = {}
 
+M.VIEW_KEYS = { { 'j/k/h/l', 'move' }, { 'Enter', 'go' }, { 'c', 'centre' }, { 'r', 'reload' }, { 'q', 'close' } }
+M.PANEL_KEYS = { { 'j/k/h/l', 'move' }, { 'Enter', 'go' }, { 'q', 'close' } }
+
 local function render(view)
   if not api.nvim_win_is_valid(view.win) then return end
   local graph = vim.deepcopy(view.graph)
   graph.notes = graph.notes or {}
-  local extra = symdeps_note(view.source)
-  if extra then graph.notes[#graph.notes + 1] = extra end
-  table.insert(graph.notes, 1, 'Enter: go there · c: centre on it · r: read again · q: close')
-  view.drawn = M.layout(graph, api.nvim_win_get_width(view.win) - 2, M.retro())
-  draw(view.buf, view.drawn)
+  local symdeps = symdeps_state(view.source)
+  if symdeps == 'missing' then graph.notes[#graph.notes + 1] = 'every use by role: requires symdeps' end
+  graph.keys = vim.deepcopy(M.VIEW_KEYS)
+  if symdeps == 'loaded' then table.insert(graph.keys, #graph.keys, { 's', 'symdeps' }) end
+  show(view, M.layout(graph, api.nvim_win_get_width(view.win) - 2, M.retro()))
 end
 
 local function load(view, target)
   if view.cancel then view.cancel() end
-  view.graph = { center = target.item or { name = target.name, detail = vim.fn.fnamemodify(api.nvim_buf_get_name(target.buf), ':t') .. ':' .. (target.row + 1) },
-                 message = 'reading the call hierarchy…' }
+  view.graph = { center = target.item or placeholder(target), message = 'reading the call hierarchy…' }
   render(view)
   local stop_fetch
   local stop_wait = M.ready(target.buf, function(client, why)
@@ -384,16 +527,12 @@ function M.open(target)
   end
   local view = { buf = buf, win = win, origin = origin, source = target.buf }
   views[buf] = view
-  local function here()
-    local cursor = api.nvim_win_get_cursor(win)
-    return view.drawn and M.item_at(view.drawn, cursor[1], cursor[2])
-  end
   local map = function(lhs, fn, desc) vim.keymap.set('n', lhs, fn, { buffer = buf, nowait = true, desc = desc }) end
-  map('<CR>', function() local item = here(); if item then jump(item, view.origin) end end, 'Go to this function')
+  bind_selection(view, function() local item = M.selected(view); if item then jump(item, view.origin) end end)
   map('c', function()
-    local item = here()
+    local item = M.selected(view)
     if item and item.raw then view.target = { buf = view.source, item = item, name = item.name }; load(view, view.target) end
-  end, 'Centre the graph on this function')
+  end, 'Centre the graph on the selected function')
   map('r', function() load(view, view.target) end, 'Read the graph again')
   map('q', function() M.close_view(buf) end, 'Close the call graph')
   map('s', function()
@@ -450,8 +589,8 @@ end
 
 local function panel_show(graph)
   if not panel_open() then return end
-  panel.drawn = M.layout(graph, api.nvim_win_get_width(panel.win) - 1, M.retro())
-  draw(panel.buf, panel.drawn)
+  graph = vim.tbl_extend('force', {}, graph, { keys = M.PANEL_KEYS })
+  show(panel, M.layout(graph, api.nvim_win_get_width(panel.win) - 1, M.retro()))
 end
 
 local function cache_key(t) return vim.uri_from_bufnr(t.buf) .. '\0' .. t.name .. '\0' .. t.row end
@@ -463,7 +602,7 @@ local function panel_request()
   local cached = panel.cache[cache_key(target)]
   if cached then if panel.key == target.key then panel_show(cached) end; return end
   panel.inflight = target
-  local center = { name = target.name, detail = vim.fn.fnamemodify(api.nvim_buf_get_name(target.buf), ':t') .. ':' .. (target.row + 1) }
+  local center = placeholder(target)
   local function finish(graph)
     panel.inflight, panel.stop = nil, nil
     panel.cache[cache_key(target)] = graph
@@ -497,7 +636,7 @@ function M.panel_update()
     if not target then return panel_show({ message = why }) end
     local cached = panel.cache[cache_key(target)]
     if cached then panel.wanted = nil; return panel_show(cached) end
-    panel_show({ center = { name = target.name, detail = '' }, message = 'reading the call hierarchy…' })
+    panel_show({ center = placeholder(target), message = 'reading the call hierarchy…' })
     -- Back on the function already being asked about: its answer is on the way.
     if panel.inflight and panel.inflight.key == target.key then panel.wanted = nil; return end
     panel.wanted = target
@@ -553,18 +692,15 @@ function M.panel_toggle()
   highlights()
   local source = api.nvim_get_current_win()
   panel.buf = api.nvim_create_buf(false, true)
-  vim.bo[panel.buf].filetype = 'deskcallgraph'
+  vim.bo[panel.buf].bufhidden, vim.bo[panel.buf].filetype = 'wipe', 'deskcallgraph'
   pcall(api.nvim_buf_set_name, panel.buf, 'call graph')
   panel.win = api.nvim_open_win(panel.buf, false, { split = 'right', win = -1, width = M.PANEL_WIDTH })
+  panel.drawn, panel.index = nil, nil
   for opt, value in pairs({ number = false, relativenumber = false, signcolumn = 'no', foldcolumn = '0', wrap = false,
     list = false, spell = false, cursorline = false, winfixwidth = true, winfixbuf = true }) do
     pcall(function() vim.wo[panel.win][opt] = value end)
   end
-  vim.keymap.set('n', '<CR>', function()
-    local cursor = api.nvim_win_get_cursor(panel.win)
-    local item = panel.drawn and M.item_at(panel.drawn, cursor[1], cursor[2])
-    if item then jump(item, panel.source_win) end
-  end, { buffer = panel.buf, nowait = true, desc = 'Go to this function' })
+  bind_selection(panel, function() local item = M.selected(panel); if item then jump(item, panel.source_win) end end)
   vim.keymap.set('n', 'q', M.panel_close, { buffer = panel.buf, nowait = true, desc = 'Close the call graph panel' })
   local group = api.nvim_create_augroup('desk_callgraph_panel', { clear = true })
   api.nvim_create_autocmd({ 'CursorMoved', 'BufEnter', 'InsertLeave' }, { group = group,

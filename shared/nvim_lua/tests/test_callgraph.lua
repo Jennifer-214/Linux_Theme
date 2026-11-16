@@ -35,9 +35,39 @@ ok(line_with(drawn.lines, "╔═"), "the function sits in a double box")
 ok(line_with(drawn.lines, "╭─") and not line_with(drawn.lines, "┌"), "neighbours in rounded boxes outside retro")
 for i, l in ipairs(drawn.lines) do ok(api.nvim_strwidth(l) <= 60, "line " .. i .. " fits the width") end
 local row, l = line_with(drawn.lines, "│ panel")
-eq(G.item_at(drawn, row, l:find("panel", 1, true)).name, "panel", "Enter on a box finds its function")
-eq(G.item_at(drawn, row, 0), nil, "the margin is no box")
-eq(G.item_at(drawn, row + 1, l:find("panel", 1, true)).name, "panel", "the box's detail line is the box too")
+local col = l:find("panel", 1, true) - 1
+eq(drawn.boxes[G.box_at(drawn, row, col)].item.name, "panel", "a position inside a box finds it")
+eq(G.box_at(drawn, row, 0), nil, "the margin is no box")
+eq(drawn.boxes[G.box_at(drawn, row + 1, col)].item.name, "panel", "the box's detail line is the box too")
+eq(vim.tbl_map(function(b) return b.item.name end, drawn.boxes), { "panel", "turn_symbols", "changed_symbols", "unit_of" },
+  "the boxes in reading order: callers, the centre, callees")
+eq({ drawn.boxes[1].top + 1, drawn.boxes[1].name_col }, { row, col }, "a box knows where its name starts")
+local keyed = G.layout(vim.tbl_extend("force", graph, { keys = G.VIEW_KEYS }), 60, false)
+eq(keyed.lines[#keyed.lines], "j/k/h/l move · Enter go · c centre · r reload · q close", "the key line comes last")
+ok(vim.tbl_contains(vim.tbl_map(function(m) return table.concat({ m[1], m[2], m[3], m[4] }, ":") end, keyed.marks),
+  #keyed.lines .. ":0:7:DeskCallGraphKey"), "its keys are marked as keys")
+eq(G.layout(vim.tbl_extend("force", graph, { keys = G.VIEW_KEYS }), 60, true).lines[#keyed.lines],
+  "j/k/h/l MOVE · Enter GO · c CENTRE · r RELOAD · q CLOSE", "retro: the keys as typed, the words in capitals")
+local tight = G.layout({ keys = G.VIEW_KEYS }, 34, false)
+eq(tight.lines[#tight.lines], "j/k/h/l move · Enter go · q close", "a narrow key line keeps moving, going and closing")
+
+-- ─── moving box to box ─────────────────────────────────────────────────────────────────────────────────────────
+-- Five callers in two rows (three, then two), the centre, two callees; at 40 columns the rows sit at known places.
+local function item(name) return { name = name, detail = "x.lua:1" } end
+local B = G.layout({ callers = { item("aaaa1"), item("aaaa2"), item("aaaa3"), item("aaaa4"), item("aaaa5") },
+  center = { name = "the_middle_one", detail = "x.lua:9" }, callees = { item("leaf1"), item("leaf2") } }, 40, false).boxes
+eq(vim.tbl_map(function(b) return b.item.name end, B), { "aaaa1", "aaaa2", "aaaa3", "aaaa4", "aaaa5", "the_middle_one", "leaf1", "leaf2" },
+  "callers row by row, the centre, callees row by row")
+ok(B[1].top == B[3].top and B[4].top == B[5].top and B[4].top > B[1].top and B[6].centre and B[7].top == B[8].top and B[7].top > B[6].top,
+  "two caller rows, the centre, a callee row")
+eq({ G.nav(B, 6, "up"), G.nav(B, 5, "up"), G.nav(B, 2, "up") }, { 5, 2, 2 },
+  "k: the box above nearest by its centre (a tie goes left); nothing above: it stays")
+eq({ G.nav(B, 4, "down"), G.nav(B, 6, "down"), G.nav(B, 8, "down") }, { 6, 8, 8 }, "j: the box below nearest by its centre")
+eq({ G.nav(B, 5, "left"), G.nav(B, 4, "left"), G.nav(B, 4, "right"), G.nav(B, 5, "right"), G.nav(B, 3, "right") }, { 4, 4, 5, 5, 3 },
+  "h/l: along the row, stopping at its ends")
+eq({ G.nav(B, 8, "next"), G.nav(B, 1, "prev"), G.nav(B, 3, "next"), G.nav(B, 5, "first"), G.nav(B, 2, "last") }, { 1, 8, 4, 1, 8 },
+  "Tab/S-Tab: every box in order, wrapping; gg/G: the first and the last")
+eq(G.nav({}, nil, "down"), nil, "no boxes, no selection")
 ok(line_with(drawn.lines, "↓"), "an arrow says who calls whom")
 
 local retro = G.layout(graph, 60, true)
@@ -110,13 +140,51 @@ ok(line_with(view.drawn.lines, "caller_of_M.alpha") < line_with(view.drawn.lines
 eq(vim.bo[view.buf].modifiable, false, "the graph is read-only")
 eq(requests, { "textDocument/prepareCallHierarchy", "callHierarchy/incomingCalls", "callHierarchy/outgoingCalls" }, "prepare, then incoming, then outgoing")
 eq(most, 1, "one request in flight at a time")
-local lnum, line = line_with(view.drawn.lines, "caller_of_M.alpha")
-api.nvim_win_set_cursor(view.win, { lnum, (line:find("caller_of", 1, true)) })
-vim.fn.maparg("<CR>", "n", false, true).callback()
+local function key(lhs) vim.fn.maparg(lhs, "n", false, true).callback() end
+local function named(s, name) for i, b in ipairs(s.drawn.boxes) do if b.item.name == name then return i, b end end end
+local function painted(s)
+  return vim.tbl_map(function(m) return { m[2] + 1, m[3], m[4].end_col, m[4].hl_group } end,
+    api.nvim_buf_get_extmarks(s.buf, G.sel_ns, 0, -1, { details = true }))
+end
+local function spans(b) return vim.tbl_map(function(sp) return { sp[1], sp[2], sp[3], "DeskCallGraphSelected" } end, b.spans) end
+local _, middle = named(view, "M.alpha")
+eq(G.selected(view).name, "M.alpha", "the view opens on the centre box")
+eq(api.nvim_win_get_cursor(view.win), { middle.top + 1, middle.name_col }, "… with the cursor on its name")
+eq(painted(view), spans(middle), "only the selected box is highlighted, all four of its lines")
+key("k")
+local _, caller = named(view, "caller_of_M.alpha")
+eq(G.selected(view).name, "caller_of_M.alpha", "k: the caller above")
+eq(api.nvim_win_get_cursor(view.win), { caller.top + 1, caller.name_col }, "… the cursor follows to its name")
+eq(painted(view), spans(caller), "… and so does the highlight")
+key("<Tab>")
+eq(G.selected(view).name, "M.alpha", "Tab: the next box")
+key("G")
+eq(G.selected(view).name, "callee_of_M.alpha", "G: the last")
+key("gg")
+eq(G.selected(view).name, "caller_of_M.alpha", "gg: the first")
+-- The cursor moved by other means: into a box it selects that box (a click does this); elsewhere nothing changes.
+local _, callee = named(view, "callee_of_M.alpha")
+api.nvim_win_set_cursor(view.win, { callee.top, callee.spans[1][2] })
+api.nvim_exec_autocmds("CursorMoved", { buffer = view.buf })
+eq(G.selected(view).name, "callee_of_M.alpha", "a cursor that lands in a box selects it")
+api.nvim_win_set_cursor(view.win, { 1, 0 })
+api.nvim_exec_autocmds("CursorMoved", { buffer = view.buf })
+eq(G.selected(view).name, "callee_of_M.alpha", "outside every box the selection stays")
+key("<CR>")
 eq(api.nvim_get_current_win(), origin, "Enter goes back to the code")
-eq(api.nvim_win_get_cursor(origin)[1], 8, "… at the function the box names")
+eq(api.nvim_win_get_cursor(origin)[1], 5, "… to the selected function, not where the cursor was")
 api.nvim_set_current_win(view.win)
-vim.fn.maparg("q", "n", false, true).callback()
+vim.fn.getmousepos = function() return { winid = view.win, line = caller.top + 1, column = caller.name_col + 1 } end
+key("<2-LeftMouse>")
+vim.fn.getmousepos = nil
+eq(api.nvim_win_get_cursor(origin)[1], 8, "a double click goes to the box clicked")
+api.nvim_set_current_win(view.win)
+eq(G.selected(view).name, "caller_of_M.alpha", "… which it selected first")
+key("c")
+ok(vim.wait(2000, function() return view.drawn and text(view.drawn.lines):find("caller_of_caller_of_M.alpha", 1, true) end), "c: the graph of the selected box")
+eq(G.selected(view).name, "caller_of_M.alpha", "… with it, now the centre, selected")
+eq(view.drawn.lines[#view.drawn.lines], "j/k/h/l move · Enter go · c centre · r reload · q close", "the view ends with its keys")
+key("q")
 eq(#api.nvim_list_tabpages(), 1, "q closes the graph's tab")
 
 -- No server with a call hierarchy: refused, with the servers named; none yet: it waits and says so.
@@ -149,6 +217,23 @@ for i = 1, 8 do
 end
 ok(vim.wait(1000, function() return G.panel.drawn and text(G.panel.drawn.lines):find("callee_of_M.alpha", 1, true) end), "the panel draws where the cursor rested")
 eq(prepares(), 1, "eight quick moves: one request")
+-- The panel's boxes are selected the same way, without the panel ever taking the focus.
+local _, centre_box = named(G.panel, "M.alpha")
+eq({ G.selected(G.panel).name, api.nvim_win_get_cursor(G.panel.win) }, { "M.alpha", { centre_box.top + 1, centre_box.name_col } },
+  "the panel selects its centre box, its cursor on the name")
+eq(painted(G.panel), spans(centre_box), "… highlighted")
+eq(api.nvim_get_current_win(), origin, "… while the focus stays in the code")
+eq(G.panel.drawn.lines[#G.panel.drawn.lines], "j/k/h/l move · Enter go · q close", "the panel ends with its keys")
+api.nvim_set_current_win(G.panel.win)
+key("j")
+eq(G.selected(G.panel).name, "callee_of_M.alpha", "j in the panel: the callee below")
+local _, panel_caller = named(G.panel, "caller_of_M.alpha")
+api.nvim_win_set_cursor(G.panel.win, { panel_caller.top + 2, panel_caller.spans[3][2] + 1 })
+api.nvim_exec_autocmds("CursorMoved", { buffer = G.panel.buf })
+eq(G.selected(G.panel).name, "caller_of_M.alpha", "a cursor that lands in a panel box selects it")
+api.nvim_win_set_cursor(G.panel.win, { 1, 0 })
+key("<CR>")
+eq({ api.nvim_get_current_win(), api.nvim_win_get_cursor(origin)[1] }, { origin, 8 }, "Enter in the panel goes to the selected function")
 api.nvim_win_set_cursor(origin, { 4, 0 })
 G.panel_moved(origin)
 vim.wait(200)
