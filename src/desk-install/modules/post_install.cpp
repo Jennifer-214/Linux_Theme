@@ -16,6 +16,8 @@
 #include "notification_refresh.hpp"
 #include "ide_settings.hpp"
 #include "stale_services.hpp"
+#include "nvim_lock.hpp"
+#include "../core/idempotency.hpp"
 #include "../core/state_checks.hpp"
 #include "../../desk-common/shell.hpp"
 #include "../../desk-common/ui.hpp"
@@ -217,12 +219,24 @@ void run_post_install(Context& ctx) {
     } else if (have("nvim") && fs::is_directory(ctx.home / ".local/share/nvim/lazy")) {
         // Restore, not sync: plugins stay at the repo lock file's versions, so a reinstall gives what was tested.
         // Updating is deliberate: :Lazy update, then commit the new lock file to shared/nvim_lazy-lock.json.
-        ui::substep("nvim plugins restored to the lock file (headless, 60s cap)");
-        if (sh::run({"timeout", "60", "nvim", "--headless",
-                     "+Lazy! restore", "+qa"}) == 0) {
+        // Lazy installs a plugin it lacks as Neovim starts, then rewrites lazy-lock.json with the commits on disk (the
+        // old ones) before `restore` reads it: an upgrade that added a plugin restored the old pins. So what is missing
+        // goes in first, the repo's lock is laid again, then the restore; and it says so only when the locks agree.
+        const fs::path repo_lock = ctx.script_dir / "shared/nvim_lazy-lock.json";
+        const fs::path lock = ctx.home / ".config/nvim/lazy-lock.json";
+        ui::substep("nvim plugins restored to the lock file (headless, 60s caps)");
+        sh::run({"timeout", "60", "nvim", "--headless", "+Lazy! install", "+qa"});
+        const std::string want = idem::read_file(repo_lock);
+        const bool laid = !want.empty() && idem::write_atomic(lock, want);
+        const int restored = sh::run({"timeout", "60", "nvim", "--headless", "+Lazy! restore", "+qa"});
+        const auto off = nvim_lock::mismatches(want, idem::read_file(lock));
+        if (restored == 0 && laid && off.empty()) {
             ui::ok("Nvim plugins at the lock file's versions");
         } else {
-            ui::warn("Plugin restore didn't complete cleanly — run `:Lazy restore` manually");
+            std::string names;
+            for (const auto& name : off) names += (names.empty() ? "" : ", ") + name;
+            ui::warn("Plugin restore didn't complete cleanly" + (names.empty() ? std::string() : " (not at the lock: " + names + ")") +
+                     " — run the install again, or `:Lazy restore` in Neovim");
         }
         if (fs::is_directory(ctx.home / ".local/share/nvim/lazy/nvim-treesitter")) {
             ui::substep("rebuilding treesitter parsers (headless, 120s cap)");
