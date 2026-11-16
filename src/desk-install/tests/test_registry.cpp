@@ -54,6 +54,12 @@ int main() {
         std::fprintf(stderr, "FAIL: greetd must run after render + specials and before greetd_fingerprint\n");
         return 1;
     }
+    // UFW, fail2ban (security) and endlessh read the port sshd listens on: the one that sets it runs first.
+    if (position("ssh_harden") == MODULES_COUNT || position("ssh_harden") >= position("ufw") ||
+        position("ssh_harden") >= position("security") || position("ssh_harden") >= position("endlessh")) {
+        std::fprintf(stderr, "FAIL: ssh_harden must run before ufw, security and endlessh\n");
+        return 1;
+    }
     if (DECLARED_FULL_COUNT != MODULES_COUNT) {
         std::fprintf(stderr,
             "FAIL: DECLARED_FULL_COUNT (%zu) != MODULES_COUNT (%zu) — "

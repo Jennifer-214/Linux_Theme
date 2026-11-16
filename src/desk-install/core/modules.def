@@ -25,6 +25,9 @@ DESK_MODULE_FULL( deps,    run_deps,          "--deps",        "Install pacman b
 DESK_MODULE( privacy,     run_privacy,       "--privacy",     "DNS-over-HTTPS via systemd-resolved",              true  )
 DESK_MODULE( perf,            run_perf,             "--perf",         "Performance tuning (chrony over timesyncd)",       false )
 DESK_MODULE( clock_sync,      run_clock_sync,       "--clock-sync",   "One-shot NTP correction at install time",          true  )
+//   ssh_harden — before ufw, security and endlessh: they follow the port sshd listens on (ssh_port.hpp), so one run
+//   leaves the firewall, fail2ban and the tarpit on the port it chose. Asks, or FOXML_SSH_PORT=<port> unattended.
+DESK_MODULE( ssh_harden,  run_ssh_harden,    "--ssh-harden",  "SSH wizard: one port for sshd, keys-only once your key logs in", false )
 //   ufw — installs+enables a system systemd unit. Needs root.
 DESK_MODULE_FULL( ufw,        run_ufw,              "--ufw",          "Default-deny inbound firewall (runs even when --no-secure)", true,
                  /*root*/ true, /*gfx*/ false, /*net*/ false,
@@ -199,7 +202,6 @@ DESK_MODULE( sudo_fingerprint,  run_sudo_fingerprint,   "--sudo-fingerprint", "F
 //   password-less to clear a wedged reader. Runs AFTER fprint so the daemon
 //   exists; self-skips when fprintd is absent. Scoped to fprintd.service only.
 DESK_MODULE( fprintd_reset_polkit, run_fprintd_reset_polkit, "--fprintd-reset-polkit", "Active wheel users restart fprintd without re-auth (finger self-heal)", true )
-DESK_MODULE( ssh_harden,  run_ssh_harden,    "--ssh-harden",  "Interactive SSH wizard (custom port + keys-only)", false )
 
 // ── Phase 6: heavy build-from-source / dev extras ─────────────────
 DESK_MODULE( xgboost,     run_xgboost,       "--xgboost",     "Build XGBoost from source",                        false )

@@ -24,14 +24,32 @@ crashed), boot from a live USB and chroot into your install.
 
 ### "I can't SSH in anymore"
 
-You may have run the SSH wizard, picked a custom port, and forgot it.
-At the laptop TTY:
+The SSH wizard checks its own change (`sshd -t` before sshd is touched, a login on
+the new port after the reload) and puts the previous config back by itself when
+that fails. If you are locked out anyway, the way in is the console: the TTY at
+the machine, or the web console a server provider gives you. From there:
 
 ```
-sudo grep '^Port ' /etc/ssh/sshd_config.d/50-foxml-hardening.conf
+sudo sshd -T | grep -E '^(port|passwordauthentication) '   # where sshd listens, passwords on or off
 ```
 
-If the port is unexpected, edit the file and `sudo systemctl restart sshd`.
+To go back to the config from before the last wizard run:
+
+```
+sudo mv /etc/ssh/sshd_config.d/50-foxml-hardening.conf.foxml-bak /etc/ssh/sshd_config.d/50-foxml-hardening.conf
+sudo systemctl restart sshd
+```
+
+Or drop the wizard's file altogether (port 22, passwords on):
+
+```
+sudo rm /etc/ssh/sshd_config.d/50-foxml-hardening.conf && sudo systemctl restart sshd
+sudo ufw limit 22/tcp
+```
+
+The firewall and fail2ban follow sshd's port: `sudo ufw status` shows it as
+LIMIT, and a ban on your own address is lifted with
+`sudo fail2ban-client set sshd unbanip <your ip>`.
 
 ### "I disabled password auth, lost the key, can't get back in"
 

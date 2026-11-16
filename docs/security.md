@@ -21,7 +21,7 @@ Additional choices include:
 
 | Option | Purpose |
 | --- | --- |
-| `--ssh-harden` | SSH wizard for a custom port, passphrase enforcement and keys-only authentication |
+| `--ssh-harden` | SSH wizard: the port sshd listens on, and keys-only login once your key has logged in there (see below) |
 | `--iommu` | IOMMU DMA protection and compatible-host kernel lockdown |
 | `--noexec-tmp` | `noexec`, `nosuid` and `nodev` on `/tmp` and `/dev/shm` |
 | `--polkit-strict` | Require authentication for privileged GUI actions |
@@ -29,6 +29,16 @@ Additional choices include:
 | `desk sec dnssec` | Choose DNSSEC strictness |
 
 Keyring setup also masks limited SSH/GPG `gnome-keyring-daemon` autostart units.
+
+**The SSH port.** One port: the one sshd listens on, as `sudo sshd -T` reports it. `--ssh-harden` sets it (Enter keeps
+the current one; `FOXML_SSH_PORT=<port>` answers for an unattended run, such as a headless server), and UFW
+(rate-limited), fail2ban's sshd jail, the endlessh tarpit and `desk knock` / `desk spa` all read it. Port 22 is open
+only while sshd or the tarpit holds it. Password login is turned off only after a key has logged in on that port
+from the machine itself (with no key, or a key that does not log in, passwords stay on and the wizard says why).
+Every change is checked with `sshd -t` before sshd is touched and proven with a login after the reload; a failure
+puts the previous config back by itself. Run over SSH, the wizard keeps the port you came in on until you have
+logged in on the new one and run it again from there. If it still goes wrong, the console (a TTY, or a server
+provider's web console) is the way in: see the [recovery guide](../RECOVERY.md).
 
 **The password prompt.** When something needs an administrator (a restart, a package install), the desktop asks on
 a paper slip that says what is asking in plain words. `hyprpolkitagent` holds the prompt from login; the shell takes

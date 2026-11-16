@@ -207,7 +207,7 @@ install, use `install.sh` so the other native tools are built and installed too.
 | `--llama-turbo` | Build the optional TurboQuant llama.cpp fork for long-context roles |
 | `--github` | Authenticate with GitHub and clone workspace repositories into `~/code` |
 | `--secure` | Configure kernel sysctls, UFW, Fail2ban, Auditd, USBGuard and AppArmor |
-| `--ssh-harden` | Run the SSH hardening wizard |
+| `--ssh-harden` | Run the SSH hardening wizard (`FOXML_SSH_PORT=<port>` answers it for an unattended run) |
 | `--perf` | Configure Chrony time synchronization |
 | `--privacy` | Configure DNS-over-HTTPS |
 | `--vault` | Install the in-memory `desk-vault` secret-store service |
