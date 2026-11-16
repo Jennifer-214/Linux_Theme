@@ -570,7 +570,7 @@ class Deployed(unittest.TestCase):
             self.assertNotIn(quiet, said)
 
 
-@unittest.skipUnless(CHECK.exists(), "build theme-check first")
+@requires(CHECK.exists(), "a built theme-check (make)")
 class Scheduled(unittest.TestCase):
     """The weekly timer runs what theme-check's own table marks Weekly, so a new check is scheduled by declaring it
     (the field sits before the check's function, so every entry has to say), never by editing the unit's command."""
