@@ -770,6 +770,23 @@ do
   ok(wait(5000, function() return not exists(psock) end), '… and the pop-out, told so, quits')
 end
 
+-- ─── a pop-out that stops answering misses nothing for good ─────────────────────────────────────────────────────
+do
+  os.remove(dir .. '/kitty.listen')
+  open_row()
+  opened()
+  ok(wait(10000, function() return state().connected and (state().title or ''):find('call graph', 1, true) end), 'a pop-out again')
+  host("require('desk.popout').show('rows', require('desk.actions').context())")
+  ok(wait(3000, function() return state().tabs == 2 end), '… with two views')
+  pop('vim.defer_fn(function() vim.uv.sleep(3000) end, 10)')
+  ok(wait(5000, function() return host("return require('desk.popout').host.stalled") == true end), 'it stops answering')
+  host("require('desk.popout').clear('rows')")
+  ok(wait(8000, function() return host("return require('desk.popout').host.stalled") == false end),
+    '… a view is taken off meanwhile, and it answers again')
+  ok(wait(3000, function() return state().tabs == 1 and vim.deep_equal(state().views, { 'graph' }) end),
+    '… and that view is gone there too')
+end
+
 vim.rpcnotify(h, 'nvim_command', 'qa!')
 ok(third:wait(5000).code == 0, 'the third editor closes')
 ok(wait(10000, function() return not exists(psock) end), '… and its pop-out quits')

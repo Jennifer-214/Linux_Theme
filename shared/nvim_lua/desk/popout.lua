@@ -9,7 +9,8 @@
 -- each window's status line is that view's key line.
 --
 -- Protocol 2. The editor sends rpcnotify of M.receive, { version = 2, type, … }:
---   view.set   { id, gen, kind, surface, title, state, lines, marks, hl, items, footer, strip, select, front, news }
+--   view.set   { id, gen, kind, surface, title, state, lines, marks, hl, items, footer, strip, select, front, news, views }
+--              (views: every view the editor has; the pop-out closes a tab of any other)
 --   view.clear { id } · ping { serial } (every 10 s; one that stops answering is sent nothing until it does) · bye { why }
 -- The pop-out asks through the editor's bridge (desk.bridge), every message with its deadline:
 --   subscribe { chan, pid, width, protocol = 2 } · describe { view, gen, item } → { rows } ·
@@ -418,6 +419,9 @@ function M.redraw(view)
   end
   view.refs, view.count = refs, #msg.items
   msg.gen, msg.select, msg.front = view.gen, cut(view.select, 120), view.front == true
+  -- The views this editor has: the pop-out closes a tab of any other (a view.clear it never got, made while it did not
+  -- answer and so never sent).
+  msg.views = H.order
   if send(msg) then view.select, view.front, view.news = nil, nil, nil end
 end
 -- Every view sent again in the order of the pop-out's tabs (a pop-out makes a view's tab when it first arrives, so
@@ -1374,6 +1378,16 @@ local function valid_footer(raw)
   end
   return out
 end
+-- A list of view ids, checked; nil when it is not one.
+local function valid_ids(raw)
+  if type(raw) ~= 'table' or #raw > 64 then return nil end
+  local out = {}
+  for _, id in ipairs(raw) do
+    if type(id) ~= 'string' or #id > 32 or not id:match('^[%w_.-]+$') then return nil end
+    out[#out + 1] = id
+  end
+  return out
+end
 -- A view.set, checked: whatever does not fit is left out, never drawn half.
 local function valid_view(msg)
   if type(msg.id) ~= 'string' or #msg.id > 32 or not msg.id:match('^[%w_.-]+$') or type(msg.gen) ~= 'number' then return nil end
@@ -1396,7 +1410,7 @@ local function valid_view(msg)
     title = type(msg.title) == 'string' and msg.title:sub(1, 200) or msg.id, state = type(msg.state) == 'string' and msg.state:sub(1, 200) or '',
     lines = lines, marks = marks, hl = hl, items = valid_items(msg.items), footer = valid_footer(msg.footer),
     strip = type(msg.strip) == 'number' and msg.strip >= 1 and msg.strip < #lines and math.floor(msg.strip) or nil,
-    select = short(msg.select, 120), front = msg.front == true, news = msg.news == true }
+    select = short(msg.select, 120), front = msg.front == true, news = msg.news == true, views = valid_ids(msg.views) }
 end
 
 -- Draws a view into its buffer. Its selection: the item the editor asks for (select), else the one selected before (by
@@ -1438,6 +1452,26 @@ function M.closing(why)
 end
 
 local RECEIVES = { ['view.set'] = true, ['view.clear'] = true, ping = true, bye = true }
+-- A view off this window: its tab closes (the empty view shown when it was the last), its buffer goes.
+local function drop(id)
+  local view = C.views[id]
+  if not view then return end
+  C.views[id] = nil
+  if view.win and api.nvim_win_is_valid(view.win) and api.nvim_win_get_buf(view.win) == view.buf then
+    if #api.nvim_list_tabpages() > 1 then
+      C.switching = true
+      pcall(api.nvim_win_close, view.win, true)
+      C.switching = false
+    else
+      show_empty(nothing_shown(), true)
+    end
+  end
+  pcall(api.nvim_buf_delete, view.buf, { force = true })
+  local now = view_in_tab(api.nvim_get_current_tabpage())
+  C.shown = now and now.id or nil
+  if now then tell_front(now, true) elseif next(C.views) == nil then show_empty(nothing_shown()) end
+  vim.cmd('redrawtabline')
+end
 local function handle(msg)
   if msg.type == 'view.set' then
     local got = valid_view(msg)
@@ -1455,24 +1489,14 @@ local function handle(msg)
     draw(view, got.select or (before and before.key))
     -- A view the editor sends anew, or asks to show, comes to the front; one drawn again behind another stays behind.
     if fresh or got.front or not shown() then show(view) else vim.cmd('redrawtabline') end
-  elseif msg.type == 'view.clear' then
-    local view = type(msg.id) == 'string' and C.views[msg.id]
-    if not view then return end
-    C.views[msg.id] = nil
-    if view.win and api.nvim_win_is_valid(view.win) and api.nvim_win_get_buf(view.win) == view.buf then
-      if #api.nvim_list_tabpages() > 1 then
-        C.switching = true
-        pcall(api.nvim_win_close, view.win, true)
-        C.switching = false
-      else
-        show_empty(nothing_shown(), true)
-      end
+    -- The views the editor has: a tab here of any other is one whose view.clear never came, and it goes.
+    if got.views then
+      local keep = { [got.id] = true }
+      for _, id in ipairs(got.views) do keep[id] = true end
+      for _, id in ipairs(vim.tbl_keys(C.views)) do if not keep[id] then drop(id) end end
     end
-    pcall(api.nvim_buf_delete, view.buf, { force = true })
-    local now = view_in_tab(api.nvim_get_current_tabpage())
-    C.shown = now and now.id or nil
-    if now then tell_front(now, true) elseif next(C.views) == nil then show_empty(nothing_shown()) end
-    vim.cmd('redrawtabline')
+  elseif msg.type == 'view.clear' then
+    if type(msg.id) == 'string' then drop(msg.id) end
   elseif msg.type == 'ping' then
     if C.chan and type(msg.serial) == 'number' then
       pcall(vim.rpcnotify, C.chan, 'nvim_exec_lua', HOST_DOOR, { { version = 1, type = 'pong', serial = msg.serial } })
