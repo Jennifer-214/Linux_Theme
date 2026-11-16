@@ -189,7 +189,7 @@ class ClaudeApi(unittest.TestCase):
     def test_review_changes_sends_the_diff_and_new_files(self):
         git = lambda *a: subprocess.run(['git','-C',str(self.project),*a],check=True,capture_output=True)
         git('init','-q'); git('add','.')
-        git('-c','user.name=t','-c','user.email=t@t','commit','-qm','start')
+        git('-c','user.name=t','-c','user.email=t@t','-c','commit.gpgsign=false','commit','-qm','start')
         with self.assertRaisesRegex(ValueError,'No uncommitted changes'):
             self.execute(question='', review=True, context_file=None)
         self.source.write_text('int changed;\n')

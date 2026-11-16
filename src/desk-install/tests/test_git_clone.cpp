@@ -41,7 +41,9 @@ int main() {
     exec_argv({"git", "init", "--quiet", src.string()});
     std::ofstream(src / "README") << "hello\n";
     exec_argv({"git", "-C", src.string(), "add", "README"});
-    exec_argv({"git", "-C", src.string(), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "-m", "one"});
+    // Never signed, whatever the user's git config says: signing would reach the running session's gpg-agent.
+    exec_argv({"git", "-C", src.string(), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+               "commit", "--quiet", "-m", "one"});
     const std::string url = src.string();
 
     std::vector<int> slept;

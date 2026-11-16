@@ -13,7 +13,9 @@ if not m:
 block = m.group(1)
 
 def git(d, *a):
-    subprocess.run(["git", "-C", d, "-c", "user.name=t", "-c", "user.email=t@t", *a], check=True, capture_output=True)
+    # Never signed, whatever the user's git config says: signing would reach the running session's gpg-agent.
+    subprocess.run(["git", "-C", d, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *a],
+                   check=True, capture_output=True)
 
 def run(setup):
     with tempfile.TemporaryDirectory() as d:
