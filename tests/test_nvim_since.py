@@ -145,7 +145,7 @@ vim.g.desk_style = 'retro'
 local buf = S.open('/code/paper')
 assert(vim.wait(2000, function() return #lines(buf) > 4 end, 10))
 assert(lines(buf)[1] == 'SINCE YOU LAST LOOKED · THIS MORNING', lines(buf)[1])
-assert(lines(buf)[2] == 'ENTER OPENS · Q CLOSES', lines(buf)[2])
+assert(lines(buf)[2] == 'Enter OPENS · q CLOSES · ? KEYS', 'retro: the keys as typed, the words in capitals: ' .. lines(buf)[2])
 find(buf, '♦ aaaaaaa'); find(buf, '* Queue work'); find(buf, '► Queue bench'); find(buf, '↑ worse')
 -- Every mark the page draws is one code page 437 has.
 local cp437 = '♦√!☼○►*·↑↓'

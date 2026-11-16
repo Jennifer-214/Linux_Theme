@@ -38,7 +38,8 @@ disappears. `tests/test_nvim_review.py` runs the review in a bare project to hol
   is Claude Code's own `key: word` buttons (`j: ↓  k: ↑  l: open`), packed into lines that fit the pane: two on the
   front page, the moving keys over the rest.
 - **Keys**: `j` / `k` move from row to row, passing over headings, blank lines and the strip; `⏎` or `l` opens,
-  `h` folds or goes back, `/` filters, `?` or `a` opens actions, `q` / `Esc` closes. The same key means the same
+  `h` folds or goes back, `/` filters, `?` lists the keys of this view (from the action registry, desk/actions.lua),
+  `a` or Space Space opens actions, `q` / `Esc` closes. The same key means the same
   thing on every screen.
 - **Every action three ways**: a key, a click and a row in the actions menu, with the same words.
 

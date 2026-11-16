@@ -45,7 +45,8 @@ function M.layout(data, style, root)
   end
   local when = (data.since or '') ~= '' and data.since or nil
   add(heading(data.first and 'Since you last looked · the last day' or ('Since you last looked' .. (when and ' · ' .. when or '')), style), nil, 'heading')
-  add(heading('Enter opens · q closes', style), nil, 'dim')
+  -- The keys as typed, the words in the style's voice.
+  add(table.concat({ 'Enter ' .. heading('opens', style), 'q ' .. heading('closes', style), '? ' .. heading('keys', style) }, ' · '), nil, 'dim')
   add('')
   local items = data.items or {}
   if #items == 0 then add(data.first and 'Nothing in the last day.' or 'Nothing new since you looked.', nil, 'dim') end

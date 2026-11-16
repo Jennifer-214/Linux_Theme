@@ -304,6 +304,8 @@ local source = table.concat(vim.fn.readfile(vim.env.BORDER_INIT), "\n")
 local style = assert(source:match('(local DeskStyle = "[^"]*")'))
 local block = assert(source:match('%-%- >>> desk%-border\n(.-)\n%-%- <<< desk%-border'))
 local as = assert(loadstring(style .. '\n' .. block .. '\nreturn desk_border_as'))()
+-- desk.menu's keys are rows of desk.actions, beside it.
+package.path = vim.env.BORDER_LUA .. '/?.lua;' .. package.path
 local menu = dofile(vim.env.BORDER_LUA .. '/desk/menu.lua')
 menu.open({ { name = 'One', label = 'one', run = function() end } }, { title = 'Border' })
 local float

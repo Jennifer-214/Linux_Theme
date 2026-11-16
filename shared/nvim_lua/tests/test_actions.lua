@@ -110,7 +110,7 @@ end
 local R = require("desk.review")
 eq({ R.bind("mark"), R.bind("finish"), R.bind("file-list"), R.bind("list-back"), R.bind("enter") }, { "m", "R", "<leader>re", "<BS>", "<CR>" },
   "the review's keys are where they were")
-eq(vim.tbl_map(function(k) return k.key end, A.keys("since")), { "<CR>", "q" }, "the since page's keys, for a ? list")
+eq(vim.tbl_map(function(k) return k.key end, A.keys("since")), { "?", "<CR>", "q" }, "the since page's keys, for a ? list")
 local diff_keys = vim.tbl_map(function(k) return k.key end, A.keys("review-diff"))
 ok(vim.tbl_contains(diff_keys, "m") and vim.tbl_contains(diff_keys, "<BS>") and not vim.tbl_contains(diff_keys, "h"), "the comparison's keys, not the list's")
 ok(not vim.tbl_contains(vim.tbl_map(function(k) return k.key end, A.keys("review-list")), "<2-LeftMouse>"), "a mouse key is in no ? list")
@@ -199,6 +199,79 @@ ok(vim.tbl_contains(review_ids, "review.clear"), "plumbing applies…")
 vim.fn.maparg("<leader><leader>", "n", false, true).callback()
 ok(not menu_text():find("Clear search highlight", 1, true), "… but is in no menu")
 ok(vim.inspect(api.nvim_win_get_config(Menu._last.win).title):find("Home · review", 1, true), "titled with the review")
+vim.fn.maparg("q", "n", false, true).callback()
+
+-- ─── ? : the keys of a view, from its rows ───────────────────────────────────────────────────────────────────────
+package.loaded["fox-symdeps"], package.loaded["fox-symdeps.card"] = nil, nil
+require("desk.callgraph")
+-- A buffer of its own: :enew would reuse the empty comparison buffer and wipe what it is.
+api.nvim_set_current_buf(api.nvim_create_buf(true, false))
+for _, surface in ipairs({ "review-list", "review-diff", "callgraph", "callgraph-panel", "since", "menu" }) do
+  local b = api.nvim_create_buf(false, true)
+  A.map(surface, { buffer = b, ctx = { review = { id = "fake" }, graph = {}, page = { actions = {} } } })
+  eq(vim.api.nvim_buf_call(b, function() return vim.fn.maparg("?", "n", false, true).desc end), "The keys here", "? on " .. surface)
+end
+ok(vim.fn.maparg("?", "n") == "", "? stays backward search in code")
+eq(A.get("review.actions").key, nil, "the review's actions left ?…")
+eq({ A.key("review.actions-list"), A.get("review.actions").menu }, { "a", nil }, "… and stay on a and in the home menu")
+local lines = A.key_lines({ surface = "review-list", filetype = "lua" })
+local function line_of(word) for _, l in ipairs(lines) do if l.name:find(word, 1, true) then return l end end end
+eq(line_of("Expand commit").keys, { "<CR>", "l" }, "rows that share a reference line share a list line (the mouse key left out)")
+eq(line_of("Next / previous file").keys, { "]f", "[f", "<Tab>", "<S-Tab>" }, "… in its words when the line has its own")
+eq(line_of("Inspect changed C++ symbol").right, "requires symdeps", "a key that cannot run here says why")
+ok(not line_of("The keys here"), "? is not in its own list")
+eq(line_of("Mark selected file").keys, { "m" }, "the list's own m, not the comparison's")
+-- Pressed in the since page: a list in the menu kit's key form; Enter runs a row where ? was pressed.
+local ran
+A.add({ { id = "test.since-row", group = "Work", name = "Test the page", key = "T", on = "since", menu = false,
+  about = "Says where it ran, `T` as typed", run = function(c) ran = c end } })
+local page_buf = api.nvim_create_buf(false, true)
+api.nvim_set_current_buf(page_buf)
+local page_win = api.nvim_get_current_win()
+A.map("since", { buffer = page_buf, ctx = { page = { actions = {} } } })
+vim.g.desk_border = { "╔", "═", "╗", "║", "╝", "═", "╚", "║" }
+vim.fn.maparg("?", "n", false, true).callback()
+local list = Menu._last
+local shown = menu_text()
+ok(shown:find("  Enter  Open what this line names", 1, true) and shown:find("  T      Test the page", 1, true), "keys first, as typed, lined up:\n" .. shown)
+ok(shown:find("⏎ run · / filter · q close", 1, true), "its footer")
+local config = api.nvim_win_get_config(list.win)
+ok(vim.inspect(config.title):find("Keys · since you last looked", 1, true), "titled with the place")
+eq(type(config.border[1]) == "table" and config.border[1][1] or config.border[1], "╔", "drawn with the theme's border (vim.g.desk_border)")
+press_on("Test the page")
+eq({ ran and ran.surface, api.nvim_get_current_win() }, { "since", page_win }, "Enter runs the row in the view ? was pressed in")
+vim.fn.maparg("?", "n", false, true).callback()
+vim.fn.maparg("?", "n", false, true).callback()
+eq(api.nvim_get_current_win(), page_win, "? again closes the list")
+-- Retro: the words in capitals, the keys as typed (backticks mark a key in the words).
+vim.g.desk_style = "retro"
+vim.fn.maparg("?", "n", false, true).callback()
+shown = menu_text()
+ok(shown:find("  Enter  OPEN WHAT THIS LINE NAMES", 1, true) and shown:find("⏎ RUN · / FILTER · q CLOSE", 1, true), "retro words:\n" .. shown)
+ok(vim.inspect(api.nvim_win_get_config(Menu._last.win).title):find("KEYS · SINCE YOU LAST LOOKED", 1, true), "… and its title")
+api.nvim_win_set_cursor(Menu._last.win, { 3, 0 })
+vim.api.nvim_exec_autocmds("CursorMoved", { buffer = Menu._last.buf })
+ok(menu_text():find("SAYS WHERE IT RAN, T AS TYPED", 1, true), "the strip in capitals, its key as typed:\n" .. menu_text())
+vim.fn.maparg("q", "n", false, true).callback()
+eq(Menu.voice(true)("a `Space rw` b"), "A Space rw B", "the voice keeps what is between backticks")
+vim.g.desk_style, vim.g.desk_border = nil, nil
+-- In a menu: ? lists the menu's own keys over it, and q comes back to the menu.
+vim.cmd.edit(dir .. "/sample.lua")
+vim.fn.maparg("<leader><leader>", "n", false, true).callback()
+local home_win = Menu._last.win
+vim.fn.maparg("?", "n", false, true).callback()
+shown = menu_text()
+ok(shown:find("j/↓/k/↑", 1, true) and shown:find("Enter/l", 1, true) and shown:find("Filter the rows", 1, true), "the menu's keys:\n" .. shown)
+vim.wait(50)
+ok(api.nvim_win_is_valid(home_win), "the menu stays open beneath its key list")
+vim.fn.maparg("q", "n", false, true).callback()
+vim.wait(50)
+eq({ api.nvim_get_current_win(), api.nvim_win_is_valid(home_win) }, { home_win, true }, "q goes back to the menu")
+vim.fn.maparg("q", "n", false, true).callback()
+-- The review: its actions are a row of Space Space, and the diff footer names ? keys.
+api.nvim_set_current_buf(cmp)
+vim.fn.maparg("<leader><leader>", "n", false, true).callback()
+ok(menu_text():find("Review actions", 1, true), "Space Space in a review lists Review actions:\n" .. menu_text())
 vim.fn.maparg("q", "n", false, true).callback()
 
 -- ─── the pop-out's door: only remote rows, only where they can run ───────────────────────────────────────────────

@@ -44,18 +44,19 @@ eq(vim.tbl_map(function(b) return b.item.name end, drawn.boxes), { "panel", "tur
 eq({ drawn.boxes[1].top + 1, drawn.boxes[1].name_col }, { row, col }, "a box knows where its name starts")
 local function marked(d) return vim.tbl_map(function(m) return table.concat({ m[1], m[2], m[3], m[4] }, ":") end, d.marks) end
 local keyed = G.layout(vim.tbl_extend("force", graph, { keys = G.VIEW_KEYS }), 78, false)
-eq(keyed.lines[#keyed.lines], "j/k/h/l move · Enter go · BS back · c centre · r reload · q close", "the key line comes last")
+eq(keyed.lines[#keyed.lines], "j/k/h/l move · Enter go · BS back · c centre · r reload · q close · ? keys", "the key line comes last")
 ok(vim.tbl_contains(marked(keyed), #keyed.lines .. ":0:7:DeskCallGraphKey"), "its keys are marked as keys")
 eq(G.layout(vim.tbl_extend("force", graph, { keys = G.VIEW_KEYS }), 78, true).lines[#keyed.lines],
-  "j/k/h/l MOVE · Enter GO · BS BACK · c CENTRE · r RELOAD · q CLOSE", "retro: the keys as typed, the words in capitals")
+  "j/k/h/l MOVE · Enter GO · BS BACK · c CENTRE · r RELOAD · q CLOSE · ? KEYS", "retro: the keys as typed, the words in capitals")
 local tight = G.layout({ keys = G.VIEW_KEYS }, 34, false)
-eq({ tight.lines[#tight.lines - 1], tight.lines[#tight.lines] }, { "j/k/h/l move · Enter go · BS back", "c centre · r reload · q close" },
+eq({ tight.lines[#tight.lines - 2], tight.lines[#tight.lines - 1], tight.lines[#tight.lines] },
+  { "j/k/h/l move · Enter go · BS back", "c centre · r reload · q close", "? keys" },
   "a narrow key line wraps between keys and drops none")
 ok(vim.tbl_contains(marked(tight), #tight.lines .. ":0:1:DeskCallGraphKey"), "… its second line's keys marked too")
 local headed = G.layout({ header = "PINNED", center = { name = "x", detail = "a:1" }, keys = G.panel_keys(true) }, 35, false)
 eq(vim.trim(headed.lines[1]), "PINNED", "a header goes above everything")
 eq(G.box_at(headed, headed.boxes[1].top + 1, headed.boxes[1].name_col), 1, "… and the boxes below it still know where they are")
-eq({ headed.lines[#headed.lines - 1], headed.lines[#headed.lines] }, { "j/k/h/l move · Enter go · p unpin", "q close" },
+eq({ headed.lines[#headed.lines - 1], headed.lines[#headed.lines] }, { "j/k/h/l move · Enter go · p unpin", "q close · ? keys" },
   "the panel's keys: p unpins while pinned")
 
 -- ─── moving box to box ─────────────────────────────────────────────────────────────────────────────────────────
@@ -190,7 +191,7 @@ eq(G.selected(view).name, "caller_of_M.alpha", "… which it selected first")
 key("c")
 ok(vim.wait(2000, function() return view.drawn and text(view.drawn.lines):find("caller_of_caller_of_M.alpha", 1, true) end), "c: the graph of the selected box")
 eq(G.selected(view).name, "caller_of_M.alpha", "… with it, now the centre, selected")
-eq(view.drawn.lines[#view.drawn.lines], "j/k/h/l move · Enter go · BS back · c centre · r reload · q close", "the view ends with its keys")
+eq(view.drawn.lines[#view.drawn.lines], "j/k/h/l move · Enter go · BS back · c centre · r reload · q close · ? keys", "the view ends with its keys")
 -- Backspace: back to the code as it was, the graph left open behind.
 local tabs, before = #api.nvim_list_tabpages(), api.nvim_win_get_cursor(origin)
 key("<BS>")
@@ -244,7 +245,7 @@ eq({ G.selected(G.panel).name, api.nvim_win_get_cursor(G.panel.win) }, { "M.alph
   "the panel selects its centre box, its cursor on the name")
 eq(painted(G.panel), spans(centre_box), "… highlighted")
 eq(api.nvim_get_current_win(), origin, "… while the focus stays in the code")
-eq({ G.panel.drawn.lines[#G.panel.drawn.lines - 1], G.panel.drawn.lines[#G.panel.drawn.lines] }, { "j/k/h/l move · Enter go · p pin", "q close" },
+eq({ G.panel.drawn.lines[#G.panel.drawn.lines - 1], G.panel.drawn.lines[#G.panel.drawn.lines] }, { "j/k/h/l move · Enter go · p pin", "q close · ? keys" },
   "the panel ends with its keys")
 api.nvim_set_current_win(G.panel.win)
 key("j")
@@ -360,8 +361,8 @@ eq(vim.tbl_map(function(x) return x.name end, decoded.files[1].symbols), { "M.al
 local A = require("desk.actions")
 eq(A.problems, {}, "every call graph row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("callgraph"), { "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "<CR>", "<BS>", "c", "r", "q", "s" }, "the graph tab's keys")
-eq(keys_of("callgraph-panel"), { "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "<CR>", "p", "q" }, "the panel's keys")
+eq(keys_of("callgraph"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "<CR>", "<BS>", "c", "r", "q", "s" }, "the graph tab's keys")
+eq(keys_of("callgraph-panel"), { "?", "j", "k", "h", "l", "<Tab>", "<S-Tab>", "gg", "G", "<CR>", "p", "q" }, "the panel's keys")
 for _, surface in ipairs({ "callgraph", "callgraph-panel" }) do
   local seen, twice = {}, {}
   for _, r in ipairs(A.rows()) do

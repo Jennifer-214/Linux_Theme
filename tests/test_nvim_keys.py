@@ -56,6 +56,11 @@ def entry(row, on):
             'doc': row['doc'] if 'doc' in row else row.get('about'), 'also': row.get('also')}
 
 
+def own_first(keys, module):
+    """A view's own rows first, then the ones every view shares (desk.keys, ?), each in the order they were added."""
+    return sorted(keys, key=lambda k: not k['id'].startswith(module + '.'))
+
+
 def review_keys():
     """The review's keys: on is 'list' (the file list), 'diff' (the comparison panes) or 'both'."""
     keys = []
@@ -63,7 +68,7 @@ def review_keys():
         places = {REVIEW[s] for s in row['on'] if s in REVIEW}
         if row.get('key') and places:
             keys.append(entry(row, 'both' if len(places) > 1 else places.pop()))
-    return keys
+    return own_first(keys, 'review')
 
 
 def callgraph_keys():
@@ -71,9 +76,9 @@ def callgraph_keys():
     keys = []
     for row in nvim_keys.registry()['rows']:
         places = {GRAPH[s] for s in row['on'] if s in GRAPH}
-        if row['id'].startswith('callgraph.') and row.get('key'):
+        if row.get('key') and (row['id'].startswith('callgraph.') or places):
             keys.append(entry(row, 'editor' if 'editor' in row['on'] else 'both' if len(places) > 1 else places.pop()))
-    return keys
+    return own_first(keys, 'callgraph')
 
 
 def popout_keys():
@@ -225,8 +230,17 @@ class NvimKeys(unittest.TestCase):
         self.assertEqual(text, with_reference(text, callgraph_reference(), GRAPH_BEGIN, GRAPH_END),
                          'NVIM-KEYBINDS.md differs from the call graph rows: run python3 tests/test_nvim_keys.py --write')
         table = callgraph_reference()
-        for line in ('`Space cc`, `:CallGraph`', '`j` / `k` in a graph', '`p` in the panel', '`s` in the graph tab'):
+        for line in ('`Space cc`, `:CallGraph`', '`j` / `k` in a graph', '`p` in the panel', '`s` in the graph tab', '`?` in a graph'):
             self.assertIn(line, table)
+        self.assertTrue(table.rstrip().splitlines()[-2].startswith('| `?`'), 'the shared ? comes after the graph\'s own keys')
+
+    def test_every_view_lists_its_keys_on_question_mark(self):
+        rows = {row['id']: row for row in nvim_keys.registry()['rows']}
+        self.assertEqual(rows['desk.keys']['key'], '?')
+        self.assertEqual(sorted(rows['desk.keys']['on']), sorted(['review-list', 'review-diff', 'callgraph', 'callgraph-panel', 'since', 'menu']))
+        taken = [row['id'] for row in rows.values() if row.get('key') == '?' and row['id'] != 'desk.keys']
+        self.assertEqual(taken, [], '? is the key list on every view; the review\'s actions are a and Space Space')
+        self.assertIn('| `?` |', reference(review_keys()), 'the review reference names ?')
 
     def test_the_pop_out_reference_is_generated_from_its_rows(self):
         text = DOC.read_text()

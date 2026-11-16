@@ -556,7 +556,7 @@ end
 local function set_footer(r)
   local hidden = not api.nvim_win_is_valid(r.panel_win or -1)
   local parts = { hint('file', 'next-file', 'previous-file'), hint('change', 'next-change', 'previous-change'),
-    hint('check', 'mark'), hint('unread', 'unread'), hint('finish', 'finish'), hint('help', 'actions'), hint('close', 'close') }
+    hint('check', 'mark'), hint('unread', 'unread'), hint('finish', 'finish'), (actions.key('desk.keys') or '?') .. ' keys', hint('close', 'close') }
   if hidden then table.insert(parts, 1, hint('file list', 'list-back', 'file-list')) end
   -- Every file of a commit checked: say so first, with the one key that stamps it as reviewed.
   if r.row.kind == 'commit' and #r.files > 0 and progress(r) == #r.files and not r.completed then
@@ -809,9 +809,10 @@ M.rows = actions.add({
       local r = ctx.review
       if api.nvim_get_current_win() ~= r.panel_win or M.enter(true) then api.nvim_set_current_win(r.right_win); require('desk.claude').send() end
     end },
+  -- ? lists the keys (desk.keys, every view's); the actions are a and a row of the home menu, Space Space.
   { id = 'review.actions-list', group = 'Review', name = 'Review actions', key = 'a', on = LIST, menu = false,
-    doc = 'Actions: everything below, with what each needs', run = function() M.actions() end },
-  { id = 'review.actions', group = 'Review', name = 'Review actions', key = '?', on = BOTH, line = 'review.actions-list',
+    doc = 'Actions: every action of this review, with what each needs (also a row of `Space Space`)', run = function() M.actions() end },
+  { id = 'review.actions', group = 'Review', name = 'Review actions', on = BOTH,
     about = 'Every action of this review, with what each needs', run = function() M.actions() end },
   { id = 'review.api', group = 'Review', name = 'Open the API review of this file', key = 'A', on = BOTH,
     about = 'Open the saved API review of this file (Actions has "API review: file / change" and "Explain this hunk")', run = function() M.api_open() end },

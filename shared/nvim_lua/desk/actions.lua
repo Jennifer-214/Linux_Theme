@@ -1,8 +1,8 @@
 -- One list of what can be done, where, and on which key. Each module adds its rows (M.add) and binds them (M.map). The
 -- same rows make which-key's words (a mapping's description is its row's name; M.PREFIXES names the key groups), the
 -- home menu (Space Space: M.home, the rows that apply where the cursor is), the reference tables in
--- shared/nvim_NVIM-KEYBINDS.md (python3 tests/test_nvim_keys.py --write), the pop-out's ? (M.keys) and the bridge's
--- allow-list (M.act runs a row only when it says remote = true).
+-- shared/nvim_NVIM-KEYBINDS.md (python3 tests/test_nvim_keys.py --write), the ? key list of every view (M.keys,
+-- M.show_keys) and the bridge's allow-list (M.act runs a row only when it says remote = true).
 --
 -- A row:
 --   id         '<module>.<name>', unique: the bridge and the pop-out name rows by it
@@ -32,6 +32,7 @@ M.SURFACES = {
   ['callgraph-panel'] = 'the live call graph panel',
   since = 'the since-you-last-looked page',
   popout = 'the pop-out window',
+  menu = 'a menu drawn by desk.menu (the home menu and the review actions when symdeps is absent; every ? key list)',
 }
 M.GROUPS = { 'Home', 'This function', 'Call graph', 'Review', 'Claude', 'Work', 'Jupyter', 'symdeps' }
 -- which-key's name for a key prefix on a surface's buffers (the config's global <leader>r group is "refactor").
@@ -212,7 +213,7 @@ function M.run(row, ctx)
 end
 
 local PLACES = { ['review-list'] = 'review', ['review-diff'] = 'review', callgraph = 'call graph', ['callgraph-panel'] = 'call graph',
-  since = 'since you last looked', popout = 'pop-out' }
+  since = 'since you last looked', popout = 'pop-out', menu = 'menu' }
 function M.title(ctx)
   local place = PLACES[ctx.surface] or (ctx.file ~= '' and vim.fn.fnamemodify(ctx.file, ':t')) or nil
   return 'Home' .. (place and (' · ' .. place) or '')
@@ -234,15 +235,58 @@ function M.home(win)
   require('desk.review').show_menu(items, { title = M.title(ctx), anchor_win = ctx.win, memo = 'desk-home' })
 end
 
--- A surface's keys in order, for a list of them (the pop-out's ?).
+-- A surface's keys in order, for a list of them (the ? of every view), as plain data.
 function M.keys(surface)
   local out = {}
   for _, row in ipairs(rows) do
     if row.key and is_on(row, surface) and row.doc ~= false then
-      out[#out + 1] = { id = row.id, key = row.key, mode = modes(row), name = row.name, about = row.about }
+      out[#out + 1] = { id = row.id, key = row.key, mode = modes(row), name = row.name, about = row.about, group = row.group,
+        line = row.line, doc = row.doc }
     end
   end
   return out
+end
+
+-- The ? list of a view, a line per reference line: the keys of rows that join one line together, as the keybinds
+-- reference has them. A line's words are its first row's here: its name, or for keys joined on one line the doc that
+-- gives that line its own words. Enter runs that row where ? was pressed. The ? row itself is left out: it closes
+-- the list.
+function M.key_lines(ctx)
+  local out, at = {}, {}
+  for _, k in ipairs(M.keys(ctx.surface)) do
+    local row = by_id[k.id]
+    local why = row.id ~= 'desk.keys' and M.available(row, ctx)
+    if why ~= false then
+      local owner = row.line or row.id
+      local line = at[owner]
+      if not line then
+        local head = by_id[owner] and is_on(by_id[owner], ctx.surface) and by_id[owner] or row
+        line = { ident = owner, group = head.group, keys = {}, head = head,
+          about = head.about or (by_id[owner] and by_id[owner].about) or head.name, right = why ~= true and why or nil,
+          run = function() M.run(head, ctx) end }
+        at[owner] = line
+        out[#out + 1] = line
+      end
+      if not vim.tbl_contains(line.keys, row.key) then line.keys[#line.keys + 1] = row.key end
+    end
+  end
+  for _, line in ipairs(out) do
+    line.name = #line.keys > 1 and type(line.head.doc) == 'string' and line.head.doc or line.head.name
+    line.label, line.head = line.name .. ' — ' .. line.about, nil
+  end
+  return out
+end
+
+-- The ? key: this view's keys as a list, drawn by desk.menu (keys as typed, words in the theme's voice).
+function M.show_keys(ctx)
+  ctx = ctx or M.context()
+  local function open()
+    return require('desk.menu').open(M.key_lines(ctx), { title = 'Keys · ' .. (PLACES[ctx.surface] or ctx.surface), keys = true,
+      memo = 'desk-keys-' .. ctx.surface })
+  end
+  -- From a menu, the list opens over it and q goes back to it, as symdeps' own ? does.
+  if type(ctx.menu) == 'table' and type(ctx.menu.child) == 'function' then return ctx.menu.child(open) end
+  return open()
 end
 
 -- What the pop-out may offer at ctx, as plain data (no code): the remote rows that apply, each with why it cannot run
@@ -285,6 +329,11 @@ local OWN = M.add({
   { id = 'desk.home', group = 'Home', name = 'Home menu', key = '<leader><leader>', on = 'editor', menu = false,
     about = 'Everything that applies where the cursor is, in one menu: this function, the review, Claude, work, symdeps',
     run = function(ctx) M.home(ctx.win) end },
+  -- ? lists the keys of the view it is pressed in. Not in code: there ? searches backward.
+  { id = 'desk.keys', group = 'Home', name = 'The keys here', key = '?', menu = false,
+    on = { 'review-list', 'review-diff', 'callgraph', 'callgraph-panel', 'since', 'menu' },
+    about = 'The keys of this view as a list: `Enter` runs the selected one, `?` or `q` closes the list',
+    run = function(ctx) M.show_keys(ctx) end },
   -- The card of the unit at the cursor. Only in code: the review and the call graph have their own symdeps keys, and
   -- without symdeps its one row below says so.
   { id = 'symdeps.card', group = 'This function', name = 'This function in symdeps', on = 'editor',

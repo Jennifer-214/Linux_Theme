@@ -916,11 +916,13 @@ function M.typed(...)
   end
   return table.concat(keys, '/')
 end
+-- ? (desk.keys, every view's) lists them all, the ones these lines leave out too.
+local KEYS = { actions.key('desk.keys') or '?', 'keys' }
 M.VIEW_KEYS = { { M.typed('down', 'up', 'left', 'right'), 'move' }, { M.typed('go'), 'go' }, { M.typed('back'), 'back' },
-  { M.typed('centre'), 'centre' }, { M.typed('reload'), 'reload' }, { M.typed('close'), 'close' } }
+  { M.typed('centre'), 'centre' }, { M.typed('reload'), 'reload' }, { M.typed('close'), 'close' }, KEYS }
 function M.panel_keys(pinned)
   return { { M.typed('down', 'up', 'left', 'right'), 'move' }, { M.typed('go'), 'go' }, { M.typed('pin'), pinned and 'unpin' or 'pin' },
-    { M.typed('panel-close'), 'close' } }
+    { M.typed('panel-close'), 'close' }, KEYS }
 end
 
 -- ─── setup ─────────────────────────────────────────────────────────────────────────────────────────────────────

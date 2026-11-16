@@ -303,6 +303,7 @@ The call graph (desk.callgraph); "in a graph" means the graph tab and the live p
 | `s` in the graph tab | The centre function in symdeps' card (C and C++) |
 | `p` in the panel | Pin the panel to the graph it shows (PINNED), or follow the cursor again |
 | `q` in the panel | Close the panel |
+| `?` in a graph | The keys of this view as a list: `Enter` runs the selected one, `?` or `q` closes the list |
 <!-- callgraph-keys:end -->
 
 The pop-out (desk.popout): the call graph in a Neovim window of its own, on the other screen. Space Space → "Pop out
@@ -623,7 +624,9 @@ Commands:
 panel, and symdeps' card in C and C++), the review, Claude, work, and symdeps (its own menu, or one "requires symdeps"
 row when it is not installed). In a review, the call graph or the since page, that place's own keys lead. It is drawn
 like the review's Actions, by symdeps' menu when it is installed and a built-in one to the same rules otherwise:
-`j`/`k` select, Enter runs, `/` filters, `q` closes. A row that cannot run here says why instead of running. Every key
+`j`/`k` select, Enter runs, `/` filters, `q` closes. A row that cannot run here says why instead of running. `?` in a
+review, a call graph, the since page or a menu lists that place's keys from the same rows (Enter runs one, `?` or `q`
+closes the list); in code `?` stays backward search. Every key
 in the table below, the review's and the call graph's is a row of one list, `shared/nvim_lua/desk/actions.lua`, which
 also gives which-key its words.
 
@@ -685,7 +688,8 @@ Select a child to jump straight to that change. A finished commit advances to th
 The sidebar is a tree: Working changes, then each plan with its commits oldest first (by branch and day when there
 are no plan files), then other commits. Marks: `✓` reviewed, `↻` edited since you reviewed it or since you asked for
 a change, `✉` waiting on a change request, `○` not yet, `⚠` needs care; the strip under the list says why.
-**Actions** (`a`, or click the title) contains the other operations; the shortcuts below are optional.
+**Actions** (`a` in the list, its row in Space Space anywhere in the review, or click the title) contains the other
+operations; the shortcuts below are optional, and `?` lists them.
 Actions uses the symdeps menu style and navigation, with symdeps' own renderer when it is installed and a built-in
 menu to the same rules otherwise: `j/k` or arrows select, Enter / `l` runs, `/` filters, and `h`, `q` or Escape
 closes. Click a row to run it. Toggles show their state and keep the menu open; the description below the rows
@@ -705,7 +709,7 @@ Checking a live file is invalidated when its contents change. Files with missing
 | `u` | Resume at the first unchecked file (files with a risk mark or ready for re-review first) |
 | `n` (list) / `Space rn` (diff) | Only what is new since you reviewed a file / the whole change (remembered) |
 | `c` | Request changes: a note about this file or the selected lines to a Claude session; the file waits on it |
-| `a` (list) / `?` | Actions: everything below, with what each needs |
+| `a` in the file list | Actions: every action of this review, with what each needs (also a row of `Space Space`) |
 | `A` | Open the saved API review of this file (Actions has "API review: file / change" and "Explain this hunk") |
 | `P` | Plan coverage: each plan step with the commits that touched it, steps not started, files outside the plan |
 | `N` | Note to self on this line; it stays with the file in every later review (`:ReviewNotes` lists them) |
@@ -722,6 +726,7 @@ Checking a live file is invalidated when its contents change. Files with missing
 | `q` / `Esc` in the file list, `:q` there | Hide the file list; the diff keeps its file, cursor and folds |
 | `Esc` in a diff | Clear search highlighting |
 | `q` (diff) / `Space bd`, `:q` in a diff, `Space Cq` | Close the whole review and return to your editor |
+| `?` | The keys of this view as a list: `Enter` runs the selected one, `?` or `q` closes the list |
 <!-- review-keys:end -->
 
 `Space Cn` (normal or visual) sends a note with the real filename, the selected side and both versions of the

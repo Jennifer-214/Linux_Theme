@@ -300,7 +300,8 @@ list there yourself). It draws in the palette and keeps its session records in p
 - **Only what is new**: a file edited after you checked it opens against the copy you read. `n` shows the whole
   change instead; the choice is remembered.
 - **Keys**: Enter or `l` opens, `h` folds, `m` checks, `u` goes to the first unread file (risky ones first),
-  `a` opens every other action. `q` in the list hides it; `q` in a diff closes the review and returns to your
+  `a` (or Space Space, in the list or a diff) opens every other action and `?` lists every key. `q` in the list
+  hides it; `q` in a diff closes the review and returns to your
   editor. Backspace in a diff pane brings the list back, and `Space re` toggles it.
 - **Finishing**: `R` (Shift-R), once every file is checked, records the review and asks **Next commit** (the next
   unchecked one), **Close review** or **Stay**. Close also quits a Neovim that the notebook opened just for the
@@ -343,7 +344,7 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   `Shift+Tab` through every box, `gg` / `G` to the first / last. A click, or any motion that lands in a box, selects
   it. Enter (or a double click) goes to the selected function in the code window the graph came from and leaves the
   tab open behind it; Backspace goes back to that window as it was. `c` centres the graph on the selected box, `r`
-  reads again, `q` closes; the last lines list the keys. There is one graph tab: `Space cc` again, from any window,
+  reads again, `q` closes; the last lines list the keys and `?` all of them. There is one graph tab: `Space cc` again, from any window,
   brings it back on the function under the cursor (on the function it shows already, it only switches to it), so a
   call chain is Enter on a callee, then `Space cc` there. The data is the language server's call hierarchy (clangd,
   pyright, lua_ls, ...): while the server starts or indexes the tab says "waiting for the language server" (15

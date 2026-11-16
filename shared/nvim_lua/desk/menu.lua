@@ -2,8 +2,11 @@
 -- groups under rule lines, a letter and name per row, state and shortcut columns padded to line up, a two-line
 -- description strip, one footer line, and the same keys (j/k, Enter or l, h or q or Esc, / to filter, a row's letter).
 -- It takes the same items and options as require('fox-symdeps.menu').open, so a caller writes one list for both.
+-- opts.keys draws a key list instead (the ? of a desk view): each row's keys in a column of their own, as typed.
+-- The menu's own keys are rows of the action registry (desk/actions.lua, the 'menu' surface), so its ? lists them.
 local M = {}
 local api = vim.api
+local actions = require('desk.actions')
 local ns = api.nvim_create_namespace('foxml_menu')
 local memory = {}
 
@@ -15,6 +18,28 @@ local function fit(s, w)
   return s .. '…'
 end
 local function pad(s, w) return s .. string.rep(' ', math.max(0, w - width(s))) end
+
+-- A key as it is typed: <CR> is Enter, <leader>rw is Space rw, <S-Tab> is Shift+Tab; anything else as written.
+local NAMED = { ['<cr>'] = 'Enter', ['<bs>'] = 'BS', ['<tab>'] = 'Tab', ['<s-tab>'] = 'Shift+Tab', ['<esc>'] = 'Esc',
+  ['<down>'] = '↓', ['<up>'] = '↑', ['<space>'] = 'Space' }
+function M.typed(lhs)
+  lhs = tostring(lhs)
+  if NAMED[lhs:lower()] then return NAMED[lhs:lower()] end
+  local rest = lhs:match('^<[lL]eader>(.*)$')
+  if rest then return 'Space ' .. (rest:lower() == '<leader>' and 'Space' or rest) end
+  return (lhs:gsub('<[cC]%-(.)>', 'Ctrl+%1'))
+end
+-- Words in the theme's voice: capitals in retro (a DOS screen), as written elsewhere. What sits between backticks is a
+-- key or a command, typed as it is; the backticks go.
+function M.voice(retro)
+  if not retro then return function(s) return (tostring(s):gsub('`', '')) end end
+  return function(s)
+    local out, code = {}, false
+    for part in (tostring(s) .. '`'):gmatch('([^`]*)`') do out[#out + 1] = code and part or part:upper(); code = not code end
+    return table.concat(out)
+  end
+end
+local function retro() return vim.g.desk_style == 'retro' end
 
 -- "Name — description" splits into the row's name and the strip's text; an item may also give both.
 local function parts(item)
@@ -34,24 +59,42 @@ local function state_text(item)
   return value ~= nil and tostring(value) or ''
 end
 local function bind_text(item) return item.bind and tostring(item.bind):gsub('<[lL]eader>', '<ldr>') or '' end
+-- The left column: a row's letter, or in a key list its keys as typed ("]f/[f/Tab").
+local function lead_text(item, keys)
+  if keys then return table.concat(vim.tbl_map(M.typed, item.keys or {}), '/') end
+  return item.key and tostring(item.key) or ' '
+end
+-- The footer of a key list: keys as typed, words in the theme's voice.
+local function key_footer(said)
+  return ' ' .. table.concat(vim.tbl_map(function(p) return p[1] .. ' ' .. said(p[2]) end,
+    { { '⏎', 'run' }, { '/', 'filter' }, { 'q', 'close' } }), ' · ')
+end
 
--- The lines to draw and which item each stands for. Pure, so a test can read it.
+-- The lines to draw and which item each stands for. Pure, so a test can read it. opts.keys: a key list, its words
+-- in opts.said (the theme's voice, M.voice).
 function M.layout(items, opts)
   opts = opts or {}
+  local keys, said = opts.keys, opts.said or function(s) return s end
   local shown = {}
   local filter = (opts.filter or ''):lower()
   for _, item in ipairs(items) do
     local name, about = parts(item)
-    if filter == '' or (name .. ' ' .. about):lower():find(filter, 1, true) then shown[#shown + 1] = item end
+    local typed = keys and (lead_text(item, true) .. ' ') or ''
+    if filter == '' or (typed .. name .. ' ' .. about):lower():find(filter, 1, true) then shown[#shown + 1] = item end
   end
-  local names, states, binds = 0, 0, 0
+  local leads, names, states, binds = 1, 0, 0, 0
   for _, item in ipairs(shown) do
-    names = math.max(names, width((parts(item))))
+    leads = math.max(leads, width(lead_text(item, keys)))
+    names = math.max(names, width(keys and said((parts(item))) or (parts(item))))
     states = math.max(states, width(state_text(item)))
     binds = math.max(binds, width(bind_text(item)))
   end
-  local body = 5 + names + (states > 0 and states + 2 or 0) + (binds > 0 and binds + 2 or 0) + 1
-  local w = math.max(44, math.min(body, opts.max_width or 92), width(opts.title or '') + 6)
+  local others = (states > 0 and states + 2 or 0) + (binds > 0 and binds + 2 or 0) + 1
+  -- A key list's names give way to its keys: a long one ends in … rather than past the edge.
+  if keys then names = math.min(names, math.max(12, (opts.max_width or 92) - 4 - leads - others)) end
+  local body = 4 + leads + names + others
+  local title = keys and said(opts.title or '') or opts.title or ''
+  local w = math.max(44, math.min(body, opts.max_width or 92), width(title) + 6)
   local lines, rows, paints = {}, {}, {}
   local groups = {}
   for _, item in ipairs(shown) do if item.group and not vim.tbl_contains(groups, item.group) then groups[#groups + 1] = item.group end end
@@ -60,14 +103,15 @@ function M.layout(items, opts)
     if #groups > 1 and item.group ~= group then
       if group ~= nil then lines[#lines + 1] = '' end
       group = item.group
-      local head = ' ── ' .. tostring(group or 'more'):lower() .. ' '
+      local words = tostring(group or 'more'):lower()
+      local head = ' ── ' .. (keys and said(words) or words) .. ' '
       lines[#lines + 1] = head .. string.rep('─', math.max(2, w - width(head) - 1))
       paints[#paints + 1] = { #lines, 0, -1, hl('FoxSymdepsHeader', 'Title') }
     end
-    local name = parts(item)
-    local letter = item.key and tostring(item.key) or ' '
+    local name = keys and said((parts(item))) or parts(item)
+    local letter = lead_text(item, keys)
     local state, bind = state_text(item), bind_text(item)
-    local line = '  ' .. letter .. '  ' .. pad(fit(name, names), names)
+    local line = '  ' .. pad(letter, leads) .. '  ' .. pad(fit(name, names), names)
     local from_state = #line + 2
     if states > 0 then line = line .. '  ' .. pad(state, states) end
     local from_bind = #line + 2
@@ -89,7 +133,7 @@ function M.layout(items, opts)
   lines[#lines + 1] = ' │ ' .. string.rep(' ', w - 5) .. ' │'
   lines[#lines + 1] = ' ╰' .. string.rep('─', w - 3) .. '╯'
   for line = strip - 1, strip + 2 do paints[#paints + 1] = { line, 0, -1, hl('FoxSymdepsDim', 'Comment') } end
-  lines[#lines + 1] = fit(opts.footer or ' / filter · ⏎ run · q close', w)
+  lines[#lines + 1] = fit(opts.footer or (keys and key_footer(said)) or ' / filter · ⏎ run · q close', w)
   paints[#paints + 1] = { #lines, 0, -1, hl('FoxSymdepsDim', 'Comment') }
   return { lines = lines, rows = rows, paints = paints, width = w, strip = strip }
 end
@@ -98,6 +142,7 @@ local function ident(item) return (item.group or '') .. '\0' .. tostring(item.id
 
 function M.open(items, opts)
   opts = opts or {}
+  local said = opts.keys and M.voice(retro()) or nil
   local origin = api.nvim_get_current_win()
   local state = { filter = '' }
   local buf = api.nvim_create_buf(false, true)
@@ -112,6 +157,7 @@ function M.open(items, opts)
   local function strip(line)
     local item = state.layout.rows[line]
     local _, about = parts(item or {})
+    if said then about = said(about) end
     local w = state.layout.width - 5
     local words, first, second = vim.split(item and about or '', ' ', { plain = true }), '', ''
     for _, word in ipairs(words) do
@@ -130,13 +176,14 @@ function M.open(items, opts)
     if item then api.nvim_buf_set_extmark(buf, ns, line - 1, 0, { line_hl_group = hl('FoxSymdepsSelection', 'Visual'), virt_text = { { '❯', hl('FoxSymdepsSelection', 'Visual') } }, virt_text_pos = 'overlay' }) end
   end
   local function draw(keep)
-    state.layout = M.layout(items, { title = opts.title, filter = state.filter, footer = opts.footer })
+    state.layout = M.layout(items, { title = opts.title, filter = state.filter, footer = opts.footer, keys = opts.keys, said = said })
     vim.bo[buf].modifiable = true
     api.nvim_buf_set_lines(buf, 0, -1, false, state.layout.lines)
     vim.bo[buf].modifiable = false
     local height = math.min(#state.layout.lines, math.max(6, vim.o.lines - 6))
+    local title = said and said(opts.title or 'Keys') or (opts.title or 'Actions')
     local config = { relative = 'editor', width = state.layout.width, height = height, style = 'minimal', border = vim.g.desk_border or 'rounded',
-      title = ' ' .. (opts.title or 'Actions') .. (state.filter ~= '' and (' · /' .. state.filter) or '') .. ' ', title_pos = 'center',
+      title = ' ' .. title .. (state.filter ~= '' and (' · /' .. state.filter) or '') .. ' ', title_pos = 'center',
       row = math.max(1, math.floor((vim.o.lines - height) / 2) - 1), col = math.max(0, math.floor((vim.o.columns - state.layout.width) / 2)) }
     if win and api.nvim_win_is_valid(win) then api.nvim_win_set_config(win, config) else
       win = api.nvim_open_win(buf, true, config)
@@ -168,32 +215,45 @@ function M.open(items, opts)
       close(); item.run()
     end
   end
-  local function key(lhs, fn) vim.keymap.set('n', lhs, fn, { buffer = buf, nowait = true, silent = true }) end
-  key('j', function() move(1) end); key('<Down>', function() move(1) end)
-  key('k', function() move(-1) end); key('<Up>', function() move(-1) end)
-  key('<CR>', function() run(state.layout.rows[api.nvim_win_get_cursor(win)[1]]) end)
-  key('l', function() run(state.layout.rows[api.nvim_win_get_cursor(win)[1]]) end)
-  for _, lhs in ipairs({ 'q', '<Esc>', 'h' }) do
-    key(lhs, function()
+  -- What the menu's keys (the rows at the end of this file) do in this menu.
+  local here = {
+    move = move,
+    run = function() run(state.layout.rows[api.nvim_win_get_cursor(win)[1]]) end,
+    leave = function(lhs)
       if state.filter ~= '' and lhs ~= 'q' then state.filter = ''; draw() return end
       close()
       if lhs == 'h' and type(opts.back) == 'function' then opts.back() end
-    end)
-  end
-  key('/', function()
-    state.asking = true
-    vim.ui.input({ prompt = 'Filter: ', default = state.filter }, function(text)
-      state.asking = false
-      if not api.nvim_win_is_valid(win) then return end
-      api.nvim_set_current_win(win)
-      if text ~= nil then state.filter = text; draw() end
-    end)
-  end)
-  key('<LeftMouse>', function()
-    local mouse = vim.fn.getmousepos()
-    if mouse.winid ~= win then close() return end
-    if state.layout.rows[mouse.line] then api.nvim_win_set_cursor(win, { mouse.line, 0 }); run(state.layout.rows[mouse.line]) end
-  end)
+    end,
+    filter = function()
+      state.asking = true
+      vim.ui.input({ prompt = 'Filter: ', default = state.filter }, function(text)
+        state.asking = false
+        if not api.nvim_win_is_valid(win) then return end
+        api.nvim_set_current_win(win)
+        if text ~= nil then state.filter = text; draw() end
+      end)
+    end,
+    click = function()
+      local mouse = vim.fn.getmousepos()
+      if mouse.winid ~= win then close() return end
+      if state.layout.rows[mouse.line] then api.nvim_win_set_cursor(win, { mouse.line, 0 }); run(state.layout.rows[mouse.line]) end
+    end,
+    -- A list opened from this menu (its ? keys) keeps the menu open beneath it; closing that list comes back here.
+    child = function(open)
+      state.asking = true
+      local child = open()
+      api.nvim_create_autocmd('WinClosed', { pattern = tostring(child), once = true, callback = function()
+        vim.schedule(function()
+          state.asking = false
+          if win and api.nvim_win_is_valid(win) and api.nvim_get_current_win() ~= win then close() end
+        end)
+      end })
+    end,
+  }
+  actions.map('menu', { buffer = buf, nowait = true, silent = true, ctx = { menu = here } })
+  local function key(lhs, fn) vim.keymap.set('n', lhs, fn, { buffer = buf, nowait = true, silent = true }) end
+  -- A key list's ? closes it again, rather than listing the list's own keys.
+  if opts.keys then key('?', close) end
   for _, item in ipairs(items) do
     if item.key and #tostring(item.key) == 1 and not ('jklhq/'):find(tostring(item.key), 1, true) then key(tostring(item.key), function() run(item) end) end
   end
@@ -217,5 +277,35 @@ function M.open(items, opts)
   M._last = { win = win, buf = buf }   -- test seam
   return win
 end
+
+-- ─── the menu's keys ─────────────────────────────────────────────────────────────────────────────────────────────
+-- Rows of the action registry on the 'menu' surface: each runs ctx.menu, the menu it was pressed in. A row's own
+-- letter (an item's key) is bound by M.open beside them, and wins over ? when an item takes it.
+local function call(what, ...)
+  local args = { ... }
+  return function(ctx) ctx.menu[what](unpack(args)) end
+end
+local function key_row(name, key, row)
+  row.id, row.group, row.key, row.on, row.menu = 'menu.' .. name, 'Menu', key, 'menu', false
+  return row
+end
+M.rows = actions.add({
+  key_row('down', 'j', { name = 'The next row', doc = 'The next / previous row', run = call('move', 1),
+    about = 'Move to the next row, over headings and blank lines; k the previous one' }),
+  key_row('down-arrow', '<Down>', { name = 'The next row', line = 'menu.down', run = call('move', 1) }),
+  key_row('up', 'k', { name = 'The previous row', line = 'menu.down', run = call('move', -1) }),
+  key_row('up-arrow', '<Up>', { name = 'The previous row', line = 'menu.down', run = call('move', -1) }),
+  key_row('run', '<CR>', { name = 'Run the selected row', run = call('run'),
+    about = 'Run the selected row; a row that cannot run here says why instead' }),
+  key_row('run-l', 'l', { name = 'Run the selected row', line = 'menu.run', run = call('run') }),
+  key_row('filter', '/', { name = 'Filter the rows', run = call('filter'),
+    about = 'Keep only the rows with this text in their words; Esc or h shows them all again' }),
+  key_row('back', 'h', { name = 'Back', run = call('leave', 'h'),
+    about = 'Show every row again after a filter; else close, back to where this menu came from' }),
+  key_row('close', 'q', { name = 'Close the menu', run = call('leave', 'q'), about = 'Close the menu' }),
+  key_row('close-esc', '<Esc>', { name = 'Clear the filter, or close', run = call('leave', '<Esc>'),
+    about = 'Show every row again after a filter; else close the menu' }),
+  key_row('click', '<LeftMouse>', { name = 'Run the row clicked', doc = false, run = call('click') }),
+})
 
 return M
