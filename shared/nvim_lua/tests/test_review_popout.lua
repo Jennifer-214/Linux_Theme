@@ -270,6 +270,9 @@ ok(wait(3000, function() return review().right == first end), '[c: back to the f
 eq(state().selected, 'one.lua', 'the selection stays on the file it opened')
 press('j')
 ok(wait(2000, function() return state().selected == 'M.alpha' end), 'j: its first function')
+ok(wait(3000, function() return strip():find('calls by name: +M.new −M.old', 1, true) end), "… its strip there says which calls its change made:\n" .. strip())
+local one = vim.tbl_filter(function(l) return l:find('one.lua', 1, true) and not l:find('│', 1, true) end, state().lines)[1] or ''
+ok(one:find('→', 1, true), 'and its file is marked → there too: ' .. one)
 press('m')
 ok(wait(3000, function() return vim.tbl_contains(review().checked, 'one.lua') end), 'm on a function: its file checked')
 ok(wait(3000, function() return popped():find('✓ one.lua', 1, true) end), '… shown checked there')

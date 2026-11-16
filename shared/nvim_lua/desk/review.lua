@@ -325,6 +325,12 @@ function M.unit_of(node)
   return node, name
 end
 
+-- What a unit is called in the review's rows: its name as written, else its first line (src: the text, or a buffer).
+local function label_of(node, name, src)
+  local label = name and vim.treesitter.get_node_text(name, src) or vim.treesitter.get_node_text(node, src):match('[^\n]+')
+  return vim.trim((label or node:type()):gsub('%s+', ' ')):sub(1, 72)
+end
+
 function M.changed_symbols(file)
   if file.symbols then return file.symbols end
   local result, seen, roots = {}, {}, {}
@@ -347,8 +353,7 @@ function M.changed_symbols(file)
       local node, name = M.unit_of(root:named_descendant_for_range(row, 0, row, 0))
       if node then
         found = true
-        local label = name and vim.treesitter.get_node_text(name, text) or vim.treesitter.get_node_text(node, text):match('[^\n]+')
-        label = vim.trim((label or node:type()):gsub('%s+', ' ')):sub(1, 72)
+        local label = label_of(node, name, text)
         local key = label
         if not seen[key] then
           result[#result + 1] = { name = label, kind = node:type(), side = side, line = node:start() + 1, signature = file.signature }
@@ -370,6 +375,130 @@ function M.changed_symbols(file)
   table.sort(result, function(a, b) return a.line < b.line end)
   file.symbols = result
   return result
+end
+
+-- ─── structure: the calls a change adds and removes, and who calls what it changed ──────────────────────────────
+-- Each changed function's calls before and after, compared by name ("+memcpy" in Engine::step): read with treesitter
+-- from the two copies the review already holds, in any language with a parser, for any commit, a session's edits
+-- (a Claude turn's) or working changes. By name: overloads, macros and virtual dispatch are not told apart. A file
+-- whose change does that reaches further than its lines: its row is marked →, and its functions' strips say which
+-- calls, with who calls them (M.reach). Read in the background, a file at a time, the one shown first.
+-- What names a call in each language (desk.map's syntax reader reads them the same way).
+local CALLS = { call_expression = 'function', function_call = 'name', call = 'function', command = 'name', method_invocation = 'name' }
+-- The callee as written (M.new, self.helper, q.push), or nil for a call through an expression (a pointer, a call's
+-- result, "$cmd"), which names nothing.
+local function callee(node, src)
+  if not node then return nil end
+  local full = vim.trim((vim.treesitter.get_node_text(node, src):gsub('%s+', ' ')))
+  if full == '' or #full > 160 then return nil end
+  local inner = node
+  for _ = 1, 8 do
+    local nested = inner:field('name')[1] or inner:field('field')[1] or inner:field('attribute')[1] or inner:field('method')[1]
+      or inner:field('property')[1]
+    if not nested then break end
+    inner = nested
+  end
+  if not vim.treesitter.get_node_text(inner, src):match('^[%a_~][%w_]*$') then return nil end
+  return (full:gsub('%->', '.'))
+end
+-- The calls under a node, in reading order, each name once; and the same as a set.
+local function calls_in(node, src)
+  local out, seen, stack = {}, {}, { node }
+  while #stack > 0 do
+    local n = table.remove(stack)
+    local field = CALLS[n:type()]
+    if field then
+      local name = callee(n:field(field)[1], src)
+      if name and not seen[name] then seen[name], out[#out + 1] = true, name end
+    end
+    local children = {}
+    for child in n:iter_children() do if child:named() then children[#children + 1] = child end end
+    for i = #children, 1, -1 do stack[#stack + 1] = children[i] end
+  end
+  return out, seen
+end
+-- Every unit of a tree by the name changed_symbols gives it (the first, when a name repeats).
+local function units_by_label(root, src)
+  local out, stack = {}, { root }
+  while #stack > 0 do
+    local node = table.remove(stack)
+    if unit_types[node:type()] then
+      local _, name = M.unit_of(node)
+      local label = label_of(node, name, src)
+      out[label] = out[label] or node
+    end
+    for child in node:iter_children() do if child:named() then stack[#stack + 1] = child end end
+  end
+  return out
+end
+-- file.structure, read once per version of the file (its signature): calls = { [function] = { added, removed } },
+-- changed = the functions whose calls changed, why = what is missing when nothing could be read.
+function M.structure(file)
+  if file.structure and file.structure.signature == file.signature then return file.structure end
+  local s = { signature = file.signature, calls = {}, changed = {} }
+  file.structure = s
+  if not file.loaded or file.error or file.binary then return s end
+  local ft = vim.filetype.match({ filename = file.rel })
+  local lang = ft and vim.treesitter.language.get_lang(ft)
+  local found, added = false, false
+  if lang then found, added = pcall(vim.treesitter.language.add, lang) end
+  if not (found and added) then
+    s.why = 'calls: requires a treesitter parser for ' .. (ft or file.rel:match('%.([^./]+)$') or 'this file')
+    return s
+  end
+  local units = {}
+  for side, text in pairs({ before = file.left, after = file.right }) do
+    units[side] = {}
+    local ok, parser = pcall(vim.treesitter.get_string_parser, text, lang)
+    local parsed, trees = false, nil
+    if ok and parser then parsed, trees = pcall(parser.parse, parser) end
+    if parsed and trees and trees[1] then units[side] = units_by_label(trees[1]:root(), text) end
+  end
+  for _, symbol in ipairs(M.changed_symbols(file)) do
+    if symbol.kind ~= 'hunk' then
+      local was, had, now, has = {}, {}, {}, {}
+      if units.before[symbol.name] then was, had = calls_in(units.before[symbol.name], file.left) end
+      if units.after[symbol.name] then now, has = calls_in(units.after[symbol.name], file.right) end
+      local c = { added = vim.tbl_filter(function(n) return not had[n] end, now), removed = vim.tbl_filter(function(n) return not has[n] end, was) }
+      s.calls[symbol.name] = c
+      if #c.added + #c.removed > 0 then s.changed[#s.changed + 1] = symbol.name end
+    end
+  end
+  return s
+end
+-- The same check for a file outside a review (a turn's receipt in the notebook): its calls per changed function.
+function M.call_changes(rel, before, after)
+  local diff = vim.text and vim.text.diff or vim.diff
+  local ok, hunks = pcall(diff, before, after, { result_type = 'indices', algorithm = 'histogram', linematch = 60 })
+  local s = M.structure({ rel = rel, left = before, right = after, hunks = ok and hunks or {}, loaded = true,
+    signature = vim.fn.sha256(before .. '\0' .. after) })
+  return s.calls, s.why
+end
+local function structure_of(f) local s = f and f.structure; return s and s.signature == f.signature and s or nil end
+
+-- Who calls a changed function, from what already knows without being started for it: the language server attached
+-- to the working file's buffer; else the project map, when one is built (by name); else what would. Asked in the
+-- background, one function at a time, kept per function until its buffer changes (a server's answer) or for ten
+-- minutes (the map's); "requires …" is asked again after half a minute.
+local reach = {}   -- path NUL name → { said, source, buf, tick, at, pending }
+M.reach_known = reach
+local function reach_key(f, s) return f.path .. '\0' .. s.name end
+local function reach_said(f, s)
+  if s.side == 'before' then return 'removed by this change' end
+  local got = f and reach[reach_key(f, s)]
+  if not got or got.pending then return 'callers…' end
+  return got.said
+end
+local function calls_said(f, s)
+  local st = structure_of(f)
+  if not st then return 'calls: reading…' end
+  local c = st.calls[s.name]
+  if not c then return st.why or 'calls: not read' end
+  local parts = {}
+  for _, n in ipairs(c.added) do parts[#parts + 1] = '+' .. n end
+  for _, n in ipairs(c.removed) do parts[#parts + 1] = '−' .. n end
+  if #parts == 0 then return 'no call added or removed (by name)' end
+  return 'calls by name: ' .. table.concat(parts, ' ')
 end
 
 local function progress(r)
@@ -507,32 +636,46 @@ local function set_progress(r, set)
   for _, f in ipairs(files) do if f.loaded and marks[f.rel] == f.signature then n = n + 1 end end
   return n, #files
 end
+-- What a file row is and where it stands: the reason that matters most on the second line.
+local function describe_file(r, set, f)
+  local marks = set and set.marks or r.marks
+  local state = f.error and 'this snapshot is unavailable' or (marks and marks[f.rel] == f.signature and f.loaded) and 'reviewed'
+    or (marks and marks[f.rel] and f.loaded) and 'changed since you reviewed it' or 'not reviewed yet'
+  local what = ({ A = 'added', D = 'deleted', R = 'renamed', M = 'modified' })[f.status] or 'changed'
+  local name = f.rel:match('[^/]+$') or f.rel
+  local request = (not set or set == r.active_set) and M.request_of(r, f) or nil
+  if request and not (marks and marks[f.rel] == f.signature) then
+    return { name .. ' · ' .. (request.ready and 'changed since you asked · ready for re-review' or ('waiting on ' .. request.name)),
+      '✉ ' .. request.name .. ': ' .. request.text }
+  end
+  local reviewed = (not set or set == r.active_set) and M.api_of(r, f) or nil
+  local api_note = reviewed and (reviewed.current and 'API reviewed this version' or 'API reviewed an earlier version') or nil
+  if f.risks and #f.risks > 0 then return { name .. ' · ' .. what .. ' · ' .. state, '⚠ ' .. table.concat(f.risks, ' · ') .. (api_note and (' · ' .. api_note) or '') } end
+  if api_note and not f.since then return { name .. ' · ' .. what .. ' · ' .. state, '◇ ' .. api_note .. ' · A opens it' } end
+  if f.since then return { name .. ' · ' .. what .. ' · ' .. state, 'showing only what is new · n shows the whole change' } end
+  local mine = r.notes and r.notes[f.rel] or nil
+  if mine and #mine > 0 then return { name .. ' · ' .. what .. ' · ' .. state, '✎ ' .. (#mine == 1 and mine[1].text or (#mine .. ' notes of yours · N on a line edits one')) } end
+  return { f.rel .. ' · ' .. what, state }
+end
+-- A file row's second line, with the functions whose calls its change adds or removes (its → mark's reason).
+local function with_calls(lines, f)
+  local st = structure_of(f)
+  if st and #st.changed > 0 then lines[2] = (lines[2] or '') .. ' · → calls changed in ' .. table.concat(st.changed, ', ') end
+  return lines
+end
 local function describe(r, entry)
   if not entry then return { 'Pick a change to read it side by side.' } end
   local set = entry.set
   local files = set and set.files or r.files
-  if entry.symbol then return { entry.symbol.name, 'Enter jumps to it in the comparison.' } end
-  if entry.file and files[entry.file] then
-    local f = files[entry.file]
-    local marks = set and set.marks or r.marks
-    local state = f.error and 'this snapshot is unavailable' or (marks and marks[f.rel] == f.signature and f.loaded) and 'reviewed'
-      or (marks and marks[f.rel] and f.loaded) and 'changed since you reviewed it' or 'not reviewed yet'
-    local what = ({ A = 'added', D = 'deleted', R = 'renamed', M = 'modified' })[f.status] or 'changed'
-    local name = f.rel:match('[^/]+$') or f.rel
-    local request = (not set or set == r.active_set) and M.request_of(r, f) or nil
-    if request and not (marks and marks[f.rel] == f.signature) then
-      return { name .. ' · ' .. (request.ready and 'changed since you asked · ready for re-review' or ('waiting on ' .. request.name)),
-        '✉ ' .. request.name .. ': ' .. request.text }
+  if entry.symbol then
+    local s, f = entry.symbol, files[entry.file]
+    if s.kind == 'hunk' then
+      local st = structure_of(f)
+      return { s.name, st and st.why or 'Enter jumps to it in the comparison.' }
     end
-    local reviewed = (not set or set == r.active_set) and M.api_of(r, f) or nil
-    local api_note = reviewed and (reviewed.current and 'API reviewed this version' or 'API reviewed an earlier version') or nil
-    if f.risks and #f.risks > 0 then return { name .. ' · ' .. what .. ' · ' .. state, '⚠ ' .. table.concat(f.risks, ' · ') .. (api_note and (' · ' .. api_note) or '') } end
-    if api_note and not f.since then return { name .. ' · ' .. what .. ' · ' .. state, '◇ ' .. api_note .. ' · A opens it' } end
-    if f.since then return { name .. ' · ' .. what .. ' · ' .. state, 'showing only what is new · n shows the whole change' } end
-    local mine = r.notes and r.notes[f.rel] or nil
-    if mine and #mine > 0 then return { name .. ' · ' .. what .. ' · ' .. state, '✎ ' .. (#mine == 1 and mine[1].text or (#mine .. ' notes of yours · N on a line edits one')) } end
-    return { f.rel .. ' · ' .. what, state }
+    return { s.name .. ' · ' .. reach_said(f, s), calls_said(f, s) }
   end
+  if entry.file and files[entry.file] then return with_calls(describe_file(r, set, files[entry.file]), files[entry.file]) end
   if set then
     local row = set.row
     if row.kind == 'working' then return { 'Working changes · everything not committed yet', 'staged, unstaged, untracked and unsaved drafts' } end
@@ -633,7 +776,10 @@ local function build(r, w)
     local risky = f.loaded and f.risks and #f.risks > 0
     r.notes = r.notes or M.notes(r.root)
     local noted = r.notes[f.rel] and #r.notes[f.rel] or 0
-    local ln = push(spread(left, (noted > 0 and '✎ ' or '') .. (risky and '⚠ ' or '') .. stats .. ' ', w))
+    -- → its change adds or removes a call: it reaches further than its lines (the strip says where).
+    local st = f.loaded and structure_of(f)
+    local tail = ((st and #st.changed > 0) and '→ ' or '') .. stats .. ' '
+    local ln = push(spread(left, (noted > 0 and '✎ ' or '') .. (risky and '⚠ ' or '') .. tail, w))
     local active = (not set or set == r.active_set) and i == r.index
     if active then selected_line = ln end
     entries[ln] = { set = set, file = i }
@@ -641,11 +787,13 @@ local function build(r, w)
     hits[ln] = { fold = { a + 1, a + #arrow }, mark = { a + #arrow + 2, a + #arrow + 1 + #mark } }
     paint(ln, a + #arrow + 1, a + #arrow + 1 + #mark, checked and 'ok' or stale and 'warn' or 'dim')
     if stats ~= '' then paint(ln, #text[ln] - #stats - 1, -1, 'dim') end
-    if risky then paint(ln, #text[ln] - #stats - 1 - #'⚠ ', #text[ln] - #stats - 1, 'warn') end
+    if risky then paint(ln, #text[ln] - #tail - #'⚠ ', #text[ln] - #tail, 'warn') end
     if f.expanded and f.loaded and not f.error and not f.binary then
       for _, symbol in ipairs(M.changed_symbols(f)) do
         local icon = symbol.side == 'before' and '− ' or symbol.kind == 'hunk' and '↳ ' or symbol.kind:match('struct') and '◇ ' or 'ƒ '
-        local sl = push(fit(indent .. '      ' .. icon .. symbol.name, w))
+        local calls = st and st.calls[symbol.name]
+        local label = indent .. '      ' .. icon .. symbol.name
+        local sl = push((calls and #calls.added + #calls.removed > 0) and spread(label, '→ ', w) or fit(label, w))
         entries[sl] = { set = set, file = i, symbol = symbol }
         paint(sl, 0, -1, 'dim')
         if active and r.symbol and r.symbol.name == symbol.name then selected_line = sl end
@@ -718,6 +866,7 @@ local function add_strip(built, lines, w)
 end
 
 local popout_redraw   -- while the list is in the pop-out, it is drawn there instead (the end of this file)
+local ask_reach      -- who calls the changed functions a drawing shows (below)
 local function panel(r, select_row)
   if r.popout then return popout_redraw(r, select_row) end
   if not api.nvim_buf_is_valid(r.panel_buf) then return end
@@ -748,6 +897,148 @@ local function panel(r, select_row)
   mark_cursor(r, cursor_line)
   if select_row and built.selected then api.nvim_win_set_cursor(r.panel_win, { built.selected, 0 }) end
   set_footer(r)
+  ask_reach(r, built)
+end
+
+-- ─── structure, read in the background ──────────────────────────────────────────────────────────────────────────
+-- The calls of each loaded file (M.structure), the file shown first, a few milliseconds at a time. The list is drawn
+-- again only when what was read shows there: a → mark, or the rows of an open file.
+local function read_structure(r)
+  if r.structure_busy then return end
+  r.structure_busy = true
+  local function step()
+    if M.current ~= r or r.closing then r.structure_busy = false; return end
+    local started, read_any, shows, more = uv.hrtime(), false, false, false
+    local order = { r.files[r.index] }
+    for _, f in ipairs(r.files) do if f ~= order[1] then order[#order + 1] = f end end
+    for _, f in ipairs(order) do
+      if f.loaded and not structure_of(f) then
+        if read_any and uv.hrtime() - started > 8e6 then more = true; break end
+        local had = f.structure and #f.structure.changed or 0   -- a mark that goes away shows too
+        local s = M.structure(f)
+        read_any, shows = true, shows or had + #s.changed > 0 or f.expanded == true
+      end
+    end
+    r.structure_busy = more
+    if shows then panel(r) end
+    if more then vim.defer_fn(step, 15) end
+  end
+  vim.defer_fn(step, 15)
+end
+
+-- Callers, asked one function at a time; each answer draws the list again (the strips say it).
+local NO_REACH = 'callers: requires a language server or the project map'
+M.REACH_WAIT_S, M.REACH_AGAIN_S = 5, 30
+local map_missing = {}   -- root → when to ask again whether it has a map built
+local run_reach
+-- The language server attached to the working file's buffer, when it is loaded and has one; false otherwise.
+local function ask_server(job, done)
+  local buf = vim.fn.bufnr(job.f.path)
+  if buf < 0 or not api.nvim_buf_is_loaded(buf) then return false end
+  local G = require('desk.callgraph')
+  local client = G.clients(buf)[1]
+  if not client then return false end
+  local stamp, over, cancel = { source = 'lsp', buf = buf, tick = api.nvim_buf_get_changedtick(buf) }, false, nil
+  local function answer(said)
+    if over then return end
+    over = true
+    if cancel then pcall(cancel) end
+    done(said, stamp)
+  end
+  vim.defer_fn(function() answer('callers: the language server did not answer in ' .. M.REACH_WAIT_S .. ' s') end, M.REACH_WAIT_S * 1000)
+  G.with_tree(buf, function(tree)
+    if over then return end
+    local node = tree and units_by_label(tree:root(), buf)[job.s.name]
+    local target = node and G.symbol_in(tree, buf, node:start())
+    if not target then return answer('not in the working file now') end
+    local indexing = G.busy(client)
+    cancel = G.fetch(client, target, function(graph, err)
+      if not graph then return answer('callers: ' .. tostring(err or 'the language server gave none')) end
+      local n = #(graph.callers or {}) + ((graph.more or {}).callers or 0)
+      stamp.count = n
+      answer((n == 1 and '1 caller' or n == 0 and 'no callers' or (n .. ' callers')) .. (indexing and ' (it is still indexing)' or ''))
+    end)
+  end)
+  return true
+end
+-- The project map (desk-work map), by name: the function's id in it, else its name, then the one of that name in
+-- this file; false when this checkout has no map built (asked again after half a minute).
+local function ask_map(r, job, done)
+  local ok, map = pcall(require, 'desk.map')
+  if not ok or type(map) ~= 'table' or type(map.desk_work) ~= 'function' or (map_missing[r.root] or 0) > os.time() then return false end
+  local function count(answer)
+    local n = 0
+    for _, node in ipairs(type(answer.nodes) == 'table' and answer.nodes or {}) do if type(node) == 'table' and node.depth == 1 then n = n + 1 end end
+    return n
+  end
+  local function ask(from, step)
+    map.desk_work({ 'map', 'query', '--root', r.root, '--q', 'callers', '--from', from, '--depth', '1' }, function(answer, out)
+      if type(answer) == 'table' and answer.ok ~= false then
+        local n = count(answer)
+        return done((n == 1 and '1 caller' or n == 0 and 'no callers' or (n .. ' callers')) .. ' in the project map (by name)', { source = 'map', count = n })
+      end
+      local message = type(answer) == 'table' and tostring(answer.message or '') or ''
+      if (out and out.missing) or message:find('No project map', 1, true) then
+        map_missing[r.root] = os.time() + M.REACH_AGAIN_S
+        return done(NO_REACH, { source = 'none' })
+      end
+      if type(answer) ~= 'table' then return done('callers: the project map did not answer', { source = 'none' }) end
+      local mine = vim.tbl_filter(function(c) return type(c) == 'table' and c.file == job.f.rel and type(c.id) == 'string' end,
+        type(answer.candidates) == 'table' and answer.candidates or {})
+      if #mine == 1 and step < 3 then return ask(mine[1].id, 3) end
+      if step == 1 then return ask(job.s.name, 2) end
+      done('callers: not in the project map', { source = 'map' })
+    end, 5000)
+  end
+  ask(job.f.rel .. '::' .. job.s.name, 1)
+  return true
+end
+run_reach = function(r)
+  if r.reach_busy or M.current ~= r or r.closing then return end
+  local job = table.remove(r.reach_queue or {}, 1)
+  if not job then return end
+  r.reach_busy = true
+  local function done(said, extra)
+    reach[job.key] = vim.tbl_extend('force', { said = said, at = os.time() }, extra or {})
+    r.reach_busy = false
+    if M.current == r and not r.closing then panel(r) end
+    vim.schedule(function() run_reach(r) end)
+  end
+  if not ask_server(job, done) and not ask_map(r, job, done) then vim.schedule(function() done(NO_REACH, { source = 'none' }) end) end
+end
+-- Who calls function s of file f: asked when nothing current is known (a server's answer is current until its buffer
+-- changes, a map's for ten minutes; a server attached since answers instead).
+function M.reach(r, f, s)
+  if s.side == 'before' or s.kind == 'hunk' then return end
+  local key = reach_key(f, s)
+  local got = reach[key]
+  if got and got.pending == r then return end
+  if got and not got.pending then
+    local buf = vim.fn.bufnr(f.path)
+    local loaded = buf >= 0 and api.nvim_buf_is_loaded(buf)
+    local fresh
+    if got.source == 'lsp' then fresh = loaded and got.buf == buf and got.tick == api.nvim_buf_get_changedtick(buf)
+    else
+      local server = loaded and #require('desk.callgraph').clients(buf) > 0
+      fresh = not server and os.time() - (got.at or 0) < (got.source == 'map' and 600 or M.REACH_AGAIN_S)
+    end
+    if fresh then return end
+  end
+  reach[key] = { pending = r }
+  r.reach_queue = r.reach_queue or {}
+  table.insert(r.reach_queue, { f = f, s = s, key = key })
+  vim.schedule(function() run_reach(r) end)
+end
+-- The changed functions a drawing of the list shows: their callers asked (at most 24 at a time).
+ask_reach = function(r, built)
+  local n = 0
+  for _, entry in pairs(built.entries) do
+    local s = entry.symbol
+    if s and s.kind ~= 'hunk' and s.side ~= 'before' and n < 24 then
+      local f = (entry.set and entry.set.files or r.files)[entry.file]
+      if f then n = n + 1; M.reach(r, f, s) end
+    end
+  end
 end
 
 -- One buffer per side for the whole review; a file change replaces its lines. A new pair per file re-ran every FileType
@@ -1275,6 +1566,7 @@ function M.select(index, refresh)
   r.symbol = nil
   local file = r.files[index]
   load_file(r, file, refresh and 'force' or r.row.kind ~= 'commit')
+  read_structure(r)
   local left, right = file.left, file.right
   file.since = nil
   if M.since_mode() and not file.error and not file.binary and r.marks[file.rel] and r.marks[file.rel] ~= file.signature then
@@ -2452,7 +2744,7 @@ function M.open(row, root, callbacks)
       end
     end
     panel(r)
-    if more then vim.defer_fn(next_count, 10) end
+    if more then vim.defer_fn(next_count, 10) else read_structure(r) end
   end
   vim.defer_fn(next_count, 10)
   return r
@@ -2488,6 +2780,7 @@ local function render_view(view, width)
   api.nvim_set_hl(0, 'DeskReviewOpen', { link = 'CursorLine' })
   local w = math.max(24, math.min(width - 2, 100))
   local built = build(r, w)
+  ask_reach(r, built)
   local lines, items, shown = built.lines, {}, nil
   local rows = vim.tbl_keys(built.entries)
   table.sort(rows)

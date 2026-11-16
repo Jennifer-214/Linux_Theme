@@ -410,6 +410,169 @@ assert(r.marks['a.lua']==file.signature,'m on a part of an unchecked file checks
 C.close()
 ''')
 
+    # ─── the structure strip: what a change calls, and who calls what it changed ─────────────────────────────────────
+    CALLS_BEFORE = 'local M = {}\nfunction M.alpha()\n  return M.old(1)\nend\nfunction M.beta()\n  return 1\nend\nreturn M\n'
+    CALLS_AFTER = 'local M = {}\nfunction M.alpha()\n  print("x")\n  return M.new(1)\nend\nfunction M.beta()\n  return 2\nend\nreturn M\n'
+    # The strips of the list's rows by name, as the pop-out's view draws them: wide enough to read each whole (the
+    # panel beside the comparison cuts a long one with "…", as every strip there is). The same words feed both.
+    STRIP = r'''
+local function strips()
+  local out = {}
+  for _, item in ipairs(R.view_kind.render({ review = R.current }, 140).items) do out[item.name] = table.concat(item.strip, '\n') end
+  return out
+end
+local function strip_of(name) return strips()[name] or ('no row called ' .. name) end
+local function row_of(want)
+  local r = R.current
+  for line, e in pairs(r.entries) do
+    local f = e.file and (e.set and e.set.files or r.files)[e.file]
+    if f and want(f, e) then return line end
+  end
+end
+local function file_row(rel) return row_of(function(f, e) return f.rel == rel and not e.symbol end) end
+local function part_row(rel, name) return row_of(function(f, e) return f.rel == rel and e.symbol and e.symbol.name == name end) end
+local function text_of(line) return api.nvim_buf_get_lines(R.current.panel_buf, line - 1, line, false)[1] end
+-- Enter on a file's row in the list: the file opens, its changed functions under it.
+local function enter(rel)
+  api.nvim_set_current_win(R.current.panel_win)
+  api.nvim_win_set_cursor(R.current.panel_win, { file_row(rel), 0 })
+  vim.fn.maparg('<CR>', 'n', false, true).callback()
+end
+'''
+
+    def calls_commit(self):
+        (self.repo / 'calls.lua').write_text(self.CALLS_BEFORE)
+        self.git('add', 'calls.lua')
+        self.commit('calls base')
+        parent = self.git('rev-parse', 'HEAD')
+        (self.repo / 'calls.lua').write_text(self.CALLS_AFTER)
+        self.git('add', 'calls.lua')
+        self.commit('calls change')
+        return self.git('rev-parse', 'HEAD'), parent
+
+    def test_a_changed_function_says_which_calls_it_adds_and_removes_by_name(self):
+        sha, parent = self.calls_commit()
+        self.run_lua(self.STRIP + r'''
+C.open_review({kind='commit',sha='SHA',parent='PARENT',short='SHORT',files={root..'/calls.lua'}},root)
+local r=R.current
+local f=r.files[find('calls.lua')]
+assert(vim.wait(3000,function() return f.structure~=nil end),'the calls are read in the background')
+assert(vim.wait(3000,function() return text_of(file_row('calls.lua')):find('→ +',1,true)~=nil end),
+  'the file whose change adds or removes a call is marked →: '..text_of(file_row('calls.lua')))
+local about=strip_of('calls.lua')
+assert(about:find('→ calls changed in M.alpha',1,true),'its strip says where:\n'..about)
+enter('calls.lua')
+local alpha,beta=part_row('calls.lua','M.alpha'),part_row('calls.lua','M.beta')
+assert(alpha and beta,'Enter opened the file to its changed functions')
+assert(text_of(alpha):find('→',1,true) and not text_of(beta):find('→',1,true),'the function whose calls changed is marked:\n'..text_of(alpha)..'\n'..text_of(beta))
+about=strip_of('M.alpha')
+assert(about:find('calls by name: +print +M.new −M.old',1,true),'its strip names the calls added and removed, by name:\n'..about)
+assert(vim.wait(3000,function() return strip_of('M.alpha'):find('M.alpha · callers: requires a language server or the project map',1,true)~=nil end),
+  'with no language server and no project map, its callers say what they need:\n'..strip_of('M.alpha'))
+about=strip_of('M.beta')
+assert(about:find('no call added or removed (by name)',1,true),'a function whose calls are the same says so:\n'..about)
+C.close()
+'''.replace('SHA', sha).replace('PARENT', parent).replace('SHORT', sha[:7]))
+
+    def test_a_file_without_a_parser_says_what_its_calls_need(self):
+        self.run_lua(self.STRIP + r'''
+C.open_review(row,root)
+local r=R.current
+local i=find('added.txt')
+assert(vim.wait(3000,function() return r.files[i].structure~=nil end),'the file was read')
+enter('added.txt')
+local part=part_row('added.txt','lines 1')
+assert(part,'its change is a range of lines')
+local about=strip_of('lines 1')
+assert(about:find('calls: requires a treesitter parser for text',1,true),'it says what reading its calls needs, never nothing:\n'..about)
+C.close()
+''')
+
+    def test_callers_come_from_the_language_server_attached_to_the_working_file_and_are_kept(self):
+        sha, parent = self.calls_commit()
+        self.run_lua(self.STRIP + r'''
+local G=require('desk.callgraph')
+vim.cmd.edit(root..'/calls.lua')
+local working=api.nvim_get_current_buf()
+local asked={}
+local fake={id=91,name='fakels',offset_encoding='utf-16'}
+G.clients=function(buf) return buf==working and {fake} or {} end
+G.busy=function() return false end
+local uri=vim.uri_from_fname(root..'/calls.lua')
+local function at(line) return {start={line=line,character=0},['end']={line=line,character=1}} end
+G.transport=function(_,_,method,params,handler)
+  asked[#asked+1]=method
+  vim.defer_fn(function()
+    if method=='textDocument/prepareCallHierarchy' then
+      handler(nil,{{name='M.alpha',kind=12,uri=uri,range=at(params.position.line),selectionRange=at(params.position.line)}})
+    elseif method=='callHierarchy/incomingCalls' then
+      handler(nil,{{from={name='one',kind=12,uri=uri,range=at(1),selectionRange=at(1)},fromRanges={}},
+                   {from={name='two',kind=12,uri=uri,range=at(5),selectionRange=at(5)},fromRanges={}}})
+    else handler(nil,{}) end
+  end,5)
+  return function() end
+end
+C.open_review({kind='commit',sha='SHA',parent='PARENT',short='SHORT',files={root..'/calls.lua'}},root)
+local r=R.current
+enter('calls.lua')
+local alpha=part_row('calls.lua','M.alpha')
+assert(vim.wait(3000,function() return strip_of('M.alpha'):find('M.alpha · 2 callers',1,true)~=nil end),
+  'its callers, from the language server on the working file:\n'..strip_of('M.alpha'))
+local prepared=#vim.tbl_filter(function(m) return m=='textDocument/prepareCallHierarchy' end,asked)
+for _=1,3 do R.select(r.index); vim.wait(50) end
+strip_of('M.alpha')
+vim.wait(200)
+assert(#vim.tbl_filter(function(m) return m=='textDocument/prepareCallHierarchy' end,asked)==prepared,
+  'asked once per function: redrawing the list asks nothing again ('..#asked..' requests)')
+api.nvim_buf_set_lines(working,0,0,false,{'-- an edit'})
+R.select(r.index)
+assert(vim.wait(3000,function() return #vim.tbl_filter(function(m) return m=='textDocument/prepareCallHierarchy' end,asked)>prepared end),
+  'an edit of the working file asks again')
+C.close()
+'''.replace('SHA', sha).replace('PARENT', parent).replace('SHORT', sha[:7]))
+
+    def test_without_a_language_server_callers_come_from_the_project_map_by_name(self):
+        sha, parent = self.calls_commit()
+        self.run_lua(self.STRIP + r'''
+local Map=require('desk.map')
+local froms={}
+Map.desk_work=function(args,done)
+  local from=args[#args-2]
+  froms[#froms+1]=from
+  vim.schedule(function()
+    if from=='calls.lua::M.alpha' then done({ok=false,message='Nothing in the map is named calls.lua::M.alpha',candidates={}})
+    elseif from=='M.alpha' then done({ok=false,message='Several things in the map are named M.alpha; pick one',
+      candidates={{id='other.lua::M.alpha',file='other.lua'},{id='calls.lua::top.M.alpha',file='calls.lua'}}})
+    elseif from=='calls.lua::top.M.alpha' then done({ok=true,q='callers',nodes={{depth=0},{depth=1},{depth=1},{depth=1},{depth=2}}})
+    else done({ok=true,q='callers',nodes={{depth=0},{depth=1}}}) end
+  end)
+end
+C.open_review({kind='commit',sha='SHA',parent='PARENT',short='SHORT',files={root..'/calls.lua'}},root)
+enter('calls.lua')
+local alpha=part_row('calls.lua','M.alpha')
+assert(vim.wait(3000,function() return strip_of('M.alpha'):find('M.alpha · 3 callers in the project map (by name)',1,true)~=nil end),
+  'its callers from the map, counting only the direct ones:\n'..strip_of('M.alpha'))
+assert(vim.deep_equal({froms[1],froms[2],froms[3]},{'calls.lua::M.alpha','M.alpha','calls.lua::top.M.alpha'}),
+  'by its id, else its name, then the one of that name in this file: '..vim.inspect(froms))
+C.close()
+'''.replace('SHA', sha).replace('PARENT', parent).replace('SHORT', sha[:7]))
+
+    def test_a_claude_sessions_edits_get_the_same_check(self):
+        (self.repo / 'calls.lua').write_text(self.CALLS_AFTER)
+        self.run_lua(self.STRIP + r'''
+local dir=vim.env.XDG_RUNTIME_DIR..'/foxml-claude/edits/turn1/before'
+vim.fn.mkdir(dir,'p')
+local f=assert(io.open(dir..'/1.txt','w')); f:write([[BEFORE]]); f:close()
+C.open_review({kind='live',sid='turn1',name='A session',short='A session',files={root..'/calls.lua'},before={[root..'/calls.lua']='1.txt'}},root)
+local r=R.current
+assert(vim.wait(3000,function() return text_of(file_row('calls.lua')):find('→',1,true)~=nil end),
+  "a session's edit that changes a call is marked: "..text_of(file_row('calls.lua')))
+enter('calls.lua')
+local about=strip_of('M.alpha')
+assert(about:find('calls by name: +print +M.new −M.old',1,true),"the turn's change, against the copy from before it:\n"..about)
+C.close()
+'''.replace('BEFORE', self.CALLS_BEFORE.replace('\n', '\\n')), index_unchanged=False)
+
     def test_the_working_list_picks_up_files_changed_after_it_opened(self):
         self.run_lua(r'''
 vim.cmd.edit(root .. '/a.lua')
