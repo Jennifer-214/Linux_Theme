@@ -41,7 +41,10 @@ local function write(path, text, mode)
 end
 write(bin .. '/kitty', [[#!/bin/sh
 # kitty, for the test: records its argv and what it was given of the editor's tmux and socket, then runs the command
-# after -e headless, on a socket of the test's.
+# after -e headless, on a socket of the test's. With kitty.fail in the test's folder it fails at once, as a kitty that
+# cannot start; with protocol there, the pop-out speaks that protocol.
+[ -f "$POPOUT_TEST/kitty.fail" ] && exit 1
+[ -f "$POPOUT_TEST/protocol" ] && export POPOUT_PROTOCOL="$(cat "$POPOUT_TEST/protocol")"
 printf '%s\n' "$@" > "$POPOUT_TEST/kitty.argv"
 printf 'NVIM=%s TMUX=%s TMUX_PANE=%s NVIM_NOTTYFAST=%s\n' "${NVIM:-}" "${TMUX:-}" "${TMUX_PANE:-}" "${NVIM_NOTTYFAST:-}" > "$POPOUT_TEST/kitty.env"
 echo $$ > "$POPOUT_TEST/kitty.pid"
@@ -101,6 +104,7 @@ end)
 vim.g.mapleader = ' '
 vim.g.desk_style = 'paper'
 require('tests.popout_rows')
+if os.getenv('POPOUT_PROTOCOL') then require('desk.popout').PROTOCOL = tonumber(os.getenv('POPOUT_PROTOCOL')) end
 ]])
 write(dir .. '/monitors.json', vim.json.encode({ { name = 'eDP-1', focused = true, activeWorkspace = { id = 1, name = '1' } },
   { name = 'DP-2', focused = false, activeWorkspace = { id = 5, name = '5' } } }))
@@ -131,14 +135,24 @@ end
 local function wait(ms, cond) return vim.wait(ms, function() local fine, value = pcall(cond); return fine and value end, 20) end
 local function exists(path) return uv.fs_stat(path) ~= nil end
 local function later(ms) local s, us = uv.gettimeofday(); return s * 1000 + math.floor(us / 1000) + ms end
+-- A Neovim's socket, connected to once it accepts: its file is there a moment before it listens (a long moment on a
+-- busy machine). A plain loop: connects that fail inside vim.wait's condition hang this Neovim. nil after 10 s.
+local function connect(path)
+  for _ = 1, 100 do
+    if path ~= '' and exists(path) then
+      local fine, chan = pcall(vim.fn.sockconnect, 'pipe', path, { rpc = true })
+      if fine and chan > 0 then return chan end
+    end
+    vim.wait(100)
+  end
+end
 
 local function scenario()
 -- This process is the terminal the main editor runs in: hyprctl's stub lists it as that editor's window (0xa1).
 vim.fn.writefile({ tostring(vim.fn.getpid()) }, dir .. '/main.pid')
 local host_job = vim.system({ 'nvim', '--headless', '--clean', '--listen', dir .. '/h', '--cmd', 'luafile ' .. dir .. '/loader.lua',
   '-c', 'luafile ' .. here .. 'popout_host.lua' }, { text = true, env = env, clear_env = true })
-assert(wait(10000, function() return exists(dir .. '/h') end), 'the main editor never listened')
-local h = vim.fn.sockconnect('pipe', dir .. '/h', { rpc = true })
+local h = assert(connect(dir .. '/h'), 'the main editor never listened')
 local function host(code, ...) return vim.rpcrequest(h, 'nvim_exec_lua', code, { ... }) end
 ok(wait(10000, function() return host('return _G.popout_test and _G.popout_test.ready') == true end), 'the main editor is set up')
 -- "Nothing happened" is checked once the work is done, never after a fixed wait (a late regression would pass one):
@@ -181,8 +195,8 @@ local function record() local ok_, r = pcall(vim.json.decode, read('workspace.po
 local function opened()
   ok(wait(10000, function() return exists(dir .. '/kitty.listen') end), 'the pop-out is started, in kitty')
   psock = vim.trim(read('kitty.listen'))
-  ok(wait(10000, function() return exists(psock) end), '… and its Neovim listens')
-  p = vim.fn.sockconnect('pipe', psock, { rpc = true })
+  p = connect(psock)
+  ok(p ~= nil, '… and its Neovim listens')
 end
 local function open_row() host("local A = require('desk.actions'); A.get('popout.view.graph').run(A.context())") end
 
@@ -656,8 +670,7 @@ write(dir .. '/monitors.json', vim.json.encode(three))
 vim.fn.writefile({ 'PRIMARY="eDP-1"', 'PORTRAIT_OUTPUTS=""', 'SECONDARY_OUTPUTS="HDMI-A-1 DP-2"' }, sidecar)
 local again = vim.system({ 'nvim', '--headless', '--clean', '--listen', dir .. '/h2', '--cmd', 'luafile ' .. dir .. '/loader.lua',
   '-c', 'luafile ' .. here .. 'popout_host.lua' }, { text = true, env = env, clear_env = true })
-assert(wait(10000, function() return exists(dir .. '/h2') end), 'the second editor never listened')
-h = vim.fn.sockconnect('pipe', dir .. '/h2', { rpc = true })
+h = assert(connect(dir .. '/h2'), 'the second editor never listened')
 ok(wait(10000, function() return host('return _G.popout_test and _G.popout_test.ready') == true end), 'an editor starts again')
 ok(wait(5000, function() return host("return require('desk.actions').get('popout.restore').name") == 'Restore 1 view' end),
   "… its Views group offers the pop-out's last view: Restore 1 view")
@@ -672,6 +685,69 @@ eq(host("local A = require('desk.actions'); return A.available(A.get('popout.res
 vim.rpcnotify(h, 'nvim_command', 'qa!')
 ok(again:wait(5000).code == 0, 'the second editor closes')
 ok(wait(10000, function() return not exists(psock) end), '… and its pop-out quits')
+
+-- ─── kitty's exit is the pop-out's end ───────────────────────────────────────────────────────────────────────────
+-- A third editor. kitty.fail in the test's folder makes the kitty stub fail at once; protocol makes the pop-out speak
+-- another protocol (the editor refuses it; it says why there, and quits).
+local third = vim.system({ 'nvim', '--headless', '--clean', '--listen', dir .. '/h3', '--cmd', 'luafile ' .. dir .. '/loader.lua',
+  '-c', 'luafile ' .. here .. 'popout_host.lua' }, { text = true, env = env, clear_env = true })
+h = assert(connect(dir .. '/h3'), 'the third editor never listened')
+ok(wait(10000, function() return host('return _G.popout_test and _G.popout_test.ready') == true end), 'a third editor')
+host("_G.heard = {}; vim.notify = function(text) table.insert(_G.heard, text) end")
+local function heard() return host('return _G.heard') end
+do
+  -- kitty does not start: the graph o took from its tab comes back, and the editor says so.
+  write(dir .. '/kitty.fail', '1')
+  host("vim.api.nvim_set_current_win(_G.popout_test.code_win); vim.api.nvim_win_set_cursor(0, { 3, 2 }); require('desk.callgraph').open_cursor()")
+  ok(wait(3000, function() return host("local v = require('desk.callgraph').view(); return v ~= nil and v.graph.callees ~= nil") end),
+    'a graph tab of M.alpha')
+  vim.rpcrequest(h, 'nvim_input', 'o')
+  ok(wait(5000, function() return vim.tbl_contains(heard(), 'The pop-out did not start. Its view is back here.') end),
+    'o in the graph tab, and kitty does not start: the editor says the pop-out did not start: ' .. vim.inspect(heard()))
+  eq(host("local P = require('desk.popout'); return { next(P.host.views) == nil, P.host.opening == nil }"), { true, true },
+    '… keeps no view for it, and no pop-out on its way')
+  eq(host("local G = require('desk.callgraph'); return { G.panel.win ~= nil and vim.api.nvim_win_is_valid(G.panel.win), G.panel.pinned, G.panel.graph and G.panel.graph.center.name }"),
+    { true, true, 'M.alpha' }, '… and the graph the tab sent is back here: the panel, pinned on M.alpha')
+  host("require('desk.callgraph').panel_close()")
+  os.remove(dir .. '/kitty.fail')
+  -- A pop-out the editor refuses (another protocol) says why there and quits: the same here.
+  write(dir .. '/protocol', '3')
+  host("_G.heard = {}")
+  open_row()
+  ok(wait(10000, function() return vim.tbl_contains(heard(), 'The pop-out did not start. Its view is back here.') end),
+    'a pop-out of another protocol, refused: the editor says it did not start: ' .. vim.inspect(heard()))
+  eq(host("return next(require('desk.popout').host.views) == nil"), true, '… keeps no view for it')
+  eq(host(panel_open), true, '… and the graph it asked for is here instead, as the live panel')
+  host("require('desk.callgraph').panel_close()")
+  os.remove(dir .. '/protocol')
+  -- Its window closed from outside (its kitty gone), then a view asked for at once, before any ping: a new pop-out.
+  os.remove(dir .. '/kitty.listen')
+  open_row()
+  opened()
+  ok(wait(10000, function() return state().connected and (state().title or ''):find('call graph', 1, true) end), 'a pop-out again')
+  press('p')
+  ok(wait(3000, function() return (state().header or ''):find('graph · PINNED', 1, true) end), '… its graph pinned')
+  local count = tonumber(vim.trim(read('kitty.count')))
+  host("_G.heard = {}")
+  os.remove(dir .. '/kitty.listen')
+  host([[local P = require('desk.popout')
+    P.host.timer:stop()
+    vim.uv.kill(P.host.kitty, 'sigterm')
+    vim.wait(3000, function() return P.host.chan == nil end)
+    P.show('rows', require('desk.actions').context())]])
+  ok(wait(5000, function() return tonumber(vim.trim(read('kitty.count'))) == count + 1 end),
+    'its window closed from outside, and a view asked for at once: a new pop-out starts')
+  opened()
+  ok(wait(10000, function() return state().connected and state().kind == 'rows' end), '… and shows it')
+  ok(vim.tbl_contains(heard(), 'The pop-out closed. Its pinned view is back here.'),
+    '… the old one closed: its pinned graph back here: ' .. vim.inspect(heard()))
+  eq(host(panel_open), true, '… as the panel')
+  host("require('desk.callgraph').panel_close()")
+end
+
+vim.rpcnotify(h, 'nvim_command', 'qa!')
+ok(third:wait(5000).code == 0, 'the third editor closes')
+ok(wait(10000, function() return not exists(psock) end), '… and its pop-out quits')
 end
 
 local ran, err = xpcall(scenario, debug.traceback)
@@ -679,12 +755,13 @@ if not ran then failed = failed + 1; print('FAIL: ' .. tostring(err)) end
 if failed > 0 then print('--- hyprctl.log ---\n' .. read('hyprctl.log') .. '--- the pop-out said ---\n' .. read('popout.err')) end
 local asked = read('others.log')
 if asked ~= '' then failed = failed + 1; print('FAIL: desk-work or desk-drawer was asked for something else than the layout:\n' .. asked) end
--- Whatever is left of the two Neovims goes, and only them: a process is killed only when its command line names the sandbox.
-for _, name in ipairs({ 'host.pid', 'kitty.pid' }) do
-  local pid = tonumber(vim.trim(read(name)))
-  local cmdline = pid and read('/proc/' .. pid .. '/cmdline') or ''
-  if pid and pid > 1 and cmdline:find(dir, 1, true) then pcall(uv.kill, pid, 'sigkill') end
+-- Whatever is left of its Neovims goes, and only them: a process is killed only when its command line names the
+-- sandbox (an editor whose run stopped before it wrote its pid too).
+for _, entry in ipairs(vim.fn.readdir('/proc')) do
+  local pid = tonumber(entry)
+  if pid and pid > 1 and pid ~= vim.fn.getpid() and read('/proc/' .. pid .. '/cmdline'):find(base, 1, true) then pcall(uv.kill, pid, 'sigkill') end
 end
+vim.wait(200)
 vim.fn.delete(base, 'rf')
 print(('popout: %d passed, %d failed'):format(passed, failed))
 os.exit(failed == 0 and 0 or 1)

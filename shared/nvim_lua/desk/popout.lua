@@ -443,7 +443,8 @@ end
 
 -- The pop-out is gone: nothing more is sent and nothing follows the cursor for it. opts.back: it went on its own (it
 -- closed or crashed, or its screen was unplugged): its pinned views come back to the editor as splits (their kind's
--- attach), the following ones stop, and one notice says so. Her q on its last view brings nothing back.
+-- attach), the following ones stop, and one notice says so; opts.all: it never showed them (it did not start), so
+-- every view comes back. Her q on its last view brings nothing back.
 function M.forget(why, opts)
   opts = opts or {}
   -- A write of the views still on its way is written now, while they are here: a fold right after a change keeps them.
@@ -460,7 +461,7 @@ function M.forget(why, opts)
     if view then
       leave(view)
       local kind = kinds[view.kind]
-      if opts.back and view.pinned and kind and kind.attach then back[#back + 1] = view end
+      if (opts.all or (opts.back and view.pinned)) and kind and kind.attach then back[#back + 1] = view end
     end
   end
   follow_stop()
@@ -469,7 +470,9 @@ function M.forget(why, opts)
     if not ok then tell(sentence('it could not come back: ' .. tostring(err):sub(1, 200)), WARN) end
   end
   if had and why then
-    tell(why .. (#back == 0 and '' or #back == 1 and ' Its pinned view is back here.' or ' Its pinned views are back here.'))
+    local its = opts.all and ' Its' or ' Its pinned'
+    tell(why .. (#back == 0 and '' or #back == 1 and (its .. ' view is back here.') or (its .. ' views are back here.')),
+      opts.all and WARN or nil)
   end
 end
 
@@ -521,8 +524,18 @@ function M.place(pid, screen)
   end)
 end
 
+-- kitty's exit is the pop-out's end. One that never subscribed did not start: every view it was to show comes back here
+-- (none was seen there). One that did is gone: its pinned views come back, as when it crashed.
+local function kitty_exited(opening)
+  if exiting() then return end
+  if H.opening == opening then return M.forget('The pop-out did not start.', { all = true }) end
+  if H.kitty == opening.pid then M.forget('The pop-out closed.', { back = true }) end
+end
+
 -- Opens the pop-out when none is attached or on its way. true, or false and why.
 function M.open()
+  -- One whose channel is already gone (its window closed a moment ago) is forgotten first, so a new one opens.
+  if H.chan and next(api.nvim_get_chan_info(H.chan)) == nil then M.forget('The pop-out closed.', { back = true }) end
   if H.chan or H.opening then return true end
   local server = vim.v.servername or ''
   if #server > 107 or not server:match('^/[%w%._/%-]+$') then return false, 'this editor has no socket the pop-out can reach' end
@@ -535,14 +548,14 @@ function M.open()
   local opening = {}
   local env = { TMUX = '', TMUX_PANE = '', NVIM = '', NVIM_NOTTYFAST = '1' }
   local ok, job = pcall(vim.system, argv, { text = true, detach = true, env = env }, function()
-    vim.schedule(function() if H.opening == opening then H.opening = nil end end)
+    vim.schedule(function() kitty_exited(opening) end)
   end)
   if not ok then return false, 'kitty did not start (' .. tostring(job):sub(1, 120) .. ')' end
   opening.pid = job.pid
   H.opening, H.kitty = opening, job.pid
   M.place(job.pid)
   vim.defer_fn(function()
-    if H.opening == opening then H.opening = nil; tell('The pop-out did not start.', WARN) end
+    if H.opening == opening and not exiting() then M.forget('The pop-out did not start.', { all = true }) end
   end, M.START_MS)
   return true
 end
@@ -925,6 +938,9 @@ local function subscribe(msg)
   if H.chan and H.chan ~= msg.chan then send({ type = 'bye', why = 'Another pop-out took over.' }) end
   local again = H.chan == msg.chan
   H.chan, H.pid, H.width, H.opening = msg.chan, msg.pid, msg.width or H.width, nil
+  -- The kitty whose exit ends it is the one it runs in (one this editor did not start has none watched: the pings find
+  -- it gone).
+  if H.kitty and not vim.tbl_contains(M.lineage(msg.pid), H.kitty) then H.kitty = nil end
   if not again then
     H.stalled, H.ping, H.heard = false, 0, 0
     start_pings()
