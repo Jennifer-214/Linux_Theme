@@ -283,8 +283,9 @@ Stale, by the tested folder alone (the tools tree the record names), with the re
 - "tools committed since the run": its tree id now (`git rev-parse HEAD:tools` in the folder the record names)
   differs from the record's;
 - "uncommitted files in … changed since the run": `git status --porcelain -- tools/` there lists a file the record did
-  not have, or no longer lists one it had, or one of those files (for a folder, any file in it) was changed after the
-  run ended (`ended_epoch`; a change within that last second counts as after).
+  not have, or no longer lists one it had, or one of those files (for a folder, any file in it git does not ignore:
+  a cache written there after the run is no change) was changed after the run ended (`ended_epoch`; a change within
+  that last second counts as after).
 
 Inputs that moved during the run (`moved`) read unverified, and are named. The other checkouts' commits are shown,
 not compared, and neither are gitignored files or the machine's tools.

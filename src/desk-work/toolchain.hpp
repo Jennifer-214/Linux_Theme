@@ -42,25 +42,37 @@ Uncommitted recorded_uncommitted(const J& ref) {
     }
     return out;
 }
-// Whether anything at `at` changed after `when` (seconds): a file by its own time, a folder (git names a new folder
-// once) by its time and every file in it, nested repositories left out. A change within that last second counts as
-// after, so the card is never fresher than it can show. 1 changed, 0 not, -1 cannot tell (over 2000 files).
-int changed_after(const fs::path& at, long long when) {
+// git, read-only, in the folder a record names: no optional locks, no fsmonitor, three seconds.
+std::string git_read(const std::string& path, A rest, bool& ok) {
+    A a{"git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-C", path};
+    a.insert(a.end(), rest.begin(), rest.end());
+    if (sh::have("timeout")) a.insert(a.begin(), {"timeout", "-k", "1", "3"});
+    std::string text;
+    ok = sh::capture(a, text);
+    return text;
+}
+// Whether the uncommitted path `rel` in `path` changed after `when` (seconds): a file by its own time; a folder (git
+// names a new folder once) by the times of the files in it git does not ignore, as git ls-files --others lists them,
+// so a cache written there after the run (__pycache__) is no change, and neither is the folder's own time, which such
+// a cache moves. Nested repositories are left out. A change within that last second counts as after, so the card is
+// never fresher than it can show. 1 changed, 0 not, -1 cannot tell (git cannot list the folder, or over 2000 files).
+int changed_after(const std::string& path, const std::string& rel, long long when) {
     const auto later = [&](const fs::path& p) {
         struct stat st{};
         return ::lstat(p.c_str(), &st) == 0 && (st.st_mtim.tv_sec > when || (st.st_mtim.tv_sec == when && st.st_mtim.tv_nsec > 0));
     };
     std::error_code ec;
-    if (later(at)) return 1;
-    if (!fs::is_directory(fs::symlink_status(at, ec))) return 0;
+    if (!fs::is_directory(fs::symlink_status(fs::path(path) / rel, ec))) return later(fs::path(path) / rel) ? 1 : 0;
+    bool ok = false;
+    const auto files = split(git_read(path, {"ls-files", "--others", "--exclude-standard", "-z", "--", rel}, ok), '\0');
+    if (!ok) return -1;
     size_t seen = 0;
-    for (auto it = fs::recursive_directory_iterator(at, fs::directory_options::skip_permission_denied, ec);
-         !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
+    for (const auto& file : files) {
+        if (file.back() == '/') continue;   // a nested repository, listed as a folder
         if (++seen > 2000) return -1;
-        if (it->is_directory(ec) && fs::exists(it->path() / ".git", ec)) { it.disable_recursion_pending(); continue; }
-        if (later(it->path())) return 1;
+        if (later(fs::path(path) / file)) return 1;
     }
-    return ec ? -1 : 0;
+    return 0;
 }
 // The card's freshness, by the tested folder (the tools tree the record names): stale when its tree id differs now
 // (committed since), when the set of its uncommitted files differs, or when one of those files changed after the run
@@ -77,18 +89,10 @@ J compare_tested(const J& ref, long long ended) {
     if (path.empty()) return say("unverified", "the record names no folder for " + name);
     if (tested.empty()) return say("unverified", "the record keeps no tree id for " + folder);
     if (!fs::is_directory(path, ec)) return say("unverified", path + " is not there");
-    const auto git = [&](A rest, bool& ok) {
-        A a{"git", "--no-optional-locks", "-c", "core.fsmonitor=false", "-C", path};
-        a.insert(a.end(), rest.begin(), rest.end());
-        if (sh::have("timeout")) a.insert(a.begin(), {"timeout", "-k", "1", "3"});
-        std::string text;
-        ok = sh::capture(a, text);
-        return text;
-    };
     bool ok = false;
-    const auto now_tree = trim(git({"rev-parse", "--verify", "--quiet", "HEAD:" + scope}, ok));
+    const auto now_tree = trim(git_read(path, {"rev-parse", "--verify", "--quiet", "HEAD:" + scope}, ok));
     if (!ok || now_tree.empty()) return say("unverified", "git cannot read " + (scope.empty() ? path : scope + " in " + path));
-    const auto fields = split(git({"status", "--porcelain=v1", "-z", "--", scope.empty() ? "." : scope + "/"}, ok), '\0');
+    const auto fields = split(git_read(path, {"status", "--porcelain=v1", "-z", "--", scope.empty() ? "." : scope + "/"}, ok), '\0');
     if (!ok) return say("unverified", "git status cannot read " + (scope.empty() ? path : scope + " in " + path));
     std::set<std::string> now;
     for (size_t i = 0; i < fields.size(); ++i) {
@@ -119,7 +123,7 @@ J compare_tested(const J& ref, long long ended) {
     if (!added.empty()) changes.push_back(std::to_string(added.size()) + " new (" + some_of(added) + ")");
     if (!gone.empty()) changes.push_back(std::to_string(gone.size()) + " no longer uncommitted (" + some_of(gone) + ")");
     for (const auto& p : now) if (then.count(p)) {
-        const int changed = ended > 0 ? changed_after(fs::path(path) / p, ended) : -1;
+        const int changed = ended > 0 ? changed_after(path, p, ended) : -1;
         if (changed > 0) edited.push_back(p);
         else if (changed < 0) unknown.push_back(p);
     }

@@ -88,6 +88,31 @@ class Toolchain(ToolsCase):
         self.assertIn(f"Ran with 1 uncommitted file in workspace tools: {name}", card["detail"].split("\n"))
         self.assertEqual(alerts, [])
 
+    def test_a_cache_git_ignores_in_a_new_folder_is_no_change_but_a_new_file_there_is(self):
+        self.contract()
+        ended = json.loads((FIXTURES / "fox-contract.json").read_text())["ended_epoch"]
+        (self.ws / ".gitignore").write_text("__pycache__/\n")
+        self.git(self.ws, "add", ".gitignore")
+        self.git(self.ws, "commit", "-qm", "caches are ignored")
+        folder = self.ws / "tools/newdir"
+        folder.mkdir()
+        (folder / "a.py").write_text("x = 1\n")
+        for path in (folder / "a.py", folder):
+            os.utime(path, (ended - 60, ended - 60))   # as they were when the run ended
+        self.write_record(lambda r: r["inputs"]["end"]["workspace"].update(tools_dirty=True, tools_uncommitted=["?? tools/newdir/"]))
+        unchanged = "workspace tools unchanged since the run"
+        self.assertTrue(any(line.startswith(unchanged) for line in self.card()[0]["detail"].split("\n")))
+        (folder / "__pycache__").mkdir()   # an import after the run
+        (folder / "__pycache__/a.cpython-314.pyc").write_bytes(b"\0")
+        card, alerts = self.card()
+        self.assertNotIn("STALE", card["label"], card["detail"])
+        self.assertTrue(any(line.startswith(unchanged) for line in card["detail"].split("\n")), card["detail"])
+        self.assertEqual(alerts, [])
+        (folder / "b.py").write_text("y = 2\n")
+        card, _ = self.card()
+        self.assertIn("STALE: uncommitted files in workspace tools changed since the run: edited after it ended: tools/newdir/",
+                      card["detail"].split("\n"))
+
     def test_a_pass_on_uncommitted_tool_files_says_so_nested_repos_are_not_counted_and_a_later_edit_is_stale(self):
         self.contract()
         ended = json.loads((FIXTURES / "fox-contract.json").read_text())["ended_epoch"]
