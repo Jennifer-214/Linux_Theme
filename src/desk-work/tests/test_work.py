@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import signal
 import select
+import socket
 import subprocess
 import sys
 import tempfile
@@ -1149,6 +1150,90 @@ class Work(unittest.TestCase):
             time.sleep(0.1)
         found = {e["server"]: (e["pane"], e["role"]) for e in self.data("editors")}
         self.assertEqual(found, {str(in_tmux): ("%123", "main"), str(in_kitty): ("", "main"), str(viewer): ("", "viewer")})
+
+    def ask(self, message, *args, code=0):
+        """desk-work editor: one message on stdin, the editor's answer as JSON."""
+        p = subprocess.run([str(BIN), "editor", *map(str, args), "--input", "-"], input=message if isinstance(message, str) else json.dumps(message),
+                           cwd=self.repo, env=self.env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(p.returncode, code, p.stdout + p.stderr)
+        return json.loads(p.stdout)
+
+    def keys(self, sock, keys):
+        subprocess.run(["nvim", "--clean", "--headless", "--server", str(sock), "--remote-send", keys], env=self.env, timeout=30, check=True)
+
+    @unittest.skipUnless(subprocess.run(["sh", "-c", "command -v nvim"], capture_output=True).returncode == 0, "needs Neovim")
+    def test_a_message_reaches_the_editor_through_the_bridge_and_its_answer_comes_back(self):
+        (self.repo / "sample.cpp").write_text("int original = 1;\nint second = 2;\nint third = 3;\n")
+        _, sock = self.editor("lua require('desk.bridge').setup()", "edit sample.cpp")
+        pong = self.ask({"version": 1, "type": "ping"}, "--server", sock)
+        self.assertEqual((pong["role"], pong["roots"], pong["mode"]), ("main", [str(self.repo.resolve())], "n"))
+        self.assertGreater(pong["last_focus"], 0)
+        seen = self.ask({"version": 1, "type": "view"}, "--server", sock)
+        self.assertEqual((seen["file"], seen["root"]), (str((self.repo / "sample.cpp").resolve()), str(self.repo.resolve())))
+        self.assertEqual((seen["cursor"], seen["visible"], seen["modified"], seen["diagnostics"]),
+                         ({"line": 1, "col": 1}, {"first": 1, "last": 3}, False, []))
+        self.assertIsInstance(seen["changedtick"], int)
+        self.assertNotIn("selection", seen)
+        self.keys(sock, "Vj")
+        self.assertEqual(self.ask({"version": 1, "type": "view"}, "--server", sock)["selection"],
+                         {"first": 1, "last": 2, "text": "int original = 1;\nint second = 2;", "truncated": False})
+        self.keys(sock, "<Esc>")
+        # Another checkout hears nothing about this one.
+        other = self.dir / "other"
+        other.mkdir()
+        subprocess.run(["git", "init", "-q", str(other)], check=True, env=self.env)
+        refused = self.ask({"version": 1, "type": "view"}, "--server", sock, "--root", other, code=1)
+        self.assertEqual(refused, {"refused": "another project", "ok": False, "message": "another project"})
+        # Refused by name: a type nobody registered, a field its type does not list; and an old version.
+        self.assertIn('"edit"', self.ask({"version": 1, "type": "edit"}, "--server", sock, code=1)["message"])
+        self.assertIn('"line"', self.ask({"version": 1, "type": "view", "line": 3}, "--server", sock, code=1)["message"])
+        self.assertIn("version 1", self.ask({"version": 2, "type": "ping"}, "--server", sock, code=1)["message"])
+        # desk-work's own limits come first: one object of at most 64 KiB, flat enough, for the checkout it was given.
+        self.assertIn("64 KiB", self.ask({"version": 1, "type": "ping", "pad": "x" * 70000}, "--server", sock, code=1)["message"])
+        self.assertIn("one JSON object", self.ask("[1, 2]", "--server", sock, code=1)["message"])
+        self.assertIn("nested", self.ask({"version": 1, "type": "ping", "deep": [[[[[[[[[[1]]]]]]]]]]}, "--server", sock, code=1)["message"])
+        self.assertIn("another checkout", self.ask({"version": 1, "type": "view", "root": str(other)}, "--server", sock, code=1)["message"])
+        # No editor registered on the checkout: nothing to ask.
+        self.assertIn("No Neovim", self.ask({"version": 1, "type": "ping"}, code=2)["message"])
+
+    def test_an_editor_that_never_answers_costs_its_caller_one_second(self):
+        runtime = Path(self.env["XDG_RUNTIME_DIR"])
+        runtime.mkdir(mode=0o700, exist_ok=True)
+        silent = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.addCleanup(silent.close)
+        silent.bind(str(runtime / "silent.sock"))
+        silent.listen(4)   # takes the connection and the request, and never answers
+        started = time.monotonic()
+        answer = self.ask({"version": 1, "type": "ping"}, "--server", runtime / "silent.sock", code=2)
+        took = time.monotonic() - started
+        self.assertIn("did not answer within 1000 ms", answer["message"])
+        self.assertTrue(0.9 <= took < 3, f"{took:.2f} s")
+        # Nothing listening, or no socket at all: at once.
+        silent.close()
+        for target in (runtime / "silent.sock", self.repo / "sample.cpp", "relative.sock"):
+            started = time.monotonic()
+            self.assertFalse(self.ask({"version": 1, "type": "ping"}, "--server", target, code=2)["ok"])
+            self.assertLess(time.monotonic() - started, 0.9)
+
+    @unittest.skipUnless(subprocess.run(["sh", "-c", "command -v nvim"], capture_output=True).returncode == 0, "needs Neovim")
+    def test_with_several_editors_on_a_checkout_the_one_focused_last_takes_the_message(self):
+        (self.repo / "second.cpp").write_text("int second = 2;\n")
+        first = self.editor("lua require('desk.bridge').setup()", "edit sample.cpp")
+        second = self.editor("lua require('desk.bridge').setup()", "edit second.cpp")
+        viewer = self.editor("lua require('desk.bridge').setup()", "edit sample.cpp")
+        for (child, sock), role in ((first, "main"), (second, "main"), (viewer, "viewer")):
+            self.data("client-report", "--client", "nvim", "--build", "b", "--pid", child.pid, "--root", self.repo, "--server", sock, "--role", role)
+        focus = "vim.api.nvim_exec_autocmds('FocusGained', {}) or 'focused'"
+        answered = lambda: Path(self.ask({"version": 1, "type": "view"})["file"]).name
+        self.assertEqual(answered(), "second.cpp", "until either is focused, the one started last")
+        self.assertEqual(self.remote(first[1], focus), "focused")
+        self.assertEqual(answered(), "sample.cpp")
+        self.remote(viewer[1], focus)
+        self.assertEqual(answered(), "sample.cpp", "a viewer is never asked, however recently focused")
+        self.remote(second[1], focus)
+        self.assertEqual(answered(), "second.cpp")
+        self.end_editor(second[0])
+        self.assertEqual(answered(), "sample.cpp", "an editor that ended is not asked")
 
 
 if __name__ == "__main__":

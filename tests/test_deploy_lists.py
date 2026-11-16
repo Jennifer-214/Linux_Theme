@@ -50,6 +50,8 @@ ONE_SIDED = {
         "native-only since-you-last-looked page; AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "nvim_lua/desk/callgraph.lua", "~/.config/nvim/lua/desk/callgraph.lua"):
         "native-only LSP call graph view, live panel and the notebook's changed symbols; AGENT.md freezes mappings.sh",
+    ("SHARED_MAPPINGS", "nvim_lua/desk/bridge.lua", "~/.config/nvim/lua/desk/bridge.lua"):
+        "native-only receiver for messages over the editor's own socket (desk-work editor); AGENT.md freezes mappings.sh",
     ("SHARED_MAPPINGS", "kitty/crt-glow.pipeline", "~/.config/kitty/shaders/crt-glow.pipeline"):
         "native-only kitty glow and scanline pipeline that retro-amber turns on; AGENT.md freezes mappings.sh",
     ("TEMPLATE_MAPPINGS", "hyprlock/boot-label.sh", "~/.config/hypr/scripts/boot-label.sh"):

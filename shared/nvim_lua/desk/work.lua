@@ -629,6 +629,7 @@ function M.setup()
   require('desk.workspace').setup()
   pcall(function() require('desk.since').setup() end)
   pcall(function() require('desk.callgraph').setup() end)
+  pcall(function() require('desk.bridge').setup() end)   -- messages from other programs, over this editor's socket
   vim.api.nvim_create_user_command('ClaudeApi', function(opts)
     M.api_task(opts.range > 0 and {opts.line1, opts.line2} or nil)
   end, {range=true, desc='Ask a read-only question using API credits'})

@@ -29,6 +29,8 @@
 #include <sys/stat.h>
 #include <sys/inotify.h>
 #include <sys/prctl.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 namespace fs = std::filesystem;
@@ -1303,6 +1305,7 @@ J attention(const std::string& root, const std::string& session = {}, bool revie
 #include "since.hpp"
 #include "records.hpp"
 #include "integrations.hpp"
+#include "editor.hpp"
 // A checkout counts for the desktop's lists while it is in use: it still exists, and it has a commit or a recorded
 // event in the last two weeks, a running job or a live agent, or it was asked for by name. Every checkout ever opened
 // stays registered; the lists stop carrying old worktrees, which made each drawer page re-check dozens of them and
@@ -1584,13 +1587,14 @@ int dispatch(int argc, char** argv) {
                          "desk-work health | integration-status [--client NAME --loaded BUILD] | workspace --root DIR --client NAME [--input -]\n"
                          "desk-work client-report --client NAME --build BUILD --pid parent [--root DIR --stream connected|retrying --refresh-at SECONDS --error TEXT]\n"
                          "                        [--server SOCKET --pane %N --role main|viewer|popout] | editors --root DIR\n"
+                         "desk-work editor --root DIR [--server SOCKET] --input - < MESSAGE.json   (exit 1 refused, 2 no editor answered)\n"
                          "desk-work agents [--root DIR] | agent-update --root DIR --agent NAME --session ID --state working|waiting|needs|error|done --pid PID|parent [--title NAME --pane PANE --file PATH]\n"
                          "desk-work open --root DIR --action attention|tests|reviews|compare|log|tasks|ask|file|file-diff|plan|worktree|since --id ITEM [--file PATH --session ID]\n"; return 0;
         }
         const auto cmd = args[0];
         invoked = cmd;
         const auto place = opts.count("--root") ? opts["--root"] : fs::current_path().string();
-        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "review-mark", "review-progress", "review-request", "review-requests", "commit-plan", "review-tree", "push-check", "push-notes", "records", "records-repair", "set-aside", "worktrees", "activity", "plan", "plan-pin", "watch", "signal", "attention", "agent-update", "agents", "revision", "open", "agent-heartbeat", "overlaps", "timeline", "digest", "snooze", "workspace", "suggest-tests", "run-suggested", "resolve", "metrics", "metrics-parse", "since", "editors"}.count(cmd)
+        const auto root = std::set<std::string>{"run", "begin", "notebook", "tests", "tasks", "task-add", "task-toggle", "reviews", "reviewed", "review-mark", "review-progress", "review-request", "review-requests", "commit-plan", "review-tree", "push-check", "push-notes", "records", "records-repair", "set-aside", "worktrees", "activity", "plan", "plan-pin", "watch", "signal", "attention", "agent-update", "agents", "revision", "open", "agent-heartbeat", "overlaps", "timeline", "digest", "snooze", "workspace", "suggest-tests", "run-suggested", "resolve", "metrics", "metrics-parse", "since", "editors", "editor"}.count(cmd)
             ? root_of(place) : place;
         const auto id = opts["--id"];
         J out;
@@ -1666,6 +1670,21 @@ int dispatch(int argc, char** argv) {
         }
         else if (cmd == "agents") out = agents(opts.count("--root") ? root : std::string());
         else if (cmd == "editors") out = live_editors(root);
+        else if (cmd == "editor") {
+            // One message (JSON on stdin) for her running editor on this checkout, and its answer. Exit 1: refused, the
+            // reason in "message"; 2: no editor answered.
+            if (opts["--input"] != "-") { std::cerr << "desk-work editor: the message comes on stdin (--input -)\n"; return 2; }
+            std::string input(65537, '\0');
+            std::cin.read(&input[0], static_cast<std::streamsize>(input.size()));
+            input.resize(static_cast<size_t>(std::cin.gcount()));
+            EditorAnswer answer;
+            if (input.size() > 65536) { answer.code = 1; answer.message = "A message is limited to 64 KiB"; }
+            else answer = ask_editor(root, opts["--server"], J::parse(input, nullptr, false));
+            J shown = answer.code == 0 || answer.result.is_object() ? answer.result : J::object();
+            if (answer.code != 0) { shown["ok"] = false; shown["message"] = answer.message; }
+            std::cout << shown.dump(-1, ' ', false, J::error_handler_t::replace) << '\n';
+            return answer.code;
+        }
         else if (cmd == "classify") { out = J{{"kind", kind_of(opts["--command"])}, {"observable", observable(opts["--command"])}}; }
         else if (cmd == "run") {
             if (args.size() < 2) return 2;
@@ -1851,8 +1870,8 @@ int dispatch(int argc, char** argv) {
 int main(int argc, char** argv) {
     const int code = dispatch(argc, argv);
     // Usage refusals print nothing else, so say which command refused. Commands that hand back a child's own exit
-    // status are left alone: a 2 from them is the child's.
-    static const std::set<std::string> passthrough{"integrations", "run", "run-suggested"};
+    // status are left alone: a 2 from them is the child's. editor's 2 says no editor answered, and its output says why.
+    static const std::set<std::string> passthrough{"integrations", "run", "run-suggested", "editor"};
     if (code == 2 && !passthrough.count(invoked))
         std::cerr << "desk-work " << (invoked.empty() ? "" : invoked + ": ") << "missing or invalid arguments (desk-work help lists them)\n";
     return code;
