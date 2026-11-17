@@ -1833,6 +1833,20 @@ end
 
 -- ? in the pop-out: the keys of the view in front, as bound here (actions.popout_rows), in the list every view's ?
 -- draws. Whether a row can run is the editor's to say, so every key is listed and Enter on one presses it.
+-- /: every box or row of the view in front by its whole name (a box shows it cut with …), filtered as she types in the
+-- menu; Enter selects it here (2026-11-16: Vim's own / missed cut names, and its n is the review's own key).
+function M.client_find()
+  local view = shown()
+  if not (view and #view.items > 0) then return say('nothing to find in this view') end
+  vim.ui.select(view.items, { prompt = 'Find in ' .. (view.title ~= '' and view.title or view.id),
+    format_item = function(item) return item.name ~= '' and item.name or item.key end }, function(_, index)
+    if not (index and C.views[view.id] == view and api.nvim_buf_is_valid(view.buf)) then return end
+    if view.win and api.nvim_win_is_valid(view.win) then pcall(api.nvim_set_current_win, view.win) end
+    graphs().select(view.copy, index, true)
+    strip(view)
+  end)
+end
+
 function M.client_keys()
   local view = shown() or C.empty
   local said = actions.voice(graphs().retro())
@@ -2013,6 +2027,8 @@ local ROWS = actions.add({
     available = back_there }, function() M.history_back() end),
   remote({ id = 'popout.history-forward', group = 'Pop-out', name = 'Forward', key = 'L', on = ON,
     about = 'Forward again, after going back', available = ahead_there }, function() M.history_forward() end),
+  { id = 'popout.find', group = 'Pop-out', name = 'Find a box or row', key = '/', on = ON,
+    about = 'Every box or row of this view by its whole name, filtered as you type; `Enter` selects it', run = function() M.client_find() end },
   { id = 'popout.keys', group = 'Pop-out', name = "The pop-out's keys", key = '?', on = ON, about = 'The keys of this view in the pop-out, in a list',
     run = function() M.client_keys() end },
   { id = 'popout.swap', group = 'Pop-out', name = 'To the editor', key = '<leader><Tab>', on = ON,

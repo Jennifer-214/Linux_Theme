@@ -329,6 +329,7 @@ Tab` in either window puts the keyboard in the other, on whichever screen it is.
 | `gt` / `gT` in the pop-out | The next / previous view (each view is a tab); a count first goes to that view: `2gt` the second |
 | `H` / `<BS>` in the pop-out | Back where you were: the view before, the graph before a centre, the code spot before `Enter` (the editor goes back too) |
 | `L` in the pop-out | Forward again, after going back |
+| `/` in the pop-out | Every box or row of this view by its whole name, filtered as you type; `Enter` selects it |
 | `?` in the pop-out | The keys of this view in the pop-out, in a list |
 | `Space Tab` in the pop-out | Put the keyboard in the editor; the same key there comes back here |
 | `q` in the pop-out | Close this view; closing the last one closes the pop-out, and the keyboard comes back to the editor |

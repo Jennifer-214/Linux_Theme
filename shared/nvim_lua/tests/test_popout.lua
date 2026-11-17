@@ -386,6 +386,30 @@ do
   ok(wait(3000, function() return state().gutter < 70 end), '… and back')
 end
 
+-- ─── / in the pop-out: every item by its whole name, Enter selects it (2026-11-16) ─────────────────────────────
+do
+  local function find(name)
+    pop([[_G.found = nil
+      local want = ...
+      vim.ui.select = function(items, opts, done)
+        _G.found = { prompt = opts.prompt, names = vim.tbl_map(opts.format_item, items) }
+        for i, item in ipairs(items) do if want == nil and i == #items or opts.format_item(item) == want then return done(item, i) end end
+        done(nil, nil)
+      end]], name)
+    press('/')
+    ok(wait(3000, function() return pop('return _G.found') ~= nil end), '/ asks which item')
+    return pop('return _G.found')
+  end
+  local before = state().selected
+  local found = find(nil)
+  ok(found.prompt:find('Find in call graph', 1, true) and #found.names > 1 and vim.tbl_contains(found.names, before),
+    '… every item of the view, by its name: ' .. vim.inspect(found))
+  ok(wait(2000, function() return state().selected == found.names[#found.names] and before ~= found.names[#found.names] end),
+    '… and the one chosen is selected: ' .. tostring(state().selected) .. ' (was ' .. tostring(before) .. ')')
+  find(before)
+  ok(wait(2000, function() return state().selected == before end), '… and back to ' .. tostring(before))
+end
+
 -- ─── Space Space in the pop-out: the editor's rows for that box ─────────────────────────────────────────────────
 press('<Space><Space>')
 ok(wait(3000, function() return pop("local m = require('desk.menu')._last; return m ~= nil and vim.api.nvim_win_is_valid(m.win)") end),
