@@ -921,7 +921,10 @@ end
 
 -- ─── the layout record: the pop-out's views in desk-work, offered again after a restart ────────────────────────
 -- desk-work workspace --client popout, per checkout: { version, tabs = { { kind, pinned, target } }, activeTab = the
--- view in front, show = { screen } } (keys its allow-list has). Written when a view opens, closes, is pinned or centred,
+-- view in front, show = { screen, pops = { { id, tabs, activeTab, screen } } } } (keys its allow-list has): the first
+-- pop-out's tabs, front and screen where they have always been, and every other pop-out that shows something in
+-- show.pops, each with its own (desk-work keeps only the keys it allows at the top; a record from before several
+-- pop-outs is the one-pop-out case of the same shape, and M.record_pops reads either as one list). Written when a view opens, closes, is pinned or centred,
 -- and when the editor exits; read at start, so the Views group offers "Restore 2 views". The selection inside a view is
 -- not kept: a restored graph selects its centre.
 -- Each record belongs to a checkout. The open pop-out's is filed under the one it opened in (L.root), whatever is in
@@ -935,8 +938,10 @@ local function restore_named()
   if not RESTORE then return end
   -- Only what can come back now: a tab whose kind has not loaded yet waits for it (its pop-out's waiting).
   local n = 0
-  for _, tab in ipairs(L.saved and type(L.saved.tabs) == 'table' and L.saved.tabs or {}) do
-    if type(tab) == 'table' and kinds[tab.kind] then n = n + 1 end
+  for _, saved in ipairs(M.record_pops(L.saved)) do
+    for _, tab in ipairs(saved.tabs) do
+      if type(tab) == 'table' and kinds[tab.kind] then n = n + 1 end
+    end
   end
   RESTORE.name = n == 0 and "Restore the pop-out's views" or n == 1 and 'Restore 1 view' or ('Restore %d views'):format(n)
 end
@@ -946,10 +951,32 @@ local function offer(front)
   L.saved_root, L.saved = front, L.records[front] or nil
   restore_named()
 end
-local function layout_record()
+-- A layout record's pop-outs, in either shape, as one list { { id, tabs, activeTab, screen } }: the first's from the
+-- record's own tabs, activeTab and show.screen, the others from show.pops (ids 2 to M.MAX_POPS, each once).
+function M.record_pops(record)
+  if type(record) ~= 'table' then return {} end
+  local show = type(record.show) == 'table' and record.show or {}
+  local function text(value) return type(value) == 'string' and value or nil end
+  local function tabs(value) return type(value) == 'table' and value or {} end
+  local out, seen = { { id = 1, tabs = tabs(record.tabs), activeTab = text(record.activeTab), screen = text(show.screen) } }, { true }
+  for _, saved in ipairs(type(show.pops) == 'table' and show.pops or {}) do
+    local id = type(saved) == 'table' and tonumber(saved.id)
+    if id and id == math.floor(id) and id >= 2 and id <= M.MAX_POPS and not seen[id] then
+      seen[id] = true
+      out[#out + 1] = { id = id, tabs = tabs(saved.tabs), activeTab = text(saved.activeTab), screen = text(saved.screen) }
+    end
+  end
+  return out
+end
+local function saved_views(record)
+  for _, saved in ipairs(M.record_pops(record)) do if #saved.tabs > 0 then return true end end
+  return false
+end
+-- Pop-out p's tabs, as the record keeps them.
+local function tabs_of(p)
   local tabs = {}
-  for _, id in ipairs(H.order) do
-    local view = H.views[id]
+  for _, id in ipairs(p.order) do
+    local view = p.views[id]
     local kind = view and kinds[view.kind]
     if kind and kind.save then
       local ok, saved = pcall(kind.save, view)
@@ -959,8 +986,16 @@ local function layout_record()
     end
   end
   -- Tabs of a kind not loaded yet are written back as they were, so the first write after a restart keeps them.
-  if L.waiting_root == layout_root() then for _, saved in ipairs(H.waiting) do tabs[#tabs + 1] = saved end end
-  return { version = 1, tabs = tabs, activeTab = H.front, show = { screen = H.screen } }
+  if L.waiting_root == layout_root() then for _, saved in ipairs(p.waiting) do tabs[#tabs + 1] = saved end end
+  return tabs
+end
+local function layout_record()
+  local others = {}
+  for _, p in ipairs(pops) do
+    local tabs = p ~= H and tabs_of(p) or {}
+    if #tabs > 0 then others[#others + 1] = { id = p.id, tabs = tabs, activeTab = p.front, screen = p.screen } end
+  end
+  return { version = 1, tabs = tabs_of(H), activeTab = H.front, show = { screen = H.screen, pops = #others > 0 and others or nil } }
 end
 -- A write that failed is said, in desk-work's own words when it gave some.
 local function not_saved(out)
@@ -1177,22 +1212,33 @@ local function restore_tab(p, saved)
   to_front(view)
 end
 
+-- Every pop-out the record has views for opens again (each its own state machine, on its own screen), in its order.
 function M.restore_layout()
   local record = L.saved
-  if not (record and type(record.tabs) == 'table' and #record.tabs > 0) then return tell('No views of the pop-out were saved here.') end
+  if not saved_views(record) then return tell('No views of the pop-out were saved here.') end
   if refused_here(M.can_pop()) then return end
-  local p = H
-  p.prefer = type(record.show) == 'table' and type(record.show.screen) == 'string' and record.show.screen or nil
-  local ok, why = open_pop(p, L.saved_root)
-  if not ok then return tell(sentence(why), WARN) end
-  p.waiting, L.waiting_root = {}, L.saved_root
-  for _, saved in ipairs(record.tabs) do
-    if type(saved) == 'table' and type(saved.kind) == 'string' and not kinds[saved.kind] then p.waiting[#p.waiting + 1] = saved
-    else restore_tab(p, saved) end
+  L.waiting_root = L.saved_root
+  for _, saved in ipairs(M.record_pops(record)) do
+    if #saved.tabs > 0 then
+      for n = #pops + 1, saved.id do pops[n] = new_pop(n) end
+      local p = pops[saved.id]
+      p.prefer = saved.screen
+      local ok, why = open_pop(p, L.saved_root)
+      if not ok then return tell(sentence(why), WARN) end
+      p.waiting = {}
+      for _, tab in ipairs(saved.tabs) do
+        if type(tab) == 'table' and type(tab.kind) == 'string' and not kinds[tab.kind] then p.waiting[#p.waiting + 1] = tab
+        else
+          restore_tab(p, tab)
+          -- Its kind's views go to the pop-out it was in, as when she sent it there.
+          if p ~= H and type(tab) == 'table' and kind_view(p, tab.kind) then homes[tab.kind] = p.id end
+        end
+      end
+      -- The one in front, by its kind (a view's id is its kind's name, or kind.2 when another pop-out had one).
+      local active = saved.activeTab and kind_view(p, (saved.activeTab:gsub('%.%d+$', '')))
+      if active then to_front(active) end
+    end
   end
-  -- The one in front, by its kind (a view's id is its kind's name, or kind.2 when another pop-out had one).
-  local active = type(record.activeTab) == 'string' and kind_view(p, (record.activeTab:gsub('%.%d+$', '')))
-  if active then to_front(active) end
 end
 
 -- A kind just registered: its saved tabs come back into the open pop-outs they were in.
@@ -2297,9 +2343,9 @@ local ROWS = actions.add({
       M.focus({ pid = p.pid })
     end },
   { id = 'popout.restore', group = 'Views', name = "Restore the pop-out's views", on = 'editor', remote = true,
-    about = 'Open the pop-out again with the views it had when this editor last closed, pinned as they were, on the screen it was on',
+    about = 'Open the pop-outs again with the views they had when this editor last closed, pinned as they were, each on the screen it was on',
     available = function()
-      if any_open() or not (L.saved and type(L.saved.tabs) == 'table' and #L.saved.tabs > 0) then return false end
+      if any_open() or not saved_views(L.saved) then return false end
       return M.can_pop()
     end,
     run = function() M.restore_layout() end },

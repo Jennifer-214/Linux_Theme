@@ -1221,6 +1221,56 @@ do
   eq({ host("return require('desk.popout').pops[1].chan ~= nil"), state().connected }, { true, true }, '… and the first goes on')
 end
 
+-- ─── several pop-outs in the layout record: each with its tabs and its screen; Restore brings them all back ────────
+do
+  -- Either shape read as one list: a record from before several pop-outs is the one-pop-out case.
+  eq(host([[return require('desk.popout').record_pops({ version = 1, tabs = { { kind = 'graph' } }, activeTab = 'graph', show = { screen = 'DP-2' } })]]),
+    { { id = 1, tabs = { { kind = 'graph' } }, activeTab = 'graph', screen = 'DP-2' } }, 'an old record: one pop-out, its tabs and its screen')
+  eq(host([[return #require('desk.popout').record_pops({ tabs = {}, show = { pops = { { id = 2, tabs = {} }, { id = 2, tabs = {} }, { id = 40 }, 'x' } } })]]),
+    2, '… and in the new shape every other pop-out once, numbered as there may be')
+  -- The rows sent to a new pop-out on HDMI-A-1: the record lists both, each with its own tabs, front and screen.
+  os.remove(dir .. '/kitty.listen')
+  host("local P = require('desk.popout'); P.send(P.pops[1].views.rows, nil, 'HDMI-A-1')")
+  ok(wait(10000, function() return exists(dir .. '/kitty.listen') end), 'the rows sent to a new pop-out')
+  ok(wait(10000, function() return host("return require('desk.popout').pops[2].screen") == 'HDMI-A-1' end), '… placed on HDMI-A-1')
+  ok(wait(5000, function()
+    local r = record()
+    return #(r.tabs or {}) == 1 and r.activeTab == 'graph' and r.show and r.show.pops and #r.show.pops == 1 and r.show.pops[1].screen == 'HDMI-A-1'
+  end), 'the layout record holds both pop-outs: ' .. read(record_file()))
+  local r = record()
+  eq({ r.tabs[1].kind, r.activeTab, r.show.screen ~= nil, r.show.pops[1].id, r.show.pops[1].tabs[1].kind, r.show.pops[1].activeTab },
+    { 'graph', 'graph', true, 2, 'rows', 'rows' }, "… the first's tabs where they always were, the second's in show.pops with its own")
+  -- Both go (her screens unplugged, say); the record keeps them, and Restore brings both back, each on its screen.
+  host("local P = require('desk.popout'); P.fold('the screen went', P.pops[2]); P.fold('the screen went')")
+  ok(wait(5000, function() return host("local P = require('desk.popout'); return P.pops[1].chan == nil and P.pops[2].chan == nil") end), 'both closed')
+  -- (This editor counts no writes: none is on its way or waiting once its timer is idle and nothing is pending.)
+  ok(wait(5000, function()
+    return host("local H = require('desk.popout').host; local t = H.save_timer; return not (t and t:is_active()) and not H.writing and not H.pending")
+  end), '… no write left on its way')
+  host("require('desk.callgraph').panel_close()")
+  eq(#((record().show or {}).pops or {}), 1, '… and the record still holds the second')
+  ok(wait(5000, function() return host("return require('desk.actions').get('popout.restore').name") == 'Restore 2 views' end),
+    'Restore offers the views of both: ' .. tostring(host("return require('desk.actions').get('popout.restore').name")))
+  local count = tonumber(vim.trim(read('kitty.count')))
+  mark = #read('hyprctl.log')
+  host("local A = require('desk.actions'); A.get('popout.restore').run(A.context())")
+  local one = connect(dir .. '/p' .. (count + 1))
+  local two = connect(dir .. '/p' .. (count + 2))
+  ok(one ~= nil and two ~= nil, '… two pop-outs start')
+  ok(wait(10000, function() return state_of(one).kind == 'graph' and state_of(two).kind == 'rows' end),
+    '… the graph in the first again, the rows in the second')
+  eq(host("local P = require('desk.popout'); return { P.pops[1].order, P.pops[2].order, P.pops[2].prefer }"), { { 'graph' }, { 'rows' }, 'HDMI-A-1' },
+    '… each its own views, the second asking for its screen')
+  ok(wait(5000, function()
+    return log_since(mark):find("dispatch hl.dsp.window.move({ workspace = '7', follow = false, window = 'address:0xb2' })", 1, true)
+  end), '… and placed on it, HDMI-A-1')
+  -- The rows' pop-out is the second again: asked for from the editor, they show there.
+  host("require('desk.popout').show('rows', require('desk.actions').context())")
+  ok(wait(3000, settled), '… the rows asked for from the editor')
+  eq(host("local P = require('desk.popout'); return { P.pops[1].order, P.pops[2].order }"), { { 'graph' }, { 'rows' } }, '… go to the second, where they were')
+  p, psock = one, dir .. '/p' .. (count + 1)
+end
+
 vim.rpcnotify(h, 'nvim_command', 'qa!')
 ok(third:wait(5000).code == 0, 'the third editor closes')
 ok(wait(10000, function() return not exists(psock) end), '… and its pop-out quits')
