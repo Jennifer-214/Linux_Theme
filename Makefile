@@ -86,8 +86,11 @@ test-work-integrations:
 	@python3 -B tests/run_work_checks.py
 
 # Python script tests (shared/bin tools without their own src/<tool>/ dir).
+# Every one runs, and the failures are named at the end: stopping at the first hid the next one behind it (CI,
+# 2026-11-17: three pushes, one failure each).
 test-scripts:
-	@for t in tests/test_*.py; do [ -e "$$t" ] || continue; echo "  - $$t"; python3 "$$t" || exit 1; done
+	@failed=""; for t in tests/test_*.py; do [ -e "$$t" ] || continue; echo "  - $$t"; python3 "$$t" || failed="$$failed $$t"; done; \
+	if [ -n "$$failed" ]; then echo "FAILED:$$failed"; exit 1; fi
 
 # Whether a tool has tests is read from its Makefile, not from a dry run: a dry run also fails when the test target is
 # broken, and that once passed as "no tests".

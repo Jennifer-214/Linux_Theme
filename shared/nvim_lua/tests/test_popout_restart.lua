@@ -99,7 +99,16 @@ for _, path in ipairs(vim.split(vim.trim(found.stdout), '\n')) do
 end
 
 local function wait(ms, cond) return vim.wait(ms, function() local fine, value = pcall(cond); return fine and value end, 20) end
-local function alive(pid) return type(pid) == 'number' and uv.kill(pid, 0) == 0 end
+-- Alive, and not a zombie: in CI's container nothing reaps an orphan that exited, and it still answers kill 0 (2026-11-17:
+-- "… and quits" failed there only).
+local function alive(pid)
+  if type(pid) ~= 'number' or uv.kill(pid, 0) ~= 0 then return false end
+  local f = io.open('/proc/' .. pid .. '/stat', 'r')
+  if not f then return false end
+  local stat = f:read('*l') or ''
+  f:close()
+  return stat:match('^%d+ %b() (%a)') ~= 'Z'
+end
 local function server() local pid, sock = read('server.last'):match('^(%d+) (%S+)'); return tonumber(pid), sock end
 -- Asked with a deadline: an editor that stalls (waiting for a key, the regression this file is for) answers no request,
 -- and a vim.rpcrequest to it would hold this file until the runner's timeout, saying nothing. A client Neovim asks

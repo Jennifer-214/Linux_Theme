@@ -40,7 +40,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             ccache g++ make libcurl4-openssl-dev python3 pkg-config \
             libcairo2-dev libpango1.0-dev libglib2.0-dev libgdk-pixbuf-2.0-dev \
-            libsystemd-dev libwayland-dev wayland-protocols
+            libsystemd-dev libwayland-dev wayland-protocols jq
 
       - name: Name the compiler cache after this CPU model
         # -march=native objects are only safe to reuse on the same kind of CPU.

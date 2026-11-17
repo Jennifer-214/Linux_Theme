@@ -64,7 +64,7 @@ jobs:
           pacman -Syyuu --noconfirm --needed \
             base-devel ccache git curl pkgconf openssl \
             pacman-contrib coreutils sed gawk \
-            python python-yaml wayland wayland-protocols cairo pango glib2 gdk-pixbuf2 systemd-libs
+            python python-yaml wayland wayland-protocols cairo pango glib2 gdk-pixbuf2 systemd-libs jq
 
       # After git is installed: without git in the container, checkout downloads the files with no .git, and the
       # tests that read git's index (script modes) fail.

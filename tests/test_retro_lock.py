@@ -121,6 +121,11 @@ class RetroLock(unittest.TestCase):
         self.assertIn('C:\\DESK> LOCK', lines)
         self.assertTrue(any(line.startswith('SYSTEM LOCKED  ') and line == line.upper() for line in lines))
 
+        # The cells are the retro font's: without it (CI has none) Pango measures a stand-in, and the columns say nothing.
+        families = {f.get_name() for f in PangoCairo.FontMap.get_default().list_families()}
+        if boot['font_family'] not in families:
+            self.skipTest(f"the retro font ({boot['font_family']}) is not installed here")
+
         def layout(markup, size):
             lay = Pango.Layout.new(PangoCairo.FontMap.get_default().create_context())
             lay.set_font_description(Pango.FontDescription(f"{boot['font_family']} {size}"))
