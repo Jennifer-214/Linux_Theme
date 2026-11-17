@@ -59,9 +59,14 @@ expect("sshd -T fails: every Port line with --all", run("desk-ssh-port", ["--all
 expect("nothing to read: 22, never empty", run("desk-ssh-port") == "22\n")
 # --no-sudo is for the bar's security pill, which polls every 15 s and never calls sudo: the stub sudo would hand back
 # sshd -T's 4022, so the drop-in's port proves it was not asked.
-expect("--no-sudo: the drop-in, sudo never asked", run("desk-ssh-port", ["--no-sudo"], sshd_t=MOVED, dropin="Port 2202\n") == "2202\n")
-expect("--no-sudo --all: every Port line", run("desk-ssh-port", ["--no-sudo", "--all"], sshd_t=MOVED, dropin="Port 2202\nPort 22\n") == "2202\n22\n")
-expect("--no-sudo, nothing to read: 22", run("desk-ssh-port", ["--no-sudo"], sshd_t=MOVED) == "22\n")
+# Run as root (CI's containers), sshd -T needs no sudo and --no-sudo reads it, as the script means it to: the bar runs
+# as her, so there the drop-in's port is what proves sudo was not asked.
+ROOT_RUN = os.geteuid() == 0
+expect("--no-sudo: the drop-in, sudo never asked (as root: sshd -T, no sudo needed)",
+       run("desk-ssh-port", ["--no-sudo"], sshd_t=MOVED, dropin="Port 2202\n") == ("4022\n" if ROOT_RUN else "2202\n"))
+expect("--no-sudo --all: every Port line",
+       run("desk-ssh-port", ["--no-sudo", "--all"], sshd_t=MOVED, dropin="Port 2202\nPort 22\n") == ("4022\n" if ROOT_RUN else "2202\n22\n"))
+expect("--no-sudo, nothing to read: 22", run("desk-ssh-port", ["--no-sudo"], sshd_t=MOVED) == ("4022\n" if ROOT_RUN else "22\n"))
 expect("a drop-in without a Port line: 22", run("desk-ssh-port", dropin="PasswordAuthentication no\n") == "22\n")
 # OpenSSH 10's dump names its keywords in mixed case (10.6 on Arch, the test VM, 2026-11-16); read as lower case only,
 # a working sshd -T gave no port and the drop-in or 22 stood in for it.
