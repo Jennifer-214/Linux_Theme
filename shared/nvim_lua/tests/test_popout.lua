@@ -476,7 +476,7 @@ press('q')
 ok(wait(2000, function() return state().current_win == state().win end), '… q closes it, back in the pop-out')
 
 -- ─── the focus swap ─────────────────────────────────────────────────────────────────────────────────────────────
-eq(pop("return vim.fn.maparg('<leader><Tab>', 'n', false, true).desc"), 'To the editor', 'Space Tab in the pop-out goes to the editor')
+eq(pop("return vim.fn.maparg('<leader><Tab>', 'n', false, true).desc"), 'To the editor, or next pop-out', 'Space Tab in the pop-out goes to the editor (or the next pop-out)')
 eq(host("return vim.fn.maparg('<leader><Tab>', 'n', false, true).desc"), 'To the pop-out', '… the same key in the editor comes here')
 mark = #read('hyprctl.log')
 press('<Space><Tab>')
@@ -1122,6 +1122,103 @@ do
     { { true, { 'graph' }, true }, true, { 'graph' } }, '… and the first pop-out goes on, its views as they were')
   host("require('desk.callgraph').panel_close()")
   eq(host("return require('desk.popout').new_pop()"), 2, 'a closed pop-out is the next new one')
+end
+
+-- ─── several pop-outs: her rows (send a view, move a pop-out, Space Tab through them) ────────────────────────────
+-- In pop-out chan: Space Space, then Enter on the row called `name`; each question it asks is answered with the first
+-- choice whose words hold the next of `answers`. What was asked is kept there (_G.asked).
+local function menu_row(chan, name, answers)
+  in_pop(chan, [[_G.asked = {}; local answers = ...
+    vim.ui.select = function(items, opts, done)
+      local names = vim.tbl_map(opts.format_item, items)
+      table.insert(_G.asked, { prompt = opts.prompt, kind = opts.kind, names = names })
+      local want = table.remove(answers, 1)
+      for i, n in ipairs(names) do if want and n:find(want, 1, true) then return done(items[i], i) end end
+      done(nil)
+    end]], answers)
+  vim.rpcrequest(chan, 'nvim_input', '<Space><Space>')
+  ok(wait(3000, function() return in_pop(chan, "local m = require('desk.menu')._last; return m ~= nil and vim.api.nvim_win_is_valid(m.win)") end),
+    'Space Space: the menu, for ' .. name)
+  local found = in_pop(chan, [[local m, name = require('desk.menu')._last, ...
+    for i, line in ipairs(vim.api.nvim_buf_get_lines(m.buf, 0, -1, false)) do
+      if line:find(name, 1, true) and line:sub(1, 2) == '  ' then vim.api.nvim_win_set_cursor(m.win, { i, 0 }); return true end
+    end
+    return false]], name)
+  ok(found, '… which lists ' .. name .. ': ' .. in_pop(chan, "return table.concat(vim.api.nvim_buf_get_lines(require('desk.menu')._last.buf, 0, -1, false), '\\n')"))
+  vim.rpcrequest(chan, 'nvim_input', '<CR>')
+end
+do
+  -- The rows, with no pop-out named, go to the first (the default: nothing opens by itself).
+  host("require('desk.popout').show('rows', require('desk.actions').context())")
+  ok(wait(5000, function() return state().shown == 'rows' end), 'the rows shown from the editor go to the first pop-out')
+  eq(host("return #vim.tbl_filter(function(p) return p.chan ~= nil end, require('desk.popout').pops)"), 1, '… and no other opens')
+  -- Sent to a new one from there: it asks which (only "a new pop-out" yet), then its screen, as every screen question.
+  os.remove(dir .. '/kitty.listen')
+  mark = #read('hyprctl.log')
+  local chosen_before = host("return require('desk.popout').chosen")
+  menu_row(first, 'Send to another pop-out', { 'A new pop-out', 'HDMI-A-1' })
+  ok(wait(10000, function() return exists(dir .. '/kitty.listen') end), '"Send to another pop-out" › a new one: a second pop-out starts')
+  local asked = in_pop(first, 'return _G.asked')
+  eq({ asked[1] and asked[1].prompt, asked[1] and asked[1].names, asked[2] and asked[2].prompt, asked[2] and asked[2].kind },
+    { 'Send to another pop-out', { 'A new pop-out' }, 'Send to a new pop-out', 'desk_screens' },
+    '… asked which (no other is open), then the screen, as the screen question: ' .. vim.inspect(asked))
+  ok(asked[2] and vim.tbl_contains(asked[2].names, 'eDP-1 (this screen)') and #asked[2].names == 3, '… every screen offered: ' .. vim.inspect(asked[2]))
+  local second = connect(vim.trim(read('kitty.listen')))
+  ok(wait(10000, function() return state_of(second).kind == 'rows' end), '… the rows are there now')
+  ok(wait(3000, function() return vim.deep_equal(state().views, { 'graph' }) end), '… and gone from the first, which keeps its graph')
+  ok(wait(5000, function()
+    return log_since(mark):find("dispatch hl.dsp.window.move({ workspace = '7', follow = false, window = 'address:0xb2' })", 1, true)
+  end), '… placed on the screen chosen, HDMI-A-1')
+  eq(host("local P = require('desk.popout'); return { P.pops[2].chosen, P.chosen == ... }", chosen_before), { 'HDMI-A-1', true },
+    "… chosen for that pop-out, the first's choice as it was")
+  -- Asked for again from the editor, the rows go where she sent them.
+  local opens = host('return _G.rows_test.opens')
+  host("require('desk.popout').show('rows', require('desk.actions').context())")
+  ok(wait(3000, function() return host('return _G.rows_test.opens') == opens + 1 end), 'the rows asked for again from the editor')
+  eq(host("local P = require('desk.popout'); return { P.pops[1].order, P.pops[2].order }"), { { 'graph' }, { 'rows' } },
+    '… are filled again in the second, where she sent them; no second view')
+  -- Taken off there (their kind's clear) and asked for again: the second is still their pop-out while it is open.
+  host("require('desk.popout').clear('rows')")
+  ok(wait(3000, function() return state_of(second).tabs == 1 and state_of(second).shown == '' end), 'the rows taken off the second, which stays open')
+  host("require('desk.popout').show('rows', require('desk.actions').context())")
+  ok(wait(3000, function() return state_of(second).shown == 'rows' end), '… asked for again: back in the second, their pop-out')
+  eq(host("local P = require('desk.popout'); return { P.pops[1].order, P.pops[2].order }"), { { 'graph' }, { 'rows' } }, '… not the first')
+  -- Space Tab: the editor, the first, the second, the editor again.
+  local first_window = 'address:0xc' .. host("return require('desk.popout').pops[1].pid")
+  mark = #read('hyprctl.log')
+  host("local A = require('desk.actions'); A.get('popout.focus').run(A.context())")
+  ok(wait(3000, function() return log_since(mark):find("dispatch hl.dsp.focus({ window = '" .. first_window .. "' })", 1, true) end),
+    'Space Tab in the editor: the first pop-out')
+  mark = #read('hyprctl.log')
+  press('<Space><Tab>')
+  ok(wait(3000, function() return log_since(mark):find("dispatch hl.dsp.focus({ window = 'address:0xb2' })", 1, true) end),
+    '… in the first: the second')
+  mark = #read('hyprctl.log')
+  vim.rpcrequest(second, 'nvim_input', '<Space><Tab>')
+  ok(wait(3000, function() return log_since(mark):find("dispatch hl.dsp.focus({ window = 'address:0xa1' })", 1, true) end),
+    '… in the second, the last: the editor')
+  -- Moved to another screen from the second: that one moves; the first stays where it is.
+  local first_screen = host("return require('desk.popout').pops[1].screen")
+  mark = #read('hyprctl.log')
+  menu_row(second, 'This pop-out to another screen', { 'DP-2' })
+  ok(wait(5000, function()
+    return log_since(mark):find("dispatch hl.dsp.window.move({ workspace = '5', follow = false, window = 'address:0xb2' })", 1, true)
+  end), '"This pop-out to another screen" in the second: it moves to DP-2')
+  ok(wait(3000, function() return host("return require('desk.popout').pops[2].screen") == 'DP-2' end), '… and is on DP-2')
+  eq({ host("return require('desk.popout').pops[1].screen"), in_pop(second, 'return _G.asked[1].kind') }, { first_screen, 'desk_screens' },
+    '… the first stays on its screen; asked as the screen question')
+  -- Sent back to the first: the open one is offered by number, where it is and what it shows.
+  menu_row(second, 'Send to another pop-out', { 'Pop-out 1' })
+  ok(wait(5000, function() return vim.deep_equal(host("return require('desk.popout').pops[1].order"), { 'graph', 'rows' }) end),
+    'sent to the first: the rows are there')
+  ok(wait(3000, function() return #(state().views or {}) == 2 and state_of(second).tabs == 1 and state_of(second).shown == '' end),
+    '… shown there, and the second shows nothing now')
+  eq(in_pop(second, 'return _G.asked[1].names'), { 'Pop-out 1 · ' .. tostring(first_screen) .. ' · graph', 'A new pop-out' },
+    '… offered: the first by number, its screen and its views, or a new one')
+  -- q in the second, now empty: it goes (leaving), and the first goes on.
+  vim.rpcnotify(second, 'nvim_input', 'q')
+  ok(wait(5000, function() return host("return require('desk.popout').pops[2].chan") == vim.NIL end), 'q in the second: it closes')
+  eq({ host("return require('desk.popout').pops[1].chan ~= nil"), state().connected }, { true, true }, '… and the first goes on')
 end
 
 vim.rpcnotify(h, 'nvim_command', 'qa!')

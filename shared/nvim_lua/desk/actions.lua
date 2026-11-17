@@ -422,19 +422,25 @@ function M.show_keys(ctx, opts)
 end
 
 -- A row's input as plain data at ctx: its prompt, and the choices it offers there (at most 50, { id, name }).
+-- A choice may also name a row that asks next once it is picked (row: its id), and a screen's place (here, x, y,
+-- width, height, scale, transform), so a question asked in the pop-out is the editor's own, a map of screens too; and
+-- the input's kind goes along.
 function M.offered(input, ctx)
   local choices
+  local function num(value) return type(value) == 'number' and value or nil end
   if input.choices then
     choices = {}
     local ok, found = pcall(input.choices, ctx)
     for _, c in ipairs(ok and type(found) == 'table' and found or {}) do
       if #choices < 50 and type(c) == 'table' and (type(c.id) == 'string' or type(c.id) == 'number') then
         choices[#choices + 1] = { id = tostring(c.id):sub(1, 64), name = tostring(c.name or c.id):sub(1, 120),
-          key = type(c.key) == 'string' and c.key:match('^%a$') or nil }
+          key = type(c.key) == 'string' and c.key:match('^%a$') or nil,
+          row = type(c.row) == 'string' and c.row:match('^[%w_-]+%.[%w_.-]+$') or nil, here = c.here == true or nil,
+          x = num(c.x), y = num(c.y), width = num(c.width), height = num(c.height), scale = num(c.scale), transform = num(c.transform) }
       end
     end
   end
-  return { prompt = input.prompt, choices = choices }
+  return { prompt = input.prompt, choices = choices, kind = input.kind }
 end
 
 -- What the pop-out may offer at ctx, as plain data (no code): the remote rows that apply, each with why it cannot run

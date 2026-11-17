@@ -322,7 +322,7 @@ the keyboard stays in the pop-out; `f` or Shift+Enter puts the keyboard here too
 <!-- popout-keys:begin · generated from shared/nvim_lua/desk/popout.lua: python3 tests/test_nvim_keys.py --write -->
 | Key | Action |
 |---|---|
-| `Space Tab` | Put the keyboard in the pop-out window, on whichever screen it is; the same key there comes back here |
+| `Space Tab` | Put the keyboard in the pop-out window, on whichever screen it is (with several, the first); the same key there goes on to the next, and from the last back here |
 | `f` / `Shift+Enter` in the pop-out | What `Enter` does (go to the selected box or row in the editor), and the keyboard goes to the editor too; where `Enter` only acts in the view (a zoom, a fold) the keyboard stays |
 | `p` in the pop-out | Pin this view (PINNED: it stays as it is while the editor moves, and `Enter` visits its items one by one), or follow the editor's cursor again |
 | `o` in the pop-out | This view back to the editor as a split (the call graph as the live panel), pinned if it is pinned here; the pop-out stays open |
@@ -331,7 +331,7 @@ the keyboard stays in the pop-out; `f` or Shift+Enter puts the keyboard here too
 | `<C-r>` in the pop-out | Forward again, after going back |
 | `/` in the pop-out | Every box or row of this view by its whole name, filtered as you type; `Enter` selects it |
 | `?` in the pop-out | The keys of this view in the pop-out, in a list |
-| `Space Tab` in the pop-out | Put the keyboard in the editor; the same key there comes back here |
+| `Space Tab` in the pop-out | Put the keyboard in the next pop-out, and from the last one in the editor (with one pop-out: the editor); the same key in the editor comes to the first |
 | `q` in the pop-out | Close this view; closing the last one closes the pop-out, and the keyboard comes back to the editor |
 | `Space Space` in the pop-out | The home menu for the selected box or row: the views, what the editor can do with it, and this window |
 <!-- popout-keys:end -->
@@ -659,7 +659,7 @@ which-key its words.
 | Key | Action |
 |---|---|
 | home menu: Restore the pop-out's views | Open the pop-out again with the views it had when this editor last closed, pinned as they were, on the screen it was on |
-| home menu: Move the pop-out to another screen | Asks which screen (every one, this one too); the pop-out moves there now if it is open, and opens there from now on, this session |
+| home menu: This pop-out to another screen | Asks which screen (every one, this one too); the pop-out (the one this is pressed in; in the editor the one last used) moves there now if it is open, and opens there from now on, this session |
 | home menu: Pop out the call graph | The live call graph in the pop-out, a window of its own on the other screen: it follows the function under the cursor (`p` there pins it), and `Enter` there goes to a function here while the keyboard stays there |
 | home menu: Review list to the pop-out | The open review's file list in the pop-out on the other screen: the comparison takes this whole screen, and `Enter` there shows a file here while the keyboard stays there |
 | home menu: Pop out the project map | The project map in the pop-out, a window of its own on the other screen: `Enter` there zooms in, or goes to a function here while the keyboard stays there; `-` and `Backspace` go back out |
@@ -682,7 +682,7 @@ which-key its words.
 | `Space Ch`, `:WorkSince` | Since you last looked: new commits, test runs, job runs with how their figures moved, and Claude turns with their files, newest first; `Enter` opens one (a commit's review, the results, the output, the turn's changes, a file). Opening it marks now as looked; with nothing new it shows the last list again |
 | home menu: Figures | The newest job's figures against its previous run (desk-work metrics); `Enter` on one opens that job's output |
 | home menu: symdeps | symdeps' own menu (`Space dm`): its cards, lists and checks for C and C++ code. symdeps is an optional plugin |
-| `Space Tab` | Put the keyboard in the pop-out window, on whichever screen it is; the same key there comes back here |
+| `Space Tab` | Put the keyboard in the pop-out window, on whichever screen it is (with several, the first); the same key there goes on to the next, and from the last back here |
 <!-- desk-keys:end -->
 
 ### The other Claudes (desk.claude)

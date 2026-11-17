@@ -1118,6 +1118,37 @@ function M.show(name, ctx, opts)
   M.save_layout()
 end
 
+-- A view sent to pop-out `id` (nil: a new one, opened on `screen` when one is named), opening it when it is not open:
+-- it leaves the one it was in as it is (its kind keeps it; nothing closes or is read again), its tab closes there,
+-- and its kind's views go to the new place from now on while it is open (homes). true, or false and why.
+function M.send(view, id, screen)
+  local from = pop_of(view)
+  if not (from and from.views[view.id] == view and not view.gone) then return false, 'that view is not in a pop-out' end
+  if id == nil then
+    local why
+    id, why = M.new_pop()
+    if not id then return false, why end
+  end
+  local to = pops[id]
+  if not to then return false, 'there is no pop-out ' .. tostring(id) end
+  if to == from then return true end
+  if screen and not is_open(to) then choose_for(to, screen) end
+  local ok, why = open_pop(to)
+  if not ok then return false, why end
+  from.views[view.id] = nil
+  unlist(from, view.id)
+  if from.front == view.id then from.front = nil end
+  send(from, { type = 'view.clear', id = view.id })
+  view.pop, view.sent, view.front = to.id, nil, nil
+  to.views[view.id] = view
+  to.order[#to.order + 1] = view.id
+  homes[view.kind] = to.id
+  if to.front and to.views[to.front] then push_step(to, { type = 'switch', from = to.front, to = view.id }) end
+  to_front(view)
+  M.save_layout()
+  return true
+end
+
 -- What the kinds' own modules ask: whether a view is in a pop-out still (out there, not gone), the view of a kind
 -- (the first pop-out's first), whether the pop-out a view is in is attached, and whether the one a view of kind
 -- `name` would go to is.
@@ -1480,7 +1511,7 @@ local function escape(s) return (tostring(s):gsub('%%', '%%%%')) end
 -- The answer, or { refused = why }.
 -- C.busy: the last ask timed out (the editor at a prompt, or still working). Until anything comes from it, asks wait
 -- M.BUSY_MS, not two seconds each, and the header says "editor busy" (2026-11-16: every key froze the pop-out 2 s).
-M.BUSY_MS = 250
+M.BUSY_MS, M.SWAP_MS = 250, 500
 local function busy(on)
   if C.busy == on then return end
   C.busy = on
@@ -1557,8 +1588,14 @@ local function ask_then_act(row, offered)
   end
   if offered.available ~= true then return say(tostring(offered.available), WARN) end
   local input = type(offered.input) == 'table' and offered.input or {}
-  actions.ask({ prompt = type(input.prompt) == 'string' and input.prompt or nil, choices = type(input.choices) == 'table' and input.choices or nil },
+  actions.ask({ prompt = type(input.prompt) == 'string' and input.prompt or nil, choices = type(input.choices) == 'table' and input.choices or nil,
+    kind = type(input.kind) == 'string' and input.kind or nil },
     actions.context(), function(text, choice)
+      -- A choice that is another row's question (a new pop-out, then its screen): that row asks next, here.
+      for _, c in ipairs(type(input.choices) == 'table' and input.choices or {}) do
+        local then_row = c.id == choice and type(c.row) == 'string' and actions.get(c.row)
+        if then_row then return ask_then_act(then_row) end
+      end
       local now = key and view and index_of(view, key)
       if view and (shown() ~= view or (key and not now)) then return say('what it was about is no longer shown', WARN) end
       client_act(row.id, { text = text, choice = choice }, view, now)
@@ -1566,9 +1603,10 @@ local function ask_then_act(row, offered)
 end
 
 -- A key of a view pressed here: a row the editor runs (remote, and not the window's own) goes there, asking first when
--- it has an input; any other runs here (a drawn row on the view's copy, the window's own rows).
+-- it has an input (the window's own remote rows that ask too: what they offer is the editor's); any other runs here (a
+-- drawn row on the view's copy, the window's own rows).
 local function press(row, ctx)
-  if row.remote and not is_on(row, ON) then
+  if row.remote and (row.input or not is_on(row, ON)) then
     if row.input then return ask_then_act(row) end
     return client_act(row.id)
   end
@@ -2032,8 +2070,8 @@ function M.client_home()
       here[row.id] = true
       local mine = actions.get(row.id)
       local run
-      if mine and is_on(mine, ON) then run = function() mine.run(ctx) end
-      elseif type(row.input) == 'table' then run = function() ask_then_act(mine or row, row) end
+      if type(row.input) == 'table' then run = function() ask_then_act(mine or row, row) end
+      elseif mine and is_on(mine, ON) then run = function() mine.run(ctx) end
       else run = function() client_act(row.id) end end
       add(row.group == 'Views' and views or items, row, row.available ~= true and tostring(row.available) or nil, run)
     end
@@ -2215,12 +2253,42 @@ local function ahead_there(ctx)
   local h = pressed_in(ctx).history
   return h.at < #h.steps or 'nothing further forward'
 end
--- The first pop-out that is attached.
+-- The first pop-out that is attached; the next attached after pop-out `id` (nil: none).
 local function first_attached() for _, p in ipairs(pops) do if p.chan then return p end end end
+local function next_attached(id)
+  for _, p in ipairs(pops) do if p.id > (id or 0) and p.chan then return p end end
+end
+-- The pop-out a row is about: the one it was pressed in (ctx.pop), else, in the editor, the one last used while it
+-- is open, else the first open one, else the first.
+local function in_front(ctx)
+  if ctx.pop and pops[ctx.pop] then return pops[ctx.pop] end
+  local last = L.last and pops[L.last]
+  if is_open(last) then return last end
+  for _, p in ipairs(pops) do if is_open(p) then return p end end
+  return H
+end
+-- Where a view may be sent: every other open pop-out, then a new one (which asks its screen: popout.send-new).
+local function send_choices(ctx)
+  local here, out = ctx.view and pop_of(ctx.view), {}
+  for _, p in ipairs(pops) do
+    if p ~= here and is_open(p) then
+      local names = {}
+      for _, id in ipairs(p.order) do if p.views[id] then names[#names + 1] = p.views[id].kind end end
+      out[#out + 1] = { id = tostring(p.id), name = ('Pop-out %d · %s · %s'):format(p.id, p.screen or 'opening',
+        #names > 0 and table.concat(names, ', ') or 'nothing shown') }
+    end
+  end
+  out[#out + 1] = { id = 'new', name = 'A new pop-out', row = 'popout.send-new' }
+  return out
+end
+local function one_more()
+  for _, p in ipairs(pops) do if not is_open(p) and next(p.views) == nil then return true end end
+  return #pops < M.MAX_POPS or ('%d pop-outs are open, the most there may be'):format(#pops)
+end
 
 local ROWS = actions.add({
   { id = 'popout.focus', group = 'Pop-out', name = 'To the pop-out', key = '<leader><Tab>', on = 'editor',
-    about = 'Put the keyboard in the pop-out window, on whichever screen it is; the same key there comes back here',
+    about = 'Put the keyboard in the pop-out window, on whichever screen it is (with several, the first); the same key there goes on to the next, and from the last back here',
     available = function() return (first_attached() ~= nil and not M.is_popout()) or false end,
     run = function()
       if M.is_popout() then return end
@@ -2235,16 +2303,37 @@ local ROWS = actions.add({
       return M.can_pop()
     end,
     run = function() M.restore_layout() end },
-  { id = 'popout.screen', group = 'Views', name = 'Move the pop-out to another screen', on = 'editor', remote = false,
-    about = 'Asks which screen (every one, this one too); the pop-out moves there now if it is open, and opens there from now on, this session',
+  { id = 'popout.screen', group = 'Views', name = 'This pop-out to another screen', on = 'editor', remote = true,
+    about = 'Asks which screen (every one, this one too); the pop-out (the one this is pressed in; in the editor the one last used) moves there now if it is open, and opens there from now on, this session',
     available = function() return M.second_screen() end,
-    -- Asked by desk.actions before the row runs (after a menu has closed), not from inside run.
+    -- Asked by desk.actions before the row runs (after a menu has closed), not from inside run; in a pop-out, there.
     input = { choices = function() return M.screen_input_choices(true) end, kind = 'desk_screens' },
     run = function(ctx)
       if type(ctx.choice) ~= 'string' or ctx.choice == '' then return end
-      M.chosen = ctx.choice
-      if H.kitty and H.chan then M.place(H.kitty) end
+      local p = in_front(ctx)
+      choose_for(p, ctx.choice)
+      if p.kitty and p.chan then M.place(p.kitty, nil, p) end
     end },
+  remote({ id = 'popout.send', group = 'Pop-out', name = 'Send to another pop-out', on = ON,
+    about = "Asks which: another open pop-out, or a new one (which asks its screen); the view moves there as it is, and this kind's views go there from now on while it is open",
+    available = showing, input = { choices = send_choices } },
+    function(ctx)
+      if ctx.choice == 'new' then return M.send(ctx.view, nil) end
+      local ok, why = M.send(ctx.view, tonumber(ctx.choice))
+      if not ok then tell(sentence(why), WARN) end
+    end),
+  remote({ id = 'popout.send-new', group = 'Pop-out', name = 'Send to a new pop-out', on = ON,
+    about = "Asks which screen it opens on (every one, this one too); the view moves to a new pop-out there, and this kind's views go there from now on while it is open",
+    available = function(ctx)
+      local can = showing(ctx)
+      if can ~= true then return can end
+      return one_more()
+    end,
+    input = { choices = function() return M.screen_input_choices(true) end, kind = 'desk_screens' } },
+    function(ctx)
+      local ok, why = M.send(ctx.view, nil, ctx.choice)
+      if not ok then tell(sentence(why), WARN) end
+    end),
   remote({ id = 'popout.go-focus', group = 'Pop-out', name = 'Go to it, in the editor', key = 'f', on = ON,
     about = 'What `Enter` does (go to the selected box or row in the editor), and the keyboard goes to the editor too; where `Enter` only acts in the view (a zoom, a fold) the keyboard stays', available = can_go },
     go_focus),
@@ -2279,8 +2368,19 @@ local ROWS = actions.add({
     about = 'Every box or row of this view by its whole name, filtered as you type; `Enter` selects it', run = function() M.client_find() end },
   { id = 'popout.keys', group = 'Pop-out', name = "The pop-out's keys", key = '?', on = ON, about = 'The keys of this view in the pop-out, in a list',
     run = function() M.client_keys() end },
-  { id = 'popout.swap', group = 'Pop-out', name = 'To the editor', key = '<leader><Tab>', on = ON,
-    about = 'Put the keyboard in the editor; the same key there comes back here', run = function() M.focus(C.host) end },
+  { id = 'popout.swap', group = 'Pop-out', name = 'To the editor, or next pop-out', key = '<leader><Tab>', on = ON, remote = true,
+    about = 'Put the keyboard in the next pop-out, and from the last one in the editor (with one pop-out: the editor); the same key in the editor comes to the first',
+    run = function(ctx)
+      if M.is_popout() then
+        -- The editor knows the pop-outs and says where; one that does not answer at once (busy, or she is typing
+        -- there) is where the keyboard goes.
+        local answer = request(naming({ type = 'act', action = 'popout.swap' }), M.SWAP_MS)
+        if answer.refused then M.focus(C.host) end
+        return
+      end
+      local after = next_attached(ctx.pop)
+      M.focus(after and { pid = after.pid } or { pid = vim.fn.getpid(), pane = host_pane() })
+    end },
   { id = 'popout.close', group = 'Pop-out', name = 'Close this view', key = 'q', on = ON, remote = true,
     about = 'Close this view; closing the last one closes the pop-out, and the keyboard comes back to the editor',
     run = function(ctx)
