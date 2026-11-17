@@ -239,7 +239,7 @@ open_row()
 opened()
 eq(vim.split(read('kitty.argv'), '\n', { trimempty = true }), { '--class', 'desk-popout', '-e', 'nvim', '--cmd', 'let g:desk_popout=1',
   '-c', "lua require('desk.popout').client()", '--', 'desk-popout:' .. dir .. '/h' }, "kitty runs it with the editor's socket in argv only")
-eq(vim.trim(read('kitty.env')), 'NVIM= TMUX= TMUX_PANE= NVIM_NOTTYFAST=1', "… none of the editor's tmux, nor its socket as $NVIM; and it asks the terminal nothing at start (no E1568)")
+eq(vim.trim(read('kitty.env')), 'NVIM= TMUX= TMUX_PANE= NVIM_NOTTYFAST=', "… none of the editor's tmux, nor its socket as $NVIM; and not NVIM_NOTTYFAST (with it, Neovim never takes a resize)")
 ok(wait(10000, function() return popped():find('callee_of_M.alpha', 1, true) end), 'subscribed: the graph of the function under the cursor arrives')
 local s = state()
 eq({ s.connected, s.title, s.selected }, { true, 'call graph · M.alpha', 'M.alpha' }, '… titled with it, its own box selected')
@@ -372,6 +372,19 @@ ok(wait(3000, function() return state().title == 'call graph · callee_of_gamma'
   '… and H brings the pinned graph back: ' .. tostring(state().title))
 press('p')
 ok(wait(3000, function() return state().title == 'call graph · gamma' end), 'p: following the editor again')
+
+-- ─── a wide window: the drawing in its middle (2026-11-16: on a 4K screen it sat in the left corner) ─────────────
+eq(pop("local P = require('desk.popout'); return { P.gutter({ 'abcd', '  ab' }, 20), P.gutter({ '      xx      ' }, 14), P.gutter({ 'a' }, 1), P.gutter({ '', '  ' }, 50) }"),
+  { 8, 0, 0, 0 }, 'the gutter centres the drawing by its own edges: none for one already centred, too wide, or empty')
+do
+  local before = pop('return vim.api.nvim_win_get_cursor(0)')
+  local columns = pop('return vim.o.columns')
+  pop('vim.o.columns = ' .. (columns + 160))
+  ok(wait(3000, function() return state().gutter >= 70 end), 'wider by 160 columns: the drawing moves in by half of it: ' .. tostring(state().gutter))
+  eq(pop('return vim.api.nvim_win_get_cursor(0)'), before, '… the cursor on the same buffer column: only the screen moved')
+  pop('vim.o.columns = ' .. columns)
+  ok(wait(3000, function() return state().gutter < 70 end), '… and back')
+end
 
 -- ─── Space Space in the pop-out: the editor's rows for that box ─────────────────────────────────────────────────
 press('<Space><Space>')

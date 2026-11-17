@@ -673,12 +673,13 @@ function M.open(root)
   if #server > 107 or not server:match('^/[%w%._/%-]+$') then return false, 'this editor has no socket the pop-out can reach' end
   if not have('kitty') then return false, 'requires kitty' end
   -- The socket travels in argv only. The pop-out's Neovim gets none of this editor's tmux (its footer is this
-  -- editor's) and no $NVIM (it is not a terminal inside this editor). NVIM_NOTTYFAST: it asks the new kitty nothing at
-  -- start (its theme is set, not detected), so no E1568 when the terminal is slow to answer.
+  -- editor's) and no $NVIM (it is not a terminal inside this editor). Not NVIM_NOTTYFAST: with it Neovim 0.12 never
+  -- takes a resize, and the pop-out kept the size it opened at, floating at the side (2026-11-16, seen in a VM: 61
+  -- columns in a 186-column window). A slow first answer from kitty may show E1568 once; that is the lesser cost.
   local argv = { 'kitty', '--class', M.CLASS, '-e', 'nvim', '--cmd', 'let g:desk_popout=1', '-c', "lua require('desk.popout').client()",
     '--', 'desk-popout:' .. server }
   local opening = {}
-  local env = { TMUX = '', TMUX_PANE = '', NVIM = '', NVIM_NOTTYFAST = '1' }
+  local env = { TMUX = '', TMUX_PANE = '', NVIM = '' }
   local ok, job = pcall(vim.system, argv, { text = true, detach = true, env = env }, function()
     vim.schedule(function() kitty_exited(opening) end)
   end)
@@ -1379,6 +1380,34 @@ local function item_at(view, lnum, col)
 end
 
 -- The two lines that say what the selected item is (a view's strip), written again when the selection moves.
+-- The drawing in the middle of a wide window (2026-11-16: on a 4K screen it sat in the left corner): each line starts
+-- with the same run of spaces, inline virtual text, so buffer columns, highlights, the selection and clicks stay as
+-- they are. Measured on the drawing's own edges (a graph is already centred in the width it was drawn for).
+local pad_ns = api.nvim_create_namespace('desk_popout_centre')
+function M.gutter(lines, width)
+  local left, right = math.huge, 0
+  for _, line in ipairs(lines) do
+    local text = line:gsub('%s+$', '')
+    if text ~= '' then
+      left = math.min(left, vim.fn.strdisplaywidth(text:match('^%s*')))
+      right = math.max(right, vim.fn.strdisplaywidth(text))
+    end
+  end
+  if right == 0 then return 0 end
+  return math.max(0, math.floor((width - (right - left)) / 2) - left)
+end
+local function centre(view)
+  if not api.nvim_buf_is_valid(view.buf) then return end
+  api.nvim_buf_clear_namespace(view.buf, pad_ns, 0, -1)
+  local lines = api.nvim_buf_get_lines(view.buf, 0, -1, false)
+  local width = view.win and api.nvim_win_is_valid(view.win) and api.nvim_win_get_width(view.win) or vim.o.columns
+  local n = M.gutter(lines, width)
+  view.gutter = n
+  if n == 0 then return end
+  local pad = { { string.rep(' ', n), 'Normal' } }
+  for i = 0, #lines - 1 do pcall(api.nvim_buf_set_extmark, view.buf, pad_ns, i, 0, { virt_text = pad, virt_text_pos = 'inline', right_gravity = false }) end
+end
+
 local function strip(view)
   local at, index = view.strip, view.copy.index
   local item = index and view.items[index]
@@ -1390,6 +1419,7 @@ local function strip(view)
   vim.bo[view.buf].modifiable = false
   vim.bo[view.buf].modified = false
   api.nvim_buf_clear_namespace(view.buf, ns, at - 1, at + 1)
+  centre(view)
   for _, m in ipairs(view.marks) do
     if m[1] == at or m[1] == at + 1 then
       pcall(api.nvim_buf_set_extmark, view.buf, ns, m[1] - 1, m[2], { end_col = m[3], hl_group = m[4], priority = 100 + (tonumber(m[5]) or 0) })
@@ -1656,6 +1686,7 @@ local function draw(view, keep)
   first = first or (view.items[1] and 1)
   api.nvim_buf_clear_namespace(buf, G.sel_ns, 0, -1)
   if first then G.select(s, first, true); view.cursor_line = view.items[first].line end
+  centre(view)
   strip(view)
   set_keyline(view)
 end
@@ -1879,6 +1910,7 @@ function M.client()
   end))
   local resized = uv.new_timer()
   api.nvim_create_autocmd('VimResized', { group = group, callback = function()
+    for _, view in pairs(C.views) do centre(view) end
     resized:stop()
     resized:start(100, 0, vim.schedule_wrap(function() if C.chan then M.subscribe(true) end end))
   end })
@@ -1891,6 +1923,7 @@ function M.client_state()
   local item = s.index and view.items[s.index]
   local buf, win = api.nvim_get_current_buf(), api.nvim_get_current_win()
   return { connected = C.chan ~= nil, host = C.host, shown = C.shown or '', gen = view and view.gen or 0, kind = view and view.kind or '',
+    gutter = view and view.gutter or 0,
     title = view and view.title or '', state = view and view.state or '', index = s.index or 0, selected = item and item.name or '',
     selected_key = item and item.key or '', lines = api.nvim_buf_get_lines(buf, 0, -1, false), closing = C.closing or '',
     win = view and view.win or (C.empty and C.empty.win) or 0, current_win = win, buf = buf, mode = api.nvim_get_mode().mode,
