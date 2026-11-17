@@ -85,6 +85,14 @@ assert(turn < file and file < job and job < worse and worse < better and better 
 assert(text[commit]:find(vim.env.TEST_COMMIT_AT, 1, true), 'each line says when: ' .. text[commit])
 assert(vim.api.nvim_win_get_cursor(0)[1] == turn, 'the cursor starts on the newest entry')
 assert(vim.bo[buf].modifiable == false and vim.bo[buf].buftype == 'nofile')
+-- A list, not a file: no line numbers, a selection bar, and a cursor that never rests on a line opening nothing.
+local w = vim.api.nvim_get_current_win()
+assert(not vim.wo[w].number and not vim.wo[w].relativenumber, 'no line numbers on the page')
+assert(vim.wo[w].cursorline and vim.wo[w].winhighlight:find('CursorLine:PmenuSel', 1, true), 'a selection bar on the entry')
+vim.api.nvim_win_set_cursor(0, { 1, 0 })
+vim.api.nvim_exec_autocmds('CursorMoved', { buffer = buf })
+assert(vim.api.nvim_win_get_cursor(0)[1] == turn, 'up onto the heading: the bar stays on the first entry, got line '
+  .. vim.api.nvim_win_get_cursor(0)[1])
 ''')
 
     def test_enter_opens_what_a_line_names(self):

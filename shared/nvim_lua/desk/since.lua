@@ -109,6 +109,26 @@ local function fill(buf, lines, paints)
   end
 end
 
+-- The page is a list, not a file: no line numbers, a selection bar on the entry the cursor is on (the menus' colour),
+-- and j/k/the mouse that land on a line that opens nothing (the heading, a blank line) go on to the next entry that
+-- way, else back to the last one.
+local function as_list(win, buf, page)
+  for opt, value in pairs({ number = false, relativenumber = false, signcolumn = 'no', foldcolumn = '0', wrap = false,
+                            list = false, spell = false, cursorline = true, winhighlight = 'CursorLine:PmenuSel' }) do
+    vim.wo[win][opt] = value
+  end
+  local last = 1
+  api.nvim_create_autocmd('CursorMoved', { buffer = buf, callback = function()
+    local row = api.nvim_win_get_cursor(0)[1]
+    if page.actions[row] then last = row; return end
+    local dir, n = row >= last and 1 or -1, api.nvim_buf_line_count(buf)
+    for r = row + dir, dir > 0 and n or 1, dir do
+      if page.actions[r] then last = r; return pcall(api.nvim_win_set_cursor, 0, { r, 0 }) end
+    end
+    if page.actions[last] then pcall(api.nvim_win_set_cursor, 0, { last, 0 }) end
+  end })
+end
+
 -- A job's output in a tab of its own, read in the background too.
 local function show_log(id)
   local buf = scratch_tab('job output')
@@ -167,6 +187,7 @@ function M.open(root)
     fill(buf, { heading('Since you last looked', style), '', 'Reading...' }, { 'heading' })
     -- What each line opens, filled in when the answer comes; the page's keys (rows below) read it.
     page = { root = root, actions = {} }
+    as_list(api.nvim_get_current_win(), buf, page)
     actions.map('since', { buffer = buf, ctx = { page = page } })
     pages[root] = { buf = buf, page = page }
   end
