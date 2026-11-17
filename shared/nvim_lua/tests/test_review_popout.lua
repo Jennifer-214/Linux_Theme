@@ -506,6 +506,19 @@ do
     deadline = s_ * 1000 + math.floor(us / 1000) + 5000 }), { done = true }, 'What changed, asked from the pop-out: taken')
   ok(wait(5000, function() return state().kind == 'review' and review().popped end), "… the review's list in the pop-out")
 end
+-- With several pop-outs, asked from the second: the list goes there, not to the first (seen with the map's c in a VM,
+-- 2026-11-17; the same path).
+eq(host([[local P, A = require('desk.popout'), require('desk.actions')
+  local R = require('desk.review')
+  local real_show, real_changes, got = P.show, require('desk.claude').changes, nil
+  P.show = function(name, ctx, opts) got = { name, opts and opts.pop } end
+  require('desk.claude').changes = function() end
+  local held = R.current and R.current.popout
+  if R.current then R.current.popout = nil end
+  A.get('claude.changes').run({ remote = true, pop = 2 })
+  if R.current then R.current.popout = held end
+  P.show, require('desk.claude').changes = real_show, real_changes
+  return got]]), { 'review', 2 }, '… asked from a second pop-out: its list goes to that one')
 vim.rpcnotify(p, 'nvim_input', 'q')
 ok(wait(5000, function() return not exists(psock) end), 'the pop-out closes')
 

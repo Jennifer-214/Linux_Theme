@@ -661,10 +661,11 @@ eq(focused, 0, "… zoomed in as Enter does, the keyboard left in the pop-out")
 local alpha = item_named(shown(), "M.alpha")
 local code = ctx_on(alpha).origin
 local real_show, shown_graph = P.show, nil
-P.show = function(name, ctx) shown_graph = { name, ctx.target and ctx.target.name, ctx.remote } end
+P.show = function(name, ctx, opts) shown_graph = { name, ctx.target and ctx.target.name, ctx.remote, opts and opts.pop } end
+-- Named: the map's own pop-out (with several, the first was taking it: seen in a VM, 2026-11-17).
 eq(act("map.centre", alpha), { true }, "c on a function, from the pop-out")
 P.show = real_show
-eq(shown_graph, { "graph", "M.alpha", nil }, "… the call graph shown in the pop-out, filled for that function (not a remote ask: it opens there)")
+eq(shown_graph, { "graph", "M.alpha", nil, pv.pop or 1 }, "… the call graph shown in the map's own pop-out, filled for that function (not a remote ask: it opens there)")
 eq(act("popout.go-focus", alpha), { true }, "f on a function there")
 eq(focused, 1, "… goes to its code, and the keyboard goes there too")
 P.focus = real_focus

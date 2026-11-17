@@ -1168,7 +1168,8 @@ local function centre(view, ctx)
   local G = require('desk.callgraph')
   local target, why = G.target_at(view.root .. '/' .. node.file, node.line, node.label)
   if not target then return tell(why:sub(1, 1):upper() .. why:sub(2) .. '.') end
-  if view.out then return pop().show('graph', { target = target }) end
+  -- In the map's own pop-out, with several open: the first was taking it (seen in a VM, 2026-11-17).
+  if view.out then return pop().show('graph', { target = target }, { pop = view.pop or 1 }) end
   G.open(target)
 end
 

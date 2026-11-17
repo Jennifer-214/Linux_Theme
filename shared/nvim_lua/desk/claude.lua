@@ -667,7 +667,8 @@ local function list_there(ctx)
   if not (ctx and ctx.remote) then return end
   local R, P = package.loaded["desk.review"], package.loaded["desk.popout"]
   local r = R and R.current
-  if P and r and not r.closing and not r.popout then P.show("review", actions.context()) end
+  -- In the pop-out it was asked from, with several open (ctx.pop).
+  if P and r and not r.closing and not r.popout then P.show("review", actions.context(), { pop = ctx.pop }) end
 end
 local ROWS = actions.add({
   { id = "claude.changes", group = "Review", name = "What changed", key = "<leader>Cw", on = "editor", remote = true,
