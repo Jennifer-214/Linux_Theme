@@ -1331,7 +1331,7 @@ local function render_view(view, width, style)
       centre = box.centre, name = tostring(box.item.name or ''), ref = box.item }
   end
   local center = graph.center
-  return { title = 'call graph' .. (center and center.name and (' · ' .. center.name) or ''), state = view.pinned and 'PINNED' or 'following',
+  return { title = 'call graph' .. (center and center.name and (' · ' .. center.name) or ''), state = '',
     lines = drawn.lines, marks = drawn.marks, hl = GROUPS, items = items, footer = footer(view.pinned), news = view.news == true }
 end
 

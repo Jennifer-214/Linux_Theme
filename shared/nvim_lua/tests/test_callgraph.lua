@@ -396,7 +396,7 @@ local K = G.view_kind
 eq(require("desk.popout").kinds.graph, K, "the graph is the pop-out's view kind 'graph'")
 local pinned_view = K.render({ graph = graph, pinned = true }, 60, "paper")
 eq({ pinned_view.title, pinned_view.state, (table.concat(pinned_view.lines, "\n"):find("PINNED", 1, true)) },
-  { "call graph · changed_symbols", "PINNED", nil }, "its title and state; PINNED is the header's to show, not a line of the graph")
+  { "call graph · changed_symbols", "", nil }, "its title, no state words: PINNED is the header's to show (from view.pinned), not a line of the graph")
 eq(vim.tbl_map(function(i) return i.name end, pinned_view.items), { "panel", "turn_symbols", "changed_symbols", "unit_of" },
   "an item per box, in reading order")
 local centre_item = pinned_view.items[3]

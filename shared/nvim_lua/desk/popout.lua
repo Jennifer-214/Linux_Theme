@@ -354,7 +354,8 @@ end
 --                a surface row on one of them is left out there (actions.popout_rows)
 --   render(view, width, style) → { title, state, lines, marks, hl, items, footer, strip, news }   pure: the view drawn
 --                for the pop-out's width (style: vim.g.desk_style), with no keys and no state in its lines (the
---                header and the key line show them). state: following, PINNED, … (the header shows PINNED); marks:
+--                header and the key line show them). state: its own words (progress, 'built 14:02'); PINNED and
+--                following are drawn from the host's view.pinned and kind.follow, not from state; marks:
 --                { line, from, to, group, priority }; hl: the Desk* and FoxSymdeps* groups it draws with (their
 --                definitions go along); items: { key (≤ 120: the same item keeps it from one drawing to the next),
 --                kind = 'box' or 'row', line (where the cursor goes), name_col, x, w, spans = { { line, from, to } }
@@ -469,7 +470,8 @@ local function payload(view)
   end
   return { type = 'view.set', id = view.id, kind = view.kind, surface = kind.surface, title = cut(drawn.title, 200) or kind.title,
     state = cut(drawn.state, 200) or '', lines = lines, marks = marks, hl = definitions(drawn.hl), items = items,
-    footer = plain_footer(drawn.footer), strip = num(drawn.strip), news = drawn.news == true }, refs, keys
+    footer = plain_footer(drawn.footer), strip = num(drawn.strip), news = drawn.news == true,
+    pinned = view.pinned == true, follows = kind.follow ~= nil }, refs, keys
 end
 
 -- Sends a view as it is now, one per view every M.GAP_MS at most (the last state wins). A new generation only when its
@@ -1441,7 +1443,9 @@ local function tabline()
   for n, tab in ipairs(api.nvim_list_tabpages()) do
     local view = view_in_tab(tab)
     local text = ' ' .. n .. ' ' .. said(view and (view.kind ~= '' and view.kind or view.id) or 'pop-out')
-    if view and view.state == 'PINNED' then text = text .. (retro and '·' or ' · ') .. 'PINNED' end
+    -- Pinned or following, from the editor's own flags (any kind: the review's state is its progress, 2026-11-16).
+    if view and view.pinned then text = text .. (retro and '·' or ' · ') .. said('PINNED')
+    elseif view and view.follows then text = text .. ' ' .. (retro and '»' or '↻') end
     if view and view.news then text = text .. ' ' .. (retro and '*' or '✱') end
     out[#out + 1] = '%' .. n .. 'T' .. (tab == current and '%#DeskPopoutTabSel#' or '%#DeskPopoutTab#') .. escape(text .. ' ')
   end
@@ -1603,7 +1607,8 @@ local function valid_view(msg)
     title = type(msg.title) == 'string' and msg.title:sub(1, 200) or msg.id, state = type(msg.state) == 'string' and msg.state:sub(1, 200) or '',
     lines = lines, marks = marks, hl = hl, items = valid_items(msg.items), footer = valid_footer(msg.footer),
     strip = type(msg.strip) == 'number' and msg.strip >= 1 and msg.strip < #lines and math.floor(msg.strip) or nil,
-    select = short(msg.select, 120), front = msg.front == true, news = msg.news == true, views = valid_ids(msg.views) }
+    select = short(msg.select, 120), front = msg.front == true, news = msg.news == true, views = valid_ids(msg.views),
+    pinned = msg.pinned == true, follows = msg.follows == true }
 end
 
 -- Draws a view into its buffer. Its selection: the item the editor asks for (select), else the one selected before (by
@@ -1681,7 +1686,7 @@ local function handle(msg)
       C.views[got.id] = view
     end
     local before = view.copy.index and view.items[view.copy.index]
-    for _, field in ipairs({ 'gen', 'kind', 'surface', 'title', 'state', 'lines', 'marks', 'hl', 'items', 'footer', 'strip' }) do view[field] = got[field] end
+    for _, field in ipairs({ 'gen', 'kind', 'surface', 'title', 'state', 'lines', 'marks', 'hl', 'items', 'footer', 'strip', 'pinned', 'follows' }) do view[field] = got[field] end
     if got.news and C.shown ~= got.id then view.news = true end
     C.received = (C.received or 0) + 1
     draw(view, got.select or (before and before.key))

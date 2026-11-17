@@ -1455,7 +1455,7 @@ local function render_view(view, width, style)
     items[#items + 1] = { key = key, kind = 'box', line = p.line, name_col = p.name_col, x = p.x, w = p.w, spans = p.spans,
       centre = p.centre == true, name = tostring(p.item.name or ''), ref = p.item }
   end
-  return { title = 'project map · ' .. vim.fn.fnamemodify(view.root or '', ':t'), state = view.pinned and 'PINNED' or '',
+  return { title = 'project map · ' .. vim.fn.fnamemodify(view.root or '', ':t'), state = '',
     lines = drawn.lines, marks = drawn.marks, hl = GROUPS, items = items, footer = FOOTER, news = view.news == true }
 end
 

@@ -336,6 +336,11 @@ press('R')
 ok(wait(3000, function() return vim.tbl_contains(pop('return _G.heard'), 'Check each file first (2 of 3 checked).') end),
   'R before every file is checked: the pop-out says why')
 eq(review().completed, false, '… and nothing is finished')
+-- p pins the review list, and the header says so: the review's state is its progress, so PINNED never showed (2026-11-16).
+press('p')
+ok(wait(3000, function() return (state().header or ''):find('review · PINNED', 1, true) end), 'p: pinned, the header says so: ' .. tostring(state().header))
+press('p')
+ok(wait(3000, function() return not (state().header or ''):find('PINNED', 1, true) end), '… p again: following, PINNED gone')
 press('m')
 ok(wait(3000, function() return #review().checked == 3 end), 'm: the last file checked')
 ok(wait(3000, function() return popped():find('✓ three.lua', 1, true) end), '… shown there')

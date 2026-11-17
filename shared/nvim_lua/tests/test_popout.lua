@@ -243,7 +243,8 @@ eq(vim.trim(read('kitty.env')), 'NVIM= TMUX= TMUX_PANE= NVIM_NOTTYFAST=1', "… 
 ok(wait(10000, function() return popped():find('callee_of_M.alpha', 1, true) end), 'subscribed: the graph of the function under the cursor arrives')
 local s = state()
 eq({ s.connected, s.title, s.selected }, { true, 'call graph · M.alpha', 'M.alpha' }, '… titled with it, its own box selected')
-eq({ s.shown, s.kind, s.state }, { 'graph', 'graph', 'following' }, '… a view of kind graph, following the editor')
+eq({ s.shown, s.kind }, { 'graph', 'graph' }, '… a view of kind graph')
+ok((s.header or ''):find('graph ↻', 1, true), '… following the editor, and the header says so: ' .. tostring(s.header))
 ok(popped():find('║ M.alpha', 1, true) and popped():find('caller_of_M.alpha', 1, true), '… drawn: the function in a double box, its caller above')
 ok(pop("return #vim.api.nvim_buf_get_extmarks(0, vim.api.nvim_create_namespace('desk_popout'), 0, -1, {}) > 10"), '… with its marks')
 ok(next(pop("return vim.api.nvim_get_hl(0, { name = 'DeskCallGraphCentre', link = false })")) ~= nil, "… and the editor's highlight groups")
@@ -720,7 +721,7 @@ eq(host("local A = require('desk.actions'); return A.available(A.get('popout.res
 os.remove(dir .. '/kitty.listen')
 host("local A = require('desk.actions'); A.get('popout.restore').run(A.context())")
 opened()
-ok(wait(10000, function() return state().connected and state().title == 'call graph · M.alpha' and state().state == 'following' end),
+ok(wait(10000, function() return state().connected and state().title == 'call graph · M.alpha' and (state().header or ''):find('graph ↻', 1, true) end),
   '… restored: the graph, following this editor')
 ok(wait(5000, function() return host("return require('desk.popout').host.screen") == 'DP-2' end), '… on the screen it was on')
 eq(host("local A = require('desk.actions'); return A.available(A.get('popout.restore'), A.context())"), false, '… and not offered while it is open')
