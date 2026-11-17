@@ -396,7 +396,8 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   status line is that view's keys; `H` and `L` switch views (as they switch buffers in the editor; `gt`, `gT` and `2gt`
   too), `Ctrl+o` or Backspace goes back (the view before, the graph before a centre, the code spot before Enter: the
   editor goes back too) and `Ctrl+r` forward, `q` closes the view
-  (the last one closes the pop-out). `Space Tab` in either window puts the keyboard in the other, across screens. The
+  (the last one closes the pop-out). `Space Tab` in either window puts the keyboard in the other, across screens (with
+  several pop-outs: from the editor to the first, on to the next, from the last back to the editor). The
   pop-out is a Neovim of the same theme that only draws what the editor sends: no language server, no work records, no
   saved places; it names boxes by the drawing it was sent, so a press on a graph that has since changed says "this
   view moved on". A warning or error the editor gives while running a key pressed in the pop-out shows in the pop-out
@@ -406,6 +407,13 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   pinned views come back as splits (one notice says so). Closing the editor (or `:restart`) closes the pop-out
   ("Editor closed"); its views are kept (desk-work `workspace`, client `popout`), and Space Space › views offers
   "Restore 1 view" in the next editor on that checkout.
+- **Several pop-outs**: every view goes to the first pop-out; no other opens by itself. In a pop-out, Space Space ›
+  "Send to another pop-out" moves the view in front to another open one (listed by number, with its screen and what it
+  shows) or to a new one, which asks its screen as every screen question does ("Send to a new pop-out"); that kind's
+  views then go there while it is open. "This pop-out to another screen" moves the one it is pressed in (from the
+  editor, the one last used). Each pop-out has its own views, its own `Ctrl+o` / `Ctrl+r` and its own screen; one that
+  closes or crashes brings back only its own pinned views, and the others go on. Restore brings them all back, each on
+  its screen.
 - **What the last turn changed**: when a Claude turn ends, the notebook reads the function or class around each hunk
   it changed (treesitter, as the review's changed functions; a headless Neovim, three seconds at most) and puts the
   count on the last-turn row, `✎ 2 files · 3 functions`. Enter lists them by file; each opens Neovim with its graph
