@@ -959,11 +959,18 @@ function M.show(name, ctx, asked)
   if not ok then return tell(sentence(why), WARN) end
   local view, before = H.views[name], H.front
   if not (view and ctx.remote) then
+    -- Sent again over what it showed (another graph's o, the map of another checkout): a step H undoes (2026-11-16).
+    local was
+    if view and kind.save and kind.restore then
+      local fine, state = pcall(kind.save, view)
+      was = fine and type(state) == 'table' and state or nil
+    end
     view = view or add_view(name)
     if kind.open then
       local fine, err = pcall(kind.open, view, ctx)
       if not fine then kind_failed(view, err) end
     end
+    if was then M.stepped(view, was) end
   end
   if before and before ~= view.id and H.views[before] then push_step({ type = 'switch', from = before, to = view.id }) end
   to_front(view)

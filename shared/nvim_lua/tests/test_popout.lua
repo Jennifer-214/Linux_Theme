@@ -364,6 +364,12 @@ press('L')
 ok(wait(3000, function()
   return state().title == 'call graph · callee_of_gamma' and popped():find('caller_of_callee_of_gamma', 1, true) and state().header:find('graph · PINNED', 1, true)
 end), 'L: the centred graph again, as it was read, pinned')
+-- The graph sent again from the editor (o in another graph, the Views row) replaces the pinned one: a step H undoes.
+host("require('desk.popout').show('graph', require('desk.actions').context())")
+ok(wait(3000, function() return state().title == 'call graph · gamma' end), 'sent again: the editor\'s function replaces the pinned graph')
+press('H')
+ok(wait(3000, function() return state().title == 'call graph · callee_of_gamma' and state().header:find('graph · PINNED', 1, true) end),
+  '… and H brings the pinned graph back: ' .. tostring(state().title))
 press('p')
 ok(wait(3000, function() return state().title == 'call graph · gamma' end), 'p: following the editor again')
 
