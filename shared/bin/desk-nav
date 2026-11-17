@@ -68,9 +68,10 @@ for pid in $(pgrep -x nvim 2>/dev/null); do
     server=
     args=()
     { mapfile -d '' -t args < "/proc/$pid/cmdline"; } 2>/dev/null
-    # The editor's pop-out never splits (its views are tab pages, its menus floats): asking it can only answer no, and
-    # waits while it is busy drawing, up to the half second, before the window moves.
-    [[ " ${args[*]} " == *" let g:desk_popout=1 "* ]] && desktop
+    # The editor's pop-outs never split (their views are tab pages, their menus floats): asking one can only answer no,
+    # and waits while it is busy drawing, up to the half second, before the window moves. Each is started with its
+    # number (g:desk_popout=1, 2, …).
+    [[ " ${args[*]} " =~ \ let\ g:desk_popout=[0-9]+\  ]] && desktop
     for ((i = 0; i + 1 < ${#args[@]}; i++)); do [[ "${args[i]}" == --listen ]] && server=${args[i + 1]}; done
     [[ -n "$server" ]] || server="${XDG_RUNTIME_DIR:-/run/user/$UID}/nvim.$pid.0"
     nvim_moved "$server" && exit 0
