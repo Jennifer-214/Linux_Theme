@@ -328,6 +328,15 @@ ok(wait(2000, function() return vim.tbl_contains(pop('return _G.heard'), 'Requir
 eq({ host('return vim.api.nvim_win_get_cursor(0)[1]'), state().title }, { line_before, 'call graph · M.beta' }, '… and does nothing else')
 eq(act({ action = 'popout.pin' }), { done = true }, 'a remote row runs')
 ok(wait(2000, function() return (state().header or ''):find('graph · PINNED', 1, true) end), '… pinned: the header says so')
+-- A key pressed in the pop-out whose action warns: the warning shows there too, where she is looking; plain
+-- information stays in the editor (her choice, 2026-11-16).
+host([[require('desk.actions').add({ { id = 'test.warns', group = 'Pop-out', name = 'Warns', about = 'Warns', on = 'popout', remote = true,
+  run = function() vim.notify('just so you know'); vim.notify('Nothing to go to here.', vim.log.levels.WARN) end } })]])
+pop('_G.heard = {}')
+eq(act({ action = 'test.warns' }), { done = true }, 'a remote row that warns runs')
+ok(wait(2000, function() return vim.tbl_contains(pop('return _G.heard'), 'Nothing to go to here.') end),
+  '… its warning is said in the pop-out: ' .. vim.inspect(pop('return _G.heard')))
+eq(vim.tbl_filter(function(t) return t:lower():find('just so you know', 1, true) end, pop('return _G.heard')), {}, '… its plain information is not')
 
 -- ─── pinned: the editor moving sends nothing; p follows again ───────────────────────────────────────────────────
 local received = state().received

@@ -393,7 +393,9 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   (the last one closes the pop-out). `Space Tab` in either window puts the keyboard in the other, across screens. The
   pop-out is a Neovim of the same theme that only draws what the editor sends: no language server, no work records, no
   saved places; it names boxes by the drawing it was sent, so a press on a graph that has since changed says "this
-  view moved on". With one monitor the row says "requires a second monitor" and graphs stay in the editor. When its
+  view moved on". A warning or error the editor gives while running a key pressed in the pop-out shows in the pop-out
+  too (plain information stays in the editor, and so does anything said later, after the key's run). With one monitor
+  the row says "requires a second monitor" and graphs stay in the editor. When its
   screen is unplugged it moves to another screen that is not the editor's, or, with one screen left, closes and its
   pinned views come back as splits (one notice says so). Closing the editor (or `:restart`) closes the pop-out
   ("Editor closed"); its views are kept (desk-work `workspace`, client `popout`), and Space Space › views offers

@@ -1170,11 +1170,21 @@ local function act(msg)
       saved = fine and type(state) == 'table' and state or nil
     end
     if entering then H.folding = view.id end
-    local ok, err = actions.act(msg.action, ctx)
+    -- What goes wrong while it runs is said where she pressed the key too: warnings and errors go to the pop-out as a
+    -- notice (her choice, 2026-11-16). Said later, by a callback after this run, it stays in the editor only.
+    local real = vim.notify
+    vim.notify = function(text, level, opts)
+      real(text, level, opts)
+      if (level or vim.log.levels.INFO) >= WARN then send({ type = 'notice', text = tostring(text):sub(1, 400), level = level }) end
+    end
+    local ran, ok, err = pcall(actions.act, msg.action, ctx)
+    if not ran then ok, err = false, ok end
     if not ok then
       H.folding = nil
-      return tell(sentence(err or (msg.action .. ' did not run')), WARN)
+      tell(sentence(err or (msg.action .. ' did not run')), WARN)
     end
+    vim.notify = real
+    if not ok then return end
     if before then push_step({ type = 'enter', view = view.id, before = before, saved = saved }) end
     if entering then vim.schedule(function() if H.folding == view.id then H.folding = nil end end) end
   end)
@@ -1634,7 +1644,7 @@ function M.closing(why)
   vim.defer_fn(function() vim.cmd('qa!') end, M.LINGER_MS)
 end
 
-local RECEIVES = { ['view.set'] = true, ['view.clear'] = true, ping = true, bye = true, answer = true }
+local RECEIVES = { ['view.set'] = true, ['view.clear'] = true, ping = true, bye = true, answer = true, notice = true }
 -- A view off this window: its tab closes (the empty view shown when it was the last), its buffer goes.
 local function drop(id)
   local view = C.views[id]
@@ -1656,6 +1666,11 @@ local function drop(id)
   vim.cmd('redrawtabline')
 end
 local function handle(msg)
+  -- notice { text, level }: a warning the editor gave while running a key pressed here.
+  if msg.type == 'notice' then
+    if type(msg.text) == 'string' then say(msg.text, msg.level == vim.log.levels.ERROR and vim.log.levels.ERROR or WARN) end
+    return
+  end
   if msg.type == 'view.set' then
     local got = valid_view(msg)
     if not got then return end
