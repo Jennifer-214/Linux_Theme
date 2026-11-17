@@ -136,6 +136,19 @@ end
 
 local function ident(item) return (item.group or '') .. '\0' .. tostring(item.ident or item.id or item.label or item.name) end
 
+-- vim.ui.select drawn as this menu (j/k, Enter or l, / to filter, Esc or q to cancel), so every "choose one" question
+-- in the desktop looks and works the same: on_choice(item, index), or on_choice(nil, nil) when nothing was chosen.
+function M.select(items, opts, on_choice)
+  opts = opts or {}
+  local format = opts.format_item or tostring
+  local rows = {}
+  for i, item in ipairs(items or {}) do
+    rows[i] = { name = tostring(format(item)), run = function() on_choice(item, i) end }
+  end
+  return M.open(rows, { title = opts.prompt and vim.trim((opts.prompt:gsub(':%s*$', ''))) or 'Choose', memo = false,
+                        cancelled = function() on_choice(nil, nil) end })
+end
+
 function M.open(items, opts)
   opts = opts or {}
   local said = opts.keys and M.voice(retro()) or nil
@@ -144,10 +157,12 @@ function M.open(items, opts)
   local buf = api.nvim_create_buf(false, true)
   vim.bo[buf].bufhidden, vim.bo[buf].filetype = 'wipe', 'foxml-menu'
   vim.b[buf].foxml_menu = true
-  local win
+  local win, ran
+  -- opts.cancelled: called when the menu closes with nothing chosen (Esc, q, h), as vim.ui.select's nil answer.
   local function close()
     if win and api.nvim_win_is_valid(win) then api.nvim_win_close(win, true) end
     if api.nvim_win_is_valid(origin) then pcall(api.nvim_set_current_win, origin) end
+    if not ran and type(opts.cancelled) == 'function' then ran = true; opts.cancelled() end
   end
   local function row_lines() local out = {}; for line in pairs(state.layout.rows) do out[#out + 1] = line end; table.sort(out); return out end
   local function strip(line)
@@ -210,6 +225,7 @@ function M.open(items, opts)
       if not ok then vim.notify(tostring(err), vim.log.levels.ERROR) end
       if win and api.nvim_win_is_valid(win) then draw(ident(item)) end
     else
+      ran = true
       close(); item.run()
     end
   end

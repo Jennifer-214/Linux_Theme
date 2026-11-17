@@ -504,6 +504,22 @@ eq(Menu.typed, A.spell, "desk.menu spells keys with actions.spell")
 eq(require("desk.callgraph").typed("go", "back", "down"), "Enter/BS/j", "the call graph's key lines too")
 eq(P.shown_key, nil, "the pop-out has no speller of its own")
 
+-- vim.ui.select as the desk menu (2026-11-16: every "choose one" question was Neovim's numbered list): Enter on a row
+-- answers with it and its number, Esc answers nil — exactly once either way.
+do
+  local answers = {}
+  Menu.select({ "Trader", "Claude mods", "Linux_Theme" }, { prompt = "Review with API credits:" },
+    function(item, i) answers[#answers + 1] = { item or false, i or false } end)
+  ok(Menu._last and api.nvim_win_is_valid(Menu._last.win), "select opens the menu")
+  ok(vim.inspect(api.nvim_win_get_config(Menu._last.win).title):find("Review with API credits", 1, true), "… titled with the question")
+  ok(press_on("Claude mods"), "… a row per choice")
+  eq(answers, { { "Claude mods", 2 } }, "Enter answers with the item and its number, once")
+  answers = {}
+  Menu.select({ "a", "b" }, { prompt = "Pick" }, function(item, i) answers[#answers + 1] = { item or false, i or false } end)
+  vim.fn.maparg("<Esc>", "n", false, true).callback()
+  eq(answers, { { false, false } }, "Esc answers nil, once")
+end
+
 vim.fn.delete(dir, "rf")
 print(string.format("test_actions: %d passed%s", passed, failed > 0 and (", " .. failed .. " failed") or ""))
 os.exit(failed > 0 and 1 or 0)

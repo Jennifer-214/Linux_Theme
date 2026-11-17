@@ -4496,6 +4496,9 @@ pcall(function() require("desk.planmarks").setup() end)
 -- ALT+h/j/k/l from the desktop asks this Neovim first: its split that way, else tmux's pane, else the window that way
 -- (shared/nvim_lua/desk/nav.lua, shared/bin/desk-nav). Neovim maps no ALT key for it.
 pcall(function() require("desk.nav").setup() end)
+-- Every "choose one" question (vim.ui.select: API credits, next steps, debug, …) as the desk menu: j/k, Enter, / filter,
+-- Esc — instead of Neovim's numbered list.
+pcall(function() vim.ui.select = require("desk.menu").select end)
 
 -- >>> desk-popout
 -- The pop-out (desk.popout: kitty … nvim --cmd 'let g:desk_popout=1', a window that only draws what the main editor
