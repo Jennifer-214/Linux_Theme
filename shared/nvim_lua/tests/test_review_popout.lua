@@ -257,10 +257,10 @@ vim.wait(200)
 eq(history_at(), at_enter + 1, '… one step of the history: the file and the editor\'s spot together')
 
 -- ─── H and L: the file shown before, and forward again ─────────────────────────────────────────────────────────
-press('H')
+press('<C-o>')
 ok(wait(3000, function() return review().file == 'one.lua' end), 'H in the pop-out: the editor shows the file it showed before')
 eq(history_at(), at_enter, '… one H undoing the whole Enter')
-press('L')
+press('<C-r>')
 ok(wait(3000, function() return review().file == 'two.txt' end), '… and L shows that one again')
 ok(wait(2000, function() return state().selected == 'two.txt' end), '… selected there')
 settled()

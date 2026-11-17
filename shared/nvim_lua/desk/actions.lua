@@ -40,10 +40,12 @@ M.SURFACES = {
   map = 'the project map tab',
   popout = 'the pop-out window',
   menu = 'a menu drawn by desk.menu (the home menu and the review actions when symdeps is absent; every ? key list)',
+  screens = 'the screen question drawn as a map of the screens (desk.screens)',
 }
 -- The module that adds a surface's rows: a pop-out showing a view of that surface loads it, to have the same keys.
 M.MODULES = { ['review-list'] = 'desk.review', ['review-diff'] = 'desk.review', callgraph = 'desk.callgraph',
-  ['callgraph-panel'] = 'desk.callgraph', since = 'desk.since', map = 'desk.map', popout = 'desk.popout', menu = 'desk.menu' }
+  ['callgraph-panel'] = 'desk.callgraph', since = 'desk.since', map = 'desk.map', popout = 'desk.popout', menu = 'desk.menu',
+  screens = 'desk.screens' }
 -- The order of the groups in a menu: the views first (Space Space › views opens one), each greyed with why it cannot.
 M.GROUPS = { 'Views', 'Home', 'This function', 'Call graph', 'Project map', 'Review', 'Claude', 'Work', 'Jupyter', 'symdeps',
   'Pop-out' }
@@ -71,8 +73,10 @@ local function sentence(text) text = tostring(text); return text:sub(1, 1):upper
 local function input_problem(input)
   if type(input) ~= 'table' then return 'input is a ' .. type(input) end
   for field in pairs(input) do
-    if field ~= 'prompt' and field ~= 'choices' then return 'input does not take ' .. tostring(field) end
+    if field ~= 'prompt' and field ~= 'choices' and field ~= 'kind' then return 'input does not take ' .. tostring(field) end
   end
+  -- kind: vim.ui.select's own (desk_screens: the choices are screens, drawn as a map of them, desk.screens).
+  if input.kind ~= nil and (type(input.kind) ~= 'string' or not input.kind:match('^[%w_]+$')) then return 'input.kind is one word' end
   if input.prompt ~= nil and (type(input.prompt) ~= 'string' or input.prompt == '') then return 'input.prompt is its question, as text' end
   if input.choices ~= nil and type(input.choices) ~= 'function' then return 'input.choices is function(ctx)' end
   if input.prompt == nil and input.choices == nil then return 'input asks for words (prompt), a pick (choices) or both' end
@@ -214,7 +218,7 @@ function M.ask(input, ctx, done, question)
   -- One way to ask, vim.ui.select (the desk menu: desk.menu.select), each choice's letter its key there. Neovim's own
   -- confirm() lost its list when asked as a menu closed (2026-11-16: "Move the pop-out" showed only "Type number").
   vim.ui.select(choices, { prompt = question or 'Choose', format_item = function(c) return tostring(c.name or c.id) end,
-    desk_keys = choice_keys(choices) },
+    desk_keys = choice_keys(choices), kind = input.kind },
     function(choice) if type(choice) == 'table' and choice.id ~= nil then words(tostring(choice.id)) end end)
 end
 

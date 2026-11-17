@@ -524,6 +524,52 @@ do
   eq(answers, { { false, false } }, "Esc answers nil, once")
 end
 
+-- The screen question as a map of the screens (desk.screens, her ask 2026-11-16): each in its place and shape, the
+-- chosen one with the pop-out in it, h/j/k/l to the screen that way; screens without a place get the list.
+do
+  local Scr = require("desk.screens")
+  local three = {
+    { id = "eDP-1", name = "eDP-1 (this screen)", here = true, x = 0, y = 0, width = 1920, height = 1080, scale = 1, transform = 0 },
+    { id = "DP-2", name = "DP-2 · Acer", x = 1920, y = 0, width = 3840, height = 2160, scale = 1.5, transform = 0 },
+    { id = "HDMI-A-1", name = "HDMI-A-1 · Dell", x = 4480, y = 0, width = 1920, height = 1080, scale = 1, transform = 1 },
+  }
+  eq(Scr.geometry(three[2]), { x = 1920, y = 0, w = 2560, h = 1440 }, "a scaled screen: its size in the desktop's units")
+  eq(Scr.geometry(three[3]), { x = 4480, y = 0, w = 1080, h = 1920 }, "a rotated one: on its side")
+  eq(Scr.places({ three[1], { id = "X" } }), nil, "a screen without a place: no map")
+  local places = Scr.places(three)
+  local d = Scr.layout(three, places, 2, 64, 14, false)
+  local b = d.boxes
+  ok(b[1].x < b[2].x and b[2].x < b[3].x, "the boxes left to right, as the screens stand")
+  ok(b[2].w > b[1].w and b[3].h * 2 > b[3].w and b[1].h * 2 < b[1].w, "… in their shapes: the big one wider, the rotated one tall")
+  local text = table.concat(d.lines, "\n")
+  ok(text:find("╔", 1, true) and text:find(" pop-out ", 1, true) and text:find("this editor", 1, true),
+    "the chosen one doubled with the pop-out in it, the editor's own marked:\n" .. text)
+  for _, line in ipairs(d.lines) do ok(vim.fn.strdisplaywidth(line) <= 64, "every line fits: " .. line) end
+  eq({ Scr.nav(places, 1, "l"), Scr.nav(places, 2, "l"), Scr.nav(places, 3, "h"), Scr.nav(places, 1, "h"), Scr.nav(places, 1, "j") },
+    { 2, 3, 2, 1, 1 }, "l and h go to the screen that way; where none is, it stays")
+  local real_select, got = vim.ui.select, nil
+  vim.ui.select = Menu.select
+  local function key(lhs) vim.fn.maparg(lhs, "n", false, true).callback() end
+  A.ask({ choices = function() return three end, kind = "desk_screens" }, {}, function(_, choice) got = choice end, "Pop out on")
+  ok(Scr._last and api.nvim_win_is_valid(Scr._last.win), "the screen question opens as the map")
+  ok(vim.inspect(api.nvim_win_get_config(Scr._last.win).title):find("Pop out on", 1, true), "… titled with the question")
+  key("l"); key("l")
+  eq(Scr._last.state.selected, 3, "l l: the third screen")
+  key("<CR>")
+  eq({ got, api.nvim_win_is_valid(Scr._last.win) }, { "HDMI-A-1", false }, "Enter: that screen, and the map closes")
+  got = nil
+  A.ask({ choices = function() return three end, kind = "desk_screens" }, {}, function(_, choice) got = choice or "none" end)
+  key("<Esc>")
+  vim.wait(100)
+  eq(got, nil, "Esc: nothing chosen, nothing run")
+  local listed = Menu._last and Menu._last.buf
+  A.ask({ choices = function() return { { id = "a", name = "Screen A" }, { id = "b", name = "Screen B" } } end, kind = "desk_screens" },
+    {}, function() end)
+  ok(Menu._last.buf ~= listed and menu_text():find("Screen B", 1, true), "screens without places: the list")
+  key("<Esc>")
+  vim.ui.select = real_select
+end
+
 vim.fn.delete(dir, "rf")
 print(string.format("test_actions: %d passed%s", passed, failed > 0 and (", " .. failed .. " failed") or ""))
 os.exit(failed > 0 and 1 or 0)

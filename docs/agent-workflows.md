@@ -312,8 +312,8 @@ list there yourself). It draws in the palette and keeps its session records in p
 - **On the other screen**: `o` in the list moves it to the pop-out, a window of its own on the second screen, and the
   comparison takes this whole screen. There `j` / `k` move, Enter shows the file here while the keyboard stays there,
   and `m`, `u`, `n`, `h`, `]f` / `[f`, `]c` / `[c`, `r` and `s` work as in the list; `c` and `R` ask their question
-  there; `a` opens the actions here, and the keyboard comes with them. `H` there shows the file shown before, `L` the
-  next again; its tab is marked when a file joins the list, a request is ready or a checked file changed. `o` there,
+  there; `a` opens the actions here, and the keyboard comes with them. `Ctrl+o` there shows the file shown before,
+  `Ctrl+r` the next again; its tab is marked when a file joins the list, a request is ready or a checked file changed. `o` there,
   Backspace or `Space re` here, or closing the pop-out bring the list back, on the row selected there; closing the
   review clears it, and the pop-out's Restore after a restart opens that review again with its list there. With one
   screen `o` says "requires a second monitor" and the list stays.
@@ -388,8 +388,9 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   labels the boxes and `gs` shows the selected function in symdeps (as in the graph tab), `Space Space` there is the
   editor's menu for the selected box (its first group lists the views), `?` lists the keys. Each view is a tab page:
   the tab line is the header (each view by number, `PINNED`, `✱` when something new arrived in a view behind) and the
-  status line is that view's keys; `gt`, `gT` and `2gt` switch views, `H` or Backspace goes back (the view before, the
-  graph before a centre, the code spot before Enter: the editor goes back too) and `L` forward, `q` closes the view
+  status line is that view's keys; `H` and `L` switch views (as they switch buffers in the editor; `gt`, `gT` and `2gt`
+  too), `Ctrl+o` or Backspace goes back (the view before, the graph before a centre, the code spot before Enter: the
+  editor goes back too) and `Ctrl+r` forward, `q` closes the view
   (the last one closes the pop-out). `Space Tab` in either window puts the keyboard in the other, across screens. The
   pop-out is a Neovim of the same theme that only draws what the editor sends: no language server, no work records, no
   saved places; it names boxes by the drawing it was sent, so a press on a graph that has since changed says "this
@@ -431,7 +432,7 @@ a review that works in any git repository. The look follows [UI style](ui-style.
 - **In the pop-out**: `o` in the map's tab moves it to the pop-out on the other screen, at the level it was on (Space
   Space › "Pop out the project map" opens this checkout's from anywhere). There it is the same map: `Enter` zooms in,
   or goes to a function in the editor while the keyboard stays in the pop-out; `-` zooms out; `r` and `c` ask about the
-  selected function, `P` asks only where to; `R` rebuilds. `H` and Backspace go back through its zooms, answers and
+  selected function, `P` asks only where to; `R` rebuilds. `Ctrl+o` and Backspace go back through its zooms, answers and
   the code spots Enter went to; its name in the pop-out's header is marked when an answer or a rebuild lands behind
   another view. `o` there brings it back as its tab, as it was; pinned (`p`), it also comes back when the pop-out
   closes on its own. `m` and `B` stay the tab's.

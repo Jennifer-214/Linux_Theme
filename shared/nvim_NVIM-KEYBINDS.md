@@ -326,9 +326,9 @@ Tab` in either window puts the keyboard in the other, on whichever screen it is.
 | `f` / `Shift+Enter` in the pop-out | What `Enter` does (go to the selected box or row in the editor), and the keyboard goes to the editor too |
 | `p` in the pop-out | Pin this view (PINNED: it stays as it is while the editor moves, and `Enter` visits its items one by one), or follow the editor's cursor again |
 | `o` in the pop-out | This view back to the editor as a split (the call graph as the live panel), pinned if it is pinned here; the pop-out stays open |
-| `gt` / `gT` in the pop-out | The next / previous view (each view is a tab); a count first goes to that view: `2gt` the second |
-| `H` / `<BS>` in the pop-out | Back where you were: the view before, the graph before a centre, the code spot before `Enter` (the editor goes back too) |
-| `L` in the pop-out | Forward again, after going back |
+| `H` / `L` / `gt` / `gT` in the pop-out | The previous / next view (each view is a tab), as `H` and `L` go through buffers in the editor; `gT` / `gt` too, and `2gt` the second |
+| `<C-o>` / `<BS>` in the pop-out | Back where you were: the view before, the graph before a centre, the code spot before `Enter` (the editor goes back too) |
+| `<C-r>` in the pop-out | Forward again, after going back |
 | `/` in the pop-out | Every box or row of this view by its whole name, filtered as you type; `Enter` selects it |
 | `?` in the pop-out | The keys of this view in the pop-out, in a list |
 | `Space Tab` in the pop-out | Put the keyboard in the editor; the same key there comes back here |

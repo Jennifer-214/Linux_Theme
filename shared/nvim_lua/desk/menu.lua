@@ -141,6 +141,8 @@ local function ident(item) return (item.group or '') .. '\0' .. tostring(item.id
 -- opts.desk_keys: a letter per item (desk.actions.ask), pressed to choose it; the menu's own keys (j k l h q /) stay its.
 function M.select(items, opts, on_choice)
   opts = opts or {}
+  -- Which screen: drawn as a map of the screens when they have places (desk.screens), else this list.
+  if opts.kind == 'desk_screens' and require('desk.screens').pick(items, opts, on_choice) then return end
   local format = opts.format_item or tostring
   local rows = {}
   for i, item in ipairs(items or {}) do

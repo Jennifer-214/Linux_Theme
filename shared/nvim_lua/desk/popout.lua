@@ -147,7 +147,8 @@ function M.screen_choices(monitors, layout, prefer)
       local about = type(m.description) == 'string' and m.description ~= '' and (' · ' .. m.description) or ''
       local size = (tonumber(m.width) and tonumber(m.height)) and (' · ' .. m.width .. '×' .. m.height) or ''
       local c = { name = m.name, workspace = math.floor(workspace), here = m.focused == true,
-                  label = m.name .. about .. size .. (m.focused and ' (this screen)' or '') }
+                  label = m.name .. about .. size .. (m.focused and ' (this screen)' or ''),
+                  x = m.x, y = m.y, width = m.width, height = m.height, scale = m.scale, transform = m.transform }
       if c.here then here = c elseif usual and m.name == usual.name then table.insert(out, 1, c) else out[#out + 1] = c end
     end
   end
@@ -172,7 +173,9 @@ function M.screen_input_choices(all)
   local choices = M.screen_choices(M.hyprctl_now({ 'monitors' }), M.screens(), M.host and M.host.prefer)
   local others = #vim.tbl_filter(function(c) return not c.here end, choices)
   if #choices == 0 or (not all and others < 2) then return nil end
-  return vim.tbl_map(function(c) return { id = c.name, name = c.label } end, choices)
+  -- With each screen's place, so the question can be drawn as a map of them (desk.screens).
+  return vim.tbl_map(function(c) return { id = c.name, name = c.label, here = c.here, x = c.x, y = c.y, width = c.width,
+    height = c.height, scale = c.scale, transform = c.transform } end, choices)
 end
 
 -- Asks which screen, the way every row asks (desk.actions: a letter each with a few, else a list): done(name), or
@@ -180,7 +183,7 @@ end
 function M.choose_screen(done, all)
   local choices = M.screen_input_choices(all)
   if not choices then return done(nil) end
-  actions.ask({ choices = choices }, actions.context(), function(_, choice) done(choice) end, 'Pop out on')
+  actions.ask({ choices = choices, kind = 'desk_screens' }, actions.context(), function(_, choice) done(choice) end, 'Pop out on')
 end
 
 -- ─── windows ───────────────────────────────────────────────────────────────────────────────────────────────────
@@ -378,7 +381,7 @@ end
 --   save(view) → saved, restore(view, saved)   the view's state and back. The history keeps what save gives (any
 --                          table); the layout record keeps saved.pinned and saved.target as JSON, and restore gets
 --                          { pinned, target } back after a restart. A kind that changes what its view shows (the
---                          graph's c) calls M.stepped(view, before), before = save(view) from just before, so H undoes it
+--                          graph's c) calls M.stepped(view, before), before = save(view) from just before, so Ctrl+o undoes it
 -- A view (M.host.views[name]) is the kind's own table; id, kind, gen and pinned are the host's, and gone once it has
 -- left the pop-out. select = an item's key and front = true go with the next M.redraw, once: the pop-out selects that
 -- item, and shows that view.
@@ -722,10 +725,10 @@ local function refused_here(why)
 end
 
 -- ─── history: H and Backspace go back, L forward ───────────────────────────────────────────────────────────────
--- Steps, each undone by H or Backspace and done again by L: a switch between views; an Enter (the code spot the editor
+-- Steps, each undone by Ctrl+o or Backspace and done again by Ctrl+r: a switch between views; an Enter (the code spot the editor
 -- was at, and the view's state from before for a kind that keeps one: one step, so one H puts back both the file the
 -- review showed and the spot); a view's content changing (its kind's save from before: a graph centred on another
--- function). What L brings back is what H left (taken when H undoes it), so a graph still being read when it was
+-- function). What Ctrl+r brings back is what Ctrl+o left (taken when it undoes it), so a graph still being read when it was
 -- centred comes back read. At most M.MAX_STEPS; a new step drops the ones ahead of it.
 local function push_step(step)
   local h = H.history
@@ -735,9 +738,9 @@ local function push_step(step)
   h.at = #h.steps
 end
 
--- A kind changed what its view shows (before: its save from just before): a step H can undo.
+-- A kind changed what its view shows (before: its save from just before): a step Ctrl+o can undo.
 -- During an Enter in that view (H.folding) the change is part of the Enter's own step, which keeps the view's state from
--- before it: one H undoes both.
+-- before it: one Ctrl+o undoes both.
 function M.stepped(view, before)
   local kind = view and kinds[view.kind]
   if not (kind and kind.save and kind.restore) or view.gone or H.views[view.id] ~= view or type(before) ~= 'table' then return end
@@ -965,7 +968,7 @@ end
 
 -- A view of kind `name` in the pop-out, opening the window when it is not open. A new view is filled by its kind from
 -- ctx; asked for again from the editor (o in another graph, its Views row) it is filled again from there; asked for
--- from the pop-out (ctx.remote) it only comes to the front. Either way, from another view, it is a step H undoes.
+-- from the pop-out (ctx.remote) it only comes to the front. Either way, from another view, it is a step Ctrl+o undoes.
 function M.show(name, ctx, asked)
   local kind = kinds[name]
   if not kind then return tell('No view is called ' .. tostring(name) .. '.', WARN) end
@@ -982,7 +985,7 @@ function M.show(name, ctx, asked)
   if not ok then return tell(sentence(why), WARN) end
   local view, before = H.views[name], H.front
   if not (view and ctx.remote) then
-    -- Sent again over what it showed (another graph's o, the map of another checkout): a step H undoes (2026-11-16).
+    -- Sent again over what it showed (another graph's o, the map of another checkout): a step Ctrl+o undoes (2026-11-16).
     local was
     if view and kind.save and kind.restore then
       local fine, state = pcall(kind.save, view)
@@ -1191,7 +1194,7 @@ end
 
 -- act { view, gen, item, action, text, choice }: runs a remote row after this answer, with the words and the pick its
 -- input asked for there (only those it asks for). Not while she is typing here. An Enter (the view's, or f) is a step
--- H undoes: the code spot the editor was at, and the one it went to.
+-- Ctrl+o undoes: the code spot the editor was at, and the one it went to.
 local function act(msg)
   if bridge.typing() then return refuse('typing in this editor') end
   local ctx, why = remote_ctx(msg)
@@ -1252,7 +1255,7 @@ local function pong(msg)
 end
 
 -- front { view, quiet }: another view is in front in the pop-out. Her own switch there (gt, a click on its tab) is a
--- step H undoes; quiet: it came of something else (the editor showed it, a view closed), only noted.
+-- step Ctrl+o undoes; quiet: it came of something else (the editor showed it, a view closed), only noted.
 local function front(msg)
   if not H.chan or exiting() then return { heard = false } end
   local view = H.views[msg.view]
@@ -1537,7 +1540,7 @@ local function tabline()
     if view and view.news then text = text .. ' ' .. (retro and '*' or '✱') end
     out[#out + 1] = '%' .. n .. 'T' .. (tab == current and '%#DeskPopoutTabSel#' or '%#DeskPopoutTab#') .. escape(text .. ' ')
   end
-  local right = ' ' .. typed('popout.next-view') .. ' ' .. said('views') .. ' · ' .. typed('popout.home') .. ' ' .. said('menu') .. ' '
+  local right = ' ' .. typed('popout.prev-view') .. '/' .. typed('popout.next-view') .. ' ' .. said('views') .. ' · ' .. typed('popout.home') .. ' ' .. said('menu') .. ' '
   if C.busy then right = ' ' .. said('editor busy') .. ' ·' .. right end
   return table.concat(out, retro and '%#DeskPopoutTab#│' or '%#DeskPopoutTab# ') .. '%#DeskPopoutTabFill#%T%=%#DeskPopoutTab#'
     .. (retro and '│' or '') .. escape(right)
@@ -2063,7 +2066,7 @@ local ROWS = actions.add({
     about = 'Asks which screen (every one, this one too); the pop-out moves there now if it is open, and opens there from now on, this session',
     available = function() return M.second_screen() end,
     -- Asked by desk.actions before the row runs (after a menu has closed), not from inside run.
-    input = { choices = function() return M.screen_input_choices(true) end },
+    input = { choices = function() return M.screen_input_choices(true) end, kind = 'desk_screens' },
     run = function(ctx)
       if type(ctx.choice) ~= 'string' or ctx.choice == '' then return end
       M.chosen = ctx.choice
@@ -2082,17 +2085,22 @@ local ROWS = actions.add({
   remote({ id = 'popout.back', group = 'Pop-out', name = 'Back to the editor', key = 'o', on = ON,
     about = 'This view back to the editor as a split (the call graph as the live panel), pinned if it is pinned here; the pop-out stays open',
     available = showing }, function(ctx) M.back(ctx.view) end),
-  { id = 'popout.next-view', group = 'Pop-out', name = 'The next view', key = 'gt', on = ON, menu = false,
-    doc = 'The next / previous view (each view is a tab); a count first goes to that view: `2gt` the second',
+  -- H and L as in the editor, where they go to the previous / next buffer (her ask, 2026-11-16); gt and gT too.
+  { id = 'popout.prev-view', group = 'Pop-out', name = 'The previous view', key = 'H', on = ON, menu = false,
+    doc = 'The previous / next view (each view is a tab), as `H` and `L` go through buffers in the editor; `gT` / `gt` too, and `2gt` the second',
+    run = function() pcall(vim.cmd, 'tabprevious') end },
+  { id = 'popout.next-view', group = 'Pop-out', name = 'The next view', key = 'L', on = ON, menu = false, line = 'popout.prev-view',
+    run = function() pcall(vim.cmd, 'tabnext') end },
+  { id = 'popout.next-view-gt', group = 'Pop-out', name = 'The next view', key = 'gt', on = ON, menu = false, line = 'popout.prev-view',
     run = function() local n = vim.v.count; pcall(vim.cmd, n > 0 and ('tabnext ' .. n) or 'tabnext') end },
-  { id = 'popout.prev-view', group = 'Pop-out', name = 'The previous view', key = 'gT', on = ON, menu = false, line = 'popout.next-view',
+  { id = 'popout.prev-view-gt', group = 'Pop-out', name = 'The previous view', key = 'gT', on = ON, menu = false, line = 'popout.prev-view',
     run = function() pcall(vim.cmd, 'tabprevious ' .. vim.v.count1) end },
-  remote({ id = 'popout.history-back', group = 'Pop-out', name = 'Back', key = 'H', on = ON,
+  remote({ id = 'popout.history-back', group = 'Pop-out', name = 'Back', key = '<C-o>', on = ON,
     about = 'Back where you were: the view before, the graph before a centre, the code spot before `Enter` (the editor goes back too)',
     available = back_there }, function() M.history_back() end),
   remote({ id = 'popout.history-back-bs', group = 'Pop-out', name = 'Back', key = '<BS>', on = ON, line = 'popout.history-back', menu = false,
     available = back_there }, function() M.history_back() end),
-  remote({ id = 'popout.history-forward', group = 'Pop-out', name = 'Forward', key = 'L', on = ON,
+  remote({ id = 'popout.history-forward', group = 'Pop-out', name = 'Forward', key = '<C-r>', on = ON,
     about = 'Forward again, after going back', available = ahead_there }, function() M.history_forward() end),
   { id = 'popout.find', group = 'Pop-out', name = 'Find a box or row', key = '/', on = ON,
     about = 'Every box or row of this view by its whole name, filtered as you type; `Enter` selects it', run = function() M.client_find() end },

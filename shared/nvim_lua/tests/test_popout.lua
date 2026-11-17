@@ -258,7 +258,7 @@ ok(wait(5000, function() return read('hyprctl.log'):find("dispatch hl.dsp.window
   '… tiled there')
 -- The header is the tab line and the key line the window's status line; the drawing holds neither.
 s = state()
-eq({ s.tabs, s.tab, s.header:find('^ 1 graph ') ~= nil, s.header:find('gt views · Space Space menu $') ~= nil }, { 1, 1, true, true },
+eq({ s.tabs, s.tab, s.header:find('^ 1 graph ') ~= nil, s.header:find('H/L views · Space Space menu $') ~= nil }, { 1, 1, true, true },
   "one view, one tab page; the header names it by its tab's number and kind, then the keys that switch: " .. s.header)
 eq(s.keyline, ' j/k/h/l move · Enter go · f go+focus · p pin · ? keys ', "the key line: the graph's five keys, as typed")
 ok(not popped():find('Enter go', 1, true) and not popped():find('PINNED', 1, true), '… and neither is in the drawing')
@@ -280,12 +280,12 @@ ok(not wait(1500, function() return log_since(mark):find('hl.dsp.focus', 1, true
 ok(wait(3000, function() return state().title == 'call graph · M.beta' end), 'following: the graph moves to where the editor went')
 eq(history_at(), at_enter + 1, '… the Enter one step of the history')
 -- H: back to where Enter left from, the editor too; L: there again.
-press('H')
+press('<C-o>')
 ok(wait(3000, function() return vim.deep_equal(host('return vim.api.nvim_win_get_cursor(0)'), { 3, 2 }) end),
   'H in the pop-out: the editor goes back to where Enter left it')
 ok(wait(3000, function() return state().title == 'call graph · M.alpha' end), '… and the following graph with it')
 eq(history_at(), at_enter, '… one H for the whole Enter')
-press('L')
+press('<C-r>')
 ok(wait(3000, function() return host('return vim.api.nvim_win_get_cursor(0)[1]') == 5 end), 'L: forward again, where Enter went')
 ok(wait(3000, function() return state().title == 'call graph · M.beta' end), '… the graph too')
 
@@ -357,17 +357,17 @@ ok(wait(3000, function() return state().title == 'call graph · callee_of_gamma'
   'c: the graph of the selected box, pinned there')
 ok((state().header or ''):find('graph · PINNED', 1, true), '… pinned')
 -- H: the graph before the centre, following as it was; L: the centred one again, read, pinned.
-press('H')
+press('<C-o>')
 ok(wait(3000, function() return state().title == 'call graph · gamma' and not state().header:find('PINNED', 1, true) end),
   'H: the graph before the centre, following again')
-press('L')
+press('<C-r>')
 ok(wait(3000, function()
   return state().title == 'call graph · callee_of_gamma' and popped():find('caller_of_callee_of_gamma', 1, true) and state().header:find('graph · PINNED', 1, true)
 end), 'L: the centred graph again, as it was read, pinned')
 -- The graph sent again from the editor (o in another graph, the Views row) replaces the pinned one: a step H undoes.
 host("require('desk.popout').show('graph', require('desk.actions').context())")
 ok(wait(3000, function() return state().title == 'call graph · gamma' end), 'sent again: the editor\'s function replaces the pinned graph')
-press('H')
+press('<C-o>')
 ok(wait(3000, function() return state().title == 'call graph · callee_of_gamma' and state().header:find('graph · PINNED', 1, true) end),
   '… and H brings the pinned graph back: ' .. tostring(state().title))
 press('p')
@@ -440,7 +440,7 @@ ok(wait(2000, function() return pop("return vim.api.nvim_win_get_config(0).relat
 local keys = pop("return table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), '\\n')")
 ok(keys:find('j/k%s+The box below / above') and keys:find('Enter%s+Go to the selected function') and keys:find('f/Shift%+Enter%s+Go to it, in the editor')
   and keys:find('Space Tab%s+To the editor') and keys:find('Space Space%s+Home menu') and keys:find('q%s+Close this view')
-  and keys:find('gt/gT%s+The next / previous view') and keys:find('H/BS%s+Back') and keys:find('L%s+Forward'),
+  and keys:find('H/L/gt/gT%s+The previous / next view') and keys:find('Ctrl%+o/BS%s+Back') and keys:find('Ctrl%+r%s+Forward'),
   "… the graph's keys and the window's, as typed, with the rows' names:\n" .. keys)
 ok(not keys:find('Back to the code', 1, true) and not keys:find('Read the graph again', 1, true), "… and none of the editor's own")
 ok(keys:find('Space Tab in the editor comes back here', 1, true), '… and the way back')
@@ -559,11 +559,16 @@ press('gt')
 ok(wait(2000, function() return state().shown == 'rows' and state().tab == 2 end), 'gt: the next, the rows')
 press('1gt')
 ok(wait(2000, function() return state().shown == 'graph' end), '1gt: the first view')
+-- H and L as in the editor's buffers (2026-11-16: they were back / forward, so views needed the mouse).
+press('L')
+ok(wait(2000, function() return state().shown == 'rows' end), 'L: the next view')
+press('H')
+ok(wait(2000, function() return state().shown == 'graph' end), 'H: the previous one')
 ok(wait(2000, function() return host("return require('desk.popout').host.front") == 'graph' end), '… and the editor knows which is in front')
 ok(wait(3000, function() return record().activeTab == 'graph' end), '… and so does the layout record')
-press('H')
+press('<C-o>')
 ok(wait(2000, function() return state().shown == 'rows' end), 'H: back to the view before')
-press('L')
+press('<C-r>')
 ok(wait(2000, function() return state().shown == 'graph' end), 'L: forward again')
 press('gt')
 ok(wait(2000, function() return state().shown == 'rows' end), 'gt: the rows again')
@@ -572,7 +577,7 @@ host("vim.api.nvim_set_current_win(_G.popout_test.code_win); vim.cmd('silent wri
 ok(wait(3000, function() return state().header:find('graph · PINNED ✱', 1, true) end), 'the graph read again behind: ✱ after its name')
 pop("vim.g.desk_style = 'retro'; vim.cmd('redrawtabline')")
 s = state()
-ok(s.header:find(' 1 GRAPH·PINNED %* │ 2 ROWS ') and s.header:find('│ gt VIEWS · Space Space MENU ', 1, true),
+ok(s.header:find(' 1 GRAPH·PINNED %* │ 2 ROWS ') and s.header:find('│ H/L VIEWS · Space Space MENU ', 1, true),
   'retro: capitals, │ between views, * for news; the keys as typed: ' .. s.header)
 pop("vim.g.desk_style = 'paper'; vim.cmd('redrawtabline')")
 press('gT')
