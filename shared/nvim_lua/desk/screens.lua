@@ -50,7 +50,8 @@ function M.layout(items, places, selected, cols, rows, retro)
   local boxes, height = {}, 0
   for i, p in ipairs(places) do
     local x, y = math.floor((p.x - minx) * sx + 0.5), math.floor((p.y - miny) * sy + 0.5)
-    local w, h = math.max(12, math.floor(p.w * sx + 0.5)), math.max(5, math.floor(p.h * sy + 0.5))
+    -- One cell short of the next screen, so neighbours do not share a border (seen in a VM, 2026-11-16).
+    local w, h = math.max(12, math.floor(p.w * sx + 0.5) - 1), math.max(5, math.floor(p.h * sy + 0.5) - 1)
     boxes[i] = { x = x, y = y, w = math.min(w, cols - x), h = h }
     height = math.max(height, y + h)
   end

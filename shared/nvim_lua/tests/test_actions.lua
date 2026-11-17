@@ -540,6 +540,7 @@ do
   local d = Scr.layout(three, places, 2, 64, 14, false)
   local b = d.boxes
   ok(b[1].x < b[2].x and b[2].x < b[3].x, "the boxes left to right, as the screens stand")
+  ok(b[1].x + b[1].w < b[2].x and b[2].x + b[2].w < b[3].x, "… a gap between neighbours, no shared border: " .. vim.inspect(b))
   ok(b[2].w > b[1].w and b[3].h * 2 > b[3].w and b[1].h * 2 < b[1].w, "… in their shapes: the big one wider, the rotated one tall")
   local text = table.concat(d.lines, "\n")
   ok(text:find("╔", 1, true) and text:find(" pop-out ", 1, true) and text:find("this editor", 1, true),
@@ -568,6 +569,26 @@ do
   ok(Menu._last.buf ~= listed and menu_text():find("Screen B", 1, true), "screens without places: the list")
   key("<Esc>")
   vim.ui.select = real_select
+end
+
+-- The selection bar draws in symdeps' colour only when that group draws something: in the pop-out it existed empty and
+-- the menus had no bar (2026-11-16).
+do
+  local function bar()
+    local ns = api.nvim_get_namespaces().foxml_menu
+    for _, m in ipairs(api.nvim_buf_get_extmarks(Menu._last.buf, ns, 0, -1, { details = true })) do
+      if m[4].line_hl_group then return m[4].line_hl_group end
+    end
+  end
+  api.nvim_set_hl(0, "FoxSymdepsSelection", {})
+  Menu.open({ { name = "One", run = function() end }, { name = "Two", run = function() end } }, { title = "Bar" })
+  eq(bar(), "Visual", "symdeps' selection group empty: the bar is Visual")
+  vim.fn.maparg("<Esc>", "n", false, true).callback()
+  api.nvim_set_hl(0, "FoxSymdepsSelection", { reverse = true })
+  Menu.open({ { name = "One", run = function() end } }, { title = "Bar" })
+  eq(bar(), "FoxSymdepsSelection", "… one that draws: symdeps' own")
+  vim.fn.maparg("<Esc>", "n", false, true).callback()
+  api.nvim_set_hl(0, "FoxSymdepsSelection", {})
 end
 
 vim.fn.delete(dir, "rf")

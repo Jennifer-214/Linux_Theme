@@ -10,7 +10,12 @@ local actions = require('desk.actions')
 local ns = api.nvim_create_namespace('foxml_menu')
 local memory = {}
 
-local function hl(name, fallback) return vim.fn.hlexists(name) == 1 and name or fallback end
+-- symdeps' group when it draws something, else the fallback: a group that only exists (cleared, or a link to one the
+-- pop-out's Neovim lacks) drew no selection bar in the pop-out's menus (2026-11-16).
+local function hl(name, fallback)
+  local ok, def = pcall(api.nvim_get_hl, 0, { name = name, link = false })
+  return ok and type(def) == 'table' and next(def) ~= nil and name or fallback
+end
 local function width(s) return vim.fn.strdisplaywidth(s) end
 local function fit(s, w)
   if width(s) <= w then return s end
