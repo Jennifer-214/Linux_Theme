@@ -2583,7 +2583,7 @@ end
 function M.api_jump(root, id, rel, lnum)
   local target = M.api_target(root, id, rel)
   if target.current then
-    vim.cmd('edit ' .. vim.fn.fnameescape(target.path))
+    require('desk.nav').open_code(target.path, lnum)
   else
     local buf = api.nvim_create_buf(false, true)
     api.nvim_buf_set_lines(buf, 0, -1, false, lines(target.text))
@@ -2932,6 +2932,7 @@ function M.open(row, root, callbacks)
     original_diffopt = vim.o.diffopt, close = callbacks.close, on_close = callbacks.on_close }
   M.current = r
   vim.cmd('tabnew'); r.tab = api.nvim_get_current_tabpage(); r.right_win = api.nvim_get_current_win()
+  vim.t[r.tab].desk_view = 'review'   -- code never opens in its windows (desk.nav.code_window)
   local empty = api.nvim_get_current_buf()
   vim.bo[empty].buflisted, vim.bo[empty].bufhidden = false, 'wipe'
   vim.cmd('leftabove vsplit'); r.left_win = api.nvim_get_current_win()

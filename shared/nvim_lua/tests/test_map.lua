@@ -305,6 +305,33 @@ cursor_on("M.alpha")
 press("<CR>")
 eq(api.nvim_get_current_win(), origin, "Enter on a function goes to the code")
 eq({ api.nvim_buf_get_name(0), api.nvim_win_get_cursor(0)[1] }, { root .. "/lua/mod.lua", 3 }, "… at its line")
+
+-- From the review's tab (2026-11-16): the map opened there remembered the review's list window, and Enter put the
+-- code in it, over the list. Code opens in a code window instead (desk.nav.open_code), the review left as it was.
+do
+  local Nav = require("desk.nav")
+  Nav.setup()
+  api.nvim_set_current_win(view.win)
+  api.nvim_set_current_win(origin)
+  eq(Nav.last_code(), origin, "the last code window is kept")
+  vim.cmd("tabnew")
+  vim.cmd.tcd(vim.fn.fnameescape(root))   -- the review's checkout: Space cm maps that one
+  local review_tab, list = api.nvim_get_current_tabpage(), api.nvim_get_current_win()
+  vim.t[review_tab].desk_view = "review"
+  local list_buf = api.nvim_create_buf(false, true)
+  vim.bo[list_buf].bufhidden = "hide"   -- as the review's list: hidden, not wiped, so :edit over it succeeded
+  api.nvim_win_set_buf(list, list_buf)
+  press("<leader>cm")
+  eq(api.nvim_get_current_win(), view.win, "Space cm from the review: the map")
+  cursor_on("M.alpha")
+  press("<CR>")
+  eq(api.nvim_win_get_buf(list), list_buf, "Enter on a function leaves the review's list alone")
+  eq({ api.nvim_get_current_win(), api.nvim_buf_get_name(0) }, { origin, root .. "/lua/mod.lua" }, "… the code opens in her code window")
+  ok(not Nav.code_window(list), "a window in the review's tab is never a code window")
+  api.nvim_set_current_tabpage(review_tab); vim.cmd("tabclose")
+  api.nvim_set_current_win(origin)
+  press("<leader>cm")
+end
 api.nvim_set_current_win(view.win)
 press("<BS>")
 ok(vim.wait(1000, function() return line_with(view.drawn.lines, "│ mod.lua") and not line_with(view.drawn.lines, "│ M.alpha") end), "Backspace zooms out")

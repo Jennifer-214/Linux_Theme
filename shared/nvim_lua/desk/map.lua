@@ -1084,12 +1084,9 @@ end
 local function jump(view, node, origin)
   if not node.file then return tell(node.label .. ' has no source in this checkout (' .. (node.detail or 'binary only') .. ').') end
   local path = view.root .. '/' .. node.file
-  origin = origin or (not view.out and view.origin) or nil
-  if origin and api.nvim_win_is_valid(origin) then api.nvim_set_current_win(origin) else vim.cmd('tabnew') end
-  if not pcall(vim.cmd.edit, vim.fn.fnameescape(path)) then vim.cmd('tabedit ' .. vim.fn.fnameescape(path)) end
-  local line = math.max(1, math.min(tonumber(node.line) or 1, api.nvim_buf_line_count(0)))
-  local text = api.nvim_buf_get_lines(0, line - 1, line, false)[1] or ''
-  api.nvim_win_set_cursor(0, { line, math.max(0, (text:find('%S') or 1) - 1) })
+  -- The window the map came from when that is code; never a view's (from the review it was the review's list).
+  local ok, why = require('desk.nav').open_code(path, node.line, nil, origin or (not view.out and view.origin) or nil)
+  if not ok then tell('Could not open ' .. node.file .. ': ' .. tostring(why)) end
 end
 
 -- The box a key is about: in the pop-out the one selected there (ctx.item), here the one under the cursor.

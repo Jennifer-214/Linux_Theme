@@ -330,7 +330,9 @@ function M.jump(direction)
     end
     pick = pick or list[#list]
   end
-  if (pick.real or pick.file) ~= here then vim.cmd("edit " .. vim.fn.fnameescape(pick.file)) end
+  if (pick.real or pick.file) ~= here or not require("desk.nav").code_window(vim.api.nvim_get_current_win()) then
+    require("desk.nav").open_code(pick.file)
+  end
   vim.api.nvim_win_set_cursor(0, { math.min(pick.line, vim.api.nvim_buf_line_count(0)), 0 })
   vim.cmd("normal! zz")
 end

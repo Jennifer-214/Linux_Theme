@@ -489,7 +489,7 @@ end
 
 -- An item from the language server goes to its range; the centre drawn before the answer, to where it was asked.
 local function jump(item, win)
-  if win and api.nvim_win_is_valid(win) then api.nvim_set_current_win(win) end
+  require('desk.nav').code_target(win)   -- that window when it is code, else another code window: never a view's
   if item.uri and item.range then
     vim.lsp.util.show_document({ uri = item.uri, range = item.range }, item.enc or 'utf-16', { focus = true })
   elseif item.buf and api.nvim_buf_is_valid(item.buf) and item.row then

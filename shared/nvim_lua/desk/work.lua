@@ -118,7 +118,7 @@ function M.api_result_opened(buf)
     local function jump()
       local line = vim.api.nvim_get_current_line()
       local hit = M.api_citations({line}, folder)[1]
-      if hit then vim.cmd('edit ' .. vim.fn.fnameescape(hit.filename)); vim.api.nvim_win_set_cursor(0, {hit.lnum, 0}) end
+      if hit then require('desk.nav').open_code(hit.filename, hit.lnum, 0) end
     end
     vim.keymap.set('n', '<CR>', jump, {buffer=buf, desc='Open the cited file and line'})
     if project_id then vim.keymap.set('n', 'f', function() api_follow(id, project_id) end, {buffer=buf, desc='Ask a follow-up'}) end
