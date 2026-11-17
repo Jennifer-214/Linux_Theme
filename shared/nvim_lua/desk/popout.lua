@@ -643,30 +643,46 @@ end
 
 -- The pop-out window appears floating at the side of the screen it opens on (the Hyprland rule, which also keeps the
 -- focus here). Then it moves, tiled, to the workspace showing on `screen` ({ name, workspace }; by default the screen
--- M.target_screen picks, a restore's screen first), and H.screen says which. pid: its kitty's.
+-- M.target_screen picks, a restore's screen first), and H.screen says which. pid: its kitty's. Each time, Hyprland's own
+-- list of windows says whether it took: still elsewhere it is moved again, still floating it is tiled again, up to
+-- M.PLACE_TRIES more times, then it says so (2026-11-16: moved to another screen it stayed floating there, not tiled
+-- beside the windows already there). A window never found is said too.
+M.PLACE_TRIES = 3
 function M.place(pid, screen)
   if type(pid) ~= 'number' or not have('hyprctl') then return end
   hyprctl({ 'monitors' }, function(monitors)
     screen = screen or chosen_screen(monitors) or M.target_screen(monitors, M.screens(), H.prefer)
     if not screen then return end
-    local tries = 0
+    local where, looked, tried = tostring(screen.workspace), 0, 0
     local function look()
-      tries = tries + 1
+      looked = looked + 1
       hyprctl({ 'clients' }, function(clients)
-        local address
-        for _, c in ipairs(type(clients) == 'table' and clients or {}) do
-          if type(c) == 'table' and c.pid == pid and c.class == M.CLASS and type(c.address) == 'string' and c.address:match('^0x%x+$') then address = c.address end
+        local c
+        for _, w in ipairs(type(clients) == 'table' and clients or {}) do
+          if type(w) == 'table' and w.pid == pid and w.class == M.CLASS and type(w.address) == 'string' and w.address:match('^0x%x+$') then c = w end
         end
-        if not address then
-          if tries < 30 then vim.defer_fn(look, 100) end
+        if not c then
+          if looked < 30 then return vim.defer_fn(look, 100) end
+          if tried == 0 then tell("The pop-out's window was not found, so it stays where it opened.", WARN) end
           return
         end
         H.screen = screen.name
-        local where = tostring(screen.workspace)
+        local ws = type(c.workspace) == 'table' and tonumber(c.workspace.id) or nil
+        local there, floating = ws == screen.workspace, c.floating == true
+        -- A list without these (another Hyprland) cannot say: it is placed once.
+        if tried > 0 and (ws == nil or type(c.floating) ~= 'boolean' or (there and not floating)) then return end
+        if tried > M.PLACE_TRIES then
+          return tell(('The pop-out is still %s: Hyprland did not tile it on %s.'):format(there and 'floating' or 'on another workspace', screen.name), WARN)
+        end
+        tried = tried + 1
+        local address = c.address
+        local function tile()
+          M.dispatch(("hl.dsp.window.float({ action = 'unset', window = 'address:%s' })"):format(address), 'settiled address:' .. address,
+            function() looked = 0; look() end)
+        end
+        if tried > 1 and there then return tile() end
         M.dispatch(("hl.dsp.window.move({ workspace = '%s', follow = false, window = 'address:%s' })"):format(where, address),
-          ('movetoworkspacesilent %s,address:%s'):format(where, address), function()
-            M.dispatch(("hl.dsp.window.float({ action = 'unset', window = 'address:%s' })"):format(address), 'settiled address:' .. address)
-          end)
+          ('movetoworkspacesilent %s,address:%s'):format(where, address), tile)
       end)
     end
     look()

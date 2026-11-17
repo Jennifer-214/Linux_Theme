@@ -48,6 +48,7 @@ write(bin .. '/kitty', [[#!/bin/sh
 printf '%s\n' "$@" > "$POPOUT_TEST/kitty.argv"
 printf 'NVIM=%s TMUX=%s TMUX_PANE=%s NVIM_NOTTYFAST=%s\n' "${NVIM:-}" "${TMUX:-}" "${TMUX_PANE:-}" "${NVIM_NOTTYFAST:-}" > "$POPOUT_TEST/kitty.env"
 echo $$ > "$POPOUT_TEST/kitty.pid"
+: > "$POPOUT_TEST/pop.floating"; echo 1 > "$POPOUT_TEST/pop.workspace"
 n=$(( $(cat "$POPOUT_TEST/kitty.count" 2>/dev/null || echo 0) + 1 ))
 echo "$n" > "$POPOUT_TEST/kitty.count"
 echo "$POPOUT_TEST/p$n" > "$POPOUT_TEST/kitty.listen"
@@ -58,15 +59,25 @@ exec nvim --headless --clean --listen "$POPOUT_TEST/p$n" --cmd "luafile $POPOUT_
 ]], 'rwxr-xr-x')
 write(bin .. '/hyprctl', [[#!/bin/sh
 # hyprctl, for the test: logs every call; the screens and windows come from the test's files. With focus.fail in the
-# test's folder a focus fails (exit 17).
+# test's folder a focus fails (exit 17). The pop-out's window keeps its workspace and whether it floats as Hyprland
+# would: kitty's stub opens it floating (pop.floating), a move puts it on that workspace (pop.workspace), unsetting its
+# float tiles it; with unset.ignore there the next one is let go by, as a Hyprland that had not finished the move.
 printf '%s\n' "$*" >> "$POPOUT_TEST/hyprctl.log"
 if [ "$1" = dispatch ] && [ -f "$POPOUT_TEST/focus.fail" ]; then case "$2" in *focus*) exit 17 ;; esac; fi
+if [ "$1" = dispatch ]; then
+  case "$2" in
+    *"window.move({ workspace = '"*) printf '%s' "$2" | sed -n "s/.*workspace = '\([0-9]*\)'.*/\1/p" > "$POPOUT_TEST/pop.workspace" ;;
+    *"window.float({ action = 'unset'"*) if [ -f "$POPOUT_TEST/unset.ignore" ]; then rm -f "$POPOUT_TEST/unset.ignore"; else rm -f "$POPOUT_TEST/pop.floating"; fi ;;
+  esac
+fi
 case "$1 $2" in
   "-j monitors") cat "$POPOUT_TEST/monitors.json" ;;
   "-j clients")
     pop=$(cat "$POPOUT_TEST/kitty.pid" 2>/dev/null || echo 0)
     main=$(cat "$POPOUT_TEST/main.pid" 2>/dev/null || echo 0)
-    printf '[{"address":"0xa1","pid":%s,"class":"kitty"},{"address":"0xb2","pid":%s,"class":"desk-popout"}]\n' "$main" "$pop" ;;
+    floating=false; [ -f "$POPOUT_TEST/pop.floating" ] && floating=true
+    workspace=$(cat "$POPOUT_TEST/pop.workspace" 2>/dev/null || echo 1)
+    printf '[{"address":"0xa1","pid":%s,"class":"kitty","floating":false,"workspace":{"id":1}},{"address":"0xb2","pid":%s,"class":"desk-popout","floating":%s,"workspace":{"id":%s}}]\n' "$main" "$pop" "$floating" "$workspace" ;;
   "eval return 1") echo 1 ;;
   *) echo ok ;;
 esac
@@ -256,6 +267,7 @@ ok(wait(5000, function()
 end), 'placed on the workspace showing on the second screen (DP-2 shows 5), without following it')
 ok(wait(5000, function() return read('hyprctl.log'):find("dispatch hl.dsp.window.float({ action = 'unset', window = 'address:0xb2' })", 1, true) end),
   '… tiled there')
+ok(wait(5000, function() return not exists(dir .. '/pop.floating') and vim.trim(read('pop.workspace')) == '5' end), "… as Hyprland's own list says")
 -- The header is the tab line and the key line the window's status line; the drawing holds neither.
 s = state()
 eq({ s.tabs, s.tab, s.header:find('^ 1 graph ') ~= nil, s.header:find('H/L views · Space Space menu $') ~= nil }, { 1, 1, true, true },
@@ -671,11 +683,18 @@ ok(wait(5000, function() return host("return require('desk.popout').host.screen"
 -- Moved by its row: every screen offered, the pop-out goes there now, and it is remembered.
 host("vim.ui.select = function(items, _, done) done(items[2]) end")
 mark = #read('hyprctl.log')
+-- Moved to another screen it stays floating when Hyprland lets the tiling go by (2026-11-16: "it makes the float, and
+-- not snapped to the other stuff already there"): the window floats here, the next unset is ignored.
+vim.fn.writefile({}, dir .. '/pop.floating')
+vim.fn.writefile({}, dir .. '/unset.ignore')
 -- Pressed the way the menu presses a row: its question first (after the menu has closed), then the row.
 host("local A = require('desk.actions'); A.press(A.get('popout.screen'), A.context())")
 ok(wait(5000, function()
   return log_since(mark):find("dispatch hl.dsp.window.move({ workspace = '7', follow = false, window = 'address:0xb2' })", 1, true)
 end), 'Move the pop-out to another screen: HDMI-A-1 chosen, it moves to the workspace showing there')
+ok(wait(5000, function() return not exists(dir .. '/pop.floating') end), "… and ends tiled there, though Hyprland let the first tiling go by")
+local _, unsets = log_since(mark):gsub("window%.float%(%{ action = 'unset'", '')
+eq({ unsets, vim.trim(read('pop.workspace')) }, { 2, '7' }, '… checked in its list of windows and tiled once more, on workspace 7')
 eq({ host("return require('desk.popout').host.screen"), host("return require('desk.popout').chosen") }, { 'HDMI-A-1', 'HDMI-A-1' },
   '… on HDMI-A-1 now, and chosen for this session')
 host("vim.ui.select = function(items, _, done) done(items[1]) end")

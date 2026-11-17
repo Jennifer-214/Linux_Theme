@@ -380,8 +380,9 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   selected box and pins it there, as in the pop-out; `r` reads it again.
 - **The pop-out**: with a second monitor, `Space Space` → views → "Pop out the call graph" opens the live graph in a
   window of its own (kitty, class `desk-popout`): it opens without taking the keyboard, at the side of the screen, and
-  moves to the workspace showing on the other screen (the first one `~/.config/foxml/monitor-layout.conf` lists as
-  secondary that does not hold the editor). `o` in a graph tab or the panel sends that graph there and closes it here;
+  moves, tiled, to the workspace showing on the other screen (the first one `~/.config/foxml/monitor-layout.conf` lists
+  as secondary that does not hold the editor); each move is checked in Hyprland's list of windows, done again when it
+  did not take, and said when it never does. `o` in a graph tab or the panel sends that graph there and closes it here;
   `o` in the pop-out brings it back as the live panel. A view there has the keys of its place in the editor (the graph
   has the graph tab's) beside the window's own: Enter goes to the function in the editor and the keyboard stays in the
   pop-out, `f` or Shift+Enter puts the keyboard in the editor too. `p` pins the graph (Enter then visits its boxes one by
