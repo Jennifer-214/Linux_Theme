@@ -301,7 +301,7 @@ The call graph (desk.callgraph); "in a graph" means the graph tab and the live p
 | `<BS>` in the graph tab | Back to that code window as it was, the graph left open |
 | `c` in a graph | Centre the graph on the selected box: its own callers and callees (in the panel and the pop-out it is pinned there; `p` follows again) |
 | `m` in the graph tab | Draw the callers and callees past the first 24 on each side too (where it says "+N more") |
-| `r` in the graph tab | Ask the language server for the graph again |
+| `r` in a graph | Ask the language server for the graph again (a graph that follows the cursor: for the function under it) |
 | `q` in the graph tab | Close the graph tab |
 | `gs` in the graph tab | The centre function in symdeps' card (C and C++); in the pop-out, the selected box's function, shown here |
 | `p` in the panel | Pin the panel to the graph it shows (PINNED), or follow the cursor again |

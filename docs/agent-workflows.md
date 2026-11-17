@@ -377,7 +377,7 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   Enter goes to the selected one; `q` or closing the last window beside it closes it. `p` pins it: it keeps the graph
   it shows (its first line reads `PINNED`) while the cursor goes elsewhere, Enter goes there without re-centring it,
   and saving that graph's file reads it again. `p` again follows the cursor from where it is. `c` centres it on the
-  selected box and pins it there, as in the pop-out.
+  selected box and pins it there, as in the pop-out; `r` reads it again.
 - **The pop-out**: with a second monitor, `Space Space` → views → "Pop out the call graph" opens the live graph in a
   window of its own (kitty, class `desk-popout`): it opens without taking the keyboard, at the side of the screen, and
   moves to the workspace showing on the other screen (the first one `~/.config/foxml/monitor-layout.conf` lists as
@@ -385,8 +385,8 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   `o` in the pop-out brings it back as the live panel. A view there has the keys of its place in the editor (the graph
   has the graph tab's) beside the window's own: Enter goes to the function in the editor and the keyboard stays in the
   pop-out, `f` or Shift+Enter puts the keyboard in the editor too. `p` pins the graph (Enter then visits its boxes one by
-  one) or follows the editor again, where each place Enter goes centres it; `c` centres it on a box (pinned there), `s`
-  labels the boxes and `gs` shows the selected function in symdeps (as in the graph tab), `Space Space` there is the
+  one) or follows the editor again, where each place Enter goes centres it; `c` centres it on a box (pinned there), `r`
+  reads it again, `s` labels the boxes and `gs` shows the selected function in symdeps (as in the graph tab), `Space Space` there is the
   editor's menu for the selected box (its first group lists the views), `?` lists the keys. Each view is a tab page:
   the tab line is the header (each view by number, `PINNED`, `✱` when something new arrived in a view behind) and the
   status line is that view's keys; `H` and `L` switch views (as they switch buffers in the editor; `gt`, `gT` and `2gt`

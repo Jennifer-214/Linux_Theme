@@ -739,6 +739,20 @@ end
 function M.panel_refresh(buf)
   local target = panel.target
   if not (panel_open() and panel.pinned and target and target.buf == buf) then return end
+  M.panel_reload()
+end
+
+-- r in the panel: its graph asked for again (pinned: the same function; following: the one under the cursor, its
+-- kept answer dropped).
+function M.panel_reload()
+  local target = panel.target
+  if not panel_open() then return end
+  if not panel.pinned then
+    if target and target.buf and target.name and target.row then panel.cache[cache_key(target)] = nil end
+    panel.key = nil
+    return M.panel_update()
+  end
+  if not target then return end
   local center = panel.graph and panel.graph.center
   local again = center and center.raw and vim.tbl_extend('force', {}, target, { item = center }) or target
   panel.cache[cache_key(again)] = nil
@@ -910,7 +924,7 @@ local function go(s)
   local item = M.selected(s)
   if item then jump(item, s == panel and panel.source_win or s.origin) end
 end
-local popout_centre, popout_symdeps   -- the pop-out's c and gs, with its view kind below
+local popout_centre, popout_reload, popout_symdeps   -- the pop-out's c, r and gs, with its view kind below
 local function pop() return require('desk.popout') end
 local GRAPH, BOTH = 'callgraph', { 'callgraph', 'callgraph-panel' }
 local function moving(how, key, name, about, line, doc)
@@ -991,8 +1005,14 @@ local ROWS = actions.add({
       M.show_all(ctx.graph.graph)
       render(ctx.graph, true)
     end },
-  { id = 'callgraph.reload', group = 'Call graph', name = 'Read the graph again', key = 'r', on = GRAPH, remote = false,
-    about = 'Ask the language server for the graph again', run = function(ctx) load(ctx.graph, ctx.graph.target) end },
+  -- On every graph (2026-11-16: in the panel and the pop-out r was Vim's own, an error on their read-only buffers).
+  { id = 'callgraph.reload', group = 'Call graph', name = 'Read the graph again', key = 'r', on = BOTH, remote = true,
+    about = 'Ask the language server for the graph again (a graph that follows the cursor: for the function under it)',
+    run = function(ctx)
+      if ctx.view then return popout_reload(ctx.view) end
+      if ctx.graph == panel then return M.panel_reload() end
+      load(ctx.graph, ctx.graph.target)
+    end },
   { id = 'callgraph.close', group = 'Call graph', name = 'Close the call graph', key = 'q', on = GRAPH, about = 'Close the graph tab', remote = false,
     run = function(ctx) M.close_view(ctx.graph.buf) end },
   { id = 'callgraph.symdeps', group = 'Call graph', name = 'This function in symdeps', key = 'gs', on = GRAPH, remote = true,
@@ -1235,6 +1255,19 @@ popout_centre = function(view, item)
   pop().save_layout()
 end
 
+-- r in the pop-out: the graph asked for again (pinned: its function; following: the one under the cursor, its kept
+-- answer dropped).
+popout_reload = function(view)
+  if not view.pinned then
+    local t = view.target
+    if t and t.buf and t.row then view.cache[follow_key(t)] = nil end
+    view.key = nil
+    return follow_update(view)
+  end
+  local target, center = view.target, view.graph and view.graph.center
+  if target then read_for(view, center and center.raw and vim.tbl_extend('force', {}, target, { item = center }) or target, center) end
+end
+
 -- gs in the pop-out: the box's function here, in symdeps' card.
 popout_symdeps = function(ctx)
   if not ctx.item then return end
@@ -1358,7 +1391,7 @@ local function render_view(view, width, style)
   local graph = view.graph or { message = 'move the cursor into a function' }
   view.shown_edited = M.edited_since(graph)
   if view.shown_edited then
-    graph = vim.tbl_extend('force', {}, graph, { notes = vim.list_extend(vim.deepcopy(graph.notes or {}), { M.EDITED .. ' · saving reads it again' }) })
+    graph = vim.tbl_extend('force', {}, graph, { notes = vim.list_extend(vim.deepcopy(graph.notes or {}), { M.EDITED .. ' · ' .. M.typed('reload') .. ' reads it again' }) })
   end
   local drawn = M.layout(graph, math.max(16, width - 2), style == 'retro')
   local items = {}

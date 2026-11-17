@@ -372,6 +372,14 @@ ok(wait(3000, function() return state().title == 'call graph · callee_of_gamma'
   '… and H brings the pinned graph back: ' .. tostring(state().title))
 press('p')
 ok(wait(3000, function() return state().title == 'call graph · gamma' end), 'p: following the editor again')
+-- r: the graph read again, here for the function under the editor's cursor (2026-11-16: it was Vim's r, an error).
+do
+  local asked = host('return #_G.popout_test.requests')
+  press('r')
+  ok(wait(3000, function() return host('return #_G.popout_test.requests') > asked end), 'r asks the language server again')
+  ok(wait(5000, settled), '… and settles')
+  eq({ state().title, (state().header or ''):find('PINNED', 1, true) }, { 'call graph · gamma', nil }, '… for the same function, still following')
+end
 
 -- ─── a wide window: the drawing in its middle (2026-11-16: on a 4K screen it sat in the left corner) ─────────────
 eq(pop("local P = require('desk.popout'); return { P.gutter({ 'abcd', '  ab' }, 20), P.gutter({ '      xx      ' }, 14), P.gutter({ 'a' }, 1), P.gutter({ '', '  ' }, 50) }"),
@@ -442,7 +450,7 @@ ok(keys:find('j/k%s+The box below / above') and keys:find('Enter%s+Go to the sel
   and keys:find('Space Tab%s+To the editor') and keys:find('Space Space%s+Home menu') and keys:find('q%s+Close this view')
   and keys:find('H/L/gt/gT%s+The previous / next view') and keys:find('Ctrl%+o/BS%s+Back') and keys:find('Ctrl%+r%s+Forward'),
   "… the graph's keys and the window's, as typed, with the rows' names:\n" .. keys)
-ok(not keys:find('Back to the code', 1, true) and not keys:find('Read the graph again', 1, true), "… and none of the editor's own")
+ok(not keys:find('Back to the code', 1, true) and keys:find('r%s+Read the graph again'), "… none of the editor's own, and r reads the graph again as in the tab")
 ok(keys:find('Space Tab in the editor comes back here', 1, true), '… and the way back')
 press('q')
 ok(wait(2000, function() return state().current_win == state().win end), '… q closes it, back in the pop-out')
