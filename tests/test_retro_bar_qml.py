@@ -31,7 +31,9 @@ WORK = ['custom/ai_status', 'custom/claude', 'custom/api_credits']
 CP437 = set(bytes(range(0x20, 0x7f)).decode('cp437') + bytes(range(0x80, 0x100)).decode('cp437')
             + '☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕‼¶§▬↨↑↓→←∟↔▲▼⌂')
 NEEDS_YOU = {'critical', 'error', 'warning', 'stopped', 'asking', 'done', 'plugged-drain', 'high'}
-STRIP = (0xff, 0xb0, 0x00)  # retro-amber's FG: the bar is an amber strip with dark text
+STRIP = (0x0c, 0x0a, 0x06)  # retro-amber's BG: amber on black (2026-11-16: the full amber strip dominated the screen)
+# Not on the retro bar (her ask, 2026-11-16: less dense); CPU and GPU stay, load and temperature at a glance.
+HIDDEN = {'custom/ai_status', 'custom/api_credits', 'power-profiles-daemon', 'custom/net_speed', 'memory', 'custom/disk'}
 
 _drawn = {}
 
@@ -121,8 +123,8 @@ class RetroBar(unittest.TestCase):
                 self.assertEqual({m['name'] for m in layout['modules'] if m['alert']}, needs_you)
                 self.assertEqual([t['id'] for t in layout['tabs'] if t['reverse']], [1], 'the current workspace only')
                 for module in layout['modules']:
-                    background = module['textColor'].lower() == '#ffb000'
-                    self.assertEqual(background, module['alert'], f"{module['name']}: reverse video means amber text")
+                    reversed_ = module['textColor'].lower() == '#0c0a06'
+                    self.assertEqual(reversed_, module['alert'], f"{module['name']}: reverse video means dark text on amber")
                 boxes = [m['alertBox'] for m in layout['modules'] if m['alert']] + [t['reverseBox'] for t in layout['tabs'] if t['reverse']]
                 self.assertEqual({(b['y'], b['height']) for b in boxes}, {(8, 16)}, 'one box: the text row and two pixels')
                 self.assertEqual(layout['rails'], [], 'no rail under the API credits: under text it reads as a link')
@@ -130,16 +132,18 @@ class RetroBar(unittest.TestCase):
                 pixels = image.load()
                 for y in list(range(0, 8)) + list(range(24, image.height)):
                     self.assertEqual({pixels[x, y] for x in range(image.width)}, {STRIP}, f'row {y} is not plain strip')
-                # Above the glyphs, inside the box row, only the boxes and the cursor are dark.
+                # Above the glyphs, inside the box row, only the boxes and the cursor are amber.
                 spans = sorted((round(b['x']), round(b['x'] + b['width'])) for b in boxes + [layout['cursor']])
-                dark, start = [], None
+                lit, start = [], None
                 for x in range(image.width):
-                    if sum(pixels[x, 9]) < 200 and start is None:
+                    if sum(pixels[x, 9]) >= 200 and start is None:
                         start = x
-                    elif sum(pixels[x, 9]) >= 200 and start is not None:
-                        dark.append((start, x))
+                    elif sum(pixels[x, 9]) < 200 and start is not None:
+                        lit.append((start, x))
                         start = None
-                self.assertEqual(dark, spans)
+                if start is not None:
+                    lit.append((start, image.width))
+                self.assertEqual(lit, spans)
 
     def test_three_zones(self):
         """Left the workspaces, in the middle your work (halfway between), on the right the machine."""
@@ -150,7 +154,7 @@ class RetroBar(unittest.TestCase):
                          for side in ['left', 'center', 'right']}
                 self.assertEqual(zones['left'], ['custom/logo', 'hyprland/workspaces'])
                 self.assertEqual(zones['center'], [name for name in WORK if name in zones['center']])
-                self.assertGreaterEqual(len(zones['center']), 2)
+                self.assertFalse(HIDDEN & set(zones['center']), 'the local model and API credits are not on the bar')
                 self.assertFalse(set(WORK) & set(zones['right']), 'work stays in the middle')
                 box = {s['side']: s['box'] for s in layout['sections']}
                 left_gap = box['center']['x'] - (box['left']['x'] + box['left']['width'])
@@ -159,6 +163,19 @@ class RetroBar(unittest.TestCase):
         layout = drawn('retro-amber', 'today', 1920)[0]
         zone_gap = text_runs(layout, 'center')[0][0] - text_runs(layout, 'left')[-1][1]
         self.assertGreater(zone_gap, group_gap(layout), 'zones stand further apart than groups')
+
+    def test_less_dense(self):
+        """Hidden: the local model, API credits, power profile, network, memory, disk. CPU and GPU stay; UPD only with
+        updates waiting; AWAKE only while it keeps the screens on (2026-11-16)."""
+        for scene, width in [('today', 1920), ('busy', 2560), ('broken', 1920)]:
+            layout = drawn('retro-amber', scene, width)[0]
+            drawn_names = {m['name'] for m in layout['modules'] if m['text']}
+            with self.subTest(scene=scene):
+                self.assertFalse(HIDDEN & drawn_names, f'hidden modules drawn: {HIDDEN & drawn_names}')
+                self.assertIn('custom/cpu', drawn_names, 'CPU load and temperature stay')
+                waiting = re.search(r'[1-9]', preview.SCENES[scene]['custom/updates']['text']) is not None
+                self.assertEqual('custom/updates' in drawn_names, waiting, 'UPD only with updates waiting')
+                self.assertNotIn('idle_inhibitor', drawn_names, 'AWAKE only while it is on')
 
     def test_tooltips_say_what_the_codes_mean(self):
         """Hovering an item explains its code first, in characters the font has."""

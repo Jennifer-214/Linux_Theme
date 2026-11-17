@@ -60,7 +60,9 @@ Scope {
         })};
     }
     // Retro: a flat DOS menu bar, a solid amber strip with dark text (inverse video), 32 px instead of hanging ribbons.
-    Theme { id: barTheme; inverted: style === "retro" }
+    // Retro: amber on black, the current workspace and what needs you in reverse video (2026-11-16: the full amber strip
+    // dominated the screen).
+    Theme { id: barTheme }
     readonly property bool flatBar: barTheme.style === "retro"
     // Between groups: retro's is odd, so its one-pixel │ has the same room on each side.
     readonly property int groupGap: flatBar ? 25 : 9

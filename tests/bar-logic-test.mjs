@@ -61,7 +61,8 @@ assert.equal(label('custom/battery', 'ϟ \u{F0088} 42% +27W', ['charging']), 'BA
 assert.equal(label('custom/battery', 'ϟ \u{F0088} 42%', ['charging']), 'BAT 42% CHG');
 assert.equal(label('custom/battery', '\u{F007E} 55% -9W'), 'BAT 55% -9W');
 assert.equal(label('custom/battery', '\u{F06A5} 79% -5W', ['plugged-drain']), 'BAT 79% AC -5W');
-assert.equal(label('idle_inhibitor', '○', [], {}, {idle:false}), 'AWAKE OFF');
+// Quiet ones say nothing while there is nothing to say (2026-11-16: less dense).
+assert.equal(label('idle_inhibitor', '○', [], {}, {idle:false}), '');
 assert.equal(label('idle_inhibitor', '☼', [], {}, {idle:true}), 'AWAKE ON');
 assert.equal(label('custom/net_speed', '↓ 12.4 MB/s  ↑ 310 KB/s'), 'NET ↓12.4M ↑310K');
 assert.equal(label('custom/cpu', '\u{F0EE0} 16% 40°'), 'CPU 16% 40°C');
@@ -69,6 +70,7 @@ assert.equal(label('custom/gpu', '\u{F08AE} on', ['idle']), 'GPU ON');
 assert.equal(label('memory', '\u{F035B} 8.9/31g'), 'MEM 8.9/31G');
 assert.equal(label('custom/disk', '\u{F02CA} 207g/920g'), 'DSK 207/920G');
 assert.equal(label('custom/updates', '↻  37', ['mid']), 'UPD 37');
+assert.equal(label('custom/updates', '↻  0', ['calm']), '');
 assert.equal(label('custom/clock', '  Mon Nov 16  1:01 AM'), 'MON NOV 16  1:01 AM');
 assert.equal(label('custom/logo', '≡'), '≡');
 assert.equal(retro('custom/disk', '\u{F02CA} 207g/920g').tooltip, 'DSK: disk space used / size of /, in GB\ntip');
@@ -86,11 +88,14 @@ assert.equal(ctx.retroBlinks(['warning']), false);
 assert.equal(ctx.retroBlinks(['critical']), true);
 // Three zones: the work modules leave the sides for one middle group; a layout that uses the middle stays.
 const zoned = plain(ctx.retroZones({'modules-left':['group/launcher','custom/ai_status','custom/claude','custom/api_credits'], 'modules-center':[],
-    'modules-right':['group/system','custom/clock'], 'custom/claude':{exec:'x'}}));
+    'modules-right':['group/system','custom/clock'], 'group/system':{modules:['custom/battery','power-profiles-daemon']},
+    'custom/claude':{exec:'x'}}));
 assert.deepEqual([zoned['modules-left'], zoned['modules-center'], zoned['modules-right']],
     [['group/launcher'], ['group/retro-work'], ['group/system','custom/clock']]);
-assert.deepEqual(zoned['group/retro-work'].modules, ['custom/ai_status','custom/claude','custom/api_credits']);
+// Not on the retro bar: the local model, API credits, the power profile, network, memory and disk (2026-11-16).
+assert.deepEqual(zoned['group/retro-work'].modules, ['custom/claude']);
+assert.deepEqual(zoned['group/system'].modules, ['custom/battery']);
 assert.deepEqual(zoned['custom/claude'], {exec:'x'});
 const centred = {'modules-left':['custom/claude'], 'modules-center':['custom/clock'], 'modules-right':[]};
-assert.equal(ctx.retroZones(centred), centred);
+assert.deepEqual(plain(ctx.retroZones(centred)), centred);
 console.log('bar logic passed');

@@ -166,8 +166,8 @@ var retroModules = {
             var mains = text.indexOf("✓") >= 0 || text.indexOf("\u{F06A5}") >= 0 || hasClass(sample, "plugged") || hasClass(sample, "plugged-drain");
             return level[1] + "%" + (mains ? " AC" : "") + (watts ? " " + watts[0] : text.indexOf("ϟ") >= 0 ? " CHG" : "");
         }},
-    "idle_inhibitor": {code: "AWAKE", about: "AWAKE: keep the screens on while idle",
-        value: function(sample, state) { return state.idle ? "ON" : "OFF"; }},
+    "idle_inhibitor": {code: "AWAKE", about: "AWAKE: keep the screens on while idle", quiet: true,
+        value: function(sample, state) { return state.idle ? "ON" : ""; }},
     "custom/net_speed": {code: "NET", about: "NET: network per second (↓ in, ↑ out; K: KB, M: MB)",
         value: function(sample) { return retroWords(sample.text).replace(/([↓↑])\s*/g, "$1").replace(/\s*([KM])B\/s/g, "$1").toUpperCase(); }},
     "custom/cpu": {code: "CPU", about: "CPU: processor load and temperature",
@@ -178,8 +178,8 @@ var retroModules = {
         value: function(sample) { return retroUnits(retroWords(sample.text)); }},
     "custom/disk": {code: "DSK", about: "DSK: disk space used / size of /, in GB",
         value: function(sample) { return retroUnits(retroWords(sample.text)); }},
-    "custom/updates": {code: "UPD", about: "UPD: package updates waiting",
-        value: function(sample) { return retroWords(String(sample.text || "").replace(/↻/g, "")); }},
+    "custom/updates": {code: "UPD", about: "UPD: package updates waiting", quiet: true,
+        value: function(sample) { var n = retroWords(String(sample.text || "").replace(/↻/g, "")); return /^0*$/.test(n.trim()) ? "" : n; }},
     "custom/clock": {value: function(sample) { return String(sample.text || "").trim().toUpperCase(); }}
 };
 // A module's sample as the retro bar shows it. A helper that printed nothing hides its module, as waybar does.
@@ -192,6 +192,8 @@ function retroSample(name, sample, state) {
     else if (!row.value) out.text = retroWords(retroText(raw.text));
     else {
         var value = row.value(raw, state || {});
+        // A quiet one says nothing while there is nothing to say (no updates; the screens free to sleep).
+        if (row.quiet && !value) return out;
         out.text = row.code ? row.code + (value ? " " + value : "") : value;
     }
     if (raw.percentage !== undefined) out.percentage = raw.percentage;
@@ -210,7 +212,22 @@ function retroBlinks(classes) {
 // Three zones, left to right: where you are (the workspaces), your work (agents, the local model, API credits) as
 // one group in the middle, then the machine. A layout that already uses the middle stays as it is.
 var retroWork = ["custom/ai_status", "custom/claude", "custom/api_credits"];
+// Not on the retro bar (her ask, 2026-11-16: less dense): the local model, API credits (the drawer has a page), the power
+// profile, and the network, memory and disk readings. CPU and GPU stay: their load and temperature at a glance.
+var retroHidden = ["custom/ai_status", "custom/api_credits", "power-profiles-daemon", "custom/net_speed", "memory", "custom/disk"];
+function withoutHidden(config) {
+    var out = Object.assign({}, config);
+    ["left", "center", "right"].forEach(function(side) {
+        out["modules-" + side] = modules(config, side).filter(function(name) { return retroHidden.indexOf(name) < 0; });
+    });
+    Object.keys(config).forEach(function(key) {
+        if (key.indexOf("group/") === 0 && config[key] && Array.isArray(config[key].modules))
+            out[key] = Object.assign({}, config[key], {modules: config[key].modules.filter(function(name) { return retroHidden.indexOf(name) < 0; })});
+    });
+    return out;
+}
 function retroZones(config) {
+    config = withoutHidden(config);
     if (modules(config, "center").length) return config;
     var zoned = Object.assign({}, config), work = [];
     ["left", "right"].forEach(function(side) {
