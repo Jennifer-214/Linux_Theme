@@ -652,8 +652,12 @@ ok(vim.wait(1000, function() return item_named(shown(), "mod.lua") ~= nil and no
 eq(#P.host.history.steps, 2, "… a step back too")
 eq(A.available(A.get("map.reach"), ctx_on(file_item)), "select a function first", "D there needs a function selected")
 eq(A.available(A.get("map.in"), ctx_on(nil)), "nothing is selected", "… and Enter something selected")
-act("map.in", file_item)
+-- f: what Enter does, then the keyboard to the editor; on a file Enter zooms here, so the keyboard stays (2026-11-16).
+local real_focus, focused = P.focus, 0
+P.focus = function() focused = focused + 1 end
+eq(act("popout.go-focus", file_item), { true }, "f on a file there")
 ok(vim.wait(1000, function() return item_named(shown(), "M.alpha") ~= nil end), "into the file again")
+eq(focused, 0, "… zoomed in as Enter does, the keyboard left in the pop-out")
 local alpha = item_named(shown(), "M.alpha")
 local code = ctx_on(alpha).origin
 local real_show, shown_graph = P.show, nil
@@ -661,6 +665,9 @@ P.show = function(name, ctx) shown_graph = { name, ctx.target and ctx.target.nam
 eq(act("map.centre", alpha), { true }, "c on a function, from the pop-out")
 P.show = real_show
 eq(shown_graph, { "graph", "M.alpha", nil }, "… the call graph shown in the pop-out, filled for that function (not a remote ask: it opens there)")
+eq(act("popout.go-focus", alpha), { true }, "f on a function there")
+eq(focused, 1, "… goes to its code, and the keyboard goes there too")
+P.focus = real_focus
 eq(act("map.in", alpha), { true }, "Enter on a function, from the pop-out")
 eq({ api.nvim_get_current_win(), api.nvim_buf_get_name(0), api.nvim_win_get_cursor(0)[1] }, { code, root .. "/lua/mod.lua", 3 },
   "… goes to its code here, in the file window")

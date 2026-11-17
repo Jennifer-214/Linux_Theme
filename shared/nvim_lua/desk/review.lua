@@ -1401,7 +1401,8 @@ local function open_row(ctx)
   local entry = named(ctx)
   if not entry then return end
   local r, before = ctx.review, save_view(ctx.view)
-  M.open_entry(entry)
+  -- A commit unfolded stays in the view (f in the pop-out keeps the keyboard there); a file is shown in the editor.
+  if not M.open_entry(entry) then ctx.stayed = true end
   -- Another file shown here is a step Ctrl+o undoes in the pop-out. During an Enter the pop-out folds this into its own
   -- step for it (which keeps this list's state from before, and the editor's spot), so one Ctrl+o puts back both.
   local now = r.files[r.index]

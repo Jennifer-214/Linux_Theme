@@ -387,7 +387,8 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   did not take, and said when it never does. `o` in a graph tab or the panel sends that graph there and closes it here;
   `o` in the pop-out brings it back as the live panel. A view there has the keys of its place in the editor (the graph
   has the graph tab's) beside the window's own: Enter goes to the function in the editor and the keyboard stays in the
-  pop-out, `f` or Shift+Enter puts the keyboard in the editor too. `p` pins the graph (Enter then visits its boxes one by
+  pop-out, `f` or Shift+Enter puts the keyboard in the editor too (where Enter only zooms or folds in the view, as on
+  a map's part, the keyboard stays). `p` pins the graph (Enter then visits its boxes one by
   one) or follows the editor again, where each place Enter goes centres it; `c` centres it on a box (pinned there), `r`
   reads it again, `s` labels the boxes and `gs` shows the selected function in symdeps (as in the graph tab), `Space Space` there is the
   editor's menu for the selected box (its first group lists the views), `?` lists the keys. Each view is a tab page:

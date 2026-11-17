@@ -374,7 +374,8 @@ end
 --                          kind.follows = false: it has follow but does not follow the cursor (no ↻ in the header)
 --   ctx_for(view, ref, index) → ctx   what a remote row runs with for that item; ctx.view, ctx.item (the ref),
 --                          ctx.index, ctx.remote and ctx.also are added to it; ctx.origin, when set, is the window
---                          its Enter moves (H takes the editor back there)
+--                          its Enter moves (Ctrl+o takes the editor back there). An Enter row that only acted in the
+--                          view (a zoom, a fold) sets ctx.stayed = true: f then keeps the keyboard in the pop-out
 --   attach(view)           o in the pop-out, and each pinned view when the pop-out goes on its own: the view back in
 --                          the editor as a split (it has left the pop-out)
 --   close(view)            the view left the pop-out: stop what it runs (timers, requests)
@@ -2057,6 +2058,8 @@ local function go_focus(ctx)
   if not row then return tell('Nothing here goes anywhere.', WARN) end
   local ok, err = actions.act(row.id, ctx)
   if not ok then return tell(sentence(err), WARN) end
+  -- Its Enter went nowhere in the editor (a map's part zoomed, a commit unfolded): the keyboard stays (2026-11-16).
+  if ctx.stayed then return end
   M.focus({ pid = vim.fn.getpid(), pane = host_pane() })
 end
 local function back_there() return H.history.at >= 1 or 'nothing further back' end
@@ -2089,7 +2092,7 @@ local ROWS = actions.add({
       if H.kitty and H.chan then M.place(H.kitty) end
     end },
   remote({ id = 'popout.go-focus', group = 'Pop-out', name = 'Go to it, in the editor', key = 'f', on = ON,
-    about = 'What `Enter` does (go to the selected box or row in the editor), and the keyboard goes to the editor too', available = can_go },
+    about = 'What `Enter` does (go to the selected box or row in the editor), and the keyboard goes to the editor too; where `Enter` only acts in the view (a zoom, a fold) the keyboard stays', available = can_go },
     go_focus),
   remote({ id = 'popout.go-focus-enter', group = 'Pop-out', name = 'Go to it, in the editor', key = '<S-CR>', on = ON, line = 'popout.go-focus',
     menu = false, available = can_go }, go_focus),

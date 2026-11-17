@@ -1096,6 +1096,8 @@ local function enter(view, ctx)
   local item = about_item(view, ctx)
   local t = item and item.target
   if not t then return end
+  -- A zoom stays in the view (f in the pop-out keeps the keyboard there); a function goes to the editor.
+  if ctx and t.kind ~= 'node' then ctx.stayed = true end
   if t.kind == 'module' then push(view, { kind = 'files', module = t.module }, item.key)
   elseif t.kind == 'file' then push(view, { kind = 'functions', module = t.module, file = t.file }, item.key)
   elseif t.kind == 'class' then push(view, { kind = 'class', module = t.module, file = t.file, id = t.id, name = item.name, node = t.node }, item.key)
