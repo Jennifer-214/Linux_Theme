@@ -1206,7 +1206,9 @@ do
   press('<Space><Tab>')
   local went = wait(1200, function() return log_since(mark):find("dispatch hl.dsp.focus({ window = 'address:0xb2' })", 1, true) end)
   local took = math.floor((vim.uv.hrtime() - started) / 1e6)
-  ok(went and took < 400, '… with the editor busy: the second at once (' .. took .. ' ms)')
+  -- (The old way asked the editor and, unanswered, went to the editor instead: the window is what fails it; the time
+  -- only has to beat the editor's 1.5 s, with room for a loaded machine.)
+  ok(went and took < 1000, '… with the editor busy: the second at once (' .. took .. ' ms)')
   vim.wait(1600)
   -- Moved to another screen from the second: that one moves; the first stays where it is.
   local first_screen = host("return require('desk.popout').pops[1].screen")
