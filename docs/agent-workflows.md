@@ -431,7 +431,8 @@ a review that works in any git repository. The look follows [UI style](ui-style.
   from a menu (`/` filters it by name). The
   box under the cursor is the default answer to the prompt. A call that is part of recursion reads "in a cycle".
 - **In the pop-out**: `o` in the map's tab moves it to the pop-out on the other screen, at the level it was on (Space
-  Space › "Pop out the project map" opens this checkout's from anywhere). There it is the same map: `Enter` zooms in,
+  Space › "Pop out the project map" opens this checkout's from anywhere; in the pop-out's own menu it is the only map
+  row, so a map asked for there opens there). There it is the same map: `Enter` zooms in,
   or goes to a function in the editor while the keyboard stays in the pop-out; `-` zooms out; `r` and `c` ask about the
   selected function, `P` asks only where to; `R` rebuilds. `Ctrl+o` and Backspace go back through its zooms, answers and
   the code spots Enter went to; its name in the pop-out's header is marked when an answer or a rebuild lands behind

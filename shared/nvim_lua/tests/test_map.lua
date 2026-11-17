@@ -193,6 +193,13 @@ vim.fn.mkdir(empty_bin, "p")
 local saved_path = vim.env.PATH
 vim.env.PATH = empty_bin
 eq(A.available(opener, { surface = "editor" }), true, "Space cm opens the map without desk-work too (the page says what it needs)")
+-- From the pop-out's home menu a view opens in the pop-out: Space cm's row would open a tab here, so there only the
+-- Views row (Pop out the project map) is offered.
+local function offered(ctx) return vim.tbl_map(function(r) return r.id end, A.describe(ctx)) end
+local from_popout = vim.tbl_extend("force", A.context(), { surface = "callgraph", remote = true, also = { "popout" } })
+eq({ vim.tbl_contains(offered(from_popout), "map.open"), vim.tbl_contains(offered(from_popout), "popout.view.map") }, { false, true },
+  "asked from the pop-out: Space cm's row is not offered, the Views row that opens the map there is")
+eq(A.available(opener, { surface = "callgraph" }), true, "… and in the editor's own windows it still is")
 vim.env.PATH = saved_path
 eq(A.available(opener, { surface = "map" }), false, "inside the map its own keys apply, not Space cm")
 Map.setup()

@@ -1350,8 +1350,10 @@ end
 local ROWS = actions.add({
   { id = 'map.open', group = GROUP, name = 'Project map', key = '<leader>cm', on = 'editor', remote = true, also = '`:ProjectMap`',
     about = 'The whole checkout as boxes, by part, file and function, callers above; queries and a rebuild inside. One tab per checkout: pressed again, it brings that tab back as it was',
-    -- In the map itself its own keys apply; without desk-work the page opens and says so.
-    available = function(ctx) return ctx.surface ~= 'map' or false end,
+    -- In the map itself its own keys apply; without desk-work the page opens and says so. Asked from the pop-out it
+    -- would open a tab here, beside the Views row that opens the map there: there only that one is offered (2026-11-16:
+    -- "when in the popout, opening more graphs, opens them in the editor").
+    available = function(ctx) return (ctx.surface ~= 'map' and not ctx.remote) or false end,
     run = function() M.open() end },
   row('in', '<CR>', 'Zoom in, or go to the function',
     'Zoom into the part, file or class under the cursor; on a function, go to its code (the map stays open)', enter,
