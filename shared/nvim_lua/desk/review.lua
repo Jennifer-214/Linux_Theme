@@ -1402,8 +1402,8 @@ local function open_row(ctx)
   if not entry then return end
   local r, before = ctx.review, save_view(ctx.view)
   M.open_entry(entry)
-  -- Another file shown here is a step H undoes in the pop-out. During an Enter the pop-out folds this into its own step
-  -- for it (which keeps this list's state from before, and the editor's spot), so one H puts back both.
+  -- Another file shown here is a step Ctrl+o undoes in the pop-out. During an Enter the pop-out folds this into its own
+  -- step for it (which keeps this list's state from before, and the editor's spot), so one Ctrl+o puts back both.
   local now = r.files[r.index]
   local P = pop()
   if P and before.step and (not now or now.rel ~= before.rel or r.active_set ~= before.set) then

@@ -1241,7 +1241,7 @@ local function save_view(view)
   return saved
 end
 
--- c in the pop-out: the graph centred on a box, pinned there; H there goes back to the graph before.
+-- c in the pop-out: the graph centred on a box, pinned there; Ctrl+o there goes back to the graph before.
 popout_centre = function(view, item)
   if not (item and item.raw) then return end
   local before = save_view(view)

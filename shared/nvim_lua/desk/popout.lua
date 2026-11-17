@@ -740,10 +740,10 @@ local function refused_here(why)
   return true
 end
 
--- ─── history: H and Backspace go back, L forward ───────────────────────────────────────────────────────────────
+-- ─── history: Ctrl+o and Backspace go back, Ctrl+r forward ─────────────────────────────────────────────────────
 -- Steps, each undone by Ctrl+o or Backspace and done again by Ctrl+r: a switch between views; an Enter (the code spot the editor
--- was at, and the view's state from before for a kind that keeps one: one step, so one H puts back both the file the
--- review showed and the spot); a view's content changing (its kind's save from before: a graph centred on another
+-- was at, and the view's state from before for a kind that keeps one: one step, so one Ctrl+o puts back both the file
+-- the review showed and the spot); a view's content changing (its kind's save from before: a graph centred on another
 -- function). What Ctrl+r brings back is what Ctrl+o left (taken when it undoes it), so a graph still being read when it was
 -- centred comes back read. At most M.MAX_STEPS; a new step drops the ones ahead of it.
 local function push_step(step)

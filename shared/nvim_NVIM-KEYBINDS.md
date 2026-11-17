@@ -315,9 +315,9 @@ Space Space → views → "Pop out the call graph" opens it on the function unde
 graph there (both need a second monitor; with one, the row says so and the graph stays here). Each view is a tab page:
 the tab line is the header (each view by number, `PINNED`, `✱` when something new arrived) and each window's status
 line is that view's keys. A view there has the keys of its place here (the graph has the graph tab's: moves, `s`,
-Enter, `c`, `gs`) and the window's own below. Going to a box never closes it: Enter moves this editor there and the
-keyboard stays in the pop-out; `f` or Shift+Enter puts the keyboard here too; `H` goes back (this editor too). `Space
-Tab` in either window puts the keyboard in the other, on whichever screen it is.
+Enter, `c`, `r`, `gs`) and the window's own below. Going to a box never closes it: Enter moves this editor there and
+the keyboard stays in the pop-out; `f` or Shift+Enter puts the keyboard here too; `Ctrl+o` or Backspace goes back
+(this editor too). `Space Tab` in either window puts the keyboard in the other, on whichever screen it is.
 
 <!-- popout-keys:begin · generated from shared/nvim_lua/desk/popout.lua: python3 tests/test_nvim_keys.py --write -->
 | Key | Action |
@@ -339,7 +339,7 @@ Tab` in either window puts the keyboard in the other, on whichever screen it is.
 The project map (desk.map): the whole checkout as boxes, rebuilt only when asked. "In the map" means its tab, one per
 checkout; `Space cm` from anywhere brings it back as it was. Without desk-work it opens and says "requires desk-work".
 `o` moves it to the pop-out (also Space Space › "Pop out the project map"): there `Enter`, `-`, `r`, `c`, `P` and `R`
-work on the box selected there, `H` and Backspace go back through its zooms, and `o` brings it back as its tab.
+work on the box selected there, `Ctrl+o` and Backspace go back through its zooms, and `o` brings it back as its tab.
 
 <!-- map-keys:begin · generated from shared/nvim_lua/desk/map.lua: python3 tests/test_nvim_keys.py --write -->
 | Key | Action |

@@ -1049,7 +1049,7 @@ local function save_view(view)
 end
 
 -- A level on top: zoomed in, or a query's answer. from: in the pop-out, the key of the box it was asked from (selected
--- again when she comes back to this level). In the pop-out it is a step back for H and Backspace there.
+-- again when she comes back to this level). In the pop-out it is a step back for Ctrl+o and Backspace there.
 local function push(view, level, from)
   local before = view.out and save_view(view)
   local top = view.stack[#view.stack]
