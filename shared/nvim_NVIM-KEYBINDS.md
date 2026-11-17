@@ -338,7 +338,7 @@ the keyboard stays in the pop-out; `f` or Shift+Enter puts the keyboard here too
 
 The project map (desk.map): the whole checkout as boxes, rebuilt only when asked. "In the map" means its tab, one per
 checkout; `Space cm` from anywhere brings it back as it was. Without desk-work it opens and says "requires desk-work".
-`o` moves it to the pop-out (also Space Space › "Pop out the project map"): there `Enter`, `-`, `D`, `U`, `P`, `r` and `R`
+`o` moves it to the pop-out (also Space Space › "Pop out the project map"): there `Enter`, `-`, `D`, `U`, `c`, `P`, `r` and `R`
 work on the box selected there, `Ctrl+o` and Backspace go back through its zooms, and `o` brings it back as its tab.
 
 <!-- map-keys:begin · generated from shared/nvim_lua/desk/map.lua: python3 tests/test_nvim_keys.py --write -->
@@ -349,6 +349,7 @@ work on the box selected there, `Ctrl+o` and Backspace go back through its zooms
 | `<BS>` / `-` in the map | Zoom out a level (from a query's answer, back to the page it was asked on); at the top, back to the code, the map left open |
 | `D` in the map | Everything a function reaches, down the calls (a count before `D` is the depth; 3 without one) |
 | `U` in the map | Who calls a function, up the calls, transitively (a count before `U` is the depth) |
+| `c` in the map | The call graph centred on the selected function, where the map is: a graph tab here, the call graph in the pop-out (`Ctrl+o` there comes back to the map) |
 | `P` in the map | Every way from one function to another, shortest first |
 | `m` in the map | Go to a part of the checkout, picked by name |
 | `r` in the map | Read this page again, as `r` does in a call graph: desk-work's status and the level shown (a query's answer is asked again); `R` rebuilds the map |

@@ -183,7 +183,7 @@ local A = require("desk.actions")
 local Menu = require("desk.menu")
 eq(A.problems, {}, "every map row was taken")
 local function keys_of(surface) return vim.tbl_map(function(k) return k.key end, A.keys(surface)) end
-eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "D", "U", "P", "m", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
+eq(keys_of("map"), { "?", "<CR>", "<BS>", "-", "D", "U", "c", "P", "m", "r", "R", "B", "q", "o", "j", "k", "h", "l" },
   "the map's keys, in order (? is the shared row; the box moves last)")
 local opener = A.get("map.open")
 eq(opener and { opener.key, opener.on, opener.remote, opener.group }, { "<leader>cm", "editor", true, "Project map" },
@@ -391,6 +391,15 @@ eq({ asked[before_r + 1]:match("^map status") ~= nil, asked[before_r + 2]:find("
 ok(vim.wait(1000, function() return #view.stack == depth and line_with(view.drawn.lines, "║ use") end), "… the answer in its place, not one more page")
 press("-")
 ok(vim.wait(1000, function() return line_with(view.drawn.lines, "│ M.alpha") end), "- leaves it too")
+-- c on a function: the call graph centred on it, where the map is (here a graph tab), as c centres a graph.
+cursor_on("M.alpha")
+press("c")
+local CG = require("desk.callgraph")
+local graph_tab = CG.view()
+eq({ graph_tab ~= nil, graph_tab and api.nvim_buf_get_name(graph_tab.buf):match("call graph · M%.alpha") ~= nil,
+  graph_tab and api.nvim_get_current_win() == graph_tab.win }, { true, true, true }, "c: the graph tab, centred on the function under the cursor")
+CG.close_view(graph_tab.buf)
+api.nvim_set_current_win(view.win)
 before_r = #asked
 local function box_here() local c = api.nvim_win_get_cursor(view.win); local it = Map.item_at(view.drawn, c[1], c[2]); return it and it.name end
 local box_before = box_here()
@@ -550,7 +559,7 @@ eq(clashes, {}, "no map row is on a key the pop-out's own rows take (H, L, gt, g
 local remote_ids = {}
 for _, r in ipairs(there) do if r.id:match("^map%.") then remote_ids[#remote_ids + 1] = r.id end end
 table.sort(remote_ids)
-eq(remote_ids, { "map.callers", "map.down", "map.in", "map.left", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.up" },
+eq(remote_ids, { "map.callers", "map.centre", "map.down", "map.in", "map.left", "map.out", "map.paths", "map.reach", "map.read", "map.rebuild", "map.right", "map.up" },
   "in the pop-out Enter, -, r, c, P and R run here and hjkl move its selection; Backspace, q, m, B and o stay the tab's")
 local views_row = A.get("popout.view.map")
 eq(views_row and { views_row.group, views_row.name, views_row.remote }, { "Views", "Pop out the project map", true },
@@ -647,6 +656,11 @@ act("map.in", file_item)
 ok(vim.wait(1000, function() return item_named(shown(), "M.alpha") ~= nil end), "into the file again")
 local alpha = item_named(shown(), "M.alpha")
 local code = ctx_on(alpha).origin
+local real_show, shown_graph = P.show, nil
+P.show = function(name, ctx) shown_graph = { name, ctx.target and ctx.target.name, ctx.remote } end
+eq(act("map.centre", alpha), { true }, "c on a function, from the pop-out")
+P.show = real_show
+eq(shown_graph, { "graph", "M.alpha", nil }, "… the call graph shown in the pop-out, filled for that function (not a remote ask: it opens there)")
 eq(act("map.in", alpha), { true }, "Enter on a function, from the pop-out")
 eq({ api.nvim_get_current_win(), api.nvim_buf_get_name(0), api.nvim_win_get_cursor(0)[1] }, { code, root .. "/lua/mod.lua", 3 },
   "… goes to its code here, in the file window")

@@ -1156,6 +1156,20 @@ local function walk(view, q, ctx)
   end)
 end
 
+-- c: the call graph centred on the function, where the map is (its tab here: the graph tab; in the pop-out: the
+-- pop-out's graph, pinned on it, Ctrl+o there back to the map), as c centres a call graph (2026-11-16).
+local function centre(view, ctx)
+  local item = about_item(view, ctx)
+  local node = item and item.target and item.target.node
+  if not node then return tell('Put the cursor on a function first.') end
+  if not node.file then return tell(node.label .. ' has no source in this checkout (' .. (node.detail or 'binary only') .. ').') end
+  local G = require('desk.callgraph')
+  local target, why = G.target_at(view.root .. '/' .. node.file, node.line, node.label)
+  if not target then return tell(why:sub(1, 1):upper() .. why:sub(2) .. '.') end
+  if view.out then return pop().show('graph', { target = target }) end
+  G.open(target)
+end
+
 -- P: the ways from one function to another. Its key here asks for both, the box under the cursor the default; asked
 -- first for where to (ctx.text: the pop-out asks that there, and so do the menus), it goes from the selected box, or
 -- the one under the cursor (asking only when there is none).
@@ -1394,6 +1408,9 @@ local ROWS = actions.add({
     function(view, ctx) walk(view, 'reach', ctx) end, needs_function, THERE),
   row('callers', 'U', 'Who calls a function (upstream)', 'Who calls a function, up the calls, transitively (a count before `U` is the depth)',
     function(view, ctx) walk(view, 'callers', ctx) end, needs_function, THERE),
+  row('centre', 'c', 'The call graph of this function',
+    'The call graph centred on the selected function, where the map is: a graph tab here, the call graph in the pop-out (`Ctrl+o` there comes back to the map)',
+    centre, needs_function, THERE),
   row('paths', 'P', 'The ways between two functions', 'Every way from one function to another, shortest first', ways, needs_function,
     { remote = true, input = { prompt = 'Ways to: ' } }),
   row('module', 'm', 'A part of the checkout', 'Go to a part of the checkout, picked by name', part, needs_map, HERE),
