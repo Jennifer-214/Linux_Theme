@@ -167,6 +167,10 @@ eq({ T.act("t.rempick", { surface = "editor", choice = "a", text = "x" }) }, { f
 local described
 for _, d in ipairs(T.describe({ surface = "editor" })) do if d.id == "t.remask" then described = d end end
 eq(described and described.input, { prompt = "Say: ", choices = { { id = "a", name = "A" } } }, "describe sends what it asks, as data")
+eq({ described and described.on, described and described.menu }, { { "editor" }, nil }, "… the surfaces it is on")
+T.add({ row({ id = "t.remkey", key = "<leader>Zk", menu = false, remote = true }) })
+for _, d in ipairs(T.describe({ surface = "editor" })) do if d.id == "t.remkey" then described = d end end
+eq({ described.id, described.menu }, { "t.remkey", false }, "… and a key in no menu, said so (its key stands in where the pop-out cannot load it)")
 -- ctx.also: another surface's rows are the place's own too (the pop-out's, beside its view's).
 T.add({ row({ id = "t.pop", group = "Work", key = "Q", on = "popout" }) })
 eq({ vim.tbl_contains(ids(T.for_context({ surface = "since", also = { "popout" } })), "t.pop"),
@@ -186,6 +190,26 @@ local bound, left = T.popout_rows("since")
 eq({ ids(bound, "t."), left }, { { "t.vd", "t.vr", "t.pop", "t.pq" }, { "t.vq: q is t.pq in the pop-out" } },
   "a pop-out view's rows: the view's drawn and remote ones, then the window's own")
 eq(ids(T.popout_rows(nil), "t."), { "t.pop", "t.pq" }, "no view: only the window's own")
+-- A surface whose module the pop-out cannot load: its keys stand in from the editor's describe (plain data).
+local described = {
+  { id = "p.open", key = "<CR>", name = "Open it", about = "Opens it", group = "symdeps", on = { "plugin" }, input = { prompt = "Why: " } },
+  { id = "p.quiet", key = "Y", name = "Quietly", on = { "plugin" }, menu = false },
+  { id = "p.clash", key = "q", name = "Clashes", on = { "plugin" } },
+  { id = "p.elsewhere", key = "e", name = "Elsewhere", on = { "editor" } },
+  { id = "p.keyless", name = "No key", on = { "plugin" } },
+  { id = "t.vr", key = "<CR>", name = "Known here", on = { "plugin" } },
+  { id = "bad id", key = "b", name = "Bad", on = { "plugin" } },
+}
+local stood, clashed = T.popout_rows("plugin", described)
+eq({ ids(stood, "p."), clashed }, { { "p.open", "p.quiet" }, { "p.clash: q is t.pq in the pop-out" } },
+  "stand-ins: the surface's keyed rows from describe, none on the window's keys, none of another surface or known here")
+eq({ stood[1].name, stood[1].about, stood[1].group, stood[1].on, stood[1].remote, stood[1].input, stood[2].menu },
+  { "Open it", "Opens it", "symdeps", "plugin", true, { prompt = "Why: " }, false }, "… each as the editor described it, remote")
+eq(ids(T.popout_rows("plugin"), "p."), {}, "… and with no describe answer, none")
+local stood_lines = T.key_lines({ surface = "popout" }, { rows = stood, reasons = false, press = function(r) pressed = r.id end })
+eq(vim.tbl_map(function(l) return l.keys[1] .. " " .. l.name end, stood_lines), { "<CR> Open it", "Y Quietly", "Q X", "q X" }, "a key list of stand-ins, then the window's own")
+stood_lines[1].run()
+eq(pressed, "p.open", "… Enter on one presses it")
 -- What is here: one answer per surface.
 eq({ T.provide("kitchen", function() end) }, { false, "no surface is called kitchen" }, "an answer for no surface is refused")
 eq({ T.provide("since", "x") }, { false, "about is function(ctx)" }, "… and one that is no function")

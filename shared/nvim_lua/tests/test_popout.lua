@@ -646,6 +646,43 @@ eq({ saved.tabs[1].kind, saved.tabs[1].pinned, saved.tabs[1].target, saved.activ
   { 'graph', true, { file = dir .. '/sample.lua', line = 2, name = 'M.alpha' }, 'graph', 'DP-2' },
   '… the pinned graph by its function, the view in front, the screen it is on')
 
+-- ─── a view of a surface the pop-out cannot load: symdeps' board (the pop-out never loads fox-symdeps) ───────────
+-- tests/popout_board.lua stands in for symdeps' adapter, in the editor only: its surface declared with no module, its
+-- rows on it remote. In the pop-out its keys are bound from the editor's describe and run in the editor.
+host("require('tests.popout_board')")
+host("require('desk.popout').show('symdeps', require('desk.actions').context())")
+ok(wait(3000, function() return state().kind == 'symdeps' and state().selected == 'Order' end), "symdeps' board comes to the pop-out")
+eq(pop("local A = require('desk.actions'); return { package.loaded['tests.popout_board'] == nil, A.SURFACES.symdeps == nil, A.get('symdeps.compare') == nil }"),
+  { true, true, true }, '… which has neither its module, nor its surface, nor its rows')
+ok(wait(3000, function() return pop("return vim.fn.maparg('c', 'n', false, true).desc") == 'Compare the card' end),
+  "… its keys bound from the editor's describe")
+eq(pop("return { vim.fn.maparg('w', 'n'), vim.fn.maparg('z', 'n'), vim.fn.maparg('f', 'n', false, true).desc, vim.fn.maparg('n', 'n', false, true).desc }"),
+  { '', '', 'Go to it, in the editor', 'Note on the card' },
+  "… not its drawn row (that needs its module) nor the editor's own, and f stays the pop-out's")
+eq(state().keyline, ' c compare ', '… its key line names its keys')
+press('j')
+ok(wait(2000, function() return state().selected == 'Book' end), 'j: the next card, here')
+press('c')
+ok(wait(2000, function() return host('return _G.board_test.compared') == 'Book' end), 'c: runs in the editor, for the card selected here')
+press('<CR>')
+ok(wait(2000, function() return host('return _G.board_test.opened') == 'Book' end), 'Enter: its Enter row, in the editor')
+pop("vim.ui.input = function(opts, done) _G.asked = opts.prompt; done('make it pink') end")
+press('n')
+ok(wait(2000, function() return vim.deep_equal(host('return _G.board_test.noted'), { 'Book', 'make it pink' }) end),
+  'n: its words asked for here, and they go with the card')
+eq(pop('return _G.asked'), 'Note: ', "… asked with the editor's question")
+press('?')
+ok(wait(2000, function() return pop("return vim.api.nvim_win_get_config(0).relative ~= ''") end), '? lists its keys')
+keys = pop("return table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), '\\n')")
+ok(keys:find('Enter%s+Open the card') and keys:find('c%s+Compare the card') and keys:find('n%s+Note on the card')
+  and keys:find('Space Space%s+Home menu') and not keys:find('Go to the unit', 1, true) and not keys:find('Wider sections', 1, true),
+  "… its stand-ins and the window's own:\n" .. keys)
+press('q')
+ok(wait(2000, function() return state().current_win == state().win end), '… q closes the list')
+press('q')
+ok(wait(3000, function() return state().shown == 'graph' and state().tabs == 1 end), 'q: the board closes, the graph stays')
+eq(host('return _G.board_test.closed'), 'symdeps', '… its kind told')
+
 -- ─── q on the last view: the pop-out closes, the editor stops sending ─────────────────────────────────────────────
 mark = #read('hyprctl.log')
 vim.rpcnotify(p, 'nvim_input', 'q')

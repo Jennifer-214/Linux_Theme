@@ -376,13 +376,15 @@ local function definitions(names)
 end
 
 -- A footer's keys as she reads them, for a key line: { { ids = { row ids }, words } } → { { 'j/k/h/l', 'move' }, … },
--- each key spelled by the registry's one speller.
-function M.key_pairs(footer)
-  local out = {}
+-- each key spelled by the registry's one speller. rows: the rows a pop-out view binds, for an id the registry here does
+-- not have (a stand-in for a row of the editor's: actions.popout_rows).
+function M.key_pairs(footer, rows)
+  local out, bound = {}, {}
+  for _, row in ipairs(rows or {}) do bound[row.id] = row.key end
   for _, part in ipairs(footer or {}) do
     local keys = {}
     for _, id in ipairs(part.ids or {}) do
-      local key = actions.key(id)
+      local key = actions.key(id) or bound[id]
       if key then keys[#keys + 1] = actions.spell(key) end
     end
     if #keys > 0 then out[#out + 1] = { table.concat(keys, '/'), part.words } end
@@ -399,7 +401,9 @@ end
 --                pop-out's copy (ctx.copy, desk.callgraph's selection model: { buf, win, drawn = { boxes }, index }),
 --                its remote rows run in this editor with ctx_for's ctx, and a row with remote = false is not there.
 --                Its remote row on Enter is what Enter, f and a double click do there. The pop-out's own keys win:
---                a surface row on one of them is left out there (actions.popout_rows)
+--                a surface row on one of them is left out there (actions.popout_rows). A plugin declares its
+--                surface with actions.surface(name, words, module); with no module (fox-symdeps, which the pop-out
+--                never loads) the pop-out has that surface's remote rows from describe, as stand-ins run here
 --   render(view, width, style) → { title, state, lines, marks, hl, items, footer, strip, news }   pure: the view drawn
 --                for the pop-out's width (style: vim.g.desk_style), with no keys and no state in its lines (the
 --                header and the key line show them). state: its own words (progress, 'built 14:02'); PINNED and
@@ -1751,7 +1755,7 @@ end
 -- A view's key line: its kind's footer, keys as typed here, words in the theme's voice.
 local function keyline(view)
   local said, parts = actions.voice(graphs().retro()), {}
-  for _, pair in ipairs(M.key_pairs(view.footer or {})) do
+  for _, pair in ipairs(M.key_pairs(view.footer or {}, view.rows)) do
     parts[#parts + 1] = '%#DeskPopoutKey#' .. escape(pair[1]) .. '%#DeskPopoutWords# ' .. escape(said(pair[2]))
   end
   return '%#DeskPopoutWords# ' .. table.concat(parts, '%#DeskPopoutWords# · ') .. '%#DeskPopoutWords# '
@@ -1804,18 +1808,28 @@ local DRESS = { number = false, relativenumber = false, signcolumn = 'no', foldc
   cursorline = false, colorcolumn = '' }
 local function dress(win) for opt, value in pairs(DRESS) do pcall(function() vim.wo[win][opt] = value end) end end
 
+-- A view's keys: view.rows bound in its buffer, its Enter row (view.enter) the remote one on Enter.
+local function bind(view, surface)
+  view.enter = nil
+  for _, row in ipairs(view.rows) do if row.remote and row.key and row.key:lower() == '<cr>' and not is_on(row, ON) then view.enter = row end end
+  actions.map(ON, { buffer = view.buf, rows = view.rows, every = true, nowait = true, silent = true, press = press,
+    ctx = { copy = view.copy, also = surface and { surface } or nil } })
+end
+
 -- A view's buffer and its keys: the drawn and remote rows of its surface and the window's own (actions.popout_rows),
 -- the module that adds that surface's rows loaded first. Its copy is the selection a drawn row moves (ctx.copy).
+-- A surface with no module here, or one whose module does not load (a plugin's: this window never loads fox-symdeps),
+-- has its keys from the editor once the view is drawn (view.standin: bind_standins).
 local function client_view(id, surface)
   local buf = api.nvim_create_buf(false, true)
   vim.bo[buf].bufhidden, vim.bo[buf].filetype = 'hide', 'deskpopout'
   local view = { id = id, buf = buf, gen = 0, kind = '', title = id, state = '', lines = {}, marks = {}, hl = {}, items = {}, footer = {} }
   view.copy = { buf = buf, view = view }
-  if surface and actions.MODULES[surface] then pcall(require, actions.MODULES[surface]) end
+  local loaded = surface == nil
+  if surface and actions.MODULES[surface] then loaded = pcall(require, actions.MODULES[surface]) end
+  view.standin = not loaded and surface or nil
   view.rows = actions.popout_rows(surface)
-  for _, row in ipairs(view.rows) do if row.remote and row.key and row.key:lower() == '<cr>' and not is_on(row, ON) then view.enter = row end end
-  actions.map(ON, { buffer = buf, rows = view.rows, every = true, nowait = true, silent = true, press = press,
-    ctx = { copy = view.copy, also = surface and { surface } or nil } })
+  bind(view, surface)
   -- A click is Neovim's own (the cursor, tab and window it lands on), then its zone, if any (M.client_zone_click). An
   -- expression map, not a registry row: the click itself has to happen first.
   vim.keymap.set('n', '<LeftMouse>', function() vim.schedule(M.client_zone_click); return '<LeftMouse>' end,
@@ -1958,7 +1972,8 @@ local function valid_view(msg)
   end
   local kind = short(msg.kind, 32)
   return { id = msg.id, gen = msg.gen, kind = kind and kind:match('^[%w_.-]+$') and kind or '',
-    surface = type(msg.surface) == 'string' and actions.SURFACES[msg.surface] and msg.surface or nil,
+    -- Any surface by its name, known here or not (a plugin's, whose module this window never loads: client_view).
+    surface = type(msg.surface) == 'string' and #msg.surface <= 32 and msg.surface:match('^[%w_-]+$') and msg.surface or nil,
     title = type(msg.title) == 'string' and msg.title:sub(1, 200) or msg.id, state = type(msg.state) == 'string' and msg.state:sub(1, 200) or '',
     lines = lines, marks = marks, hl = hl, items = valid_items(msg.items), footer = valid_footer(msg.footer),
     strip = type(msg.strip) == 'number' and msg.strip >= 1 and msg.strip < #lines and math.floor(msg.strip) or nil,
@@ -1991,6 +2006,26 @@ local function draw(view, keep)
   if first then G.select(s, first, true); view.cursor_line = view.items[first].line end
   centre(view)
   strip(view)
+  set_keyline(view)
+end
+
+-- The keys of a view whose surface this window cannot load (view.standin): that surface's remote rows as the editor
+-- describes them, bound as stand-ins that run there (actions.popout_rows). Asked once it is drawn, and again with each
+-- drawing until the editor answers (busy, or the view drawn again meanwhile); Space Space's answer binds them too.
+local function bind_standins(view, described)
+  if not view.standin or view.binding or C.views[view.id] ~= view then return end
+  if not described then
+    view.binding = true
+    local answer = request(naming({ type = 'describe' }, view))
+    view.binding = nil
+    if answer.refused or C.views[view.id] ~= view then return end
+    described = answer.rows
+  end
+  if type(described) ~= 'table' or not api.nvim_buf_is_valid(view.buf) then return end
+  local surface = view.standin
+  view.standin = nil
+  view.rows = actions.popout_rows(surface, described)
+  bind(view, surface)
   set_keyline(view)
 end
 
@@ -2048,6 +2083,7 @@ local function handle(msg)
     draw(view, got.select or (before and before.key))
     -- A view the editor sends anew, or asks to show, comes to the front; one drawn again behind another stays behind.
     if fresh or got.front or not shown() then show(view) else vim.cmd('redrawtabline') end
+    bind_standins(view)
     -- The views the editor has: a tab here of any other is one whose view.clear never came, and it goes.
     if got.views then
       local keep = { [got.id] = true }
@@ -2104,6 +2140,7 @@ function M.client_home()
   local view = shown()
   local answer = request(naming({ type = 'describe' }, view))
   if answer.refused then return say(answer.refused, WARN) end
+  if view and view.standin then bind_standins(view, answer.rows) end
   local ctx, keyed = actions.context(), {}
   for _, row in ipairs((view or C.empty).rows or {}) do keyed[row.id] = true end
   local views, items, here = {}, {}, {}
@@ -2115,7 +2152,7 @@ function M.client_home()
       end }
   end
   for _, row in ipairs(type(answer.rows) == 'table' and answer.rows or {}) do
-    if type(row) == 'table' and type(row.id) == 'string' and type(row.name) == 'string' then
+    if type(row) == 'table' and type(row.id) == 'string' and type(row.name) == 'string' and row.menu ~= false then
       here[row.id] = true
       local mine = actions.get(row.id)
       local run

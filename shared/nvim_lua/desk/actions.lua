@@ -407,17 +407,18 @@ function M.key_lines(ctx, opts)
   if opts.rows then
     listed = {}
     for _, row in ipairs(opts.rows) do
-      listed[row.id] = true
+      listed[row.id] = row
       if row.key and row.doc ~= false then entries[#entries + 1] = key_entry(row) end
     end
   else entries = M.keys(ctx.surface) end
   local function here(row)
-    if listed then return listed[row.id] == true end
+    if listed then return listed[row.id] ~= nil end
     return is_on(row, ctx.surface)
   end
   local run = opts.press or (opts.reasons == false and M.press) or M.run
   for _, k in ipairs(entries) do
-    local row = by_id[k.id]
+    -- A row given that is in no registry here (the pop-out's stand-in for a row of the editor's) is itself.
+    local row = by_id[k.id] or (listed and listed[k.id])
     local why = row.key ~= '?' and (opts.reasons == false or M.available(row, ctx))
     if why ~= false then
       local owner = row.line or row.id
@@ -476,13 +477,15 @@ function M.offered(input, ctx)
 end
 
 -- What the pop-out may offer at ctx, as plain data (no code): the remote rows that apply, each with why it cannot run
--- (available = true or the reason) and what it asks first (input).
+-- (available = true or the reason), what it asks first (input), the surfaces it is on (on) and menu = false for a key
+-- in no menu (a pop-out that cannot load a surface's module binds that surface's keys from this: M.popout_rows).
 function M.describe(ctx)
   local out = {}
   for _, row in ipairs(M.for_context(ctx)) do
-    if row.remote and row.menu ~= false then
+    if row.remote then
       out[#out + 1] = { id = row.id, group = row.group, name = row.name, about = row.about, key = row.key, available = M.available(row, ctx),
-        input = row.input and M.offered(row.input, ctx) or nil }
+        input = row.input and M.offered(row.input, ctx) or nil, on = { unpack(list(row.on)) } }
+      if row.menu == false then out[#out].menu = false end
     end
   end
   return out
@@ -521,10 +524,27 @@ function M.act(id, ctx)
   return true
 end
 
+-- A row of the editor's as describe gave it (plain data), standing in for it in a pop-out that cannot load its
+-- surface's module: the same id, key, name, words and input, on `surface`, remote (the pop-out's press sends it to the
+-- editor). nil when it is not a keyed remote row of that surface, or this registry has the row itself.
+local function standin(d, surface)
+  if type(d) ~= 'table' or type(d.id) ~= 'string' or not d.id:match('^[%w_-]+%.[%w_.-]+$') or by_id[d.id] then return nil end
+  if type(d.key) ~= 'string' or d.key == '' or #d.key > 32 or type(d.name) ~= 'string' or d.name == '' then return nil end
+  if type(d.on) ~= 'table' or not vim.tbl_contains(d.on, surface) or vim.tbl_contains(d.on, 'popout') then return nil end
+  local name = d.name:sub(1, 120)
+  return { id = d.id, key = d.key, name = name, about = type(d.about) == 'string' and d.about:sub(1, 400) or name,
+    group = type(d.group) == 'string' and d.group or 'More', on = surface, remote = true, menu = d.menu ~= false,
+    input = type(d.input) == 'table' and d.input or nil,
+    run = function() tell(name .. ' runs in the editor.', vim.log.levels.WARN) end }
+end
+
 -- The rows a pop-out window binds for a view of `surface` (nil: no view): that surface's drawn and remote rows, then
 -- the window's own (surface 'popout'). A view row on a key the window's own rows take is left out (the second result
 -- says which); a row that is neither drawn nor remote is the editor's only and never there.
-function M.popout_rows(surface)
+-- described: for a surface whose module the pop-out cannot load (a plugin's, which it never loads), the editor's
+-- describe answer: its remote rows on that surface with a key stand in for them (standin), so they have their keys
+-- there and run in the editor. Drawn rows need the module, and describe gives none.
+function M.popout_rows(surface, described)
   local mine, taken, out, left = {}, {}, {}, {}
   for _, row in ipairs(rows) do
     if is_on(row, 'popout') then
@@ -532,13 +552,18 @@ function M.popout_rows(surface)
       for _, m in ipairs(modes(row)) do taken[m .. spelled(row.key)] = row.id end
     end
   end
+  local view_rows = {}
   for _, row in ipairs((surface and surface ~= 'popout') and rows or {}) do
-    if is_on(row, surface) and not is_on(row, 'popout') and (row.drawn or row.remote) then
-      local clash
-      for _, m in ipairs(modes(row)) do clash = clash or taken[m .. spelled(row.key)] end
-      if clash then left[#left + 1] = row.id .. ': ' .. row.key .. ' is ' .. clash .. ' in the pop-out'
-      else out[#out + 1] = row end
-    end
+    if is_on(row, surface) and not is_on(row, 'popout') and (row.drawn or row.remote) then view_rows[#view_rows + 1] = row end
+  end
+  for _, d in ipairs((surface and surface ~= 'popout' and type(described) == 'table') and described or {}) do
+    view_rows[#view_rows + 1] = standin(d, surface)
+  end
+  for _, row in ipairs(view_rows) do
+    local clash
+    for _, m in ipairs(modes(row)) do clash = clash or taken[m .. spelled(row.key)] end
+    if clash then left[#left + 1] = row.id .. ': ' .. row.key .. ' is ' .. clash .. ' in the pop-out'
+    else out[#out + 1] = row end
   end
   return vim.list_extend(out, mine), left
 end
