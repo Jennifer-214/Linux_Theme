@@ -111,17 +111,6 @@ over the whole screen).
 **Paper** uses light paper, graphite text, blush accents and botanical
 illustrations.
 
-<details>
-<summary>Paper</summary>
-
-![Paper desktop with the drawer open](shared/screenshots/paper_desktop.png)
-
-![Paper lock screen](shared/screenshots/paper_lock.png)
-
-![Paper Firefox new tab](shared/screenshots/paper_firefox.png)
-
-</details>
-
 Other palettes include Rose, Bubblegum, Cave Data Center and Amsterdam Orange.
 Alternative themes have varying levels of completion; read the
 [theme status and switching notes](themes/README.md).
